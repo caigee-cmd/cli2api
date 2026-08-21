@@ -4,131 +4,170 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>CLI2API</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/assets/app.css" />
 </head>
 <body>
+  <div class="noise" aria-hidden="true"></div>
   <div class="app">
     <aside class="sidebar">
       <div class="brand">
-        <div class="brand-mark">C2</div>
+        <div class="brand-mark" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M4 7.5L12 3l8 4.5v9L12 21l-8-4.5v-9Z" stroke="currentColor" stroke-width="1.6"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5" stroke="currentColor" stroke-width="1.6"/></svg>
+        </div>
         <div>
           <div class="brand-title">CLI2API</div>
-          <div class="brand-sub">CLI login → API</div>
+          <div class="brand-sub">CLI login to API</div>
         </div>
       </div>
 
-      <nav class="nav">
-        <button class="nav-item active" data-page="home">首页</button>
-        <button class="nav-item" data-page="auth">登录授权</button>
-        <button class="nav-item" data-page="providers">供应商</button>
-        <button class="nav-item" data-page="access">API 接入</button>
+      <nav class="nav" aria-label="Primary">
+        <button class="nav-item active" data-page="home">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M4 10.5L12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1v-9.5Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+          <span>Overview</span>
+        </button>
+        <button class="nav-item" data-page="auth">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M7 11V8a5 5 0 0 1 10 0v3M6 11h12v10H6V11Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+          <span>Auth</span>
+        </button>
+        <button class="nav-item" data-page="providers">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M4 7h16M4 12h16M4 17h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          <span>Providers</span>
+        </button>
+        <button class="nav-item" data-page="access">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M8 7H5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-3M16 3h5v5M21 3l-9 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span>API Access</span>
+        </button>
       </nav>
 
       <div class="sidebar-foot">
-        <div class="pill" id="sidebar-runtime">checking…</div>
-        <div class="muted tiny" id="sidebar-version">Qoder provider</div>
+        <div class="status-chip" id="sidebar-runtime">
+          <span class="dot"></span>
+          <span>checking</span>
+        </div>
+        <div class="muted tiny">Qoder provider preview</div>
       </div>
     </aside>
 
     <main class="main">
       <header class="topbar">
-        <div>
-          <h1 id="page-title">首页</h1>
-          <p class="muted" id="page-desc">查看本地代理运行状态与可用端点</p>
+        <div class="topbar-copy">
+          <p class="eyebrow" id="page-kicker">Console</p>
+          <h1 id="page-title">Overview</h1>
+          <p class="muted" id="page-desc">Inspect local proxy health and ready endpoints.</p>
         </div>
         <div class="top-actions">
-          <input id="api-key" class="input" type="password" placeholder="PROXY_API_KEY" />
-          <button class="btn" id="btn-refresh">刷新</button>
+          <label class="field compact">
+            <span>API Key</span>
+            <input id="api-key" class="input" type="password" placeholder="PROXY_API_KEY" autocomplete="off" />
+          </label>
+          <button class="btn" id="btn-refresh">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M20 12a8 8 0 1 1-2.2-5.5M20 4v5h-5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Refresh
+          </button>
         </div>
       </header>
 
       <section class="page active" id="page-home">
-        <div class="grid cards-4">
-          <div class="card metric">
-            <div class="label">运行状态</div>
-            <div class="value" id="m-runtime">—</div>
+        <div class="hero-band">
+          <div>
+            <p class="eyebrow">Runtime</p>
+            <h2 class="display">Local gateway status</h2>
+            <p class="muted narrow">Asymmetric console for login-state proxying. Metrics stay dense; chrome stays quiet.</p>
           </div>
-          <div class="card metric">
-            <div class="label">Worker</div>
-            <div class="value" id="m-worker">—</div>
-          </div>
-          <div class="card metric">
-            <div class="label">登录态</div>
-            <div class="value" id="m-auth">—</div>
-          </div>
-          <div class="card metric">
-            <div class="label">监听端口</div>
-            <div class="value" id="m-port">—</div>
-          </div>
+          <div class="hero-meta" id="home-updated">—</div>
         </div>
 
-        <div class="grid two">
-          <div class="card">
-            <div class="card-head">
-              <h2>服务状态</h2>
-              <span class="muted tiny" id="home-updated">—</span>
-            </div>
-            <div class="kv">
-              <div><span>Proxy</span><b id="kv-proxy">—</b></div>
-              <div><span>Worker hot</span><b id="kv-hot">—</b></div>
-              <div><span>Endpoint</span><b id="kv-endpoint">—</b></div>
-              <div><span>Rewarm</span><b id="kv-rewarm">—</b></div>
-              <div><span>Last error</span><b id="kv-error">—</b></div>
-            </div>
-          </div>
+        <div class="metrics" id="home-metrics" aria-live="polite">
+          <div class="metric" style="--i:0"><div class="label">Runtime</div><div class="value" id="m-runtime">—</div></div>
+          <div class="metric" style="--i:1"><div class="label">Worker</div><div class="value" id="m-worker">—</div></div>
+          <div class="metric" style="--i:2"><div class="label">Auth</div><div class="value" id="m-auth">—</div></div>
+          <div class="metric mono" style="--i:3"><div class="label">Port</div><div class="value" id="m-port">—</div></div>
+        </div>
 
-          <div class="card">
-            <div class="card-head">
-              <h2>可用端点</h2>
-              <button class="btn ghost" id="btn-copy-openai">复制 OpenAI Base URL</button>
+        <div class="split">
+          <section class="panel">
+            <div class="panel-head">
+              <h3>Service detail</h3>
             </div>
-            <div class="endpoint-list" id="endpoint-list"></div>
-          </div>
+            <div class="kv" id="home-kv">
+              <div class="skeleton-line"></div>
+              <div class="skeleton-line"></div>
+              <div class="skeleton-line"></div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h3>Endpoints</h3>
+              <button class="btn ghost" id="btn-copy-openai">Copy Base URL</button>
+            </div>
+            <div class="endpoint-list" id="endpoint-list">
+              <div class="empty">Waiting for overview…</div>
+            </div>
+          </section>
         </div>
       </section>
 
       <section class="page" id="page-auth">
-        <div class="card">
-          <div class="card-head">
-            <h2>Qoder 登录态</h2>
-            <button class="btn" id="btn-rewarm">Rewarm</button>
-          </div>
-          <p class="muted">当前先支持读取本机 Qoder CLI 登录文件。完整浏览器 OAuth 流程后续按 provider 扩展。</p>
-          <div class="kv" id="auth-kv"></div>
-          <pre class="code" id="auth-json">{}</pre>
+        <div class="split auth-split">
+          <section class="panel">
+            <div class="panel-head">
+              <h3>Qoder login state</h3>
+              <button class="btn" id="btn-rewarm">Rewarm</button>
+            </div>
+            <p class="muted narrow">Reads local Qoder CLI auth files and worker hot context. Browser OAuth can land later per provider.</p>
+            <div class="kv" id="auth-kv">
+              <div class="empty">No auth snapshot yet.</div>
+            </div>
+          </section>
+          <section class="panel code-panel">
+            <div class="panel-head"><h3>Raw snapshot</h3></div>
+            <pre class="code" id="auth-json">{}</pre>
+          </section>
         </div>
       </section>
 
       <section class="page" id="page-providers">
-        <div class="card">
-          <div class="card-head">
-            <h2>供应商 / 模型</h2>
-            <span class="pill soft">Qoder</span>
+        <section class="panel">
+          <div class="panel-head">
+            <h3>Models</h3>
+            <span class="chip">Qoder</span>
           </div>
-          <div class="table" id="model-table"></div>
-        </div>
+          <div class="table" id="model-table">
+            <div class="empty">No providers loaded.</div>
+          </div>
+        </section>
       </section>
 
       <section class="page" id="page-access">
-        <div class="grid two">
-          <div class="card">
-            <div class="card-head"><h2>接入参数</h2></div>
+        <div class="split access-split">
+          <section class="panel">
+            <div class="panel-head"><h3>Connection</h3></div>
             <div class="kv">
               <div><span>Base URL</span><b id="access-base">—</b></div>
-              <div><span>API Key header</span><b>Authorization: Bearer …</b></div>
-              <div><span>Compatible</span><b>OpenAI Chat Completions</b></div>
+              <div><span>Header</span><b>Authorization: Bearer …</b></div>
+              <div><span>Protocol</span><b>OpenAI Chat Completions</b></div>
             </div>
             <pre class="code" id="access-curl"></pre>
-          </div>
-          <div class="card">
-            <div class="card-head"><h2>快速测试</h2></div>
-            <textarea id="test-prompt" class="textarea">只回复OK</textarea>
+          </section>
+          <section class="panel">
+            <div class="panel-head"><h3>Quick test</h3></div>
+            <label class="field">
+              <span>Prompt</span>
+              <textarea id="test-prompt" class="textarea">只回复OK</textarea>
+            </label>
             <div class="row">
-              <select id="test-model" class="input"></select>
-              <button class="btn" id="btn-test">发送</button>
+              <label class="field grow">
+                <span>Model</span>
+                <select id="test-model" class="input"></select>
+              </label>
+              <button class="btn" id="btn-test">Send</button>
             </div>
-            <pre class="code" id="test-out">等待请求…</pre>
-          </div>
+            <pre class="code" id="test-out">Waiting for a request…</pre>
+          </section>
         </div>
       </section>
     </main>

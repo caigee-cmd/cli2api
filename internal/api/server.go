@@ -43,7 +43,7 @@ func (s *Server) Handler() http.Handler { return s.mux }
 
 func (s *Server) routes() {
 	s.mux.HandleFunc("/health", s.handleHealth)
-	s.mux.HandleFunc("/api/overview", s.withAPIKey(s.handleOverview))
+	s.mux.HandleFunc("/api/overview", s.handleOverview)
 	s.mux.HandleFunc("/api/rewarm", s.withAPIKey(s.handleRewarm))
 	s.mux.HandleFunc("/v1/models", s.withAPIKey(s.handleModels))
 	s.mux.HandleFunc("/v1/chat/completions", s.withAPIKey(s.handleChatCompletions))
@@ -132,6 +132,10 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 			"chat_completions": "/v1/chat/completions",
 			"models":           "/v1/models",
 			"health":           "/health",
+			"hint":             "Dashboard overview is public; /v1 chat still requires PROXY_API_KEY.",
+		},
+		"ui": map[string]any{
+			"needs_api_key_for_chat": s.cfg.ProxyAPIKey != "",
 		},
 	})
 }

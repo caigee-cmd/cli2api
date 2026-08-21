@@ -32,14 +32,18 @@ services:
       HOST: "0.0.0.0"
       PORT: "3010"
       PROXY_API_KEY: "${PROXY_API_KEY}"
+      QODER_HOME: "/root/.qoder"
       QODER_WORKER_URL: "http://qoder-auth-worker:3020"
       QODER_WORKER_API_KEY: "${PROXY_API_KEY}"
+    volumes:
+      - /root/.qoder:/root/.qoder:ro
     depends_on:
       - qoder-auth-worker
+    ports:
+      - "127.0.0.1:3010:3010"
     networks:
       - sub2api
     restart: unless-stopped
-    # no host ports
 
 networks:
   sub2api:
