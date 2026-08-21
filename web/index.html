@@ -19,7 +19,7 @@
         </div>
         <div>
           <div class="brand-title">CLI2API</div>
-          <div class="brand-sub">CLI login to API</div>
+          <div class="brand-sub">login state gateway</div>
         </div>
       </div>
 
@@ -43,11 +43,8 @@
       </nav>
 
       <div class="sidebar-foot">
-        <div class="status-chip" id="sidebar-runtime">
-          <span class="dot"></span>
-          <span>checking</span>
-        </div>
-        <div class="muted tiny">Qoder provider preview</div>
+        <div class="status-chip" id="sidebar-runtime"><span class="dot"></span><span>checking</span></div>
+        <div class="muted tiny">Qoder first. More CLIs later.</div>
       </div>
     </aside>
 
@@ -59,10 +56,6 @@
           <p class="muted" id="page-desc">Inspect local proxy health and ready endpoints.</p>
         </div>
         <div class="top-actions">
-          <label class="field compact">
-            <span>Optional /v1 key</span>
-            <input id="api-key" class="input" type="password" placeholder="only for external clients" autocomplete="off" />
-          </label>
           <button class="btn" id="btn-refresh">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M20 12a8 8 0 1 1-2.2-5.5M20 4v5h-5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
             Refresh
@@ -74,10 +67,13 @@
         <div class="hero-band">
           <div>
             <p class="eyebrow">Runtime</p>
-            <h2 class="display">Local gateway status</h2>
-            <p class="muted narrow">Asymmetric console for login-state proxying. Metrics stay dense; chrome stays quiet.</p>
+            <h2 class="display">Gateway pulse</h2>
+            <p class="muted narrow">Dense status without boxed metric cards. One accent. Quiet chrome.</p>
           </div>
-          <div class="hero-meta" id="home-updated">—</div>
+          <div class="hero-aside">
+            <div class="hero-meta" id="home-updated">—</div>
+            <div class="hero-note muted tiny">Dashboard reads local state directly. External /v1 clients still use PROXY_API_KEY.</div>
+          </div>
         </div>
 
         <div class="metrics" id="home-metrics" aria-live="polite">
@@ -87,99 +83,119 @@
           <div class="metric mono" style="--i:3"><div class="label">Port</div><div class="value" id="m-port">—</div></div>
         </div>
 
-        <div class="split">
-          <section class="panel">
-            <div class="panel-head">
-              <h3>Service detail</h3>
-            </div>
+        <div class="split home-split">
+          <section class="surface">
+            <div class="surface-head"><h3>Service detail</h3></div>
             <div class="kv" id="home-kv">
               <div class="skeleton-line"></div>
               <div class="skeleton-line"></div>
               <div class="skeleton-line"></div>
             </div>
           </section>
-
-          <section class="panel">
-            <div class="panel-head">
+          <section class="surface">
+            <div class="surface-head">
               <h3>Endpoints</h3>
               <button class="btn ghost" id="btn-copy-openai">Copy Base URL</button>
             </div>
-            <div class="endpoint-list" id="endpoint-list">
-              <div class="empty">Waiting for overview…</div>
-            </div>
+            <div class="endpoint-list" id="endpoint-list"><div class="empty">Waiting for overview…</div></div>
           </section>
         </div>
       </section>
 
       <section class="page" id="page-auth">
-        <div class="split auth-split">
-          <section class="panel">
-            <div class="panel-head">
-              <h3>Qoder login</h3>
-              <div class="row tight">
-                <button class="btn" id="btn-login-device">Browser login</button>
-                <button class="btn ghost" id="btn-rewarm">Rewarm</button>
+        <div class="auth-layout">
+          <section class="surface auth-primary">
+            <div class="surface-head">
+              <div>
+                <p class="eyebrow">Sign in</p>
+                <h3>Connect Qoder</h3>
+              </div>
+              <button class="btn ghost" id="btn-rewarm">Rewarm</button>
+            </div>
+
+            <div class="auth-steps">
+              <div class="step">
+                <div class="step-index">01</div>
+                <div class="step-body">
+                  <h4>Browser device flow</h4>
+                  <p class="muted tiny">Opens Qoder account selection. Finish in browser, then this page polls until hot context refreshes.</p>
+                  <button class="btn" id="btn-login-device">Start browser login</button>
+                  <div class="login-progress" id="login-box">
+                    <div class="row tight">
+                      <span class="chip" id="login-status">idle</span>
+                      <span class="muted tiny" id="login-message">Ready when you are.</span>
+                    </div>
+                    <div class="auth-url" id="login-url-wrap" hidden>
+                      <code id="login-url">—</code>
+                      <div class="row tight">
+                        <button class="btn ghost" id="btn-open-login">Open</button>
+                        <button class="btn ghost" id="btn-copy-login">Copy</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="step">
+                <div class="step-index">02</div>
+                <div class="step-body">
+                  <h4>Personal access token</h4>
+                  <p class="muted tiny">Optional fallback when browser flow is inconvenient.</p>
+                  <label class="field">
+                    <span>PAT</span>
+                    <input id="pat-input" class="input" type="password" placeholder="paste token" autocomplete="off" />
+                  </label>
+                  <button class="btn ghost" id="btn-login-pat">Login with PAT</button>
+                </div>
               </div>
             </div>
-            <p class="muted narrow">Start a device-flow browser login, or paste a Personal Access Token. Dashboard itself does not need PROXY_API_KEY; that key only protects external /v1 calls.</p>
-            <div class="kv" id="auth-kv">
-              <div class="empty">No auth snapshot yet.</div>
-            </div>
-            <div class="login-box" id="login-box">
-              <div class="panel-head"><h3>Device flow</h3><span class="chip" id="login-status">idle</span></div>
-              <p class="muted tiny" id="login-message">Click Browser login to get an auth URL.</p>
-              <div class="endpoint" id="login-url-wrap" style="display:none">
-                <div>
-                  <div>Auth URL</div>
-                  <code id="login-url">—</code>
-                </div>
-                <div class="row tight">
-                  <button class="btn ghost" id="btn-open-login">Open</button>
-                  <button class="btn ghost" id="btn-copy-login">Copy</button>
-                </div>
-              </div>
-              <label class="field" style="margin-top:14px">
-                <span>Or PAT</span>
-                <input id="pat-input" class="input" type="password" placeholder="qoder personal access token" autocomplete="off" />
-              </label>
-              <button class="btn ghost" id="btn-login-pat" style="margin-top:10px">Login with PAT</button>
-            </div>
           </section>
-          <section class="panel code-panel">
-            <div class="panel-head"><h3>Raw snapshot</h3></div>
-            <pre class="code" id="auth-json">{}</pre>
-          </section>
+
+          <aside class="auth-side">
+            <section class="surface">
+              <div class="surface-head"><h3>Local state</h3></div>
+              <div class="kv" id="auth-kv"><div class="empty">No auth snapshot yet.</div></div>
+            </section>
+            <section class="surface code-panel">
+              <div class="surface-head"><h3>Raw</h3></div>
+              <pre class="code" id="auth-json">{}</pre>
+            </section>
+          </aside>
         </div>
       </section>
 
       <section class="page" id="page-providers">
-        <section class="panel">
-          <div class="panel-head">
-            <h3>Models</h3>
-            <div class="row tight">
-              <span class="chip">Qoder</span>
-              <button class="btn ghost" id="btn-refresh-models">Refresh models</button>
-            </div>
+        <div class="providers-head">
+          <div>
+            <p class="eyebrow">Catalog</p>
+            <h2 class="display small">Available models</h2>
+            <p class="muted narrow">Pulled from <span class="mono">qodercli --list-models</span>.</p>
           </div>
-          <div class="table" id="model-table">
-            <div class="empty">No providers loaded.</div>
+          <div class="providers-actions">
+            <label class="field compact">
+              <span>Filter</span>
+              <input id="model-filter" class="input" type="search" placeholder="glm / qwen / deepseek" />
+            </label>
+            <button class="btn ghost" id="btn-refresh-models">Refresh</button>
           </div>
-        </section>
+        </div>
+        <div class="model-meta muted tiny" id="model-meta">—</div>
+        <div class="table" id="model-table"><div class="empty">No providers loaded.</div></div>
       </section>
 
       <section class="page" id="page-access">
-        <div class="split access-split">
-          <section class="panel">
-            <div class="panel-head"><h3>Connection</h3></div>
+        <div class="access-layout">
+          <section class="surface">
+            <div class="surface-head"><h3>Connection</h3></div>
             <div class="kv">
               <div><span>Base URL</span><b id="access-base">—</b></div>
-              <div><span>External header</span><b>Authorization: Bearer PROXY_API_KEY</b></div>
+              <div><span>External clients</span><b>Authorization: Bearer PROXY_API_KEY</b></div>
               <div><span>Protocol</span><b>OpenAI Chat Completions</b></div>
             </div>
             <pre class="code" id="access-curl"></pre>
           </section>
-          <section class="panel">
-            <div class="panel-head"><h3>Quick test</h3></div>
+          <section class="surface test-panel">
+            <div class="surface-head"><h3>Quick test</h3></div>
             <label class="field">
               <span>Prompt</span>
               <textarea id="test-prompt" class="textarea">只回复OK</textarea>
