@@ -44,7 +44,12 @@ func (s *Server) Handler() http.Handler { return s.mux }
 func (s *Server) routes() {
 	s.mux.HandleFunc("/health", s.handleHealth)
 	s.mux.HandleFunc("/api/overview", s.handleOverview)
-	s.mux.HandleFunc("/api/rewarm", s.withAPIKey(s.handleRewarm))
+	s.mux.HandleFunc("/api/models", s.handleModelsAPI)
+	s.mux.HandleFunc("/api/login/status", s.handleLoginStatus)
+	s.mux.HandleFunc("/api/login/device", s.handleLoginDevice)
+	s.mux.HandleFunc("/api/login/pat", s.handleLoginPAT)
+	s.mux.HandleFunc("/api/rewarm", s.handleRewarm)
+	s.mux.HandleFunc("/api/chat", s.handleChatCompletions)
 	s.mux.HandleFunc("/v1/models", s.withAPIKey(s.handleModels))
 	s.mux.HandleFunc("/v1/chat/completions", s.withAPIKey(s.handleChatCompletions))
 	s.mux.HandleFunc("/debug/auth-snapshot", s.withAPIKey(s.handleAuthSnapshot))
@@ -98,11 +103,8 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 	authSnap, authErr := s.auth.Snapshot()
 	worker := s.fetchWorkerHealth()
-	models := []map[string]any{
-		{"id": "auto", "object": "model", "owned_by": "qoder"},
-		{"id": "qwen3.7-plus", "object": "model", "owned_by": "qoder"},
-		{"id": "glm-5.2", "object": "model", "owned_by": "qoder"},
-	}
+	models := s.fetchWorkerModels(false)
+	login := s.fetchLoginStatus()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":   true,
 		"time": time.Now().Format(time.RFC3339),
@@ -115,6 +117,7 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 			"endpoints": s.endpoints,
 		},
 		"worker": worker,
+		"login":  login,
 		"auth": func() any {
 			if authErr != nil {
 				return map[string]any{
@@ -132,10 +135,11 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 			"chat_completions": "/v1/chat/completions",
 			"models":           "/v1/models",
 			"health":           "/health",
-			"hint":             "Dashboard overview is public; /v1 chat still requires PROXY_API_KEY.",
+			"hint":             "Dashboard/login/models are public on localhost UI. Only /v1 chat requires PROXY_API_KEY for external clients.",
 		},
 		"ui": map[string]any{
-			"needs_api_key_for_chat": s.cfg.ProxyAPIKey != "",
+			"needs_api_key_for_chat":        false,
+			"proxy_api_key_required_for_v1": s.cfg.ProxyAPIKey != "",
 		},
 	})
 }
@@ -145,26 +149,106 @@ func (s *Server) handleRewarm(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "POST only")
 		return
 	}
-	workerURL := strings.TrimRight(firstNonEmpty(os.Getenv("QODER_WORKER_URL"), "http://127.0.0.1:3020"), "/")
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, workerURL+"/admin/rewarm", bytes.NewReader([]byte("{}")))
-	if err != nil {
-		writeErr(w, http.StatusBadGateway, "rewarm_failed", err.Error())
-		return
+	s.proxyWorker(w, r, "/admin/rewarm")
+}
+
+func (s *Server) workerBase() string {
+	return strings.TrimRight(firstNonEmpty(os.Getenv("QODER_WORKER_URL"), "http://127.0.0.1:3020"), "/")
+}
+
+func (s *Server) fetchWorkerModels(refresh bool) []map[string]any {
+	url := s.workerBase() + "/admin/models"
+	if refresh {
+		url += "?refresh=1"
 	}
-	req.Header.Set("Content-Type", "application/json")
-	if key := strings.TrimSpace(firstNonEmpty(os.Getenv("QODER_WORKER_API_KEY"), s.cfg.ProxyAPIKey)); key != "" {
-		req.Header.Set("Authorization", "Bearer "+key)
-	}
-	resp, err := http.DefaultClient.Do(req)
+	client := &http.Client{Timeout: 60 * time.Second}
+	resp, err := client.Get(url)
 	if err != nil {
-		writeErr(w, http.StatusBadGateway, "rewarm_failed", err.Error())
-		return
+		return []map[string]any{
+			{"id": "auto", "object": "model", "owned_by": "qoder"},
+			{"id": "qwen3.7-plus", "object": "model", "owned_by": "qoder"},
+			{"id": "glm-5.2", "object": "model", "owned_by": "qoder"},
+		}
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
+	var parsed struct {
+		Data []map[string]any `json:"data"`
+	}
+	if json.Unmarshal(body, &parsed) != nil || len(parsed.Data) == 0 {
+		return []map[string]any{
+			{"id": "auto", "object": "model", "owned_by": "qoder"},
+			{"id": "qwen3.7-plus", "object": "model", "owned_by": "qoder"},
+			{"id": "glm-5.2", "object": "model", "owned_by": "qoder"},
+		}
+	}
+	return parsed.Data
+}
+
+func (s *Server) fetchLoginStatus() map[string]any {
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(s.workerBase() + "/admin/login/status")
+	if err != nil {
+		return map[string]any{"ok": false, "error": err.Error()}
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	var raw map[string]any
+	if json.Unmarshal(body, &raw) != nil {
+		return map[string]any{"ok": false, "raw": string(body)}
+	}
+	return raw
+}
+
+func (s *Server) handleModelsAPI(w http.ResponseWriter, r *http.Request) {
+	refresh := r.URL.Query().Get("refresh") == "1"
+	writeJSON(w, http.StatusOK, map[string]any{
+		"object": "list",
+		"data":   s.fetchWorkerModels(refresh),
+	})
+}
+
+func (s *Server) handleLoginStatus(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.fetchLoginStatus())
+}
+
+func (s *Server) handleLoginDevice(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "POST only")
+		return
+	}
+	s.proxyWorker(w, r, "/admin/login/device")
+}
+
+func (s *Server) handleLoginPAT(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "POST only")
+		return
+	}
+	s.proxyWorker(w, r, "/admin/login/pat")
+}
+
+func (s *Server) proxyWorker(w http.ResponseWriter, r *http.Request, path string) {
+	body, _ := io.ReadAll(r.Body)
+	if len(body) == 0 {
+		body = []byte("{}")
+	}
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, s.workerBase()+path, bytes.NewReader(body))
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, "worker_proxy_failed", err.Error())
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, "worker_proxy_failed", err.Error())
+		return
+	}
+	defer resp.Body.Close()
+	out, _ := io.ReadAll(resp.Body)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(resp.StatusCode)
-	_, _ = w.Write(body)
+	_, _ = w.Write(out)
 }
 
 func (s *Server) fetchWorkerHealth() map[string]any {
@@ -188,11 +272,7 @@ func (s *Server) fetchWorkerHealth() map[string]any {
 func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"object": "list",
-		"data": []map[string]any{
-			{"id": "auto", "object": "model", "owned_by": "qoder"},
-			{"id": "qwen3.7-plus", "object": "model", "owned_by": "qoder"},
-			{"id": "glm-5.2", "object": "model", "owned_by": "qoder"},
-		},
+		"data":   s.fetchWorkerModels(false),
 	})
 }
 

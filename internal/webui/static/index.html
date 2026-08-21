@@ -60,8 +60,8 @@
         </div>
         <div class="top-actions">
           <label class="field compact">
-            <span>API Key</span>
-            <input id="api-key" class="input" type="password" placeholder="PROXY_API_KEY" autocomplete="off" />
+            <span>Optional /v1 key</span>
+            <input id="api-key" class="input" type="password" placeholder="only for external clients" autocomplete="off" />
           </label>
           <button class="btn" id="btn-refresh">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M20 12a8 8 0 1 1-2.2-5.5M20 4v5h-5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -115,12 +115,34 @@
         <div class="split auth-split">
           <section class="panel">
             <div class="panel-head">
-              <h3>Qoder login state</h3>
-              <button class="btn" id="btn-rewarm">Rewarm</button>
+              <h3>Qoder login</h3>
+              <div class="row tight">
+                <button class="btn" id="btn-login-device">Browser login</button>
+                <button class="btn ghost" id="btn-rewarm">Rewarm</button>
+              </div>
             </div>
-            <p class="muted narrow">Reads local Qoder CLI auth files and worker hot context. Browser OAuth can land later per provider.</p>
+            <p class="muted narrow">Start a device-flow browser login, or paste a Personal Access Token. Dashboard itself does not need PROXY_API_KEY; that key only protects external /v1 calls.</p>
             <div class="kv" id="auth-kv">
               <div class="empty">No auth snapshot yet.</div>
+            </div>
+            <div class="login-box" id="login-box">
+              <div class="panel-head"><h3>Device flow</h3><span class="chip" id="login-status">idle</span></div>
+              <p class="muted tiny" id="login-message">Click Browser login to get an auth URL.</p>
+              <div class="endpoint" id="login-url-wrap" style="display:none">
+                <div>
+                  <div>Auth URL</div>
+                  <code id="login-url">—</code>
+                </div>
+                <div class="row tight">
+                  <button class="btn ghost" id="btn-open-login">Open</button>
+                  <button class="btn ghost" id="btn-copy-login">Copy</button>
+                </div>
+              </div>
+              <label class="field" style="margin-top:14px">
+                <span>Or PAT</span>
+                <input id="pat-input" class="input" type="password" placeholder="qoder personal access token" autocomplete="off" />
+              </label>
+              <button class="btn ghost" id="btn-login-pat" style="margin-top:10px">Login with PAT</button>
             </div>
           </section>
           <section class="panel code-panel">
@@ -134,7 +156,10 @@
         <section class="panel">
           <div class="panel-head">
             <h3>Models</h3>
-            <span class="chip">Qoder</span>
+            <div class="row tight">
+              <span class="chip">Qoder</span>
+              <button class="btn ghost" id="btn-refresh-models">Refresh models</button>
+            </div>
           </div>
           <div class="table" id="model-table">
             <div class="empty">No providers loaded.</div>
@@ -148,7 +173,7 @@
             <div class="panel-head"><h3>Connection</h3></div>
             <div class="kv">
               <div><span>Base URL</span><b id="access-base">—</b></div>
-              <div><span>Header</span><b>Authorization: Bearer …</b></div>
+              <div><span>External header</span><b>Authorization: Bearer PROXY_API_KEY</b></div>
               <div><span>Protocol</span><b>OpenAI Chat Completions</b></div>
             </div>
             <pre class="code" id="access-curl"></pre>
