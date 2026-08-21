@@ -163,14 +163,16 @@ Open the built-in management console after starting the proxy:
 open http://127.0.0.1:3010/
 ```
 
-Layout is inspired by EasyCLIProxyAPI:
+Paste `PROXY_API_KEY` in the header. Console APIs (`/api/*`) and `/v1` both require it when the key is set.
 
-- Home: runtime status + copyable endpoints
+Pages:
+
+- Overview: runtime status + endpoints
 - Auth: Qoder login-state / worker hot context / rewarm
 - Providers: current models
 - API Access: curl snippet + quick chat test
 
-Static files live in `web/` and are embedded via `internal/webui`.
+Source lives in `frontend/` and is embedded via `internal/webui`.
 
 ## Docker
 
@@ -182,9 +184,9 @@ docker compose up -d --build
 
 Notes:
 
-- Compose is designed for an internal Docker network (no host ports by default).
+- Default compose creates a private `cli2api` network and publishes `127.0.0.1:3010` only.
 - Worker needs access to Qoder login files (typically mount `~/.qoder`).
-- Prefer a captured template at `/tmp/qoder-wasm-spike/last-plain.json` if available.
+- Sample plaintext template is `worker/last-plain.sample.json`; override with `PLAIN_TEMPLATE_PATH` if you have a richer capture.
 
 See [`deploy/README.md`](deploy/README.md).
 
@@ -197,6 +199,7 @@ See [`deploy/README.md`](deploy/README.md).
 | POST | `/v1/chat/completions` | OpenAI chat completions |
 | GET | `/debug/auth-snapshot` | Auth snapshot (key required) |
 | GET | `/debug/endpoints` | Resolved endpoints (key required) |
+| GET/POST | `/api/*` | Console APIs (same key as `/v1`) |
 | POST | worker `/admin/rewarm` | Force auth/context refresh |
 
 ### Thinking / reasoning
@@ -235,11 +238,13 @@ This proxy estimates tokens for billing compatibility and emits:
 
 ```text
 cmd/server/          Go entrypoint
+frontend/            React console
 internal/api/        HTTP handlers
 internal/auth/       Login-state helpers
 internal/endpoint/   Endpoint resolution
 internal/executor/   Proxy -> worker calls
 internal/translate/  OpenAI request structs
+internal/webui/      Embedded console assets
 worker/              Hot QoderContext auth/encode worker
 deploy/              Docker assets
 docs/                Design / capture notes
@@ -248,7 +253,7 @@ testdata/            Redacted samples
 
 ## Docs
 
-- [`docs/PLAN.md`](docs/PLAN.md) — implementation plan and checklist
+- [`docs/PLAN.md`](docs/PLAN.md) — implementation plan and checklist (Qoder-first, Cursor later)
 - [`docs/capture-notes.md`](docs/capture-notes.md) — protocol capture notes
 - [`docs/next-prepareRequest.md`](docs/next-prepareRequest.md) — worker evolution notes
 - Local private ops notes (gitignored): `docs/PRIVATE_DEPLOYMENT.md`
@@ -283,4 +288,4 @@ Still evolving:
 
 ## License
 
-Add your preferred license before publishing.
+MIT. See [LICENSE](LICENSE).

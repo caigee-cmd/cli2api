@@ -1,23 +1,31 @@
 # qoder-auth-worker
 
-常驻持有热 `QoderContext`，对外提供编码后的上游 chat 调用。
+Keeps a hot `QoderContext` and encodes/executes upstream Qoder chat.
 
-## 现状
+## How it boots
 
-Phase A 已证明：热 context 上调用 `prepareInferRequest` 可直连上游 SSE。  
-本 worker 的 MVP 策略：
+1. Check the pinned CLI bundle (`@qoder-ai/qodercli@1.1.27` by default).
+2. Patch WASM capture needles (`prepareInferRequest` / `createWasmContext`).
+3. Import qodercli once, adopt the live context, then stay alive.
+4. Later requests reuse that context; they do not cold-start a full agent CLI.
 
-1. 启动时用一次受控 `qodercli` warmup 拿到 live context
-2. 后续请求复用该 context，不再走完整 agent 冷启动
-3. 对 `qoder-api-proxy` 暴露 localhost/内部 HTTP
+If the CLI source no longer matches the pinned needles, the worker **exits with a version-aware error** instead of starting half-broken.
 
-> 长期目标仍是 worker 自己 init wasm + decrypt auth；当前先把 B/C 通路打通。
+Set `QODERCLI_JS` to the `qodercli.js` bundle path.
 
 ## Run
 
 ```bash
-export QODERCLI_BIN=/path/to/qodercli
+export QODERCLI_JS=/path/to/node_modules/@qoder-ai/qodercli/bundle/qodercli.js
 export WORKER_PORT=3020
 export PROXY_API_KEY=change-me
-node src/server.mjs
+npm start
+```
+
+Health (`/health`) is open. Chat and `/admin/*` require `PROXY_API_KEY` when it is set.
+
+## Tests
+
+```bash
+npm test
 ```

@@ -5,10 +5,9 @@
 ```bash
 # Qoder login state must exist on the host
 ls ~/.qoder/.auth/user
-
-# optional but recommended: captured plaintext template
-ls /tmp/qoder-wasm-spike/last-plain.json
 ```
+
+Optional: a richer captured plaintext template. Otherwise the sample at `worker/last-plain.sample.json` is used.
 
 ## 2. Configure and start
 
@@ -25,15 +24,24 @@ docker compose ps
 
 ## 3. Network notes
 
-Default compose joins an external Docker network and publishes **no host ports**.
+Default compose creates a private `cli2api` network and publishes **only** `127.0.0.1:3010`.
 
-Adjust `deploy/docker-compose.yml` if your network name / volume paths differ.
+Worker admin APIs and proxy `/api/*` require `PROXY_API_KEY` when it is set.
 
-Health from another container on the same network:
+Health from the host:
 
 ```bash
-wget -qO- http://qoder-api-proxy:3010/health
-wget -qO- http://qoder-auth-worker:3020/health
+curl -s http://127.0.0.1:3010/health
+```
+
+To join an existing Docker network, add a local override file (do not commit host-specific names):
+
+```yaml
+# deploy/docker-compose.override.yml
+networks:
+  cli2api:
+    external: true
+    name: your-existing-network
 ```
 
 ## 4. Point your gateway
@@ -41,7 +49,7 @@ wget -qO- http://qoder-auth-worker:3020/health
 Create an OpenAI-compatible upstream/account with:
 
 ```text
-base_url = http://qoder-api-proxy:3010/v1
+base_url = http://qoder-api-proxy:3010/v1   # or http://127.0.0.1:3010/v1 from the host
 api_key  = <same as PROXY_API_KEY>
 ```
 

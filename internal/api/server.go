@@ -43,13 +43,13 @@ func (s *Server) Handler() http.Handler { return s.mux }
 
 func (s *Server) routes() {
 	s.mux.HandleFunc("/health", s.handleHealth)
-	s.mux.HandleFunc("/api/overview", s.handleOverview)
-	s.mux.HandleFunc("/api/models", s.handleModelsAPI)
-	s.mux.HandleFunc("/api/login/status", s.handleLoginStatus)
-	s.mux.HandleFunc("/api/login/device", s.handleLoginDevice)
-	s.mux.HandleFunc("/api/login/pat", s.handleLoginPAT)
-	s.mux.HandleFunc("/api/rewarm", s.handleRewarm)
-	s.mux.HandleFunc("/api/chat", s.handleChatCompletions)
+	s.mux.HandleFunc("/api/overview", s.withAPIKey(s.handleOverview))
+	s.mux.HandleFunc("/api/models", s.withAPIKey(s.handleModelsAPI))
+	s.mux.HandleFunc("/api/login/status", s.withAPIKey(s.handleLoginStatus))
+	s.mux.HandleFunc("/api/login/device", s.withAPIKey(s.handleLoginDevice))
+	s.mux.HandleFunc("/api/login/pat", s.withAPIKey(s.handleLoginPAT))
+	s.mux.HandleFunc("/api/rewarm", s.withAPIKey(s.handleRewarm))
+	s.mux.HandleFunc("/api/chat", s.withAPIKey(s.handleChatCompletions))
 	s.mux.HandleFunc("/v1/models", s.withAPIKey(s.handleModels))
 	s.mux.HandleFunc("/v1/chat/completions", s.withAPIKey(s.handleChatCompletions))
 	s.mux.HandleFunc("/debug/auth-snapshot", s.withAPIKey(s.handleAuthSnapshot))
@@ -147,10 +147,10 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 			"chat_completions": "/v1/chat/completions",
 			"models":           "/v1/models",
 			"health":           "/health",
-			"hint":             "Dashboard/login/models are public on localhost UI. Only /v1 chat requires PROXY_API_KEY for external clients.",
+			"hint":             "Console APIs and /v1 both require PROXY_API_KEY when it is set.",
 		},
 		"ui": map[string]any{
-			"needs_api_key_for_chat":        false,
+			"needs_api_key_for_chat":        s.cfg.ProxyAPIKey != "",
 			"proxy_api_key_required_for_v1": s.cfg.ProxyAPIKey != "",
 		},
 	})
@@ -168,13 +168,28 @@ func (s *Server) workerBase() string {
 	return strings.TrimRight(firstNonEmpty(os.Getenv("QODER_WORKER_URL"), "http://127.0.0.1:3020"), "/")
 }
 
-func (s *Server) fetchWorkerModels(refresh bool) []map[string]any {
-	url := s.workerBase() + "/admin/models"
-	if refresh {
-		url += "?refresh=1"
+func (s *Server) workerAPIKey() string {
+	return firstNonEmpty(os.Getenv("QODER_WORKER_API_KEY"), s.cfg.ProxyAPIKey)
+}
+
+func (s *Server) workerGet(path string, timeout time.Duration) (*http.Response, error) {
+	req, err := http.NewRequest(http.MethodGet, s.workerBase()+path, nil)
+	if err != nil {
+		return nil, err
 	}
-	client := &http.Client{Timeout: 60 * time.Second}
-	resp, err := client.Get(url)
+	if key := s.workerAPIKey(); key != "" {
+		req.Header.Set("Authorization", "Bearer "+key)
+	}
+	client := &http.Client{Timeout: timeout}
+	return client.Do(req)
+}
+
+func (s *Server) fetchWorkerModels(refresh bool) []map[string]any {
+	path := "/admin/models"
+	if refresh {
+		path += "?refresh=1"
+	}
+	resp, err := s.workerGet(path, 60*time.Second)
 	if err != nil {
 		return []map[string]any{
 			{"id": "auto", "object": "model", "owned_by": "qoder"},
@@ -198,8 +213,7 @@ func (s *Server) fetchWorkerModels(refresh bool) []map[string]any {
 }
 
 func (s *Server) fetchLoginStatus() map[string]any {
-	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Get(s.workerBase() + "/admin/login/status")
+	resp, err := s.workerGet("/admin/login/status", 5*time.Second)
 	if err != nil {
 		return map[string]any{"ok": false, "error": err.Error()}
 	}
@@ -251,6 +265,9 @@ func (s *Server) proxyWorker(w http.ResponseWriter, r *http.Request, path string
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if key := s.workerAPIKey(); key != "" {
+		req.Header.Set("Authorization", "Bearer "+key)
+	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, "worker_proxy_failed", err.Error())

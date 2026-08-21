@@ -163,14 +163,16 @@ curl -s http://127.0.0.1:3010/v1/chat/completions \
 open http://127.0.0.1:3010/
 ```
 
-布局参考 EasyCLIProxyAPI：
+在顶栏填写 `PROXY_API_KEY`。配置了 Key 时，控制台 `/api/*` 和 `/v1` 都需要它。
 
-- 首页：运行状态 + 可复制端点
-- 登录授权：Qoder 登录态 / worker 热上下文 / rewarm
+页面：
+
+- 概览：运行状态 + 端点
+- 授权：Qoder 登录态 / worker 热上下文 / rewarm
 - 供应商：当前模型
 - API 接入：curl 示例 + 快速对话测试
 
-静态文件在 `web/`，通过 `internal/webui` embed 进二进制。
+源码在 `frontend/`，通过 `internal/webui` embed 进二进制。
 
 ## Docker
 
@@ -182,9 +184,9 @@ docker compose up -d --build
 
 注意：
 
-- 默认加入外部 Docker 网络，不暴露宿主机端口
+- 默认创建私有 `cli2api` 网络，只发布 `127.0.0.1:3010`
 - worker 需要能读到 Qoder 登录文件（通常挂载 `~/.qoder`）
-- 若有抓包模板，建议放到 `/tmp/qoder-wasm-spike/last-plain.json`
+- 示例明文模板是 `worker/last-plain.sample.json`；更完整的抓包模板用 `PLAIN_TEMPLATE_PATH` 覆盖
 
 详见 [`deploy/README.md`](deploy/README.md)。
 
@@ -197,6 +199,7 @@ docker compose up -d --build
 | POST | `/v1/chat/completions` | OpenAI Chat Completions |
 | GET | `/debug/auth-snapshot` | 鉴权快照（需 Key） |
 | GET | `/debug/endpoints` | 解析后的上游 endpoint（需 Key） |
+| GET/POST | `/api/*` | 控制台接口（与 `/v1` 同一把 Key） |
 | POST | worker `/admin/rewarm` | 强制刷新鉴权/上下文 |
 
 ### 思考 / 推理
@@ -235,11 +238,13 @@ worker **不会**继承抓包模板里那份巨大的 Qoder agent system/tools�
 
 ```text
 cmd/server/          Go 入口
+frontend/            React 控制台
 internal/api/        HTTP handlers
 internal/auth/       登录态相关
 internal/endpoint/   endpoint 解析
 internal/executor/   proxy -> worker
 internal/translate/  OpenAI 请求结构
+internal/webui/      嵌入的控制台资源
 worker/              热 QoderContext auth/encode worker
 deploy/              Docker
 docs/                方案 / 抓包笔记
@@ -248,7 +253,7 @@ testdata/            脱敏样例
 
 ## 文档
 
-- [`docs/PLAN.md`](docs/PLAN.md) — 实施方案与清单
+- [`docs/PLAN.md`](docs/PLAN.md) — 实施方案与清单（先 Qoder，Cursor 后续）
 - [`docs/capture-notes.md`](docs/capture-notes.md) — 协议抓包笔记
 - [`docs/next-prepareRequest.md`](docs/next-prepareRequest.md) — worker 演进笔记
 - 本地私有运维笔记（已 gitignore）：`docs/PRIVATE_DEPLOYMENT.md`
@@ -283,4 +288,4 @@ testdata/            脱敏样例
 
 ## License
 
-开源前请自行补上许可证。
+MIT，见 [LICENSE](LICENSE)。

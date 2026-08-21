@@ -1,7 +1,13 @@
+import { readStoredApiKey } from '@/hooks/useApiKey'
+
 export async function api<T = any>(path: string, opts: RequestInit = {}): Promise<T> {
   const headers = new Headers(opts.headers || {})
   if (opts.body && !(opts.body instanceof FormData) && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json')
+  }
+  const key = readStoredApiKey()
+  if (key && !headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${key}`)
   }
   const res = await fetch(path, { ...opts, headers })
   const text = await res.text()
