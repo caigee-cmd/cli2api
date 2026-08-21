@@ -55,11 +55,23 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/debug/auth-snapshot", s.withAPIKey(s.handleAuthSnapshot))
 	s.mux.HandleFunc("/debug/endpoints", s.withAPIKey(s.handleEndpoints))
 
-	s.mux.Handle("/assets/", webui.Handler())
+	ui := webui.Handler()
+	s.mux.Handle("/assets/", ui)
+	s.mux.Handle("/favicon.svg", ui)
+	s.mux.Handle("/icons.svg", ui)
 	s.mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/" {
-			http.NotFound(w, r)
-			return
+		// SPA fallback for React Router pages.
+		if r.URL.Path != "/" &&
+			!strings.HasPrefix(r.URL.Path, "/assets/") &&
+			r.URL.Path != "/favicon.svg" &&
+			r.URL.Path != "/icons.svg" {
+			// Only treat likely page routes as SPA; keep unknown API-like paths 404.
+			switch r.URL.Path {
+			case "/auth", "/providers", "/access":
+			default:
+				http.NotFound(w, r)
+				return
+			}
 		}
 		data, err := webui.IndexHTML()
 		if err != nil {

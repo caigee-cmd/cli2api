@@ -16,6 +16,27 @@ Client (OpenAI SDK / Codex / CherryStudio)
       -> https://api1.qoder.sh/.../agent_chat_generation?Encode=1
 ```
 
+## Console UI
+
+React + Tailwind CSS v4 + HeroUI console (inspired by Sub2API layout):
+
+```text
+frontend/
+  src/
+    components/layout/   # AppLayout / AppSidebar / AppHeader
+    pages/               # Overview / Auth / Providers / Access
+    api/ hooks/ i18n/
+```
+
+Build & embed into Go:
+
+```bash
+cd frontend && npm install && npm run sync
+# copies dist -> internal/webui/static
+```
+
+Docker multi-stage build already compiles the frontend before the Go binary.
+
 ## Features
 
 - OpenAI-compatible `POST /v1/chat/completions`
