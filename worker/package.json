@@ -6,6 +6,6 @@
   "description": "Warm QoderContext worker for qoder-api-proxy",
   "scripts": {
     "start": "node src/daemon.mjs",
-    "start-legacy": "node src/server.mjs"
+    "test": "node --test test/*.test.mjs"
   }
 }

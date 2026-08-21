@@ -62,7 +62,11 @@ export function OverviewPage() {
               <Skeleton className="h-4 w-3/5 rounded-lg" />
             </div>
           ) : error ? (
-            <div className="text-sm text-red-400">{t('failedOverview', { msg: error })}</div>
+            <div className="text-sm text-red-400">
+              {/invalid_api_key|unauthorized|Missing\/invalid PROXY_API_KEY/i.test(error)
+                ? t('needApiKey')
+                : t('failedOverview', { msg: error })}
+            </div>
           ) : (
             <dl className="space-y-3 text-sm">
               {[

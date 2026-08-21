@@ -1,7 +1,8 @@
 import { Menu, RefreshCw } from 'lucide-react'
-import { Button, ButtonGroup } from '@heroui/react'
+import { Button, ButtonGroup, Input } from '@heroui/react'
 import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
+import { useApiKey } from '@/hooks/useApiKey'
 
 export function AppHeader({
   title,
@@ -16,6 +17,7 @@ export function AppHeader({
 }) {
   const { lang, setLang, t } = useI18n()
   const { loading, refresh } = useOverview()
+  const { apiKey, setApiKey } = useApiKey()
 
   return (
     <header className="mb-6 flex flex-col gap-4 border-b border-white/10 pb-5 sm:flex-row sm:items-end sm:justify-between">
@@ -32,6 +34,16 @@ export function AppHeader({
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
+        <Input
+          className="w-44"
+          type="password"
+          value={apiKey}
+          onChange={(e) => setApiKey(e.target.value)}
+          onBlur={() => void refresh()}
+          placeholder={t('apiKeyPh')}
+          aria-label={t('apiKey')}
+          autoComplete="off"
+        />
         <ButtonGroup>
           <Button
             size="sm"

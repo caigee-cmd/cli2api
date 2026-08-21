@@ -14,13 +14,11 @@ services:
       HOME: "/root"
       QODER_WARMUP_CWD: "/tmp"
     volumes:
-      - /root/.qoder:/root/.qoder
-      # Prefer captured rich template if present; fallback to image sample via optional override
-      - /tmp/qoder-wasm-spike/last-plain.json:/data/last-plain.json:ro
+      - ${QODER_HOME:-${HOME}/.qoder}:/root/.qoder
+      - ${PLAIN_TEMPLATE_PATH:-../worker/last-plain.sample.json}:/data/last-plain.json:ro
     networks:
-      - sub2api
+      - cli2api
     restart: unless-stopped
-    # no host ports
 
   qoder-api-proxy:
     build:
@@ -36,16 +34,15 @@ services:
       QODER_WORKER_URL: "http://qoder-auth-worker:3020"
       QODER_WORKER_API_KEY: "${PROXY_API_KEY}"
     volumes:
-      - /root/.qoder:/root/.qoder:ro
+      - ${QODER_HOME:-${HOME}/.qoder}:/root/.qoder:ro
     depends_on:
       - qoder-auth-worker
     ports:
       - "127.0.0.1:3010:3010"
     networks:
-      - sub2api
+      - cli2api
     restart: unless-stopped
 
 networks:
-  sub2api:
-    external: true
-    name: sub2api-deploy_sub2api-network
+  cli2api:
+    driver: bridge

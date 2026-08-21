@@ -9,3 +9,5 @@ docs/private/
 frontend/node_modules/
 frontend/dist/
 web/
+
+deploy/docker-compose.override.yml

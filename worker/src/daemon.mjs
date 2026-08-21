@@ -8,6 +8,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { buildPlainChatBody, mapModel, wantsReasoning, estimateTokens, estimatePromptTokens } from "./plaintext.mjs";
 import { parseNestedOpenAIChunks, readSSEText, pipeNestedSseToOpenAI } from "./sse.mjs";
+import { inspectQodercliSource, PINNED_QODERCLI_VERSION, readQodercliVersion } from "./compat.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 register(pathToFileURL(path.join(__dirname, "rewrite-loader.mjs")).href);
@@ -531,7 +532,10 @@ function maybeStartServer() {
           },
         });
       }
-      // Local management endpoints (dashboard). Chat remains key-protected.
+      // Management + chat both require PROXY_API_KEY when configured.
+      if (!authOK(req)) {
+        return sendJSON(res, 401, { error: { code: "invalid_api_key", message: "unauthorized" } });
+      }
       if (req.method === "GET" && url.pathname === "/admin/models") {
         const refresh = url.searchParams.get("refresh") === "1";
         const models = await listModelsFromCli({ refresh });
@@ -563,10 +567,7 @@ function maybeStartServer() {
           hot: !!hotContext,
         });
       }
-      if (!authOK(req)) {
-        return sendJSON(res, 401, { error: { code: "invalid_api_key", message: "unauthorized" } });
-      }
-      if (req.method === "POST" && (req.url === "/v1/chat/completions" || req.url === "/internal/chat")) {
+      if (req.method === "POST" && (url.pathname === "/v1/chat/completions" || url.pathname === "/internal/chat")) {
         const body = await readBody(req);
         if (body.stream) {
           await chatStream(body, res);
@@ -598,7 +599,7 @@ function maybeStartServer() {
             total_tokens: (result.promptTokens || 0) + (result.completionTokens || 0),
           },
         });
-}
+      }
       return sendJSON(res, 404, { error: { code: "not_found", message: "not found" } });
     } catch (err) {
       return sendJSON(res, 500, {
@@ -635,6 +636,30 @@ process.argv = [
   "只回复OK",
 ];
 
+function assertQodercliCompatible(jsPath) {
+  if (!fs.existsSync(jsPath)) {
+    throw new Error(
+      `qodercli bundle not found at ${jsPath}. Install @qoder-ai/qodercli@${PINNED_QODERCLI_VERSION} and set QODERCLI_JS.`,
+    );
+  }
+  const source = fs.readFileSync(jsPath, "utf8");
+  const version = readQodercliVersion(jsPath);
+  const report = inspectQodercliSource(source, { version });
+  log("qodercli compat", {
+    path: jsPath,
+    version: version || "unknown",
+    pinned: PINNED_QODERCLI_VERSION,
+    ok: report.ok,
+  });
+  if (!report.ok) throw new Error(report.message);
+  if (version && version !== PINNED_QODERCLI_VERSION) {
+    log(
+      `warning: qodercli ${version} != pinned ${PINNED_QODERCLI_VERSION}; hooks may break after CLI upgrades`,
+    );
+  }
+}
+
+assertQodercliCompatible(qodercliPath);
 log("importing qodercli for warmup...", qodercliPath);
 await import(pathToFileURL(qodercliPath).href);
 await warmPromise;

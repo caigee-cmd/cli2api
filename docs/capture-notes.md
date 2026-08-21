@@ -4,7 +4,7 @@ last-updated: 2026-08-21
 
 > 只记脱敏事实。不要提交 Authorization / cookie / auth blob / raw capture。
 
-## Confirmed endpoints (us1)
+## Confirmed endpoints
 
 ```text
 center  = https://center.qoder.sh
@@ -126,7 +126,7 @@ Phase A 已证明：
 
 ## Capture method used
 
-us1:
+Capture host:
 
 ```bash
 NODE_OPTIONS="--import /tmp/qoder_capture_preload2.mjs" \
