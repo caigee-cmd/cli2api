@@ -1,0 +1,56 @@
+{
+  "request_id": "00000000-0000-0000-0000-000000000000",
+  "request_set_id": "00000000-0000-0000-0000-000000000001",
+  "chat_record_id": "00000000-0000-0000-0000-000000000000",
+  "session_id": "00000000-0000-0000-0000-000000000002",
+  "stream": true,
+  "chat_task": "FREE_INPUT",
+  "chat_context": {
+    "text": "",
+    "features": {},
+    "extra": {},
+    "chatPrompt": "",
+    "imageUrls": []
+  },
+  "is_reply": false,
+  "is_retry": false,
+  "source": "cli",
+  "version": "1.0",
+  "agent_id": "agent_common",
+  "task_id": "common",
+  "session_type": "assistant",
+  "aliyun_user_type": "",
+  "model_config": {
+    "key": "auto",
+    "display_name": "Auto",
+    "model": "",
+    "format": "openai",
+    "is_vl": true,
+    "is_reasoning": false,
+    "api_key": "",
+    "url": "",
+    "source": "system",
+    "max_input_tokens": 180000
+  },
+  "custom_model": null,
+  "system": "You are a helpful assistant. Reply concisely.",
+  "messages": [
+    {
+      "role": "user",
+      "content": "ping"
+    }
+  ],
+  "tools": [],
+  "parameters": {
+    "max_tokens": 32000
+  },
+  "business": {
+    "product": "cli",
+    "version": "1.1.27",
+    "type": "agent",
+    "id": "00000000-0000-0000-0000-000000000003",
+    "name": "chat",
+    "begin_at": 0,
+    "stage": "start"
+  }
+}

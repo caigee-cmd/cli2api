@@ -1,0 +1,8 @@
+.env
+bin/
+dist/
+*.exe
+.DS_Store
+capture-raw/
+docs/PRIVATE_DEPLOYMENT.md
+docs/private/

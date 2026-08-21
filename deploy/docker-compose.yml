@@ -1,0 +1,47 @@
+services:
+  qoder-auth-worker:
+    build:
+      context: ../worker
+      dockerfile: Dockerfile
+    image: qoder-auth-worker:local
+    container_name: qoder-auth-worker
+    environment:
+      WORKER_HOST: "0.0.0.0"
+      WORKER_PORT: "3020"
+      PROXY_API_KEY: "${PROXY_API_KEY}"
+      PLAIN_TEMPLATE_PATH: "/data/last-plain.json"
+      QODERCLI_JS: "/usr/local/lib/node_modules/@qoder-ai/qodercli/bundle/qodercli.js"
+      HOME: "/root"
+      QODER_WARMUP_CWD: "/tmp"
+    volumes:
+      - /root/.qoder:/root/.qoder
+      # Prefer captured rich template if present; fallback to image sample via optional override
+      - /tmp/qoder-wasm-spike/last-plain.json:/data/last-plain.json:ro
+    networks:
+      - sub2api
+    restart: unless-stopped
+    # no host ports
+
+  qoder-api-proxy:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: qoder-api-proxy:local
+    container_name: qoder-api-proxy
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "3010"
+      PROXY_API_KEY: "${PROXY_API_KEY}"
+      QODER_WORKER_URL: "http://qoder-auth-worker:3020"
+      QODER_WORKER_API_KEY: "${PROXY_API_KEY}"
+    depends_on:
+      - qoder-auth-worker
+    networks:
+      - sub2api
+    restart: unless-stopped
+    # no host ports
+
+networks:
+  sub2api:
+    external: true
+    name: sub2api-deploy_sub2api-network

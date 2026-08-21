@@ -1,0 +1,11 @@
+{
+  "name": "qoder-auth-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Warm QoderContext worker for qoder-api-proxy",
+  "scripts": {
+    "start": "node src/daemon.mjs",
+    "start-legacy": "node src/server.mjs"
+  }
+}
