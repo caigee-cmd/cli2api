@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CLI2API</title>
+  <link rel="stylesheet" href="/assets/app.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">C2</div>
+        <div>
+          <div class="brand-title">CLI2API</div>
+          <div class="brand-sub">CLI login → API</div>
+        </div>
+      </div>
+
+      <nav class="nav">
+        <button class="nav-item active" data-page="home">首页</button>
+        <button class="nav-item" data-page="auth">登录授权</button>
+        <button class="nav-item" data-page="providers">供应商</button>
+        <button class="nav-item" data-page="access">API 接入</button>
+      </nav>
+
+      <div class="sidebar-foot">
+        <div class="pill" id="sidebar-runtime">checking…</div>
+        <div class="muted tiny" id="sidebar-version">Qoder provider</div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <h1 id="page-title">首页</h1>
+          <p class="muted" id="page-desc">查看本地代理运行状态与可用端点</p>
+        </div>
+        <div class="top-actions">
+          <input id="api-key" class="input" type="password" placeholder="PROXY_API_KEY" />
+          <button class="btn" id="btn-refresh">刷新</button>
+        </div>
+      </header>
+
+      <section class="page active" id="page-home">
+        <div class="grid cards-4">
+          <div class="card metric">
+            <div class="label">运行状态</div>
+            <div class="value" id="m-runtime">—</div>
+          </div>
+          <div class="card metric">
+            <div class="label">Worker</div>
+            <div class="value" id="m-worker">—</div>
+          </div>
+          <div class="card metric">
+            <div class="label">登录态</div>
+            <div class="value" id="m-auth">—</div>
+          </div>
+          <div class="card metric">
+            <div class="label">监听端口</div>
+            <div class="value" id="m-port">—</div>
+          </div>
+        </div>
+
+        <div class="grid two">
+          <div class="card">
+            <div class="card-head">
+              <h2>服务状态</h2>
+              <span class="muted tiny" id="home-updated">—</span>
+            </div>
+            <div class="kv">
+              <div><span>Proxy</span><b id="kv-proxy">—</b></div>
+              <div><span>Worker hot</span><b id="kv-hot">—</b></div>
+              <div><span>Endpoint</span><b id="kv-endpoint">—</b></div>
+              <div><span>Rewarm</span><b id="kv-rewarm">—</b></div>
+              <div><span>Last error</span><b id="kv-error">—</b></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-head">
+              <h2>可用端点</h2>
+              <button class="btn ghost" id="btn-copy-openai">复制 OpenAI Base URL</button>
+            </div>
+            <div class="endpoint-list" id="endpoint-list"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="page" id="page-auth">
+        <div class="card">
+          <div class="card-head">
+            <h2>Qoder 登录态</h2>
+            <button class="btn" id="btn-rewarm">Rewarm</button>
+          </div>
+          <p class="muted">当前先支持读取本机 Qoder CLI 登录文件。完整浏览器 OAuth 流程后续按 provider 扩展。</p>
+          <div class="kv" id="auth-kv"></div>
+          <pre class="code" id="auth-json">{}</pre>
+        </div>
+      </section>
+
+      <section class="page" id="page-providers">
+        <div class="card">
+          <div class="card-head">
+            <h2>供应商 / 模型</h2>
+            <span class="pill soft">Qoder</span>
+          </div>
+          <div class="table" id="model-table"></div>
+        </div>
+      </section>
+
+      <section class="page" id="page-access">
+        <div class="grid two">
+          <div class="card">
+            <div class="card-head"><h2>接入参数</h2></div>
+            <div class="kv">
+              <div><span>Base URL</span><b id="access-base">—</b></div>
+              <div><span>API Key header</span><b>Authorization: Bearer …</b></div>
+              <div><span>Compatible</span><b>OpenAI Chat Completions</b></div>
+            </div>
+            <pre class="code" id="access-curl"></pre>
+          </div>
+          <div class="card">
+            <div class="card-head"><h2>快速测试</h2></div>
+            <textarea id="test-prompt" class="textarea">只回复OK</textarea>
+            <div class="row">
+              <select id="test-model" class="input"></select>
+              <button class="btn" id="btn-test">发送</button>
+            </div>
+            <pre class="code" id="test-out">等待请求…</pre>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script src="/assets/app.js"></script>
+</body>
+</html>

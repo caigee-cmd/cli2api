@@ -134,6 +134,23 @@ curl -s http://127.0.0.1:3010/v1/chat/completions \
   }'
 ```
 
+## Web UI
+
+Open the built-in management console after starting the proxy:
+
+```bash
+open http://127.0.0.1:3010/
+```
+
+Layout is inspired by EasyCLIProxyAPI:
+
+- Home: runtime status + copyable endpoints
+- Auth: Qoder login-state / worker hot context / rewarm
+- Providers: current models
+- API Access: curl snippet + quick chat test
+
+Static files live in `web/` and are embedded via `internal/webui`.
+
 ## Docker
 
 ```bash

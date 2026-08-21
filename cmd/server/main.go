@@ -11,11 +11,11 @@ import (
 )
 
 func main() {
-	_ = godotenv.Load()
+	_ = godotenv.Load() // does not override existing process env
 	cfg := config.Load()
 	srv := api.New(cfg)
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
-	log.Printf("qoder-api-proxy listening on http://%s (phase A stub)", addr)
+	log.Printf("cli2api listening on http://%s", addr)
 	if err := http.ListenAndServe(addr, srv.Handler()); err != nil {
 		log.Fatal(err)
 	}

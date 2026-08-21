@@ -134,6 +134,23 @@ curl -s http://127.0.0.1:3010/v1/chat/completions \
   }'
 ```
 
+## 管理界面
+
+启动 proxy 后打开：
+
+```bash
+open http://127.0.0.1:3010/
+```
+
+布局参考 EasyCLIProxyAPI：
+
+- 首页：运行状态 + 可复制端点
+- 登录授权：Qoder 登录态 / worker 热上下文 / rewarm
+- 供应商：当前模型
+- API 接入：curl 示例 + 快速对话测试
+
+静态文件在 `web/`，通过 `internal/webui` embed 进二进制。
+
 ## Docker
 
 ```bash

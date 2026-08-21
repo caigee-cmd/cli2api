@@ -1,10 +1,12 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -13,6 +15,7 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/endpoint"
 	"github.com/caigee-cmd/cli2api/internal/executor"
 	"github.com/caigee-cmd/cli2api/internal/translate"
+	"github.com/caigee-cmd/cli2api/internal/webui"
 )
 
 type Server struct {
@@ -40,10 +43,27 @@ func (s *Server) Handler() http.Handler { return s.mux }
 
 func (s *Server) routes() {
 	s.mux.HandleFunc("/health", s.handleHealth)
+	s.mux.HandleFunc("/api/overview", s.withAPIKey(s.handleOverview))
+	s.mux.HandleFunc("/api/rewarm", s.withAPIKey(s.handleRewarm))
 	s.mux.HandleFunc("/v1/models", s.withAPIKey(s.handleModels))
 	s.mux.HandleFunc("/v1/chat/completions", s.withAPIKey(s.handleChatCompletions))
 	s.mux.HandleFunc("/debug/auth-snapshot", s.withAPIKey(s.handleAuthSnapshot))
 	s.mux.HandleFunc("/debug/endpoints", s.withAPIKey(s.handleEndpoints))
+
+	s.mux.Handle("/assets/", webui.Handler())
+	s.mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
+		data, err := webui.IndexHTML()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write(data)
+	})
 }
 
 func (s *Server) withAPIKey(next http.HandlerFunc) http.HandlerFunc {
@@ -67,11 +87,98 @@ func (s *Server) withAPIKey(next http.HandlerFunc) http.HandlerFunc {
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":       true,
-		"service":  "qoder-api-proxy",
-		"phase":    "C-preview",
+		"service":  "cli2api",
+		"provider": "qoder",
+		"phase":    "ui-preview",
 		"chat_url": s.endpoints.ChatURL(),
 		"time":     time.Now().UTC().Format(time.RFC3339),
 	})
+}
+
+func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
+	authSnap, authErr := s.auth.Snapshot()
+	worker := s.fetchWorkerHealth()
+	models := []map[string]any{
+		{"id": "auto", "object": "model", "owned_by": "qoder"},
+		{"id": "qwen3.7-plus", "object": "model", "owned_by": "qoder"},
+		{"id": "glm-5.2", "object": "model", "owned_by": "qoder"},
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":   true,
+		"time": time.Now().Format(time.RFC3339),
+		"proxy": map[string]any{
+			"ok":        true,
+			"service":   "cli2api",
+			"provider":  "qoder",
+			"port":      s.cfg.Port,
+			"chat_url":  s.endpoints.ChatURL(),
+			"endpoints": s.endpoints,
+		},
+		"worker": worker,
+		"auth": func() any {
+			if authErr != nil {
+				return map[string]any{
+					"ok":      false,
+					"error":   authErr.Error(),
+					"home":    s.cfg.QoderHome,
+					"has_pat": s.cfg.QoderPAT != "",
+				}
+			}
+			return authSnap
+		}(),
+		"models": models,
+		"access": map[string]any{
+			"openai_base_url":  "/v1",
+			"chat_completions": "/v1/chat/completions",
+			"models":           "/v1/models",
+			"health":           "/health",
+		},
+	})
+}
+
+func (s *Server) handleRewarm(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "POST only")
+		return
+	}
+	workerURL := strings.TrimRight(firstNonEmpty(os.Getenv("QODER_WORKER_URL"), "http://127.0.0.1:3020"), "/")
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, workerURL+"/admin/rewarm", bytes.NewReader([]byte("{}")))
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, "rewarm_failed", err.Error())
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if key := strings.TrimSpace(firstNonEmpty(os.Getenv("QODER_WORKER_API_KEY"), s.cfg.ProxyAPIKey)); key != "" {
+		req.Header.Set("Authorization", "Bearer "+key)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, "rewarm_failed", err.Error())
+		return
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	_, _ = w.Write(body)
+}
+
+func (s *Server) fetchWorkerHealth() map[string]any {
+	workerURL := strings.TrimRight(firstNonEmpty(os.Getenv("QODER_WORKER_URL"), "http://127.0.0.1:3020"), "/")
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Get(workerURL + "/health")
+	if err != nil {
+		return map[string]any{"ok": false, "error": err.Error(), "url": workerURL}
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	var raw map[string]any
+	if json.Unmarshal(body, &raw) != nil {
+		return map[string]any{"ok": resp.StatusCode < 300, "raw": string(body), "url": workerURL}
+	}
+	raw["ok"] = resp.StatusCode < 300
+	raw["url"] = workerURL
+	return raw
 }
 
 func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
@@ -191,4 +298,13 @@ func writeErr(w http.ResponseWriter, status int, code, msg string) {
 			"code":    code,
 		},
 	})
+}
+
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if s := strings.TrimSpace(v); s != "" {
+			return s
+		}
+	}
+	return ""
 }
