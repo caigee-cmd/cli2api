@@ -31,11 +31,13 @@ function $(id) {
 }
 
 function getKey() {
-  return ($("api-key").value || localStorage.getItem("cli2api_key") || "").trim();
+  const el = $("api-key");
+  return ((el && el.value) || localStorage.getItem("cli2api_key") || "").trim();
 }
 
 function saveKey() {
-  localStorage.setItem("cli2api_key", getKey());
+  const el = $("api-key");
+  if (el) localStorage.setItem("cli2api_key", el.value.trim());
 }
 
 function headers(json = true) {
@@ -134,35 +136,45 @@ function renderAuth(overview) {
   $("login-status").textContent = status;
   $("login-message").textContent = login.message || "Click Browser login to get an auth URL.";
   if (login.authUrl) {
-    $("login-url-wrap").style.display = "flex";
+    $("login-url-wrap").hidden = false;
     $("login-url").textContent = login.authUrl;
-  } else {
-    $("login-url-wrap").style.display = "none";
+  } else if ($("login-url-wrap")) {
+    $("login-url-wrap").hidden = true;
   }
   $("auth-json").textContent = JSON.stringify({ auth, worker, login }, null, 2);
 }
 
 function renderModels(overview) {
   const models = overview?.models || [];
-  if (!models.length) {
-    $("model-table").innerHTML = `<div class="empty">No providers loaded.</div>`;
-    $("test-model").innerHTML = "";
-    return;
+  const filter = (($("model-filter") && $("model-filter").value) || "").trim().toLowerCase();
+  const filtered = !filter
+    ? models
+    : models.filter((m) => `${m.id} ${m.mapped_key || ""}`.toLowerCase().includes(filter));
+  if ($("model-meta")) {
+    $("model-meta").textContent = models.length
+      ? `${filtered.length} shown / ${models.length} total`
+      : "No models yet";
   }
-  $("model-table").innerHTML = `
+  if (!filtered.length) {
+    $("model-table").innerHTML = `<div class="empty">${models.length ? "No models match this filter." : "No providers loaded."}</div>`;
+  } else {
+    $("model-table").innerHTML = `
     <div class="tr head"><div>Model</div><div>Mapped key</div><div>State</div></div>
-    ${models
+    ${filtered
       .map(
-        (m) => `
-      <div class="tr">
+        (m, idx) => `
+      <div class="tr" style="animation-delay:${idx * 20}ms">
         <div><b>${m.id}</b></div>
-        <div>${m.mapped_key || m.id}</div>
+        <div class="mono">${m.mapped_key || m.id}</div>
         <div><span class="chip">${m.stale ? "fallback" : "ready"}</span></div>
       </div>`,
       )
       .join("")}
   `;
-  $("test-model").innerHTML = models.map((m) => `<option value="${m.id}">${m.id}</option>`).join("");
+  }
+  if ($("test-model")) {
+    $("test-model").innerHTML = models.map((m) => `<option value="${m.id}">${m.id}</option>`).join("");
+  }
 }
 
 function renderHome(overview) {
@@ -290,7 +302,7 @@ async function startDeviceLogin() {
       return data;
     });
     if (out.authUrl) {
-      $("login-url-wrap").style.display = "flex";
+      $("login-url-wrap").hidden = false;
       $("login-url").textContent = out.authUrl;
       $("login-status").textContent = out.status || "pending";
       $("login-message").textContent = out.message || "Open the auth URL to finish login";
@@ -364,7 +376,7 @@ async function refreshModels() {
 }
 
 function boot() {
-  $("api-key").value = localStorage.getItem("cli2api_key") || "";
+  if ($("api-key")) $("api-key").value = localStorage.getItem("cli2api_key") || "";
   document.querySelectorAll(".nav-item").forEach((btn) => {
     btn.onclick = () => switchPage(btn.dataset.page);
   });
@@ -393,7 +405,8 @@ function boot() {
     $("btn-copy-openai").textContent = "Copied";
     setTimeout(() => ($("btn-copy-openai").textContent = "Copy Base URL"), 900);
   };
-  $("api-key").addEventListener("change", saveKey);
+  if ($("api-key")) $("api-key").addEventListener("change", saveKey);
+  if ($("model-filter")) $("model-filter").addEventListener("input", () => renderModels(state.overview || { models: [] }));
   switchPage("home");
   refresh();
 }
