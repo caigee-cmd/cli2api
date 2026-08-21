@@ -16,6 +16,27 @@
 
 English version: [README.md](README.md)
 
+## 控制台 UI
+
+React + Tailwind CSS v4 + HeroUI（布局参考 Sub2API）：
+
+```text
+frontend/
+  src/
+    components/layout/   # AppLayout / AppSidebar / AppHeader
+    pages/               # Overview / Auth / Providers / Access
+    api/ hooks/ i18n/
+```
+
+构建并嵌入 Go：
+
+```bash
+cd frontend && npm install && npm run sync
+# 会把 dist 同步到 internal/webui/static
+```
+
+Docker 多阶段构建会先编译前端，再打包 Go binary。
+
 ## 功能
 
 - OpenAI 兼容 `POST /v1/chat/completions`

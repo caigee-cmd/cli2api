@@ -1,0 +1,48 @@
+@import "tailwindcss";
+@import "@heroui/styles";
+
+@theme {
+  --font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --color-accent: #1f9d6a;
+  --color-accent-soft: rgba(31, 157, 106, 0.16);
+  --color-line: rgba(255, 255, 255, 0.08);
+  --color-line-strong: rgba(255, 255, 255, 0.14);
+  --color-panel: #12171d;
+  --color-ink: #e8eef6;
+  --color-muted: #93a0b0;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html, body, #root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  background: #0b0f14;
+  color: var(--color-ink);
+  overflow-x: hidden;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+.noise {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  opacity: 0.035;
+  background-image: radial-gradient(rgba(255,255,255,.35) 0.6px, transparent 0.6px);
+  background-size: 3px 3px;
+  z-index: 0;
+}
