@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-lang="zh">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -19,32 +19,32 @@
         </div>
         <div>
           <div class="brand-title">CLI2API</div>
-          <div class="brand-sub">login state gateway</div>
+          <div class="brand-sub" data-i18n="brandSub">login state gateway</div>
         </div>
       </div>
 
       <nav class="nav" aria-label="Primary">
         <button class="nav-item active" data-page="home">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M4 10.5L12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1v-9.5Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
-          <span>Overview</span>
+          <span data-i18n="navOverview">Overview</span>
         </button>
         <button class="nav-item" data-page="auth">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M7 11V8a5 5 0 0 1 10 0v3M6 11h12v10H6V11Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
-          <span>Auth</span>
+          <span data-i18n="navAuth">Auth</span>
         </button>
         <button class="nav-item" data-page="providers">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M4 7h16M4 12h16M4 17h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-          <span>Providers</span>
+          <span data-i18n="navProviders">Providers</span>
         </button>
         <button class="nav-item" data-page="access">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M8 7H5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-3M16 3h5v5M21 3l-9 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          <span>API Access</span>
+          <span data-i18n="navAccess">API Access</span>
         </button>
       </nav>
 
       <div class="sidebar-foot">
-        <div class="status-chip" id="sidebar-runtime"><span class="dot"></span><span>checking</span></div>
-        <div class="muted tiny">Qoder first. More CLIs later.</div>
+        <div class="status-chip" id="sidebar-runtime"><span class="dot"></span><span data-i18n="checking">checking</span></div>
+        <div class="muted tiny" data-i18n="sidebarFoot">Qoder first. More CLIs later.</div>
       </div>
     </aside>
 
@@ -56,9 +56,13 @@
           <p class="muted" id="page-desc">Inspect local proxy health and ready endpoints.</p>
         </div>
         <div class="top-actions">
+          <div class="lang-switch" role="group" aria-label="Language">
+            <button class="lang-btn active" id="lang-zh" type="button">中文</button>
+            <button class="lang-btn" id="lang-en" type="button">EN</button>
+          </div>
           <button class="btn" id="btn-refresh">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M20 12a8 8 0 1 1-2.2-5.5M20 4v5h-5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            Refresh
+            <span data-i18n="refresh">Refresh</span>
           </button>
         </div>
       </header>
@@ -66,26 +70,26 @@
       <section class="page active" id="page-home">
         <div class="hero-band">
           <div>
-            <p class="eyebrow">Runtime</p>
-            <h2 class="display">Gateway pulse</h2>
-            <p class="muted narrow">Dense status without boxed metric cards. One accent. Quiet chrome.</p>
+            <p class="eyebrow" data-i18n="homeEyebrow">Runtime</p>
+            <h2 class="display" data-i18n="homeDisplay">Gateway pulse</h2>
+            <p class="muted narrow" data-i18n="homeLead">Dense status without boxed metric cards. One accent. Quiet chrome.</p>
           </div>
           <div class="hero-aside">
             <div class="hero-meta" id="home-updated">—</div>
-            <div class="hero-note muted tiny">Dashboard reads local state directly. External /v1 clients still use PROXY_API_KEY.</div>
+            <div class="hero-note muted tiny" data-i18n="homeNote">Dashboard reads local state directly. External /v1 clients still use PROXY_API_KEY.</div>
           </div>
         </div>
 
         <div class="metrics" id="home-metrics" aria-live="polite">
-          <div class="metric" style="--i:0"><div class="label">Runtime</div><div class="value" id="m-runtime">—</div></div>
-          <div class="metric" style="--i:1"><div class="label">Worker</div><div class="value" id="m-worker">—</div></div>
-          <div class="metric" style="--i:2"><div class="label">Auth</div><div class="value" id="m-auth">—</div></div>
-          <div class="metric mono" style="--i:3"><div class="label">Port</div><div class="value" id="m-port">—</div></div>
+          <div class="metric" style="--i:0"><div class="label" data-i18n="metricRuntime">Runtime</div><div class="value" id="m-runtime">—</div></div>
+          <div class="metric" style="--i:1"><div class="label" data-i18n="metricWorker">Worker</div><div class="value" id="m-worker">—</div></div>
+          <div class="metric" style="--i:2"><div class="label" data-i18n="metricAuth">Auth</div><div class="value" id="m-auth">—</div></div>
+          <div class="metric mono" style="--i:3"><div class="label" data-i18n="metricPort">Port</div><div class="value" id="m-port">—</div></div>
         </div>
 
         <div class="split home-split">
           <section class="surface">
-            <div class="surface-head"><h3>Service detail</h3></div>
+            <div class="surface-head"><h3 data-i18n="serviceDetail">Service detail</h3></div>
             <div class="kv" id="home-kv">
               <div class="skeleton-line"></div>
               <div class="skeleton-line"></div>
@@ -94,10 +98,10 @@
           </section>
           <section class="surface">
             <div class="surface-head">
-              <h3>Endpoints</h3>
-              <button class="btn ghost" id="btn-copy-openai">Copy Base URL</button>
+              <h3 data-i18n="endpoints">Endpoints</h3>
+              <button class="btn ghost" id="btn-copy-openai" data-i18n="copyBaseUrl">Copy Base URL</button>
             </div>
-            <div class="endpoint-list" id="endpoint-list"><div class="empty">Waiting for overview…</div></div>
+            <div class="endpoint-list" id="endpoint-list"><div class="empty" data-i18n="waitingOverview">Waiting for overview…</div></div>
           </section>
         </div>
       </section>
@@ -107,29 +111,29 @@
           <section class="surface auth-primary">
             <div class="surface-head">
               <div>
-                <p class="eyebrow">Sign in</p>
-                <h3>Connect Qoder</h3>
+                <p class="eyebrow" data-i18n="signIn">Sign in</p>
+                <h3 data-i18n="connectQoder">Connect Qoder</h3>
               </div>
-              <button class="btn ghost" id="btn-rewarm">Rewarm</button>
+              <button class="btn ghost" id="btn-rewarm" data-i18n="rewarm">Rewarm</button>
             </div>
 
             <div class="auth-steps">
               <div class="step">
                 <div class="step-index">01</div>
                 <div class="step-body">
-                  <h4>Browser device flow</h4>
-                  <p class="muted tiny">Opens Qoder account selection. Finish in browser, then this page polls until hot context refreshes.</p>
-                  <button class="btn" id="btn-login-device">Start browser login</button>
+                  <h4 data-i18n="stepBrowserTitle">Browser device flow</h4>
+                  <p class="muted tiny" data-i18n="stepBrowserDesc">Opens Qoder account selection. Finish in browser, then this page polls until hot context refreshes.</p>
+                  <button class="btn" id="btn-login-device" data-i18n="startBrowserLogin">Start browser login</button>
                   <div class="login-progress" id="login-box">
                     <div class="row tight">
                       <span class="chip" id="login-status">idle</span>
-                      <span class="muted tiny" id="login-message">Ready when you are.</span>
+                      <span class="muted tiny" id="login-message" data-i18n="readyWhen">Ready when you are.</span>
                     </div>
                     <div class="auth-url" id="login-url-wrap" hidden>
                       <code id="login-url">—</code>
                       <div class="row tight">
-                        <button class="btn ghost" id="btn-open-login">Open</button>
-                        <button class="btn ghost" id="btn-copy-login">Copy</button>
+                        <button class="btn ghost" id="btn-open-login" data-i18n="open">Open</button>
+                        <button class="btn ghost" id="btn-copy-login" data-i18n="copy">Copy</button>
                       </div>
                     </div>
                   </div>
@@ -139,13 +143,13 @@
               <div class="step">
                 <div class="step-index">02</div>
                 <div class="step-body">
-                  <h4>Personal access token</h4>
-                  <p class="muted tiny">Optional fallback when browser flow is inconvenient.</p>
+                  <h4 data-i18n="stepPatTitle">Personal access token</h4>
+                  <p class="muted tiny" data-i18n="stepPatDesc">Optional fallback when browser flow is inconvenient.</p>
                   <label class="field">
-                    <span>PAT</span>
-                    <input id="pat-input" class="input" type="password" placeholder="paste token" autocomplete="off" />
+                    <span data-i18n="pat">PAT</span>
+                    <input id="pat-input" class="input" type="password" placeholder="paste token" data-i18n-placeholder="pasteToken" autocomplete="off" />
                   </label>
-                  <button class="btn ghost" id="btn-login-pat">Login with PAT</button>
+                  <button class="btn ghost" id="btn-login-pat" data-i18n="loginWithPat">Login with PAT</button>
                 </div>
               </div>
             </div>
@@ -153,11 +157,11 @@
 
           <aside class="auth-side">
             <section class="surface">
-              <div class="surface-head"><h3>Local state</h3></div>
-              <div class="kv" id="auth-kv"><div class="empty">No auth snapshot yet.</div></div>
+              <div class="surface-head"><h3 data-i18n="localState">Local state</h3></div>
+              <div class="kv" id="auth-kv"><div class="empty" data-i18n="noAuthSnapshot">No auth snapshot yet.</div></div>
             </section>
             <section class="surface code-panel">
-              <div class="surface-head"><h3>Raw</h3></div>
+              <div class="surface-head"><h3 data-i18n="raw">Raw</h3></div>
               <pre class="code" id="auth-json">{}</pre>
             </section>
           </aside>
@@ -167,52 +171,53 @@
       <section class="page" id="page-providers">
         <div class="providers-head">
           <div>
-            <p class="eyebrow">Catalog</p>
-            <h2 class="display small">Available models</h2>
-            <p class="muted narrow">Pulled from <span class="mono">qodercli --list-models</span>.</p>
+            <p class="eyebrow" data-i18n="catalog">Catalog</p>
+            <h2 class="display small" data-i18n="availableModels">Available models</h2>
+            <p class="muted narrow"><span data-i18n="modelsPulled">Pulled from</span> <span class="mono">qodercli --list-models</span>.</p>
           </div>
           <div class="providers-actions">
             <label class="field compact">
-              <span>Filter</span>
-              <input id="model-filter" class="input" type="search" placeholder="glm / qwen / deepseek" />
+              <span data-i18n="filter">Filter</span>
+              <input id="model-filter" class="input" type="search" placeholder="glm / qwen / deepseek" data-i18n-placeholder="filterPh" />
             </label>
-            <button class="btn ghost" id="btn-refresh-models">Refresh</button>
+            <button class="btn ghost" id="btn-refresh-models" data-i18n="refresh">Refresh</button>
           </div>
         </div>
         <div class="model-meta muted tiny" id="model-meta">—</div>
-        <div class="table" id="model-table"><div class="empty">No providers loaded.</div></div>
+        <div class="table" id="model-table"><div class="empty" data-i18n="noProviders">No providers loaded.</div></div>
       </section>
 
       <section class="page" id="page-access">
         <div class="access-layout">
           <section class="surface">
-            <div class="surface-head"><h3>Connection</h3></div>
+            <div class="surface-head"><h3 data-i18n="connection">Connection</h3></div>
             <div class="kv">
-              <div><span>Base URL</span><b id="access-base">—</b></div>
-              <div><span>External clients</span><b>Authorization: Bearer PROXY_API_KEY</b></div>
-              <div><span>Protocol</span><b>OpenAI Chat Completions</b></div>
+              <div><span data-i18n="baseUrl">Base URL</span><b id="access-base">—</b></div>
+              <div><span data-i18n="externalClients">External clients</span><b>Authorization: Bearer PROXY_API_KEY</b></div>
+              <div><span data-i18n="protocol">Protocol</span><b>OpenAI Chat Completions</b></div>
             </div>
             <pre class="code" id="access-curl"></pre>
           </section>
           <section class="surface test-panel">
-            <div class="surface-head"><h3>Quick test</h3></div>
+            <div class="surface-head"><h3 data-i18n="quickTest">Quick test</h3></div>
             <label class="field">
-              <span>Prompt</span>
+              <span data-i18n="prompt">Prompt</span>
               <textarea id="test-prompt" class="textarea">只回复OK</textarea>
             </label>
             <div class="row">
               <label class="field grow">
-                <span>Model</span>
+                <span data-i18n="model">Model</span>
                 <select id="test-model" class="input"></select>
               </label>
-              <button class="btn" id="btn-test">Send</button>
+              <button class="btn" id="btn-test" data-i18n="send">Send</button>
             </div>
-            <pre class="code" id="test-out">Waiting for a request…</pre>
+            <pre class="code" id="test-out" data-i18n="waitingRequest">Waiting for a request…</pre>
           </section>
         </div>
       </section>
     </main>
   </div>
+  <script src="/assets/i18n.js"></script>
   <script src="/assets/app.js"></script>
 </body>
 </html>
