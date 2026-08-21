@@ -12,7 +12,7 @@ const pages = {
   auth: {
     kicker: "Credentials",
     title: "Auth",
-    desc: "Check Qoder CLI login state and worker hot context.",
+    desc: "Browser device-flow login, PAT login, and worker rewarm.",
   },
   providers: {
     kicker: "Upstream",
@@ -121,6 +121,7 @@ function renderEndpoints(overview) {
 function renderAuth(overview) {
   const auth = overview?.auth || {};
   const worker = overview?.worker || {};
+  const login = overview?.login?.login || overview?.login || {};
   $("auth-kv").innerHTML = `
     <div><span>Has user blob</span><b>${auth.has_user_blob ? "yes" : "no"}</b></div>
     <div><span>User blob bytes</span><b>${auth.user_blob_bytes ?? 0}</b></div>
@@ -129,7 +130,16 @@ function renderAuth(overview) {
     <div><span>Worker endpoint</span><b>${worker.endpoint || "—"}</b></div>
     <div><span>Rewarm count</span><b>${worker.rewarmCount ?? worker.rewarm_count ?? 0}</b></div>
   `;
-  $("auth-json").textContent = JSON.stringify({ auth, worker }, null, 2);
+  const status = login.status || "idle";
+  $("login-status").textContent = status;
+  $("login-message").textContent = login.message || "Click Browser login to get an auth URL.";
+  if (login.authUrl) {
+    $("login-url-wrap").style.display = "flex";
+    $("login-url").textContent = login.authUrl;
+  } else {
+    $("login-url-wrap").style.display = "none";
+  }
+  $("auth-json").textContent = JSON.stringify({ auth, worker, login }, null, 2);
 }
 
 function renderModels(overview) {
@@ -140,14 +150,14 @@ function renderModels(overview) {
     return;
   }
   $("model-table").innerHTML = `
-    <div class="tr head"><div>Model</div><div>Provider</div><div>State</div></div>
+    <div class="tr head"><div>Model</div><div>Mapped key</div><div>State</div></div>
     ${models
       .map(
         (m) => `
       <div class="tr">
         <div><b>${m.id}</b></div>
-        <div>${m.owned_by || "qoder"}</div>
-        <div><span class="chip">ready</span></div>
+        <div>${m.mapped_key || m.id}</div>
+        <div><span class="chip">${m.stale ? "fallback" : "ready"}</span></div>
       </div>`,
       )
       .join("")}
@@ -200,10 +210,7 @@ async function refresh() {
     renderEndpoints(overview);
     renderAuth(overview);
     renderModels(overview);
-    if (overview?.ui?.needs_api_key_for_chat && !getKey()) {
-      const err = $("kv-error");
-      if (err) err.textContent = "Dashboard loaded. Fill PROXY_API_KEY before chat/rewarm.";
-    }
+    // Dashboard/login/models do not require PROXY_API_KEY.
   } catch (err) {
     setStatus($("sidebar-runtime"), "Error", "bad");
     $("m-runtime").textContent = "Error";
@@ -233,7 +240,12 @@ function switchPage(name) {
 async function rewarm() {
   $("btn-rewarm").textContent = "Rewarming";
   try {
-    const out = await api("/api/rewarm", { method: "POST", body: "{}" });
+    const out = await fetch("/api/rewarm", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }).then(async (res) => {
+      const text = await res.text();
+      const data = text ? JSON.parse(text) : null;
+      if (!res.ok) throw new Error(data?.error?.message || text || res.statusText);
+      return data;
+    });
     $("auth-json").textContent = JSON.stringify(out, null, 2);
     await refresh();
   } catch (err) {
@@ -248,17 +260,106 @@ async function testChat() {
   const content = $("test-prompt").value || "只回复OK";
   $("test-out").textContent = "Requesting…";
   try {
-    const data = await api("/v1/chat/completions", {
+    const data = await fetch("/api/chat", {
       method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         model,
         stream: false,
         messages: [{ role: "user", content }],
       }),
+    }).then(async (res) => {
+      const text = await res.text();
+      const parsed = text ? JSON.parse(text) : null;
+      if (!res.ok) throw new Error(parsed?.error?.message || text || res.statusText);
+      return parsed;
     });
     $("test-out").textContent = JSON.stringify(data, null, 2);
   } catch (err) {
     $("test-out").textContent = err.message;
+  }
+}
+
+async function startDeviceLogin() {
+  $("btn-login-device").textContent = "Starting…";
+  try {
+    const out = await fetch("/api/login/device", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }).then(async (res) => {
+      const text = await res.text();
+      const data = text ? JSON.parse(text) : null;
+      if (!res.ok) throw new Error(data?.error?.message || text || res.statusText);
+      return data;
+    });
+    if (out.authUrl) {
+      $("login-url-wrap").style.display = "flex";
+      $("login-url").textContent = out.authUrl;
+      $("login-status").textContent = out.status || "pending";
+      $("login-message").textContent = out.message || "Open the auth URL to finish login";
+      window.open(out.authUrl, "_blank", "noopener,noreferrer");
+    }
+    await refresh();
+    // poll login status a few times
+    for (let i = 0; i < 30; i++) {
+      await new Promise((r) => setTimeout(r, 2000));
+      const st = await fetch("/api/login/status").then((r) => r.json());
+      const login = st.login || {};
+      $("login-status").textContent = login.status || "pending";
+      $("login-message").textContent = login.message || "";
+      if (login.status === "ok" || login.status === "error") {
+        await refresh();
+        break;
+      }
+    }
+  } catch (err) {
+    alert(err.message);
+  } finally {
+    $("btn-login-device").textContent = "Browser login";
+  }
+}
+
+async function loginWithPat() {
+  const pat = ($("pat-input").value || "").trim();
+  if (!pat) {
+    alert("Paste a PAT first");
+    return;
+  }
+  $("btn-login-pat").textContent = "Logging in…";
+  try {
+    const out = await fetch("/api/login/pat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pat }),
+    }).then(async (res) => {
+      const text = await res.text();
+      const data = text ? JSON.parse(text) : null;
+      if (!res.ok) throw new Error(data?.error?.message || text || res.statusText);
+      return data;
+    });
+    $("login-status").textContent = out.status || "ok";
+    $("login-message").textContent = "PAT login completed";
+    $("pat-input").value = "";
+    await refresh();
+  } catch (err) {
+    alert(err.message);
+  } finally {
+    $("btn-login-pat").textContent = "Login with PAT";
+  }
+}
+
+async function refreshModels() {
+  $("btn-refresh-models").textContent = "Refreshing…";
+  try {
+    const data = await fetch("/api/models?refresh=1").then(async (res) => {
+      const text = await res.text();
+      const parsed = text ? JSON.parse(text) : null;
+      if (!res.ok) throw new Error(parsed?.error?.message || text || res.statusText);
+      return parsed;
+    });
+    if (state.overview) state.overview.models = data.data || [];
+    renderModels(state.overview || { models: data.data || [] });
+  } catch (err) {
+    alert(err.message);
+  } finally {
+    $("btn-refresh-models").textContent = "Refresh models";
   }
 }
 
@@ -270,6 +371,20 @@ function boot() {
   $("btn-refresh").onclick = refresh;
   $("btn-rewarm").onclick = rewarm;
   $("btn-test").onclick = testChat;
+  $("btn-login-device").onclick = startDeviceLogin;
+  $("btn-login-pat").onclick = loginWithPat;
+  $("btn-refresh-models").onclick = refreshModels;
+  $("btn-copy-login").onclick = async () => {
+    const url = $("login-url").textContent;
+    if (!url || url === "—") return;
+    await navigator.clipboard.writeText(url);
+    $("btn-copy-login").textContent = "Copied";
+    setTimeout(() => ($("btn-copy-login").textContent = "Copy"), 900);
+  };
+  $("btn-open-login").onclick = () => {
+    const url = $("login-url").textContent;
+    if (url && url !== "—") window.open(url, "_blank", "noopener,noreferrer");
+  };
   $("btn-copy-openai").onclick = async () => {
     const url = state.overview?.access?.openai_base_url
       ? absUrl(state.overview.access.openai_base_url)

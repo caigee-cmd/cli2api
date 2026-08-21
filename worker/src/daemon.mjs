@@ -4,6 +4,8 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { register } from "node:module";
 import crypto from "node:crypto";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { buildPlainChatBody, mapModel, wantsReasoning, estimateTokens, estimatePromptTokens } from "./plaintext.mjs";
 import { parseNestedOpenAIChunks, readSSEText, pipeNestedSseToOpenAI } from "./sse.mjs";
 
@@ -24,6 +26,7 @@ let hotModelSource = "system";
 let serverStarted = false;
 let resolveWarm;
 const warmPromise = new Promise((r) => (resolveWarm = r));
+const execFileAsync = promisify(execFile);
 
 function log(...a) {
   console.error("[daemon]", ...a);
@@ -47,6 +50,17 @@ let rewarmCount = 0;
 let lastRewarmAt = null;
 let lastError = null;
 let rewarmPromise = null;
+let loginState = {
+  status: "idle", // idle|pending|ok|error
+  authUrl: null,
+  message: null,
+  startedAt: null,
+  finishedAt: null,
+};
+let loginWaitPromise = null;
+let cachedModels = null;
+let cachedModelsAt = 0;
+
 
 function sealContext(ctx) {
   try {
@@ -329,12 +343,178 @@ async function chatStream(reqBody, res) {
   }
 }
 
+
+function qodercliBin() {
+  return (
+    process.env.QODERCLI_BIN ||
+    "qodercli"
+  );
+}
+
+function parseModelList(stdout) {
+  const lines = String(stdout || "")
+    .split(/\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const out = [];
+  for (const line of lines) {
+    if (/^MODEL$/i.test(line)) continue;
+    if (/^----/.test(line)) continue;
+    out.push(line);
+  }
+  // unique preserve order
+  return [...new Set(out)];
+}
+
+async function listModelsFromCli({ refresh = false } = {}) {
+  const now = Date.now();
+  if (!refresh && cachedModels && now - cachedModelsAt < 60_000) return cachedModels;
+  try {
+    const { stdout } = await execFileAsync(
+      qodercliBin(),
+      ["--list-models"],
+      {
+        timeout: 45_000,
+        env: {
+          ...process.env,
+          HOME: process.env.HOME || "/root",
+        },
+        maxBuffer: 2_000_000,
+      },
+    );
+    const names = parseModelList(stdout);
+    cachedModels = names.map((name) => {
+      const id = String(name);
+      const mapped = mapModel(id);
+      return {
+        id,
+        display_name: id,
+        mapped_key: mapped,
+        object: "model",
+        owned_by: "qoder",
+      };
+    });
+    cachedModelsAt = now;
+    return cachedModels;
+  } catch (err) {
+    // fallback static catalog if CLI fails (e.g. not logged in)
+    const fallback = [
+      "Auto","Ultimate","Performance","Efficient","Lite","Cantus",
+      "Qwen3.8-Max","Qwen3.7-Max","Qwen3.7-Plus",
+      "Kimi-K3","Kimi-K2.7-Code",
+      "GLM-5.3","GLM-5.2",
+      "DeepSeek-V4-Pro","DeepSeek-V4-Flash",
+      "MiniMax-M3",
+    ];
+    return fallback.map((id) => ({
+      id,
+      display_name: id,
+      mapped_key: mapModel(id),
+      object: "model",
+      owned_by: "qoder",
+      stale: true,
+      error: err?.message || String(err),
+    }));
+  }
+}
+
+function getAuthManager() {
+  return authManager || globalThis.__qoderAuthManager || null;
+}
+
+async function startDeviceLogin() {
+  const mgr = getAuthManager();
+  if (!mgr || typeof mgr.loginWithDeviceFlow !== "function") {
+    throw new Error("AuthManager.loginWithDeviceFlow unavailable. Worker may not be warm yet.");
+  }
+  if (loginWaitPromise) {
+    return {
+      ok: true,
+      status: loginState.status,
+      authUrl: loginState.authUrl,
+      message: "login already in progress",
+    };
+  }
+  loginState = {
+    status: "pending",
+    authUrl: null,
+    message: "starting device flow",
+    startedAt: new Date().toISOString(),
+    finishedAt: null,
+  };
+  const result = await mgr.loginWithDeviceFlow();
+  const authUrl = result?.authUrl || result?.url || null;
+  const loginComplete = result?.loginComplete;
+  if (!authUrl) throw new Error("device flow did not return authUrl");
+  loginState.authUrl = authUrl;
+  loginState.message = "Open the auth URL in a browser to finish login";
+  loginWaitPromise = Promise.resolve()
+    .then(async () => {
+      if (loginComplete && typeof loginComplete.then === "function") {
+        await loginComplete;
+      }
+      loginState = {
+        status: "ok",
+        authUrl,
+        message: "login completed",
+        startedAt: loginState.startedAt,
+        finishedAt: new Date().toISOString(),
+      };
+      try {
+        await rewarmContext("login_complete");
+      } catch (e) {
+        loginState.message = `login completed, rewarm failed: ${e?.message || e}`;
+      }
+      cachedModels = null;
+    })
+    .catch((err) => {
+      loginState = {
+        status: "error",
+        authUrl,
+        message: err?.message || String(err),
+        startedAt: loginState.startedAt,
+        finishedAt: new Date().toISOString(),
+      };
+    })
+    .finally(() => {
+      loginWaitPromise = null;
+    });
+  return {
+    ok: true,
+    status: loginState.status,
+    authUrl,
+    message: loginState.message,
+  };
+}
+
+async function loginWithPat(pat) {
+  const mgr = getAuthManager();
+  if (!mgr || typeof mgr.loginWithPAT !== "function") {
+    throw new Error("AuthManager.loginWithPAT unavailable");
+  }
+  const token = String(pat || "").trim();
+  if (!token) throw new Error("pat required");
+  await mgr.loginWithPAT(token, { persist: true });
+  cachedModels = null;
+  await rewarmContext("pat_login");
+  loginState = {
+    status: "ok",
+    authUrl: null,
+    message: "PAT login completed",
+    startedAt: new Date().toISOString(),
+    finishedAt: new Date().toISOString(),
+  };
+  return { ok: true, status: "ok" };
+}
+
+
 function maybeStartServer() {
   if (serverStarted) return;
   serverStarted = true;
   const server = http.createServer(async (req, res) => {
     try {
-      if (req.url === "/health") {
+      const url = new URL(req.url, `http://${host}:${port}`);
+      if (url.pathname === "/health") {
         return sendJSON(res, 200, {
           ok: true,
           hot: !!hotContext,
@@ -344,6 +524,43 @@ function maybeStartServer() {
           rewarmCount,
           lastRewarmAt,
           lastError,
+          login: {
+            status: loginState.status,
+            authUrl: loginState.authUrl,
+            message: loginState.message,
+          },
+        });
+      }
+      // Local management endpoints (dashboard). Chat remains key-protected.
+      if (req.method === "GET" && url.pathname === "/admin/models") {
+        const refresh = url.searchParams.get("refresh") === "1";
+        const models = await listModelsFromCli({ refresh });
+        return sendJSON(res, 200, { object: "list", data: models });
+      }
+      if (req.method === "GET" && url.pathname === "/admin/login/status") {
+        return sendJSON(res, 200, {
+          ok: true,
+          hot: !!hotContext,
+          hasAuthManager: !!getAuthManager(),
+          login: loginState,
+        });
+      }
+      if (req.method === "POST" && url.pathname === "/admin/login/device") {
+        const out = await startDeviceLogin();
+        return sendJSON(res, 200, out);
+      }
+      if (req.method === "POST" && url.pathname === "/admin/login/pat") {
+        const body = await readBody(req);
+        const out = await loginWithPat(body.pat || body.token || body.PAT);
+        return sendJSON(res, 200, out);
+      }
+      if (req.method === "POST" && url.pathname === "/admin/rewarm") {
+        await rewarmContext("admin_rewarm");
+        return sendJSON(res, 200, {
+          ok: true,
+          rewarmCount,
+          lastRewarmAt,
+          hot: !!hotContext,
         });
       }
       if (!authOK(req)) {
@@ -382,15 +599,6 @@ function maybeStartServer() {
           },
         });
 }
-      if (req.method === "POST" && req.url === "/admin/rewarm") {
-        await rewarmContext("admin_rewarm");
-        return sendJSON(res, 200, {
-          ok: true,
-          rewarmCount,
-          lastRewarmAt,
-          hot: !!hotContext,
-        });
-      }
       return sendJSON(res, 404, { error: { code: "not_found", message: "not found" } });
     } catch (err) {
       return sendJSON(res, 500, {
