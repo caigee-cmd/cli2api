@@ -1,0 +1,37 @@
+{
+  "url": "https://api1.qoder.sh/algo/api/v2/service/pro/sse/agent_chat_generation?FetchKeys=llm_model_result&AgentId=agent_common&Encode=1",
+  "method": "POST",
+  "headers": {
+    "Accept": "text/event-stream",
+    "Authorization": "Bearer COSY.<request-scoped-token>",
+    "Cache-Control": "no-cache",
+    "Connection": "keep-alive",
+    "Content-Type": "application/json",
+    "Cosy-Business-Product": "cli",
+    "Cosy-Business-Type": "agent",
+    "Cosy-ClientType": "5",
+    "Cosy-Data-Policy": "disagree",
+    "Cosy-Date": "<unix>",
+    "Cosy-Key": "<base64>",
+    "Cosy-MachineId": "<uuid>",
+    "Cosy-MachineToken": "<token>",
+    "Cosy-MachineType": "5",
+    "Cosy-Organization-Id": "<uuid>",
+    "Cosy-Organization-Tags": "Normal",
+    "Cosy-Scene": "assistant",
+    "Cosy-User": "<uuid>",
+    "Cosy-Version": "1.1.27",
+    "Login-Version": "v2",
+    "X-Model-Key": "auto",
+    "X-Model-Source": "system",
+    "Cosy-MachineOS": "x86_64_linux",
+    "Cosy-MachineHostname": "<host>",
+    "traceparent": "<w3c-traceparent>",
+    "X-Qoder-HTTPDNS-IP": "<ip>"
+  },
+  "notes": [
+    "body is Encode=1 ciphertext, not plaintext JSON",
+    "Authorization is request-scoped COSY token",
+    "exact replay returns Duplicate request"
+  ]
+}
