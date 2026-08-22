@@ -1,4 +1,3 @@
-import fs from "node:fs";
 import { estimateTokens } from "./plaintext.mjs";
 import { resolveUsage, usageLooksUseful } from "./usage.mjs";
 

@@ -105,7 +105,7 @@ Do not include: `docs/PRIVATE_DEPLOYMENT.md`, `docs/private/`, host `.env`, auth
 ### E3 CI and release hygiene
 
 - [x] GitHub Actions: `go test ./...`, `cd worker && npm test`, `cd frontend && npm ci && npm run build`
-- [ ] Optional: `gitleaks` or equivalent on PRs
+- [x] Optional: `gitleaks` or equivalent on PRs
 - [x] `CHANGELOG.md` starting at the first public tag
 - [x] Issue / PR templates: bug, pin-mismatch
 - [x] `CONTRIBUTING.md` + `SECURITY.md` (private disclosure, no raw auth dumps)
