@@ -30,7 +30,7 @@ Do not (this milestone):
 | B non-stream MVP | Worker encodes via live WASM context; Go proxy fronts OpenAI JSON |
 | C usable | Real streaming, tool calls, reasoning passthrough, rewarm/self-heal, React console |
 | D hardening | Upstream usage when present, process-isolated account pool, skip-main wasm boot |
-| E open-source | E0–E3 in tree; tag `v0.1.0` after a second-machine clone check |
+| E open-source | E0–E4 in tree; tag `v0.1.0` after a second-machine clone check |
 
 Typical small-chat latency is ~1-2s after warmup, versus ~10s+ for spawn-CLI wrappers.
 
@@ -113,13 +113,13 @@ Do not include: `docs/PRIVATE_DEPLOYMENT.md`, `docs/private/`, host `.env`, auth
 
 ### E4 positioning, not extra features
 
-README should say this in the first screen:
+README first screen already says:
 
-- Not a spawn-CLI wrapper
-- Warm WASM context + direct cloud HTTP/SSE
-- Personal / self-hosted only
-- Qoder CLI pin is a hard dependency; mismatch exits loudly
-- Cursor is explicitly out of scope for v0.1
+- [x] Not a spawn-CLI wrapper
+- [x] Warm WASM context + direct cloud HTTP/SSE
+- [x] Personal / self-hosted only
+- [x] Qoder CLI pin is a hard dependency; mismatch exits loudly
+- [x] Cursor is explicitly out of scope for v0.1
 
 Nice-to-have after v0.1, not blockers:
 
@@ -129,6 +129,8 @@ Nice-to-have after v0.1, not blockers:
 - model-list live refresh
 
 ### E5 acceptance
+
+Remaining public-release gate. Do **not** tag `v0.1.0` or push until a second machine (or a clean clone) does:
 
 A clean clone on a second machine should:
 
