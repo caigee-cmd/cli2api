@@ -20,13 +20,15 @@ Client (OpenAI SDK / Codex / CherryStudio)
 
 ## Console UI
 
-React + Tailwind CSS v4 + HeroUI console (inspired by Sub2API layout):
+React + Tailwind CSS v4 + **HeroUI** console. Layout/taste notes: [`docs/DESIGN.md`](docs/DESIGN.md). Agent rules: [`AGENTS.md`](AGENTS.md). Current work: [`docs/PLAN.md`](docs/PLAN.md).
+
+Account routing borrows from [sub2api](https://github.com/Wei-Shaw/sub2api); we do not copy its commercial gateway.
 
 ```text
 frontend/
   src/
     components/layout/   # AppLayout / AppSidebar / AppHeader
-    pages/               # Overview / Auth / Providers / Accounts / Access
+    pages/               # Login / Overview / Accounts / Models / Access
     api/ hooks/ i18n/
 ```
 
@@ -169,10 +171,9 @@ Open `/login` and sign in with `PROXY_API_KEY` (console password). Console APIs 
 Pages:
 
 - Overview: runtime status + endpoints
-- Auth: Qoder login-state / worker hot context / rewarm
-- Providers: current models
-- Accounts: process-isolated worker pool
-- API Access: curl snippet + quick chat test
+- Accounts: Qoder login + process-isolated worker pool
+- Models: current catalog
+- Access: curl snippet + quick chat test
 
 Source lives in `frontend/` and is embedded via `internal/webui`.
 
@@ -272,13 +273,15 @@ internal/translate/  OpenAI request structs
 internal/webui/      Embedded console assets
 worker/              Hot QoderContext auth/encode worker
 deploy/              Docker assets
-docs/                Design / capture notes
+docs/                DESIGN.md, PLAN.md, protocol notes
 testdata/            Redacted samples
 ```
 
 ## Docs
 
-- [`docs/PLAN.md`](docs/PLAN.md) — implementation plan and checklist (Qoder-first, Cursor later)
+- [`AGENTS.md`](AGENTS.md) — hard rules for agents
+- [`docs/DESIGN.md`](docs/DESIGN.md) — architecture, login, routing, console, design system
+- [`docs/PLAN.md`](docs/PLAN.md) — current milestone checklist
 - [`docs/capture-notes.md`](docs/capture-notes.md) — redacted protocol notes
 - [`docs/next-prepareRequest.md`](docs/next-prepareRequest.md) — worker boot notes
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) / [`SECURITY.md`](SECURITY.md)

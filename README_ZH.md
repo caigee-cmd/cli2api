@@ -20,13 +20,13 @@ English version: [README.md](README.md)
 
 ## 控制台 UI
 
-React + Tailwind CSS v4 + HeroUI（布局参考 Sub2API）：
+React + Tailwind CSS v4 + **HeroUI** 控制台。设计见 [`docs/DESIGN.md`](docs/DESIGN.md)，规则见 [`AGENTS.md`](AGENTS.md)，当前计划见 [`docs/PLAN.md`](docs/PLAN.md)。账号调度参考 [sub2api](https://github.com/Wei-Shaw/sub2api)，不搬它的商业网关。
 
 ```text
 frontend/
   src/
     components/layout/   # AppLayout / AppSidebar / AppHeader
-    pages/               # Overview / Auth / Providers / Accounts / Access
+    pages/               # Login / Overview / Accounts / Models / Access
     api/ hooks/ i18n/
 ```
 
@@ -169,10 +169,9 @@ open http://127.0.0.1:3010/
 页面：
 
 - 概览：运行状态 + 端点
-- 授权：Qoder 登录态 / worker 热上下文 / rewarm
-- 供应商：当前模型
-- 账号：进程隔离的 worker 池
-- API 接入：curl 示例 + 快速对话测试
+- 账号：Qoder 登录 + 进程隔离的 worker 池
+- 模型：当前目录
+- 接入：curl 示例 + 快速对话测试
 
 源码在 `frontend/`，通过 `internal/webui` embed 进二进制。
 
@@ -278,7 +277,9 @@ testdata/            脱敏样例
 
 ## 文档
 
-- [`docs/PLAN.md`](docs/PLAN.md) — 实施方案与清单（先 Qoder，Cursor 后续）
+- [`AGENTS.md`](AGENTS.md) — 给 agent 的硬规则
+- [`docs/DESIGN.md`](docs/DESIGN.md) — 架构、登录、调度、控制台、设计系统
+- [`docs/PLAN.md`](docs/PLAN.md) — 当前里程碑清单
 - [`docs/capture-notes.md`](docs/capture-notes.md) — 脱敏协议笔记
 - [`docs/next-prepareRequest.md`](docs/next-prepareRequest.md) — worker 启动笔记
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) / [`SECURITY.md`](SECURITY.md)

@@ -1,8 +1,16 @@
 # CLI2API Plan
 
-last-updated: 2026-08-22
+last-updated: 2026-08-23
 
-Qoder-first OpenAI-compatible proxy. Cursor and other CLIs are later providers, not this milestone.
+Qoder-first OpenAI-compatible proxy. Cursor and other CLIs wait until the current Qoder milestone is done.
+
+Canonical files:
+
+- Rules: `AGENTS.md`
+- Design / login / routing / console: `docs/DESIGN.md`
+- This checklist: `docs/PLAN.md`
+
+Do not add extra plan files.
 
 ## Boundary
 
@@ -12,214 +20,82 @@ Do:
 - Serve `POST /v1/chat/completions`
 - Keep a hot `QoderContext` and call cloud HTTP/SSE directly
 - Self-host on a private Docker network
-- Make the public GitHub repo installable by strangers
+- Keep iterating Qoder login, usage, and account routing
+- Borrow scheduling ideas from [sub2api](https://github.com/Wei-Shaw/sub2api), not its commercial gateway
 
-Do not (this milestone):
+Do not:
 
 - Spawn a full `qodercli` agent per request
 - Public exposure without `PROXY_API_KEY`
 - Commercial multi-user resale of one login
-- Cursor / other CLI providers
+- Cursor / other CLI providers in this milestone
 - Commit host IPs, passwords, auth blobs, or `docs/PRIVATE_DEPLOYMENT.md`
 
 ## Status
 
 | Phase | Result |
 |-------|--------|
-| A protocol | Confirmed `COSY.*` request-scoped auth, `Encode=1` body, nested SSE |
-| B non-stream MVP | Worker encodes via live WASM context; Go proxy fronts OpenAI JSON |
-| C usable | Real streaming, tool calls, reasoning passthrough, rewarm/self-heal, React console |
-| D hardening | Upstream usage when present, process-isolated account pool, skip-main wasm boot |
-| E open-source | E0–E5 passed; `v0.1.0` tagged after green CI |
+| A–C | Protocol, non-stream MVP, streaming / tools / reasoning / console |
+| D | Upstream usage, process-isolated pool, skip-main wasm boot |
+| E | Open-source clone-and-run; `v0.1.0` at `eaf81ad` |
+| F | Error taxonomy, supervisor failover, console sign-in, Accounts login |
+| G | Current: keep polishing Qoder login, routing, menu, HeroUI console |
 
 Typical small-chat latency is ~1-2s after warmup, versus ~10s+ for spawn-CLI wrappers.
 
-## Runtime
+## Phase G — Qoder product loop
 
-```text
-Client
-  -> qoder-api-proxy (:3010)
-    -> qoder-auth-worker (:3020, hot QoderContext)
-      -> https://api1.qoder.sh/.../agent_chat_generation?Encode=1
-```
+Goal: the self-hosted console and pool feel like a real ops tool, not a lab page. Keep tightening login, distribution, and IA. HeroUI only. Taste v1 adapted in `docs/DESIGN.md`.
 
-Worker pins `@qoder-ai/qodercli@1.1.27` and patches WASM capture needles. If the CLI source no longer matches, startup fails with a version-aware error instead of running half-broken.
+### G0 docs home
 
-## Usage
+- [x] `AGENTS.md` = hard rules + pointer to DESIGN/PLAN
+- [x] `docs/DESIGN.md` = architecture, two logins, routing, console IA, design system
+- [x] `docs/PLAN.md` = current checklist only
+- [x] README / frontend README / docs index point at those three files
 
-Prefer nested SSE `usage` / `llm_model_result` when present.  
-If upstream only reports credits, keep the local estimate and set `usage.source=estimate`.
+### G1 login flow
 
-## Accounts
+Console password (`PROXY_API_KEY`) and Qoder login stay separate.
 
-Qoder WASM / AuthManager is process-global. Multi-account means one worker process per `HOME`.
+- [x] `/login` split page; not a header key field
+- [x] Qoder device-flow / PAT on `/accounts` per worker
+- [ ] Device-flow status should stay attached to the worker being signed in (no cross-account bleed)
+- [ ] After Qoder login, Accounts should show signed-in / cooling without a manual refresh hunt
+- [ ] Empty / error / pending states for each worker, including “browser closed, try PAT”
 
-- `QODER_HOMES=acc1=/root,acc2=/home/acc2` starts a supervisor
-- Go proxy round-robins `QODER_WORKER_URLS` and fails over on 429/auth errors
-- Clients can pin `X-Qoder-Account`
-- Console `/accounts` shows the pool; do not expose host paths or tokens
+### G2 usage and distribution
 
-## Auth
+Keep process isolation. Improve the pool, do not invent in-process multi-account.
 
-- Console `/api/*` and `/v1` require `PROXY_API_KEY` when it is set
-- Worker `/admin/*` and chat require the same key
-- `/health` stays open for probes
+- [x] Classify quota vs rate-limit vs auth vs not-ready vs 5xx
+- [x] Supervisor failover + sticky-escape + child restart
+- [x] `QODER_MAX_INFLIGHT` + WASM encode lock
+- [ ] Console can tell which account served a test chat (`X-Qoder-Account`)
+- [ ] Health strip: ready / cooling / in-flight / last error, no host paths
+- [ ] Document recommended `QODER_HOMES` vs separate worker containers in README only (no extra doc)
 
----
+### G3 menu and console
 
-## Phase E — Open-source release
+Keep four nav items. Login is a gate.
 
-Goal: a stranger can clone [caigee-cmd/cli2api](https://github.com/caigee-cmd/cli2api), log in with their own Qoder CLI, and get a working OpenAI-compatible endpoint without private ops notes.
+- [x] Nav: Overview / Accounts / Models / Access
+- [x] `/auth` redirects to `/accounts`
+- [ ] Overview: signed-in worker count, not a second login form
+- [ ] Access: account picker only when more than one worker exists
+- [ ] No duplicate page titles under the shell header
+- [ ] After UI edits, `cd frontend && npm run sync`
 
-### E0 freeze D locally
+### G4 acceptance
 
-Uncommitted D work must land before any public push:
+- [ ] Local: console login → Accounts browser/PAT login → chat `只回复OK`
+- [ ] Two workers: 429 on A, chat lands on B, pinned A sticky-escapes when cooling
+- [ ] Do not tag until asked; `v0.1.0` stays as-is
 
-- [x] worker usage extractor (`worker/src/usage.mjs`) + tests
-- [x] process-isolated supervisor (`worker/src/supervisor.mjs`)
-- [x] Go account pool (`internal/accounts`) + `/api/accounts`
-- [x] skip-main / pure-wasm boot path
-- [x] console Accounts page + leftover Vite assets removed
-- [x] README / compose / `.env.example` already mention the above; keep them in the same commit
+## Later (not G)
 
-Do not include: `docs/PRIVATE_DEPLOYMENT.md`, `docs/private/`, host `.env`, auth blobs.
-
-### E1 sanitize for strangers
-
-- [x] Strip local-only paths from public files (`/tmp/qoder-wasm-spike`, capture preload scripts, machine names)
-- [x] Worker template loader should use `PLAIN_TEMPLATE_PATH` + `worker/last-plain.sample.json` only
-- [x] Rewrite `docs/capture-notes.md` / `docs/next-prepareRequest.md` as redacted protocol notes, not a personal lab log
-- [x] Replace `frontend/README.md` Vite boilerplate with console build/sync notes
-- [x] README EN/ZH: add Accounts page, `usage.source`, supervisor boot, ToS warning above the fold
-- [x] Secret scan: no tokens, cookies, account ids, host IPs, customer prompts in git tree or history
-
-### E2 make clone → run boring
-
-- [x] One-command local path in README: worker `npm start` + `go run ./cmd/server`
-- [x] Compose: document Qoder HOME mount, `PROXY_API_KEY`, optional `QODER_HOMES`
-- [x] Add container healthchecks for proxy + worker
-- [x] Fail fast if `PROXY_API_KEY` is empty/`change-me` in non-dev
-- [x] Pin Node 20 / Go 1.25 in README and Dockerfiles
-- [x] Keep sample plaintext template tiny and non-secret
-
-### E3 CI and release hygiene
-
-- [x] GitHub Actions: `go test ./...`, `cd worker && npm test`, `cd frontend && npm ci && npm run build`
-- [x] Optional: `gitleaks` or equivalent on PRs
-- [x] `CHANGELOG.md` starting at the first public tag
-- [x] Issue / PR templates: bug, pin-mismatch
-- [x] `CONTRIBUTING.md` + `SECURITY.md` (private disclosure, no raw auth dumps)
-- [x] Tag `v0.1.0` after second-machine clone check and green CI
-
-### E4 positioning, not extra features
-
-README first screen already says:
-
-- [x] Not a spawn-CLI wrapper
-- [x] Warm WASM context + direct cloud HTTP/SSE
-- [x] Personal / self-hosted only
-- [x] Qoder CLI pin is a hard dependency; mismatch exits loudly
-- [x] Cursor is explicitly out of scope for v0.1
-
-Nice-to-have after v0.1, not blockers:
-
-- screenshot of the console
-- `make test` / `make up`
-- GitHub Discussion / Discord
-- model-list live refresh
-
-### E5 acceptance
-
-Checked 2026-08-22 on a clean local clone and us1 compose:
-
-- [x] `cp .env.example .env` and set `PROXY_API_KEY`
-- [x] mount a real `~/.qoder` login
-- [x] `docker compose up -d --build`
-- [x] `GET /health` 200
-- [x] `POST /v1/chat/completions` with the key returns a chat (`OK`, `usage.source=upstream`)
-- [x] local `go test ./...` + worker tests + gitleaks on the clone
-- [x] `git grep` finds no host IPs / auth blobs / private deploy notes
-
-Tagged `v0.1.0` at `eaf81ad` after GitHub Actions went green.
-
----
-
-## Phase F — Qoder account pool hardening
-
-Goal: keep the v0.1 personal/self-hosted shape, but make multi-account auth and failover actually hold under Qoder's real errors. Borrow scheduling ideas from [sub2api](https://github.com/Wei-Shaw/sub2api), not its commercial gateway (billing, Redis slots, sticky-for-profit, multi-tenant keys).
-
-Do:
-
-- Classify upstream errors instead of treating every failure as a 500
-- Fail over only when another account can reasonably succeed
-- Health-skip / restart isolated workers
-- Show cooldown state in the console
-- Keep process isolation (one Qoder HOME / WASM context per worker)
-
-Do not:
-
-- In-process multi-account
-- Copy sub2api billing / user API keys / Redis concurrency
-- Long cooldown on `insufficient_quota` (Qoder often means this prompt is too large, not empty balance)
-- Cursor / Anthropic providers
-
-### F0 error taxonomy
-
-Qoder errors are not all account-level:
-
-| Kind | Typical signal | HTTP | Fail over | Account cooldown |
-|------|----------------|------|-----------|------------------|
-| quota | `insufficient_quota`, `#token-limit`, oversized prompt | 429 | no | no |
-| rate_limit | `response code=429`, too many requests | 429 | yes | ~60s, honor `Retry-After`, cap 10m |
-| auth | 401/403, unauthorized, FORBIDDEN | 401/403 | yes | ~30s + existing rewarm |
-| not_ready | hot context missing | 503 | yes | ~10s |
-| unavailable | transport / 5xx | 502/503 | yes | ~15s |
-
-Worker must return that status (not a blanket 500) so Go and supervisor can see it.
-
-### F1 worker stability
-
-- [x] Serialize WASM `prepareInferRequest` + rewarm on one lock; do not hold it across upstream fetch
-- [x] Optional `QODER_MAX_INFLIGHT` (default 4) so one login does not stampede Qoder
-- [x] `/health` reports `inFlight`, `lastError`, `rewarmCount`
-- [x] Map thrown errors through the F0 classifier and set `Retry-After` when cooling down
-
-### F2 supervisor (default compose path)
-
-Default compose has **one** worker URL. Go cannot fail over unless the supervisor does.
-
-- [x] Buffer POST bodies so a failed child can be retried
-- [x] Skip children that are down / not hot; sticky-escape a pinned `X-Qoder-Account` when that child is cooling
-- [x] Restart exited children with backoff
-- [x] `/health` and `/admin/accounts` list id/ready/hot/down_until/last_error — **no host paths**
-- [x] Honor `X-Qoder-Account` and echo it on the response
-
-### F3 Go pool
-
-- [x] Shared classifier + `Retry-After`
-- [x] `MarkOK` after a successful chat
-- [x] Do not burn the rest of the pool on quota / oversized-prompt errors
-- [x] Merge supervisor health into `/api/accounts` + overview
-
-### F4 console + docs
-
-- [x] Accounts page: ready/hot, cooldown, last error, in-flight, restarts
-- [x] Access/Auth: pin account on test chat / login
-- [x] Console sign-in page; Qoder login moved onto Accounts
-- [x] README: supervisor `QODER_HOMES` vs separate `QODER_WORKER_URLS` containers
-
-### F5 acceptance
-
-- [x] Worker + Go unit tests for classify / pick / failover / no-failover-on-quota
-- [x] Local: two fake workers, 429 on A, chat on B
-- [x] Do not tag until this lands; v0.1.0 stays as-is
-
-## Later (not F)
-
-- Cursor provider (separate milestone)
+- Cursor provider
 - Exact tokenizer matching if Qoder starts returning richer usage
-- In-process multi-account is still impossible; keep process isolation
+- In-process multi-account (still impossible)
 - Anthropic `/v1/messages`
-- sub2api-style session-hash sticky (optional after F; chat is already fully in-body)
-ges`
-- sub2api-style session-hash sticky (optional after F; chat is already fully in-body)
+- sub2api-style session-hash sticky

@@ -11,6 +11,7 @@ Qoder account-pool hardening (Phase F):
 - Console uses a split sign-in page (PROXY_API_KEY as password) instead of a header key field
 - Qoder device-flow / PAT login lives on the Accounts page, per worker
 - Accounts page is a worker list with status, browser login, and PAT fallback
+- Writing-code docs collapsed to AGENTS.md + docs/DESIGN.md + docs/PLAN.md
 
 ## 0.1.0 - 2026-08-22
 
