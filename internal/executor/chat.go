@@ -110,19 +110,18 @@ func (e ChatExecutor) pick(prefer string, excluded map[string]struct{}) (account
 	return accounts.Item{}, fmt.Errorf("no worker accounts configured")
 }
 
-func (e ChatExecutor) markDown(id, errText string) {
+func (e ChatExecutor) markClassified(id string, c accounts.Classified) {
+	if e.Pool == nil || id == "" {
+		return
+	}
+	e.Pool.MarkClassified(id, c)
+}
+
+func (e ChatExecutor) markOK(id string) {
 	if e.Pool == nil {
 		return
 	}
-	d := 15 * time.Second
-	lower := strings.ToLower(errText)
-	if strings.Contains(lower, "insufficient_quota") || strings.Contains(lower, "token-limit") || strings.Contains(lower, "429") {
-		d = 45 * time.Second
-	}
-	if strings.Contains(lower, "unauthorized") || strings.Contains(lower, "401") || strings.Contains(lower, "403") {
-		d = 20 * time.Second
-	}
-	e.Pool.MarkDown(id, d, errText)
+	e.Pool.MarkOK(id)
 }
 
 func (e ChatExecutor) newWorkerRequest(ctx context.Context, item accounts.Item, payload []byte, prefer string) (*http.Request, error) {
@@ -144,12 +143,18 @@ func (e ChatExecutor) newWorkerRequest(ctx context.Context, item accounts.Item, 
 	return httpReq, nil
 }
 
-func retryableWorkerErr(status int, body string) bool {
-	if status >= 500 || status == http.StatusTooManyRequests || status == http.StatusUnauthorized || status == http.StatusForbidden {
-		return true
+func classifyWorkerErr(resp *http.Response, body string) accounts.Classified {
+	status := 0
+	retryAfter := ""
+	kind := ""
+	failover := ""
+	if resp != nil {
+		status = resp.StatusCode
+		retryAfter = resp.Header.Get("Retry-After")
+		kind = resp.Header.Get("X-Qoder-Error-Kind")
+		failover = resp.Header.Get("X-Qoder-Failover")
 	}
-	lower := strings.ToLower(body)
-	return strings.Contains(lower, "insufficient_quota") || strings.Contains(lower, "token-limit") || strings.Contains(lower, "hot context not ready")
+	return accounts.Classify(status, body, retryAfter, kind, failover)
 }
 
 func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatRequest, prefer string) (ChatResult, error) {
@@ -159,34 +164,41 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 	}
 	excluded := map[string]struct{}{}
 	var lastErr error
-	attempts := 1
-	if e.Pool != nil && e.Pool.Len() > 1 {
-		attempts = e.Pool.Len()
-	}
+	attempts := e.attempts()
+	pinned := prefer
 	for i := 0; i < attempts; i++ {
 		item, err := e.pick(prefer, excluded)
 		if err != nil {
 			return ChatResult{}, err
 		}
+		headerAccount := item.ID
+		if i == 0 && pinned != "" {
+			headerAccount = pinned
+		}
 		prefer = ""
-		httpReq, err := e.newWorkerRequest(ctx, item, payload, prefer)
+		httpReq, err := e.newWorkerRequest(ctx, item, payload, headerAccount)
 		if err != nil {
 			return ChatResult{}, err
 		}
 		resp, err := e.HTTPClient.Do(httpReq)
 		if err != nil {
+			classified := accounts.Classify(0, err.Error(), "", accounts.KindUnavailable, "")
 			lastErr = fmt.Errorf("worker %s request failed: %w", item.ID, err)
-			e.markDown(item.ID, err.Error())
+			e.markClassified(item.ID, classified)
 			excluded[item.ID] = struct{}{}
 			continue
 		}
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
+		if account := resp.Header.Get("X-Qoder-Account"); account != "" {
+			item.ID = account
+		}
 		if resp.StatusCode >= 300 {
 			msg := strings.TrimSpace(string(body))
+			classified := classifyWorkerErr(resp, msg)
 			lastErr = fmt.Errorf("worker %s status=%d: %s", item.ID, resp.StatusCode, msg)
-			if retryableWorkerErr(resp.StatusCode, msg) {
-				e.markDown(item.ID, msg)
+			e.markClassified(item.ID, classified)
+			if classified.Failover && i+1 < attempts {
 				excluded[item.ID] = struct{}{}
 				continue
 			}
@@ -197,12 +209,20 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 			return ChatResult{}, err
 		}
 		result.AccountID = item.ID
+		e.markOK(item.ID)
 		return result, nil
 	}
 	if lastErr == nil {
 		lastErr = fmt.Errorf("no worker accounts available")
 	}
 	return ChatResult{}, lastErr
+}
+
+func (e ChatExecutor) attempts() int {
+	if e.Pool != nil && e.Pool.Len() > 0 {
+		return e.Pool.Len()
+	}
+	return 1
 }
 
 func decodeChatResult(req translate.ChatRequest, body []byte) (ChatResult, error) {
@@ -268,39 +288,47 @@ func (e ChatExecutor) ChatStreamProxy(ctx context.Context, req translate.ChatReq
 	}
 	excluded := map[string]struct{}{}
 	var lastErr error
-	attempts := 1
-	if e.Pool != nil && e.Pool.Len() > 1 {
-		attempts = e.Pool.Len()
-	}
+	attempts := e.attempts()
+	pinned := prefer
 	for i := 0; i < attempts; i++ {
 		item, err := e.pick(prefer, excluded)
 		if err != nil {
 			return nil, "", err
 		}
+		headerAccount := item.ID
+		if i == 0 && pinned != "" {
+			headerAccount = pinned
+		}
 		prefer = ""
-		httpReq, err := e.newWorkerRequest(ctx, item, payload, prefer)
+		httpReq, err := e.newWorkerRequest(ctx, item, payload, headerAccount)
 		if err != nil {
 			return nil, "", err
 		}
 		resp, err := e.HTTPClient.Do(httpReq)
 		if err != nil {
+			classified := accounts.Classify(0, err.Error(), "", accounts.KindUnavailable, "")
 			lastErr = fmt.Errorf("worker %s stream request failed: %w", item.ID, err)
-			e.markDown(item.ID, err.Error())
+			e.markClassified(item.ID, classified)
 			excluded[item.ID] = struct{}{}
 			continue
+		}
+		if account := resp.Header.Get("X-Qoder-Account"); account != "" {
+			item.ID = account
 		}
 		if resp.StatusCode >= 300 {
 			body, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
 			msg := strings.TrimSpace(string(body))
+			classified := classifyWorkerErr(resp, msg)
 			lastErr = fmt.Errorf("worker %s stream status=%d: %s", item.ID, resp.StatusCode, msg)
-			if retryableWorkerErr(resp.StatusCode, msg) {
-				e.markDown(item.ID, msg)
+			e.markClassified(item.ID, classified)
+			if classified.Failover && i+1 < attempts {
 				excluded[item.ID] = struct{}{}
 				continue
 			}
 			return nil, "", lastErr
 		}
+		e.markOK(item.ID)
 		return resp, item.ID, nil
 	}
 	if lastErr == nil {

@@ -12,6 +12,11 @@ type Item struct {
 	URL       string
 	DownUntil time.Time
 	LastError string
+	LastKind  string
+	Ready     *bool
+	Hot       *bool
+	InFlight  int
+	Restarts  int
 }
 
 type Pool struct {
@@ -150,18 +155,63 @@ func (p *Pool) Pick(prefer string, excluded map[string]struct{}) (Item, bool) {
 }
 
 func (p *Pool) MarkDown(id string, d time.Duration, err string) {
+	p.MarkClassified(id, Classified{Kind: KindUnavailable, Cooldown: d, Message: err})
+}
+
+func (p *Pool) MarkClassified(id string, c Classified) {
 	if p == nil || id == "" {
 		return
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	until := time.Now().Add(d)
+	for i := range p.items {
+		if p.items[i].ID != id {
+			continue
+		}
+		p.items[i].LastError = c.Message
+		p.items[i].LastKind = c.Kind
+		if c.Cooldown > 0 && (c.Failover || c.Kind != KindQuota) {
+			p.items[i].DownUntil = time.Now().Add(c.Cooldown)
+		}
+		return
+	}
+}
+
+func (p *Pool) MarkOK(id string) {
+	if p == nil || id == "" {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	for i := range p.items {
 		if p.items[i].ID == id {
-			p.items[i].DownUntil = until
-			p.items[i].LastError = err
+			p.items[i].DownUntil = time.Time{}
+			p.items[i].LastError = ""
+			p.items[i].LastKind = ""
 			return
 		}
+	}
+}
+
+func (p *Pool) MergeHealth(id string, ready, hot bool, inFlight, restarts int, lastError string) {
+	if p == nil || id == "" {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for i := range p.items {
+		if p.items[i].ID != id {
+			continue
+		}
+		r, h := ready, hot
+		p.items[i].Ready = &r
+		p.items[i].Hot = &h
+		p.items[i].InFlight = inFlight
+		p.items[i].Restarts = restarts
+		if lastError != "" {
+			p.items[i].LastError = lastError
+		}
+		return
 	}
 }
 
@@ -174,10 +224,22 @@ func (p *Pool) Snapshot() []map[string]any {
 	now := time.Now()
 	out := make([]map[string]any, 0, len(p.items))
 	for _, item := range p.items {
+		ready := !itemDown(item, now)
+		if item.Ready != nil {
+			ready = *item.Ready && ready
+		}
+		hot := false
+		if item.Hot != nil {
+			hot = *item.Hot
+		}
 		out = append(out, map[string]any{
 			"id":         item.ID,
 			"url":        item.URL,
-			"ready":      !itemDown(item, now),
+			"ready":      ready,
+			"hot":        hot,
+			"in_flight":  item.InFlight,
+			"restarts":   item.Restarts,
+			"kind":       item.LastKind,
 			"down_until": nullableTime(item.DownUntil, now),
 			"last_error": item.LastError,
 		})

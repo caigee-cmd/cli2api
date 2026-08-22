@@ -164,7 +164,7 @@ Open the built-in management console after starting the proxy:
 open http://127.0.0.1:3010/
 ```
 
-Paste `PROXY_API_KEY` in the header. Console APIs (`/api/*`) and `/v1` both require it when the key is set.
+Open `/login` and sign in with `PROXY_API_KEY` (console password). Console APIs (`/api/*`) and `/v1` both require it when the key is set. Qoder device-flow / PAT login is on the Accounts page, one worker at a time.
 
 Pages:
 
@@ -238,15 +238,26 @@ Otherwise the proxy estimates tokens (`usage.source=estimate`) so billing still 
 
 ### Multi-account
 
-Qoder WASM is process-global, so each login needs its own worker process / HOME:
+Qoder WASM is process-global, so each login needs its own worker process / HOME.
+
+Default Compose path (one worker container, supervisor inside):
 
 ```bash
 QODER_HOMES=acc1=/root,acc2=/home/acc2
+# proxy still has a single URL; supervisor failovers and honors X-Qoder-Account
+QODER_WORKER_URLS=http://qoder-auth-worker:3020
+```
+
+Separate worker containers:
+
+```bash
 QODER_WORKER_URLS=http://qoder-acc1:3020,http://qoder-acc2:3020
 QODER_ACCOUNT_IDS=acc1,acc2
 ```
 
-Chat round-robins across workers and fails over on 429/auth errors. Pin with `X-Qoder-Account`.
+Chat round-robins and fails over on rate-limit / auth / not-ready / 5xx.  
+`insufficient_quota` (often oversized prompt, not empty balance) does **not** burn the rest of the pool.  
+Pin with `X-Qoder-Account`; if that account is cooling down, the proxy sticky-escapes to another ready worker.
 
 ## Project layout
 

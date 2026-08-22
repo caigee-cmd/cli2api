@@ -111,3 +111,18 @@ func TestSPAFallbackServesAccounts(t *testing.T) {
 		t.Fatalf("GET /accounts: got %d want 200", rec.Code)
 	}
 }
+
+func TestSPAFallbackServesLogin(t *testing.T) {
+	srv := New(config.Config{
+		Host:        "127.0.0.1",
+		Port:        3010,
+		ProxyAPIKey: "secret",
+		QoderHome:   t.TempDir(),
+	})
+	req := httptest.NewRequest(http.MethodGet, "/login", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /login: got %d want 200", rec.Code)
+	}
+}

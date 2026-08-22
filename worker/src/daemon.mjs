@@ -10,6 +10,7 @@ import { buildPlainChatBody, mapModel, wantsReasoning, estimateTokens, estimateP
 import { parseNestedOpenAIChunks, readSSEText, pipeNestedSseToOpenAI } from "./sse.mjs";
 import { inspectQodercliSource, PINNED_QODERCLI_VERSION, readQodercliVersion } from "./compat.mjs";
 import { resolveUsage } from "./usage.mjs";
+import { classifyError } from "./errors.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 register(pathToFileURL(path.join(__dirname, "rewrite-loader.mjs")).href);
@@ -74,6 +75,9 @@ let loginState = {
 let loginWaitPromise = null;
 let cachedModels = null;
 let cachedModelsAt = 0;
+let encodeChain = Promise.resolve();
+let inFlight = 0;
+const maxInFlight = Math.max(1, Number(process.env.QODER_MAX_INFLIGHT || 4) || 4);
 
 
 function sealContext(ctx) {
@@ -129,13 +133,64 @@ globalThis.__qoderWorkerOnPrepareInfer = function (ctx, endpoint, body, modelKey
 };
 
 function isAuthError(errOrText) {
-  const s = String(errOrText || "");
-  // Do NOT treat insufficient_quota / token-limit as auth failures.
-  // Aliyun's quota error URL contains "#token-limit", which previously matched /token/ and caused useless rewarm.
-  if (/insufficient_quota|token-limit|exceeded your current quota|rate.?limit|too many requests/i.test(s)) {
-    return false;
+  return classifyError({ message: errOrText }).kind === "auth";
+}
+
+function withEncodeLock(fn) {
+  const run = encodeChain.then(fn, fn);
+  encodeChain = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
+async function acquireInFlight() {
+  if (inFlight >= maxInFlight) {
+    const err = new Error(`account busy: ${inFlight} in-flight requests (limit ${maxInFlight})`);
+    err.kind = "rate_limit";
+    err.status = 429;
+    throw err;
   }
-  return /null pointer|FORBIDDEN|Duplicate request|\b401\b|\b403\b|unauthorized|auth|credential|refresh.?token|access.?token/i.test(s);
+  inFlight += 1;
+}
+
+function releaseInFlight() {
+  inFlight = Math.max(0, inFlight - 1);
+}
+
+function sendClassified(res, err, extra = {}) {
+  const classified = classifyError({
+    message: err?.message || String(err || ""),
+    kind: err?.kind,
+    status: err?.status,
+    retryAfter: err?.retryAfter,
+    body: err?.body,
+  });
+  lastError = classified.message;
+  if (classified.retryAfterSec > 0) {
+    extra["retry-after"] = String(classified.retryAfterSec);
+  }
+  extra["x-qoder-error-kind"] = classified.kind;
+  extra["x-qoder-failover"] = classified.failover ? "1" : "0";
+  extra["x-qoder-account"] = accountId;
+  const headers = {
+    "content-type": "application/json",
+    ...extra,
+  };
+  const body = JSON.stringify({
+    error: {
+      message: classified.message,
+      type: classified.type,
+      code: classified.code,
+      kind: classified.kind,
+      failover: classified.failover,
+    },
+  });
+  headers["content-length"] = Buffer.byteLength(body);
+  res.writeHead(classified.status, headers);
+  res.end(body);
+  return classified;
 }
 
 function humanizeUpstreamError(code, msg) {
@@ -165,7 +220,7 @@ function humanizeUpstreamError(code, msg) {
 
 async function rewarmContext(reason = "unknown") {
   if (rewarmPromise) return rewarmPromise;
-  rewarmPromise = (async () => {
+  rewarmPromise = withEncodeLock(async () => {
     lastError = reason;
     log("rewarm start", reason);
     const mgr = authManager || globalThis.__qoderAuthManager;
@@ -185,10 +240,9 @@ async function rewarmContext(reason = "unknown") {
     lastError = null;
     log("rewarm success", { rewarmCount, lastRewarmAt });
     return true;
-  })()
-    .finally(() => {
-      rewarmPromise = null;
-    });
+  }).finally(() => {
+    rewarmPromise = null;
+  });
   return rewarmPromise;
 }
 
@@ -204,6 +258,7 @@ function sendJSON(res, status, obj) {
   res.writeHead(status, {
     "content-type": "application/json",
     "content-length": Buffer.byteLength(body),
+    "x-qoder-account": accountId,
   });
   res.end(body);
 }
@@ -255,19 +310,21 @@ async function prepareUpstream(reqBody) {
     );
   }
 
-  const prev = globalThis.__qoderWorkerOnPrepareInfer;
-  globalThis.__qoderWorkerOnPrepareInfer = null;
-  let encoded;
-  try {
-    encoded = hotContext.prepareInferRequest(
-      hotEndpoint,
-      JSON.stringify(plain),
-      plain.model_config?.key || hotModelKey,
-      plain.model_config?.source || hotModelSource,
-    );
-  } finally {
-    globalThis.__qoderWorkerOnPrepareInfer = prev;
-  }
+  const encoded = await withEncodeLock(async () => {
+    if (!hotContext) throw new Error("hot context not ready");
+    const prev = globalThis.__qoderWorkerOnPrepareInfer;
+    globalThis.__qoderWorkerOnPrepareInfer = null;
+    try {
+      return hotContext.prepareInferRequest(
+        hotEndpoint,
+        JSON.stringify(plain),
+        plain.model_config?.key || hotModelKey,
+        plain.model_config?.source || hotModelSource,
+      );
+    } finally {
+      globalThis.__qoderWorkerOnPrepareInfer = prev;
+    }
+  });
 
   const headers = {};
   if (encoded?.headers?.forEach) encoded.headers.forEach((v, k) => (headers[k] = v));
@@ -546,12 +603,15 @@ function maybeStartServer() {
         return sendJSON(res, 200, {
           ok: true,
           hot: !!hotContext,
+          ready: !!hotContext,
           endpoint: hotEndpoint,
           modelKey: hotModelKey,
           hasAuthManager: !!mgr,
           accountId,
           bootMode,
           uid: user?.uid || null,
+          inFlight,
+          maxInFlight,
           rewarmCount,
           lastRewarmAt,
           lastError,
@@ -598,6 +658,8 @@ function maybeStartServer() {
         });
       }
       if (req.method === "POST" && (url.pathname === "/v1/chat/completions" || url.pathname === "/internal/chat")) {
+        await acquireInFlight();
+        try {
         const body = await readBody(req);
         if (body.stream) {
           await chatStream(body, res);
@@ -631,12 +693,14 @@ function maybeStartServer() {
             ...(result.usage?.credits != null ? { credits: result.usage.credits } : {}),
           },
         });
+        } finally {
+          releaseInFlight();
+        }
       }
       return sendJSON(res, 404, { error: { code: "not_found", message: "not found" } });
     } catch (err) {
-      return sendJSON(res, 500, {
-        error: { code: "worker_error", message: err?.message || String(err) },
-      });
+      if (!res.headersSent) return sendClassified(res, err);
+      try { res.end(); } catch {}
     }
   });
   server.listen(port, host, () => log(`listening on http://${host}:${port}`));

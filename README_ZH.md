@@ -164,7 +164,7 @@ curl -s http://127.0.0.1:3010/v1/chat/completions \
 open http://127.0.0.1:3010/
 ```
 
-在顶栏填写 `PROXY_API_KEY`。配置了 Key 时，控制台 `/api/*` 和 `/v1` 都需要它。
+打开 `/login`，用 `PROXY_API_KEY` 当控制台密码登录。配置了 Key 时，控制台 `/api/*` 和 `/v1` 都需要它。Qoder 浏览器登录 / PAT 在「账号」页，按 worker 分别登录。
 
 页面：
 
@@ -238,15 +238,26 @@ worker **不会**继承抓包模板里那份巨大的 Qoder agent system/tools�
 
 ### 多账号
 
-Qoder WASM 是进程内单例，所以每个登录态要独占 HOME / worker 进程：
+Qoder WASM 是进程内单例，所以每个登录态要独占 HOME / worker 进程。
+
+默认 Compose（一个 worker 容器，内部 supervisor）：
 
 ```bash
 QODER_HOMES=acc1=/root,acc2=/home/acc2
+# proxy 仍只配一个 URL；supervisor 负责 failover，并识别 X-Qoder-Account
+QODER_WORKER_URLS=http://qoder-auth-worker:3020
+```
+
+独立 worker 容器：
+
+```bash
 QODER_WORKER_URLS=http://qoder-acc1:3020,http://qoder-acc2:3020
 QODER_ACCOUNT_IDS=acc1,acc2
 ```
 
-Chat 会 round-robin，遇到 429/鉴权失败切下一个。可用 `X-Qoder-Account` 钉死账号。
+Chat 会 round-robin；rate-limit / 鉴权失败 / 未就绪 / 5xx 切下一个。  
+`insufficient_quota`（经常是 prompt 过大，不是余额为 0）不会把整个池打穿。  
+可用 `X-Qoder-Account` 钉死账号；该账号冷却中会 sticky-escape 到下一个就绪 worker。
 
 ## 目录结构
 

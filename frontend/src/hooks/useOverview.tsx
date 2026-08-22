@@ -1,40 +1,64 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { fetchOverview } from '@/api/overview'
+import { isUnauthorized } from '@/api/client'
+import { useApiKey } from '@/hooks/useApiKey'
 import type { Overview } from '@/api/types'
 
 type OverviewContextValue = {
   overview: Overview | null
   loading: boolean
   error: string | null
-  refresh: () => Promise<void>
+  refresh: (keyOverride?: string) => Promise<Overview>
   setOverview: (next: Overview | null) => void
 }
 
 const OverviewContext = createContext<OverviewContextValue | null>(null)
 
 export function OverviewProvider({ children }: { children: ReactNode }) {
+  const { apiKey, signOut } = useApiKey()
   const [overview, setOverview] = useState<Overview | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(Boolean(apiKey))
   const [error, setError] = useState<string | null>(null)
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (keyOverride?: string) => {
+    const key = keyOverride ?? apiKey
+    if (!key) {
+      setOverview(null)
+      setError(null)
+      setLoading(false)
+      throw new Error('missing_api_key')
+    }
     setLoading(true)
     try {
-      const data = await fetchOverview()
+      const data = await fetchOverview(key)
       setOverview(data)
       setError(null)
+      return data
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      const msg = err instanceof Error ? err.message : String(err)
+      setOverview(null)
+      setError(msg)
+      if (isUnauthorized(err)) signOut()
+      throw err
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [apiKey, signOut])
 
   useEffect(() => {
-    void refresh()
-  }, [refresh])
+    if (!apiKey) {
+      setOverview(null)
+      setLoading(false)
+      setError(null)
+      return
+    }
+    void refresh().catch(() => undefined)
+  }, [apiKey, refresh])
 
-  const value = useMemo(() => ({ overview, loading, error, refresh, setOverview }), [overview, loading, error, refresh])
+  const value = useMemo(
+    () => ({ overview, loading, error, refresh, setOverview }),
+    [overview, loading, error, refresh],
+  )
   return <OverviewContext.Provider value={value}>{children}</OverviewContext.Provider>
 }
 

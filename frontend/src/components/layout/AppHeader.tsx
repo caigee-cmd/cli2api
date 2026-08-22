@@ -1,5 +1,6 @@
-import { Menu, RefreshCw } from 'lucide-react'
-import { Button, ButtonGroup, Input } from '@heroui/react'
+import { LogOut, Menu, RefreshCw } from 'lucide-react'
+import { Button, ButtonGroup } from '@heroui/react'
+import { useNavigate } from 'react-router-dom'
 import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
 import { useApiKey } from '@/hooks/useApiKey'
@@ -17,7 +18,8 @@ export function AppHeader({
 }) {
   const { lang, setLang, t } = useI18n()
   const { loading, refresh } = useOverview()
-  const { apiKey, setApiKey } = useApiKey()
+  const { signOut } = useApiKey()
+  const navigate = useNavigate()
 
   return (
     <header className="mb-6 flex flex-col gap-4 border-b border-white/10 pb-5 sm:flex-row sm:items-end sm:justify-between">
@@ -34,16 +36,6 @@ export function AppHeader({
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <Input
-          className="w-44"
-          type="password"
-          value={apiKey}
-          onChange={(e) => setApiKey(e.target.value)}
-          onBlur={() => void refresh()}
-          placeholder={t('apiKeyPh')}
-          aria-label={t('apiKey')}
-          autoComplete="off"
-        />
         <ButtonGroup>
           <Button
             size="sm"
@@ -64,10 +56,21 @@ export function AppHeader({
           size="sm"
           variant="secondary"
           isPending={loading}
-          onPress={() => void refresh()}
+          onPress={() => void refresh().catch(() => undefined)}
         >
           <RefreshCw size={14} />
           {loading ? t('refreshing') : t('refresh')}
+        </Button>
+        <Button
+          size="sm"
+          variant="secondary"
+          onPress={() => {
+            signOut()
+            navigate('/login', { replace: true })
+          }}
+        >
+          <LogOut size={14} />
+          {t('signOut')}
         </Button>
       </div>
     </header>

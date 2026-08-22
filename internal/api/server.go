@@ -70,7 +70,7 @@ func (s *Server) routes() {
 			r.URL.Path != "/favicon.svg" {
 			// Only treat likely page routes as SPA; keep unknown API-like paths 404.
 			switch r.URL.Path {
-			case "/auth", "/providers", "/access", "/accounts":
+			case "/login", "/auth", "/providers", "/access", "/accounts":
 			default:
 				http.NotFound(w, r)
 				return
@@ -202,7 +202,7 @@ func (s *Server) requestedAccount(r *http.Request) string {
 func (s *Server) handleAccounts(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"object": "list",
-		"data":   s.pool.Snapshot(),
+		"data":   accountSnapshot(s.pool, s.fetchWorkerHealth()),
 	})
 }
 
@@ -390,7 +390,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	if req.Stream {
 		upstream, accountID, err := s.executor.ChatStreamProxy(r.Context(), req, prefer)
 		if err != nil {
-			writeErr(w, http.StatusServiceUnavailable, "upstream_not_ready", err.Error())
+			writeClassifiedErr(w, err)
 			return
 		}
 		defer upstream.Body.Close()
@@ -412,7 +412,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 
 	res, err := s.executor.ChatNonStream(r.Context(), req, prefer)
 	if err != nil {
-		writeErr(w, http.StatusServiceUnavailable, "upstream_not_ready", err.Error())
+		writeClassifiedErr(w, err)
 		return
 	}
 	message := map[string]any{
@@ -469,9 +469,36 @@ func accountSnapshot(pool *accounts.Pool, worker map[string]any) []map[string]an
 		if raw, ok := worker["accounts"].([]any); ok && len(raw) > 0 {
 			out := make([]map[string]any, 0, len(raw))
 			for _, item := range raw {
-				if m, ok := item.(map[string]any); ok {
-					out = append(out, m)
+				m, ok := item.(map[string]any)
+				if !ok {
+					continue
 				}
+				delete(m, "home")
+				id, _ := m["id"].(string)
+				if id == "" {
+					id, _ = m["accountId"].(string)
+					if id != "" {
+						m["id"] = id
+					}
+				}
+				if pool != nil && id != "" {
+					if pooled, ok := pool.ByID(id); ok {
+						if m["url"] == nil || m["url"] == "" {
+							m["url"] = pooled.URL
+						}
+						if !pooled.DownUntil.IsZero() && time.Now().Before(pooled.DownUntil) {
+							m["down_until"] = pooled.DownUntil.UTC().Format(time.RFC3339)
+							m["ready"] = false
+						}
+						if pooled.LastError != "" && m["last_error"] == nil && m["lastError"] == nil {
+							m["last_error"] = pooled.LastError
+						}
+						if pooled.LastKind != "" && m["kind"] == nil {
+							m["kind"] = pooled.LastKind
+						}
+					}
+				}
+				out = append(out, m)
 			}
 			if len(out) > 0 {
 				return out
@@ -482,6 +509,24 @@ func accountSnapshot(pool *accounts.Pool, worker map[string]any) []map[string]an
 		return pool.Snapshot()
 	}
 	return nil
+}
+
+func writeClassifiedErr(w http.ResponseWriter, err error) {
+	if err == nil {
+		writeErr(w, http.StatusServiceUnavailable, "upstream_not_ready", "upstream not ready")
+		return
+	}
+	classified := accounts.Classify(0, err.Error(), "", "", "")
+	if classified.RetryAfter > 0 {
+		w.Header().Set("Retry-After", fmt.Sprintf("%d", int(classified.RetryAfter.Seconds())))
+	}
+	w.Header().Set("X-Qoder-Error-Kind", classified.Kind)
+	if classified.Failover {
+		w.Header().Set("X-Qoder-Failover", "1")
+	} else {
+		w.Header().Set("X-Qoder-Failover", "0")
+	}
+	writeErr(w, classified.Status, classified.Code, classified.Message)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

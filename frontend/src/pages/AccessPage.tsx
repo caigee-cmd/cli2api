@@ -9,26 +9,30 @@ export function AccessPage() {
   const { t } = useI18n()
   const { overview } = useOverview()
   const models = overview?.models || []
+  const accounts = overview?.accounts || []
   const base = absUrl(overview?.access?.openai_base_url || '/v1')
   const [model, setModel] = useState(models[0]?.id || 'qwen3.7-plus')
+  const [accountId, setAccountId] = useState('')
   const [prompt, setPrompt] = useState('只回复OK')
   const [out, setOut] = useState('')
   const [busy, setBusy] = useState(false)
   const [copied, setCopied] = useState(false)
+  const selectedAccount = accountId || ''
 
   const curl = useMemo(
     () => `curl -s ${base}/chat/completions \
   -H "Authorization: Bearer $PROXY_API_KEY" \
-  -H "Content-Type: application/json" \
+  -H "Content-Type: application/json"${selectedAccount ? ` \
+  -H "X-Qoder-Account: ${selectedAccount}"` : ''} \
   -d '{"model":"${model || 'qwen3.7-plus'}","messages":[{"role":"user","content":"只回复OK"}]}'`,
-    [base, model],
+    [base, model, selectedAccount],
   )
 
   async function onTest() {
     setBusy(true)
     setOut(t('requesting'))
     try {
-      const data = await testChat(model || 'qwen3.7-plus', prompt || '只回复OK')
+      const data = await testChat(model || 'qwen3.7-plus', prompt || '只回复OK', selectedAccount || undefined)
       setOut(JSON.stringify(data, null, 2))
     } catch (err) {
       setOut(err instanceof Error ? err.message : String(err))
@@ -77,6 +81,33 @@ export function AccessPage() {
           <div className="text-sm text-zinc-400">{t('waitingRequest')}</div>
         </div>
         <div className="space-y-3">
+          {accounts.length > 1 ? (
+            <div>
+              <div className="mb-1 text-xs text-zinc-500">{t('account')}</div>
+              <Select
+                selectedKey={selectedAccount || 'auto'}
+                onSelectionChange={(key) => setAccountId(String(key) === 'auto' ? '' : String(key))}
+                aria-label={t('account')}
+              >
+                <Select.Trigger>
+                  <Select.Value />
+                  <Select.Indicator />
+                </Select.Trigger>
+                <Select.Popover>
+                  <ListBox>
+                    <ListBox.Item id="auto" textValue={t('autoAccount')}>
+                      <Label>{t('autoAccount')}</Label>
+                    </ListBox.Item>
+                    {accounts.map((acc) => (
+                      <ListBox.Item key={acc.id} id={acc.id} textValue={acc.id}>
+                        <Label>{acc.id}</Label>
+                      </ListBox.Item>
+                    ))}
+                  </ListBox>
+                </Select.Popover>
+              </Select>
+            </div>
+          ) : null}
           <div>
             <div className="mb-1 text-xs text-zinc-500">{t('model')}</div>
             <Select

@@ -29,8 +29,14 @@ export type Overview = {
     id: string
     url?: string
     ready?: boolean
+    hot?: boolean
+    in_flight?: number
+    inFlight?: number
+    restarts?: number
+    kind?: string
     down_until?: string | null
     last_error?: string
+    lastError?: string
   }>
   access?: {
     openai_base_url?: string

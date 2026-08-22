@@ -1,8 +1,8 @@
 import { api } from './client'
 import type { Overview } from './types'
 
-export function fetchOverview() {
-  return api<Overview>('/api/overview')
+export function fetchOverview(keyOverride?: string) {
+  return api<Overview>('/api/overview', {}, keyOverride)
 }
 
 export function startDeviceLogin(accountId?: string) {
@@ -37,9 +37,12 @@ export function rewarmWorker(accountId?: string) {
   return api(`/api/rewarm${q}`, { method: 'POST', body: '{}' })
 }
 
-export function testChat(model: string, content: string) {
+export function testChat(model: string, content: string, accountId?: string) {
+  const headers: Record<string, string> = {}
+  if (accountId) headers['X-Qoder-Account'] = accountId
   return api('/api/chat', {
     method: 'POST',
+    headers,
     body: JSON.stringify({
       model,
       stream: false,

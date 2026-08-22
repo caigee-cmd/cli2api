@@ -5,6 +5,7 @@ const STORAGE_KEY = 'cli2api_key'
 type ApiKeyContextValue = {
   apiKey: string
   setApiKey: (value: string) => void
+  signOut: () => void
 }
 
 const ApiKeyContext = createContext<ApiKeyContextValue | null>(null)
@@ -15,9 +16,14 @@ export function ApiKeyProvider({ children }: { children: ReactNode }) {
   const value = useMemo<ApiKeyContextValue>(() => ({
     apiKey,
     setApiKey: (next) => {
-      const value = String(next || '')
-      localStorage.setItem(STORAGE_KEY, value)
+      const value = String(next || '').trim()
+      if (value) localStorage.setItem(STORAGE_KEY, value)
+      else localStorage.removeItem(STORAGE_KEY)
       setApiKeyState(value)
+    },
+    signOut: () => {
+      localStorage.removeItem(STORAGE_KEY)
+      setApiKeyState('')
     },
   }), [apiKey])
 

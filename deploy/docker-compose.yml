@@ -15,6 +15,7 @@ services:
       HOME: "/root"
       QODER_WARMUP_CWD: "/tmp"
       QODER_HOMES: "${QODER_HOMES:-}"
+      QODER_MAX_INFLIGHT: "${QODER_MAX_INFLIGHT:-4}"
     volumes:
       - ${QODER_HOME:-${HOME}/.qoder}:/root/.qoder
       - ${PLAIN_TEMPLATE_PATH:-../worker/last-plain.sample.json}:/data/last-plain.json:ro

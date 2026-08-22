@@ -15,7 +15,7 @@ export function OverviewPage() {
   const metrics = [
     { label: t('metricRuntime'), value: proxyOk ? t('running') : t('down') },
     { label: t('metricWorker'), value: workerOk ? (hot ? t('hot') : t('up')) : t('down') },
-    { label: t('metricAuth'), value: authOk ? t('ready') : t('missing') },
+    { label: t('metricAuth'), value: authOk ? t('ready') : t('needQoderLogin') },
     { label: t('metricPort'), value: String(overview?.proxy?.port || location.port || '3010') },
   ]
 
@@ -63,9 +63,7 @@ export function OverviewPage() {
             </div>
           ) : error ? (
             <div className="text-sm text-red-400">
-              {/invalid_api_key|unauthorized|Missing\/invalid PROXY_API_KEY/i.test(error)
-                ? t('needApiKey')
-                : t('failedOverview', { msg: error })}
+              {t('failedOverview', { msg: error })}
             </div>
           ) : (
             <dl className="space-y-3 text-sm">

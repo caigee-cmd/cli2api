@@ -144,9 +144,82 @@ Tagged `v0.1.0` at `eaf81ad` after GitHub Actions went green.
 
 ---
 
-## Later (not E)
+## Phase F — Qoder account pool hardening
 
-- Cursor provider (separate milestone, after Qoder v0.1 is tagged)
+Goal: keep the v0.1 personal/self-hosted shape, but make multi-account auth and failover actually hold under Qoder's real errors. Borrow scheduling ideas from [sub2api](https://github.com/Wei-Shaw/sub2api), not its commercial gateway (billing, Redis slots, sticky-for-profit, multi-tenant keys).
+
+Do:
+
+- Classify upstream errors instead of treating every failure as a 500
+- Fail over only when another account can reasonably succeed
+- Health-skip / restart isolated workers
+- Show cooldown state in the console
+- Keep process isolation (one Qoder HOME / WASM context per worker)
+
+Do not:
+
+- In-process multi-account
+- Copy sub2api billing / user API keys / Redis concurrency
+- Long cooldown on `insufficient_quota` (Qoder often means this prompt is too large, not empty balance)
+- Cursor / Anthropic providers
+
+### F0 error taxonomy
+
+Qoder errors are not all account-level:
+
+| Kind | Typical signal | HTTP | Fail over | Account cooldown |
+|------|----------------|------|-----------|------------------|
+| quota | `insufficient_quota`, `#token-limit`, oversized prompt | 429 | no | no |
+| rate_limit | `response code=429`, too many requests | 429 | yes | ~60s, honor `Retry-After`, cap 10m |
+| auth | 401/403, unauthorized, FORBIDDEN | 401/403 | yes | ~30s + existing rewarm |
+| not_ready | hot context missing | 503 | yes | ~10s |
+| unavailable | transport / 5xx | 502/503 | yes | ~15s |
+
+Worker must return that status (not a blanket 500) so Go and supervisor can see it.
+
+### F1 worker stability
+
+- [x] Serialize WASM `prepareInferRequest` + rewarm on one lock; do not hold it across upstream fetch
+- [x] Optional `QODER_MAX_INFLIGHT` (default 4) so one login does not stampede Qoder
+- [x] `/health` reports `inFlight`, `lastError`, `rewarmCount`
+- [x] Map thrown errors through the F0 classifier and set `Retry-After` when cooling down
+
+### F2 supervisor (default compose path)
+
+Default compose has **one** worker URL. Go cannot fail over unless the supervisor does.
+
+- [x] Buffer POST bodies so a failed child can be retried
+- [x] Skip children that are down / not hot; sticky-escape a pinned `X-Qoder-Account` when that child is cooling
+- [x] Restart exited children with backoff
+- [x] `/health` and `/admin/accounts` list id/ready/hot/down_until/last_error — **no host paths**
+- [x] Honor `X-Qoder-Account` and echo it on the response
+
+### F3 Go pool
+
+- [x] Shared classifier + `Retry-After`
+- [x] `MarkOK` after a successful chat
+- [x] Do not burn the rest of the pool on quota / oversized-prompt errors
+- [x] Merge supervisor health into `/api/accounts` + overview
+
+### F4 console + docs
+
+- [x] Accounts page: ready/hot, cooldown, last error, in-flight, restarts
+- [x] Access/Auth: pin account on test chat / login
+- [x] Console sign-in page; Qoder login moved onto Accounts
+- [x] README: supervisor `QODER_HOMES` vs separate `QODER_WORKER_URLS` containers
+
+### F5 acceptance
+
+- [x] Worker + Go unit tests for classify / pick / failover / no-failover-on-quota
+- [x] Local: two fake workers, 429 on A, chat on B
+- [x] Do not tag until this lands; v0.1.0 stays as-is
+
+## Later (not F)
+
+- Cursor provider (separate milestone)
 - Exact tokenizer matching if Qoder starts returning richer usage
 - In-process multi-account is still impossible; keep process isolation
 - Anthropic `/v1/messages`
+- sub2api-style session-hash sticky (optional after F; chat is already fully in-body)
+ges`
+- sub2api-style session-hash sticky (optional after F; chat is already fully in-body)
