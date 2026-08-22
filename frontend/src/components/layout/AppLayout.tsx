@@ -9,6 +9,7 @@ const routeKey: Record<string, string> = {
   '/auth': 'auth',
   '/providers': 'providers',
   '/access': 'access',
+  '/accounts': 'accounts',
 }
 
 export function AppLayout() {

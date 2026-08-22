@@ -15,3 +15,5 @@ Go service that turns Qoder Global auth into an OpenAI-compatible API.
 - Expose host ports publicly
 - Commit raw auth blobs / tokens
 - Leave console `/api/*` or worker `/admin/*` unauthenticated when `PROXY_API_KEY` is set
+
+- Multi-account = one worker process per Qoder HOME; do not share WASM context

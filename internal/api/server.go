@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/auth"
 	"github.com/caigee-cmd/cli2api/internal/config"
 	"github.com/caigee-cmd/cli2api/internal/endpoint"
@@ -23,16 +24,19 @@ type Server struct {
 	auth      auth.Store
 	endpoints endpoint.Endpoints
 	executor  executor.ChatExecutor
+	pool      *accounts.Pool
 	mux       *http.ServeMux
 }
 
 func New(cfg config.Config) *Server {
 	eps := endpoint.ResolveFromHome(cfg.QoderHome)
+	pool := accounts.LoadFromEnv()
 	s := &Server{
 		cfg:       cfg,
 		auth:      auth.Store{Home: cfg.QoderHome, PAT: cfg.QoderPAT},
 		endpoints: eps,
-		executor:  executor.NewChatExecutor(eps),
+		executor:  executor.NewChatExecutor(eps, pool),
+		pool:      pool,
 		mux:       http.NewServeMux(),
 	}
 	s.routes()
@@ -45,6 +49,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/health", s.handleHealth)
 	s.mux.HandleFunc("/api/overview", s.withAPIKey(s.handleOverview))
 	s.mux.HandleFunc("/api/models", s.withAPIKey(s.handleModelsAPI))
+	s.mux.HandleFunc("/api/accounts", s.withAPIKey(s.handleAccounts))
 	s.mux.HandleFunc("/api/login/status", s.withAPIKey(s.handleLoginStatus))
 	s.mux.HandleFunc("/api/login/device", s.withAPIKey(s.handleLoginDevice))
 	s.mux.HandleFunc("/api/login/pat", s.withAPIKey(s.handleLoginPAT))
@@ -58,16 +63,14 @@ func (s *Server) routes() {
 	ui := webui.Handler()
 	s.mux.Handle("/assets/", ui)
 	s.mux.Handle("/favicon.svg", ui)
-	s.mux.Handle("/icons.svg", ui)
 	s.mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		// SPA fallback for React Router pages.
 		if r.URL.Path != "/" &&
 			!strings.HasPrefix(r.URL.Path, "/assets/") &&
-			r.URL.Path != "/favicon.svg" &&
-			r.URL.Path != "/icons.svg" {
+			r.URL.Path != "/favicon.svg" {
 			// Only treat likely page routes as SPA; keep unknown API-like paths 404.
 			switch r.URL.Path {
-			case "/auth", "/providers", "/access":
+			case "/auth", "/providers", "/access", "/accounts":
 			default:
 				http.NotFound(w, r)
 				return
@@ -128,8 +131,9 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 			"chat_url":  s.endpoints.ChatURL(),
 			"endpoints": s.endpoints,
 		},
-		"worker": worker,
-		"login":  login,
+		"worker":   worker,
+		"login":    login,
+		"accounts": accountSnapshot(s.pool, worker),
 		"auth": func() any {
 			if authErr != nil {
 				return map[string]any{
@@ -165,31 +169,72 @@ func (s *Server) handleRewarm(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) workerBase() string {
+	if s.pool != nil {
+		if item, ok := s.pool.First(); ok {
+			return item.URL
+		}
+	}
 	return strings.TrimRight(firstNonEmpty(os.Getenv("QODER_WORKER_URL"), "http://127.0.0.1:3020"), "/")
+}
+
+func (s *Server) workerForAccount(id string) string {
+	if s.pool != nil {
+		if id != "" {
+			if item, ok := s.pool.ByID(id); ok {
+				return item.URL
+			}
+		}
+		if item, ok := s.pool.First(); ok {
+			return item.URL
+		}
+	}
+	return s.workerBase()
+}
+
+func (s *Server) requestedAccount(r *http.Request) string {
+	id := strings.TrimSpace(r.URL.Query().Get("account"))
+	if id == "" {
+		id = strings.TrimSpace(r.Header.Get("X-Qoder-Account"))
+	}
+	return id
+}
+
+func (s *Server) handleAccounts(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"object": "list",
+		"data":   s.pool.Snapshot(),
+	})
 }
 
 func (s *Server) workerAPIKey() string {
 	return firstNonEmpty(os.Getenv("QODER_WORKER_API_KEY"), s.cfg.ProxyAPIKey)
 }
 
-func (s *Server) workerGet(path string, timeout time.Duration) (*http.Response, error) {
-	req, err := http.NewRequest(http.MethodGet, s.workerBase()+path, nil)
+func (s *Server) workerGet(path string, timeout time.Duration, accountID string) (*http.Response, error) {
+	req, err := http.NewRequest(http.MethodGet, s.workerForAccount(accountID)+path, nil)
 	if err != nil {
 		return nil, err
 	}
 	if key := s.workerAPIKey(); key != "" {
 		req.Header.Set("Authorization", "Bearer "+key)
 	}
+	if accountID != "" {
+		req.Header.Set("X-Qoder-Account", accountID)
+	}
 	client := &http.Client{Timeout: timeout}
 	return client.Do(req)
 }
 
 func (s *Server) fetchWorkerModels(refresh bool) []map[string]any {
+	return s.fetchWorkerModelsFor(refresh, "")
+}
+
+func (s *Server) fetchWorkerModelsFor(refresh bool, accountID string) []map[string]any {
 	path := "/admin/models"
 	if refresh {
 		path += "?refresh=1"
 	}
-	resp, err := s.workerGet(path, 60*time.Second)
+	resp, err := s.workerGet(path, 60*time.Second, accountID)
 	if err != nil {
 		return []map[string]any{
 			{"id": "auto", "object": "model", "owned_by": "qoder"},
@@ -213,7 +258,11 @@ func (s *Server) fetchWorkerModels(refresh bool) []map[string]any {
 }
 
 func (s *Server) fetchLoginStatus() map[string]any {
-	resp, err := s.workerGet("/admin/login/status", 5*time.Second)
+	return s.fetchLoginStatusFor("")
+}
+
+func (s *Server) fetchLoginStatusFor(accountID string) map[string]any {
+	resp, err := s.workerGet("/admin/login/status", 5*time.Second, accountID)
 	if err != nil {
 		return map[string]any{"ok": false, "error": err.Error()}
 	}
@@ -230,12 +279,12 @@ func (s *Server) handleModelsAPI(w http.ResponseWriter, r *http.Request) {
 	refresh := r.URL.Query().Get("refresh") == "1"
 	writeJSON(w, http.StatusOK, map[string]any{
 		"object": "list",
-		"data":   s.fetchWorkerModels(refresh),
+		"data":   s.fetchWorkerModelsFor(refresh, s.requestedAccount(r)),
 	})
 }
 
 func (s *Server) handleLoginStatus(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, s.fetchLoginStatus())
+	writeJSON(w, http.StatusOK, s.fetchLoginStatusFor(s.requestedAccount(r)))
 }
 
 func (s *Server) handleLoginDevice(w http.ResponseWriter, r *http.Request) {
@@ -259,7 +308,8 @@ func (s *Server) proxyWorker(w http.ResponseWriter, r *http.Request, path string
 	if len(body) == 0 {
 		body = []byte("{}")
 	}
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, s.workerBase()+path, bytes.NewReader(body))
+	accountID := s.requestedAccount(r)
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, s.workerForAccount(accountID)+path, bytes.NewReader(body))
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, "worker_proxy_failed", err.Error())
 		return
@@ -267,6 +317,9 @@ func (s *Server) proxyWorker(w http.ResponseWriter, r *http.Request, path string
 	req.Header.Set("Content-Type", "application/json")
 	if key := s.workerAPIKey(); key != "" {
 		req.Header.Set("Authorization", "Bearer "+key)
+	}
+	if accountID != "" {
+		req.Header.Set("X-Qoder-Account", accountID)
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -281,7 +334,7 @@ func (s *Server) proxyWorker(w http.ResponseWriter, r *http.Request, path string
 }
 
 func (s *Server) fetchWorkerHealth() map[string]any {
-	workerURL := strings.TrimRight(firstNonEmpty(os.Getenv("QODER_WORKER_URL"), "http://127.0.0.1:3020"), "/")
+	workerURL := s.workerBase()
 	client := &http.Client{Timeout: 3 * time.Second}
 	resp, err := client.Get(workerURL + "/health")
 	if err != nil {
@@ -333,8 +386,9 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	prefer := s.requestedAccount(r)
 	if req.Stream {
-		upstream, err := s.executor.ChatStreamProxy(r.Context(), req)
+		upstream, accountID, err := s.executor.ChatStreamProxy(r.Context(), req, prefer)
 		if err != nil {
 			writeErr(w, http.StatusServiceUnavailable, "upstream_not_ready", err.Error())
 			return
@@ -343,6 +397,9 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
+		if accountID != "" {
+			w.Header().Set("X-Qoder-Account", accountID)
+		}
 		w.WriteHeader(http.StatusOK)
 		if _, err := io.Copy(w, upstream.Body); err != nil {
 			return
@@ -353,7 +410,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res, err := s.executor.ChatNonStream(r.Context(), req)
+	res, err := s.executor.ChatNonStream(r.Context(), req, prefer)
 	if err != nil {
 		writeErr(w, http.StatusServiceUnavailable, "upstream_not_ready", err.Error())
 		return
@@ -379,6 +436,9 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			finishReason = "stop"
 		}
 	}
+	if res.AccountID != "" {
+		w.Header().Set("X-Qoder-Account", res.AccountID)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"id":      fmt.Sprintf("chatcmpl-%d", time.Now().UnixMilli()),
 		"object":  "chat.completion",
@@ -389,12 +449,39 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			"message":       message,
 			"finish_reason": finishReason,
 		}},
-		"usage": map[string]any{
-			"prompt_tokens":     res.PromptTokens,
-			"completion_tokens": res.CompletionTokens,
-			"total_tokens":      res.PromptTokens + res.CompletionTokens,
-		},
+		"usage": func() map[string]any {
+			out := map[string]any{
+				"prompt_tokens":     res.PromptTokens,
+				"completion_tokens": res.CompletionTokens,
+				"total_tokens":      res.PromptTokens + res.CompletionTokens,
+				"source":            firstNonEmpty(res.UsageSource, "estimate"),
+			}
+			if res.Credits != nil {
+				out["credits"] = *res.Credits
+			}
+			return out
+		}(),
 	})
+}
+
+func accountSnapshot(pool *accounts.Pool, worker map[string]any) []map[string]any {
+	if worker != nil {
+		if raw, ok := worker["accounts"].([]any); ok && len(raw) > 0 {
+			out := make([]map[string]any, 0, len(raw))
+			for _, item := range raw {
+				if m, ok := item.(map[string]any); ok {
+					out = append(out, m)
+				}
+			}
+			if len(out) > 0 {
+				return out
+			}
+		}
+	}
+	if pool != nil {
+		return pool.Snapshot()
+	}
+	return nil
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

@@ -24,7 +24,7 @@ React + Tailwind CSS v4 + HeroUI（布局参考 Sub2API）：
 frontend/
   src/
     components/layout/   # AppLayout / AppSidebar / AppHeader
-    pages/               # Overview / Auth / Providers / Access
+    pages/               # Overview / Auth / Providers / Accounts / Access
     api/ hooks/ i18n/
 ```
 
@@ -46,7 +46,7 @@ Docker 多阶段构建会先编译前端，再打包 Go binary。
 - 模型别名映射（如 `qwen3.7-plus -> qmodel`）
 - 鉴权自愈（`/admin/rewarm`，鉴权失败自动 rewarm）
 - Docker Compose 部署（适合内网）
-- Usage 估算兜底（上游常只扣 credits，不回 OpenAI token usage）
+- 优先用上游 SSE usage/credits，没有才估算
 
 ## 为什么做这个
 
@@ -170,6 +170,7 @@ open http://127.0.0.1:3010/
 - 概览：运行状态 + 端点
 - 授权：Qoder 登录态 / worker 热上下文 / rewarm
 - 供应商：当前模型
+- 账号：进程隔离的 worker 池
 - API 接入：curl 示例 + 快速对话测试
 
 源码在 `frontend/`，通过 `internal/webui` embed 进二进制。
@@ -228,11 +229,23 @@ worker **不会**继承抓包模板里那份巨大的 Qoder agent system/tools�
 
 ### Usage
 
-上游常常只扣 credits，不回 OpenAI `usage`。  
-本代理会估算 token，并返回：
+如果嵌套 SSE 带 `usage` / `llm_model_result`，直接用上游值（`usage.source=upstream`）。  
+否则仍估算 token（`usage.source=estimate`），保证计费有数字：
 
 - 非流式：`usage`
 - 流式：在 `[DONE]` 前附加最终 usage chunk
+
+### 多账号
+
+Qoder WASM 是进程内单例，所以每个登录态要独占 HOME / worker 进程：
+
+```bash
+QODER_HOMES=acc1=/root,acc2=/home/acc2
+QODER_WORKER_URLS=http://qoder-acc1:3020,http://qoder-acc2:3020
+QODER_ACCOUNT_IDS=acc1,acc2
+```
+
+Chat 会 round-robin，遇到 429/鉴权失败切下一个。可用 `X-Qoder-Account` 钉死账号。
 
 ## 目录结构
 
@@ -282,9 +295,7 @@ testdata/            脱敏样例
 
 仍在演进：
 
-- 更精确的上游 token 记账
-- 更完善的多账号轮询
-- 不依赖 CLI warmup import 的纯 wasm 启动
+- Cursor provider
 
 ## License
 

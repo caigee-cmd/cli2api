@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import { estimateTokens } from "./plaintext.mjs";
+import { resolveUsage, usageLooksUseful } from "./usage.mjs";
 
 function scoreUpstreamError(err) {
   if (!err || typeof err !== "object") return 0;
@@ -50,6 +51,7 @@ export function parseNestedOpenAIChunks(sseText) {
   const toolCallsByIndex = new Map();
   let finishReason = null;
   let eventName = "message";
+  let usageAcc = null;
   for (const line of String(sseText || "").split(/\n/)) {
     if (line.startsWith("event:")) {
       eventName = line.slice(6).trim() || "message";
@@ -71,6 +73,9 @@ export function parseNestedOpenAIChunks(sseText) {
       if (bodyRaw === "[DONE]") continue;
       const body = typeof bodyRaw === "string" ? JSON.parse(bodyRaw) : bodyRaw;
       events.push(body);
+      if (usageLooksUseful(outer) || usageLooksUseful(body)) {
+        usageAcc = resolveUsage([usageAcc, outer, body], usageAcc || {});
+      }
       if (body?.error && !body?.choices) {
         error = rememberError(error, body.error);
       } else if ((body?.code || body?.msgCode) && !body?.choices) {
@@ -109,7 +114,7 @@ export function parseNestedOpenAIChunks(sseText) {
     .sort((a, b) => a[0] - b[0])
     .map(([, v]) => v)
     .filter((v) => v.function?.name);
-  return { content, reasoning, events, error, tool_calls, finish_reason: finishReason };
+  return { content, reasoning, events, error, tool_calls, finish_reason: finishReason, usage: usageAcc };
 }
 
 export async function readSSEText(res, { maxBytes = 2_000_000 } = {}) {
@@ -142,7 +147,7 @@ function extractDeltaFromOuter(raw) {
  * Stream nested Qoder SSE to OpenAI-compatible SSE chunks in realtime.
  * Returns { model, content, reasoning }.
  */
-export async function pipeNestedSseToOpenAI(upstreamRes, res, { model = "auto", id, promptTokens = 0 } = {}) {
+export async function pipeNestedSseToOpenAI(upstreamRes, res, { model = "auto", id, promptTokens = 0, estimatedCompletion = 0 } = {}) {
   const chatId = id || `chatcmpl-${Date.now()}`;
   const created = Math.floor(Date.now() / 1000);
   let content = "";
@@ -155,6 +160,7 @@ export async function pipeNestedSseToOpenAI(upstreamRes, res, { model = "auto", 
   let sampleEvents = [];
   const toolCallsByIndex = new Map();
   let finishReason = null;
+  let usageAcc = null;
 
   const writeChunk = (delta, finish_reason = null) => {
     res.write(
@@ -212,6 +218,9 @@ export async function pipeNestedSseToOpenAI(upstreamRes, res, { model = "auto", 
         if (!body) continue;
         eventCount += 1;
         if (sampleEvents.length < 8) sampleEvents.push(body);
+        if (usageLooksUseful(body)) {
+          usageAcc = resolveUsage([usageAcc, body], usageAcc || {});
+        }
         // Nested OpenAI-style error: { error: { message, type, code } }
         if (body.error && !body.choices) {
           sawError = rememberError(sawError, body.error);
@@ -267,7 +276,13 @@ export async function pipeNestedSseToOpenAI(upstreamRes, res, { model = "auto", 
     }
   }
 
-  const completionTokens = estimateTokens(content + reasoning);
+  const usage = resolveUsage(usageAcc, {
+    prompt_tokens: promptTokens,
+    completion_tokens: estimatedCompletion || estimateTokens(content + reasoning),
+    source: "estimate",
+  });
+  const promptTokensOut = usage.prompt_tokens;
+  const completionTokens = usage.completion_tokens;
   if (sawError && !content && !reasoning) {
     const formatted = formatUpstreamError(sawError);
     res.write(`data: ${JSON.stringify({ error: { message: formatted.message, type: formatted.type, code: formatted.code } })}\n\n`);
@@ -316,9 +331,11 @@ export async function pipeNestedSseToOpenAI(upstreamRes, res, { model = "auto", 
       model,
       choices: [],
       usage: {
-        prompt_tokens: promptTokens,
+        prompt_tokens: promptTokensOut,
         completion_tokens: completionTokens,
-        total_tokens: promptTokens + completionTokens,
+        total_tokens: usage.total_tokens,
+        source: usage.source,
+        ...(usage.credits != null ? { credits: usage.credits } : {}),
       },
     })}\n\n`,
   );
@@ -328,8 +345,9 @@ export async function pipeNestedSseToOpenAI(upstreamRes, res, { model = "auto", 
     content,
     reasoning,
     id: chatId,
-    promptTokens,
+    promptTokens: promptTokensOut,
     completionTokens,
+    usage,
     tool_calls,
     finish_reason: finalReason,
   };

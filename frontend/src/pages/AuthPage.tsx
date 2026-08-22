@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Button, Card, Input, TextArea } from '@heroui/react'
+import { Button, Card, Input, Label, ListBox, Select, TextArea } from '@heroui/react'
 import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
 import { fetchLoginStatus, loginWithPat, rewarmWorker, startDeviceLogin } from '@/api/overview'
@@ -12,15 +12,18 @@ export function AuthPage() {
   const [message, setMessage] = useState('')
   const [authUrl, setAuthUrl] = useState('')
   const [status, setStatus] = useState('idle')
+  const [accountId, setAccountId] = useState('')
 
   const auth = overview?.auth || {}
   const worker = overview?.worker || {}
   const login = overview?.login?.login || overview?.login || {}
+  const accounts = overview?.accounts || []
+  const selectedAccount = accountId || accounts[0]?.id || ''
 
   async function onDeviceLogin() {
     setBusy('device')
     try {
-      const out = await startDeviceLogin()
+      const out = await startDeviceLogin(selectedAccount)
       if (out.authUrl) {
         setAuthUrl(out.authUrl)
         setStatus(out.status || 'pending')
@@ -30,7 +33,7 @@ export function AuthPage() {
       await refresh()
       for (let i = 0; i < 30; i++) {
         await new Promise((r) => setTimeout(r, 2000))
-        const st = await fetchLoginStatus()
+        const st = await fetchLoginStatus(selectedAccount)
         const current = st.login || {}
         setStatus(current.status || 'pending')
         setMessage(current.message || '')
@@ -54,7 +57,7 @@ export function AuthPage() {
     }
     setBusy('pat')
     try {
-      const out = await loginWithPat(pat.trim())
+      const out = await loginWithPat(pat.trim(), selectedAccount)
       setStatus((out as any).status || 'ok')
       setMessage(t('patDone'))
       setPat('')
@@ -69,7 +72,7 @@ export function AuthPage() {
   async function onRewarm() {
     setBusy('rewarm')
     try {
-      await rewarmWorker()
+      await rewarmWorker(selectedAccount)
       await refresh()
       setMessage(t('rewarm'))
     } catch (err) {
@@ -94,6 +97,32 @@ export function AuthPage() {
           </div>
 
           <div className="space-y-5">
+
+          {accounts.length > 1 ? (
+            <div className="mb-4">
+              <div className="mb-1 text-xs text-zinc-500">{t('account')}</div>
+              <Select
+                selectedKey={selectedAccount}
+                onSelectionChange={(key) => setAccountId(String(key))}
+                aria-label={t('account')}
+              >
+                <Select.Trigger>
+                  <Select.Value />
+                  <Select.Indicator />
+                </Select.Trigger>
+                <Select.Popover>
+                  <ListBox>
+                    {accounts.map((acc) => (
+                      <ListBox.Item key={acc.id} id={acc.id} textValue={acc.id}>
+                        <Label>{acc.id}</Label>
+                      </ListBox.Item>
+                    ))}
+                  </ListBox>
+                </Select.Popover>
+              </Select>
+            </div>
+          ) : null}
+
             <section className="rounded-2xl border border-white/10 p-4">
               <div className="mb-1 text-sm font-medium">{t('stepBrowserTitle')}</div>
               <p className="mb-3 text-sm text-zinc-400">{t('stepBrowserDesc')}</p>

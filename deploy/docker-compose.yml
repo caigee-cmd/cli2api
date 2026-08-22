@@ -13,6 +13,7 @@ services:
       QODERCLI_JS: "/usr/local/lib/node_modules/@qoder-ai/qodercli/bundle/qodercli.js"
       HOME: "/root"
       QODER_WARMUP_CWD: "/tmp"
+      QODER_HOMES: "${QODER_HOMES:-}"
     volumes:
       - ${QODER_HOME:-${HOME}/.qoder}:/root/.qoder
       - ${PLAIN_TEMPLATE_PATH:-../worker/last-plain.sample.json}:/data/last-plain.json:ro
@@ -32,6 +33,8 @@ services:
       PROXY_API_KEY: "${PROXY_API_KEY}"
       QODER_HOME: "/root/.qoder"
       QODER_WORKER_URL: "http://qoder-auth-worker:3020"
+      QODER_WORKER_URLS: "${QODER_WORKER_URLS:-http://qoder-auth-worker:3020}"
+      QODER_ACCOUNT_IDS: "${QODER_ACCOUNT_IDS:-default}"
       QODER_WORKER_API_KEY: "${PROXY_API_KEY}"
     volumes:
       - ${QODER_HOME:-${HOME}/.qoder}:/root/.qoder:ro

@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { Boxes, Home, KeyRound, PlugZap, X } from 'lucide-react'
+import { Boxes, Home, KeyRound, PlugZap, Users, X } from 'lucide-react'
 import { Button, Chip } from '@heroui/react'
 import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
@@ -8,6 +8,7 @@ const nav = [
   { to: '/', key: 'navOverview', icon: Home, end: true },
   { to: '/auth', key: 'navAuth', icon: KeyRound },
   { to: '/providers', key: 'navProviders', icon: Boxes },
+  { to: '/accounts', key: 'navAccounts', icon: Users },
   { to: '/access', key: 'navAccess', icon: PlugZap },
 ] as const
 

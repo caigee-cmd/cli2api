@@ -9,6 +9,7 @@ import { promisify } from "node:util";
 import { buildPlainChatBody, mapModel, wantsReasoning, estimateTokens, estimatePromptTokens } from "./plaintext.mjs";
 import { parseNestedOpenAIChunks, readSSEText, pipeNestedSseToOpenAI } from "./sse.mjs";
 import { inspectQodercliSource, PINNED_QODERCLI_VERSION, readQodercliVersion } from "./compat.mjs";
+import { resolveUsage } from "./usage.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 register(pathToFileURL(path.join(__dirname, "rewrite-loader.mjs")).href);
@@ -16,6 +17,9 @@ register(pathToFileURL(path.join(__dirname, "rewrite-loader.mjs")).href);
 const port = Number(process.env.WORKER_PORT || 3020);
 const host = process.env.WORKER_HOST || "127.0.0.1";
 const apiKey = process.env.PROXY_API_KEY || "";
+const accountId = process.env.QODER_ACCOUNT_ID || "default";
+const skipCliMain = process.env.QODER_SKIP_CLI_MAIN !== "0";
+let bootMode = "pending";
 const qodercliPath =
   process.env.QODERCLI_JS ||
   "/root/.nvm/versions/node/v20.20.2/lib/node_modules/@qoder-ai/qodercli/bundle/qodercli.js";
@@ -36,7 +40,7 @@ function log(...a) {
 function loadTemplate() {
   const candidates = [
     process.env.PLAIN_TEMPLATE_PATH,
-    "/tmp/qoder-wasm-spike/last-plain.json",
+    path.join(__dirname, "../last-plain.sample.json"),
   ].filter(Boolean);
   for (const p of candidates) {
     try {
@@ -285,8 +289,11 @@ async function encodeAndFetch(reqBody) {
   if (!(parsed.content || parsed.reasoning || toolCalls.length)) {
     throw new Error("upstream returned empty content (possible context overflow / silent reject)");
   }
-  const promptTokens = estimatePromptTokens(reqBody.messages || []);
-  const completionTokens = estimateTokens((parsed.content || "") + (parsed.reasoning || ""));
+  const usage = resolveUsage(parsed.usage, {
+    prompt_tokens: estimatePromptTokens(reqBody.messages || []),
+    completion_tokens: estimateTokens((parsed.content || "") + (parsed.reasoning || "")),
+    source: "estimate",
+  });
   return {
     model: plain.model_config.key,
     requestedModel: reqBody.model || plain.model_config.key,
@@ -294,8 +301,9 @@ async function encodeAndFetch(reqBody) {
     reasoning: parsed.reasoning || "",
     tool_calls: toolCalls,
     finish_reason: parsed.finish_reason || (toolCalls.length ? "tool_calls" : "stop"),
-    promptTokens,
-    completionTokens,
+    promptTokens: usage.prompt_tokens,
+    completionTokens: usage.completion_tokens,
+    usage,
   };
 }
 
@@ -516,12 +524,17 @@ function maybeStartServer() {
     try {
       const url = new URL(req.url, `http://${host}:${port}`);
       if (url.pathname === "/health") {
+        const mgr = getAuthManager();
+        const user = mgr && typeof mgr.getUserInfo === "function" ? mgr.getUserInfo() : null;
         return sendJSON(res, 200, {
           ok: true,
           hot: !!hotContext,
           endpoint: hotEndpoint,
           modelKey: hotModelKey,
-          hasAuthManager: !!(authManager || globalThis.__qoderAuthManager),
+          hasAuthManager: !!mgr,
+          accountId,
+          bootMode,
+          uid: user?.uid || null,
           rewarmCount,
           lastRewarmAt,
           lastError,
@@ -594,9 +607,11 @@ function maybeStartServer() {
             },
           ],
           usage: {
-            prompt_tokens: result.promptTokens || 0,
-            completion_tokens: result.completionTokens || 0,
-            total_tokens: (result.promptTokens || 0) + (result.completionTokens || 0),
+            prompt_tokens: result.usage?.prompt_tokens || result.promptTokens || 0,
+            completion_tokens: result.usage?.completion_tokens || result.completionTokens || 0,
+            total_tokens: result.usage?.total_tokens || ((result.promptTokens || 0) + (result.completionTokens || 0)),
+            source: result.usage?.source || "estimate",
+            ...(result.usage?.credits != null ? { credits: result.usage.credits } : {}),
           },
         });
       }
@@ -610,31 +625,55 @@ function maybeStartServer() {
   server.listen(port, host, () => log(`listening on http://${host}:${port}`));
 }
 
-// Keep process alive even if qodercli tries to exit after warmup.
+// Keep process alive even if qodercli tries to exit after boot.
 const origExit = process.exit;
 process.exit = ((code) => {
-  if (hotContext) {
-    log(`ignored process.exit(${code}) because worker is warm`);
+  if (serverStarted || hotContext) {
+    log(`ignored process.exit(${code}) because worker is running`);
     return;
   }
   return origExit(code);
 });
 
-// Pretend to be a qodercli one-shot warmup, then stay alive.
-process.argv = [
-  process.execPath,
-  qodercliPath,
-  "--print",
-  "--output-format",
-  "json",
-  "--model",
-  "auto",
-  "--dangerously-skip-permissions",
-  "--cwd",
-  process.env.QODER_WARMUP_CWD || "/tmp",
-  "--",
-  "只回复OK",
-];
+async function bootFromAuthManager({ getQoderAuthManager, initializeQoderRuntime }) {
+  bootMode = "pure-wasm";
+  log("pure-wasm boot: init runtime + local auth, skip CLI warmup chat");
+  if (typeof initializeQoderRuntime === "function") {
+    await initializeQoderRuntime({ initializeWasm: true });
+  }
+  const mgr = typeof getQoderAuthManager === "function" ? getQoderAuthManager() : null;
+  if (mgr) {
+    authManager = mgr;
+    globalThis.__qoderAuthManager = mgr;
+    try {
+      if (typeof mgr.initAuth === "function") await mgr.initAuth();
+    } catch (err) {
+      lastError = err?.message || String(err);
+      log("initAuth failed; console login still available", lastError);
+    }
+  }
+  maybeStartServer();
+  resolveWarm(true);
+}
+
+globalThis.__qoderWorkerBoot = bootFromAuthManager;
+
+function useWarmupArgv() {
+  process.argv = [
+    process.execPath,
+    qodercliPath,
+    "--print",
+    "--output-format",
+    "json",
+    "--model",
+    "auto",
+    "--dangerously-skip-permissions",
+    "--cwd",
+    process.env.QODER_WARMUP_CWD || "/tmp",
+    "--",
+    "只回复OK",
+  ];
+}
 
 function assertQodercliCompatible(jsPath) {
   if (!fs.existsSync(jsPath)) {
@@ -660,7 +699,18 @@ function assertQodercliCompatible(jsPath) {
 }
 
 assertQodercliCompatible(qodercliPath);
-log("importing qodercli for warmup...", qodercliPath);
+const qodercliSource = fs.readFileSync(qodercliPath, "utf8");
+const canSkipMain = skipCliMain && qodercliSource.includes("async function HEg(){let{main:A}=await Promise.resolve().then(()=>(b$o(),U$o));await A()}");
+if (!canSkipMain) {
+  bootMode = "warmup-import";
+  log("skip-main needle missing or disabled; falling back to one-shot warmup import");
+  useWarmupArgv();
+} else {
+  bootMode = "pure-wasm";
+  log("skip-main needle present; CLI main will hand off to worker boot");
+}
+log("importing qodercli...", qodercliPath);
 await import(pathToFileURL(qodercliPath).href);
 await warmPromise;
-log("warm complete");
+if (!serverStarted) maybeStartServer();
+log("warm complete", { bootMode, hot: !!hotContext, accountId });
