@@ -42,3 +42,14 @@ test("patch throws a version-aware error when needles are missing", () => {
     /qodercli/i,
   );
 });
+
+test("patch injects skip-main boot hook when HEg needle is present", () => {
+  const source = [
+    "prepareInferRequest(A,e,t,i){",
+    "async createWasmContext(){let A=await Yi();this.machineId||(this.machineId=await this.getMachineId()),XsA(this.machineId,A,JSON.stringify(this.getUserInfoForAuth()))}",
+    "async function HEg(){let{main:A}=await Promise.resolve().then(()=>(b$o(),U$o));await A()}",
+  ].join("\n");
+  const patched = patchQodercliSource(source);
+  assert.match(patched, /__QODER_WORKER_SKIP_MAIN__/);
+  assert.match(patched, /__qoderWorkerBoot/);
+});

@@ -5,30 +5,36 @@ export function fetchOverview() {
   return api<Overview>('/api/overview')
 }
 
-export function rewarmWorker() {
-  return api('/api/rewarm', { method: 'POST', body: '{}' })
-}
-
-export function startDeviceLogin() {
-  return api<{ authUrl?: string; status?: string; message?: string }>('/api/login/device', {
+export function startDeviceLogin(accountId?: string) {
+  const q = accountId ? `?account=${encodeURIComponent(accountId)}` : ''
+  return api<{ authUrl?: string; status?: string; message?: string }>(`/api/login/device${q}`, {
     method: 'POST',
     body: '{}',
   })
 }
 
-export function fetchLoginStatus() {
-  return api<{ login?: any }>('/api/login/status')
+export function fetchLoginStatus(accountId?: string) {
+  const q = accountId ? `?account=${encodeURIComponent(accountId)}` : ''
+  return api<{ login?: any }>(`/api/login/status${q}`)
 }
 
-export function loginWithPat(pat: string) {
-  return api('/api/login/pat', {
+export function loginWithPat(pat: string, accountId?: string) {
+  const q = accountId ? `?account=${encodeURIComponent(accountId)}` : ''
+  return api(`/api/login/pat${q}`, {
     method: 'POST',
     body: JSON.stringify({ pat }),
   })
 }
 
-export function refreshModels() {
-  return api<{ data?: Overview['models'] }>('/api/models?refresh=1')
+export function refreshModels(accountId?: string) {
+  const q = new URLSearchParams({ refresh: '1' })
+  if (accountId) q.set('account', accountId)
+  return api<{ data?: Overview['models'] }>(`/api/models?${q.toString()}`)
+}
+
+export function rewarmWorker(accountId?: string) {
+  const q = accountId ? `?account=${encodeURIComponent(accountId)}` : ''
+  return api(`/api/rewarm${q}`, { method: 'POST', body: '{}' })
 }
 
 export function testChat(model: string, content: string) {

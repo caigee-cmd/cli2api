@@ -24,7 +24,7 @@ React + Tailwind CSS v4 + HeroUI console (inspired by Sub2API layout):
 frontend/
   src/
     components/layout/   # AppLayout / AppSidebar / AppHeader
-    pages/               # Overview / Auth / Providers / Access
+    pages/               # Overview / Auth / Providers / Accounts / Access
     api/ hooks/ i18n/
 ```
 
@@ -46,7 +46,7 @@ Docker multi-stage build already compiles the frontend before the Go binary.
 - Model alias mapping (`qwen3.7-plus -> qmodel`, etc.)
 - Auth self-heal (`/admin/rewarm`, auto-rewarm on auth failures)
 - Docker Compose deployment (internal network friendly)
-- Usage estimation fallback (upstream often returns credits, not OpenAI token usage)
+- Prefers upstream usage / credits when nested SSE returns them; estimates only as fallback
 
 ## Why this exists
 
@@ -170,6 +170,7 @@ Pages:
 - Overview: runtime status + endpoints
 - Auth: Qoder login-state / worker hot context / rewarm
 - Providers: current models
+- Accounts: process-isolated worker pool
 - API Access: curl snippet + quick chat test
 
 Source lives in `frontend/` and is embedded via `internal/webui`.
@@ -228,11 +229,23 @@ So identity prompts injected by your gateway remain intact.
 
 ### Usage
 
-Upstream often reports credits instead of OpenAI token usage.  
-This proxy estimates tokens for billing compatibility and emits:
+If nested SSE includes `usage` or `llm_model_result`, that is used as-is (`usage.source=upstream`).  
+Otherwise the proxy estimates tokens (`usage.source=estimate`) so billing still has a number:
 
 - non-stream: `usage`
 - stream: final usage chunk before `[DONE]`
+
+### Multi-account
+
+Qoder WASM is process-global, so each login needs its own worker process / HOME:
+
+```bash
+QODER_HOMES=acc1=/root,acc2=/home/acc2
+QODER_WORKER_URLS=http://qoder-acc1:3020,http://qoder-acc2:3020
+QODER_ACCOUNT_IDS=acc1,acc2
+```
+
+Chat round-robins across workers and fails over on 429/auth errors. Pin with `X-Qoder-Account`.
 
 ## Project layout
 
@@ -282,9 +295,7 @@ Usable for self-hosting:
 
 Still evolving:
 
-- exact upstream token accounting
-- richer multi-account rotation
-- pure-wasm boot without CLI warmup import
+- Cursor provider
 
 ## License
 

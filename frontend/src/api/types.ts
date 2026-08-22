@@ -25,6 +25,13 @@ export type Overview = {
   }
   login?: any
   models?: Array<{ id: string; mapped_key?: string; stale?: boolean }>
+  accounts?: Array<{
+    id: string
+    url?: string
+    ready?: boolean
+    down_until?: string | null
+    last_error?: string
+  }>
   access?: {
     openai_base_url?: string
     chat_completions?: string

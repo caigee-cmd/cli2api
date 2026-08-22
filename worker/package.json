@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Warm QoderContext worker for qoder-api-proxy",
   "scripts": {
-    "start": "node src/daemon.mjs",
+    "start": "node src/supervisor.mjs",
     "test": "node --test test/*.test.mjs"
   }
 }

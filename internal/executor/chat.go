@@ -11,12 +11,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/endpoint"
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
 type ChatExecutor struct {
 	Endpoints  endpoint.Endpoints
+	Pool       *accounts.Pool
 	WorkerURL  string
 	WorkerKey  string
 	HTTPClient *http.Client
@@ -30,16 +32,31 @@ type ChatResult struct {
 	FinishReason     string
 	PromptTokens     int
 	CompletionTokens int
+	UsageSource      string
+	Credits          *float64
+	AccountID        string
 	RawNote          string
 }
 
-func NewChatExecutor(eps endpoint.Endpoints) ChatExecutor {
-	worker := strings.TrimRight(strings.TrimSpace(os.Getenv("QODER_WORKER_URL")), "/")
+func NewChatExecutor(eps endpoint.Endpoints, pool *accounts.Pool) ChatExecutor {
+	if pool == nil {
+		pool = accounts.LoadFromEnv()
+	}
+	worker := ""
+	if pool.Len() > 0 {
+		if item, ok := pool.First(); ok {
+			worker = item.URL
+		}
+	}
+	if worker == "" {
+		worker = strings.TrimRight(strings.TrimSpace(os.Getenv("QODER_WORKER_URL")), "/")
+	}
 	if worker == "" {
 		worker = "http://127.0.0.1:3020"
 	}
 	return ChatExecutor{
 		Endpoints: eps,
+		Pool:      pool,
 		WorkerURL: worker,
 		WorkerKey: strings.TrimSpace(os.Getenv("QODER_WORKER_API_KEY")),
 		HTTPClient: &http.Client{
@@ -81,36 +98,121 @@ func buildWorkerPayload(req translate.ChatRequest, stream bool) map[string]any {
 	return payload
 }
 
-func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatRequest) (ChatResult, error) {
-	payload, err := json.Marshal(buildWorkerPayload(req, false))
-	if err != nil {
-		return ChatResult{}, err
+func (e ChatExecutor) pick(prefer string, excluded map[string]struct{}) (accounts.Item, error) {
+	if e.Pool != nil {
+		if item, ok := e.Pool.Pick(prefer, excluded); ok {
+			return item, nil
+		}
 	}
+	if e.WorkerURL != "" {
+		return accounts.Item{ID: "default", URL: e.WorkerURL}, nil
+	}
+	return accounts.Item{}, fmt.Errorf("no worker accounts configured")
+}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, e.WorkerURL+"/v1/chat/completions", bytes.NewReader(payload))
+func (e ChatExecutor) markDown(id, errText string) {
+	if e.Pool == nil {
+		return
+	}
+	d := 15 * time.Second
+	lower := strings.ToLower(errText)
+	if strings.Contains(lower, "insufficient_quota") || strings.Contains(lower, "token-limit") || strings.Contains(lower, "429") {
+		d = 45 * time.Second
+	}
+	if strings.Contains(lower, "unauthorized") || strings.Contains(lower, "401") || strings.Contains(lower, "403") {
+		d = 20 * time.Second
+	}
+	e.Pool.MarkDown(id, d, errText)
+}
+
+func (e ChatExecutor) newWorkerRequest(ctx context.Context, item accounts.Item, payload []byte, prefer string) (*http.Request, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, item.URL+"/v1/chat/completions", bytes.NewReader(payload))
 	if err != nil {
-		return ChatResult{}, err
+		return nil, err
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	if e.WorkerKey != "" {
 		httpReq.Header.Set("Authorization", "Bearer "+e.WorkerKey)
 	}
+	account := prefer
+	if account == "" {
+		account = item.ID
+	}
+	if account != "" {
+		httpReq.Header.Set("X-Qoder-Account", account)
+	}
+	return httpReq, nil
+}
 
-	resp, err := e.HTTPClient.Do(httpReq)
+func retryableWorkerErr(status int, body string) bool {
+	if status >= 500 || status == http.StatusTooManyRequests || status == http.StatusUnauthorized || status == http.StatusForbidden {
+		return true
+	}
+	lower := strings.ToLower(body)
+	return strings.Contains(lower, "insufficient_quota") || strings.Contains(lower, "token-limit") || strings.Contains(lower, "hot context not ready")
+}
+
+func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatRequest, prefer string) (ChatResult, error) {
+	payload, err := json.Marshal(buildWorkerPayload(req, false))
 	if err != nil {
-		return ChatResult{}, fmt.Errorf("worker request failed: %w", err)
+		return ChatResult{}, err
 	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode >= 300 {
-		return ChatResult{}, fmt.Errorf("worker status=%d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	excluded := map[string]struct{}{}
+	var lastErr error
+	attempts := 1
+	if e.Pool != nil && e.Pool.Len() > 1 {
+		attempts = e.Pool.Len()
 	}
+	for i := 0; i < attempts; i++ {
+		item, err := e.pick(prefer, excluded)
+		if err != nil {
+			return ChatResult{}, err
+		}
+		prefer = ""
+		httpReq, err := e.newWorkerRequest(ctx, item, payload, prefer)
+		if err != nil {
+			return ChatResult{}, err
+		}
+		resp, err := e.HTTPClient.Do(httpReq)
+		if err != nil {
+			lastErr = fmt.Errorf("worker %s request failed: %w", item.ID, err)
+			e.markDown(item.ID, err.Error())
+			excluded[item.ID] = struct{}{}
+			continue
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode >= 300 {
+			msg := strings.TrimSpace(string(body))
+			lastErr = fmt.Errorf("worker %s status=%d: %s", item.ID, resp.StatusCode, msg)
+			if retryableWorkerErr(resp.StatusCode, msg) {
+				e.markDown(item.ID, msg)
+				excluded[item.ID] = struct{}{}
+				continue
+			}
+			return ChatResult{}, lastErr
+		}
+		result, err := decodeChatResult(req, body)
+		if err != nil {
+			return ChatResult{}, err
+		}
+		result.AccountID = item.ID
+		return result, nil
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("no worker accounts available")
+	}
+	return ChatResult{}, lastErr
+}
 
+func decodeChatResult(req translate.ChatRequest, body []byte) (ChatResult, error) {
 	var parsed struct {
 		Model string `json:"model"`
 		Usage struct {
-			PromptTokens     int `json:"prompt_tokens"`
-			CompletionTokens int `json:"completion_tokens"`
+			PromptTokens     int      `json:"prompt_tokens"`
+			CompletionTokens int      `json:"completion_tokens"`
+			Source           string   `json:"source"`
+			Credits          *float64 `json:"credits"`
 		} `json:"usage"`
 		Choices []struct {
 			FinishReason string `json:"finish_reason"`
@@ -142,6 +244,10 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 	if model == "" {
 		model = req.Model
 	}
+	source := parsed.Usage.Source
+	if source == "" {
+		source = "estimate"
+	}
 	return ChatResult{
 		Model:            model,
 		Content:          content,
@@ -150,30 +256,55 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 		FinishReason:     finishReason,
 		PromptTokens:     parsed.Usage.PromptTokens,
 		CompletionTokens: parsed.Usage.CompletionTokens,
+		UsageSource:      source,
+		Credits:          parsed.Usage.Credits,
 	}, nil
 }
 
-func (e ChatExecutor) ChatStreamProxy(ctx context.Context, req translate.ChatRequest) (*http.Response, error) {
+func (e ChatExecutor) ChatStreamProxy(ctx context.Context, req translate.ChatRequest, prefer string) (*http.Response, string, error) {
 	payload, err := json.Marshal(buildWorkerPayload(req, true))
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, e.WorkerURL+"/v1/chat/completions", bytes.NewReader(payload))
-	if err != nil {
-		return nil, err
+	excluded := map[string]struct{}{}
+	var lastErr error
+	attempts := 1
+	if e.Pool != nil && e.Pool.Len() > 1 {
+		attempts = e.Pool.Len()
 	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	if e.WorkerKey != "" {
-		httpReq.Header.Set("Authorization", "Bearer "+e.WorkerKey)
+	for i := 0; i < attempts; i++ {
+		item, err := e.pick(prefer, excluded)
+		if err != nil {
+			return nil, "", err
+		}
+		prefer = ""
+		httpReq, err := e.newWorkerRequest(ctx, item, payload, prefer)
+		if err != nil {
+			return nil, "", err
+		}
+		resp, err := e.HTTPClient.Do(httpReq)
+		if err != nil {
+			lastErr = fmt.Errorf("worker %s stream request failed: %w", item.ID, err)
+			e.markDown(item.ID, err.Error())
+			excluded[item.ID] = struct{}{}
+			continue
+		}
+		if resp.StatusCode >= 300 {
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			msg := strings.TrimSpace(string(body))
+			lastErr = fmt.Errorf("worker %s stream status=%d: %s", item.ID, resp.StatusCode, msg)
+			if retryableWorkerErr(resp.StatusCode, msg) {
+				e.markDown(item.ID, msg)
+				excluded[item.ID] = struct{}{}
+				continue
+			}
+			return nil, "", lastErr
+		}
+		return resp, item.ID, nil
 	}
-	resp, err := e.HTTPClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("worker stream request failed: %w", err)
+	if lastErr == nil {
+		lastErr = fmt.Errorf("no worker accounts available")
 	}
-	if resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		return nil, fmt.Errorf("worker stream status=%d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
-	}
-	return resp, nil
+	return nil, "", lastErr
 }

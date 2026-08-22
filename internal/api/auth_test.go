@@ -29,6 +29,7 @@ func TestManagementRoutesRequireAPIKey(t *testing.T) {
 		"/api/login/pat",
 		"/api/rewarm",
 		"/api/chat",
+		"/api/accounts",
 	} {
 		method := http.MethodGet
 		if strings.HasPrefix(path, "/api/login/") || path == "/api/rewarm" || path == "/api/chat" {
@@ -94,4 +95,19 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func TestSPAFallbackServesAccounts(t *testing.T) {
+	srv := New(config.Config{
+		Host:        "127.0.0.1",
+		Port:        3010,
+		ProxyAPIKey: "secret",
+		QoderHome:   t.TempDir(),
+	})
+	req := httptest.NewRequest(http.MethodGet, "/accounts", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /accounts: got %d want 200", rec.Code)
+	}
 }
