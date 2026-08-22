@@ -8,7 +8,7 @@ Qoder account-pool hardening (Phase F):
 - Supervisor buffers POST bodies, skips cooling workers, sticky-escapes pinned accounts, restarts crashed children
 - Worker serializes WASM encode + rewarm, caps in-flight, returns `Retry-After` / `X-Qoder-Error-Kind`
 - Console Accounts page shows hot / cooldown / in-flight / restarts
-- Console uses a sign-in page (PROXY_API_KEY as password) instead of a header key field
+- Console uses a split sign-in page (PROXY_API_KEY as password) instead of a header key field
 - Qoder device-flow / PAT login lives on the Accounts page, per worker
 
 ## 0.1.0 - 2026-08-22

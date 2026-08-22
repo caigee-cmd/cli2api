@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
-import { Button, ButtonGroup, Card, Input } from '@heroui/react'
-import { PlugZap } from 'lucide-react'
+import { Button, ButtonGroup, InputGroup } from '@heroui/react'
+import { Eye, EyeOff } from 'lucide-react'
 import { useI18n } from '@/hooks/useI18n'
 import { useApiKey } from '@/hooks/useApiKey'
 import { useOverview } from '@/hooks/useOverview'
@@ -12,6 +12,7 @@ export function LoginPage() {
   const { setApiKey } = useApiKey()
   const { overview, refresh } = useOverview()
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const navigate = useNavigate()
@@ -45,51 +46,89 @@ export function LoginPage() {
   return (
     <div className="relative min-h-dvh bg-[#0b0f14] text-zinc-100">
       <div className="noise" aria-hidden />
-      <div className="relative z-10 mx-auto flex min-h-dvh max-w-md flex-col justify-center px-4 py-10">
-        <div className="mb-8 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="grid size-10 place-items-center rounded-xl bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/30">
-              <PlugZap size={18} />
-            </div>
+      <div className="relative z-10 mx-auto grid min-h-dvh w-full max-w-6xl lg:grid-cols-[1.15fr_.85fr]">
+        <section className="flex flex-col justify-between border-white/10 px-5 py-8 sm:px-10 lg:border-r lg:px-12 lg:py-12">
+          <div className="flex items-center justify-between gap-4">
             <div>
-              <div className="text-base font-semibold tracking-tight">CLI2API</div>
-              <div className="text-xs text-zinc-400">{t('brandSub')}</div>
+              <div className="text-sm font-semibold tracking-tight">CLI2API</div>
+              <div className="mt-1 text-xs text-zinc-500">{t('brandSub')}</div>
             </div>
+            <ButtonGroup>
+              <Button size="sm" variant={lang === 'zh' ? 'primary' : 'secondary'} onPress={() => setLang('zh')}>
+                中文
+              </Button>
+              <Button size="sm" variant={lang === 'en' ? 'primary' : 'secondary'} onPress={() => setLang('en')}>
+                EN
+              </Button>
+            </ButtonGroup>
           </div>
-          <ButtonGroup>
-            <Button size="sm" variant={lang === 'zh' ? 'primary' : 'secondary'} onPress={() => setLang('zh')}>
-              中文
-            </Button>
-            <Button size="sm" variant={lang === 'en' ? 'primary' : 'secondary'} onPress={() => setLang('en')}>
-              EN
-            </Button>
-          </ButtonGroup>
-        </div>
 
-        <Card className="border border-white/10 bg-white/[0.03] p-6 shadow-none">
-          <p className="mb-1 text-xs font-semibold uppercase tracking-[0.08em] text-emerald-400">{t('loginKicker')}</p>
-          <h1 className="text-2xl font-semibold tracking-tight">{t('loginTitle')}</h1>
-          <p className="mt-2 text-sm text-zinc-400">{t('loginDesc')}</p>
+          <div className="max-w-xl py-16 lg:py-0">
+            <p className="mb-3 text-xs font-semibold uppercase tracking-[0.08em] text-emerald-400">{t('loginKicker')}</p>
+            <h1 className="text-4xl font-semibold tracking-tight text-white sm:text-5xl">{t('loginTitle')}</h1>
+            <p className="mt-4 max-w-md text-sm leading-6 text-zinc-400">{t('loginLead')}</p>
+            <dl className="mt-10 max-w-md space-y-4 text-sm">
+              <div className="flex items-start justify-between gap-6 border-b border-white/8 pb-3">
+                <dt className="text-zinc-500">{t('loginUnlocks')}</dt>
+                <dd className="text-right font-medium text-zinc-200">{t('loginUnlocksValue')}</dd>
+              </div>
+              <div className="flex items-start justify-between gap-6 border-b border-white/8 pb-3">
+                <dt className="text-zinc-500">{t('loginNot')}</dt>
+                <dd className="text-right font-medium text-zinc-200">{t('loginNotValue')}</dd>
+              </div>
+              <div className="flex items-start justify-between gap-6">
+                <dt className="text-zinc-500">{t('loginNext')}</dt>
+                <dd className="text-right font-medium text-zinc-200">{t('loginNextValue')}</dd>
+              </div>
+            </dl>
+          </div>
 
-          <form className="mt-6 space-y-4" onSubmit={(e) => void onSubmit(e)}>
+          <p className="hidden text-xs text-zinc-600 lg:block">{t('loginHint')}</p>
+        </section>
+
+        <section className="flex items-center px-5 py-8 sm:px-10 lg:px-12">
+          <form className="w-full max-w-sm space-y-5" onSubmit={(e) => void onSubmit(e)}>
             <div>
-              <div className="mb-1 text-xs text-zinc-500">{t('loginPassword')}</div>
-              <Input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder={t('loginPasswordPh')}
-                autoComplete="current-password"
-                aria-label={t('loginPassword')}
-              />
+              <h2 className="text-lg font-semibold tracking-tight">{t('loginFormTitle')}</h2>
+              <p className="mt-1 text-sm text-zinc-500">{t('loginDesc')}</p>
             </div>
-            {message ? <div className="text-sm text-red-400">{message}</div> : null}
+            <div>
+              <label className="mb-1 block text-xs text-zinc-500" htmlFor="console-password">
+                {t('loginPassword')}
+              </label>
+              <InputGroup fullWidth>
+                <InputGroup.Input
+                  id="console-password"
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder={t('loginPasswordPh')}
+                  autoComplete="current-password"
+                  autoFocus
+                  aria-label={t('loginPassword')}
+                />
+                <InputGroup.Suffix>
+                  <Button
+                    isIconOnly
+                    size="sm"
+                    variant="ghost"
+                    type="button"
+                    className="text-zinc-400"
+                    onPress={() => setShowPassword((v) => !v)}
+                    aria-label={showPassword ? t('hidePassword') : t('showPassword')}
+                  >
+                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </Button>
+                </InputGroup.Suffix>
+              </InputGroup>
+            </div>
+            {message ? <p className="text-sm text-red-400">{message}</p> : null}
             <Button type="submit" className="w-full" isPending={busy}>
               {busy ? t('loggingInConsole') : t('loginSubmit')}
             </Button>
+            <p className="text-xs leading-5 text-zinc-600 lg:hidden">{t('loginHint')}</p>
           </form>
-        </Card>
-        <p className="mt-4 text-center text-xs text-zinc-500">{t('loginHint')}</p>
+        </section>
       </div>
     </div>
   )
