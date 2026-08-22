@@ -12,7 +12,10 @@ import (
 
 func main() {
 	_ = godotenv.Load() // does not override existing process env
-	cfg := config.Load()
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatal(err)
+	}
 	srv := api.New(cfg)
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
 	log.Printf("cli2api listening on http://%s", addr)

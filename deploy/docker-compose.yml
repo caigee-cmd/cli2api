@@ -19,6 +19,12 @@ services:
       - ${PLAIN_TEMPLATE_PATH:-../worker/last-plain.sample.json}:/data/last-plain.json:ro
     networks:
       - cli2api
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3020/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 20s
     restart: unless-stopped
 
   qoder-api-proxy:
@@ -39,11 +45,18 @@ services:
     volumes:
       - ${QODER_HOME:-${HOME}/.qoder}:/root/.qoder:ro
     depends_on:
-      - qoder-auth-worker
+      qoder-auth-worker:
+        condition: service_healthy
     ports:
       - "127.0.0.1:3010:3010"
     networks:
       - cli2api
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3010/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 8
+      start_period: 10s
     restart: unless-stopped
 
 networks:

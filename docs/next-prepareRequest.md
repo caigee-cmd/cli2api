@@ -1,43 +1,31 @@
-# Next: persistent QoderContext worker
+# Worker boot
 
-## Proven
+The auth worker keeps one live `QoderContext` and encodes each chat through official WASM instead of spawning the full CLI agent.
 
-We can encode + POST a new chat using a live `QoderContext.prepareInferRequest`:
+## Boot
 
-- rewrite-hook captured context from one qodercli request
-- second call with fresh request_id returned real SSE (200)
-- no Duplicate request
+1. Pin `@qoder-ai/qodercli@1.1.27` and patch capture needles in `worker/src/compat.mjs`.
+2. Skip CLI `main` when the skip-main needle is present (`pure-wasm`).
+3. Init wasm + local auth from `QODER_HOME` / `~/.qoder`.
+4. Serve chat on `:3020`. Later requests reuse the same context.
 
-## Build this next
+If needles no longer match, startup fails with a version-aware error.
 
-A long-lived worker that:
+Fallback: one-shot warmup import when skip-main is missing or `QODER_SKIP_CLI_MAIN=0`.
 
-1. Boots once:
-   - init wasm
-   - decrypt `~/.qoder/.auth/user`
-   - create `QoderContext`
-2. Serves:
-   - `POST /v1/chat/completions` (or `/internal/chat`)
-3. Per request:
-   - build plaintext body (from captured schema)
-   - `prepareInferRequest(endpoint, body, modelKey, modelSource)`
-   - fetch SSE
-   - translate nested SSE → OpenAI chunks / final JSON
+## Per request
 
-## Minimal plaintext template
+1. Build plaintext from the caller + `PLAIN_TEMPLATE_PATH` (defaults to `worker/last-plain.sample.json`)
+2. `prepareInferRequest(endpoint, body, modelKey, modelSource)`
+3. POST nested SSE
+4. Translate to OpenAI chunks / final JSON
 
-Use fields from `/tmp/qoder-wasm-spike/last-plain.json`:
+## Multi-account
 
-- ids: `request_id`, `request_set_id`, `chat_record_id`, `session_id`
-- `stream: true`
-- `chat_task: FREE_INPUT`
-- `model_config`
-- `system` / `messages` / `tools` / `parameters` / `business`
-
-First MVP can keep tools empty or minimal if upstream allows; validate carefully.
+Qoder WASM is process-global. `QODER_HOMES=acc1=/root,acc2=/home/acc2` starts `worker/src/supervisor.mjs`, one daemon per HOME.
 
 ## Acceptance
 
-- worker stays up
-- 10 chats without respawning full qodercli agent runtime
-- p50 near upstream 2-4s
+- Worker stays up across many chats
+- No full `qodercli` agent spawn per request
+- Small-chat latency close to upstream after warmup

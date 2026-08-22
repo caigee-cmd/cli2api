@@ -20,9 +20,18 @@ const apiKey = process.env.PROXY_API_KEY || "";
 const accountId = process.env.QODER_ACCOUNT_ID || "default";
 const skipCliMain = process.env.QODER_SKIP_CLI_MAIN !== "0";
 let bootMode = "pending";
-const qodercliPath =
-  process.env.QODERCLI_JS ||
-  "/root/.nvm/versions/node/v20.20.2/lib/node_modules/@qoder-ai/qodercli/bundle/qodercli.js";
+function defaultQodercliPath() {
+  const candidates = [
+    "/usr/local/lib/node_modules/@qoder-ai/qodercli/bundle/qodercli.js",
+    path.join(__dirname, "../node_modules/@qoder-ai/qodercli/bundle/qodercli.js"),
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return candidates[0];
+}
+
+const qodercliPath = process.env.QODERCLI_JS || defaultQodercliPath();
 
 let hotContext = null;
 let hotEndpoint = null;
@@ -517,8 +526,16 @@ async function loginWithPat(pat) {
 }
 
 
+function assertAPIKey() {
+  const allowInsecure = process.env.ALLOW_INSECURE_API_KEY === "1";
+  if (!allowInsecure && (!apiKey || apiKey === "change-me" || apiKey === "dev-key")) {
+    throw new Error("PROXY_API_KEY is required. Set a real key, or ALLOW_INSECURE_API_KEY=1 for local experiments.");
+  }
+}
+
 function maybeStartServer() {
   if (serverStarted) return;
+  assertAPIKey();
   serverStarted = true;
   const server = http.createServer(async (req, res) => {
     try {

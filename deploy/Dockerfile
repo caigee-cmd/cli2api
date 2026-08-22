@@ -16,7 +16,7 @@ COPY --from=frontend /web/dist/ ./internal/webui/static/
 RUN CGO_ENABLED=0 go build -o /out/qoder-api-proxy ./cmd/server
 
 FROM alpine:3.20
-RUN apk add --no-cache ca-certificates tini
+RUN apk add --no-cache ca-certificates tini wget
 WORKDIR /app
 COPY --from=build /out/qoder-api-proxy /app/qoder-api-proxy
 ENV HOST=0.0.0.0 PORT=3010

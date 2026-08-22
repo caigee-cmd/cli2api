@@ -294,27 +294,12 @@ export async function pipeNestedSseToOpenAI(upstreamRes, res, { model = "auto", 
     .map(([, v]) => v)
     .filter((v) => v.function?.name);
   if (!content && !reasoning && tool_calls.length === 0) {
-    try {
-      fs.writeFileSync(
-        "/tmp/qoder-empty-dump.json",
-        JSON.stringify(
-          {
-            at: new Date().toISOString(),
-            model,
-            promptTokens,
-            sawError,
-            eventCount,
-            sampleEvents,
-            rawAll: rawAll.slice(0, 20000),
-            bufferTail: buffer.slice(-4000),
-          },
-          null,
-          2,
-        ),
-      );
-    } catch (e) {
-      console.error("[sse] dump empty failed", e?.message || e);
-    }
+    console.error("[sse] empty upstream", {
+      model,
+      promptTokens,
+      sawError: Boolean(sawError),
+      eventCount,
+    });
     const msg = "upstream returned empty content (possible context overflow / silent reject)";
     res.write(`data: ${JSON.stringify({ error: { message: msg, type: "api_error", code: "empty_upstream" } })}\n\n`);
     res.write("data: [DONE]\n\n");

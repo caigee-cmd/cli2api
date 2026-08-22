@@ -9,6 +9,8 @@ OpenAI-compatible proxy that reuses a **local Qoder CLI login state** and calls 
 This is **not** a `spawn qodercli` wrapper like [avaritiachaos/qoder-proxy](https://github.com/avaritiachaos/qoder-proxy) / [foxy1402/qoder-proxy](https://github.com/foxy1402/qoder-proxy).  
 Architecture is closer to [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI): keep auth warm, translate protocols, execute upstream HTTP/SSE.
 
+Personal / self-hosted only. Pin `@qoder-ai/qodercli@1.1.27`; mismatch exits loudly. Cursor is out of scope for v0.1.
+
 ```text
 Client (OpenAI SDK / Codex / CherryStudio)
   -> qoder-api-proxy (:3010)
@@ -56,8 +58,8 @@ This project keeps a warm WASM/auth context and talks to the cloud infer endpoin
 
 ## Requirements
 
-- Go 1.22+ (for the proxy)
-- Node.js 20+ (for the auth worker)
+- Go 1.25+ (proxy; Docker image uses `golang:1.25-alpine`)
+- Node.js 20+ (auth worker)
 - A working local Qoder login state under `~/.qoder` (created by official Qoder CLI login)
 - Optional: a captured plaintext template for richer request shaping
 
@@ -83,19 +85,18 @@ Important vars:
 
 ```bash
 cd worker
-npm start
-# or: node src/daemon.mjs
+PROXY_API_KEY=dev-key ALLOW_INSECURE_API_KEY=1 npm start
 ```
 
-Worker listens on `:3020` by default and warms a live `QoderContext`.
+Worker listens on `:3020` by default, skips CLI `main` when the pin matches, and warms a live `QoderContext`.
 
 ### 3) Start proxy
 
 ```bash
-go run ./cmd/server
+PROXY_API_KEY=dev-key ALLOW_INSECURE_API_KEY=1 QODER_WORKER_URL=http://127.0.0.1:3020 QODER_WORKER_API_KEY=dev-key go run ./cmd/server
 ```
 
-Proxy listens on `:3010` by default.
+Proxy listens on `:3010` by default. Empty/`change-me` keys fail fast unless `ALLOW_INSECURE_API_KEY=1`.
 
 ### 4) Test
 
@@ -267,8 +268,9 @@ testdata/            Redacted samples
 ## Docs
 
 - [`docs/PLAN.md`](docs/PLAN.md) — implementation plan and checklist (Qoder-first, Cursor later)
-- [`docs/capture-notes.md`](docs/capture-notes.md) — protocol capture notes
-- [`docs/next-prepareRequest.md`](docs/next-prepareRequest.md) — worker evolution notes
+- [`docs/capture-notes.md`](docs/capture-notes.md) — redacted protocol notes
+- [`docs/next-prepareRequest.md`](docs/next-prepareRequest.md) — worker boot notes
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) / [`SECURITY.md`](SECURITY.md)
 - Local private ops notes (gitignored): `docs/PRIVATE_DEPLOYMENT.md`
 
 ## Compliance / warning
