@@ -30,7 +30,7 @@ Do not (this milestone):
 | B non-stream MVP | Worker encodes via live WASM context; Go proxy fronts OpenAI JSON |
 | C usable | Real streaming, tool calls, reasoning passthrough, rewarm/self-heal, React console |
 | D hardening | Upstream usage when present, process-isolated account pool, skip-main wasm boot |
-| E open-source | E0–E5 passed locally + us1; tag `v0.1.0` when publishing |
+| E open-source | E0–E5 passed; `v0.1.0` tagged after green CI |
 
 Typical small-chat latency is ~1-2s after warmup, versus ~10s+ for spawn-CLI wrappers.
 
@@ -109,7 +109,7 @@ Do not include: `docs/PRIVATE_DEPLOYMENT.md`, `docs/private/`, host `.env`, auth
 - [x] `CHANGELOG.md` starting at the first public tag
 - [x] Issue / PR templates: bug, pin-mismatch
 - [x] `CONTRIBUTING.md` + `SECURITY.md` (private disclosure, no raw auth dumps)
-- [ ] Tag `v0.1.0` only after a second-machine clone check (E5)
+- [x] Tag `v0.1.0` after second-machine clone check and green CI
 
 ### E4 positioning, not extra features
 
@@ -140,7 +140,7 @@ Checked 2026-08-22 on a clean local clone and us1 compose:
 - [x] local `go test ./...` + worker tests + gitleaks on the clone
 - [x] `git grep` finds no host IPs / auth blobs / private deploy notes
 
-Do not tag `v0.1.0` until the public GitHub push lands and Actions is green on that commit.
+Tagged `v0.1.0` at `eaf81ad` after GitHub Actions went green.
 
 ---
 
