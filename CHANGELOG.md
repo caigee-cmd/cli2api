@@ -8,6 +8,7 @@ Open-source hygiene for a stranger clone:
 - Prefer upstream nested SSE usage; estimate only as fallback
 - Skip-main / pure-wasm worker boot
 - Redacted protocol docs, CI, and API-key fail-fast
+- Compose forwards `ALLOW_INSECURE_API_KEY` for local placeholder keys
 
 ## 0.1.0
 

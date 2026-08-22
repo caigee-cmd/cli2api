@@ -30,7 +30,7 @@ Do not (this milestone):
 | B non-stream MVP | Worker encodes via live WASM context; Go proxy fronts OpenAI JSON |
 | C usable | Real streaming, tool calls, reasoning passthrough, rewarm/self-heal, React console |
 | D hardening | Upstream usage when present, process-isolated account pool, skip-main wasm boot |
-| E open-source | E0–E4 in tree; tag `v0.1.0` after a second-machine clone check |
+| E open-source | E0–E5 passed locally + us1; tag `v0.1.0` when publishing |
 
 Typical small-chat latency is ~1-2s after warmup, versus ~10s+ for spawn-CLI wrappers.
 
@@ -130,17 +130,17 @@ Nice-to-have after v0.1, not blockers:
 
 ### E5 acceptance
 
-Remaining public-release gate. Do **not** tag `v0.1.0` or push until a second machine (or a clean clone) does:
+Checked 2026-08-22 on a clean local clone and us1 compose:
 
-A clean clone on a second machine should:
+- [x] `cp .env.example .env` and set `PROXY_API_KEY`
+- [x] mount a real `~/.qoder` login
+- [x] `docker compose up -d --build`
+- [x] `GET /health` 200
+- [x] `POST /v1/chat/completions` with the key returns a chat (`OK`, `usage.source=upstream`)
+- [x] local `go test ./...` + worker tests + gitleaks on the clone
+- [x] `git grep` finds no host IPs / auth blobs / private deploy notes
 
-1. `cp .env.example .env` and set `PROXY_API_KEY`
-2. mount a real `~/.qoder` login
-3. `docker compose up -d --build`
-4. `GET /health` 200
-5. `POST /v1/chat/completions` with the key returns a chat
-6. CI green on the same commit
-7. `git grep` finds no host IPs / auth blobs / private deploy notes
+Do not tag `v0.1.0` until the public GitHub push lands and Actions is green on that commit.
 
 ---
 
