@@ -10,6 +10,7 @@ Qoder account-pool hardening (Phase F):
 - Console Accounts page shows hot / cooldown / in-flight / restarts
 - Console uses a split sign-in page (PROXY_API_KEY as password) instead of a header key field
 - Qoder device-flow / PAT login lives on the Accounts page, per worker
+- Accounts page is a worker list with status, browser login, and PAT fallback
 
 ## 0.1.0 - 2026-08-22
 
