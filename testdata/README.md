@@ -1,8 +1,8 @@
-Put redacted protocol samples here after Phase A capture:
+# Testdata
 
-- openai_chat_req.json
-- qoder_chat_req.json
-- qoder_sse_success.txt
-- openai_chat_resp.json
+Redacted protocol samples only:
 
-Never store live tokens.
+- `chat_headers.redacted.json` — Cosy header names
+- `last-plain.sample.json` — plaintext chat shape before WASM encode
+
+Never store live tokens, cookies, auth blobs, or customer prompts.

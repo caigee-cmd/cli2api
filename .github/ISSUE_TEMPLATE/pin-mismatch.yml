@@ -1,0 +1,17 @@
+name: qodercli pin mismatch
+description: Worker failed because CLI needles no longer match 1.1.27
+labels: [qodercli]
+body:
+  - type: textarea
+    id: error
+    attributes:
+      label: Worker error
+      description: Startup error text only. No auth blobs.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Installed @qoder-ai/qodercli version
+    validations:
+      required: true

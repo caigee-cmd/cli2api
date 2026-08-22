@@ -1,0 +1,25 @@
+name: Bug
+description: Something is broken in the Qoder proxy/worker/console
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: Commands, model, stream/non-stream. Do not paste tokens or auth blobs.
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: cli2api commit / qodercli version / Go / Node
+  - type: markdown
+    attributes:
+      value: Never attach `~/.qoder`, cookies, COSY tokens, or capture dumps.

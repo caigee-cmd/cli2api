@@ -30,7 +30,7 @@ Do not (this milestone):
 | B non-stream MVP | Worker encodes via live WASM context; Go proxy fronts OpenAI JSON |
 | C usable | Real streaming, tool calls, reasoning passthrough, rewarm/self-heal, React console |
 | D hardening | Upstream usage when present, process-isolated account pool, skip-main wasm boot |
-| E open-source | E0 frozen locally; next is sanitize, clone-run docs, CI, `v0.1.0` |
+| E open-source | E0–E3 in tree; tag `v0.1.0` after a second-machine clone check |
 
 Typical small-chat latency is ~1-2s after warmup, versus ~10s+ for spawn-CLI wrappers.
 
@@ -86,30 +86,30 @@ Do not include: `docs/PRIVATE_DEPLOYMENT.md`, `docs/private/`, host `.env`, auth
 
 ### E1 sanitize for strangers
 
-- [ ] Strip local-only paths from public files (`/tmp/qoder-wasm-spike`, capture preload scripts, machine names)
-- [ ] Worker template loader should use `PLAIN_TEMPLATE_PATH` + `worker/last-plain.sample.json` only
-- [ ] Rewrite `docs/capture-notes.md` / `docs/next-prepareRequest.md` as redacted protocol notes, not a personal lab log
-- [ ] Replace `frontend/README.md` Vite boilerplate with console build/sync notes
-- [ ] README EN/ZH: add Accounts page, `usage.source`, supervisor boot, ToS warning above the fold
-- [ ] Secret scan: no tokens, cookies, account ids, host IPs, customer prompts in git tree or history
+- [x] Strip local-only paths from public files (`/tmp/qoder-wasm-spike`, capture preload scripts, machine names)
+- [x] Worker template loader should use `PLAIN_TEMPLATE_PATH` + `worker/last-plain.sample.json` only
+- [x] Rewrite `docs/capture-notes.md` / `docs/next-prepareRequest.md` as redacted protocol notes, not a personal lab log
+- [x] Replace `frontend/README.md` Vite boilerplate with console build/sync notes
+- [x] README EN/ZH: add Accounts page, `usage.source`, supervisor boot, ToS warning above the fold
+- [x] Secret scan: no tokens, cookies, account ids, host IPs, customer prompts in git tree or history
 
 ### E2 make clone → run boring
 
-- [ ] One-command local path in README: worker `npm start` + `go run ./cmd/server`
-- [ ] Compose: document Qoder HOME mount, `PROXY_API_KEY`, optional `QODER_HOMES`
-- [ ] Add container healthchecks for proxy + worker
-- [ ] Fail fast if `PROXY_API_KEY` is empty/`change-me` in non-dev
-- [ ] Pin Node 20 / Go 1.22+ (or the versions we actually build) in README and Dockerfiles
-- [ ] Keep sample plaintext template tiny and non-secret
+- [x] One-command local path in README: worker `npm start` + `go run ./cmd/server`
+- [x] Compose: document Qoder HOME mount, `PROXY_API_KEY`, optional `QODER_HOMES`
+- [x] Add container healthchecks for proxy + worker
+- [x] Fail fast if `PROXY_API_KEY` is empty/`change-me` in non-dev
+- [x] Pin Node 20 / Go 1.25 in README and Dockerfiles
+- [x] Keep sample plaintext template tiny and non-secret
 
 ### E3 CI and release hygiene
 
-- [ ] GitHub Actions: `go test ./...`, `cd worker && npm test`, `cd frontend && npm ci && npm run build`
+- [x] GitHub Actions: `go test ./...`, `cd worker && npm test`, `cd frontend && npm ci && npm run build`
 - [ ] Optional: `gitleaks` or equivalent on PRs
-- [ ] `CHANGELOG.md` starting at the first public tag
-- [ ] Issue / PR templates: bug, pin-mismatch, usage/account pool
-- [ ] `CONTRIBUTING.md` + `SECURITY.md` (private disclosure, no raw auth dumps)
-- [ ] Tag `v0.1.0` only after E0–E2 are in `main`
+- [x] `CHANGELOG.md` starting at the first public tag
+- [x] Issue / PR templates: bug, pin-mismatch
+- [x] `CONTRIBUTING.md` + `SECURITY.md` (private disclosure, no raw auth dumps)
+- [ ] Tag `v0.1.0` only after a second-machine clone check (E5)
 
 ### E4 positioning, not extra features
 

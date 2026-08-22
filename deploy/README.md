@@ -2,31 +2,35 @@
 
 ## 1. Prepare
 
+Official Qoder CLI login must exist on the host:
+
 ```bash
-# Qoder login state must exist on the host
 ls ~/.qoder/.auth/user
 ```
 
-Optional: a richer captured plaintext template. Otherwise the sample at `worker/last-plain.sample.json` is used.
+Optional: a richer plaintext template. Otherwise `worker/last-plain.sample.json` is used.
 
 ## 2. Configure and start
 
 ```bash
 cd deploy
 cp .env.example .env
-# set PROXY_API_KEY
+# set PROXY_API_KEY to something other than change-me
+# optional: QODER_HOME, QODER_HOMES, PLAIN_TEMPLATE_PATH
 
 docker compose up -d --build
 docker compose ps
 ```
 
-> If you sync this repo with `rsync --delete`, remember `.env` is gitignored and may be wiped. Recreate it before `compose up`.
+Empty / `change-me` keys fail fast unless you also set `ALLOW_INSECURE_API_KEY=1`.
+
+> If you sync this repo with `rsync --delete`, remember `.env` is gitignored and may be wiped.
 
 ## 3. Network notes
 
 Default compose creates a private `cli2api` network and publishes **only** `127.0.0.1:3010`.
 
-Worker admin APIs and proxy `/api/*` require `PROXY_API_KEY` when it is set.
+Mount `~/.qoder` into the worker. Worker admin APIs and proxy `/api/*` require `PROXY_API_KEY`.
 
 Health from the host:
 
@@ -46,8 +50,6 @@ networks:
 
 ## 4. Point your gateway
 
-Create an OpenAI-compatible upstream/account with:
-
 ```text
 base_url = http://qoder-api-proxy:3010/v1   # or http://127.0.0.1:3010/v1 from the host
 api_key  = <same as PROXY_API_KEY>
@@ -55,18 +57,14 @@ api_key  = <same as PROXY_API_KEY>
 
 ## Host-process fallback
 
-Worker:
-
 ```bash
 cd worker
-WORKER_HOST=127.0.0.1 WORKER_PORT=3020 PROXY_API_KEY=dev-key node src/daemon.mjs
-```
+WORKER_HOST=127.0.0.1 WORKER_PORT=3020 \
+PROXY_API_KEY=dev-key ALLOW_INSECURE_API_KEY=1 \
+npm start
 
-Proxy:
-
-```bash
+PROXY_API_KEY=dev-key ALLOW_INSECURE_API_KEY=1 \
 QODER_WORKER_URL=http://127.0.0.1:3020 \
 QODER_WORKER_API_KEY=dev-key \
-PROXY_API_KEY=dev-key \
 go run ./cmd/server
 ```

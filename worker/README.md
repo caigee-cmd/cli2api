@@ -18,11 +18,13 @@ Set `QODERCLI_JS` to the `qodercli.js` bundle path.
 ```bash
 export QODERCLI_JS=/path/to/node_modules/@qoder-ai/qodercli/bundle/qodercli.js
 export WORKER_PORT=3020
-export PROXY_API_KEY=change-me
+export PROXY_API_KEY=dev-key
+export ALLOW_INSECURE_API_KEY=1
 npm start
 ```
 
-Health (`/health`) is open. Chat and `/admin/*` require `PROXY_API_KEY` when it is set.
+Health (`/health`) is open. Chat and `/admin/*` require `PROXY_API_KEY` when it is set.  
+Placeholder keys (`change-me` / empty) refuse to boot unless `ALLOW_INSECURE_API_KEY=1`.
 
 ## Tests
 

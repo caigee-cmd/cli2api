@@ -7,6 +7,8 @@
 这不是 [avaritiachaos/qoder-proxy](https://github.com/avaritiachaos/qoder-proxy) / [foxy1402/qoder-proxy](https://github.com/foxy1402/qoder-proxy) 那种每次请求 `spawn qodercli` 的包装器。  
 架构更接近 [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)：热持有鉴权、协议转换、常驻执行上游 HTTP/SSE。
 
+仅个人 / 自建。钉死 `@qoder-ai/qodercli@1.1.27`，对不上就直接退出。Cursor 不在 v0.1 范围。
+
 ```text
 客户端 (OpenAI SDK / Codex / CherryStudio)
   -> qoder-api-proxy (:3010)
@@ -56,10 +58,10 @@ Docker 多阶段构建会先编译前端，再打包 Go binary。
 
 ## 环境要求
 
-- Go 1.22+（proxy）
+- Go 1.25+（proxy；Docker 用 `golang:1.25-alpine`）
 - Node.js 20+（auth worker）
 - 本机已有 Qoder 登录态（`~/.qoder`，由官方 Qoder CLI 登录产生）
-- 可选：抓包得到的 plaintext 模板，用于更完整的请求整形
+- 可选：plaintext 模板，用于更完整的请求整形
 
 ## 快速开始
 
@@ -83,19 +85,18 @@ cp .env.example .env
 
 ```bash
 cd worker
-npm start
-# 或: node src/daemon.mjs
+PROXY_API_KEY=dev-key ALLOW_INSECURE_API_KEY=1 npm start
 ```
 
-默认监听 `:3020`，并预热热 `QoderContext`。
+默认监听 `:3020`。pin 匹配时跳过 CLI `main`，热持有 `QoderContext`。
 
 ### 3) 启动 proxy
 
 ```bash
-go run ./cmd/server
+PROXY_API_KEY=dev-key ALLOW_INSECURE_API_KEY=1 QODER_WORKER_URL=http://127.0.0.1:3020 QODER_WORKER_API_KEY=dev-key go run ./cmd/server
 ```
 
-默认监听 `:3010`。
+默认监听 `:3010`。空/`change-me` 的 Key 会直接失败，除非 `ALLOW_INSECURE_API_KEY=1`。
 
 ### 4) 测试
 
@@ -267,8 +268,9 @@ testdata/            脱敏样例
 ## 文档
 
 - [`docs/PLAN.md`](docs/PLAN.md) — 实施方案与清单（先 Qoder，Cursor 后续）
-- [`docs/capture-notes.md`](docs/capture-notes.md) — 协议抓包笔记
-- [`docs/next-prepareRequest.md`](docs/next-prepareRequest.md) — worker 演进笔记
+- [`docs/capture-notes.md`](docs/capture-notes.md) — 脱敏协议笔记
+- [`docs/next-prepareRequest.md`](docs/next-prepareRequest.md) — worker 启动笔记
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) / [`SECURITY.md`](SECURITY.md)
 - 本地私有运维笔记（已 gitignore）：`docs/PRIVATE_DEPLOYMENT.md`
 
 ## 合规提醒
