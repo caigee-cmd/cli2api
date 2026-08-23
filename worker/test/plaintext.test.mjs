@@ -10,6 +10,7 @@ import {
   diagnoseOpenAIToolHistory,
   diagnoseToolResults,
   filterUnknownToolHistory,
+  normalizeToolResultContent,
 } from "../src/plaintext.mjs";
 
 test("maps known display names to upstream keys", () => {
@@ -172,6 +173,27 @@ test("keeps distinct existing tool ids across multiple assistant turns", () => {
   assert.equal(messages[3].tool_call_id, "call_b");
 });
 
+
+test("orders parallel tool results and drops orphan results", () => {
+  const messages = normalizeMessagesForUpstream([
+    {
+      role: "assistant",
+      content: null,
+      tool_calls: [
+        { id: "call_a", function: { name: "Read", arguments: "{}" } },
+        { id: "call_b", function: { name: "Bash", arguments: "{}" } },
+      ],
+    },
+    { role: "tool", tool_call_id: "orphan", content: "discard me" },
+    { role: "tool", tool_call_id: "call_b", content: "b" },
+    { role: "tool", tool_call_id: "call_a", content: "a" },
+  ]);
+  assert.deepEqual(messages.slice(1).map((message) => [message.tool_call_id, message.content]), [
+    ["call_a", "a"],
+    ["call_b", "b"],
+  ]);
+});
+
 test("diagnoses malformed OpenAI tool history without logging content", () => {
   const diagnostics = diagnoseOpenAIToolHistory(
     [
@@ -213,6 +235,35 @@ test("diagnoses tool result metadata without recording content", () => {
   assert.equal(diagnostics[1].toolName, "Bash");
   assert.equal(diagnostics[1].jsonValid, true);
   assert.equal(JSON.stringify(diagnostics).includes("file contents"), false);
+});
+
+
+test("normalizes tool results like Qoder CLI", () => {
+  assert.equal(normalizeToolResultContent("plain output"), "plain output");
+  assert.equal(normalizeToolResultContent({ ok: true }), '{"ok":true}');
+  assert.equal(normalizeToolResultContent(null), "(no content)");
+  assert.equal(normalizeToolResultContent("denied", true), "Error: denied");
+  assert.equal(
+    normalizeToolResultContent([
+      { type: "text", text: "first" },
+      { type: "resource", resource: { text: "second" } },
+      { type: "image", mime_type: "image/png" },
+    ]),
+    "first\nsecond\n[Image: image/png]",
+  );
+});
+
+test("normalizes tool result content while preserving call ids", () => {
+  const messages = normalizeMessagesForUpstream([
+    {
+      role: "assistant",
+      content: null,
+      tool_calls: [{ id: "call_a", function: { name: "Read", arguments: "{}" } }],
+    },
+    { role: "tool", tool_call_id: "call_a", content: { output: "ok" } },
+  ]);
+  assert.equal(messages[1].tool_call_id, "call_a");
+  assert.equal(messages[1].content, '{"output":"ok"}');
 });
 
 test("estimates CJK heavier than ascii", () => {

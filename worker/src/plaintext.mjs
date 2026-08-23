@@ -256,6 +256,43 @@ export function filterUnknownToolHistory(messages = [], tools = []) {
   };
 }
 
+function normalizeToolResultContent(content, isError = false) {
+  let normalized;
+  if (typeof content === "string") {
+    normalized = content;
+  } else if (Array.isArray(content)) {
+    normalized = content
+      .map((part) => {
+        if (typeof part === "string") return part;
+        if (!part || typeof part !== "object") return "";
+        if (part.type === "text" && typeof part.text === "string") return part.text;
+        if (part.type === "image" || part.type === "image_url") {
+          const mime = part.mime_type || part.mimeType || part.image_url?.detail || "unknown";
+          return "[Image: " + mime + "]";
+        }
+        if (part.type === "resource_link") {
+          return "[Link to " + (part.title || part.name || part.uri || "resource") + "]";
+        }
+        if (part.type === "resource") {
+          return typeof part.resource?.text === "string"
+            ? part.resource.text
+            : "[Embedded Resource: " + (part.resource?.mime_type || part.resource?.mimeType || "unknown") + "]";
+        }
+        return JSON.stringify(part);
+      })
+      .filter(Boolean)
+      .join("\n");
+  } else if (content == null) {
+    normalized = "(no content)";
+  } else {
+    normalized = JSON.stringify(content);
+  }
+
+  if (!normalized) normalized = "(no content)";
+  if (isError && !/^Error:\s/u.test(normalized)) normalized = "Error: " + normalized;
+  return normalized;
+}
+
 function normalizeToolCall(toolCall, messageIndex, callIndex, usedIds, sourceIds) {
   const functionPart = toolCall?.function && typeof toolCall.function === "object"
     ? toolCall.function
@@ -284,41 +321,77 @@ function normalizeMessagesForUpstream(messages = []) {
   const usedIds = new Set();
   const sourceIds = new Map();
   const callsById = new Map();
-  const unresolvedCalls = [];
+  const normalized = [];
+  let currentBatch = [];
+  let consumedBatchIds = new Set();
+  let pendingToolResults = [];
 
-  return (messages || []).map((m, messageIndex) => {
-    const role = m?.role;
-    const out = { role, content: contentToString(m?.content) };
-    if (role === "assistant" && Array.isArray(m?.tool_calls) && m.tool_calls.length) {
-      out.tool_calls = m.tool_calls.map((toolCall, callIndex) => {
-        const normalized = normalizeToolCall(toolCall, messageIndex, callIndex, usedIds, sourceIds);
-        callsById.set(normalized.id, normalized);
-        unresolvedCalls.push(normalized.id);
-        return normalized;
-      });
-      // OpenAI allows content null when tool_calls present
-      if (!out.content) out.content = null;
+  const flushToolResults = () => {
+    if (!pendingToolResults.length) return;
+    const order = new Map(currentBatch.map((id, index) => [id, index]));
+    pendingToolResults.sort((left, right) => {
+      const leftOrder = order.has(left.toolCallId) ? order.get(left.toolCallId) : Number.MAX_SAFE_INTEGER;
+      const rightOrder = order.has(right.toolCallId) ? order.get(right.toolCallId) : Number.MAX_SAFE_INTEGER;
+      return leftOrder - rightOrder;
+    });
+    for (const result of pendingToolResults) {
+      const belongsToCurrentBatch = currentBatch.length > 0
+        ? order.has(result.toolCallId)
+        : callsById.has(result.toolCallId);
+      if (belongsToCurrentBatch) normalized.push(result.message);
     }
+    pendingToolResults = [];
+  };
+
+  for (const [messageIndex, message] of (Array.isArray(messages) ? messages : []).entries()) {
+    const role = message?.role;
+    if (role === "assistant") {
+      flushToolResults();
+      consumedBatchIds = new Set();
+      const out = { role, content: contentToString(message?.content) };
+      if (Array.isArray(message?.tool_calls) && message.tool_calls.length) {
+        out.tool_calls = message.tool_calls.map((toolCall, callIndex) => {
+          const normalizedCall = normalizeToolCall(toolCall, messageIndex, callIndex, usedIds, sourceIds);
+          callsById.set(normalizedCall.id, normalizedCall);
+          return normalizedCall;
+        });
+        currentBatch = out.tool_calls.map((toolCall) => toolCall.id);
+        if (!out.content) out.content = null;
+      } else {
+        currentBatch = [];
+      }
+      normalized.push(out);
+      continue;
+    }
+
     if (role === "tool") {
-      const requestedId = typeof m?.tool_call_id === "string" ? m.tool_call_id.trim() : "";
+      const requestedId = typeof message?.tool_call_id === "string" ? message.tool_call_id.trim() : "";
       let toolCallId = sourceIds.get(requestedId) || requestedId;
-      if (!requestedId) {
-        toolCallId = unresolvedCalls.find((id) => callsById.has(id)) || "";
+      if (!toolCallId) {
+        toolCallId = currentBatch.find((id) => !consumedBatchIds.has(id)) || "";
       }
-      if (toolCallId) {
-        out.tool_call_id = toolCallId;
-        const unresolvedIndex = unresolvedCalls.indexOf(toolCallId);
-        if (unresolvedIndex >= 0) unresolvedCalls.splice(unresolvedIndex, 1);
-      } else if (requestedId) {
-        out.tool_call_id = requestedId;
-      }
-      if (m?.name) out.name = String(m.name);
+      if (!toolCallId || !callsById.has(toolCallId)) continue;
+      consumedBatchIds.add(toolCallId);
+      const out = {
+        role,
+        content: normalizeToolResultContent(message?.content, message?.is_error === true),
+        tool_call_id: toolCallId,
+      };
+      if (message?.name) out.name = String(message.name);
+      pendingToolResults.push({ message: out, toolCallId });
+      continue;
     }
-    return out;
-  });
-}
 
-export { normalizeMessagesForUpstream };
+    flushToolResults();
+    currentBatch = [];
+    consumedBatchIds = new Set();
+    normalized.push({ role, content: contentToString(message?.content) });
+  }
+
+  flushToolResults();
+  return normalized;
+}
+export { normalizeMessagesForUpstream, normalizeToolResultContent };
 
 export function diagnoseToolResults(messages = []) {
   const callsById = new Map();
