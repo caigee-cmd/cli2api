@@ -1,8 +1,6 @@
 package accounts
 
 import (
-	"os"
-	"strings"
 	"sync"
 	"time"
 )
@@ -20,50 +18,10 @@ type Item struct {
 }
 
 type Pool struct {
-	mu    sync.Mutex
-	items []Item
-	next  int
-}
-
-func ParseWorkerURLs(raw string) []string {
-	parts := strings.Split(raw, ",")
-	out := make([]string, 0, len(parts))
-	seen := map[string]struct{}{}
-	for _, part := range parts {
-		url := strings.TrimRight(strings.TrimSpace(part), "/")
-		if url == "" {
-			continue
-		}
-		if _, ok := seen[url]; ok {
-			continue
-		}
-		seen[url] = struct{}{}
-		out = append(out, url)
-	}
-	return out
-}
-
-func ParseAccountIDs(raw string, n int) []string {
-	parts := strings.Split(raw, ",")
-	out := make([]string, 0, n)
-	for _, part := range parts {
-		id := strings.TrimSpace(part)
-		if id == "" {
-			continue
-		}
-		out = append(out, id)
-	}
-	for len(out) < n {
-		if len(out) == 0 {
-			out = append(out, "default")
-			continue
-		}
-		out = append(out, out[len(out)-1])
-	}
-	if n >= 0 && len(out) > n {
-		out = out[:n]
-	}
-	return out
+	mu       sync.Mutex
+	items    []Item
+	next     int
+	observer func(Item)
 }
 
 func NewPool(urls []string, ids []string) *Pool {
@@ -78,12 +36,6 @@ func NewPool(urls []string, ids []string) *Pool {
 		items = append(items, Item{ID: id, URL: url})
 	}
 	return &Pool{items: items}
-}
-
-func LoadFromEnv() *Pool {
-	urls := ParseWorkerURLs(firstNonEmpty(os.Getenv("QODER_WORKER_URLS"), os.Getenv("QODER_WORKER_URL"), "http://127.0.0.1:3020"))
-	ids := ParseAccountIDs(os.Getenv("QODER_ACCOUNT_IDS"), len(urls))
-	return NewPool(urls, ids)
 }
 
 func (p *Pool) Len() int {
@@ -162,8 +114,8 @@ func (p *Pool) MarkClassified(id string, c Classified) {
 	if p == nil || id == "" {
 		return
 	}
+	var changed *Item
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	for i := range p.items {
 		if p.items[i].ID != id {
 			continue
@@ -173,26 +125,38 @@ func (p *Pool) MarkClassified(id string, c Classified) {
 		if c.Cooldown > 0 && (c.Failover || c.Kind != KindQuota) {
 			p.items[i].DownUntil = time.Now().Add(c.Cooldown)
 		}
-		return
+		copy := p.items[i]
+		changed = &copy
+		break
+	}
+	observer := p.observer
+	p.mu.Unlock()
+	if changed != nil && observer != nil {
+		observer(*changed)
 	}
 }
-
 func (p *Pool) MarkOK(id string) {
 	if p == nil || id == "" {
 		return
 	}
+	var changed *Item
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	for i := range p.items {
 		if p.items[i].ID == id {
 			p.items[i].DownUntil = time.Time{}
 			p.items[i].LastError = ""
 			p.items[i].LastKind = ""
-			return
+			copy := p.items[i]
+			changed = &copy
+			break
 		}
 	}
+	observer := p.observer
+	p.mu.Unlock()
+	if changed != nil && observer != nil {
+		observer(*changed)
+	}
 }
-
 func (p *Pool) MergeHealth(id string, ready, hot bool, inFlight, restarts int, lastError string) {
 	if p == nil || id == "" {
 		return
@@ -258,15 +222,6 @@ func nullableTime(t time.Time, now time.Time) any {
 	return t.UTC().Format(time.RFC3339)
 }
 
-func firstNonEmpty(vals ...string) string {
-	for _, v := range vals {
-		if s := strings.TrimSpace(v); s != "" {
-			return s
-		}
-	}
-	return ""
-}
-
 func itoa(n int) string {
 	if n == 0 {
 		return "0"
@@ -279,4 +234,62 @@ func itoa(n int) string {
 		n /= 10
 	}
 	return string(b[i:])
+}
+
+func (p *Pool) Upsert(item Item) {
+	if p == nil || item.ID == "" || item.URL == "" {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for i := range p.items {
+		if p.items[i].ID == item.ID {
+			item.DownUntil = p.items[i].DownUntil
+			item.LastError = p.items[i].LastError
+			item.LastKind = p.items[i].LastKind
+			p.items[i] = item
+			return
+		}
+	}
+	p.items = append(p.items, item)
+}
+
+func (p *Pool) Remove(id string) {
+	if p == nil || id == "" {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for i := range p.items {
+		if p.items[i].ID != id {
+			continue
+		}
+		p.items = append(p.items[:i], p.items[i+1:]...)
+		if len(p.items) == 0 {
+			p.next = 0
+		} else if p.next >= len(p.items) {
+			p.next %= len(p.items)
+		}
+		return
+	}
+}
+
+func (p *Pool) Items() []Item {
+	if p == nil {
+		return nil
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	items := make([]Item, len(p.items))
+	copy(items, p.items)
+	return items
+}
+
+func (p *Pool) SetObserver(observer func(Item)) {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	p.observer = observer
+	p.mu.Unlock()
 }

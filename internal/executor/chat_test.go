@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -102,5 +103,24 @@ func TestChatNonStreamForwardsPinnedAccount(t *testing.T) {
 	}
 	if got.Content != "OK" {
 		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestChatNonStreamFailsWhenSQLitePoolIsEmpty(t *testing.T) {
+	ex := NewChatExecutor(endpoint.Endpoints{}, accounts.NewPool(nil, nil))
+	_, err := ex.ChatNonStream(context.Background(), translate.ChatRequest{
+		Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	}, "")
+	if err == nil || !strings.Contains(err.Error(), "no worker accounts") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestNewChatExecutorUsesProxyKeyForInternalDaemon(t *testing.T) {
+	t.Setenv("QODER_WORKER_API_KEY", "")
+	t.Setenv("PROXY_API_KEY", "shared-secret")
+	ex := NewChatExecutor(endpoint.Endpoints{}, accounts.NewPool(nil, nil))
+	if ex.WorkerKey != "shared-secret" {
+		t.Fatalf("worker key = %q", ex.WorkerKey)
 	}
 }

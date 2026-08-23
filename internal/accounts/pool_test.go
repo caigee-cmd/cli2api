@@ -31,13 +31,6 @@ func TestRoundRobinSkipsDownAccounts(t *testing.T) {
 	}
 }
 
-func TestParseWorkerURLsDedupes(t *testing.T) {
-	got := ParseWorkerURLs(" http://a:3020/,http://a:3020,http://b:3020 ")
-	if len(got) != 2 || got[0] != "http://a:3020" || got[1] != "http://b:3020" {
-		t.Fatalf("got %#v", got)
-	}
-}
-
 func TestMarkOKClearsCooldown(t *testing.T) {
 	p := NewPool([]string{"http://a:3020", "http://b:3020"}, []string{"a", "b"})
 	p.MarkClassified("a", Classified{Kind: KindRateLimit, Cooldown: time.Hour, Message: "429", Failover: true})

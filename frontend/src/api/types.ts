@@ -27,6 +27,14 @@ export type Overview = {
   models?: Array<{ id: string; mapped_key?: string; stale?: boolean }>
   accounts?: Array<{
     id: string
+    name?: string
+    remote_uid?: string
+    auth_type?: string
+    enabled?: boolean
+    max_inflight?: number
+    priority?: number
+    status?: string
+    cooldown_until?: string | null
     url?: string
     ready?: boolean
     hot?: boolean

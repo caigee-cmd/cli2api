@@ -13,8 +13,8 @@ Personal / self-hosted only. Pin `@qoder-ai/qodercli@1.1.27`; mismatch exits lou
 
 ```text
 Client (OpenAI SDK / Codex / CherryStudio)
-  -> qoder-api-proxy (:3010)
-    -> qoder-auth-worker (:3020, hot QoderContext)
+  -> qoder-api-proxy (:3010, Go + SQLite control plane)
+    -> one isolated Node daemon per enabled account
       -> https://api1.qoder.sh/.../agent_chat_generation?Encode=1
 ```
 
@@ -60,47 +60,33 @@ This project keeps a warm WASM/auth context and talks to the cloud infer endpoin
 
 ## Requirements
 
-- Go 1.25+ (proxy; Docker image uses `golang:1.25-alpine`)
-- Node.js 20+ (auth worker)
-- A working local Qoder login state under `~/.qoder` (created by official Qoder CLI login)
-- Optional: a captured plaintext template for richer request shaping
+- Docker + Docker Compose for the recommended deployment
+- A real `PROXY_API_KEY`
+- Optional existing `~/.qoder` login for one-time migration
 
 ## Quick start
 
-### 1) Configure
-
 ```bash
+cd deploy
 cp .env.example .env
+# set a real PROXY_API_KEY
+docker compose up -d --build
 ```
 
-Important vars:
+The single container includes Go, Node, pinned qodercli, and the frontend. SQLite and
+per-account homes persist in the `qoder-data` volume. Open `/accounts` to add browser
+OAuth, PAT, or `qoder-native-v1` accounts.
+
+Important variables:
 
 | Var | Meaning |
 |-----|---------|
-| `PROXY_API_KEY` | API key clients must send (`Authorization: Bearer ...`) |
-| `QODER_WORKER_URL` | Worker base URL, default `http://127.0.0.1:3020` |
-| `QODER_WORKER_API_KEY` | Key proxy uses when calling worker |
-| `QODER_HOME` | Qoder home, default `/root/.qoder` |
-| `PLAIN_TEMPLATE_PATH` | Optional plaintext template JSON for worker |
+| `PROXY_API_KEY` | Console and `/v1` API key |
+| `QODER_DATA_DIR` | SQLite and runtime root; `/data` in Docker |
+| `QODER_HOME` | Optional existing login imported once when SQLite is empty |
+| `QODER_WORKER_BASE_PORT` | Internal daemon port range start |
 
-### 2) Start worker
-
-```bash
-cd worker
-PROXY_API_KEY=dev-key ALLOW_INSECURE_API_KEY=1 npm start
-```
-
-Worker listens on `:3020` by default, skips CLI `main` when the pin matches, and warms a live `QoderContext`.
-
-### 3) Start proxy
-
-```bash
-PROXY_API_KEY=dev-key ALLOW_INSECURE_API_KEY=1 QODER_WORKER_URL=http://127.0.0.1:3020 QODER_WORKER_API_KEY=dev-key go run ./cmd/server
-```
-
-Proxy listens on `:3010` by default. Empty/`change-me` keys fail fast unless `ALLOW_INSECURE_API_KEY=1`.
-
-### 4) Test
+### Test
 
 ```bash
 curl -s http://127.0.0.1:3010/health
@@ -239,26 +225,19 @@ Otherwise the proxy estimates tokens (`usage.source=estimate`) so billing still 
 
 ### Multi-account
 
-Qoder WASM is process-global, so each login needs its own worker process / HOME.
+Accounts are stored in SQLite and managed from the **Accounts** page. You no longer
+configure `QODER_HOMES`, worker URLs, or account IDs.
 
-Default Compose path (one worker container, supervisor inside):
+Each enabled account still gets an isolated Node daemon and HOME because Qoder WASM is
+process-global. Go is the only scheduler and handles round-robin, pinning, cooldown, and
+failover. Supported onboarding methods:
 
-```bash
-QODER_HOMES=acc1=/root,acc2=/home/acc2
-# proxy still has a single URL; supervisor failovers and honors X-Qoder-Account
-QODER_WORKER_URLS=http://qoder-auth-worker:3020
-```
+- browser device-flow OAuth
+- PAT
+- `qoder-native-v1` JSON import/export
 
-Separate worker containers:
-
-```bash
-QODER_WORKER_URLS=http://qoder-acc1:3020,http://qoder-acc2:3020
-QODER_ACCOUNT_IDS=acc1,acc2
-```
-
-Chat round-robins and fails over on rate-limit / auth / not-ready / 5xx.  
-`insufficient_quota` (often oversized prompt, not empty balance) does **not** burn the rest of the pool.  
-Pin with `X-Qoder-Account`; if that account is cooling down, the proxy sticky-escapes to another ready worker.
+On the first single-container start, an existing mounted `QODER_HOME` is imported into
+SQLite automatically when the database is empty. Pin requests with `X-Qoder-Account`.
 
 ## Project layout
 

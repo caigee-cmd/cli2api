@@ -1,70 +1,40 @@
 # Deploy with Docker Compose
 
-## 1. Prepare
-
-Official Qoder CLI login must exist on the host:
-
-```bash
-ls ~/.qoder/.auth/user
-```
-
-Optional: a richer plaintext template. Otherwise `worker/last-plain.sample.json` is used.
-
-## 2. Configure and start
+## 1. Configure
 
 ```bash
 cd deploy
 cp .env.example .env
-# set PROXY_API_KEY to something other than change-me
-# optional: QODER_HOME, QODER_HOMES, PLAIN_TEMPLATE_PATH
-
-docker compose up -d --build
-docker compose ps
+# set a real PROXY_API_KEY
 ```
 
-Empty / `change-me` keys fail fast unless you also set `ALLOW_INSECURE_API_KEY=1`.
+The deployment is one container. It contains the Go control plane, Node runtime,
+pinned qodercli, and frontend. SQLite and per-account runtime homes persist in the
+`qoder-data` volume.
 
-> If you sync this repo with `rsync --delete`, remember `.env` is gitignored and may be wiped.
-
-## 3. Network notes
-
-Default compose creates a private `cli2api` network and publishes **only** `127.0.0.1:3010`.
-
-Mount `~/.qoder` into the worker. Worker admin APIs and proxy `/api/*` require `PROXY_API_KEY`.
-
-Health from the host:
+## 2. Start
 
 ```bash
+docker compose up -d --build
+docker compose ps
 curl -s http://127.0.0.1:3010/health
 ```
 
-To join an existing Docker network, add a local override file (do not commit host-specific names):
+Only `127.0.0.1:3010` is published. Account and credential operations require
+`PROXY_API_KEY`.
 
-```yaml
-# deploy/docker-compose.override.yml
-networks:
-  cli2api:
-    external: true
-    name: your-existing-network
-```
+## 3. Existing Qoder login
 
-## 4. Point your gateway
+By default Compose mounts `${QODER_HOME:-$HOME/.qoder}` read-only at
+`/import/.qoder`. If SQLite is empty and `.auth/user` plus `.auth/machine_id` exist,
+the service imports them once as the first enabled account.
+
+After startup, add further accounts from `/accounts` using browser OAuth, PAT, or a
+`qoder-native-v1` credential bundle.
+
+## 4. Gateway
 
 ```text
-base_url = http://qoder-api-proxy:3010/v1   # or http://127.0.0.1:3010/v1 from the host
+base_url = http://qoder-api-proxy:3010/v1
 api_key  = <same as PROXY_API_KEY>
-```
-
-## Host-process fallback
-
-```bash
-cd worker
-WORKER_HOST=127.0.0.1 WORKER_PORT=3020 \
-PROXY_API_KEY=dev-key ALLOW_INSECURE_API_KEY=1 \
-npm start
-
-PROXY_API_KEY=dev-key ALLOW_INSECURE_API_KEY=1 \
-QODER_WORKER_URL=http://127.0.0.1:3020 \
-QODER_WORKER_API_KEY=dev-key \
-go run ./cmd/server
 ```

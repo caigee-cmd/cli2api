@@ -2,11 +2,15 @@ package api
 
 import (
 	"bytes"
+	"context"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -25,18 +29,39 @@ type Server struct {
 	endpoints endpoint.Endpoints
 	executor  executor.ChatExecutor
 	pool      *accounts.Pool
+	manager   *accounts.Manager
 	mux       *http.ServeMux
 }
 
 func New(cfg config.Config) *Server {
 	eps := endpoint.ResolveFromHome(cfg.QoderHome)
-	pool := accounts.LoadFromEnv()
+	dataDir := cfg.DataDir
+	if dataDir == "" {
+		dataDir = filepath.Join(cfg.QoderHome, ".proxy-data")
+	}
+	store, err := accounts.OpenStore(filepath.Join(dataDir, "qoder.db"))
+	if err != nil {
+		panic(err)
+	}
+	if _, err := accounts.ImportLegacyHome(context.Background(), store, cfg.QoderHome); err != nil {
+		panic(err)
+	}
+	manager := accounts.NewManager(accounts.ManagerConfig{
+		DataDir: dataDir, BasePort: cfg.WorkerBasePort, NodeBinary: cfg.NodeBinary,
+		DaemonPath: cfg.WorkerDaemonPath, QoderCLIPath: cfg.QoderCLIPath,
+		TemplatePath: cfg.PlainTemplatePath, ProxyAPIKey: cfg.ProxyAPIKey,
+	}, store, nil)
+	if err := manager.Start(context.Background()); err != nil {
+		panic(err)
+	}
+	pool := manager.Pool()
 	s := &Server{
 		cfg:       cfg,
 		auth:      auth.Store{Home: cfg.QoderHome, PAT: cfg.QoderPAT},
 		endpoints: eps,
 		executor:  executor.NewChatExecutor(eps, pool),
 		pool:      pool,
+		manager:   manager,
 		mux:       http.NewServeMux(),
 	}
 	s.routes()
@@ -45,11 +70,17 @@ func New(cfg config.Config) *Server {
 
 func (s *Server) Handler() http.Handler { return s.mux }
 
+func (s *Server) Close() error {
+	return errors.Join(s.manager.Close(), s.manager.Store().Close())
+}
+
 func (s *Server) routes() {
 	s.mux.HandleFunc("/health", s.handleHealth)
 	s.mux.HandleFunc("/api/overview", s.withAPIKey(s.handleOverview))
 	s.mux.HandleFunc("/api/models", s.withAPIKey(s.handleModelsAPI))
 	s.mux.HandleFunc("/api/accounts", s.withAPIKey(s.handleAccounts))
+	s.mux.HandleFunc("/api/accounts/import", s.withAPIKey(s.handleAccountImport))
+	s.mux.HandleFunc("/api/accounts/", s.withAPIKey(s.handleAccountByID))
 	s.mux.HandleFunc("/api/login/status", s.withAPIKey(s.handleLoginStatus))
 	s.mux.HandleFunc("/api/login/device", s.withAPIKey(s.handleLoginDevice))
 	s.mux.HandleFunc("/api/login/pat", s.withAPIKey(s.handleLoginPAT))
@@ -116,42 +147,36 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
-	authSnap, authErr := s.auth.Snapshot()
-	worker := s.fetchWorkerHealth()
+	_ = s.manager.RefreshAll(r.Context())
+	accountViews, _ := s.manager.Accounts(r.Context())
+	readyCount := 0
+	hotCount := 0
+	for _, account := range accountViews {
+		if account.Ready {
+			readyCount++
+		}
+		if account.Hot {
+			hotCount++
+		}
+	}
 	models := s.fetchWorkerModels(false)
-	login := s.fetchLoginStatus()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":   true,
 		"time": time.Now().Format(time.RFC3339),
 		"proxy": map[string]any{
-			"ok":        true,
-			"service":   "cli2api",
-			"provider":  "qoder",
-			"port":      s.cfg.Port,
-			"chat_url":  s.endpoints.ChatURL(),
-			"endpoints": s.endpoints,
+			"ok": true, "service": "cli2api", "provider": "qoder", "port": s.cfg.Port,
+			"chat_url": s.endpoints.ChatURL(), "endpoints": s.endpoints,
 		},
-		"worker":   worker,
-		"login":    login,
-		"accounts": accountSnapshot(s.pool, worker),
-		"auth": func() any {
-			if authErr != nil {
-				return map[string]any{
-					"ok":      false,
-					"error":   authErr.Error(),
-					"home":    s.cfg.QoderHome,
-					"has_pat": s.cfg.QoderPAT != "",
-				}
-			}
-			return authSnap
-		}(),
-		"models": models,
+		"worker": map[string]any{
+			"ok": readyCount > 0, "hot": hotCount > 0, "ready_count": readyCount,
+			"hot_count": hotCount, "account_count": len(accountViews),
+		},
+		"accounts": accountViews,
+		"models":   models,
 		"access": map[string]any{
-			"openai_base_url":  "/v1",
-			"chat_completions": "/v1/chat/completions",
-			"models":           "/v1/models",
-			"health":           "/health",
-			"hint":             "Console APIs and /v1 both require PROXY_API_KEY when it is set.",
+			"openai_base_url": "/v1", "chat_completions": "/v1/chat/completions",
+			"models": "/v1/models", "health": "/health",
+			"hint": "Console APIs and /v1 both require PROXY_API_KEY when it is set.",
 		},
 		"ui": map[string]any{
 			"needs_api_key_for_chat":        s.cfg.ProxyAPIKey != "",
@@ -165,26 +190,24 @@ func (s *Server) handleRewarm(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "POST only")
 		return
 	}
-	s.proxyWorker(w, r, "/admin/rewarm")
+	accountID := s.selectedAccountID(r)
+	if accountID == "" {
+		writeErr(w, http.StatusConflict, "account_not_running", "no running account")
+		return
+	}
+	s.proxyAccountWorker(w, r, accountID, "/admin/rewarm", "")
 }
 
 func (s *Server) workerBase() string {
-	if s.pool != nil {
-		if item, ok := s.pool.First(); ok {
-			return item.URL
-		}
+	if item, ok := s.pool.First(); ok {
+		return item.URL
 	}
-	return strings.TrimRight(firstNonEmpty(os.Getenv("QODER_WORKER_URL"), "http://127.0.0.1:3020"), "/")
+	return ""
 }
 
 func (s *Server) workerForAccount(id string) string {
-	if s.pool != nil {
-		if id != "" {
-			if item, ok := s.pool.ByID(id); ok {
-				return item.URL
-			}
-		}
-		if item, ok := s.pool.First(); ok {
+	if id != "" {
+		if item, ok := s.pool.ByID(id); ok {
 			return item.URL
 		}
 	}
@@ -199,11 +222,221 @@ func (s *Server) requestedAccount(r *http.Request) string {
 	return id
 }
 
+func (s *Server) selectedAccountID(r *http.Request) string {
+	if id := s.requestedAccount(r); id != "" {
+		return id
+	}
+	if item, ok := s.pool.First(); ok {
+		return item.ID
+	}
+	return ""
+}
+
 func (s *Server) handleAccounts(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{
-		"object": "list",
-		"data":   accountSnapshot(s.pool, s.fetchWorkerHealth()),
-	})
+	switch r.Method {
+	case http.MethodGet:
+		_ = s.manager.RefreshAll(r.Context())
+		items, err := s.manager.Accounts(r.Context())
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, "account_list_failed", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"object": "list", "data": items})
+	case http.MethodPost:
+		var input struct {
+			Name        string `json:"name"`
+			Enabled     bool   `json:"enabled"`
+			MaxInFlight int    `json:"max_inflight"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+			writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
+			return
+		}
+		account, err := s.manager.Create(r.Context(), accounts.CreateAccount{Name: input.Name, Enabled: input.Enabled, MaxInFlight: input.MaxInFlight})
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, "account_create_failed", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusCreated, account)
+	default:
+		writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "GET or POST only")
+	}
+}
+
+func (s *Server) handleAccountImport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "POST only")
+		return
+	}
+	var input struct {
+		Format    string `json:"format"`
+		Name      string `json:"name"`
+		Enabled   bool   `json:"enabled"`
+		UserBlob  string `json:"user_blob"`
+		MachineID string `json:"machine_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	if input.Format != "qoder-native-v1" {
+		writeErr(w, http.StatusBadRequest, "unsupported_credential_format", "format must be qoder-native-v1")
+		return
+	}
+	blob, err := base64.StdEncoding.DecodeString(input.UserBlob)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid_user_blob", "user_blob must be base64")
+		return
+	}
+	account, err := s.manager.Import(r.Context(), accounts.ImportAccount{Name: input.Name, Enabled: input.Enabled, Credential: accounts.NativeCredential{UserBlob: blob, MachineID: input.MachineID}})
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "account_import_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, account)
+}
+
+func (s *Server) handleAccountByID(w http.ResponseWriter, r *http.Request) {
+	relative := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/accounts/"), "/")
+	parts := strings.Split(relative, "/")
+	if len(parts) == 0 || parts[0] == "" {
+		writeErr(w, http.StatusNotFound, "account_not_found", "account id required")
+		return
+	}
+	accountID := parts[0]
+	if len(parts) == 1 {
+		switch r.Method {
+		case http.MethodGet:
+			account, err := s.manager.Store().Get(r.Context(), accountID)
+			if err != nil {
+				writeErr(w, http.StatusNotFound, "account_not_found", err.Error())
+				return
+			}
+			writeJSON(w, http.StatusOK, account)
+		case http.MethodPatch:
+			var input struct {
+				Name        string `json:"name"`
+				Enabled     *bool  `json:"enabled"`
+				MaxInFlight *int   `json:"max_inflight"`
+				Priority    *int   `json:"priority"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+				writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
+				return
+			}
+			err := s.manager.Update(r.Context(), accountID, accounts.UpdateAccount{
+				Name: input.Name, Enabled: input.Enabled, MaxInFlight: input.MaxInFlight, Priority: input.Priority,
+			})
+			if err != nil {
+				writeErr(w, http.StatusBadRequest, "account_update_failed", err.Error())
+				return
+			}
+			account, _ := s.manager.Store().Get(r.Context(), accountID)
+			writeJSON(w, http.StatusOK, account)
+		case http.MethodDelete:
+			if err := s.manager.Delete(r.Context(), accountID); err != nil {
+				writeErr(w, http.StatusBadRequest, "account_delete_failed", err.Error())
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "GET, PATCH or DELETE only")
+		}
+		return
+	}
+
+	action := strings.Join(parts[1:], "/")
+	switch action {
+	case "export":
+		if r.Method != http.MethodGet {
+			writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "GET only")
+			return
+		}
+		account, err := s.manager.Store().Get(r.Context(), accountID)
+		if err != nil {
+			writeErr(w, http.StatusNotFound, "account_not_found", err.Error())
+			return
+		}
+		credential, err := s.manager.Store().LoadCredential(r.Context(), accountID)
+		if err != nil {
+			writeErr(w, http.StatusNotFound, "credential_not_found", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"format": "qoder-native-v1", "name": account.Name,
+			"user_blob":  base64.StdEncoding.EncodeToString(credential.UserBlob),
+			"machine_id": credential.MachineID,
+		})
+	case "login/device":
+		s.proxyAccountWorker(w, r, accountID, "/admin/login/device", "")
+	case "login/status":
+		s.proxyAccountWorker(w, r, accountID, "/admin/login/status", "oauth_if_complete")
+	case "login/pat":
+		s.proxyAccountWorker(w, r, accountID, "/admin/login/pat", "pat")
+	case "rewarm":
+		s.proxyAccountWorker(w, r, accountID, "/admin/rewarm", "")
+	default:
+		writeErr(w, http.StatusNotFound, "not_found", "unknown account action")
+	}
+}
+
+func (s *Server) proxyAccountWorker(w http.ResponseWriter, r *http.Request, accountID, path, syncAuth string) {
+	workerURL, ok := s.manager.AccountURL(accountID)
+	if !ok {
+		writeErr(w, http.StatusConflict, "account_not_running", "account is disabled or not running")
+		return
+	}
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	req, err := http.NewRequestWithContext(r.Context(), r.Method, workerURL+path, bytes.NewReader(body))
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "worker_request_failed", err.Error())
+		return
+	}
+	if contentType := r.Header.Get("Content-Type"); contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
+	if key := s.workerAPIKey(); key != "" {
+		req.Header.Set("Authorization", "Bearer "+key)
+	}
+	resp, err := (&http.Client{Timeout: 120 * time.Second}).Do(req)
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, "worker_unavailable", err.Error())
+		return
+	}
+	defer resp.Body.Close()
+	responseBody, _ := io.ReadAll(resp.Body)
+	for key, values := range resp.Header {
+		for _, value := range values {
+			w.Header().Add(key, value)
+		}
+	}
+	if resp.StatusCode < 300 && syncAuth != "" {
+		authType := syncAuth
+		if syncAuth == "oauth_if_complete" {
+			var status struct {
+				Login struct {
+					Status string `json:"status"`
+				} `json:"login"`
+			}
+			if json.Unmarshal(responseBody, &status) != nil || status.Login.Status != "ok" {
+				authType = ""
+			} else {
+				authType = "oauth"
+			}
+		}
+		if authType != "" {
+			if err := s.manager.SyncCredential(r.Context(), accountID, authType); err != nil {
+				writeErr(w, http.StatusBadGateway, "credential_sync_failed", err.Error())
+				return
+			}
+		}
+	}
+	w.WriteHeader(resp.StatusCode)
+	_, _ = w.Write(responseBody)
 }
 
 func (s *Server) workerAPIKey() string {
@@ -211,7 +444,11 @@ func (s *Server) workerAPIKey() string {
 }
 
 func (s *Server) workerGet(path string, timeout time.Duration, accountID string) (*http.Response, error) {
-	req, err := http.NewRequest(http.MethodGet, s.workerForAccount(accountID)+path, nil)
+	workerURL := s.workerForAccount(accountID)
+	if workerURL == "" {
+		return nil, fmt.Errorf("no running Qoder account")
+	}
+	req, err := http.NewRequest(http.MethodGet, workerURL+path, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -257,24 +494,6 @@ func (s *Server) fetchWorkerModelsFor(refresh bool, accountID string) []map[stri
 	return parsed.Data
 }
 
-func (s *Server) fetchLoginStatus() map[string]any {
-	return s.fetchLoginStatusFor("")
-}
-
-func (s *Server) fetchLoginStatusFor(accountID string) map[string]any {
-	resp, err := s.workerGet("/admin/login/status", 5*time.Second, accountID)
-	if err != nil {
-		return map[string]any{"ok": false, "error": err.Error()}
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	var raw map[string]any
-	if json.Unmarshal(body, &raw) != nil {
-		return map[string]any{"ok": false, "raw": string(body)}
-	}
-	return raw
-}
-
 func (s *Server) handleModelsAPI(w http.ResponseWriter, r *http.Request) {
 	refresh := r.URL.Query().Get("refresh") == "1"
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -284,7 +503,12 @@ func (s *Server) handleModelsAPI(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLoginStatus(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, s.fetchLoginStatusFor(s.requestedAccount(r)))
+	accountID := s.selectedAccountID(r)
+	if accountID == "" {
+		writeErr(w, http.StatusConflict, "account_not_running", "no running account")
+		return
+	}
+	s.proxyAccountWorker(w, r, accountID, "/admin/login/status", "oauth_if_complete")
 }
 
 func (s *Server) handleLoginDevice(w http.ResponseWriter, r *http.Request) {
@@ -292,7 +516,12 @@ func (s *Server) handleLoginDevice(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "POST only")
 		return
 	}
-	s.proxyWorker(w, r, "/admin/login/device")
+	accountID := s.selectedAccountID(r)
+	if accountID == "" {
+		writeErr(w, http.StatusConflict, "account_not_running", "no running account")
+		return
+	}
+	s.proxyAccountWorker(w, r, accountID, "/admin/login/device", "")
 }
 
 func (s *Server) handleLoginPAT(w http.ResponseWriter, r *http.Request) {
@@ -300,55 +529,12 @@ func (s *Server) handleLoginPAT(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "POST only")
 		return
 	}
-	s.proxyWorker(w, r, "/admin/login/pat")
-}
-
-func (s *Server) proxyWorker(w http.ResponseWriter, r *http.Request, path string) {
-	body, _ := io.ReadAll(r.Body)
-	if len(body) == 0 {
-		body = []byte("{}")
-	}
-	accountID := s.requestedAccount(r)
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, s.workerForAccount(accountID)+path, bytes.NewReader(body))
-	if err != nil {
-		writeErr(w, http.StatusBadGateway, "worker_proxy_failed", err.Error())
+	accountID := s.selectedAccountID(r)
+	if accountID == "" {
+		writeErr(w, http.StatusConflict, "account_not_running", "no running account")
 		return
 	}
-	req.Header.Set("Content-Type", "application/json")
-	if key := s.workerAPIKey(); key != "" {
-		req.Header.Set("Authorization", "Bearer "+key)
-	}
-	if accountID != "" {
-		req.Header.Set("X-Qoder-Account", accountID)
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		writeErr(w, http.StatusBadGateway, "worker_proxy_failed", err.Error())
-		return
-	}
-	defer resp.Body.Close()
-	out, _ := io.ReadAll(resp.Body)
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(resp.StatusCode)
-	_, _ = w.Write(out)
-}
-
-func (s *Server) fetchWorkerHealth() map[string]any {
-	workerURL := s.workerBase()
-	client := &http.Client{Timeout: 3 * time.Second}
-	resp, err := client.Get(workerURL + "/health")
-	if err != nil {
-		return map[string]any{"ok": false, "error": err.Error(), "url": workerURL}
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	var raw map[string]any
-	if json.Unmarshal(body, &raw) != nil {
-		return map[string]any{"ok": resp.StatusCode < 300, "raw": string(body), "url": workerURL}
-	}
-	raw["ok"] = resp.StatusCode < 300
-	raw["url"] = workerURL
-	return raw
+	s.proxyAccountWorker(w, r, accountID, "/admin/login/pat", "pat")
 }
 
 func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
@@ -462,53 +648,6 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			return out
 		}(),
 	})
-}
-
-func accountSnapshot(pool *accounts.Pool, worker map[string]any) []map[string]any {
-	if worker != nil {
-		if raw, ok := worker["accounts"].([]any); ok && len(raw) > 0 {
-			out := make([]map[string]any, 0, len(raw))
-			for _, item := range raw {
-				m, ok := item.(map[string]any)
-				if !ok {
-					continue
-				}
-				delete(m, "home")
-				id, _ := m["id"].(string)
-				if id == "" {
-					id, _ = m["accountId"].(string)
-					if id != "" {
-						m["id"] = id
-					}
-				}
-				if pool != nil && id != "" {
-					if pooled, ok := pool.ByID(id); ok {
-						if m["url"] == nil || m["url"] == "" {
-							m["url"] = pooled.URL
-						}
-						if !pooled.DownUntil.IsZero() && time.Now().Before(pooled.DownUntil) {
-							m["down_until"] = pooled.DownUntil.UTC().Format(time.RFC3339)
-							m["ready"] = false
-						}
-						if pooled.LastError != "" && m["last_error"] == nil && m["lastError"] == nil {
-							m["last_error"] = pooled.LastError
-						}
-						if pooled.LastKind != "" && m["kind"] == nil {
-							m["kind"] = pooled.LastKind
-						}
-					}
-				}
-				out = append(out, m)
-			}
-			if len(out) > 0 {
-				return out
-			}
-		}
-	}
-	if pool != nil {
-		return pool.Snapshot()
-	}
-	return nil
 }
 
 func writeClassifiedErr(w http.ResponseWriter, err error) {

@@ -1,11 +1,11 @@
 {
-  "name": "qoder-auth-worker",
+  "name": "qoder-account-daemon",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Warm QoderContext worker for qoder-api-proxy",
+  "description": "Qoder one-account daemon for qoder-api-proxy",
   "scripts": {
-    "start": "node src/supervisor.mjs",
+    "start": "node src/daemon.mjs",
     "test": "node --test test/*.test.mjs"
   }
 }

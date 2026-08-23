@@ -39,26 +39,16 @@ type ChatResult struct {
 }
 
 func NewChatExecutor(eps endpoint.Endpoints, pool *accounts.Pool) ChatExecutor {
-	if pool == nil {
-		pool = accounts.LoadFromEnv()
-	}
 	worker := ""
-	if pool.Len() > 0 {
-		if item, ok := pool.First(); ok {
-			worker = item.URL
-		}
-	}
-	if worker == "" {
+	if pool == nil {
+		pool = accounts.NewPool(nil, nil)
 		worker = strings.TrimRight(strings.TrimSpace(os.Getenv("QODER_WORKER_URL")), "/")
-	}
-	if worker == "" {
-		worker = "http://127.0.0.1:3020"
 	}
 	return ChatExecutor{
 		Endpoints: eps,
 		Pool:      pool,
 		WorkerURL: worker,
-		WorkerKey: strings.TrimSpace(os.Getenv("QODER_WORKER_API_KEY")),
+		WorkerKey: firstNonEmpty(os.Getenv("QODER_WORKER_API_KEY"), os.Getenv("PROXY_API_KEY")),
 		HTTPClient: &http.Client{
 			Timeout: 120 * time.Second,
 		},
@@ -335,4 +325,13 @@ func (e ChatExecutor) ChatStreamProxy(ctx context.Context, req translate.ChatReq
 		lastErr = fmt.Errorf("no worker accounts available")
 	}
 	return nil, "", lastErr
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }

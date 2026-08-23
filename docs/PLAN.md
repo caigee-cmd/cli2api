@@ -1,6 +1,6 @@
 # CLI2API Plan
 
-last-updated: 2026-08-23
+last-updated: 2026-08-22
 
 Qoder-first OpenAI-compatible proxy. Cursor and other CLIs wait until the current Qoder milestone is done.
 
@@ -39,60 +39,61 @@ Do not:
 | D | Upstream usage, process-isolated pool, skip-main wasm boot |
 | E | Open-source clone-and-run; `v0.1.0` at `eaf81ad` |
 | F | Error taxonomy, supervisor failover, console sign-in, Accounts login |
-| G | Current: keep polishing Qoder login, routing, menu, HeroUI console |
+| G | Replaced by Phase H SQLite account control plane |
 
 Typical small-chat latency is ~1-2s after warmup, versus ~10s+ for spawn-CLI wrappers.
 
-## Phase G — Qoder product loop
+## Phase H — SQLite account control plane
 
-Goal: the self-hosted console and pool feel like a real ops tool, not a lab page. Keep tightening login, distribution, and IA. HeroUI only. Taste v1 adapted in `docs/DESIGN.md`.
+Goal: replace environment-defined workers and the Node supervisor with a durable,
+Sub2API-style SQLite account registry while preserving the working Qoder execution path.
 
-### G0 docs home
+### H1 account database
 
-- [x] `AGENTS.md` = hard rules + pointer to DESIGN/PLAN
-- [x] `docs/DESIGN.md` = architecture, two logins, routing, console IA, design system
-- [x] `docs/PLAN.md` = current checklist only
-- [x] README / frontend README / docs index point at those three files
+- [x] Add pure-Go SQLite dependency and migrations
+- [x] Persist account metadata, native credential blobs, UID, status, and cooldown
+- [x] Add create, update, enable, disable, delete, import, and export repository tests
+- [x] Keep SQLite and account files under one configurable `/data` directory
 
-### G1 login flow
+### H2 process isolation
 
-Console password (`PROXY_API_KEY`) and Qoder login stay separate.
+- [x] Go starts one `worker/src/daemon.mjs` child per enabled account
+- [x] Materialize each account into a private HOME before spawn
+- [x] Capture health, UID, in-flight count, restarts, and last error
+- [x] Sync OAuth/PAT credential changes back into SQLite
+- [x] Stop and clean account runtime safely on disable/delete
 
-- [x] `/login` split page; not a header key field
-- [x] Qoder device-flow / PAT on `/accounts` per worker
-- [ ] Device-flow status should stay attached to the worker being signed in (no cross-account bleed)
-- [ ] After Qoder login, Accounts should show signed-in / cooling without a manual refresh hunt
-- [ ] Empty / error / pending states for each worker, including “browser closed, try PAT”
+### H3 single scheduler
 
-### G2 usage and distribution
+- [x] Make Go the only round-robin, pinning, cooldown, and failover owner
+- [x] Remove Node supervisor account selection
+- [x] Preserve quota vs rate-limit vs auth vs not-ready vs unavailable behavior
+- [x] Preserve `X-Qoder-Account` on normal and streaming responses
 
-Keep process isolation. Improve the pool, do not invent in-process multi-account.
+### H4 management API and console
 
-- [x] Classify quota vs rate-limit vs auth vs not-ready vs 5xx
-- [x] Supervisor failover + sticky-escape + child restart
-- [x] `QODER_MAX_INFLIGHT` + WASM encode lock
-- [ ] Console can tell which account served a test chat (`X-Qoder-Account`)
-- [ ] Health strip: ready / cooling / in-flight / last error, no host paths
-- [ ] Document recommended `QODER_HOMES` vs separate worker containers in README only (no extra doc)
+- [x] Add account CRUD endpoints
+- [x] Add browser OAuth, PAT, native credential import/export endpoints
+- [x] Add account creation and import UI using HeroUI only
+- [x] Show UID, auth type, enabled state, runtime status, cooldown, and last error
+- [x] Require `PROXY_API_KEY` for every account and credential operation
 
-### G3 menu and console
+### H5 single-container deployment
 
-Keep four nav items. Login is a gate.
+- [x] Build Go, Node, pinned qodercli, worker sources, and frontend into one image definition
+- [x] Replace the two-service Compose stack with one `qoder-api-proxy` service
+- [x] Persist `/data/qoder.db` and account runtime state in one private volume
+- [x] Document and implement migration from the existing mounted `.qoder` login
 
-- [x] Nav: Overview / Accounts / Models / Access
-- [x] `/auth` redirects to `/accounts`
-- [ ] Overview: signed-in worker count, not a second login form
-- [ ] Access: account picker only when more than one worker exists
-- [ ] No duplicate page titles under the shell header
-- [ ] After UI edits, `cd frontend && npm run sync`
+### H6 acceptance
 
-### G4 acceptance
+- [ ] Empty install → create account → browser login → chat `只回复OK`
+- [ ] Import `qoder-native-v1` → daemon becomes hot without browser login
+- [ ] Two accounts → rate-limit A → request succeeds through B
+- [ ] Restart container → enabled accounts and credentials recover from SQLite
+- [x] Existing non-stream, stream, tools, reasoning, model mapping, and usage tests pass
 
-- [ ] Local: console login → Accounts browser/PAT login → chat `只回复OK`
-- [ ] Two workers: 429 on A, chat lands on B, pinned A sticky-escapes when cooling
-- [ ] Do not tag until asked; `v0.1.0` stays as-is
-
-## Later (not G)
+## Later
 
 - Cursor provider
 - Exact tokenizer matching if Qoder starts returning richer usage

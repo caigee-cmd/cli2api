@@ -11,8 +11,8 @@
 
 ```text
 客户端 (OpenAI SDK / Codex / CherryStudio)
-  -> qoder-api-proxy (:3010)
-    -> qoder-auth-worker (:3020, 热 QoderContext)
+  -> qoder-api-proxy (:3010，Go + SQLite 控制面)
+    -> 每个启用账号一个隔离 Node daemon
       -> https://api1.qoder.sh/.../agent_chat_generation?Encode=1
 ```
 
@@ -58,47 +58,33 @@ Docker 多阶段构建会先编译前端，再打包 Go binary。
 
 ## 环境要求
 
-- Go 1.25+（proxy；Docker 用 `golang:1.25-alpine`）
-- Node.js 20+（auth worker）
-- 本机已有 Qoder 登录态（`~/.qoder`，由官方 Qoder CLI 登录产生）
-- 可选：plaintext 模板，用于更完整的请求整形
+- 推荐使用 Docker + Docker Compose
+- 一把真实的 `PROXY_API_KEY`
+- 可选：已有 `~/.qoder` 登录态，用于首次迁移
 
 ## 快速开始
 
-### 1) 配置
-
 ```bash
+cd deploy
 cp .env.example .env
+# 设置真实 PROXY_API_KEY
+docker compose up -d --build
 ```
+
+单容器已经包含 Go、Node、固定版 qodercli 和前端。SQLite 与每账号 HOME 持久化在
+`qoder-data` volume。启动后进入 `/accounts` 添加浏览器 OAuth、PAT 或
+`qoder-native-v1` 账号。
 
 关键变量：
 
 | 变量 | 含义 |
 |------|------|
-| `PROXY_API_KEY` | 客户端调用时要带的 Key（`Authorization: Bearer ...`） |
-| `QODER_WORKER_URL` | worker 地址，默认 `http://127.0.0.1:3020` |
-| `QODER_WORKER_API_KEY` | proxy 调 worker 时使用的 Key |
-| `QODER_HOME` | Qoder 目录，默认 `/root/.qoder` |
-| `PLAIN_TEMPLATE_PATH` | 可选，worker 的 plaintext 模板 JSON |
+| `PROXY_API_KEY` | 控制台与 `/v1` 共用 API Key |
+| `QODER_DATA_DIR` | SQLite 与运行目录；Docker 内为 `/data` |
+| `QODER_HOME` | SQLite 为空时一次性导入的旧登录态 |
+| `QODER_WORKER_BASE_PORT` | 内部 daemon 起始端口 |
 
-### 2) 启动 worker
-
-```bash
-cd worker
-PROXY_API_KEY=dev-key ALLOW_INSECURE_API_KEY=1 npm start
-```
-
-默认监听 `:3020`。pin 匹配时跳过 CLI `main`，热持有 `QoderContext`。
-
-### 3) 启动 proxy
-
-```bash
-PROXY_API_KEY=dev-key ALLOW_INSECURE_API_KEY=1 QODER_WORKER_URL=http://127.0.0.1:3020 QODER_WORKER_API_KEY=dev-key go run ./cmd/server
-```
-
-默认监听 `:3010`。空/`change-me` 的 Key 会直接失败，除非 `ALLOW_INSECURE_API_KEY=1`。
-
-### 4) 测试
+### 测试
 
 ```bash
 curl -s http://127.0.0.1:3010/health
@@ -237,26 +223,18 @@ worker **不会**继承抓包模板里那份巨大的 Qoder agent system/tools�
 
 ### 多账号
 
-Qoder WASM 是进程内单例，所以每个登录态要独占 HOME / worker 进程。
+账号现在保存在 SQLite，并直接从控制台的「账号」页管理，不再配置
+`QODER_HOMES`、worker URL 或账号 ID。
 
-默认 Compose（一个 worker 容器，内部 supervisor）：
+由于 Qoder WASM 是进程内单例，每个启用账号仍然独占一个 Node daemon 和 HOME；
+但账号选择、轮询、冷却和失败切换只由 Go 调度器负责。支持：
 
-```bash
-QODER_HOMES=acc1=/root,acc2=/home/acc2
-# proxy 仍只配一个 URL；supervisor 负责 failover，并识别 X-Qoder-Account
-QODER_WORKER_URLS=http://qoder-auth-worker:3020
-```
+- 浏览器 Device Flow OAuth
+- PAT
+- `qoder-native-v1` JSON 导入/导出
 
-独立 worker 容器：
-
-```bash
-QODER_WORKER_URLS=http://qoder-acc1:3020,http://qoder-acc2:3020
-QODER_ACCOUNT_IDS=acc1,acc2
-```
-
-Chat 会 round-robin；rate-limit / 鉴权失败 / 未就绪 / 5xx 切下一个。  
-`insufficient_quota`（经常是 prompt 过大，不是余额为 0）不会把整个池打穿。  
-可用 `X-Qoder-Account` 钉死账号；该账号冷却中会 sticky-escape 到下一个就绪 worker。
+首次启动单容器时，如果 SQLite 为空，会自动导入挂载的旧 `QODER_HOME` 登录态。
+客户端仍可用 `X-Qoder-Account` 指定账号。
 
 ## 目录结构
 

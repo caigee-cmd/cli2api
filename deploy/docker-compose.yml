@@ -1,34 +1,4 @@
 services:
-  qoder-auth-worker:
-    build:
-      context: ../worker
-      dockerfile: Dockerfile
-    image: qoder-auth-worker:local
-    container_name: qoder-auth-worker
-    environment:
-      WORKER_HOST: "0.0.0.0"
-      WORKER_PORT: "3020"
-      PROXY_API_KEY: "${PROXY_API_KEY}"
-      ALLOW_INSECURE_API_KEY: "${ALLOW_INSECURE_API_KEY:-}"
-      PLAIN_TEMPLATE_PATH: "/data/last-plain.json"
-      QODERCLI_JS: "/usr/local/lib/node_modules/@qoder-ai/qodercli/bundle/qodercli.js"
-      HOME: "/root"
-      QODER_WARMUP_CWD: "/tmp"
-      QODER_HOMES: "${QODER_HOMES:-}"
-      QODER_MAX_INFLIGHT: "${QODER_MAX_INFLIGHT:-4}"
-    volumes:
-      - ${QODER_HOME:-${HOME}/.qoder}:/root/.qoder
-      - ${PLAIN_TEMPLATE_PATH:-../worker/last-plain.sample.json}:/data/last-plain.json:ro
-    networks:
-      - cli2api
-    healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3020/health"]
-      interval: 10s
-      timeout: 3s
-      retries: 12
-      start_period: 20s
-    restart: unless-stopped
-
   qoder-api-proxy:
     build:
       context: ..
@@ -40,28 +10,22 @@ services:
       PORT: "3010"
       PROXY_API_KEY: "${PROXY_API_KEY}"
       ALLOW_INSECURE_API_KEY: "${ALLOW_INSECURE_API_KEY:-}"
-      QODER_HOME: "/root/.qoder"
-      QODER_WORKER_URL: "http://qoder-auth-worker:3020"
-      QODER_WORKER_URLS: "${QODER_WORKER_URLS:-http://qoder-auth-worker:3020}"
-      QODER_ACCOUNT_IDS: "${QODER_ACCOUNT_IDS:-default}"
-      QODER_WORKER_API_KEY: "${PROXY_API_KEY}"
+      QODER_DATA_DIR: "/data"
+      QODER_HOME: "/import/.qoder"
+      QODER_WORKER_BASE_PORT: "${QODER_WORKER_BASE_PORT:-32100}"
+      QODER_MAX_INFLIGHT: "${QODER_MAX_INFLIGHT:-4}"
     volumes:
-      - ${QODER_HOME:-${HOME}/.qoder}:/root/.qoder:ro
-    depends_on:
-      qoder-auth-worker:
-        condition: service_healthy
+      - qoder-data:/data
+      - ${QODER_HOME:-${HOME}/.qoder}:/import/.qoder:ro
     ports:
       - "127.0.0.1:3010:3010"
-    networks:
-      - cli2api
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3010/health"]
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3010/health"]
       interval: 10s
       timeout: 3s
-      retries: 8
-      start_period: 10s
+      retries: 12
+      start_period: 30s
     restart: unless-stopped
 
-networks:
-  cli2api:
-    driver: bridge
+volumes:
+  qoder-data:

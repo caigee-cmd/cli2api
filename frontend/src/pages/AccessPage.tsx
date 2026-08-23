@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
-import { Button, Card, Input, Label, ListBox, Select, TextArea } from '@heroui/react'
+import { Button, Card, Chip, Input, Label, ListBox, Select, TextArea } from '@heroui/react'
+import { Check, Copy, Play, TerminalSquare } from 'lucide-react'
 import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
 import { testChat } from '@/api/overview'
@@ -14,132 +15,151 @@ export function AccessPage() {
   const [model, setModel] = useState(models[0]?.id || 'qwen3.7-plus')
   const [accountId, setAccountId] = useState('')
   const [prompt, setPrompt] = useState('只回复OK')
-  const [out, setOut] = useState('')
+  const [output, setOutput] = useState('')
   const [busy, setBusy] = useState(false)
-  const [copied, setCopied] = useState(false)
+  const [copied, setCopied] = useState<'base' | 'curl' | ''>('')
   const selectedAccount = accountId || ''
 
   const curl = useMemo(
-    () => `curl -s ${base}/chat/completions \
-  -H "Authorization: Bearer $PROXY_API_KEY" \
-  -H "Content-Type: application/json"${selectedAccount ? ` \
-  -H "X-Qoder-Account: ${selectedAccount}"` : ''} \
-  -d '{"model":"${model || 'qwen3.7-plus'}","messages":[{"role":"user","content":"只回复OK"}]}'`,
-    [base, model, selectedAccount],
+    () => `curl -s ${base}/chat/completions \\
+  -H "Authorization: Bearer $PROXY_API_KEY" \\
+  -H "Content-Type: application/json"${selectedAccount ? ` \\
+  -H "X-Qoder-Account: ${selectedAccount}"` : ''} \\
+  -d '{"model":"${model || 'qwen3.7-plus'}","messages":[{"role":"user","content":"${prompt || '只回复OK'}"}]}'`,
+    [base, model, prompt, selectedAccount],
   )
+
+  async function copy(value: string, kind: 'base' | 'curl') {
+    await navigator.clipboard.writeText(value)
+    setCopied(kind)
+    window.setTimeout(() => setCopied(''), 1100)
+  }
 
   async function onTest() {
     setBusy(true)
-    setOut(t('requesting'))
+    setOutput(t('requesting'))
     try {
       const data = await testChat(model || 'qwen3.7-plus', prompt || '只回复OK', selectedAccount || undefined)
-      setOut(JSON.stringify(data, null, 2))
-    } catch (err) {
-      setOut(err instanceof Error ? err.message : String(err))
+      setOutput(JSON.stringify(data, null, 2))
+    } catch (error) {
+      setOutput(error instanceof Error ? error.message : String(error))
     } finally {
       setBusy(false)
     }
   }
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[.95fr_1.05fr]">
-      <Card className="border border-white/10 bg-white/[0.02] p-5 shadow-none">
-        <div className="mb-4">
-          <div className="text-lg font-semibold">{t('connection')}</div>
-          <div className="text-sm text-zinc-400">{t('externalClients')}</div>
+    <div className="space-y-6">
+      <section className="grid gap-5 border-b border-[var(--app-line)] pb-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+        <div>
+          <p className="mb-2 text-xs font-semibold tracking-[0.14em] text-[var(--accent)] uppercase">OpenAI compatible</p>
+          <h2 className="text-3xl font-semibold tracking-[-0.04em] sm:text-4xl">{t('connection')}</h2>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--app-muted)]">{t('externalClients')}</p>
         </div>
-        <dl className="space-y-3 text-sm">
-          <div className="flex items-start justify-between gap-4 border-b border-white/5 pb-2">
-            <dt className="text-zinc-500">{t('baseUrl')}</dt>
-            <dd className="max-w-[70%] break-all text-right mono text-xs">{base}</dd>
-          </div>
-          <div className="flex items-start justify-between gap-4 border-b border-white/5 pb-2">
-            <dt className="text-zinc-500">{t('protocol')}</dt>
-            <dd className="font-medium">OpenAI Chat Completions</dd>
-          </div>
-        </dl>
-        <div className="mt-4 flex flex-wrap gap-2">
-          <Button
-            variant="secondary"
-            onPress={async () => {
-              await navigator.clipboard.writeText(base)
-              setCopied(true)
-              setTimeout(() => setCopied(false), 900)
-            }}
-          >
-            {copied ? t('copied') : t('copyBaseUrl')}
-          </Button>
-        </div>
-        <pre className="mono mt-4 overflow-x-auto rounded-xl border border-white/10 bg-black/30 p-3 text-xs text-zinc-300 whitespace-pre-wrap">
-{curl}
-        </pre>
-      </Card>
+        <Chip variant="soft" color="success">HTTP / SSE</Chip>
+      </section>
 
-      <Card className="border border-white/10 bg-white/[0.02] p-5 shadow-none">
-        <div className="mb-4">
-          <div className="text-lg font-semibold">{t('quickTest')}</div>
-          <div className="text-sm text-zinc-400">{t('waitingRequest')}</div>
-        </div>
-        <div className="space-y-3">
-          {accounts.length > 1 ? (
-            <div>
-              <div className="mb-1 text-xs text-zinc-500">{t('account')}</div>
-              <Select
-                selectedKey={selectedAccount || 'auto'}
-                onSelectionChange={(key) => setAccountId(String(key) === 'auto' ? '' : String(key))}
-                aria-label={t('account')}
-              >
-                <Select.Trigger>
-                  <Select.Value />
-                  <Select.Indicator />
-                </Select.Trigger>
-                <Select.Popover>
-                  <ListBox>
-                    <ListBox.Item id="auto" textValue={t('autoAccount')}>
-                      <Label>{t('autoAccount')}</Label>
-                    </ListBox.Item>
-                    {accounts.map((acc) => (
-                      <ListBox.Item key={acc.id} id={acc.id} textValue={acc.id}>
-                        <Label>{acc.id}</Label>
-                      </ListBox.Item>
-                    ))}
-                  </ListBox>
-                </Select.Popover>
-              </Select>
+      <section className="grid gap-5 xl:grid-cols-[minmax(0,.9fr)_minmax(0,1.1fr)]">
+        <div className="space-y-5">
+          <Card className="app-panel-flat overflow-hidden rounded-xl p-0 shadow-none">
+            <div className="flex items-center justify-between border-b border-[var(--app-line)] px-5 py-4">
+              <div className="flex items-center gap-3">
+                <div className="grid size-9 place-items-center rounded-lg bg-[var(--app-surface-muted)] text-[var(--app-muted)]"><TerminalSquare size={16} /></div>
+                <div>
+                  <div className="text-sm font-semibold">{t('clientConfig')}</div>
+                  <div className="mt-0.5 text-xs text-[var(--app-faint)]">{t('clientConfigHint')}</div>
+                </div>
+              </div>
+              <Button isIconOnly size="sm" variant="ghost" aria-label={t('copyBaseUrl')} onPress={() => void copy(base, 'base')}>
+                {copied === 'base' ? <Check size={15} /> : <Copy size={15} />}
+              </Button>
             </div>
-          ) : null}
-          <div>
-            <div className="mb-1 text-xs text-zinc-500">{t('model')}</div>
-            <Select
-              selectedKey={model}
-              onSelectionChange={(key) => setModel(String(key))}
-              aria-label={t('model')}
-            >
-              <Select.Trigger>
-                <Select.Value />
-                <Select.Indicator />
-              </Select.Trigger>
-              <Select.Popover>
-                <ListBox>
-                  {(models.length ? models : [{ id: 'qwen3.7-plus' }]).map((m) => (
-                    <ListBox.Item key={m.id} id={m.id} textValue={m.id}>
-                      <Label>{m.id}</Label>
-                    </ListBox.Item>
-                  ))}
-                </ListBox>
-              </Select.Popover>
-            </Select>
-          </div>
-          <div>
-            <div className="mb-1 text-xs text-zinc-500">{t('prompt')}</div>
-            <Input value={prompt} onChange={(e) => setPrompt(e.target.value)} aria-label={t('prompt')} />
-          </div>
-          <Button isPending={busy} onPress={() => void onTest()}>
-            {busy ? t('requesting') : t('send')}
-          </Button>
-          <TextArea readOnly className="min-h-56 font-mono text-xs" value={out || t('waitingRequest')} />
+            <dl className="divide-y divide-[var(--app-line)]">
+              <div className="grid gap-2 px-5 py-4 sm:grid-cols-[120px_minmax(0,1fr)]">
+                <dt className="text-xs text-[var(--app-faint)]">{t('baseUrl')}</dt>
+                <dd className="mono break-all text-xs font-medium sm:text-right">{base}</dd>
+              </div>
+              <div className="grid gap-2 px-5 py-4 sm:grid-cols-[120px_minmax(0,1fr)]">
+                <dt className="text-xs text-[var(--app-faint)]">{t('protocol')}</dt>
+                <dd className="text-sm font-medium sm:text-right">OpenAI Chat Completions</dd>
+              </div>
+              <div className="grid gap-2 px-5 py-4 sm:grid-cols-[120px_minmax(0,1fr)]">
+                <dt className="text-xs text-[var(--app-faint)]">{t('authentication')}</dt>
+                <dd className="mono text-xs font-medium sm:text-right">Bearer $PROXY_API_KEY</dd>
+              </div>
+            </dl>
+          </Card>
+
+          <Card className="app-panel-flat overflow-hidden rounded-xl p-0 shadow-none">
+            <div className="flex items-center justify-between border-b border-[var(--app-line)] px-5 py-3.5">
+              <div className="mono text-[10px] font-semibold tracking-[0.08em] text-[var(--app-faint)] uppercase">{t('curlExample')}</div>
+              <Button size="sm" variant="ghost" onPress={() => void copy(curl, 'curl')}>
+                {copied === 'curl' ? <Check size={14} /> : <Copy size={14} />}
+                {copied === 'curl' ? t('copied') : t('copy')}
+              </Button>
+            </div>
+            <pre className="mono min-h-56 overflow-x-auto whitespace-pre-wrap p-5 text-xs leading-6 text-[var(--app-muted)]">{curl}</pre>
+          </Card>
         </div>
-      </Card>
+
+        <Card className="app-panel overflow-hidden rounded-xl p-0 shadow-none">
+          <div className="flex items-center justify-between gap-4 border-b border-[var(--app-line)] px-5 py-4">
+            <div>
+              <h3 className="font-semibold tracking-[-0.015em]">{t('quickTest')}</h3>
+              <p className="mt-0.5 text-xs text-[var(--app-faint)]">{t('quickTestHint')}</p>
+            </div>
+            <Button isPending={busy} onPress={() => void onTest()}>
+              <Play size={15} />
+              {busy ? t('requesting') : t('send')}
+            </Button>
+          </div>
+
+          <div className="grid gap-5 p-5 lg:grid-cols-2">
+            <div className="space-y-4">
+              <div>
+                <div className="mb-2 text-xs font-medium text-[var(--app-muted)]">{t('account')}</div>
+                <Select selectedKey={selectedAccount || 'auto'} onSelectionChange={(key) => setAccountId(String(key) === 'auto' ? '' : String(key))} aria-label={t('account')}>
+                  <Select.Trigger><Select.Value /><Select.Indicator /></Select.Trigger>
+                  <Select.Popover>
+                    <ListBox>
+                      <ListBox.Item id="auto" textValue={t('autoAccount')}><Label>{t('autoAccount')}</Label></ListBox.Item>
+                      {accounts.map((account) => (
+                        <ListBox.Item key={account.id} id={account.id} textValue={account.name || account.id}>
+                          <Label>{account.name || account.id}</Label>
+                        </ListBox.Item>
+                      ))}
+                    </ListBox>
+                  </Select.Popover>
+                </Select>
+              </div>
+              <div>
+                <div className="mb-2 text-xs font-medium text-[var(--app-muted)]">{t('model')}</div>
+                <Select selectedKey={model} onSelectionChange={(key) => setModel(String(key))} aria-label={t('model')}>
+                  <Select.Trigger><Select.Value /><Select.Indicator /></Select.Trigger>
+                  <Select.Popover>
+                    <ListBox>
+                      {(models.length ? models : [{ id: 'qwen3.7-plus' }]).map((item) => (
+                        <ListBox.Item key={item.id} id={item.id} textValue={item.id}><Label>{item.id}</Label></ListBox.Item>
+                      ))}
+                    </ListBox>
+                  </Select.Popover>
+                </Select>
+              </div>
+              <div>
+                <div className="mb-2 text-xs font-medium text-[var(--app-muted)]">{t('prompt')}</div>
+                <Input value={prompt} onChange={(event) => setPrompt(event.target.value)} aria-label={t('prompt')} />
+              </div>
+            </div>
+            <div className="min-w-0">
+              <div className="mb-2 flex items-center justify-between text-xs font-medium text-[var(--app-muted)]">
+                <span>{t('response')}</span>
+                <span className="mono text-[10px] text-[var(--app-faint)]">JSON</span>
+              </div>
+              <TextArea readOnly className="min-h-72 font-mono text-xs" value={output || t('waitingRequest')} />
+            </div>
+          </div>
+        </Card>
+      </section>
     </div>
   )
 }

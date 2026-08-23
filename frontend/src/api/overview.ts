@@ -6,21 +6,21 @@ export function fetchOverview(keyOverride?: string) {
 }
 
 export function startDeviceLogin(accountId?: string) {
-  const q = accountId ? `?account=${encodeURIComponent(accountId)}` : ''
-  return api<{ authUrl?: string; status?: string; message?: string }>(`/api/login/device${q}`, {
+  if (!accountId) throw new Error('account id required')
+  return api<{ authUrl?: string; status?: string; message?: string }>(`/api/accounts/${encodeURIComponent(accountId)}/login/device`, {
     method: 'POST',
     body: '{}',
   })
 }
 
 export function fetchLoginStatus(accountId?: string) {
-  const q = accountId ? `?account=${encodeURIComponent(accountId)}` : ''
-  return api<{ login?: any }>(`/api/login/status${q}`)
+  if (!accountId) throw new Error('account id required')
+  return api<{ login?: any }>(`/api/accounts/${encodeURIComponent(accountId)}/login/status`)
 }
 
 export function loginWithPat(pat: string, accountId?: string) {
-  const q = accountId ? `?account=${encodeURIComponent(accountId)}` : ''
-  return api(`/api/login/pat${q}`, {
+  if (!accountId) throw new Error('account id required')
+  return api(`/api/accounts/${encodeURIComponent(accountId)}/login/pat`, {
     method: 'POST',
     body: JSON.stringify({ pat }),
   })
@@ -33,8 +33,8 @@ export function refreshModels(accountId?: string) {
 }
 
 export function rewarmWorker(accountId?: string) {
-  const q = accountId ? `?account=${encodeURIComponent(accountId)}` : ''
-  return api(`/api/rewarm${q}`, { method: 'POST', body: '{}' })
+  if (!accountId) throw new Error('account id required')
+  return api(`/api/accounts/${encodeURIComponent(accountId)}/rewarm`, { method: 'POST', body: '{}' })
 }
 
 export function testChat(model: string, content: string, accountId?: string) {
@@ -49,4 +49,25 @@ export function testChat(model: string, content: string, accountId?: string) {
       messages: [{ role: 'user', content }],
     }),
   })
+}
+
+
+export function createAccount(name: string) {
+  return api('/api/accounts', { method: 'POST', body: JSON.stringify({ name, enabled: true, max_inflight: 4 }) })
+}
+
+export function updateAccount(accountId: string, input: Record<string, unknown>) {
+  return api(`/api/accounts/${encodeURIComponent(accountId)}`, { method: 'PATCH', body: JSON.stringify(input) })
+}
+
+export function deleteAccount(accountId: string) {
+  return api(`/api/accounts/${encodeURIComponent(accountId)}`, { method: 'DELETE' })
+}
+
+export function importAccount(bundle: Record<string, unknown>) {
+  return api('/api/accounts/import', { method: 'POST', body: JSON.stringify(bundle) })
+}
+
+export function exportAccount(accountId: string) {
+  return api<Record<string, unknown>>(`/api/accounts/${encodeURIComponent(accountId)}/export`)
 }

@@ -2,47 +2,174 @@
 @import "@heroui/styles";
 
 @theme {
-  --font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: "Outfit", "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
   --color-accent: #1f9d6a;
-  --color-accent-soft: rgba(31, 157, 106, 0.16);
-  --color-line: rgba(255, 255, 255, 0.08);
-  --color-line-strong: rgba(255, 255, 255, 0.14);
-  --color-panel: #12171d;
-  --color-ink: #e8eef6;
-  --color-muted: #93a0b0;
 }
 
 :root {
-  color-scheme: dark;
+  --app-bg: #f3f5f2;
+  --app-bg-elevated: #f8faf7;
+  --app-sidebar: #edf0ec;
+  --app-surface: rgba(255, 255, 255, 0.78);
+  --app-surface-solid: #ffffff;
+  --app-surface-muted: #eef1ed;
+  --app-line: rgba(24, 34, 29, 0.11);
+  --app-line-strong: rgba(24, 34, 29, 0.19);
+  --app-ink: #17211c;
+  --app-muted: #657069;
+  --app-faint: #8a938d;
+  --app-code: #e8ece8;
+  --app-danger: #bd3f45;
+  --app-shadow: 0 18px 50px rgba(30, 45, 36, 0.07);
+  --accent: #1f9d6a;
+  --accent-strong: #177a52;
+  --accent-soft: rgba(31, 157, 106, 0.11);
+  --accent-line: rgba(31, 157, 106, 0.28);
+  --radius: 0.65rem;
+  --field-radius: 0.65rem;
 }
 
-html, body, #root {
+[data-theme="dark"] {
+  --app-bg: #0b0f14;
+  --app-bg-elevated: #0e1319;
+  --app-sidebar: #10161c;
+  --app-surface: rgba(18, 23, 29, 0.82);
+  --app-surface-solid: #12171d;
+  --app-surface-muted: #171d24;
+  --app-line: rgba(232, 238, 246, 0.085);
+  --app-line-strong: rgba(232, 238, 246, 0.15);
+  --app-ink: #e8eef6;
+  --app-muted: #93a0b0;
+  --app-faint: #677382;
+  --app-code: #090d12;
+  --app-danger: #f07d84;
+  --app-shadow: 0 22px 70px rgba(0, 0, 0, 0.28);
+  --accent: #34b77c;
+  --accent-strong: #52ca92;
+  --accent-soft: rgba(52, 183, 124, 0.12);
+  --accent-line: rgba(52, 183, 124, 0.26);
+}
+
+html,
+body,
+#root {
   min-height: 100%;
+}
+
+html {
+  background: var(--app-bg);
 }
 
 body {
   margin: 0;
-  font-family: var(--font-sans);
-  background: #0b0f14;
-  color: var(--color-ink);
   overflow-x: hidden;
+  background: var(--app-bg);
+  color: var(--app-ink);
+  font-family: var(--font-sans);
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
 }
 
 * {
   box-sizing: border-box;
 }
 
+button,
+a,
+input,
+textarea,
+select {
+  transition-property: color, background-color, border-color, opacity, transform;
+  transition-duration: 160ms;
+  transition-timing-function: ease-out;
+}
+
+::selection {
+  background: var(--accent-soft);
+  color: var(--app-ink);
+}
+
 .mono {
   font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 
 .noise {
   pointer-events: none;
   position: fixed;
   inset: 0;
-  opacity: 0.035;
-  background-image: radial-gradient(rgba(255,255,255,.35) 0.6px, transparent 0.6px);
-  background-size: 3px 3px;
-  z-index: 0;
+  z-index: 50;
+  opacity: 0.024;
+  background-image: radial-gradient(color-mix(in srgb, var(--app-ink) 45%, transparent) 0.55px, transparent 0.55px);
+  background-size: 4px 4px;
+}
+
+.app-panel {
+  border: 1px solid var(--app-line);
+  background: var(--app-surface);
+  box-shadow: var(--app-shadow);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.app-panel-flat {
+  border: 1px solid var(--app-line);
+  background: var(--app-surface);
+}
+
+.app-divider {
+  border-color: var(--app-line);
+}
+
+.app-muted {
+  color: var(--app-muted);
+}
+
+.app-faint {
+  color: var(--app-faint);
+}
+
+.app-code {
+  border: 1px solid var(--app-line);
+  background: var(--app-code);
+}
+
+.status-dot {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: var(--app-faint);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--app-faint) 14%, transparent);
+}
+
+.status-dot[data-state="ok"] {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.status-dot[data-state="danger"] {
+  background: var(--app-danger);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--app-danger) 13%, transparent);
+}
+
+.page-enter {
+  animation: page-enter 220ms ease-out both;
+}
+
+@keyframes page-enter {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

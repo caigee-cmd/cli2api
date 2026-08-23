@@ -8,11 +8,17 @@ import (
 )
 
 type Config struct {
-	Host        string
-	Port        int
-	ProxyAPIKey string
-	QoderHome   string
-	QoderPAT    string
+	Host              string
+	Port              int
+	ProxyAPIKey       string
+	QoderHome         string
+	QoderPAT          string
+	DataDir           string
+	WorkerBasePort    int
+	NodeBinary        string
+	WorkerDaemonPath  string
+	QoderCLIPath      string
+	PlainTemplatePath string
 }
 
 func Load() (Config, error) {
@@ -35,12 +41,32 @@ func Load() (Config, error) {
 	if !allowInsecure && insecureAPIKey(key) {
 		return Config{}, fmt.Errorf("PROXY_API_KEY is required; set a real key or ALLOW_INSECURE_API_KEY=1 for local experiments")
 	}
+	workerBasePort := 32100
+	if v := strings.TrimSpace(os.Getenv("QODER_WORKER_BASE_PORT")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			workerBasePort = n
+		}
+	}
+	dataDir := strings.TrimSpace(os.Getenv("QODER_DATA_DIR"))
+	if dataDir == "" {
+		if userHome, err := os.UserHomeDir(); err == nil {
+			dataDir = userHome + "/.qoder-api-proxy"
+		} else {
+			dataDir = "data"
+		}
+	}
 	return Config{
-		Host:        host,
-		Port:        port,
-		ProxyAPIKey: key,
-		QoderHome:   home,
-		QoderPAT:    firstNonEmpty(os.Getenv("QODER_PERSONAL_ACCESS_TOKEN"), os.Getenv("QODER_PAT")),
+		Host:              host,
+		Port:              port,
+		ProxyAPIKey:       key,
+		QoderHome:         home,
+		QoderPAT:          firstNonEmpty(os.Getenv("QODER_PERSONAL_ACCESS_TOKEN"), os.Getenv("QODER_PAT")),
+		DataDir:           dataDir,
+		WorkerBasePort:    workerBasePort,
+		NodeBinary:        firstNonEmpty(os.Getenv("QODER_NODE_BINARY"), "node"),
+		WorkerDaemonPath:  firstNonEmpty(os.Getenv("QODER_WORKER_DAEMON"), "worker/src/daemon.mjs"),
+		QoderCLIPath:      firstNonEmpty(os.Getenv("QODERCLI_JS"), "/usr/local/lib/node_modules/-ai/qodercli/bundle/qodercli.js"),
+		PlainTemplatePath: firstNonEmpty(os.Getenv("PLAIN_TEMPLATE_PATH"), "worker/last-plain.sample.json"),
 	}, nil
 }
 

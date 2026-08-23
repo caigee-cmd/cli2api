@@ -1,6 +1,6 @@
 # DESIGN
 
-last-updated: 2026-08-23
+last-updated: 2026-08-22
 
 Canonical design and product notes for agents. Plans live in `docs/PLAN.md`. Hard rules live in `AGENTS.md`.
 
@@ -14,12 +14,17 @@ Console taste: [design-taste-frontend-v1](https://github.com) adapted for a self
 
 ```text
 Client (OpenAI SDK / Codex / CherryStudio)
-  -> qoder-api-proxy (:3010)          # Go: auth, translate, pool, console
-    -> qoder-auth-worker (:3020)      # Node: hot QoderContext
-      -> https://api1.qoder.sh/.../agent_chat_generation?Encode=1
+  -> qoder-api-proxy (:3010)            # one container
+    -> Go control plane                  # auth, SQLite, routing, console
+      -> Node daemon per account         # isolated HOME + hot QoderContext
+        -> https://api1.qoder.sh/.../agent_chat_generation?Encode=1
 ```
 
 Worker pins `@qoder-ai/qodercli@1.1.27`. Needle mismatch exits loudly.
+
+The request path that builds plaintext payloads, calls Qoder WASM encode, forwards
+HTTP/SSE, parses tools/reasoning, and resolves usage remains unchanged. The account
+control plane may be replaced; the proven Qoder execution path must not be rewritten.
 
 ## Two logins
 
@@ -38,8 +43,24 @@ Placeholder keys (`""`, `change-me`, `dev-key`) fail fast unless `ALLOW_INSECURE
 
 Qoder WASM / AuthManager is process-global. One HOME = one worker process.
 
-Default compose: one worker container, `QODER_HOMES=acc1=/root,acc2=/home/acc2`, supervisor inside.  
-Separate containers: `QODER_WORKER_URLS` + `QODER_ACCOUNT_IDS`.
+SQLite is the durable account registry. Go owns the database, scheduling, cooldown,
+failover, and child lifecycle. Node daemons never select another account.
+
+The service starts one Node daemon per enabled account. Each daemon receives a private
+runtime HOME materialized from its SQLite credential record. `QODER_HOMES`,
+`QODER_WORKER_URLS`, and `QODER_ACCOUNT_IDS` are removed from the product flow.
+
+Supported account onboarding:
+
+- Qoder browser device-flow OAuth
+- Qoder PAT login
+- `qoder-native-v1` JSON import containing the encrypted `.auth/user` blob and its
+  matching `machine_id`
+
+Arbitrary `access_token` / `refresh_token` JSON is not supported. Qoder credentials
+also depend on private user material, organization data, encryption keys, and device
+identity. The API never returns raw credentials except through the explicit export
+action.
 
 Clients may pin `X-Qoder-Account`. If that worker is cooling, sticky-escape to another ready worker.
 
@@ -105,9 +126,9 @@ Copy voice: concrete. “Enter the console” / “Sign in with browser”. Not 
 | `frontend/src/pages/LoginPage.tsx` | Console gate |
 | `frontend/src/pages/AccountsPage.tsx` | Qoder login + pool |
 | `frontend/src/components/layout/` | Shell / menu |
-| `worker/src/supervisor.mjs` | Process isolation + failover |
+| `internal/accounts/` | SQLite account repository, scheduler, child lifecycle |
+| `worker/src/daemon.mjs` | One-account Qoder runtime only |
 | `worker/src/errors.mjs` | Error taxonomy |
-| `internal/accounts/` | Go pool + classify |
 | `internal/executor/chat.go` | Proxy → worker |
 
 After UI edits: `cd frontend && npm run sync` so `internal/webui/static` stays in lockstep.

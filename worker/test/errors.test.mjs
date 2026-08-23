@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { classifyError, shouldFailover } from "../src/errors.mjs";
-import { pickChild, publicAccountView } from "../src/pool.mjs";
 
 test("quota is 429 and does not failover", () => {
   const got = classifyError({
@@ -44,28 +43,4 @@ test("shouldFailover reads nested JSON", () => {
     false,
   );
   assert.equal(shouldFailover(429, JSON.stringify({ error: { message: "too many requests" } })), true);
-});
-
-test("pickChild skips down and sticky-escapes", () => {
-  const now = 1_000_000;
-  const children = [
-    { id: "a", downUntil: now + 10_000, ok: true },
-    { id: "b", ok: true },
-  ];
-  const pinned = pickChild(children, { prefer: "a", now, cursor: 0 });
-  assert.equal(pinned.item.id, "b");
-  assert.equal(pinned.escaped, true);
-  const rr = pickChild(children, { now, cursor: 0 });
-  assert.equal(rr.item.id, "b");
-});
-
-test("publicAccountView redacts home and reports cooldown", () => {
-  const view = publicAccountView(
-    { id: "acc1", home: "/root/.qoder", url: "http://127.0.0.1:3021", downUntil: Date.now() + 5000, lastError: "429" },
-    Date.now(),
-  );
-  assert.equal(view.id, "acc1");
-  assert.equal(view.home, undefined);
-  assert.equal(view.ready, false);
-  assert.ok(view.down_until);
 });

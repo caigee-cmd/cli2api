@@ -20,4 +20,4 @@ ENV NODE_ENV=production \
 
 EXPOSE 3020
 ENTRYPOINT ["/usr/bin/tini","--"]
-CMD ["node","src/supervisor.mjs"]
+CMD ["node","src/daemon.mjs"]

@@ -1,221 +1,288 @@
-import { useMemo, useState } from 'react'
-import { Button, Input } from '@heroui/react'
+import { useState } from 'react'
+import { Button, Card, Chip, Input, TextArea } from '@heroui/react'
+import { Copy, ExternalLink, FileJson, KeyRound, Plus, Power, RefreshCw, ShieldCheck, Trash2, UserRound } from 'lucide-react'
 import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
-import { fetchLoginStatus, loginWithPat, rewarmWorker, startDeviceLogin } from '@/api/overview'
+import {
+  createAccount,
+  deleteAccount,
+  exportAccount,
+  fetchLoginStatus,
+  importAccount,
+  loginWithPat,
+  rewarmWorker,
+  startDeviceLogin,
+  updateAccount,
+} from '@/api/overview'
 import type { Overview } from '@/api/types'
 
 type AccountRow = NonNullable<Overview['accounts']>[number]
-type AccountBusy = { id: string; kind: 'device' | 'pat' | 'rewarm' }
+type BusyKind = 'create' | 'import' | 'device' | 'pat' | 'rewarm' | 'toggle' | 'delete' | 'export'
+type AccountBusy = { id: string; kind: BusyKind }
 
 function cooldownLabel(until?: string | null) {
   if (!until) return ''
-  const ms = Date.parse(until) - Date.now()
-  if (!Number.isFinite(ms) || ms <= 0) return ''
-  const sec = Math.ceil(ms / 1000)
-  if (sec < 60) return `${sec}s`
-  return `${Math.ceil(sec / 60)}m`
+  const milliseconds = Date.parse(until) - Date.now()
+  if (!Number.isFinite(milliseconds) || milliseconds <= 0) return ''
+  const seconds = Math.ceil(milliseconds / 1000)
+  return seconds < 60 ? `${seconds}s` : `${Math.ceil(seconds / 60)}m`
 }
 
-function statusLabel(acc: AccountRow, t: (key: string) => string) {
-  if (cooldownLabel(acc.down_until)) return t('cooling')
-  if (acc.hot) return t('signedIn')
-  if (acc.ready) return t('ready')
-  return t('needQoderLogin')
+function accountState(account: AccountRow) {
+  if (!account.enabled) return 'disabled'
+  if (cooldownLabel(account.down_until || account.cooldown_until)) return 'cooling'
+  if (account.hot) return 'hot'
+  if (account.ready) return 'ready'
+  return 'login'
 }
 
 export function AccountsPage() {
   const { t } = useI18n()
   const { overview, loading, refresh } = useOverview()
-  const accounts = overview?.accounts || []
-  const rows: AccountRow[] = accounts.length
-    ? accounts
-    : [{ id: 'default', ready: !!overview?.worker?.ok, hot: !!overview?.worker?.hot }]
+  const rows = overview?.accounts || []
   const [busy, setBusy] = useState<AccountBusy | null>(null)
+  const [newName, setNewName] = useState('')
+  const [importJSON, setImportJSON] = useState('')
+  const [globalNote, setGlobalNote] = useState('')
   const [patById, setPatById] = useState<Record<string, string>>({})
   const [noteById, setNoteById] = useState<Record<string, string>>({})
   const [urlById, setUrlById] = useState<Record<string, string>>({})
-  const [copied, setCopied] = useState('')
+  const signedCount = rows.filter((account) => account.hot).length
+  const enabledCount = rows.filter((account) => account.enabled).length
 
-  const workerLogin = overview?.login?.login || overview?.login || {}
-  const signedCount = useMemo(() => rows.filter((acc) => acc.hot).length, [rows])
+  async function run(id: string, kind: BusyKind, action: () => Promise<void>) {
+    setBusy({ id, kind })
+    setNoteById((current) => ({ ...current, [id]: '' }))
+    try {
+      await action()
+    } catch (error) {
+      setNoteById((current) => ({ ...current, [id]: error instanceof Error ? error.message : String(error) }))
+    } finally {
+      setBusy(null)
+    }
+  }
 
-  function setNote(id: string, text: string) {
-    setNoteById((prev) => ({ ...prev, [id]: text }))
+  async function onCreate() {
+    const name = newName.trim()
+    if (!name) {
+      setGlobalNote(t('accountNameRequired'))
+      return
+    }
+    setBusy({ id: 'new', kind: 'create' })
+    setGlobalNote('')
+    try {
+      await createAccount(name)
+      setNewName('')
+      setGlobalNote(t('accountCreated'))
+      await refresh()
+    } catch (error) {
+      setGlobalNote(error instanceof Error ? error.message : String(error))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function onImport() {
+    setBusy({ id: 'import', kind: 'import' })
+    setGlobalNote('')
+    try {
+      const bundle = JSON.parse(importJSON)
+      await importAccount({ ...bundle, enabled: true })
+      setImportJSON('')
+      setGlobalNote(t('accountImported'))
+      await refresh()
+    } catch (error) {
+      setGlobalNote(error instanceof Error ? error.message : String(error))
+    } finally {
+      setBusy(null)
+    }
   }
 
   async function onDeviceLogin(id: string) {
-    setBusy({ id, kind: 'device' })
-    setNote(id, t('starting'))
-    try {
-      const out = await startDeviceLogin(id)
-      if (out.authUrl) {
-        setUrlById((prev) => ({ ...prev, [id]: out.authUrl || '' }))
-        setNote(id, out.message || t('loginOpenMsg'))
-        window.open(out.authUrl, '_blank', 'noopener,noreferrer')
+    await run(id, 'device', async () => {
+      const output = await startDeviceLogin(id)
+      if (output.authUrl) {
+        setUrlById((current) => ({ ...current, [id]: output.authUrl || '' }))
+        window.open(output.authUrl, '_blank', 'noopener,noreferrer')
+      }
+      for (let attempt = 0; attempt < 60; attempt++) {
+        await new Promise((resolve) => window.setTimeout(resolve, 2000))
+        const status = await fetchLoginStatus(id)
+        const login = status.login || {}
+        setNoteById((current) => ({ ...current, [id]: login.message || t('waitingQoderLogin') }))
+        if (login.status === 'ok' || login.status === 'error') break
       }
       await refresh()
-      for (let i = 0; i < 30; i++) {
-        await new Promise((r) => setTimeout(r, 2000))
-        const st = await fetchLoginStatus(id)
-        const current = st.login || {}
-        if (current.authUrl) setUrlById((prev) => ({ ...prev, [id]: current.authUrl }))
-        setNote(id, current.message || t('waitingQoderLogin'))
-        if (current.status === 'ok' || current.status === 'error') {
-          await refresh()
-          setNote(id, current.status === 'ok' ? t('qoderLoginDone') : current.message || t('error'))
-          break
-        }
-      }
-    } catch (err) {
-      setNote(id, err instanceof Error ? err.message : String(err))
-    } finally {
-      setBusy(null)
-    }
+    })
   }
 
-  async function onPatLogin(id: string) {
+  async function onPat(id: string) {
     const pat = (patById[id] || '').trim()
     if (!pat) {
-      setNote(id, t('pastePatFirst'))
+      setNoteById((current) => ({ ...current, [id]: t('pastePatFirst') }))
       return
     }
-    setBusy({ id, kind: 'pat' })
-    try {
+    await run(id, 'pat', async () => {
       await loginWithPat(pat, id)
-      setPatById((prev) => ({ ...prev, [id]: '' }))
-      setNote(id, t('patDone'))
+      setPatById((current) => ({ ...current, [id]: '' }))
       await refresh()
-    } catch (err) {
-      setNote(id, err instanceof Error ? err.message : String(err))
-    } finally {
-      setBusy(null)
-    }
+    })
   }
 
-  async function onRewarm(id: string) {
-    setBusy({ id, kind: 'rewarm' })
-    try {
-      await rewarmWorker(id)
-      await refresh()
-      setNote(id, t('rewarmDone'))
-    } catch (err) {
-      setNote(id, err instanceof Error ? err.message : String(err))
-    } finally {
-      setBusy(null)
-    }
+  async function onExport(id: string) {
+    await run(id, 'export', async () => {
+      const bundle = await exportAccount(id)
+      await navigator.clipboard.writeText(JSON.stringify(bundle, null, 2))
+      setNoteById((current) => ({ ...current, [id]: t('credentialCopied') }))
+    })
   }
 
   return (
     <div className="space-y-6">
-      <section className="grid grid-cols-3 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.02]">
-        <div className="border-r border-white/10 px-4 py-4">
-          <div className="text-xs text-zinc-500">{t('workers')}</div>
-          <div className="mt-2 text-2xl font-semibold tracking-tight">{loading ? '…' : rows.length}</div>
+      <section className="grid gap-6 border-b border-[var(--app-line)] pb-6 xl:grid-cols-[minmax(0,1fr)_480px] xl:items-end">
+        <div>
+          <p className="mb-2 text-xs font-semibold tracking-[0.14em] text-[var(--accent)] uppercase">{t('accountPool')}</p>
+          <h2 className="text-3xl font-semibold tracking-[-0.04em] sm:text-4xl">{t('accountsTitle')}</h2>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--app-muted)]">{t('qoderLoginHint')}</p>
         </div>
-        <div className="border-r border-white/10 px-4 py-4">
-          <div className="text-xs text-zinc-500">{t('signedIn')}</div>
-          <div className="mt-2 text-2xl font-semibold tracking-tight">{loading ? '…' : signedCount}</div>
-        </div>
-        <div className="px-4 py-4">
-          <div className="text-xs text-zinc-500">{t('needQoderLogin')}</div>
-          <div className="mt-2 text-2xl font-semibold tracking-tight">{loading ? '…' : rows.length - signedCount}</div>
+        <div className="grid grid-cols-3 overflow-hidden rounded-xl border border-[var(--app-line)] bg-[var(--app-surface)]">
+          {[
+            [t('accountsTitle'), rows.length],
+            [t('signedIn'), signedCount],
+            [t('enable'), enabledCount],
+          ].map(([label, value], index) => (
+            <div key={String(label)} className={`px-4 py-3 ${index ? 'border-l border-[var(--app-line)]' : ''}`}>
+              <div className="text-[10px] text-[var(--app-faint)]">{label}</div>
+              <div className="mono mt-1 text-xl font-semibold">{loading ? '…' : value}</div>
+            </div>
+          ))}
         </div>
       </section>
 
-      {loading && !rows.length ? (
-        <div className="text-sm text-zinc-400">{t('waitingOverview')}</div>
-      ) : (
-        <div className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.02]">
-          {rows.map((acc, idx) => {
-            const cooling = cooldownLabel(acc.down_until)
-            const lastError = acc.last_error || acc.lastError
-            const inFlight = acc.in_flight ?? acc.inFlight ?? 0
-            const authUrl = urlById[acc.id]
-            const note = noteById[acc.id] || (rows.length === 1 ? workerLogin.message : '')
-            const thisBusy = busy?.id === acc.id ? busy.kind : null
-            const status = statusLabel(acc, t)
-            return (
-              <article
-                key={acc.id}
-                className={`px-4 py-5 sm:px-5 ${idx ? 'border-t border-white/10' : ''}`}
-              >
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <div className="text-lg font-semibold tracking-tight">{acc.id}</div>
-                    <div className="mt-1 text-sm text-zinc-400">{status}{cooling ? ` · ${t('cooldown')} ${cooling}` : ''}</div>
-                  </div>
-                  <dl className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-zinc-500">
-                    <div>{t('inFlight')} {inFlight}</div>
-                    <div>{t('restarts')} {acc.restarts ?? 0}</div>
-                    {acc.kind ? <div>{t('errorKind')} {acc.kind}</div> : null}
-                  </dl>
-                </div>
+      <section className="grid gap-5 xl:grid-cols-2">
+        <Card className="app-panel-flat rounded-xl p-5 shadow-none">
+          <div className="flex items-start gap-3">
+            <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-[var(--accent-soft)] text-[var(--accent)]"><Plus size={16} /></div>
+            <div className="min-w-0 flex-1">
+              <h3 className="font-semibold">{t('addAccount')}</h3>
+              <p className="mt-1 text-xs leading-5 text-[var(--app-faint)]">{t('accountCreateHint')}</p>
+              <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                <Input value={newName} onChange={(event) => setNewName(event.target.value)} placeholder={t('accountName')} aria-label={t('accountName')} />
+                <Button isPending={busy?.kind === 'create'} onPress={() => void onCreate()}>{t('create')}</Button>
+              </div>
+            </div>
+          </div>
+        </Card>
 
-                <p className="mt-3 max-w-2xl text-sm text-zinc-500">{t('qoderLoginHint')}</p>
+        <Card className="app-panel-flat rounded-xl p-5 shadow-none">
+          <div className="flex items-start gap-3">
+            <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-[var(--app-surface-muted)] text-[var(--app-muted)]"><FileJson size={16} /></div>
+            <div className="min-w-0 flex-1">
+              <h3 className="font-semibold">{t('importCredential')}</h3>
+              <p className="mt-1 text-xs leading-5 text-[var(--app-faint)]">{t('credentialImportHint')}</p>
+              <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                <TextArea className="min-h-20 flex-1 font-mono text-xs" value={importJSON} onChange={(event) => setImportJSON(event.target.value)} placeholder="qoder-native-v1 JSON" aria-label={t('importCredential')} />
+                <Button variant="secondary" isPending={busy?.kind === 'import'} onPress={() => void onImport()}>{t('import')}</Button>
+              </div>
+            </div>
+          </div>
+        </Card>
+      </section>
 
-                <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(16rem,.9fr)] lg:items-end">
-                  <div className="flex flex-wrap gap-2">
-                    <Button size="sm" isPending={thisBusy === 'device'} onPress={() => void onDeviceLogin(acc.id)}>
-                      {thisBusy === 'device' ? t('starting') : t('startBrowserLogin')}
-                    </Button>
-                    {acc.hot ? (
-                      <Button size="sm" variant="secondary" isPending={thisBusy === 'rewarm'} onPress={() => void onRewarm(acc.id)}>
-                        {thisBusy === 'rewarm' ? t('rewarming') : t('rewarm')}
-                      </Button>
-                    ) : null}
-                  </div>
-                  <div>
-                    <div className="mb-1 text-xs text-zinc-500">{t('patFallback')}</div>
-                    <div className="flex gap-2">
-                      <Input
-                        className="min-w-0 flex-1"
-                        type="password"
-                        value={patById[acc.id] || ''}
-                        onChange={(e) => setPatById((prev) => ({ ...prev, [acc.id]: e.target.value }))}
-                        placeholder={t('pasteToken')}
-                        aria-label={`${acc.id} PAT`}
-                      />
-                      <Button size="sm" variant="secondary" isPending={thisBusy === 'pat'} onPress={() => void onPatLogin(acc.id)}>
-                        {thisBusy === 'pat' ? t('loggingIn') : t('usePat')}
-                      </Button>
-                    </div>
-                  </div>
-                </div>
+      {globalNote ? <div className="rounded-lg border border-[var(--app-line)] bg-[var(--app-surface-muted)] px-4 py-3 text-sm text-[var(--app-muted)]">{globalNote}</div> : null}
 
-                {authUrl ? (
-                  <div className="mt-4 border-t border-white/8 pt-4">
-                    <div className="mb-1 text-xs text-zinc-500">{t('authUrl')}</div>
-                    <code className="mono block break-all text-xs text-zinc-300">{authUrl}</code>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onPress={async () => {
-                          await navigator.clipboard.writeText(authUrl)
-                          setCopied(acc.id)
-                          setTimeout(() => setCopied(''), 900)
-                        }}
-                      >
-                        {copied === acc.id ? t('copied') : t('copy')}
-                      </Button>
-                      <Button size="sm" variant="secondary" onPress={() => window.open(authUrl, '_blank', 'noopener,noreferrer')}>
-                        {t('open')}
-                      </Button>
-                    </div>
-                  </div>
-                ) : null}
-
-                {note || lastError ? (
-                  <p className={`mt-4 text-sm ${lastError && !note ? 'text-red-400' : 'text-zinc-300'}`}>
-                    {note || lastError}
-                  </p>
-                ) : null}
-              </article>
-            )
-          })}
+      {!loading && !rows.length ? (
+        <div className="grid min-h-64 place-items-center rounded-xl border border-dashed border-[var(--app-line-strong)] text-center">
+          <div>
+            <UserRound size={22} className="mx-auto text-[var(--app-faint)]" />
+            <div className="mt-4 text-sm font-medium">{t('noAccounts')}</div>
+            <div className="mt-1 text-xs text-[var(--app-faint)]">{t('accountEmptyHint')}</div>
+          </div>
         </div>
-      )}
+      ) : null}
+
+      <section className="overflow-hidden rounded-xl border border-[var(--app-line)] bg-[var(--app-surface)]">
+        {rows.map((account, index) => {
+          const thisBusy = busy?.id === account.id ? busy.kind : ''
+          const authUrl = urlById[account.id]
+          const lastError = account.last_error || account.lastError
+          const cooldown = cooldownLabel(account.down_until || account.cooldown_until)
+          const state = accountState(account)
+          const stateCopy = state === 'hot' ? t('signedIn') : state === 'ready' ? t('ready') : state === 'cooling' ? `${t('cooling')} ${cooldown}` : state === 'disabled' ? t('disabled') : t('needQoderLogin')
+
+          return (
+            <article key={account.id} className={index ? 'border-t border-[var(--app-line)]' : ''}>
+              <div className="grid gap-5 px-5 py-5 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-start">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    <span className="status-dot" data-state={state === 'hot' || state === 'ready' ? 'ok' : state === 'login' ? 'danger' : undefined} />
+                    <h3 className="text-lg font-semibold tracking-[-0.02em]">{account.name || account.id}</h3>
+                    <Chip size="sm" variant="soft" color={state === 'hot' || state === 'ready' ? 'success' : state === 'cooling' ? 'warning' : undefined}>{stateCopy}</Chip>
+                    <Chip size="sm" variant="soft">{account.auth_type || 'none'}</Chip>
+                  </div>
+                  <div className="mono mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-[var(--app-faint)]">
+                    <span>{account.id}</span>
+                    {account.remote_uid ? <span>UID {account.remote_uid}</span> : null}
+                  </div>
+                  <div className="mt-4 grid max-w-2xl grid-cols-2 gap-x-6 gap-y-3 text-xs sm:grid-cols-4">
+                    {[
+                      [t('inFlight'), account.in_flight ?? 0],
+                      [t('restarts'), account.restarts ?? 0],
+                      ['Priority', account.priority ?? 0],
+                      ['Max', account.max_inflight ?? 0],
+                    ].map(([label, value]) => (
+                      <div key={String(label)}>
+                        <div className="text-[var(--app-faint)]">{label}</div>
+                        <div className="mono mt-1 font-medium">{value}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2 xl:justify-end">
+                  <Button size="sm" variant="secondary" isPending={thisBusy === 'toggle'} onPress={() => void run(account.id, 'toggle', async () => { await updateAccount(account.id, { enabled: !account.enabled }); await refresh() })}>
+                    <Power size={14} />
+                    {account.enabled ? t('disable') : t('enable')}
+                  </Button>
+                  {account.auth_type !== 'none' ? (
+                    <Button size="sm" variant="secondary" isPending={thisBusy === 'export'} onPress={() => void onExport(account.id)}><Copy size={14} />{t('export')}</Button>
+                  ) : null}
+                  <Button size="sm" variant="danger" isPending={thisBusy === 'delete'} onPress={() => {
+                    if (window.confirm(`${t('delete')} ${account.name || account.id}?`)) void run(account.id, 'delete', async () => { await deleteAccount(account.id); await refresh() })
+                  }}><Trash2 size={14} />{t('delete')}</Button>
+                </div>
+              </div>
+
+              {account.enabled ? (
+                <div className="grid gap-4 border-t border-[var(--app-line)] bg-[var(--app-surface-muted)]/55 px-5 py-4 xl:grid-cols-[auto_minmax(300px,1fr)] xl:items-end">
+                  <div>
+                    <div className="mb-2 text-[10px] font-semibold tracking-[0.1em] text-[var(--app-faint)] uppercase">{t('oauthDeviceFlow')}</div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button size="sm" isPending={thisBusy === 'device'} onPress={() => void onDeviceLogin(account.id)}><ShieldCheck size={14} />{t('startBrowserLogin')}</Button>
+                      <Button size="sm" variant="secondary" isPending={thisBusy === 'rewarm'} onPress={() => void run(account.id, 'rewarm', async () => { await rewarmWorker(account.id); await refresh() })}><RefreshCw size={14} />{t('rewarm')}</Button>
+                      {authUrl ? <Button size="sm" variant="ghost" onPress={() => window.open(authUrl, '_blank', 'noopener,noreferrer')}><ExternalLink size={14} />{t('open')}</Button> : null}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="mb-2 text-[10px] font-semibold tracking-[0.1em] text-[var(--app-faint)] uppercase">{t('patFallback')}</div>
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <Input type="password" value={patById[account.id] || ''} onChange={(event) => setPatById((current) => ({ ...current, [account.id]: event.target.value }))} placeholder={t('pasteToken')} aria-label={t('pat')} />
+                      <Button size="sm" variant="secondary" isPending={thisBusy === 'pat'} onPress={() => void onPat(account.id)}><KeyRound size={14} />{t('usePat')}</Button>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
+              {authUrl || noteById[account.id] || lastError ? (
+                <div className="border-t border-[var(--app-line)] px-5 py-3 text-xs">
+                  {authUrl ? <code className="mono block break-all text-[var(--app-muted)]">{authUrl}</code> : null}
+                  {noteById[account.id] || lastError ? <p className={`mt-1 ${lastError ? 'text-[var(--app-danger)]' : 'text-[var(--app-muted)]'}`}>{noteById[account.id] || lastError}</p> : null}
+                </div>
+              ) : null}
+            </article>
+          )
+        })}
+      </section>
     </div>
   )
 }

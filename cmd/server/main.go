@@ -1,9 +1,14 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/api"
 	"github.com/caigee-cmd/cli2api/internal/config"
@@ -11,15 +16,28 @@ import (
 )
 
 func main() {
-	_ = godotenv.Load() // does not override existing process env
+	_ = godotenv.Load()
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatal(err)
 	}
-	srv := api.New(cfg)
+	app := api.New(cfg)
+	defer app.Close()
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
-	log.Printf("cli2api listening on http://%s", addr)
-	if err := http.ListenAndServe(addr, srv.Handler()); err != nil {
-		log.Fatal(err)
+	httpServer := &http.Server{Addr: addr, Handler: app.Handler()}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	go func() {
+		log.Printf("cli2api listening on http://%s", addr)
+		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Printf("http server failed: %v", err)
+			stop()
+		}
+	}()
+	<-ctx.Done()
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := httpServer.Shutdown(shutdownCtx); err != nil {
+		log.Printf("http shutdown failed: %v", err)
 	}
 }
