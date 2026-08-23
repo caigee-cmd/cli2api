@@ -119,9 +119,9 @@ test("normalizes OpenAI tool history and repairs missing tool ids", () => {
   assert.equal(calls[0].function.name, "read_file");
   assert.equal(calls[1].function.arguments, '{"path":"."}');
   assert.equal(messages[2].tool_call_id, calls[0].id);
-  assert.equal(messages[2].name, "read_file");
+  assert.equal("name" in messages[2], false);
   assert.equal(messages[3].tool_call_id, calls[1].id);
-  assert.equal(messages[3].name, "list_files");
+  assert.equal("name" in messages[3], false);
 });
 
 test("keeps distinct existing tool ids across multiple assistant turns", () => {

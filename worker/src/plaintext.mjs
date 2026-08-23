@@ -261,8 +261,6 @@ function normalizeMessagesForUpstream(messages = []) {
       }
       if (toolCallId) {
         out.tool_call_id = toolCallId;
-        const call = callsById.get(toolCallId);
-        if (!m?.name && call?.function?.name) out.name = call.function.name;
         const unresolvedIndex = unresolvedCalls.indexOf(toolCallId);
         if (unresolvedIndex >= 0) unresolvedCalls.splice(unresolvedIndex, 1);
       } else if (requestedId) {
