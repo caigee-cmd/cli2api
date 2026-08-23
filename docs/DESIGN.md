@@ -26,6 +26,31 @@ The request path that builds plaintext payloads, calls Qoder WASM encode, forwar
 HTTP/SSE, parses tools/reasoning, and resolves usage remains unchanged. The account
 control plane may be replaced; the proven Qoder execution path must not be rewritten.
 
+## Protocol adapters
+
+Public protocols and the Qoder upstream format are separate contracts. Do not let
+OpenAI Chat Completions or Anthropic Messages handlers build Qoder payloads independently.
+
+```text
+/v1/chat/completions -> OpenAI adapter    -> canonical conversation
+/v1/messages         -> Anthropic adapter -> canonical conversation
+                                                   -> Qoder adapter
+                                                   -> prepareInferRequest / Qoder cloud
+```
+
+The canonical conversation preserves text, thinking, tool calls/results, images, cache
+metadata, stop reasons, and provider identifiers. Each public adapter owns only its
+request validation and response/SSE mapping. The Qoder adapter owns pinned CLI/runtime
+compatibility, model parameters, tool normalization, and upstream event mapping.
+
+When qodercli changes, update the Qoder adapter and its version-aware compatibility
+tests first; do not duplicate the change in both public protocol handlers. Keep
+`/v1/chat/completions` stable while `/v1/messages` is added as a separate ingress.
+
+`/v1/messages` should be implemented as a native Anthropic boundary, not as
+Anthropic -> OpenAI -> Qoder string rewriting. Borrow sub2api's reversible tool
+mapping, cross-turn state, orphan-result filtering, and history repair, but keep the
+project's existing Qoder execution path and account model.
 ## Two logins
 
 They are not the same password.

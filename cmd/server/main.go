@@ -24,7 +24,12 @@ func main() {
 	app := api.New(cfg)
 	defer app.Close()
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
-	httpServer := &http.Server{Addr: addr, Handler: app.Handler()}
+	httpServer := &http.Server{
+		Addr:              addr,
+		Handler:           app.Handler(),
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	go func() {

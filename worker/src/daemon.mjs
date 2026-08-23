@@ -6,7 +6,7 @@ import { register } from "node:module";
 import crypto from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { buildPlainChatBody, canonicalModelID, displayModel, mapModel, wantsReasoning, estimateTokens, estimatePromptTokens, diagnoseOpenAIToolHistory, summarizeNormalizedToolHistory } from "./plaintext.mjs";
+import { buildPlainChatBody, canonicalModelID, wantsReasoning, estimateTokens, estimatePromptTokens, diagnoseOpenAIToolHistory, summarizeNormalizedToolHistory } from "./plaintext.mjs";
 import { parseNestedOpenAIChunks, readSSEText, pipeNestedSseToOpenAI } from "./sse.mjs";
 import { inspectQodercliSource, PINNED_QODERCLI_VERSION, readQodercliVersion } from "./compat.mjs";
 import { resolveUsage } from "./usage.mjs";
@@ -478,12 +478,11 @@ async function listModelsFromCli({ refresh = false } = {}) {
     cachedModels = names.map((name) => {
       const displayName = String(name);
       const id = canonicalModelID(displayName);
-      const mapped = mapModel(displayName);
       return {
         id,
         display_name: displayName,
-        mapped_key: mapped,
-        route_display_name: displayModel(mapped),
+        mapped_key: displayName,
+        route_display_name: displayName,
         object: "model",
         owned_by: "qoder",
       };
@@ -503,8 +502,8 @@ async function listModelsFromCli({ refresh = false } = {}) {
     return fallback.map((displayName) => ({
       id: canonicalModelID(displayName),
       display_name: displayName,
-      mapped_key: mapModel(displayName),
-      route_display_name: displayModel(mapModel(displayName)),
+      mapped_key: displayName,
+      route_display_name: displayName,
       object: "model",
       owned_by: "qoder",
       stale: true,

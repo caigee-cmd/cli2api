@@ -1,41 +1,56 @@
 # CLI2API
 
-[中文](README_ZH.md)
+[中文](README_ZH.md) · [Issues](https://github.com/caigee-cmd/cli2api/issues) · [Contributing](CONTRIBUTING.md)
 
-An unofficial, self-hosted OpenAI-compatible API for your own **Qoder CLI login**.
+[![CI](https://github.com/caigee-cmd/cli2api/actions/workflows/ci.yml/badge.svg)](https://github.com/caigee-cmd/cli2api/actions/workflows/ci.yml)
+[![Docker Image](https://ghcr-badge.egpl.dev/caigee-cmd/cli2api/latest_tag?label=docker&color=blue)](https://github.com/caigee-cmd/cli2api/pkgs/container/cli2api)
+[![License](https://img.shields.io/github/license/caigee-cmd/cli2api)](LICENSE)
 
-CLI2API keeps Qoder authentication and WASM encoding warm instead of spawning a full
-CLI agent for every request. The current release supports Qoder only.
+An unofficial, self-hosted OpenAI-compatible API gateway that reuses **your own Qoder CLI login** and lets OpenAI-compatible clients connect to Qoder.
+
+CLI2API keeps authentication, WASM encoding, and the Qoder cloud HTTP/SSE connection warm in long-lived workers instead of spawning a full Qoder CLI agent for every request. It is intended for personal development, homelabs, and private deployments. Qoder is the only supported upstream at this time.
+
+> [!IMPORTANT]
+> CLI2API is not affiliated with or endorsed by Qoder. Use only accounts you are authorized to use, and follow the terms of Qoder and related services.
+
+## How it works
 
 ```text
 OpenAI client
-  -> Go API + SQLite account manager
-    -> one isolated Node daemon per enabled Qoder account
+  -> Go API + SQLite account control plane
+    -> one isolated Node worker per Qoder account
       -> Qoder cloud HTTP/SSE API
 ```
 
+Each enabled account gets its own Node process and private runtime HOME so Qoder WASM state is not shared across accounts. Go owns persistence, scheduling, concurrency limits, cooldowns, failover, and child-process lifecycle.
+
 ## Features
 
-- `POST /v1/chat/completions`, streaming and non-streaming
+- OpenAI-compatible `POST /v1/chat/completions`
+- Streaming and non-streaming responses
 - Tool calls and `reasoning_content`
-- Multiple Qoder accounts with routing, cooldown and failover
-- Browser device-flow OAuth, PAT, and `qoder-native-v1` import/export
-- Built-in HeroUI console with light and dark themes
-- One-container Docker deployment with persistent SQLite data
+- Multiple Qoder accounts with pinning, routing, cooldown, and failover
+- Browser Device Flow OAuth, PAT, and `qoder-native-v1` credential import/export
+- Built-in React + Tailwind + HeroUI console with light and dark themes
+- Single-container Docker Compose deployment
+- Persistent SQLite database and per-account runtime homes
+- GitHub Actions for tests, container builds, and GHCR releases
 
 ![CLI2API console](docs/assets/console.png)
 
 ## Quick start
 
-Requirements: Docker, Docker Compose, and a Qoder account.
+### Docker Compose
+
+Requirements: Docker, Docker Compose, and a Qoder account you control.
 
 ```bash
 git clone https://github.com/caigee-cmd/cli2api.git
-cd cli2api/deploy
-cp .env.example .env
+cd cli2api
+cp .env.example deploy/.env
 ```
 
-Set a strong key in `deploy/.env`:
+Edit `deploy/.env` and set a randomly generated strong key:
 
 ```env
 PROXY_API_KEY=replace-with-a-random-secret
@@ -44,18 +59,32 @@ PROXY_API_KEY=replace-with-a-random-secret
 Start the service:
 
 ```bash
+cd deploy
 docker compose pull
 docker compose up -d
-curl http://127.0.0.1:3010/health
+curl -fsS http://127.0.0.1:3010/health
 ```
 
-Open `http://127.0.0.1:3010` and sign in with `PROXY_API_KEY`. Add Qoder accounts from
-**Accounts**. The default Compose file only publishes `127.0.0.1:3010`.
+Open `http://127.0.0.1:3010`, sign in with `PROXY_API_KEY`, and add Qoder accounts from **Accounts**.
 
-If `${QODER_HOME:-$HOME/.qoder}` already contains a Qoder login, the first startup
-imports it when the SQLite database is empty.
+The default Compose file publishes only `127.0.0.1:3010`; it does not expose the service publicly. Follow logs with:
 
-## API example
+```bash
+docker compose logs -f qoder-api-proxy
+```
+
+If `${QODER_HOME:-$HOME/.qoder}` already contains a Qoder login and the SQLite database is empty, the first startup imports it as the first account. The import directory is mounted read-only by default.
+
+### Connect an OpenAI client
+
+Configure your client with:
+
+```text
+Base URL: http://127.0.0.1:3010/v1
+API Key:  <PROXY_API_KEY>
+```
+
+Or make a direct request:
 
 ```bash
 export PROXY_API_KEY='replace-with-a-random-secret'
@@ -70,8 +99,7 @@ curl http://127.0.0.1:3010/v1/chat/completions \
   }'
 ```
 
-Clients can pin an account with `X-Qoder-Account: acc_...`. Without it, the Go
-scheduler selects a ready account.
+Pin a request to a specific account with `X-Qoder-Account: acc_...`. Without that header, the scheduler selects a ready account.
 
 ## Configuration
 
@@ -79,61 +107,85 @@ scheduler selects a ready account.
 |----------|---------|---------|
 | `PROXY_API_KEY` | required | Protects the console, `/api/*`, and `/v1/*` |
 | `QODER_DATA_DIR` | `/data` | SQLite database and account runtime homes |
-| `QODER_HOME` | host `~/.qoder` | Optional one-time import source |
-| `QODER_MAX_INFLIGHT` | `4` | Per-account request limit |
-| `QODER_WORKER_BASE_PORT` | `32100` | Internal daemon port range |
+| `QODER_HOME` | host `~/.qoder` | Optional source for an existing login import |
+| `QODER_MAX_INFLIGHT` | `4` | Maximum concurrent requests per account |
+| `QODER_WORKER_BASE_PORT` | `32100` | Internal worker port range |
 
-Placeholder keys such as `dev-key` require `ALLOW_INSECURE_API_KEY=1` and should never
-be used on a reachable host.
+Placeholder keys such as `dev-key` are accepted only with `ALLOW_INSECURE_API_KEY=1`. Use them only for local debugging, never on a reachable host.
 
 ## Endpoints
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `GET` | `/health` | Public health probe |
+| `GET` | `/health` | Health probe; no API key required |
 | `GET` | `/v1/models` | Model catalog |
 | `POST` | `/v1/chat/completions` | OpenAI-compatible chat |
-| `GET/POST` | `/api/*` | Console API |
+| `GET/POST` | `/api/*` | Console management API |
 
-## Account model
-
-Qoder WASM state is process-global, so every enabled account receives its own Node
-process and private HOME. Go owns SQLite persistence, scheduling, cooldown, failover,
-and child lifecycle.
-
-Raw credentials are never returned by normal account APIs. Credential export is an
-explicit action and should be treated as sensitive.
+Once `PROXY_API_KEY` is set, all console and API routes except `/health` require authentication.
 
 ## Development
 
+Requirements: Go `1.25.6+`, Node.js `20+`, npm, and Docker for container development.
+
 ```bash
+# Go API
 go test ./...
-cd worker && npm test
-cd ../frontend && npm ci && npm run build && npm run lint
+go vet ./...
+
+# Qoder worker
+cd worker
+npm test
+
+# Console
+cd ../frontend
+npm ci
+npm run build
+npm run lint
 ```
 
-After frontend changes, run `cd frontend && npm run sync` to update the embedded assets.
-See [CONTRIBUTING.md](CONTRIBUTING.md) for repository rules.
+After frontend changes, run `npm run sync` to update the static assets embedded by Go:
 
-Build the container locally with `cd deploy && docker compose up -d --build`.
+```bash
+cd frontend
+npm run sync
+```
 
-## Security and scope
+Build and start the container from source:
 
-- Personal/self-hosted use with accounts you control
-- Do not expose the service without `PROXY_API_KEY`
-- Do not commit `.qoder`, auth blobs, tokens, cookies, or raw captures
-- This project is not affiliated with or endorsed by Qoder
-- Upstream API or CLI changes may break compatibility; qodercli is pinned and checked
-  at startup
+```bash
+cd deploy
+docker compose up -d --build
+```
 
-See [SECURITY.md](SECURITY.md) for reporting guidance.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for repository rules and validation details.
 
 ## Documentation
 
-- [Architecture and behavior](docs/DESIGN.md)
-- [Current milestone](docs/PLAN.md)
+- [Architecture, login, routing, and console design](docs/DESIGN.md)
+- [Current milestone and development plan](docs/PLAN.md)
 - [Redacted protocol notes](docs/capture-notes.md)
-- [Docker deployment](deploy/README.md)
+- [Docker Compose deployment](deploy/README.md)
+- [Changelog](CHANGELOG.md)
+- [Security policy](SECURITY.md)
+
+## Security and privacy
+
+- Never expose the service without `PROXY_API_KEY`.
+- Never commit `.qoder`, tokens, cookies, auth blobs, raw captures, or host details.
+- Credential export is an explicit sensitive operation; protect exported files.
+- Upstream API or Qoder CLI changes may break compatibility; qodercli is pinned and checked.
+- Please report security issues privately according to [SECURITY.md](SECURITY.md), not in a public issue.
+
+## Contributing
+
+Issues, documentation improvements, and pull requests are welcome. Before submitting a change:
+
+- Keep the scope clear and avoid new component libraries or unnecessary service dependencies.
+- Run tests and build commands relevant to your changes.
+- Remove tokens, login state, raw protocol captures, and real deployment details from the diff.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

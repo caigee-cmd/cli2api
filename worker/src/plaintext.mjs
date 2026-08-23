@@ -1,117 +1,8 @@
 import crypto from "node:crypto";
 
-// Display-name / alias -> upstream model_config.key
-// Confirmed/observed:
-// - qmodel = Qwen3.7-Plus
-// - auto = Auto router
-// Other keys follow Qoder native short ids used by CLI/catalog.
-const MODEL_ALIAS = {
-  auto: "auto",
-  Auto: "auto",
-
-  // Qwen
-  "qwen3.7-plus": "qmodel",
-  "qwen3.7-Plus": "qmodel",
-  "Qwen3.7-Plus": "qmodel",
-  qwen3_7_plus: "qmodel",
-  qmodel: "qmodel",
-  "qwen3.7-max": "qwen3.7-max",
-  "Qwen3.7-Max": "qwen3.7-max",
-  "qwen3.8-max": "qwen3.8-max",
-  "Qwen3.8-Max": "qwen3.8-max",
-  "qwen3.8-max-preview": "qwen3.8-max",
-
-  // GLM
-  // Default: serve glm-5.2 via Qwen upstream key to avoid frequent Aliyun glm token-limit/429.
-  // Override with env QODER_GLM52_UPSTREAM_KEY=glm-5.2 if you really want native GLM.
-  "glm-5.2": "qmodel",
-  "GLM-5.2": "qmodel",
-  "glm-5.3": "glm-5.3",
-  "GLM-5.3": "glm-5.3",
-  "glm-5.1": "gm51model",
-  gm51model: "gm51model",
-
-  // DeepSeek
-  "deepseek-v4-pro": "dmodel",
-  "DeepSeek-V4-Pro": "dmodel",
-  dmodel: "dmodel",
-  "deepseek-v4-flash": "dfmodel",
-  "DeepSeek-V4-Flash": "dfmodel",
-  dfmodel: "dfmodel",
-
-  // Kimi / MiniMax
-  "kimi-k2.7-code": "kmodel",
-  "Kimi-K2.7-Code": "kmodel",
-  "kimi-k3": "kimi-k3",
-  "Kimi-K3": "kimi-k3",
-  kmodel: "kmodel",
-  "minimax-m2.7": "mmodel",
-  "minimax-m3": "mmodel",
-  "MiniMax-M3": "mmodel",
-  mmodel: "mmodel",
-
-  // tiers
-  ultimate: "ultimate",
-  performance: "performance",
-  efficient: "efficient",
-  lite: "lite",
-  cantus: "cantus",
-};
-
-const DISPLAY = {
-  auto: "Auto",
-  qmodel: "Qwen3.7-Plus",
-  "qwen3.7-max": "Qwen3.7-Max",
-  "qwen3.8-max": "Qwen3.8-Max",
-  "glm-5.2": "GLM-5.2",
-  "glm-5.3": "GLM-5.3",
-  gm51model: "GLM-5.1",
-  dmodel: "DeepSeek-V4-Pro",
-  dfmodel: "DeepSeek-V4-Flash",
-  kmodel: "Kimi-K2.7-Code",
-  "kimi-k3": "Kimi-K3",
-  mmodel: "MiniMax-M3",
-  "minimax-m3": "MiniMax-M3",
-  ultimate: "Ultimate",
-  performance: "Performance",
-  efficient: "Efficient",
-  lite: "Lite",
-  cantus: "Cantus",
-};
-
-const PUBLIC_MODEL_ID = {
-  qmodel: "qwen3.7-plus",
-  dmodel: "deepseek-v4-pro",
-  dfmodel: "deepseek-v4-flash",
-  kmodel: "kimi-k2.7-code",
-  mmodel: "minimax-m3",
-  gm51model: "glm-5.1",
-};
-
 export function canonicalModelID(model) {
   if (!model) return "auto";
-  const normalized = String(model).trim().toLowerCase().replace(/[\s_]+/g, "-");
-  return PUBLIC_MODEL_ID[normalized] || normalized;
-}
-
-export function mapModel(model) {
-  if (!model) return "auto";
-  const glmOverride = String(process.env.QODER_GLM52_UPSTREAM_KEY || "").trim();
-  const raw = String(model);
-  const lower = raw.toLowerCase();
-  if ((raw === "glm-5.2" || raw === "GLM-5.2" || lower === "glm-5.2") && glmOverride) {
-    return glmOverride;
-  }
-  if (MODEL_ALIAS[model]) return MODEL_ALIAS[model];
-  if (MODEL_ALIAS[lower]) return MODEL_ALIAS[lower];
-  // normalize underscores/spaces
-  const norm = lower.replace(/[\s_]+/g, "-");
-  if (MODEL_ALIAS[norm]) return MODEL_ALIAS[norm];
-  return model;
-}
-
-export function displayModel(key) {
-  return DISPLAY[key] || key;
+  return String(model).trim().toLowerCase().replace(/[\s_]+/g, "-");
 }
 
 function contentToString(content) {
@@ -606,7 +497,7 @@ export function buildPlainChatBody({
   const base = template ? structuredClone(template) : {};
   const reqId = crypto.randomUUID();
   const sessionId = crypto.randomUUID();
-  const mapped = mapModel(model);
+  const requestedModel = model ? String(model).trim() : "auto";
 
   const filteredHistory = filterUnknownToolHistory(messages || [], tools);
   const openaiMessages = normalizeMessagesForUpstream(filteredHistory.messages);
@@ -643,14 +534,14 @@ export function buildPlainChatBody({
       : enableReasoning
         ? true
         : undefined;
-  const defaultMaxInputTokens = mapped === "mmodel"
+  const defaultMaxInputTokens = canonicalModelID(requestedModel) === "minimax-m3"
     ? 1000000
     : (base.model_config?.max_input_tokens || 180000);
 
   const modelConfig = {
     ...(base.model_config || {}),
-    key: mapped,
-    display_name: displayModel(mapped),
+    key: requestedModel,
+    display_name: requestedModel,
     model: "",
     format: base.model_config?.format || "openai",
     is_vl: base.model_config?.is_vl ?? true,

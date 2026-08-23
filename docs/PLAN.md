@@ -95,3 +95,45 @@ Sub2API-style SQLite account registry while preserving the working Qoder executi
 - [x] Restart container → enabled accounts and credentials recover from SQLite
 - [x] Existing non-stream, stream, tools, reasoning, model mapping, and usage tests pass
 
+## Phase I — protocol adapter boundary
+
+Goal: add Anthropic Messages without coupling public protocols to qodercli internals,
+while keeping the current OpenAI Chat Completions path stable.
+
+### I1 canonical conversation contract
+
+- [ ] Define one internal conversation representation for text, thinking, images, tool calls/results, cache metadata, stop reasons, and provider IDs
+- [ ] Preserve reversible mappings between client tool IDs and Qoder IDs
+- [ ] Add fixtures for OpenAI Chat and Anthropic Messages conversations
+
+### I2 adapter boundaries
+
+- [ ] Keep `/v1/chat/completions` as an OpenAI-native ingress adapter
+- [ ] Add `/v1/messages` as an Anthropic-native ingress adapter
+- [ ] Route both adapters through the canonical conversation contract
+- [ ] Keep Qoder payload construction in one Qoder upstream adapter
+- [ ] Keep SSE response mapping protocol-specific at the edge
+
+### I3 qodercli compatibility
+
+- [ ] Pin and inspect qodercli hooks before worker startup
+- [ ] Add Qoder adapter contract tests for model parameters, tools, tool results, thinking, and context length
+- [ ] Make qodercli upgrades change only the Qoder adapter unless a public protocol contract changes
+- [ ] Fail loudly on incompatible Qoder request/response shapes
+
+### I4 Anthropic Messages acceptance
+
+- [ ] Support system, text, image, thinking, tool_use, and tool_result blocks
+- [ ] Support streaming `message_start`, content block events, `message_delta`, and `message_stop`
+- [ ] Verify Claude Code `/v1/messages` multi-turn tool workflows
+- [ ] Verify OpenAI Chat behavior remains unchanged
+
+`/v1/messages` remains a later milestone until the canonical contract and Qoder adapter
+are isolated; do not duplicate Qoder request construction in a second handler.
+## Later
+
+- Cursor provider
+- Exact tokenizer matching if Qoder starts returning richer usage
+- In-process multi-account (still impossible)
+- Anthropic `/v1/messages`
+- sub2api-style session-hash sticky

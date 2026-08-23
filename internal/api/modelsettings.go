@@ -15,21 +15,9 @@ const (
 	miniMaxM3ContextLimit = 1000000
 )
 
-var canonicalModelAliases = map[string]string{
-	"qmodel":    "qwen3.7-plus",
-	"dmodel":    "deepseek-v4-pro",
-	"dfmodel":   "deepseek-v4-flash",
-	"kmodel":    "kimi-k2.7-code",
-	"mmodel":    "minimax-m3",
-	"gm51model": "glm-5.1",
-}
-
 func canonicalModelID(model string) string {
 	key := strings.ToLower(strings.TrimSpace(model))
 	key = strings.NewReplacer("_", "-", " ", "-").Replace(key)
-	if canonical := canonicalModelAliases[key]; canonical != "" {
-		return canonical
-	}
 	return key
 }
 func modelContextKey(model string) string {

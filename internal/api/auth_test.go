@@ -43,12 +43,11 @@ func TestManagementRoutesRequireAPIKey(t *testing.T) {
 	}
 }
 
-func TestCanonicalModelIDSeparatesPublicIdentityFromQoderKey(t *testing.T) {
+func TestCanonicalModelIDNormalizesWithoutAliases(t *testing.T) {
 	for input, want := range map[string]string{
 		"MiniMax-M3":   "minimax-m3",
-		"mmodel":       "minimax-m3",
 		"Qwen3.7-Plus": "qwen3.7-plus",
-		"qmodel":       "qwen3.7-plus",
+		"qmodel":       "qmodel",
 		"GLM-5.2":      "glm-5.2",
 	} {
 		if got := canonicalModelID(input); got != want {
@@ -97,7 +96,7 @@ func TestModelContextSettingsAPI(t *testing.T) {
 	})
 	defer srv.Close()
 
-	req := httptest.NewRequest(http.MethodPatch, "/api/models/mmodel", bytes.NewBufferString(`{"context_length":500000}`))
+	req := httptest.NewRequest(http.MethodPatch, "/api/models/minimax-m3", bytes.NewBufferString(`{"context_length":500000}`))
 	req.Header.Set("Authorization", "Bearer secret")
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, req)

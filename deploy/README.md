@@ -4,7 +4,7 @@
 
 ```bash
 cd deploy
-cp .env.example .env
+cp ../.env.example .env
 # set a real PROXY_API_KEY
 ```
 

@@ -128,9 +128,9 @@ func (s *Server) workerGet(path string, timeout time.Duration, accountID string)
 
 var fallbackModels = []map[string]any{
 	{"id": "auto", "display_name": "Auto", "mapped_key": "auto", "object": "model", "owned_by": "qoder"},
-	{"id": "qwen3.7-plus", "display_name": "Qwen3.7-Plus", "mapped_key": "qmodel", "object": "model", "owned_by": "qoder"},
-	{"id": "glm-5.2", "display_name": "GLM-5.2", "mapped_key": "qmodel", "object": "model", "owned_by": "qoder"},
-	{"id": "minimax-m3", "display_name": "MiniMax-M3", "mapped_key": "mmodel", "object": "model", "owned_by": "qoder"},
+	{"id": "qwen3.7-plus", "display_name": "Qwen3.7-Plus", "mapped_key": "Qwen3.7-Plus", "object": "model", "owned_by": "qoder"},
+	{"id": "glm-5.2", "display_name": "GLM-5.2", "mapped_key": "GLM-5.2", "object": "model", "owned_by": "qoder"},
+	{"id": "minimax-m3", "display_name": "MiniMax-M3", "mapped_key": "MiniMax-M3", "object": "model", "owned_by": "qoder"},
 }
 
 func (s *Server) fetchWorkerModels(refresh bool) []map[string]any {

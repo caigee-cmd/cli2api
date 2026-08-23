@@ -1,58 +1,90 @@
 # CLI2API
 
-[English](README.md)
+[English](README.md) · [问题反馈](https://github.com/caigee-cmd/cli2api/issues) · [贡献指南](CONTRIBUTING.md)
 
-一个非官方、自托管的 OpenAI 兼容 API，复用你自己的 **Qoder CLI 登录态**。
+[![CI](https://github.com/caigee-cmd/cli2api/actions/workflows/ci.yml/badge.svg)](https://github.com/caigee-cmd/cli2api/actions/workflows/ci.yml)
+[![Docker Image](https://ghcr-badge.egpl.dev/caigee-cmd/cli2api/latest_tag?label=docker&color=blue)](https://github.com/caigee-cmd/cli2api/pkgs/container/cli2api)
+[![License](https://img.shields.io/github/license/caigee-cmd/cli2api)](LICENSE)
 
-CLI2API 不会为每个请求启动完整 CLI Agent，而是保持 Qoder 鉴权和 WASM 编码上下文常驻。目前只支持 Qoder。
+一个非官方、自托管的 OpenAI 兼容 API 网关：复用你自己的 **Qoder CLI 登录态**，让支持 OpenAI API 的客户端连接到 Qoder。
+
+CLI2API 不会为每个请求启动完整的 Qoder CLI Agent，而是让鉴权、WASM 编码和 Qoder 云端 HTTP/SSE 连接保持在常驻 worker 中。项目适合个人开发、家庭实验室和私有部署；目前仅支持 Qoder。
+
+> [!IMPORTANT]
+> CLI2API 与 Qoder 官方无关联，也未获得官方背书。请只使用你有权使用的账号，并遵守 Qoder 及相关服务条款。
+
+## 工作方式
 
 ```text
 OpenAI 客户端
-  -> Go API + SQLite 账号管理
-    -> 每个启用账号一个隔离 Node daemon
+  -> Go API + SQLite 账号控制面
+    -> 每个 Qoder 账号一个隔离 Node worker
       -> Qoder 云端 HTTP/SSE API
 ```
 
+每个启用账号拥有独立的 Node 进程和运行目录，避免共享 Qoder WASM 上下文。Go 负责账号持久化、调度、并发限制、冷却、失败切换和子进程生命周期。
+
 ## 功能
 
-- `POST /v1/chat/completions`，支持流式与非流式
-- Tool calls 和 `reasoning_content`
-- 多 Qoder 账号调度、冷却和失败切换
-- 浏览器 Device Flow OAuth、PAT、`qoder-native-v1` 导入/导出
-- 内置 HeroUI 控制台，支持明暗主题
-- 单容器 Docker 部署，SQLite 持久化
+- OpenAI 兼容的 `POST /v1/chat/completions`
+- 流式和非流式响应
+- Tool calls 与 `reasoning_content`
+- 多 Qoder 账号、账号固定、调度、冷却和故障切换
+- 浏览器 Device Flow OAuth、PAT、`qoder-native-v1` 凭证导入/导出
+- 内置 React + Tailwind + HeroUI 控制台，支持明暗主题
+- 单容器 Docker Compose 部署
+- SQLite 和账号运行目录持久化
+- GitHub Actions 自动测试、构建容器和发布 GHCR 镜像
 
 ![CLI2API 控制台](docs/assets/console.png)
 
 ## 快速开始
 
-需要 Docker、Docker Compose 和一个 Qoder 账号。
+### 使用 Docker Compose
+
+依赖：Docker、Docker Compose，以及一个你自己控制的 Qoder 账号。
 
 ```bash
 git clone https://github.com/caigee-cmd/cli2api.git
-cd cli2api/deploy
-cp .env.example .env
+cd cli2api
+cp .env.example deploy/.env
 ```
 
-在 `deploy/.env` 设置强密钥：
+编辑 `deploy/.env`，至少设置一个随机生成的强密钥：
 
 ```env
 PROXY_API_KEY=替换成随机强密钥
 ```
 
-启动：
+启动服务：
 
 ```bash
+cd deploy
 docker compose pull
 docker compose up -d
-curl http://127.0.0.1:3010/health
+curl -fsS http://127.0.0.1:3010/health
 ```
 
-打开 `http://127.0.0.1:3010`，用 `PROXY_API_KEY` 登录控制台，然后在「账号」页添加 Qoder 账号。默认 Compose 只监听 `127.0.0.1:3010`。
+打开 `http://127.0.0.1:3010`，输入 `PROXY_API_KEY` 登录控制台，然后在 **Accounts** 页面添加 Qoder 账号。
 
-如果 `${QODER_HOME:-$HOME/.qoder}` 已有 Qoder 登录态，首次启动且 SQLite 为空时会自动导入。
+默认 Compose 只发布本机地址 `127.0.0.1:3010`，不会直接暴露到公网。查看日志：
 
-## API 示例
+```bash
+docker compose logs -f qoder-api-proxy
+```
+
+如果 `${QODER_HOME:-$HOME/.qoder}` 中已有 Qoder 登录态，且 SQLite 数据库为空，首次启动时会自动导入为第一个账号。该导入目录默认以只读方式挂载。
+
+### 连接 OpenAI 客户端
+
+将客户端配置为：
+
+```text
+Base URL: http://127.0.0.1:3010/v1
+API Key:  <PROXY_API_KEY>
+```
+
+也可以直接测试：
 
 ```bash
 export PROXY_API_KEY='替换成随机强密钥'
@@ -67,64 +99,94 @@ curl http://127.0.0.1:3010/v1/chat/completions \
   }'
 ```
 
-客户端可用 `X-Qoder-Account: acc_...` 固定账号；不传时由 Go 调度器选择可用账号。
+如果需要固定使用某个账号，可以添加 `X-Qoder-Account: acc_...` 请求头；不指定时由调度器选择可用账号。
 
 ## 配置
 
-| 变量 | 默认值 | 用途 |
+| 变量 | 默认值 | 说明 |
 |------|--------|------|
 | `PROXY_API_KEY` | 必填 | 保护控制台、`/api/*` 和 `/v1/*` |
-| `QODER_DATA_DIR` | `/data` | SQLite 和账号运行目录 |
-| `QODER_HOME` | 主机 `~/.qoder` | 可选的一次性导入来源 |
-| `QODER_MAX_INFLIGHT` | `4` | 单账号并发限制 |
-| `QODER_WORKER_BASE_PORT` | `32100` | 内部 daemon 端口起点 |
+| `QODER_DATA_DIR` | `/data` | SQLite 数据库和账号运行目录 |
+| `QODER_HOME` | 主机 `~/.qoder` | 可选的已有登录态导入来源 |
+| `QODER_MAX_INFLIGHT` | `4` | 单账号最大并发请求数 |
+| `QODER_WORKER_BASE_PORT` | `32100` | 内部 worker 端口起点 |
 
-`dev-key` 等占位密钥只有设置 `ALLOW_INSECURE_API_KEY=1` 才能启动，不能用于可访问的服务器。
+`dev-key` 等占位密钥只有在设置 `ALLOW_INSECURE_API_KEY=1` 时才允许启动，仅适合本地调试，禁止用于可访问的服务器。
 
 ## 接口
 
-| 方法 | 路径 | 用途 |
+| 方法 | 路径 | 说明 |
 |------|------|------|
-| `GET` | `/health` | 公开健康检查 |
+| `GET` | `/health` | 健康检查，不需要 API Key |
 | `GET` | `/v1/models` | 模型列表 |
-| `POST` | `/v1/chat/completions` | OpenAI 兼容对话 |
-| `GET/POST` | `/api/*` | 控制台 API |
+| `POST` | `/v1/chat/completions` | OpenAI 兼容对话接口 |
+| `GET/POST` | `/api/*` | 控制台管理接口 |
 
-## 多账号模型
+除 `/health` 外，控制台和 API 在设置 `PROXY_API_KEY` 后都需要认证。
 
-Qoder WASM 状态是进程级单例，因此每个启用账号独占一个 Node 进程和 HOME。Go 负责 SQLite、账号调度、冷却、失败切换和子进程生命周期。
+## 从源码开发
 
-普通账号接口不会返回原始凭证。导出凭证是显式操作，导出内容需要按敏感数据处理。
-
-## 开发
+环境要求：Go `1.25.6+`、Node.js `20+`、npm 和 Docker（仅容器开发需要）。
 
 ```bash
+# Go API
 go test ./...
-cd worker && npm test
-cd ../frontend && npm ci && npm run build && npm run lint
+go vet ./...
+
+# Qoder worker
+cd worker
+npm test
+
+# 控制台
+cd ../frontend
+npm ci
+npm run build
+npm run lint
 ```
 
-修改前端后运行 `cd frontend && npm run sync`，更新 Go 内嵌静态资源。仓库规则见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+修改前端后运行 `npm run sync`，将构建结果同步到 Go 的嵌入静态资源中：
 
-需要从源码构建镜像时，运行 `cd deploy && docker compose up -d --build`。
+```bash
+cd frontend
+npm run sync
+```
 
-## 安全与范围
+从源码构建并启动容器：
 
-- 仅用于个人自托管和你自己控制的账号
-- 不要在没有 `PROXY_API_KEY` 的情况下暴露服务
-- 不要提交 `.qoder`、登录 Blob、Token、Cookie 或原始抓包
-- 本项目与 Qoder 官方无关联，也未获得官方背书
-- 上游 API 或 CLI 更新可能导致兼容性变化；项目会固定并检查 qodercli 版本
+```bash
+cd deploy
+docker compose up -d --build
+```
 
-安全问题请查看 [SECURITY.md](SECURITY.md)。
+更多仓库规则和验证命令见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ## 文档
 
-- [架构与行为](docs/DESIGN.md)
-- [当前里程碑](docs/PLAN.md)
-- [脱敏协议笔记](docs/capture-notes.md)
-- [Docker 部署](deploy/README.md)
+- [架构、登录、路由和控制台设计](docs/DESIGN.md)
+- [当前里程碑与开发计划](docs/PLAN.md)
+- [脱敏后的协议记录](docs/capture-notes.md)
+- [Docker Compose 部署说明](deploy/README.md)
+- [变更记录](CHANGELOG.md)
+- [安全问题报告](SECURITY.md)
 
-## License
+## 安全与隐私
+
+- 不要在没有 `PROXY_API_KEY` 的情况下暴露服务。
+- 不要提交 `.qoder`、Token、Cookie、登录 Blob、原始抓包或主机信息。
+- 账号凭证导出是显式敏感操作，请妥善保管导出文件。
+- 上游 API 或 Qoder CLI 更新可能导致兼容性变化；项目会固定并检查 qodercli 版本。
+- 发现安全问题请不要直接公开 Issue，按 [SECURITY.md](SECURITY.md) 的方式私下报告。
+
+## 贡献
+
+欢迎提交 Issue、改进文档和 Pull Request。提交前请确认：
+
+- 变更范围清晰，未引入新的组件库或不必要的服务依赖。
+- 已运行与改动相关的测试和构建命令。
+- Diff 中不包含 Token、登录态、原始协议抓包或真实部署信息。
+
+详见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+
+## 许可证
 
 [MIT](LICENSE)

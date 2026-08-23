@@ -3,7 +3,6 @@ import { test } from "node:test";
 import {
   buildPlainChatBody,
   canonicalModelID,
-  mapModel,
   wantsReasoning,
   estimateTokens,
   normalizeMessagesForUpstream,
@@ -14,19 +13,17 @@ import {
   summarizeNormalizedToolHistory,
 } from "../src/plaintext.mjs";
 
-test("maps known display names to upstream keys", () => {
-  assert.equal(mapModel("qwen3.7-plus"), "qmodel");
-  assert.equal(mapModel("DeepSeek-V4-Pro"), "dmodel");
-  assert.equal(mapModel("minimax-m3"), "mmodel");
-  assert.equal(mapModel("MiniMax-M3"), "mmodel");
-  assert.equal(mapModel("auto"), "auto");
+test("keeps model ids unchanged for upstream routing", () => {
+  for (const model of ["qwen3.7-plus", "DeepSeek-V4-Pro", "minimax-m3", "MiniMax-M3", "auto"]) {
+    const body = buildPlainChatBody({ messages: [{ role: "user", content: "hi" }], model });
+    assert.equal(body.model_config.key, model);
+  }
 });
 
-test("normalizes public model ids without exposing Qoder keys", () => {
+test("normalizes model ids only for stable public/settings keys", () => {
   assert.equal(canonicalModelID("MiniMax-M3"), "minimax-m3");
-  assert.equal(canonicalModelID("mmodel"), "minimax-m3");
   assert.equal(canonicalModelID("Qwen3.7-Plus"), "qwen3.7-plus");
-  assert.equal(canonicalModelID("qmodel"), "qwen3.7-plus");
+  assert.equal(canonicalModelID("qmodel"), "qmodel");
   assert.equal(canonicalModelID("GLM-5.2"), "glm-5.2");
 });
 
@@ -59,7 +56,7 @@ test("does not inherit capture-template system or tools", () => {
   assert.equal(body.system, "You are GLM.");
   assert.equal(body.messages[0].role, "system");
   assert.equal(body.messages[0].content, "You are GLM.");
-  assert.equal(body.model_config.key, "qmodel");
+  assert.equal(body.model_config.key, "qwen3.7-plus");
   assert.equal(body.tools.length, 1);
   assert.equal(body.tools[0].function.name, "exec_command");
   assert.notEqual(body.request_id, body.session_id);
@@ -75,7 +72,7 @@ test("forwards Qoder reasoning and context parameters", () => {
     contextLength: 500000,
     maxInputTokens: 1000000,
   });
-  assert.equal(body.model_config.key, "mmodel");
+  assert.equal(body.model_config.key, "minimax-m3");
   assert.equal(body.model_config.max_input_tokens, 1000000);
   assert.equal(body.parameters.reasoning_effort, "high");
   assert.equal(body.parameters.enable_thinking, true);
