@@ -33,9 +33,8 @@ export function OverviewPage() {
     <div className="space-y-7">
       <section className="grid gap-6 border-b border-[var(--app-line)] pb-7 xl:grid-cols-[minmax(0,1fr)_360px] xl:items-end">
         <div>
-          <p className="mb-2 text-xs font-semibold tracking-[0.14em] text-[var(--accent)] uppercase">{t('homeEyebrow')}</p>
-          <h2 className="max-w-4xl text-3xl font-semibold leading-tight tracking-[-0.045em] text-balance sm:text-5xl">{t('homeDisplay')}</h2>
-          <p className="mt-4 max-w-2xl text-sm leading-6 text-[var(--app-muted)] sm:text-base">{t('homeLead')}</p>
+          <h2 className="text-2xl font-semibold tracking-[-0.03em] sm:text-3xl">{t('homeDisplay')}</h2>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--app-muted)]">{t('homeLead')}</p>
         </div>
         <div className="xl:text-right">
           <div className="mono text-xs text-[var(--app-faint)]">{overview?.time || '—'}</div>

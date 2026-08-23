@@ -45,7 +45,6 @@ export function AccountsPage() {
   const [noteById, setNoteById] = useState<Record<string, string>>({})
   const [urlById, setUrlById] = useState<Record<string, string>>({})
   const signedCount = rows.filter((account) => account.hot).length
-  const enabledCount = rows.filter((account) => account.enabled).length
 
   async function run(id: string, kind: BusyKind, action: () => Promise<void>) {
     setBusy({ id, kind })
@@ -102,33 +101,13 @@ export function AccountsPage() {
 
   return (
     <div className="space-y-6">
-      <section className="grid gap-6 border-b border-[var(--app-line)] pb-6 xl:grid-cols-[minmax(0,1fr)_480px] xl:items-end">
-        <div>
-          <p className="mb-2 text-xs font-semibold tracking-[0.14em] text-[var(--accent)] uppercase">{t('accountPool')}</p>
-          <h2 className="text-3xl font-semibold tracking-[-0.04em] sm:text-4xl">{t('accountsTitle')}</h2>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--app-muted)]">{t('qoderLoginHint')}</p>
-        </div>
-        <div className="grid grid-cols-3 overflow-hidden rounded-xl border border-[var(--app-line)] bg-[var(--app-surface)]">
-          {[
-            [t('accountsTitle'), rows.length],
-            [t('signedIn'), signedCount],
-            [t('enable'), enabledCount],
-          ].map(([label, value], index) => (
-            <div key={String(label)} className={`px-4 py-3 ${index ? 'border-l border-[var(--app-line)]' : ''}`}>
-              <div className="text-[10px] text-[var(--app-faint)]">{label}</div>
-              <div className="mono mt-1 text-xl font-semibold">{loading ? '…' : value}</div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex items-baseline gap-2">
-          <span className="text-[10px] font-semibold tracking-[0.12em] text-[var(--app-faint)] uppercase">Accounts</span>
-          <span className="text-xs text-[var(--app-faint)]">{loading ? '…' : t('accountsSigned', { n: signedCount, total: enabledCount })}</span>
+      <section className="flex flex-wrap items-center justify-between gap-4 border-b border-[var(--app-line)] pb-4">
+        <div className="flex items-center gap-5 text-sm">
+          <div className="flex items-center gap-2"><span className="text-[var(--app-faint)]">{t('workers')}</span><span className="mono font-medium">{loading ? '…' : rows.length}</span></div>
+          <div className="flex items-center gap-2 border-l border-[var(--app-line)] pl-5"><span className="text-[var(--app-faint)]">{t('signedIn')}</span><span className="mono font-medium">{loading ? '…' : signedCount}</span></div>
         </div>
         <Button onPress={() => setAddOpen(true)}><Plus size={15} />{t('addAccount')}</Button>
-      </div>
+      </section>
 
       <AddAccountModal isOpen={addOpen} onClose={() => setAddOpen(false)} onAdded={refresh} />
 

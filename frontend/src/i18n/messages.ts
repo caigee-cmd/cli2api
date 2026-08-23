@@ -1,6 +1,6 @@
 export type Lang = 'zh' | 'en'
 
-type Dict = Record<string, string | Record<string, { kicker: string; title: string; desc: string }>>
+type Dict = Record<string, string | Record<string, { title: string; desc: string }>>
 
 export const messages: Record<Lang, Dict> = {
   en: {
@@ -57,12 +57,12 @@ export const messages: Record<Lang, Dict> = {
     checkingSession: 'Checking session…',
     refreshing: 'Refreshing',
     pages: {
-      home: { kicker: 'Console', title: 'Overview', desc: 'Inspect local proxy health and ready endpoints.' },
-      auth: { kicker: 'Credentials', title: 'Auth', desc: 'Browser device-flow login, PAT login, and worker rewarm.' },
-      providers: { kicker: 'Catalog', title: 'Models', desc: 'Models currently exposed by the signed-in Qoder worker.' },
-      access: { kicker: 'Clients', title: 'Access', desc: 'Copy Base URL and run a quick Chat Completions check.' },
-      accounts: { kicker: 'Workers', title: 'Qoder accounts', desc: 'One login per worker. Browser sign-in first; PAT only if the browser flow is inconvenient.' },
-      login: { kicker: 'Local console', title: 'Enter the console', desc: 'Same PROXY_API_KEY as /v1.' },
+      home: { title: 'Overview', desc: 'Inspect local proxy health and ready endpoints.' },
+      auth: { title: 'Auth', desc: 'Browser device-flow login, PAT login, and worker rewarm.' },
+      providers: { title: 'Models', desc: 'Models currently exposed by the signed-in Qoder worker.' },
+      access: { title: 'Access', desc: 'Copy Base URL and run a quick Chat Completions check.' },
+      accounts: { title: 'Qoder accounts', desc: 'One login per worker. Browser sign-in first; PAT only if the browser flow is inconvenient.' },
+      login: { title: 'Enter the console', desc: 'Same PROXY_API_KEY as /v1.' },
     },
     homeEyebrow: 'Runtime',
     homeDisplay: 'Gateway pulse',
@@ -263,12 +263,12 @@ export const messages: Record<Lang, Dict> = {
     checkingSession: '正在检查登录态…',
     refreshing: '刷新中',
     pages: {
-      home: { kicker: '控制台', title: '概览', desc: '查看本地代理运行状态与可用端点。' },
-      auth: { kicker: '凭证', title: '授权', desc: '浏览器 device-flow 登录、PAT 登录，以及 worker rewarm。' },
-      providers: { kicker: '目录', title: '模型', desc: '当前已登录 worker 可用的模型列表。' },
-      access: { kicker: '客户端', title: '接入', desc: '复制 Base URL，并快速验证 Chat Completions。' },
-      accounts: { kicker: 'Workers', title: 'Qoder 账号', desc: '一个登录态进一个 worker。先走浏览器登录；浏览器不方便再用 PAT。' },
-      login: { kicker: '本机控制台', title: '进入控制台', desc: '和 /v1 用同一把 PROXY_API_KEY。' },
+      home: { title: '概览', desc: '查看本地代理运行状态与可用端点。' },
+      auth: { title: '授权', desc: '浏览器 device-flow 登录、PAT 登录，以及 worker rewarm。' },
+      providers: { title: '模型', desc: '当前已登录 worker 可用的模型列表。' },
+      access: { title: '接入', desc: '复制 Base URL，并快速验证 Chat Completions。' },
+      accounts: { title: 'Qoder 账号', desc: '一个登录态进一个 worker。先走浏览器登录；浏览器不方便再用 PAT。' },
+      login: { title: '进入控制台', desc: '和 /v1 用同一把 PROXY_API_KEY。' },
     },
     homeEyebrow: '运行时',
     homeDisplay: '网关状态',
@@ -428,6 +428,6 @@ export function translate(lang: Lang, key: string, vars: Record<string, string |
 
 export function pageCopy(lang: Lang, name: string) {
   const pack = messages[lang] || messages.en
-  const pages = (pack.pages || messages.en.pages) as Record<string, { kicker: string; title: string; desc: string }>
-  return pages[name] || { kicker: name, title: name, desc: '' }
+  const pages = (pack.pages || messages.en.pages) as Record<string, { title: string; desc: string }>
+  return pages[name] || { title: name, desc: '' }
 }

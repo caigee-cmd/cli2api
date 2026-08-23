@@ -5,7 +5,7 @@ type I18nContextValue = {
   lang: Lang
   setLang: (lang: Lang) => void
   t: (key: string, vars?: Record<string, string | number>) => string
-  page: (name: string) => { kicker: string; title: string; desc: string }
+  page: (name: string) => { title: string; desc: string }
 }
 
 const I18nContext = createContext<I18nContextValue | null>(null)

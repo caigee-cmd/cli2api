@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { Button, ButtonGroup, Card, Chip, InputGroup } from '@heroui/react'
-import { ArrowRight, Eye, EyeOff, KeyRound, Moon, ServerCog, ShieldCheck, Sun } from 'lucide-react'
+import { ArrowRight, Eye, EyeOff, Moon, ServerCog, Sun } from 'lucide-react'
 import { useI18n } from '@/hooks/useI18n'
 import { useApiKey } from '@/hooks/useApiKey'
 import { useOverview } from '@/hooks/useOverview'
@@ -75,28 +75,14 @@ export function LoginPage() {
               <Chip size="sm" variant="soft" color="success">LOCAL / PRIVATE</Chip>
               <span className="mono text-xs text-[var(--app-faint)]">:3010</span>
             </div>
-            <p className="mb-3 text-xs font-semibold tracking-[0.14em] text-[var(--accent)] uppercase">{t('loginKicker')}</p>
-            <h1 className="max-w-3xl text-[clamp(2.8rem,6vw,5.8rem)] font-semibold leading-[0.92] tracking-[-0.055em] text-balance">
+            <h1 className="max-w-3xl text-[clamp(2.4rem,5vw,4.2rem)] font-semibold leading-[0.98] tracking-[-0.045em] text-balance">
               {t('loginTitle')}
             </h1>
             <p className="mt-6 max-w-xl text-base leading-7 text-[var(--app-muted)] sm:text-lg">{t('loginLead')}</p>
 
-            <div className="mt-12 grid max-w-2xl border-y border-[var(--app-line)] sm:grid-cols-3">
-              {[
-                [ShieldCheck, t('loginUnlocks'), t('loginUnlocksValue')],
-                [KeyRound, t('loginNot'), t('loginNotValue')],
-                [ArrowRight, t('loginNext'), t('loginNextValue')],
-              ].map(([Icon, label, value], index) => {
-                const IconComponent = Icon as typeof ShieldCheck
-                return (
-                  <div key={String(label)} className={`py-5 sm:px-5 ${index ? 'border-t border-[var(--app-line)] sm:border-l sm:border-t-0' : ''}`}>
-                    <IconComponent size={16} className="mb-4 text-[var(--accent)]" />
-                    <div className="text-xs text-[var(--app-faint)]">{String(label)}</div>
-                    <div className="mt-1.5 text-sm font-medium leading-5">{String(value)}</div>
-                  </div>
-                )
-              })}
-            </div>
+            <p className="mt-10 max-w-xl border-t border-[var(--app-line)] pt-5 text-sm leading-6 text-[var(--app-muted)]">
+              {t('loginHint')}
+            </p>
           </div>
 
           <footer className="hidden items-center justify-between text-xs text-[var(--app-faint)] lg:flex">
@@ -106,7 +92,7 @@ export function LoginPage() {
         </section>
 
         <section className="flex items-center px-5 py-10 sm:px-10 lg:px-12 xl:px-16">
-          <Card className="app-panel w-full rounded-2xl p-0 shadow-none">
+          <Card className="app-panel w-full rounded-xl p-0 shadow-none">
             <form onSubmit={(event) => void onSubmit(event)}>
               <div className="border-b border-[var(--app-line)] px-6 py-6 sm:px-8">
                 <div className="flex items-center justify-between gap-3">

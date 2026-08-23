@@ -8,12 +8,10 @@ import { useTheme } from '@/hooks/useTheme'
 
 export function AppHeader({
   title,
-  kicker,
   desc,
   onMenu,
 }: {
   title: string
-  kicker: string
   desc: string
   onMenu: () => void
 }) {
@@ -25,18 +23,15 @@ export function AppHeader({
   const ready = Boolean(overview?.worker?.ok)
 
   return (
-    <header className="sticky top-0 z-20 border-b border-[var(--app-line)] bg-[color:color-mix(in_srgb,var(--app-bg)_88%,transparent)] backdrop-blur-xl">
+    <header className="sticky top-0 z-20 border-b border-[var(--app-line)] bg-[color:color-mix(in_srgb,var(--app-bg)_94%,transparent)]">
       <div className="mx-auto flex w-full max-w-[1480px] items-center gap-4 px-4 py-3 sm:px-6 lg:px-8">
         <Button isIconOnly size="sm" variant="ghost" className="lg:hidden" onPress={onMenu} aria-label={t('menu')}>
           <Menu size={17} />
         </Button>
 
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 text-[11px] font-semibold tracking-[0.12em] text-[var(--accent)] uppercase">
-            <span className="status-dot" data-state={ready ? 'ok' : 'danger'} />
-            {kicker}
-          </div>
-          <div className="mt-0.5 flex min-w-0 items-baseline gap-3">
+          <div className="flex min-w-0 items-baseline gap-3">
+            <span className="status-dot translate-y-[-1px]" data-state={ready ? 'ok' : 'danger'} />
             <h1 className="truncate text-xl font-semibold tracking-[-0.025em] sm:text-2xl">{title}</h1>
             <p className="hidden truncate text-sm text-[var(--app-muted)] xl:block">{desc}</p>
           </div>

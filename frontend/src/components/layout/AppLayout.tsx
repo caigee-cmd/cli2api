@@ -26,7 +26,6 @@ export function AppLayout() {
         <AppSidebar mobileOpen={mobileOpen} onClose={() => setMobileOpen(false)} />
         <div className="min-w-0">
           <AppHeader
-            kicker={copy.kicker}
             title={copy.title}
             desc={copy.desc}
             onMenu={() => setMobileOpen(true)}

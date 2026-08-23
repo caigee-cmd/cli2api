@@ -107,10 +107,8 @@ select {
 
 .app-panel {
   border: 1px solid var(--app-line);
-  background: var(--app-surface);
+  background: var(--app-surface-solid);
   box-shadow: var(--app-shadow);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
 }
 
 .app-panel-flat {
