@@ -11,6 +11,7 @@ import {
   diagnoseToolResults,
   filterUnknownToolHistory,
   normalizeToolResultContent,
+  summarizeNormalizedToolHistory,
 } from "../src/plaintext.mjs";
 
 test("maps known display names to upstream keys", () => {
@@ -192,6 +193,21 @@ test("orders parallel tool results and drops orphan results", () => {
     ["call_a", "a"],
     ["call_b", "b"],
   ]);
+});
+
+
+test("summarizes normalized tool history without content", () => {
+  const summary = summarizeNormalizedToolHistory([
+    { role: "assistant", content: null, tool_calls: [
+      { id: "call_a", function: { name: "Read", arguments: "{\"path\":\"a\"}" } },
+    ] },
+    { role: "tool", tool_call_id: "call_a", content: "secret output" },
+  ]);
+  assert.equal(summary[0].toolCalls[0].id, "call_a");
+  assert.equal(summary[0].toolCalls[0].name, "Read");
+  assert.equal(summary[1].toolCallId, "call_a");
+  assert.equal(summary[1].contentLength, 13);
+  assert.equal(JSON.stringify(summary).includes("secret output"), false);
 });
 
 test("diagnoses malformed OpenAI tool history without logging content", () => {

@@ -393,6 +393,34 @@ function normalizeMessagesForUpstream(messages = []) {
 }
 export { normalizeMessagesForUpstream, normalizeToolResultContent };
 
+export function summarizeNormalizedToolHistory(messages = []) {
+  return (Array.isArray(messages) ? messages : []).slice(0, 128).map((message, index) => {
+    const summary = {
+      index,
+      role: message?.role || "<missing>",
+    };
+    if (summary.role === "assistant" && Array.isArray(message?.tool_calls)) {
+      summary.toolCalls = message.tool_calls.slice(0, 32).map((toolCall) => ({
+        id: typeof toolCall?.id === "string" ? toolCall.id : "<missing>",
+        name: String(toolCall?.function?.name || toolCall?.name || "<missing>"),
+        argumentLength: typeof toolCall?.function?.arguments === "string"
+          ? toolCall.function.arguments.length
+          : 0,
+      }));
+    }
+    if (summary.role === "tool") {
+      summary.toolCallId = typeof message?.tool_call_id === "string" ? message.tool_call_id : "<missing>";
+      summary.contentType = message?.content == null ? "null" : Array.isArray(message.content) ? "array" : typeof message.content;
+      summary.contentLength = typeof message?.content === "string" ? message.content.length : JSON.stringify(message?.content ?? "").length;
+    }
+    if (summary.role !== "tool" && !summary.toolCalls) {
+      const content = message?.content;
+      summary.contentLength = typeof content === "string" ? content.length : content == null ? 0 : JSON.stringify(content).length;
+    }
+    return summary;
+  });
+}
+
 export function diagnoseToolResults(messages = []) {
   const callsById = new Map();
   const resultBatchById = new Map();

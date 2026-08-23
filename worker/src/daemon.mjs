@@ -6,7 +6,7 @@ import { register } from "node:module";
 import crypto from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { buildPlainChatBody, canonicalModelID, displayModel, mapModel, wantsReasoning, estimateTokens, estimatePromptTokens, diagnoseOpenAIToolHistory } from "./plaintext.mjs";
+import { buildPlainChatBody, canonicalModelID, displayModel, mapModel, wantsReasoning, estimateTokens, estimatePromptTokens, diagnoseOpenAIToolHistory, summarizeNormalizedToolHistory } from "./plaintext.mjs";
 import { parseNestedOpenAIChunks, readSSEText, pipeNestedSseToOpenAI } from "./sse.mjs";
 import { inspectQodercliSource, PINNED_QODERCLI_VERSION, readQodercliVersion } from "./compat.mjs";
 import { resolveUsage } from "./usage.mjs";
@@ -312,6 +312,7 @@ async function prepareUpstream(reqBody) {
     approxPromptTokens: approxPrompt,
     toolsInRequest: Array.isArray(reqBody.tools) ? reqBody.tools.length : 0,
     toolDiagnostics: serializeToolDiagnostics(diagnoseOpenAIToolHistory(reqBody.messages || [], reqBody.tools || [])),
+    normalizedToolHistory: JSON.stringify(summarizeNormalizedToolHistory(plain.messages || [])),
     stream: !!reqBody.stream,
     systemPreview: String(plain.system || "").slice(0, 200),
     reqSystemPreview: reqSystemJoined.slice(0, 200),
