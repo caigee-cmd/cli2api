@@ -9,6 +9,7 @@ type ChatRequest struct {
 	MaxTokens             json.RawMessage `json:"max_tokens"`
 	Temperature           json.RawMessage `json:"temperature"`
 	Tools                 json.RawMessage `json:"tools,omitempty"`
+	ToolsPresent          bool            `json:"-"`
 	ToolChoice            json.RawMessage `json:"tool_choice,omitempty"`
 	IsReasoning           *bool           `json:"is_reasoning,omitempty"`
 	EnableThinking        *bool           `json:"enable_thinking,omitempty"`
@@ -18,6 +19,21 @@ type ChatRequest struct {
 	ReasoningBudgetTokens json.RawMessage `json:"reasoning_budget_tokens,omitempty"`
 	ContextLength         json.RawMessage `json:"context_length,omitempty"`
 	MaxInputTokens        json.RawMessage `json:"max_input_tokens,omitempty"`
+}
+
+func (r *ChatRequest) UnmarshalJSON(data []byte) error {
+	type alias ChatRequest
+	var decoded alias
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	decoded.ToolsPresent = fields["tools"] != nil
+	*r = ChatRequest(decoded)
+	return nil
 }
 
 type ChatMessage struct {

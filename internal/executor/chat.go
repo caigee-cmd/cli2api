@@ -84,7 +84,7 @@ func buildWorkerPayload(req translate.ChatRequest, stream bool) map[string]any {
 	if len(req.MaxInputTokens) > 0 {
 		payload["max_input_tokens"] = json.RawMessage(req.MaxInputTokens)
 	}
-	if len(req.Tools) > 0 {
+	if req.ToolsPresent || len(req.Tools) > 0 {
 		payload["tools"] = json.RawMessage(req.Tools)
 	}
 	if len(req.ToolChoice) > 0 {

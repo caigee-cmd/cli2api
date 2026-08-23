@@ -210,6 +210,42 @@ function normalizeTools(tools) {
     .filter((t) => t && t.function?.name);
 }
 
+function historicalToolNames(messages) {
+  const names = new Set();
+  for (const message of Array.isArray(messages) ? messages : []) {
+    if (message?.role !== "assistant" || !Array.isArray(message.tool_calls)) continue;
+    for (const toolCall of message.tool_calls) {
+      const fn = toolCall?.function && typeof toolCall.function === "object" ? toolCall.function : {};
+      const name = String(fn.name || toolCall?.name || "").trim();
+      if (name) names.add(name);
+    }
+  }
+  return names;
+}
+
+export function addHistoricalToolDefinitions(tools = [], messages = []) {
+  const normalized = normalizeTools(tools);
+  const defined = new Set(normalized.map((tool) => tool.function.name));
+  const added = [];
+  for (const name of historicalToolNames(messages)) {
+    if (defined.has(name)) continue;
+    normalized.push({
+      type: "function",
+      function: {
+        name,
+        description: "Compatibility definition for a tool call preserved in conversation history.",
+        parameters: {
+          type: "object",
+          additionalProperties: true,
+        },
+      },
+    });
+    defined.add(name);
+    added.push(name);
+  }
+  return { tools: normalized, added };
+}
+
 function normalizeToolCall(toolCall, messageIndex, callIndex, usedIds, sourceIds) {
   const functionPart = toolCall?.function && typeof toolCall.function === "object"
     ? toolCall.function
@@ -373,6 +409,7 @@ export function diagnoseOpenAIToolHistory(messages = [], tools = []) {
     orphanToolResultIds,
     invalidArguments,
     undefinedToolCalls,
+    undefinedToolNames: [...new Set(undefinedToolCalls.map((call) => call.name))],
     duplicateToolNames,
     malformedToolDefinitions,
     sequenceBreaks,
@@ -406,6 +443,7 @@ export function buildPlainChatBody({
   const mapped = mapModel(model);
 
   const openaiMessages = normalizeMessagesForUpstream(messages || []);
+  const compatibleTools = addHistoricalToolDefinitions(tools, messages || []);
 
   // Chat-API mode:
   // - Do NOT inherit capture-template Qoder agent system/tools (they explode multiturn).
@@ -497,7 +535,7 @@ export function buildPlainChatBody({
       ? [...systemMessages, ...(nonSystem.length ? nonSystem : [{ role: "user", content: "ping" }])]
       : [{ role: "user", content: "ping" }],
     // Pass through caller tools (OpenAI function tools). Do NOT inherit capture-template tools.
-    tools: normalizeTools(tools),
+    tools: compatibleTools.tools,
     parameters,
     business: {
       product: "cli",

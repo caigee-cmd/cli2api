@@ -6,7 +6,7 @@ import { register } from "node:module";
 import crypto from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { buildPlainChatBody, canonicalModelID, displayModel, mapModel, wantsReasoning, estimateTokens, estimatePromptTokens, diagnoseOpenAIToolHistory } from "./plaintext.mjs";
+import { buildPlainChatBody, addHistoricalToolDefinitions, canonicalModelID, displayModel, mapModel, wantsReasoning, estimateTokens, estimatePromptTokens, diagnoseOpenAIToolHistory } from "./plaintext.mjs";
 import { parseNestedOpenAIChunks, readSSEText, pipeNestedSseToOpenAI } from "./sse.mjs";
 import { inspectQodercliSource, PINNED_QODERCLI_VERSION, readQodercliVersion } from "./compat.mjs";
 import { resolveUsage } from "./usage.mjs";
@@ -273,6 +273,8 @@ async function readBody(req) {
 async function prepareUpstream(reqBody) {
   if (!hotContext) throw new Error("hot context not ready");
   const template = loadTemplate();
+  const requestedTools = Object.prototype.hasOwnProperty.call(reqBody, "tools") ? reqBody.tools : [];
+  const compatibleTools = addHistoricalToolDefinitions(requestedTools, reqBody.messages || []);
   const plain = buildPlainChatBody({
     messages: reqBody.messages || [],
     model: reqBody.model || hotModelKey,
@@ -285,7 +287,7 @@ async function prepareUpstream(reqBody) {
     reasoningBudgetTokens: reqBody.reasoning_budget_tokens,
     contextLength: reqBody.context_length,
     maxInputTokens: reqBody.max_input_tokens,
-    tools: reqBody.tools || [],
+    tools: compatibleTools.tools,
     toolChoice: reqBody.tool_choice,
   });
   const approxPrompt = estimatePromptTokens(reqBody.messages || []) + estimateTokens(plain.system || "");
@@ -302,8 +304,9 @@ async function prepareUpstream(reqBody) {
     reqSystemLen: reqSystemJoined.length,
     reqSystemCount: reqSystemMsgs.length,
     approxPromptTokens: approxPrompt,
-    toolsInRequest: Array.isArray(reqBody.tools) ? reqBody.tools.length : 0,
-    toolDiagnostics: diagnoseOpenAIToolHistory(reqBody.messages || [], reqBody.tools || []),
+    toolsInRequest: compatibleTools.tools.length,
+    compatibilityToolNames: compatibleTools.added,
+    toolDiagnostics: diagnoseOpenAIToolHistory(reqBody.messages || [], compatibleTools.tools),
     stream: !!reqBody.stream,
     systemPreview: String(plain.system || "").slice(0, 200),
     reqSystemPreview: reqSystemJoined.slice(0, 200),

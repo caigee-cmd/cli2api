@@ -8,6 +8,7 @@ import {
   estimateTokens,
   normalizeMessagesForUpstream,
   diagnoseOpenAIToolHistory,
+  addHistoricalToolDefinitions,
 } from "../src/plaintext.mjs";
 
 test("maps known display names to upstream keys", () => {
@@ -122,6 +123,22 @@ test("normalizes OpenAI tool history and repairs missing tool ids", () => {
   assert.equal("name" in messages[2], false);
   assert.equal(messages[3].tool_call_id, calls[1].id);
   assert.equal("name" in messages[3], false);
+});
+
+test("adds compatibility definitions for tools preserved in history", () => {
+  const result = addHistoricalToolDefinitions(
+    [{ type: "function", function: { name: "Read", parameters: {} } }],
+    [{
+      role: "assistant",
+      tool_calls: [
+        { id: "call_task", function: { name: "TaskCreate", arguments: "{}" } },
+        { id: "call_read", function: { name: "Read", arguments: "{}" } },
+      ],
+    }],
+  );
+  assert.deepEqual(result.added, ["TaskCreate"]);
+  assert.deepEqual(result.tools.map((tool) => tool.function.name), ["Read", "TaskCreate"]);
+  assert.equal(result.tools[1].function.parameters.additionalProperties, true);
 });
 
 test("keeps distinct existing tool ids across multiple assistant turns", () => {
