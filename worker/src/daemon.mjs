@@ -6,7 +6,7 @@ import { register } from "node:module";
 import crypto from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { buildPlainChatBody, mapModel, wantsReasoning, estimateTokens, estimatePromptTokens } from "./plaintext.mjs";
+import { buildPlainChatBody, canonicalModelID, displayModel, mapModel, wantsReasoning, estimateTokens, estimatePromptTokens } from "./plaintext.mjs";
 import { parseNestedOpenAIChunks, readSSEText, pipeNestedSseToOpenAI } from "./sse.mjs";
 import { inspectQodercliSource, PINNED_QODERCLI_VERSION, readQodercliVersion } from "./compat.mjs";
 import { resolveUsage } from "./usage.mjs";
@@ -464,12 +464,14 @@ async function listModelsFromCli({ refresh = false } = {}) {
     );
     const names = parseModelList(stdout);
     cachedModels = names.map((name) => {
-      const id = String(name);
-      const mapped = mapModel(id);
+      const displayName = String(name);
+      const id = canonicalModelID(displayName);
+      const mapped = mapModel(displayName);
       return {
         id,
-        display_name: id,
+        display_name: displayName,
         mapped_key: mapped,
+        route_display_name: displayModel(mapped),
         object: "model",
         owned_by: "qoder",
       };
@@ -486,10 +488,11 @@ async function listModelsFromCli({ refresh = false } = {}) {
       "DeepSeek-V4-Pro","DeepSeek-V4-Flash",
       "MiniMax-M3",
     ];
-    return fallback.map((id) => ({
-      id,
-      display_name: id,
-      mapped_key: mapModel(id),
+    return fallback.map((displayName) => ({
+      id: canonicalModelID(displayName),
+      display_name: displayName,
+      mapped_key: mapModel(displayName),
+      route_display_name: displayModel(mapModel(displayName)),
       object: "model",
       owned_by: "qoder",
       stale: true,

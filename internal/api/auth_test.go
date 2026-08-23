@@ -43,13 +43,30 @@ func TestManagementRoutesRequireAPIKey(t *testing.T) {
 	}
 }
 
+func TestCanonicalModelIDSeparatesPublicIdentityFromQoderKey(t *testing.T) {
+	for input, want := range map[string]string{
+		"MiniMax-M3":   "minimax-m3",
+		"mmodel":       "minimax-m3",
+		"Qwen3.7-Plus": "qwen3.7-plus",
+		"qmodel":       "qwen3.7-plus",
+		"GLM-5.2":      "glm-5.2",
+	} {
+		if got := canonicalModelID(input); got != want {
+			t.Fatalf("canonicalModelID(%q) = %q, want %q", input, got, want)
+		}
+	}
+	if modelContextKey("glm-5.2") == modelContextKey("qwen3.7-plus") {
+		t.Fatal("GLM-5.2 and Qwen3.7-Plus must have independent context settings")
+	}
+}
+
 func TestModelContextSettingsApplyToChatDefaults(t *testing.T) {
 	srv := New(config.Config{
 		Host: "127.0.0.1", Port: 3010, ProxyAPIKey: "secret",
 		QoderHome: t.TempDir(), DataDir: t.TempDir(),
 	})
 	defer srv.Close()
-	if err := srv.manager.Store().SetModelContext(context.Background(), "mmodel", 500000); err != nil {
+	if err := srv.manager.Store().SetModelContext(context.Background(), "minimax-m3", 500000); err != nil {
 		t.Fatal(err)
 	}
 	req := translate.ChatRequest{Model: "MiniMax-M3"}

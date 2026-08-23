@@ -139,7 +139,9 @@ export function AccessPage() {
                   <Select.Popover>
                     <ListBox>
                       {(models.length ? models : [{ id: 'qwen3.7-plus' }]).map((item) => (
-                        <ListBox.Item key={item.id} id={item.id} textValue={item.id}><Label>{item.id}</Label></ListBox.Item>
+                        <ListBox.Item key={item.id} id={item.id} textValue={item.display_name || item.id}>
+                          <Label>{item.display_name || item.id} · {item.id}</Label>
+                        </ListBox.Item>
                       ))}
                     </ListBox>
                   </Select.Popover>

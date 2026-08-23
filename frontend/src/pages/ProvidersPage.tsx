@@ -9,7 +9,12 @@ import type { Overview } from '@/api/types'
 type ModelInfo = NonNullable<Overview['models']>[number]
 
 function modelSettingsKey(model: ModelInfo) {
-  return model.settings_key || model.mapped_key || model.id
+  return model.settings_key || model.id
+}
+
+function routedModelName(model: ModelInfo) {
+  const routeName = model.route_display_name || ''
+  return routeName && routeName !== (model.display_name || model.id) ? routeName : ''
 }
 
 export function ProvidersPage() {
@@ -26,7 +31,7 @@ export function ProvidersPage() {
   const filtered = useMemo(() => {
     const query = filter.trim().toLowerCase()
     if (!query) return models
-    return models.filter((model) => `${model.id} ${model.mapped_key || ''}`.toLowerCase().includes(query))
+    return models.filter((model) => `${model.display_name || ''} ${model.id} ${model.mapped_key || ''}`.toLowerCase().includes(query))
   }, [filter, models])
 
   function updateModelInOverview(model: ModelInfo, result: Awaited<ReturnType<typeof updateModelContext>>) {
@@ -148,7 +153,8 @@ export function ProvidersPage() {
               <Table.Content aria-label={t('availableModels')}>
                 <Table.Header>
                   <Table.Column isRowHeader>{t('modelCol')}</Table.Column>
-                  <Table.Column>{t('mappedKeyCol')}</Table.Column>
+                  <Table.Column>{t('requestIdCol')}</Table.Column>
+                  <Table.Column>{t('qoderKeyCol')}</Table.Column>
                   <Table.Column>{t('contextWindowCol')}</Table.Column>
                   <Table.Column>{t('stateCol')}</Table.Column>
                   <Table.Column>{t('actions')}</Table.Column>
@@ -162,9 +168,13 @@ export function ProvidersPage() {
                         <Table.Cell>
                           <div className="flex items-center gap-3 py-1">
                             <span className="status-dot" data-state={model.stale ? undefined : 'ok'} />
-                            <span className="font-medium">{model.id}</span>
+                            <div>
+                              <div className="font-medium">{model.display_name || model.id}</div>
+                              {routedModelName(model) ? <div className="mt-0.5 text-[10px] text-[var(--app-faint)]">{t('routedTo', { model: routedModelName(model) })}</div> : null}
+                            </div>
                           </div>
                         </Table.Cell>
+                        <Table.Cell><span className="mono text-xs font-medium">{model.id}</span></Table.Cell>
                         <Table.Cell><span className="mono text-xs text-[var(--app-muted)]">{model.mapped_key || model.id}</span></Table.Cell>
                         <Table.Cell>
                           <div className="flex min-w-52 items-center gap-2">

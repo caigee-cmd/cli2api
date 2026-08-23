@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   buildPlainChatBody,
+  canonicalModelID,
   mapModel,
   wantsReasoning,
   estimateTokens,
@@ -13,6 +14,14 @@ test("maps known display names to upstream keys", () => {
   assert.equal(mapModel("minimax-m3"), "mmodel");
   assert.equal(mapModel("MiniMax-M3"), "mmodel");
   assert.equal(mapModel("auto"), "auto");
+});
+
+test("normalizes public model ids without exposing Qoder keys", () => {
+  assert.equal(canonicalModelID("MiniMax-M3"), "minimax-m3");
+  assert.equal(canonicalModelID("mmodel"), "minimax-m3");
+  assert.equal(canonicalModelID("Qwen3.7-Plus"), "qwen3.7-plus");
+  assert.equal(canonicalModelID("qmodel"), "qwen3.7-plus");
+  assert.equal(canonicalModelID("GLM-5.2"), "glm-5.2");
 });
 
 test("detects reasoning flags from OpenAI-style fields", () => {

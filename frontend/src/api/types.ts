@@ -26,7 +26,9 @@ export type Overview = {
   login?: any
   models?: Array<{
     id: string
+    display_name?: string
     mapped_key?: string
+    route_display_name?: string
     settings_key?: string
     stale?: boolean
     context_length?: number

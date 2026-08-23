@@ -88,6 +88,8 @@ Keep the menu short. Login is a gate, not a nav item.
 | `/` | Overview | Runtime pulse |
 | `/accounts` | Accounts | Qoder login + pool |
 | `/providers` | Models | Catalog + per-model context-window defaults |
+
+Public model IDs are lowercase request identifiers. Qoder CLI names remain display labels, while internal Qoder keys are shown only for routing diagnostics.
 | `/access` | Access | Base URL + quick chat |
 | `/auth` | redirect | Legacy → `/accounts` |
 

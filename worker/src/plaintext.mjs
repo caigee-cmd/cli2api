@@ -79,6 +79,21 @@ const DISPLAY = {
   cantus: "Cantus",
 };
 
+const PUBLIC_MODEL_ID = {
+  qmodel: "qwen3.7-plus",
+  dmodel: "deepseek-v4-pro",
+  dfmodel: "deepseek-v4-flash",
+  kmodel: "kimi-k2.7-code",
+  mmodel: "minimax-m3",
+  gm51model: "glm-5.1",
+};
+
+export function canonicalModelID(model) {
+  if (!model) return "auto";
+  const normalized = String(model).trim().toLowerCase().replace(/[\s_]+/g, "-");
+  return PUBLIC_MODEL_ID[normalized] || normalized;
+}
+
 export function mapModel(model) {
   if (!model) return "auto";
   const glmOverride = String(process.env.QODER_GLM52_UPSTREAM_KEY || "").trim();

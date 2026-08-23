@@ -51,7 +51,7 @@ func TestStorePersistsModelContextSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SetModelContext(ctx, "mmodel", 500000); err != nil {
+	if err := store.SetModelContext(ctx, "minimax-m3", 500000); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.Close(); err != nil {
@@ -63,21 +63,55 @@ func TestStorePersistsModelContextSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer reopened.Close()
-	got, ok, err := reopened.GetModelContext(ctx, "mmodel")
+	got, ok, err := reopened.GetModelContext(ctx, "minimax-m3")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !ok || got != 500000 {
 		t.Fatalf("model context = %d, %v", got, ok)
 	}
-	if err := reopened.SetModelContext(ctx, "mmodel", 1); err == nil {
+	if err := reopened.SetModelContext(ctx, "minimax-m3", 1); err == nil {
 		t.Fatal("expected too-small context length to fail")
 	}
-	if err := reopened.SetModelContext(ctx, "mmodel", 0); err != nil {
+	if err := reopened.SetModelContext(ctx, "minimax-m3", 0); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok, err := reopened.GetModelContext(ctx, "mmodel"); err != nil || ok {
+	if _, ok, err := reopened.GetModelContext(ctx, "minimax-m3"); err != nil || ok {
 		t.Fatalf("deleted model context ok=%v err=%v", ok, err)
+	}
+}
+
+func TestStoreMigratesLegacyModelContextKeys(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "qoder.db")
+	store, err := OpenStore(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetModelContext(ctx, "mmodel", 750000); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetModelContext(ctx, "qmodel", 250000); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := OpenStore(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	for model, want := range map[string]int{
+		"minimax-m3":   750000,
+		"qwen3.7-plus": 250000,
+		"glm-5.2":      250000,
+	} {
+		got, ok, err := reopened.GetModelContext(ctx, model)
+		if err != nil || !ok || got != want {
+			t.Fatalf("model context %s = %d, %v, %v", model, got, ok, err)
+		}
 	}
 }
 

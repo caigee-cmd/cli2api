@@ -15,44 +15,29 @@ const (
 	miniMaxM3ContextLimit = 1000000
 )
 
-var modelContextAliases = map[string]string{
-	"qwen3.7-plus":      "qmodel",
-	"qwen3_7_plus":      "qmodel",
-	"qmodel":            "qmodel",
-	"qwen3.7-max":       "qwen3.7-max",
-	"qwen3.8-max":       "qwen3.8-max",
-	"glm-5.2":           "qmodel",
-	"glm-5.1":           "gm51model",
-	"gm51model":         "gm51model",
-	"glm-5.3":           "glm-5.3",
-	"deepseek-v4-pro":   "dmodel",
-	"dmodel":            "dmodel",
-	"deepseek-v4-flash": "dfmodel",
-	"dfmodel":           "dfmodel",
-	"kimi-k2.7-code":    "kmodel",
-	"kmodel":            "kmodel",
-	"kimi-k3":           "kimi-k3",
-	"minimax-m2.7":      "mmodel",
-	"minimax-m3":        "mmodel",
-	"mmodel":            "mmodel",
-	"auto":              "auto",
-	"ultimate":          "ultimate",
-	"performance":       "performance",
-	"efficient":         "efficient",
-	"lite":              "lite",
-	"cantus":            "cantus",
+var canonicalModelAliases = map[string]string{
+	"qmodel":    "qwen3.7-plus",
+	"dmodel":    "deepseek-v4-pro",
+	"dfmodel":   "deepseek-v4-flash",
+	"kmodel":    "kimi-k2.7-code",
+	"mmodel":    "minimax-m3",
+	"gm51model": "glm-5.1",
 }
 
-func modelContextKey(model string) string {
+func canonicalModelID(model string) string {
 	key := strings.ToLower(strings.TrimSpace(model))
-	if mapped := modelContextAliases[key]; mapped != "" {
-		return mapped
+	key = strings.NewReplacer("_", "-", " ", "-").Replace(key)
+	if canonical := canonicalModelAliases[key]; canonical != "" {
+		return canonical
 	}
 	return key
 }
+func modelContextKey(model string) string {
+	return canonicalModelID(model)
+}
 
 func defaultContextForModel(model string) int {
-	if modelContextKey(model) == "mmodel" {
+	if canonicalModelID(model) == "minimax-m3" {
 		return miniMaxM3ContextLimit
 	}
 	return defaultContextLength
@@ -88,8 +73,7 @@ func (s *Server) decorateModelsWithContext(ctx context.Context, models []map[str
 			item[key] = value
 		}
 		id, _ := item["id"].(string)
-		mapped, _ := item["mapped_key"].(string)
-		settingsKey := modelContextKey(firstNonEmpty(mapped, id))
+		settingsKey := modelContextKey(id)
 		defaultValue := defaultContextForModel(settingsKey)
 		value, custom := settings[settingsKey]
 		if !custom {

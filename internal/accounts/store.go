@@ -116,6 +116,29 @@ CREATE TABLE IF NOT EXISTS model_settings (
 	if _, err := s.db.ExecContext(ctx, schema); err != nil {
 		return fmt.Errorf("migrate sqlite: %w", err)
 	}
+	const migrateModelSettings = `
+INSERT INTO model_settings (model_id, context_length, updated_at)
+SELECT CASE model_id
+  WHEN 'qmodel' THEN 'qwen3.7-plus'
+  WHEN 'dmodel' THEN 'deepseek-v4-pro'
+  WHEN 'dfmodel' THEN 'deepseek-v4-flash'
+  WHEN 'kmodel' THEN 'kimi-k2.7-code'
+  WHEN 'mmodel' THEN 'minimax-m3'
+  WHEN 'gm51model' THEN 'glm-5.1'
+END, context_length, updated_at
+FROM model_settings
+WHERE model_id IN ('qmodel', 'dmodel', 'dfmodel', 'kmodel', 'mmodel', 'gm51model')
+ON CONFLICT(model_id) DO NOTHING;
+INSERT INTO model_settings (model_id, context_length, updated_at)
+SELECT 'glm-5.2', context_length, updated_at
+FROM model_settings
+WHERE model_id = 'qmodel'
+ON CONFLICT(model_id) DO NOTHING;
+DELETE FROM model_settings
+WHERE model_id IN ('qmodel', 'dmodel', 'dfmodel', 'kmodel', 'mmodel', 'gm51model');`
+	if _, err := s.db.ExecContext(ctx, migrateModelSettings); err != nil {
+		return fmt.Errorf("migrate model settings: %w", err)
+	}
 	return nil
 }
 
