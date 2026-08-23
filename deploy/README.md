@@ -34,6 +34,8 @@ After startup, add further accounts from `/accounts` using browser OAuth, PAT, o
 
 ## 4. Gateway
 
+For another container on the same Docker network:
+
 ```text
 base_url = http://qoder-api-proxy:3010/v1
 api_key  = <same as PROXY_API_KEY>

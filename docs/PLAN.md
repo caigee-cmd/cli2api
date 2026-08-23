@@ -1,6 +1,6 @@
 # CLI2API Plan
 
-last-updated: 2026-08-22
+last-updated: 2026-08-23
 
 Qoder-first OpenAI-compatible proxy. Cursor and other CLIs wait until the current Qoder milestone is done.
 
@@ -38,7 +38,7 @@ Do not:
 | A–C | Protocol, non-stream MVP, streaming / tools / reasoning / console |
 | D | Upstream usage, process-isolated pool, skip-main wasm boot |
 | E | Open-source clone-and-run; `v0.1.0` at `eaf81ad` |
-| F | Error taxonomy, supervisor failover, console sign-in, Accounts login |
+| F | Error taxonomy, account failover, console sign-in, Accounts login |
 | G | Replaced by Phase H SQLite account control plane |
 
 Typical small-chat latency is ~1-2s after warmup, versus ~10s+ for spawn-CLI wrappers.
@@ -90,7 +90,7 @@ Sub2API-style SQLite account registry while preserving the working Qoder executi
 - [ ] Empty install → create account → browser login → chat `只回复OK`
 - [ ] Import `qoder-native-v1` → daemon becomes hot without browser login
 - [ ] Two accounts → rate-limit A → request succeeds through B
-- [ ] Restart container → enabled accounts and credentials recover from SQLite
+- [x] Restart container → enabled accounts and credentials recover from SQLite
 - [x] Existing non-stream, stream, tools, reasoning, model mapping, and usage tests pass
 
 ## Later

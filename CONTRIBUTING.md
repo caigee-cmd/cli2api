@@ -1,35 +1,45 @@
 # Contributing
 
-This repo is Qoder-first. Cursor and other CLIs are later providers.
+CLI2API is Qoder-first. Keep changes focused and do not add other providers until the
+current Qoder milestone in `docs/PLAN.md` is complete.
 
-## Dev loop
+## Setup
+
+Requirements: Go from `go.mod`, Node 22+, and npm.
 
 ```bash
-cp .env.example .env   # set PROXY_API_KEY
-cd worker && npm test
+go mod download
+cd worker && npm install
+cd ../frontend && npm ci
+```
+
+## Validate
+
+```bash
 go test ./...
-cd frontend && npm install && npm run sync
+go vet ./...
+cd worker && npm test
+cd ../frontend && npm run build && npm run lint
 ```
 
-Local run without Docker:
+After frontend changes:
 
 ```bash
-cd worker
-PROXY_API_KEY=dev-key ALLOW_INSECURE_API_KEY=1 npm start
-
-# another terminal
-PROXY_API_KEY=dev-key ALLOW_INSECURE_API_KEY=1 \
-QODER_WORKER_URL=http://127.0.0.1:3020 \
-QODER_WORKER_API_KEY=dev-key \
-go run ./cmd/server
+cd frontend && npm run sync
 ```
+
+For an end-to-end run, use the Docker Compose flow in `deploy/README.md`.
 
 ## Rules
 
-See `AGENTS.md`. Design and login/routing notes: `docs/DESIGN.md`. Current work: `docs/PLAN.md`.
+- Keep the Go layers: auth / endpoint / executor / translate / api
+- Keep one Qoder HOME and one Node daemon per enabled account
+- Keep qodercli compatibility checks in `worker/src/compat.mjs`
+- Preserve the proven WASM encode and HTTP/SSE request path
+- Use HeroUI for console components
+- Add tests for account, routing, API, or translation behavior changes
+- Do not commit `.env`, `.qoder`, auth blobs, tokens, raw captures, host IPs, or
+  `docs/PRIVATE_DEPLOYMENT.md`
 
-- Keep architecture: auth / endpoint / executor / translate / api
-- Pin qodercli hooks in `worker/src/compat.mjs`; fail loudly on mismatch
-- Multi-account = one worker process per Qoder HOME
-- Console UI uses HeroUI; do not add another component library
-- Do not commit `.env`, `docs/PRIVATE_DEPLOYMENT.md`, raw captures, or tokens
+Architecture and UI decisions live in `docs/DESIGN.md`. Work in progress lives in
+`docs/PLAN.md`.
