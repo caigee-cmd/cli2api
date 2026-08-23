@@ -14,6 +14,7 @@ jobs:
         with:
           go-version-file: go.mod
       - run: go test ./...
+      - run: go vet ./...
 
   worker:
     runs-on: ubuntu-latest
@@ -36,8 +37,22 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
         working-directory: frontend
+      - run: npm run lint
+        working-directory: frontend
       - run: npm run build
         working-directory: frontend
+
+  container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Compose configuration
+        working-directory: deploy
+        env:
+          PROXY_API_KEY: ci-placeholder-key
+        run: docker compose config --quiet
+      - name: Build container image
+        run: docker build -f deploy/Dockerfile .
 
   secrets:
     runs-on: ubuntu-latest

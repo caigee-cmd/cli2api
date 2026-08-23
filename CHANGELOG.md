@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 - 2026-08-23
 
 - Replace the supervisor-based pool with a Go-owned SQLite account registry
 - Run one isolated Node daemon and HOME per enabled Qoder account

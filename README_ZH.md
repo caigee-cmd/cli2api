@@ -22,6 +22,8 @@ OpenAI 客户端
 - 内置 HeroUI 控制台，支持明暗主题
 - 单容器 Docker 部署，SQLite 持久化
 
+![CLI2API 控制台](docs/assets/console.png)
+
 ## 快速开始
 
 需要 Docker、Docker Compose 和一个 Qoder 账号。
@@ -41,7 +43,8 @@ PROXY_API_KEY=替换成随机强密钥
 启动：
 
 ```bash
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 curl http://127.0.0.1:3010/health
 ```
 
@@ -102,6 +105,8 @@ cd ../frontend && npm ci && npm run build && npm run lint
 ```
 
 修改前端后运行 `cd frontend && npm run sync`，更新 Go 内嵌静态资源。仓库规则见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+
+需要从源码构建镜像时，运行 `cd deploy && docker compose up -d --build`。
 
 ## 安全与范围
 

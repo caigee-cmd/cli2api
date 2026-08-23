@@ -23,6 +23,8 @@ OpenAI client
 - Built-in HeroUI console with light and dark themes
 - One-container Docker deployment with persistent SQLite data
 
+![CLI2API console](docs/assets/console.png)
+
 ## Quick start
 
 Requirements: Docker, Docker Compose, and a Qoder account.
@@ -42,7 +44,8 @@ PROXY_API_KEY=replace-with-a-random-secret
 Start the service:
 
 ```bash
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 curl http://127.0.0.1:3010/health
 ```
 
@@ -111,6 +114,8 @@ cd ../frontend && npm ci && npm run build && npm run lint
 
 After frontend changes, run `cd frontend && npm run sync` to update the embedded assets.
 See [CONTRIBUTING.md](CONTRIBUTING.md) for repository rules.
+
+Build the container locally with `cd deploy && docker compose up -d --build`.
 
 ## Security and scope
 

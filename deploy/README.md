@@ -15,10 +15,13 @@ pinned qodercli, and frontend. SQLite and per-account runtime homes persist in t
 ## 2. Start
 
 ```bash
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 docker compose ps
 curl -s http://127.0.0.1:3010/health
 ```
+
+To build from the checked-out source instead, run `docker compose up -d --build`.
 
 Only `127.0.0.1:3010` is published. Account and credential operations require
 `PROXY_API_KEY`.
