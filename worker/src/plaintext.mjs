@@ -361,6 +361,7 @@ export function diagnoseOpenAIToolHistory(messages = [], tools = []) {
   return {
     messageCount: Array.isArray(messages) ? messages.length : 0,
     definedToolCount: definedToolNames.size,
+    definedToolNames: [...definedToolNames].slice(0, 32),
     assistantToolCallCount,
     toolResultCount,
     pendingToolCallCount: pendingCalls.size,
