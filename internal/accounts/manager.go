@@ -435,40 +435,6 @@ func (m *Manager) refreshOne(ctx context.Context, item Item) error {
 	return nil
 }
 
-func ImportLegacyHome(ctx context.Context, store *Store, qoderHome string) (*Account, error) {
-	items, err := store.List(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if len(items) != 0 || qoderHome == "" {
-		return nil, nil
-	}
-	userBlob, err := os.ReadFile(filepath.Join(qoderHome, ".auth", "user"))
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("read legacy Qoder credential: %w", err)
-	}
-	machineID, err := os.ReadFile(filepath.Join(qoderHome, ".auth", "machine_id"))
-	if err != nil {
-		return nil, fmt.Errorf("read legacy Qoder machine id: %w", err)
-	}
-	account, err := store.Create(ctx, CreateAccount{Name: "Imported Qoder account", Enabled: true})
-	if err != nil {
-		return nil, err
-	}
-	if err := store.SaveCredential(ctx, account.ID, "oauth", NativeCredential{UserBlob: userBlob, MachineID: string(machineID)}); err != nil {
-		_ = store.Delete(ctx, account.ID)
-		return nil, err
-	}
-	account, err = store.Get(ctx, account.ID)
-	if err != nil {
-		return nil, err
-	}
-	return &account, nil
-}
-
 func (m *Manager) watchAccount(id string, process ManagedProcess) {
 	var exitErr error
 	select {

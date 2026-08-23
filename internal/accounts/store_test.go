@@ -81,6 +81,31 @@ func TestStorePersistsModelContextSettings(t *testing.T) {
 	}
 }
 
+func TestStorePersistsAppSecrets(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "qoder.db")
+	store, err := OpenStore(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetSecret(ctx, "proxy_api_key", "secret-value"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := OpenStore(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	got, ok, err := reopened.GetSecret(ctx, "proxy_api_key")
+	if err != nil || !ok || got != "secret-value" {
+		t.Fatalf("secret = %q, %v, %v", got, ok, err)
+	}
+}
+
 func TestStoreMigratesLegacyModelContextKeys(t *testing.T) {
 	ctx := context.Background()
 	dbPath := filepath.Join(t.TempDir(), "qoder.db")

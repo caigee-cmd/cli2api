@@ -25,11 +25,11 @@ WORKDIR /app
 COPY --from=build /out/qoder-api-proxy /app/qoder-api-proxy
 COPY worker/src /app/worker
 COPY worker/last-plain.sample.json /app/worker/last-plain.sample.json
-RUN mkdir -p /data /import/.qoder && chmod 700 /data
+RUN mkdir -p /data && chmod 700 /data
 ENV HOST=0.0.0.0 \
     PORT=3010 \
     QODER_DATA_DIR=/data \
-    QODER_HOME=/import/.qoder \
+    QODER_RUNTIME_DIR=/run/cli2api \
     QODER_NODE_BINARY=/usr/local/bin/node \
     QODER_WORKER_DAEMON=/app/worker/daemon.mjs \
     QODERCLI_JS=/usr/local/lib/node_modules/@qoder-ai/qodercli/bundle/qodercli.js \

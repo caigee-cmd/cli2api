@@ -33,7 +33,7 @@ Each enabled account gets its own Node process and private runtime HOME so Qoder
 - Browser Device Flow OAuth, PAT, and `qoder-native-v1` credential import/export
 - Built-in React + Tailwind + HeroUI console with light and dark themes
 - Single-container Docker Compose deployment
-- Persistent SQLite database and per-account runtime homes
+- Persistent SQLite database and credentials with ephemeral per-account runtime homes
 - GitHub Actions for tests, container builds, and GHCR releases
 
 ![CLI2API console](docs/assets/console.png)
@@ -44,28 +44,17 @@ Each enabled account gets its own Node process and private runtime HOME so Qoder
 
 Requirements: Docker, Docker Compose, and a Qoder account you control.
 
+The one-command launcher creates `deploy/.env` when needed, starts the published image (or builds locally if it is unavailable), and prints the generated API key on the first run:
+
 ```bash
 git clone https://github.com/caigee-cmd/cli2api.git
 cd cli2api
-cp .env.example deploy/.env
+./scripts/start.sh
 ```
 
-Edit `deploy/.env` and set a randomly generated strong key:
+If you prefer to start Compose manually, leave `PROXY_API_KEY` blank. The service generates a cryptographically random key and stores it in SQLite on first startup; it is printed once in the container log. Save it before configuring clients.
 
-```env
-PROXY_API_KEY=replace-with-a-random-secret
-```
-
-Start the service:
-
-```bash
-cd deploy
-docker compose pull
-docker compose up -d
-curl -fsS http://127.0.0.1:3010/health
-```
-
-Open `http://127.0.0.1:3010`, sign in with `PROXY_API_KEY`, and add Qoder accounts from **Accounts**.
+Open `http://127.0.0.1:3010`, sign in with the printed key, and add Qoder accounts from **Accounts**.
 
 The default Compose file publishes only `127.0.0.1:3010`; it does not expose the service publicly. Follow logs with:
 
@@ -73,7 +62,7 @@ The default Compose file publishes only `127.0.0.1:3010`; it does not expose the
 docker compose logs -f qoder-api-proxy
 ```
 
-If `${QODER_HOME:-$HOME/.qoder}` already contains a Qoder login and the SQLite database is empty, the first startup imports it as the first account. The import directory is mounted read-only by default.
+Qoder login credentials created through the console are stored in SQLite under `account_credentials`. Workers materialize the encrypted Qoder auth files only in an ephemeral per-account runtime directory while running; the Docker deployment mounts that directory as tmpfs.
 
 ### Connect an OpenAI client
 
@@ -87,7 +76,7 @@ API Key:  <PROXY_API_KEY>
 Or make a direct request:
 
 ```bash
-export PROXY_API_KEY='replace-with-a-random-secret'
+export PROXY_API_KEY='paste-the-key-printed-on-first-start'
 
 curl http://127.0.0.1:3010/v1/chat/completions \
   -H "Authorization: Bearer $PROXY_API_KEY" \
@@ -105,13 +94,13 @@ Pin a request to a specific account with `X-Qoder-Account: acc_...`. Without tha
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `PROXY_API_KEY` | required | Protects the console, `/api/*`, and `/v1/*` |
-| `QODER_DATA_DIR` | `/data` | SQLite database and account runtime homes |
-| `QODER_HOME` | host `~/.qoder` | Optional source for an existing login import |
+| `PROXY_API_KEY` | optional | First-run bootstrap value; blank generates and stores the key in SQLite |
+| `QODER_DATA_DIR` | `/data` | SQLite database and durable account credentials |
+| `QODER_RUNTIME_DIR` | `/run/cli2api` | Ephemeral per-account Qoder runtime homes |
 | `QODER_MAX_INFLIGHT` | `4` | Maximum concurrent requests per account |
 | `QODER_WORKER_BASE_PORT` | `32100` | Internal worker port range |
 
-Placeholder keys such as `dev-key` are accepted only with `ALLOW_INSECURE_API_KEY=1`. Use them only for local debugging, never on a reachable host.
+The API key is authoritative in SQLite. `PROXY_API_KEY` is only an optional bootstrap value and is ignored after a key already exists in the database.
 
 ## Endpoints
 
@@ -122,7 +111,7 @@ Placeholder keys such as `dev-key` are accepted only with `ALLOW_INSECURE_API_KE
 | `POST` | `/v1/chat/completions` | OpenAI-compatible chat |
 | `GET/POST` | `/api/*` | Console management API |
 
-Once `PROXY_API_KEY` is set, all console and API routes except `/health` require authentication.
+All console and API routes except `/health` require the API key stored in SQLite.
 
 ## Development
 

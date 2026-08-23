@@ -16,6 +16,7 @@ import (
 )
 
 var ErrAccountNotFound = errors.New("account not found")
+var ErrSecretNotFound = errors.New("secret not found")
 
 type Account struct {
 	ID            string     `json:"id"`
@@ -111,6 +112,12 @@ CREATE TABLE IF NOT EXISTS account_credentials (
 CREATE TABLE IF NOT EXISTS model_settings (
   model_id TEXT PRIMARY KEY,
   context_length INTEGER NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS app_secrets (
+  name TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );`
 	if _, err := s.db.ExecContext(ctx, schema); err != nil {
@@ -352,6 +359,42 @@ func (s *Store) ListModelContexts(ctx context.Context) (map[string]int, error) {
 		result[modelID] = contextLength
 	}
 	return result, rows.Err()
+}
+
+func (s *Store) GetSecret(ctx context.Context, name string) (string, bool, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", false, fmt.Errorf("secret name required")
+	}
+	var value string
+	err := s.db.QueryRowContext(ctx, `SELECT value FROM app_secrets WHERE name = ?`, name).Scan(&value)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("get secret: %w", err)
+	}
+	return value, true, nil
+}
+
+func (s *Store) SetSecret(ctx context.Context, name, value string) error {
+	name = strings.TrimSpace(name)
+	value = strings.TrimSpace(value)
+	if name == "" {
+		return fmt.Errorf("secret name required")
+	}
+	if value == "" {
+		return fmt.Errorf("secret value required")
+	}
+	now := formatTime(time.Now().UTC())
+	_, err := s.db.ExecContext(ctx, `
+INSERT INTO app_secrets (name, value, created_at, updated_at) VALUES (?, ?, ?, ?)
+ON CONFLICT(name) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`,
+		name, value, now, now)
+	if err != nil {
+		return fmt.Errorf("save secret: %w", err)
+	}
+	return nil
 }
 
 func (s *Store) SaveCredential(ctx context.Context, accountID, authType string, credential NativeCredential) error {

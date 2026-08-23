@@ -2,8 +2,12 @@ package api
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"log"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -35,13 +39,21 @@ func New(cfg config.Config) *Server {
 	if err != nil {
 		panic(err)
 	}
-	if _, err := accounts.ImportLegacyHome(context.Background(), store, cfg.QoderHome); err != nil {
+	proxyAPIKey, initialized, err := ensureProxyAPIKey(context.Background(), store, cfg.ProxyAPIKey)
+	if err != nil {
 		panic(err)
 	}
+	if initialized {
+		log.Printf("[security] initialized PROXY_API_KEY and stored it in SQLite: %s", proxyAPIKey)
+	}
+	runtimeDir := cfg.RuntimeDir
+	if runtimeDir == "" {
+		runtimeDir = filepath.Join("/tmp", "cli2api-runtime")
+	}
 	manager := accounts.NewManager(accounts.ManagerConfig{
-		DataDir: dataDir, BasePort: cfg.WorkerBasePort, NodeBinary: cfg.NodeBinary,
+		DataDir: runtimeDir, BasePort: cfg.WorkerBasePort, NodeBinary: cfg.NodeBinary,
 		DaemonPath: cfg.WorkerDaemonPath, QoderCLIPath: cfg.QoderCLIPath,
-		TemplatePath: cfg.PlainTemplatePath, ProxyAPIKey: cfg.ProxyAPIKey,
+		TemplatePath: cfg.PlainTemplatePath, ProxyAPIKey: proxyAPIKey,
 	}, store, nil)
 	if err := manager.Start(context.Background()); err != nil {
 		panic(err)
@@ -49,14 +61,45 @@ func New(cfg config.Config) *Server {
 	pool := manager.Pool()
 	s := &Server{
 		cfg:      cfg,
-		auth:     auth.NewVerifier(cfg.ProxyAPIKey),
-		executor: executor.NewChatExecutor(pool, cfg.ProxyAPIKey),
+		auth:     auth.NewVerifier(proxyAPIKey),
+		executor: executor.NewChatExecutor(pool, proxyAPIKey),
 		pool:     pool,
 		manager:  manager,
 		mux:      http.NewServeMux(),
 	}
 	s.routes()
 	return s
+}
+
+const proxyAPIKeySecret = "proxy_api_key"
+
+func ensureProxyAPIKey(ctx context.Context, store *accounts.Store, bootstrap string) (string, bool, error) {
+	if value, ok, err := store.GetSecret(ctx, proxyAPIKeySecret); err != nil {
+		return "", false, err
+	} else if ok && strings.TrimSpace(value) != "" {
+		return value, false, nil
+	}
+
+	key := strings.TrimSpace(bootstrap)
+	if key == "" || key == "change-me" || key == "dev-key" {
+		generated, err := generateAPIKey()
+		if err != nil {
+			return "", false, err
+		}
+		key = generated
+	}
+	if err := store.SetSecret(ctx, proxyAPIKeySecret, key); err != nil {
+		return "", false, err
+	}
+	return key, true, nil
+}
+
+func generateAPIKey() (string, error) {
+	bytes := make([]byte, 32)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", fmt.Errorf("generate proxy api key: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(bytes), nil
 }
 
 func (s *Server) Handler() http.Handler { return s.mux }

@@ -196,42 +196,6 @@ func TestManagerRefreshesHealthAndPersistsUID(t *testing.T) {
 	}
 }
 
-func TestImportLegacyHomeCreatesFirstAccountOnlyOnce(t *testing.T) {
-	ctx := context.Background()
-	dataDir := t.TempDir()
-	legacyHome := t.TempDir()
-	authDir := filepath.Join(legacyHome, ".auth")
-	if err := os.MkdirAll(authDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(authDir, "user"), []byte("legacy-user"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(authDir, "machine_id"), []byte("legacy-machine"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	store, err := OpenStore(filepath.Join(dataDir, "qoder.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
-	first, err := ImportLegacyHome(ctx, store, legacyHome)
-	if err != nil {
-		t.Fatal(err)
-	}
-	second, err := ImportLegacyHome(ctx, store, legacyHome)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if first == nil || second != nil {
-		t.Fatalf("first=%+v second=%+v", first, second)
-	}
-	items, _ := store.List(ctx)
-	if len(items) != 1 || items[0].AuthType != "oauth" || !items[0].Enabled {
-		t.Fatalf("legacy accounts = %+v", items)
-	}
-}
-
 func TestManagerRestartsUnexpectedlyExitedEnabledAccount(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

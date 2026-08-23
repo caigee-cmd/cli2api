@@ -62,7 +62,7 @@ They are not the same password.
 
 `/health` stays open. `/api/*`, `/v1`, worker `/admin/*` and chat require the console key when it is set.
 
-Placeholder keys (`""`, `change-me`, `dev-key`) fail fast unless `ALLOW_INSECURE_API_KEY=1`.
+The console API key is stored in SQLite `app_secrets` under `proxy_api_key`. A blank database generates a random key on first startup; `PROXY_API_KEY` is only an optional bootstrap value.
 
 ## Account routing
 
@@ -72,7 +72,9 @@ SQLite is the durable account registry. Go owns the database, scheduling, cooldo
 failover, and child lifecycle. Node daemons never select another account.
 
 The service starts one Node daemon per enabled account. Each daemon receives a private
-runtime HOME materialized from its SQLite credential record. `QODER_HOMES`,
+ephemeral runtime HOME materialized from its SQLite credential record. The SQLite
+credential record is authoritative; the runtime files are derived working copies.
+`QODER_HOMES`,
 `QODER_WORKER_URLS`, and `QODER_ACCOUNT_IDS` are removed from the product flow.
 
 Supported account onboarding:

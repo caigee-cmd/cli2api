@@ -1,0 +1,14 @@
+.git
+.env
+deploy/.env
+**/node_modules
+frontend/dist
+internal/webui/static
+*.db
+*.sqlite
+*.sqlite3
+*.log
+capture-raw
+docs/PRIVATE_DEPLOYMENT.md
+docs/private
+.DS_Store

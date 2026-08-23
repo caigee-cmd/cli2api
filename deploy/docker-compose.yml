@@ -8,15 +8,15 @@ services:
     environment:
       HOST: "0.0.0.0"
       PORT: "3010"
-      PROXY_API_KEY: "${PROXY_API_KEY}"
-      ALLOW_INSECURE_API_KEY: "${ALLOW_INSECURE_API_KEY:-}"
+      PROXY_API_KEY: "${PROXY_API_KEY:-}"
       QODER_DATA_DIR: "/data"
-      QODER_HOME: "/import/.qoder"
+      QODER_RUNTIME_DIR: "/run/cli2api"
       QODER_WORKER_BASE_PORT: "${QODER_WORKER_BASE_PORT:-32100}"
       QODER_MAX_INFLIGHT: "${QODER_MAX_INFLIGHT:-4}"
     volumes:
       - qoder-data:/data
-      - ${QODER_HOME:-${HOME}/.qoder}:/import/.qoder:ro
+    tmpfs:
+      - /run/cli2api:mode=0700
     ports:
       - "127.0.0.1:3010:3010"
     healthcheck:

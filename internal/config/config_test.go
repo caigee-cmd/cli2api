@@ -4,17 +4,21 @@ import (
 	"testing"
 )
 
-func TestLoadRejectsPlaceholderAPIKey(t *testing.T) {
-	t.Setenv("PROXY_API_KEY", "change-me")
+func TestLoadAcceptsMissingAPIKeyForSQLiteInitialization(t *testing.T) {
+	t.Setenv("PROXY_API_KEY", "")
 	t.Setenv("ALLOW_INSECURE_API_KEY", "")
-	if _, err := Load(); err == nil {
-		t.Fatal("expected placeholder PROXY_API_KEY to fail")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ProxyAPIKey != "" {
+		t.Fatalf("got %q", cfg.ProxyAPIKey)
 	}
 }
 
-func TestLoadAllowsInsecureOverride(t *testing.T) {
+func TestLoadKeepsOptionalBootstrapKey(t *testing.T) {
 	t.Setenv("PROXY_API_KEY", "change-me")
-	t.Setenv("ALLOW_INSECURE_API_KEY", "1")
+	t.Setenv("ALLOW_INSECURE_API_KEY", "")
 	cfg, err := Load()
 	if err != nil {
 		t.Fatal(err)
@@ -44,7 +48,7 @@ func TestLoadAccountRuntimeDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.DataDir != "/tmp/qoder-data" || cfg.WorkerBasePort != 33000 {
+	if cfg.DataDir != "/tmp/qoder-data" || cfg.WorkerBasePort != 33000 || cfg.RuntimeDir == "" {
 		t.Fatalf("runtime config = %+v", cfg)
 	}
 	if cfg.NodeBinary == "" || cfg.WorkerDaemonPath == "" || cfg.QoderCLIPath == "" {

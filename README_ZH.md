@@ -33,7 +33,7 @@ OpenAI 客户端
 - 浏览器 Device Flow OAuth、PAT、`qoder-native-v1` 凭证导入/导出
 - 内置 React + Tailwind + HeroUI 控制台，支持明暗主题
 - 单容器 Docker Compose 部署
-- SQLite 和账号运行目录持久化
+- SQLite 和账号凭证持久化，账号运行目录临时化
 - GitHub Actions 自动测试、构建容器和发布 GHCR 镜像
 
 ![CLI2API 控制台](docs/assets/console.png)
@@ -44,28 +44,17 @@ OpenAI 客户端
 
 依赖：Docker、Docker Compose，以及一个你自己控制的 Qoder 账号。
 
+一键启动脚本会自动创建 `deploy/.env`，启动已发布镜像（不可用时自动本地构建），并在首次启动时打印生成的 API Key：
+
 ```bash
 git clone https://github.com/caigee-cmd/cli2api.git
 cd cli2api
-cp .env.example deploy/.env
+./scripts/start.sh
 ```
 
-编辑 `deploy/.env`，至少设置一个随机生成的强密钥：
+如果手动启动 Compose，可以将 `PROXY_API_KEY` 留空。服务首次启动时会生成密码学安全的随机密钥并写入 SQLite，同时在容器日志中打印一次。请先保存它，再配置客户端。
 
-```env
-PROXY_API_KEY=替换成随机强密钥
-```
-
-启动服务：
-
-```bash
-cd deploy
-docker compose pull
-docker compose up -d
-curl -fsS http://127.0.0.1:3010/health
-```
-
-打开 `http://127.0.0.1:3010`，输入 `PROXY_API_KEY` 登录控制台，然后在 **Accounts** 页面添加 Qoder 账号。
+打开 `http://127.0.0.1:3010`，输入首次启动输出的密钥登录控制台，然后在 **Accounts** 页面添加 Qoder 账号。
 
 默认 Compose 只发布本机地址 `127.0.0.1:3010`，不会直接暴露到公网。查看日志：
 
@@ -73,7 +62,7 @@ curl -fsS http://127.0.0.1:3010/health
 docker compose logs -f qoder-api-proxy
 ```
 
-如果 `${QODER_HOME:-$HOME/.qoder}` 中已有 Qoder 登录态，且 SQLite 数据库为空，首次启动时会自动导入为第一个账号。该导入目录默认以只读方式挂载。
+通过控制台创建的 Qoder 登录凭证会保存到 SQLite 的 `account_credentials` 表。Worker 运行时只在临时的账号运行目录中生成 Qoder 加密认证文件；Docker 部署会将该目录挂载为 tmpfs。
 
 ### 连接 OpenAI 客户端
 
@@ -87,7 +76,7 @@ API Key:  <PROXY_API_KEY>
 也可以直接测试：
 
 ```bash
-export PROXY_API_KEY='替换成随机强密钥'
+export PROXY_API_KEY='粘贴首次启动时输出的密钥'
 
 curl http://127.0.0.1:3010/v1/chat/completions \
   -H "Authorization: Bearer $PROXY_API_KEY" \
@@ -105,13 +94,13 @@ curl http://127.0.0.1:3010/v1/chat/completions \
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `PROXY_API_KEY` | 必填 | 保护控制台、`/api/*` 和 `/v1/*` |
-| `QODER_DATA_DIR` | `/data` | SQLite 数据库和账号运行目录 |
-| `QODER_HOME` | 主机 `~/.qoder` | 可选的已有登录态导入来源 |
+| `PROXY_API_KEY` | 可选 | 首次启动种子值；留空则自动生成并写入 SQLite |
+| `QODER_DATA_DIR` | `/data` | SQLite 数据库和持久化账号凭证 |
+| `QODER_RUNTIME_DIR` | `/run/cli2api` | 临时的账号 Qoder 运行目录 |
 | `QODER_MAX_INFLIGHT` | `4` | 单账号最大并发请求数 |
 | `QODER_WORKER_BASE_PORT` | `32100` | 内部 worker 端口起点 |
 
-`dev-key` 等占位密钥只有在设置 `ALLOW_INSECURE_API_KEY=1` 时才允许启动，仅适合本地调试，禁止用于可访问的服务器。
+API Key 以 SQLite 中的值为准。`PROXY_API_KEY` 只用于首次启动时可选地提供种子值；数据库已有密钥后将忽略它。
 
 ## 接口
 
@@ -122,7 +111,7 @@ curl http://127.0.0.1:3010/v1/chat/completions \
 | `POST` | `/v1/chat/completions` | OpenAI 兼容对话接口 |
 | `GET/POST` | `/api/*` | 控制台管理接口 |
 
-除 `/health` 外，控制台和 API 在设置 `PROXY_API_KEY` 后都需要认证。
+除 `/health` 外，控制台和 API 都需要 SQLite 中保存的 API Key。
 
 ## 从源码开发
 
