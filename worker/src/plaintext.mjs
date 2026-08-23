@@ -210,40 +210,46 @@ function normalizeTools(tools) {
     .filter((t) => t && t.function?.name);
 }
 
-function historicalToolNames(messages) {
-  const names = new Set();
-  for (const message of Array.isArray(messages) ? messages : []) {
-    if (message?.role !== "assistant" || !Array.isArray(message.tool_calls)) continue;
-    for (const toolCall of message.tool_calls) {
-      const fn = toolCall?.function && typeof toolCall.function === "object" ? toolCall.function : {};
-      const name = String(fn.name || toolCall?.name || "").trim();
-      if (name) names.add(name);
-    }
-  }
-  return names;
-}
+export function filterUnknownToolHistory(messages = [], tools = []) {
+  const normalizedTools = normalizeTools(tools);
+  const definedNames = new Set(normalizedTools.map((tool) => tool.function.name));
+  const droppedToolCallIds = new Set();
+  const droppedToolNames = new Set();
+  const filtered = [];
 
-export function addHistoricalToolDefinitions(tools = [], messages = []) {
-  const normalized = normalizeTools(tools);
-  const defined = new Set(normalized.map((tool) => tool.function.name));
-  const added = [];
-  for (const name of historicalToolNames(messages)) {
-    if (defined.has(name)) continue;
-    normalized.push({
-      type: "function",
-      function: {
-        name,
-        description: "Compatibility definition for a tool call preserved in conversation history.",
-        parameters: {
-          type: "object",
-          additionalProperties: true,
-        },
-      },
-    });
-    defined.add(name);
-    added.push(name);
+  for (const message of Array.isArray(messages) ? messages : []) {
+    if (message?.role === "assistant" && Array.isArray(message.tool_calls)) {
+      const retainedCalls = [];
+      for (const toolCall of message.tool_calls) {
+        const fn = toolCall?.function && typeof toolCall.function === "object" ? toolCall.function : {};
+        const name = String(fn.name || toolCall?.name || "").trim();
+        if (name && definedNames.has(name)) {
+          retainedCalls.push(toolCall);
+          continue;
+        }
+        if (typeof toolCall?.id === "string" && toolCall.id.trim()) {
+          droppedToolCallIds.add(toolCall.id.trim());
+        }
+        if (name) droppedToolNames.add(name);
+      }
+      if (!retainedCalls.length) {
+        if (contentToString(message.content)) filtered.push({ ...message, tool_calls: undefined });
+        continue;
+      }
+      filtered.push({ ...message, tool_calls: retainedCalls });
+      continue;
+    }
+    if (message?.role === "tool" && typeof message.tool_call_id === "string" && droppedToolCallIds.has(message.tool_call_id.trim())) {
+      continue;
+    }
+    filtered.push(message);
   }
-  return { tools: normalized, added };
+
+  return {
+    messages: filtered,
+    droppedToolCallIds: [...droppedToolCallIds],
+    droppedToolNames: [...droppedToolNames],
+  };
 }
 
 function normalizeToolCall(toolCall, messageIndex, callIndex, usedIds, sourceIds) {
@@ -442,8 +448,8 @@ export function buildPlainChatBody({
   const sessionId = crypto.randomUUID();
   const mapped = mapModel(model);
 
-  const openaiMessages = normalizeMessagesForUpstream(messages || []);
-  const compatibleTools = addHistoricalToolDefinitions(tools, messages || []);
+  const filteredHistory = filterUnknownToolHistory(messages || [], tools);
+  const openaiMessages = normalizeMessagesForUpstream(filteredHistory.messages);
 
   // Chat-API mode:
   // - Do NOT inherit capture-template Qoder agent system/tools (they explode multiturn).
@@ -535,7 +541,7 @@ export function buildPlainChatBody({
       ? [...systemMessages, ...(nonSystem.length ? nonSystem : [{ role: "user", content: "ping" }])]
       : [{ role: "user", content: "ping" }],
     // Pass through caller tools (OpenAI function tools). Do NOT inherit capture-template tools.
-    tools: compatibleTools.tools,
+    tools: normalizeTools(tools),
     parameters,
     business: {
       product: "cli",

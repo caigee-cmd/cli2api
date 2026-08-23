@@ -8,7 +8,7 @@ import {
   estimateTokens,
   normalizeMessagesForUpstream,
   diagnoseOpenAIToolHistory,
-  addHistoricalToolDefinitions,
+  filterUnknownToolHistory,
 } from "../src/plaintext.mjs";
 
 test("maps known display names to upstream keys", () => {
@@ -125,20 +125,24 @@ test("normalizes OpenAI tool history and repairs missing tool ids", () => {
   assert.equal("name" in messages[3], false);
 });
 
-test("adds compatibility definitions for tools preserved in history", () => {
-  const result = addHistoricalToolDefinitions(
-    [{ type: "function", function: { name: "Read", parameters: {} } }],
-    [{
-      role: "assistant",
-      tool_calls: [
+test("filters unknown historical tool calls and matching results", () => {
+  const result = filterUnknownToolHistory(
+    [
+      { role: "assistant", content: null, tool_calls: [
         { id: "call_task", function: { name: "TaskCreate", arguments: "{}" } },
         { id: "call_read", function: { name: "Read", arguments: "{}" } },
-      ],
-    }],
+      ] },
+      { role: "tool", tool_call_id: "call_task", content: "task result" },
+      { role: "tool", tool_call_id: "call_read", content: "read result" },
+    ],
+    [{ type: "function", function: { name: "Read", parameters: {} } }],
   );
-  assert.deepEqual(result.added, ["TaskCreate"]);
-  assert.deepEqual(result.tools.map((tool) => tool.function.name), ["Read", "TaskCreate"]);
-  assert.equal(result.tools[1].function.parameters.additionalProperties, true);
+  assert.deepEqual(result.droppedToolCallIds, ["call_task"]);
+  assert.deepEqual(result.droppedToolNames, ["TaskCreate"]);
+  assert.equal(result.messages.length, 2);
+  assert.equal(result.messages[0].tool_calls.length, 1);
+  assert.equal(result.messages[0].tool_calls[0].function.name, "Read");
+  assert.equal(result.messages[1].tool_call_id, "call_read");
 });
 
 test("keeps distinct existing tool ids across multiple assistant turns", () => {
