@@ -217,6 +217,10 @@ export function filterUnknownToolHistory(messages = [], tools = []) {
   const droppedToolNames = new Set();
   const filtered = [];
 
+  if (!definedNames.size) {
+    return { messages: Array.isArray(messages) ? messages : [], droppedToolCallIds: [], droppedToolNames: [] };
+  }
+
   for (const message of Array.isArray(messages) ? messages : []) {
     if (message?.role === "assistant" && Array.isArray(message.tool_calls)) {
       const retainedCalls = [];

@@ -145,6 +145,13 @@ test("filters unknown historical tool calls and matching results", () => {
   assert.equal(result.messages[1].tool_call_id, "call_read");
 });
 
+test("preserves history when no tool definitions are provided", () => {
+  const messages = [{ role: "assistant", tool_calls: [{ id: "call_task", function: { name: "TaskCreate", arguments: "{}" } }] }];
+  const result = filterUnknownToolHistory(messages, []);
+  assert.deepEqual(result.messages, messages);
+  assert.deepEqual(result.droppedToolNames, []);
+});
+
 test("keeps distinct existing tool ids across multiple assistant turns", () => {
   const messages = normalizeMessagesForUpstream([
     {
