@@ -210,22 +210,71 @@ function normalizeTools(tools) {
     .filter((t) => t && t.function?.name);
 }
 
+function normalizeToolCall(toolCall, messageIndex, callIndex, usedIds, sourceIds) {
+  const functionPart = toolCall?.function && typeof toolCall.function === "object"
+    ? toolCall.function
+    : {};
+  const sourceId = typeof toolCall?.id === "string" ? toolCall.id.trim() : "";
+  let id = sourceId;
+  if (!id || usedIds.has(id)) {
+    id = `qoder_call_${messageIndex}_${callIndex}`;
+    while (usedIds.has(id)) id += "_retry";
+  }
+  usedIds.add(id);
+  if (sourceId && !sourceIds.has(sourceId)) sourceIds.set(sourceId, id);
+  return {
+    id,
+    type: "function",
+    function: {
+      name: String(functionPart.name || toolCall?.name || ""),
+      arguments: typeof functionPart.arguments === "string"
+        ? functionPart.arguments
+        : JSON.stringify(functionPart.arguments ?? {}),
+    },
+  };
+}
+
 function normalizeMessagesForUpstream(messages = []) {
-  return (messages || []).map((m) => {
+  const usedIds = new Set();
+  const sourceIds = new Map();
+  const callsById = new Map();
+  const unresolvedCalls = [];
+
+  return (messages || []).map((m, messageIndex) => {
     const role = m?.role;
     const out = { role, content: contentToString(m?.content) };
     if (role === "assistant" && Array.isArray(m?.tool_calls) && m.tool_calls.length) {
-      out.tool_calls = m.tool_calls;
+      out.tool_calls = m.tool_calls.map((toolCall, callIndex) => {
+        const normalized = normalizeToolCall(toolCall, messageIndex, callIndex, usedIds, sourceIds);
+        callsById.set(normalized.id, normalized);
+        unresolvedCalls.push(normalized.id);
+        return normalized;
+      });
       // OpenAI allows content null when tool_calls present
       if (!out.content) out.content = null;
     }
     if (role === "tool") {
-      if (m?.tool_call_id) out.tool_call_id = m.tool_call_id;
-      if (m?.name) out.name = m.name;
+      const requestedId = typeof m?.tool_call_id === "string" ? m.tool_call_id.trim() : "";
+      let toolCallId = sourceIds.get(requestedId) || requestedId;
+      if (!requestedId) {
+        toolCallId = unresolvedCalls.find((id) => callsById.has(id)) || "";
+      }
+      if (toolCallId) {
+        out.tool_call_id = toolCallId;
+        const call = callsById.get(toolCallId);
+        if (!m?.name && call?.function?.name) out.name = call.function.name;
+        const unresolvedIndex = unresolvedCalls.indexOf(toolCallId);
+        if (unresolvedIndex >= 0) unresolvedCalls.splice(unresolvedIndex, 1);
+      } else if (requestedId) {
+        out.tool_call_id = requestedId;
+      }
+      if (m?.name) out.name = String(m.name);
     }
     return out;
   });
 }
+
+export { normalizeMessagesForUpstream };
 
 export function buildPlainChatBody({
   messages,

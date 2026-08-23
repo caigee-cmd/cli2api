@@ -6,6 +6,7 @@ import {
   mapModel,
   wantsReasoning,
   estimateTokens,
+  normalizeMessagesForUpstream,
 } from "../src/plaintext.mjs";
 
 test("maps known display names to upstream keys", () => {
@@ -94,6 +95,51 @@ test("uses the Qoder catalog input limit for MiniMax-M3", () => {
   });
   assert.equal(body.model_config.max_input_tokens, 1000000);
   assert.equal(body.parameters.enable_thinking, true);
+});
+
+test("normalizes OpenAI tool history and repairs missing tool ids", () => {
+  const messages = normalizeMessagesForUpstream([
+    { role: "user", content: "inspect the repo" },
+    {
+      role: "assistant",
+      content: null,
+      tool_calls: [
+        { type: "function", function: { name: "read_file", arguments: '{"path":"a"}' } },
+        { type: "function", function: { name: "list_files", arguments: { path: "." } } },
+      ],
+    },
+    { role: "tool", content: "file contents" },
+    { role: "tool", content: "file list" },
+  ]);
+
+  const calls = messages[1].tool_calls;
+  assert.equal(calls.length, 2);
+  assert.notEqual(calls[0].id, calls[1].id);
+  assert.equal(calls[0].function.name, "read_file");
+  assert.equal(calls[1].function.arguments, '{"path":"."}');
+  assert.equal(messages[2].tool_call_id, calls[0].id);
+  assert.equal(messages[2].name, "read_file");
+  assert.equal(messages[3].tool_call_id, calls[1].id);
+  assert.equal(messages[3].name, "list_files");
+});
+
+test("keeps distinct existing tool ids across multiple assistant turns", () => {
+  const messages = normalizeMessagesForUpstream([
+    {
+      role: "assistant",
+      content: null,
+      tool_calls: [{ id: "call_a", type: "function", function: { name: "one", arguments: "{}" } }],
+    },
+    { role: "tool", tool_call_id: "call_a", content: "one result" },
+    {
+      role: "assistant",
+      content: null,
+      tool_calls: [{ id: "call_b", type: "function", function: { name: "two", arguments: "{}" } }],
+    },
+    { role: "tool", tool_call_id: "call_b", content: "two result" },
+  ]);
+  assert.equal(messages[1].tool_call_id, "call_a");
+  assert.equal(messages[3].tool_call_id, "call_b");
 });
 
 test("estimates CJK heavier than ascii", () => {
