@@ -320,6 +320,60 @@ function normalizeMessagesForUpstream(messages = []) {
 
 export { normalizeMessagesForUpstream };
 
+export function diagnoseToolResults(messages = []) {
+  const callsById = new Map();
+  const resultBatchById = new Map();
+  let currentBatch = [];
+
+  for (const message of Array.isArray(messages) ? messages : []) {
+    if (message?.role === "assistant" && Array.isArray(message.tool_calls) && message.tool_calls.length) {
+      currentBatch = [];
+      for (const toolCall of message.tool_calls) {
+        const fn = toolCall?.function && typeof toolCall.function === "object" ? toolCall.function : {};
+        const id = typeof toolCall?.id === "string" ? toolCall.id.trim() : "";
+        if (!id) continue;
+        const name = String(fn.name || toolCall?.name || "<missing>").trim() || "<missing>";
+        callsById.set(id, name);
+        currentBatch.push(id);
+      }
+      for (const id of currentBatch) resultBatchById.set(id, currentBatch.length);
+      continue;
+    }
+    if (message?.role !== "tool") {
+      currentBatch = [];
+      continue;
+    }
+  }
+
+  const diagnostics = [];
+  for (const [resultIndex, message] of (Array.isArray(messages) ? messages : []).entries()) {
+    if (message?.role !== "tool") continue;
+    const toolCallId = typeof message.tool_call_id === "string" ? message.tool_call_id.trim() : "";
+    const content = message.content;
+    const contentType = content == null ? "null" : Array.isArray(content) ? "array" : typeof content;
+    const serialized = typeof content === "string" ? content : content == null ? "" : JSON.stringify(content);
+    const hasControlChars = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(serialized);
+    const looksBinary = serialized.includes("\u0000") || serialized.includes("\ufffd") || (serialized.length > 0 && (serialized.match(/[\u0000-\u0008\u000e-\u001f]/g) || []).length / serialized.length > 0.01);
+    let jsonValid = null;
+    if (typeof content === "string") {
+      try { JSON.parse(content); jsonValid = true; } catch { jsonValid = false; }
+    }
+    diagnostics.push({
+      resultIndex,
+      toolCallId: toolCallId || "<missing>",
+      toolName: callsById.get(toolCallId) || String(message.name || "<unknown>"),
+      contentType,
+      contentLength: serialized.length,
+      hasControlChars,
+      looksBinary,
+      jsonValid,
+      parallelBatchSize: resultBatchById.get(toolCallId) || 1,
+    });
+    if (diagnostics.length >= 64) break;
+  }
+  return diagnostics;
+}
+
 export function diagnoseOpenAIToolHistory(messages = [], tools = []) {
   const definedToolNames = new Set();
   const duplicateToolNames = [];
@@ -420,6 +474,7 @@ export function diagnoseOpenAIToolHistory(messages = [], tools = []) {
     invalidArguments,
     undefinedToolCalls,
     undefinedToolNames: [...new Set(undefinedToolCalls.map((call) => call.name))],
+    toolResultDiagnostics: diagnoseToolResults(messages),
     duplicateToolNames,
     malformedToolDefinitions,
     sequenceBreaks,

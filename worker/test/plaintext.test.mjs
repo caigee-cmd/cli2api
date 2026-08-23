@@ -8,6 +8,7 @@ import {
   estimateTokens,
   normalizeMessagesForUpstream,
   diagnoseOpenAIToolHistory,
+  diagnoseToolResults,
   filterUnknownToolHistory,
 } from "../src/plaintext.mjs";
 
@@ -192,6 +193,26 @@ test("diagnoses malformed OpenAI tool history without logging content", () => {
   assert.equal(diagnostics.orphanToolResultIds[0].id, "orphan");
   assert.equal(diagnostics.sequenceBreaks[0].role, "user");
   assert.equal(JSON.stringify(diagnostics).includes("secret output"), false);
+});
+
+test("diagnoses tool result metadata without recording content", () => {
+  const diagnostics = diagnoseToolResults([
+    { role: "assistant", tool_calls: [
+      { id: "call_read", function: { name: "Read", arguments: "{}" } },
+      { id: "call_bash", function: { name: "Bash", arguments: "{}" } },
+    ] },
+    { role: "tool", tool_call_id: "call_read", content: "file contents\n" },
+    { role: "tool", tool_call_id: "call_bash", content: "{\"ok\":true}" },
+  ]);
+  assert.equal(diagnostics.length, 2);
+  assert.equal(diagnostics[0].toolName, "Read");
+  assert.equal(diagnostics[0].contentLength, 14);
+  assert.equal(diagnostics[0].parallelBatchSize, 2);
+  assert.equal(diagnostics[0].hasControlChars, false);
+  assert.equal(diagnostics[0].jsonValid, false);
+  assert.equal(diagnostics[1].toolName, "Bash");
+  assert.equal(diagnostics[1].jsonValid, true);
+  assert.equal(JSON.stringify(diagnostics).includes("file contents"), false);
 });
 
 test("estimates CJK heavier than ascii", () => {
