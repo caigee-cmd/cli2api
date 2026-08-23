@@ -1,0 +1,263 @@
+import { useEffect, useRef, useState } from 'react'
+import {
+  Button,
+  Input,
+  Modal,
+  Tab,
+  Tabs,
+  TextArea,
+} from '@heroui/react'
+import { CheckCircle2, ExternalLink, FileJson, KeyRound, Loader2, ShieldCheck } from 'lucide-react'
+import { useI18n } from '@/hooks/useI18n'
+import {
+  createAccount,
+  fetchLoginStatus,
+  importAccount,
+  loginWithPat,
+  startDeviceLogin,
+} from '@/api/overview'
+
+type Props = {
+  isOpen: boolean
+  onClose: () => void
+  onAdded: () => void
+}
+
+type TabKey = 'browser' | 'pat' | 'import'
+function StatusIcon({ phase, busy, tab, forTab }: { phase: Phase; busy: boolean; tab: TabKey; forTab: TabKey }) {
+  if (phase === 'done') return <CheckCircle2 size={16} className="text-[var(--accent)]" />
+  if (busy && tab === forTab) return <Loader2 size={16} className="animate-spin" />
+  return null
+}
+
+type Phase = 'idle' | 'busy' | 'polling' | 'starting' | 'done'
+
+const POLL_ATTEMPTS = 90
+const POLL_INTERVAL = 2000
+
+export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
+  const { t } = useI18n()
+  const [tab, setTab] = useState<TabKey>('browser')
+  const [name, setName] = useState('')
+  const [pat, setPat] = useState('')
+  const [json, setJson] = useState('')
+  const [phase, setPhase] = useState<Phase>('idle')
+  const [message, setMessage] = useState('')
+  const [authUrl, setAuthUrl] = useState('')
+  const createdId = useRef<string>('')
+  const pollTimer = useRef<number | null>(null)
+  const fileInput = useRef<HTMLInputElement>(null)
+
+  function stopPolling() {
+    if (pollTimer.current !== null) {
+      window.clearTimeout(pollTimer.current)
+      pollTimer.current = null
+    }
+  }
+
+  useEffect(() => {
+    return () => stopPolling()
+  }, [])
+
+  function reset() {
+    stopPolling()
+    setTab('browser')
+    setName('')
+    setPat('')
+    setJson('')
+    setPhase('idle')
+    setMessage('')
+    setAuthUrl('')
+    createdId.current = ''
+  }
+
+  function close() {
+    if (phase === 'busy' || phase === 'polling' || phase === 'starting') return
+    reset()
+    onClose()
+  }
+
+  async function ensureAccount(): Promise<string> {
+    if (createdId.current) return createdId.current
+    const account = await createAccount(name.trim() || t('account'))
+    const id = account?.id || account?.data?.id
+    if (!id) throw new Error('create account returned no id')
+    createdId.current = id
+    return id
+  }
+
+  async function runBrowser() {
+    setMessage('')
+    setAuthUrl('')
+    try {
+      setPhase('busy')
+      const id = await ensureAccount()
+      setPhase('polling')
+      const output = await startDeviceLogin(id)
+      if (output.authUrl) {
+        setAuthUrl(output.authUrl)
+        window.open(output.authUrl, '_blank', 'noopener,noreferrer')
+      }
+      setMessage(t('wizardWaitingBrowser'))
+      for (let attempt = 0; attempt < POLL_ATTEMPTS; attempt++) {
+        await new Promise((resolve) => { pollTimer.current = window.setTimeout(resolve, POLL_INTERVAL) })
+        const status = await fetchLoginStatus(id)
+        const login = status.login || {}
+        if (login.message) setMessage(login.message)
+        if (login.status === 'ok') break
+        if (login.status === 'error') throw new Error(login.message || 'login failed')
+        if (attempt === POLL_ATTEMPTS - 1) throw new Error(t('wizardLoginTimeout'))
+      }
+      setPhase('starting')
+      setMessage(t('wizardStartingWorker'))
+      await new Promise((resolve) => { pollTimer.current = window.setTimeout(resolve, 1500) })
+      setPhase('done')
+      setMessage(t('wizardAccountReady'))
+      onAdded()
+      window.setTimeout(close, 900)
+    } catch (error) {
+      setPhase('idle')
+      setMessage(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  async function runPat() {
+    const token = pat.trim()
+    if (!token) { setMessage(t('pastePatFirst')); return }
+    setMessage('')
+    try {
+      setPhase('busy')
+      const id = await ensureAccount()
+      await loginWithPat(token, id)
+      setPhase('done')
+      setMessage(t('patDone'))
+      onAdded()
+      window.setTimeout(close, 700)
+    } catch (error) {
+      setPhase('idle')
+      setMessage(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  async function runImport() {
+    setMessage('')
+    let bundle: any
+    try {
+      bundle = JSON.parse(json)
+    } catch {
+      setMessage(t('wizardBadJson'))
+      return
+    }
+    if (!bundle || typeof bundle !== 'object' || bundle.format !== 'qoder-native-v1') {
+      setMessage(t('wizardBadJson'))
+      return
+    }
+    try {
+      setPhase('busy')
+      await importAccount({ ...bundle, name: name.trim() || bundle.name, enabled: true })
+      setPhase('done')
+      setMessage(t('accountImported'))
+      onAdded()
+      window.setTimeout(close, 700)
+    } catch (error) {
+      setPhase('idle')
+      setMessage(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  function onPickFile() {
+    fileInput.current?.click()
+  }
+
+  function onFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => setJson(String(reader.result || ''))
+    reader.readAsText(file)
+    event.target.value = ''
+  }
+
+  const busy = phase === 'busy' || phase === 'polling' || phase === 'starting'
+  const tabPending = (key: TabKey) => busy && tab === key
+
+
+  return (
+    <Modal.Root isOpen={isOpen} onOpenChange={(next: boolean) => { if (!next) close() }}>
+      <Modal.Backdrop isDismissable={!busy}>
+        <Modal.Container size="lg" scroll="inside">
+          <Modal.Dialog>
+            <Modal.Header className="flex-col items-start gap-1 px-5 pt-5">
+              <Modal.Heading className="text-lg font-semibold tracking-[-0.01em]">{t('addAccountTitle')}</Modal.Heading>
+              <p className="text-xs font-normal leading-5 text-[var(--app-faint)]">{t('addAccountDesc')}</p>
+            </Modal.Header>
+            <Modal.Body className="px-5 pb-2">
+              <Tabs.Root selectedKey={tab} onSelectionChange={(key) => { if (!busy) setTab(String(key) as TabKey) }} disabledKeys={busy ? ['browser', 'pat', 'import'] : []}>
+                <Tabs.List className="grid grid-cols-3 gap-1 rounded-lg bg-[var(--app-surface-muted)] p-1">
+                  <Tab id="browser" className="flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium data-[selected=true]:bg-[var(--app-surface)] data-[selected=true]:shadow-sm data-[selected=true]:text-[var(--accent)] data-[hovered=true]:text-[var(--app-fg)] text-[var(--app-faint)]">
+                    <ShieldCheck size={13} />{t('tabBrowser')}
+                  </Tab>
+                  <Tab id="pat" className="flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium data-[selected=true]:bg-[var(--app-surface)] data-[selected=true]:shadow-sm data-[selected=true]:text-[var(--accent)] data-[hovered=true]:text-[var(--app-fg)] text-[var(--app-faint)]">
+                    <KeyRound size={13} />{t('tabPat')}
+                  </Tab>
+                  <Tab id="import" className="flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium data-[selected=true]:bg-[var(--app-surface)] data-[selected=true]:shadow-sm data-[selected=true]:text-[var(--accent)] data-[hovered=true]:text-[var(--app-fg)] text-[var(--app-faint)]">
+                    <FileJson size={13} />{t('tabImport')}
+                  </Tab>
+                </Tabs.List>
+
+                <Tabs.Panel id="browser" className="space-y-4 pb-2 pt-5">
+                  <p className="text-xs leading-5 text-[var(--app-faint)]">{t('wizardBrowserLead')}</p>
+                  <Input value={name} onChange={(event) => setName(event.target.value)} placeholder={t('wizardNamePh')} aria-label={t('wizardNamePh')} disabled={busy} />
+                  {authUrl ? (
+                    <div className="rounded-lg border border-[var(--app-line)] bg-[var(--app-surface-muted)] px-3 py-2.5">
+                      <div className="flex items-center gap-2 text-xs">
+                        <StatusIcon phase={phase} busy={busy} tab={tab} forTab="browser" />
+                        <span className="text-[var(--app-muted)]">{message || t('loginOpenMsg')}</span>
+                      </div>
+                      <button onClick={() => window.open(authUrl, '_blank', 'noopener,noreferrer')} className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-[var(--accent)] hover:underline">
+                        <ExternalLink size={12} />{t('wizardOpenBrowser')}
+                      </button>
+                    </div>
+                  ) : null}
+                  <Button className="w-full" isPending={tabPending('browser')} onPress={() => void runBrowser()}>
+                    {phase === 'done' ? <><CheckCircle2 size={15} />{t('wizardAccountReady')}</> : <><ShieldCheck size={15} />{t('wizardStartBrowser')}</>}
+                  </Button>
+                </Tabs.Panel>
+
+                <Tabs.Panel id="pat" className="space-y-4 pb-2 pt-5">
+                  <p className="text-xs leading-5 text-[var(--app-faint)]">{t('wizardPatLead')}</p>
+                  <Input value={name} onChange={(event) => setName(event.target.value)} placeholder={t('wizardNamePh')} aria-label={t('wizardNamePh')} disabled={busy} />
+                  <Input type="password" value={pat} onChange={(event) => setPat(event.target.value)} placeholder={t('wizardPatPh')} aria-label={t('wizardPatPh')} disabled={busy} />
+                  <Button className="w-full" isPending={tabPending('pat')} onPress={() => void runPat()}>
+                    {phase === 'done' ? <><CheckCircle2 size={15} />{t('patDone')}</> : <><KeyRound size={15} />{t('wizardCreateAndLogin')}</>}
+                  </Button>
+                </Tabs.Panel>
+
+                <Tabs.Panel id="import" className="space-y-4 pb-2 pt-5">
+                  <p className="text-xs leading-5 text-[var(--app-faint)]">{t('wizardImportLead')}</p>
+                  <Input value={name} onChange={(event) => setName(event.target.value)} placeholder={t('wizardNamePh')} aria-label={t('wizardNamePh')} disabled={busy} />
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-[10px] font-semibold tracking-[0.1em] text-[var(--app-faint)] uppercase">qoder-native-v1 JSON</span>
+                    <Button size="sm" variant="secondary" onPress={onPickFile} isDisabled={busy}><FileJson size={13} />{t('wizardChooseFile')}</Button>
+                    <input ref={fileInput} type="file" accept="application/json,.json" className="hidden" onChange={onFileChange} />
+                  </div>
+                  <TextArea className="min-h-32 font-mono text-xs" value={json} onChange={(event) => setJson(event.target.value)} placeholder={t('wizardImportPh')} aria-label={t('tabImport')} disabled={busy} />
+                  <Button className="w-full" isPending={tabPending('import')} onPress={() => void runImport()}>
+                    {phase === 'done' ? <><CheckCircle2 size={15} />{t('accountImported')}</> : <><FileJson size={15} />{t('importCredential')}</>}
+                  </Button>
+                </Tabs.Panel>
+              </Tabs.Root>
+
+              {message && !authUrl ? (
+                <p className={`rounded-lg border px-3 py-2 text-xs ${phase === 'done' ? 'border-[var(--accent)]/30 bg-[var(--accent-soft)] text-[var(--accent)]' : 'border-[var(--app-line)] bg-[var(--app-surface-muted)] text-[var(--app-muted)]'}`}>{message}</p>
+              ) : null}
+            </Modal.Body>
+            <Modal.Footer className="px-5 pb-5">
+              <Button variant="ghost" onPress={close} isDisabled={busy}>{t('cancel')}</Button>
+            </Modal.Footer>
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
+    </Modal.Root>
+  )
+}

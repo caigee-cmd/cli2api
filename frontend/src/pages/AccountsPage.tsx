@@ -1,14 +1,13 @@
 import { useState } from 'react'
-import { Button, Card, Chip, Input, TextArea } from '@heroui/react'
-import { Copy, ExternalLink, FileJson, KeyRound, Plus, Power, RefreshCw, ShieldCheck, Trash2, UserRound } from 'lucide-react'
+import { Button, Chip, Input } from '@heroui/react'
+import { Copy, ExternalLink, KeyRound, Plus, Power, RefreshCw, ShieldCheck, Trash2, UserRound } from 'lucide-react'
+import { AddAccountModal } from '@/components/AddAccountModal'
 import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
 import {
-  createAccount,
   deleteAccount,
   exportAccount,
   fetchLoginStatus,
-  importAccount,
   loginWithPat,
   rewarmWorker,
   startDeviceLogin,
@@ -40,10 +39,8 @@ export function AccountsPage() {
   const { t } = useI18n()
   const { overview, loading, refresh } = useOverview()
   const rows = overview?.accounts || []
+  const [addOpen, setAddOpen] = useState(false)
   const [busy, setBusy] = useState<AccountBusy | null>(null)
-  const [newName, setNewName] = useState('')
-  const [importJSON, setImportJSON] = useState('')
-  const [globalNote, setGlobalNote] = useState('')
   const [patById, setPatById] = useState<Record<string, string>>({})
   const [noteById, setNoteById] = useState<Record<string, string>>({})
   const [urlById, setUrlById] = useState<Record<string, string>>({})
@@ -62,41 +59,7 @@ export function AccountsPage() {
     }
   }
 
-  async function onCreate() {
-    const name = newName.trim()
-    if (!name) {
-      setGlobalNote(t('accountNameRequired'))
-      return
-    }
-    setBusy({ id: 'new', kind: 'create' })
-    setGlobalNote('')
-    try {
-      await createAccount(name)
-      setNewName('')
-      setGlobalNote(t('accountCreated'))
-      await refresh()
-    } catch (error) {
-      setGlobalNote(error instanceof Error ? error.message : String(error))
-    } finally {
-      setBusy(null)
-    }
-  }
 
-  async function onImport() {
-    setBusy({ id: 'import', kind: 'import' })
-    setGlobalNote('')
-    try {
-      const bundle = JSON.parse(importJSON)
-      await importAccount({ ...bundle, enabled: true })
-      setImportJSON('')
-      setGlobalNote(t('accountImported'))
-      await refresh()
-    } catch (error) {
-      setGlobalNote(error instanceof Error ? error.message : String(error))
-    } finally {
-      setBusy(null)
-    }
-  }
 
   async function onDeviceLogin(id: string) {
     await run(id, 'device', async () => {
@@ -159,37 +122,16 @@ export function AccountsPage() {
         </div>
       </section>
 
-      <section className="grid gap-5 xl:grid-cols-2">
-        <Card className="app-panel-flat rounded-xl p-5 shadow-none">
-          <div className="flex items-start gap-3">
-            <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-[var(--accent-soft)] text-[var(--accent)]"><Plus size={16} /></div>
-            <div className="min-w-0 flex-1">
-              <h3 className="font-semibold">{t('addAccount')}</h3>
-              <p className="mt-1 text-xs leading-5 text-[var(--app-faint)]">{t('accountCreateHint')}</p>
-              <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-                <Input value={newName} onChange={(event) => setNewName(event.target.value)} placeholder={t('accountName')} aria-label={t('accountName')} />
-                <Button isPending={busy?.kind === 'create'} onPress={() => void onCreate()}>{t('create')}</Button>
-              </div>
-            </div>
-          </div>
-        </Card>
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-baseline gap-2">
+          <span className="text-[10px] font-semibold tracking-[0.12em] text-[var(--app-faint)] uppercase">Accounts</span>
+          <span className="text-xs text-[var(--app-faint)]">{loading ? '…' : t('accountsSigned', { n: signedCount, total: enabledCount })}</span>
+        </div>
+        <Button onPress={() => setAddOpen(true)}><Plus size={15} />{t('addAccount')}</Button>
+      </div>
 
-        <Card className="app-panel-flat rounded-xl p-5 shadow-none">
-          <div className="flex items-start gap-3">
-            <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-[var(--app-surface-muted)] text-[var(--app-muted)]"><FileJson size={16} /></div>
-            <div className="min-w-0 flex-1">
-              <h3 className="font-semibold">{t('importCredential')}</h3>
-              <p className="mt-1 text-xs leading-5 text-[var(--app-faint)]">{t('credentialImportHint')}</p>
-              <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-                <TextArea className="min-h-20 flex-1 font-mono text-xs" value={importJSON} onChange={(event) => setImportJSON(event.target.value)} placeholder="qoder-native-v1 JSON" aria-label={t('importCredential')} />
-                <Button variant="secondary" isPending={busy?.kind === 'import'} onPress={() => void onImport()}>{t('import')}</Button>
-              </div>
-            </div>
-          </div>
-        </Card>
-      </section>
+      <AddAccountModal isOpen={addOpen} onClose={() => setAddOpen(false)} onAdded={refresh} />
 
-      {globalNote ? <div className="rounded-lg border border-[var(--app-line)] bg-[var(--app-surface-muted)] px-4 py-3 text-sm text-[var(--app-muted)]">{globalNote}</div> : null}
 
       {!loading && !rows.length ? (
         <div className="grid min-h-64 place-items-center rounded-xl border border-dashed border-[var(--app-line-strong)] text-center">
