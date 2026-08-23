@@ -7,6 +7,7 @@ import {
   wantsReasoning,
   estimateTokens,
   normalizeMessagesForUpstream,
+  diagnoseOpenAIToolHistory,
 } from "../src/plaintext.mjs";
 
 test("maps known display names to upstream keys", () => {
@@ -140,6 +141,29 @@ test("keeps distinct existing tool ids across multiple assistant turns", () => {
   ]);
   assert.equal(messages[1].tool_call_id, "call_a");
   assert.equal(messages[3].tool_call_id, "call_b");
+});
+
+test("diagnoses malformed OpenAI tool history without logging content", () => {
+  const diagnostics = diagnoseOpenAIToolHistory(
+    [
+      { role: "assistant", tool_calls: [
+        { id: "call_1", function: { name: "read_file", arguments: "{bad" } },
+        { id: "call_1", function: { name: "missing_tool", arguments: "{}" } },
+      ] },
+      { role: "user", content: "interrupted" },
+      { role: "tool", tool_call_id: "orphan", name: "read_file", content: "secret output" },
+    ],
+    [{ type: "function", function: { name: "read_file", parameters: {} } }],
+  );
+  assert.equal(diagnostics.valid, false);
+  assert.equal(diagnostics.assistantToolCallCount, 2);
+  assert.equal(diagnostics.toolResultCount, 1);
+  assert.equal(diagnostics.duplicateToolCallIds.length, 1);
+  assert.equal(diagnostics.invalidArguments[0].reason, "invalid_json");
+  assert.equal(diagnostics.undefinedToolCalls[0].name, "missing_tool");
+  assert.equal(diagnostics.orphanToolResultIds[0].id, "orphan");
+  assert.equal(diagnostics.sequenceBreaks[0].role, "user");
+  assert.equal(JSON.stringify(diagnostics).includes("secret output"), false);
 });
 
 test("estimates CJK heavier than ascii", () => {

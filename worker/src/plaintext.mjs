@@ -276,6 +276,116 @@ function normalizeMessagesForUpstream(messages = []) {
 
 export { normalizeMessagesForUpstream };
 
+export function diagnoseOpenAIToolHistory(messages = [], tools = []) {
+  const definedToolNames = new Set();
+  const duplicateToolNames = [];
+  const malformedToolDefinitions = [];
+  for (const [index, tool] of (Array.isArray(tools) ? tools : []).entries()) {
+    const fn = tool?.type === "function" ? tool.function : tool;
+    const name = typeof fn?.name === "string" ? fn.name.trim() : "";
+    if (!name) {
+      malformedToolDefinitions.push(index);
+      continue;
+    }
+    if (definedToolNames.has(name)) duplicateToolNames.push(name);
+    definedToolNames.add(name);
+  }
+
+  const seenCallIds = new Set();
+  const pendingCalls = new Map();
+  const assistantToolNames = [];
+  const toolResultNames = [];
+  const duplicateToolCallIds = [];
+  const missingToolCallIds = [];
+  const orphanToolResultIds = [];
+  const invalidArguments = [];
+  const undefinedToolCalls = [];
+  const sequenceBreaks = [];
+  let assistantToolCallCount = 0;
+  let toolResultCount = 0;
+
+  for (const [messageIndex, message] of (Array.isArray(messages) ? messages : []).entries()) {
+    if (message?.role === "assistant" && Array.isArray(message.tool_calls) && message.tool_calls.length) {
+      for (const [callIndex, toolCall] of message.tool_calls.entries()) {
+        assistantToolCallCount += 1;
+        const fn = toolCall?.function && typeof toolCall.function === "object" ? toolCall.function : {};
+        const name = String(fn.name || toolCall?.name || "").trim();
+        assistantToolNames.push(name || "<missing>");
+        const id = typeof toolCall?.id === "string" ? toolCall.id.trim() : "";
+        if (!id) missingToolCallIds.push({ messageIndex, callIndex, name: name || "<missing>" });
+        else if (seenCallIds.has(id)) duplicateToolCallIds.push({ messageIndex, callIndex, id, name: name || "<missing>" });
+        else {
+          seenCallIds.add(id);
+          pendingCalls.set(id, { name: name || "<missing>", messageIndex, callIndex });
+        }
+        if (definedToolNames.size && name && !definedToolNames.has(name)) {
+          undefinedToolCalls.push({ messageIndex, callIndex, name });
+        }
+        const rawArguments = fn.arguments;
+        if (typeof rawArguments !== "string" || !rawArguments.trim()) {
+          invalidArguments.push({ messageIndex, callIndex, name: name || "<missing>", reason: "not_string_or_empty" });
+        } else {
+          try {
+            JSON.parse(rawArguments);
+          } catch {
+            invalidArguments.push({ messageIndex, callIndex, name: name || "<missing>", reason: "invalid_json" });
+          }
+        }
+      }
+      continue;
+    }
+
+    if (message?.role === "tool") {
+      toolResultCount += 1;
+      const id = typeof message.tool_call_id === "string" ? message.tool_call_id.trim() : "";
+      const name = String(message.name || "").trim();
+      toolResultNames.push(name || "<missing>");
+      if (!id) {
+        missingToolCallIds.push({ messageIndex, name: name || "<missing>", kind: "tool_result" });
+      } else if (!pendingCalls.has(id)) {
+        orphanToolResultIds.push({ messageIndex, id, name: name || "<missing>" });
+      } else {
+        pendingCalls.delete(id);
+      }
+      continue;
+    }
+
+    if (pendingCalls.size && message?.role !== "system" && message?.role !== "developer") {
+      sequenceBreaks.push({
+        messageIndex,
+        role: message?.role || "<missing>",
+        pendingCount: pendingCalls.size,
+        pendingToolNames: [...pendingCalls.values()].map((call) => call.name).slice(0, 16),
+      });
+    }
+  }
+
+  return {
+    messageCount: Array.isArray(messages) ? messages.length : 0,
+    definedToolCount: definedToolNames.size,
+    assistantToolCallCount,
+    toolResultCount,
+    pendingToolCallCount: pendingCalls.size,
+    pendingToolNames: [...pendingCalls.values()].map((call) => call.name).slice(0, 16),
+    assistantToolNames: assistantToolNames.slice(0, 32),
+    toolResultNames: toolResultNames.slice(0, 32),
+    duplicateToolCallIds,
+    missingToolCallIds,
+    orphanToolResultIds,
+    invalidArguments,
+    undefinedToolCalls,
+    duplicateToolNames,
+    malformedToolDefinitions,
+    sequenceBreaks,
+    valid: duplicateToolCallIds.length === 0
+      && missingToolCallIds.length === 0
+      && orphanToolResultIds.length === 0
+      && invalidArguments.length === 0
+      && undefinedToolCalls.length === 0
+      && sequenceBreaks.length === 0,
+  };
+}
+
 export function buildPlainChatBody({
   messages,
   model = "auto",
