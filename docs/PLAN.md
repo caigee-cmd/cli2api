@@ -95,10 +95,3 @@ Sub2API-style SQLite account registry while preserving the working Qoder executi
 - [x] Restart container → enabled accounts and credentials recover from SQLite
 - [x] Existing non-stream, stream, tools, reasoning, model mapping, and usage tests pass
 
-## Later
-
-- Cursor provider
-- Exact tokenizer matching if Qoder starts returning richer usage
-- In-process multi-account (still impossible)
-- Anthropic `/v1/messages`
-- sub2api-style session-hash sticky
