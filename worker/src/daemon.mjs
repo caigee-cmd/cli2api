@@ -47,6 +47,14 @@ function log(...a) {
   console.error("[daemon]", ...a);
 }
 
+function serializeToolDiagnostics(diagnostics) {
+  if (!diagnostics || typeof diagnostics !== "object") return diagnostics;
+  return {
+    ...diagnostics,
+    toolResultDiagnostics: JSON.stringify(diagnostics.toolResultDiagnostics || []),
+  };
+}
+
 function loadTemplate() {
   const candidates = [
     process.env.PLAIN_TEMPLATE_PATH,
@@ -303,7 +311,7 @@ async function prepareUpstream(reqBody) {
     reqSystemCount: reqSystemMsgs.length,
     approxPromptTokens: approxPrompt,
     toolsInRequest: Array.isArray(reqBody.tools) ? reqBody.tools.length : 0,
-    toolDiagnostics: diagnoseOpenAIToolHistory(reqBody.messages || [], reqBody.tools || []),
+    toolDiagnostics: serializeToolDiagnostics(diagnoseOpenAIToolHistory(reqBody.messages || [], reqBody.tools || [])),
     stream: !!reqBody.stream,
     systemPreview: String(plain.system || "").slice(0, 200),
     reqSystemPreview: reqSystemJoined.slice(0, 200),
