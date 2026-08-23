@@ -1,6 +1,8 @@
 package api
 
 import (
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/caigee-cmd/cli2api/internal/executor"
@@ -37,5 +39,24 @@ func TestBuildChatUsagePreservesZeroPromptCacheTokens(t *testing.T) {
 	}
 	if value, ok := usage["cache_write_tokens"]; !ok || value != 0 {
 		t.Fatalf("cache_write_tokens = %#v, present=%v", value, ok)
+	}
+}
+
+func TestStreamFlushWriterFlushesEachWrite(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	writer := streamFlushWriter{w: recorder, f: recorder}
+	if _, err := writer.Write([]byte("data: test\n\n")); err != nil {
+		t.Fatal(err)
+	}
+	if !recorder.Flushed {
+		t.Fatal("stream chunk was not flushed")
+	}
+}
+
+func TestRelayOpenAIStreamRequiresDone(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	err := relayOpenAIStream(recorder, strings.NewReader("data: partial\n\n"))
+	if err == nil || !strings.Contains(err.Error(), "before [DONE]") {
+		t.Fatalf("err = %v", err)
 	}
 }

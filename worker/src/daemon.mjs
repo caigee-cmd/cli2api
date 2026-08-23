@@ -394,11 +394,9 @@ async function chatStream(reqBody, res) {
   const run = async () => {
     const { plain, upstream } = await prepareUpstream(reqBody);
     if (!res.headersSent) {
-      res.writeHead(200, {
-        "content-type": "text/event-stream; charset=utf-8",
-        "cache-control": "no-cache",
-        connection: "keep-alive",
-      });
+      res.setHeader("content-type", "text/event-stream; charset=utf-8");
+      res.setHeader("cache-control", "no-cache");
+      res.setHeader("connection", "keep-alive");
     }
     return pipeNestedSseToOpenAI(upstream, res, {
       model: reqBody.model || plain.model_config.key,
@@ -409,14 +407,18 @@ async function chatStream(reqBody, res) {
     return await run();
   } catch (err) {
     lastError = err?.message || String(err);
+    console.error("[daemon] chat stream failed", {
+      model: reqBody.model || "auto",
+      headersSent: res.headersSent,
+      error: lastError,
+    });
     if (isAuthError(lastError) && !res.headersSent) {
       log("auth/context failure on stream, rewarm+retry", lastError);
       await rewarmContext(lastError);
       return await run();
     }
     if (res.headersSent) {
-      // error event may already have been written by sse pipe
-      try { res.end(); } catch {}
+      res.destroy(err);
       return null;
     }
     throw err;

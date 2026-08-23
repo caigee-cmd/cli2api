@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/translate"
@@ -170,5 +171,39 @@ func TestNewChatExecutorUsesProxyKeyForInternalDaemon(t *testing.T) {
 	ex := NewChatExecutor(accounts.NewPool(nil, nil), "shared-secret")
 	if ex.WorkerKey != "shared-secret" {
 		t.Fatalf("worker key = %q", ex.WorkerKey)
+	}
+}
+
+func TestChatStreamProxyDoesNotUseClientTotalTimeout(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		time.Sleep(50 * time.Millisecond)
+		_, _ = io.WriteString(w, "data: [DONE]\n\n")
+	}))
+	defer srv.Close()
+
+	pool := accounts.NewPool([]string{srv.URL}, []string{"a"})
+	ex := NewChatExecutor(pool, "")
+	ex.HTTPClient = srv.Client()
+	ex.HTTPClient.Timeout = 10 * time.Millisecond
+
+	resp, _, err := ex.ChatStreamProxy(context.Background(), translate.ChatRequest{
+		Model:    "minimax-m3",
+		Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "data: [DONE]\n\n" {
+		t.Fatalf("body = %q", body)
 	}
 }

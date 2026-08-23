@@ -132,6 +132,7 @@ export async function readSSEText(res, { maxBytes = 2_000_000 } = {}) {
 }
 
 function extractDeltaFromOuter(raw) {
+  if (raw === "[DONE]") return { done: true };
   const outer = JSON.parse(raw);
   if (typeof outer?.body === "string") {
     if (outer.body === "[DONE]") return { done: true };
@@ -153,10 +154,10 @@ export async function pipeNestedSseToOpenAI(upstreamRes, res, { model = "auto", 
   let reasoning = "";
   let roleSent = false;
   let buffer = "";
-  let rawAll = "";
+  let eventName = "message";
+  let sawDone = false;
   let sawError = null;
   let eventCount = 0;
-  let sampleEvents = [];
   const toolCallsByIndex = new Map();
   let finishReason = null;
   let usageAcc = null;
@@ -174,22 +175,43 @@ export async function pipeNestedSseToOpenAI(upstreamRes, res, { model = "auto", 
     if (typeof res.flush === "function") res.flush();
   };
 
-  if (!roleSent) {
+  const ensureRole = () => {
+    if (roleSent) return;
     writeChunk({ role: "assistant" });
     roleSent = true;
-  }
+  };
 
   const reader = upstreamRes.body.getReader();
   const decoder = new TextDecoder("utf-8");
   while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    const chunkText = decoder.decode(value, { stream: true });
-    rawAll += chunkText;
+    let readResult;
+    try {
+      readResult = await reader.read();
+    } catch (err) {
+      const detail = err?.message || String(err);
+      console.error("[sse] upstream stream read failed", {
+        model,
+        eventCount,
+        contentLength: content.length,
+        reasoningLength: reasoning.length,
+        toolCallCount: toolCallsByIndex.size,
+        finishReason,
+        error: detail,
+      });
+      throw new Error(`upstream_stream_interrupted: ${detail}`);
+    }
+    const { value, done } = readResult;
+    let chunkText;
+    if (done) {
+      if (!buffer) break;
+      chunkText = buffer + "\n";
+      buffer = "";
+    } else {
+      chunkText = decoder.decode(value, { stream: true });
+    }
     buffer += chunkText;
     const parts = buffer.split(/\n/);
     buffer = parts.pop() || "";
-    let eventName = "message";
     for (const line of parts) {
       if (line.startsWith("event:")) {
         eventName = line.slice(6).trim() || "message";
@@ -204,7 +226,6 @@ export async function pipeNestedSseToOpenAI(upstreamRes, res, { model = "auto", 
             const errBody = JSON.parse(raw);
             sawError = rememberError(sawError, errBody.error || errBody);
             eventCount += 1;
-            if (sampleEvents.length < 8) sampleEvents.push(errBody);
           } catch {
             sawError = rememberError(sawError, { message: raw });
           }
@@ -212,11 +233,13 @@ export async function pipeNestedSseToOpenAI(upstreamRes, res, { model = "auto", 
           continue;
         }
         const extracted = extractDeltaFromOuter(raw);
-        if (extracted.done) continue;
+        if (extracted.done) {
+          sawDone = true;
+          continue;
+        }
         const body = extracted.body;
         if (!body) continue;
         eventCount += 1;
-        if (sampleEvents.length < 8) sampleEvents.push(body);
         if (usageLooksUseful(body)) {
           usageAcc = resolveUsage([usageAcc, body], usageAcc || {});
         }
@@ -266,13 +289,34 @@ export async function pipeNestedSseToOpenAI(upstreamRes, res, { model = "auto", 
             toolCallsByIndex.set(idx, prev);
           }
         }
-        if (Object.keys(outDelta).length) writeChunk(outDelta);
+        if (Object.keys(outDelta).length) {
+          ensureRole();
+          writeChunk(outDelta);
+        }
         eventName = "message";
       } catch {
         eventName = "message";
         // ignore parse errors for non-data frames
       }
     }
+  }
+
+  if (sawError) {
+    const formatted = formatUpstreamError(sawError);
+    throw new Error(
+      formatted.code + ": " + formatted.message,
+    );
+  }
+
+  if (!sawDone) {
+    console.error("[sse] upstream stream ended without done", {
+      model,
+      eventCount,
+      contentLength: content.length,
+      reasoningLength: reasoning.length,
+      toolCallCount: toolCallsByIndex.size,
+      finishReason,
+    });
   }
 
   const usage = resolveUsage(usageAcc, {
@@ -282,12 +326,6 @@ export async function pipeNestedSseToOpenAI(upstreamRes, res, { model = "auto", 
   });
   const promptTokensOut = usage.prompt_tokens;
   const completionTokens = usage.completion_tokens;
-  if (sawError && !content && !reasoning) {
-    const formatted = formatUpstreamError(sawError);
-    res.write(`data: ${JSON.stringify({ error: { message: formatted.message, type: formatted.type, code: formatted.code } })}\n\n`);
-    res.write("data: [DONE]\n\n");
-    throw new Error(`${formatted.code}: ${formatted.message}`);
-  }
   const tool_calls = [...toolCallsByIndex.entries()]
     .sort((a, b) => a[0] - b[0])
     .map(([, v]) => v)
@@ -298,11 +336,9 @@ export async function pipeNestedSseToOpenAI(upstreamRes, res, { model = "auto", 
       promptTokens,
       sawError: Boolean(sawError),
       eventCount,
+      finishReason,
     });
-    const msg = "upstream returned empty content (possible context overflow / silent reject)";
-    res.write(`data: ${JSON.stringify({ error: { message: msg, type: "api_error", code: "empty_upstream" } })}\n\n`);
-    res.write("data: [DONE]\n\n");
-    throw new Error(msg);
+    throw new Error("upstream returned empty content (possible context overflow / silent reject)");
   }
   const finalReason = finishReason || (tool_calls.length ? "tool_calls" : "stop");
   writeChunk({}, finalReason);

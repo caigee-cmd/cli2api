@@ -1,16 +1,60 @@
 package api
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/executor"
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
+
+const maxSSELineSize = 16 * 1024 * 1024
+
+type streamFlushWriter struct {
+	w http.ResponseWriter
+	f http.Flusher
+}
+
+func (w streamFlushWriter) Write(data []byte) (int, error) {
+	n, err := w.w.Write(data)
+	if n > 0 {
+		w.f.Flush()
+	}
+	return n, err
+}
+
+func relayOpenAIStream(w http.ResponseWriter, body io.Reader) error {
+	var writer io.Writer = w
+	if flusher, ok := w.(http.Flusher); ok {
+		writer = streamFlushWriter{w: w, f: flusher}
+	}
+
+	scanner := bufio.NewScanner(body)
+	scanner.Buffer(make([]byte, 0, 64*1024), maxSSELineSize)
+	sawDone := false
+	for scanner.Scan() {
+		line := scanner.Text()
+		if _, err := io.WriteString(writer, line+"\n"); err != nil {
+			return err
+		}
+		if strings.TrimSpace(strings.TrimPrefix(line, "data:")) == "[DONE]" {
+			sawDone = true
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("stream read error: %w", err)
+	}
+	if !sawDone {
+		return fmt.Errorf("stream ended before [DONE]")
+	}
+	return nil
+}
 
 func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -60,12 +104,13 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		if accountID != "" {
 			w.Header().Set("X-Qoder-Account", accountID)
 		}
+		w.Header().Set("X-Accel-Buffering", "no")
 		w.WriteHeader(http.StatusOK)
-		if _, err := io.Copy(w, upstream.Body); err != nil {
-			return
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
 		}
-		if f, ok := w.(http.Flusher); ok {
-			f.Flush()
+		if err := relayOpenAIStream(w, upstream.Body); err != nil {
+			panic(http.ErrAbortHandler)
 		}
 		return
 	}

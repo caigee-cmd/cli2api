@@ -304,7 +304,16 @@ func (e ChatExecutor) ChatStreamProxy(ctx context.Context, req translate.ChatReq
 		if err != nil {
 			return nil, "", err
 		}
-		resp, err := e.HTTPClient.Do(httpReq)
+		client := e.HTTPClient
+		if client == nil {
+			client = http.DefaultClient
+		}
+		if client.Timeout > 0 {
+			streamClient := *client
+			streamClient.Timeout = 0
+			client = &streamClient
+		}
+		resp, err := client.Do(httpReq)
 		if err != nil {
 			classified := accounts.Classify(0, err.Error(), "", accounts.KindUnavailable, "")
 			lastErr = fmt.Errorf("worker %s stream request failed: %w", item.ID, err)
