@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/caigee-cmd/cli2api/internal/config"
+	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
 func TestManagementRoutesRequireAPIKey(t *testing.T) {
@@ -38,6 +40,60 @@ func TestManagementRoutesRequireAPIKey(t *testing.T) {
 		if rec.Code != http.StatusUnauthorized {
 			t.Fatalf("%s %s without key: got %d want 401 body=%s", method, path, rec.Code, rec.Body.String())
 		}
+	}
+}
+
+func TestModelContextSettingsApplyToChatDefaults(t *testing.T) {
+	srv := New(config.Config{
+		Host: "127.0.0.1", Port: 3010, ProxyAPIKey: "secret",
+		QoderHome: t.TempDir(), DataDir: t.TempDir(),
+	})
+	defer srv.Close()
+	if err := srv.manager.Store().SetModelContext(context.Background(), "mmodel", 500000); err != nil {
+		t.Fatal(err)
+	}
+	req := translate.ChatRequest{Model: "MiniMax-M3"}
+	if err := srv.applyModelContextDefaults(context.Background(), &req); err != nil {
+		t.Fatal(err)
+	}
+	if string(req.ContextLength) != "500000" || string(req.MaxInputTokens) != "500000" {
+		t.Fatalf("context=%s max_input=%s", req.ContextLength, req.MaxInputTokens)
+	}
+
+	explicit := translate.ChatRequest{
+		Model:          "minimax-m3",
+		ContextLength:  json.RawMessage("250000"),
+		MaxInputTokens: json.RawMessage("900000"),
+	}
+	if err := srv.applyModelContextDefaults(context.Background(), &explicit); err != nil {
+		t.Fatal(err)
+	}
+	if string(explicit.ContextLength) != "250000" || string(explicit.MaxInputTokens) != "900000" {
+		t.Fatalf("explicit values overwritten: context=%s max_input=%s", explicit.ContextLength, explicit.MaxInputTokens)
+	}
+}
+
+func TestModelContextSettingsAPI(t *testing.T) {
+	srv := New(config.Config{
+		Host: "127.0.0.1", Port: 3010, ProxyAPIKey: "secret",
+		QoderHome: t.TempDir(), DataDir: t.TempDir(),
+	})
+	defer srv.Close()
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/models/mmodel", bytes.NewBufferString(`{"context_length":500000}`))
+	req.Header.Set("Authorization", "Bearer secret")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PATCH model context: %d %s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/models", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	rec = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !bytes.Contains(rec.Body.Bytes(), []byte(`"context_length":500000`)) {
+		t.Fatalf("GET models: %d %s", rec.Code, rec.Body.String())
 	}
 }
 

@@ -14,6 +14,57 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
+func TestBuildWorkerPayloadForwardsReasoningAndContextParameters(t *testing.T) {
+	enableThinking := true
+	payload := buildWorkerPayload(translate.ChatRequest{
+		Model:                 "minimax-m3",
+		Messages:              []translate.ChatMessage{{Role: "user", Content: "hi"}},
+		EnableThinking:        &enableThinking,
+		ReasoningEffort:       json.RawMessage(`"high"`),
+		ReasoningBudgetTokens: json.RawMessage(`16384`),
+		ContextLength:         json.RawMessage(`500000`),
+		MaxInputTokens:        json.RawMessage(`1000000`),
+	}, true)
+
+	if payload["enable_thinking"] != true {
+		t.Fatalf("enable_thinking = %#v", payload["enable_thinking"])
+	}
+	for key, want := range map[string]string{
+		"reasoning_effort":        `"high"`,
+		"reasoning_budget_tokens": "16384",
+		"context_length":          "500000",
+		"max_input_tokens":        "1000000",
+	} {
+		got, ok := payload[key].(json.RawMessage)
+		if !ok || string(got) != want {
+			t.Fatalf("%s = %#v, want %s", key, payload[key], want)
+		}
+	}
+}
+
+func TestDecodeChatResultPreservesPromptCacheUsage(t *testing.T) {
+	result, err := decodeChatResult(translate.ChatRequest{Model: "minimax-m3"}, []byte(`{
+		"model":"minimax-m3",
+		"choices":[{"message":{"content":"OK"},"finish_reason":"stop"}],
+		"usage":{
+			"prompt_tokens":100,
+			"completion_tokens":20,
+			"cache_read_tokens":64,
+			"cache_write_tokens":12,
+			"prompt_tokens_details":{"cached_tokens":64},
+			"source":"upstream"
+		}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.CacheReadTokens == nil || *result.CacheReadTokens != 64 ||
+		result.CacheWriteTokens == nil || *result.CacheWriteTokens != 12 ||
+		result.CachedTokens == nil || *result.CachedTokens != 64 {
+		t.Fatalf("cache usage = read:%v write:%v cached:%v", result.CacheReadTokens, result.CacheWriteTokens, result.CachedTokens)
+	}
+}
+
 func TestChatNonStreamFailoversRateLimit(t *testing.T) {
 	var hitsA atomic.Int32
 	a := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -29,6 +29,9 @@ type ChatResult struct {
 	FinishReason     string
 	PromptTokens     int
 	CompletionTokens int
+	CacheReadTokens  *int
+	CacheWriteTokens *int
+	CachedTokens     *int
 	UsageSource      string
 	Credits          *float64
 	AccountID        string
@@ -71,6 +74,15 @@ func buildWorkerPayload(req translate.ChatRequest, stream bool) map[string]any {
 	}
 	if len(req.ReasoningEffort) > 0 {
 		payload["reasoning_effort"] = json.RawMessage(req.ReasoningEffort)
+	}
+	if len(req.ReasoningBudgetTokens) > 0 {
+		payload["reasoning_budget_tokens"] = json.RawMessage(req.ReasoningBudgetTokens)
+	}
+	if len(req.ContextLength) > 0 {
+		payload["context_length"] = json.RawMessage(req.ContextLength)
+	}
+	if len(req.MaxInputTokens) > 0 {
+		payload["max_input_tokens"] = json.RawMessage(req.MaxInputTokens)
 	}
 	if len(req.Tools) > 0 {
 		payload["tools"] = json.RawMessage(req.Tools)
@@ -211,8 +223,13 @@ func decodeChatResult(req translate.ChatRequest, body []byte) (ChatResult, error
 		Usage struct {
 			PromptTokens     int      `json:"prompt_tokens"`
 			CompletionTokens int      `json:"completion_tokens"`
+			CacheReadTokens  *int     `json:"cache_read_tokens"`
+			CacheWriteTokens *int     `json:"cache_write_tokens"`
 			Source           string   `json:"source"`
 			Credits          *float64 `json:"credits"`
+			PromptDetails    struct {
+				CachedTokens *int `json:"cached_tokens"`
+			} `json:"prompt_tokens_details"`
 		} `json:"usage"`
 		Choices []struct {
 			FinishReason string `json:"finish_reason"`
@@ -256,6 +273,9 @@ func decodeChatResult(req translate.ChatRequest, body []byte) (ChatResult, error
 		FinishReason:     finishReason,
 		PromptTokens:     parsed.Usage.PromptTokens,
 		CompletionTokens: parsed.Usage.CompletionTokens,
+		CacheReadTokens:  parsed.Usage.CacheReadTokens,
+		CacheWriteTokens: parsed.Usage.CacheWriteTokens,
+		CachedTokens:     parsed.Usage.PromptDetails.CachedTokens,
 		UsageSource:      source,
 		Credits:          parsed.Usage.Credits,
 	}, nil

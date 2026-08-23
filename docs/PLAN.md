@@ -77,6 +77,7 @@ Sub2API-style SQLite account registry while preserving the working Qoder executi
 - [x] Add account creation and import UI using HeroUI only
 - [x] Show UID, auth type, enabled state, runtime status, cooldown, and last error
 - [x] Require `PROXY_API_KEY` for every account and credential operation
+- [x] Persist per-model context-window defaults and edit them from the Models page
 
 ### H5 single-container deployment
 

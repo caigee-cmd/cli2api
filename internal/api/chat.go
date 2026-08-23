@@ -8,13 +8,14 @@ import (
 	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
+	"github.com/caigee-cmd/cli2api/internal/executor"
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
 func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"object": "list",
-		"data":   s.fetchWorkerModels(false),
+		"data":   s.decorateModelsWithContext(r.Context(), s.fetchWorkerModels(false)),
 	})
 }
 
@@ -22,7 +23,7 @@ func (s *Server) handleModelsAPI(w http.ResponseWriter, r *http.Request) {
 	refresh := r.URL.Query().Get("refresh") == "1"
 	writeJSON(w, http.StatusOK, map[string]any{
 		"object": "list",
-		"data":   s.fetchWorkerModelsFor(refresh, s.requestedAccount(r)),
+		"data":   s.decorateModelsWithContext(r.Context(), s.fetchWorkerModelsFor(refresh, s.requestedAccount(r))),
 	})
 }
 
@@ -38,6 +39,10 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(req.Messages) == 0 {
 		writeErr(w, http.StatusBadRequest, "invalid_request", "messages required")
+		return
+	}
+	if err := s.applyModelContextDefaults(r.Context(), &req); err != nil {
+		writeErr(w, http.StatusInternalServerError, "model_setting_failed", err.Error())
 		return
 	}
 
@@ -104,19 +109,34 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			"message":       message,
 			"finish_reason": finishReason,
 		}},
-		"usage": func() map[string]any {
-			out := map[string]any{
-				"prompt_tokens":     res.PromptTokens,
-				"completion_tokens": res.CompletionTokens,
-				"total_tokens":      res.PromptTokens + res.CompletionTokens,
-				"source":            firstNonEmpty(res.UsageSource, "estimate"),
-			}
-			if res.Credits != nil {
-				out["credits"] = *res.Credits
-			}
-			return out
-		}(),
+		"usage": buildChatUsage(res),
 	})
+}
+
+func buildChatUsage(res executor.ChatResult) map[string]any {
+	out := map[string]any{
+		"prompt_tokens":     res.PromptTokens,
+		"completion_tokens": res.CompletionTokens,
+		"total_tokens":      res.PromptTokens + res.CompletionTokens,
+		"source":            firstNonEmpty(res.UsageSource, "estimate"),
+	}
+	if res.CacheReadTokens != nil {
+		out["cache_read_tokens"] = *res.CacheReadTokens
+	}
+	if res.CacheWriteTokens != nil {
+		out["cache_write_tokens"] = *res.CacheWriteTokens
+	}
+	cachedTokens := res.CachedTokens
+	if cachedTokens == nil {
+		cachedTokens = res.CacheReadTokens
+	}
+	if cachedTokens != nil {
+		out["prompt_tokens_details"] = map[string]any{"cached_tokens": *cachedTokens}
+	}
+	if res.Credits != nil {
+		out["credits"] = *res.Credits
+	}
+	return out
 }
 
 func writeClassifiedErr(w http.ResponseWriter, err error) {

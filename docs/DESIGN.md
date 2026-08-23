@@ -87,7 +87,7 @@ Keep the menu short. Login is a gate, not a nav item.
 | `/login` | no | Console password |
 | `/` | Overview | Runtime pulse |
 | `/accounts` | Accounts | Qoder login + pool |
-| `/providers` | Models | Catalog from the signed-in worker |
+| `/providers` | Models | Catalog + per-model context-window defaults |
 | `/access` | Access | Base URL + quick chat |
 | `/auth` | redirect | Legacy → `/accounts` |
 
@@ -125,6 +125,7 @@ Copy voice: concrete. “Enter the console” / “Sign in with browser”. Not 
 |------|------|
 | `frontend/src/pages/LoginPage.tsx` | Console gate |
 | `frontend/src/pages/AccountsPage.tsx` | Qoder login + pool |
+| `frontend/src/pages/ProvidersPage.tsx` | Model catalog + context-window defaults |
 | `frontend/src/components/layout/` | Shell / menu |
 | `internal/accounts/` | SQLite account repository, scheduler, child lifecycle |
 | `worker/src/daemon.mjs` | One-account Qoder runtime only |

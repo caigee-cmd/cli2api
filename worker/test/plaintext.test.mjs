@@ -10,6 +10,8 @@ import {
 test("maps known display names to upstream keys", () => {
   assert.equal(mapModel("qwen3.7-plus"), "qmodel");
   assert.equal(mapModel("DeepSeek-V4-Pro"), "dmodel");
+  assert.equal(mapModel("minimax-m3"), "mmodel");
+  assert.equal(mapModel("MiniMax-M3"), "mmodel");
   assert.equal(mapModel("auto"), "auto");
 });
 
@@ -46,6 +48,43 @@ test("does not inherit capture-template system or tools", () => {
   assert.equal(body.tools.length, 1);
   assert.equal(body.tools[0].function.name, "exec_command");
   assert.notEqual(body.request_id, body.session_id);
+});
+
+test("forwards Qoder reasoning and context parameters", () => {
+  const body = buildPlainChatBody({
+    messages: [{ role: "user", content: "hi" }],
+    model: "minimax-m3",
+    reasoningEffort: "high",
+    enableThinking: true,
+    reasoningBudgetTokens: 16384,
+    contextLength: 500000,
+    maxInputTokens: 1000000,
+  });
+  assert.equal(body.model_config.key, "mmodel");
+  assert.equal(body.model_config.max_input_tokens, 1000000);
+  assert.equal(body.parameters.reasoning_effort, "high");
+  assert.equal(body.parameters.enable_thinking, true);
+  assert.equal(body.parameters.reasoning_budget_tokens, 16384);
+  assert.equal(body.parameters.context_length, 500000);
+});
+
+test("does not inject thinking controls into ordinary requests", () => {
+  const body = buildPlainChatBody({
+    messages: [{ role: "user", content: "hi" }],
+    model: "qwen3.7-plus",
+  });
+  assert.equal("enable_thinking" in body.parameters, false);
+  assert.equal("reasoning_effort" in body.parameters, false);
+});
+
+test("uses the Qoder catalog input limit for MiniMax-M3", () => {
+  const body = buildPlainChatBody({
+    messages: [{ role: "user", content: "hi" }],
+    model: "MiniMax-M3",
+    reasoningEffort: "medium",
+  });
+  assert.equal(body.model_config.max_input_tokens, 1000000);
+  assert.equal(body.parameters.enable_thinking, true);
 });
 
 test("estimates CJK heavier than ascii", () => {

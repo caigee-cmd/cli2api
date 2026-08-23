@@ -130,6 +130,7 @@ var fallbackModels = []map[string]any{
 	{"id": "auto", "object": "model", "owned_by": "qoder"},
 	{"id": "qwen3.7-plus", "object": "model", "owned_by": "qoder"},
 	{"id": "glm-5.2", "object": "model", "owned_by": "qoder"},
+	{"id": "MiniMax-M3", "mapped_key": "mmodel", "object": "model", "owned_by": "qoder"},
 }
 
 func (s *Server) fetchWorkerModels(refresh bool) []map[string]any {

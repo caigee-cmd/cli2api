@@ -3,18 +3,21 @@ package translate
 import "encoding/json"
 
 type ChatRequest struct {
-	Model           string          `json:"model"`
-	Messages        []ChatMessage   `json:"messages"`
-	Stream          bool            `json:"stream"`
-	MaxTokens       json.RawMessage `json:"max_tokens"`
-	Temperature     json.RawMessage `json:"temperature"`
-	Tools           json.RawMessage `json:"tools,omitempty"`
-	ToolChoice      json.RawMessage `json:"tool_choice,omitempty"`
-	IsReasoning     *bool           `json:"is_reasoning,omitempty"`
-	EnableThinking  *bool           `json:"enable_thinking,omitempty"`
-	EnableReasoning *bool           `json:"enable_reasoning,omitempty"`
-	Thinking        json.RawMessage `json:"thinking,omitempty"`
-	ReasoningEffort json.RawMessage `json:"reasoning_effort,omitempty"`
+	Model                 string          `json:"model"`
+	Messages              []ChatMessage   `json:"messages"`
+	Stream                bool            `json:"stream"`
+	MaxTokens             json.RawMessage `json:"max_tokens"`
+	Temperature           json.RawMessage `json:"temperature"`
+	Tools                 json.RawMessage `json:"tools,omitempty"`
+	ToolChoice            json.RawMessage `json:"tool_choice,omitempty"`
+	IsReasoning           *bool           `json:"is_reasoning,omitempty"`
+	EnableThinking        *bool           `json:"enable_thinking,omitempty"`
+	EnableReasoning       *bool           `json:"enable_reasoning,omitempty"`
+	Thinking              json.RawMessage `json:"thinking,omitempty"`
+	ReasoningEffort       json.RawMessage `json:"reasoning_effort,omitempty"`
+	ReasoningBudgetTokens json.RawMessage `json:"reasoning_budget_tokens,omitempty"`
+	ContextLength         json.RawMessage `json:"context_length,omitempty"`
+	MaxInputTokens        json.RawMessage `json:"max_input_tokens,omitempty"`
 }
 
 type ChatMessage struct {

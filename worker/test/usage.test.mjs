@@ -21,6 +21,20 @@ test("reads llm_model_result and credits", () => {
   assert.equal(extracted.credits, 1.5);
 });
 
+test("preserves prompt cache token usage", () => {
+  const usage = resolveUsage({
+    usage: {
+      input_tokens: 100,
+      output_tokens: 20,
+      cache_read_input_tokens: 64,
+      cache_creation_input_tokens: 12,
+    },
+  });
+  assert.equal(usage.cache_read_tokens, 64);
+  assert.equal(usage.cache_write_tokens, 12);
+  assert.deepEqual(usage.prompt_tokens_details, { cached_tokens: 64 });
+});
+
 test("falls back to estimate when upstream is silent", () => {
   const usage = resolveUsage({}, { prompt_tokens: 9, completion_tokens: 3, source: "estimate" });
   assert.equal(usage.prompt_tokens, 9);

@@ -32,6 +32,18 @@ export function refreshModels(accountId?: string) {
   return api<{ data?: Overview['models'] }>(`/api/models?${q.toString()}`)
 }
 
+export function updateModelContext(modelKey: string, contextLength: number) {
+  return api<{
+    model: string
+    context_length: number
+    default_context_length: number
+    context_custom: boolean
+  }>(`/api/models/${encodeURIComponent(modelKey)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ context_length: contextLength }),
+  })
+}
+
 export function rewarmWorker(accountId?: string) {
   if (!accountId) throw new Error('account id required')
   return api(`/api/accounts/${encodeURIComponent(accountId)}/rewarm`, { method: 'POST', body: '{}' })

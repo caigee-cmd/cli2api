@@ -15,6 +15,17 @@ const COMPLETION_KEYS = [
   "outputTokens",
 ];
 const TOTAL_KEYS = ["total_tokens", "total_token_count", "totalTokens"];
+const CACHE_READ_KEYS = [
+  "cache_read_tokens",
+  "cache_read_input_tokens",
+  "cached_tokens",
+  "cached_content_token_count",
+];
+const CACHE_WRITE_KEYS = [
+  "cache_write_tokens",
+  "cache_creation_input_tokens",
+  "cache_creation_tokens",
+];
 const CREDIT_KEYS = ["credits", "total_credits", "original_credits"];
 
 function coerceCount(value) {
@@ -50,6 +61,8 @@ export function extractUsage(input) {
     prompt_tokens: null,
     completion_tokens: null,
     total_tokens: null,
+    cache_read_tokens: null,
+    cache_write_tokens: null,
     credits: null,
   };
 
@@ -69,12 +82,17 @@ export function extractUsage(input) {
     const prompt = pickKeys(value, PROMPT_KEYS);
     const completion = pickKeys(value, COMPLETION_KEYS);
     const total = pickKeys(value, TOTAL_KEYS);
+    const cacheRead = pickKeys(value, CACHE_READ_KEYS);
+    const cacheWrite = pickKeys(value, CACHE_WRITE_KEYS);
     const credits = pickKeys(value, CREDIT_KEYS);
     if (prompt != null) best.prompt_tokens = prompt;
     if (completion != null) best.completion_tokens = completion;
     if (total != null) best.total_tokens = total;
+    if (cacheRead != null) best.cache_read_tokens = cacheRead;
+    if (cacheWrite != null) best.cache_write_tokens = cacheWrite;
     if (credits != null) best.credits = credits;
 
+    if (value.prompt_tokens_details) visit(value.prompt_tokens_details, depth + 1);
     if (value.usage) visit(value.usage, depth + 1);
     if (value.llm_model_result) visit(value.llm_model_result, depth + 1);
     if (value.body) visit(value.body, depth + 1);
@@ -84,7 +102,13 @@ export function extractUsage(input) {
   visit(input, 0);
   return {
     ...best,
-    source: best.prompt_tokens != null || best.completion_tokens != null ? "upstream" : "estimate",
+    source:
+      best.prompt_tokens != null ||
+      best.completion_tokens != null ||
+      best.cache_read_tokens != null ||
+      best.cache_write_tokens != null
+        ? "upstream"
+        : "estimate",
   };
 }
 
@@ -99,6 +123,13 @@ export function resolveUsage(input, fallback = {}) {
     total_tokens: total,
     source: extracted.source === "upstream" ? "upstream" : fallback.source || "estimate",
   };
+  const cacheRead = extracted.cache_read_tokens ?? fallback.cache_read_tokens;
+  const cacheWrite = extracted.cache_write_tokens ?? fallback.cache_write_tokens;
+  if (cacheRead != null) {
+    usage.cache_read_tokens = cacheRead;
+    usage.prompt_tokens_details = { cached_tokens: cacheRead };
+  }
+  if (cacheWrite != null) usage.cache_write_tokens = cacheWrite;
   if (extracted.credits != null) usage.credits = extracted.credits;
   return usage;
 }
@@ -110,6 +141,8 @@ export function usageLooksUseful(body) {
       body.llm_model_result ||
       pickKeys(body, PROMPT_KEYS) != null ||
       pickKeys(body, COMPLETION_KEYS) != null ||
+      pickKeys(body, CACHE_READ_KEYS) != null ||
+      pickKeys(body, CACHE_WRITE_KEYS) != null ||
       pickKeys(body, CREDIT_KEYS) != null,
   );
 }

@@ -24,7 +24,15 @@ export type Overview = {
     machine_id?: string
   }
   login?: any
-  models?: Array<{ id: string; mapped_key?: string; stale?: boolean }>
+  models?: Array<{
+    id: string
+    mapped_key?: string
+    settings_key?: string
+    stale?: boolean
+    context_length?: number
+    default_context_length?: number
+    context_custom?: boolean
+  }>
   accounts?: Array<{
     id: string
     provider?: string

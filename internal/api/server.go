@@ -69,6 +69,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc(endpoint.HealthPath, s.handleHealth)
 	s.mux.HandleFunc("/api/overview", s.withAPIKey(s.handleOverview))
 	s.mux.HandleFunc("/api/models", s.withAPIKey(s.handleModelsAPI))
+	s.mux.HandleFunc("/api/models/", s.withAPIKey(s.handleModelSetting))
 	s.mux.HandleFunc("/api/accounts", s.withAPIKey(s.handleAccounts))
 	s.mux.HandleFunc("/api/accounts/import", s.withAPIKey(s.handleAccountImport))
 	s.mux.HandleFunc("/api/accounts/", s.withAPIKey(s.handleAccountByID))
@@ -134,7 +135,7 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 			hotCount++
 		}
 	}
-	models := s.fetchWorkerModels(false)
+	models := s.decorateModelsWithContext(r.Context(), s.fetchWorkerModels(false))
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":   true,
 		"time": time.Now().Format(time.RFC3339),

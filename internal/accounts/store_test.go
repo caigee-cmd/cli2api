@@ -44,6 +44,43 @@ func TestStoreCreatesAndReloadsAccount(t *testing.T) {
 	}
 }
 
+func TestStorePersistsModelContextSettings(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "qoder.db")
+	store, err := OpenStore(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetModelContext(ctx, "mmodel", 500000); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := OpenStore(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	got, ok, err := reopened.GetModelContext(ctx, "mmodel")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || got != 500000 {
+		t.Fatalf("model context = %d, %v", got, ok)
+	}
+	if err := reopened.SetModelContext(ctx, "mmodel", 1); err == nil {
+		t.Fatal("expected too-small context length to fail")
+	}
+	if err := reopened.SetModelContext(ctx, "mmodel", 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := reopened.GetModelContext(ctx, "mmodel"); err != nil || ok {
+		t.Fatalf("deleted model context ok=%v err=%v", ok, err)
+	}
+}
+
 func TestStoreSavesNativeCredential(t *testing.T) {
 	ctx := context.Background()
 	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))

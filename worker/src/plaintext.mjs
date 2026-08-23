@@ -46,8 +46,8 @@ const MODEL_ALIAS = {
   "Kimi-K3": "kimi-k3",
   kmodel: "kmodel",
   "minimax-m2.7": "mmodel",
-  "minimax-m3": "minimax-m3",
-  "MiniMax-M3": "minimax-m3",
+  "minimax-m3": "mmodel",
+  "MiniMax-M3": "mmodel",
   mmodel: "mmodel",
 
   // tiers
@@ -70,7 +70,7 @@ const DISPLAY = {
   dfmodel: "DeepSeek-V4-Flash",
   kmodel: "Kimi-K2.7-Code",
   "kimi-k3": "Kimi-K3",
-  mmodel: "MiniMax-M2.7",
+  mmodel: "MiniMax-M3",
   "minimax-m3": "MiniMax-M3",
   ultimate: "Ultimate",
   performance: "Performance",
@@ -219,6 +219,11 @@ export function buildPlainChatBody({
   maxTokens = 32000,
   template,
   enableReasoning = false,
+  enableThinking,
+  reasoningEffort,
+  reasoningBudgetTokens,
+  contextLength,
+  maxInputTokens,
   tools = [],
   toolChoice,
 }) {
@@ -251,6 +256,20 @@ export function buildPlainChatBody({
     systemMessages.push({ role: "system", content: systemText });
   }
 
+  const normalizedEffort = typeof reasoningEffort === "string" && reasoningEffort.trim()
+    ? reasoningEffort.trim()
+    : undefined;
+  const effectiveThinking = typeof enableThinking === "boolean"
+    ? enableThinking
+    : normalizedEffort
+      ? !["none", "off", "disabled"].includes(normalizedEffort.toLowerCase())
+      : enableReasoning
+        ? true
+        : undefined;
+  const defaultMaxInputTokens = mapped === "mmodel"
+    ? 1000000
+    : (base.model_config?.max_input_tokens || 180000);
+
   const modelConfig = {
     ...(base.model_config || {}),
     key: mapped,
@@ -258,11 +277,21 @@ export function buildPlainChatBody({
     model: "",
     format: base.model_config?.format || "openai",
     is_vl: base.model_config?.is_vl ?? true,
-    is_reasoning: enableReasoning ? true : (base.model_config?.is_reasoning ?? false),
+    is_reasoning: effectiveThinking ? true : (effectiveThinking === false ? false : (base.model_config?.is_reasoning ?? false)),
     api_key: "",
     url: "",
     source: base.model_config?.source || "system",
-    max_input_tokens: base.model_config?.max_input_tokens || 180000,
+    max_input_tokens: maxInputTokens ?? defaultMaxInputTokens,
+  };
+
+  const parameters = {
+    ...(base.parameters || {}),
+    max_tokens: maxTokens || base.parameters?.max_tokens || 32000,
+    ...(normalizedEffort !== undefined ? { reasoning_effort: normalizedEffort } : {}),
+    ...(effectiveThinking !== undefined ? { enable_thinking: effectiveThinking } : {}),
+    ...(reasoningBudgetTokens !== undefined ? { reasoning_budget_tokens: reasoningBudgetTokens } : {}),
+    ...(contextLength !== undefined ? { context_length: contextLength } : {}),
+    ...(toolChoice !== undefined ? { tool_choice: toolChoice } : {}),
   };
 
   return {
@@ -296,11 +325,7 @@ export function buildPlainChatBody({
       : [{ role: "user", content: "ping" }],
     // Pass through caller tools (OpenAI function tools). Do NOT inherit capture-template tools.
     tools: normalizeTools(tools),
-    parameters: {
-      ...(base.parameters || {}),
-      max_tokens: maxTokens || base.parameters?.max_tokens || 32000,
-      ...(toolChoice !== undefined ? { tool_choice: toolChoice } : {}),
-    },
+    parameters,
     business: {
       product: "cli",
       version: process.env.QODER_CLI_VERSION || "1.1.27",

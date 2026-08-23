@@ -107,6 +107,11 @@ CREATE TABLE IF NOT EXISTS account_credentials (
   user_blob BLOB NOT NULL,
   machine_id TEXT NOT NULL,
   updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS model_settings (
+  model_id TEXT PRIMARY KEY,
+  context_length INTEGER NOT NULL,
+  updated_at TEXT NOT NULL
 );`
 	if _, err := s.db.ExecContext(ctx, schema); err != nil {
 		return fmt.Errorf("migrate sqlite: %w", err)
@@ -269,6 +274,61 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 		return ErrAccountNotFound
 	}
 	return nil
+}
+
+func (s *Store) SetModelContext(ctx context.Context, modelID string, contextLength int) error {
+	modelID = strings.TrimSpace(modelID)
+	if modelID == "" {
+		return fmt.Errorf("model id required")
+	}
+	if contextLength < 0 || contextLength > 4_000_000 || (contextLength > 0 && contextLength < 1024) {
+		return fmt.Errorf("context_length must be 0 or between 1024 and 4000000")
+	}
+	if contextLength == 0 {
+		_, err := s.db.ExecContext(ctx, `DELETE FROM model_settings WHERE model_id = ?`, modelID)
+		if err != nil {
+			return fmt.Errorf("delete model context: %w", err)
+		}
+		return nil
+	}
+	_, err := s.db.ExecContext(ctx, `
+INSERT INTO model_settings (model_id, context_length, updated_at) VALUES (?, ?, ?)
+ON CONFLICT(model_id) DO UPDATE SET context_length=excluded.context_length, updated_at=excluded.updated_at`,
+		modelID, contextLength, formatTime(time.Now().UTC()))
+	if err != nil {
+		return fmt.Errorf("save model context: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) GetModelContext(ctx context.Context, modelID string) (int, bool, error) {
+	var contextLength int
+	err := s.db.QueryRowContext(ctx, `SELECT context_length FROM model_settings WHERE model_id = ?`, strings.TrimSpace(modelID)).Scan(&contextLength)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, fmt.Errorf("get model context: %w", err)
+	}
+	return contextLength, true, nil
+}
+
+func (s *Store) ListModelContexts(ctx context.Context) (map[string]int, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT model_id, context_length FROM model_settings`)
+	if err != nil {
+		return nil, fmt.Errorf("list model contexts: %w", err)
+	}
+	defer rows.Close()
+	result := make(map[string]int)
+	for rows.Next() {
+		var modelID string
+		var contextLength int
+		if err := rows.Scan(&modelID, &contextLength); err != nil {
+			return nil, fmt.Errorf("scan model context: %w", err)
+		}
+		result[modelID] = contextLength
+	}
+	return result, rows.Err()
 }
 
 func (s *Store) SaveCredential(ctx context.Context, accountID, authType string, credential NativeCredential) error {

@@ -280,6 +280,11 @@ async function prepareUpstream(reqBody) {
     maxTokens: reqBody.max_tokens || 32000,
     template,
     enableReasoning: wantsReasoning(reqBody),
+    enableThinking: typeof reqBody.enable_thinking === "boolean" ? reqBody.enable_thinking : undefined,
+    reasoningEffort: reqBody.reasoning_effort,
+    reasoningBudgetTokens: reqBody.reasoning_budget_tokens,
+    contextLength: reqBody.context_length,
+    maxInputTokens: reqBody.max_input_tokens,
     tools: reqBody.tools || [],
     toolChoice: reqBody.tool_choice,
   });
@@ -690,6 +695,9 @@ function maybeStartServer() {
             completion_tokens: result.usage?.completion_tokens || result.completionTokens || 0,
             total_tokens: result.usage?.total_tokens || ((result.promptTokens || 0) + (result.completionTokens || 0)),
             source: result.usage?.source || "estimate",
+            ...(result.usage?.cache_read_tokens != null ? { cache_read_tokens: result.usage.cache_read_tokens } : {}),
+            ...(result.usage?.cache_write_tokens != null ? { cache_write_tokens: result.usage.cache_write_tokens } : {}),
+            ...(result.usage?.prompt_tokens_details ? { prompt_tokens_details: result.usage.prompt_tokens_details } : {}),
             ...(result.usage?.credits != null ? { credits: result.usage.credits } : {}),
           },
         });
