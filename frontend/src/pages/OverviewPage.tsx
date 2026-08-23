@@ -1,5 +1,5 @@
 import { Button, Card, Chip, Skeleton } from '@heroui/react'
-import { ArrowUpRight, CircleGauge, Copy, Database, ExternalLink, Server, Users } from 'lucide-react'
+import { ArrowUpRight, Boxes, Copy, Database, ExternalLink, Server, Users } from 'lucide-react'
 import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
 import { absUrl } from '@/lib/url'
@@ -13,12 +13,13 @@ export function OverviewPage() {
   const accounts = overview?.accounts || []
   const readyAccounts = accounts.filter((account) => account.ready).length
   const hotAccounts = accounts.filter((account) => account.hot).length
+  const modelCount = overview?.models?.length ?? 0
   const base = absUrl(overview?.access?.openai_base_url || '/v1')
 
   const metrics = [
     { label: t('metricRuntime'), value: proxyOk ? t('running') : t('down'), detail: 'Go control plane', icon: Server, ok: proxyOk },
-    { label: t('metricWorker'), value: workerOk ? (hot ? t('hot') : t('up')) : t('down'), detail: `${hotAccounts}/${accounts.length} hot`, icon: CircleGauge, ok: workerOk },
-    { label: t('accountsTitle'), value: String(accounts.length), detail: `${readyAccounts} ready`, icon: Users, ok: readyAccounts > 0 },
+    { label: t('metricAccounts'), value: String(accounts.length), detail: `${hotAccounts} hot · ${readyAccounts} ready`, icon: Users, ok: readyAccounts > 0 },
+    { label: t('metricModels'), value: String(modelCount), detail: modelCount ? 'Qoder catalog' : '—', icon: Boxes, ok: modelCount > 0 },
     { label: 'SQLite', value: accounts.length ? t('ready') : t('checking'), detail: '/data/qoder.db', icon: Database, ok: accounts.length > 0 },
   ]
 
@@ -87,8 +88,8 @@ export function OverviewPage() {
             <dl className="divide-y divide-[var(--app-line)]">
               {[
                 [t('proxy'), proxyOk ? 'online' : t('down')],
-                [t('workerHot'), hot ? 'true' : 'false'],
-                [t('endpoint'), overview?.worker?.endpoint || overview?.proxy?.chat_url || '—'],
+                [t('sessionHot'), hot ? 'true' : 'false'],
+                [t('upstreamEndpoint'), overview?.worker?.endpoint || overview?.proxy?.chat_url || '—'],
                 [t('rewarm'), String(overview?.worker?.rewarmCount ?? overview?.worker?.rewarm_count ?? 0)],
                 [t('lastError'), overview?.worker?.lastError || overview?.worker?.last_error || '—'],
               ].map(([label, value]) => (

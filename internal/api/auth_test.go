@@ -24,15 +24,11 @@ func TestManagementRoutesRequireAPIKey(t *testing.T) {
 	for _, path := range []string{
 		"/api/overview",
 		"/api/models",
-		"/api/login/status",
-		"/api/login/device",
-		"/api/login/pat",
-		"/api/rewarm",
 		"/api/chat",
 		"/api/accounts",
 	} {
 		method := http.MethodGet
-		if strings.HasPrefix(path, "/api/login/") || path == "/api/rewarm" || path == "/api/chat" {
+		if path == "/api/chat" {
 			method = http.MethodPost
 		}
 		req := httptest.NewRequest(method, path, bytes.NewReader([]byte("{}")))
@@ -41,6 +37,35 @@ func TestManagementRoutesRequireAPIKey(t *testing.T) {
 		h.ServeHTTP(rec, req)
 		if rec.Code != http.StatusUnauthorized {
 			t.Fatalf("%s %s without key: got %d want 401 body=%s", method, path, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+func TestLegacyDiagnosticRoutesAreRemoved(t *testing.T) {
+	srv := New(config.Config{
+		Host:        "127.0.0.1",
+		Port:        3010,
+		ProxyAPIKey: "secret",
+		QoderHome:   t.TempDir(),
+	})
+
+	for _, target := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/api/login/status"},
+		{http.MethodPost, "/api/login/device"},
+		{http.MethodPost, "/api/login/pat"},
+		{http.MethodPost, "/api/rewarm"},
+		{http.MethodGet, "/debug/auth-snapshot"},
+		{http.MethodGet, "/debug/endpoints"},
+	} {
+		req := httptest.NewRequest(target.method, target.path, bytes.NewReader([]byte("{}")))
+		req.Header.Set("Authorization", "Bearer secret")
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, req)
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("%s %s: got %d want 404 body=%s", target.method, target.path, rec.Code, rec.Body.String())
 		}
 	}
 }

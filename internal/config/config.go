@@ -12,7 +12,6 @@ type Config struct {
 	Port              int
 	ProxyAPIKey       string
 	QoderHome         string
-	QoderPAT          string
 	DataDir           string
 	WorkerBasePort    int
 	NodeBinary        string
@@ -60,7 +59,6 @@ func Load() (Config, error) {
 		Port:              port,
 		ProxyAPIKey:       key,
 		QoderHome:         home,
-		QoderPAT:          firstNonEmpty(os.Getenv("QODER_PERSONAL_ACCESS_TOKEN"), os.Getenv("QODER_PAT")),
 		DataDir:           dataDir,
 		WorkerBasePort:    workerBasePort,
 		NodeBinary:        firstNonEmpty(os.Getenv("QODER_NODE_BINARY"), "node"),

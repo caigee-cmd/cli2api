@@ -103,7 +103,7 @@ export function AccountsPage() {
     <div className="space-y-6">
       <section className="flex flex-wrap items-center justify-between gap-4 border-b border-[var(--app-line)] pb-4">
         <div className="flex items-center gap-5 text-sm">
-          <div className="flex items-center gap-2"><span className="text-[var(--app-faint)]">{t('workers')}</span><span className="mono font-medium">{loading ? '…' : rows.length}</span></div>
+          <div className="flex items-center gap-2"><span className="text-[var(--app-faint)]">{t('accountCount')}</span><span className="mono font-medium">{loading ? '…' : rows.length}</span></div>
           <div className="flex items-center gap-2 border-l border-[var(--app-line)] pl-5"><span className="text-[var(--app-faint)]">{t('signedIn')}</span><span className="mono font-medium">{loading ? '…' : signedCount}</span></div>
         </div>
         <Button onPress={() => setAddOpen(true)}><Plus size={15} />{t('addAccount')}</Button>
@@ -139,6 +139,7 @@ export function AccountsPage() {
                     <span className="status-dot" data-state={state === 'hot' || state === 'ready' ? 'ok' : state === 'login' ? 'danger' : undefined} />
                     <h3 className="text-lg font-semibold tracking-[-0.02em]">{account.name || account.id}</h3>
                     <Chip size="sm" variant="soft" color={state === 'hot' || state === 'ready' ? 'success' : state === 'cooling' ? 'warning' : undefined}>{stateCopy}</Chip>
+                    <Chip size="sm" variant="soft" className="uppercase">{account.provider || 'qoder'}</Chip>
                     <Chip size="sm" variant="soft">{account.auth_type || 'none'}</Chip>
                   </div>
                   <div className="mono mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-[var(--app-faint)]">

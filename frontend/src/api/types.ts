@@ -27,6 +27,7 @@ export type Overview = {
   models?: Array<{ id: string; mapped_key?: string; stale?: boolean }>
   accounts?: Array<{
     id: string
+    provider?: string
     name?: string
     remote_uid?: string
     auth_type?: string

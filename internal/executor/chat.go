@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
@@ -17,9 +16,7 @@ import (
 )
 
 type ChatExecutor struct {
-	Endpoints  endpoint.Endpoints
 	Pool       *accounts.Pool
-	WorkerURL  string
 	WorkerKey  string
 	HTTPClient *http.Client
 }
@@ -38,17 +35,13 @@ type ChatResult struct {
 	RawNote          string
 }
 
-func NewChatExecutor(eps endpoint.Endpoints, pool *accounts.Pool) ChatExecutor {
-	worker := ""
+func NewChatExecutor(pool *accounts.Pool, workerKey string) ChatExecutor {
 	if pool == nil {
 		pool = accounts.NewPool(nil, nil)
-		worker = strings.TrimRight(strings.TrimSpace(os.Getenv("QODER_WORKER_URL")), "/")
 	}
 	return ChatExecutor{
-		Endpoints: eps,
 		Pool:      pool,
-		WorkerURL: worker,
-		WorkerKey: firstNonEmpty(os.Getenv("QODER_WORKER_API_KEY"), os.Getenv("PROXY_API_KEY")),
+		WorkerKey: strings.TrimSpace(workerKey),
 		HTTPClient: &http.Client{
 			Timeout: 120 * time.Second,
 		},
@@ -94,9 +87,6 @@ func (e ChatExecutor) pick(prefer string, excluded map[string]struct{}) (account
 			return item, nil
 		}
 	}
-	if e.WorkerURL != "" {
-		return accounts.Item{ID: "default", URL: e.WorkerURL}, nil
-	}
 	return accounts.Item{}, fmt.Errorf("no worker accounts configured")
 }
 
@@ -115,7 +105,7 @@ func (e ChatExecutor) markOK(id string) {
 }
 
 func (e ChatExecutor) newWorkerRequest(ctx context.Context, item accounts.Item, payload []byte, prefer string) (*http.Request, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, item.URL+"/v1/chat/completions", bytes.NewReader(payload))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, item.URL+endpoint.ChatCompletionsPath, bytes.NewReader(payload))
 	if err != nil {
 		return nil, err
 	}
@@ -325,13 +315,4 @@ func (e ChatExecutor) ChatStreamProxy(ctx context.Context, req translate.ChatReq
 		lastErr = fmt.Errorf("no worker accounts available")
 	}
 	return nil, "", lastErr
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if trimmed := strings.TrimSpace(value); trimmed != "" {
-			return trimmed
-		}
-	}
-	return ""
 }

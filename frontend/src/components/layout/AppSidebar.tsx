@@ -37,7 +37,7 @@ export function AppSidebar({ mobileOpen, onClose }: { mobileOpen: boolean; onClo
               <PlugZap size={17} strokeWidth={2.2} />
             </div>
             <div>
-              <div className="text-[15px] font-semibold tracking-[-0.02em]">Qoder Proxy</div>
+              <div className="text-[15px] font-semibold tracking-[-0.02em]">CLI2API</div>
               <div className="text-[11px] text-[var(--app-faint)]">{t('controlPlane')}</div>
             </div>
           </div>
@@ -85,7 +85,7 @@ export function AppSidebar({ mobileOpen, onClose }: { mobileOpen: boolean; onClo
                 <div className="mt-1 font-medium">{proxyOk ? 'online' : 'down'}</div>
               </div>
               <div>
-                <div className="text-[var(--app-faint)]">Workers</div>
+                <div className="text-[var(--app-faint)]">{t('accountCount')}</div>
                 <div className="mono mt-1 font-medium">{hotCount}/{accountCount}</div>
               </div>
             </div>

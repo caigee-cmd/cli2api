@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
-	"github.com/caigee-cmd/cli2api/internal/endpoint"
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
@@ -43,7 +42,7 @@ func TestChatNonStreamFailoversRateLimit(t *testing.T) {
 	defer b.Close()
 
 	pool := accounts.NewPool([]string{a.URL, b.URL}, []string{"a", "b"})
-	ex := NewChatExecutor(endpoint.Endpoints{}, pool)
+	ex := NewChatExecutor(pool, "")
 	ex.HTTPClient = a.Client()
 	got, err := ex.ChatNonStream(context.Background(), translate.ChatRequest{
 		Model:    "qwen3.7-plus",
@@ -73,7 +72,7 @@ func TestChatNonStreamDoesNotFailoverQuota(t *testing.T) {
 	}))
 	defer b.Close()
 	pool := accounts.NewPool([]string{a.URL, b.URL}, []string{"a", "b"})
-	ex := NewChatExecutor(endpoint.Endpoints{}, pool)
+	ex := NewChatExecutor(pool, "")
 	ex.HTTPClient = a.Client()
 	_, err := ex.ChatNonStream(context.Background(), translate.ChatRequest{
 		Model:    "qwen3.7-plus",
@@ -93,7 +92,7 @@ func TestChatNonStreamForwardsPinnedAccount(t *testing.T) {
 	}))
 	defer srv.Close()
 	pool := accounts.NewPool([]string{srv.URL}, []string{"default"})
-	ex := NewChatExecutor(endpoint.Endpoints{}, pool)
+	ex := NewChatExecutor(pool, "")
 	ex.HTTPClient = srv.Client()
 	got, err := ex.ChatNonStream(context.Background(), translate.ChatRequest{
 		Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
@@ -107,7 +106,7 @@ func TestChatNonStreamForwardsPinnedAccount(t *testing.T) {
 }
 
 func TestChatNonStreamFailsWhenSQLitePoolIsEmpty(t *testing.T) {
-	ex := NewChatExecutor(endpoint.Endpoints{}, accounts.NewPool(nil, nil))
+	ex := NewChatExecutor(accounts.NewPool(nil, nil), "")
 	_, err := ex.ChatNonStream(context.Background(), translate.ChatRequest{
 		Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
 	}, "")
@@ -117,9 +116,7 @@ func TestChatNonStreamFailsWhenSQLitePoolIsEmpty(t *testing.T) {
 }
 
 func TestNewChatExecutorUsesProxyKeyForInternalDaemon(t *testing.T) {
-	t.Setenv("QODER_WORKER_API_KEY", "")
-	t.Setenv("PROXY_API_KEY", "shared-secret")
-	ex := NewChatExecutor(endpoint.Endpoints{}, accounts.NewPool(nil, nil))
+	ex := NewChatExecutor(accounts.NewPool(nil, nil), "shared-secret")
 	if ex.WorkerKey != "shared-secret" {
 		t.Fatalf("worker key = %q", ex.WorkerKey)
 	}
