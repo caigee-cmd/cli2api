@@ -159,6 +159,8 @@ export async function pipeNestedSseToOpenAI(upstreamRes, res, { model = "auto", 
   let sawError = null;
   let eventCount = 0;
   const toolCallsByIndex = new Map();
+  const anonymousToolCallIndices = new Map();
+  let nextToolCallIndex = 0;
   let finishReason = null;
   let usageAcc = null;
 
@@ -274,11 +276,24 @@ export async function pipeNestedSseToOpenAI(upstreamRes, res, { model = "auto", 
           outDelta.reasoning_content = delta.reasoning;
         }
         if (Array.isArray(delta.tool_calls) && delta.tool_calls.length) {
-          outDelta.tool_calls = delta.tool_calls;
+          outDelta.tool_calls = [];
+          const assignedThisDelta = new Set();
           for (const tc of delta.tool_calls) {
-            const idx = Number.isInteger(tc.index) ? tc.index : toolCallsByIndex.size;
+            let idx = Number.isInteger(tc.index) ? tc.index : null;
+            const lookupKey = tc.id || (tc.function?.name ? `name:${tc.function.name}` : "");
+            if (idx == null && lookupKey) idx = anonymousToolCallIndices.get(lookupKey) ?? null;
+            if (idx == null && assignedThisDelta.size === 0 && toolCallsByIndex.size === 1) {
+              idx = [...toolCallsByIndex.keys()][0];
+            }
+            if (idx == null) {
+              idx = nextToolCallIndex;
+              while (toolCallsByIndex.has(idx)) idx += 1;
+            }
+            assignedThisDelta.add(idx);
+            nextToolCallIndex = Math.max(nextToolCallIndex, idx + 1);
+            if (lookupKey) anonymousToolCallIndices.set(lookupKey, idx);
             const prev = toolCallsByIndex.get(idx) || {
-              id: "",
+              id: `call_${chatId}_${idx}`,
               type: "function",
               function: { name: "", arguments: "" },
             };
@@ -287,6 +302,13 @@ export async function pipeNestedSseToOpenAI(upstreamRes, res, { model = "auto", 
             if (tc.function?.name) prev.function.name += tc.function.name;
             if (tc.function?.arguments) prev.function.arguments += tc.function.arguments;
             toolCallsByIndex.set(idx, prev);
+            outDelta.tool_calls.push({
+              ...tc,
+              index: idx,
+              id: tc.id || prev.id,
+              type: tc.type || prev.type,
+              ...(tc.function ? { function: tc.function } : {}),
+            });
           }
         }
         if (Object.keys(outDelta).length) {
@@ -294,14 +316,29 @@ export async function pipeNestedSseToOpenAI(upstreamRes, res, { model = "auto", 
           writeChunk(outDelta);
         }
         eventName = "message";
-      } catch {
+      } catch (err) {
+        console.error("[sse] frame parse failed", {
+          model,
+          eventCount,
+          error: err?.message || String(err),
+        });
         eventName = "message";
-        // ignore parse errors for non-data frames
       }
     }
   }
 
   if (sawError) {
+    console.error("[sse] upstream provider error", {
+      model,
+      eventCount,
+      code: sawError.code || sawError.type || "upstream_error",
+      type: sawError.type || "api_error",
+      message: String(sawError.message || sawError.localizedMessage || "").slice(0, 300),
+      contentLength: content.length,
+      reasoningLength: reasoning.length,
+      toolCallCount: toolCallsByIndex.size,
+      finishReason,
+    });
     const formatted = formatUpstreamError(sawError);
     throw new Error(
       formatted.code + ": " + formatted.message,

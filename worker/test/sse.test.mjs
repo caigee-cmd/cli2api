@@ -102,3 +102,30 @@ test("finishes a valid stream that ends without upstream DONE", async () => {
   const result = await pipeNestedSseToOpenAI(upstream, res, { model: "minimax-m3" });
   assert.equal(result.content, "partial");
 });
+
+
+test("normalizes missing tool call indexes and ids", async () => {
+  const nested = (body) => "data: " + JSON.stringify({ body: JSON.stringify(body) }) + "\n";
+  const upstream = {
+    body: new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(nested({ choices: [{ delta: { tool_calls: [
+          { function: { name: "tool_a", arguments: "{}" } },
+          { function: { name: "tool_b", arguments: "{}" } },
+        ] } }] }) + nested({ choices: [{ delta: {}, finish_reason: "tool_calls" }] }) + "data: \"[DONE]\"\n"));
+        controller.close();
+      },
+    }),
+  };
+  let output = "";
+  const res = { write(chunk) { output += chunk; } };
+
+  await pipeNestedSseToOpenAI(upstream, res, { model: "minimax-m3" });
+  const lines = output.split("\n").filter((line) => line.startsWith("data: ") && !line.includes("[DONE]"));
+  const toolChunk = lines.map((line) => JSON.parse(line.slice(6))).find((chunk) => chunk.choices?.[0]?.delta?.tool_calls);
+  const calls = toolChunk.choices[0].delta.tool_calls;
+  assert.deepEqual(calls.map((call) => call.index), [0, 1]);
+  assert.ok(calls[0].id);
+  assert.ok(calls[1].id);
+  assert.notEqual(calls[0].id, calls[1].id);
+});
