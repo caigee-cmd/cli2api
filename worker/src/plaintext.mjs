@@ -356,7 +356,7 @@ function normalizeMessagesForUpstream(messages = []) {
           return normalizedCall;
         });
         currentBatch = out.tool_calls.map((toolCall) => toolCall.id);
-        if (!out.content) out.content = null;
+        if (!out.content) out.content = "";
       } else {
         currentBatch = [];
       }

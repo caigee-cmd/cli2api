@@ -278,6 +278,7 @@ test("normalizes tool result content while preserving call ids", () => {
     },
     { role: "tool", tool_call_id: "call_a", content: { output: "ok" } },
   ]);
+  assert.equal(messages[0].content, "");
   assert.equal(messages[1].tool_call_id, "call_a");
   assert.equal(messages[1].content, '{"output":"ok"}');
 });
