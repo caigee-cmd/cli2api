@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { Button, Chip, Input } from '@heroui/react'
-import { Copy, ExternalLink, KeyRound, Plus, Power, RefreshCw, ShieldCheck, Trash2, UserRound } from 'lucide-react'
+import { Button, Chip, Input, Modal } from '@heroui/react'
+import { Copy, ArrowSquareOut, Key, Plus, Power, ArrowClockwise, ShieldCheck, TrashSimple, UserCircle, WarningCircle, X } from '@phosphor-icons/react'
 import { AddAccountModal } from '@/components/AddAccountModal'
 import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
@@ -14,6 +14,7 @@ import {
   updateAccount,
 } from '@/api/overview'
 import type { Overview } from '@/api/types'
+import { AccountsPageSkeleton } from '@/components/ui/PageSkeletons'
 
 type AccountRow = NonNullable<Overview['accounts']>[number]
 type BusyKind = 'create' | 'import' | 'device' | 'pat' | 'rewarm' | 'toggle' | 'delete' | 'export'
@@ -44,7 +45,11 @@ export function AccountsPage() {
   const [patById, setPatById] = useState<Record<string, string>>({})
   const [noteById, setNoteById] = useState<Record<string, string>>({})
   const [urlById, setUrlById] = useState<Record<string, string>>({})
+  const [confirmId, setConfirmId] = useState<string | null>(null)
   const signedCount = rows.filter((account) => account.hot).length
+  const confirmAccount = rows.find((account) => account.id === confirmId)
+
+  if (loading && !overview) return <AccountsPageSkeleton />
 
   async function run(id: string, kind: BusyKind, action: () => Promise<void>) {
     setBusy({ id, kind })
@@ -111,18 +116,43 @@ export function AccountsPage() {
 
       <AddAccountModal isOpen={addOpen} onClose={() => setAddOpen(false)} onAdded={refresh} />
 
+      <Modal.Root isOpen={Boolean(confirmAccount)} onOpenChange={(next: boolean) => { if (!next) setConfirmId(null) }}>
+        <Modal.Backdrop variant="blur">
+          <Modal.Container placement="center" size="sm">
+            <Modal.Dialog aria-label={t('delete')}>
+              <Modal.Header className="items-start justify-between gap-4">
+                <div className="flex items-center gap-2"><WarningCircle size={18} className="text-[var(--app-danger)]" /><Modal.Heading className="text-base font-semibold">{t('delete')}</Modal.Heading></div>
+                <Modal.CloseTrigger aria-label={t('close')} className="grid size-8 place-items-center rounded-lg text-[var(--app-muted)] hover:bg-[var(--app-surface-muted)]"><X size={16} /></Modal.CloseTrigger>
+              </Modal.Header>
+              <Modal.Body className="pt-0">
+                <p className="text-sm leading-6 text-[var(--app-muted)]">{t('deleteAccountConfirm', { name: confirmAccount?.name || confirmAccount?.id || '' })}</p>
+              </Modal.Body>
+              <Modal.Footer className="justify-end">
+                <Button variant="ghost" onPress={() => setConfirmId(null)}>{t('cancel')}</Button>
+                <Button variant="danger" isPending={busy?.id === confirmId && busy.kind === 'delete'} onPress={() => {
+                  if (!confirmAccount) return
+                  const id = confirmAccount.id
+                  setConfirmId(null)
+                  void run(id, 'delete', async () => { await deleteAccount(id); await refresh() })
+                }}>{t('delete')}</Button>
+              </Modal.Footer>
+            </Modal.Dialog>
+          </Modal.Container>
+        </Modal.Backdrop>
+      </Modal.Root>
+
 
       {!loading && !rows.length ? (
-        <div className="grid min-h-64 place-items-center rounded-xl border border-dashed border-[var(--app-line-strong)] text-center">
+        <div className="grid min-h-64 place-items-center rounded-lg border border-dashed border-[var(--app-line-strong)] text-center">
           <div>
-            <UserRound size={22} className="mx-auto text-[var(--app-faint)]" />
+            <UserCircle size={22} className="mx-auto text-[var(--app-faint)]" />
             <div className="mt-4 text-sm font-medium">{t('noAccounts')}</div>
             <div className="mt-1 text-xs text-[var(--app-faint)]">{t('accountEmptyHint')}</div>
           </div>
         </div>
       ) : null}
 
-      <section className="overflow-hidden rounded-xl border border-[var(--app-line)] bg-[var(--app-surface)]">
+      <section className="overflow-hidden rounded-lg border border-[var(--app-line)] bg-[var(--app-surface)]">
         {rows.map((account, index) => {
           const thisBusy = busy?.id === account.id ? busy.kind : ''
           const authUrl = urlById[account.id]
@@ -170,8 +200,8 @@ export function AccountsPage() {
                     <Button size="sm" variant="secondary" isPending={thisBusy === 'export'} onPress={() => void onExport(account.id)}><Copy size={14} />{t('export')}</Button>
                   ) : null}
                   <Button size="sm" variant="danger" isPending={thisBusy === 'delete'} onPress={() => {
-                    if (window.confirm(`${t('delete')} ${account.name || account.id}?`)) void run(account.id, 'delete', async () => { await deleteAccount(account.id); await refresh() })
-                  }}><Trash2 size={14} />{t('delete')}</Button>
+                    setConfirmId(account.id)
+                  }}><TrashSimple size={14} />{t('delete')}</Button>
                 </div>
               </div>
 
@@ -181,15 +211,15 @@ export function AccountsPage() {
                     <div className="mb-2 text-[10px] font-semibold tracking-[0.1em] text-[var(--app-faint)] uppercase">{t('oauthDeviceFlow')}</div>
                     <div className="flex flex-wrap gap-2">
                       <Button size="sm" isPending={thisBusy === 'device'} onPress={() => void onDeviceLogin(account.id)}><ShieldCheck size={14} />{t('startBrowserLogin')}</Button>
-                      <Button size="sm" variant="secondary" isPending={thisBusy === 'rewarm'} onPress={() => void run(account.id, 'rewarm', async () => { await rewarmWorker(account.id); await refresh() })}><RefreshCw size={14} />{t('rewarm')}</Button>
-                      {authUrl ? <Button size="sm" variant="ghost" onPress={() => window.open(authUrl, '_blank', 'noopener,noreferrer')}><ExternalLink size={14} />{t('open')}</Button> : null}
+                      <Button size="sm" variant="secondary" isPending={thisBusy === 'rewarm'} onPress={() => void run(account.id, 'rewarm', async () => { await rewarmWorker(account.id); await refresh() })}><ArrowClockwise size={14} />{t('rewarm')}</Button>
+                      {authUrl ? <Button size="sm" variant="ghost" onPress={() => window.open(authUrl, '_blank', 'noopener,noreferrer')}><ArrowSquareOut size={14} />{t('open')}</Button> : null}
                     </div>
                   </div>
                   <div>
                     <div className="mb-2 text-[10px] font-semibold tracking-[0.1em] text-[var(--app-faint)] uppercase">{t('patFallback')}</div>
                     <div className="flex flex-col gap-2 sm:flex-row">
                       <Input type="password" value={patById[account.id] || ''} onChange={(event) => setPatById((current) => ({ ...current, [account.id]: event.target.value }))} placeholder={t('pasteToken')} aria-label={t('pat')} />
-                      <Button size="sm" variant="secondary" isPending={thisBusy === 'pat'} onPress={() => void onPat(account.id)}><KeyRound size={14} />{t('usePat')}</Button>
+                      <Button size="sm" variant="secondary" isPending={thisBusy === 'pat'} onPress={() => void onPat(account.id)}><Key size={14} />{t('usePat')}</Button>
                     </div>
                   </div>
                 </div>

@@ -13,7 +13,8 @@
   "dependencies": {
     "@heroui/react": "^3.2.4",
     "@heroui/styles": "^3.2.4",
-    "lucide-react": "^1.33.0",
+    "@phosphor-icons/react": "^2.1.10",
+    "gsap": "^3.15.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-router-dom": "^7.18.2"

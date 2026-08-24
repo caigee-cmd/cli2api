@@ -37,7 +37,7 @@ cd cli2api
 
 启动脚本会自动创建 `deploy/.env`，优先启动已发布镜像；镜像不可用时会自动从源码构建。
 
-首次启动时，如果没有设置 `PROXY_API_KEY`，服务会生成一个随机 API Key，保存到 SQLite，并在日志中打印一次。请先保存它：
+首次启动时，服务会生成一个随机 API Key，保存到 SQLite，并在日志中打印一次。请先保存它：
 
 ```bash
 docker compose --env-file deploy/.env -f deploy/docker-compose.yml logs qoder-api-proxy
@@ -53,16 +53,16 @@ docker compose --env-file deploy/.env -f deploy/docker-compose.yml logs qoder-ap
 
 ```text
 Base URL: http://127.0.0.1:3010/v1
-API Key:  <首次启动时生成或设置的 PROXY_API_KEY>
+API Key:  <首次启动时生成的 Key>
 ```
 
 也可以直接发送一个请求：
 
 ```bash
-export PROXY_API_KEY='粘贴首次启动时输出的密钥'
+export CLI2API_API_KEY='粘贴首次启动时输出的密钥'
 
 curl http://127.0.0.1:3010/v1/chat/completions \
-  -H "Authorization: Bearer $PROXY_API_KEY" \
+  -H "Authorization: Bearer $CLI2API_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "qwen3.7-plus",
@@ -112,13 +112,12 @@ OpenAI 客户端
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `PROXY_API_KEY` | 可选 | 首次启动种子值；留空则自动生成并写入 SQLite |
 | `QODER_DATA_DIR` | `/data` | SQLite 数据库和持久化账号凭证 |
 | `QODER_RUNTIME_DIR` | `/run/cli2api` | 临时的账号 Qoder 运行目录 |
 | `QODER_MAX_INFLIGHT` | `4` | 单账号最大并发请求数 |
 | `QODER_WORKER_BASE_PORT` | `32100` | 内部 worker 端口起点 |
 
-API Key 以 SQLite 中的值为准。`PROXY_API_KEY` 只用于首次启动时提供可选的种子值；数据库已有密钥后会忽略它。
+API Key 首次生成后只保存在 SQLite 中。服务不再支持通过环境变量设置或轮换 API Key。
 
 ## 接口
 
@@ -171,14 +170,13 @@ docker compose up -d --build
 
 - [架构、登录、路由和控制台设计](docs/DESIGN.md)
 - [当前里程碑与开发计划](docs/PLAN.md)
-- [脱敏后的协议记录](docs/capture-notes.md)
 - [Docker Compose 部署说明](deploy/README.md)
 - [变更记录](CHANGELOG.md)
 - [安全问题报告](SECURITY.md)
 
 ## 安全与隐私
 
-- 不要在没有 `PROXY_API_KEY` 的情况下暴露服务。
+- 不要在没有 API Key 保护的情况下暴露服务。
 - 不要提交 `.qoder`、Token、Cookie、登录 Blob、原始抓包或主机信息。
 - 账号凭证导出是显式敏感操作，请妥善保管导出文件。
 - 上游 API 或 Qoder CLI 更新可能导致兼容性变化；项目会固定并检查 qodercli 版本。

@@ -314,8 +314,6 @@ async function prepareUpstream(reqBody) {
     toolDiagnostics: serializeToolDiagnostics(diagnoseOpenAIToolHistory(reqBody.messages || [], reqBody.tools || [])),
     normalizedToolHistory: JSON.stringify(summarizeNormalizedToolHistory(plain.messages || [])),
     stream: !!reqBody.stream,
-    systemPreview: String(plain.system || "").slice(0, 200),
-    reqSystemPreview: reqSystemJoined.slice(0, 200),
   });
   // Soft guard: Aliyun/Qoder often returns insufficient_quota when input is too large.
   const maxApprox = Number(process.env.QODER_MAX_APPROX_PROMPT_TOKENS || 120000);

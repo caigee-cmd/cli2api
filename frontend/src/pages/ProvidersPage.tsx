@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react'
 import { Button, Card, Chip, Input, Table } from '@heroui/react'
-import { Box, RefreshCw, RotateCcw, Save, Search } from 'lucide-react'
+import { Cube, ArrowClockwise, ArrowCounterClockwise, FloppyDisk, MagnifyingGlass } from '@phosphor-icons/react'
 import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
 import { refreshModels, updateModelContext } from '@/api/overview'
 import type { Overview } from '@/api/types'
+import { ProvidersPageSkeleton } from '@/components/ui/PageSkeletons'
 
 type ModelInfo = NonNullable<Overview['models']>[number]
 
@@ -19,7 +20,7 @@ function routedModelName(model: ModelInfo) {
 
 export function ProvidersPage() {
   const { t } = useI18n()
-  const { overview, setOverview } = useOverview()
+  const { overview, loading, setOverview } = useOverview()
   const [filter, setFilter] = useState('')
   const [busy, setBusy] = useState(false)
   const [savingKey, setSavingKey] = useState('')
@@ -33,6 +34,8 @@ export function ProvidersPage() {
     if (!query) return models
     return models.filter((model) => `${model.display_name || ''} ${model.id} ${model.mapped_key || ''}`.toLowerCase().includes(query))
   }, [filter, models])
+
+  if (loading && !overview) return <ProvidersPageSkeleton />
 
   function updateModelInOverview(model: ModelInfo, result: Awaited<ReturnType<typeof updateModelContext>>) {
     const key = modelSettingsKey(model)
@@ -117,7 +120,7 @@ export function ProvidersPage() {
         <div className="flex flex-col gap-2 sm:flex-row">
           <Input className="sm:w-72" value={filter} onChange={(event) => setFilter(event.target.value)} placeholder={t('filterPh')} aria-label={t('filter')} />
           <Button variant="secondary" isPending={busy} onPress={() => void onRefresh()}>
-            <RefreshCw size={15} />
+            <ArrowClockwise size={15} />
             {busy ? t('refreshing') : t('refresh')}
           </Button>
         </div>
@@ -127,10 +130,10 @@ export function ProvidersPage() {
         ? 'rounded-lg border border-[color:color-mix(in_srgb,var(--app-danger)_28%,transparent)] bg-[color:color-mix(in_srgb,var(--app-danger)_8%,transparent)] px-4 py-3 text-sm text-[var(--app-danger)]'
         : 'rounded-lg border border-[color:color-mix(in_srgb,var(--accent)_24%,transparent)] bg-[color:color-mix(in_srgb,var(--accent)_7%,transparent)] px-4 py-3 text-sm text-[var(--app-muted)]'}>{message}</div> : null}
 
-      <Card className="app-panel-flat overflow-hidden rounded-xl p-0 shadow-none">
+      <Card className="app-panel-flat overflow-hidden rounded-lg p-0 shadow-none">
         <div className="flex items-center justify-between gap-4 border-b border-[var(--app-line)] px-5 py-4">
           <div className="flex items-center gap-3">
-            <div className="grid size-9 place-items-center rounded-lg bg-[var(--app-surface-muted)] text-[var(--app-muted)]"><Box size={16} /></div>
+            <div className="grid size-9 place-items-center rounded-lg bg-[var(--app-surface-muted)] text-[var(--app-muted)]"><Cube size={16} /></div>
             <div>
               <div className="text-sm font-semibold">{t('providerCatalog')}</div>
               <div className="mono mt-0.5 text-[10px] text-[var(--app-faint)]">{t('contextConfigHint')}</div>
@@ -142,7 +145,7 @@ export function ProvidersPage() {
         {filtered.length === 0 ? (
           <div className="grid min-h-72 place-items-center px-6 py-12 text-center">
             <div>
-              <Search size={22} className="mx-auto text-[var(--app-faint)]" />
+              <MagnifyingGlass size={22} className="mx-auto text-[var(--app-faint)]" />
               <div className="mt-4 text-sm font-medium">{models.length ? t('noModelsMatch') : t('noProviders')}</div>
               <div className="mt-1 text-xs text-[var(--app-faint)]">{models.length ? filter : t('noModelsYet')}</div>
             </div>
@@ -199,10 +202,10 @@ export function ProvidersPage() {
                         <Table.Cell>
                           <div className="flex items-center gap-2">
                             <Button size="sm" variant="secondary" isPending={saving} onPress={() => void onSave(model)}>
-                              <Save size={14} />{t('save')}
+                              <FloppyDisk size={14} />{t('save')}
                             </Button>
                             <Button size="sm" variant="ghost" isDisabled={saving || !model.context_custom} onPress={() => void onReset(model)} aria-label={t('resetDefault')}>
-                              <RotateCcw size={14} />
+                              <ArrowCounterClockwise size={14} />
                             </Button>
                           </div>
                         </Table.Cell>

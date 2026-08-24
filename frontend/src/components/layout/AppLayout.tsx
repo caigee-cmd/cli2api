@@ -20,19 +20,21 @@ export function AppLayout() {
   const copy = page(key)
 
   return (
-    <div className="relative min-h-dvh bg-[var(--app-bg)] text-[var(--app-ink)]">
+    <div className="relative flex h-dvh overflow-hidden bg-[var(--app-bg)] text-[var(--app-ink)]">
       <div className="noise" aria-hidden />
-      <div className="relative z-10 grid min-h-dvh lg:grid-cols-[248px_minmax(0,1fr)]">
+      <div className="relative z-10 flex min-h-0 min-w-0 flex-1">
         <AppSidebar mobileOpen={mobileOpen} onClose={() => setMobileOpen(false)} />
-        <div className="min-w-0">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <AppHeader
             title={copy.title}
             desc={copy.desc}
             onMenu={() => setMobileOpen(true)}
           />
-          <main className="mx-auto w-full max-w-[1480px] px-4 pb-12 pt-5 sm:px-6 lg:px-8 lg:pb-16 lg:pt-7">
-            <div className="page-enter" key={location.pathname}>
-              <Outlet />
+          <main className="min-h-0 flex-1 overflow-y-auto">
+            <div className="mx-auto w-full max-w-[1480px] px-4 pb-12 pt-5 sm:px-6 lg:px-8 lg:pb-16 lg:pt-7">
+              <div className="page-enter" key={location.pathname}>
+                <Outlet />
+              </div>
             </div>
           </main>
         </div>

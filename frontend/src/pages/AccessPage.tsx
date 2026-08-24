@@ -1,14 +1,15 @@
 import { useMemo, useState } from 'react'
 import { Button, Card, Chip, Input, Label, ListBox, Select, TextArea } from '@heroui/react'
-import { Check, Copy, Play, TerminalSquare } from 'lucide-react'
+import { Check, Copy, Play, TerminalWindow } from '@phosphor-icons/react'
 import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
 import { testChat } from '@/api/overview'
 import { absUrl } from '@/lib/url'
+import { AccessPageSkeleton } from '@/components/ui/PageSkeletons'
 
 export function AccessPage() {
   const { t } = useI18n()
-  const { overview } = useOverview()
+  const { overview, loading } = useOverview()
   const models = overview?.models || []
   const accounts = overview?.accounts || []
   const base = absUrl(overview?.access?.openai_base_url || '/v1')
@@ -22,12 +23,14 @@ export function AccessPage() {
 
   const curl = useMemo(
     () => `curl -s ${base}/chat/completions \\
-  -H "Authorization: Bearer $PROXY_API_KEY" \\
+  -H "Authorization: Bearer $CLI2API_API_KEY" \\
   -H "Content-Type: application/json"${selectedAccount ? ` \\
   -H "X-Qoder-Account: ${selectedAccount}"` : ''} \\
   -d '{"model":"${model || 'qwen3.7-plus'}","messages":[{"role":"user","content":"${prompt || '只回复OK'}"}]}'`,
     [base, model, prompt, selectedAccount],
   )
+
+  if (loading && !overview) return <AccessPageSkeleton />
 
   async function copy(value: string, kind: 'base' | 'curl') {
     await navigator.clipboard.writeText(value)
@@ -61,10 +64,10 @@ export function AccessPage() {
 
       <section className="grid gap-5 xl:grid-cols-[minmax(0,.9fr)_minmax(0,1.1fr)]">
         <div className="space-y-5">
-          <Card className="app-panel-flat overflow-hidden rounded-xl p-0 shadow-none">
+          <Card className="app-panel-flat overflow-hidden rounded-lg p-0 shadow-none">
             <div className="flex items-center justify-between border-b border-[var(--app-line)] px-5 py-4">
               <div className="flex items-center gap-3">
-                <div className="grid size-9 place-items-center rounded-lg bg-[var(--app-surface-muted)] text-[var(--app-muted)]"><TerminalSquare size={16} /></div>
+                <div className="grid size-9 place-items-center rounded-lg bg-[var(--app-surface-muted)] text-[var(--app-muted)]"><TerminalWindow size={16} /></div>
                 <div>
                   <div className="text-sm font-semibold">{t('clientConfig')}</div>
                   <div className="mt-0.5 text-xs text-[var(--app-faint)]">{t('clientConfigHint')}</div>
@@ -85,12 +88,12 @@ export function AccessPage() {
               </div>
               <div className="grid gap-2 px-5 py-4 sm:grid-cols-[120px_minmax(0,1fr)]">
                 <dt className="text-xs text-[var(--app-faint)]">{t('authentication')}</dt>
-                <dd className="mono text-xs font-medium sm:text-right">Bearer $PROXY_API_KEY</dd>
+                <dd className="mono text-xs font-medium sm:text-right">Bearer $CLI2API_API_KEY</dd>
               </div>
             </dl>
           </Card>
 
-          <Card className="app-panel-flat overflow-hidden rounded-xl p-0 shadow-none">
+          <Card className="app-panel-flat overflow-hidden rounded-lg p-0 shadow-none">
             <div className="flex items-center justify-between border-b border-[var(--app-line)] px-5 py-3.5">
               <div className="mono text-[10px] font-semibold tracking-[0.08em] text-[var(--app-faint)] uppercase">{t('curlExample')}</div>
               <Button size="sm" variant="ghost" onPress={() => void copy(curl, 'curl')}>
@@ -102,7 +105,7 @@ export function AccessPage() {
           </Card>
         </div>
 
-        <Card className="app-panel overflow-hidden rounded-xl p-0 shadow-none">
+        <Card className="app-panel overflow-hidden rounded-lg p-0 shadow-none">
           <div className="flex items-center justify-between gap-4 border-b border-[var(--app-line)] px-5 py-4">
             <div>
               <h3 className="font-semibold tracking-[-0.015em]">{t('quickTest')}</h3>

@@ -44,8 +44,9 @@ func New(cfg config.Config) *Server {
 		panic(err)
 	}
 	if initialized {
-		log.Printf("[security] initialized PROXY_API_KEY and stored it in SQLite: %s", proxyAPIKey)
+		log.Printf("[security] initialized API key and stored it in SQLite: %s", proxyAPIKey)
 	}
+	cfg.ProxyAPIKey = proxyAPIKey
 	runtimeDir := cfg.RuntimeDir
 	if runtimeDir == "" {
 		runtimeDir = filepath.Join("/tmp", "cli2api-runtime")
@@ -147,7 +148,7 @@ func (s *Server) routes() {
 func (s *Server) withAPIKey(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !s.auth.Authorized(r) {
-			writeErr(w, http.StatusUnauthorized, "invalid_api_key", "Missing/invalid PROXY_API_KEY")
+			writeErr(w, http.StatusUnauthorized, "invalid_api_key", "Missing/invalid API key")
 			return
 		}
 		next(w, r)
@@ -195,7 +196,7 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		"access": map[string]any{
 			"openai_base_url": "/v1", "chat_completions": endpoint.ChatCompletionsPath,
 			"models": endpoint.ModelsPath, "health": endpoint.HealthPath,
-			"hint": "Console APIs and /v1 both require PROXY_API_KEY when it is set.",
+			"hint": "Console APIs and /v1 require the API key stored in SQLite.",
 		},
 		"ui": map[string]any{
 			"needs_api_key_for_chat":        s.cfg.ProxyAPIKey != "",

@@ -8,7 +8,6 @@ services:
     environment:
       HOST: "0.0.0.0"
       PORT: "3010"
-      PROXY_API_KEY: "${PROXY_API_KEY:-}"
       QODER_DATA_DIR: "/data"
       QODER_RUNTIME_DIR: "/run/cli2api"
       QODER_WORKER_BASE_PORT: "${QODER_WORKER_BASE_PORT:-32100}"

@@ -64,8 +64,8 @@ export function testChat(model: string, content: string, accountId?: string) {
 }
 
 
-export function createAccount(name: string) {
-  return api('/api/accounts', { method: 'POST', body: JSON.stringify({ name, enabled: true, max_inflight: 4 }) })
+export function createAccount(name: string, provider = 'qoder-global') {
+  return api('/api/accounts', { method: 'POST', body: JSON.stringify({ name, provider, enabled: true, max_inflight: 4 }) })
 }
 
 export function updateAccount(accountId: string, input: Record<string, unknown>) {

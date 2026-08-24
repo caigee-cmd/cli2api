@@ -6,6 +6,7 @@ dist/
 capture-raw/
 docs/PRIVATE_DEPLOYMENT.md
 docs/private/
+docs/capture-notes.md
 frontend/node_modules/
 frontend/dist/
 web/

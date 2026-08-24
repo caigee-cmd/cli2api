@@ -7,8 +7,8 @@ cd ..
 ./scripts/start.sh
 ```
 
-The launcher creates `deploy/.env` if needed. Leave `PROXY_API_KEY` blank to let
-the first startup generate a random key, store it in SQLite, and print it once.
+The launcher creates `deploy/.env` if needed. The first startup generates a
+random key, stores it in SQLite, and prints it once.
 The deployment is one container containing the Go control plane, Node runtime,
 pinned qodercli, and frontend. SQLite and account credentials persist in the
 `qoder-data` volume; per-account Qoder runtime homes use tmpfs.
@@ -38,5 +38,5 @@ For another container on the same Docker network:
 
 ```text
 base_url = http://qoder-api-proxy:3010/v1
-api_key  = <same as PROXY_API_KEY>
+api_key  = <same key printed on first startup>
 ```

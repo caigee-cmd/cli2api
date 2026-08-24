@@ -35,7 +35,6 @@ func Load() (Config, error) {
 	if host == "" {
 		host = "127.0.0.1"
 	}
-	key := strings.TrimSpace(os.Getenv("PROXY_API_KEY"))
 	workerBasePort := 32100
 	if v := strings.TrimSpace(os.Getenv("QODER_WORKER_BASE_PORT")); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
@@ -57,7 +56,7 @@ func Load() (Config, error) {
 	return Config{
 		Host:              host,
 		Port:              port,
-		ProxyAPIKey:       key,
+		ProxyAPIKey:       "",
 		QoderHome:         home,
 		DataDir:           dataDir,
 		RuntimeDir:        runtimeDir,

@@ -26,7 +26,7 @@ Do:
 Do not:
 
 - Spawn a full `qodercli` agent per request
-- Public exposure without `PROXY_API_KEY`
+- Public exposure without the generated API key
 - Commercial multi-user resale of one login
 - Cursor / other CLI providers in this milestone
 - Commit host IPs, passwords, auth blobs, or `docs/PRIVATE_DEPLOYMENT.md`
@@ -76,7 +76,7 @@ Sub2API-style SQLite account registry while preserving the working Qoder executi
 - [x] Add browser OAuth, PAT, native credential import/export endpoints
 - [x] Add account creation and import UI using HeroUI only
 - [x] Show UID, auth type, enabled state, runtime status, cooldown, and last error
-- [x] Require `PROXY_API_KEY` for every account and credential operation
+- [x] Require the generated API key for every account and credential operation
 - [x] Persist per-model context-window defaults and edit them from the Models page
 - [x] Normalize public model IDs while preserving Qoder display names and internal routing keys
 

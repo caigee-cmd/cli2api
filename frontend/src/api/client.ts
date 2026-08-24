@@ -15,7 +15,7 @@ export class ApiError extends Error {
 export function isUnauthorized(err: unknown) {
   if (err instanceof ApiError) return err.status === 401 || err.code === 'invalid_api_key'
   const msg = err instanceof Error ? err.message : String(err || '')
-  return /invalid_api_key|unauthorized|Missing\/invalid PROXY_API_KEY/i.test(msg)
+  return /invalid_api_key|unauthorized|Missing\/invalid API key/i.test(msg)
 }
 
 export async function api<T = any>(path: string, opts: RequestInit = {}, keyOverride?: string): Promise<T> {

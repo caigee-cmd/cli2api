@@ -1,4 +1,4 @@
-import { LogOut, Menu, Moon, RefreshCw, Sun } from 'lucide-react'
+import { SignOut, List, Moon, ArrowClockwise, Sun } from '@phosphor-icons/react'
 import { Button, ButtonGroup, Tooltip } from '@heroui/react'
 import { useNavigate } from 'react-router-dom'
 import { useI18n } from '@/hooks/useI18n'
@@ -23,10 +23,10 @@ export function AppHeader({
   const ready = Boolean(overview?.worker?.ok)
 
   return (
-    <header className="sticky top-0 z-20 border-b border-[var(--app-line)] bg-[color:color-mix(in_srgb,var(--app-bg)_94%,transparent)]">
+    <header className="relative z-20 shrink-0 border-b border-[var(--app-line)] bg-[var(--app-bg)]">
       <div className="mx-auto flex w-full max-w-[1480px] items-center gap-4 px-4 py-3 sm:px-6 lg:px-8">
         <Button isIconOnly size="sm" variant="ghost" className="lg:hidden" onPress={onMenu} aria-label={t('menu')}>
-          <Menu size={17} />
+          <List size={17} />
         </Button>
 
         <div className="min-w-0 flex-1">
@@ -37,7 +37,7 @@ export function AppHeader({
           </div>
         </div>
 
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1 sm:gap-1.5">
           <ButtonGroup className="hidden sm:flex">
             <Button size="sm" variant={lang === 'zh' ? 'primary' : 'secondary'} onPress={() => setLang('zh')}>中</Button>
             <Button size="sm" variant={lang === 'en' ? 'primary' : 'secondary'} onPress={() => setLang('en')}>EN</Button>
@@ -53,7 +53,7 @@ export function AppHeader({
           <Tooltip>
             <Tooltip.Trigger>
               <Button isIconOnly size="sm" variant="secondary" isPending={loading} onPress={() => void refresh().catch(() => undefined)} aria-label={t('refresh')}>
-                <RefreshCw size={16} />
+                <ArrowClockwise size={16} />
               </Button>
             </Tooltip.Trigger>
             <Tooltip.Content>{t('refresh')}</Tooltip.Content>
@@ -70,7 +70,7 @@ export function AppHeader({
                 }}
                 aria-label={t('signOut')}
               >
-                <LogOut size={16} />
+                <SignOut size={16} />
               </Button>
             </Tooltip.Trigger>
             <Tooltip.Content>{t('signOut')}</Tooltip.Content>

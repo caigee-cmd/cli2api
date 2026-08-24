@@ -37,7 +37,7 @@ cd cli2api
 
 The launcher creates `deploy/.env` when needed, starts the published image, and builds locally if the image is unavailable.
 
-On first startup, if `PROXY_API_KEY` is empty, the service generates a random API key, stores it in SQLite, and prints it once in the logs. Save it first:
+On first startup, the service generates a random API key, stores it in SQLite, and prints it once in the logs. Save it first:
 
 ```bash
 docker compose --env-file deploy/.env -f deploy/docker-compose.yml logs qoder-api-proxy
@@ -53,16 +53,16 @@ Configure your client with:
 
 ```text
 Base URL: http://127.0.0.1:3010/v1
-API Key:  <the generated or configured PROXY_API_KEY>
+API Key:  <the generated key printed on first startup>
 ```
 
 Or make a direct request:
 
 ```bash
-export PROXY_API_KEY='paste-the-key-printed-on-first-start'
+export CLI2API_API_KEY='paste-the-key-printed-on-first-start'
 
 curl http://127.0.0.1:3010/v1/chat/completions \
-  -H "Authorization: Bearer $PROXY_API_KEY" \
+  -H "Authorization: Bearer $CLI2API_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "qwen3.7-plus",
@@ -112,13 +112,12 @@ Each enabled account gets its own Node process and runtime directory so Qoder WA
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `PROXY_API_KEY` | optional | First-run bootstrap value; blank generates and stores the key in SQLite |
 | `QODER_DATA_DIR` | `/data` | SQLite database and durable account credentials |
 | `QODER_RUNTIME_DIR` | `/run/cli2api` | Ephemeral per-account Qoder runtime homes |
 | `QODER_MAX_INFLIGHT` | `4` | Maximum concurrent requests per account |
 | `QODER_WORKER_BASE_PORT` | `32100` | Internal worker port range |
 
-The API key in SQLite is authoritative. `PROXY_API_KEY` is only an optional first-run bootstrap value and is ignored after a key already exists in the database.
+The API key is generated once and stored in SQLite. There is no environment-variable bootstrap path; changing container environment variables does not replace the stored key.
 
 ## Endpoints
 
@@ -171,14 +170,13 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for repository rules and validation detai
 
 - [Architecture, login, routing, and console design](docs/DESIGN.md)
 - [Current milestone and development plan](docs/PLAN.md)
-- [Redacted protocol notes](docs/capture-notes.md)
 - [Docker Compose deployment](deploy/README.md)
 - [Changelog](CHANGELOG.md)
 - [Security policy](SECURITY.md)
 
 ## Security and privacy
 
-- Never expose the service without `PROXY_API_KEY`.
+- Never expose the service without the generated API key.
 - Never commit `.qoder`, tokens, cookies, auth blobs, raw captures, or host details.
 - Credential export is an explicit sensitive operation; protect exported files.
 - Upstream API or Qoder CLI changes may break compatibility; qodercli is pinned and checked.

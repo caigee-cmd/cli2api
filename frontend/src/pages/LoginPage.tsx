@@ -1,12 +1,13 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { Button, ButtonGroup, Card, Chip, InputGroup } from '@heroui/react'
-import { ArrowRight, Eye, EyeOff, Moon, ServerCog, Sun } from 'lucide-react'
+import { ArrowRight, Eye, EyeSlash, Moon, HardDrives, Sun } from '@phosphor-icons/react'
 import { useI18n } from '@/hooks/useI18n'
 import { useApiKey } from '@/hooks/useApiKey'
 import { useOverview } from '@/hooks/useOverview'
 import { useTheme } from '@/hooks/useTheme'
 import { isUnauthorized } from '@/api/client'
+import { useGsapReveal } from '@/hooks/useGsapReveal'
 
 export function LoginPage() {
   const { t, lang, setLang } = useI18n()
@@ -20,6 +21,8 @@ export function LoginPage() {
   const navigate = useNavigate()
   const location = useLocation()
   const from = (location.state as { from?: string } | null)?.from || '/'
+  const pageRef = useRef<HTMLElement>(null)
+  useGsapReveal(pageRef, 'login')
 
   if (overview) return <Navigate to={from === '/login' ? '/' : from} replace />
 
@@ -47,12 +50,12 @@ export function LoginPage() {
     <div className="relative min-h-dvh overflow-hidden bg-[var(--app-bg)] text-[var(--app-ink)]">
       <div className="noise" aria-hidden />
       <div className="absolute inset-x-0 top-0 h-px bg-[var(--accent)] opacity-70" />
-      <main className="relative z-10 mx-auto grid min-h-dvh w-full max-w-[1480px] lg:grid-cols-[minmax(0,1.22fr)_minmax(420px,.78fr)]">
+      <main ref={pageRef} className="relative z-10 mx-auto grid min-h-dvh w-full max-w-[1480px] lg:grid-cols-[minmax(0,1.22fr)_minmax(420px,.78fr)]">
         <section className="flex min-h-[52vh] flex-col border-[var(--app-line)] px-5 py-6 sm:px-10 sm:py-8 lg:min-h-dvh lg:border-r lg:px-14 lg:py-10 xl:px-20">
           <header className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               <div className="grid size-10 place-items-center rounded-xl border border-[var(--accent-line)] bg-[var(--accent-soft)] text-[var(--accent)]">
-                <ServerCog size={19} />
+                <HardDrives size={19} />
               </div>
               <div>
                 <div className="font-semibold tracking-[-0.02em]">Qoder API Proxy</div>
@@ -71,16 +74,16 @@ export function LoginPage() {
           </header>
 
           <div className="my-auto max-w-3xl py-16 lg:py-24">
-            <div className="mb-5 flex items-center gap-3">
+            <div data-gsap-reveal className="mb-5 flex items-center gap-3">
               <Chip size="sm" variant="soft" color="success">LOCAL / PRIVATE</Chip>
               <span className="mono text-xs text-[var(--app-faint)]">:3010</span>
             </div>
-            <h1 className="max-w-3xl text-[clamp(2.4rem,5vw,4.2rem)] font-semibold leading-[0.98] tracking-[-0.045em] text-balance">
+            <h1 data-gsap-reveal className="max-w-3xl text-[clamp(2.25rem,4vw,3.6rem)] font-semibold leading-[0.98] tracking-[-0.045em] text-balance">
               {t('loginTitle')}
             </h1>
-            <p className="mt-6 max-w-xl text-base leading-7 text-[var(--app-muted)] sm:text-lg">{t('loginLead')}</p>
+            <p data-gsap-reveal className="mt-6 max-w-xl text-base leading-7 text-[var(--app-muted)] sm:text-lg">{t('loginLead')}</p>
 
-            <p className="mt-10 max-w-xl border-t border-[var(--app-line)] pt-5 text-sm leading-6 text-[var(--app-muted)]">
+            <p data-gsap-reveal className="mt-10 max-w-xl border-t border-[var(--app-line)] pt-5 text-sm leading-6 text-[var(--app-muted)]">
               {t('loginHint')}
             </p>
           </div>
@@ -92,7 +95,7 @@ export function LoginPage() {
         </section>
 
         <section className="flex items-center px-5 py-10 sm:px-10 lg:px-12 xl:px-16">
-          <Card className="app-panel w-full rounded-xl p-0 shadow-none">
+          <Card data-gsap-reveal className="app-panel w-full rounded-lg p-0 shadow-none">
             <form onSubmit={(event) => void onSubmit(event)}>
               <div className="border-b border-[var(--app-line)] px-6 py-6 sm:px-8">
                 <div className="flex items-center justify-between gap-3">
@@ -128,7 +131,7 @@ export function LoginPage() {
                         aria-label={showPassword ? t('hidePassword') : t('showPassword')}
                         onPress={() => setShowPassword((value) => !value)}
                       >
-                        {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                        {showPassword ? <EyeSlash size={16} /> : <Eye size={16} />}
                       </Button>
                     </InputGroup.Suffix>
                   </InputGroup>
