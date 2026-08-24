@@ -5,6 +5,7 @@
 - Add next-version-only managed updates through a Linux Unix Socket or authenticated macOS/Windows host updater
 - Refresh the account console with compact controls and accessible GSAP enable-state motion
 - Snapshot and verify SQLite before replacement, preserving the existing data volume
+- Preserve existing Docker network attachments across update and rollback recreation
 - Restore and re-pin the previous image plus SQLite snapshot when the new version fails health checks
 - Track immutable SQLite migrations with SHA256 checksums
 - Add native Windows PowerShell startup and current-user Scheduled Task installation

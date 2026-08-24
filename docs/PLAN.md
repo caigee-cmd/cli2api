@@ -93,6 +93,7 @@ Sub2API-style SQLite account registry while preserving the working Qoder executi
 - [x] Delegate Docker replacement to a host updater over Unix Socket on Linux or authenticated loopback HTTP on macOS/Windows
 - [x] Pause new API traffic, drain in-flight requests, and snapshot SQLite before replacement
 - [x] Preserve and verify the existing /data mount across container recreation
+- [x] Preserve existing Docker network attachments across update and rollback recreation
 - [x] Restore the previous image and SQLite snapshot when health checks fail
 - [x] Track immutable SQLite migrations by filename and SHA256 checksum
 - [x] Publish multi-architecture `linux/amd64` and `linux/arm64` images

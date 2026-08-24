@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -53,6 +54,11 @@ type containerInspect struct {
 		Source      string `json:"Source"`
 		Destination string `json:"Destination"`
 	} `json:"Mounts"`
+	NetworkSettings struct {
+		Networks map[string]struct {
+			Aliases []string `json:"Aliases"`
+		} `json:"Networks"`
+	} `json:"NetworkSettings"`
 }
 
 type dataMount struct {
@@ -120,27 +126,30 @@ func (e *Executor) Apply(ctx context.Context, _ string, request ApplyRequest, pr
 
 	progress("recreating")
 	if err := e.compose(ctx, "up", "-d", "--no-deps", "--force-recreate", e.config.ServiceName); err != nil {
-		return e.rollback(request, mount, currentImage, envMode, err, progress)
-	}
-	progress("checking")
-	if err := e.waitForVersion(ctx, request.TargetVersion); err != nil {
-		return e.rollback(request, mount, currentImage, envMode, err, progress)
+		return e.rollback(request, before, mount, currentImage, envMode, err, progress)
 	}
 	after, err := e.inspectContainer(ctx)
 	if err != nil {
-		return e.rollback(request, mount, currentImage, envMode, err, progress)
+		return e.rollback(request, before, mount, currentImage, envMode, err, progress)
+	}
+	if err := e.restoreNetworks(ctx, before, after); err != nil {
+		return e.rollback(request, before, mount, currentImage, envMode, err, progress)
+	}
+	progress("checking")
+	if err := e.waitForVersion(ctx, request.TargetVersion); err != nil {
+		return e.rollback(request, before, mount, currentImage, envMode, err, progress)
 	}
 	afterMount, err := findDataMount(after)
 	if err != nil || mountIdentity(afterMount) != mountIdentity(mount) {
 		if err == nil {
 			err = fmt.Errorf("/data mount changed during update")
 		}
-		return e.rollback(request, mount, currentImage, envMode, err, progress)
+		return e.rollback(request, before, mount, currentImage, envMode, err, progress)
 	}
 	return false, nil
 }
 
-func (e *Executor) rollback(request ApplyRequest, mount dataMount, currentImage string, envMode os.FileMode, cause error, progress func(string)) (bool, error) {
+func (e *Executor) rollback(request ApplyRequest, before containerInspect, mount dataMount, currentImage string, envMode os.FileMode, cause error, progress func(string)) (bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
@@ -155,6 +164,13 @@ func (e *Executor) rollback(request ApplyRequest, mount dataMount, currentImage 
 		return false, rollbackFailed(cause, err)
 	}
 	if err := e.compose(ctx, "up", "-d", "--no-deps", "--force-recreate", e.config.ServiceName); err != nil {
+		return false, rollbackFailed(cause, err)
+	}
+	after, err := e.inspectContainer(ctx)
+	if err != nil {
+		return false, rollbackFailed(cause, err)
+	}
+	if err := e.restoreNetworks(ctx, before, after); err != nil {
 		return false, rollbackFailed(cause, err)
 	}
 	if err := e.waitForVersion(ctx, request.CurrentVersion); err != nil {
@@ -210,6 +226,47 @@ func (e *Executor) inspectContainer(ctx context.Context) (containerInspect, erro
 		return containerInspect{}, fmt.Errorf("container %s not found", e.config.ContainerName)
 	}
 	return containers[0], nil
+}
+
+func (e *Executor) restoreNetworks(ctx context.Context, before, after containerInspect) error {
+	names := make([]string, 0, len(before.NetworkSettings.Networks))
+	for name := range before.NetworkSettings.Networks {
+		if _, exists := after.NetworkSettings.Networks[name]; !exists {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+
+	for _, name := range names {
+		args := []string{"network", "connect"}
+		aliases := uniqueSorted(before.NetworkSettings.Networks[name].Aliases)
+		for _, alias := range aliases {
+			args = append(args, "--alias", alias)
+		}
+		args = append(args, name, e.config.ContainerName)
+		if _, err := e.runner.Run(ctx, "docker", args...); err != nil {
+			return fmt.Errorf("restore docker network %s: %w", name, err)
+		}
+	}
+	return nil
+}
+
+func uniqueSorted(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	sort.Strings(result)
+	return result
 }
 
 func findDataMount(container containerInspect) (dataMount, error) {

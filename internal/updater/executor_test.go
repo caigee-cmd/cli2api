@@ -2,6 +2,7 @@ package updater
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -74,8 +75,13 @@ func TestExecutorApplySuccess(t *testing.T) {
 	)
 	targetImage := repository + ":" + targetVersion
 	currentImage := repository + ":" + currentVersion
-	inspectBefore := inspectOutput("sha256:old", "qoder-data")
-	inspectAfter := inspectOutput("sha256:new", "qoder-data")
+	inspectBefore := inspectOutputWithNetworks("sha256:old", "qoder-data", map[string][]string{
+		"deploy_default":                 {"qoder-api-proxy", "qoder-api-proxy"},
+		"sub2api-deploy_sub2api-network": {"qoder-api-proxy"},
+	})
+	inspectAfter := inspectOutputWithNetworks("sha256:new", "qoder-data", map[string][]string{
+		"deploy_default": {"qoder-api-proxy", "qoder-api-proxy"},
+	})
 
 	health := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -90,6 +96,7 @@ func TestExecutorApplySuccess(t *testing.T) {
 		{name: "docker", args: []string{"pull", targetImage}},
 		{name: "docker", args: composeArgs(envPath, composePath, "up", "-d", "--no-deps", "--force-recreate", "qoder-api-proxy")},
 		{name: "docker", args: []string{"inspect", "qoder-api-proxy"}, output: inspectAfter},
+		{name: "docker", args: []string{"network", "connect", "--alias", "qoder-api-proxy", "sub2api-deploy_sub2api-network", "qoder-api-proxy"}},
 	}}
 	executor := NewExecutor(ExecutorConfig{
 		ComposeFile: composePath, EnvFile: envPath, ImageRepository: repository,
@@ -154,7 +161,10 @@ func TestExecutorRollbackUsesFreshContextAndOldImage(t *testing.T) {
 	defer health.Close()
 
 	runner := &scriptedRunner{t: t, steps: []runnerStep{
-		{name: "docker", args: []string{"inspect", "qoder-api-proxy"}, output: inspectOutput("sha256:old", "qoder-data")},
+		{name: "docker", args: []string{"inspect", "qoder-api-proxy"}, output: inspectOutputWithNetworks("sha256:old", "qoder-data", map[string][]string{
+			"deploy_default":                 {"qoder-api-proxy"},
+			"sub2api-deploy_sub2api-network": {"qoder-api-proxy"},
+		})},
 		{name: "docker", args: []string{"image", "tag", "sha256:old", currentImage}},
 		{name: "docker", args: []string{"run", "--rm", "-v", "qoder-data:/data", "-e", "BACKUP_PATH=" + backupPath, "--entrypoint", "/bin/sh", currentImage, "-c", `test -f "$BACKUP_PATH"`}},
 		{name: "docker", args: []string{"pull", targetImage}},
@@ -162,6 +172,10 @@ func TestExecutorRollbackUsesFreshContextAndOldImage(t *testing.T) {
 		{name: "docker", args: composeArgs(envPath, composePath, "stop", "qoder-api-proxy"), requireActive: true},
 		{name: "docker", args: []string{"run", "--rm", "-v", "qoder-data:/data", "-e", "BACKUP_PATH=" + backupPath, "--entrypoint", "/bin/sh", currentImage, "-c", restoreSQLiteScript()}, requireActive: true},
 		{name: "docker", args: composeArgs(envPath, composePath, "up", "-d", "--no-deps", "--force-recreate", "qoder-api-proxy"), requireActive: true},
+		{name: "docker", args: []string{"inspect", "qoder-api-proxy"}, output: inspectOutputWithNetworks("sha256:old", "qoder-data", map[string][]string{
+			"deploy_default": {"qoder-api-proxy"},
+		}), requireActive: true},
+		{name: "docker", args: []string{"network", "connect", "--alias", "qoder-api-proxy", "sub2api-deploy_sub2api-network", "qoder-api-proxy"}, requireActive: true},
 	}}
 	executor := NewExecutor(ExecutorConfig{
 		ComposeFile: composePath, EnvFile: envPath, ImageRepository: repository,
@@ -257,7 +271,31 @@ func TestValidateApplyRequestRejectsUnsafeInput(t *testing.T) {
 }
 
 func inspectOutput(image, volume string) []byte {
-	return []byte(fmt.Sprintf(`[{"Image":%q,"Mounts":[{"Type":"volume","Name":%q,"Source":"/var/lib/docker/volumes/%s/_data","Destination":"/data"}]}]`, image, volume, volume))
+	return inspectOutputWithNetworks(image, volume, nil)
+}
+
+func inspectOutputWithNetworks(image, volume string, networks map[string][]string) []byte {
+	payload := []map[string]any{{
+		"Image": image,
+		"Mounts": []map[string]string{{
+			"Type": "volume", "Name": volume,
+			"Source": "/var/lib/docker/volumes/" + volume + "/_data", "Destination": "/data",
+		}},
+		"NetworkSettings": map[string]any{"Networks": networkPayload(networks)},
+	}}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		panic(err)
+	}
+	return data
+}
+
+func networkPayload(networks map[string][]string) map[string]any {
+	payload := make(map[string]any, len(networks))
+	for name, aliases := range networks {
+		payload[name] = map[string]any{"Aliases": aliases}
+	}
+	return payload
 }
 
 func composeArgs(envPath, composePath string, args ...string) []string {
