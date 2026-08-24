@@ -26,7 +26,7 @@
 ## 前置门槛
 
 - [ ] P.1 Qoder H7 验收:空安装 -> 登录 -> 聊天全链路通过(`docs/PROVIDERS.md:14`、`docs/PROVIDERS.md:517`)。**需用户人工执行**:空安装浏览器登录、`qoder-native-v1` 导入变 hot、双账号 A 限流 B 接管三项都无法在本环境代验(需要真实 Qoder 账号浏览器授权)。
-- [ ] P.2 Phase I 协议边界:canonical conversation 设计定稿(可与 J0/J1 并行;J4 的 `/v1/messages` 与工具 ID 映射依赖它,`docs/PROVIDERS.md:592-593`)。**设计未定稿,不属于本次代码任务**;OpenAI 路径已按短接实现,工具 canonical 规则待 Phase I 里程碑。
+- [ ] P.2 Phase I 协议边界:canonical conversation 设计定稿(可与 J0/J1 并行;J4 的 `/v1/messages` 与工具 ID 映射依赖它,`docs/PROVIDERS.md:592-593`)。**明确移出本文件范围**:归 `docs/PLAN.md` Phase I(I1-I4)独立里程碑;本文件的 J4.8 已记录 OpenAI 短接落地、canonical 工具 ID 映射待 Phase I。此项不阻塞 J0-J4 验收。
 
 关注点:H7 和 Phase I 未收口前不实现 WorkBuddy 流量,否则会冻住 Qoder 控制面(`docs/PROVIDERS.md:675`)。本次开工依据为用户 2026-08-25 指令,P.1 真实账号验收仍单独跟踪。
 
@@ -143,7 +143,7 @@
 
 ## J5 - 后续上游(排期外)
 
-新上游 = 新 provider descriptor + capability implementations + credential format,不改 SQLite 主表(`docs/PROVIDERS.md:603-614`)。
+新上游 = 新 provider descriptor + capability implementations + credential format,不改 SQLite 主表(`docs/PROVIDERS.md:603-614`)。**本节整体排期外**:不阻塞 J0-J4 验收,亦无需用户在本次验收中执行。
 
 - [ ] J5.1 Anthropic `/v1/messages` 入口(协议入口,不是账号类型;按 Phase I 独立里程碑)(`docs/PROVIDERS.md:610`)
 - [ ] J5.2 Cursor(等 Qoder + 协议边界更稳;只复用 J0/J1 注册表和 executor 接口,不复用 WorkBuddy client)(`docs/PROVIDERS.md:611-614`)
