@@ -278,7 +278,7 @@ jobs:
             echo "$RELEASE_TAG has $asset_count assets, expected 7" >&2
             exit 1
           fi
-          gh release edit "$RELEASE_TAG" --notes-file release-notes.md --draft=false --latest
+          gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --notes-file release-notes.md --draft=false --latest
           {
             echo "## Published $RELEASE_TAG"
             echo
