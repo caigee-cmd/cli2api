@@ -180,10 +180,9 @@ jobs:
             fi
             target_sha="$(gh release view "$RELEASE_TAG" --json targetCommitish --jq '.targetCommitish')"
             if [[ "$target_sha" != "$RELEASE_SHA" ]]; then
-              echo "$RELEASE_TAG draft points to $target_sha instead of $RELEASE_SHA" >&2
-              exit 1
+              echo "Retargeting $RELEASE_TAG draft from $target_sha to $RELEASE_SHA"
             fi
-            gh release edit "$RELEASE_TAG" --notes-file release-notes.md
+            gh release edit "$RELEASE_TAG" --target "$RELEASE_SHA" --notes-file release-notes.md
             gh release upload "$RELEASE_TAG" release-assets/* --clobber
           else
             gh release create "$RELEASE_TAG" release-assets/* \
