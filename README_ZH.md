@@ -27,12 +27,22 @@ CLI2API 是一个非官方、自托管的 Qoder API 网关。启动以后，你�
 
 ## 先跑起来
 
-依赖：Docker、Docker Compose，以及一个你自己控制的 Qoder 账号。
+依赖：macOS / Windows 使用 Docker Desktop，Linux 使用 Docker Engine + Compose；另外需要一个你自己控制的 Qoder 账号。Windows 的 Docker Desktop 必须切换到 Linux containers。
+
+macOS / Linux：
 
 ```bash
 git clone https://github.com/caigee-cmd/cli2api.git
 cd cli2api
 ./scripts/start.sh
+```
+
+Windows PowerShell：
+
+```powershell
+git clone https://github.com/caigee-cmd/cli2api.git
+Set-Location cli2api
+powershell -ExecutionPolicy Bypass -File .\scripts\start.ps1
 ```
 
 启动脚本会自动创建 `deploy/.env`，优先启动已发布镜像；镜像不可用时会自动从源码构建。
@@ -46,6 +56,59 @@ docker compose --env-file deploy/.env -f deploy/docker-compose.yml logs qoder-ap
 然后打开 `http://127.0.0.1:3010`，使用这个 Key 登录控制台，在 **Accounts** 页面添加 Qoder 账号。
 
 默认只监听本机地址 `127.0.0.1:3010`，不会直接暴露到公网。
+
+## 页面安全更新
+
+先启动一次 CLI2API，再安装可选的本机更新器。
+
+| 宿主机 | 主程序运行方式 | 本机更新器 |
+|--------|----------------|------------|
+| Linux `amd64` / `arm64` | 对应架构的 Linux Docker 镜像 | systemd + Unix Socket |
+| macOS Intel / Apple Silicon | Docker Desktop Linux 容器 | 当前用户 LaunchAgent |
+| Windows `amd64` / `arm64` | Docker Desktop Linux 容器 | 当前用户计划任务 |
+
+主 API 服务始终运行在 Linux 容器中，不发布 macOS / Windows 原生主程序。发布镜像同时支持 `linux/amd64` 和 `linux/arm64`；每个 Release 还会附带 6 个平台/架构 updater 与 `cli2api-updater_checksums.txt`。
+
+安装器优先下载并校验预编译 updater。Linux 会先复用当前容器中架构匹配的 updater；如果旧版本没有发布资产，则尝试最新且协议兼容的资产，最后才回退到本机 Go `1.25.6+` 编译。
+
+macOS + Docker Desktop：
+
+```bash
+./deploy/install-updater.sh
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --force-recreate qoder-api-proxy
+```
+
+Linux + systemd：
+
+```bash
+sudo ./deploy/install-updater.sh
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --force-recreate qoder-api-proxy
+```
+
+Windows + Docker Desktop，请使用当前运行 Docker Desktop 的登录用户打开 PowerShell：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\deploy\install-updater.ps1
+docker compose --env-file deploy\.env -f deploy\docker-compose.yml up -d --force-recreate qoder-api-proxy
+```
+
+Linux 使用私有 Unix Socket。macOS 使用当前用户的 LaunchAgent，Windows 使用当前用户的计划任务；两个 Docker Desktop 平台都通过强令牌访问仅监听 `127.0.0.1` 的 updater。若 `qoder-api-proxy` 已存在，Windows 安装器还会验证容器能否通过 `host.docker.internal` 访问 updater。
+
+安装后，控制台 **系统更新** 页面只允许更新到紧邻的下一个稳定版本，不接受自定义版本、跳版本或预发布版本。更新前会暂停新请求、等待在途请求结束，并在 `/data/backups` 创建经过完整性校验的 SQLite 快照。
+
+更新过程只重建 `qoder-api-proxy`，不会执行 `docker compose down -v`，也不会删除 `qoder-data`。如果新版健康检查失败，会同时恢复旧镜像和更新前的 SQLite 快照，并把 `CLI2API_IMAGE` 固定回旧版本，避免以后重启时再次进入失败版本。默认保留最近 5 份快照。
+
+## 维护者一键发布
+
+确认 `main` 的 CI 已通过后，只需要执行：
+
+```bash
+gh workflow run release.yml --ref main
+```
+
+工作流会先等待当前 `main` 提交的 CI 通过，再根据最新已发布稳定版本自动增加 patch 版本；它会创建不可见的 Draft Release，构建并校验 6 个 updater，验证 `linux/amd64` 与 `linux/arm64` 镜像，全部完成后才正式发布 GitHub Release 并移动稳定镜像别名。不要再手动创建或推送版本 Tag。
+
+也可以进入 **Actions → Release → Run workflow** 点击发布。如果正式发布前失败，直接在同一次运行中选择 **Re-run failed jobs**；Draft Release 不会被应用的更新检查发现。
 
 ## 接入 OpenAI 客户端
 
@@ -69,6 +132,19 @@ curl http://127.0.0.1:3010/v1/chat/completions \
     "messages": [{"role": "user", "content": "只回复 OK"}],
     "stream": false
   }'
+```
+
+PowerShell 等价写法：
+
+```powershell
+$env:CLI2API_API_KEY = "粘贴首次启动时输出的密钥"
+$Headers = @{ Authorization = "Bearer $env:CLI2API_API_KEY" }
+$Body = @{
+  model = "qwen3.7-plus"
+  messages = @(@{ role = "user"; content = "只回复 OK" })
+  stream = $false
+} | ConvertTo-Json -Depth 4
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:3010/v1/chat/completions" -Headers $Headers -ContentType "application/json" -Body $Body
 ```
 
 不指定账号时，调度器会从可用账号中选择一个。需要固定账号时，添加请求头：
@@ -116,6 +192,10 @@ OpenAI 客户端
 | `QODER_RUNTIME_DIR` | `/run/cli2api` | 临时的账号 Qoder 运行目录 |
 | `QODER_MAX_INFLIGHT` | `4` | 单账号最大并发请求数 |
 | `QODER_WORKER_BASE_PORT` | `32100` | 内部 worker 端口起点 |
+| `UPDATE_GITHUB_TOKEN` | 空 | 可选的 GitHub Release 查询 Token |
+| `UPDATE_AGENT_URL` | 空 | Docker Desktop 本机 updater 地址，由安装器写入 |
+| `UPDATE_AGENT_TOKEN` | 空 | Docker Desktop updater 令牌，由安装器写入 |
+| `CLI2API_UPDATER_SOCKET_DIR` | 按平台设置 | 只读挂载 Linux updater Socket 的宿主机目录 |
 
 API Key 首次生成后只保存在 SQLite 中。服务不再支持通过环境变量设置或轮换 API Key。
 

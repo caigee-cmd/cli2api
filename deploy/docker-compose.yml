@@ -12,8 +12,13 @@ services:
       QODER_RUNTIME_DIR: "/run/cli2api"
       QODER_WORKER_BASE_PORT: "${QODER_WORKER_BASE_PORT:-32100}"
       QODER_MAX_INFLIGHT: "${QODER_MAX_INFLIGHT:-4}"
+      UPDATE_SOCKET_PATH: "/run/cli2api-updater/updater.sock"
+      UPDATE_AGENT_URL: "${UPDATE_AGENT_URL:-}"
+      UPDATE_AGENT_TOKEN: "${UPDATE_AGENT_TOKEN:-}"
+      UPDATE_GITHUB_TOKEN: "${UPDATE_GITHUB_TOKEN:-}"
     volumes:
       - qoder-data:/data
+      - "${CLI2API_UPDATER_SOCKET_DIR:-/tmp/cli2api-updater}:/run/cli2api-updater:ro"
     tmpfs:
       - /run/cli2api:mode=0700
     ports:

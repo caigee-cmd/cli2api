@@ -18,6 +18,10 @@ type Config struct {
 	WorkerDaemonPath  string
 	QoderCLIPath      string
 	PlainTemplatePath string
+	UpdateSocketPath  string
+	UpdateAgentURL    string
+	UpdateAgentToken  string
+	UpdateGitHubToken string
 }
 
 func Load() (Config, error) {
@@ -65,6 +69,10 @@ func Load() (Config, error) {
 		WorkerDaemonPath:  firstNonEmpty(os.Getenv("QODER_WORKER_DAEMON"), "worker/src/daemon.mjs"),
 		QoderCLIPath:      firstNonEmpty(os.Getenv("QODERCLI_JS"), "/usr/local/lib/node_modules/@qoder-ai/qodercli/bundle/qodercli.js"),
 		PlainTemplatePath: firstNonEmpty(os.Getenv("PLAIN_TEMPLATE_PATH"), "worker/last-plain.sample.json"),
+		UpdateSocketPath:  firstNonEmpty(os.Getenv("UPDATE_SOCKET_PATH"), "/run/cli2api-updater/updater.sock"),
+		UpdateAgentURL:    strings.TrimSpace(os.Getenv("UPDATE_AGENT_URL")),
+		UpdateAgentToken:  strings.TrimSpace(os.Getenv("UPDATE_AGENT_TOKEN")),
+		UpdateGitHubToken: strings.TrimSpace(os.Getenv("UPDATE_GITHUB_TOKEN")),
 	}, nil
 }
 

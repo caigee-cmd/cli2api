@@ -25,7 +25,19 @@ func TestLoadAccountRuntimeDefaults(t *testing.T) {
 	if cfg.DataDir != "/tmp/qoder-data" || cfg.WorkerBasePort != 33000 || cfg.RuntimeDir == "" {
 		t.Fatalf("runtime config = %+v", cfg)
 	}
-	if cfg.NodeBinary == "" || cfg.WorkerDaemonPath == "" || cfg.QoderCLIPath == "" {
+	if cfg.NodeBinary == "" || cfg.WorkerDaemonPath == "" || cfg.QoderCLIPath == "" || cfg.UpdateSocketPath == "" {
 		t.Fatalf("missing runtime paths: %+v", cfg)
+	}
+}
+
+func TestLoadLocalUpdaterEndpoint(t *testing.T) {
+	t.Setenv("UPDATE_AGENT_URL", "http://host.docker.internal:3011")
+	t.Setenv("UPDATE_AGENT_TOKEN", "local-token")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.UpdateAgentURL != "http://host.docker.internal:3011" || cfg.UpdateAgentToken != "local-token" {
+		t.Fatalf("updater config = %+v", cfg)
 	}
 }

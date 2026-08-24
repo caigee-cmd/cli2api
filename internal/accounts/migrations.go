@@ -1,0 +1,127 @@
+package accounts
+
+import (
+	"context"
+	"crypto/sha256"
+	"database/sql"
+	"encoding/hex"
+	"fmt"
+	"time"
+)
+
+type sqliteMigration struct {
+	filename string
+	sql      string
+}
+
+var sqliteMigrations = []sqliteMigration{
+	{filename: "001_initial_schema.sql", sql: `
+CREATE TABLE IF NOT EXISTS accounts (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  remote_uid TEXT NOT NULL DEFAULT '',
+  auth_type TEXT NOT NULL DEFAULT 'none',
+  enabled INTEGER NOT NULL DEFAULT 1,
+  max_inflight INTEGER NOT NULL DEFAULT 4,
+  priority INTEGER NOT NULL DEFAULT 50,
+  status TEXT NOT NULL DEFAULT 'offline',
+  last_error TEXT NOT NULL DEFAULT '',
+  last_error_kind TEXT NOT NULL DEFAULT '',
+  cooldown_until TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS account_credentials (
+  account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+  user_blob BLOB NOT NULL,
+  machine_id TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS model_settings (
+  model_id TEXT PRIMARY KEY,
+  context_length INTEGER NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS app_secrets (
+  name TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);`},
+	{filename: "002_normalize_model_settings.sql", sql: `
+INSERT INTO model_settings (model_id, context_length, updated_at)
+SELECT CASE model_id
+  WHEN 'qmodel' THEN 'qwen3.7-plus'
+  WHEN 'dmodel' THEN 'deepseek-v4-pro'
+  WHEN 'dfmodel' THEN 'deepseek-v4-flash'
+  WHEN 'kmodel' THEN 'kimi-k2.7-code'
+  WHEN 'mmodel' THEN 'minimax-m3'
+  WHEN 'gm51model' THEN 'glm-5.1'
+END, context_length, updated_at
+FROM model_settings
+WHERE model_id IN ('qmodel', 'dmodel', 'dfmodel', 'kmodel', 'mmodel', 'gm51model')
+ON CONFLICT(model_id) DO NOTHING;
+INSERT INTO model_settings (model_id, context_length, updated_at)
+SELECT 'glm-5.2', context_length, updated_at
+FROM model_settings
+WHERE model_id = 'qmodel'
+ON CONFLICT(model_id) DO NOTHING;
+DELETE FROM model_settings
+WHERE model_id IN ('qmodel', 'dmodel', 'dfmodel', 'kmodel', 'mmodel', 'gm51model');`},
+}
+
+const schemaMigrationsDDL = `
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  filename TEXT PRIMARY KEY,
+  checksum TEXT NOT NULL,
+  applied_at TEXT NOT NULL
+);`
+
+func (s *Store) runMigrations(ctx context.Context) error {
+	if _, err := s.db.ExecContext(ctx, schemaMigrationsDDL); err != nil {
+		return fmt.Errorf("create schema migrations table: %w", err)
+	}
+	for _, migration := range sqliteMigrations {
+		if err := s.applyMigration(ctx, migration); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Store) applyMigration(ctx context.Context, migration sqliteMigration) error {
+	checksum := migrationChecksum(migration.sql)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin migration %s: %w", migration.filename, err)
+	}
+	defer tx.Rollback()
+
+	var appliedChecksum string
+	err = tx.QueryRowContext(ctx, "SELECT checksum FROM schema_migrations WHERE filename = ?", migration.filename).Scan(&appliedChecksum)
+	switch {
+	case err == nil:
+		if appliedChecksum != checksum {
+			return fmt.Errorf("migration %s checksum mismatch", migration.filename)
+		}
+		return tx.Commit()
+	case err != sql.ErrNoRows:
+		return fmt.Errorf("read migration %s: %w", migration.filename, err)
+	}
+
+	if _, err := tx.ExecContext(ctx, migration.sql); err != nil {
+		return fmt.Errorf("apply migration %s: %w", migration.filename, err)
+	}
+	if _, err := tx.ExecContext(ctx, "INSERT INTO schema_migrations (filename, checksum, applied_at) VALUES (?, ?, ?)", migration.filename, checksum, formatTime(time.Now().UTC())); err != nil {
+		return fmt.Errorf("record migration %s: %w", migration.filename, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit migration %s: %w", migration.filename, err)
+	}
+	return nil
+}
+
+func migrationChecksum(sqlText string) string {
+	sum := sha256.Sum256([]byte(sqlText))
+	return hex.EncodeToString(sum[:])
+}

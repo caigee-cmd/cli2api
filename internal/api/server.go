@@ -11,23 +11,30 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/auth"
+	"github.com/caigee-cmd/cli2api/internal/buildinfo"
 	"github.com/caigee-cmd/cli2api/internal/config"
 	"github.com/caigee-cmd/cli2api/internal/endpoint"
 	"github.com/caigee-cmd/cli2api/internal/executor"
+	control "github.com/caigee-cmd/cli2api/internal/update"
 	"github.com/caigee-cmd/cli2api/internal/webui"
 )
 
 type Server struct {
-	cfg      config.Config
-	auth     auth.Verifier
-	executor executor.ChatExecutor
-	pool     *accounts.Pool
-	manager  *accounts.Manager
-	mux      *http.ServeMux
+	cfg           config.Config
+	auth          auth.Verifier
+	executor      executor.ChatExecutor
+	pool          *accounts.Pool
+	manager       *accounts.Manager
+	mux           *http.ServeMux
+	updateChecker updateChecker
+	updateAgent   updateAgent
+	maintenance   atomic.Bool
+	updateRunning atomic.Bool
 }
 
 func New(cfg config.Config) *Server {
@@ -35,6 +42,7 @@ func New(cfg config.Config) *Server {
 	if dataDir == "" {
 		dataDir = filepath.Join(cfg.QoderHome, ".proxy-data")
 	}
+	cfg.DataDir = dataDir
 	store, err := accounts.OpenStore(filepath.Join(dataDir, "qoder.db"))
 	if err != nil {
 		panic(err)
@@ -60,13 +68,20 @@ func New(cfg config.Config) *Server {
 		panic(err)
 	}
 	pool := manager.Pool()
+	checker := control.NewChecker(buildinfo.Version, control.NewGitHubReleaseSource("caigee-cmd/cli2api", cfg.UpdateGitHubToken))
+	var agent control.Agent = control.NewUnixAgentClient(cfg.UpdateSocketPath)
+	if strings.TrimSpace(cfg.UpdateAgentURL) != "" {
+		agent = control.NewHTTPAgentClient(cfg.UpdateAgentURL, cfg.UpdateAgentToken)
+	}
 	s := &Server{
-		cfg:      cfg,
-		auth:     auth.NewVerifier(proxyAPIKey),
-		executor: executor.NewChatExecutor(pool, proxyAPIKey),
-		pool:     pool,
-		manager:  manager,
-		mux:      http.NewServeMux(),
+		cfg:           cfg,
+		auth:          auth.NewVerifier(proxyAPIKey),
+		executor:      executor.NewChatExecutor(pool, proxyAPIKey),
+		pool:          pool,
+		manager:       manager,
+		mux:           http.NewServeMux(),
+		updateChecker: checker,
+		updateAgent:   agent,
 	}
 	s.routes()
 	return s
@@ -103,7 +118,15 @@ func generateAPIKey() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(bytes), nil
 }
 
-func (s *Server) Handler() http.Handler { return s.mux }
+func (s *Server) Handler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.maintenance.Load() && blocksDuringUpdate(r.URL.Path) {
+			writeErr(w, http.StatusServiceUnavailable, "service_updating", "Service update in progress")
+			return
+		}
+		s.mux.ServeHTTP(w, r)
+	})
+}
 
 func (s *Server) Close() error {
 	return errors.Join(s.manager.Close(), s.manager.Store().Close())
@@ -112,6 +135,7 @@ func (s *Server) Close() error {
 func (s *Server) routes() {
 	s.mux.HandleFunc(endpoint.HealthPath, s.handleHealth)
 	s.mux.HandleFunc("/api/overview", s.withAPIKey(s.handleOverview))
+	s.mux.HandleFunc("/api/system/update", s.withAPIKey(s.handleSystemUpdate))
 	s.mux.HandleFunc("/api/models", s.withAPIKey(s.handleModelsAPI))
 	s.mux.HandleFunc("/api/models/", s.withAPIKey(s.handleModelSetting))
 	s.mux.HandleFunc("/api/accounts", s.withAPIKey(s.handleAccounts))
@@ -129,7 +153,7 @@ func (s *Server) routes() {
 			!strings.HasPrefix(r.URL.Path, "/assets/") &&
 			r.URL.Path != "/favicon.svg" {
 			switch r.URL.Path {
-			case "/login", "/auth", "/providers", "/access", "/accounts":
+			case "/login", "/auth", "/providers", "/access", "/accounts", "/system":
 			default:
 				http.NotFound(w, r)
 				return
@@ -157,12 +181,15 @@ func (s *Server) withAPIKey(next http.HandlerFunc) http.HandlerFunc {
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":       true,
-		"service":  "cli2api",
-		"provider": "qoder",
-		"phase":    "ui-preview",
-		"chat_url": endpoint.ChatCompletionsPath,
-		"time":     time.Now().UTC().Format(time.RFC3339),
+		"ok":          true,
+		"service":     "cli2api",
+		"provider":    "qoder",
+		"phase":       "ui-preview",
+		"chat_url":    endpoint.ChatCompletionsPath,
+		"time":        time.Now().UTC().Format(time.RFC3339),
+		"version":     buildinfo.Version,
+		"commit":      buildinfo.Commit,
+		"maintenance": s.maintenance.Load(),
 	})
 }
 
@@ -185,6 +212,7 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		"time": time.Now().Format(time.RFC3339),
 		"proxy": map[string]any{
 			"ok": true, "service": "cli2api", "provider": "qoder", "port": s.cfg.Port,
+			"version": buildinfo.Version, "commit": buildinfo.Commit,
 			"chat_url": "/v1/chat/completions",
 		},
 		"worker": map[string]any{

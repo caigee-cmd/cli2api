@@ -1,0 +1,203 @@
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Button, Card, Chip, Modal, Skeleton } from '@heroui/react'
+import {
+  ArrowClockwise,
+  ArrowCircleUp,
+  CheckCircle,
+  Database,
+  ShieldCheck,
+  WarningCircle,
+  X,
+} from '@phosphor-icons/react'
+import { fetchSystemUpdate, startSystemUpdate, type StartUpdateResult, type SystemUpdateInfo } from '@/api/system'
+import { useI18n } from '@/hooks/useI18n'
+
+const activeStates = new Set(['queued', 'preparing', 'pulling', 'recreating', 'checking', 'rolling_back'])
+
+function statusColor(state?: string): 'success' | 'warning' | 'danger' | 'default' {
+  if (state === 'succeeded') return 'success'
+  if (state === 'failed' || state === 'rolled_back' || state === 'unavailable') return 'danger'
+  if (state && activeStates.has(state)) return 'warning'
+  return 'default'
+}
+
+export function SystemPage() {
+  const { t } = useI18n()
+  const [info, setInfo] = useState<SystemUpdateInfo | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [checking, setChecking] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [error, setError] = useState('')
+  const [started, setStarted] = useState<StartUpdateResult | null>(null)
+
+  const load = useCallback(async (force = false, quiet = false) => {
+    if (force && !quiet) setChecking(true)
+    try {
+      const result = await fetchSystemUpdate(force)
+      setInfo(result)
+      setError('')
+      if (result.agent.state === 'succeeded' || result.agent.state === 'rolled_back' || result.agent.state === 'failed') {
+        setSubmitting(false)
+      }
+    } catch (err) {
+      if (!quiet) setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setLoading(false)
+      if (force && !quiet) setChecking(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void load(false), 0)
+    return () => window.clearTimeout(timer)
+  }, [load])
+
+  const active = Boolean(info?.agent?.state && activeStates.has(info.agent.state)) || submitting
+  useEffect(() => {
+    if (!active) return
+    const timer = window.setInterval(() => void load(false, true), 2000)
+    return () => window.clearInterval(timer)
+  }, [active, load])
+
+  const canUpdate = Boolean(info?.managed && info?.has_update && info?.next_version && info?.agent?.available && !active)
+  const agentState = info?.agent?.state || 'unavailable'
+  const stateLabel = t(`updateState_${agentState}`)
+  const releaseBody = useMemo(() => info?.release?.body?.trim() || t('updateNoNotes'), [info, t])
+
+  async function applyUpdate() {
+    setSubmitting(true)
+    setError('')
+    try {
+      const result = await startSystemUpdate()
+      setStarted(result)
+      setConfirmOpen(false)
+      await load(false, true)
+    } catch (err) {
+      setSubmitting(false)
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  if (loading && !info) {
+    return <div className="space-y-5"><Skeleton className="h-24 rounded-lg" /><Skeleton className="h-72 rounded-lg" /></div>
+  }
+
+  return (
+    <div className="space-y-6">
+      <section className="flex flex-wrap items-end justify-between gap-4 border-b border-[var(--app-line)] pb-4">
+        <div>
+          <h2 className="text-2xl font-semibold tracking-[-0.035em]">{t('systemUpdateTitle')}</h2>
+          <p className="mt-1 max-w-2xl text-sm leading-6 text-[var(--app-muted)]">{t('systemUpdateLead')}</p>
+        </div>
+        <Button size="sm" variant="secondary" isPending={checking} onPress={() => void load(true)}>
+          <ArrowClockwise size={15} />{t('checkUpdates')}
+        </Button>
+      </section>
+
+      {error ? (
+        <div className="flex items-start gap-2 rounded-lg border border-[color-mix(in_srgb,var(--app-danger)_28%,var(--app-line))] bg-[color-mix(in_srgb,var(--app-danger)_7%,var(--app-surface))] px-4 py-3 text-sm text-[var(--app-danger)]">
+          <WarningCircle className="mt-0.5 shrink-0" size={17} />{error}
+        </div>
+      ) : null}
+
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.18fr)_minmax(360px,.82fr)]">
+        <Card className="app-panel-flat overflow-hidden rounded-lg p-0 shadow-[var(--app-shadow)]">
+          <div className="flex items-center justify-between gap-3 border-b border-[var(--app-line)] px-5 py-4">
+            <div>
+              <h3 className="font-semibold tracking-[-0.015em]">{t('versionUpdate')}</h3>
+              <p className="mt-0.5 text-xs text-[var(--app-faint)]">{t('nextVersionOnly')}</p>
+            </div>
+            <Chip size="sm" variant="soft" color={info?.has_update ? 'accent' : 'success'}>
+              {info?.has_update ? t('updateAvailable') : t('upToDate')}
+            </Chip>
+          </div>
+
+          <div className="px-5 py-5">
+            <div className="grid overflow-hidden rounded-lg border border-[var(--app-line)] sm:grid-cols-[1fr_auto_1fr]">
+              <div className="p-4">
+                <div className="text-xs font-medium text-[var(--app-faint)]">{t('currentVersion')}</div>
+                <div className="mono mt-2 text-lg font-semibold">{info?.current_version || '—'}</div>
+              </div>
+              <div className="hidden items-center border-x border-[var(--app-line)] px-4 text-[var(--app-faint)] sm:flex">
+                <ArrowCircleUp size={18} />
+              </div>
+              <div className="border-t border-[var(--app-line)] p-4 sm:border-t-0">
+                <div className="text-xs font-medium text-[var(--app-faint)]">{t('nextVersion')}</div>
+                <div className="mono mt-2 text-lg font-semibold text-[var(--accent)]">{info?.next_version || '—'}</div>
+              </div>
+            </div>
+
+            <div className="mt-5 border-t border-[var(--app-line)] pt-4">
+              <div className="text-xs font-medium text-[var(--app-muted)]">{t('releaseNotes')}</div>
+              <p className="mt-2 max-h-32 overflow-y-auto whitespace-pre-wrap text-xs leading-5 text-[var(--app-faint)]">{releaseBody}</p>
+            </div>
+
+            <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-xs text-[var(--app-faint)]">
+                <span className="status-dot" data-state={info?.agent?.available ? 'ok' : 'danger'} />
+                {info?.agent?.available ? t('updaterReady') : t('updaterUnavailable')}
+              </div>
+              <Button isDisabled={!canUpdate} isPending={submitting || active} onPress={() => setConfirmOpen(true)}>
+                <ArrowCircleUp size={16} />{active ? stateLabel : t('updateNow')}
+              </Button>
+            </div>
+          </div>
+        </Card>
+
+        <div className="space-y-5">
+          <Card className="app-panel-flat rounded-lg p-5 shadow-[var(--app-shadow)]">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <div className="grid size-9 shrink-0 place-items-center rounded-lg border border-[var(--accent-line)] bg-[var(--accent-soft)] text-[var(--accent)]"><Database size={17} /></div>
+                <div>
+                  <h3 className="font-semibold">{t('sqliteProtection')}</h3>
+                  <p className="mt-1 text-xs leading-5 text-[var(--app-faint)]">{t('sqliteProtectionHint')}</p>
+                </div>
+              </div>
+              <ShieldCheck size={19} className="text-[var(--accent)]" />
+            </div>
+            <div className="mono mt-4 rounded-lg bg-[var(--app-surface-muted)] px-3 py-2 text-xs text-[var(--app-muted)]">/data</div>
+            <div className="mt-3 grid gap-2 text-xs text-[var(--app-faint)]">
+              <div className="flex items-center gap-2"><CheckCircle size={14} className="text-[var(--accent)]" />{t('sqliteBackupBeforeUpdate')}</div>
+              <div className="flex items-center gap-2"><CheckCircle size={14} className="text-[var(--accent)]" />{t('sqliteKeepFive')}</div>
+              <div className="flex items-center gap-2"><CheckCircle size={14} className="text-[var(--accent)]" />{t('sqliteRollbackTogether')}</div>
+            </div>
+            {started?.backup?.name ? <div className="mono mt-4 break-all border-t border-[var(--app-line)] pt-3 text-[10px] text-[var(--app-faint)]">{started.backup.name}</div> : null}
+          </Card>
+
+          <Card className="app-panel-flat rounded-lg p-5 shadow-[var(--app-shadow)]">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h3 className="font-semibold">{t('updateStatus')}</h3>
+                <p className="mt-1 text-xs text-[var(--app-faint)]">{info?.agent?.job_id || t('noUpdateJob')}</p>
+              </div>
+              <Chip size="sm" variant="soft" color={statusColor(agentState)}>{stateLabel}</Chip>
+            </div>
+            {info?.agent?.error ? <p className="mt-4 text-xs leading-5 text-[var(--app-danger)]">{info.agent.error}</p> : null}
+          </Card>
+        </div>
+      </div>
+
+      <Modal.Root isOpen={confirmOpen} onOpenChange={(open: boolean) => { if (!open && !submitting) setConfirmOpen(false) }}>
+        <Modal.Backdrop variant="blur" isDismissable={!submitting}>
+          <Modal.Container placement="center" size="sm">
+            <Modal.Dialog aria-label={t('confirmUpdate')}>
+              <Modal.Header className="items-start justify-between gap-4">
+                <div><Modal.Heading className="text-base font-semibold">{t('confirmUpdate')}</Modal.Heading><p className="mt-1 text-xs text-[var(--app-faint)]">{t('confirmUpdateHint')}</p></div>
+                <Modal.CloseTrigger aria-label={t('close')} className="grid size-8 place-items-center rounded-lg text-[var(--app-muted)] hover:bg-[var(--app-surface-muted)]"><X size={16} /></Modal.CloseTrigger>
+              </Modal.Header>
+              <Modal.Body className="pt-0">
+                <div className="mono rounded-lg border border-[var(--app-line)] bg-[var(--app-surface-muted)] px-3 py-3 text-sm">{info?.current_version} → {info?.next_version}</div>
+              </Modal.Body>
+              <Modal.Footer className="justify-end">
+                <Button variant="ghost" isDisabled={submitting} onPress={() => setConfirmOpen(false)}>{t('cancel')}</Button>
+                <Button isPending={submitting} onPress={() => void applyUpdate()}><ArrowCircleUp size={15} />{t('updateNow')}</Button>
+              </Modal.Footer>
+            </Modal.Dialog>
+          </Modal.Container>
+        </Modal.Backdrop>
+      </Modal.Root>
+    </div>
+  )
+}

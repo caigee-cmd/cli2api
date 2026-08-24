@@ -69,6 +69,10 @@ func OpenStore(path string) (*Store, error) {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
 	db.SetMaxOpenConns(1)
+	if _, err := db.Exec("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("configure sqlite: %w", err)
+	}
 	store := &Store{db: db}
 	if err := store.migrate(context.Background()); err != nil {
 		db.Close()
@@ -86,67 +90,7 @@ func (s *Store) Close() error {
 }
 
 func (s *Store) migrate(ctx context.Context) error {
-	const schema = `
-PRAGMA foreign_keys = ON;
-CREATE TABLE IF NOT EXISTS accounts (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  remote_uid TEXT NOT NULL DEFAULT '',
-  auth_type TEXT NOT NULL DEFAULT 'none',
-  enabled INTEGER NOT NULL DEFAULT 1,
-  max_inflight INTEGER NOT NULL DEFAULT 4,
-  priority INTEGER NOT NULL DEFAULT 50,
-  status TEXT NOT NULL DEFAULT 'offline',
-  last_error TEXT NOT NULL DEFAULT '',
-  last_error_kind TEXT NOT NULL DEFAULT '',
-  cooldown_until TEXT,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS account_credentials (
-  account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
-  user_blob BLOB NOT NULL,
-  machine_id TEXT NOT NULL,
-  updated_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS model_settings (
-  model_id TEXT PRIMARY KEY,
-  context_length INTEGER NOT NULL,
-  updated_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS app_secrets (
-  name TEXT PRIMARY KEY,
-  value TEXT NOT NULL,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
-);`
-	if _, err := s.db.ExecContext(ctx, schema); err != nil {
-		return fmt.Errorf("migrate sqlite: %w", err)
-	}
-	const migrateModelSettings = `
-INSERT INTO model_settings (model_id, context_length, updated_at)
-SELECT CASE model_id
-  WHEN 'qmodel' THEN 'qwen3.7-plus'
-  WHEN 'dmodel' THEN 'deepseek-v4-pro'
-  WHEN 'dfmodel' THEN 'deepseek-v4-flash'
-  WHEN 'kmodel' THEN 'kimi-k2.7-code'
-  WHEN 'mmodel' THEN 'minimax-m3'
-  WHEN 'gm51model' THEN 'glm-5.1'
-END, context_length, updated_at
-FROM model_settings
-WHERE model_id IN ('qmodel', 'dmodel', 'dfmodel', 'kmodel', 'mmodel', 'gm51model')
-ON CONFLICT(model_id) DO NOTHING;
-INSERT INTO model_settings (model_id, context_length, updated_at)
-SELECT 'glm-5.2', context_length, updated_at
-FROM model_settings
-WHERE model_id = 'qmodel'
-ON CONFLICT(model_id) DO NOTHING;
-DELETE FROM model_settings
-WHERE model_id IN ('qmodel', 'dmodel', 'dfmodel', 'kmodel', 'mmodel', 'gm51model');`
-	if _, err := s.db.ExecContext(ctx, migrateModelSettings); err != nil {
-		return fmt.Errorf("migrate model settings: %w", err)
-	}
-	return nil
+	return s.runMigrations(ctx)
 }
 
 func (s *Store) Create(ctx context.Context, input CreateAccount) (Account, error) {

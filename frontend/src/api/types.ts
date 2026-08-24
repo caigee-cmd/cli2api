@@ -56,6 +56,9 @@ export type Overview = {
     down_until?: string | null
     last_error?: string
     lastError?: string
+    last_error_kind?: string
+    created_at?: string
+    updated_at?: string
   }>
   access?: {
     openai_base_url?: string

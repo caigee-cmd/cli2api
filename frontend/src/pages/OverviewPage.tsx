@@ -24,8 +24,8 @@ export function OverviewPage() {
   const metrics = [
     { label: t('metricRuntime'), value: proxyOk ? t('running') : t('down'), detail: 'Go control plane', icon: Desktop, ok: proxyOk },
     { label: t('metricAccounts'), value: String(accounts.length), detail: `${hotAccounts} hot · ${readyAccounts} ready`, icon: UsersThree, ok: readyAccounts > 0 },
-    { label: t('metricModels'), value: String(modelCount), detail: modelCount ? 'Qoder catalog' : '—', icon: Cube, ok: modelCount > 0 },
-    { label: 'SQLite', value: accounts.length ? t('ready') : t('checking'), detail: '/data/qoder.db', icon: Database, ok: accounts.length > 0 },
+    { label: t('metricModels'), value: String(modelCount), detail: modelCount ? t('providerCatalog') : '—', icon: Cube, ok: modelCount > 0 },
+    { label: 'SQLite', value: accounts.length ? t('ready') : t('checking'), detail: '/data', icon: Database, ok: accounts.length > 0 },
   ]
 
   const endpoints = [

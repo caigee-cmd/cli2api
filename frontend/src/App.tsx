@@ -10,6 +10,7 @@ import { ProvidersPage } from '@/pages/ProvidersPage'
 import { AccessPage } from '@/pages/AccessPage'
 import { AccountsPage } from '@/pages/AccountsPage'
 import { LoginPage } from '@/pages/LoginPage'
+import { SystemPage } from '@/pages/SystemPage'
 
 export default function App() {
   return (
@@ -27,6 +28,7 @@ export default function App() {
                     <Route path="/providers" element={<ProvidersPage />} />
                     <Route path="/access" element={<AccessPage />} />
                     <Route path="/accounts" element={<AccountsPage />} />
+                    <Route path="/system" element={<SystemPage />} />
                     <Route path="*" element={<Navigate to="/" replace />} />
                   </Route>
                 </Route>

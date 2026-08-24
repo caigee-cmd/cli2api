@@ -2,9 +2,12 @@ package accounts
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"path/filepath"
 	"testing"
+
+	_ "modernc.org/sqlite"
 )
 
 func TestStoreCreatesAndReloadsAccount(t *testing.T) {
@@ -109,17 +112,21 @@ func TestStorePersistsAppSecrets(t *testing.T) {
 func TestStoreMigratesLegacyModelContextKeys(t *testing.T) {
 	ctx := context.Background()
 	dbPath := filepath.Join(t.TempDir(), "qoder.db")
-	store, err := OpenStore(dbPath)
+	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SetModelContext(ctx, "mmodel", 750000); err != nil {
+	if _, err := db.Exec(`CREATE TABLE model_settings (
+  model_id TEXT PRIMARY KEY,
+  context_length INTEGER NOT NULL,
+  updated_at TEXT NOT NULL
+);
+INSERT INTO model_settings (model_id, context_length, updated_at) VALUES
+  ('mmodel', 750000, '2026-01-01T00:00:00Z'),
+  ('qmodel', 250000, '2026-01-01T00:00:00Z');`); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SetModelContext(ctx, "qmodel", 250000); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.Close(); err != nil {
+	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
 

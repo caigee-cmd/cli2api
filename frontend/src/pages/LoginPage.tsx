@@ -58,7 +58,7 @@ export function LoginPage() {
                 <HardDrives size={19} />
               </div>
               <div>
-                <div className="font-semibold tracking-[-0.02em]">Qoder API Proxy</div>
+                <div className="font-semibold tracking-[-0.02em]">CLI2API</div>
                 <div className="text-xs text-[var(--app-faint)]">{t('controlPlane')}</div>
               </div>
             </div>
@@ -90,7 +90,7 @@ export function LoginPage() {
 
           <footer className="hidden items-center justify-between text-xs text-[var(--app-faint)] lg:flex">
             <span>{t('loginHint')}</span>
-            <span className="mono">QODER / OPENAI COMPATIBLE</span>
+            <span className="mono">OPENAI COMPATIBLE</span>
           </footer>
         </section>
 

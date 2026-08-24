@@ -100,9 +100,21 @@
 
 - 主操作：`Button` 默认样式。
 - 次要/取消：根据权重选 `variant="ghost"` 或 `variant="outline"`。
-- 危险操作：`variant="destructive"`，或表格行内操作用克制的红色文字。
+- 危险操作：确认弹窗可用实心 `danger`；卡片/表格行内操作使用 `danger-soft` 或克制的红色 ghost。
 - 纯图标按钮需要 `aria-label` 和 `title`。
 - 行内操作如果图标按钮更清晰，就不要用下划线文字链接。
+
+操作型控制台统一采用以下紧凑规格：
+
+| 控件 | 尺寸 | 字号 / 图标 | 圆角 |
+|------|------|-------------|------|
+| 普通按钮 | 高 32px，水平内边距 12px | 12px / 500，图标 14px | 6–8px |
+| 图标按钮 | 32 × 32px | 图标 14px | 6–8px |
+| 输入框 | 高 32px | 12–13px | 8px |
+| 状态 Chip | 高约 20px | 10px / 500 | 6px |
+| 启停 Switch | 轨道 34 × 18px，滑块 14px，内缩 2px | 状态文字 11px / 500 | 全圆角 |
+
+同一操作区不要混用 32px、36px、40px 三套高度。账号卡片、筛选栏、行内操作默认使用 32px 基线；只有主要表单和移动端触控场景可放宽到 36–40px。
 
 ## 布局与密度
 
@@ -128,7 +140,8 @@
 卡片：
 
 - 圆角 8px 或更小，除非现有组件已用更大值
-- 主卡片用 `shadow-card`
+- 账号/资源列表卡片优先使用浅边框和平面表面，不强制最小高度，不额外叠加强阴影
+- 主卡片只有在确实需要抬升层级时才用 `shadow-card`
 - 边框克制使用；避免边框 + 阴影 + 有色背景同时出现
 - 不要为了简单分组把卡片嵌套在卡片里
 
@@ -153,11 +166,14 @@
 
 ## 动效
 
-动效应微妙且快速。
+动效应微妙、快速，并直接解释状态变化。
 
 - 优先用现有缓动 token：`--ease-fluid`、`--ease-snap`、`--ease-settle`。
-- 用小幅度变换：`-translate-y-px`、透明度、短行揭示。
-- 使用 GSAP 时遵守 `prefersReducedMotion()`。
+- 控制台状态动画保持在 180–220ms；常规位移用 `power3.out`，填充/缩放用 `power2.out`。
+- 启停 Switch 用滑块 `x` 位移和轨道填充 `scaleX` 表达状态；按下时轨道最多缩到 `0.96`，滑块最多放大到 `1.06`。
+- 只动画 `transform` 与 `opacity`，不要通过 `width`、`left` 或 margin 制造位移。
+- React 中使用 `gsap.context()` 限定作用域，使用 `gsap.matchMedia()` 处理 `prefers-reduced-motion`，卸载时必须 `revert()` / kill tween。
+- reduced-motion 下状态必须立即切换，动画时长为 0。
 - 避免在 dashboard/工作流区域放装饰性循环动画。
 
 ## 图标
@@ -331,12 +347,41 @@ Keep the menu short. Login is a gate, not a nav item.
 | `/` | Overview | Runtime pulse |
 | `/accounts` | Accounts | Qoder login + pool |
 | `/providers` | Models | Catalog + per-model context-window defaults |
+| `/system` | System | Next-version update + SQLite protection |
 
 Public model IDs are lowercase request identifiers. Qoder CLI names remain display labels, while internal Qoder keys are shown only for routing diagnostics.
 | `/access` | Access | Base URL + quick chat |
 | `/auth` | redirect | Legacy → `/accounts` |
 
 Do not bring back a separate Auth page.
+
+## Managed update
+
+The console may update only to the first stable GitHub release greater than the running version. It never accepts a target version from the browser, skips releases, installs prereleases, or updates a development build.
+
+The application container does not receive the Docker socket. A small host daemon owns Docker replacement and exposes only a fixed update operation. Linux uses a mounted Unix Socket. Docker Desktop on macOS and Windows uses a strong bearer token over a daemon bound strictly to `127.0.0.1`; the container reaches it through `host.docker.internal`. macOS runs the daemon as a per-user LaunchAgent, while Windows runs it as a current-user Scheduled Task so it shares the logged-in user's Docker Desktop context. The Go control plane checks releases, pauses new API traffic, drains in-flight requests, creates a verified SQLite snapshot under `/data/backups`, and then submits the exact next version to the daemon. The daemon pins the target image in `deploy/.env`, recreates only `qoder-api-proxy`, verifies the `/data` mount identity and reported version, and restores both the old image and SQLite snapshot if health checks fail. A rollback leaves `CLI2API_IMAGE` pinned to the previous semantic version instead of restoring a floating `latest` reference.
+
+Release packaging keeps the application as a Linux container and publishes a `linux/amd64` + `linux/arm64` manifest. The host updater is released separately for Linux, macOS, and Windows on `amd64` and `arm64`, with one SHA256 manifest. Installers prefer the asset matching the running release, may use a newer protocol-compatible updater to bootstrap an older release that had no asset, and use local compilation only as a final fallback.
+
+Maintainers do not create version tags manually. A serialized `workflow_dispatch` release waits for CI on the exact `main` commit, calculates the next patch after the latest published stable release, creates or resumes an invisible draft release, uploads all updater assets, builds a candidate multi-architecture image, promotes and verifies immutable version tags, and finally publishes the release. Mutable `latest` and release-series aliases move only after publication. Failed pre-publication runs leave a resumable draft rather than exposing an update to the console.
+
+The host boundary is explicitly versioned through `protocol_version`. Version `1` is current; version `0` is temporarily accepted for an older updater that omitted the field. Any other version is rejected before an update request is submitted. New updater releases must remain backward-compatible with the immediately previous application release so the latest-asset bootstrap path stays safe.
+
+Useful ideas borrowed from sub2api:
+
+- long-running system work is detached from the browser request lifetime;
+- system operations are serialized and expose durable status;
+- release checks use a fixed trusted repository and stable releases only;
+- host-only privileged work crosses a narrow authenticated boundary;
+- applied database migrations are immutable and checksum-verified.
+- release artifacts are built per OS/architecture and verified by checksum.
+
+Ideas intentionally not copied:
+
+- in-place executable replacement does not fit an immutable container;
+- updating straight to the latest release would skip ordered SQLite migrations;
+- arbitrary version rollback is outside this project's next-version-only scope;
+- PostgreSQL `pg_dump`, Redis, S3 backup scheduling, billing, and multi-tenant controls do not fit this local SQLite gateway.
 
 ## Design system
 
@@ -370,10 +415,13 @@ The console follows the CaiAI frontend design baseline, adapted to this Vite app
 
 - Loading, empty, and error states are required for data surfaces.
 - Labels sit above form controls; helper text stays quiet and errors sit below the field.
-- Primary actions use HeroUI default buttons. Secondary actions use ghost/outline variants.
+- Primary actions use HeroUI default buttons. Secondary actions use ghost/outline variants; inline destructive actions use `danger-soft`, while solid danger is reserved for confirmation dialogs.
+- Compact console controls use a 32px button/input baseline, 12px medium button text, 14px action icons, 20px chips, and 6–8px radii. Icon buttons are 32 × 32px.
+- Compact enable switches use a 34 × 18px track, a 14px thumb with 2px inset, and an 11px state label.
 - Pure icon buttons require `aria-label` and a useful title where the action is not obvious.
-- Animate only opacity and transforms. Keep dashboard motion short and functional.
-- GSAP is allowed for short entrance motion on the login surface; every animation must clean up and honor `prefers-reduced-motion`. Do not add perpetual decorative loops to the console.
+- Animate only opacity and transforms. State transitions stay within 180–220ms using `power2.out` / `power3.out`.
+- GSAP is allowed for short functional console transitions. Scope animations with `gsap.context()`, handle reduced motion with `gsap.matchMedia()`, and revert/kill every animation during cleanup. Reduced-motion state changes are immediate.
+- Do not add perpetual decorative loops to the console.
 
 ### Copy and accessibility
 
@@ -397,8 +445,11 @@ After UI edits:
 | `frontend/src/pages/LoginPage.tsx` | Console gate |
 | `frontend/src/pages/AccountsPage.tsx` | Qoder login + pool |
 | `frontend/src/pages/ProvidersPage.tsx` | Model catalog + context-window defaults |
+| `frontend/src/pages/SystemPage.tsx` | Managed next-version update |
 | `frontend/src/components/layout/` | Shell / menu |
-| `internal/accounts/` | SQLite account repository, scheduler, child lifecycle |
+| `internal/accounts/` | SQLite account repository, migrations, snapshots, scheduler, child lifecycle |
+| `internal/update/` | Release selection and updater client |
+| `internal/updater/` | Host-side Docker replacement and rollback |
 | `worker/src/daemon.mjs` | One-account Qoder runtime only |
 | `worker/src/errors.mjs` | Error taxonomy |
 | `internal/executor/chat.go` | Proxy → worker |

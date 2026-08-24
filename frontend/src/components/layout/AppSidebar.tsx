@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import { Drawer, Button, Chip, Tooltip } from '@heroui/react'
-import { Cube, Gauge, Lightning, SidebarSimple, UsersThree, X } from '@phosphor-icons/react'
+import { Cube, Gauge, GearSix, Lightning, SidebarSimple, UsersThree, X } from '@phosphor-icons/react'
 import { gsap } from 'gsap'
 import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
@@ -11,6 +11,7 @@ const nav = [
   { to: '/accounts', key: 'navAccounts', icon: UsersThree, section: 'workspace' },
   { to: '/providers', key: 'navProviders', icon: Cube, section: 'develop' },
   { to: '/access', key: 'navAccess', icon: Lightning, section: 'develop' },
+  { to: '/system', key: 'navSystem', icon: GearSix, section: 'system' },
 ] as const
 
 const COLLAPSE_KEY = 'cli2api:sidebar-collapsed'
@@ -28,6 +29,7 @@ function NavList({ collapsed, onNavigate }: { collapsed: boolean; onNavigate?: (
   const groups = [
     { key: 'workspace', label: t('workspace') },
     { key: 'develop', label: t('develop') },
+    { key: 'system', label: t('system') },
   ] as const
 
   useEffect(() => {

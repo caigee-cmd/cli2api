@@ -158,10 +158,11 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
       setMessage(t('wizardBadJson'))
       return
     }
-    if (!bundle || typeof bundle !== 'object' || bundle.format !== 'qoder-native-v1') {
+    if (!bundle || typeof bundle !== 'object' || typeof bundle.user_blob !== 'string' || typeof bundle.machine_id !== 'string') {
       setMessage(t('wizardBadJson'))
       return
     }
+    if (!bundle.format) bundle.format = 'qoder-native-v1'
     try {
       setPhase('busy')
       await importAccount({ ...bundle, name: name.trim() || bundle.name, enabled: true, provider: accountType })
@@ -271,7 +272,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                   <p className="text-xs leading-5 text-[var(--app-faint)]">{t('wizardImportLead')}</p>
                   <Input value={name} onChange={(event) => setName(event.target.value)} placeholder={t('wizardNamePh')} aria-label={t('wizardNamePh')} disabled={busy} />
                   <div className="flex items-center justify-between gap-3">
-                    <span className="text-[10px] font-semibold tracking-[0.1em] text-[var(--app-faint)] uppercase">qoder-native-v1 JSON</span>
+                    <span className="text-[10px] font-semibold tracking-[0.1em] text-[var(--app-faint)] uppercase">JSON</span>
                     <Button size="sm" variant="secondary" onPress={onPickFile} isDisabled={busy}><FileCode size={13} />{t('wizardChooseFile')}</Button>
                     <input ref={fileInput} type="file" accept="application/json,.json" className="hidden" onChange={onFileChange} />
                   </div>
