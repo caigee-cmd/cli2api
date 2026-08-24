@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.2.4 - 2026-08-24
+
+### English
+
 - Label Qoder Global accounts instead of a generic cloud account, and show the official Qoder mark
 - Refresh console chrome: cream/ink primary actions, with green reserved for success and ready states
 - Publish bilingual GitHub release notes from `CHANGELOG.md`
