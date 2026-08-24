@@ -279,6 +279,10 @@ When qodercli changes, update the Qoder adapter and its version-aware compatibil
 tests first; do not duplicate the change in both public protocol handlers. Keep
 `/v1/chat/completions` stable while `/v1/messages` is added as a separate ingress.
 
+Additional account providers (WorkBuddy, later Cursor) are not part of this Qoder
+milestone. If a second upstream is added, it must plug into the account registry and
+executor as a provider adapter, not a second Node daemon. See `docs/PROVIDERS.md`.
+
 `/v1/messages` should be implemented as a native Anthropic boundary, not as
 Anthropic -> OpenAI -> Qoder string rewriting. Borrow sub2api's reversible tool
 mapping, cross-turn state, orphan-result filtering, and history repair, but keep the
@@ -455,3 +459,4 @@ After UI edits:
 | `worker/src/daemon.mjs` | One-account Qoder runtime only |
 | `worker/src/errors.mjs` | Error taxonomy |
 | `internal/executor/chat.go` | Proxy → worker |
+| `docs/PROVIDERS.md` | Multi-provider extension plan; WorkBuddy first |

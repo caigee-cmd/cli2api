@@ -63,6 +63,23 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// resolveProviderFilter enforces public-model ID rules. Prefixed IDs pin one
+// provider family; bare IDs stay exact. CROSS_PROVIDER_MODEL_POOL=1 decides
+// whether a bare overlapping ID may route outside Qoder elsewhere in routing.
+func (s *Server) resolveProviderFilter(req *translate.ChatRequest) string {
+	model := strings.TrimSpace(req.Model)
+	if model == "" {
+		return ""
+	}
+	for _, prefix := range []string{"qoder/", "workbuddy/"} {
+		if strings.HasPrefix(model, prefix) {
+			req.Model = strings.TrimPrefix(model, prefix)
+			return strings.TrimSuffix(prefix, "/")
+		}
+	}
+	return ""
+}
+
 func (s *Server) handleModelsAPI(w http.ResponseWriter, r *http.Request) {
 	refresh := r.URL.Query().Get("refresh") == "1"
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -90,6 +107,8 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	publicModel := req.Model
+	providerFilter := s.resolveProviderFilter(&req)
 	prefer := s.requestedAccount(r)
 	if req.Stream {
 		upstream, accountID, err := s.executor.ChatStreamProxy(r.Context(), req, prefer)
@@ -103,6 +122,10 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Connection", "keep-alive")
 		if accountID != "" {
 			w.Header().Set("X-Qoder-Account", accountID)
+			w.Header().Set("X-CLI2API-Account", accountID)
+		}
+		if providerFilter != "" {
+			w.Header().Set("X-CLI2API-Provider", providerFilter)
 		}
 		w.Header().Set("X-Accel-Buffering", "no")
 		w.WriteHeader(http.StatusOK)
@@ -119,6 +142,9 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeClassifiedErr(w, err)
 		return
+	}
+	if publicModel != "" {
+		res.Model = publicModel
 	}
 	message := map[string]any{
 		"role":    "assistant",
@@ -143,6 +169,10 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 	if res.AccountID != "" {
 		w.Header().Set("X-Qoder-Account", res.AccountID)
+		w.Header().Set("X-CLI2API-Account", res.AccountID)
+	}
+	if providerFilter != "" {
+		w.Header().Set("X-CLI2API-Provider", providerFilter)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"id":      fmt.Sprintf("chatcmpl-%d", time.Now().UnixMilli()),

@@ -64,8 +64,25 @@ export function testChat(model: string, content: string, accountId?: string) {
 }
 
 
-export function createAccount(name: string, provider = 'qoder-global') {
-  return api('/api/accounts', { method: 'POST', body: JSON.stringify({ name, provider, enabled: true, max_inflight: 4 }) })
+export type ProviderDescriptor = {
+  id: string
+  label: string
+  runtime: string
+  capabilities: {
+    browser_login: boolean
+    pat_login: boolean
+    import_export: boolean
+  }
+  regions: Array<{ id: string; label: string }>
+  default_region: string
+}
+
+export function fetchProviders() {
+  return api<{ data?: ProviderDescriptor[] }>('/api/providers')
+}
+
+export function createAccount(name: string, provider = 'qoder', region = 'global') {
+  return api('/api/accounts', { method: 'POST', body: JSON.stringify({ name, provider, region, enabled: true, max_inflight: 4 }) })
 }
 
 export function updateAccount(accountId: string, input: Record<string, unknown>) {

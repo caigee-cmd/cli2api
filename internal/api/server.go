@@ -20,6 +20,8 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/config"
 	"github.com/caigee-cmd/cli2api/internal/endpoint"
 	"github.com/caigee-cmd/cli2api/internal/executor"
+	"github.com/caigee-cmd/cli2api/internal/providers"
+	"github.com/caigee-cmd/cli2api/internal/providers/workbuddy"
 	control "github.com/caigee-cmd/cli2api/internal/update"
 	"github.com/caigee-cmd/cli2api/internal/webui"
 )
@@ -30,6 +32,7 @@ type Server struct {
 	executor      executor.ChatExecutor
 	pool          *accounts.Pool
 	manager       *accounts.Manager
+	providers     *providers.Registry
 	mux           *http.ServeMux
 	updateChecker updateChecker
 	updateAgent   updateAgent
@@ -68,6 +71,9 @@ func New(cfg config.Config) *Server {
 		panic(err)
 	}
 	pool := manager.Pool()
+	providerReg := providers.NewRegistry()
+	workbuddyClient := workbuddy.NewClient(store)
+	providerReg.Register(workbuddyClient.Adapter())
 	checker := control.NewChecker(buildinfo.Version, control.NewGitHubReleaseSource("caigee-cmd/cli2api", cfg.UpdateGitHubToken))
 	var agent control.Agent = control.NewUnixAgentClient(cfg.UpdateSocketPath)
 	if strings.TrimSpace(cfg.UpdateAgentURL) != "" {
@@ -79,10 +85,12 @@ func New(cfg config.Config) *Server {
 		executor:      executor.NewChatExecutor(pool, proxyAPIKey),
 		pool:          pool,
 		manager:       manager,
+		providers:     providerReg,
 		mux:           http.NewServeMux(),
 		updateChecker: checker,
 		updateAgent:   agent,
 	}
+	s.executor.Providers = providerReg
 	s.routes()
 	return s
 }
@@ -138,6 +146,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/system/update", s.withAPIKey(s.handleSystemUpdate))
 	s.mux.HandleFunc("/api/models", s.withAPIKey(s.handleModelsAPI))
 	s.mux.HandleFunc("/api/models/", s.withAPIKey(s.handleModelSetting))
+	s.mux.HandleFunc("/api/providers", s.withAPIKey(s.handleProviders))
 	s.mux.HandleFunc("/api/accounts", s.withAPIKey(s.handleAccounts))
 	s.mux.HandleFunc("/api/accounts/import", s.withAPIKey(s.handleAccountImport))
 	s.mux.HandleFunc("/api/accounts/", s.withAPIKey(s.handleAccountByID))

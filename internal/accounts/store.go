@@ -13,29 +13,35 @@ import (
 	"time"
 
 	_ "modernc.org/sqlite"
+
+	"github.com/caigee-cmd/cli2api/internal/providers"
 )
 
 var ErrAccountNotFound = errors.New("account not found")
 var ErrSecretNotFound = errors.New("secret not found")
 
 type Account struct {
-	ID            string     `json:"id"`
-	Name          string     `json:"name"`
-	RemoteUID     string     `json:"remote_uid,omitempty"`
-	AuthType      string     `json:"auth_type"`
-	Enabled       bool       `json:"enabled"`
-	MaxInFlight   int        `json:"max_inflight"`
-	Priority      int        `json:"priority"`
-	Status        string     `json:"status"`
-	LastError     string     `json:"last_error,omitempty"`
-	LastErrorKind string     `json:"last_error_kind,omitempty"`
-	CooldownUntil *time.Time `json:"cooldown_until,omitempty"`
-	CreatedAt     time.Time  `json:"created_at"`
-	UpdatedAt     time.Time  `json:"updated_at"`
+	ID             string     `json:"id"`
+	Name           string     `json:"name"`
+	RemoteUID      string     `json:"remote_uid,omitempty"`
+	Provider       string     `json:"provider"`
+	ProviderRegion string     `json:"region"`
+	AuthType       string     `json:"auth_type"`
+	Enabled        bool       `json:"enabled"`
+	MaxInFlight    int        `json:"max_inflight"`
+	Priority       int        `json:"priority"`
+	Status         string     `json:"status"`
+	LastError      string     `json:"last_error,omitempty"`
+	LastErrorKind  string     `json:"last_error_kind,omitempty"`
+	CooldownUntil  *time.Time `json:"cooldown_until,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
 }
 
 type CreateAccount struct {
 	Name        string
+	Provider    string
+	Region      string
 	Enabled     bool
 	MaxInFlight int
 	Priority    int
@@ -98,6 +104,10 @@ func (s *Store) Create(ctx context.Context, input CreateAccount) (Account, error
 	if name == "" {
 		return Account{}, fmt.Errorf("account name required")
 	}
+	descriptor, region, err := providers.Resolve(input.Provider, input.Region)
+	if err != nil {
+		return Account{}, err
+	}
 	maxInFlight := input.MaxInFlight
 	if maxInFlight <= 0 {
 		maxInFlight = 4
@@ -108,22 +118,25 @@ func (s *Store) Create(ctx context.Context, input CreateAccount) (Account, error
 	}
 	now := time.Now().UTC()
 	account := Account{
-		ID:          newAccountID(),
-		Name:        name,
-		AuthType:    "none",
-		Enabled:     input.Enabled,
-		MaxInFlight: maxInFlight,
-		Priority:    priority,
-		Status:      "offline",
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		ID:             newAccountID(),
+		Name:           name,
+		Provider:       descriptor.ID,
+		ProviderRegion: region.ID,
+		AuthType:       "none",
+		Enabled:        input.Enabled,
+		MaxInFlight:    maxInFlight,
+		Priority:       priority,
+		Status:         "offline",
+		CreatedAt:      now,
+		UpdatedAt:      now,
 	}
-	_, err := s.db.ExecContext(ctx, `
+	_, err = s.db.ExecContext(ctx, `
 INSERT INTO accounts (
-  id, name, auth_type, enabled, max_inflight, priority, status, created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		account.ID, account.Name, account.AuthType, account.Enabled, account.MaxInFlight,
-		account.Priority, account.Status, formatTime(account.CreatedAt), formatTime(account.UpdatedAt),
+  id, name, provider, provider_region, auth_type, enabled, max_inflight, priority, status, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		account.ID, account.Name, account.Provider, account.ProviderRegion, account.AuthType,
+		account.Enabled, account.MaxInFlight, account.Priority, account.Status,
+		formatTime(account.CreatedAt), formatTime(account.UpdatedAt),
 	)
 	if err != nil {
 		return Account{}, fmt.Errorf("create account: %w", err)
@@ -133,7 +146,7 @@ INSERT INTO accounts (
 
 func (s *Store) Get(ctx context.Context, id string) (Account, error) {
 	row := s.db.QueryRowContext(ctx, `
-SELECT id, name, remote_uid, auth_type, enabled, max_inflight, priority, status,
+SELECT id, name, provider, provider_region, remote_uid, auth_type, enabled, max_inflight, priority, status,
        last_error, last_error_kind, cooldown_until, created_at, updated_at
 FROM accounts WHERE id = ?`, strings.TrimSpace(id))
 	account, err := scanAccount(row)
@@ -154,12 +167,18 @@ func scanAccount(row rowScanner) (Account, error) {
 	var account Account
 	var cooldown, created, updated sql.NullString
 	err := row.Scan(
-		&account.ID, &account.Name, &account.RemoteUID, &account.AuthType, &account.Enabled,
-		&account.MaxInFlight, &account.Priority, &account.Status, &account.LastError,
-		&account.LastErrorKind, &cooldown, &created, &updated,
+		&account.ID, &account.Name, &account.Provider, &account.ProviderRegion, &account.RemoteUID,
+		&account.AuthType, &account.Enabled, &account.MaxInFlight, &account.Priority, &account.Status,
+		&account.LastError, &account.LastErrorKind, &cooldown, &created, &updated,
 	)
 	if err != nil {
 		return Account{}, err
+	}
+	if account.Provider == "" {
+		account.Provider = "qoder"
+	}
+	if account.ProviderRegion == "" {
+		account.ProviderRegion = "global"
 	}
 	account.CreatedAt = parseTime(created.String)
 	account.UpdatedAt = parseTime(updated.String)
@@ -189,7 +208,7 @@ func parseTime(value string) time.Time {
 
 func (s *Store) List(ctx context.Context) ([]Account, error) {
 	rows, err := s.db.QueryContext(ctx, `
-SELECT id, name, remote_uid, auth_type, enabled, max_inflight, priority, status,
+SELECT id, name, provider, provider_region, remote_uid, auth_type, enabled, max_inflight, priority, status,
        last_error, last_error_kind, cooldown_until, created_at, updated_at
 FROM accounts ORDER BY created_at, id`)
 	if err != nil {
@@ -376,6 +395,44 @@ SELECT user_blob, machine_id FROM account_credentials WHERE account_id = ?`, acc
 		return NativeCredential{}, fmt.Errorf("load credential: %w", err)
 	}
 	return credential, nil
+}
+
+func (s *Store) SaveCredentialPayload(ctx context.Context, accountID, format string, payload []byte) error {
+	if len(payload) == 0 {
+		return fmt.Errorf("credential payload required")
+	}
+	account, err := s.Get(ctx, accountID)
+	if err != nil {
+		return err
+	}
+	if err := providers.ValidateCredentialFormat(account.Provider, format); err != nil {
+		return err
+	}
+	now := formatTime(time.Now().UTC())
+	_, err = s.db.ExecContext(ctx, `
+INSERT INTO account_credential_payloads (account_id, format, payload, updated_at)
+VALUES (?, ?, ?, ?)
+ON CONFLICT(account_id) DO UPDATE SET format=excluded.format, payload=excluded.payload, updated_at=excluded.updated_at`,
+		accountID, format, payload, now)
+	if err != nil {
+		return fmt.Errorf("save credential payload: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) LoadCredentialPayload(ctx context.Context, accountID string) (string, []byte, error) {
+	var format string
+	var payload []byte
+	err := s.db.QueryRowContext(ctx, `
+SELECT format, payload FROM account_credential_payloads WHERE account_id = ?`, accountID).
+		Scan(&format, &payload)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil, ErrAccountNotFound
+	}
+	if err != nil {
+		return "", nil, fmt.Errorf("load credential payload: %w", err)
+	}
+	return format, payload, nil
 }
 
 func (s *Store) Observe(ctx context.Context, id, remoteUID, status, lastError, lastKind string) error {

@@ -147,8 +147,12 @@ while keeping the current OpenAI Chat Completions path stable.
 are isolated; do not duplicate Qoder request construction in a second handler.
 ## Later
 
+- WorkBuddy / CodeBuddy as a second account provider — design only, see `docs/PROVIDERS.md`
 - Cursor provider
 - Exact tokenizer matching if Qoder starts returning richer usage
-- In-process multi-account (still impossible)
+- In-process multi-account (still impossible for Qoder WASM)
 - Anthropic `/v1/messages`
 - sub2api-style session-hash sticky
+
+Do not start WorkBuddy, Cursor, or other CLI providers until H7 is accepted. The
+provider-extension design lives in `docs/PROVIDERS.md`; do not add extra plan files.

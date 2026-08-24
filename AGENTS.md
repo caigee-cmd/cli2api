@@ -2,15 +2,16 @@
 
 Go + Node service that turns a local Qoder CLI login into an OpenAI-compatible API.
 
-Keep writing-code docs in three files only:
+Keep writing-code docs in these files only:
 
 | File | What belongs there |
 |------|--------------------|
 | `AGENTS.md` | Hard rules for agents. Short. |
 | `docs/DESIGN.md` | Architecture, login, routing, console, design system. |
 | `docs/PLAN.md` | Current milestone checklist. |
+| `docs/PROVIDERS.md` | Future account-provider design. Not a current milestone. |
 
-Do not add new `TODO.md`, `NOTES.md`, or extra plan files. User-facing install stays in `README.md` / `README_ZH.md`. Local protocol facts stay in ignored `docs/capture-notes.md`. Host ops stay gitignored in `docs/PRIVATE_DEPLOYMENT.md`.
+Do not add new `TODO.md`, `NOTES.md`, or extra plan files. The only extra design doc is `docs/PROVIDERS.md` (WorkBuddy / future account types). User-facing install stays in `README.md` / `README_ZH.md`. Local protocol facts stay in ignored `docs/capture-notes.md`. Host ops stay gitignored in `docs/PRIVATE_DEPLOYMENT.md`.
 
 ## Do
 
@@ -30,4 +31,4 @@ Do not add new `TODO.md`, `NOTES.md`, or extra plan files. User-facing install s
 - Leave console `/api/*` or worker `/admin/*` unauthenticated
 - Copy sub2api billing, Redis slots, multi-tenant API keys, or session-hash-for-profit
 - Add a new component library, purple AI chrome, centered generic login cards, or emoji in UI copy
-- Start Cursor / Anthropic until the current Qoder milestone in `docs/PLAN.md` is done
+- Start Cursor / Anthropic / WorkBuddy until the current Qoder milestone in `docs/PLAN.md` is done

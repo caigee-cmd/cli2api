@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,13 +13,18 @@ import (
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/endpoint"
+	"github.com/caigee-cmd/cli2api/internal/providers"
+	"github.com/caigee-cmd/cli2api/internal/providers/workbuddy"
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
+
+type providerRegistry = providers.Registry
 
 type ChatExecutor struct {
 	Pool       *accounts.Pool
 	WorkerKey  string
 	HTTPClient *http.Client
+	Providers  *providerRegistry
 }
 
 type ChatResult struct {
@@ -150,6 +156,9 @@ func classifyWorkerErr(resp *http.Response, body string) accounts.Classified {
 }
 
 func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatRequest, prefer string) (ChatResult, error) {
+	if item, ok := e.peekInProcess(prefer); ok {
+		return e.chatInProcessNonStream(ctx, item, req)
+	}
 	payload, err := json.Marshal(buildWorkerPayload(req, false))
 	if err != nil {
 		return ChatResult{}, err
@@ -217,6 +226,89 @@ func (e ChatExecutor) attempts() int {
 	return 1
 }
 
+// peekInProcess resolves provider-pinned requests without touching Qoder
+// workers. A pin that names an in-process provider must never fall back.
+func (e ChatExecutor) peekInProcess(prefer string) (accounts.Item, bool) {
+	if e.Pool == nil || e.Providers == nil || prefer == "" {
+		return accounts.Item{}, false
+	}
+	item, ok := e.Pool.ByID(prefer)
+	if !ok || item.Provider == "" || item.Provider == "qoder" {
+		return accounts.Item{}, false
+	}
+	if _, supported := e.Providers.Get(item.Provider); !supported {
+		return accounts.Item{}, false
+	}
+	return item, true
+}
+
+func (e ChatExecutor) chatInProcessNonStream(ctx context.Context, item accounts.Item, req translate.ChatRequest) (ChatResult, error) {
+	adapter, _ := e.Providers.Get(item.Provider)
+	if adapter.Chat == nil {
+		return ChatResult{}, fmt.Errorf("provider %s does not implement chat", item.Provider)
+	}
+	outcome, err := adapter.Chat.ChatNonStream(ctx, item.ID, req)
+	if err != nil {
+		e.markInProcessError(item, err)
+		return ChatResult{}, err
+	}
+	e.markOK(item.ID)
+	return ChatResult{
+		Model:            outcome.Model,
+		Content:          outcome.Content,
+		Reasoning:        outcome.Reasoning,
+		ToolCalls:        outcome.ToolCalls,
+		FinishReason:     outcome.FinishReason,
+		PromptTokens:     outcome.PromptTokens,
+		CompletionTokens: outcome.CompletionTokens,
+		UsageSource:      outcome.UsageSource,
+		AccountID:        item.ID,
+	}, nil
+}
+
+func (e ChatExecutor) chatInProcessStream(ctx context.Context, item accounts.Item, req translate.ChatRequest) (*http.Response, string, error) {
+	adapter, _ := e.Providers.Get(item.Provider)
+	if adapter.Chat == nil {
+		return nil, "", fmt.Errorf("provider %s does not implement chat", item.Provider)
+	}
+	resp, err := adapter.Chat.ChatStream(ctx, item.ID, req)
+	if err != nil {
+		e.markInProcessError(item, err)
+		return nil, "", err
+	}
+	e.markOK(item.ID)
+	return resp, item.ID, nil
+}
+
+// markInProcessError maps provider adapter errors into the shared cooldown
+// taxonomy. Only provider-declared failures move the account; transport and
+// decode errors stay classified as unavailable with a short cooldown.
+func (e ChatExecutor) markInProcessError(item accounts.Item, err error) {
+	if e.Pool == nil || err == nil {
+		return
+	}
+	classified := accounts.Classify(0, err.Error(), "", "", "")
+	var classifiedErr *workbuddy.ClassifiedError
+	if errors.As(err, &classifiedErr) && classifiedErr.Kind != "" {
+		cooldown := 60 * time.Second
+		failover := true
+		switch classifiedErr.Kind {
+		case accounts.KindQuota:
+			cooldown = time.Hour
+			failover = false
+		case accounts.KindAuth:
+			cooldown = 30 * time.Minute
+		case accounts.KindRateLimit:
+			cooldown = time.Minute
+		}
+		classified = accounts.Classified{
+			Kind: classifiedErr.Kind, Status: classifiedErr.Status, Failover: failover,
+			Cooldown: cooldown, Code: classifiedErr.Kind, Message: classifiedErr.Message,
+		}
+	}
+	e.Pool.MarkClassified(item.ID, classified)
+}
+
 func decodeChatResult(req translate.ChatRequest, body []byte) (ChatResult, error) {
 	var parsed struct {
 		Model string `json:"model"`
@@ -282,6 +374,9 @@ func decodeChatResult(req translate.ChatRequest, body []byte) (ChatResult, error
 }
 
 func (e ChatExecutor) ChatStreamProxy(ctx context.Context, req translate.ChatRequest, prefer string) (*http.Response, string, error) {
+	if item, ok := e.peekInProcess(prefer); ok {
+		return e.chatInProcessStream(ctx, item, req)
+	}
 	payload, err := json.Marshal(buildWorkerPayload(req, true))
 	if err != nil {
 		return nil, "", err

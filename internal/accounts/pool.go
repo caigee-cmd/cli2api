@@ -6,15 +6,27 @@ import (
 )
 
 type Item struct {
-	ID        string
-	URL       string
-	DownUntil time.Time
-	LastError string
-	LastKind  string
-	Ready     *bool
-	Hot       *bool
-	InFlight  int
-	Restarts  int
+	ID           string
+	URL          string
+	Provider     string
+	Region       string
+	Runtime      string
+	DownUntil    time.Time
+	LastError    string
+	LastKind     string
+	Ready        *bool
+	Hot          *bool
+	InFlight     int
+	Restarts     int
+}
+
+// RouteQuery selects candidates for one public model request. Empty fields are
+// not filtered; excluded account IDs are honored before anything else.
+type RouteQuery struct {
+	PublicModel    string
+	PreferAccount  string
+	ProviderFilter string
+	Excluded       map[string]struct{}
 }
 
 type Pool struct {
@@ -39,10 +51,28 @@ func NewPool(urls []string, ids []string) *Pool {
 }
 
 func (p *Pool) Len() int {
+	return p.LenRoute(RouteQuery{})
+}
+
+// LenRoute counts the candidate set for one route query, so retry attempts
+// match the current pool instead of every registered account.
+func (p *Pool) LenRoute(q RouteQuery) int {
 	if p == nil {
 		return 0
 	}
-	return len(p.items)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	count := 0
+	for _, item := range p.items {
+		if _, skip := q.Excluded[item.ID]; skip {
+			continue
+		}
+		if q.ProviderFilter != "" && item.Provider != q.ProviderFilter {
+			continue
+		}
+		count++
+	}
+	return count
 }
 
 func (p *Pool) First() (Item, bool) {
@@ -69,24 +99,49 @@ func (p *Pool) ByID(id string) (Item, bool) {
 }
 
 func (p *Pool) Pick(prefer string, excluded map[string]struct{}) (Item, bool) {
+	return p.PickRoute(RouteQuery{PreferAccount: prefer, Excluded: excluded})
+}
+
+// PickRoute picks one item. Provider filtering, cooldown, pin, exclusion, and
+// round-robin are applied in that order. The fallback path returns the item
+// with the earliest cooldown so callers can surface a classified error.
+func (p *Pool) PickRoute(q RouteQuery) (Item, bool) {
 	if p == nil || len(p.items) == 0 {
 		return Item{}, false
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	now := time.Now()
-	if prefer != "" {
-		for _, item := range p.items {
-			if _, skip := excluded[item.ID]; item.ID == prefer && !itemDown(item, now) && !skip {
-				return item, true
+	eligible := make([]int, 0, len(p.items))
+	for i, item := range p.items {
+		if _, skip := q.Excluded[item.ID]; skip {
+			continue
+		}
+		if q.ProviderFilter != "" && item.Provider != q.ProviderFilter {
+			continue
+		}
+		eligible = append(eligible, i)
+	}
+	if q.PreferAccount != "" {
+		for _, i := range eligible {
+			if p.items[i].ID == q.PreferAccount && !itemDown(p.items[i], now) {
+				return p.items[i], true
 			}
 		}
+		// Historical Qoder clients may pin an unknown account label; fall back
+		// to normal scheduling like the pre-provider pool did.
 	}
 	n := len(p.items)
 	for i := 0; i < n; i++ {
 		idx := (p.next + i) % n
 		item := p.items[idx]
-		if _, skip := excluded[item.ID]; skip || itemDown(item, now) {
+		if _, skip := q.Excluded[item.ID]; skip {
+			continue
+		}
+		if q.ProviderFilter != "" && item.Provider != q.ProviderFilter {
+			continue
+		}
+		if itemDown(item, now) {
 			continue
 		}
 		p.next = (idx + 1) % n
@@ -94,10 +149,8 @@ func (p *Pool) Pick(prefer string, excluded map[string]struct{}) (Item, bool) {
 	}
 	var best Item
 	found := false
-	for _, item := range p.items {
-		if _, skip := excluded[item.ID]; skip {
-			continue
-		}
+	for _, i := range eligible {
+		item := p.items[i]
 		if !found || item.DownUntil.Before(best.DownUntil) {
 			best = item
 			found = true
@@ -199,6 +252,9 @@ func (p *Pool) Snapshot() []map[string]any {
 		out = append(out, map[string]any{
 			"id":         item.ID,
 			"url":        item.URL,
+			"provider":   item.Provider,
+			"region":     item.Region,
+			"runtime":    item.Runtime,
 			"ready":      ready,
 			"hot":        hot,
 			"in_flight":  item.InFlight,
@@ -237,7 +293,7 @@ func itoa(n int) string {
 }
 
 func (p *Pool) Upsert(item Item) {
-	if p == nil || item.ID == "" || item.URL == "" {
+	if p == nil || item.ID == "" {
 		return
 	}
 	p.mu.Lock()

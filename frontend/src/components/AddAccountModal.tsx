@@ -16,9 +16,11 @@ import { useI18n } from '@/hooks/useI18n'
 import {
   createAccount,
   fetchLoginStatus,
+  fetchProviders,
   importAccount,
   loginWithPat,
   startDeviceLogin,
+  type ProviderDescriptor,
 } from '@/api/overview'
 
 type Props = {
@@ -28,11 +30,47 @@ type Props = {
 }
 
 type TabKey = 'browser' | 'pat' | 'import'
-type AccountType = 'qoder-global'
+type AccountType = 'qoder-global' | 'workbuddy-cn' | 'workbuddy-global'
 
-const accountTypes: Array<{ id: AccountType; labelKey: string; hintKey: string }> = [
-  { id: 'qoder-global', labelKey: 'accountTypeQoderGlobal', hintKey: 'accountTypeQoderGlobalHint' },
+type ProviderOption = {
+  id: AccountType
+  provider: string
+  region: string
+  labelKey: string
+  hintKey: string
+  descriptor: ProviderDescriptor
+}
+
+const fallbackProviderOptions: ProviderOption[] = [
+  {
+    id: 'qoder-global', provider: 'qoder', region: 'global',
+    labelKey: 'accountTypeQoderGlobal', hintKey: 'accountTypeQoderGlobalHint',
+    descriptor: {
+      id: 'qoder', label: 'Qoder', runtime: 'child_process', default_region: 'global',
+      capabilities: { browser_login: true, pat_login: true, import_export: true },
+      regions: [{ id: 'global', label: 'Global' }],
+    },
+  },
 ]
+
+function providerOptionKey(provider: string, region: string): AccountType {
+  return `${provider}-${region}` as AccountType
+}
+
+async function loadProviderOptions(): Promise<ProviderOption[]> {
+  const output = await fetchProviders().catch(() => null)
+  const descriptors = output?.data || []
+  const options: ProviderOption[] = []
+  for (const descriptor of descriptors) {
+    for (const region of descriptor.regions) {
+      const key = providerOptionKey(descriptor.id, region.id)
+      const labelKey = `accountType${descriptor.id === 'qoder' ? 'QoderGlobal' : descriptor.id === 'workbuddy' ? (region.id === 'cn' ? 'WorkBuddyCN' : 'WorkBuddyGlobal') : descriptor.label}${descriptor.id === 'qoder' ? '' : ''}`
+      const hintKey = labelKey + 'Hint'
+      options.push({ id: key, provider: descriptor.id, region: region.id, labelKey, hintKey, descriptor })
+    }
+  }
+  return options.length ? options : fallbackProviderOptions
+}
 function StatusIcon({ phase, busy, tab, forTab }: { phase: Phase; busy: boolean; tab: TabKey; forTab: TabKey }) {
   if (phase === 'done') return <CheckCircle size={16} className="text-[var(--app-ok)]" />
   if (busy && tab === forTab) return <SpinnerGap size={16} className="animate-spin" />
@@ -48,6 +86,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
   const { t } = useI18n()
   const [tab, setTab] = useState<TabKey>('browser')
   const [accountType, setAccountType] = useState<AccountType>('qoder-global')
+  const [providerOptions, setProviderOptions] = useState<ProviderOption[]>(fallbackProviderOptions)
   const [name, setName] = useState('')
   const [pat, setPat] = useState('')
   const [json, setJson] = useState('')
@@ -68,6 +107,21 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
   useEffect(() => {
     return () => stopPolling()
   }, [])
+
+  useEffect(() => {
+    if (!isOpen) return
+    void loadProviderOptions().then((options) => {
+      setProviderOptions(options)
+      if (!options.some((option) => option.id === accountType)) {
+        setAccountType(options[0]?.id || 'qoder-global')
+        setTab('browser')
+      }
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen])
+
+  const activeOption = providerOptions.find((option) => option.id === accountType) || fallbackProviderOptions[0]
+  const showPatTab = activeOption.descriptor.capabilities?.pat_login !== false
 
   function reset() {
     stopPolling()
@@ -90,7 +144,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
 
   async function ensureAccount(): Promise<string> {
     if (createdId.current) return createdId.current
-    const account = await createAccount(name.trim() || t('account'), accountType)
+    const account = await createAccount(name.trim() || t('account'), activeOption.provider, activeOption.region)
     const id = account?.id || account?.data?.id
     if (!id) throw new Error('create account returned no id')
     createdId.current = id
@@ -159,14 +213,18 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
       setMessage(t('wizardBadJson'))
       return
     }
-    if (!bundle || typeof bundle !== 'object' || typeof bundle.user_blob !== 'string' || typeof bundle.machine_id !== 'string') {
+    if (!bundle || typeof bundle !== 'object') {
       setMessage(t('wizardBadJson'))
       return
     }
-    if (!bundle.format) bundle.format = 'qoder-native-v1'
+    if (activeOption.provider === 'qoder' && (typeof bundle.user_blob !== 'string' || typeof bundle.machine_id !== 'string')) {
+      setMessage(t('wizardBadJson'))
+      return
+    }
+    if (!bundle.format) bundle.format = activeOption.descriptor.id === 'workbuddy' ? 'workbuddy-oauth-v1' : 'qoder-native-v1'
     try {
       setPhase('busy')
-      await importAccount({ ...bundle, name: name.trim() || bundle.name, enabled: true, provider: accountType })
+      await importAccount({ ...bundle, name: name.trim() || bundle.name, enabled: true, provider: activeOption.provider, region: activeOption.region })
       setPhase('done')
       setMessage(t('accountImported'))
       onAdded()
@@ -226,7 +284,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                   </Select.Trigger>
                   <Select.Popover>
                     <ListBox>
-                      {accountTypes.map((item) => (
+                      {providerOptions.map((item) => (
                         <ListBox.Item key={item.id} id={item.id} textValue={t(item.labelKey)}>
                           <div className="flex min-w-0 items-start gap-2.5">
                             <QoderMark size={18} className="mt-0.5" />
@@ -241,12 +299,12 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                   </Select.Popover>
                 </Select>
               </div>
-              <Tabs.Root selectedKey={tab} onSelectionChange={(key) => { if (!busy) setTab(String(key) as TabKey) }} disabledKeys={busy ? ['browser', 'pat', 'import'] : []}>
-                <Tabs.List className="grid grid-cols-3 gap-1 rounded-lg bg-[var(--app-surface-muted)] p-1">
+              <Tabs.Root selectedKey={tab} onSelectionChange={(key) => { if (!busy) setTab(String(key) as TabKey) }} disabledKeys={busy ? ['browser', 'pat', 'import'] : (showPatTab ? [] : ['pat'])}>
+                <Tabs.List className="grid gap-1 rounded-lg bg-[var(--app-surface-muted)] p-1" style={{ gridTemplateColumns: `repeat(${showPatTab ? 3 : 2}, minmax(0, 1fr))` }}>
                   <Tab id="browser" className="flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium data-[selected=true]:bg-[var(--app-surface)] data-[selected=true]:shadow-sm data-[selected=true]:text-[var(--app-ink)] data-[hovered=true]:text-[var(--app-fg)] text-[var(--app-faint)]">
                     <ShieldCheck size={13} />{t('tabBrowser')}
                   </Tab>
-                  <Tab id="pat" className="flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium data-[selected=true]:bg-[var(--app-surface)] data-[selected=true]:shadow-sm data-[selected=true]:text-[var(--app-ink)] data-[hovered=true]:text-[var(--app-fg)] text-[var(--app-faint)]">
+                  <Tab id="pat" isDisabled={!showPatTab} className="flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium data-[selected=true]:bg-[var(--app-surface)] data-[selected=true]:shadow-sm data-[selected=true]:text-[var(--app-ink)] data-[hovered=true]:text-[var(--app-fg)] text-[var(--app-faint)]">
                     <Key size={13} />{t('tabPat')}
                   </Tab>
                   <Tab id="import" className="flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium data-[selected=true]:bg-[var(--app-surface)] data-[selected=true]:shadow-sm data-[selected=true]:text-[var(--app-ink)] data-[hovered=true]:text-[var(--app-fg)] text-[var(--app-faint)]">

@@ -68,6 +68,15 @@ WHERE model_id = 'qmodel'
 ON CONFLICT(model_id) DO NOTHING;
 DELETE FROM model_settings
 WHERE model_id IN ('qmodel', 'dmodel', 'dfmodel', 'kmodel', 'mmodel', 'gm51model');`},
+	{filename: "003_account_providers.sql", sql: `
+ALTER TABLE accounts ADD COLUMN provider TEXT NOT NULL DEFAULT 'qoder';
+ALTER TABLE accounts ADD COLUMN provider_region TEXT NOT NULL DEFAULT 'global';
+CREATE TABLE IF NOT EXISTS account_credential_payloads (
+  account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+  format TEXT NOT NULL,
+  payload BLOB NOT NULL,
+  updated_at TEXT NOT NULL
+);`},
 }
 
 const schemaMigrationsDDL = `

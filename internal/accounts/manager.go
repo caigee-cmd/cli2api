@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/caigee-cmd/cli2api/internal/providers"
 )
 
 type ManagerConfig struct {
@@ -116,6 +118,17 @@ func (m *Manager) Close() error {
 }
 
 func (m *Manager) startAccount(ctx context.Context, account Account) error {
+	descriptor, _, err := providers.Resolve(account.Provider, account.ProviderRegion)
+	if err != nil {
+		return err
+	}
+	if descriptor.Runtime == providers.RuntimeInProcess {
+		m.pool.Upsert(Item{
+			ID: account.ID, Provider: descriptor.ID, Region: account.ProviderRegion,
+			Runtime: string(descriptor.Runtime),
+		})
+		return nil
+	}
 	m.mu.Lock()
 	if _, exists := m.processes[account.ID]; exists {
 		m.mu.Unlock()
@@ -139,7 +152,10 @@ func (m *Manager) startAccount(ctx context.Context, account Account) error {
 	m.mu.Lock()
 	restarts := m.restarts[account.ID]
 	m.mu.Unlock()
-	m.pool.Upsert(Item{ID: account.ID, URL: process.URL(), Restarts: restarts})
+	m.pool.Upsert(Item{
+		ID: account.ID, URL: process.URL(), Provider: descriptor.ID,
+		Region: account.ProviderRegion, Runtime: string(descriptor.Runtime), Restarts: restarts,
+	})
 	go m.watchAccount(account.ID, process)
 	return nil
 }
@@ -315,6 +331,8 @@ func (m *Manager) stopAccount(id string) error {
 
 type ImportAccount struct {
 	Name       string
+	Provider   string
+	Region     string
 	Enabled    bool
 	Credential NativeCredential
 }
@@ -329,7 +347,9 @@ type AccountView struct {
 }
 
 func (m *Manager) Import(ctx context.Context, input ImportAccount) (Account, error) {
-	account, err := m.store.Create(ctx, CreateAccount{Name: input.Name, Enabled: false})
+	account, err := m.store.Create(ctx, CreateAccount{
+		Name: input.Name, Provider: input.Provider, Region: input.Region, Enabled: false,
+	})
 	if err != nil {
 		return Account{}, err
 	}

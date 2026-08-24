@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -131,6 +132,10 @@ func (s *Server) fetchWorkerModels(refresh bool) []map[string]any {
 }
 
 func (s *Server) fetchWorkerModelsFor(refresh bool, accountID string) []map[string]any {
+	models := s.fetchProviderModels(refresh, accountID)
+	if models != nil {
+		return models
+	}
 	path := "/admin/models"
 	if refresh {
 		path += "?refresh=1"
@@ -145,6 +150,89 @@ func (s *Server) fetchWorkerModelsFor(refresh bool, accountID string) []map[stri
 		Data []map[string]any `json:"data"`
 	}
 	if json.Unmarshal(body, &parsed) != nil || len(parsed.Data) == 0 {
+		return nil
+	}
+	return parsed.Data
+}
+
+// fetchProviderModels merges catalogs across accounts. Qoder models come from
+// worker daemons; in-process providers come from their adapters. Each entry is
+// tagged with the provider that actually serves it.
+func (s *Server) fetchProviderModels(refresh bool, accountID string) []map[string]any {
+	var merged []map[string]any
+	seen := map[string]struct{}{}
+	sawAny := false
+	for _, item := range s.pool.Items() {
+		if accountID != "" && item.ID != accountID {
+			continue
+		}
+		if item.Provider == "" || item.Provider == "qoder" {
+			continue
+		}
+		adapter, ok := s.providers.Get(item.Provider)
+		if !ok || adapter.Models == nil {
+			continue
+		}
+		models, err := adapter.Models.Models(context.Background(), item.ID)
+		if err != nil {
+			continue
+		}
+		sawAny = true
+		for _, model := range models {
+			key := model.NativeModel + "@" + item.Provider
+			if _, dup := seen[key]; dup {
+				continue
+			}
+			seen[key] = struct{}{}
+			entry := map[string]any{
+				"id": model.PublicModel, "object": "model", "owned_by": item.Provider,
+				"provider": item.Provider, "native_model": model.NativeModel,
+			}
+			merged = append(merged, entry)
+		}
+	}
+	if !sawAny {
+		return nil
+	}
+	// Merge Qoder daemon models alongside in-process providers.
+	var qoderModels []map[string]any
+	for _, item := range s.pool.Items() {
+		if item.Provider != "qoder" || item.URL == "" {
+			continue
+		}
+		if accountID != "" && item.ID != accountID {
+			continue
+		}
+		qoderModels = append(qoderModels, s.fetchQoderModels(refresh, item.ID)...)
+	}
+	for _, model := range qoderModels {
+		key, _ := model["id"].(string)
+		if _, dup := seen[key+"@qoder"]; dup {
+			continue
+		}
+		seen[key+"@qoder"] = struct{}{}
+		model["provider"] = "qoder"
+		model["owned_by"] = "qoder"
+		merged = append(merged, model)
+	}
+	return merged
+}
+
+func (s *Server) fetchQoderModels(refresh bool, accountID string) []map[string]any {
+	path := "/admin/models"
+	if refresh {
+		path += "?refresh=1"
+	}
+	resp, err := s.workerGet(path, 60*time.Second, accountID)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	var parsed struct {
+		Data []map[string]any `json:"data"`
+	}
+	if json.Unmarshal(body, &parsed) != nil {
 		return nil
 	}
 	return parsed.Data
