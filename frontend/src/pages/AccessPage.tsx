@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Button, Card, Chip, Label, ListBox, Select, Skeleton, TextArea } from '@heroui/react'
+import { Button, Card, Chip, Skeleton, TextArea } from '@heroui/react'
 import {
   BracketsCurly,
   Check,
@@ -15,6 +15,7 @@ import { useOverview } from '@/hooks/useOverview'
 import { testChat } from '@/api/overview'
 import { absUrl } from '@/lib/url'
 import { AccessPageSkeleton } from '@/components/ui/PageSkeletons'
+import { OptionTiles } from '@/components/ui/OptionTiles'
 import { QoderMark } from '@/components/QoderMark'
 import { isQoderGlobalProvider } from '@/lib/provider'
 
@@ -144,52 +145,38 @@ export function AccessPage() {
             <div className="space-y-7 p-5 sm:p-7">
               <div className="space-y-3">
                   <div className="text-sm font-medium text-[var(--app-muted)]">{t('account')}</div>
-                  <Select selectedKey={selectedAccount || 'auto'} onSelectionChange={(key) => setAccountId(String(key) === 'auto' ? '' : String(key))} aria-label={t('account')}>
-                    <Select.Trigger>
-                      <Select.Value>
-                        {({ defaultChildren }) => {
-                          const selected = accounts.find((account) => account.id === selectedAccount)
-                          return (
-                            <span className="inline-flex min-w-0 items-center gap-2">
-                              {selected && isQoderGlobalProvider(selected.provider) ? <QoderMark size={16} /> : null}
-                              <span className="truncate">{defaultChildren}</span>
-                            </span>
-                          )
-                        }}
-                      </Select.Value>
-                      <Select.Indicator />
-                    </Select.Trigger>
-                    <Select.Popover>
-                      <ListBox>
-                        <ListBox.Item id="auto" textValue={t('autoAccount')}><Label>{t('autoAccount')}</Label></ListBox.Item>
-                        {accounts.map((account) => (
-                          <ListBox.Item key={account.id} id={account.id} textValue={account.name || account.id}>
-                            <div className="flex min-w-0 items-center gap-2">
-                              {isQoderGlobalProvider(account.provider) ? <QoderMark size={16} /> : null}
-                              <Label>{account.name || account.id}</Label>
-                            </div>
-                          </ListBox.Item>
-                        ))}
-                      </ListBox>
-                    </Select.Popover>
-                  </Select>
+                  <OptionTiles
+                    ariaLabel={t('account')}
+                    columns={2}
+                    compact
+                    value={selectedAccount || 'auto'}
+                    onChange={(next) => setAccountId(next === 'auto' ? '' : next)}
+                    options={[
+                      { value: 'auto', label: t('autoAccount'), icon: <Check size={15} className="text-[var(--app-muted)]" /> },
+                      ...accounts.map((account) => ({
+                        value: account.id,
+                        label: account.name || account.id,
+                        icon: isQoderGlobalProvider(account.provider) ? <QoderMark size={16} /> : undefined,
+                      })),
+                    ]}
+                  />
                   <p className="text-xs leading-5 text-[var(--app-faint)]">{selectedAccount ? t('fixedAccountHint') : t('autoAccountHint')}</p>
               </div>
 
               <div className="space-y-3">
                   <div className="text-sm font-medium text-[var(--app-muted)]">{t('model')}</div>
-                  <Select selectedKey={selectedModel} onSelectionChange={(key) => setModel(String(key))} aria-label={t('model')}>
-                    <Select.Trigger><Select.Value /><Select.Indicator /></Select.Trigger>
-                    <Select.Popover>
-                      <ListBox>
-                        {(models.length ? models : [{ id: 'qwen3.7-plus' }]).map((item) => (
-                          <ListBox.Item key={item.id} id={item.id} textValue={item.display_name || item.id}>
-                            <Label>{item.display_name || item.id} · {item.id}</Label>
-                          </ListBox.Item>
-                        ))}
-                      </ListBox>
-                    </Select.Popover>
-                  </Select>
+                  <OptionTiles
+                    ariaLabel={t('model')}
+                    columns={2}
+                    compact
+                    value={selectedModel}
+                    onChange={setModel}
+                    options={(models.length ? models : [{ id: 'qwen3.7-plus' }]).map((item) => ({
+                      value: item.id,
+                      label: item.display_name || item.id,
+                      hint: item.id,
+                    }))}
+                  />
                   <p className="text-xs leading-5 text-[var(--app-faint)]">{t('modelRoutingHint')}</p>
               </div>
 
