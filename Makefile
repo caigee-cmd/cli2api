@@ -1,4 +1,4 @@
-.PHONY: help test vet lint build dev sync start docker-build docker-up docker-down docker-logs
+.PHONY: help test vet lint build dev sync start docker-build docker-up docker-down docker-logs changelog
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
@@ -44,7 +44,11 @@ docker-logs: ## Follow service logs
 
 lint: vet frontend-lint ## Run all linters
 
-check: test lint frontend-build ## Run tests, linters, and build frontend
+changelog: ## Validate bilingual changelog
+	python3 scripts/release-notes.py self-test
+	python3 scripts/release-notes.py validate
+
+check: test lint frontend-build changelog ## Run tests, linters, and build frontend
 
 start: ## Start Docker deployment and print a first-run API key
 	./scripts/start.sh

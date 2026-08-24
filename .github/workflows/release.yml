@@ -112,6 +112,13 @@ jobs:
             echo "version=$version"
           } >> "$GITHUB_OUTPUT"
           echo "Preparing $tag from $GITHUB_SHA"
+      - name: Validate bilingual changelog
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          python3 scripts/release-notes.py validate
+          python3 scripts/release-notes.py extract-for-release "$RELEASE_TAG" >/dev/null
 
   assets:
     needs: prepare
@@ -146,6 +153,18 @@ jobs:
         with:
           name: updater-assets-${{ needs.prepare.outputs.tag }}
           path: release-assets
+      - name: Extract bilingual release notes
+        env:
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          set -euo pipefail
+          python3 scripts/release-notes.py extract-for-release "$RELEASE_TAG" > release-notes.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-notes-${{ needs.prepare.outputs.tag }}
+          path: release-notes.md
+          if-no-files-found: error
+          retention-days: 7
       - name: Create or refresh draft release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -165,12 +184,13 @@ jobs:
               echo "$RELEASE_TAG draft points to $tag_sha instead of $RELEASE_SHA" >&2
               exit 1
             fi
+            gh release edit "$RELEASE_TAG" --notes-file release-notes.md
             gh release upload "$RELEASE_TAG" release-assets/* --clobber
           else
             gh release create "$RELEASE_TAG" release-assets/* \
               --target "$RELEASE_SHA" \
               --title "CLI2API $RELEASE_TAG" \
-              --generate-notes \
+              --notes-file release-notes.md \
               --draft
           fi
 
@@ -243,6 +263,10 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-notes-${{ needs.prepare.outputs.tag }}
+          path: .
       - name: Verify assets and publish release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -254,12 +278,13 @@ jobs:
             echo "$RELEASE_TAG has $asset_count assets, expected 7" >&2
             exit 1
           fi
-          gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+          gh release edit "$RELEASE_TAG" --notes-file release-notes.md --draft=false --latest
           {
             echo "## Published $RELEASE_TAG"
             echo
             echo "- Image: \`${{ needs.prepare.outputs.image }}:$RELEASE_TAG\`"
             echo "- Updater assets: 6 binaries + SHA256 manifest"
+            echo "- Release notes: bilingual changelog from CHANGELOG.md"
           } >> "$GITHUB_STEP_SUMMARY"
 
   aliases:
@@ -286,3 +311,36 @@ jobs:
             --tag "$SERIES_IMAGE" \
             --tag "$LATEST_IMAGE" \
             "$RELEASE_IMAGE"
+
+  changelog:
+    needs: [prepare, publish, aliases]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-notes-${{ needs.prepare.outputs.tag }}
+          path: .
+      - name: Freeze published changelog
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          python3 scripts/release-notes.py freeze "$RELEASE_VERSION" --date "$(date -u +%F)" --notes-file release-notes.md
+          if git diff --quiet -- CHANGELOG.md; then
+            echo "CHANGELOG.md already contains $RELEASE_VERSION"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md
+          git commit -m "docs: freeze changelog for $RELEASE_TAG"
+          git pull --rebase origin main
+          git push origin HEAD:main

@@ -100,6 +100,7 @@ Sub2API-style SQLite account registry while preserving the working Qoder executi
 - [x] Publish checksum-verified updater assets for Linux, macOS, and Windows on `amd64` and `arm64`
 - [x] Validate Windows native builds, updater tests, and PowerShell syntax in CI
 - [x] Automate next-patch calculation, draft staging, image publication, and final Release publication
+- [x] Publish bilingual GitHub release notes from CHANGELOG.md
 
 ### H7 acceptance
 

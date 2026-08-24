@@ -30,6 +30,10 @@ cd frontend && npm run sync
 
 For an end-to-end run, use the Docker Compose flow in `deploy/README.md`.
 
+User-facing changes should add matching bullets to `CHANGELOG.md` under
+`## Unreleased` in both `### English` and `### 中文`. The release workflow
+copies those notes into the GitHub Release body.
+
 ## Rules
 
 - Keep the Go layers: auth / endpoint / executor / translate / api

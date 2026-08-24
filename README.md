@@ -106,7 +106,9 @@ After `main` passes CI, publish the next patch release with one command:
 gh workflow run release.yml --ref main
 ```
 
-The workflow waits for the exact `main` commit to pass CI, calculates the next patch from the latest published stable release, creates an invisible draft release, builds six checksum-verified updater binaries, verifies the `linux/amd64` and `linux/arm64` image manifest, and only then publishes the GitHub Release and moves the stable image aliases. Do not create or push the version tag manually.
+Write bilingual user-facing notes in `CHANGELOG.md` under `## Unreleased` before publishing. Each change needs a matching bullet in `### English` and `### 中文`; the workflow copies those notes into the GitHub Release and the console update page.
+
+The workflow waits for the exact `main` commit to pass CI, calculates the next patch from the latest published stable release, creates an invisible draft release, builds six checksum-verified updater binaries, verifies the `linux/amd64` and `linux/arm64` image manifest, and only then publishes the GitHub Release and moves the stable image aliases. After publication it freezes the Unreleased notes under the new version heading. Do not create or push the version tag manually.
 
 You can also use **Actions → Release → Run workflow**. If a pre-publication job fails, use **Re-run failed jobs** on the same run; the draft release remains invisible to application update checks.
 

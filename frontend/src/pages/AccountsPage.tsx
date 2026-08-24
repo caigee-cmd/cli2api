@@ -1,20 +1,20 @@
 import { useMemo, useState } from 'react'
-import { Button, ButtonGroup, Chip, Input, Modal, Tooltip } from '@heroui/react'
+import { Button, ButtonGroup, Chip, Input, InputGroup, Modal, Tooltip } from '@heroui/react'
 import {
   ArrowClockwise,
   ArrowSquareOut,
   Copy,
   Key,
-  Lightning,
   MagnifyingGlass,
   Plus,
   ShieldCheck,
   TrashSimple,
-  UserCircle,
   WarningCircle,
   X,
 } from '@phosphor-icons/react'
 import { AddAccountModal } from '@/components/AddAccountModal'
+import { QoderMark } from '@/components/QoderMark'
+import { isQoderGlobalProvider } from '@/lib/provider'
 import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
 import {
@@ -29,6 +29,7 @@ import {
 import type { Overview } from '@/api/types'
 import { AccountsPageSkeleton } from '@/components/ui/PageSkeletons'
 import { CompactSwitch } from '@/components/ui/CompactSwitch'
+import { hoverLift } from '@/hooks/useGsapReveal'
 
 type AccountRow = NonNullable<Overview['accounts']>[number]
 type BusyKind = 'create' | 'import' | 'device' | 'pat' | 'rewarm' | 'toggle' | 'delete' | 'export'
@@ -84,8 +85,7 @@ function formatUpdatedAt(value: string | undefined, lang: 'en' | 'zh') {
 }
 
 function providerLabel(provider: string | undefined, t: (key: string) => string) {
-  const value = String(provider || '').toLowerCase()
-  if (!value || value === 'qoder' || value === 'qoder-global') return t('accountTypeQoderGlobal')
+  if (isQoderGlobalProvider(provider)) return t('accountTypeQoderGlobal')
   return provider || t('account')
 }
 
@@ -109,7 +109,6 @@ export function AccountsPage() {
   }), [enabledById, rows])
 
   const availableCount = displayRows.filter(isAvailable).length
-  const enabledCount = displayRows.filter((account) => account.enabled).length
   const attentionCount = displayRows.filter((account) => account.enabled && !isAvailable(account)).length
   const inFlightCount = displayRows.reduce((total, account) => total + (account.in_flight ?? account.inFlight ?? 0), 0)
   const confirmAccount = displayRows.find((account) => account.id === confirmId)
@@ -199,19 +198,14 @@ export function AccountsPage() {
 
   return (
     <div className="space-y-5">
-      <section className="grid gap-4 border-b border-[var(--app-line)] pb-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
-        <div className="flex flex-wrap items-center gap-x-6 gap-y-3 text-sm">
-          <div className="flex items-center gap-3 border-l-2 border-[var(--accent)] pl-3">
+      <section data-gsap-reveal className="grid gap-4 border-b border-[var(--app-line)] pb-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
+          <div className="flex items-center gap-3 border-l-2 border-[var(--app-ok)] pl-3">
+            <span className="mono font-semibold">{rows.length}</span>
             <span className="text-[var(--app-faint)]">{t('accountCount')}</span>
-            <span className="mono text-sm font-semibold">{rows.length}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-[var(--app-faint)]">{t('enabledAccounts')}</span>
-            <span className="mono font-medium">{enabledCount}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-[var(--app-faint)]">{t('availableAccounts')}</span>
-            <span className="mono font-medium text-[var(--accent)]">{availableCount}</span>
+            <span className="text-[var(--app-line-strong)]">·</span>
+            <span className="mono font-medium text-[var(--app-ok)]">{availableCount}</span>
+            <span className="text-[var(--app-ok)]">{t('availableAccounts')}</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="text-[var(--app-faint)]">{t('needsAttention')}</span>
@@ -253,25 +247,29 @@ export function AccountsPage() {
       </Modal.Root>
 
       {rows.length ? (
-        <section className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <section data-gsap-reveal className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="w-full lg:max-w-md">
-            <Input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder={t('searchAccounts')}
-              aria-label={t('searchAccounts')}
-              className={ACCOUNT_INPUT_CLASS}
-            />
+            <InputGroup className={ACCOUNT_INPUT_CLASS} fullWidth>
+              <InputGroup.Prefix>
+                <MagnifyingGlass size={14} className="text-[var(--app-faint)]" />
+              </InputGroup.Prefix>
+              <InputGroup.Input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder={t('searchAccounts')}
+                aria-label={t('searchAccounts')}
+              />
+            </InputGroup>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <ButtonGroup>
+            <ButtonGroup className="toolbar-group">
               {([
                 ['all', t('filterAll')],
                 ['available', t('availableAccounts')],
                 ['attention', t('needsAttention')],
                 ['disabled', t('disabled')],
               ] as Array<[AccountFilter, string]>).map(([value, label]) => (
-                <Button key={value} className={ACCOUNT_BUTTON_CLASS} size="sm" variant={filter === value ? 'primary' : 'secondary'} onPress={() => setFilter(value)}>{label}</Button>
+                <Button key={value} className={ACCOUNT_BUTTON_CLASS} size="sm" variant={filter === value ? 'secondary' : 'ghost'} onPress={() => setFilter(value)}>{label}</Button>
               ))}
             </ButtonGroup>
             <span className="mono text-xs text-[var(--app-faint)]">{t('shownAccounts', { shown: filteredRows.length, total: rows.length })}</span>
@@ -282,7 +280,7 @@ export function AccountsPage() {
       {!rows.length ? (
         <div className="grid min-h-72 place-items-center rounded-lg border border-dashed border-[var(--app-line-strong)] text-center">
           <div className="max-w-sm px-6">
-            <UserCircle size={24} className="mx-auto text-[var(--app-faint)]" />
+            <QoderMark size={28} className="mx-auto" />
             <div className="mt-4 text-sm font-medium">{t('noAccounts')}</div>
             <div className="mt-1 text-xs leading-5 text-[var(--app-faint)]">{t('accountEmptyHint')}</div>
             <Button className={`${ACCOUNT_BUTTON_CLASS} mt-5`} size="sm" onPress={() => setAddOpen(true)}><Plus size={14} />{t('addAccount')}</Button>
@@ -324,16 +322,19 @@ export function AccountsPage() {
           const authPanelOpen = authPanelId === account.id
 
           return (
-            <article key={account.id} className="app-panel-flat flex flex-col overflow-hidden rounded-lg">
+            <article key={account.id} data-gsap-reveal className="account-card app-panel-flat flex flex-col overflow-hidden rounded-lg" onMouseEnter={(event) => hoverLift(event.currentTarget, true)} onMouseLeave={(event) => hoverLift(event.currentTarget, false)}>
               <header className="p-4">
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex min-w-0 items-start gap-3">
-                    <div className="grid size-8 shrink-0 place-items-center rounded-md border border-[var(--accent-line)] bg-[var(--accent-soft)] text-[var(--accent)]">
-                      <Lightning size={15} weight="fill" />
-                    </div>
+                    <QoderMark size={32} />
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-1.5">
-                        <Chip className={ACCOUNT_CHIP_CLASS} size="sm" variant="soft">{providerLabel(account.provider, t)}</Chip>
+                        <Chip className={ACCOUNT_CHIP_CLASS} size="sm" variant="soft">
+                          <span className="inline-flex items-center gap-1">
+                            {isQoderGlobalProvider(account.provider) ? <QoderMark size={12} /> : null}
+                            {providerLabel(account.provider, t)}
+                          </span>
+                        </Chip>
                         <Chip className={ACCOUNT_CHIP_CLASS} size="sm" variant="soft">{account.auth_type || 'none'}</Chip>
                       </div>
                       <h2 className="mt-1.5 truncate text-sm font-semibold tracking-[-0.01em]">{account.name || account.id}</h2>
@@ -362,7 +363,7 @@ export function AccountsPage() {
                       key={index}
                       className={`h-1.5 rounded-[2px] ${index < segmentCount
                         ? state === 'hot' || state === 'ready'
-                          ? 'bg-[var(--accent)]'
+                          ? 'bg-[var(--app-ok)]'
                           : state === 'login'
                             ? 'bg-[var(--app-danger)]'
                             : 'bg-[var(--app-faint)]'

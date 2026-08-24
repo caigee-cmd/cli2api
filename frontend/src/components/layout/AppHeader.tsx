@@ -1,5 +1,5 @@
-import { SignOut, List, Moon, ArrowClockwise, Sun } from '@phosphor-icons/react'
-import { Button, ButtonGroup, Tooltip } from '@heroui/react'
+import { ArrowClockwise, Globe, List, Moon, SignOut, Sun } from '@phosphor-icons/react'
+import { Button, Tooltip } from '@heroui/react'
 import { useNavigate } from 'react-router-dom'
 import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
@@ -32,31 +32,35 @@ export function AppHeader({
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-baseline gap-3">
             <span className="status-dot translate-y-[-1px]" data-state={ready ? 'ok' : 'danger'} />
-            <h1 className="truncate text-xl font-semibold tracking-[-0.025em] sm:text-2xl">{title}</h1>
+            <h1 className="truncate text-[1.375rem] font-semibold tracking-[-0.03em] sm:text-2xl">{title}</h1>
             <p className="hidden truncate text-sm text-[var(--app-muted)] xl:block">{desc}</p>
           </div>
         </div>
 
-        <div className="flex items-center gap-1 sm:gap-1.5">
-          <ButtonGroup className="hidden sm:flex">
-            <Button size="sm" variant={lang === 'zh' ? 'primary' : 'secondary'} onPress={() => setLang('zh')}>中</Button>
-            <Button size="sm" variant={lang === 'en' ? 'primary' : 'secondary'} onPress={() => setLang('en')}>EN</Button>
-          </ButtonGroup>
+        <div className="chrome-cluster">
           <Tooltip>
             <Tooltip.Trigger>
-              <Button isIconOnly size="sm" variant="secondary" onPress={toggleTheme} aria-label={theme === 'dark' ? 'Light mode' : 'Dark mode'}>
-                {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
-              </Button>
-            </Tooltip.Trigger>
-            <Tooltip.Content>{theme === 'dark' ? 'Light mode' : 'Dark mode'}</Tooltip.Content>
-          </Tooltip>
-          <Tooltip>
-            <Tooltip.Trigger>
-              <Button isIconOnly size="sm" variant="secondary" isPending={loading} onPress={() => void refresh().catch(() => undefined)} aria-label={t('refresh')}>
-                <ArrowClockwise size={16} />
+              <Button isIconOnly size="sm" variant="ghost" isPending={loading} onPress={() => void refresh().catch(() => undefined)} aria-label={t('refresh')}>
+                <ArrowClockwise size={15} />
               </Button>
             </Tooltip.Trigger>
             <Tooltip.Content>{t('refresh')}</Tooltip.Content>
+          </Tooltip>
+          <Tooltip>
+            <Tooltip.Trigger>
+              <Button isIconOnly size="sm" variant="ghost" onPress={() => setLang(lang === 'zh' ? 'en' : 'zh')} aria-label={lang === 'zh' ? 'English' : '中文'}>
+                <Globe size={15} />
+              </Button>
+            </Tooltip.Trigger>
+            <Tooltip.Content>{lang === 'zh' ? 'English' : '中文'}</Tooltip.Content>
+          </Tooltip>
+          <Tooltip>
+            <Tooltip.Trigger>
+              <Button isIconOnly size="sm" variant="ghost" onPress={toggleTheme} aria-label={theme === 'dark' ? 'Light mode' : 'Dark mode'}>
+                {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
+              </Button>
+            </Tooltip.Trigger>
+            <Tooltip.Content>{theme === 'dark' ? 'Light mode' : 'Dark mode'}</Tooltip.Content>
           </Tooltip>
           <Tooltip>
             <Tooltip.Trigger>
@@ -70,7 +74,7 @@ export function AppHeader({
                 }}
                 aria-label={t('signOut')}
               >
-                <SignOut size={16} />
+                <SignOut size={15} />
               </Button>
             </Tooltip.Trigger>
             <Tooltip.Content>{t('signOut')}</Tooltip.Content>

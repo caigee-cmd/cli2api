@@ -15,6 +15,8 @@ import { useOverview } from '@/hooks/useOverview'
 import { testChat } from '@/api/overview'
 import { absUrl } from '@/lib/url'
 import { AccessPageSkeleton } from '@/components/ui/PageSkeletons'
+import { QoderMark } from '@/components/QoderMark'
+import { isQoderGlobalProvider } from '@/lib/provider'
 
 type RequestState = 'idle' | 'loading' | 'success' | 'error'
 
@@ -92,10 +94,9 @@ export function AccessPage() {
   return (
     <div className="space-y-6">
       <section className="grid gap-5 border-b border-[var(--app-line)] pb-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
-        <div>
-          <p className="mb-2 text-xs font-semibold tracking-[0.14em] text-[var(--accent)] uppercase">OpenAI compatible</p>
-          <h2 className="text-3xl font-semibold tracking-[-0.04em] sm:text-4xl">{t('apiPlayground')}</h2>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--app-muted)]">{t('apiPlaygroundHint')}</p>
+        <div data-gsap-reveal>
+          <h2 className="text-2xl font-semibold tracking-[-0.035em]">{t('apiPlayground')}</h2>
+          <p className="mt-1 max-w-2xl text-sm leading-6 text-[var(--app-muted)]">{t('apiPlaygroundHint')}</p>
         </div>
         <div className="flex items-center gap-2 text-xs text-[var(--app-muted)]">
           <span className="status-dot" data-state={readyAccounts.length ? 'ok' : undefined} />
@@ -103,7 +104,7 @@ export function AccessPage() {
         </div>
       </section>
 
-      <section className="grid overflow-hidden rounded-lg border border-[var(--app-line)] bg-[var(--app-surface)] sm:grid-cols-3">
+      <section data-gsap-reveal className="grid overflow-hidden rounded-lg border border-[var(--app-line)] bg-[var(--app-surface)] sm:grid-cols-3">
         <div className="min-w-0 border-b border-[var(--app-line)] p-4 sm:col-span-2 sm:border-r sm:border-b-0 sm:p-5">
           <div className="mb-2 flex items-center justify-between gap-3">
             <span className="text-xs font-medium text-[var(--app-faint)]">{t('baseUrl')}</span>
@@ -125,13 +126,13 @@ export function AccessPage() {
         </div>
       </section>
 
-      <Card className="app-panel overflow-hidden rounded-lg p-0 shadow-[var(--app-shadow)]">
+      <Card data-gsap-reveal className="app-panel overflow-hidden rounded-lg p-0">
         <div className="grid xl:grid-cols-[minmax(440px,.92fr)_minmax(0,1.08fr)]">
           <div className="border-b border-[var(--app-line)] xl:border-r xl:border-b-0">
             <div className="border-b border-[var(--app-line)] px-5 py-5 sm:px-7">
               <div className="flex items-center gap-3">
-                <div className="grid size-9 place-items-center rounded-lg bg-[var(--accent-soft)] text-[var(--accent)]">
-                  <PaperPlaneTilt size={17} weight="bold" />
+                <div className="grid size-8 place-items-center rounded-lg bg-[var(--app-ink)] text-[var(--app-bg)]">
+                  <PaperPlaneTilt size={15} weight="bold" />
                 </div>
                 <div>
                   <h3 className="font-semibold tracking-[-0.015em]">{t('requestBuilder')}</h3>
@@ -144,13 +145,29 @@ export function AccessPage() {
               <div className="space-y-3">
                   <div className="text-sm font-medium text-[var(--app-muted)]">{t('account')}</div>
                   <Select selectedKey={selectedAccount || 'auto'} onSelectionChange={(key) => setAccountId(String(key) === 'auto' ? '' : String(key))} aria-label={t('account')}>
-                    <Select.Trigger className="min-h-12 px-4"><Select.Value /><Select.Indicator /></Select.Trigger>
+                    <Select.Trigger>
+                      <Select.Value>
+                        {({ defaultChildren }) => {
+                          const selected = accounts.find((account) => account.id === selectedAccount)
+                          return (
+                            <span className="inline-flex min-w-0 items-center gap-2">
+                              {selected && isQoderGlobalProvider(selected.provider) ? <QoderMark size={16} /> : null}
+                              <span className="truncate">{defaultChildren}</span>
+                            </span>
+                          )
+                        }}
+                      </Select.Value>
+                      <Select.Indicator />
+                    </Select.Trigger>
                     <Select.Popover>
                       <ListBox>
                         <ListBox.Item id="auto" textValue={t('autoAccount')}><Label>{t('autoAccount')}</Label></ListBox.Item>
                         {accounts.map((account) => (
                           <ListBox.Item key={account.id} id={account.id} textValue={account.name || account.id}>
-                            <Label>{account.name || account.id}</Label>
+                            <div className="flex min-w-0 items-center gap-2">
+                              {isQoderGlobalProvider(account.provider) ? <QoderMark size={16} /> : null}
+                              <Label>{account.name || account.id}</Label>
+                            </div>
                           </ListBox.Item>
                         ))}
                       </ListBox>
@@ -162,7 +179,7 @@ export function AccessPage() {
               <div className="space-y-3">
                   <div className="text-sm font-medium text-[var(--app-muted)]">{t('model')}</div>
                   <Select selectedKey={selectedModel} onSelectionChange={(key) => setModel(String(key))} aria-label={t('model')}>
-                    <Select.Trigger className="min-h-12 px-4"><Select.Value /><Select.Indicator /></Select.Trigger>
+                    <Select.Trigger><Select.Value /><Select.Indicator /></Select.Trigger>
                     <Select.Popover>
                       <ListBox>
                         {(models.length ? models : [{ id: 'qwen3.7-plus' }]).map((item) => (
@@ -200,7 +217,7 @@ export function AccessPage() {
                 </div>
               ) : null}
 
-              <Button className="min-h-12" fullWidth isPending={requestState === 'loading'} isDisabled={!prompt.trim() || !selectedModel} onPress={() => void onTest()}>
+              <Button fullWidth isPending={requestState === 'loading'} isDisabled={!prompt.trim() || !selectedModel} onPress={() => void onTest()}>
                 <PaperPlaneTilt size={16} />
                 {requestState === 'loading' ? t('requesting') : t('sendRequest')}
               </Button>
@@ -260,7 +277,7 @@ export function AccessPage() {
                 </div>
               ) : (
                 <div>
-                  <div className="mb-4 flex items-center gap-2 text-xs font-medium text-[var(--accent)]">
+                  <div className="mb-4 flex items-center gap-2 text-xs font-medium text-[var(--app-ok)]">
                     <CheckCircle size={15} weight="fill" />
                     {t('responseReceived')}
                   </div>
@@ -272,7 +289,7 @@ export function AccessPage() {
         </div>
       </Card>
 
-      <section className="app-panel-flat overflow-hidden rounded-lg">
+      <section data-gsap-reveal className="app-panel-flat overflow-hidden rounded-lg">
         <div className="flex items-center justify-between gap-4 border-b border-[var(--app-line)] px-5 py-3.5">
           <div className="flex min-w-0 items-center gap-3">
             <TerminalWindow className="shrink-0 text-[var(--app-faint)]" size={16} />

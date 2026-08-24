@@ -106,7 +106,9 @@ Linux 使用私有 Unix Socket。macOS 使用当前用户的 LaunchAgent，Windo
 gh workflow run release.yml --ref main
 ```
 
-工作流会先等待当前 `main` 提交的 CI 通过，再根据最新已发布稳定版本自动增加 patch 版本；它会创建不可见的 Draft Release，构建并校验 6 个 updater，验证 `linux/amd64` 与 `linux/arm64` 镜像，全部完成后才正式发布 GitHub Release 并移动稳定镜像别名。不要再手动创建或推送版本 Tag。
+发布前先在 `CHANGELOG.md` 的 `## Unreleased` 下写中英双语用户说明。每条改动都要在 `### English` 和 `### 中文` 里各有一条对应条目；工作流会把这些说明写入 GitHub Release，控制台更新页也会展示它们。
+
+工作流会先等待当前 `main` 提交的 CI 通过，再根据最新已发布稳定版本自动增加 patch 版本；它会创建不可见的 Draft Release，构建并校验 6 个 updater，验证 `linux/amd64` 与 `linux/arm64` 镜像，全部完成后才正式发布 GitHub Release 并移动稳定镜像别名。发布成功后再把 Unreleased 冻结到对应版本标题下。不要再手动创建或推送版本 Tag。
 
 也可以进入 **Actions → Release → Run workflow** 点击发布。如果正式发布前失败，直接在同一次运行中选择 **Re-run failed jobs**；Draft Release 不会被应用的更新检查发现。
 

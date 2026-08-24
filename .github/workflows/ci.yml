@@ -15,6 +15,10 @@ jobs:
           go-version-file: go.mod
       - run: go test ./...
       - run: go vet ./...
+      - name: Validate bilingual changelog
+        run: |
+          python3 scripts/release-notes.py self-test
+          python3 scripts/release-notes.py validate
       - name: Build updater release matrix
         run: ./scripts/build-updater-assets.sh "$RUNNER_TEMP/updater-assets"
 

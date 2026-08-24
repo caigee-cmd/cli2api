@@ -36,10 +36,10 @@ export function OverviewPage() {
   ]
 
   return (
-    <div className="space-y-7">
+    <div className="space-y-6">
       <section className="flex flex-wrap items-end justify-between gap-4 border-b border-[var(--app-line)] pb-4">
         <div>
-          <h2 className="text-2xl font-semibold tracking-[-0.035em]">{t('homeDisplay')}</h2>
+          <h2 data-gsap-reveal className="text-2xl font-semibold tracking-[-0.035em]">{t('homeDisplay')}</h2>
           <p className="mt-1 max-w-2xl text-sm leading-6 text-[var(--app-muted)]">{t('homeLead')}</p>
         </div>
         <div className="text-left sm:text-right">
@@ -51,7 +51,7 @@ export function OverviewPage() {
         </div>
       </section>
 
-      <section className="grid overflow-hidden rounded-lg border border-[var(--app-line)] bg-[var(--app-surface)] shadow-[var(--app-shadow)] sm:grid-cols-2 xl:grid-cols-4">
+      <section data-gsap-reveal className="grid overflow-hidden rounded-lg border border-[var(--app-line)] bg-[var(--app-surface)] sm:grid-cols-2 xl:grid-cols-4">
         {metrics.map((metric, index) => {
           const Icon = metric.icon
           return (
@@ -73,7 +73,7 @@ export function OverviewPage() {
       </section>
 
       <section className="grid gap-5 xl:grid-cols-[minmax(0,1.15fr)_minmax(380px,.85fr)]">
-        <Card className="app-panel-flat overflow-hidden rounded-lg p-0 shadow-[var(--app-shadow)]">
+        <Card data-gsap-reveal className="app-panel-flat overflow-hidden rounded-lg p-0">
           <div className="flex items-center justify-between gap-3 border-b border-[var(--app-line)] px-5 py-4">
             <div>
               <h3 className="font-semibold tracking-[-0.015em]">{t('serviceDetail')}</h3>
@@ -107,7 +107,7 @@ export function OverviewPage() {
           )}
         </Card>
 
-        <Card className="app-panel-flat overflow-hidden rounded-lg p-0 shadow-[var(--app-shadow)]">
+        <Card data-gsap-reveal className="app-panel-flat overflow-hidden rounded-lg p-0">
           <div className="border-b border-[var(--app-line)] px-5 py-4">
             <h3 className="font-semibold tracking-[-0.015em]">{t('endpoints')}</h3>
             <p className="mt-0.5 text-xs text-[var(--app-faint)]">{t('routesHint')}</p>
@@ -115,13 +115,13 @@ export function OverviewPage() {
           <div className="divide-y divide-[var(--app-line)]">
             {endpoints.map((item) => (
               <div key={item.name} className="group grid gap-2 px-5 py-4 sm:grid-cols-[70px_minmax(0,1fr)_auto] sm:items-center">
-                <span className="mono text-[10px] font-semibold text-[var(--accent)]">{item.method}</span>
+                <span className="mono text-[10px] font-semibold text-[var(--app-muted)]">{item.method}</span>
                 <div className="min-w-0">
                   <div className="text-sm font-medium">{item.name}</div>
                   <code className="mono mt-1 block truncate text-[11px] text-[var(--app-faint)]">{item.url}</code>
                 </div>
                 <div className="flex gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100">
-                  <Button isIconOnly size="sm" variant="ghost" aria-label={t('copy')} onPress={() => { void navigator.clipboard.writeText(item.url); setCopiedEndpoint(item.name); window.setTimeout(() => setCopiedEndpoint(''), 1100) }}>{copiedEndpoint === item.name ? <span className="mono text-[9px] text-[var(--accent)]">OK</span> : <Copy size={14} />}</Button>
+                  <Button isIconOnly size="sm" variant="ghost" aria-label={t('copy')} onPress={() => { void navigator.clipboard.writeText(item.url); setCopiedEndpoint(item.name); window.setTimeout(() => setCopiedEndpoint(''), 1100) }}>{copiedEndpoint === item.name ? <span className="mono text-[9px] text-[var(--app-ok)]">OK</span> : <Copy size={14} />}</Button>
                   <Button isIconOnly size="sm" variant="ghost" aria-label={t('open')} onPress={() => window.open(item.url, '_blank', 'noopener,noreferrer')}><ArrowSquareOut size={14} /></Button>
                 </div>
               </div>

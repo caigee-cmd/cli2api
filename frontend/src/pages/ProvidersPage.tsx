@@ -110,17 +110,16 @@ export function ProvidersPage() {
   return (
     <div className="space-y-6">
       <section className="grid gap-5 border-b border-[var(--app-line)] pb-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
-        <div>
-          <p className="mb-2 text-xs font-semibold tracking-[0.14em] text-[var(--accent)] uppercase">{t('catalog')}</p>
-          <h2 className="text-3xl font-semibold tracking-[-0.04em] sm:text-4xl">{t('availableModels')}</h2>
-          <p className="mt-2 text-sm text-[var(--app-muted)]">
+        <div data-gsap-reveal>
+          <h2 className="text-2xl font-semibold tracking-[-0.035em]">{t('availableModels')}</h2>
+          <p className="mt-1 text-sm text-[var(--app-muted)]">
             {models.length ? t('shownTotal', { shown: filtered.length, total: models.length }) : t('noModelsYet')}
           </p>
         </div>
-        <div className="flex flex-col gap-2 sm:flex-row">
+        <div data-gsap-reveal className="flex flex-col gap-2 sm:flex-row">
           <Input className="sm:w-72" value={filter} onChange={(event) => setFilter(event.target.value)} placeholder={t('filterPh')} aria-label={t('filter')} />
-          <Button variant="secondary" isPending={busy} onPress={() => void onRefresh()}>
-            <ArrowClockwise size={15} />
+          <Button size="sm" variant="secondary" isPending={busy} onPress={() => void onRefresh()}>
+            <ArrowClockwise size={14} />
             {busy ? t('refreshing') : t('refresh')}
           </Button>
         </div>
@@ -128,9 +127,9 @@ export function ProvidersPage() {
 
       {message ? <div className={messageError
         ? 'rounded-lg border border-[color:color-mix(in_srgb,var(--app-danger)_28%,transparent)] bg-[color:color-mix(in_srgb,var(--app-danger)_8%,transparent)] px-4 py-3 text-sm text-[var(--app-danger)]'
-        : 'rounded-lg border border-[color:color-mix(in_srgb,var(--accent)_24%,transparent)] bg-[color:color-mix(in_srgb,var(--accent)_7%,transparent)] px-4 py-3 text-sm text-[var(--app-muted)]'}>{message}</div> : null}
+        : 'rounded-lg border border-[color:color-mix(in_srgb,var(--app-ok)_24%,transparent)] bg-[color:color-mix(in_srgb,var(--app-ok)_7%,transparent)] px-4 py-3 text-sm text-[var(--app-muted)]'}>{message}</div> : null}
 
-      <Card className="app-panel-flat overflow-hidden rounded-lg p-0 shadow-none">
+      <Card data-gsap-reveal className="app-panel-flat overflow-hidden rounded-lg p-0 shadow-none">
         <div className="flex items-center justify-between gap-4 border-b border-[var(--app-line)] px-5 py-4">
           <div className="flex items-center gap-3">
             <div className="grid size-9 place-items-center rounded-lg bg-[var(--app-surface-muted)] text-[var(--app-muted)]"><Cube size={16} /></div>
@@ -195,7 +194,7 @@ export function ProvidersPage() {
                           </div>
                         </Table.Cell>
                         <Table.Cell>
-                          <Chip size="sm" variant="soft" color={model.context_custom ? 'accent' : model.stale ? 'warning' : 'success'}>
+                          <Chip size="sm" variant="soft" color={model.context_custom ? 'warning' : model.stale ? 'warning' : 'success'}>
                             {model.context_custom ? t('custom') : t('defaultValue')}
                           </Chip>
                         </Table.Cell>

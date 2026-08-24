@@ -11,6 +11,7 @@ import {
   TextArea,
 } from '@heroui/react'
 import { CheckCircle, ArrowSquareOut, FileCode, Key, SpinnerGap, ShieldCheck, X } from '@phosphor-icons/react'
+import { QoderMark } from '@/components/QoderMark'
 import { useI18n } from '@/hooks/useI18n'
 import {
   createAccount,
@@ -33,7 +34,7 @@ const accountTypes: Array<{ id: AccountType; labelKey: string; hintKey: string }
   { id: 'qoder-global', labelKey: 'accountTypeQoderGlobal', hintKey: 'accountTypeQoderGlobalHint' },
 ]
 function StatusIcon({ phase, busy, tab, forTab }: { phase: Phase; busy: boolean; tab: TabKey; forTab: TabKey }) {
-  if (phase === 'done') return <CheckCircle size={16} className="text-[var(--accent)]" />
+  if (phase === 'done') return <CheckCircle size={16} className="text-[var(--app-ok)]" />
   if (busy && tab === forTab) return <SpinnerGap size={16} className="animate-spin" />
   return null
 }
@@ -212,14 +213,27 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                   <p className="mt-1 text-xs leading-5 text-[var(--app-faint)]">{t('accountTypeHint')}</p>
                 </div>
                 <Select selectedKey={accountType} onSelectionChange={(key) => setAccountType(String(key) as AccountType)} isDisabled={busy} aria-label={t('accountType')}>
-                  <Select.Trigger><Select.Value /></Select.Trigger>
+                  <Select.Trigger>
+                    <Select.Value>
+                      {({ defaultChildren, isPlaceholder }) => (
+                        <span className="inline-flex min-w-0 items-center gap-2">
+                          {!isPlaceholder ? <QoderMark size={16} /> : null}
+                          <span className="truncate">{defaultChildren}</span>
+                        </span>
+                      )}
+                    </Select.Value>
+                    <Select.Indicator />
+                  </Select.Trigger>
                   <Select.Popover>
                     <ListBox>
                       {accountTypes.map((item) => (
                         <ListBox.Item key={item.id} id={item.id} textValue={t(item.labelKey)}>
-                          <div className="min-w-0">
-                            <Label>{t(item.labelKey)}</Label>
-                            <div className="mt-0.5 text-xs text-[var(--app-faint)]">{t(item.hintKey)}</div>
+                          <div className="flex min-w-0 items-start gap-2.5">
+                            <QoderMark size={18} className="mt-0.5" />
+                            <div className="min-w-0">
+                              <Label>{t(item.labelKey)}</Label>
+                              <div className="mt-0.5 text-xs text-[var(--app-faint)]">{t(item.hintKey)}</div>
+                            </div>
                           </div>
                         </ListBox.Item>
                       ))}
@@ -229,13 +243,13 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
               </div>
               <Tabs.Root selectedKey={tab} onSelectionChange={(key) => { if (!busy) setTab(String(key) as TabKey) }} disabledKeys={busy ? ['browser', 'pat', 'import'] : []}>
                 <Tabs.List className="grid grid-cols-3 gap-1 rounded-lg bg-[var(--app-surface-muted)] p-1">
-                  <Tab id="browser" className="flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium data-[selected=true]:bg-[var(--app-surface)] data-[selected=true]:shadow-sm data-[selected=true]:text-[var(--accent)] data-[hovered=true]:text-[var(--app-fg)] text-[var(--app-faint)]">
+                  <Tab id="browser" className="flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium data-[selected=true]:bg-[var(--app-surface)] data-[selected=true]:shadow-sm data-[selected=true]:text-[var(--app-ink)] data-[hovered=true]:text-[var(--app-fg)] text-[var(--app-faint)]">
                     <ShieldCheck size={13} />{t('tabBrowser')}
                   </Tab>
-                  <Tab id="pat" className="flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium data-[selected=true]:bg-[var(--app-surface)] data-[selected=true]:shadow-sm data-[selected=true]:text-[var(--accent)] data-[hovered=true]:text-[var(--app-fg)] text-[var(--app-faint)]">
+                  <Tab id="pat" className="flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium data-[selected=true]:bg-[var(--app-surface)] data-[selected=true]:shadow-sm data-[selected=true]:text-[var(--app-ink)] data-[hovered=true]:text-[var(--app-fg)] text-[var(--app-faint)]">
                     <Key size={13} />{t('tabPat')}
                   </Tab>
-                  <Tab id="import" className="flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium data-[selected=true]:bg-[var(--app-surface)] data-[selected=true]:shadow-sm data-[selected=true]:text-[var(--accent)] data-[hovered=true]:text-[var(--app-fg)] text-[var(--app-faint)]">
+                  <Tab id="import" className="flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium data-[selected=true]:bg-[var(--app-surface)] data-[selected=true]:shadow-sm data-[selected=true]:text-[var(--app-ink)] data-[hovered=true]:text-[var(--app-fg)] text-[var(--app-faint)]">
                     <FileCode size={13} />{t('tabImport')}
                   </Tab>
                 </Tabs.List>
@@ -249,7 +263,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                         <StatusIcon phase={phase} busy={busy} tab={tab} forTab="browser" />
                         <span className="text-[var(--app-muted)]">{message || t('loginOpenMsg')}</span>
                       </div>
-                      <button onClick={() => window.open(authUrl, '_blank', 'noopener,noreferrer')} className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-[var(--accent)] hover:underline">
+                      <button onClick={() => window.open(authUrl, '_blank', 'noopener,noreferrer')} className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-[var(--app-ink)] hover:underline">
                         <ArrowSquareOut size={12} />{t('wizardOpenBrowser')}
                       </button>
                     </div>
@@ -284,7 +298,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
               </Tabs.Root>
 
               {message && !authUrl ? (
-                <p className={`rounded-lg border px-3 py-2 text-xs ${phase === 'done' ? 'border-[var(--accent)]/30 bg-[var(--accent-soft)] text-[var(--accent)]' : 'border-[var(--app-line)] bg-[var(--app-surface-muted)] text-[var(--app-muted)]'}`}>{message}</p>
+                <p className={`rounded-lg border px-3 py-2 text-xs ${phase === 'done' ? 'border-[var(--app-ok-line)] bg-[var(--app-ok-soft)] text-[var(--app-ok-strong)]' : 'border-[var(--app-line)] bg-[var(--app-surface-muted)] text-[var(--app-muted)]'}`}>{message}</p>
               ) : null}
             </Modal.Body>
             <Modal.Footer className="justify-end px-5 pb-5">

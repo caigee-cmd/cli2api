@@ -1,7 +1,8 @@
 import { useRef, useState } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
-import { Button, ButtonGroup, Card, Chip, InputGroup } from '@heroui/react'
-import { ArrowRight, Eye, EyeSlash, Moon, HardDrives, Sun } from '@phosphor-icons/react'
+import { Button, Card, Chip, InputGroup, Tooltip } from '@heroui/react'
+import { ArrowRight, Eye, EyeSlash, Globe, Moon, Sun } from '@phosphor-icons/react'
+import { QoderMark } from '@/components/QoderMark'
 import { useI18n } from '@/hooks/useI18n'
 import { useApiKey } from '@/hooks/useApiKey'
 import { useOverview } from '@/hooks/useOverview'
@@ -49,27 +50,34 @@ export function LoginPage() {
   return (
     <div className="relative min-h-dvh overflow-hidden bg-[var(--app-bg)] text-[var(--app-ink)]">
       <div className="noise" aria-hidden />
-      <div className="absolute inset-x-0 top-0 h-px bg-[var(--accent)] opacity-70" />
+      <div className="absolute inset-x-0 top-0 h-px bg-[var(--app-line-strong)]" />
       <main ref={pageRef} className="relative z-10 mx-auto grid min-h-dvh w-full max-w-[1480px] lg:grid-cols-[minmax(0,1.22fr)_minmax(420px,.78fr)]">
         <section className="flex min-h-[52vh] flex-col border-[var(--app-line)] px-5 py-6 sm:px-10 sm:py-8 lg:min-h-dvh lg:border-r lg:px-14 lg:py-10 xl:px-20">
           <header className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <div className="grid size-10 place-items-center rounded-xl border border-[var(--accent-line)] bg-[var(--accent-soft)] text-[var(--accent)]">
-                <HardDrives size={19} />
-              </div>
+              <QoderMark size={36} />
               <div>
                 <div className="font-semibold tracking-[-0.02em]">CLI2API</div>
                 <div className="text-xs text-[var(--app-faint)]">{t('controlPlane')}</div>
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <ButtonGroup>
-                <Button size="sm" variant={lang === 'zh' ? 'primary' : 'secondary'} onPress={() => setLang('zh')}>中</Button>
-                <Button size="sm" variant={lang === 'en' ? 'primary' : 'secondary'} onPress={() => setLang('en')}>EN</Button>
-              </ButtonGroup>
-              <Button isIconOnly size="sm" variant="secondary" onPress={toggleTheme} aria-label={theme === 'dark' ? 'Light mode' : 'Dark mode'}>
-                {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
-              </Button>
+            <div className="chrome-cluster">
+              <Tooltip>
+                <Tooltip.Trigger>
+                  <Button isIconOnly size="sm" variant="ghost" onPress={() => setLang(lang === 'zh' ? 'en' : 'zh')} aria-label={lang === 'zh' ? 'English' : '中文'}>
+                    <Globe size={15} />
+                  </Button>
+                </Tooltip.Trigger>
+                <Tooltip.Content>{lang === 'zh' ? 'English' : '中文'}</Tooltip.Content>
+              </Tooltip>
+              <Tooltip>
+                <Tooltip.Trigger>
+                  <Button isIconOnly size="sm" variant="ghost" onPress={toggleTheme} aria-label={theme === 'dark' ? 'Light mode' : 'Dark mode'}>
+                    {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
+                  </Button>
+                </Tooltip.Trigger>
+                <Tooltip.Content>{theme === 'dark' ? 'Light mode' : 'Dark mode'}</Tooltip.Content>
+              </Tooltip>
             </div>
           </header>
 

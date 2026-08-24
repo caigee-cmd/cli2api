@@ -365,6 +365,8 @@ Release packaging keeps the application as a Linux container and publishes a `li
 
 Maintainers do not create version tags manually. A serialized `workflow_dispatch` release waits for CI on the exact `main` commit, calculates the next patch after the latest published stable release, creates or resumes an invisible draft release, uploads all updater assets, builds a candidate multi-architecture image, promotes and verifies immutable version tags, and finally publishes the release. Mutable `latest` and release-series aliases move only after publication. Failed pre-publication runs leave a resumable draft rather than exposing an update to the console.
 
+Release notes come from `CHANGELOG.md`, not generated commit lists. Maintainers write matching `### English` and `### 中文` bullets under `## Unreleased`; the workflow copies that bilingual body onto the GitHub Release, which the console update page shows as-is. After the release is public, a follow-up commit freezes those notes under the new version heading so the next patch starts from an empty Unreleased section.
+
 The host boundary is explicitly versioned through `protocol_version`. Version `1` is current; version `0` is temporarily accepted for an older updater that omitted the field. Any other version is rejected before an update request is submitted. New updater releases must remain backward-compatible with the immediately previous application release so the latest-asset bootstrap path stays safe.
 
 Useful ideas borrowed from sub2api:
@@ -391,7 +393,7 @@ The console follows the CaiAI frontend design baseline, adapted to this Vite app
 
 - Warm ivory surfaces, low contrast, compact information density.
 - Practical before decorative; the authenticated console must not read like a marketing page.
-- Use one emerald accent on warm neutral surfaces. Avoid purple, neon, colored stacks, decorative blobs, glass, and large gradients.
+- Warm ivory / charcoal surfaces. Primary buttons are cream/ink, not green. Green is reserved for success, ready, and enabled states. Avoid purple, neon, colored stacks, decorative blobs, glass, and large gradients.
 - Use shadows to lift important surfaces; do not combine heavy borders, colored fills, and strong shadows without a clear hierarchy.
 - Use semantic app tokens from `frontend/src/index.css`; do not add one-off colors in page components.
 
@@ -415,7 +417,7 @@ The console follows the CaiAI frontend design baseline, adapted to this Vite app
 
 - Loading, empty, and error states are required for data surfaces.
 - Labels sit above form controls; helper text stays quiet and errors sit below the field.
-- Primary actions use HeroUI default buttons. Secondary actions use ghost/outline variants; inline destructive actions use `danger-soft`, while solid danger is reserved for confirmation dialogs.
+- Primary actions use HeroUI default buttons with cream/ink fill. Secondary actions use bordered ghost/secondary chips; header utility actions sit in a clustered icon group. Inline destructive actions use `danger-soft`; solid danger is reserved for confirmation dialogs.
 - Compact console controls use a 32px button/input baseline, 12px medium button text, 14px action icons, 20px chips, and 6–8px radii. Icon buttons are 32 × 32px.
 - Compact enable switches use a 34 × 18px track, a 14px thumb with 2px inset, and an 11px state label.
 - Pure icon buttons require `aria-label` and a useful title where the action is not obvious.

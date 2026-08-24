@@ -87,7 +87,7 @@ export function SystemPage() {
     <div className="space-y-6">
       <section className="flex flex-wrap items-end justify-between gap-4 border-b border-[var(--app-line)] pb-4">
         <div>
-          <h2 className="text-2xl font-semibold tracking-[-0.035em]">{t('systemUpdateTitle')}</h2>
+          <h2 data-gsap-reveal className="text-2xl font-semibold tracking-[-0.035em]">{t('systemUpdateTitle')}</h2>
           <p className="mt-1 max-w-2xl text-sm leading-6 text-[var(--app-muted)]">{t('systemUpdateLead')}</p>
         </div>
         <Button size="sm" variant="secondary" isPending={checking} onPress={() => void load(true)}>
@@ -102,13 +102,13 @@ export function SystemPage() {
       ) : null}
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.18fr)_minmax(360px,.82fr)]">
-        <Card className="app-panel-flat overflow-hidden rounded-lg p-0 shadow-[var(--app-shadow)]">
+        <Card data-gsap-reveal className="app-panel-flat overflow-hidden rounded-lg p-0">
           <div className="flex items-center justify-between gap-3 border-b border-[var(--app-line)] px-5 py-4">
             <div>
               <h3 className="font-semibold tracking-[-0.015em]">{t('versionUpdate')}</h3>
               <p className="mt-0.5 text-xs text-[var(--app-faint)]">{t('nextVersionOnly')}</p>
             </div>
-            <Chip size="sm" variant="soft" color={info?.has_update ? 'accent' : 'success'}>
+            <Chip size="sm" variant="soft" color={info?.has_update ? 'warning' : 'success'}>
               {info?.has_update ? t('updateAvailable') : t('upToDate')}
             </Chip>
           </div>
@@ -124,7 +124,7 @@ export function SystemPage() {
               </div>
               <div className="border-t border-[var(--app-line)] p-4 sm:border-t-0">
                 <div className="text-xs font-medium text-[var(--app-faint)]">{t('nextVersion')}</div>
-                <div className="mono mt-2 text-lg font-semibold text-[var(--accent)]">{info?.next_version || '—'}</div>
+                <div className="mono mt-2 text-lg font-semibold">{info?.next_version || '—'}</div>
               </div>
             </div>
 
@@ -146,27 +146,27 @@ export function SystemPage() {
         </Card>
 
         <div className="space-y-5">
-          <Card className="app-panel-flat rounded-lg p-5 shadow-[var(--app-shadow)]">
+          <Card data-gsap-reveal className="app-panel-flat rounded-lg p-5">
             <div className="flex items-start justify-between gap-4">
               <div className="flex items-start gap-3">
-                <div className="grid size-9 shrink-0 place-items-center rounded-lg border border-[var(--accent-line)] bg-[var(--accent-soft)] text-[var(--accent)]"><Database size={17} /></div>
+                <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-[var(--app-ink)] text-[var(--app-bg)]"><Database size={15} /></div>
                 <div>
                   <h3 className="font-semibold">{t('sqliteProtection')}</h3>
                   <p className="mt-1 text-xs leading-5 text-[var(--app-faint)]">{t('sqliteProtectionHint')}</p>
                 </div>
               </div>
-              <ShieldCheck size={19} className="text-[var(--accent)]" />
+              <ShieldCheck size={18} className="text-[var(--app-ok)]" />
             </div>
             <div className="mono mt-4 rounded-lg bg-[var(--app-surface-muted)] px-3 py-2 text-xs text-[var(--app-muted)]">/data</div>
             <div className="mt-3 grid gap-2 text-xs text-[var(--app-faint)]">
-              <div className="flex items-center gap-2"><CheckCircle size={14} className="text-[var(--accent)]" />{t('sqliteBackupBeforeUpdate')}</div>
-              <div className="flex items-center gap-2"><CheckCircle size={14} className="text-[var(--accent)]" />{t('sqliteKeepFive')}</div>
-              <div className="flex items-center gap-2"><CheckCircle size={14} className="text-[var(--accent)]" />{t('sqliteRollbackTogether')}</div>
+              <div className="flex items-center gap-2"><CheckCircle size={14} className="text-[var(--app-ok)]" />{t('sqliteBackupBeforeUpdate')}</div>
+              <div className="flex items-center gap-2"><CheckCircle size={14} className="text-[var(--app-ok)]" />{t('sqliteKeepFive')}</div>
+              <div className="flex items-center gap-2"><CheckCircle size={14} className="text-[var(--app-ok)]" />{t('sqliteRollbackTogether')}</div>
             </div>
             {started?.backup?.name ? <div className="mono mt-4 break-all border-t border-[var(--app-line)] pt-3 text-[10px] text-[var(--app-faint)]">{started.backup.name}</div> : null}
           </Card>
 
-          <Card className="app-panel-flat rounded-lg p-5 shadow-[var(--app-shadow)]">
+          <Card data-gsap-reveal className="app-panel-flat rounded-lg p-5">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <h3 className="font-semibold">{t('updateStatus')}</h3>
