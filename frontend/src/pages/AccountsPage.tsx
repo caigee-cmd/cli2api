@@ -14,6 +14,7 @@ import {
 } from '@phosphor-icons/react'
 import { AddAccountModal } from '@/components/AddAccountModal'
 import { QoderMark } from '@/components/QoderMark'
+import { ProviderMark } from '@/components/ProviderMark'
 import { isQoderGlobalProvider } from '@/lib/provider'
 import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
@@ -326,12 +327,12 @@ export function AccountsPage() {
               <header className="p-4">
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex min-w-0 items-start gap-3">
-                    <QoderMark size={32} />
+                    <ProviderMark provider={account.provider} size={32} />
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-1.5">
                         <Chip className={ACCOUNT_CHIP_CLASS} size="sm" variant="soft">
                           <span className="inline-flex items-center gap-1">
-                            {isQoderGlobalProvider(account.provider) ? <QoderMark size={12} /> : null}
+                            <ProviderMark provider={account.provider} size={12} />
                             {providerLabel(account.provider, t)}
                           </span>
                         </Chip>

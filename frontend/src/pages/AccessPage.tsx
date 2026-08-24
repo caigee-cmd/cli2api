@@ -16,8 +16,7 @@ import { testChat } from '@/api/overview'
 import { absUrl } from '@/lib/url'
 import { AccessPageSkeleton } from '@/components/ui/PageSkeletons'
 import { OptionTiles } from '@/components/ui/OptionTiles'
-import { QoderMark } from '@/components/QoderMark'
-import { isQoderGlobalProvider } from '@/lib/provider'
+import { ProviderMark } from '@/components/ProviderMark'
 
 type RequestState = 'idle' | 'loading' | 'success' | 'error'
 
@@ -156,7 +155,7 @@ export function AccessPage() {
                       ...accounts.map((account) => ({
                         value: account.id,
                         label: account.name || account.id,
-                        icon: isQoderGlobalProvider(account.provider) ? <QoderMark size={16} /> : undefined,
+                        icon: <ProviderMark provider={account.provider} size={16} />,
                       })),
                     ]}
                   />

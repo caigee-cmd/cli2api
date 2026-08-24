@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Button, Input, Modal, TextArea } from '@heroui/react'
 import { CheckCircle, ArrowSquareOut, FileCode, Globe, Key, MapPin, ShieldCheck, SpinnerGap, X } from '@phosphor-icons/react'
-import { QoderMark } from '@/components/QoderMark'
+import { ProviderMark } from '@/components/ProviderMark'
 import { OptionTiles } from '@/components/ui/OptionTiles'
 import { useI18n } from '@/hooks/useI18n'
 import {
@@ -68,12 +68,7 @@ async function loadProviderOptions(): Promise<ProviderOption[]> {
 }
 
 function providerBadge(option: ProviderOption) {
-  if (option.provider === 'qoder') return <QoderMark size={18} />
-  return (
-    <span className="grid size-[18px] place-items-center rounded-[4px] bg-[var(--app-surface)] text-[10px] font-semibold text-[var(--app-muted)] ring-1 ring-[var(--app-line)]">
-      W
-    </span>
-  )
+  return <ProviderMark provider={option.provider} size={18} />
 }
 
 function StatusIcon({ phase, busy, tab, forTab }: { phase: Phase; busy: boolean; tab: TabKey; forTab: TabKey }) {
@@ -293,7 +288,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                 </div>
                 <OptionTiles
                   ariaLabel={t('accountType')}
-                  columns={3}
+                  columns={1}
                   value={accountType}
                   onChange={setAccountType}
                   options={providerOptions.map((option) => ({
