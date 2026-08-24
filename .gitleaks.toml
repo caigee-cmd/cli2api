@@ -1,0 +1,7 @@
+[allowlist]
+description = "Known non-secret Qoder model identifiers"
+regexTarget = "secret"
+regexes = [
+  '''(?i)^qwen3\.7-plus$''',
+  '''^Qwen3\.7-Plus$''',
+]
