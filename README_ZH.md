@@ -6,45 +6,28 @@
 [![Docker Image](https://ghcr-badge.egpl.dev/caigee-cmd/cli2api/latest_tag?label=docker&color=blue)](https://github.com/caigee-cmd/cli2api/pkgs/container/cli2api)
 [![License](https://img.shields.io/github/license/caigee-cmd/cli2api)](LICENSE)
 
-一个非官方、自托管的 OpenAI 兼容 API 网关：复用你自己的 **Qoder CLI 登录态**，让支持 OpenAI API 的客户端连接到 Qoder。
+把你自己的 **Qoder CLI 登录态**，变成一个本机运行的 OpenAI 兼容 API。
 
-CLI2API 不会为每个请求启动完整的 Qoder CLI Agent，而是让鉴权、WASM 编码和 Qoder 云端 HTTP/SSE 连接保持在常驻 worker 中。项目适合个人开发、家庭实验室和私有部署；目前仅支持 Qoder。
+CLI2API 是一个非官方、自托管的 Qoder API 网关。启动以后，你可以继续使用熟悉的 OpenAI SDK、Codex、CherryStudio 等客户端，只需要把 Base URL 指向本机服务。
+
+![CLI2API 控制台](docs/assets/console.png)
 
 > [!IMPORTANT]
 > CLI2API 与 Qoder 官方无关联，也未获得官方背书。请只使用你有权使用的账号，并遵守 Qoder 及相关服务条款。
 
-## 工作方式
+## 你会得到什么
 
-```text
-OpenAI 客户端
-  -> Go API + SQLite 账号控制面
-    -> 每个 Qoder 账号一个隔离 Node worker
-      -> Qoder 云端 HTTP/SSE API
-```
+- 一个兼容 OpenAI Chat Completions 的本地接口：`/v1/chat/completions`
+- 支持流式输出、非流式输出、工具调用和 `reasoning_content`
+- 一个可以管理 Qoder 账号、模型和接口测试的 Web 控制台
+- 多账号路由、账号固定、并发限制、冷却和故障切换
+- 一个适合个人开发、家庭实验室和私有部署的 Docker Compose 服务
 
-每个启用账号拥有独立的 Node 进程和运行目录，避免共享 Qoder WASM 上下文。Go 负责账号持久化、调度、并发限制、冷却、失败切换和子进程生命周期。
+它不会为每个请求启动完整的 Qoder CLI Agent，而是让鉴权、WASM 编码和 Qoder 云端 HTTP/SSE 连接保持在常驻 worker 中。
 
-## 功能
-
-- OpenAI 兼容的 `POST /v1/chat/completions`
-- 流式和非流式响应
-- Tool calls 与 `reasoning_content`
-- 多 Qoder 账号、账号固定、调度、冷却和故障切换
-- 浏览器 Device Flow OAuth、PAT、`qoder-native-v1` 凭证导入/导出
-- 内置 React + Tailwind + HeroUI 控制台，支持明暗主题
-- 单容器 Docker Compose 部署
-- SQLite 和账号凭证持久化，账号运行目录临时化
-- GitHub Actions 自动测试、构建容器和发布 GHCR 镜像
-
-![CLI2API 控制台](docs/assets/console.png)
-
-## 快速开始
-
-### 使用 Docker Compose
+## 先跑起来
 
 依赖：Docker、Docker Compose，以及一个你自己控制的 Qoder 账号。
-
-一键启动脚本会自动创建 `deploy/.env`，启动已发布镜像（不可用时自动本地构建），并在首次启动时打印生成的 API Key：
 
 ```bash
 git clone https://github.com/caigee-cmd/cli2api.git
@@ -52,28 +35,28 @@ cd cli2api
 ./scripts/start.sh
 ```
 
-如果手动启动 Compose，可以将 `PROXY_API_KEY` 留空。服务首次启动时会生成密码学安全的随机密钥并写入 SQLite，同时在容器日志中打印一次。请先保存它，再配置客户端。
+启动脚本会自动创建 `deploy/.env`，优先启动已发布镜像；镜像不可用时会自动从源码构建。
 
-打开 `http://127.0.0.1:3010`，输入首次启动输出的密钥登录控制台，然后在 **Accounts** 页面添加 Qoder 账号。
-
-默认 Compose 只发布本机地址 `127.0.0.1:3010`，不会直接暴露到公网。查看日志：
+首次启动时，如果没有设置 `PROXY_API_KEY`，服务会生成一个随机 API Key，保存到 SQLite，并在日志中打印一次。请先保存它：
 
 ```bash
-docker compose logs -f qoder-api-proxy
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml logs qoder-api-proxy
 ```
 
-通过控制台创建的 Qoder 登录凭证会保存到 SQLite 的 `account_credentials` 表。Worker 运行时只在临时的账号运行目录中生成 Qoder 加密认证文件；Docker 部署会将该目录挂载为 tmpfs。
+然后打开 `http://127.0.0.1:3010`，使用这个 Key 登录控制台，在 **Accounts** 页面添加 Qoder 账号。
 
-### 连接 OpenAI 客户端
+默认只监听本机地址 `127.0.0.1:3010`，不会直接暴露到公网。
 
-将客户端配置为：
+## 接入 OpenAI 客户端
+
+客户端配置如下：
 
 ```text
 Base URL: http://127.0.0.1:3010/v1
-API Key:  <PROXY_API_KEY>
+API Key:  <首次启动时生成或设置的 PROXY_API_KEY>
 ```
 
-也可以直接测试：
+也可以直接发送一个请求：
 
 ```bash
 export PROXY_API_KEY='粘贴首次启动时输出的密钥'
@@ -88,7 +71,42 @@ curl http://127.0.0.1:3010/v1/chat/completions \
   }'
 ```
 
-如果需要固定使用某个账号，可以添加 `X-Qoder-Account: acc_...` 请求头；不指定时由调度器选择可用账号。
+不指定账号时，调度器会从可用账号中选择一个。需要固定账号时，添加请求头：
+
+```text
+X-Qoder-Account: acc_...
+```
+
+## 适合什么场景
+
+- 想在本机或私有服务器上统一接入 Qoder
+- 已经在使用 OpenAI API 格式的客户端或脚本
+- 需要在多个 Qoder 账号之间自动路由和故障切换
+- 想保留 Qoder 登录能力，同时避免每个请求启动完整 CLI Agent
+
+目前上游只支持 Qoder。CLI2API 是本地代理，不提供账号、额度或官方 API 服务。
+
+## 工作方式
+
+```text
+OpenAI 客户端
+  -> Go API + SQLite 账号控制面
+    -> 每个 Qoder 账号一个隔离 Node worker
+      -> Qoder 云端 HTTP/SSE API
+```
+
+每个启用账号拥有独立的 Node 进程和运行目录，避免共享 Qoder WASM 上下文。Go 负责账号持久化、调度、并发限制、冷却、失败切换和子进程生命周期。
+
+## 支持的功能
+
+- 浏览器 Device Flow OAuth、PAT、`qoder-native-v1` 凭证导入/导出
+- OpenAI 兼容的 `GET /v1/models`
+- 流式和非流式响应
+- Tool calls 与 `reasoning_content`
+- 多 Qoder 账号、账号固定、调度、冷却和故障切换
+- React + Tailwind + HeroUI 控制台，支持明暗主题
+- SQLite 持久化账号凭证，账号运行目录临时化
+- GitHub Actions 自动测试、构建容器和发布 GHCR 镜像
 
 ## 配置
 
@@ -100,12 +118,12 @@ curl http://127.0.0.1:3010/v1/chat/completions \
 | `QODER_MAX_INFLIGHT` | `4` | 单账号最大并发请求数 |
 | `QODER_WORKER_BASE_PORT` | `32100` | 内部 worker 端口起点 |
 
-API Key 以 SQLite 中的值为准。`PROXY_API_KEY` 只用于首次启动时可选地提供种子值；数据库已有密钥后将忽略它。
+API Key 以 SQLite 中的值为准。`PROXY_API_KEY` 只用于首次启动时提供可选的种子值；数据库已有密钥后会忽略它。
 
 ## 接口
 
 | 方法 | 路径 | 说明 |
-|------|------|------|
+|------|--------|------|
 | `GET` | `/health` | 健康检查，不需要 API Key |
 | `GET` | `/v1/models` | 模型列表 |
 | `POST` | `/v1/chat/completions` | OpenAI 兼容对话接口 |
@@ -115,7 +133,7 @@ API Key 以 SQLite 中的值为准。`PROXY_API_KEY` 只用于首次启动时可
 
 ## 从源码开发
 
-环境要求：Go `1.25.6+`、Node.js `20+`、npm 和 Docker（仅容器开发需要）。
+环境要求：Go `1.25.6+`、Node.js `20+`、npm，以及容器开发所需的 Docker。
 
 ```bash
 # Go API

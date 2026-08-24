@@ -6,45 +6,28 @@
 [![Docker Image](https://ghcr-badge.egpl.dev/caigee-cmd/cli2api/latest_tag?label=docker&color=blue)](https://github.com/caigee-cmd/cli2api/pkgs/container/cli2api)
 [![License](https://img.shields.io/github/license/caigee-cmd/cli2api)](LICENSE)
 
-An unofficial, self-hosted OpenAI-compatible API gateway that reuses **your own Qoder CLI login** and lets OpenAI-compatible clients connect to Qoder.
+Turn **your own Qoder CLI login** into a local OpenAI-compatible API.
 
-CLI2API keeps authentication, WASM encoding, and the Qoder cloud HTTP/SSE connection warm in long-lived workers instead of spawning a full Qoder CLI agent for every request. It is intended for personal development, homelabs, and private deployments. Qoder is the only supported upstream at this time.
+CLI2API is an unofficial, self-hosted gateway for Qoder. Keep using OpenAI SDKs, Codex, CherryStudio, and other compatible clients—just point their Base URL at this local service.
+
+![CLI2API console](docs/assets/console.png)
 
 > [!IMPORTANT]
 > CLI2API is not affiliated with or endorsed by Qoder. Use only accounts you are authorized to use, and follow the terms of Qoder and related services.
 
-## How it works
+## What you get
 
-```text
-OpenAI client
-  -> Go API + SQLite account control plane
-    -> one isolated Node worker per Qoder account
-      -> Qoder cloud HTTP/SSE API
-```
+- A local OpenAI-compatible `POST /v1/chat/completions` endpoint
+- Streaming and non-streaming responses, tool calls, and `reasoning_content`
+- A web console for Qoder accounts, models, and API testing
+- Multi-account routing, account pinning, concurrency limits, cooldowns, and failover
+- A Docker Compose deployment for personal development, homelabs, and private servers
 
-Each enabled account gets its own Node process and private runtime HOME so Qoder WASM state is not shared across accounts. Go owns persistence, scheduling, concurrency limits, cooldowns, failover, and child-process lifecycle.
-
-## Features
-
-- OpenAI-compatible `POST /v1/chat/completions`
-- Streaming and non-streaming responses
-- Tool calls and `reasoning_content`
-- Multiple Qoder accounts with pinning, routing, cooldown, and failover
-- Browser Device Flow OAuth, PAT, and `qoder-native-v1` credential import/export
-- Built-in React + Tailwind + HeroUI console with light and dark themes
-- Single-container Docker Compose deployment
-- Persistent SQLite database and credentials with ephemeral per-account runtime homes
-- GitHub Actions for tests, container builds, and GHCR releases
-
-![CLI2API console](docs/assets/console.png)
+CLI2API does not spawn a full Qoder CLI Agent for every request. Authentication, WASM encoding, and the Qoder cloud HTTP/SSE connection stay warm in long-lived workers.
 
 ## Quick start
 
-### Docker Compose
-
 Requirements: Docker, Docker Compose, and a Qoder account you control.
-
-The one-command launcher creates `deploy/.env` when needed, starts the published image (or builds locally if it is unavailable), and prints the generated API key on the first run:
 
 ```bash
 git clone https://github.com/caigee-cmd/cli2api.git
@@ -52,25 +35,25 @@ cd cli2api
 ./scripts/start.sh
 ```
 
-If you prefer to start Compose manually, leave `PROXY_API_KEY` blank. The service generates a cryptographically random key and stores it in SQLite on first startup; it is printed once in the container log. Save it before configuring clients.
+The launcher creates `deploy/.env` when needed, starts the published image, and builds locally if the image is unavailable.
 
-Open `http://127.0.0.1:3010`, sign in with the printed key, and add Qoder accounts from **Accounts**.
-
-The default Compose file publishes only `127.0.0.1:3010`; it does not expose the service publicly. Follow logs with:
+On first startup, if `PROXY_API_KEY` is empty, the service generates a random API key, stores it in SQLite, and prints it once in the logs. Save it first:
 
 ```bash
-docker compose logs -f qoder-api-proxy
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml logs qoder-api-proxy
 ```
 
-Qoder login credentials created through the console are stored in SQLite under `account_credentials`. Workers materialize the encrypted Qoder auth files only in an ephemeral per-account runtime directory while running; the Docker deployment mounts that directory as tmpfs.
+Open `http://127.0.0.1:3010`, sign in with that key, and add Qoder accounts from **Accounts**.
 
-### Connect an OpenAI client
+The default deployment publishes only `127.0.0.1:3010`; it does not expose the service publicly.
+
+## Connect an OpenAI client
 
 Configure your client with:
 
 ```text
 Base URL: http://127.0.0.1:3010/v1
-API Key:  <PROXY_API_KEY>
+API Key:  <the generated or configured PROXY_API_KEY>
 ```
 
 Or make a direct request:
@@ -88,7 +71,42 @@ curl http://127.0.0.1:3010/v1/chat/completions \
   }'
 ```
 
-Pin a request to a specific account with `X-Qoder-Account: acc_...`. Without that header, the scheduler selects a ready account.
+Without an account header, the scheduler selects a ready account. Pin a request to a specific account with:
+
+```text
+X-Qoder-Account: acc_...
+```
+
+## Use cases
+
+- Connect Qoder to local or private-server tooling
+- Reuse OpenAI-compatible clients and scripts
+- Route requests across multiple Qoder accounts with failover
+- Keep Qoder login state available without starting a full CLI Agent per request
+
+Qoder is the only supported upstream at this time. CLI2API is a local gateway; it does not provide accounts, quotas, or an official Qoder API service.
+
+## How it works
+
+```text
+OpenAI client
+  -> Go API + SQLite account control plane
+    -> one isolated Node worker per Qoder account
+      -> Qoder cloud HTTP/SSE API
+```
+
+Each enabled account gets its own Node process and runtime directory so Qoder WASM state is not shared across accounts. Go owns persistence, scheduling, concurrency limits, cooldowns, failover, and child-process lifecycle.
+
+## Features
+
+- Browser Device Flow OAuth, PAT, and `qoder-native-v1` credential import/export
+- OpenAI-compatible `GET /v1/models`
+- Streaming and non-streaming responses
+- Tool calls and `reasoning_content`
+- Multiple Qoder accounts with pinning, routing, cooldown, and failover
+- React + Tailwind + HeroUI console with light and dark themes
+- Persistent SQLite credentials with ephemeral per-account runtime homes
+- GitHub Actions for tests, container builds, and GHCR releases
 
 ## Configuration
 
@@ -100,7 +118,7 @@ Pin a request to a specific account with `X-Qoder-Account: acc_...`. Without tha
 | `QODER_MAX_INFLIGHT` | `4` | Maximum concurrent requests per account |
 | `QODER_WORKER_BASE_PORT` | `32100` | Internal worker port range |
 
-The API key is authoritative in SQLite. `PROXY_API_KEY` is only an optional bootstrap value and is ignored after a key already exists in the database.
+The API key in SQLite is authoritative. `PROXY_API_KEY` is only an optional first-run bootstrap value and is ignored after a key already exists in the database.
 
 ## Endpoints
 
