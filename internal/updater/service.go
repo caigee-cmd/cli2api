@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -231,8 +232,8 @@ func validateApplyRequest(request ApplyRequest) error {
 	if err != nil || target.Compare(current) <= 0 {
 		return fmt.Errorf("target version must be a newer stable release")
 	}
-	clean := filepath.Clean(request.BackupPath)
-	if clean != request.BackupPath || filepath.Dir(clean) != "/data/backups" || !backupNamePattern.MatchString(filepath.Base(clean)) {
+	clean := path.Clean(request.BackupPath)
+	if clean != request.BackupPath || path.Dir(clean) != "/data/backups" || !backupNamePattern.MatchString(path.Base(clean)) {
 		return fmt.Errorf("invalid sqlite backup path")
 	}
 	return nil
