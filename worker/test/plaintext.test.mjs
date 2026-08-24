@@ -13,11 +13,20 @@ import {
   summarizeNormalizedToolHistory,
 } from "../src/plaintext.mjs";
 
-test("keeps model ids unchanged for upstream routing", () => {
-  for (const model of ["qwen3.7-plus", "DeepSeek-V4-Pro", "minimax-m3", "MiniMax-M3", "auto"]) {
-    const body = buildPlainChatBody({ messages: [{ role: "user", content: "hi" }], model });
-    assert.equal(body.model_config.key, model);
-  }
+test("does not statically remap requested model ids", () => {
+  const body = buildPlainChatBody({ messages: [{ role: "user", content: "hi" }], model: "deepseek-v4-flash" });
+  assert.equal(body.model_config.key, "deepseek-v4-flash");
+  assert.equal(body.model_config.display_name, "deepseek-v4-flash");
+});
+
+test("uses the dynamic catalog route in the plaintext request", () => {
+  const body = buildPlainChatBody({
+    messages: [{ role: "user", content: "hi" }],
+    model: "deepseek-v4-flash",
+    modelConfig: { key: "dfmodel", display_name: "DeepSeek-V4-Flash" },
+  });
+  assert.equal(body.model_config.key, "dfmodel");
+  assert.equal(body.model_config.display_name, "DeepSeek-V4-Flash");
 });
 
 test("normalizes model ids only for stable public/settings keys", () => {
@@ -93,6 +102,7 @@ test("uses the Qoder catalog input limit for MiniMax-M3", () => {
   const body = buildPlainChatBody({
     messages: [{ role: "user", content: "hi" }],
     model: "MiniMax-M3",
+    modelConfig: { key: "mmodel", max_input_tokens: 1000000 },
     reasoningEffort: "medium",
   });
   assert.equal(body.model_config.max_input_tokens, 1000000);
@@ -283,4 +293,23 @@ test("normalizes tool result content while preserving call ids", () => {
 test("estimates CJK heavier than ascii", () => {
   assert.ok(estimateTokens("你好世界") >= 4);
   assert.ok(estimateTokens("abcd") <= 2);
+});
+
+test("uses a dynamic catalog route without static aliases", () => {
+  const body = buildPlainChatBody({
+    messages: [{ role: "user", content: "hello" }],
+    model: "glm-5.3",
+    modelConfig: {
+      key: "catalog-glm-key",
+      display_name: "GLM-5.3",
+      source: "catalog",
+      max_input_tokens: 240000,
+      is_reasoning: true,
+    },
+  });
+  assert.equal(body.model_config.key, "catalog-glm-key");
+  assert.equal(body.model_config.display_name, "GLM-5.3");
+  assert.equal(body.model_config.source, "catalog");
+  assert.equal(body.model_config.max_input_tokens, 240000);
+  assert.equal(body.model_config.is_reasoning, true);
 });

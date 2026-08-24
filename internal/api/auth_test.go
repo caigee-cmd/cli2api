@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/config"
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
@@ -95,6 +96,17 @@ func TestModelContextSettingsAPI(t *testing.T) {
 		QoderHome: t.TempDir(), DataDir: t.TempDir(),
 	})
 	defer srv.Close()
+
+	worker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/admin/models" {
+			t.Fatalf("worker path = %s", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]any{{
+			"id": "minimax-m3", "display_name": "MiniMax-M3", "mapped_key": "mmodel",
+		}}})
+	}))
+	defer worker.Close()
+	srv.pool.Upsert(accounts.Item{ID: "test", URL: worker.URL})
 
 	req := httptest.NewRequest(http.MethodPatch, "/api/models/minimax-m3", bytes.NewBufferString(`{"context_length":500000}`))
 	req.Header.Set("Authorization", "Bearer secret")

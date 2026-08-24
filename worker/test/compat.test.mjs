@@ -5,6 +5,7 @@ import { inspectQodercliSource, patchQodercliSource } from "../src/compat.mjs";
 const PINNED_SOURCE = [
   "prepareInferRequest(A,e,t,i){",
   "async createWasmContext(){let A=await Yi();this.machineId||(this.machineId=await this.getMachineId()),XsA(this.machineId,A,JSON.stringify(this.getUserInfoForAuth()))}",
+  "function En(){return WLe||(WLe=new XLe),WLe}",
 ].join("\n");
 
 test("inspect reports missing hooks on unknown CLI source", () => {
@@ -20,6 +21,7 @@ test("inspect reports pinned 1.1.27 needles as compatible", () => {
   assert.equal(report.ok, true);
   assert.equal(report.prepareInferFound, true);
   assert.equal(report.createWasmFound, true);
+  assert.equal(report.modelCatalogFound, true);
 });
 
 test("patch injects capture hooks into pinned CLI source", () => {
@@ -28,6 +30,8 @@ test("patch injects capture hooks into pinned CLI source", () => {
   assert.match(patched, /__qoderWorkerOnPrepareInfer/);
   assert.match(patched, /__qoderWorkerAdoptContext/);
   assert.match(patched, /__qoderAuthManager/);
+  assert.match(patched, /__qoderWorkerGetModelCatalog/);
+  assert.match(patched, /Hm\(\);return En\(\)/);
 });
 
 test("patch is idempotent", () => {
@@ -47,6 +51,7 @@ test("patch injects skip-main boot hook when HEg needle is present", () => {
   const source = [
     "prepareInferRequest(A,e,t,i){",
     "async createWasmContext(){let A=await Yi();this.machineId||(this.machineId=await this.getMachineId()),XsA(this.machineId,A,JSON.stringify(this.getUserInfoForAuth()))}",
+    "function En(){return WLe||(WLe=new XLe),WLe}",
     "async function HEg(){let{main:A}=await Promise.resolve().then(()=>(b$o(),U$o));await A()}",
   ].join("\n");
   const patched = patchQodercliSource(source);

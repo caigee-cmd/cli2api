@@ -126,13 +126,6 @@ func (s *Server) workerGet(path string, timeout time.Duration, accountID string)
 	return client.Do(req)
 }
 
-var fallbackModels = []map[string]any{
-	{"id": "auto", "display_name": "Auto", "mapped_key": "auto", "object": "model", "owned_by": "qoder"},
-	{"id": "qwen3.7-plus", "display_name": "Qwen3.7-Plus", "mapped_key": "Qwen3.7-Plus", "object": "model", "owned_by": "qoder"},
-	{"id": "glm-5.2", "display_name": "GLM-5.2", "mapped_key": "GLM-5.2", "object": "model", "owned_by": "qoder"},
-	{"id": "minimax-m3", "display_name": "MiniMax-M3", "mapped_key": "MiniMax-M3", "object": "model", "owned_by": "qoder"},
-}
-
 func (s *Server) fetchWorkerModels(refresh bool) []map[string]any {
 	return s.fetchWorkerModelsFor(refresh, "")
 }
@@ -144,7 +137,7 @@ func (s *Server) fetchWorkerModelsFor(refresh bool, accountID string) []map[stri
 	}
 	resp, err := s.workerGet(path, 60*time.Second, accountID)
 	if err != nil {
-		return fallbackModels
+		return nil
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
@@ -152,7 +145,7 @@ func (s *Server) fetchWorkerModelsFor(refresh bool, accountID string) []map[stri
 		Data []map[string]any `json:"data"`
 	}
 	if json.Unmarshal(body, &parsed) != nil || len(parsed.Data) == 0 {
-		return fallbackModels
+		return nil
 	}
 	return parsed.Data
 }

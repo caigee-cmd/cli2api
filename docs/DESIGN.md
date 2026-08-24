@@ -225,6 +225,23 @@ The request path that builds plaintext payloads, calls Qoder WASM encode, forwar
 HTTP/SSE, parses tools/reasoning, and resolves usage remains unchanged. The account
 control plane may be replaced; the proven Qoder execution path must not be rewritten.
 
+## Model catalog and routing
+
+Each account daemon reuses the Qoder CLI's in-process QoderModelCatalog after auth
+initialization. It resolves canonical lowercase public IDs from catalog display names to
+Qoder native keys, and accepts native keys directly. Never invoke qodercli --list-models
+per request or synthesize a native key from a display name.
+
+The CLI maintains its encrypted on-disk catalog cache. The daemon keeps an account-local
+in-memory snapshot for five minutes (QODER_MODEL_CATALOG_TTL_MS); concurrent refreshes
+share one promise. GET /admin/models?refresh=1 forces a refresh and exposes display
+names plus diagnostic native keys. A failed refresh serves the last snapshot as stale;
+without a snapshot, the catalog is empty.
+
+There are no hand-written model aliases, display-name maps, or product overrides. When
+the dynamic catalog is unavailable, the worker returns an explicit catalog error rather
+than guessing an upstream key or allowing Qoder to silently choose a fallback model.
+
 ## Protocol adapters
 
 Public protocols and the Qoder upstream format are separate contracts. Do not let

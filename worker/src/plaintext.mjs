@@ -482,6 +482,7 @@ export function diagnoseOpenAIToolHistory(messages = [], tools = []) {
 export function buildPlainChatBody({
   messages,
   model = "auto",
+  modelConfig: routedModel,
   system,
   maxTokens = 32000,
   template,
@@ -498,6 +499,7 @@ export function buildPlainChatBody({
   const reqId = crypto.randomUUID();
   const sessionId = crypto.randomUUID();
   const requestedModel = model ? String(model).trim() : "auto";
+  const mappedModel = routedModel?.key || requestedModel;
 
   const filteredHistory = filterUnknownToolHistory(messages || [], tools);
   const openaiMessages = normalizeMessagesForUpstream(filteredHistory.messages);
@@ -534,21 +536,19 @@ export function buildPlainChatBody({
       : enableReasoning
         ? true
         : undefined;
-  const defaultMaxInputTokens = canonicalModelID(requestedModel) === "minimax-m3"
-    ? 1000000
-    : (base.model_config?.max_input_tokens || 180000);
+  const defaultMaxInputTokens = Number(routedModel?.max_input_tokens) || base.model_config?.max_input_tokens || 180000;
 
   const modelConfig = {
     ...(base.model_config || {}),
-    key: requestedModel,
-    display_name: requestedModel,
+    key: mappedModel,
+    display_name: routedModel?.display_name || mappedModel,
     model: "",
     format: base.model_config?.format || "openai",
-    is_vl: base.model_config?.is_vl ?? true,
-    is_reasoning: effectiveThinking ? true : (effectiveThinking === false ? false : (base.model_config?.is_reasoning ?? false)),
+    is_vl: routedModel?.is_vl ?? base.model_config?.is_vl ?? true,
+    is_reasoning: effectiveThinking ? true : (effectiveThinking === false ? false : (routedModel?.is_reasoning ?? base.model_config?.is_reasoning ?? false)),
     api_key: "",
     url: "",
-    source: base.model_config?.source || "system",
+    source: routedModel?.source || base.model_config?.source || "system",
     max_input_tokens: maxInputTokens ?? defaultMaxInputTokens,
   };
 

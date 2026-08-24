@@ -4,9 +4,8 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { register } from "node:module";
 import crypto from "node:crypto";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-import { buildPlainChatBody, canonicalModelID, wantsReasoning, estimateTokens, estimatePromptTokens, diagnoseOpenAIToolHistory, summarizeNormalizedToolHistory } from "./plaintext.mjs";
+import { buildPlainChatBody, wantsReasoning, estimateTokens, estimatePromptTokens, diagnoseOpenAIToolHistory, summarizeNormalizedToolHistory } from "./plaintext.mjs";
+import { createModelCatalogSnapshot, DEFAULT_CATALOG_TTL_MS, resolveCatalogModel } from "./catalog.mjs";
 import { parseNestedOpenAIChunks, readSSEText, pipeNestedSseToOpenAI } from "./sse.mjs";
 import { inspectQodercliSource, PINNED_QODERCLI_VERSION, readQodercliVersion } from "./compat.mjs";
 import { resolveUsage } from "./usage.mjs";
@@ -41,7 +40,6 @@ let hotModelSource = "system";
 let serverStarted = false;
 let resolveWarm;
 const warmPromise = new Promise((r) => (resolveWarm = r));
-const execFileAsync = promisify(execFile);
 
 function log(...a) {
   console.error("[daemon]", ...a);
@@ -81,8 +79,11 @@ let loginState = {
   finishedAt: null,
 };
 let loginWaitPromise = null;
-let cachedModels = null;
-let cachedModelsAt = 0;
+let cachedCatalog = null;
+let catalogRefreshedAt = 0;
+let catalogRefreshPromise = null;
+let catalogError = null;
+const catalogTTLms = Math.max(10_000, Number(process.env.QODER_MODEL_CATALOG_TTL_MS || DEFAULT_CATALOG_TTL_MS) || DEFAULT_CATALOG_TTL_MS);
 let encodeChain = Promise.resolve();
 let inFlight = 0;
 const maxInFlight = Math.max(1, Number(process.env.QODER_MAX_INFLIGHT || 4) || 4);
@@ -281,9 +282,12 @@ async function readBody(req) {
 async function prepareUpstream(reqBody) {
   if (!hotContext) throw new Error("hot context not ready");
   const template = loadTemplate();
+  const requestedModel = reqBody.model || hotModelKey;
+  const catalogModel = await resolveUpstreamModel(requestedModel);
   const plain = buildPlainChatBody({
     messages: reqBody.messages || [],
-    model: reqBody.model || hotModelKey,
+    model: requestedModel,
+    modelConfig: catalogModel,
     system: reqBody.system,
     maxTokens: reqBody.max_tokens || 32000,
     template,
@@ -303,8 +307,9 @@ async function prepareUpstream(reqBody) {
     .map((m) => String(m?.content || ""));
   const reqSystemJoined = reqSystemMsgs.join("\n\n");
   log("chat prepare", {
-    requestedModel: reqBody.model || hotModelKey,
+    requestedModel,
     mappedModel: plain.model_config?.key,
+    catalogRoute: !!catalogModel,
     msgCount: (reqBody.messages || []).length,
     systemLen,
     reqSystemLen: reqSystemJoined.length,
@@ -434,82 +439,63 @@ async function chatStream(reqBody, res) {
 }
 
 
-function qodercliBin() {
-  return (
-    process.env.QODERCLI_BIN ||
-    "qodercli"
-  );
+function invalidateModelCatalog() {
+  cachedCatalog = null;
+  catalogRefreshedAt = 0;
+  catalogError = null;
 }
 
-function parseModelList(stdout) {
-  const lines = String(stdout || "")
-    .split(/\n/)
-    .map((l) => l.trim())
-    .filter(Boolean);
-  const out = [];
-  for (const line of lines) {
-    if (/^MODEL$/i.test(line)) continue;
-    if (/^----/.test(line)) continue;
-    out.push(line);
-  }
-  // unique preserve order
-  return [...new Set(out)];
-}
-
-async function listModelsFromCli({ refresh = false } = {}) {
+async function refreshModelCatalog({ force = false } = {}) {
   const now = Date.now();
-  if (!refresh && cachedModels && now - cachedModelsAt < 60_000) return cachedModels;
-  try {
-    const { stdout } = await execFileAsync(
-      qodercliBin(),
-      ["--list-models"],
-      {
-        timeout: 45_000,
-        env: {
-          ...process.env,
-          HOME: process.env.HOME || "/root",
-        },
-        maxBuffer: 2_000_000,
-      },
-    );
-    const names = parseModelList(stdout);
-    cachedModels = names.map((name) => {
-      const displayName = String(name);
-      const id = canonicalModelID(displayName);
-      return {
-        id,
-        display_name: displayName,
-        mapped_key: displayName,
-        route_display_name: displayName,
-        object: "model",
-        owned_by: "qoder",
-      };
-    });
-    cachedModelsAt = now;
-    return cachedModels;
-  } catch (err) {
-    // fallback static catalog if CLI fails (e.g. not logged in)
-    const fallback = [
-      "Auto","Ultimate","Performance","Efficient","Lite","Cantus",
-      "Qwen3.8-Max","Qwen3.7-Max","Qwen3.7-Plus",
-      "Kimi-K3","Kimi-K2.7-Code",
-      "GLM-5.3","GLM-5.2",
-      "DeepSeek-V4-Pro","DeepSeek-V4-Flash",
-      "MiniMax-M3",
-    ];
-    return fallback.map((displayName) => ({
-      id: canonicalModelID(displayName),
-      display_name: displayName,
-      mapped_key: displayName,
-      route_display_name: displayName,
-      object: "model",
-      owned_by: "qoder",
-      stale: true,
-      error: err?.message || String(err),
-    }));
-  }
+  if (!force && cachedCatalog && now - catalogRefreshedAt < catalogTTLms) return cachedCatalog;
+  if (catalogRefreshPromise) return catalogRefreshPromise;
+
+  catalogRefreshPromise = (async () => {
+    try {
+      const mgr = getAuthManager();
+      const getCatalog = globalThis.__qoderWorkerGetModelCatalog;
+      if (!mgr) throw new Error("auth manager not captured");
+      if (typeof getCatalog !== "function") throw new Error("QoderModelCatalog hook unavailable");
+      const catalog = getCatalog();
+      if (!catalog || typeof catalog.init !== "function" || typeof catalog.getAvailableModels !== "function") {
+        throw new Error("QoderModelCatalog API unavailable");
+      }
+      await catalog.init(mgr);
+      const snapshot = createModelCatalogSnapshot(catalog.getAvailableModels());
+      if (!snapshot.models.length) throw new Error("Qoder dynamic model catalog is empty");
+      cachedCatalog = snapshot;
+      catalogRefreshedAt = Date.now();
+      catalogError = null;
+      log("model catalog refreshed", { accountId, models: snapshot.models.length });
+      return snapshot;
+    } catch (err) {
+      catalogError = err?.message || String(err);
+      log("model catalog refresh failed", { accountId, error: catalogError });
+      return cachedCatalog;
+    } finally {
+      catalogRefreshPromise = null;
+    }
+  })();
+  return catalogRefreshPromise;
 }
 
+async function resolveUpstreamModel(requestedModel) {
+  const snapshot = await refreshModelCatalog();
+  if (!snapshot) throw new Error("model_catalog_unavailable: Qoder dynamic model catalog is unavailable");
+  const route = resolveCatalogModel(snapshot, requestedModel);
+  if (!route) throw new Error("model_not_available: " + requestedModel + " is not available for this Qoder account");
+  return route;
+}
+
+async function listModelsFromCatalog({ refresh = false } = {}) {
+  const snapshot = await refreshModelCatalog({ force: refresh });
+  if (!snapshot) return [];
+  return snapshot.models.map((model) => ({
+    ...model,
+    stale: !!catalogError,
+    ...(catalogError ? { error: catalogError } : {}),
+  }));
+}
 function getAuthManager() {
   return authManager || globalThis.__qoderAuthManager || null;
 }
@@ -557,7 +543,7 @@ async function startDeviceLogin() {
       } catch (e) {
         loginState.message = `login completed, rewarm failed: ${e?.message || e}`;
       }
-      cachedModels = null;
+      invalidateModelCatalog();
     })
     .catch((err) => {
       loginState = {
@@ -587,8 +573,9 @@ async function loginWithPat(pat) {
   const token = String(pat || "").trim();
   if (!token) throw new Error("pat required");
   await mgr.loginWithPAT(token, { persist: true });
-  cachedModels = null;
+  invalidateModelCatalog();
   await rewarmContext("pat_login");
+  await refreshModelCatalog({ force: true });
   loginState = {
     status: "ok",
     authUrl: null,
@@ -632,6 +619,11 @@ function maybeStartServer() {
           rewarmCount,
           lastRewarmAt,
           lastError,
+          catalog: {
+            ready: !!cachedCatalog,
+            refreshedAt: catalogRefreshedAt ? new Date(catalogRefreshedAt).toISOString() : null,
+            error: catalogError,
+          },
           login: {
             status: loginState.status,
             authUrl: loginState.authUrl,
@@ -645,7 +637,7 @@ function maybeStartServer() {
       }
       if (req.method === "GET" && url.pathname === "/admin/models") {
         const refresh = url.searchParams.get("refresh") === "1";
-        const models = await listModelsFromCli({ refresh });
+        const models = await listModelsFromCatalog({ refresh });
         return sendJSON(res, 200, { object: "list", data: models });
       }
       if (req.method === "GET" && url.pathname === "/admin/login/status") {
@@ -753,6 +745,7 @@ async function bootFromAuthManager({ getQoderAuthManager, initializeQoderRuntime
       log("initAuth failed; console login still available", lastError);
     }
   }
+  await refreshModelCatalog({ force: true });
   maybeStartServer();
   resolveWarm(true);
 }
