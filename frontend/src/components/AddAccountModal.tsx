@@ -299,10 +299,10 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                   options={providerOptions.map((option) => ({
                     value: option.id,
                     label: t(option.labelKey),
-                    hint: t(option.hintKey),
                     icon: providerBadge(option),
                   }))}
                 />
+                <p className="min-h-5 text-xs leading-5 text-[var(--app-faint)]">{t(activeOption.hintKey)}</p>
               </section>
 
               <section className="mt-5 space-y-2.5">
@@ -314,6 +314,9 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                   onChange={(next) => switchTab(next)}
                   options={methodOptions}
                 />
+                <p className="min-h-5 text-xs leading-5 text-[var(--app-faint)]">
+                  {tab === 'browser' ? t('wizardBrowserLead') : tab === 'pat' ? t('wizardPatLead') : t('wizardImportLead')}
+                </p>
               </section>
 
               <div className="relative mt-3 overflow-hidden rounded-lg" style={{ height: STEP_HEIGHT }}>
@@ -323,7 +326,6 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                 >
                   {tab === 'browser' ? (
                     <>
-                      <p className="text-xs leading-5 text-[var(--app-faint)]">{t('wizardBrowserLead')}</p>
                       <Input value={name} onChange={(event) => setName(event.target.value)} placeholder={t('wizardNamePh')} aria-label={t('wizardNamePh')} disabled={busy} />
                       {authUrl ? (
                         <div className="rounded-lg border border-[var(--app-line)] bg-[var(--app-surface-muted)] px-3 py-2.5">
@@ -344,7 +346,6 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                     </>
                   ) : tab === 'pat' ? (
                     <>
-                      <p className="text-xs leading-5 text-[var(--app-faint)]">{t('wizardPatLead')}</p>
                       <Input value={name} onChange={(event) => setName(event.target.value)} placeholder={t('wizardNamePh')} aria-label={t('wizardNamePh')} disabled={busy} />
                       <Input type="password" value={pat} onChange={(event) => setPat(event.target.value)} placeholder={t('wizardPatPh')} aria-label={t('wizardPatPh')} disabled={busy} />
                       <div className="mt-auto">
@@ -355,7 +356,6 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                     </>
                   ) : (
                     <>
-                      <p className="text-xs leading-5 text-[var(--app-faint)]">{t('wizardImportLead')}</p>
                       <Input value={name} onChange={(event) => setName(event.target.value)} placeholder={t('wizardNamePh')} aria-label={t('wizardNamePh')} disabled={busy} />
                       <div className="flex items-center justify-between gap-3">
                         <span className="text-[10px] font-semibold tracking-[0.1em] text-[var(--app-faint)] uppercase">JSON</span>

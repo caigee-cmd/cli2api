@@ -51,14 +51,15 @@ export function OptionTiles<T extends string>({ options, value, onChange, ariaLa
               option.disabled ? 'cursor-not-allowed opacity-45' : 'cursor-pointer',
             ].join(' ')}
           >
-            {option.icon ? <span className="mt-0.5 shrink-0 leading-none">{option.icon}</span> : null}
+            {option.icon ? <span className={`${option.hint ? 'mt-0.5' : ''} shrink-0 leading-none`}>{option.icon}</span> : null}
             <span className="min-w-0 flex-1">
-              <span className={`block truncate text-sm font-medium ${selected ? 'text-[var(--app-ink)]' : 'text-[var(--app-fg)]'}`}>{option.label}</span>
+              <span className={`block truncate text-sm font-medium ${option.hint ? '' : 'leading-5 '}${selected ? 'text-[var(--app-ink)]' : 'text-[var(--app-fg)]'}`}>{option.label}</span>
               {option.hint ? <span className="mt-0.5 block text-xs leading-5 text-[var(--app-faint)]">{option.hint}</span> : null}
             </span>
             <span
               className={[
-                'mt-0.5 grid size-4 shrink-0 place-items-center rounded-full border transition-all duration-200',
+                option.hint ? 'mt-0.5 ' : '',
+                'grid size-4 shrink-0 place-items-center rounded-full border transition-all duration-200',
                 selected ? 'border-[var(--app-accent,var(--app-ink))] bg-[var(--app-accent,var(--app-ink))] text-[var(--app-surface)]' : 'border-[var(--app-line-strong,var(--app-line))] text-transparent',
               ].join(' ')}
             >
