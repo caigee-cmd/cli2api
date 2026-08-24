@@ -119,7 +119,7 @@ export function LoginPage() {
                   <label className="mb-2 block text-xs font-medium text-[var(--app-muted)]" htmlFor="console-password">
                     {t('loginPassword')}
                   </label>
-                  <InputGroup fullWidth>
+                  <InputGroup fullWidth className="login-key-field">
                     <InputGroup.Input
                       id="console-password"
                       type={showPassword ? 'text' : 'password'}
@@ -129,6 +129,7 @@ export function LoginPage() {
                       autoComplete="current-password"
                       autoFocus
                       aria-label={t('loginPassword')}
+                      spellCheck={false}
                     />
                     <InputGroup.Suffix>
                       <Button

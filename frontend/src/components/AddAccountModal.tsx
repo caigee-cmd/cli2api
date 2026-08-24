@@ -304,7 +304,8 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                 <span className="block text-sm font-medium text-[var(--app-muted)]">{t('loginMethod')}</span>
                 <OptionTiles
                   ariaLabel={t('loginMethod')}
-                  columns={3}
+                  columns={1}
+                  compact
                   value={tab}
                   onChange={(next) => switchTab(next)}
                   options={methodOptions}

@@ -397,6 +397,20 @@ a:active {
   font-size: 0.75rem;
 }
 
+/* Hero login card: match the lg submit button height instead of the compact
+   toolbar sizing, and keep the attached suffix action visually tight. */
+.login-key-field.input-group,
+.login-key-field .input-group__input {
+  height: 2.5rem;
+  min-height: 2.5rem;
+  font-size: 0.875rem;
+}
+
+.login-key-field .input-group__suffix {
+  padding-inline: 0.375rem;
+}
+
+
 .button--danger {
   box-shadow: none;
 }
