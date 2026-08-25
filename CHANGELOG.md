@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.2.5 - 2026-08-25
+
+### English
+
 - Add a provider registry and in-process WorkBuddy adapter so CN/Global accounts can share the same console without a Node worker
 - Replace account-wizard dropdowns with stacked option tiles so Qoder Global, WorkBuddy CN, and WorkBuddy Global labels stay fully visible
 - Use the official WorkBuddy mark for WorkBuddy accounts and keep the Qoder mark on Qoder accounts
