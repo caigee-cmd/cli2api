@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.2.8 - 2026-08-25
+
+### English
+
 - Emphasize quota percentage on account cards and show the remaining credits as smaller secondary text
 
 ### 中文
