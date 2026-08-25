@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.2.6 - 2026-08-25
+
+### English
+
 - Add a Logs console page with request history and live runtime output
 - Record chat request metadata, failover attempts, tokens, and latency in SQLite
 - Capture Go and per-account daemon stderr in a redacted in-memory ring for the console
