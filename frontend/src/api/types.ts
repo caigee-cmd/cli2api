@@ -1,3 +1,17 @@
+export type AccountQuota = {
+  used?: number
+  total?: number
+  remaining?: number
+  percentage?: number
+  unit?: string
+  exceeded?: boolean
+  has_add_on?: boolean
+  add_on_used?: number
+  add_on_total?: number
+  add_on_unit?: string
+  fetched_at?: string
+}
+
 export type Overview = {
   ok?: boolean
   time?: string
@@ -57,6 +71,7 @@ export type Overview = {
     last_error?: string
     lastError?: string
     last_error_kind?: string
+    quota?: AccountQuota
     created_at?: string
     updated_at?: string
   }>

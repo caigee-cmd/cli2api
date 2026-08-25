@@ -371,11 +371,12 @@ type ImportAccount struct {
 
 type AccountView struct {
 	Account
-	Ready     bool   `json:"ready"`
-	Hot       bool   `json:"hot"`
-	InFlight  int    `json:"in_flight"`
-	Restarts  int    `json:"restarts"`
-	DownUntil string `json:"down_until,omitempty"`
+	Ready     bool           `json:"ready"`
+	Hot       bool           `json:"hot"`
+	InFlight  int            `json:"in_flight"`
+	Restarts  int            `json:"restarts"`
+	DownUntil string         `json:"down_until,omitempty"`
+	Quota     *QuotaSnapshot `json:"quota,omitempty"`
 }
 
 func (m *Manager) Import(ctx context.Context, input ImportAccount) (Account, error) {
@@ -418,6 +419,7 @@ func (m *Manager) Accounts(ctx context.Context) ([]AccountView, error) {
 			view.Hot = item.Hot != nil && *item.Hot
 			view.InFlight = item.InFlight
 			view.Restarts = item.Restarts
+			view.Quota = item.Quota
 			if !item.DownUntil.IsZero() && time.Now().Before(item.DownUntil) {
 				view.DownUntil = item.DownUntil.UTC().Format(time.RFC3339)
 			}
@@ -484,7 +486,85 @@ func (m *Manager) refreshOne(ctx context.Context, item Item) error {
 	if err := m.store.Observe(ctx, item.ID, health.UID, status, health.LastError, ""); err != nil {
 		return err
 	}
+	// Quota is display-only: fetch after the health/observe path so a quota
+	// outage never flips account readiness or scheduling state.
+	if health.Hot || ready {
+		m.fetchQuota(ctx, item.ID, item.URL)
+	}
 	return nil
+}
+
+// fetchQuota pulls the account quota snapshot from the worker daemon. Errors
+// only clear the displayed quota; they are not surfaced as account errors.
+func (m *Manager) fetchQuota(ctx context.Context, accountID, workerURL string) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, workerURL+"/admin/quota", nil)
+	if err != nil {
+		return
+	}
+	if m.config.ProxyAPIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+m.config.ProxyAPIKey)
+	}
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return
+	}
+	var payload struct {
+		Quota *workerQuota `json:"quota"`
+	}
+	if json.NewDecoder(resp.Body).Decode(&payload) != nil || payload.Quota == nil {
+		return
+	}
+	m.pool.MergeQuota(accountID, payload.Quota.snapshot())
+}
+
+// workerQuota mirrors the daemon /admin/quota response shape.
+type workerQuota struct {
+	UserQuota         *workerQuotaBlock `json:"userQuota"`
+	AddOnQuota        *workerQuotaBlock `json:"addOnQuota"`
+	OrgResourcePackage *workerQuotaBlock `json:"orgResourcePackage"`
+	IsQuotaExceeded   bool              `json:"isQuotaExceeded"`
+	FetchedAt         string            `json:"fetchedAt"`
+}
+
+type workerQuotaBlock struct {
+	Total      float64 `json:"total"`
+	Used       float64 `json:"used"`
+	Remaining  float64 `json:"remaining"`
+	Percentage float64 `json:"percentage"`
+	Unit       string  `json:"unit"`
+}
+
+func (w *workerQuota) snapshot() *QuotaSnapshot {
+	if w == nil || w.UserQuota == nil {
+		return nil
+	}
+	snapshot := &QuotaSnapshot{
+		Used:       w.UserQuota.Used,
+		Total:      w.UserQuota.Total,
+		Remaining:  w.UserQuota.Remaining,
+		Percentage: w.UserQuota.Percentage,
+		Unit:       w.UserQuota.Unit,
+		Exceeded:   w.IsQuotaExceeded || w.UserQuota.Percentage >= 100,
+		FetchedAt:  w.FetchedAt,
+	}
+	if snapshot.Unit == "" {
+		snapshot.Unit = "credits"
+	}
+	if w.AddOnQuota != nil {
+		snapshot.HasAddOn = true
+		snapshot.AddOnUsed = w.AddOnQuota.Used
+		snapshot.AddOnTotal = w.AddOnQuota.Total
+		snapshot.AddOnUnit = w.AddOnQuota.Unit
+		if snapshot.AddOnUnit == "" {
+			snapshot.AddOnUnit = "credits"
+		}
+	}
+	return snapshot
 }
 
 func (m *Manager) watchAccount(id string, process ManagedProcess) {

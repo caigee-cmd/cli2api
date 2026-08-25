@@ -156,6 +156,18 @@ output without copying sub2api billing, audit-body storage, or ops preaggregatio
 - [x] Add console `/logs` with Request history and Runtime tabs
 - [x] Purge request history at 7 days or 20_000 rows
 
+## Phase K — account quota display
+
+Goal: show each Qoder account's remaining credits on the account card. Display-only;
+no scheduling, billing, or persistence changes.
+
+- [x] Capture the qodercli `qoderApi` singleton via a `quotaApi` needle in `worker/src/compat.mjs` (fail loudly on mismatch)
+- [x] Expose authenticated `GET /admin/quota` on each daemon (Bearer token only, no WASM encode)
+- [x] Go `refreshOne` fetches quota for hot/ready accounts; failures never affect readiness or cooldown
+- [x] `AccountView` carries an optional `quota` snapshot through `/api/accounts` and `/api/overview`
+- [x] Account card renders quota progress bar + add-on line (danger at exceeded, warning at ≥80%)
+- [x] Worker compat, Go manager, and frontend coverage
+
 ## Later
 
 - WorkBuddy / CodeBuddy as a second account provider — design only, see `docs/PROVIDERS.md`

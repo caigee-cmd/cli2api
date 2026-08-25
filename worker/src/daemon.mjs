@@ -84,6 +84,8 @@ let catalogRefreshedAt = 0;
 let catalogRefreshPromise = null;
 let catalogError = null;
 const catalogTTLms = Math.max(10_000, Number(process.env.QODER_MODEL_CATALOG_TTL_MS || DEFAULT_CATALOG_TTL_MS) || DEFAULT_CATALOG_TTL_MS);
+let quotaSnapshot = null;
+let quotaError = null;
 let encodeChain = Promise.resolve();
 let inFlight = 0;
 const maxInFlight = Math.max(1, Number(process.env.QODER_MAX_INFLIGHT || 4) || 4);
@@ -496,6 +498,72 @@ async function listModelsFromCatalog({ refresh = false } = {}) {
     ...(catalogError ? { error: catalogError } : {}),
   }));
 }
+
+function normalizeQuotaBlock(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const total = Number(raw.total ?? raw.cap) || 0;
+  const used = Number(raw.used) || 0;
+  const remaining = raw.remaining != null ? Number(raw.remaining) : Math.max(total - used, 0);
+  const percentage = raw.percentage != null ? Number(raw.percentage) : total > 0 ? (used / total) * 100 : 0;
+  const block = {
+    total,
+    used,
+    remaining,
+    percentage: Math.round(Number.isFinite(percentage) ? percentage : 0),
+    unit: String(raw.unit || "credits"),
+  };
+  if (raw.detailUrl) block.detailUrl = String(raw.detailUrl);
+  if (raw.available != null) block.available = Boolean(raw.available);
+  return block;
+}
+
+// Qoder CLI caches quota for 15s and de-dupes concurrent fetches, so calling
+// this per /admin/quota request is safe without our own cache layer.
+async function fetchQuota({ force = false } = {}) {
+  const getQuotaApi = globalThis.__qoderWorkerGetQuotaApi;
+  if (typeof getQuotaApi !== "function") {
+    throw new Error("quota_api_unavailable: Qoder quota API hook unavailable");
+  }
+  const mgr = getAuthManager();
+  if (!mgr || typeof mgr.isAuthenticated !== "function" || !mgr.isAuthenticated()) {
+    throw new Error("not_authenticated: account is not logged in");
+  }
+  const api = getQuotaApi();
+  if (!api || typeof api.getQuotaUsage !== "function") {
+    throw new Error("quota_api_unavailable: getQuotaUsage missing on qoder API");
+  }
+  const raw = await api.getQuotaUsage({ force });
+  if (!raw || typeof raw !== "object") {
+    throw new Error("quota response invalid");
+  }
+  const snapshot = {
+    userId: raw.userId || null,
+    userType: raw.userType || null,
+    totalUsagePercentage: Number(raw.totalUsagePercentage) || 0,
+    isQuotaExceeded: Boolean(raw.isQuotaExceeded),
+    userQuota: normalizeQuotaBlock(raw.userQuota),
+    addOnQuota: normalizeQuotaBlock(raw.addOnQuota),
+    orgResourcePackage: normalizeQuotaBlock(raw.orgResourcePackage),
+    fetchedAt: new Date().toISOString(),
+  };
+  quotaSnapshot = snapshot;
+  quotaError = null;
+  return snapshot;
+}
+
+async function handleQuota(res, { force = false } = {}) {
+  try {
+    const snapshot = await fetchQuota({ force });
+    return sendJSON(res, 200, { ok: true, quota: snapshot });
+  } catch (err) {
+    quotaError = err?.message || String(err);
+    return sendJSON(res, 502, {
+      ok: false,
+      error: { code: "quota_unavailable", message: quotaError },
+      ...(quotaSnapshot ? { quota: { ...quotaSnapshot, stale: true } } : {}),
+    });
+  }
+}
 function getAuthManager() {
   return authManager || globalThis.__qoderAuthManager || null;
 }
@@ -624,6 +692,11 @@ function maybeStartServer() {
             refreshedAt: catalogRefreshedAt ? new Date(catalogRefreshedAt).toISOString() : null,
             error: catalogError,
           },
+          quota: {
+            ready: !!quotaSnapshot,
+            fetchedAt: quotaSnapshot?.fetchedAt || null,
+            error: quotaError,
+          },
           login: {
             status: loginState.status,
             authUrl: loginState.authUrl,
@@ -639,6 +712,10 @@ function maybeStartServer() {
         const refresh = url.searchParams.get("refresh") === "1";
         const models = await listModelsFromCatalog({ refresh });
         return sendJSON(res, 200, { object: "list", data: models });
+      }
+      if (req.method === "GET" && url.pathname === "/admin/quota") {
+        const force = url.searchParams.get("refresh") === "1";
+        return handleQuota(res, { force });
       }
       if (req.method === "GET" && url.pathname === "/admin/login/status") {
         return sendJSON(res, 200, {

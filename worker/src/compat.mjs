@@ -8,18 +8,24 @@ export const NEEDLES = {
   createWasm:
     "async createWasmContext(){let A=await Yi();this.machineId||(this.machineId=await this.getMachineId()),XsA(this.machineId,A,JSON.stringify(this.getUserInfoForAuth()))}",
   modelCatalog: "function En(){return WLe||(WLe=new XLe),WLe}",
+  quotaApi:
+    "function Of(){return c2t||(c2t=new CC(_e())),c2t}function zXA(){aHe.clear(),ARA.clear()}",
   skipMain:
     "async function HEg(){let{main:A}=await Promise.resolve().then(()=>(b$o(),U$o));await A()}",
 };
 
 export function inspectQodercliSource(source, { version } = {}) {
   const text = String(source || "");
-  const alreadyPatched = text.includes("__QODER_WORKER_INJECTED__") && text.includes("__QODER_WORKER_MODEL_CATALOG__");
+  const alreadyPatched =
+    text.includes("__QODER_WORKER_INJECTED__") &&
+    text.includes("__QODER_WORKER_MODEL_CATALOG__") &&
+    text.includes("__QODER_WORKER_QUOTA_API__");
   const prepareInferFound = alreadyPatched || text.includes(NEEDLES.prepareInfer);
   const createWasmFound = alreadyPatched || text.includes(NEEDLES.createWasm);
   const modelCatalogFound = alreadyPatched || text.includes(NEEDLES.modelCatalog);
+  const quotaApiFound = alreadyPatched || text.includes(NEEDLES.quotaApi);
   const skipMainFound = alreadyPatched || text.includes(NEEDLES.skipMain);
-  const ok = alreadyPatched || (prepareInferFound && createWasmFound && modelCatalogFound);
+  const ok = alreadyPatched || (prepareInferFound && createWasmFound && modelCatalogFound && quotaApiFound);
   const found = version ? `, found ${version}` : "";
   return {
     ok,
@@ -27,22 +33,30 @@ export function inspectQodercliSource(source, { version } = {}) {
     prepareInferFound,
     createWasmFound,
     modelCatalogFound,
+    quotaApiFound,
     skipMainFound,
     prepareInferPatched: alreadyPatched,
     createWasmPatched: alreadyPatched,
     modelCatalogPatched: alreadyPatched,
+    quotaApiPatched: alreadyPatched,
     skipMainPatched: alreadyPatched && text.includes("__QODER_WORKER_SKIP_MAIN__"),
     version: version || null,
     pinnedVersion: PINNED_QODERCLI_VERSION,
     message: ok
       ? `qodercli hooks compatible${version ? ` (${version})` : ""}`
-      : `incompatible qodercli source: missing WASM/catalog capture needles (pinned ${PINNED_QODERCLI_VERSION}${found}). Pin @qoder-ai/qodercli@${PINNED_QODERCLI_VERSION} or update worker/src/compat.mjs.`,
+      : `incompatible qodercli source: missing WASM/catalog/quota capture needles (pinned ${PINNED_QODERCLI_VERSION}${found}). Pin @qoder-ai/qodercli@${PINNED_QODERCLI_VERSION} or update worker/src/compat.mjs.`,
   };
 }
 
 export function patchQodercliSource(source, { version } = {}) {
   const text = String(source || "");
-  if (text.includes("__QODER_WORKER_INJECTED__") && text.includes("__QODER_WORKER_MODEL_CATALOG__")) return text;
+  if (
+    text.includes("__QODER_WORKER_INJECTED__") &&
+    text.includes("__QODER_WORKER_MODEL_CATALOG__") &&
+    text.includes("__QODER_WORKER_QUOTA_API__")
+  ) {
+    return text;
+  }
   const report = inspectQodercliSource(text, { version });
   if (!report.ok) {
     throw new Error(report.message);
@@ -59,6 +73,10 @@ export function patchQodercliSource(source, { version } = {}) {
     .replace(
       NEEDLES.modelCatalog,
       "function En(){return WLe||(WLe=new XLe),WLe} /* __QODER_WORKER_MODEL_CATALOG__ */ try{globalThis.__qoderWorkerGetModelCatalog=()=>{Hm();return En()}}catch(_e){}",
+    )
+    .replace(
+      NEEDLES.quotaApi,
+      "function Of(){return c2t||(c2t=new CC(_e())),c2t}function zXA(){aHe.clear(),ARA.clear()} /* __QODER_WORKER_QUOTA_API__ */ try{globalThis.__qoderWorkerGetQuotaApi=()=>{Cq();return Of()}}catch(_e){}",
     );
   if (next.includes(NEEDLES.skipMain)) {
     next = next.replace(

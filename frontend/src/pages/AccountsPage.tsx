@@ -73,6 +73,12 @@ function runtimeSegments(state: AccountState) {
   return 1
 }
 
+function formatQuotaAmount(value: number | undefined) {
+  if (value == null || !Number.isFinite(value)) return '—'
+  if (Math.abs(value) >= 1000) return `${(value / 1000).toFixed(value % 1000 === 0 ? 0 : 1)}k`
+  return String(Math.round(value * 100) / 100)
+}
+
 function formatUpdatedAt(value: string | undefined, lang: 'en' | 'zh') {
   if (!value) return ''
   const date = new Date(value)
@@ -386,6 +392,42 @@ export function AccountsPage() {
                     </div>
                   ))}
                 </div>
+
+                {account.quota ? (
+                  <div className="mt-3">
+                    <div className="flex items-center justify-between gap-3 text-[11px]">
+                      <div className="flex items-center gap-2 font-medium">
+                        {t('quota')}
+                        {account.quota.exceeded ? (
+                          <span className="text-[var(--app-danger)]">{t('quotaExceeded')}</span>
+                        ) : null}
+                      </div>
+                      <span className="mono text-[var(--app-faint)]">
+                        {formatQuotaAmount(account.quota.remaining)} / {formatQuotaAmount(account.quota.total)} {account.quota.unit || 'credits'}
+                      </span>
+                    </div>
+                    <div className="mt-2 h-1.5 overflow-hidden rounded-[2px] bg-[var(--app-line)]" role="progressbar" aria-label={t('quota')} aria-valuenow={account.quota.percentage} aria-valuemin={0} aria-valuemax={100}>
+                      <div
+                        className={`h-full rounded-[2px] transition-[width] ${
+                          account.quota.exceeded || (account.quota.percentage ?? 0) >= 100
+                            ? 'bg-[var(--app-danger)]'
+                            : (account.quota.percentage ?? 0) >= 80
+                              ? 'bg-[var(--warning)]'
+                              : 'bg-[var(--app-ok)]'
+                        }`}
+                        style={{ width: `${Math.min(100, Math.max(0, account.quota.percentage ?? 0))}%` }}
+                      />
+                    </div>
+                    {account.quota.has_add_on ? (
+                      <div className="mt-2 flex items-center justify-between gap-3 text-[11px] text-[var(--app-faint)]">
+                        <span>{t('quotaAddOn')}</span>
+                        <span className="mono">
+                          {formatQuotaAmount(account.quota.add_on_used)} / {formatQuotaAmount(account.quota.add_on_total)} {account.quota.add_on_unit || 'credits'}
+                        </span>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
 
                 {updatedAt ? <div className="mono mt-3 text-[10px] text-[var(--app-faint)]">{t('updatedAt')} {updatedAt}</div> : null}
 

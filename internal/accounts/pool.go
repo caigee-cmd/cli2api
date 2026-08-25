@@ -5,6 +5,22 @@ import (
 	"time"
 )
 
+// QuotaSnapshot is the display-only quota state for one Qoder account.
+// A zero value means "unknown"; it never influences routing or cooldown.
+type QuotaSnapshot struct {
+	Used        float64 `json:"used"`
+	Total       float64 `json:"total"`
+	Remaining   float64 `json:"remaining"`
+	Percentage  float64 `json:"percentage"`
+	Unit        string  `json:"unit"`
+	Exceeded    bool    `json:"exceeded"`
+	HasAddOn    bool    `json:"has_add_on"`
+	AddOnUsed   float64 `json:"add_on_used"`
+	AddOnTotal  float64 `json:"add_on_total"`
+	AddOnUnit   string  `json:"add_on_unit"`
+	FetchedAt   string  `json:"fetched_at"`
+}
+
 type Item struct {
 	ID           string
 	URL          string
@@ -18,6 +34,7 @@ type Item struct {
 	Hot          *bool
 	InFlight     int
 	Restarts     int
+	Quota        *QuotaSnapshot
 }
 
 // RouteQuery selects candidates for one public model request. Empty fields are
@@ -229,6 +246,20 @@ func (p *Pool) MergeHealth(id string, ready, hot bool, inFlight, restarts int, l
 			p.items[i].LastError = lastError
 		}
 		return
+	}
+}
+
+func (p *Pool) MergeQuota(id string, quota *QuotaSnapshot) {
+	if p == nil || id == "" {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for i := range p.items {
+		if p.items[i].ID == id {
+			p.items[i].Quota = quota
+			return
+		}
 	}
 }
 

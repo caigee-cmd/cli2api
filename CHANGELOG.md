@@ -7,7 +7,13 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Show each Qoder account's remaining credits and add-on quota on the account card
+- Fetch account quota directly from the Qoder cloud API; quota outages never affect account readiness or scheduling
+
 ### 中文
+
+- 账号卡片显示每个 Qoder 账号的剩余额度与附加包用量
+- 额度直接来自 Qoder 云端 API；额度接口故障不影响账号就绪状态和调度
 
 ## 0.2.6 - 2026-08-25
 

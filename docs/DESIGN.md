@@ -384,6 +384,24 @@ Error taxonomy (do not treat every 429 as empty balance):
 
 Do not expose host paths or tokens in `/api/accounts`.
 
+### Account quota display
+
+Each Qoder daemon exposes `GET /admin/quota` (console API key required). The daemon calls the
+qodercli `qoderApi` singleton captured via the `quotaApi` needle in `worker/src/compat.mjs`,
+which fetches `openapi:/api/v2/quota/usage` with a plain Bearer token — no WASM encode. The
+CLI already caches this endpoint for 15s and de-dupes concurrent fetches, so the daemon does
+not add its own cache.
+
+Go `refreshOne` fetches quota after health for hot/ready accounts and stores a
+`QuotaSnapshot` on the pool item. Quota is display-only: fetch failures are swallowed and
+never flip account readiness, cooldown, or scheduling. WorkBuddy and other in-process
+providers report no quota; the card simply omits the block. The account card renders one
+progress bar with `remaining/total <unit>`, `--danger` at 100% / exceeded, `--warning` at
+≥80%, plus an optional add-on line.
+
+Distinguish this account-level quota from the request-level `insufficient_quota` error kind:
+that error means a per-request token/model limit, not a zero account balance.
+
 ## Console IA
 
 Keep the menu short. Login is a gate, not a nav item.
