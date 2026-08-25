@@ -394,13 +394,32 @@ Keep the menu short. Login is a gate, not a nav item.
 | `/` | Overview | Runtime pulse |
 | `/accounts` | Accounts | Qoder login + pool |
 | `/providers` | Models | Catalog + per-model context-window defaults |
-| `/system` | System | Next-version update + SQLite protection |
-
-Public model IDs are lowercase request identifiers. Qoder CLI names remain display labels, while internal Qoder keys are shown only for routing diagnostics.
 | `/access` | Access | Base URL + quick chat |
+| `/logs` | Logs | Request history + runtime process output |
+| `/system` | System | Next-version update + SQLite protection |
 | `/auth` | redirect | Legacy → `/accounts` |
 
+Public model IDs are lowercase request identifiers. Qoder CLI names remain display labels, while internal Qoder keys are shown only for routing diagnostics.
+
 Do not bring back a separate Auth page.
+
+## Request history and runtime logs
+
+Console `/logs` is one page with two tabs. Keep the menu short: do not split them into two nav items.
+
+| Surface | Storage | Owns |
+|---------|---------|------|
+| Request history | SQLite `request_logs` + `request_attempts` | One client chat request, failover attempts, tokens, latency, error kind |
+| Runtime logs | In-memory ring (~2000 lines) | Go control-plane and per-account daemon stderr, still tee'd to container stderr |
+
+Rules:
+
+- Go owns request logging. Generate `request_id` in `handleChatCompletions`, write attempts from the executor failover loop, and finalize stream rows after SSE relay.
+- Do not store prompt or completion bodies by default.
+- Purge request history at 7 days or 20_000 rows, whichever comes first.
+- Capture daemon output through `ManagerConfig.MaxLogWriters`; prefix lines with `[account={id}]`.
+- Runtime ring redacts obvious secrets and is lost on restart. Docker compose logs remain the durable operator stream for first-boot API key recovery.
+- `/api/logs/*` requires the SQLite API key.
 
 ## Managed update
 
@@ -494,9 +513,11 @@ After UI edits:
 | `frontend/src/pages/LoginPage.tsx` | Console gate |
 | `frontend/src/pages/AccountsPage.tsx` | Qoder login + pool |
 | `frontend/src/pages/ProvidersPage.tsx` | Model catalog + context-window defaults |
+| `frontend/src/pages/LogsPage.tsx` | Request history + runtime logs |
 | `frontend/src/pages/SystemPage.tsx` | Managed next-version update |
 | `frontend/src/components/layout/` | Shell / menu |
-| `internal/accounts/` | SQLite account repository, migrations, snapshots, scheduler, child lifecycle |
+| `internal/accounts/` | SQLite account repository, migrations, snapshots, scheduler, child lifecycle, request logs |
+| `internal/logs/` | Runtime ring buffer and async request recorder |
 | `internal/update/` | Release selection and updater client |
 | `internal/updater/` | Host-side Docker replacement and rollback |
 | `worker/src/daemon.mjs` | One-account Qoder runtime only |

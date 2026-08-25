@@ -181,6 +181,37 @@ func materializeHome(ctx context.Context, store *Store, accountID, home string) 
 	return nil
 }
 
+type prefixLogWriter struct {
+	prefix string
+	next   io.Writer
+	buf    []byte
+}
+
+func (w *prefixLogWriter) Write(p []byte) (int, error) {
+	if w == nil || w.next == nil {
+		return len(p), nil
+	}
+	w.buf = append(w.buf, p...)
+	for {
+		idx := -1
+		for i, b := range w.buf {
+			if b == '\n' {
+				idx = i
+				break
+			}
+		}
+		if idx < 0 {
+			break
+		}
+		line := append([]byte(nil), w.buf[:idx+1]...)
+		w.buf = w.buf[idx+1:]
+		if _, err := w.next.Write(append([]byte(w.prefix), line...)); err != nil {
+			return len(p), err
+		}
+	}
+	return len(p), nil
+}
+
 type ExecStarter struct {
 	Config ManagerConfig
 }
@@ -224,12 +255,13 @@ func (s ExecStarter) Start(_ context.Context, account Account, home string, port
 		"PLAIN_TEMPLATE_PATH="+s.Config.TemplatePath,
 		"QODER_WARMUP_CWD="+filepath.Join(home, "work"),
 	)
-	writer := s.Config.MaxLogWriters
-	if writer == nil {
-		writer = os.Stderr
-	}
-	cmd.Stdout = writer
-	cmd.Stderr = writer
+writer := s.Config.MaxLogWriters
+		if writer == nil {
+			writer = os.Stderr
+		}
+		writer = &prefixLogWriter{prefix: "[account=" + account.ID + "] ", next: writer}
+		cmd.Stdout = writer
+		cmd.Stderr = writer
 	if err := os.MkdirAll(filepath.Join(home, "work"), 0o700); err != nil {
 		return nil, err
 	}

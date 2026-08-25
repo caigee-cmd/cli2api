@@ -55,8 +55,26 @@ func TestStreamFlushWriterFlushesEachWrite(t *testing.T) {
 
 func TestRelayOpenAIStreamRequiresDone(t *testing.T) {
 	recorder := httptest.NewRecorder()
-	err := relayOpenAIStream(recorder, strings.NewReader("data: partial\n\n"))
+	_, err := relayOpenAIStream(recorder, strings.NewReader("data: partial\n\n"))
 	if err == nil || !strings.Contains(err.Error(), "before [DONE]") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestRelayOpenAIStreamCapturesUsageChunk(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	body := strings.Join([]string{
+		`data: {"id":"1","choices":[{"delta":{"content":"hi"}}]}`,
+		`data: {"id":"1","model":"glm-5.3","usage":{"prompt_tokens":3,"completion_tokens":2,"source":"upstream"}}`,
+		`data: [DONE]`,
+		"",
+	}, "\n")
+	stats, err := relayOpenAIStream(recorder, strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Model != "glm-5.3" || stats.PromptTokens == nil || *stats.PromptTokens != 3 ||
+		stats.CompletionTokens == nil || *stats.CompletionTokens != 2 || stats.UsageSource != "upstream" {
+		t.Fatalf("stats = %+v", stats)
 	}
 }

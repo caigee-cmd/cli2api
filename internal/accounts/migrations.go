@@ -68,7 +68,7 @@ WHERE model_id = 'qmodel'
 ON CONFLICT(model_id) DO NOTHING;
 DELETE FROM model_settings
 WHERE model_id IN ('qmodel', 'dmodel', 'dfmodel', 'kmodel', 'mmodel', 'gm51model');`},
-	{filename: "003_account_providers.sql", sql: `
+		{filename: "003_account_providers.sql", sql: `
 ALTER TABLE accounts ADD COLUMN provider TEXT NOT NULL DEFAULT 'qoder';
 ALTER TABLE accounts ADD COLUMN provider_region TEXT NOT NULL DEFAULT 'global';
 CREATE TABLE IF NOT EXISTS account_credential_payloads (
@@ -77,6 +77,49 @@ CREATE TABLE IF NOT EXISTS account_credential_payloads (
   payload BLOB NOT NULL,
   updated_at TEXT NOT NULL
 );`},
+		{filename: "004_request_logs.sql", sql: `
+CREATE TABLE IF NOT EXISTS request_logs (
+  id TEXT PRIMARY KEY,
+  created_at TEXT NOT NULL,
+  finished_at TEXT,
+  stream INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL,
+  requested_model TEXT NOT NULL DEFAULT '',
+  mapped_model TEXT NOT NULL DEFAULT '',
+  account_id TEXT,
+  prompt_tokens INTEGER,
+  completion_tokens INTEGER,
+  cache_read_tokens INTEGER,
+  cache_write_tokens INTEGER,
+  usage_source TEXT NOT NULL DEFAULT '',
+  credits REAL,
+  latency_ms INTEGER,
+  ttfb_ms INTEGER,
+  error_kind TEXT NOT NULL DEFAULT '',
+  error_code TEXT NOT NULL DEFAULT '',
+  error_message TEXT NOT NULL DEFAULT '',
+  attempt_count INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS request_logs_created_at ON request_logs(created_at DESC);
+CREATE INDEX IF NOT EXISTS request_logs_account_id ON request_logs(account_id);
+CREATE INDEX IF NOT EXISTS request_logs_status ON request_logs(status);
+CREATE TABLE IF NOT EXISTS request_attempts (
+  id TEXT PRIMARY KEY,
+  request_id TEXT NOT NULL REFERENCES request_logs(id) ON DELETE CASCADE,
+  attempt_index INTEGER NOT NULL,
+  account_id TEXT NOT NULL DEFAULT '',
+  started_at TEXT NOT NULL,
+  finished_at TEXT,
+  status TEXT NOT NULL,
+  http_status INTEGER,
+  error_kind TEXT NOT NULL DEFAULT '',
+  error_message TEXT NOT NULL DEFAULT '',
+  latency_ms INTEGER,
+  prompt_tokens INTEGER,
+  completion_tokens INTEGER,
+  usage_source TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS request_attempts_request_id ON request_attempts(request_id);`},
 }
 
 const schemaMigrationsDDL = `

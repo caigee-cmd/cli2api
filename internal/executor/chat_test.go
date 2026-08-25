@@ -191,19 +191,19 @@ func TestChatStreamProxyDoesNotUseClientTotalTimeout(t *testing.T) {
 	ex.HTTPClient = srv.Client()
 	ex.HTTPClient.Timeout = 10 * time.Millisecond
 
-	resp, _, err := ex.ChatStreamProxy(context.Background(), translate.ChatRequest{
-		Model:    "minimax-m3",
-		Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
-	}, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(body) != "data: [DONE]\n\n" {
-		t.Fatalf("body = %q", body)
-	}
+stream, err := ex.ChatStreamProxy(context.Background(), translate.ChatRequest{
+			Model:    "minimax-m3",
+			Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+		}, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer stream.Response.Body.Close()
+		body, err := io.ReadAll(stream.Response.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(body) != "data: [DONE]\n\n" {
+			t.Fatalf("body = %q", body)
+		}
 }

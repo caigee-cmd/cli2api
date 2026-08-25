@@ -1,6 +1,6 @@
 # CLI2API Plan
 
-last-updated: 2026-08-24
+last-updated: 2026-08-25
 
 Qoder-first OpenAI-compatible proxy. Cursor and other CLIs wait until the current Qoder milestone is done.
 
@@ -145,6 +145,17 @@ while keeping the current OpenAI Chat Completions path stable.
 
 `/v1/messages` remains a later milestone until the canonical contract and Qoder adapter
 are isolated; do not duplicate Qoder request construction in a second handler.
+## Phase J — request history and runtime logs
+
+Goal: give the console a short ops surface for recent chat requests and live process
+output without copying sub2api billing, audit-body storage, or ops preaggregation.
+
+- [x] Persist request metadata and failover attempts in SQLite
+- [x] Capture Go/daemon stderr into an in-memory ring while keeping Docker logs
+- [x] Expose authenticated `/api/logs/requests` and `/api/logs/runtime`
+- [x] Add console `/logs` with Request history and Runtime tabs
+- [x] Purge request history at 7 days or 20_000 rows
+
 ## Later
 
 - WorkBuddy / CodeBuddy as a second account provider — design only, see `docs/PROVIDERS.md`
@@ -153,6 +164,7 @@ are isolated; do not duplicate Qoder request construction in a second handler.
 - In-process multi-account (still impossible for Qoder WASM)
 - Anthropic `/v1/messages`
 - sub2api-style session-hash sticky
+- Optional truncated prompt/completion capture behind an explicit switch
 
 Do not start WorkBuddy, Cursor, or other CLI providers until H7 is accepted. The
 provider-extension design lives in `docs/PROVIDERS.md`; do not add extra plan files.

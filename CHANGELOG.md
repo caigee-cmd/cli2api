@@ -7,7 +7,15 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Add a Logs console page with request history and live runtime output
+- Record chat request metadata, failover attempts, tokens, and latency in SQLite
+- Capture Go and per-account daemon stderr in a redacted in-memory ring for the console
+
 ### 中文
+
+- 新增「日志」控制台页，包含请求历史和实时运行输出
+- 将聊天请求元数据、故障切换尝试、token 与延迟写入 SQLite
+- 把 Go 与各账号 daemon 的 stderr 捕获到脱敏后的内存环形缓冲，供控制台查看
 
 ## 0.2.5 - 2026-08-25
 
@@ -56,25 +64,5 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 - 用 Go 管理的 SQLite 账号注册表替换 supervisor 进程池
 - 每个启用的 Qoder 账号使用独立的 Node daemon 和 HOME
 - 增加账号增删改查、浏览器 OAuth、PAT、原生凭证导入导出，以及冷却和故障切换
-- 改为单容器部署，数据保存在 `qoder-data` 卷
-- 用 HeroUI 重做控制台，并支持响应式浅色和深色主题
-
-## 0.1.0 - 2026-08-22
-
-### English
-
-- OpenAI-compatible streaming and non-streaming chat
-- Tool calls and reasoning passthrough
-- Hot Qoder WASM/auth context with pinned qodercli compatibility checks
-- React console and loopback-only Docker Compose deployment
-- Upstream usage support with token estimation fallback
-- Redacted protocol notes and secret-scanning CI
-
-### 中文
-
-- 兼容 OpenAI 的流式和非流式对话
-- 支持工具调用和 reasoning 透传
-- 常驻 Qoder WASM/鉴权上下文，并固定检查 qodercli 兼容性
-- 提供 React 控制台，以及仅监听本机的 Docker Compose 部署
-- 支持上游 usage，并在缺失时回退到 token 估算
-- 脱敏协议记录，以及密钥扫描 CI
+- 部署改为单容器，并持久化 `qoder-data`
+- 用 HeroUI 重构控制台，支持浅色 / 深色主题

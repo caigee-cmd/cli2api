@@ -29,7 +29,18 @@ func (w streamFlushWriter) Write(data []byte) (int, error) {
 	return n, err
 }
 
-func relayOpenAIStream(w http.ResponseWriter, body io.Reader) error {
+type streamRelayStats struct {
+	PromptTokens     *int
+	CompletionTokens *int
+	CacheReadTokens  *int
+	CacheWriteTokens *int
+	CachedTokens     *int
+	UsageSource      string
+	Credits          *float64
+	Model            string
+}
+
+func relayOpenAIStream(w http.ResponseWriter, body io.Reader) (streamRelayStats, error) {
 	var writer io.Writer = w
 	if flusher, ok := w.(http.Flusher); ok {
 		writer = streamFlushWriter{w: w, f: flusher}
@@ -38,22 +49,60 @@ func relayOpenAIStream(w http.ResponseWriter, body io.Reader) error {
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 0, 64*1024), maxSSELineSize)
 	sawDone := false
+	var stats streamRelayStats
 	for scanner.Scan() {
 		line := scanner.Text()
+		if usage, ok := parseStreamUsageLine(line); ok {
+			stats = usage
+		}
 		if _, err := io.WriteString(writer, line+"\n"); err != nil {
-			return err
+			return stats, err
 		}
 		if strings.TrimSpace(strings.TrimPrefix(line, "data:")) == "[DONE]" {
 			sawDone = true
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("stream read error: %w", err)
+		return stats, fmt.Errorf("stream read error: %w", err)
 	}
 	if !sawDone {
-		return fmt.Errorf("stream ended before [DONE]")
+		return stats, fmt.Errorf("stream ended before [DONE]")
 	}
-	return nil
+	return stats, nil
+}
+
+func parseStreamUsageLine(line string) (streamRelayStats, bool) {
+	payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+	if payload == "" || payload == "[DONE]" {
+		return streamRelayStats{}, false
+	}
+	var parsed struct {
+		Model string `json:"model"`
+		Usage *struct {
+			PromptTokens     *int     `json:"prompt_tokens"`
+			CompletionTokens *int     `json:"completion_tokens"`
+			CacheReadTokens  *int     `json:"cache_read_tokens"`
+			CacheWriteTokens *int     `json:"cache_write_tokens"`
+			Source           string   `json:"source"`
+			Credits          *float64 `json:"credits"`
+			PromptDetails    struct {
+				CachedTokens *int `json:"cached_tokens"`
+			} `json:"prompt_tokens_details"`
+		} `json:"usage"`
+	}
+	if err := json.Unmarshal([]byte(payload), &parsed); err != nil || parsed.Usage == nil {
+		return streamRelayStats{}, false
+	}
+	return streamRelayStats{
+		PromptTokens:     parsed.Usage.PromptTokens,
+		CompletionTokens: parsed.Usage.CompletionTokens,
+		CacheReadTokens:  parsed.Usage.CacheReadTokens,
+		CacheWriteTokens: parsed.Usage.CacheWriteTokens,
+		CachedTokens:     parsed.Usage.PromptDetails.CachedTokens,
+		UsageSource:      firstNonEmpty(parsed.Usage.Source, "estimate"),
+		Credits:          parsed.Usage.Credits,
+		Model:            parsed.Model,
+	}, true
 }
 
 func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
@@ -110,19 +159,31 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	publicModel := req.Model
 	providerFilter := s.resolveProviderFilter(&req)
 	prefer := s.requestedAccount(r)
+
+	requestID := accounts.NewRequestID()
+	started := time.Now().UTC()
+	s.startRequestLog(accounts.RequestLog{
+		ID: requestID, CreatedAt: started, Stream: req.Stream, Status: accounts.RequestStatusStarted,
+		RequestedModel: firstNonEmpty(publicModel, req.Model),
+	})
+	ctx := executor.WithRequestID(r.Context(), requestID)
+	w.Header().Set("X-Request-Id", requestID)
+
 	if req.Stream {
-		upstream, accountID, err := s.executor.ChatStreamProxy(r.Context(), req, prefer)
+		upstream, err := s.executor.ChatStreamProxy(ctx, req, prefer)
 		if err != nil {
+			s.finishRequestLog(requestID, started, req, publicModel, upstream.AccountID, accounts.RequestStatusError, upstream.TTFBMs, nil, err, upstream.AttemptCount)
 			writeClassifiedErr(w, err)
 			return
 		}
-		defer upstream.Body.Close()
+		defer upstream.Response.Body.Close()
+		s.finishRequestLog(requestID, started, req, publicModel, upstream.AccountID, accounts.RequestStatusStreaming, upstream.TTFBMs, nil, nil, upstream.AttemptCount)
 		w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
-		if accountID != "" {
-			w.Header().Set("X-Qoder-Account", accountID)
-			w.Header().Set("X-CLI2API-Account", accountID)
+		if upstream.AccountID != "" {
+			w.Header().Set("X-Qoder-Account", upstream.AccountID)
+			w.Header().Set("X-CLI2API-Account", upstream.AccountID)
 		}
 		if providerFilter != "" {
 			w.Header().Set("X-CLI2API-Provider", providerFilter)
@@ -132,20 +193,36 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		if flusher, ok := w.(http.Flusher); ok {
 			flusher.Flush()
 		}
-		if err := relayOpenAIStream(w, upstream.Body); err != nil {
+		stats, relayErr := relayOpenAIStream(w, upstream.Response.Body)
+		status := accounts.RequestStatusOK
+		if relayErr != nil {
+			if strings.Contains(relayErr.Error(), "before [DONE]") || strings.Contains(strings.ToLower(relayErr.Error()), "broken pipe") {
+				status = accounts.RequestStatusCanceled
+			} else {
+				status = accounts.RequestStatusError
+			}
+		}
+		s.finishRequestLog(requestID, started, req, publicModel, upstream.AccountID, status, upstream.TTFBMs, &stats, relayErr, upstream.AttemptCount)
+		if relayErr != nil {
 			panic(http.ErrAbortHandler)
 		}
 		return
 	}
 
-	res, err := s.executor.ChatNonStream(r.Context(), req, prefer)
+	res, err := s.executor.ChatNonStream(ctx, req, prefer)
 	if err != nil {
+		s.finishRequestLog(requestID, started, req, publicModel, res.AccountID, accounts.RequestStatusError, 0, nil, err, res.AttemptCount)
 		writeClassifiedErr(w, err)
 		return
 	}
 	if publicModel != "" {
 		res.Model = publicModel
 	}
+	s.finishRequestLog(requestID, started, req, publicModel, res.AccountID, accounts.RequestStatusOK, 0, &streamRelayStats{
+		PromptTokens: ptrInt(res.PromptTokens), CompletionTokens: ptrInt(res.CompletionTokens),
+		CacheReadTokens: res.CacheReadTokens, CacheWriteTokens: res.CacheWriteTokens,
+		CachedTokens: res.CachedTokens, UsageSource: res.UsageSource, Credits: res.Credits, Model: res.Model,
+	}, nil, res.AttemptCount)
 	message := map[string]any{
 		"role":    "assistant",
 		"content": res.Content,
@@ -175,7 +252,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-CLI2API-Provider", providerFilter)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"id":      fmt.Sprintf("chatcmpl-%d", time.Now().UnixMilli()),
+		"id":      "chatcmpl-" + requestID,
 		"object":  "chat.completion",
 		"created": time.Now().Unix(),
 		"model":   res.Model,
@@ -231,3 +308,54 @@ func writeClassifiedErr(w http.ResponseWriter, err error) {
 	}
 	writeErr(w, classified.Status, classified.Code, classified.Message)
 }
+
+func (s *Server) startRequestLog(entry accounts.RequestLog) {
+	if s.recorder == nil {
+		return
+	}
+	s.recorder.Start(entry)
+}
+
+func (s *Server) finishRequestLog(requestID string, started time.Time, req translate.ChatRequest, publicModel, accountID, status string, ttfb int, stats *streamRelayStats, err error, attemptCount int) {
+	if s.recorder == nil || requestID == "" {
+		return
+	}
+	entry := accounts.RequestLog{
+		ID:             requestID,
+		CreatedAt:      started,
+		Stream:         req.Stream,
+		Status:         status,
+		RequestedModel: firstNonEmpty(publicModel, req.Model),
+		AccountID:      accountID,
+		AttemptCount:   attemptCount,
+	}
+	if status != accounts.RequestStatusStarted && status != accounts.RequestStatusStreaming {
+		finished := time.Now().UTC()
+		latency := int(finished.Sub(started).Milliseconds())
+		entry.FinishedAt = &finished
+		entry.LatencyMs = &latency
+	}
+	if ttfb > 0 {
+		entry.TTFBMs = &ttfb
+	}
+	if stats != nil {
+		entry.PromptTokens = stats.PromptTokens
+		entry.CompletionTokens = stats.CompletionTokens
+		entry.CacheReadTokens = stats.CacheReadTokens
+		entry.CacheWriteTokens = stats.CacheWriteTokens
+		entry.UsageSource = stats.UsageSource
+		entry.Credits = stats.Credits
+		if stats.Model != "" {
+			entry.MappedModel = stats.Model
+		}
+	}
+	if err != nil {
+		classified := accounts.Classify(0, err.Error(), "", "", "")
+		entry.ErrorKind = classified.Kind
+		entry.ErrorCode = classified.Code
+		entry.ErrorMessage = classified.Message
+	}
+	s.recorder.Finish(entry)
+}
+
+func ptrInt(value int) *int { return &value }

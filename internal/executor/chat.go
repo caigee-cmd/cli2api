@@ -20,11 +20,14 @@ import (
 
 type providerRegistry = providers.Registry
 
+type AttemptHook func(accounts.RequestAttempt)
+
 type ChatExecutor struct {
 	Pool       *accounts.Pool
 	WorkerKey  string
 	HTTPClient *http.Client
 	Providers  *providerRegistry
+	OnAttempt  AttemptHook
 }
 
 type ChatResult struct {
@@ -41,7 +44,32 @@ type ChatResult struct {
 	UsageSource      string
 	Credits          *float64
 	AccountID        string
+	AttemptCount     int
 	RawNote          string
+}
+
+type StreamResult struct {
+	Response     *http.Response
+	AccountID    string
+	AttemptCount int
+	TTFBMs       int
+}
+
+type requestIDKey struct{}
+
+func WithRequestID(ctx context.Context, id string) context.Context {
+	if strings.TrimSpace(id) == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, requestIDKey{}, id)
+}
+
+func RequestIDFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	id, _ := ctx.Value(requestIDKey{}).(string)
+	return id
 }
 
 func NewChatExecutor(pool *accounts.Pool, workerKey string) ChatExecutor {
@@ -122,6 +150,22 @@ func (e ChatExecutor) markOK(id string) {
 	e.Pool.MarkOK(id)
 }
 
+func (e ChatExecutor) recordAttempt(ctx context.Context, attempt accounts.RequestAttempt) {
+	if e.OnAttempt == nil {
+		return
+	}
+	if attempt.ID == "" {
+		attempt.ID = accounts.NewAttemptID()
+	}
+	if attempt.RequestID == "" {
+		attempt.RequestID = RequestIDFromContext(ctx)
+	}
+	if attempt.RequestID == "" {
+		return
+	}
+	e.OnAttempt(attempt)
+}
+
 func (e ChatExecutor) newWorkerRequest(ctx context.Context, item accounts.Item, payload []byte, prefer string) (*http.Request, error) {
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, item.URL+endpoint.ChatCompletionsPath, bytes.NewReader(payload))
 	if err != nil {
@@ -137,6 +181,9 @@ func (e ChatExecutor) newWorkerRequest(ctx context.Context, item accounts.Item, 
 	}
 	if account != "" {
 		httpReq.Header.Set("X-Qoder-Account", account)
+	}
+	if requestID := RequestIDFromContext(ctx); requestID != "" {
+		httpReq.Header.Set("X-Request-Id", requestID)
 	}
 	return httpReq, nil
 }
@@ -181,16 +228,24 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 		if err != nil {
 			return ChatResult{}, err
 		}
+		started := time.Now()
 		resp, err := e.HTTPClient.Do(httpReq)
 		if err != nil {
 			classified := accounts.Classify(0, err.Error(), "", accounts.KindUnavailable, "")
 			lastErr = fmt.Errorf("worker %s request failed: %w", item.ID, err)
 			e.markClassified(item.ID, classified)
+			latency := int(time.Since(started).Milliseconds())
+			e.recordAttempt(ctx, accounts.RequestAttempt{
+				AttemptIndex: i, AccountID: item.ID, StartedAt: started, FinishedAt: ptrTime(time.Now().UTC()),
+				Status: accounts.AttemptStatusFailover, ErrorKind: classified.Kind, ErrorMessage: lastErr.Error(), LatencyMs: &latency,
+			})
 			excluded[item.ID] = struct{}{}
 			continue
 		}
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
+		finished := time.Now().UTC()
+		latency := int(finished.Sub(started).Milliseconds())
 		if account := resp.Header.Get("X-Qoder-Account"); account != "" {
 			item.ID = account
 		}
@@ -199,24 +254,48 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 			classified := classifyWorkerErr(resp, msg)
 			lastErr = fmt.Errorf("worker %s status=%d: %s", item.ID, resp.StatusCode, msg)
 			e.markClassified(item.ID, classified)
+			status := accounts.AttemptStatusError
 			if classified.Failover && i+1 < attempts {
+				status = accounts.AttemptStatusFailover
 				excluded[item.ID] = struct{}{}
+				e.recordAttempt(ctx, accounts.RequestAttempt{
+					AttemptIndex: i, AccountID: item.ID, StartedAt: started, FinishedAt: &finished,
+					Status: status, HTTPStatus: ptrInt(resp.StatusCode), ErrorKind: classified.Kind,
+					ErrorMessage: truncateErr(msg), LatencyMs: &latency,
+				})
 				continue
 			}
-			return ChatResult{}, lastErr
+			e.recordAttempt(ctx, accounts.RequestAttempt{
+				AttemptIndex: i, AccountID: item.ID, StartedAt: started, FinishedAt: &finished,
+				Status: status, HTTPStatus: ptrInt(resp.StatusCode), ErrorKind: classified.Kind,
+				ErrorMessage: truncateErr(msg), LatencyMs: &latency,
+			})
+			return ChatResult{AttemptCount: i + 1, AccountID: item.ID}, lastErr
 		}
 		result, err := decodeChatResult(req, body)
 		if err != nil {
-			return ChatResult{}, err
+			e.recordAttempt(ctx, accounts.RequestAttempt{
+				AttemptIndex: i, AccountID: item.ID, StartedAt: started, FinishedAt: &finished,
+				Status: accounts.AttemptStatusError, HTTPStatus: ptrInt(resp.StatusCode),
+				ErrorKind: accounts.KindUnavailable, ErrorMessage: truncateErr(err.Error()), LatencyMs: &latency,
+			})
+			return ChatResult{AttemptCount: i + 1, AccountID: item.ID}, err
 		}
 		result.AccountID = item.ID
+		result.AttemptCount = i + 1
 		e.markOK(item.ID)
+		e.recordAttempt(ctx, accounts.RequestAttempt{
+			AttemptIndex: i, AccountID: item.ID, StartedAt: started, FinishedAt: &finished,
+			Status: accounts.AttemptStatusOK, HTTPStatus: ptrInt(resp.StatusCode), LatencyMs: &latency,
+			PromptTokens: ptrInt(result.PromptTokens), CompletionTokens: ptrInt(result.CompletionTokens),
+			UsageSource: result.UsageSource,
+		})
 		return result, nil
 	}
 	if lastErr == nil {
 		lastErr = fmt.Errorf("no worker accounts available")
 	}
-	return ChatResult{}, lastErr
+	return ChatResult{AttemptCount: attempts}, lastErr
 }
 
 func (e ChatExecutor) attempts() int {
@@ -247,12 +326,26 @@ func (e ChatExecutor) chatInProcessNonStream(ctx context.Context, item accounts.
 	if adapter.Chat == nil {
 		return ChatResult{}, fmt.Errorf("provider %s does not implement chat", item.Provider)
 	}
+	started := time.Now()
 	outcome, err := adapter.Chat.ChatNonStream(ctx, item.ID, req)
+	finished := time.Now().UTC()
+	latency := int(finished.Sub(started).Milliseconds())
 	if err != nil {
 		e.markInProcessError(item, err)
-		return ChatResult{}, err
+		classified := accounts.Classify(0, err.Error(), "", "", "")
+		e.recordAttempt(ctx, accounts.RequestAttempt{
+			AttemptIndex: 0, AccountID: item.ID, StartedAt: started, FinishedAt: &finished,
+			Status: accounts.AttemptStatusError, ErrorKind: classified.Kind, ErrorMessage: truncateErr(err.Error()), LatencyMs: &latency,
+		})
+		return ChatResult{AttemptCount: 1, AccountID: item.ID}, err
 	}
 	e.markOK(item.ID)
+	e.recordAttempt(ctx, accounts.RequestAttempt{
+		AttemptIndex: 0, AccountID: item.ID, StartedAt: started, FinishedAt: &finished,
+		Status: accounts.AttemptStatusOK, LatencyMs: &latency,
+		PromptTokens: ptrInt(outcome.PromptTokens), CompletionTokens: ptrInt(outcome.CompletionTokens),
+		UsageSource: outcome.UsageSource,
+	})
 	return ChatResult{
 		Model:            outcome.Model,
 		Content:          outcome.Content,
@@ -263,21 +356,36 @@ func (e ChatExecutor) chatInProcessNonStream(ctx context.Context, item accounts.
 		CompletionTokens: outcome.CompletionTokens,
 		UsageSource:      outcome.UsageSource,
 		AccountID:        item.ID,
+		AttemptCount:     1,
 	}, nil
 }
 
-func (e ChatExecutor) chatInProcessStream(ctx context.Context, item accounts.Item, req translate.ChatRequest) (*http.Response, string, error) {
+func (e ChatExecutor) chatInProcessStream(ctx context.Context, item accounts.Item, req translate.ChatRequest) (StreamResult, error) {
 	adapter, _ := e.Providers.Get(item.Provider)
 	if adapter.Chat == nil {
-		return nil, "", fmt.Errorf("provider %s does not implement chat", item.Provider)
+		return StreamResult{}, fmt.Errorf("provider %s does not implement chat", item.Provider)
 	}
+	started := time.Now()
 	resp, err := adapter.Chat.ChatStream(ctx, item.ID, req)
 	if err != nil {
+		finished := time.Now().UTC()
+		latency := int(finished.Sub(started).Milliseconds())
 		e.markInProcessError(item, err)
-		return nil, "", err
+		classified := accounts.Classify(0, err.Error(), "", "", "")
+		e.recordAttempt(ctx, accounts.RequestAttempt{
+			AttemptIndex: 0, AccountID: item.ID, StartedAt: started, FinishedAt: &finished,
+			Status: accounts.AttemptStatusError, ErrorKind: classified.Kind, ErrorMessage: truncateErr(err.Error()), LatencyMs: &latency,
+		})
+		return StreamResult{AttemptCount: 1, AccountID: item.ID}, err
 	}
 	e.markOK(item.ID)
-	return resp, item.ID, nil
+	ttfb := int(time.Since(started).Milliseconds())
+	headerAt := time.Now().UTC()
+	e.recordAttempt(ctx, accounts.RequestAttempt{
+		AttemptIndex: 0, AccountID: item.ID, StartedAt: started, FinishedAt: &headerAt,
+		Status: accounts.AttemptStatusOK, HTTPStatus: ptrInt(http.StatusOK), LatencyMs: &ttfb,
+	})
+	return StreamResult{Response: resp, AccountID: item.ID, AttemptCount: 1, TTFBMs: ttfb}, nil
 }
 
 // markInProcessError maps provider adapter errors into the shared cooldown
@@ -373,22 +481,23 @@ func decodeChatResult(req translate.ChatRequest, body []byte) (ChatResult, error
 	}, nil
 }
 
-func (e ChatExecutor) ChatStreamProxy(ctx context.Context, req translate.ChatRequest, prefer string) (*http.Response, string, error) {
+func (e ChatExecutor) ChatStreamProxy(ctx context.Context, req translate.ChatRequest, prefer string) (StreamResult, error) {
 	if item, ok := e.peekInProcess(prefer); ok {
 		return e.chatInProcessStream(ctx, item, req)
 	}
 	payload, err := json.Marshal(buildWorkerPayload(req, true))
 	if err != nil {
-		return nil, "", err
+		return StreamResult{}, err
 	}
 	excluded := map[string]struct{}{}
 	var lastErr error
 	attempts := e.attempts()
 	pinned := prefer
+	startedAll := time.Now()
 	for i := 0; i < attempts; i++ {
 		item, err := e.pick(prefer, excluded)
 		if err != nil {
-			return nil, "", err
+			return StreamResult{}, err
 		}
 		headerAccount := item.ID
 		if i == 0 && pinned != "" {
@@ -397,7 +506,7 @@ func (e ChatExecutor) ChatStreamProxy(ctx context.Context, req translate.ChatReq
 		prefer = ""
 		httpReq, err := e.newWorkerRequest(ctx, item, payload, headerAccount)
 		if err != nil {
-			return nil, "", err
+			return StreamResult{}, err
 		}
 		client := e.HTTPClient
 		if client == nil {
@@ -408,11 +517,17 @@ func (e ChatExecutor) ChatStreamProxy(ctx context.Context, req translate.ChatReq
 			streamClient.Timeout = 0
 			client = &streamClient
 		}
+		started := time.Now()
 		resp, err := client.Do(httpReq)
 		if err != nil {
 			classified := accounts.Classify(0, err.Error(), "", accounts.KindUnavailable, "")
 			lastErr = fmt.Errorf("worker %s stream request failed: %w", item.ID, err)
 			e.markClassified(item.ID, classified)
+			latency := int(time.Since(started).Milliseconds())
+			e.recordAttempt(ctx, accounts.RequestAttempt{
+				AttemptIndex: i, AccountID: item.ID, StartedAt: started, FinishedAt: ptrTime(time.Now().UTC()),
+				Status: accounts.AttemptStatusFailover, ErrorKind: classified.Kind, ErrorMessage: lastErr.Error(), LatencyMs: &latency,
+			})
 			excluded[item.ID] = struct{}{}
 			continue
 		}
@@ -426,17 +541,54 @@ func (e ChatExecutor) ChatStreamProxy(ctx context.Context, req translate.ChatReq
 			classified := classifyWorkerErr(resp, msg)
 			lastErr = fmt.Errorf("worker %s stream status=%d: %s", item.ID, resp.StatusCode, msg)
 			e.markClassified(item.ID, classified)
+			finished := time.Now().UTC()
+			latency := int(finished.Sub(started).Milliseconds())
+			status := accounts.AttemptStatusError
 			if classified.Failover && i+1 < attempts {
+				status = accounts.AttemptStatusFailover
 				excluded[item.ID] = struct{}{}
+				e.recordAttempt(ctx, accounts.RequestAttempt{
+					AttemptIndex: i, AccountID: item.ID, StartedAt: started, FinishedAt: &finished,
+					Status: status, HTTPStatus: ptrInt(resp.StatusCode), ErrorKind: classified.Kind,
+					ErrorMessage: truncateErr(msg), LatencyMs: &latency,
+				})
 				continue
 			}
-			return nil, "", lastErr
+			e.recordAttempt(ctx, accounts.RequestAttempt{
+				AttemptIndex: i, AccountID: item.ID, StartedAt: started, FinishedAt: &finished,
+				Status: status, HTTPStatus: ptrInt(resp.StatusCode), ErrorKind: classified.Kind,
+				ErrorMessage: truncateErr(msg), LatencyMs: &latency,
+			})
+			return StreamResult{AttemptCount: i + 1, AccountID: item.ID}, lastErr
 		}
 		e.markOK(item.ID)
-		return resp, item.ID, nil
+		ttfb := int(time.Since(startedAll).Milliseconds())
+		headerAt := time.Now().UTC()
+		e.recordAttempt(ctx, accounts.RequestAttempt{
+			AttemptIndex: i, AccountID: item.ID, StartedAt: started, FinishedAt: &headerAt,
+			Status: accounts.AttemptStatusOK, HTTPStatus: ptrInt(resp.StatusCode), LatencyMs: &ttfb,
+		})
+		return StreamResult{
+			Response:     resp,
+			AccountID:    item.ID,
+			AttemptCount: i + 1,
+			TTFBMs:       ttfb,
+		}, nil
 	}
 	if lastErr == nil {
 		lastErr = fmt.Errorf("no worker accounts available")
 	}
-	return nil, "", lastErr
+	return StreamResult{AttemptCount: attempts}, lastErr
+}
+
+func ptrInt(value int) *int { return &value }
+
+func ptrTime(value time.Time) *time.Time { return &value }
+
+func truncateErr(msg string) string {
+	msg = strings.TrimSpace(msg)
+	if len(msg) <= 500 {
+		return msg
+	}
+	return msg[:500]
 }
