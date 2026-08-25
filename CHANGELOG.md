@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.2.7 - 2026-08-25
+
+### English
+
 - Show each Qoder account's remaining credits and add-on quota on the account card
 - Fetch account quota directly from the Qoder cloud API; quota outages never affect account readiness or scheduling
 
