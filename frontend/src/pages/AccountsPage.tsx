@@ -402,9 +402,7 @@ export function AccountsPage() {
                           <span className="text-[var(--app-danger)]">{t('quotaExceeded')}</span>
                         ) : null}
                       </div>
-                      <span className="mono text-[var(--app-faint)]">
-                        {formatQuotaAmount(account.quota.remaining)} / {formatQuotaAmount(account.quota.total)} {account.quota.unit || 'credits'}
-                      </span>
+                      <span className="mono font-medium">{Math.round(account.quota.percentage ?? 0)}%</span>
                     </div>
                     <div className="mt-2 h-1.5 overflow-hidden rounded-[2px] bg-[var(--app-line)]" role="progressbar" aria-label={t('quota')} aria-valuenow={account.quota.percentage} aria-valuemin={0} aria-valuemax={100}>
                       <div
@@ -418,14 +416,14 @@ export function AccountsPage() {
                         style={{ width: `${Math.min(100, Math.max(0, account.quota.percentage ?? 0))}%` }}
                       />
                     </div>
-                    {account.quota.has_add_on ? (
-                      <div className="mt-2 flex items-center justify-between gap-3 text-[11px] text-[var(--app-faint)]">
-                        <span>{t('quotaAddOn')}</span>
-                        <span className="mono">
-                          {formatQuotaAmount(account.quota.add_on_used)} / {formatQuotaAmount(account.quota.add_on_total)} {account.quota.add_on_unit || 'credits'}
+                    <div className="mono mt-1.5 text-[10px] text-[var(--app-faint)]">
+                      {formatQuotaAmount(account.quota.remaining)} / {formatQuotaAmount(account.quota.total)} {account.quota.unit || 'credits'}
+                      {account.quota.has_add_on ? (
+                        <span>
+                          {' · '}{t('quotaAddOn')} {formatQuotaAmount(account.quota.add_on_used)} / {formatQuotaAmount(account.quota.add_on_total)} {account.quota.add_on_unit || 'credits'}
                         </span>
-                      </div>
-                    ) : null}
+                      ) : null}
+                    </div>
                   </div>
                 ) : null}
 

@@ -7,7 +7,11 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Emphasize quota percentage on account cards and show the remaining credits as smaller secondary text
+
 ### 中文
+
+- 账号卡片突出显示额度百分比，剩余额度改为更小的次要文字
 
 ## 0.2.7 - 2026-08-25
 
