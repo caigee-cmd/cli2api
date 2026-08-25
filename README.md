@@ -10,6 +10,8 @@ Turn **your own Qoder CLI login** into a local OpenAI-compatible API.
 
 CLI2API is an unofficial, self-hosted gateway for Qoder. Keep using OpenAI SDKs, Codex, CherryStudio, and other compatible clients—just point their Base URL at this local service.
 
+![CLI2API social card](docs/assets/og-card.svg)
+
 ![CLI2API console](docs/assets/console.png)
 
 > [!IMPORTANT]

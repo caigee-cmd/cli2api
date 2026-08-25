@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640" font-family="-apple-system, 'Inter', 'Outfit', system-ui, sans-serif">
+  <defs>
+    <style>
+      .bolt { stroke: #7C3AED; stroke-width: 14; stroke-linejoin: round; stroke-linecap: round; fill: none; }
+      .word { font-weight: 700; letter-spacing: -0.02em; fill: #1F2937; }
+      .sub  { font-weight: 500; fill: #6B7280; }
+      .mono { font-family: 'IBM Plex Mono', 'JetBrains Mono', ui-monospace, monospace; font-weight: 500; fill: #1F2937; }
+      .chip { fill: #EDE9FE; }
+      .chip-text { fill: #7C3AED; font-weight: 500; }
+      .frame { fill: none; stroke: #E5E0D5; stroke-width: 1; }
+      .terminal-bg { fill: #FFFFFF; stroke: #E5E0D5; stroke-width: 1; }
+      .prompt { fill: #7C3AED; }
+    </style>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1280" height="640" fill="#FAF7F2"/>
+
+  <!-- Outer hairline frame, 32px inset -->
+  <rect x="32" y="32" width="1216" height="576" rx="16" class="frame"/>
+
+  <!-- Service-running dot, top-right -->
+  <circle cx="1208" cy="64" r="4" fill="#22D3EE"/>
+
+  <!-- Left: bolt mark, vertically centered, ~280px tall -->
+  <g transform="translate(140, 180)">
+    <path class="bolt" d="M195 0 L60 175 L165 175 L135 140 L202.5 140 L165 280 L300 105 L195 105 L225 140 L157.5 140 Z"/>
+    <circle cx="135" cy="230" r="14" fill="#22D3EE"/>
+  </g>
+
+  <!-- Center: wordmark + subtitle -->
+  <text x="500" y="298" class="word" font-size="112">CLI2API</text>
+  <text x="500" y="356" class="sub" font-size="28">Qoder CLI → OpenAI-compatible API</text>
+
+  <!-- Right: minimal terminal mockup, vertically centered -->
+  <g transform="translate(820, 230)">
+    <rect width="380" height="180" rx="12" class="terminal-bg"/>
+    <text x="24" y="56" class="mono" font-size="20">
+      <tspan class="prompt">$ </tspan>
+      <tspan>./cli2api serve</tspan>
+    </text>
+    <text x="24" y="96" class="mono" font-size="18" fill="#6B7280">▸ account: acc_8f2k (ready)</text>
+    <text x="24" y="124" class="mono" font-size="18" fill="#6B7280">▸ endpoint: :3010/v1</text>
+    <text x="24" y="156" class="mono" font-size="18" fill="#6B7280">▸ mode: streaming · cooldown off</text>
+  </g>
+
+  <!-- Bottom-left: monospaced prompt chip -->
+  <g transform="translate(64, 552)">
+    <rect width="232" height="36" rx="8" class="chip"/>
+    <text x="16" y="24" font-family="IBM Plex Mono, JetBrains Mono, ui-monospace, monospace" font-size="16" class="chip-text">❯ ./cli2api serve</text>
+  </g>
+</svg>

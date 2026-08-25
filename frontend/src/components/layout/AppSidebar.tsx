@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import { Drawer, Button, Chip, Tooltip } from '@heroui/react'
 import { Cube, Gauge, GearSix, Lightning, SidebarSimple, UsersThree, X } from '@phosphor-icons/react'
-import { QoderMark } from '@/components/QoderMark'
+import { BrandMark } from '@/components/BrandMark'
 import { gsap } from 'gsap'
 import { pressScale } from '@/hooks/useGsapReveal'
 import { useI18n } from '@/hooks/useI18n'
@@ -100,7 +100,7 @@ function Brand({ compact = false }: { compact?: boolean }) {
   const { t } = useI18n()
   return (
     <div className={`flex items-center gap-3 ${compact ? 'justify-center' : 'px-2'}`}>
-      <QoderMark size={32} />
+      <BrandMark size={32} />
       {!compact && <div><div className="text-[14px] font-semibold tracking-[-0.02em]">CLI2API</div><div className="text-[11px] text-[var(--app-faint)]">{t('controlPlane')}</div></div>}
     </div>
   )

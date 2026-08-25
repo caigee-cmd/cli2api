@@ -398,7 +398,8 @@ a:active {
 }
 
 /* Hero login card: match the lg submit button height instead of the compact
-   toolbar sizing, and keep the attached suffix action visually tight. */
+   toolbar sizing, and render the suffix as a full-height, edge-flush icon
+   action instead of a boxed 32px chip floating inside the field. */
 .login-key-field.input-group,
 .login-key-field .input-group__input {
   height: 2.5rem;
@@ -407,7 +408,28 @@ a:active {
 }
 
 .login-key-field .input-group__suffix {
-  padding-inline: 0.375rem;
+  padding-inline: 0;
+  border-inline-start: none;
+}
+
+.login-key-field .button--icon-only.button--sm {
+  width: 2.5rem;
+  min-width: 2.5rem;
+  height: 2.5rem;
+  min-height: 2.5rem;
+  border: 0;
+  background: transparent;
+  border-radius: 0.375rem;
+}
+
+.login-key-field .button--icon-only.button--sm svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.login-key-field .button--icon-only.button--sm:hover,
+.login-key-field .button--icon-only.button--sm[data-hovered="true"] {
+  background: var(--app-surface-muted);
 }
 
 

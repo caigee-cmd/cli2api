@@ -28,6 +28,25 @@ After frontend changes:
 cd frontend && npm run sync
 ```
 
+## Static assets & favicon suite
+
+The favicon set and OG social card live in `frontend/public/`. After editing them:
+
+1. `cd frontend && npm run sync` — copies the assets into `internal/webui/static/` (embedded into the Go binary by `//go:embed`).
+2. Manually copy `frontend/public/og-card.svg` to `docs/assets/og-card.svg` so the `README.md` relative link still resolves.
+3. Add a matching entry under `## Unreleased` in `CHANGELOG.md` in both `### English` and `### 中文`.
+
+Adding a new file to the favicon suite? Update three places:
+
+- `frontend/scripts/sync-static.mjs` (the `for (const name of [...])` whitelist)
+- `internal/api/server.go` (both `s.mux.Handle(...)` and the path allow-list inside the `/` catch-all)
+- `frontend/index.html` and `internal/webui/static/index.html` (any new `<link>` or `<meta>` tags)
+
+`favicon.svg` uses `stroke="currentColor"` for theme inheritance. Only add a
+new theme-specific variant (`favicon-light.svg`, `favicon-dark.svg`) if the
+inherited color does not work in that mode. Keep each file under 1 KB and
+avoid gradients, filters, masks, and embedded text inside the icon itself.
+
 For an end-to-end run, use the Docker Compose flow in `deploy/README.md`.
 
 User-facing changes should add matching bullets to `CHANGELOG.md` under

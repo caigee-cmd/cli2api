@@ -7,7 +7,19 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Add a provider registry and in-process WorkBuddy adapter so CN/Global accounts can share the same console without a Node worker
+- Replace account-wizard dropdowns with stacked option tiles so Qoder Global, WorkBuddy CN, and WorkBuddy Global labels stay fully visible
+- Use the official WorkBuddy mark for WorkBuddy accounts and keep the Qoder mark on Qoder accounts
+- Replace the console brand with a CLI2API line-icon mark on login, sidebar, empty states, favicon, and share cards
+- Flush the login password-visibility control to the field edge instead of a floating boxed chip
+
 ### 中文
+
+- 新增账号类型注册表和进程内 WorkBuddy 适配器，国内版 / 国际版账号可共用同一控制台，无需 Node worker
+- 创建账号向导改为整行平铺选项，Qoder 国际版、WorkBuddy 国内版、WorkBuddy 国际版标题完整显示
+- WorkBuddy 账号使用官网标识，Qoder 账号继续使用 Qoder 标识
+- 控制台品牌换成 CLI2API 线形图标，覆盖登录页、侧栏、空状态、favicon 和分享卡
+- 登录页显示密码按钮贴合输入框右缘，不再浮成独立小方块
 
 ## 0.2.4 - 2026-08-24
 

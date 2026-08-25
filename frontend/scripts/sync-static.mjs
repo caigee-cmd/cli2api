@@ -14,7 +14,14 @@ for (const name of readdirSync(assetsTarget)) {
 for (const name of readdirSync(join(dist, 'assets'))) {
   cpSync(join(dist, 'assets', name), join(assetsTarget, name))
 }
-for (const name of ['index.html', 'favicon.svg']) {
+for (const name of [
+  'index.html',
+  'favicon.svg',
+  'favicon-dark.svg',
+  'apple-touch-icon.svg',
+  'og-card.svg',
+  'site.webmanifest',
+]) {
   const src = join(dist, name)
   if (existsSync(src)) cpSync(src, join(target, name))
 }

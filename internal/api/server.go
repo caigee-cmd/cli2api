@@ -157,10 +157,18 @@ func (s *Server) routes() {
 	ui := webui.Handler()
 	s.mux.Handle("/assets/", ui)
 	s.mux.Handle("/favicon.svg", ui)
+	s.mux.Handle("/favicon-dark.svg", ui)
+	s.mux.Handle("/apple-touch-icon.svg", ui)
+	s.mux.Handle("/og-card.svg", ui)
+	s.mux.Handle("/site.webmanifest", ui)
 	s.mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" &&
 			!strings.HasPrefix(r.URL.Path, "/assets/") &&
-			r.URL.Path != "/favicon.svg" {
+			r.URL.Path != "/favicon.svg" &&
+			r.URL.Path != "/favicon-dark.svg" &&
+			r.URL.Path != "/apple-touch-icon.svg" &&
+			r.URL.Path != "/og-card.svg" &&
+			r.URL.Path != "/site.webmanifest" {
 			switch r.URL.Path {
 			case "/login", "/auth", "/providers", "/access", "/accounts", "/system":
 			default:

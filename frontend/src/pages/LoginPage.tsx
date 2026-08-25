@@ -2,7 +2,7 @@ import { useRef, useState } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { Button, Card, Chip, InputGroup, Tooltip } from '@heroui/react'
 import { ArrowRight, Eye, EyeSlash, Globe, Moon, Sun } from '@phosphor-icons/react'
-import { QoderMark } from '@/components/QoderMark'
+import { BrandMark } from '@/components/BrandMark'
 import { useI18n } from '@/hooks/useI18n'
 import { useApiKey } from '@/hooks/useApiKey'
 import { useOverview } from '@/hooks/useOverview'
@@ -55,7 +55,7 @@ export function LoginPage() {
         <section className="flex min-h-[52vh] flex-col border-[var(--app-line)] px-5 py-6 sm:px-10 sm:py-8 lg:min-h-dvh lg:border-r lg:px-14 lg:py-10 xl:px-20">
           <header className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <QoderMark size={36} />
+              <BrandMark size={36} />
               <div>
                 <div className="font-semibold tracking-[-0.02em]">CLI2API</div>
                 <div className="text-xs text-[var(--app-faint)]">{t('controlPlane')}</div>
@@ -107,11 +107,14 @@ export function LoginPage() {
             <form onSubmit={(event) => void onSubmit(event)}>
               <div className="border-b border-[var(--app-line)] px-6 py-6 sm:px-8">
                 <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <h2 className="text-xl font-semibold tracking-[-0.025em]">{t('loginFormTitle')}</h2>
-                    <p className="mt-1 text-sm text-[var(--app-muted)]">{t('loginDesc')}</p>
+                  <div className="flex min-w-0 items-center gap-3">
+                    <BrandMark size={28} />
+                    <div>
+                      <h2 className="text-xl font-semibold tracking-[-0.025em]">{t('loginFormTitle')}</h2>
+                      <p className="mt-1 text-sm text-[var(--app-muted)]">{t('loginDesc')}</p>
+                    </div>
                   </div>
-                  <span className="status-dot" data-state="ok" />
+                  <span className="status-dot shrink-0" data-state="ok" />
                 </div>
               </div>
               <div className="space-y-5 px-6 py-7 sm:px-8 sm:py-8">

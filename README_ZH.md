@@ -10,6 +10,8 @@
 
 CLI2API 是一个非官方、自托管的 Qoder API 网关。启动以后，你可以继续使用熟悉的 OpenAI SDK、Codex、CherryStudio 等客户端，只需要把 Base URL 指向本机服务。
 
+![CLI2API 社交卡](docs/assets/og-card.svg)
+
 ![CLI2API 控制台](docs/assets/console.png)
 
 > [!IMPORTANT]

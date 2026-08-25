@@ -211,6 +211,49 @@
 - 浅色和深色主题下是否都正常？
 - 是否跑了 `npm run lint` 和 `npm run build`？
 
+## Favicon 套件与品牌资产
+
+CLI2API 的浏览器图标、PWA 清单和社交卡走极简 line-icon 路线，与控制台"安静、克制、暖白"的设计语言保持一致。
+
+### Mark 母题
+
+阶梯状闪电 + 90° 方形缺口（暗示终端 cursor）+ 固定 `#22D3EE` 青色圆点（数据流）。形状含义：
+
+- **闪电** = CLI → API 协议转换
+- **缺口** = 终端 cursor / 命令行起点
+- **青点** = 数据流通 / 状态指示
+
+### 文件清单
+
+| 文件 | 位置 | 用途 |
+|------|------|------|
+| `frontend/public/favicon.svg` | source | 主图标，`stroke="currentColor"` 主题自适应 |
+| `frontend/public/favicon-dark.svg` | source | 显式 `#A78BFA` stroke，深色模式回退 |
+| `frontend/public/apple-touch-icon.svg` | source | iOS 启动图标，180×180 暖白底圆角 |
+| `frontend/public/og-card.svg` | source | 1280×640 社交卡（README 分享预览） |
+| `frontend/public/site.webmanifest` | source | PWA 清单 |
+| `internal/webui/static/*` | runtime | 同上副本，被 Go `//go:embed` 打包进二进制 |
+| `docs/assets/og-card.svg` | docs | README 相对链接副本 |
+
+### 设计约束
+
+- 每个图标 SVG 必须 < 1KB（favicon 系列 < 500B）
+- 单 path 优先，避免 filter / gradient / mask / 嵌入文字
+- 主图标用 `stroke="currentColor"` 走主题色；只有品牌识别度必需的强调点用固定色（青点）
+- 不在图标内放 emoji、文字、版本号
+- stroke 1.75px、round line caps、round line joins
+
+### 修改流程
+
+1. 改 `frontend/public/*` 源文件
+2. `make sync` — 复制到 `internal/webui/static/` 并嵌入 Go 二进制
+3. `make favicon-sync` — 额外把 `og-card.svg` 同步到 `docs/assets/`
+4. `CHANGELOG.md` `## Unreleased` 加双语条目
+5. 如果新增了静态资源文件，三处都要改：
+   - `frontend/scripts/sync-static.mjs` 的 `for (const name of [...])` 白名单
+   - `internal/api/server.go` 的 `s.mux.Handle(...)` 和 `/` 兜底白名单
+   - `frontend/index.html` 和 `internal/webui/static/index.html` 的 `<link>` / `<meta>` 标签
+
 ---
 
 # Qoder API Proxy 产品与运行时约束

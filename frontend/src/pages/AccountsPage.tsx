@@ -13,7 +13,7 @@ import {
   X,
 } from '@phosphor-icons/react'
 import { AddAccountModal } from '@/components/AddAccountModal'
-import { QoderMark } from '@/components/QoderMark'
+import { BrandMark } from '@/components/BrandMark'
 import { ProviderMark } from '@/components/ProviderMark'
 import { isQoderGlobalProvider } from '@/lib/provider'
 import { useI18n } from '@/hooks/useI18n'
@@ -281,7 +281,7 @@ export function AccountsPage() {
       {!rows.length ? (
         <div className="grid min-h-72 place-items-center rounded-lg border border-dashed border-[var(--app-line-strong)] text-center">
           <div className="max-w-sm px-6">
-            <QoderMark size={28} className="mx-auto" />
+            <BrandMark size={28} className="mx-auto" />
             <div className="mt-4 text-sm font-medium">{t('noAccounts')}</div>
             <div className="mt-1 text-xs leading-5 text-[var(--app-faint)]">{t('accountEmptyHint')}</div>
             <Button className={`${ACCOUNT_BUTTON_CLASS} mt-5`} size="sm" onPress={() => setAddOpen(true)}><Plus size={14} />{t('addAccount')}</Button>
