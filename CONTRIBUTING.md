@@ -33,8 +33,9 @@ cd frontend && npm run sync
 The favicon set and OG social card live in `frontend/public/`. After editing them:
 
 1. `cd frontend && npm run sync` — copies the assets into `internal/webui/static/` (embedded into the Go binary by `//go:embed`).
-2. Manually copy `frontend/public/og-card.svg` to `docs/assets/og-card.svg` so the `README.md` relative link still resolves.
-3. Add a matching entry under `## Unreleased` in `CHANGELOG.md` in both `### English` and `### 中文`.
+2. Add a matching entry under `## Unreleased` in `CHANGELOG.md` in both `### English` and `### 中文`.
+
+The READMEs instead show `docs/assets/overview-card.png`, which is hand-maintained; regenerate it when login methods, account types, endpoints, or deployment targets change.
 
 Adding a new file to the favicon suite? Update three places:
 
