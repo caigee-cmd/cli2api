@@ -96,18 +96,87 @@ func TestChatNonStreamFailoversRateLimit(t *testing.T) {
 	pool := accounts.NewPool([]string{a.URL, b.URL}, []string{"a", "b"})
 	ex := NewChatExecutor(pool, "")
 	ex.HTTPClient = a.Client()
-got, err := ex.ChatNonStream(context.Background(), translate.ChatRequest{
-			Model:    "qwen3.7-plus",
-			Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
-		}, "", "")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got.Content != "OK" || got.AccountID != "b" {
-			t.Fatalf("got %+v", got)
-		}
+	got, err := ex.ChatNonStream(context.Background(), translate.ChatRequest{
+		Model:    "qwen3.7-plus",
+		Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	}, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Content != "OK" || got.AccountID != "b" {
+		t.Fatalf("got %+v", got)
+	}
 	if hitsA.Load() != 1 {
 		t.Fatalf("hitsA=%d", hitsA.Load())
+	}
+}
+
+func TestChatNonStreamDoesNotFailoverAcrossQoderRegions(t *testing.T) {
+	var hitsCN atomic.Int32
+	globalA := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Qoder-Account", "g1")
+		w.Header().Set("X-Qoder-Error-Kind", "rate_limit")
+		w.Header().Set("X-Qoder-Failover", "1")
+		http.Error(w, `{"error":{"message":"too many requests","kind":"rate_limit"}}`, http.StatusTooManyRequests)
+	}))
+	defer globalA.Close()
+	globalB := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Qoder-Account", "g2")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{{"finish_reason": "stop", "message": map[string]any{"content": "OK-G"}}},
+			"usage":   map[string]any{"source": "upstream"},
+		})
+	}))
+	defer globalB.Close()
+	cn := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hitsCN.Add(1)
+		t.Fatal("qoder CN must not receive global failover")
+	}))
+	defer cn.Close()
+
+	pool := accounts.NewPool(nil, nil)
+	pool.Upsert(accounts.Item{ID: "g1", URL: globalA.URL, Provider: "qoder", Region: "global", Runtime: "child_process"})
+	pool.Upsert(accounts.Item{ID: "g2", URL: globalB.URL, Provider: "qoder", Region: "global", Runtime: "child_process"})
+	pool.Upsert(accounts.Item{ID: "c1", URL: cn.URL, Provider: "qoder", Region: "cn", Runtime: "child_process"})
+	ex := NewChatExecutor(pool, "")
+	ex.HTTPClient = globalA.Client()
+	got, err := ex.ChatNonStream(context.Background(), translate.ChatRequest{
+		Model: "glm-5.2", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	}, "", "qoder")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.AccountID != "g2" || got.Content != "OK-G" {
+		t.Fatalf("got %+v", got)
+	}
+	if hitsCN.Load() != 0 {
+		t.Fatalf("cn hits=%d", hitsCN.Load())
+	}
+}
+
+func TestChatNonStreamPinnedCNDoesNotEscapeToGlobal(t *testing.T) {
+	cn := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Qoder-Account", "c1")
+		w.Header().Set("X-Qoder-Error-Kind", "rate_limit")
+		w.Header().Set("X-Qoder-Failover", "1")
+		http.Error(w, `{"error":{"message":"too many requests","kind":"rate_limit"}}`, http.StatusTooManyRequests)
+	}))
+	defer cn.Close()
+	global := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("pinned CN must not escape to global")
+	}))
+	defer global.Close()
+
+	pool := accounts.NewPool(nil, nil)
+	pool.Upsert(accounts.Item{ID: "c1", URL: cn.URL, Provider: "qoder", Region: "cn", Runtime: "child_process"})
+	pool.Upsert(accounts.Item{ID: "g1", URL: global.URL, Provider: "qoder", Region: "global", Runtime: "child_process"})
+	ex := NewChatExecutor(pool, "")
+	ex.HTTPClient = cn.Client()
+	_, err := ex.ChatNonStream(context.Background(), translate.ChatRequest{
+		Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	}, "c1", "qoder")
+	if err == nil {
+		t.Fatal("expected CN rate-limit error")
 	}
 }
 
@@ -126,13 +195,13 @@ func TestChatNonStreamDoesNotFailoverQuota(t *testing.T) {
 	pool := accounts.NewPool([]string{a.URL, b.URL}, []string{"a", "b"})
 	ex := NewChatExecutor(pool, "")
 	ex.HTTPClient = a.Client()
-_, err := ex.ChatNonStream(context.Background(), translate.ChatRequest{
-			Model:    "qwen3.7-plus",
-			Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
-		}, "a", "")
-		if err == nil {
-			t.Fatal("expected quota error")
-		}
+	_, err := ex.ChatNonStream(context.Background(), translate.ChatRequest{
+		Model:    "qwen3.7-plus",
+		Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	}, "a", "")
+	if err == nil {
+		t.Fatal("expected quota error")
+	}
 }
 
 func TestChatNonStreamForwardsPinnedAccount(t *testing.T) {
@@ -146,26 +215,26 @@ func TestChatNonStreamForwardsPinnedAccount(t *testing.T) {
 	pool := accounts.NewPool([]string{srv.URL}, []string{"default"})
 	ex := NewChatExecutor(pool, "")
 	ex.HTTPClient = srv.Client()
-got, err := ex.ChatNonStream(context.Background(), translate.ChatRequest{
-			Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
-		}, "acc2", "")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got.Content != "OK" {
-			t.Fatalf("got %+v", got)
-		}
+	got, err := ex.ChatNonStream(context.Background(), translate.ChatRequest{
+		Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	}, "acc2", "")
+	if err != nil {
+		t.Fatal(err)
 	}
+	if got.Content != "OK" {
+		t.Fatalf("got %+v", got)
+	}
+}
 
-	func TestChatNonStreamFailsWhenSQLitePoolIsEmpty(t *testing.T) {
-		ex := NewChatExecutor(accounts.NewPool(nil, nil), "")
-		_, err := ex.ChatNonStream(context.Background(), translate.ChatRequest{
-			Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
-		}, "", "")
-		if err == nil || !strings.Contains(err.Error(), "no worker accounts") {
-			t.Fatalf("error = %v", err)
-		}
+func TestChatNonStreamFailsWhenSQLitePoolIsEmpty(t *testing.T) {
+	ex := NewChatExecutor(accounts.NewPool(nil, nil), "")
+	_, err := ex.ChatNonStream(context.Background(), translate.ChatRequest{
+		Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	}, "", "")
+	if err == nil || !strings.Contains(err.Error(), "no worker accounts") {
+		t.Fatalf("error = %v", err)
 	}
+}
 
 func TestNewChatExecutorUsesProxyKeyForInternalDaemon(t *testing.T) {
 	ex := NewChatExecutor(accounts.NewPool(nil, nil), "shared-secret")
@@ -191,19 +260,19 @@ func TestChatStreamProxyDoesNotUseClientTotalTimeout(t *testing.T) {
 	ex.HTTPClient = srv.Client()
 	ex.HTTPClient.Timeout = 10 * time.Millisecond
 
-stream, err := ex.ChatStreamProxy(context.Background(), translate.ChatRequest{
-			Model:    "minimax-m3",
-			Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
-		}, "", "")
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer stream.Response.Body.Close()
-		body, err := io.ReadAll(stream.Response.Body)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if string(body) != "data: [DONE]\n\n" {
-			t.Fatalf("body = %q", body)
-		}
+	stream, err := ex.ChatStreamProxy(context.Background(), translate.ChatRequest{
+		Model:    "minimax-m3",
+		Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	}, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stream.Response.Body.Close()
+	body, err := io.ReadAll(stream.Response.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "data: [DONE]\n\n" {
+		t.Fatalf("body = %q", body)
+	}
 }

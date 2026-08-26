@@ -66,13 +66,13 @@ func (s *Server) handleAccountImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		Format    string          `json:"format"`
-		Name      string          `json:"name"`
-		Provider  string          `json:"provider"`
-		Region    string          `json:"region"`
-		Enabled   bool            `json:"enabled"`
-		UserBlob  string          `json:"user_blob"`
-		MachineID string          `json:"machine_id"`
+		Format     string          `json:"format"`
+		Name       string          `json:"name"`
+		Provider   string          `json:"provider"`
+		Region     string          `json:"region"`
+		Enabled    bool            `json:"enabled"`
+		UserBlob   string          `json:"user_blob"`
+		MachineID  string          `json:"machine_id"`
 		Credential json.RawMessage `json:"credential"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
@@ -264,6 +264,8 @@ func (s *Server) handleAccountByID(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"format": "qoder-native-v1", "name": account.Name,
+			"provider":   account.Provider,
+			"region":     account.ProviderRegion,
 			"user_blob":  base64.StdEncoding.EncodeToString(credential.UserBlob),
 			"machine_id": credential.MachineID,
 		})

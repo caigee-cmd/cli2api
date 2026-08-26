@@ -7,10 +7,14 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Add Qoder CN accounts as `provider=qoder` + `region=cn`, using pinned `@qodercn-ai/qoderclicn@1.1.27` and `.qoder-cn`
+- Keep Qoder failover inside the same region so Global 429s do not land on CN
 - Send CodeBuddy CLI 2.139.0 channel headers on WorkBuddy chat, with CN and Global Origin/host kept separate
 
 ### 中文
 
+- 支持添加 Qoder 国内版账号（`provider=qoder`，`region=cn`），使用 pinned `@qodercn-ai/qoderclicn@1.1.27` 和 `.qoder-cn`
+- Qoder 故障切换限制在同一 region，国际版 429 不会打到国内版
 - WorkBuddy 聊天补齐 CodeBuddy CLI 2.139.0 通道头，国内版 / 国际版 Origin 与 host 仍分开
 
 ## 0.2.10 - 2026-08-26

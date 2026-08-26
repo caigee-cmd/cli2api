@@ -161,6 +161,76 @@ func TestManagerSyncsCredentialWrittenByQoderCLI(t *testing.T) {
 	}
 }
 
+func TestQoderRuntimeSpecSelectsCNCLIAndConfigDir(t *testing.T) {
+	cfg := ManagerConfig{
+		QoderCLIPath:   "/opt/qodercli.js",
+		QoderCNCLIPath: "/opt/qoderclicn.js",
+	}
+	globalPath, globalSite, globalDir, globalEnv, err := qoderRuntimeSpec(cfg, Account{ProviderRegion: "global"}, "/run/acc-g")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if globalPath != "/opt/qodercli.js" || globalSite != "global" || globalDir != "/run/acc-g/.qoder" || globalEnv != "QODER_CONFIG_DIR" {
+		t.Fatalf("global spec path=%s site=%s dir=%s env=%s", globalPath, globalSite, globalDir, globalEnv)
+	}
+	cnPath, cnSite, cnDir, cnEnv, err := qoderRuntimeSpec(cfg, Account{ProviderRegion: "cn"}, "/run/acc-c")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cnPath != "/opt/qoderclicn.js" || cnSite != "cn" || cnDir != "/run/acc-c/.qoder-cn" || cnEnv != "QODERCN_CONFIG_DIR" {
+		t.Fatalf("cn spec path=%s site=%s dir=%s env=%s", cnPath, cnSite, cnDir, cnEnv)
+	}
+	if _, _, _, _, err := qoderRuntimeSpec(ManagerConfig{QoderCLIPath: "/opt/qodercli.js"}, Account{ProviderRegion: "cn"}, "/run/acc-c"); err == nil {
+		t.Fatal("expected missing CN CLI path to fail")
+	}
+}
+
+func TestManagerMaterializesAndSyncsQoderCNCredentials(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	store, err := OpenStore(filepath.Join(dataDir, "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	account, err := store.Create(ctx, CreateAccount{Name: "CN", Provider: "qoder", Region: "cn", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveCredential(ctx, account.ID, "native", NativeCredential{UserBlob: []byte("cn-blob"), MachineID: "cn-machine"}); err != nil {
+		t.Fatal(err)
+	}
+	starter := &fakeStarter{}
+	manager := NewManager(ManagerConfig{DataDir: dataDir, BasePort: 32400}, store, starter)
+	if err := manager.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	if len(starter.homes) != 1 {
+		t.Fatalf("homes = %v", starter.homes)
+	}
+	authDir := filepath.Join(starter.homes[0], ".qoder-cn", ".auth")
+	if _, err := os.Stat(filepath.Join(starter.homes[0], ".qoder", ".auth", "user")); !os.IsNotExist(err) {
+		t.Fatal("CN account must not materialize global .qoder credentials")
+	}
+	if err := os.WriteFile(filepath.Join(authDir, "user"), []byte("cn-oauth"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(authDir, "machine_id"), []byte("cn-mid"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.SyncCredential(ctx, account.ID, "oauth"); err != nil {
+		t.Fatal(err)
+	}
+	credential, err := store.LoadCredential(ctx, account.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(credential.UserBlob) != "cn-oauth" || credential.MachineID != "cn-mid" {
+		t.Fatalf("synced CN credential = %+v", credential)
+	}
+}
+
 func TestManagerRefreshesHealthAndPersistsUID(t *testing.T) {
 	worker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{

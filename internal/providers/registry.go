@@ -36,23 +36,23 @@ type ProviderCapabilities struct {
 }
 
 type RegionDescriptor struct {
-	ID           string `json:"id"`
-	Label        string `json:"label"`
-	ChatBase     string `json:"chat_base"`
-	BillingBase  string `json:"billing_base"`
-	AuthBase     string `json:"auth_base"`
+	ID            string `json:"id"`
+	Label         string `json:"label"`
+	ChatBase      string `json:"chat_base"`
+	BillingBase   string `json:"billing_base"`
+	AuthBase      string `json:"auth_base"`
 	DefaultDomain string `json:"default_domain"`
 }
 
 type ProviderDescriptor struct {
-	ID                 string               `json:"id"`
-	Label              string               `json:"label"`
-	Runtime            RuntimeKind          `json:"runtime"`
-	AuthTypes          []AuthType           `json:"auth_types"`
-	CredentialFormats  []string             `json:"credential_formats"`
-	Capabilities       ProviderCapabilities `json:"capabilities"`
-	Regions            []RegionDescriptor   `json:"regions"`
-	DefaultRegion      string               `json:"default_region"`
+	ID                string               `json:"id"`
+	Label             string               `json:"label"`
+	Runtime           RuntimeKind          `json:"runtime"`
+	AuthTypes         []AuthType           `json:"auth_types"`
+	CredentialFormats []string             `json:"credential_formats"`
+	Capabilities      ProviderCapabilities `json:"capabilities"`
+	Regions           []RegionDescriptor   `json:"regions"`
+	DefaultRegion     string               `json:"default_region"`
 }
 
 func (d ProviderDescriptor) Region(id string) (RegionDescriptor, bool) {
@@ -82,33 +82,41 @@ func (d ProviderDescriptor) SupportsAuthType(auth AuthType) bool {
 	return false
 }
 
-// Qoder descriptor. Region only affects labeling for now; the runtime is the
-// pinned qodercli worker regardless of region.
+// Qoder descriptor. Region selects the pinned CLI and config directory:
+// global uses @qoder-ai/qodercli + .qoder, cn uses @qodercn-ai/qoderclicn + .qoder-cn.
 var Qoder = ProviderDescriptor{
-	ID:     "qoder",
-	Label:  "Qoder",
-	Runtime: RuntimeChildProcess,
-	AuthTypes: []AuthType{AuthNone, AuthOAuth, AuthPAT, AuthNative},
+	ID:                "qoder",
+	Label:             "Qoder",
+	Runtime:           RuntimeChildProcess,
+	AuthTypes:         []AuthType{AuthNone, AuthOAuth, AuthPAT, AuthNative},
 	CredentialFormats: []string{"qoder-native-v1"},
 	Capabilities: ProviderCapabilities{
 		Chat: true, Stream: true, Tools: true, Images: true, Reasoning: true,
 		ModelCatalog: true, Usage: true, Login: true, BrowserLogin: true,
 		PATLogin: true, ImportExport: true,
 	},
-	Regions: []RegionDescriptor{{
-		ID: "global", Label: "Global", ChatBase: "", BillingBase: "", AuthBase: "",
-		DefaultDomain: "qoder.global",
-	}},
+	Regions: []RegionDescriptor{
+		{
+			ID: "global", Label: "Global", ChatBase: "https://api1.qoder.sh",
+			BillingBase: "https://openapi.qoder.sh", AuthBase: "https://qoder.sh",
+			DefaultDomain: "qoder.global",
+		},
+		{
+			ID: "cn", Label: "CN", ChatBase: "https://gateway.qoder.com.cn",
+			BillingBase: "https://openapi.qoder.com.cn", AuthBase: "https://qoder.com.cn",
+			DefaultDomain: "qoder.com.cn",
+		},
+	},
 	DefaultRegion: "global",
 }
 
 // WorkBuddy descriptor. Protocol constants stay in internal/providers/workbuddy;
 // the registry only carries control-plane metadata.
 var WorkBuddy = ProviderDescriptor{
-	ID:     "workbuddy",
-	Label:  "WorkBuddy",
-	Runtime: RuntimeInProcess,
-	AuthTypes: []AuthType{AuthNone, AuthOAuth},
+	ID:                "workbuddy",
+	Label:             "WorkBuddy",
+	Runtime:           RuntimeInProcess,
+	AuthTypes:         []AuthType{AuthNone, AuthOAuth},
 	CredentialFormats: []string{"workbuddy-oauth-v1"},
 	Capabilities: ProviderCapabilities{
 		Chat: true, Stream: true, Tools: true, Images: false, Reasoning: true,

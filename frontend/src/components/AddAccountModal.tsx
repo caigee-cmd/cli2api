@@ -33,6 +33,7 @@ type ProviderOption = {
 
 const labelKeys: Record<string, { label: string; hint: string }> = {
   'qoder-global': { label: 'accountTypeQoderGlobal', hint: 'accountTypeQoderGlobalHint' },
+  'qoder-cn': { label: 'accountTypeQoderCN', hint: 'accountTypeQoderCNHint' },
   'workbuddy-cn': { label: 'accountTypeWorkBuddyCN', hint: 'accountTypeWorkBuddyCNHint' },
   'workbuddy-global': { label: 'accountTypeWorkBuddyGlobal', hint: 'accountTypeWorkBuddyGlobalHint' },
 }
@@ -311,7 +312,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                   options={methodOptions}
                 />
                 <p className="min-h-5 text-xs leading-5 text-[var(--app-faint)]">
-                  {tab === 'browser' ? t('wizardBrowserLead') : tab === 'pat' ? t('wizardPatLead') : t('wizardImportLead')}
+                  {tab === 'browser' ? t('wizardBrowserLead') : tab === 'pat' ? t(activeOption.region === 'cn' && activeOption.provider === 'qoder' ? 'wizardPatLeadCN' : 'wizardPatLead') : t('wizardImportLead')}
                 </p>
               </section>
 

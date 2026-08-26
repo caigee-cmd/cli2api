@@ -1,6 +1,6 @@
 # CLI2API Plan
 
-last-updated: 2026-08-25
+last-updated: 2026-08-26
 
 Qoder-first OpenAI-compatible proxy. Cursor and other CLIs wait until the current Qoder milestone is done.
 
@@ -28,7 +28,7 @@ Do not:
 - Spawn a full `qodercli` agent per request
 - Public exposure without the generated API key
 - Commercial multi-user resale of one login
-- Cursor / other CLI providers in this milestone
+- Cursor / other non-Qoder CLI providers in this milestone
 - Commit host IPs, passwords, auth blobs, or `docs/PRIVATE_DEPLOYMENT.md`
 
 ## Status
@@ -40,6 +40,8 @@ Do not:
 | E | Open-source clone-and-run; `v0.1.0` at `eaf81ad` |
 | F | Error taxonomy, account failover, console sign-in, Accounts login |
 | G | Replaced by Phase H SQLite account control plane |
+| H–K | SQLite control plane, protocol notes, logs, quota display |
+| L | Qoder CN (`qoder` + `region=cn`) — planned, see below |
 
 Typical small-chat latency is ~1-2s after warmup, versus ~10s+ for spawn-CLI wrappers.
 
@@ -168,9 +170,70 @@ no scheduling, billing, or persistence changes.
 - [x] Account card renders quota progress bar + add-on line (danger at exceeded, warning at ≥80%)
 - [x] Worker compat, Go manager, and frontend coverage
 
+## Phase L — Qoder CN (China mainland)
+
+Goal: add Qoder China as `provider=qoder` + `region=cn`. Reuse the existing
+child-process worker and `qoder-native-v1` credentials. Pin a second CLI,
+`@qodercn-ai/qoderclicn@1.1.27`, instead of a new protocol adapter.
+
+Design facts and locked product decisions: `docs/PROVIDERS.md` section
+「Qoder CN（中国大陆版）」. Do not spawn a full `qoderclicn` per request.
+Do not invent a `qodercn` provider family. Do not upgrade the 1.1.27 pin.
+
+### L0 descriptor
+
+- [x] Register Qoder region `cn` on the existing Qoder descriptor
+- [x] Accept `POST /api/accounts` with `provider=qoder, region=cn`
+- [x] Keep historical empty region as `global`
+- [x] Flip `TestStoreRejectsUnknownProviderAndRegion` so `qoder+cn` is valid
+- [x] Do not merge L0 alone: an enabled CN account would still spawn the global CLI
+
+### L1 worker CLI filename
+
+- [x] Hook `qoderclicn.js` in `rewrite-loader.mjs` (same needles as 1.1.27 global; `includes("qodercli.js")` does **not** match `qoderclicn.js`)
+- [x] Resolve default bundle paths for both packages in `daemon.mjs`
+- [x] Choose `hotEndpoint` fallback from worker-only `QODER_SITE` or the loaded filename (`api1.qoder.sh` vs `gateway.qoder.com.cn`)
+- [x] Do not use `QODERCLI_SITE` to flip CN/Global; that env does not change compile-time `Xi`
+
+### L2 manager spawn
+
+- [x] Add `QODERCNCLI_JS` / `QoderCNCLIPath`; missing CN path fails spawn, never falls back to global CLI
+- [x] Keep `HOME={runtime}`. Pass CLI-readable dirs: `QODER_CONFIG_DIR={home}/.qoder` or `QODERCN_CONFIG_DIR={home}/.qoder-cn`. Do **not** rely on `QODER_HOME` — 1.1.27 CLI ignores it
+- [x] `materializeHome` / `SyncCredential` take region and read/write `.qoder` or `.qoder-cn`
+- [x] Export `qoder-native-v1` includes `provider` + `region`; import without region stays global for old bundles
+- [x] Unit test: CN account env points at `qoderclicn.js` + `.qoder-cn`; global still uses `qodercli.js` + `.qoder`
+
+### L3 same-region failover
+
+- [x] Add `RegionFilter` to `RouteQuery`; treat empty item region as `global`
+- [x] Thread region through `executor/chat.go` `pick` / `attemptsFor` / stream + non-stream loops, not only `pool.go`
+- [x] After the first pick, lock that account's region for the rest of the request
+- [x] Sticky-escape from a cooling pin stays in the same region
+- [x] Tests: Global A 429 → Global B, never CN; pin-CN cooling must not land on Global
+- [x] Merge before L4; mixed-pool UI without L3 will failover across sites
+
+### L4 console
+
+- [x] Add `qoder-cn` i18n keys and `AddAccountModal` option
+- [x] `accountProviderLabel` distinguishes Qoder CN from Qoder Global
+- [x] PAT helper text for CN points at `https://qoder.com.cn/account/integrations`
+
+### L5 image and config
+
+- [x] Install both `@qoder-ai/qodercli@1.1.27` and `@qodercn-ai/qoderclicn@1.1.27` in the image
+- [x] Export `QODERCLI_JS` and `QODERCNCLI_JS`
+- [x] README / CHANGELOG bilingual notes
+
+### L6 acceptance
+
+- [ ] Empty CN account → browser or PAT login → chat `只回复OK`
+- [ ] Import CN `qoder-native-v1` → daemon becomes hot
+- [ ] Mixed pool: pin stays on the matching CLI; Global 429 does not hit CN
+- [ ] Existing Qoder stream / tools / reasoning / usage / quota tests stay green
+- [ ] WorkBuddy path unchanged
+
 ## Later
 
-- WorkBuddy / CodeBuddy as a second account provider — design only, see `docs/PROVIDERS.md`
 - Cursor provider
 - Exact tokenizer matching if Qoder starts returning richer usage
 - In-process multi-account (still impossible for Qoder WASM)
@@ -178,5 +241,7 @@ no scheduling, billing, or persistence changes.
 - sub2api-style session-hash sticky
 - Optional truncated prompt/completion capture behind an explicit switch
 
-Do not start WorkBuddy, Cursor, or other CLI providers until H7 is accepted. The
-provider-extension design lives in `docs/PROVIDERS.md`; do not add extra plan files.
+WorkBuddy J0–J4 are implemented; remaining WorkBuddy work is live-account
+acceptance, not a new design doc. Qoder CN design lives in `docs/PROVIDERS.md`.
+Do not add extra plan files. Do not start Cursor until Phase L is accepted or
+explicitly deferred.

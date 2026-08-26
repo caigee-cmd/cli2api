@@ -19,15 +19,16 @@ import (
 )
 
 type ManagerConfig struct {
-	DataDir       string
-	BasePort      int
-	NodeBinary    string
-	DaemonPath    string
-	QoderCLIPath  string
-	TemplatePath  string
-	ProxyAPIKey   string
-	MaxLogWriters io.Writer
-	RestartDelay  time.Duration
+	DataDir        string
+	BasePort       int
+	NodeBinary     string
+	DaemonPath     string
+	QoderCLIPath   string
+	QoderCNCLIPath string
+	TemplatePath   string
+	ProxyAPIKey    string
+	MaxLogWriters  io.Writer
+	RestartDelay   time.Duration
 }
 
 type ManagedProcess interface {
@@ -149,7 +150,7 @@ func (m *Manager) startAccount(ctx context.Context, account Account) error {
 	m.mu.Unlock()
 
 	home := filepath.Join(m.config.DataDir, "runtime", account.ID)
-	if err := materializeHome(ctx, m.store, account.ID, home); err != nil {
+	if err := materializeHome(ctx, m.store, account, home); err != nil {
 		return err
 	}
 	process, err := m.starter.Start(ctx, account, home, port)
@@ -170,12 +171,23 @@ func (m *Manager) startAccount(ctx context.Context, account Account) error {
 	return nil
 }
 
-func materializeHome(ctx context.Context, store *Store, accountID, home string) error {
-	authDir := filepath.Join(home, ".qoder", ".auth")
+func qoderConfigDirName(region string) string {
+	if strings.EqualFold(strings.TrimSpace(region), "cn") {
+		return ".qoder-cn"
+	}
+	return ".qoder"
+}
+
+func qoderAuthDir(home, region string) string {
+	return filepath.Join(home, qoderConfigDirName(region), ".auth")
+}
+
+func materializeHome(ctx context.Context, store *Store, account Account, home string) error {
+	authDir := qoderAuthDir(home, account.ProviderRegion)
 	if err := os.MkdirAll(authDir, 0o700); err != nil {
 		return fmt.Errorf("create account home: %w", err)
 	}
-	credential, err := store.LoadCredential(ctx, accountID)
+	credential, err := store.LoadCredential(ctx, account.ID)
 	if errors.Is(err, ErrAccountNotFound) {
 		return nil
 	}
@@ -252,26 +264,32 @@ func (s ExecStarter) Start(_ context.Context, account Account, home string, port
 	if s.Config.DaemonPath == "" {
 		return nil, fmt.Errorf("worker daemon path required")
 	}
+	cliPath, site, configDir, configEnv, err := qoderRuntimeSpec(s.Config, account, home)
+	if err != nil {
+		return nil, err
+	}
 	cmd := exec.Command(node, s.Config.DaemonPath)
 	cmd.Env = append(os.Environ(),
 		"HOME="+home,
-		"QODER_HOME="+filepath.Join(home, ".qoder"),
+		"QODER_HOME="+configDir,
+		configEnv+"="+configDir,
+		"QODER_SITE="+site,
 		"QODER_ACCOUNT_ID="+account.ID,
 		"QODER_MAX_INFLIGHT="+strconv.Itoa(account.MaxInFlight),
 		"WORKER_HOST=127.0.0.1",
 		"WORKER_PORT="+strconv.Itoa(port),
 		"PROXY_API_KEY="+s.Config.ProxyAPIKey,
-		"QODERCLI_JS="+s.Config.QoderCLIPath,
+		"QODERCLI_JS="+cliPath,
 		"PLAIN_TEMPLATE_PATH="+s.Config.TemplatePath,
 		"QODER_WARMUP_CWD="+filepath.Join(home, "work"),
 	)
-writer := s.Config.MaxLogWriters
-		if writer == nil {
-			writer = os.Stderr
-		}
-		writer = &prefixLogWriter{prefix: "[account=" + account.ID + "] ", next: writer}
-		cmd.Stdout = writer
-		cmd.Stderr = writer
+	writer := s.Config.MaxLogWriters
+	if writer == nil {
+		writer = os.Stderr
+	}
+	writer = &prefixLogWriter{prefix: "[account=" + account.ID + "] ", next: writer}
+	cmd.Stdout = writer
+	cmd.Stderr = writer
 	if err := os.MkdirAll(filepath.Join(home, "work"), 0o700); err != nil {
 		return nil, err
 	}
@@ -343,13 +361,39 @@ func (m *Manager) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
+func qoderRuntimeSpec(cfg ManagerConfig, account Account, home string) (cliPath, site, configDir, configEnv string, err error) {
+	region := strings.ToLower(strings.TrimSpace(account.ProviderRegion))
+	configDir = filepath.Join(home, qoderConfigDirName(region))
+	switch region {
+	case "", "global":
+		cliPath = strings.TrimSpace(cfg.QoderCLIPath)
+		if cliPath == "" {
+			return "", "", "", "", fmt.Errorf("qoder global CLI path required")
+		}
+		return cliPath, "global", configDir, "QODER_CONFIG_DIR", nil
+	case "cn":
+		cliPath = strings.TrimSpace(cfg.QoderCNCLIPath)
+		if cliPath == "" {
+			return "", "", "", "", fmt.Errorf("qoder CN CLI path required: set QODERCNCLI_JS to @qodercn-ai/qoderclicn bundle/qoderclicn.js")
+		}
+		return cliPath, "cn", configDir, "QODERCN_CONFIG_DIR", nil
+	default:
+		return "", "", "", "", fmt.Errorf("unknown qoder region %q", account.ProviderRegion)
+	}
+}
+
 func (m *Manager) SyncCredential(ctx context.Context, id, authType string) error {
+	account, err := m.store.Get(ctx, id)
+	if err != nil {
+		return err
+	}
 	home := filepath.Join(m.config.DataDir, "runtime", id)
-	userBlob, err := os.ReadFile(filepath.Join(home, ".qoder", ".auth", "user"))
+	authDir := qoderAuthDir(home, account.ProviderRegion)
+	userBlob, err := os.ReadFile(filepath.Join(authDir, "user"))
 	if err != nil {
 		return fmt.Errorf("read qoder user credential: %w", err)
 	}
-	machineID, err := os.ReadFile(filepath.Join(home, ".qoder", ".auth", "machine_id"))
+	machineID, err := os.ReadFile(filepath.Join(authDir, "machine_id"))
 	if err != nil {
 		return fmt.Errorf("read qoder machine id: %w", err)
 	}
@@ -589,11 +633,11 @@ func (m *Manager) fetchQuota(ctx context.Context, accountID, workerURL string) {
 
 // workerQuota mirrors the daemon /admin/quota response shape.
 type workerQuota struct {
-	UserQuota         *workerQuotaBlock `json:"userQuota"`
-	AddOnQuota        *workerQuotaBlock `json:"addOnQuota"`
+	UserQuota          *workerQuotaBlock `json:"userQuota"`
+	AddOnQuota         *workerQuotaBlock `json:"addOnQuota"`
 	OrgResourcePackage *workerQuotaBlock `json:"orgResourcePackage"`
-	IsQuotaExceeded   bool              `json:"isQuotaExceeded"`
-	FetchedAt         string            `json:"fetchedAt"`
+	IsQuotaExceeded    bool              `json:"isQuotaExceeded"`
+	FetchedAt          string            `json:"fetchedAt"`
 }
 
 type workerQuotaBlock struct {

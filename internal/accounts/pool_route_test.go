@@ -37,6 +37,33 @@ func TestPickRouteRespectsProviderFamilyAndCooldown(t *testing.T) {
 	}
 }
 
+func TestPickRouteKeepsQoderFailoverInsideRegion(t *testing.T) {
+	p := NewPool(nil, nil)
+	p.Upsert(Item{ID: "g1", URL: "http://g1", Provider: "qoder", Region: "global", Runtime: "child_process"})
+	p.Upsert(Item{ID: "g2", URL: "http://g2", Provider: "qoder", Region: "global", Runtime: "child_process"})
+	p.Upsert(Item{ID: "c1", URL: "http://c1", Provider: "qoder", Region: "cn", Runtime: "child_process"})
+
+	p.MarkClassified("g1", Classified{Kind: KindRateLimit, Cooldown: time.Hour, Message: "429", Failover: true})
+	next, ok := p.PickRoute(RouteQuery{ProviderFilter: "qoder", RegionFilter: "global"})
+	if !ok || next.ID != "g2" {
+		t.Fatalf("global failover = %+v ok=%v", next, ok)
+	}
+
+	cn, ok := p.PickRoute(RouteQuery{ProviderFilter: "qoder", RegionFilter: "cn"})
+	if !ok || cn.ID != "c1" {
+		t.Fatalf("cn pick = %+v ok=%v", cn, ok)
+	}
+
+	p.MarkClassified("c1", Classified{Kind: KindRateLimit, Cooldown: time.Hour, Message: "429", Failover: true})
+	escaped, ok := p.PickRoute(RouteQuery{ProviderFilter: "qoder", RegionFilter: "cn", PreferAccount: "c1"})
+	if !ok || escaped.Region == "global" {
+		t.Fatalf("cooling CN pin escaped to %+v ok=%v", escaped, ok)
+	}
+	if got := p.LenRoute(RouteQuery{ProviderFilter: "qoder", RegionFilter: "global"}); got != 2 {
+		t.Fatalf("global candidates = %d", got)
+	}
+}
+
 func TestQuotaUsesLongCooldownWithoutRotation(t *testing.T) {
 	p := NewPool(nil, nil)
 	p.Upsert(Item{ID: "w1", Provider: "workbuddy"})

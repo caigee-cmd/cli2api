@@ -24,15 +24,15 @@ func TestManagementRoutesRequireAPIKey(t *testing.T) {
 	})
 	h := srv.Handler()
 
-for _, path := range []string{
-			"/api/overview",
-			"/api/models",
-			"/api/chat",
-			"/api/accounts",
-			"/api/logs/requests",
-			"/api/logs/runtime",
-			"/api/system/update",
-		} {
+	for _, path := range []string{
+		"/api/overview",
+		"/api/models",
+		"/api/chat",
+		"/api/accounts",
+		"/api/logs/requests",
+		"/api/logs/runtime",
+		"/api/system/update",
+	} {
 		method := http.MethodGet
 		if path == "/api/chat" {
 			method = http.MethodPost
@@ -225,35 +225,35 @@ func TestSPAFallbackServesAccounts(t *testing.T) {
 }
 
 func TestSPAFallbackServesLogin(t *testing.T) {
-		srv := New(config.Config{
-			Host:        "127.0.0.1",
-			Port:        3010,
-			ProxyAPIKey: "secret",
-			QoderHome:   t.TempDir(),
-		})
-		req := httptest.NewRequest(http.MethodGet, "/login", nil)
-		rec := httptest.NewRecorder()
-		srv.Handler().ServeHTTP(rec, req)
-		if rec.Code != http.StatusOK {
-			t.Fatalf("GET /login: got %d want 200", rec.Code)
-		}
+	srv := New(config.Config{
+		Host:        "127.0.0.1",
+		Port:        3010,
+		ProxyAPIKey: "secret",
+		QoderHome:   t.TempDir(),
+	})
+	req := httptest.NewRequest(http.MethodGet, "/login", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /login: got %d want 200", rec.Code)
 	}
+}
 
-	func TestSPAFallbackServesLogs(t *testing.T) {
-		srv := New(config.Config{
-			Host:        "127.0.0.1",
-			Port:        3010,
-			ProxyAPIKey: "secret",
-			QoderHome:   t.TempDir(),
-		})
-		defer srv.Close()
-		req := httptest.NewRequest(http.MethodGet, "/logs", nil)
-		rec := httptest.NewRecorder()
-		srv.Handler().ServeHTTP(rec, req)
-		if rec.Code != http.StatusOK {
-			t.Fatalf("GET /logs: got %d want 200", rec.Code)
-		}
+func TestSPAFallbackServesLogs(t *testing.T) {
+	srv := New(config.Config{
+		Host:        "127.0.0.1",
+		Port:        3010,
+		ProxyAPIKey: "secret",
+		QoderHome:   t.TempDir(),
+	})
+	defer srv.Close()
+	req := httptest.NewRequest(http.MethodGet, "/logs", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /logs: got %d want 200", rec.Code)
 	}
+}
 
 func TestAccountsAPICreatesAndListsDisabledAccount(t *testing.T) {
 	dataDir := t.TempDir()
@@ -354,9 +354,9 @@ func TestAccountsAPIUpdatesExportsAndDeletesAccount(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer secret")
 	rec = httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK || !bytes.Contains(rec.Body.Bytes(), []byte(`"format":"qoder-native-v1"`)) || !bytes.Contains(rec.Body.Bytes(), []byte(`"user_blob":"Y2lwaGVy"`)) {
-		t.Fatalf("export: %d %s", rec.Code, rec.Body.String())
-	}
+		if rec.Code != http.StatusOK || !bytes.Contains(rec.Body.Bytes(), []byte(`"format":"qoder-native-v1"`)) || !bytes.Contains(rec.Body.Bytes(), []byte(`"user_blob":"Y2lwaGVy"`)) || !bytes.Contains(rec.Body.Bytes(), []byte(`"provider":"qoder"`)) || !bytes.Contains(rec.Body.Bytes(), []byte(`"region":"global"`)) {
+			t.Fatalf("export: %d %s", rec.Code, rec.Body.String())
+		}
 
 	req = httptest.NewRequest(http.MethodDelete, "/api/accounts/"+created.ID, nil)
 	req.Header.Set("Authorization", "Bearer secret")

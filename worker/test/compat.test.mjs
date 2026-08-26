@@ -52,6 +52,12 @@ test("patch throws a version-aware error when needles are missing", () => {
   );
 });
 
+test("incompatible message mentions both CLI packages", () => {
+  const report = inspectQodercliSource("export const x = 1;");
+  assert.match(report.message, /@qoder-ai\/qodercli/);
+  assert.match(report.message, /@qodercn-ai\/qoderclicn/);
+});
+
 test("patch injects skip-main boot hook when HEg needle is present", () => {
   const source = [
     "prepareInferRequest(A,e,t,i){",

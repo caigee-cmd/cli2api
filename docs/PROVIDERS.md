@@ -1,7 +1,7 @@
 # 多上游账号类型：WorkBuddy 对照与扩展计划
 
-last-updated: 2026-08-25
-status: 分析文档，尚未排进当前里程碑
+last-updated: 2026-08-26
+status: WorkBuddy J0–J4 已落地；Qoder CN 为下一个 Qoder-family 扩展，尚未开工
 routing-reference: [router-for-me/CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) `main` @ `dc3c3b1`
 workbuddy-reference: [Sliverkiss/workbuddy2api](https://github.com/Sliverkiss/workbuddy2api) `master` @ `92514d8ba06413c3b620e96da3ebc38e6c7beda0`
 
@@ -274,7 +274,8 @@ type ProviderCapabilities struct {
 
 | Provider family | Runtime | Auth | Credential format | Login | Catalog |
 |-----------------|---------|------|-------------------|-------|---------|
-| `qoder` | `child_process` | OAuth / PAT / native import | `qoder-native-v1` | worker device flow / PAT | worker in-process catalog |
+| `qoder` + `global` | `child_process` | OAuth / PAT / native import | `qoder-native-v1` | worker + `@qoder-ai/qodercli` | worker in-process catalog |
+| `qoder` + `cn` | `child_process` | OAuth / PAT / native import | `qoder-native-v1` | worker + `@qodercn-ai/qoderclicn` | worker in-process catalog |
 | `workbuddy` | `in_process` | OAuth | `workbuddy-oauth-v1` | Go state + poll | WorkBuddy models endpoint |
 | future `cursor` | TBD | TBD | TBD | TBD | TBD |
 
@@ -282,7 +283,7 @@ type ProviderCapabilities struct {
 
 | provider family | runtime | 为什么 |
 |-----------------|---------|--------|
-| `qoder` | `child_process` | WASM / AuthManager 进程全局；一 HOME 一 daemon |
+| `qoder` | `child_process` | WASM / AuthManager 进程全局；一 HOME 一 daemon。`region=global` 与 `region=cn` 是两套 pinned CLI，不能共享进程 |
 | `workbuddy` | `in_process` | 凭证是普通 Bearer；并发安全由 per-account mutex 保护 refresh |
 | 未来 `cursor` | 先按调研再定，大概率 `in_process` 或独立 daemon；不要假设等于 Qoder | |
 
@@ -614,6 +615,8 @@ CLIProxyAPI 的可借鉴点是：
 
 Cursor 不能复用 WorkBuddy client，只能复用 J0/J1 的注册表和 executor 接口。
 
+Qoder CN 不是第三种 runtime，也不是新 family。它复用现有 Qoder worker，按 `region` 换 CLI 包、HOME 目录名和 fallback host。设计与任务见下文「Qoder CN」。
+
 ## WorkBuddy 参考实现与代码使用边界
 
 ### 参考对象
@@ -699,4 +702,219 @@ WorkBuddy / CodeBuddy 协议实现参考：
 6. WorkBuddy 不启动 Node。
 7. 当前里程碑仍是 Qoder；本文不是开工许可。
 
-排期建议：H7 验收通过后再开 J0。J0/J1 可以在 Phase I 之前做，因为它们不碰 Anthropic。J2 需要真实账号和契约测试。
+排期建议：H7 验收通过后再开 J0。J0/J1 可以在 Phase I 之前做，因为它们不碰 Anthropic。J2 需要真实账号和契约测试。Qoder CN 不依赖 Phase I，可在 WorkBuddy 代码稳定后作为独立 Qoder 里程碑开工。
+
+---
+
+# Qoder CN（中国大陆版）
+
+last-updated: 2026-08-26
+status: 调研完成，尚未开工
+cli-pin: `@qoder-ai/qodercli@1.1.27` 与 `@qodercn-ai/qoderclicn@1.1.27`
+reference-proxy: [lininn/qorder-proxy](https://github.com/lininn/qorder-proxy) `main` @ 2026-08-26（只借包名 / 登录入口，不借进程模型）
+
+## 结论
+
+**和 qodercli 几乎是同一份程序，不是新协议。** 不能当成 WorkBuddy 那种 in-process HTTP adapter。也不要做成新的 `qodercn` provider family。
+
+| 问题 | 答案 |
+|------|------|
+| 是不是只换 API endpoint？ | 对执行路径几乎是。chat 仍走 WASM `prepareInferRequest` → 上游 SSE。host 由 CLI 的编译期站点开关决定，不是 Go 拼 URL。 |
+| 和 qodercli 差多少？ | 1.1.27 的 minify bundle 只差约 10 字节量级的站点常量和加密种子。worker 现有 5 条 needles **全部命中** CN bundle。 |
+| 能不能共用一个 daemon 文件？ | 能。继续 `worker/src/daemon.mjs`。按账号 region 换 `QODERCLI_JS`、config dir、fallback host。 |
+| 能不能共用一个 Node 进程？ | 不能。WASM / AuthManager 仍然进程全局；CN 与 Global 必须各起一个 child。 |
+| SQLite 要不要新表？ | 不要。`provider` / `provider_region` 已在。缺的是 descriptor 允许 `qoder + cn`，以及 spawn 链认识 region。 |
+| 要不要新 family `qodercn`？ | 不要。`provider=qoder`，`region=cn`。控制台显示「Qoder 国内版」。 |
+| 能不能抄 qorder-proxy？ | 不能抄架构。它每请求 spawn 一次 CLI，违反本仓库硬规则。包名、PAT 入口、双后端对照可以参考。 |
+
+一句话：Qoder CN 是 **同一条 Qoder 执行路径上的第二套 pinned CLI**，扩展点已经存在，但今天整条 spawn 链把 region 丢掉了。
+
+## 调研事实（1.1.27）
+
+npm 上的中国版包名是 `@qodercn-ai/qoderclicn`（bin `qoderclicn`，bundle `bundle/qoderclicn.js`），不是 `qodercncli`。国际版是 `@qoder-ai/qodercli`（bin `qodercli`，bundle `bundle/qodercli.js`）。两边 latest 都到了 1.1.31；本仓库继续钉 **1.1.27**，本里程碑不升级 CLI。
+
+同一份源码，编译期写入站点：
+
+```js
+// global: Pa=Xi="cn"==(IAs="global")  → Xi=false
+// cn:     Pa=Xi="cn"==(IAs="cn")      → Xi=true
+```
+
+`QODERCLI_SITE` 环境变量只影响 `QODERCN_CONFIG_DIR_NAME` / `QODER_CONFIG_DIR_NAME` 这类辅助函数，**不能**把国际版二进制翻成国内版。必须装第二份包。
+
+`Xi=true` 时的有效差异：
+
+| 项 | Global (`Xi=false`) | CN (`Xi=true`) |
+|----|---------------------|----------------|
+| npm | `@qoder-ai/qodercli` | `@qodercn-ai/qoderclicn` |
+| bundle | `qodercli.js` | `qoderclicn.js` |
+| 配置目录名 | `.qoder` | `.qoder-cn` |
+| 环境前缀 | `QODER_` | `QODERCN_` |
+| 配置目录 env（CLI 真的会读） | `QODER_CONFIG_DIR` | `QODERCN_CONFIG_DIR` |
+| PAT 环境变量（CLI 自己读） | `QODER_PERSONAL_ACCESS_TOKEN` | `QODERCN_PERSONAL_ACCESS_TOKEN` |
+| chat / gateway | `api1.qoder.sh` / `api2` / `api3` | `gateway.qoder.com.cn` |
+| openapi / quota | `openapi.qoder.sh` | `openapi.qoder.com.cn` |
+| 产品域名 | `qoder.sh` | `qoder.com.cn` |
+| 登录 API | `loginWithDeviceFlow` + `loginWithPAT` | 同样存在 |
+| 凭证落盘 | `{configDir}/.auth/user` + `machine_id` | 同样结构，换目录 |
+| WASM needles | 本仓库 5 条全中 | 同样全中 |
+
+本仓库 worker 真正 POST 的 URL 仍来自 WASM `encoded.url`。Go / daemon **不要**手写 `/algo/api/v2/service/pro/sse/agent_chat_generation`。只有 `hotEndpoint` 还没从 `prepareInferRequest` 拿到时，才允许按 region 填 fallback：
+
+- global: `https://api1.qoder.sh`
+- cn: `https://gateway.qoder.com.cn`
+
+凭证格式保持 `qoder-native-v1`。CN blob 与 Global blob 不能混用；region 在账号行上，不进 blob 本身。
+
+## 和 qorder-proxy 的边界
+
+[lininn/qorder-proxy](https://github.com/lininn/qorder-proxy) 把 CN / Global 做成两个 spawn-CLI 后端。
+
+可参考：
+
+- 包名 `@qodercn-ai/qoderclicn` / `@qoder-ai/qodercli`
+- CN PAT 创建页 `https://qoder.com.cn/account/integrations`
+- 产品文案上的「两个站点，两套 CLI」
+
+不要用：
+
+| 参考做法 | 原因 |
+|----------|------|
+| 每请求 `qoderclicn --print --output-format json` | `AGENTS.md` 禁止 spawn 完整 CLI；本仓库要热 `QoderContext` |
+| 认证目录 `~/.qoderworkcn`、`.auth-cn/user` | 与 1.1.27 实际目录 `.qoder-cn/.auth` 不符，多半过时 |
+| 静态模型表 `qoder-cn` / `auto` / 手写 Qwen 列表 | 本仓库 catalog 失败就报错，不猜 |
+| 用 prompt 解析 tool call | 本仓库已有 WASM + nested SSE 工具路径 |
+| 进程级 `CLI_BACKEND=cn\|global` 单后端 | 本仓库要同一控制面里同时跑 Global 账号和 CN 账号 |
+
+## 当前仓库卡住的点
+
+J0 已经让 SQLite 认识 `provider` / `region`，但 Qoder descriptor 只注册了 `global`。`TestStoreRejectsUnknownProviderAndRegion` 明确要求 `qoder + cn` 返回错误。
+
+spawn 链完全不知道 region：
+
+| 位置 | 现状 |
+|------|------|
+| `internal/providers/registry.go` | Qoder 只有 `global`；注释写「region 只是标签」 |
+| `ExecStarter` | 永远 `HOME={runtime}`、`QODER_HOME={home}/.qoder`（CLI **不读** `QODER_HOME`）、`QODERCLI_JS=qodercli.js` |
+| `materializeHome` / `SyncCredential` | 永远读写 `.qoder/.auth` |
+| `worker/src/rewrite-loader.mjs` | 只 hook 文件名含 `qodercli.js` 的模块 |
+| `worker/src/daemon.mjs` | fallback `https://api1.qoder.sh`；默认路径只有国际版包 |
+| `Pool.PickRoute` | 只过滤 provider family，不过滤 region |
+| `resolveProviderFilter` | bare ID 固定 `qoder`，CN 与 Global 会进同一候选池 |
+| 前端 `labelKeys` | 没有 `qoder-cn`；`accountProviderLabel` 把任意 qoder 都显示成国际版 |
+
+WorkBuddy 的 region 只换 Go 里的 host 常量。Qoder CN 必须换 **CLI 二进制 + HOME 目录名**，这是唯一多出来的工作。
+
+## 目标形态
+
+```text
+Client
+  -> Go :3010
+    -> accounts.Pool（provider=qoder 时默认同 region failover）
+      -> region=global: Node daemon + @qoder-ai/qodercli@1.1.27
+           HOME/.qoder/.auth  -> api*.qoder.sh
+      -> region=cn:     Node daemon + @qodercn-ai/qoderclicn@1.1.27
+           HOME/.qoder-cn/.auth -> gateway.qoder.com.cn
+```
+
+规则：
+
+- 不新增 provider family，不新增 SQLite 列，不新增 worker 入口文件
+- 不把 CN 做成 in-process HTTP
+- 不升级 pinned CLI 版本
+- 登录仍走现有 worker `/admin/login/{device,status,pat}`；`account.Provider == "qoder"` 的分支保持
+- 导入导出仍是 `qoder-native-v1`；创建 / import 必须带对的 `region`。export JSON 要带 `provider` 与 `region`，否则 CN blob 会被默认成 Global
+- 公共模型前缀仍是 `qoder/`。不要引入 `qodercn/`，否则会把 region 做成第二套 family
+- 默认同 region failover。Global 429 不得落到 CN，反过来也不行。账号 pin 除外
+- `CROSS_PROVIDER_MODEL_POOL` 仍只影响跨 family（Qoder vs WorkBuddy），不管 CN vs Global
+
+## 产品决策（实现前锁定）
+
+1. 控制台选项是 `Qoder Global` 与 `Qoder 国内版`，提交 `provider=qoder` + `region=global|cn`。
+2. CN 支持浏览器 device-flow、PAT、native import；CLI 源码里两种登录都在。若真实 CN device-flow 不可用，再降级为 PAT + import，不要一开始就砍掉浏览器。
+3. CN PAT 向导文案指向 `https://qoder.com.cn/account/integrations`；不要把国际版 PAT 填进 CN 账号。
+4. 调度按 **provider + region** 隔离 failover。不要按积分、站点亲和或模型名猜。
+5. 镜像同时安装两套 1.1.27 CLI。体积换正确性。
+6. 不把 `QODERCLI_SITE=cn` 当作「一个二进制两种站点」的方案。
+
+## 实施顺序
+
+当前 **不开始写代码**。清单进 `docs/PLAN.md` Phase L。依赖：现有 Qoder worker 路径保持绿灯。不依赖 Anthropic / Cursor。
+
+### L0 — descriptor 承认 `qoder + cn`
+
+- Qoder `Regions` 增加 `cn`：`ChatBase=https://gateway.qoder.com.cn`，`AuthBase=https://qoder.com.cn`，`DefaultDomain=qoder.com.cn`
+- 历史空 region 仍读 `global`
+- `TestStoreRejectsUnknownProviderAndRegion` 改为接受 `qoder+cn`，继续拒绝未知 family
+- 前端此时还不必展示；先让 API 能建出来
+- **不要单独合 L0**：`enabled=true` 的 CN 账号在 L2 之前会按国际版 CLI + `.qoder` spawn。L0–L2 同一变更集，或 L0 只允许 CN 账号 `enabled=false`
+
+完成标准：`POST /api/accounts {provider:qoder, region:cn}` 不再 400；现有 Global 账号重启行为不变。
+
+### L1 — worker 按 CLI 文件名工作，而不是写死国际版
+
+- `rewrite-loader.mjs` hook `qodercli.js` **或** `qoderclicn.js`
+- `compat.mjs` 继续钉 1.1.27；错误信息同时提两个包名
+- `daemon.mjs` 默认路径同时找两个 bundle；fallback host 按实际加载的文件名或 worker-only `QODER_SITE=cn|global`（不要用 `QODERCLI_SITE`，它翻不了编译期 `Xi`）
+- 配置目录由 Go 显式传入 CLI 能读的变量：Global `QODER_CONFIG_DIR={home}/.qoder`，CN `QODERCN_CONFIG_DIR={home}/.qoder-cn`。现有 `QODER_HOME` 是本仓库自己的标签，**1.1.27 CLI 不读它**；Global 今天能工作是因为 `HOME={runtime}` + 默认 `~/.qoder`
+
+完成标准：用 `QODERCLI_JS=.../qoderclicn.js` 启动 daemon 时 needles 通过，不再因为文件名不是 `qodercli.js` 而跳过 patch。
+
+### L2 — Manager 按 region spawn
+
+- `ManagerConfig` 增加 `QoderCNCLIPath`（env `QODERCNCLI_JS`）
+- `ExecStarter` 按 region 分支：
+  - 共用：`HOME={runtime}`、`QODER_SITE`、`QODERCLI_JS`
+  - global：`QODERCLI_JS=QoderCLIPath`，`QODER_CONFIG_DIR={home}/.qoder`
+  - cn：`QODERCLI_JS=QoderCNCLIPath`，`QODERCN_CONFIG_DIR={home}/.qoder-cn`；缺路径则 spawn 失败，不要静默回落到国际版
+- `materializeHome` / `SyncCredential` 必须吃到 `account.ProviderRegion`，读写 `.qoder` 或 `.qoder-cn`。今天这两个函数只拿 `accountID`，签名要改
+- export `/api/accounts/:id/export` 补 `provider` + `region`；import 缺 region 时仍默认 global（兼容旧包），有 region 则尊重
+- 非法组合：Qoder + 未知 region 仍 400；WorkBuddy 路径一行不动
+
+完成标准：启用一个 CN 账号只拉起一个 Node，且 `QODERCLI_JS` 指向 `qoderclicn.js`；启用一个 Global 账号仍指向 `qodercli.js`。
+
+### L3 — 同 region failover
+
+- `RouteQuery` 增加 `RegionFilter`；空 region 按 `global` 读，兼容旧 `Pool.Item`
+- **改的是 `executor/chat.go` 的 failover 循环，不只是 pool**：`pick` / `attemptsFor` / `ChatNonStream` / `ChatStream` 都只传了 `providerFilter`。第一次选中后把 `item.Region` 钉进后续 Pick，attempts 按 provider+region 计数
+- bare `glm-5.2` 仍只过滤 `provider=qoder`；未 pin 时用池里第一个可用 Qoder 账号的 region，不要在同一请求里跨 CN/Global
+- 账号 pin 仍优先。sticky-escape（pin 账号冷却）只逃到 **同一 region**，不再逃到整个 qoder family
+- 单测：Global A 429 可切 Global B，不可切 CN；pin CN 且 CN 冷却时，不得落到 Global
+- L3 必须在 L4 控制台放出 CN 之前合并，否则混合池会把 Global 限流打到 CN
+
+完成标准：混合池里 pin / 限流行为可测，且不改 WorkBuddy 的 family 过滤。
+
+### L4 — 控制台
+
+- `AddAccountModal` 增加 `qoder-cn` i18n key；不要再把无 key 的 region 丢掉
+- `accountProviderLabel` 按 `qoder + cn` 显示国内版
+- PAT 辅助说明按 region 切换（CN 指向 qoder.com.cn integrations）
+- 账号卡片继续用 Qoder mark；用 region chip 区分，不加第二套品牌色
+
+完成标准：Accounts 能选出 Qoder 国内版，创建后列表不再写成「Qoder 国际版」。
+
+### L5 — 镜像与配置
+
+- `deploy/Dockerfile` 同时 `npm i -g @qoder-ai/qodercli@1.1.27 @qodercn-ai/qoderclicn@1.1.27`
+- 默认 env：`QODERCLI_JS=.../qodercli.js`，`QODERCNCLI_JS=.../qoderclicn.js`
+- `internal/config` 读取第二条路径
+- 文档：README 账号类型多一行国内版；CHANGELOG Unreleased 双语
+
+完成标准：单容器镜像里两个 bundle 都在，缺 CN 包时 CN 账号启动要响亮失败。
+
+### L6 — 验收
+
+1. 空 CN 账号 → 浏览器或 PAT 登录 → `只回复OK`
+2. 导入 CN `qoder-native-v1` → daemon hot，不经浏览器
+3. 同池 Global + CN：pin 各自走对应 CLI；Global 429 不打到 CN
+4. 原有 Qoder stream / tools / reasoning / usage / quota 测试全绿
+5. WorkBuddy 回归不受影响
+
+## 风险
+
+- **站点开关是编译期的**：装错包或只改 env，账号会打到错误云。启动时在 daemon 日志里打出 `site=cn|global` 和 bundle 路径。
+- **HOME 目录名**：写到 `.qoder` 的 CN 凭证会被国际版 CLI 当成自己的，表现为怪认证错误。materialize / sync 必须按 region 分支，并覆盖回归测试。
+- **needles 漂移**：现在 1.1.27 同构；以后升 CN 而不升 Global（或反过来）会让一边 hooks 失效。两边继续锁同一版本。
+- **镜像体积**：两份 ~28MB CLI。可接受。不要试图用一份 JS 加 env 伪造站点。
+- **device-flow 是否真能在 CN 用**：源码有函数不等于生产授权页可用。L6 用真实号验证；失败则控制台把 CN 的浏览器 tab 降为次要，PAT 为主。
+- **服务条款**：只允许用户自己的国内版账号。文案不承诺「国内无限额度」或跨站共用。

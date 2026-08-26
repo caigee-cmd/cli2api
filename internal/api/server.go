@@ -72,7 +72,7 @@ func New(cfg config.Config) *Server {
 	log.SetOutput(io.MultiWriter(os.Stderr, ring))
 	manager := accounts.NewManager(accounts.ManagerConfig{
 		DataDir: runtimeDir, BasePort: cfg.WorkerBasePort, NodeBinary: cfg.NodeBinary,
-		DaemonPath: cfg.WorkerDaemonPath, QoderCLIPath: cfg.QoderCLIPath,
+		DaemonPath: cfg.WorkerDaemonPath, QoderCLIPath: cfg.QoderCLIPath, QoderCNCLIPath: cfg.QoderCNCLIPath,
 		TemplatePath: cfg.PlainTemplatePath, ProxyAPIKey: proxyAPIKey,
 		MaxLogWriters: io.MultiWriter(os.Stderr, ring),
 	}, store, nil)

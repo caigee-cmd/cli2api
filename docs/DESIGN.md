@@ -275,10 +275,15 @@ Client (OpenAI SDK / Codex / CherryStudio)
   -> qoder-api-proxy (:3010)            # one container
     -> Go control plane                  # auth, SQLite, routing, console
       -> Node daemon per account         # isolated HOME + hot QoderContext
-        -> https://api1.qoder.sh/.../agent_chat_generation?Encode=1
+        -> region=global: https://api1.qoder.sh/.../agent_chat_generation?Encode=1
+        -> region=cn:     https://gateway.qoder.com.cn/... (WASM-encoded URL)
 ```
 
-Worker pins `@qoder-ai/qodercli@1.1.27`. Needle mismatch exits loudly.
+Worker pins `@qoder-ai/qodercli@1.1.27` for `qoder/global`. Qoder CN
+(`provider=qoder`, `region=cn`) is the same daemon with a second pin,
+`@qodercn-ai/qoderclicn@1.1.27`, and HOME `.qoder-cn`. Needle mismatch
+exits loudly. See `docs/PROVIDERS.md` 「Qoder CN」; do not spawn a full
+CLI per request and do not invent a `qodercn` family.
 
 The request path that builds plaintext payloads, calls Qoder WASM encode, forwards
 HTTP/SSE, parses tools/reasoning, and resolves usage remains unchanged. The account
@@ -322,9 +327,10 @@ When qodercli changes, update the Qoder adapter and its version-aware compatibil
 tests first; do not duplicate the change in both public protocol handlers. Keep
 `/v1/chat/completions` stable while `/v1/messages` is added as a separate ingress.
 
-Additional account providers (WorkBuddy, later Cursor) are not part of this Qoder
-milestone. If a second upstream is added, it must plug into the account registry and
-executor as a provider adapter, not a second Node daemon. See `docs/PROVIDERS.md`.
+Qoder CN is still the Qoder family (`provider=qoder`, `region=cn`): same Node
+daemon, second pinned CLI. WorkBuddy is the in-process adapter. Later Cursor
+must plug into the account registry as its own provider, not a third copy of
+the Qoder worker. See `docs/PROVIDERS.md`.
 
 `/v1/messages` should be implemented as a native Anthropic boundary, not as
 Anthropic -> OpenAI -> Qoder string rewriting. Borrow sub2api's reversible tool
@@ -358,10 +364,10 @@ credential record is authoritative; the runtime files are derived working copies
 
 Supported account onboarding:
 
-- Qoder browser device-flow OAuth
-- Qoder PAT login
+- Qoder browser device-flow OAuth (Global and CN; CN host is qoder.com.cn)
+- Qoder PAT login (CN token UI: `https://qoder.com.cn/account/integrations`)
 - `qoder-native-v1` JSON import containing the encrypted `.auth/user` blob and its
-  matching `machine_id`
+  matching `machine_id` (Global lives under `.qoder`, CN under `.qoder-cn`)
 
 Arbitrary `access_token` / `refresh_token` JSON is not supported. Qoder credentials
 also depend on private user material, organization data, encryption keys, and device

@@ -52,8 +52,15 @@ func TestStoreRejectsUnknownProviderAndRegion(t *testing.T) {
 	if _, err := store.Create(ctx, CreateAccount{Name: "X", Provider: "cursor"}); err == nil {
 		t.Fatal("expected unknown provider rejection")
 	}
-	if _, err := store.Create(ctx, CreateAccount{Name: "X", Provider: "qoder", Region: "cn"}); err == nil {
+	if _, err := store.Create(ctx, CreateAccount{Name: "X", Provider: "qoder", Region: "eu"}); err == nil {
 		t.Fatal("expected unknown region rejection")
+	}
+	created, err := store.Create(ctx, CreateAccount{Name: "CN", Provider: "qoder", Region: "cn"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.Provider != "qoder" || created.ProviderRegion != "cn" {
+		t.Fatalf("qoder cn = %+v", created)
 	}
 }
 

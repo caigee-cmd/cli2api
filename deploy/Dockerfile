@@ -25,7 +25,7 @@ FROM node:20-bookworm-slim
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates curl tini \
   && rm -rf /var/lib/apt/lists/* \
-  && npm install -g @qoder-ai/qodercli@1.1.27
+	  && npm install -g @qoder-ai/qodercli@1.1.27 @qodercn-ai/qoderclicn@1.1.27
 WORKDIR /app
 COPY --from=build /out/qoder-api-proxy /app/qoder-api-proxy
 COPY --from=build /out/cli2api-updater /app/cli2api-updater
@@ -39,6 +39,7 @@ ENV HOST=0.0.0.0 \
     QODER_NODE_BINARY=/usr/local/bin/node \
     QODER_WORKER_DAEMON=/app/worker/daemon.mjs \
     QODERCLI_JS=/usr/local/lib/node_modules/@qoder-ai/qodercli/bundle/qodercli.js \
+    QODERCNCLI_JS=/usr/local/lib/node_modules/@qodercn-ai/qoderclicn/bundle/qoderclicn.js \
     PLAIN_TEMPLATE_PATH=/app/worker/last-plain.sample.json \
     QODER_WORKER_BASE_PORT=32100
 EXPOSE 3010

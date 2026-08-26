@@ -21,10 +21,21 @@ const accountId = process.env.QODER_ACCOUNT_ID || "default";
 const skipCliMain = process.env.QODER_SKIP_CLI_MAIN !== "0";
 let bootMode = "pending";
 function defaultQodercliPath() {
-  const candidates = [
-    "/usr/local/lib/node_modules/@qoder-ai/qodercli/bundle/qodercli.js",
-    path.join(__dirname, "../node_modules/@qoder-ai/qodercli/bundle/qodercli.js"),
-  ];
+  const site = String(process.env.QODER_SITE || "").toLowerCase();
+  const cnFirst = site === "cn";
+  const candidates = cnFirst
+    ? [
+        "/usr/local/lib/node_modules/@qodercn-ai/qoderclicn/bundle/qoderclicn.js",
+        path.join(__dirname, "../node_modules/@qodercn-ai/qoderclicn/bundle/qoderclicn.js"),
+        "/usr/local/lib/node_modules/@qoder-ai/qodercli/bundle/qodercli.js",
+        path.join(__dirname, "../node_modules/@qoder-ai/qodercli/bundle/qodercli.js"),
+      ]
+    : [
+        "/usr/local/lib/node_modules/@qoder-ai/qodercli/bundle/qodercli.js",
+        path.join(__dirname, "../node_modules/@qoder-ai/qodercli/bundle/qodercli.js"),
+        "/usr/local/lib/node_modules/@qodercn-ai/qoderclicn/bundle/qoderclicn.js",
+        path.join(__dirname, "../node_modules/@qodercn-ai/qoderclicn/bundle/qoderclicn.js"),
+      ];
   for (const candidate of candidates) {
     if (fs.existsSync(candidate)) return candidate;
   }
@@ -32,6 +43,12 @@ function defaultQodercliPath() {
 }
 
 const qodercliPath = process.env.QODERCLI_JS || defaultQodercliPath();
+const qoderSite = (() => {
+  const fromEnv = String(process.env.QODER_SITE || "").toLowerCase();
+  if (fromEnv === "cn" || fromEnv === "global") return fromEnv;
+  return path.basename(qodercliPath).includes("qoderclicn") ? "cn" : "global";
+})();
+const defaultHotEndpoint = qoderSite === "cn" ? "https://gateway.qoder.com.cn" : "https://api1.qoder.sh";
 
 let hotContext = null;
 let hotEndpoint = null;
@@ -111,7 +128,7 @@ function adoptContext(ctx, endpoint, modelKey, modelSource, mgr) {
   if (!ctx || typeof ctx.prepareInferRequest !== "function") return false;
   hotContext = ctx;
   if (endpoint) hotEndpoint = endpoint;
-  if (!hotEndpoint) hotEndpoint = "https://api1.qoder.sh";
+  if (!hotEndpoint) hotEndpoint = defaultHotEndpoint;
   if (modelKey) hotModelKey = modelKey;
   if (modelSource) hotModelSource = modelSource;
   if (mgr) authManager = mgr;
@@ -849,7 +866,7 @@ function useWarmupArgv() {
 function assertQodercliCompatible(jsPath) {
   if (!fs.existsSync(jsPath)) {
     throw new Error(
-      `qodercli bundle not found at ${jsPath}. Install @qoder-ai/qodercli@${PINNED_QODERCLI_VERSION} and set QODERCLI_JS.`,
+      `qodercli bundle not found at ${jsPath}. Install @qoder-ai/qodercli@${PINNED_QODERCLI_VERSION} or @qodercn-ai/qoderclicn@${PINNED_QODERCLI_VERSION} and set QODERCLI_JS.`,
     );
   }
   const source = fs.readFileSync(jsPath, "utf8");
@@ -857,6 +874,7 @@ function assertQodercliCompatible(jsPath) {
   const report = inspectQodercliSource(source, { version });
   log("qodercli compat", {
     path: jsPath,
+    site: qoderSite,
     version: version || "unknown",
     pinned: PINNED_QODERCLI_VERSION,
     ok: report.ok,

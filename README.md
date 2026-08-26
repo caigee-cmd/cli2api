@@ -164,7 +164,7 @@ X-Qoder-Account: acc_...
 - Route requests across multiple Qoder accounts with failover
 - Keep Qoder login state available without starting a full CLI Agent per request
 
-Qoder is the only supported upstream at this time. CLI2API is a local gateway; it does not provide accounts, quotas, or an official Qoder API service.
+Supported account types are Qoder Global, Qoder CN, and WorkBuddy. CLI2API is a local gateway; it does not provide accounts, quotas, or an official API service.
 
 ## How it works
 
@@ -179,7 +179,7 @@ Each enabled account gets its own Node process and runtime directory so Qoder WA
 
 ## Features
 
-- Browser Device Flow OAuth, PAT, and `qoder-native-v1` credential import/export
+- Browser Device Flow OAuth, PAT, and `qoder-native-v1` credential import/export for Qoder Global and Qoder CN
 - OpenAI-compatible `GET /v1/models`
 - Streaming and non-streaming responses
 - Tool calls and `reasoning_content`
@@ -196,6 +196,8 @@ Each enabled account gets its own Node process and runtime directory so Qoder WA
 | `QODER_RUNTIME_DIR` | `/run/cli2api` | Ephemeral per-account Qoder runtime homes |
 | `QODER_MAX_INFLIGHT` | `4` | Maximum concurrent requests per account |
 | `QODER_WORKER_BASE_PORT` | `32100` | Internal worker port range |
+| `QODERCLI_JS` | image default | Pinned Qoder Global CLI bundle |
+| `QODERCNCLI_JS` | image default | Pinned Qoder CN CLI bundle |
 | `UPDATE_GITHUB_TOKEN` | empty | Optional GitHub token for release checks |
 | `UPDATE_AGENT_URL` | empty | Docker Desktop host updater URL, written by the installer |
 | `UPDATE_AGENT_TOKEN` | empty | Docker Desktop updater token, written by the installer |

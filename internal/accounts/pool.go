@@ -1,6 +1,7 @@
 package accounts
 
 import (
+	"strings"
 	"sync"
 	"time"
 )
@@ -43,7 +44,29 @@ type RouteQuery struct {
 	PublicModel    string
 	PreferAccount  string
 	ProviderFilter string
+	RegionFilter   string
 	Excluded       map[string]struct{}
+}
+
+func itemRegion(item Item) string {
+	region := strings.ToLower(strings.TrimSpace(item.Region))
+	if region == "" {
+		return "global"
+	}
+	return region
+}
+
+func routeMatches(item Item, q RouteQuery) bool {
+	if _, skip := q.Excluded[item.ID]; skip {
+		return false
+	}
+	if q.ProviderFilter != "" && item.Provider != q.ProviderFilter {
+		return false
+	}
+	if q.RegionFilter != "" && itemRegion(item) != strings.ToLower(strings.TrimSpace(q.RegionFilter)) {
+		return false
+	}
+	return true
 }
 
 type Pool struct {
@@ -83,13 +106,9 @@ func (p *Pool) LenRoute(q RouteQuery) int {
 	defer p.mu.Unlock()
 	count := 0
 	for _, item := range p.items {
-		if _, skip := q.Excluded[item.ID]; skip {
-			continue
+		if routeMatches(item, q) {
+			count++
 		}
-		if q.ProviderFilter != "" && item.Provider != q.ProviderFilter {
-			continue
-		}
-		count++
 	}
 	return count
 }
@@ -133,13 +152,9 @@ func (p *Pool) PickRoute(q RouteQuery) (Item, bool) {
 	now := time.Now()
 	eligible := make([]int, 0, len(p.items))
 	for i, item := range p.items {
-		if _, skip := q.Excluded[item.ID]; skip {
-			continue
+		if routeMatches(item, q) {
+			eligible = append(eligible, i)
 		}
-		if q.ProviderFilter != "" && item.Provider != q.ProviderFilter {
-			continue
-		}
-		eligible = append(eligible, i)
 	}
 	if q.PreferAccount != "" {
 		for _, i := range eligible {
@@ -154,13 +169,7 @@ func (p *Pool) PickRoute(q RouteQuery) (Item, bool) {
 	for i := 0; i < n; i++ {
 		idx := (p.next + i) % n
 		item := p.items[idx]
-		if _, skip := q.Excluded[item.ID]; skip {
-			continue
-		}
-		if q.ProviderFilter != "" && item.Provider != q.ProviderFilter {
-			continue
-		}
-		if itemDown(item, now) {
+		if !routeMatches(item, q) || itemDown(item, now) {
 			continue
 		}
 		p.next = (idx + 1) % n
@@ -239,16 +248,16 @@ func (p *Pool) MergeHealth(id string, ready, hot bool, inFlight, restarts int, l
 		if p.items[i].ID != id {
 			continue
 		}
-			r, h := ready, hot
-			p.items[i].Ready = &r
-			p.items[i].Hot = &h
-			p.items[i].InFlight = inFlight
-			p.items[i].Restarts = restarts
-			p.items[i].LastError = lastError
-			if lastError == "" {
-				p.items[i].LastKind = ""
-			}
-			return
+		r, h := ready, hot
+		p.items[i].Ready = &r
+		p.items[i].Hot = &h
+		p.items[i].InFlight = inFlight
+		p.items[i].Restarts = restarts
+		p.items[i].LastError = lastError
+		if lastError == "" {
+			p.items[i].LastKind = ""
+		}
+		return
 	}
 }
 

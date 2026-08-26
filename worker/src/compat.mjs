@@ -44,7 +44,7 @@ export function inspectQodercliSource(source, { version } = {}) {
     pinnedVersion: PINNED_QODERCLI_VERSION,
     message: ok
       ? `qodercli hooks compatible${version ? ` (${version})` : ""}`
-      : `incompatible qodercli source: missing WASM/catalog/quota capture needles (pinned ${PINNED_QODERCLI_VERSION}${found}). Pin @qoder-ai/qodercli@${PINNED_QODERCLI_VERSION} or update worker/src/compat.mjs.`,
+      : `incompatible qodercli source: missing WASM/catalog/quota capture needles (pinned ${PINNED_QODERCLI_VERSION}${found}). Pin @qoder-ai/qodercli@${PINNED_QODERCLI_VERSION} or @qodercn-ai/qoderclicn@${PINNED_QODERCLI_VERSION}, or update worker/src/compat.mjs.`,
   };
 }
 
@@ -96,7 +96,7 @@ export function readQodercliVersion(jsPath) {
     try {
       const raw = fs.readFileSync(pkgPath, "utf8");
       const parsed = JSON.parse(raw);
-      if (parsed?.name === "@qoder-ai/qodercli" || parsed?.version) {
+      if (parsed?.name === "@qoder-ai/qodercli" || parsed?.name === "@qodercn-ai/qoderclicn" || parsed?.version) {
         return String(parsed.version || "");
       }
     } catch {}

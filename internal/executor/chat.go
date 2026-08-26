@@ -129,15 +129,19 @@ func buildWorkerPayload(req translate.ChatRequest, stream bool) map[string]any {
 	return payload
 }
 
-func (e ChatExecutor) pick(prefer, providerFilter string, excluded map[string]struct{}) (accounts.Item, error) {
+func (e ChatExecutor) pick(prefer, providerFilter, regionFilter string, excluded map[string]struct{}) (accounts.Item, error) {
 	if e.Pool != nil {
 		if item, ok := e.Pool.PickRoute(accounts.RouteQuery{
 			PreferAccount:  prefer,
 			ProviderFilter: providerFilter,
+			RegionFilter:   regionFilter,
 			Excluded:       excluded,
 		}); ok {
 			return item, nil
 		}
+	}
+	if providerFilter != "" && regionFilter != "" {
+		return accounts.Item{}, fmt.Errorf("no %s/%s accounts available", providerFilter, regionFilter)
 	}
 	if providerFilter != "" {
 		return accounts.Item{}, fmt.Errorf("no %s accounts available", providerFilter)
@@ -145,13 +149,20 @@ func (e ChatExecutor) pick(prefer, providerFilter string, excluded map[string]st
 	return accounts.Item{}, fmt.Errorf("no worker accounts configured")
 }
 
-func (e ChatExecutor) attemptsFor(providerFilter string) int {
+func (e ChatExecutor) attemptsFor(providerFilter, regionFilter string) int {
 	if e.Pool != nil {
-		if n := e.Pool.LenRoute(accounts.RouteQuery{ProviderFilter: providerFilter}); n > 0 {
+		if n := e.Pool.LenRoute(accounts.RouteQuery{ProviderFilter: providerFilter, RegionFilter: regionFilter}); n > 0 {
 			return n
 		}
 	}
 	return 1
+}
+
+func pinRegion(current, next string) string {
+	if current != "" {
+		return current
+	}
+	return strings.ToLower(strings.TrimSpace(next))
 }
 
 func isInProcessItem(item accounts.Item) bool {
@@ -237,10 +248,16 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 	}
 	excluded := map[string]struct{}{}
 	var lastErr error
-	attempts := e.attemptsFor(providerFilter)
+	regionFilter := ""
+	if prefer != "" && e.Pool != nil {
+		if pinnedItem, ok := e.Pool.ByID(prefer); ok {
+			regionFilter = pinRegion("", pinnedItem.Region)
+		}
+	}
+	attempts := e.attemptsFor(providerFilter, regionFilter)
 	pinned := prefer
 	for i := 0; i < attempts; i++ {
-		item, err := e.pick(prefer, providerFilter, excluded)
+		item, err := e.pick(prefer, providerFilter, regionFilter, excluded)
 		if err != nil {
 			if lastErr != nil {
 				return ChatResult{AttemptCount: i, AccountID: lastAccountID(excluded), Provider: providerFilter}, lastErr
@@ -248,6 +265,10 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 			return ChatResult{}, err
 		}
 		prefer = ""
+		if regionFilter == "" {
+			regionFilter = pinRegion(regionFilter, item.Region)
+			attempts = e.attemptsFor(providerFilter, regionFilter)
+		}
 		if isInProcessItem(item) {
 			result, classified, err := e.chatInProcessNonStreamAttempt(ctx, item, req, i)
 			if err == nil {
@@ -528,11 +549,17 @@ func (e ChatExecutor) ChatStreamProxy(ctx context.Context, req translate.ChatReq
 	}
 	excluded := map[string]struct{}{}
 	var lastErr error
-	attempts := e.attemptsFor(providerFilter)
+	regionFilter := ""
+	if prefer != "" && e.Pool != nil {
+		if pinnedItem, ok := e.Pool.ByID(prefer); ok {
+			regionFilter = pinRegion("", pinnedItem.Region)
+		}
+	}
+	attempts := e.attemptsFor(providerFilter, regionFilter)
 	pinned := prefer
 	startedAll := time.Now()
 	for i := 0; i < attempts; i++ {
-		item, err := e.pick(prefer, providerFilter, excluded)
+		item, err := e.pick(prefer, providerFilter, regionFilter, excluded)
 		if err != nil {
 			if lastErr != nil {
 				return StreamResult{AttemptCount: i, AccountID: lastAccountID(excluded), Provider: providerFilter}, lastErr
@@ -540,6 +567,10 @@ func (e ChatExecutor) ChatStreamProxy(ctx context.Context, req translate.ChatReq
 			return StreamResult{}, err
 		}
 		prefer = ""
+		if regionFilter == "" {
+			regionFilter = pinRegion(regionFilter, item.Region)
+			attempts = e.attemptsFor(providerFilter, regionFilter)
+		}
 		if isInProcessItem(item) {
 			result, classified, err := e.chatInProcessStreamAttempt(ctx, item, req, i)
 			if err == nil {

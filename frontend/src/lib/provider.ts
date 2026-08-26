@@ -1,6 +1,6 @@
-export function isQoderGlobalProvider(provider?: string) {
+export function isQoderProvider(provider?: string) {
   const value = String(provider || '').toLowerCase()
-  return !value || value === 'qoder' || value === 'qoder-global'
+  return !value || value === 'qoder' || value === 'qoder-global' || value === 'qoder-cn'
 }
 
 export function isWorkBuddyProvider(provider?: string) {
@@ -17,6 +17,8 @@ export function accountProviderLabel(
   if (isWorkBuddyProvider(providerID)) {
     return regionID === 'global' ? t('accountTypeWorkBuddyGlobal') : t('accountTypeWorkBuddyCN')
   }
-  if (isQoderGlobalProvider(providerID)) return t('accountTypeQoderGlobal')
+  if (isQoderProvider(providerID)) {
+    return regionID === 'cn' ? t('accountTypeQoderCN') : t('accountTypeQoderGlobal')
+  }
   return provider || t('account')
 }

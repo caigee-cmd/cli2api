@@ -80,6 +80,28 @@ func TestAccountsCreatePersistsProviderAndRegion(t *testing.T) {
 	}
 }
 
+func TestAccountsCreateQoderCN(t *testing.T) {
+	srv := newProviderTestServer(t)
+	req := httptest.NewRequest(http.MethodPost, "/api/accounts", bytes.NewBufferString(
+		`{"name":"CN","provider":"qoder","region":"cn","enabled":false}`))
+	req.Header.Set("Authorization", "Bearer secret")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var created struct {
+		Provider string `json:"provider"`
+		Region   string `json:"region"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	if created.Provider != "qoder" || created.Region != "cn" {
+		t.Fatalf("created = %+v", created)
+	}
+}
+
 func TestProvidersEndpointExposesDescriptors(t *testing.T) {
 	srv := newProviderTestServer(t)
 	req := httptest.NewRequest(http.MethodGet, "/api/providers", nil)

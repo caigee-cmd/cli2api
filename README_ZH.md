@@ -164,7 +164,7 @@ X-Qoder-Account: acc_...
 - 需要在多个 Qoder 账号之间自动路由和故障切换
 - 想保留 Qoder 登录能力，同时避免每个请求启动完整 CLI Agent
 
-目前上游只支持 Qoder。CLI2API 是本地代理，不提供账号、额度或官方 API 服务。
+目前支持的账号类型是 Qoder 国际版、Qoder 国内版和 WorkBuddy。CLI2API 是本地代理，不提供账号、额度或官方 API 服务。
 
 ## 工作方式
 
@@ -179,7 +179,7 @@ OpenAI 客户端
 
 ## 支持的功能
 
-- 浏览器 Device Flow OAuth、PAT、`qoder-native-v1` 凭证导入/导出
+- Qoder 国际版 / 国内版的浏览器 Device Flow OAuth、PAT、`qoder-native-v1` 凭证导入/导出
 - OpenAI 兼容的 `GET /v1/models`
 - 流式和非流式响应
 - Tool calls 与 `reasoning_content`
@@ -196,6 +196,8 @@ OpenAI 客户端
 | `QODER_RUNTIME_DIR` | `/run/cli2api` | 临时的账号 Qoder 运行目录 |
 | `QODER_MAX_INFLIGHT` | `4` | 单账号最大并发请求数 |
 | `QODER_WORKER_BASE_PORT` | `32100` | 内部 worker 端口起点 |
+| `QODERCLI_JS` | 镜像默认值 | 固定的 Qoder 国际版 CLI bundle |
+| `QODERCNCLI_JS` | 镜像默认值 | 固定的 Qoder 国内版 CLI bundle |
 | `UPDATE_GITHUB_TOKEN` | 空 | 可选的 GitHub Release 查询 Token |
 | `UPDATE_AGENT_URL` | 空 | Docker Desktop 本机 updater 地址，由安装器写入 |
 | `UPDATE_AGENT_TOKEN` | 空 | Docker Desktop updater 令牌，由安装器写入 |
