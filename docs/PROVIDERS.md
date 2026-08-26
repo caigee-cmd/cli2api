@@ -91,7 +91,8 @@ WorkBuddy2API 把 **WorkBuddy CN / CodeBuddy**（`copilot.tencent.com` / `www.co
 - URL：CN `https://copilot.tencent.com/v2/chat/completions`；global `https://www.workbuddy.ai/v2/chat/completions`
 - 上游拒绝非流式，发出前强制 `stream: true`；对本仓库客户端的非流式请求，应在适配器内聚合 SSE
 - `tool_choice` 必须是 string。对象形式会 `400 code=11101`
-- 关键头：`Authorization`、`X-User-Id`、`X-Enterprise-Id` 或 `X-No-*`、`X-Product: SaaS`、`X-Domain`、UA `CLI/2.63.2 CodeBuddy/2.63.2`
+- 关键头：`Authorization`、`X-User-Id`、`X-Enterprise-Id` 或 `X-No-*`、`X-Product: SaaS`、`X-Domain`、UA `CLI/2.139.0 CodeBuddy/2.139.0`
+- Chat 另加官方 CLI 通道头（CN/Global 同名，Origin/host 仍按区域分开）：`X-IDE-Type/Name/Version`、`X-Agent-Type/Intent`、`X-Request-ID` / conversation/session IDs、`X-Product-Version`、`X-Private-Data: false`。Refresh 不带这些头，也绝不带 `X-API-Key`
 - SSE 已是 OpenAI chunk 形态，含 `delta.content`、`delta.reasoning_content`、按 index 合并的 `tool_calls`
 
 ### 模型

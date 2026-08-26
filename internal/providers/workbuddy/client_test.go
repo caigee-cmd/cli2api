@@ -217,6 +217,78 @@ func TestPrepareBodyForcesStreamAndStringToolChoice(t *testing.T) {
 	}
 }
 
+func TestPrepareBodyDropsNullAndEmptyTools(t *testing.T) {
+	nullOut := PrepareBody([]byte(`{"model":"m","tools":null}`))
+	var nullBody map[string]any
+	if err := json.Unmarshal(nullOut, &nullBody); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := nullBody["tools"]; ok {
+		t.Fatalf("null tools should be dropped: %v", nullBody)
+	}
+	emptyOut := PrepareBody([]byte(`{"model":"m","tools":[],"tool_choice":"auto"}`))
+	var emptyBody map[string]any
+	if err := json.Unmarshal(emptyOut, &emptyBody); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := emptyBody["tools"]; ok {
+		t.Fatalf("empty tools should be dropped: %v", emptyBody)
+	}
+	if _, ok := emptyBody["tool_choice"]; ok {
+		t.Fatalf("tool_choice without tools should be dropped: %v", emptyBody)
+	}
+}
+
+func TestChatHeadersStayRegionSpecificAndIncludeCLIChannel(t *testing.T) {
+	cn := http.Header{}
+	SetChatHeaders(cn, Credential{AccessToken: "at", UID: "u1", Domain: "www.codebuddy.cn"})
+	if cn.Get("Origin") != "https://www.codebuddy.cn" || cn.Get("Referer") != "https://www.codebuddy.cn/" {
+		t.Fatalf("CN origin/referer mixed: %+v", cn)
+	}
+	if got := cn.Get("User-Agent"); got != UserAgent || !strings.Contains(got, "2.139.0") {
+		t.Fatalf("CN UA=%q", got)
+	}
+	if cn.Get("X-Product") != "SaaS" || cn.Get("X-IDE-Type") != "CLI" || cn.Get("X-Agent-Intent") != "craft" ||
+		cn.Get("X-Agent-Type") != "main" || cn.Get("X-Private-Data") != "false" || cn.Get("X-Request-ID") == "" {
+		t.Fatalf("CN missing CLI channel headers: %+v", cn)
+	}
+	if cn.Get("X-Refresh-Token") != "" || cn.Get("X-API-Key") != "" {
+		t.Fatal("chat must not carry refresh token or API key")
+	}
+	if strings.Contains(cn.Get("Origin"), "workbuddy.ai") {
+		t.Fatal("CN chat must not use Global origin")
+	}
+
+	global := http.Header{}
+	SetChatHeaders(global, Credential{AccessToken: "at", UID: "u2", Domain: "www.workbuddy.ai"})
+	if global.Get("Origin") != "https://www.workbuddy.ai" || global.Get("Referer") != "https://www.workbuddy.ai/" {
+		t.Fatalf("Global origin/referer mixed: %+v", global)
+	}
+	if global.Get("X-IDE-Type") != "CLI" || global.Get("X-Product") != "SaaS" {
+		t.Fatalf("Global missing CLI channel headers: %+v", global)
+	}
+	if strings.Contains(global.Get("Origin"), "codebuddy.cn") {
+		t.Fatal("Global chat must not use CN origin")
+	}
+	globalCred := Credential{Domain: "www.workbuddy.ai"}
+	if globalCred.ChatBase() != ChatBaseGlobal || globalCred.BillingBase() != ChatBaseGlobal {
+		t.Fatal("Global billing host must equal chat host")
+	}
+	cnCred := Credential{Domain: "www.codebuddy.cn"}
+	if cnCred.ChatBase() != ChatBaseCN || cnCred.BillingBase() != BillingBaseCN {
+		t.Fatal("CN chat and billing hosts must stay split")
+	}
+
+	refresh := http.Header{}
+	SetRefreshHeaders(refresh, Credential{RefreshToken: "rt", Domain: "www.codebuddy.cn"})
+	if refresh.Get("X-Refresh-Token") != "rt" {
+		t.Fatal("refresh must carry X-Refresh-Token")
+	}
+	if refresh.Get("X-IDE-Type") != "" || refresh.Get("X-Agent-Intent") != "" || refresh.Get("X-Request-ID") != "" {
+		t.Fatalf("refresh must not carry CLI channel headers: %+v", refresh)
+	}
+}
+
 func TestProbeReadyWithCredential(t *testing.T) {
 	client, store := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatalf("probe should not hit network when credential is fresh: %s", r.URL.Path)

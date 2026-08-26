@@ -18,16 +18,24 @@ const (
 	ChatBaseGlobal = "https://www.workbuddy.ai"
 	BillingBaseCN  = "https://www.codebuddy.cn"
 
-	UserAgent = "CLI/2.63.2 CodeBuddy/2.63.2"
+	// UserAgent matches official @tencent-ai/codebuddy-code 2.139.0 in the
+	// dual-token form WorkBuddy chat still accepts. Origin/Referer stay
+	// region-specific and must never mix CN with Global.
+	CLIVersion = "2.139.0"
+	UserAgent  = "CLI/" + CLIVersion + " CodeBuddy/" + CLIVersion
 
-	pathAuthState      = "/v2/plugin/auth/state"
-	pathAuthToken      = "/v2/plugin/auth/token"
-	pathAuthAccount    = "/v2/plugin/login/account"
-	pathTokenRefresh   = "/v2/plugin/auth/token/refresh"
-	pathChat           = "/v2/chat/completions"
-	pathModels         = "/console/enterprises/personal/models"
-	pathUserResource   = "/v2/billing/meter/get-user-resource"
-	pathDailyCheckin   = "/v2/billing/meter/daily-checkin"
+	productTypeCLI     = "CLI"
+	agentIntentDefault = "craft"
+	agentTypeMain      = "main"
+
+	pathAuthState    = "/v2/plugin/auth/state"
+	pathAuthToken    = "/v2/plugin/auth/token"
+	pathAuthAccount  = "/v2/plugin/login/account"
+	pathTokenRefresh = "/v2/plugin/auth/token/refresh"
+	pathChat         = "/v2/chat/completions"
+	pathModels       = "/console/enterprises/personal/models"
+	pathUserResource = "/v2/billing/meter/get-user-resource"
+	pathDailyCheckin = "/v2/billing/meter/daily-checkin"
 
 	sessionDeadCode = 12153
 	sessionDeadText = "Offline user session not found"

@@ -16,6 +16,7 @@ func PrepareBody(src []byte) []byte {
 	}
 	body["stream"] = true
 	normalizeToolChoice(body)
+	dropEmptyTools(body)
 	out, err := json.Marshal(body)
 	if err != nil {
 		return src
@@ -68,4 +69,20 @@ func functionName(value map[string]any) string {
 	}
 	name, _ := value["name"].(string)
 	return name
+}
+
+func dropEmptyTools(body map[string]any) {
+	raw, ok := body["tools"]
+	if !ok {
+		return
+	}
+	if raw == nil {
+		delete(body, "tools")
+		return
+	}
+	list, ok := raw.([]any)
+	if ok && len(list) == 0 {
+		delete(body, "tools")
+		delete(body, "tool_choice")
+	}
 }
