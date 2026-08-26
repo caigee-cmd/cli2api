@@ -1,6 +1,6 @@
-# CaiAI 前端设计规范
+# CLI2API 前端设计规范
 
-本项目是「公开营销页 + 已登录 SaaS 控制台」的双表面应用，基于 React、Vite、HeroUI v3、Tailwind v4 和 Phosphor 图标。前端改动应保持现有安静、功能导向、暖白象牙色的界面风格。控制台侧重克制与密度，营销页允许更大的排版与动效自由（见下文「营销表面」）。不要为单个功能引入新的视觉语言。
+本项目是纯已登录控制台应用（登录页 + 内部页面），基于 React、Vite、HeroUI v3、Tailwind v4 和 Phosphor 图标。前端改动应保持现有安静、功能导向、暖白象牙色的界面风格。不要为单个功能引入新的视觉语言。
 
 ## 唯一真相来源
 
@@ -30,25 +30,6 @@
 - 在 dashboard 界面里放大号标题排版
 - 毛玻璃、光斑/球体、装饰性色块
 - 为每个功能都加一个新强调色
-
-## 营销表面（公开页）
-
-上面「视觉方向」里的密度要求与「避免营销式布局」条款**仅适用于已登录控制台**（当前项目为 `/`、`/accounts`、`/providers`、`/access`）。公开营销页（`/`、`/pricing`、`/docs`、`/about`、条款页）是另一张脸，允许更大的表达自由度，但底色、token、克制感不变。
-
-允许：
-
-- 大号 display 排版：`font-display` + `text-4xl → text-6xl`，仅用于营销页的 hero / 区块标题。
-- 单一、低透明度、同色系的柔光 hero glow（如 `bg-foreground/[0.04] blur-3xl`），一个视口一个，不叠第二个。
-- 一个交互式焦点物件（如首页的 `ApiKeyCard`），作为页面的触觉中心；必须遵守 `prefersReducedMotion()`，reduced-motion 下静止。
-- `bg-gradient-notice` 营销条，用于公告 / 促销 / 充值提示这类「需要跳一下」的条带。
-- GSAP 营销动效（进场、滚动揭示），快速且克制，遵守现有缓动 token。
-
-仍然禁止：
-
-- 彩色堆叠面板、套娃卡片
-- 多个发光光斑、彩色光球、毛玻璃
-- 无意义的大面积渐变背景
-- 营销页里出现第二种强调色
 
 ## 颜色 Token
 
@@ -230,10 +211,10 @@ CLI2API 的浏览器图标、PWA 清单和社交卡走极简 line-icon 路线，
 | `frontend/public/favicon.svg` | source | 主图标，`stroke="currentColor"` 主题自适应 |
 | `frontend/public/favicon-dark.svg` | source | 显式 `#A78BFA` stroke，深色模式回退 |
 | `frontend/public/apple-touch-icon.svg` | source | iOS 启动图标，180×180 暖白底圆角 |
-| `frontend/public/og-card.svg` | source | 1280×640 社交卡（README 分享预览） |
+| `frontend/public/og-card.svg` | source | 1280×640 社交卡（运行时 og:image） |
 | `frontend/public/site.webmanifest` | source | PWA 清单 |
 | `internal/webui/static/*` | runtime | 同上副本，被 Go `//go:embed` 打包进二进制 |
-| `docs/assets/og-card.svg` | docs | README 相对链接副本 |
+| `docs/assets/overview-card.png` | docs | README 顶部概览卡（手工维护） |
 
 ### 设计约束
 
@@ -247,7 +228,7 @@ CLI2API 的浏览器图标、PWA 清单和社交卡走极简 line-icon 路线，
 
 1. 改 `frontend/public/*` 源文件
 2. `make sync` — 复制到 `internal/webui/static/` 并嵌入 Go 二进制
-3. `make favicon-sync` — 额外把 `og-card.svg` 同步到 `docs/assets/`
+3. `make favicon-sync` — 等价于 `make sync`，只同步 favicon 套件到嵌入静态资源
 4. `CHANGELOG.md` `## Unreleased` 加双语条目
 5. 如果新增了静态资源文件，三处都要改：
    - `frontend/scripts/sync-static.mjs` 的 `for (const name of [...])` 白名单
@@ -258,7 +239,7 @@ CLI2API 的浏览器图标、PWA 清单和社交卡走极简 line-icon 路线，
 
 # Qoder API Proxy 产品与运行时约束
 
-以下内容保留当前项目的后端架构、协议边界、账号路由和部署约束；前端视觉与交互以本文前半部分的 CaiAI 设计规范为准。
+以下内容保留当前项目的后端架构、协议边界、账号路由和部署约束；前端视觉与交互以本文前半部分的设计规范为准。
 
 Canonical design and product notes for agents. Plans live in `docs/PLAN.md`. Hard rules live in `AGENTS.md`.
 
@@ -369,6 +350,12 @@ Supported account onboarding:
 - `qoder-native-v1` JSON import containing the encrypted `.auth/user` blob and its
   matching `machine_id` (Global lives under `.qoder`, CN under `.qoder-cn`)
 
+Qoder login waits for the per-account worker to report `hasAuthManager` on `/health`
+before proxying `/admin/login/device` or `/admin/login/pat`. `cmd.Start()` still
+returns immediately after spawn; WASM init can take several seconds on a cold CN
+CLI, so the first click must not race `ECONNREFUSED` or an uncaptured AuthManager.
+A missing AuthManager during login is `not_ready` (503), not `auth`.
+
 Arbitrary `access_token` / `refresh_token` JSON is not supported. Qoder credentials
 also depend on private user material, organization data, encryption keys, and device
 identity. The API never returns raw credentials except through the explicit export
@@ -380,10 +367,10 @@ Error taxonomy (do not treat every 429 as empty balance):
 
 | Kind | Signal | HTTP | Fail over | Cooldown |
 |------|--------|------|-----------|----------|
-| quota | `insufficient_quota`, `#token-limit`, oversized prompt | 429 | no | no |
+| quota | `insufficient_quota`, `#token-limit` | 429 | no | no |
 | rate_limit | generic 429 / too many requests | 429 | yes | ~60s, honor Retry-After, cap 10m |
 | auth | 401/403, FORBIDDEN | 401/403 | yes | ~30s + rewarm |
-| not_ready | hot context missing | 503 | yes | ~10s |
+| not_ready | hot context missing, AuthManager not captured, worker not warm | 503 | yes | ~10s |
 | unavailable | transport / 5xx | 502/503 | yes | ~15s |
 
 `QODER_MAX_INFLIGHT` default 4. WASM encode + rewarm share one lock; do not hold it across upstream fetch.
@@ -400,10 +387,11 @@ not add its own cache.
 
 Go `refreshOne` fetches quota after health for hot/ready accounts and stores a
 `QuotaSnapshot` on the pool item. Quota is display-only: fetch failures are swallowed and
-never flip account readiness, cooldown, or scheduling. WorkBuddy and other in-process
-providers report no quota; the card simply omits the block. The account card renders one
-progress bar with `remaining/total <unit>`, `--danger` at 100% / exceeded, `--warning` at
-≥80%, plus an optional add-on line.
+never flip account readiness, cooldown, or scheduling. Qoder reads quota from the daemon;
+WorkBuddy reads remaining credits from its billing meter API (`unit: credits`). An
+in-process provider without a quota surface simply omits the block. The account card
+renders one progress bar with `remaining/total <unit>`, `--danger` at 100% / exceeded,
+`--warning` at ≥80%, plus an optional add-on line.
 
 Distinguish this account-level quota from the request-level `insufficient_quota` error kind:
 that error means a per-request token/model limit, not a zero account balance.
@@ -477,7 +465,7 @@ Ideas intentionally not copied:
 
 ## Design system
 
-The console follows the CaiAI frontend design baseline, adapted to this Vite app.
+The console follows the frontend design baseline in the first half of this doc, adapted to this Vite app.
 
 ### Surface and tone
 
@@ -542,6 +530,7 @@ After UI edits:
 | `frontend/src/components/layout/` | Shell / menu |
 | `internal/accounts/` | SQLite account repository, migrations, snapshots, scheduler, child lifecycle, request logs |
 | `internal/logs/` | Runtime ring buffer and async request recorder |
+| `internal/providers/` | Provider registry, route pools, in-process adapters (`workbuddy/`) |
 | `internal/update/` | Release selection and updater client |
 | `internal/updater/` | Host-side Docker replacement and rollback |
 | `worker/src/daemon.mjs` | One-account Qoder runtime only |

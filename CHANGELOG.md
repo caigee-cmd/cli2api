@@ -8,14 +8,24 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 ### English
 
 - Add Qoder CN accounts as `provider=qoder` + `region=cn`, using pinned `@qodercn-ai/qoderclicn@1.1.27` and `.qoder-cn`
+- Wait for the Qoder worker AuthManager before browser or PAT login, so the first click does not fail while WASM is still starting
+- Stop locally rejecting oversized Qoder prompts; let the upstream quota or context limit decide
 - Keep Qoder failover inside the same region so Global 429s do not land on CN
 - Send CodeBuddy CLI 2.139.0 channel headers on WorkBuddy chat, with CN and Global Origin/host kept separate
+- Swap the repository front page to the Chinese README; the English README now lives at `README_EN.md`
+- Replace the social card and console screenshot with a single overview card (`docs/assets/overview-card.png`) in both READMEs
+- Redesign both READMEs around the console design language: add project-native SVG hero, console window, and architecture visuals, and reorder sections so quick start and client setup lead
 
 ### 中文
 
 - 支持添加 Qoder 国内版账号（`provider=qoder`，`region=cn`），使用 pinned `@qodercn-ai/qoderclicn@1.1.27` 和 `.qoder-cn`
+- Qoder 浏览器 / PAT 登录会先等 worker AuthManager 就绪，避免第一次点击时 WASM 还在启动就报错
+- 取消 Qoder 本地超大 prompt 预检，过大请求改由上游额度 / 上下文限制处理
 - Qoder 故障切换限制在同一 region，国际版 429 不会打到国内版
 - WorkBuddy 聊天补齐 CodeBuddy CLI 2.139.0 通道头，国内版 / 国际版 Origin 与 host 仍分开
+- 仓库首页改为中文 README，英文 README 移至 `README_EN.md`
+- 两个 README 顶部的社交卡和控制台截图替换为一张概览卡（`docs/assets/overview-card.png`）
+- 按控制台设计语言重做两个 README：新增项目原生 SVG hero、控制台窗口与架构图，并重排章节，让快速开始与接入说明前置
 
 ## 0.2.10 - 2026-08-26
 

@@ -1,37 +1,55 @@
 # CLI2API
 
-[中文](README_ZH.md) · [Issues](https://github.com/caigee-cmd/cli2api/issues) · [Contributing](CONTRIBUTING.md)
+[English](README_EN.md) · [问题反馈](https://github.com/caigee-cmd/cli2api/issues) · [贡献指南](CONTRIBUTING.md)
 
 [![CI](https://github.com/caigee-cmd/cli2api/actions/workflows/ci.yml/badge.svg)](https://github.com/caigee-cmd/cli2api/actions/workflows/ci.yml)
 [![Docker Image](https://ghcr-badge.egpl.dev/caigee-cmd/cli2api/latest_tag?label=docker&color=blue)](https://github.com/caigee-cmd/cli2api/pkgs/container/cli2api)
 [![License](https://img.shields.io/github/license/caigee-cmd/cli2api)](LICENSE)
 
-Turn **your own Qoder CLI login** into a local OpenAI-compatible API.
+<p align="center">
+  <img src="./docs/assets/readme/hero-zh.svg" width="100%" alt="CLI2API — 把你的 Qoder CLI 登录态，变成一个本机运行的 OpenAI 兼容 API">
+</p>
 
-CLI2API is an unofficial, self-hosted gateway for Qoder. Keep using OpenAI SDKs, Codex, CherryStudio, and other compatible clients—just point their Base URL at this local service.
+把你自己的 **Qoder CLI 登录态**，变成一个本机运行的 OpenAI 兼容 API。
 
-![CLI2API social card](docs/assets/og-card.svg)
-
-![CLI2API console](docs/assets/console.png)
+CLI2API 是一个非官方、自托管的 Qoder API 网关。启动以后，你可以继续使用熟悉的 OpenAI SDK、Codex、CherryStudio 等客户端，只需要把 Base URL 指向本机服务。
 
 > [!IMPORTANT]
-> CLI2API is not affiliated with or endorsed by Qoder. Use only accounts you are authorized to use, and follow the terms of Qoder and related services.
+> CLI2API 与 Qoder 官方无关联，也未获得官方背书。请只使用你有权使用的账号，并遵守 Qoder 及相关服务条款。
 
-## What you get
+## 你会得到什么
 
-- A local OpenAI-compatible `POST /v1/chat/completions` endpoint
-- Streaming and non-streaming responses, tool calls, and `reasoning_content`
-- A web console for Qoder accounts, models, and API testing
-- Multi-account routing, account pinning, concurrency limits, cooldowns, and failover
-- A Docker Compose deployment for personal development, homelabs, and private servers
+- 一个兼容 OpenAI Chat Completions 的本地接口：`/v1/chat/completions`
+- 支持流式输出、非流式输出、工具调用和 `reasoning_content`
+- 一个可以管理 Qoder 账号、模型和接口测试的 Web 控制台
+- 多账号路由、账号固定、并发限制、冷却和故障切换
+- 一个适合个人开发、家庭实验室和私有部署的 Docker Compose 服务
 
-CLI2API does not spawn a full Qoder CLI Agent for every request. Authentication, WASM encoding, and the Qoder cloud HTTP/SSE connection stay warm in long-lived workers.
+它不会为每个请求启动完整的 Qoder CLI Agent，而是让鉴权、WASM 编码和 Qoder 云端 HTTP/SSE 连接保持在常驻 worker 中。
 
-## Quick start
+![CLI2API 支持的登录方式、账号类型、端点和部署形态](docs/assets/overview-card.png)
 
-Requirements: Docker Desktop on macOS/Windows, or Docker Engine with Compose on Linux, plus a Qoder account you control. On Windows, Docker Desktop must be using Linux containers.
+## 控制台
 
-macOS / Linux:
+<p align="center">
+  <img src="./docs/assets/readme/console-window-zh.svg" width="100%" alt="CLI2API 控制台 Accounts 页：每个账号显示登录方式、就绪状态与额度，右侧 Access 面板提供 Base URL 与快速验证">
+</p>
+
+账号、模型、接入和日志都在同一个 Web 控制台里管理：每个账号独立登录（浏览器 OAuth、PAT 或凭证导入），就绪状态和额度一目了然，Access 页可以直接复制 Base URL 并做一次快速验证。
+
+## 工作方式
+
+<p align="center">
+  <img src="./docs/assets/readme/architecture-zh.svg" width="100%" alt="CLI2API 架构：OpenAI 客户端经 Go 控制面路由到每账号独立 Node worker，再连接 Qoder 云端">
+</p>
+
+每个启用账号拥有独立的 Node 进程和运行目录，避免共享 Qoder WASM 上下文。Go 负责账号持久化、调度、并发限制、冷却、失败切换和子进程生命周期。
+
+## 先跑起来
+
+依赖：macOS / Windows 使用 Docker Desktop，Linux 使用 Docker Engine + Compose；另外需要一个你自己控制的 Qoder 账号。Windows 的 Docker Desktop 必须切换到 Linux containers。
+
+macOS / Linux：
 
 ```bash
 git clone https://github.com/caigee-cmd/cli2api.git
@@ -39,7 +57,7 @@ cd cli2api
 ./scripts/start.sh
 ```
 
-Windows PowerShell:
+Windows PowerShell：
 
 ```powershell
 git clone https://github.com/caigee-cmd/cli2api.git
@@ -47,178 +65,167 @@ Set-Location cli2api
 powershell -ExecutionPolicy Bypass -File .\scripts\start.ps1
 ```
 
-The launcher creates `deploy/.env` when needed, starts the published image, and builds locally if the image is unavailable.
+启动脚本会自动创建 `deploy/.env`，优先启动已发布镜像；镜像不可用时会自动从源码构建。
 
-On first startup, the service generates a random API key, stores it in SQLite, and prints it once in the logs. Save it first:
+首次启动时，服务会生成一个随机 API Key，保存到 SQLite，并在日志中打印一次。请先保存它：
 
 ```bash
 docker compose --env-file deploy/.env -f deploy/docker-compose.yml logs qoder-api-proxy
 ```
 
-Open `http://127.0.0.1:3010`, sign in with that key, and add Qoder accounts from **Accounts**.
+然后打开 `http://127.0.0.1:3010`，使用这个 Key 登录控制台，在 **Accounts** 页面添加 Qoder 账号。
 
-The default deployment publishes only `127.0.0.1:3010`; it does not expose the service publicly.
+默认只监听本机地址 `127.0.0.1:3010`，不会直接暴露到公网。
 
-## Managed updates
+## 接入 OpenAI 客户端
 
-Start CLI2API once, then install the optional host updater.
-
-| Host | Application runtime | Host updater |
-|------|---------------------|--------------|
-| Linux `amd64` / `arm64` | matching Linux Docker image | systemd + Unix Socket |
-| macOS Intel / Apple Silicon | Docker Desktop Linux container | per-user LaunchAgent |
-| Windows `amd64` / `arm64` | Docker Desktop Linux container | current-user Scheduled Task |
-
-The main API service remains a Linux container; native macOS and Windows application binaries are not published. Release images support `linux/amd64` and `linux/arm64`. Each release also includes six native updater assets and `cli2api-updater_checksums.txt`.
-
-Installers prefer a checksum-verified prebuilt updater. Linux first reuses the architecture-matched updater inside the running container. If an older release has no updater asset, the installers try the latest protocol-compatible asset and finally fall back to a local Go `1.25.6+` build.
-
-macOS + Docker Desktop:
-
-```bash
-./deploy/install-updater.sh
-docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --force-recreate qoder-api-proxy
-```
-
-Linux + systemd:
-
-```bash
-sudo ./deploy/install-updater.sh
-docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --force-recreate qoder-api-proxy
-```
-
-Windows + Docker Desktop, from PowerShell as the logged-in Docker user:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\deploy\install-updater.ps1
-docker compose --env-file deploy\.env -f deploy\docker-compose.yml up -d --force-recreate qoder-api-proxy
-```
-
-Linux uses a private Unix Socket. macOS uses a per-user LaunchAgent, and Windows uses a current-user Scheduled Task; both Docker Desktop platforms connect through a token-protected updater bound to `127.0.0.1`. The Windows installer also verifies that a container can reach the updater through `host.docker.internal` when `qoder-api-proxy` already exists.
-
-The **System** page permits only the immediate next stable release. It does not accept custom targets, skip releases, or install prereleases. Before replacement, the service pauses new requests, drains active requests, and creates an integrity-checked SQLite snapshot under `/data/backups`.
-
-Only `qoder-api-proxy` is recreated; the `qoder-data` volume is never deleted. A failed versioned health check restores both the previous image and the pre-update SQLite snapshot, and pins `CLI2API_IMAGE` back to the previous version for future restarts. The five most recent snapshots are retained.
-
-## Maintainer release
-
-After `main` passes CI, publish the next patch release with one command:
-
-```bash
-gh workflow run release.yml --ref main
-```
-
-Write bilingual user-facing notes in `CHANGELOG.md` under `## Unreleased` before publishing. Each change needs a matching bullet in `### English` and `### 中文`; the workflow copies those notes into the GitHub Release and the console update page.
-
-The workflow waits for the exact `main` commit to pass CI, calculates the next patch from the latest published stable release, creates an invisible draft release, builds six checksum-verified updater binaries, verifies the `linux/amd64` and `linux/arm64` image manifest, and only then publishes the GitHub Release and moves the stable image aliases. After publication it freezes the Unreleased notes under the new version heading. Do not create or push the version tag manually.
-
-You can also use **Actions → Release → Run workflow**. If a pre-publication job fails, use **Re-run failed jobs** on the same run; the draft release remains invisible to application update checks.
-
-## Connect an OpenAI client
-
-Configure your client with:
+客户端配置如下：
 
 ```text
 Base URL: http://127.0.0.1:3010/v1
-API Key:  <the generated key printed on first startup>
+API Key:  <首次启动时生成的 Key>
 ```
 
-Or make a direct request:
+也可以直接发送一个请求：
 
 ```bash
-export CLI2API_API_KEY='paste-the-key-printed-on-first-start'
+export CLI2API_API_KEY='粘贴首次启动时输出的密钥'
 
 curl http://127.0.0.1:3010/v1/chat/completions \
   -H "Authorization: Bearer $CLI2API_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "qwen3.7-plus",
-    "messages": [{"role": "user", "content": "Reply with OK only"}],
+    "messages": [{"role": "user", "content": "只回复 OK"}],
     "stream": false
   }'
 ```
 
-PowerShell equivalent:
+PowerShell 等价写法：
 
 ```powershell
-$env:CLI2API_API_KEY = "paste-the-key-printed-on-first-start"
+$env:CLI2API_API_KEY = "粘贴首次启动时输出的密钥"
 $Headers = @{ Authorization = "Bearer $env:CLI2API_API_KEY" }
 $Body = @{
   model = "qwen3.7-plus"
-  messages = @(@{ role = "user"; content = "Reply with OK only" })
+  messages = @(@{ role = "user"; content = "只回复 OK" })
   stream = $false
 } | ConvertTo-Json -Depth 4
 Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:3010/v1/chat/completions" -Headers $Headers -ContentType "application/json" -Body $Body
 ```
 
-Without an account header, the scheduler selects a ready account. Pin a request to a specific account with:
+不指定账号时，调度器会从可用账号中选择一个。需要固定账号时，添加请求头：
 
 ```text
 X-Qoder-Account: acc_...
 ```
 
-## Use cases
+## 适合什么场景
 
-- Connect Qoder to local or private-server tooling
-- Reuse OpenAI-compatible clients and scripts
-- Route requests across multiple Qoder accounts with failover
-- Keep Qoder login state available without starting a full CLI Agent per request
+- 想在本机或私有服务器上统一接入 Qoder
+- 已经在使用 OpenAI API 格式的客户端或脚本
+- 需要在多个 Qoder 账号之间自动路由和故障切换
+- 想保留 Qoder 登录能力，同时避免每个请求启动完整 CLI Agent
 
-Supported account types are Qoder Global, Qoder CN, and WorkBuddy. CLI2API is a local gateway; it does not provide accounts, quotas, or an official API service.
+目前支持的账号类型是 Qoder 国际版、Qoder 国内版和 WorkBuddy。CLI2API 是本地代理，不提供账号、额度或官方 API 服务。
 
-## How it works
+## 支持的功能
 
-```text
-OpenAI client
-  -> Go API + SQLite account control plane
-    -> one isolated Node worker per Qoder account
-      -> Qoder cloud HTTP/SSE API
+- Qoder 国际版 / 国内版的浏览器 Device Flow OAuth、PAT、`qoder-native-v1` 凭证导入/导出
+- OpenAI 兼容的 `GET /v1/models`
+- 流式和非流式响应
+- Tool calls 与 `reasoning_content`
+- 多 Qoder 账号、账号固定、调度、冷却和故障切换
+- React + Tailwind + HeroUI 控制台，支持明暗主题
+- SQLite 持久化账号凭证，账号运行目录临时化
+- GitHub Actions 自动测试、构建容器和发布 GHCR 镜像
+
+## 配置
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `QODER_DATA_DIR` | `/data` | SQLite 数据库和持久化账号凭证 |
+| `QODER_RUNTIME_DIR` | `/run/cli2api` | 临时的账号 Qoder 运行目录 |
+| `QODER_MAX_INFLIGHT` | `4` | 单账号最大并发请求数 |
+| `QODER_WORKER_BASE_PORT` | `32100` | 内部 worker 端口起点 |
+| `QODERCLI_JS` | 镜像默认值 | 固定的 Qoder 国际版 CLI bundle |
+| `QODERCNCLI_JS` | 镜像默认值 | 固定的 Qoder 国内版 CLI bundle |
+| `UPDATE_GITHUB_TOKEN` | 空 | 可选的 GitHub Release 查询 Token |
+| `UPDATE_AGENT_URL` | 空 | Docker Desktop 本机 updater 地址，由安装器写入 |
+| `UPDATE_AGENT_TOKEN` | 空 | Docker Desktop updater 令牌，由安装器写入 |
+| `CLI2API_UPDATER_SOCKET_DIR` | 按平台设置 | 只读挂载 Linux updater Socket 的宿主机目录 |
+
+API Key 首次生成后只保存在 SQLite 中。服务不再支持通过环境变量设置或轮换 API Key。
+
+## 接口
+
+| 方法 | 路径 | 说明 |
+|------|--------|------|
+| `GET` | `/health` | 健康检查，不需要 API Key |
+| `GET` | `/v1/models` | 模型列表 |
+| `POST` | `/v1/chat/completions` | OpenAI 兼容对话接口 |
+| `GET/POST` | `/api/*` | 控制台管理接口 |
+
+除 `/health` 外，控制台和 API 都需要 SQLite 中保存的 API Key。
+
+## 页面安全更新
+
+先启动一次 CLI2API，再安装可选的本机更新器。
+
+| 宿主机 | 主程序运行方式 | 本机更新器 |
+|--------|----------------|------------|
+| Linux `amd64` / `arm64` | 对应架构的 Linux Docker 镜像 | systemd + Unix Socket |
+| macOS Intel / Apple Silicon | Docker Desktop Linux 容器 | 当前用户 LaunchAgent |
+| Windows `amd64` / `arm64` | Docker Desktop Linux 容器 | 当前用户计划任务 |
+
+主 API 服务始终运行在 Linux 容器中，不发布 macOS / Windows 原生主程序。发布镜像同时支持 `linux/amd64` 和 `linux/arm64`；每个 Release 还会附带 6 个平台/架构 updater 与 `cli2api-updater_checksums.txt`。
+
+安装器优先下载并校验预编译 updater。Linux 会先复用当前容器中架构匹配的 updater；如果旧版本没有发布资产，则尝试最新且协议兼容的资产，最后才回退到本机 Go `1.25.6+` 编译。
+
+macOS + Docker Desktop：
+
+```bash
+./deploy/install-updater.sh
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --force-recreate qoder-api-proxy
 ```
 
-Each enabled account gets its own Node process and runtime directory so Qoder WASM state is not shared across accounts. Go owns persistence, scheduling, concurrency limits, cooldowns, failover, and child-process lifecycle.
+Linux + systemd：
 
-## Features
+```bash
+sudo ./deploy/install-updater.sh
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --force-recreate qoder-api-proxy
+```
 
-- Browser Device Flow OAuth, PAT, and `qoder-native-v1` credential import/export for Qoder Global and Qoder CN
-- OpenAI-compatible `GET /v1/models`
-- Streaming and non-streaming responses
-- Tool calls and `reasoning_content`
-- Multiple Qoder accounts with pinning, routing, cooldown, and failover
-- React + Tailwind + HeroUI console with light and dark themes
-- Persistent SQLite credentials with ephemeral per-account runtime homes
-- GitHub Actions for tests, container builds, and GHCR releases
+Windows + Docker Desktop，请使用当前运行 Docker Desktop 的登录用户打开 PowerShell：
 
-## Configuration
+```powershell
+powershell -ExecutionPolicy Bypass -File .\deploy\install-updater.ps1
+docker compose --env-file deploy\.env -f deploy\docker-compose.yml up -d --force-recreate qoder-api-proxy
+```
 
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `QODER_DATA_DIR` | `/data` | SQLite database and durable account credentials |
-| `QODER_RUNTIME_DIR` | `/run/cli2api` | Ephemeral per-account Qoder runtime homes |
-| `QODER_MAX_INFLIGHT` | `4` | Maximum concurrent requests per account |
-| `QODER_WORKER_BASE_PORT` | `32100` | Internal worker port range |
-| `QODERCLI_JS` | image default | Pinned Qoder Global CLI bundle |
-| `QODERCNCLI_JS` | image default | Pinned Qoder CN CLI bundle |
-| `UPDATE_GITHUB_TOKEN` | empty | Optional GitHub token for release checks |
-| `UPDATE_AGENT_URL` | empty | Docker Desktop host updater URL, written by the installer |
-| `UPDATE_AGENT_TOKEN` | empty | Docker Desktop updater token, written by the installer |
-| `CLI2API_UPDATER_SOCKET_DIR` | platform-specific | Host directory mounted read-only for the Linux updater socket |
+Linux 使用私有 Unix Socket。macOS 使用当前用户的 LaunchAgent，Windows 使用当前用户的计划任务；两个 Docker Desktop 平台都通过强令牌访问仅监听 `127.0.0.1` 的 updater。若 `qoder-api-proxy` 已存在，Windows 安装器还会验证容器能否通过 `host.docker.internal` 访问 updater。
 
-The API key is generated once and stored in SQLite. There is no environment-variable bootstrap path; changing container environment variables does not replace the stored key.
+安装后，控制台 **系统更新** 页面只允许更新到紧邻的下一个稳定版本，不接受自定义版本、跳版本或预发布版本。更新前会暂停新请求、等待在途请求结束，并在 `/data/backups` 创建经过完整性校验的 SQLite 快照。
 
-## Endpoints
+更新过程只重建 `qoder-api-proxy`，不会执行 `docker compose down -v`，也不会删除 `qoder-data`。如果新版健康检查失败，会同时恢复旧镜像和更新前的 SQLite 快照，并把 `CLI2API_IMAGE` 固定回旧版本，避免以后重启时再次进入失败版本。默认保留最近 5 份快照。
 
-| Method | Path | Purpose |
-|--------|------|---------|
-| `GET` | `/health` | Health probe; no API key required |
-| `GET` | `/v1/models` | Model catalog |
-| `POST` | `/v1/chat/completions` | OpenAI-compatible chat |
-| `GET/POST` | `/api/*` | Console management API |
+## 维护者一键发布
 
-All console and API routes except `/health` require the API key stored in SQLite.
+确认 `main` 的 CI 已通过后，只需要执行：
 
-## Development
+```bash
+gh workflow run release.yml --ref main
+```
 
-Requirements: Go `1.25.6+`, Node.js `20+`, npm, and Docker for container development.
+发布前先在 `CHANGELOG.md` 的 `## Unreleased` 下写中英双语用户说明。每条改动都要在 `### English` 和 `### 中文` 里各有一条对应条目；工作流会把这些说明写入 GitHub Release，控制台更新页也会展示它们。
+
+工作流会先等待当前 `main` 提交的 CI 通过，再根据最新已发布稳定版本自动增加 patch 版本；它会创建不可见的 Draft Release，构建并校验 6 个 updater，验证 `linux/amd64` 与 `linux/arm64` 镜像，全部完成后才正式发布 GitHub Release 并移动稳定镜像别名。发布成功后再把 Unreleased 冻结到对应版本标题下。不要再手动创建或推送版本 Tag。
+
+也可以进入 **Actions → Release → Run workflow** 点击发布。如果正式发布前失败，直接在同一次运行中选择 **Re-run failed jobs**；Draft Release 不会被应用的更新检查发现。
+
+## 从源码开发
+
+环境要求：Go `1.25.6+`、Node.js `20+`、npm，以及容器开发所需的 Docker。
 
 ```bash
 # Go API
@@ -229,55 +236,55 @@ go vet ./...
 cd worker
 npm test
 
-# Console
+# 控制台
 cd ../frontend
 npm ci
 npm run build
 npm run lint
 ```
 
-After frontend changes, run `npm run sync` to update the static assets embedded by Go:
+修改前端后运行 `npm run sync`，将构建结果同步到 Go 的嵌入静态资源中：
 
 ```bash
 cd frontend
 npm run sync
 ```
 
-Build and start the container from source:
+从源码构建并启动容器：
 
 ```bash
 cd deploy
 docker compose up -d --build
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for repository rules and validation details.
+更多仓库规则和验证命令见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
-## Documentation
+## 文档
 
-- [Architecture, login, routing, and console design](docs/DESIGN.md)
-- [Current milestone and development plan](docs/PLAN.md)
-- [Docker Compose deployment](deploy/README.md)
-- [Changelog](CHANGELOG.md)
-- [Security policy](SECURITY.md)
+- [架构、登录、路由和控制台设计](docs/DESIGN.md)
+- [当前里程碑与开发计划](docs/PLAN.md)
+- [Docker Compose 部署说明](deploy/README.md)
+- [变更记录](CHANGELOG.md)
+- [安全问题报告](SECURITY.md)
 
-## Security and privacy
+## 安全与隐私
 
-- Never expose the service without the generated API key.
-- Never commit `.qoder`, tokens, cookies, auth blobs, raw captures, or host details.
-- Credential export is an explicit sensitive operation; protect exported files.
-- Upstream API or Qoder CLI changes may break compatibility; qodercli is pinned and checked.
-- Please report security issues privately according to [SECURITY.md](SECURITY.md), not in a public issue.
+- 不要在没有 API Key 保护的情况下暴露服务。
+- 不要提交 `.qoder`、Token、Cookie、登录 Blob、原始抓包或主机信息。
+- 账号凭证导出是显式敏感操作，请妥善保管导出文件。
+- 上游 API 或 Qoder CLI 更新可能导致兼容性变化；项目会固定并检查 qodercli 版本。
+- 发现安全问题请不要直接公开 Issue，按 [SECURITY.md](SECURITY.md) 的方式私下报告。
 
-## Contributing
+## 贡献
 
-Issues, documentation improvements, and pull requests are welcome. Before submitting a change:
+欢迎提交 Issue、改进文档和 Pull Request。提交前请确认：
 
-- Keep the scope clear and avoid new component libraries or unnecessary service dependencies.
-- Run tests and build commands relevant to your changes.
-- Remove tokens, login state, raw protocol captures, and real deployment details from the diff.
+- 变更范围清晰，未引入新的组件库或不必要的服务依赖。
+- 已运行与改动相关的测试和构建命令。
+- Diff 中不包含 Token、登录态、原始协议抓包或真实部署信息。
 
-See [CONTRIBUTING.md](CONTRIBUTING.md).
+详见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
-## License
+## 许可证
 
 [MIT](LICENSE)

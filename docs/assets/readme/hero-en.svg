@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="420" viewBox="0 0 1200 420" role="img" aria-labelledby="hero-title-en hero-desc-en" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', system-ui, sans-serif">
+  <title id="hero-title-en">CLI2API — your Qoder CLI login, served as a local OpenAI-compatible API</title>
+  <desc id="hero-desc-en">Dark card: project name and one-line value on the left, and a terminal panel on the right showing an OpenAI client connecting through the CLI2API gateway to the Qoder cloud.</desc>
+
+  <rect width="1200" height="420" rx="26" fill="#12110f"/>
+
+  <!-- left: identity -->
+  <g id="title-block">
+    <text x="56" y="88" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="20" letter-spacing="3" fill="#22D3EE">QODER CLI → OPENAI API</text>
+
+    <g transform="translate(56 104) scale(2.6)" fill="none">
+      <path d="M13 2 L4 14 H11 L9 11 H13.5 L11 22 L20 10 H13 L15 13 H10.5 Z" stroke="#7C3AED" stroke-width="1.75" stroke-linejoin="round" stroke-linecap="round"/>
+      <circle cx="9" cy="18" r="1.25" fill="#22D3EE"/>
+    </g>
+    <text x="130" y="158" font-size="64" font-weight="700" letter-spacing="-1" fill="#f4eee4">CLI2API</text>
+
+    <text x="56" y="228" font-size="28" fill="#b3aa9d">Your own Qoder CLI login, served</text>
+    <text x="56" y="270" font-size="28" fill="#b3aa9d">as a local OpenAI-compatible API</text>
+
+    <g font-size="18" fill="#f4eee4">
+      <rect x="56" y="318" width="166" height="40" rx="20" fill="#1b1a17" stroke="#2c2a25"/>
+      <text x="139" y="343" text-anchor="middle">Docker Compose</text>
+      <rect x="238" y="318" width="188" height="40" rx="20" fill="#1b1a17" stroke="#2c2a25"/>
+      <text x="332" y="343" text-anchor="middle">OpenAI-compatible</text>
+      <rect x="442" y="318" width="140" height="40" rx="20" fill="#1b1a17" stroke="#2c2a25"/>
+      <text x="512" y="343" text-anchor="middle">MIT License</text>
+    </g>
+  </g>
+
+  <!-- right: request flow in a terminal panel -->
+  <g id="flow-panel">
+    <rect x="648" y="64" width="492" height="292" rx="18" fill="#1b1a17" stroke="#2c2a25"/>
+
+    <circle cx="676" cy="90" r="5" fill="#3a3733"/>
+    <circle cx="694" cy="90" r="5" fill="#3a3733"/>
+    <circle cx="712" cy="90" r="5" fill="#3a3733"/>
+    <text x="1116" y="96" text-anchor="end" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="18" fill="#8a8174">localhost:3010</text>
+    <line x1="648" y1="112" x2="1140" y2="112" stroke="#2c2a25"/>
+
+    <!-- nodes -->
+    <rect x="684" y="152" width="128" height="64" rx="12" fill="#12110f" stroke="#2c2a25"/>
+    <text x="748" y="180" text-anchor="middle" font-size="20" font-weight="600" fill="#f4eee4">OpenAI</text>
+    <text x="748" y="204" text-anchor="middle" font-size="18" fill="#8a8174">client</text>
+
+    <rect x="838" y="152" width="116" height="64" rx="12" fill="#7C3AED" fill-opacity="0.14" stroke="#7C3AED" stroke-width="1.5"/>
+    <text x="896" y="180" text-anchor="middle" font-size="20" font-weight="600" fill="#f4eee4">CLI2API</text>
+    <text x="896" y="204" text-anchor="middle" font-size="18" fill="#b3aa9d">local gateway</text>
+
+    <rect x="980" y="152" width="124" height="64" rx="12" fill="#12110f" stroke="#2c2a25"/>
+    <text x="1042" y="180" text-anchor="middle" font-size="20" font-weight="600" fill="#f4eee4">Qoder</text>
+    <text x="1042" y="204" text-anchor="middle" font-size="18" fill="#8a8174">cloud</text>
+
+    <!-- arrows with data-flow dots -->
+    <line x1="812" y1="184" x2="832" y2="184" stroke="#4a463f" stroke-width="2"/>
+    <path d="M832 178 l8 6 -8 6" fill="none" stroke="#4a463f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="822" cy="184" r="4" fill="#22D3EE"/>
+
+    <line x1="954" y1="184" x2="974" y2="184" stroke="#4a463f" stroke-width="2"/>
+    <path d="M974 178 l8 6 -8 6" fill="none" stroke="#4a463f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="964" cy="184" r="4" fill="#22D3EE"/>
+
+    <!-- transport labels -->
+    <text x="748" y="244" text-anchor="middle" font-size="18" fill="#8a8174">any client</text>
+    <text x="896" y="244" text-anchor="middle" font-size="18" fill="#8a8174">Go + Node</text>
+    <text x="1042" y="244" text-anchor="middle" font-size="18" fill="#8a8174">HTTP / SSE</text>
+
+    <!-- real request -->
+    <circle cx="690" cy="294" r="4" fill="#22D3EE"/>
+    <text x="706" y="300" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="20" fill="#f4eee4">POST /v1/chat/completions</text>
+    <text x="706" y="330" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="18" fill="#8a8174">stream · tool_calls · reasoning_content</text>
+  </g>
+</svg>

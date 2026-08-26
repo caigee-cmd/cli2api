@@ -26,9 +26,8 @@ frontend-build: ## Build frontend
 sync: frontend-build ## Build frontend and sync embedded assets into Go
 	cd frontend && npm run sync
 
-favicon-sync: sync ## Sync favicon suite and OG card to docs/assets/ for README relative links
-	cp frontend/public/og-card.svg docs/assets/og-card.svg
-	@echo "synced: frontend/public/og-card.svg -> docs/assets/og-card.svg"
+favicon-sync: sync ## Sync favicon suite into the embedded webui static assets
+	@echo "synced: frontend/public -> internal/webui/static"
 	@ls -1 frontend/public/favicon*.svg frontend/public/apple-touch-icon.svg frontend/public/og-card.svg frontend/public/site.webmanifest 2>/dev/null
 
 # ── Docker ──────────────────────────────────────────────────────────
