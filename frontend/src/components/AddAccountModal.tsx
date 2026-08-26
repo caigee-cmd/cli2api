@@ -166,6 +166,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
     try {
       setPhase('busy')
       const id = await ensureAccount()
+      setMessage(t('wizardStartingSession'))
       setPhase('polling')
       const output = await startDeviceLogin(id)
       if (output.authUrl) {
@@ -202,6 +203,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
     try {
       setPhase('busy')
       const id = await ensureAccount()
+      setMessage(t('wizardStartingSession'))
       await loginWithPat(token, id)
       setPhase('done')
       setMessage(t('patDone'))

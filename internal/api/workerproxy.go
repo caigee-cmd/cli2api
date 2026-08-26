@@ -4,11 +4,20 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"time"
+)
+
+var (
+	errAccountNotRunning = errors.New("account is disabled or not running")
+	errWorkerNotWarm     = errors.New("account worker is still starting")
+
+	workerLoginReadyTimeout  = 90 * time.Second
+	workerLoginReadyInterval = 200 * time.Millisecond
 )
 
 // workerBase returns the URL of the first running account session. Prefer
@@ -50,10 +59,26 @@ func (s *Server) selectedAccountID(r *http.Request) string {
 // proxyAccountWorker forwards a console request to the per-account Node worker
 // and optionally syncs the account auth_type after a successful login.
 func (s *Server) proxyAccountWorker(w http.ResponseWriter, r *http.Request, accountID, path, syncAuth string) {
-	workerURL, ok := s.manager.AccountURL(accountID)
-	if !ok {
-		writeErr(w, http.StatusConflict, "account_not_running", "account is disabled or not running")
-		return
+	waitForLogin := path == "/admin/login/device" || path == "/admin/login/pat"
+	var workerURL string
+	if waitForLogin {
+		readyURL, err := s.waitForWorkerLogin(r.Context(), accountID)
+		if err != nil {
+			if errors.Is(err, errAccountNotRunning) {
+				writeErr(w, http.StatusConflict, "account_not_running", errAccountNotRunning.Error())
+				return
+			}
+			writeErr(w, http.StatusServiceUnavailable, "not_ready", err.Error())
+			return
+		}
+		workerURL = readyURL
+	} else {
+		var ok bool
+		workerURL, ok = s.manager.AccountURL(accountID)
+		if !ok {
+			writeErr(w, http.StatusConflict, "account_not_running", "account is disabled or not running")
+			return
+		}
 	}
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -236,4 +261,90 @@ func (s *Server) fetchQoderModels(refresh bool, accountID string) []map[string]a
 		return nil
 	}
 	return parsed.Data
+}
+
+func (s *Server) waitForWorkerLogin(ctx context.Context, accountID string) (string, error) {
+	workerURL, ok := s.manager.AccountURL(accountID)
+	if !ok || strings.TrimSpace(workerURL) == "" {
+		return "", errAccountNotRunning
+	}
+	return waitForWorkerAuthManager(ctx, func() (string, bool) {
+		return workerURL, true
+	}, workerLoginReadyTimeout, workerLoginReadyInterval)
+}
+
+func waitForWorkerAuthManager(ctx context.Context, lookup func() (string, bool), timeout, interval time.Duration) (string, error) {
+	if timeout <= 0 {
+		timeout = 90 * time.Second
+	}
+	if interval <= 0 {
+		interval = 200 * time.Millisecond
+	}
+	deadline := time.Now().Add(timeout)
+	client := &http.Client{Timeout: 2 * time.Second}
+	var lastErr error
+	for {
+		if err := ctx.Err(); err != nil {
+			if lastErr != nil {
+				return "", lastErr
+			}
+			return "", err
+		}
+		workerURL, ok := lookup()
+		workerURL = strings.TrimRight(strings.TrimSpace(workerURL), "/")
+		if !ok || workerURL == "" {
+			lastErr = errAccountNotRunning
+		} else {
+			ready, err := workerReportsAuthManager(ctx, client, workerURL)
+			if err != nil {
+				lastErr = err
+			} else if ready {
+				return workerURL, nil
+			} else {
+				lastErr = errWorkerNotWarm
+			}
+		}
+		if !time.Now().Before(deadline) {
+			if lastErr == nil {
+				lastErr = errWorkerNotWarm
+			}
+			if errors.Is(lastErr, errAccountNotRunning) {
+				return "", lastErr
+			}
+			return "", fmt.Errorf("%w: %v", errWorkerNotWarm, lastErr)
+		}
+		timer := time.NewTimer(interval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			if lastErr != nil {
+				return "", lastErr
+			}
+			return "", ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+func workerReportsAuthManager(ctx context.Context, client *http.Client, workerURL string) (bool, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, workerURL+"/health", nil)
+	if err != nil {
+		return false, err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode >= 400 {
+		return false, fmt.Errorf("worker health status %d", resp.StatusCode)
+	}
+	var health struct {
+		HasAuthManager bool `json:"hasAuthManager"`
+	}
+	if err := json.Unmarshal(body, &health); err != nil {
+		return false, err
+	}
+	return health.HasAuthManager, nil
 }
