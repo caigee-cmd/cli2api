@@ -7,7 +7,13 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Stop probing WorkBuddy accounts through empty-URL `/health`, so signed-in accounts stay ready on the Accounts page
+- Show WorkBuddy remaining credits on account cards from the billing meter API
+
 ### 中文
+
+- WorkBuddy 账号不再走空 URL 的 `/health` 探活，已登录账号在 Accounts 页保持就绪
+- 账号卡片从计费接口展示 WorkBuddy 剩余积分
 
 ## 0.2.9 - 2026-08-26
 
