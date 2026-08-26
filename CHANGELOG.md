@@ -7,7 +7,17 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Route WorkBuddy accounts through the in-process adapter instead of empty-URL Qoder workers
+- Enable `CROSS_PROVIDER_MODEL_POOL` so bare model IDs can schedule across Qoder and WorkBuddy; `qoder/` and `workbuddy/` prefixes still pin one family
+- Fail over across WorkBuddy accounts on rate-limit or unavailable errors, and return `X-CLI2API-Provider` from the selected account
+- Label WorkBuddy CN/Global on account cards and show provider ownership in Access and Models
+
 ### 中文
+
+- WorkBuddy 账号改为走进程内适配器，不再当成空 URL 的 Qoder worker
+- 支持 `CROSS_PROVIDER_MODEL_POOL`，同名 bare 模型可在 Qoder 与 WorkBuddy 之间调度；`qoder/`、`workbuddy/` 前缀仍可钉死单一上游
+- WorkBuddy 限流或不可用时在同类型账号间故障切换，并用实际选中账号返回 `X-CLI2API-Provider`
+- 账号卡片正确显示 WorkBuddy 国内版 / 国际版，Access 与模型页展示所属供应商
 
 ## 0.2.8 - 2026-08-25
 
