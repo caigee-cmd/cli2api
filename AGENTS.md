@@ -11,7 +11,7 @@ Keep writing-code docs in these files only:
 | `docs/PLAN.md` | Current milestone checklist. |
 | `docs/PROVIDERS.md` | Future account-provider design. Not a current milestone. |
 
-Do not add new `TODO.md`, `NOTES.md`, or extra plan files. The only extra design doc is `docs/PROVIDERS.md` (WorkBuddy / Qoder CN / future account types). User-facing install stays in `README.md` / `README_ZH.md`. Local protocol facts stay in ignored `docs/capture-notes.md`. Host ops stay gitignored in `docs/PRIVATE_DEPLOYMENT.md`.
+Do not add new `TODO.md`, `NOTES.md`, or extra plan files. The only extra design doc is `docs/PROVIDERS.md` (WorkBuddy / Qoder CN / future account types). User-facing install stays in `README.md` (Chinese) / `README_EN.md` (English). Local protocol facts stay in ignored `docs/capture-notes.md`. Host ops stay gitignored in `docs/PRIVATE_DEPLOYMENT.md`.
 
 ## Do
 

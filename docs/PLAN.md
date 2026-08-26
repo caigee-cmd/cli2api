@@ -1,6 +1,6 @@
 # CLI2API Plan
 
-last-updated: 2026-08-26
+last-updated: 2026-08-27
 
 Qoder-first OpenAI-compatible proxy. Cursor and other CLIs wait until the current Qoder milestone is done.
 
@@ -41,7 +41,7 @@ Do not:
 | F | Error taxonomy, account failover, console sign-in, Accounts login |
 | G | Replaced by Phase H SQLite account control plane |
 | H–K | SQLite control plane, protocol notes, logs, quota display |
-| L | Qoder CN (`qoder` + `region=cn`) — planned, see below |
+| L | Qoder CN (`qoder` + `region=cn`) — code complete, L6 acceptance pending |
 
 Typical small-chat latency is ~1-2s after warmup, versus ~10s+ for spawn-CLI wrappers.
 
@@ -226,11 +226,24 @@ Do not invent a `qodercn` provider family. Do not upgrade the 1.1.27 pin.
 
 ### L6 acceptance
 
+- [x] Browser/PAT login waits for worker `hasAuthManager` before proxying device-flow (first-click CN race)
 - [ ] Empty CN account → browser or PAT login → chat `只回复OK`
 - [ ] Import CN `qoder-native-v1` → daemon becomes hot
 - [ ] Mixed pool: pin stays on the matching CLI; Global 429 does not hit CN
 - [ ] Existing Qoder stream / tools / reasoning / usage / quota tests stay green
 - [ ] WorkBuddy path unchanged
+
+## WorkBuddy acceptance (J0–J4 implemented)
+
+Code and httptest contract tests are done; design lives in `docs/PROVIDERS.md`.
+Remaining work is real-account acceptance, which cannot be done without live
+WorkBuddy logins:
+
+- [ ] Empty account → select WorkBuddy CN/Global → browser login → chat `只回复OK`
+- [ ] Import `workbuddy-oauth-v1` JSON (accessToken + uid) → chat without browser
+- [ ] Two WorkBuddy accounts: A rate-limited → request succeeds through B
+- [ ] With `CROSS_PROVIDER_MODEL_POOL=1`, bare `glm-5.2` lands on both Qoder and
+      WorkBuddy families; Qoder fully down → failover to WorkBuddy in the same route pool
 
 ## Later
 

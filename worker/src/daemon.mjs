@@ -339,13 +339,6 @@ async function prepareUpstream(reqBody) {
     normalizedToolHistory: JSON.stringify(summarizeNormalizedToolHistory(plain.messages || [])),
     stream: !!reqBody.stream,
   });
-  // Soft guard: Aliyun/Qoder often returns insufficient_quota when input is too large.
-  const maxApprox = Number(process.env.QODER_MAX_APPROX_PROMPT_TOKENS || 120000);
-  if (approxPrompt > maxApprox) {
-    throw new Error(
-      `insufficient_quota: Local precheck rejected oversized prompt (~${approxPrompt} tokens, limit ${maxApprox}). Reduce system prompt / chat history / attachments.`,
-    );
-  }
 
   const encoded = await withEncodeLock(async () => {
     if (!hotContext) throw new Error("hot context not ready");
@@ -588,7 +581,9 @@ function getAuthManager() {
 async function startDeviceLogin() {
   const mgr = getAuthManager();
   if (!mgr || typeof mgr.loginWithDeviceFlow !== "function") {
-    throw new Error("AuthManager.loginWithDeviceFlow unavailable. Worker may not be warm yet.");
+    const err = new Error("AuthManager.loginWithDeviceFlow unavailable. Worker may not be warm yet.");
+    err.kind = "not_ready";
+    throw err;
   }
   if (loginWaitPromise) {
     return {
@@ -653,7 +648,9 @@ async function startDeviceLogin() {
 async function loginWithPat(pat) {
   const mgr = getAuthManager();
   if (!mgr || typeof mgr.loginWithPAT !== "function") {
-    throw new Error("AuthManager.loginWithPAT unavailable");
+    const err = new Error("AuthManager.loginWithPAT unavailable. Worker may not be warm yet.");
+    err.kind = "not_ready";
+    throw err;
   }
   const token = String(pat || "").trim();
   if (!token) throw new Error("pat required");

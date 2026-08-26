@@ -1,16 +1,18 @@
 # docs/assets/
 
-Static assets embedded by `README.md` and `README_ZH.md` via relative links.
+Static assets embedded by `README.md` and `README_EN.md` via relative links.
 
 ## Files
 
 | File | Source | Update rule |
 |------|--------|-------------|
-| `console.png` | Manual screenshot capture of the web console | Re-capture on every UI redesign |
-| `og-card.svg` | Hand-synced from `frontend/public/og-card.svg` | Re-copy when the favicon suite changes |
+| `overview-card.png` | Hand-maintained overview card in both READMEs | Regenerate when supported login methods, account types, endpoints, or deployment targets change |
+| `readme/hero-{zh,en}.svg` | Hand-maintained SVG heroes (console dark-theme palette, favicon bolt motif) | Re-sync copy with the tagline and flow text in the matching README |
+| `readme/console-window-{zh,en}.svg` | Hand-maintained console mockup (Accounts + Access) | Regenerate when console pages, account card fields, or nav items change |
+| `readme/architecture-{zh,en}.svg` | Hand-maintained architecture diagram | Regenerate when the request path or worker model changes |
 
 ## Why this folder is hand-maintained
 
-- `README.md` lives at the repo root and uses **relative** paths so it renders correctly on github.com, npmjs.com, and `go install` package pages.
-- `frontend/public/og-card.svg` is the **runtime** asset served by the Go binary; the file in this folder is the **documentation** copy.
-- Keep them byte-identical. The `favicon-suite` task in this repo's hand-off log includes copying `frontend/public/og-card.svg` here.
+- Both READMEs live at the repo root and use **relative** paths so they render correctly on github.com, npmjs.com, and `go install` package pages.
+- `frontend/public/og-card.svg` is the **runtime** social-preview asset served by the Go binary; it is not linked from the READMEs.
+- SVG assets stay GitHub-safe: no scripts, remote fonts, or filters; each carries `<title>` and `<desc>` for accessibility.

@@ -32,6 +32,15 @@ test("not ready is 503 and failovers", () => {
   assert.equal(got.failover, true);
 });
 
+test("device-flow not warm is not_ready not auth", () => {
+  const got = classifyError({
+    message: "AuthManager.loginWithDeviceFlow unavailable. Worker may not be warm yet.",
+  });
+  assert.equal(got.kind, "not_ready");
+  assert.equal(got.status, 503);
+  assert.equal(got.failover, true);
+});
+
 test("Retry-After is capped", () => {
   const got = classifyError({ status: 429, message: "too many requests", retryAfter: "99999" });
   assert.equal(got.retryAfterSec, 600);

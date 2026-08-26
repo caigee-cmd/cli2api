@@ -1,7 +1,7 @@
 const QUOTA_RE = /insufficient_quota|#token-limit|token-limit|exceeded your current quota|oversized prompt|local precheck rejected/i;
 const RATE_RE = /too many requests|rate.?limit|response code=429|account busy|in-flight/i;
 const AUTH_RE = /null pointer|FORBIDDEN|Duplicate request|\b401\b|\b403\b|unauthorized|auth|credential|refresh.?token|access.?token/i;
-const NOT_READY_RE = /hot context not ready|auth manager not captured|not ready/i;
+const NOT_READY_RE = /hot context not ready|auth manager not captured|not ready|loginWithDeviceFlow unavailable|loginWithPAT unavailable|worker may not be warm/i;
 
 export const KIND_QUOTA = "quota";
 export const KIND_RATE_LIMIT = "rate_limit";

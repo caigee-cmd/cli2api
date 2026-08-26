@@ -1,0 +1,120 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="cw-title cw-desc" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif">
+  <title id="cw-title">CLI2API 控制台 — Accounts 页面</title>
+  <desc id="cw-desc">暖白象牙色控制台：左侧导航为 Overview、Models、Access、Accounts、Logs、System；Accounts 页显示 3 个就绪账号与额度条，右侧 Access 面板展示 Base URL 与 API Key。</desc>
+
+  <rect width="1200" height="760" rx="20" fill="#fbf7f0" stroke="#e6dccb"/>
+
+  <!-- browser chrome -->
+  <circle cx="36" cy="30" r="5" fill="#e0d6c4"/>
+  <circle cx="54" cy="30" r="5" fill="#e0d6c4"/>
+  <circle cx="72" cy="30" r="5" fill="#e0d6c4"/>
+  <rect x="400" y="16" width="400" height="28" rx="14" fill="#efe8dc"/>
+  <text x="600" y="35" text-anchor="middle" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="15" fill="#72685c">127.0.0.1:3010</text>
+  <line x1="0" y1="60" x2="1200" y2="60" stroke="#e6dccb"/>
+
+  <!-- sidebar -->
+  <rect x="0" y="60" width="240" height="700" fill="#efe8dc"/>
+  <line x1="240" y1="60" x2="240" y2="760" stroke="#e6dccb"/>
+  <g transform="translate(24 80) scale(1.2)" fill="none">
+    <path d="M13 2 L4 14 H11 L9 11 H13.5 L11 22 L20 10 H13 L15 13 H10.5 Z" stroke="#241f1a" stroke-width="1.75" stroke-linejoin="round" stroke-linecap="round"/>
+    <circle cx="9" cy="18" r="1.25" fill="#22D3EE"/>
+  </g>
+  <text x="62" y="98" font-size="18" font-weight="700" letter-spacing="-0.3" fill="#241f1a">CLI2API</text>
+
+  <text x="24" y="158" font-size="18" fill="#72685c">Overview</text>
+  <text x="24" y="200" font-size="18" fill="#72685c">Models</text>
+  <text x="24" y="242" font-size="18" fill="#72685c">Access</text>
+  <rect x="10" y="260" width="220" height="38" rx="9" fill="#fbf7f0" stroke="#e6dccb"/>
+  <text x="24" y="284" font-size="18" font-weight="600" fill="#241f1a">Accounts</text>
+  <text x="24" y="326" font-size="18" fill="#72685c">Logs</text>
+  <text x="24" y="368" font-size="18" fill="#72685c">System</text>
+
+  <!-- page header -->
+  <text x="272" y="110" font-size="24" font-weight="700" letter-spacing="-0.3" fill="#241f1a">Accounts</text>
+  <text x="272" y="138" font-size="15" fill="#72685c">每个账号一个登录态 · 浏览器登录优先，仅在必要时使用 PAT</text>
+
+  <!-- status chips -->
+  <rect x="900" y="86" width="128" height="30" rx="15" fill="rgba(47,154,99,0.12)" stroke="rgba(47,154,99,0.28)"/>
+  <circle cx="918" cy="101" r="4" fill="#2f9a63"/>
+  <text x="930" y="106" font-size="15" font-weight="500" fill="#237a4e">3 / 3 就绪</text>
+  <rect x="1044" y="86" width="124" height="30" rx="8" fill="#241f1a"/>
+  <text x="1060" y="106" font-size="14" font-weight="500" fill="#fffaf3">＋ 添加账号</text>
+
+  <!-- card 1: Qoder Global -->
+  <rect x="272" y="166" width="560" height="118" rx="12" fill="#fffaf3" stroke="#e6dccb"/>
+  <circle cx="300" cy="202" r="12" fill="#efe8dc"/>
+  <g transform="translate(291.6 193.6) scale(0.7)" fill="none">
+    <path d="M13 2 L4 14 H11 L9 11 H13.5 L11 22 L20 10 H13 L15 13 H10.5 Z" stroke="#241f1a" stroke-width="1.75" stroke-linejoin="round" stroke-linecap="round"/>
+  </g>
+  <text x="322" y="198" font-size="16" font-weight="600" fill="#241f1a">Qoder Global</text>
+  <text x="322" y="220" font-size="13" fill="#9a8f82">alice@dev · 浏览器登录</text>
+  <rect x="740" y="184" width="72" height="26" rx="13" fill="rgba(47,154,99,0.12)"/>
+  <circle cx="756" cy="197" r="4" fill="#2f9a63"/>
+  <text x="766" y="202" font-size="14" font-weight="500" fill="#237a4e">就绪</text>
+  <rect x="300" y="250" width="504" height="6" rx="3" fill="#ece4d6"/>
+  <rect x="300" y="250" width="403" height="6" rx="3" fill="#7C3AED"/>
+  <text x="300" y="274" font-size="13" fill="#72685c">额度 80%</text>
+  <text x="804" y="274" text-anchor="end" font-size="13" fill="#72685c">剩余 400 / 500</text>
+
+  <!-- card 2: Qoder CN -->
+  <rect x="272" y="300" width="560" height="118" rx="12" fill="#fffaf3" stroke="#e6dccb"/>
+  <circle cx="300" cy="336" r="12" fill="#efe8dc"/>
+  <g transform="translate(291.6 327.6) scale(0.7)" fill="none">
+    <path d="M13 2 L4 14 H11 L9 11 H13.5 L11 22 L20 10 H13 L15 13 H10.5 Z" stroke="#241f1a" stroke-width="1.75" stroke-linejoin="round" stroke-linecap="round"/>
+  </g>
+  <text x="322" y="332" font-size="16" font-weight="600" fill="#241f1a">Qoder CN</text>
+  <text x="322" y="354" font-size="13" fill="#9a8f82">bob@dev · PAT</text>
+  <rect x="740" y="318" width="72" height="26" rx="13" fill="rgba(47,154,99,0.12)"/>
+  <circle cx="756" cy="331" r="4" fill="#2f9a63"/>
+  <text x="766" y="336" font-size="14" font-weight="500" fill="#237a4e">就绪</text>
+  <rect x="300" y="384" width="504" height="6" rx="3" fill="#ece4d6"/>
+  <rect x="300" y="384" width="333" height="6" rx="3" fill="#7C3AED"/>
+  <text x="300" y="408" font-size="13" fill="#72685c">额度 66%</text>
+  <text x="804" y="408" text-anchor="end" font-size="13" fill="#72685c">剩余 330 / 500</text>
+
+  <!-- card 3: WorkBuddy -->
+  <rect x="272" y="434" width="560" height="118" rx="12" fill="#fffaf3" stroke="#e6dccb"/>
+  <circle cx="300" cy="470" r="12" fill="#efe8dc"/>
+  <text x="300" y="475" text-anchor="middle" font-size="12" font-weight="700" fill="#72685c">W</text>
+  <text x="322" y="466" font-size="16" font-weight="600" fill="#241f1a">WorkBuddy</text>
+  <text x="322" y="488" font-size="13" fill="#9a8f82">team@work · 浏览器登录</text>
+  <rect x="740" y="452" width="72" height="26" rx="13" fill="rgba(47,154,99,0.12)"/>
+  <circle cx="756" cy="465" r="4" fill="#2f9a63"/>
+  <text x="766" y="470" font-size="14" font-weight="500" fill="#237a4e">就绪</text>
+  <text x="300" y="518" font-size="13" fill="#72685c">剩余积分 1,200</text>
+  <text x="300" y="538" font-size="13" font-weight="500" fill="#241f1a">1,200 credits</text>
+
+  <!-- card 4 (clipped preview) -->
+  <rect x="272" y="568" width="560" height="90" rx="12" fill="#fffaf3" stroke="#e6dccb"/>
+  <circle cx="300" cy="602" r="12" fill="#efe8dc"/>
+  <text x="322" y="598" font-size="16" font-weight="600" fill="#241f1a">Qoder Global</text>
+  <text x="322" y="620" font-size="13" fill="#9a8f82">carol@dev · 凭证导入</text>
+  <rect x="740" y="584" width="72" height="26" rx="13" fill="rgba(47,154,99,0.12)"/>
+  <circle cx="756" cy="597" r="4" fill="#2f9a63"/>
+  <text x="766" y="602" font-size="14" font-weight="500" fill="#237a4e">就绪</text>
+  <rect x="12" y="672" width="216" height="72" fill="#efe8dc"/>
+
+  <!-- access panel -->
+  <rect x="856" y="166" width="312" height="444" rx="12" fill="#fffaf3" stroke="#e6dccb"/>
+  <text x="880" y="204" font-size="16" font-weight="700" fill="#241f1a">接入 OpenAI 客户端</text>
+
+  <text x="880" y="244" font-size="13" fill="#72685c">Base URL</text>
+  <rect x="880" y="254" width="264" height="32" rx="8" fill="#f4efe6" stroke="#e6dccb"/>
+  <text x="892" y="275" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="13" fill="#241f1a">http://127.0.0.1:3010/v1</text>
+
+  <text x="880" y="316" font-size="13" fill="#72685c">API Key</text>
+  <rect x="880" y="326" width="264" height="32" rx="8" fill="#f4efe6" stroke="#e6dccb"/>
+  <text x="892" y="347" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="13" fill="#241f1a">sk-c2a-9f3e········</text>
+
+  <text x="880" y="392" font-size="13" fill="#72685c">快速验证</text>
+  <rect x="880" y="402" width="264" height="92" rx="8" fill="#211f1c"/>
+  <text x="894" y="428" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="12" fill="#e8e2d6">$ curl /v1/chat/completions</text>
+  <text x="894" y="450" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="12" fill="#e8e2d6">  -H "Authorization: Bearer"</text>
+  <text x="894" y="472" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="12" fill="#22D3EE">✓ 200 · stream ok</text>
+
+  <rect x="880" y="518" width="264" height="36" rx="8" fill="#241f1a"/>
+  <text x="1012" y="541" text-anchor="middle" font-size="14" font-weight="500" fill="#fffaf3">复制并测试</text>
+
+  <circle cx="888" cy="586" r="4" fill="#22D3EE"/>
+  <text x="900" y="591" font-size="13" fill="#72685c">除 /health 外均需 API Key</text>
+</svg>

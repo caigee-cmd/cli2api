@@ -152,6 +152,7 @@ export function AccountsPage() {
   async function onDeviceLogin(id: string) {
     setAuthPanelId(id)
     await run(id, 'device', async () => {
+      setNoteById((current) => ({ ...current, [id]: t('wizardStartingSession') }))
       const output = await startDeviceLogin(id)
       if (output.authUrl) {
         setUrlById((current) => ({ ...current, [id]: output.authUrl || '' }))
@@ -175,6 +176,7 @@ export function AccountsPage() {
       return
     }
     await run(id, 'pat', async () => {
+      setNoteById((current) => ({ ...current, [id]: t('wizardStartingSession') }))
       await loginWithPat(pat, id)
       setPatById((current) => ({ ...current, [id]: '' }))
       await refresh()
