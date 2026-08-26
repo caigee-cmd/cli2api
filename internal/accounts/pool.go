@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// QuotaSnapshot is the display-only quota state for one Qoder account.
+// QuotaSnapshot is the display-only quota state for one account.
 // A zero value means "unknown"; it never influences routing or cooldown.
 type QuotaSnapshot struct {
 	Used       float64 `json:"used"`
@@ -239,15 +239,16 @@ func (p *Pool) MergeHealth(id string, ready, hot bool, inFlight, restarts int, l
 		if p.items[i].ID != id {
 			continue
 		}
-		r, h := ready, hot
-		p.items[i].Ready = &r
-		p.items[i].Hot = &h
-		p.items[i].InFlight = inFlight
-		p.items[i].Restarts = restarts
-		if lastError != "" {
+			r, h := ready, hot
+			p.items[i].Ready = &r
+			p.items[i].Hot = &h
+			p.items[i].InFlight = inFlight
+			p.items[i].Restarts = restarts
 			p.items[i].LastError = lastError
-		}
-		return
+			if lastError == "" {
+				p.items[i].LastKind = ""
+			}
+			return
 	}
 }
 

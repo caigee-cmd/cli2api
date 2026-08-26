@@ -89,16 +89,45 @@ type ImportExporter interface {
 	Export(ctx context.Context, accountID string) (map[string]any, error)
 }
 
+// AccountHealth is the provider-neutral readiness snapshot for in-process
+// accounts that have no child-process /health endpoint.
+type AccountHealth struct {
+	Ready     bool
+	Hot       bool
+	UID       string
+	InFlight  int
+	LastError string
+}
+
+// QuotaInfo is display-only usage for the accounts console. Callers must treat
+// probe readiness and quota independently; quota errors never flip Ready.
+type QuotaInfo struct {
+	Used       float64
+	Total      float64
+	Remaining  float64
+	Percentage float64
+	Unit       string
+	Exceeded   bool
+	FetchedAt  string
+}
+
+// AccountProber refreshes provider-native readiness and optional display quota.
+type AccountProber interface {
+	Probe(ctx context.Context, accountID string) (AccountHealth, error)
+	Quota(ctx context.Context, accountID string) (*QuotaInfo, error)
+}
+
 // Adapter bundles the optional capability interfaces. Every field may be nil;
 // use Supports() before calling so unsupported paths fail explicitly.
 type Adapter struct {
-	ID             string
-	Credential     CredentialCodec
-	Login          LoginSessionProvider
-	Chat           ProviderChat
-	Models         ModelCatalogProvider
-	Classifier     ErrorClassifier
-	ImportExport   ImportExporter
+	ID           string
+	Credential   CredentialCodec
+	Login        LoginSessionProvider
+	Chat         ProviderChat
+	Models       ModelCatalogProvider
+	Classifier   ErrorClassifier
+	ImportExport ImportExporter
+	Prober       AccountProber
 }
 
 func (a Adapter) Supports(capability string) bool {
@@ -115,6 +144,8 @@ func (a Adapter) Supports(capability string) bool {
 		return a.Classifier != nil
 	case "import_export":
 		return a.ImportExport != nil
+	case "prober":
+		return a.Prober != nil
 	default:
 		return false
 	}

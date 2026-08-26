@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -44,6 +45,7 @@ type Manager struct {
 	store      *Store
 	starter    ProcessStarter
 	pool       *Pool
+	providers  *providers.Registry
 	mu         sync.Mutex
 	processes  map[string]ManagedProcess
 	restarts   map[string]int
@@ -100,6 +102,14 @@ func (m *Manager) Start(ctx context.Context) error {
 
 func (m *Manager) Pool() *Pool   { return m.pool }
 func (m *Manager) Store() *Store { return m.store }
+
+// SetProviders wires optional in-process account probers (WorkBuddy, etc.).
+func (m *Manager) SetProviders(registry *providers.Registry) {
+	if m == nil {
+		return
+	}
+	m.providers = registry
+}
 
 func (m *Manager) Close() error {
 	m.cancel()
@@ -451,6 +461,9 @@ func (m *Manager) RefreshAll(ctx context.Context) error {
 }
 
 func (m *Manager) refreshOne(ctx context.Context, item Item) error {
+	if item.Runtime == string(providers.RuntimeInProcess) || strings.TrimSpace(item.URL) == "" {
+		return m.refreshInProcess(ctx, item)
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, item.URL+"/health", nil)
 	if err != nil {
 		return err
@@ -492,6 +505,58 @@ func (m *Manager) refreshOne(ctx context.Context, item Item) error {
 		m.fetchQuota(ctx, item.ID, item.URL)
 	}
 	return nil
+}
+
+func (m *Manager) refreshInProcess(ctx context.Context, item Item) error {
+	adapter, ok := m.providers.Get(item.Provider)
+	if !ok || adapter.Prober == nil {
+		// No prober registered: leave pool state alone and never hit ""+/health.
+		return nil
+	}
+	health, err := adapter.Prober.Probe(ctx, item.ID)
+	if err != nil {
+		m.pool.MergeHealth(item.ID, false, false, 0, item.Restarts, err.Error())
+		_ = m.store.Observe(ctx, item.ID, "", "error", err.Error(), KindUnavailable)
+		return fmt.Errorf("probe account %s: %w", item.ID, err)
+	}
+	m.pool.MergeHealth(item.ID, health.Ready, health.Hot, health.InFlight, item.Restarts, health.LastError)
+	status := "login_required"
+	if health.Ready || health.Hot {
+		status = "ready"
+	} else if health.LastError != "" {
+		status = "error"
+	}
+	if err := m.store.Observe(ctx, item.ID, health.UID, status, health.LastError, ""); err != nil {
+		return err
+	}
+	if health.Ready || health.Hot {
+		m.fetchProviderQuota(ctx, item.ID, adapter.Prober)
+	}
+	return nil
+}
+
+func (m *Manager) fetchProviderQuota(ctx context.Context, accountID string, prober providers.AccountProber) {
+	if prober == nil {
+		return
+	}
+	info, err := prober.Quota(ctx, accountID)
+	if err != nil || info == nil {
+		m.pool.MergeQuota(accountID, nil)
+		return
+	}
+	unit := info.Unit
+	if unit == "" {
+		unit = "credits"
+	}
+	m.pool.MergeQuota(accountID, &QuotaSnapshot{
+		Used:       info.Used,
+		Total:      info.Total,
+		Remaining:  info.Remaining,
+		Percentage: info.Percentage,
+		Unit:       unit,
+		Exceeded:   info.Exceeded,
+		FetchedAt:  info.FetchedAt,
+	})
 }
 
 // fetchQuota pulls the account quota snapshot from the worker daemon. Errors

@@ -476,6 +476,177 @@ func Classify(status int, body string) providers.ClassifiedError {
 	return providers.ClassifiedError{}
 }
 
+// Probe reports whether the stored credential is usable. There is no WASM hot
+// state; Hot mirrors Ready so the accounts console can treat signed-in accounts
+// as available without probing a child-process /health URL.
+func (c *Client) Probe(ctx context.Context, accountID string) (providers.AccountHealth, error) {
+	credential, err := c.credential(ctx, accountID)
+	if err != nil {
+		return providers.AccountHealth{LastError: err.Error()}, nil
+	}
+	if !credential.Ready() {
+		msg := "workbuddy credential incomplete; re-login required"
+		return providers.AccountHealth{UID: credential.UID, LastError: msg}, nil
+	}
+	return providers.AccountHealth{
+		Ready: true,
+		Hot:   true,
+		UID:   credential.UID,
+	}, nil
+}
+
+// Quota fetches display-only remaining credits from the billing meter API.
+// Failures return an error for the caller to ignore without flipping readiness.
+func (c *Client) Quota(ctx context.Context, accountID string) (*providers.QuotaInfo, error) {
+	credential, err := c.credential(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	remain, used, total, err := c.UserResource(ctx, credential)
+	if err != nil {
+		return nil, err
+	}
+	if total <= 0 && remain > 0 {
+		total = remain
+	}
+	if used <= 0 && total > remain {
+		used = total - remain
+	}
+	percentage := 0.0
+	if total > 0 {
+		percentage = (float64(used) / float64(total)) * 100
+		if percentage < 0 {
+			percentage = 0
+		}
+		if percentage > 100 {
+			percentage = 100
+		}
+	}
+	return &providers.QuotaInfo{
+		Used:       float64(used),
+		Total:      float64(total),
+		Remaining:  float64(remain),
+		Percentage: percentage,
+		Unit:       "credits",
+		Exceeded:   total > 0 && remain <= 0,
+		FetchedAt:  time.Now().UTC().Format(time.RFC3339),
+	}, nil
+}
+
+// UserResource aggregates package remain/used/total from get-user-resource.
+func (c *Client) UserResource(ctx context.Context, credential Credential) (remain, used, total int64, err error) {
+	now := time.Now()
+	payload, err := json.Marshal(map[string]any{
+		"PageNumber":               1,
+		"PageSize":                 100,
+		"ProductCode":              "p_tcaca",
+		"Status":                   []int{0, 3},
+		"PackageEndTimeRangeBegin": now.Format("2006-01-02 15:04:05"),
+		"PackageEndTimeRangeEnd":   now.Add(365 * 101 * 24 * time.Hour).Format("2006-01-02 15:04:05"),
+	})
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	body, status, err := c.do(ctx, http.MethodPost, credential.BillingBase()+pathUserResource, payload,
+		func(h http.Header) { SetBillingHeaders(h, credential) })
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	if status >= 300 {
+		return 0, 0, 0, fmt.Errorf("user-resource status=%d: %s", status, strings.TrimSpace(string(body)))
+	}
+	var env struct {
+		Code int    `json:"code"`
+		Msg  string `json:"msg"`
+		Data struct {
+			Response struct {
+				Data struct {
+					TotalDosage int64             `json:"TotalDosage"`
+					Accounts    []resourcePackage `json:"Accounts"`
+				} `json:"Data"`
+			} `json:"Response"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &env); err != nil {
+		return 0, 0, 0, fmt.Errorf("user-resource parse: %w", err)
+	}
+	if env.Code != 0 {
+		return 0, 0, 0, fmt.Errorf("user-resource code=%d msg=%s", env.Code, env.Msg)
+	}
+	remain, used, total = aggregateUserResource(env.Data.Response.Data.Accounts, env.Data.Response.Data.TotalDosage)
+	return remain, used, total, nil
+}
+
+type resourcePackage struct {
+	CapacityRemain      int64 `json:"CapacityRemain"`
+	CapacityUsed        int64 `json:"CapacityUsed"`
+	CapacitySize        int64 `json:"CapacitySize"`
+	CycleCapacityRemain int64 `json:"CycleCapacityRemain"`
+	CycleCapacityUsed   int64 `json:"CycleCapacityUsed"`
+	CycleCapacitySize   int64 `json:"CycleCapacitySize"`
+}
+
+func packageRemainUsed(pkg resourcePackage) (remain, used, size int64) {
+	if pkg.CycleCapacitySize > 0 {
+		remain = pkg.CycleCapacityRemain
+		size = pkg.CycleCapacitySize
+		if remain < 0 {
+			remain = 0
+		}
+		if remain > size {
+			remain = size
+		}
+		used = size - remain
+		if pkg.CycleCapacityUsed > used {
+			used = pkg.CycleCapacityUsed
+			if size >= used {
+				remain = size - used
+			}
+		}
+		return remain, used, size
+	}
+	if pkg.CycleCapacityRemain > 0 || pkg.CycleCapacityUsed > 0 {
+		remain = pkg.CycleCapacityRemain
+		used = pkg.CycleCapacityUsed
+		size = pkg.CycleCapacitySize
+		if remain < 0 {
+			remain = 0
+		}
+		return remain, used, size
+	}
+	remain = pkg.CapacityRemain
+	used = pkg.CapacityUsed
+	size = pkg.CapacitySize
+	if remain < 0 {
+		remain = 0
+	}
+	if used == 0 && size > remain {
+		used = size - remain
+	}
+	return remain, used, size
+}
+
+func aggregateUserResource(packages []resourcePackage, totalDosage int64) (remain, used, size int64) {
+	for _, pkg := range packages {
+		r, u, s := packageRemainUsed(pkg)
+		remain += r
+		used += u
+		size += s
+	}
+	if size > 0 {
+		if derived := size - remain; derived > used {
+			used = derived
+		}
+	}
+	if totalDosage > size {
+		size = totalDosage
+		if derived := size - remain; derived > used {
+			used = derived
+		}
+	}
+	return remain, used, size
+}
+
 // Adapter returns the provider capability bundle for registration.
 func (c *Client) Adapter() providers.Adapter {
 	return providers.Adapter{
@@ -485,6 +656,7 @@ func (c *Client) Adapter() providers.Adapter {
 		Chat:       c,
 		Models:     c,
 		Classifier: classifier{},
+		Prober:     c,
 	}
 }
 

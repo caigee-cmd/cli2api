@@ -83,6 +83,7 @@ func New(cfg config.Config) *Server {
 	providerReg := providers.NewRegistry()
 	workbuddyClient := workbuddy.NewClient(store)
 	providerReg.Register(workbuddyClient.Adapter())
+	manager.SetProviders(providerReg)
 	recorder := applogs.NewRequestRecorder(store)
 	stopLogs := make(chan struct{})
 	go recorder.PurgeLoop(stopLogs, time.Hour)

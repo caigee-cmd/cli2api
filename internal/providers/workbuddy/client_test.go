@@ -216,3 +216,78 @@ func TestPrepareBodyForcesStreamAndStringToolChoice(t *testing.T) {
 		t.Fatalf("body=%v", body)
 	}
 }
+
+func TestProbeReadyWithCredential(t *testing.T) {
+	client, store := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatalf("probe should not hit network when credential is fresh: %s", r.URL.Path)
+	}))
+	payload, _ := json.Marshal(Credential{
+		AccessToken: "at", RefreshToken: "rt", ExpiresAt: 4102444800, Domain: DomainCN, UID: "u1",
+	})
+	_ = store.SaveCredentialPayload(context.Background(), "acc1", CredentialFormat, payload)
+	health, err := client.Probe(context.Background(), "acc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !health.Ready || !health.Hot || health.UID != "u1" || health.LastError != "" {
+		t.Fatalf("health=%+v", health)
+	}
+}
+
+func TestUserResourceAggregation(t *testing.T) {
+	client, store := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || !strings.HasSuffix(r.URL.Path, pathUserResource) {
+			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+		if r.Header.Get("Authorization") != "Bearer at" || r.Header.Get("X-User-Id") != "u1" {
+			t.Fatalf("billing headers missing: %+v", r.Header)
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["ProductCode"] != "p_tcaca" {
+			t.Fatalf("body=%v", body)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code": 0,
+			"data": map[string]any{
+				"Response": map[string]any{
+					"Data": map[string]any{
+						"Accounts": []map[string]any{
+							{"CycleCapacitySize": 2000, "CycleCapacityRemain": 1200, "CycleCapacityUsed": 800},
+							{"CycleCapacitySize": 500, "CycleCapacityRemain": 300, "CycleCapacityUsed": 200},
+						},
+					},
+				},
+			},
+		})
+	}))
+	payload, _ := json.Marshal(Credential{
+		AccessToken: "at", RefreshToken: "rt", ExpiresAt: 4102444800, Domain: DomainCN, UID: "u1",
+	})
+	_ = store.SaveCredentialPayload(context.Background(), "acc1", CredentialFormat, payload)
+	info, err := client.Quota(context.Background(), "acc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Remaining != 1500 || info.Total != 2500 || info.Used != 1000 || info.Unit != "credits" {
+		t.Fatalf("quota=%+v", info)
+	}
+}
+
+func TestAggregateUserResourceNegativeClamped(t *testing.T) {
+	remain, used, size := aggregateUserResource([]resourcePackage{{
+		CycleCapacitySize: 100, CycleCapacityRemain: -50, CycleCapacityUsed: 0,
+	}}, 0)
+	if remain != 0 || size != 100 || used != 100 {
+		t.Fatalf("remain=%d used=%d size=%d", remain, used, size)
+	}
+}
+
+func TestAdapterWiresProber(t *testing.T) {
+	client := NewClient(&memStore{})
+	adapter := client.Adapter()
+	if !adapter.Supports("prober") || adapter.Prober == nil {
+		t.Fatalf("adapter missing prober: %+v", adapter)
+	}
+}
