@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.2.10 - 2026-08-26
+
+### English
+
 - Stop probing WorkBuddy accounts through empty-URL `/health`, so signed-in accounts stay ready on the Accounts page
 - Show WorkBuddy remaining credits on account cards from the billing meter API
 
