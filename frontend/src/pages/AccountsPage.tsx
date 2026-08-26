@@ -15,7 +15,7 @@ import {
 import { AddAccountModal } from '@/components/AddAccountModal'
 import { BrandMark } from '@/components/BrandMark'
 import { ProviderMark } from '@/components/ProviderMark'
-import { isQoderGlobalProvider } from '@/lib/provider'
+import { accountProviderLabel } from '@/lib/provider'
 import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
 import {
@@ -91,9 +91,8 @@ function formatUpdatedAt(value: string | undefined, lang: 'en' | 'zh') {
   }).format(date)
 }
 
-function providerLabel(provider: string | undefined, t: (key: string) => string) {
-  if (isQoderGlobalProvider(provider)) return t('accountTypeQoderGlobal')
-  return provider || t('account')
+function providerLabel(provider: string | undefined, region: string | undefined, t: (key: string) => string) {
+  return accountProviderLabel(provider, region, t)
 }
 
 export function AccountsPage() {
@@ -339,7 +338,7 @@ export function AccountsPage() {
                         <Chip className={ACCOUNT_CHIP_CLASS} size="sm" variant="soft">
                           <span className="inline-flex items-center gap-1">
                             <ProviderMark provider={account.provider} size={12} />
-                            {providerLabel(account.provider, t)}
+                            {providerLabel(account.provider, account.region, t)}
                           </span>
                         </Chip>
                         <Chip className={ACCOUNT_CHIP_CLASS} size="sm" variant="soft">{account.auth_type || 'none'}</Chip>

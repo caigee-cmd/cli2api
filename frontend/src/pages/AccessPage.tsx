@@ -17,6 +17,7 @@ import { absUrl } from '@/lib/url'
 import { AccessPageSkeleton } from '@/components/ui/PageSkeletons'
 import { OptionTiles } from '@/components/ui/OptionTiles'
 import { ProviderMark } from '@/components/ProviderMark'
+import { accountProviderLabel } from '@/lib/provider'
 
 type RequestState = 'idle' | 'loading' | 'success' | 'error'
 
@@ -155,6 +156,7 @@ export function AccessPage() {
                       ...accounts.map((account) => ({
                         value: account.id,
                         label: account.name || account.id,
+                        hint: accountProviderLabel(account.provider, account.region, t),
                         icon: <ProviderMark provider={account.provider} size={16} />,
                       })),
                     ]}
@@ -173,7 +175,7 @@ export function AccessPage() {
                     options={(models.length ? models : [{ id: 'qwen3.7-plus' }]).map((item) => ({
                       value: item.id,
                       label: item.display_name || item.id,
-                      hint: item.id,
+                      hint: item.owned_by || item.provider ? `${item.id} · ${item.owned_by || item.provider}` : item.id,
                     }))}
                   />
                   <p className="text-xs leading-5 text-[var(--app-faint)]">{t('modelRoutingHint')}</p>

@@ -5,6 +5,7 @@ import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
 import { refreshModels, updateModelContext } from '@/api/overview'
 import type { Overview } from '@/api/types'
+import { ProviderMark } from '@/components/ProviderMark'
 import { ProvidersPageSkeleton } from '@/components/ui/PageSkeletons'
 
 type ModelInfo = NonNullable<Overview['models']>[number]
@@ -32,7 +33,7 @@ export function ProvidersPage() {
   const filtered = useMemo(() => {
     const query = filter.trim().toLowerCase()
     if (!query) return models
-    return models.filter((model) => `${model.display_name || ''} ${model.id} ${model.mapped_key || ''}`.toLowerCase().includes(query))
+    return models.filter((model) => `${model.display_name || ''} ${model.id} ${model.mapped_key || ''} ${model.provider || ''} ${model.owned_by || ''}`.toLowerCase().includes(query))
   }, [filter, models])
 
   if (loading && !overview) return <ProvidersPageSkeleton />
@@ -156,6 +157,7 @@ export function ProvidersPage() {
                 <Table.Header>
                   <Table.Column isRowHeader>{t('modelCol')}</Table.Column>
                   <Table.Column>{t('requestIdCol')}</Table.Column>
+                  <Table.Column>{t('providerCol')}</Table.Column>
                   <Table.Column>{t('qoderKeyCol')}</Table.Column>
                   <Table.Column>{t('contextWindowCol')}</Table.Column>
                   <Table.Column>{t('stateCol')}</Table.Column>
@@ -165,6 +167,7 @@ export function ProvidersPage() {
                   {filtered.map((model) => {
                     const key = modelSettingsKey(model)
                     const saving = savingKey === key
+                    const provider = model.owned_by || model.provider || 'qoder'
                     return (
                       <Table.Row key={model.id}>
                         <Table.Cell>
@@ -177,7 +180,13 @@ export function ProvidersPage() {
                           </div>
                         </Table.Cell>
                         <Table.Cell><span className="mono text-xs font-medium">{model.id}</span></Table.Cell>
-                        <Table.Cell><span className="mono text-xs text-[var(--app-muted)]">{model.mapped_key || model.id}</span></Table.Cell>
+                        <Table.Cell>
+                          <div className="flex items-center gap-2">
+                            <ProviderMark provider={provider} size={14} />
+                            <span className="text-xs font-medium">{provider}</span>
+                          </div>
+                        </Table.Cell>
+                        <Table.Cell><span className="mono text-xs text-[var(--app-muted)]">{model.mapped_key || model.native_model || model.id}</span></Table.Cell>
                         <Table.Cell>
                           <div className="flex min-w-52 items-center gap-2">
                             <Input

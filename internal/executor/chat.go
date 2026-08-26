@@ -44,6 +44,7 @@ type ChatResult struct {
 	UsageSource      string
 	Credits          *float64
 	AccountID        string
+	Provider         string
 	AttemptCount     int
 	RawNote          string
 }
@@ -51,6 +52,7 @@ type ChatResult struct {
 type StreamResult struct {
 	Response     *http.Response
 	AccountID    string
+	Provider     string
 	AttemptCount int
 	TTFBMs       int
 }
@@ -127,13 +129,39 @@ func buildWorkerPayload(req translate.ChatRequest, stream bool) map[string]any {
 	return payload
 }
 
-func (e ChatExecutor) pick(prefer string, excluded map[string]struct{}) (accounts.Item, error) {
+func (e ChatExecutor) pick(prefer, providerFilter string, excluded map[string]struct{}) (accounts.Item, error) {
 	if e.Pool != nil {
-		if item, ok := e.Pool.Pick(prefer, excluded); ok {
+		if item, ok := e.Pool.PickRoute(accounts.RouteQuery{
+			PreferAccount:  prefer,
+			ProviderFilter: providerFilter,
+			Excluded:       excluded,
+		}); ok {
 			return item, nil
 		}
 	}
+	if providerFilter != "" {
+		return accounts.Item{}, fmt.Errorf("no %s accounts available", providerFilter)
+	}
 	return accounts.Item{}, fmt.Errorf("no worker accounts configured")
+}
+
+func (e ChatExecutor) attemptsFor(providerFilter string) int {
+	if e.Pool != nil {
+		if n := e.Pool.LenRoute(accounts.RouteQuery{ProviderFilter: providerFilter}); n > 0 {
+			return n
+		}
+	}
+	return 1
+}
+
+func isInProcessItem(item accounts.Item) bool {
+	if item.Runtime == string(providers.RuntimeInProcess) {
+		return true
+	}
+	if item.Provider != "" && item.Provider != "qoder" && item.URL == "" {
+		return true
+	}
+	return false
 }
 
 func (e ChatExecutor) markClassified(id string, c accounts.Classified) {
@@ -202,28 +230,41 @@ func classifyWorkerErr(resp *http.Response, body string) accounts.Classified {
 	return accounts.Classify(status, body, retryAfter, kind, failover)
 }
 
-func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatRequest, prefer string) (ChatResult, error) {
-	if item, ok := e.peekInProcess(prefer); ok {
-		return e.chatInProcessNonStream(ctx, item, req)
-	}
+func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatRequest, prefer, providerFilter string) (ChatResult, error) {
 	payload, err := json.Marshal(buildWorkerPayload(req, false))
 	if err != nil {
 		return ChatResult{}, err
 	}
 	excluded := map[string]struct{}{}
 	var lastErr error
-	attempts := e.attempts()
+	attempts := e.attemptsFor(providerFilter)
 	pinned := prefer
 	for i := 0; i < attempts; i++ {
-		item, err := e.pick(prefer, excluded)
+		item, err := e.pick(prefer, providerFilter, excluded)
 		if err != nil {
+			if lastErr != nil {
+				return ChatResult{AttemptCount: i, AccountID: lastAccountID(excluded), Provider: providerFilter}, lastErr
+			}
 			return ChatResult{}, err
+		}
+		prefer = ""
+		if isInProcessItem(item) {
+			result, classified, err := e.chatInProcessNonStreamAttempt(ctx, item, req, i)
+			if err == nil {
+				result.AttemptCount = i + 1
+				return result, nil
+			}
+			lastErr = err
+			if classified.Failover && i+1 < attempts {
+				excluded[item.ID] = struct{}{}
+				continue
+			}
+			return ChatResult{AttemptCount: i + 1, AccountID: item.ID, Provider: item.Provider}, err
 		}
 		headerAccount := item.ID
 		if i == 0 && pinned != "" {
 			headerAccount = pinned
 		}
-		prefer = ""
 		httpReq, err := e.newWorkerRequest(ctx, item, payload, headerAccount)
 		if err != nil {
 			return ChatResult{}, err
@@ -270,7 +311,7 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 				Status: status, HTTPStatus: ptrInt(resp.StatusCode), ErrorKind: classified.Kind,
 				ErrorMessage: truncateErr(msg), LatencyMs: &latency,
 			})
-			return ChatResult{AttemptCount: i + 1, AccountID: item.ID}, lastErr
+			return ChatResult{AttemptCount: i + 1, AccountID: item.ID, Provider: firstNonEmpty(item.Provider, "qoder")}, lastErr
 		}
 		result, err := decodeChatResult(req, body)
 		if err != nil {
@@ -279,9 +320,10 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 				Status: accounts.AttemptStatusError, HTTPStatus: ptrInt(resp.StatusCode),
 				ErrorKind: accounts.KindUnavailable, ErrorMessage: truncateErr(err.Error()), LatencyMs: &latency,
 			})
-			return ChatResult{AttemptCount: i + 1, AccountID: item.ID}, err
+			return ChatResult{AttemptCount: i + 1, AccountID: item.ID, Provider: firstNonEmpty(item.Provider, "qoder")}, err
 		}
 		result.AccountID = item.ID
+		result.Provider = firstNonEmpty(item.Provider, "qoder")
 		result.AttemptCount = i + 1
 		e.markOK(item.ID)
 		e.recordAttempt(ctx, accounts.RequestAttempt{
@@ -298,50 +340,31 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 	return ChatResult{AttemptCount: attempts}, lastErr
 }
 
-func (e ChatExecutor) attempts() int {
-	if e.Pool != nil && e.Pool.Len() > 0 {
-		return e.Pool.Len()
-	}
-	return 1
-}
-
-// peekInProcess resolves provider-pinned requests without touching Qoder
-// workers. A pin that names an in-process provider must never fall back.
-func (e ChatExecutor) peekInProcess(prefer string) (accounts.Item, bool) {
-	if e.Pool == nil || e.Providers == nil || prefer == "" {
-		return accounts.Item{}, false
-	}
-	item, ok := e.Pool.ByID(prefer)
-	if !ok || item.Provider == "" || item.Provider == "qoder" {
-		return accounts.Item{}, false
-	}
-	if _, supported := e.Providers.Get(item.Provider); !supported {
-		return accounts.Item{}, false
-	}
-	return item, true
-}
-
-func (e ChatExecutor) chatInProcessNonStream(ctx context.Context, item accounts.Item, req translate.ChatRequest) (ChatResult, error) {
+func (e ChatExecutor) chatInProcessNonStreamAttempt(ctx context.Context, item accounts.Item, req translate.ChatRequest, attemptIndex int) (ChatResult, accounts.Classified, error) {
 	adapter, _ := e.Providers.Get(item.Provider)
 	if adapter.Chat == nil {
-		return ChatResult{}, fmt.Errorf("provider %s does not implement chat", item.Provider)
+		return ChatResult{}, accounts.Classified{}, fmt.Errorf("provider %s does not implement chat", item.Provider)
 	}
 	started := time.Now()
 	outcome, err := adapter.Chat.ChatNonStream(ctx, item.ID, req)
 	finished := time.Now().UTC()
 	latency := int(finished.Sub(started).Milliseconds())
 	if err != nil {
-		e.markInProcessError(item, err)
-		classified := accounts.Classify(0, err.Error(), "", "", "")
+		classified := e.classifyInProcessError(err)
+		e.markClassified(item.ID, classified)
+		status := accounts.AttemptStatusError
+		if classified.Failover {
+			status = accounts.AttemptStatusFailover
+		}
 		e.recordAttempt(ctx, accounts.RequestAttempt{
-			AttemptIndex: 0, AccountID: item.ID, StartedAt: started, FinishedAt: &finished,
-			Status: accounts.AttemptStatusError, ErrorKind: classified.Kind, ErrorMessage: truncateErr(err.Error()), LatencyMs: &latency,
+			AttemptIndex: attemptIndex, AccountID: item.ID, StartedAt: started, FinishedAt: &finished,
+			Status: status, ErrorKind: classified.Kind, ErrorMessage: truncateErr(err.Error()), LatencyMs: &latency,
 		})
-		return ChatResult{AttemptCount: 1, AccountID: item.ID}, err
+		return ChatResult{AccountID: item.ID, Provider: item.Provider}, classified, err
 	}
 	e.markOK(item.ID)
 	e.recordAttempt(ctx, accounts.RequestAttempt{
-		AttemptIndex: 0, AccountID: item.ID, StartedAt: started, FinishedAt: &finished,
+		AttemptIndex: attemptIndex, AccountID: item.ID, StartedAt: started, FinishedAt: &finished,
 		Status: accounts.AttemptStatusOK, LatencyMs: &latency,
 		PromptTokens: ptrInt(outcome.PromptTokens), CompletionTokens: ptrInt(outcome.CompletionTokens),
 		UsageSource: outcome.UsageSource,
@@ -356,46 +379,47 @@ func (e ChatExecutor) chatInProcessNonStream(ctx context.Context, item accounts.
 		CompletionTokens: outcome.CompletionTokens,
 		UsageSource:      outcome.UsageSource,
 		AccountID:        item.ID,
-		AttemptCount:     1,
-	}, nil
+		Provider:         item.Provider,
+	}, accounts.Classified{}, nil
 }
 
-func (e ChatExecutor) chatInProcessStream(ctx context.Context, item accounts.Item, req translate.ChatRequest) (StreamResult, error) {
+func (e ChatExecutor) chatInProcessStreamAttempt(ctx context.Context, item accounts.Item, req translate.ChatRequest, attemptIndex int) (StreamResult, accounts.Classified, error) {
 	adapter, _ := e.Providers.Get(item.Provider)
 	if adapter.Chat == nil {
-		return StreamResult{}, fmt.Errorf("provider %s does not implement chat", item.Provider)
+		return StreamResult{}, accounts.Classified{}, fmt.Errorf("provider %s does not implement chat", item.Provider)
 	}
 	started := time.Now()
 	resp, err := adapter.Chat.ChatStream(ctx, item.ID, req)
 	if err != nil {
 		finished := time.Now().UTC()
 		latency := int(finished.Sub(started).Milliseconds())
-		e.markInProcessError(item, err)
-		classified := accounts.Classify(0, err.Error(), "", "", "")
+		classified := e.classifyInProcessError(err)
+		e.markClassified(item.ID, classified)
+		status := accounts.AttemptStatusError
+		if classified.Failover {
+			status = accounts.AttemptStatusFailover
+		}
 		e.recordAttempt(ctx, accounts.RequestAttempt{
-			AttemptIndex: 0, AccountID: item.ID, StartedAt: started, FinishedAt: &finished,
-			Status: accounts.AttemptStatusError, ErrorKind: classified.Kind, ErrorMessage: truncateErr(err.Error()), LatencyMs: &latency,
+			AttemptIndex: attemptIndex, AccountID: item.ID, StartedAt: started, FinishedAt: &finished,
+			Status: status, ErrorKind: classified.Kind, ErrorMessage: truncateErr(err.Error()), LatencyMs: &latency,
 		})
-		return StreamResult{AttemptCount: 1, AccountID: item.ID}, err
+		return StreamResult{AccountID: item.ID, Provider: item.Provider}, classified, err
 	}
 	e.markOK(item.ID)
 	ttfb := int(time.Since(started).Milliseconds())
 	headerAt := time.Now().UTC()
 	e.recordAttempt(ctx, accounts.RequestAttempt{
-		AttemptIndex: 0, AccountID: item.ID, StartedAt: started, FinishedAt: &headerAt,
+		AttemptIndex: attemptIndex, AccountID: item.ID, StartedAt: started, FinishedAt: &headerAt,
 		Status: accounts.AttemptStatusOK, HTTPStatus: ptrInt(http.StatusOK), LatencyMs: &ttfb,
 	})
-	return StreamResult{Response: resp, AccountID: item.ID, AttemptCount: 1, TTFBMs: ttfb}, nil
+	return StreamResult{Response: resp, AccountID: item.ID, Provider: item.Provider, TTFBMs: ttfb}, accounts.Classified{}, nil
 }
 
-// markInProcessError maps provider adapter errors into the shared cooldown
+// classifyInProcessError maps provider adapter errors into the shared cooldown
 // taxonomy. Only provider-declared failures move the account; transport and
 // decode errors stay classified as unavailable with a short cooldown.
-func (e ChatExecutor) markInProcessError(item accounts.Item, err error) {
-	if e.Pool == nil || err == nil {
-		return
-	}
-	classified := accounts.Classify(0, err.Error(), "", "", "")
+func (e ChatExecutor) classifyInProcessError(err error) accounts.Classified {
+	classified := accounts.Classify(0, err.Error(), "", accounts.KindUnavailable, "")
 	var classifiedErr *workbuddy.ClassifiedError
 	if errors.As(err, &classifiedErr) && classifiedErr.Kind != "" {
 		cooldown := 60 * time.Second
@@ -414,7 +438,23 @@ func (e ChatExecutor) markInProcessError(item accounts.Item, err error) {
 			Cooldown: cooldown, Code: classifiedErr.Kind, Message: classifiedErr.Message,
 		}
 	}
-	e.Pool.MarkClassified(item.ID, classified)
+	return classified
+}
+
+func lastAccountID(excluded map[string]struct{}) string {
+	for id := range excluded {
+		return id
+	}
+	return ""
+}
+
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func decodeChatResult(req translate.ChatRequest, body []byte) (ChatResult, error) {
@@ -481,29 +521,42 @@ func decodeChatResult(req translate.ChatRequest, body []byte) (ChatResult, error
 	}, nil
 }
 
-func (e ChatExecutor) ChatStreamProxy(ctx context.Context, req translate.ChatRequest, prefer string) (StreamResult, error) {
-	if item, ok := e.peekInProcess(prefer); ok {
-		return e.chatInProcessStream(ctx, item, req)
-	}
+func (e ChatExecutor) ChatStreamProxy(ctx context.Context, req translate.ChatRequest, prefer, providerFilter string) (StreamResult, error) {
 	payload, err := json.Marshal(buildWorkerPayload(req, true))
 	if err != nil {
 		return StreamResult{}, err
 	}
 	excluded := map[string]struct{}{}
 	var lastErr error
-	attempts := e.attempts()
+	attempts := e.attemptsFor(providerFilter)
 	pinned := prefer
 	startedAll := time.Now()
 	for i := 0; i < attempts; i++ {
-		item, err := e.pick(prefer, excluded)
+		item, err := e.pick(prefer, providerFilter, excluded)
 		if err != nil {
+			if lastErr != nil {
+				return StreamResult{AttemptCount: i, AccountID: lastAccountID(excluded), Provider: providerFilter}, lastErr
+			}
 			return StreamResult{}, err
+		}
+		prefer = ""
+		if isInProcessItem(item) {
+			result, classified, err := e.chatInProcessStreamAttempt(ctx, item, req, i)
+			if err == nil {
+				result.AttemptCount = i + 1
+				return result, nil
+			}
+			lastErr = err
+			if classified.Failover && i+1 < attempts {
+				excluded[item.ID] = struct{}{}
+				continue
+			}
+			return StreamResult{AttemptCount: i + 1, AccountID: item.ID, Provider: item.Provider}, err
 		}
 		headerAccount := item.ID
 		if i == 0 && pinned != "" {
 			headerAccount = pinned
 		}
-		prefer = ""
 		httpReq, err := e.newWorkerRequest(ctx, item, payload, headerAccount)
 		if err != nil {
 			return StreamResult{}, err
@@ -559,7 +612,7 @@ func (e ChatExecutor) ChatStreamProxy(ctx context.Context, req translate.ChatReq
 				Status: status, HTTPStatus: ptrInt(resp.StatusCode), ErrorKind: classified.Kind,
 				ErrorMessage: truncateErr(msg), LatencyMs: &latency,
 			})
-			return StreamResult{AttemptCount: i + 1, AccountID: item.ID}, lastErr
+			return StreamResult{AttemptCount: i + 1, AccountID: item.ID, Provider: firstNonEmpty(item.Provider, "qoder")}, lastErr
 		}
 		e.markOK(item.ID)
 		ttfb := int(time.Since(startedAll).Milliseconds())
@@ -571,6 +624,7 @@ func (e ChatExecutor) ChatStreamProxy(ctx context.Context, req translate.ChatReq
 		return StreamResult{
 			Response:     resp,
 			AccountID:    item.ID,
+			Provider:     firstNonEmpty(item.Provider, "qoder"),
 			AttemptCount: i + 1,
 			TTFBMs:       ttfb,
 		}, nil

@@ -113,8 +113,8 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 }
 
 // resolveProviderFilter enforces public-model ID rules. Prefixed IDs pin one
-// provider family; bare IDs stay exact. CROSS_PROVIDER_MODEL_POOL=1 decides
-// whether a bare overlapping ID may route outside Qoder elsewhere in routing.
+// provider family. Bare IDs stay on Qoder unless CROSS_PROVIDER_MODEL_POOL=1,
+// which leaves the filter empty so same-named models can share a route pool.
 func (s *Server) resolveProviderFilter(req *translate.ChatRequest) string {
 	model := strings.TrimSpace(req.Model)
 	if model == "" {
@@ -126,7 +126,10 @@ func (s *Server) resolveProviderFilter(req *translate.ChatRequest) string {
 			return strings.TrimSuffix(prefix, "/")
 		}
 	}
-	return ""
+	if s != nil && s.cfg.CrossProviderModelPool {
+		return ""
+	}
+	return "qoder"
 }
 
 func (s *Server) handleModelsAPI(w http.ResponseWriter, r *http.Request) {
@@ -170,7 +173,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Request-Id", requestID)
 
 	if req.Stream {
-		upstream, err := s.executor.ChatStreamProxy(ctx, req, prefer)
+		upstream, err := s.executor.ChatStreamProxy(ctx, req, prefer, providerFilter)
 		if err != nil {
 			s.finishRequestLog(requestID, started, req, publicModel, upstream.AccountID, accounts.RequestStatusError, upstream.TTFBMs, nil, err, upstream.AttemptCount)
 			writeClassifiedErr(w, err)
@@ -185,8 +188,8 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("X-Qoder-Account", upstream.AccountID)
 			w.Header().Set("X-CLI2API-Account", upstream.AccountID)
 		}
-		if providerFilter != "" {
-			w.Header().Set("X-CLI2API-Provider", providerFilter)
+		if provider := firstNonEmpty(upstream.Provider, providerFilter); provider != "" {
+			w.Header().Set("X-CLI2API-Provider", provider)
 		}
 		w.Header().Set("X-Accel-Buffering", "no")
 		w.WriteHeader(http.StatusOK)
@@ -209,7 +212,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res, err := s.executor.ChatNonStream(ctx, req, prefer)
+	res, err := s.executor.ChatNonStream(ctx, req, prefer, providerFilter)
 	if err != nil {
 		s.finishRequestLog(requestID, started, req, publicModel, res.AccountID, accounts.RequestStatusError, 0, nil, err, res.AttemptCount)
 		writeClassifiedErr(w, err)
@@ -248,8 +251,8 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Qoder-Account", res.AccountID)
 		w.Header().Set("X-CLI2API-Account", res.AccountID)
 	}
-	if providerFilter != "" {
-		w.Header().Set("X-CLI2API-Provider", providerFilter)
+	if provider := firstNonEmpty(res.Provider, providerFilter); provider != "" {
+		w.Header().Set("X-CLI2API-Provider", provider)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"id":      "chatcmpl-" + requestID,

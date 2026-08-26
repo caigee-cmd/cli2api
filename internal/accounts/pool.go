@@ -8,33 +8,33 @@ import (
 // QuotaSnapshot is the display-only quota state for one Qoder account.
 // A zero value means "unknown"; it never influences routing or cooldown.
 type QuotaSnapshot struct {
-	Used        float64 `json:"used"`
-	Total       float64 `json:"total"`
-	Remaining   float64 `json:"remaining"`
-	Percentage  float64 `json:"percentage"`
-	Unit        string  `json:"unit"`
-	Exceeded    bool    `json:"exceeded"`
-	HasAddOn    bool    `json:"has_add_on"`
-	AddOnUsed   float64 `json:"add_on_used"`
-	AddOnTotal  float64 `json:"add_on_total"`
-	AddOnUnit   string  `json:"add_on_unit"`
-	FetchedAt   string  `json:"fetched_at"`
+	Used       float64 `json:"used"`
+	Total      float64 `json:"total"`
+	Remaining  float64 `json:"remaining"`
+	Percentage float64 `json:"percentage"`
+	Unit       string  `json:"unit"`
+	Exceeded   bool    `json:"exceeded"`
+	HasAddOn   bool    `json:"has_add_on"`
+	AddOnUsed  float64 `json:"add_on_used"`
+	AddOnTotal float64 `json:"add_on_total"`
+	AddOnUnit  string  `json:"add_on_unit"`
+	FetchedAt  string  `json:"fetched_at"`
 }
 
 type Item struct {
-	ID           string
-	URL          string
-	Provider     string
-	Region       string
-	Runtime      string
-	DownUntil    time.Time
-	LastError    string
-	LastKind     string
-	Ready        *bool
-	Hot          *bool
-	InFlight     int
-	Restarts     int
-	Quota        *QuotaSnapshot
+	ID        string
+	URL       string
+	Provider  string
+	Region    string
+	Runtime   string
+	DownUntil time.Time
+	LastError string
+	LastKind  string
+	Ready     *bool
+	Hot       *bool
+	InFlight  int
+	Restarts  int
+	Quota     *QuotaSnapshot
 }
 
 // RouteQuery selects candidates for one public model request. Empty fields are
@@ -62,7 +62,9 @@ func NewPool(urls []string, ids []string) *Pool {
 		} else if len(urls) > 1 {
 			id = "worker-" + itoa(i+1)
 		}
-		items = append(items, Item{ID: id, URL: url})
+		items = append(items, Item{
+			ID: id, URL: url, Provider: "qoder", Runtime: "child_process",
+		})
 	}
 	return &Pool{items: items}
 }

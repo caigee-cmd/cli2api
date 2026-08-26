@@ -19,6 +19,8 @@ export type Overview = {
     ok?: boolean
     service?: string
     provider?: string
+    providers?: string[]
+    cross_provider_model_pool?: boolean
     port?: number | string
     chat_url?: string
   }
@@ -44,6 +46,9 @@ export type Overview = {
     mapped_key?: string
     route_display_name?: string
     settings_key?: string
+    provider?: string
+    owned_by?: string
+    native_model?: string
     stale?: boolean
     context_length?: number
     default_context_length?: number
@@ -52,6 +57,7 @@ export type Overview = {
   accounts?: Array<{
     id: string
     provider?: string
+    region?: string
     name?: string
     remote_uid?: string
     auth_type?: string

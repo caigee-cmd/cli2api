@@ -63,54 +63,54 @@ func New(cfg config.Config) *Server {
 	if initialized {
 		log.Printf("[security] initialized API key and stored it in SQLite: %s", proxyAPIKey)
 	}
-cfg.ProxyAPIKey = proxyAPIKey
-		runtimeDir := cfg.RuntimeDir
-		if runtimeDir == "" {
-			runtimeDir = filepath.Join("/tmp", "cli2api-runtime")
-		}
-		ring := applogs.NewRing(2000)
-		log.SetOutput(io.MultiWriter(os.Stderr, ring))
-		manager := accounts.NewManager(accounts.ManagerConfig{
-			DataDir: runtimeDir, BasePort: cfg.WorkerBasePort, NodeBinary: cfg.NodeBinary,
-			DaemonPath: cfg.WorkerDaemonPath, QoderCLIPath: cfg.QoderCLIPath,
-			TemplatePath: cfg.PlainTemplatePath, ProxyAPIKey: proxyAPIKey,
-			MaxLogWriters: io.MultiWriter(os.Stderr, ring),
-		}, store, nil)
-		if err := manager.Start(context.Background()); err != nil {
-			panic(err)
-		}
-		pool := manager.Pool()
-		providerReg := providers.NewRegistry()
-		workbuddyClient := workbuddy.NewClient(store)
-		providerReg.Register(workbuddyClient.Adapter())
-		recorder := applogs.NewRequestRecorder(store)
-		stopLogs := make(chan struct{})
-		go recorder.PurgeLoop(stopLogs, time.Hour)
-		checker := control.NewChecker(buildinfo.Version, control.NewGitHubReleaseSource("caigee-cmd/cli2api", cfg.UpdateGitHubToken))
-		var agent control.Agent = control.NewUnixAgentClient(cfg.UpdateSocketPath)
-		if strings.TrimSpace(cfg.UpdateAgentURL) != "" {
-			agent = control.NewHTTPAgentClient(cfg.UpdateAgentURL, cfg.UpdateAgentToken)
-		}
-		chatExecutor := executor.NewChatExecutor(pool, proxyAPIKey)
-		chatExecutor.Providers = providerReg
-		chatExecutor.OnAttempt = recorder.Attempt
-		s := &Server{
-			cfg:           cfg,
-			auth:          auth.NewVerifier(proxyAPIKey),
-			executor:      chatExecutor,
-			pool:          pool,
-			manager:       manager,
-			providers:     providerReg,
-			recorder:      recorder,
-			ring:          ring,
-			stopLogs:      stopLogs,
-			mux:           http.NewServeMux(),
-			updateChecker: checker,
-			updateAgent:   agent,
-		}
-		s.routes()
-		return s
+	cfg.ProxyAPIKey = proxyAPIKey
+	runtimeDir := cfg.RuntimeDir
+	if runtimeDir == "" {
+		runtimeDir = filepath.Join("/tmp", "cli2api-runtime")
 	}
+	ring := applogs.NewRing(2000)
+	log.SetOutput(io.MultiWriter(os.Stderr, ring))
+	manager := accounts.NewManager(accounts.ManagerConfig{
+		DataDir: runtimeDir, BasePort: cfg.WorkerBasePort, NodeBinary: cfg.NodeBinary,
+		DaemonPath: cfg.WorkerDaemonPath, QoderCLIPath: cfg.QoderCLIPath,
+		TemplatePath: cfg.PlainTemplatePath, ProxyAPIKey: proxyAPIKey,
+		MaxLogWriters: io.MultiWriter(os.Stderr, ring),
+	}, store, nil)
+	if err := manager.Start(context.Background()); err != nil {
+		panic(err)
+	}
+	pool := manager.Pool()
+	providerReg := providers.NewRegistry()
+	workbuddyClient := workbuddy.NewClient(store)
+	providerReg.Register(workbuddyClient.Adapter())
+	recorder := applogs.NewRequestRecorder(store)
+	stopLogs := make(chan struct{})
+	go recorder.PurgeLoop(stopLogs, time.Hour)
+	checker := control.NewChecker(buildinfo.Version, control.NewGitHubReleaseSource("caigee-cmd/cli2api", cfg.UpdateGitHubToken))
+	var agent control.Agent = control.NewUnixAgentClient(cfg.UpdateSocketPath)
+	if strings.TrimSpace(cfg.UpdateAgentURL) != "" {
+		agent = control.NewHTTPAgentClient(cfg.UpdateAgentURL, cfg.UpdateAgentToken)
+	}
+	chatExecutor := executor.NewChatExecutor(pool, proxyAPIKey)
+	chatExecutor.Providers = providerReg
+	chatExecutor.OnAttempt = recorder.Attempt
+	s := &Server{
+		cfg:           cfg,
+		auth:          auth.NewVerifier(proxyAPIKey),
+		executor:      chatExecutor,
+		pool:          pool,
+		manager:       manager,
+		providers:     providerReg,
+		recorder:      recorder,
+		ring:          ring,
+		stopLogs:      stopLogs,
+		mux:           http.NewServeMux(),
+		updateChecker: checker,
+		updateAgent:   agent,
+	}
+	s.routes()
+	return s
+}
 
 const proxyAPIKeySecret = "proxy_api_key"
 
@@ -154,50 +154,50 @@ func (s *Server) Handler() http.Handler {
 }
 
 func (s *Server) Close() error {
-		if s.stopLogs != nil {
-			close(s.stopLogs)
-		}
-		return errors.Join(s.manager.Close(), s.manager.Store().Close())
+	if s.stopLogs != nil {
+		close(s.stopLogs)
 	}
+	return errors.Join(s.manager.Close(), s.manager.Store().Close())
+}
 
-	func (s *Server) routes() {
-		s.mux.HandleFunc(endpoint.HealthPath, s.handleHealth)
-		s.mux.HandleFunc("/api/overview", s.withAPIKey(s.handleOverview))
-		s.mux.HandleFunc("/api/system/update", s.withAPIKey(s.handleSystemUpdate))
-		s.mux.HandleFunc("/api/models", s.withAPIKey(s.handleModelsAPI))
-		s.mux.HandleFunc("/api/models/", s.withAPIKey(s.handleModelSetting))
-		s.mux.HandleFunc("/api/providers", s.withAPIKey(s.handleProviders))
-		s.mux.HandleFunc("/api/accounts", s.withAPIKey(s.handleAccounts))
-		s.mux.HandleFunc("/api/accounts/import", s.withAPIKey(s.handleAccountImport))
-		s.mux.HandleFunc("/api/accounts/", s.withAPIKey(s.handleAccountByID))
-		s.mux.HandleFunc("/api/logs", s.withAPIKey(s.handleLogs))
-		s.mux.HandleFunc("/api/logs/", s.withAPIKey(s.handleLogs))
-		s.mux.HandleFunc("/api/chat", s.withAPIKey(s.handleChatCompletions))
-		s.mux.HandleFunc(endpoint.ModelsPath, s.withAPIKey(s.handleModels))
-		s.mux.HandleFunc(endpoint.ChatCompletionsPath, s.withAPIKey(s.handleChatCompletions))
+func (s *Server) routes() {
+	s.mux.HandleFunc(endpoint.HealthPath, s.handleHealth)
+	s.mux.HandleFunc("/api/overview", s.withAPIKey(s.handleOverview))
+	s.mux.HandleFunc("/api/system/update", s.withAPIKey(s.handleSystemUpdate))
+	s.mux.HandleFunc("/api/models", s.withAPIKey(s.handleModelsAPI))
+	s.mux.HandleFunc("/api/models/", s.withAPIKey(s.handleModelSetting))
+	s.mux.HandleFunc("/api/providers", s.withAPIKey(s.handleProviders))
+	s.mux.HandleFunc("/api/accounts", s.withAPIKey(s.handleAccounts))
+	s.mux.HandleFunc("/api/accounts/import", s.withAPIKey(s.handleAccountImport))
+	s.mux.HandleFunc("/api/accounts/", s.withAPIKey(s.handleAccountByID))
+	s.mux.HandleFunc("/api/logs", s.withAPIKey(s.handleLogs))
+	s.mux.HandleFunc("/api/logs/", s.withAPIKey(s.handleLogs))
+	s.mux.HandleFunc("/api/chat", s.withAPIKey(s.handleChatCompletions))
+	s.mux.HandleFunc(endpoint.ModelsPath, s.withAPIKey(s.handleModels))
+	s.mux.HandleFunc(endpoint.ChatCompletionsPath, s.withAPIKey(s.handleChatCompletions))
 
-		ui := webui.Handler()
-		s.mux.Handle("/assets/", ui)
-		s.mux.Handle("/favicon.svg", ui)
-		s.mux.Handle("/favicon-dark.svg", ui)
-		s.mux.Handle("/apple-touch-icon.svg", ui)
-		s.mux.Handle("/og-card.svg", ui)
-		s.mux.Handle("/site.webmanifest", ui)
-		s.mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path != "/" &&
-				!strings.HasPrefix(r.URL.Path, "/assets/") &&
-				r.URL.Path != "/favicon.svg" &&
-				r.URL.Path != "/favicon-dark.svg" &&
-				r.URL.Path != "/apple-touch-icon.svg" &&
-				r.URL.Path != "/og-card.svg" &&
-				r.URL.Path != "/site.webmanifest" {
-				switch r.URL.Path {
-				case "/login", "/auth", "/providers", "/access", "/accounts", "/system", "/logs":
-				default:
-					http.NotFound(w, r)
-					return
-				}
+	ui := webui.Handler()
+	s.mux.Handle("/assets/", ui)
+	s.mux.Handle("/favicon.svg", ui)
+	s.mux.Handle("/favicon-dark.svg", ui)
+	s.mux.Handle("/apple-touch-icon.svg", ui)
+	s.mux.Handle("/og-card.svg", ui)
+	s.mux.Handle("/site.webmanifest", ui)
+	s.mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" &&
+			!strings.HasPrefix(r.URL.Path, "/assets/") &&
+			r.URL.Path != "/favicon.svg" &&
+			r.URL.Path != "/favicon-dark.svg" &&
+			r.URL.Path != "/apple-touch-icon.svg" &&
+			r.URL.Path != "/og-card.svg" &&
+			r.URL.Path != "/site.webmanifest" {
+			switch r.URL.Path {
+			case "/login", "/auth", "/providers", "/access", "/accounts", "/system", "/logs":
+			default:
+				http.NotFound(w, r)
+				return
 			}
+		}
 		data, err := webui.IndexHTML()
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -220,15 +220,16 @@ func (s *Server) withAPIKey(next http.HandlerFunc) http.HandlerFunc {
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":          true,
-		"service":     "cli2api",
-		"provider":    "qoder",
-		"phase":       "ui-preview",
-		"chat_url":    endpoint.ChatCompletionsPath,
-		"time":        time.Now().UTC().Format(time.RFC3339),
-		"version":     buildinfo.Version,
-		"commit":      buildinfo.Commit,
-		"maintenance": s.maintenance.Load(),
+		"ok":                        true,
+		"service":                   "cli2api",
+		"providers":                 []string{"qoder", "workbuddy"},
+		"cross_provider_model_pool": s.cfg.CrossProviderModelPool,
+		"phase":                     "ui-preview",
+		"chat_url":                  endpoint.ChatCompletionsPath,
+		"time":                      time.Now().UTC().Format(time.RFC3339),
+		"version":                   buildinfo.Version,
+		"commit":                    buildinfo.Commit,
+		"maintenance":               s.maintenance.Load(),
 	})
 }
 
@@ -250,8 +251,10 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		"ok":   true,
 		"time": time.Now().Format(time.RFC3339),
 		"proxy": map[string]any{
-			"ok": true, "service": "cli2api", "provider": "qoder", "port": s.cfg.Port,
-			"version": buildinfo.Version, "commit": buildinfo.Commit,
+			"ok": true, "service": "cli2api", "port": s.cfg.Port,
+			"providers":                 []string{"qoder", "workbuddy"},
+			"cross_provider_model_pool": s.cfg.CrossProviderModelPool,
+			"version":                   buildinfo.Version, "commit": buildinfo.Commit,
 			"chat_url": "/v1/chat/completions",
 		},
 		"worker": map[string]any{

@@ -9,6 +9,7 @@ import (
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/providers"
+	"github.com/caigee-cmd/cli2api/internal/providers/workbuddy"
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
@@ -41,11 +42,58 @@ func TestInProcessProviderPinnedChatDoesNotTouchWorkers(t *testing.T) {
 	ex.Providers = registry
 	result, err := ex.ChatNonStream(context.Background(), translate.ChatRequest{
 		Model: "glm-5.2", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
-	}, "wb1")
+	}, "wb1", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.Content != "OK" || result.AccountID != "wb1" || fake.calls != 1 {
+		t.Fatalf("result=%+v calls=%d", result, fake.calls)
+	}
+}
+
+func TestInProcessProviderFilterRoutesWithoutPin(t *testing.T) {
+	pool := accounts.NewPool([]string{"http://127.0.0.1:1"}, []string{"qoder1"})
+	pool.Upsert(accounts.Item{ID: "wb1", Provider: "workbuddy", Region: "cn", Runtime: "in_process"})
+	registry := providers.NewRegistry()
+	fake := &fakeInProcessChat{}
+	registry.Register(providers.Adapter{ID: "workbuddy", Chat: fake})
+
+	ex := NewChatExecutor(pool, "")
+	ex.Providers = registry
+	result, err := ex.ChatNonStream(context.Background(), translate.ChatRequest{
+		Model: "glm-5.2", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	}, "", "workbuddy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Content != "OK" || result.AccountID != "wb1" || fake.calls != 1 {
+		t.Fatalf("result=%+v calls=%d", result, fake.calls)
+	}
+}
+
+func TestInProcessProviderOnlyAccountRoutesWithoutPin(t *testing.T) {
+	pool := accounts.NewPool(nil, nil)
+	pool.Upsert(accounts.Item{ID: "wb1", Provider: "workbuddy", Runtime: "in_process"})
+	registry := providers.NewRegistry()
+	fake := &fakeInProcessChat{}
+	registry.Register(providers.Adapter{ID: "workbuddy", Chat: fake})
+
+	ex := NewChatExecutor(pool, "")
+	ex.Providers = registry
+	result, err := ex.ChatNonStream(context.Background(), translate.ChatRequest{
+		Model: "glm-5.2", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	}, "", "qoder")
+	if err == nil {
+		t.Fatalf("expected no qoder account, got %+v", result)
+	}
+
+	result, err = ex.ChatNonStream(context.Background(), translate.ChatRequest{
+		Model: "glm-5.2", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	}, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.AccountID != "wb1" || fake.calls != 1 {
 		t.Fatalf("result=%+v calls=%d", result, fake.calls)
 	}
 }
@@ -61,9 +109,46 @@ func TestInProcessProviderUnsupportedModelDoesNotFailoverToQoder(t *testing.T) {
 	ex.Providers = registry
 	_, err := ex.ChatNonStream(context.Background(), translate.ChatRequest{
 		Model: "unknown-model", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
-	}, "wb1")
+	}, "wb1", "")
 	if err == nil {
 		t.Fatal("expected unsupported model error")
+	}
+}
+
+type rateLimitedThenOKChat struct {
+	calls int
+}
+
+func (f *rateLimitedThenOKChat) ChatNonStream(ctx context.Context, accountID string, req translate.ChatRequest) (providers.ChatOutcome, error) {
+	f.calls++
+	if accountID == "wb1" {
+		return providers.ChatOutcome{}, &workbuddy.ClassifiedError{Kind: accounts.KindRateLimit, Status: 429, Message: "soft_rate"}
+	}
+	return providers.ChatOutcome{Model: req.Model, Content: "OK-" + accountID, FinishReason: "stop"}, nil
+}
+
+func (f *rateLimitedThenOKChat) ChatStream(ctx context.Context, accountID string, req translate.ChatRequest) (*http.Response, error) {
+	return nil, errors.New("stream unsupported in fake")
+}
+
+func TestInProcessFailoverRotatesAcrossWorkBuddyAccounts(t *testing.T) {
+	pool := accounts.NewPool(nil, nil)
+	pool.Upsert(accounts.Item{ID: "wb1", Provider: "workbuddy", Runtime: "in_process"})
+	pool.Upsert(accounts.Item{ID: "wb2", Provider: "workbuddy", Runtime: "in_process"})
+	registry := providers.NewRegistry()
+	fake := &rateLimitedThenOKChat{}
+	registry.Register(providers.Adapter{ID: "workbuddy", Chat: fake})
+
+	ex := NewChatExecutor(pool, "")
+	ex.Providers = registry
+	result, err := ex.ChatNonStream(context.Background(), translate.ChatRequest{
+		Model: "glm-5.2", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	}, "", "workbuddy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.AccountID != "wb2" || result.Provider != "workbuddy" || result.Content != "OK-wb2" || fake.calls != 2 {
+		t.Fatalf("result=%+v calls=%d", result, fake.calls)
 	}
 }
 
