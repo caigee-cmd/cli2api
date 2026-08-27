@@ -8,11 +8,12 @@ import (
 )
 
 const (
-	KindQuota       = "quota"
-	KindRateLimit   = "rate_limit"
-	KindAuth        = "auth"
-	KindNotReady    = "not_ready"
-	KindUnavailable = "unavailable"
+	KindQuota          = "quota"
+	KindRateLimit      = "rate_limit"
+	KindAuth           = "auth"
+	KindNotReady       = "not_ready"
+	KindUnavailable    = "unavailable"
+	KindInvalidRequest = "invalid_request"
 )
 
 const maxRetryAfter = 10 * time.Minute
@@ -67,6 +68,8 @@ func Classify(status int, body, retryAfter, kindHint, failoverHint string) Class
 			kind = KindQuota
 		case notReadyLike(lower):
 			kind = KindNotReady
+		case IsInvalidRequestText(lower):
+			kind = KindInvalidRequest
 		case authLike(lower) && !quotaLike(lower, code, typ) && !rateLike(lower):
 			kind = KindAuth
 		case rateLike(lower) || status == 429:
@@ -110,6 +113,17 @@ func Classify(status int, body, retryAfter, kindHint, failoverHint string) Class
 		out.Failover = true
 		out.Cooldown = ParseRetryAfter(retryAfter, 10*time.Second)
 		out.Code = firstNonEmpty(code, "not_ready")
+	case KindInvalidRequest:
+		// Request content the upstream rejected; retrying on another account
+		// cannot succeed, and the account itself is healthy.
+		out.Status = status
+		if out.Status < 400 {
+			out.Status = 400
+		}
+		out.Failover = false
+		out.Cooldown = 0
+		out.Type = firstNonEmpty(typ, "invalid_request_error")
+		out.Code = firstNonEmpty(code, "invalid_request")
 	default:
 		if status >= 500 {
 			out.Status = status
@@ -204,6 +218,22 @@ func notReadyLike(lower string) bool {
 	return strings.Contains(lower, "hot context not ready") ||
 		strings.Contains(lower, "auth manager not captured") ||
 		strings.Contains(lower, "not ready")
+}
+
+// IsInvalidRequestText reports whether an error body looks like an upstream
+// content-screening rejection: the request itself is the problem, so no
+// account should fail over or cool down. Auth and quota shapes are matched
+// earlier in Classify and never reach this check.
+func IsInvalidRequestText(text string) bool {
+	lower := strings.ToLower(text)
+	return strings.Contains(lower, "sensitive") ||
+		strings.Contains(lower, "敏感") ||
+		strings.Contains(lower, "违规") ||
+		strings.Contains(lower, "风险") ||
+		strings.Contains(lower, "拦截") ||
+		strings.Contains(lower, "moderation") ||
+		strings.Contains(lower, "content filter") ||
+		strings.Contains(lower, "content_filter")
 }
 
 func firstNonEmpty(values ...string) string {

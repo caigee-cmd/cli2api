@@ -361,13 +361,23 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 	return ChatResult{AttemptCount: attempts}, lastErr
 }
 
+// sanitizeForItem applies the account-level system-prompt policy. Provider
+// families with upstream content screening (WorkBuddy) strip caller system
+// prompts when the account opts in; Qoder workers intentionally preserve them.
+func sanitizeForItem(item accounts.Item, req translate.ChatRequest) translate.ChatRequest {
+	if item.DropSystemPrompt && item.Provider != "" && item.Provider != "qoder" {
+		return translate.DropSystemMessages(req)
+	}
+	return req
+}
+
 func (e ChatExecutor) chatInProcessNonStreamAttempt(ctx context.Context, item accounts.Item, req translate.ChatRequest, attemptIndex int) (ChatResult, accounts.Classified, error) {
 	adapter, _ := e.Providers.Get(item.Provider)
 	if adapter.Chat == nil {
 		return ChatResult{}, accounts.Classified{}, fmt.Errorf("provider %s does not implement chat", item.Provider)
 	}
 	started := time.Now()
-	outcome, err := adapter.Chat.ChatNonStream(ctx, item.ID, req)
+	outcome, err := adapter.Chat.ChatNonStream(ctx, item.ID, sanitizeForItem(item, req))
 	finished := time.Now().UTC()
 	latency := int(finished.Sub(started).Milliseconds())
 	if err != nil {
@@ -410,7 +420,7 @@ func (e ChatExecutor) chatInProcessStreamAttempt(ctx context.Context, item accou
 		return StreamResult{}, accounts.Classified{}, fmt.Errorf("provider %s does not implement chat", item.Provider)
 	}
 	started := time.Now()
-	resp, err := adapter.Chat.ChatStream(ctx, item.ID, req)
+	resp, err := adapter.Chat.ChatStream(ctx, item.ID, sanitizeForItem(item, req))
 	if err != nil {
 		finished := time.Now().UTC()
 		latency := int(finished.Sub(started).Milliseconds())
@@ -453,6 +463,10 @@ func (e ChatExecutor) classifyInProcessError(err error) accounts.Classified {
 			cooldown = 30 * time.Minute
 		case accounts.KindRateLimit:
 			cooldown = time.Minute
+		case accounts.KindInvalidRequest:
+			// The request itself was rejected; the account stays clean.
+			cooldown = 0
+			failover = false
 		}
 		classified = accounts.Classified{
 			Kind: classifiedErr.Kind, Status: classifiedErr.Status, Failover: failover,

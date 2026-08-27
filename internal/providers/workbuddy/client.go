@@ -463,6 +463,10 @@ func Classify(status int, body string) providers.ClassifiedError {
 		return providers.ClassifiedError{Kind: accounts.KindRateLimit, Status: 429, Message: strings.TrimSpace(body)}
 	case status == 404:
 		return providers.ClassifiedError{Kind: accounts.KindUnavailable, Status: 404, Message: strings.TrimSpace(body)}
+	case status == 400 || accounts.IsInvalidRequestText(body):
+		// Request-level rejection (content screening, malformed fields):
+		// retrying on another account cannot help and the account is healthy.
+		return providers.ClassifiedError{Kind: accounts.KindInvalidRequest, Status: firstNonEmptyStatus(status, 400), Message: strings.TrimSpace(body)}
 	case status >= 500:
 		return providers.ClassifiedError{Kind: accounts.KindUnavailable, Status: status, Message: strings.TrimSpace(body)}
 	}
@@ -471,9 +475,19 @@ func Classify(status int, body string) providers.ClassifiedError {
 		if env.Code == sessionDeadCode || strings.Contains(strings.ToLower(env.Msg), sessionDeadText) {
 			return providers.ClassifiedError{Kind: accounts.KindAuth, Status: 401, Message: "session dead; re-login required"}
 		}
+		if accounts.IsInvalidRequestText(env.Msg) {
+			return providers.ClassifiedError{Kind: accounts.KindInvalidRequest, Status: firstNonEmptyStatus(status, 400), Message: env.Msg}
+		}
 		return providers.ClassifiedError{Kind: accounts.KindUnavailable, Status: 502, Message: env.Msg}
 	}
 	return providers.ClassifiedError{}
+}
+
+func firstNonEmptyStatus(status, fallback int) int {
+	if status >= 400 {
+		return status
+	}
+	return fallback
 }
 
 // Probe reports whether the stored credential is usable. There is no WASM hot
