@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.2.11 - 2026-08-27
+
+### English
+
 - Add Qoder CN accounts as `provider=qoder` + `region=cn`, using pinned `@qodercn-ai/qoderclicn@1.1.27` and `.qoder-cn`
 - Wait for the Qoder worker AuthManager before browser or PAT login, so the first click does not fail while WASM is still starting
 - Stop locally rejecting oversized Qoder prompts; let the upstream quota or context limit decide
