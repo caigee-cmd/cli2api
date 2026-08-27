@@ -106,7 +106,7 @@ export function SystemPage() {
           <div className="flex items-center justify-between gap-3 border-b border-[var(--app-line)] px-5 py-4">
             <div>
               <h3 className="font-semibold tracking-[-0.015em]">{t('versionUpdate')}</h3>
-              <p className="mt-0.5 text-xs text-[var(--app-faint)]">{t('nextVersionOnly')}</p>
+              <p className="mt-0.5 text-xs text-[var(--app-faint)]">{t('latestVersionHint')}</p>
             </div>
             <Chip size="sm" variant="soft" color={info?.has_update ? 'warning' : 'success'}>
               {info?.has_update ? t('updateAvailable') : t('upToDate')}
@@ -123,10 +123,29 @@ export function SystemPage() {
                 <ArrowCircleUp size={18} />
               </div>
               <div className="border-t border-[var(--app-line)] p-4 sm:border-t-0">
-                <div className="text-xs font-medium text-[var(--app-faint)]">{t('nextVersion')}</div>
+                <div className="text-xs font-medium text-[var(--app-faint)]">{t('latestVersion')}</div>
                 <div className="mono mt-2 text-lg font-semibold">{info?.next_version || '—'}</div>
               </div>
             </div>
+
+            {info?.skipped_versions?.length ? (
+              <div className="mt-4 rounded-lg border border-[var(--app-line)] bg-[var(--app-surface-muted)] px-4 py-3">
+                <div className="text-xs font-medium text-[var(--app-muted)]">{t('skippedBetweenLabel')}</div>
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  <span className="mono text-xs text-[var(--app-faint)]">{info.current_version}</span>
+                  {info.skipped_versions.map((version) => (
+                    <span key={version} className="mono flex items-center gap-1.5 text-xs text-[var(--app-faint)]">
+                      <span aria-hidden>→</span>
+                      <span className="rounded border border-[var(--app-line)] bg-[var(--app-surface)] px-1.5 py-0.5">{version}</span>
+                    </span>
+                  ))}
+                  <span className="mono flex items-center gap-1.5 text-xs font-semibold text-[var(--app-ink)]">
+                    <span aria-hidden>→</span>
+                    <span className="rounded border border-[var(--app-line)] bg-[var(--app-surface)] px-1.5 py-0.5">{info.next_version}</span>
+                  </span>
+                </div>
+              </div>
+            ) : null}
 
             <div className="mt-5 border-t border-[var(--app-line)] pt-4">
               <div className="text-xs font-medium text-[var(--app-muted)]">{t('releaseNotes')}</div>

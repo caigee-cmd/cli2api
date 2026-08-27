@@ -9,11 +9,13 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 - Add a per-account drop-system-prompt switch (on by default, WorkBuddy accounts): caller system prompts are stripped before provider-native chat so upstream content screening no longer rejects them
 - Treat upstream content-screening rejections as request-level errors: they return 400 without failing over to other accounts or putting the account into cooldown
+- Managed update now jumps directly to the latest stable release instead of advancing one release at a time; the console System page lists every intermediate version the update passes over
 
 ### 中文
 
 - 新增账号级「丢弃系统提示词」开关（默认开启，WorkBuddy 账号）：请求发出前剥离调用方系统提示词，避免被上游内容审核拒绝
 - 上游内容审核拒绝改按请求级错误处理：直接返回 400，不再向其他账号无谓切换，也不给账号打冷却
+- 管理更新改为直接升级到最新稳定版本，不再逐版本前进；控制台 System 页会列出更新经过的全部中间版本
 
 ## 0.2.11 - 2026-08-27
 

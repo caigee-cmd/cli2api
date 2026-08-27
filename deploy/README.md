@@ -160,7 +160,8 @@ restores both the previous image and the pre-update SQLite snapshot, then pins
 snapshots are retained.
 
 The updater remains unavailable for development builds without a semantic
-version. The System page only offers the immediate next stable release.
+version. The System page updates directly to the latest stable release and
+lists the intermediate versions it passes over.
 
 The updater API currently reports protocol version `1`. Protocol `0` remains
 temporarily accepted for bootstrap compatibility; unknown versions fail closed.
