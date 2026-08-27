@@ -198,10 +198,17 @@ func TestErrorMapping(t *testing.T) {
 		{401, `{"code":12153,"msg":"Offline user session not found"}`, "auth"},
 		{404, "", "unavailable"},
 		{500, "boom", "unavailable"},
+		{400, `{"code":11101,"msg":"bad request"}`, "invalid_request"},
+		{200, `{"code":12001,"msg":"内容包含敏感信息"}`, "invalid_request"},
+		{200, `{"code":12002,"msg":"sensitive content detected"}`, "invalid_request"},
 	}
 	for _, c := range cases {
-		if got := Classify(c.status, c.body); got.Kind != c.kind {
+		got := Classify(c.status, c.body)
+		if got.Kind != c.kind {
 			t.Fatalf("Classify(%d,%s)=%+v want %s", c.status, c.body, got, c.kind)
+		}
+		if c.kind == "invalid_request" && got.Status != 400 && got.Status != c.status {
+			t.Fatalf("Classify(%d,%s) status=%d want request-level 400", c.status, c.body, got.Status)
 		}
 	}
 }
