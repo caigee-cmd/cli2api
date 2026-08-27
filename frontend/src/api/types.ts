@@ -64,6 +64,7 @@ export type Overview = {
     enabled?: boolean
     max_inflight?: number
     priority?: number
+    drop_system_prompt?: boolean
     status?: string
     cooldown_until?: string | null
     url?: string

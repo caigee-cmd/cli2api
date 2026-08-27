@@ -136,7 +136,7 @@ func (m *Manager) startAccount(ctx context.Context, account Account) error {
 	if descriptor.Runtime == providers.RuntimeInProcess {
 		m.pool.Upsert(Item{
 			ID: account.ID, Provider: descriptor.ID, Region: account.ProviderRegion,
-			Runtime: string(descriptor.Runtime),
+			Runtime: string(descriptor.Runtime), DropSystemPrompt: account.DropSystemPrompt,
 		})
 		return nil
 	}
@@ -328,6 +328,11 @@ func (m *Manager) Update(ctx context.Context, id string, input UpdateAccount) er
 	after, err := m.store.Get(ctx, id)
 	if err != nil {
 		return err
+	}
+	// Request sanitization applies per request, so sync it into the pool
+	// without restarting anything.
+	if before.DropSystemPrompt != after.DropSystemPrompt {
+		m.pool.SetDropSystemPrompt(id, after.DropSystemPrompt)
 	}
 	if before.Enabled && !after.Enabled {
 		return m.stopAccount(id)

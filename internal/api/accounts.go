@@ -160,10 +160,11 @@ func (s *Server) handleAccountByID(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, account)
 		case http.MethodPatch:
 			var input struct {
-				Name        string `json:"name"`
-				Enabled     *bool  `json:"enabled"`
-				MaxInFlight *int   `json:"max_inflight"`
-				Priority    *int   `json:"priority"`
+				Name             string `json:"name"`
+				Enabled          *bool  `json:"enabled"`
+				MaxInFlight      *int   `json:"max_inflight"`
+				Priority         *int   `json:"priority"`
+				DropSystemPrompt *bool  `json:"drop_system_prompt"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 				writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
@@ -171,6 +172,7 @@ func (s *Server) handleAccountByID(w http.ResponseWriter, r *http.Request) {
 			}
 			err := s.manager.Update(r.Context(), accountID, accounts.UpdateAccount{
 				Name: input.Name, Enabled: input.Enabled, MaxInFlight: input.MaxInFlight, Priority: input.Priority,
+				DropSystemPrompt: input.DropSystemPrompt,
 			})
 			if err != nil {
 				writeErr(w, http.StatusBadRequest, "account_update_failed", err.Error())

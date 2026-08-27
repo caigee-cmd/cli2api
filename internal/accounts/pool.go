@@ -36,6 +36,9 @@ type Item struct {
 	InFlight  int
 	Restarts  int
 	Quota     *QuotaSnapshot
+	// DropSystemPrompt mirrors the stored account flag so the executor can
+	// sanitize requests per account without a store lookup per chat.
+	DropSystemPrompt bool
 }
 
 // RouteQuery selects candidates for one public model request. Empty fields are
@@ -238,6 +241,23 @@ func (p *Pool) MarkOK(id string) {
 		observer(*changed)
 	}
 }
+// SetDropSystemPrompt updates only the request-sanitization flag on a live
+// item. Routing and runtime state stay untouched so the change applies to the
+// next request without disturbing cooldowns or health.
+func (p *Pool) SetDropSystemPrompt(id string, drop bool) {
+	if p == nil || id == "" {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for i := range p.items {
+		if p.items[i].ID == id {
+			p.items[i].DropSystemPrompt = drop
+			return
+		}
+	}
+}
+
 func (p *Pool) MergeHealth(id string, ready, hot bool, inFlight, restarts int, lastError string) {
 	if p == nil || id == "" {
 		return

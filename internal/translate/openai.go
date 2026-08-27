@@ -28,6 +28,21 @@ type ChatMessage struct {
 	ToolCalls  json.RawMessage `json:"tool_calls,omitempty"`
 }
 
+// DropSystemMessages removes caller system/developer messages from a chat
+// request. Provider-native upstreams with content screening reject many
+// third-party system prompts, so accounts can opt to strip them before send.
+func DropSystemMessages(req ChatRequest) ChatRequest {
+	kept := make([]ChatMessage, 0, len(req.Messages))
+	for _, message := range req.Messages {
+		if message.Role == "system" || message.Role == "developer" {
+			continue
+		}
+		kept = append(kept, message)
+	}
+	req.Messages = kept
+	return req
+}
+
 func ContentToString(content any) string {
 	switch v := content.(type) {
 	case string:

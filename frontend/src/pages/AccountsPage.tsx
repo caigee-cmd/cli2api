@@ -109,10 +109,15 @@ export function AccountsPage() {
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<AccountFilter>('all')
   const [enabledById, setEnabledById] = useState<Record<string, boolean>>({})
+  const [dropSystemById, setDropSystemById] = useState<Record<string, boolean>>({})
   const displayRows = useMemo(() => rows.map((account) => {
     const enabled = enabledById[account.id]
-    return enabled === undefined ? account : { ...account, enabled }
-  }), [enabledById, rows])
+    const dropSystem = dropSystemById[account.id]
+    let next = account
+    if (enabled !== undefined) next = { ...next, enabled }
+    if (dropSystem !== undefined) next = { ...next, drop_system_prompt: dropSystem }
+    return next
+  }), [enabledById, dropSystemById, rows])
 
   const availableCount = displayRows.filter(isAvailable).length
   const attentionCount = displayRows.filter((account) => account.enabled && !isAvailable(account)).length
@@ -198,6 +203,19 @@ export function AccountsPage() {
       await refresh()
     })
     setEnabledById((current) => {
+      const next = { ...current }
+      delete next[id]
+      return next
+    })
+  }
+
+  async function onToggleDropSystem(id: string, selected: boolean) {
+    setDropSystemById((current) => ({ ...current, [id]: selected }))
+    await run(id, 'toggle', async () => {
+      await updateAccount(id, { drop_system_prompt: selected })
+      await refresh()
+    })
+    setDropSystemById((current) => {
       const next = { ...current }
       delete next[id]
       return next
@@ -425,6 +443,23 @@ export function AccountsPage() {
                         </span>
                       ) : null}
                     </div>
+                  </div>
+                ) : null}
+
+                {account.provider === 'workbuddy' ? (
+                  <div className="mt-3 flex items-center justify-between gap-3 text-[11px]">
+                    <Tooltip>
+                      <Tooltip.Trigger>
+                        <span className="font-medium">{t('dropSystemPrompt')}</span>
+                      </Tooltip.Trigger>
+                      <Tooltip.Content>{t('dropSystemPromptHint')}</Tooltip.Content>
+                    </Tooltip>
+                    <CompactSwitch
+                      isSelected={Boolean(account.drop_system_prompt)}
+                      isDisabled={thisBusy === 'toggle'}
+                      ariaLabel={t('dropSystemPrompt')}
+                      onChange={(selected) => void onToggleDropSystem(account.id, selected)}
+                    />
                   </div>
                 ) : null}
 

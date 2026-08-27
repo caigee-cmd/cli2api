@@ -120,6 +120,8 @@ CREATE TABLE IF NOT EXISTS request_attempts (
   usage_source TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS request_attempts_request_id ON request_attempts(request_id);`},
+	{filename: "005_account_drop_system_prompt.sql", sql: `
+ALTER TABLE accounts ADD COLUMN drop_system_prompt INTEGER NOT NULL DEFAULT 1;`},
 }
 
 const schemaMigrationsDDL = `
