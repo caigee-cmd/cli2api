@@ -15,6 +15,9 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 - Swap the repository front page to the Chinese README; the English README now lives at `README_EN.md`
 - Replace the social card and console screenshot with a single overview card (`docs/assets/overview-card.png`) in both READMEs
 - Redesign both READMEs around the console design language: add project-native SVG hero, console window, and architecture visuals, and reorder sections so quick start and client setup lead
+- Lead both READMEs with a one-line positioning blurb and a bold feature list, and add a user-facing Roadmap section backed by `docs/PLAN.md`
+- Slim the READMEs by moving configuration, endpoints, and managed-update details into `deploy/README.md` and the development/release workflow into `docs/DEVELOPMENT.md`
+- Plan Phases M (session-sticky routing), N (WorkBuddy check-in and keepalive), and O (more upstream channels)
 
 ### 中文
 
@@ -26,6 +29,9 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 - 仓库首页改为中文 README，英文 README 移至 `README_EN.md`
 - 两个 README 顶部的社交卡和控制台截图替换为一张概览卡（`docs/assets/overview-card.png`）
 - 按控制台设计语言重做两个 README：新增项目原生 SVG hero、控制台窗口与架构图，并重排章节，让快速开始与接入说明前置
+- 两个 README 开篇改为一句话定位 + 加粗功能清单，并新增基于 `docs/PLAN.md` 的 Roadmap 小节
+- 精简 README：配置、接口与托管更新细节移入 `deploy/README.md`，开发与发布流程移入 `docs/DEVELOPMENT.md`
+- 计划新增 Phase M（会话粘性路由）、N（WorkBuddy 签到与保活）、O（更多上游渠道）
 
 ## 0.2.10 - 2026-08-26
 

@@ -10,32 +10,44 @@
   <img src="./docs/assets/readme/hero-en.svg" width="100%" alt="CLI2API — your Qoder CLI login, served as a local OpenAI-compatible API">
 </p>
 
-Turn **your own Qoder CLI login** into a local OpenAI-compatible API.
+> **A self-hosted multi-account gateway** — aggregates your own Qoder Global, Qoder CN, and WorkBuddy logins into one local OpenAI-compatible API. Long-lived warm workers, multi-account scheduling with failover, a single Docker container, and a web console.
 
-CLI2API is an unofficial, self-hosted gateway for Qoder. Keep using OpenAI SDKs, Codex, CherryStudio, and other compatible clients—just point their Base URL at this local service.
-
-> [!IMPORTANT]
-> CLI2API is not affiliated with or endorsed by Qoder. Use only accounts you are authorized to use, and follow the terms of Qoder and related services.
-
-## What you get
-
-- A local OpenAI-compatible `POST /v1/chat/completions` endpoint
-- Streaming and non-streaming responses, tool calls, and `reasoning_content`
-- A web console for Qoder accounts, models, and API testing
-- Multi-account routing, account pinning, concurrency limits, cooldowns, and failover
-- A Docker Compose deployment for personal development, homelabs, and private servers
-
-CLI2API does not spawn a full Qoder CLI Agent for every request. Authentication, WASM encoding, and the Qoder cloud HTTP/SSE connection stay warm in long-lived workers.
+Unofficial project, not affiliated with or endorsed by Qoder. Use only accounts you are authorized to use, and follow the terms of Qoder and related services.
 
 ![Supported login methods, account types, endpoints, and deployment targets](docs/assets/overview-card.png)
 
-## Console
+## Features
 
-<p align="center">
-  <img src="./docs/assets/readme/console-window-en.svg" width="100%" alt="CLI2API console Accounts page: each account shows its login method, ready state, and quota, with an Access panel offering the Base URL and a quick check">
-</p>
+- **OpenAI-compatible proxy**: `/v1/chat/completions`, `/v1/models` — streaming/non-streaming, tool calls, `reasoning_content`
+- **Multi-channel account pool**: Qoder Global / Qoder CN / WorkBuddy with region isolation, account pinning, concurrency limits, cooldowns, and same-family failover
+- **Long-lived warm workers**: one isolated Node process and runtime directory per account keeps authentication, WASM encoding, and cloud SSE connections warm. Typical small-chat latency is ~1-2s after warmup, versus ~10s+ for spawn-per-request wrappers
+- **Multiple login methods**: browser Device Flow OAuth, PAT, and `qoder-native-v1` credential import/export
+- **Web console**: accounts, models, access, request history, and runtime logs, with light and dark themes
+- **Deployment and ops**: single Docker Compose container, safe managed updates (pre-update snapshot, automatic rollback on failure, next-version-only upgrades), binds `127.0.0.1` by default
+- **Cross-platform**: `linux/amd64` / `linux/arm64` images; macOS and Windows run them through Docker Desktop
 
-Accounts, models, access, and logs all live in one web console. Each account signs in on its own (browser OAuth, PAT, or credential import), readiness and quota are visible at a glance, and the Access page lets you copy the Base URL and run a quick check.
+## Quick start
+
+Requirements: Docker (Docker Desktop on macOS/Windows, Docker Engine + Compose on Linux) and a Qoder account you control. On Windows, Docker Desktop must use Linux containers.
+
+```bash
+git clone https://github.com/caigee-cmd/cli2api.git
+cd cli2api
+./scripts/start.sh        # Windows: scripts\start.ps1
+```
+
+The first startup generates a random API key and prints it once in the logs — save it. Then open `http://127.0.0.1:3010`, sign in, and add accounts from **Accounts**. Full steps in the [deployment guide](deploy/README.md).
+
+## Connect a client
+
+Any OpenAI-compatible client (OpenAI SDKs, Codex, CherryStudio, …) works out of the box:
+
+```text
+Base URL: http://127.0.0.1:3010/v1
+API Key:  <the key printed on first startup>
+```
+
+Without an account header the scheduler picks a ready account; pin a request with the `X-Qoder-Account: acc_...` header. curl / PowerShell examples in the [deployment guide](deploy/README.md).
 
 ## How it works
 
@@ -45,246 +57,60 @@ Accounts, models, access, and logs all live in one web console. Each account sig
 
 Each enabled account gets its own Node process and runtime directory so Qoder WASM state is not shared across accounts. Go owns persistence, scheduling, concurrency limits, cooldowns, failover, and child-process lifecycle.
 
-## Quick start
+## Console
 
-Requirements: Docker Desktop on macOS/Windows, or Docker Engine with Compose on Linux, plus a Qoder account you control. On Windows, Docker Desktop must be using Linux containers.
+<p align="center">
+  <img src="./docs/assets/readme/console-window-en.svg" width="100%" alt="CLI2API console Accounts page: each account shows its login method, ready state, and quota, with an Access panel offering the Base URL and a quick check">
+</p>
 
-macOS / Linux:
-
-```bash
-git clone https://github.com/caigee-cmd/cli2api.git
-cd cli2api
-./scripts/start.sh
-```
-
-Windows PowerShell:
-
-```powershell
-git clone https://github.com/caigee-cmd/cli2api.git
-Set-Location cli2api
-powershell -ExecutionPolicy Bypass -File .\scripts\start.ps1
-```
-
-The launcher creates `deploy/.env` when needed, starts the published image, and builds locally if the image is unavailable.
-
-On first startup, the service generates a random API key, stores it in SQLite, and prints it once in the logs. Save it first:
-
-```bash
-docker compose --env-file deploy/.env -f deploy/docker-compose.yml logs qoder-api-proxy
-```
-
-Open `http://127.0.0.1:3010`, sign in with that key, and add Qoder accounts from **Accounts**.
-
-The default deployment publishes only `127.0.0.1:3010`; it does not expose the service publicly.
-
-## Connect an OpenAI client
-
-Configure your client with:
-
-```text
-Base URL: http://127.0.0.1:3010/v1
-API Key:  <the generated key printed on first startup>
-```
-
-Or make a direct request:
-
-```bash
-export CLI2API_API_KEY='paste-the-key-printed-on-first-start'
-
-curl http://127.0.0.1:3010/v1/chat/completions \
-  -H "Authorization: Bearer $CLI2API_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "qwen3.7-plus",
-    "messages": [{"role": "user", "content": "Reply with OK only"}],
-    "stream": false
-  }'
-```
-
-PowerShell equivalent:
-
-```powershell
-$env:CLI2API_API_KEY = "paste-the-key-printed-on-first-start"
-$Headers = @{ Authorization = "Bearer $env:CLI2API_API_KEY" }
-$Body = @{
-  model = "qwen3.7-plus"
-  messages = @(@{ role = "user"; content = "Reply with OK only" })
-  stream = $false
-} | ConvertTo-Json -Depth 4
-Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:3010/v1/chat/completions" -Headers $Headers -ContentType "application/json" -Body $Body
-```
-
-Without an account header, the scheduler selects a ready account. Pin a request to a specific account with:
-
-```text
-X-Qoder-Account: acc_...
-```
+Accounts, models, access, and logs all live in one web console. Each account signs in on its own (browser OAuth, PAT, or credential import), readiness and quota are visible at a glance, and the Access page lets you copy the Base URL and run a quick check.
 
 ## Use cases
 
-- Connect Qoder to local or private-server tooling
+- Connect Qoder / WorkBuddy to local or private-server tooling
 - Reuse OpenAI-compatible clients and scripts
-- Route requests across multiple Qoder accounts with failover
-- Keep Qoder login state available without starting a full CLI Agent per request
+- Route requests across multiple accounts with failover
+- Keep login state available without starting a full CLI Agent per request
 
-Supported account types are Qoder Global, Qoder CN, and WorkBuddy. CLI2API is a local gateway; it does not provide accounts, quotas, or an official API service.
+CLI2API is a local gateway: it does not provide accounts, quotas, or an official API service, and it is not a shared multi-user resale service.
 
-## Features
+## Roadmap
 
-- Browser Device Flow OAuth, PAT, and `qoder-native-v1` credential import/export for Qoder Global and Qoder CN
-- OpenAI-compatible `GET /v1/models`
-- Streaming and non-streaming responses
-- Tool calls and `reasoning_content`
-- Multiple Qoder accounts with pinning, routing, cooldown, and failover
-- React + Tailwind + HeroUI console with light and dark themes
-- Persistent SQLite credentials with ephemeral per-account runtime homes
-- GitHub Actions for tests, container builds, and GHCR releases
+The full checklist lives in [docs/PLAN.md](docs/PLAN.md).
 
-## Configuration
+**In progress**
 
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `QODER_DATA_DIR` | `/data` | SQLite database and durable account credentials |
-| `QODER_RUNTIME_DIR` | `/run/cli2api` | Ephemeral per-account Qoder runtime homes |
-| `QODER_MAX_INFLIGHT` | `4` | Maximum concurrent requests per account |
-| `QODER_WORKER_BASE_PORT` | `32100` | Internal worker port range |
-| `QODERCLI_JS` | image default | Pinned Qoder Global CLI bundle |
-| `QODERCNCLI_JS` | image default | Pinned Qoder CN CLI bundle |
-| `UPDATE_GITHUB_TOKEN` | empty | Optional GitHub token for release checks |
-| `UPDATE_AGENT_URL` | empty | Docker Desktop host updater URL, written by the installer |
-| `UPDATE_AGENT_TOKEN` | empty | Docker Desktop updater token, written by the installer |
-| `CLI2API_UPDATER_SOCKET_DIR` | platform-specific | Host directory mounted read-only for the Linux updater socket |
+- Live-account acceptance for Qoder CN and WorkBuddy (login, failover, mixed account pools)
+- Phase I: Anthropic `/v1/messages` ingress adapter and the canonical conversation contract
 
-The API key is generated once and stored in SQLite. There is no environment-variable bootstrap path; changing container environment variables does not replace the stored key.
+**Planned**
 
-## Endpoints
+- Session-sticky routing: prefer reusing one account per session to improve upstream cache hit rates
+- WorkBuddy daily check-in and token keepalive (per-account opt-in, off by default)
+- Request history improvements: per-account filtering and usage statistics
 
-| Method | Path | Purpose |
-|--------|------|---------|
-| `GET` | `/health` | Health probe; no API key required |
-| `GET` | `/v1/models` | Model catalog |
-| `POST` | `/v1/chat/completions` | OpenAI-compatible chat |
-| `GET/POST` | `/api/*` | Console management API |
+**Longer term**
 
-All console and API routes except `/health` require the API key stored in SQLite.
-
-## Managed updates
-
-Start CLI2API once, then install the optional host updater.
-
-| Host | Application runtime | Host updater |
-|------|---------------------|--------------|
-| Linux `amd64` / `arm64` | matching Linux Docker image | systemd + Unix Socket |
-| macOS Intel / Apple Silicon | Docker Desktop Linux container | per-user LaunchAgent |
-| Windows `amd64` / `arm64` | Docker Desktop Linux container | current-user Scheduled Task |
-
-The main API service remains a Linux container; native macOS and Windows application binaries are not published. Release images support `linux/amd64` and `linux/arm64`. Each release also includes six native updater assets and `cli2api-updater_checksums.txt`.
-
-Installers prefer a checksum-verified prebuilt updater. Linux first reuses the architecture-matched updater inside the running container. If an older release has no updater asset, the installers try the latest protocol-compatible asset and finally fall back to a local Go `1.25.6+` build.
-
-macOS + Docker Desktop:
-
-```bash
-./deploy/install-updater.sh
-docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --force-recreate qoder-api-proxy
-```
-
-Linux + systemd:
-
-```bash
-sudo ./deploy/install-updater.sh
-docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --force-recreate qoder-api-proxy
-```
-
-Windows + Docker Desktop, from PowerShell as the logged-in Docker user:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\deploy\install-updater.ps1
-docker compose --env-file deploy\.env -f deploy\docker-compose.yml up -d --force-recreate qoder-api-proxy
-```
-
-Linux uses a private Unix Socket. macOS uses a per-user LaunchAgent, and Windows uses a current-user Scheduled Task; both Docker Desktop platforms connect through a token-protected updater bound to `127.0.0.1`. The Windows installer also verifies that a container can reach the updater through `host.docker.internal` when `qoder-api-proxy` already exists.
-
-The **System** page permits only the immediate next stable release. It does not accept custom targets, skip releases, or install prereleases. Before replacement, the service pauses new requests, drains active requests, and creates an integrity-checked SQLite snapshot under `/data/backups`.
-
-Only `qoder-api-proxy` is recreated; the `qoder-data` volume is never deleted. A failed versioned health check restores both the previous image and the pre-update SQLite snapshot, and pins `CLI2API_IMAGE` back to the previous version for future restarts. The five most recent snapshots are retained.
-
-## Maintainer release
-
-After `main` passes CI, publish the next patch release with one command:
-
-```bash
-gh workflow run release.yml --ref main
-```
-
-Write bilingual user-facing notes in `CHANGELOG.md` under `## Unreleased` before publishing. Each change needs a matching bullet in `### English` and `### 中文`; the workflow copies those notes into the GitHub Release and the console update page.
-
-The workflow waits for the exact `main` commit to pass CI, calculates the next patch from the latest published stable release, creates an invisible draft release, builds six checksum-verified updater binaries, verifies the `linux/amd64` and `linux/arm64` image manifest, and only then publishes the GitHub Release and moves the stable image aliases. After publication it freezes the Unreleased notes under the new version heading. Do not create or push the version tag manually.
-
-You can also use **Actions → Release → Run workflow**. If a pre-publication job fails, use **Re-run failed jobs** on the same run; the draft release remains invisible to application update checks.
-
-## Development
-
-Requirements: Go `1.25.6+`, Node.js `20+`, npm, and Docker for container development.
-
-```bash
-# Go API
-go test ./...
-go vet ./...
-
-# Qoder worker
-cd worker
-npm test
-
-# Console
-cd ../frontend
-npm ci
-npm run build
-npm run lint
-```
-
-After frontend changes, run `npm run sync` to update the static assets embedded by Go:
-
-```bash
-cd frontend
-npm run sync
-```
-
-Build and start the container from source:
-
-```bash
-cd deploy
-docker compose up -d --build
-```
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for repository rules and validation details.
+- More upstream channels (Cursor, TraeWork, etc.; evaluated after WorkBuddy acceptance)
+- Optional prompt/completion capture behind an explicit switch (off by default)
 
 ## Documentation
 
+- [Deployment and operations: setup steps, environment variables, endpoints, managed updates](deploy/README.md)
+- [Development and release workflow](docs/DEVELOPMENT.md)
 - [Architecture, login, routing, and console design](docs/DESIGN.md)
-- [Current milestone and development plan](docs/PLAN.md)
-- [Docker Compose deployment](deploy/README.md)
+- [Milestones and development plan](docs/PLAN.md)
+- [Multi-upstream account type comparison](docs/PROVIDERS.md)
 - [Changelog](CHANGELOG.md)
-- [Security policy](SECURITY.md)
 
-## Security and privacy
+## Security
 
-- Never expose the service without the generated API key.
-- Never commit `.qoder`, tokens, cookies, auth blobs, raw captures, or host details.
-- Credential export is an explicit sensitive operation; protect exported files.
-- Upstream API or Qoder CLI changes may break compatibility; qodercli is pinned and checked.
-- Please report security issues privately according to [SECURITY.md](SECURITY.md), not in a public issue.
+The service binds `127.0.0.1:3010` by default and every endpoint requires the API key. Never commit `.qoder`, tokens, cookies, auth blobs, or raw captures; credential export is an explicit sensitive operation — protect exported files. Upstream API or CLI changes may affect compatibility; qodercli is pinned and checked. Please report security issues privately according to [SECURITY.md](SECURITY.md).
 
 ## Contributing
 
-Issues, documentation improvements, and pull requests are welcome. Before submitting a change:
-
-- Keep the scope clear and avoid new component libraries or unnecessary service dependencies.
-- Run tests and build commands relevant to your changes.
-- Remove tokens, login state, raw protocol captures, and real deployment details from the diff.
-
-See [CONTRIBUTING.md](CONTRIBUTING.md).
+Issues, documentation improvements, and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE) — for personal learning use; please follow the terms of each upstream platform.
