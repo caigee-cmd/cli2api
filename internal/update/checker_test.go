@@ -16,9 +16,9 @@ func (s *releaseSourceStub) ListReleases(context.Context) ([]Release, error) {
 	return s.releases, s.err
 }
 
-func TestCheckerReturnsOnlyImmediateNextRelease(t *testing.T) {
+func TestCheckerTargetsLatestReleaseAndReportsSkippedVersions(t *testing.T) {
 	source := &releaseSourceStub{releases: []Release{
-		{TagName: "v0.2.4", Name: "far"},
+		{TagName: "v0.2.4", Name: "latest"},
 		{TagName: "v0.2.2", Name: "next"},
 		{TagName: "v0.2.3", Name: "middle"},
 	}}
@@ -28,10 +28,13 @@ func TestCheckerReturnsOnlyImmediateNextRelease(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !info.Managed || !info.HasUpdate || info.NextVersion != "v0.2.2" {
+	if !info.Managed || !info.HasUpdate || info.NextVersion != "v0.2.4" {
 		t.Fatalf("info = %+v", info)
 	}
-	if info.Release == nil || info.Release.Name != "next" {
+	if len(info.SkippedVersions) != 2 || info.SkippedVersions[0] != "v0.2.2" || info.SkippedVersions[1] != "v0.2.3" {
+		t.Fatalf("skipped = %v", info.SkippedVersions)
+	}
+	if info.Release == nil || info.Release.Name != "latest" {
 		t.Fatalf("release = %+v", info.Release)
 	}
 }

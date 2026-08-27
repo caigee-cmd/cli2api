@@ -42,7 +42,11 @@ func TestGitHubReleaseSourcePaginatesAllReleases(t *testing.T) {
 		t.Fatalf("releases = %d, last = %+v", len(releases), releases[len(releases)-1])
 	}
 	next, ok := SelectNextRelease("v0.2.1", releases)
-	if !ok || next.TagName != "v0.2.2" {
+	if !ok || next.TagName != "v0.2.102" {
 		t.Fatalf("next = %+v, ok = %v", next, ok)
+	}
+	path := UpgradePath("v0.2.1", next.TagName, releases)
+	if len(path) != 100 || path[0] != "v0.2.2" || path[len(path)-1] != "v0.2.101" {
+		t.Fatalf("path len = %d, first = %v, last = %v", len(path), path[0], path[len(path)-1])
 	}
 }
