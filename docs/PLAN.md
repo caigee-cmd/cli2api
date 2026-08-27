@@ -92,7 +92,7 @@ Sub2API-style SQLite account registry while preserving the working Qoder executi
 
 ### H6 safe managed update
 
-- [x] Expose the build version and select only the immediate next stable GitHub release
+- [x] Expose the build version and update directly to the latest stable GitHub release
 - [x] Delegate Docker replacement to a host updater over Unix Socket on Linux or authenticated loopback HTTP on macOS/Windows
 - [x] Pause new API traffic, drain in-flight requests, and snapshot SQLite before replacement
 - [x] Preserve and verify the existing /data mount across container recreation
