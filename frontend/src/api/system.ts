@@ -16,6 +16,7 @@ export type UpdateAgentStatus = {
 export type SystemUpdateInfo = {
   current_version: string
   next_version?: string
+  skipped_versions?: string[]
   has_update: boolean
   managed: boolean
   cached: boolean
