@@ -32,3 +32,12 @@ func TestClassifyFailoverHintOverrides(t *testing.T) {
 		t.Fatalf("hint 0 should disable failover: %+v", got)
 	}
 }
+
+func TestClassifyContentScreeningStaysRequestLevel(t *testing.T) {
+	for _, body := range []string{"sensitive content rejected", "内容包含敏感信息"} {
+		got := Classify(400, body, "", "", "")
+		if got.Kind != KindInvalidRequest || got.Failover || got.Cooldown != 0 || got.Status != 400 {
+			t.Fatalf("body=%q got %+v", body, got)
+		}
+	}
+}

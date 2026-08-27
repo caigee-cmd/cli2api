@@ -30,12 +30,14 @@ type Account struct {
 	Enabled        bool       `json:"enabled"`
 	MaxInFlight    int        `json:"max_inflight"`
 	Priority       int        `json:"priority"`
-	Status         string     `json:"status"`
-	LastError      string     `json:"last_error,omitempty"`
-	LastErrorKind  string     `json:"last_error_kind,omitempty"`
-	CooldownUntil  *time.Time `json:"cooldown_until,omitempty"`
-	CreatedAt      time.Time  `json:"created_at"`
-	UpdatedAt      time.Time  `json:"updated_at"`
+	// DropSystemPrompt drops caller system prompts before provider-native chat.
+	DropSystemPrompt bool       `json:"drop_system_prompt"`
+	Status           string     `json:"status"`
+	LastError        string     `json:"last_error,omitempty"`
+	LastErrorKind    string     `json:"last_error_kind,omitempty"`
+	CooldownUntil    *time.Time `json:"cooldown_until,omitempty"`
+	CreatedAt        time.Time  `json:"created_at"`
+	UpdatedAt        time.Time  `json:"updated_at"`
 }
 
 type CreateAccount struct {
@@ -48,10 +50,11 @@ type CreateAccount struct {
 }
 
 type UpdateAccount struct {
-	Name        string
-	Enabled     *bool
-	MaxInFlight *int
-	Priority    *int
+	Name             string
+	Enabled          *bool
+	MaxInFlight      *int
+	Priority         *int
+	DropSystemPrompt *bool
 }
 
 type NativeCredential struct {
@@ -118,24 +121,25 @@ func (s *Store) Create(ctx context.Context, input CreateAccount) (Account, error
 	}
 	now := time.Now().UTC()
 	account := Account{
-		ID:             newAccountID(),
-		Name:           name,
-		Provider:       descriptor.ID,
-		ProviderRegion: region.ID,
-		AuthType:       "none",
-		Enabled:        input.Enabled,
-		MaxInFlight:    maxInFlight,
-		Priority:       priority,
-		Status:         "offline",
-		CreatedAt:      now,
-		UpdatedAt:      now,
+		ID:               newAccountID(),
+		Name:             name,
+		Provider:         descriptor.ID,
+		ProviderRegion:   region.ID,
+		AuthType:         "none",
+		Enabled:          input.Enabled,
+		MaxInFlight:      maxInFlight,
+		Priority:         priority,
+		DropSystemPrompt: true,
+		Status:           "offline",
+		CreatedAt:        now,
+		UpdatedAt:        now,
 	}
 	_, err = s.db.ExecContext(ctx, `
 INSERT INTO accounts (
-  id, name, provider, provider_region, auth_type, enabled, max_inflight, priority, status, created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  id, name, provider, provider_region, auth_type, enabled, max_inflight, priority, drop_system_prompt, status, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		account.ID, account.Name, account.Provider, account.ProviderRegion, account.AuthType,
-		account.Enabled, account.MaxInFlight, account.Priority, account.Status,
+		account.Enabled, account.MaxInFlight, account.Priority, account.DropSystemPrompt, account.Status,
 		formatTime(account.CreatedAt), formatTime(account.UpdatedAt),
 	)
 	if err != nil {
@@ -146,8 +150,8 @@ INSERT INTO accounts (
 
 func (s *Store) Get(ctx context.Context, id string) (Account, error) {
 	row := s.db.QueryRowContext(ctx, `
-SELECT id, name, provider, provider_region, remote_uid, auth_type, enabled, max_inflight, priority, status,
-       last_error, last_error_kind, cooldown_until, created_at, updated_at
+SELECT id, name, provider, provider_region, remote_uid, auth_type, enabled, max_inflight, priority,
+       drop_system_prompt, status, last_error, last_error_kind, cooldown_until, created_at, updated_at
 FROM accounts WHERE id = ?`, strings.TrimSpace(id))
 	account, err := scanAccount(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -168,7 +172,8 @@ func scanAccount(row rowScanner) (Account, error) {
 	var cooldown, created, updated sql.NullString
 	err := row.Scan(
 		&account.ID, &account.Name, &account.Provider, &account.ProviderRegion, &account.RemoteUID,
-		&account.AuthType, &account.Enabled, &account.MaxInFlight, &account.Priority, &account.Status,
+		&account.AuthType, &account.Enabled, &account.MaxInFlight, &account.Priority,
+		&account.DropSystemPrompt, &account.Status,
 		&account.LastError, &account.LastErrorKind, &cooldown, &created, &updated,
 	)
 	if err != nil {
@@ -208,8 +213,8 @@ func parseTime(value string) time.Time {
 
 func (s *Store) List(ctx context.Context) ([]Account, error) {
 	rows, err := s.db.QueryContext(ctx, `
-SELECT id, name, provider, provider_region, remote_uid, auth_type, enabled, max_inflight, priority, status,
-       last_error, last_error_kind, cooldown_until, created_at, updated_at
+SELECT id, name, provider, provider_region, remote_uid, auth_type, enabled, max_inflight, priority,
+       drop_system_prompt, status, last_error, last_error_kind, cooldown_until, created_at, updated_at
 FROM accounts ORDER BY created_at, id`)
 	if err != nil {
 		return nil, fmt.Errorf("list accounts: %w", err)
@@ -243,10 +248,13 @@ func (s *Store) Update(ctx context.Context, id string, input UpdateAccount) erro
 	if input.Priority != nil && *input.Priority > 0 {
 		account.Priority = *input.Priority
 	}
+	if input.DropSystemPrompt != nil {
+		account.DropSystemPrompt = *input.DropSystemPrompt
+	}
 	account.UpdatedAt = time.Now().UTC()
 	result, err := s.db.ExecContext(ctx, `
-UPDATE accounts SET name = ?, enabled = ?, max_inflight = ?, priority = ?, updated_at = ?
-WHERE id = ?`, account.Name, account.Enabled, account.MaxInFlight, account.Priority, formatTime(account.UpdatedAt), account.ID)
+UPDATE accounts SET name = ?, enabled = ?, max_inflight = ?, priority = ?, drop_system_prompt = ?, updated_at = ?
+WHERE id = ?`, account.Name, account.Enabled, account.MaxInFlight, account.Priority, account.DropSystemPrompt, formatTime(account.UpdatedAt), account.ID)
 	if err != nil {
 		return fmt.Errorf("update account: %w", err)
 	}
