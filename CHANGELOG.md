@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.2.12 - 2026-08-27
+
+### English
+
 - Add a per-account drop-system-prompt switch (on by default, WorkBuddy accounts): caller system prompts are stripped before provider-native chat so upstream content screening no longer rejects them
 - Treat upstream content-screening rejections as request-level errors: they return 400 without failing over to other accounts or putting the account into cooldown
 - Managed update now jumps directly to the latest stable release instead of advancing one release at a time; the console System page lists every intermediate version the update passes over
