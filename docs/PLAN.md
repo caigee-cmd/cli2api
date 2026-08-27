@@ -42,6 +42,7 @@ Do not:
 | G | Replaced by Phase H SQLite account control plane |
 | H–K | SQLite control plane, protocol notes, logs, quota display |
 | L | Qoder CN (`qoder` + `region=cn`) — code complete, L6 acceptance pending |
+| M–O | Sticky routing, WorkBuddy quota ops, channel expansion — planned, not started |
 
 Typical small-chat latency is ~1-2s after warmup, versus ~10s+ for spawn-CLI wrappers.
 
@@ -245,13 +246,71 @@ WorkBuddy logins:
 - [ ] With `CROSS_PROVIDER_MODEL_POOL=1`, bare `glm-5.2` lands on both Qoder and
       WorkBuddy families; Qoder fully down → failover to WorkBuddy in the same route pool
 
+## Phase M — session-sticky routing
+
+Goal: raise upstream session-cache hit rates by keeping one conversation on the
+same account, without breaking failover. Reference: wild-work sticky routing
+(`rockswang/wild-work`) and sub2api-style session hashing.
+
+### M1 session key
+
+- [ ] Accept an optional session key: explicit `X-CLI2API-Session` header or a hash of the first user message
+- [ ] Store session → account affinity with a bounded TTL in SQLite or in-memory state
+- [ ] Keep account pin (`X-Qoder-Account`) the highest-priority routing signal
+
+### M2 scheduler integration
+
+- [ ] Prefer the sticky account when ready; escape to same-region / same-provider pool candidates on cooldown or quota exhaustion
+- [ ] Record the actually served account in request history for cache-hit analysis
+- [ ] Never let sticky routing bypass concurrency limits or error classification
+
+### M3 acceptance
+
+- [ ] Same session key → same account across consecutive requests until failure
+- [ ] Sticky account 429 → failover stays in the same region/provider family
+- [ ] No session key → behavior is exactly today's round-robin
+
+## Phase N — WorkBuddy quota operations
+
+Goal: keep WorkBuddy credits fresh without turning Accounts into a second
+workbuddy2api. Everything is per-account opt-in, default off, and failures must
+never block or cool down the chat path. Design facts in `docs/PROVIDERS.md`
+「积分与签到」. Not started; needs live WorkBuddy acceptance first.
+
+### N1 keepalive
+
+- [ ] Periodic token refresh ahead of upstream expiry for WorkBuddy accounts only
+- [ ] Qoder accounts are excluded — no equivalent upstream action exists today
+- [ ] Refresh failures log and retry; they never flip readiness or cooldown
+
+### N2 daily check-in
+
+- [ ] Account-level opt-in switch, default off, persisted in SQLite
+- [ ] Scheduled `daily-checkin` at roughly 09:00 / 21:00 account-local time with jitter
+- [ ] Check-in results surface on the account card without new billing storage
+
+### N3 credit refresh
+
+- [ ] Console-level batch credit refresh button reusing the Phase K quota pipeline
+- [ ] Quota failures stay display-only (Phase K contract), never routing signals
+- [ ] No rate-based account selection — keep round-robin + pin + failover
+
+## Phase O — more upstream channels
+
+Goal: after WorkBuddy live acceptance proves the in-process adapter extension
+point, evaluate the next channels on the same axis. Cursor stays last — its
+protocol is the dirtiest. TraeWork is candidate #2: pure HTTP/SSE like
+WorkBuddy, no Node/WASM worker needed.
+
+- [ ] WorkBuddy live acceptance complete (precondition)
+- [ ] TraeWork protocol survey: login flow, chat endpoint, credit/quota signals
+- [ ] Cursor provider only after Phase I canonical contract is stable
+
 ## Later
 
-- Cursor provider
 - Exact tokenizer matching if Qoder starts returning richer usage
 - In-process multi-account (still impossible for Qoder WASM)
-- Anthropic `/v1/messages`
-- sub2api-style session-hash sticky
+- Anthropic `/v1/messages` (see Phase I; kept here as the standing long-horizon item)
 - Optional truncated prompt/completion capture behind an explicit switch
 
 WorkBuddy J0–J4 are implemented; remaining WorkBuddy work is live-account
