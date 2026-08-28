@@ -7,6 +7,7 @@ import {
   X,
 } from '@phosphor-icons/react'
 import { AccountCard, type AccountBusyKind } from '@/components/account/AccountCard'
+import { AccountModelsModal } from '@/components/account/AccountModelsModal'
 import { AddAccountModal } from '@/components/AddAccountModal'
 import { BrandMark } from '@/components/BrandMark'
 import { useI18n } from '@/hooks/useI18n'
@@ -44,6 +45,7 @@ export function AccountsPage() {
   const [noteById, setNoteById] = useState<Record<string, string>>({})
   const [urlById, setUrlById] = useState<Record<string, string>>({})
   const [confirmId, setConfirmId] = useState<string | null>(null)
+  const [modelsId, setModelsId] = useState<string | null>(null)
   const [authPanelId, setAuthPanelId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<AccountFilter>('all')
@@ -62,6 +64,7 @@ export function AccountsPage() {
   const attentionCount = displayRows.filter((account) => account.enabled && !isAvailable(account)).length
   const inFlightCount = displayRows.reduce((total, account) => total + (account.in_flight ?? account.inFlight ?? 0), 0)
   const confirmAccount = displayRows.find((account) => account.id === confirmId)
+  const modelsAccount = displayRows.find((account) => account.id === modelsId) || null
   const filteredRows = useMemo(() => {
     const normalized = query.trim().toLowerCase()
     return displayRows.filter((account) => {
@@ -185,6 +188,7 @@ export function AccountsPage() {
       </section>
 
       <AddAccountModal isOpen={addOpen} onClose={() => setAddOpen(false)} onAdded={() => void refresh(undefined, { silent: true })} />
+      <AccountModelsModal key={modelsId ?? 'closed'} account={modelsAccount} t={t} onClose={() => setModelsId(null)} />
 
       <Modal.Root isOpen={Boolean(confirmAccount)} onOpenChange={(next: boolean) => { if (!next) setConfirmId(null) }}>
         <Modal.Backdrop variant="blur">
@@ -283,6 +287,7 @@ export function AccountsPage() {
             onToggle={(selected) => void onToggle(account.id, selected)}
             onToggleDropSystem={(selected) => void onToggleDropSystem(account.id, selected)}
             onToggleAuthPanel={() => setAuthPanelId((current) => current === account.id ? null : account.id)}
+            onViewModels={() => setModelsId(account.id)}
           />
         ))}
       </section>
