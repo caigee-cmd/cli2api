@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.2.15 - 2026-08-28
+
+### English
+
 - Paginate runtime logs on Logs the same way as request history, newest first
 - Filter the Models catalog by provider and paginate the list
 - Fix WorkBuddy Global model catalogs: use the Global host from account region, accept CLI agent names besides exact `cli`, and surface catalog errors instead of an empty list
