@@ -28,6 +28,10 @@ After frontend changes:
 cd frontend && npm run sync
 ```
 
+`npm run build` only writes `frontend/dist`. Go embeds `internal/webui/static`, so a console change is not in the binary until `sync` runs. Commit the new hashed JS/CSS and `index.html` together; do not leave an old `index-*.js` next to a new `index.html`.
+
+This repo often has `main` checked out in another worktree. Merge from GitHub (`gh pr merge` / the pulls API) instead of `git checkout main` in a busy worktree.
+
 ## Static assets & favicon suite
 
 The favicon set and OG social card live in `frontend/public/`. After editing them:
