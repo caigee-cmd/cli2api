@@ -92,6 +92,54 @@ func TestListRequestLogsFiltersAndPagination(t *testing.T) {
 	}
 }
 
+func TestRequestStatsWindow(t *testing.T) {
+	dir := t.TempDir()
+	srv := New(config.Config{
+		Host: "127.0.0.1", Port: 3010, ProxyAPIKey: "secret",
+		QoderHome: dir, DataDir: dir,
+	})
+	defer srv.Close()
+
+	ctx := context.Background()
+	base := time.Date(2026, 8, 28, 12, 10, 0, 0, time.UTC)
+	latency := 180
+	prompt, completion := 11, 22
+	if err := srv.recorder.Store().InsertRequestLog(ctx, accounts.RequestLog{
+		ID: accounts.NewRequestID(), CreatedAt: base, Status: accounts.RequestStatusOK,
+		RequestedModel: "glm-5.3", AccountID: "acc_a", LatencyMs: &latency,
+		PromptTokens: &prompt, CompletionTokens: &completion,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.recorder.Store().InsertRequestLog(ctx, accounts.RequestLog{
+		ID: accounts.NewRequestID(), CreatedAt: base.Add(30 * time.Minute), Status: accounts.RequestStatusError,
+		RequestedModel: "qwen3.7-plus", AccountID: "acc_b", ErrorKind: accounts.KindUnavailable,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/logs/stats?from=2026-08-28T12:00:00Z&to=2026-08-28T13:00:00Z", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var stats accounts.RequestStats
+	if err := json.Unmarshal(rec.Body.Bytes(), &stats); err != nil {
+		t.Fatal(err)
+	}
+	if stats.Totals.Requests != 2 || stats.Totals.OK != 1 || stats.Totals.Error != 1 {
+		t.Fatalf("stats = %+v", stats.Totals)
+	}
+	if stats.Tokens.Total != 33 {
+		t.Fatalf("tokens = %+v", stats.Tokens)
+	}
+	if len(stats.Errors) != 1 || stats.Errors[0].Key != accounts.KindUnavailable {
+		t.Fatalf("errors = %+v", stats.Errors)
+	}
+}
+
 func TestParseQueryTimeDateOnlyEndOfDay(t *testing.T) {
 	from := parseQueryTime("2026-08-28", false)
 	to := parseQueryTime("2026-08-28", true)
