@@ -552,6 +552,7 @@ func (m *Manager) refreshOne(ctx context.Context, item Item) error {
 	// outage never flips account readiness or scheduling state.
 	if health.Hot || ready {
 		m.fetchQuota(ctx, item.ID, item.URL)
+		m.fetchAccountModels(ctx, item)
 	}
 	return nil
 }
@@ -580,6 +581,7 @@ func (m *Manager) refreshInProcess(ctx context.Context, item Item) error {
 	}
 	if health.Ready || health.Hot {
 		m.fetchProviderQuota(ctx, item.ID, adapter.Prober)
+		m.fetchAccountModels(ctx, item)
 	}
 	return nil
 }
@@ -606,6 +608,89 @@ func (m *Manager) fetchProviderQuota(ctx context.Context, accountID string, prob
 		Exceeded:   info.Exceeded,
 		FetchedAt:  info.FetchedAt,
 	})
+}
+
+const modelCatalogTTL = 5 * time.Minute
+
+// EnsureModelCatalogs refreshes per-account catalogs that are missing or
+// older than the worker TTL. Failures leave the previous snapshot in place
+// and never flip readiness or cooldown.
+func (m *Manager) EnsureModelCatalogs(ctx context.Context, force bool) {
+	if m == nil || m.pool == nil {
+		return
+	}
+	now := time.Now()
+	for _, item := range m.pool.Items() {
+		if !force && item.Models != nil && !item.ModelsAt.IsZero() && now.Sub(item.ModelsAt) < modelCatalogTTL {
+			continue
+		}
+		m.fetchAccountModels(ctx, item)
+	}
+}
+
+func (m *Manager) fetchAccountModels(ctx context.Context, item Item) {
+	if m == nil || m.pool == nil || item.ID == "" {
+		return
+	}
+	if item.Runtime == string(providers.RuntimeInProcess) || strings.TrimSpace(item.URL) == "" {
+		m.fetchProviderModels(ctx, item)
+		return
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(item.URL, "/")+"/admin/models", nil)
+	if err != nil {
+		return
+	}
+	if m.config.ProxyAPIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+m.config.ProxyAPIKey)
+	}
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return
+	}
+	var parsed struct {
+		Data []map[string]any `json:"data"`
+	}
+	if json.NewDecoder(resp.Body).Decode(&parsed) != nil {
+		return
+	}
+	m.pool.MergeModels(item.ID, catalogIDs(parsed.Data, nil))
+}
+
+func (m *Manager) fetchProviderModels(ctx context.Context, item Item) {
+	if m.providers == nil {
+		return
+	}
+	adapter, ok := m.providers.Get(item.Provider)
+	if !ok || adapter.Models == nil {
+		return
+	}
+	models, err := adapter.Models.Models(ctx, item.ID)
+	if err != nil {
+		return
+	}
+	ids := make([]string, 0, len(models)*2)
+	for _, model := range models {
+		ids = append(ids, model.PublicModel, model.NativeModel, model.DisplayName)
+	}
+	m.pool.MergeModels(item.ID, ids)
+}
+
+func catalogIDs(entries []map[string]any, extras []string) []string {
+	ids := append([]string{}, extras...)
+	for _, entry := range entries {
+		for _, key := range []string{"id", "mapped_key", "native_model", "display_name"} {
+			value, _ := entry[key].(string)
+			if strings.TrimSpace(value) != "" {
+				ids = append(ids, value)
+			}
+		}
+	}
+	return ids
 }
 
 // fetchQuota pulls the account quota snapshot from the worker daemon. Errors

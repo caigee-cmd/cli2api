@@ -27,26 +27,26 @@ const (
 var ErrRequestLogNotFound = errors.New("request log not found")
 
 type RequestLog struct {
-	ID               string     `json:"id"`
-	CreatedAt        time.Time  `json:"created_at"`
-	FinishedAt       *time.Time `json:"finished_at,omitempty"`
-	Stream           bool       `json:"stream"`
-	Status           string     `json:"status"`
-	RequestedModel   string     `json:"requested_model"`
-	MappedModel      string     `json:"mapped_model,omitempty"`
-	AccountID        string     `json:"account_id,omitempty"`
-	PromptTokens     *int       `json:"prompt_tokens,omitempty"`
-	CompletionTokens *int       `json:"completion_tokens,omitempty"`
-	CacheReadTokens  *int       `json:"cache_read_tokens,omitempty"`
-	CacheWriteTokens *int       `json:"cache_write_tokens,omitempty"`
-	UsageSource      string     `json:"usage_source,omitempty"`
-	Credits          *float64   `json:"credits,omitempty"`
-	LatencyMs        *int       `json:"latency_ms,omitempty"`
-	TTFBMs           *int       `json:"ttfb_ms,omitempty"`
-	ErrorKind        string     `json:"error_kind,omitempty"`
-	ErrorCode        string     `json:"error_code,omitempty"`
-	ErrorMessage     string     `json:"error_message,omitempty"`
-	AttemptCount     int        `json:"attempt_count"`
+	ID               string           `json:"id"`
+	CreatedAt        time.Time        `json:"created_at"`
+	FinishedAt       *time.Time       `json:"finished_at,omitempty"`
+	Stream           bool             `json:"stream"`
+	Status           string           `json:"status"`
+	RequestedModel   string           `json:"requested_model"`
+	MappedModel      string           `json:"mapped_model,omitempty"`
+	AccountID        string           `json:"account_id,omitempty"`
+	PromptTokens     *int             `json:"prompt_tokens,omitempty"`
+	CompletionTokens *int             `json:"completion_tokens,omitempty"`
+	CacheReadTokens  *int             `json:"cache_read_tokens,omitempty"`
+	CacheWriteTokens *int             `json:"cache_write_tokens,omitempty"`
+	UsageSource      string           `json:"usage_source,omitempty"`
+	Credits          *float64         `json:"credits,omitempty"`
+	LatencyMs        *int             `json:"latency_ms,omitempty"`
+	TTFBMs           *int             `json:"ttfb_ms,omitempty"`
+	ErrorKind        string           `json:"error_kind,omitempty"`
+	ErrorCode        string           `json:"error_code,omitempty"`
+	ErrorMessage     string           `json:"error_message,omitempty"`
+	AttemptCount     int              `json:"attempt_count"`
 	Attempts         []RequestAttempt `json:"attempts,omitempty"`
 }
 
@@ -72,7 +72,10 @@ type RequestLogFilter struct {
 	Status    string
 	Stream    *bool
 	ErrorKind string
+	Model     string
 	Query     string
+	From      *time.Time
+	To        *time.Time
 	Limit     int
 	Offset    int
 }
@@ -321,8 +324,8 @@ DELETE FROM request_logs WHERE id IN (
 }
 
 func buildRequestLogWhere(filter RequestLogFilter) (string, []any) {
-	clauses := make([]string, 0, 5)
-	args := make([]any, 0, 5)
+	clauses := make([]string, 0, 8)
+	args := make([]any, 0, 8)
 	if account := strings.TrimSpace(filter.AccountID); account != "" {
 		clauses = append(clauses, "account_id = ?")
 		args = append(args, account)
@@ -339,10 +342,22 @@ func buildRequestLogWhere(filter RequestLogFilter) (string, []any) {
 		clauses = append(clauses, "error_kind = ?")
 		args = append(args, kind)
 	}
+	if model := strings.TrimSpace(filter.Model); model != "" {
+		clauses = append(clauses, "(requested_model = ? OR mapped_model = ?)")
+		args = append(args, model, model)
+	}
 	if query := strings.TrimSpace(filter.Query); query != "" {
 		like := "%" + query + "%"
 		clauses = append(clauses, "(id LIKE ? OR requested_model LIKE ? OR mapped_model LIKE ? OR account_id LIKE ? OR error_message LIKE ?)")
 		args = append(args, like, like, like, like, like)
+	}
+	if filter.From != nil && !filter.From.IsZero() {
+		clauses = append(clauses, "substr(created_at, 1, 19) >= ?")
+		args = append(args, filter.From.UTC().Format("2006-01-02T15:04:05"))
+	}
+	if filter.To != nil && !filter.To.IsZero() {
+		clauses = append(clauses, "substr(created_at, 1, 19) <= ?")
+		args = append(args, filter.To.UTC().Format("2006-01-02T15:04:05"))
 	}
 	if len(clauses) == 0 {
 		return "", args
@@ -352,14 +367,14 @@ func buildRequestLogWhere(filter RequestLogFilter) (string, []any) {
 
 func scanRequestLog(row rowScanner) (RequestLog, error) {
 	var (
-		log                            RequestLog
-		finished, accountID            sql.NullString
-		stream                         int
-		prompt, completion             sql.NullInt64
-		cacheRead, cacheWrite          sql.NullInt64
-		credits                        sql.NullFloat64
-		latency, ttfb                  sql.NullInt64
-		created                        string
+		log                   RequestLog
+		finished, accountID   sql.NullString
+		stream                int
+		prompt, completion    sql.NullInt64
+		cacheRead, cacheWrite sql.NullInt64
+		credits               sql.NullFloat64
+		latency, ttfb         sql.NullInt64
+		created               string
 	)
 	err := row.Scan(
 		&log.ID, &created, &finished, &stream, &log.Status, &log.RequestedModel, &log.MappedModel, &accountID,
@@ -393,11 +408,11 @@ func scanRequestLog(row rowScanner) (RequestLog, error) {
 
 func scanRequestAttempt(row rowScanner) (RequestAttempt, error) {
 	var (
-		attempt                  RequestAttempt
-		finished                 sql.NullString
-		httpStatus               sql.NullInt64
+		attempt                     RequestAttempt
+		finished                    sql.NullString
+		httpStatus                  sql.NullInt64
 		latency, prompt, completion sql.NullInt64
-		started                  string
+		started                     string
 	)
 	err := row.Scan(
 		&attempt.ID, &attempt.RequestID, &attempt.AttemptIndex, &attempt.AccountID, &started, &finished,

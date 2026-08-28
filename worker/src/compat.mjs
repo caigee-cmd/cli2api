@@ -1,17 +1,17 @@
 import fs from "node:fs";
 import path from "node:path";
 
-export const PINNED_QODERCLI_VERSION = "1.1.27";
+export const PINNED_QODERCLI_VERSION = "1.1.32";
 
 export const NEEDLES = {
   prepareInfer: "prepareInferRequest(A,e,t,i){",
   createWasm:
-    "async createWasmContext(){let A=await Yi();this.machineId||(this.machineId=await this.getMachineId()),XsA(this.machineId,A,JSON.stringify(this.getUserInfoForAuth()))}",
-  modelCatalog: "function En(){return WLe||(WLe=new XLe),WLe}",
+    "async createWasmContext(){let A=await Ki();this.machineId||(this.machineId=await this.getMachineId()),HlA(this.machineId,A,JSON.stringify(this.getUserInfoForAuth()))}",
+  modelCatalog: "function kn(){return r9e||(r9e=new o9e),r9e}",
   quotaApi:
-    "function Of(){return c2t||(c2t=new CC(_e())),c2t}function zXA(){aHe.clear(),ARA.clear()}",
+    "function zf(){return B_t||(B_t=new nw(_e())),B_t}function tAe(){c4e.clear(),nFA.clear()}",
   skipMain:
-    "async function HEg(){let{main:A}=await Promise.resolve().then(()=>(b$o(),U$o));await A()}",
+    "async function QNu(){let{main:A}=await Promise.resolve().then(()=>(Uds(),Fds));await A()}",
 };
 
 export function inspectQodercliSource(source, { version } = {}) {
@@ -68,20 +68,20 @@ export function patchQodercliSource(source, { version } = {}) {
     )
     .replace(
       NEEDLES.createWasm,
-      "async createWasmContext(){ /* __QODER_WORKER_INJECTED__ */ try{ globalThis.__qoderAuthManager=this; }catch(_e){} let A=await Yi();this.machineId||(this.machineId=await this.getMachineId()); const __ctx=XsA(this.machineId,A,JSON.stringify(this.getUserInfoForAuth())); try{ if(typeof globalThis.__qoderWorkerAdoptContext==='function'){ globalThis.__qoderWorkerAdoptContext(__ctx,this); } }catch(_e2){} }",
+      "async createWasmContext(){ /* __QODER_WORKER_INJECTED__ */ try{ globalThis.__qoderAuthManager=this; }catch(_e){} let A=await Ki();this.machineId||(this.machineId=await this.getMachineId()); const __ctx=HlA(this.machineId,A,JSON.stringify(this.getUserInfoForAuth())); try{ if(typeof globalThis.__qoderWorkerAdoptContext==='function'){ globalThis.__qoderWorkerAdoptContext(__ctx,this); } }catch(_e2){} }",
     )
     .replace(
       NEEDLES.modelCatalog,
-      "function En(){return WLe||(WLe=new XLe),WLe} /* __QODER_WORKER_MODEL_CATALOG__ */ try{globalThis.__qoderWorkerGetModelCatalog=()=>{Hm();return En()}}catch(_e){}",
+      "function kn(){return r9e||(r9e=new o9e),r9e} /* __QODER_WORKER_MODEL_CATALOG__ */ try{globalThis.__qoderWorkerGetModelCatalog=()=>{ph();return kn()}}catch(_e){}",
     )
     .replace(
       NEEDLES.quotaApi,
-      "function Of(){return c2t||(c2t=new CC(_e())),c2t}function zXA(){aHe.clear(),ARA.clear()} /* __QODER_WORKER_QUOTA_API__ */ try{globalThis.__qoderWorkerGetQuotaApi=()=>{Cq();return Of()}}catch(_e){}",
+      "function zf(){return B_t||(B_t=new nw(_e())),B_t}function tAe(){c4e.clear(),nFA.clear()} /* __QODER_WORKER_QUOTA_API__ */ try{globalThis.__qoderWorkerGetQuotaApi=()=>{o5();return zf()}}catch(_e){}",
     );
   if (next.includes(NEEDLES.skipMain)) {
     next = next.replace(
       NEEDLES.skipMain,
-      "async function HEg(){ /* __QODER_WORKER_INJECTED__ __QODER_WORKER_SKIP_MAIN__ */ if(typeof globalThis.__qoderWorkerBoot==='function'){ const {getQoderAuthManager}=await Promise.resolve().then(()=>(wl(),LWA)); const {initializeQoderRuntime}=await Promise.resolve().then(()=>(oJ(),gAA)); return globalThis.__qoderWorkerBoot({getQoderAuthManager,initializeQoderRuntime}); } let{main:A}=await Promise.resolve().then(()=>(b$o(),U$o));await A()}",
+      "async function QNu(){ /* __QODER_WORKER_INJECTED__ __QODER_WORKER_SKIP_MAIN__ */ if(typeof globalThis.__qoderWorkerBoot==='function'){ const {getQoderAuthManager}=await Promise.resolve().then(()=>(Ul(),D3A)); const {initializeQoderRuntime}=await Promise.resolve().then(()=>(eG(),FeA)); return globalThis.__qoderWorkerBoot({getQoderAuthManager,initializeQoderRuntime}); } let{main:A}=await Promise.resolve().then(()=>(Uds(),Fds));await A()}",
     );
   }
   return next;

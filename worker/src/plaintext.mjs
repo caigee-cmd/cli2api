@@ -596,7 +596,7 @@ export function buildPlainChatBody({
     parameters,
     business: {
       product: "cli",
-      version: process.env.QODER_CLI_VERSION || "1.1.27",
+      version: process.env.QODER_CLI_VERSION || "1.1.32",
       type: "agent",
       id: crypto.randomUUID(),
       name: String(nonSystem[0]?.content || "chat").slice(0, 40),

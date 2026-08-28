@@ -25,7 +25,7 @@ FROM node:20-bookworm-slim
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates curl tini \
   && rm -rf /var/lib/apt/lists/* \
-	  && npm install -g @qoder-ai/qodercli@1.1.27 @qodercn-ai/qoderclicn@1.1.27
+	  && npm install -g @qoder-ai/qodercli@1.1.32 @qodercn-ai/qoderclicn@1.1.32
 WORKDIR /app
 COPY --from=build /out/qoder-api-proxy /app/qoder-api-proxy
 COPY --from=build /out/cli2api-updater /app/cli2api-updater

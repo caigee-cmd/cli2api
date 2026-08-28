@@ -7,7 +7,17 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Upgrade the pinned Qoder CLIs from 1.1.27 to 1.1.32 (`@qoder-ai/qodercli` and `@qodercn-ai/qoderclicn`), with all worker compat needles re-verified against both new bundles
+- Route chat by each account's live model catalog so a request like `hy3` only hits accounts that actually serve it; unknown models return `model_not_available` without cooling healthy accounts
+- Render System page release notes as markdown for the current console language, in a box that grows with the text and scrolls when it overflows
+- Paginate request history on Logs and filter by time range, account, model, stream mode, and error kind; runtime logs can also filter by account
+
 ### 中文
+
+- 钉的 Qoder CLI 从 1.1.27 升级到 1.1.32（`@qoder-ai/qodercli` 与 `@qodercn-ai/qoderclicn`），worker 全部兼容 needles 已在两个新版 bundle 上重新验证
+- 聊天按每个账号的动态模型目录选号，`hy3` 这类请求只会打到真正有该模型的账号；全池都没有时返回 `model_not_available`，不再给健康账号打冷却
+- 控制台 System 页版本说明按当前语言渲染 markdown，说明框随文本增高，超出后可向下滚动
+- 日志页请求历史支持分页，以及时间范围、账号、模型、流式模式、错误类型筛选；运行日志也可按账号筛选
 
 ## 0.2.12 - 2026-08-27
 

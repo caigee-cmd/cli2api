@@ -7,7 +7,7 @@ import crypto from "node:crypto";
 import { buildPlainChatBody, wantsReasoning, estimateTokens, estimatePromptTokens, diagnoseOpenAIToolHistory, summarizeNormalizedToolHistory } from "./plaintext.mjs";
 import { createModelCatalogSnapshot, DEFAULT_CATALOG_TTL_MS, resolveCatalogModel } from "./catalog.mjs";
 import { parseNestedOpenAIChunks, readSSEText, pipeNestedSseToOpenAI } from "./sse.mjs";
-import { inspectQodercliSource, PINNED_QODERCLI_VERSION, readQodercliVersion } from "./compat.mjs";
+import { inspectQodercliSource, NEEDLES, PINNED_QODERCLI_VERSION, readQodercliVersion } from "./compat.mjs";
 import { resolveUsage } from "./usage.mjs";
 import { classifyError } from "./errors.mjs";
 
@@ -886,7 +886,7 @@ function assertQodercliCompatible(jsPath) {
 
 assertQodercliCompatible(qodercliPath);
 const qodercliSource = fs.readFileSync(qodercliPath, "utf8");
-const canSkipMain = skipCliMain && qodercliSource.includes("async function HEg(){let{main:A}=await Promise.resolve().then(()=>(b$o(),U$o));await A()}");
+const canSkipMain = skipCliMain && qodercliSource.includes(NEEDLES.skipMain);
 if (!canSkipMain) {
   bootMode = "warmup-import";
   log("skip-main needle missing or disabled; falling back to one-shot warmup import");

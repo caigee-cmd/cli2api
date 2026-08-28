@@ -26,9 +26,9 @@ type Ring struct {
 }
 
 var (
-	accountPrefixRe = regexp.MustCompile(`(?i)\[account=([^\]]+)\]`)
-	bearerRe        = regexp.MustCompile(`(?i)(Bearer\s+)[A-Za-z0-9\-._~+/]+=*`)
-	apiKeyAssignRe  = regexp.MustCompile(`(?i)((?:PROXY_API_KEY|api[_-]?key|token)\s*[=:]\s*)(\S+)`)
+	accountPrefixRe  = regexp.MustCompile(`(?i)\[account=([^\]]+)\]`)
+	bearerRe         = regexp.MustCompile(`(?i)(Bearer\s+)[A-Za-z0-9\-._~+/]+=*`)
+	apiKeyAssignRe   = regexp.MustCompile(`(?i)((?:PROXY_API_KEY|api[_-]?key|token)\s*[=:]\s*)(\S+)`)
 	initializedKeyRe = regexp.MustCompile(`(?i)(initialized API key(?: and stored it in SQLite)?:\s*)(\S+)`)
 )
 
@@ -60,7 +60,7 @@ func (r *Ring) Append(message string) Entry {
 	return r.appendLine(message)
 }
 
-func (r *Ring) Snapshot(afterID uint64, limit int, level, query string) []Entry {
+func (r *Ring) Snapshot(afterID uint64, limit int, level, query, accountID string) []Entry {
 	if r == nil {
 		return nil
 	}
@@ -69,6 +69,7 @@ func (r *Ring) Snapshot(afterID uint64, limit int, level, query string) []Entry 
 	}
 	level = strings.ToLower(strings.TrimSpace(level))
 	query = strings.TrimSpace(query)
+	accountID = strings.TrimSpace(accountID)
 
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -78,6 +79,9 @@ func (r *Ring) Snapshot(afterID uint64, limit int, level, query string) []Entry 
 			continue
 		}
 		if level != "" && level != "all" && entry.Level != level {
+			continue
+		}
+		if accountID != "" && entry.AccountID != accountID {
 			continue
 		}
 		if query != "" && !strings.Contains(strings.ToLower(entry.Message), strings.ToLower(query)) &&
@@ -93,7 +97,7 @@ func (r *Ring) Snapshot(afterID uint64, limit int, level, query string) []Entry 
 }
 
 func (r *Ring) Latest(limit int) []Entry {
-	return r.Snapshot(0, limit, "", "")
+	return r.Snapshot(0, limit, "", "", "")
 }
 
 func (r *Ring) appendLine(line string) Entry {
