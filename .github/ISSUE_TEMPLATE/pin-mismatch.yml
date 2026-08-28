@@ -1,5 +1,5 @@
 name: qodercli pin mismatch
-description: Worker failed because CLI needles no longer match 1.1.27
+description: Worker failed because CLI needles no longer match 1.1.32
 labels: [qodercli]
 body:
   - type: textarea

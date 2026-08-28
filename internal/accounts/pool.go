@@ -36,6 +36,11 @@ type Item struct {
 	InFlight  int
 	Restarts  int
 	Quota     *QuotaSnapshot
+	// Models is the last successful per-account catalog snapshot. A nil
+	// slice means unknown (fail open); a non-nil slice, including empty,
+	// is used to filter PublicModel.
+	Models   []string
+	ModelsAt time.Time
 	// DropSystemPrompt mirrors the stored account flag so the executor can
 	// sanitize requests per account without a store lookup per chat.
 	DropSystemPrompt bool
@@ -59,6 +64,36 @@ func itemRegion(item Item) string {
 	return region
 }
 
+func CanonicalModelID(model string) string {
+	key := strings.ToLower(strings.TrimSpace(model))
+	key = strings.NewReplacer("_", "-", " ", "-").Replace(key)
+	if key == "" {
+		return "auto"
+	}
+	return key
+}
+
+func routeModel(model string) string {
+	id := CanonicalModelID(model)
+	if id == "" || id == "auto" {
+		return ""
+	}
+	return id
+}
+
+func itemHasModel(item Item, publicModel string) bool {
+	want := routeModel(publicModel)
+	if want == "" || item.Models == nil {
+		return true
+	}
+	for _, model := range item.Models {
+		if CanonicalModelID(model) == want {
+			return true
+		}
+	}
+	return false
+}
+
 func routeMatches(item Item, q RouteQuery) bool {
 	if _, skip := q.Excluded[item.ID]; skip {
 		return false
@@ -67,6 +102,9 @@ func routeMatches(item Item, q RouteQuery) bool {
 		return false
 	}
 	if q.RegionFilter != "" && itemRegion(item) != strings.ToLower(strings.TrimSpace(q.RegionFilter)) {
+		return false
+	}
+	if !itemHasModel(item, q.PublicModel) {
 		return false
 	}
 	return true
@@ -160,13 +198,28 @@ func (p *Pool) PickRoute(q RouteQuery) (Item, bool) {
 		}
 	}
 	if q.PreferAccount != "" {
-		for _, i := range eligible {
-			if p.items[i].ID == q.PreferAccount && !itemDown(p.items[i], now) {
-				return p.items[i], true
+		var pinned *Item
+		for i := range p.items {
+			if p.items[i].ID != q.PreferAccount {
+				continue
+			}
+			copy := p.items[i]
+			pinned = &copy
+			break
+		}
+		if pinned != nil {
+			if _, skip := q.Excluded[pinned.ID]; !skip {
+				if routeModel(q.PublicModel) != "" && pinned.Models != nil && !itemHasModel(*pinned, q.PublicModel) {
+					return Item{}, false
+				}
+				if routeMatches(*pinned, q) && !itemDown(*pinned, now) {
+					return *pinned, true
+				}
 			}
 		}
 		// Historical Qoder clients may pin an unknown account label; fall back
-		// to normal scheduling like the pre-provider pool did.
+		// to normal scheduling like the pre-provider pool did. A cooling pin
+		// sticky-escapes among eligible accounts that still serve the model.
 	}
 	n := len(p.items)
 	for i := 0; i < n; i++ {
@@ -195,7 +248,7 @@ func (p *Pool) MarkDown(id string, d time.Duration, err string) {
 }
 
 func (p *Pool) MarkClassified(id string, c Classified) {
-	if p == nil || id == "" {
+	if p == nil || id == "" || c.Kind == KindModelNotAvailable {
 		return
 	}
 	var changed *Item
@@ -219,6 +272,7 @@ func (p *Pool) MarkClassified(id string, c Classified) {
 		observer(*changed)
 	}
 }
+
 func (p *Pool) MarkOK(id string) {
 	if p == nil || id == "" {
 		return
@@ -241,6 +295,7 @@ func (p *Pool) MarkOK(id string) {
 		observer(*changed)
 	}
 }
+
 // SetDropSystemPrompt updates only the request-sanitization flag on a live
 // item. Routing and runtime state stay untouched so the change applies to the
 // next request without disturbing cooldowns or health.
@@ -277,6 +332,58 @@ func (p *Pool) MergeHealth(id string, ready, hot bool, inFlight, restarts int, l
 		if lastError == "" {
 			p.items[i].LastKind = ""
 		}
+		return
+	}
+}
+
+func (p *Pool) MergeModels(id string, models []string) {
+	if p == nil || id == "" {
+		return
+	}
+	copied := make([]string, 0, len(models))
+	seen := map[string]struct{}{}
+	for _, model := range models {
+		canonical := CanonicalModelID(model)
+		if canonical == "" || canonical == "auto" {
+			continue
+		}
+		if _, ok := seen[canonical]; ok {
+			continue
+		}
+		seen[canonical] = struct{}{}
+		copied = append(copied, canonical)
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for i := range p.items {
+		if p.items[i].ID == id {
+			p.items[i].Models = copied
+			p.items[i].ModelsAt = time.Now()
+			return
+		}
+	}
+}
+
+// RemoveModel drops one public ID from a cached catalog so a stale snapshot
+// cannot keep sending traffic to an account that no longer serves the model.
+func (p *Pool) RemoveModel(id, model string) {
+	want := routeModel(model)
+	if p == nil || id == "" || want == "" {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for i := range p.items {
+		if p.items[i].ID != id || p.items[i].Models == nil {
+			continue
+		}
+		next := make([]string, 0, len(p.items[i].Models))
+		for _, existing := range p.items[i].Models {
+			if CanonicalModelID(existing) != want {
+				next = append(next, existing)
+			}
+		}
+		p.items[i].Models = next
 		return
 	}
 }
@@ -366,6 +473,10 @@ func (p *Pool) Upsert(item Item) {
 			item.DownUntil = p.items[i].DownUntil
 			item.LastError = p.items[i].LastError
 			item.LastKind = p.items[i].LastKind
+			if item.Models == nil {
+				item.Models = p.items[i].Models
+				item.ModelsAt = p.items[i].ModelsAt
+			}
 			p.items[i] = item
 			return
 		}

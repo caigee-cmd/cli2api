@@ -46,6 +46,16 @@ test("Retry-After is capped", () => {
   assert.equal(got.retryAfterSec, 600);
 });
 
+test("model_not_available failovers without cooldown", () => {
+  const got = classifyError({
+    message: "model_not_available: hy3 is not available for this Qoder account",
+  });
+  assert.equal(got.kind, "model_not_available");
+  assert.equal(got.status, 400);
+  assert.equal(got.failover, true);
+  assert.equal(got.cooldownSec, 0);
+});
+
 test("shouldFailover reads nested JSON", () => {
   assert.equal(
     shouldFailover(429, JSON.stringify({ error: { message: "insufficient_quota", code: "insufficient_quota" } })),

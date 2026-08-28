@@ -214,6 +214,96 @@ select {
   background: var(--app-code);
 }
 
+.release-notes-panel {
+  border: 1px solid var(--app-line);
+  border-radius: 0.5rem;
+  background: var(--app-surface-muted);
+  padding: 0.75rem 1rem 0.85rem;
+}
+
+.release-notes-box {
+  max-height: min(22rem, 52vh);
+  margin-top: 0.5rem;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 0.15rem;
+}
+
+.release-notes {
+  color: var(--app-ink);
+  font-size: 0.75rem;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.release-notes h3,
+.release-notes h4 {
+  margin: 0 0 0.45rem;
+  color: var(--app-muted);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.release-notes h3 + ul,
+.release-notes h4 + ul,
+.release-notes h3 + p,
+.release-notes h4 + p {
+  margin-top: 0;
+}
+
+.release-notes ul {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0;
+  padding-left: 1.05rem;
+}
+
+.release-notes li {
+  overflow-wrap: anywhere;
+}
+
+.release-notes li::marker {
+  color: var(--app-faint);
+}
+
+.release-notes p {
+  margin: 0 0 0.5rem;
+  color: var(--app-muted);
+}
+
+.release-notes p:last-child,
+.release-notes ul:last-child {
+  margin-bottom: 0;
+}
+
+.release-notes code {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  padding: 0.05rem 0.28rem;
+  border-radius: 0.25rem;
+  background: var(--app-surface);
+  color: var(--app-ink);
+}
+
+.release-notes a {
+  color: var(--app-ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.release-notes strong {
+  font-weight: 600;
+}
+
+.release-notes__empty {
+  margin: 0;
+  color: var(--app-faint);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
 .status-dot {
   display: inline-block;
   width: 0.5rem;

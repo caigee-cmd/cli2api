@@ -55,8 +55,13 @@ func TestRingSnapshotFilters(t *testing.T) {
 	ring := NewRing(10)
 	ring.Append("ok line")
 	ring.Append("something failed hard")
-	entries := ring.Snapshot(0, 10, "error", "failed")
+	entries := ring.Snapshot(0, 10, "error", "failed", "")
 	if len(entries) != 1 || entries[0].Level != "error" {
 		t.Fatalf("filtered=%+v", entries)
+	}
+	ring.Append("[account=acc_1] warn line")
+	byAccount := ring.Snapshot(0, 10, "", "", "acc_1")
+	if len(byAccount) != 1 || byAccount[0].AccountID != "acc_1" {
+		t.Fatalf("account filter=%+v", byAccount)
 	}
 }

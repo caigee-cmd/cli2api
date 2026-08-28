@@ -73,6 +73,23 @@ func TestRequestLogsInsertListGetAndPurge(t *testing.T) {
 		t.Fatalf("error filter = %+v err=%v", none, err)
 	}
 
+	from := now.Add(-time.Second)
+	to := now.Add(time.Second)
+	timed, err := store.ListRequestLogs(ctx, RequestLogFilter{From: &from, To: &to, Model: "glm-5.3"})
+	if err != nil || timed.Total != 1 {
+		t.Fatalf("time/model filter = %+v err=%v", timed, err)
+	}
+	tooNew := now.Add(time.Hour)
+	emptyTime, err := store.ListRequestLogs(ctx, RequestLogFilter{From: &tooNew})
+	if err != nil || emptyTime.Total != 0 {
+		t.Fatalf("future from filter = %+v err=%v", emptyTime, err)
+	}
+
+	page, err := store.ListRequestLogs(ctx, RequestLogFilter{Limit: 1, Offset: 0})
+	if err != nil || page.Total != 1 || page.Limit != 1 || page.Offset != 0 || len(page.Items) != 1 {
+		t.Fatalf("page = %+v err=%v", page, err)
+	}
+
 	oldID := NewRequestID()
 	if err := store.InsertRequestLog(ctx, RequestLog{
 		ID: oldID, CreatedAt: now.Add(-10 * 24 * time.Hour), Status: RequestStatusError, RequestedModel: "old",
@@ -90,6 +107,55 @@ func TestRequestLogsInsertListGetAndPurge(t *testing.T) {
 	cleared, err := store.ClearRequestLogs(ctx)
 	if err != nil || cleared < 1 {
 		t.Fatalf("clear = %d err=%v", cleared, err)
+	}
+}
+
+func TestRequestLogsPaginationAndTimeFilter(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	base := time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)
+	for i := 0; i < 5; i++ {
+		account := "acc_a"
+		model := "glm-5.3"
+		if i%2 == 1 {
+			account = "acc_b"
+			model = "qwen3.7-plus"
+		}
+		if err := store.InsertRequestLog(ctx, RequestLog{
+			ID: NewRequestID(), CreatedAt: base.Add(time.Duration(i) * time.Minute),
+			Status: RequestStatusOK, RequestedModel: model, AccountID: account,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	page1, err := store.ListRequestLogs(ctx, RequestLogFilter{Limit: 2, Offset: 0})
+	if err != nil || page1.Total != 5 || page1.Limit != 2 || page1.Offset != 0 || len(page1.Items) != 2 {
+		t.Fatalf("page1 = %+v err=%v", page1, err)
+	}
+	page3, err := store.ListRequestLogs(ctx, RequestLogFilter{Limit: 2, Offset: 4})
+	if err != nil || page3.Total != 5 || len(page3.Items) != 1 {
+		t.Fatalf("page3 = %+v err=%v", page3, err)
+	}
+
+	from := base.Add(2 * time.Minute)
+	to := base.Add(3 * time.Minute)
+	window, err := store.ListRequestLogs(ctx, RequestLogFilter{From: &from, To: &to, Limit: 10})
+	if err != nil || window.Total != 2 {
+		t.Fatalf("window = %+v err=%v", window, err)
+	}
+	accountB, err := store.ListRequestLogs(ctx, RequestLogFilter{AccountID: "acc_b", Limit: 10})
+	if err != nil || accountB.Total != 2 {
+		t.Fatalf("account = %+v err=%v", accountB, err)
+	}
+	model, err := store.ListRequestLogs(ctx, RequestLogFilter{Model: "qwen3.7-plus", Limit: 10})
+	if err != nil || model.Total != 2 {
+		t.Fatalf("model = %+v err=%v", model, err)
 	}
 }
 
