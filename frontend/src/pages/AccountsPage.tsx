@@ -22,7 +22,7 @@ import {
   startDeviceLogin,
   updateAccount,
 } from '@/api/overview'
-import { AccountsListSkeleton, AccountsPageSkeleton } from '@/components/ui/PageSkeletons'
+import { AccountsPageSkeleton } from '@/components/ui/PageSkeletons'
 import {
   accountState,
   isAvailable,
@@ -310,7 +310,7 @@ export function AccountsPage() {
         </div>
       ) : null}
 
-      {hasAccounts && !refreshing && !filteredRows.length ? (
+      {hasAccounts && !filteredRows.length ? (
         <div className="grid min-h-56 place-items-center rounded-lg border border-dashed border-[var(--app-line-strong)] text-center">
           <div>
             <MagnifyingGlass size={22} className="mx-auto text-[var(--app-faint)]" />
@@ -320,10 +320,7 @@ export function AccountsPage() {
         </div>
       ) : null}
 
-      {refreshing ? (
-        <AccountsListSkeleton count={Math.min(Math.max(filteredRows.length, 1), 6)} />
-      ) : (
-      <section className="grid gap-2.5 lg:grid-cols-2 xl:grid-cols-3">
+      <section className="grid gap-2.5 lg:grid-cols-2 xl:grid-cols-3" aria-busy={refreshing}>
         {filteredRows.map((account) => (
           <AccountCard
             key={account.id}
@@ -348,7 +345,6 @@ export function AccountsPage() {
           />
         ))}
       </section>
-      )}
     </div>
   )
 }

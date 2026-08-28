@@ -102,7 +102,6 @@ export function AccountCard({
   const provider = accountProviderLabel(account.provider, account.region, t)
   const meta = [
     provider,
-    account.auth_type || 'none',
     account.remote_uid ? `UID ${account.remote_uid}` : account.id,
   ].join(' · ')
 
