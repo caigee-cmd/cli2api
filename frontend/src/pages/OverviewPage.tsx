@@ -19,7 +19,7 @@ export function OverviewPage() {
   const base = absUrl(overview?.access?.openai_base_url || '/v1')
   const [copiedEndpoint, setCopiedEndpoint] = useState('')
 
-  if (loading && !overview) return <OverviewPageSkeleton />
+  if (loading) return <OverviewPageSkeleton />
 
   const metrics = [
     { label: t('metricRuntime'), value: proxyOk ? t('running') : t('down'), detail: 'Go control plane', icon: Desktop, ok: proxyOk },
