@@ -420,7 +420,7 @@ Keep the menu short. Login is a gate, not a nav item.
 | `/` | Overview | Runtime pulse + request stats |
 | `/accounts` | Accounts | Qoder login + pool |
 | `/providers` | Models | Catalog + per-model context-window defaults |
-| `/access` | Access | Base URL + quick chat |
+	| `/access` | Access | Base URL + quick chat; model tiles follow the selected account catalog |
 | `/logs` | Logs | Request history + runtime process output |
 | `/system` | System | Next-version update + SQLite protection |
 | `/auth` | redirect | Legacy → `/accounts` |
@@ -460,7 +460,7 @@ Release packaging keeps the application as a Linux container and publishes a `li
 
 Maintainers do not create version tags manually. A serialized `workflow_dispatch` release waits for CI on the exact `main` commit, calculates the next patch after the latest published stable release, creates or resumes an invisible draft release, uploads all updater assets, builds a candidate multi-architecture image, promotes and verifies immutable version tags, and finally publishes the release. Mutable `latest` and release-series aliases move only after publication. Failed pre-publication runs leave a resumable draft rather than exposing an update to the console.
 
-Release notes come from `CHANGELOG.md`, not generated commit lists. Maintainers write matching `### English` and `### 中文` bullets under `## Unreleased`; the workflow copies that bilingual body onto the GitHub Release. The console System page extracts the current UI language, renders the markdown (lists, inline code, links), and shows it in a box that grows with the notes then scrolls. After the release is public, a follow-up commit freezes those notes under the new version heading so the next patch starts from an empty Unreleased section.
+Release notes come from `CHANGELOG.md`, not generated commit lists. Maintainers write matching `### English` and `### 中文` bullets under `## Unreleased`; the workflow copies that bilingual body onto the GitHub Release. The console System page extracts the current UI language, renders the markdown (lists, inline code, links), and shows it in a box that grows with the notes then scrolls. After the release is public, freeze those notes under the new version heading through a pull request — `main` is protected, so the workflow cannot push the freeze commit itself. Operator steps live in `docs/DEVELOPMENT.md`.
 
 The host boundary is explicitly versioned through `protocol_version`. Version `1` is current; version `0` is temporarily accepted for an older updater that omitted the field. Any other version is rejected before an update request is submitted. New updater releases must remain backward-compatible with the immediately previous application release so the latest-asset bootstrap path stays safe.
 

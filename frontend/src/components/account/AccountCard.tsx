@@ -4,6 +4,7 @@ import {
   ArrowClockwise,
   ArrowSquareOut,
   Copy,
+  Cube,
   Key,
   ShieldCheck,
   TrashSimple,
@@ -48,6 +49,7 @@ type Props = {
   onToggle: (selected: boolean) => void
   onToggleDropSystem: (selected: boolean) => void
   onToggleAuthPanel: () => void
+  onViewModels: () => void
 }
 
 function stateCopyFor(state: ReturnType<typeof accountState>, cooldown: string, t: Translate) {
@@ -75,6 +77,7 @@ export function AccountCard({
   onToggle,
   onToggleDropSystem,
   onToggleAuthPanel,
+  onViewModels,
 }: Props) {
   const cardRef = useRef<HTMLElement>(null)
   const chipRef = useRef<HTMLSpanElement>(null)
@@ -258,6 +261,14 @@ export function AccountCard({
         >
           <Key size={14} />{t('authentication')}
         </Button>
+        <Tooltip>
+          <Tooltip.Trigger>
+            <Button className={ACCOUNT_ICON_BUTTON_CLASS} isIconOnly size="sm" variant="secondary" onPress={onViewModels} aria-label={t('accountModels')}>
+              <Cube size={14} />
+            </Button>
+          </Tooltip.Trigger>
+          <Tooltip.Content>{t('accountModels')}</Tooltip.Content>
+        </Tooltip>
         <Tooltip>
           <Tooltip.Trigger>
             <Button className={ACCOUNT_ICON_BUTTON_CLASS} isIconOnly size="sm" variant="secondary" isDisabled={!account.enabled} isPending={busyKind === 'rewarm'} onPress={onRewarm} aria-label={t('rewarm')}>

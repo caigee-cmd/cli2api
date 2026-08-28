@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Button, Card, Chip, Skeleton, TextArea } from '@heroui/react'
 import {
   BracketsCurly,
@@ -12,7 +12,8 @@ import {
 } from '@phosphor-icons/react'
 import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
-import { testChat } from '@/api/overview'
+import { fetchModels, testChat } from '@/api/overview'
+import type { ModelInfo } from '@/api/types'
 import { absUrl } from '@/lib/url'
 import { AccessPageSkeleton } from '@/components/ui/PageSkeletons'
 import { OptionTiles } from '@/components/ui/OptionTiles'
@@ -28,18 +29,44 @@ function shellQuote(value: string) {
 export function AccessPage() {
   const { t } = useI18n()
   const { overview, loading } = useOverview()
-  const models = overview?.models || []
+  const poolModels = overview?.models || []
   const accounts = overview?.accounts || []
   const base = absUrl(overview?.access?.openai_base_url || '/v1')
   const [model, setModel] = useState('')
   const [accountId, setAccountId] = useState('')
+  const [accountCatalog, setAccountCatalog] = useState<{ accountId: string; models: ModelInfo[]; error: string } | null>(null)
   const [prompt, setPrompt] = useState('只回复OK')
   const [output, setOutput] = useState('')
   const [requestState, setRequestState] = useState<RequestState>('idle')
   const [elapsedMs, setElapsedMs] = useState<number | null>(null)
   const [copied, setCopied] = useState<'base' | 'curl' | ''>('')
   const selectedAccount = accountId || ''
-  const selectedModel = models.some((item) => item.id === model) ? model : models[0]?.id || 'qwen3.7-plus'
+  const catalogReady = !selectedAccount || accountCatalog?.accountId === selectedAccount
+  const models = selectedAccount ? (catalogReady ? accountCatalog?.models || [] : []) : poolModels
+  const modelsLoading = Boolean(selectedAccount) && !catalogReady
+  const modelsError = catalogReady ? accountCatalog?.error || '' : ''
+  const selectedModel = models.some((item) => item.id === model) ? model : models[0]?.id || ''
+
+  useEffect(() => {
+    if (!selectedAccount) return
+    let cancelled = false
+    void fetchModels(selectedAccount)
+      .then((data) => {
+        if (cancelled) return
+        setAccountCatalog({ accountId: selectedAccount, models: data.data || [], error: '' })
+      })
+      .catch((error) => {
+        if (cancelled) return
+        setAccountCatalog({
+          accountId: selectedAccount,
+          models: [],
+          error: error instanceof Error ? error.message : String(error),
+        })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [selectedAccount])
   const readyAccounts = accounts.filter((account) => account.enabled !== false && (
     account.ready === true || account.hot === true || account.status === 'ready' || account.status === 'hot'
   ))
@@ -166,19 +193,32 @@ export function AccessPage() {
 
               <div className="space-y-3">
                   <div className="text-sm font-medium text-[var(--app-muted)]">{t('model')}</div>
-                  <OptionTiles
-                    ariaLabel={t('model')}
-                    columns={2}
-                    compact
-                    value={selectedModel}
-                    onChange={setModel}
-                    options={(models.length ? models : [{ id: 'qwen3.7-plus' }]).map((item) => ({
-                      value: item.id,
-                      label: item.display_name || item.id,
-                      hint: item.owned_by || item.provider ? `${item.id} · ${item.owned_by || item.provider}` : item.id,
-                    }))}
-                  />
-                  <p className="text-xs leading-5 text-[var(--app-faint)]">{t('modelRoutingHint')}</p>
+                  {modelsLoading ? (
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      <Skeleton className="h-14 rounded-lg" />
+                      <Skeleton className="h-14 rounded-lg" />
+                      <Skeleton className="h-14 rounded-lg" />
+                      <Skeleton className="h-14 rounded-lg" />
+                    </div>
+                  ) : models.length ? (
+                    <OptionTiles
+                      ariaLabel={t('model')}
+                      columns={2}
+                      compact
+                      value={selectedModel}
+                      onChange={setModel}
+                      options={models.map((item) => ({
+                        value: item.id,
+                        label: item.display_name || item.id,
+                        hint: item.owned_by || item.provider ? `${item.id} · ${item.owned_by || item.provider}` : item.id,
+                      }))}
+                    />
+                  ) : (
+                    <div className="rounded-lg border border-dashed border-[var(--app-line-strong)] px-3 py-4 text-xs leading-5 text-[var(--app-faint)]">
+                      {modelsError || (selectedAccount ? t('noAccountModels') : t('noModelsYet'))}
+                    </div>
+                  )}
+                  <p className="text-xs leading-5 text-[var(--app-faint)]">{selectedAccount ? t('accountModelHint') : t('modelRoutingHint')}</p>
               </div>
 
               <div className="space-y-3">
@@ -205,7 +245,7 @@ export function AccessPage() {
                 </div>
               ) : null}
 
-              <Button fullWidth isPending={requestState === 'loading'} isDisabled={!prompt.trim() || !selectedModel} onPress={() => void onTest()}>
+              <Button fullWidth isPending={requestState === 'loading'} isDisabled={!prompt.trim() || !selectedModel || modelsLoading} onPress={() => void onTest()}>
                 <PaperPlaneTilt size={16} />
                 {requestState === 'loading' ? t('requesting') : t('sendRequest')}
               </Button>

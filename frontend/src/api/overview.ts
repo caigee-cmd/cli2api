@@ -26,10 +26,16 @@ export function loginWithPat(pat: string, accountId?: string) {
   })
 }
 
-export function refreshModels(accountId?: string) {
-  const q = new URLSearchParams({ refresh: '1' })
+export function fetchModels(accountId?: string, refresh = false) {
+  const q = new URLSearchParams()
+  if (refresh) q.set('refresh', '1')
   if (accountId) q.set('account', accountId)
-  return api<{ data?: Overview['models'] }>(`/api/models?${q.toString()}`)
+  const query = q.toString()
+  return api<{ data?: Overview['models'] }>(`/api/models${query ? `?${query}` : ''}`)
+}
+
+export function refreshModels(accountId?: string) {
+  return fetchModels(accountId, true)
 }
 
 export function updateModelContext(modelKey: string, contextLength: number) {
