@@ -4,11 +4,15 @@ import { isUnauthorized } from '@/api/client'
 import { useApiKey } from '@/hooks/useApiKey'
 import type { Overview } from '@/api/types'
 
+type RefreshOptions = {
+  silent?: boolean
+}
+
 type OverviewContextValue = {
   overview: Overview | null
   loading: boolean
   error: string | null
-  refresh: (keyOverride?: string) => Promise<Overview>
+  refresh: (keyOverride?: string, options?: RefreshOptions) => Promise<Overview>
   setOverview: (next: Overview | null) => void
 }
 
@@ -20,7 +24,7 @@ export function OverviewProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(Boolean(apiKey))
   const [error, setError] = useState<string | null>(null)
 
-  const refresh = useCallback(async (keyOverride?: string) => {
+  const refresh = useCallback(async (keyOverride?: string, options?: RefreshOptions) => {
     const key = keyOverride ?? apiKey
     if (!key) {
       setOverview(null)
@@ -28,7 +32,8 @@ export function OverviewProvider({ children }: { children: ReactNode }) {
       setLoading(false)
       throw new Error('missing_api_key')
     }
-    setLoading(true)
+    const silent = Boolean(options?.silent)
+    if (!silent) setLoading(true)
     try {
       const data = await fetchOverview(key)
       setOverview(data)
@@ -36,12 +41,12 @@ export function OverviewProvider({ children }: { children: ReactNode }) {
       return data
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      setOverview(null)
+      if (!silent) setOverview(null)
       setError(msg)
       if (isUnauthorized(err)) signOut()
       throw err
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }, [apiKey, signOut])
 
