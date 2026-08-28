@@ -7,6 +7,9 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Shrink Accounts cards: denser identity row, a compact runtime meter, and a quota fill that animates remaining credits
+- Show page skeletons again when the console refresh button is used, instead of leaving stale cards on screen
+- Show a list skeleton on Logs while filters, pagination, or refresh are loading, without replacing the filter bar
 - Upgrade the pinned Qoder CLIs from 1.1.27 to 1.1.32 (`@qoder-ai/qodercli` and `@qodercn-ai/qoderclicn`), with all worker compat needles re-verified against both new bundles
 - Route chat by each account's live model catalog so a request like `hy3` only hits accounts that actually serve it; unknown models return `model_not_available` without cooling healthy accounts
 - Render System page release notes as markdown for the current console language, in a box that grows with the text and scrolls when it overflows
@@ -14,6 +17,9 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### 中文
 
+- 账号卡片改为更紧凑的身份行：运行状态用短柱状指示，额度用填充条显示剩余量
+- 控制台点刷新时重新显示骨架屏，不再把旧卡片留在页面上
+- 日志页筛选、翻页或刷新时，下方列表显示骨架屏，筛选栏保持不动
 - 钉的 Qoder CLI 从 1.1.27 升级到 1.1.32（`@qoder-ai/qodercli` 与 `@qodercn-ai/qoderclicn`），worker 全部兼容 needles 已在两个新版 bundle 上重新验证
 - 聊天按每个账号的动态模型目录选号，`hy3` 这类请求只会打到真正有该模型的账号；全池都没有时返回 `model_not_available`，不再给健康账号打冷却
 - 控制台 System 页版本说明按当前语言渲染 markdown，说明框随文本增高，超出后可向下滚动
