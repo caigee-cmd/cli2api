@@ -91,7 +91,7 @@ The full checklist lives in [docs/PLAN.md](docs/PLAN.md).
 
 **Longer term**
 
-- More upstream channels (Cursor, TraeWork, etc.; evaluated after WorkBuddy acceptance)
+- More upstream channels (Cursor, Trae CN Solo, etc.; evaluated after WorkBuddy acceptance; Solo survey in `docs/PROVIDERS_TRAE_SOLO.md`)
 - Optional prompt/completion capture behind an explicit switch (off by default)
 
 ## Documentation

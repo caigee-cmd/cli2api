@@ -45,6 +45,7 @@ const labelKeys: Record<string, string> = {
   'qoder-cn': 'accountTypeQoderCN',
   'workbuddy-cn': 'accountTypeWorkBuddyCN',
   'workbuddy-global': 'accountTypeWorkBuddyGlobal',
+  'trae-cn': 'accountTypeTraeCN',
 }
 
 const hintKeys: Record<string, string> = {
@@ -52,6 +53,7 @@ const hintKeys: Record<string, string> = {
   'qoder-cn': 'accountTypeQoderCNHint',
   'workbuddy-cn': 'accountTypeWorkBuddyCNHint',
   'workbuddy-global': 'accountTypeWorkBuddyGlobalHint',
+  'trae-cn': 'accountTypeTraeCNHint',
 }
 
 function AccountTypeSkeleton({ ariaLabel }: { ariaLabel: string }) {
@@ -315,7 +317,11 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
       setMessage(t('wizardBadJson'))
       return
     }
-    if (!bundle.format) bundle.format = activeOption.descriptor.id === 'workbuddy' ? 'workbuddy-oauth-v1' : 'qoder-native-v1'
+    if (!bundle.format) {
+      if (activeOption.descriptor.id === 'workbuddy') bundle.format = 'workbuddy-oauth-v1'
+      else if (activeOption.descriptor.id === 'trae') bundle.format = 'trae-oauth-v1'
+      else bundle.format = 'qoder-native-v1'
+    }
     try {
       setPhase('busy')
       const options = accountOptions()

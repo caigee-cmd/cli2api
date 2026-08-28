@@ -10,8 +10,9 @@ Keep writing-code docs in these files only:
 | `docs/DESIGN.md` | Architecture, login, routing, console, design system. |
 | `docs/PLAN.md` | Current milestone checklist. |
 | `docs/PROVIDERS.md` | Future account-provider design. Not a current milestone. |
+| `docs/PROVIDERS_TRAE_SOLO.md` | Trae CN Solo in-process adapter survey. Not a current milestone. |
 
-Do not add new `TODO.md`, `NOTES.md`, or extra plan files. The only extra design doc is `docs/PROVIDERS.md` (WorkBuddy / Qoder CN / future account types). User-facing install stays in `README.md` (Chinese) / `README_EN.md` (English). Local protocol facts stay in ignored `docs/capture-notes.md`. Host ops stay gitignored in `docs/PRIVATE_DEPLOYMENT.md`.
+Do not add new `TODO.md`, `NOTES.md`, or extra plan files. Extra design docs are `docs/PROVIDERS.md` (WorkBuddy / Qoder CN / future account types) and `docs/PROVIDERS_TRAE_SOLO.md` (Trae CN Solo). `docs/PROVIDERS_TRAE.md` is superseded; do not implement from it. User-facing install stays in `README.md` (Chinese) / `README_EN.md` (English). Local protocol facts stay in ignored `docs/capture-notes.md`. Host ops stay gitignored in `docs/PRIVATE_DEPLOYMENT.md`.
 
 ## Do
 

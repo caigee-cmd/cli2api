@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
@@ -115,6 +116,26 @@ type QuotaInfo struct {
 type AccountProber interface {
 	Probe(ctx context.Context, accountID string) (AccountHealth, error)
 	Quota(ctx context.Context, accountID string) (*QuotaInfo, error)
+}
+
+// Error is the in-process adapter error the executor classifies for
+// cooldown and failover. Kind must be an accounts taxonomy value.
+type Error struct {
+	Kind     string
+	Status   int
+	Message  string
+	Cooldown time.Duration
+	Failover *bool
+}
+
+func (e *Error) Error() string {
+	if e == nil {
+		return ""
+	}
+	if e.Message != "" {
+		return e.Message
+	}
+	return e.Kind
 }
 
 // Adapter bundles the optional capability interfaces. Every field may be nil;

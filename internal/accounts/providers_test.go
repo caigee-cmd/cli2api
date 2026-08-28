@@ -62,6 +62,16 @@ func TestStoreRejectsUnknownProviderAndRegion(t *testing.T) {
 	if created.Provider != "qoder" || created.ProviderRegion != "cn" {
 		t.Fatalf("qoder cn = %+v", created)
 	}
+	trae, err := store.Create(ctx, CreateAccount{Name: "Trae", Provider: "trae", Region: "cn"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if trae.Provider != "trae" || trae.ProviderRegion != "cn" {
+		t.Fatalf("trae cn = %+v", trae)
+	}
+	if _, err := store.Create(ctx, CreateAccount{Name: "X", Provider: "trae", Region: "global"}); err == nil {
+		t.Fatal("expected trae global rejection")
+	}
 }
 
 func TestManagerDoesNotSpawnDaemonForInProcessProvider(t *testing.T) {

@@ -560,3 +560,4 @@ After UI edits:
 | `worker/src/errors.mjs` | Error taxonomy |
 | `internal/executor/chat.go` | Proxy → worker |
 | `docs/PROVIDERS.md` | Multi-provider extension plan; WorkBuddy first |
+| `docs/PROVIDERS_TRAE_SOLO.md` | Trae CN Solo in-process adapter survey; supersedes `docs/PROVIDERS_TRAE.md` |

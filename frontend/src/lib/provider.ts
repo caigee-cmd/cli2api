@@ -7,6 +7,10 @@ export function isWorkBuddyProvider(provider?: string) {
   return String(provider || '').toLowerCase() === 'workbuddy'
 }
 
+export function isTraeProvider(provider?: string) {
+  return String(provider || '').toLowerCase() === 'trae'
+}
+
 export function accountProviderLabel(
   provider: string | undefined,
   region: string | undefined,
@@ -16,6 +20,9 @@ export function accountProviderLabel(
   const regionID = String(region || '').toLowerCase()
   if (isWorkBuddyProvider(providerID)) {
     return regionID === 'global' ? t('accountTypeWorkBuddyGlobal') : t('accountTypeWorkBuddyCN')
+  }
+  if (isTraeProvider(providerID)) {
+    return t('accountTypeTraeCN')
   }
   if (isQoderProvider(providerID)) {
     return regionID === 'cn' ? t('accountTypeQoderCN') : t('accountTypeQoderGlobal')
