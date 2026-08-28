@@ -6,6 +6,7 @@ import {
   Copy,
   Cube,
   Key,
+  PencilSimple,
   ShieldCheck,
   TrashSimple,
   WarningCircle,
@@ -48,9 +49,7 @@ type Props = {
   onDelete: () => void
   onToggle: (selected: boolean) => void
   onToggleDropSystem: (selected: boolean) => void
-  onRename: (name: string) => void
-  onMaxInFlight: (value: number) => void
-  onPriority: (value: number) => void
+  onEdit: () => void
   onToggleAuthPanel: () => void
   onViewModels: () => void
 }
@@ -79,9 +78,7 @@ export function AccountCard({
   onDelete,
   onToggle,
   onToggleDropSystem,
-  onRename,
-  onMaxInFlight,
-  onPriority,
+  onEdit,
   onToggleAuthPanel,
   onViewModels,
 }: Props) {
@@ -105,7 +102,6 @@ export function AccountCard({
   const provider = accountProviderLabel(account.provider, account.region, t)
   const meta = [
     provider,
-    account.auth_type || 'none',
     account.remote_uid ? `UID ${account.remote_uid}` : account.id,
   ].join(' · ')
 
@@ -167,23 +163,7 @@ export function AccountCard({
         <div className="flex min-w-0 items-center gap-2.5">
           <ProviderMark provider={account.provider} size={22} />
           <div className="min-w-0">
-            <input
-              className="w-full truncate bg-transparent text-[13px] font-semibold leading-5 tracking-[-0.01em] outline-none placeholder:text-[var(--app-faint)]"
-              defaultValue={account.name || ''}
-              aria-label={t('accountName')}
-              disabled={busyKind === 'settings'}
-              onBlur={(event) => {
-                const next = event.target.value.trim()
-                if (!next || next === (account.name || '')) {
-                  event.target.value = account.name || ''
-                  return
-                }
-                onRename(next)
-              }}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') (event.target as HTMLInputElement).blur()
-              }}
-            />
+            <div className="truncate text-[13px] font-semibold leading-5 tracking-[-0.01em]">{account.name || account.id}</div>
             <div className="mono truncate text-[10px] leading-4 text-[var(--app-faint)]" title={`${account.id}${account.remote_uid ? ` · UID ${account.remote_uid}` : ''}`}>
               {meta}
             </div>
@@ -207,55 +187,13 @@ export function AccountCard({
         ) : null}
 
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[var(--app-faint)]">
-          <label className="inline-flex items-center gap-1.5">
-            <span className="mono font-medium text-[var(--app-ink)]">{inFlight}/</span>
-            <input
-              className="account-input mono h-6 w-10 rounded-md px-1.5 text-[11px] font-medium"
-              type="number"
-              min={1}
-              max={32}
-              defaultValue={account.max_inflight ?? 4}
-              aria-label={t('maxInflight')}
-              disabled={busyKind === 'settings'}
-              onBlur={(event) => {
-                const next = Number(event.target.value)
-                const current = account.max_inflight ?? 4
-                if (!Number.isInteger(next) || next < 1 || next > 32) {
-                  event.target.value = String(current)
-                  return
-                }
-                if (next !== current) onMaxInFlight(next)
-              }}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') (event.target as HTMLInputElement).blur()
-              }}
-            />
-            <span>{t('inFlight')}</span>
-          </label>
-          <label className="inline-flex items-center gap-1.5">
-            <span>{t('priority')}</span>
-            <input
-              className="account-input mono h-6 w-10 rounded-md px-1.5 text-[11px] font-medium"
-              type="number"
-              min={1}
-              max={100}
-              defaultValue={account.priority ?? 50}
-              aria-label={t('priority')}
-              disabled={busyKind === 'settings'}
-              onBlur={(event) => {
-                const next = Number(event.target.value)
-                const current = account.priority ?? 50
-                if (!Number.isInteger(next) || next < 1 || next > 100) {
-                  event.target.value = String(current)
-                  return
-                }
-                if (next !== current) onPriority(next)
-              }}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') (event.target as HTMLInputElement).blur()
-              }}
-            />
-          </label>
+          <span>
+            <span className="mono font-medium text-[var(--app-ink)]">{inFlight}/{account.max_inflight ?? 4}</span>
+            {' '}{t('inFlight')}
+          </span>
+          <span>
+            {t('priority')} <span className="mono font-medium text-[var(--app-ink)]">{account.priority ?? 50}</span>
+          </span>
           <span>
             {t('restarts')} <span className="mono font-medium text-[var(--app-ink)]">{account.restarts ?? 0}</span>
           </span>
@@ -324,6 +262,9 @@ export function AccountCard({
           onPress={onToggleAuthPanel}
         >
           <Key size={14} />{t('authentication')}
+        </Button>
+        <Button className={ACCOUNT_BUTTON_CLASS} size="sm" variant="secondary" onPress={onEdit}>
+          <PencilSimple size={14} />{t('editAccount')}
         </Button>
         <Tooltip>
           <Tooltip.Trigger>

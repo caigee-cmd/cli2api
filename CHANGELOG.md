@@ -7,7 +7,19 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Fetch WorkBuddy Global model catalogs from `/v2/enterprises/personal/models` instead of the console OIDC page, and return catalog failures as 503 JSON so reverse proxies do not replace them with HTML
+- After dropping caller system prompts, send WorkBuddy an empty leading system message so Global no longer rejects the request with `11128 first message is not system prompt`
+- Show account-type skeletons in the add-account dialog until `/api/providers` returns, instead of flashing the default Qoder Global tile
+- Show first-token time on Logs and label token counts as input / output
+- Drop auth-type from account cards, keep cards mounted on refresh so quota and runtime meters can animate, and give those meters a very light same-hue gradient
+
 ### 中文
+
+- WorkBuddy 国际版模型目录改打 `/v2/enterprises/personal/models`，不再走会 500 HTML 的 console 页面；目录失败改为 503 JSON，避免反代把错误换成 HTML 整页
+- 丢弃调用方系统提示词后，仍给 WorkBuddy 补一条空的 system，避免国际版 `11128 first message is not system prompt`
+- 添加账号弹窗等 `/api/providers` 返回后再显示类型，加载中用骨架屏，不再先闪默认 Qoder Global
+- Logs 请求历史增加首字时间，Tokens 用小字标出输入 / 输出
+- 账号卡片去掉认证方式；刷新时卡片保持挂载，额度和状态柱用 GSAP 过渡，色条加很浅的同色渐变
 
 ## 0.2.15 - 2026-08-28
 
