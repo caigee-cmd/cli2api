@@ -10,7 +10,9 @@ import {
   X,
 } from '@phosphor-icons/react'
 import { fetchSystemUpdate, startSystemUpdate, type StartUpdateResult, type SystemUpdateInfo } from '@/api/system'
+import { ReleaseNotes } from '@/components/ReleaseNotes'
 import { useI18n } from '@/hooks/useI18n'
+import { extractReleaseNotes } from '@/lib/releaseNotes'
 
 const activeStates = new Set(['queued', 'preparing', 'pulling', 'recreating', 'checking', 'rolling_back'])
 
@@ -22,7 +24,7 @@ function statusColor(state?: string): 'success' | 'warning' | 'danger' | 'defaul
 }
 
 export function SystemPage() {
-  const { t } = useI18n()
+  const { lang, t } = useI18n()
   const [info, setInfo] = useState<SystemUpdateInfo | null>(null)
   const [loading, setLoading] = useState(true)
   const [checking, setChecking] = useState(false)
@@ -63,7 +65,7 @@ export function SystemPage() {
   const canUpdate = Boolean(info?.managed && info?.has_update && info?.next_version && info?.agent?.available && !active)
   const agentState = info?.agent?.state || 'unavailable'
   const stateLabel = t(`updateState_${agentState}`)
-  const releaseBody = useMemo(() => info?.release?.body?.trim() || t('updateNoNotes'), [info, t])
+  const releaseBody = useMemo(() => extractReleaseNotes(info?.release?.body, lang), [info, lang])
 
   async function applyUpdate() {
     setSubmitting(true)
@@ -147,9 +149,11 @@ export function SystemPage() {
               </div>
             ) : null}
 
-            <div className="mt-5 border-t border-[var(--app-line)] pt-4">
+            <div className="release-notes-panel mt-5">
               <div className="text-xs font-medium text-[var(--app-muted)]">{t('releaseNotes')}</div>
-              <p className="mt-2 max-h-32 overflow-y-auto whitespace-pre-wrap text-xs leading-5 text-[var(--app-faint)]">{releaseBody}</p>
+              <div className="release-notes-box">
+                <ReleaseNotes markdown={releaseBody} emptyLabel={t('updateNoNotes')} />
+              </div>
             </div>
 
             <div className="mt-5 flex flex-wrap items-center justify-between gap-3">

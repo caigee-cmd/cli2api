@@ -33,6 +33,13 @@ func TestClassifyFailoverHintOverrides(t *testing.T) {
 	}
 }
 
+func TestClassifyModelNotAvailableDoesNotCooldown(t *testing.T) {
+	got := Classify(400, `{"error":{"message":"model_not_available: hy3 is not available for this Qoder account","code":"model_not_available"}}`, "", "", "")
+	if got.Kind != KindModelNotAvailable || !got.Failover || got.Cooldown != 0 || got.Status != 400 {
+		t.Fatalf("got %+v", got)
+	}
+}
+
 func TestClassifyContentScreeningStaysRequestLevel(t *testing.T) {
 	for _, body := range []string{"sensitive content rejected", "内容包含敏感信息"} {
 		got := Classify(400, body, "", "", "")

@@ -67,7 +67,10 @@ export type RequestLogQuery = {
   status?: string
   stream?: boolean
   error_kind?: string
+  model?: string
   q?: string
+  from?: string
+  to?: string
   limit?: number
   offset?: number
 }
@@ -78,7 +81,10 @@ export function fetchRequestLogs(query: RequestLogQuery = {}) {
   if (query.status) params.set('status', query.status)
   if (query.stream != null) params.set('stream', query.stream ? '1' : '0')
   if (query.error_kind) params.set('error_kind', query.error_kind)
+  if (query.model) params.set('model', query.model)
   if (query.q) params.set('q', query.q)
+  if (query.from) params.set('from', query.from)
+  if (query.to) params.set('to', query.to)
   if (query.limit != null) params.set('limit', String(query.limit))
   if (query.offset != null) params.set('offset', String(query.offset))
   const suffix = params.toString() ? `?${params}` : ''
@@ -93,12 +99,13 @@ export function clearRequestLogs() {
   return api<{ ok: boolean; deleted: number }>('/api/logs/requests', { method: 'DELETE' })
 }
 
-export function fetchRuntimeLogs(query: { after?: number; limit?: number; level?: string; q?: string } = {}) {
+export function fetchRuntimeLogs(query: { after?: number; limit?: number; level?: string; q?: string; account?: string } = {}) {
   const params = new URLSearchParams()
   if (query.after != null) params.set('after', String(query.after))
   if (query.limit != null) params.set('limit', String(query.limit))
   if (query.level) params.set('level', query.level)
   if (query.q) params.set('q', query.q)
+  if (query.account) params.set('account', query.account)
   const suffix = params.toString() ? `?${params}` : ''
   return api<RuntimeLogList>(`/api/logs/runtime${suffix}`)
 }

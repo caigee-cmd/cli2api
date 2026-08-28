@@ -64,6 +64,41 @@ func TestPickRouteKeepsQoderFailoverInsideRegion(t *testing.T) {
 	}
 }
 
+func TestPickRouteFiltersByPublicModel(t *testing.T) {
+	p := NewPool(nil, nil)
+	p.Upsert(Item{ID: "a", URL: "http://a", Provider: "qoder", Region: "global", Runtime: "child_process"})
+	p.Upsert(Item{ID: "b", URL: "http://b", Provider: "qoder", Region: "global", Runtime: "child_process"})
+	p.MergeModels("a", []string{"glm-5.2"})
+	p.MergeModels("b", []string{"hy3", "glm-5.2"})
+
+	got, ok := p.PickRoute(RouteQuery{ProviderFilter: "qoder", PublicModel: "hy3"})
+	if !ok || got.ID != "b" {
+		t.Fatalf("hy3 pick = %+v ok=%v", got, ok)
+	}
+	if n := p.LenRoute(RouteQuery{ProviderFilter: "qoder", PublicModel: "hy3"}); n != 1 {
+		t.Fatalf("hy3 candidates = %d", n)
+	}
+
+	if _, ok := p.PickRoute(RouteQuery{ProviderFilter: "qoder", PublicModel: "hy3", PreferAccount: "a"}); ok {
+		t.Fatal("pin to an account that does not serve hy3 must not silently switch")
+	}
+
+	unknown, ok := p.PickRoute(RouteQuery{ProviderFilter: "qoder", PublicModel: "hy3", PreferAccount: "missing"})
+	if !ok || unknown.ID != "b" {
+		t.Fatalf("unknown pin should fall back to hy3 account, got %+v ok=%v", unknown, ok)
+	}
+}
+
+func TestModelNotAvailableDoesNotCooldown(t *testing.T) {
+	p := NewPool(nil, nil)
+	p.Upsert(Item{ID: "a", URL: "http://a", Provider: "qoder"})
+	p.MarkClassified("a", Classified{Kind: KindModelNotAvailable, Failover: true, Cooldown: 15 * time.Second, Message: "hy3 missing"})
+	item, ok := p.ByID("a")
+	if !ok || !item.DownUntil.IsZero() || item.LastKind != "" {
+		t.Fatalf("model_not_available must not cool the account: %+v", item)
+	}
+}
+
 func TestQuotaUsesLongCooldownWithoutRotation(t *testing.T) {
 	p := NewPool(nil, nil)
 	p.Upsert(Item{ID: "w1", Provider: "workbuddy"})

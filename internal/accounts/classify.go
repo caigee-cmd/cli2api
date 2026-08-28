@@ -8,12 +8,13 @@ import (
 )
 
 const (
-	KindQuota          = "quota"
-	KindRateLimit      = "rate_limit"
-	KindAuth           = "auth"
-	KindNotReady       = "not_ready"
-	KindUnavailable    = "unavailable"
-	KindInvalidRequest = "invalid_request"
+	KindQuota             = "quota"
+	KindRateLimit         = "rate_limit"
+	KindAuth              = "auth"
+	KindNotReady          = "not_ready"
+	KindUnavailable       = "unavailable"
+	KindInvalidRequest    = "invalid_request"
+	KindModelNotAvailable = "model_not_available"
 )
 
 const maxRetryAfter = 10 * time.Minute
@@ -66,6 +67,8 @@ func Classify(status int, body, retryAfter, kindHint, failoverHint string) Class
 		switch {
 		case quotaLike(lower, code, typ):
 			kind = KindQuota
+		case modelNotAvailableLike(lower, code):
+			kind = KindModelNotAvailable
 		case notReadyLike(lower):
 			kind = KindNotReady
 		case IsInvalidRequestText(lower):
@@ -124,6 +127,14 @@ func Classify(status int, body, retryAfter, kindHint, failoverHint string) Class
 		out.Cooldown = 0
 		out.Type = firstNonEmpty(typ, "invalid_request_error")
 		out.Code = firstNonEmpty(code, "invalid_request")
+	case KindModelNotAvailable:
+		// The account is healthy; a stale catalog may still need a retry
+		// on another account. Never cool the account down.
+		out.Status = 400
+		out.Failover = true
+		out.Cooldown = 0
+		out.Type = firstNonEmpty(typ, "invalid_request_error")
+		out.Code = firstNonEmpty(code, "model_not_available")
 	default:
 		if status >= 500 {
 			out.Status = status
@@ -218,6 +229,16 @@ func notReadyLike(lower string) bool {
 	return strings.Contains(lower, "hot context not ready") ||
 		strings.Contains(lower, "auth manager not captured") ||
 		strings.Contains(lower, "not ready")
+}
+
+func modelNotAvailableLike(lower, code string) bool {
+	if code == "model_not_available" || code == "model_catalog_unavailable" {
+		return true
+	}
+	return strings.Contains(lower, "model_not_available") ||
+		strings.Contains(lower, "is not available for this qoder account") ||
+		strings.Contains(lower, "model_catalog_unavailable") ||
+		strings.Contains(lower, "no accounts serve model")
 }
 
 // IsInvalidRequestText reports whether an error body looks like an upstream

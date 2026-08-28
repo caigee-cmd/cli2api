@@ -162,6 +162,9 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	publicModel := req.Model
 	providerFilter := s.resolveProviderFilter(&req)
 	prefer := s.requestedAccount(r)
+	if s.manager != nil {
+		s.manager.EnsureModelCatalogs(r.Context(), false)
+	}
 
 	requestID := accounts.NewRequestID()
 	started := time.Now().UTC()
