@@ -380,6 +380,8 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 // sanitizeForItem applies the account-level system-prompt policy. Provider
 // families with upstream content screening (WorkBuddy) strip caller system
 // prompts when the account opts in; Qoder workers intentionally preserve them.
+// WorkBuddy still needs a leading system slot after the strip (code 11128);
+// the adapter inserts an empty placeholder, this helper only drops caller text.
 func sanitizeForItem(item accounts.Item, req translate.ChatRequest) translate.ChatRequest {
 	if item.DropSystemPrompt && item.Provider != "" && item.Provider != "qoder" {
 		return translate.DropSystemMessages(req)

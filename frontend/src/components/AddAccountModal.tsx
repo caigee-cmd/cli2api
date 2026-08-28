@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Button, Description, Input, Label, ListBox, Modal, Select, TextArea } from '@heroui/react'
+import { Button, Description, Input, Label, ListBox, Modal, Select, Skeleton, TextArea } from '@heroui/react'
 import { ArrowSquareOut, CaretLeft, CaretRight, CheckCircle, FileCode, Key, ShieldCheck, SpinnerGap, X } from '@phosphor-icons/react'
 import { ProviderMark } from '@/components/ProviderMark'
 import { CompactSwitch } from '@/components/ui/CompactSwitch'
@@ -54,16 +54,21 @@ const hintKeys: Record<string, string> = {
   'workbuddy-global': 'accountTypeWorkBuddyGlobalHint',
 }
 
-const fallbackProviderOptions: ProviderOption[] = [
-  {
-    id: 'qoder-global', provider: 'qoder', region: 'global',
-    descriptor: {
-      id: 'qoder', label: 'Qoder', runtime: 'child_process', default_region: 'global',
-      capabilities: { browser_login: true, pat_login: true, import_export: true },
-      regions: [{ id: 'global', label: 'Global' }],
-    },
-  },
-]
+function AccountTypeSkeleton({ ariaLabel }: { ariaLabel: string }) {
+  return (
+    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2" aria-busy="true" aria-label={ariaLabel}>
+      {Array.from({ length: 4 }, (_, index) => (
+        <div key={index} className="flex items-start gap-2.5 rounded-lg border border-[var(--app-line)] px-3.5 py-3">
+          <Skeleton className="mt-0.5 size-[18px] shrink-0 rounded-md" />
+          <div className="min-w-0 flex-1 space-y-1.5">
+            <Skeleton className="h-4 w-28 rounded-md" />
+            <Skeleton className="h-3 w-full rounded-md" />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
 
 async function loadProviderOptions(): Promise<ProviderOption[]> {
   const output = await fetchProviders().catch(() => null)
@@ -74,7 +79,7 @@ async function loadProviderOptions(): Promise<ProviderOption[]> {
       options.push({ id: `${descriptor.id}-${region.id}`, provider: descriptor.id, region: region.id, descriptor })
     }
   }
-  return options.length ? options : fallbackProviderOptions
+  return options
 }
 
 function optionLabel(option: ProviderOption, t: (key: string) => string) {
@@ -88,7 +93,8 @@ function optionLabel(option: ProviderOption, t: (key: string) => string) {
   return `${option.descriptor.label}${suffix}`.trim()
 }
 
-function optionHint(option: ProviderOption, t: (key: string) => string) {
+function optionHint(option: ProviderOption | undefined, t: (key: string) => string) {
+  if (!option) return ''
   const key = hintKeys[option.id]
   if (!key) return ''
   const localized = t(key)
@@ -111,8 +117,9 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
   const { t } = useI18n()
   const [step, setStep] = useState<Step>('method')
   const [tab, setTab] = useState<TabKey>('browser')
-  const [accountType, setAccountType] = useState<string>('qoder-global')
-  const [providerOptions, setProviderOptions] = useState<ProviderOption[]>(fallbackProviderOptions)
+  const [accountType, setAccountType] = useState('')
+  const [providerOptions, setProviderOptions] = useState<ProviderOption[]>([])
+  const [typesLoading, setTypesLoading] = useState(false)
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [name, setName] = useState('')
   const [maxInFlight, setMaxInFlight] = useState('4')
@@ -140,20 +147,30 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
 
   useEffect(() => {
     if (!isOpen) return
-    void loadProviderOptions().then((options) => {
-      setProviderOptions(options)
-      if (!options.some((option) => option.id === accountType)) {
-        setAccountType(options[0]?.id || 'qoder-global')
+    let cancelled = false
+    setTypesLoading(true)
+    setProviderOptions([])
+    setAccountType('')
+    void loadProviderOptions()
+      .then((options) => {
+        if (cancelled) return
+        setProviderOptions(options)
+        setAccountType(options[0]?.id || '')
         setTab('browser')
-      }
-    })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+      })
+      .finally(() => {
+        if (!cancelled) setTypesLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
   }, [isOpen])
 
-  const activeOption = providerOptions.find((option) => option.id === accountType) || fallbackProviderOptions[0]
-  const showPatTab = activeOption.descriptor.capabilities?.pat_login !== false
-  const showImportTab = activeOption.descriptor.capabilities?.import_export !== false
-  const showDropSystem = activeOption.provider === 'workbuddy'
+  const activeOption = providerOptions.find((option) => option.id === accountType)
+  const typesReady = Boolean(activeOption) && !typesLoading
+  const showPatTab = activeOption?.descriptor.capabilities?.pat_login !== false
+  const showImportTab = activeOption?.descriptor.capabilities?.import_export !== false
+  const showDropSystem = activeOption?.provider === 'workbuddy'
   const busy = phase === 'busy' || phase === 'polling'
   const settingsLocked = Boolean(createdId.current) || busy
   const isDone = phase === 'done'
@@ -188,7 +205,9 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
     stopPolling()
     setStep('method')
     setTab('browser')
-    setAccountType('qoder-global')
+    setAccountType('')
+    setProviderOptions([])
+    setTypesLoading(false)
     setName('')
     setMaxInFlight('4')
     setPriority('50')
@@ -209,7 +228,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
   }
 
   function goLogin(next: TabKey) {
-    if (busy) return
+    if (busy || !typesReady) return
     setTab(next)
     setMessage('')
     setStep('login')
@@ -217,6 +236,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
 
   async function ensureAccount(): Promise<string> {
     if (createdId.current) return createdId.current
+    if (!activeOption) throw new Error(t('accountTypeHint'))
     const options = accountOptions()
     const account = await createAccount(name.trim() || t('account'), activeOption.provider, activeOption.region, options)
     const id = account?.id || account?.data?.id
@@ -290,6 +310,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
       setMessage(t('wizardBadJson'))
       return
     }
+    if (!activeOption) { setMessage(t('accountTypeHint')); return }
     if (activeOption.provider === 'qoder' && (typeof bundle.user_blob !== 'string' || typeof bundle.machine_id !== 'string')) {
       setMessage(t('wizardBadJson'))
       return
@@ -350,7 +371,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
   const tabLead = tab === 'browser'
     ? t('wizardBrowserLead')
     : tab === 'pat'
-      ? t(activeOption.region === 'cn' && activeOption.provider === 'qoder' ? 'wizardPatLeadCN' : 'wizardPatLead')
+      ? t(activeOption?.region === 'cn' && activeOption?.provider === 'qoder' ? 'wizardPatLeadCN' : 'wizardPatLead')
       : t('wizardImportLead')
 
   return (
@@ -371,7 +392,17 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
               {step === 'method' ? (
                 <>
                   <section className="space-y-2.5">
-                    {useTypeSelect ? (
+                    {typesLoading ? (
+                      <>
+                        <span className="text-sm font-medium text-[var(--app-muted)]">{t('accountType')}</span>
+                        <AccountTypeSkeleton ariaLabel={t('accountType')} />
+                      </>
+                    ) : !typesReady ? (
+                      <>
+                        <span className="text-sm font-medium text-[var(--app-muted)]">{t('accountType')}</span>
+                        <p className="rounded-lg border border-[var(--app-line)] bg-[var(--app-surface-muted)]/45 px-3.5 py-3 text-xs leading-5 text-[var(--app-faint)]">{t('accountTypeHint')}</p>
+                      </>
+                    ) : useTypeSelect ? (
                       <Select
                         fullWidth
                         aria-label={t('accountType')}
@@ -424,7 +455,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                         />
                       </>
                     )}
-                    {hint ? <p className="min-h-5 text-xs leading-5 text-[var(--app-faint)]">{hint}</p> : null}
+                    {typesReady && hint ? <p className="min-h-5 text-xs leading-5 text-[var(--app-faint)]">{hint}</p> : null}
                   </section>
 
                   <section className="mt-5 space-y-2.5">
@@ -493,7 +524,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                   </section>
 
                   <div className="mt-5">
-                    <Button className="w-full" onPress={() => goLogin(tab)}>
+                    <Button className="w-full" isDisabled={!typesReady} onPress={() => goLogin(tab)}>
                       {t('wizardContinue')}
                     </Button>
                   </div>
@@ -501,9 +532,9 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
               ) : (
                 <>
                   <div className="flex items-center gap-3 rounded-lg border border-[var(--app-line)] bg-[var(--app-surface-muted)]/45 px-3 py-2.5">
-                    <span className="shrink-0"><ProviderMark provider={activeOption.provider} size={18} /></span>
+                    <span className="shrink-0"><ProviderMark provider={activeOption?.provider} size={18} /></span>
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-medium text-[var(--app-ink)]">{optionLabel(activeOption, t)}</div>
+                      <div className="truncate text-sm font-medium text-[var(--app-ink)]">{activeOption ? optionLabel(activeOption, t) : t('accountType')}</div>
                       <div className="truncate text-[11px] text-[var(--app-faint)]">{name.trim() || t('account')}</div>
                     </div>
                     <Button size="sm" variant="ghost" onPress={() => setStep('method')} isDisabled={busy || Boolean(createdId.current)}>

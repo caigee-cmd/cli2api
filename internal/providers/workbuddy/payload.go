@@ -2,6 +2,7 @@ package workbuddy
 
 import (
 	"encoding/json"
+	"strings"
 )
 
 // PrepareBody forces streaming and normalizes tool_choice to the string form
@@ -17,11 +18,39 @@ func PrepareBody(src []byte) []byte {
 	body["stream"] = true
 	normalizeToolChoice(body)
 	dropEmptyTools(body)
+	ensureLeadingSystem(body)
 	out, err := json.Marshal(body)
 	if err != nil {
 		return src
 	}
 	return out
+}
+
+// ensureLeadingSystem satisfies WorkBuddy Global code 11128 ("first message
+// is not system prompt"). Drop-system-prompt strips caller identity, which
+// would otherwise leave a user message first. An empty system slot is enough.
+func ensureLeadingSystem(body map[string]any) {
+	raw, ok := body["messages"]
+	if !ok {
+		return
+	}
+	list, ok := raw.([]any)
+	if !ok {
+		return
+	}
+	placeholder := map[string]any{"role": "system", "content": ""}
+	if len(list) == 0 {
+		body["messages"] = []any{placeholder}
+		return
+	}
+	first, ok := list[0].(map[string]any)
+	if ok {
+		role, _ := first["role"].(string)
+		if strings.EqualFold(strings.TrimSpace(role), "system") {
+			return
+		}
+	}
+	body["messages"] = append([]any{placeholder}, list...)
 }
 
 func normalizeToolChoice(body map[string]any) {

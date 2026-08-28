@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/config"
+	"github.com/caigee-cmd/cli2api/internal/providers"
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
@@ -125,6 +127,36 @@ func TestModelContextSettingsAPI(t *testing.T) {
 	srv.Handler().ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK || !bytes.Contains(rec.Body.Bytes(), []byte(`"context_length":500000`)) {
 		t.Fatalf("GET models: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+type failingCatalog struct{}
+
+func (failingCatalog) Models(context.Context, string) ([]providers.ModelInfo, error) {
+	return nil, fmt.Errorf("models status=500: upstream html error page (internal server error)")
+}
+
+func TestModelsAPICatalogFailureUses503(t *testing.T) {
+	srv := New(config.Config{
+		Host: "127.0.0.1", Port: 3010, ProxyAPIKey: "secret",
+		QoderHome: t.TempDir(), DataDir: t.TempDir(),
+	})
+	defer srv.Close()
+	srv.pool.Upsert(accounts.Item{ID: "wb-global", Provider: "workbuddy", Runtime: string(providers.RuntimeInProcess)})
+	srv.providers.Register(providers.Adapter{ID: "workbuddy", Models: failingCatalog{}})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/models?account=wb-global", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("catalog failure status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if rec.Code == http.StatusBadGateway {
+		t.Fatal("catalog failures must not use 502; reverse proxies replace that with HTML")
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"catalog_failed"`)) {
+		t.Fatalf("body=%s", rec.Body.String())
 	}
 }
 

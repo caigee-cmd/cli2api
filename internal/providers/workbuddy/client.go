@@ -34,10 +34,20 @@ type Client struct {
 	loginStates map[string]string
 }
 
+const catalogTimeout = 15 * time.Second
+
 func NewClient(store Store) *Client {
 	return &Client{
-		store:       store,
-		http:        &http.Client{Timeout: 120 * time.Second},
+		store: store,
+		http: &http.Client{
+			Timeout: 120 * time.Second,
+			// Catalog and plugin APIs 302 to OIDC HTML when the path is a
+			// console page. Following that rewrite turns a 302 into a login
+			// document and hides the real status.
+			CheckRedirect: func(*http.Request, []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		},
 		loginStates: map[string]string{},
 	}
 }
@@ -286,13 +296,15 @@ func (c *Client) Models(ctx context.Context, accountID string) ([]providers.Mode
 	if err != nil {
 		return nil, err
 	}
-	body, status, err := c.do(ctx, http.MethodGet, credential.ChatBase()+pathModels, nil,
+	ctx, cancel := context.WithTimeout(ctx, catalogTimeout)
+	defer cancel()
+	body, status, err := c.do(ctx, http.MethodGet, credential.ChatBase()+credential.catalogPath(), nil,
 		func(h http.Header) { SetCatalogHeaders(h, credential) })
 	if err != nil {
 		return nil, err
 	}
 	if status >= 300 {
-		return nil, fmt.Errorf("models status=%d: %s", status, string(body))
+		return nil, fmt.Errorf("models status=%d: %s", status, catalogErrorBody(body))
 	}
 	var env struct {
 		Code int    `json:"code"`
@@ -311,7 +323,10 @@ func (c *Client) Models(ctx context.Context, accountID string) ([]providers.Mode
 			} `json:"agents"`
 		} `json:"data"`
 	}
-	if err := json.Unmarshal(body, &env); err != nil || env.Code != 0 {
+	if err := json.Unmarshal(body, &env); err != nil {
+		return nil, fmt.Errorf("models parse: %s", catalogErrorBody(body))
+	}
+	if env.Code != 0 {
 		return nil, fmt.Errorf("models envelope code=%d msg=%s", env.Code, env.Msg)
 	}
 	cliModels := map[string]struct{}{}
@@ -490,9 +505,10 @@ func Classify(status int, body string) providers.ClassifiedError {
 		return providers.ClassifiedError{Kind: accounts.KindRateLimit, Status: 429, Message: strings.TrimSpace(body)}
 	case status == 404:
 		return providers.ClassifiedError{Kind: accounts.KindUnavailable, Status: 404, Message: strings.TrimSpace(body)}
-	case status == 400 || accounts.IsInvalidRequestText(body):
-		// Request-level rejection (content screening, malformed fields):
-		// retrying on another account cannot help and the account is healthy.
+	case status == 400 || accounts.IsInvalidRequestText(body) || isMissingSystemPrompt(body):
+		// Request-level rejection (content screening, malformed fields,
+		// missing leading system message): retrying on another account
+		// cannot help and the account is healthy.
 		return providers.ClassifiedError{Kind: accounts.KindInvalidRequest, Status: firstNonEmptyStatus(status, 400), Message: strings.TrimSpace(body)}
 	case status >= 500:
 		return providers.ClassifiedError{Kind: accounts.KindUnavailable, Status: status, Message: strings.TrimSpace(body)}
@@ -502,7 +518,7 @@ func Classify(status int, body string) providers.ClassifiedError {
 		if env.Code == sessionDeadCode || strings.Contains(strings.ToLower(env.Msg), sessionDeadText) {
 			return providers.ClassifiedError{Kind: accounts.KindAuth, Status: 401, Message: "session dead; re-login required"}
 		}
-		if accounts.IsInvalidRequestText(env.Msg) {
+		if accounts.IsInvalidRequestText(env.Msg) || isMissingSystemPrompt(env.Msg) || env.Code == missingSystemPromptCode {
 			return providers.ClassifiedError{Kind: accounts.KindInvalidRequest, Status: firstNonEmptyStatus(status, 400), Message: env.Msg}
 		}
 		return providers.ClassifiedError{Kind: accounts.KindUnavailable, Status: 502, Message: env.Msg}
@@ -515,6 +531,36 @@ func firstNonEmptyStatus(status, fallback int) int {
 		return status
 	}
 	return fallback
+}
+
+func isMissingSystemPrompt(text string) bool {
+	lower := strings.ToLower(text)
+	return strings.Contains(lower, missingSystemPromptText) ||
+		strings.Contains(lower, fmt.Sprintf("%d", missingSystemPromptCode))
+}
+
+func catalogErrorBody(body []byte) string {
+	text := strings.TrimSpace(string(body))
+	if text == "" {
+		return ""
+	}
+	if strings.Contains(strings.ToLower(text), "<html") || strings.Contains(strings.ToLower(text), "<!doctype") {
+		lower := strings.ToLower(text)
+		switch {
+		case strings.Contains(lower, "502"), strings.Contains(lower, "bad gateway"):
+			return "upstream html error page (bad gateway)"
+		case strings.Contains(lower, "500"), strings.Contains(lower, "internal server error"):
+			return "upstream html error page (internal server error)"
+		case strings.Contains(lower, "openid-connect"), strings.Contains(lower, "auth/realms"):
+			return "upstream html login redirect"
+		default:
+			return "upstream html error page"
+		}
+	}
+	if len(text) > 240 {
+		return text[:240]
+	}
+	return text
 }
 
 // Probe reports whether the stored credential is usable. There is no WASM hot
