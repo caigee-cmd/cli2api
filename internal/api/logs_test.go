@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -82,13 +83,33 @@ func TestListRequestLogsFiltersAndPagination(t *testing.T) {
 			AccountID string `json:"account_id"`
 			Message   string `json:"message"`
 		} `json:"items"`
-		Count int `json:"count"`
+		Count  int `json:"count"`
+		Total  int `json:"total"`
+		Limit  int `json:"limit"`
+		Offset int `json:"offset"`
 	}
 	if err := json.Unmarshal(runtime.Body.Bytes(), &snapshot); err != nil {
 		t.Fatal(err)
 	}
-	if snapshot.Count != 1 || snapshot.Items[0].AccountID != "acc_b" {
+	if snapshot.Count != 1 || snapshot.Total != 1 || snapshot.Items[0].AccountID != "acc_b" {
 		t.Fatalf("runtime = %+v", snapshot)
+	}
+
+	srv.ring.Append("line one")
+	srv.ring.Append("line two")
+	srv.ring.Append("line three")
+	paged := get("/api/logs/runtime?limit=2&offset=2")
+	if paged.Code != http.StatusOK {
+		t.Fatalf("runtime page status=%d body=%s", paged.Code, paged.Body.String())
+	}
+	if err := json.Unmarshal(paged.Body.Bytes(), &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Total != 5 || snapshot.Count != 2 || snapshot.Limit != 2 || snapshot.Offset != 2 || len(snapshot.Items) != 2 {
+		t.Fatalf("runtime page = %+v", snapshot)
+	}
+	if !strings.Contains(snapshot.Items[0].Message, "line one") || !strings.Contains(snapshot.Items[1].Message, "plain info") {
+		t.Fatalf("expected older runtime page, got %+v", snapshot.Items)
 	}
 }
 

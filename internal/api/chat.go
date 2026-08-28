@@ -134,9 +134,14 @@ func (s *Server) resolveProviderFilter(req *translate.ChatRequest) string {
 
 func (s *Server) handleModelsAPI(w http.ResponseWriter, r *http.Request) {
 	refresh := r.URL.Query().Get("refresh") == "1"
+	models, err := s.fetchWorkerModelsFor(refresh, s.requestedAccount(r))
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, "catalog_failed", err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"object": "list",
-		"data":   s.decorateModelsWithContext(r.Context(), s.fetchWorkerModelsFor(refresh, s.requestedAccount(r))),
+		"data":   s.decorateModelsWithContext(r.Context(), models),
 	})
 }
 

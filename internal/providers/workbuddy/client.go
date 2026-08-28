@@ -156,10 +156,10 @@ func (c *Client) PollLogin(ctx context.Context, accountID string) (bool, string,
 		_ = json.Unmarshal(accountEnv.Data, &identity)
 	}
 	domain := token.Domain
-	if domain == "" {
+	if domain == "" || (base == ChatBaseGlobal && !strings.Contains(strings.ToLower(domain), DomainGlobal) && !strings.Contains(strings.ToLower(domain), "workbuddy")) {
 		if base == ChatBaseGlobal {
 			domain = DomainGlobal
-		} else {
+		} else if domain == "" {
 			domain = DomainCN
 		}
 	}
@@ -206,9 +206,32 @@ func (c *Client) credential(ctx context.Context, accountID string) (Credential, 
 	return refreshed, nil
 }
 
+func (c *Client) overlayRegion(ctx context.Context, accountID string, credential Credential) Credential {
+	account, err := c.store.Get(ctx, accountID)
+	if err != nil {
+		return credential
+	}
+	if account.ProviderRegion == "global" && !credential.IsGlobal() {
+		credential.Domain = DomainGlobal
+	}
+	if account.ProviderRegion == "cn" && credential.IsGlobal() {
+		credential.Domain = DomainCN
+	}
+	return credential
+}
+
+func (c *Client) resolvedCredential(ctx context.Context, accountID string) (Credential, error) {
+	credential, err := c.credential(ctx, accountID)
+	if err != nil {
+		return Credential{}, err
+	}
+	return c.overlayRegion(ctx, accountID, credential), nil
+}
+
 // Refresh exchanges the refresh token. Session-dead errors disable the
 // account by surfacing the auth taxonomy to the manager.
 func (c *Client) Refresh(ctx context.Context, accountID string, credential Credential) (Credential, error) {
+	credential = c.overlayRegion(ctx, accountID, credential)
 	body, status, err := c.do(ctx, http.MethodPost, credential.ChatBase()+pathTokenRefresh, []byte("{}"),
 		func(h http.Header) { SetRefreshHeaders(h, credential) })
 	if err != nil {
@@ -245,6 +268,7 @@ func (c *Client) Refresh(ctx context.Context, accountID string, credential Crede
 		credential.ExpiresAt = time.Now().Add(time.Duration(data.ExpiresIn) * time.Second).Unix()
 	}
 	credential.AccessToken = data.AccessToken
+	credential = c.overlayRegion(ctx, accountID, credential)
 	payload, err := credential.Encode()
 	if err != nil {
 		return credential, err
@@ -258,12 +282,12 @@ func (c *Client) Refresh(ctx context.Context, accountID string, credential Crede
 // Models fetches the dynamic catalog. Failure is an explicit error; there is
 // no static fallback list.
 func (c *Client) Models(ctx context.Context, accountID string) ([]providers.ModelInfo, error) {
-	credential, err := c.credential(ctx, accountID)
+	credential, err := c.resolvedCredential(ctx, accountID)
 	if err != nil {
 		return nil, err
 	}
 	body, status, err := c.do(ctx, http.MethodGet, credential.ChatBase()+pathModels, nil,
-		func(h http.Header) { SetChatHeaders(h, credential) })
+		func(h http.Header) { SetCatalogHeaders(h, credential) })
 	if err != nil {
 		return nil, err
 	}
@@ -292,20 +316,23 @@ func (c *Client) Models(ctx context.Context, accountID string) ([]providers.Mode
 	}
 	cliModels := map[string]struct{}{}
 	for _, agent := range env.Data.Agents {
-		if agent.Name != "cli" {
+		if !isCLIAgent(agent.Name) {
 			continue
 		}
 		for _, id := range agent.Models {
 			cliModels[id] = struct{}{}
 		}
 	}
+	filterCLI := len(cliModels) > 0
 	var out []providers.ModelInfo
 	for _, model := range env.Data.Models {
 		if model.Disabled {
 			continue
 		}
-		if _, ok := cliModels[model.ID]; !ok {
-			continue
+		if filterCLI {
+			if _, ok := cliModels[model.ID]; !ok {
+				continue
+			}
 		}
 		out = append(out, providers.ModelInfo{
 			NativeModel: model.ID,
@@ -347,7 +374,7 @@ func (c *Client) chatRequest(ctx context.Context, credential Credential, req tra
 }
 
 func (c *Client) ChatNonStream(ctx context.Context, accountID string, req translate.ChatRequest) (providers.ChatOutcome, error) {
-	credential, err := c.credential(ctx, accountID)
+	credential, err := c.resolvedCredential(ctx, accountID)
 	if err != nil {
 		return providers.ChatOutcome{}, err
 	}
@@ -372,7 +399,7 @@ func (c *Client) ChatNonStream(ctx context.Context, accountID string, req transl
 }
 
 func (c *Client) ChatStream(ctx context.Context, accountID string, req translate.ChatRequest) (*http.Response, error) {
-	credential, err := c.credential(ctx, accountID)
+	credential, err := c.resolvedCredential(ctx, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -494,7 +521,7 @@ func firstNonEmptyStatus(status, fallback int) int {
 // state; Hot mirrors Ready so the accounts console can treat signed-in accounts
 // as available without probing a child-process /health URL.
 func (c *Client) Probe(ctx context.Context, accountID string) (providers.AccountHealth, error) {
-	credential, err := c.credential(ctx, accountID)
+	credential, err := c.resolvedCredential(ctx, accountID)
 	if err != nil {
 		return providers.AccountHealth{LastError: err.Error()}, nil
 	}
@@ -512,7 +539,7 @@ func (c *Client) Probe(ctx context.Context, accountID string) (providers.Account
 // Quota fetches display-only remaining credits from the billing meter API.
 // Failures return an error for the caller to ignore without flipping readiness.
 func (c *Client) Quota(ctx context.Context, accountID string) (*providers.QuotaInfo, error) {
-	credential, err := c.credential(ctx, accountID)
+	credential, err := c.resolvedCredential(ctx, accountID)
 	if err != nil {
 		return nil, err
 	}

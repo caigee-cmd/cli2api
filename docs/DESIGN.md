@@ -122,7 +122,8 @@
 
 - 圆角 8px 或更小，除非现有组件已用更大值
 - 账号/资源列表卡片优先使用浅边框和平面表面，不强制最小高度，不额外叠加强阴影
-- 账号卡片保持操作台密度：单行身份（名称 + provider/auth/UID），状态 Chip 只出现一次，运行状态用 12 格短柱、额度用 `scaleX` 填充条；并发/优先级/重启收成一行辅助数字
+- 账号卡片保持操作台密度：单行身份（名称可直接改 + provider/auth/UID），状态 Chip 只出现一次，运行状态用 12 格短柱、额度用 `scaleX` 填充条；并发和优先级可在卡片上改，重启次数仍是只读辅助数字
+- 添加账号是两步向导：第一步选类型、名称和可选高级选项，第二步再选登录方式。类型 ≤ 6 用两列 tile，超过则用下拉；未知 provider 直接用后端 descriptor 的 label，不要静默丢掉
 - 账号网格用 `lg:grid-cols-2 xl:grid-cols-3`，卡片间距 `gap-2.5`，内边距约 12px
 - 主卡片只有在确实需要抬升层级时才用 `shadow-card`
 - 边框克制使用；避免边框 + 阴影 + 有色背景同时出现
@@ -396,7 +397,9 @@ Each Qoder daemon exposes `GET /admin/quota` (console API key required). The dae
 qodercli `qoderApi` singleton captured via the `quotaApi` needle in `worker/src/compat.mjs`,
 which fetches `openapi:/api/v2/quota/usage` with a plain Bearer token — no WASM encode. The
 CLI already caches this endpoint for 15s and de-dupes concurrent fetches, so the daemon does
-not add its own cache.
+not add its own cache. Console header refresh calls `GET /api/overview?refresh=1`, which
+asks the daemon for `/admin/quota?refresh=1` and bypasses that 15s cache. Silent account
+mutations still use the cached snapshot.
 
 Go `refreshOne` fetches quota after health for hot/ready accounts and stores a
 `QuotaSnapshot` on the pool item. Quota is display-only: fetch failures are swallowed and
@@ -419,8 +422,8 @@ Keep the menu short. Login is a gate, not a nav item.
 | `/login` | no | Console password |
 | `/` | Overview | Runtime pulse + request stats |
 | `/accounts` | Accounts | Qoder login + pool |
-| `/providers` | Models | Catalog + per-model context-window defaults |
-	| `/access` | Access | Base URL + quick chat; model tiles follow the selected account catalog |
+| `/providers` | Models | Catalog + per-model context-window defaults; filter by provider and paginate |
+| `/access` | Access | Base URL + quick chat; account and model dropdowns follow the selected account catalog |
 | `/logs` | Logs | Request history + runtime process output |
 | `/system` | System | Next-version update + SQLite protection |
 | `/auth` | redirect | Legacy → `/accounts` |
@@ -448,7 +451,7 @@ Rules:
 - `/api/logs/*` requires the SQLite API key.
 - Request history list accepts `account`, `status`, `stream`, `error_kind`, `model`, `q`, `from`, `to`, `limit`, and `offset`. The console `/logs` page paginates this list and exposes those filters.
 - `GET /api/logs/stats` aggregates counts, success rate, latency percentiles, tokens, error mix, and a time series for Overview. Windows are 1h / 24h / 7d; series buckets are 15 minutes, hourly, or daily.
-- Runtime snapshot accepts `account` in addition to `level` and `q`.
+- Runtime snapshot accepts `account`, `level`, `q`, `limit`, and `offset`. Results are newest-first. The console `/logs` runtime tab paginates this list; live polling stays on page 1.
 
 ## Managed update
 

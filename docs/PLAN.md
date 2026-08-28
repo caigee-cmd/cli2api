@@ -78,6 +78,9 @@ Sub2API-style SQLite account registry while preserving the working Qoder executi
 - [x] Add account CRUD endpoints
 - [x] Add browser OAuth, PAT, native credential import/export endpoints
 - [x] Add account creation and import UI using HeroUI only
+- [x] Split add-account into type/name then login; hide concurrency and priority behind advanced options
+- [x] Persist and edit account name, max inflight, priority, and WorkBuddy drop-system-prompt from the console
+- [x] Filter the Models catalog by provider and paginate the list
 - [x] Show UID, auth type, enabled state, runtime status, cooldown, and last error
 - [x] Require the generated API key for every account and credential operation
 - [x] Persist per-model context-window defaults and edit them from the Models page
@@ -159,6 +162,7 @@ output without copying sub2api billing, audit-body storage, or ops preaggregatio
 - [x] Add console `/logs` with Request history and Runtime tabs
 - [x] Purge request history at 7 days or 20_000 rows
 - [x] Paginate request history and filter by time, account, model, stream, and error kind
+- [x] Paginate runtime logs newest-first with `limit` / `offset`
 
 ## Phase K — account quota display
 

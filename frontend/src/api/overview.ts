@@ -1,8 +1,9 @@
 import { api } from './client'
 import type { Overview } from './types'
 
-export function fetchOverview(keyOverride?: string) {
-  return api<Overview>('/api/overview', {}, keyOverride)
+export function fetchOverview(keyOverride?: string, options?: { refreshQuota?: boolean }) {
+  const path = options?.refreshQuota ? '/api/overview?refresh=1' : '/api/overview'
+  return api<Overview>(path, {}, keyOverride)
 }
 
 export function startDeviceLogin(accountId?: string) {
@@ -87,8 +88,24 @@ export function fetchProviders() {
   return api<{ data?: ProviderDescriptor[] }>('/api/providers')
 }
 
-export function createAccount(name: string, provider = 'qoder', region = 'global') {
-  return api('/api/accounts', { method: 'POST', body: JSON.stringify({ name, provider, region, enabled: true, max_inflight: 4 }) })
+export function createAccount(
+  name: string,
+  provider = 'qoder',
+  region = 'global',
+  options?: { max_inflight?: number; priority?: number; drop_system_prompt?: boolean },
+) {
+  return api('/api/accounts', {
+    method: 'POST',
+    body: JSON.stringify({
+      name,
+      provider,
+      region,
+      enabled: true,
+      max_inflight: options?.max_inflight ?? 4,
+      priority: options?.priority ?? 50,
+      drop_system_prompt: options?.drop_system_prompt,
+    }),
+  })
 }
 
 export function updateAccount(accountId: string, input: Record<string, unknown>) {

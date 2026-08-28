@@ -152,7 +152,7 @@ func TestManagerRefreshUsesInProcessProber(t *testing.T) {
 	manager.SetProviders(registry)
 	manager.pool.Upsert(Item{ID: account.ID, Provider: "workbuddy", Runtime: "in_process"})
 
-	if err := manager.RefreshAll(ctx); err != nil {
+	if err := manager.RefreshAll(ctx, false); err != nil {
 		t.Fatal(err)
 	}
 	if prober.probeN != 1 || prober.quotaN != 1 {
@@ -196,7 +196,7 @@ func TestManagerRefreshSkipsEmptyURLWithoutProber(t *testing.T) {
 	}
 	manager := NewManager(ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
 	manager.pool.Upsert(Item{ID: account.ID, Provider: "workbuddy", Runtime: "in_process"})
-	if err := manager.RefreshAll(ctx); err != nil {
+	if err := manager.RefreshAll(ctx, false); err != nil {
 		t.Fatalf("refresh without prober must be a no-op, got %v", err)
 	}
 	item, _ := manager.pool.ByID(account.ID)

@@ -125,14 +125,14 @@ func (c Credential) Ready() bool {
 }
 
 func (c Credential) ChatBase() string {
-	if strings.Contains(strings.ToLower(c.Domain), DomainGlobal) {
+	if c.IsGlobal() {
 		return ChatBaseGlobal
 	}
 	return ChatBaseCN
 }
 
 func (c Credential) BillingBase() string {
-	if strings.Contains(strings.ToLower(c.Domain), DomainGlobal) {
+	if c.IsGlobal() {
 		return ChatBaseGlobal
 	}
 	return BillingBaseCN
@@ -152,5 +152,21 @@ func ValidateCredential(payload []byte) error {
 }
 
 func (c Credential) IsGlobal() bool {
-	return strings.Contains(strings.ToLower(c.Domain), DomainGlobal)
+	domain := strings.ToLower(strings.TrimSpace(c.Domain))
+	if domain == "" {
+		return false
+	}
+	if strings.Contains(domain, DomainCN) {
+		return false
+	}
+	return strings.Contains(domain, DomainGlobal) || strings.Contains(domain, "workbuddy")
+}
+
+func isCLIAgent(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "cli", "codebuddy", "workbuddy":
+		return true
+	default:
+		return false
+	}
 }
