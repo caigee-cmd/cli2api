@@ -59,7 +59,7 @@ export function AccessPage() {
     [base, payload, selectedAccount],
   )
 
-  if (loading && !overview) return <AccessPageSkeleton />
+  if (loading) return <AccessPageSkeleton />
 
   async function copy(value: string, kind: 'base' | 'curl') {
     await navigator.clipboard.writeText(value)

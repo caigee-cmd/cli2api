@@ -34,7 +34,7 @@ export function pressScale(target: HTMLElement) {
   gsap.fromTo(target, { scale: 0.975 }, { scale: 1, duration: 0.18, ease: 'power2.out', overwrite: true })
 }
 
-export function hoverLift(target: HTMLElement, active: boolean) {
+export function hoverLift(target: HTMLElement, active: boolean, distance = 2) {
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
-  gsap.to(target, { y: active ? -2 : 0, duration: 0.2, ease: 'power2.out', overwrite: true })
+  gsap.to(target, { y: active ? -distance : 0, duration: 0.2, ease: 'power2.out', overwrite: true })
 }

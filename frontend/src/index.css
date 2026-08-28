@@ -317,8 +317,14 @@ select {
   box-shadow: 0 0 0 3px var(--app-ok-soft);
 }
 
+.status-dot[data-state="warn"] {
+  background: var(--warning);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warning) 16%, transparent);
+}
+
 .status-dot[data-state="danger"] {
   background: var(--app-danger);
+  box-shadow: 0 0 0 3px var(--danger-soft);
 }
 
 .chrome-cluster {
@@ -360,6 +366,106 @@ select {
 
 .account-card:hover {
   border-color: var(--app-line-strong);
+}
+
+.account-card[data-state="hot"],
+.account-card[data-state="ready"] {
+  box-shadow: inset 2px 0 0 var(--app-ok);
+}
+
+.account-card[data-state="cooling"] {
+  box-shadow: inset 2px 0 0 var(--warning);
+}
+
+.account-card[data-state="login"] {
+  box-shadow: inset 2px 0 0 var(--app-danger);
+}
+
+.account-card .status-dot {
+  width: 0.375rem;
+  height: 0.375rem;
+}
+
+.account-card .status-dot[data-state="ok"] {
+  box-shadow: 0 0 0 2px var(--app-ok-soft);
+}
+
+.account-card .status-dot[data-state="warn"] {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--warning) 16%, transparent);
+}
+
+.account-card .status-dot[data-state="danger"] {
+  box-shadow: 0 0 0 2px var(--danger-soft);
+}
+
+.account-meter {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.runtime-meter {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 0.15rem;
+  height: 0.5rem;
+  align-items: end;
+}
+
+.runtime-meter__seg {
+  display: block;
+  height: 100%;
+  border-radius: 1px;
+  background: var(--app-line);
+  transform: scaleY(0.32);
+  transform-origin: center bottom;
+  opacity: 0.45;
+}
+
+.runtime-meter__seg[data-on="true"] {
+  transform: scaleY(1);
+  opacity: 1;
+}
+
+.runtime-meter__seg[data-tone="ok"] {
+  background: var(--app-ok);
+}
+
+.runtime-meter__seg[data-tone="warn"] {
+  background: var(--warning);
+}
+
+.runtime-meter__seg[data-tone="danger"] {
+  background: var(--app-danger);
+}
+
+.runtime-meter__seg[data-tone="muted"] {
+  background: var(--app-faint);
+}
+
+.quota-meter {
+  height: 0.375rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--app-line);
+}
+
+.quota-meter__fill {
+  display: block;
+  height: 100%;
+  width: 100%;
+  border-radius: inherit;
+  background: var(--app-ok);
+  transform: scaleX(0);
+  transform-origin: left center;
+  will-change: transform, opacity;
+}
+
+.quota-meter__fill[data-tone="warn"] {
+  background: var(--warning);
+}
+
+.quota-meter__fill[data-tone="danger"] {
+  background: var(--app-danger);
 }
 
 .button {
