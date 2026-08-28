@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 )
@@ -36,7 +37,10 @@ func (s *Server) handleListRequestLogs(w http.ResponseWriter, r *http.Request) {
 		AccountID: r.URL.Query().Get("account"),
 		Status:    r.URL.Query().Get("status"),
 		ErrorKind: r.URL.Query().Get("error_kind"),
+		Model:     r.URL.Query().Get("model"),
 		Query:     r.URL.Query().Get("q"),
+		From:      parseQueryTime(r.URL.Query().Get("from"), false),
+		To:        parseQueryTime(r.URL.Query().Get("to"), true),
 	}
 	if raw := strings.TrimSpace(r.URL.Query().Get("stream")); raw != "" {
 		value := raw == "1" || strings.EqualFold(raw, "true")
@@ -107,9 +111,37 @@ func (s *Server) handleRuntimeLogs(w http.ResponseWriter, r *http.Request) {
 			limit = n
 		}
 	}
-	entries := s.ring.Snapshot(afterID, limit, r.URL.Query().Get("level"), r.URL.Query().Get("q"))
+	entries := s.ring.Snapshot(afterID, limit, r.URL.Query().Get("level"), r.URL.Query().Get("q"), r.URL.Query().Get("account"))
 	writeJSON(w, http.StatusOK, map[string]any{
 		"items": entries,
 		"count": len(entries),
 	})
+}
+
+func parseQueryTime(raw string, endOfDay bool) *time.Time {
+	text := strings.TrimSpace(raw)
+	if text == "" {
+		return nil
+	}
+	layouts := []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02T15:04:05Z07:00",
+		"2006-01-02T15:04:05",
+		"2006-01-02T15:04",
+		"2006-01-02 15:04:05",
+		"2006-01-02",
+	}
+	for _, layout := range layouts {
+		parsed, err := time.Parse(layout, text)
+		if err != nil {
+			continue
+		}
+		if layout == "2006-01-02" && endOfDay {
+			parsed = parsed.Add(24*time.Hour - time.Nanosecond)
+		}
+		utc := parsed.UTC()
+		return &utc
+	}
+	return nil
 }

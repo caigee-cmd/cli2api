@@ -1,6 +1,6 @@
 # CLI2API Plan
 
-last-updated: 2026-08-27
+last-updated: 2026-08-28
 
 Qoder-first OpenAI-compatible proxy. Cursor and other CLIs wait until the current Qoder milestone is done.
 
@@ -158,6 +158,7 @@ output without copying sub2api billing, audit-body storage, or ops preaggregatio
 - [x] Expose authenticated `/api/logs/requests` and `/api/logs/runtime`
 - [x] Add console `/logs` with Request history and Runtime tabs
 - [x] Purge request history at 7 days or 20_000 rows
+- [x] Paginate request history and filter by time, account, model, stream, and error kind
 
 ## Phase K — account quota display
 
@@ -175,11 +176,14 @@ no scheduling, billing, or persistence changes.
 
 Goal: add Qoder China as `provider=qoder` + `region=cn`. Reuse the existing
 child-process worker and `qoder-native-v1` credentials. Pin a second CLI,
-`@qodercn-ai/qoderclicn@1.1.27`, instead of a new protocol adapter.
+`@qodercn-ai/qoderclicn@1.1.32` (both CLIs move in lockstep — see
+`docs/PROVIDERS.md`), instead of a new protocol adapter.
 
 Design facts and locked product decisions: `docs/PROVIDERS.md` section
 「Qoder CN（中国大陆版）」. Do not spawn a full `qoderclicn` per request.
-Do not invent a `qodercn` provider family. Do not upgrade the 1.1.27 pin.
+Do not invent a `qodercn` provider family. (2026-08-28: both pins upgraded
+together to 1.1.32 after re-verifying all needles; future upgrades must move
+both CLIs in lockstep.)
 
 ### L0 descriptor
 
@@ -191,7 +195,7 @@ Do not invent a `qodercn` provider family. Do not upgrade the 1.1.27 pin.
 
 ### L1 worker CLI filename
 
-- [x] Hook `qoderclicn.js` in `rewrite-loader.mjs` (same needles as 1.1.27 global; `includes("qodercli.js")` does **not** match `qoderclicn.js`)
+- [x] Hook `qoderclicn.js` in `rewrite-loader.mjs` (same needles as the global CLI at the time — pinned 1.1.27 then, now 1.1.32 in lockstep; `includes("qodercli.js")` does **not** match `qoderclicn.js`)
 - [x] Resolve default bundle paths for both packages in `daemon.mjs`
 - [x] Choose `hotEndpoint` fallback from worker-only `QODER_SITE` or the loaded filename (`api1.qoder.sh` vs `gateway.qoder.com.cn`)
 - [x] Do not use `QODERCLI_SITE` to flip CN/Global; that env does not change compile-time `Xi`
@@ -199,7 +203,7 @@ Do not invent a `qodercn` provider family. Do not upgrade the 1.1.27 pin.
 ### L2 manager spawn
 
 - [x] Add `QODERCNCLI_JS` / `QoderCNCLIPath`; missing CN path fails spawn, never falls back to global CLI
-- [x] Keep `HOME={runtime}`. Pass CLI-readable dirs: `QODER_CONFIG_DIR={home}/.qoder` or `QODERCN_CONFIG_DIR={home}/.qoder-cn`. Do **not** rely on `QODER_HOME` — 1.1.27 CLI ignores it
+- [x] Keep `HOME={runtime}`. Pass CLI-readable dirs: `QODER_CONFIG_DIR={home}/.qoder` or `QODERCN_CONFIG_DIR={home}/.qoder-cn`. Do **not** rely on `QODER_HOME` — the pinned CLI ignores it (1.1.27 at the time of this note; both CLIs now pinned to 1.1.32)
 - [x] `materializeHome` / `SyncCredential` take region and read/write `.qoder` or `.qoder-cn`
 - [x] Export `qoder-native-v1` includes `provider` + `region`; import without region stays global for old bundles
 - [x] Unit test: CN account env points at `qoderclicn.js` + `.qoder-cn`; global still uses `qodercli.js` + `.qoder`
@@ -221,7 +225,7 @@ Do not invent a `qodercn` provider family. Do not upgrade the 1.1.27 pin.
 
 ### L5 image and config
 
-- [x] Install both `@qoder-ai/qodercli@1.1.27` and `@qodercn-ai/qoderclicn@1.1.27` in the image
+- [x] Install both `@qoder-ai/qodercli@1.1.32` and `@qodercn-ai/qoderclicn@1.1.32` in the image
 - [x] Export `QODERCLI_JS` and `QODERCNCLI_JS`
 - [x] README / CHANGELOG bilingual notes
 

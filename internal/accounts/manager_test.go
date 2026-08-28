@@ -330,6 +330,55 @@ func TestManagerRefreshFetchesQuotaWithoutAffectingHealth(t *testing.T) {
 	}
 }
 
+func TestManagerRefreshCachesAccountCatalog(t *testing.T) {
+	worker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/health":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true, "ready": true, "hot": true, "uid": "qoder-uid-1",
+			})
+		case "/admin/quota":
+			http.Error(w, "quota unused", http.StatusBadGateway)
+		case "/admin/models":
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]any{
+				{"id": "hy3", "mapped_key": "hy3", "display_name": "HY3"},
+				{"id": "glm-5.2", "mapped_key": "gmodel", "display_name": "GLM-5.2"},
+			}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer worker.Close()
+	ctx := context.Background()
+	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	account, err := store.Create(ctx, CreateAccount{Name: "Catalog", Enabled: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := NewManager(ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	manager.pool.Upsert(Item{ID: account.ID, URL: worker.URL})
+	if err := manager.RefreshAll(ctx); err != nil {
+		t.Fatal(err)
+	}
+	item, _ := manager.pool.ByID(account.ID)
+	if !containsModel(item.Models, "hy3") || !containsModel(item.Models, "gmodel") {
+		t.Fatalf("cached models = %#v", item.Models)
+	}
+}
+
+func containsModel(models []string, want string) bool {
+	for _, model := range models {
+		if model == want {
+			return true
+		}
+	}
+	return false
+}
+
 func TestManagerQuotaFailureLeavesAccountReady(t *testing.T) {
 	worker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {

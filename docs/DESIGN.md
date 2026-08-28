@@ -260,9 +260,9 @@ Client (OpenAI SDK / Codex / CherryStudio)
         -> region=cn:     https://gateway.qoder.com.cn/... (WASM-encoded URL)
 ```
 
-Worker pins `@qoder-ai/qodercli@1.1.27` for `qoder/global`. Qoder CN
+Worker pins `@qoder-ai/qodercli@1.1.32` for `qoder/global`. Qoder CN
 (`provider=qoder`, `region=cn`) is the same daemon with a second pin,
-`@qodercn-ai/qoderclicn@1.1.27`, and HOME `.qoder-cn`. Needle mismatch
+`@qodercn-ai/qoderclicn@1.1.32`, and HOME `.qoder-cn`. Needle mismatch
 exits loudly. See `docs/PROVIDERS.md` 「Qoder CN」; do not spawn a full
 CLI per request and do not invent a `qodercn` family.
 
@@ -286,6 +286,16 @@ without a snapshot, the catalog is empty.
 There are no hand-written model aliases, display-name maps, or product overrides. When
 the dynamic catalog is unavailable, the worker returns an explicit catalog error rather
 than guessing an upstream key or allowing Qoder to silently choose a fallback model.
+
+Go keeps a per-account catalog snapshot on the pool item and uses it as the chat
+route pool. `POST /v1/chat/completions` refreshes stale snapshots, then
+`PickRoute` only selects accounts whose catalog contains the requested public
+ID or native key. Accounts with an unknown catalog (nil snapshot) stay eligible
+so a cold worker is not skipped. If no candidate serves the model, the request
+returns `model_not_available` without calling a worker or cooling an account.
+A worker-level miss still failovers to another eligible account, but it does
+not put the healthy account into cooldown; the stale ID is dropped from that
+account's snapshot so the next pick cannot repeat it.
 
 ## Protocol adapters
 
@@ -371,6 +381,7 @@ Error taxonomy (do not treat every 429 as empty balance):
 | rate_limit | generic 429 / too many requests | 429 | yes | ~60s, honor Retry-After, cap 10m |
 | auth | 401/403, FORBIDDEN | 401/403 | yes | ~30s + rewarm |
 | not_ready | hot context missing, AuthManager not captured, worker not warm | 503 | yes | ~10s |
+| model_not_available | catalog miss for the requested public ID | 400 | yes, only other accounts that serve the model | no |
 | unavailable | transport / 5xx | 502/503 | yes | ~15s |
 
 `QODER_MAX_INFLIGHT` default 4. WASM encode + rewarm share one lock; do not hold it across upstream fetch.
@@ -432,6 +443,8 @@ Rules:
 - Capture daemon output through `ManagerConfig.MaxLogWriters`; prefix lines with `[account={id}]`.
 - Runtime ring redacts obvious secrets and is lost on restart. Docker compose logs remain the durable operator stream for first-boot API key recovery.
 - `/api/logs/*` requires the SQLite API key.
+- Request history list accepts `account`, `status`, `stream`, `error_kind`, `model`, `q`, `from`, `to`, `limit`, and `offset`. The console `/logs` page paginates this list and exposes those filters.
+- Runtime snapshot accepts `account` in addition to `level` and `q`.
 
 ## Managed update
 
@@ -443,7 +456,7 @@ Release packaging keeps the application as a Linux container and publishes a `li
 
 Maintainers do not create version tags manually. A serialized `workflow_dispatch` release waits for CI on the exact `main` commit, calculates the next patch after the latest published stable release, creates or resumes an invisible draft release, uploads all updater assets, builds a candidate multi-architecture image, promotes and verifies immutable version tags, and finally publishes the release. Mutable `latest` and release-series aliases move only after publication. Failed pre-publication runs leave a resumable draft rather than exposing an update to the console.
 
-Release notes come from `CHANGELOG.md`, not generated commit lists. Maintainers write matching `### English` and `### 中文` bullets under `## Unreleased`; the workflow copies that bilingual body onto the GitHub Release, which the console update page shows as-is. After the release is public, a follow-up commit freezes those notes under the new version heading so the next patch starts from an empty Unreleased section.
+Release notes come from `CHANGELOG.md`, not generated commit lists. Maintainers write matching `### English` and `### 中文` bullets under `## Unreleased`; the workflow copies that bilingual body onto the GitHub Release. The console System page extracts the current UI language, renders the markdown (lists, inline code, links), and shows it in a box that grows with the notes then scrolls. After the release is public, a follow-up commit freezes those notes under the new version heading so the next patch starts from an empty Unreleased section.
 
 The host boundary is explicitly versioned through `protocol_version`. Version `1` is current; version `0` is temporarily accepted for an older updater that omitted the field. Any other version is rejected before an update request is submitted. New updater releases must remain backward-compatible with the immediately previous application release so the latest-asset bootstrap path stays safe.
 

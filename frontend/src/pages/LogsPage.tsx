@@ -12,6 +12,8 @@ import {
 } from '@heroui/react'
 import {
   ArrowClockwise,
+  CaretLeft,
+  CaretRight,
   MagnifyingGlass,
   Scroll,
   TerminalWindow,
@@ -29,10 +31,18 @@ import {
 } from '@/api/logs'
 import { LogsPageSkeleton } from '@/components/ui/PageSkeletons'
 import { useI18n } from '@/hooks/useI18n'
+import { useOverview } from '@/hooks/useOverview'
 
 type PageTab = 'requests' | 'runtime'
 type RequestFilter = 'all' | 'ok' | 'error' | 'canceled'
 type RuntimeFilter = 'all' | 'info' | 'warn' | 'error'
+type StreamFilter = 'all' | 'stream' | 'sync'
+type TimeRange = 'all' | '1h' | '24h' | '7d' | 'custom'
+type ErrorKindFilter = 'all' | 'quota' | 'rate_limit' | 'auth' | 'not_ready' | 'unavailable' | 'invalid_request' | 'model_not_available'
+
+const PAGE_SIZES = [20, 50, 100] as const
+const FILTER_SELECT_CLASS = 'h-8 min-w-36 rounded-lg border border-[var(--app-line-strong)] bg-[var(--app-surface-solid)] px-2.5 text-xs text-[var(--app-ink)]'
+const DATETIME_CLASS = 'h-8 rounded-lg border border-[var(--app-line-strong)] bg-[var(--app-surface-solid)] px-2.5 text-xs text-[var(--app-ink)]'
 
 function statusColor(status?: string): 'success' | 'warning' | 'danger' | 'default' {
   if (status === 'ok') return 'success'
@@ -74,8 +84,29 @@ function formatLatency(ms?: number | null) {
   return `${(ms / 1000).toFixed(1)}s`
 }
 
+function toISO(local: string, endOfMinute = false) {
+  if (!local.trim()) return undefined
+  const date = new Date(local)
+  if (!Number.isFinite(date.getTime())) return undefined
+  if (endOfMinute) date.setSeconds(59, 999)
+  return date.toISOString()
+}
+
+function rangeFromPreset(preset: TimeRange) {
+  if (preset === 'all' || preset === 'custom') return { from: undefined as string | undefined, to: undefined as string | undefined }
+  const now = new Date()
+  const from = new Date(now)
+  if (preset === '1h') from.setHours(from.getHours() - 1)
+  if (preset === '24h') from.setHours(from.getHours() - 24)
+  if (preset === '7d') from.setDate(from.getDate() - 7)
+  return { from: from.toISOString(), to: now.toISOString() }
+}
+
 export function LogsPage() {
   const { t, lang } = useI18n()
+  const { overview } = useOverview()
+  const accounts = overview?.accounts
+  const models = overview?.models
   const [tab, setTab] = useState<PageTab>('requests')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -83,6 +114,16 @@ export function LogsPage() {
   const [runtimeFilter, setRuntimeFilter] = useState<RuntimeFilter>('all')
   const [requestQuery, setRequestQuery] = useState('')
   const [runtimeQuery, setRuntimeQuery] = useState('')
+  const [accountFilter, setAccountFilter] = useState('')
+  const [runtimeAccount, setRuntimeAccount] = useState('')
+  const [modelFilter, setModelFilter] = useState('')
+  const [streamFilter, setStreamFilter] = useState<StreamFilter>('all')
+  const [errorKind, setErrorKind] = useState<ErrorKindFilter>('all')
+  const [timeRange, setTimeRange] = useState<TimeRange>('all')
+  const [customFrom, setCustomFrom] = useState('')
+  const [customTo, setCustomTo] = useState('')
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState<(typeof PAGE_SIZES)[number]>(50)
   const [requests, setRequests] = useState<RequestLog[]>([])
   const [total, setTotal] = useState(0)
   const [runtime, setRuntime] = useState<RuntimeLogEntry[]>([])
@@ -91,13 +132,59 @@ export function LogsPage() {
   const [clearOpen, setClearOpen] = useState(false)
   const [busy, setBusy] = useState(false)
 
+  const accountNameById = useMemo(() => {
+    const names = new Map<string, string>()
+    for (const account of accounts || []) names.set(account.id, account.name || account.id)
+    return names
+  }, [accounts])
+
+  const hasRequestFilters = Boolean(
+    requestQuery.trim()
+    || requestFilter !== 'all'
+    || accountFilter
+    || modelFilter
+    || streamFilter !== 'all'
+    || errorKind !== 'all'
+    || timeRange !== 'all',
+  )
+
+  const requestFilterKey = [
+    requestFilter,
+    requestQuery,
+    accountFilter,
+    modelFilter,
+    streamFilter,
+    errorKind,
+    timeRange,
+    customFrom,
+    customTo,
+    pageSize,
+  ].join('\0')
+  const [appliedFilterKey, setAppliedFilterKey] = useState(requestFilterKey)
+  if (appliedFilterKey !== requestFilterKey) {
+    setAppliedFilterKey(requestFilterKey)
+    setPage(1)
+  }
+  const pageCount = Math.max(1, Math.ceil(total / pageSize))
+  const currentPage = Math.min(appliedFilterKey !== requestFilterKey ? 1 : Math.max(1, page), pageCount)
+  if (page !== currentPage) {
+    setPage(currentPage)
+  }
+
   const loadRequests = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true)
     try {
       const result = await fetchRequestLogs({
         status: requestFilter === 'all' ? undefined : requestFilter,
         q: requestQuery.trim() || undefined,
-        limit: 50,
+        account: accountFilter || undefined,
+        model: modelFilter || undefined,
+        stream: streamFilter === 'all' ? undefined : streamFilter === 'stream',
+        error_kind: errorKind === 'all' ? undefined : errorKind,
+        from: timeRange === 'custom' ? toISO(customFrom) : rangeFromPreset(timeRange).from,
+        to: timeRange === 'custom' ? toISO(customTo, true) : rangeFromPreset(timeRange).to,
+        limit: pageSize,
+        offset: (currentPage - 1) * pageSize,
       })
       setRequests(result.items || [])
       setTotal(result.total || 0)
@@ -107,7 +194,7 @@ export function LogsPage() {
     } finally {
       if (!quiet) setLoading(false)
     }
-  }, [requestFilter, requestQuery])
+  }, [requestFilter, requestQuery, accountFilter, modelFilter, streamFilter, errorKind, timeRange, customFrom, customTo, currentPage, pageSize])
 
   const loadRuntime = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true)
@@ -115,6 +202,7 @@ export function LogsPage() {
       const result = await fetchRuntimeLogs({
         level: runtimeFilter === 'all' ? undefined : runtimeFilter,
         q: runtimeQuery.trim() || undefined,
+        account: runtimeAccount || undefined,
         limit: 200,
       })
       setRuntime(result.items || [])
@@ -124,7 +212,7 @@ export function LogsPage() {
     } finally {
       if (!quiet) setLoading(false)
     }
-  }, [runtimeFilter, runtimeQuery])
+  }, [runtimeFilter, runtimeQuery, runtimeAccount])
 
   const load = useCallback(async (quiet = false) => {
     if (tab === 'requests') await loadRequests(quiet)
@@ -143,11 +231,26 @@ export function LogsPage() {
     return () => window.clearInterval(timer)
   }, [tab, loadRuntime])
 
+  const shownFrom = total === 0 ? 0 : (currentPage - 1) * pageSize + 1
+  const shownTo = Math.min(total, currentPage * pageSize)
+
   const shownLabel = useMemo(() => {
-    const shown = tab === 'requests' ? requests.length : runtime.length
-    const count = tab === 'requests' ? total : runtime.length
-    return t('logsShownTotal', { shown, total: count })
-  }, [tab, requests.length, runtime.length, total, t])
+    if (tab !== 'requests') return t('logsShownTotal', { shown: runtime.length, total: runtime.length })
+    return t('logsShownTotal', { shown: requests.length ? `${shownFrom}–${shownTo}` : 0, total })
+  }, [tab, requests.length, runtime.length, shownFrom, shownTo, total, t])
+
+  function clearRequestFilters() {
+    setRequestQuery('')
+    setRequestFilter('all')
+    setAccountFilter('')
+    setModelFilter('')
+    setStreamFilter('all')
+    setErrorKind('all')
+    setTimeRange('all')
+    setCustomFrom('')
+    setCustomTo('')
+    setPage(1)
+  }
 
   async function openDetail(id: string) {
     setBusy(true)
@@ -217,34 +320,143 @@ export function LogsPage() {
         </Tabs.List>
 
         <Tabs.Panel id="requests" className="space-y-4 pt-5">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap items-center gap-3">
-              <Input
-                className="sm:w-72"
-                value={requestQuery}
-                onChange={(event) => setRequestQuery(event.target.value)}
-                placeholder={t('logsSearchRequests')}
-                aria-label={t('logsSearchRequests')}
-              />
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Input
+                  className="sm:w-72"
+                  value={requestQuery}
+                  onChange={(event) => setRequestQuery(event.target.value)}
+                  placeholder={t('logsSearchRequests')}
+                  aria-label={t('logsSearchRequests')}
+                />
+                <ButtonGroup className="toolbar-group">
+                  {([
+                    ['all', t('logsFilterAll')],
+                    ['ok', t('logsFilterOk')],
+                    ['error', t('logsFilterError')],
+                    ['canceled', t('logsFilterCanceled')],
+                  ] as Array<[RequestFilter, string]>).map(([value, label]) => (
+                    <Button
+                      key={value}
+                      size="sm"
+                      variant={requestFilter === value ? 'secondary' : 'ghost'}
+                      onPress={() => setRequestFilter(value)}
+                    >
+                      {label}
+                    </Button>
+                  ))}
+                </ButtonGroup>
+              </div>
+              <div className="flex items-center gap-2">
+                {hasRequestFilters ? (
+                  <Button size="sm" variant="ghost" onPress={clearRequestFilters}>{t('clearFilters')}</Button>
+                ) : null}
+                <div className="mono text-[11px] text-[var(--app-faint)]">{shownLabel}</div>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                className={FILTER_SELECT_CLASS}
+                value={accountFilter}
+                onChange={(event) => setAccountFilter(event.target.value)}
+                aria-label={t('logsColAccount')}
+              >
+                <option value="">{t('logsFilterAccountAll')}</option>
+                {(accounts || []).map((account) => (
+                  <option key={account.id} value={account.id}>{account.name || account.id}</option>
+                ))}
+              </select>
+              <select
+                className={FILTER_SELECT_CLASS}
+                value={modelFilter}
+                onChange={(event) => setModelFilter(event.target.value)}
+                aria-label={t('logsColModel')}
+              >
+                <option value="">{t('logsFilterModelAll')}</option>
+                {(models || []).map((model) => (
+                  <option key={model.id} value={model.id}>{model.display_name || model.id}</option>
+                ))}
+              </select>
               <ButtonGroup className="toolbar-group">
                 {([
-                  ['all', t('logsFilterAll')],
-                  ['ok', t('logsFilterOk')],
-                  ['error', t('logsFilterError')],
-                  ['canceled', t('logsFilterCanceled')],
-                ] as Array<[RequestFilter, string]>).map(([value, label]) => (
+                  ['all', t('logsFilterStreamAll')],
+                  ['stream', t('logsStreamYes')],
+                  ['sync', t('logsStreamNo')],
+                ] as Array<[StreamFilter, string]>).map(([value, label]) => (
                   <Button
                     key={value}
                     size="sm"
-                    variant={requestFilter === value ? 'secondary' : 'ghost'}
-                    onPress={() => setRequestFilter(value)}
+                    variant={streamFilter === value ? 'secondary' : 'ghost'}
+                    onPress={() => setStreamFilter(value)}
                   >
                     {label}
                   </Button>
                 ))}
               </ButtonGroup>
+              <select
+                className={FILTER_SELECT_CLASS}
+                value={errorKind}
+                onChange={(event) => setErrorKind(event.target.value as ErrorKindFilter)}
+                aria-label={t('errorKind')}
+              >
+                <option value="all">{t('logsFilterKindAll')}</option>
+                <option value="quota">{t('logsKindQuota')}</option>
+                <option value="rate_limit">{t('logsKindRateLimit')}</option>
+                <option value="auth">{t('logsKindAuth')}</option>
+                <option value="not_ready">{t('logsKindNotReady')}</option>
+                <option value="unavailable">{t('logsKindUnavailable')}</option>
+                <option value="invalid_request">{t('logsKindInvalidRequest')}</option>
+                <option value="model_not_available">{t('logsKindModelNotAvailable')}</option>
+              </select>
             </div>
-            <div className="mono text-[11px] text-[var(--app-faint)]">{shownLabel}</div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-medium text-[var(--app-muted)]">{t('logsTimeRange')}</span>
+              <ButtonGroup className="toolbar-group">
+                {([
+                  ['all', t('logsTimeAll')],
+                  ['1h', t('logsTime1h')],
+                  ['24h', t('logsTime24h')],
+                  ['7d', t('logsTime7d')],
+                  ['custom', t('logsTimeCustom')],
+                ] as Array<[TimeRange, string]>).map(([value, label]) => (
+                  <Button
+                    key={value}
+                    size="sm"
+                    variant={timeRange === value ? 'secondary' : 'ghost'}
+                    onPress={() => setTimeRange(value)}
+                  >
+                    {label}
+                  </Button>
+                ))}
+              </ButtonGroup>
+              {timeRange === 'custom' ? (
+                <>
+                  <label className="flex items-center gap-1.5 text-xs text-[var(--app-faint)]">
+                    {t('logsTimeFrom')}
+                    <input
+                      type="datetime-local"
+                      className={DATETIME_CLASS}
+                      value={customFrom}
+                      onChange={(event) => setCustomFrom(event.target.value)}
+                      aria-label={t('logsTimeFrom')}
+                    />
+                  </label>
+                  <label className="flex items-center gap-1.5 text-xs text-[var(--app-faint)]">
+                    {t('logsTimeTo')}
+                    <input
+                      type="datetime-local"
+                      className={DATETIME_CLASS}
+                      value={customTo}
+                      onChange={(event) => setCustomTo(event.target.value)}
+                      aria-label={t('logsTimeTo')}
+                    />
+                  </label>
+                </>
+              ) : null}
+            </div>
           </div>
 
           <Card data-gsap-reveal className="app-panel-flat overflow-hidden rounded-lg p-0 shadow-none">
@@ -252,7 +464,10 @@ export function LogsPage() {
               <div className="grid min-h-72 place-items-center px-6 py-12 text-center">
                 <div>
                   <MagnifyingGlass size={22} className="mx-auto text-[var(--app-faint)]" />
-                  <div className="mt-4 text-sm font-medium">{t('logsEmptyRequests')}</div>
+                  <div className="mt-4 text-sm font-medium">{hasRequestFilters ? t('logsNoMatch') : t('logsEmptyRequests')}</div>
+                  {hasRequestFilters ? (
+                    <Button className="mt-4" size="sm" variant="ghost" onPress={clearRequestFilters}>{t('clearFilters')}</Button>
+                  ) : null}
                 </div>
               </div>
             ) : (
@@ -283,7 +498,12 @@ export function LogsPage() {
                               <div className="mono mt-0.5 text-[10px] text-[var(--app-faint)]">{item.mapped_model}</div>
                             ) : null}
                           </Table.Cell>
-                          <Table.Cell><span className="mono text-xs">{item.account_id || '—'}</span></Table.Cell>
+                          <Table.Cell>
+                            <span className="text-xs">{item.account_id ? (accountNameById.get(item.account_id) || item.account_id) : '—'}</span>
+                            {item.account_id && accountNameById.get(item.account_id) && accountNameById.get(item.account_id) !== item.account_id ? (
+                              <div className="mono mt-0.5 text-[10px] text-[var(--app-faint)]">{item.account_id}</div>
+                            ) : null}
+                          </Table.Cell>
                           <Table.Cell>
                             <Chip size="sm" variant="soft" color={statusColor(item.status)}>{item.status}</Chip>
                             {item.error_kind ? <div className="mono mt-1 text-[10px] text-[var(--app-faint)]">{item.error_kind}</div> : null}
@@ -299,11 +519,54 @@ export function LogsPage() {
               </Table>
             )}
           </Card>
+
+          {total > 0 ? (
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-[var(--app-faint)]">{t('logsPageSize')}</span>
+                <ButtonGroup className="toolbar-group">
+                  {PAGE_SIZES.map((size) => (
+                    <Button
+                      key={size}
+                      size="sm"
+                      variant={pageSize === size ? 'secondary' : 'ghost'}
+                      onPress={() => setPageSize(size)}
+                    >
+                      {size}
+                    </Button>
+                  ))}
+                </ButtonGroup>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="mono text-[11px] text-[var(--app-faint)]">{t('logsPage', { page: currentPage, pages: pageCount })}</span>
+                <Button
+                  isIconOnly
+                  size="sm"
+                  variant="ghost"
+                  isDisabled={currentPage <= 1}
+                  onPress={() => setPage((current) => Math.max(1, current - 1))}
+                  aria-label={t('logsPrevPage')}
+                >
+                  <CaretLeft size={14} />
+                </Button>
+                <Button
+                  isIconOnly
+                  size="sm"
+                  variant="ghost"
+                  isDisabled={currentPage >= pageCount}
+                  onPress={() => setPage((current) => Math.min(pageCount, current + 1))}
+                  aria-label={t('logsNextPage')}
+                >
+                  <CaretRight size={14} />
+                </Button>
+              </div>
+            </div>
+          ) : null}
         </Tabs.Panel>
 
         <Tabs.Panel id="runtime" className="space-y-4 pt-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="flex flex-wrap items-center gap-2">
               <Input
                 className="sm:w-72"
                 value={runtimeQuery}
@@ -311,6 +574,17 @@ export function LogsPage() {
                 placeholder={t('logsSearchRuntime')}
                 aria-label={t('logsSearchRuntime')}
               />
+              <select
+                className={FILTER_SELECT_CLASS}
+                value={runtimeAccount}
+                onChange={(event) => setRuntimeAccount(event.target.value)}
+                aria-label={t('logsColAccount')}
+              >
+                <option value="">{t('logsFilterAccountAll')}</option>
+                {(accounts || []).map((account) => (
+                  <option key={account.id} value={account.id}>{account.name || account.id}</option>
+                ))}
+              </select>
               <ButtonGroup className="toolbar-group">
                 {([
                   ['all', t('logsLevelAll')],
@@ -383,7 +657,7 @@ export function LogsPage() {
                   {[
                     [t('logsColStatus'), selected?.status || '—'],
                     [t('logsColModel'), selected?.requested_model || '—'],
-                    [t('logsColAccount'), selected?.account_id || '—'],
+                    [t('logsColAccount'), selected?.account_id ? (accountNameById.get(selected.account_id) || selected.account_id) : '—'],
                     [t('logsColLatency'), formatLatency(selected?.latency_ms)],
                     [t('logsColTokens'), selected ? formatTokens(selected) : '—'],
                     [t('logsColStream'), selected?.stream ? t('logsStreamYes') : t('logsStreamNo')],

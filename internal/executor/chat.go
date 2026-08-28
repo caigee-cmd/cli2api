@@ -129,15 +129,28 @@ func buildWorkerPayload(req translate.ChatRequest, stream bool) map[string]any {
 	return payload
 }
 
-func (e ChatExecutor) pick(prefer, providerFilter, regionFilter string, excluded map[string]struct{}) (accounts.Item, error) {
+func (e ChatExecutor) routeQuery(prefer, providerFilter, regionFilter, publicModel string, excluded map[string]struct{}) accounts.RouteQuery {
+	return accounts.RouteQuery{
+		PublicModel:    publicModel,
+		PreferAccount:  prefer,
+		ProviderFilter: providerFilter,
+		RegionFilter:   regionFilter,
+		Excluded:       excluded,
+	}
+}
+
+func (e ChatExecutor) pick(prefer, providerFilter, regionFilter, publicModel string, excluded map[string]struct{}) (accounts.Item, error) {
+	query := e.routeQuery(prefer, providerFilter, regionFilter, publicModel, excluded)
 	if e.Pool != nil {
-		if item, ok := e.Pool.PickRoute(accounts.RouteQuery{
-			PreferAccount:  prefer,
-			ProviderFilter: providerFilter,
-			RegionFilter:   regionFilter,
-			Excluded:       excluded,
-		}); ok {
+		if item, ok := e.Pool.PickRoute(query); ok {
 			return item, nil
+		}
+		if publicModel != "" && publicModel != "auto" {
+			unfiltered := query
+			unfiltered.PublicModel = ""
+			if e.Pool.LenRoute(unfiltered) > 0 {
+				return accounts.Item{}, fmt.Errorf("model_not_available: %s is not available for this Qoder account", publicModel)
+			}
 		}
 	}
 	if providerFilter != "" && regionFilter != "" {
@@ -149,9 +162,9 @@ func (e ChatExecutor) pick(prefer, providerFilter, regionFilter string, excluded
 	return accounts.Item{}, fmt.Errorf("no worker accounts configured")
 }
 
-func (e ChatExecutor) attemptsFor(providerFilter, regionFilter string) int {
+func (e ChatExecutor) attemptsFor(providerFilter, regionFilter, publicModel string) int {
 	if e.Pool != nil {
-		if n := e.Pool.LenRoute(accounts.RouteQuery{ProviderFilter: providerFilter, RegionFilter: regionFilter}); n > 0 {
+		if n := e.Pool.LenRoute(e.routeQuery("", providerFilter, regionFilter, publicModel, nil)); n > 0 {
 			return n
 		}
 	}
@@ -254,10 +267,10 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 			regionFilter = pinRegion("", pinnedItem.Region)
 		}
 	}
-	attempts := e.attemptsFor(providerFilter, regionFilter)
+	attempts := e.attemptsFor(providerFilter, regionFilter, req.Model)
 	pinned := prefer
 	for i := 0; i < attempts; i++ {
-		item, err := e.pick(prefer, providerFilter, regionFilter, excluded)
+		item, err := e.pick(prefer, providerFilter, regionFilter, req.Model, excluded)
 		if err != nil {
 			if lastErr != nil {
 				return ChatResult{AttemptCount: i, AccountID: lastAccountID(excluded), Provider: providerFilter}, lastErr
@@ -267,7 +280,7 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 		prefer = ""
 		if regionFilter == "" {
 			regionFilter = pinRegion(regionFilter, item.Region)
-			attempts = e.attemptsFor(providerFilter, regionFilter)
+			attempts = e.attemptsFor(providerFilter, regionFilter, req.Model)
 		}
 		if isInProcessItem(item) {
 			result, classified, err := e.chatInProcessNonStreamAttempt(ctx, item, req, i)
@@ -315,6 +328,9 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 			msg := strings.TrimSpace(string(body))
 			classified := classifyWorkerErr(resp, msg)
 			lastErr = fmt.Errorf("worker %s status=%d: %s", item.ID, resp.StatusCode, msg)
+			if classified.Kind == accounts.KindModelNotAvailable {
+				e.Pool.RemoveModel(item.ID, req.Model)
+			}
 			e.markClassified(item.ID, classified)
 			status := accounts.AttemptStatusError
 			if classified.Failover && i+1 < attempts {
@@ -382,6 +398,9 @@ func (e ChatExecutor) chatInProcessNonStreamAttempt(ctx context.Context, item ac
 	latency := int(finished.Sub(started).Milliseconds())
 	if err != nil {
 		classified := e.classifyInProcessError(err)
+		if classified.Kind == accounts.KindModelNotAvailable {
+			e.Pool.RemoveModel(item.ID, req.Model)
+		}
 		e.markClassified(item.ID, classified)
 		status := accounts.AttemptStatusError
 		if classified.Failover {
@@ -425,6 +444,9 @@ func (e ChatExecutor) chatInProcessStreamAttempt(ctx context.Context, item accou
 		finished := time.Now().UTC()
 		latency := int(finished.Sub(started).Milliseconds())
 		classified := e.classifyInProcessError(err)
+		if classified.Kind == accounts.KindModelNotAvailable {
+			e.Pool.RemoveModel(item.ID, req.Model)
+		}
 		e.markClassified(item.ID, classified)
 		status := accounts.AttemptStatusError
 		if classified.Failover {
@@ -467,6 +489,9 @@ func (e ChatExecutor) classifyInProcessError(err error) accounts.Classified {
 			// The request itself was rejected; the account stays clean.
 			cooldown = 0
 			failover = false
+		case accounts.KindModelNotAvailable:
+			cooldown = 0
+			failover = true
 		}
 		classified = accounts.Classified{
 			Kind: classifiedErr.Kind, Status: classifiedErr.Status, Failover: failover,
@@ -569,11 +594,11 @@ func (e ChatExecutor) ChatStreamProxy(ctx context.Context, req translate.ChatReq
 			regionFilter = pinRegion("", pinnedItem.Region)
 		}
 	}
-	attempts := e.attemptsFor(providerFilter, regionFilter)
+	attempts := e.attemptsFor(providerFilter, regionFilter, req.Model)
 	pinned := prefer
 	startedAll := time.Now()
 	for i := 0; i < attempts; i++ {
-		item, err := e.pick(prefer, providerFilter, regionFilter, excluded)
+		item, err := e.pick(prefer, providerFilter, regionFilter, req.Model, excluded)
 		if err != nil {
 			if lastErr != nil {
 				return StreamResult{AttemptCount: i, AccountID: lastAccountID(excluded), Provider: providerFilter}, lastErr
@@ -583,7 +608,7 @@ func (e ChatExecutor) ChatStreamProxy(ctx context.Context, req translate.ChatReq
 		prefer = ""
 		if regionFilter == "" {
 			regionFilter = pinRegion(regionFilter, item.Region)
-			attempts = e.attemptsFor(providerFilter, regionFilter)
+			attempts = e.attemptsFor(providerFilter, regionFilter, req.Model)
 		}
 		if isInProcessItem(item) {
 			result, classified, err := e.chatInProcessStreamAttempt(ctx, item, req, i)
@@ -638,6 +663,9 @@ func (e ChatExecutor) ChatStreamProxy(ctx context.Context, req translate.ChatReq
 			msg := strings.TrimSpace(string(body))
 			classified := classifyWorkerErr(resp, msg)
 			lastErr = fmt.Errorf("worker %s stream status=%d: %s", item.ID, resp.StatusCode, msg)
+			if classified.Kind == accounts.KindModelNotAvailable {
+				e.Pool.RemoveModel(item.ID, req.Model)
+			}
 			e.markClassified(item.ID, classified)
 			finished := time.Now().UTC()
 			latency := int(finished.Sub(started).Milliseconds())

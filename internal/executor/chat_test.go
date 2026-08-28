@@ -180,6 +180,59 @@ func TestChatNonStreamPinnedCNDoesNotEscapeToGlobal(t *testing.T) {
 	}
 }
 
+func TestChatNonStreamRoutesByAccountCatalog(t *testing.T) {
+	missing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("account without hy3 must not be picked")
+	}))
+	defer missing.Close()
+	hasModel := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Qoder-Account", "b")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{{"finish_reason": "stop", "message": map[string]any{"content": "OK-HY3"}}},
+			"usage":   map[string]any{"source": "upstream"},
+		})
+	}))
+	defer hasModel.Close()
+
+	pool := accounts.NewPool(nil, nil)
+	pool.Upsert(accounts.Item{ID: "a", URL: missing.URL, Provider: "qoder", Region: "global", Runtime: "child_process"})
+	pool.Upsert(accounts.Item{ID: "b", URL: hasModel.URL, Provider: "qoder", Region: "global", Runtime: "child_process"})
+	pool.MergeModels("a", []string{"glm-5.2"})
+	pool.MergeModels("b", []string{"hy3"})
+	ex := NewChatExecutor(pool, "")
+	ex.HTTPClient = hasModel.Client()
+	got, err := ex.ChatNonStream(context.Background(), translate.ChatRequest{
+		Model: "hy3", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	}, "", "qoder")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.AccountID != "b" || got.Content != "OK-HY3" {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestChatNonStreamUnknownModelDoesNotHitWorkers(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("no worker should be called when no catalog serves the model")
+	}))
+	defer srv.Close()
+	pool := accounts.NewPool([]string{srv.URL}, []string{"a"})
+	pool.MergeModels("a", []string{"glm-5.2"})
+	ex := NewChatExecutor(pool, "")
+	ex.HTTPClient = srv.Client()
+	_, err := ex.ChatNonStream(context.Background(), translate.ChatRequest{
+		Model: "hy3", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	}, "", "qoder")
+	if err == nil || !strings.Contains(err.Error(), "model_not_available") {
+		t.Fatalf("err=%v", err)
+	}
+	item, _ := pool.ByID("a")
+	if !item.DownUntil.IsZero() {
+		t.Fatalf("unknown model must not cool the account: %+v", item)
+	}
+}
+
 func TestChatNonStreamDoesNotFailoverQuota(t *testing.T) {
 	a := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Qoder-Account", "a")

@@ -4,9 +4,9 @@ import { inspectQodercliSource, patchQodercliSource } from "../src/compat.mjs";
 
 const PINNED_SOURCE = [
   "prepareInferRequest(A,e,t,i){",
-  "async createWasmContext(){let A=await Yi();this.machineId||(this.machineId=await this.getMachineId()),XsA(this.machineId,A,JSON.stringify(this.getUserInfoForAuth()))}",
-  "function En(){return WLe||(WLe=new XLe),WLe}",
-  "function Of(){return c2t||(c2t=new CC(_e())),c2t}function zXA(){aHe.clear(),ARA.clear()}",
+  "async createWasmContext(){let A=await Ki();this.machineId||(this.machineId=await this.getMachineId()),HlA(this.machineId,A,JSON.stringify(this.getUserInfoForAuth()))}",
+  "function kn(){return r9e||(r9e=new o9e),r9e}",
+  "function zf(){return B_t||(B_t=new nw(_e())),B_t}function tAe(){c4e.clear(),nFA.clear()}",
 ].join("\n");
 
 test("inspect reports missing hooks on unknown CLI source", () => {
@@ -17,7 +17,7 @@ test("inspect reports missing hooks on unknown CLI source", () => {
   assert.match(report.message, /incompatible/i);
 });
 
-test("inspect reports pinned 1.1.27 needles as compatible", () => {
+test("inspect reports pinned 1.1.32 needles as compatible", () => {
   const report = inspectQodercliSource(PINNED_SOURCE);
   assert.equal(report.ok, true);
   assert.equal(report.prepareInferFound, true);
@@ -33,10 +33,10 @@ test("patch injects capture hooks into pinned CLI source", () => {
   assert.match(patched, /__qoderWorkerAdoptContext/);
   assert.match(patched, /__qoderAuthManager/);
   assert.match(patched, /__qoderWorkerGetModelCatalog/);
-  assert.match(patched, /Hm\(\);return En\(\)/);
+  assert.match(patched, /ph\(\);return kn\(\)/);
   assert.match(patched, /__QODER_WORKER_QUOTA_API__/);
   assert.match(patched, /__qoderWorkerGetQuotaApi/);
-  assert.match(patched, /Cq\(\);return Of\(\)/);
+  assert.match(patched, /o5\(\);return zf\(\)/);
 });
 
 test("patch is idempotent", () => {
@@ -58,13 +58,13 @@ test("incompatible message mentions both CLI packages", () => {
   assert.match(report.message, /@qodercn-ai\/qoderclicn/);
 });
 
-test("patch injects skip-main boot hook when HEg needle is present", () => {
+test("patch injects skip-main boot hook when QNu needle is present", () => {
   const source = [
     "prepareInferRequest(A,e,t,i){",
-    "async createWasmContext(){let A=await Yi();this.machineId||(this.machineId=await this.getMachineId()),XsA(this.machineId,A,JSON.stringify(this.getUserInfoForAuth()))}",
-    "function En(){return WLe||(WLe=new XLe),WLe}",
-    "function Of(){return c2t||(c2t=new CC(_e())),c2t}function zXA(){aHe.clear(),ARA.clear()}",
-    "async function HEg(){let{main:A}=await Promise.resolve().then(()=>(b$o(),U$o));await A()}",
+    "async createWasmContext(){let A=await Ki();this.machineId||(this.machineId=await this.getMachineId()),HlA(this.machineId,A,JSON.stringify(this.getUserInfoForAuth()))}",
+    "function kn(){return r9e||(r9e=new o9e),r9e}",
+    "function zf(){return B_t||(B_t=new nw(_e())),B_t}function tAe(){c4e.clear(),nFA.clear()}",
+    "async function QNu(){let{main:A}=await Promise.resolve().then(()=>(Uds(),Fds));await A()}",
   ].join("\n");
   const patched = patchQodercliSource(source);
   assert.match(patched, /__QODER_WORKER_SKIP_MAIN__/);
