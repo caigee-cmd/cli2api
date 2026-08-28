@@ -77,4 +77,25 @@ func TestRelayOpenAIStreamCapturesUsageChunk(t *testing.T) {
 		stats.CompletionTokens == nil || *stats.CompletionTokens != 2 || stats.UsageSource != "upstream" {
 		t.Fatalf("stats = %+v", stats)
 	}
+	if stats.FirstTokenAt == nil {
+		t.Fatal("first token timestamp missing")
+	}
+}
+
+func TestSSEDeltaHasTokenIgnoresEmptyRoleChunks(t *testing.T) {
+	if sseDeltaHasToken(`data: {"choices":[{"delta":{"role":"assistant"}}]}`) {
+		t.Fatal("role-only chunk is not a token")
+	}
+	if sseDeltaHasToken(`data: {"choices":[{"delta":{"content":""}}]}`) {
+		t.Fatal("empty content is not a token")
+	}
+	if !sseDeltaHasToken(`data: {"choices":[{"delta":{"content":"OK"}}]}`) {
+		t.Fatal("content delta should count as first token")
+	}
+	if !sseDeltaHasToken(`data: {"choices":[{"delta":{"reasoning_content":"think"}}]}`) {
+		t.Fatal("reasoning delta should count as first token")
+	}
+	if !sseDeltaHasToken(`data: {"choices":[{"delta":{"tool_calls":[{"index":0}]}}]}`) {
+		t.Fatal("tool call delta should count as first token")
+	}
 }

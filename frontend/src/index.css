@@ -414,19 +414,19 @@ select {
 }
 
 .runtime-meter__seg[data-tone="ok"] {
-  background: var(--app-ok);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--app-ok) 82%, white 18%) 0%, var(--app-ok) 100%);
 }
 
 .runtime-meter__seg[data-tone="warn"] {
-  background: var(--warning);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--warning) 78%, white 22%) 0%, var(--warning) 100%);
 }
 
 .runtime-meter__seg[data-tone="danger"] {
-  background: var(--app-danger);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--app-danger) 78%, white 22%) 0%, var(--app-danger) 100%);
 }
 
 .runtime-meter__seg[data-tone="muted"] {
-  background: var(--app-faint);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--app-faint) 70%, white 30%) 0%, var(--app-faint) 100%);
 }
 
 .quota-meter {
@@ -441,18 +441,18 @@ select {
   height: 100%;
   width: 100%;
   border-radius: inherit;
-  background: var(--app-ok);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--app-ok) 78%, white 22%) 0%, var(--app-ok) 100%);
   transform: scaleX(0);
   transform-origin: left center;
   will-change: transform, opacity;
 }
 
 .quota-meter__fill[data-tone="warn"] {
-  background: var(--warning);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--warning) 76%, white 24%) 0%, var(--warning) 100%);
 }
 
 .quota-meter__fill[data-tone="danger"] {
-  background: var(--app-danger);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--app-danger) 76%, white 24%) 0%, var(--app-danger) 100%);
 }
 
 .button {

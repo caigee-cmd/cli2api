@@ -30,19 +30,15 @@ export function RuntimeMeter({ state, label, stateCopy }: Props) {
 
       media.add('(prefers-reduced-motion: no-preference)', () => {
         gsap.set(segments, { transformOrigin: 'center bottom' })
-        gsap.set(empty, { scaleY: 0.32, autoAlpha: 0.45 })
-        gsap.fromTo(
-          filled,
-          { scaleY: 0.18, autoAlpha: 0.35 },
-          {
-            scaleY: 1,
-            autoAlpha: 1,
-            duration: 0.18,
-            ease: 'power2.out',
-            stagger: { amount: 0.04 },
-            overwrite: true,
-          },
-        )
+        gsap.to(empty, { scaleY: 0.32, autoAlpha: 0.45, duration: 0.18, ease: 'power2.out', overwrite: true })
+        gsap.to(filled, {
+          scaleY: 1,
+          autoAlpha: 1,
+          duration: 0.22,
+          ease: 'power2.out',
+          stagger: { amount: 0.08, from: 'start' },
+          overwrite: true,
+        })
       })
     }, root)
 
