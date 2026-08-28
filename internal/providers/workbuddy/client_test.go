@@ -137,6 +137,14 @@ func TestChatNonStreamAggregatesToolsAndReasoning(t *testing.T) {
 		if body["stream"] != true {
 			t.Fatalf("stream=%v, upstream requires true", body["stream"])
 		}
+		messages, _ := body["messages"].([]any)
+		if len(messages) < 2 {
+			t.Fatalf("messages=%v", body["messages"])
+		}
+		first, _ := messages[0].(map[string]any)
+		if first["role"] != "system" {
+			t.Fatalf("global/CN chat requires a leading system slot, got %v", body["messages"])
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = w.Write([]byte(chatSSE))
 	}))
@@ -163,7 +171,7 @@ func TestModelsFiltersCliAgentAndDisabled(t *testing.T) {
 	payload, _ := Credential{AccessToken: "at", UID: "u1", Domain: "codebuddy.cn", ExpiresAt: 4102444800}.Encode()
 	store := &memStore{items: map[string][]byte{"acc1": payload}}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != pathModels {
+		if r.URL.Path != pathModelsCN {
 			t.Fatalf("path=%s", r.URL.Path)
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{
@@ -197,7 +205,7 @@ func TestModelsAcceptsGlobalCLIAgentNamesAndUsesAccountRegion(t *testing.T) {
 	store := &memStore{items: map[string][]byte{"acc1": payload}, region: "global"}
 	var origin, requestHost, ideType string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != pathModels {
+		if r.URL.Path != pathModelsGlobal {
 			t.Fatalf("path=%s", r.URL.Path)
 		}
 		origin = r.Header.Get("Origin")
@@ -238,6 +246,9 @@ func TestModelsWithoutAgentsReturnsEnabledModels(t *testing.T) {
 	payload, _ := Credential{AccessToken: "at", UID: "u1", Domain: "www.workbuddy.ai", ExpiresAt: 4102444800}.Encode()
 	store := &memStore{items: map[string][]byte{"acc1": payload}, region: "global"}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != pathModelsGlobal {
+			t.Fatalf("path=%s", r.URL.Path)
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{
 			"models": []map[string]any{
 				{"id": "glm-5.2", "name": "GLM"},
@@ -272,6 +283,47 @@ func TestIsGlobalRecognizesWorkBuddyDomains(t *testing.T) {
 	if (Credential{}).IsGlobal() {
 		t.Fatal("empty domain should not be global")
 	}
+	if (Credential{Domain: "www.workbuddy.ai"}).catalogPath() != pathModelsGlobal {
+		t.Fatal("global catalog must use the plugin JSON path")
+	}
+	if (Credential{Domain: "codebuddy.cn"}).catalogPath() != pathModelsCN {
+		t.Fatal("CN catalog must keep the console path")
+	}
+}
+
+func TestModelsGlobalHTMLErrorDoesNotLeakPage(t *testing.T) {
+	payload, _ := Credential{AccessToken: "at", UID: "u1", Domain: "www.workbuddy.ai", ExpiresAt: 4102444800}.Encode()
+	store := &memStore{items: map[string][]byte{"acc1": payload}, region: "global"}
+	var sawConsolePath bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == pathModelsCN {
+			sawConsolePath = true
+		}
+		if r.URL.Path != pathModelsGlobal {
+			t.Fatalf("path=%s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`<!DOCTYPE html><html><head><title>500 Internal Server Error</title></head><body>openresty</body></html>`))
+	}))
+	defer server.Close()
+	client := NewClient(store)
+	client.http = server.Client()
+	client.http.Transport = rewriteTransport{server: server.URL, round: server.Client().Transport}
+
+	_, err := client.Models(context.Background(), "acc1")
+	if err == nil {
+		t.Fatal("expected catalog error")
+	}
+	if sawConsolePath {
+		t.Fatal("global catalog must not hit the console OIDC path")
+	}
+	if !strings.Contains(err.Error(), "models status=500") || strings.Contains(err.Error(), "<html") {
+		t.Fatalf("error leaked html: %v", err)
+	}
+	if !strings.Contains(err.Error(), "upstream html error page") {
+		t.Fatalf("error=%v", err)
+	}
 }
 
 func TestErrorMapping(t *testing.T) {
@@ -286,6 +338,7 @@ func TestErrorMapping(t *testing.T) {
 		{404, "", "unavailable"},
 		{500, "boom", "unavailable"},
 		{400, `{"code":11101,"msg":"bad request"}`, "invalid_request"},
+		{200, `{"code":11128,"msg":"first message is not system prompt"}`, "invalid_request"},
 		{200, `{"code":12001,"msg":"内容包含敏感信息"}`, "invalid_request"},
 		{200, `{"code":12002,"msg":"sensitive content detected"}`, "invalid_request"},
 	}
@@ -308,6 +361,37 @@ func TestPrepareBodyForcesStreamAndStringToolChoice(t *testing.T) {
 	}
 	if body["stream"] != true || body["tool_choice"] != "get_time" {
 		t.Fatalf("body=%v", body)
+	}
+}
+
+func TestPrepareBodyInsertsEmptyLeadingSystem(t *testing.T) {
+	out := PrepareBody([]byte(`{"model":"m","messages":[{"role":"user","content":"hi"}]}`))
+	var body map[string]any
+	if err := json.Unmarshal(out, &body); err != nil {
+		t.Fatal(err)
+	}
+	messages, _ := body["messages"].([]any)
+	if len(messages) != 2 {
+		t.Fatalf("messages=%v", body["messages"])
+	}
+	first, _ := messages[0].(map[string]any)
+	second, _ := messages[1].(map[string]any)
+	if first["role"] != "system" || first["content"] != "" || second["role"] != "user" {
+		t.Fatalf("messages=%v", body["messages"])
+	}
+
+	kept := PrepareBody([]byte(`{"model":"m","messages":[{"role":"system","content":"keep me"},{"role":"user","content":"hi"}]}`))
+	var keptBody map[string]any
+	if err := json.Unmarshal(kept, &keptBody); err != nil {
+		t.Fatal(err)
+	}
+	keptMessages, _ := keptBody["messages"].([]any)
+	if len(keptMessages) != 2 {
+		t.Fatalf("existing system should not be duplicated: %v", keptBody["messages"])
+	}
+	firstKept, _ := keptMessages[0].(map[string]any)
+	if firstKept["content"] != "keep me" {
+		t.Fatalf("existing system rewritten: %v", keptBody["messages"])
 	}
 }
 

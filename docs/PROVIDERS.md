@@ -50,7 +50,7 @@ WorkBuddy2API 把 **WorkBuddy CN / CodeBuddy**（`copilot.tencent.com` / `www.co
 | 凭证 | 加密 `.auth/user` blob + `machine_id` | `accessToken` / `refreshToken` / uid / domain |
 | 登录 | 浏览器 device-flow / PAT / `qoder-native-v1` 导入 | `POST /v2/plugin/auth/state`，无 PKCE，服务端发 state |
 | 对话入口 | worker 内 `prepareInferRequest` → `agent_chat_generation?Encode=1` | `POST {chatBase}/v2/chat/completions` |
-| 模型目录 | 登录后的 Qoder in-process catalog，失败即空 | `GET /console/enterprises/personal/models`，失败回退静态表 |
+| 模型目录 | 登录后的 Qoder in-process catalog，失败即空 | CN `GET /console/enterprises/personal/models`；Global `GET /v2/enterprises/personal/models`。参考仓库失败回退静态表；本仓库失败即报错 |
 | 账号存储 | SQLite + 派生 runtime HOME | `auths/workbuddy-<uid>.json` + `state.json` |
 | 调度 | Go round-robin + pin + inflight + 错误分类 | 剩余积分最高者优先 |
 | 产品附加 | 控制台、托管更新、Anthropic 协议规划 | 每日签到、积分查询、token keepalive |
@@ -91,13 +91,14 @@ WorkBuddy2API 把 **WorkBuddy CN / CodeBuddy**（`copilot.tencent.com` / `www.co
 - URL：CN `https://copilot.tencent.com/v2/chat/completions`；global `https://www.workbuddy.ai/v2/chat/completions`
 - 上游拒绝非流式，发出前强制 `stream: true`；对本仓库客户端的非流式请求，应在适配器内聚合 SSE
 - `tool_choice` 必须是 string。对象形式会 `400 code=11101`
+- 国际版要求第一条必须是 `system`（`code=11128 first message is not system prompt`）。账号打开「丢弃系统提示词」时，只剥调用方内容，发出前补一条空 `system`，不要让 user 排到第一位
 - 关键头：`Authorization`、`X-User-Id`、`X-Enterprise-Id` 或 `X-No-*`、`X-Product: SaaS`、`X-Domain`、UA `CLI/2.139.0 CodeBuddy/2.139.0`
 - Chat 另加官方 CLI 通道头（CN/Global 同名，Origin/host 仍按区域分开）：`X-IDE-Type/Name/Version`、`X-Agent-Type/Intent`、`X-Request-ID` / conversation/session IDs、`X-Product-Version`、`X-Private-Data: false`。Refresh 不带这些头，也绝不带 `X-API-Key`
 - SSE 已是 OpenAI chunk 形态，含 `delta.content`、`delta.reasoning_content`、按 index 合并的 `tool_calls`
 
 ### 模型
 
-`GET {chatBase}/console/enterprises/personal/models`
+CN：`GET {chatBase}/console/enterprises/personal/models`。国际站这条 console 路径是 OIDC 页面（未登录 302 到 Keycloak，带 Bearer 500 HTML），必须改打 `GET https://www.workbuddy.ai/v2/enterprises/personal/models`。`GET /api/models` 目录失败用 503，不要 502，避免反代把 JSON 换成 HTML 错误页。
 
 只暴露 CLI agent 的模型 ID（`cli` / `CLI` / `codebuddy` / `workbuddy`），再和 `data.models` 交叉，跳过 `disabled`。上游没有 agents 时，退回全部未禁用模型。字段用 `maxInputTokens` / `maxOutputTokens`，不是 `contextWindow`。按账号拉目录失败时，`GET /api/models?account=` 返回明确错误，不把空列表当成「没有模型」。
 

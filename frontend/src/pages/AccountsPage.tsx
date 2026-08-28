@@ -8,6 +8,7 @@ import {
 } from '@phosphor-icons/react'
 import { AccountCard, type AccountBusyKind } from '@/components/account/AccountCard'
 import { AccountModelsModal } from '@/components/account/AccountModelsModal'
+import { EditAccountModal } from '@/components/account/EditAccountModal'
 import { AddAccountModal } from '@/components/AddAccountModal'
 import { BrandMark } from '@/components/BrandMark'
 import { useI18n } from '@/hooks/useI18n'
@@ -48,6 +49,7 @@ export function AccountsPage() {
   const [urlById, setUrlById] = useState<Record<string, string>>({})
   const [confirmId, setConfirmId] = useState<string | null>(null)
   const [modelsId, setModelsId] = useState<string | null>(null)
+  const [editId, setEditId] = useState<string | null>(null)
   const [authPanelId, setAuthPanelId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<AccountFilter>('all')
@@ -76,6 +78,7 @@ export function AccountsPage() {
   const inFlightCount = displayRows.reduce((total, account) => total + (account.in_flight ?? account.inFlight ?? 0), 0)
   const confirmAccount = displayRows.find((account) => account.id === confirmId)
   const modelsAccount = displayRows.find((account) => account.id === modelsId) || null
+  const editAccount = displayRows.find((account) => account.id === editId) || null
   const filteredRows = useMemo(() => {
     const normalized = query.trim().toLowerCase()
     return displayRows.filter((account) => {
@@ -175,43 +178,35 @@ export function AccountsPage() {
     })
   }
 
-  async function onRename(id: string, name: string) {
-    setNameById((current) => ({ ...current, [id]: name }))
-    await run(id, 'settings', async () => {
-      await updateAccount(id, { name })
+  async function onSaveSettings(id: string, input: { name: string; max_inflight: number; priority: number }) {
+    if (!id) throw new Error(t('accountNameRequired'))
+    setNameById((current) => ({ ...current, [id]: input.name }))
+    setInflightById((current) => ({ ...current, [id]: input.max_inflight }))
+    setPriorityById((current) => ({ ...current, [id]: input.priority }))
+    setBusy({ id, kind: 'settings' })
+    try {
+      await updateAccount(id, input)
       await refresh(undefined, { silent: true })
-    })
-    setNameById((current) => {
-      const next = { ...current }
-      delete next[id]
-      return next
-    })
-  }
-
-  async function onMaxInFlight(id: string, value: number) {
-    setInflightById((current) => ({ ...current, [id]: value }))
-    await run(id, 'settings', async () => {
-      await updateAccount(id, { max_inflight: value })
-      await refresh(undefined, { silent: true })
-    })
-    setInflightById((current) => {
-      const next = { ...current }
-      delete next[id]
-      return next
-    })
-  }
-
-  async function onPriority(id: string, value: number) {
-    setPriorityById((current) => ({ ...current, [id]: value }))
-    await run(id, 'settings', async () => {
-      await updateAccount(id, { priority: value })
-      await refresh(undefined, { silent: true })
-    })
-    setPriorityById((current) => {
-      const next = { ...current }
-      delete next[id]
-      return next
-    })
+    } catch (error) {
+      throw error instanceof Error ? error : new Error(String(error))
+    } finally {
+      setBusy(null)
+      setNameById((current) => {
+        const next = { ...current }
+        delete next[id]
+        return next
+      })
+      setInflightById((current) => {
+        const next = { ...current }
+        delete next[id]
+        return next
+      })
+      setPriorityById((current) => {
+        const next = { ...current }
+        delete next[id]
+        return next
+      })
+    }
   }
 
   return (
@@ -239,6 +234,14 @@ export function AccountsPage() {
 
       <AddAccountModal isOpen={addOpen} onClose={() => setAddOpen(false)} onAdded={() => void refresh(undefined, { silent: true })} />
       <AccountModelsModal key={modelsId ?? 'closed'} account={modelsAccount} t={t} onClose={() => setModelsId(null)} />
+      <EditAccountModal
+        key={editId ?? 'closed'}
+        account={editAccount}
+        busy={Boolean(busy && busy.id === editId && busy.kind === 'settings')}
+        t={t}
+        onClose={() => setEditId(null)}
+        onSave={(input) => onSaveSettings(editId || '', input)}
+      />
 
       <Modal.Root isOpen={Boolean(confirmAccount)} onOpenChange={(next: boolean) => { if (!next) setConfirmId(null) }}>
         <Modal.Backdrop variant="blur">
@@ -339,9 +342,7 @@ export function AccountsPage() {
             onDelete={() => setConfirmId(account.id)}
             onToggle={(selected) => void onToggle(account.id, selected)}
             onToggleDropSystem={(selected) => void onToggleDropSystem(account.id, selected)}
-            onRename={(name) => void onRename(account.id, name)}
-            onMaxInFlight={(value) => void onMaxInFlight(account.id, value)}
-            onPriority={(value) => void onPriority(account.id, value)}
+            onEdit={() => setEditId(account.id)}
             onToggleAuthPanel={() => setAuthPanelId((current) => current === account.id ? null : account.id)}
             onViewModels={() => setModelsId(account.id)}
           />

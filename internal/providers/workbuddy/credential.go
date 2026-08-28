@@ -33,12 +33,19 @@ const (
 	pathAuthAccount  = "/v2/plugin/login/account"
 	pathTokenRefresh = "/v2/plugin/auth/token/refresh"
 	pathChat         = "/v2/chat/completions"
-	pathModels       = "/console/enterprises/personal/models"
+	// CN still serves the console catalog to Bearer tokens. Global's
+	// /console/enterprises/personal/models is an OIDC page: unauthenticated
+	// 302 to Keycloak, authenticated 500 HTML. The plugin JSON catalog is
+	// /v2/enterprises/personal/models.
+	pathModelsCN     = "/console/enterprises/personal/models"
+	pathModelsGlobal = "/v2/enterprises/personal/models"
 	pathUserResource = "/v2/billing/meter/get-user-resource"
 	pathDailyCheckin = "/v2/billing/meter/daily-checkin"
 
-	sessionDeadCode = 12153
-	sessionDeadText = "Offline user session not found"
+	sessionDeadCode         = 12153
+	sessionDeadText         = "Offline user session not found"
+	missingSystemPromptCode = 11128
+	missingSystemPromptText = "first message is not system prompt"
 )
 
 // Credential is the canonical storage payload shape.
@@ -129,6 +136,13 @@ func (c Credential) ChatBase() string {
 		return ChatBaseGlobal
 	}
 	return ChatBaseCN
+}
+
+func (c Credential) catalogPath() string {
+	if c.IsGlobal() {
+		return pathModelsGlobal
+	}
+	return pathModelsCN
 }
 
 func (c Credential) BillingBase() string {
