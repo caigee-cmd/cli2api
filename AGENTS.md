@@ -16,6 +16,8 @@ Do not add new `TODO.md`, `NOTES.md`, or extra plan files. The only extra design
 ## Do
 
 - Pull latest `main` and merge it into the current branch before starting any feature work (skip only when already on up-to-date `main`)
+- After console UI changes, run `cd frontend && npm run sync` so `internal/webui/static` matches `frontend/dist`. Do not commit a stale hashed JS/CSS pair.
+- When `main` is checked out in another worktree, merge PRs with `gh api` / GitHub; do not `git checkout main` here.
 - Keep architecture: auth / endpoint / executor / translate / api
 - Prefer direct HTTP/SSE to Qoder cloud APIs
 - Pin qodercli / qoderclicn hooks in `worker/src/compat.mjs`; fail loudly on mismatch. Qoder CN is `provider=qoder` + `region=cn`, not a new family
