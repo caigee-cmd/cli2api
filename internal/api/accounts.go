@@ -23,7 +23,7 @@ func (s *Server) handleProviders(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleAccounts(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		_ = s.manager.RefreshAll(r.Context())
+		_ = s.manager.RefreshAll(r.Context(), r.URL.Query().Get("refresh") == "1")
 		items, err := s.manager.Accounts(r.Context())
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, "account_list_failed", err.Error())
@@ -32,11 +32,13 @@ func (s *Server) handleAccounts(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"object": "list", "data": items})
 	case http.MethodPost:
 		var input struct {
-			Name        string `json:"name"`
-			Provider    string `json:"provider"`
-			Region      string `json:"region"`
-			Enabled     bool   `json:"enabled"`
-			MaxInFlight int    `json:"max_inflight"`
+			Name             string `json:"name"`
+			Provider         string `json:"provider"`
+			Region           string `json:"region"`
+			Enabled          bool   `json:"enabled"`
+			MaxInFlight      int    `json:"max_inflight"`
+			Priority         int    `json:"priority"`
+			DropSystemPrompt *bool  `json:"drop_system_prompt"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 			writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
@@ -48,7 +50,7 @@ func (s *Server) handleAccounts(w http.ResponseWriter, r *http.Request) {
 		}
 		account, err := s.manager.Create(r.Context(), accounts.CreateAccount{
 			Name: input.Name, Provider: input.Provider, Region: input.Region,
-			Enabled: input.Enabled, MaxInFlight: input.MaxInFlight,
+			Enabled: input.Enabled, MaxInFlight: input.MaxInFlight, Priority: input.Priority, DropSystemPrompt: input.DropSystemPrompt,
 		})
 		if err != nil {
 			writeErr(w, http.StatusBadRequest, "account_create_failed", err.Error())
@@ -66,14 +68,17 @@ func (s *Server) handleAccountImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		Format     string          `json:"format"`
-		Name       string          `json:"name"`
-		Provider   string          `json:"provider"`
-		Region     string          `json:"region"`
-		Enabled    bool            `json:"enabled"`
-		UserBlob   string          `json:"user_blob"`
-		MachineID  string          `json:"machine_id"`
-		Credential json.RawMessage `json:"credential"`
+		Format           string          `json:"format"`
+		Name             string          `json:"name"`
+		Provider         string          `json:"provider"`
+		Region           string          `json:"region"`
+		Enabled          bool            `json:"enabled"`
+		MaxInFlight      int             `json:"max_inflight"`
+		Priority         int             `json:"priority"`
+		DropSystemPrompt *bool           `json:"drop_system_prompt"`
+		UserBlob         string          `json:"user_blob"`
+		MachineID        string          `json:"machine_id"`
+		Credential       json.RawMessage `json:"credential"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
@@ -88,6 +93,7 @@ func (s *Server) handleAccountImport(w http.ResponseWriter, r *http.Request) {
 		}
 		account, err := s.manager.Import(r.Context(), accounts.ImportAccount{
 			Name: input.Name, Provider: input.Provider, Region: input.Region, Enabled: input.Enabled,
+			MaxInFlight: input.MaxInFlight, Priority: input.Priority, DropSystemPrompt: input.DropSystemPrompt,
 			Credential: accounts.NativeCredential{UserBlob: blob, MachineID: input.MachineID},
 		})
 		if err != nil {
@@ -116,6 +122,7 @@ func (s *Server) handleAccountImport(w http.ResponseWriter, r *http.Request) {
 		_ = json.Unmarshal(payload, &credential)
 		account, err := s.manager.Create(r.Context(), accounts.CreateAccount{
 			Name: input.Name, Provider: "workbuddy", Region: input.Region, Enabled: false,
+			MaxInFlight: input.MaxInFlight, Priority: input.Priority, DropSystemPrompt: input.DropSystemPrompt,
 		})
 		if err != nil {
 			writeErr(w, http.StatusBadRequest, "account_import_failed", err.Error())

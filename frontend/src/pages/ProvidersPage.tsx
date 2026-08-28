@@ -6,12 +6,19 @@ import { useOverview } from '@/hooks/useOverview'
 import { refreshModels, updateModelContext } from '@/api/overview'
 import type { Overview } from '@/api/types'
 import { ProviderMark } from '@/components/ProviderMark'
+import { ListPager, type PageSize } from '@/components/ui/ListPager'
 import { ProvidersPageSkeleton } from '@/components/ui/PageSkeletons'
 
 type ModelInfo = NonNullable<Overview['models']>[number]
 
+const FILTER_SELECT_CLASS = 'h-8 min-w-36 rounded-lg border border-[var(--app-line-strong)] bg-[var(--app-surface-solid)] px-2.5 text-xs text-[var(--app-ink)]'
+
 function modelSettingsKey(model: ModelInfo) {
   return model.settings_key || model.id
+}
+
+function modelProvider(model: ModelInfo) {
+  return (model.owned_by || model.provider || 'qoder').toLowerCase()
 }
 
 function routedModelName(model: ModelInfo) {
@@ -23,18 +30,51 @@ export function ProvidersPage() {
   const { t } = useI18n()
   const { overview, loading, setOverview } = useOverview()
   const [filter, setFilter] = useState('')
+  const [providerFilter, setProviderFilter] = useState('')
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState<PageSize>(50)
   const [busy, setBusy] = useState(false)
   const [savingKey, setSavingKey] = useState('')
   const [message, setMessage] = useState('')
   const [messageError, setMessageError] = useState(false)
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const models = useMemo(() => overview?.models || [], [overview?.models])
+  const providers = useMemo(() => {
+    const ids = new Set<string>()
+    for (const model of models) ids.add(modelProvider(model))
+    return [...ids].sort()
+  }, [models])
 
   const filtered = useMemo(() => {
     const query = filter.trim().toLowerCase()
-    if (!query) return models
-    return models.filter((model) => `${model.display_name || ''} ${model.id} ${model.mapped_key || ''} ${model.provider || ''} ${model.owned_by || ''}`.toLowerCase().includes(query))
-  }, [filter, models])
+    return models.filter((model) => {
+      const provider = modelProvider(model)
+      if (providerFilter && provider !== providerFilter) return false
+      if (!query) return true
+      return `${model.display_name || ''} ${model.id} ${model.mapped_key || ''} ${model.provider || ''} ${model.owned_by || ''}`.toLowerCase().includes(query)
+    })
+  }, [filter, models, providerFilter])
+
+  const filterKey = [filter, providerFilter, pageSize].join('\0')
+  const [appliedFilterKey, setAppliedFilterKey] = useState(filterKey)
+  if (appliedFilterKey !== filterKey) {
+    setAppliedFilterKey(filterKey)
+    setPage(1)
+  }
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
+  const currentPage = Math.min(appliedFilterKey !== filterKey ? 1 : Math.max(1, page), pageCount)
+  if (page !== currentPage) {
+    setPage(currentPage)
+  }
+  const paged = useMemo(() => {
+    const start = (currentPage - 1) * pageSize
+    return filtered.slice(start, start + pageSize)
+  }, [currentPage, filtered, pageSize])
+  const shownFrom = filtered.length === 0 ? 0 : (currentPage - 1) * pageSize + 1
+  const shownTo = Math.min(filtered.length, currentPage * pageSize)
+  const shownLabel = filtered.length
+    ? t('logsShownTotal', { shown: `${shownFrom}–${shownTo}`, total: filtered.length })
+    : t('shownTotal', { shown: 0, total: models.length })
 
   if (loading) return <ProvidersPageSkeleton />
 
@@ -114,11 +154,22 @@ export function ProvidersPage() {
         <div data-gsap-reveal>
           <h2 className="text-2xl font-semibold tracking-[-0.035em]">{t('availableModels')}</h2>
           <p className="mt-1 text-sm text-[var(--app-muted)]">
-            {models.length ? t('shownTotal', { shown: filtered.length, total: models.length }) : t('noModelsYet')}
+            {models.length ? shownLabel : t('noModelsYet')}
           </p>
         </div>
-        <div data-gsap-reveal className="flex flex-col gap-2 sm:flex-row">
+        <div data-gsap-reveal className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <Input className="sm:w-72" value={filter} onChange={(event) => setFilter(event.target.value)} placeholder={t('filterPh')} aria-label={t('filter')} />
+          <select
+            className={FILTER_SELECT_CLASS}
+            value={providerFilter}
+            onChange={(event) => setProviderFilter(event.target.value)}
+            aria-label={t('providerCol')}
+          >
+            <option value="">{t('providerFilterAll')}</option>
+            {providers.map((provider) => (
+              <option key={provider} value={provider}>{provider}</option>
+            ))}
+          </select>
           <Button size="sm" variant="secondary" isPending={busy} onPress={() => void onRefresh()}>
             <ArrowClockwise size={14} />
             {busy ? t('refreshing') : t('refresh')}
@@ -147,7 +198,7 @@ export function ProvidersPage() {
             <div>
               <MagnifyingGlass size={22} className="mx-auto text-[var(--app-faint)]" />
               <div className="mt-4 text-sm font-medium">{models.length ? t('noModelsMatch') : t('noProviders')}</div>
-              <div className="mt-1 text-xs text-[var(--app-faint)]">{models.length ? filter : t('noModelsYet')}</div>
+              <div className="mt-1 text-xs text-[var(--app-faint)]">{models.length ? (filter || providerFilter || t('noModelsMatch')) : t('noModelsYet')}</div>
             </div>
           </div>
         ) : (
@@ -164,12 +215,12 @@ export function ProvidersPage() {
                   <Table.Column>{t('actions')}</Table.Column>
                 </Table.Header>
                 <Table.Body>
-                  {filtered.map((model) => {
+                  {paged.map((model) => {
                     const key = modelSettingsKey(model)
                     const saving = savingKey === key
-                    const provider = model.owned_by || model.provider || 'qoder'
+                    const provider = modelProvider(model)
                     return (
-                      <Table.Row key={model.id}>
+                      <Table.Row key={key}>
                         <Table.Cell>
                           <div className="flex items-center gap-3 py-1">
                             <span className="status-dot" data-state={model.stale ? undefined : 'ok'} />
@@ -226,6 +277,20 @@ export function ProvidersPage() {
           </Table>
         )}
       </Card>
+
+      <ListPager
+        total={filtered.length}
+        page={currentPage}
+        pageCount={pageCount}
+        pageSize={pageSize}
+        loading={busy}
+        pageSizeLabel={t('logsPageSize')}
+        pageLabel={t('logsPage', { page: currentPage, pages: pageCount })}
+        prevLabel={t('logsPrevPage')}
+        nextLabel={t('logsNextPage')}
+        onPage={setPage}
+        onPageSize={setPageSize}
+      />
     </div>
   )
 }

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -421,11 +422,14 @@ func (m *Manager) stopAccount(id string) error {
 }
 
 type ImportAccount struct {
-	Name       string
-	Provider   string
-	Region     string
-	Enabled    bool
-	Credential NativeCredential
+	Name             string
+	Provider         string
+	Region           string
+	Enabled          bool
+	MaxInFlight      int
+	Priority         int
+	DropSystemPrompt *bool
+	Credential       NativeCredential
 }
 
 type AccountView struct {
@@ -441,6 +445,7 @@ type AccountView struct {
 func (m *Manager) Import(ctx context.Context, input ImportAccount) (Account, error) {
 	account, err := m.store.Create(ctx, CreateAccount{
 		Name: input.Name, Provider: input.Provider, Region: input.Region, Enabled: false,
+		MaxInFlight: input.MaxInFlight, Priority: input.Priority, DropSystemPrompt: input.DropSystemPrompt,
 	})
 	if err != nil {
 		return Account{}, err
@@ -499,17 +504,17 @@ func (m *Manager) AccountURL(id string) (string, bool) {
 	return item.URL, ok
 }
 
-func (m *Manager) RefreshAll(ctx context.Context) error {
+func (m *Manager) RefreshAll(ctx context.Context, forceQuota bool) error {
 	var joined error
 	for _, item := range m.pool.Items() {
-		if err := m.refreshOne(ctx, item); err != nil {
+		if err := m.refreshOne(ctx, item, forceQuota); err != nil {
 			joined = errors.Join(joined, err)
 		}
 	}
 	return joined
 }
 
-func (m *Manager) refreshOne(ctx context.Context, item Item) error {
+func (m *Manager) refreshOne(ctx context.Context, item Item, forceQuota bool) error {
 	if item.Runtime == string(providers.RuntimeInProcess) || strings.TrimSpace(item.URL) == "" {
 		return m.refreshInProcess(ctx, item)
 	}
@@ -551,7 +556,7 @@ func (m *Manager) refreshOne(ctx context.Context, item Item) error {
 	// Quota is display-only: fetch after the health/observe path so a quota
 	// outage never flips account readiness or scheduling state.
 	if health.Hot || ready {
-		m.fetchQuota(ctx, item.ID, item.URL)
+		m.fetchQuota(ctx, item.ID, item.URL, forceQuota)
 		m.fetchAccountModels(ctx, item)
 	}
 	return nil
@@ -671,6 +676,7 @@ func (m *Manager) fetchProviderModels(ctx context.Context, item Item) {
 	}
 	models, err := adapter.Models.Models(ctx, item.ID)
 	if err != nil {
+		log.Printf("catalog fetch failed account=%s provider=%s: %v", item.ID, item.Provider, err)
 		return
 	}
 	ids := make([]string, 0, len(models)*2)
@@ -695,8 +701,12 @@ func catalogIDs(entries []map[string]any, extras []string) []string {
 
 // fetchQuota pulls the account quota snapshot from the worker daemon. Errors
 // only clear the displayed quota; they are not surfaced as account errors.
-func (m *Manager) fetchQuota(ctx context.Context, accountID, workerURL string) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, workerURL+"/admin/quota", nil)
+func (m *Manager) fetchQuota(ctx context.Context, accountID, workerURL string, force bool) {
+	path := strings.TrimRight(workerURL, "/") + "/admin/quota"
+	if force {
+		path += "?refresh=1"
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, path, nil)
 	if err != nil {
 		return
 	}

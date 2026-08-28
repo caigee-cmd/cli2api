@@ -264,7 +264,7 @@ func TestAccountsAPICreatesAndListsDisabledAccount(t *testing.T) {
 		QoderHome:   t.TempDir(),
 		DataDir:     dataDir,
 	})
-	body := bytes.NewBufferString(`{"name":"Work","enabled":false,"max_inflight":5}`)
+	body := bytes.NewBufferString(`{"name":"Work","enabled":false,"max_inflight":5,"drop_system_prompt":false}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/accounts", body)
 	req.Header.Set("Authorization", "Bearer secret")
 	req.Header.Set("Content-Type", "application/json")
@@ -283,15 +283,16 @@ func TestAccountsAPICreatesAndListsDisabledAccount(t *testing.T) {
 	}
 	var payload struct {
 		Data []struct {
-			Name        string `json:"name"`
-			Enabled     bool   `json:"enabled"`
-			MaxInFlight int    `json:"max_inflight"`
+			Name             string `json:"name"`
+			Enabled          bool   `json:"enabled"`
+			MaxInFlight      int    `json:"max_inflight"`
+			DropSystemPrompt bool   `json:"drop_system_prompt"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 		t.Fatal(err)
 	}
-	if len(payload.Data) != 1 || payload.Data[0].Name != "Work" || payload.Data[0].Enabled || payload.Data[0].MaxInFlight != 5 {
+	if len(payload.Data) != 1 || payload.Data[0].Name != "Work" || payload.Data[0].Enabled || payload.Data[0].MaxInFlight != 5 || payload.Data[0].DropSystemPrompt {
 		t.Fatalf("accounts payload = %+v", payload.Data)
 	}
 }
@@ -354,9 +355,9 @@ func TestAccountsAPIUpdatesExportsAndDeletesAccount(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer secret")
 	rec = httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, req)
-		if rec.Code != http.StatusOK || !bytes.Contains(rec.Body.Bytes(), []byte(`"format":"qoder-native-v1"`)) || !bytes.Contains(rec.Body.Bytes(), []byte(`"user_blob":"Y2lwaGVy"`)) || !bytes.Contains(rec.Body.Bytes(), []byte(`"provider":"qoder"`)) || !bytes.Contains(rec.Body.Bytes(), []byte(`"region":"global"`)) {
-			t.Fatalf("export: %d %s", rec.Code, rec.Body.String())
-		}
+	if rec.Code != http.StatusOK || !bytes.Contains(rec.Body.Bytes(), []byte(`"format":"qoder-native-v1"`)) || !bytes.Contains(rec.Body.Bytes(), []byte(`"user_blob":"Y2lwaGVy"`)) || !bytes.Contains(rec.Body.Bytes(), []byte(`"provider":"qoder"`)) || !bytes.Contains(rec.Body.Bytes(), []byte(`"region":"global"`)) {
+		t.Fatalf("export: %d %s", rec.Code, rec.Body.String())
+	}
 
 	req = httptest.NewRequest(http.MethodDelete, "/api/accounts/"+created.ID, nil)
 	req.Header.Set("Authorization", "Bearer secret")

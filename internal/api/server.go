@@ -235,7 +235,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
-	_ = s.manager.RefreshAll(r.Context())
+	_ = s.manager.RefreshAll(r.Context(), r.URL.Query().Get("refresh") == "1")
 	accountViews, _ := s.manager.Accounts(r.Context())
 	readyCount := 0
 	hotCount := 0

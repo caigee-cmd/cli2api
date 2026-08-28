@@ -146,11 +146,34 @@ func (s *Server) handleRuntimeLogs(w http.ResponseWriter, r *http.Request) {
 			limit = n
 		}
 	}
-	entries := s.ring.Snapshot(afterID, limit, r.URL.Query().Get("level"), r.URL.Query().Get("q"), r.URL.Query().Get("account"))
+	offset := 0
+	if raw := strings.TrimSpace(r.URL.Query().Get("offset")); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil {
+			offset = n
+		}
+	}
+	entries, total := s.ring.Snapshot(afterID, limit, offset, r.URL.Query().Get("level"), r.URL.Query().Get("q"), r.URL.Query().Get("account"))
 	writeJSON(w, http.StatusOK, map[string]any{
-		"items": entries,
-		"count": len(entries),
+		"items":  entries,
+		"count":  len(entries),
+		"total":  total,
+		"limit":  clampRuntimeLimit(limit),
+		"offset": clampRuntimeOffset(offset),
 	})
+}
+
+func clampRuntimeLimit(limit int) int {
+	if limit <= 0 || limit > 500 {
+		return 200
+	}
+	return limit
+}
+
+func clampRuntimeOffset(offset int) int {
+	if offset < 0 {
+		return 0
+	}
+	return offset
 }
 
 func parseQueryTime(raw string, endOfDay bool) *time.Time {
