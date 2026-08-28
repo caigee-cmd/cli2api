@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.2.13 - 2026-08-28
+
+### English
+
 - Upgrade the pinned Qoder CLIs from 1.1.27 to 1.1.32 (`@qoder-ai/qodercli` and `@qodercn-ai/qoderclicn`), with all worker compat needles re-verified against both new bundles
 - Route chat by each account's live model catalog so a request like `hy3` only hits accounts that actually serve it; unknown models return `model_not_available` without cooling healthy accounts
 - Render System page release notes as markdown for the current console language, in a box that grows with the text and scrolls when it overflows
