@@ -87,6 +87,67 @@ type RequestLogList struct {
 	Offset int          `json:"offset"`
 }
 
+type RequestStats struct {
+	Window   RequestStatsWindow   `json:"window"`
+	Totals   RequestStatsTotals   `json:"totals"`
+	Latency  RequestStatsLatency  `json:"latency"`
+	Tokens   RequestStatsTokens   `json:"tokens"`
+	Status   []RequestStatsBucket `json:"status"`
+	Errors   []RequestStatsBucket `json:"errors"`
+	Models   []RequestStatsNamed  `json:"models"`
+	Accounts []RequestStatsNamed  `json:"accounts"`
+	Series   []RequestStatsPoint  `json:"series"`
+}
+
+type RequestStatsWindow struct {
+	From  time.Time `json:"from"`
+	To    time.Time `json:"to"`
+	Hours int       `json:"hours"`
+}
+
+type RequestStatsTotals struct {
+	Requests    int     `json:"requests"`
+	OK          int     `json:"ok"`
+	Error       int     `json:"error"`
+	Canceled    int     `json:"canceled"`
+	Streaming   int     `json:"streaming"`
+	SuccessRate float64 `json:"success_rate"`
+}
+
+type RequestStatsLatency struct {
+	AvgMs     *int `json:"avg_ms,omitempty"`
+	P50Ms     *int `json:"p50_ms,omitempty"`
+	P95Ms     *int `json:"p95_ms,omitempty"`
+	TTFBAvgMs *int `json:"ttfb_avg_ms,omitempty"`
+}
+
+type RequestStatsTokens struct {
+	Prompt     int64 `json:"prompt"`
+	Completion int64 `json:"completion"`
+	CacheRead  int64 `json:"cache_read"`
+	Total      int64 `json:"total"`
+}
+
+type RequestStatsBucket struct {
+	Key   string `json:"key"`
+	Count int    `json:"count"`
+}
+
+type RequestStatsNamed struct {
+	Key          string `json:"key"`
+	Count        int    `json:"count"`
+	OK           int    `json:"ok"`
+	Error        int    `json:"error"`
+	LatencyAvgMs *int   `json:"latency_avg_ms,omitempty"`
+}
+
+type RequestStatsPoint struct {
+	At       time.Time `json:"at"`
+	Requests int       `json:"requests"`
+	OK       int       `json:"ok"`
+	Error    int       `json:"error"`
+}
+
 func NewRequestID() string {
 	raw := make([]byte, 8)
 	if _, err := rand.Read(raw); err != nil {
@@ -238,6 +299,300 @@ FROM request_logs` + where + ` ORDER BY created_at DESC, id DESC LIMIT ? OFFSET 
 		return RequestLogList{}, err
 	}
 	return RequestLogList{Items: items, Total: total, Limit: limit, Offset: offset}, nil
+}
+
+func (s *Store) SummarizeRequestLogs(ctx context.Context, from, to time.Time) (RequestStats, error) {
+	if from.IsZero() {
+		from = time.Now().UTC().Add(-24 * time.Hour)
+	}
+	if to.IsZero() {
+		to = time.Now().UTC()
+	}
+	from = from.UTC()
+	to = to.UTC()
+	if !to.After(from) {
+		to = from.Add(time.Hour)
+	}
+	hours := int(to.Sub(from).Round(time.Hour) / time.Hour)
+	if hours < 1 {
+		hours = 1
+	}
+
+	filter := RequestLogFilter{From: &from, To: &to}
+	where, args := buildRequestLogWhere(filter)
+	stats := RequestStats{
+		Window:   RequestStatsWindow{From: from, To: to, Hours: hours},
+		Status:   make([]RequestStatsBucket, 0),
+		Errors:   make([]RequestStatsBucket, 0),
+		Models:   make([]RequestStatsNamed, 0),
+		Accounts: make([]RequestStatsNamed, 0),
+		Series:   make([]RequestStatsPoint, 0, hours),
+	}
+
+	row := s.db.QueryRowContext(ctx, `
+SELECT
+  COUNT(*),
+  COALESCE(SUM(CASE WHEN status = 'ok' THEN 1 ELSE 0 END), 0),
+  COALESCE(SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END), 0),
+  COALESCE(SUM(CASE WHEN status = 'canceled' THEN 1 ELSE 0 END), 0),
+  COALESCE(SUM(CASE WHEN stream = 1 THEN 1 ELSE 0 END), 0),
+  AVG(CASE WHEN latency_ms IS NOT NULL THEN latency_ms END),
+  AVG(CASE WHEN ttfb_ms IS NOT NULL THEN ttfb_ms END),
+  COALESCE(SUM(COALESCE(prompt_tokens, 0)), 0),
+  COALESCE(SUM(COALESCE(completion_tokens, 0)), 0),
+  COALESCE(SUM(COALESCE(cache_read_tokens, 0)), 0)
+FROM request_logs`+where, args...)
+	var avgLatency, avgTTFB sql.NullFloat64
+	if err := row.Scan(
+		&stats.Totals.Requests, &stats.Totals.OK, &stats.Totals.Error, &stats.Totals.Canceled, &stats.Totals.Streaming,
+		&avgLatency, &avgTTFB, &stats.Tokens.Prompt, &stats.Tokens.Completion, &stats.Tokens.CacheRead,
+	); err != nil {
+		return RequestStats{}, fmt.Errorf("summarize request logs: %w", err)
+	}
+	stats.Tokens.Total = stats.Tokens.Prompt + stats.Tokens.Completion
+	if stats.Totals.Requests > 0 {
+		stats.Totals.SuccessRate = float64(stats.Totals.OK) / float64(stats.Totals.Requests)
+	}
+	stats.Latency.AvgMs = roundedNullInt(avgLatency)
+	stats.Latency.TTFBAvgMs = roundedNullInt(avgTTFB)
+	stats.Latency.P50Ms, stats.Latency.P95Ms = s.requestLatencyPercentiles(ctx, where, args)
+
+	statusRows, err := s.db.QueryContext(ctx, `
+SELECT status, COUNT(*) FROM request_logs`+where+` GROUP BY status ORDER BY COUNT(*) DESC, status ASC`, args...)
+	if err != nil {
+		return RequestStats{}, fmt.Errorf("summarize request status: %w", err)
+	}
+	stats.Status, err = scanCountBuckets(statusRows)
+	if err != nil {
+		return RequestStats{}, err
+	}
+
+	errorRows, err := s.db.QueryContext(ctx, `
+SELECT error_kind, COUNT(*) FROM request_logs`+whereAnd(where, "error_kind <> ''")+`
+GROUP BY error_kind ORDER BY COUNT(*) DESC, error_kind ASC LIMIT 8`, args...)
+	if err != nil {
+		return RequestStats{}, fmt.Errorf("summarize request errors: %w", err)
+	}
+	stats.Errors, err = scanCountBuckets(errorRows)
+	if err != nil {
+		return RequestStats{}, err
+	}
+
+	modelRows, err := s.db.QueryContext(ctx, `
+SELECT COALESCE(NULLIF(requested_model, ''), '(unknown)'), COUNT(*),
+       COALESCE(SUM(CASE WHEN status = 'ok' THEN 1 ELSE 0 END), 0),
+       COALESCE(SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END), 0),
+       AVG(CASE WHEN latency_ms IS NOT NULL THEN latency_ms END)
+FROM request_logs`+where+` GROUP BY 1 ORDER BY COUNT(*) DESC, 1 ASC LIMIT 6`, args...)
+	if err != nil {
+		return RequestStats{}, fmt.Errorf("summarize request models: %w", err)
+	}
+	stats.Models, err = scanNamedBuckets(modelRows)
+	if err != nil {
+		return RequestStats{}, err
+	}
+
+	accountRows, err := s.db.QueryContext(ctx, `
+SELECT COALESCE(NULLIF(account_id, ''), '(unassigned)'), COUNT(*),
+       COALESCE(SUM(CASE WHEN status = 'ok' THEN 1 ELSE 0 END), 0),
+       COALESCE(SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END), 0),
+       AVG(CASE WHEN latency_ms IS NOT NULL THEN latency_ms END)
+FROM request_logs`+where+` GROUP BY 1 ORDER BY COUNT(*) DESC, 1 ASC LIMIT 6`, args...)
+	if err != nil {
+		return RequestStats{}, fmt.Errorf("summarize request accounts: %w", err)
+	}
+	stats.Accounts, err = scanNamedBuckets(accountRows)
+	if err != nil {
+		return RequestStats{}, err
+	}
+
+	series, err := s.requestSeries(ctx, from, to, where, args)
+	if err != nil {
+		return RequestStats{}, err
+	}
+	stats.Series = series
+	return stats, nil
+}
+
+func (s *Store) requestLatencyPercentiles(ctx context.Context, where string, args []any) (*int, *int) {
+	rows, err := s.db.QueryContext(ctx, `SELECT latency_ms FROM request_logs`+whereAnd(where, "latency_ms IS NOT NULL")+` ORDER BY latency_ms ASC`, args...)
+	if err != nil {
+		return nil, nil
+	}
+	defer rows.Close()
+	values := make([]int, 0, 128)
+	for rows.Next() {
+		var value int
+		if err := rows.Scan(&value); err != nil {
+			return nil, nil
+		}
+		values = append(values, value)
+	}
+	if len(values) == 0 {
+		return nil, nil
+	}
+	return intPtr(percentileNearestRank(values, 50)), intPtr(percentileNearestRank(values, 95))
+}
+
+func (s *Store) requestSeries(ctx context.Context, from, to time.Time, where string, args []any) ([]RequestStatsPoint, error) {
+	span := to.Sub(from)
+	daily := span > 48*time.Hour
+	quarter := !daily && span <= 2*time.Hour
+	step := time.Hour
+	trunc := from.Truncate(time.Hour)
+	end := to.Truncate(time.Hour)
+	if daily {
+		step = 24 * time.Hour
+		trunc = time.Date(from.Year(), from.Month(), from.Day(), 0, 0, 0, 0, time.UTC)
+		end = time.Date(to.Year(), to.Month(), to.Day(), 0, 0, 0, 0, time.UTC)
+	} else if quarter {
+		step = 15 * time.Minute
+		trunc = from.Truncate(15 * time.Minute)
+		end = to.Truncate(15 * time.Minute)
+	}
+	if to.After(end) {
+		end = end.Add(step)
+	}
+	points := make([]RequestStatsPoint, 0)
+	index := map[string]int{}
+	for cursor := trunc; cursor.Before(end); cursor = cursor.Add(step) {
+		index[seriesKey(cursor, daily, quarter)] = len(points)
+		points = append(points, RequestStatsPoint{At: cursor.UTC()})
+	}
+	if len(points) == 0 {
+		return points, nil
+	}
+
+	expr := "substr(created_at, 1, 13)"
+	if daily {
+		expr = "substr(created_at, 1, 10)"
+	} else if quarter {
+		expr = "substr(created_at, 1, 15) || printf('%02d', (CAST(substr(created_at, 15, 2) AS INTEGER) / 15) * 15)"
+	}
+	rows, err := s.db.QueryContext(ctx, fmt.Sprintf(`
+SELECT %s, COUNT(*),
+       COALESCE(SUM(CASE WHEN status = 'ok' THEN 1 ELSE 0 END), 0),
+       COALESCE(SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END), 0)
+FROM request_logs%s GROUP BY 1 ORDER BY 1 ASC`, expr, where), args...)
+	if err != nil {
+		return nil, fmt.Errorf("summarize request series: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var bucket string
+		var requests, okCount, errorCount int
+		if err := rows.Scan(&bucket, &requests, &okCount, &errorCount); err != nil {
+			return nil, fmt.Errorf("scan request series: %w", err)
+		}
+		if i, exists := index[normalizeSeriesBucket(bucket, daily, quarter)]; exists {
+			points[i].Requests = requests
+			points[i].OK = okCount
+			points[i].Error = errorCount
+		}
+	}
+	return points, rows.Err()
+}
+
+func seriesKey(value time.Time, daily, quarter bool) string {
+	utc := value.UTC()
+	if daily {
+		return utc.Format("2006-01-02")
+	}
+	if quarter {
+		return utc.Truncate(15 * time.Minute).Format("2006-01-02T15:04")
+	}
+	return utc.Format("2006-01-02T15")
+}
+
+func normalizeSeriesBucket(bucket string, daily, quarter bool) string {
+	text := strings.TrimSpace(bucket)
+	if daily {
+		if len(text) >= 10 {
+			return text[:10]
+		}
+		return text
+	}
+	if quarter {
+		if len(text) >= 16 {
+			parsed, err := time.Parse("2006-01-02T15:04", text[:16])
+			if err == nil {
+				return parsed.UTC().Truncate(15 * time.Minute).Format("2006-01-02T15:04")
+			}
+			return text[:16]
+		}
+		return text
+	}
+	if len(text) >= 13 {
+		return text[:13]
+	}
+	return text
+}
+
+func scanCountBuckets(rows *sql.Rows) ([]RequestStatsBucket, error) {
+	defer rows.Close()
+	items := make([]RequestStatsBucket, 0)
+	for rows.Next() {
+		var item RequestStatsBucket
+		if err := rows.Scan(&item.Key, &item.Count); err != nil {
+			return nil, fmt.Errorf("scan request bucket: %w", err)
+		}
+		if strings.TrimSpace(item.Key) == "" {
+			continue
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func scanNamedBuckets(rows *sql.Rows) ([]RequestStatsNamed, error) {
+	defer rows.Close()
+	items := make([]RequestStatsNamed, 0)
+	for rows.Next() {
+		var item RequestStatsNamed
+		var avg sql.NullFloat64
+		if err := rows.Scan(&item.Key, &item.Count, &item.OK, &item.Error, &avg); err != nil {
+			return nil, fmt.Errorf("scan named request bucket: %w", err)
+		}
+		item.LatencyAvgMs = roundedNullInt(avg)
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func whereAnd(where, extra string) string {
+	if strings.TrimSpace(where) == "" {
+		return " WHERE " + extra
+	}
+	return where + " AND " + extra
+}
+
+func roundedNullInt(value sql.NullFloat64) *int {
+	if !value.Valid {
+		return nil
+	}
+	rounded := int(value.Float64 + 0.5)
+	return &rounded
+}
+
+func intPtr(value int) *int {
+	return &value
+}
+
+func percentileNearestRank(sorted []int, percentile int) int {
+	if len(sorted) == 0 {
+		return 0
+	}
+	if percentile <= 0 {
+		return sorted[0]
+	}
+	if percentile >= 100 {
+		return sorted[len(sorted)-1]
+	}
+	rank := int((float64(percentile) / 100) * float64(len(sorted)))
+	if rank >= len(sorted) {
+		rank = len(sorted) - 1
+	}
+	return sorted[rank]
 }
 
 func (s *Store) GetRequestLog(ctx context.Context, id string) (RequestLog, error) {

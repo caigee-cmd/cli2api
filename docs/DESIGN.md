@@ -414,7 +414,7 @@ Keep the menu short. Login is a gate, not a nav item.
 | Route | Nav | Job |
 |-------|-----|-----|
 | `/login` | no | Console password |
-| `/` | Overview | Runtime pulse |
+| `/` | Overview | Runtime pulse + request stats |
 | `/accounts` | Accounts | Qoder login + pool |
 | `/providers` | Models | Catalog + per-model context-window defaults |
 | `/access` | Access | Base URL + quick chat |
@@ -444,6 +444,7 @@ Rules:
 - Runtime ring redacts obvious secrets and is lost on restart. Docker compose logs remain the durable operator stream for first-boot API key recovery.
 - `/api/logs/*` requires the SQLite API key.
 - Request history list accepts `account`, `status`, `stream`, `error_kind`, `model`, `q`, `from`, `to`, `limit`, and `offset`. The console `/logs` page paginates this list and exposes those filters.
+- `GET /api/logs/stats` aggregates counts, success rate, latency percentiles, tokens, error mix, and a time series for Overview. Windows are 1h / 24h / 7d; series buckets are 15 minutes, hourly, or daily.
 - Runtime snapshot accepts `account` in addition to `level` and `q`.
 
 ## Managed update
