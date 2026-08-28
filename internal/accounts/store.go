@@ -21,15 +21,15 @@ var ErrAccountNotFound = errors.New("account not found")
 var ErrSecretNotFound = errors.New("secret not found")
 
 type Account struct {
-	ID             string     `json:"id"`
-	Name           string     `json:"name"`
-	RemoteUID      string     `json:"remote_uid,omitempty"`
-	Provider       string     `json:"provider"`
-	ProviderRegion string     `json:"region"`
-	AuthType       string     `json:"auth_type"`
-	Enabled        bool       `json:"enabled"`
-	MaxInFlight    int        `json:"max_inflight"`
-	Priority       int        `json:"priority"`
+	ID             string `json:"id"`
+	Name           string `json:"name"`
+	RemoteUID      string `json:"remote_uid,omitempty"`
+	Provider       string `json:"provider"`
+	ProviderRegion string `json:"region"`
+	AuthType       string `json:"auth_type"`
+	Enabled        bool   `json:"enabled"`
+	MaxInFlight    int    `json:"max_inflight"`
+	Priority       int    `json:"priority"`
 	// DropSystemPrompt drops caller system prompts before provider-native chat.
 	DropSystemPrompt bool       `json:"drop_system_prompt"`
 	Status           string     `json:"status"`
@@ -41,12 +41,13 @@ type Account struct {
 }
 
 type CreateAccount struct {
-	Name        string
-	Provider    string
-	Region      string
-	Enabled     bool
-	MaxInFlight int
-	Priority    int
+	Name             string
+	Provider         string
+	Region           string
+	Enabled          bool
+	MaxInFlight      int
+	Priority         int
+	DropSystemPrompt *bool
 }
 
 type UpdateAccount struct {
@@ -120,6 +121,10 @@ func (s *Store) Create(ctx context.Context, input CreateAccount) (Account, error
 		priority = 50
 	}
 	now := time.Now().UTC()
+	dropSystemPrompt := true
+	if input.DropSystemPrompt != nil {
+		dropSystemPrompt = *input.DropSystemPrompt
+	}
 	account := Account{
 		ID:               newAccountID(),
 		Name:             name,
@@ -129,7 +134,7 @@ func (s *Store) Create(ctx context.Context, input CreateAccount) (Account, error
 		Enabled:          input.Enabled,
 		MaxInFlight:      maxInFlight,
 		Priority:         priority,
-		DropSystemPrompt: true,
+		DropSystemPrompt: dropSystemPrompt,
 		Status:           "offline",
 		CreatedAt:        now,
 		UpdatedAt:        now,

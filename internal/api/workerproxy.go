@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -153,13 +154,17 @@ func (s *Server) workerGet(path string, timeout time.Duration, accountID string)
 }
 
 func (s *Server) fetchWorkerModels(refresh bool) []map[string]any {
-	return s.fetchWorkerModelsFor(refresh, "")
+	models, _ := s.fetchWorkerModelsFor(refresh, "")
+	return models
 }
 
-func (s *Server) fetchWorkerModelsFor(refresh bool, accountID string) []map[string]any {
-	models := s.fetchProviderModels(refresh, accountID)
+func (s *Server) fetchWorkerModelsFor(refresh bool, accountID string) ([]map[string]any, error) {
+	models, err := s.fetchProviderModels(refresh, accountID)
+	if err != nil {
+		return nil, err
+	}
 	if models != nil {
-		return models
+		return models, nil
 	}
 	path := "/admin/models"
 	if refresh {
@@ -167,7 +172,10 @@ func (s *Server) fetchWorkerModelsFor(refresh bool, accountID string) []map[stri
 	}
 	resp, err := s.workerGet(path, 60*time.Second, accountID)
 	if err != nil {
-		return nil
+		if accountID != "" {
+			return nil, err
+		}
+		return nil, nil
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
@@ -175,18 +183,19 @@ func (s *Server) fetchWorkerModelsFor(refresh bool, accountID string) []map[stri
 		Data []map[string]any `json:"data"`
 	}
 	if json.Unmarshal(body, &parsed) != nil || len(parsed.Data) == 0 {
-		return nil
+		return nil, nil
 	}
-	return parsed.Data
+	return parsed.Data, nil
 }
 
 // fetchProviderModels merges catalogs across accounts. Qoder models come from
 // worker daemons; in-process providers come from their adapters. Each entry is
 // tagged with the provider that actually serves it.
-func (s *Server) fetchProviderModels(refresh bool, accountID string) []map[string]any {
+func (s *Server) fetchProviderModels(refresh bool, accountID string) ([]map[string]any, error) {
 	var merged []map[string]any
 	seen := map[string]struct{}{}
 	sawAny := false
+	var lastErr error
 	for _, item := range s.pool.Items() {
 		if accountID != "" && item.ID != accountID {
 			continue
@@ -200,6 +209,11 @@ func (s *Server) fetchProviderModels(refresh bool, accountID string) []map[strin
 		}
 		models, err := adapter.Models.Models(context.Background(), item.ID)
 		if err != nil {
+			log.Printf("catalog fetch failed account=%s provider=%s: %v", item.ID, item.Provider, err)
+			lastErr = err
+			if accountID != "" {
+				return nil, err
+			}
 			continue
 		}
 		sawAny = true
@@ -217,7 +231,10 @@ func (s *Server) fetchProviderModels(refresh bool, accountID string) []map[strin
 		}
 	}
 	if !sawAny {
-		return nil
+		if accountID != "" && lastErr != nil {
+			return nil, lastErr
+		}
+		return nil, nil
 	}
 	// Merge Qoder daemon models alongside in-process providers.
 	var qoderModels []map[string]any
@@ -240,7 +257,7 @@ func (s *Server) fetchProviderModels(refresh bool, accountID string) []map[strin
 		model["owned_by"] = "qoder"
 		merged = append(merged, model)
 	}
-	return merged
+	return merged, nil
 }
 
 func (s *Server) fetchQoderModels(refresh bool, accountID string) []map[string]any {

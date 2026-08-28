@@ -13,11 +13,16 @@ import (
 )
 
 type memStore struct {
-	items map[string][]byte
+	items  map[string][]byte
+	region string
 }
 
 func (s *memStore) Get(ctx context.Context, id string) (accounts.Account, error) {
-	return accounts.Account{ID: id, Provider: "workbuddy", ProviderRegion: "cn"}, nil
+	region := s.region
+	if region == "" {
+		region = "cn"
+	}
+	return accounts.Account{ID: id, Provider: "workbuddy", ProviderRegion: region}, nil
 }
 func (s *memStore) LoadCredentialPayload(ctx context.Context, accountID string) (string, []byte, error) {
 	payload, ok := s.items[accountID]
@@ -184,6 +189,88 @@ func TestModelsFiltersCliAgentAndDisabled(t *testing.T) {
 	}
 	if len(models) != 1 || models[0].NativeModel != "glm-5.2" || models[0].Capabilities.ContextWindow != 128000 {
 		t.Fatalf("models=%+v", models)
+	}
+}
+
+func TestModelsAcceptsGlobalCLIAgentNamesAndUsesAccountRegion(t *testing.T) {
+	payload, _ := Credential{AccessToken: "at", UID: "u1", Domain: "codebuddy.cn", ExpiresAt: 4102444800}.Encode()
+	store := &memStore{items: map[string][]byte{"acc1": payload}, region: "global"}
+	var origin, requestHost, ideType string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != pathModels {
+			t.Fatalf("path=%s", r.URL.Path)
+		}
+		origin = r.Header.Get("Origin")
+		requestHost = r.Host
+		ideType = r.Header.Get("X-IDE-Type")
+		_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{
+			"models": []map[string]any{
+				{"id": "glm-5.2", "name": "GLM", "maxInputTokens": 128000, "maxOutputTokens": 16384},
+				{"id": "web-model"},
+			},
+			"agents": []map[string]any{
+				{"name": "web", "models": []string{"web-model"}},
+				{"name": "CLI", "models": []string{"glm-5.2"}},
+			},
+		}})
+	}))
+	defer server.Close()
+	client := NewClient(store)
+	client.http = server.Client()
+	client.http.Transport = rewriteTransport{server: server.URL, round: server.Client().Transport}
+
+	models, err := client.Models(context.Background(), "acc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 1 || models[0].NativeModel != "glm-5.2" {
+		t.Fatalf("models=%+v", models)
+	}
+	if origin != "https://www.workbuddy.ai" {
+		t.Fatalf("origin=%s", origin)
+	}
+	if ideType != "" {
+		t.Fatalf("catalog must not send chat-only CLI headers, got X-IDE-Type=%q host=%s", ideType, requestHost)
+	}
+}
+
+func TestModelsWithoutAgentsReturnsEnabledModels(t *testing.T) {
+	payload, _ := Credential{AccessToken: "at", UID: "u1", Domain: "www.workbuddy.ai", ExpiresAt: 4102444800}.Encode()
+	store := &memStore{items: map[string][]byte{"acc1": payload}, region: "global"}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{
+			"models": []map[string]any{
+				{"id": "glm-5.2", "name": "GLM"},
+				{"id": "secret-model", "disabled": true},
+			},
+		}})
+	}))
+	defer server.Close()
+	client := NewClient(store)
+	client.http = server.Client()
+	client.http.Transport = rewriteTransport{server: server.URL, round: server.Client().Transport}
+
+	models, err := client.Models(context.Background(), "acc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 1 || models[0].NativeModel != "glm-5.2" {
+		t.Fatalf("models=%+v", models)
+	}
+}
+
+func TestIsGlobalRecognizesWorkBuddyDomains(t *testing.T) {
+	if (Credential{Domain: "www.workbuddy.ai"}).IsGlobal() != true {
+		t.Fatal("workbuddy.ai should be global")
+	}
+	if (Credential{Domain: "workbuddy.com"}).IsGlobal() != true {
+		t.Fatal("workbuddy.com should be global")
+	}
+	if (Credential{Domain: "codebuddy.cn"}).IsGlobal() {
+		t.Fatal("codebuddy.cn should stay CN")
+	}
+	if (Credential{}).IsGlobal() {
+		t.Fatal("empty domain should not be global")
 	}
 }
 

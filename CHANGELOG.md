@@ -7,7 +7,27 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Paginate runtime logs on Logs the same way as request history, newest first
+- Filter the Models catalog by provider and paginate the list
+- Fix WorkBuddy Global model catalogs: use the Global host from account region, accept CLI agent names besides exact `cli`, and surface catalog errors instead of an empty list
+- Replace Access playground account and model tiles with compact side-by-side dropdowns
+- Shorten the add-account dialog into two steps: pick type and name first, then sign in; hide concurrency and priority behind advanced options, and switch the type picker to a dropdown when more than six providers are registered
+- Set account name, max concurrency, priority, and WorkBuddy drop-system-prompt before login, and edit name, concurrency, and priority on account cards
+- Force-refresh account quotas when the console refresh button is used, bypassing the Qoder 15s quota cache
+- Keep the Accounts toolbar visible while refresh is loading and show card skeletons instead of stale quota meters
+- Drop the colored left accent on account cards; status stays on the chip and runtime meter
+
 ### 中文
+
+- 日志页运行日志支持分页，交互与请求历史一致，最新记录在前
+- 模型目录可按供应商筛选，并支持分页
+- 修复 WorkBuddy 国际版模型目录：按账号区域打到国际站，识别不止精确 `cli` 的 CLI agent，失败时返回明确错误而不再显示空列表
+- Access 调试台的账号和模型选择改为并排下拉框，避免模型过多时撑开页面
+- 添加账号改为两步：先选类型和名称，再登录；并发和优先级收进高级选项，供应商超过 6 个时改用下拉
+- 添加账号时先设置名称、最大并发、优先级，以及 WorkBuddy 的丢弃系统提示词；卡片上也可改名称、并发和优先级
+- 控制台点刷新时强制重新拉取账号额度，绕过 Qoder 15 秒额度缓存
+- 账号页刷新时保留顶部操作栏，卡片区域显示骨架屏，不再把旧额度留在画面上
+- 去掉账号卡片左侧的彩色状态条，状态只留在 Chip 和运行短柱上
 
 ## 0.2.14 - 2026-08-28
 

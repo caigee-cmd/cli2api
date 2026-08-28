@@ -250,7 +250,7 @@ func TestManagerRefreshesHealthAndPersistsUID(t *testing.T) {
 	}
 	manager := NewManager(ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
 	manager.pool.Upsert(Item{ID: account.ID, URL: worker.URL})
-	if err := manager.RefreshAll(ctx); err != nil {
+	if err := manager.RefreshAll(ctx, false); err != nil {
 		t.Fatal(err)
 	}
 	updated, err := store.Get(ctx, account.ID)
@@ -305,7 +305,7 @@ func TestManagerRefreshFetchesQuotaWithoutAffectingHealth(t *testing.T) {
 	}
 	manager := NewManager(ManagerConfig{DataDir: t.TempDir(), ProxyAPIKey: "proxy-key"}, store, &fakeStarter{})
 	manager.pool.Upsert(Item{ID: account.ID, URL: worker.URL})
-	if err := manager.RefreshAll(ctx); err != nil {
+	if err := manager.RefreshAll(ctx, false); err != nil {
 		t.Fatal(err)
 	}
 	if !quotaCalled {
@@ -361,7 +361,7 @@ func TestManagerRefreshCachesAccountCatalog(t *testing.T) {
 	}
 	manager := NewManager(ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
 	manager.pool.Upsert(Item{ID: account.ID, URL: worker.URL})
-	if err := manager.RefreshAll(ctx); err != nil {
+	if err := manager.RefreshAll(ctx, false); err != nil {
 		t.Fatal(err)
 	}
 	item, _ := manager.pool.ByID(account.ID)
@@ -405,7 +405,7 @@ func TestManagerQuotaFailureLeavesAccountReady(t *testing.T) {
 	}
 	manager := NewManager(ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
 	manager.pool.Upsert(Item{ID: account.ID, URL: worker.URL})
-	if err := manager.RefreshAll(ctx); err != nil {
+	if err := manager.RefreshAll(ctx, false); err != nil {
 		t.Fatalf("quota outage must not fail refresh: %v", err)
 	}
 	item, _ := manager.pool.ByID(account.ID)
@@ -414,6 +414,47 @@ func TestManagerQuotaFailureLeavesAccountReady(t *testing.T) {
 	}
 	if item.Quota != nil {
 		t.Fatalf("quota should stay nil on outage, got %+v", item.Quota)
+	}
+}
+
+func TestManagerRefreshCanForceQuotaBypass(t *testing.T) {
+	var gotQuery string
+	worker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/health":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true, "ready": true, "hot": true, "uid": "qoder-uid-1",
+			})
+		case "/admin/quota":
+			gotQuery = r.URL.RawQuery
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"quota": map[string]any{
+					"userQuota": map[string]any{"total": 10, "used": 1, "remaining": 9, "percentage": 10, "unit": "credits"},
+				},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer worker.Close()
+	ctx := context.Background()
+	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	account, err := store.Create(ctx, CreateAccount{Name: "ForceQuota", Enabled: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := NewManager(ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	manager.pool.Upsert(Item{ID: account.ID, URL: worker.URL})
+	if err := manager.RefreshAll(ctx, true); err != nil {
+		t.Fatal(err)
+	}
+	if gotQuery != "refresh=1" {
+		t.Fatalf("forced quota refresh query = %q", gotQuery)
 	}
 }
 

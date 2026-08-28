@@ -35,7 +35,7 @@ export function OverviewProvider({ children }: { children: ReactNode }) {
     const silent = Boolean(options?.silent)
     if (!silent) setLoading(true)
     try {
-      const data = await fetchOverview(key)
+      const data = await fetchOverview(key, { refreshQuota: !silent })
       setOverview(data)
       setError(null)
       return data

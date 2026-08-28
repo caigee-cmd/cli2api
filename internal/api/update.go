@@ -131,7 +131,7 @@ func (s *Server) handleSystemUpdateApply(w http.ResponseWriter, r *http.Request)
 
 func (s *Server) waitForUpdateIdle(ctx context.Context) error {
 	for {
-		_ = s.manager.RefreshAll(ctx)
+		_ = s.manager.RefreshAll(ctx, false)
 		accounts, err := s.manager.Accounts(ctx)
 		if err != nil {
 			return err

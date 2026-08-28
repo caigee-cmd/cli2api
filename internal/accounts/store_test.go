@@ -233,5 +233,28 @@ func TestStoreDefaultsDropSystemPromptOn(t *testing.T) {
 	}
 }
 
+func TestStoreCreateHonorsDropSystemPromptAndInFlight(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	account, err := store.Create(ctx, CreateAccount{
+		Name: "wb", Provider: "workbuddy", Region: "cn",
+		MaxInFlight: 6, Priority: 80, DropSystemPrompt: boolPtr(false),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if account.MaxInFlight != 6 || account.Priority != 80 || account.DropSystemPrompt {
+		t.Fatalf("created=%+v", account)
+	}
+	reloaded, err := store.Get(ctx, account.ID)
+	if err != nil || reloaded.MaxInFlight != 6 || reloaded.Priority != 80 || reloaded.DropSystemPrompt {
+		t.Fatalf("reloaded=%+v err=%v", reloaded, err)
+	}
+}
+
 func boolPtr(value bool) *bool { return &value }
 func intPtr(value int) *int    { return &value }

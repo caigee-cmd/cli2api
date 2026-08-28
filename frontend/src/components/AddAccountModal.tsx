@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { Button, Input, Modal, TextArea } from '@heroui/react'
-import { CheckCircle, ArrowSquareOut, FileCode, Globe, Key, MapPin, ShieldCheck, SpinnerGap, X } from '@phosphor-icons/react'
+import { Button, Description, Input, Label, ListBox, Modal, Select, TextArea } from '@heroui/react'
+import { ArrowSquareOut, CaretLeft, CaretRight, CheckCircle, FileCode, Key, ShieldCheck, SpinnerGap, X } from '@phosphor-icons/react'
 import { ProviderMark } from '@/components/ProviderMark'
+import { CompactSwitch } from '@/components/ui/CompactSwitch'
 import { OptionTiles } from '@/components/ui/OptionTiles'
 import { useI18n } from '@/hooks/useI18n'
 import {
@@ -21,27 +22,41 @@ type Props = {
 }
 
 type TabKey = 'browser' | 'pat' | 'import'
+type Step = 'method' | 'login'
 
 type ProviderOption = {
   id: string
   provider: string
   region: string
-  labelKey: string
-  hintKey: string
   descriptor: ProviderDescriptor
 }
 
-const labelKeys: Record<string, { label: string; hint: string }> = {
-  'qoder-global': { label: 'accountTypeQoderGlobal', hint: 'accountTypeQoderGlobalHint' },
-  'qoder-cn': { label: 'accountTypeQoderCN', hint: 'accountTypeQoderCNHint' },
-  'workbuddy-cn': { label: 'accountTypeWorkBuddyCN', hint: 'accountTypeWorkBuddyCNHint' },
-  'workbuddy-global': { label: 'accountTypeWorkBuddyGlobal', hint: 'accountTypeWorkBuddyGlobalHint' },
+// Region suffix for descriptors without a dedicated i18n label.
+const regionLabels: Record<string, string> = {
+  global: 'Global',
+  cn: 'CN',
+}
+
+// Dedicated i18n labels/hints for known families; unknown provider×region
+// combinations fall back to the descriptor, so backend registration alone
+// puts a new type on this list.
+const labelKeys: Record<string, string> = {
+  'qoder-global': 'accountTypeQoderGlobal',
+  'qoder-cn': 'accountTypeQoderCN',
+  'workbuddy-cn': 'accountTypeWorkBuddyCN',
+  'workbuddy-global': 'accountTypeWorkBuddyGlobal',
+}
+
+const hintKeys: Record<string, string> = {
+  'qoder-global': 'accountTypeQoderGlobalHint',
+  'qoder-cn': 'accountTypeQoderCNHint',
+  'workbuddy-cn': 'accountTypeWorkBuddyCNHint',
+  'workbuddy-global': 'accountTypeWorkBuddyGlobalHint',
 }
 
 const fallbackProviderOptions: ProviderOption[] = [
   {
     id: 'qoder-global', provider: 'qoder', region: 'global',
-    labelKey: 'accountTypeQoderGlobal', hintKey: 'accountTypeQoderGlobalHint',
     descriptor: {
       id: 'qoder', label: 'Qoder', runtime: 'child_process', default_region: 'global',
       capabilities: { browser_login: true, pat_login: true, import_export: true },
@@ -56,20 +71,28 @@ async function loadProviderOptions(): Promise<ProviderOption[]> {
   const options: ProviderOption[] = []
   for (const descriptor of descriptors) {
     for (const region of descriptor.regions) {
-      const id = `${descriptor.id}-${region.id}`
-      const keys = labelKeys[id]
-      if (!keys) continue
-      options.push({
-        id, provider: descriptor.id, region: region.id,
-        labelKey: keys.label, hintKey: keys.hint, descriptor,
-      })
+      options.push({ id: `${descriptor.id}-${region.id}`, provider: descriptor.id, region: region.id, descriptor })
     }
   }
   return options.length ? options : fallbackProviderOptions
 }
 
-function providerBadge(option: ProviderOption) {
-  return <ProviderMark provider={option.provider} size={18} />
+function optionLabel(option: ProviderOption, t: (key: string) => string) {
+  const key = labelKeys[option.id]
+  if (key) {
+    const localized = t(key)
+    if (localized !== key) return localized
+  }
+  const regionLabel = option.descriptor.regions.find((r) => r.id === option.region)?.label || regionLabels[option.region] || ''
+  const suffix = option.descriptor.regions.length > 1 && regionLabel ? ` ${regionLabel}` : ''
+  return `${option.descriptor.label}${suffix}`.trim()
+}
+
+function optionHint(option: ProviderOption, t: (key: string) => string) {
+  const key = hintKeys[option.id]
+  if (!key) return ''
+  const localized = t(key)
+  return localized === key ? '' : localized
 }
 
 function StatusIcon({ phase, busy, tab, forTab }: { phase: Phase; busy: boolean; tab: TabKey; forTab: TabKey }) {
@@ -78,20 +101,23 @@ function StatusIcon({ phase, busy, tab, forTab }: { phase: Phase; busy: boolean;
   return null
 }
 
-type Phase = 'idle' | 'busy' | 'polling' | 'starting' | 'done'
+type Phase = 'idle' | 'busy' | 'polling' | 'done'
 
 const POLL_ATTEMPTS = 90
 const POLL_INTERVAL = 2000
-
-// Fixed step height keeps the dialog from jumping between login methods.
-const STEP_HEIGHT = 328
+const TILE_LIMIT = 6
 
 export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
   const { t } = useI18n()
+  const [step, setStep] = useState<Step>('method')
   const [tab, setTab] = useState<TabKey>('browser')
   const [accountType, setAccountType] = useState<string>('qoder-global')
   const [providerOptions, setProviderOptions] = useState<ProviderOption[]>(fallbackProviderOptions)
+  const [advancedOpen, setAdvancedOpen] = useState(false)
   const [name, setName] = useState('')
+  const [maxInFlight, setMaxInFlight] = useState('4')
+  const [priority, setPriority] = useState('50')
+  const [dropSystemPrompt, setDropSystemPrompt] = useState(true)
   const [pat, setPat] = useState('')
   const [json, setJson] = useState('')
   const [phase, setPhase] = useState<Phase>('idle')
@@ -126,14 +152,50 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
 
   const activeOption = providerOptions.find((option) => option.id === accountType) || fallbackProviderOptions[0]
   const showPatTab = activeOption.descriptor.capabilities?.pat_login !== false
+  const showImportTab = activeOption.descriptor.capabilities?.import_export !== false
+  const showDropSystem = activeOption.provider === 'workbuddy'
+  const busy = phase === 'busy' || phase === 'polling'
+  const settingsLocked = Boolean(createdId.current) || busy
+  const isDone = phase === 'done'
+  const hint = optionHint(activeOption, t)
+
+  useEffect(() => {
+    if (tab === 'pat' && !showPatTab) setTab('browser')
+    if (tab === 'import' && !showImportTab) setTab('browser')
+  }, [showImportTab, showPatTab, tab])
+
+  function parsedMaxInFlight() {
+    const value = Number(maxInFlight)
+    if (!Number.isInteger(value) || value < 1 || value > 32) return 4
+    return value
+  }
+
+  function parsedPriority() {
+    const value = Number(priority)
+    if (!Number.isInteger(value) || value < 1 || value > 100) return 50
+    return value
+  }
+
+  function accountOptions() {
+    return {
+      max_inflight: parsedMaxInFlight(),
+      priority: parsedPriority(),
+      drop_system_prompt: showDropSystem ? dropSystemPrompt : true,
+    }
+  }
 
   function reset() {
     stopPolling()
+    setStep('method')
     setTab('browser')
     setAccountType('qoder-global')
     setName('')
+    setMaxInFlight('4')
+    setPriority('50')
+    setDropSystemPrompt(true)
     setPat('')
     setJson('')
+    setAdvancedOpen(false)
     setPhase('idle')
     setMessage('')
     setAuthUrl('')
@@ -141,19 +203,22 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
   }
 
   function close() {
-    if (phase === 'busy' || phase === 'polling' || phase === 'starting') return
+    if (busy) return
     reset()
     onClose()
   }
 
-  function switchTab(next: TabKey) {
-    if (busy || next === 'pat' && !showPatTab) return
+  function goLogin(next: TabKey) {
+    if (busy) return
     setTab(next)
+    setMessage('')
+    setStep('login')
   }
 
   async function ensureAccount(): Promise<string> {
     if (createdId.current) return createdId.current
-    const account = await createAccount(name.trim() || t('account'), activeOption.provider, activeOption.region)
+    const options = accountOptions()
+    const account = await createAccount(name.trim() || t('account'), activeOption.provider, activeOption.region, options)
     const id = account?.id || account?.data?.id
     if (!id) throw new Error('create account returned no id')
     createdId.current = id
@@ -183,9 +248,6 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
         if (login.status === 'error') throw new Error(login.message || 'login failed')
         if (attempt === POLL_ATTEMPTS - 1) throw new Error(t('wizardLoginTimeout'))
       }
-      setPhase('starting')
-      setMessage(t('wizardStartingWorker'))
-      await new Promise((resolve) => { pollTimer.current = window.setTimeout(resolve, 1500) })
       setPhase('done')
       setMessage(t('wizardAccountReady'))
       onAdded()
@@ -235,7 +297,17 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
     if (!bundle.format) bundle.format = activeOption.descriptor.id === 'workbuddy' ? 'workbuddy-oauth-v1' : 'qoder-native-v1'
     try {
       setPhase('busy')
-      await importAccount({ ...bundle, name: name.trim() || bundle.name, enabled: true, provider: activeOption.provider, region: activeOption.region })
+      const options = accountOptions()
+      await importAccount({
+        ...bundle,
+        name: name.trim() || bundle.name,
+        enabled: true,
+        provider: activeOption.provider,
+        region: activeOption.region,
+        max_inflight: options.max_inflight,
+        priority: options.priority,
+        drop_system_prompt: options.drop_system_prompt,
+      })
       setPhase('done')
       setMessage(t('accountImported'))
       onAdded()
@@ -259,14 +331,27 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
     event.target.value = ''
   }
 
-  const busy = phase === 'busy' || phase === 'polling' || phase === 'starting'
   const tabPending = (key: TabKey) => busy && tab === key
+  const useTypeSelect = providerOptions.length > TILE_LIMIT
+  const typeOptions = providerOptions.map((option) => ({
+    value: option.id,
+    label: optionLabel(option, t),
+    hint: optionHint(option, t),
+    icon: <ProviderMark provider={option.provider} size={18} />,
+    disabled: settingsLocked,
+  }))
 
   const methodOptions = [
-    { value: 'browser' as const, label: t('tabBrowser'), icon: <ShieldCheck size={16} className={tab === 'browser' ? 'text-[var(--app-ink)]' : 'text-[var(--app-muted)]'} />, disabled: busy },
-    { value: 'pat' as const, label: t('tabPat'), icon: <Key size={16} className={tab === 'pat' ? 'text-[var(--app-ink)]' : 'text-[var(--app-muted)]'} />, disabled: busy || !showPatTab },
-    { value: 'import' as const, label: t('tabImport'), icon: <FileCode size={16} className={tab === 'import' ? 'text-[var(--app-ink)]' : 'text-[var(--app-muted)]'} />, disabled: busy },
-  ]
+    { value: 'browser' as const, label: t('tabBrowser'), icon: <ShieldCheck size={16} /> },
+    showPatTab ? { value: 'pat' as const, label: t('tabPat'), icon: <Key size={16} /> } : null,
+    showImportTab ? { value: 'import' as const, label: t('tabImport'), icon: <FileCode size={16} /> } : null,
+  ].filter(Boolean) as Array<{ value: TabKey; label: string; icon: React.ReactNode }>
+
+  const tabLead = tab === 'browser'
+    ? t('wizardBrowserLead')
+    : tab === 'pat'
+      ? t(activeOption.region === 'cn' && activeOption.provider === 'qoder' ? 'wizardPatLeadCN' : 'wizardPatLead')
+      : t('wizardImportLead')
 
   return (
     <Modal.Root isOpen={isOpen} onOpenChange={(next: boolean) => { if (!next) close() }}>
@@ -276,105 +361,227 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
             <Modal.Header className="items-start justify-between gap-4 px-5 pt-5">
               <div className="min-w-0">
                 <Modal.Heading className="text-lg font-semibold tracking-[-0.01em]">{t('addAccountTitle')}</Modal.Heading>
-                <p className="mt-1 text-xs font-normal leading-5 text-[var(--app-faint)]">{t('addAccountDesc')}</p>
+                <p className="mt-1 text-xs font-normal leading-5 text-[var(--app-faint)]">
+                  {step === 'method' ? t('addAccountDesc') : (hint || t('addAccountDesc'))}
+                </p>
               </div>
               <Modal.CloseTrigger aria-label={t('close')} className="grid size-8 shrink-0 place-items-center rounded-lg text-[var(--app-muted)] transition-colors hover:bg-[var(--app-surface-muted)] hover:text-[var(--app-ink)]"><X size={16} /></Modal.CloseTrigger>
             </Modal.Header>
             <Modal.Body className="px-5 pb-2">
-              <section className="space-y-2.5">
-                <div className="flex items-baseline justify-between gap-3">
-                  <span className="text-sm font-medium text-[var(--app-muted)]">{t('accountType')}</span>
-                  <span className="inline-flex items-center gap-1 text-[11px] text-[var(--app-faint)]">
-                    {activeOption.provider === 'qoder' ? <Globe size={11} /> : <MapPin size={11} />}
-                    {activeOption.provider === 'qoder' ? 'WASM runtime' : 'HTTP runtime'}
-                  </span>
-                </div>
-                <OptionTiles
-                  ariaLabel={t('accountType')}
-                  columns={1}
-                  value={accountType}
-                  onChange={setAccountType}
-                  options={providerOptions.map((option) => ({
-                    value: option.id,
-                    label: t(option.labelKey),
-                    icon: providerBadge(option),
-                  }))}
-                />
-                <p className="min-h-5 text-xs leading-5 text-[var(--app-faint)]">{t(activeOption.hintKey)}</p>
-              </section>
+              {step === 'method' ? (
+                <>
+                  <section className="space-y-2.5">
+                    {useTypeSelect ? (
+                      <Select
+                        fullWidth
+                        aria-label={t('accountType')}
+                        value={accountType}
+                        isDisabled={settingsLocked}
+                        onChange={(next) => {
+                          if (typeof next === 'string' && next && !settingsLocked) setAccountType(next)
+                        }}
+                      >
+                        <Label className="text-sm font-medium text-[var(--app-muted)]">{t('accountType')}</Label>
+                        <Select.Trigger className="h-10 min-h-10 items-center">
+                          <Select.Value className="min-w-0 truncate">
+                            {({ defaultChildren, isPlaceholder }) => {
+                              const selected = typeOptions.find((option) => option.value === accountType)
+                              if (isPlaceholder || !selected) return defaultChildren
+                              return (
+                                <span className="flex min-w-0 items-center gap-2">
+                                  <span className="grid size-5 shrink-0 place-items-center">{selected.icon}</span>
+                                  <span className="truncate">{selected.label}</span>
+                                </span>
+                              )
+                            }}
+                          </Select.Value>
+                          <Select.Indicator />
+                        </Select.Trigger>
+                        <Select.Popover className="max-h-72 rounded-lg">
+                          <ListBox>
+                            {typeOptions.map((option) => (
+                              <ListBox.Item key={option.value} id={option.value} textValue={option.label} className="rounded-lg">
+                                <span className="grid size-5 shrink-0 place-items-center">{option.icon}</span>
+                                <div className="min-w-0 flex-1">
+                                  <Label className="block truncate">{option.label}</Label>
+                                  {option.hint ? <Description className="truncate">{option.hint}</Description> : null}
+                                </div>
+                                <ListBox.ItemIndicator />
+                              </ListBox.Item>
+                            ))}
+                          </ListBox>
+                        </Select.Popover>
+                      </Select>
+                    ) : (
+                      <>
+                        <span className="text-sm font-medium text-[var(--app-muted)]">{t('accountType')}</span>
+                        <OptionTiles
+                          ariaLabel={t('accountType')}
+                          columns={2}
+                          value={accountType}
+                          onChange={(next) => { if (!settingsLocked) setAccountType(next) }}
+                          options={typeOptions}
+                        />
+                      </>
+                    )}
+                    {hint ? <p className="min-h-5 text-xs leading-5 text-[var(--app-faint)]">{hint}</p> : null}
+                  </section>
 
-              <section className="mt-5 space-y-2.5">
-                <span className="block text-sm font-medium text-[var(--app-muted)]">{t('loginMethod')}</span>
-                <OptionTiles
-                  ariaLabel={t('loginMethod')}
-                  columns={1}
-                  compact
-                  value={tab}
-                  onChange={(next) => switchTab(next)}
-                  options={methodOptions}
-                />
-                <p className="min-h-5 text-xs leading-5 text-[var(--app-faint)]">
-                  {tab === 'browser' ? t('wizardBrowserLead') : tab === 'pat' ? t(activeOption.region === 'cn' && activeOption.provider === 'qoder' ? 'wizardPatLeadCN' : 'wizardPatLead') : t('wizardImportLead')}
-                </p>
-              </section>
-
-              <div className="relative mt-3 overflow-hidden rounded-lg" style={{ height: STEP_HEIGHT }}>
-                <div
-                  key={tab}
-                  className="absolute inset-0 flex flex-col gap-4 pt-4 animate-[step-in_260ms_cubic-bezier(0.16,1,0.3,1)]"
-                >
-                  {tab === 'browser' ? (
-                    <>
-                      <Input value={name} onChange={(event) => setName(event.target.value)} placeholder={t('wizardNamePh')} aria-label={t('wizardNamePh')} disabled={busy} />
-                      {authUrl ? (
-                        <div className="rounded-lg border border-[var(--app-line)] bg-[var(--app-surface-muted)] px-3 py-2.5">
-                          <div className="flex items-center gap-2 text-xs">
-                            <StatusIcon phase={phase} busy={busy} tab={tab} forTab="browser" />
-                            <span className="text-[var(--app-muted)]">{message || t('loginOpenMsg')}</span>
-                          </div>
-                          <button onClick={() => window.open(authUrl, '_blank', 'noopener,noreferrer')} className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-[var(--app-ink)] hover:underline">
-                            <ArrowSquareOut size={12} />{t('wizardOpenBrowser')}
-                          </button>
+                  <section className="mt-5 space-y-2.5">
+                    <Input
+                      value={name}
+                      onChange={(event) => setName(event.target.value)}
+                      placeholder={t('wizardNamePh')}
+                      aria-label={t('accountName')}
+                      disabled={settingsLocked}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setAdvancedOpen((open) => !open)}
+                      aria-expanded={advancedOpen}
+                      className="inline-flex items-center gap-1 text-xs font-medium text-[var(--app-muted)] transition-colors hover:text-[var(--app-ink)]"
+                    >
+                      <CaretRight size={12} className={`transition-transform duration-200 ${advancedOpen ? 'rotate-90' : ''}`} />
+                      {t('wizardAdvanced')}
+                    </button>
+                    {advancedOpen ? (
+                      <div className="space-y-3 rounded-lg border border-[var(--app-line)] px-3.5 py-3">
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <label className="block space-y-1.5">
+                            <span className="text-xs font-medium text-[var(--app-muted)]">{t('maxInflight')}</span>
+                            <Input
+                              type="number"
+                              min={1}
+                              max={32}
+                              value={maxInFlight}
+                              onChange={(event) => setMaxInFlight(event.target.value)}
+                              aria-label={t('maxInflight')}
+                              disabled={settingsLocked}
+                            />
+                            <p className="text-[11px] leading-4 text-[var(--app-faint)]">{t('maxInflightHint')}</p>
+                          </label>
+                          <label className="block space-y-1.5">
+                            <span className="text-xs font-medium text-[var(--app-muted)]">{t('priority')}</span>
+                            <Input
+                              type="number"
+                              min={1}
+                              max={100}
+                              value={priority}
+                              onChange={(event) => setPriority(event.target.value)}
+                              aria-label={t('priority')}
+                              disabled={settingsLocked}
+                            />
+                            <p className="text-[11px] leading-4 text-[var(--app-faint)]">{t('priorityHint')}</p>
+                          </label>
                         </div>
-                      ) : null}
-                      <div className="mt-auto">
-                        <Button className="w-full" isPending={tabPending('browser')} onPress={() => void runBrowser()}>
-                          {phase === 'done' ? <><CheckCircle size={15} />{t('wizardAccountReady')}</> : <><ShieldCheck size={15} />{t('wizardStartBrowser')}</>}
-                        </Button>
+                        {showDropSystem ? (
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="text-xs font-medium text-[var(--app-muted)]">{t('dropSystemPrompt')}</div>
+                              <p className="mt-0.5 text-[11px] leading-4 text-[var(--app-faint)]">{t('dropSystemPromptCreateHint')}</p>
+                            </div>
+                            <CompactSwitch
+                              isSelected={dropSystemPrompt}
+                              isDisabled={settingsLocked}
+                              ariaLabel={t('dropSystemPrompt')}
+                              onChange={setDropSystemPrompt}
+                            />
+                          </div>
+                        ) : null}
                       </div>
-                    </>
-                  ) : tab === 'pat' ? (
-                    <>
-                      <Input value={name} onChange={(event) => setName(event.target.value)} placeholder={t('wizardNamePh')} aria-label={t('wizardNamePh')} disabled={busy} />
-                      <Input type="password" value={pat} onChange={(event) => setPat(event.target.value)} placeholder={t('wizardPatPh')} aria-label={t('wizardPatPh')} disabled={busy} />
-                      <div className="mt-auto">
-                        <Button className="w-full" isPending={tabPending('pat')} onPress={() => void runPat()}>
-                          {phase === 'done' ? <><CheckCircle size={15} />{t('patDone')}</> : <><Key size={15} />{t('wizardCreateAndLogin')}</>}
-                        </Button>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <Input value={name} onChange={(event) => setName(event.target.value)} placeholder={t('wizardNamePh')} aria-label={t('wizardNamePh')} disabled={busy} />
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="text-[10px] font-semibold tracking-[0.1em] text-[var(--app-faint)] uppercase">JSON</span>
-                        <Button size="sm" variant="secondary" onPress={onPickFile} isDisabled={busy}><FileCode size={13} />{t('wizardChooseFile')}</Button>
-                        <input ref={fileInput} type="file" accept="application/json,.json" className="hidden" onChange={onFileChange} />
-                      </div>
-                      <TextArea className="min-h-32 flex-1 font-mono text-xs" value={json} onChange={(event) => setJson(event.target.value)} placeholder={t('wizardImportPh')} aria-label={t('tabImport')} disabled={busy} />
-                      <div>
-                        <Button className="w-full" isPending={tabPending('import')} onPress={() => void runImport()}>
-                          {phase === 'done' ? <><CheckCircle size={15} />{t('accountImported')}</> : <><FileCode size={15} />{t('importCredential')}</>}
-                        </Button>
-                      </div>
-                    </>
-                  )}
-                </div>
-              </div>
+                    ) : null}
+                  </section>
 
-              {message && !authUrl ? (
-                <p className={`rounded-lg border px-3 py-2 text-xs ${phase === 'done' ? 'border-[var(--app-ok-line)] bg-[var(--app-ok-soft)] text-[var(--app-ok-strong)]' : 'border-[var(--app-line)] bg-[var(--app-surface-muted)] text-[var(--app-muted)]'}`}>{message}</p>
-              ) : null}
+                  <div className="mt-5">
+                    <Button className="w-full" onPress={() => goLogin(tab)}>
+                      {t('wizardContinue')}
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex items-center gap-3 rounded-lg border border-[var(--app-line)] bg-[var(--app-surface-muted)]/45 px-3 py-2.5">
+                    <span className="shrink-0"><ProviderMark provider={activeOption.provider} size={18} /></span>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-medium text-[var(--app-ink)]">{optionLabel(activeOption, t)}</div>
+                      <div className="truncate text-[11px] text-[var(--app-faint)]">{name.trim() || t('account')}</div>
+                    </div>
+                    <Button size="sm" variant="ghost" onPress={() => setStep('method')} isDisabled={busy || Boolean(createdId.current)}>
+                      <CaretLeft size={12} />{t('wizardBack')}
+                    </Button>
+                  </div>
+
+                  <div className="mt-3 flex items-center gap-1.5">
+                    {methodOptions.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => { if (!busy && option.value !== tab) { setTab(option.value); setMessage(''); setAuthUrl('') } }}
+                        className={[
+                          'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors',
+                          tab === option.value
+                            ? 'bg-[var(--app-surface)] text-[var(--app-ink)] shadow-sm border border-[var(--app-line)]'
+                            : 'text-[var(--app-muted)] hover:text-[var(--app-ink)] border border-transparent',
+                        ].join(' ')}
+                      >
+                        {option.icon}
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <p className="mt-2 min-h-5 text-xs leading-5 text-[var(--app-faint)]">{tabLead}</p>
+
+                  <div className="mt-3 flex flex-col gap-4">
+                    {tab === 'browser' ? (
+                      <>
+                        {authUrl ? (
+                          <div className="rounded-lg border border-[var(--app-line)] bg-[var(--app-surface-muted)] px-3 py-2.5">
+                            <div className="flex items-center gap-2 text-xs">
+                              <StatusIcon phase={phase} busy={busy} tab={tab} forTab="browser" />
+                              <span className="text-[var(--app-muted)]">{message || t('loginOpenMsg')}</span>
+                            </div>
+                            <button onClick={() => window.open(authUrl, '_blank', 'noopener,noreferrer')} className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-[var(--app-ink)] hover:underline">
+                              <ArrowSquareOut size={12} />{t('wizardOpenBrowser')}
+                            </button>
+                          </div>
+                        ) : null}
+                        {message && !authUrl ? (
+                          <p className={`rounded-lg border px-3 py-2 text-xs ${isDone ? 'border-[var(--app-ok-line)] bg-[var(--app-ok-soft)] text-[var(--app-ok-strong)]' : 'border-[var(--app-line)] bg-[var(--app-surface-muted)] text-[var(--app-muted)]'}`}>{message}</p>
+                        ) : null}
+                        <Button className="w-full" isPending={tabPending('browser')} onPress={() => void runBrowser()}>
+                          {isDone ? <><CheckCircle size={15} />{t('wizardAccountReady')}</> : <><ShieldCheck size={15} />{t('wizardStartBrowser')}</>}
+                        </Button>
+                      </>
+                    ) : tab === 'pat' ? (
+                      <>
+                        <Input type="password" value={pat} onChange={(event) => setPat(event.target.value)} placeholder={t('wizardPatPh')} aria-label={t('wizardPatPh')} disabled={busy} />
+                        {message ? (
+                          <p className={`rounded-lg border px-3 py-2 text-xs ${isDone ? 'border-[var(--app-ok-line)] bg-[var(--app-ok-soft)] text-[var(--app-ok-strong)]' : 'border-[var(--app-line)] bg-[var(--app-surface-muted)] text-[var(--app-muted)]'}`}>{message}</p>
+                        ) : null}
+                        <Button className="w-full" isPending={tabPending('pat')} onPress={() => void runPat()}>
+                          {isDone ? <><CheckCircle size={15} />{t('patDone')}</> : <><Key size={15} />{t('wizardCreateAndLogin')}</>}
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-[10px] font-semibold tracking-[0.1em] text-[var(--app-faint)] uppercase">JSON</span>
+                          <Button size="sm" variant="secondary" onPress={onPickFile} isDisabled={busy}><FileCode size={13} />{t('wizardChooseFile')}</Button>
+                          <input ref={fileInput} type="file" accept="application/json,.json" className="hidden" onChange={onFileChange} />
+                        </div>
+                        <TextArea className="min-h-32 font-mono text-xs" value={json} onChange={(event) => setJson(event.target.value)} placeholder={t('wizardImportPh')} aria-label={t('tabImport')} disabled={busy} />
+                        {message ? (
+                          <p className={`rounded-lg border px-3 py-2 text-xs ${isDone ? 'border-[var(--app-ok-line)] bg-[var(--app-ok-soft)] text-[var(--app-ok-strong)]' : 'border-[var(--app-line)] bg-[var(--app-surface-muted)] text-[var(--app-muted)]'}`}>{message}</p>
+                        ) : null}
+                        <Button className="w-full" isPending={tabPending('import')} onPress={() => void runImport()}>
+                          {isDone ? <><CheckCircle size={15} />{t('accountImported')}</> : <><FileCode size={15} />{t('importCredential')}</>}
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </>
+              )}
             </Modal.Body>
             <Modal.Footer className="justify-end px-5 pb-5">
               <Button variant="ghost" onPress={close} isDisabled={busy}>{t('cancel')}</Button>
@@ -382,7 +589,6 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
           </Modal.Dialog>
         </Modal.Container>
       </Modal.Backdrop>
-      <style>{`@keyframes step-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}`}</style>
     </Modal.Root>
   )
 }

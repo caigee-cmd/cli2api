@@ -12,8 +12,6 @@ import {
 } from '@heroui/react'
 import {
   ArrowClockwise,
-  CaretLeft,
-  CaretRight,
   MagnifyingGlass,
   Scroll,
   TerminalWindow,
@@ -29,6 +27,7 @@ import {
   type RequestLog,
   type RuntimeLogEntry,
 } from '@/api/logs'
+import { ListPager, type PageSize } from '@/components/ui/ListPager'
 import { LogsRequestListSkeleton, LogsRuntimeListSkeleton } from '@/components/ui/PageSkeletons'
 import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
@@ -40,7 +39,6 @@ type StreamFilter = 'all' | 'stream' | 'sync'
 type TimeRange = 'all' | '1h' | '24h' | '7d' | 'custom'
 type ErrorKindFilter = 'all' | 'quota' | 'rate_limit' | 'auth' | 'not_ready' | 'unavailable' | 'invalid_request' | 'model_not_available'
 
-const PAGE_SIZES = [20, 50, 100] as const
 const FILTER_SELECT_CLASS = 'h-8 min-w-36 rounded-lg border border-[var(--app-line-strong)] bg-[var(--app-surface-solid)] px-2.5 text-xs text-[var(--app-ink)]'
 const DATETIME_CLASS = 'h-8 rounded-lg border border-[var(--app-line-strong)] bg-[var(--app-surface-solid)] px-2.5 text-xs text-[var(--app-ink)]'
 
@@ -123,10 +121,13 @@ export function LogsPage() {
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
   const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState<(typeof PAGE_SIZES)[number]>(50)
+  const [pageSize, setPageSize] = useState<PageSize>(50)
+  const [runtimePage, setRuntimePage] = useState(1)
+  const [runtimePageSize, setRuntimePageSize] = useState<PageSize>(50)
   const [requests, setRequests] = useState<RequestLog[]>([])
   const [total, setTotal] = useState(0)
   const [runtime, setRuntime] = useState<RuntimeLogEntry[]>([])
+  const [runtimeTotal, setRuntimeTotal] = useState(0)
   const [selected, setSelected] = useState<RequestLog | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
   const [clearOpen, setClearOpen] = useState(false)
@@ -160,15 +161,29 @@ export function LogsPage() {
     customTo,
     pageSize,
   ].join('\0')
+  const runtimeFilterKey = [runtimeFilter, runtimeQuery, runtimeAccount, runtimePageSize].join('\0')
   const [appliedFilterKey, setAppliedFilterKey] = useState(requestFilterKey)
+  const [appliedRuntimeFilterKey, setAppliedRuntimeFilterKey] = useState(runtimeFilterKey)
   if (appliedFilterKey !== requestFilterKey) {
     setAppliedFilterKey(requestFilterKey)
     setPage(1)
+  }
+  if (appliedRuntimeFilterKey !== runtimeFilterKey) {
+    setAppliedRuntimeFilterKey(runtimeFilterKey)
+    setRuntimePage(1)
   }
   const pageCount = Math.max(1, Math.ceil(total / pageSize))
   const currentPage = Math.min(appliedFilterKey !== requestFilterKey ? 1 : Math.max(1, page), pageCount)
   if (page !== currentPage) {
     setPage(currentPage)
+  }
+  const runtimePageCount = Math.max(1, Math.ceil(runtimeTotal / runtimePageSize))
+  const currentRuntimePage = Math.min(
+    appliedRuntimeFilterKey !== runtimeFilterKey ? 1 : Math.max(1, runtimePage),
+    runtimePageCount,
+  )
+  if (runtimePage !== currentRuntimePage) {
+    setRuntimePage(currentRuntimePage)
   }
 
   const loadRequests = useCallback(async (quiet = false) => {
@@ -203,16 +218,18 @@ export function LogsPage() {
         level: runtimeFilter === 'all' ? undefined : runtimeFilter,
         q: runtimeQuery.trim() || undefined,
         account: runtimeAccount || undefined,
-        limit: 200,
+        limit: runtimePageSize,
+        offset: (currentRuntimePage - 1) * runtimePageSize,
       })
       setRuntime(result.items || [])
+      setRuntimeTotal(result.total ?? 0)
       setError('')
     } catch (err) {
       if (!quiet) setError(err instanceof Error ? err.message : String(err))
     } finally {
       if (!quiet) setLoading(false)
     }
-  }, [runtimeFilter, runtimeQuery, runtimeAccount])
+  }, [runtimeFilter, runtimeQuery, runtimeAccount, currentRuntimePage, runtimePageSize])
 
   const load = useCallback(async (quiet = false) => {
     if (tab === 'requests') await loadRequests(quiet)
@@ -227,18 +244,25 @@ export function LogsPage() {
   }, [load, tab, requestQuery, runtimeQuery])
 
   useEffect(() => {
-    if (tab !== 'runtime') return
+    if (tab !== 'runtime' || currentRuntimePage !== 1) return
     const timer = window.setInterval(() => void loadRuntime(true), 3000)
     return () => window.clearInterval(timer)
-  }, [tab, loadRuntime])
+  }, [tab, currentRuntimePage, loadRuntime])
 
   const shownFrom = total === 0 ? 0 : (currentPage - 1) * pageSize + 1
   const shownTo = Math.min(total, currentPage * pageSize)
+  const runtimeShownFrom = runtimeTotal === 0 ? 0 : (currentRuntimePage - 1) * runtimePageSize + 1
+  const runtimeShownTo = Math.min(runtimeTotal, currentRuntimePage * runtimePageSize)
 
   const shownLabel = useMemo(() => {
-    if (tab !== 'requests') return t('logsShownTotal', { shown: runtime.length, total: runtime.length })
+    if (tab !== 'requests') {
+      return t('logsShownTotal', {
+        shown: runtime.length ? `${runtimeShownFrom}–${runtimeShownTo}` : 0,
+        total: runtimeTotal,
+      })
+    }
     return t('logsShownTotal', { shown: requests.length ? `${shownFrom}–${shownTo}` : 0, total })
-  }, [tab, requests.length, runtime.length, shownFrom, shownTo, total, t])
+  }, [tab, requests.length, runtime.length, shownFrom, shownTo, total, runtimeShownFrom, runtimeShownTo, runtimeTotal, t])
 
   function clearRequestFilters() {
     setRequestQuery('')
@@ -519,48 +543,19 @@ export function LogsPage() {
             )}
           </Card>
 
-          {total > 0 ? (
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-[var(--app-faint)]">{t('logsPageSize')}</span>
-                <ButtonGroup className="toolbar-group">
-                  {PAGE_SIZES.map((size) => (
-                    <Button
-                      key={size}
-                      size="sm"
-                      variant={pageSize === size ? 'secondary' : 'ghost'}
-                      onPress={() => setPageSize(size)}
-                    >
-                      {size}
-                    </Button>
-                  ))}
-                </ButtonGroup>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="mono text-[11px] text-[var(--app-faint)]">{t('logsPage', { page: currentPage, pages: pageCount })}</span>
-                <Button
-                  isIconOnly
-                  size="sm"
-                  variant="ghost"
-                  isDisabled={loading || currentPage <= 1}
-                  onPress={() => setPage((current) => Math.max(1, current - 1))}
-                  aria-label={t('logsPrevPage')}
-                >
-                  <CaretLeft size={14} />
-                </Button>
-                <Button
-                  isIconOnly
-                  size="sm"
-                  variant="ghost"
-                  isDisabled={loading || currentPage >= pageCount}
-                  onPress={() => setPage((current) => Math.min(pageCount, current + 1))}
-                  aria-label={t('logsNextPage')}
-                >
-                  <CaretRight size={14} />
-                </Button>
-              </div>
-            </div>
-          ) : null}
+          <ListPager
+            total={total}
+            page={currentPage}
+            pageCount={pageCount}
+            pageSize={pageSize}
+            loading={loading}
+            pageSizeLabel={t('logsPageSize')}
+            pageLabel={t('logsPage', { page: currentPage, pages: pageCount })}
+            prevLabel={t('logsPrevPage')}
+            nextLabel={t('logsNextPage')}
+            onPage={setPage}
+            onPageSize={setPageSize}
+          />
         </Tabs.Panel>
 
         <Tabs.Panel id="runtime" className="space-y-4 pt-5">
@@ -603,8 +598,12 @@ export function LogsPage() {
               </ButtonGroup>
             </div>
             <div className="flex items-center gap-2 text-xs text-[var(--app-faint)]">
-              <span className="status-dot" data-state="ok" />
-              {t('logsAutoRefresh')}
+              {currentRuntimePage === 1 ? (
+                <>
+                  <span className="status-dot" data-state="ok" />
+                  {t('logsAutoRefresh')}
+                </>
+              ) : null}
               <span className="mono">{shownLabel}</span>
             </div>
           </div>
@@ -637,6 +636,20 @@ export function LogsPage() {
               </div>
             )}
           </Card>
+
+          <ListPager
+            total={runtimeTotal}
+            page={currentRuntimePage}
+            pageCount={runtimePageCount}
+            pageSize={runtimePageSize}
+            loading={loading}
+            pageSizeLabel={t('logsPageSize')}
+            pageLabel={t('logsPage', { page: currentRuntimePage, pages: runtimePageCount })}
+            prevLabel={t('logsPrevPage')}
+            nextLabel={t('logsNextPage')}
+            onPage={setRuntimePage}
+            onPageSize={setRuntimePageSize}
+          />
         </Tabs.Panel>
       </Tabs.Root>
 
