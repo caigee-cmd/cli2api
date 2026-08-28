@@ -23,9 +23,44 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 		s.handleGetRequestLog(w, r, id)
 	case path == "runtime" && r.Method == http.MethodGet:
 		s.handleRuntimeLogs(w, r)
+	case path == "stats" && r.Method == http.MethodGet:
+		s.handleRequestStats(w, r)
 	default:
 		writeErr(w, http.StatusNotFound, "not_found", "unknown logs endpoint")
 	}
+}
+
+func (s *Server) handleRequestStats(w http.ResponseWriter, r *http.Request) {
+	if s.recorder == nil || s.recorder.Store() == nil {
+		writeErr(w, http.StatusServiceUnavailable, "logs_unavailable", "request logs unavailable")
+		return
+	}
+	now := time.Now().UTC()
+	hours := 24
+	if raw := strings.TrimSpace(r.URL.Query().Get("hours")); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil {
+			hours = n
+		}
+	}
+	if hours != 1 && hours != 24 && hours != 168 {
+		hours = 24
+	}
+	to := parseQueryTime(r.URL.Query().Get("to"), true)
+	if to == nil {
+		value := now
+		to = &value
+	}
+	from := parseQueryTime(r.URL.Query().Get("from"), false)
+	if from == nil {
+		value := to.Add(-time.Duration(hours) * time.Hour)
+		from = &value
+	}
+	stats, err := s.recorder.Store().SummarizeRequestLogs(r.Context(), *from, *to)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "stats_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, stats)
 }
 
 func (s *Server) handleListRequestLogs(w http.ResponseWriter, r *http.Request) {

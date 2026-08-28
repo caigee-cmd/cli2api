@@ -187,3 +187,99 @@ func TestRequestLogsCapPurgeKeepsNewest(t *testing.T) {
 		t.Fatalf("expected 3 rows after cap purge, got %d", list.Total)
 	}
 }
+
+func TestSummarizeRequestLogs(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	base := time.Date(2026, 8, 28, 10, 15, 0, 0, time.UTC)
+	insert := func(at time.Time, status, model, account, kind string, latency, prompt, completion int, stream bool) {
+		t.Helper()
+		log := RequestLog{
+			ID: NewRequestID(), CreatedAt: at, Status: status, RequestedModel: model, AccountID: account,
+			ErrorKind: kind, Stream: stream, AttemptCount: 1,
+		}
+		if latency > 0 {
+			log.LatencyMs = &latency
+		}
+		if prompt > 0 {
+			log.PromptTokens = &prompt
+		}
+		if completion > 0 {
+			log.CompletionTokens = &completion
+		}
+		if err := store.InsertRequestLog(ctx, log); err != nil {
+			t.Fatal(err)
+		}
+	}
+	insert(base, RequestStatusOK, "glm-5.3", "acc_a", "", 100, 12, 34, false)
+	insert(base.Add(20*time.Minute), RequestStatusOK, "glm-5.3", "acc_a", "", 200, 10, 20, true)
+	insert(base.Add(90*time.Minute), RequestStatusError, "qwen3.7-plus", "acc_b", KindRateLimit, 400, 8, 0, false)
+	insert(base.Add(2*time.Hour), RequestStatusCanceled, "glm-5.3", "acc_a", "", 0, 0, 0, false)
+	insert(base.Add(-30*time.Hour), RequestStatusOK, "old", "acc_a", "", 50, 1, 1, false)
+
+	from := time.Date(2026, 8, 28, 10, 0, 0, 0, time.UTC)
+	to := time.Date(2026, 8, 28, 13, 0, 0, 0, time.UTC)
+	stats, err := store.SummarizeRequestLogs(ctx, from, to)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Totals.Requests != 4 || stats.Totals.OK != 2 || stats.Totals.Error != 1 || stats.Totals.Canceled != 1 || stats.Totals.Streaming != 1 {
+		t.Fatalf("totals = %+v", stats.Totals)
+	}
+	if stats.Totals.SuccessRate != 0.5 {
+		t.Fatalf("success rate = %v", stats.Totals.SuccessRate)
+	}
+	if stats.Tokens.Prompt != 30 || stats.Tokens.Completion != 54 || stats.Tokens.Total != 84 {
+		t.Fatalf("tokens = %+v", stats.Tokens)
+	}
+	if stats.Latency.AvgMs == nil || *stats.Latency.AvgMs != 233 {
+		t.Fatalf("avg latency = %+v", stats.Latency.AvgMs)
+	}
+	if stats.Latency.P50Ms == nil || *stats.Latency.P50Ms != 200 {
+		t.Fatalf("p50 = %+v", stats.Latency.P50Ms)
+	}
+	if stats.Latency.P95Ms == nil || *stats.Latency.P95Ms != 400 {
+		t.Fatalf("p95 = %+v", stats.Latency.P95Ms)
+	}
+	if len(stats.Errors) != 1 || stats.Errors[0].Key != KindRateLimit || stats.Errors[0].Count != 1 {
+		t.Fatalf("errors = %+v", stats.Errors)
+	}
+	if len(stats.Models) == 0 || stats.Models[0].Key != "glm-5.3" || stats.Models[0].Count != 3 {
+		t.Fatalf("models = %+v", stats.Models)
+	}
+	if len(stats.Accounts) == 0 || stats.Accounts[0].Key != "acc_a" || stats.Accounts[0].Count != 3 {
+		t.Fatalf("accounts = %+v", stats.Accounts)
+	}
+		if len(stats.Series) != 3 {
+			t.Fatalf("series len = %d %+v", len(stats.Series), stats.Series)
+		}
+		if stats.Series[0].Requests != 2 || stats.Series[1].Requests != 1 || stats.Series[2].Requests != 1 {
+			t.Fatalf("series = %+v", stats.Series)
+		}
+
+		empty, err := store.SummarizeRequestLogs(ctx, to.Add(time.Hour), to.Add(2*time.Hour))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if empty.Totals.Requests != 0 || empty.Latency.AvgMs != nil || len(empty.Models) != 0 {
+			t.Fatalf("empty stats = %+v", empty)
+		}
+
+		hourFrom := time.Date(2026, 8, 28, 10, 0, 0, 0, time.UTC)
+		hourTo := hourFrom.Add(time.Hour)
+		hourStats, err := store.SummarizeRequestLogs(ctx, hourFrom, hourTo)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(hourStats.Series) != 4 {
+			t.Fatalf("1h series len = %d %+v", len(hourStats.Series), hourStats.Series)
+		}
+		if hourStats.Series[1].Requests != 2 || hourStats.Series[2].Requests != 0 {
+			t.Fatalf("1h series = %+v", hourStats.Series)
+		}
+	}

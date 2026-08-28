@@ -62,6 +62,67 @@ export type RuntimeLogList = {
   count: number
 }
 
+export type RequestStatsWindow = {
+  from: string
+  to: string
+  hours: number
+}
+
+export type RequestStatsTotals = {
+  requests: number
+  ok: number
+  error: number
+  canceled: number
+  streaming: number
+  success_rate: number
+}
+
+export type RequestStatsLatency = {
+  avg_ms?: number | null
+  p50_ms?: number | null
+  p95_ms?: number | null
+  ttfb_avg_ms?: number | null
+}
+
+export type RequestStatsTokens = {
+  prompt: number
+  completion: number
+  cache_read: number
+  total: number
+}
+
+export type RequestStatsBucket = {
+  key: string
+  count: number
+}
+
+export type RequestStatsNamed = {
+  key: string
+  count: number
+  ok: number
+  error: number
+  latency_avg_ms?: number | null
+}
+
+export type RequestStatsPoint = {
+  at: string
+  requests: number
+  ok: number
+  error: number
+}
+
+export type RequestStats = {
+  window: RequestStatsWindow
+  totals: RequestStatsTotals
+  latency: RequestStatsLatency
+  tokens: RequestStatsTokens
+  status: RequestStatsBucket[]
+  errors: RequestStatsBucket[]
+  models: RequestStatsNamed[]
+  accounts: RequestStatsNamed[]
+  series: RequestStatsPoint[]
+}
+
 export type RequestLogQuery = {
   account?: string
   status?: string
@@ -73,6 +134,15 @@ export type RequestLogQuery = {
   to?: string
   limit?: number
   offset?: number
+}
+
+export function fetchRequestStats(query: { hours?: number; from?: string; to?: string } = {}) {
+  const params = new URLSearchParams()
+  if (query.hours != null) params.set('hours', String(query.hours))
+  if (query.from) params.set('from', query.from)
+  if (query.to) params.set('to', query.to)
+  const suffix = params.toString() ? `?${params}` : ''
+  return api<RequestStats>(`/api/logs/stats${suffix}`)
 }
 
 export function fetchRequestLogs(query: RequestLogQuery = {}) {
