@@ -9,6 +9,7 @@ import (
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/providers"
+	"github.com/caigee-cmd/cli2api/internal/providers/trae"
 	"github.com/caigee-cmd/cli2api/internal/providers/workbuddy"
 )
 
@@ -67,6 +68,11 @@ func (s *Server) handleAccountImport(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "POST only")
 		return
 	}
+	raw, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
 	var input struct {
 		Format           string          `json:"format"`
 		Name             string          `json:"name"`
@@ -80,7 +86,7 @@ func (s *Server) handleAccountImport(w http.ResponseWriter, r *http.Request) {
 		MachineID        string          `json:"machine_id"`
 		Credential       json.RawMessage `json:"credential"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+	if err := json.Unmarshal(raw, &input); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
@@ -101,15 +107,51 @@ func (s *Server) handleAccountImport(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusCreated, account)
+	case trae.CredentialFormat:
+		payload := input.Credential
+		if len(payload) == 0 {
+			payload = json.RawMessage(raw)
+		}
+		if err := trae.ValidateCredential(payload); err != nil {
+			writeErr(w, http.StatusBadRequest, "invalid_credential", err.Error())
+			return
+		}
+		credential, err := trae.DecodeCredential(payload)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, "invalid_credential", err.Error())
+			return
+		}
+		credential = trae.EnsureDevice(credential)
+		encoded, err := credential.Encode()
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, "invalid_credential", err.Error())
+			return
+		}
+		account, err := s.manager.Create(r.Context(), accounts.CreateAccount{
+			Name: input.Name, Provider: "trae", Region: input.Region, Enabled: false,
+			MaxInFlight: input.MaxInFlight, Priority: input.Priority, DropSystemPrompt: input.DropSystemPrompt,
+		})
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, "account_import_failed", err.Error())
+			return
+		}
+		if err := s.manager.Store().SaveCredentialPayload(r.Context(), account.ID, trae.CredentialFormat, encoded); err != nil {
+			_ = s.manager.Delete(r.Context(), account.ID)
+			writeErr(w, http.StatusBadRequest, "account_import_failed", err.Error())
+			return
+		}
+		if credential.UID != "" && input.Enabled {
+			enabled := true
+			if err := s.manager.Update(r.Context(), account.ID, accounts.UpdateAccount{Enabled: &enabled}); err != nil {
+				writeErr(w, http.StatusBadRequest, "account_import_failed", err.Error())
+				return
+			}
+		}
+		imported, _ := s.manager.Store().Get(r.Context(), account.ID)
+		writeJSON(w, http.StatusCreated, imported)
 	case workbuddy.CredentialFormat:
 		payload := input.Credential
 		if len(payload) == 0 {
-			// Accept the nested {account, auth} export shape as the whole body.
-			raw, err := io.ReadAll(r.Body)
-			if err != nil {
-				writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
-				return
-			}
 			payload = json.RawMessage(raw)
 		}
 		if err := workbuddy.ValidateCredential(payload); err != nil {
@@ -143,7 +185,7 @@ func (s *Server) handleAccountImport(w http.ResponseWriter, r *http.Request) {
 		imported, _ := s.manager.Store().Get(r.Context(), account.ID)
 		writeJSON(w, http.StatusCreated, imported)
 	default:
-		writeErr(w, http.StatusBadRequest, "unsupported_credential_format", "format must be qoder-native-v1 or workbuddy-oauth-v1")
+		writeErr(w, http.StatusBadRequest, "unsupported_credential_format", "format must be qoder-native-v1, workbuddy-oauth-v1, or trae-oauth-v1")
 	}
 }
 

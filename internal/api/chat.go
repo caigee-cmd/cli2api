@@ -173,7 +173,7 @@ func (s *Server) resolveProviderFilter(req *translate.ChatRequest) string {
 	if model == "" {
 		return ""
 	}
-	for _, prefix := range []string{"qoder/", "workbuddy/"} {
+		for _, prefix := range []string{"qoder/", "workbuddy/", "trae/"} {
 		if strings.HasPrefix(model, prefix) {
 			req.Model = strings.TrimPrefix(model, prefix)
 			return strings.TrimSuffix(prefix, "/")

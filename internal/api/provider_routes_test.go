@@ -25,11 +25,15 @@ func TestResolveProviderFilterPinsFamilyAndKeepsBareID(t *testing.T) {
 	if got := s.resolveProviderFilter(req); got != "qoder" || req.Model != "glm-5.2" {
 		t.Fatalf("filter=%s model=%s", got, req.Model)
 	}
-	req = modelChatRequest("workbuddy/glm-5.2")
-	if got := s.resolveProviderFilter(req); got != "workbuddy" || req.Model != "glm-5.2" {
-		t.Fatalf("filter=%s model=%s", got, req.Model)
-	}
-	req = modelChatRequest("glm-5.2")
+		req = modelChatRequest("workbuddy/glm-5.2")
+		if got := s.resolveProviderFilter(req); got != "workbuddy" || req.Model != "glm-5.2" {
+			t.Fatalf("filter=%s model=%s", got, req.Model)
+		}
+		req = modelChatRequest("trae/glm-5.2")
+		if got := s.resolveProviderFilter(req); got != "trae" || req.Model != "glm-5.2" {
+			t.Fatalf("filter=%s model=%s", got, req.Model)
+		}
+		req = modelChatRequest("glm-5.2")
 	if got := s.resolveProviderFilter(req); got != "qoder" || req.Model != "glm-5.2" {
 		t.Fatalf("bare model filter=%s model=%s", got, req.Model)
 	}
