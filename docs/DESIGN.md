@@ -122,6 +122,8 @@
 
 - 圆角 8px 或更小，除非现有组件已用更大值
 - 账号/资源列表卡片优先使用浅边框和平面表面，不强制最小高度，不额外叠加强阴影
+- 账号卡片保持操作台密度：单行身份（名称 + provider/auth/UID），状态 Chip 只出现一次，运行状态用 12 格短柱、额度用 `scaleX` 填充条；并发/优先级/重启收成一行辅助数字
+- 账号网格用 `lg:grid-cols-2 xl:grid-cols-3`，卡片间距 `gap-2.5`，内边距约 12px
 - 主卡片只有在确实需要抬升层级时才用 `shadow-card`
 - 边框克制使用；避免边框 + 阴影 + 有色背景同时出现
 - 不要为了简单分组把卡片嵌套在卡片里
@@ -401,8 +403,9 @@ Go `refreshOne` fetches quota after health for hot/ready accounts and stores a
 never flip account readiness, cooldown, or scheduling. Qoder reads quota from the daemon;
 WorkBuddy reads remaining credits from its billing meter API (`unit: credits`). An
 in-process provider without a quota surface simply omits the block. The account card
-renders one progress bar with `remaining/total <unit>`, `--danger` at 100% / exceeded,
-`--warning` at ≥80%, plus an optional add-on line.
+renders a compact `scaleX` fill with `remaining/total <unit>`, `--danger` at 100% / exceeded,
+`--warning` at ≥80%, plus an optional add-on line. Quota and runtime meters animate only
+on state change (`power2.out`, 180–220ms); they do not loop.
 
 Distinguish this account-level quota from the request-level `insufficient_quota` error kind:
 that error means a per-request token/model limit, not a zero account balance.
@@ -414,7 +417,7 @@ Keep the menu short. Login is a gate, not a nav item.
 | Route | Nav | Job |
 |-------|-----|-----|
 | `/login` | no | Console password |
-| `/` | Overview | Runtime pulse |
+| `/` | Overview | Runtime pulse + request stats |
 | `/accounts` | Accounts | Qoder login + pool |
 | `/providers` | Models | Catalog + per-model context-window defaults |
 | `/access` | Access | Base URL + quick chat |
@@ -444,6 +447,7 @@ Rules:
 - Runtime ring redacts obvious secrets and is lost on restart. Docker compose logs remain the durable operator stream for first-boot API key recovery.
 - `/api/logs/*` requires the SQLite API key.
 - Request history list accepts `account`, `status`, `stream`, `error_kind`, `model`, `q`, `from`, `to`, `limit`, and `offset`. The console `/logs` page paginates this list and exposes those filters.
+- `GET /api/logs/stats` aggregates counts, success rate, latency percentiles, tokens, error mix, and a time series for Overview. Windows are 1h / 24h / 7d; series buckets are 15 minutes, hourly, or daily.
 - Runtime snapshot accepts `account` in addition to `level` and `q`.
 
 ## Managed update
@@ -507,6 +511,8 @@ The console follows the frontend design baseline in the first half of this doc, 
 ### Interaction and motion
 
 - Loading, empty, and error states are required for data surfaces.
+- Header refresh is a user-initiated reload: show the page skeleton. Account create/login/rewarm/delete refreshes stay silent so the card does not disappear under the operator.
+- Logs keep the filter chrome visible; request and runtime lists show a skeleton while filters, pagination, tab switches, or refresh are in flight. Runtime live polling stays silent.
 - Labels sit above form controls; helper text stays quiet and errors sit below the field.
 - Primary actions use HeroUI default buttons with cream/ink fill. Secondary actions use bordered ghost/secondary chips; header utility actions sit in a clustered icon group. Inline destructive actions use `danger-soft`; solid danger is reserved for confirmation dialogs.
 - Compact console controls use a 32px button/input baseline, 12px medium button text, 14px action icons, 20px chips, and 6–8px radii. Icon buttons are 32 × 32px.
@@ -537,6 +543,7 @@ After UI edits:
 |------|------|
 | `frontend/src/pages/LoginPage.tsx` | Console gate |
 | `frontend/src/pages/AccountsPage.tsx` | Qoder login + pool |
+| `frontend/src/components/account/` | Compact account card, runtime meter, quota fill |
 | `frontend/src/pages/ProvidersPage.tsx` | Model catalog + context-window defaults |
 | `frontend/src/pages/LogsPage.tsx` | Request history + runtime logs |
 | `frontend/src/pages/SystemPage.tsx` | Managed next-version update |

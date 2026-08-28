@@ -7,7 +7,17 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Show request volume, success rate, latency, tokens, and hourly traffic on Overview, with 1h / 24h / 7d windows from SQLite request history
+- Shrink Accounts cards: denser identity row, a compact runtime meter, and a quota fill that animates remaining credits
+- Show page skeletons again when the console refresh button is used, instead of leaving stale cards on screen
+- Show a list skeleton on Logs while filters, pagination, or refresh are loading, without replacing the filter bar
+
 ### 中文
+
+- 概览页展示请求量、成功率、延迟、token 与按小时流量，时间窗口为 1 小时 / 24 小时 / 7 天，数据来自 SQLite 请求历史
+- 账号卡片改为更紧凑的身份行：运行状态用短柱状指示，额度用填充条显示剩余量
+- 控制台点刷新时重新显示骨架屏，不再把旧卡片留在页面上
+- 日志页筛选、翻页或刷新时，下方列表显示骨架屏，筛选栏保持不动
 
 ## 0.2.13 - 2026-08-28
 

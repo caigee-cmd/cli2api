@@ -36,7 +36,7 @@ export function ProvidersPage() {
     return models.filter((model) => `${model.display_name || ''} ${model.id} ${model.mapped_key || ''} ${model.provider || ''} ${model.owned_by || ''}`.toLowerCase().includes(query))
   }, [filter, models])
 
-  if (loading && !overview) return <ProvidersPageSkeleton />
+  if (loading) return <ProvidersPageSkeleton />
 
   function updateModelInOverview(model: ModelInfo, result: Awaited<ReturnType<typeof updateModelContext>>) {
     const key = modelSettingsKey(model)
