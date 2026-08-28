@@ -255,31 +255,31 @@ func TestSummarizeRequestLogs(t *testing.T) {
 	if len(stats.Accounts) == 0 || stats.Accounts[0].Key != "acc_a" || stats.Accounts[0].Count != 3 {
 		t.Fatalf("accounts = %+v", stats.Accounts)
 	}
-		if len(stats.Series) != 3 {
-			t.Fatalf("series len = %d %+v", len(stats.Series), stats.Series)
-		}
-		if stats.Series[0].Requests != 2 || stats.Series[1].Requests != 1 || stats.Series[2].Requests != 1 {
-			t.Fatalf("series = %+v", stats.Series)
-		}
-
-		empty, err := store.SummarizeRequestLogs(ctx, to.Add(time.Hour), to.Add(2*time.Hour))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if empty.Totals.Requests != 0 || empty.Latency.AvgMs != nil || len(empty.Models) != 0 {
-			t.Fatalf("empty stats = %+v", empty)
-		}
-
-		hourFrom := time.Date(2026, 8, 28, 10, 0, 0, 0, time.UTC)
-		hourTo := hourFrom.Add(time.Hour)
-		hourStats, err := store.SummarizeRequestLogs(ctx, hourFrom, hourTo)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(hourStats.Series) != 4 {
-			t.Fatalf("1h series len = %d %+v", len(hourStats.Series), hourStats.Series)
-		}
-		if hourStats.Series[1].Requests != 2 || hourStats.Series[2].Requests != 0 {
-			t.Fatalf("1h series = %+v", hourStats.Series)
-		}
+	if len(stats.Series) != 3 {
+		t.Fatalf("series len = %d %+v", len(stats.Series), stats.Series)
 	}
+	if stats.Series[0].Requests != 2 || stats.Series[1].Requests != 1 || stats.Series[2].Requests != 1 {
+		t.Fatalf("series = %+v", stats.Series)
+	}
+
+	empty, err := store.SummarizeRequestLogs(ctx, to.Add(time.Hour), to.Add(2*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if empty.Totals.Requests != 0 || empty.Latency.AvgMs != nil || len(empty.Models) != 0 {
+		t.Fatalf("empty stats = %+v", empty)
+	}
+
+	hourFrom := time.Date(2026, 8, 28, 10, 0, 0, 0, time.UTC)
+	hourTo := hourFrom.Add(time.Hour)
+	hourStats, err := store.SummarizeRequestLogs(ctx, hourFrom, hourTo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hourStats.Series) != 4 {
+		t.Fatalf("1h series len = %d %+v", len(hourStats.Series), hourStats.Series)
+	}
+	if hourStats.Series[1].Requests != 1 || hourStats.Series[2].Requests != 1 {
+		t.Fatalf("1h series = %+v", hourStats.Series)
+	}
+}
