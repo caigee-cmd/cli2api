@@ -35,6 +35,8 @@ cd frontend
 npm run sync
 ```
 
+`vite build` writes `frontend/dist`. The Go binary embeds `internal/webui/static`. Shipping a console change without `sync` leaves the previous hashed bundle in the image. Commit the new `index-*.js` / `index-*.css` and `index.html` in the same change; Git will show the old hashed files as deletions.
+
 Build and start the container from source:
 
 ```bash
@@ -70,6 +72,12 @@ Freeze by PR, not by re-running the release workflow:
 2. Move only the bullets that shipped in that tag under `## 0.x.y - YYYY-MM-DD`. Leave later `main` work in `## Unreleased`.
 3. Open a `docs: freeze changelog for v0.x.y` PR. If `CHANGELOG.md` conflicts, keep post-tag features in Unreleased.
 4. Merge the PR. Do not run `release.yml` again to fix the freeze — a second run would mint the next patch.
+
+If this checkout cannot switch to `main` because another worktree already has it, merge with the GitHub API instead of `git checkout main`:
+
+```bash
+gh api -X PUT repos/caigee-cmd/cli2api/pulls/<n>/merge -f merge_method=merge
+```
 
 Expected artifacts for a published tag:
 
