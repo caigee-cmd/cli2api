@@ -431,7 +431,7 @@ func (s *Store) requestLatencyPercentiles(ctx context.Context, where string, arg
 	if len(values) == 0 {
 		return nil, nil
 	}
-	return intPtr(percentileNearestRank(values, 50)), intPtr(percentileNearestRank(values, 95))
+	return roundedInt(percentileNearestRank(values, 50)), roundedInt(percentileNearestRank(values, 95))
 }
 
 func (s *Store) requestSeries(ctx context.Context, from, to time.Time, where string, args []any) ([]RequestStatsPoint, error) {
@@ -467,7 +467,7 @@ func (s *Store) requestSeries(ctx context.Context, from, to time.Time, where str
 	if daily {
 		expr = "substr(created_at, 1, 10)"
 	} else if quarter {
-		expr = "substr(created_at, 1, 15) || printf('%02d', (CAST(substr(created_at, 15, 2) AS INTEGER) / 15) * 15)"
+		expr = "substr(created_at, 1, 14) || printf('%02d', (CAST(substr(created_at, 15, 2) AS INTEGER) / 15) * 15)"
 	}
 	rows, err := s.db.QueryContext(ctx, fmt.Sprintf(`
 SELECT %s, COUNT(*),
@@ -574,7 +574,7 @@ func roundedNullInt(value sql.NullFloat64) *int {
 	return &rounded
 }
 
-func intPtr(value int) *int {
+func roundedInt(value int) *int {
 	return &value
 }
 
