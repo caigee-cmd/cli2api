@@ -7,6 +7,8 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Filter Access playground models to the selected account's live catalog instead of the global union
+- Add an available-models button on account cards that opens that account's live catalog
 - Show request volume, success rate, latency, tokens, and hourly traffic on Overview, with 1h / 24h / 7d windows from SQLite request history
 - Shrink Accounts cards: denser identity row, a compact runtime meter, and a quota fill that animates remaining credits
 - Show page skeletons again when the console refresh button is used, instead of leaving stale cards on screen
@@ -14,6 +16,8 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### 中文
 
+- Access 调试台选了账号后，模型列表改为该账号的实时目录，不再用全局并集
+- 账号卡片增加「可用模型」按钮，弹窗查看该账号当前目录
 - 概览页展示请求量、成功率、延迟、token 与按小时流量，时间窗口为 1 小时 / 24 小时 / 7 天，数据来自 SQLite 请求历史
 - 账号卡片改为更紧凑的身份行：运行状态用短柱状指示，额度用填充条显示剩余量
 - 控制台点刷新时重新显示骨架屏，不再把旧卡片留在页面上
