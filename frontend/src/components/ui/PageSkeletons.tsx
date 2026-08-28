@@ -17,10 +17,10 @@ export function OverviewPageSkeleton() {
 
 export function AccountsPageSkeleton() {
   return (
-    <div className="space-y-5" aria-label="Loading accounts">
-      <section className="flex items-end justify-between gap-4 border-b border-[var(--app-line)] pb-4"><div className="flex flex-wrap gap-5"><SkeletonBlock className="h-4 w-20" /><SkeletonBlock className="h-4 w-24" /><SkeletonBlock className="h-4 w-24" /><SkeletonBlock className="h-4 w-20" /></div><SkeletonBlock className="h-8 w-28" /></section>
+    <div className="space-y-4" aria-label="Loading accounts">
+      <section className="flex items-end justify-between gap-4 border-b border-[var(--app-line)] pb-3"><div className="flex flex-wrap gap-5"><SkeletonBlock className="h-4 w-20" /><SkeletonBlock className="h-4 w-24" /><SkeletonBlock className="h-4 w-24" /><SkeletonBlock className="h-4 w-20" /></div><SkeletonBlock className="h-8 w-28" /></section>
       <section className="flex items-center justify-between gap-4"><SkeletonBlock className="h-8 w-full max-w-md" /><SkeletonBlock className="h-8 w-72" /></section>
-      <section className="grid gap-3 xl:grid-cols-2">{Array.from({ length: 4 }, (_, index) => <article key={index} className="app-panel-flat overflow-hidden rounded-lg"><div className="space-y-3 p-4"><div className="flex items-start justify-between gap-3"><div className="flex gap-3"><SkeletonBlock className="size-8" /><div className="space-y-1.5"><SkeletonBlock className="h-4 w-24" /><SkeletonBlock className="h-4 w-40" /></div></div><SkeletonBlock className="h-5 w-16" /></div><SkeletonBlock className="h-3 w-60 max-w-full" /><div className="grid grid-cols-12 gap-1">{Array.from({ length: 12 }, (_, item) => <SkeletonBlock key={item} className="h-1.5 w-full rounded-[2px]" />)}</div><div className="grid grid-cols-4 gap-4 border-y border-[var(--app-line)] py-3">{Array.from({ length: 4 }, (_, item) => <SkeletonBlock key={item} className="h-7 w-full" />)}</div></div><div className="flex items-center gap-1.5 border-t border-[var(--app-line)] px-4 py-2.5"><SkeletonBlock className="h-8 w-24" /><SkeletonBlock className="size-8" /><SkeletonBlock className="size-8" /><SkeletonBlock className="ml-auto h-[18px] w-[74px]" /></div></article>)}</section>
+      <section className="grid gap-2.5 lg:grid-cols-2 xl:grid-cols-3">{Array.from({ length: 6 }, (_, index) => <article key={index} className="app-panel-flat overflow-hidden rounded-lg"><div className="space-y-2.5 px-3 pt-3 pb-2.5"><div className="flex items-start justify-between gap-3"><div className="flex items-center gap-2.5"><SkeletonBlock className="size-[22px]" /><div className="space-y-1"><SkeletonBlock className="h-4 w-28" /><SkeletonBlock className="h-3 w-40" /></div></div><SkeletonBlock className="h-5 w-14" /></div><SkeletonBlock className="h-2 w-full" /><SkeletonBlock className="h-1.5 w-full rounded-full" /><SkeletonBlock className="h-3 w-36" /></div><div className="flex items-center gap-1.5 border-t border-[var(--app-line)] px-3 py-2"><SkeletonBlock className="h-8 w-24" /><SkeletonBlock className="size-8" /><SkeletonBlock className="size-8" /><SkeletonBlock className="ml-auto h-[18px] w-[74px]" /></div></article>)}</section>
     </div>
   )
 }
@@ -45,6 +45,41 @@ export function AccessPageSkeleton() {
   )
 }
 
+export function LogsRequestListSkeleton() {
+  return (
+    <div aria-label="Loading logs">
+      <div className="hidden grid-cols-7 gap-4 border-b border-[var(--app-line)] px-5 py-3 md:grid">
+        {Array.from({ length: 7 }, (_, index) => <SkeletonBlock key={index} className="h-3 w-16" />)}
+      </div>
+      {Array.from({ length: 8 }, (_, index) => (
+        <div key={index} className="grid grid-cols-2 items-center gap-4 border-b border-[var(--app-line)] px-5 py-3.5 last:border-0 md:grid-cols-7">
+          <SkeletonBlock className="h-4 w-28" />
+          <SkeletonBlock className="h-4 w-24" />
+          <SkeletonBlock className="hidden h-4 w-20 md:block" />
+          <SkeletonBlock className="hidden h-4 w-16 md:block" />
+          <SkeletonBlock className="hidden h-4 w-14 md:block" />
+          <SkeletonBlock className="hidden h-4 w-12 md:block" />
+          <SkeletonBlock className="hidden h-4 w-16 md:block" />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+export function LogsRuntimeListSkeleton() {
+  return (
+    <div className="divide-y divide-[var(--app-line)]" aria-label="Loading logs">
+      {Array.from({ length: 8 }, (_, index) => (
+        <div key={index} className="grid gap-2 px-5 py-3 sm:grid-cols-[150px_72px_minmax(0,1fr)] sm:items-center">
+          <SkeletonBlock className="h-3 w-24" />
+          <SkeletonBlock className="h-3 w-12" />
+          <SkeletonBlock className="h-4 w-full" />
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export function LogsPageSkeleton() {
   return (
     <div className="space-y-6" aria-label="Loading logs">
@@ -64,20 +99,7 @@ export function LogsPageSkeleton() {
         <SkeletonBlock className="h-4 w-20" />
       </div>
       <div className="app-panel-flat overflow-hidden rounded-lg">
-        <div className="grid grid-cols-4 gap-4 border-b border-[var(--app-line)] px-5 py-4">
-          <SkeletonBlock className="h-3 w-16" />
-          <SkeletonBlock className="h-3 w-20" />
-          <SkeletonBlock className="h-3 w-16" />
-          <SkeletonBlock className="h-3 w-16" />
-        </div>
-        {Array.from({ length: 6 }, (_, index) => (
-          <div key={index} className="grid grid-cols-4 items-center gap-4 border-b border-[var(--app-line)] px-5 py-4 last:border-0">
-            <SkeletonBlock className="h-5 w-28" />
-            <SkeletonBlock className="h-4 w-24" />
-            <SkeletonBlock className="h-4 w-20" />
-            <SkeletonBlock className="h-4 w-16" />
-          </div>
-        ))}
+        <LogsRequestListSkeleton />
       </div>
     </div>
   )

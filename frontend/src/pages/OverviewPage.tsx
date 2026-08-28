@@ -115,7 +115,7 @@ export function OverviewPage() {
     { label: t('metricTokens'), value: traffic.tokens.total, kind: 'compact' as const, detail: `${formatCompact(traffic.tokens.prompt)} / ${formatCompact(traffic.tokens.completion)}`, ok: true },
   ]
 
-  if (loading && !overview) return <OverviewPageSkeleton />
+  if (loading) return <OverviewPageSkeleton />
 
   return (
     <div className="space-y-6">
