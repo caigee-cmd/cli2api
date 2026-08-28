@@ -38,6 +38,7 @@ type streamRelayStats struct {
 	UsageSource      string
 	Credits          *float64
 	Model            string
+	FirstTokenAt     *time.Time
 }
 
 func relayOpenAIStream(w http.ResponseWriter, body io.Reader) (streamRelayStats, error) {
@@ -52,7 +53,12 @@ func relayOpenAIStream(w http.ResponseWriter, body io.Reader) (streamRelayStats,
 	var stats streamRelayStats
 	for scanner.Scan() {
 		line := scanner.Text()
+		if stats.FirstTokenAt == nil && sseDeltaHasToken(line) {
+			now := time.Now()
+			stats.FirstTokenAt = &now
+		}
 		if usage, ok := parseStreamUsageLine(line); ok {
+			usage.FirstTokenAt = stats.FirstTokenAt
 			stats = usage
 		}
 		if _, err := io.WriteString(writer, line+"\n"); err != nil {
@@ -69,6 +75,53 @@ func relayOpenAIStream(w http.ResponseWriter, body io.Reader) (streamRelayStats,
 		return stats, fmt.Errorf("stream ended before [DONE]")
 	}
 	return stats, nil
+}
+
+func sseDeltaHasToken(line string) bool {
+	payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+	if payload == "" || payload == "[DONE]" {
+		return false
+	}
+	var parsed struct {
+		Choices []struct {
+			Delta struct {
+				Content          json.RawMessage `json:"content"`
+				ReasoningContent json.RawMessage `json:"reasoning_content"`
+				ToolCalls        json.RawMessage `json:"tool_calls"`
+			} `json:"delta"`
+		} `json:"choices"`
+	}
+	if json.Unmarshal([]byte(payload), &parsed) != nil || len(parsed.Choices) == 0 {
+		return false
+	}
+	delta := parsed.Choices[0].Delta
+	return jsonHasText(delta.Content) || jsonHasText(delta.ReasoningContent) || jsonHasArray(delta.ToolCalls)
+}
+
+func jsonHasText(raw json.RawMessage) bool {
+	if len(raw) == 0 || string(raw) == "null" {
+		return false
+	}
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		return strings.TrimSpace(text) != ""
+	}
+	var parts []any
+	if json.Unmarshal(raw, &parts) == nil {
+		return len(parts) > 0
+	}
+	return true
+}
+
+func jsonHasArray(raw json.RawMessage) bool {
+	if len(raw) == 0 || string(raw) == "null" {
+		return false
+	}
+	var parts []any
+	if json.Unmarshal(raw, &parts) != nil {
+		return false
+	}
+	return len(parts) > 0
 }
 
 func parseStreamUsageLine(line string) (streamRelayStats, bool) {
@@ -136,7 +189,10 @@ func (s *Server) handleModelsAPI(w http.ResponseWriter, r *http.Request) {
 	refresh := r.URL.Query().Get("refresh") == "1"
 	models, err := s.fetchWorkerModelsFor(refresh, s.requestedAccount(r))
 	if err != nil {
-		writeErr(w, http.StatusBadGateway, "catalog_failed", err.Error())
+		// 503, not 502: some reverse proxies replace origin 502 JSON with
+		// their own HTML error page, which the console then renders as the
+		// catalog failure message.
+		writeErr(w, http.StatusServiceUnavailable, "catalog_failed", err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -213,7 +269,14 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 				status = accounts.RequestStatusError
 			}
 		}
-		s.finishRequestLog(requestID, started, req, publicModel, upstream.AccountID, status, upstream.TTFBMs, &stats, relayErr, upstream.AttemptCount)
+		ttfb := upstream.TTFBMs
+		if stats.FirstTokenAt != nil {
+			ttfb = int(stats.FirstTokenAt.Sub(started).Milliseconds())
+			if ttfb < 1 {
+				ttfb = 1
+			}
+		}
+		s.finishRequestLog(requestID, started, req, publicModel, upstream.AccountID, status, ttfb, &stats, relayErr, upstream.AttemptCount)
 		if relayErr != nil {
 			panic(http.ErrAbortHandler)
 		}
@@ -348,6 +411,8 @@ func (s *Server) finishRequestLog(requestID string, started time.Time, req trans
 	}
 	if ttfb > 0 {
 		entry.TTFBMs = &ttfb
+	} else if !req.Stream && entry.LatencyMs != nil {
+		entry.TTFBMs = entry.LatencyMs
 	}
 	if stats != nil {
 		entry.PromptTokens = stats.PromptTokens

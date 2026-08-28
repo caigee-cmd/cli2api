@@ -69,11 +69,18 @@ function formatTime(value?: string | null, lang: 'en' | 'zh' = 'zh') {
   }).format(date)
 }
 
-function formatTokens(log: RequestLog) {
+function TokenSplit({ log, inLabel, outLabel }: { log: RequestLog; inLabel: string; outLabel: string }) {
   const prompt = log.prompt_tokens
   const completion = log.completion_tokens
-  if (prompt == null && completion == null) return '—'
-  return `${prompt ?? 0} / ${completion ?? 0}`
+  if (prompt == null && completion == null) {
+    return <span className="mono text-xs text-[var(--app-faint)]">—</span>
+  }
+  return (
+    <div className="leading-4">
+      <div className="mono text-xs">{prompt ?? 0} / {completion ?? 0}</div>
+      <div className="mt-0.5 text-[10px] text-[var(--app-faint)]">{inLabel} / {outLabel}</div>
+    </div>
+  )
 }
 
 function formatLatency(ms?: number | null) {
@@ -504,6 +511,7 @@ export function LogsPage() {
                       <Table.Column>{t('logsColStatus')}</Table.Column>
                       <Table.Column>{t('logsColStream')}</Table.Column>
                       <Table.Column>{t('logsColLatency')}</Table.Column>
+                      <Table.Column>{t('logsColTTFT')}</Table.Column>
                       <Table.Column>{t('logsColTokens')}</Table.Column>
                     </Table.Header>
                     <Table.Body>
@@ -533,7 +541,8 @@ export function LogsPage() {
                           </Table.Cell>
                           <Table.Cell><span className="text-xs text-[var(--app-muted)]">{item.stream ? t('logsStreamYes') : t('logsStreamNo')}</span></Table.Cell>
                           <Table.Cell><span className="mono text-xs">{formatLatency(item.latency_ms)}</span></Table.Cell>
-                          <Table.Cell><span className="mono text-xs">{formatTokens(item)}</span></Table.Cell>
+                          <Table.Cell><span className="mono text-xs">{formatLatency(item.ttfb_ms)}</span></Table.Cell>
+                          <Table.Cell><TokenSplit log={item} inLabel={t('logsTokensIn')} outLabel={t('logsTokensOut')} /></Table.Cell>
                         </Table.Row>
                       ))}
                     </Table.Body>
@@ -673,7 +682,7 @@ export function LogsPage() {
                     [t('logsColModel'), selected?.requested_model || '—'],
                     [t('logsColAccount'), selected?.account_id ? (accountNameById.get(selected.account_id) || selected.account_id) : '—'],
                     [t('logsColLatency'), formatLatency(selected?.latency_ms)],
-                    [t('logsColTokens'), selected ? formatTokens(selected) : '—'],
+                    [t('logsColTTFT'), formatLatency(selected?.ttfb_ms)],
                     [t('logsColStream'), selected?.stream ? t('logsStreamYes') : t('logsStreamNo')],
                   ].map(([label, value]) => (
                     <div key={String(label)}>
@@ -681,6 +690,14 @@ export function LogsPage() {
                       <dd className="mt-1 break-all text-sm font-medium">{value}</dd>
                     </div>
                   ))}
+                  <div>
+                    <dt className="text-[11px] text-[var(--app-faint)]">{t('logsColTokens')}</dt>
+                    <dd className="mt-1">
+                      {selected ? (
+                        <TokenSplit log={selected} inLabel={t('logsTokensIn')} outLabel={t('logsTokensOut')} />
+                      ) : '—'}
+                    </dd>
+                  </div>
                 </dl>
                 {selected?.error_message ? (
                   <div className="rounded-lg border border-[var(--app-line)] bg-[var(--app-surface-muted)] px-3 py-2 text-xs leading-5 text-[var(--app-muted)]">

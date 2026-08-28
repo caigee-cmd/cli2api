@@ -14,8 +14,10 @@ type Props = {
 export function QuotaMeter({ quota, label, remainingLabel, addOnLabel, exceededLabel }: Props) {
   const rootRef = useRef<HTMLDivElement>(null)
   const fillRef = useRef<HTMLSpanElement>(null)
+  const remainingRef = useRef<HTMLSpanElement>(null)
+  const remainingValueRef = useRef({ remaining: quota.remaining ?? 0, total: quota.total ?? 0 })
   const primedRef = useRef(false)
-  const animateRef = useRef<((ratio: number) => void) | null>(null)
+  const animateRef = useRef<((ratio: number, remaining: number, total: number) => void) | null>(null)
   const ratio = quotaUsedRatio(quota)
   const tone = quotaTone(quota)
   const remaining = `${formatQuotaAmount(quota.remaining)} / ${formatQuotaAmount(quota.total)} ${quota.unit || 'credits'}`
@@ -30,18 +32,37 @@ export function QuotaMeter({ quota, label, remainingLabel, addOnLabel, exceededL
       media.add({ all: 'all', reduceMotion: '(prefers-reduced-motion: reduce)' }, (match) => {
         const reduceMotion = Boolean(match.conditions?.reduceMotion)
         gsap.set(fill, { transformOrigin: 'left center' })
-        animateRef.current = (nextRatio) => {
-          const duration = reduceMotion ? 0 : primedRef.current ? 0.2 : 0.22
+        animateRef.current = (nextRatio, remainingValue, totalValue) => {
+          const duration = reduceMotion ? 0 : primedRef.current ? 0.28 : 0.32
           if (!primedRef.current) {
-            gsap.fromTo(fill, { scaleX: 0 }, { scaleX: nextRatio, duration, ease: 'power2.out', overwrite: true })
+            gsap.fromTo(fill, { scaleX: 0, autoAlpha: 0.72 }, { scaleX: nextRatio, autoAlpha: 1, duration, ease: 'power2.out', overwrite: true })
           } else {
-            gsap.to(fill, { scaleX: nextRatio, duration, ease: 'power2.out', overwrite: true })
+            gsap.to(fill, { scaleX: nextRatio, autoAlpha: 1, duration, ease: 'power2.out', overwrite: true })
+          }
+          if (remainingRef.current) {
+            if (reduceMotion) {
+              remainingValueRef.current = { remaining: remainingValue, total: totalValue }
+              remainingRef.current.textContent = `${formatQuotaAmount(remainingValue)} / ${formatQuotaAmount(totalValue)}`
+            } else {
+              gsap.to(remainingValueRef.current, {
+                remaining: remainingValue,
+                total: totalValue,
+                duration,
+                ease: 'power2.out',
+                overwrite: true,
+                onUpdate: () => {
+                  if (!remainingRef.current) return
+                  remainingRef.current.textContent = `${formatQuotaAmount(remainingValueRef.current.remaining)} / ${formatQuotaAmount(remainingValueRef.current.total)}`
+                },
+              })
+            }
           }
           primedRef.current = true
         }
         return () => {
           animateRef.current = null
           gsap.killTweensOf(fill)
+          gsap.killTweensOf(remainingValueRef.current)
         }
       })
     }, root)
@@ -53,8 +74,8 @@ export function QuotaMeter({ quota, label, remainingLabel, addOnLabel, exceededL
   }, [])
 
   useLayoutEffect(() => {
-    animateRef.current?.(ratio)
-  }, [ratio, tone])
+    animateRef.current?.(ratio, quota.remaining ?? 0, quota.total ?? 0)
+  }, [quota.remaining, quota.total, ratio, tone])
 
   return (
     <div ref={rootRef} className="account-meter">
@@ -64,7 +85,8 @@ export function QuotaMeter({ quota, label, remainingLabel, addOnLabel, exceededL
           {quota.exceeded ? <span className="text-[var(--app-danger)]">{exceededLabel}</span> : null}
         </div>
         <span className="mono truncate text-[10px] leading-4 text-[var(--app-faint)]">
-          {remaining}
+          <span ref={remainingRef}>{formatQuotaAmount(quota.remaining)} / {formatQuotaAmount(quota.total)}</span>
+          {` ${quota.unit || 'credits'}`}
           {quota.has_add_on ? (
             <span>
               {' · '}{addOnLabel} {formatQuotaAmount(quota.add_on_used)} / {formatQuotaAmount(quota.add_on_total)} {quota.add_on_unit || 'credits'}
