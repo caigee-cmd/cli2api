@@ -45,8 +45,7 @@ func newCLIRequestID() string {
 	return hex.EncodeToString(raw[:])
 }
 
-// SetChatHeaders carries access identity but never the refresh token.
-func SetChatHeaders(header http.Header, credential Credential) {
+func setIdentityHeaders(header http.Header, credential Credential) {
 	setCommonHeaders(header, credential.IsGlobal())
 	if credential.AccessToken != "" {
 		header.Set("Authorization", "Bearer "+credential.AccessToken)
@@ -69,6 +68,17 @@ func SetChatHeaders(header http.Header, credential Credential) {
 		header.Set("X-No-Department-Info", "1")
 	}
 	header.Set("X-Product", "SaaS")
+}
+
+// SetCatalogHeaders carries access identity for the models endpoint. Chat-only
+// CLI channel headers stay off this path.
+func SetCatalogHeaders(header http.Header, credential Credential) {
+	setIdentityHeaders(header, credential)
+}
+
+// SetChatHeaders carries access identity but never the refresh token.
+func SetChatHeaders(header http.Header, credential Credential) {
+	setIdentityHeaders(header, credential)
 	setCLIChannelHeaders(header)
 }
 

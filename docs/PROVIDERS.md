@@ -82,7 +82,7 @@ WorkBuddy2API 把 **WorkBuddy CN / CodeBuddy**（`copilot.tencent.com` / `www.co
 }
 ```
 
-也兼容扁平 JSON。`domain` 含 `workbuddy.ai` 视为 global，否则 CN。
+也兼容扁平 JSON。`domain` 含 `workbuddy.ai` 或 `workbuddy`（且不含 `codebuddy.cn`）视为 global，否则 CN。账号 `region=global` 时，catalog / chat / billing 即使凭证 domain 仍是 CN 也会打到 `www.workbuddy.ai`。
 
 刷新：`POST {chatBase}/v2/plugin/auth/token/refresh`，头里带 `X-Refresh-Token`。chat 请求禁止带这个头。`12153` / `Offline user session not found` 视为 session 死亡，账号应禁用并要求重登。
 
@@ -99,7 +99,7 @@ WorkBuddy2API 把 **WorkBuddy CN / CodeBuddy**（`copilot.tencent.com` / `www.co
 
 `GET {chatBase}/console/enterprises/personal/models`
 
-只暴露 `agents[].name == "cli"` 的模型 ID，再和 `data.models` 交叉，跳过 `disabled`。字段用 `maxInputTokens` / `maxOutputTokens`，不是 `contextWindow`。
+只暴露 CLI agent 的模型 ID（`cli` / `CLI` / `codebuddy` / `workbuddy`），再和 `data.models` 交叉，跳过 `disabled`。上游没有 agents 时，退回全部未禁用模型。字段用 `maxInputTokens` / `maxOutputTokens`，不是 `contextWindow`。按账号拉目录失败时，`GET /api/models?account=` 返回明确错误，不把空列表当成「没有模型」。
 
 参考仓库失败时回退静态表。本仓库对 Qoder 的原则是 **catalog 失败就报错，不猜**。WorkBuddy 应沿用同一原则：动态目录失败返回明确错误，不内置一份会过期的模型白名单。
 

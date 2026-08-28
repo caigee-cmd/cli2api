@@ -60,6 +60,9 @@ export type RuntimeLogEntry = {
 export type RuntimeLogList = {
   items: RuntimeLogEntry[]
   count: number
+  total?: number
+  limit?: number
+  offset?: number
 }
 
 export type RequestStatsWindow = {
@@ -169,10 +172,11 @@ export function clearRequestLogs() {
   return api<{ ok: boolean; deleted: number }>('/api/logs/requests', { method: 'DELETE' })
 }
 
-export function fetchRuntimeLogs(query: { after?: number; limit?: number; level?: string; q?: string; account?: string } = {}) {
+export function fetchRuntimeLogs(query: { after?: number; limit?: number; offset?: number; level?: string; q?: string; account?: string } = {}) {
   const params = new URLSearchParams()
   if (query.after != null) params.set('after', String(query.after))
   if (query.limit != null) params.set('limit', String(query.limit))
+  if (query.offset != null) params.set('offset', String(query.offset))
   if (query.level) params.set('level', query.level)
   if (query.q) params.set('q', query.q)
   if (query.account) params.set('account', query.account)

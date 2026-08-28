@@ -60,12 +60,15 @@ func (r *Ring) Append(message string) Entry {
 	return r.appendLine(message)
 }
 
-func (r *Ring) Snapshot(afterID uint64, limit int, level, query, accountID string) []Entry {
+func (r *Ring) Snapshot(afterID uint64, limit, offset int, level, query, accountID string) ([]Entry, int) {
 	if r == nil {
-		return nil
+		return nil, 0
 	}
 	if limit <= 0 || limit > 500 {
 		limit = 200
+	}
+	if offset < 0 {
+		offset = 0
 	}
 	level = strings.ToLower(strings.TrimSpace(level))
 	query = strings.TrimSpace(query)
@@ -73,7 +76,7 @@ func (r *Ring) Snapshot(afterID uint64, limit int, level, query, accountID strin
 
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	out := make([]Entry, 0, min(limit, len(r.entries)))
+	matched := make([]Entry, 0, len(r.entries))
 	for _, entry := range r.entries {
 		if entry.ID <= afterID {
 			continue
@@ -88,16 +91,27 @@ func (r *Ring) Snapshot(afterID uint64, limit int, level, query, accountID strin
 			!strings.Contains(strings.ToLower(entry.AccountID), strings.ToLower(query)) {
 			continue
 		}
-		out = append(out, entry)
-		if len(out) >= limit {
-			break
-		}
+		matched = append(matched, entry)
 	}
-	return out
+	total := len(matched)
+	for i, j := 0, total-1; i < j; i, j = i+1, j-1 {
+		matched[i], matched[j] = matched[j], matched[i]
+	}
+	if offset >= total {
+		return []Entry{}, total
+	}
+	end := offset + limit
+	if end > total {
+		end = total
+	}
+	out := make([]Entry, end-offset)
+	copy(out, matched[offset:end])
+	return out, total
 }
 
 func (r *Ring) Latest(limit int) []Entry {
-	return r.Snapshot(0, limit, "", "", "")
+	items, _ := r.Snapshot(0, limit, 0, "", "", "")
+	return items
 }
 
 func (r *Ring) appendLine(line string) Entry {

@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Button, Card, Chip, Skeleton, TextArea } from '@heroui/react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Button, Card, Chip, Description, Label, ListBox, Select, Skeleton, TextArea } from '@heroui/react'
 import {
+  ArrowsClockwise,
   BracketsCurly,
   Check,
   CheckCircle,
@@ -16,14 +17,80 @@ import { fetchModels, testChat } from '@/api/overview'
 import type { ModelInfo } from '@/api/types'
 import { absUrl } from '@/lib/url'
 import { AccessPageSkeleton } from '@/components/ui/PageSkeletons'
-import { OptionTiles } from '@/components/ui/OptionTiles'
 import { ProviderMark } from '@/components/ProviderMark'
 import { accountProviderLabel } from '@/lib/provider'
 
 type RequestState = 'idle' | 'loading' | 'success' | 'error'
 
+type PlaygroundOption = {
+  id: string
+  textValue: string
+  label: string
+  hint?: string
+  icon?: ReactNode
+}
+
 function shellQuote(value: string) {
   return `'${value.replaceAll("'", `'"'"'`)}'`
+}
+
+function PlaygroundSelect({
+  label,
+  value,
+  onChange,
+  placeholder,
+  isDisabled,
+  options,
+}: {
+  label: string
+  value: string
+  onChange: (value: string) => void
+  placeholder?: string
+  isDisabled?: boolean
+  options: PlaygroundOption[]
+}) {
+  const selected = options.find((option) => option.id === value)
+  return (
+    <Select
+      fullWidth
+      value={value || null}
+      placeholder={placeholder}
+      isDisabled={isDisabled}
+      onChange={(next) => {
+        if (typeof next === 'string' && next) onChange(next)
+      }}
+    >
+      <Label className="text-sm font-medium text-[var(--app-muted)]">{label}</Label>
+      <Select.Trigger className="h-10 min-h-10 items-center">
+        <Select.Value className="min-w-0 truncate">
+          {({ defaultChildren, isPlaceholder }) => {
+            if (isPlaceholder || !selected) return defaultChildren
+            return (
+              <span className="flex min-w-0 items-center gap-2">
+                {selected.icon ? <span className="grid size-5 shrink-0 place-items-center">{selected.icon}</span> : null}
+                <span className="truncate">{selected.label}</span>
+              </span>
+            )
+          }}
+        </Select.Value>
+        <Select.Indicator />
+      </Select.Trigger>
+      <Select.Popover className="max-h-72 rounded-lg">
+        <ListBox>
+          {options.map((option) => (
+            <ListBox.Item key={option.id} id={option.id} textValue={option.textValue} className="rounded-lg">
+              {option.icon ? <span className="grid size-5 shrink-0 place-items-center">{option.icon}</span> : null}
+              <div className="min-w-0 flex-1">
+                <Label className="block truncate">{option.label}</Label>
+                {option.hint ? <Description className="truncate">{option.hint}</Description> : null}
+              </div>
+              <ListBox.ItemIndicator />
+            </ListBox.Item>
+          ))}
+        </ListBox>
+      </Select.Popover>
+    </Select>
+  )
 }
 
 export function AccessPage() {
@@ -169,19 +236,23 @@ export function AccessPage() {
               </div>
             </div>
 
-            <div className="space-y-7 p-5 sm:p-7">
-              <div className="space-y-3">
-                  <div className="text-sm font-medium text-[var(--app-muted)]">{t('account')}</div>
-                  <OptionTiles
-                    ariaLabel={t('account')}
-                    columns={2}
-                    compact
+            <div className="space-y-6 p-5 sm:p-7">
+              <div className="grid gap-5 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <PlaygroundSelect
+                    label={t('account')}
                     value={selectedAccount || 'auto'}
                     onChange={(next) => setAccountId(next === 'auto' ? '' : next)}
                     options={[
-                      { value: 'auto', label: t('autoAccount'), icon: <Check size={15} className="text-[var(--app-muted)]" /> },
+                      {
+                        id: 'auto',
+                        textValue: t('autoAccount'),
+                        label: t('autoAccount'),
+                        icon: <ArrowsClockwise size={15} className="text-[var(--app-muted)]" />,
+                      },
                       ...accounts.map((account) => ({
-                        value: account.id,
+                        id: account.id,
+                        textValue: `${account.name || account.id} ${accountProviderLabel(account.provider, account.region, t)}`,
                         label: account.name || account.id,
                         hint: accountProviderLabel(account.provider, account.region, t),
                         icon: <ProviderMark provider={account.provider} size={16} />,
@@ -189,36 +260,37 @@ export function AccessPage() {
                     ]}
                   />
                   <p className="text-xs leading-5 text-[var(--app-faint)]">{selectedAccount ? t('fixedAccountHint') : t('autoAccountHint')}</p>
-              </div>
+                </div>
 
-              <div className="space-y-3">
-                  <div className="text-sm font-medium text-[var(--app-muted)]">{t('model')}</div>
+                <div className="space-y-2">
                   {modelsLoading ? (
-                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                      <Skeleton className="h-14 rounded-lg" />
-                      <Skeleton className="h-14 rounded-lg" />
-                      <Skeleton className="h-14 rounded-lg" />
-                      <Skeleton className="h-14 rounded-lg" />
+                    <div className="flex flex-col gap-1">
+                      <div className="text-sm font-medium text-[var(--app-muted)]">{t('model')}</div>
+                      <Skeleton className="h-10 rounded-lg" />
                     </div>
                   ) : models.length ? (
-                    <OptionTiles
-                      ariaLabel={t('model')}
-                      columns={2}
-                      compact
+                    <PlaygroundSelect
+                      label={t('model')}
                       value={selectedModel}
                       onChange={setModel}
+                      placeholder={t('model')}
                       options={models.map((item) => ({
-                        value: item.id,
+                        id: item.id,
+                        textValue: `${item.display_name || item.id} ${item.id} ${item.owned_by || item.provider || ''}`,
                         label: item.display_name || item.id,
                         hint: item.owned_by || item.provider ? `${item.id} · ${item.owned_by || item.provider}` : item.id,
                       }))}
                     />
                   ) : (
-                    <div className="rounded-lg border border-dashed border-[var(--app-line-strong)] px-3 py-4 text-xs leading-5 text-[var(--app-faint)]">
-                      {modelsError || (selectedAccount ? t('noAccountModels') : t('noModelsYet'))}
+                    <div className="flex flex-col gap-1">
+                      <div className="text-sm font-medium text-[var(--app-muted)]">{t('model')}</div>
+                      <div className="flex h-10 items-center rounded-lg border border-dashed border-[var(--app-line-strong)] px-3 text-xs leading-5 text-[var(--app-faint)]">
+                        {modelsError || (selectedAccount ? t('noAccountModels') : t('noModelsYet'))}
+                      </div>
                     </div>
                   )}
                   <p className="text-xs leading-5 text-[var(--app-faint)]">{selectedAccount ? t('accountModelHint') : t('modelRoutingHint')}</p>
+                </div>
               </div>
 
               <div className="space-y-3">

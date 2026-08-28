@@ -21,7 +21,7 @@ import {
   startDeviceLogin,
   updateAccount,
 } from '@/api/overview'
-import { AccountsPageSkeleton } from '@/components/ui/PageSkeletons'
+import { AccountsListSkeleton, AccountsPageSkeleton } from '@/components/ui/PageSkeletons'
 import {
   accountState,
   isAvailable,
@@ -39,6 +39,8 @@ export function AccountsPage() {
   const { t } = useI18n()
   const { overview, loading, refresh } = useOverview()
   const rows = overview?.accounts ?? EMPTY_ACCOUNTS
+  const hasAccounts = rows.length > 0
+  const refreshing = loading && hasAccounts
   const [addOpen, setAddOpen] = useState(false)
   const [busy, setBusy] = useState<AccountBusy | null>(null)
   const [patById, setPatById] = useState<Record<string, string>>({})
@@ -51,14 +53,23 @@ export function AccountsPage() {
   const [filter, setFilter] = useState<AccountFilter>('all')
   const [enabledById, setEnabledById] = useState<Record<string, boolean>>({})
   const [dropSystemById, setDropSystemById] = useState<Record<string, boolean>>({})
+  const [nameById, setNameById] = useState<Record<string, string>>({})
+  const [inflightById, setInflightById] = useState<Record<string, number>>({})
+  const [priorityById, setPriorityById] = useState<Record<string, number>>({})
   const displayRows = useMemo(() => rows.map((account) => {
     const enabled = enabledById[account.id]
     const dropSystem = dropSystemById[account.id]
+    const name = nameById[account.id]
+    const inflight = inflightById[account.id]
+    const priority = priorityById[account.id]
     let next = account
     if (enabled !== undefined) next = { ...next, enabled }
     if (dropSystem !== undefined) next = { ...next, drop_system_prompt: dropSystem }
+    if (name !== undefined) next = { ...next, name }
+    if (inflight !== undefined) next = { ...next, max_inflight: inflight }
+    if (priority !== undefined) next = { ...next, priority }
     return next
-  }), [enabledById, dropSystemById, rows])
+  }), [enabledById, dropSystemById, inflightById, nameById, priorityById, rows])
 
   const availableCount = displayRows.filter(isAvailable).length
   const attentionCount = displayRows.filter((account) => account.enabled && !isAvailable(account)).length
@@ -80,7 +91,7 @@ export function AccountsPage() {
     })
   }, [displayRows, filter, query])
 
-  if (loading) return <AccountsPageSkeleton />
+  if (loading && !hasAccounts) return <AccountsPageSkeleton />
 
   async function run(id: string, kind: AccountBusyKind, action: () => Promise<void>) {
     setBusy({ id, kind })
@@ -158,6 +169,45 @@ export function AccountsPage() {
       await refresh(undefined, { silent: true })
     })
     setDropSystemById((current) => {
+      const next = { ...current }
+      delete next[id]
+      return next
+    })
+  }
+
+  async function onRename(id: string, name: string) {
+    setNameById((current) => ({ ...current, [id]: name }))
+    await run(id, 'settings', async () => {
+      await updateAccount(id, { name })
+      await refresh(undefined, { silent: true })
+    })
+    setNameById((current) => {
+      const next = { ...current }
+      delete next[id]
+      return next
+    })
+  }
+
+  async function onMaxInFlight(id: string, value: number) {
+    setInflightById((current) => ({ ...current, [id]: value }))
+    await run(id, 'settings', async () => {
+      await updateAccount(id, { max_inflight: value })
+      await refresh(undefined, { silent: true })
+    })
+    setInflightById((current) => {
+      const next = { ...current }
+      delete next[id]
+      return next
+    })
+  }
+
+  async function onPriority(id: string, value: number) {
+    setPriorityById((current) => ({ ...current, [id]: value }))
+    await run(id, 'settings', async () => {
+      await updateAccount(id, { priority: value })
+      await refresh(undefined, { silent: true })
+    })
+    setPriorityById((current) => {
       const next = { ...current }
       delete next[id]
       return next
@@ -246,7 +296,7 @@ export function AccountsPage() {
         </section>
       ) : null}
 
-      {!rows.length ? (
+      {!hasAccounts ? (
         <div className="grid min-h-72 place-items-center rounded-lg border border-dashed border-[var(--app-line-strong)] text-center">
           <div className="max-w-sm px-6">
             <BrandMark size={28} className="mx-auto" />
@@ -257,7 +307,7 @@ export function AccountsPage() {
         </div>
       ) : null}
 
-      {rows.length && !filteredRows.length ? (
+      {hasAccounts && !refreshing && !filteredRows.length ? (
         <div className="grid min-h-56 place-items-center rounded-lg border border-dashed border-[var(--app-line-strong)] text-center">
           <div>
             <MagnifyingGlass size={22} className="mx-auto text-[var(--app-faint)]" />
@@ -267,6 +317,9 @@ export function AccountsPage() {
         </div>
       ) : null}
 
+      {refreshing ? (
+        <AccountsListSkeleton count={Math.min(Math.max(filteredRows.length, 1), 6)} />
+      ) : (
       <section className="grid gap-2.5 lg:grid-cols-2 xl:grid-cols-3">
         {filteredRows.map((account) => (
           <AccountCard
@@ -286,11 +339,15 @@ export function AccountsPage() {
             onDelete={() => setConfirmId(account.id)}
             onToggle={(selected) => void onToggle(account.id, selected)}
             onToggleDropSystem={(selected) => void onToggleDropSystem(account.id, selected)}
+            onRename={(name) => void onRename(account.id, name)}
+            onMaxInFlight={(value) => void onMaxInFlight(account.id, value)}
+            onPriority={(value) => void onPriority(account.id, value)}
             onToggleAuthPanel={() => setAuthPanelId((current) => current === account.id ? null : account.id)}
             onViewModels={() => setModelsId(account.id)}
           />
         ))}
       </section>
+      )}
     </div>
   )
 }
