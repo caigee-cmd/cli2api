@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.2.16 - 2026-08-28
+
+### English
+
 - Add Trae CN Solo as an in-process account type (`provider=trae`, `region=cn`): browser login, credential import/export, live catalog, and OpenAI-compatible chat over `llm_utils_chat` / `solo_work_lite`, without spawning official `traecli`
 - Fetch WorkBuddy Global model catalogs from `/v2/enterprises/personal/models` instead of the console OIDC page, and return catalog failures as 503 JSON so reverse proxies do not replace them with HTML
 - After dropping caller system prompts, send WorkBuddy an empty leading system message so Global no longer rejects the request with `11128 first message is not system prompt`
