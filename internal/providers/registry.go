@@ -138,9 +138,34 @@ var WorkBuddy = ProviderDescriptor{
 	DefaultRegion: "cn",
 }
 
+// Trae descriptor. Protocol constants stay in internal/providers/trae;
+// the registry only carries control-plane metadata. CN Solo is the only
+// region implemented; do not spawn official traecli.
+var Trae = ProviderDescriptor{
+	ID:                "trae",
+	Label:             "Trae",
+	Runtime:           RuntimeInProcess,
+	AuthTypes:         []AuthType{AuthOAuth},
+	CredentialFormats: []string{"trae-oauth-v1"},
+	Capabilities: ProviderCapabilities{
+		Chat: true, Stream: true, Tools: true, Images: false, Reasoning: true,
+		ModelCatalog: true, Usage: true, Login: true, BrowserLogin: true,
+		PATLogin: false, ImportExport: true,
+	},
+	Regions: []RegionDescriptor{
+		{
+			ID: "cn", Label: "CN Solo", ChatBase: "https://trae-api-cn.mchost.guru",
+			BillingBase: "https://api.trae.cn", AuthBase: "https://api.trae.com.cn",
+			DefaultDomain: "trae.cn",
+		},
+	},
+	DefaultRegion: "cn",
+}
+
 var registry = map[string]ProviderDescriptor{
 	Qoder.ID:     Qoder,
 	WorkBuddy.ID: WorkBuddy,
+	Trae.ID:      Trae,
 }
 
 func Get(id string) (ProviderDescriptor, bool) {
@@ -149,7 +174,7 @@ func Get(id string) (ProviderDescriptor, bool) {
 }
 
 func List() []ProviderDescriptor {
-	return []ProviderDescriptor{Qoder, WorkBuddy}
+	return []ProviderDescriptor{Qoder, WorkBuddy, Trae}
 }
 
 // Resolve validates a provider/region pair. Empty values fall back to the

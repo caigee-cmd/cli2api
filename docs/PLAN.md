@@ -1,6 +1,6 @@
 # CLI2API Plan
 
-last-updated: 2026-08-28
+last-updated: 2026-08-29
 
 Qoder-first OpenAI-compatible proxy. Cursor and other CLIs wait until the current Qoder milestone is done.
 
@@ -307,11 +307,15 @@ never block or cool down the chat path. Design facts in `docs/PROVIDERS.md`
 
 Goal: after WorkBuddy live acceptance proves the in-process adapter extension
 point, evaluate the next channels on the same axis. Cursor stays last — its
-protocol is the dirtiest. TraeWork is candidate #2: pure HTTP/SSE like
-WorkBuddy, no Node/WASM worker needed.
+protocol is the dirtiest. Trae CN Solo is candidate #2: pure HTTP/SSE like
+WorkBuddy, no Node/WASM worker needed. Design: `docs/PROVIDERS_TRAE_SOLO.md`.
+Do not implement from superseded `docs/PROVIDERS_TRAE.md`. Do not spawn
+official `traecli`.
 
+- [x] Trae CN Solo protocol survey: login, `llm_utils_chat` / `solo_work_lite`, credits (`docs/PROVIDERS_TRAE_SOLO.md`)
 - [ ] WorkBuddy live acceptance complete (precondition)
-- [ ] TraeWork protocol survey: login flow, chat endpoint, credit/quota signals
+- [x] Trae CN Solo T0–T4 in-process adapter (`internal/providers/trae/`; live T5 still needs a consumer Trae CN account)
+- [ ] Trae CN Solo T5 live acceptance (`只回复OK`, catalog, failover, tools)
 - [ ] Cursor provider only after Phase I canonical contract is stable
 
 ## Later
@@ -323,5 +327,6 @@ WorkBuddy, no Node/WASM worker needed.
 
 WorkBuddy J0–J4 are implemented; remaining WorkBuddy work is live-account
 acceptance, not a new design doc. Qoder CN design lives in `docs/PROVIDERS.md`.
-Do not add extra plan files. Do not start Cursor until Phase L is accepted or
-explicitly deferred.
+Trae CN Solo design lives in `docs/PROVIDERS_TRAE_SOLO.md`. Do not add extra
+plan files. Do not start Cursor until Phase L is accepted or explicitly
+deferred.
