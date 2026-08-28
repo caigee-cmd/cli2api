@@ -16,6 +16,7 @@ type RequestStore interface {
 	ClearRequestLogs(ctx context.Context) (int64, error)
 	ListRequestLogs(ctx context.Context, filter accounts.RequestLogFilter) (accounts.RequestLogList, error)
 	GetRequestLog(ctx context.Context, id string) (accounts.RequestLog, error)
+	SummarizeRequestLogs(ctx context.Context, from, to time.Time) (accounts.RequestStats, error)
 }
 
 type RequestRecorder struct {
