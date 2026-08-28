@@ -1,21 +1,14 @@
 import { useMemo, useState } from 'react'
-import { Button, ButtonGroup, Chip, Input, InputGroup, Modal, Tooltip } from '@heroui/react'
+import { Button, ButtonGroup, InputGroup, Modal } from '@heroui/react'
 import {
-  ArrowClockwise,
-  ArrowSquareOut,
-  Copy,
-  Key,
   MagnifyingGlass,
   Plus,
-  ShieldCheck,
-  TrashSimple,
   WarningCircle,
   X,
 } from '@phosphor-icons/react'
+import { AccountCard, type AccountBusyKind } from '@/components/account/AccountCard'
 import { AddAccountModal } from '@/components/AddAccountModal'
 import { BrandMark } from '@/components/BrandMark'
-import { ProviderMark } from '@/components/ProviderMark'
-import { accountProviderLabel } from '@/lib/provider'
 import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
 import {
@@ -27,76 +20,22 @@ import {
   startDeviceLogin,
   updateAccount,
 } from '@/api/overview'
-import type { Overview } from '@/api/types'
 import { AccountsPageSkeleton } from '@/components/ui/PageSkeletons'
-import { CompactSwitch } from '@/components/ui/CompactSwitch'
-import { hoverLift } from '@/hooks/useGsapReveal'
+import {
+  accountState,
+  isAvailable,
+  type AccountRow,
+} from '@/lib/account'
 
-type AccountRow = NonNullable<Overview['accounts']>[number]
-type BusyKind = 'create' | 'import' | 'device' | 'pat' | 'rewarm' | 'toggle' | 'delete' | 'export'
-type AccountBusy = { id: string; kind: BusyKind }
-type AccountState = 'disabled' | 'cooling' | 'hot' | 'ready' | 'login'
+type AccountBusy = { id: string; kind: AccountBusyKind }
 type AccountFilter = 'all' | 'available' | 'attention' | 'disabled'
 
 const EMPTY_ACCOUNTS: AccountRow[] = []
 const ACCOUNT_BUTTON_CLASS = 'account-button'
-const ACCOUNT_ICON_BUTTON_CLASS = 'account-button account-icon-button'
-const ACCOUNT_CHIP_CLASS = 'account-chip'
 const ACCOUNT_INPUT_CLASS = 'account-input'
 
-function cooldownLabel(until?: string | null) {
-  if (!until) return ''
-  const milliseconds = Date.parse(until) - Date.now()
-  if (!Number.isFinite(milliseconds) || milliseconds <= 0) return ''
-  const seconds = Math.ceil(milliseconds / 1000)
-  return seconds < 60 ? `${seconds}s` : `${Math.ceil(seconds / 60)}m`
-}
-
-function accountState(account: AccountRow): AccountState {
-  if (!account.enabled) return 'disabled'
-  if (cooldownLabel(account.down_until || account.cooldown_until)) return 'cooling'
-  if (account.hot) return 'hot'
-  if (account.ready) return 'ready'
-  return 'login'
-}
-
-function isAvailable(account: AccountRow) {
-  const state = accountState(account)
-  return state === 'hot' || state === 'ready'
-}
-
-function runtimeSegments(state: AccountState) {
-  if (state === 'hot') return 12
-  if (state === 'ready') return 9
-  if (state === 'cooling') return 5
-  if (state === 'login') return 3
-  return 1
-}
-
-function formatQuotaAmount(value: number | undefined) {
-  if (value == null || !Number.isFinite(value)) return '—'
-  if (Math.abs(value) >= 1000) return `${(value / 1000).toFixed(value % 1000 === 0 ? 0 : 1)}k`
-  return String(Math.round(value * 100) / 100)
-}
-
-function formatUpdatedAt(value: string | undefined, lang: 'en' | 'zh') {
-  if (!value) return ''
-  const date = new Date(value)
-  if (!Number.isFinite(date.getTime())) return ''
-  return new Intl.DateTimeFormat(lang === 'zh' ? 'zh-CN' : 'en-US', {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date)
-}
-
-function providerLabel(provider: string | undefined, region: string | undefined, t: (key: string) => string) {
-  return accountProviderLabel(provider, region, t)
-}
-
 export function AccountsPage() {
-  const { lang, t } = useI18n()
+  const { t } = useI18n()
   const { overview, loading, refresh } = useOverview()
   const rows = overview?.accounts ?? EMPTY_ACCOUNTS
   const [addOpen, setAddOpen] = useState(false)
@@ -138,9 +77,9 @@ export function AccountsPage() {
     })
   }, [displayRows, filter, query])
 
-  if (loading && !overview) return <AccountsPageSkeleton />
+  if (loading) return <AccountsPageSkeleton />
 
-  async function run(id: string, kind: BusyKind, action: () => Promise<void>) {
+  async function run(id: string, kind: AccountBusyKind, action: () => Promise<void>) {
     setBusy({ id, kind })
     setNoteById((current) => ({ ...current, [id]: '' }))
     try {
@@ -170,7 +109,7 @@ export function AccountsPage() {
         setNoteById((current) => ({ ...current, [id]: login.message || t('waitingQoderLogin') }))
         if (login.status === 'ok' || login.status === 'error') break
       }
-      await refresh()
+      await refresh(undefined, { silent: true })
     })
   }
 
@@ -184,7 +123,7 @@ export function AccountsPage() {
       setNoteById((current) => ({ ...current, [id]: t('wizardStartingSession') }))
       await loginWithPat(pat, id)
       setPatById((current) => ({ ...current, [id]: '' }))
-      await refresh()
+      await refresh(undefined, { silent: true })
     })
   }
 
@@ -200,7 +139,7 @@ export function AccountsPage() {
     setEnabledById((current) => ({ ...current, [id]: selected }))
     await run(id, 'toggle', async () => {
       await updateAccount(id, { enabled: selected })
-      await refresh()
+      await refresh(undefined, { silent: true })
     })
     setEnabledById((current) => {
       const next = { ...current }
@@ -213,7 +152,7 @@ export function AccountsPage() {
     setDropSystemById((current) => ({ ...current, [id]: selected }))
     await run(id, 'toggle', async () => {
       await updateAccount(id, { drop_system_prompt: selected })
-      await refresh()
+      await refresh(undefined, { silent: true })
     })
     setDropSystemById((current) => {
       const next = { ...current }
@@ -223,8 +162,8 @@ export function AccountsPage() {
   }
 
   return (
-    <div className="space-y-5">
-      <section data-gsap-reveal className="grid gap-4 border-b border-[var(--app-line)] pb-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+    <div className="space-y-4">
+      <section data-gsap-reveal className="grid gap-3 border-b border-[var(--app-line)] pb-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
           <div className="flex items-center gap-3 border-l-2 border-[var(--app-ok)] pl-3">
             <span className="mono font-semibold">{rows.length}</span>
@@ -245,7 +184,7 @@ export function AccountsPage() {
         <Button className={ACCOUNT_BUTTON_CLASS} size="sm" onPress={() => setAddOpen(true)}><Plus size={14} />{t('addAccount')}</Button>
       </section>
 
-      <AddAccountModal isOpen={addOpen} onClose={() => setAddOpen(false)} onAdded={refresh} />
+      <AddAccountModal isOpen={addOpen} onClose={() => setAddOpen(false)} onAdded={() => void refresh(undefined, { silent: true })} />
 
       <Modal.Root isOpen={Boolean(confirmAccount)} onOpenChange={(next: boolean) => { if (!next) setConfirmId(null) }}>
         <Modal.Backdrop variant="blur">
@@ -264,7 +203,7 @@ export function AccountsPage() {
                   if (!confirmAccount) return
                   const id = confirmAccount.id
                   setConfirmId(null)
-                  void run(id, 'delete', async () => { await deleteAccount(id); await refresh() })
+                  void run(id, 'delete', async () => { await deleteAccount(id); await refresh(undefined, { silent: true }) })
                 }}>{t('delete')}</Button>
               </Modal.Footer>
             </Modal.Dialog>
@@ -324,221 +263,28 @@ export function AccountsPage() {
         </div>
       ) : null}
 
-      <section className="grid gap-3 xl:grid-cols-2">
-        {filteredRows.map((account) => {
-          const thisBusy = busy?.id === account.id ? busy.kind : ''
-          const authUrl = urlById[account.id]
-          const lastError = account.last_error || account.lastError
-          const errorKind = account.last_error_kind || account.kind
-          const cooldown = cooldownLabel(account.down_until || account.cooldown_until)
-          const state = accountState(account)
-          const stateCopy = state === 'hot'
-            ? t('signedIn')
-            : state === 'ready'
-              ? t('ready')
-              : state === 'cooling'
-                ? `${t('cooling')} ${cooldown}`
-                : state === 'disabled'
-                  ? t('disabled')
-                  : t('needQoderLogin')
-          const stateColor = state === 'hot' || state === 'ready' ? 'success' : state === 'cooling' ? 'warning' : state === 'login' ? 'danger' : undefined
-          const segmentCount = runtimeSegments(state)
-          const inFlight = account.in_flight ?? account.inFlight ?? 0
-          const updatedAt = formatUpdatedAt(account.updated_at, lang)
-          const authPanelOpen = authPanelId === account.id
-
-          return (
-            <article key={account.id} data-gsap-reveal className="account-card app-panel-flat flex flex-col overflow-hidden rounded-lg" onMouseEnter={(event) => hoverLift(event.currentTarget, true)} onMouseLeave={(event) => hoverLift(event.currentTarget, false)}>
-              <header className="p-4">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex min-w-0 items-start gap-3">
-                    <ProviderMark provider={account.provider} size={32} />
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <Chip className={ACCOUNT_CHIP_CLASS} size="sm" variant="soft">
-                          <span className="inline-flex items-center gap-1">
-                            <ProviderMark provider={account.provider} size={12} />
-                            {providerLabel(account.provider, account.region, t)}
-                          </span>
-                        </Chip>
-                        <Chip className={ACCOUNT_CHIP_CLASS} size="sm" variant="soft">{account.auth_type || 'none'}</Chip>
-                      </div>
-                      <h2 className="mt-1.5 truncate text-sm font-semibold tracking-[-0.01em]">{account.name || account.id}</h2>
-                    </div>
-                  </div>
-                  <Chip className={ACCOUNT_CHIP_CLASS} size="sm" variant="soft" color={stateColor}>{stateCopy}</Chip>
-                </div>
-
-                <div className="mono mt-3 space-y-0.5 text-[10px] text-[var(--app-faint)]">
-                  <div className="truncate">{account.id}</div>
-                  {account.remote_uid ? <div className="truncate">UID {account.remote_uid}</div> : null}
-                </div>
-              </header>
-
-              <div className="flex-1 border-t border-[var(--app-line)] px-4 py-3">
-                <div className="flex items-center justify-between gap-3 text-xs">
-                  <div className="flex items-center gap-2 font-medium">
-                    <span className="status-dot" data-state={state === 'hot' || state === 'ready' ? 'ok' : state === 'login' ? 'danger' : undefined} />
-                    {t('runtimeState')}
-                  </div>
-                  <span className="text-[var(--app-faint)]">{stateCopy}</span>
-                </div>
-                <div className="mt-2.5 grid grid-cols-12 gap-1" aria-hidden>
-                  {Array.from({ length: 12 }, (_, index) => (
-                    <span
-                      key={index}
-                      className={`h-1.5 rounded-[2px] ${index < segmentCount
-                        ? state === 'hot' || state === 'ready'
-                          ? 'bg-[var(--app-ok)]'
-                          : state === 'login'
-                            ? 'bg-[var(--app-danger)]'
-                            : 'bg-[var(--app-faint)]'
-                        : 'bg-[var(--app-line)]'}`}
-                    />
-                  ))}
-                </div>
-
-                <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 border-y border-[var(--app-line)] py-3 text-[11px] sm:grid-cols-4">
-                  {[
-                    [t('inFlight'), inFlight],
-                    [t('maxInflight'), account.max_inflight ?? 0],
-                    [t('priority'), account.priority ?? 0],
-                    [t('restarts'), account.restarts ?? 0],
-                  ].map(([label, value]) => (
-                    <div key={String(label)}>
-                      <div className="text-[var(--app-faint)]">{label}</div>
-                      <div className="mono mt-1 font-medium">{value}</div>
-                    </div>
-                  ))}
-                </div>
-
-                {account.quota ? (
-                  <div className="mt-3">
-                    <div className="flex items-center justify-between gap-3 text-[11px]">
-                      <div className="flex items-center gap-2 font-medium">
-                        {t('quota')}
-                        {account.quota.exceeded ? (
-                          <span className="text-[var(--app-danger)]">{t('quotaExceeded')}</span>
-                        ) : null}
-                      </div>
-                      <span className="mono font-medium">{Math.round(account.quota.percentage ?? 0)}%</span>
-                    </div>
-                    <div className="mt-2 h-1.5 overflow-hidden rounded-[2px] bg-[var(--app-line)]" role="progressbar" aria-label={t('quota')} aria-valuenow={account.quota.percentage} aria-valuemin={0} aria-valuemax={100}>
-                      <div
-                        className={`h-full rounded-[2px] transition-[width] ${
-                          account.quota.exceeded || (account.quota.percentage ?? 0) >= 100
-                            ? 'bg-[var(--app-danger)]'
-                            : (account.quota.percentage ?? 0) >= 80
-                              ? 'bg-[var(--warning)]'
-                              : 'bg-[var(--app-ok)]'
-                        }`}
-                        style={{ width: `${Math.min(100, Math.max(0, account.quota.percentage ?? 0))}%` }}
-                      />
-                    </div>
-                    <div className="mono mt-1.5 text-[10px] text-[var(--app-faint)]">
-                      {formatQuotaAmount(account.quota.remaining)} / {formatQuotaAmount(account.quota.total)} {account.quota.unit || 'credits'}
-                      {account.quota.has_add_on ? (
-                        <span>
-                          {' · '}{t('quotaAddOn')} {formatQuotaAmount(account.quota.add_on_used)} / {formatQuotaAmount(account.quota.add_on_total)} {account.quota.add_on_unit || 'credits'}
-                        </span>
-                      ) : null}
-                    </div>
-                  </div>
-                ) : null}
-
-                {account.provider === 'workbuddy' ? (
-                  <div className="mt-3 flex items-center justify-between gap-3 text-[11px]">
-                    <Tooltip>
-                      <Tooltip.Trigger>
-                        <span className="font-medium">{t('dropSystemPrompt')}</span>
-                      </Tooltip.Trigger>
-                      <Tooltip.Content>{t('dropSystemPromptHint')}</Tooltip.Content>
-                    </Tooltip>
-                    <CompactSwitch
-                      isSelected={Boolean(account.drop_system_prompt)}
-                      isDisabled={thisBusy === 'toggle'}
-                      ariaLabel={t('dropSystemPrompt')}
-                      onChange={(selected) => void onToggleDropSystem(account.id, selected)}
-                    />
-                  </div>
-                ) : null}
-
-                {updatedAt ? <div className="mono mt-3 text-[10px] text-[var(--app-faint)]">{t('updatedAt')} {updatedAt}</div> : null}
-
-                {lastError ? (
-                  <div className="mt-3 flex gap-2 border-l-2 border-[var(--app-danger)] pl-3 text-xs leading-5 text-[var(--app-danger)]">
-                    <WarningCircle size={15} className="mt-0.5 shrink-0" />
-                    <div className="min-w-0">
-                      {errorKind ? <div className="mono mb-0.5 text-[10px] uppercase opacity-75">{errorKind}</div> : null}
-                      <p className="break-words">{lastError}</p>
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-
-              {authPanelOpen && account.enabled ? (
-                <section className="grid gap-3 border-t border-[var(--app-line)] bg-[var(--app-surface-muted)]/55 px-4 py-3 md:grid-cols-2">
-                  <div>
-                    <div className="text-[10px] font-semibold tracking-[0.1em] text-[var(--app-faint)] uppercase">{t('oauthDeviceFlow')}</div>
-                    <p className="mt-2 text-xs leading-5 text-[var(--app-muted)]">{t('qoderLoginHint')}</p>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <Button className={ACCOUNT_BUTTON_CLASS} size="sm" isPending={thisBusy === 'device'} onPress={() => void onDeviceLogin(account.id)}><ShieldCheck size={14} />{t('startBrowserLogin')}</Button>
-                      {authUrl ? <Button className={ACCOUNT_BUTTON_CLASS} size="sm" variant="ghost" onPress={() => window.open(authUrl, '_blank', 'noopener,noreferrer')}><ArrowSquareOut size={14} />{t('open')}</Button> : null}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-[10px] font-semibold tracking-[0.1em] text-[var(--app-faint)] uppercase">{t('patFallback')}</div>
-                    <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-                      <Input className={ACCOUNT_INPUT_CLASS} type="password" value={patById[account.id] || ''} onChange={(event) => setPatById((current) => ({ ...current, [account.id]: event.target.value }))} placeholder={t('pasteToken')} aria-label={t('pat')} />
-                      <Button className={ACCOUNT_BUTTON_CLASS} size="sm" variant="secondary" isPending={thisBusy === 'pat'} onPress={() => void onPat(account.id)}><Key size={14} />{t('usePat')}</Button>
-                    </div>
-                  </div>
-                  {authUrl || noteById[account.id] ? (
-                    <div className="md:col-span-2 text-xs">
-                      {authUrl ? <code className="mono block break-all text-[var(--app-faint)]">{authUrl}</code> : null}
-                      {noteById[account.id] ? <p className="mt-1 text-[var(--app-muted)]">{noteById[account.id]}</p> : null}
-                    </div>
-                  ) : null}
-                </section>
-              ) : null}
-
-              <footer className="flex flex-wrap items-center gap-1.5 border-t border-[var(--app-line)] px-4 py-2.5">
-                <Button
-                  className={ACCOUNT_BUTTON_CLASS}
-                  size="sm"
-                  variant={state === 'login' ? 'primary' : 'secondary'}
-                  isDisabled={!account.enabled}
-                  onPress={() => setAuthPanelId((current) => current === account.id ? null : account.id)}
-                >
-                  <Key size={14} />{t('authentication')}
-                </Button>
-                <Tooltip>
-                  <Tooltip.Trigger><Button className={ACCOUNT_ICON_BUTTON_CLASS} isIconOnly size="sm" variant="secondary" isDisabled={!account.enabled} isPending={thisBusy === 'rewarm'} onPress={() => void run(account.id, 'rewarm', async () => { await rewarmWorker(account.id); await refresh() })} aria-label={t('rewarm')}><ArrowClockwise size={14} /></Button></Tooltip.Trigger>
-                  <Tooltip.Content>{t('rewarm')}</Tooltip.Content>
-                </Tooltip>
-                {account.auth_type !== 'none' ? (
-                  <Tooltip>
-                    <Tooltip.Trigger><Button className={ACCOUNT_ICON_BUTTON_CLASS} isIconOnly size="sm" variant="secondary" isPending={thisBusy === 'export'} onPress={() => void onExport(account.id)} aria-label={t('export')}><Copy size={14} /></Button></Tooltip.Trigger>
-                    <Tooltip.Content>{t('export')}</Tooltip.Content>
-                  </Tooltip>
-                ) : null}
-                <Tooltip>
-                  <Tooltip.Trigger><Button className={ACCOUNT_ICON_BUTTON_CLASS} isIconOnly size="sm" variant="danger-soft" isPending={thisBusy === 'delete'} onPress={() => setConfirmId(account.id)} aria-label={t('delete')}><TrashSimple size={14} /></Button></Tooltip.Trigger>
-                  <Tooltip.Content>{t('delete')}</Tooltip.Content>
-                </Tooltip>
-                <div className="ml-auto flex items-center gap-2">
-                  <span className="text-[11px] font-medium text-[var(--app-faint)]">{account.enabled ? t('enabledState') : t('disabled')}</span>
-                  <CompactSwitch
-                    isSelected={Boolean(account.enabled)}
-                    isDisabled={thisBusy === 'toggle'}
-                    ariaLabel={account.enabled ? t('disable') : t('enable')}
-                    onChange={(selected) => void onToggle(account.id, selected)}
-                  />
-                </div>
-              </footer>
-            </article>
-          )
-        })}
+      <section className="grid gap-2.5 lg:grid-cols-2 xl:grid-cols-3">
+        {filteredRows.map((account) => (
+          <AccountCard
+            key={account.id}
+            account={account}
+            busyKind={busy?.id === account.id ? busy.kind : ''}
+            authPanelOpen={authPanelId === account.id}
+            authUrl={urlById[account.id]}
+            note={noteById[account.id]}
+            pat={patById[account.id] || ''}
+            t={t}
+            onPatChange={(value) => setPatById((current) => ({ ...current, [account.id]: value }))}
+            onDeviceLogin={() => void onDeviceLogin(account.id)}
+            onPatLogin={() => void onPat(account.id)}
+            onExport={() => void onExport(account.id)}
+            onRewarm={() => void run(account.id, 'rewarm', async () => { await rewarmWorker(account.id); await refresh(undefined, { silent: true }) })}
+            onDelete={() => setConfirmId(account.id)}
+            onToggle={(selected) => void onToggle(account.id, selected)}
+            onToggleDropSystem={(selected) => void onToggleDropSystem(account.id, selected)}
+            onToggleAuthPanel={() => setAuthPanelId((current) => current === account.id ? null : account.id)}
+          />
+        ))}
       </section>
     </div>
   )

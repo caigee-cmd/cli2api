@@ -29,7 +29,7 @@ import {
   type RequestLog,
   type RuntimeLogEntry,
 } from '@/api/logs'
-import { LogsPageSkeleton } from '@/components/ui/PageSkeletons'
+import { LogsRequestListSkeleton, LogsRuntimeListSkeleton } from '@/components/ui/PageSkeletons'
 import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
 
@@ -220,6 +220,7 @@ export function LogsPage() {
   }, [tab, loadRequests, loadRuntime])
 
   useEffect(() => {
+    setLoading(true)
     const delay = tab === 'requests' && requestQuery.trim() ? 280 : tab === 'runtime' && runtimeQuery.trim() ? 280 : 0
     const timer = window.setTimeout(() => void load(false), delay)
     return () => window.clearTimeout(timer)
@@ -279,10 +280,6 @@ export function LogsPage() {
     }
   }
 
-  if (loading && requests.length === 0 && runtime.length === 0) {
-    return <LogsPageSkeleton />
-  }
-
   return (
     <div className="space-y-6">
       <section className="flex flex-wrap items-end justify-between gap-4 border-b border-[var(--app-line)] pb-4">
@@ -296,7 +293,7 @@ export function LogsPage() {
               <TrashSimple size={14} />{t('logsClear')}
             </Button>
           ) : null}
-          <Button size="sm" variant="secondary" isPending={busy} onPress={() => void load(false)}>
+          <Button size="sm" variant="secondary" isPending={loading} onPress={() => void load(false)}>
             <ArrowClockwise size={15} />{t('refresh')}
           </Button>
         </div>
@@ -459,8 +456,10 @@ export function LogsPage() {
             </div>
           </div>
 
-          <Card data-gsap-reveal className="app-panel-flat overflow-hidden rounded-lg p-0 shadow-none">
-            {requests.length === 0 ? (
+          <Card data-gsap-reveal className="app-panel-flat overflow-hidden rounded-lg p-0 shadow-none" aria-busy={loading}>
+            {loading ? (
+              <LogsRequestListSkeleton />
+            ) : requests.length === 0 ? (
               <div className="grid min-h-72 place-items-center px-6 py-12 text-center">
                 <div>
                   <MagnifyingGlass size={22} className="mx-auto text-[var(--app-faint)]" />
@@ -543,7 +542,7 @@ export function LogsPage() {
                   isIconOnly
                   size="sm"
                   variant="ghost"
-                  isDisabled={currentPage <= 1}
+                  isDisabled={loading || currentPage <= 1}
                   onPress={() => setPage((current) => Math.max(1, current - 1))}
                   aria-label={t('logsPrevPage')}
                 >
@@ -553,7 +552,7 @@ export function LogsPage() {
                   isIconOnly
                   size="sm"
                   variant="ghost"
-                  isDisabled={currentPage >= pageCount}
+                  isDisabled={loading || currentPage >= pageCount}
                   onPress={() => setPage((current) => Math.min(pageCount, current + 1))}
                   aria-label={t('logsNextPage')}
                 >
@@ -610,8 +609,10 @@ export function LogsPage() {
             </div>
           </div>
 
-          <Card data-gsap-reveal className="app-panel-flat overflow-hidden rounded-lg p-0 shadow-none">
-            {runtime.length === 0 ? (
+          <Card data-gsap-reveal className="app-panel-flat overflow-hidden rounded-lg p-0 shadow-none" aria-busy={loading}>
+            {loading ? (
+              <LogsRuntimeListSkeleton />
+            ) : runtime.length === 0 ? (
               <div className="grid min-h-72 place-items-center px-6 py-12 text-center">
                 <div>
                   <TerminalWindow size={22} className="mx-auto text-[var(--app-faint)]" />
