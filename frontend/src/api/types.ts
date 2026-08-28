@@ -12,6 +12,21 @@ export type AccountQuota = {
   fetched_at?: string
 }
 
+export type ModelInfo = {
+  id: string
+  display_name?: string
+  mapped_key?: string
+  route_display_name?: string
+  settings_key?: string
+  provider?: string
+  owned_by?: string
+  native_model?: string
+  stale?: boolean
+  context_length?: number
+  default_context_length?: number
+  context_custom?: boolean
+}
+
 export type Overview = {
   ok?: boolean
   time?: string
@@ -40,20 +55,7 @@ export type Overview = {
     machine_id?: string
   }
   login?: any
-  models?: Array<{
-    id: string
-    display_name?: string
-    mapped_key?: string
-    route_display_name?: string
-    settings_key?: string
-    provider?: string
-    owned_by?: string
-    native_model?: string
-    stale?: boolean
-    context_length?: number
-    default_context_length?: number
-    context_custom?: boolean
-  }>
+  models?: ModelInfo[]
   accounts?: Array<{
     id: string
     provider?: string
