@@ -475,20 +475,13 @@ func outcomeFromAggregate(aggregate map[string]any) (providers.ChatOutcome, erro
 	return out, nil
 }
 
-// ClassifiedError marks provider errors with the internal taxonomy so callers
-// never see WorkBuddy-specific kinds in storage.
-type ClassifiedError struct {
-	Kind    string
-	Status  int
-	Message string
-}
-
-func (e *ClassifiedError) Error() string { return e.Message }
-
 func classifiedError(status int, body []byte) error {
 	classified := Classify(status, string(body))
-	return &ClassifiedError{Kind: classified.Kind, Status: classified.Status, Message: classified.Message}
+	return &providers.Error{Kind: classified.Kind, Status: classified.Status, Message: classified.Message}
 }
+
+// ClassifiedError is the historical WorkBuddy alias for providers.Error.
+type ClassifiedError = providers.Error
 
 // Classify maps WorkBuddy HTTP/error bodies onto the internal taxonomy.
 func Classify(status int, body string) providers.ClassifiedError {

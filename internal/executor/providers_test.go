@@ -9,7 +9,6 @@ import (
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/providers"
-	"github.com/caigee-cmd/cli2api/internal/providers/workbuddy"
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
@@ -122,7 +121,7 @@ type rateLimitedThenOKChat struct {
 func (f *rateLimitedThenOKChat) ChatNonStream(ctx context.Context, accountID string, req translate.ChatRequest) (providers.ChatOutcome, error) {
 	f.calls++
 	if accountID == "wb1" {
-		return providers.ChatOutcome{}, &workbuddy.ClassifiedError{Kind: accounts.KindRateLimit, Status: 429, Message: "soft_rate"}
+		return providers.ChatOutcome{}, &providers.Error{Kind: accounts.KindRateLimit, Status: 429, Message: "soft_rate"}
 	}
 	return providers.ChatOutcome{Model: req.Model, Content: "OK-" + accountID, FinishReason: "stop"}, nil
 }
@@ -202,7 +201,7 @@ type contentRejectedChat struct {
 
 func (f *contentRejectedChat) ChatNonStream(ctx context.Context, accountID string, req translate.ChatRequest) (providers.ChatOutcome, error) {
 	f.calls++
-	return providers.ChatOutcome{}, &workbuddy.ClassifiedError{Kind: accounts.KindInvalidRequest, Status: 400, Message: "sensitive content rejected"}
+	return providers.ChatOutcome{}, &providers.Error{Kind: accounts.KindInvalidRequest, Status: 400, Message: "sensitive content rejected"}
 }
 
 func (f *contentRejectedChat) ChatStream(ctx context.Context, accountID string, req translate.ChatRequest) (*http.Response, error) {

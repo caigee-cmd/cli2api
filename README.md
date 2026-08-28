@@ -91,7 +91,7 @@ CLI2API 是本地网关：不提供账号、额度或官方 API 服务，不做�
 
 **长期**
 
-- 更多上游渠道（Cursor、TraeWork 等，WorkBuddy 验收后评估）
+- 更多上游渠道（Cursor、Trae CN Solo 等，WorkBuddy 验收后评估；Solo 调研见 `docs/PROVIDERS_TRAE_SOLO.md`）
 - 可选的提示词 / 回复留档（显式开关，默认关闭）
 
 ## 文档

@@ -4,6 +4,7 @@ last-updated: 2026-08-28
 status: WorkBuddy J0–J4 已落地；Qoder CN 代码完成，L6 真实账号验收未完成
 routing-reference: [router-for-me/CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) `main` @ `dc3c3b1`
 workbuddy-reference: [Sliverkiss/workbuddy2api](https://github.com/Sliverkiss/workbuddy2api) `master` @ `92514d8ba06413c3b620e96da3ebc38e6c7beda0`
+trae-solo: [docs/PROVIDERS_TRAE_SOLO.md](./PROVIDERS_TRAE_SOLO.md)（消费级 Trae CN Solo；旧 `docs/PROVIDERS_TRAE.md` 已过期）
 
 本文回答三件事：
 
@@ -278,6 +279,7 @@ type ProviderCapabilities struct {
 | `qoder` + `global` | `child_process` | OAuth / PAT / native import | `qoder-native-v1` | worker + `@qoder-ai/qodercli` | worker in-process catalog |
 | `qoder` + `cn` | `child_process` | OAuth / PAT / native import | `qoder-native-v1` | worker + `@qodercn-ai/qoderclicn` | worker in-process catalog |
 | `workbuddy` | `in_process` | OAuth | `workbuddy-oauth-v1` | Go state + poll | WorkBuddy models endpoint |
+| `trae` + `cn` | `in_process` | OAuth | `trae-oauth-v1` | Go callback + poll | `get_detail_param`（见 `docs/PROVIDERS_TRAE_SOLO.md`；T5 真实验收未完成） |
 | future `cursor` | TBD | TBD | TBD | TBD | TBD |
 
 ### Runtime kind
@@ -286,6 +288,7 @@ type ProviderCapabilities struct {
 |-----------------|---------|--------|
 | `qoder` | `child_process` | WASM / AuthManager 进程全局；一 HOME 一 daemon。`region=global` 与 `region=cn` 是两套 pinned CLI，不能共享进程 |
 | `workbuddy` | `in_process` | 凭证是普通 Bearer；并发安全由 per-account mutex 保护 refresh |
+| `trae` | `in_process` | 消费级 CN Solo 是 HTTP/SSE + Cloud-IDE-JWT，与 WorkBuddy 同构；不要 spawn `traecli`。协议见 `docs/PROVIDERS_TRAE_SOLO.md` |
 | 未来 `cursor` | 先按调研再定，大概率 `in_process` 或独立 daemon；不要假设等于 Qoder | |
 
 不要为 WorkBuddy 启动 `worker/src/daemon.mjs`。也不要让 Qoder 账号改走 in-process HTTP——Qoder 没有稳定的明文 chat 入口可替代 WASM encode。

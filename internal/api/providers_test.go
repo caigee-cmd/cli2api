@@ -102,6 +102,28 @@ func TestAccountsCreateQoderCN(t *testing.T) {
 	}
 }
 
+func TestAccountsCreateTraeCN(t *testing.T) {
+	srv := newProviderTestServer(t)
+	req := httptest.NewRequest(http.MethodPost, "/api/accounts", bytes.NewBufferString(
+		`{"name":"Trae","provider":"trae","region":"cn","enabled":false}`))
+	req.Header.Set("Authorization", "Bearer secret")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var created struct {
+		Provider string `json:"provider"`
+		Region   string `json:"region"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	if created.Provider != "trae" || created.Region != "cn" {
+		t.Fatalf("created = %+v", created)
+	}
+}
+
 func TestProvidersEndpointExposesDescriptors(t *testing.T) {
 	srv := newProviderTestServer(t)
 	req := httptest.NewRequest(http.MethodGet, "/api/providers", nil)
@@ -120,7 +142,14 @@ func TestProvidersEndpointExposesDescriptors(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &parsed); err != nil {
 		t.Fatal(err)
 	}
-	if len(parsed.Data) < 2 {
-		t.Fatalf("expected qoder + workbuddy descriptors, got %+v", parsed.Data)
+	if len(parsed.Data) < 3 {
+		t.Fatalf("expected qoder + workbuddy + trae descriptors, got %+v", parsed.Data)
+	}
+	seen := map[string]string{}
+	for _, item := range parsed.Data {
+		seen[item.ID] = item.Runtime
+	}
+	if seen["trae"] != "in_process" {
+		t.Fatalf("trae runtime = %q in %+v", seen["trae"], parsed.Data)
 	}
 }

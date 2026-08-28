@@ -14,7 +14,6 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/endpoint"
 	"github.com/caigee-cmd/cli2api/internal/providers"
-	"github.com/caigee-cmd/cli2api/internal/providers/workbuddy"
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
@@ -475,7 +474,7 @@ func (e ChatExecutor) chatInProcessStreamAttempt(ctx context.Context, item accou
 // decode errors stay classified as unavailable with a short cooldown.
 func (e ChatExecutor) classifyInProcessError(err error) accounts.Classified {
 	classified := accounts.Classify(0, err.Error(), "", accounts.KindUnavailable, "")
-	var classifiedErr *workbuddy.ClassifiedError
+	var classifiedErr *providers.Error
 	if errors.As(err, &classifiedErr) && classifiedErr.Kind != "" {
 		cooldown := 60 * time.Second
 		failover := true
@@ -494,6 +493,12 @@ func (e ChatExecutor) classifyInProcessError(err error) accounts.Classified {
 		case accounts.KindModelNotAvailable:
 			cooldown = 0
 			failover = true
+		}
+		if classifiedErr.Cooldown > 0 {
+			cooldown = classifiedErr.Cooldown
+		}
+		if classifiedErr.Failover != nil {
+			failover = *classifiedErr.Failover
 		}
 		classified = accounts.Classified{
 			Kind: classifiedErr.Kind, Status: classifiedErr.Status, Failover: failover,
