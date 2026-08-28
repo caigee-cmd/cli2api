@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.2.14 - 2026-08-28
+
+### English
+
 - Filter Access playground models to the selected account's live catalog instead of the global union
 - Add an available-models button on account cards that opens that account's live catalog
 - Show request volume, success rate, latency, tokens, and hourly traffic on Overview, with 1h / 24h / 7d windows from SQLite request history
