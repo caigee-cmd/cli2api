@@ -52,7 +52,8 @@ For an end-to-end run, use the Docker Compose flow in `deploy/README.md`.
 
 User-facing changes should add matching bullets to `CHANGELOG.md` under
 `## Unreleased` in both `### English` and `### 中文`. The release workflow
-copies those notes into the GitHub Release body.
+copies those notes into the GitHub Release body. Maintainers publish tags
+from `docs/DEVELOPMENT.md`; do not create version tags by hand.
 
 ## Rules
 
@@ -66,4 +67,4 @@ copies those notes into the GitHub Release body.
   `docs/PRIVATE_DEPLOYMENT.md`
 
 Architecture and UI decisions live in `docs/DESIGN.md`. Work in progress lives in
-`docs/PLAN.md`.
+`docs/PLAN.md`. Maintainer release and tag steps live in `docs/DEVELOPMENT.md`.
