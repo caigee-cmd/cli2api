@@ -7,7 +7,11 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Make the Overview traffic chart taller so the area/line plot is readable
+
 ### 中文
+
+- 加高概览流量图，面积折线更容易看清
 
 ## 0.2.18 - 2026-08-29
 
