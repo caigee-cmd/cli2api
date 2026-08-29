@@ -129,13 +129,27 @@ CREATE INDEX IF NOT EXISTS request_logs_provider ON request_logs(provider);`,
 		// v0.2.19 retabbed this SQL; keep that checksum bootable.
 		legacyChecksums: []string{"9b96b8d63286519b20791d2a3688c0b71efba6204015250ae9864c5cbcd1f0b4"}},
 	{filename: "007_provider_model_settings.sql", sql: `
-	CREATE TABLE IF NOT EXISTS provider_model_settings (
-	  provider TEXT NOT NULL,
-	  model_id TEXT NOT NULL,
-	  max_mode INTEGER NOT NULL DEFAULT 0,
-	  updated_at TEXT NOT NULL,
-	  PRIMARY KEY (provider, model_id)
-	);`},
+		CREATE TABLE IF NOT EXISTS provider_model_settings (
+		  provider TEXT NOT NULL,
+		  model_id TEXT NOT NULL,
+		  max_mode INTEGER NOT NULL DEFAULT 0,
+		  updated_at TEXT NOT NULL,
+		  PRIMARY KEY (provider, model_id)
+		);`},
+	{filename: "008_api_keys.sql", sql: `
+CREATE TABLE IF NOT EXISTS api_keys (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  key_hash TEXT NOT NULL UNIQUE,
+  prefix TEXT NOT NULL,
+  providers_json TEXT NOT NULL DEFAULT '[]',
+  enabled INTEGER NOT NULL DEFAULT 1,
+  last_used_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS api_keys_hash ON api_keys(key_hash);
+CREATE INDEX IF NOT EXISTS api_keys_created_at ON api_keys(created_at DESC);`},
 }
 
 const schemaMigrationsDDL = `

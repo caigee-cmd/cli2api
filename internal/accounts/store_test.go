@@ -177,6 +177,48 @@ func TestProviderModelMaxModeIsIndependentOfQoderContext(t *testing.T) {
 	}
 }
 
+func TestStoreCreatesNamedAPIKeys(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	created, err := store.CreateAPIKey(ctx, CreateAPIKey{Name: "CI", Providers: []string{"qoder"}, Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.Secret == "" || created.ID == "" || created.Prefix == "" {
+		t.Fatalf("created key missing secret fields: %+v", created)
+	}
+	listed, err := store.ListAPIKeys(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed) != 1 || listed[0].Secret != "" || listed[0].ID != created.ID {
+		t.Fatalf("listed = %+v", listed)
+	}
+	got, ok, err := store.LookupAPIKey(ctx, created.Secret)
+	if err != nil || !ok || got.ID != created.ID {
+		t.Fatalf("lookup = %+v ok=%v err=%v", got, ok, err)
+	}
+	disabled := false
+	updated, err := store.UpdateAPIKey(ctx, created.ID, UpdateAPIKey{Name: "CI prod", Providers: []string{"qoder", "trae"}, Enabled: &disabled})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Name != "CI prod" || updated.Enabled || len(updated.Providers) != 2 {
+		t.Fatalf("updated = %+v", updated)
+	}
+	if err := store.DeleteAPIKey(ctx, created.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.GetAPIKey(ctx, created.ID); !errors.Is(err, ErrAPIKeyNotFound) {
+		t.Fatalf("deleted key err = %v", err)
+	}
+}
+
 func TestStoreSavesNativeCredential(t *testing.T) {
 	ctx := context.Background()
 	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))

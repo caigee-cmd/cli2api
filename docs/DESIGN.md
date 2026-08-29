@@ -347,12 +347,13 @@ They are not the same password.
 
 | Gate | Secret | Where | Unlocks |
 |------|--------|-------|---------|
-| Console | SQLite API key | `/login` | Overview, accounts, models, API test |
+| Console | SQLite `proxy_api_key` | `/login` | Overview, accounts, models, keys, logs, API test, updates |
+| Client | SQLite `api_keys` | `/v1` only | Chat and model list, optionally limited to selected providers |
 | Qoder | device-flow / PAT | `/accounts` per worker | Upstream chat for that HOME |
 
-`/health` stays open. `/api/*`, `/v1`, worker `/admin/*` and chat require the API key stored in SQLite.
+`/health` stays open. Console `/api/*` requires the administrator key. `/v1` accepts the administrator key or a named client key.
 
-The console API key is stored in SQLite `app_secrets` under `proxy_api_key`. A blank database generates a random key on first startup; the key has no environment-variable bootstrap path.
+The console API key is stored in SQLite `app_secrets` under `proxy_api_key`. A blank database generates a random key on first startup; the key has no environment-variable bootstrap path. Named client keys live in `api_keys` and only unlock `/v1`. Empty `providers` means every family; a non-empty list is applied in auth, then passed to `PickRoute` as `AllowedProviders`. Do not put key lookup inside the scheduler.
 
 ## Account routing
 
@@ -459,7 +460,8 @@ Keep the menu short. Login is a gate, not a nav item.
 | `/providers` | Models | Catalog + per-model context-window defaults; filter by provider and paginate |
 | `/access` | Access | Base URL + quick chat; account and model dropdowns follow the selected account catalog |
 | `/logs` | Logs | Request history + runtime process output |
-| `/system` | System | Next-version update + SQLite protection |
+| `/keys` | API keys | Named client keys with optional provider allowlists |
+| `/system` | System | Next-version update, SQLite protection, console administrator key |
 | `/auth` | redirect | Legacy → `/accounts` |
 
 Public model IDs are lowercase request identifiers. Qoder CLI names remain display labels, while internal Qoder keys are shown only for routing diagnostics.

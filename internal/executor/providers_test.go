@@ -78,6 +78,26 @@ func TestInProcessProviderFilterRoutesWithoutPin(t *testing.T) {
 	}
 }
 
+func TestAPIKeyAllowlistBlocksOtherProviderFamily(t *testing.T) {
+	pool := accounts.NewPool(nil, nil)
+	pool.Upsert(accounts.Item{ID: "wb1", Provider: "workbuddy", Region: "cn", Runtime: "in_process"})
+	registry := providers.NewRegistry()
+	fake := &fakeInProcessChat{}
+	registry.Register(providers.Adapter{ID: "workbuddy", Chat: fake})
+	ex := NewChatExecutor(pool, "")
+	ex.Providers = registry
+	ctx := WithAllowedProviders(context.Background(), []string{"qoder"})
+	_, err := ex.ChatNonStream(ctx, translate.ChatRequest{
+		Model: "glm-5.2", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	}, "", "workbuddy")
+	if err == nil {
+		t.Fatal("expected qoder-only key to miss workbuddy")
+	}
+	if fake.calls != 0 {
+		t.Fatalf("unexpected workbuddy calls=%d", fake.calls)
+	}
+}
+
 func TestInProcessProviderOnlyAccountRoutesWithoutPin(t *testing.T) {
 	pool := accounts.NewPool(nil, nil)
 	pool.Upsert(accounts.Item{ID: "wb1", Provider: "workbuddy", Runtime: "in_process"})
