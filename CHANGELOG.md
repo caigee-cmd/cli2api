@@ -9,11 +9,13 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 - Make the Overview traffic chart taller so the area/line plot is readable
 - Give the Overview traffic chart a full-width row so the series can use the console width
+- Close the add-account dialog after a Trae callback succeeds, and give the pasted callback URL a fixed-height field
 
 ### 中文
 
 - 加高概览流量图，面积折线更容易看清
 - 概览流量图单独占一行，折线铺满控制台宽度
+- Trae 提交回调成功后关闭添加账号弹窗，并把粘贴框改成固定高度的多行输入
 
 ## 0.2.18 - 2026-08-29
 
