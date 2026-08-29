@@ -116,3 +116,55 @@ func TestStoreRejectsChangedAppliedMigration(t *testing.T) {
 		t.Fatal("expected migration checksum mismatch")
 	}
 }
+
+const (
+	requestLogProviderMigration = "006_request_log_provider.sql"
+	requestLogProviderChecksum  = "2deb3ef3aa94df34a8ffd0ac50a69b6cb710e7bf2e9041fc1c1f0bdfd7cb0d67"
+	requestLogProviderV0219     = "9b96b8d63286519b20791d2a3688c0b71efba6204015250ae9864c5cbcd1f0b4"
+)
+
+func TestRequestLogProviderMigrationKeepsV0218Bytes(t *testing.T) {
+	var migration sqliteMigration
+	for _, item := range sqliteMigrations {
+		if item.filename == requestLogProviderMigration {
+			migration = item
+			break
+		}
+	}
+	if migration.filename == "" {
+		t.Fatal("missing 006_request_log_provider.sql")
+	}
+	got := migrationChecksum(migration.sql)
+	if got != requestLogProviderChecksum {
+		t.Fatalf("006 checksum = %s, want v0.2.18 %s", got, requestLogProviderChecksum)
+	}
+	if !checksumAccepted(migration, requestLogProviderV0219) {
+		t.Fatal("expected v0.2.19 tab-indented checksum to remain accepted")
+	}
+}
+
+func TestStoreOpensDatabaseWithV0219RequestLogProviderChecksum(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "qoder.db")
+	store, err := OpenStore(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var recorded string
+	if err := store.db.QueryRow("SELECT checksum FROM schema_migrations WHERE filename = ?", requestLogProviderMigration).Scan(&recorded); err != nil {
+		t.Fatal(err)
+	}
+	if recorded != requestLogProviderChecksum {
+		t.Fatalf("fresh 006 checksum = %s, want %s", recorded, requestLogProviderChecksum)
+	}
+	if _, err := store.db.Exec("UPDATE schema_migrations SET checksum = ? WHERE filename = ?", requestLogProviderV0219, requestLogProviderMigration); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := OpenStore(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reopened.Close()
+}
