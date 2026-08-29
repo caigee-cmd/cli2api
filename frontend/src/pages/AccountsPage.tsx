@@ -139,6 +139,7 @@ export function AccountsPage() {
       return
     }
     await run(id, 'callback', async () => {
+      setNoteById((current) => ({ ...current, [id]: t('wizardStartingSession') }))
       await completeLoginCallback(id, pasted)
       setCallbackById((current) => ({ ...current, [id]: '' }))
       await refresh(undefined, { silent: true })
