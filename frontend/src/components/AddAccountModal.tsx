@@ -293,8 +293,8 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
     try {
       setPhase('busy')
       const id = await ensureAccount()
-      await completeLoginCallback(id, pasted)
       stopPolling()
+      await completeLoginCallback(id, pasted)
       setPhase('done')
       setMessage(t('wizardAccountReady'))
       onAdded()

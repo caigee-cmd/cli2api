@@ -40,6 +40,13 @@ func TestClassifyModelNotAvailableDoesNotCooldown(t *testing.T) {
 	}
 }
 
+func TestClassifyTraePlanLimitIsQuota(t *testing.T) {
+	got := Classify(0, `{"code":1005,"message":""}`, "", "", "")
+	if got.Kind != KindQuota || got.Failover || got.Status != 429 {
+		t.Fatalf("got %+v", got)
+	}
+}
+
 func TestClassifyContentScreeningStaysRequestLevel(t *testing.T) {
 	for _, body := range []string{"sensitive content rejected", "内容包含敏感信息"} {
 		got := Classify(400, body, "", "", "")

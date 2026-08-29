@@ -30,6 +30,14 @@ func (f *fakeInProcessChat) ChatStream(ctx context.Context, accountID string, re
 	return nil, errors.New("stream unsupported in fake")
 }
 
+func TestSanitizeForItemUsesNativeCatalogSpelling(t *testing.T) {
+	item := accounts.Item{ID: "t1", Provider: "trae", Models: []string{"DeepSeek-V4-Flash"}}
+	got := sanitizeForItem(item, translate.ChatRequest{Model: "deepseek-v4-flash"})
+	if got.Model != "DeepSeek-V4-Flash" {
+		t.Fatalf("model=%q", got.Model)
+	}
+}
+
 func TestInProcessProviderPinnedChatDoesNotTouchWorkers(t *testing.T) {
 	pool := accounts.NewPool([]string{"http://127.0.0.1:1"}, []string{"qoder1"})
 	pool.Upsert(accounts.Item{ID: "wb1", Provider: "workbuddy", Region: "cn", Runtime: "in_process"})

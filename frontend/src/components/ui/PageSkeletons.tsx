@@ -10,7 +10,7 @@ export function OverviewPageSkeleton() {
       <section className="flex items-end justify-between gap-4 border-b border-[var(--app-line)] pb-4"><div className="space-y-3"><SkeletonBlock className="h-8 w-40" /><SkeletonBlock className="h-4 w-80 max-w-[70vw]" /></div><div className="hidden space-y-2 sm:block"><SkeletonBlock className="ml-auto h-8 w-40" /><SkeletonBlock className="ml-auto h-4 w-20" /></div></section>
       <section className="grid overflow-hidden rounded-lg border border-[var(--app-line)] bg-[var(--app-surface)] sm:grid-cols-2 xl:grid-cols-4">{Array.from({ length: 4 }, (_, index) => <div key={index} className="min-h-32 space-y-5 border-[var(--app-line)] p-5 first:border-0 sm:border-l sm:first:border-0"><SkeletonBlock className="h-4 w-24" /><SkeletonBlock className="h-8 w-28" /><SkeletonBlock className="h-3 w-36" /></div>)}</section>
       <section className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,.75fr)]"><div className="app-panel-flat overflow-hidden rounded-lg p-5"><SkeletonBlock className="h-5 w-24" /><SkeletonBlock className="mt-2 h-3 w-48" /><SkeletonBlock className="mt-6 h-36 w-full" /><div className="mt-5 grid grid-cols-4 gap-3">{Array.from({ length: 4 }, (_, index) => <SkeletonBlock key={index} className="h-10 w-full" />)}</div></div><div className="app-panel-flat overflow-hidden rounded-lg p-5"><SkeletonBlock className="h-5 w-28" /><SkeletonBlock className="mt-2 h-3 w-40" /><div className="mt-6 space-y-4">{Array.from({ length: 5 }, (_, index) => <SkeletonBlock key={index} className="h-8 w-full" />)}</div></div></section>
-      <section className="grid gap-5 xl:grid-cols-3">{Array.from({ length: 3 }, (_, index) => <div key={index} className="app-panel-flat overflow-hidden rounded-lg p-5"><SkeletonBlock className="h-5 w-28" /><div className="mt-6 space-y-4">{Array.from({ length: 4 }, (_, item) => <SkeletonBlock key={item} className="h-8 w-full" />)}</div></div>)}</section>
+      <section className="grid gap-5 xl:grid-cols-2 2xl:grid-cols-4">{Array.from({ length: 4 }, (_, index) => <div key={index} className="app-panel-flat overflow-hidden rounded-lg p-5"><SkeletonBlock className="h-5 w-28" /><div className="mt-6 space-y-4">{Array.from({ length: 4 }, (_, item) => <SkeletonBlock key={item} className="h-8 w-full" />)}</div></div>)}</section>
     </div>
   )
 }
@@ -84,14 +84,15 @@ export function AccessPageSkeleton() {
 export function LogsRequestListSkeleton() {
   return (
     <div aria-label="Loading logs">
-      <div className="hidden grid-cols-8 gap-4 border-b border-[var(--app-line)] px-5 py-3 md:grid">
-        {Array.from({ length: 8 }, (_, index) => <SkeletonBlock key={index} className="h-3 w-16" />)}
+      <div className="hidden grid-cols-9 gap-4 border-b border-[var(--app-line)] px-5 py-3 md:grid">
+        {Array.from({ length: 9 }, (_, index) => <SkeletonBlock key={index} className="h-3 w-16" />)}
       </div>
       {Array.from({ length: 8 }, (_, index) => (
-        <div key={index} className="grid grid-cols-2 items-center gap-4 border-b border-[var(--app-line)] px-5 py-3.5 last:border-0 md:grid-cols-8">
+        <div key={index} className="grid grid-cols-2 items-center gap-4 border-b border-[var(--app-line)] px-5 py-3.5 last:border-0 md:grid-cols-9">
           <SkeletonBlock className="h-4 w-28" />
           <SkeletonBlock className="h-4 w-24" />
           <SkeletonBlock className="hidden h-4 w-20 md:block" />
+          <SkeletonBlock className="hidden h-4 w-16 md:block" />
           <SkeletonBlock className="hidden h-4 w-16 md:block" />
           <SkeletonBlock className="hidden h-4 w-14 md:block" />
           <SkeletonBlock className="hidden h-4 w-12 md:block" />

@@ -68,7 +68,7 @@ WHERE model_id = 'qmodel'
 ON CONFLICT(model_id) DO NOTHING;
 DELETE FROM model_settings
 WHERE model_id IN ('qmodel', 'dmodel', 'dfmodel', 'kmodel', 'mmodel', 'gm51model');`},
-		{filename: "003_account_providers.sql", sql: `
+	{filename: "003_account_providers.sql", sql: `
 ALTER TABLE accounts ADD COLUMN provider TEXT NOT NULL DEFAULT 'qoder';
 ALTER TABLE accounts ADD COLUMN provider_region TEXT NOT NULL DEFAULT 'global';
 CREATE TABLE IF NOT EXISTS account_credential_payloads (
@@ -77,7 +77,7 @@ CREATE TABLE IF NOT EXISTS account_credential_payloads (
   payload BLOB NOT NULL,
   updated_at TEXT NOT NULL
 );`},
-		{filename: "004_request_logs.sql", sql: `
+	{filename: "004_request_logs.sql", sql: `
 CREATE TABLE IF NOT EXISTS request_logs (
   id TEXT PRIMARY KEY,
   created_at TEXT NOT NULL,
@@ -122,6 +122,9 @@ CREATE TABLE IF NOT EXISTS request_attempts (
 CREATE INDEX IF NOT EXISTS request_attempts_request_id ON request_attempts(request_id);`},
 	{filename: "005_account_drop_system_prompt.sql", sql: `
 ALTER TABLE accounts ADD COLUMN drop_system_prompt INTEGER NOT NULL DEFAULT 1;`},
+	{filename: "006_request_log_provider.sql", sql: `
+ALTER TABLE request_logs ADD COLUMN provider TEXT NOT NULL DEFAULT '';
+CREATE INDEX IF NOT EXISTS request_logs_provider ON request_logs(provider);`},
 }
 
 const schemaMigrationsDDL = `

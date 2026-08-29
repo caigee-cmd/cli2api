@@ -1,14 +1,37 @@
 package api
 
 import (
+	"errors"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/executor"
+	"github.com/caigee-cmd/cli2api/internal/providers"
 )
 
 func intPtr(value int) *int { return &value }
+
+func TestWriteClassifiedErrKeepsTraeQuotaKind(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	failover := true
+	writeClassifiedErr(recorder, &providers.Error{
+		Kind:     accounts.KindQuota,
+		Status:   429,
+		Message:  `{"code":1005,"message":""}`,
+		Failover: &failover,
+	})
+	if recorder.Code != 429 {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if recorder.Header().Get("X-Qoder-Error-Kind") != accounts.KindQuota {
+		t.Fatalf("kind=%s", recorder.Header().Get("X-Qoder-Error-Kind"))
+	}
+	if classifyAPIError(errors.New(`{"code":1005,"message":""}`)).Kind != accounts.KindQuota {
+		t.Fatal("numeric 1005 body should classify as quota")
+	}
+}
 
 func TestBuildChatUsagePreservesPromptCacheTokens(t *testing.T) {
 	usage := buildChatUsage(executor.ChatResult{
