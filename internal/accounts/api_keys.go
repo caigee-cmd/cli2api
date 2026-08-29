@@ -57,7 +57,7 @@ func APIKeyPrefix(secret string) string {
 
 func NormalizeAPIKeyProviders(ids []string) ([]string, error) {
 	if len(ids) == 0 {
-		return nil, nil
+		return []string{}, nil
 	}
 	seen := map[string]struct{}{}
 	out := make([]string, 0, len(ids))

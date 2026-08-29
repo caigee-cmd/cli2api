@@ -9,11 +9,13 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 - Replace native Logs and Models filter dropdowns with compact HeroUI Select controls that match the 32px toolbar
 - Add named client API keys with optional provider allowlists, and show the console administrator key on System
+- Store an empty client-key provider allowlist as `[]` instead of JSON `null`
 
 ### 中文
 
 - Logs 和模型页的筛选下拉改用紧凑 HeroUI Select，高度对齐 32px 工具栏
 - 新增可限制供应商的客户端 API 密钥，并在系统页显示控制台管理员密钥
+- 客户端密钥未限制供应商时写入 `[]`，不再存成 JSON `null`
 
 ## 0.2.20 - 2026-08-29
 
