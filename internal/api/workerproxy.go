@@ -182,22 +182,22 @@ func (s *Server) fetchWorkerModelsFor(refresh bool, accountID string) ([]map[str
 	var parsed struct {
 		Data []map[string]any `json:"data"`
 	}
-		if json.Unmarshal(body, &parsed) != nil || len(parsed.Data) == 0 {
-			return nil, nil
-		}
-		for _, model := range parsed.Data {
-			if model == nil {
-				continue
-			}
-			if _, ok := model["provider"]; !ok {
-				model["provider"] = "qoder"
-			}
-			if _, ok := model["owned_by"]; !ok {
-				model["owned_by"] = "qoder"
-			}
-		}
-		return parsed.Data, nil
+	if json.Unmarshal(body, &parsed) != nil || len(parsed.Data) == 0 {
+		return nil, nil
 	}
+	for _, model := range parsed.Data {
+		if model == nil {
+			continue
+		}
+		if _, ok := model["provider"]; !ok {
+			model["provider"] = "qoder"
+		}
+		if _, ok := model["owned_by"]; !ok {
+			model["owned_by"] = "qoder"
+		}
+	}
+	return parsed.Data, nil
+}
 
 // fetchProviderModels merges catalogs across accounts. Qoder models come from
 // worker daemons; in-process providers come from their adapters. Each entry is
@@ -234,13 +234,37 @@ func (s *Server) fetchProviderModels(refresh bool, accountID string) ([]map[stri
 				continue
 			}
 			seen[key] = struct{}{}
-				entry := map[string]any{
-					"id": model.PublicModel, "object": "model", "owned_by": item.Provider,
-					"provider": item.Provider, "native_model": model.NativeModel,
-				}
-				if strings.TrimSpace(model.DisplayName) != "" {
-					entry["display_name"] = model.DisplayName
-				}
+			entry := map[string]any{
+				"id": model.PublicModel, "object": "model", "owned_by": item.Provider,
+				"provider": item.Provider, "native_model": model.NativeModel,
+			}
+			if strings.TrimSpace(model.DisplayName) != "" {
+				entry["display_name"] = model.DisplayName
+			}
+			if model.Capabilities.ContextWindow > 0 {
+				entry["catalog_context_length"] = model.Capabilities.ContextWindow
+			}
+			if model.Capabilities.ContextWindowMax > 0 {
+				entry["catalog_context_length_max"] = model.Capabilities.ContextWindowMax
+			}
+			if model.Capabilities.MaxOutput > 0 {
+				entry["max_output_tokens"] = model.Capabilities.MaxOutput
+			}
+			if model.Capabilities.PromptMaxTokens > 0 {
+				entry["prompt_max_tokens"] = model.Capabilities.PromptMaxTokens
+			}
+			if model.Capabilities.MaxMode {
+				entry["supports_max_mode"] = true
+			}
+			if len(model.Capabilities.ReasoningOptions) > 0 {
+				entry["reasoning_options"] = model.Capabilities.ReasoningOptions
+			}
+			if model.Capabilities.ReasoningDefault != "" {
+				entry["reasoning_default"] = model.Capabilities.ReasoningDefault
+			}
+			if model.Capabilities.ReasoningType != "" {
+				entry["reasoning_type"] = model.Capabilities.ReasoningType
+			}
 			merged = append(merged, entry)
 		}
 	}

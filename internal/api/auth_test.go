@@ -75,7 +75,7 @@ func TestModelContextSettingsApplyToChatDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	req := translate.ChatRequest{Model: "MiniMax-M3"}
-	if err := srv.applyModelContextDefaults(context.Background(), &req); err != nil {
+	if err := srv.applyModelContextDefaults(context.Background(), &req, "qoder"); err != nil {
 		t.Fatal(err)
 	}
 	if string(req.ContextLength) != "500000" || string(req.MaxInputTokens) != "500000" {
@@ -87,7 +87,7 @@ func TestModelContextSettingsApplyToChatDefaults(t *testing.T) {
 		ContextLength:  json.RawMessage("250000"),
 		MaxInputTokens: json.RawMessage("900000"),
 	}
-	if err := srv.applyModelContextDefaults(context.Background(), &explicit); err != nil {
+	if err := srv.applyModelContextDefaults(context.Background(), &explicit, "qoder"); err != nil {
 		t.Fatal(err)
 	}
 	if string(explicit.ContextLength) != "250000" || string(explicit.MaxInputTokens) != "900000" {
@@ -127,6 +127,37 @@ func TestModelContextSettingsAPI(t *testing.T) {
 	srv.Handler().ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK || !bytes.Contains(rec.Body.Bytes(), []byte(`"context_length":500000`)) {
 		t.Fatalf("GET models: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestTraeMaxModeSettingDoesNotChangeQoderContext(t *testing.T) {
+	srv := New(config.Config{
+		Host: "127.0.0.1", Port: 3010, ProxyAPIKey: "secret",
+		QoderHome: t.TempDir(), DataDir: t.TempDir(),
+	})
+	defer srv.Close()
+	if err := srv.manager.Store().SetModelContext(context.Background(), "glm-5.2", 250000); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/models/trae/glm-5.2", bytes.NewBufferString(`{"max_mode":true}`))
+	req.Header.Set("Authorization", "Bearer secret")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !bytes.Contains(rec.Body.Bytes(), []byte(`"max_mode":true`)) {
+		t.Fatalf("PATCH trae max mode: %d %s", rec.Code, rec.Body.String())
+	}
+
+	got, ok, err := srv.manager.Store().GetModelContext(context.Background(), "glm-5.2")
+	if err != nil || !ok || got != 250000 {
+		t.Fatalf("qoder context mutated: %d %v %v", got, ok, err)
+	}
+	traeReq := translate.ChatRequest{Model: "glm-5.2"}
+	if err := srv.applyModelContextDefaults(context.Background(), &traeReq, "trae"); err != nil {
+		t.Fatal(err)
+	}
+	if len(traeReq.ContextLength) != 0 || len(traeReq.MaxInputTokens) != 0 {
+		t.Fatalf("trae request received qoder context defaults: %+v", traeReq)
 	}
 }
 

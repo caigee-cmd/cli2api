@@ -123,8 +123,16 @@ CREATE INDEX IF NOT EXISTS request_attempts_request_id ON request_attempts(reque
 	{filename: "005_account_drop_system_prompt.sql", sql: `
 ALTER TABLE accounts ADD COLUMN drop_system_prompt INTEGER NOT NULL DEFAULT 1;`},
 	{filename: "006_request_log_provider.sql", sql: `
-ALTER TABLE request_logs ADD COLUMN provider TEXT NOT NULL DEFAULT '';
-CREATE INDEX IF NOT EXISTS request_logs_provider ON request_logs(provider);`},
+	ALTER TABLE request_logs ADD COLUMN provider TEXT NOT NULL DEFAULT '';
+	CREATE INDEX IF NOT EXISTS request_logs_provider ON request_logs(provider);`},
+	{filename: "007_provider_model_settings.sql", sql: `
+	CREATE TABLE IF NOT EXISTS provider_model_settings (
+	  provider TEXT NOT NULL,
+	  model_id TEXT NOT NULL,
+	  max_mode INTEGER NOT NULL DEFAULT 0,
+	  updated_at TEXT NOT NULL,
+	  PRIMARY KEY (provider, model_id)
+	);`},
 }
 
 const schemaMigrationsDDL = `
