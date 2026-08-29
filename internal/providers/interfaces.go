@@ -47,6 +47,12 @@ type LoginSessionProvider interface {
 	PollLogin(ctx context.Context, accountID string) (done bool, message string, err error)
 }
 
+// LoginCompleter accepts a provider callback URL copied from the browser
+// when the automatic loopback redirect cannot reach this process.
+type LoginCompleter interface {
+	CompleteLogin(ctx context.Context, accountID, callbackURL string) error
+}
+
 // ChatOutcome is the provider-neutral non-stream result.
 type ChatOutcome struct {
 	Model            string

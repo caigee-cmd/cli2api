@@ -29,7 +29,7 @@ const ACCOUNT_ICON_BUTTON_CLASS = 'account-button account-icon-button'
 const ACCOUNT_CHIP_CLASS = 'account-chip'
 const ACCOUNT_INPUT_CLASS = 'account-input'
 
-export type AccountBusyKind = 'create' | 'import' | 'device' | 'pat' | 'rewarm' | 'toggle' | 'delete' | 'export' | 'settings'
+export type AccountBusyKind = 'create' | 'import' | 'device' | 'pat' | 'callback' | 'rewarm' | 'toggle' | 'delete' | 'export' | 'settings'
 
 type Translate = (key: string, vars?: Record<string, string | number>) => string
 
@@ -44,6 +44,9 @@ type Props = {
   onPatChange: (value: string) => void
   onDeviceLogin: () => void
   onPatLogin: () => void
+  callbackUrl?: string
+  onCallbackChange?: (value: string) => void
+  onSubmitCallback?: () => void
   onExport: () => void
   onRewarm: () => void
   onDelete: () => void
@@ -73,6 +76,9 @@ export function AccountCard({
   onPatChange,
   onDeviceLogin,
   onPatLogin,
+  callbackUrl,
+  onCallbackChange,
+  onSubmitCallback,
   onExport,
   onRewarm,
   onDelete,
@@ -236,6 +242,21 @@ export function AccountCard({
               <Button className={ACCOUNT_BUTTON_CLASS} size="sm" isPending={busyKind === 'device'} onPress={onDeviceLogin}><ShieldCheck size={14} />{t('startBrowserLogin')}</Button>
               {authUrl ? <Button className={ACCOUNT_BUTTON_CLASS} size="sm" variant="ghost" onPress={() => window.open(authUrl, '_blank', 'noopener,noreferrer')}><ArrowSquareOut size={14} />{t('open')}</Button> : null}
             </div>
+            {account.provider === 'trae' && onSubmitCallback && onCallbackChange ? (
+              <div className="mt-3 space-y-2">
+                <p className="text-[11px] leading-4 text-[var(--app-faint)]">{t('wizardCallbackLead')}</p>
+                <Input
+                  className={ACCOUNT_INPUT_CLASS}
+                  value={callbackUrl || ''}
+                  onChange={(event) => onCallbackChange(event.target.value)}
+                  placeholder={t('wizardCallbackPh')}
+                  aria-label={t('wizardCallbackPh')}
+                />
+                <Button className={ACCOUNT_BUTTON_CLASS} size="sm" variant="secondary" isPending={busyKind === 'callback'} onPress={onSubmitCallback}>
+                  {t('wizardSubmitCallback')}
+                </Button>
+              </div>
+            ) : null}
           </div>
           <div>
             <div className="text-[10px] font-semibold tracking-[0.1em] text-[var(--app-faint)] uppercase">{t('patFallback')}</div>
