@@ -34,6 +34,7 @@ import {
   type RequestLog,
   type RuntimeLogEntry,
 } from '@/api/logs'
+import { FilterSelect } from '@/components/ui/FilterSelect'
 import { ListPager, type PageSize } from '@/components/ui/ListPager'
 import { LogsRequestListSkeleton, LogsRuntimeListSkeleton } from '@/components/ui/PageSkeletons'
 import { useI18n } from '@/hooks/useI18n'
@@ -46,8 +47,6 @@ type RuntimeFilter = 'all' | 'info' | 'warn' | 'error'
 type StreamFilter = 'all' | 'stream' | 'sync'
 type TimeRange = 'all' | '1h' | '24h' | '7d' | 'custom'
 type ErrorKindFilter = 'all' | 'quota' | 'rate_limit' | 'auth' | 'not_ready' | 'unavailable' | 'invalid_request' | 'model_not_available'
-
-const FILTER_SELECT_CLASS = 'h-8 min-w-36 rounded-lg border border-[var(--app-line-strong)] bg-[var(--app-surface-solid)] px-2.5 text-xs text-[var(--app-ink)]'
 
 type DateRangeValue = { start: DateValue; end: DateValue }
 
@@ -407,28 +406,24 @@ export function LogsPage() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <select
-                className={FILTER_SELECT_CLASS}
+              <FilterSelect
+                ariaLabel={t('logsColAccount')}
                 value={accountFilter}
-                onChange={(event) => setAccountFilter(event.target.value)}
-                aria-label={t('logsColAccount')}
-              >
-                <option value="">{t('logsFilterAccountAll')}</option>
-                {(accounts || []).map((account) => (
-                  <option key={account.id} value={account.id}>{account.name || account.id}</option>
-                ))}
-              </select>
-              <select
-                className={FILTER_SELECT_CLASS}
+                onChange={setAccountFilter}
+                options={[
+                  { id: '', label: t('logsFilterAccountAll') },
+                  ...(accounts || []).map((account) => ({ id: account.id, label: account.name || account.id })),
+                ]}
+              />
+              <FilterSelect
+                ariaLabel={t('logsColModel')}
                 value={modelFilter}
-                onChange={(event) => setModelFilter(event.target.value)}
-                aria-label={t('logsColModel')}
-              >
-                <option value="">{t('logsFilterModelAll')}</option>
-                {(models || []).map((model) => (
-                  <option key={model.id} value={model.id}>{model.display_name || model.id}</option>
-                ))}
-              </select>
+                onChange={setModelFilter}
+                options={[
+                  { id: '', label: t('logsFilterModelAll') },
+                  ...(models || []).map((model) => ({ id: model.id, label: model.display_name || model.id })),
+                ]}
+              />
               <ButtonGroup className="toolbar-group">
                 {([
                   ['all', t('logsFilterStreamAll')],
@@ -445,21 +440,21 @@ export function LogsPage() {
                   </Button>
                 ))}
               </ButtonGroup>
-              <select
-                className={FILTER_SELECT_CLASS}
-                value={errorKind}
-                onChange={(event) => setErrorKind(event.target.value as ErrorKindFilter)}
-                aria-label={t('errorKind')}
-              >
-                <option value="all">{t('logsFilterKindAll')}</option>
-                <option value="quota">{t('logsKindQuota')}</option>
-                <option value="rate_limit">{t('logsKindRateLimit')}</option>
-                <option value="auth">{t('logsKindAuth')}</option>
-                <option value="not_ready">{t('logsKindNotReady')}</option>
-                <option value="unavailable">{t('logsKindUnavailable')}</option>
-                <option value="invalid_request">{t('logsKindInvalidRequest')}</option>
-                <option value="model_not_available">{t('logsKindModelNotAvailable')}</option>
-              </select>
+              <FilterSelect
+                ariaLabel={t('errorKind')}
+                value={errorKind === 'all' ? '' : errorKind}
+                onChange={(next) => setErrorKind((next || 'all') as ErrorKindFilter)}
+                options={[
+                  { id: '', label: t('logsFilterKindAll') },
+                  { id: 'quota', label: t('logsKindQuota') },
+                  { id: 'rate_limit', label: t('logsKindRateLimit') },
+                  { id: 'auth', label: t('logsKindAuth') },
+                  { id: 'not_ready', label: t('logsKindNotReady') },
+                  { id: 'unavailable', label: t('logsKindUnavailable') },
+                  { id: 'invalid_request', label: t('logsKindInvalidRequest') },
+                  { id: 'model_not_available', label: t('logsKindModelNotAvailable') },
+                ]}
+              />
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
@@ -680,17 +675,15 @@ export function LogsPage() {
                 placeholder={t('logsSearchRuntime')}
                 aria-label={t('logsSearchRuntime')}
               />
-              <select
-                className={FILTER_SELECT_CLASS}
+              <FilterSelect
+                ariaLabel={t('logsColAccount')}
                 value={runtimeAccount}
-                onChange={(event) => setRuntimeAccount(event.target.value)}
-                aria-label={t('logsColAccount')}
-              >
-                <option value="">{t('logsFilterAccountAll')}</option>
-                {(accounts || []).map((account) => (
-                  <option key={account.id} value={account.id}>{account.name || account.id}</option>
-                ))}
-              </select>
+                onChange={setRuntimeAccount}
+                options={[
+                  { id: '', label: t('logsFilterAccountAll') },
+                  ...(accounts || []).map((account) => ({ id: account.id, label: account.name || account.id })),
+                ]}
+              />
               <ButtonGroup className="toolbar-group">
                 {([
                   ['all', t('logsLevelAll')],
