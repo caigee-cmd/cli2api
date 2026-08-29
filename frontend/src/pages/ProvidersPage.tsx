@@ -8,12 +8,11 @@ import type { Overview } from '@/api/types'
 import { ProviderMark } from '@/components/ProviderMark'
 import { ModelDetailsModal, formatTokens } from '@/components/ModelDetailsModal'
 import { CompactSwitch } from '@/components/ui/CompactSwitch'
+import { FilterSelect } from '@/components/ui/FilterSelect'
 import { ListPager, type PageSize } from '@/components/ui/ListPager'
 import { ProvidersPageSkeleton } from '@/components/ui/PageSkeletons'
 
 type ModelInfo = NonNullable<Overview['models']>[number]
-
-const FILTER_SELECT_CLASS = 'h-8 min-w-36 rounded-lg border border-[var(--app-line-strong)] bg-[var(--app-surface-solid)] px-2.5 text-xs text-[var(--app-ink)]'
 
 function modelSettingsKey(model: ModelInfo) {
   return model.settings_key || model.id
@@ -205,17 +204,15 @@ export function ProvidersPage() {
         </div>
         <div data-gsap-reveal className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <Input className="sm:w-72" value={filter} onChange={(event) => setFilter(event.target.value)} placeholder={t('filterPh')} aria-label={t('filter')} />
-          <select
-            className={FILTER_SELECT_CLASS}
+          <FilterSelect
+            ariaLabel={t('providerCol')}
             value={providerFilter}
-            onChange={(event) => setProviderFilter(event.target.value)}
-            aria-label={t('providerCol')}
-          >
-            <option value="">{t('providerFilterAll')}</option>
-            {providers.map((provider) => (
-              <option key={provider} value={provider}>{provider}</option>
-            ))}
-          </select>
+            onChange={setProviderFilter}
+            options={[
+              { id: '', label: t('providerFilterAll') },
+              ...providers.map((provider) => ({ id: provider, label: provider })),
+            ]}
+          />
           <Button size="sm" variant="secondary" isPending={busy} onPress={() => void onRefresh()}>
             <ArrowClockwise size={14} />
             {busy ? t('refreshing') : t('refresh')}
