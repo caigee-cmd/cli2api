@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react'
 import { Button, Chip, Modal, Skeleton } from '@heroui/react'
-import { ArrowClockwise, Cube, WarningCircle, X } from '@phosphor-icons/react'
+import { ArrowClockwise, Cube, X } from '@phosphor-icons/react'
 import { fetchModels, refreshModels } from '@/api/overview'
 import type { ModelInfo } from '@/api/types'
 import { ProviderMark } from '@/components/ProviderMark'
+import { EmptyPanel } from '@/components/ui/EmptyPanel'
+import { PageAlert } from '@/components/ui/PageAlert'
 import type { AccountRow } from '@/lib/account'
 import { accountProviderLabel } from '@/lib/provider'
-
-const ACCOUNT_BUTTON_CLASS = 'account-button'
 
 type Translate = (key: string, vars?: Record<string, string | number>) => string
 
@@ -80,25 +80,24 @@ export function AccountModelsModal({ account, t, onClose }: Props) {
             <Modal.Header className="items-start justify-between gap-4 px-5 pt-5">
               <div className="min-w-0">
                 <Modal.Heading className="text-lg font-semibold tracking-[-0.01em]">{title}</Modal.Heading>
-                <p className="mt-1 text-xs font-normal leading-5 text-[var(--app-faint)]">{t('accountModelsHint')}</p>
+                <p className="mt-1 text-xs font-normal leading-5 text-muted">{t('accountModelsHint')}</p>
                 {account ? (
-                  <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-[var(--app-muted)]">
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-muted">
                     <ProviderMark provider={account.provider} size={14} />
                     <span>{provider}</span>
-                    <span className="text-[var(--app-line-strong)]">·</span>
+                    <span className="text-border">·</span>
                     <span className="mono">{account.id}</span>
                   </div>
                 ) : null}
               </div>
-              <Modal.CloseTrigger aria-label={t('close')} className="grid size-8 shrink-0 place-items-center rounded-lg text-[var(--app-muted)] transition-colors hover:bg-[var(--app-surface-muted)] hover:text-[var(--app-ink)]">
+              <Modal.CloseTrigger aria-label={t('close')} className="grid size-8 shrink-0 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-secondary hover:text-foreground">
                 <X size={16} />
               </Modal.CloseTrigger>
             </Modal.Header>
             <Modal.Body className="px-5 pb-2">
               {error ? (
-                <div className="mb-3 flex gap-2 rounded-lg border border-[color-mix(in_srgb,var(--app-danger)_24%,transparent)] bg-[color-mix(in_srgb,var(--app-danger)_7%,transparent)] px-3 py-2.5 text-xs leading-5 text-[var(--app-danger)]">
-                  <WarningCircle size={14} className="mt-0.5 shrink-0" />
-                  <span>{t('accountModelsError', { msg: error })}</span>
+                <div className="mb-3">
+                  <PageAlert title={t('accountModelsError', { msg: error })} />
                 </div>
               ) : null}
 
@@ -109,7 +108,7 @@ export function AccountModelsModal({ account, t, onClose }: Props) {
                   <Skeleton className="h-14 rounded-lg" />
                 </div>
               ) : models.length ? (
-                <ul className="divide-y divide-[var(--app-line)] overflow-hidden rounded-lg border border-[var(--app-line)]">
+                <ul className="divide-y divide-separator overflow-hidden rounded-lg border border-separator">
                   {models.map((model) => {
                     const ownedBy = model.provider || model.owned_by || account?.provider || 'qoder'
                     const routed = routedModelName(model)
@@ -121,10 +120,10 @@ export function AccountModelsModal({ account, t, onClose }: Props) {
                             <span className="truncate text-sm font-medium">{model.display_name || model.id}</span>
                             {model.stale ? <Chip size="sm" variant="soft" color="warning">{t('fallback')}</Chip> : null}
                           </div>
-                          <div className="mono mt-0.5 truncate text-[11px] text-[var(--app-faint)]">{model.id}</div>
-                          {routed ? <div className="mt-0.5 text-[11px] text-[var(--app-faint)]">{t('routedTo', { model: routed })}</div> : null}
+                          <div className="mono mt-0.5 truncate text-[11px] text-muted">{model.id}</div>
+                          {routed ? <div className="mt-0.5 text-[11px] text-muted">{t('routedTo', { model: routed })}</div> : null}
                         </div>
-                        <div className="flex shrink-0 items-center gap-1.5 pt-0.5 text-[11px] text-[var(--app-muted)]">
+                        <div className="flex shrink-0 items-center gap-1.5 pt-0.5 text-[11px] text-muted">
                           <ProviderMark provider={ownedBy} size={12} />
                           <span>{ownedBy}</span>
                         </div>
@@ -133,22 +132,21 @@ export function AccountModelsModal({ account, t, onClose }: Props) {
                   })}
                 </ul>
               ) : (
-                <div className="grid min-h-48 place-items-center rounded-lg border border-dashed border-[var(--app-line-strong)] text-center">
-                  <div className="max-w-xs px-6">
-                    <Cube size={22} className="mx-auto text-[var(--app-faint)]" />
-                    <div className="mt-3 text-sm font-medium">{t('accountModelsEmpty')}</div>
-                    <div className="mt-1 text-xs leading-5 text-[var(--app-faint)]">{t('noModelsYet')}</div>
-                  </div>
-                </div>
+                <EmptyPanel
+                  className="min-h-48 rounded-3xl border border-dashed border-border"
+                  icon={<Cube size={22} />}
+                  title={t('accountModelsEmpty')}
+                  hint={t('noModelsYet')}
+                />
               )}
             </Modal.Body>
             <Modal.Footer className="justify-between px-5 pb-5">
-              <span className="mono text-xs text-[var(--app-faint)]">
+              <span className="mono text-xs text-muted">
                 {loading ? t('refreshing') : t('shownTotal', { shown: models.length, total: models.length })}
               </span>
               <div className="flex items-center gap-2">
-                <Button className={ACCOUNT_BUTTON_CLASS} size="sm" variant="ghost" onPress={onClose}>{t('close')}</Button>
-                <Button className={ACCOUNT_BUTTON_CLASS} size="sm" variant="secondary" isPending={refreshing} onPress={() => void load(true)}>
+                <Button size="sm" variant="ghost" onPress={onClose}>{t('close')}</Button>
+                <Button size="sm" variant="secondary" isPending={refreshing} onPress={() => void load(true)}>
                   <ArrowClockwise size={14} />
                   {refreshing ? t('refreshing') : t('refresh')}
                 </Button>

@@ -13,7 +13,7 @@ export function BrandMark({ size = 24, className = '' }: Props) {
       viewBox="0 0 24 24"
       fill="none"
       aria-hidden="true"
-      className={`block shrink-0 text-[var(--app-ink)] ${className}`.trim()}
+      className={`block shrink-0 text-foreground ${className}`.trim()}
     >
       <path
         d="M13 2 L4 14 H11 L9 11 H13.5 L11 22 L20 10 H13 L15 13 H10.5 Z"

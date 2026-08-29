@@ -37,7 +37,7 @@ export function FilterSelect({
         onChange(next === ALL_VALUE ? '' : next)
       }}
     >
-      <Select.Trigger className="h-8 min-h-8 min-w-36 items-center">
+      <Select.Trigger className="h-9 min-h-9 min-w-36 items-center md:h-8">
         <Select.Value className="min-w-0 truncate">
           {({ defaultChildren, isPlaceholder }) => {
             if (isPlaceholder || !selected) return defaultChildren
@@ -46,10 +46,10 @@ export function FilterSelect({
         </Select.Value>
         <Select.Indicator />
       </Select.Trigger>
-      <Select.Popover className="max-h-72 min-w-36 rounded-lg">
+      <Select.Popover className="max-h-72 min-w-36">
         <ListBox>
           {items.map((option) => (
-            <ListBox.Item key={option.id} id={option.id} textValue={option.label} className="rounded-lg">
+            <ListBox.Item key={option.id} id={option.id} textValue={option.label}>
               <Label className="block truncate">{option.label}</Label>
               <ListBox.ItemIndicator />
             </ListBox.Item>
