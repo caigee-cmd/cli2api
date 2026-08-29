@@ -142,10 +142,56 @@ func (c *Client) PollLogin(ctx context.Context, accountID string) (bool, string,
 	if !done {
 		return false, firstNonEmpty(message, "waiting for authorization"), nil
 	}
+	if err := c.finishCredential(ctx, accountID, credential); err != nil {
+		return false, "", err
+	}
+	c.mu.Lock()
+	delete(c.pending, accountID)
+	c.mu.Unlock()
+	return true, "login complete", nil
+}
+
+func (c *Client) CompleteLogin(ctx context.Context, accountID, callbackURL string) error {
+	info, err := ParseCallback(callbackURL)
+	if err != nil {
+		return err
+	}
+	credential := Credential{
+		AccessToken:  info.AccessToken,
+		RefreshToken: info.RefreshToken,
+		ExpiresAt:    unixSeconds(info.ExpiresAt),
+		UID:          info.UID,
+		Nickname:     info.Nickname,
+		EnterpriseID: info.EnterpriseID,
+		Domain:       DomainCN,
+		APIHost:      OAuthHost,
+	}
+	c.mu.Lock()
+	pending := c.pending[accountID]
+	c.mu.Unlock()
+	if pending != nil {
+		credential.MachineID = pending.machineID
+		credential.DeviceID = pending.deviceID
+	} else if _, payload, err := c.store.LoadCredentialPayload(ctx, accountID); err == nil {
+		if decoded, err := DecodeCredential(payload); err == nil {
+			credential.MachineID = decoded.MachineID
+			credential.DeviceID = decoded.DeviceID
+		}
+	}
+	if err := c.finishCredential(ctx, accountID, credential); err != nil {
+		return err
+	}
+	c.mu.Lock()
+	delete(c.pending, accountID)
+	c.mu.Unlock()
+	return nil
+}
+
+func (c *Client) finishCredential(ctx context.Context, accountID string, credential Credential) error {
 	if strings.TrimSpace(credential.RefreshToken) != "" {
 		refreshed, err := c.ExchangeToken(ctx, credential)
 		if err != nil {
-			return false, "", err
+			return err
 		}
 		credential = refreshed
 	}
@@ -161,24 +207,16 @@ func (c *Client) PollLogin(ctx context.Context, accountID string) (bool, string,
 			}
 		}
 	}
-	if strings.TrimSpace(credential.MachineID) == "" {
-		credential.MachineID = pending.machineID
-	}
-	if strings.TrimSpace(credential.DeviceID) == "" {
-		credential.DeviceID = pending.deviceID
-	}
+	credential = EnsureDevice(credential)
 	payload, err := credential.Encode()
 	if err != nil {
-		return false, "", err
+		return err
 	}
 	if err := c.store.SaveCredentialPayload(ctx, accountID, CredentialFormat, payload); err != nil {
-		return false, "", err
+		return err
 	}
 	_ = c.store.Observe(ctx, accountID, credential.UID, "ready", "", "")
-	c.mu.Lock()
-	delete(c.pending, accountID)
-	c.mu.Unlock()
-	return true, "login complete", nil
+	return nil
 }
 
 func (c *Client) ensureCallback() (string, error) {

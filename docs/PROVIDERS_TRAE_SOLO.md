@@ -356,6 +356,7 @@ ProviderDescriptor{
 - [x] `credential.go`：Validate / Encode / Decode（nested + flat）、持久化 device
 - [x] `ExchangeToken` + 提前刷新 + 刷新失败标未就绪
 - [x] `StartLogin`：持久化或复用 device、起 `127.0.0.1` callback、返回授权 URL
+- [x] `CompleteLogin`：浏览器和服务不在同一台时，可粘贴完整 `127.0.0.1/authorize?...` URL
 - [x] `PollLogin`：pending → ExchangeToken → GetUserInfo → SaveCredentialPayload
 - [x] Import/Export 兼容 `trae-{uid}.json`
 - [x] 不绑公网、不提供 CODING_TOKEN、不每轮换设备
