@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.2.19 - 2026-08-29
+
+### English
+
 - Make the Overview traffic chart taller so the area/line plot is readable
 - Give the Overview traffic chart a full-width row so the series can use the console width
 - Close the add-account dialog after a Trae callback succeeds, and give the pasted callback URL a fixed-height field
