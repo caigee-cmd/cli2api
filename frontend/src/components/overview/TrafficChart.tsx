@@ -3,9 +3,9 @@ import gsap from 'gsap'
 import type { RequestStatsPoint } from '@/api/logs'
 import { formatCompact } from '@/lib/format'
 
-const WIDTH = 720
+const WIDTH = 960
 const HEIGHT = 280
-const PAD = { top: 16, right: 12, bottom: 28, left: 40 }
+const PAD = { top: 16, right: 16, bottom: 28, left: 40 }
 
 function hourLabel(value: string, daily: boolean, lang: 'en' | 'zh') {
   const date = new Date(value)
@@ -137,7 +137,7 @@ export function TrafficChart({
     <div ref={rootRef} className="min-w-0">
       <svg
         viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-        className="h-72 w-full overflow-visible"
+        className="block aspect-[960/280] w-full overflow-visible"
         role="img"
         aria-label={emptyLabel}
         onMouseLeave={() => setActive(null)}
