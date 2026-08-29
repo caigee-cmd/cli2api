@@ -37,6 +37,24 @@ func TestPickRouteRespectsProviderFamilyAndCooldown(t *testing.T) {
 	}
 }
 
+func TestPickRouteHonorsAPIKeyAllowlist(t *testing.T) {
+	p := NewPool(nil, nil)
+	p.Upsert(Item{ID: "q1", URL: "http://q1", Provider: "qoder", Runtime: "child_process"})
+	p.Upsert(Item{ID: "w1", Provider: "workbuddy", Runtime: "in_process"})
+	p.Upsert(Item{ID: "t1", Provider: "trae", Runtime: "in_process"})
+
+	got, ok := p.PickRoute(RouteQuery{AllowedProviders: []string{"trae"}})
+	if !ok || got.ID != "t1" {
+		t.Fatalf("allowlist pick = %+v ok=%v", got, ok)
+	}
+	if n := p.LenRoute(RouteQuery{AllowedProviders: []string{"qoder", "workbuddy"}}); n != 2 {
+		t.Fatalf("two-family allowlist count = %d", n)
+	}
+	if _, ok := p.PickRoute(RouteQuery{ProviderFilter: "trae", AllowedProviders: []string{"qoder"}}); ok {
+		t.Fatal("key limited to qoder must not pick trae")
+	}
+}
+
 func TestPickRouteKeepsQoderFailoverInsideRegion(t *testing.T) {
 	p := NewPool(nil, nil)
 	p.Upsert(Item{ID: "g1", URL: "http://g1", Provider: "qoder", Region: "global", Runtime: "child_process"})

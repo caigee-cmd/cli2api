@@ -50,11 +50,12 @@ type Item struct {
 // RouteQuery selects candidates for one public model request. Empty fields are
 // not filtered; excluded account IDs are honored before anything else.
 type RouteQuery struct {
-	PublicModel    string
-	PreferAccount  string
-	ProviderFilter string
-	RegionFilter   string
-	Excluded       map[string]struct{}
+	PublicModel      string
+	PreferAccount    string
+	ProviderFilter   string
+	RegionFilter     string
+	AllowedProviders []string
+	Excluded         map[string]struct{}
 }
 
 func itemRegion(item Item) string {
@@ -111,8 +112,27 @@ func NativeModelID(item Item, publicModel string) string {
 	return strings.TrimSpace(publicModel)
 }
 
+func providerAllowed(provider string, allowed []string) bool {
+	if len(allowed) == 0 {
+		return true
+	}
+	family := strings.ToLower(strings.TrimSpace(provider))
+	if family == "" {
+		family = "qoder"
+	}
+	for _, item := range allowed {
+		if strings.ToLower(strings.TrimSpace(item)) == family {
+			return true
+		}
+	}
+	return false
+}
+
 func routeMatches(item Item, q RouteQuery) bool {
 	if _, skip := q.Excluded[item.ID]; skip {
+		return false
+	}
+	if !providerAllowed(item.Provider, q.AllowedProviders) {
 		return false
 	}
 	if q.ProviderFilter != "" && item.Provider != q.ProviderFilter {

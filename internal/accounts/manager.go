@@ -105,6 +105,39 @@ func (m *Manager) Start(ctx context.Context) error {
 func (m *Manager) Pool() *Pool   { return m.pool }
 func (m *Manager) Store() *Store { return m.store }
 
+func (m *Manager) ReplaceProxyAPIKey(ctx context.Context, key string) error {
+	if m == nil {
+		return nil
+	}
+	m.mu.Lock()
+	m.config.ProxyAPIKey = key
+	if starter, ok := m.starter.(ExecStarter); ok {
+		starter.Config.ProxyAPIKey = key
+		m.starter = starter
+	}
+	accounts := make([]Account, 0, len(m.processes))
+	for id := range m.processes {
+		account, err := m.store.Get(ctx, id)
+		if err != nil {
+			m.mu.Unlock()
+			return err
+		}
+		if account.Enabled {
+			accounts = append(accounts, account)
+		}
+	}
+	m.mu.Unlock()
+	for _, account := range accounts {
+		if err := m.stopAccount(account.ID); err != nil {
+			return err
+		}
+		if err := m.startAccount(ctx, account); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // SetProviders wires optional in-process account probers (WorkBuddy, etc.).
 func (m *Manager) SetProviders(registry *providers.Registry) {
 	if m == nil {

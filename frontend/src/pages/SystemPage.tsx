@@ -4,12 +4,16 @@ import {
   ArrowClockwise,
   ArrowCircleUp,
   CheckCircle,
+  Copy,
   Database,
+  Key,
   ShieldCheck,
   WarningCircle,
   X,
 } from '@phosphor-icons/react'
+import { fetchConsoleKey, rotateConsoleKey, type ConsoleKeyView } from '@/api/keys'
 import { fetchSystemUpdate, startSystemUpdate, type StartUpdateResult, type SystemUpdateInfo } from '@/api/system'
+import { useApiKey } from '@/hooks/useApiKey'
 import { ReleaseNotes } from '@/components/ReleaseNotes'
 import { useI18n } from '@/hooks/useI18n'
 import { extractReleaseNotes } from '@/lib/releaseNotes'
@@ -25,7 +29,13 @@ function statusColor(state?: string): 'success' | 'warning' | 'danger' | 'defaul
 
 export function SystemPage() {
   const { lang, t } = useI18n()
+  const { setApiKey } = useApiKey()
   const [info, setInfo] = useState<SystemUpdateInfo | null>(null)
+  const [consoleKey, setConsoleKey] = useState<ConsoleKeyView | null>(null)
+  const [consoleBusy, setConsoleBusy] = useState(false)
+  const [rotateOpen, setRotateOpen] = useState(false)
+  const [rotatedSecret, setRotatedSecret] = useState('')
+  const [copied, setCopied] = useState(false)
   const [loading, setLoading] = useState(true)
   const [checking, setChecking] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -52,7 +62,10 @@ export function SystemPage() {
   }, [])
 
   useEffect(() => {
-    const timer = window.setTimeout(() => void load(false), 0)
+    const timer = window.setTimeout(() => {
+      void load(false)
+      void fetchConsoleKey().then(setConsoleKey).catch(() => undefined)
+    }, 0)
     return () => window.clearTimeout(timer)
   }, [load])
 
@@ -203,6 +216,23 @@ export function SystemPage() {
           </Card>
 
           <Card data-gsap-reveal className="app-panel-flat rounded-lg p-5">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-[var(--app-ink)] text-[var(--app-bg)]"><Key size={15} /></div>
+                <div>
+                  <h3 className="font-semibold">{t('consoleKeyTitle')}</h3>
+                  <p className="mt-1 text-xs leading-5 text-[var(--app-faint)]">{t('consoleKeyHint')}</p>
+                </div>
+              </div>
+            </div>
+            <code className="mono mt-4 block rounded-lg bg-[var(--app-surface-muted)] px-3 py-2 text-xs text-[var(--app-muted)]">{consoleKey?.prefix || '—'}</code>
+            <p className="mt-3 text-xs leading-5 text-[var(--app-faint)]">{t('consoleKeyLead')}</p>
+            <div className="mt-4 flex justify-end">
+              <Button size="sm" variant="ghost" isPending={consoleBusy} onPress={() => setRotateOpen(true)}>{t('consoleKeyRotate')}</Button>
+            </div>
+          </Card>
+
+          <Card data-gsap-reveal className="app-panel-flat rounded-lg p-5">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <h3 className="font-semibold">{t('updateStatus')}</h3>
@@ -214,6 +244,65 @@ export function SystemPage() {
           </Card>
         </div>
       </div>
+
+      <Modal.Root isOpen={rotateOpen} onOpenChange={(open: boolean) => { if (!open && !consoleBusy) setRotateOpen(false) }}>
+        <Modal.Backdrop variant="blur" isDismissable={!consoleBusy}>
+          <Modal.Container placement="center" size="sm">
+            <Modal.Dialog>
+              <Modal.Header className="items-start justify-between gap-4">
+                <div>
+                  <Modal.Heading className="text-base font-semibold">{t('consoleKeyRotate')}</Modal.Heading>
+                  <p className="mt-1 text-xs leading-5 text-[var(--app-faint)]">{t('consoleKeyRotateHint')}</p>
+                </div>
+                <Modal.CloseTrigger isDisabled={consoleBusy} aria-label={t('close')} className="grid size-8 place-items-center rounded-lg text-[var(--app-muted)] hover:bg-[var(--app-surface-muted)]"><X size={16} /></Modal.CloseTrigger>
+              </Modal.Header>
+              <Modal.Footer className="justify-end">
+                <Button variant="ghost" isDisabled={consoleBusy} onPress={() => setRotateOpen(false)}>{t('cancel')}</Button>
+                <Button variant="danger" isPending={consoleBusy} onPress={() => {
+                  setConsoleBusy(true)
+                  void rotateConsoleKey().then((result) => {
+                    setConsoleKey(result)
+                    setRotatedSecret(result.secret || '')
+                    if (result.secret) setApiKey(result.secret)
+                    setRotateOpen(false)
+                  }).catch((err) => {
+                    setError(err instanceof Error ? err.message : String(err))
+                  }).finally(() => setConsoleBusy(false))
+                }}>{t('consoleKeyRotateNow')}</Button>
+              </Modal.Footer>
+            </Modal.Dialog>
+          </Modal.Container>
+        </Modal.Backdrop>
+      </Modal.Root>
+
+      <Modal.Root isOpen={Boolean(rotatedSecret)} onOpenChange={(open: boolean) => { if (!open) setRotatedSecret('') }}>
+        <Modal.Backdrop variant="blur">
+          <Modal.Container placement="center" size="lg">
+            <Modal.Dialog>
+              <Modal.Header className="items-start justify-between gap-4 px-6 pt-6">
+                <div>
+                  <Modal.Heading className="text-lg font-semibold">{t('consoleKeySecretTitle')}</Modal.Heading>
+                  <p className="mt-1.5 text-sm leading-6 text-[var(--app-muted)]">{t('consoleKeySecretHint')}</p>
+                </div>
+                <Modal.CloseTrigger aria-label={t('close')} className="grid size-9 place-items-center rounded-lg text-[var(--app-muted)] hover:bg-[var(--app-surface-muted)]"><X size={18} /></Modal.CloseTrigger>
+              </Modal.Header>
+              <Modal.Body className="px-6 pb-2">
+                <code className="mono block break-all rounded-lg border border-[var(--app-line)] bg-[var(--app-surface-muted)] px-3 py-3 text-sm">{rotatedSecret}</code>
+              </Modal.Body>
+              <Modal.Footer className="justify-end">
+                <Button variant="ghost" onPress={() => setRotatedSecret('')}>{t('close')}</Button>
+                <Button onPress={() => {
+                  void navigator.clipboard.writeText(rotatedSecret)
+                  setCopied(true)
+                  window.setTimeout(() => setCopied(false), 1200)
+                }}>
+                  <Copy size={14} />{copied ? t('copied') : t('copy')}
+                </Button>
+              </Modal.Footer>
+            </Modal.Dialog>
+          </Modal.Container>
+        </Modal.Backdrop>
+      </Modal.Root>
 
       <Modal.Root isOpen={confirmOpen} onOpenChange={(open: boolean) => { if (!open && !submitting && reloadIn == null) setConfirmOpen(false) }}>
         <Modal.Backdrop variant="blur" isDismissable={!submitting && reloadIn == null}>

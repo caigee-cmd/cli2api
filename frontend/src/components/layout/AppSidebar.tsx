@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import { Drawer, Button, Chip, Tooltip } from '@heroui/react'
-import { Cube, Gauge, GearSix, Lightning, Scroll, SidebarSimple, UsersThree, X } from '@phosphor-icons/react'
+import { Cube, Gauge, GearSix, Key, Lightning, Scroll, SidebarSimple, UsersThree, X } from '@phosphor-icons/react'
 import { BrandMark } from '@/components/BrandMark'
 import { gsap } from 'gsap'
 import { pressScale } from '@/hooks/useGsapReveal'
@@ -14,6 +14,7 @@ const nav = [
   { to: '/providers', key: 'navProviders', icon: Cube, section: 'develop' },
   { to: '/access', key: 'navAccess', icon: Lightning, section: 'develop' },
   { to: '/logs', key: 'navLogs', icon: Scroll, section: 'system' },
+  { to: '/keys', key: 'navKeys', icon: Key, section: 'system' },
   { to: '/system', key: 'navSystem', icon: GearSix, section: 'system' },
 ] as const
 
