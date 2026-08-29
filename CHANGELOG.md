@@ -9,6 +9,22 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### 中文
 
+## 0.2.17 - 2026-08-29
+
+### English
+
+- Let Trae browser login finish by pasting the full `127.0.0.1/authorize` callback URL when the console cannot receive the loopback redirect
+- Replace typed Logs custom time fields with a HeroUI date-range calendar, and filter the Models catalog by account provider instead of upstream `owned_by`
+- Widen the account edit dialog and use HeroUI Form, NumberField, and Alert for name, concurrency, and priority
+- After starting a managed update, keep Update now pending with a 10-second countdown, then reload the console
+
+### 中文
+
+- Trae 浏览器登录在控制台收不到本机回调时，可粘贴完整的 `127.0.0.1/authorize` 地址完成登录
+- Logs 自定义时间改为 HeroUI 日历范围选择；Models 按账号供应商筛选，不再误用上游 `owned_by`
+- 账号编辑弹窗加宽，名称、并发、优先级改用 HeroUI Form、NumberField 和 Alert
+- 点击立即更新后按钮保持 loading，显示 10 秒倒计时，然后刷新控制台
+
 ## 0.2.16 - 2026-08-28
 
 ### English
