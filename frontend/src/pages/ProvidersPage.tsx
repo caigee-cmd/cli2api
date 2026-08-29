@@ -18,7 +18,12 @@ function modelSettingsKey(model: ModelInfo) {
 }
 
 function modelProvider(model: ModelInfo) {
-  return (model.owned_by || model.provider || 'qoder').toLowerCase()
+  // Account family wins over upstream owned_by (which may be a model vendor).
+  return String(model.provider || model.owned_by || 'qoder').trim().toLowerCase()
+}
+
+function modelRowKey(model: ModelInfo) {
+  return `${modelProvider(model)}:${model.settings_key || model.id}:${model.native_model || model.mapped_key || ''}`
 }
 
 function routedModelName(model: ModelInfo) {
@@ -220,7 +225,7 @@ export function ProvidersPage() {
                     const saving = savingKey === key
                     const provider = modelProvider(model)
                     return (
-                      <Table.Row key={key}>
+                      <Table.Row key={modelRowKey(model)}>
                         <Table.Cell>
                           <div className="flex items-center gap-3 py-1">
                             <span className="status-dot" data-state={model.stale ? undefined : 'ok'} />

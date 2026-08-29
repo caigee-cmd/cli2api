@@ -5,7 +5,7 @@
 ## 唯一真相来源
 
 - 全局主题 token 在 [frontend/src/index.css](../frontend/src/index.css)。
-- 对话框、提示、卡片、Chip、Drawer、表单等可访问 UI 场景，优先用 `@heroui/react` 的 HeroUI 原语。
+- 对话框、提示、卡片、Chip、Drawer、表单等可访问 UI 场景，**强制**用 `@heroui/react` 的 HeroUI 原语。没有对应组件时，再查 shadcn MCP / 官方目录找等价物；最后才允许手写。
 - 当前项目直接使用 `@heroui/react` 原语；布局与复用组件位于 `frontend/src/components/`。
 - 主题 token 与视觉变量统一维护在 [frontend/src/index.css](../frontend/src/index.css)。
 
@@ -57,14 +57,23 @@
 
 ## 组件
 
-可访问的组合组件用 HeroUI：
+可访问的组合组件**必须**用 HeroUI，按这个顺序选：
 
-- `Modal`、`Alert`、`Card`、`Chip`、`Drawer`、`NumberField`
-- 基于 HeroUI 的本地 `Button` 和 `Input` wrapper
+1. `@heroui/react` 已有原语（`Modal`、`Alert`、`AlertDialog`、`Form`、`NumberField`、`DateRangePicker`、`Select`、`Chip`、`Drawer`、`Card`）。
+2. 没有时，用 shadcn MCP / 官方组件目录找可映射到 HeroUI 组合的模式，不要另开一套视觉语言。
+3. 仍没有、或现有行为确实无法覆盖，才手写。手写必须说明缺的是哪个 HeroUI 组件。
+
+账号编辑等设置弹窗：
+
+- 用 `Modal` `size="lg"`（或更宽），不要用 `sm` 把名称、并发、优先级挤进窄卡片。
+- 数字用 `NumberField`（步进按钮），不要用原生 `type="number"`。
+- 校验失败用 `Alert`，不要手写红框。
+- 表单用 `Form` + `Label` / `Description`。
+- 页脚操作按钮用默认尺寸，不要再套卡片上的 32px `account-button`。
 
 构建新弹窗时：
 
-- 标准流程优先用 HeroUI `Modal`。
+- 标准流程必须用 HeroUI `Modal`。
 - 仅在现有行为/布局有特殊要求时才手写对话框。
 - 弹窗表面保持视觉扁平：一个背景、浅边框、适度阴影。
 - 避免 header/body/footer 各用不同背景色。
@@ -72,10 +81,10 @@
 
 构建表单时：
 
-- 文本输入用 `Input` wrapper。
+- 文本输入用 `Input`。
 - 标签应小而安静：`text-xs` 或 `text-sm font-medium text-muted-foreground`。
 - Select 视觉上应与 Input 一致：`h-10 rounded-md border border-input bg-background px-3 text-sm`。
-- 辅助说明用安静文字表达，不要包在灰色卡片里，除非确实是需要强调的 callout。
+- 辅助说明用 `Description` 或安静文字，不要包在灰色卡片里，除非确实是需要强调的 callout。
 
 构建按钮时：
 
@@ -122,7 +131,7 @@
 
 - 圆角 8px 或更小，除非现有组件已用更大值
 - 账号/资源列表卡片优先使用浅边框和平面表面，不强制最小高度，不额外叠加强阴影
-- 账号卡片保持操作台密度：单行身份（名称 + provider/UID，不展示认证方式），状态 Chip 只出现一次，运行状态用 12 格短柱、额度用 `scaleX` 填充条；名称、并发和优先级通过卡片编辑弹窗修改，重启次数仍是只读辅助数字。控制台刷新时卡片保持挂载，让额度和状态柱用 GSAP 过渡，不要整卡换成骨架屏。色条只用很浅的同色渐变，不要换新强调色。
+- 账号卡片保持操作台密度：单行身份（名称 + provider/UID，不展示认证方式），状态 Chip 只出现一次，运行状态用 12 格短柱、额度用 `scaleX` 填充条；名称、并发和优先级通过较宽的 HeroUI 编辑弹窗修改（`Form` + `NumberField` + `Alert`），重启次数仍是只读辅助数字。控制台刷新时卡片保持挂载，让额度和状态柱用 GSAP 过渡，不要整卡换成骨架屏。色条只用很浅的同色渐变，不要换新强调色。
 - 添加账号是两步向导：第一步选类型、名称和可选高级选项，第二步再选登录方式。不要把登录方式再摊回第一步。打开弹窗时类型列表先显示骨架屏，等 `/api/providers` 返回后再渲染真实选项，不要先闪默认 Qoder Global。类型 ≤ 6 用两列 tile，超过则用下拉；未知 provider 直接用后端 descriptor 的 label，不要静默丢掉。登录方式按 `capabilities` 隐藏，只有一种时不要再渲染选择器。
 - 账号网格用 `lg:grid-cols-2 xl:grid-cols-3`，卡片间距 `gap-2.5`，内边距约 12px
 - 主卡片只有在确实需要抬升层级时才用 `shadow-card`
@@ -187,6 +196,8 @@
 
 完成前端改动前：
 
+- 是否先用了 HeroUI 原语？没有对应组件时是否查过 shadcn / 官方目录，而不是直接手写？
+- 设置弹窗是否用了 `Modal` + `Form` + `NumberField` / `Alert`，而不是窄 `sm` 弹窗和原生 number input？
 - 该用 HeroUI 或现有本地 wrapper 的地方是否用上了？
 - 是否复用了全局语义 token？
 - 边框/分割线是否必要，还是用间距和排版就能解决？

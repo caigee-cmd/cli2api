@@ -182,11 +182,22 @@ func (s *Server) fetchWorkerModelsFor(refresh bool, accountID string) ([]map[str
 	var parsed struct {
 		Data []map[string]any `json:"data"`
 	}
-	if json.Unmarshal(body, &parsed) != nil || len(parsed.Data) == 0 {
-		return nil, nil
+		if json.Unmarshal(body, &parsed) != nil || len(parsed.Data) == 0 {
+			return nil, nil
+		}
+		for _, model := range parsed.Data {
+			if model == nil {
+				continue
+			}
+			if _, ok := model["provider"]; !ok {
+				model["provider"] = "qoder"
+			}
+			if _, ok := model["owned_by"]; !ok {
+				model["owned_by"] = "qoder"
+			}
+		}
+		return parsed.Data, nil
 	}
-	return parsed.Data, nil
-}
 
 // fetchProviderModels merges catalogs across accounts. Qoder models come from
 // worker daemons; in-process providers come from their adapters. Each entry is
@@ -223,10 +234,13 @@ func (s *Server) fetchProviderModels(refresh bool, accountID string) ([]map[stri
 				continue
 			}
 			seen[key] = struct{}{}
-			entry := map[string]any{
-				"id": model.PublicModel, "object": "model", "owned_by": item.Provider,
-				"provider": item.Provider, "native_model": model.NativeModel,
-			}
+				entry := map[string]any{
+					"id": model.PublicModel, "object": "model", "owned_by": item.Provider,
+					"provider": item.Provider, "native_model": model.NativeModel,
+				}
+				if strings.TrimSpace(model.DisplayName) != "" {
+					entry["display_name"] = model.DisplayName
+				}
 			merged = append(merged, entry)
 		}
 	}
