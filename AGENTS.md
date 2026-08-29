@@ -26,6 +26,7 @@ Do not add new `TODO.md`, `NOTES.md`, or extra plan files. Extra design docs are
 - Follow `docs/DESIGN.md` (taste v1 adapted for this console)
 - Keep iterating Qoder login, usage, and account routing. Borrow scheduling ideas from [sub2api](https://github.com/Wei-Shaw/sub2api), not its commercial gateway
 - Multi-account = one worker process per Qoder HOME; do not share WASM context
+- Schema changes go in a new numbered SQLite migration. Never rewrite a shipped file
 
 ## Don't
 
@@ -36,3 +37,4 @@ Do not add new `TODO.md`, `NOTES.md`, or extra plan files. Extra design docs are
 - Copy sub2api billing, Redis slots, multi-tenant API keys, or session-hash-for-profit
 - Add a new component library, purple AI chrome, centered generic login cards, or emoji in UI copy
 - Start Cursor / Anthropic until the current Qoder milestone in `docs/PLAN.md` is done. Qoder CN is that milestone (`provider=qoder` + `region=cn`); do not spawn a full `qoderclicn` per request
+- Change the SQL bytes of a shipped SQLite migration in `internal/accounts/migrations.go`. Tabs, spaces, and comments inside the raw string count. `gofmt` on the Go around it is fine; indenting the SQL is not. Existing databases panic on boot with `checksum mismatch`
