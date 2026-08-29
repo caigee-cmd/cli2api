@@ -168,3 +168,55 @@ func TestStoreOpensDatabaseWithV0219RequestLogProviderChecksum(t *testing.T) {
 	}
 	reopened.Close()
 }
+
+const (
+	providerModelSettingsMigration = "007_provider_model_settings.sql"
+	providerModelSettingsChecksum  = "b48b62c578bff658ee5843776fe16dd35d11d86c84800398c98d666eb777968a"
+	providerModelSettingsRetabbed  = "8940e0c639008f811dd844add98865f700f32ca0a4fd672c1bcc0adf3f69ef71"
+)
+
+func TestProviderModelSettingsMigrationKeepsV0220Bytes(t *testing.T) {
+	var migration sqliteMigration
+	for _, item := range sqliteMigrations {
+		if item.filename == providerModelSettingsMigration {
+			migration = item
+			break
+		}
+	}
+	if migration.filename == "" {
+		t.Fatal("missing 007_provider_model_settings.sql")
+	}
+	got := migrationChecksum(migration.sql)
+	if got != providerModelSettingsChecksum {
+		t.Fatalf("007 checksum = %s, want v0.2.20 %s", got, providerModelSettingsChecksum)
+	}
+	if !checksumAccepted(migration, providerModelSettingsRetabbed) {
+		t.Fatal("expected retabbed 007 checksum to remain accepted")
+	}
+}
+
+func TestStoreOpensDatabaseWithRetabbedProviderModelSettingsChecksum(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "qoder.db")
+	store, err := OpenStore(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var recorded string
+	if err := store.db.QueryRow("SELECT checksum FROM schema_migrations WHERE filename = ?", providerModelSettingsMigration).Scan(&recorded); err != nil {
+		t.Fatal(err)
+	}
+	if recorded != providerModelSettingsChecksum {
+		t.Fatalf("fresh 007 checksum = %s, want %s", recorded, providerModelSettingsChecksum)
+	}
+	if _, err := store.db.Exec("UPDATE schema_migrations SET checksum = ? WHERE filename = ?", providerModelSettingsRetabbed, providerModelSettingsMigration); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := OpenStore(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reopened.Close()
+}
