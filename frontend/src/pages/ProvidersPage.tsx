@@ -1,11 +1,13 @@
 import { useMemo, useState } from 'react'
 import { Button, Card, Chip, Input, Table } from '@heroui/react'
-import { Cube, ArrowClockwise, ArrowCounterClockwise, FloppyDisk, MagnifyingGlass } from '@phosphor-icons/react'
+import { Cube, ArrowClockwise, ArrowCounterClockwise, FloppyDisk, MagnifyingGlass, Info } from '@phosphor-icons/react'
 import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
-import { refreshModels, updateModelContext } from '@/api/overview'
+import { refreshModels, updateModelContext, updateTraeMaxMode } from '@/api/overview'
 import type { Overview } from '@/api/types'
 import { ProviderMark } from '@/components/ProviderMark'
+import { ModelDetailsModal, formatTokens } from '@/components/ModelDetailsModal'
+import { CompactSwitch } from '@/components/ui/CompactSwitch'
 import { ListPager, type PageSize } from '@/components/ui/ListPager'
 import { ProvidersPageSkeleton } from '@/components/ui/PageSkeletons'
 
@@ -43,6 +45,7 @@ export function ProvidersPage() {
   const [message, setMessage] = useState('')
   const [messageError, setMessageError] = useState(false)
   const [drafts, setDrafts] = useState<Record<string, string>>({})
+  const [detailModel, setDetailModel] = useState<ModelInfo | null>(null)
   const models = useMemo(() => overview?.models || [], [overview?.models])
   const providers = useMemo(() => {
     const ids = new Set<string>()
@@ -98,6 +101,22 @@ export function ProvidersPage() {
     setDrafts((current) => ({ ...current, [key]: String(result.context_length) }))
   }
 
+  function updateTraeInOverview(model: ModelInfo, maxMode: boolean) {
+    const key = modelSettingsKey(model)
+    const nextModels = models.map((item) => {
+      if (modelSettingsKey(item) !== key || modelProvider(item) !== 'trae') return item
+      const dev = item.catalog_context_length || item.default_context_length || item.context_length
+      const max = item.catalog_context_length_max
+      return {
+        ...item,
+        max_mode: maxMode,
+        context_custom: maxMode,
+        context_length: maxMode && max ? max : dev,
+      }
+    })
+    setOverview({ ...(overview || {}), models: nextModels })
+  }
+
   async function onRefresh() {
     setBusy(true)
     setMessage('')
@@ -128,6 +147,28 @@ export function ProvidersPage() {
       const result = await updateModelContext(key, value)
       updateModelInOverview(model, result)
       setMessage(t('contextSaved', { model: model.id }))
+    } catch (error) {
+      setMessageError(true)
+      setMessage(error instanceof Error ? error.message : String(error))
+    } finally {
+      setSavingKey('')
+    }
+  }
+
+  async function onToggleTraeMax(model: ModelInfo, maxMode: boolean) {
+    if (!model.supports_max_mode) {
+      setMessageError(true)
+      setMessage(t('contextMaxUnavailable'))
+      return
+    }
+    const key = modelSettingsKey(model)
+    setSavingKey(key)
+    setMessage('')
+    setMessageError(false)
+    try {
+      await updateTraeMaxMode(key, maxMode)
+      updateTraeInOverview(model, maxMode)
+      setMessage(maxMode ? t('contextMaxOn', { model: model.id }) : t('contextMaxOff', { model: model.id }))
     } catch (error) {
       setMessageError(true)
       setMessage(error instanceof Error ? error.message : String(error))
@@ -244,19 +285,40 @@ export function ProvidersPage() {
                         </Table.Cell>
                         <Table.Cell><span className="mono text-xs text-[var(--app-muted)]">{model.mapped_key || model.native_model || model.id}</span></Table.Cell>
                         <Table.Cell>
-                          <div className="flex min-w-52 items-center gap-2">
-                            <Input
-                              className="w-40"
-                              type="number"
-                              min={1024}
-                              max={4000000}
-                              step={1024}
-                              value={drafts[key] ?? String(model.context_length || model.default_context_length || '')}
-                              onChange={(event) => setDrafts((current) => ({ ...current, [key]: event.target.value }))}
-                              aria-label={`${model.id} ${t('contextWindowCol')}`}
-                            />
-                            <span className="mono text-[10px] text-[var(--app-faint)]">tokens</span>
-                          </div>
+                          {provider === 'qoder' ? (
+                            <div className="flex min-w-52 items-center gap-2">
+                              <Input
+                                className="w-40"
+                                type="number"
+                                min={1024}
+                                max={4000000}
+                                step={1024}
+                                value={drafts[key] ?? String(model.context_length || model.default_context_length || '')}
+                                onChange={(event) => setDrafts((current) => ({ ...current, [key]: event.target.value }))}
+                                aria-label={`${model.id} ${t('contextWindowCol')}`}
+                              />
+                              <span className="mono text-[10px] text-[var(--app-faint)]">tokens</span>
+                            </div>
+                          ) : provider === 'trae' ? (
+                            <div className="flex min-w-52 items-center gap-3">
+                              <span className="mono text-xs text-[var(--app-muted)]">{formatTokens(model.catalog_context_length || model.context_length)}</span>
+                              {model.supports_max_mode ? (
+                                <div className="flex items-center gap-2">
+                                  <CompactSwitch
+                                    isSelected={Boolean(model.max_mode)}
+                                    isDisabled={saving}
+                                    ariaLabel={`${model.id} ${t('maxMode')}`}
+                                    onChange={(selected) => void onToggleTraeMax(model, selected)}
+                                  />
+                                  <span className="text-[11px] text-[var(--app-muted)]">{t('maxMode')}{model.catalog_context_length_max ? ` ${formatTokens(model.catalog_context_length_max)}` : ''}</span>
+                                </div>
+                              ) : (
+                                <span className="text-[11px] text-[var(--app-faint)]">{t('catalogWindow')}</span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="mono text-xs text-[var(--app-muted)]">{formatTokens(model.catalog_context_length || model.context_length)}</span>
+                          )}
                         </Table.Cell>
                         <Table.Cell>
                           <Chip size="sm" variant="soft" color={model.context_custom ? 'warning' : model.stale ? 'warning' : 'success'}>
@@ -265,12 +327,20 @@ export function ProvidersPage() {
                         </Table.Cell>
                         <Table.Cell>
                           <div className="flex items-center gap-2">
-                            <Button size="sm" variant="secondary" isPending={saving} onPress={() => void onSave(model)}>
-                              <FloppyDisk size={14} />{t('save')}
-                            </Button>
-                            <Button size="sm" variant="ghost" isDisabled={saving || !model.context_custom} onPress={() => void onReset(model)} aria-label={t('resetDefault')}>
-                              <ArrowCounterClockwise size={14} />
-                            </Button>
+                            {provider === 'qoder' ? (
+                              <>
+                                <Button size="sm" variant="secondary" isPending={saving} onPress={() => void onSave(model)}>
+                                  <FloppyDisk size={14} />{t('save')}
+                                </Button>
+                                <Button size="sm" variant="ghost" isDisabled={saving || !model.context_custom} onPress={() => void onReset(model)} aria-label={t('resetDefault')}>
+                                  <ArrowCounterClockwise size={14} />
+                                </Button>
+                              </>
+                            ) : (
+                              <Button size="sm" variant="ghost" onPress={() => setDetailModel(model)}>
+                                <Info size={14} />{t('modelDetails')}
+                              </Button>
+                            )}
                           </div>
                         </Table.Cell>
                       </Table.Row>
@@ -283,6 +353,7 @@ export function ProvidersPage() {
         )}
       </Card>
 
+      <ModelDetailsModal model={detailModel} t={t} onClose={() => setDetailModel(null)} />
       <ListPager
         total={filtered.length}
         page={currentPage}

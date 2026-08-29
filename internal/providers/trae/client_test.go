@@ -296,6 +296,55 @@ func TestModelsFromConfigInfoList(t *testing.T) {
 	}
 }
 
+func TestChatRequestMapsOpenAIReasoningAndMaxMode(t *testing.T) {
+	payload, _ := Credential{AccessToken: "at", RefreshToken: "rt", UID: "u1", Domain: DomainCN, ExpiresAt: 4102444800}.Encode()
+	store := &memStore{items: map[string][]byte{"acc1": payload}}
+	var got map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == pathModels {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"config_info_list": []map[string]any{{
+					"config_name":           "DeepSeek-V4-Pro-Official",
+					"context_window_tokens": map[string]any{"dev": 200000, "max": 1000000},
+					"display_config":        map[string]any{"display_name": "DeepSeek-V4-Pro 正式版"},
+					"reasoning_effort_config": map[string]any{
+						"support_thinking": true,
+						"options":          []string{"low", "medium", "high", "xhigh"},
+						"default_level":    "medium",
+					},
+				}},
+			})
+			return
+		}
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(soloSSE))
+	}))
+	defer server.Close()
+	client := NewClient(store)
+	client.http = server.Client()
+	client.http.Transport = rewriteTransport{server: server.URL, round: server.Client().Transport}
+	if _, err := client.Models(context.Background(), "acc1"); err != nil {
+		t.Fatal(err)
+	}
+	max := true
+	_, err := client.ChatNonStream(context.Background(), "acc1", translate.ChatRequest{
+		Model:           "DeepSeek-V4-Pro-Official",
+		IsMaxMode:       &max,
+		ReasoningEffort: json.RawMessage(`"extra_high"`),
+		ContextLength:   json.RawMessage(`500000`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["is_max_mode"] != float64(1) || got["reasoning_effort_level"] != "xhigh" {
+		t.Fatalf("body=%v", got)
+	}
+	if _, ok := got["context_length"]; ok {
+		t.Fatalf("qoder context leaked: %v", got)
+	}
+}
+
 func TestModelsEmptyIsError(t *testing.T) {
 	payload, _ := Credential{AccessToken: "at", RefreshToken: "rt", UID: "u1", ExpiresAt: 4102444800}.Encode()
 	store := &memStore{items: map[string][]byte{"acc1": payload}}

@@ -18,6 +18,7 @@ type ChatRequest struct {
 	ReasoningBudgetTokens json.RawMessage `json:"reasoning_budget_tokens,omitempty"`
 	ContextLength         json.RawMessage `json:"context_length,omitempty"`
 	MaxInputTokens        json.RawMessage `json:"max_input_tokens,omitempty"`
+	IsMaxMode             *bool           `json:"is_max_mode,omitempty"`
 }
 
 type ChatMessage struct {
