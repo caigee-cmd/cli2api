@@ -99,7 +99,7 @@ func New(cfg config.Config) *Server {
 	chatExecutor.OnAttempt = recorder.Attempt
 	s := &Server{
 		cfg:           cfg,
-		auth:          auth.NewVerifier(proxyAPIKey),
+		auth:          auth.NewVerifier(proxyAPIKey, store),
 		executor:      chatExecutor,
 		pool:          pool,
 		manager:       manager,
@@ -165,17 +165,20 @@ func (s *Server) Close() error {
 
 func (s *Server) routes() {
 	s.mux.HandleFunc(endpoint.HealthPath, s.handleHealth)
-	s.mux.HandleFunc("/api/overview", s.withAPIKey(s.handleOverview))
-	s.mux.HandleFunc("/api/system/update", s.withAPIKey(s.handleSystemUpdate))
-	s.mux.HandleFunc("/api/models", s.withAPIKey(s.handleModelsAPI))
-	s.mux.HandleFunc("/api/models/", s.withAPIKey(s.handleModelSetting))
-	s.mux.HandleFunc("/api/providers", s.withAPIKey(s.handleProviders))
-	s.mux.HandleFunc("/api/accounts", s.withAPIKey(s.handleAccounts))
-	s.mux.HandleFunc("/api/accounts/import", s.withAPIKey(s.handleAccountImport))
-	s.mux.HandleFunc("/api/accounts/", s.withAPIKey(s.handleAccountByID))
-	s.mux.HandleFunc("/api/logs", s.withAPIKey(s.handleLogs))
-	s.mux.HandleFunc("/api/logs/", s.withAPIKey(s.handleLogs))
-	s.mux.HandleFunc("/api/chat", s.withAPIKey(s.handleChatCompletions))
+	s.mux.HandleFunc("/api/overview", s.withConsoleKey(s.handleOverview))
+	s.mux.HandleFunc("/api/system/update", s.withConsoleKey(s.handleSystemUpdate))
+	s.mux.HandleFunc("/api/system/console-key", s.withConsoleKey(s.handleConsoleKey))
+	s.mux.HandleFunc("/api/keys", s.withConsoleKey(s.handleAPIKeys))
+	s.mux.HandleFunc("/api/keys/", s.withConsoleKey(s.handleAPIKeyByID))
+	s.mux.HandleFunc("/api/models", s.withConsoleKey(s.handleModelsAPI))
+	s.mux.HandleFunc("/api/models/", s.withConsoleKey(s.handleModelSetting))
+	s.mux.HandleFunc("/api/providers", s.withConsoleKey(s.handleProviders))
+	s.mux.HandleFunc("/api/accounts", s.withConsoleKey(s.handleAccounts))
+	s.mux.HandleFunc("/api/accounts/import", s.withConsoleKey(s.handleAccountImport))
+	s.mux.HandleFunc("/api/accounts/", s.withConsoleKey(s.handleAccountByID))
+	s.mux.HandleFunc("/api/logs", s.withConsoleKey(s.handleLogs))
+	s.mux.HandleFunc("/api/logs/", s.withConsoleKey(s.handleLogs))
+	s.mux.HandleFunc("/api/chat", s.withConsoleKey(s.handleChatCompletions))
 	s.mux.HandleFunc(endpoint.ModelsPath, s.withAPIKey(s.handleModels))
 	s.mux.HandleFunc(endpoint.ChatCompletionsPath, s.withAPIKey(s.handleChatCompletions))
 
@@ -195,7 +198,7 @@ func (s *Server) routes() {
 			r.URL.Path != "/og-card.svg" &&
 			r.URL.Path != "/site.webmanifest" {
 			switch r.URL.Path {
-			case "/login", "/auth", "/providers", "/access", "/accounts", "/system", "/logs":
+			case "/login", "/auth", "/providers", "/access", "/accounts", "/system", "/logs", "/keys":
 			default:
 				http.NotFound(w, r)
 				return
@@ -213,12 +216,35 @@ func (s *Server) routes() {
 
 func (s *Server) withAPIKey(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !s.auth.Authorized(r) {
+		identity, ok := s.auth.Authenticate(r.Context(), r)
+		if !ok {
 			writeErr(w, http.StatusUnauthorized, "invalid_api_key", "Missing/invalid API key")
 			return
 		}
-		next(w, r)
+		if identity.Kind == auth.KindKey && s.manager != nil {
+			_ = s.manager.Store().TouchAPIKey(r.Context(), identity.KeyID)
+		}
+		next(w, r.WithContext(auth.WithIdentity(r.Context(), identity)))
 	}
+}
+
+func (s *Server) withConsoleKey(next http.HandlerFunc) http.HandlerFunc {
+	return s.withAPIKey(func(w http.ResponseWriter, r *http.Request) {
+		identity, _ := auth.IdentityFrom(r.Context())
+		if !identity.Console() {
+			writeErr(w, http.StatusForbidden, "console_key_required", "This endpoint requires the console API key")
+			return
+		}
+		next(w, r)
+	})
+}
+
+func (s *Server) requestIdentity(r *http.Request) auth.Identity {
+	identity, ok := auth.IdentityFrom(r.Context())
+	if ok {
+		return identity
+	}
+	return auth.Identity{Kind: auth.KindNone}
 }
 
 func providerIDs() []string {
@@ -257,7 +283,7 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 			hotCount++
 		}
 	}
-	models := s.decorateModelsWithContext(r.Context(), s.fetchWorkerModels(false))
+	models := s.decorateModelsWithContext(r.Context(), s.filterModelsForIdentity(r, s.fetchWorkerModels(false)))
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":   true,
 		"time": time.Now().Format(time.RFC3339),

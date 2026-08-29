@@ -12,6 +12,7 @@ const routeKey: Record<string, string> = {
   '/access': 'access',
   '/accounts': 'accounts',
   '/logs': 'logs',
+  '/keys': 'keys',
   '/system': 'system',
 }
 

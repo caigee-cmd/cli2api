@@ -71,6 +71,15 @@ export function ProvidersPageSkeleton() {
   )
 }
 
+export function KeysPageSkeleton() {
+  return (
+    <div className="space-y-6" aria-label="Loading API keys">
+      <section className="flex items-end justify-between gap-4 border-b border-[var(--app-line)] pb-4"><div className="space-y-3"><SkeletonBlock className="h-8 w-40" /><SkeletonBlock className="h-4 w-80 max-w-[70vw]" /></div><SkeletonBlock className="h-8 w-28" /></section>
+      <section className="grid gap-2.5 lg:grid-cols-2 xl:grid-cols-3">{Array.from({ length: 3 }, (_, index) => <div key={index} className="app-panel-flat overflow-hidden rounded-lg p-3"><SkeletonBlock className="h-4 w-28" /><SkeletonBlock className="mt-2 h-3 w-40" /><SkeletonBlock className="mt-4 h-6 w-24" /><SkeletonBlock className="mt-6 h-8 w-full" /></div>)}</section>
+    </div>
+  )
+}
+
 export function AccessPageSkeleton() {
   return (
     <div className="space-y-6" aria-label="Loading access settings">
