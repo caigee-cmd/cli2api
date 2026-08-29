@@ -217,13 +217,12 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid_request", "messages required")
 		return
 	}
-	if err := s.applyModelContextDefaults(r.Context(), &req); err != nil {
+	publicModel := req.Model
+	providerFilter := s.resolveProviderFilter(&req)
+	if err := s.applyModelContextDefaults(r.Context(), &req, providerFilter); err != nil {
 		writeErr(w, http.StatusInternalServerError, "model_setting_failed", err.Error())
 		return
 	}
-
-	publicModel := req.Model
-	providerFilter := s.resolveProviderFilter(&req)
 	prefer := s.requestedAccount(r)
 	if s.manager != nil {
 		s.manager.EnsureModelCatalogs(r.Context(), false)

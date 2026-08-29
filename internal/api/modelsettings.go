@@ -31,8 +31,11 @@ func defaultContextForModel(model string) int {
 	return defaultContextLength
 }
 
-func (s *Server) applyModelContextDefaults(ctx context.Context, req *translate.ChatRequest) error {
+func (s *Server) applyModelContextDefaults(ctx context.Context, req *translate.ChatRequest, providerFilter string) error {
 	if req == nil || strings.TrimSpace(req.Model) == "" {
+		return nil
+	}
+	if providerFilter != "" && providerFilter != "qoder" {
 		return nil
 	}
 	contextLength, ok, err := s.manager.Store().GetModelContext(ctx, modelContextKey(req.Model))
@@ -49,6 +52,48 @@ func (s *Server) applyModelContextDefaults(ctx context.Context, req *translate.C
 	return nil
 }
 
+func asInt(value any) (int, bool) {
+	switch typed := value.(type) {
+	case int:
+		return typed, true
+	case int64:
+		return int(typed), true
+	case float64:
+		return int(typed), true
+	case json.Number:
+		n, err := typed.Int64()
+		return int(n), err == nil
+	default:
+		return 0, false
+	}
+}
+
+func (s *Server) decorateTraeContext(ctx context.Context, item map[string]any, settingsKey string) {
+	dev, _ := asInt(item["catalog_context_length"])
+	max, _ := asInt(item["catalog_context_length_max"])
+	supportsMax, _ := item["supports_max_mode"].(bool)
+	if !supportsMax && max > 0 && max != dev {
+		supportsMax = true
+		item["supports_max_mode"] = true
+	}
+	maxMode := false
+	if s.manager != nil {
+		if stored, err := s.manager.Store().GetProviderModelMaxMode(ctx, "trae", settingsKey); err == nil {
+			maxMode = stored
+		}
+	}
+	item["max_mode"] = maxMode && supportsMax
+	item["context_custom"] = maxMode && supportsMax
+	window := dev
+	if maxMode && supportsMax && max > 0 {
+		window = max
+	}
+	if window > 0 {
+		item["context_length"] = window
+		item["default_context_length"] = dev
+	}
+}
+
 func (s *Server) decorateModelsWithContext(ctx context.Context, models []map[string]any) []map[string]any {
 	settings, err := s.manager.Store().ListModelContexts(ctx)
 	if err != nil {
@@ -61,25 +106,63 @@ func (s *Server) decorateModelsWithContext(ctx context.Context, models []map[str
 			item[key] = value
 		}
 		id, _ := item["id"].(string)
-		settingsKey := modelContextKey(id)
-		defaultValue := defaultContextForModel(settingsKey)
-		value, custom := settings[settingsKey]
-		if !custom {
-			value = defaultValue
+		provider, _ := item["provider"].(string)
+		if provider == "" {
+			provider, _ = item["owned_by"].(string)
 		}
+		provider = strings.ToLower(strings.TrimSpace(provider))
+		settingsKey := modelContextKey(id)
 		item["settings_key"] = settingsKey
-		item["context_length"] = value
-		item["default_context_length"] = defaultValue
-		item["context_custom"] = custom
+		item["context_editable"] = provider == "" || provider == "qoder"
+		if catalogWindow, ok := asInt(item["catalog_context_length"]); ok && catalogWindow > 0 {
+			item["catalog_context_length"] = catalogWindow
+		}
+		if provider == "trae" {
+			s.decorateTraeContext(ctx, item, settingsKey)
+		} else if provider != "workbuddy" {
+			defaultValue := defaultContextForModel(settingsKey)
+			value, custom := settings[settingsKey]
+			if !custom {
+				value = defaultValue
+			}
+			item["context_length"] = value
+			item["default_context_length"] = defaultValue
+			item["context_custom"] = custom
+		} else if catalogWindow, ok := asInt(item["catalog_context_length"]); ok {
+			item["context_length"] = catalogWindow
+			item["default_context_length"] = catalogWindow
+			item["context_custom"] = false
+		}
 		decorated = append(decorated, item)
 	}
 	return decorated
 }
 
+func splitModelSettingPath(raw, queryProvider string) (provider, modelKey string) {
+	raw = strings.TrimPrefix(raw, "/api/models/")
+	provider = strings.ToLower(strings.TrimSpace(queryProvider))
+	for _, prefix := range []string{"trae/", "workbuddy/", "qoder/"} {
+		if strings.HasPrefix(strings.ToLower(raw), prefix) {
+			provider = strings.TrimSuffix(prefix, "/")
+			raw = raw[len(prefix):]
+			break
+		}
+	}
+	return provider, modelContextKey(raw)
+}
+
 func (s *Server) handleModelSetting(w http.ResponseWriter, r *http.Request) {
-	modelKey := modelContextKey(strings.TrimPrefix(r.URL.Path, "/api/models/"))
+	provider, modelKey := splitModelSettingPath(r.URL.Path, r.URL.Query().Get("provider"))
 	if modelKey == "" {
 		writeErr(w, http.StatusBadRequest, "invalid_model", "model id required")
+		return
+	}
+	if provider == "trae" {
+		s.handleTraeModelSetting(w, r, modelKey)
+		return
+	}
+	if provider == "workbuddy" {
+		writeErr(w, http.StatusBadRequest, "model_setting_failed", "workbuddy context window is catalog-defined")
 		return
 	}
 	switch r.Method {
@@ -117,6 +200,41 @@ func (s *Server) handleModelSetting(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"model": modelKey, "context_length": value,
 			"default_context_length": defaultContextForModel(modelKey), "context_custom": custom,
+		})
+	default:
+		writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "GET or PATCH only")
+	}
+}
+
+func (s *Server) handleTraeModelSetting(w http.ResponseWriter, r *http.Request, modelKey string) {
+	switch r.Method {
+	case http.MethodGet:
+		maxMode, err := s.manager.Store().GetProviderModelMaxMode(r.Context(), "trae", modelKey)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, "model_setting_failed", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"model": modelKey, "provider": "trae", "max_mode": maxMode, "context_custom": maxMode,
+		})
+	case http.MethodPatch:
+		var input struct {
+			MaxMode *bool `json:"max_mode"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+			writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
+			return
+		}
+		if input.MaxMode == nil {
+			writeErr(w, http.StatusBadRequest, "invalid_request", "max_mode required")
+			return
+		}
+		if err := s.manager.Store().SetProviderModelMaxMode(r.Context(), "trae", modelKey, *input.MaxMode); err != nil {
+			writeErr(w, http.StatusBadRequest, "model_setting_failed", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"model": modelKey, "provider": "trae", "max_mode": *input.MaxMode, "context_custom": *input.MaxMode,
 		})
 	default:
 		writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "GET or PATCH only")

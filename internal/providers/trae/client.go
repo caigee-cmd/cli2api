@@ -44,6 +44,7 @@ type Client struct {
 	mu       sync.Mutex
 	pending  map[string]*loginPending
 	listener net.Listener
+	catalog  map[string]providers.ModelInfo
 }
 
 const catalogTimeout = 15 * time.Second
@@ -534,41 +535,42 @@ func (c *Client) Models(ctx context.Context, accountID string) ([]providers.Mode
 	if status >= 300 {
 		return nil, classifiedError(status, payload)
 	}
-	var env struct {
-		ConfigInfoList []struct {
-			ConfigName    string `json:"config_name"`
-			DisplayConfig struct {
-				DisplayName string `json:"display_name"`
-			} `json:"display_config"`
-		} `json:"config_info_list"`
-	}
-	if err := json.Unmarshal(payload, &env); err != nil {
+	out, err := parseCatalogModels(payload)
+	if err != nil {
 		return nil, fmt.Errorf("models parse: %w", err)
-	}
-	var out []providers.ModelInfo
-	for _, item := range env.ConfigInfoList {
-		id := strings.TrimSpace(item.ConfigName)
-		if id == "" {
-			continue
-		}
-		display := strings.TrimSpace(item.DisplayConfig.DisplayName)
-		out = append(out, providers.ModelInfo{
-			NativeModel: id,
-			PublicModel: id,
-			DisplayName: display,
-			Capabilities: providers.ModelCapabilities{
-				Tools:     true,
-				Reasoning: true,
-			},
-		})
 	}
 	if len(out) == 0 {
 		return nil, fmt.Errorf("trae model catalog returned no models")
 	}
+	c.rememberCatalog(out)
 	return out, nil
 }
 
-func (c *Client) chatRequest(ctx context.Context, credential Credential, req translate.ChatRequest) (*http.Request, error) {
+func (c *Client) rememberCatalog(models []providers.ModelInfo) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.catalog = make(map[string]providers.ModelInfo, len(models))
+	for _, model := range models {
+		c.catalog[model.NativeModel] = model
+		c.catalog[strings.ToLower(model.NativeModel)] = model
+	}
+}
+
+func (c *Client) capsFor(model string) providers.ModelCapabilities {
+	model = strings.TrimSpace(model)
+	c.mu.Lock()
+	info, ok := c.catalog[model]
+	if !ok {
+		info, ok = c.catalog[strings.ToLower(model)]
+	}
+	c.mu.Unlock()
+	if ok {
+		return info.Capabilities
+	}
+	return providers.ModelCapabilities{}
+}
+
+func (c *Client) chatRequest(ctx context.Context, credential Credential, req translate.ChatRequest, accountID string) (*http.Request, error) {
 	payload, err := json.Marshal(map[string]any{
 		"model":       req.Model,
 		"messages":    req.Messages,
@@ -580,8 +582,27 @@ func (c *Client) chatRequest(ctx context.Context, credential Credential, req tra
 	if err != nil {
 		return nil, err
 	}
+	rewritten := PrepareBody(payload)
+	var obj map[string]any
+	if err := json.Unmarshal(rewritten, &obj); err == nil {
+		caps := c.capsFor(req.Model)
+		maxMode := false
+		if req.IsMaxMode != nil {
+			maxMode = *req.IsMaxMode
+		} else if setter, ok := c.store.(interface {
+			GetProviderModelMaxMode(context.Context, string, string) (bool, error)
+		}); ok {
+			if stored, err := setter.GetProviderModelMaxMode(ctx, "trae", strings.ToLower(req.Model)); err == nil {
+				maxMode = stored
+			}
+		}
+		applySoloChatFields(obj, req, maxMode, caps)
+		if encoded, err := json.Marshal(obj); err == nil {
+			rewritten = encoded
+		}
+	}
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		credential.ChatBase()+pathChat, bytes.NewReader(PrepareBody(payload)))
+		credential.ChatBase()+pathChat, bytes.NewReader(rewritten))
 	if err != nil {
 		return nil, err
 	}
@@ -594,7 +615,7 @@ func (c *Client) ChatNonStream(ctx context.Context, accountID string, req transl
 	if err != nil {
 		return providers.ChatOutcome{}, err
 	}
-	httpReq, err := c.chatRequest(ctx, credential, req)
+	httpReq, err := c.chatRequest(ctx, credential, req, accountID)
 	if err != nil {
 		return providers.ChatOutcome{}, err
 	}
@@ -619,7 +640,7 @@ func (c *Client) ChatStream(ctx context.Context, accountID string, req translate
 	if err != nil {
 		return nil, err
 	}
-	httpReq, err := c.chatRequest(ctx, credential, req)
+	httpReq, err := c.chatRequest(ctx, credential, req, accountID)
 	if err != nil {
 		return nil, err
 	}
