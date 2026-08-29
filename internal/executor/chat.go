@@ -382,6 +382,9 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 // WorkBuddy still needs a leading system slot after the strip (code 11128);
 // the adapter inserts an empty placeholder, this helper only drops caller text.
 func sanitizeForItem(item accounts.Item, req translate.ChatRequest) translate.ChatRequest {
+	if native := accounts.NativeModelID(item, req.Model); native != "" {
+		req.Model = native
+	}
 	if item.DropSystemPrompt && item.Provider != "" && item.Provider != "qoder" {
 		return translate.DropSystemMessages(req)
 	}

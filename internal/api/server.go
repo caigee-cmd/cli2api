@@ -221,11 +221,19 @@ func (s *Server) withAPIKey(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+func providerIDs() []string {
+	out := make([]string, 0, len(providers.List()))
+	for _, d := range providers.List() {
+		out = append(out, d.ID)
+	}
+	return out
+}
+
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":                        true,
 		"service":                   "cli2api",
-		"providers":                 []string{"qoder", "workbuddy"},
+		"providers":                 providerIDs(),
 		"cross_provider_model_pool": s.cfg.CrossProviderModelPool,
 		"phase":                     "ui-preview",
 		"chat_url":                  endpoint.ChatCompletionsPath,
@@ -255,7 +263,7 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		"time": time.Now().Format(time.RFC3339),
 		"proxy": map[string]any{
 			"ok": true, "service": "cli2api", "port": s.cfg.Port,
-			"providers":                 []string{"qoder", "workbuddy"},
+			"providers":                 providerIDs(),
 			"cross_provider_model_pool": s.cfg.CrossProviderModelPool,
 			"version":                   buildinfo.Version, "commit": buildinfo.Commit,
 			"chat_url": "/v1/chat/completions",

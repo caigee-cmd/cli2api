@@ -11,6 +11,17 @@ export function isTraeProvider(provider?: string) {
   return String(provider || '').toLowerCase() === 'trae'
 }
 
+export function accountProviderFamilyLabel(
+  provider: string | undefined,
+  t: (key: string) => string,
+) {
+  const providerID = String(provider || '').toLowerCase()
+  if (isWorkBuddyProvider(providerID)) return 'WorkBuddy'
+  if (isTraeProvider(providerID)) return 'Trae'
+  if (isQoderProvider(providerID)) return 'Qoder'
+  return provider || t('account')
+}
+
 export function accountProviderLabel(
   provider: string | undefined,
   region: string | undefined,

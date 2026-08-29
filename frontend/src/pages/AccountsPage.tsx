@@ -29,6 +29,8 @@ import {
   isAvailable,
   type AccountRow,
 } from '@/lib/account'
+import { accountProviderFamilyLabel } from '@/lib/provider'
+import { ProviderMark } from '@/components/ProviderMark'
 
 type AccountBusy = { id: string; kind: AccountBusyKind }
 type AccountFilter = 'all' | 'available' | 'attention' | 'disabled'
@@ -78,6 +80,14 @@ export function AccountsPage() {
   const availableCount = displayRows.filter(isAvailable).length
   const attentionCount = displayRows.filter((account) => account.enabled && !isAvailable(account)).length
   const inFlightCount = displayRows.reduce((total, account) => total + (account.in_flight ?? account.inFlight ?? 0), 0)
+  const providerCounts = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const account of displayRows) {
+      const key = String(account.provider || 'qoder').toLowerCase()
+      counts.set(key, (counts.get(key) || 0) + 1)
+    }
+    return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+  }, [displayRows])
   const confirmAccount = displayRows.find((account) => account.id === confirmId)
   const modelsAccount = displayRows.find((account) => account.id === modelsId) || null
   const editAccount = displayRows.find((account) => account.id === editId) || null
@@ -244,6 +254,13 @@ export function AccountsPage() {
             <span className="text-[var(--app-faint)]">{t('inFlight')}</span>
             <span className="mono font-medium">{inFlightCount}</span>
           </div>
+          {providerCounts.map(([provider, count]) => (
+            <div key={provider} className="flex items-center gap-1.5">
+              <ProviderMark provider={provider} size={12} />
+              <span className="text-[var(--app-faint)]">{accountProviderFamilyLabel(provider, t)}</span>
+              <span className="mono font-medium">{count}</span>
+            </div>
+          ))}
         </div>
         <Button className={ACCOUNT_BUTTON_CLASS} size="sm" onPress={() => setAddOpen(true)}><Plus size={14} />{t('addAccount')}</Button>
       </section>
