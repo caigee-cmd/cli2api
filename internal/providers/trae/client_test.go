@@ -248,6 +248,27 @@ func TestChatStreamRewritesOpenAIChunks(t *testing.T) {
 	}
 }
 
+func TestChatStreamFirstErrorFailsBeforeOpenAIChunks(t *testing.T) {
+	payload, _ := Credential{AccessToken: "at", RefreshToken: "rt", UID: "u1", ExpiresAt: 4102444800}.Encode()
+	store := &memStore{items: map[string][]byte{"acc1": payload}}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("event: metadata\ndata: {\"model\":\"Doubao-Seed-Evolving\"}\n\nevent: error\ndata: {\"code\":1005,\"message\":\"\"}\n\n"))
+	}))
+	defer server.Close()
+	client := NewClient(store)
+	client.http = server.Client()
+	client.http.Transport = rewriteTransport{server: server.URL, round: server.Client().Transport}
+	resp, err := client.ChatStream(context.Background(), "acc1", translate.ChatRequest{Model: "Doubao-Seed-Evolving"})
+	if resp != nil {
+		resp.Body.Close()
+	}
+	var classified *providers.Error
+	if err == nil || !errors.As(err, &classified) || classified.Kind != accounts.KindQuota {
+		t.Fatalf("err=%v classified=%+v", err, classified)
+	}
+}
+
 func TestModelsFromConfigInfoList(t *testing.T) {
 	payload, _ := Credential{AccessToken: "at", RefreshToken: "rt", UID: "u1", ExpiresAt: 4102444800}.Encode()
 	store := &memStore{items: map[string][]byte{"acc1": payload}}

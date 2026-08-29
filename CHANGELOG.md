@@ -7,7 +7,17 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Keep Trae pasted-callback errors as JSON instead of Cloudflare HTML, and keep Trae quota on the account card after refresh
+- Treat Trae Solo `1005` / `4008` as quota, fail stream requests before OpenAI chunks when the first Solo event is an error, and send Trae's native catalog spelling (for example `DeepSeek-V4-Flash`)
+- Show provider on Logs, Overview account pool, and account-page totals, and add Overview request share by provider family
+- Replace the Overview traffic bars with a GSAP-drawn area/line chart, including success/error fill, axes, and hover readout
+
 ### 中文
+
+- Trae 粘贴回调失败保持 JSON，不再被 Cloudflare HTML 盖住；刷新后 Trae 额度仍留在账号卡片上
+- Trae Solo `1005` / `4008` 按套餐配额处理；流式若开头就是 Solo 错误则先失败再写 chunk；请求使用目录里的原始模型名（如 `DeepSeek-V4-Flash`）
+- Logs、概览账号池和账号页统计显示供应商，概览增加按供应商家族的请求占比
+- 概览流量图改为 GSAP 绘制的面积折线，带成功/失败分层、坐标轴和悬停读数
 
 ## 0.2.17 - 2026-08-29
 

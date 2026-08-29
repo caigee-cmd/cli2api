@@ -168,7 +168,7 @@ func extractError(body string) (msg, code, typ, kind string) {
 	if json.Unmarshal([]byte(text), &parsed) == nil {
 		if errObj, ok := parsed["error"].(map[string]any); ok {
 			msg, _ = errObj["message"].(string)
-			code, _ = errObj["code"].(string)
+			code = stringifyJSONCode(errObj["code"])
 			typ, _ = errObj["type"].(string)
 			kind, _ = errObj["kind"].(string)
 			return msg, code, typ, kind
@@ -176,9 +176,7 @@ func extractError(body string) (msg, code, typ, kind string) {
 		if m, ok := parsed["message"].(string); ok {
 			msg = m
 		}
-		if c, ok := parsed["code"].(string); ok {
-			code = c
-		}
+		code = stringifyJSONCode(parsed["code"])
 		if t, ok := parsed["type"].(string); ok {
 			typ = t
 		}
@@ -192,8 +190,23 @@ func extractError(body string) (msg, code, typ, kind string) {
 	return text, "", "", ""
 }
 
+func stringifyJSONCode(v any) string {
+	switch c := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return strings.TrimSpace(c)
+	case float64:
+		return strconv.FormatFloat(c, 'f', -1, 64)
+	case json.Number:
+		return strings.TrimSpace(c.String())
+	default:
+		return ""
+	}
+}
+
 func quotaLike(lower, code, typ string) bool {
-	if code == "insufficient_quota" || typ == "insufficient_quota" {
+	if code == "insufficient_quota" || typ == "insufficient_quota" || code == "1005" || code == "4008" {
 		return true
 	}
 	return strings.Contains(lower, "insufficient_quota") ||

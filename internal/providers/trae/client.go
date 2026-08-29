@@ -634,7 +634,7 @@ func (c *Client) ChatStream(ctx context.Context, accountID string, req translate
 		resp.Body.Close()
 		return nil, classifiedError(resp.StatusCode, body)
 	}
-	return rewriteSoloStream(resp.Body, req.Model), nil
+	return rewriteSoloStream(resp.Body, req.Model)
 }
 
 func outcomeFromAggregate(aggregate map[string]any, fallbackModel string) (providers.ChatOutcome, error) {

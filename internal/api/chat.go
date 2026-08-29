@@ -3,6 +3,7 @@ package api
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/executor"
+	"github.com/caigee-cmd/cli2api/internal/providers"
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
@@ -173,7 +175,7 @@ func (s *Server) resolveProviderFilter(req *translate.ChatRequest) string {
 	if model == "" {
 		return ""
 	}
-		for _, prefix := range []string{"qoder/", "workbuddy/", "trae/"} {
+	for _, prefix := range []string{"qoder/", "workbuddy/", "trae/"} {
 		if strings.HasPrefix(model, prefix) {
 			req.Model = strings.TrimPrefix(model, prefix)
 			return strings.TrimSuffix(prefix, "/")
@@ -239,12 +241,12 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	if req.Stream {
 		upstream, err := s.executor.ChatStreamProxy(ctx, req, prefer, providerFilter)
 		if err != nil {
-			s.finishRequestLog(requestID, started, req, publicModel, upstream.AccountID, accounts.RequestStatusError, upstream.TTFBMs, nil, err, upstream.AttemptCount)
+			s.finishRequestLog(requestID, started, req, publicModel, upstream.AccountID, firstNonEmpty(upstream.Provider, providerFilter), accounts.RequestStatusError, upstream.TTFBMs, nil, err, upstream.AttemptCount)
 			writeClassifiedErr(w, err)
 			return
 		}
 		defer upstream.Response.Body.Close()
-		s.finishRequestLog(requestID, started, req, publicModel, upstream.AccountID, accounts.RequestStatusStreaming, upstream.TTFBMs, nil, nil, upstream.AttemptCount)
+		s.finishRequestLog(requestID, started, req, publicModel, upstream.AccountID, firstNonEmpty(upstream.Provider, providerFilter), accounts.RequestStatusStreaming, upstream.TTFBMs, nil, nil, upstream.AttemptCount)
 		w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
@@ -276,7 +278,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 				ttfb = 1
 			}
 		}
-		s.finishRequestLog(requestID, started, req, publicModel, upstream.AccountID, status, ttfb, &stats, relayErr, upstream.AttemptCount)
+		s.finishRequestLog(requestID, started, req, publicModel, upstream.AccountID, firstNonEmpty(upstream.Provider, providerFilter), status, ttfb, &stats, relayErr, upstream.AttemptCount)
 		if relayErr != nil {
 			panic(http.ErrAbortHandler)
 		}
@@ -285,14 +287,14 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 
 	res, err := s.executor.ChatNonStream(ctx, req, prefer, providerFilter)
 	if err != nil {
-		s.finishRequestLog(requestID, started, req, publicModel, res.AccountID, accounts.RequestStatusError, 0, nil, err, res.AttemptCount)
+		s.finishRequestLog(requestID, started, req, publicModel, res.AccountID, firstNonEmpty(res.Provider, providerFilter), accounts.RequestStatusError, 0, nil, err, res.AttemptCount)
 		writeClassifiedErr(w, err)
 		return
 	}
 	if publicModel != "" {
 		res.Model = publicModel
 	}
-	s.finishRequestLog(requestID, started, req, publicModel, res.AccountID, accounts.RequestStatusOK, 0, &streamRelayStats{
+	s.finishRequestLog(requestID, started, req, publicModel, res.AccountID, firstNonEmpty(res.Provider, providerFilter), accounts.RequestStatusOK, 0, &streamRelayStats{
 		PromptTokens: ptrInt(res.PromptTokens), CompletionTokens: ptrInt(res.CompletionTokens),
 		CacheReadTokens: res.CacheReadTokens, CacheWriteTokens: res.CacheWriteTokens,
 		CachedTokens: res.CachedTokens, UsageSource: res.UsageSource, Credits: res.Credits, Model: res.Model,
@@ -365,12 +367,31 @@ func buildChatUsage(res executor.ChatResult) map[string]any {
 	return out
 }
 
+func classifyAPIError(err error) accounts.Classified {
+	if err == nil {
+		return accounts.Classify(0, "", "", accounts.KindUnavailable, "")
+	}
+	var classifiedErr *providers.Error
+	if errors.As(err, &classifiedErr) && classifiedErr != nil && classifiedErr.Kind != "" {
+		failover := ""
+		if classifiedErr.Failover != nil {
+			if *classifiedErr.Failover {
+				failover = "1"
+			} else {
+				failover = "0"
+			}
+		}
+		return accounts.Classify(classifiedErr.Status, classifiedErr.Message, "", classifiedErr.Kind, failover)
+	}
+	return accounts.Classify(0, err.Error(), "", "", "")
+}
+
 func writeClassifiedErr(w http.ResponseWriter, err error) {
 	if err == nil {
 		writeErr(w, http.StatusServiceUnavailable, "upstream_not_ready", "upstream not ready")
 		return
 	}
-	classified := accounts.Classify(0, err.Error(), "", "", "")
+	classified := classifyAPIError(err)
 	if classified.RetryAfter > 0 {
 		w.Header().Set("Retry-After", fmt.Sprintf("%d", int(classified.RetryAfter.Seconds())))
 	}
@@ -390,7 +411,7 @@ func (s *Server) startRequestLog(entry accounts.RequestLog) {
 	s.recorder.Start(entry)
 }
 
-func (s *Server) finishRequestLog(requestID string, started time.Time, req translate.ChatRequest, publicModel, accountID, status string, ttfb int, stats *streamRelayStats, err error, attemptCount int) {
+func (s *Server) finishRequestLog(requestID string, started time.Time, req translate.ChatRequest, publicModel, accountID, provider, status string, ttfb int, stats *streamRelayStats, err error, attemptCount int) {
 	if s.recorder == nil || requestID == "" {
 		return
 	}
@@ -401,6 +422,7 @@ func (s *Server) finishRequestLog(requestID string, started time.Time, req trans
 		Status:         status,
 		RequestedModel: firstNonEmpty(publicModel, req.Model),
 		AccountID:      accountID,
+		Provider:       provider,
 		AttemptCount:   attemptCount,
 	}
 	if status != accounts.RequestStatusStarted && status != accounts.RequestStatusStreaming {
@@ -426,7 +448,7 @@ func (s *Server) finishRequestLog(requestID string, started time.Time, req trans
 		}
 	}
 	if err != nil {
-		classified := accounts.Classify(0, err.Error(), "", "", "")
+		classified := classifyAPIError(err)
 		entry.ErrorKind = classified.Kind
 		entry.ErrorCode = classified.Code
 		entry.ErrorMessage = classified.Message
