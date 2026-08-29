@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.2.20 - 2026-08-29
+
+### English
+
 - Keep the v0.2.18 bytes for request-log provider migration 006, and accept the v0.2.19 tab-indented checksum so existing databases can boot
 
 ### 中文
