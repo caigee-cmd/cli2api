@@ -67,6 +67,7 @@ from `docs/DEVELOPMENT.md`; do not create version tags by hand.
 - Preserve the proven WASM encode and HTTP/SSE request path
 - Use HeroUI for console components
 - Add tests for account, routing, API, or translation behavior changes
+- Treat shipped SQLite migration SQL as immutable. Add a new numbered file instead of editing an applied one; pin the canonical checksum in tests. See `docs/DESIGN.md`
 - Do not commit `.env`, `.qoder`, auth blobs, tokens, raw captures, host IPs, or
   `docs/PRIVATE_DEPLOYMENT.md`
 

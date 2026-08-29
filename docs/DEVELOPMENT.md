@@ -1,6 +1,6 @@
 # Development
 
-last-updated: 2026-08-28
+last-updated: 2026-08-29
 
 Repository rules, layering constraints, and validation checklists live in
 [CONTRIBUTING.md](../CONTRIBUTING.md). This page covers the local build loop
@@ -53,6 +53,7 @@ Do not create or push version tags by hand. The tag, GitHub Release, updater ass
 1. `main` is the commit you want to ship. The workflow waits for CI on that exact SHA.
 2. `CHANGELOG.md` `## Unreleased` has matching `### English` and `### 中文` bullets for every user-facing change on `main` since the last published tag. The workflow copies that section into the GitHub Release and the console System page. `validate` allows an empty Unreleased section; `extract-for-release` fails if Unreleased is empty and the new version heading does not already exist.
 3. Do not freeze Unreleased yourself before the run. The workflow reads Unreleased first; freeze only after the tag is public.
+4. Do not ship a change that edits the SQL bytes of an already-applied SQLite migration. Existing databases panic on boot with `checksum mismatch`, and the host updater rolls back. Schema changes go in a new numbered file; details are in `docs/DESIGN.md`.
 
 ```bash
 gh workflow run release.yml --ref main
