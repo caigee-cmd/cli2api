@@ -31,6 +31,20 @@ func TestRoundRobinSkipsDownAccounts(t *testing.T) {
 	}
 }
 
+func TestUpsertKeepsExistingQuota(t *testing.T) {
+	p := NewPool([]string{"http://a:3020"}, []string{"a"})
+	p.MergeQuota("a", &QuotaSnapshot{Remaining: 900, Total: 1000, Unit: "credits"})
+	p.MergeHealth("a", true, true, 0, 0, "")
+	p.Upsert(Item{ID: "a", URL: "http://a:3020", Provider: "trae", Runtime: "in_process"})
+	item, _ := p.ByID("a")
+	if item.Quota == nil || item.Quota.Remaining != 900 || item.Provider != "trae" {
+		t.Fatalf("quota should survive upsert, got %+v", item)
+	}
+	if item.Ready == nil || !*item.Ready || item.Hot == nil || !*item.Hot {
+		t.Fatalf("health should survive upsert, got ready=%v hot=%v", item.Ready, item.Hot)
+	}
+}
+
 func TestMarkOKClearsCooldown(t *testing.T) {
 	p := NewPool([]string{"http://a:3020", "http://b:3020"}, []string{"a", "b"})
 	p.MarkClassified("a", Classified{Kind: KindRateLimit, Cooldown: time.Hour, Message: "429", Failover: true})

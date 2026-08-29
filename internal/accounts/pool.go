@@ -473,6 +473,15 @@ func (p *Pool) Upsert(item Item) {
 			item.DownUntil = p.items[i].DownUntil
 			item.LastError = p.items[i].LastError
 			item.LastKind = p.items[i].LastKind
+			if item.Ready == nil {
+				item.Ready = p.items[i].Ready
+			}
+			if item.Hot == nil {
+				item.Hot = p.items[i].Hot
+			}
+			if item.Quota == nil {
+				item.Quota = p.items[i].Quota
+			}
 			if item.Models == nil {
 				item.Models = p.items[i].Models
 				item.ModelsAt = p.items[i].ModelsAt
