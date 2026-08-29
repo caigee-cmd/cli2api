@@ -131,6 +131,42 @@ func TestLoginCallbackStoresDeviceAndToken(t *testing.T) {
 	}
 }
 
+func TestCompleteLoginAcceptsPastedCallbackURL(t *testing.T) {
+	client, store := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case pathExchange:
+			_ = json.NewEncoder(w).Encode(map[string]any{"Result": map[string]any{
+				"Token": "at", "RefreshToken": "rt2", "TokenExpireAt": time.Now().Add(time.Hour).Unix(),
+			}})
+		case pathUserInfo:
+			_ = json.NewEncoder(w).Encode(map[string]any{"Result": map[string]any{
+				"UserID": "u1", "ScreenName": "Tester", "EnterpriseID": "e1",
+			}})
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	if _, err := client.StartLogin(context.Background(), "acc1"); err != nil {
+		t.Fatal(err)
+	}
+	client.mu.Lock()
+	machine, device := client.pending["acc1"].machineID, client.pending["acc1"].deviceID
+	client.mu.Unlock()
+	err := client.CompleteLogin(context.Background(), "acc1",
+		`http://127.0.0.1:9/authorize?refreshToken=rt&userInfo={"UserID":"u1","ScreenName":"N"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, payload, err := store.LoadCredentialPayload(context.Background(), "acc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	credential, err := DecodeCredential(payload)
+	if err != nil || credential.UID != "u1" || credential.AccessToken != "at" || credential.MachineID != machine || credential.DeviceID != device {
+		t.Fatalf("credential=%+v err=%v want machine=%s device=%s", credential, err, machine, device)
+	}
+}
+
 func TestChatNonStreamAggregatesToolsAndReasoning(t *testing.T) {
 	payload, _ := Credential{AccessToken: "at", RefreshToken: "rt", UID: "u1", Domain: DomainCN, ExpiresAt: 4102444800, MachineID: "m1", DeviceID: "d1"}.Encode()
 	store := &memStore{items: map[string][]byte{"acc1": payload}}
