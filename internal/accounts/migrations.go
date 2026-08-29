@@ -10,8 +10,9 @@ import (
 )
 
 type sqliteMigration struct {
-	filename string
-	sql      string
+	filename        string
+	sql             string
+	legacyChecksums []string
 }
 
 var sqliteMigrations = []sqliteMigration{
@@ -123,8 +124,10 @@ CREATE INDEX IF NOT EXISTS request_attempts_request_id ON request_attempts(reque
 	{filename: "005_account_drop_system_prompt.sql", sql: `
 ALTER TABLE accounts ADD COLUMN drop_system_prompt INTEGER NOT NULL DEFAULT 1;`},
 	{filename: "006_request_log_provider.sql", sql: `
-	ALTER TABLE request_logs ADD COLUMN provider TEXT NOT NULL DEFAULT '';
-	CREATE INDEX IF NOT EXISTS request_logs_provider ON request_logs(provider);`},
+ALTER TABLE request_logs ADD COLUMN provider TEXT NOT NULL DEFAULT '';
+CREATE INDEX IF NOT EXISTS request_logs_provider ON request_logs(provider);`,
+		// v0.2.19 retabbed this SQL; keep that checksum bootable.
+		legacyChecksums: []string{"9b96b8d63286519b20791d2a3688c0b71efba6204015250ae9864c5cbcd1f0b4"}},
 	{filename: "007_provider_model_settings.sql", sql: `
 	CREATE TABLE IF NOT EXISTS provider_model_settings (
 	  provider TEXT NOT NULL,
@@ -166,7 +169,7 @@ func (s *Store) applyMigration(ctx context.Context, migration sqliteMigration) e
 	err = tx.QueryRowContext(ctx, "SELECT checksum FROM schema_migrations WHERE filename = ?", migration.filename).Scan(&appliedChecksum)
 	switch {
 	case err == nil:
-		if appliedChecksum != checksum {
+		if !checksumAccepted(migration, appliedChecksum) {
 			return fmt.Errorf("migration %s checksum mismatch", migration.filename)
 		}
 		return tx.Commit()
@@ -184,6 +187,18 @@ func (s *Store) applyMigration(ctx context.Context, migration sqliteMigration) e
 		return fmt.Errorf("commit migration %s: %w", migration.filename, err)
 	}
 	return nil
+}
+
+func checksumAccepted(migration sqliteMigration, appliedChecksum string) bool {
+	if appliedChecksum == migrationChecksum(migration.sql) {
+		return true
+	}
+	for _, legacy := range migration.legacyChecksums {
+		if appliedChecksum != "" && appliedChecksum == legacy {
+			return true
+		}
+	}
+	return false
 }
 
 func migrationChecksum(sqlText string) string {
