@@ -182,6 +182,13 @@ func TestManagerRefreshUsesInProcessProber(t *testing.T) {
 	if updated.Status != "ready" || updated.RemoteUID != "wb-uid" || updated.LastError != "" {
 		t.Fatalf("store account = %+v", updated)
 	}
+	if err := manager.startAccount(ctx, updated); err != nil {
+		t.Fatal(err)
+	}
+	item, _ = manager.pool.ByID(account.ID)
+	if item.Quota == nil || item.Quota.Remaining != 900 {
+		t.Fatalf("in-process upsert cleared quota: %+v", item.Quota)
+	}
 	views, err := manager.Accounts(ctx)
 	if err != nil {
 		t.Fatal(err)

@@ -18,7 +18,9 @@ import { OverviewPageSkeleton } from '@/components/ui/PageSkeletons'
 import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
 import { formatCompact, formatLatency, formatPercent } from '@/lib/format'
+import { accountProviderFamilyLabel, accountProviderLabel } from '@/lib/provider'
 import { absUrl } from '@/lib/url'
+import { ProviderMark } from '@/components/ProviderMark'
 
 type AccountRow = NonNullable<Overview['accounts']>[number]
 type StatsWindow = 1 | 24 | 168
@@ -32,7 +34,13 @@ const EMPTY_STATS: RequestStats = {
   errors: [],
   models: [],
   accounts: [],
+  providers: [],
   series: [],
+}
+
+function familyLabel(provider: string | undefined, t: (key: string) => string) {
+  if (!provider || provider === '(unknown)') return t('statsUnknown')
+  return accountProviderFamilyLabel(provider, t)
 }
 
 function accountLabel(accounts: AccountRow[], id: string, unassigned: string) {
@@ -193,7 +201,13 @@ export function OverviewPage() {
             {statsError ? (
               <div className="text-sm text-[var(--app-danger)]">{t('failedStats', { msg: statsError })}</div>
             ) : (
-              <TrafficChart series={traffic.series} lang={lang} emptyLabel={t('statsEmptyTraffic')} />
+              <TrafficChart
+                series={traffic.series}
+                lang={lang}
+                emptyLabel={t('statsEmptyTraffic')}
+                okLabel={t('logsFilterOk')}
+                errorLabel={t('logsFilterError')}
+              />
             )}
             <div className="grid grid-cols-2 gap-3 border-t border-[var(--app-line)] pt-4 sm:grid-cols-4">
               {[
@@ -247,8 +261,13 @@ export function OverviewPage() {
                 <div key={account.id} className="flex items-center gap-3 px-5 py-3">
                   <span className="status-dot shrink-0" data-state={account.ready ? 'ok' : 'danger'} />
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-medium">{account.name || account.id}</div>
+                    <div className="flex min-w-0 items-center gap-2">
+                      <ProviderMark provider={account.provider} size={14} />
+                      <div className="truncate text-sm font-medium">{account.name || account.id}</div>
+                    </div>
                     <div className="mono mt-0.5 text-[10px] text-[var(--app-faint)]">
+                      {accountProviderLabel(account.provider, account.region, t)}
+                      {' · '}
                       {account.hot ? t('hot') : account.ready ? t('ready') : t('degraded')}
                       {quota ? ` · ${Math.round(quota.percentage ?? 0)}%` : ''}
                     </div>
@@ -271,12 +290,44 @@ export function OverviewPage() {
           </div>
           <div className="flex items-center justify-between border-t border-[var(--app-line)] px-5 py-3 text-[11px] text-[var(--app-faint)]">
             <span>{t('metricModels')} {modelCount}</span>
-            <span>{coolingAccounts ? `${coolingAccounts} ${t('statsCooling')}` : `${accounts.length} ${t('accountCount')}`}</span>
+            <span className="flex min-w-0 flex-wrap items-center justify-end gap-x-2 gap-y-1">
+              {['qoder', 'workbuddy', 'trae'].map((provider) => {
+                const count = accounts.filter((account) => String(account.provider || 'qoder').toLowerCase() === provider).length
+                if (!count) return null
+                return (
+                  <span key={provider} className="inline-flex items-center gap-1">
+                    <ProviderMark provider={provider} size={11} />
+                    {count}
+                  </span>
+                )
+              })}
+              <span>{coolingAccounts ? `${coolingAccounts} ${t('statsCooling')}` : `${accounts.length} ${t('accountCount')}`}</span>
+            </span>
           </div>
         </Card>
       </section>
 
-      <section className="grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,.9fr)_minmax(280px,.8fr)]">
+      <section className="grid gap-5 xl:grid-cols-2 2xl:grid-cols-[minmax(0,1.05fr)_minmax(0,.85fr)_minmax(0,.85fr)_minmax(280px,.75fr)]">
+        <Card data-gsap-reveal className="app-panel-flat overflow-hidden rounded-lg p-0">
+          <div className="flex items-center justify-between gap-3 border-b border-[var(--app-line)] px-5 py-4">
+            <div>
+              <h3 className="font-semibold tracking-[-0.015em]">{t('statsTopProviders')}</h3>
+              <p className="mt-0.5 text-xs text-[var(--app-faint)]">{t('statsTopProvidersHint')}</p>
+            </div>
+            <Pulse size={15} className="text-[var(--app-faint)]" />
+          </div>
+          <RankList
+            empty={t('statsNoProviders')}
+            items={(traffic.providers || []).map((item) => ({
+              key: item.key,
+              label: familyLabel(item.key, t),
+              count: item.count,
+              meta: `${item.ok}/${item.count}`,
+              mark: item.key === '(unknown)' ? undefined : item.key,
+            }))}
+          />
+        </Card>
+
         <Card data-gsap-reveal className="app-panel-flat overflow-hidden rounded-lg p-0">
           <div className="flex items-center justify-between gap-3 border-b border-[var(--app-line)] px-5 py-4">
             <div>
@@ -362,7 +413,7 @@ function RankList({
   empty,
   danger,
 }: {
-  items: Array<{ key: string; label: string; count: number; meta?: string }>
+  items: Array<{ key: string; label: string; count: number; meta?: string; mark?: string }>
   empty: string
   danger?: boolean
 }) {
@@ -401,7 +452,10 @@ function RankList({
       {items.map((item) => (
         <div key={item.key} className="px-5 py-3">
           <div className="flex items-baseline justify-between gap-3">
-            <div className="truncate text-sm font-medium">{item.label}</div>
+            <div className="flex min-w-0 items-center gap-2">
+              {item.mark ? <ProviderMark provider={item.mark} size={14} /> : null}
+              <div className="truncate text-sm font-medium">{item.label}</div>
+            </div>
             <div className="mono shrink-0 text-[11px] text-[var(--app-faint)]">
               {item.meta ? `${item.count} · ${item.meta}` : item.count}
             </div>

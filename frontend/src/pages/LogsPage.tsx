@@ -38,6 +38,7 @@ import { ListPager, type PageSize } from '@/components/ui/ListPager'
 import { LogsRequestListSkeleton, LogsRuntimeListSkeleton } from '@/components/ui/PageSkeletons'
 import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
+import { accountProviderLabel } from '@/lib/provider'
 
 type PageTab = 'requests' | 'runtime'
 type RequestFilter = 'all' | 'ok' | 'error' | 'canceled'
@@ -152,6 +153,21 @@ export function LogsPage() {
     for (const account of accounts || []) names.set(account.id, account.name || account.id)
     return names
   }, [accounts])
+
+  const accountProviderById = useMemo(() => {
+    const providers = new Map<string, { provider?: string; region?: string }>()
+    for (const account of accounts || []) {
+      providers.set(account.id, { provider: account.provider, region: account.region })
+    }
+    return providers
+  }, [accounts])
+
+  function providerLabel(item: { account_id?: string; provider?: string }) {
+    const account = item.account_id ? accountProviderById.get(item.account_id) : undefined
+    const provider = item.provider || account?.provider
+    if (!provider) return '—'
+    return accountProviderLabel(provider, account?.region, t)
+  }
 
   const hasRequestFilters = Boolean(
     requestQuery.trim()
@@ -590,6 +606,7 @@ export function LogsPage() {
                     <Table.Header>
                       <Table.Column isRowHeader>{t('logsColTime')}</Table.Column>
                       <Table.Column>{t('logsColModel')}</Table.Column>
+                      <Table.Column>{t('logsColProvider')}</Table.Column>
                       <Table.Column>{t('logsColAccount')}</Table.Column>
                       <Table.Column>{t('logsColStatus')}</Table.Column>
                       <Table.Column>{t('logsColStream')}</Table.Column>
@@ -611,6 +628,9 @@ export function LogsPage() {
                             {item.mapped_model && item.mapped_model !== item.requested_model ? (
                               <div className="mono mt-0.5 text-[10px] text-[var(--app-faint)]">{item.mapped_model}</div>
                             ) : null}
+                          </Table.Cell>
+                          <Table.Cell>
+                            <span className="text-xs">{providerLabel(item)}</span>
                           </Table.Cell>
                           <Table.Cell>
                             <span className="text-xs">{item.account_id ? (accountNameById.get(item.account_id) || item.account_id) : '—'}</span>
@@ -763,6 +783,7 @@ export function LogsPage() {
                   {[
                     [t('logsColStatus'), selected?.status || '—'],
                     [t('logsColModel'), selected?.requested_model || '—'],
+                    [t('logsColProvider'), selected ? providerLabel(selected) : '—'],
                     [t('logsColAccount'), selected?.account_id ? (accountNameById.get(selected.account_id) || selected.account_id) : '—'],
                     [t('logsColLatency'), formatLatency(selected?.latency_ms)],
                     [t('logsColTTFT'), formatLatency(selected?.ttfb_ms)],

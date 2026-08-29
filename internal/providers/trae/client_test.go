@@ -167,6 +167,23 @@ func TestCompleteLoginAcceptsPastedCallbackURL(t *testing.T) {
 	}
 }
 
+func TestCompleteLoginIsIdempotentWhenAlreadyReady(t *testing.T) {
+	payload, _ := Credential{AccessToken: "at", RefreshToken: "rt", UID: "u1", ExpiresAt: 4102444800, MachineID: "m1", DeviceID: "d1"}.Encode()
+	store := &memStore{items: map[string][]byte{"acc1": payload}}
+	client := NewClient(store)
+	client.http = (&http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		t.Fatal("already-ready complete login must not hit upstream")
+		return nil, nil
+	})})
+	if err := client.CompleteLogin(context.Background(), "acc1", `http://127.0.0.1:9/authorize?refreshToken=rt`); err != nil {
+		t.Fatal(err)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
+
 func TestChatNonStreamAggregatesToolsAndReasoning(t *testing.T) {
 	payload, _ := Credential{AccessToken: "at", RefreshToken: "rt", UID: "u1", Domain: DomainCN, ExpiresAt: 4102444800, MachineID: "m1", DeviceID: "d1"}.Encode()
 	store := &memStore{items: map[string][]byte{"acc1": payload}}
@@ -228,6 +245,27 @@ func TestChatStreamRewritesOpenAIChunks(t *testing.T) {
 	}
 	if strings.Contains(text, "event: output") {
 		t.Fatalf("must rewrite solo events, got %s", text)
+	}
+}
+
+func TestChatStreamFirstErrorFailsBeforeOpenAIChunks(t *testing.T) {
+	payload, _ := Credential{AccessToken: "at", RefreshToken: "rt", UID: "u1", ExpiresAt: 4102444800}.Encode()
+	store := &memStore{items: map[string][]byte{"acc1": payload}}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("event: metadata\ndata: {\"model\":\"Doubao-Seed-Evolving\"}\n\nevent: error\ndata: {\"code\":1005,\"message\":\"\"}\n\n"))
+	}))
+	defer server.Close()
+	client := NewClient(store)
+	client.http = server.Client()
+	client.http.Transport = rewriteTransport{server: server.URL, round: server.Client().Transport}
+	resp, err := client.ChatStream(context.Background(), "acc1", translate.ChatRequest{Model: "Doubao-Seed-Evolving"})
+	if resp != nil {
+		resp.Body.Close()
+	}
+	var classified *providers.Error
+	if err == nil || !errors.As(err, &classified) || classified.Kind != accounts.KindQuota {
+		t.Fatalf("err=%v classified=%+v", err, classified)
 	}
 }
 
@@ -370,6 +408,13 @@ func TestQuotaUsesEntitlementPackUnit(t *testing.T) {
 	}
 	if info.Remaining != 1500 || info.Total != 2000 || info.Used != 500 || info.Unit != QuotaUnit {
 		t.Fatalf("quota=%+v", info)
+	}
+}
+
+func TestParseEntitlementUsageUnwrapsResultEnvelope(t *testing.T) {
+	remain, used, total := parseEntitlementUsage([]byte(`{"Result":{"user_entitlement_pack_list":[{"entitlement_base_info":{"quota":{"credits_limit":100}},"usage":{"credits_amount":25}}]}}`))
+	if remain != 75 || used != 25 || total != 100 {
+		t.Fatalf("remain=%d used=%d total=%d", remain, used, total)
 	}
 }
 

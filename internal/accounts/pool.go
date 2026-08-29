@@ -38,7 +38,8 @@ type Item struct {
 	Quota     *QuotaSnapshot
 	// Models is the last successful per-account catalog snapshot. A nil
 	// slice means unknown (fail open); a non-nil slice, including empty,
-	// is used to filter PublicModel.
+	// is used to filter PublicModel. Entries keep the provider-native
+	// spelling so Trae config_name case is preserved.
 	Models   []string
 	ModelsAt time.Time
 	// DropSystemPrompt mirrors the stored account flag so the executor can
@@ -92,6 +93,22 @@ func itemHasModel(item Item, publicModel string) bool {
 		}
 	}
 	return false
+}
+
+// NativeModelID returns the provider-native catalog spelling for a public
+// model. Trae config_name is case-sensitive; routing matches on the
+// canonical form, but the upstream request must keep the original ID.
+func NativeModelID(item Item, publicModel string) string {
+	want := routeModel(publicModel)
+	if want == "" {
+		return strings.TrimSpace(publicModel)
+	}
+	for _, model := range item.Models {
+		if CanonicalModelID(model) == want {
+			return model
+		}
+	}
+	return strings.TrimSpace(publicModel)
 }
 
 func routeMatches(item Item, q RouteQuery) bool {
@@ -343,15 +360,16 @@ func (p *Pool) MergeModels(id string, models []string) {
 	copied := make([]string, 0, len(models))
 	seen := map[string]struct{}{}
 	for _, model := range models {
-		canonical := CanonicalModelID(model)
-		if canonical == "" || canonical == "auto" {
+		native := strings.TrimSpace(model)
+		canonical := CanonicalModelID(native)
+		if canonical == "" || canonical == "auto" || native == "" {
 			continue
 		}
 		if _, ok := seen[canonical]; ok {
 			continue
 		}
 		seen[canonical] = struct{}{}
-		copied = append(copied, canonical)
+		copied = append(copied, native)
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -473,6 +491,15 @@ func (p *Pool) Upsert(item Item) {
 			item.DownUntil = p.items[i].DownUntil
 			item.LastError = p.items[i].LastError
 			item.LastKind = p.items[i].LastKind
+			if item.Ready == nil {
+				item.Ready = p.items[i].Ready
+			}
+			if item.Hot == nil {
+				item.Hot = p.items[i].Hot
+			}
+			if item.Quota == nil {
+				item.Quota = p.items[i].Quota
+			}
 			if item.Models == nil {
 				item.Models = p.items[i].Models
 				item.ModelsAt = p.items[i].ModelsAt

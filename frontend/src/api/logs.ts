@@ -26,6 +26,7 @@ export type RequestLog = {
   requested_model: string
   mapped_model?: string
   account_id?: string
+  provider?: string
   prompt_tokens?: number | null
   completion_tokens?: number | null
   cache_read_tokens?: number | null
@@ -123,6 +124,7 @@ export type RequestStats = {
   errors: RequestStatsBucket[]
   models: RequestStatsNamed[]
   accounts: RequestStatsNamed[]
+  providers: RequestStatsNamed[]
   series: RequestStatsPoint[]
 }
 

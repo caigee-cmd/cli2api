@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -128,9 +129,43 @@ func Aggregate(reader io.Reader) (map[string]any, error) {
 	return result, nil
 }
 
-func rewriteSoloStream(src io.ReadCloser, model string) *http.Response {
+func rewriteSoloStream(src io.ReadCloser, model string) (*http.Response, error) {
+	buf := bufio.NewReader(src)
+	var replay []byte
+	for i := 0; i < 16; i++ {
+		ev, err := peekFirstSoloEvent(buf)
+		if err != nil {
+			src.Close()
+			if errors.Is(err, io.EOF) {
+				return nil, fmt.Errorf("trae stream ended before done")
+			}
+			return nil, err
+		}
+		if ev.Name == "error" {
+			src.Close()
+			var se streamError
+			if json.Unmarshal(ev.Data, &se) != nil {
+				return nil, fmt.Errorf("solo error: %s", string(ev.Data))
+			}
+			return nil, classifiedFromSolo(se)
+		}
+		replay = append(replay, encodeSoloEvent(ev)...)
+		switch ev.Name {
+		case "metadata", "timing_cost", "extra_info":
+			continue
+		default:
+			rest := io.NopCloser(io.MultiReader(bytes.NewReader(replay), buf))
+			return startSoloRewrite(rest, src, model), nil
+		}
+	}
+	rest := io.NopCloser(io.MultiReader(bytes.NewReader(replay), buf))
+	return startSoloRewrite(rest, src, model), nil
+}
+
+func startSoloRewrite(src io.ReadCloser, upstream io.Closer, model string) *http.Response {
 	pr, pw := io.Pipe()
 	go func() {
+		defer upstream.Close()
 		defer src.Close()
 		defer pw.Close()
 		id := fmt.Sprintf("chatcmpl-%d", time.Now().UnixNano())
@@ -154,11 +189,11 @@ func rewriteSoloStream(src io.ReadCloser, model string) *http.Response {
 			if usage != nil {
 				chunk["usage"] = usage
 			}
-			raw, err := json.Marshal(chunk)
+			encoded, err := json.Marshal(chunk)
 			if err != nil {
 				return err
 			}
-			_, err = fmt.Fprintf(pw, "data: %s\n\n", raw)
+			_, err = fmt.Fprintf(pw, "data: %s\n\n", encoded)
 			return err
 		}
 		err := scanSolo(src, func(ev soloEvent) error {
@@ -246,6 +281,67 @@ func rewriteSoloStream(src io.ReadCloser, model string) *http.Response {
 		Header:     header,
 		Body:       pr,
 	}
+}
+
+func peekFirstSoloEvent(buf *bufio.Reader) (soloEvent, error) {
+	var event string
+	var data bytes.Buffer
+	for {
+		line, err := buf.ReadString('\n')
+		if err != nil && len(line) == 0 {
+			return soloEvent{}, err
+		}
+		line = strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r")
+		if line == "" {
+			if event == "" && data.Len() == 0 {
+				if err != nil {
+					return soloEvent{}, err
+				}
+				continue
+			}
+			ev := soloEvent{Name: event, Data: append(json.RawMessage(nil), data.Bytes()...)}
+			if ev.Name == "" {
+				ev.Name = "message"
+			}
+			return ev, nil
+		}
+		if strings.HasPrefix(line, ":") {
+			continue
+		}
+		if strings.HasPrefix(line, "event:") {
+			event = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
+			continue
+		}
+		if strings.HasPrefix(line, "data:") {
+			payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+			if data.Len() > 0 {
+				data.WriteByte('\n')
+			}
+			data.WriteString(payload)
+		}
+		if err != nil {
+			ev := soloEvent{Name: event, Data: append(json.RawMessage(nil), data.Bytes()...)}
+			if ev.Name == "" {
+				ev.Name = "message"
+			}
+			if ev.Name == "message" && data.Len() == 0 {
+				return soloEvent{}, err
+			}
+			return ev, nil
+		}
+	}
+}
+
+func encodeSoloEvent(ev soloEvent) []byte {
+	var b bytes.Buffer
+	if ev.Name != "" {
+		fmt.Fprintf(&b, "event: %s\n", ev.Name)
+	}
+	if len(ev.Data) > 0 {
+		fmt.Fprintf(&b, "data: %s\n", ev.Data)
+	}
+	b.WriteByte('\n')
+	return b.Bytes()
 }
 
 func scanSolo(reader io.Reader, handle func(soloEvent) error) error {

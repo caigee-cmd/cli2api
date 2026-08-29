@@ -64,6 +64,19 @@ func TestPickRouteKeepsQoderFailoverInsideRegion(t *testing.T) {
 	}
 }
 
+func TestMergeModelsKeepsNativeSpelling(t *testing.T) {
+	p := NewPool(nil, nil)
+	p.Upsert(Item{ID: "t1", Provider: "trae", Runtime: "in_process"})
+	p.MergeModels("t1", []string{"DeepSeek-V4-Flash", "deepseek-v4-flash", "glm-5.2"})
+	item, ok := p.ByID("t1")
+	if !ok || len(item.Models) != 2 || item.Models[0] != "DeepSeek-V4-Flash" {
+		t.Fatalf("models=%v", item.Models)
+	}
+	if NativeModelID(item, "deepseek-v4-flash") != "DeepSeek-V4-Flash" {
+		t.Fatalf("native=%q", NativeModelID(item, "deepseek-v4-flash"))
+	}
+}
+
 func TestPickRouteFiltersByPublicModel(t *testing.T) {
 	p := NewPool(nil, nil)
 	p.Upsert(Item{ID: "a", URL: "http://a", Provider: "qoder", Region: "global", Runtime: "child_process"})

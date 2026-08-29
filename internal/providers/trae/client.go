@@ -170,10 +170,19 @@ func (c *Client) CompleteLogin(ctx context.Context, accountID, callbackURL strin
 	pending := c.pending[accountID]
 	c.mu.Unlock()
 	if pending != nil {
+		if pending.done {
+			c.mu.Lock()
+			delete(c.pending, accountID)
+			c.mu.Unlock()
+			return nil
+		}
 		credential.MachineID = pending.machineID
 		credential.DeviceID = pending.deviceID
 	} else if _, payload, err := c.store.LoadCredentialPayload(ctx, accountID); err == nil {
 		if decoded, err := DecodeCredential(payload); err == nil {
+			if decoded.Ready() {
+				return nil
+			}
 			credential.MachineID = decoded.MachineID
 			credential.DeviceID = decoded.DeviceID
 		}
@@ -625,7 +634,7 @@ func (c *Client) ChatStream(ctx context.Context, accountID string, req translate
 		resp.Body.Close()
 		return nil, classifiedError(resp.StatusCode, body)
 	}
-	return rewriteSoloStream(resp.Body, req.Model), nil
+	return rewriteSoloStream(resp.Body, req.Model)
 }
 
 func outcomeFromAggregate(aggregate map[string]any, fallbackModel string) (providers.ChatOutcome, error) {
@@ -820,27 +829,27 @@ func (c *Client) UserEntUsage(ctx context.Context, credential Credential) (remai
 	if status >= 300 {
 		return 0, 0, 0, classifiedError(status, body)
 	}
-	var env struct {
-		UserEntitlementPackList []struct {
-			EntitlementBaseInfo struct {
-				Quota struct {
-					CreditsLimit int64 `json:"credits_limit"`
-				} `json:"quota"`
-			} `json:"entitlement_base_info"`
-			Usage struct {
-				CreditsAmount int64 `json:"credits_amount"`
-			} `json:"usage"`
-		} `json:"user_entitlement_pack_list"`
+	remain, used, total = parseEntitlementUsage(body)
+	if total == 0 && remain == 0 && used == 0 {
+		return 0, 0, 0, fmt.Errorf("entitlement parse: empty pack list")
 	}
-	if err := json.Unmarshal(body, &env); err != nil {
-		return 0, 0, 0, fmt.Errorf("entitlement parse: %w", err)
+	return remain, used, total, nil
+}
+
+func parseEntitlementUsage(body []byte) (remain, used, total int64) {
+	var root any
+	if json.Unmarshal(body, &root) != nil {
+		return 0, 0, 0
 	}
-	for _, pack := range env.UserEntitlementPackList {
-		limit := pack.EntitlementBaseInfo.Quota.CreditsLimit
+	for _, pack := range entitlementPacks(root) {
+		limit := int64FromAny(lookupPath(pack, "entitlement_base_info", "quota", "credits_limit"))
+		if limit <= 0 {
+			limit = int64FromAny(lookupPath(pack, "quota", "credits_limit"))
+		}
 		if limit <= 0 {
 			continue
 		}
-		consumed := pack.Usage.CreditsAmount
+		consumed := int64FromAny(lookupPath(pack, "usage", "credits_amount"))
 		if consumed < 0 {
 			consumed = 0
 		}
@@ -852,7 +861,68 @@ func (c *Client) UserEntUsage(ctx context.Context, credential Credential) (remai
 		used += consumed
 		remain += left
 	}
-	return remain, used, total, nil
+	return remain, used, total
+}
+
+func entitlementPacks(root any) []any {
+	switch typed := root.(type) {
+	case []any:
+		return typed
+	case map[string]any:
+		for _, key := range []string{"user_entitlement_pack_list", "data", "Result", "result"} {
+			if nested, ok := typed[key]; ok {
+				if packs := entitlementPacks(nested); len(packs) > 0 {
+					return packs
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func lookupPath(value any, keys ...string) any {
+	current := value
+	for _, key := range keys {
+		object, ok := current.(map[string]any)
+		if !ok {
+			return nil
+		}
+		next, ok := object[key]
+		if !ok {
+			found := false
+			for existing, nested := range object {
+				if strings.EqualFold(existing, key) {
+					next = nested
+					found = true
+					break
+				}
+			}
+			if !found {
+				return nil
+			}
+		}
+		current = next
+	}
+	return current
+}
+
+func int64FromAny(value any) int64 {
+	switch typed := value.(type) {
+	case float64:
+		return int64(typed)
+	case int64:
+		return typed
+	case int:
+		return int64(typed)
+	case json.Number:
+		n, _ := typed.Int64()
+		return n
+	case string:
+		n, _ := json.Number(strings.TrimSpace(typed)).Int64()
+		return n
+	default:
+		return 0
+	}
 }
 
 func (c *Client) CheckinStatus(ctx context.Context, credential Credential) ([]byte, error) {

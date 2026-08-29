@@ -36,7 +36,9 @@ export async function api<T = any>(path: string, opts: RequestInit = {}, keyOver
     data = text
   }
   if (!res.ok) {
-    const msg = data?.error?.message || data?.message || text || res.statusText
+    const raw = typeof data === 'string' ? data : text
+    const looksHTML = /<!doctype html|<html[\s>]/i.test(raw)
+    const msg = data?.error?.message || data?.message || (looksHTML ? `${res.status} ${res.statusText}` : (raw || res.statusText))
     throw new ApiError(msg, res.status, data?.error?.code)
   }
   return data as T

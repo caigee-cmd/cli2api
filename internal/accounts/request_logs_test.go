@@ -16,11 +16,18 @@ func TestRequestLogsInsertListGetAndPurge(t *testing.T) {
 	defer store.Close()
 
 	now := time.Now().UTC()
+	if _, err := store.Create(ctx, CreateAccount{Name: "A", Provider: "qoder", Region: "global"}); err != nil {
+		t.Fatal(err)
+	}
+	wb, err := store.Create(ctx, CreateAccount{Name: "WB", Provider: "workbuddy", Region: "cn"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	parentID := NewRequestID()
 	prompt, completion := 12, 34
 	if err := store.InsertRequestLog(ctx, RequestLog{
 		ID: parentID, CreatedAt: now, Stream: false, Status: RequestStatusStarted,
-		RequestedModel: "glm-5.3", AccountID: "acc_a", AttemptCount: 0,
+		RequestedModel: "glm-5.3", AccountID: wb.ID, AttemptCount: 0,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -28,7 +35,7 @@ func TestRequestLogsInsertListGetAndPurge(t *testing.T) {
 	latency := 120
 	if err := store.UpdateRequestLog(ctx, RequestLog{
 		ID: parentID, CreatedAt: now, FinishedAt: &finished, Stream: false, Status: RequestStatusOK,
-		RequestedModel: "glm-5.3", AccountID: "acc_b", PromptTokens: &prompt, CompletionTokens: &completion,
+		RequestedModel: "glm-5.3", AccountID: wb.ID, PromptTokens: &prompt, CompletionTokens: &completion,
 		UsageSource: "upstream", LatencyMs: &latency, AttemptCount: 2,
 	}); err != nil {
 		t.Fatal(err)
@@ -52,7 +59,7 @@ func TestRequestLogsInsertListGetAndPurge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if list.Total != 1 || len(list.Items) != 1 || list.Items[0].Status != RequestStatusOK {
+	if list.Total != 1 || len(list.Items) != 1 || list.Items[0].Status != RequestStatusOK || list.Items[0].Provider != "workbuddy" {
 		t.Fatalf("list = %+v", list)
 	}
 
@@ -60,11 +67,11 @@ func TestRequestLogsInsertListGetAndPurge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.AccountID != "acc_b" || len(got.Attempts) != 2 || got.Attempts[0].Status != AttemptStatusFailover {
+	if got.AccountID != wb.ID || got.Provider != "workbuddy" || len(got.Attempts) != 2 || got.Attempts[0].Status != AttemptStatusFailover {
 		t.Fatalf("detail = %+v", got)
 	}
 
-	filtered, err := store.ListRequestLogs(ctx, RequestLogFilter{AccountID: "acc_b", Status: RequestStatusOK})
+	filtered, err := store.ListRequestLogs(ctx, RequestLogFilter{AccountID: wb.ID, Status: RequestStatusOK})
 	if err != nil || filtered.Total != 1 {
 		t.Fatalf("filtered = %+v err=%v", filtered, err)
 	}
@@ -197,11 +204,11 @@ func TestSummarizeRequestLogs(t *testing.T) {
 	defer store.Close()
 
 	base := time.Date(2026, 8, 28, 10, 15, 0, 0, time.UTC)
-	insert := func(at time.Time, status, model, account, kind string, latency, prompt, completion int, stream bool) {
+	insert := func(at time.Time, status, model, account, provider, kind string, latency, prompt, completion int, stream bool) {
 		t.Helper()
 		log := RequestLog{
 			ID: NewRequestID(), CreatedAt: at, Status: status, RequestedModel: model, AccountID: account,
-			ErrorKind: kind, Stream: stream, AttemptCount: 1,
+			Provider: provider, ErrorKind: kind, Stream: stream, AttemptCount: 1,
 		}
 		if latency > 0 {
 			log.LatencyMs = &latency
@@ -216,11 +223,11 @@ func TestSummarizeRequestLogs(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	insert(base, RequestStatusOK, "glm-5.3", "acc_a", "", 100, 12, 34, false)
-	insert(base.Add(20*time.Minute), RequestStatusOK, "glm-5.3", "acc_a", "", 200, 10, 20, true)
-	insert(base.Add(90*time.Minute), RequestStatusError, "qwen3.7-plus", "acc_b", KindRateLimit, 400, 8, 0, false)
-	insert(base.Add(2*time.Hour), RequestStatusCanceled, "glm-5.3", "acc_a", "", 0, 0, 0, false)
-	insert(base.Add(-30*time.Hour), RequestStatusOK, "old", "acc_a", "", 50, 1, 1, false)
+	insert(base, RequestStatusOK, "glm-5.3", "acc_a", "qoder", "", 100, 12, 34, false)
+	insert(base.Add(20*time.Minute), RequestStatusOK, "glm-5.3", "acc_a", "qoder", "", 200, 10, 20, true)
+	insert(base.Add(90*time.Minute), RequestStatusError, "qwen3.7-plus", "acc_b", "workbuddy", KindRateLimit, 400, 8, 0, false)
+	insert(base.Add(2*time.Hour), RequestStatusCanceled, "glm-5.3", "acc_a", "qoder", "", 0, 0, 0, false)
+	insert(base.Add(-30*time.Hour), RequestStatusOK, "old", "acc_a", "qoder", "", 50, 1, 1, false)
 
 	from := time.Date(2026, 8, 28, 10, 0, 0, 0, time.UTC)
 	to := time.Date(2026, 8, 28, 13, 0, 0, 0, time.UTC)
@@ -254,6 +261,9 @@ func TestSummarizeRequestLogs(t *testing.T) {
 	}
 	if len(stats.Accounts) == 0 || stats.Accounts[0].Key != "acc_a" || stats.Accounts[0].Count != 3 {
 		t.Fatalf("accounts = %+v", stats.Accounts)
+	}
+	if len(stats.Providers) == 0 || stats.Providers[0].Key != "qoder" || stats.Providers[0].Count != 3 {
+		t.Fatalf("providers = %+v", stats.Providers)
 	}
 	if len(stats.Series) != 3 {
 		t.Fatalf("series len = %d %+v", len(stats.Series), stats.Series)
