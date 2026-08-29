@@ -424,6 +424,29 @@ on state change (`power2.out`, 180–220ms); they do not loop.
 Distinguish this account-level quota from the request-level `insufficient_quota` error kind:
 that error means a per-request token/model limit, not a zero account balance.
 
+## SQLite migrations
+
+Go embeds numbered SQL in `internal/accounts/migrations.go`. On open, each filename is recorded in `schema_migrations` with the SHA-256 of the **raw Go string**, including the leading newline and every tab or space. Applied files are never re-run. A checksum mismatch panics in `api.New` and the process exits, so Docker `restart: unless-stopped` loops and `/health` never comes up.
+
+This is the rule that `v0.2.19` broke: it retabbed `006_request_log_provider.sql` while adding `007`. Databases that had already applied 006 on `v0.2.18` refused to boot. The host updater rolled us1 back because health never reported `v0.2.19`.
+
+Hard constraints:
+
+- Never edit a shipped migration's SQL bytes. Whitespace, comments, quote style, and statement order all change the checksum.
+- `gofmt` / indent of the surrounding Go is fine. Indenting the text inside the raw string is not.
+- New columns, indexes, or tables go in the next numbered file (`008_…`). Do not append to an applied file.
+- Do not `UPDATE schema_migrations` on a live database to make a rewritten file pass. That hides the mismatch and can leave hosts on different schemas.
+- Do not delete, rename, or reorder applied filenames.
+
+If a bad rewrite already shipped (as with 006 in `v0.2.19`):
+
+1. Restore the original SQL bytes so new databases record the first checksum.
+2. Put the mistaken checksum on that file's `legacyChecksums` so databases that recorded the rewrite can still open.
+3. Pin both checksums in `internal/accounts` tests. `TestRequestLogProviderMigrationKeepsV0218Bytes` is the pattern.
+4. Ship that as a new patch. Do not ask operators to patch SQLite by hand.
+
+`legacyChecksums` is only for a checksum that already landed in published images. It is not a way to keep editing old SQL.
+
 ## Console IA
 
 Keep the menu short. Login is a gate, not a nav item.
@@ -484,7 +507,7 @@ Useful ideas borrowed from sub2api:
 - system operations are serialized and expose durable status;
 - release checks use a fixed trusted repository and stable releases only;
 - host-only privileged work crosses a narrow authenticated boundary;
-- applied database migrations are immutable and checksum-verified.
+- applied database migrations are immutable and checksum-verified. Editing the SQL bytes of a shipped file, including whitespace, panics existing databases on boot; add a new numbered file instead. `legacyChecksums` is only for a checksum that already shipped by mistake.
 - release artifacts are built per OS/architecture and verified by checksum.
 
 Ideas intentionally not copied:
