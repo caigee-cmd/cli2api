@@ -390,6 +390,13 @@ func TestQuotaUsesEntitlementPackUnit(t *testing.T) {
 	}
 }
 
+func TestParseEntitlementUsageUnwrapsResultEnvelope(t *testing.T) {
+	remain, used, total := parseEntitlementUsage([]byte(`{"Result":{"user_entitlement_pack_list":[{"entitlement_base_info":{"quota":{"credits_limit":100}},"usage":{"credits_amount":25}}]}}`))
+	if remain != 75 || used != 25 || total != 100 {
+		t.Fatalf("remain=%d used=%d total=%d", remain, used, total)
+	}
+}
+
 func TestAdapterWiresCapabilities(t *testing.T) {
 	adapter := NewClient(&memStore{}).Adapter()
 	for _, cap := range []string{"credential", "login", "chat", "models", "classifier", "prober", "import_export"} {
