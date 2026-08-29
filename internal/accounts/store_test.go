@@ -185,6 +185,24 @@ func TestStoreCreatesNamedAPIKeys(t *testing.T) {
 	}
 	defer store.Close()
 
+	all, err := store.CreateAPIKey(ctx, CreateAPIKey{Name: "All", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if all.Providers == nil || len(all.Providers) != 0 {
+		t.Fatalf("empty allowlist providers = %#v", all.Providers)
+	}
+	listedAll, err := store.ListAPIKeys(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listedAll) != 1 || listedAll[0].Providers == nil {
+		t.Fatalf("listed empty allowlist = %+v", listedAll)
+	}
+	if err := store.DeleteAPIKey(ctx, all.ID); err != nil {
+		t.Fatal(err)
+	}
+
 	created, err := store.CreateAPIKey(ctx, CreateAPIKey{Name: "CI", Providers: []string{"qoder"}, Enabled: true})
 	if err != nil {
 		t.Fatal(err)
