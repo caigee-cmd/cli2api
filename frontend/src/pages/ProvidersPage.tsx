@@ -8,9 +8,12 @@ import type { Overview } from '@/api/types'
 import { ProviderMark } from '@/components/ProviderMark'
 import { ModelDetailsModal, formatTokens } from '@/components/ModelDetailsModal'
 import { CompactSwitch } from '@/components/ui/CompactSwitch'
+import { EmptyPanel } from '@/components/ui/EmptyPanel'
 import { FilterSelect } from '@/components/ui/FilterSelect'
 import { ListPager, type PageSize } from '@/components/ui/ListPager'
+import { PageAlert } from '@/components/ui/PageAlert'
 import { ProvidersPageSkeleton } from '@/components/ui/PageSkeletons'
+import { SearchBar } from '@/components/ui/SearchBar'
 
 type ModelInfo = NonNullable<Overview['models']>[number]
 
@@ -195,15 +198,15 @@ export function ProvidersPage() {
 
   return (
     <div className="space-y-6">
-      <section className="grid gap-5 border-b border-[var(--app-line)] pb-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+      <section className="grid gap-5 border-b border-separator pb-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
         <div data-gsap-reveal>
           <h2 className="text-2xl font-semibold tracking-[-0.035em]">{t('availableModels')}</h2>
-          <p className="mt-1 text-sm text-[var(--app-muted)]">
+          <p className="mt-1 text-sm text-muted">
             {models.length ? shownLabel : t('noModelsYet')}
           </p>
         </div>
         <div data-gsap-reveal className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <Input className="sm:w-72" value={filter} onChange={(event) => setFilter(event.target.value)} placeholder={t('filterPh')} aria-label={t('filter')} />
+          <SearchBar className="sm:w-72" value={filter} onChange={setFilter} placeholder={t('filterPh')} ariaLabel={t('filter')} />
           <FilterSelect
             ariaLabel={t('providerCol')}
             value={providerFilter}
@@ -220,30 +223,26 @@ export function ProvidersPage() {
         </div>
       </section>
 
-      {message ? <div className={messageError
-        ? 'rounded-lg border border-[color:color-mix(in_srgb,var(--app-danger)_28%,transparent)] bg-[color:color-mix(in_srgb,var(--app-danger)_8%,transparent)] px-4 py-3 text-sm text-[var(--app-danger)]'
-        : 'rounded-lg border border-[color:color-mix(in_srgb,var(--app-ok)_24%,transparent)] bg-[color:color-mix(in_srgb,var(--app-ok)_7%,transparent)] px-4 py-3 text-sm text-[var(--app-muted)]'}>{message}</div> : null}
+      {message ? <PageAlert status={messageError ? 'danger' : 'success'} title={message} /> : null}
 
-      <Card data-gsap-reveal className="app-panel-flat overflow-hidden rounded-lg p-0 shadow-none">
-        <div className="flex items-center justify-between gap-4 border-b border-[var(--app-line)] px-5 py-4">
+      <Card data-gsap-reveal className="overflow-hidden p-0">
+        <div className="flex items-center justify-between gap-4 border-b border-separator px-5 py-4">
           <div className="flex items-center gap-3">
-            <div className="grid size-9 place-items-center rounded-lg bg-[var(--app-surface-muted)] text-[var(--app-muted)]"><Cube size={16} /></div>
+            <div className="grid size-9 place-items-center rounded-lg bg-surface-secondary text-muted"><Cube size={16} /></div>
             <div>
               <div className="text-sm font-semibold">{t('providerCatalog')}</div>
-              <div className="mono mt-0.5 text-[10px] text-[var(--app-faint)]">{t('contextConfigHint')}</div>
+              <div className="mono mt-0.5 text-[10px] text-muted">{t('contextConfigHint')}</div>
             </div>
           </div>
           <Chip size="sm" variant="soft">{filtered.length}</Chip>
         </div>
 
         {filtered.length === 0 ? (
-          <div className="grid min-h-72 place-items-center px-6 py-12 text-center">
-            <div>
-              <MagnifyingGlass size={22} className="mx-auto text-[var(--app-faint)]" />
-              <div className="mt-4 text-sm font-medium">{models.length ? t('noModelsMatch') : t('noProviders')}</div>
-              <div className="mt-1 text-xs text-[var(--app-faint)]">{models.length ? (filter || providerFilter || t('noModelsMatch')) : t('noModelsYet')}</div>
-            </div>
-          </div>
+          <EmptyPanel
+            icon={<MagnifyingGlass size={22} />}
+            title={models.length ? t('noModelsMatch') : t('noProviders')}
+            hint={models.length ? (filter || providerFilter || t('noModelsMatch')) : t('noModelsYet')}
+          />
         ) : (
           <Table>
             <Table.ScrollContainer>
@@ -269,7 +268,7 @@ export function ProvidersPage() {
                             <span className="status-dot" data-state={model.stale ? undefined : 'ok'} />
                             <div>
                               <div className="font-medium">{model.display_name || model.id}</div>
-                              {routedModelName(model) ? <div className="mt-0.5 text-[10px] text-[var(--app-faint)]">{t('routedTo', { model: routedModelName(model) })}</div> : null}
+                              {routedModelName(model) ? <div className="mt-0.5 text-[10px] text-muted">{t('routedTo', { model: routedModelName(model) })}</div> : null}
                             </div>
                           </div>
                         </Table.Cell>
@@ -280,7 +279,7 @@ export function ProvidersPage() {
                             <span className="text-xs font-medium">{provider}</span>
                           </div>
                         </Table.Cell>
-                        <Table.Cell><span className="mono text-xs text-[var(--app-muted)]">{model.mapped_key || model.native_model || model.id}</span></Table.Cell>
+                        <Table.Cell><span className="mono text-xs text-muted">{model.mapped_key || model.native_model || model.id}</span></Table.Cell>
                         <Table.Cell>
                           {provider === 'qoder' ? (
                             <div className="flex min-w-52 items-center gap-2">
@@ -294,11 +293,11 @@ export function ProvidersPage() {
                                 onChange={(event) => setDrafts((current) => ({ ...current, [key]: event.target.value }))}
                                 aria-label={`${model.id} ${t('contextWindowCol')}`}
                               />
-                              <span className="mono text-[10px] text-[var(--app-faint)]">tokens</span>
+                              <span className="mono text-[10px] text-muted">tokens</span>
                             </div>
                           ) : provider === 'trae' ? (
                             <div className="flex min-w-52 items-center gap-3">
-                              <span className="mono text-xs text-[var(--app-muted)]">{formatTokens(model.catalog_context_length || model.context_length)}</span>
+                              <span className="mono text-xs text-muted">{formatTokens(model.catalog_context_length || model.context_length)}</span>
                               {model.supports_max_mode ? (
                                 <div className="flex items-center gap-2">
                                   <CompactSwitch
@@ -307,14 +306,14 @@ export function ProvidersPage() {
                                     ariaLabel={`${model.id} ${t('maxMode')}`}
                                     onChange={(selected) => void onToggleTraeMax(model, selected)}
                                   />
-                                  <span className="text-[11px] text-[var(--app-muted)]">{t('maxMode')}{model.catalog_context_length_max ? ` ${formatTokens(model.catalog_context_length_max)}` : ''}</span>
+                                  <span className="text-[11px] text-muted">{t('maxMode')}{model.catalog_context_length_max ? ` ${formatTokens(model.catalog_context_length_max)}` : ''}</span>
                                 </div>
                               ) : (
-                                <span className="text-[11px] text-[var(--app-faint)]">{t('catalogWindow')}</span>
+                                <span className="text-[11px] text-muted">{t('catalogWindow')}</span>
                               )}
                             </div>
                           ) : (
-                            <span className="mono text-xs text-[var(--app-muted)]">{formatTokens(model.catalog_context_length || model.context_length)}</span>
+                            <span className="mono text-xs text-muted">{formatTokens(model.catalog_context_length || model.context_length)}</span>
                           )}
                         </Table.Cell>
                         <Table.Cell>

@@ -123,7 +123,7 @@ export function TrafficChart({
 
   if (!series.length || !hasTraffic) {
     return (
-      <div className="grid min-h-72 place-items-center rounded-lg border border-dashed border-[var(--app-line-strong)] px-4 text-sm text-[var(--app-faint)]">
+      <div className="grid min-h-72 place-items-center rounded-lg border border-dashed border-border px-4 text-sm text-muted">
         {emptyLabel}
       </div>
     )
@@ -146,16 +146,16 @@ export function TrafficChart({
           const y = PAD.top + innerH - (tick / Math.max(1, yMax)) * innerH
           return (
             <g key={tick}>
-              <line x1={PAD.left} x2={WIDTH - PAD.right} y1={y} y2={y} stroke="var(--app-line)" strokeWidth="1" />
-              <text x={PAD.left - 8} y={y + 3} textAnchor="end" className="fill-[var(--app-faint)]" fontSize="10" fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace">
+              <line x1={PAD.left} x2={WIDTH - PAD.right} y1={y} y2={y} stroke="var(--separator)" strokeWidth="1" />
+              <text x={PAD.left - 8} y={y + 3} textAnchor="end" className="fill-muted" fontSize="10" fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace">
                 {formatCompact(tick)}
               </text>
             </g>
           )
         })}
-        <path data-traffic-fill d={geometry.errorArea} fill="color-mix(in srgb, var(--app-danger) 22%, transparent)" />
-        <path data-traffic-fill d={geometry.okArea} fill="color-mix(in srgb, var(--app-ok) 18%, transparent)" />
-        <path data-traffic-draw d={geometry.totalLine} fill="none" stroke="var(--app-ok)" strokeWidth="1.75" strokeLinejoin="round" strokeLinecap="round" />
+        <path data-traffic-fill d={geometry.errorArea} fill="color-mix(in srgb, var(--danger) 22%, transparent)" />
+        <path data-traffic-fill d={geometry.okArea} fill="color-mix(in srgb, var(--success) 18%, transparent)" />
+        <path data-traffic-draw d={geometry.totalLine} fill="none" stroke="var(--success)" strokeWidth="1.75" strokeLinejoin="round" strokeLinecap="round" />
         {series.map((point, index) => (
           <circle
             key={point.at}
@@ -163,7 +163,7 @@ export function TrafficChart({
             cx={geometry.xs[index]}
             cy={geometry.totalYs[index]}
             r={series.length > 36 ? 1.4 : 2.1}
-            fill={point.error && point.requests && point.error / point.requests >= 0.5 ? 'var(--app-danger)' : 'var(--app-ok)'}
+            fill={point.error && point.requests && point.error / point.requests >= 0.5 ? 'var(--danger)' : 'var(--success)'}
           />
         ))}
         {series.map((point, index) => {
@@ -183,21 +183,21 @@ export function TrafficChart({
         })}
         {hover ? (
           <g>
-            <line x1={hoverX} x2={hoverX} y1={PAD.top} y2={PAD.top + innerH} stroke="var(--app-line-strong)" strokeWidth="1" strokeDasharray="3 3" />
-            <circle cx={hoverX} cy={hoverY} r="4" fill="var(--app-surface)" stroke="var(--app-ok)" strokeWidth="1.5" />
+            <line x1={hoverX} x2={hoverX} y1={PAD.top} y2={PAD.top + innerH} stroke="var(--border)" strokeWidth="1" strokeDasharray="3 3" />
+            <circle cx={hoverX} cy={hoverY} r="4" fill="var(--surface)" stroke="var(--success)" strokeWidth="1.5" />
           </g>
         ) : null}
-        <text x={PAD.left} y={HEIGHT - 6} className="fill-[var(--app-faint)]" fontSize="10" fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace">
+        <text x={PAD.left} y={HEIGHT - 6} className="fill-muted" fontSize="10" fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace">
           {first ? hourLabel(first.at, daily, lang) : ''}
         </text>
-        <text x={WIDTH - PAD.right} y={HEIGHT - 6} textAnchor="end" className="fill-[var(--app-faint)]" fontSize="10" fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace">
+        <text x={WIDTH - PAD.right} y={HEIGHT - 6} textAnchor="end" className="fill-muted" fontSize="10" fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace">
           {last ? hourLabel(last.at, daily, lang) : ''}
         </text>
       </svg>
-      <div className="mt-2 flex min-h-5 items-center justify-between gap-3 text-[10px] text-[var(--app-faint)]">
+      <div className="mt-2 flex min-h-5 items-center justify-between gap-3 text-[10px] text-muted">
         <div className="flex items-center gap-3">
-          <span className="inline-flex items-center gap-1.5"><span className="size-1.5 rounded-full bg-[var(--app-ok)]" />{okLabel}</span>
-          <span className="inline-flex items-center gap-1.5"><span className="size-1.5 rounded-full bg-[var(--app-danger)]" />{errorLabel}</span>
+          <span className="inline-flex items-center gap-1.5"><span className="size-1.5 rounded-full bg-success" />{okLabel}</span>
+          <span className="inline-flex items-center gap-1.5"><span className="size-1.5 rounded-full bg-danger" />{errorLabel}</span>
         </div>
         <span className="mono">
           {hover

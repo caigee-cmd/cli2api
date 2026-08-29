@@ -1,16 +1,18 @@
 import { useMemo, useState } from 'react'
-import { Button, ButtonGroup, InputGroup, Modal } from '@heroui/react'
+import { Button } from '@heroui/react'
 import {
   MagnifyingGlass,
   Plus,
-  WarningCircle,
-  X,
 } from '@phosphor-icons/react'
 import { AccountCard, type AccountBusyKind } from '@/components/account/AccountCard'
 import { AccountModelsModal } from '@/components/account/AccountModelsModal'
 import { EditAccountModal } from '@/components/account/EditAccountModal'
 import { AddAccountModal } from '@/components/AddAccountModal'
 import { BrandMark } from '@/components/BrandMark'
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
+import { EmptyPanel } from '@/components/ui/EmptyPanel'
+import { FilterToggle } from '@/components/ui/FilterToggle'
+import { SearchBar } from '@/components/ui/SearchBar'
 import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
 import {
@@ -36,8 +38,6 @@ type AccountBusy = { id: string; kind: AccountBusyKind }
 type AccountFilter = 'all' | 'available' | 'attention' | 'disabled'
 
 const EMPTY_ACCOUNTS: AccountRow[] = []
-const ACCOUNT_BUTTON_CLASS = 'account-button'
-const ACCOUNT_INPUT_CLASS = 'account-input'
 
 export function AccountsPage() {
   const { t } = useI18n()
@@ -241,32 +241,32 @@ export function AccountsPage() {
 
   return (
     <div className="space-y-4">
-      <section data-gsap-reveal className="grid gap-3 border-b border-[var(--app-line)] pb-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+      <section data-gsap-reveal className="grid gap-3 border-b border-separator pb-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
-          <div className="flex items-center gap-3 border-l-2 border-[var(--app-ok)] pl-3">
+          <div className="flex items-center gap-3 border-l-2 border-success pl-3">
             <span className="mono font-semibold">{rows.length}</span>
-            <span className="text-[var(--app-faint)]">{t('accountCount')}</span>
-            <span className="text-[var(--app-line-strong)]">·</span>
-            <span className="mono font-medium text-[var(--app-ok)]">{availableCount}</span>
-            <span className="text-[var(--app-ok)]">{t('availableAccounts')}</span>
+            <span className="text-muted">{t('accountCount')}</span>
+            <span className="text-border">·</span>
+            <span className="mono font-medium text-success">{availableCount}</span>
+            <span className="text-success">{t('availableAccounts')}</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-[var(--app-faint)]">{t('needsAttention')}</span>
-            <span className={`mono font-medium ${attentionCount ? 'text-[var(--app-danger)]' : ''}`}>{attentionCount}</span>
+            <span className="text-muted">{t('needsAttention')}</span>
+            <span className={`mono font-medium ${attentionCount ? 'text-danger' : ''}`}>{attentionCount}</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-[var(--app-faint)]">{t('inFlight')}</span>
+            <span className="text-muted">{t('inFlight')}</span>
             <span className="mono font-medium">{inFlightCount}</span>
           </div>
           {providerCounts.map(([provider, count]) => (
             <div key={provider} className="flex items-center gap-1.5">
               <ProviderMark provider={provider} size={12} />
-              <span className="text-[var(--app-faint)]">{accountProviderFamilyLabel(provider, t)}</span>
+              <span className="text-muted">{accountProviderFamilyLabel(provider, t)}</span>
               <span className="mono font-medium">{count}</span>
             </div>
           ))}
         </div>
-        <Button className={ACCOUNT_BUTTON_CLASS} size="sm" onPress={() => setAddOpen(true)}><Plus size={14} />{t('addAccount')}</Button>
+        <Button size="sm" onPress={() => setAddOpen(true)}><Plus size={14} />{t('addAccount')}</Button>
       </section>
 
       <AddAccountModal isOpen={addOpen} onClose={() => setAddOpen(false)} onAdded={() => void refresh(undefined, { silent: true })} />
@@ -280,81 +280,68 @@ export function AccountsPage() {
         onSave={(input) => onSaveSettings(editId || '', input)}
       />
 
-      <Modal.Root isOpen={Boolean(confirmAccount)} onOpenChange={(next: boolean) => { if (!next) setConfirmId(null) }}>
-        <Modal.Backdrop variant="blur">
-          <Modal.Container placement="center" size="sm">
-            <Modal.Dialog aria-label={t('delete')}>
-              <Modal.Header className="items-start justify-between gap-4">
-                <div className="flex items-center gap-2"><WarningCircle size={18} className="text-[var(--app-danger)]" /><Modal.Heading className="text-base font-semibold">{t('delete')}</Modal.Heading></div>
-                <Modal.CloseTrigger aria-label={t('close')} className="grid size-8 place-items-center rounded-lg text-[var(--app-muted)] hover:bg-[var(--app-surface-muted)]"><X size={16} /></Modal.CloseTrigger>
-              </Modal.Header>
-              <Modal.Body className="pt-0">
-                <p className="text-sm leading-6 text-[var(--app-muted)]">{t('deleteAccountConfirm', { name: confirmAccount?.name || confirmAccount?.id || '' })}</p>
-              </Modal.Body>
-              <Modal.Footer className="justify-end">
-                <Button className={ACCOUNT_BUTTON_CLASS} size="sm" variant="ghost" onPress={() => setConfirmId(null)}>{t('cancel')}</Button>
-                <Button className={ACCOUNT_BUTTON_CLASS} size="sm" variant="danger" isPending={busy?.id === confirmId && busy.kind === 'delete'} onPress={() => {
-                  if (!confirmAccount) return
-                  const id = confirmAccount.id
-                  setConfirmId(null)
-                  void run(id, 'delete', async () => { await deleteAccount(id); await refresh(undefined, { silent: true }) })
-                }}>{t('delete')}</Button>
-              </Modal.Footer>
-            </Modal.Dialog>
-          </Modal.Container>
-        </Modal.Backdrop>
-      </Modal.Root>
+      <ConfirmDialog
+        isOpen={Boolean(confirmAccount)}
+        title={t('delete')}
+        description={t('deleteAccountConfirm', { name: confirmAccount?.name || confirmAccount?.id || '' })}
+        confirmLabel={t('delete')}
+        cancelLabel={t('cancel')}
+        closeLabel={t('close')}
+        isPending={busy?.id === confirmId && busy.kind === 'delete'}
+        onClose={() => setConfirmId(null)}
+        onConfirm={() => {
+          if (!confirmAccount) return
+          const id = confirmAccount.id
+          setConfirmId(null)
+          void run(id, 'delete', async () => { await deleteAccount(id); await refresh(undefined, { silent: true }) })
+        }}
+      />
 
       {rows.length ? (
         <section data-gsap-reveal className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="w-full lg:max-w-md">
-            <InputGroup className={ACCOUNT_INPUT_CLASS} fullWidth>
-              <InputGroup.Prefix>
-                <MagnifyingGlass size={14} className="text-[var(--app-faint)]" />
-              </InputGroup.Prefix>
-              <InputGroup.Input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder={t('searchAccounts')}
-                aria-label={t('searchAccounts')}
-              />
-            </InputGroup>
+            <SearchBar
+              className="w-full"
+              value={query}
+              onChange={setQuery}
+              placeholder={t('searchAccounts')}
+              ariaLabel={t('searchAccounts')}
+            />
           </div>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <ButtonGroup className="toolbar-group">
-              {([
-                ['all', t('filterAll')],
-                ['available', t('availableAccounts')],
-                ['attention', t('needsAttention')],
-                ['disabled', t('disabled')],
-              ] as Array<[AccountFilter, string]>).map(([value, label]) => (
-                <Button key={value} className={ACCOUNT_BUTTON_CLASS} size="sm" variant={filter === value ? 'secondary' : 'ghost'} onPress={() => setFilter(value)}>{label}</Button>
-              ))}
-            </ButtonGroup>
-            <span className="mono text-xs text-[var(--app-faint)]">{t('shownAccounts', { shown: filteredRows.length, total: rows.length })}</span>
+            <FilterToggle
+              value={filter}
+              onChange={(next) => setFilter(next as AccountFilter)}
+              ariaLabel={t('filterAll')}
+              options={[
+                { id: 'all', label: t('filterAll') },
+                { id: 'available', label: t('availableAccounts') },
+                { id: 'attention', label: t('needsAttention') },
+                { id: 'disabled', label: t('disabled') },
+              ]}
+            />
+            <span className="mono text-xs text-muted">{t('shownAccounts', { shown: filteredRows.length, total: rows.length })}</span>
           </div>
         </section>
       ) : null}
 
       {!hasAccounts ? (
-        <div className="grid min-h-72 place-items-center rounded-lg border border-dashed border-[var(--app-line-strong)] text-center">
-          <div className="max-w-sm px-6">
-            <BrandMark size={28} className="mx-auto" />
-            <div className="mt-4 text-sm font-medium">{t('noAccounts')}</div>
-            <div className="mt-1 text-xs leading-5 text-[var(--app-faint)]">{t('accountEmptyHint')}</div>
-            <Button className={`${ACCOUNT_BUTTON_CLASS} mt-5`} size="sm" onPress={() => setAddOpen(true)}><Plus size={14} />{t('addAccount')}</Button>
-          </div>
-        </div>
+        <EmptyPanel
+          className="rounded-3xl border border-dashed border-border"
+          icon={<BrandMark size={28} />}
+          title={t('noAccounts')}
+          hint={t('accountEmptyHint')}
+          action={<Button size="sm" onPress={() => setAddOpen(true)}><Plus size={14} />{t('addAccount')}</Button>}
+        />
       ) : null}
 
       {hasAccounts && !filteredRows.length ? (
-        <div className="grid min-h-56 place-items-center rounded-lg border border-dashed border-[var(--app-line-strong)] text-center">
-          <div>
-            <MagnifyingGlass size={22} className="mx-auto text-[var(--app-faint)]" />
-            <div className="mt-3 text-sm font-medium">{t('noAccountsMatch')}</div>
-            <Button className={`${ACCOUNT_BUTTON_CLASS} mt-4`} size="sm" variant="ghost" onPress={() => { setQuery(''); setFilter('all') }}>{t('clearFilters')}</Button>
-          </div>
-        </div>
+        <EmptyPanel
+          className="rounded-3xl border border-dashed border-border"
+          icon={<MagnifyingGlass size={22} />}
+          title={t('noAccountsMatch')}
+          action={<Button size="sm" variant="ghost" onPress={() => { setQuery(''); setFilter('all') }}>{t('clearFilters')}</Button>}
+        />
       ) : null}
 
       <section className="grid gap-2.5 lg:grid-cols-2 xl:grid-cols-3" aria-busy={refreshing}>

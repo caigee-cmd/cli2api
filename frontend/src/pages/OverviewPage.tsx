@@ -1,19 +1,20 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import gsap from 'gsap'
 import { Link } from 'react-router-dom'
-import { Button, ButtonGroup, Card, Chip } from '@heroui/react'
+import { Button, Card, Chip } from '@heroui/react'
 import {
   ArrowSquareOut,
   ArrowUpRight,
   Copy,
   Cube,
   Pulse,
-  WarningCircle,
 } from '@phosphor-icons/react'
 import { fetchRequestStats, type RequestStats } from '@/api/logs'
 import type { Overview } from '@/api/types'
 import { CountUp } from '@/components/overview/CountUp'
 import { TrafficChart } from '@/components/overview/TrafficChart'
+import { FilterToggle } from '@/components/ui/FilterToggle'
+import { PageAlert } from '@/components/ui/PageAlert'
 import { OverviewPageSkeleton } from '@/components/ui/PageSkeletons'
 import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
@@ -127,30 +128,29 @@ export function OverviewPage() {
 
   return (
     <div className="space-y-6">
-      <section className="grid gap-4 border-b border-[var(--app-line)] pb-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+      <section className="grid gap-4 border-b border-separator pb-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
         <div>
           <h2 data-gsap-reveal className="text-2xl font-semibold tracking-[-0.035em]">{t('homeDisplay')}</h2>
-          <p className="mt-1 max-w-2xl text-sm leading-6 text-[var(--app-muted)]">{t('homeLead')}</p>
+          <p className="mt-1 max-w-2xl text-sm leading-6 text-muted">{t('homeLead')}</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <ButtonGroup className="toolbar-group">
-            {([1, 24, 168] as const).map((value) => (
-              <Button
-                key={value}
-                size="sm"
-                variant={hours === value ? 'secondary' : 'ghost'}
-                onPress={() => {
-                  if (hours === value) return
-                  setStatsLoading(true)
-                  setHours(value)
-                }}
-              >
-                {t(value === 1 ? 'statsWindow1h' : value === 168 ? 'statsWindow7d' : 'statsWindow24h')}
-              </Button>
-            ))}
-          </ButtonGroup>
+          <FilterToggle
+            value={String(hours)}
+            onChange={(next) => {
+              const value = Number(next) as StatsWindow
+              if (hours === value) return
+              setStatsLoading(true)
+              setHours(value)
+            }}
+            ariaLabel={t('statsTraffic')}
+            options={[
+              { id: '1', label: t('statsWindow1h') },
+              { id: '24', label: t('statsWindow24h') },
+              { id: '168', label: t('statsWindow7d') },
+            ]}
+          />
           <div className="text-left sm:text-right">
-            <div className="mono text-[11px] text-[var(--app-faint)]">{overview?.time || '—'}</div>
+            <div className="mono text-[11px] text-muted">{overview?.time || '—'}</div>
             <div className="mt-1 inline-flex items-center gap-2 text-sm font-medium">
               <span className="status-dot" data-state={proxyOk && workerOk ? 'ok' : 'danger'} />
               {proxyOk && workerOk ? t('running') : t('degraded')}
@@ -159,26 +159,21 @@ export function OverviewPage() {
         </div>
       </section>
 
-      {error ? (
-        <div className="flex items-start gap-2 rounded-lg border border-[color-mix(in_srgb,var(--app-danger)_28%,var(--app-line))] bg-[color-mix(in_srgb,var(--app-danger)_7%,var(--app-surface))] px-4 py-3 text-sm text-[var(--app-danger)]">
-          <WarningCircle className="mt-0.5 shrink-0" size={17} />
-          {t('failedOverview', { msg: error })}
-        </div>
-      ) : null}
+      {error ? <PageAlert title={t('failedOverview', { msg: error })} /> : null}
 
-      <section data-gsap-reveal className="grid overflow-hidden rounded-lg border border-[var(--app-line)] bg-[var(--app-surface)] sm:grid-cols-2 xl:grid-cols-4">
+      <section data-gsap-reveal className="grid overflow-hidden rounded-3xl border border-border bg-surface sm:grid-cols-2 xl:grid-cols-4">
         {metrics.map((metric, index) => (
           <div
             key={metric.label}
-            className={`min-h-32 p-5 ${index ? 'border-t border-[var(--app-line)] sm:border-l sm:border-t-0' : ''} ${index === 2 ? 'sm:border-l-0 sm:border-t xl:border-l xl:border-t-0' : ''}`}
+            className={`min-h-32 p-5 ${index ? 'border-t border-separator sm:border-l sm:border-t-0' : ''} ${index === 2 ? 'sm:border-l-0 sm:border-t xl:border-l xl:border-t-0' : ''}`}
           >
-            <div className="text-xs font-medium text-[var(--app-muted)]">{metric.label}</div>
+            <div className="text-xs font-medium text-muted">{metric.label}</div>
             <div className="mt-6 flex items-end justify-between gap-3">
               <div>
                 <div className="mono text-2xl font-semibold tracking-[-0.035em]">
                   {statsLoading && !stats ? '—' : metric.value == null ? '—' : <CountUp value={metric.value} kind={metric.kind} />}
                 </div>
-                <div className="mono mt-1 text-[11px] text-[var(--app-faint)]">{metric.detail}</div>
+                <div className="mono mt-1 text-[11px] text-muted">{metric.detail}</div>
               </div>
               <span className="status-dot" data-state={metric.ok ? 'ok' : 'danger'} />
             </div>
@@ -187,11 +182,11 @@ export function OverviewPage() {
       </section>
 
       <section className="grid gap-5">
-        <Card data-gsap-reveal className="app-panel-flat overflow-hidden rounded-lg p-0">
-          <div className="flex items-center justify-between gap-3 border-b border-[var(--app-line)] px-5 py-4">
+        <Card data-gsap-reveal className="overflow-hidden p-0">
+          <div className="flex items-center justify-between gap-3 border-b border-separator px-5 py-4">
             <div>
               <h3 className="font-semibold tracking-[-0.015em]">{t('statsTraffic')}</h3>
-              <p className="mt-0.5 text-xs text-[var(--app-faint)]">{t('statsTrafficHint')}</p>
+              <p className="mt-0.5 text-xs text-muted">{t('statsTrafficHint')}</p>
             </div>
             <Chip size="sm" variant="soft" color={traffic.totals.error ? 'warning' : 'success'}>
               {formatPercent(traffic.totals.success_rate)}
@@ -199,7 +194,7 @@ export function OverviewPage() {
           </div>
           <div className="space-y-5 p-5">
             {statsError ? (
-              <div className="text-sm text-[var(--app-danger)]">{t('failedStats', { msg: statsError })}</div>
+              <div className="text-sm text-danger">{t('failedStats', { msg: statsError })}</div>
             ) : (
               <TrafficChart
                 series={traffic.series}
@@ -209,7 +204,7 @@ export function OverviewPage() {
                 errorLabel={t('logsFilterError')}
               />
             )}
-            <div className="grid grid-cols-2 gap-3 border-t border-[var(--app-line)] pt-4 sm:grid-cols-4">
+            <div className="grid grid-cols-2 gap-3 border-t border-separator pt-4 sm:grid-cols-4">
               {[
                 [t('statsLatencyP50'), formatLatency(traffic.latency.p50_ms)],
                 [t('statsLatencyP95'), formatLatency(traffic.latency.p95_ms)],
@@ -217,7 +212,7 @@ export function OverviewPage() {
                 [t('statsTTFB'), formatLatency(traffic.latency.ttfb_avg_ms)],
               ].map(([label, value]) => (
                 <div key={String(label)}>
-                  <div className="text-[11px] text-[var(--app-faint)]">{label}</div>
+                  <div className="text-[11px] text-muted">{label}</div>
                   <div className="mono mt-1 text-sm font-medium">{value}</div>
                 </div>
               ))}
@@ -227,25 +222,25 @@ export function OverviewPage() {
       </section>
 
       <section className="grid gap-5 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,.85fr)]">
-        <Card data-gsap-reveal className="app-panel-flat overflow-hidden rounded-lg p-0">
-          <div className="flex items-center justify-between gap-3 border-b border-[var(--app-line)] px-5 py-4">
+        <Card data-gsap-reveal className="overflow-hidden p-0">
+          <div className="flex items-center justify-between gap-3 border-b border-separator px-5 py-4">
             <div>
               <h3 className="font-semibold tracking-[-0.015em]">{t('statsPool')}</h3>
-              <p className="mt-0.5 text-xs text-[var(--app-faint)]">{t('statsPoolHint')}</p>
+              <p className="mt-0.5 text-xs text-muted">{t('statsPoolHint')}</p>
             </div>
-            <Link to="/accounts" className="inline-flex items-center gap-1 text-xs font-medium text-[var(--app-muted)] hover:text-[var(--app-ink)]">
+            <Link to="/accounts" className="inline-flex items-center gap-1 text-xs font-medium text-muted hover:text-foreground">
               {t('navAccounts')}
               <ArrowUpRight size={12} />
             </Link>
           </div>
-          <div className="grid grid-cols-3 divide-x divide-[var(--app-line)] border-b border-[var(--app-line)]">
+          <div className="grid grid-cols-3 divide-x divide-separator border-b border-separator">
             {[
               [t('ready'), readyAccounts, 'ok'],
               [t('hot'), hotAccounts, hotAccounts ? 'ok' : ''],
               [t('inFlight'), inFlight, inFlight ? 'ok' : ''],
             ].map(([label, value, state]) => (
               <div key={String(label)} className="px-4 py-3">
-                <div className="text-[11px] text-[var(--app-faint)]">{label}</div>
+                <div className="text-[11px] text-muted">{label}</div>
                 <div className="mt-1 flex items-center gap-2">
                   <span className="mono text-lg font-semibold">{value}</span>
                   {state ? <span className="status-dot" data-state={state} /> : null}
@@ -253,9 +248,9 @@ export function OverviewPage() {
               </div>
             ))}
           </div>
-          <div className="divide-y divide-[var(--app-line)]">
+          <div className="divide-y divide-separator">
             {accounts.length === 0 ? (
-              <div className="px-5 py-8 text-sm text-[var(--app-faint)]">{t('noAccounts')}</div>
+              <div className="px-5 py-8 text-sm text-muted">{t('noAccounts')}</div>
             ) : accounts.slice(0, 6).map((account) => {
               const quota = account.quota
               const tone = quotaTone(quota?.percentage, quota?.exceeded)
@@ -267,7 +262,7 @@ export function OverviewPage() {
                       <ProviderMark provider={account.provider} size={14} />
                       <div className="truncate text-sm font-medium">{account.name || account.id}</div>
                     </div>
-                    <div className="mono mt-0.5 text-[10px] text-[var(--app-faint)]">
+                    <div className="mono mt-0.5 text-[10px] text-muted">
                       {accountProviderLabel(account.provider, account.region, t)}
                       {' · '}
                       {account.hot ? t('hot') : account.ready ? t('ready') : t('degraded')}
@@ -276,21 +271,21 @@ export function OverviewPage() {
                   </div>
                   {quota ? (
                     <div className="w-16 shrink-0">
-                      <div className="h-1 overflow-hidden rounded-[2px] bg-[var(--app-line)]">
+                      <div className="h-1 overflow-hidden rounded-[2px] bg-separator">
                         <div
-                          className={`h-full ${tone === 'danger' ? 'bg-[var(--app-danger)]' : tone === 'warning' ? 'bg-[var(--warning)]' : 'bg-[var(--app-ok)]'}`}
+                          className={`h-full ${tone === 'danger' ? 'bg-danger' : tone === 'warning' ? 'bg-warning' : 'bg-success'}`}
                           style={{ width: `${Math.min(100, Math.max(0, quota.percentage ?? 0))}%` }}
                         />
                       </div>
                     </div>
                   ) : (
-                    <span className="mono text-[11px] text-[var(--app-faint)]">{account.in_flight ?? account.inFlight ?? 0}</span>
+                    <span className="mono text-[11px] text-muted">{account.in_flight ?? account.inFlight ?? 0}</span>
                   )}
                 </div>
               )
             })}
           </div>
-          <div className="flex items-center justify-between border-t border-[var(--app-line)] px-5 py-3 text-[11px] text-[var(--app-faint)]">
+          <div className="flex items-center justify-between border-t border-separator px-5 py-3 text-[11px] text-muted">
             <span>{t('metricModels')} {modelCount}</span>
             <span className="flex min-w-0 flex-wrap items-center justify-end gap-x-2 gap-y-1">
               {['qoder', 'workbuddy', 'trae'].map((provider) => {
@@ -308,13 +303,13 @@ export function OverviewPage() {
           </div>
         </Card>
 
-        <Card data-gsap-reveal className="app-panel-flat overflow-hidden rounded-lg p-0">
-          <div className="flex items-center justify-between gap-3 border-b border-[var(--app-line)] px-5 py-4">
+        <Card data-gsap-reveal className="overflow-hidden p-0">
+          <div className="flex items-center justify-between gap-3 border-b border-separator px-5 py-4">
             <div>
               <h3 className="font-semibold tracking-[-0.015em]">{t('statsTopProviders')}</h3>
-              <p className="mt-0.5 text-xs text-[var(--app-faint)]">{t('statsTopProvidersHint')}</p>
+              <p className="mt-0.5 text-xs text-muted">{t('statsTopProvidersHint')}</p>
             </div>
-            <Pulse size={15} className="text-[var(--app-faint)]" />
+            <Pulse size={15} className="text-muted" />
           </div>
           <RankList
             empty={t('statsNoProviders')}
@@ -330,13 +325,13 @@ export function OverviewPage() {
       </section>
 
       <section className="grid gap-5 xl:grid-cols-2 2xl:grid-cols-3">
-        <Card data-gsap-reveal className="app-panel-flat overflow-hidden rounded-lg p-0">
-          <div className="flex items-center justify-between gap-3 border-b border-[var(--app-line)] px-5 py-4">
+        <Card data-gsap-reveal className="overflow-hidden p-0">
+          <div className="flex items-center justify-between gap-3 border-b border-separator px-5 py-4">
             <div>
               <h3 className="font-semibold tracking-[-0.015em]">{t('statsTopModels')}</h3>
-              <p className="mt-0.5 text-xs text-[var(--app-faint)]">{t('providerCatalog')}</p>
+              <p className="mt-0.5 text-xs text-muted">{t('providerCatalog')}</p>
             </div>
-            <Cube size={15} className="text-[var(--app-faint)]" />
+            <Cube size={15} className="text-muted" />
           </div>
           <RankList
             empty={t('statsNoModels')}
@@ -349,13 +344,13 @@ export function OverviewPage() {
           />
         </Card>
 
-        <Card data-gsap-reveal className="app-panel-flat overflow-hidden rounded-lg p-0">
-          <div className="flex items-center justify-between gap-3 border-b border-[var(--app-line)] px-5 py-4">
+        <Card data-gsap-reveal className="overflow-hidden p-0">
+          <div className="flex items-center justify-between gap-3 border-b border-separator px-5 py-4">
             <div>
               <h3 className="font-semibold tracking-[-0.015em]">{traffic.errors.length ? t('statsErrorMix') : t('statsTopAccounts')}</h3>
-              <p className="mt-0.5 text-xs text-[var(--app-faint)]">{traffic.errors.length ? t('statsErrorMixHint') : t('statsPoolHint')}</p>
+              <p className="mt-0.5 text-xs text-muted">{traffic.errors.length ? t('statsErrorMixHint') : t('statsPoolHint')}</p>
             </div>
-            <Pulse size={15} className="text-[var(--app-faint)]" />
+            <Pulse size={15} className="text-muted" />
           </div>
           {traffic.errors.length ? (
             <RankList
@@ -380,29 +375,29 @@ export function OverviewPage() {
           )}
         </Card>
 
-        <Card data-gsap-reveal className="app-panel-flat overflow-hidden rounded-lg p-0">
-          <div className="border-b border-[var(--app-line)] px-5 py-4">
+        <Card data-gsap-reveal className="overflow-hidden p-0">
+          <div className="border-b border-separator px-5 py-4">
             <h3 className="font-semibold tracking-[-0.015em]">{t('endpoints')}</h3>
-            <p className="mt-0.5 text-xs text-[var(--app-faint)]">{t('routesHint')}</p>
+            <p className="mt-0.5 text-xs text-muted">{t('routesHint')}</p>
           </div>
-          <div className="divide-y divide-[var(--app-line)]">
+          <div className="divide-y divide-separator">
             {endpoints.map((item) => (
               <div key={item.name} className="group grid gap-2 px-5 py-3.5 sm:grid-cols-[56px_minmax(0,1fr)_auto] sm:items-center">
-                <span className="mono text-[10px] font-semibold text-[var(--app-muted)]">{item.method}</span>
+                <span className="mono text-[10px] font-semibold text-muted">{item.method}</span>
                 <div className="min-w-0">
                   <div className="text-sm font-medium">{item.name}</div>
-                  <code className="mono mt-1 block truncate text-[11px] text-[var(--app-faint)]">{item.url}</code>
+                  <code className="mono mt-1 block truncate text-[11px] text-muted">{item.url}</code>
                 </div>
                 <div className="flex gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100">
-                  <Button isIconOnly size="sm" variant="ghost" aria-label={t('copy')} onPress={() => { void navigator.clipboard.writeText(item.url); setCopiedEndpoint(item.name); window.setTimeout(() => setCopiedEndpoint(''), 1100) }}>{copiedEndpoint === item.name ? <span className="mono text-[9px] text-[var(--app-ok)]">OK</span> : <Copy size={14} />}</Button>
+                  <Button isIconOnly size="sm" variant="ghost" aria-label={t('copy')} onPress={() => { void navigator.clipboard.writeText(item.url); setCopiedEndpoint(item.name); window.setTimeout(() => setCopiedEndpoint(''), 1100) }}>{copiedEndpoint === item.name ? <span className="mono text-[9px] text-success">OK</span> : <Copy size={14} />}</Button>
                   <Button isIconOnly size="sm" variant="ghost" aria-label={t('open')} onPress={() => window.open(item.url, '_blank', 'noopener,noreferrer')}><ArrowSquareOut size={14} /></Button>
                 </div>
               </div>
             ))}
           </div>
-          <div className="flex items-center justify-between border-t border-[var(--app-line)] px-5 py-3 text-xs text-[var(--app-faint)]">
+          <div className="flex items-center justify-between border-t border-separator px-5 py-3 text-xs text-muted">
             <span className="truncate">{lastError === '—' ? 'Authorization: Bearer' : lastError}</span>
-            <Link to="/logs" className="inline-flex items-center gap-1 hover:text-[var(--app-ink)]">{t('navLogs')}<ArrowUpRight size={12} /></Link>
+            <Link to="/logs" className="inline-flex items-center gap-1 hover:text-foreground">{t('navLogs')}<ArrowUpRight size={12} /></Link>
           </div>
         </Card>
       </section>
@@ -447,10 +442,10 @@ function RankList({
   }, [signature])
 
   if (!items.length) {
-    return <div className="px-5 py-8 text-sm text-[var(--app-faint)]">{empty}</div>
+    return <div className="px-5 py-8 text-sm text-muted">{empty}</div>
   }
   return (
-    <div ref={rootRef} className="divide-y divide-[var(--app-line)]">
+    <div ref={rootRef} className="divide-y divide-separator">
       {items.map((item) => (
         <div key={item.key} className="px-5 py-3">
           <div className="flex items-baseline justify-between gap-3">
@@ -458,14 +453,14 @@ function RankList({
               {item.mark ? <ProviderMark provider={item.mark} size={14} /> : null}
               <div className="truncate text-sm font-medium">{item.label}</div>
             </div>
-            <div className="mono shrink-0 text-[11px] text-[var(--app-faint)]">
+            <div className="mono shrink-0 text-[11px] text-muted">
               {item.meta ? `${item.count} · ${item.meta}` : item.count}
             </div>
           </div>
-          <div className="mt-2 h-1 overflow-hidden rounded-[2px] bg-[var(--app-line)]">
+          <div className="mt-2 h-1 overflow-hidden rounded-[2px] bg-separator">
             <div
               data-rank-fill
-              className={`h-full origin-left rounded-[2px] ${danger ? 'bg-[var(--app-danger)]' : 'bg-[var(--app-ok)]'}`}
+              className={`h-full origin-left rounded-[2px] ${danger ? 'bg-danger' : 'bg-success'}`}
               style={{ width: `${Math.max(6, (item.count / peak) * 100)}%` }}
             />
           </div>

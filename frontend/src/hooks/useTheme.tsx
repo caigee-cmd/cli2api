@@ -21,9 +21,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<Theme>(initialTheme)
 
   useEffect(() => {
-    document.documentElement.dataset.theme = theme
-    document.documentElement.classList.toggle('dark', theme === 'dark')
-    document.documentElement.style.colorScheme = theme
+    const root = document.documentElement
+    root.dataset.theme = theme
+    root.classList.toggle('dark', theme === 'dark')
+    root.classList.toggle('light', theme === 'light')
+    root.style.colorScheme = theme
   }, [theme])
 
   const value = useMemo<ThemeContextValue>(() => ({

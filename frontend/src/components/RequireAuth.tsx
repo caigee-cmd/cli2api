@@ -17,7 +17,7 @@ export function RequireAuth() {
 
   if (loading && !overview) {
     return (
-      <div className="grid min-h-dvh place-items-center bg-[var(--app-bg)] text-sm text-[var(--app-muted)]">
+      <div className="grid min-h-dvh place-items-center bg-background text-sm text-muted">
         <div className="flex items-center gap-3">
           <Spinner size="sm" />
           {t('checkingSession')}
