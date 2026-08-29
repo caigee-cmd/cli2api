@@ -11,6 +11,7 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 - Add named client API keys with optional provider allowlists, and show the console administrator key on System
 - Store an empty client-key provider allowlist as `[]` instead of JSON `null`
 - Keep the v0.2.20 bytes for provider-model settings migration 007, and accept the later tab-indented checksum so existing databases can boot
+- Explain on System when the host updater is missing, instead of showing the raw Unix socket error
 
 ### 中文
 
@@ -18,6 +19,7 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 - 新增可限制供应商的客户端 API 密钥，并在系统页显示控制台管理员密钥
 - 客户端密钥未限制供应商时写入 `[]`，不再存成 JSON `null`
 - 007 供应商模型设置迁移保持 v0.2.20 原文，并接受后来误改缩进后的 checksum，已有数据库可以启动
+- 系统页在没有宿主机更新器时说明更新条件，不再直接显示 Unix socket 报错
 
 ## 0.2.20 - 2026-08-29
 

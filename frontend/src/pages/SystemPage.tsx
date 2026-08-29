@@ -236,11 +236,20 @@ export function SystemPage() {
             <div className="flex items-center justify-between gap-3">
               <div>
                 <h3 className="font-semibold">{t('updateStatus')}</h3>
-                <p className="mt-1 text-xs text-[var(--app-faint)]">{info?.agent?.job_id || t('noUpdateJob')}</p>
+                <p className="mt-1 text-xs text-[var(--app-faint)]">{info?.agent?.job_id || (info?.agent?.available ? t('noUpdateJob') : t('updaterNeedsHost'))}</p>
               </div>
               <Chip size="sm" variant="soft" color={statusColor(agentState)}>{stateLabel}</Chip>
             </div>
-            {info?.agent?.error ? <p className="mt-4 text-xs leading-5 text-[var(--app-danger)]">{info.agent.error}</p> : null}
+            {info?.agent?.available ? null : (
+              <div className="mt-4 space-y-2 text-xs leading-5 text-[var(--app-muted)]">
+                <p>{t('updaterUnavailableHint')}</p>
+                <ul className="list-disc space-y-1 pl-4 text-[var(--app-faint)]">
+                  <li>{t('updaterNeedInstall')}</li>
+                  <li>{t('updaterNeedCompose')}</li>
+                  <li>{t('updaterNeedRelease')}</li>
+                </ul>
+              </div>
+            )}
           </Card>
         </div>
       </div>
