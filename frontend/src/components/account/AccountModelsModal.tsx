@@ -111,7 +111,7 @@ export function AccountModelsModal({ account, t, onClose }: Props) {
               ) : models.length ? (
                 <ul className="divide-y divide-[var(--app-line)] overflow-hidden rounded-lg border border-[var(--app-line)]">
                   {models.map((model) => {
-                    const ownedBy = model.owned_by || model.provider || account?.provider || 'qoder'
+                    const ownedBy = model.provider || model.owned_by || account?.provider || 'qoder'
                     const routed = routedModelName(model)
                     return (
                       <li key={model.id} className="flex items-start gap-3 px-3 py-2.5">

@@ -1,14 +1,21 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { getLocalTimeZone, type DateValue } from '@internationalized/date'
 import {
   Button,
   ButtonGroup,
   Card,
   Chip,
+  DateField,
+  DateRangePicker,
   Input,
+  Label,
   Modal,
+  RangeCalendar,
   Tab,
   Table,
   Tabs,
+  TimeField,
+  type TimeValue,
 } from '@heroui/react'
 import {
   ArrowClockwise,
@@ -40,7 +47,8 @@ type TimeRange = 'all' | '1h' | '24h' | '7d' | 'custom'
 type ErrorKindFilter = 'all' | 'quota' | 'rate_limit' | 'auth' | 'not_ready' | 'unavailable' | 'invalid_request' | 'model_not_available'
 
 const FILTER_SELECT_CLASS = 'h-8 min-w-36 rounded-lg border border-[var(--app-line-strong)] bg-[var(--app-surface-solid)] px-2.5 text-xs text-[var(--app-ink)]'
-const DATETIME_CLASS = 'h-8 rounded-lg border border-[var(--app-line-strong)] bg-[var(--app-surface-solid)] px-2.5 text-xs text-[var(--app-ink)]'
+
+type DateRangeValue = { start: DateValue; end: DateValue }
 
 function statusColor(status?: string): 'success' | 'warning' | 'danger' | 'default' {
   if (status === 'ok') return 'success'
@@ -89,9 +97,9 @@ function formatLatency(ms?: number | null) {
   return `${(ms / 1000).toFixed(1)}s`
 }
 
-function toISO(local: string, endOfMinute = false) {
-  if (!local.trim()) return undefined
-  const date = new Date(local)
+function dateValueToISO(value: DateValue | null | undefined, endOfMinute = false) {
+  if (!value) return undefined
+  const date = value.toDate(getLocalTimeZone())
   if (!Number.isFinite(date.getTime())) return undefined
   if (endOfMinute) date.setSeconds(59, 999)
   return date.toISOString()
@@ -125,8 +133,7 @@ export function LogsPage() {
   const [streamFilter, setStreamFilter] = useState<StreamFilter>('all')
   const [errorKind, setErrorKind] = useState<ErrorKindFilter>('all')
   const [timeRange, setTimeRange] = useState<TimeRange>('all')
-  const [customFrom, setCustomFrom] = useState('')
-  const [customTo, setCustomTo] = useState('')
+  const [customRange, setCustomRange] = useState<DateRangeValue | null>(null)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState<PageSize>(50)
   const [runtimePage, setRuntimePage] = useState(1)
@@ -164,8 +171,8 @@ export function LogsPage() {
     streamFilter,
     errorKind,
     timeRange,
-    customFrom,
-    customTo,
+    customRange?.start?.toString() ?? '',
+    customRange?.end?.toString() ?? '',
     pageSize,
   ].join('\0')
   const runtimeFilterKey = [runtimeFilter, runtimeQuery, runtimeAccount, runtimePageSize].join('\0')
@@ -203,8 +210,8 @@ export function LogsPage() {
         model: modelFilter || undefined,
         stream: streamFilter === 'all' ? undefined : streamFilter === 'stream',
         error_kind: errorKind === 'all' ? undefined : errorKind,
-        from: timeRange === 'custom' ? toISO(customFrom) : rangeFromPreset(timeRange).from,
-        to: timeRange === 'custom' ? toISO(customTo, true) : rangeFromPreset(timeRange).to,
+        from: timeRange === 'custom' ? dateValueToISO(customRange?.start) : rangeFromPreset(timeRange).from,
+        to: timeRange === 'custom' ? dateValueToISO(customRange?.end, true) : rangeFromPreset(timeRange).to,
         limit: pageSize,
         offset: (currentPage - 1) * pageSize,
       })
@@ -216,7 +223,7 @@ export function LogsPage() {
     } finally {
       if (!quiet) setLoading(false)
     }
-  }, [requestFilter, requestQuery, accountFilter, modelFilter, streamFilter, errorKind, timeRange, customFrom, customTo, currentPage, pageSize])
+  }, [requestFilter, requestQuery, accountFilter, modelFilter, streamFilter, errorKind, timeRange, customRange, currentPage, pageSize])
 
   const loadRuntime = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true)
@@ -279,8 +286,7 @@ export function LogsPage() {
     setStreamFilter('all')
     setErrorKind('all')
     setTimeRange('all')
-    setCustomFrom('')
-    setCustomTo('')
+    setCustomRange(null)
     setPage(1)
   }
 
@@ -461,28 +467,105 @@ export function LogsPage() {
                 ))}
               </ButtonGroup>
               {timeRange === 'custom' ? (
-                <>
-                  <label className="flex items-center gap-1.5 text-xs text-[var(--app-faint)]">
-                    {t('logsTimeFrom')}
-                    <input
-                      type="datetime-local"
-                      className={DATETIME_CLASS}
-                      value={customFrom}
-                      onChange={(event) => setCustomFrom(event.target.value)}
-                      aria-label={t('logsTimeFrom')}
-                    />
-                  </label>
-                  <label className="flex items-center gap-1.5 text-xs text-[var(--app-faint)]">
-                    {t('logsTimeTo')}
-                    <input
-                      type="datetime-local"
-                      className={DATETIME_CLASS}
-                      value={customTo}
-                      onChange={(event) => setCustomTo(event.target.value)}
-                      aria-label={t('logsTimeTo')}
-                    />
-                  </label>
-                </>
+                <DateRangePicker
+                  className="w-[min(100%,22rem)]"
+                  granularity="minute"
+                  hourCycle={24}
+                  shouldForceLeadingZeros
+                  value={customRange}
+                  onChange={(next) => setCustomRange(next)}
+                  aria-label={t('logsTimeRange')}
+                >
+                  {({ state }) => (
+                    <>
+                      <DateField.Group className="h-8 min-h-8 text-xs" variant="secondary">
+                        <DateField.Input slot="start" aria-label={t('logsTimeFrom')}>
+                          {(segment) => <DateField.Segment segment={segment} />}
+                        </DateField.Input>
+                        <DateRangePicker.RangeSeparator />
+                        <DateField.Input slot="end" aria-label={t('logsTimeTo')}>
+                          {(segment) => <DateField.Segment segment={segment} />}
+                        </DateField.Input>
+                        <DateField.Suffix>
+                          <DateRangePicker.Trigger>
+                            <DateRangePicker.TriggerIndicator />
+                          </DateRangePicker.Trigger>
+                        </DateField.Suffix>
+                      </DateField.Group>
+                      <DateRangePicker.Popover className="flex w-full flex-col gap-3">
+                        <RangeCalendar aria-label={t('logsTimeRange')}>
+                          <RangeCalendar.Header>
+                            <RangeCalendar.YearPickerTrigger>
+                              <RangeCalendar.YearPickerTriggerHeading />
+                              <RangeCalendar.YearPickerTriggerIndicator />
+                            </RangeCalendar.YearPickerTrigger>
+                            <RangeCalendar.NavButton slot="previous" />
+                            <RangeCalendar.NavButton slot="next" />
+                          </RangeCalendar.Header>
+                          <RangeCalendar.Grid>
+                            <RangeCalendar.GridHeader>
+                              {(day) => (
+                                <RangeCalendar.HeaderCell>{day}</RangeCalendar.HeaderCell>
+                              )}
+                            </RangeCalendar.GridHeader>
+                            <RangeCalendar.GridBody>
+                              {(date) => <RangeCalendar.Cell date={date} />}
+                            </RangeCalendar.GridBody>
+                          </RangeCalendar.Grid>
+                          <RangeCalendar.YearPickerGrid>
+                            <RangeCalendar.YearPickerGridBody>
+                              {({ year }) => <RangeCalendar.YearPickerCell year={year} />}
+                            </RangeCalendar.YearPickerGridBody>
+                          </RangeCalendar.YearPickerGrid>
+                        </RangeCalendar>
+                        <div className="flex flex-col gap-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <Label className="text-xs">{t('logsTimeFrom')}</Label>
+                            <TimeField
+                              aria-label={t('logsTimeFrom')}
+                              granularity="minute"
+                              hourCycle={24}
+                              value={state.timeRange?.start ?? null}
+                              onChange={(value) =>
+                                state.setTimeRange({
+                                  start: value as TimeValue,
+                                  end: state.timeRange?.end as TimeValue,
+                                })
+                              }
+                            >
+                              <TimeField.Group variant="secondary">
+                                <TimeField.Input>
+                                  {(segment) => <TimeField.Segment segment={segment} />}
+                                </TimeField.Input>
+                              </TimeField.Group>
+                            </TimeField>
+                          </div>
+                          <div className="flex items-center justify-between gap-3">
+                            <Label className="text-xs">{t('logsTimeTo')}</Label>
+                            <TimeField
+                              aria-label={t('logsTimeTo')}
+                              granularity="minute"
+                              hourCycle={24}
+                              value={state.timeRange?.end ?? null}
+                              onChange={(value) =>
+                                state.setTimeRange({
+                                  start: state.timeRange?.start as TimeValue,
+                                  end: value as TimeValue,
+                                })
+                              }
+                            >
+                              <TimeField.Group variant="secondary">
+                                <TimeField.Input>
+                                  {(segment) => <TimeField.Segment segment={segment} />}
+                                </TimeField.Input>
+                              </TimeField.Group>
+                            </TimeField>
+                          </div>
+                        </div>
+                      </DateRangePicker.Popover>
+                    </>
+                  )}
+                </DateRangePicker>
               ) : null}
             </div>
           </div>

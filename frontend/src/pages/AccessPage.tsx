@@ -278,7 +278,7 @@ export function AccessPage() {
                         id: item.id,
                         textValue: `${item.display_name || item.id} ${item.id} ${item.owned_by || item.provider || ''}`,
                         label: item.display_name || item.id,
-                        hint: item.owned_by || item.provider ? `${item.id} · ${item.owned_by || item.provider}` : item.id,
+                        hint: item.provider || item.owned_by ? `${item.id} · ${item.provider || item.owned_by}` : item.id,
                       }))}
                     />
                   ) : (
