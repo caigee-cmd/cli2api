@@ -73,6 +73,24 @@ func RequestIDFromContext(ctx context.Context) string {
 	return id
 }
 
+type allowedProvidersKey struct{}
+
+func WithAllowedProviders(ctx context.Context, providers []string) context.Context {
+	if len(providers) == 0 {
+		return ctx
+	}
+	copied := append([]string{}, providers...)
+	return context.WithValue(ctx, allowedProvidersKey{}, copied)
+}
+
+func allowedProvidersFrom(ctx context.Context) []string {
+	if ctx == nil {
+		return nil
+	}
+	providers, _ := ctx.Value(allowedProvidersKey{}).([]string)
+	return providers
+}
+
 func NewChatExecutor(pool *accounts.Pool, workerKey string) ChatExecutor {
 	if pool == nil {
 		pool = accounts.NewPool(nil, nil)
@@ -128,18 +146,19 @@ func buildWorkerPayload(req translate.ChatRequest, stream bool) map[string]any {
 	return payload
 }
 
-func (e ChatExecutor) routeQuery(prefer, providerFilter, regionFilter, publicModel string, excluded map[string]struct{}) accounts.RouteQuery {
+func (e ChatExecutor) routeQuery(prefer, providerFilter, regionFilter, publicModel string, allowed []string, excluded map[string]struct{}) accounts.RouteQuery {
 	return accounts.RouteQuery{
-		PublicModel:    publicModel,
-		PreferAccount:  prefer,
-		ProviderFilter: providerFilter,
-		RegionFilter:   regionFilter,
-		Excluded:       excluded,
+		PublicModel:      publicModel,
+		PreferAccount:    prefer,
+		ProviderFilter:   providerFilter,
+		RegionFilter:     regionFilter,
+		AllowedProviders: allowed,
+		Excluded:         excluded,
 	}
 }
 
-func (e ChatExecutor) pick(prefer, providerFilter, regionFilter, publicModel string, excluded map[string]struct{}) (accounts.Item, error) {
-	query := e.routeQuery(prefer, providerFilter, regionFilter, publicModel, excluded)
+func (e ChatExecutor) pick(prefer, providerFilter, regionFilter, publicModel string, allowed []string, excluded map[string]struct{}) (accounts.Item, error) {
+	query := e.routeQuery(prefer, providerFilter, regionFilter, publicModel, allowed, excluded)
 	if e.Pool != nil {
 		if item, ok := e.Pool.PickRoute(query); ok {
 			return item, nil
@@ -152,22 +171,38 @@ func (e ChatExecutor) pick(prefer, providerFilter, regionFilter, publicModel str
 			}
 		}
 	}
+	if len(allowed) > 0 && providerFilter != "" && !containsFold(allowed, providerFilter) {
+		return accounts.Item{}, fmt.Errorf("api key cannot use provider %s", providerFilter)
+	}
 	if providerFilter != "" && regionFilter != "" {
 		return accounts.Item{}, fmt.Errorf("no %s/%s accounts available", providerFilter, regionFilter)
 	}
 	if providerFilter != "" {
 		return accounts.Item{}, fmt.Errorf("no %s accounts available", providerFilter)
 	}
+	if len(allowed) > 0 {
+		return accounts.Item{}, fmt.Errorf("no accounts available for this api key")
+	}
 	return accounts.Item{}, fmt.Errorf("no worker accounts configured")
 }
 
-func (e ChatExecutor) attemptsFor(providerFilter, regionFilter, publicModel string) int {
+func (e ChatExecutor) attemptsFor(providerFilter, regionFilter, publicModel string, allowed []string) int {
 	if e.Pool != nil {
-		if n := e.Pool.LenRoute(e.routeQuery("", providerFilter, regionFilter, publicModel, nil)); n > 0 {
+		if n := e.Pool.LenRoute(e.routeQuery("", providerFilter, regionFilter, publicModel, allowed, nil)); n > 0 {
 			return n
 		}
 	}
 	return 1
+}
+
+func containsFold(values []string, want string) bool {
+	want = strings.ToLower(strings.TrimSpace(want))
+	for _, value := range values {
+		if strings.ToLower(strings.TrimSpace(value)) == want {
+			return true
+		}
+	}
+	return false
 }
 
 func pinRegion(current, next string) string {
@@ -266,10 +301,11 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 			regionFilter = pinRegion("", pinnedItem.Region)
 		}
 	}
-	attempts := e.attemptsFor(providerFilter, regionFilter, req.Model)
+	allowed := allowedProvidersFrom(ctx)
+	attempts := e.attemptsFor(providerFilter, regionFilter, req.Model, allowed)
 	pinned := prefer
 	for i := 0; i < attempts; i++ {
-		item, err := e.pick(prefer, providerFilter, regionFilter, req.Model, excluded)
+		item, err := e.pick(prefer, providerFilter, regionFilter, req.Model, allowed, excluded)
 		if err != nil {
 			if lastErr != nil {
 				return ChatResult{AttemptCount: i, AccountID: lastAccountID(excluded), Provider: providerFilter}, lastErr
@@ -279,7 +315,7 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 		prefer = ""
 		if regionFilter == "" {
 			regionFilter = pinRegion(regionFilter, item.Region)
-			attempts = e.attemptsFor(providerFilter, regionFilter, req.Model)
+			attempts = e.attemptsFor(providerFilter, regionFilter, req.Model, allowed)
 		}
 		if isInProcessItem(item) {
 			result, classified, err := e.chatInProcessNonStreamAttempt(ctx, item, req, i)
@@ -604,11 +640,12 @@ func (e ChatExecutor) ChatStreamProxy(ctx context.Context, req translate.ChatReq
 			regionFilter = pinRegion("", pinnedItem.Region)
 		}
 	}
-	attempts := e.attemptsFor(providerFilter, regionFilter, req.Model)
+	allowed := allowedProvidersFrom(ctx)
+	attempts := e.attemptsFor(providerFilter, regionFilter, req.Model, allowed)
 	pinned := prefer
 	startedAll := time.Now()
 	for i := 0; i < attempts; i++ {
-		item, err := e.pick(prefer, providerFilter, regionFilter, req.Model, excluded)
+		item, err := e.pick(prefer, providerFilter, regionFilter, req.Model, allowed, excluded)
 		if err != nil {
 			if lastErr != nil {
 				return StreamResult{AttemptCount: i, AccountID: lastAccountID(excluded), Provider: providerFilter}, lastErr
@@ -618,7 +655,7 @@ func (e ChatExecutor) ChatStreamProxy(ctx context.Context, req translate.ChatReq
 		prefer = ""
 		if regionFilter == "" {
 			regionFilter = pinRegion(regionFilter, item.Region)
-			attempts = e.attemptsFor(providerFilter, regionFilter, req.Model)
+			attempts = e.attemptsFor(providerFilter, regionFilter, req.Model, allowed)
 		}
 		if isInProcessItem(item) {
 			result, classified, err := e.chatInProcessStreamAttempt(ctx, item, req, i)

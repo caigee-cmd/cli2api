@@ -34,6 +34,8 @@ func TestManagementRoutesRequireAPIKey(t *testing.T) {
 		"/api/logs/requests",
 		"/api/logs/runtime",
 		"/api/system/update",
+		"/api/keys",
+		"/api/system/console-key",
 	} {
 		method := http.MethodGet
 		if path == "/api/chat" {
@@ -428,5 +430,85 @@ func TestAccountsAPIUpdatesExportsAndDeletesAccount(t *testing.T) {
 	srv.Handler().ServeHTTP(rec, req)
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("delete: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestNamedAPIKeyCannotManageConsoleOrKeys(t *testing.T) {
+	srv := New(config.Config{
+		Host: "127.0.0.1", Port: 3010, ProxyAPIKey: "secret",
+		QoderHome: t.TempDir(), DataDir: t.TempDir(),
+	})
+	defer srv.Close()
+	created, err := srv.manager.Store().CreateAPIKey(context.Background(), accounts.CreateAPIKey{
+		Name: "ci", Providers: []string{"qoder"}, Enabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/keys", nil)
+	req.Header.Set("Authorization", "Bearer "+created.Secret)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("named key GET /api/keys = %d %s", rec.Code, rec.Body.String())
+	}
+	req = httptest.NewRequest(http.MethodGet, "/api/overview", nil)
+	req.Header.Set("Authorization", "Bearer "+created.Secret)
+	rec = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("named key GET /api/overview = %d %s", rec.Code, rec.Body.String())
+	}
+	req = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	req.Header.Set("Authorization", "Bearer "+created.Secret)
+	rec = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("named key GET /v1/models = %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAPIKeysCRUDAndConsoleKeyPrefix(t *testing.T) {
+	srv := New(config.Config{
+		Host: "127.0.0.1", Port: 3010, ProxyAPIKey: "secret",
+		QoderHome: t.TempDir(), DataDir: t.TempDir(),
+	})
+	defer srv.Close()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/system/console-key", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !bytes.Contains(rec.Body.Bytes(), []byte(`"prefix"`)) {
+		t.Fatalf("console key: %d %s", rec.Code, rec.Body.String())
+	}
+
+	body := bytes.NewBufferString(`{"name":"CI","providers":["qoder"]}`)
+	req = httptest.NewRequest(http.MethodPost, "/api/keys", body)
+	req.Header.Set("Authorization", "Bearer secret")
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated || !bytes.Contains(rec.Body.Bytes(), []byte(`"secret"`)) {
+		t.Fatalf("create key: %d %s", rec.Code, rec.Body.String())
+	}
+	var created accounts.APIKey
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	req = httptest.NewRequest(http.MethodPatch, "/api/keys/"+created.ID, bytes.NewBufferString(`{"name":"CI bot"}`))
+	req.Header.Set("Authorization", "Bearer secret")
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !bytes.Contains(rec.Body.Bytes(), []byte(`"name":"CI bot"`)) {
+		t.Fatalf("patch key: %d %s", rec.Code, rec.Body.String())
+	}
+	req = httptest.NewRequest(http.MethodDelete, "/api/keys/"+created.ID, nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	rec = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("delete key: %d %s", rec.Code, rec.Body.String())
 	}
 }

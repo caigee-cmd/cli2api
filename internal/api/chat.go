@@ -163,7 +163,7 @@ func parseStreamUsageLine(line string) (streamRelayStats, bool) {
 func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"object": "list",
-		"data":   s.decorateModelsWithContext(r.Context(), s.fetchWorkerModels(false)),
+		"data":   s.decorateModelsWithContext(r.Context(), s.filterModelsForIdentity(r, s.fetchWorkerModels(false))),
 	})
 }
 
@@ -187,6 +187,24 @@ func (s *Server) resolveProviderFilter(req *translate.ChatRequest) string {
 	return "qoder"
 }
 
+func (s *Server) filterModelsForIdentity(r *http.Request, models []map[string]any) []map[string]any {
+	identity := s.requestIdentity(r)
+	if len(identity.AllowedProviders) == 0 {
+		return models
+	}
+	filtered := make([]map[string]any, 0, len(models))
+	for _, model := range models {
+		provider, _ := model["provider"].(string)
+		if provider == "" {
+			provider, _ = model["owned_by"].(string)
+		}
+		if identity.AllowsProvider(provider) {
+			filtered = append(filtered, model)
+		}
+	}
+	return filtered
+}
+
 func (s *Server) handleModelsAPI(w http.ResponseWriter, r *http.Request) {
 	refresh := r.URL.Query().Get("refresh") == "1"
 	models, err := s.fetchWorkerModelsFor(refresh, s.requestedAccount(r))
@@ -199,7 +217,7 @@ func (s *Server) handleModelsAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"object": "list",
-		"data":   s.decorateModelsWithContext(r.Context(), models),
+		"data":   s.decorateModelsWithContext(r.Context(), s.filterModelsForIdentity(r, models)),
 	})
 }
 
@@ -219,6 +237,11 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 	publicModel := req.Model
 	providerFilter := s.resolveProviderFilter(&req)
+	identity := s.requestIdentity(r)
+	if providerFilter != "" && !identity.AllowsProvider(providerFilter) {
+		writeErr(w, http.StatusForbidden, "provider_not_allowed", "This API key cannot use provider "+providerFilter)
+		return
+	}
 	if err := s.applyModelContextDefaults(r.Context(), &req, providerFilter); err != nil {
 		writeErr(w, http.StatusInternalServerError, "model_setting_failed", err.Error())
 		return
@@ -234,7 +257,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		ID: requestID, CreatedAt: started, Stream: req.Stream, Status: accounts.RequestStatusStarted,
 		RequestedModel: firstNonEmpty(publicModel, req.Model),
 	})
-	ctx := executor.WithRequestID(r.Context(), requestID)
+	ctx := executor.WithAllowedProviders(executor.WithRequestID(r.Context(), requestID), identity.AllowedProviders)
 	w.Header().Set("X-Request-Id", requestID)
 
 	if req.Stream {

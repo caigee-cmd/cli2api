@@ -12,6 +12,7 @@ import { AccountsPage } from '@/pages/AccountsPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { SystemPage } from '@/pages/SystemPage'
 import { LogsPage } from '@/pages/LogsPage'
+import { KeysPage } from '@/pages/KeysPage'
 
 export default function App() {
   return (
@@ -30,6 +31,7 @@ export default function App() {
                     <Route path="/access" element={<AccessPage />} />
                     <Route path="/accounts" element={<AccountsPage />} />
                     <Route path="/logs" element={<LogsPage />} />
+                    <Route path="/keys" element={<KeysPage />} />
                     <Route path="/system" element={<SystemPage />} />
                     <Route path="*" element={<Navigate to="/" replace />} />
                   </Route>

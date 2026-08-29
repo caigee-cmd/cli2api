@@ -19,6 +19,7 @@ import (
 
 var ErrAccountNotFound = errors.New("account not found")
 var ErrSecretNotFound = errors.New("secret not found")
+var ErrAPIKeyNotFound = errors.New("api key not found")
 
 type Account struct {
 	ID             string `json:"id"`
