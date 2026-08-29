@@ -148,12 +148,16 @@ export function AccountsPage() {
       setNoteById((current) => ({ ...current, [id]: t('wizardCallbackPh') }))
       return
     }
-    await run(id, 'callback', async () => {
+    const ok = await run(id, 'callback', async () => {
       setNoteById((current) => ({ ...current, [id]: t('wizardStartingSession') }))
       await completeLoginCallback(id, pasted)
       setCallbackById((current) => ({ ...current, [id]: '' }))
       await refresh(undefined, { silent: true })
     })
+    if (ok) {
+      setAuthPanelId((current) => (current === id ? null : current))
+      setNoteById((current) => ({ ...current, [id]: '' }))
+    }
   }
 
   async function onPat(id: string) {

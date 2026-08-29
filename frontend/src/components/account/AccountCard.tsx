@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef } from 'react'
-import { Button, Chip, Input, Tooltip } from '@heroui/react'
+import { Button, Chip, Input, TextArea, Tooltip } from '@heroui/react'
 import {
   ArrowClockwise,
   ArrowSquareOut,
@@ -245,8 +245,8 @@ export function AccountCard({
             {account.provider === 'trae' && onSubmitCallback && onCallbackChange ? (
               <div className="mt-3 space-y-2">
                 <p className="text-[11px] leading-4 text-[var(--app-faint)]">{t('wizardCallbackLead')}</p>
-                <Input
-                  className={ACCOUNT_INPUT_CLASS}
+                <TextArea
+                  className="h-24 w-full resize-none font-mono text-xs leading-5"
                   value={callbackUrl || ''}
                   onChange={(event) => onCallbackChange(event.target.value)}
                   placeholder={t('wizardCallbackPh')}
