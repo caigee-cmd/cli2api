@@ -167,6 +167,23 @@ func TestCompleteLoginAcceptsPastedCallbackURL(t *testing.T) {
 	}
 }
 
+func TestCompleteLoginIsIdempotentWhenAlreadyReady(t *testing.T) {
+	payload, _ := Credential{AccessToken: "at", RefreshToken: "rt", UID: "u1", ExpiresAt: 4102444800, MachineID: "m1", DeviceID: "d1"}.Encode()
+	store := &memStore{items: map[string][]byte{"acc1": payload}}
+	client := NewClient(store)
+	client.http = (&http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		t.Fatal("already-ready complete login must not hit upstream")
+		return nil, nil
+	})})
+	if err := client.CompleteLogin(context.Background(), "acc1", `http://127.0.0.1:9/authorize?refreshToken=rt`); err != nil {
+		t.Fatal(err)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
+
 func TestChatNonStreamAggregatesToolsAndReasoning(t *testing.T) {
 	payload, _ := Credential{AccessToken: "at", RefreshToken: "rt", UID: "u1", Domain: DomainCN, ExpiresAt: 4102444800, MachineID: "m1", DeviceID: "d1"}.Encode()
 	store := &memStore{items: map[string][]byte{"acc1": payload}}

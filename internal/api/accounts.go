@@ -257,7 +257,7 @@ func (s *Server) handleAccountByID(w http.ResponseWriter, r *http.Request) {
 			}
 			session, err := adapter.Login.StartLogin(r.Context(), accountID)
 			if err != nil {
-				writeErr(w, http.StatusBadGateway, "login_start_failed", err.Error())
+				writeErr(w, http.StatusBadRequest, "login_start_failed", err.Error())
 				return
 			}
 			writeJSON(w, http.StatusOK, map[string]any{"authUrl": session.AuthURL, "status": "pending"})
@@ -269,7 +269,7 @@ func (s *Server) handleAccountByID(w http.ResponseWriter, r *http.Request) {
 			}
 			done, message, err := adapter.Login.PollLogin(r.Context(), accountID)
 			if err != nil {
-				writeErr(w, http.StatusBadGateway, "login_poll_failed", err.Error())
+				writeErr(w, http.StatusBadRequest, "login_poll_failed", err.Error())
 				return
 			}
 			status := "pending"
@@ -296,7 +296,7 @@ func (s *Server) handleAccountByID(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if err := completer.CompleteLogin(r.Context(), accountID, input.CallbackURL); err != nil {
-				writeErr(w, http.StatusBadGateway, "login_callback_failed", err.Error())
+				writeErr(w, http.StatusBadRequest, "login_callback_failed", err.Error())
 				return
 			}
 			writeJSON(w, http.StatusOK, map[string]any{"login": map[string]any{"status": "ok", "message": "login complete"}})

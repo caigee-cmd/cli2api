@@ -170,10 +170,19 @@ func (c *Client) CompleteLogin(ctx context.Context, accountID, callbackURL strin
 	pending := c.pending[accountID]
 	c.mu.Unlock()
 	if pending != nil {
+		if pending.done {
+			c.mu.Lock()
+			delete(c.pending, accountID)
+			c.mu.Unlock()
+			return nil
+		}
 		credential.MachineID = pending.machineID
 		credential.DeviceID = pending.deviceID
 	} else if _, payload, err := c.store.LoadCredentialPayload(ctx, accountID); err == nil {
 		if decoded, err := DecodeCredential(payload); err == nil {
+			if decoded.Ready() {
+				return nil
+			}
 			credential.MachineID = decoded.MachineID
 			credential.DeviceID = decoded.DeviceID
 		}
