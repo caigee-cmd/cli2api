@@ -186,7 +186,7 @@ export function OverviewPage() {
         ))}
       </section>
 
-      <section className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,.75fr)]">
+      <section className="grid gap-5">
         <Card data-gsap-reveal className="app-panel-flat overflow-hidden rounded-lg p-0">
           <div className="flex items-center justify-between gap-3 border-b border-[var(--app-line)] px-5 py-4">
             <div>
@@ -224,7 +224,9 @@ export function OverviewPage() {
             </div>
           </div>
         </Card>
+      </section>
 
+      <section className="grid gap-5 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,.85fr)]">
         <Card data-gsap-reveal className="app-panel-flat overflow-hidden rounded-lg p-0">
           <div className="flex items-center justify-between gap-3 border-b border-[var(--app-line)] px-5 py-4">
             <div>
@@ -305,9 +307,7 @@ export function OverviewPage() {
             </span>
           </div>
         </Card>
-      </section>
 
-      <section className="grid gap-5 xl:grid-cols-2 2xl:grid-cols-[minmax(0,1.05fr)_minmax(0,.85fr)_minmax(0,.85fr)_minmax(280px,.75fr)]">
         <Card data-gsap-reveal className="app-panel-flat overflow-hidden rounded-lg p-0">
           <div className="flex items-center justify-between gap-3 border-b border-[var(--app-line)] px-5 py-4">
             <div>
@@ -327,7 +327,9 @@ export function OverviewPage() {
             }))}
           />
         </Card>
+      </section>
 
+      <section className="grid gap-5 xl:grid-cols-2 2xl:grid-cols-3">
         <Card data-gsap-reveal className="app-panel-flat overflow-hidden rounded-lg p-0">
           <div className="flex items-center justify-between gap-3 border-b border-[var(--app-line)] px-5 py-4">
             <div>
