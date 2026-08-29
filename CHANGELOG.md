@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.2.18 - 2026-08-29
+
+### English
+
 - Keep Trae pasted-callback errors as JSON instead of Cloudflare HTML, and keep Trae quota on the account card after refresh
 - Treat Trae Solo `1005` / `4008` as quota, fail stream requests before OpenAI chunks when the first Solo event is an error, and send Trae's native catalog spelling (for example `DeepSeek-V4-Flash`)
 - Show provider on Logs, Overview account pool, and account-page totals, and add Overview request share by provider family
