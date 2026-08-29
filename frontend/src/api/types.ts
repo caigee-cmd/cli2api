@@ -25,6 +25,16 @@ export type ModelInfo = {
   context_length?: number
   default_context_length?: number
   context_custom?: boolean
+  context_editable?: boolean
+  catalog_context_length?: number
+  catalog_context_length_max?: number
+  supports_max_mode?: boolean
+  max_mode?: boolean
+  max_output_tokens?: number
+  prompt_max_tokens?: number
+  reasoning_options?: string[]
+  reasoning_default?: string
+  reasoning_type?: string
 }
 
 export type Overview = {

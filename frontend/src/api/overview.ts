@@ -59,6 +59,18 @@ export function updateModelContext(modelKey: string, contextLength: number) {
   })
 }
 
+export function updateTraeMaxMode(modelKey: string, maxMode: boolean) {
+  return api<{
+    model: string
+    provider: string
+    max_mode: boolean
+    context_custom: boolean
+  }>(`/api/models/trae/${encodeURIComponent(modelKey)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ max_mode: maxMode }),
+  })
+}
+
 export function rewarmWorker(accountId?: string) {
   if (!accountId) throw new Error('account id required')
   return api(`/api/accounts/${encodeURIComponent(accountId)}/rewarm`, { method: 'POST', body: '{}' })

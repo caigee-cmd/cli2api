@@ -337,6 +337,75 @@ func (s *Store) ListModelContexts(ctx context.Context) (map[string]int, error) {
 	return result, rows.Err()
 }
 
+func providerModelKey(provider, modelID string) (string, string, error) {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	modelID = strings.TrimSpace(modelID)
+	if provider == "" || modelID == "" {
+		return "", "", fmt.Errorf("provider and model id required")
+	}
+	return provider, modelID, nil
+}
+
+func (s *Store) SetProviderModelMaxMode(ctx context.Context, provider, modelID string, maxMode bool) error {
+	provider, modelID, err := providerModelKey(provider, modelID)
+	if err != nil {
+		return err
+	}
+	if !maxMode {
+		_, err := s.db.ExecContext(ctx, `DELETE FROM provider_model_settings WHERE provider = ? AND model_id = ?`, provider, modelID)
+		if err != nil {
+			return fmt.Errorf("delete provider model setting: %w", err)
+		}
+		return nil
+	}
+	_, err = s.db.ExecContext(ctx, `
+INSERT INTO provider_model_settings (provider, model_id, max_mode, updated_at) VALUES (?, ?, 1, ?)
+ON CONFLICT(provider, model_id) DO UPDATE SET max_mode=1, updated_at=excluded.updated_at`,
+		provider, modelID, formatTime(time.Now().UTC()))
+	if err != nil {
+		return fmt.Errorf("save provider model setting: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) GetProviderModelMaxMode(ctx context.Context, provider, modelID string) (bool, error) {
+	provider, modelID, err := providerModelKey(provider, modelID)
+	if err != nil {
+		return false, err
+	}
+	var maxMode int
+	err = s.db.QueryRowContext(ctx, `SELECT max_mode FROM provider_model_settings WHERE provider = ? AND model_id = ?`, provider, modelID).Scan(&maxMode)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("get provider model setting: %w", err)
+	}
+	return maxMode != 0, nil
+}
+
+func (s *Store) ListProviderModelMaxModes(ctx context.Context, provider string) (map[string]bool, error) {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	if provider == "" {
+		return nil, fmt.Errorf("provider required")
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT model_id, max_mode FROM provider_model_settings WHERE provider = ?`, provider)
+	if err != nil {
+		return nil, fmt.Errorf("list provider model settings: %w", err)
+	}
+	defer rows.Close()
+	result := make(map[string]bool)
+	for rows.Next() {
+		var modelID string
+		var maxMode int
+		if err := rows.Scan(&modelID, &maxMode); err != nil {
+			return nil, fmt.Errorf("scan provider model setting: %w", err)
+		}
+		result[modelID] = maxMode != 0
+	}
+	return result, rows.Err()
+}
+
 func (s *Store) GetSecret(ctx context.Context, name string) (string, bool, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {

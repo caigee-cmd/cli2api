@@ -147,6 +147,36 @@ INSERT INTO model_settings (model_id, context_length, updated_at) VALUES
 	}
 }
 
+func TestProviderModelMaxModeIsIndependentOfQoderContext(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.SetModelContext(ctx, "glm-5.2", 500000); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetProviderModelMaxMode(ctx, "trae", "glm-5.2", true); err != nil {
+		t.Fatal(err)
+	}
+	got, ok, err := store.GetModelContext(ctx, "glm-5.2")
+	if err != nil || !ok || got != 500000 {
+		t.Fatalf("qoder context changed: %d %v %v", got, ok, err)
+	}
+	maxMode, err := store.GetProviderModelMaxMode(ctx, "trae", "glm-5.2")
+	if err != nil || !maxMode {
+		t.Fatalf("trae max mode=%v %v", maxMode, err)
+	}
+	if err := store.SetProviderModelMaxMode(ctx, "trae", "glm-5.2", false); err != nil {
+		t.Fatal(err)
+	}
+	maxMode, err = store.GetProviderModelMaxMode(ctx, "trae", "glm-5.2")
+	if err != nil || maxMode {
+		t.Fatalf("reset max mode=%v %v", maxMode, err)
+	}
+}
+
 func TestStoreSavesNativeCredential(t *testing.T) {
 	ctx := context.Background()
 	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))

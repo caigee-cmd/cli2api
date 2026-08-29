@@ -484,7 +484,7 @@ export function LogsPage() {
               </ButtonGroup>
               {timeRange === 'custom' ? (
                 <DateRangePicker
-                  className="w-[min(100%,22rem)]"
+                  className="w-[min(100%,42rem)]"
                   granularity="minute"
                   hourCycle={24}
                   shouldForceLeadingZeros
@@ -494,12 +494,12 @@ export function LogsPage() {
                 >
                   {({ state }) => (
                     <>
-                      <DateField.Group className="h-8 min-h-8 text-xs" variant="secondary">
-                        <DateField.Input slot="start" aria-label={t('logsTimeFrom')}>
+                      <DateField.Group className="h-8 min-h-8 w-full min-w-0 text-xs" variant="secondary">
+                        <DateField.Input className="min-w-0" slot="start" aria-label={t('logsTimeFrom')}>
                           {(segment) => <DateField.Segment segment={segment} />}
                         </DateField.Input>
                         <DateRangePicker.RangeSeparator />
-                        <DateField.Input slot="end" aria-label={t('logsTimeTo')}>
+                        <DateField.Input className="min-w-0" slot="end" aria-label={t('logsTimeTo')}>
                           {(segment) => <DateField.Segment segment={segment} />}
                         </DateField.Input>
                         <DateField.Suffix>
@@ -508,7 +508,7 @@ export function LogsPage() {
                           </DateRangePicker.Trigger>
                         </DateField.Suffix>
                       </DateField.Group>
-                      <DateRangePicker.Popover className="flex w-full flex-col gap-3">
+                      <DateRangePicker.Popover className="flex w-[20.5rem] max-w-[calc(100vw-2rem)] flex-col gap-3 p-3">
                         <RangeCalendar aria-label={t('logsTimeRange')}>
                           <RangeCalendar.Header>
                             <RangeCalendar.YearPickerTrigger>
@@ -549,7 +549,7 @@ export function LogsPage() {
                                 })
                               }
                             >
-                              <TimeField.Group variant="secondary">
+                              <TimeField.Group className="h-8 min-h-8 w-[7.5rem] text-xs" variant="secondary">
                                 <TimeField.Input>
                                   {(segment) => <TimeField.Segment segment={segment} />}
                                 </TimeField.Input>
@@ -570,7 +570,7 @@ export function LogsPage() {
                                 })
                               }
                             >
-                              <TimeField.Group variant="secondary">
+                              <TimeField.Group className="h-8 min-h-8 w-[7.5rem] text-xs" variant="secondary">
                                 <TimeField.Input>
                                   {(segment) => <TimeField.Segment segment={segment} />}
                                 </TimeField.Input>
