@@ -8,10 +8,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 ### English
 
 - Make the Overview traffic chart taller so the area/line plot is readable
+- Give the Overview traffic chart a full-width row so the series can use the console width
 
 ### 中文
 
 - 加高概览流量图，面积折线更容易看清
+- 概览流量图单独占一行，折线铺满控制台宽度
 
 ## 0.2.18 - 2026-08-29
 
