@@ -16,6 +16,7 @@ import { useOverview } from '@/hooks/useOverview'
 import {
   deleteAccount,
   exportAccount,
+  completeLoginCallback,
   fetchLoginStatus,
   loginWithPat,
   rewarmWorker,
@@ -45,6 +46,7 @@ export function AccountsPage() {
   const [addOpen, setAddOpen] = useState(false)
   const [busy, setBusy] = useState<AccountBusy | null>(null)
   const [patById, setPatById] = useState<Record<string, string>>({})
+  const [callbackById, setCallbackById] = useState<Record<string, string>>({})
   const [noteById, setNoteById] = useState<Record<string, string>>({})
   const [urlById, setUrlById] = useState<Record<string, string>>({})
   const [confirmId, setConfirmId] = useState<string | null>(null)
@@ -126,6 +128,19 @@ export function AccountsPage() {
         setNoteById((current) => ({ ...current, [id]: login.message || t('waitingQoderLogin') }))
         if (login.status === 'ok' || login.status === 'error') break
       }
+      await refresh(undefined, { silent: true })
+    })
+  }
+
+  async function onCallback(id: string) {
+    const pasted = (callbackById[id] || '').trim()
+    if (!pasted) {
+      setNoteById((current) => ({ ...current, [id]: t('wizardCallbackPh') }))
+      return
+    }
+    await run(id, 'callback', async () => {
+      await completeLoginCallback(id, pasted)
+      setCallbackById((current) => ({ ...current, [id]: '' }))
       await refresh(undefined, { silent: true })
     })
   }
@@ -332,6 +347,9 @@ export function AccountsPage() {
             pat={patById[account.id] || ''}
             t={t}
             onPatChange={(value) => setPatById((current) => ({ ...current, [account.id]: value }))}
+            callbackUrl={callbackById[account.id] || ''}
+            onCallbackChange={(value) => setCallbackById((current) => ({ ...current, [account.id]: value }))}
+            onSubmitCallback={() => void onCallback(account.id)}
             onDeviceLogin={() => void onDeviceLogin(account.id)}
             onPatLogin={() => void onPat(account.id)}
             onExport={() => void onExport(account.id)}

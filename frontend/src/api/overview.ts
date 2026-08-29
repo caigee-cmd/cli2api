@@ -19,6 +19,14 @@ export function fetchLoginStatus(accountId?: string) {
   return api<{ login?: any }>(`/api/accounts/${encodeURIComponent(accountId)}/login/status`)
 }
 
+export function completeLoginCallback(accountId: string, callbackUrl: string) {
+  if (!accountId) throw new Error('account id required')
+  return api(`/api/accounts/${encodeURIComponent(accountId)}/login/callback`, {
+    method: 'POST',
+    body: JSON.stringify({ callback_url: callbackUrl }),
+  })
+}
+
 export function loginWithPat(pat: string, accountId?: string) {
   if (!accountId) throw new Error('account id required')
   return api(`/api/accounts/${encodeURIComponent(accountId)}/login/pat`, {
