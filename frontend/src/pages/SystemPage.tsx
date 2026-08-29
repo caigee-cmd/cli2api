@@ -32,6 +32,7 @@ export function SystemPage() {
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [error, setError] = useState('')
   const [started, setStarted] = useState<StartUpdateResult | null>(null)
+  const [reloadIn, setReloadIn] = useState<number | null>(null)
 
   const load = useCallback(async (force = false, quiet = false) => {
     if (force && !quiet) setChecking(true)
@@ -55,12 +56,22 @@ export function SystemPage() {
     return () => window.clearTimeout(timer)
   }, [load])
 
-  const active = Boolean(info?.agent?.state && activeStates.has(info.agent.state)) || submitting
+  const active = Boolean(info?.agent?.state && activeStates.has(info.agent.state)) || submitting || reloadIn != null
   useEffect(() => {
-    if (!active) return
+    if (!active || reloadIn != null) return
     const timer = window.setInterval(() => void load(false, true), 2000)
     return () => window.clearInterval(timer)
-  }, [active, load])
+  }, [active, load, reloadIn])
+
+  useEffect(() => {
+    if (reloadIn == null) return
+    if (reloadIn <= 0) {
+      window.location.reload()
+      return
+    }
+    const timer = window.setTimeout(() => setReloadIn((current) => (current == null ? current : current - 1)), 1000)
+    return () => window.clearTimeout(timer)
+  }, [reloadIn])
 
   const canUpdate = Boolean(info?.managed && info?.has_update && info?.next_version && info?.agent?.available && !active)
   const agentState = info?.agent?.state || 'unavailable'
@@ -74,6 +85,7 @@ export function SystemPage() {
       const result = await startSystemUpdate()
       setStarted(result)
       setConfirmOpen(false)
+      setReloadIn(10)
       await load(false, true)
     } catch (err) {
       setSubmitting(false)
@@ -161,8 +173,9 @@ export function SystemPage() {
                 <span className="status-dot" data-state={info?.agent?.available ? 'ok' : 'danger'} />
                 {info?.agent?.available ? t('updaterReady') : t('updaterUnavailable')}
               </div>
-              <Button isDisabled={!canUpdate} isPending={submitting || active} onPress={() => setConfirmOpen(true)}>
-                <ArrowCircleUp size={16} />{active ? stateLabel : t('updateNow')}
+              <Button isDisabled={!canUpdate && reloadIn == null} isPending={submitting || active} onPress={() => setConfirmOpen(true)}>
+                <ArrowCircleUp size={16} />
+                {reloadIn != null ? t('updateReloadingIn', { seconds: reloadIn }) : active ? stateLabel : t('updateNow')}
               </Button>
             </div>
           </div>
@@ -202,8 +215,8 @@ export function SystemPage() {
         </div>
       </div>
 
-      <Modal.Root isOpen={confirmOpen} onOpenChange={(open: boolean) => { if (!open && !submitting) setConfirmOpen(false) }}>
-        <Modal.Backdrop variant="blur" isDismissable={!submitting}>
+      <Modal.Root isOpen={confirmOpen} onOpenChange={(open: boolean) => { if (!open && !submitting && reloadIn == null) setConfirmOpen(false) }}>
+        <Modal.Backdrop variant="blur" isDismissable={!submitting && reloadIn == null}>
           <Modal.Container placement="center" size="sm">
             <Modal.Dialog aria-label={t('confirmUpdate')}>
               <Modal.Header className="items-start justify-between gap-4">
@@ -214,8 +227,11 @@ export function SystemPage() {
                 <div className="mono rounded-lg border border-[var(--app-line)] bg-[var(--app-surface-muted)] px-3 py-3 text-sm">{info?.current_version} → {info?.next_version}</div>
               </Modal.Body>
               <Modal.Footer className="justify-end">
-                <Button variant="ghost" isDisabled={submitting} onPress={() => setConfirmOpen(false)}>{t('cancel')}</Button>
-                <Button isPending={submitting} onPress={() => void applyUpdate()}><ArrowCircleUp size={15} />{t('updateNow')}</Button>
+                <Button variant="ghost" isDisabled={submitting || reloadIn != null} onPress={() => setConfirmOpen(false)}>{t('cancel')}</Button>
+                <Button isPending={submitting} onPress={() => void applyUpdate()}>
+                  <ArrowCircleUp size={15} />
+                  {reloadIn != null ? t('updateReloadingIn', { seconds: reloadIn }) : t('updateNow')}
+                </Button>
               </Modal.Footer>
             </Modal.Dialog>
           </Modal.Container>
