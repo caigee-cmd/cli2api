@@ -233,6 +233,11 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
     onClose()
   }
 
+  function finishAndClose() {
+    reset()
+    onClose()
+  }
+
   function goLogin(next: TabKey) {
     if (busy || !typesReady) return
     setTab(next)
@@ -277,7 +282,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
       setPhase('done')
       setMessage(t('wizardAccountReady'))
       onAdded()
-      window.setTimeout(close, 900)
+      window.setTimeout(finishAndClose, 900)
     } catch (error) {
       setPhase('idle')
       setMessage(error instanceof Error ? error.message : String(error))
@@ -298,7 +303,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
       setPhase('done')
       setMessage(t('wizardAccountReady'))
       onAdded()
-      window.setTimeout(close, 900)
+      window.setTimeout(finishAndClose, 900)
     } catch (error) {
       setPhase('polling')
       setMessage(error instanceof Error ? error.message : String(error))
@@ -317,7 +322,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
       setPhase('done')
       setMessage(t('patDone'))
       onAdded()
-      window.setTimeout(close, 700)
+      window.setTimeout(finishAndClose, 700)
     } catch (error) {
       setPhase('idle')
       setMessage(error instanceof Error ? error.message : String(error))
@@ -363,7 +368,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
       setPhase('done')
       setMessage(t('accountImported'))
       onAdded()
-      window.setTimeout(close, 700)
+      window.setTimeout(finishAndClose, 700)
     } catch (error) {
       setPhase('idle')
       setMessage(error instanceof Error ? error.message : String(error))
@@ -615,7 +620,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                           <div className="space-y-2">
                             <p className="text-[11px] leading-4 text-[var(--app-faint)]">{t('wizardCallbackLead')}</p>
                             <TextArea
-                              className="min-h-20 font-mono text-xs"
+                              className="h-28 w-full resize-none font-mono text-xs leading-5"
                               value={callbackUrl}
                               onChange={(event) => setCallbackUrl(event.target.value)}
                               placeholder={t('wizardCallbackPh')}
