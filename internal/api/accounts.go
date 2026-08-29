@@ -278,6 +278,29 @@ func (s *Server) handleAccountByID(w http.ResponseWriter, r *http.Request) {
 			}
 			writeJSON(w, http.StatusOK, map[string]any{"login": map[string]any{"status": status, "message": message}})
 			return
+		case "login/callback":
+			if r.Method != http.MethodPost {
+				writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "POST only")
+				return
+			}
+			completer, ok := adapter.Login.(providers.LoginCompleter)
+			if !ok {
+				writeErr(w, http.StatusBadRequest, "provider_unsupported", "provider does not accept a pasted callback URL")
+				return
+			}
+			var input struct {
+				CallbackURL string `json:"callback_url"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+				writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
+				return
+			}
+			if err := completer.CompleteLogin(r.Context(), accountID, input.CallbackURL); err != nil {
+				writeErr(w, http.StatusBadGateway, "login_callback_failed", err.Error())
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"login": map[string]any{"status": "ok", "message": "login complete"}})
+			return
 		case "export":
 			if r.Method != http.MethodGet {
 				writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "GET only")

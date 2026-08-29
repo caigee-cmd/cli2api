@@ -11,6 +11,7 @@ import {
   fetchProviders,
   importAccount,
   loginWithPat,
+  completeLoginCallback,
   startDeviceLogin,
   type ProviderDescriptor,
 } from '@/api/overview'
@@ -132,6 +133,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
   const [phase, setPhase] = useState<Phase>('idle')
   const [message, setMessage] = useState('')
   const [authUrl, setAuthUrl] = useState('')
+  const [callbackUrl, setCallbackUrl] = useState('')
   const createdId = useRef<string>('')
   const pollTimer = useRef<number | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
@@ -173,6 +175,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
   const showPatTab = activeOption?.descriptor.capabilities?.pat_login !== false
   const showImportTab = activeOption?.descriptor.capabilities?.import_export !== false
   const showDropSystem = activeOption?.provider === 'workbuddy'
+  const showCallbackPaste = activeOption?.provider === 'trae'
   const busy = phase === 'busy' || phase === 'polling'
   const settingsLocked = Boolean(createdId.current) || busy
   const isDone = phase === 'done'
@@ -220,6 +223,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
     setPhase('idle')
     setMessage('')
     setAuthUrl('')
+    setCallbackUrl('')
     createdId.current = ''
   }
 
@@ -276,6 +280,27 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
       window.setTimeout(close, 900)
     } catch (error) {
       setPhase('idle')
+      setMessage(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  async function runCallback() {
+    const pasted = callbackUrl.trim()
+    if (!pasted) {
+      setMessage(t('wizardCallbackPh'))
+      return
+    }
+    try {
+      setPhase('busy')
+      const id = await ensureAccount()
+      await completeLoginCallback(id, pasted)
+      stopPolling()
+      setPhase('done')
+      setMessage(t('wizardAccountReady'))
+      onAdded()
+      window.setTimeout(close, 900)
+    } catch (error) {
+      setPhase('polling')
       setMessage(error instanceof Error ? error.message : String(error))
     }
   }
@@ -585,6 +610,22 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                         ) : null}
                         {message && !authUrl ? (
                           <p className={`rounded-lg border px-3 py-2 text-xs ${isDone ? 'border-[var(--app-ok-line)] bg-[var(--app-ok-soft)] text-[var(--app-ok-strong)]' : 'border-[var(--app-line)] bg-[var(--app-surface-muted)] text-[var(--app-muted)]'}`}>{message}</p>
+                        ) : null}
+                        {showCallbackPaste ? (
+                          <div className="space-y-2">
+                            <p className="text-[11px] leading-4 text-[var(--app-faint)]">{t('wizardCallbackLead')}</p>
+                            <TextArea
+                              className="min-h-20 font-mono text-xs"
+                              value={callbackUrl}
+                              onChange={(event) => setCallbackUrl(event.target.value)}
+                              placeholder={t('wizardCallbackPh')}
+                              aria-label={t('wizardCallbackPh')}
+                              disabled={isDone}
+                            />
+                            <Button className="w-full" variant="secondary" isPending={phase === 'busy' && Boolean(callbackUrl.trim())} onPress={() => void runCallback()} isDisabled={isDone}>
+                              {t('wizardSubmitCallback')}
+                            </Button>
+                          </div>
                         ) : null}
                         <Button className="w-full" isPending={tabPending('browser')} onPress={() => void runBrowser()}>
                           {isDone ? <><CheckCircle size={15} />{t('wizardAccountReady')}</> : <><ShieldCheck size={15} />{t('wizardStartBrowser')}</>}
