@@ -7,7 +7,11 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Replace native Logs and Models filter dropdowns with compact HeroUI Select controls that match the 32px toolbar
+
 ### 中文
+
+- Logs 和模型页的筛选下拉改用紧凑 HeroUI Select，高度对齐 32px 工具栏
 
 ## 0.2.20 - 2026-08-29
 
