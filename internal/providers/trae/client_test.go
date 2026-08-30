@@ -188,6 +188,12 @@ func TestChatNonStreamAggregatesToolsAndReasoning(t *testing.T) {
 	payload, _ := Credential{AccessToken: "at", RefreshToken: "rt", UID: "u1", Domain: DomainCN, ExpiresAt: 4102444800, MachineID: "m1", DeviceID: "d1"}.Encode()
 	store := &memStore{items: map[string][]byte{"acc1": payload}}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == pathModels {
+			_ = json.NewEncoder(w).Encode(map[string]any{"config_info_list": []map[string]any{{
+				"config_name": "glm-5.2", "display_config": map[string]any{"display_name": "GLM-5.2"},
+			}}})
+			return
+		}
 		if r.URL.Path != pathChat {
 			t.Fatalf("path=%s", r.URL.Path)
 		}
@@ -226,6 +232,12 @@ func TestChatStreamRewritesOpenAIChunks(t *testing.T) {
 	payload, _ := Credential{AccessToken: "at", RefreshToken: "rt", UID: "u1", ExpiresAt: 4102444800}.Encode()
 	store := &memStore{items: map[string][]byte{"acc1": payload}}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == pathModels {
+			_ = json.NewEncoder(w).Encode(map[string]any{"config_info_list": []map[string]any{{
+				"config_name": "glm-5.2", "display_config": map[string]any{"display_name": "GLM-5.2"},
+			}}})
+			return
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = w.Write([]byte(soloSSE))
 	}))
@@ -252,6 +264,12 @@ func TestChatStreamFirstErrorFailsBeforeOpenAIChunks(t *testing.T) {
 	payload, _ := Credential{AccessToken: "at", RefreshToken: "rt", UID: "u1", ExpiresAt: 4102444800}.Encode()
 	store := &memStore{items: map[string][]byte{"acc1": payload}}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == pathModels {
+			_ = json.NewEncoder(w).Encode(map[string]any{"config_info_list": []map[string]any{{
+				"config_name": "Doubao-Seed-Evolving", "display_config": map[string]any{"display_name": "Seed-Evolving"},
+			}}})
+			return
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = w.Write([]byte("event: metadata\ndata: {\"model\":\"Doubao-Seed-Evolving\"}\n\nevent: error\ndata: {\"code\":1005,\"message\":\"\"}\n\n"))
 	}))

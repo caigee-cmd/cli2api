@@ -152,6 +152,8 @@ CREATE TABLE IF NOT EXISTS api_keys (
 );
 CREATE INDEX IF NOT EXISTS api_keys_hash ON api_keys(key_hash);
 CREATE INDEX IF NOT EXISTS api_keys_created_at ON api_keys(created_at DESC);`},
+	{filename: "009_provider_model_reasoning.sql", sql: `
+ALTER TABLE provider_model_settings ADD COLUMN reasoning_effort TEXT NOT NULL DEFAULT '';`},
 }
 
 const schemaMigrationsDDL = `

@@ -48,8 +48,8 @@ export function ModelDetailsModal({ model, t, onClose }: Props) {
                 {options.length ? (
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {options.map((level) => (
-                      <Chip key={level} size="sm" variant="soft" color={level === model.reasoning_default ? 'success' : 'default'}>
-                        {level}{level === model.reasoning_default ? ` · ${t('defaultValue')}` : ''}
+                      <Chip key={level} size="sm" variant="soft" color={level === (model.reasoning_effort || model.reasoning_default) ? 'success' : 'default'}>
+                        {level}{level === model.reasoning_default ? ` · ${t('defaultValue')}` : ''}{level === model.reasoning_effort && level !== model.reasoning_default ? ` · ${t('custom')}` : ''}
                       </Chip>
                     ))}
                   </div>

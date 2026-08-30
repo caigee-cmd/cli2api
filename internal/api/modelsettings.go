@@ -68,7 +68,7 @@ func asInt(value any) (int, bool) {
 	}
 }
 
-func (s *Server) decorateTraeContext(ctx context.Context, item map[string]any, settingsKey string) {
+func (s *Server) decorateProviderSettings(ctx context.Context, item map[string]any, provider, settingsKey string) {
 	dev, _ := asInt(item["catalog_context_length"])
 	max, _ := asInt(item["catalog_context_length_max"])
 	supportsMax, _ := item["supports_max_mode"].(bool)
@@ -76,22 +76,26 @@ func (s *Server) decorateTraeContext(ctx context.Context, item map[string]any, s
 		supportsMax = true
 		item["supports_max_mode"] = true
 	}
-	maxMode := false
-	if s.manager != nil {
-		if stored, err := s.manager.Store().GetProviderModelMaxMode(ctx, "trae", settingsKey); err == nil {
-			maxMode = stored
-		}
-	}
-	item["max_mode"] = maxMode && supportsMax
-	item["context_custom"] = maxMode && supportsMax
+	setting, _ := s.manager.Store().GetProviderModelSetting(ctx, provider, settingsKey)
+	maxMode := setting.MaxMode && supportsMax && provider == "trae"
+	item["max_mode"] = maxMode
 	window := dev
-	if maxMode && supportsMax && max > 0 {
+	if maxMode && max > 0 {
 		window = max
 	}
 	if window > 0 {
 		item["context_length"] = window
 		item["default_context_length"] = dev
 	}
+	defaultLevel, _ := item["reasoning_default"].(string)
+	selected := defaultLevel
+	if setting.ReasoningEffort != "" {
+		selected = setting.ReasoningEffort
+	}
+	if selected != "" {
+		item["reasoning_effort"] = selected
+	}
+	item["context_custom"] = maxMode || (setting.ReasoningEffort != "" && setting.ReasoningEffort != defaultLevel)
 }
 
 func (s *Server) decorateModelsWithContext(ctx context.Context, models []map[string]any) []map[string]any {
@@ -117,9 +121,10 @@ func (s *Server) decorateModelsWithContext(ctx context.Context, models []map[str
 		if catalogWindow, ok := asInt(item["catalog_context_length"]); ok && catalogWindow > 0 {
 			item["catalog_context_length"] = catalogWindow
 		}
-		if provider == "trae" {
-			s.decorateTraeContext(ctx, item, settingsKey)
-		} else if provider != "workbuddy" {
+		switch provider {
+		case "trae", "workbuddy":
+			s.decorateProviderSettings(ctx, item, provider, settingsKey)
+		default:
 			defaultValue := defaultContextForModel(settingsKey)
 			value, custom := settings[settingsKey]
 			if !custom {
@@ -128,10 +133,6 @@ func (s *Server) decorateModelsWithContext(ctx context.Context, models []map[str
 			item["context_length"] = value
 			item["default_context_length"] = defaultValue
 			item["context_custom"] = custom
-		} else if catalogWindow, ok := asInt(item["catalog_context_length"]); ok {
-			item["context_length"] = catalogWindow
-			item["default_context_length"] = catalogWindow
-			item["context_custom"] = false
 		}
 		decorated = append(decorated, item)
 	}
@@ -157,12 +158,8 @@ func (s *Server) handleModelSetting(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid_model", "model id required")
 		return
 	}
-	if provider == "trae" {
-		s.handleTraeModelSetting(w, r, modelKey)
-		return
-	}
-	if provider == "workbuddy" {
-		writeErr(w, http.StatusBadRequest, "model_setting_failed", "workbuddy context window is catalog-defined")
+	if provider == "trae" || provider == "workbuddy" {
+		s.handleProviderModelSetting(w, r, provider, modelKey)
 		return
 	}
 	switch r.Method {
@@ -206,35 +203,55 @@ func (s *Server) handleModelSetting(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handleTraeModelSetting(w http.ResponseWriter, r *http.Request, modelKey string) {
+func (s *Server) handleProviderModelSetting(w http.ResponseWriter, r *http.Request, provider, modelKey string) {
 	switch r.Method {
 	case http.MethodGet:
-		maxMode, err := s.manager.Store().GetProviderModelMaxMode(r.Context(), "trae", modelKey)
+		setting, err := s.manager.Store().GetProviderModelSetting(r.Context(), provider, modelKey)
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, "model_setting_failed", err.Error())
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
-			"model": modelKey, "provider": "trae", "max_mode": maxMode, "context_custom": maxMode,
+			"model": modelKey, "provider": provider,
+			"max_mode": setting.MaxMode, "reasoning_effort": setting.ReasoningEffort,
+			"context_custom": setting.MaxMode || setting.ReasoningEffort != "",
 		})
 	case http.MethodPatch:
 		var input struct {
-			MaxMode *bool `json:"max_mode"`
+			MaxMode         *bool   `json:"max_mode"`
+			ReasoningEffort *string `json:"reasoning_effort"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 			writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
 			return
 		}
-		if input.MaxMode == nil {
-			writeErr(w, http.StatusBadRequest, "invalid_request", "max_mode required")
+		if input.MaxMode == nil && input.ReasoningEffort == nil {
+			writeErr(w, http.StatusBadRequest, "invalid_request", "max_mode or reasoning_effort required")
 			return
 		}
-		if err := s.manager.Store().SetProviderModelMaxMode(r.Context(), "trae", modelKey, *input.MaxMode); err != nil {
+		if provider == "workbuddy" && input.MaxMode != nil {
+			writeErr(w, http.StatusBadRequest, "invalid_request", "workbuddy has no max-mode switch")
+			return
+		}
+		setting, err := s.manager.Store().GetProviderModelSetting(r.Context(), provider, modelKey)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, "model_setting_failed", err.Error())
+			return
+		}
+		if input.MaxMode != nil {
+			setting.MaxMode = *input.MaxMode
+		}
+		if input.ReasoningEffort != nil {
+			setting.ReasoningEffort = strings.TrimSpace(*input.ReasoningEffort)
+		}
+		if err := s.manager.Store().SetProviderModelSetting(r.Context(), provider, modelKey, setting); err != nil {
 			writeErr(w, http.StatusBadRequest, "model_setting_failed", err.Error())
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
-			"model": modelKey, "provider": "trae", "max_mode": *input.MaxMode, "context_custom": *input.MaxMode,
+			"model": modelKey, "provider": provider,
+			"max_mode": setting.MaxMode, "reasoning_effort": setting.ReasoningEffort,
+			"context_custom": setting.MaxMode || setting.ReasoningEffort != "",
 		})
 	default:
 		writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "GET or PATCH only")

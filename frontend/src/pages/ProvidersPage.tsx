@@ -3,7 +3,7 @@ import { Button, Card, Chip, Input, Table } from '@heroui/react'
 import { Cube, ArrowClockwise, ArrowCounterClockwise, FloppyDisk, MagnifyingGlass, Info } from '@phosphor-icons/react'
 import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
-import { refreshModels, updateModelContext, updateTraeMaxMode } from '@/api/overview'
+import { refreshModels, updateModelContext, updateProviderReasoning, updateTraeMaxMode } from '@/api/overview'
 import type { Overview } from '@/api/types'
 import { ProviderMark } from '@/components/ProviderMark'
 import { ModelDetailsModal, formatTokens } from '@/components/ModelDetailsModal'
@@ -33,6 +33,12 @@ function modelRowKey(model: ModelInfo) {
 function routedModelName(model: ModelInfo) {
   const routeName = model.route_display_name || ''
   return routeName && routeName !== (model.display_name || model.id) ? routeName : ''
+}
+
+function reasoningLabel(t: (key: string, vars?: Record<string, string | number>) => string, level: string) {
+  const key = `reasoningLevel_${level}`
+  const label = t(key)
+  return label === key ? level : label
 }
 
 export function ProvidersPage() {
@@ -109,11 +115,26 @@ export function ProvidersPage() {
       if (modelSettingsKey(item) !== key || modelProvider(item) !== 'trae') return item
       const dev = item.catalog_context_length || item.default_context_length || item.context_length
       const max = item.catalog_context_length_max
+      const effort = item.reasoning_effort || item.reasoning_default || ''
       return {
         ...item,
         max_mode: maxMode,
-        context_custom: maxMode,
+        context_custom: maxMode || Boolean(effort && effort !== item.reasoning_default),
         context_length: maxMode && max ? max : dev,
+      }
+    })
+    setOverview({ ...(overview || {}), models: nextModels })
+  }
+
+  function updateReasoningInOverview(model: ModelInfo, effort: string) {
+    const key = modelSettingsKey(model)
+    const provider = modelProvider(model)
+    const nextModels = models.map((item) => {
+      if (modelSettingsKey(item) !== key || modelProvider(item) !== provider) return item
+      return {
+        ...item,
+        reasoning_effort: effort,
+        context_custom: Boolean(item.max_mode) || Boolean(effort && effort !== item.reasoning_default),
       }
     })
     setOverview({ ...(overview || {}), models: nextModels })
@@ -149,6 +170,25 @@ export function ProvidersPage() {
       const result = await updateModelContext(key, value)
       updateModelInOverview(model, result)
       setMessage(t('contextSaved', { model: model.id }))
+    } catch (error) {
+      setMessageError(true)
+      setMessage(error instanceof Error ? error.message : String(error))
+    } finally {
+      setSavingKey('')
+    }
+  }
+
+  async function onReasoningChange(model: ModelInfo, effort: string) {
+    const provider = modelProvider(model)
+    if (provider !== 'trae' && provider !== 'workbuddy') return
+    const key = modelSettingsKey(model)
+    setSavingKey(key)
+    setMessage('')
+    setMessageError(false)
+    try {
+      await updateProviderReasoning(provider, key, effort)
+      updateReasoningInOverview(model, effort)
+      setMessage(t('reasoningSaved', { model: model.id, level: reasoningLabel(t, effort) }))
     } catch (error) {
       setMessageError(true)
       setMessage(error instanceof Error ? error.message : String(error))
@@ -297,10 +337,10 @@ export function ProvidersPage() {
                               />
                               <span className="mono text-[10px] text-muted">tokens</span>
                             </div>
-                          ) : provider === 'trae' ? (
-                            <div className="flex min-w-52 items-center gap-3">
+                          ) : (
+                            <div className="flex min-w-64 flex-wrap items-center gap-3">
                               <span className="mono text-xs text-muted">{formatTokens(model.catalog_context_length || model.context_length)}</span>
-                              {model.supports_max_mode ? (
+                              {provider === 'trae' && model.supports_max_mode ? (
                                 <div className="flex items-center gap-2">
                                   <CompactSwitch
                                     isSelected={Boolean(model.max_mode)}
@@ -310,12 +350,23 @@ export function ProvidersPage() {
                                   />
                                   <span className="text-[11px] text-muted">{t('maxMode')}{model.catalog_context_length_max ? ` ${formatTokens(model.catalog_context_length_max)}` : ''}</span>
                                 </div>
-                              ) : (
+                              ) : null}
+                              {(model.reasoning_options || []).length > 1 ? (
+                                <FilterSelect
+                                  className="min-w-28"
+                                  ariaLabel={`${model.id} ${t('reasoningLevels')}`}
+                                  value={model.reasoning_effort || model.reasoning_default || model.reasoning_options?.[0] || ''}
+                                  onChange={(next) => { if (next) void onReasoningChange(model, next) }}
+                                  options={(model.reasoning_options || []).map((level) => ({ id: level, label: reasoningLabel(t, level) }))}
+                                />
+                              ) : (model.reasoning_options || []).length === 1 ? (
+                                <span className="text-[11px] text-muted">{reasoningLabel(t, model.reasoning_options![0])}</span>
+                              ) : model.reasoning_type ? (
+                                <span className="text-[11px] text-muted">{t('reasoningFixed', { type: model.reasoning_type })}</span>
+                              ) : provider === 'trae' && !model.supports_max_mode ? (
                                 <span className="text-[11px] text-muted">{t('catalogWindow')}</span>
-                              )}
+                              ) : null}
                             </div>
-                          ) : (
-                            <span className="mono text-xs text-muted">{formatTokens(model.catalog_context_length || model.context_length)}</span>
                           )}
                         </Table.Cell>
                         <Table.Cell>
