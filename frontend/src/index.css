@@ -35,6 +35,28 @@ body {
   color: var(--foreground);
 }
 
+/* HeroUI 3.2.4 Tabs.Indicator crashes (SharedElementTransition). Selected
+   tabs and pagination current-page otherwise stay unfilled / gray. Glue both
+   to accent-soft so selection matches ToggleButton / Switch / Radio. */
+.tabs__tab[data-selected="true"] {
+  background: var(--accent-soft);
+  color: var(--accent-soft-foreground);
+  box-shadow: none;
+}
+
+.pagination__link[data-active="true"] {
+  --pagination-link-bg: var(--accent-soft);
+  --pagination-link-bg-hover: var(--accent-soft-hover);
+  --pagination-link-bg-pressed: var(--accent-soft-hover);
+  --pagination-link-fg: var(--accent-soft-foreground);
+}
+
+/* HeroUI default skeleton sits on surface-tertiary/70 and disappears on
+   white cards. Keep the shimmer, raise the fill so loading is visible. */
+.skeleton {
+  background: color-mix(in oklab, var(--foreground) 10%, var(--surface));
+}
+
 .mono {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;

@@ -108,7 +108,7 @@ export function SystemPage() {
   }
 
   if (loading && !info) {
-    return <div className="space-y-5"><Skeleton className="h-24 rounded-lg" /><Skeleton className="h-72 rounded-lg" /></div>
+    return <div className="space-y-5"><Skeleton className="h-24 rounded-3xl" /><Skeleton className="h-72 rounded-3xl" /></div>
   }
 
   return (
@@ -195,7 +195,7 @@ export function SystemPage() {
           <Card data-gsap-reveal>
             <div className="flex items-start justify-between gap-4">
               <div className="flex items-start gap-3">
-                <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-foreground text-background"><Database size={15} /></div>
+                <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-surface-secondary text-foreground"><Database size={15} /></div>
                 <div>
                   <h3 className="font-semibold">{t('sqliteProtection')}</h3>
                   <p className="mt-1 text-xs leading-5 text-muted">{t('sqliteProtectionHint')}</p>
@@ -215,7 +215,7 @@ export function SystemPage() {
           <Card data-gsap-reveal>
             <div className="flex items-start justify-between gap-4">
               <div className="flex items-start gap-3">
-                <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-foreground text-background"><Key size={15} /></div>
+                <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-surface-secondary text-foreground"><Key size={15} /></div>
                 <div>
                   <h3 className="font-semibold">{t('consoleKeyTitle')}</h3>
                   <p className="mt-1 text-xs leading-5 text-muted">{t('consoleKeyHint')}</p>

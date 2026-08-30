@@ -1,7 +1,7 @@
 import { Skeleton } from '@heroui/react'
 
 function SkeletonBlock({ className }: { className: string }) {
-  return <Skeleton className={`rounded-xl ${className}`} />
+  return <Skeleton className={`rounded-lg ${className}`} />
 }
 
 export function OverviewPageSkeleton() {

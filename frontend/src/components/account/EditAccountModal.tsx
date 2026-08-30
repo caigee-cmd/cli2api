@@ -54,7 +54,7 @@ export function EditAccountModal({ account, busy, t, onClose, onSave }: Props) {
           <Modal.Dialog className="sm:min-w-[32rem]">
             <Modal.Header className="items-start justify-between gap-4 px-6 pt-6">
               <div className="min-w-0">
-                <Modal.Heading className="text-lg font-semibold tracking-[-0.02em]">{title}</Modal.Heading>
+                <Modal.Heading className="text-lg font-semibold tracking-[-0.015em]">{title}</Modal.Heading>
                 <p className="mt-1.5 text-sm font-normal leading-6 text-muted">{t('editAccountHint')}</p>
                 {account ? (
                   <div className="mt-3 flex flex-wrap items-center gap-2">

@@ -62,11 +62,11 @@ function AccountTypeSkeleton({ ariaLabel }: { ariaLabel: string }) {
   return (
     <div className="grid grid-cols-1 gap-2 sm:grid-cols-2" aria-busy="true" aria-label={ariaLabel}>
       {Array.from({ length: 4 }, (_, index) => (
-        <div key={index} className="flex items-start gap-2.5 rounded-lg border border-separator px-3.5 py-3">
-          <Skeleton className="mt-0.5 size-[18px] shrink-0 rounded-md" />
+        <div key={index} className="flex items-start gap-2.5 rounded-xl border border-separator px-3.5 py-3">
+          <Skeleton className="mt-0.5 size-[18px] shrink-0 rounded-lg" />
           <div className="min-w-0 flex-1 space-y-1.5">
-            <Skeleton className="h-4 w-28 rounded-md" />
-            <Skeleton className="h-3 w-full rounded-md" />
+            <Skeleton className="h-4 w-28 rounded-lg" />
+            <Skeleton className="h-3 w-full rounded-lg" />
           </div>
         </div>
       ))}
@@ -450,7 +450,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                         }}
                       >
                         <Label className="text-sm font-medium text-muted">{t('accountType')}</Label>
-                        <Select.Trigger className="h-10 min-h-10 items-center">
+                        <Select.Trigger className="items-center">
                           <Select.Value className="min-w-0 truncate">
                             {({ defaultChildren, isPlaceholder }) => {
                               const selected = typeOptions.find((option) => option.value === accountType)
@@ -465,10 +465,10 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                           </Select.Value>
                           <Select.Indicator />
                         </Select.Trigger>
-                        <Select.Popover className="max-h-72 rounded-lg">
+                        <Select.Popover className="max-h-72">
                           <ListBox>
                             {typeOptions.map((option) => (
-                              <ListBox.Item key={option.value} id={option.value} textValue={option.label} className="rounded-lg">
+                              <ListBox.Item key={option.value} id={option.value} textValue={option.label}>
                                 <span className="grid size-5 shrink-0 place-items-center">{option.icon}</span>
                                 <div className="min-w-0 flex-1">
                                   <Label className="block truncate">{option.label}</Label>
@@ -614,7 +614,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                           </div>
                         ) : null}
                         {message && !authUrl ? (
-                          <p className={`rounded-xl border px-3 py-2 text-xs ${isDone ? 'border-success bg-success-soft text-success' : 'border-separator bg-surface-secondary text-muted'}`}>{message}</p>
+                          <p className={`rounded-lg border px-3 py-2 text-xs ${isDone ? 'border-success bg-success-soft text-success' : 'border-separator bg-surface-secondary text-muted'}`}>{message}</p>
                         ) : null}
                         {showCallbackPaste ? (
                           <div className="space-y-2">
@@ -640,7 +640,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                       <>
                         <Input type="password" value={pat} onChange={(event) => setPat(event.target.value)} placeholder={t('wizardPatPh')} aria-label={t('wizardPatPh')} disabled={busy} />
                         {message ? (
-                          <p className={`rounded-xl border px-3 py-2 text-xs ${isDone ? 'border-success bg-success-soft text-success' : 'border-separator bg-surface-secondary text-muted'}`}>{message}</p>
+                          <p className={`rounded-lg border px-3 py-2 text-xs ${isDone ? 'border-success bg-success-soft text-success' : 'border-separator bg-surface-secondary text-muted'}`}>{message}</p>
                         ) : null}
                         <Button className="w-full" isPending={tabPending('pat')} onPress={() => void runPat()}>
                           {isDone ? <><CheckCircle size={15} />{t('patDone')}</> : <><Key size={15} />{t('wizardCreateAndLogin')}</>}
@@ -655,7 +655,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                         </div>
                         <TextArea className="min-h-32 font-mono text-xs" value={json} onChange={(event) => setJson(event.target.value)} placeholder={t('wizardImportPh')} aria-label={t('tabImport')} disabled={busy} />
                         {message ? (
-                          <p className={`rounded-xl border px-3 py-2 text-xs ${isDone ? 'border-success bg-success-soft text-success' : 'border-separator bg-surface-secondary text-muted'}`}>{message}</p>
+                          <p className={`rounded-lg border px-3 py-2 text-xs ${isDone ? 'border-success bg-success-soft text-success' : 'border-separator bg-surface-secondary text-muted'}`}>{message}</p>
                         ) : null}
                         <Button className="w-full" isPending={tabPending('import')} onPress={() => void runImport()}>
                           {isDone ? <><CheckCircle size={15} />{t('accountImported')}</> : <><FileCode size={15} />{t('importCredential')}</>}

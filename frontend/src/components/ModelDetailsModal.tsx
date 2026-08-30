@@ -29,10 +29,10 @@ export function ModelDetailsModal({ model, t, onClose }: Props) {
           <Modal.Dialog>
             <Modal.Header className="items-start justify-between gap-4 px-5 pt-5">
               <div>
-                <div className="text-base font-semibold tracking-tight">{model.display_name || model.id}</div>
+                <div className="text-base font-semibold tracking-[-0.015em]">{model.display_name || model.id}</div>
                 <div className="mono mt-1 text-[11px] text-muted">{model.id}</div>
               </div>
-              <Modal.CloseTrigger aria-label={t('close')} className="grid size-8 place-items-center rounded-md text-muted hover:bg-surface-secondary">
+              <Modal.CloseTrigger aria-label={t('close')} className="grid size-8 place-items-center rounded-lg text-muted hover:bg-surface-secondary">
                 <X size={16} />
               </Modal.CloseTrigger>
             </Modal.Header>

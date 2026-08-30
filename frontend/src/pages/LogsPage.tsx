@@ -358,9 +358,12 @@ export function LogsPage() {
       <Tabs selectedKey={tab} onSelectionChange={(key) => setTab(String(key) as PageTab)}>
         <Tabs.ListContainer className="max-w-md">
           <Tabs.List>
-            <Tab id="requests"><Scroll size={13} />{t('logsRequests')}</Tab>
-            <Tab id="runtime"><TerminalWindow size={13} />{t('logsRuntime')}</Tab>
-            <Tabs.Indicator />
+            <Tab id="requests" className="gap-1.5">
+              <Scroll size={13} />{t('logsRequests')}
+            </Tab>
+            <Tab id="runtime" className="gap-1.5">
+              <TerminalWindow size={13} />{t('logsRuntime')}
+            </Tab>
           </Tabs.List>
         </Tabs.ListContainer>
 
@@ -467,7 +470,7 @@ export function LogsPage() {
                 >
                   {({ state }) => (
                     <>
-                      <DateField.Group className="h-8 min-h-8 w-full min-w-0 text-xs" variant="secondary">
+                      <DateField.Group className="w-full min-w-0" variant="secondary">
                         <DateField.Input className="min-w-0" slot="start" aria-label={t('logsTimeFrom')}>
                           {(segment) => <DateField.Segment segment={segment} />}
                         </DateField.Input>
@@ -522,7 +525,7 @@ export function LogsPage() {
                                 })
                               }
                             >
-                              <TimeField.Group className="h-8 min-h-8 w-[7.5rem] text-xs" variant="secondary">
+                              <TimeField.Group className="w-[7.5rem]" variant="secondary">
                                 <TimeField.Input>
                                   {(segment) => <TimeField.Segment segment={segment} />}
                                 </TimeField.Input>
@@ -543,7 +546,7 @@ export function LogsPage() {
                                 })
                               }
                             >
-                              <TimeField.Group className="h-8 min-h-8 w-[7.5rem] text-xs" variant="secondary">
+                              <TimeField.Group className="w-[7.5rem]" variant="secondary">
                                 <TimeField.Input>
                                   {(segment) => <TimeField.Segment segment={segment} />}
                                 </TimeField.Input>

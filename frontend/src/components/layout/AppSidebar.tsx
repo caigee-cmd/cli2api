@@ -86,7 +86,7 @@ function NavList({ collapsed, onNavigate }: { collapsed: boolean; onNavigate?: (
                   <>
                     <span className="inline-flex shrink-0" data-nav-icon><Icon size={18} weight={isActive ? 'fill' : 'regular'} /></span>
                     {!collapsed && <span className="truncate" data-nav-label>{t(item.key)}</span>}
-                    {collapsed && <span className="pointer-events-none absolute left-full z-50 ml-2 invisible whitespace-nowrap rounded-md bg-foreground px-2 py-1 text-xs font-medium text-background opacity-0 shadow-overlay transition-opacity duration-150 group-hover/navitem:visible group-hover/navitem:opacity-100">{t(item.key)}</span>}
+                    {collapsed && <span className="pointer-events-none absolute left-full z-50 ml-2 invisible whitespace-nowrap rounded-lg bg-foreground px-2 py-1 text-xs font-medium text-background opacity-0 shadow-overlay transition-opacity duration-150 group-hover/navitem:visible group-hover/navitem:opacity-100">{t(item.key)}</span>}
                   </>
                 )}
               </NavLink>
@@ -103,7 +103,7 @@ function Brand({ compact = false }: { compact?: boolean }) {
   return (
     <div className={`flex items-center gap-3 ${compact ? 'justify-center' : 'px-2'}`}>
       <BrandMark size={32} />
-      {!compact && <div><div className="text-[14px] font-semibold tracking-[-0.02em]">CLI2API</div><div className="text-[11px] text-muted">{t('controlPlane')}</div></div>}
+      {!compact && <div><div className="text-[14px] font-semibold tracking-[-0.015em]">CLI2API</div><div className="text-[11px] text-muted">{t('controlPlane')}</div></div>}
     </div>
   )
 }

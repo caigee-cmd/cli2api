@@ -62,7 +62,7 @@ function PlaygroundSelect({
       }}
     >
       <Label className="text-sm font-medium text-muted">{label}</Label>
-      <Select.Trigger className="h-10 min-h-10 items-center">
+      <Select.Trigger className="items-center">
         <Select.Value className="min-w-0 truncate">
           {({ defaultChildren, isPlaceholder }) => {
             if (isPlaceholder || !selected) return defaultChildren
@@ -76,10 +76,10 @@ function PlaygroundSelect({
         </Select.Value>
         <Select.Indicator />
       </Select.Trigger>
-      <Select.Popover className="max-h-72 rounded-lg">
+      <Select.Popover className="max-h-72">
         <ListBox>
           {options.map((option) => (
-            <ListBox.Item key={option.id} id={option.id} textValue={option.textValue} className="rounded-lg">
+            <ListBox.Item key={option.id} id={option.id} textValue={option.textValue}>
               {option.icon ? <span className="grid size-5 shrink-0 place-items-center">{option.icon}</span> : null}
               <div className="min-w-0 flex-1">
                 <Label className="block truncate">{option.label}</Label>
@@ -200,7 +200,7 @@ export function AccessPage() {
         </div>
       </section>
 
-      <section data-gsap-reveal className="grid overflow-hidden rounded-lg border border-separator bg-surface sm:grid-cols-3">
+      <section data-gsap-reveal className="grid overflow-hidden rounded-3xl border border-border bg-surface sm:grid-cols-3">
         <div className="min-w-0 border-b border-separator p-4 sm:col-span-2 sm:border-r sm:border-b-0 sm:p-5">
           <div className="mb-2 flex items-center justify-between gap-3">
             <span className="text-xs font-medium text-muted">{t('baseUrl')}</span>
@@ -227,7 +227,7 @@ export function AccessPage() {
           <div className="border-b border-separator xl:border-r xl:border-b-0">
             <div className="border-b border-separator px-5 py-5 sm:px-7">
               <div className="flex items-center gap-3">
-                <div className="grid size-8 place-items-center rounded-lg bg-foreground text-background">
+                <div className="grid size-8 place-items-center rounded-lg bg-surface-secondary text-foreground">
                   <PaperPlaneTilt size={15} weight="bold" />
                 </div>
                 <div>

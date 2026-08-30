@@ -44,7 +44,7 @@ export function OptionTiles<T extends string>({
           key={option.value}
           value={option.value}
           isDisabled={option.disabled}
-          className="rounded-xl border border-border bg-surface-secondary p-3 data-selected:border-accent data-selected:bg-surface"
+          className="rounded-xl border border-border bg-surface-secondary p-3 data-selected:border-accent data-selected:bg-accent-soft"
         >
           <Radio.Content className="w-full items-start">
             {option.icon ? <span className="mt-0.5 shrink-0">{option.icon}</span> : null}

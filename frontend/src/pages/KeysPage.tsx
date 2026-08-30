@@ -130,7 +130,7 @@ export function KeysPage() {
             <Card key={key.id} className="overflow-hidden p-0">
               <Card.Header className="flex-row items-start justify-between gap-3 px-3 pt-3 pb-2.5">
                 <div className="min-w-0">
-                  <Card.Title className="truncate text-sm tracking-[-0.02em]">{key.name}</Card.Title>
+                  <Card.Title className="truncate text-sm tracking-[-0.015em]">{key.name}</Card.Title>
                   <Card.Description className="mono mt-1 truncate">{key.prefix}</Card.Description>
                 </div>
                 <Chip size="sm" variant="soft" color={key.enabled ? 'success' : 'default'}>
@@ -306,7 +306,7 @@ function KeyEditorModal({
             <Form onSubmit={submit}>
               <Modal.Header className="items-start justify-between gap-4 px-6 pt-6">
                 <div>
-                  <Modal.Heading className="text-lg font-semibold tracking-[-0.02em]">{title}</Modal.Heading>
+                  <Modal.Heading className="text-lg font-semibold tracking-[-0.015em]">{title}</Modal.Heading>
                   <p className="mt-1.5 text-sm leading-6 text-muted">{hint}</p>
                 </div>
                 <Modal.CloseTrigger isDisabled={busy} aria-label={t('close')} className="grid size-9 place-items-center rounded-lg text-muted hover:bg-surface-secondary"><X size={18} /></Modal.CloseTrigger>
@@ -329,7 +329,7 @@ function KeyEditorModal({
                     {providers.map((id) => {
                       const checked = selected.includes(id)
                       return (
-                        <Checkbox key={id} isSelected={checked} onChange={() => toggle(id)} className="rounded-lg border border-separator px-3 py-2.5">
+                        <Checkbox key={id} isSelected={checked} onChange={() => toggle(id)} className="rounded-xl border border-separator px-3 py-2.5 data-selected:border-accent data-selected:bg-accent-soft">
                           <Checkbox.Content className="flex items-center gap-2.5">
                             <Checkbox.Control>
                               <Checkbox.Indicator />
