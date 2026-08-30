@@ -634,7 +634,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                           </div>
                         ) : null}
                         {message && !authUrl ? (
-                          <p className={`rounded-lg border px-3 py-2 text-xs ${isDone ? 'border-success bg-success-soft text-success' : 'border-separator bg-surface-secondary text-muted'}`}>{message}</p>
+                          <p className="flex items-center gap-2 rounded-lg border border-separator bg-surface-secondary px-3 py-2 text-xs">{isDone ? <CheckCircle size={14} className="shrink-0 text-success" /> : null}<span className={isDone ? 'font-medium text-foreground' : 'text-muted'}>{message}</span></p>
                         ) : null}
                         {showCallbackPaste ? (
                           <div className="space-y-2">
@@ -660,7 +660,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                       <>
                         <Input type="password" value={pat} onChange={(event) => setPat(event.target.value)} placeholder={t('wizardPatPh')} aria-label={t('wizardPatPh')} disabled={busy} />
                         {message ? (
-                          <p className={`rounded-lg border px-3 py-2 text-xs ${isDone ? 'border-success bg-success-soft text-success' : 'border-separator bg-surface-secondary text-muted'}`}>{message}</p>
+                          <p className="flex items-center gap-2 rounded-lg border border-separator bg-surface-secondary px-3 py-2 text-xs">{isDone ? <CheckCircle size={14} className="shrink-0 text-success" /> : null}<span className={isDone ? 'font-medium text-foreground' : 'text-muted'}>{message}</span></p>
                         ) : null}
                         <Button className="w-full" isPending={tabPending('pat')} onPress={() => void runPat()}>
                           {isDone ? <><CheckCircle size={15} />{t('patDone')}</> : <><Key size={15} />{t('wizardCreateAndLogin')}</>}
@@ -675,7 +675,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                         </div>
                         <TextArea className="min-h-32 font-mono text-xs" value={json} onChange={(event) => setJson(event.target.value)} placeholder={t('wizardImportPh')} aria-label={t('tabImport')} disabled={busy} />
                         {message ? (
-                          <p className={`rounded-lg border px-3 py-2 text-xs ${isDone ? 'border-success bg-success-soft text-success' : 'border-separator bg-surface-secondary text-muted'}`}>{message}</p>
+                          <p className="flex items-center gap-2 rounded-lg border border-separator bg-surface-secondary px-3 py-2 text-xs">{isDone ? <CheckCircle size={14} className="shrink-0 text-success" /> : null}<span className={isDone ? 'font-medium text-foreground' : 'text-muted'}>{message}</span></p>
                         ) : null}
                         <Button className="w-full" isPending={tabPending('import')} onPress={() => void runImport()}>
                           {isDone ? <><CheckCircle size={15} />{t('accountImported')}</> : <><FileCode size={15} />{t('importCredential')}</>}

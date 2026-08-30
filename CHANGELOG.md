@@ -7,7 +7,13 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Remove the account card hover lift; the card no longer moves under the cursor
+- Add-account wizard: the login-done message keeps the neutral surface and marks success with a check icon instead of an all-green box
+
 ### 中文
+
+- 账号卡片去掉悬停上浮，悬停不再移动卡片
+- 添加账号向导：登录完成提示保持中性底面，用绿色对勾标记成功，不再整盒变绿
 
 ## 0.2.24 - 2026-08-30
 
