@@ -129,7 +129,7 @@ Trae 是字节跳动出品的类 Cursor 编码辅助工具（国际站 `trae.ai`
   Host:                <BASE_URL 的 host>
   ```
 
-  ⚠️ **设备头伪造是 trae2api 的合规灰区**。本仓库接入时应复用账号自身真实的 device 指纹（或一次性生成并持久化到凭证，而非每次随机），避免「每 3 次请求换一套设备」这类易被风控的行为。
+  **Warning:** 设备头伪造是 trae2api 的合规灰区。本仓库接入时应复用账号自身真实的 device 指纹（或一次性生成并持久化到凭证，而非每次随机），避免「每 3 次请求换一套设备」这类易被风控的行为。
 
 - **content 预处理**：trae2api 把 OpenAI 的数组 content（多模态）只取第一条 text；其余类型 `fmt.Sprintf("%v")` 兜底。本仓库应改为：文本正常透传，多模态走 Trae 支持的 `multi_media` 字段（若支持），不支持则按 `isModelSupported` + 能力表拒绝而非静默丢内容。
 
@@ -147,7 +147,7 @@ Trae 是字节跳动出品的类 Cursor 编码辅助工具（国际站 `trae.ai`
   | `gemini-2.5-pro-preview-03-25` / `gemini-2.5-pro` | `gemini-2.5-pro-preview-03-25` |
   | `gemini-2.5-flash` | `gemini_2.5_flash` |
 
-  ⚠️ 这是**硬编码且已过期**的（trae2api 不支持 v1.3.0+）。本仓库应从 `model_list` 动态拉取并做公开名归一化（参考 WorkBuddy `Models` 的过滤 + 归一逻辑），不要照搬静态表。
+  **Warning:** 这是硬编码且已过期的（trae2api 不支持 v1.3.0+）。本仓库应从 `model_list` 动态拉取并做公开名归一化（参考 WorkBuddy `Models` 的过滤 + 归一逻辑），不要照搬静态表。
 
 ### 模型
 
