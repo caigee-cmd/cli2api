@@ -17,6 +17,7 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 - Store an empty client-key provider allowlist as `[]` instead of JSON `null`
 - Keep the v0.2.20 bytes for provider-model settings migration 007, and accept the later tab-indented checksum so existing databases can boot
 - Explain on System when the host updater is missing, instead of showing the raw Unix socket error
+- Show Trae Max-context and per-model reasoning controls, and WorkBuddy reasoning levels, on Models; persist those defaults and send them on chat
 
 ### 中文
 
@@ -30,6 +31,7 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 - 客户端密钥未限制供应商时写入 `[]`，不再存成 JSON `null`
 - 007 供应商模型设置迁移保持 v0.2.20 原文，并接受后来误改缩进后的 checksum，已有数据库可以启动
 - 系统页在没有宿主机更新器时说明更新条件，不再直接显示 Unix socket 报错
+- 模型页为 Trae 显示 Max 上下文和推理强度，为 WorkBuddy 显示推理档位；默认值会保存，并在对话请求里带上
 
 ## 0.2.20 - 2026-08-29
 

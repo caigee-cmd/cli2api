@@ -101,7 +101,7 @@ WorkBuddy2API 把 **WorkBuddy CN / CodeBuddy**（`copilot.tencent.com` / `www.co
 
 CN：`GET {chatBase}/console/enterprises/personal/models`。国际站这条 console 路径是 OIDC 页面（未登录 302 到 Keycloak，带 Bearer 500 HTML），必须改打 `GET https://www.workbuddy.ai/v2/enterprises/personal/models`。`GET /api/models` 目录失败用 503，不要 502，避免反代把 JSON 换成 HTML 错误页。
 
-只暴露 CLI agent 的模型 ID（`cli` / `CLI` / `codebuddy` / `workbuddy`），再和 `data.models` 交叉，跳过 `disabled`。上游没有 agents 时，退回全部未禁用模型。字段用 `maxInputTokens` / `maxOutputTokens`，不是 `contextWindow`。按账号拉目录失败时，`GET /api/models?account=` 返回明确错误，不把空列表当成「没有模型」。
+只暴露 CLI agent 的模型 ID（`cli` / `CLI` / `codebuddy` / `workbuddy`），再和 `data.models` 交叉，跳过 `disabled`。上游没有 agents 时，退回全部未禁用模型。字段用 `maxInputTokens` / `maxOutputTokens`，不是 `contextWindow`。推理档位读模型上的 `reasoning`：`supportedEfforts` / `defaultEffort` / `effort` / `canDisableThinking` / `onlyReasoning`。聊天请求发 `reasoning: {effort, summary:"auto"}`；`max` 按官方 CLI 映射成 `xhigh`。WorkBuddy 没有 Trae 那种 Max 开关，大上下文就是目录里的 `maxInputTokens`。按账号拉目录失败时，`GET /api/models?account=` 返回明确错误，不把空列表当成「没有模型」。
 
 参考仓库失败时回退静态表。本仓库对 Qoder 的原则是 **catalog 失败就报错，不猜**。WorkBuddy 应沿用同一原则：动态目录失败返回明确错误，不内置一份会过期的模型白名单。
 

@@ -1,4 +1,4 @@
-package trae
+package workbuddy
 
 import (
 	"encoding/json"
@@ -7,23 +7,19 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
-func normalizeReasoningLevel(raw string) string {
-	return providers.NormalizeReasoningLevel(raw)
-}
-
 func requestedReasoningLevel(req translate.ChatRequest) string {
 	if len(req.ReasoningEffort) > 0 {
 		var value any
 		if json.Unmarshal(req.ReasoningEffort, &value) == nil {
 			switch typed := value.(type) {
 			case string:
-				if level := normalizeReasoningLevel(typed); level != "" {
+				if level := providers.NormalizeReasoningLevel(typed); level != "" {
 					return level
 				}
 			case map[string]any:
 				for _, key := range []string{"effort", "level", "type"} {
 					if text, ok := typed[key].(string); ok {
-						if level := normalizeReasoningLevel(text); level != "" {
+						if level := providers.NormalizeReasoningLevel(text); level != "" {
 							return level
 						}
 					}
@@ -52,33 +48,33 @@ func requestedReasoningLevel(req translate.ChatRequest) string {
 	return ""
 }
 
-func clampReasoningLevel(level string, caps providers.ModelCapabilities) string {
-	return providers.ResolveReasoningLevel(level, caps)
-}
-
-func applySoloChatFields(obj map[string]any, req translate.ChatRequest, maxMode bool, storedLevel string, caps providers.ModelCapabilities) {
+func applyChatReasoning(obj map[string]any, req translate.ChatRequest, storedLevel string, caps providers.ModelCapabilities) {
 	if obj == nil {
 		return
-	}
-	for _, key := range []string{
-		"enable_thinking", "enable_reasoning", "is_reasoning", "reasoning_effort",
-		"reasoning_budget_tokens", "thinking", "context_length", "max_input_tokens",
-	} {
-		delete(obj, key)
-	}
-	if maxMode && caps.MaxMode {
-		obj["is_max_mode"] = 1
-	} else {
-		delete(obj, "is_max_mode")
 	}
 	level := requestedReasoningLevel(req)
 	if level == "" {
 		level = storedLevel
 	}
-	level = clampReasoningLevel(level, caps)
+	level = providers.ResolveReasoningLevel(level, caps)
 	if level == "" {
-		delete(obj, "reasoning_effort_level")
+		delete(obj, "reasoning")
 		return
 	}
-	obj["reasoning_effort_level"] = level
+	if level == "none" {
+		if !caps.CanDisableThinking {
+			level = providers.ResolveReasoningLevel(caps.ReasoningDefault, caps)
+			if level == "" || level == "none" {
+				delete(obj, "reasoning")
+				return
+			}
+		} else {
+			delete(obj, "reasoning")
+			return
+		}
+	}
+	if level == "max" {
+		level = "xhigh"
+	}
+	obj["reasoning"] = map[string]any{"effort": level, "summary": "auto"}
 }

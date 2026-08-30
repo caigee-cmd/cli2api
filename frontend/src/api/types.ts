@@ -34,7 +34,9 @@ export type ModelInfo = {
   prompt_max_tokens?: number
   reasoning_options?: string[]
   reasoning_default?: string
+  reasoning_effort?: string
   reasoning_type?: string
+  can_disable_thinking?: boolean
 }
 
 export type Overview = {

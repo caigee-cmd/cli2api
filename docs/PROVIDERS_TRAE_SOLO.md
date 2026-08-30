@@ -152,6 +152,7 @@ qoder-anchor: [docs/DESIGN.md](./DESIGN.md) 的控制面 / 执行面边界
 - `POST {AgentHost}/api/ide/v1/get_detail_param`
 - Body 形态：`function`、`config_names: null`、`need_prompt: false`、`poly_prompt: true`
 - 用 `config_info_list`：`config_name` → native/public id，`display_config.display_name` → 展示名。空列表当错误。
+- live 目录里 `reasoning_effort_config` 和 `context_window_tokens.max` 经常是空的。Max 还要看 `model_extra_config.v2_max_mode_enabled` / `display_config.max_mode` / `is_dollar_max`；推理还要看 `reasoning_effort_options`、`display_contact_config.reasoning.enable`，以及官方客户端实际使用的 `light` / `high` / `extra_high`（发出去映射成 `low` / `high` / `xhigh`）。
 - 本仓库原则与 WorkBuddy 相同：**catalog 失败就报错，不回退过期静态表**。`glm-5.2` / `glm-5.3` 只是实测样例，不是白名单。
 
 ### SSE

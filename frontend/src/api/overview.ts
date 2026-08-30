@@ -64,10 +64,24 @@ export function updateTraeMaxMode(modelKey: string, maxMode: boolean) {
     model: string
     provider: string
     max_mode: boolean
+    reasoning_effort?: string
     context_custom: boolean
   }>(`/api/models/trae/${encodeURIComponent(modelKey)}`, {
     method: 'PATCH',
     body: JSON.stringify({ max_mode: maxMode }),
+  })
+}
+
+export function updateProviderReasoning(provider: 'trae' | 'workbuddy', modelKey: string, reasoningEffort: string) {
+  return api<{
+    model: string
+    provider: string
+    max_mode: boolean
+    reasoning_effort?: string
+    context_custom: boolean
+  }>(`/api/models/${provider}/${encodeURIComponent(modelKey)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ reasoning_effort: reasoningEffort }),
   })
 }
 

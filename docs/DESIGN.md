@@ -453,7 +453,7 @@ Hard constraints:
 
 - Never edit a shipped migration's SQL bytes. Whitespace, comments, quote style, and statement order all change the checksum.
 - `gofmt` / indent of the surrounding Go is fine. Indenting the text inside the raw string is not.
-- New columns, indexes, or tables go in the next numbered file (`008_…`). Do not append to an applied file.
+- New columns, indexes, or tables go in the next numbered file (`009_…`). Do not append to an applied file.
 - Do not `UPDATE schema_migrations` on a live database to make a rewritten file pass. That hides the mismatch and can leave hosts on different schemas.
 - Do not delete, rename, or reorder applied filenames.
 
@@ -475,7 +475,7 @@ Keep the menu short. Login is a gate, not a nav item.
 | `/login` | no | Console password |
 | `/` | Overview | Runtime pulse + request stats |
 | `/accounts` | Accounts | Qoder login + pool |
-| `/providers` | Models | Catalog + per-model context-window defaults; filter by provider and paginate |
+| `/providers` | Models | Catalog + per-model defaults (Qoder context window, Trae Max / reasoning, WorkBuddy reasoning); filter by provider and paginate |
 | `/access` | Access | Base URL + quick chat; account and model dropdowns follow the selected account catalog |
 | `/logs` | Logs | Request history + runtime process output |
 | `/keys` | API keys | Named client keys with optional provider allowlists |
@@ -597,7 +597,7 @@ After UI edits:
 | `frontend/src/pages/LoginPage.tsx` | Console gate |
 | `frontend/src/pages/AccountsPage.tsx` | Qoder login + pool |
 | `frontend/src/components/account/` | Compact account card, runtime meter, quota fill |
-| `frontend/src/pages/ProvidersPage.tsx` | Model catalog + context-window defaults |
+| `frontend/src/pages/ProvidersPage.tsx` | Model catalog + per-model context / Max / reasoning defaults |
 | `frontend/src/pages/LogsPage.tsx` | Request history + runtime logs |
 | `frontend/src/pages/SystemPage.tsx` | Managed next-version update |
 | `frontend/src/components/layout/` | Shell / menu |

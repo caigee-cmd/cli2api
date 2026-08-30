@@ -586,17 +586,34 @@ func (c *Client) chatRequest(ctx context.Context, credential Credential, req tra
 	var obj map[string]any
 	if err := json.Unmarshal(rewritten, &obj); err == nil {
 		caps := c.capsFor(req.Model)
+		if len(caps.ReasoningOptions) == 0 && !caps.MaxMode && accountID != "" {
+			_, _ = c.Models(ctx, accountID)
+			caps = c.capsFor(req.Model)
+		}
 		maxMode := false
+		storedLevel := ""
 		if req.IsMaxMode != nil {
 			maxMode = *req.IsMaxMode
-		} else if setter, ok := c.store.(interface {
-			GetProviderModelMaxMode(context.Context, string, string) (bool, error)
+		}
+		if setter, ok := c.store.(interface {
+			GetProviderModelSetting(context.Context, string, string) (accounts.ProviderModelSetting, error)
 		}); ok {
-			if stored, err := setter.GetProviderModelMaxMode(ctx, "trae", strings.ToLower(req.Model)); err == nil {
-				maxMode = stored
+			if stored, err := setter.GetProviderModelSetting(ctx, "trae", strings.ToLower(req.Model)); err == nil {
+				if req.IsMaxMode == nil {
+					maxMode = stored.MaxMode
+				}
+				storedLevel = stored.ReasoningEffort
+			}
+		} else if req.IsMaxMode == nil {
+			if maxSetter, ok := c.store.(interface {
+				GetProviderModelMaxMode(context.Context, string, string) (bool, error)
+			}); ok {
+				if stored, err := maxSetter.GetProviderModelMaxMode(ctx, "trae", strings.ToLower(req.Model)); err == nil {
+					maxMode = stored
+				}
 			}
 		}
-		applySoloChatFields(obj, req, maxMode, caps)
+		applySoloChatFields(obj, req, maxMode, storedLevel, caps)
 		if encoded, err := json.Marshal(obj); err == nil {
 			rewritten = encoded
 		}

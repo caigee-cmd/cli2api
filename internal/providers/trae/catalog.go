@@ -27,8 +27,11 @@ type catalogConfig struct {
 		IsDollarMax bool   `json:"is_dollar_max"`
 		Capability  string `json:"model_capability"`
 	} `json:"display_config"`
-	ReasoningEffortConfig json.RawMessage `json:"reasoning_effort_config"`
-	ModelDetailList       []struct {
+	DisplayContactConfig   json.RawMessage `json:"display_contact_config"`
+	ReasoningEffortConfig  json.RawMessage `json:"reasoning_effort_config"`
+	ReasoningEffortOptions []string        `json:"reasoning_effort_options"`
+	DefaultReasoningEffort string          `json:"default_reasoning_effort"`
+	ModelDetailList        []struct {
 		MaxTokens        int    `json:"max_tokens"`
 		PromptMaxTokens  int    `json:"prompt_max_tokens"`
 		ModelExtraConfig string `json:"model_extra_config"`
@@ -75,6 +78,9 @@ func catalogModel(item catalogConfig) (providers.ModelInfo, bool) {
 	windowMax := item.ContextWindowTokens.Max
 	maxMode := item.DisplayConfig.MaxMode || item.DisplayConfig.IsDollarMax || (windowMax > 0 && windowMax != window)
 	options, defaultLevel := parseReasoningOptions(item.ReasoningEffortConfig)
+	if len(options) == 0 {
+		options, defaultLevel = parseReasoningOptionList(item.ReasoningEffortOptions, item.DefaultReasoningEffort)
+	}
 	thinkingType := ""
 	promptMax, maxOut := 0, 0
 	for _, detail := range item.ModelDetailList {
@@ -87,8 +93,14 @@ func catalogModel(item catalogConfig) (providers.ModelInfo, bool) {
 		if thinkingType == "" {
 			thinkingType = thinkingTypeFromExtra(detail.ModelExtraConfig)
 		}
+		if !maxMode && v2MaxModeEnabled(detail.ModelExtraConfig) {
+			maxMode = true
+		}
 	}
-	reasoning := len(options) > 0 || thinkingType != "" && thinkingType != "disabled" || item.DisplayConfig.Capability == "reasoning_model"
+	reasoning := len(options) > 0 || thinkingType != "" && thinkingType != "disabled" || item.DisplayConfig.Capability == "reasoning_model" || contactReasoningEnabled(item.DisplayContactConfig)
+	if len(options) == 0 && reasoning {
+		options, defaultLevel = []string{"low", "high", "xhigh"}, "high"
+	}
 	return providers.ModelInfo{
 		NativeModel: id,
 		PublicModel: id,
@@ -143,17 +155,88 @@ func parseReasoningOptions(raw json.RawMessage) ([]string, string) {
 }
 
 func thinkingTypeFromExtra(raw string) string {
+	extra := extraConfigMap(raw)
+	thinking, _ := extra["Thinking"].(map[string]any)
+	if thinking == nil {
+		thinking, _ = extra["thinking"].(map[string]any)
+	}
+	if thinking == nil {
+		return ""
+	}
+	typ, _ := thinking["Type"].(string)
+	if typ == "" {
+		typ, _ = thinking["type"].(string)
+	}
+	return strings.ToLower(strings.TrimSpace(typ))
+}
+
+func extraConfigMap(raw string) map[string]any {
 	raw = strings.TrimSpace(raw)
 	if raw == "" || !strings.HasPrefix(raw, "{") {
-		return ""
+		return nil
 	}
-	var extra struct {
-		Thinking struct {
-			Type string `json:"Type"`
-		} `json:"Thinking"`
-	}
+	var extra map[string]any
 	if json.Unmarshal([]byte(raw), &extra) != nil {
-		return ""
+		return nil
 	}
-	return strings.ToLower(strings.TrimSpace(extra.Thinking.Type))
+	return extra
+}
+
+func v2MaxModeEnabled(raw string) bool {
+	value, ok := extraConfigMap(raw)["v2_max_mode_enabled"]
+	if !ok {
+		return false
+	}
+	enabled, _ := value.(bool)
+	return enabled
+}
+
+func contactReasoningEnabled(raw json.RawMessage) bool {
+	if len(raw) == 0 || string(raw) == "null" {
+		return false
+	}
+	payload := raw
+	var encoded string
+	if json.Unmarshal(raw, &encoded) == nil && strings.TrimSpace(encoded) != "" {
+		payload = json.RawMessage(encoded)
+	}
+	var contact struct {
+		Reasoning struct {
+			Enable bool `json:"enable"`
+		} `json:"reasoning"`
+	}
+	if json.Unmarshal(payload, &contact) != nil {
+		return false
+	}
+	return contact.Reasoning.Enable
+}
+
+func parseReasoningOptionList(values []string, defaultLevel string) ([]string, string) {
+	seen := map[string]struct{}{}
+	var options []string
+	for _, option := range values {
+		option = normalizeReasoningLevel(option)
+		if option == "" {
+			continue
+		}
+		if _, dup := seen[option]; dup {
+			continue
+		}
+		seen[option] = struct{}{}
+		options = append(options, option)
+	}
+	if len(options) == 0 {
+		return nil, ""
+	}
+	fallback := normalizeReasoningLevel(defaultLevel)
+	if fallback == "" {
+		if _, ok := seen["medium"]; ok {
+			fallback = "medium"
+		} else {
+			fallback = options[0]
+		}
+	} else if _, ok := seen[fallback]; !ok {
+		fallback = options[0]
+	}
+	return options, fallback
 }
