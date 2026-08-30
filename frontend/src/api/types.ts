@@ -79,6 +79,7 @@ export type Overview = {
     max_inflight?: number
     priority?: number
     drop_system_prompt?: boolean
+    workbuddy_auto_checkin?: boolean
     status?: string
     cooldown_until?: string | null
     url?: string
@@ -92,6 +93,8 @@ export type Overview = {
     last_error?: string
     lastError?: string
     last_error_kind?: string
+    last_checkin_at?: string
+    last_checkin_msg?: string
     quota?: AccountQuota
     created_at?: string
     updated_at?: string

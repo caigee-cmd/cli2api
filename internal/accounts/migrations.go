@@ -154,6 +154,10 @@ CREATE INDEX IF NOT EXISTS api_keys_hash ON api_keys(key_hash);
 CREATE INDEX IF NOT EXISTS api_keys_created_at ON api_keys(created_at DESC);`},
 	{filename: "009_provider_model_reasoning.sql", sql: `
 ALTER TABLE provider_model_settings ADD COLUMN reasoning_effort TEXT NOT NULL DEFAULT '';`},
+	{filename: "010_workbuddy_auto_checkin.sql", sql: `
+ALTER TABLE accounts ADD COLUMN workbuddy_auto_checkin INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE accounts ADD COLUMN last_checkin_at TEXT NOT NULL DEFAULT '';
+ALTER TABLE accounts ADD COLUMN last_checkin_msg TEXT NOT NULL DEFAULT '';`},
 }
 
 const schemaMigrationsDDL = `

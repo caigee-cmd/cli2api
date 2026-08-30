@@ -126,7 +126,12 @@ export function createAccount(
   name: string,
   provider = 'qoder',
   region = 'global',
-  options?: { max_inflight?: number; priority?: number; drop_system_prompt?: boolean },
+  options?: {
+    max_inflight?: number
+    priority?: number
+    drop_system_prompt?: boolean
+    workbuddy_auto_checkin?: boolean
+  },
 ) {
   return api('/api/accounts', {
     method: 'POST',
@@ -138,7 +143,15 @@ export function createAccount(
       max_inflight: options?.max_inflight ?? 4,
       priority: options?.priority ?? 50,
       drop_system_prompt: options?.drop_system_prompt,
+      workbuddy_auto_checkin: options?.workbuddy_auto_checkin,
     }),
+  })
+}
+
+export function checkinAccount(accountId: string) {
+  return api(`/api/accounts/${encodeURIComponent(accountId)}/checkin`, {
+    method: 'POST',
+    body: '{}',
   })
 }
 

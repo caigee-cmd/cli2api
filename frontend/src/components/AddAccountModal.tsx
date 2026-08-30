@@ -130,6 +130,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
   const [maxInFlight, setMaxInFlight] = useState('4')
   const [priority, setPriority] = useState('50')
   const [dropSystemPrompt, setDropSystemPrompt] = useState(true)
+  const [autoCheckin, setAutoCheckin] = useState(false)
   const [pat, setPat] = useState('')
   const [json, setJson] = useState('')
   const [phase, setPhase] = useState<Phase>('idle')
@@ -177,6 +178,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
   const showPatTab = activeOption?.descriptor.capabilities?.pat_login !== false
   const showImportTab = activeOption?.descriptor.capabilities?.import_export !== false
   const showDropSystem = activeOption?.provider === 'workbuddy'
+  const showAutoCheckin = activeOption?.provider === 'workbuddy'
   const showCallbackPaste = activeOption?.provider === 'trae'
   const busy = phase === 'busy' || phase === 'polling'
   const settingsLocked = Boolean(createdId.current) || busy
@@ -205,6 +207,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
       max_inflight: parsedMaxInFlight(),
       priority: parsedPriority(),
       drop_system_prompt: showDropSystem ? dropSystemPrompt : true,
+      workbuddy_auto_checkin: showAutoCheckin ? autoCheckin : false,
     }
   }
 
@@ -219,6 +222,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
     setMaxInFlight('4')
     setPriority('50')
     setDropSystemPrompt(true)
+    setAutoCheckin(false)
     setPat('')
     setJson('')
     setAdvancedOpen(false)
@@ -366,6 +370,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
         max_inflight: options.max_inflight,
         priority: options.priority,
         drop_system_prompt: options.drop_system_prompt,
+        workbuddy_auto_checkin: options.workbuddy_auto_checkin,
       })
       setPhase('done')
       setMessage(t('accountImported'))
@@ -554,6 +559,20 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                               isDisabled={settingsLocked}
                               ariaLabel={t('dropSystemPrompt')}
                               onChange={setDropSystemPrompt}
+                            />
+                          </div>
+                        ) : null}
+                        {showAutoCheckin ? (
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="text-xs font-medium text-muted">{t('autoCheckin')}</div>
+                              <p className="mt-0.5 text-[11px] leading-4 text-muted">{t('autoCheckinCreateHint')}</p>
+                            </div>
+                            <CompactSwitch
+                              isSelected={autoCheckin}
+                              isDisabled={settingsLocked}
+                              ariaLabel={t('autoCheckin')}
+                              onChange={setAutoCheckin}
                             />
                           </div>
                         ) : null}
