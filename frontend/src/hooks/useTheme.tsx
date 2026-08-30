@@ -26,6 +26,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     root.classList.toggle('dark', theme === 'dark')
     root.classList.toggle('light', theme === 'light')
     root.style.colorScheme = theme
+    const themeColor = theme === 'dark' ? '#060607' : '#F5F5F5'
+    document.querySelectorAll('meta[name="theme-color"]').forEach((node) => {
+      node.setAttribute('content', themeColor)
+    })
   }, [theme])
 
   const value = useMemo<ThemeContextValue>(() => ({

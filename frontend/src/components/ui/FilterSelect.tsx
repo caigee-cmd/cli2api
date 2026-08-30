@@ -37,7 +37,7 @@ export function FilterSelect({
         onChange(next === ALL_VALUE ? '' : next)
       }}
     >
-      <Select.Trigger className="h-9 min-h-9 min-w-36 items-center md:h-8">
+      <Select.Trigger className="min-w-36 items-center">
         <Select.Value className="min-w-0 truncate">
           {({ defaultChildren, isPlaceholder }) => {
             if (isPlaceholder || !selected) return defaultChildren
