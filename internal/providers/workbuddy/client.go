@@ -614,6 +614,78 @@ func (c *Client) Quota(ctx context.Context, accountID string) (*providers.QuotaI
 	}, nil
 }
 
+// AlreadyCheckedInError is a check-in-only miss. Callers should still refresh
+// credits and must not write chat cooldown.
+type AlreadyCheckedInError struct {
+	Msg string
+}
+
+func (e AlreadyCheckedInError) Error() string {
+	if strings.TrimSpace(e.Msg) == "" {
+		return "workbuddy already checked in"
+	}
+	return e.Msg
+}
+
+func (AlreadyCheckedInError) AlreadyCheckedIn() bool { return true }
+
+// DailyCheckin claims the upstream daily credit grant. Body is literal {}.
+// Business "already checked in" returns AlreadyCheckedInError; session-dead is
+// logged only here and does not Observe(auth) — keepalive owns that path.
+func (c *Client) DailyCheckin(ctx context.Context, accountID string) (string, error) {
+	credential, err := c.resolvedCredential(ctx, accountID)
+	if err != nil {
+		return "", err
+	}
+	body, status, err := c.do(ctx, http.MethodPost, credential.BillingBase()+pathDailyCheckin, []byte("{}"),
+		func(h http.Header) { SetBillingHeaders(h, credential) })
+	if err != nil {
+		return "", err
+	}
+	text := strings.TrimSpace(string(body))
+	classified := Classify(status, text)
+	if classified.Kind == accounts.KindAuth {
+		return "", fmt.Errorf("workbuddy checkin session dead: re-login required")
+	}
+	if status >= 300 {
+		return "", fmt.Errorf("checkin status=%d: %s", status, text)
+	}
+	var env envelope
+	if err := json.Unmarshal(body, &env); err != nil {
+		return "", fmt.Errorf("checkin parse: %w", err)
+	}
+	msg := strings.TrimSpace(env.Msg)
+	if env.Code != 0 {
+		lower := strings.ToLower(msg)
+		if strings.Contains(msg, "已签到") || (strings.Contains(lower, "already") && strings.Contains(lower, "check")) {
+			return msg, AlreadyCheckedInError{Msg: msg}
+		}
+		if msg == "" {
+			msg = fmt.Sprintf("checkin code=%d", env.Code)
+		}
+		return msg, fmt.Errorf("checkin code=%d msg=%s", env.Code, msg)
+	}
+	if msg == "" {
+		msg = "ok"
+	}
+	return msg, nil
+}
+
+// Keepalive forces a token refresh for the account. Session-dead uses the
+// existing Refresh Observe(auth) path.
+func (c *Client) Keepalive(ctx context.Context, accountID string) error {
+	_, payload, err := c.store.LoadCredentialPayload(ctx, accountID)
+	if err != nil {
+		return err
+	}
+	credential, err := DecodeCredential(payload)
+	if err != nil {
+		return err
+	}
+	_, err = c.Refresh(ctx, accountID, credential)
+	return err
+}
+
 // UserResource aggregates package remain/used/total from get-user-resource.
 func (c *Client) UserResource(ctx context.Context, credential Credential) (remain, used, total int64, err error) {
 	now := time.Now()

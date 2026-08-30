@@ -6,6 +6,7 @@ import (
 	"errors"
 	"path/filepath"
 	"testing"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -369,6 +370,57 @@ func TestStoreCreateHonorsDropSystemPromptAndInFlight(t *testing.T) {
 	reloaded, err := store.Get(ctx, account.ID)
 	if err != nil || reloaded.MaxInFlight != 6 || reloaded.Priority != 80 || reloaded.DropSystemPrompt {
 		t.Fatalf("reloaded=%+v err=%v", reloaded, err)
+	}
+}
+
+func TestStoreDefaultsWorkBuddyAutoCheckinOff(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	account, err := store.Create(ctx, CreateAccount{Name: "wb", Provider: "workbuddy", Region: "cn"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if account.WorkBuddyAutoCheckin {
+		t.Fatalf("auto check-in must default off: %+v", account)
+	}
+	if err := store.Update(ctx, account.ID, UpdateAccount{WorkBuddyAutoCheckin: boolPtr(true)}); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := store.Get(ctx, account.ID)
+	if err != nil || !updated.WorkBuddyAutoCheckin {
+		t.Fatalf("updated=%+v err=%v", updated, err)
+	}
+	at := time.Date(2026, 8, 30, 9, 5, 0, 0, time.UTC)
+	if err := store.RecordCheckin(ctx, account.ID, "签到成功", at); err != nil {
+		t.Fatal(err)
+	}
+	recorded, err := store.Get(ctx, account.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recorded.LastCheckinMsg != "签到成功" || recorded.LastCheckinAt == "" {
+		t.Fatalf("recorded=%+v", recorded)
+	}
+}
+
+func TestNextWorkBuddyFireKinds(t *testing.T) {
+	loc := time.FixedZone("CST", 8*3600)
+	now := time.Date(2026, 8, 30, 8, 0, 0, 0, loc)
+	delay, kind := nextWorkBuddyFire(now)
+	if kind != "checkin" {
+		t.Fatalf("kind=%q", kind)
+	}
+	if delay <= 0 || delay > 2*time.Hour {
+		t.Fatalf("delay=%v", delay)
+	}
+	evening := time.Date(2026, 8, 30, 21, 30, 0, 0, loc)
+	_, kind = nextWorkBuddyFire(evening)
+	if kind != "keepalive" {
+		t.Fatalf("after 21:30 want keepalive, got %q", kind)
 	}
 }
 

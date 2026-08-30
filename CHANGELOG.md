@@ -7,7 +7,11 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Add opt-in WorkBuddy daily check-in and token keepalive, plus console actions to check in now and refresh credits
+
 ### 中文
+
+- WorkBuddy 支持账号级每日签到与 token 保活（默认关闭），控制台可立即签到并刷新积分
 
 ## 0.2.23 - 2026-08-30
 

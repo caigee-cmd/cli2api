@@ -24,7 +24,7 @@ import {
 } from '@/lib/account'
 import { accountProviderLabel } from '@/lib/provider'
 
-export type AccountBusyKind = 'create' | 'import' | 'device' | 'pat' | 'callback' | 'rewarm' | 'toggle' | 'delete' | 'export' | 'settings'
+export type AccountBusyKind = 'create' | 'import' | 'device' | 'pat' | 'callback' | 'rewarm' | 'toggle' | 'delete' | 'export' | 'settings' | 'checkin'
 
 type Translate = (key: string, vars?: Record<string, string | number>) => string
 
@@ -47,6 +47,8 @@ type Props = {
   onDelete: () => void
   onToggle: (selected: boolean) => void
   onToggleDropSystem: (selected: boolean) => void
+  onToggleAutoCheckin?: (selected: boolean) => void
+  onCheckin?: () => void
   onEdit: () => void
   onToggleAuthPanel: () => void
   onViewModels: () => void
@@ -79,6 +81,8 @@ export function AccountCard({
   onDelete,
   onToggle,
   onToggleDropSystem,
+  onToggleAutoCheckin,
+  onCheckin,
   onEdit,
   onToggleAuthPanel,
   onViewModels,
@@ -201,19 +205,53 @@ export function AccountCard({
         </div>
 
         {account.provider === 'workbuddy' ? (
-          <div className="flex items-center justify-between gap-3 text-[11px]">
-            <Tooltip>
-              <Tooltip.Trigger>
-                <span className="font-medium">{t('dropSystemPrompt')}</span>
-              </Tooltip.Trigger>
-              <Tooltip.Content>{t('dropSystemPromptHint')}</Tooltip.Content>
-            </Tooltip>
-            <CompactSwitch
-              isSelected={Boolean(account.drop_system_prompt)}
-              isDisabled={busyKind === 'toggle'}
-              ariaLabel={t('dropSystemPrompt')}
-              onChange={onToggleDropSystem}
-            />
+          <div className="grid gap-2">
+            <div className="flex items-center justify-between gap-3 text-[11px]">
+              <Tooltip>
+                <Tooltip.Trigger>
+                  <span className="font-medium">{t('dropSystemPrompt')}</span>
+                </Tooltip.Trigger>
+                <Tooltip.Content>{t('dropSystemPromptHint')}</Tooltip.Content>
+              </Tooltip>
+              <CompactSwitch
+                isSelected={Boolean(account.drop_system_prompt)}
+                isDisabled={busyKind === 'toggle'}
+                ariaLabel={t('dropSystemPrompt')}
+                onChange={onToggleDropSystem}
+              />
+            </div>
+            <div className="flex items-center justify-between gap-3 text-[11px]">
+              <Tooltip>
+                <Tooltip.Trigger>
+                  <span className="font-medium">{t('autoCheckin')}</span>
+                </Tooltip.Trigger>
+                <Tooltip.Content>{t('autoCheckinHint')}</Tooltip.Content>
+              </Tooltip>
+              <CompactSwitch
+                isSelected={Boolean(account.workbuddy_auto_checkin)}
+                isDisabled={busyKind === 'toggle' || !onToggleAutoCheckin}
+                ariaLabel={t('autoCheckin')}
+                onChange={(selected) => onToggleAutoCheckin?.(selected)}
+              />
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted">
+              <span className="min-w-0 break-words">
+                {account.last_checkin_at
+                  ? `${t('lastCheckin')}: ${account.last_checkin_msg || '—'} · ${account.last_checkin_at}`
+                  : t('lastCheckinNone')}
+              </span>
+              {onCheckin ? (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  isPending={busyKind === 'checkin'}
+                  isDisabled={!account.enabled}
+                  onPress={onCheckin}
+                >
+                  {t('checkinNow')}
+                </Button>
+              ) : null}
+            </div>
           </div>
         ) : null}
 

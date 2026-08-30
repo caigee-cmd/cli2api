@@ -83,10 +83,13 @@ The full checklist lives in [docs/PLAN.md](docs/PLAN.md).
 - Live-account acceptance for Qoder CN and WorkBuddy (login, failover, mixed account pools)
 - Phase I: Anthropic `/v1/messages` ingress adapter and the canonical conversation contract
 
+**Supported**
+
+- WorkBuddy daily check-in and token keepalive (per-account opt-in, off by default; console can check in now / refresh credits)
+
 **Planned**
 
 - Session-sticky routing: prefer reusing one account per session to improve upstream cache hit rates
-- WorkBuddy daily check-in and token keepalive (per-account opt-in, off by default)
 - Request history improvements: per-account filtering and usage statistics
 
 **Longer term**
