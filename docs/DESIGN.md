@@ -2,11 +2,11 @@
 
 本项目是纯已登录控制台应用（登录页 + 内部页面），基于 React、Vite、**HeroUI v3**、Tailwind v4 和 Phosphor 图标。前端视觉以 [HeroUI](https://www.heroui.com/docs/react/components) 的默认主题、语义 token 和复合原语为准。不要为单个功能发明第二套颜色、圆角、字体或控件高度。
 
-Reading this as: self-hosted ops console for operators, with a HeroUI-default product language, cold gray surfaces, one blue accent, Outfit + IBM Plex Mono.
+Reading this as: self-hosted ops console for operators, with HeroUI compound primitives, cold zinc surfaces, one cyan accent shared with the C mark, Outfit + IBM Plex Mono.
 
 ## 唯一真相来源
 
-- 主题来自 `@heroui/styles` 的 default light/dark。只允许在 [frontend/src/index.css](../frontend/src/index.css) 里设字体、控制台特有的状态点 / 运行时柱 / 发行说明排版，以及下文「选中态」那两处胶水。不要覆盖 `--accent`、`--background`、`--radius` 或按钮高度。
+- 主题来自 `@heroui/styles` 的 default light/dark。只允许在 [frontend/src/index.css](../frontend/src/index.css) 里设字体、把 `--accent` 收成 Signal Cyan、控制台特有的状态点 / 运行时柱 / 发行说明排版，以及下文「选中态」那两处胶水。不要覆盖 `--background`、`--radius` 或按钮高度。不要再引入第二套强调色。
 - 对话框、提示、卡片、Chip、Drawer、表单、搜索、分页、空状态、开关、Meter 等可访问 UI **必须**用 `@heroui/react`。没有对应组件时，再查 [HeroUI 组件目录](https://www.heroui.com/docs/react/components)；最后才允许手写，并在 PR 里写明缺的是哪个原语。
 - 图标用 `@phosphor-icons/react`，不要混入其他图标库。
 - 颜色、圆角、字号一律走语义 token / Tailwind 映射（`bg-surface`、`text-muted`、`rounded-lg`）。禁止 `text-[var(--muted)]`、一次性 hex、页面私有色板。
@@ -15,9 +15,9 @@ Reading this as: self-hosted ops console for operators, with a HeroUI-default pr
 
 控制台对齐 HeroUI 文档站点的产品 UI，而不是营销页：
 
-- 冷中性灰表面（`--background` / `--surface`），不是暖象牙色、不是紫
-- 唯一交互强调色是 `--accent`（HeroUI 默认蓝，约 `#0485F7`）
-- 成功 / 就绪走 `--success`，警告走 `--warning`，破坏走 `--danger`
+- 冷锌灰表面（Canvas Gray / Pure Surface），不是暖象牙色、不是紫
+- 全产品只有一个强调色 **Signal Cyan**（`--accent` = `#22D3EE`）：按钮、聚焦、C 下唇、扫光共用。HeroUI 默认蓝 `#0485F7` 不要出现
+- 成功 / 就绪走 `--success`，警告走 `--warning`，破坏走 `--danger`；这些是状态，不是第二套品牌色
 - 圆角跟下面的四档尺度，不要页面各画一套
 - 控件用 HeroUI 默认尺寸：按钮 `size="sm"` 在桌面约 32px，默认 `md` 约 36px
 - 实用优先于装饰；不要毛玻璃、光斑、彩色堆叠面板或套娃卡片
@@ -28,50 +28,55 @@ Reading this as: self-hosted ops console for operators, with a HeroUI-default pr
 - 自定义 `--app-*` 色板盖住 HeroUI token
 - 手写红框、手写进度条、手写分页，而 HeroUI 已有 `Alert` / `Meter` / `Pagination`
 - 原生 `type="number"`、原生 `<select>`、`window.alert()`
-- 为每个功能加一个新强调色
-- 紫 / 象牙 / Inter / 衬线体出现在控制台或品牌套件里
-- 同一页里「选中是蓝、选中是白、选中是灰」混用
+- 为每个功能加一个新强调色（尤其不要蓝 + 青并排）
+- 紫 / 象牙 / Inter / 衬线体 / HeroUI 默认蓝出现在控制台或品牌套件里
+- 同一页里「选中是青、选中是白、选中是灰」混用
 
 ## 颜色 Token
 
-用 HeroUI 语义 token 和 Tailwind 映射。浅色近似值只用于 SVG / manifest / `theme-color`，运行时 UI 仍走 token。
+用 HeroUI 语义 token 和 Tailwind 映射。运行时 UI 走 token；hex 只给 SVG / PWA / `theme-color` 以及把 `--accent` 锁成 Signal Cyan。色名按角色，不按冷暖感觉临时换一套。
 
-| 用途 | Token / class | 浅色近似 |
-|------|----------------|----------|
-| 页面背景 | `bg-background` / `--background` | `#F5F5F5` |
-| 卡片 / 表面 | `bg-surface` / `--surface` | `#FFFFFF` |
-| 次级表面 | `bg-surface-secondary` | `#EFEFF0` |
-| 正文 | `text-foreground` | `#18181B` |
-| 次级文字 | `text-muted` | `#71717A` |
-| 主操作 | `bg-accent text-accent-foreground`（`Button` 默认 `primary`） | `#0485F7` |
-| 选中填充 | `bg-accent-soft text-accent-soft-foreground` | accent 15% 透明 |
-| 边框 | `border-border` | `#DEDEE0` |
-| 分割线 | `border-separator` / `divide-separator` | |
-| 聚焦 | `--focus`（等于 `--accent`） | |
-| 成功 | `--success` / `Chip color="success"` | `#17C964` |
-| 警告 | `--warning` | `#F5A524` |
-| 危险 | `--danger` / `Button variant="danger"` | `#FF383C` |
-| 品牌节点（仅 mark） | 固定 `#22D3EE` | 青点 |
+### 色板与角色
 
-深色由 `@heroui/styles` 提供：背景约 `#060607`，表面约 `#18181B`，正文 `--snow`。主题切换：`<html class="light|dark" data-theme="light|dark">`。不要再抄一份 ivory / charcoal / violet 变量。
+| 名称 | Hex | 角色 |
+|------|-----|------|
+| **Canvas Gray** | `#F5F5F5` | 页面底。`bg-background` / `--background`。浅色近似，不是暖象牙 |
+| **Pure Surface** | `#FFFFFF` | 卡片、字段、浮层。`bg-surface` / `--surface` / `--overlay` |
+| **Quiet Well** | `#EFEFF0` | 次级表面、侧栏当前行、工具图标底。`bg-surface-secondary` |
+| **Charcoal Ink** | `#18181B` | 正文、C 轨浅色描边、实心青按钮上的字。`text-foreground` / `--accent-foreground`。禁止纯黑 `#000000` |
+| **Muted Steel** | `#71717A` | 次级文字、说明、元信息。`text-muted` |
+| **Hairline** | `#DEDEE0` | 结构线。`border-border` |
+| **Off-Black Night** | `#060607` | 深色页面底。HeroUI dark `--background` |
+| **Snow Stroke** | `#FCFCFC` | 深色模式 C 轨 / 近白墨。不是大面积填充 |
+| **Signal Cyan** | `#22D3EE` | **唯一强调色**。`--accent`、聚焦环、主按钮、C 下唇、扫光、PWA `theme_color`。不当成大面积背景 |
+| **Accent Soft** | cyan 12–15% 透明 | 选中填充。`--accent-soft` + `--accent-soft-foreground` |
+| **Ready Green** | `#17C964` | 仅成功 / 就绪 / 已启用。`--success` |
+| **Warn Amber** | `#F5A524` | 仅警告。`--warning` |
+| **Break Red** | `#FF383C` | 仅破坏 / 错误。`--danger` |
+
+深色由 `@heroui/styles` 提供：底 Off-Black Night，表面约 `#18181B`，正文 `--snow`。主题切换：`<html class="light|dark" data-theme="light|dark">`。浅色、深色、README 图、社交卡必须是同一套冷锌灰 + Signal Cyan，不要 ivory / charcoal / violet 平行色板。
+
+在 [frontend/src/index.css](../frontend/src/index.css) 把 `--accent` 覆写成 Signal Cyan，`--accent-foreground` 覆写成 Charcoal Ink（青底上白字对比不够）。`--accent-soft*` 仍由 HeroUI 从 `--accent` 混出来。不要再覆写 `--background` 或 `--radius`。
 
 硬编码 hex 只允许：
 
-1. 品牌闪电上的青点 `#22D3EE`
+1. `--accent` / `--accent-foreground` 这一处覆写，以及 SVG 里的 Signal Cyan / Charcoal Ink / Snow Stroke
 2. SVG / PWA / `theme-color` 无法引用 CSS 变量时的上表近似值
 3. 第三方供应商 mark（WorkBuddy / Trae / Qoder）保持对方品牌色
 
+禁止出现在控制台、favicon、社交卡、README 图里：`#0485F7`、`#7C3AED`、`#A78BFA`、`#FAF7F2`、`#EDE9FE`、`#000000`、霓虹外发光。
+
 ### 选中态（必须同一套）
 
-「当前选中」在全控制台是同一种蓝，不是白底、也不是中性灰块。
+「当前选中」在全控制台是同一种青，不是白底、也不是中性灰块，更不是 HeroUI 蓝。
 
 | 场景 | 做法 |
 |------|------|
-| 主按钮、提交 | `Button` 默认 / `variant="primary"` → 实心 `--accent` |
+| 主按钮、提交 | `Button` 默认 / `variant="primary"` → 实心 Signal Cyan，字 Charcoal Ink |
 | 分段筛选、页签、分页当前页、Option tile、Radio / Checkbox / Switch | `--accent-soft` 底 + `--accent-soft-foreground` 字；控件本身用实心 `--accent` |
 | 侧栏当前页 | `bg-surface-secondary text-foreground`（这是位置，不是控件）。左侧 2px 指示条用 `--accent` |
 | 状态 Chip / Meter / 流量图 | 只用 success / warning / danger，表示真实运行态，不当成选中色 |
-| 工具图标底 | `bg-surface-secondary text-foreground`，不要 `bg-foreground text-background`，不要蓝色方块 |
+| 工具图标底 | `bg-surface-secondary text-foreground`，不要 `bg-foreground text-background`，不要蓝色或青色方块 |
 
 HeroUI 3.2.4 的 `Tabs.Indicator` 会因 `SharedElementTransition` 崩溃，不要使用。页签选中改走 [frontend/src/index.css](../frontend/src/index.css) 里对 `.tabs__tab[data-selected="true"]` 的 accent-soft。分页当前页默认是 `--default` 灰，同样在 `index.css` 里改成 accent-soft，与 `ToggleButton` 对齐。这两处是允许的组件胶水，不要再加第三处主题覆盖。
 
@@ -177,7 +182,7 @@ HeroUI 3.2.4 的 `Tabs.Indicator` 会因 `SharedElementTransition` 崩溃，不�
 - 还没有数据：整页骨架（`frontend/src/components/ui/PageSkeletons.tsx`），壳层侧栏和顶栏保留。
 - 已有数据后再请求：保留标题、筛选和主按钮，只把列表 / 图表 / 卡片网格换成对应骨架。
 - 纯前端筛选（账号名、模型名本地过滤）不用骨架。
-- 登录门不要用全屏 Spinner 挡住页面骨架。
+- 登录门不要用全屏 Spinner 挡住页面骨架。进行中的品牌操作（登录提交、添加账号轮询）用 `BrandMark loading`，沿 C 轨扫青光；列表刷新仍走骨架。
 
 ## 边框与分割线
 
@@ -187,9 +192,9 @@ HeroUI 3.2.4 的 `Tabs.Indicator` 会因 `SharedElementTransition` 崩溃，不�
 
 - 优先用 HeroUI 自带过渡（按钮 `scale`、Meter `width`、Switch 轨道）。
 - 控制台状态动画保持在 180–220ms；GSAP 只用于 HeroUI 没有的可视化（运行时柱、流量图、侧栏指示条、页面 reveal）。
-- 只动画 `transform` 与 `opacity`，Meter 填充除外（官方用 `width`）。
+- 只动画 `transform` 与 `opacity`，Meter 填充除外（官方用 `width`），品牌加载除外（沿 C 轨的 `stroke-dashoffset` 扫光）。
 - React 中使用 `gsap.context()`，`gsap.matchMedia()` 处理 `prefers-reduced-motion`，卸载时 `revert()`。
-- 避免装饰性循环动画。
+- 避免装饰性循环动画。品牌扫光只在 `BrandMark loading` 时出现，并尊重 `prefers-reduced-motion`。
 
 ## 图标
 
@@ -209,8 +214,8 @@ HeroUI 3.2.4 的 `Tabs.Indicator` 会因 `SharedElementTransition` 崩溃，不�
 ## 前端改动自查清单
 
 - 是否先用了 HeroUI 原语？
-- 颜色是否只走 `--background` / `--surface` / `--accent` / `--muted` / status，而不是 `--app-*`、紫、象牙或一次性 hex？
-- 选中态是否是 accent-soft（页签、分段、分页、tile），而不是白底或灰底？
+- 颜色是否只走 Canvas Gray / Pure Surface / Signal Cyan / Muted Steel / status，而不是 `--app-*`、HeroUI 蓝、紫、象牙或一次性 hex？
+- 选中态是否是 accent-soft（页签、分段、分页、tile），而不是白底、灰底或蓝色块？
 - 外壳圆角是否跟 Card（`rounded-3xl`），井 / 关闭按钮是否 `rounded-lg`，字段是否 `rounded-field`？
 - 字体是否只有 Outfit + IBM Plex Mono？页标题是否 `text-2xl font-semibold tracking-[-0.035em]`？
 - 设置弹窗是否用了 `Modal` + `Form` + `NumberField` / `Alert`？
@@ -223,38 +228,38 @@ HeroUI 3.2.4 的 `Tabs.Indicator` 会因 `SharedElementTransition` 崩溃，不�
 
 ## Favicon 套件与品牌资产
 
-CLI2API 的浏览器图标、PWA 清单和社交卡走极简 line-icon 路线，与控制台克制的 HeroUI 表面一致。
+CLI2API 的浏览器图标、PWA 清单和社交卡走极简 line-icon 路线，与控制台同一套冷锌灰 + Signal Cyan。
 
 ### Mark 母题
 
-阶梯状闪电 + 90° 方形缺口（暗示终端 cursor）+ 固定 `#22D3EE` 青色圆点（数据流）。形状含义：
+单轨开口 C + Signal Cyan 下唇（被点亮，像停靠的包）。形状含义：
 
-- **闪电** = CLI → API 协议转换
-- **缺口** = 终端 cursor / 命令行起点
-- **青点** = 数据流通 / 状态指示
+- **C 轨** = CLI2API 本身（一条轨，不是内外双环）
+- **开口** = 终端 / 命令行入口
+- **青尖** = 数据流通；加载时同一条轨上扫过 `#c-scan`
 
-闪电描边走当前主题墨色（浅色 `#18181B`，深色 `#FCFCFC`），不要紫色。青点是品牌里唯一的固定色，不当成按钮或选中填充。
+C 描边走当前主题墨色（浅色 Charcoal Ink `#18181B`，深色 Snow Stroke `#FCFCFC`）。青尖就是 `--accent`，不是第二套品牌色：主按钮、聚焦环、C 下唇、扫光是同一个 Signal Cyan。文档里强调 CLI 时可用开口里的 `>`（Prompt 变体）；控制台、favicon、社交卡用 Tip。
 
 ### 文件清单
 
 | 文件 | 位置 | 用途 |
 |------|------|------|
-| `frontend/public/favicon.svg` | source | 主图标，`stroke="currentColor"` 主题自适应 |
+| `frontend/public/favicon.svg` | source | 主图标，C 轨 `stroke="currentColor"`，青尖固定 |
 | `frontend/public/favicon-dark.svg` | source | 显式浅墨反白描边（`#FCFCFC`），深色模式回退 |
-| `frontend/public/apple-touch-icon.svg` | source | iOS 启动图标，180×180 冷灰底（`#F5F5F5`）圆角 |
-| `frontend/public/og-card.svg` | source | 1280×640 社交卡（运行时 og:image），冷灰底 + 墨色闪电 |
-| `frontend/public/site.webmanifest` | source | PWA 清单，`background_color` `#F5F5F5`，`theme_color` `#0485F7` |
+| `frontend/public/apple-touch-icon.svg` | source | iOS 启动图标，180×180 墨底（`#18181B`）圆角 + 反白 C |
+| `frontend/public/og-card.svg` | source | 1280×640 社交卡（运行时 og:image），Canvas Gray + 墨色 C + Signal Cyan 尖 |
+| `frontend/public/site.webmanifest` | source | PWA 清单，`background_color` Canvas Gray `#F5F5F5`，`theme_color` Signal Cyan `#22D3EE` |
 | `internal/webui/static/*` | runtime | 同上副本，被 Go `//go:embed` 打包进二进制 |
 | `docs/assets/overview-card.png` | docs | README 顶部概览卡（手工维护） |
 
 ### 设计约束
 
-- 每个图标 SVG 必须 < 1KB（favicon 系列 < 500B）
-- 单 path 优先，避免 filter / gradient / mask / 嵌入文字
-- 主图标用 `stroke="currentColor"` 走主题色；只有品牌识别度必需的强调点用固定色（青点）
+- 每个图标 SVG 必须 < 1KB（favicon 系列尽量短，两 path 的 C 大约 450B）
+- 单轨优先，避免 filter / gradient / mask / 嵌入文字
+- 主图标用 `stroke="currentColor"` 走主题墨色；强调点只用 Signal Cyan
 - 不在图标内放 emoji、文字、版本号
-- stroke 1.75px、round line caps、round line joins
-- 禁止 `#7C3AED`、`#A78BFA`、`#FAF7F2`、`#EDE9FE` 出现在品牌套件里
+- C 轨 `pathLength="100"`、round line caps、round line joins；加载扫光复制同一条轨
+- 禁止 `#0485F7`、`#7C3AED`、`#A78BFA`、`#FAF7F2`、`#EDE9FE`、`#000000` 出现在品牌套件和 README 图里
 
 ### 修改流程
 
@@ -545,7 +550,7 @@ The console follows the frontend design baseline in the first half of this doc, 
 
 - HeroUI default cool-neutral surfaces. Do not restore the ivory/charcoal overlay.
 - Practical before decorative; the authenticated console must not read like a marketing page.
-- Primary buttons use `--accent`. Green is reserved for success, ready, and enabled states.
+- Primary buttons use Signal Cyan `--accent`. Green is reserved for success, ready, and enabled states. Do not restore HeroUI blue.
 - Use `shadow-surface` / `shadow-overlay` from HeroUI; do not combine heavy borders, colored fills, and strong shadows without a clear hierarchy.
 - Use semantic tokens from `@heroui/styles`; do not add `--app-*` colors in page components.
 

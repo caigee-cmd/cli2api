@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Button, Description, Input, Label, ListBox, Modal, Select, Skeleton, TextArea } from '@heroui/react'
-import { ArrowSquareOut, CaretLeft, CaretRight, CheckCircle, FileCode, Key, ShieldCheck, SpinnerGap, X } from '@phosphor-icons/react'
+import { ArrowSquareOut, CaretLeft, CaretRight, CheckCircle, FileCode, Key, ShieldCheck, X } from '@phosphor-icons/react'
+import { BrandMark } from '@/components/BrandMark'
 import { ProviderMark } from '@/components/ProviderMark'
 import { CompactSwitch } from '@/components/ui/CompactSwitch'
 import { FilterToggle } from '@/components/ui/FilterToggle'
@@ -107,7 +108,7 @@ function optionHint(option: ProviderOption | undefined, t: (key: string) => stri
 
 function StatusIcon({ phase, busy, tab, forTab }: { phase: Phase; busy: boolean; tab: TabKey; forTab: TabKey }) {
   if (phase === 'done') return <CheckCircle size={16} className="text-success" />
-  if (busy && tab === forTab) return <SpinnerGap size={16} className="animate-spin" />
+  if (busy && tab === forTab) return <BrandMark size={16} loading />
   return null
 }
 

@@ -7,7 +7,17 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Replace the bolt favicon and console mark with the single-rail C (cyan tip), and use the same path as a scan loader
+- Lock the console accent to Signal Cyan so buttons, focus, and the C mark share one color instead of HeroUI blue
+- Recolor README diagrams onto the same zinc-and-cyan palette, dropping leftover violet and ivory
+- Match the account-card quota skeleton to the meter hairline instead of a capsule
+
 ### 中文
+
+- 浏览器图标和控制台 mark 从闪电换成单轨 C（青尖），加载态沿同一条轨扫光
+- 控制台强调色锁成 Signal Cyan，按钮、聚焦和 C 标共用一色，不再用 HeroUI 蓝
+- README 示意图改走同一套锌灰 + 青，去掉残留的紫和象牙色
+- 账号卡额度骨架圆角改成和额度细条一致，不再用胶囊
 
 ## 0.2.21 - 2026-08-30
 
