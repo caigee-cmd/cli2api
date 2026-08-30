@@ -2,71 +2,72 @@
   <title id="hero-title">CLI2API — 把你的 Qoder CLI 登录态，变成一个本机运行的 OpenAI 兼容 API</title>
   <desc id="hero-desc">深色卡片：左侧是项目名称与一句话价值，右侧终端面板展示 OpenAI 客户端经 CLI2API 网关连接到 Qoder 云端的请求流。</desc>
 
-  <rect width="1200" height="420" rx="26" fill="#12110f"/>
+  <rect width="1200" height="420" rx="26" fill="#060607"/>
 
   <!-- left: identity -->
   <g id="title-block">
     <text x="56" y="88" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="20" letter-spacing="3" fill="#22D3EE">QODER CLI → OPENAI API</text>
 
-    <g transform="translate(56 104) scale(2.6)" fill="none">
-      <path d="M13 2 L4 14 H11 L9 11 H13.5 L11 22 L20 10 H13 L15 13 H10.5 Z" stroke="#7C3AED" stroke-width="1.75" stroke-linejoin="round" stroke-linecap="round"/>
-      <circle cx="9" cy="18" r="1.25" fill="#22D3EE"/>
+    <g transform="translate(36 84) scale(0.8)" fill="none">
+      <path fill="none" stroke="#FCFCFC" stroke-width="11.4" stroke-linecap="round" stroke-linejoin="round" d="M 91.413 45.646 A 32.000 32.000 0 1 0 91.413 82.354"/>
+      <path fill="none" stroke="#22D3EE" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round" d="M 69.200 58.228 L 76.600 64.000"/>
+      <path fill="none" stroke="#22D3EE" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round" d="M 69.200 69.772 L 76.600 64.000"/>
     </g>
-    <text x="130" y="158" font-size="64" font-weight="700" letter-spacing="-1" fill="#f4eee4">CLI2API</text>
+    <text x="130" y="158" font-size="64" font-weight="700" letter-spacing="-1" fill="#FCFCFC">CLI2API</text>
 
-    <text x="56" y="228" font-size="28" fill="#b3aa9d">把你自己的 Qoder CLI 登录态，</text>
-    <text x="56" y="270" font-size="28" fill="#b3aa9d">变成一个本机运行的 OpenAI 兼容 API</text>
+    <text x="56" y="228" font-size="28" fill="#71717A">把你自己的 Qoder CLI 登录态，</text>
+    <text x="56" y="270" font-size="28" fill="#71717A">变成一个本机运行的 OpenAI 兼容 API</text>
 
-    <g font-size="18" fill="#f4eee4">
-      <rect x="56" y="318" width="166" height="40" rx="20" fill="#1b1a17" stroke="#2c2a25"/>
+    <g font-size="18" fill="#FCFCFC">
+      <rect x="56" y="318" width="166" height="40" rx="20" fill="#18181B" stroke="#3F3F46"/>
       <text x="139" y="343" text-anchor="middle">Docker Compose</text>
-      <rect x="238" y="318" width="150" height="40" rx="20" fill="#1b1a17" stroke="#2c2a25"/>
+      <rect x="238" y="318" width="150" height="40" rx="20" fill="#18181B" stroke="#3F3F46"/>
       <text x="313" y="343" text-anchor="middle">OpenAI 兼容</text>
-      <rect x="404" y="318" width="140" height="40" rx="20" fill="#1b1a17" stroke="#2c2a25"/>
+      <rect x="404" y="318" width="140" height="40" rx="20" fill="#18181B" stroke="#3F3F46"/>
       <text x="474" y="343" text-anchor="middle">MIT License</text>
     </g>
   </g>
 
   <!-- right: request flow in a terminal panel -->
   <g id="flow-panel">
-    <rect x="648" y="64" width="492" height="292" rx="18" fill="#1b1a17" stroke="#2c2a25"/>
+    <rect x="648" y="64" width="492" height="292" rx="18" fill="#18181B" stroke="#3F3F46"/>
 
-    <circle cx="676" cy="90" r="5" fill="#3a3733"/>
-    <circle cx="694" cy="90" r="5" fill="#3a3733"/>
-    <circle cx="712" cy="90" r="5" fill="#3a3733"/>
-    <text x="1116" y="96" text-anchor="end" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="18" fill="#8a8174">localhost:3010</text>
-    <line x1="648" y1="112" x2="1140" y2="112" stroke="#2c2a25"/>
+    <circle cx="676" cy="90" r="5" fill="#3F3F46"/>
+    <circle cx="694" cy="90" r="5" fill="#3F3F46"/>
+    <circle cx="712" cy="90" r="5" fill="#3F3F46"/>
+    <text x="1116" y="96" text-anchor="end" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="18" fill="#71717A">localhost:3010</text>
+    <line x1="648" y1="112" x2="1140" y2="112" stroke="#3F3F46"/>
 
     <!-- nodes -->
-    <rect x="684" y="152" width="128" height="64" rx="12" fill="#12110f" stroke="#2c2a25"/>
-    <text x="748" y="180" text-anchor="middle" font-size="20" font-weight="600" fill="#f4eee4">OpenAI</text>
-    <text x="748" y="204" text-anchor="middle" font-size="18" fill="#8a8174">客户端</text>
+    <rect x="684" y="152" width="128" height="64" rx="12" fill="#060607" stroke="#3F3F46"/>
+    <text x="748" y="180" text-anchor="middle" font-size="20" font-weight="600" fill="#FCFCFC">OpenAI</text>
+    <text x="748" y="204" text-anchor="middle" font-size="18" fill="#71717A">客户端</text>
 
-    <rect x="838" y="152" width="116" height="64" rx="12" fill="#7C3AED" fill-opacity="0.14" stroke="#7C3AED" stroke-width="1.5"/>
-    <text x="896" y="180" text-anchor="middle" font-size="20" font-weight="600" fill="#f4eee4">CLI2API</text>
-    <text x="896" y="204" text-anchor="middle" font-size="18" fill="#b3aa9d">本机网关</text>
+    <rect x="838" y="152" width="116" height="64" rx="12" fill="#22D3EE" fill-opacity="0.14" stroke="#22D3EE" stroke-width="1.5"/>
+    <text x="896" y="180" text-anchor="middle" font-size="20" font-weight="600" fill="#FCFCFC">CLI2API</text>
+    <text x="896" y="204" text-anchor="middle" font-size="18" fill="#71717A">本机网关</text>
 
-    <rect x="980" y="152" width="124" height="64" rx="12" fill="#12110f" stroke="#2c2a25"/>
-    <text x="1042" y="180" text-anchor="middle" font-size="20" font-weight="600" fill="#f4eee4">Qoder</text>
-    <text x="1042" y="204" text-anchor="middle" font-size="18" fill="#8a8174">云端</text>
+    <rect x="980" y="152" width="124" height="64" rx="12" fill="#060607" stroke="#3F3F46"/>
+    <text x="1042" y="180" text-anchor="middle" font-size="20" font-weight="600" fill="#FCFCFC">Qoder</text>
+    <text x="1042" y="204" text-anchor="middle" font-size="18" fill="#71717A">云端</text>
 
     <!-- arrows with data-flow dots -->
-    <line x1="812" y1="184" x2="832" y2="184" stroke="#4a463f" stroke-width="2"/>
-    <path d="M832 178 l8 6 -8 6" fill="none" stroke="#4a463f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <line x1="812" y1="184" x2="832" y2="184" stroke="#52525B" stroke-width="2"/>
+    <path d="M832 178 l8 6 -8 6" fill="none" stroke="#52525B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
     <circle cx="822" cy="184" r="4" fill="#22D3EE"/>
 
-    <line x1="954" y1="184" x2="974" y2="184" stroke="#4a463f" stroke-width="2"/>
-    <path d="M974 178 l8 6 -8 6" fill="none" stroke="#4a463f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <line x1="954" y1="184" x2="974" y2="184" stroke="#52525B" stroke-width="2"/>
+    <path d="M974 178 l8 6 -8 6" fill="none" stroke="#52525B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
     <circle cx="964" cy="184" r="4" fill="#22D3EE"/>
 
     <!-- transport labels -->
-    <text x="748" y="244" text-anchor="middle" font-size="18" fill="#8a8174">任意客户端</text>
-    <text x="896" y="244" text-anchor="middle" font-size="18" fill="#8a8174">Go + Node</text>
-    <text x="1042" y="244" text-anchor="middle" font-size="18" fill="#8a8174">HTTP / SSE</text>
+    <text x="748" y="244" text-anchor="middle" font-size="18" fill="#71717A">任意客户端</text>
+    <text x="896" y="244" text-anchor="middle" font-size="18" fill="#71717A">Go + Node</text>
+    <text x="1042" y="244" text-anchor="middle" font-size="18" fill="#71717A">HTTP / SSE</text>
 
     <!-- real request -->
     <circle cx="690" cy="294" r="4" fill="#22D3EE"/>
-    <text x="706" y="300" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="20" fill="#f4eee4">POST /v1/chat/completions</text>
-    <text x="706" y="330" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="18" fill="#8a8174">stream · tool_calls · reasoning_content</text>
+    <text x="706" y="300" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="20" fill="#FCFCFC">POST /v1/chat/completions</text>
+    <text x="706" y="330" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="18" fill="#71717A">stream · tool_calls · reasoning_content</text>
   </g>
 </svg>
