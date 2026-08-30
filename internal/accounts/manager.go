@@ -42,12 +42,21 @@ type ProcessStarter interface {
 	Start(context.Context, Account, string, int) (ManagedProcess, error)
 }
 
+// WorkBuddyMaintainer is the Phase N ops surface. Implemented by
+// workbuddy.Client; kept narrow so accounts does not grow a generic
+// check-in capability on AccountProber.
+type WorkBuddyMaintainer interface {
+	DailyCheckin(ctx context.Context, accountID string) (string, error)
+	Keepalive(ctx context.Context, accountID string) error
+}
+
 type Manager struct {
 	config     ManagerConfig
 	store      *Store
 	starter    ProcessStarter
 	pool       *Pool
 	providers  *providers.Registry
+	workbuddy  WorkBuddyMaintainer
 	mu         sync.Mutex
 	processes  map[string]ManagedProcess
 	restarts   map[string]int
@@ -144,6 +153,14 @@ func (m *Manager) SetProviders(registry *providers.Registry) {
 		return
 	}
 	m.providers = registry
+}
+
+// SetWorkBuddy wires Phase N check-in / keepalive without a second scheduler package.
+func (m *Manager) SetWorkBuddy(ops WorkBuddyMaintainer) {
+	if m == nil {
+		return
+	}
+	m.workbuddy = ops
 }
 
 func (m *Manager) Close() error {
@@ -455,14 +472,15 @@ func (m *Manager) stopAccount(id string) error {
 }
 
 type ImportAccount struct {
-	Name             string
-	Provider         string
-	Region           string
-	Enabled          bool
-	MaxInFlight      int
-	Priority         int
-	DropSystemPrompt *bool
-	Credential       NativeCredential
+	Name                 string
+	Provider             string
+	Region               string
+	Enabled              bool
+	MaxInFlight          int
+	Priority             int
+	DropSystemPrompt     *bool
+	WorkBuddyAutoCheckin *bool
+	Credential           NativeCredential
 }
 
 type AccountView struct {
@@ -479,6 +497,7 @@ func (m *Manager) Import(ctx context.Context, input ImportAccount) (Account, err
 	account, err := m.store.Create(ctx, CreateAccount{
 		Name: input.Name, Provider: input.Provider, Region: input.Region, Enabled: false,
 		MaxInFlight: input.MaxInFlight, Priority: input.Priority, DropSystemPrompt: input.DropSystemPrompt,
+		WorkBuddyAutoCheckin: input.WorkBuddyAutoCheckin,
 	})
 	if err != nil {
 		return Account{}, err
@@ -840,4 +859,148 @@ func (m *Manager) watchAccount(id string, process ManagedProcess) {
 		return
 	}
 	_ = m.startAccount(context.Background(), account)
+}
+
+// alreadyCheckedIn is implemented by workbuddy.AlreadyCheckedInError without
+// importing that package (accounts <-> workbuddy would cycle).
+type alreadyCheckedIn interface {
+	AlreadyCheckedIn() bool
+}
+
+// CheckinAccount runs one WorkBuddy daily-checkin, records display fields, and
+// refreshes credits. Failures never write chat cooldown.
+func (m *Manager) CheckinAccount(ctx context.Context, accountID string) (Account, error) {
+	if m == nil || m.workbuddy == nil {
+		return Account{}, fmt.Errorf("workbuddy maintainer not configured")
+	}
+	account, err := m.store.Get(ctx, accountID)
+	if err != nil {
+		return Account{}, err
+	}
+	if account.Provider != "workbuddy" {
+		return account, fmt.Errorf("check-in is only available for WorkBuddy accounts")
+	}
+	msg, checkErr := m.workbuddy.DailyCheckin(ctx, accountID)
+	if msg == "" && checkErr != nil {
+		msg = checkErr.Error()
+	}
+	if msg == "" {
+		msg = "ok"
+	}
+	_ = m.store.RecordCheckin(ctx, accountID, msg, time.Now().UTC())
+	if adapter, ok := m.providers.Get("workbuddy"); ok && adapter.Prober != nil {
+		m.fetchProviderQuota(ctx, accountID, adapter.Prober)
+	}
+	account, getErr := m.store.Get(ctx, accountID)
+	if getErr != nil {
+		return account, getErr
+	}
+	if checkErr == nil {
+		return account, nil
+	}
+	var already alreadyCheckedIn
+	if errors.As(checkErr, &already) && already.AlreadyCheckedIn() {
+		return account, nil
+	}
+	return account, checkErr
+}
+
+// CheckinOptedIn runs check-in for every enabled WorkBuddy account with
+// workbuddy_auto_checkin on. Cooldown accounts are included; disabled skip.
+func (m *Manager) CheckinOptedIn(ctx context.Context) {
+	if m == nil || m.workbuddy == nil {
+		return
+	}
+	accounts, err := m.store.List(ctx)
+	if err != nil {
+		log.Printf("workbuddy checkin list: %v", err)
+		return
+	}
+	for _, account := range accounts {
+		if account.Provider != "workbuddy" || !account.Enabled || !account.WorkBuddyAutoCheckin {
+			continue
+		}
+		if _, err := m.CheckinAccount(ctx, account.ID); err != nil {
+			log.Printf("workbuddy checkin account_id=%s op=checkin err=%v", account.ID, err)
+		}
+	}
+}
+
+// KeepaliveWorkBuddy refreshes tokens for enabled WorkBuddy accounts.
+// When onlyOptIn is true, only auto-checkin accounts are touched (scheduled
+// path). Manual/batch keepalive can pass false.
+func (m *Manager) KeepaliveWorkBuddy(ctx context.Context, onlyOptIn bool) {
+	if m == nil || m.workbuddy == nil {
+		return
+	}
+	accounts, err := m.store.List(ctx)
+	if err != nil {
+		log.Printf("workbuddy keepalive list: %v", err)
+		return
+	}
+	for _, account := range accounts {
+		if account.Provider != "workbuddy" || !account.Enabled {
+			continue
+		}
+		if onlyOptIn && !account.WorkBuddyAutoCheckin {
+			continue
+		}
+		if err := m.workbuddy.Keepalive(ctx, account.ID); err != nil {
+			log.Printf("workbuddy keepalive account_id=%s op=keepalive err=%v", account.ID, err)
+		}
+	}
+}
+
+// RunWorkBuddyMaintenanceLoop fires check-in near 09:00/21:00 and keepalive
+// near 22:00 in the process local zone, with minute jitter. Stop by closing stop.
+func (m *Manager) RunWorkBuddyMaintenanceLoop(stop <-chan struct{}) {
+	if m == nil {
+		return
+	}
+	for {
+		delay, kind := nextWorkBuddyFire(time.Now())
+		timer := time.NewTimer(delay)
+		select {
+		case <-stop:
+			timer.Stop()
+			return
+		case <-m.runCtx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			switch kind {
+			case "checkin":
+				m.CheckinOptedIn(ctx)
+			case "keepalive":
+				m.KeepaliveWorkBuddy(ctx, true)
+			}
+			cancel()
+		}
+	}
+}
+
+func nextWorkBuddyFire(now time.Time) (time.Duration, string) {
+	type slot struct {
+		hour int
+		kind string
+	}
+	slots := []slot{{9, "checkin"}, {21, "checkin"}, {22, "keepalive"}}
+	loc := now.Location()
+	var best time.Time
+	var bestKind string
+	for _, slot := range slots {
+		candidate := time.Date(now.Year(), now.Month(), now.Day(), slot.hour, 0, 0, 0, loc)
+		if !candidate.After(now) {
+			candidate = candidate.Add(24 * time.Hour)
+		}
+		// Minute jitter 0–14 keeps multi-account fleets off the exact hour.
+		jitter := time.Duration(candidate.UnixNano()%15) * time.Minute
+		candidate = candidate.Add(jitter)
+		if bestKind == "" || candidate.Before(best) {
+			best = candidate
+			bestKind = slot.kind
+		}
+	}
+	return best.Sub(now), bestKind
 }

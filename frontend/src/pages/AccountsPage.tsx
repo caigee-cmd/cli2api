@@ -16,6 +16,7 @@ import { SearchBar } from '@/components/ui/SearchBar'
 import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
 import {
+  checkinAccount,
   deleteAccount,
   exportAccount,
   completeLoginCallback,
@@ -59,23 +60,27 @@ export function AccountsPage() {
   const [filter, setFilter] = useState<AccountFilter>('all')
   const [enabledById, setEnabledById] = useState<Record<string, boolean>>({})
   const [dropSystemById, setDropSystemById] = useState<Record<string, boolean>>({})
+  const [autoCheckinById, setAutoCheckinById] = useState<Record<string, boolean>>({})
   const [nameById, setNameById] = useState<Record<string, string>>({})
   const [inflightById, setInflightById] = useState<Record<string, number>>({})
   const [priorityById, setPriorityById] = useState<Record<string, number>>({})
+  const [quotaRefreshing, setQuotaRefreshing] = useState(false)
   const displayRows = useMemo(() => rows.map((account) => {
     const enabled = enabledById[account.id]
     const dropSystem = dropSystemById[account.id]
+    const autoCheckin = autoCheckinById[account.id]
     const name = nameById[account.id]
     const inflight = inflightById[account.id]
     const priority = priorityById[account.id]
     let next = account
     if (enabled !== undefined) next = { ...next, enabled }
     if (dropSystem !== undefined) next = { ...next, drop_system_prompt: dropSystem }
+    if (autoCheckin !== undefined) next = { ...next, workbuddy_auto_checkin: autoCheckin }
     if (name !== undefined) next = { ...next, name }
     if (inflight !== undefined) next = { ...next, max_inflight: inflight }
     if (priority !== undefined) next = { ...next, priority }
     return next
-  }), [enabledById, dropSystemById, inflightById, nameById, priorityById, rows])
+  }), [autoCheckinById, enabledById, dropSystemById, inflightById, nameById, priorityById, rows])
 
   const availableCount = displayRows.filter(isAvailable).length
   const attentionCount = displayRows.filter((account) => account.enabled && !isAvailable(account)).length
@@ -208,6 +213,35 @@ export function AccountsPage() {
     })
   }
 
+  async function onToggleAutoCheckin(id: string, selected: boolean) {
+    setAutoCheckinById((current) => ({ ...current, [id]: selected }))
+    await run(id, 'toggle', async () => {
+      await updateAccount(id, { workbuddy_auto_checkin: selected })
+      await refresh(undefined, { silent: true })
+    })
+    setAutoCheckinById((current) => {
+      const next = { ...current }
+      delete next[id]
+      return next
+    })
+  }
+
+  async function onCheckin(id: string) {
+    await run(id, 'checkin', async () => {
+      await checkinAccount(id)
+      await refresh(undefined, { silent: true })
+    })
+  }
+
+  async function onRefreshCredits() {
+    setQuotaRefreshing(true)
+    try {
+      await refresh(undefined, { silent: true, refreshQuota: true })
+    } finally {
+      setQuotaRefreshing(false)
+    }
+  }
+
   async function onSaveSettings(id: string, input: { name: string; max_inflight: number; priority: number }) {
     if (!id) throw new Error(t('accountNameRequired'))
     setNameById((current) => ({ ...current, [id]: input.name }))
@@ -266,7 +300,12 @@ export function AccountsPage() {
             </div>
           ))}
         </div>
-        <Button size="sm" onPress={() => setAddOpen(true)}><Plus size={14} />{t('addAccount')}</Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button size="sm" variant="secondary" isPending={quotaRefreshing} onPress={() => void onRefreshCredits()}>
+            {t('refreshCredits')}
+          </Button>
+          <Button size="sm" onPress={() => setAddOpen(true)}><Plus size={14} />{t('addAccount')}</Button>
+        </div>
       </section>
 
       <AddAccountModal isOpen={addOpen} onClose={() => setAddOpen(false)} onAdded={() => void refresh(undefined, { silent: true })} />
@@ -369,6 +408,8 @@ export function AccountsPage() {
             onDelete={() => setConfirmId(account.id)}
             onToggle={(selected) => void onToggle(account.id, selected)}
             onToggleDropSystem={(selected) => void onToggleDropSystem(account.id, selected)}
+            onToggleAutoCheckin={(selected) => void onToggleAutoCheckin(account.id, selected)}
+            onCheckin={() => void onCheckin(account.id)}
             onEdit={() => setEditId(account.id)}
             onToggleAuthPanel={() => setAuthPanelId((current) => current === account.id ? null : account.id)}
             onViewModels={() => setModelsId(account.id)}

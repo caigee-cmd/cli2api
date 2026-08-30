@@ -1,7 +1,7 @@
 # 多上游账号类型：WorkBuddy 对照与扩展计划
 
 last-updated: 2026-08-30
-status: WorkBuddy J0–J4 已落地；积分/签到调研已补全（Phase N 未开工）；Qoder CN 代码完成，L6 真实账号验收未完成
+status: WorkBuddy J0–J4 已落地；Phase N 积分/签到/保活已落地（账号级 opt-in，默认关）；Qoder CN 代码完成，L6 真实账号验收未完成
 routing-reference: [router-for-me/CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) `main` @ `dc3c3b1`
 workbuddy-reference: [Sliverkiss/workbuddy2api](https://github.com/Sliverkiss/workbuddy2api) `master` @ `92514d8ba06413c3b620e96da3ebc38e6c7beda0`
 trae-solo: [docs/PROVIDERS_TRAE_SOLO.md](./PROVIDERS_TRAE_SOLO.md)（消费级 Trae CN Solo；旧 `docs/PROVIDERS_TRAE.md` 已过期）
@@ -107,7 +107,7 @@ CN：`GET {chatBase}/console/enterprises/personal/models`。国际站这条 cons
 
 ### 积分与签到
 
-WorkBuddy / CodeBuddy 上游确实有「每日签到领积分」与 billing meter。本仓库已经落地余额展示（`Quota` / `UserResource`），**尚未**实现自动签到与后台 keepalive。本节是 Phase N 的协议与产品约束；排期见 `docs/PLAN.md` Phase N。前置条件：WorkBuddy 真账号验收（J 清单）通过后再写代码。
+WorkBuddy / CodeBuddy 上游确实有「每日签到领积分」与 billing meter。本仓库已落地余额展示（`Quota` / `UserResource`），以及账号级 opt-in 的自动签到与后台 keepalive（Phase N）。本节保留协议与产品约束；清单见 `docs/PLAN.md` Phase N。
 
 #### 协议事实（对照 workbuddy2api `92514d8`）
 
@@ -139,7 +139,7 @@ WorkBuddy / CodeBuddy 上游确实有「每日签到领积分」与 billing mete
 - `12153` / `Offline user session not found` → 仅 keepalive / refresh 路径按 `auth` 禁用或要求重登；签到批次里遇到同样错误只记日志，不批量禁用整池
 - 402 / 「积分不足」与签到无关；那是 chat / meter 消费路径的 `quota`
 
-本仓库常量已就位：`pathUserResource`、`pathDailyCheckin`（`internal/providers/workbuddy/credential.go`）。`Client.Quota` / `UserResource` / `Refresh` 已有；**还没有** `DailyCheckin` 方法。
+本仓库常量与实现已就位：`pathUserResource`、`pathDailyCheckin`；`Client.Quota` / `UserResource` / `Refresh` / `DailyCheckin` / `Keepalive`。调度循环挂在 `api.New` 旁的 `Manager.RunWorkBuddyMaintenanceLoop`。
 
 #### 参考仓库怎么做（不要整段照搬）
 
