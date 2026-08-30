@@ -73,3 +73,44 @@ func TestParseReasoningOptionsRejectsIncompleteConfig(t *testing.T) {
 		t.Fatalf("incomplete config leaked: %v %s", options, def)
 	}
 }
+
+func TestParseCatalogModelsUsesLiveMaxAndContactReasoning(t *testing.T) {
+	payload, _ := json.Marshal(map[string]any{
+		"config_info_list": []map[string]any{
+			{
+				"config_name":            "glm-5.3",
+				"context_window_tokens":  map[string]any{"dev": 200000},
+				"display_config":         map[string]any{"display_name": "GLM-5.3", "max_mode": false},
+				"display_contact_config": `{"reasoning":{"enable":true}}`,
+				"model_detail_list": []map[string]any{{
+					"max_tokens": 32000, "prompt_max_tokens": 168000,
+					"model_extra_config": `{"v2_max_mode_enabled":true}`,
+				}},
+			},
+			{
+				"config_name":            "kimi-k2.7-code",
+				"context_window_tokens":  map[string]any{"dev": 200000},
+				"display_config":         map[string]any{"display_name": "Kimi-K2.7-Code"},
+				"display_contact_config": map[string]any{"reasoning": map[string]any{"enable": true}},
+				"model_detail_list": []map[string]any{{
+					"model_extra_config": `{"Thinking":{"Type":"enabled"}}`,
+				}},
+			},
+		},
+	})
+	models, err := parseCatalogModels(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 2 {
+		t.Fatalf("models=%+v", models)
+	}
+	glm := models[0]
+	if !glm.Capabilities.MaxMode || len(glm.Capabilities.ReasoningOptions) != 3 || glm.Capabilities.ReasoningDefault != "high" {
+		t.Fatalf("glm live caps=%+v", glm.Capabilities)
+	}
+	kimi := models[1]
+	if kimi.Capabilities.MaxMode || kimi.Capabilities.ReasoningType != "enabled" {
+		t.Fatalf("kimi caps=%+v", kimi.Capabilities)
+	}
+}

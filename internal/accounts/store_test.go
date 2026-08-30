@@ -177,6 +177,32 @@ func TestProviderModelMaxModeIsIndependentOfQoderContext(t *testing.T) {
 	}
 }
 
+func TestProviderModelReasoningEffortPersistsWithMaxMode(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.SetProviderModelSetting(ctx, "workbuddy", "glm-5.3", ProviderModelSetting{ReasoningEffort: "xhigh"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.GetProviderModelSetting(ctx, "workbuddy", "glm-5.3")
+	if err != nil || got.MaxMode || got.ReasoningEffort != "xhigh" {
+		t.Fatalf("workbuddy setting=%+v %v", got, err)
+	}
+	if err := store.SetProviderModelSetting(ctx, "trae", "glm-5.3", ProviderModelSetting{MaxMode: true, ReasoningEffort: "low"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetProviderModelMaxMode(ctx, "trae", "glm-5.3", false); err != nil {
+		t.Fatal(err)
+	}
+	got, err = store.GetProviderModelSetting(ctx, "trae", "glm-5.3")
+	if err != nil || got.MaxMode || got.ReasoningEffort != "low" {
+		t.Fatalf("trae setting after max off=%+v %v", got, err)
+	}
+}
+
 func TestStoreCreatesNamedAPIKeys(t *testing.T) {
 	ctx := context.Background()
 	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))

@@ -347,42 +347,70 @@ func providerModelKey(provider, modelID string) (string, string, error) {
 	return provider, modelID, nil
 }
 
-func (s *Store) SetProviderModelMaxMode(ctx context.Context, provider, modelID string, maxMode bool) error {
+type ProviderModelSetting struct {
+	MaxMode         bool
+	ReasoningEffort string
+}
+
+func (s *Store) SetProviderModelSetting(ctx context.Context, provider, modelID string, setting ProviderModelSetting) error {
 	provider, modelID, err := providerModelKey(provider, modelID)
 	if err != nil {
 		return err
 	}
-	if !maxMode {
+	setting.ReasoningEffort = strings.ToLower(strings.TrimSpace(setting.ReasoningEffort))
+	if !setting.MaxMode && setting.ReasoningEffort == "" {
 		_, err := s.db.ExecContext(ctx, `DELETE FROM provider_model_settings WHERE provider = ? AND model_id = ?`, provider, modelID)
 		if err != nil {
 			return fmt.Errorf("delete provider model setting: %w", err)
 		}
 		return nil
 	}
+	maxMode := 0
+	if setting.MaxMode {
+		maxMode = 1
+	}
 	_, err = s.db.ExecContext(ctx, `
-INSERT INTO provider_model_settings (provider, model_id, max_mode, updated_at) VALUES (?, ?, 1, ?)
-ON CONFLICT(provider, model_id) DO UPDATE SET max_mode=1, updated_at=excluded.updated_at`,
-		provider, modelID, formatTime(time.Now().UTC()))
+	INSERT INTO provider_model_settings (provider, model_id, max_mode, reasoning_effort, updated_at) VALUES (?, ?, ?, ?, ?)
+	ON CONFLICT(provider, model_id) DO UPDATE SET max_mode=excluded.max_mode, reasoning_effort=excluded.reasoning_effort, updated_at=excluded.updated_at`,
+		provider, modelID, maxMode, setting.ReasoningEffort, formatTime(time.Now().UTC()))
 	if err != nil {
 		return fmt.Errorf("save provider model setting: %w", err)
 	}
 	return nil
 }
 
-func (s *Store) GetProviderModelMaxMode(ctx context.Context, provider, modelID string) (bool, error) {
+func (s *Store) GetProviderModelSetting(ctx context.Context, provider, modelID string) (ProviderModelSetting, error) {
 	provider, modelID, err := providerModelKey(provider, modelID)
+	if err != nil {
+		return ProviderModelSetting{}, err
+	}
+	var maxMode int
+	var effort string
+	err = s.db.QueryRowContext(ctx, `SELECT max_mode, reasoning_effort FROM provider_model_settings WHERE provider = ? AND model_id = ?`, provider, modelID).Scan(&maxMode, &effort)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ProviderModelSetting{}, nil
+	}
+	if err != nil {
+		return ProviderModelSetting{}, fmt.Errorf("get provider model setting: %w", err)
+	}
+	return ProviderModelSetting{MaxMode: maxMode != 0, ReasoningEffort: strings.TrimSpace(effort)}, nil
+}
+
+func (s *Store) SetProviderModelMaxMode(ctx context.Context, provider, modelID string, maxMode bool) error {
+	setting, err := s.GetProviderModelSetting(ctx, provider, modelID)
+	if err != nil {
+		return err
+	}
+	setting.MaxMode = maxMode
+	return s.SetProviderModelSetting(ctx, provider, modelID, setting)
+}
+
+func (s *Store) GetProviderModelMaxMode(ctx context.Context, provider, modelID string) (bool, error) {
+	setting, err := s.GetProviderModelSetting(ctx, provider, modelID)
 	if err != nil {
 		return false, err
 	}
-	var maxMode int
-	err = s.db.QueryRowContext(ctx, `SELECT max_mode FROM provider_model_settings WHERE provider = ? AND model_id = ?`, provider, modelID).Scan(&maxMode)
-	if errors.Is(err, sql.ErrNoRows) {
-		return false, nil
-	}
-	if err != nil {
-		return false, fmt.Errorf("get provider model setting: %w", err)
-	}
-	return maxMode != 0, nil
+	return setting.MaxMode, nil
 }
 
 func (s *Store) ListProviderModelMaxModes(ctx context.Context, provider string) (map[string]bool, error) {

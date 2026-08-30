@@ -2,41 +2,13 @@ package trae
 
 import (
 	"encoding/json"
-	"strings"
 
 	"github.com/caigee-cmd/cli2api/internal/providers"
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
-var reasoningLevels = map[string]string{
-	"none":       "none",
-	"off":        "none",
-	"disabled":   "none",
-	"low":        "low",
-	"light":      "low",
-	"minimal":    "low",
-	"medium":     "medium",
-	"default":    "medium",
-	"high":       "high",
-	"xhigh":      "xhigh",
-	"x-high":     "xhigh",
-	"extra_high": "xhigh",
-	"extra-high": "xhigh",
-	"extrahigh":  "xhigh",
-	"max":        "max",
-}
-
 func normalizeReasoningLevel(raw string) string {
-	key := strings.ToLower(strings.TrimSpace(raw))
-	key = strings.NewReplacer(" ", "", "_", "-").Replace(key)
-	if mapped, ok := reasoningLevels[key]; ok {
-		return mapped
-	}
-	key = strings.ReplaceAll(key, "-", "_")
-	if mapped, ok := reasoningLevels[key]; ok {
-		return mapped
-	}
-	return ""
+	return providers.NormalizeReasoningLevel(raw)
 }
 
 func requestedReasoningLevel(req translate.ChatRequest) string {
@@ -81,25 +53,10 @@ func requestedReasoningLevel(req translate.ChatRequest) string {
 }
 
 func clampReasoningLevel(level string, caps providers.ModelCapabilities) string {
-	level = normalizeReasoningLevel(level)
-	if level == "" {
-		return ""
-	}
-	if len(caps.ReasoningOptions) == 0 {
-		return ""
-	}
-	for _, option := range caps.ReasoningOptions {
-		if option == level {
-			return level
-		}
-	}
-	if fallback := normalizeReasoningLevel(caps.ReasoningDefault); fallback != "" {
-		return fallback
-	}
-	return caps.ReasoningOptions[0]
+	return providers.ResolveReasoningLevel(level, caps)
 }
 
-func applySoloChatFields(obj map[string]any, req translate.ChatRequest, maxMode bool, caps providers.ModelCapabilities) {
+func applySoloChatFields(obj map[string]any, req translate.ChatRequest, maxMode bool, storedLevel string, caps providers.ModelCapabilities) {
 	if obj == nil {
 		return
 	}
@@ -114,7 +71,11 @@ func applySoloChatFields(obj map[string]any, req translate.ChatRequest, maxMode 
 	} else {
 		delete(obj, "is_max_mode")
 	}
-	level := clampReasoningLevel(requestedReasoningLevel(req), caps)
+	level := requestedReasoningLevel(req)
+	if level == "" {
+		level = storedLevel
+	}
+	level = clampReasoningLevel(level, caps)
 	if level == "" {
 		delete(obj, "reasoning_effort_level")
 		return
