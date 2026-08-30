@@ -1,214 +1,229 @@
 # CLI2API 前端设计规范
 
-本项目是纯已登录控制台应用（登录页 + 内部页面），基于 React、Vite、HeroUI v3、Tailwind v4 和 Phosphor 图标。前端改动应保持现有安静、功能导向、暖白象牙色的界面风格。不要为单个功能引入新的视觉语言。
+本项目是纯已登录控制台应用（登录页 + 内部页面），基于 React、Vite、**HeroUI v3**、Tailwind v4 和 Phosphor 图标。前端视觉以 [HeroUI](https://www.heroui.com/docs/react/components) 的默认主题、语义 token 和复合原语为准。不要为单个功能发明第二套颜色、圆角、字体或控件高度。
+
+Reading this as: self-hosted ops console for operators, with a HeroUI-default product language, cold gray surfaces, one blue accent, Outfit + IBM Plex Mono.
 
 ## 唯一真相来源
 
-- 全局主题 token 在 [frontend/src/index.css](../frontend/src/index.css)。
-- 对话框、提示、卡片、Chip、Drawer、表单等可访问 UI 场景，**强制**用 `@heroui/react` 的 HeroUI 原语。没有对应组件时，再查 shadcn MCP / 官方目录找等价物；最后才允许手写。
-- 当前项目直接使用 `@heroui/react` 原语；布局与复用组件位于 `frontend/src/components/`。
-- 主题 token 与视觉变量统一维护在 [frontend/src/index.css](../frontend/src/index.css)。
-
-- 图标用 `@phosphor-icons/react`，不要混入其他图标库，除非项目中没有等效图标。
+- 主题来自 `@heroui/styles` 的 default light/dark。只允许在 [frontend/src/index.css](../frontend/src/index.css) 里设字体、控制台特有的状态点 / 运行时柱 / 发行说明排版，以及下文「选中态」那两处胶水。不要覆盖 `--accent`、`--background`、`--radius` 或按钮高度。
+- 对话框、提示、卡片、Chip、Drawer、表单、搜索、分页、空状态、开关、Meter 等可访问 UI **必须**用 `@heroui/react`。没有对应组件时，再查 [HeroUI 组件目录](https://www.heroui.com/docs/react/components)；最后才允许手写，并在 PR 里写明缺的是哪个原语。
+- 图标用 `@phosphor-icons/react`，不要混入其他图标库。
+- 颜色、圆角、字号一律走语义 token / Tailwind 映射（`bg-surface`、`text-muted`、`rounded-lg`）。禁止 `text-[var(--muted)]`、一次性 hex、页面私有色板。
 
 ## 视觉方向
 
-应用整体应给人以下感觉：
+控制台对齐 HeroUI 文档站点的产品 UI，而不是营销页：
 
-- 安静、紧凑、功能导向
-- 暖白底色，而非冷灰
-- 默认低对比度，直到需要聚焦/操作时才提升
-- 实用优先于装饰
-- 通过阴影微微抬升层次，而非用粗边框
+- 冷中性灰表面（`--background` / `--surface`），不是暖象牙色、不是紫
+- 唯一交互强调色是 `--accent`（HeroUI 默认蓝，约 `#0485F7`）
+- 成功 / 就绪走 `--success`，警告走 `--warning`，破坏走 `--danger`
+- 圆角跟下面的四档尺度，不要页面各画一套
+- 控件用 HeroUI 默认尺寸：按钮 `size="sm"` 在桌面约 32px，默认 `md` 约 36px
+- 实用优先于装饰；不要毛玻璃、光斑、彩色堆叠面板或套娃卡片
 
 避免：
 
-- 在应用壳里搞营销页式布局
-- 彩色堆叠面板
-- 套娃卡片
-- 无意义的渐变
-- 在 dashboard 界面里放大号标题排版
-- 毛玻璃、光斑/球体、装饰性色块
-- 为每个功能都加一个新强调色
+- 在应用壳里搞营销页式大标题
+- 自定义 `--app-*` 色板盖住 HeroUI token
+- 手写红框、手写进度条、手写分页，而 HeroUI 已有 `Alert` / `Meter` / `Pagination`
+- 原生 `type="number"`、原生 `<select>`、`window.alert()`
+- 为每个功能加一个新强调色
+- 紫 / 象牙 / Inter / 衬线体出现在控制台或品牌套件里
+- 同一页里「选中是蓝、选中是白、选中是灰」混用
 
 ## 颜色 Token
 
-用语义 token，不要硬编码一次性颜色。
+用 HeroUI 语义 token 和 Tailwind 映射。浅色近似值只用于 SVG / manifest / `theme-color`，运行时 UI 仍走 token。
 
-推荐用法：
+| 用途 | Token / class | 浅色近似 |
+|------|----------------|----------|
+| 页面背景 | `bg-background` / `--background` | `#F5F5F5` |
+| 卡片 / 表面 | `bg-surface` / `--surface` | `#FFFFFF` |
+| 次级表面 | `bg-surface-secondary` | `#EFEFF0` |
+| 正文 | `text-foreground` | `#18181B` |
+| 次级文字 | `text-muted` | `#71717A` |
+| 主操作 | `bg-accent text-accent-foreground`（`Button` 默认 `primary`） | `#0485F7` |
+| 选中填充 | `bg-accent-soft text-accent-soft-foreground` | accent 15% 透明 |
+| 边框 | `border-border` | `#DEDEE0` |
+| 分割线 | `border-separator` / `divide-separator` | |
+| 聚焦 | `--focus`（等于 `--accent`） | |
+| 成功 | `--success` / `Chip color="success"` | `#17C964` |
+| 警告 | `--warning` | `#F5A524` |
+| 危险 | `--danger` / `Button variant="danger"` | `#FF383C` |
+| 品牌节点（仅 mark） | 固定 `#22D3EE` | 青点 |
 
-- 页面背景：`bg-background`
-- 主表面/卡片：`bg-card`
-- 次级 hover/微弱表面：`bg-surface-secondary`
-- 正文：`text-foreground`
-- 次级文字：`text-muted-foreground`
-- 主操作：`bg-primary text-primary-foreground`
-- 边框：`border-border`
-- 表格分割线：`divide-[color:var(--separator)]`
-- 聚焦：`focus:ring-ring/20` 或沿用现有 wrapper 行为
+深色由 `@heroui/styles` 提供：背景约 `#060607`，表面约 `#18181B`，正文 `--snow`。主题切换：`<html class="light|dark" data-theme="light|dark">`。不要再抄一份 ivory / charcoal / violet 变量。
 
-仅以下明确状态可用原始色值：
+硬编码 hex 只允许：
 
-- 危险：`text-red-600`、`text-danger`、HeroUI danger 变体
-- 代码块：深色中性背景可接受
-- 微小的状态/强调点：通过 HeroUI `Chip` 或 `Alert` 实现
+1. 品牌闪电上的青点 `#22D3EE`
+2. SVG / PWA / `theme-color` 无法引用 CSS 变量时的上表近似值
+3. 第三方供应商 mark（WorkBuddy / Trae / Qoder）保持对方品牌色
 
-不要在现有暖色表面上叠加新的米色/灰色层，除非有明确的层级需求。通常一个次级表面就够了。
+### 选中态（必须同一套）
 
-## 组件
+「当前选中」在全控制台是同一种蓝，不是白底、也不是中性灰块。
 
-可访问的组合组件**必须**用 HeroUI，按这个顺序选：
+| 场景 | 做法 |
+|------|------|
+| 主按钮、提交 | `Button` 默认 / `variant="primary"` → 实心 `--accent` |
+| 分段筛选、页签、分页当前页、Option tile、Radio / Checkbox / Switch | `--accent-soft` 底 + `--accent-soft-foreground` 字；控件本身用实心 `--accent` |
+| 侧栏当前页 | `bg-surface-secondary text-foreground`（这是位置，不是控件）。左侧 2px 指示条用 `--accent` |
+| 状态 Chip / Meter / 流量图 | 只用 success / warning / danger，表示真实运行态，不当成选中色 |
+| 工具图标底 | `bg-surface-secondary text-foreground`，不要 `bg-foreground text-background`，不要蓝色方块 |
 
-1. `@heroui/react` 已有原语（`Modal`、`Alert`、`AlertDialog`、`Form`、`NumberField`、`DateRangePicker`、`Select`、`Chip`、`Drawer`、`Card`）。
-2. 没有时，用 shadcn MCP / 官方组件目录找可映射到 HeroUI 组合的模式，不要另开一套视觉语言。
-3. 仍没有、或现有行为确实无法覆盖，才手写。手写必须说明缺的是哪个 HeroUI 组件。
+HeroUI 3.2.4 的 `Tabs.Indicator` 会因 `SharedElementTransition` 崩溃，不要使用。页签选中改走 [frontend/src/index.css](../frontend/src/index.css) 里对 `.tabs__tab[data-selected="true"]` 的 accent-soft。分页当前页默认是 `--default` 灰，同样在 `index.css` 里改成 accent-soft，与 `ToggleButton` 对齐。这两处是允许的组件胶水，不要再加第三处主题覆盖。
+
+## 圆角
+
+`--radius: 0.5rem`（8px）由 HeroUI 提供，不要改。全站只准这四档：
+
+| 档 | Token / class | 用在 |
+|----|----------------|------|
+| 胶囊 / 大壳 | `rounded-3xl`，卡片和 Modal 跟 HeroUI：`min(32px, var(--radius-3xl))` | 按钮、页签、分页、Chip（Chip 官方是 `rounded-2xl`，保持官方）、Card、Modal、空状态、页级区块外壳 |
+| 字段 | `rounded-field`（`--field-radius` = 12px） | SearchField、Input、Select、NumberField |
+| 内衬 | `rounded-xl`（12px） | 侧栏 nav 行、Option tile、侧栏页脚小结 |
+| 井 / 控件 | `rounded-lg`（8px） | 代码井、内嵌列表、关闭按钮、工具图标底、表单分组、骨架块 |
+
+例外：额度细条、运行时柱可用 `rounded-[1px]` / `rounded-[2px]`。不要 `rounded-md`、不要同一页外壳有的 `rounded-lg` 有的 `rounded-3xl`。
+
+## 字体
+
+只准两族，在 [frontend/index.html](../frontend/index.html) 加载、在 `index.css` 的 `@theme` 里声明：
+
+| 角色 | 字体 | 字重 |
+|------|------|------|
+| 界面 | Outfit，中文回退 PingFang SC / Microsoft YaHei | 400 / 500 / 600 |
+| 数字、ID、代码 | IBM Plex Mono（`.mono`） | 400 / 500 |
+
+不要 Inter、不要衬线、不要第三族。层级：
+
+| 角色 | 规格 |
+|------|------|
+| 顶栏标题 | `text-2xl font-semibold tracking-[-0.035em]` |
+| 页内标题 | 同上，`h2` |
+| 页内说明 | `mt-1 max-w-2xl text-sm leading-6 text-muted` |
+| 区块标题 | `font-semibold tracking-[-0.015em]` |
+| 正文 | `text-sm leading-6` |
+| 元信息 / 标签 | `text-xs` 或 `text-[11px] text-muted` |
+| 侧栏分组 | `text-[10px] font-semibold tracking-[0.12em] uppercase text-muted` |
+| 等宽 | `.mono`，`font-variant-numeric: tabular-nums` |
+
+登录页主标题可以到 `clamp(2.25rem, 4vw, 3.6rem)`，仅限 `/login`。应用壳里不要再放大。
+
+## 间距与壳层
+
+- 应用壳：`max-w-[1480px]`，页边 `px-4 sm:px-6 lg:px-8`
+- 页内竖向：标题区 `space-y-6` 或 `space-y-4`（账号页更紧），区块 `gap-5`，账号 / 密钥网格 `gap-2.5`、`lg:grid-cols-2 xl:grid-cols-3`
+- 页头与内容之间：标题区 `border-b border-separator pb-4`
+- 侧栏展开 248px，收起 76px
+
+表格：`Card` + `Table.ScrollContainer`，`text-sm`，表头 `text-muted`，行 `divide-separator`。
+
+卡片用 `Header` / `Content` / `Footer` 槽。账号卡片保持操作台密度：单行身份，状态 Chip 只出现一次；额度用 `Meter`；运行状态仍用 12 格短柱。不要为了分组把卡片嵌套在卡片里。
+
+## 组件选型
+
+按这个顺序选：
+
+1. `@heroui/react` 已有原语。控制台常用映射：
+
+| 场景 | 原语 |
+|------|------|
+| 页面区块 | `Card`（`Header` / `Title` / `Description` / `Content` / `Footer`） |
+| 低强调容器 | `Surface` |
+| 工具栏按钮簇 | `Toolbar`（`isAttached`）+ `Button isIconOnly` |
+| 筛选分段 | `ToggleButtonGroup` + `ToggleButton`（`selectionMode="single"`） |
+| 搜索 | `SearchField`（`Group` / `SearchIcon` / `Input` / `ClearButton`） |
+| 表单字段 | `TextField` + `Label` + `Input` + `Description` + `FieldError` |
+| 数字 | `NumberField` |
+| 开关 | `Switch`（`Content` / `Control` / `Thumb`），账号行用 `size="sm"` |
+| 状态条 / 额度 | `Meter`（`Output` / `Track` / `Fill`） |
+| 空列表 | `EmptyState` |
+| 页级错误 | `Alert` |
+| 破坏确认 | `AlertDialog` |
+| 普通设置弹窗 | `Modal` `size="lg"` |
+| 分页 | `Pagination` |
+| 日志 / 模型表 | `Table` |
+| 日志页签 | `Tabs`（`ListContainer` / `List` / `Tab` / `Panel`）。不要 `Tabs.Indicator` |
+| 账号类型 | `RadioGroup` + `Radio`（≤6 用 tile；超过用 `Select`） |
+| 移动端导航 | `Drawer` |
+| 总览流量图 | Recharts `ComposedChart`（HeroUI 没有 Chart；对齐 shadcn/ui charts 的 Recharts 层）。颜色走 `--success` / `--danger`，入场用 GSAP |
+
+2. 项目包装只放在 `frontend/src/components/ui/`，用于把 HeroUI 原语接到控制台状态，而不是另画一套皮肤。
+3. 仍没有、或现有行为确实无法覆盖，才手写。手写必须说明缺的是哪个 HeroUI 组件。运行时 12 格短柱属于账号卡片特有可视化，可以保留。总览流量图用 Recharts，不要再手画 SVG path。
 
 账号编辑等设置弹窗：
 
-- 用 `Modal` `size="lg"`（或更宽），不要用 `sm` 把名称、并发、优先级挤进窄卡片。
-- 数字用 `NumberField`（步进按钮），不要用原生 `type="number"`。
-- 校验失败用 `Alert`，不要手写红框。
+- 用 `Modal` `size="lg"`，不要用 `sm` 把名称、并发、优先级挤进窄卡片。
+- 数字用 `NumberField`。
+- 校验失败用 `Alert`。
 - 表单用 `Form` + `Label` / `Description`。
-- 页脚操作按钮用默认尺寸，不要再套卡片上的 32px `account-button`。
+- 页脚操作用默认 `Button` 尺寸。
 
-构建新弹窗时：
-
-- 标准流程必须用 HeroUI `Modal`。
-- 仅在现有行为/布局有特殊要求时才手写对话框。
-- 弹窗表面保持视觉扁平：一个背景、浅边框、适度阴影。
-- 避免 header/body/footer 各用不同背景色。
-- 分割线只在有助于快速扫视时才加，不要默认上下都加边框。
-
-构建表单时：
-
-- 文本输入用 `Input`。
-- 标签应小而安静：`text-xs` 或 `text-sm font-medium text-muted-foreground`。
-- Select 视觉上应与 Input 一致：`h-10 rounded-md border border-input bg-background px-3 text-sm`。
-- 辅助说明用 `Description` 或安静文字，不要包在灰色卡片里，除非确实是需要强调的 callout。
-
-构建按钮时：
-
-- 主操作：`Button` 默认样式。
-- 次要/取消：根据权重选 `variant="ghost"` 或 `variant="outline"`。
-- 危险操作：确认弹窗可用实心 `danger`；卡片/表格行内操作使用 `danger-soft` 或克制的红色 ghost。
-- 纯图标按钮需要 `aria-label` 和 `title`。
-- 行内操作如果图标按钮更清晰，就不要用下划线文字链接。
-
-操作型控制台统一采用以下紧凑规格：
-
-| 控件 | 尺寸 | 字号 / 图标 | 圆角 |
-|------|------|-------------|------|
-| 普通按钮 | 高 32px，水平内边距 12px | 12px / 500，图标 14px | 6–8px |
-| 图标按钮 | 32 × 32px | 图标 14px | 6–8px |
-| 输入框 | 高 32px | 12–13px | 8px |
-| 状态 Chip | 高约 20px | 10px / 500 | 6px |
-| 启停 Switch | 轨道 34 × 18px，滑块 14px，内缩 2px | 状态文字 11px / 500 | 全圆角 |
-
-同一操作区不要混用 32px、36px、40px 三套高度。账号卡片、筛选栏、行内操作默认使用 32px 基线；只有主要表单和移动端触控场景可放宽到 36–40px。
+删除、轮换密钥、清空日志用 `AlertDialog`，不要再手写一套确认 `Modal`。
 
 ## 布局与密度
 
-应用页面通常使用：
+壳层、标题、间距以「间距与壳层」为准。操作型界面保持紧凑，但控件几何跟 HeroUI，不要再写 `.button { height: 2rem }` 或 `md:h-8` 这类覆盖。
 
-- `mx-auto max-w-5xl` 或 `max-w-6xl`
-- 页面标题：`text-2xl font-semibold tracking-tight`
-- 副标题：`mt-1 text-sm text-muted-foreground`
-- 首个内容块：`mt-6`
-- 卡片/网格间距：`gap-4`
+账号卡片：控制台刷新时保持挂载。名称、并发和优先级通过较宽的编辑弹窗修改。添加账号仍是两步向导：第一步选类型、名称和可选高级选项，第二步再选登录方式。类型 ≤ 6 用 `RadioGroup` tile，超过则用 `Select`。
 
-操作型界面保持紧凑。不要在已登录页面里加超大留白或 hero 式区块。
+## 加载
 
-表格：
+第一次进入页面、点刷新、改会打接口的筛选，结果区都要换成 HeroUI `Skeleton`，不要转圈、不要留下一排 `—`。
 
-- 容器：`overflow-x-auto rounded-lg bg-card shadow-card`
-- 表格文字：`text-sm`
-- 表头：`text-left text-muted-foreground`
-- 行分割线：`divide-y divide-[color:var(--separator)]`
-- hover：`hover:bg-surface-secondary/35`
-- 单元格：通常 `px-4 py-3`
-
-卡片：
-
-- 圆角 8px 或更小，除非现有组件已用更大值
-- 账号/资源列表卡片优先使用浅边框和平面表面，不强制最小高度，不额外叠加强阴影
-- 账号卡片保持操作台密度：单行身份（名称 + provider/UID，不展示认证方式），状态 Chip 只出现一次，运行状态用 12 格短柱、额度用 `scaleX` 填充条；名称、并发和优先级通过较宽的 HeroUI 编辑弹窗修改（`Form` + `NumberField` + `Alert`），重启次数仍是只读辅助数字。控制台刷新时卡片保持挂载，让额度和状态柱用 GSAP 过渡，不要整卡换成骨架屏。色条只用很浅的同色渐变，不要换新强调色。
-- 添加账号是两步向导：第一步选类型、名称和可选高级选项，第二步再选登录方式。不要把登录方式再摊回第一步。打开弹窗时类型列表先显示骨架屏，等 `/api/providers` 返回后再渲染真实选项，不要先闪默认 Qoder Global。类型 ≤ 6 用两列 tile，超过则用下拉；未知 provider 直接用后端 descriptor 的 label，不要静默丢掉。登录方式按 `capabilities` 隐藏，只有一种时不要再渲染选择器。
-- 账号网格用 `lg:grid-cols-2 xl:grid-cols-3`，卡片间距 `gap-2.5`，内边距约 12px
-- 主卡片只有在确实需要抬升层级时才用 `shadow-card`
-- 边框克制使用；避免边框 + 阴影 + 有色背景同时出现
-- 不要为了简单分组把卡片嵌套在卡片里
+- 还没有数据：整页骨架（`frontend/src/components/ui/PageSkeletons.tsx`），壳层侧栏和顶栏保留。
+- 已有数据后再请求：保留标题、筛选和主按钮，只把列表 / 图表 / 卡片网格换成对应骨架。
+- 纯前端筛选（账号名、模型名本地过滤）不用骨架。
+- 登录门不要用全屏 Spinner 挡住页面骨架。
 
 ## 边框与分割线
 
-线条要克制。
-
-分割线适用场景：
-
-- 表格行
-- 侧边栏分隔
-- 命令面板搜索/列表分隔
-- 复杂弹窗中不加会导致难以扫视的区域
-
-避免：
-
-- 给弹窗每个区块都加 `border-t` 和 `border-b`
-- 把每条表单提示都包在有边框的盒子里
-- 同一组件里用多种分割线颜色
-
-如果表面已有阴影，通常不需要再加粗边框。
+线条要克制。分割线适用表格行、侧边栏、复杂弹窗中不加就难以扫视的区域。表面已有 `shadow-surface` 时通常不需要再加粗边框。
 
 ## 动效
 
-动效应微妙、快速，并直接解释状态变化。
-
-- 优先用现有缓动 token：`--ease-fluid`、`--ease-snap`、`--ease-settle`。
-- 控制台状态动画保持在 180–220ms；常规位移用 `power3.out`，填充/缩放用 `power2.out`。
-- 启停 Switch 用滑块 `x` 位移和轨道填充 `scaleX` 表达状态；按下时轨道最多缩到 `0.96`，滑块最多放大到 `1.06`。
-- 只动画 `transform` 与 `opacity`，不要通过 `width`、`left` 或 margin 制造位移。
-- React 中使用 `gsap.context()` 限定作用域，使用 `gsap.matchMedia()` 处理 `prefers-reduced-motion`，卸载时必须 `revert()` / kill tween。
-- reduced-motion 下状态必须立即切换，动画时长为 0。
-- 避免在 dashboard/工作流区域放装饰性循环动画。
+- 优先用 HeroUI 自带过渡（按钮 `scale`、Meter `width`、Switch 轨道）。
+- 控制台状态动画保持在 180–220ms；GSAP 只用于 HeroUI 没有的可视化（运行时柱、流量图、侧栏指示条、页面 reveal）。
+- 只动画 `transform` 与 `opacity`，Meter 填充除外（官方用 `width`）。
+- React 中使用 `gsap.context()`，`gsap.matchMedia()` 处理 `prefers-reduced-motion`，卸载时 `revert()`。
+- 避免装饰性循环动画。
 
 ## 图标
 
-- 用 Phosphor 图标。
-- 标准图标尺寸：`size-4`。
-- 操作类图标：复制、显示/隐藏、使用、启用/禁用、删除、关闭。
-- 非显而易见的操作，图标旁应配简短文字。
-- 不要手写 SVG 路径。
+- Phosphor，标准 `size-4`。
+- 纯图标按钮需要 `aria-label`。
+- 不要手写 SVG 路径（品牌 mark 除外）。
 
 ## 文案
 
-- UI 文案保持简短直接。
-- 用户可见的应用文字用 [frontend/src/i18n/messages.ts](../frontend/src/i18n/messages.ts) 中的 i18n store。
-- 应用内不要放说明性段落，除非完成任务所必需。
-- 已登录控制台流程中不要用营销话术。
-
-### 加 i18n key 的流程
-
-当前字典集中在 `frontend/src/i18n/messages.ts`，新增用户可见文案时同步维护 `en` 和 `zh`。
-
-1. 在 `frontend/src/i18n/messages.ts` 的 `en` 字典中加 key。
-2. 在 `zh` 字典中补齐对应中文翻译。
-3. 组件中通过 `useI18n()` 的 `t(key)` 访问。
+- UI 文案保持简短直接，走 [frontend/src/i18n/messages.ts](../frontend/src/i18n/messages.ts)。
+- 新增 key 时同步维护 `en` 和 `zh`。
+- 已登录控制台不要用营销话术，不要 emoji。
+- 不要全大写宽间距 kicker（`LOCAL / PRIVATE`、`OPENAI COMPATIBLE`、`PROTOCOL`）。小节标题用普通 `text-xs font-medium text-muted`。
+- 状态点是实心小点，不要 halo / pulse。没有实时状态就不要点。
+- 不要用彩色左边条当强调；列表和错误靠文字与字重。
 
 ## 前端改动自查清单
 
-完成前端改动前：
-
-- 是否先用了 HeroUI 原语？没有对应组件时是否查过 shadcn / 官方目录，而不是直接手写？
-- 设置弹窗是否用了 `Modal` + `Form` + `NumberField` / `Alert`，而不是窄 `sm` 弹窗和原生 number input？
-- 该用 HeroUI 或现有本地 wrapper 的地方是否用上了？
-- 是否复用了全局语义 token？
-- 边框/分割线是否必要，还是用间距和排版就能解决？
-- 设计是否足够紧凑，适合反复操作使用？
-- 图标是否来自 Phosphor 且可访问？
+- 是否先用了 HeroUI 原语？
+- 颜色是否只走 `--background` / `--surface` / `--accent` / `--muted` / status，而不是 `--app-*`、紫、象牙或一次性 hex？
+- 选中态是否是 accent-soft（页签、分段、分页、tile），而不是白底或灰底？
+- 外壳圆角是否跟 Card（`rounded-3xl`），井 / 关闭按钮是否 `rounded-lg`，字段是否 `rounded-field`？
+- 字体是否只有 Outfit + IBM Plex Mono？页标题是否 `text-2xl font-semibold tracking-[-0.035em]`？
+- 设置弹窗是否用了 `Modal` + `Form` + `NumberField` / `Alert`？
+- 破坏确认是否用了 `AlertDialog`？
+- 搜索是否用了 `SearchField`，分段筛选是否用了 `ToggleButtonGroup`，分页是否用了 `Pagination`？
+- 是否没有使用 `Tabs.Indicator`？
+- 第一次进入、刷新、打接口的筛选是否都有骨架，而不是转圈或空白？
 - 浅色和深色主题下是否都正常？
-- 是否跑了 `npm run lint` 和 `npm run build`？
+- 是否跑了 `npm run lint`、`npm run build`，以及 UI 改动后的 `npm run sync`？
 
 ## Favicon 套件与品牌资产
 
-CLI2API 的浏览器图标、PWA 清单和社交卡走极简 line-icon 路线，与控制台"安静、克制、暖白"的设计语言保持一致。
+CLI2API 的浏览器图标、PWA 清单和社交卡走极简 line-icon 路线，与控制台克制的 HeroUI 表面一致。
 
 ### Mark 母题
 
@@ -218,15 +233,17 @@ CLI2API 的浏览器图标、PWA 清单和社交卡走极简 line-icon 路线，
 - **缺口** = 终端 cursor / 命令行起点
 - **青点** = 数据流通 / 状态指示
 
+闪电描边走当前主题墨色（浅色 `#18181B`，深色 `#FCFCFC`），不要紫色。青点是品牌里唯一的固定色，不当成按钮或选中填充。
+
 ### 文件清单
 
 | 文件 | 位置 | 用途 |
 |------|------|------|
 | `frontend/public/favicon.svg` | source | 主图标，`stroke="currentColor"` 主题自适应 |
-| `frontend/public/favicon-dark.svg` | source | 显式 `#A78BFA` stroke，深色模式回退 |
-| `frontend/public/apple-touch-icon.svg` | source | iOS 启动图标，180×180 暖白底圆角 |
-| `frontend/public/og-card.svg` | source | 1280×640 社交卡（运行时 og:image） |
-| `frontend/public/site.webmanifest` | source | PWA 清单 |
+| `frontend/public/favicon-dark.svg` | source | 显式浅墨反白描边（`#FCFCFC`），深色模式回退 |
+| `frontend/public/apple-touch-icon.svg` | source | iOS 启动图标，180×180 冷灰底（`#F5F5F5`）圆角 |
+| `frontend/public/og-card.svg` | source | 1280×640 社交卡（运行时 og:image），冷灰底 + 墨色闪电 |
+| `frontend/public/site.webmanifest` | source | PWA 清单，`background_color` `#F5F5F5`，`theme_color` `#0485F7` |
 | `internal/webui/static/*` | runtime | 同上副本，被 Go `//go:embed` 打包进二进制 |
 | `docs/assets/overview-card.png` | docs | README 顶部概览卡（手工维护） |
 
@@ -237,6 +254,7 @@ CLI2API 的浏览器图标、PWA 清单和社交卡走极简 line-icon 路线，
 - 主图标用 `stroke="currentColor"` 走主题色；只有品牌识别度必需的强调点用固定色（青点）
 - 不在图标内放 emoji、文字、版本号
 - stroke 1.75px、round line caps、round line joins
+- 禁止 `#7C3AED`、`#A78BFA`、`#FAF7F2`、`#EDE9FE` 出现在品牌套件里
 
 ### 修改流程
 
@@ -261,7 +279,7 @@ Reference backend: [Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api).
 We keep borrowing **account routing, failover, cooldown, in-flight caps**.  
 We do **not** copy billing, Redis concurrency, multi-tenant keys, or commercial sticky sessions.
 
-Console taste: [design-taste-frontend-v1](https://github.com) adapted for a self-hosted ops console. Components **must** be HeroUI.
+Console taste: HeroUI v3 default theme, one accent, four-step radii, Outfit + IBM Plex Mono. Components **must** be HeroUI.
 
 ## Runtime
 
@@ -418,9 +436,9 @@ Go `refreshOne` fetches quota after health for hot/ready accounts and stores a
 never flip account readiness, cooldown, or scheduling. Qoder reads quota from the daemon;
 WorkBuddy reads remaining credits from its billing meter API (`unit: credits`). An
 in-process provider without a quota surface simply omits the block. The account card
-renders a compact `scaleX` fill with `remaining/total <unit>`, `--danger` at 100% / exceeded,
-`--warning` at ≥80%, plus an optional add-on line. Quota and runtime meters animate only
-on state change (`power2.out`, 180–220ms); they do not loop.
+renders HeroUI `Meter` with `remaining/total <unit>`, `--danger` at 100% / exceeded,
+`--warning` at ≥80%, plus an optional add-on line. Quota uses the Meter width transition;
+runtime columns still animate on state change (`power2.out`, 180–220ms) and do not loop.
 
 Distinguish this account-level quota from the request-level `insufficient_quota` error kind:
 that error means a per-request token/model limit, not a zero account balance.
@@ -525,16 +543,16 @@ The console follows the frontend design baseline in the first half of this doc, 
 
 ### Surface and tone
 
-- Warm ivory surfaces, low contrast, compact information density.
+- HeroUI default cool-neutral surfaces. Do not restore the ivory/charcoal overlay.
 - Practical before decorative; the authenticated console must not read like a marketing page.
-- Warm ivory / charcoal surfaces. Primary buttons are cream/ink, not green. Green is reserved for success, ready, and enabled states. Avoid purple, neon, colored stacks, decorative blobs, glass, and large gradients.
-- Use shadows to lift important surfaces; do not combine heavy borders, colored fills, and strong shadows without a clear hierarchy.
-- Use semantic app tokens from `frontend/src/index.css`; do not add one-off colors in page components.
+- Primary buttons use `--accent`. Green is reserved for success, ready, and enabled states.
+- Use `shadow-surface` / `shadow-overlay` from HeroUI; do not combine heavy borders, colored fills, and strong shadows without a clear hierarchy.
+- Use semantic tokens from `@heroui/styles`; do not add `--app-*` colors in page components.
 
 ### Stack and primitives
 
 - React 19, Vite, Tailwind CSS v4, HeroUI v3.
-- Use HeroUI for accessible buttons, cards, chips, modals, inputs, selects, tables, and loading states.
+- Use HeroUI compound parts (`Card.Header`, `SearchField.Group`, `Meter.Track`, `Pagination.Content`) instead of recreating them with divs.
 - Icons use `@phosphor-icons/react`; do not reintroduce another icon library.
 - Keep route structure and the existing auth / endpoint / executor / translate / api boundaries unchanged.
 
@@ -542,23 +560,19 @@ The console follows the frontend design baseline in the first half of this doc, 
 
 - Use `mx-auto max-w-5xl`, `max-w-6xl`, or the existing shell max width.
 - Page titles use `text-2xl font-semibold tracking-tight`; supporting copy is small and muted.
-- Prefer compact grids, status strips, `divide-y`, and `border-t` groupings over nested cards.
-- Cards are for meaningful action groups only; use 8px-or-smaller radii in the console.
-- Tables use horizontal overflow, compact cells, muted headers, separators, and subtle hover surfaces.
+- Prefer compact grids, status strips, and HeroUI separators over nested cards.
+- Tables use `Table.ScrollContainer`, compact cells, and muted headers.
 - Full-height layouts use `min-h-dvh`, never `h-screen`.
 
 ### Interaction and motion
 
-- Loading, empty, and error states are required for data surfaces.
+- Loading, empty, and error states are required for data surfaces (`Skeleton`, `EmptyState`, `Alert`).
 - Header refresh is a user-initiated reload: show the page skeleton. Account create/login/rewarm/delete refreshes stay silent so the card does not disappear under the operator.
 - Logs keep the filter chrome visible; request and runtime lists show a skeleton while filters, pagination, tab switches, or refresh are in flight. Runtime live polling stays silent.
 - Labels sit above form controls; helper text stays quiet and errors sit below the field.
-- Primary actions use HeroUI default buttons with cream/ink fill. Secondary actions use bordered ghost/secondary chips; header utility actions sit in a clustered icon group. Inline destructive actions use `danger-soft`; solid danger is reserved for confirmation dialogs.
-- Compact console controls use a 32px button/input baseline, 12px medium button text, 14px action icons, 20px chips, and 6–8px radii. Icon buttons are 32 × 32px.
-- Compact enable switches use a 34 × 18px track, a 14px thumb with 2px inset, and an 11px state label.
-- Pure icon buttons require `aria-label` and a useful title where the action is not obvious.
-- Animate only opacity and transforms. State transitions stay within 180–220ms using `power2.out` / `power3.out`.
-- GSAP is allowed for short functional console transitions. Scope animations with `gsap.context()`, handle reduced motion with `gsap.matchMedia()`, and revert/kill every animation during cleanup. Reduced-motion state changes are immediate.
+- Primary actions use HeroUI `primary`. Secondary actions use `secondary` / `ghost`. Header utilities sit in an attached `Toolbar`. Inline destructive actions use `danger-soft`; solid danger is reserved for `AlertDialog`.
+- Pure icon buttons require `aria-label`.
+- Prefer HeroUI transitions. GSAP is allowed for short functional console visualizations that HeroUI does not cover. Scope animations with `gsap.context()`, handle reduced motion with `gsap.matchMedia()`, and revert/kill every animation during cleanup.
 - Do not add perpetual decorative loops to the console.
 
 ### Copy and accessibility
@@ -587,6 +601,7 @@ After UI edits:
 | `frontend/src/pages/LogsPage.tsx` | Request history + runtime logs |
 | `frontend/src/pages/SystemPage.tsx` | Managed next-version update |
 | `frontend/src/components/layout/` | Shell / menu |
+| `frontend/src/components/ui/` | HeroUI wrappers (search, pager, switch, empty state, alerts) |
 | `internal/accounts/` | SQLite account repository, migrations, snapshots, scheduler, child lifecycle, request logs |
 | `internal/logs/` | Runtime ring buffer and async request recorder |
 | `internal/providers/` | Provider registry, route pools, in-process adapters (`workbuddy/`) |

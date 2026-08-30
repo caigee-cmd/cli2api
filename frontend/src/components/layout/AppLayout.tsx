@@ -26,8 +26,7 @@ export function AppLayout() {
   useGsapReveal(pageRef, location.pathname)
 
   return (
-    <div className="relative flex h-dvh overflow-hidden bg-[var(--app-bg)] text-[var(--app-ink)]">
-      <div className="noise" aria-hidden />
+    <div className="relative flex h-dvh overflow-hidden bg-background text-foreground">
       <div className="relative z-10 flex min-h-0 min-w-0 flex-1">
         <AppSidebar mobileOpen={mobileOpen} onClose={() => setMobileOpen(false)} />
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">

@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef } from 'react'
-import { Button, Chip, Input, TextArea, Tooltip } from '@heroui/react'
+import { Button, Card, Chip, Input, Label, TextArea, TextField, Tooltip } from '@heroui/react'
 import {
   ArrowClockwise,
   ArrowSquareOut,
@@ -23,11 +23,6 @@ import {
   type AccountRow,
 } from '@/lib/account'
 import { accountProviderLabel } from '@/lib/provider'
-
-const ACCOUNT_BUTTON_CLASS = 'account-button'
-const ACCOUNT_ICON_BUTTON_CLASS = 'account-button account-icon-button'
-const ACCOUNT_CHIP_CLASS = 'account-chip'
-const ACCOUNT_INPUT_CLASS = 'account-input'
 
 export type AccountBusyKind = 'create' | 'import' | 'device' | 'pat' | 'callback' | 'rewarm' | 'toggle' | 'delete' | 'export' | 'settings'
 
@@ -88,7 +83,7 @@ export function AccountCard({
   onToggleAuthPanel,
   onViewModels,
 }: Props) {
-  const cardRef = useRef<HTMLElement>(null)
+  const cardRef = useRef<HTMLDivElement>(null)
   const chipRef = useRef<HTMLSpanElement>(null)
   const authRef = useRef<HTMLElement>(null)
   const lastStateRef = useRef<string | null>(null)
@@ -157,30 +152,30 @@ export function AccountCard({
   }, [authPanelOpen])
 
   return (
-    <article
+    <Card
       ref={cardRef}
       data-gsap-reveal
       data-state={state}
-      className="account-card app-panel-flat flex min-w-0 flex-col overflow-hidden rounded-lg"
+      className="account-card overflow-hidden p-0"
       onMouseEnter={() => cardRef.current && hoverLift(cardRef.current, true, 1)}
       onMouseLeave={() => cardRef.current && hoverLift(cardRef.current, false, 1)}
     >
-      <header className="flex items-start justify-between gap-3 px-3 pt-3 pb-2">
+      <Card.Header className="flex-row items-start justify-between gap-3 px-3 pt-3 pb-2">
         <div className="flex min-w-0 items-center gap-2.5">
           <ProviderMark provider={account.provider} size={22} />
           <div className="min-w-0">
-            <div className="truncate text-[13px] font-semibold leading-5 tracking-[-0.01em]">{account.name || account.id}</div>
-            <div className="mono truncate text-[10px] leading-4 text-[var(--app-faint)]" title={`${account.id}${account.remote_uid ? ` · UID ${account.remote_uid}` : ''}`}>
+            <Card.Title className="truncate text-[13px] leading-5 tracking-[-0.01em]">{account.name || account.id}</Card.Title>
+            <Card.Description className="mono truncate text-[10px] leading-4" title={`${account.id}${account.remote_uid ? ` · UID ${account.remote_uid}` : ''}`}>
               {meta}
-            </div>
+            </Card.Description>
           </div>
         </div>
         <span ref={chipRef} className="shrink-0">
-          <Chip className={ACCOUNT_CHIP_CLASS} size="sm" variant="soft" color={stateColor}>{stateCopy}</Chip>
+          <Chip size="sm" variant="soft" color={stateColor}>{stateCopy}</Chip>
         </span>
-      </header>
+      </Card.Header>
 
-      <div className="flex flex-1 flex-col gap-2.5 px-3 pb-2.5">
+      <Card.Content className="gap-2.5 px-3 pb-2.5">
         <RuntimeMeter state={state} label={t('runtimeState')} stateCopy={stateCopy} />
         {account.quota ? (
           <QuotaMeter
@@ -192,16 +187,16 @@ export function AccountCard({
           />
         ) : null}
 
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[var(--app-faint)]">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted">
           <span>
-            <span className="mono font-medium text-[var(--app-ink)]">{inFlight}/{account.max_inflight ?? 4}</span>
+            <span className="mono font-medium text-foreground">{inFlight}/{account.max_inflight ?? 4}</span>
             {' '}{t('inFlight')}
           </span>
           <span>
-            {t('priority')} <span className="mono font-medium text-[var(--app-ink)]">{account.priority ?? 50}</span>
+            {t('priority')} <span className="mono font-medium text-foreground">{account.priority ?? 50}</span>
           </span>
           <span>
-            {t('restarts')} <span className="mono font-medium text-[var(--app-ink)]">{account.restarts ?? 0}</span>
+            {t('restarts')} <span className="mono font-medium text-foreground">{account.restarts ?? 0}</span>
           </span>
         </div>
 
@@ -223,28 +218,28 @@ export function AccountCard({
         ) : null}
 
         {lastError ? (
-          <div className="flex gap-2 border-l-2 border-[var(--app-danger)] pl-2.5 text-xs leading-5 text-[var(--app-danger)]">
+          <div className="flex gap-2 text-xs leading-5 text-danger">
             <WarningCircle size={14} className="mt-0.5 shrink-0" />
             <div className="min-w-0">
-              {errorKind ? <div className="mono mb-0.5 text-[10px] uppercase opacity-75">{errorKind}</div> : null}
+              {errorKind ? <div className="mono mb-0.5 text-[10px] opacity-75">{errorKind}</div> : null}
               <p className="break-words">{lastError}</p>
             </div>
           </div>
         ) : null}
-      </div>
+      </Card.Content>
 
       {authPanelOpen && account.enabled ? (
-        <section ref={authRef} className="grid gap-3 border-t border-[var(--app-line)] bg-[var(--app-surface-muted)]/55 px-3 py-3">
+        <section ref={authRef} className="grid gap-3 border-t border-separator bg-surface-secondary/55 px-3 py-3">
           <div>
-            <div className="text-[10px] font-semibold tracking-[0.1em] text-[var(--app-faint)] uppercase">{t('oauthDeviceFlow')}</div>
-            <p className="mt-1.5 text-xs leading-5 text-[var(--app-muted)]">{t('qoderLoginHint')}</p>
+            <div className="text-xs font-medium text-muted">{t('oauthDeviceFlow')}</div>
+            <p className="mt-1.5 text-xs leading-5 text-muted">{t('qoderLoginHint')}</p>
             <div className="mt-2.5 flex flex-wrap gap-2">
-              <Button className={ACCOUNT_BUTTON_CLASS} size="sm" isPending={busyKind === 'device'} onPress={onDeviceLogin}><ShieldCheck size={14} />{t('startBrowserLogin')}</Button>
-              {authUrl ? <Button className={ACCOUNT_BUTTON_CLASS} size="sm" variant="ghost" onPress={() => window.open(authUrl, '_blank', 'noopener,noreferrer')}><ArrowSquareOut size={14} />{t('open')}</Button> : null}
+              <Button size="sm" isPending={busyKind === 'device'} onPress={onDeviceLogin}><ShieldCheck size={14} />{t('startBrowserLogin')}</Button>
+              {authUrl ? <Button size="sm" variant="ghost" onPress={() => window.open(authUrl, '_blank', 'noopener,noreferrer')}><ArrowSquareOut size={14} />{t('open')}</Button> : null}
             </div>
             {account.provider === 'trae' && onSubmitCallback && onCallbackChange ? (
               <div className="mt-3 space-y-2">
-                <p className="text-[11px] leading-4 text-[var(--app-faint)]">{t('wizardCallbackLead')}</p>
+                <p className="text-[11px] leading-4 text-muted">{t('wizardCallbackLead')}</p>
                 <TextArea
                   className="h-24 w-full resize-none font-mono text-xs leading-5"
                   value={callbackUrl || ''}
@@ -252,31 +247,33 @@ export function AccountCard({
                   placeholder={t('wizardCallbackPh')}
                   aria-label={t('wizardCallbackPh')}
                 />
-                <Button className={ACCOUNT_BUTTON_CLASS} size="sm" variant="secondary" isPending={busyKind === 'callback'} onPress={onSubmitCallback}>
+                <Button size="sm" variant="secondary" isPending={busyKind === 'callback'} onPress={onSubmitCallback}>
                   {t('wizardSubmitCallback')}
                 </Button>
               </div>
             ) : null}
           </div>
           <div>
-            <div className="text-[10px] font-semibold tracking-[0.1em] text-[var(--app-faint)] uppercase">{t('patFallback')}</div>
+            <div className="text-xs font-medium text-muted">{t('patFallback')}</div>
             <div className="mt-2.5 flex flex-col gap-2 sm:flex-row">
-              <Input className={ACCOUNT_INPUT_CLASS} type="password" value={pat} onChange={(event) => onPatChange(event.target.value)} placeholder={t('pasteToken')} aria-label={t('pat')} />
-              <Button className={ACCOUNT_BUTTON_CLASS} size="sm" variant="secondary" isPending={busyKind === 'pat'} onPress={onPatLogin}><Key size={14} />{t('usePat')}</Button>
+              <TextField className="flex-1" type="password" value={pat} onChange={onPatChange}>
+                <Label className="sr-only">{t('pat')}</Label>
+                <Input placeholder={t('pasteToken')} aria-label={t('pat')} />
+              </TextField>
+              <Button size="sm" variant="secondary" isPending={busyKind === 'pat'} onPress={onPatLogin}><Key size={14} />{t('usePat')}</Button>
             </div>
           </div>
           {authUrl || note ? (
             <div className="text-xs">
-              {authUrl ? <code className="mono block break-all text-[var(--app-faint)]">{authUrl}</code> : null}
-              {note ? <p className="mt-1 text-[var(--app-muted)]">{note}</p> : null}
+              {authUrl ? <code className="mono block break-all text-muted">{authUrl}</code> : null}
+              {note ? <p className="mt-1 text-muted">{note}</p> : null}
             </div>
           ) : null}
         </section>
       ) : null}
 
-      <footer className="flex flex-wrap items-center gap-1.5 border-t border-[var(--app-line)] px-3 py-2">
+      <Card.Footer className="flex-wrap gap-1.5 border-t border-separator px-3 py-2">
         <Button
-          className={ACCOUNT_BUTTON_CLASS}
           size="sm"
           variant={state === 'login' ? 'primary' : 'secondary'}
           isDisabled={!account.enabled}
@@ -284,12 +281,12 @@ export function AccountCard({
         >
           <Key size={14} />{t('authentication')}
         </Button>
-        <Button className={ACCOUNT_BUTTON_CLASS} size="sm" variant="secondary" onPress={onEdit}>
+        <Button size="sm" variant="secondary" onPress={onEdit}>
           <PencilSimple size={14} />{t('editAccount')}
         </Button>
         <Tooltip>
           <Tooltip.Trigger>
-            <Button className={ACCOUNT_ICON_BUTTON_CLASS} isIconOnly size="sm" variant="secondary" onPress={onViewModels} aria-label={t('accountModels')}>
+            <Button isIconOnly size="sm" variant="secondary" onPress={onViewModels} aria-label={t('accountModels')}>
               <Cube size={14} />
             </Button>
           </Tooltip.Trigger>
@@ -297,7 +294,7 @@ export function AccountCard({
         </Tooltip>
         <Tooltip>
           <Tooltip.Trigger>
-            <Button className={ACCOUNT_ICON_BUTTON_CLASS} isIconOnly size="sm" variant="secondary" isDisabled={!account.enabled} isPending={busyKind === 'rewarm'} onPress={onRewarm} aria-label={t('rewarm')}>
+            <Button isIconOnly size="sm" variant="secondary" isDisabled={!account.enabled} isPending={busyKind === 'rewarm'} onPress={onRewarm} aria-label={t('rewarm')}>
               <ArrowClockwise size={14} />
             </Button>
           </Tooltip.Trigger>
@@ -306,7 +303,7 @@ export function AccountCard({
         {account.auth_type !== 'none' ? (
           <Tooltip>
             <Tooltip.Trigger>
-              <Button className={ACCOUNT_ICON_BUTTON_CLASS} isIconOnly size="sm" variant="secondary" isPending={busyKind === 'export'} onPress={onExport} aria-label={t('export')}>
+              <Button isIconOnly size="sm" variant="secondary" isPending={busyKind === 'export'} onPress={onExport} aria-label={t('export')}>
                 <Copy size={14} />
               </Button>
             </Tooltip.Trigger>
@@ -315,22 +312,22 @@ export function AccountCard({
         ) : null}
         <Tooltip>
           <Tooltip.Trigger>
-            <Button className={ACCOUNT_ICON_BUTTON_CLASS} isIconOnly size="sm" variant="danger-soft" isPending={busyKind === 'delete'} onPress={onDelete} aria-label={t('delete')}>
+            <Button isIconOnly size="sm" variant="danger-soft" isPending={busyKind === 'delete'} onPress={onDelete} aria-label={t('delete')}>
               <TrashSimple size={14} />
             </Button>
           </Tooltip.Trigger>
           <Tooltip.Content>{t('delete')}</Tooltip.Content>
         </Tooltip>
         <div className="ml-auto flex items-center gap-2">
-          <span className="text-[11px] font-medium text-[var(--app-faint)]">{account.enabled ? t('enabledState') : t('disabled')}</span>
           <CompactSwitch
             isSelected={Boolean(account.enabled)}
             isDisabled={busyKind === 'toggle'}
             ariaLabel={account.enabled ? t('disable') : t('enable')}
+            label={account.enabled ? t('enabledState') : t('disabled')}
             onChange={onToggle}
           />
         </div>
-      </footer>
-    </article>
+      </Card.Footer>
+    </Card>
   )
 }

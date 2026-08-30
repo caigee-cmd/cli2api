@@ -3,6 +3,7 @@ import { Button, Description, Input, Label, ListBox, Modal, Select, Skeleton, Te
 import { ArrowSquareOut, CaretLeft, CaretRight, CheckCircle, FileCode, Key, ShieldCheck, SpinnerGap, X } from '@phosphor-icons/react'
 import { ProviderMark } from '@/components/ProviderMark'
 import { CompactSwitch } from '@/components/ui/CompactSwitch'
+import { FilterToggle } from '@/components/ui/FilterToggle'
 import { OptionTiles } from '@/components/ui/OptionTiles'
 import { useI18n } from '@/hooks/useI18n'
 import {
@@ -61,11 +62,11 @@ function AccountTypeSkeleton({ ariaLabel }: { ariaLabel: string }) {
   return (
     <div className="grid grid-cols-1 gap-2 sm:grid-cols-2" aria-busy="true" aria-label={ariaLabel}>
       {Array.from({ length: 4 }, (_, index) => (
-        <div key={index} className="flex items-start gap-2.5 rounded-lg border border-[var(--app-line)] px-3.5 py-3">
-          <Skeleton className="mt-0.5 size-[18px] shrink-0 rounded-md" />
+        <div key={index} className="flex items-start gap-2.5 rounded-xl border border-separator px-3.5 py-3">
+          <Skeleton className="mt-0.5 size-[18px] shrink-0 rounded-lg" />
           <div className="min-w-0 flex-1 space-y-1.5">
-            <Skeleton className="h-4 w-28 rounded-md" />
-            <Skeleton className="h-3 w-full rounded-md" />
+            <Skeleton className="h-4 w-28 rounded-lg" />
+            <Skeleton className="h-3 w-full rounded-lg" />
           </div>
         </div>
       ))}
@@ -105,7 +106,7 @@ function optionHint(option: ProviderOption | undefined, t: (key: string) => stri
 }
 
 function StatusIcon({ phase, busy, tab, forTab }: { phase: Phase; busy: boolean; tab: TabKey; forTab: TabKey }) {
-  if (phase === 'done') return <CheckCircle size={16} className="text-[var(--app-ok)]" />
+  if (phase === 'done') return <CheckCircle size={16} className="text-success" />
   if (busy && tab === forTab) return <SpinnerGap size={16} className="animate-spin" />
   return null
 }
@@ -418,11 +419,11 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
             <Modal.Header className="items-start justify-between gap-4 px-5 pt-5">
               <div className="min-w-0">
                 <Modal.Heading className="text-lg font-semibold tracking-[-0.01em]">{t('addAccountTitle')}</Modal.Heading>
-                <p className="mt-1 text-xs font-normal leading-5 text-[var(--app-faint)]">
+                <p className="mt-1 text-xs font-normal leading-5 text-muted">
                   {step === 'method' ? t('addAccountDesc') : (hint || t('addAccountDesc'))}
                 </p>
               </div>
-              <Modal.CloseTrigger aria-label={t('close')} className="grid size-8 shrink-0 place-items-center rounded-lg text-[var(--app-muted)] transition-colors hover:bg-[var(--app-surface-muted)] hover:text-[var(--app-ink)]"><X size={16} /></Modal.CloseTrigger>
+              <Modal.CloseTrigger aria-label={t('close')} className="grid size-8 shrink-0 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-secondary hover:text-foreground"><X size={16} /></Modal.CloseTrigger>
             </Modal.Header>
             <Modal.Body className="px-5 pb-2">
               {step === 'method' ? (
@@ -430,13 +431,13 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                   <section className="space-y-2.5">
                     {typesLoading ? (
                       <>
-                        <span className="text-sm font-medium text-[var(--app-muted)]">{t('accountType')}</span>
+                        <span className="text-sm font-medium text-muted">{t('accountType')}</span>
                         <AccountTypeSkeleton ariaLabel={t('accountType')} />
                       </>
                     ) : !typesReady ? (
                       <>
-                        <span className="text-sm font-medium text-[var(--app-muted)]">{t('accountType')}</span>
-                        <p className="rounded-lg border border-[var(--app-line)] bg-[var(--app-surface-muted)]/45 px-3.5 py-3 text-xs leading-5 text-[var(--app-faint)]">{t('accountTypeHint')}</p>
+                        <span className="text-sm font-medium text-muted">{t('accountType')}</span>
+                        <p className="rounded-lg border border-separator bg-surface-secondary/45 px-3.5 py-3 text-xs leading-5 text-muted">{t('accountTypeHint')}</p>
                       </>
                     ) : useTypeSelect ? (
                       <Select
@@ -448,8 +449,8 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                           if (typeof next === 'string' && next && !settingsLocked) setAccountType(next)
                         }}
                       >
-                        <Label className="text-sm font-medium text-[var(--app-muted)]">{t('accountType')}</Label>
-                        <Select.Trigger className="h-10 min-h-10 items-center">
+                        <Label className="text-sm font-medium text-muted">{t('accountType')}</Label>
+                        <Select.Trigger className="items-center">
                           <Select.Value className="min-w-0 truncate">
                             {({ defaultChildren, isPlaceholder }) => {
                               const selected = typeOptions.find((option) => option.value === accountType)
@@ -464,10 +465,10 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                           </Select.Value>
                           <Select.Indicator />
                         </Select.Trigger>
-                        <Select.Popover className="max-h-72 rounded-lg">
+                        <Select.Popover className="max-h-72">
                           <ListBox>
                             {typeOptions.map((option) => (
-                              <ListBox.Item key={option.value} id={option.value} textValue={option.label} className="rounded-lg">
+                              <ListBox.Item key={option.value} id={option.value} textValue={option.label}>
                                 <span className="grid size-5 shrink-0 place-items-center">{option.icon}</span>
                                 <div className="min-w-0 flex-1">
                                   <Label className="block truncate">{option.label}</Label>
@@ -481,7 +482,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                       </Select>
                     ) : (
                       <>
-                        <span className="text-sm font-medium text-[var(--app-muted)]">{t('accountType')}</span>
+                        <span className="text-sm font-medium text-muted">{t('accountType')}</span>
                         <OptionTiles
                           ariaLabel={t('accountType')}
                           columns={2}
@@ -491,7 +492,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                         />
                       </>
                     )}
-                    {typesReady && hint ? <p className="min-h-5 text-xs leading-5 text-[var(--app-faint)]">{hint}</p> : null}
+                    {typesReady && hint ? <p className="min-h-5 text-xs leading-5 text-muted">{hint}</p> : null}
                   </section>
 
                   <section className="mt-5 space-y-2.5">
@@ -506,16 +507,16 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                       type="button"
                       onClick={() => setAdvancedOpen((open) => !open)}
                       aria-expanded={advancedOpen}
-                      className="inline-flex items-center gap-1 text-xs font-medium text-[var(--app-muted)] transition-colors hover:text-[var(--app-ink)]"
+                      className="inline-flex items-center gap-1 text-xs font-medium text-muted transition-colors hover:text-foreground"
                     >
                       <CaretRight size={12} className={`transition-transform duration-200 ${advancedOpen ? 'rotate-90' : ''}`} />
                       {t('wizardAdvanced')}
                     </button>
                     {advancedOpen ? (
-                      <div className="space-y-3 rounded-lg border border-[var(--app-line)] px-3.5 py-3">
+                      <div className="space-y-3 rounded-lg border border-separator px-3.5 py-3">
                         <div className="grid gap-3 sm:grid-cols-2">
                           <label className="block space-y-1.5">
-                            <span className="text-xs font-medium text-[var(--app-muted)]">{t('maxInflight')}</span>
+                            <span className="text-xs font-medium text-muted">{t('maxInflight')}</span>
                             <Input
                               type="number"
                               min={1}
@@ -525,10 +526,10 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                               aria-label={t('maxInflight')}
                               disabled={settingsLocked}
                             />
-                            <p className="text-[11px] leading-4 text-[var(--app-faint)]">{t('maxInflightHint')}</p>
+                            <p className="text-[11px] leading-4 text-muted">{t('maxInflightHint')}</p>
                           </label>
                           <label className="block space-y-1.5">
-                            <span className="text-xs font-medium text-[var(--app-muted)]">{t('priority')}</span>
+                            <span className="text-xs font-medium text-muted">{t('priority')}</span>
                             <Input
                               type="number"
                               min={1}
@@ -538,14 +539,14 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                               aria-label={t('priority')}
                               disabled={settingsLocked}
                             />
-                            <p className="text-[11px] leading-4 text-[var(--app-faint)]">{t('priorityHint')}</p>
+                            <p className="text-[11px] leading-4 text-muted">{t('priorityHint')}</p>
                           </label>
                         </div>
                         {showDropSystem ? (
                           <div className="flex items-center justify-between gap-3">
                             <div className="min-w-0">
-                              <div className="text-xs font-medium text-[var(--app-muted)]">{t('dropSystemPrompt')}</div>
-                              <p className="mt-0.5 text-[11px] leading-4 text-[var(--app-faint)]">{t('dropSystemPromptCreateHint')}</p>
+                              <div className="text-xs font-medium text-muted">{t('dropSystemPrompt')}</div>
+                              <p className="mt-0.5 text-[11px] leading-4 text-muted">{t('dropSystemPromptCreateHint')}</p>
                             </div>
                             <CompactSwitch
                               isSelected={dropSystemPrompt}
@@ -567,58 +568,57 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                 </>
               ) : (
                 <>
-                  <div className="flex items-center gap-3 rounded-lg border border-[var(--app-line)] bg-[var(--app-surface-muted)]/45 px-3 py-2.5">
+                  <div className="flex items-center gap-3 rounded-lg border border-separator bg-surface-secondary/45 px-3 py-2.5">
                     <span className="shrink-0"><ProviderMark provider={activeOption?.provider} size={18} /></span>
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-medium text-[var(--app-ink)]">{activeOption ? optionLabel(activeOption, t) : t('accountType')}</div>
-                      <div className="truncate text-[11px] text-[var(--app-faint)]">{name.trim() || t('account')}</div>
+                      <div className="truncate text-sm font-medium text-foreground">{activeOption ? optionLabel(activeOption, t) : t('accountType')}</div>
+                      <div className="truncate text-[11px] text-muted">{name.trim() || t('account')}</div>
                     </div>
                     <Button size="sm" variant="ghost" onPress={() => setStep('method')} isDisabled={busy || Boolean(createdId.current)}>
                       <CaretLeft size={12} />{t('wizardBack')}
                     </Button>
                   </div>
 
-                  <div className="mt-3 flex items-center gap-1.5">
-                    {methodOptions.map((option) => (
-                      <button
-                        key={option.value}
-                        type="button"
-                        onClick={() => { if (!busy && option.value !== tab) { setTab(option.value); setMessage(''); setAuthUrl('') } }}
-                        className={[
-                          'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors',
-                          tab === option.value
-                            ? 'bg-[var(--app-surface)] text-[var(--app-ink)] shadow-sm border border-[var(--app-line)]'
-                            : 'text-[var(--app-muted)] hover:text-[var(--app-ink)] border border-transparent',
-                        ].join(' ')}
-                      >
-                        {option.icon}
-                        {option.label}
-                      </button>
-                    ))}
-                  </div>
+                  <FilterToggle
+                    className="mt-3"
+                    value={tab}
+                    onChange={(next) => {
+                      if (!busy && next !== tab) {
+                        setTab(next as TabKey)
+                        setMessage('')
+                        setAuthUrl('')
+                      }
+                    }}
+                    ariaLabel={t('authentication')}
+                    options={methodOptions.map((option) => ({
+                      id: option.value,
+                      label: option.label,
+                      icon: option.icon,
+                    }))}
+                  />
 
-                  <p className="mt-2 min-h-5 text-xs leading-5 text-[var(--app-faint)]">{tabLead}</p>
+                  <p className="mt-2 min-h-5 text-xs leading-5 text-muted">{tabLead}</p>
 
                   <div className="mt-3 flex flex-col gap-4">
                     {tab === 'browser' ? (
                       <>
                         {authUrl ? (
-                          <div className="rounded-lg border border-[var(--app-line)] bg-[var(--app-surface-muted)] px-3 py-2.5">
+                          <div className="rounded-lg border border-separator bg-surface-secondary px-3 py-2.5">
                             <div className="flex items-center gap-2 text-xs">
                               <StatusIcon phase={phase} busy={busy} tab={tab} forTab="browser" />
-                              <span className="text-[var(--app-muted)]">{message || t('loginOpenMsg')}</span>
+                              <span className="text-muted">{message || t('loginOpenMsg')}</span>
                             </div>
-                            <button onClick={() => window.open(authUrl, '_blank', 'noopener,noreferrer')} className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-[var(--app-ink)] hover:underline">
+                            <button onClick={() => window.open(authUrl, '_blank', 'noopener,noreferrer')} className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-foreground hover:underline">
                               <ArrowSquareOut size={12} />{t('wizardOpenBrowser')}
                             </button>
                           </div>
                         ) : null}
                         {message && !authUrl ? (
-                          <p className={`rounded-lg border px-3 py-2 text-xs ${isDone ? 'border-[var(--app-ok-line)] bg-[var(--app-ok-soft)] text-[var(--app-ok-strong)]' : 'border-[var(--app-line)] bg-[var(--app-surface-muted)] text-[var(--app-muted)]'}`}>{message}</p>
+                          <p className={`rounded-lg border px-3 py-2 text-xs ${isDone ? 'border-success bg-success-soft text-success' : 'border-separator bg-surface-secondary text-muted'}`}>{message}</p>
                         ) : null}
                         {showCallbackPaste ? (
                           <div className="space-y-2">
-                            <p className="text-[11px] leading-4 text-[var(--app-faint)]">{t('wizardCallbackLead')}</p>
+                            <p className="text-[11px] leading-4 text-muted">{t('wizardCallbackLead')}</p>
                             <TextArea
                               className="h-28 w-full resize-none font-mono text-xs leading-5"
                               value={callbackUrl}
@@ -640,7 +640,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                       <>
                         <Input type="password" value={pat} onChange={(event) => setPat(event.target.value)} placeholder={t('wizardPatPh')} aria-label={t('wizardPatPh')} disabled={busy} />
                         {message ? (
-                          <p className={`rounded-lg border px-3 py-2 text-xs ${isDone ? 'border-[var(--app-ok-line)] bg-[var(--app-ok-soft)] text-[var(--app-ok-strong)]' : 'border-[var(--app-line)] bg-[var(--app-surface-muted)] text-[var(--app-muted)]'}`}>{message}</p>
+                          <p className={`rounded-lg border px-3 py-2 text-xs ${isDone ? 'border-success bg-success-soft text-success' : 'border-separator bg-surface-secondary text-muted'}`}>{message}</p>
                         ) : null}
                         <Button className="w-full" isPending={tabPending('pat')} onPress={() => void runPat()}>
                           {isDone ? <><CheckCircle size={15} />{t('patDone')}</> : <><Key size={15} />{t('wizardCreateAndLogin')}</>}
@@ -649,13 +649,13 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                     ) : (
                       <>
                         <div className="flex items-center justify-between gap-3">
-                          <span className="text-[10px] font-semibold tracking-[0.1em] text-[var(--app-faint)] uppercase">JSON</span>
+                          <span className="text-xs font-medium text-muted">JSON</span>
                           <Button size="sm" variant="secondary" onPress={onPickFile} isDisabled={busy}><FileCode size={13} />{t('wizardChooseFile')}</Button>
                           <input ref={fileInput} type="file" accept="application/json,.json" className="hidden" onChange={onFileChange} />
                         </div>
                         <TextArea className="min-h-32 font-mono text-xs" value={json} onChange={(event) => setJson(event.target.value)} placeholder={t('wizardImportPh')} aria-label={t('tabImport')} disabled={busy} />
                         {message ? (
-                          <p className={`rounded-lg border px-3 py-2 text-xs ${isDone ? 'border-[var(--app-ok-line)] bg-[var(--app-ok-soft)] text-[var(--app-ok-strong)]' : 'border-[var(--app-line)] bg-[var(--app-surface-muted)] text-[var(--app-muted)]'}`}>{message}</p>
+                          <p className={`rounded-lg border px-3 py-2 text-xs ${isDone ? 'border-success bg-success-soft text-success' : 'border-separator bg-surface-secondary text-muted'}`}>{message}</p>
                         ) : null}
                         <Button className="w-full" isPending={tabPending('import')} onPress={() => void runImport()}>
                           {isDone ? <><CheckCircle size={15} />{t('accountImported')}</> : <><FileCode size={15} />{t('importCredential')}</>}

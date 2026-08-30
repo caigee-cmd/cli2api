@@ -29,22 +29,22 @@ export function ModelDetailsModal({ model, t, onClose }: Props) {
           <Modal.Dialog>
             <Modal.Header className="items-start justify-between gap-4 px-5 pt-5">
               <div>
-                <div className="text-base font-semibold tracking-tight">{model.display_name || model.id}</div>
-                <div className="mono mt-1 text-[11px] text-[var(--app-faint)]">{model.id}</div>
+                <div className="text-base font-semibold tracking-[-0.015em]">{model.display_name || model.id}</div>
+                <div className="mono mt-1 text-[11px] text-muted">{model.id}</div>
               </div>
-              <button type="button" className="grid size-8 place-items-center rounded-md text-[var(--app-muted)] hover:bg-[var(--app-surface-muted)]" onClick={onClose} aria-label={t('close')}>
+              <Modal.CloseTrigger aria-label={t('close')} className="grid size-8 place-items-center rounded-lg text-muted hover:bg-surface-secondary">
                 <X size={16} />
-              </button>
+              </Modal.CloseTrigger>
             </Modal.Header>
             <Modal.Body className="space-y-4 px-5 pb-5">
               <section>
-                <div className="text-xs font-medium text-[var(--app-muted)]">{t('contextWindowCol')}</div>
+                <div className="text-xs font-medium text-muted">{t('contextWindowCol')}</div>
                 <div className="mt-1 text-sm">{formatTokens(windowDev)}{windowMax && windowMax !== windowDev ? ` → ${formatTokens(windowMax)}` : ''}</div>
-                {model.prompt_max_tokens ? <div className="mt-1 text-[11px] text-[var(--app-faint)]">{t('promptMaxTokens')}: {formatTokens(model.prompt_max_tokens)}</div> : null}
-                {model.max_output_tokens ? <div className="text-[11px] text-[var(--app-faint)]">{t('maxOutputTokens')}: {formatTokens(model.max_output_tokens)}</div> : null}
+                {model.prompt_max_tokens ? <div className="mt-1 text-[11px] text-muted">{t('promptMaxTokens')}: {formatTokens(model.prompt_max_tokens)}</div> : null}
+                {model.max_output_tokens ? <div className="text-[11px] text-muted">{t('maxOutputTokens')}: {formatTokens(model.max_output_tokens)}</div> : null}
               </section>
               <section>
-                <div className="text-xs font-medium text-[var(--app-muted)]">{t('reasoningLevels')}</div>
+                <div className="text-xs font-medium text-muted">{t('reasoningLevels')}</div>
                 {options.length ? (
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {options.map((level) => (
@@ -54,7 +54,7 @@ export function ModelDetailsModal({ model, t, onClose }: Props) {
                     ))}
                   </div>
                 ) : (
-                  <div className="mt-1 text-sm text-[var(--app-muted)]">
+                  <div className="mt-1 text-sm text-muted">
                     {model.reasoning_type ? t('reasoningFixed', { type: model.reasoning_type }) : t('noReasoningLevels')}
                   </div>
                 )}

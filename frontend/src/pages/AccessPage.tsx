@@ -9,13 +9,14 @@ import {
   Copy,
   PaperPlaneTilt,
   TerminalWindow,
-  WarningCircle,
 } from '@phosphor-icons/react'
 import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
 import { fetchModels, testChat } from '@/api/overview'
 import type { ModelInfo } from '@/api/types'
 import { absUrl } from '@/lib/url'
+import { EmptyPanel } from '@/components/ui/EmptyPanel'
+import { PageAlert } from '@/components/ui/PageAlert'
 import { AccessPageSkeleton } from '@/components/ui/PageSkeletons'
 import { ProviderMark } from '@/components/ProviderMark'
 import { accountProviderLabel } from '@/lib/provider'
@@ -60,8 +61,8 @@ function PlaygroundSelect({
         if (typeof next === 'string' && next) onChange(next)
       }}
     >
-      <Label className="text-sm font-medium text-[var(--app-muted)]">{label}</Label>
-      <Select.Trigger className="h-10 min-h-10 items-center">
+      <Label className="text-sm font-medium text-muted">{label}</Label>
+      <Select.Trigger className="items-center">
         <Select.Value className="min-w-0 truncate">
           {({ defaultChildren, isPlaceholder }) => {
             if (isPlaceholder || !selected) return defaultChildren
@@ -75,10 +76,10 @@ function PlaygroundSelect({
         </Select.Value>
         <Select.Indicator />
       </Select.Trigger>
-      <Select.Popover className="max-h-72 rounded-lg">
+      <Select.Popover className="max-h-72">
         <ListBox>
           {options.map((option) => (
-            <ListBox.Item key={option.id} id={option.id} textValue={option.textValue} className="rounded-lg">
+            <ListBox.Item key={option.id} id={option.id} textValue={option.textValue}>
               {option.icon ? <span className="grid size-5 shrink-0 place-items-center">{option.icon}</span> : null}
               <div className="min-w-0 flex-1">
                 <Label className="block truncate">{option.label}</Label>
@@ -153,7 +154,7 @@ export function AccessPage() {
     [base, payload, selectedAccount],
   )
 
-  if (loading) return <AccessPageSkeleton />
+  if (loading && !overview) return <AccessPageSkeleton />
 
   async function copy(value: string, kind: 'base' | 'curl') {
     await navigator.clipboard.writeText(value)
@@ -188,50 +189,50 @@ export function AccessPage() {
 
   return (
     <div className="space-y-6">
-      <section className="grid gap-5 border-b border-[var(--app-line)] pb-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+      <section className="grid gap-5 border-b border-separator pb-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
         <div data-gsap-reveal>
           <h2 className="text-2xl font-semibold tracking-[-0.035em]">{t('apiPlayground')}</h2>
-          <p className="mt-1 max-w-2xl text-sm leading-6 text-[var(--app-muted)]">{t('apiPlaygroundHint')}</p>
+          <p className="mt-1 max-w-2xl text-sm leading-6 text-muted">{t('apiPlaygroundHint')}</p>
         </div>
-        <div className="flex items-center gap-2 text-xs text-[var(--app-muted)]">
+        <div className="flex items-center gap-2 text-xs text-muted">
           <span className="status-dot" data-state={readyAccounts.length ? 'ok' : undefined} />
           <span>{t('readyAccounts', { ready: readyAccounts.length, total: accounts.length })}</span>
         </div>
       </section>
 
-      <section data-gsap-reveal className="grid overflow-hidden rounded-lg border border-[var(--app-line)] bg-[var(--app-surface)] sm:grid-cols-3">
-        <div className="min-w-0 border-b border-[var(--app-line)] p-4 sm:col-span-2 sm:border-r sm:border-b-0 sm:p-5">
+      <section data-gsap-reveal className="grid overflow-hidden rounded-3xl border border-border bg-surface sm:grid-cols-3">
+        <div className="min-w-0 border-b border-separator p-4 sm:col-span-2 sm:border-r sm:border-b-0 sm:p-5">
           <div className="mb-2 flex items-center justify-between gap-3">
-            <span className="text-xs font-medium text-[var(--app-faint)]">{t('baseUrl')}</span>
+            <span className="text-xs font-medium text-muted">{t('baseUrl')}</span>
             <Button isIconOnly size="sm" variant="ghost" aria-label={t('copyBaseUrl')} onPress={() => void copy(base, 'base')}>
               {copied === 'base' ? <Check size={15} /> : <Copy size={15} />}
             </Button>
           </div>
-          <code className="mono block truncate text-sm font-medium text-[var(--app-ink)]">{base}</code>
+          <code className="mono block truncate text-sm font-medium text-foreground">{base}</code>
         </div>
-        <div className="grid grid-cols-2 divide-x divide-[var(--app-line)] sm:grid-cols-1 sm:divide-x-0 sm:divide-y">
+        <div className="grid grid-cols-2 divide-x divide-separator sm:grid-cols-1 sm:divide-x-0 sm:divide-y">
           <div className="p-4 sm:px-5 sm:py-3">
-            <div className="text-[10px] font-semibold tracking-[0.08em] text-[var(--app-faint)] uppercase">{t('protocol')}</div>
+            <div className="text-xs font-medium text-muted">{t('protocol')}</div>
             <div className="mt-1 text-sm font-medium">HTTP / SSE</div>
           </div>
           <div className="p-4 sm:px-5 sm:py-3">
-            <div className="text-[10px] font-semibold tracking-[0.08em] text-[var(--app-faint)] uppercase">{t('authentication')}</div>
+            <div className="text-xs font-medium text-muted">{t('authentication')}</div>
             <div className="mono mt-1 truncate text-xs font-medium">Bearer API key</div>
           </div>
         </div>
       </section>
 
-      <Card data-gsap-reveal className="app-panel overflow-hidden rounded-lg p-0">
+      <Card data-gsap-reveal className="overflow-hidden p-0">
         <div className="grid xl:grid-cols-[minmax(440px,.92fr)_minmax(0,1.08fr)]">
-          <div className="border-b border-[var(--app-line)] xl:border-r xl:border-b-0">
-            <div className="border-b border-[var(--app-line)] px-5 py-5 sm:px-7">
+          <div className="border-b border-separator xl:border-r xl:border-b-0">
+            <div className="border-b border-separator px-5 py-5 sm:px-7">
               <div className="flex items-center gap-3">
-                <div className="grid size-8 place-items-center rounded-lg bg-[var(--app-ink)] text-[var(--app-bg)]">
+                <div className="grid size-8 place-items-center rounded-lg bg-surface-secondary text-foreground">
                   <PaperPlaneTilt size={15} weight="bold" />
                 </div>
                 <div>
                   <h3 className="font-semibold tracking-[-0.015em]">{t('requestBuilder')}</h3>
-                  <p className="mt-0.5 text-xs text-[var(--app-faint)]">POST /chat/completions</p>
+                  <p className="mt-0.5 text-xs text-muted">POST /chat/completions</p>
                 </div>
               </div>
             </div>
@@ -248,7 +249,7 @@ export function AccessPage() {
                         id: 'auto',
                         textValue: t('autoAccount'),
                         label: t('autoAccount'),
-                        icon: <ArrowsClockwise size={15} className="text-[var(--app-muted)]" />,
+                        icon: <ArrowsClockwise size={15} className="text-muted" />,
                       },
                       ...accounts.map((account) => ({
                         id: account.id,
@@ -259,13 +260,13 @@ export function AccessPage() {
                       })),
                     ]}
                   />
-                  <p className="text-xs leading-5 text-[var(--app-faint)]">{selectedAccount ? t('fixedAccountHint') : t('autoAccountHint')}</p>
+                  <p className="text-xs leading-5 text-muted">{selectedAccount ? t('fixedAccountHint') : t('autoAccountHint')}</p>
                 </div>
 
                 <div className="space-y-2">
                   {modelsLoading ? (
                     <div className="flex flex-col gap-1">
-                      <div className="text-sm font-medium text-[var(--app-muted)]">{t('model')}</div>
+                      <div className="text-sm font-medium text-muted">{t('model')}</div>
                       <Skeleton className="h-10 rounded-lg" />
                     </div>
                   ) : models.length ? (
@@ -283,20 +284,20 @@ export function AccessPage() {
                     />
                   ) : (
                     <div className="flex flex-col gap-1">
-                      <div className="text-sm font-medium text-[var(--app-muted)]">{t('model')}</div>
-                      <div className="flex h-10 items-center rounded-lg border border-dashed border-[var(--app-line-strong)] px-3 text-xs leading-5 text-[var(--app-faint)]">
+                      <div className="text-sm font-medium text-muted">{t('model')}</div>
+                      <div className="flex h-10 items-center rounded-lg border border-dashed border-border px-3 text-xs leading-5 text-muted">
                         {modelsError || (selectedAccount ? t('noAccountModels') : t('noModelsYet'))}
                       </div>
                     </div>
                   )}
-                  <p className="text-xs leading-5 text-[var(--app-faint)]">{selectedAccount ? t('accountModelHint') : t('modelRoutingHint')}</p>
+                  <p className="text-xs leading-5 text-muted">{selectedAccount ? t('accountModelHint') : t('modelRoutingHint')}</p>
                 </div>
               </div>
 
               <div className="space-y-3">
                 <div className="flex items-center justify-between gap-4">
-                  <div className="text-sm font-medium text-[var(--app-muted)]">{t('prompt')}</div>
-                  <span className="mono text-[10px] text-[var(--app-faint)]">{prompt.length}</span>
+                  <div className="text-sm font-medium text-muted">{t('prompt')}</div>
+                  <span className="mono text-[10px] text-muted">{prompt.length}</span>
                 </div>
                 <TextArea
                   fullWidth
@@ -307,14 +308,11 @@ export function AccessPage() {
                   placeholder={t('promptPlaceholder')}
                   aria-label={t('prompt')}
                 />
-                <p className="text-xs leading-5 text-[var(--app-faint)]">{t('promptHelper')}</p>
+                <p className="text-xs leading-5 text-muted">{t('promptHelper')}</p>
               </div>
 
               {!accounts.length ? (
-                <div className="flex gap-3 border-t border-[var(--app-line)] pt-4 text-sm text-[var(--app-muted)]">
-                  <WarningCircle className="mt-0.5 shrink-0 text-[var(--app-danger)]" size={16} />
-                  <span>{t('noAccountsForTest')}</span>
-                </div>
+                <PageAlert status="warning" title={t('noAccountsForTest')} />
               ) : null}
 
               <Button fullWidth isPending={requestState === 'loading'} isDisabled={!prompt.trim() || !selectedModel || modelsLoading} onPress={() => void onTest()}>
@@ -324,15 +322,15 @@ export function AccessPage() {
             </div>
           </div>
 
-          <div className="flex min-h-[620px] min-w-0 flex-col bg-[var(--app-code)]/45" aria-live="polite" aria-busy={requestState === 'loading'}>
-            <div className="flex min-h-16 items-center justify-between gap-4 border-b border-[var(--app-line)] px-5 py-4 sm:px-6">
+          <div className="flex min-h-[620px] min-w-0 flex-col bg-surface-secondary/45" aria-live="polite" aria-busy={requestState === 'loading'}>
+            <div className="flex min-h-16 items-center justify-between gap-4 border-b border-separator px-5 py-4 sm:px-6">
               <div>
                 <h3 className="font-semibold tracking-[-0.015em]">{t('responseInspector')}</h3>
-                <p className="mt-0.5 text-xs text-[var(--app-faint)]">{t('responseInspectorHint')}</p>
+                <p className="mt-0.5 text-xs text-muted">{t('responseInspectorHint')}</p>
               </div>
               <div className="flex items-center gap-2">
                 {elapsedMs !== null ? (
-                  <span className="mono flex items-center gap-1.5 text-[10px] text-[var(--app-faint)]">
+                  <span className="mono flex items-center gap-1.5 text-[10px] text-muted">
                     <Clock size={12} />
                     {elapsedMs} ms
                   </span>
@@ -349,39 +347,32 @@ export function AccessPage() {
 
             <div className="min-h-0 flex-1 p-5 sm:p-6">
               {requestState === 'idle' ? (
-                <div className="grid min-h-80 place-items-center">
-                  <div className="max-w-xs text-center">
-                    <div className="mx-auto grid size-12 place-items-center rounded-lg border border-[var(--app-line)] bg-[var(--app-surface)] text-[var(--app-faint)]">
-                      <BracketsCurly size={21} />
-                    </div>
-                    <h4 className="mt-4 text-sm font-semibold">{t('responseEmptyTitle')}</h4>
-                    <p className="mt-2 text-xs leading-5 text-[var(--app-faint)]">{t('responseEmptyHint')}</p>
-                  </div>
-                </div>
+                <EmptyPanel
+                  className="min-h-80"
+                  icon={<BracketsCurly size={21} />}
+                  title={t('responseEmptyTitle')}
+                  hint={t('responseEmptyHint')}
+                />
               ) : requestState === 'loading' ? (
                 <div className="space-y-3 pt-1">
-                  <Skeleton className="h-3 w-32 rounded" />
-                  <Skeleton className="h-3 w-full rounded" />
-                  <Skeleton className="h-3 w-[88%] rounded" />
-                  <Skeleton className="h-3 w-[72%] rounded" />
-                  <Skeleton className="mt-7 h-3 w-[92%] rounded" />
-                  <Skeleton className="h-3 w-[64%] rounded" />
+                  <Skeleton className="h-3 w-32 rounded-lg" />
+                  <Skeleton className="h-3 w-full rounded-lg" />
+                  <Skeleton className="h-3 w-[88%] rounded-lg" />
+                  <Skeleton className="h-3 w-[72%] rounded-lg" />
+                  <Skeleton className="mt-7 h-3 w-[92%] rounded-lg" />
+                  <Skeleton className="h-3 w-[64%] rounded-lg" />
                 </div>
               ) : requestState === 'error' ? (
-                <div className="rounded-lg border border-[color-mix(in_srgb,var(--app-danger)_24%,transparent)] bg-[color-mix(in_srgb,var(--app-danger)_7%,transparent)] p-4">
-                  <div className="flex items-center gap-2 text-sm font-semibold text-[var(--app-danger)]">
-                    <WarningCircle size={17} />
-                    {t('requestFailed')}
-                  </div>
-                  <pre className="mono mt-3 whitespace-pre-wrap break-words text-xs leading-6 text-[var(--app-muted)]">{output}</pre>
+                <div className="space-y-3">
+                  <PageAlert status="danger" title={t('requestFailed')} description={output} />
                 </div>
               ) : (
                 <div>
-                  <div className="mb-4 flex items-center gap-2 text-xs font-medium text-[var(--app-ok)]">
+                  <div className="mb-4 flex items-center gap-2 text-xs font-medium text-success">
                     <CheckCircle size={15} weight="fill" />
                     {t('responseReceived')}
                   </div>
-                  <pre className="mono overflow-x-auto whitespace-pre-wrap break-words text-xs leading-6 text-[var(--app-muted)]">{output}</pre>
+                  <pre className="mono overflow-x-auto whitespace-pre-wrap break-words text-xs leading-6 text-muted">{output}</pre>
                 </div>
               )}
             </div>
@@ -389,13 +380,13 @@ export function AccessPage() {
         </div>
       </Card>
 
-      <section data-gsap-reveal className="app-panel-flat overflow-hidden rounded-lg">
-        <div className="flex items-center justify-between gap-4 border-b border-[var(--app-line)] px-5 py-3.5">
+      <section data-gsap-reveal className="overflow-hidden rounded-3xl border border-border bg-surface">
+        <div className="flex items-center justify-between gap-4 border-b border-separator px-5 py-3.5">
           <div className="flex min-w-0 items-center gap-3">
-            <TerminalWindow className="shrink-0 text-[var(--app-faint)]" size={16} />
+            <TerminalWindow className="shrink-0 text-muted" size={16} />
             <div className="min-w-0">
               <div className="text-sm font-semibold">{t('curlExample')}</div>
-              <div className="mt-0.5 truncate text-xs text-[var(--app-faint)]">{t('curlGeneratedHint')}</div>
+              <div className="mt-0.5 truncate text-xs text-muted">{t('curlGeneratedHint')}</div>
             </div>
           </div>
           <Button size="sm" variant="ghost" onPress={() => void copy(curl, 'curl')}>
@@ -403,7 +394,7 @@ export function AccessPage() {
             {copied === 'curl' ? t('copied') : t('copy')}
           </Button>
         </div>
-        <pre className="mono max-h-80 overflow-auto whitespace-pre-wrap p-5 text-xs leading-6 text-[var(--app-muted)]">{curl}</pre>
+        <pre className="mono max-h-80 overflow-auto whitespace-pre-wrap p-5 text-xs leading-6 text-muted">{curl}</pre>
       </section>
     </div>
   )
