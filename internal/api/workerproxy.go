@@ -265,6 +265,9 @@ func (s *Server) fetchProviderModels(refresh bool, accountID string) ([]map[stri
 			if model.Capabilities.ReasoningType != "" {
 				entry["reasoning_type"] = model.Capabilities.ReasoningType
 			}
+			if model.Capabilities.CanDisableThinking {
+				entry["can_disable_thinking"] = true
+			}
 			merged = append(merged, entry)
 		}
 	}

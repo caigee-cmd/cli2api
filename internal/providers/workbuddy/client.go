@@ -32,6 +32,7 @@ type Client struct {
 
 	mu          sync.Mutex
 	loginStates map[string]string
+	catalog     map[string]providers.ModelInfo
 }
 
 const catalogTimeout = 15 * time.Second
@@ -310,13 +311,7 @@ func (c *Client) Models(ctx context.Context, accountID string) ([]providers.Mode
 		Code int    `json:"code"`
 		Msg  string `json:"msg"`
 		Data struct {
-			Models []struct {
-				ID              string `json:"id"`
-				Name            string `json:"name"`
-				MaxInputTokens  int    `json:"maxInputTokens"`
-				MaxOutputTokens int    `json:"maxOutputTokens"`
-				Disabled        bool   `json:"disabled"`
-			} `json:"models"`
+			Models []catalogModelEntry `json:"models"`
 			Agents []struct {
 				Name   string   `json:"name"`
 				Models []string `json:"models"`
@@ -349,33 +344,39 @@ func (c *Client) Models(ctx context.Context, accountID string) ([]providers.Mode
 				continue
 			}
 		}
-		out = append(out, providers.ModelInfo{
-			NativeModel: model.ID,
-			PublicModel: model.ID,
-			DisplayName: model.Name,
-			Capabilities: providers.ModelCapabilities{
-				ContextWindow: model.MaxInputTokens,
-				MaxOutput:     model.MaxOutputTokens,
-				Tools:         true,
-				Reasoning:     true,
-			},
-		})
+		out = append(out, catalogModel(model))
 	}
 	if len(out) == 0 {
 		return nil, fmt.Errorf("workbuddy model catalog returned no cli models")
 	}
+	c.rememberCatalog(out)
 	return out, nil
 }
 
-func (c *Client) chatRequest(ctx context.Context, credential Credential, req translate.ChatRequest) (*http.Request, error) {
-	payload, err := json.Marshal(map[string]any{
+func (c *Client) chatRequest(ctx context.Context, accountID string, credential Credential, req translate.ChatRequest) (*http.Request, error) {
+	body := map[string]any{
 		"model":       req.Model,
 		"messages":    req.Messages,
 		"max_tokens":  req.MaxTokens,
 		"temperature": req.Temperature,
 		"tools":       req.Tools,
 		"tool_choice": req.ToolChoice,
-	})
+	}
+	caps := c.capsFor(req.Model)
+	if len(caps.ReasoningOptions) == 0 && accountID != "" {
+		_, _ = c.Models(ctx, accountID)
+		caps = c.capsFor(req.Model)
+	}
+	storedLevel := ""
+	if setter, ok := c.store.(interface {
+		GetProviderModelSetting(context.Context, string, string) (accounts.ProviderModelSetting, error)
+	}); ok {
+		if stored, err := setter.GetProviderModelSetting(ctx, "workbuddy", strings.ToLower(req.Model)); err == nil {
+			storedLevel = stored.ReasoningEffort
+		}
+	}
+	applyChatReasoning(body, req, storedLevel, caps)
+	payload, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
 	}
@@ -393,7 +394,7 @@ func (c *Client) ChatNonStream(ctx context.Context, accountID string, req transl
 	if err != nil {
 		return providers.ChatOutcome{}, err
 	}
-	httpReq, err := c.chatRequest(ctx, credential, req)
+	httpReq, err := c.chatRequest(ctx, accountID, credential, req)
 	if err != nil {
 		return providers.ChatOutcome{}, err
 	}
@@ -418,7 +419,7 @@ func (c *Client) ChatStream(ctx context.Context, accountID string, req translate
 	if err != nil {
 		return nil, err
 	}
-	httpReq, err := c.chatRequest(ctx, credential, req)
+	httpReq, err := c.chatRequest(ctx, accountID, credential, req)
 	if err != nil {
 		return nil, err
 	}

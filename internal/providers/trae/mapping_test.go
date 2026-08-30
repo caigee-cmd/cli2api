@@ -45,7 +45,7 @@ func TestApplySoloChatFieldsMapsOpenAIAndStripsQoderKeys(t *testing.T) {
 	caps := providers.ModelCapabilities{
 		MaxMode: true, ReasoningOptions: []string{"low", "medium", "high", "xhigh"}, ReasoningDefault: "medium",
 	}
-	applySoloChatFields(obj, req, true, caps)
+	applySoloChatFields(obj, req, true, "", caps)
 	if obj["is_max_mode"] != 1 {
 		t.Fatalf("is_max_mode=%v", obj["is_max_mode"])
 	}
@@ -61,8 +61,21 @@ func TestApplySoloChatFieldsMapsOpenAIAndStripsQoderKeys(t *testing.T) {
 
 func TestApplySoloChatFieldsOmitsMaxWhenUnsupported(t *testing.T) {
 	obj := map[string]any{}
-	applySoloChatFields(obj, translate.ChatRequest{}, true, providers.ModelCapabilities{})
+	applySoloChatFields(obj, translate.ChatRequest{}, true, "", providers.ModelCapabilities{})
 	if _, ok := obj["is_max_mode"]; ok {
 		t.Fatal("unsupported max mode should not be sent")
+	}
+}
+
+func TestApplySoloChatFieldsUsesStoredLevelWhenRequestOmitsEffort(t *testing.T) {
+	obj := map[string]any{}
+	caps := providers.ModelCapabilities{ReasoningOptions: []string{"low", "high", "xhigh"}, ReasoningDefault: "high"}
+	applySoloChatFields(obj, translate.ChatRequest{}, false, "xhigh", caps)
+	if obj["reasoning_effort_level"] != "xhigh" {
+		t.Fatalf("stored level=%v", obj["reasoning_effort_level"])
+	}
+	applySoloChatFields(obj, translate.ChatRequest{}, false, "", caps)
+	if obj["reasoning_effort_level"] != "high" {
+		t.Fatalf("catalog default=%v", obj["reasoning_effort_level"])
 	}
 }

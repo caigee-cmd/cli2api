@@ -16,17 +16,18 @@ import (
 var ErrUnsupported = errors.New("provider capability unsupported")
 
 type ModelCapabilities struct {
-	ContextWindow    int      `json:"context_window,omitempty"`
-	ContextWindowMax int      `json:"context_window_max,omitempty"`
-	MaxOutput        int      `json:"max_output_tokens,omitempty"`
-	PromptMaxTokens  int      `json:"prompt_max_tokens,omitempty"`
-	MaxMode          bool     `json:"max_mode,omitempty"`
-	Tools            bool     `json:"tools"`
-	Images           bool     `json:"images"`
-	Reasoning        bool     `json:"reasoning"`
-	ReasoningOptions []string `json:"reasoning_options,omitempty"`
-	ReasoningDefault string   `json:"reasoning_default,omitempty"`
-	ReasoningType    string   `json:"reasoning_type,omitempty"`
+	ContextWindow      int      `json:"context_window,omitempty"`
+	ContextWindowMax   int      `json:"context_window_max,omitempty"`
+	MaxOutput          int      `json:"max_output_tokens,omitempty"`
+	PromptMaxTokens    int      `json:"prompt_max_tokens,omitempty"`
+	MaxMode            bool     `json:"max_mode,omitempty"`
+	Tools              bool     `json:"tools"`
+	Images             bool     `json:"images"`
+	Reasoning          bool     `json:"reasoning"`
+	ReasoningOptions   []string `json:"reasoning_options,omitempty"`
+	ReasoningDefault   string   `json:"reasoning_default,omitempty"`
+	ReasoningType      string   `json:"reasoning_type,omitempty"`
+	CanDisableThinking bool     `json:"can_disable_thinking,omitempty"`
 }
 
 type ModelInfo struct {

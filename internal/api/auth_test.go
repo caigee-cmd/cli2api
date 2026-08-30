@@ -163,6 +163,28 @@ func TestTraeMaxModeSettingDoesNotChangeQoderContext(t *testing.T) {
 	}
 }
 
+func TestWorkBuddyReasoningSettingDoesNotChangeQoderContext(t *testing.T) {
+	srv := New(config.Config{
+		Host: "127.0.0.1", Port: 3010, ProxyAPIKey: "secret",
+		QoderHome: t.TempDir(), DataDir: t.TempDir(),
+	})
+	defer srv.Close()
+	if err := srv.manager.Store().SetModelContext(context.Background(), "glm-5.3", 250000); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPatch, "/api/models/workbuddy/glm-5.3", bytes.NewBufferString(`{"reasoning_effort":"xhigh"}`))
+	req.Header.Set("Authorization", "Bearer secret")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !bytes.Contains(rec.Body.Bytes(), []byte(`"reasoning_effort":"xhigh"`)) {
+		t.Fatalf("PATCH workbuddy reasoning: %d %s", rec.Code, rec.Body.String())
+	}
+	got, ok, err := srv.manager.Store().GetModelContext(context.Background(), "glm-5.3")
+	if err != nil || !ok || got != 250000 {
+		t.Fatalf("qoder context mutated: %d %v %v", got, ok, err)
+	}
+}
+
 type failingCatalog struct{}
 
 func (failingCatalog) Models(context.Context, string) ([]providers.ModelInfo, error) {
