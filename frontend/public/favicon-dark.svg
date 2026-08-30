@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" role="img" aria-label="CLI2API">
   <title>CLI2API</title>
   <path d="M13 2 L4 14 H11 L9 11 H13.5 L11 22 L20 10 H13 L15 13 H10.5 Z"
-        stroke="#A78BFA" stroke-width="1.75"
+        stroke="#FCFCFC" stroke-width="1.75"
         stroke-linejoin="round" stroke-linecap="round"/>
   <circle cx="9" cy="18" r="1.25" fill="#22D3EE"/>
 </svg>

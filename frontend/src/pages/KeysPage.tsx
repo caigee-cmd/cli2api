@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, Button, Checkbox, Chip, Description, Form, Input, Label, Modal } from '@heroui/react'
-import { Copy, Key, Plus, TrashSimple, WarningCircle, X } from '@phosphor-icons/react'
+import { Alert, Button, Card, Checkbox, Chip, Description, Form, Input, Label, Modal } from '@heroui/react'
+import { Copy, Key, Plus, TrashSimple, X } from '@phosphor-icons/react'
 import { createAPIKey, deleteAPIKey, fetchAPIKeys, updateAPIKey, type APIKeyRecord } from '@/api/keys'
 import { BrandMark } from '@/components/BrandMark'
 import { ProviderMark } from '@/components/ProviderMark'
 import { CompactSwitch } from '@/components/ui/CompactSwitch'
-import { KeysPageSkeleton } from '@/components/ui/PageSkeletons'
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
+import { EmptyPanel } from '@/components/ui/EmptyPanel'
+import { PageAlert } from '@/components/ui/PageAlert'
+import { KeysPageSkeleton, SkeletonBlock } from '@/components/ui/PageSkeletons'
 import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
 import { accountProviderFamilyLabel } from '@/lib/provider'
@@ -97,49 +100,55 @@ export function KeysPage() {
     }
   }
 
-  if (loading && !keys.length && !error) return <KeysPageSkeleton />
+  if (loading && !keys.length) return <KeysPageSkeleton />
 
   return (
     <div className="space-y-6">
-      <section className="flex flex-wrap items-end justify-between gap-4 border-b border-[var(--app-line)] pb-4">
+      <section className="flex flex-wrap items-end justify-between gap-4 border-b border-separator pb-4">
         <div>
           <h2 data-gsap-reveal className="text-2xl font-semibold tracking-[-0.035em]">{t('navKeys')}</h2>
-          <p className="mt-1 max-w-2xl text-sm leading-6 text-[var(--app-muted)]">{t('keysLead')}</p>
+          <p className="mt-1 max-w-2xl text-sm leading-6 text-muted">{t('keysLead')}</p>
         </div>
         <Button size="sm" onPress={() => setCreateOpen(true)}>
           <Plus size={14} />{t('keysCreate')}
         </Button>
       </section>
 
-      {error ? (
-        <div className="flex items-start gap-2 rounded-lg border border-[color-mix(in_srgb,var(--app-danger)_28%,var(--app-line))] bg-[color-mix(in_srgb,var(--app-danger)_7%,var(--app-surface))] px-4 py-3 text-sm text-[var(--app-danger)]">
-          <WarningCircle className="mt-0.5 shrink-0" size={17} />{error}
-        </div>
-      ) : null}
+      {error ? <PageAlert title={error} /> : null}
 
-      {!keys.length ? (
-        <div className="grid min-h-72 place-items-center rounded-lg border border-dashed border-[var(--app-line-strong)] text-center">
-          <div className="max-w-sm px-6">
-            <BrandMark size={28} className="mx-auto" />
-            <div className="mt-4 text-sm font-medium">{t('keysEmpty')}</div>
-            <div className="mt-1 text-xs leading-5 text-[var(--app-faint)]">{t('keysEmptyHint')}</div>
-            <Button className="mt-5" size="sm" onPress={() => setCreateOpen(true)}><Plus size={14} />{t('keysCreate')}</Button>
-          </div>
-        </div>
+      {loading ? (
+        <section className="grid gap-2.5 lg:grid-cols-2 xl:grid-cols-3" aria-busy>
+          {Array.from({ length: Math.max(3, keys.length) }, (_, index) => (
+            <div key={index} className="overflow-hidden rounded-3xl border border-border bg-surface p-3">
+              <SkeletonBlock className="h-4 w-28" />
+              <SkeletonBlock className="mt-2 h-3 w-40" />
+              <SkeletonBlock className="mt-4 h-6 w-24" />
+              <SkeletonBlock className="mt-6 h-8 w-full" />
+            </div>
+          ))}
+        </section>
+      ) : !keys.length ? (
+        <EmptyPanel
+          className="rounded-3xl border border-dashed border-border"
+          icon={<BrandMark size={28} />}
+          title={t('keysEmpty')}
+          hint={t('keysEmptyHint')}
+          action={<Button size="sm" onPress={() => setCreateOpen(true)}><Plus size={14} />{t('keysCreate')}</Button>}
+        />
       ) : (
         <section className="grid gap-2.5 lg:grid-cols-2 xl:grid-cols-3">
           {keys.map((key) => (
-            <article key={key.id} className="app-panel-flat overflow-hidden rounded-lg">
-              <div className="space-y-2.5 px-3 pt-3 pb-2.5">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold tracking-[-0.02em]">{key.name}</div>
-                    <div className="mono mt-1 truncate text-xs text-[var(--app-faint)]">{key.prefix}</div>
-                  </div>
-                  <Chip size="sm" variant="soft" color={key.enabled ? 'success' : 'default'}>
-                    {key.enabled ? t('enabled') : t('disabled')}
-                  </Chip>
+            <Card key={key.id} className="overflow-hidden p-0">
+              <Card.Header className="flex-row items-start justify-between gap-3 px-3 pt-3 pb-2.5">
+                <div className="min-w-0">
+                  <Card.Title className="truncate text-sm tracking-[-0.015em]">{key.name}</Card.Title>
+                  <Card.Description className="mono mt-1 truncate">{key.prefix}</Card.Description>
                 </div>
+                <Chip size="sm" variant="soft" color={key.enabled ? 'success' : 'default'}>
+                  {key.enabled ? t('enabled') : t('disabled')}
+                </Chip>
+              </Card.Header>
+              <Card.Content className="space-y-2.5 px-3 pb-2.5">
                 <div className="flex flex-wrap items-center gap-1.5">
                   {(key.providers.length ? key.providers : ['all']).map((provider) => (
                     <Chip key={provider} size="sm" variant="soft">
@@ -150,11 +159,11 @@ export function KeysPage() {
                     </Chip>
                   ))}
                 </div>
-                <p className="text-[11px] leading-5 text-[var(--app-faint)]">
+                <p className="text-[11px] leading-5 text-muted">
                   {key.last_used_at ? t('keysLastUsed', { time: formatTime(key.last_used_at) }) : t('keysNeverUsed')}
                 </p>
-              </div>
-              <div className="flex items-center gap-1.5 border-t border-[var(--app-line)] px-3 py-2">
+              </Card.Content>
+              <Card.Footer className="gap-1.5 border-t border-separator px-3 py-2">
                 <Button size="sm" variant="ghost" onPress={() => setEditKey(key)}>{t('edit')}</Button>
                 <Button isIconOnly size="sm" variant="ghost" aria-label={t('delete')} onPress={() => setDeleteKey(key)}>
                   <TrashSimple size={14} />
@@ -167,8 +176,8 @@ export function KeysPage() {
                     onChange={(selected) => void onToggle(key, selected)}
                   />
                 </div>
-              </div>
-            </article>
+              </Card.Footer>
+            </Card>
           ))}
         </section>
       )}
@@ -210,16 +219,16 @@ export function KeysPage() {
               <Modal.Header className="items-start justify-between gap-4 px-6 pt-6">
                 <div>
                   <Modal.Heading className="text-lg font-semibold">{t('keysSecretTitle')}</Modal.Heading>
-                  <p className="mt-1.5 text-sm leading-6 text-[var(--app-muted)]">{t('keysSecretHint')}</p>
+                  <p className="mt-1.5 text-sm leading-6 text-muted">{t('keysSecretHint')}</p>
                 </div>
-                <Modal.CloseTrigger aria-label={t('close')} className="grid size-9 place-items-center rounded-lg text-[var(--app-muted)] hover:bg-[var(--app-surface-muted)]"><X size={18} /></Modal.CloseTrigger>
+                <Modal.CloseTrigger aria-label={t('close')} className="grid size-9 place-items-center rounded-lg text-muted hover:bg-surface-secondary"><X size={18} /></Modal.CloseTrigger>
               </Modal.Header>
               <Modal.Body className="px-6 pb-2">
                 <Alert status="warning" className="mb-4">
                   <Alert.Indicator />
                   <Alert.Content><Alert.Title>{t('keysSecretOnce')}</Alert.Title></Alert.Content>
                 </Alert>
-                <code className="mono block break-all rounded-lg border border-[var(--app-line)] bg-[var(--app-surface-muted)] px-3 py-3 text-sm">{revealed?.secret}</code>
+                <code className="mono block break-all rounded-lg border border-separator bg-surface-secondary px-3 py-3 text-sm">{revealed?.secret}</code>
               </Modal.Body>
               <Modal.Footer className="justify-end">
                 <Button variant="ghost" onPress={() => setRevealed(null)}>{t('close')}</Button>
@@ -232,25 +241,17 @@ export function KeysPage() {
         </Modal.Backdrop>
       </Modal.Root>
 
-      <Modal.Root isOpen={Boolean(deleteKey)} onOpenChange={(open: boolean) => { if (!open) setDeleteKey(null) }}>
-        <Modal.Backdrop variant="blur">
-          <Modal.Container placement="center" size="sm">
-            <Modal.Dialog>
-              <Modal.Header className="items-start justify-between gap-4">
-                <div className="flex items-center gap-2"><WarningCircle size={18} className="text-[var(--app-danger)]" /><Modal.Heading className="text-base font-semibold">{t('delete')}</Modal.Heading></div>
-                <Modal.CloseTrigger aria-label={t('close')} className="grid size-8 place-items-center rounded-lg text-[var(--app-muted)] hover:bg-[var(--app-surface-muted)]"><X size={16} /></Modal.CloseTrigger>
-              </Modal.Header>
-              <Modal.Body className="pt-0">
-                <p className="text-sm leading-6 text-[var(--app-muted)]">{t('keysDeleteConfirm', { name: deleteKey?.name || '' })}</p>
-              </Modal.Body>
-              <Modal.Footer className="justify-end">
-                <Button size="sm" variant="ghost" onPress={() => setDeleteKey(null)}>{t('cancel')}</Button>
-                <Button size="sm" variant="danger" isPending={busyId === deleteKey?.id} onPress={() => void onDelete()}>{t('delete')}</Button>
-              </Modal.Footer>
-            </Modal.Dialog>
-          </Modal.Container>
-        </Modal.Backdrop>
-      </Modal.Root>
+      <ConfirmDialog
+        isOpen={Boolean(deleteKey)}
+        title={t('delete')}
+        description={t('keysDeleteConfirm', { name: deleteKey?.name || '' })}
+        confirmLabel={t('delete')}
+        cancelLabel={t('cancel')}
+        closeLabel={t('close')}
+        isPending={busyId === deleteKey?.id}
+        onClose={() => setDeleteKey(null)}
+        onConfirm={() => void onDelete()}
+      />
     </div>
   )
 }
@@ -316,10 +317,10 @@ function KeyEditorModal({
             <Form onSubmit={submit}>
               <Modal.Header className="items-start justify-between gap-4 px-6 pt-6">
                 <div>
-                  <Modal.Heading className="text-lg font-semibold tracking-[-0.02em]">{title}</Modal.Heading>
-                  <p className="mt-1.5 text-sm leading-6 text-[var(--app-muted)]">{hint}</p>
+                  <Modal.Heading className="text-lg font-semibold tracking-[-0.015em]">{title}</Modal.Heading>
+                  <p className="mt-1.5 text-sm leading-6 text-muted">{hint}</p>
                 </div>
-                <Modal.CloseTrigger isDisabled={busy} aria-label={t('close')} className="grid size-9 place-items-center rounded-lg text-[var(--app-muted)] hover:bg-[var(--app-surface-muted)]"><X size={18} /></Modal.CloseTrigger>
+                <Modal.CloseTrigger isDisabled={busy} aria-label={t('close')} className="grid size-9 place-items-center rounded-lg text-muted hover:bg-surface-secondary"><X size={18} /></Modal.CloseTrigger>
               </Modal.Header>
               <Modal.Body className="space-y-5 px-6 pb-2 pt-1">
                 {error ? (
@@ -329,17 +330,17 @@ function KeyEditorModal({
                   </Alert>
                 ) : null}
                 <div className="space-y-2">
-                  <Label className="text-sm font-medium text-[var(--app-muted)]">{t('keysName')}</Label>
+                  <Label className="text-sm font-medium text-muted">{t('keysName')}</Label>
                   <Input value={name} onChange={(event) => setName(event.target.value)} placeholder={t('keysNamePh')} />
                 </div>
                 <div className="space-y-2">
-                  <Label className="text-sm font-medium text-[var(--app-muted)]">{t('keysProviders')}</Label>
-                  <Description className="text-xs leading-5 text-[var(--app-faint)]">{t('keysProvidersHint')}</Description>
+                  <Label className="text-sm font-medium text-muted">{t('keysProviders')}</Label>
+                  <Description className="text-xs leading-5 text-muted">{t('keysProvidersHint')}</Description>
                   <div className="grid gap-2 sm:grid-cols-2">
                     {providers.map((id) => {
                       const checked = selected.includes(id)
                       return (
-                        <Checkbox key={id} isSelected={checked} onChange={() => toggle(id)} className="rounded-lg border border-[var(--app-line)] px-3 py-2.5">
+                        <Checkbox key={id} isSelected={checked} onChange={() => toggle(id)} className="rounded-xl border border-separator px-3 py-2.5 data-selected:border-accent data-selected:bg-accent-soft">
                           <Checkbox.Content className="flex items-center gap-2.5">
                             <Checkbox.Control>
                               <Checkbox.Indicator />
@@ -351,7 +352,7 @@ function KeyEditorModal({
                       )
                     })}
                   </div>
-                  <p className="text-xs text-[var(--app-faint)]">{providersLabel(selected, t)}</p>
+                  <p className="text-xs text-muted">{providersLabel(selected, t)}</p>
                 </div>
               </Modal.Body>
               <Modal.Footer className="justify-end">

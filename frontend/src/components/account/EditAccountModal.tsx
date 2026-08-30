@@ -54,8 +54,8 @@ export function EditAccountModal({ account, busy, t, onClose, onSave }: Props) {
           <Modal.Dialog className="sm:min-w-[32rem]">
             <Modal.Header className="items-start justify-between gap-4 px-6 pt-6">
               <div className="min-w-0">
-                <Modal.Heading className="text-lg font-semibold tracking-[-0.02em]">{title}</Modal.Heading>
-                <p className="mt-1.5 text-sm font-normal leading-6 text-[var(--app-muted)]">{t('editAccountHint')}</p>
+                <Modal.Heading className="text-lg font-semibold tracking-[-0.015em]">{title}</Modal.Heading>
+                <p className="mt-1.5 text-sm font-normal leading-6 text-muted">{t('editAccountHint')}</p>
                 {account ? (
                   <div className="mt-3 flex flex-wrap items-center gap-2">
                     <Chip size="sm" variant="soft">
@@ -64,11 +64,11 @@ export function EditAccountModal({ account, busy, t, onClose, onSave }: Props) {
                         <span>{provider}</span>
                       </span>
                     </Chip>
-                    <span className="mono text-xs text-[var(--app-faint)]">{account.id}</span>
+                    <span className="mono text-xs text-muted">{account.id}</span>
                   </div>
                 ) : null}
               </div>
-              <Modal.CloseTrigger isDisabled={busy} aria-label={t('close')} className="grid size-9 shrink-0 place-items-center rounded-lg text-[var(--app-muted)] hover:bg-[var(--app-surface-muted)]">
+              <Modal.CloseTrigger isDisabled={busy} aria-label={t('close')} className="grid size-9 shrink-0 place-items-center rounded-lg text-muted hover:bg-surface-secondary">
                 <X size={18} />
               </Modal.CloseTrigger>
             </Modal.Header>
@@ -83,7 +83,7 @@ export function EditAccountModal({ account, busy, t, onClose, onSave }: Props) {
               ) : null}
               <Form className="space-y-5" onSubmit={(event) => void submit(event)}>
                 <div className="space-y-1.5">
-                  <Label className="text-sm font-medium text-[var(--app-muted)]">{t('accountName')}</Label>
+                  <Label className="text-sm font-medium text-muted">{t('accountName')}</Label>
                   <Input
                     value={name}
                     onChange={(event) => setName(event.target.value)}
@@ -102,13 +102,13 @@ export function EditAccountModal({ account, busy, t, onClose, onSave }: Props) {
                     isDisabled={busy}
                     isRequired
                   >
-                    <Label className="text-sm font-medium text-[var(--app-muted)]">{t('maxInflight')}</Label>
+                    <Label className="text-sm font-medium text-muted">{t('maxInflight')}</Label>
                     <NumberField.Group>
                       <NumberField.DecrementButton />
                       <NumberField.Input />
                       <NumberField.IncrementButton />
                     </NumberField.Group>
-                    <Description className="text-xs leading-5 text-[var(--app-faint)]">{t('maxInflightHint')}</Description>
+                    <Description className="text-xs leading-5 text-muted">{t('maxInflightHint')}</Description>
                   </NumberField>
                   <NumberField
                     value={priority}
@@ -118,13 +118,13 @@ export function EditAccountModal({ account, busy, t, onClose, onSave }: Props) {
                     isDisabled={busy}
                     isRequired
                   >
-                    <Label className="text-sm font-medium text-[var(--app-muted)]">{t('priority')}</Label>
+                    <Label className="text-sm font-medium text-muted">{t('priority')}</Label>
                     <NumberField.Group>
                       <NumberField.DecrementButton />
                       <NumberField.Input />
                       <NumberField.IncrementButton />
                     </NumberField.Group>
-                    <Description className="text-xs leading-5 text-[var(--app-faint)]">{t('priorityHint')}</Description>
+                    <Description className="text-xs leading-5 text-muted">{t('priorityHint')}</Description>
                   </NumberField>
                 </div>
               </Form>

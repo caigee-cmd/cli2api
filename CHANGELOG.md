@@ -7,6 +7,11 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Restyle the console on HeroUI v3 default tokens and compound primitives, replacing the ivory overlay, custom 32px chrome, and hand-rolled alerts, search, pagination, and empty states
+- Lock console selection, radii, and type to one language: accent-soft selected chrome, Outfit + IBM Plex Mono, and ink-plus-cyan brand marks instead of mixed blue / white / violet fills
+- Show HeroUI skeletons on first page load and on refresh or filter fetches, instead of a session spinner or leftover dashes
+- Replace the hand-drawn Overview traffic SVG with a Recharts area chart on HeroUI tokens, and keep the GSAP line-draw entrance
+- Strip leftover marketing chrome: login kickers, always-on status dots, colored left bars, and uppercase micro-labels
 - Replace native Logs and Models filter dropdowns with compact HeroUI Select controls that match the 32px toolbar
 - Add named client API keys with optional provider allowlists, and show the console administrator key on System
 - Store an empty client-key provider allowlist as `[]` instead of JSON `null`
@@ -15,6 +20,11 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### 中文
 
+- 控制台改走 HeroUI v3 默认 token 和复合原语，去掉象牙色覆盖、自定义 32px 控件，以及手写的提示、搜索、分页和空状态
+- 选中态、圆角和字体锁成一套：选中走 accent-soft，界面 Outfit + IBM Plex Mono，品牌 mark 改为墨色闪电加青点，不再混用蓝 / 白 / 紫填充
+- 第一次进入页面、刷新和打接口的筛选改走 HeroUI 骨架，不再用登录转圈或留下一排破折号
+- 总览流量图改用 Recharts 面积图，颜色走 HeroUI token，入场仍用 GSAP 描线
+- 去掉登录页 kicker、常亮状态点、彩色左边条和全大写微标签
 - Logs 和模型页的筛选下拉改用紧凑 HeroUI Select，高度对齐 32px 工具栏
 - 新增可限制供应商的客户端 API 密钥，并在系统页显示控制台管理员密钥
 - 客户端密钥未限制供应商时写入 `[]`，不再存成 JSON `null`

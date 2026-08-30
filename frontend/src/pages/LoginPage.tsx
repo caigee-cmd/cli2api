@@ -1,8 +1,9 @@
 import { useRef, useState } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
-import { Button, Card, Chip, InputGroup, Tooltip } from '@heroui/react'
+import { Button, Card, InputGroup, Label, TextField, Toolbar, Tooltip } from '@heroui/react'
 import { ArrowRight, Eye, EyeSlash, Globe, Moon, Sun } from '@phosphor-icons/react'
 import { BrandMark } from '@/components/BrandMark'
+import { PageAlert } from '@/components/ui/PageAlert'
 import { useI18n } from '@/hooks/useI18n'
 import { useApiKey } from '@/hooks/useApiKey'
 import { useOverview } from '@/hooks/useOverview'
@@ -48,20 +49,19 @@ export function LoginPage() {
   }
 
   return (
-    <div className="relative min-h-dvh overflow-hidden bg-[var(--app-bg)] text-[var(--app-ink)]">
-      <div className="noise" aria-hidden />
-      <div className="absolute inset-x-0 top-0 h-px bg-[var(--app-line-strong)]" />
+    <div className="relative min-h-dvh overflow-hidden bg-background text-foreground">
+      <div className="absolute inset-x-0 top-0 h-px bg-border" />
       <main ref={pageRef} className="relative z-10 mx-auto grid min-h-dvh w-full max-w-[1480px] lg:grid-cols-[minmax(0,1.22fr)_minmax(420px,.78fr)]">
-        <section className="flex min-h-[52vh] flex-col border-[var(--app-line)] px-5 py-6 sm:px-10 sm:py-8 lg:min-h-dvh lg:border-r lg:px-14 lg:py-10 xl:px-20">
+        <section className="flex min-h-[52vh] flex-col border-separator px-5 py-6 sm:px-10 sm:py-8 lg:min-h-dvh lg:border-r lg:px-14 lg:py-10 xl:px-20">
           <header className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               <BrandMark size={36} />
               <div>
-                <div className="font-semibold tracking-[-0.02em]">CLI2API</div>
-                <div className="text-xs text-[var(--app-faint)]">{t('controlPlane')}</div>
+                <div className="font-semibold tracking-[-0.015em]">CLI2API</div>
+                <div className="text-xs text-muted">{t('controlPlane')}</div>
               </div>
             </div>
-            <div className="chrome-cluster">
+            <Toolbar isAttached>
               <Tooltip>
                 <Tooltip.Trigger>
                   <Button isIconOnly size="sm" variant="ghost" onPress={() => setLang(lang === 'zh' ? 'en' : 'zh')} aria-label={lang === 'zh' ? 'English' : '中文'}>
@@ -78,51 +78,43 @@ export function LoginPage() {
                 </Tooltip.Trigger>
                 <Tooltip.Content>{theme === 'dark' ? 'Light mode' : 'Dark mode'}</Tooltip.Content>
               </Tooltip>
-            </div>
+            </Toolbar>
           </header>
 
           <div className="my-auto max-w-3xl py-16 lg:py-24">
-            <div data-gsap-reveal className="mb-5 flex items-center gap-3">
-              <Chip size="sm" variant="soft" color="success">LOCAL / PRIVATE</Chip>
-              <span className="mono text-xs text-[var(--app-faint)]">:3010</span>
-            </div>
+            <p data-gsap-reveal className="mb-5 mono text-xs text-muted">:3010</p>
             <h1 data-gsap-reveal className="max-w-3xl text-[clamp(2.25rem,4vw,3.6rem)] font-semibold leading-[0.98] tracking-[-0.045em] text-balance">
               {t('loginTitle')}
             </h1>
-            <p data-gsap-reveal className="mt-6 max-w-xl text-base leading-7 text-[var(--app-muted)] sm:text-lg">{t('loginLead')}</p>
+            <p data-gsap-reveal className="mt-6 max-w-xl text-base leading-7 text-muted sm:text-lg">{t('loginLead')}</p>
 
-            <p data-gsap-reveal className="mt-10 max-w-xl border-t border-[var(--app-line)] pt-5 text-sm leading-6 text-[var(--app-muted)]">
+            <p data-gsap-reveal className="mt-10 max-w-xl border-t border-separator pt-5 text-sm leading-6 text-muted">
               {t('loginHint')}
             </p>
           </div>
 
-          <footer className="hidden items-center justify-between text-xs text-[var(--app-faint)] lg:flex">
+          <footer className="hidden items-center justify-between text-xs text-muted lg:flex">
             <span>{t('loginHint')}</span>
-            <span className="mono">OPENAI COMPATIBLE</span>
+            <span>{t('routesHint')}</span>
           </footer>
         </section>
 
         <section className="flex items-center px-5 py-10 sm:px-10 lg:px-12 xl:px-16">
-          <Card data-gsap-reveal className="app-panel w-full rounded-lg p-0 shadow-none">
+          <Card data-gsap-reveal className="w-full p-0">
             <form onSubmit={(event) => void onSubmit(event)}>
-              <div className="border-b border-[var(--app-line)] px-6 py-6 sm:px-8">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex min-w-0 items-center gap-3">
-                    <BrandMark size={28} />
-                    <div>
-                      <h2 className="text-xl font-semibold tracking-[-0.025em]">{t('loginFormTitle')}</h2>
-                      <p className="mt-1 text-sm text-[var(--app-muted)]">{t('loginDesc')}</p>
-                    </div>
+              <Card.Header className="border-b border-separator px-6 py-6 sm:px-8">
+                <div className="flex min-w-0 items-center gap-3">
+                  <BrandMark size={28} />
+                  <div>
+                    <Card.Title className="text-xl tracking-[-0.015em]">{t('loginFormTitle')}</Card.Title>
+                    <Card.Description className="mt-1">{t('loginDesc')}</Card.Description>
                   </div>
-                  <span className="status-dot shrink-0" data-state="ok" />
                 </div>
-              </div>
-              <div className="space-y-5 px-6 py-7 sm:px-8 sm:py-8">
-                <div>
-                  <label className="mb-2 block text-xs font-medium text-[var(--app-muted)]" htmlFor="console-password">
-                    {t('loginPassword')}
-                  </label>
-                  <InputGroup fullWidth className="login-key-field">
+              </Card.Header>
+              <Card.Content className="space-y-5 px-6 py-7 sm:px-8 sm:py-8">
+                <TextField name="console-password" className="w-full" isInvalid={Boolean(message)}>
+                  <Label>{t('loginPassword')}</Label>
+                  <InputGroup>
                     <InputGroup.Input
                       id="console-password"
                       type={showPassword ? 'text' : 'password'}
@@ -147,15 +139,13 @@ export function LoginPage() {
                       </Button>
                     </InputGroup.Suffix>
                   </InputGroup>
-                  <p className={`mt-2 min-h-5 text-xs ${message ? 'text-[var(--app-danger)]' : 'text-[var(--app-faint)]'}`}>
-                    {message || t('loginHint')}
-                  </p>
-                </div>
+                </TextField>
+                {message ? <PageAlert title={message} /> : <p className="text-xs text-muted">{t('loginHint')}</p>}
                 <Button type="submit" fullWidth size="lg" isPending={busy}>
                   {busy ? t('loggingInConsole') : t('loginSubmit')}
                   {!busy ? <ArrowRight size={17} /> : null}
                 </Button>
-              </div>
+              </Card.Content>
             </form>
           </Card>
         </section>
