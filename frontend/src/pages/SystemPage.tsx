@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Button, Card, Chip, Modal, Skeleton } from '@heroui/react'
+import { Button, Card, Chip, Modal } from '@heroui/react'
 import {
   ArrowClockwise,
   ArrowCircleUp,
@@ -15,6 +15,7 @@ import { fetchSystemUpdate, startSystemUpdate, type StartUpdateResult, type Syst
 import { useApiKey } from '@/hooks/useApiKey'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { PageAlert } from '@/components/ui/PageAlert'
+import { SystemBodySkeleton, SystemPageSkeleton } from '@/components/ui/PageSkeletons'
 import { ReleaseNotes } from '@/components/ReleaseNotes'
 import { useI18n } from '@/hooks/useI18n'
 import { extractReleaseNotes } from '@/lib/releaseNotes'
@@ -107,9 +108,7 @@ export function SystemPage() {
     }
   }
 
-  if (loading && !info) {
-    return <div className="space-y-5"><Skeleton className="h-24 rounded-3xl" /><Skeleton className="h-72 rounded-3xl" /></div>
-  }
+  if (loading && !info) return <SystemPageSkeleton />
 
   return (
     <div className="space-y-6">
@@ -125,6 +124,7 @@ export function SystemPage() {
 
       {error ? <PageAlert title={error} /> : null}
 
+      {checking ? <SystemBodySkeleton /> : (
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.18fr)_minmax(360px,.82fr)]">
         <Card data-gsap-reveal className="overflow-hidden p-0">
           <div className="flex items-center justify-between gap-3 border-b border-separator px-5 py-4">
@@ -250,6 +250,7 @@ export function SystemPage() {
           </Card>
         </div>
       </div>
+      )}
 
       <Modal.Root isOpen={rotateOpen} onOpenChange={(open: boolean) => { if (!open && !consoleBusy) setRotateOpen(false) }}>
         <Modal.Backdrop variant="blur" isDismissable={!consoleBusy}>

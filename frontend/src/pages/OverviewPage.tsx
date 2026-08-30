@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import gsap from 'gsap'
 import { Link } from 'react-router-dom'
 import { Button, Card, Chip } from '@heroui/react'
@@ -12,10 +12,12 @@ import {
 import { fetchRequestStats, type RequestStats } from '@/api/logs'
 import type { Overview } from '@/api/types'
 import { CountUp } from '@/components/overview/CountUp'
-import { TrafficChart } from '@/components/overview/TrafficChart'
+import { TrafficChartEmpty } from '@/components/overview/TrafficChartEmpty'
+
+const TrafficChart = lazy(() => import('@/components/overview/TrafficChart').then((mod) => ({ default: mod.TrafficChart })))
 import { FilterToggle } from '@/components/ui/FilterToggle'
 import { PageAlert } from '@/components/ui/PageAlert'
-import { OverviewPageSkeleton } from '@/components/ui/PageSkeletons'
+import { OverviewPageSkeleton, RankListSkeleton, SkeletonBlock, TrafficChartSkeleton } from '@/components/ui/PageSkeletons'
 import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
 import { formatCompact, formatLatency, formatPercent } from '@/lib/format'
@@ -124,7 +126,7 @@ export function OverviewPage() {
     { label: t('metricTokens'), value: traffic.tokens.total, kind: 'compact' as const, detail: `${formatCompact(traffic.tokens.prompt)} / ${formatCompact(traffic.tokens.completion)}`, ok: true },
   ]
 
-  if (loading) return <OverviewPageSkeleton />
+  if (loading && !overview) return <OverviewPageSkeleton />
 
   return (
     <div className="space-y-6">
@@ -171,9 +173,9 @@ export function OverviewPage() {
             <div className="mt-6 flex items-end justify-between gap-3">
               <div>
                 <div className="mono text-2xl font-semibold tracking-[-0.035em]">
-                  {statsLoading && !stats ? '—' : metric.value == null ? '—' : <CountUp value={metric.value} kind={metric.kind} />}
+                  {statsLoading ? <SkeletonBlock className="h-8 w-24" /> : metric.value == null ? '—' : <CountUp value={metric.value} kind={metric.kind} />}
                 </div>
-                <div className="mono mt-1 text-[11px] text-muted">{metric.detail}</div>
+                <div className="mono mt-1 text-[11px] text-muted">{statsLoading ? <SkeletonBlock className="h-3 w-28" /> : metric.detail}</div>
               </div>
               <span className="status-dot" data-state={metric.ok ? 'ok' : 'danger'} />
             </div>
@@ -195,14 +197,20 @@ export function OverviewPage() {
           <div className="space-y-5 p-5">
             {statsError ? (
               <div className="text-sm text-danger">{t('failedStats', { msg: statsError })}</div>
+            ) : statsLoading ? (
+              <TrafficChartSkeleton />
+            ) : traffic.series.some((point) => point.requests > 0) ? (
+              <Suspense fallback={<TrafficChartSkeleton />}>
+                <TrafficChart
+                  series={traffic.series}
+                  lang={lang}
+                  emptyLabel={t('statsEmptyTraffic')}
+                  okLabel={t('logsFilterOk')}
+                  errorLabel={t('logsFilterError')}
+                />
+              </Suspense>
             ) : (
-              <TrafficChart
-                series={traffic.series}
-                lang={lang}
-                emptyLabel={t('statsEmptyTraffic')}
-                okLabel={t('logsFilterOk')}
-                errorLabel={t('logsFilterError')}
-              />
+              <TrafficChartEmpty emptyLabel={t('statsEmptyTraffic')} />
             )}
             <div className="grid grid-cols-2 gap-3 border-t border-separator pt-4 sm:grid-cols-4">
               {[
@@ -213,7 +221,7 @@ export function OverviewPage() {
               ].map(([label, value]) => (
                 <div key={String(label)}>
                   <div className="text-[11px] text-muted">{label}</div>
-                  <div className="mono mt-1 text-sm font-medium">{value}</div>
+                  <div className="mono mt-1 text-sm font-medium">{statsLoading ? <SkeletonBlock className="h-4 w-16" /> : value}</div>
                 </div>
               ))}
             </div>
@@ -249,7 +257,9 @@ export function OverviewPage() {
             ))}
           </div>
           <div className="divide-y divide-separator">
-            {accounts.length === 0 ? (
+            {loading ? (
+              <RankListSkeleton />
+            ) : accounts.length === 0 ? (
               <div className="px-5 py-8 text-sm text-muted">{t('noAccounts')}</div>
             ) : accounts.slice(0, 6).map((account) => {
               const quota = account.quota
@@ -311,16 +321,20 @@ export function OverviewPage() {
             </div>
             <Pulse size={15} className="text-muted" />
           </div>
-          <RankList
-            empty={t('statsNoProviders')}
-            items={(traffic.providers || []).map((item) => ({
-              key: item.key,
-              label: familyLabel(item.key, t),
-              count: item.count,
-              meta: `${item.ok}/${item.count}`,
-              mark: item.key === '(unknown)' ? undefined : item.key,
-            }))}
-          />
+          {statsLoading ? (
+            <RankListSkeleton />
+          ) : (
+            <RankList
+              empty={t('statsNoProviders')}
+              items={(traffic.providers || []).map((item) => ({
+                key: item.key,
+                label: familyLabel(item.key, t),
+                count: item.count,
+                meta: `${item.ok}/${item.count}`,
+                mark: item.key === '(unknown)' ? undefined : item.key,
+              }))}
+            />
+          )}
         </Card>
       </section>
 
@@ -333,15 +347,19 @@ export function OverviewPage() {
             </div>
             <Cube size={15} className="text-muted" />
           </div>
-          <RankList
-            empty={t('statsNoModels')}
-            items={traffic.models.map((item) => ({
-              key: item.key,
-              label: item.key === '(unknown)' ? t('statsUnknown') : item.key,
-              count: item.count,
-              meta: item.latency_avg_ms != null ? formatLatency(item.latency_avg_ms) : `${item.ok}/${item.count}`,
-            }))}
-          />
+          {statsLoading ? (
+            <RankListSkeleton rows={4} />
+          ) : (
+            <RankList
+              empty={t('statsNoModels')}
+              items={traffic.models.map((item) => ({
+                key: item.key,
+                label: item.key === '(unknown)' ? t('statsUnknown') : item.key,
+                count: item.count,
+                meta: item.latency_avg_ms != null ? formatLatency(item.latency_avg_ms) : `${item.ok}/${item.count}`,
+              }))}
+            />
+          )}
         </Card>
 
         <Card data-gsap-reveal className="overflow-hidden p-0">
@@ -352,7 +370,9 @@ export function OverviewPage() {
             </div>
             <Pulse size={15} className="text-muted" />
           </div>
-          {traffic.errors.length ? (
+          {statsLoading ? (
+            <RankListSkeleton rows={4} />
+          ) : traffic.errors.length ? (
             <RankList
               empty={t('statsNoErrors')}
               danger

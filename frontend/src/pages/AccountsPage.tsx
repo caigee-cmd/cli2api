@@ -25,7 +25,7 @@ import {
   startDeviceLogin,
   updateAccount,
 } from '@/api/overview'
-import { AccountsPageSkeleton } from '@/components/ui/PageSkeletons'
+import { AccountsListSkeleton, AccountsPageSkeleton } from '@/components/ui/PageSkeletons'
 import {
   accountState,
   isAvailable,
@@ -243,7 +243,7 @@ export function AccountsPage() {
     <div className="space-y-4">
       <section data-gsap-reveal className="grid gap-3 border-b border-separator pb-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
-          <div className="flex items-center gap-3 border-l-2 border-success pl-3">
+          <div className="flex items-center gap-3">
             <span className="mono font-semibold">{rows.length}</span>
             <span className="text-muted">{t('accountCount')}</span>
             <span className="text-border">·</span>
@@ -325,7 +325,7 @@ export function AccountsPage() {
         </section>
       ) : null}
 
-      {!hasAccounts ? (
+      {!refreshing && !hasAccounts ? (
         <EmptyPanel
           className="rounded-3xl border border-dashed border-border"
           icon={<BrandMark size={28} />}
@@ -344,6 +344,9 @@ export function AccountsPage() {
         />
       ) : null}
 
+      {refreshing ? (
+        <AccountsListSkeleton count={Math.max(3, Math.min(6, filteredRows.length || 6))} />
+      ) : (
       <section className="grid gap-2.5 lg:grid-cols-2 xl:grid-cols-3" aria-busy={refreshing}>
         {filteredRows.map((account) => (
           <AccountCard
@@ -372,6 +375,7 @@ export function AccountsPage() {
           />
         ))}
       </section>
+      )}
     </div>
   )
 }

@@ -149,9 +149,10 @@ HeroUI 3.2.4 的 `Tabs.Indicator` 会因 `SharedElementTransition` 崩溃，不�
 | 日志页签 | `Tabs`（`ListContainer` / `List` / `Tab` / `Panel`）。不要 `Tabs.Indicator` |
 | 账号类型 | `RadioGroup` + `Radio`（≤6 用 tile；超过用 `Select`） |
 | 移动端导航 | `Drawer` |
+| 总览流量图 | Recharts `ComposedChart`（HeroUI 没有 Chart；对齐 shadcn/ui charts 的 Recharts 层）。颜色走 `--success` / `--danger`，入场用 GSAP |
 
 2. 项目包装只放在 `frontend/src/components/ui/`，用于把 HeroUI 原语接到控制台状态，而不是另画一套皮肤。
-3. 仍没有、或现有行为确实无法覆盖，才手写。手写必须说明缺的是哪个 HeroUI 组件。运行时 12 格短柱属于账号卡片特有可视化，可以保留。
+3. 仍没有、或现有行为确实无法覆盖，才手写。手写必须说明缺的是哪个 HeroUI 组件。运行时 12 格短柱属于账号卡片特有可视化，可以保留。总览流量图用 Recharts，不要再手画 SVG path。
 
 账号编辑等设置弹窗：
 
@@ -201,6 +202,9 @@ HeroUI 3.2.4 的 `Tabs.Indicator` 会因 `SharedElementTransition` 崩溃，不�
 - UI 文案保持简短直接，走 [frontend/src/i18n/messages.ts](../frontend/src/i18n/messages.ts)。
 - 新增 key 时同步维护 `en` 和 `zh`。
 - 已登录控制台不要用营销话术，不要 emoji。
+- 不要全大写宽间距 kicker（`LOCAL / PRIVATE`、`OPENAI COMPATIBLE`、`PROTOCOL`）。小节标题用普通 `text-xs font-medium text-muted`。
+- 状态点是实心小点，不要 halo / pulse。没有实时状态就不要点。
+- 不要用彩色左边条当强调；列表和错误靠文字与字重。
 
 ## 前端改动自查清单
 

@@ -12,7 +12,7 @@ import { EmptyPanel } from '@/components/ui/EmptyPanel'
 import { FilterSelect } from '@/components/ui/FilterSelect'
 import { ListPager, type PageSize } from '@/components/ui/ListPager'
 import { PageAlert } from '@/components/ui/PageAlert'
-import { ProvidersPageSkeleton } from '@/components/ui/PageSkeletons'
+import { ProvidersPageSkeleton, ProvidersTableSkeleton } from '@/components/ui/PageSkeletons'
 import { SearchBar } from '@/components/ui/SearchBar'
 
 type ModelInfo = NonNullable<Overview['models']>[number]
@@ -86,7 +86,7 @@ export function ProvidersPage() {
     ? t('logsShownTotal', { shown: `${shownFrom}–${shownTo}`, total: filtered.length })
     : t('shownTotal', { shown: 0, total: models.length })
 
-  if (loading) return <ProvidersPageSkeleton />
+  if (loading && !overview) return <ProvidersPageSkeleton />
 
   function updateModelInOverview(model: ModelInfo, result: Awaited<ReturnType<typeof updateModelContext>>) {
     const key = modelSettingsKey(model)
@@ -237,7 +237,9 @@ export function ProvidersPage() {
           <Chip size="sm" variant="soft">{filtered.length}</Chip>
         </div>
 
-        {filtered.length === 0 ? (
+        {busy || loading ? (
+          <ProvidersTableSkeleton />
+        ) : filtered.length === 0 ? (
           <EmptyPanel
             icon={<MagnifyingGlass size={22} />}
             title={models.length ? t('noModelsMatch') : t('noProviders')}

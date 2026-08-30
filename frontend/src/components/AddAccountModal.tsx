@@ -649,7 +649,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                     ) : (
                       <>
                         <div className="flex items-center justify-between gap-3">
-                          <span className="text-[10px] font-semibold tracking-[0.1em] text-muted uppercase">JSON</span>
+                          <span className="text-xs font-medium text-muted">JSON</span>
                           <Button size="sm" variant="secondary" onPress={onPickFile} isDisabled={busy}><FileCode size={13} />{t('wizardChooseFile')}</Button>
                           <input ref={fileInput} type="file" accept="application/json,.json" className="hidden" onChange={onFileChange} />
                         </div>

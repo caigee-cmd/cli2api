@@ -37,7 +37,7 @@ import { FilterSelect } from '@/components/ui/FilterSelect'
 import { FilterToggle } from '@/components/ui/FilterToggle'
 import { ListPager, type PageSize } from '@/components/ui/ListPager'
 import { PageAlert } from '@/components/ui/PageAlert'
-import { LogsRequestListSkeleton, LogsRuntimeListSkeleton } from '@/components/ui/PageSkeletons'
+import { LogsPageSkeleton, LogsRequestListSkeleton, LogsRuntimeListSkeleton } from '@/components/ui/PageSkeletons'
 import { SearchBar } from '@/components/ui/SearchBar'
 import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
@@ -124,6 +124,7 @@ export function LogsPage() {
   const models = overview?.models
   const [tab, setTab] = useState<PageTab>('requests')
   const [loading, setLoading] = useState(true)
+  const [booted, setBooted] = useState(false)
   const [error, setError] = useState('')
   const [requestFilter, setRequestFilter] = useState<RequestFilter>('all')
   const [runtimeFilter, setRuntimeFilter] = useState<RuntimeFilter>('all')
@@ -238,7 +239,10 @@ export function LogsPage() {
     } catch (err) {
       if (!quiet) setError(err instanceof Error ? err.message : String(err))
     } finally {
-      if (!quiet) setLoading(false)
+      if (!quiet) {
+        setLoading(false)
+        setBooted(true)
+      }
     }
   }, [requestFilter, requestQuery, accountFilter, modelFilter, streamFilter, errorKind, timeRange, customRange, currentPage, pageSize])
 
@@ -258,7 +262,10 @@ export function LogsPage() {
     } catch (err) {
       if (!quiet) setError(err instanceof Error ? err.message : String(err))
     } finally {
-      if (!quiet) setLoading(false)
+      if (!quiet) {
+        setLoading(false)
+        setBooted(true)
+      }
     }
   }, [runtimeFilter, runtimeQuery, runtimeAccount, currentRuntimePage, runtimePageSize])
 
@@ -333,6 +340,8 @@ export function LogsPage() {
       setBusy(false)
     }
   }
+
+  if (loading && !booted) return <LogsPageSkeleton />
 
   return (
     <div className="space-y-6">
@@ -696,7 +705,7 @@ export function LogsPage() {
                     <div className="mono text-[11px] text-muted">{formatTime(entry.time, lang)}</div>
                     <div className="flex items-center gap-2 text-xs">
                       <span className="status-dot" data-state={levelDot(entry.level)} />
-                      <span className="font-medium uppercase tracking-[0.04em] text-muted">{entry.level}</span>
+                      <span className="font-medium text-muted">{entry.level}</span>
                     </div>
                     <div className="min-w-0">
                       {entry.account_id ? <div className="mono mb-1 text-[10px] text-muted">{entry.account_id}</div> : null}
