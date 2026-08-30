@@ -86,9 +86,11 @@ func New(cfg config.Config) *Server {
 	providerReg.Register(workbuddyClient.Adapter())
 	providerReg.Register(trae.NewClient(store).Adapter())
 	manager.SetProviders(providerReg)
+	manager.SetWorkBuddy(workbuddyClient)
 	recorder := applogs.NewRequestRecorder(store)
 	stopLogs := make(chan struct{})
 	go recorder.PurgeLoop(stopLogs, time.Hour)
+	go manager.RunWorkBuddyMaintenanceLoop(stopLogs)
 	checker := control.NewChecker(buildinfo.Version, control.NewGitHubReleaseSource("caigee-cmd/cli2api", cfg.UpdateGitHubToken))
 	var agent control.Agent = control.NewUnixAgentClient(cfg.UpdateSocketPath)
 	if strings.TrimSpace(cfg.UpdateAgentURL) != "" {

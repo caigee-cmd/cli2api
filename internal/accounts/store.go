@@ -32,31 +32,38 @@ type Account struct {
 	MaxInFlight    int    `json:"max_inflight"`
 	Priority       int    `json:"priority"`
 	// DropSystemPrompt drops caller system prompts before provider-native chat.
-	DropSystemPrompt bool       `json:"drop_system_prompt"`
-	Status           string     `json:"status"`
-	LastError        string     `json:"last_error,omitempty"`
-	LastErrorKind    string     `json:"last_error_kind,omitempty"`
-	CooldownUntil    *time.Time `json:"cooldown_until,omitempty"`
-	CreatedAt        time.Time  `json:"created_at"`
-	UpdatedAt        time.Time  `json:"updated_at"`
+	DropSystemPrompt bool `json:"drop_system_prompt"`
+	// WorkBuddyAutoCheckin opts into scheduled daily-checkin (default off).
+	WorkBuddyAutoCheckin bool `json:"workbuddy_auto_checkin"`
+	// LastCheckinAt / LastCheckinMsg are display-only WorkBuddy ops results.
+	LastCheckinAt  string     `json:"last_checkin_at,omitempty"`
+	LastCheckinMsg string     `json:"last_checkin_msg,omitempty"`
+	Status         string     `json:"status"`
+	LastError      string     `json:"last_error,omitempty"`
+	LastErrorKind  string     `json:"last_error_kind,omitempty"`
+	CooldownUntil  *time.Time `json:"cooldown_until,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
 }
 
 type CreateAccount struct {
-	Name             string
-	Provider         string
-	Region           string
-	Enabled          bool
-	MaxInFlight      int
-	Priority         int
-	DropSystemPrompt *bool
+	Name                 string
+	Provider             string
+	Region               string
+	Enabled              bool
+	MaxInFlight          int
+	Priority             int
+	DropSystemPrompt     *bool
+	WorkBuddyAutoCheckin *bool
 }
 
 type UpdateAccount struct {
-	Name             string
-	Enabled          *bool
-	MaxInFlight      *int
-	Priority         *int
-	DropSystemPrompt *bool
+	Name                 string
+	Enabled              *bool
+	MaxInFlight          *int
+	Priority             *int
+	DropSystemPrompt     *bool
+	WorkBuddyAutoCheckin *bool
 }
 
 type NativeCredential struct {
@@ -126,26 +133,33 @@ func (s *Store) Create(ctx context.Context, input CreateAccount) (Account, error
 	if input.DropSystemPrompt != nil {
 		dropSystemPrompt = *input.DropSystemPrompt
 	}
+	autoCheckin := false
+	if input.WorkBuddyAutoCheckin != nil {
+		autoCheckin = *input.WorkBuddyAutoCheckin
+	}
 	account := Account{
-		ID:               newAccountID(),
-		Name:             name,
-		Provider:         descriptor.ID,
-		ProviderRegion:   region.ID,
-		AuthType:         "none",
-		Enabled:          input.Enabled,
-		MaxInFlight:      maxInFlight,
-		Priority:         priority,
-		DropSystemPrompt: dropSystemPrompt,
-		Status:           "offline",
-		CreatedAt:        now,
-		UpdatedAt:        now,
+		ID:                   newAccountID(),
+		Name:                 name,
+		Provider:             descriptor.ID,
+		ProviderRegion:       region.ID,
+		AuthType:             "none",
+		Enabled:              input.Enabled,
+		MaxInFlight:          maxInFlight,
+		Priority:             priority,
+		DropSystemPrompt:     dropSystemPrompt,
+		WorkBuddyAutoCheckin: autoCheckin,
+		Status:               "offline",
+		CreatedAt:            now,
+		UpdatedAt:            now,
 	}
 	_, err = s.db.ExecContext(ctx, `
-INSERT INTO accounts (
-  id, name, provider, provider_region, auth_type, enabled, max_inflight, priority, drop_system_prompt, status, created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	INSERT INTO accounts (
+	  id, name, provider, provider_region, auth_type, enabled, max_inflight, priority, drop_system_prompt,
+	  workbuddy_auto_checkin, status, created_at, updated_at
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		account.ID, account.Name, account.Provider, account.ProviderRegion, account.AuthType,
-		account.Enabled, account.MaxInFlight, account.Priority, account.DropSystemPrompt, account.Status,
+		account.Enabled, account.MaxInFlight, account.Priority, account.DropSystemPrompt,
+		account.WorkBuddyAutoCheckin, account.Status,
 		formatTime(account.CreatedAt), formatTime(account.UpdatedAt),
 	)
 	if err != nil {
@@ -156,9 +170,10 @@ INSERT INTO accounts (
 
 func (s *Store) Get(ctx context.Context, id string) (Account, error) {
 	row := s.db.QueryRowContext(ctx, `
-SELECT id, name, provider, provider_region, remote_uid, auth_type, enabled, max_inflight, priority,
-       drop_system_prompt, status, last_error, last_error_kind, cooldown_until, created_at, updated_at
-FROM accounts WHERE id = ?`, strings.TrimSpace(id))
+	SELECT id, name, provider, provider_region, remote_uid, auth_type, enabled, max_inflight, priority,
+	       drop_system_prompt, workbuddy_auto_checkin, last_checkin_at, last_checkin_msg,
+	       status, last_error, last_error_kind, cooldown_until, created_at, updated_at
+	FROM accounts WHERE id = ?`, strings.TrimSpace(id))
 	account, err := scanAccount(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Account{}, ErrAccountNotFound
@@ -179,8 +194,8 @@ func scanAccount(row rowScanner) (Account, error) {
 	err := row.Scan(
 		&account.ID, &account.Name, &account.Provider, &account.ProviderRegion, &account.RemoteUID,
 		&account.AuthType, &account.Enabled, &account.MaxInFlight, &account.Priority,
-		&account.DropSystemPrompt, &account.Status,
-		&account.LastError, &account.LastErrorKind, &cooldown, &created, &updated,
+		&account.DropSystemPrompt, &account.WorkBuddyAutoCheckin, &account.LastCheckinAt, &account.LastCheckinMsg,
+		&account.Status, &account.LastError, &account.LastErrorKind, &cooldown, &created, &updated,
 	)
 	if err != nil {
 		return Account{}, err
@@ -219,9 +234,10 @@ func parseTime(value string) time.Time {
 
 func (s *Store) List(ctx context.Context) ([]Account, error) {
 	rows, err := s.db.QueryContext(ctx, `
-SELECT id, name, provider, provider_region, remote_uid, auth_type, enabled, max_inflight, priority,
-       drop_system_prompt, status, last_error, last_error_kind, cooldown_until, created_at, updated_at
-FROM accounts ORDER BY created_at, id`)
+	SELECT id, name, provider, provider_region, remote_uid, auth_type, enabled, max_inflight, priority,
+	       drop_system_prompt, workbuddy_auto_checkin, last_checkin_at, last_checkin_msg,
+	       status, last_error, last_error_kind, cooldown_until, created_at, updated_at
+	FROM accounts ORDER BY created_at, id`)
 	if err != nil {
 		return nil, fmt.Errorf("list accounts: %w", err)
 	}
@@ -257,10 +273,15 @@ func (s *Store) Update(ctx context.Context, id string, input UpdateAccount) erro
 	if input.DropSystemPrompt != nil {
 		account.DropSystemPrompt = *input.DropSystemPrompt
 	}
+	if input.WorkBuddyAutoCheckin != nil {
+		account.WorkBuddyAutoCheckin = *input.WorkBuddyAutoCheckin
+	}
 	account.UpdatedAt = time.Now().UTC()
 	result, err := s.db.ExecContext(ctx, `
-UPDATE accounts SET name = ?, enabled = ?, max_inflight = ?, priority = ?, drop_system_prompt = ?, updated_at = ?
-WHERE id = ?`, account.Name, account.Enabled, account.MaxInFlight, account.Priority, account.DropSystemPrompt, formatTime(account.UpdatedAt), account.ID)
+	UPDATE accounts SET name = ?, enabled = ?, max_inflight = ?, priority = ?, drop_system_prompt = ?,
+	                    workbuddy_auto_checkin = ?, updated_at = ?
+	WHERE id = ?`, account.Name, account.Enabled, account.MaxInFlight, account.Priority, account.DropSystemPrompt,
+		account.WorkBuddyAutoCheckin, formatTime(account.UpdatedAt), account.ID)
 	if err != nil {
 		return fmt.Errorf("update account: %w", err)
 	}
@@ -552,6 +573,24 @@ UPDATE accounts SET remote_uid = ?, status = ?, last_error = ?, last_error_kind 
 WHERE id = ?`, remoteUID, status, lastError, lastKind, formatTime(time.Now().UTC()), id)
 	if err != nil {
 		return fmt.Errorf("observe account: %w", err)
+	}
+	changed, _ := result.RowsAffected()
+	if changed == 0 {
+		return ErrAccountNotFound
+	}
+	return nil
+}
+
+// RecordCheckin stores the latest WorkBuddy check-in display fields only.
+func (s *Store) RecordCheckin(ctx context.Context, id, msg string, at time.Time) error {
+	if at.IsZero() {
+		at = time.Now().UTC()
+	}
+	result, err := s.db.ExecContext(ctx, `
+UPDATE accounts SET last_checkin_at = ?, last_checkin_msg = ?, updated_at = ?
+WHERE id = ?`, formatTime(at), strings.TrimSpace(msg), formatTime(time.Now().UTC()), strings.TrimSpace(id))
+	if err != nil {
+		return fmt.Errorf("record checkin: %w", err)
 	}
 	changed, _ := result.RowsAffected()
 	if changed == 0 {

@@ -6,6 +6,7 @@ import type { Overview } from '@/api/types'
 
 type RefreshOptions = {
   silent?: boolean
+  refreshQuota?: boolean
 }
 
 type OverviewContextValue = {
@@ -33,9 +34,10 @@ export function OverviewProvider({ children }: { children: ReactNode }) {
       throw new Error('missing_api_key')
     }
     const silent = Boolean(options?.silent)
+    const refreshQuota = options?.refreshQuota ?? !silent
     if (!silent) setLoading(true)
     try {
-      const data = await fetchOverview(key, { refreshQuota: !silent })
+      const data = await fetchOverview(key, { refreshQuota })
       setOverview(data)
       setError(null)
       return data

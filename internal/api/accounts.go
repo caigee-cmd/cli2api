@@ -33,13 +33,14 @@ func (s *Server) handleAccounts(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"object": "list", "data": items})
 	case http.MethodPost:
 		var input struct {
-			Name             string `json:"name"`
-			Provider         string `json:"provider"`
-			Region           string `json:"region"`
-			Enabled          bool   `json:"enabled"`
-			MaxInFlight      int    `json:"max_inflight"`
-			Priority         int    `json:"priority"`
-			DropSystemPrompt *bool  `json:"drop_system_prompt"`
+			Name                 string `json:"name"`
+			Provider             string `json:"provider"`
+			Region               string `json:"region"`
+			Enabled              bool   `json:"enabled"`
+			MaxInFlight          int    `json:"max_inflight"`
+			Priority             int    `json:"priority"`
+			DropSystemPrompt     *bool  `json:"drop_system_prompt"`
+			WorkBuddyAutoCheckin *bool  `json:"workbuddy_auto_checkin"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 			writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
@@ -51,7 +52,8 @@ func (s *Server) handleAccounts(w http.ResponseWriter, r *http.Request) {
 		}
 		account, err := s.manager.Create(r.Context(), accounts.CreateAccount{
 			Name: input.Name, Provider: input.Provider, Region: input.Region,
-			Enabled: input.Enabled, MaxInFlight: input.MaxInFlight, Priority: input.Priority, DropSystemPrompt: input.DropSystemPrompt,
+			Enabled: input.Enabled, MaxInFlight: input.MaxInFlight, Priority: input.Priority,
+			DropSystemPrompt: input.DropSystemPrompt, WorkBuddyAutoCheckin: input.WorkBuddyAutoCheckin,
 		})
 		if err != nil {
 			writeErr(w, http.StatusBadRequest, "account_create_failed", err.Error())
@@ -74,17 +76,18 @@ func (s *Server) handleAccountImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		Format           string          `json:"format"`
-		Name             string          `json:"name"`
-		Provider         string          `json:"provider"`
-		Region           string          `json:"region"`
-		Enabled          bool            `json:"enabled"`
-		MaxInFlight      int             `json:"max_inflight"`
-		Priority         int             `json:"priority"`
-		DropSystemPrompt *bool           `json:"drop_system_prompt"`
-		UserBlob         string          `json:"user_blob"`
-		MachineID        string          `json:"machine_id"`
-		Credential       json.RawMessage `json:"credential"`
+		Format               string          `json:"format"`
+		Name                 string          `json:"name"`
+		Provider             string          `json:"provider"`
+		Region               string          `json:"region"`
+		Enabled              bool            `json:"enabled"`
+		MaxInFlight          int             `json:"max_inflight"`
+		Priority             int             `json:"priority"`
+		DropSystemPrompt     *bool           `json:"drop_system_prompt"`
+		WorkBuddyAutoCheckin *bool           `json:"workbuddy_auto_checkin"`
+		UserBlob             string          `json:"user_blob"`
+		MachineID            string          `json:"machine_id"`
+		Credential           json.RawMessage `json:"credential"`
 	}
 	if err := json.Unmarshal(raw, &input); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
@@ -100,7 +103,8 @@ func (s *Server) handleAccountImport(w http.ResponseWriter, r *http.Request) {
 		account, err := s.manager.Import(r.Context(), accounts.ImportAccount{
 			Name: input.Name, Provider: input.Provider, Region: input.Region, Enabled: input.Enabled,
 			MaxInFlight: input.MaxInFlight, Priority: input.Priority, DropSystemPrompt: input.DropSystemPrompt,
-			Credential: accounts.NativeCredential{UserBlob: blob, MachineID: input.MachineID},
+			WorkBuddyAutoCheckin: input.WorkBuddyAutoCheckin,
+			Credential:           accounts.NativeCredential{UserBlob: blob, MachineID: input.MachineID},
 		})
 		if err != nil {
 			writeErr(w, http.StatusBadRequest, "account_import_failed", err.Error())
@@ -130,6 +134,7 @@ func (s *Server) handleAccountImport(w http.ResponseWriter, r *http.Request) {
 		account, err := s.manager.Create(r.Context(), accounts.CreateAccount{
 			Name: input.Name, Provider: "trae", Region: input.Region, Enabled: false,
 			MaxInFlight: input.MaxInFlight, Priority: input.Priority, DropSystemPrompt: input.DropSystemPrompt,
+			WorkBuddyAutoCheckin: input.WorkBuddyAutoCheckin,
 		})
 		if err != nil {
 			writeErr(w, http.StatusBadRequest, "account_import_failed", err.Error())
@@ -165,6 +170,7 @@ func (s *Server) handleAccountImport(w http.ResponseWriter, r *http.Request) {
 		account, err := s.manager.Create(r.Context(), accounts.CreateAccount{
 			Name: input.Name, Provider: "workbuddy", Region: input.Region, Enabled: false,
 			MaxInFlight: input.MaxInFlight, Priority: input.Priority, DropSystemPrompt: input.DropSystemPrompt,
+			WorkBuddyAutoCheckin: input.WorkBuddyAutoCheckin,
 		})
 		if err != nil {
 			writeErr(w, http.StatusBadRequest, "account_import_failed", err.Error())
@@ -209,11 +215,12 @@ func (s *Server) handleAccountByID(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, account)
 		case http.MethodPatch:
 			var input struct {
-				Name             string `json:"name"`
-				Enabled          *bool  `json:"enabled"`
-				MaxInFlight      *int   `json:"max_inflight"`
-				Priority         *int   `json:"priority"`
-				DropSystemPrompt *bool  `json:"drop_system_prompt"`
+				Name                 string `json:"name"`
+				Enabled              *bool  `json:"enabled"`
+				MaxInFlight          *int   `json:"max_inflight"`
+				Priority             *int   `json:"priority"`
+				DropSystemPrompt     *bool  `json:"drop_system_prompt"`
+				WorkBuddyAutoCheckin *bool  `json:"workbuddy_auto_checkin"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 				writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
@@ -221,7 +228,7 @@ func (s *Server) handleAccountByID(w http.ResponseWriter, r *http.Request) {
 			}
 			err := s.manager.Update(r.Context(), accountID, accounts.UpdateAccount{
 				Name: input.Name, Enabled: input.Enabled, MaxInFlight: input.MaxInFlight, Priority: input.Priority,
-				DropSystemPrompt: input.DropSystemPrompt,
+				DropSystemPrompt: input.DropSystemPrompt, WorkBuddyAutoCheckin: input.WorkBuddyAutoCheckin,
 			})
 			if err != nil {
 				writeErr(w, http.StatusBadRequest, "account_update_failed", err.Error())
@@ -242,6 +249,23 @@ func (s *Server) handleAccountByID(w http.ResponseWriter, r *http.Request) {
 	}
 
 	action := strings.Join(parts[1:], "/")
+	if account, err := s.manager.Store().Get(r.Context(), accountID); err == nil && action == "checkin" {
+		if r.Method != http.MethodPost {
+			writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "POST only")
+			return
+		}
+		if account.Provider != "workbuddy" {
+			writeErr(w, http.StatusBadRequest, "provider_unsupported", "check-in is only available for WorkBuddy accounts")
+			return
+		}
+		updated, err := s.manager.CheckinAccount(r.Context(), accountID)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, "checkin_failed", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, updated)
+		return
+	}
 	// Provider-native actions dispatch before the Qoder worker proxy.
 	if account, err := s.manager.Store().Get(r.Context(), accountID); err == nil && account.Provider != "qoder" {
 		adapter, ok := s.providers.Get(account.Provider)

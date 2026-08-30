@@ -1,7 +1,7 @@
 # 多上游账号类型：WorkBuddy 对照与扩展计划
 
-last-updated: 2026-08-28
-status: WorkBuddy J0–J4 已落地；Qoder CN 代码完成，L6 真实账号验收未完成
+last-updated: 2026-08-30
+status: WorkBuddy J0–J4 已落地；Phase N 积分/签到/保活已落地（账号级 opt-in，默认关）；Qoder CN 代码完成，L6 真实账号验收未完成
 routing-reference: [router-for-me/CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) `main` @ `dc3c3b1`
 workbuddy-reference: [Sliverkiss/workbuddy2api](https://github.com/Sliverkiss/workbuddy2api) `master` @ `92514d8ba06413c3b620e96da3ebc38e6c7beda0`
 trae-solo: [docs/PROVIDERS_TRAE_SOLO.md](./PROVIDERS_TRAE_SOLO.md)（消费级 Trae CN Solo；旧 `docs/PROVIDERS_TRAE.md` 已过期）
@@ -107,13 +107,83 @@ CN：`GET {chatBase}/console/enterprises/personal/models`。国际站这条 cons
 
 ### 积分与签到
 
-- 余额：`POST {billingBase}/v2/billing/meter/get-user-resource`
-- 签到：`POST {billingBase}/v2/billing/meter/daily-checkin`
-- CN billing host 是 `https://www.codebuddy.cn`，和 chat host 不是同一个
-- 参考仓库 09:00 / 21:00 自动签到，22:00 refresh keepalive
-- 选号按剩余积分降序
+WorkBuddy / CodeBuddy 上游确实有「每日签到领积分」与 billing meter。本仓库已落地余额展示（`Quota` / `UserResource`），以及账号级 opt-in 的自动签到与后台 keepalive（Phase N）。本节保留协议与产品约束；清单见 `docs/PLAN.md` Phase N。
 
-这些是 WorkBuddy 产品能力，不是本仓库必须复制的调度哲学。本仓库已有 round-robin、pin、`max_inflight`、quota/rate_limit/auth 分类。积分只应作为 **可选的 provider 信号**，不能替换总调度器。
+#### 协议事实（对照 workbuddy2api `92514d8`）
+
+| 能力 | 方法 / 路径 | Host | Body | Headers |
+|------|-------------|------|------|---------|
+| 余额 | `POST {billingBase}/v2/billing/meter/get-user-resource` | CN：`https://www.codebuddy.cn`；Global：与 chat 同为 `https://www.workbuddy.ai` | 见下表 | `SetBillingHeaders`：Bearer + `X-User-Id` / `X-Enterprise-Id` / `X-Tenant-Id` / `X-Domain`；**不带** refresh token，也**不带** CLI 通道头 |
+| 签到 | `POST {billingBase}/v2/billing/meter/daily-checkin` | 同上 | 字面量 `{}` | 同上 billing headers |
+| Token keepalive | `POST {chatBase}/v2/plugin/auth/token/refresh` | chat host（CN：`https://copilot.tencent.com`） | `{}` 或空 body | 仅 `SetRefreshHeaders`（含 `X-Refresh-Token`） |
+
+余额请求体（本仓库 `UserResource` 已实现，与参考仓库一致）：
+
+```json
+{
+  "PageNumber": 1,
+  "PageSize": 100,
+  "ProductCode": "p_tcaca",
+  "Status": [0, 3],
+  "PackageEndTimeRangeBegin": "<now local 2006-01-02 15:04:05>",
+  "PackageEndTimeRangeEnd": "<now + ~101y>"
+}
+```
+
+聚合规则：优先读套餐上的 `CycleCapacity*`；否则退回 `Capacity*`；负值钳 0；多包求和。`Quota` 的 `unit` 固定为 `credits`。失败只影响展示，**不得**翻转 `Ready` / cooldown（Phase K 契约）。
+
+签到响应约定（参考仓库行为，本仓库契约测试应对齐）：
+
+- HTTP 2xx 且业务 `code == 0` → 签到成功
+- 业务 `code != 0`（常见文案含「已签到」）→ **签到侧失败**，但同一轮仍应继续拉余额；不得当成 `auth` / `quota` 去冷却 chat 路径
+- `12153` / `Offline user session not found` → 仅 keepalive / refresh 路径按 `auth` 禁用或要求重登；签到批次里遇到同样错误只记日志，不批量禁用整池
+- 402 / 「积分不足」与签到无关；那是 chat / meter 消费路径的 `quota`
+
+本仓库常量与实现已就位：`pathUserResource`、`pathDailyCheckin`；`Client.Quota` / `UserResource` / `Refresh` / `DailyCheckin` / `Keepalive`。调度循环挂在 `api.New` 旁的 `Manager.RunWorkBuddyMaintenanceLoop`。
+
+#### 参考仓库怎么做（不要整段照搬）
+
+`internal/scheduler/scheduler.go`（workbuddy2api）：
+
+- 默认本地时区整点：签到 `09:00` / `21:00`，keepalive `22:00`
+- **无 jitter**；`nextFire` 取下一本地小时
+- 签到批次：跳过 `Disabled`；**冷却中的账号仍签到**（注释意图：签到是为了解冻）；要求有 refresh token；先 `DailyCheckin`，再 `UserResource`，再按余额 `ReenableIfCredits`
+- keepalive 批次：refresh；`ErrSessionDead` → `Disable`；成功则原子写回 auth
+- 单账号失败只打日志，不中断整批
+
+参考仓库还按剩余积分降序选号。那是它的调度哲学，**不是**本仓库要复制的部分。
+
+#### 本仓库产品决策（Phase N 锁定）
+
+| 项 | 决定 |
+|----|------|
+| 要不要做 | 要。README / PLAN 已列为后续项；能保活积分与 token，但不做成第二个 workbuddy2api |
+| 默认开关 | **账号级 opt-in，默认关**。列名建议 `workbuddy_auto_checkin`（INTEGER NOT NULL DEFAULT 0），形态对齐现有 `drop_system_prompt` |
+| keepalive | WorkBuddy only；临近过期或每日约 22:00 本地时间刷新。失败只日志 + 有限重试；**不**翻转 Ready、**不**写 chat cooldown。Qoder 无等价上游动作，整类排除 |
+| 签到时刻 | 约本地 09:00 / 21:00，**加分钟级 jitter**（参考仓库无 jitter；本仓库要有，避免多账号整点打爆 billing） |
+| 时区 | 进程本地时区（与参考一致）。若以后要 per-account TZ，另开字段；第一期不做 |
+| 谁参与 | 仅 `provider=workbuddy`、已启用、且 opt-in=on、凭证含可用 access/refresh。冷却中的账号：**可以**签到（与参考一致），但签到成功后的「解冻」只允许走现有 quota 展示刷新，**不要**新造 `ReenableIfCredits` 旁路去改调度语义 |
+| 结果落点 | 账号卡片展示最近签到时间 / 结果文案 + 刷新后的 credits。不新增 billing 流水表 |
+| 手动入口 | 控制台可「立即签到 / 刷新积分」（N3 复用 Phase K `RefreshAll`）；自动调度与手动共用同一 `DailyCheckin` |
+| 与 chat 隔离 | 签到 / keepalive 协程失败不得阻塞 `/v1/chat/completions`，不得写入会让 pool 跳过该号的 cooldown（session dead 除外，且仅限 refresh 路径的既有 `auth` 处理） |
+| 不选号 | 继续 round-robin + pin + failover。积分只展示、只作为已有 `quota` 分类信号 |
+
+明确不做：
+
+- 按剩余积分排序选号
+- 全局默认开启自动签到
+- 独立第二套 OpenAI server / 文件账号池 / `credit.sh` 运维形态
+- 把 Trae Solo 的 `checkin_credits/*` 与 WorkBuddy `daily-checkin` 混成同一张开关表（Trae 另见 `docs/PROVIDERS_TRAE_SOLO.md`；可对标「默认关」，但 API 与调度分开）
+
+#### 建议落点（实现时，非现在开工）
+
+1. `internal/providers/workbuddy`：补 `DailyCheckin(ctx, accountID) (msg string, err error)`；httptest 覆盖成功、`已签到`、5xx、session dead
+2. SQLite 新 migration：`workbuddy_auto_checkin`（或更中性的 `auto_checkin`，但仅 WorkBuddy descriptor 暴露 UI）——**新编号文件，不改已发布 migration 字节**
+3. 控制面小循环：挂在现有进程内（类似健康/quota refresh），按账号过滤；不要引入参考仓库的 `internal/scheduler` 包结构
+4. 控制台：账号编辑里增加开关；卡片显示 last check-in；批量「刷新积分」走现有 quota pipeline
+5. 观测：结构化日志带 `account_id` / `provider` / `op=checkin|keepalive`；失败原因可读，不进用户 chat 错误流
+
+这些是 WorkBuddy 产品能力上的可选运维动作，不是通用 provider 契约，也不是调度哲学。总调度器保持现有 taxonomy 与 RR/pin/failover。
 
 ### 错误分类对照
 
@@ -656,7 +726,7 @@ WorkBuddy / CodeBuddy 协议实现参考：
 | 参考位置 | 不用的原因 |
 |----------|------------|
 | `internal/pool/pool.go` | 文件账号池、按积分选号，与 SQLite + 单一 Go 调度器冲突 |
-| `internal/scheduler/scheduler.go` | 09/21 签到、22 点 keepalive 是 WorkBuddy 产品行为，不是通用 provider 契约 |
+| `internal/scheduler/scheduler.go` | 09/21 签到、22 点 keepalive 是 WorkBuddy 产品行为，不是通用 provider 契约；Phase N 只吸收 endpoint / 批次隔离思路，自写 opt-in + jitter 循环，不移植该包 |
 | `internal/server/handler.go` | 第二套 OpenAI server；本仓库已有 ingress / auth / console |
 | `cmd/server` | 独立进程与配置模型，不符合单容器控制面 |
 | `login.sh` / `credit.sh` / `signin.sh` | CLI 与脚本运维形态；本仓库走控制台和 API |

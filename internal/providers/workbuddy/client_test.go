@@ -3,6 +3,8 @@ package workbuddy
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,8 +15,11 @@ import (
 )
 
 type memStore struct {
-	items  map[string][]byte
-	region string
+	items      map[string][]byte
+	region     string
+	observed   []string
+	lastKind   string
+	lastStatus string
 }
 
 func (s *memStore) Get(ctx context.Context, id string) (accounts.Account, error) {
@@ -39,6 +44,9 @@ func (s *memStore) SaveCredentialPayload(ctx context.Context, accountID, format 
 	return nil
 }
 func (s *memStore) Observe(ctx context.Context, id, remoteUID, status, lastError, lastKind string) error {
+	s.observed = append(s.observed, id)
+	s.lastStatus = status
+	s.lastKind = lastKind
 	return nil
 }
 
@@ -620,6 +628,71 @@ func TestAggregateUserResourceNegativeClamped(t *testing.T) {
 	}}, 0)
 	if remain != 0 || size != 100 || used != 100 {
 		t.Fatalf("remain=%d used=%d size=%d", remain, used, size)
+	}
+}
+
+func TestDailyCheckinSuccess(t *testing.T) {
+	client, store := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || !strings.HasSuffix(r.URL.Path, pathDailyCheckin) {
+			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+		if r.Header.Get("Authorization") != "Bearer at" || r.Header.Get("X-User-Id") != "u1" {
+			t.Fatalf("billing headers missing: %+v", r.Header)
+		}
+		raw, _ := io.ReadAll(r.Body)
+		if strings.TrimSpace(string(raw)) != "{}" {
+			t.Fatalf("body=%q", raw)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "msg": "签到成功"})
+	}))
+	payload, _ := json.Marshal(Credential{
+		AccessToken: "at", RefreshToken: "rt", ExpiresAt: 4102444800, Domain: DomainCN, UID: "u1",
+	})
+	_ = store.SaveCredentialPayload(context.Background(), "acc1", CredentialFormat, payload)
+	msg, err := client.DailyCheckin(context.Background(), "acc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if msg != "签到成功" {
+		t.Fatalf("msg=%q", msg)
+	}
+}
+
+func TestDailyCheckinAlreadyCheckedIn(t *testing.T) {
+	client, store := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"code": 40001, "msg": "今日已签到"})
+	}))
+	payload, _ := json.Marshal(Credential{
+		AccessToken: "at", RefreshToken: "rt", ExpiresAt: 4102444800, Domain: DomainCN, UID: "u1",
+	})
+	_ = store.SaveCredentialPayload(context.Background(), "acc1", CredentialFormat, payload)
+	msg, err := client.DailyCheckin(context.Background(), "acc1")
+	var already AlreadyCheckedInError
+	if !errors.As(err, &already) {
+		t.Fatalf("err=%v", err)
+	}
+	if msg != "今日已签到" {
+		t.Fatalf("msg=%q", msg)
+	}
+}
+
+func TestDailyCheckinSessionDeadDoesNotObserve(t *testing.T) {
+	client, store := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"code":12153,"msg":"Offline user session not found"}`))
+	}))
+	payload, _ := json.Marshal(Credential{
+		AccessToken: "at", RefreshToken: "rt", ExpiresAt: 4102444800, Domain: DomainCN, UID: "u1",
+	})
+	_ = store.SaveCredentialPayload(context.Background(), "acc1", CredentialFormat, payload)
+	_, err := client.DailyCheckin(context.Background(), "acc1")
+	if err == nil || !strings.Contains(err.Error(), "session dead") {
+		t.Fatalf("err=%v", err)
+	}
+	if len(store.observed) != 0 || store.lastKind == accounts.KindAuth {
+		t.Fatalf("check-in must not Observe auth: observed=%v kind=%q status=%q", store.observed, store.lastKind, store.lastStatus)
 	}
 }
 
