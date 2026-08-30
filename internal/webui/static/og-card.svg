@@ -6,17 +6,17 @@
       .word { font-weight: 600; letter-spacing: -0.035em; fill: #18181B; }
       .sub  { font-weight: 400; fill: #71717A; }
       .mono { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-weight: 500; fill: #18181B; }
-      .chip { fill: #DEF8FC; }
-      .chip-text { fill: #22D3EE; font-weight: 500; }
+      .chip { fill: #EFEFF0; }
+      .chip-text { fill: #18181B; font-weight: 500; }
       .frame { fill: none; stroke: #DEDEE0; stroke-width: 1; }
       .terminal-bg { fill: #FFFFFF; stroke: #DEDEE0; stroke-width: 1; }
-      .prompt { fill: #22D3EE; }
+      .prompt { fill: #18181B; }
     </style>
   </defs>
 
   <rect width="1280" height="640" fill="#F5F5F5"/>
   <rect x="32" y="32" width="1216" height="576" rx="24" class="frame"/>
-  <circle cx="1208" cy="64" r="4" fill="#22D3EE"/>
+  <circle cx="1208" cy="64" r="4" fill="#18181B"/>
 
   <g transform="translate(48, 80) scale(3.6)">
     <path class="rail" pathLength="100" d="M 91.413 45.646 A 32.000 32.000 0 1 0 91.413 82.354"/>
