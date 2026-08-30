@@ -4,7 +4,7 @@
 
   <rect width="1200" height="500" rx="26" fill="#060607"/>
 
-  <text x="56" y="66" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="20" letter-spacing="3" fill="#22D3EE">HOW IT WORKS</text>
+  <text x="56" y="66" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="20" letter-spacing="3" fill="#FCFCFC">HOW IT WORKS</text>
   <text x="1144" y="66" text-anchor="end" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="18" fill="#71717A">request path</text>
 
   <!-- 1. client -->
@@ -15,10 +15,10 @@
   <!-- arrow client -> gateway -->
   <line x1="490" y1="152" x2="490" y2="180" stroke="#52525B" stroke-width="2"/>
   <path d="M484 180 l6 8 6 -8" fill="none" stroke="#52525B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-  <circle cx="490" cy="166" r="4" fill="#22D3EE"/>
+  <circle cx="490" cy="166" r="4" fill="#FCFCFC"/>
 
   <!-- 2. gateway (highlighted) -->
-  <rect x="260" y="188" width="460" height="78" rx="12" fill="#22D3EE" fill-opacity="0.14" stroke="#22D3EE" stroke-width="1.5"/>
+  <rect x="260" y="188" width="460" height="78" rx="12" fill="#FCFCFC" fill-opacity="0.08" stroke="#FCFCFC" stroke-width="1.5"/>
   <text x="490" y="222" text-anchor="middle" font-size="21" font-weight="600" fill="#FCFCFC">CLI2API · Go API + SQLite</text>
   <text x="490" y="249" text-anchor="middle" font-size="18" fill="#71717A">scheduling · concurrency · cooldown · failover</text>
 
@@ -29,8 +29,8 @@
   <line x1="613" y1="286" x2="613" y2="302" stroke="#52525B" stroke-width="2"/>
   <path d="M361 302 l6 8 6 -8" fill="none" stroke="#52525B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
   <path d="M607 302 l6 8 6 -8" fill="none" stroke="#52525B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-  <circle cx="367" cy="294" r="4" fill="#22D3EE"/>
-  <circle cx="613" cy="294" r="4" fill="#22D3EE"/>
+  <circle cx="367" cy="294" r="4" fill="#FCFCFC"/>
+  <circle cx="613" cy="294" r="4" fill="#FCFCFC"/>
 
   <!-- 3. workers -->
   <rect x="260" y="310" width="214" height="64" rx="12" fill="#18181B" stroke="#3F3F46"/>
@@ -46,8 +46,8 @@
   <line x1="613" y1="374" x2="613" y2="400" stroke="#52525B" stroke-width="2"/>
   <path d="M361 400 l6 8 6 -8" fill="none" stroke="#52525B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
   <path d="M607 400 l6 8 6 -8" fill="none" stroke="#52525B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-  <circle cx="367" cy="387" r="4" fill="#22D3EE"/>
-  <circle cx="613" cy="387" r="4" fill="#22D3EE"/>
+  <circle cx="367" cy="387" r="4" fill="#FCFCFC"/>
+  <circle cx="613" cy="387" r="4" fill="#FCFCFC"/>
 
   <!-- 4. cloud -->
   <rect x="260" y="408" width="460" height="60" rx="12" fill="#18181B" stroke="#3F3F46"/>

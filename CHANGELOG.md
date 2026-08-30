@@ -7,7 +7,11 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Keep Signal Cyan on the C tip and scan only; primary buttons, focus, and selection use Charcoal Ink
+
 ### 中文
+
+- Signal Cyan 只留在 C 的下唇和扫光；主按钮、聚焦和选中改走墨色
 
 ## 0.2.22 - 2026-08-30
 

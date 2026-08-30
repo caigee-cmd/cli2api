@@ -6,7 +6,7 @@
 
   <!-- left: identity -->
   <g id="title-block">
-    <text x="56" y="88" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="20" letter-spacing="3" fill="#22D3EE">QODER CLI → OPENAI API</text>
+    <text x="56" y="88" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="20" letter-spacing="3" fill="#FCFCFC">QODER CLI → OPENAI API</text>
 
     <g transform="translate(36 84) scale(0.8)" fill="none">
       <path fill="none" stroke="#FCFCFC" stroke-width="11.4" stroke-linecap="round" stroke-linejoin="round" d="M 91.413 45.646 A 32.000 32.000 0 1 0 91.413 82.354"/>
@@ -43,7 +43,7 @@
     <text x="748" y="180" text-anchor="middle" font-size="20" font-weight="600" fill="#FCFCFC">OpenAI</text>
     <text x="748" y="204" text-anchor="middle" font-size="18" fill="#71717A">client</text>
 
-    <rect x="838" y="152" width="116" height="64" rx="12" fill="#22D3EE" fill-opacity="0.14" stroke="#22D3EE" stroke-width="1.5"/>
+    <rect x="838" y="152" width="116" height="64" rx="12" fill="#FCFCFC" fill-opacity="0.08" stroke="#FCFCFC" stroke-width="1.5"/>
     <text x="896" y="180" text-anchor="middle" font-size="20" font-weight="600" fill="#FCFCFC">CLI2API</text>
     <text x="896" y="204" text-anchor="middle" font-size="18" fill="#71717A">local gateway</text>
 
@@ -54,11 +54,11 @@
     <!-- arrows with data-flow dots -->
     <line x1="812" y1="184" x2="832" y2="184" stroke="#52525B" stroke-width="2"/>
     <path d="M832 178 l8 6 -8 6" fill="none" stroke="#52525B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-    <circle cx="822" cy="184" r="4" fill="#22D3EE"/>
+    <circle cx="822" cy="184" r="4" fill="#FCFCFC"/>
 
     <line x1="954" y1="184" x2="974" y2="184" stroke="#52525B" stroke-width="2"/>
     <path d="M974 178 l8 6 -8 6" fill="none" stroke="#52525B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-    <circle cx="964" cy="184" r="4" fill="#22D3EE"/>
+    <circle cx="964" cy="184" r="4" fill="#FCFCFC"/>
 
     <!-- transport labels -->
     <text x="748" y="244" text-anchor="middle" font-size="18" fill="#71717A">any client</text>
@@ -66,7 +66,7 @@
     <text x="1042" y="244" text-anchor="middle" font-size="18" fill="#71717A">HTTP / SSE</text>
 
     <!-- real request -->
-    <circle cx="690" cy="294" r="4" fill="#22D3EE"/>
+    <circle cx="690" cy="294" r="4" fill="#FCFCFC"/>
     <text x="706" y="300" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="20" fill="#FCFCFC">POST /v1/chat/completions</text>
     <text x="706" y="330" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="18" fill="#71717A">stream · tool_calls · reasoning_content</text>
   </g>
