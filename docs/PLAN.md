@@ -282,20 +282,34 @@ same account, without breaking failover. Reference: wild-work sticky routing
 
 Goal: keep WorkBuddy credits fresh without turning Accounts into a second
 workbuddy2api. Everything is per-account opt-in, default off, and failures must
-never block or cool down the chat path. Design facts in `docs/PROVIDERS.md`
-「积分与签到」. Not started; needs live WorkBuddy acceptance first.
+never block or cool down the chat path. Protocol, product locks, and suggested
+landing spots are in `docs/PROVIDERS.md` 「积分与签到」(survey expanded
+2026-08-30 against workbuddy2api `92514d8`). Not started; needs live WorkBuddy
+acceptance first. Do not copy their credit-sorted picker or jitter-free
+whole-hour scheduler.
 
 ### N1 keepalive
 
 - [ ] Periodic token refresh ahead of upstream expiry for WorkBuddy accounts only
+- [ ] Optional ~22:00 local keepalive pass shared with the check-in loop
 - [ ] Qoder accounts are excluded — no equivalent upstream action exists today
 - [ ] Refresh failures log and retry; they never flip readiness or cooldown
+      (session-dead `12153` still uses the existing auth disable path)
 
 ### N2 daily check-in
 
-- [ ] Account-level opt-in switch, default off, persisted in SQLite
-- [ ] Scheduled `daily-checkin` at roughly 09:00 / 21:00 account-local time with jitter
+- [ ] Account-level opt-in switch, default off, persisted in a **new** SQLite
+      migration (suggested column `workbuddy_auto_checkin`, same shape as
+      `drop_system_prompt`)
+- [ ] `Client.DailyCheckin` on `POST {billingBase}/v2/billing/meter/daily-checkin`
+      with body `{}` and billing headers; httptest for success / already-checked-in /
+      5xx / session dead
+- [ ] Scheduled runs at roughly 09:00 / 21:00 process-local time **with minute
+      jitter**; cooldown accounts may check in, disabled/opt-out accounts skip
+- [ ] "Already checked in" stays a check-in-only miss: still refresh credits,
+      never write chat cooldown
 - [ ] Check-in results surface on the account card without new billing storage
+- [ ] Manual "check in now" shares the same adapter method as the scheduler
 
 ### N3 credit refresh
 
