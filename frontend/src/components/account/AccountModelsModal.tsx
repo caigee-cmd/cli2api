@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
-import { Button, Chip, Modal, Skeleton } from '@heroui/react'
+import { Button, Chip, Modal } from '@heroui/react'
 import { ArrowClockwise, Cube, X } from '@phosphor-icons/react'
 import { fetchModels, refreshModels } from '@/api/overview'
 import type { ModelInfo } from '@/api/types'
 import { ProviderMark } from '@/components/ProviderMark'
 import { EmptyPanel } from '@/components/ui/EmptyPanel'
+import { SkeletonBlock } from '@/components/ui/PageSkeletons'
 import { PageAlert } from '@/components/ui/PageAlert'
 import type { AccountRow } from '@/lib/account'
 import { accountProviderLabel } from '@/lib/provider'
@@ -101,11 +102,11 @@ export function AccountModelsModal({ account, t, onClose }: Props) {
                 </div>
               ) : null}
 
-              {loading ? (
+              {loading || refreshing ? (
                 <div className="space-y-2 py-1">
-                  <Skeleton className="h-14 rounded-lg" />
-                  <Skeleton className="h-14 rounded-lg" />
-                  <Skeleton className="h-14 rounded-lg" />
+                  <SkeletonBlock className="h-14 w-full" />
+                  <SkeletonBlock className="h-14 w-full" />
+                  <SkeletonBlock className="h-14 w-full" />
                 </div>
               ) : models.length ? (
                 <ul className="divide-y divide-separator overflow-hidden rounded-lg border border-separator">

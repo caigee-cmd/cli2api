@@ -1,11 +1,18 @@
-import { useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useLayoutEffect, useMemo, useRef } from 'react'
 import gsap from 'gsap'
+import {
+  Area,
+  CartesianGrid,
+  ComposedChart,
+  Line,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts'
 import type { RequestStatsPoint } from '@/api/logs'
+import { TrafficChartEmpty } from '@/components/overview/TrafficChartEmpty'
 import { formatCompact } from '@/lib/format'
-
-const WIDTH = 960
-const HEIGHT = 280
-const PAD = { top: 16, right: 16, bottom: 28, left: 40 }
 
 function hourLabel(value: string, daily: boolean, lang: 'en' | 'zh') {
   const date = new Date(value)
@@ -24,14 +31,44 @@ function niceMax(peak: number) {
   return nice * base
 }
 
-function linePath(xs: number[], ys: number[]) {
-  if (!xs.length) return ''
-  return xs.map((x, i) => `${i ? 'L' : 'M'}${x.toFixed(2)} ${ys[i].toFixed(2)}`).join(' ')
-}
+type ChartRow = RequestStatsPoint & { okCount: number }
 
-function areaPath(xs: number[], ys: number[], baseline: number) {
-  if (!xs.length) return ''
-  return `${linePath(xs, ys)} L${xs[xs.length - 1].toFixed(2)} ${baseline.toFixed(2)} L${xs[0].toFixed(2)} ${baseline.toFixed(2)} Z`
+function TrafficTooltip({
+  active,
+  payload,
+  daily,
+  lang,
+  okLabel,
+  errorLabel,
+}: {
+  active?: boolean
+  payload?: Array<{ payload: ChartRow }>
+  daily: boolean
+  lang: 'en' | 'zh'
+  okLabel: string
+  errorLabel: string
+}) {
+  if (!active || !payload?.[0]) return null
+  const point = payload[0].payload
+  return (
+    <div className="rounded-xl border border-border bg-overlay px-3 py-2 text-[11px] text-overlay-foreground shadow-overlay">
+      <div className="mono text-muted">{hourLabel(point.at, daily, lang)}</div>
+      <div className="mt-1.5 grid gap-1">
+        <div className="flex items-center justify-between gap-6">
+          <span className="inline-flex items-center gap-1.5"><span className="size-1.5 rounded-full bg-success" />{okLabel}</span>
+          <span className="mono font-medium">{point.okCount}</span>
+        </div>
+        <div className="flex items-center justify-between gap-6">
+          <span className="inline-flex items-center gap-1.5"><span className="size-1.5 rounded-full bg-danger" />{errorLabel}</span>
+          <span className="mono font-medium">{point.error}</span>
+        </div>
+        <div className="flex items-center justify-between gap-6 border-t border-separator pt-1">
+          <span className="text-muted">total</span>
+          <span className="mono font-medium">{point.requests}</span>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 export function TrafficChart({
@@ -48,162 +85,171 @@ export function TrafficChart({
   errorLabel: string
 }) {
   const rootRef = useRef<HTMLDivElement>(null)
-  const [active, setActive] = useState<number | null>(null)
-  const first = series[0]
-  const last = series[series.length - 1]
+  const data = useMemo<ChartRow[]>(() => series.map((point) => ({
+    ...point,
+    okCount: Math.max(0, point.ok ?? (point.requests - point.error)),
+  })), [series])
+  const first = data[0]
+  const last = data[data.length - 1]
   const span = first && last ? Date.parse(last.at) - Date.parse(first.at) : 0
   const daily = span > 48 * 60 * 60 * 1000
-  const innerW = WIDTH - PAD.left - PAD.right
-  const innerH = HEIGHT - PAD.top - PAD.bottom
-  const peak = Math.max(0, ...series.map((point) => point.requests))
+  const peak = Math.max(0, ...data.map((point) => point.requests))
   const yMax = niceMax(peak)
-  const ticks = [0, 0.5, 1].map((part) => Math.round(yMax * part))
-  const hasTraffic = series.some((point) => point.requests > 0)
-
-  const geometry = useMemo(() => {
-    const count = Math.max(1, series.length)
-    const step = count === 1 ? 0 : innerW / (count - 1)
-    const xs = series.map((_, index) => PAD.left + index * step)
-    const yFor = (value: number) => PAD.top + innerH - (value / Math.max(1, yMax)) * innerH
-    const totalYs = series.map((point) => yFor(point.requests))
-    const okYs = series.map((point) => yFor(Math.max(0, point.requests - point.error)))
-    const baseline = yFor(0)
-    return {
-      xs,
-      totalYs,
-      okYs,
-      baseline,
-      totalLine: linePath(xs, totalYs),
-      okArea: areaPath(xs, okYs, baseline),
-      errorArea: areaPath(xs, totalYs, baseline),
-    }
-  }, [innerH, innerW, series, yMax])
+  const hasTraffic = data.some((point) => point.requests > 0)
+  const signature = data.map((point) => `${point.at}:${point.requests}:${point.error}`).join('|')
 
   useLayoutEffect(() => {
     const root = rootRef.current
     if (!root || !hasTraffic) return
+
+    let played = false
+    let observer: MutationObserver | null = null
     const context = gsap.context(() => {
       const media = gsap.matchMedia()
-      media.add('(prefers-reduced-motion: reduce)', () => {
-        gsap.set('[data-traffic-draw]', { clearProps: 'strokeDashoffset,strokeDasharray' })
-        gsap.set('[data-traffic-fill]', { clearProps: 'opacity,transform' })
-        gsap.set('[data-traffic-dot]', { clearProps: 'transform,opacity' })
-      })
-      media.add('(prefers-reduced-motion: no-preference)', () => {
-        const line = root.querySelector<SVGPathElement>('[data-traffic-draw]')
-        const fills = gsap.utils.toArray<SVGPathElement>('[data-traffic-fill]')
-        const dots = gsap.utils.toArray<SVGCircleElement>('[data-traffic-dot]')
-        if (line) {
-          const length = line.getTotalLength()
-          gsap.fromTo(line, { strokeDasharray: length, strokeDashoffset: length }, {
-            strokeDashoffset: 0,
-            duration: 0.7,
-            ease: 'power2.out',
-          })
-        }
-        gsap.fromTo(fills, { autoAlpha: 0 }, {
-          autoAlpha: 1,
-          duration: 0.45,
-          ease: 'power2.out',
-          stagger: 0.06,
+      const play = () => {
+        const fills = gsap.utils.toArray<SVGPathElement>('.recharts-area-area', root)
+        const lines = gsap.utils.toArray<SVGPathElement>('.recharts-line-curve', root)
+        if (!fills.length && !lines.length) return false
+
+        media.add('(prefers-reduced-motion: reduce)', () => {
+          gsap.set(lines, { clearProps: 'strokeDashoffset,strokeDasharray' })
+          gsap.set(fills, { clearProps: 'autoAlpha' })
         })
-        if (dots.length) {
-          gsap.fromTo(dots, { scale: 0, transformOrigin: '50% 50%' }, {
-            scale: 1,
-            duration: 0.28,
-            ease: 'back.out(1.6)',
-            stagger: { amount: Math.min(0.28, dots.length * 0.02) },
-            delay: 0.28,
+        media.add('(prefers-reduced-motion: no-preference)', () => {
+          gsap.fromTo(fills, { autoAlpha: 0 }, {
+            autoAlpha: 1,
+            duration: 0.45,
+            ease: 'power2.out',
+            stagger: 0.05,
           })
+          lines.forEach((line, index) => {
+            const length = line.getTotalLength()
+            gsap.fromTo(line, { strokeDasharray: length, strokeDashoffset: length }, {
+              strokeDashoffset: 0,
+              duration: 0.7,
+              delay: index * 0.05,
+              ease: 'power2.out',
+            })
+          })
+        })
+        return true
+      }
+
+      if (play()) {
+        played = true
+        return
+      }
+
+      observer = new MutationObserver(() => {
+        if (played) return
+        if (play()) {
+          played = true
+          observer?.disconnect()
         }
       })
+      observer.observe(root, { childList: true, subtree: true })
     }, root)
-    return () => context.revert()
-  }, [geometry.totalLine, hasTraffic])
+
+    return () => {
+      observer?.disconnect()
+      context.revert()
+    }
+  }, [hasTraffic, signature])
 
   if (!series.length || !hasTraffic) {
-    return (
-      <div className="grid min-h-72 place-items-center rounded-lg border border-dashed border-border px-4 text-sm text-muted">
-        {emptyLabel}
-      </div>
-    )
+    return <TrafficChartEmpty emptyLabel={emptyLabel} />
   }
-
-  const hover = active == null ? null : series[active]
-  const hoverX = active == null ? 0 : geometry.xs[active]
-  const hoverY = active == null ? 0 : geometry.totalYs[active]
 
   return (
     <div ref={rootRef} className="min-w-0">
-      <svg
-        viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-        className="block aspect-[960/280] w-full overflow-visible"
-        role="img"
-        aria-label={emptyLabel}
-        onMouseLeave={() => setActive(null)}
-      >
-        {ticks.map((tick) => {
-          const y = PAD.top + innerH - (tick / Math.max(1, yMax)) * innerH
-          return (
-            <g key={tick}>
-              <line x1={PAD.left} x2={WIDTH - PAD.right} y1={y} y2={y} stroke="var(--separator)" strokeWidth="1" />
-              <text x={PAD.left - 8} y={y + 3} textAnchor="end" className="fill-muted" fontSize="10" fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace">
-                {formatCompact(tick)}
-              </text>
-            </g>
-          )
-        })}
-        <path data-traffic-fill d={geometry.errorArea} fill="color-mix(in srgb, var(--danger) 22%, transparent)" />
-        <path data-traffic-fill d={geometry.okArea} fill="color-mix(in srgb, var(--success) 18%, transparent)" />
-        <path data-traffic-draw d={geometry.totalLine} fill="none" stroke="var(--success)" strokeWidth="1.75" strokeLinejoin="round" strokeLinecap="round" />
-        {series.map((point, index) => (
-          <circle
-            key={point.at}
-            data-traffic-dot
-            cx={geometry.xs[index]}
-            cy={geometry.totalYs[index]}
-            r={series.length > 36 ? 1.4 : 2.1}
-            fill={point.error && point.requests && point.error / point.requests >= 0.5 ? 'var(--danger)' : 'var(--success)'}
-          />
-        ))}
-        {series.map((point, index) => {
-          const prev = index === 0 ? geometry.xs[0] : (geometry.xs[index - 1] + geometry.xs[index]) / 2
-          const next = index === series.length - 1 ? geometry.xs[index] : (geometry.xs[index] + geometry.xs[index + 1]) / 2
-          return (
-            <rect
-              key={`${point.at}-hit`}
-              x={prev}
-              y={PAD.top}
-              width={Math.max(4, next - prev)}
-              height={innerH}
-              fill="transparent"
-              onMouseEnter={() => setActive(index)}
+      <div className="h-72 w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <ComposedChart
+            data={data}
+            margin={{ top: 8, right: 8, bottom: 0, left: 0 }}
+          >
+            <defs>
+              <linearGradient id="traffic-ok" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="var(--success)" stopOpacity={0.28} />
+                <stop offset="100%" stopColor="var(--success)" stopOpacity={0.02} />
+              </linearGradient>
+              <linearGradient id="traffic-error" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="var(--danger)" stopOpacity={0.22} />
+                <stop offset="100%" stopColor="var(--danger)" stopOpacity={0.02} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid vertical={false} stroke="var(--separator)" strokeDasharray="3 6" />
+            <XAxis
+              dataKey="at"
+              tickLine={false}
+              axisLine={false}
+              minTickGap={28}
+              tick={{ fill: 'var(--muted)', fontSize: 10, fontFamily: 'var(--font-mono)' }}
+              tickFormatter={(value: string) => hourLabel(value, daily, lang)}
             />
-          )
-        })}
-        {hover ? (
-          <g>
-            <line x1={hoverX} x2={hoverX} y1={PAD.top} y2={PAD.top + innerH} stroke="var(--border)" strokeWidth="1" strokeDasharray="3 3" />
-            <circle cx={hoverX} cy={hoverY} r="4" fill="var(--surface)" stroke="var(--success)" strokeWidth="1.5" />
-          </g>
-        ) : null}
-        <text x={PAD.left} y={HEIGHT - 6} className="fill-muted" fontSize="10" fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace">
-          {first ? hourLabel(first.at, daily, lang) : ''}
-        </text>
-        <text x={WIDTH - PAD.right} y={HEIGHT - 6} textAnchor="end" className="fill-muted" fontSize="10" fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace">
-          {last ? hourLabel(last.at, daily, lang) : ''}
-        </text>
-      </svg>
+            <YAxis
+              width={36}
+              domain={[0, yMax]}
+              tickLine={false}
+              axisLine={false}
+              allowDecimals={false}
+              tick={{ fill: 'var(--muted)', fontSize: 10, fontFamily: 'var(--font-mono)' }}
+              tickFormatter={(value: number) => formatCompact(value)}
+            />
+            <Tooltip
+              cursor={{ stroke: 'var(--border)', strokeDasharray: '3 3' }}
+              content={<TrafficTooltip daily={daily} lang={lang} okLabel={okLabel} errorLabel={errorLabel} />}
+            />
+            <Area
+              type="monotone"
+              dataKey="requests"
+              stroke="none"
+              fill="url(#traffic-error)"
+              isAnimationActive={false}
+              activeDot={false}
+              dot={false}
+              className="traffic-error-area"
+            />
+            <Area
+              type="monotone"
+              dataKey="okCount"
+              stroke="none"
+              fill="url(#traffic-ok)"
+              isAnimationActive={false}
+              activeDot={false}
+              dot={false}
+              className="traffic-ok-area"
+            />
+            <Line
+              type="monotone"
+              dataKey="okCount"
+              stroke="var(--success)"
+              strokeWidth={1.75}
+              dot={false}
+              isAnimationActive={false}
+              activeDot={{ r: 4, fill: 'var(--surface)', stroke: 'var(--success)', strokeWidth: 1.5 }}
+              className="traffic-ok-line"
+            />
+            <Line
+              type="monotone"
+              dataKey="requests"
+              stroke="var(--danger)"
+              strokeWidth={1.25}
+              strokeOpacity={0.7}
+              dot={false}
+              isAnimationActive={false}
+              activeDot={{ r: 4, fill: 'var(--surface)', stroke: 'var(--danger)', strokeWidth: 1.5 }}
+              className="traffic-error-line"
+            />
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
       <div className="mt-2 flex min-h-5 items-center justify-between gap-3 text-[10px] text-muted">
         <div className="flex items-center gap-3">
           <span className="inline-flex items-center gap-1.5"><span className="size-1.5 rounded-full bg-success" />{okLabel}</span>
           <span className="inline-flex items-center gap-1.5"><span className="size-1.5 rounded-full bg-danger" />{errorLabel}</span>
         </div>
-        <span className="mono">
-          {hover
-            ? `${hourLabel(hover.at, daily, lang)} · ${hover.requests} · ${okLabel} ${hover.ok} · ${errorLabel} ${hover.error}`
-            : `${formatCompact(peak)} peak`}
-        </span>
+        <span className="mono">{formatCompact(peak)} peak</span>
       </div>
     </div>
   )

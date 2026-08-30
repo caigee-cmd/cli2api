@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
-import { Button, Card, Chip, InputGroup, Label, TextField, Toolbar, Tooltip } from '@heroui/react'
+import { Button, Card, InputGroup, Label, TextField, Toolbar, Tooltip } from '@heroui/react'
 import { ArrowRight, Eye, EyeSlash, Globe, Moon, Sun } from '@phosphor-icons/react'
 import { BrandMark } from '@/components/BrandMark'
 import { PageAlert } from '@/components/ui/PageAlert'
@@ -82,10 +82,7 @@ export function LoginPage() {
           </header>
 
           <div className="my-auto max-w-3xl py-16 lg:py-24">
-            <div data-gsap-reveal className="mb-5 flex items-center gap-3">
-              <Chip size="sm" variant="soft" color="success">LOCAL / PRIVATE</Chip>
-              <span className="mono text-xs text-muted">:3010</span>
-            </div>
+            <p data-gsap-reveal className="mb-5 mono text-xs text-muted">:3010</p>
             <h1 data-gsap-reveal className="max-w-3xl text-[clamp(2.25rem,4vw,3.6rem)] font-semibold leading-[0.98] tracking-[-0.045em] text-balance">
               {t('loginTitle')}
             </h1>
@@ -98,7 +95,7 @@ export function LoginPage() {
 
           <footer className="hidden items-center justify-between text-xs text-muted lg:flex">
             <span>{t('loginHint')}</span>
-            <span className="mono">OPENAI COMPATIBLE</span>
+            <span>{t('routesHint')}</span>
           </footer>
         </section>
 
@@ -106,15 +103,12 @@ export function LoginPage() {
           <Card data-gsap-reveal className="w-full p-0">
             <form onSubmit={(event) => void onSubmit(event)}>
               <Card.Header className="border-b border-separator px-6 py-6 sm:px-8">
-                <div className="flex w-full items-center justify-between gap-3">
-                  <div className="flex min-w-0 items-center gap-3">
-                    <BrandMark size={28} />
-                    <div>
-                      <Card.Title className="text-xl tracking-[-0.015em]">{t('loginFormTitle')}</Card.Title>
-                      <Card.Description className="mt-1">{t('loginDesc')}</Card.Description>
-                    </div>
+                <div className="flex min-w-0 items-center gap-3">
+                  <BrandMark size={28} />
+                  <div>
+                    <Card.Title className="text-xl tracking-[-0.015em]">{t('loginFormTitle')}</Card.Title>
+                    <Card.Description className="mt-1">{t('loginDesc')}</Card.Description>
                   </div>
-                  <span className="status-dot shrink-0" data-state="ok" />
                 </div>
               </Card.Header>
               <Card.Content className="space-y-5 px-6 py-7 sm:px-8 sm:py-8">

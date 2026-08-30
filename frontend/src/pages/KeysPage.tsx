@@ -8,7 +8,7 @@ import { CompactSwitch } from '@/components/ui/CompactSwitch'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { EmptyPanel } from '@/components/ui/EmptyPanel'
 import { PageAlert } from '@/components/ui/PageAlert'
-import { KeysPageSkeleton } from '@/components/ui/PageSkeletons'
+import { KeysPageSkeleton, SkeletonBlock } from '@/components/ui/PageSkeletons'
 import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
 import { accountProviderFamilyLabel } from '@/lib/provider'
@@ -100,7 +100,7 @@ export function KeysPage() {
     }
   }
 
-  if (loading && !keys.length && !error) return <KeysPageSkeleton />
+  if (loading && !keys.length) return <KeysPageSkeleton />
 
   return (
     <div className="space-y-6">
@@ -116,7 +116,18 @@ export function KeysPage() {
 
       {error ? <PageAlert title={error} /> : null}
 
-      {!keys.length ? (
+      {loading ? (
+        <section className="grid gap-2.5 lg:grid-cols-2 xl:grid-cols-3" aria-busy>
+          {Array.from({ length: Math.max(3, keys.length) }, (_, index) => (
+            <div key={index} className="overflow-hidden rounded-3xl border border-border bg-surface p-3">
+              <SkeletonBlock className="h-4 w-28" />
+              <SkeletonBlock className="mt-2 h-3 w-40" />
+              <SkeletonBlock className="mt-4 h-6 w-24" />
+              <SkeletonBlock className="mt-6 h-8 w-full" />
+            </div>
+          ))}
+        </section>
+      ) : !keys.length ? (
         <EmptyPanel
           className="rounded-3xl border border-dashed border-border"
           icon={<BrandMark size={28} />}

@@ -72,34 +72,19 @@ body {
 
 .status-dot[data-state="ok"] {
   background: var(--success);
-  box-shadow: 0 0 0 3px var(--success-soft);
 }
 
 .status-dot[data-state="warn"] {
   background: var(--warning);
-  box-shadow: 0 0 0 3px var(--warning-soft);
 }
 
 .status-dot[data-state="danger"] {
   background: var(--danger);
-  box-shadow: 0 0 0 3px var(--danger-soft);
 }
 
 .account-card .status-dot {
   width: 0.375rem;
   height: 0.375rem;
-}
-
-.account-card .status-dot[data-state="ok"] {
-  box-shadow: 0 0 0 2px var(--success-soft);
-}
-
-.account-card .status-dot[data-state="warn"] {
-  box-shadow: 0 0 0 2px var(--warning-soft);
-}
-
-.account-card .status-dot[data-state="danger"] {
-  box-shadow: 0 0 0 2px var(--danger-soft);
 }
 
 .account-meter {

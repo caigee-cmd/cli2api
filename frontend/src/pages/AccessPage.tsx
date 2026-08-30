@@ -154,7 +154,7 @@ export function AccessPage() {
     [base, payload, selectedAccount],
   )
 
-  if (loading) return <AccessPageSkeleton />
+  if (loading && !overview) return <AccessPageSkeleton />
 
   async function copy(value: string, kind: 'base' | 'curl') {
     await navigator.clipboard.writeText(value)
@@ -212,11 +212,11 @@ export function AccessPage() {
         </div>
         <div className="grid grid-cols-2 divide-x divide-separator sm:grid-cols-1 sm:divide-x-0 sm:divide-y">
           <div className="p-4 sm:px-5 sm:py-3">
-            <div className="text-[10px] font-semibold tracking-[0.08em] text-muted uppercase">{t('protocol')}</div>
+            <div className="text-xs font-medium text-muted">{t('protocol')}</div>
             <div className="mt-1 text-sm font-medium">HTTP / SSE</div>
           </div>
           <div className="p-4 sm:px-5 sm:py-3">
-            <div className="text-[10px] font-semibold tracking-[0.08em] text-muted uppercase">{t('authentication')}</div>
+            <div className="text-xs font-medium text-muted">{t('authentication')}</div>
             <div className="mono mt-1 truncate text-xs font-medium">Bearer API key</div>
           </div>
         </div>
@@ -355,12 +355,12 @@ export function AccessPage() {
                 />
               ) : requestState === 'loading' ? (
                 <div className="space-y-3 pt-1">
-                  <Skeleton className="h-3 w-32 rounded" />
-                  <Skeleton className="h-3 w-full rounded" />
-                  <Skeleton className="h-3 w-[88%] rounded" />
-                  <Skeleton className="h-3 w-[72%] rounded" />
-                  <Skeleton className="mt-7 h-3 w-[92%] rounded" />
-                  <Skeleton className="h-3 w-[64%] rounded" />
+                  <Skeleton className="h-3 w-32 rounded-lg" />
+                  <Skeleton className="h-3 w-full rounded-lg" />
+                  <Skeleton className="h-3 w-[88%] rounded-lg" />
+                  <Skeleton className="h-3 w-[72%] rounded-lg" />
+                  <Skeleton className="mt-7 h-3 w-[92%] rounded-lg" />
+                  <Skeleton className="h-3 w-[64%] rounded-lg" />
                 </div>
               ) : requestState === 'error' ? (
                 <div className="space-y-3">

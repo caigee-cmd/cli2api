@@ -218,10 +218,10 @@ export function AccountCard({
         ) : null}
 
         {lastError ? (
-          <div className="flex gap-2 border-l-2 border-danger pl-2.5 text-xs leading-5 text-danger">
+          <div className="flex gap-2 text-xs leading-5 text-danger">
             <WarningCircle size={14} className="mt-0.5 shrink-0" />
             <div className="min-w-0">
-              {errorKind ? <div className="mono mb-0.5 text-[10px] uppercase opacity-75">{errorKind}</div> : null}
+              {errorKind ? <div className="mono mb-0.5 text-[10px] opacity-75">{errorKind}</div> : null}
               <p className="break-words">{lastError}</p>
             </div>
           </div>
@@ -231,7 +231,7 @@ export function AccountCard({
       {authPanelOpen && account.enabled ? (
         <section ref={authRef} className="grid gap-3 border-t border-separator bg-surface-secondary/55 px-3 py-3">
           <div>
-            <div className="text-[10px] font-semibold tracking-[0.1em] text-muted uppercase">{t('oauthDeviceFlow')}</div>
+            <div className="text-xs font-medium text-muted">{t('oauthDeviceFlow')}</div>
             <p className="mt-1.5 text-xs leading-5 text-muted">{t('qoderLoginHint')}</p>
             <div className="mt-2.5 flex flex-wrap gap-2">
               <Button size="sm" isPending={busyKind === 'device'} onPress={onDeviceLogin}><ShieldCheck size={14} />{t('startBrowserLogin')}</Button>
@@ -254,7 +254,7 @@ export function AccountCard({
             ) : null}
           </div>
           <div>
-            <div className="text-[10px] font-semibold tracking-[0.1em] text-muted uppercase">{t('patFallback')}</div>
+            <div className="text-xs font-medium text-muted">{t('patFallback')}</div>
             <div className="mt-2.5 flex flex-col gap-2 sm:flex-row">
               <TextField className="flex-1" type="password" value={pat} onChange={onPatChange}>
                 <Label className="sr-only">{t('pat')}</Label>
