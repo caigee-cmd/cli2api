@@ -30,20 +30,20 @@ export function BrandMark({ size = 24, className = '', loading = false }: Props)
         strokeLinejoin="round"
       />
       <path
-        className="brand-mark__tip text-accent"
+        className="brand-mark__tip"
         pathLength={100}
         d={TIP}
-        stroke="currentColor"
+        stroke="#22D3EE"
         strokeWidth={11.4}
         strokeLinecap="round"
         strokeLinejoin="round"
       />
       {loading ? (
         <path
-          className="brand-mark__scan text-accent"
+          className="brand-mark__scan"
           pathLength={100}
           d={RAIL}
-          stroke="currentColor"
+          stroke="#22D3EE"
           strokeWidth={11.4}
           strokeLinecap="round"
           strokeLinejoin="round"

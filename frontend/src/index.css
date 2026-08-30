@@ -6,16 +6,21 @@
   --font-mono: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
 }
 
-/* Single accent: Signal Cyan. HeroUI default blue must not leak into buttons,
-   focus rings, or selection. Soft variants still mix from --accent. */
+/* Chrome accent is Charcoal Ink. Signal Cyan stays on the C tip / scan only.
+   Dark inverts the fill so an ink button does not vanish on Off-Black Night. */
 :root,
 .light,
-.dark,
 .default,
 [data-theme="light"],
-[data-theme="dark"],
 [data-theme="default"] {
-  --accent: #22d3ee;
+  --accent: #18181b;
+  --accent-foreground: #fcfcfc;
+  --focus: var(--accent);
+}
+
+.dark,
+[data-theme="dark"] {
+  --accent: #fcfcfc;
   --accent-foreground: #18181b;
   --focus: var(--accent);
 }

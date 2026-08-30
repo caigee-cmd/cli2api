@@ -50,7 +50,7 @@
   <circle cx="746" cy="197" r="4" fill="#17C964"/>
   <text x="756" y="202" font-size="14" font-weight="500" fill="#17C964">Ready</text>
   <rect x="300" y="250" width="504" height="6" rx="3" fill="#EFEFF0"/>
-  <rect x="300" y="250" width="403" height="6" rx="3" fill="#22D3EE"/>
+  <rect x="300" y="250" width="403" height="6" rx="3" fill="#18181B"/>
   <text x="300" y="274" font-size="13" fill="#71717A">Quota 80%</text>
   <text x="804" y="274" text-anchor="end" font-size="13" fill="#71717A">400 / 500 remaining</text>
 
@@ -64,7 +64,7 @@
   <circle cx="746" cy="331" r="4" fill="#17C964"/>
   <text x="756" y="336" font-size="14" font-weight="500" fill="#17C964">Ready</text>
   <rect x="300" y="384" width="504" height="6" rx="3" fill="#EFEFF0"/>
-  <rect x="300" y="384" width="333" height="6" rx="3" fill="#22D3EE"/>
+  <rect x="300" y="384" width="333" height="6" rx="3" fill="#18181B"/>
   <text x="300" y="408" font-size="13" fill="#71717A">Quota 66%</text>
   <text x="804" y="408" text-anchor="end" font-size="13" fill="#71717A">330 / 500 remaining</text>
 
@@ -106,11 +106,11 @@
   <rect x="880" y="402" width="264" height="92" rx="8" fill="#18181B"/>
   <text x="894" y="428" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="12" fill="#DEDEE0">$ curl /v1/chat/completions</text>
   <text x="894" y="450" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="12" fill="#DEDEE0">  -H "Authorization: Bearer"</text>
-  <text x="894" y="472" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="12" fill="#22D3EE">✓ 200 · stream ok</text>
+  <text x="894" y="472" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="12" fill="#17C964">✓ 200 · stream ok</text>
 
   <rect x="880" y="518" width="264" height="36" rx="8" fill="#18181B"/>
   <text x="1012" y="541" text-anchor="middle" font-size="14" font-weight="500" fill="#FFFFFF">Copy and test</text>
 
-  <circle cx="888" cy="586" r="4" fill="#22D3EE"/>
+  <circle cx="888" cy="586" r="4" fill="#18181B"/>
   <text x="900" y="591" font-size="13" fill="#71717A">All routes except /health need the key</text>
 </svg>
