@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.2.23 - 2026-08-30
+
+### English
+
 - Keep Signal Cyan on the C tip and scan only; primary buttons, focus, and selection use Charcoal Ink
 
 ### 中文
