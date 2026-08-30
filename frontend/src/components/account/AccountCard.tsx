@@ -16,7 +16,6 @@ import { ProviderMark } from '@/components/ProviderMark'
 import { CompactSwitch } from '@/components/ui/CompactSwitch'
 import { QuotaMeter } from '@/components/account/QuotaMeter'
 import { RuntimeMeter } from '@/components/account/RuntimeMeter'
-import { hoverLift } from '@/hooks/useGsapReveal'
 import {
   accountState,
   cooldownLabel,
@@ -87,7 +86,6 @@ export function AccountCard({
   onToggleAuthPanel,
   onViewModels,
 }: Props) {
-  const cardRef = useRef<HTMLDivElement>(null)
   const chipRef = useRef<HTMLSpanElement>(null)
   const authRef = useRef<HTMLElement>(null)
   const lastStateRef = useRef<string | null>(null)
@@ -157,12 +155,9 @@ export function AccountCard({
 
   return (
     <Card
-      ref={cardRef}
       data-gsap-reveal
       data-state={state}
       className="account-card overflow-hidden p-0"
-      onMouseEnter={() => cardRef.current && hoverLift(cardRef.current, true, 1)}
-      onMouseLeave={() => cardRef.current && hoverLift(cardRef.current, false, 1)}
     >
       <Card.Header className="flex-row items-start justify-between gap-3 px-3 pt-3 pb-2">
         <div className="flex min-w-0 items-center gap-2.5">
