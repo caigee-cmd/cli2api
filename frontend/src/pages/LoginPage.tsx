@@ -104,7 +104,7 @@ export function LoginPage() {
             <form onSubmit={(event) => void onSubmit(event)}>
               <Card.Header className="border-b border-separator px-6 py-6 sm:px-8">
                 <div className="flex min-w-0 items-center gap-3">
-                  <BrandMark size={28} />
+                  <BrandMark size={28} loading={busy} />
                   <div>
                     <Card.Title className="text-xl tracking-[-0.015em]">{t('loginFormTitle')}</Card.Title>
                     <Card.Description className="mt-1">{t('loginDesc')}</Card.Description>

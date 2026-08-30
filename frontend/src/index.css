@@ -6,6 +6,20 @@
   --font-mono: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
 }
 
+/* Single accent: Signal Cyan. HeroUI default blue must not leak into buttons,
+   focus rings, or selection. Soft variants still mix from --accent. */
+:root,
+.light,
+.dark,
+.default,
+[data-theme="light"],
+[data-theme="dark"],
+[data-theme="default"] {
+  --accent: #22d3ee;
+  --accent-foreground: #18181b;
+  --focus: var(--accent);
+}
+
 html,
 body,
 #root {
@@ -55,6 +69,26 @@ body {
    white cards. Keep the shimmer, raise the fill so loading is visible. */
 .skeleton {
   background: color-mix(in oklab, var(--foreground) 10%, var(--surface));
+}
+
+/* Brand loading: cyan scan along the same C rail as the static mark.
+   stroke-dashoffset is the path-length equivalent of a Meter width tween. */
+.brand-mark--loading .brand-mark__scan {
+  stroke-dasharray: 14 86;
+  animation: brand-mark-scan 1.35s linear infinite;
+}
+
+@keyframes brand-mark-scan {
+  to {
+    stroke-dashoffset: -100;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .brand-mark--loading .brand-mark__scan {
+    animation: none;
+    opacity: 0;
+  }
 }
 
 .mono {

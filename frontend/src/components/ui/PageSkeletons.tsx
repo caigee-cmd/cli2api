@@ -115,7 +115,7 @@ export function AccountCardSkeleton() {
           <SkeletonBlock className="h-5 w-14" />
         </div>
         <SkeletonBlock className="h-2 w-full" />
-        <SkeletonBlock className="h-1.5 w-full rounded-full" />
+        <SkeletonBlock className="h-1.5 w-full rounded-[1px]" />
         <SkeletonBlock className="h-3 w-36" />
       </div>
       <div className="flex items-center gap-1.5 border-t border-separator px-3 py-2">

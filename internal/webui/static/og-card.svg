@@ -1,15 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640" font-family="Outfit, 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif">
   <defs>
     <style>
-      .bolt { stroke: #18181B; stroke-width: 14; stroke-linejoin: round; stroke-linecap: round; fill: none; }
+      .rail { stroke: #18181B; stroke-width: 11.4; stroke-linejoin: round; stroke-linecap: round; fill: none; }
+      .tip  { stroke: #22D3EE; stroke-width: 11.4; stroke-linejoin: round; stroke-linecap: round; fill: none; }
       .word { font-weight: 600; letter-spacing: -0.035em; fill: #18181B; }
       .sub  { font-weight: 400; fill: #71717A; }
       .mono { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-weight: 500; fill: #18181B; }
-      .chip { fill: #E6F1FE; }
-      .chip-text { fill: #0485F7; font-weight: 500; }
+      .chip { fill: #DEF8FC; }
+      .chip-text { fill: #22D3EE; font-weight: 500; }
       .frame { fill: none; stroke: #DEDEE0; stroke-width: 1; }
       .terminal-bg { fill: #FFFFFF; stroke: #DEDEE0; stroke-width: 1; }
-      .prompt { fill: #0485F7; }
+      .prompt { fill: #22D3EE; }
     </style>
   </defs>
 
@@ -17,9 +18,9 @@
   <rect x="32" y="32" width="1216" height="576" rx="24" class="frame"/>
   <circle cx="1208" cy="64" r="4" fill="#22D3EE"/>
 
-  <g transform="translate(140, 180)">
-    <path class="bolt" d="M195 0 L60 175 L165 175 L135 140 L202.5 140 L165 280 L300 105 L195 105 L225 140 L157.5 140 Z"/>
-    <circle cx="135" cy="230" r="14" fill="#22D3EE"/>
+  <g transform="translate(48, 80) scale(3.6)">
+    <path class="rail" pathLength="100" d="M 91.413 45.646 A 32.000 32.000 0 1 0 91.413 82.354"/>
+    <path class="tip" pathLength="100" d="M 96.889 68.454 A 32.000 32.000 0 0 1 91.413 82.354"/>
   </g>
 
   <text x="500" y="298" class="word" font-size="112">CLI2API</text>

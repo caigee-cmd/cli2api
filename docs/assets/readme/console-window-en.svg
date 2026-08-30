@@ -2,119 +2,115 @@
   <title id="cw-title-en">CLI2API console — Accounts page</title>
   <desc id="cw-desc-en">Warm ivory console: sidebar with Overview, Models, Access, Accounts, Logs, and System; the Accounts page shows three ready accounts with quota bars, and the Access panel shows Base URL and API key.</desc>
 
-  <rect width="1200" height="760" rx="20" fill="#fbf7f0" stroke="#e6dccb"/>
+  <rect width="1200" height="760" rx="20" fill="#F5F5F5" stroke="#DEDEE0"/>
 
   <!-- browser chrome -->
-  <circle cx="36" cy="30" r="5" fill="#e0d6c4"/>
-  <circle cx="54" cy="30" r="5" fill="#e0d6c4"/>
-  <circle cx="72" cy="30" r="5" fill="#e0d6c4"/>
-  <rect x="400" y="16" width="400" height="28" rx="14" fill="#efe8dc"/>
-  <text x="600" y="35" text-anchor="middle" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="15" fill="#72685c">127.0.0.1:3010</text>
-  <line x1="0" y1="60" x2="1200" y2="60" stroke="#e6dccb"/>
+  <circle cx="36" cy="30" r="5" fill="#DEDEE0"/>
+  <circle cx="54" cy="30" r="5" fill="#DEDEE0"/>
+  <circle cx="72" cy="30" r="5" fill="#DEDEE0"/>
+  <rect x="400" y="16" width="400" height="28" rx="14" fill="#EFEFF0"/>
+  <text x="600" y="35" text-anchor="middle" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="15" fill="#71717A">127.0.0.1:3010</text>
+  <line x1="0" y1="60" x2="1200" y2="60" stroke="#DEDEE0"/>
 
   <!-- sidebar -->
-  <rect x="0" y="60" width="240" height="700" fill="#efe8dc"/>
-  <line x1="240" y1="60" x2="240" y2="760" stroke="#e6dccb"/>
-  <g transform="translate(24 80) scale(1.2)" fill="none">
-    <path d="M13 2 L4 14 H11 L9 11 H13.5 L11 22 L20 10 H13 L15 13 H10.5 Z" stroke="#241f1a" stroke-width="1.75" stroke-linejoin="round" stroke-linecap="round"/>
-    <circle cx="9" cy="18" r="1.25" fill="#22D3EE"/>
+  <rect x="0" y="60" width="240" height="700" fill="#EFEFF0"/>
+  <line x1="240" y1="60" x2="240" y2="760" stroke="#DEDEE0"/>
+  <g transform="translate(14 70) scale(0.38)" fill="none">
+    <path fill="none" stroke="#18181B" stroke-width="11.4" stroke-linecap="round" stroke-linejoin="round" d="M 91.413 45.646 A 32.000 32.000 0 1 0 91.413 82.354"/>
+    <path fill="none" stroke="#22D3EE" stroke-width="11.4" stroke-linecap="round" stroke-linejoin="round" d="M 96.889 68.454 A 32.000 32.000 0 0 1 91.413 82.354"/>
   </g>
-  <text x="62" y="98" font-size="18" font-weight="700" letter-spacing="-0.3" fill="#241f1a">CLI2API</text>
+  <text x="62" y="98" font-size="18" font-weight="700" letter-spacing="-0.3" fill="#18181B">CLI2API</text>
 
-  <text x="24" y="158" font-size="18" fill="#72685c">Overview</text>
-  <text x="24" y="200" font-size="18" fill="#72685c">Models</text>
-  <text x="24" y="242" font-size="18" fill="#72685c">Access</text>
-  <rect x="10" y="260" width="220" height="38" rx="9" fill="#fbf7f0" stroke="#e6dccb"/>
-  <text x="24" y="284" font-size="18" font-weight="600" fill="#241f1a">Accounts</text>
-  <text x="24" y="326" font-size="18" fill="#72685c">Logs</text>
-  <text x="24" y="368" font-size="18" fill="#72685c">System</text>
+  <text x="24" y="158" font-size="18" fill="#71717A">Overview</text>
+  <text x="24" y="200" font-size="18" fill="#71717A">Models</text>
+  <text x="24" y="242" font-size="18" fill="#71717A">Access</text>
+  <rect x="10" y="260" width="220" height="38" rx="9" fill="#F5F5F5" stroke="#DEDEE0"/>
+  <text x="24" y="284" font-size="18" font-weight="600" fill="#18181B">Accounts</text>
+  <text x="24" y="326" font-size="18" fill="#71717A">Logs</text>
+  <text x="24" y="368" font-size="18" fill="#71717A">System</text>
 
   <!-- page header -->
-  <text x="272" y="110" font-size="24" font-weight="700" letter-spacing="-0.3" fill="#241f1a">Accounts</text>
-  <text x="272" y="138" font-size="15" fill="#72685c">One login per account · browser sign-in first, PAT only when needed</text>
+  <text x="272" y="110" font-size="24" font-weight="700" letter-spacing="-0.3" fill="#18181B">Accounts</text>
+  <text x="272" y="138" font-size="15" fill="#71717A">One login per account · browser sign-in first, PAT only when needed</text>
 
   <!-- status chips -->
-  <rect x="884" y="86" width="144" height="30" rx="15" fill="rgba(47,154,99,0.12)" stroke="rgba(47,154,99,0.28)"/>
-  <circle cx="902" cy="101" r="4" fill="#2f9a63"/>
-  <text x="914" y="106" font-size="15" font-weight="500" fill="#237a4e">3 / 3 ready</text>
-  <rect x="1044" y="86" width="124" height="30" rx="8" fill="#241f1a"/>
-  <text x="1060" y="106" font-size="14" font-weight="500" fill="#fffaf3">＋ Add account</text>
+  <rect x="884" y="86" width="144" height="30" rx="15" fill="#17C964" fill-opacity="0.12" stroke="#17C964" stroke-opacity="0.28"/>
+  <circle cx="902" cy="101" r="4" fill="#17C964"/>
+  <text x="914" y="106" font-size="15" font-weight="500" fill="#17C964">3 / 3 ready</text>
+  <rect x="1044" y="86" width="124" height="30" rx="8" fill="#18181B"/>
+  <text x="1060" y="106" font-size="14" font-weight="500" fill="#FFFFFF">＋ Add account</text>
 
   <!-- card 1: Qoder Global -->
-  <rect x="272" y="166" width="560" height="118" rx="12" fill="#fffaf3" stroke="#e6dccb"/>
-  <circle cx="300" cy="202" r="12" fill="#efe8dc"/>
-  <g transform="translate(291.6 193.6) scale(0.7)" fill="none">
-    <path d="M13 2 L4 14 H11 L9 11 H13.5 L11 22 L20 10 H13 L15 13 H10.5 Z" stroke="#241f1a" stroke-width="1.75" stroke-linejoin="round" stroke-linecap="round"/>
-  </g>
-  <text x="322" y="198" font-size="16" font-weight="600" fill="#241f1a">Qoder Global</text>
-  <text x="322" y="220" font-size="13" fill="#9a8f82">alice@dev · browser login</text>
-  <rect x="730" y="184" width="82" height="26" rx="13" fill="rgba(47,154,99,0.12)"/>
-  <circle cx="746" cy="197" r="4" fill="#2f9a63"/>
-  <text x="756" y="202" font-size="14" font-weight="500" fill="#237a4e">Ready</text>
-  <rect x="300" y="250" width="504" height="6" rx="3" fill="#ece4d6"/>
-  <rect x="300" y="250" width="403" height="6" rx="3" fill="#7C3AED"/>
-  <text x="300" y="274" font-size="13" fill="#72685c">Quota 80%</text>
-  <text x="804" y="274" text-anchor="end" font-size="13" fill="#72685c">400 / 500 remaining</text>
+  <rect x="272" y="166" width="560" height="118" rx="12" fill="#FFFFFF" stroke="#DEDEE0"/>
+  <circle cx="300" cy="202" r="12" fill="#EFEFF0"/>
+  <text x="300" y="207" text-anchor="middle" font-size="12" font-weight="700" fill="#71717A">Q</text>
+  <text x="322" y="198" font-size="16" font-weight="600" fill="#18181B">Qoder Global</text>
+  <text x="322" y="220" font-size="13" fill="#71717A">alice@dev · browser login</text>
+  <rect x="730" y="184" width="82" height="26" rx="13" fill="#17C964" fill-opacity="0.12"/>
+  <circle cx="746" cy="197" r="4" fill="#17C964"/>
+  <text x="756" y="202" font-size="14" font-weight="500" fill="#17C964">Ready</text>
+  <rect x="300" y="250" width="504" height="6" rx="3" fill="#EFEFF0"/>
+  <rect x="300" y="250" width="403" height="6" rx="3" fill="#22D3EE"/>
+  <text x="300" y="274" font-size="13" fill="#71717A">Quota 80%</text>
+  <text x="804" y="274" text-anchor="end" font-size="13" fill="#71717A">400 / 500 remaining</text>
 
   <!-- card 2: Qoder CN -->
-  <rect x="272" y="300" width="560" height="118" rx="12" fill="#fffaf3" stroke="#e6dccb"/>
-  <circle cx="300" cy="336" r="12" fill="#efe8dc"/>
-  <g transform="translate(291.6 327.6) scale(0.7)" fill="none">
-    <path d="M13 2 L4 14 H11 L9 11 H13.5 L11 22 L20 10 H13 L15 13 H10.5 Z" stroke="#241f1a" stroke-width="1.75" stroke-linejoin="round" stroke-linecap="round"/>
-  </g>
-  <text x="322" y="332" font-size="16" font-weight="600" fill="#241f1a">Qoder CN</text>
-  <text x="322" y="354" font-size="13" fill="#9a8f82">bob@dev · PAT</text>
-  <rect x="730" y="318" width="82" height="26" rx="13" fill="rgba(47,154,99,0.12)"/>
-  <circle cx="746" cy="331" r="4" fill="#2f9a63"/>
-  <text x="756" y="336" font-size="14" font-weight="500" fill="#237a4e">Ready</text>
-  <rect x="300" y="384" width="504" height="6" rx="3" fill="#ece4d6"/>
-  <rect x="300" y="384" width="333" height="6" rx="3" fill="#7C3AED"/>
-  <text x="300" y="408" font-size="13" fill="#72685c">Quota 66%</text>
-  <text x="804" y="408" text-anchor="end" font-size="13" fill="#72685c">330 / 500 remaining</text>
+  <rect x="272" y="300" width="560" height="118" rx="12" fill="#FFFFFF" stroke="#DEDEE0"/>
+  <circle cx="300" cy="336" r="12" fill="#EFEFF0"/>
+  <text x="300" y="341" text-anchor="middle" font-size="12" font-weight="700" fill="#71717A">Q</text>
+  <text x="322" y="332" font-size="16" font-weight="600" fill="#18181B">Qoder CN</text>
+  <text x="322" y="354" font-size="13" fill="#71717A">bob@dev · PAT</text>
+  <rect x="730" y="318" width="82" height="26" rx="13" fill="#17C964" fill-opacity="0.12"/>
+  <circle cx="746" cy="331" r="4" fill="#17C964"/>
+  <text x="756" y="336" font-size="14" font-weight="500" fill="#17C964">Ready</text>
+  <rect x="300" y="384" width="504" height="6" rx="3" fill="#EFEFF0"/>
+  <rect x="300" y="384" width="333" height="6" rx="3" fill="#22D3EE"/>
+  <text x="300" y="408" font-size="13" fill="#71717A">Quota 66%</text>
+  <text x="804" y="408" text-anchor="end" font-size="13" fill="#71717A">330 / 500 remaining</text>
 
   <!-- card 3: WorkBuddy -->
-  <rect x="272" y="434" width="560" height="118" rx="12" fill="#fffaf3" stroke="#e6dccb"/>
-  <circle cx="300" cy="470" r="12" fill="#efe8dc"/>
-  <text x="300" y="475" text-anchor="middle" font-size="12" font-weight="700" fill="#72685c">W</text>
-  <text x="322" y="466" font-size="16" font-weight="600" fill="#241f1a">WorkBuddy</text>
-  <text x="322" y="488" font-size="13" fill="#9a8f82">team@work · browser login</text>
-  <rect x="730" y="452" width="82" height="26" rx="13" fill="rgba(47,154,99,0.12)"/>
-  <circle cx="746" cy="465" r="4" fill="#2f9a63"/>
-  <text x="756" y="470" font-size="14" font-weight="500" fill="#237a4e">Ready</text>
-  <text x="300" y="518" font-size="13" fill="#72685c">Remaining credits</text>
-  <text x="300" y="538" font-size="13" font-weight="500" fill="#241f1a">1,200 credits</text>
+  <rect x="272" y="434" width="560" height="118" rx="12" fill="#FFFFFF" stroke="#DEDEE0"/>
+  <circle cx="300" cy="470" r="12" fill="#EFEFF0"/>
+  <text x="300" y="475" text-anchor="middle" font-size="12" font-weight="700" fill="#71717A">W</text>
+  <text x="322" y="466" font-size="16" font-weight="600" fill="#18181B">WorkBuddy</text>
+  <text x="322" y="488" font-size="13" fill="#71717A">team@work · browser login</text>
+  <rect x="730" y="452" width="82" height="26" rx="13" fill="#17C964" fill-opacity="0.12"/>
+  <circle cx="746" cy="465" r="4" fill="#17C964"/>
+  <text x="756" y="470" font-size="14" font-weight="500" fill="#17C964">Ready</text>
+  <text x="300" y="518" font-size="13" fill="#71717A">Remaining credits</text>
+  <text x="300" y="538" font-size="13" font-weight="500" fill="#18181B">1,200 credits</text>
 
   <!-- card 4 (clipped preview) -->
-  <rect x="272" y="568" width="560" height="90" rx="12" fill="#fffaf3" stroke="#e6dccb"/>
-  <circle cx="300" cy="602" r="12" fill="#efe8dc"/>
-  <text x="322" y="598" font-size="16" font-weight="600" fill="#241f1a">Qoder Global</text>
-  <text x="322" y="620" font-size="13" fill="#9a8f82">carol@dev · credential import</text>
-  <rect x="730" y="584" width="82" height="26" rx="13" fill="rgba(47,154,99,0.12)"/>
-  <circle cx="746" cy="597" r="4" fill="#2f9a63"/>
-  <text x="756" y="602" font-size="14" font-weight="500" fill="#237a4e">Ready</text>
-  <rect x="12" y="672" width="216" height="72" fill="#efe8dc"/>
+  <rect x="272" y="568" width="560" height="90" rx="12" fill="#FFFFFF" stroke="#DEDEE0"/>
+  <circle cx="300" cy="602" r="12" fill="#EFEFF0"/>
+  <text x="322" y="598" font-size="16" font-weight="600" fill="#18181B">Qoder Global</text>
+  <text x="322" y="620" font-size="13" fill="#71717A">carol@dev · credential import</text>
+  <rect x="730" y="584" width="82" height="26" rx="13" fill="#17C964" fill-opacity="0.12"/>
+  <circle cx="746" cy="597" r="4" fill="#17C964"/>
+  <text x="756" y="602" font-size="14" font-weight="500" fill="#17C964">Ready</text>
+  <rect x="12" y="672" width="216" height="72" fill="#EFEFF0"/>
 
   <!-- access panel -->
-  <rect x="856" y="166" width="312" height="444" rx="12" fill="#fffaf3" stroke="#e6dccb"/>
-  <text x="880" y="204" font-size="16" font-weight="700" fill="#241f1a">Connect an OpenAI client</text>
+  <rect x="856" y="166" width="312" height="444" rx="12" fill="#FFFFFF" stroke="#DEDEE0"/>
+  <text x="880" y="204" font-size="16" font-weight="700" fill="#18181B">Connect an OpenAI client</text>
 
-  <text x="880" y="244" font-size="13" fill="#72685c">Base URL</text>
-  <rect x="880" y="254" width="264" height="32" rx="8" fill="#f4efe6" stroke="#e6dccb"/>
-  <text x="892" y="275" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="13" fill="#241f1a">http://127.0.0.1:3010/v1</text>
+  <text x="880" y="244" font-size="13" fill="#71717A">Base URL</text>
+  <rect x="880" y="254" width="264" height="32" rx="8" fill="#EFEFF0" stroke="#DEDEE0"/>
+  <text x="892" y="275" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="13" fill="#18181B">http://127.0.0.1:3010/v1</text>
 
-  <text x="880" y="316" font-size="13" fill="#72685c">API Key</text>
-  <rect x="880" y="326" width="264" height="32" rx="8" fill="#f4efe6" stroke="#e6dccb"/>
-  <text x="892" y="347" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="13" fill="#241f1a">sk-c2a-9f3e········</text>
+  <text x="880" y="316" font-size="13" fill="#71717A">API Key</text>
+  <rect x="880" y="326" width="264" height="32" rx="8" fill="#EFEFF0" stroke="#DEDEE0"/>
+  <text x="892" y="347" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="13" fill="#18181B">sk-c2a-9f3e········</text>
 
-  <text x="880" y="392" font-size="13" fill="#72685c">Quick check</text>
-  <rect x="880" y="402" width="264" height="92" rx="8" fill="#211f1c"/>
-  <text x="894" y="428" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="12" fill="#e8e2d6">$ curl /v1/chat/completions</text>
-  <text x="894" y="450" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="12" fill="#e8e2d6">  -H "Authorization: Bearer"</text>
+  <text x="880" y="392" font-size="13" fill="#71717A">Quick check</text>
+  <rect x="880" y="402" width="264" height="92" rx="8" fill="#18181B"/>
+  <text x="894" y="428" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="12" fill="#DEDEE0">$ curl /v1/chat/completions</text>
+  <text x="894" y="450" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="12" fill="#DEDEE0">  -H "Authorization: Bearer"</text>
   <text x="894" y="472" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="12" fill="#22D3EE">✓ 200 · stream ok</text>
 
-  <rect x="880" y="518" width="264" height="36" rx="8" fill="#241f1a"/>
-  <text x="1012" y="541" text-anchor="middle" font-size="14" font-weight="500" fill="#fffaf3">Copy and test</text>
+  <rect x="880" y="518" width="264" height="36" rx="8" fill="#18181B"/>
+  <text x="1012" y="541" text-anchor="middle" font-size="14" font-weight="500" fill="#FFFFFF">Copy and test</text>
 
   <circle cx="888" cy="586" r="4" fill="#22D3EE"/>
-  <text x="900" y="591" font-size="13" fill="#72685c">All routes except /health need the key</text>
+  <text x="900" y="591" font-size="13" fill="#71717A">All routes except /health need the key</text>
 </svg>

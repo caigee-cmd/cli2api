@@ -2,68 +2,68 @@
   <title id="arch-title-en">CLI2API architecture — OpenAI clients are routed by a Go control plane to one Node worker per account, then to the Qoder cloud</title>
   <desc id="arch-desc-en">Dark architecture diagram: from top to bottom, OpenAI clients, the CLI2API Go API with SQLite control plane, one isolated Node worker per account, and the Qoder cloud; annotations note warm login sessions, isolated HOMEs, and region-scoped failover.</desc>
 
-  <rect width="1200" height="500" rx="26" fill="#12110f"/>
+  <rect width="1200" height="500" rx="26" fill="#060607"/>
 
   <text x="56" y="66" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="20" letter-spacing="3" fill="#22D3EE">HOW IT WORKS</text>
-  <text x="1144" y="66" text-anchor="end" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="18" fill="#8a8174">request path</text>
+  <text x="1144" y="66" text-anchor="end" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="18" fill="#71717A">request path</text>
 
   <!-- 1. client -->
-  <rect x="260" y="92" width="460" height="60" rx="12" fill="#1b1a17" stroke="#2c2a25"/>
-  <text x="490" y="118" text-anchor="middle" font-size="20" font-weight="600" fill="#f4eee4">OpenAI client</text>
-  <text x="490" y="141" text-anchor="middle" font-size="18" fill="#8a8174">SDK · Codex · CherryStudio</text>
+  <rect x="260" y="92" width="460" height="60" rx="12" fill="#18181B" stroke="#3F3F46"/>
+  <text x="490" y="118" text-anchor="middle" font-size="20" font-weight="600" fill="#FCFCFC">OpenAI client</text>
+  <text x="490" y="141" text-anchor="middle" font-size="18" fill="#71717A">SDK · Codex · CherryStudio</text>
 
   <!-- arrow client -> gateway -->
-  <line x1="490" y1="152" x2="490" y2="180" stroke="#4a463f" stroke-width="2"/>
-  <path d="M484 180 l6 8 6 -8" fill="none" stroke="#4a463f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <line x1="490" y1="152" x2="490" y2="180" stroke="#52525B" stroke-width="2"/>
+  <path d="M484 180 l6 8 6 -8" fill="none" stroke="#52525B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
   <circle cx="490" cy="166" r="4" fill="#22D3EE"/>
 
   <!-- 2. gateway (highlighted) -->
-  <rect x="260" y="188" width="460" height="78" rx="12" fill="#7C3AED" fill-opacity="0.14" stroke="#7C3AED" stroke-width="1.5"/>
-  <text x="490" y="222" text-anchor="middle" font-size="21" font-weight="600" fill="#f4eee4">CLI2API · Go API + SQLite</text>
-  <text x="490" y="249" text-anchor="middle" font-size="18" fill="#b3aa9d">scheduling · concurrency · cooldown · failover</text>
+  <rect x="260" y="188" width="460" height="78" rx="12" fill="#22D3EE" fill-opacity="0.14" stroke="#22D3EE" stroke-width="1.5"/>
+  <text x="490" y="222" text-anchor="middle" font-size="21" font-weight="600" fill="#FCFCFC">CLI2API · Go API + SQLite</text>
+  <text x="490" y="249" text-anchor="middle" font-size="18" fill="#71717A">scheduling · concurrency · cooldown · failover</text>
 
   <!-- branch gateway -> workers -->
-  <line x1="490" y1="266" x2="490" y2="286" stroke="#4a463f" stroke-width="2"/>
-  <line x1="367" y1="286" x2="613" y2="286" stroke="#4a463f" stroke-width="2"/>
-  <line x1="367" y1="286" x2="367" y2="302" stroke="#4a463f" stroke-width="2"/>
-  <line x1="613" y1="286" x2="613" y2="302" stroke="#4a463f" stroke-width="2"/>
-  <path d="M361 302 l6 8 6 -8" fill="none" stroke="#4a463f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M607 302 l6 8 6 -8" fill="none" stroke="#4a463f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <line x1="490" y1="266" x2="490" y2="286" stroke="#52525B" stroke-width="2"/>
+  <line x1="367" y1="286" x2="613" y2="286" stroke="#52525B" stroke-width="2"/>
+  <line x1="367" y1="286" x2="367" y2="302" stroke="#52525B" stroke-width="2"/>
+  <line x1="613" y1="286" x2="613" y2="302" stroke="#52525B" stroke-width="2"/>
+  <path d="M361 302 l6 8 6 -8" fill="none" stroke="#52525B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M607 302 l6 8 6 -8" fill="none" stroke="#52525B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
   <circle cx="367" cy="294" r="4" fill="#22D3EE"/>
   <circle cx="613" cy="294" r="4" fill="#22D3EE"/>
 
   <!-- 3. workers -->
-  <rect x="260" y="310" width="214" height="64" rx="12" fill="#1b1a17" stroke="#2c2a25"/>
-  <text x="367" y="337" text-anchor="middle" font-size="18" font-weight="600" fill="#f4eee4">Node worker · acct A</text>
-  <text x="367" y="360" text-anchor="middle" font-size="16" fill="#8a8174">own HOME · WASM</text>
+  <rect x="260" y="310" width="214" height="64" rx="12" fill="#18181B" stroke="#3F3F46"/>
+  <text x="367" y="337" text-anchor="middle" font-size="18" font-weight="600" fill="#FCFCFC">Node worker · acct A</text>
+  <text x="367" y="360" text-anchor="middle" font-size="16" fill="#71717A">own HOME · WASM</text>
 
-  <rect x="506" y="310" width="214" height="64" rx="12" fill="#1b1a17" stroke="#2c2a25"/>
-  <text x="613" y="337" text-anchor="middle" font-size="18" font-weight="600" fill="#f4eee4">Node worker · acct B</text>
-  <text x="613" y="360" text-anchor="middle" font-size="16" fill="#8a8174">own HOME · WASM</text>
+  <rect x="506" y="310" width="214" height="64" rx="12" fill="#18181B" stroke="#3F3F46"/>
+  <text x="613" y="337" text-anchor="middle" font-size="18" font-weight="600" fill="#FCFCFC">Node worker · acct B</text>
+  <text x="613" y="360" text-anchor="middle" font-size="16" fill="#71717A">own HOME · WASM</text>
 
   <!-- arrows workers -> cloud -->
-  <line x1="367" y1="374" x2="367" y2="400" stroke="#4a463f" stroke-width="2"/>
-  <line x1="613" y1="374" x2="613" y2="400" stroke="#4a463f" stroke-width="2"/>
-  <path d="M361 400 l6 8 6 -8" fill="none" stroke="#4a463f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M607 400 l6 8 6 -8" fill="none" stroke="#4a463f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <line x1="367" y1="374" x2="367" y2="400" stroke="#52525B" stroke-width="2"/>
+  <line x1="613" y1="374" x2="613" y2="400" stroke="#52525B" stroke-width="2"/>
+  <path d="M361 400 l6 8 6 -8" fill="none" stroke="#52525B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M607 400 l6 8 6 -8" fill="none" stroke="#52525B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
   <circle cx="367" cy="387" r="4" fill="#22D3EE"/>
   <circle cx="613" cy="387" r="4" fill="#22D3EE"/>
 
   <!-- 4. cloud -->
-  <rect x="260" y="408" width="460" height="60" rx="12" fill="#1b1a17" stroke="#2c2a25"/>
-  <text x="490" y="434" text-anchor="middle" font-size="20" font-weight="600" fill="#f4eee4">Qoder cloud</text>
-  <text x="490" y="457" text-anchor="middle" font-size="18" fill="#8a8174">HTTP / SSE · Global and CN routed separately</text>
+  <rect x="260" y="408" width="460" height="60" rx="12" fill="#18181B" stroke="#3F3F46"/>
+  <text x="490" y="434" text-anchor="middle" font-size="20" font-weight="600" fill="#FCFCFC">Qoder cloud</text>
+  <text x="490" y="457" text-anchor="middle" font-size="18" fill="#71717A">HTTP / SSE · Global and CN routed separately</text>
 
   <!-- right annotations -->
-  <line x1="720" y1="227" x2="782" y2="227" stroke="#4a463f"/>
-  <text x="782" y="221" font-size="18" fill="#b3aa9d">Warm login sessions</text>
-  <text x="782" y="245" font-size="18" fill="#8a8174">no full CLI spawn per request</text>
+  <line x1="720" y1="227" x2="782" y2="227" stroke="#52525B"/>
+  <text x="782" y="221" font-size="18" fill="#71717A">Warm login sessions</text>
+  <text x="782" y="245" font-size="18" fill="#71717A">no full CLI spawn per request</text>
 
-  <line x1="720" y1="342" x2="782" y2="342" stroke="#4a463f"/>
-  <text x="782" y="336" font-size="18" fill="#b3aa9d">One process and HOME per account</text>
-  <text x="782" y="360" font-size="18" fill="#8a8174">WASM contexts never shared</text>
+  <line x1="720" y1="342" x2="782" y2="342" stroke="#52525B"/>
+  <text x="782" y="336" font-size="18" fill="#71717A">One process and HOME per account</text>
+  <text x="782" y="360" font-size="18" fill="#71717A">WASM contexts never shared</text>
 
-  <line x1="720" y1="438" x2="782" y2="438" stroke="#4a463f"/>
-  <text x="782" y="432" font-size="18" fill="#b3aa9d">Region-scoped failover</text>
-  <text x="782" y="456" font-size="18" fill="#8a8174">Global 429s never land on CN</text>
+  <line x1="720" y1="438" x2="782" y2="438" stroke="#52525B"/>
+  <text x="782" y="432" font-size="18" fill="#71717A">Region-scoped failover</text>
+  <text x="782" y="456" font-size="18" fill="#71717A">Global 429s never land on CN</text>
 </svg>
