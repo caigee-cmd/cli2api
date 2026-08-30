@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.2.22 - 2026-08-30
+
+### English
+
 - Replace the bolt favicon and console mark with the single-rail C (cyan tip), and use the same path as a scan loader
 - Lock the console accent to Signal Cyan so buttons, focus, and the C mark share one color instead of HeroUI blue
 - Recolor README diagrams onto the same zinc-and-cyan palette, dropping leftover violet and ivory
