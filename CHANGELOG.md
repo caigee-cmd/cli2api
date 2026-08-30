@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.2.21 - 2026-08-30
+
+### English
+
 - Restyle the console on HeroUI v3 default tokens and compound primitives, replacing the ivory overlay, custom 32px chrome, and hand-rolled alerts, search, pagination, and empty states
 - Lock console selection, radii, and type to one language: accent-soft selected chrome, Outfit + IBM Plex Mono, and ink-plus-cyan brand marks instead of mixed blue / white / violet fills
 - Show HeroUI skeletons on first page load and on refresh or filter fetches, instead of a session spinner or leftover dashes
