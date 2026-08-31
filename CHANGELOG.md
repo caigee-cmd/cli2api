@@ -7,6 +7,28 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Fix uneven load across accounts: rotation used a numeric index into a candidate list that shrinks whenever a retry excludes an account or one enters cooldown, which silently re-seated the rotation and left some accounts nearly idle while others absorbed most traffic. Rotation now resumes from the previously picked account's ID, so it stays even as the candidate set changes
+- Enforce the per-account concurrency limit: `max_inflight` was stored and shown in the console but never read, so a single account could absorb every concurrent request during a burst. Saturated accounts are now skipped in favour of ones with spare capacity
+- Persist cooldowns to SQLite and restore them on start: cooldowns lived only in memory, so every managed update (they run daily) wiped them and let a just-quarantined account walk straight back into rotation
+- Make the account priority field actually schedule traffic: it is now a weight (1–100) driving smooth weighted round-robin. Accounts at the default 50 keep plain round-robin, so existing setups behave exactly as before
+- Cool down only the affected model: a rate limit or quota error on one model no longer takes the whole account offline for every other model
+- Back off on repeated failures: an account failing repeatedly with the same error now cools down progressively longer instead of retrying at a fixed interval, up to 6 hours, and resets as soon as it succeeds
+- Keep a route on one region: when no region is pinned, scheduling reuses the region it last served from instead of letting rotation decide, so a mixed-region pool no longer flips between regions
+
+### 中文
+
+- 修复账号间负载不均的问题：轮转此前用数值索引指向一个会收缩的候选列表（重试排除、账号冷却都会让它变小），这会静默重定位轮转位置，导致部分账号几乎空闲而另一些承担大部分流量。现在轮转从上次选中账号的 ID 继续，候选集变化时分布依然均匀
+- 账号并发上限真正生效：`max_inflight` 此前只存储并在控制台展示，从未参与选号，突发流量下单个账号会吞掉全部并发请求。现在达到上限的账号会被跳过，优先调度有余量的账号
+- 冷却持久化到 SQLite 并在启动时恢复：冷却此前仅存于内存，每次自动更新（每天执行）都会清空，刚被隔离的账号会立刻回到轮转中
+- 账号优先级字段真正参与调度：现在作为权重（1–100）驱动平滑加权轮转。保持默认 50 的账号行为与之前完全一致
+- 只冷却受影响的模型：单个模型限流或额度耗尽不再让整个账号对其他模型下线
+- 重复失败时逐步退避：同一账号反复出现同类错误时，冷却时间会逐步延长（上限 6 小时），成功后立即归零
+- 路由保持在同一个 region：未固定 region 时沿用上次服务的 region，而不是由轮转位置决定，混合 region 的账号池不再来回切换
+
+## 0.2.28 - 2026-08-31
+
+### English
+
 - Fix Trae quota errors (code 4008) never failing over: Solo answers HTTP 200 and reports the quota failure later inside the SSE body, so the executor treated the attempt as successful and returned the error to the client. The rewritten stream now surfaces that terminal error once drained, and the API relays it back into the pool so the account is cooled for 6 hours instead of being retried while exhausted
 - Fix WorkBuddy usage-limit cooldown ignoring the reset time the upstream reports: a `6004` message carries an absolute reset timestamp (`将在 2026-09-01 13:56:47 UTC+8 重置`), but the account only cooled for the generic 60-second fallback and immediately burned more quota. The cooldown now waits until that timestamp (interpreted as UTC+8) and falls back to 60 seconds when no reset time is present
 

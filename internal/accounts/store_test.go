@@ -426,3 +426,115 @@ func TestNextWorkBuddyFireKinds(t *testing.T) {
 
 func boolPtr(value bool) *bool { return &value }
 func intPtr(value int) *int    { return &value }
+
+// Managed updates recreate the container regularly, and cooldowns used to live
+// only in memory: a just-quarantined account walked straight back into
+// rotation after every restart.
+func TestCooldownsSurviveReopen(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "qoder.db")
+
+	store, err := OpenStore(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	account, err := store.Create(ctx, CreateAccount{Name: "Work", Enabled: true, MaxInFlight: 4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	future := time.Now().UTC().Add(2 * time.Hour).Truncate(time.Second)
+	past := time.Now().UTC().Add(-time.Hour)
+	rows := []CooldownRow{
+		{AccountID: account.ID, DownUntil: future, BackoffLevel: 3, Kind: KindRateLimit, Message: "slow down"},
+		{AccountID: account.ID, Model: "glm-5.3", DownUntil: future, BackoffLevel: 2, Kind: KindQuota, Message: "out of quota"},
+		{AccountID: account.ID, Model: "expired-model", DownUntil: past, Kind: KindRateLimit},
+	}
+	if err := store.SaveCooldowns(ctx, account.ID, rows); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := OpenStore(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := reopened.LoadCooldowns(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded) != 2 {
+		t.Fatalf("expired rows must be pruned, got %d: %+v", len(loaded), loaded)
+	}
+	byModel := map[string]CooldownRow{}
+	for _, row := range loaded {
+		key := row.Model
+		if key == "" {
+			key = "<account>"
+		}
+		byModel[key] = row
+	}
+	accountWide, ok := byModel["<account>"]
+	if !ok || accountWide.BackoffLevel != 3 || !accountWide.DownUntil.Equal(future) {
+		t.Fatalf("account cooldown lost: %+v", accountWide)
+	}
+	scoped, ok := byModel["glm-5.3"]
+	if !ok || scoped.BackoffLevel != 2 || scoped.Kind != KindQuota {
+		t.Fatalf("model cooldown lost: %+v", scoped)
+	}
+}
+
+func TestSaveCooldownsReplacesStaleRows(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "qoder.db")
+	store, err := OpenStore(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	account, err := store.Create(ctx, CreateAccount{Name: "Work", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	future := time.Now().UTC().Add(time.Hour)
+	if err := store.SaveCooldowns(ctx, account.ID, []CooldownRow{
+		{AccountID: account.ID, Model: "old-model", DownUntil: future, Kind: KindRateLimit},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveCooldowns(ctx, account.ID, []CooldownRow{
+		{AccountID: account.ID, Model: "new-model", DownUntil: future, Kind: KindRateLimit},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.LoadCooldowns(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded) != 1 || loaded[0].Model != "new-model" {
+		t.Fatalf("save must replace the account's rows, got %+v", loaded)
+	}
+}
+
+func TestLoadCooldownsPrunesExpired(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "qoder.db")
+	store, err := OpenStore(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	account, err := store.Create(ctx, CreateAccount{Name: "Work", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale := time.Now().UTC().Add(-time.Minute)
+	if err := store.SaveCooldowns(ctx, account.ID, []CooldownRow{
+		{AccountID: account.ID, DownUntil: stale, Kind: KindRateLimit},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.LoadCooldowns(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded) != 0 {
+		t.Fatalf("expired cooldown must not be written or returned, got %+v", loaded)
+	}
+}

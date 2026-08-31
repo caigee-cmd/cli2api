@@ -353,7 +353,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			// executor's attempt loop never saw it. Feed the classified state
 			// back into the pool so the next request can route around a
 			// quota-exhausted account.
-			s.executor.ObserveStreamFailure(upstream.AccountID, relayErr)
+			s.executor.ObserveStreamFailure(upstream.AccountID, relayErr, publicModel)
 			panic(http.ErrAbortHandler)
 		}
 		return

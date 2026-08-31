@@ -158,6 +158,18 @@ ALTER TABLE provider_model_settings ADD COLUMN reasoning_effort TEXT NOT NULL DE
 ALTER TABLE accounts ADD COLUMN workbuddy_auto_checkin INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE accounts ADD COLUMN last_checkin_at TEXT NOT NULL DEFAULT '';
 ALTER TABLE accounts ADD COLUMN last_checkin_msg TEXT NOT NULL DEFAULT '';`},
+	{filename: "011_account_cooldowns.sql", sql: `
+CREATE TABLE IF NOT EXISTS account_cooldowns (
+  account_id TEXT NOT NULL,
+  model TEXT NOT NULL DEFAULT '',
+  down_until TEXT NOT NULL,
+  backoff_level INTEGER NOT NULL DEFAULT 0,
+  kind TEXT NOT NULL DEFAULT '',
+  message TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (account_id, model)
+);
+CREATE INDEX IF NOT EXISTS account_cooldowns_until ON account_cooldowns(down_until);`},
 }
 
 const schemaMigrationsDDL = `
