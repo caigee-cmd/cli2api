@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 )
 
 const (
@@ -46,7 +47,17 @@ const (
 	sessionDeadText         = "Offline user session not found"
 	missingSystemPromptCode = 11128
 	missingSystemPromptText = "first message is not system prompt"
+
+	// rateLimitCode marks a usage limit whose response carries the absolute
+	// reset timestamp. Cooling down for the generic rate-limit fallback would
+	// retry a few seconds later and burn further quota.
+	rateLimitCode = 6004
 )
+
+// quotaResetLocation is the fixed zone WorkBuddy uses for the reset timestamp
+// in its CN usage-limit message ("... UTC+8 重置"). It is a var because
+// time.FixedZone returns a *time.Location, which cannot be a constant.
+var quotaResetLocation = time.FixedZone("UTC+8", 8*60*60)
 
 // Credential is the canonical storage payload shape.
 type Credential struct {

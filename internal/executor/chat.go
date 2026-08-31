@@ -222,6 +222,38 @@ func isInProcessItem(item accounts.Item) bool {
 	return false
 }
 
+// ObserveStreamFailure applies a post-headers streaming failure to the pool.
+// Upstream can answer 200 and then fail inside the SSE body, which happens
+// after the executor already returned a successful StreamResult; the relay
+// error is the first place the failure is observable. Same-account retry is
+// impossible at that point (bytes are on the wire), so this only records the
+// classified state for the next request's scheduling.
+func (e ChatExecutor) ObserveStreamFailure(accountID string, err error) {
+	if e.Pool == nil || accountID == "" || err == nil {
+		return
+	}
+	classified := e.classifyInProcessError(err)
+	if classified.Kind == "" {
+		return
+	}
+	if classified.Kind == accounts.KindInvalidRequest {
+		// The request body was rejected; the account itself is healthy.
+		return
+	}
+	if classified.Kind == accounts.KindQuota {
+		// Quota is classified with Failover=false because the account is not
+		// at fault on a normal request path. Here the response already went
+		// out with 200, so there is no other account to fail over to; without
+		// an explicit cooldown the next request would pick this account again
+		// and fail the same way. Force the cooldown.
+		classified.Failover = true
+		if classified.Cooldown <= 0 {
+			classified.Cooldown = time.Hour
+		}
+	}
+	e.markClassified(accountID, classified)
+}
+
 func (e ChatExecutor) markClassified(id string, c accounts.Classified) {
 	if e.Pool == nil || id == "" {
 		return
