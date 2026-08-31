@@ -35,6 +35,11 @@ func (s *Server) workerForAccount(id string) string {
 		if item, ok := s.pool.ByID(id); ok {
 			return item.URL
 		}
+		// An explicit account ID that is not in the pool must not fall
+		// back to the first running account — that would route a models
+		// query (and potentially subsequent requests) to the wrong
+		// account. Return empty so workerGet surfaces a clear error.
+		return ""
 	}
 	return s.workerBase()
 }
@@ -165,6 +170,14 @@ func (s *Server) fetchWorkerModelsFor(refresh bool, accountID string) ([]map[str
 	}
 	if models != nil {
 		return models, nil
+	}
+	// An explicit account ID that is not in the pool must not silently
+	// fall back to another account's catalog — that misleads the client
+	// and can route subsequent requests to the wrong account.
+	if accountID != "" {
+		if _, ok := s.pool.ByID(accountID); !ok {
+			return nil, fmt.Errorf("account %s not found", accountID)
+		}
 	}
 	path := "/admin/models"
 	if refresh {
