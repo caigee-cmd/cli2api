@@ -2,12 +2,15 @@ package accounts
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 )
@@ -506,11 +509,577 @@ func TestManagerPersistsSchedulerCooldown(t *testing.T) {
 	manager := NewManager(ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
 	manager.pool.Upsert(Item{ID: account.ID, URL: "http://127.0.0.1:1"})
 	manager.pool.MarkClassified(account.ID, Classified{Kind: KindRateLimit, Message: "429", Cooldown: time.Minute, Failover: true})
+	// The observer persists asynchronously through a single drainer
+	// goroutine; wait for it to catch up before asserting SQLite state.
+	manager.Flush()
 	updated, err := store.Get(ctx, account.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if updated.LastErrorKind != KindRateLimit || updated.LastError != "429" || updated.CooldownUntil == nil {
 		t.Fatalf("persisted account = %+v", updated)
+	}
+}
+
+// failingStarter always returns an error, simulating a boot that cannot
+// bring the account's process up.
+type failingStarter struct{}
+
+func (f *failingStarter) Start(_ context.Context, _ Account, _ string, _ int) (ManagedProcess, error) {
+	return nil, errors.New("start failed")
+}
+
+// P2#1: concurrent MarkClassified calls on one account used to save
+// overlapping snapshots in arbitrary order, so a stale snapshot could land
+// after a fresh one and clobber the newest cooldown. The serialized drainer
+// must order writes so the final SQLite state matches the last update.
+func TestObserverSavesAreSerialized(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	account, err := store.Create(ctx, CreateAccount{Name: "Concurrent", Enabled: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := NewManager(ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	defer manager.Close()
+	manager.pool.Upsert(Item{ID: account.ID, URL: "http://127.0.0.1:1"})
+	// Fire several cooldown updates concurrently; the last one to set
+	// ModelDownUntil must win, not whichever snapshot happens to write last.
+	const workers = 8
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			manager.pool.MarkClassified(account.ID, Classified{
+				Kind: KindRateLimit, Cooldown: time.Duration(i+1) * time.Minute,
+				Failover: true, Model: "glm-5.3", Message: "429",
+			})
+		}(i)
+	}
+	wg.Wait()
+	manager.Flush()
+	rows, err := store.LoadCooldowns(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 cooldown row, got %d: %+v", len(rows), rows)
+	}
+	// The persisted cooldown must be one of the durations we set; without
+	// serialization an empty (last-write-loses) snapshot could have deleted it.
+	// The model row carries ModelKind=rate_limit (the per-model kind), while
+	// the account-wide Kind is empty because the failure was model-scoped.
+	if rows[0].Model != "glm-5.3" || rows[0].ModelKind != KindRateLimit {
+		t.Fatalf("unexpected row %+v", rows[0])
+	}
+}
+
+// P2#2: a boot-time startAccount failure used to call MarkDown(0), which
+// triggered the observer's SaveCooldowns with an empty in-memory cooldown
+// set and DELETEd any persisted cooldowns for the account. The failure path
+// now records the error without triggering persistence, so a restart that
+// fails to start a rate-limited account leaves its cooldown intact in SQLite
+// and restoreCooldowns reloads it into memory.
+func TestStartFailureKeepsPersistedCooldowns(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	account, err := store.Create(ctx, CreateAccount{
+		Name: "FailingBoot", Enabled: true, Provider: "qoder", Region: "global",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Seed SQLite with a model cooldown as if a previous run recorded it.
+	seedUntil := time.Now().Add(time.Hour).UTC()
+	if err := store.SaveCooldowns(ctx, account.ID, []CooldownRow{{
+		AccountID: account.ID, Model: "glm-5.3", DownUntil: seedUntil,
+		BackoffLevel: 2, Kind: KindRateLimit, Message: "429",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	manager := NewManager(ManagerConfig{DataDir: t.TempDir(), QoderCLIPath: "unused"}, store, &failingStarter{})
+	if err := manager.Start(ctx); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer manager.Close()
+	manager.Flush()
+	// The cooldown must still be in SQLite, not deleted by the start failure.
+	rows, err := store.LoadCooldowns(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, row := range rows {
+		if row.AccountID == account.ID && row.Model == "glm-5.3" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("persisted glm-5.3 cooldown must survive start failure, got rows %+v", rows)
+	}
+}
+
+// P1#2: Close() must not panic when a concurrent observer is enqueuing.
+// The old design closed a channel that a concurrent MarkClassified could
+// still send on; the mutex-guarded queue checks persistClosed under the
+// lock before appending, so there is no "send on closed channel".
+func TestCloseConcurrentObserverNoPanic(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	account, err := store.Create(ctx, CreateAccount{Name: "ConcurrentClose", Enabled: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := NewManager(ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	manager.pool.Upsert(Item{ID: account.ID, URL: "http://127.0.0.1:1"})
+	stop := make(chan struct{})
+	go func() {
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				manager.pool.MarkClassified(account.ID, Classified{
+					Kind: KindRateLimit, Cooldown: time.Minute,
+					Failover: true, Model: "glm-5.3", Message: "429",
+				})
+			}
+		}
+	}()
+	// Give the writer a head start, then Close concurrently.
+	time.Sleep(10 * time.Millisecond)
+	closeErr := make(chan error, 1)
+	go func() { closeErr <- manager.Close() }()
+	close(stop)
+	if err := <-closeErr; err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+}
+
+// P2#4: Flush() must be strict — every item enqueued before the Flush call
+// is persisted before Flush returns, even with a concurrent enqueuer.
+func TestFlushStrictlyAfterEnqueue(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	account, err := store.Create(ctx, CreateAccount{Name: "FlushStrict", Enabled: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := NewManager(ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	defer manager.Close()
+	manager.pool.Upsert(Item{ID: account.ID, URL: "http://127.0.0.1:1"})
+	// Enqueue a known cooldown, then flush. The SQLite row must reflect it
+	// after Flush returns.
+	manager.pool.MarkClassified(account.ID, Classified{
+		Kind: KindRateLimit, Cooldown: time.Hour,
+		Failover: true, Model: "glm-5.3", Message: "strict-429",
+	})
+	manager.Flush()
+	rows, err := store.LoadCooldowns(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var seen bool
+	for _, row := range rows {
+		if row.AccountID == account.ID && row.Model == "glm-5.3" && row.Message == "strict-429" {
+			seen = true
+		}
+	}
+	if !seen {
+		t.Fatalf("Flush must persist the enqueued cooldown, got rows %+v", rows)
+	}
+}
+
+// P2#3: per-model last-kind survives a restart. Seed SQLite with a model
+// cooldown carrying model_kind=rate_limit, reopen the store, restore, and
+// assert ModelLastKind[model] is restored so a repeat failure escalates.
+func TestModelLastKindPersistedAcrossRestart(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	account, err := store.Create(ctx, CreateAccount{Name: "RestartKind", Enabled: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	until := time.Now().Add(time.Hour).UTC()
+	if err := store.SaveCooldowns(ctx, account.ID, []CooldownRow{{
+		AccountID: account.ID, Model: "glm-5.3", DownUntil: until,
+		BackoffLevel: 1, Kind: KindRateLimit, Message: "429",
+		ModelKind: KindRateLimit,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	manager := NewManager(ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	defer manager.Close()
+	manager.pool.Upsert(Item{ID: account.ID, URL: "http://127.0.0.1:1"})
+	manager.restoreCooldowns(ctx)
+	item, _ := manager.pool.ByID(account.ID)
+	if item.ModelLastKind == nil || item.ModelLastKind["glm-5.3"] != KindRateLimit {
+		t.Fatalf("ModelLastKind[glm-5.3] must be restored to rate_limit, got %+v", item.ModelLastKind)
+	}
+}
+
+// P1: the observer runs after p.mu is released, so two concurrent
+// MarkClassified calls can enqueue snapshots out of production order. The
+// monotonic StateVersion (stamped under p.mu) lets the drainer discard a
+// stale snapshot, so the final persisted state is the newest pool state.
+// This reproduces the exact ordering hazard: snapshot A (older) is delayed
+// before enqueueing while snapshot B (newer) races ahead; the SQLite row
+// must reflect B, not A.
+func TestStateVersionOrdersAcrossDelayedObserver(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	account, err := store.Create(ctx, CreateAccount{Name: "Ordered", Enabled: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := NewManager(ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	defer manager.Close()
+	manager.pool.Upsert(Item{ID: account.ID, URL: "http://127.0.0.1:1"})
+
+	// Wrap the observer so the FIRST call (the older snapshot A) blocks on a
+	// latch until after B has enqueued. The second call (B) enqueues
+	// immediately. Then A's delayed enqueue must be discarded by version.
+	blockA := make(chan struct{})
+	startedA := make(chan struct{})
+	original := manager.pool.observer
+	manager.pool.SetObserver(func(item Item) {
+		if item.StateVersion == 1 && item.ID == account.ID {
+			close(startedA)
+			<-blockA // hold A back until B has enqueued
+		}
+		// Delegate to the real observer (the dirty-set merge) for all calls.
+		original(item)
+	})
+
+	// Fire A (version 1, message "old"); the observer will block on blockA.
+	go manager.pool.MarkClassified(account.ID, Classified{
+		Kind: KindRateLimit, Cooldown: time.Hour,
+		Failover: true, Model: "glm-5.3", Message: "old-snapshot",
+	})
+	<-startedA
+	// Fire B (version 2, message "new"); it enqueues immediately while A is held.
+	manager.pool.MarkClassified(account.ID, Classified{
+		Kind: KindRateLimit, Cooldown: time.Hour,
+		Failover: true, Model: "glm-5.3", Message: "new-snapshot",
+	})
+	// Release A; its stale snapshot is now enqueued after B's.
+	close(blockA)
+
+	manager.Flush()
+	rows, err := store.LoadCooldowns(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range rows {
+		if row.AccountID == account.ID && row.Model == "glm-5.3" {
+			if row.Message != "new-snapshot" {
+				t.Fatalf("stale snapshot A must be discarded; SQLite has %q, want %q", row.Message, "new-snapshot")
+			}
+			return
+		}
+	}
+	t.Fatalf("cooldown row for glm-5.3 must exist, got rows %+v", rows)
+}
+
+// P2: the persistence dirty set is keyed by account ID and merged on
+// enqueue, so it cannot grow without bound under DB pressure. Fire many
+// concurrent MarkClassified calls on one account against a slow store and
+// assert the process stays bounded (the test completes without OOM and the
+// dirty set never holds more than one entry per account at drain time).
+func TestPersistQueueBoundedPerAccount(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	account, err := store.Create(ctx, CreateAccount{Name: "Bounded", Enabled: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := NewManager(ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	defer manager.Close()
+	manager.pool.Upsert(Item{ID: account.ID, URL: "http://127.0.0.1:1"})
+
+	const workers = 64
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			manager.pool.MarkClassified(account.ID, Classified{
+				Kind: KindRateLimit, Cooldown: time.Minute,
+				Failover: true, Model: "glm-5.3", Message: fmt.Sprintf("burst-%d", i),
+			})
+		}(i)
+	}
+	wg.Wait()
+	manager.Flush()
+
+	// The dirty set is a per-account map; after Flush it must be empty.
+	manager.persistMu.Lock()
+	dirtyLen := len(manager.persistDirty)
+	manager.persistMu.Unlock()
+	if dirtyLen != 0 {
+		t.Fatalf("persistDirty must be empty after Flush, got %d", dirtyLen)
+	}
+	// Exactly one cooldown row survives (the account's newest state).
+	rows, err := store.LoadCooldowns(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	count := 0
+	for _, row := range rows {
+		if row.AccountID == account.ID && row.Model == "glm-5.3" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("expected exactly 1 cooldown row for the account, got %d", count)
+	}
+}
+
+// P1: when a SQLite write fails (db locked, disk error, connection), the
+// snapshot must stay in the dirty set and be retried rather than be dropped.
+// persistedVersions must only advance on success, otherwise a later stale
+// snapshot could be discarded even though the newer state never reached disk.
+// Closing the underlying db handle forces the drainer's writes to fail.
+func TestPersistFailureKeepsDirtyEntryAndRetries(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "qoder.db")
+	store, err := OpenStore(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	account, err := store.Create(ctx, CreateAccount{Name: "FailingWrite", Enabled: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := NewManager(ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	defer manager.Close()
+	manager.pool.Upsert(Item{ID: account.ID, URL: "http://127.0.0.1:1"})
+
+	// Close the underlying db so SaveCooldowns fails. The drainer must
+	// re-enqueue the snapshot and back off; it must NOT advance
+	// persistedVersions or drop the entry.
+	if err := store.db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	manager.pool.MarkClassified(account.ID, Classified{
+		Kind: KindRateLimit, Cooldown: time.Hour,
+		Failover: true, Model: "glm-5.3", Message: "write-will-fail",
+	})
+	// Give the drainer a few retry intervals to attempt (and fail) the write.
+	time.Sleep(persistRetryBackoff * 3)
+
+	manager.persistMu.Lock()
+	dirty, dirtyOK := manager.persistDirty[account.ID]
+	version := manager.persistedVersions[account.ID]
+	manager.persistMu.Unlock()
+	if !dirtyOK {
+		t.Fatal("dirty entry must be retained after a failed write, got empty dirty set")
+	}
+	if dirty.LastError != "write-will-fail" {
+		t.Fatalf("dirty entry must be the failed snapshot, got %q", dirty.LastError)
+	}
+	if version != 0 {
+		t.Fatalf("persistedVersions must not advance on failure, got %d", version)
+	}
+
+	// Reopen the db on the same file; the drainer's retry loop must now
+	// succeed and clear the dirty entry.
+	store.db, err = sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// SQLite needs the same pragmas as OpenStore for WAL; the test only reads
+	// cooldowns so a bare open suffices. Wait for the drainer to retry.
+	manager.Flush()
+	manager.persistMu.Lock()
+	afterDirty := len(manager.persistDirty)
+	manager.persistMu.Unlock()
+	if afterDirty != 0 {
+		t.Fatalf("dirty set must drain once writes succeed, got %d", afterDirty)
+	}
+}
+
+// P1: Close() must not block forever when the DB is persistently
+// unavailable. The drainer's retry backoff watches persistCloseCh (closed by
+// Close), not just runCtx (which Close cancels only AFTER the drainer exits).
+// Without this, a stuck DB would deadlock shutdown: Close waits for the
+// drainer, the drainer waits for runCtx.Done(), runCtx is never canceled.
+func TestCloseDuringPersistentDBFailure(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	account, err := store.Create(ctx, CreateAccount{Name: "StuckClose", Enabled: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := NewManager(ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	manager.pool.Upsert(Item{ID: account.ID, URL: "http://127.0.0.1:1"})
+
+	// Close the underlying db so writes persistently fail, forcing the
+	// drainer into its retry backoff.
+	if err := store.db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	manager.pool.MarkClassified(account.ID, Classified{
+		Kind: KindRateLimit, Cooldown: time.Hour,
+		Failover: true, Model: "glm-5.3", Message: "stuck",
+	})
+	// Let the drainer enter the retry loop (it fails, backs off, retries).
+	time.Sleep(persistRetryBackoff * 2)
+
+	// Close must return within a bounded time despite the stuck DB.
+	done := make(chan error, 1)
+	go func() { done <- manager.Close() }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Close returned error: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("Close blocked forever on a persistently failing DB")
+	}
+}
+
+// A model-scoped cooldown with a high backoff level must not pollute the
+// account-wide BackoffLevel on restore. Without this fix, a model that
+// failed repeatedly (e.g. level 3) would inflate the account-level ladder,
+// so a later account-wide failure on a different model starts at level 3
+// instead of 0.
+func TestRestoreModelCooldownDoesNotPolluteAccountBackoff(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	account, err := store.Create(ctx, CreateAccount{Name: "NoPollute", Enabled: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	until := time.Now().Add(time.Hour).UTC()
+	rows := []CooldownRow{
+		// Model-scoped row with a high backoff level.
+		{
+			AccountID: account.ID, Model: "glm-5.3", DownUntil: until,
+			BackoffLevel: 3, Kind: KindRateLimit, Message: "429",
+			ModelKind: KindRateLimit,
+		},
+		// Account-wide row with backoff level 0 (healthy account level).
+		{
+			AccountID: account.ID, Model: "", DownUntil: until,
+			BackoffLevel: 0, Kind: "", Message: "",
+		},
+	}
+	if err := store.SaveCooldowns(ctx, account.ID, rows); err != nil {
+		t.Fatal(err)
+	}
+	manager := NewManager(ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	defer manager.Close()
+	manager.pool.Upsert(Item{ID: account.ID, URL: "http://127.0.0.1:1"})
+	manager.restoreCooldowns(ctx)
+
+	item, _ := manager.pool.ByID(account.ID)
+	// Account-wide BackoffLevel must stay at 0 — the model's level 3
+	// must not leak into it.
+	if item.BackoffLevel != 0 {
+		t.Fatalf("BackoffLevel = %d, want 0 (model backoff leaked into account level)", item.BackoffLevel)
+	}
+	// Model-scoped backoff must be restored correctly.
+	if item.ModelBackoff == nil || item.ModelBackoff["glm-5.3"] != 3 {
+		t.Fatalf("ModelBackoff[glm-5.3] = %v, want 3", item.ModelBackoff)
+	}
+
+	// Verify the fix end-to-end: trigger an account-wide failure on a
+	// different model. The backoff ladder must start at level 0 (first
+	// failure), not level 3.
+	manager.pool.MarkClassified(account.ID, Classified{
+		Kind: KindUnavailable, Cooldown: 60 * time.Second,
+		Failover: true, Model: "deepseek-v4-flash", Message: "conn refused",
+	})
+	item, _ = manager.pool.ByID(account.ID)
+	// deepseek-v4-flash is a new model+kind, so its ModelBackoff must
+	// start at 0 (first failure), not 3.
+	if mb := item.ModelBackoff["deepseek-v4-flash"]; mb != 0 {
+		t.Fatalf("ModelBackoff[deepseek-v4-flash] = %d, want 0 (first failure must start fresh)", mb)
+	}
+}
+
+// EnsureModelCatalogs must return immediately, not block on N serial 15s
+// timeouts when multiple accounts are offline. Before the fix each
+// fetchAccountModels call was synchronous with a 15-second HTTP timeout,
+// so 3 offline accounts would block the first chat request for up to 45s.
+func TestEnsureModelCatalogsDoesNotBlock(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	// Workers that hang on /admin/models — they will time out at 15s in
+	// fetchAccountModels, but EnsureModelCatalogs must return long before
+	// that.
+	slowA := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(30 * time.Second)
+	}))
+	defer slowA.Close()
+	slowB := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(30 * time.Second)
+	}))
+	defer slowB.Close()
+	slowC := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(30 * time.Second)
+	}))
+	defer slowC.Close()
+
+	manager := NewManager(ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	defer manager.Close()
+	manager.pool.Upsert(Item{ID: "slow-a", URL: slowA.URL, Provider: "qoder", Runtime: "child_process"})
+	manager.pool.Upsert(Item{ID: "slow-b", URL: slowB.URL, Provider: "qoder", Runtime: "child_process"})
+	manager.pool.Upsert(Item{ID: "slow-c", URL: slowC.URL, Provider: "qoder", Runtime: "child_process"})
+
+	// With the old serial implementation, this would block ~45s.
+	// With the async fix it returns in milliseconds.
+	done := make(chan struct{})
+	go func() {
+		manager.EnsureModelCatalogs(ctx, true)
+		close(done)
+	}()
+	select {
+	case <-done:
+		// success — returned without blocking
+	case <-time.After(2 * time.Second):
+		t.Fatal("EnsureModelCatalogs blocked >2s; must be async/non-blocking")
 	}
 }

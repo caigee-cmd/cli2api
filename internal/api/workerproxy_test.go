@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -112,5 +113,28 @@ func TestDeviceLoginWaitsForAuthManagerThenOpens(t *testing.T) {
 	}
 	if payload.AuthURL != "https://qoder.com.cn/device" {
 		t.Fatalf("body = %s", rec.Body.String())
+	}
+}
+
+// An explicit account that is not in the pool must not fall back to the
+// first running account. Without this guard, GET /v1/models?account=missing
+// returns another account's catalog, misleading the client and routing
+// subsequent requests to the wrong account.
+func TestFetchWorkerModelsForNotFoundAccount(t *testing.T) {
+	srv := New(config.Config{
+		Host: "127.0.0.1", Port: 3010, ProxyAPIKey: "secret",
+		QoderHome: t.TempDir(), DataDir: t.TempDir(), RuntimeDir: t.TempDir(),
+		WorkerDaemonPath: "/dev/null",
+	})
+	t.Cleanup(func() { _ = srv.Close() })
+	// A running account that must never receive the query.
+	srv.pool.Upsert(accounts.Item{ID: "real-acc", URL: "http://127.0.0.1:1", Provider: "qoder", Region: "global", Runtime: "child_process"})
+
+	_, err := srv.fetchWorkerModelsFor(false, "nonexistent")
+	if err == nil {
+		t.Fatal("expected error for non-existent account")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("err = %v", err)
 	}
 }

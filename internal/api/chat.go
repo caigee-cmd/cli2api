@@ -352,8 +352,11 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			// The upstream answered 200 and failed inside the stream, so the
 			// executor's attempt loop never saw it. Feed the classified state
 			// back into the pool so the next request can route around a
-			// quota-exhausted account.
-			s.executor.ObserveStreamFailure(upstream.AccountID, relayErr, publicModel)
+			// quota-exhausted account. Use req.Model (prefix-stripped by
+			// resolveProviderFilter) so the cooldown key matches the key
+			// PickRoute uses; publicModel may still carry "qoder/" and would
+			// write a cooldown that routing never hits.
+			s.executor.ObserveStreamFailure(upstream.AccountID, relayErr, req.Model)
 			panic(http.ErrAbortHandler)
 		}
 		return

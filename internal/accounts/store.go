@@ -611,7 +611,9 @@ func canonicalCooldownModel(model string) string {
 }
 
 // CooldownRow is one persisted cooldown: account-wide when Model is empty,
-// scoped to a single canonical model otherwise.
+// scoped to a single canonical model otherwise. ModelKind holds the
+// per-model previous failure kind (empty for the account-wide row) so the
+// backoff ladder can resume after a restart without cross-model confusion.
 type CooldownRow struct {
 	AccountID    string
 	Model        string
@@ -619,6 +621,7 @@ type CooldownRow struct {
 	BackoffLevel int
 	Kind         string
 	Message      string
+	ModelKind    string
 }
 
 // SaveCooldowns replaces the persisted cooldown set for one account. Rows
@@ -642,16 +645,17 @@ func (s *Store) SaveCooldowns(ctx context.Context, accountID string, rows []Cool
 			continue
 		}
 		if _, err := tx.ExecContext(ctx, `
-INSERT INTO account_cooldowns (account_id, model, down_until, backoff_level, kind, message, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?)
+INSERT INTO account_cooldowns (account_id, model, down_until, backoff_level, kind, message, model_kind, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(account_id, model) DO UPDATE SET
   down_until = excluded.down_until,
   backoff_level = excluded.backoff_level,
   kind = excluded.kind,
   message = excluded.message,
+  model_kind = excluded.model_kind,
   updated_at = excluded.updated_at`,
 			accountID, canonicalCooldownModel(row.Model), formatTime(row.DownUntil), row.BackoffLevel,
-			row.Kind, row.Message, formatTime(now)); err != nil {
+			row.Kind, row.Message, row.ModelKind, formatTime(now)); err != nil {
 			return fmt.Errorf("save cooldown: %w", err)
 		}
 	}
@@ -671,7 +675,7 @@ func (s *Store) LoadCooldowns(ctx context.Context) ([]CooldownRow, error) {
 		return nil, fmt.Errorf("prune expired cooldowns: %w", err)
 	}
 	rows, err := s.db.QueryContext(ctx, `
-SELECT account_id, model, down_until, backoff_level, kind, message
+SELECT account_id, model, down_until, backoff_level, kind, message, model_kind
 FROM account_cooldowns WHERE down_until > ? ORDER BY account_id, model`, now)
 	if err != nil {
 		return nil, fmt.Errorf("load cooldowns: %w", err)
@@ -681,7 +685,7 @@ FROM account_cooldowns WHERE down_until > ? ORDER BY account_id, model`, now)
 	for rows.Next() {
 		var row CooldownRow
 		var until, model string
-		if err := rows.Scan(&row.AccountID, &model, &until, &row.BackoffLevel, &row.Kind, &row.Message); err != nil {
+		if err := rows.Scan(&row.AccountID, &model, &until, &row.BackoffLevel, &row.Kind, &row.Message, &row.ModelKind); err != nil {
 			return nil, fmt.Errorf("scan cooldown: %w", err)
 		}
 		row.DownUntil = parseTime(until)
