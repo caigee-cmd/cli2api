@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.2.29 - 2026-08-31
+
+### English
+
 - Fix uneven load across accounts: rotation used a numeric index into a candidate list that shrinks whenever a retry excludes an account or one enters cooldown, which silently re-seated the rotation and left some accounts nearly idle while others absorbed most traffic. Rotation now resumes from the previously picked account's ID, so it stays even as the candidate set changes
 - Enforce the per-account concurrency limit: `max_inflight` was stored and shown in the console but never read, so a single account could absorb every concurrent request during a burst. Saturated accounts are now skipped in favour of ones with spare capacity
 - Persist cooldowns to SQLite and restore them on start: cooldowns lived only in memory, so every managed update (they run daily) wiped them and let a just-quarantined account walk straight back into rotation
