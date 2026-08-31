@@ -74,6 +74,29 @@ func TestListRequestLogsFiltersAndPagination(t *testing.T) {
 		t.Fatalf("filtered total=%d items=%+v", listed.Total, listed.Items)
 	}
 
+	exactID := listed.Items[0].ID
+	byID := get("/api/logs/requests?id=" + exactID)
+	if byID.Code != http.StatusOK {
+		t.Fatalf("id filter status=%d body=%s", byID.Code, byID.Body.String())
+	}
+	if err := json.Unmarshal(byID.Body.Bytes(), &listed); err != nil {
+		t.Fatal(err)
+	}
+	if listed.Total != 1 || listed.Items[0].ID != exactID {
+		t.Fatalf("id filter = %+v", listed)
+	}
+
+	prefix := get("/api/logs/requests?q=" + exactID[:8])
+	if prefix.Code != http.StatusOK {
+		t.Fatalf("id prefix status=%d body=%s", prefix.Code, prefix.Body.String())
+	}
+	if err := json.Unmarshal(prefix.Body.Bytes(), &listed); err != nil {
+		t.Fatal(err)
+	}
+	if listed.Total != 1 || listed.Items[0].ID != exactID {
+		t.Fatalf("id prefix = %+v", listed)
+	}
+
 	runtime := get("/api/logs/runtime?account=acc_b")
 	if runtime.Code != http.StatusOK {
 		t.Fatalf("runtime status=%d body=%s", runtime.Code, runtime.Body.String())

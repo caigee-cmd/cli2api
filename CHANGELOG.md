@@ -14,6 +14,8 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 - Enable the cross-provider model pool by default, persist the setting in SQLite, and move its toggle to System settings; upgrades initialize the missing setting to enabled and no migration is needed; `CROSS_PROVIDER_MODEL_POOL` is no longer used
 - Remove the account card hover lift; the card no longer moves under the cursor
 - Add-account wizard: the login-done message keeps the neutral surface and marks success with a check icon instead of an all-green box
+- Logs page: default to last 1 hour instead of all time, darken the selected filter/chip color, and split search into exact model / account / request-ID dropdowns that load candidates and select before filtering (no more fuzzy free-text search)
+- Sidebar status footer: show a skeleton while refreshing so it no longer flashes "degraded 0/0" on reload
 
 ### 中文
 
@@ -24,6 +26,8 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 - 跨 Provider 模型池默认开启，设置持久化到 SQLite，并移入「系统设置」开关；升级时缺失配置会直接写入开启状态，不需要新增迁移；不再使用 `CROSS_PROVIDER_MODEL_POOL` 环境变量
 - 账号卡片去掉悬停上浮，悬停不再移动卡片
 - 添加账号向导：登录完成提示保持中性底面，用绿色对勾标记成功，不再整盒变绿
+- 日志页默认最近 1 小时，加深选中的筛选项颜色，并把模糊搜索拆成必须选后才过滤的模型 / 账号 / 请求 ID 下拉选择，不再支持自由文本搜索
+- 侧边栏状态栏：刷新时显示骨架屏，不再闪成「降级 0/0」
 
 ## 0.2.24 - 2026-08-30
 

@@ -134,6 +134,7 @@ export type RequestLogQuery = {
   stream?: boolean
   error_kind?: string
   model?: string
+  id?: string
   q?: string
   from?: string
   to?: string
@@ -157,6 +158,7 @@ export function fetchRequestLogs(query: RequestLogQuery = {}) {
   if (query.stream != null) params.set('stream', query.stream ? '1' : '0')
   if (query.error_kind) params.set('error_kind', query.error_kind)
   if (query.model) params.set('model', query.model)
+  if (query.id) params.set('id', query.id)
   if (query.q) params.set('q', query.q)
   if (query.from) params.set('from', query.from)
   if (query.to) params.set('to', query.to)
