@@ -363,17 +363,19 @@ func (c *Client) chatRequest(ctx context.Context, accountID string, credential C
 		"tool_choice": req.ToolChoice,
 	}
 	caps := c.capsFor(req.Model)
-	if len(caps.ReasoningOptions) == 0 && accountID != "" {
-		_, _ = c.Models(ctx, accountID)
-		caps = c.capsFor(req.Model)
-	}
 	storedLevel := ""
 	if setter, ok := c.store.(interface {
 		GetProviderModelSetting(context.Context, string, string) (accounts.ProviderModelSetting, error)
 	}); ok {
-		if stored, err := setter.GetProviderModelSetting(ctx, "workbuddy", strings.ToLower(req.Model)); err == nil {
+		// settingModelKey must canonicalize exactly like api.modelContextKey
+		// so console-saved reasoning levels are found at chat time.
+		if stored, err := setter.GetProviderModelSetting(ctx, "workbuddy", accounts.CanonicalModelID(req.Model)); err == nil {
 			storedLevel = stored.ReasoningEffort
 		}
+	}
+	if len(caps.ReasoningOptions) == 0 && accountID != "" {
+		_, _ = c.Models(ctx, accountID)
+		caps = c.capsFor(req.Model)
 	}
 	applyChatReasoning(body, req, storedLevel, caps)
 	payload, err := json.Marshal(body)
