@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -561,13 +562,22 @@ func (c *Client) capsFor(model string) providers.ModelCapabilities {
 	c.mu.Lock()
 	info, ok := c.catalog[model]
 	if !ok {
-		info, ok = c.catalog[strings.ToLower(model)]
+		// Trae config_name is mixed-case; callers may send the console
+		// canonical form (lowercase, _ folded to -). Try both join keys.
+		info, ok = c.catalog[accounts.CanonicalModelID(model)]
 	}
 	c.mu.Unlock()
 	if ok {
 		return info.Capabilities
 	}
 	return providers.ModelCapabilities{}
+}
+
+// settingModelKey mirrors api.modelContextKey so provider settings saved by
+// the console are found again at chat time. Trae config_name is mixed-case and
+// may contain underscores; both sides must canonicalize identically.
+func settingModelKey(model string) string {
+	return accounts.CanonicalModelID(model)
 }
 
 func (c *Client) chatRequest(ctx context.Context, credential Credential, req translate.ChatRequest, accountID string) (*http.Request, error) {
@@ -585,20 +595,16 @@ func (c *Client) chatRequest(ctx context.Context, credential Credential, req tra
 	rewritten := PrepareBody(payload)
 	var obj map[string]any
 	if err := json.Unmarshal(rewritten, &obj); err == nil {
-		caps := c.capsFor(req.Model)
-		if len(caps.ReasoningOptions) == 0 && !caps.MaxMode && accountID != "" {
-			_, _ = c.Models(ctx, accountID)
-			caps = c.capsFor(req.Model)
-		}
 		maxMode := false
 		storedLevel := ""
 		if req.IsMaxMode != nil {
 			maxMode = *req.IsMaxMode
 		}
+		caps := c.capsFor(req.Model)
 		if setter, ok := c.store.(interface {
 			GetProviderModelSetting(context.Context, string, string) (accounts.ProviderModelSetting, error)
 		}); ok {
-			if stored, err := setter.GetProviderModelSetting(ctx, "trae", strings.ToLower(req.Model)); err == nil {
+			if stored, err := setter.GetProviderModelSetting(ctx, "trae", settingModelKey(req.Model)); err == nil {
 				if req.IsMaxMode == nil {
 					maxMode = stored.MaxMode
 				}
@@ -608,10 +614,20 @@ func (c *Client) chatRequest(ctx context.Context, credential Credential, req tra
 			if maxSetter, ok := c.store.(interface {
 				GetProviderModelMaxMode(context.Context, string, string) (bool, error)
 			}); ok {
-				if stored, err := maxSetter.GetProviderModelMaxMode(ctx, "trae", strings.ToLower(req.Model)); err == nil {
+				if stored, err := maxSetter.GetProviderModelMaxMode(ctx, "trae", settingModelKey(req.Model)); err == nil {
 					maxMode = stored
 				}
 			}
+		}
+		// Caps may be empty because the catalog has not been fetched (fresh
+		// process, first request) or the model is unknown. Only the unknown
+		// case is unrecoverable; refresh once before deciding.
+		if len(caps.ReasoningOptions) == 0 && !caps.MaxMode && accountID != "" {
+			_, _ = c.Models(ctx, accountID)
+			caps = c.capsFor(req.Model)
+		}
+		if maxMode && !caps.MaxMode {
+			log.Printf("trae model %q: max mode requested but catalog says unsupported; sending default context window", req.Model)
 		}
 		applySoloChatFields(obj, req, maxMode, storedLevel, caps)
 		if encoded, err := json.Marshal(obj); err == nil {

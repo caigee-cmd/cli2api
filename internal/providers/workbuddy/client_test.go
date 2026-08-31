@@ -20,6 +20,7 @@ type memStore struct {
 	observed   []string
 	lastKind   string
 	lastStatus string
+	settings   map[string]accounts.ProviderModelSetting
 }
 
 func (s *memStore) Get(ctx context.Context, id string) (accounts.Account, error) {
@@ -48,6 +49,12 @@ func (s *memStore) Observe(ctx context.Context, id, remoteUID, status, lastError
 	s.lastStatus = status
 	s.lastKind = lastKind
 	return nil
+}
+func (s *memStore) GetProviderModelSetting(ctx context.Context, provider, modelID string) (accounts.ProviderModelSetting, error) {
+	if s.settings == nil {
+		return accounts.ProviderModelSetting{}, nil
+	}
+	return s.settings[modelID], nil
 }
 
 func newTestClient(t *testing.T, handler http.Handler) (*Client, *memStore) {
@@ -294,6 +301,48 @@ func TestChatRequestSendsCatalogReasoningEffort(t *testing.T) {
 	reasoning, _ := got["reasoning"].(map[string]any)
 	if reasoning["effort"] != "xhigh" {
 		t.Fatalf("reasoning=%v", got["reasoning"])
+	}
+}
+
+// Regression: the console stores provider settings under the canonical model
+// key (lowercase, _ folded to -); chat-time lookups must use the same form.
+func TestChatRequestFindsStoredReasoningByCanonicalKey(t *testing.T) {
+	payload, _ := Credential{AccessToken: "at", UID: "u1", Domain: "codebuddy.cn", ExpiresAt: 4102444800}.Encode()
+	store := &memStore{
+		items: map[string][]byte{"acc1": payload},
+		// Console saved the reasoning level under the canonical key.
+		settings: map[string]accounts.ProviderModelSetting{
+			"glm-5.3": {ReasoningEffort: "xhigh"},
+		},
+	}
+	var got map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == pathModelsCN {
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{
+				"models": []map[string]any{{
+					"id": "glm-5.3", "name": "GLM-5.3", "supportsReasoning": true,
+					"reasoning": map[string]any{"defaultEffort": "high", "supportedEfforts": []string{"low", "high", "xhigh"}},
+				}},
+				"agents": []map[string]any{{"name": "cli", "models": []string{"glm-5.3"}}},
+			}})
+			return
+		}
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(chatSSE))
+	}))
+	defer server.Close()
+	client := NewClient(store)
+	client.http = server.Client()
+	client.http.Transport = rewriteTransport{server: server.URL, round: server.Client().Transport}
+	if _, err := client.ChatNonStream(context.Background(), "acc1", translate.ChatRequest{
+		Model: "GLM_5.3", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	reasoning, _ := got["reasoning"].(map[string]any)
+	if reasoning["effort"] != "xhigh" {
+		t.Fatalf("stored reasoning not applied via canonical key: %v", got["reasoning"])
 	}
 }
 

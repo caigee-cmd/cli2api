@@ -17,8 +17,10 @@ import (
 )
 
 type memStore struct {
-	items  map[string][]byte
-	region string
+	items    map[string][]byte
+	region   string
+	settings map[string]accounts.ProviderModelSetting
+	lookups  []string
 }
 
 func (s *memStore) Get(ctx context.Context, id string) (accounts.Account, error) {
@@ -44,6 +46,13 @@ func (s *memStore) SaveCredentialPayload(ctx context.Context, accountID, format 
 }
 func (s *memStore) Observe(ctx context.Context, id, remoteUID, status, lastError, lastKind string) error {
 	return nil
+}
+func (s *memStore) GetProviderModelSetting(ctx context.Context, provider, modelID string) (accounts.ProviderModelSetting, error) {
+	s.lookups = append(s.lookups, provider+"/"+modelID)
+	if s.settings == nil {
+		return accounts.ProviderModelSetting{}, nil
+	}
+	return s.settings[modelID], nil
 }
 
 func newTestClient(t *testing.T, handler http.Handler) (*Client, *memStore) {
@@ -360,6 +369,114 @@ func TestChatRequestMapsOpenAIReasoningAndMaxMode(t *testing.T) {
 	}
 	if _, ok := got["context_length"]; ok {
 		t.Fatalf("qoder context leaked: %v", got)
+	}
+}
+
+// Regression: settings saved by the console are keyed by canonicalModelID
+// (lowercase, _ and space folded to -). The chat-time lookup must use the
+// same form, otherwise max_mode never reaches the upstream payload.
+func TestChatRequestFindsStoredMaxModeByCanonicalKey(t *testing.T) {
+	payload, _ := Credential{AccessToken: "at", RefreshToken: "rt", UID: "u1", Domain: DomainCN, ExpiresAt: 4102444800}.Encode()
+	store := &memStore{
+		items: map[string][]byte{"acc1": payload},
+		// Console saved "deepseek_v4_pro_official" (underscore form).
+		settings: map[string]accounts.ProviderModelSetting{
+			"deepseek-v4-pro-official": {MaxMode: true},
+		},
+	}
+	var got map[string]any
+	modelsServed := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == pathModels {
+			modelsServed = true
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"config_info_list": []map[string]any{{
+					"config_name":           "DeepSeek-V4-Pro-Official",
+					"context_window_tokens": map[string]any{"dev": 200000, "max": 1000000},
+					"display_config":        map[string]any{"display_name": "DeepSeek-V4-Pro 正式版"},
+				}},
+			})
+			return
+		}
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(soloSSE))
+	}))
+	defer server.Close()
+	client := NewClient(store)
+	client.http = server.Client()
+	client.http.Transport = rewriteTransport{server: server.URL, round: server.Client().Transport}
+
+	// No IsMaxMode in the request and no warm catalog: the stored setting
+	// must still turn on max mode, and the cold-catalog refresh must run so
+	// caps say the model supports it.
+	if _, err := client.ChatNonStream(context.Background(), "acc1", translate.ChatRequest{
+		Model: "DeepSeek-V4-Pro-Official",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got["is_max_mode"] != float64(1) {
+		t.Fatalf("stored max mode not applied: %v", got)
+	}
+	if len(store.lookups) == 0 || store.lookups[0] != "trae/deepseek-v4-pro-official" {
+		t.Fatalf("lookup key mismatch: %v", store.lookups)
+	}
+	if !modelsServed {
+		t.Fatal("cold catalog should be refreshed before deciding max mode")
+	}
+}
+
+// When max mode is on but the model has no max-mode capability, the field is
+// dropped and the request still goes out (with a server-side log line).
+func TestChatRequestDropsMaxModeWhenCatalogSaysUnsupported(t *testing.T) {
+	payload, _ := Credential{AccessToken: "at", RefreshToken: "rt", UID: "u1", Domain: DomainCN, ExpiresAt: 4102444800}.Encode()
+	store := &memStore{items: map[string][]byte{"acc1": payload}}
+	var got map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == pathModels {
+			// Model exists but no max window, no max-mode flags.
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"config_info_list": []map[string]any{{
+					"config_name":    "glm-5.2",
+					"display_config": map[string]any{"display_name": "GLM 5.2"},
+				}},
+			})
+			return
+		}
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(soloSSE))
+	}))
+	defer server.Close()
+	client := NewClient(store)
+	client.http = server.Client()
+	client.http.Transport = rewriteTransport{server: server.URL, round: server.Client().Transport}
+	if _, err := client.Models(context.Background(), "acc1"); err != nil {
+		t.Fatal(err)
+	}
+	max := true
+	if _, err := client.ChatNonStream(context.Background(), "acc1", translate.ChatRequest{
+		Model:     "glm-5.2",
+		IsMaxMode: &max,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := got["is_max_mode"]; ok {
+		t.Fatalf("unsupported max mode must not be sent: %v", got)
+	}
+}
+
+func TestSettingModelKeyMatchesConsoleCanonicalForm(t *testing.T) {
+	cases := map[string]string{
+		"DeepSeek-V4-Pro-Official": "deepseek-v4-pro-official",
+		"deepseek_v4_pro_official": "deepseek-v4-pro-official",
+		"GLM 5.3":                  "glm-5.3",
+		"glm-5.2":                  "glm-5.2",
+	}
+	for input, want := range cases {
+		if got := settingModelKey(input); got != want {
+			t.Fatalf("settingModelKey(%q)=%q want %q", input, got, want)
+		}
 	}
 }
 
