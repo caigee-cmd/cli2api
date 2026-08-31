@@ -480,7 +480,7 @@ Qoder 路径一行都不应该为了 WorkBuddy 改 payload 形状。WorkBuddy �
 
 - `/v1/models` 返回 **已登录账号目录的并集**
 - 每条带 `owned_by` / `provider`
-- 默认开启跨 Provider Route Pool：同名 bare ID 可在 Qoder / WorkBuddy / Trae 候选之间调度；关闭开关时，有 Qoder 账号则 `glm-5.2` 继续给 Qoder。若部署里 **没有** Qoder 账号且只剩一个 provider family，bare ID 回落到该 sole family，避免 WorkBuddy-only 复制目录 ID 后出现 `no qoder accounts available`
+- 默认开启跨 Provider Route Pool：同名 bare ID 可在 Qoder / WorkBuddy / Trae 候选之间调度；关闭开关时，bare ID 直接拒绝，调用方必须使用 `qoder/glm-5.2`、`workbuddy/glm-5.2` 等带 Provider 前缀的模型 ID
 - 显式 Route Pool 模式：`glm-5.2` 表示同名 Qoder / WorkBuddy 候选池；`qoder/glm-5.2` 与 `workbuddy/glm-5.2` 仍可强制 provider
 - 不要做跨上游的手写 alias 表
 
@@ -516,7 +516,7 @@ type RouteQuery struct {
 ### 开关与 ID 规则
 
 - `cross_provider_model_pool` 默认开启；设置保存在 SQLite 的 `app_secrets`，可在控制台「系统设置」中切换
-- 关闭时：有 Qoder 时 bare ID 留给 Qoder；无 Qoder 且仅一个 provider family 时 bare ID 回落到该 family；也可用 provider 前缀或账号 pin（pin 可覆盖 bare 默认的 qoder 过滤）
+- 关闭时：bare ID 直接拒绝；调用方必须使用 provider 前缀和模型 ID，账号 pin 不能绕过此前缀要求
 - 开启后：bare ID 变成同名 route pool；provider 前缀仍可用于强制单一 provider
 - 匹配必须精确；不做模糊别名、字符串相似或手写 alias 表
 
@@ -874,7 +874,7 @@ spawn 链完全不知道 region：
 | `worker/src/rewrite-loader.mjs` | 只 hook 文件名含 `qodercli.js` 的模块 |
 | `worker/src/daemon.mjs` | fallback `https://api1.qoder.sh`；默认路径只有国际版包 |
 | `Pool.PickRoute` | 只过滤 provider family，不过滤 region |
-| `resolveProviderFilter` | bare ID 默认 `qoder`；无 Qoder 且 sole family 时回落；CN 与 Global 仍进同一 qoder 候选池 |
+| `resolveProviderFilter` | 开启时 bare ID 不过滤 provider；关闭时 API 先拒绝 bare ID；CN 与 Global 仍进同一 qoder 候选池 |
 | 前端 `labelKeys` | 没有 `qoder-cn`；`accountProviderLabel` 把任意 qoder 都显示成国际版 |
 
 WorkBuddy 的 region 只换 Go 里的 host 常量。Qoder CN 必须换 **CLI 二进制 + HOME 目录名**，这是唯一多出来的工作。

@@ -60,3 +60,20 @@ func TestSystemSettingsRoutePersistsAndAppliesModelPool(t *testing.T) {
 		t.Fatalf("persisted setting=%q ok=%v err=%v", value, ok, err)
 	}
 }
+
+func TestChatRejectsBareModelWhenCrossProviderPoolDisabled(t *testing.T) {
+	srv := New(config.Config{
+		Host: "127.0.0.1", Port: 3010, ProxyAPIKey: "secret",
+		QoderHome: t.TempDir(), DataDir: t.TempDir(),
+	})
+	defer srv.Close()
+	srv.crossProviderModelPool.Store(false)
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewBufferString(`{"model":"glm-5.2","messages":[{"role":"user","content":"hi"}]}`))
+	request.Header.Set("Authorization", "Bearer secret")
+	response := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest || !bytes.Contains(response.Body.Bytes(), []byte(`"provider_prefix_required"`)) {
+		t.Fatalf("bare model response: %d %s", response.Code, response.Body.String())
+	}
+}
