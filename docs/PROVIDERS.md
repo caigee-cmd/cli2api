@@ -480,7 +480,7 @@ Qoder 路径一行都不应该为了 WorkBuddy 改 payload 形状。WorkBuddy �
 
 - `/v1/models` 返回 **已登录账号目录的并集**
 - 每条带 `owned_by` / `provider`
-- 默认保守模式：`glm-5.2` 继续给 Qoder（现网兼容）；WorkBuddy 用 `workbuddy/glm-5.2` 或账号 pin
+- 默认开启跨 Provider Route Pool：同名 bare ID 可在 Qoder / WorkBuddy / Trae 候选之间调度；关闭开关时，有 Qoder 账号则 `glm-5.2` 继续给 Qoder。若部署里 **没有** Qoder 账号且只剩一个 provider family，bare ID 回落到该 sole family，避免 WorkBuddy-only 复制目录 ID 后出现 `no qoder accounts available`
 - 显式 Route Pool 模式：`glm-5.2` 表示同名 Qoder / WorkBuddy 候选池；`qoder/glm-5.2` 与 `workbuddy/glm-5.2` 仍可强制 provider
 - 不要做跨上游的手写 alias 表
 
@@ -515,8 +515,8 @@ type RouteQuery struct {
 
 ### 开关与 ID 规则
 
-- `cross_provider_model_pool` 默认关闭，先保持现网 bare ID 行为不变
-- 关闭时：bare ID 留给既有 Qoder；WorkBuddy 使用 provider 前缀或账号 pin
+- `cross_provider_model_pool` 默认开启；设置保存在 SQLite 的 `app_secrets`，可在控制台「系统设置」中切换
+- 关闭时：有 Qoder 时 bare ID 留给 Qoder；无 Qoder 且仅一个 provider family 时 bare ID 回落到该 family；也可用 provider 前缀或账号 pin（pin 可覆盖 bare 默认的 qoder 过滤）
 - 开启后：bare ID 变成同名 route pool；provider 前缀仍可用于强制单一 provider
 - 匹配必须精确；不做模糊别名、字符串相似或手写 alias 表
 
@@ -657,7 +657,7 @@ CLIProxyAPI 的可借鉴点是：
 
 ### J4 - 同名模型 Route Pool 与协议
 
-- 增加 `cross_provider_model_pool` 开关，默认关闭
+- 增加 `cross_provider_model_pool` 开关，默认开启并持久化到 SQLite `app_secrets`
 - 开启后同名 bare ID 进入 route pool；provider 前缀 ID 强制单一 provider
 - provider family round-robin + provider 内 account round-robin
 - failover 只限同一个 public model ID 的 route pool
@@ -874,7 +874,7 @@ spawn 链完全不知道 region：
 | `worker/src/rewrite-loader.mjs` | 只 hook 文件名含 `qodercli.js` 的模块 |
 | `worker/src/daemon.mjs` | fallback `https://api1.qoder.sh`；默认路径只有国际版包 |
 | `Pool.PickRoute` | 只过滤 provider family，不过滤 region |
-| `resolveProviderFilter` | bare ID 固定 `qoder`，CN 与 Global 会进同一候选池 |
+| `resolveProviderFilter` | bare ID 默认 `qoder`；无 Qoder 且 sole family 时回落；CN 与 Global 仍进同一 qoder 候选池 |
 | 前端 `labelKeys` | 没有 `qoder-cn`；`accountProviderLabel` 把任意 qoder 都显示成国际版 |
 
 WorkBuddy 的 region 只换 Go 里的 host 常量。Qoder CN 必须换 **CLI 二进制 + HOME 目录名**，这是唯一多出来的工作。
@@ -900,7 +900,7 @@ Client
 - 导入导出仍是 `qoder-native-v1`；创建 / import 必须带对的 `region`。export JSON 要带 `provider` 与 `region`，否则 CN blob 会被默认成 Global
 - 公共模型前缀仍是 `qoder/`。不要引入 `qodercn/`，否则会把 region 做成第二套 family
 - 默认同 region failover。Global 429 不得落到 CN，反过来也不行。账号 pin 除外
-- `CROSS_PROVIDER_MODEL_POOL` 仍只影响跨 family（Qoder vs WorkBuddy），不管 CN vs Global
+- 该开关只影响跨 family（Qoder vs WorkBuddy），不管 CN vs Global；升级后不再读取环境变量
 
 ## 产品决策（实现前锁定）
 

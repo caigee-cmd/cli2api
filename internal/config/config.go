@@ -7,23 +7,22 @@ import (
 )
 
 type Config struct {
-	Host                   string
-	Port                   int
-	ProxyAPIKey            string
-	QoderHome              string
-	DataDir                string
-	RuntimeDir             string
-	WorkerBasePort         int
-	NodeBinary             string
-	WorkerDaemonPath       string
-	QoderCLIPath           string
-	QoderCNCLIPath         string
-	PlainTemplatePath      string
-	UpdateSocketPath       string
-	UpdateAgentURL         string
-	UpdateAgentToken       string
-	UpdateGitHubToken      string
-	CrossProviderModelPool bool
+	Host              string
+	Port              int
+	ProxyAPIKey       string
+	QoderHome         string
+	DataDir           string
+	RuntimeDir        string
+	WorkerBasePort    int
+	NodeBinary        string
+	WorkerDaemonPath  string
+	QoderCLIPath      string
+	QoderCNCLIPath    string
+	PlainTemplatePath string
+	UpdateSocketPath  string
+	UpdateAgentURL    string
+	UpdateAgentToken  string
+	UpdateGitHubToken string
 }
 
 func Load() (Config, error) {
@@ -76,8 +75,6 @@ func Load() (Config, error) {
 		UpdateAgentURL:    strings.TrimSpace(os.Getenv("UPDATE_AGENT_URL")),
 		UpdateAgentToken:  strings.TrimSpace(os.Getenv("UPDATE_AGENT_TOKEN")),
 		UpdateGitHubToken: strings.TrimSpace(os.Getenv("UPDATE_GITHUB_TOKEN")),
-		CrossProviderModelPool: strings.EqualFold(strings.TrimSpace(os.Getenv("CROSS_PROVIDER_MODEL_POOL")), "1") ||
-			strings.EqualFold(strings.TrimSpace(os.Getenv("CROSS_PROVIDER_MODEL_POOL")), "true"),
 	}, nil
 }
 

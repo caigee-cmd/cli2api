@@ -251,8 +251,9 @@ WorkBuddy logins:
 - [ ] Empty account → select WorkBuddy CN/Global → browser login → chat `只回复OK`
 - [ ] Import `workbuddy-oauth-v1` JSON (accessToken + uid) → chat without browser
 - [ ] Two WorkBuddy accounts: A rate-limited → request succeeds through B
-- [ ] With `CROSS_PROVIDER_MODEL_POOL=1`, bare `glm-5.2` lands on both Qoder and
-      WorkBuddy families; Qoder fully down → failover to WorkBuddy in the same route pool
+- [ ] With the cross-provider model pool setting enabled (default), bare
+      `glm-5.2` lands on both Qoder and WorkBuddy families; Qoder fully down →
+      failover to WorkBuddy in the same route pool
 
 ## Phase M — session-sticky routing
 
