@@ -3,6 +3,7 @@ import { NavLink, useLocation } from 'react-router-dom'
 import { Drawer, Button, Chip, Separator, Tooltip } from '@heroui/react'
 import { Cube, Gauge, GearSix, Key, Lightning, Scroll, SidebarSimple, UsersThree, X } from '@phosphor-icons/react'
 import { BrandMark } from '@/components/BrandMark'
+import { SkeletonBlock } from '@/components/ui/PageSkeletons'
 import { gsap } from 'gsap'
 import { pressScale } from '@/hooks/useGsapReveal'
 import { useI18n } from '@/hooks/useI18n'
@@ -108,15 +109,40 @@ function Brand({ compact = false }: { compact?: boolean }) {
   )
 }
 
+function SidebarStatusSkeleton({ label }: { label: string }) {
+  return (
+    <div className="rounded-xl border border-border bg-surface p-3" aria-busy="true" aria-label={label}>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <SkeletonBlock className="size-2" />
+          <SkeletonBlock className="h-4 w-12" />
+        </div>
+        <SkeletonBlock className="h-5 w-10" />
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-3 border-t border-separator pt-3">
+        <div>
+          <SkeletonBlock className="h-3 w-10" />
+          <SkeletonBlock className="mt-1.5 h-4 w-12" />
+        </div>
+        <div>
+          <SkeletonBlock className="h-3 w-8" />
+          <SkeletonBlock className="mt-1.5 h-4 w-10" />
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function AppSidebar({ mobileOpen, onClose }: Props) {
   const { t } = useI18n()
-  const { overview } = useOverview()
+  const { overview, loading } = useOverview()
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem(COLLAPSE_KEY) === '1')
   const proxyOk = Boolean(overview?.proxy?.ok)
   const workerOk = Boolean(overview?.worker?.ok)
   const healthy = proxyOk && workerOk
   const accountCount = overview?.accounts?.length ?? 0
   const hotCount = overview?.accounts?.filter((account) => account.hot).length ?? 0
+  const showStatusSkeleton = loading
 
   function toggleCollapsed() {
     setCollapsed((current) => {
@@ -129,30 +155,38 @@ export function AppSidebar({ mobileOpen, onClose }: Props) {
   const footer = (
     <div className="mt-auto shrink-0 space-y-3 border-t border-separator pt-4">
       {!collapsed && (
-        <div className="rounded-xl border border-border bg-surface p-3">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2 text-sm font-medium">
-              <span className="status-dot" data-state={healthy ? 'ok' : 'danger'} />
-              {healthy ? t('running') : t('degraded')}
+        showStatusSkeleton ? (
+          <SidebarStatusSkeleton label={t('refreshing')} />
+        ) : (
+          <div className="rounded-xl border border-border bg-surface p-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <span className="status-dot" data-state={healthy ? 'ok' : 'danger'} />
+                {healthy ? t('running') : t('degraded')}
+              </div>
+              <Chip size="sm" variant="soft" color={healthy ? 'success' : 'warning'}>{hotCount}/{accountCount}</Chip>
             </div>
-            <Chip size="sm" variant="soft" color={healthy ? 'success' : 'warning'}>{hotCount}/{accountCount}</Chip>
+            <div className="mt-3 grid grid-cols-2 gap-3 border-t border-separator pt-3 text-xs">
+              <div>
+                <div className="text-muted">Proxy</div>
+                <div className="mt-1 font-medium">{proxyOk ? 'online' : 'down'}</div>
+              </div>
+              <div>
+                <div className="text-muted">{t('accountCount')}</div>
+                <div className="mono mt-1 font-medium">{hotCount}/{accountCount}</div>
+              </div>
+            </div>
           </div>
-          <div className="mt-3 grid grid-cols-2 gap-3 border-t border-separator pt-3 text-xs">
-            <div>
-              <div className="text-muted">Proxy</div>
-              <div className="mt-1 font-medium">{proxyOk ? 'online' : 'down'}</div>
-            </div>
-            <div>
-              <div className="text-muted">{t('accountCount')}</div>
-              <div className="mono mt-1 font-medium">{hotCount}/{accountCount}</div>
-            </div>
-          </div>
-        </div>
+        )
       )}
       <div className={`flex items-center gap-2 ${collapsed ? 'flex-col' : ''}`}>
         <Tooltip>
-          <Tooltip.Trigger><Button isIconOnly size="sm" variant="ghost" className={collapsed ? '' : 'hidden'} aria-label={t('runtimeSnapshot')}><span className="status-dot" data-state={healthy ? 'ok' : 'danger'} /></Button></Tooltip.Trigger>
-          <Tooltip.Content>{healthy ? t('running') : t('degraded')}</Tooltip.Content>
+          <Tooltip.Trigger>
+            <Button isIconOnly size="sm" variant="ghost" className={collapsed ? '' : 'hidden'} aria-label={t('runtimeSnapshot')}>
+              {showStatusSkeleton ? <SkeletonBlock className="size-2" /> : <span className="status-dot" data-state={healthy ? 'ok' : 'danger'} />}
+            </Button>
+          </Tooltip.Trigger>
+          <Tooltip.Content>{showStatusSkeleton ? t('refreshing') : healthy ? t('running') : t('degraded')}</Tooltip.Content>
         </Tooltip>
         <Button isIconOnly size="sm" variant="ghost" className={collapsed ? '' : 'ml-auto'} onPress={toggleCollapsed} aria-label={t('toggleSidebar')}><SidebarSimple size={16} className={collapsed ? 'rotate-180' : ''} /></Button>
       </div>

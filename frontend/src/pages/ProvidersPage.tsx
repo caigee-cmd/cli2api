@@ -41,6 +41,111 @@ function reasoningLabel(t: (key: string, vars?: Record<string, string | number>)
   return label === key ? level : label
 }
 
+type Translate = (key: string, vars?: Record<string, string | number>) => string
+
+function ModelContextControls({
+  model,
+  drafts,
+  saving,
+  t,
+  onDraft,
+  onToggleTraeMax,
+  onReasoningChange,
+}: {
+  model: ModelInfo
+  drafts: Record<string, string>
+  saving: boolean
+  t: Translate
+  onDraft: (key: string, value: string) => void
+  onToggleTraeMax: (model: ModelInfo, selected: boolean) => void
+  onReasoningChange: (model: ModelInfo, next: string) => void
+}) {
+  const key = modelSettingsKey(model)
+  const provider = modelProvider(model)
+  if (provider === 'qoder') {
+    return (
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <Input
+          className="w-full max-w-40"
+          type="number"
+          min={1024}
+          max={4000000}
+          step={1024}
+          value={drafts[key] ?? String(model.context_length || model.default_context_length || '')}
+          onChange={(event) => onDraft(key, event.target.value)}
+          aria-label={`${model.id} ${t('contextWindowCol')}`}
+        />
+        <span className="mono text-[10px] text-muted">tokens</span>
+      </div>
+    )
+  }
+  return (
+    <div className="flex min-w-0 flex-wrap items-center gap-3">
+      <span className="mono text-xs text-muted">{formatTokens(model.catalog_context_length || model.context_length)}</span>
+      {provider === 'trae' && model.supports_max_mode ? (
+        <div className="flex items-center gap-2">
+          <CompactSwitch
+            isSelected={Boolean(model.max_mode)}
+            isDisabled={saving}
+            ariaLabel={`${model.id} ${t('maxMode')}`}
+            onChange={(selected) => onToggleTraeMax(model, selected)}
+          />
+          <span className="text-[11px] text-muted">{t('maxMode')}{model.catalog_context_length_max ? ` ${formatTokens(model.catalog_context_length_max)}` : ''}</span>
+        </div>
+      ) : null}
+      {(model.reasoning_options || []).length > 1 ? (
+        <FilterSelect
+          className="min-w-28"
+          ariaLabel={`${model.id} ${t('reasoningLevels')}`}
+          value={model.reasoning_effort || model.reasoning_default || model.reasoning_options?.[0] || ''}
+          onChange={(next) => { if (next) onReasoningChange(model, next) }}
+          options={(model.reasoning_options || []).map((level) => ({ id: level, label: reasoningLabel(t, level) }))}
+        />
+      ) : (model.reasoning_options || []).length === 1 ? (
+        <span className="text-[11px] text-muted">{reasoningLabel(t, model.reasoning_options![0])}</span>
+      ) : model.reasoning_type ? (
+        <span className="text-[11px] text-muted">{t('reasoningFixed', { type: model.reasoning_type })}</span>
+      ) : provider === 'trae' && !model.supports_max_mode ? (
+        <span className="text-[11px] text-muted">{t('catalogWindow')}</span>
+      ) : null}
+    </div>
+  )
+}
+
+function ModelActions({
+  model,
+  saving,
+  t,
+  onSave,
+  onReset,
+  onDetails,
+}: {
+  model: ModelInfo
+  saving: boolean
+  t: Translate
+  onSave: (model: ModelInfo) => void
+  onReset: (model: ModelInfo) => void
+  onDetails: (model: ModelInfo) => void
+}) {
+  if (modelProvider(model) === 'qoder') {
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        <Button size="sm" variant="secondary" isPending={saving} onPress={() => onSave(model)}>
+          <FloppyDisk size={14} />{t('save')}
+        </Button>
+        <Button size="sm" variant="ghost" isDisabled={saving || !model.context_custom} onPress={() => onReset(model)} aria-label={t('resetDefault')}>
+          <ArrowCounterClockwise size={14} />
+        </Button>
+      </div>
+    )
+  }
+  return (
+    <Button size="sm" variant="ghost" onPress={() => onDetails(model)}>
+      <Info size={14} />{t('modelDetails')}
+    </Button>
+  )
+}
+
 export function ProvidersPage() {
   const { t } = useI18n()
   const { overview, loading, setOverview } = useOverview()
@@ -245,36 +350,38 @@ export function ProvidersPage() {
             {models.length ? shownLabel : t('noModelsYet')}
           </p>
         </div>
-        <div data-gsap-reveal className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <SearchBar className="sm:w-72" value={filter} onChange={setFilter} placeholder={t('filterPh')} ariaLabel={t('filter')} />
-          <FilterSelect
-            ariaLabel={t('providerCol')}
-            value={providerFilter}
-            onChange={setProviderFilter}
-            options={[
-              { id: '', label: t('providerFilterAll') },
-              ...providers.map((provider) => ({ id: provider, label: provider })),
-            ]}
-          />
-          <Button size="sm" variant="secondary" isPending={busy} onPress={() => void onRefresh()}>
-            <ArrowClockwise size={14} />
-            {busy ? t('refreshing') : t('refresh')}
-          </Button>
+        <div data-gsap-reveal className="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+          <SearchBar className="w-full min-w-0 sm:w-72" value={filter} onChange={setFilter} placeholder={t('filterPh')} ariaLabel={t('filter')} />
+          <div className="flex min-w-0 items-center gap-2">
+            <FilterSelect
+              ariaLabel={t('providerCol')}
+              value={providerFilter}
+              onChange={setProviderFilter}
+              options={[
+                { id: '', label: t('providerFilterAll') },
+                ...providers.map((provider) => ({ id: provider, label: provider })),
+              ]}
+            />
+            <Button size="sm" variant="secondary" isPending={busy} onPress={() => void onRefresh()}>
+              <ArrowClockwise size={14} />
+              {busy ? t('refreshing') : t('refresh')}
+            </Button>
+          </div>
         </div>
       </section>
 
       {message ? <PageAlert status={messageError ? 'danger' : 'success'} title={message} /> : null}
 
       <Card data-gsap-reveal className="overflow-hidden p-0">
-        <div className="flex items-center justify-between gap-4 border-b border-separator px-5 py-4">
-          <div className="flex items-center gap-3">
-            <div className="grid size-9 place-items-center rounded-lg bg-surface-secondary text-muted"><Cube size={16} /></div>
-            <div>
+        <div className="flex items-start justify-between gap-4 border-b border-separator px-4 py-4 sm:items-center sm:px-5">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-surface-secondary text-muted"><Cube size={16} /></div>
+            <div className="min-w-0">
               <div className="text-sm font-semibold">{t('providerCatalog')}</div>
-              <div className="mono mt-0.5 text-[10px] text-muted">{t('contextConfigHint')}</div>
+              <div className="mono mt-0.5 text-[10px] leading-4 text-muted">{t('contextConfigHint')}</div>
             </div>
           </div>
-          <Chip size="sm" variant="soft">{filtered.length}</Chip>
+          <Chip size="sm" variant="soft" className="shrink-0">{filtered.length}</Chip>
         </div>
 
         {busy || loading ? (
@@ -286,119 +393,125 @@ export function ProvidersPage() {
             hint={models.length ? (filter || providerFilter || t('noModelsMatch')) : t('noModelsYet')}
           />
         ) : (
-          <Table>
-            <Table.ScrollContainer>
-              <Table.Content aria-label={t('availableModels')}>
-                <Table.Header>
-                  <Table.Column isRowHeader>{t('modelCol')}</Table.Column>
-                  <Table.Column>{t('requestIdCol')}</Table.Column>
-                  <Table.Column>{t('providerCol')}</Table.Column>
-                  <Table.Column>{t('qoderKeyCol')}</Table.Column>
-                  <Table.Column>{t('contextWindowCol')}</Table.Column>
-                  <Table.Column>{t('stateCol')}</Table.Column>
-                  <Table.Column>{t('actions')}</Table.Column>
-                </Table.Header>
-                <Table.Body>
-                  {paged.map((model) => {
-                    const key = modelSettingsKey(model)
-                    const saving = savingKey === key
-                    const provider = modelProvider(model)
-                    return (
-                      <Table.Row key={modelRowKey(model)}>
-                        <Table.Cell>
-                          <div className="flex items-center gap-3 py-1">
-                            <span className="status-dot" data-state={model.stale ? undefined : 'ok'} />
-                            <div>
-                              <div className="font-medium">{model.display_name || model.id}</div>
-                              {routedModelName(model) ? <div className="mt-0.5 text-[10px] text-muted">{t('routedTo', { model: routedModelName(model) })}</div> : null}
+          <>
+            <div className="divide-y divide-separator lg:hidden">
+              {paged.map((model) => {
+                const key = modelSettingsKey(model)
+                const saving = savingKey === key
+                const provider = modelProvider(model)
+                return (
+                  <article key={modelRowKey(model)} className="space-y-3 px-4 py-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex min-w-0 items-start gap-3">
+                        <span className="status-dot mt-1.5" data-state={model.stale ? undefined : 'ok'} />
+                        <div className="min-w-0">
+                          <div className="truncate font-medium">{model.display_name || model.id}</div>
+                          <div className="mono mt-0.5 truncate text-[11px] text-muted">{model.id}</div>
+                          {routedModelName(model) ? <div className="mt-0.5 text-[10px] text-muted">{t('routedTo', { model: routedModelName(model) })}</div> : null}
+                        </div>
+                      </div>
+                      <Chip size="sm" variant="soft" color={model.context_custom ? 'warning' : model.stale ? 'warning' : 'success'}>
+                        {model.context_custom ? t('custom') : t('defaultValue')}
+                      </Chip>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                      <span className="inline-flex items-center gap-1.5">
+                        <ProviderMark provider={provider} size={14} />
+                        <span className="font-medium">{provider}</span>
+                      </span>
+                      <span className="mono break-all text-muted">{model.mapped_key || model.native_model || model.id}</span>
+                    </div>
+                    <ModelContextControls
+                      model={model}
+                      drafts={drafts}
+                      saving={saving}
+                      t={t}
+                      onDraft={(nextKey, value) => setDrafts((current) => ({ ...current, [nextKey]: value }))}
+                      onToggleTraeMax={(item, selected) => void onToggleTraeMax(item, selected)}
+                      onReasoningChange={(item, next) => void onReasoningChange(item, next)}
+                    />
+                    <ModelActions
+                      model={model}
+                      saving={saving}
+                      t={t}
+                      onSave={(item) => void onSave(item)}
+                      onReset={(item) => void onReset(item)}
+                      onDetails={setDetailModel}
+                    />
+                  </article>
+                )
+              })}
+            </div>
+            <Table className="hidden min-w-0 lg:block">
+              <Table.ScrollContainer className="min-w-0 overflow-x-auto">
+                <Table.Content aria-label={t('availableModels')} className="min-w-[68rem]">
+                  <Table.Header>
+                    <Table.Column isRowHeader>{t('modelCol')}</Table.Column>
+                    <Table.Column>{t('requestIdCol')}</Table.Column>
+                    <Table.Column>{t('providerCol')}</Table.Column>
+                    <Table.Column>{t('qoderKeyCol')}</Table.Column>
+                    <Table.Column>{t('contextWindowCol')}</Table.Column>
+                    <Table.Column>{t('stateCol')}</Table.Column>
+                    <Table.Column>{t('actions')}</Table.Column>
+                  </Table.Header>
+                  <Table.Body>
+                    {paged.map((model) => {
+                      const key = modelSettingsKey(model)
+                      const saving = savingKey === key
+                      const provider = modelProvider(model)
+                      return (
+                        <Table.Row key={modelRowKey(model)}>
+                          <Table.Cell>
+                            <div className="flex items-center gap-3 py-1">
+                              <span className="status-dot" data-state={model.stale ? undefined : 'ok'} />
+                              <div className="min-w-0">
+                                <div className="font-medium">{model.display_name || model.id}</div>
+                                {routedModelName(model) ? <div className="mt-0.5 text-[10px] text-muted">{t('routedTo', { model: routedModelName(model) })}</div> : null}
+                              </div>
                             </div>
-                          </div>
-                        </Table.Cell>
-                        <Table.Cell><span className="mono text-xs font-medium">{model.id}</span></Table.Cell>
-                        <Table.Cell>
-                          <div className="flex items-center gap-2">
-                            <ProviderMark provider={provider} size={14} />
-                            <span className="text-xs font-medium">{provider}</span>
-                          </div>
-                        </Table.Cell>
-                        <Table.Cell><span className="mono text-xs text-muted">{model.mapped_key || model.native_model || model.id}</span></Table.Cell>
-                        <Table.Cell>
-                          {provider === 'qoder' ? (
-                            <div className="flex min-w-52 items-center gap-2">
-                              <Input
-                                className="w-40"
-                                type="number"
-                                min={1024}
-                                max={4000000}
-                                step={1024}
-                                value={drafts[key] ?? String(model.context_length || model.default_context_length || '')}
-                                onChange={(event) => setDrafts((current) => ({ ...current, [key]: event.target.value }))}
-                                aria-label={`${model.id} ${t('contextWindowCol')}`}
-                              />
-                              <span className="mono text-[10px] text-muted">tokens</span>
+                          </Table.Cell>
+                          <Table.Cell><span className="mono text-xs font-medium">{model.id}</span></Table.Cell>
+                          <Table.Cell>
+                            <div className="flex items-center gap-2">
+                              <ProviderMark provider={provider} size={14} />
+                              <span className="text-xs font-medium">{provider}</span>
                             </div>
-                          ) : (
-                            <div className="flex min-w-64 flex-wrap items-center gap-3">
-                              <span className="mono text-xs text-muted">{formatTokens(model.catalog_context_length || model.context_length)}</span>
-                              {provider === 'trae' && model.supports_max_mode ? (
-                                <div className="flex items-center gap-2">
-                                  <CompactSwitch
-                                    isSelected={Boolean(model.max_mode)}
-                                    isDisabled={saving}
-                                    ariaLabel={`${model.id} ${t('maxMode')}`}
-                                    onChange={(selected) => void onToggleTraeMax(model, selected)}
-                                  />
-                                  <span className="text-[11px] text-muted">{t('maxMode')}{model.catalog_context_length_max ? ` ${formatTokens(model.catalog_context_length_max)}` : ''}</span>
-                                </div>
-                              ) : null}
-                              {(model.reasoning_options || []).length > 1 ? (
-                                <FilterSelect
-                                  className="min-w-28"
-                                  ariaLabel={`${model.id} ${t('reasoningLevels')}`}
-                                  value={model.reasoning_effort || model.reasoning_default || model.reasoning_options?.[0] || ''}
-                                  onChange={(next) => { if (next) void onReasoningChange(model, next) }}
-                                  options={(model.reasoning_options || []).map((level) => ({ id: level, label: reasoningLabel(t, level) }))}
-                                />
-                              ) : (model.reasoning_options || []).length === 1 ? (
-                                <span className="text-[11px] text-muted">{reasoningLabel(t, model.reasoning_options![0])}</span>
-                              ) : model.reasoning_type ? (
-                                <span className="text-[11px] text-muted">{t('reasoningFixed', { type: model.reasoning_type })}</span>
-                              ) : provider === 'trae' && !model.supports_max_mode ? (
-                                <span className="text-[11px] text-muted">{t('catalogWindow')}</span>
-                              ) : null}
-                            </div>
-                          )}
-                        </Table.Cell>
-                        <Table.Cell>
-                          <Chip size="sm" variant="soft" color={model.context_custom ? 'warning' : model.stale ? 'warning' : 'success'}>
-                            {model.context_custom ? t('custom') : t('defaultValue')}
-                          </Chip>
-                        </Table.Cell>
-                        <Table.Cell>
-                          <div className="flex items-center gap-2">
-                            {provider === 'qoder' ? (
-                              <>
-                                <Button size="sm" variant="secondary" isPending={saving} onPress={() => void onSave(model)}>
-                                  <FloppyDisk size={14} />{t('save')}
-                                </Button>
-                                <Button size="sm" variant="ghost" isDisabled={saving || !model.context_custom} onPress={() => void onReset(model)} aria-label={t('resetDefault')}>
-                                  <ArrowCounterClockwise size={14} />
-                                </Button>
-                              </>
-                            ) : (
-                              <Button size="sm" variant="ghost" onPress={() => setDetailModel(model)}>
-                                <Info size={14} />{t('modelDetails')}
-                              </Button>
-                            )}
-                          </div>
-                        </Table.Cell>
-                      </Table.Row>
-                    )
-                  })}
-                </Table.Body>
-              </Table.Content>
-            </Table.ScrollContainer>
-          </Table>
+                          </Table.Cell>
+                          <Table.Cell><span className="mono text-xs text-muted">{model.mapped_key || model.native_model || model.id}</span></Table.Cell>
+                          <Table.Cell>
+                            <ModelContextControls
+                              model={model}
+                              drafts={drafts}
+                              saving={saving}
+                              t={t}
+                              onDraft={(nextKey, value) => setDrafts((current) => ({ ...current, [nextKey]: value }))}
+                              onToggleTraeMax={(item, selected) => void onToggleTraeMax(item, selected)}
+                              onReasoningChange={(item, next) => void onReasoningChange(item, next)}
+                            />
+                          </Table.Cell>
+                          <Table.Cell>
+                            <Chip size="sm" variant="soft" color={model.context_custom ? 'warning' : model.stale ? 'warning' : 'success'}>
+                              {model.context_custom ? t('custom') : t('defaultValue')}
+                            </Chip>
+                          </Table.Cell>
+                          <Table.Cell>
+                            <ModelActions
+                              model={model}
+                              saving={saving}
+                              t={t}
+                              onSave={(item) => void onSave(item)}
+                              onReset={(item) => void onReset(item)}
+                              onDetails={setDetailModel}
+                            />
+                          </Table.Cell>
+                        </Table.Row>
+                      )
+                    })}
+                  </Table.Body>
+                </Table.Content>
+              </Table.ScrollContainer>
+            </Table>
+          </>
         )}
       </Card>
 

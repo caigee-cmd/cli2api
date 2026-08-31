@@ -74,6 +74,7 @@ type RequestLogFilter struct {
 	Stream    *bool
 	ErrorKind string
 	Model     string
+	ID        string
 	Query     string
 	From      *time.Time
 	To        *time.Time
@@ -720,10 +721,13 @@ func buildRequestLogWhere(filter RequestLogFilter) (string, []any) {
 		clauses = append(clauses, "(requested_model = ? OR mapped_model = ?)")
 		args = append(args, model, model)
 	}
+	if id := strings.TrimSpace(filter.ID); id != "" {
+		clauses = append(clauses, "id = ?")
+		args = append(args, id)
+	}
 	if query := strings.TrimSpace(filter.Query); query != "" {
-		like := "%" + query + "%"
-		clauses = append(clauses, "(id LIKE ? OR requested_model LIKE ? OR mapped_model LIKE ? OR account_id LIKE ? OR error_message LIKE ?)")
-		args = append(args, like, like, like, like, like)
+		clauses = append(clauses, "id LIKE ?")
+		args = append(args, "%"+query+"%")
 	}
 	if filter.From != nil && !filter.From.IsZero() {
 		clauses = append(clauses, "substr(created_at, 1, 19) >= ?")

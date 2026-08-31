@@ -16,6 +16,8 @@
   --accent: #18181b;
   --accent-foreground: #fcfcfc;
   --focus: var(--accent);
+  --accent-soft: color-mix(in oklab, var(--accent) 28%, transparent);
+  --accent-soft-hover: color-mix(in oklab, var(--accent) 36%, transparent);
 }
 
 .dark,
@@ -23,6 +25,8 @@
   --accent: #fcfcfc;
   --accent-foreground: #18181b;
   --focus: var(--accent);
+  --accent-soft: color-mix(in oklab, var(--accent) 22%, transparent);
+  --accent-soft-hover: color-mix(in oklab, var(--accent) 30%, transparent);
 }
 
 html,
