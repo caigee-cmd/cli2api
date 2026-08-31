@@ -91,8 +91,68 @@ func NewManager(config ManagerConfig, store *Store, starter ProcessStarter) *Man
 	}
 	manager.pool.SetObserver(func(item Item) {
 		_ = manager.store.RecordPoolState(context.Background(), item)
+		// Cooldowns live in memory only, so every managed update (they run
+		// daily) used to wipe them and let a just-quarantined account walk
+		// straight back into rotation. Persist on every state change.
+		_ = manager.store.SaveCooldowns(context.Background(), item.ID, cooldownRows(item))
 	})
 	return manager
+}
+
+// cooldownRows flattens one pool item into persisted cooldown rows: the
+// account-wide cooldown plus any model-scoped ones.
+func cooldownRows(item Item) []CooldownRow {
+	rows := make([]CooldownRow, 0, 1+len(item.ModelDownUntil))
+	if !item.DownUntil.IsZero() {
+		rows = append(rows, CooldownRow{
+			AccountID: item.ID, DownUntil: item.DownUntil,
+			BackoffLevel: item.BackoffLevel, Kind: item.LastKind, Message: item.LastError,
+		})
+	}
+	for model, until := range item.ModelDownUntil {
+		if until.IsZero() {
+			continue
+		}
+		rows = append(rows, CooldownRow{
+			AccountID: item.ID, Model: model, DownUntil: until,
+			BackoffLevel: item.BackoffLevel, Kind: item.LastKind, Message: item.LastError,
+		})
+	}
+	return rows
+}
+
+// restoreCooldowns reloads persisted cooldowns into the pool after accounts
+// are registered. Managed updates recreate the container regularly, and
+// without this a rate-limited account would be retried immediately on boot.
+func (m *Manager) restoreCooldowns(ctx context.Context) {
+	rows, err := m.store.LoadCooldowns(ctx)
+	if err != nil {
+		log.Printf("restore cooldowns: %v", err)
+		return
+	}
+	restored := 0
+	for _, row := range rows {
+		item, ok := m.pool.ByID(row.AccountID)
+		if !ok {
+			continue
+		}
+		if row.BackoffLevel > item.BackoffLevel {
+			item.BackoffLevel = row.BackoffLevel
+		}
+		if row.Model == "" {
+			item.DownUntil = row.DownUntil
+		} else {
+			if item.ModelDownUntil == nil {
+				item.ModelDownUntil = map[string]time.Time{}
+			}
+			item.ModelDownUntil[row.Model] = row.DownUntil
+		}
+		m.pool.Upsert(item)
+		restored++
+	}
+	if restored > 0 {
+		log.Printf("restored %d cooldown(s) from SQLite", restored)
+	}
 }
 
 func (m *Manager) Start(ctx context.Context) error {
@@ -108,6 +168,8 @@ func (m *Manager) Start(ctx context.Context) error {
 			m.pool.MarkDown(account.ID, 0, err.Error())
 		}
 	}
+	// After registration so there is an item to restore into.
+	m.restoreCooldowns(ctx)
 	return nil
 }
 
@@ -188,6 +250,7 @@ func (m *Manager) startAccount(ctx context.Context, account Account) error {
 		m.pool.Upsert(Item{
 			ID: account.ID, Provider: descriptor.ID, Region: account.ProviderRegion,
 			Runtime: string(descriptor.Runtime), DropSystemPrompt: account.DropSystemPrompt,
+			Weight: NormalizeWeight(account.Priority), MaxInFlight: account.MaxInFlight,
 		})
 		return nil
 	}
@@ -217,6 +280,7 @@ func (m *Manager) startAccount(ctx context.Context, account Account) error {
 	m.pool.Upsert(Item{
 		ID: account.ID, URL: process.URL(), Provider: descriptor.ID,
 		Region: account.ProviderRegion, Runtime: string(descriptor.Runtime), Restarts: restarts,
+		Weight: NormalizeWeight(account.Priority), MaxInFlight: account.MaxInFlight,
 	})
 	go m.watchAccount(account.ID, process)
 	return nil
