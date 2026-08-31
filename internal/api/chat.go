@@ -185,43 +185,14 @@ func normalizeProviderFamily(provider string) string {
 	return provider
 }
 
-func (s *Server) poolProviderFamilies() map[string]struct{} {
-	families := map[string]struct{}{}
-	if s == nil || s.pool == nil {
-		return families
-	}
-	for _, item := range s.pool.Items() {
-		families[normalizeProviderFamily(item.Provider)] = struct{}{}
-	}
-	return families
-}
-
-func (s *Server) hasProviderFamily(want string) bool {
-	want = normalizeProviderFamily(want)
-	_, ok := s.poolProviderFamilies()[want]
-	return ok
-}
-
-// soleProviderFamily returns the only configured provider family when the pool
-// contains accounts from exactly one family. Empty means mixed or empty.
-func (s *Server) soleProviderFamily() string {
-	families := s.poolProviderFamilies()
-	if len(families) != 1 {
-		return ""
-	}
-	for family := range families {
-		return family
-	}
-	return ""
-}
-
 // resolveProviderFilter enforces public-model ID rules. Prefixed IDs pin one
-// provider family. Bare IDs stay on Qoder when any Qoder account exists, unless
-// the cross-provider model pool setting leaves the filter empty for a shared
-// route pool.
-// If the deployment has zero Qoder accounts and exactly one other family, bare
-// IDs fall through to that sole family so WorkBuddy-only installs work with
-// catalog IDs copied from /v1/models.
+// provider family. Bare IDs are rejected when the cross-provider model pool
+// setting is disabled; when enabled, the filter is empty for a shared route
+// pool.
+func (s *Server) rejectsBareModel(model string) bool {
+	return strings.TrimSpace(model) != "" && !s.crossProviderModelPool.Load() && providerPrefix(model) == ""
+}
+
 func (s *Server) resolveProviderFilter(req *translate.ChatRequest) string {
 	model := strings.TrimSpace(req.Model)
 	if model == "" {
@@ -233,11 +204,6 @@ func (s *Server) resolveProviderFilter(req *translate.ChatRequest) string {
 	}
 	if s != nil && s.crossProviderModelPool.Load() {
 		return ""
-	}
-	if s != nil && !s.hasProviderFamily("qoder") {
-		if sole := s.soleProviderFamily(); sole != "" {
-			return sole
-		}
 	}
 	return "qoder"
 }
@@ -312,6 +278,10 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	publicModel := req.Model
+	if s.rejectsBareModel(publicModel) {
+		writeErr(w, http.StatusBadRequest, "provider_prefix_required", "cross-provider model pool is disabled; use a provider-prefixed model ID such as qoder/glm-5.2")
+		return
+	}
 	providerFilter := s.resolveProviderFilter(&req)
 	prefer := s.requestedAccount(r)
 	providerFilter = s.applyPinnedProviderFilter(providerFilter, publicModel, prefer)
