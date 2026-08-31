@@ -1,7 +1,7 @@
 # Contributing
 
 CLI2API is Qoder-first. Keep changes focused and do not add other providers until the
-current Qoder milestone in `docs/PLAN.md` is complete.
+current Qoder milestone is complete. Hard rules live in `AGENTS.md`.
 
 ## Setup
 
@@ -56,8 +56,8 @@ For an end-to-end run, use the Docker Compose flow in `deploy/README.md`.
 
 User-facing changes should add matching bullets to `CHANGELOG.md` under
 `## Unreleased` in both `### English` and `### 中文`. The release workflow
-copies those notes into the GitHub Release body. Maintainers publish tags
-from `docs/DEVELOPMENT.md`; do not create version tags by hand.
+copies those notes into the GitHub Release body. Do not create version tags
+by hand.
 
 ## Rules
 
@@ -67,9 +67,9 @@ from `docs/DEVELOPMENT.md`; do not create version tags by hand.
 - Preserve the proven WASM encode and HTTP/SSE request path
 - Use HeroUI for console components
 - Add tests for account, routing, API, or translation behavior changes
-- Treat shipped SQLite migration SQL as immutable. Add a new numbered file instead of editing an applied one; pin the canonical checksum in tests. See `docs/DESIGN.md`
+- Treat shipped SQLite migration SQL as immutable. Add a new numbered file instead of editing an applied one; pin the canonical checksum in tests.
 - Do not commit `.env`, `.qoder`, auth blobs, tokens, raw captures, host IPs, or
   `docs/PRIVATE_DEPLOYMENT.md`
 
-Architecture and UI decisions live in `docs/DESIGN.md`. Work in progress lives in
-`docs/PLAN.md`. Maintainer release and tag steps live in `docs/DEVELOPMENT.md`.
+Hard rules live in `AGENTS.md`. Maintainer design, milestone, and release notes
+are local gitignored files, not part of the public tree.

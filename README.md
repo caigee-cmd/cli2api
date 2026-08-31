@@ -1,10 +1,10 @@
 # CLI2API
 
-[English](README_EN.md) · [问题反馈](https://github.com/caigee-cmd/cli2api/issues) · [贡献指南](CONTRIBUTING.md)
+[English](README_EN.md) · [问题反馈](https://github.com/caigee-cmd/cli2api/issues) · [贡献指南](CONTRIBUTING.md) · [LINUX DO](https://linux.do)
 
-[![CI](https://github.com/caigee-cmd/cli2api/actions/workflows/ci.yml/badge.svg)](https://github.com/caigee-cmd/cli2api/actions/workflows/ci.yml)
 [![Docker Image](https://ghcr-badge.egpl.dev/caigee-cmd/cli2api/latest_tag?label=docker&color=blue)](https://github.com/caigee-cmd/cli2api/pkgs/container/cli2api)
 [![License](https://img.shields.io/github/license/caigee-cmd/cli2api)](LICENSE)
+[![LINUX DO](https://img.shields.io/badge/LINUX%20DO-community-ff6a00)](https://linux.do)
 
 <p align="center">
   <img src="./docs/assets/readme/hero-zh.svg" width="100%" alt="CLI2API — 把你的 Qoder CLI 登录态，变成一个本机运行的 OpenAI 兼容 API">
@@ -76,8 +76,6 @@ CLI2API 是本地网关：不提供账号、额度或官方 API 服务，不做�
 
 ## Roadmap
 
-详细清单见 [docs/PLAN.md](docs/PLAN.md)。
-
 **进行中**
 
 - Qoder 国内版与 WorkBuddy 的真账号验收（登录、故障切换、混合账号池）
@@ -94,21 +92,21 @@ CLI2API 是本地网关：不提供账号、额度或官方 API 服务，不做�
 
 **长期**
 
-- 更多上游渠道（Cursor、Trae CN Solo 等，WorkBuddy 验收后评估；Solo 调研见 `docs/PROVIDERS_TRAE_SOLO.md`）
+- 更多上游渠道（Cursor、Trae CN Solo 等，WorkBuddy 验收后评估）
 - 可选的提示词 / 回复留档（显式开关，默认关闭）
 
 ## 文档
 
 - [部署与运维：启动步骤、环境变量、接口、托管更新](deploy/README.md)
-- [开发与发布流程](docs/DEVELOPMENT.md)
-- [架构、登录、路由和控制台设计](docs/DESIGN.md)
-- [里程碑与开发计划](docs/PLAN.md)
-- [多上游账号类型对照](docs/PROVIDERS.md)
 - [变更记录](CHANGELOG.md)
 
 ## 安全
 
 默认只监听 `127.0.0.1:3010`，全接口需要 API Key。不要提交 `.qoder`、Token、Cookie、登录 Blob 或原始抓包；凭证导出是显式敏感操作，请妥善保管导出文件。上游 API 或 CLI 更新可能导致兼容性变化，项目会固定并检查 qodercli 版本。发现安全问题请按 [SECURITY.md](SECURITY.md) 私下报告。
+
+## 社区
+
+中文讨论见 [LINUX DO](https://linux.do)。缺陷和功能请求请继续走 GitHub [Issue](https://github.com/caigee-cmd/cli2api/issues)。
 
 ## 贡献
 
