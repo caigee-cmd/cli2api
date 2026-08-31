@@ -3,6 +3,7 @@ package workbuddy
 import (
 	"strings"
 
+	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/providers"
 )
 
@@ -89,7 +90,9 @@ func (c *Client) capsFor(model string) providers.ModelCapabilities {
 	c.mu.Lock()
 	info, ok := c.catalog[model]
 	if !ok {
-		info, ok = c.catalog[strings.ToLower(model)]
+		// Public model IDs may arrive underscored or mixed-case; the console
+		// canonical form (lowercase, _ folded to -) is the stable join key.
+		info, ok = c.catalog[accounts.CanonicalModelID(model)]
 	}
 	c.mu.Unlock()
 	if ok {
