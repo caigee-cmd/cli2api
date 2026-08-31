@@ -1,14 +1,15 @@
+<div align="center">
+
 # CLI2API
 
 [English](README_EN.md) · [问题反馈](https://github.com/caigee-cmd/cli2api/issues) · [贡献指南](CONTRIBUTING.md) · [LINUX DO](https://linux.do)
 
-[![Docker Image](https://ghcr-badge.egpl.dev/caigee-cmd/cli2api/latest_tag?label=docker&color=blue)](https://github.com/caigee-cmd/cli2api/pkgs/container/cli2api)
 [![License](https://img.shields.io/github/license/caigee-cmd/cli2api)](LICENSE)
 [![LINUX DO](https://img.shields.io/badge/LINUX%20DO-community-ff6a00)](https://linux.do)
 
-<p align="center">
-  <img src="./docs/assets/readme/hero-zh.svg" width="100%" alt="CLI2API — 把你的 Qoder CLI 登录态，变成一个本机运行的 OpenAI 兼容 API">
-</p>
+<img src="./docs/assets/readme/hero-zh.svg" width="100%" alt="CLI2API — 把你的 Qoder CLI 登录态，变成一个本机运行的 OpenAI 兼容 API">
+
+</div>
 
 > **自托管多账号聚合网关** —— 把 Qoder 国际版、Qoder 国内版和 WorkBuddy 的自有登录态聚合成一个本机 OpenAI 兼容 API。常驻热 worker、多账号调度与故障切换，Docker 单容器部署，Web 控制台管理。
 

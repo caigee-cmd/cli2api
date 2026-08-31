@@ -1,14 +1,15 @@
+<div align="center">
+
 # CLI2API
 
 [中文](README.md) · [Issues](https://github.com/caigee-cmd/cli2api/issues) · [Contributing](CONTRIBUTING.md) · [LINUX DO](https://linux.do)
 
-[![Docker Image](https://ghcr-badge.egpl.dev/caigee-cmd/cli2api/latest_tag?label=docker&color=blue)](https://github.com/caigee-cmd/cli2api/pkgs/container/cli2api)
 [![License](https://img.shields.io/github/license/caigee-cmd/cli2api)](LICENSE)
 [![LINUX DO](https://img.shields.io/badge/LINUX%20DO-community-ff6a00)](https://linux.do)
 
-<p align="center">
-  <img src="./docs/assets/readme/hero-en.svg" width="100%" alt="CLI2API — your Qoder CLI login, served as a local OpenAI-compatible API">
-</p>
+<img src="./docs/assets/readme/hero-en.svg" width="100%" alt="CLI2API — your Qoder CLI login, served as a local OpenAI-compatible API">
+
+</div>
 
 > **A self-hosted multi-account gateway** — aggregates your own Qoder Global, Qoder CN, and WorkBuddy logins into one local OpenAI-compatible API. Long-lived warm workers, multi-account scheduling with failover, a single Docker container, and a web console.
 

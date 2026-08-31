@@ -7,6 +7,7 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Center the README title, language links, and remaining badges, and drop the Docker image badge
 - Point README community discussion at LINUX DO, drop the CI badge, and keep documentation links on files that remain public
 - Stop tracking maintainer design, plan, and provider notes; they stay local through `.gitignore`
 - When the cross-provider model pool is disabled, reject bare model IDs instead of silently routing them to Qoder
@@ -16,6 +17,7 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### 中文
 
+- README 标题、语言切换和剩余徽章居中，并去掉 Docker Image 徽章
 - README 增加 LINUX DO 社区入口，去掉 CI badge，文档链接只保留仍公开发布的文件
 - 不再跟踪维护用的设计、计划和上游调研文档，改由 `.gitignore` 留在本地
 - 关闭跨 Provider 模型池后拒绝 bare model ID，不再静默回落到 Qoder
