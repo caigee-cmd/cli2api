@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -480,7 +482,63 @@ func outcomeFromAggregate(aggregate map[string]any) (providers.ChatOutcome, erro
 
 func classifiedError(status int, body []byte) error {
 	classified := Classify(status, string(body))
-	return &providers.Error{Kind: classified.Kind, Status: classified.Status, Message: classified.Message}
+	out := &providers.Error{Kind: classified.Kind, Status: classified.Status, Message: classified.Message}
+	if classified.Kind == accounts.KindRateLimit {
+		if reset := parseQuotaReset(string(body), time.Now()); reset > 0 {
+			out.Cooldown = reset
+		}
+	}
+	return out
+}
+
+var quotaResetPattern = regexp.MustCompile(`(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})`)
+
+// parseQuotaReset extracts the absolute reset time WorkBuddy embeds in its
+// usage-limit message, e.g.
+//
+//	{"code":6004,"msg":"您的使用量已超出频率限制，将在 2026-09-01 13:56:47 UTC+8 重置"}
+//
+// The timestamp is wall-clock local time (UTC+8 for the CN deployment), so it
+// is interpreted in that fixed zone and converted to a remaining duration.
+// Returns 0 when no reset time is present, leaving the caller's fallback.
+func parseQuotaReset(body string, now time.Time) time.Duration {
+	var env struct {
+		Code int    `json:"code"`
+		Msg  string `json:"msg"`
+	}
+	if err := json.Unmarshal([]byte(body), &env); err != nil || env.Code != rateLimitCode {
+		return 0
+	}
+	match := quotaResetPattern.FindStringSubmatch(env.Msg)
+	if match == nil {
+		return 0
+	}
+	atoi := func(s string) int {
+		n, err := strconv.Atoi(s)
+		if err != nil {
+			return -1
+		}
+		return n
+	}
+	year, month, day := atoi(match[1]), atoi(match[2]), atoi(match[3])
+	hour, minute, second := atoi(match[4]), atoi(match[5]), atoi(match[6])
+	// time.Date normalizes out-of-range values (month 13 becomes January of
+	// the next year), so reject them explicitly instead of trusting the parse.
+	if year < 0 || month < 1 || month > 12 || day < 1 || day > 31 {
+		return 0
+	}
+	if hour > 23 || minute > 59 || second > 59 {
+		return 0
+	}
+	resetAt := time.Date(year, time.Month(month), day, hour, minute, second, 0, quotaResetLocation)
+	if resetAt.Day() != day || int(resetAt.Month()) != month || resetAt.Year() != year {
+		return 0
+	}
+	remaining := resetAt.Sub(now)
+	if remaining <= 0 {
+		return 0
+	}
+	return remaining
 }
 
 // ClassifiedError is the historical WorkBuddy alias for providers.Error.

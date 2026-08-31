@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
+	"github.com/caigee-cmd/cli2api/internal/providers"
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
@@ -327,5 +328,53 @@ func TestChatStreamProxyDoesNotUseClientTotalTimeout(t *testing.T) {
 	}
 	if string(body) != "data: [DONE]\n\n" {
 		t.Fatalf("body = %q", body)
+	}
+}
+
+// A provider can answer 200 and then fail inside the SSE body. The executor's
+// attempt loop already returned, so this is the only hook that can mark the
+// account down for the next request.
+func TestObserveStreamFailureCoolsDownQuotaAccount(t *testing.T) {
+	pool := accounts.NewPool([]string{"http://127.0.0.1:1"}, []string{"acc-quota"})
+	pool.Upsert(accounts.Item{ID: "acc-quota"})
+	ex := NewChatExecutor(pool, "")
+
+	ex.ObserveStreamFailure("acc-quota", &providers.Error{
+		Kind:    accounts.KindQuota,
+		Status:  429,
+		Message: "Your requests have exceeded the quota.",
+	})
+
+	item, ok := pool.ByID("acc-quota")
+	if !ok {
+		t.Fatal("account missing")
+	}
+	if item.LastKind != accounts.KindQuota {
+		t.Fatalf("last kind=%q want %q", item.LastKind, accounts.KindQuota)
+	}
+	if item.DownUntil.IsZero() {
+		t.Fatal("quota failure must schedule a cooldown")
+	}
+}
+
+func TestObserveStreamFailureLeavesHealthyAccountAlone(t *testing.T) {
+	pool := accounts.NewPool([]string{"http://127.0.0.1:1"}, []string{"acc-ok"})
+	pool.Upsert(accounts.Item{ID: "acc-ok"})
+	ex := NewChatExecutor(pool, "")
+
+	// The request body was rejected; retrying elsewhere cannot help and the
+	// account is not at fault, so it must stay schedulable.
+	ex.ObserveStreamFailure("acc-ok", &providers.Error{
+		Kind:    accounts.KindInvalidRequest,
+		Status:  400,
+		Message: "a message has empty content",
+	})
+	// No error at all also means no state change.
+	ex.ObserveStreamFailure("acc-ok", nil)
+	ex.ObserveStreamFailure("", &providers.Error{Kind: accounts.KindQuota})
+
+	item, _ := pool.ByID("acc-ok")
+	if item.LastKind != "" || !item.DownUntil.IsZero() {
+		t.Fatalf("account polluted: kind=%q down=%v", item.LastKind, item.DownUntil)
 	}
 }
