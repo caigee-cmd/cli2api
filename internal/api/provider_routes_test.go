@@ -34,10 +34,6 @@ func TestResolveProviderFilterPinsFamilyAndKeepsBareID(t *testing.T) {
 	if got := s.resolveProviderFilter(req); got != "trae" || req.Model != "glm-5.2" {
 		t.Fatalf("filter=%s model=%s", got, req.Model)
 	}
-	req = modelChatRequest("glm-5.2")
-	if got := s.resolveProviderFilter(req); got != "qoder" || req.Model != "glm-5.2" {
-		t.Fatalf("bare model filter=%s model=%s", got, req.Model)
-	}
 	s.crossProviderModelPool.Store(true)
 	req = modelChatRequest("glm-5.2")
 	if got := s.resolveProviderFilter(req); got != "" || req.Model != "glm-5.2" {
@@ -45,29 +41,19 @@ func TestResolveProviderFilterPinsFamilyAndKeepsBareID(t *testing.T) {
 	}
 }
 
-func TestResolveProviderFilterFallsBackToSoleFamily(t *testing.T) {
-	pool := accounts.NewPool(nil, nil)
-	pool.Upsert(accounts.Item{ID: "wb1", Provider: "workbuddy", Runtime: "in_process"})
-	s := &Server{pool: pool}
-
-	req := modelChatRequest("glm-5.2")
-	if got := s.resolveProviderFilter(req); got != "workbuddy" || req.Model != "glm-5.2" {
-		t.Fatalf("workbuddy-only bare filter=%s model=%s", got, req.Model)
+func TestDisabledCrossProviderModelPoolRejectsBareModels(t *testing.T) {
+	s := &Server{}
+	if !s.rejectsBareModel("glm-5.2") {
+		t.Fatal("bare model must require a provider prefix when the pool is disabled")
 	}
-
-	pool.Upsert(accounts.Item{ID: "q1", URL: "http://q1", Provider: "qoder", Runtime: "child_process"})
-	req = modelChatRequest("glm-5.2")
-	if got := s.resolveProviderFilter(req); got != "qoder" || req.Model != "glm-5.2" {
-		t.Fatalf("mixed pool bare filter=%s model=%s", got, req.Model)
+	for _, model := range []string{"qoder/glm-5.2", "workbuddy/glm-5.2", "trae/glm-5.2"} {
+		if s.rejectsBareModel(model) {
+			t.Fatalf("prefixed model must remain allowed: %s", model)
+		}
 	}
-
-	pool = accounts.NewPool(nil, nil)
-	pool.Upsert(accounts.Item{ID: "wb1", Provider: "workbuddy", Runtime: "in_process"})
-	pool.Upsert(accounts.Item{ID: "t1", Provider: "trae", Runtime: "in_process"})
-	s.pool = pool
-	req = modelChatRequest("glm-5.2")
-	if got := s.resolveProviderFilter(req); got != "qoder" || req.Model != "glm-5.2" {
-		t.Fatalf("multi non-qoder bare filter=%s model=%s", got, req.Model)
+	s.crossProviderModelPool.Store(true)
+	if s.rejectsBareModel("glm-5.2") {
+		t.Fatal("bare model must be allowed when the pool is enabled")
 	}
 }
 
