@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.2.27 - 2026-08-31
+
+### English
+
 - Fix Trae and WorkBuddy per-model settings (max mode, reasoning effort) never taking effect: the console stores them under the canonical model key while chat requests looked them up with a plain lowercase match, so mixed-case Trae model IDs and underscored public IDs missed the saved row; lookups now share one canonical key, cold-catalog refreshes no longer drop max mode, and a requested-but-unsupported max mode is logged instead of silently dropped
 
 ### 中文
