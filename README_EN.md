@@ -2,25 +2,27 @@
 
 # CLI2API
 
-[中文](README.md) · [Issues](https://github.com/caigee-cmd/cli2api/issues) · [Contributing](CONTRIBUTING.md) · [LINUX DO](https://linux.do)
+**Turn your own logins into a local OpenAI-compatible API**
+
+Supports **Qoder Global**, **Qoder CN**, **WorkBuddy Global**, **WorkBuddy CN**, and **Trae CN Solo**.
+
+Long-lived workers, multi-account scheduling, one-command Docker start.
 
 [![License](https://img.shields.io/github/license/caigee-cmd/cli2api)](LICENSE)
 [![LINUX DO](https://img.shields.io/badge/LINUX%20DO-community-ff6a00)](https://linux.do)
 
-<img src="./docs/assets/readme/hero-en.svg" width="100%" alt="CLI2API — your Qoder CLI login, served as a local OpenAI-compatible API">
+<sub>[中文](README.md) · [Issues](https://github.com/caigee-cmd/cli2api/issues) · [LINUX DO](https://linux.do)</sub>
+
+<img src="./docs/assets/readme/hero-en.svg" width="100%" alt="CLI2API — turn your own logins into a local OpenAI-compatible API">
 
 </div>
-
-> **A self-hosted multi-account gateway** — aggregates your own Qoder Global, Qoder CN, and WorkBuddy logins into one local OpenAI-compatible API. Long-lived warm workers, multi-account scheduling with failover, a single Docker container, and a web console.
-
-Unofficial project, not affiliated with or endorsed by Qoder. Use only accounts you are authorized to use, and follow the terms of Qoder and related services.
 
 ![Supported login methods, account types, endpoints, and deployment targets](docs/assets/overview-card.png)
 
 ## Features
 
 - **OpenAI-compatible proxy**: `/v1/chat/completions`, `/v1/models` — streaming/non-streaming, tool calls, `reasoning_content`
-- **Multi-channel account pool**: Qoder Global / Qoder CN / WorkBuddy with region isolation, account pinning, concurrency limits, cooldowns, and same-family failover
+- **Multi-channel account pool**: Qoder Global / Qoder CN, WorkBuddy Global / WorkBuddy CN, Trae CN Solo — region isolation, account pinning, concurrency limits, cooldowns, and same-family failover
 - **Long-lived warm workers**: one isolated Node process and runtime directory per account keeps authentication, WASM encoding, and cloud SSE connections warm. Typical small-chat latency is ~1-2s after warmup, versus ~10s+ for spawn-per-request wrappers
 - **Multiple login methods**: browser Device Flow OAuth, PAT, and `qoder-native-v1` credential import/export
 - **Web console**: accounts, models, access, request history, and runtime logs, with light and dark themes
@@ -29,7 +31,7 @@ Unofficial project, not affiliated with or endorsed by Qoder. Use only accounts 
 
 ## Quick start
 
-Requirements: Docker (Docker Desktop on macOS/Windows, Docker Engine + Compose on Linux) and a Qoder account you control. On Windows, Docker Desktop must use Linux containers.
+Requirements: Docker (Docker Desktop on macOS/Windows, Docker Engine + Compose on Linux) and a Qoder, WorkBuddy, or Trae account you control. On Windows, Docker Desktop must use Linux containers.
 
 ```bash
 git clone https://github.com/caigee-cmd/cli2api.git
@@ -68,7 +70,7 @@ Accounts, models, access, and logs all live in one web console. Each account sig
 
 ## Use cases
 
-- Connect Qoder / WorkBuddy to local or private-server tooling
+- Connect Qoder / WorkBuddy / Trae to local or private-server tooling
 - Reuse OpenAI-compatible clients and scripts
 - Route requests across multiple accounts with failover
 - Keep login state available without starting a full CLI Agent per request
@@ -93,7 +95,7 @@ CLI2API is a local gateway: it does not provide accounts, quotas, or an official
 
 **Longer term**
 
-- More upstream channels (Cursor, Trae CN Solo, etc.; evaluated after WorkBuddy acceptance)
+- More upstream channels (Cursor, etc.)
 - Optional prompt/completion capture behind an explicit switch (off by default)
 
 ## Documentation
