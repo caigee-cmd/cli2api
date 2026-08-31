@@ -167,24 +167,100 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func providerPrefix(model string) string {
+	model = strings.TrimSpace(model)
+	for _, prefix := range []string{"qoder/", "workbuddy/", "trae/"} {
+		if strings.HasPrefix(model, prefix) {
+			return strings.TrimSuffix(prefix, "/")
+		}
+	}
+	return ""
+}
+
+func normalizeProviderFamily(provider string) string {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	if provider == "" {
+		return "qoder"
+	}
+	return provider
+}
+
+func (s *Server) poolProviderFamilies() map[string]struct{} {
+	families := map[string]struct{}{}
+	if s == nil || s.pool == nil {
+		return families
+	}
+	for _, item := range s.pool.Items() {
+		families[normalizeProviderFamily(item.Provider)] = struct{}{}
+	}
+	return families
+}
+
+func (s *Server) hasProviderFamily(want string) bool {
+	want = normalizeProviderFamily(want)
+	_, ok := s.poolProviderFamilies()[want]
+	return ok
+}
+
+// soleProviderFamily returns the only configured provider family when the pool
+// contains accounts from exactly one family. Empty means mixed or empty.
+func (s *Server) soleProviderFamily() string {
+	families := s.poolProviderFamilies()
+	if len(families) != 1 {
+		return ""
+	}
+	for family := range families {
+		return family
+	}
+	return ""
+}
+
 // resolveProviderFilter enforces public-model ID rules. Prefixed IDs pin one
-// provider family. Bare IDs stay on Qoder unless CROSS_PROVIDER_MODEL_POOL=1,
-// which leaves the filter empty so same-named models can share a route pool.
+// provider family. Bare IDs stay on Qoder when any Qoder account exists, unless
+// the cross-provider model pool setting leaves the filter empty for a shared
+// route pool.
+// If the deployment has zero Qoder accounts and exactly one other family, bare
+// IDs fall through to that sole family so WorkBuddy-only installs work with
+// catalog IDs copied from /v1/models.
 func (s *Server) resolveProviderFilter(req *translate.ChatRequest) string {
 	model := strings.TrimSpace(req.Model)
 	if model == "" {
 		return ""
 	}
-	for _, prefix := range []string{"qoder/", "workbuddy/", "trae/"} {
-		if strings.HasPrefix(model, prefix) {
-			req.Model = strings.TrimPrefix(model, prefix)
-			return strings.TrimSuffix(prefix, "/")
-		}
+	if prefix := providerPrefix(model); prefix != "" {
+		req.Model = strings.TrimPrefix(model, prefix+"/")
+		return prefix
 	}
-	if s != nil && s.cfg.CrossProviderModelPool {
+	if s != nil && s.crossProviderModelPool.Load() {
 		return ""
 	}
+	if s != nil && !s.hasProviderFamily("qoder") {
+		if sole := s.soleProviderFamily(); sole != "" {
+			return sole
+		}
+	}
 	return "qoder"
+}
+
+// applyPinnedProviderFilter lets an explicit account pin select its provider
+// family for bare model IDs. Prefixed model IDs keep their forced family so a
+// mismatched pin still fails closed inside PickRoute.
+func (s *Server) applyPinnedProviderFilter(providerFilter, publicModel, prefer string) string {
+	if prefer == "" || s == nil || s.pool == nil {
+		return providerFilter
+	}
+	if providerPrefix(publicModel) != "" {
+		return providerFilter
+	}
+	item, ok := s.pool.ByID(prefer)
+	if !ok {
+		return providerFilter
+	}
+	pinned := normalizeProviderFamily(item.Provider)
+	if providerFilter == "" || providerFilter == pinned {
+		return providerFilter
+	}
+	return pinned
 }
 
 func (s *Server) filterModelsForIdentity(r *http.Request, models []map[string]any) []map[string]any {
@@ -237,6 +313,8 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 	publicModel := req.Model
 	providerFilter := s.resolveProviderFilter(&req)
+	prefer := s.requestedAccount(r)
+	providerFilter = s.applyPinnedProviderFilter(providerFilter, publicModel, prefer)
 	identity := s.requestIdentity(r)
 	if providerFilter != "" && !identity.AllowsProvider(providerFilter) {
 		writeErr(w, http.StatusForbidden, "provider_not_allowed", "This API key cannot use provider "+providerFilter)
@@ -246,7 +324,6 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "model_setting_failed", err.Error())
 		return
 	}
-	prefer := s.requestedAccount(r)
 	if s.manager != nil {
 		s.manager.EnsureModelCatalogs(r.Context(), false)
 	}

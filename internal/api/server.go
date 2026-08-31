@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -31,20 +32,22 @@ import (
 )
 
 type Server struct {
-	cfg           config.Config
-	auth          auth.Verifier
-	executor      executor.ChatExecutor
-	pool          *accounts.Pool
-	manager       *accounts.Manager
-	providers     *providers.Registry
-	recorder      *applogs.RequestRecorder
-	ring          *applogs.Ring
-	stopLogs      chan struct{}
-	mux           *http.ServeMux
-	updateChecker updateChecker
-	updateAgent   updateAgent
-	maintenance   atomic.Bool
-	updateRunning atomic.Bool
+	cfg                    config.Config
+	auth                   auth.Verifier
+	executor               executor.ChatExecutor
+	pool                   *accounts.Pool
+	manager                *accounts.Manager
+	providers              *providers.Registry
+	recorder               *applogs.RequestRecorder
+	ring                   *applogs.Ring
+	stopLogs               chan struct{}
+	mux                    *http.ServeMux
+	updateChecker          updateChecker
+	updateAgent            updateAgent
+	settingsMu             sync.Mutex
+	crossProviderModelPool atomic.Bool
+	maintenance            atomic.Bool
+	updateRunning          atomic.Bool
 }
 
 func New(cfg config.Config) *Server {
@@ -63,6 +66,10 @@ func New(cfg config.Config) *Server {
 	}
 	if initialized {
 		log.Printf("[security] initialized API key and stored it in SQLite: %s", proxyAPIKey)
+	}
+	crossProviderModelPool, err := ensureCrossProviderModelPool(context.Background(), store)
+	if err != nil {
+		panic(err)
 	}
 	cfg.ProxyAPIKey = proxyAPIKey
 	runtimeDir := cfg.RuntimeDir
@@ -113,6 +120,7 @@ func New(cfg config.Config) *Server {
 		updateChecker: checker,
 		updateAgent:   agent,
 	}
+	s.crossProviderModelPool.Store(crossProviderModelPool)
 	s.routes()
 	return s
 }
@@ -169,6 +177,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc(endpoint.HealthPath, s.handleHealth)
 	s.mux.HandleFunc("/api/overview", s.withConsoleKey(s.handleOverview))
 	s.mux.HandleFunc("/api/system/update", s.withConsoleKey(s.handleSystemUpdate))
+	s.mux.HandleFunc("/api/system/settings", s.withConsoleKey(s.handleSystemSettings))
 	s.mux.HandleFunc("/api/system/console-key", s.withConsoleKey(s.handleConsoleKey))
 	s.mux.HandleFunc("/api/keys", s.withConsoleKey(s.handleAPIKeys))
 	s.mux.HandleFunc("/api/keys/", s.withConsoleKey(s.handleAPIKeyByID))
@@ -262,7 +271,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"ok":                        true,
 		"service":                   "cli2api",
 		"providers":                 providerIDs(),
-		"cross_provider_model_pool": s.cfg.CrossProviderModelPool,
+		"cross_provider_model_pool": s.crossProviderModelPool.Load(),
 		"phase":                     "ui-preview",
 		"chat_url":                  endpoint.ChatCompletionsPath,
 		"time":                      time.Now().UTC().Format(time.RFC3339),
@@ -292,7 +301,7 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		"proxy": map[string]any{
 			"ok": true, "service": "cli2api", "port": s.cfg.Port,
 			"providers":                 providerIDs(),
-			"cross_provider_model_pool": s.cfg.CrossProviderModelPool,
+			"cross_provider_model_pool": s.crossProviderModelPool.Load(),
 			"version":                   buildinfo.Version, "commit": buildinfo.Commit,
 			"chat_url": "/v1/chat/completions",
 		},
