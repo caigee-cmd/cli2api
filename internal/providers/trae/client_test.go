@@ -237,6 +237,82 @@ func TestChatNonStreamAggregatesToolsAndReasoning(t *testing.T) {
 	}
 }
 
+// Solo answers 200 and only then fails inside the stream, so the quota error
+// cannot surface as a ChatStream return value: bytes are already committed.
+// The rewritten body must report it as a read error once drained.
+func TestChatStreamQuotaErrorAfterContentIsReadable(t *testing.T) {
+	stream := "event: metadata\ndata: {\"model\":\"deepseek-v4-flash\"}\n\n" +
+		"event: output\ndata: {\"response\":\"partial\"}\n\n" +
+		"event: error\ndata: {\"code\":4008,\"message\":\"Your requests have exceeded the quota.\"}\n\n"
+	payload, _ := Credential{AccessToken: "at", RefreshToken: "rt", UID: "u1", ExpiresAt: 4102444800}.Encode()
+	store := &memStore{items: map[string][]byte{"acc1": payload}}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == pathModels {
+			_ = json.NewEncoder(w).Encode(map[string]any{"config_info_list": []map[string]any{{
+				"config_name": "deepseek-v4-flash", "display_config": map[string]any{"display_name": "DS"},
+			}}})
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(stream))
+	}))
+	defer server.Close()
+	client := NewClient(store)
+	client.http = server.Client()
+	client.http.Transport = rewriteTransport{server: server.URL, round: server.Client().Transport}
+
+	resp, err := client.ChatStream(context.Background(), "acc1", translate.ChatRequest{Model: "deepseek-v4-flash"})
+	if err != nil {
+		t.Fatalf("upstream 200 must not fail up front: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, readErr := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), "partial") {
+		t.Fatalf("buffered content must still reach the client: %s", body)
+	}
+	var classified *providers.Error
+	if !errors.As(readErr, &classified) {
+		t.Fatalf("readErr=%v", readErr)
+	}
+	if classified.Kind != accounts.KindQuota {
+		t.Fatalf("kind=%s", classified.Kind)
+	}
+	if classified.Cooldown != quotaCooldownSolo {
+		t.Fatalf("cooldown=%v want %v", classified.Cooldown, quotaCooldownSolo)
+	}
+}
+
+func TestChatStreamQuotaErrorBeforeContentStillFailsUpFront(t *testing.T) {
+	stream := "event: metadata\ndata: {\"model\":\"deepseek-v4-flash\"}\n\n" +
+		"event: error\ndata: {\"code\":4008,\"message\":\"Your requests have exceeded the quota.\"}\n\n"
+	payload, _ := Credential{AccessToken: "at", RefreshToken: "rt", UID: "u1", ExpiresAt: 4102444800}.Encode()
+	store := &memStore{items: map[string][]byte{"acc1": payload}}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == pathModels {
+			_ = json.NewEncoder(w).Encode(map[string]any{"config_info_list": []map[string]any{{
+				"config_name": "deepseek-v4-flash", "display_config": map[string]any{"display_name": "DS"},
+			}}})
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(stream))
+	}))
+	defer server.Close()
+	client := NewClient(store)
+	client.http = server.Client()
+	client.http.Transport = rewriteTransport{server: server.URL, round: server.Client().Transport}
+
+	resp, err := client.ChatStream(context.Background(), "acc1", translate.ChatRequest{Model: "deepseek-v4-flash"})
+	if resp != nil {
+		resp.Body.Close()
+	}
+	var classified *providers.Error
+	if !errors.As(err, &classified) || classified.Kind != accounts.KindQuota {
+		t.Fatalf("err=%v classified=%+v", err, classified)
+	}
+}
+
 func TestChatStreamRewritesOpenAIChunks(t *testing.T) {
 	payload, _ := Credential{AccessToken: "at", RefreshToken: "rt", UID: "u1", ExpiresAt: 4102444800}.Encode()
 	store := &memStore{items: map[string][]byte{"acc1": payload}}

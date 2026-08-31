@@ -349,6 +349,11 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 		s.finishRequestLog(requestID, started, req, publicModel, upstream.AccountID, firstNonEmpty(upstream.Provider, providerFilter), status, ttfb, &stats, relayErr, upstream.AttemptCount)
 		if relayErr != nil {
+			// The upstream answered 200 and failed inside the stream, so the
+			// executor's attempt loop never saw it. Feed the classified state
+			// back into the pool so the next request can route around a
+			// quota-exhausted account.
+			s.executor.ObserveStreamFailure(upstream.AccountID, relayErr)
 			panic(http.ErrAbortHandler)
 		}
 		return

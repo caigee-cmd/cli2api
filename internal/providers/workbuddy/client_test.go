@@ -4,13 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
+	"github.com/caigee-cmd/cli2api/internal/providers"
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
@@ -750,5 +753,61 @@ func TestAdapterWiresProber(t *testing.T) {
 	adapter := client.Adapter()
 	if !adapter.Supports("prober") || adapter.Prober == nil {
 		t.Fatalf("adapter missing prober: %+v", adapter)
+	}
+}
+
+// WorkBuddy usage limits answer with the absolute reset time in the message.
+// Cooling down for the generic rate-limit fallback would hammer the account
+// again seconds later instead of waiting for the window to roll over.
+func TestParseQuotaResetUsesUpstreamResetTime(t *testing.T) {
+	body := `{"code":6004,"msg":"您的使用量已超出频率限制，将在 2026-09-01 13:56:47 UTC+8 重置，您也可以切换其他模型继续使用。","requestId":"rid"}`
+	// 2026-09-01 13:56:47 UTC+8 is 2026-09-01 05:56:47 UTC.
+	now := time.Date(2026, 9, 1, 5, 56, 47, 0, time.UTC)
+	got := parseQuotaReset(body, now.Add(-time.Hour))
+	if got != time.Hour {
+		t.Fatalf("remaining=%v want 1h", got)
+	}
+
+	// A reset time already in the past must not produce a negative cooldown.
+	if got := parseQuotaReset(body, now.Add(time.Hour)); got != 0 {
+		t.Fatalf("expired reset=%v want 0", got)
+	}
+}
+
+func TestParseQuotaResetIgnoresOtherBodies(t *testing.T) {
+	now := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	cases := []string{
+		`{"code":6004,"msg":"您的使用量已超出频率限制"}`,                 // no timestamp
+		`{"code":11151,"msg":"a message has empty content"}`, // unrelated code
+		`{"code":6004,"msg":"将在 2026-13-45 99:99:99 UTC+8 重置"}`,
+		`not json`,
+	}
+	for _, body := range cases {
+		if got := parseQuotaReset(body, now); got != 0 {
+			// The impossible-date case has no valid instant; anything parsed
+			// must still be a positive, finite wait.
+			t.Fatalf("body=%s got=%v want 0", body, got)
+		}
+	}
+}
+
+func TestRateLimitErrorCarriesResetCooldown(t *testing.T) {
+	// classifiedError compares against time.Now(), so anchor the reset time
+	// relative to now at a whole second to stay free of sub-second drift.
+	now := time.Now()
+	resetAt := now.Add(30 * time.Minute).In(quotaResetLocation)
+	body := []byte(fmt.Sprintf(
+		`{"code":6004,"msg":"您的使用量已超出频率限制，将在 %s 重置"}`,
+		resetAt.Format("2006-01-02 15:04:05")))
+	classified := Classify(429, string(body))
+	if classified.Kind != accounts.KindRateLimit {
+		t.Fatalf("kind=%s", classified.Kind)
+	}
+	var out *providers.Error
+	if !errors.As(classifiedError(429, body), &out) {
+		t.Fatalf("expected classified error")
+	}
+	if out.Cooldown <= 28*time.Minute || out.Cooldown > 30*time.Minute {
+		t.Fatalf("cooldown=%v want ~30m", out.Cooldown)
 	}
 }

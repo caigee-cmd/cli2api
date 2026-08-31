@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -155,15 +156,55 @@ func rewriteSoloStream(src io.ReadCloser, model string) (*http.Response, error) 
 			continue
 		default:
 			rest := io.NopCloser(io.MultiReader(bytes.NewReader(replay), buf))
-			return startSoloRewrite(rest, src, model), nil
+			return wrapSoloStream(rest, src, model), nil
 		}
 	}
 	rest := io.NopCloser(io.MultiReader(bytes.NewReader(replay), buf))
-	return startSoloRewrite(rest, src, model), nil
+	return wrapSoloStream(rest, src, model), nil
 }
 
-func startSoloRewrite(src io.ReadCloser, upstream io.Closer, model string) *http.Response {
+// wrapSoloStream starts the rewrite and attaches the deferred terminal-error
+// probe so a Solo `error` event arriving after the first content event is
+// still reported once the body is drained.
+func wrapSoloStream(rest io.ReadCloser, upstream io.Closer, model string) *http.Response {
+	resp, drainErr := startSoloRewrite(rest, upstream, model)
+	if drainErr == nil {
+		return resp
+	}
+	wrapped := *resp
+	wrapped.Body = &streamErrorResponse{resp: resp, err: drainErr}
+	return &wrapped
+}
+
+// streamErrorResponse wraps a rewritten stream so a terminal Solo `error`
+// event that arrives after the 200 response headers is still observable to
+// the executor as a read error once the buffered payload is drained.
+type streamErrorResponse struct {
+	resp *http.Response
+	err  func() error
+}
+
+func (s *streamErrorResponse) Read(p []byte) (int, error) {
+	n, err := s.resp.Body.Read(p)
+	if err != nil {
+		if streamErr := s.err(); streamErr != nil {
+			return n, streamErr
+		}
+	}
+	return n, err
+}
+
+func (s *streamErrorResponse) Close() error {
+	return s.resp.Body.Close()
+}
+
+func startSoloRewrite(src io.ReadCloser, upstream io.Closer, model string) (*http.Response, func() error) {
 	pr, pw := io.Pipe()
+	// Solo emits upstream 200 headers first and may deliver a terminal `error`
+	// event after content has already flowed. The caller cannot retry on a
+	// classified error once bytes are on the wire, so stash it: the pipe
+	// surfaces it as a read error after the client has drained the stream.
+	var streamErr atomic.Value
 	go func() {
 		defer upstream.Close()
 		defer src.Close()
@@ -259,7 +300,8 @@ func startSoloRewrite(src io.ReadCloser, upstream io.Closer, model string) *http
 				payload, _ := json.Marshal(se.Error())
 				_, _ = fmt.Fprintf(pw, "event: error\ndata: %s\n\n", payload)
 				_, _ = io.WriteString(pw, "data: [DONE]\n\n")
-				return classifiedFromSolo(se)
+				streamErr.Store(classifiedFromSolo(se))
+				return nil
 			}
 			return nil
 		})
@@ -270,16 +312,28 @@ func startSoloRewrite(src io.ReadCloser, upstream io.Closer, model string) *http
 		if err != nil {
 			_ = pw.CloseWithError(err)
 		}
+		// Prefer the classified terminal error over a transport artifact so the
+		// executor can cool the account down instead of treating this as an
+		// opaque interrupted stream.
+		if stored, ok := streamErr.Load().(error); ok && stored != nil {
+			_ = pw.CloseWithError(stored)
+		}
 	}()
 	header := make(http.Header)
 	header.Set("Content-Type", "text/event-stream")
 	header.Set("Cache-Control", "no-cache")
 	header.Set("Connection", "keep-alive")
 	header.Set("X-Accel-Buffering", "no")
-	return &http.Response{
+	resp := &http.Response{
 		StatusCode: http.StatusOK,
 		Header:     header,
 		Body:       pr,
+	}
+	return resp, func() error {
+		if stored, ok := streamErr.Load().(error); ok {
+			return stored
+		}
+		return nil
 	}
 }
 

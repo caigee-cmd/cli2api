@@ -7,7 +7,13 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Fix Trae quota errors (code 4008) never failing over: Solo answers HTTP 200 and reports the quota failure later inside the SSE body, so the executor treated the attempt as successful and returned the error to the client. The rewritten stream now surfaces that terminal error once drained, and the API relays it back into the pool so the account is cooled for 6 hours instead of being retried while exhausted
+- Fix WorkBuddy usage-limit cooldown ignoring the reset time the upstream reports: a `6004` message carries an absolute reset timestamp (`将在 2026-09-01 13:56:47 UTC+8 重置`), but the account only cooled for the generic 60-second fallback and immediately burned more quota. The cooldown now waits until that timestamp (interpreted as UTC+8) and falls back to 60 seconds when no reset time is present
+
 ### 中文
+
+- 修复 Trae 额度错误（code 4008）从不故障切换的问题：Solo 先返回 HTTP 200，额度失败在 SSE 流体内稍后才到达，执行器因此把这次尝试当成成功并把错误直接抛给客户端。现在重写后的流会在读取完毕后抛出该终止错误，API 层再把它回填进调度池，使账号冷却 6 小时，而不是在额度耗尽期间被反复选中
+- 修复 WorkBuddy 用量限流冷却忽略上游重置时间的问题：`6004` 报文中带有绝对重置时刻（`将在 2026-09-01 13:56:47 UTC+8 重置`），但账号此前只按通用 60 秒回退冷却，随即继续消耗额度。现在冷却会等到该时刻（按 UTC+8 解析），报文没有重置时间时才回退到 60 秒
 
 ## 0.2.27 - 2026-08-31
 
