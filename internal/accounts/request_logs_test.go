@@ -164,6 +164,19 @@ func TestRequestLogsPaginationAndTimeFilter(t *testing.T) {
 	if err != nil || model.Total != 2 {
 		t.Fatalf("model = %+v err=%v", model, err)
 	}
+	exactID := page1.Items[0].ID
+	byID, err := store.ListRequestLogs(ctx, RequestLogFilter{ID: exactID, Limit: 10})
+	if err != nil || byID.Total != 1 || byID.Items[0].ID != exactID {
+		t.Fatalf("id = %+v err=%v", byID, err)
+	}
+	prefix, err := store.ListRequestLogs(ctx, RequestLogFilter{Query: exactID[:8], Limit: 10})
+	if err != nil || prefix.Total != 1 || prefix.Items[0].ID != exactID {
+		t.Fatalf("id prefix = %+v err=%v", prefix, err)
+	}
+	noneQuery, err := store.ListRequestLogs(ctx, RequestLogFilter{Query: "glm-5.3", Limit: 10})
+	if err != nil || noneQuery.Total != 0 {
+		t.Fatalf("query should only match ids, got %+v err=%v", noneQuery, err)
+	}
 }
 
 func TestRequestLogsCapPurgeKeepsNewest(t *testing.T) {

@@ -18,3 +18,4 @@ frontend/dist/
 web/
 
 deploy/docker-compose.override.yml
+.zcode/

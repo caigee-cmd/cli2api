@@ -73,6 +73,7 @@ func (s *Server) handleListRequestLogs(w http.ResponseWriter, r *http.Request) {
 		Status:    r.URL.Query().Get("status"),
 		ErrorKind: r.URL.Query().Get("error_kind"),
 		Model:     r.URL.Query().Get("model"),
+		ID:        r.URL.Query().Get("id"),
 		Query:     r.URL.Query().Get("q"),
 		From:      parseQueryTime(r.URL.Query().Get("from"), false),
 		To:        parseQueryTime(r.URL.Query().Get("to"), true),
