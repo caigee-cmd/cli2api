@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.2.26 - 2026-08-31
+
+### English
+
 - Rewrite the README opening around Qoder, WorkBuddy, and Trae CN Solo; center the title, badges, and hero; drop the Docker image badge
 - Point README community discussion at LINUX DO, drop the CI badge, and keep documentation links on files that remain public
 - Stop tracking maintainer design, plan, and provider notes; they stay local through `.gitignore`
