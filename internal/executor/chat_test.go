@@ -343,7 +343,7 @@ func TestObserveStreamFailureCoolsDownQuotaAccount(t *testing.T) {
 		Kind:    accounts.KindQuota,
 		Status:  429,
 		Message: "Your requests have exceeded the quota.",
-	})
+	}, "deepseek-v4-flash")
 
 	item, ok := pool.ByID("acc-quota")
 	if !ok {
@@ -352,8 +352,31 @@ func TestObserveStreamFailureCoolsDownQuotaAccount(t *testing.T) {
 	if item.LastKind != accounts.KindQuota {
 		t.Fatalf("last kind=%q want %q", item.LastKind, accounts.KindQuota)
 	}
+	// The failure carries a model, so the cooldown is scoped to that model
+	// and the account stays available for every other model.
+	until, scoped := item.ModelDownUntil["deepseek-v4-flash"]
+	if !scoped || until.IsZero() {
+		t.Fatalf("quota failure must cool the model, got %v", item.ModelDownUntil)
+	}
+	if !item.DownUntil.IsZero() {
+		t.Fatalf("model-scoped failure must not take the whole account down: %v", item.DownUntil)
+	}
+}
+
+func TestObserveStreamFailureWithoutModelTakesAccountDown(t *testing.T) {
+	pool := accounts.NewPool([]string{"http://127.0.0.1:1"}, []string{"acc-quota"})
+	pool.Upsert(accounts.Item{ID: "acc-quota"})
+	ex := NewChatExecutor(pool, "")
+
+	ex.ObserveStreamFailure("acc-quota", &providers.Error{
+		Kind:    accounts.KindQuota,
+		Status:  429,
+		Message: "Your requests have exceeded the quota.",
+	}, "")
+
+	item, _ := pool.ByID("acc-quota")
 	if item.DownUntil.IsZero() {
-		t.Fatal("quota failure must schedule a cooldown")
+		t.Fatal("a failure with no model must cool the whole account")
 	}
 }
 
@@ -368,10 +391,10 @@ func TestObserveStreamFailureLeavesHealthyAccountAlone(t *testing.T) {
 		Kind:    accounts.KindInvalidRequest,
 		Status:  400,
 		Message: "a message has empty content",
-	})
+	}, "glm-5.3")
 	// No error at all also means no state change.
-	ex.ObserveStreamFailure("acc-ok", nil)
-	ex.ObserveStreamFailure("", &providers.Error{Kind: accounts.KindQuota})
+	ex.ObserveStreamFailure("acc-ok", nil, "glm-5.3")
+	ex.ObserveStreamFailure("", &providers.Error{Kind: accounts.KindQuota}, "glm-5.3")
 
 	item, _ := pool.ByID("acc-ok")
 	if item.LastKind != "" || !item.DownUntil.IsZero() {

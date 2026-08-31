@@ -599,6 +599,98 @@ WHERE id = ?`, formatTime(at), strings.TrimSpace(msg), formatTime(time.Now().UTC
 	return nil
 }
 
+// canonicalCooldownModel normalizes a model key for storage. Unlike
+// CanonicalModelID it leaves the empty key alone: "" is a real primary-key
+// value meaning "account-wide", and CanonicalModelID would rewrite it to
+// "auto", collapsing the account row into the model namespace.
+func canonicalCooldownModel(model string) string {
+	if strings.TrimSpace(model) == "" {
+		return ""
+	}
+	return CanonicalModelID(model)
+}
+
+// CooldownRow is one persisted cooldown: account-wide when Model is empty,
+// scoped to a single canonical model otherwise.
+type CooldownRow struct {
+	AccountID    string
+	Model        string
+	DownUntil    time.Time
+	BackoffLevel int
+	Kind         string
+	Message      string
+}
+
+// SaveCooldowns replaces the persisted cooldown set for one account. Rows
+// whose deadline already passed are dropped instead of being written, so a
+// long-lived process cannot accumulate expired entries.
+func (s *Store) SaveCooldowns(ctx context.Context, accountID string, rows []CooldownRow) error {
+	if accountID == "" {
+		return nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin cooldown save: %w", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM account_cooldowns WHERE account_id = ?`, accountID); err != nil {
+		return fmt.Errorf("clear cooldowns: %w", err)
+	}
+	now := time.Now().UTC()
+	for _, row := range rows {
+		if row.DownUntil.IsZero() || !now.Before(row.DownUntil) {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `
+INSERT INTO account_cooldowns (account_id, model, down_until, backoff_level, kind, message, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(account_id, model) DO UPDATE SET
+  down_until = excluded.down_until,
+  backoff_level = excluded.backoff_level,
+  kind = excluded.kind,
+  message = excluded.message,
+  updated_at = excluded.updated_at`,
+			accountID, canonicalCooldownModel(row.Model), formatTime(row.DownUntil), row.BackoffLevel,
+			row.Kind, row.Message, formatTime(now)); err != nil {
+			return fmt.Errorf("save cooldown: %w", err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM account_cooldowns WHERE account_id = ? AND down_until <= ?`,
+		accountID, formatTime(now)); err != nil {
+		return fmt.Errorf("prune cooldowns: %w", err)
+	}
+	return tx.Commit()
+}
+
+// LoadCooldowns returns every cooldown whose deadline is still in the future.
+// Expired rows are pruned in the same statement so repeated restarts do not
+// re-read stale entries.
+func (s *Store) LoadCooldowns(ctx context.Context) ([]CooldownRow, error) {
+	now := formatTime(time.Now().UTC())
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM account_cooldowns WHERE down_until <= ?`, now); err != nil {
+		return nil, fmt.Errorf("prune expired cooldowns: %w", err)
+	}
+	rows, err := s.db.QueryContext(ctx, `
+SELECT account_id, model, down_until, backoff_level, kind, message
+FROM account_cooldowns WHERE down_until > ? ORDER BY account_id, model`, now)
+	if err != nil {
+		return nil, fmt.Errorf("load cooldowns: %w", err)
+	}
+	defer rows.Close()
+	var out []CooldownRow
+	for rows.Next() {
+		var row CooldownRow
+		var until, model string
+		if err := rows.Scan(&row.AccountID, &model, &until, &row.BackoffLevel, &row.Kind, &row.Message); err != nil {
+			return nil, fmt.Errorf("scan cooldown: %w", err)
+		}
+		row.DownUntil = parseTime(until)
+		row.Model = canonicalCooldownModel(model)
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) RecordPoolState(ctx context.Context, item Item) error {
 	var cooldown any
 	status := "ready"

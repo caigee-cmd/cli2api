@@ -28,6 +28,39 @@ type Classified struct {
 	Type       string
 	Message    string
 	RetryAfter time.Duration
+	// Model scopes the cooldown to one public model. When set, only that
+	// model is cooled; the account keeps serving everything else.
+	Model string
+}
+
+// backoffFloor and backoffCeiling bound the exponential backoff applied to
+// repeated failures of the same kind. A first failure still uses the
+// classifier's own duration; backoff only extends it on repeats.
+const (
+	backoffFloor    = 30 * time.Second
+	backoffCeiling  = 6 * time.Hour
+	backoffMaxLevel = 8
+)
+
+// nextBackoffCooldown lengthens the cooldown for a repeatedly failing account.
+// level is the count of consecutive failures of this kind; the returned level
+// is the value to store for the next failure. Success resets it to zero.
+func nextBackoffCooldown(base time.Duration, level int) (time.Duration, int) {
+	if level < 0 {
+		level = 0
+	}
+	if level >= backoffMaxLevel {
+		return backoffCeiling, level
+	}
+	multiplier := time.Duration(1) << level
+	next := base * multiplier
+	if next < backoffFloor {
+		next = backoffFloor
+	}
+	if next >= backoffCeiling {
+		return backoffCeiling, level
+	}
+	return next, level + 1
 }
 
 func ParseRetryAfter(raw string, fallback time.Duration) time.Duration {
