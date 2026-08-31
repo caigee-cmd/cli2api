@@ -180,6 +180,7 @@ export function AccountCard({
           <QuotaMeter
             quota={account.quota}
             label={t('quota')}
+            usedLabel={t('quotaUsed')}
             remainingLabel={t('quotaRemaining')}
             addOnLabel={t('quotaAddOn')}
             exceededLabel={t('quotaExceeded')}
