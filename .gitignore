@@ -7,6 +7,12 @@ capture-raw/
 docs/PRIVATE_DEPLOYMENT.md
 docs/private/
 docs/capture-notes.md
+docs/DEVELOPMENT.md
+docs/DESIGN.md
+docs/PLAN.md
+docs/PROVIDERS.md
+docs/PROVIDERS_TRAE.md
+docs/PROVIDERS_TRAE_SOLO.md
 frontend/node_modules/
 frontend/dist/
 web/

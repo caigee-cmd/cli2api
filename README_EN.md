@@ -1,10 +1,10 @@
 # CLI2API
 
-[中文](README.md) · [Issues](https://github.com/caigee-cmd/cli2api/issues) · [Contributing](CONTRIBUTING.md)
+[中文](README.md) · [Issues](https://github.com/caigee-cmd/cli2api/issues) · [Contributing](CONTRIBUTING.md) · [LINUX DO](https://linux.do)
 
-[![CI](https://github.com/caigee-cmd/cli2api/actions/workflows/ci.yml/badge.svg)](https://github.com/caigee-cmd/cli2api/actions/workflows/ci.yml)
 [![Docker Image](https://ghcr-badge.egpl.dev/caigee-cmd/cli2api/latest_tag?label=docker&color=blue)](https://github.com/caigee-cmd/cli2api/pkgs/container/cli2api)
 [![License](https://img.shields.io/github/license/caigee-cmd/cli2api)](LICENSE)
+[![LINUX DO](https://img.shields.io/badge/LINUX%20DO-community-ff6a00)](https://linux.do)
 
 <p align="center">
   <img src="./docs/assets/readme/hero-en.svg" width="100%" alt="CLI2API — your Qoder CLI login, served as a local OpenAI-compatible API">
@@ -76,8 +76,6 @@ CLI2API is a local gateway: it does not provide accounts, quotas, or an official
 
 ## Roadmap
 
-The full checklist lives in [docs/PLAN.md](docs/PLAN.md).
-
 **In progress**
 
 - Live-account acceptance for Qoder CN and WorkBuddy (login, failover, mixed account pools)
@@ -94,21 +92,21 @@ The full checklist lives in [docs/PLAN.md](docs/PLAN.md).
 
 **Longer term**
 
-- More upstream channels (Cursor, Trae CN Solo, etc.; evaluated after WorkBuddy acceptance; Solo survey in `docs/PROVIDERS_TRAE_SOLO.md`)
+- More upstream channels (Cursor, Trae CN Solo, etc.; evaluated after WorkBuddy acceptance)
 - Optional prompt/completion capture behind an explicit switch (off by default)
 
 ## Documentation
 
 - [Deployment and operations: setup steps, environment variables, endpoints, managed updates](deploy/README.md)
-- [Development and release workflow](docs/DEVELOPMENT.md)
-- [Architecture, login, routing, and console design](docs/DESIGN.md)
-- [Milestones and development plan](docs/PLAN.md)
-- [Multi-upstream account type comparison](docs/PROVIDERS.md)
 - [Changelog](CHANGELOG.md)
 
 ## Security
 
 The service binds `127.0.0.1:3010` by default and every endpoint requires the API key. Never commit `.qoder`, tokens, cookies, auth blobs, or raw captures; credential export is an explicit sensitive operation — protect exported files. Upstream API or CLI changes may affect compatibility; qodercli is pinned and checked. Please report security issues privately according to [SECURITY.md](SECURITY.md).
+
+## Community
+
+Chinese-language discussion is on [LINUX DO](https://linux.do). Bugs and feature requests still go to GitHub [Issues](https://github.com/caigee-cmd/cli2api/issues).
 
 ## Contributing
 

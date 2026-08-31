@@ -7,6 +7,8 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Point README community discussion at LINUX DO, drop the CI badge, and keep documentation links on files that remain public
+- Stop tracking maintainer design, plan, and provider notes; they stay local through `.gitignore`
 - When the cross-provider model pool is disabled, reject bare model IDs instead of silently routing them to Qoder
 - Enable the cross-provider model pool by default, persist the setting in SQLite, and move its toggle to System settings; upgrades initialize the missing setting to enabled and no migration is needed; `CROSS_PROVIDER_MODEL_POOL` is no longer used
 - Remove the account card hover lift; the card no longer moves under the cursor
@@ -14,6 +16,8 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### 中文
 
+- README 增加 LINUX DO 社区入口，去掉 CI badge，文档链接只保留仍公开发布的文件
+- 不再跟踪维护用的设计、计划和上游调研文档，改由 `.gitignore` 留在本地
 - 关闭跨 Provider 模型池后拒绝 bare model ID，不再静默回落到 Qoder
 - 跨 Provider 模型池默认开启，设置持久化到 SQLite，并移入「系统设置」开关；升级时缺失配置会直接写入开启状态，不需要新增迁移；不再使用 `CROSS_PROVIDER_MODEL_POOL` 环境变量
 - 账号卡片去掉悬停上浮，悬停不再移动卡片
