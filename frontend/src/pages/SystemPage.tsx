@@ -8,10 +8,11 @@ import {
   Database,
   Key,
   ShieldCheck,
+  SlidersHorizontal,
   X,
 } from '@phosphor-icons/react'
 import { fetchConsoleKey, rotateConsoleKey, type ConsoleKeyView } from '@/api/keys'
-import { fetchSystemUpdate, startSystemUpdate, type StartUpdateResult, type SystemUpdateInfo } from '@/api/system'
+import { fetchSystemSettings, fetchSystemUpdate, startSystemUpdate, updateSystemSettings, type StartUpdateResult, type SystemSettings, type SystemUpdateInfo } from '@/api/system'
 import { useApiKey } from '@/hooks/useApiKey'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { PageAlert } from '@/components/ui/PageAlert'
@@ -19,6 +20,7 @@ import { SystemBodySkeleton, SystemPageSkeleton } from '@/components/ui/PageSkel
 import { ReleaseNotes } from '@/components/ReleaseNotes'
 import { useI18n } from '@/hooks/useI18n'
 import { extractReleaseNotes } from '@/lib/releaseNotes'
+import { CompactSwitch } from '@/components/ui/CompactSwitch'
 
 const activeStates = new Set(['queued', 'preparing', 'pulling', 'recreating', 'checking', 'rolling_back'])
 
@@ -34,6 +36,8 @@ export function SystemPage() {
   const { setApiKey } = useApiKey()
   const [info, setInfo] = useState<SystemUpdateInfo | null>(null)
   const [consoleKey, setConsoleKey] = useState<ConsoleKeyView | null>(null)
+  const [settings, setSettings] = useState<SystemSettings | null>(null)
+  const [settingsBusy, setSettingsBusy] = useState(false)
   const [consoleBusy, setConsoleBusy] = useState(false)
   const [rotateOpen, setRotateOpen] = useState(false)
   const [rotatedSecret, setRotatedSecret] = useState('')
@@ -67,6 +71,7 @@ export function SystemPage() {
     const timer = window.setTimeout(() => {
       void load(false)
       void fetchConsoleKey().then(setConsoleKey).catch(() => undefined)
+      void fetchSystemSettings().then(setSettings).catch((err) => setError(err instanceof Error ? err.message : String(err)))
     }, 0)
     return () => window.clearTimeout(timer)
   }, [load])
@@ -108,14 +113,29 @@ export function SystemPage() {
     }
   }
 
+  async function updateCrossProviderModelPool(enabled: boolean) {
+    const previous = settings?.cross_provider_model_pool ?? true
+    setSettings((current) => current ? { ...current, cross_provider_model_pool: enabled } : current)
+    setSettingsBusy(true)
+    setError('')
+    try {
+      setSettings(await updateSystemSettings(enabled))
+    } catch (err) {
+      setSettings((current) => current ? { ...current, cross_provider_model_pool: previous } : current)
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSettingsBusy(false)
+    }
+  }
+
   if (loading && !info) return <SystemPageSkeleton />
 
   return (
     <div className="space-y-6">
       <section className="flex flex-wrap items-end justify-between gap-4 border-b border-separator pb-4">
         <div>
-          <h2 data-gsap-reveal className="text-2xl font-semibold tracking-[-0.035em]">{t('systemUpdateTitle')}</h2>
-          <p className="mt-1 max-w-2xl text-sm leading-6 text-muted">{t('systemUpdateLead')}</p>
+          <h2 data-gsap-reveal className="text-2xl font-semibold tracking-[-0.035em]">{t('systemSettingsTitle')}</h2>
+          <p className="mt-1 max-w-2xl text-sm leading-6 text-muted">{t('systemSettingsLead')}</p>
         </div>
         <Button size="sm" variant="secondary" isPending={checking} onPress={() => void load(true)}>
           <ArrowClockwise size={15} />{t('checkUpdates')}
@@ -192,6 +212,28 @@ export function SystemPage() {
         </Card>
 
         <div className="space-y-5">
+          <Card data-gsap-reveal>
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-surface-secondary text-foreground"><SlidersHorizontal size={15} /></div>
+                <div>
+                  <h3 className="font-semibold">{t('crossProviderModelPoolTitle')}</h3>
+                  <p className="mt-1 text-xs leading-5 text-muted">{t('crossProviderModelPoolHint')}</p>
+                </div>
+              </div>
+              <CompactSwitch
+                isSelected={settings?.cross_provider_model_pool ?? true}
+                isDisabled={settingsBusy || !settings}
+                ariaLabel={t('crossProviderModelPoolAriaLabel')}
+                onChange={(selected) => void updateCrossProviderModelPool(selected)}
+              />
+            </div>
+            <div className="mt-4 flex items-center justify-between border-t border-separator pt-3 text-xs text-muted">
+              <span>{t('crossProviderModelPoolStatus')}</span>
+              <span className="font-medium text-foreground">{settings?.cross_provider_model_pool ? t('enabled') : t('disabled')}</span>
+            </div>
+          </Card>
+
           <Card data-gsap-reveal>
             <div className="flex items-start justify-between gap-4">
               <div className="flex items-start gap-3">

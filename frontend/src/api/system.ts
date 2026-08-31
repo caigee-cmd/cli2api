@@ -31,6 +31,10 @@ export type SystemUpdateInfo = {
   agent: UpdateAgentStatus
 }
 
+export type SystemSettings = {
+  cross_provider_model_pool: boolean
+}
+
 export type StartUpdateResult = {
   job_id: string
   current_version: string
@@ -43,6 +47,17 @@ export type StartUpdateResult = {
 
 export function fetchSystemUpdate(force = false) {
   return api<SystemUpdateInfo>(`/api/system/update${force ? '?force=1' : ''}`)
+}
+
+export function fetchSystemSettings() {
+  return api<SystemSettings>('/api/system/settings')
+}
+
+export function updateSystemSettings(crossProviderModelPool: boolean) {
+  return api<SystemSettings>('/api/system/settings', {
+    method: 'PATCH',
+    body: JSON.stringify({ cross_provider_model_pool: crossProviderModelPool }),
+  })
 }
 
 export function startSystemUpdate() {
