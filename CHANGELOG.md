@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.2.30 - 2026-08-31
+
+### English
+
 - Clarify account quota usage on the Accounts page by showing used and remaining credits together
 
 ### 中文
