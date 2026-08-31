@@ -228,7 +228,7 @@ func isInProcessItem(item accounts.Item) bool {
 // error is the first place the failure is observable. Same-account retry is
 // impossible at that point (bytes are on the wire), so this only records the
 // classified state for the next request's scheduling.
-func (e ChatExecutor) ObserveStreamFailure(accountID string, err error) {
+func (e ChatExecutor) ObserveStreamFailure(accountID string, err error, model string) {
 	if e.Pool == nil || accountID == "" || err == nil {
 		return
 	}
@@ -251,12 +251,18 @@ func (e ChatExecutor) ObserveStreamFailure(accountID string, err error) {
 			classified.Cooldown = time.Hour
 		}
 	}
-	e.markClassified(accountID, classified)
+	e.markClassified(accountID, classified, model)
 }
 
-func (e ChatExecutor) markClassified(id string, c accounts.Classified) {
+// markClassified records a classified failure. model scopes the cooldown to
+// the requested public model so one rate-limited model does not take the
+// whole account offline; pass "" for an account-wide cooldown.
+func (e ChatExecutor) markClassified(id string, c accounts.Classified, model string) {
 	if e.Pool == nil || id == "" {
 		return
+	}
+	if c.Model == "" {
+		c.Model = model
 	}
 	e.Pool.MarkClassified(id, c)
 }
@@ -375,7 +381,7 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 		if err != nil {
 			classified := accounts.Classify(0, err.Error(), "", accounts.KindUnavailable, "")
 			lastErr = fmt.Errorf("worker %s request failed: %w", item.ID, err)
-			e.markClassified(item.ID, classified)
+			e.markClassified(item.ID, classified, req.Model)
 			latency := int(time.Since(started).Milliseconds())
 			e.recordAttempt(ctx, accounts.RequestAttempt{
 				AttemptIndex: i, AccountID: item.ID, StartedAt: started, FinishedAt: ptrTime(time.Now().UTC()),
@@ -398,7 +404,7 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 			if classified.Kind == accounts.KindModelNotAvailable {
 				e.Pool.RemoveModel(item.ID, req.Model)
 			}
-			e.markClassified(item.ID, classified)
+			e.markClassified(item.ID, classified, req.Model)
 			status := accounts.AttemptStatusError
 			if classified.Failover && i+1 < attempts {
 				status = accounts.AttemptStatusFailover
@@ -473,7 +479,7 @@ func (e ChatExecutor) chatInProcessNonStreamAttempt(ctx context.Context, item ac
 		if classified.Kind == accounts.KindModelNotAvailable {
 			e.Pool.RemoveModel(item.ID, req.Model)
 		}
-		e.markClassified(item.ID, classified)
+		e.markClassified(item.ID, classified, req.Model)
 		status := accounts.AttemptStatusError
 		if classified.Failover {
 			status = accounts.AttemptStatusFailover
@@ -519,7 +525,7 @@ func (e ChatExecutor) chatInProcessStreamAttempt(ctx context.Context, item accou
 		if classified.Kind == accounts.KindModelNotAvailable {
 			e.Pool.RemoveModel(item.ID, req.Model)
 		}
-		e.markClassified(item.ID, classified)
+		e.markClassified(item.ID, classified, req.Model)
 		status := accounts.AttemptStatusError
 		if classified.Failover {
 			status = accounts.AttemptStatusFailover
@@ -724,7 +730,7 @@ func (e ChatExecutor) ChatStreamProxy(ctx context.Context, req translate.ChatReq
 		if err != nil {
 			classified := accounts.Classify(0, err.Error(), "", accounts.KindUnavailable, "")
 			lastErr = fmt.Errorf("worker %s stream request failed: %w", item.ID, err)
-			e.markClassified(item.ID, classified)
+			e.markClassified(item.ID, classified, req.Model)
 			latency := int(time.Since(started).Milliseconds())
 			e.recordAttempt(ctx, accounts.RequestAttempt{
 				AttemptIndex: i, AccountID: item.ID, StartedAt: started, FinishedAt: ptrTime(time.Now().UTC()),
@@ -745,7 +751,7 @@ func (e ChatExecutor) ChatStreamProxy(ctx context.Context, req translate.ChatReq
 			if classified.Kind == accounts.KindModelNotAvailable {
 				e.Pool.RemoveModel(item.ID, req.Model)
 			}
-			e.markClassified(item.ID, classified)
+			e.markClassified(item.ID, classified, req.Model)
 			finished := time.Now().UTC()
 			latency := int(finished.Sub(started).Milliseconds())
 			status := accounts.AttemptStatusError
