@@ -27,20 +27,44 @@ export function TrafficChartSkeleton() {
 export function ProvidersTableSkeleton({ rows = 6 }: { rows?: number }) {
   return (
     <div>
-      <div className="hidden grid-cols-4 gap-4 border-b border-separator px-5 py-4 md:grid">
-        <SkeletonBlock className="h-3 w-20" />
-        <SkeletonBlock className="h-3 w-24" />
-        <SkeletonBlock className="h-3 w-24" />
-        <SkeletonBlock className="h-3 w-20" />
+      <div className="divide-y divide-separator lg:hidden">
+        {Array.from({ length: rows }, (_, index) => (
+          <div key={`card-${index}`} className="space-y-3 px-4 py-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="space-y-2">
+                <SkeletonBlock className="h-4 w-32" />
+                <SkeletonBlock className="h-3 w-40" />
+              </div>
+              <SkeletonBlock className="h-5 w-14" />
+            </div>
+            <SkeletonBlock className="h-3 w-24" />
+            <SkeletonBlock className="h-8 w-40" />
+            <SkeletonBlock className="h-8 w-24" />
+          </div>
+        ))}
       </div>
-      {Array.from({ length: rows }, (_, index) => (
-        <div key={index} className="grid grid-cols-2 items-center gap-4 border-b border-separator px-5 py-4 last:border-0 md:grid-cols-4">
-          <SkeletonBlock className="h-5 w-32" />
-          <SkeletonBlock className="h-4 w-28" />
-          <SkeletonBlock className="hidden h-4 w-36 md:block" />
-          <SkeletonBlock className="hidden h-8 w-28 md:block" />
+      <div className="hidden lg:block">
+        <div className="grid grid-cols-7 gap-4 border-b border-separator px-5 py-4">
+          <SkeletonBlock className="h-3 w-20" />
+          <SkeletonBlock className="h-3 w-24" />
+          <SkeletonBlock className="h-3 w-24" />
+          <SkeletonBlock className="h-3 w-20" />
+          <SkeletonBlock className="h-3 w-24" />
+          <SkeletonBlock className="h-3 w-16" />
+          <SkeletonBlock className="h-3 w-16" />
         </div>
-      ))}
+        {Array.from({ length: rows }, (_, index) => (
+          <div key={`row-${index}`} className="grid grid-cols-7 items-center gap-4 border-b border-separator px-5 py-4 last:border-0">
+            <SkeletonBlock className="h-5 w-32" />
+            <SkeletonBlock className="h-4 w-28" />
+            <SkeletonBlock className="h-4 w-20" />
+            <SkeletonBlock className="h-4 w-36" />
+            <SkeletonBlock className="h-8 w-40" />
+            <SkeletonBlock className="h-5 w-14" />
+            <SkeletonBlock className="h-8 w-24" />
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
@@ -166,8 +190,8 @@ export function ProvidersPageSkeleton() {
           <SkeletonBlock className="h-8 w-44" />
           <SkeletonBlock className="h-4 w-56" />
         </div>
-        <div className="flex gap-2">
-          <SkeletonBlock className="h-8 w-56" />
+        <div className="flex min-w-0 flex-col gap-2 sm:flex-row">
+          <SkeletonBlock className="h-8 w-full sm:w-56" />
           <SkeletonBlock className="h-8 w-24" />
         </div>
       </section>

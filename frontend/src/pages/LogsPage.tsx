@@ -33,6 +33,7 @@ import {
 } from '@/api/logs'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { EmptyPanel } from '@/components/ui/EmptyPanel'
+import { FilterSearchSelect } from '@/components/ui/FilterSearchSelect'
 import { FilterSelect } from '@/components/ui/FilterSelect'
 import { FilterToggle } from '@/components/ui/FilterToggle'
 import { ListPager, type PageSize } from '@/components/ui/ListPager'
@@ -128,14 +129,14 @@ export function LogsPage() {
   const [error, setError] = useState('')
   const [requestFilter, setRequestFilter] = useState<RequestFilter>('all')
   const [runtimeFilter, setRuntimeFilter] = useState<RuntimeFilter>('all')
-  const [requestQuery, setRequestQuery] = useState('')
+  const [requestId, setRequestId] = useState('')
   const [runtimeQuery, setRuntimeQuery] = useState('')
   const [accountFilter, setAccountFilter] = useState('')
   const [runtimeAccount, setRuntimeAccount] = useState('')
   const [modelFilter, setModelFilter] = useState('')
   const [streamFilter, setStreamFilter] = useState<StreamFilter>('all')
   const [errorKind, setErrorKind] = useState<ErrorKindFilter>('all')
-  const [timeRange, setTimeRange] = useState<TimeRange>('all')
+  const [timeRange, setTimeRange] = useState<TimeRange>('1h')
   const [customRange, setCustomRange] = useState<DateRangeValue | null>(null)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState<PageSize>(50)
@@ -171,19 +172,40 @@ export function LogsPage() {
     return accountProviderLabel(provider, account?.region, t)
   }
 
+  const accountOptions = useMemo(
+    () => (accounts || []).map((account) => ({ id: account.id, label: account.name || account.id })),
+    [accounts],
+  )
+  const modelOptions = useMemo(() => {
+    const seen = new Map<string, { id: string; label: string }>()
+    for (const model of models || []) {
+      if (!seen.has(model.id)) seen.set(model.id, { id: model.id, label: model.display_name || model.id })
+    }
+    return [...seen.values()]
+  }, [models])
+
+  const loadRequestIdOptions = useCallback(async (query: string) => {
+    const result = await fetchRequestLogs({
+      q: query || undefined,
+      limit: 20,
+      offset: 0,
+    })
+    return (result.items || []).map((item) => ({ id: item.id, label: item.id }))
+  }, [])
+
   const hasRequestFilters = Boolean(
-    requestQuery.trim()
+    requestId
     || requestFilter !== 'all'
     || accountFilter
     || modelFilter
     || streamFilter !== 'all'
     || errorKind !== 'all'
-    || timeRange !== 'all',
+    || timeRange !== '1h',
   )
 
   const requestFilterKey = [
     requestFilter,
-    requestQuery,
+    requestId,
     accountFilter,
     modelFilter,
     streamFilter,
@@ -221,15 +243,20 @@ export function LogsPage() {
   const loadRequests = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true)
     try {
+      const range = requestId
+        ? { from: undefined as string | undefined, to: undefined as string | undefined }
+        : timeRange === 'custom'
+          ? { from: dateValueToISO(customRange?.start), to: dateValueToISO(customRange?.end, true) }
+          : rangeFromPreset(timeRange)
       const result = await fetchRequestLogs({
         status: requestFilter === 'all' ? undefined : requestFilter,
-        q: requestQuery.trim() || undefined,
+        id: requestId || undefined,
         account: accountFilter || undefined,
         model: modelFilter || undefined,
         stream: streamFilter === 'all' ? undefined : streamFilter === 'stream',
         error_kind: errorKind === 'all' ? undefined : errorKind,
-        from: timeRange === 'custom' ? dateValueToISO(customRange?.start) : rangeFromPreset(timeRange).from,
-        to: timeRange === 'custom' ? dateValueToISO(customRange?.end, true) : rangeFromPreset(timeRange).to,
+        from: range.from,
+        to: range.to,
         limit: pageSize,
         offset: (currentPage - 1) * pageSize,
       })
@@ -244,7 +271,7 @@ export function LogsPage() {
         setBooted(true)
       }
     }
-  }, [requestFilter, requestQuery, accountFilter, modelFilter, streamFilter, errorKind, timeRange, customRange, currentPage, pageSize])
+  }, [requestFilter, requestId, accountFilter, modelFilter, streamFilter, errorKind, timeRange, customRange, currentPage, pageSize])
 
   const loadRuntime = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true)
@@ -276,10 +303,10 @@ export function LogsPage() {
 
   useEffect(() => {
     setLoading(true)
-    const delay = tab === 'requests' && requestQuery.trim() ? 280 : tab === 'runtime' && runtimeQuery.trim() ? 280 : 0
+    const delay = tab === 'runtime' && runtimeQuery.trim() ? 280 : 0
     const timer = window.setTimeout(() => void load(false), delay)
     return () => window.clearTimeout(timer)
-  }, [load, tab, requestQuery, runtimeQuery])
+  }, [load, tab, runtimeQuery])
 
   useEffect(() => {
     if (tab !== 'runtime' || currentRuntimePage !== 1) return
@@ -303,13 +330,13 @@ export function LogsPage() {
   }, [tab, requests.length, runtime.length, shownFrom, shownTo, total, runtimeShownFrom, runtimeShownTo, runtimeTotal, t])
 
   function clearRequestFilters() {
-    setRequestQuery('')
+    setRequestId('')
     setRequestFilter('all')
     setAccountFilter('')
     setModelFilter('')
     setStreamFilter('all')
     setErrorKind('all')
-    setTimeRange('all')
+    setTimeRange('1h')
     setCustomRange(null)
     setPage(1)
   }
@@ -379,26 +406,17 @@ export function LogsPage() {
         <Tabs.Panel id="requests" className="space-y-4 pt-5">
           <div className="flex flex-col gap-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <SearchBar
-                  className="sm:w-72"
-                  value={requestQuery}
-                  onChange={setRequestQuery}
-                  placeholder={t('logsSearchRequests')}
-                  ariaLabel={t('logsSearchRequests')}
-                />
-                <FilterToggle
-                  value={requestFilter}
-                  onChange={(next) => setRequestFilter(next as RequestFilter)}
-                  ariaLabel={t('logsFilterAll')}
-                  options={[
-                    { id: 'all', label: t('logsFilterAll') },
-                    { id: 'ok', label: t('logsFilterOk') },
-                    { id: 'error', label: t('logsFilterError') },
-                    { id: 'canceled', label: t('logsFilterCanceled') },
-                  ]}
-                />
-              </div>
+              <FilterToggle
+                value={requestFilter}
+                onChange={(next) => setRequestFilter(next as RequestFilter)}
+                ariaLabel={t('logsFilterAll')}
+                options={[
+                  { id: 'all', label: t('logsFilterAll') },
+                  { id: 'ok', label: t('logsFilterOk') },
+                  { id: 'error', label: t('logsFilterError') },
+                  { id: 'canceled', label: t('logsFilterCanceled') },
+                ]}
+              />
               <div className="flex items-center gap-2">
                 {hasRequestFilters ? (
                   <Button size="sm" variant="ghost" onPress={clearRequestFilters}>{t('clearFilters')}</Button>
@@ -408,23 +426,34 @@ export function LogsPage() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <FilterSelect
+              <FilterSearchSelect
                 ariaLabel={t('logsColAccount')}
                 value={accountFilter}
                 onChange={setAccountFilter}
-                options={[
-                  { id: '', label: t('logsFilterAccountAll') },
-                  ...(accounts || []).map((account) => ({ id: account.id, label: account.name || account.id })),
-                ]}
+                options={accountOptions}
+                allLabel={t('logsFilterAccountAll')}
+                searchPlaceholder={t('logsSearchAccount')}
+                emptyLabel={t('logsNoFilterOptions')}
               />
-              <FilterSelect
+              <FilterSearchSelect
                 ariaLabel={t('logsColModel')}
                 value={modelFilter}
                 onChange={setModelFilter}
-                options={[
-                  { id: '', label: t('logsFilterModelAll') },
-                  ...(models || []).map((model) => ({ id: model.id, label: model.display_name || model.id })),
-                ]}
+                options={modelOptions}
+                allLabel={t('logsFilterModelAll')}
+                searchPlaceholder={t('logsSearchModel')}
+                emptyLabel={t('logsNoFilterOptions')}
+              />
+              <FilterSearchSelect
+                ariaLabel={t('logsSearchRequestId')}
+                value={requestId}
+                onChange={setRequestId}
+                options={requestId ? [{ id: requestId, label: requestId }] : []}
+                allLabel={t('logsFilterIdAll')}
+                searchPlaceholder={t('logsSearchRequestId')}
+                emptyLabel={t('logsNoFilterOptions')}
+                loadOptions={loadRequestIdOptions}
+                className="min-w-56"
               />
               <FilterToggle
                 value={streamFilter}
@@ -661,14 +690,14 @@ export function LogsPage() {
                 placeholder={t('logsSearchRuntime')}
                 ariaLabel={t('logsSearchRuntime')}
               />
-              <FilterSelect
+              <FilterSearchSelect
                 ariaLabel={t('logsColAccount')}
                 value={runtimeAccount}
                 onChange={setRuntimeAccount}
-                options={[
-                  { id: '', label: t('logsFilterAccountAll') },
-                  ...(accounts || []).map((account) => ({ id: account.id, label: account.name || account.id })),
-                ]}
+                options={accountOptions}
+                allLabel={t('logsFilterAccountAll')}
+                searchPlaceholder={t('logsSearchAccount')}
+                emptyLabel={t('logsNoFilterOptions')}
               />
               <FilterToggle
                 value={runtimeFilter}
