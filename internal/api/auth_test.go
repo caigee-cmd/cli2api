@@ -34,6 +34,7 @@ func TestManagementRoutesRequireAPIKey(t *testing.T) {
 		"/api/logs/requests",
 		"/api/logs/runtime",
 		"/api/system/update",
+		"/api/system/settings",
 		"/api/keys",
 		"/api/system/console-key",
 	} {

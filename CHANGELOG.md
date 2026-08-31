@@ -7,11 +7,13 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Enable the cross-provider model pool by default, persist the setting in SQLite, and move its toggle to System settings; upgrades initialize the missing setting to enabled and no migration is needed; `CROSS_PROVIDER_MODEL_POOL` is no longer used
 - Remove the account card hover lift; the card no longer moves under the cursor
 - Add-account wizard: the login-done message keeps the neutral surface and marks success with a check icon instead of an all-green box
 
 ### 中文
 
+- 跨 Provider 模型池默认开启，设置持久化到 SQLite，并移入「系统设置」开关；升级时缺失配置会直接写入开启状态，不需要新增迁移；不再使用 `CROSS_PROVIDER_MODEL_POOL` 环境变量
 - 账号卡片去掉悬停上浮，悬停不再移动卡片
 - 添加账号向导：登录完成提示保持中性底面，用绿色对勾标记成功，不再整盒变绿
 

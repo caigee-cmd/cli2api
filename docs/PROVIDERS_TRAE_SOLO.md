@@ -387,7 +387,7 @@ ProviderDescriptor{
 
 - [ ] 真实消费级 Trae CN 账号：`只回复OK`、catalog 列表含实测模型、failover、工具调用（用户验收）
 - [x] 无企业旗舰号时 **不要** 用 `traecli` 冒充验收
-- [ ] 同名模型进 Route Pool 等 `CROSS_PROVIDER_MODEL_POOL`
+- [ ] 同名模型进 Route Pool；开关位于控制台「系统设置」，默认开启
 
 ## 建议的产品决策（实现前锁定）
 
