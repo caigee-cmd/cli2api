@@ -1,25 +1,28 @@
+<div align="center">
+
 # CLI2API
 
-[English](README_EN.md) · [问题反馈](https://github.com/caigee-cmd/cli2api/issues) · [贡献指南](CONTRIBUTING.md) · [LINUX DO](https://linux.do)
+**把你自己的登录态，变成一个本机 OpenAI 兼容 API**
 
-[![Docker Image](https://ghcr-badge.egpl.dev/caigee-cmd/cli2api/latest_tag?label=docker&color=blue)](https://github.com/caigee-cmd/cli2api/pkgs/container/cli2api)
+支持 **Qoder 国际版**、**Qoder 国内版**、**WorkBuddy 国际版**、**WorkBuddy 国内版** 和 **Trae 国内版 Solo**。
+
+常驻 worker、多账号调度，Docker 一键启动。
+
 [![License](https://img.shields.io/github/license/caigee-cmd/cli2api)](LICENSE)
 [![LINUX DO](https://img.shields.io/badge/LINUX%20DO-community-ff6a00)](https://linux.do)
 
-<p align="center">
-  <img src="./docs/assets/readme/hero-zh.svg" width="100%" alt="CLI2API — 把你的 Qoder CLI 登录态，变成一个本机运行的 OpenAI 兼容 API">
-</p>
+<sub>[English](README_EN.md) · [问题反馈](https://github.com/caigee-cmd/cli2api/issues) · [LINUX DO](https://linux.do)</sub>
 
-> **自托管多账号聚合网关** —— 把 Qoder 国际版、Qoder 国内版和 WorkBuddy 的自有登录态聚合成一个本机 OpenAI 兼容 API。常驻热 worker、多账号调度与故障切换，Docker 单容器部署，Web 控制台管理。
+<img src="./docs/assets/readme/hero-zh.svg" width="100%" alt="CLI2API — 把你自己的登录态，变成一个本机运行的 OpenAI 兼容 API">
 
-非官方项目，与 Qoder 无关联、未获官方背书。请只使用你有权使用的账号，并遵守 Qoder 及相关服务条款。
+</div>
 
 ![CLI2API 支持的登录方式、账号类型、端点和部署形态](docs/assets/overview-card.png)
 
 ## 功能
 
 - **OpenAI 兼容代理**：`/v1/chat/completions`、`/v1/models`，流式/非流式、工具调用、`reasoning_content`
-- **多渠道账号池**：Qoder 国际版 / 国内版 / WorkBuddy，地域隔离、账号固定、并发限制、冷却与同族故障切换
+- **多渠道账号池**：Qoder 国际版 / 国内版、WorkBuddy 国际版 / 国内版、Trae 国内版 Solo；地域隔离、账号固定、并发限制、冷却与同族故障切换
 - **常驻热 worker**：每账号独立 Node 进程与运行目录，鉴权、WASM 编码和云端 SSE 连接保持热；预热后小对话延迟约 1-2 秒，按请求拉起 CLI 的方案通常要 10 秒以上
 - **多种登录方式**：浏览器 Device Flow OAuth、PAT、`qoder-native-v1` 凭证导入/导出
 - **Web 控制台**：账号、模型、接入、请求历史与运行时日志，明暗主题
@@ -28,7 +31,7 @@
 
 ## 快速开始
 
-依赖：Docker（macOS / Windows 用 Docker Desktop，Linux 用 Docker Engine + Compose），以及一个你自己控制的 Qoder 账号。Windows 的 Docker Desktop 必须切换到 Linux containers。
+依赖：Docker（macOS / Windows 用 Docker Desktop，Linux 用 Docker Engine + Compose），以及一个你自己控制的 Qoder、WorkBuddy 或 Trae 账号。Windows 的 Docker Desktop 必须切换到 Linux containers。
 
 ```bash
 git clone https://github.com/caigee-cmd/cli2api.git
@@ -67,7 +70,7 @@ API Key:  <首次启动时生成的 Key>
 
 ## 适合什么场景
 
-- 想在本机或私有服务器上统一接入 Qoder / WorkBuddy
+- 想在本机或私有服务器上统一接入 Qoder / WorkBuddy / Trae
 - 已经在使用 OpenAI API 格式的客户端或脚本
 - 需要在多个账号之间自动路由和故障切换
 - 想保留登录能力，同时避免每个请求启动完整 CLI Agent
@@ -92,7 +95,7 @@ CLI2API 是本地网关：不提供账号、额度或官方 API 服务，不做�
 
 **长期**
 
-- 更多上游渠道（Cursor、Trae CN Solo 等，WorkBuddy 验收后评估）
+- 更多上游渠道（Cursor 等）
 - 可选的提示词 / 回复留档（显式开关，默认关闭）
 
 ## 文档
