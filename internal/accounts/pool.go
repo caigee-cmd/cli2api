@@ -53,6 +53,18 @@ type Item struct {
 	// ModelDownUntil is per-model cooldown. One model hitting a limit must
 	// not take the whole account offline for other models.
 	ModelDownUntil map[string]time.Time
+	// ModelBackoff is the per-model backoff ladder, mirroring
+	// ModelDownUntil. One model's repeated failures must not inflate the
+	// ladder for a different model. The account-wide BackoffLevel covers
+	// non-model-scoped failures.
+	ModelBackoff map[string]int
+	// ModelLastKind is the per-model previous failure kind, mirroring
+	// ModelBackoff. The backoff ladder only climbs on a repeat of the same
+	// kind, and that comparison must be scoped per model: a rate_limit on
+	// model-A followed by auth on model-B must not make a later auth on
+	// model-A look like a repeat. The account-wide LastKind covers
+	// non-model-scoped failures.
+	ModelLastKind map[string]string
 	// BackoffLevel climbs on repeated failures of the same kind and resets
 	// on success, so a persistently failing account backs off instead of
 	// being retried at a fixed interval.
@@ -60,6 +72,13 @@ type Item struct {
 	// DropSystemPrompt mirrors the stored account flag so the executor can
 	// sanitize requests per account without a store lookup per chat.
 	DropSystemPrompt bool
+	// StateVersion is a process-local monotonic stamp assigned under p.mu
+	// whenever a persistable mutation lands. The persistence observer runs
+	// after p.mu is released, so concurrent observers can enqueue snapshots
+	// out of production order; the version lets the drainer discard a stale
+	// snapshot that arrives after a newer one for the same account. Not
+	// persisted: it only orders in-memory snapshots.
+	StateVersion uint64
 }
 
 // RouteQuery selects candidates for one public model request. Empty fields are
@@ -201,7 +220,12 @@ type Pool struct {
 	// weightCounter holds smooth-WRR running counters per route, keyed like
 	// lastPicked and then by account ID. Only used when weights differ.
 	weightCounter map[string]map[string]int64
-	observer      func(Item)
+	// stateCounter is the monotonic source for Item.StateVersion. Bumped
+	// under p.mu on every persistable mutation, so the version stamped onto
+	// a snapshot reflects its true production order even though the observer
+	// runs after the lock is released.
+	stateCounter uint64
+	observer     func(Item)
 }
 
 // rotationLimit bounds the cursor map so long-tailed model IDs cannot grow it
@@ -316,7 +340,8 @@ func (p *Pool) PickRoute(q RouteQuery) (Item, bool) {
 				if routeModel(q.PublicModel) != "" && pinned.Models != nil && !itemHasModel(*pinned, q.PublicModel) {
 					return Item{}, false
 				}
-				if routeMatches(*pinned, q) && !itemDown(*pinned, now) {
+				if routeMatches(*pinned, q) && !itemDown(*pinned, now) &&
+					!itemModelDown(*pinned, q, now) && !itemSaturated(*pinned) {
 					return *pinned, true
 				}
 			}
@@ -335,13 +360,21 @@ func (p *Pool) PickRoute(q RouteQuery) (Item, bool) {
 		}
 	}
 	if len(available) == 0 {
-		// Everything is cooling or saturated. Surface the item that frees up
-		// soonest so the caller can report a classified error with a retry
-		// hint, rather than silently picking an arbitrary account.
+		// Nothing is ready right now. Distinguish the two failure modes so
+		// the caller does not dispatch a request that the worker is
+		// guaranteed to reject: if every eligible account is only
+		// concurrency-saturated (no cooldown in effect), MaxInFlight is the
+		// sole bottleneck and the executor should back off rather than send.
+		// If any account is cooling, surface the one that frees up soonest so
+		// the caller can report a classified retry-after error.
 		var best Item
 		found := false
 		for _, i := range eligible {
 			item := p.items[i]
+			if !itemDown(item, now) && !itemModelDown(item, q, now) {
+				// Saturated only — skip; not a candidate for the retry hint.
+				continue
+			}
 			if !found || resumeAt(item, q).Before(resumeAt(best, q)) {
 				best = item
 				found = true
@@ -542,22 +575,65 @@ func (p *Pool) MarkClassified(id string, c Classified) {
 			continue
 		}
 		p.items[i].LastError = c.Message
+		// Backoff climbs only on a repeat of the same kind. The previous
+		// kind must be captured BEFORE overwriting it, and the comparison
+		// must be scoped per model: rate_limit on model-A followed by auth
+		// on model-B must not make a later auth on model-A look like a
+		// repeat. Account-wide LastKind covers non-model-scoped failures.
+		model := routeModel(c.Model)
+		var prevKind string
+		if model != "" {
+			if p.items[i].ModelLastKind != nil {
+				prevKind = p.items[i].ModelLastKind[model]
+			}
+		} else {
+			prevKind = p.items[i].LastKind
+		}
 		if c.Kind != KindInvalidRequest {
-			p.items[i].LastKind = c.Kind
+			if model != "" {
+				if p.items[i].ModelLastKind == nil {
+					p.items[i].ModelLastKind = map[string]string{}
+				}
+				p.items[i].ModelLastKind[model] = c.Kind
+			} else {
+				p.items[i].LastKind = c.Kind
+			}
 		}
 		if c.Cooldown > 0 && (c.Failover || c.Kind != KindQuota) {
 			// Repeated failures of the same kind back off exponentially so a
 			// persistently broken account stops consuming attempts at a fixed
-			// interval. A new failure kind starts the ladder over.
-			if p.items[i].LastKind == c.Kind && c.Kind != KindInvalidRequest {
-				p.items[i].BackoffLevel++
+			// interval. A new failure kind starts the ladder over. Backoff is
+			// tracked per model when the cooldown is model-scoped, so one
+			// model's repeat failures don't inflate another model's ladder.
+			level := 0
+			if prevKind == c.Kind && c.Kind != KindInvalidRequest {
+				if model != "" {
+					if p.items[i].ModelBackoff == nil {
+						p.items[i].ModelBackoff = map[string]int{}
+					}
+					p.items[i].ModelBackoff[model]++
+					level = p.items[i].ModelBackoff[model]
+				} else {
+					p.items[i].BackoffLevel++
+					level = p.items[i].BackoffLevel
+				}
+			} else {
+				// New kind: reset that ladder so it starts over.
+				if model != "" {
+					if p.items[i].ModelBackoff == nil {
+						p.items[i].ModelBackoff = map[string]int{}
+					}
+					p.items[i].ModelBackoff[model] = 0
+				} else {
+					p.items[i].BackoffLevel = 0
+				}
 			}
 			cooldown := c.Cooldown
-			if p.items[i].BackoffLevel > 1 {
-				cooldown, _ = nextBackoffCooldown(c.Cooldown, p.items[i].BackoffLevel-1)
+			if level > 1 {
+				cooldown, _ = nextBackoffCooldown(c.Cooldown, level-1)
 			}
 			until := time.Now().Add(cooldown)
-			if model := routeModel(c.Model); model != "" {
+			if model != "" {
 				// Scope to one model: a rate limit on glm-5.3 must not take
 				// the account offline for deepseek-v4-flash.
 				if p.items[i].ModelDownUntil == nil {
@@ -568,8 +644,17 @@ func (p *Pool) MarkClassified(id string, c Classified) {
 				p.items[i].DownUntil = until
 			}
 		}
-		copy := p.items[i]
-		changed = &copy
+		// Stamp a monotonic version under the lock so the persistence
+		// drainer can discard a stale snapshot that arrives after a newer
+		// one for the same account (the observer runs after p.mu is
+		// released, so observer-arrival order is not production order).
+		p.stateCounter++
+		p.items[i].StateVersion = p.stateCounter
+		// Deep-copy the mutable reference fields before handing the snapshot
+		// to the async persistence drainer, which reads them off the pool
+		// lock. A struct copy would alias ModelDownUntil/ModelBackoff/etc.
+		snapshot := p.items[i].clone()
+		changed = &snapshot
 		break
 	}
 	observer := p.observer
@@ -579,25 +664,66 @@ func (p *Pool) MarkClassified(id string, c Classified) {
 	}
 }
 
-func (p *Pool) MarkOK(id string) {
+// MarkOK records a success. When model is non-empty, only that model's
+// cooldown and backoff ladder are cleared: a success on model-B must not
+// un-cool a still-rate-limited model-A, and a streaming 200 (headers only)
+// must not discard a mid-stream failure recorded for another model. When
+// model is empty the account is treated as fully healthy: account-wide
+// cooldown, backoff, and all model-scoped state are cleared.
+func (p *Pool) MarkOK(id, model string) {
 	if p == nil || id == "" {
 		return
 	}
 	var changed *Item
 	p.mu.Lock()
 	for i := range p.items {
-		if p.items[i].ID == id {
+		if p.items[i].ID != id {
+			continue
+		}
+		scoped := routeModel(model)
+		if scoped != "" {
+			// Model-scoped success: clear only this model's
+			// cooldown/backoff/last-kind.
+			if p.items[i].ModelDownUntil != nil {
+				delete(p.items[i].ModelDownUntil, scoped)
+				if len(p.items[i].ModelDownUntil) == 0 {
+					p.items[i].ModelDownUntil = nil
+				}
+			}
+			if p.items[i].ModelBackoff != nil {
+				delete(p.items[i].ModelBackoff, scoped)
+				if len(p.items[i].ModelBackoff) == 0 {
+					p.items[i].ModelBackoff = nil
+				}
+			}
+			if p.items[i].ModelLastKind != nil {
+				delete(p.items[i].ModelLastKind, scoped)
+				if len(p.items[i].ModelLastKind) == 0 {
+					p.items[i].ModelLastKind = nil
+				}
+			}
+			// Only declare the account fully healthy when no cooldown of
+			// any scope remains; otherwise keep the in-flight failure state.
+			if p.items[i].DownUntil.IsZero() && len(p.items[i].ModelDownUntil) == 0 {
+				p.items[i].LastError = ""
+				p.items[i].LastKind = ""
+				p.items[i].BackoffLevel = 0
+			}
+		} else {
+			// Account-wide success: the account proved it can serve traffic.
 			p.items[i].DownUntil = time.Time{}
 			p.items[i].LastError = ""
 			p.items[i].LastKind = ""
-			// Success clears the backoff ladder and any model-scoped
-			// cooldowns: the account proved it can serve traffic again.
 			p.items[i].BackoffLevel = 0
 			p.items[i].ModelDownUntil = nil
-			copy := p.items[i]
-			changed = &copy
-			break
+			p.items[i].ModelBackoff = nil
+			p.items[i].ModelLastKind = nil
 		}
+		p.stateCounter++
+		p.items[i].StateVersion = p.stateCounter
+		snapshot := p.items[i].clone()
+		changed = &snapshot
+		break
 	}
 	observer := p.observer
 	p.mu.Unlock()
@@ -752,6 +878,41 @@ func itemDown(item Item, now time.Time) bool {
 	return !item.DownUntil.IsZero() && now.Before(item.DownUntil)
 }
 
+// clone returns a copy of item whose mutable reference fields no longer
+// alias the live pool entry. The persistence observer hands the snapshot
+// to an async drainer that reads ModelDownUntil/ModelBackoff/Models/Quota
+// off the pool lock; without a deep copy those maps and slices race
+// against MarkClassified/MergeModels mutations.
+func (item Item) clone() Item {
+	out := item
+	if item.ModelDownUntil != nil {
+		out.ModelDownUntil = make(map[string]time.Time, len(item.ModelDownUntil))
+		for k, v := range item.ModelDownUntil {
+			out.ModelDownUntil[k] = v
+		}
+	}
+	if item.ModelBackoff != nil {
+		out.ModelBackoff = make(map[string]int, len(item.ModelBackoff))
+		for k, v := range item.ModelBackoff {
+			out.ModelBackoff[k] = v
+		}
+	}
+	if item.ModelLastKind != nil {
+		out.ModelLastKind = make(map[string]string, len(item.ModelLastKind))
+		for k, v := range item.ModelLastKind {
+			out.ModelLastKind[k] = v
+		}
+	}
+	if item.Models != nil {
+		out.Models = append([]string(nil), item.Models...)
+	}
+	if item.Quota != nil {
+		q := *item.Quota
+		out.Quota = &q
+	}
+	return out
+}
+
 func nullableTime(t time.Time, now time.Time) any {
 	if t.IsZero() || !now.Before(t) {
 		return nil
@@ -799,6 +960,15 @@ func (p *Pool) Upsert(item Item) {
 			}
 			if item.ModelDownUntil == nil {
 				item.ModelDownUntil = p.items[i].ModelDownUntil
+			}
+			if item.ModelBackoff == nil {
+				item.ModelBackoff = p.items[i].ModelBackoff
+			}
+			if item.ModelLastKind == nil {
+				item.ModelLastKind = p.items[i].ModelLastKind
+			}
+			if item.StateVersion == 0 {
+				item.StateVersion = p.items[i].StateVersion
 			}
 			if item.Weight == 0 {
 				item.Weight = p.items[i].Weight

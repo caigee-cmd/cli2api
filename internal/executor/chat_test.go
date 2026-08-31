@@ -3,6 +3,7 @@ package executor
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -297,6 +298,58 @@ func TestNewChatExecutorUsesProxyKeyForInternalDaemon(t *testing.T) {
 	}
 }
 
+// P1#4: when every eligible account is concurrency-saturated, pick must
+// return a rate-limit error (429) so the client gets a clean Retry-After
+// rather than a round-trip into the worker's own 429.
+func TestChatNonStreamAllSaturatedReturnsRateLimit(t *testing.T) {
+	pool := accounts.NewPool([]string{"http://127.0.0.1:1", "http://127.0.0.1:2"}, []string{"a", "b"})
+	pool.Upsert(accounts.Item{ID: "a", URL: "http://127.0.0.1:1", MaxInFlight: 1})
+	pool.Upsert(accounts.Item{ID: "b", URL: "http://127.0.0.1:2", MaxInFlight: 1})
+	pool.MergeHealth("a", true, false, 1, 0, "")
+	pool.MergeHealth("b", true, false, 1, 0, "")
+	ex := NewChatExecutor(pool, "")
+	_, err := ex.ChatNonStream(context.Background(), translate.ChatRequest{
+		Model: "glm-5.3", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	}, "", "")
+	if err == nil {
+		t.Fatal("expected a rate-limit error when all accounts are saturated")
+	}
+	var classified *providers.Error
+	if !errors.As(err, &classified) || classified.Kind != accounts.KindRateLimit || classified.Status != 429 {
+		t.Fatalf("expected *providers.Error{rate_limit,429}, got %#v", err)
+	}
+}
+
+// P1#2: a 200 on model-B must not clear a cooldown recorded for model-A.
+// markOK now scopes by model, so the success path only resets model-B.
+func TestChatNonStreamSuccessScopedByModelLeavesOtherModelCooled(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `{"choices":[{"message":{"content":"OK"},"finish_reason":"stop"}],"usage":{"source":"upstream"}}`)
+	}))
+	defer srv.Close()
+	pool := accounts.NewPool([]string{srv.URL}, []string{"a"})
+	pool.Upsert(accounts.Item{ID: "a", URL: srv.URL, Provider: "qoder", Region: "global", Runtime: "child_process"})
+	// model-A is rate-limited for an hour.
+	pool.MarkClassified("a", accounts.Classified{
+		Kind: accounts.KindRateLimit, Cooldown: time.Hour,
+		Failover: true, Model: "glm-5.3", Message: "429",
+	})
+	ex := NewChatExecutor(pool, "")
+	ex.HTTPClient = srv.Client()
+	if _, err := ex.ChatNonStream(context.Background(), translate.ChatRequest{
+		Model: "deepseek-v4-flash", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	}, "a", ""); err != nil {
+		t.Fatal(err)
+	}
+	item, _ := pool.ByID("a")
+	if _, ok := item.ModelDownUntil["glm-5.3"]; !ok {
+		t.Fatalf("glm-5.3 cooldown must survive a success on deepseek-v4-flash, got %+v", item.ModelDownUntil)
+	}
+	if _, ok := item.ModelDownUntil["deepseek-v4-flash"]; ok {
+		t.Fatalf("deepseek-v4-flash must not carry a cooldown, got %+v", item.ModelDownUntil)
+	}
+}
+
 func TestChatStreamProxyDoesNotUseClientTotalTimeout(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -349,8 +402,8 @@ func TestObserveStreamFailureCoolsDownQuotaAccount(t *testing.T) {
 	if !ok {
 		t.Fatal("account missing")
 	}
-	if item.LastKind != accounts.KindQuota {
-		t.Fatalf("last kind=%q want %q", item.LastKind, accounts.KindQuota)
+	if item.ModelLastKind["deepseek-v4-flash"] != accounts.KindQuota {
+		t.Fatalf("model last kind=%q want %q", item.ModelLastKind["deepseek-v4-flash"], accounts.KindQuota)
 	}
 	// The failure carries a model, so the cooldown is scoped to that model
 	// and the account stays available for every other model.
@@ -377,6 +430,60 @@ func TestObserveStreamFailureWithoutModelTakesAccountDown(t *testing.T) {
 	item, _ := pool.ByID("acc-quota")
 	if item.DownUntil.IsZero() {
 		t.Fatal("a failure with no model must cool the whole account")
+	}
+}
+
+// ObserveStreamFailure must use the same model key that PickRoute uses for
+// routing. resolveProviderFilter strips "qoder/" from req.Model before the
+// executor sees it, so cooldowns are stored under the bare ID. If the caller
+// passes the still-prefixed publicModel, the cooldown key would be
+// "qoder/glm-5.2" and routing (which queries with "glm-5.2") would never hit
+// it — the account/model would be retried immediately after a stream failure.
+func TestObserveStreamFailureUsesStrippedModel(t *testing.T) {
+	pool := accounts.NewPool([]string{"http://127.0.0.1:1"}, []string{"a"})
+	pool.Upsert(accounts.Item{ID: "a", Provider: "qoder", Region: "global", Runtime: "child_process"})
+	ex := NewChatExecutor(pool, "")
+
+	// Simulate the chat handler passing the bare model (req.Model after
+	// resolveProviderFilter), not the prefixed publicModel.
+	ex.ObserveStreamFailure("a", &providers.Error{
+		Kind:    accounts.KindRateLimit,
+		Status:  429,
+		Message: "too many requests",
+	}, "glm-5.2")
+
+	item, _ := pool.ByID("a")
+	// Cooldown must be stored under the bare canonical key "glm-5.2".
+	until, ok := item.ModelDownUntil["glm-5.2"]
+	if !ok || until.IsZero() {
+		t.Fatalf("cooldown missing under glm-5.2, got %v", item.ModelDownUntil)
+	}
+
+	// Routing with the bare model must be blocked by the cooldown.
+	// PickRoute returns ok=true with the cooling item as a retry-after
+	// hint; the item itself must not be schedulable right now.
+	picked, okRoute := pool.PickRoute(accounts.RouteQuery{
+		PublicModel:    "glm-5.2",
+		ProviderFilter: "qoder",
+	})
+	if !okRoute {
+		t.Fatal("PickRoute should return the cooling account as a retry hint")
+	}
+	if picked.ID != "a" {
+		t.Fatalf("PickRoute returned wrong account: %s", picked.ID)
+	}
+	// The cooling item must still be down for this model.
+	if _, ok := picked.ModelDownUntil["glm-5.2"]; !ok {
+		t.Fatal("PickRoute must surface the model cooldown on the returned item")
+	}
+
+	// A different model on the same account must still be available.
+	_, okOther := pool.PickRoute(accounts.RouteQuery{
+		PublicModel:    "deepseek-v4-flash",
+		ProviderFilter: "qoder",
+	})
+	if !okOther {
+		t.Fatal("PickRoute must still serve a different model on the same account")
 	}
 }
 

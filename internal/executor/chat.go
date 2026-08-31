@@ -163,6 +163,21 @@ func (e ChatExecutor) pick(prefer, providerFilter, regionFilter, publicModel str
 		if item, ok := e.Pool.PickRoute(query); ok {
 			return item, nil
 		}
+		// PickRoute returned false with an eligible route: every
+		// eligible account is concurrency-saturated (a cooling account
+		// would have been surfaced with ok=true for a retry-after hint).
+		// Sending the request would just round-trip into the worker's
+		// 429 busy, so fail fast with a rate-limit so the client gets a
+		// clean Retry-After. This must precede the model_not_available
+		// check: saturated means the model IS served, just at capacity.
+		if e.Pool.LenRoute(query) > 0 {
+			failover := true
+			return accounts.Item{}, &providers.Error{
+				Kind: accounts.KindRateLimit, Status: 429,
+				Message:  "all accounts at capacity",
+				Cooldown: 5 * time.Second, Failover: &failover,
+			}
+		}
 		if publicModel != "" && publicModel != "auto" {
 			unfiltered := query
 			unfiltered.PublicModel = ""
@@ -267,11 +282,14 @@ func (e ChatExecutor) markClassified(id string, c accounts.Classified, model str
 	e.Pool.MarkClassified(id, c)
 }
 
-func (e ChatExecutor) markOK(id string) {
+// markOK records a success scoped to the requested public model so a 200
+// on one model does not discard a cooldown recorded for another. Pass an
+// empty model for a true account-level recovery.
+func (e ChatExecutor) markOK(id, model string) {
 	if e.Pool == nil {
 		return
 	}
-	e.Pool.MarkOK(id)
+	e.Pool.MarkOK(id, model)
 }
 
 func (e ChatExecutor) recordAttempt(ctx context.Context, attempt accounts.RequestAttempt) {
@@ -435,7 +453,7 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 		result.AccountID = item.ID
 		result.Provider = firstNonEmpty(item.Provider, "qoder")
 		result.AttemptCount = i + 1
-		e.markOK(item.ID)
+		e.markOK(item.ID, req.Model)
 		e.recordAttempt(ctx, accounts.RequestAttempt{
 			AttemptIndex: i, AccountID: item.ID, StartedAt: started, FinishedAt: &finished,
 			Status: accounts.AttemptStatusOK, HTTPStatus: ptrInt(resp.StatusCode), LatencyMs: &latency,
@@ -490,7 +508,7 @@ func (e ChatExecutor) chatInProcessNonStreamAttempt(ctx context.Context, item ac
 		})
 		return ChatResult{AccountID: item.ID, Provider: item.Provider}, classified, err
 	}
-	e.markOK(item.ID)
+	e.markOK(item.ID, req.Model)
 	e.recordAttempt(ctx, accounts.RequestAttempt{
 		AttemptIndex: attemptIndex, AccountID: item.ID, StartedAt: started, FinishedAt: &finished,
 		Status: accounts.AttemptStatusOK, LatencyMs: &latency,
@@ -536,7 +554,7 @@ func (e ChatExecutor) chatInProcessStreamAttempt(ctx context.Context, item accou
 		})
 		return StreamResult{AccountID: item.ID, Provider: item.Provider}, classified, err
 	}
-	e.markOK(item.ID)
+	e.markOK(item.ID, req.Model)
 	ttfb := int(time.Since(started).Milliseconds())
 	headerAt := time.Now().UTC()
 	e.recordAttempt(ctx, accounts.RequestAttempt{
@@ -772,7 +790,7 @@ func (e ChatExecutor) ChatStreamProxy(ctx context.Context, req translate.ChatReq
 			})
 			return StreamResult{AttemptCount: i + 1, AccountID: item.ID, Provider: firstNonEmpty(item.Provider, "qoder")}, lastErr
 		}
-		e.markOK(item.ID)
+		e.markOK(item.ID, req.Model)
 		ttfb := int(time.Since(startedAll).Milliseconds())
 		headerAt := time.Now().UTC()
 		e.recordAttempt(ctx, accounts.RequestAttempt{

@@ -64,6 +64,26 @@ type Manager struct {
 	httpClient *http.Client
 	runCtx     context.Context
 	cancel     context.CancelFunc
+	// The persistence path is one mutex-guarded goroutine. The dirty set
+	// is keyed by account ID and merged on enqueue: a stale snapshot (older
+	// StateVersion) that arrives after a newer one is discarded, so the final
+	// persisted state is the newest pool state regardless of observer-arrival
+	// order (the observer runs after p.mu is released, so two concurrent
+	// mutations can enqueue out of production order). Keying by account ID
+	// also bounds the set's size to the number of accounts — it cannot grow
+	// without limit under DB pressure the way an unbounded FIFO would. Close
+	// sets a closed flag under the same lock (no channel to close, no
+	// send-on-closed panic); Flush enqueues a marker that fires only once the
+	// dirty set has drained to empty, so everything enqueued before the flush
+	// is persisted before Flush returns.
+	persistMu         sync.Mutex
+	persistCond       *sync.Cond
+	persistDirty      map[string]Item   // accountID -> latest snapshot (merge on enqueue)
+	persistFlushes    []chan struct{}   // ordered flush markers, fire when dirty set drains
+	persistedVersions map[string]uint64 // accountID -> last version written to SQLite
+	persistClosed     bool
+	persistCloseCh    chan struct{} // closed by Close(); drainer's retry backoff watches it
+	persistDone       sync.WaitGroup
 }
 
 func NewManager(config ManagerConfig, store *Store, starter ProcessStarter) *Manager {
@@ -78,29 +98,167 @@ func NewManager(config ManagerConfig, store *Store, starter ProcessStarter) *Man
 	}
 	runCtx, cancel := context.WithCancel(context.Background())
 	manager := &Manager{
-		config:     config,
-		store:      store,
-		starter:    starter,
-		pool:       NewPool(nil, nil),
-		processes:  map[string]ManagedProcess{},
-		restarts:   map[string]int{},
-		nextPort:   config.BasePort,
-		httpClient: &http.Client{Timeout: 2 * time.Second},
-		runCtx:     runCtx,
-		cancel:     cancel,
+		config:            config,
+		store:             store,
+		starter:           starter,
+		pool:              NewPool(nil, nil),
+		processes:         map[string]ManagedProcess{},
+		restarts:          map[string]int{},
+		nextPort:          config.BasePort,
+		httpClient:        &http.Client{Timeout: 2 * time.Second},
+		runCtx:            runCtx,
+		cancel:            cancel,
+		persistDirty:      map[string]Item{},
+		persistedVersions: map[string]uint64{},
+		persistCloseCh:    make(chan struct{}),
 	}
+	manager.persistCond = sync.NewCond(&manager.persistMu)
+	manager.persistDone.Add(1)
+	go manager.drainCooldowns()
 	manager.pool.SetObserver(func(item Item) {
-		_ = manager.store.RecordPoolState(context.Background(), item)
-		// Cooldowns live in memory only, so every managed update (they run
-		// daily) used to wipe them and let a just-quarantined account walk
-		// straight back into rotation. Persist on every state change.
-		_ = manager.store.SaveCooldowns(context.Background(), item.ID, cooldownRows(item))
+		// Merge into the per-account dirty set. The snapshot was cloned
+		// under p.mu and stamped with StateVersion there; the observer runs
+		// after p.mu is released, so two concurrent mutations can enqueue out
+		// of production order. The version check discards a stale snapshot
+		// (older version already in the set), so the dirty set always holds
+		// the newest-known state per account. Keying by account ID bounds the
+		// set's size to the number of accounts.
+		manager.persistMu.Lock()
+		if !manager.persistClosed {
+			if existing, ok := manager.persistDirty[item.ID]; !ok || item.StateVersion >= existing.StateVersion {
+				manager.persistDirty[item.ID] = item
+				manager.persistCond.Signal()
+			}
+		}
+		manager.persistMu.Unlock()
 	})
 	return manager
 }
 
+// drainCooldowns persists pool state changes for one account at a time,
+// draining the per-account dirty set to empty before signaling any flush.
+// Because each entry in the dirty set is the newest-known snapshot for its
+// account (stale versions are discarded on enqueue), draining the whole set
+// to empty guarantees the final persisted state is the newest pool state. A
+// flush marker fires only once the dirty set is empty, so everything enqueued
+// before the flush call is persisted before Flush returns.
+func (m *Manager) drainCooldowns() {
+	defer m.persistDone.Done()
+	ctx := context.Background()
+	for {
+		m.persistMu.Lock()
+		for len(m.persistDirty) == 0 && len(m.persistFlushes) == 0 && !m.persistClosed {
+			m.persistCond.Wait()
+		}
+		// Drain the whole dirty set before firing any flush so a flush
+		// caller sees every account's newest state on disk.
+		if len(m.persistDirty) == 0 {
+			if len(m.persistFlushes) > 0 {
+				flushes := m.persistFlushes
+				m.persistFlushes = nil
+				m.persistMu.Unlock()
+				for _, done := range flushes {
+					close(done)
+				}
+				continue
+			}
+			if m.persistClosed {
+				m.persistMu.Unlock()
+				return
+			}
+			m.persistMu.Unlock()
+			continue
+		}
+		// Pick a stable account (lowest ID) for deterministic drain order.
+		id := ""
+		for k := range m.persistDirty {
+			if id == "" || k < id {
+				id = k
+			}
+		}
+		item := m.persistDirty[id]
+		delete(m.persistDirty, id)
+		// Discard a snapshot that is older than what is already on disk:
+		// a newer mutation may have already been persisted while this older
+		// snapshot was sitting in the dirty set. Without this guard, a
+		// late-arriving stale snapshot would overwrite the newer SQLite state.
+		if persisted, ok := m.persistedVersions[id]; ok && item.StateVersion <= persisted {
+			m.persistMu.Unlock()
+			continue
+		}
+		m.persistMu.Unlock()
+
+		err := m.store.RecordPoolState(ctx, item)
+		if err == nil {
+			err = m.store.SaveCooldowns(ctx, item.ID, cooldownRows(item))
+		}
+		m.persistMu.Lock()
+		if err != nil {
+			// The write failed (SQLite locked, disk error, connection). Put
+			// the snapshot back into the dirty set so it is retried; if a
+			// newer snapshot arrived in the meantime the merge's version
+			// check keeps the newer one. Only advance persistedVersions on
+			// success, otherwise a later stale snapshot could be discarded
+			// even though the newer state never reached SQLite. Log the
+			// error and back off before the next attempt to avoid a hot
+			// spin against a stuck DB.
+			log.Printf("persist cooldown account=%s version=%d: %v", id, item.StateVersion, err)
+			if existing, ok := m.persistDirty[id]; !ok || item.StateVersion >= existing.StateVersion {
+				m.persistDirty[id] = item
+			}
+			m.persistMu.Unlock()
+			// Back off, but stay responsive to shutdown. Close() sets
+			// persistClosed and closes persistCloseCh, then waits for the
+			// drainer; if the backoff only watched runCtx (which Close
+			// cancels only AFTER the wait), a stuck DB would block Close
+			// forever. Watching persistCloseCh lets the drainer exit on
+			// shutdown, abandoning the unsaved dirty state — on a
+			// persistent DB outage there is nothing to persist.
+			select {
+			case <-time.After(persistRetryBackoff):
+			case <-m.runCtx.Done():
+				return
+			case <-m.persistCloseCh:
+				return
+			}
+			continue
+		}
+		// Record the persisted version under the lock so a stale snapshot
+		// enqueued later is discarded before it can overwrite this state.
+		if m.persistedVersions[id] < item.StateVersion {
+			m.persistedVersions[id] = item.StateVersion
+		}
+		m.persistMu.Unlock()
+	}
+}
+
+// Flush waits for all cooldown writes queued so far to be persisted. The
+// marker fires only once the dirty set has drained to empty, so every
+// account's newest state enqueued before this call is persisted before
+// Flush returns.
+func (m *Manager) Flush() {
+	if m == nil || m.persistCond == nil {
+		return
+	}
+	done := make(chan struct{})
+	m.persistMu.Lock()
+	if m.persistClosed {
+		m.persistMu.Unlock()
+		return
+	}
+	m.persistFlushes = append(m.persistFlushes, done)
+	m.persistCond.Signal()
+	m.persistMu.Unlock()
+	select {
+	case <-done:
+	case <-m.runCtx.Done():
+	}
+}
+
 // cooldownRows flattens one pool item into persisted cooldown rows: the
-// account-wide cooldown plus any model-scoped ones.
+// account-wide cooldown plus any model-scoped ones. Each row carries the
+// backoff ladder and previous kind for its own scope so per-model backoff
+// and last-kind survive restart without cross-model confusion.
 func cooldownRows(item Item) []CooldownRow {
 	rows := make([]CooldownRow, 0, 1+len(item.ModelDownUntil))
 	if !item.DownUntil.IsZero() {
@@ -113,9 +271,24 @@ func cooldownRows(item Item) []CooldownRow {
 		if until.IsZero() {
 			continue
 		}
+		// Model-scoped rows carry only that model's own backoff ladder,
+		// not the account-wide BackoffLevel. Persisting the account-wide
+		// level here would, on restore, write it into item.BackoffLevel
+		// and pollute the account-level ladder for every other model.
+		level := 0
+		if item.ModelBackoff != nil {
+			level = item.ModelBackoff[model]
+		}
+		kind := item.LastKind
+		if item.ModelLastKind != nil {
+			if mk, ok := item.ModelLastKind[model]; ok && mk != "" {
+				kind = mk
+			}
+		}
 		rows = append(rows, CooldownRow{
 			AccountID: item.ID, Model: model, DownUntil: until,
-			BackoffLevel: item.BackoffLevel, Kind: item.LastKind, Message: item.LastError,
+			BackoffLevel: level, Kind: kind, Message: item.LastError,
+			ModelKind: kind,
 		})
 	}
 	return rows
@@ -136,16 +309,38 @@ func (m *Manager) restoreCooldowns(ctx context.Context) {
 		if !ok {
 			continue
 		}
-		if row.BackoffLevel > item.BackoffLevel {
-			item.BackoffLevel = row.BackoffLevel
-		}
 		if row.Model == "" {
+			if row.BackoffLevel > item.BackoffLevel {
+				item.BackoffLevel = row.BackoffLevel
+			}
 			item.DownUntil = row.DownUntil
 		} else {
+			// Model-scoped row: restore only the model's own backoff,
+			// not the account-wide ladder. Writing the model's level into
+			// item.BackoffLevel would pollute the account-level ladder so
+			// that a later account-wide failure starts at the model's
+			// level instead of 0. The account-wide BackoffLevel is
+			// restored exclusively from the account-wide row above.
 			if item.ModelDownUntil == nil {
 				item.ModelDownUntil = map[string]time.Time{}
 			}
 			item.ModelDownUntil[row.Model] = row.DownUntil
+			if row.BackoffLevel > 0 {
+				if item.ModelBackoff == nil {
+					item.ModelBackoff = map[string]int{}
+				}
+				if row.BackoffLevel > item.ModelBackoff[row.Model] {
+					item.ModelBackoff[row.Model] = row.BackoffLevel
+				}
+			}
+			if row.ModelKind != "" {
+				if item.ModelLastKind == nil {
+					item.ModelLastKind = map[string]string{}
+				}
+				if item.ModelLastKind[row.Model] == "" {
+					item.ModelLastKind[row.Model] = row.ModelKind
+				}
+			}
 		}
 		m.pool.Upsert(item)
 		restored++
@@ -165,7 +360,15 @@ func (m *Manager) Start(ctx context.Context) error {
 			continue
 		}
 		if err := m.startAccount(ctx, account); err != nil {
-			m.pool.MarkDown(account.ID, 0, err.Error())
+			// Mark the failure in memory without triggering the observer: a
+			// boot-time MarkDown(0) used to enqueue SaveCooldowns, whose
+			// empty in-memory cooldown set DELETEd any persisted cooldowns
+			// for this account — so restoreCooldowns below had nothing to
+			// reload and a rate-limited account walked straight back into
+			// rotation after a restart that failed to start it. MergeHealth
+			// records the error state without persisting, leaving SQLite
+			// intact for restoreCooldowns.
+			m.pool.MergeHealth(account.ID, false, false, 0, m.restarts[account.ID], err.Error())
 		}
 	}
 	// After registration so there is an item to restore into.
@@ -226,6 +429,22 @@ func (m *Manager) SetWorkBuddy(ops WorkBuddyMaintainer) {
 }
 
 func (m *Manager) Close() error {
+	// Stop accepting observer updates under the same lock the enqueues use,
+	// then signal the drainer to drain the remainder and exit. Setting
+	// persistClosed under persistMu guarantees no observer can enqueue after
+	// this point — there is no channel to close, so the old "send on closed
+	// channel" panic cannot occur. Closing persistCloseCh unblocks a drainer
+	// that is backed off retrying a stuck DB: runCtx is only canceled after
+	// the drainer has exited (below), so without persistCloseCh the retry
+	// loop would block Close forever on a persistent DB outage.
+	m.persistMu.Lock()
+	if !m.persistClosed {
+		m.persistClosed = true
+		close(m.persistCloseCh)
+	}
+	m.persistCond.Broadcast()
+	m.persistMu.Unlock()
+	m.persistDone.Wait()
 	m.cancel()
 	m.mu.Lock()
 	processes := make([]ManagedProcess, 0, len(m.processes))
@@ -733,19 +952,54 @@ func (m *Manager) fetchProviderQuota(ctx context.Context, accountID string, prob
 
 const modelCatalogTTL = 5 * time.Minute
 
+// persistRetryBackoff paces retries after a failed SQLite write. A stuck DB
+// must not drive the drainer into a hot spin, but the backoff must stay
+// short enough that a transient lock clears and the newest state reaches
+// disk promptly. It is fixed rather than exponential because the dirty-set
+// merge already collapses intermediate snapshots.
+const persistRetryBackoff = 500 * time.Millisecond
+
 // EnsureModelCatalogs refreshes per-account catalogs that are missing or
 // older than the worker TTL. Failures leave the previous snapshot in place
 // and never flip readiness or cooldown.
+//
+// Refreshes run concurrently in the background with a bounded semaphore so
+// the first chat request is never blocked by N serial 15-second timeouts
+// when multiple accounts are offline. The caller returns immediately; a
+// nil Models slice means unknown (fail open) until the background refresh
+// completes and subsequent requests use the fresh catalog.
 func (m *Manager) EnsureModelCatalogs(ctx context.Context, force bool) {
 	if m == nil || m.pool == nil {
 		return
 	}
 	now := time.Now()
+	var stale []Item
 	for _, item := range m.pool.Items() {
 		if !force && item.Models != nil && !item.ModelsAt.IsZero() && now.Sub(item.ModelsAt) < modelCatalogTTL {
 			continue
 		}
-		m.fetchAccountModels(ctx, item)
+		stale = append(stale, item)
+	}
+	if len(stale) == 0 {
+		return
+	}
+	// Fire background refreshes concurrently with a bounded semaphore.
+	// Use m.runCtx so refreshes survive the caller's request context and
+	// are canceled only on shutdown.
+	if ctx.Err() != nil {
+		return // caller context already cancelled — no point firing goroutines
+	}
+	const maxConcurrent = 4
+	sem := make(chan struct{}, maxConcurrent)
+	for _, item := range stale {
+		go func(it Item) {
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+				m.fetchAccountModels(m.runCtx, it)
+			case <-m.runCtx.Done():
+			}
+		}(item)
 	}
 }
 

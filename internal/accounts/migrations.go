@@ -170,6 +170,8 @@ CREATE TABLE IF NOT EXISTS account_cooldowns (
   PRIMARY KEY (account_id, model)
 );
 CREATE INDEX IF NOT EXISTS account_cooldowns_until ON account_cooldowns(down_until);`},
+	{filename: "012_account_cooldown_model_kind.sql", sql: `
+ALTER TABLE account_cooldowns ADD COLUMN model_kind TEXT NOT NULL DEFAULT '';`},
 }
 
 const schemaMigrationsDDL = `
