@@ -7,7 +7,11 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Fix Trae and WorkBuddy per-model settings (max mode, reasoning effort) never taking effect: the console stores them under the canonical model key while chat requests looked them up with a plain lowercase match, so mixed-case Trae model IDs and underscored public IDs missed the saved row; lookups now share one canonical key, cold-catalog refreshes no longer drop max mode, and a requested-but-unsupported max mode is logged instead of silently dropped
+
 ### 中文
+
+- 修复 Trae / WorkBuddy 模型设置（max 模式、推理档位）从不生效的问题：控制台按规范化模型 key 存储，而聊天请求只用小写匹配查找，混合大小写的 Trae 模型 ID 和带下划线的公开 ID 会查不到已保存的设置；现在两侧统一使用同一个规范化 key，冷启动目录刷新不再丢掉 max 模式，请求了但模型不支持 max 模式时会记录日志而不是静默丢弃
 
 ## 0.2.26 - 2026-08-31
 
