@@ -7,7 +7,11 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Clarify account quota usage on the Accounts page by showing used and remaining credits together
+
 ### 中文
+
+- 账号页面同时显示已用和剩余额度，额度使用情况更清晰
 
 ## 0.2.29 - 2026-08-31
 
