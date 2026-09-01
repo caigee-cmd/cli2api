@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.2.31 - 2026-09-01
+
+### English
+
 - Paginate the Accounts page so large pools render one page of cards at a time, with the same per-page control used on Logs and Models
 
 ### 中文
