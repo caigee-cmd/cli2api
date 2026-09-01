@@ -7,7 +7,11 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Paginate the Accounts page so large pools render one page of cards at a time, with the same per-page control used on Logs and Models
+
 ### 中文
+
+- 账号页支持分页：账号较多时按页展示卡片，每页数量选择与日志、模型页一致
 
 ## 0.2.30 - 2026-08-31
 
