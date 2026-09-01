@@ -535,3 +535,77 @@ func TestAPIKeysCRUDAndConsoleKeyPrefix(t *testing.T) {
 		t.Fatalf("delete key: %d %s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestAccountRefreshRouteRequiresKeyAndReportsMissingAccount(t *testing.T) {
+	srv := New(config.Config{
+		Host:        "127.0.0.1",
+		Port:        3010,
+		ProxyAPIKey: "secret",
+		QoderHome:   t.TempDir(),
+		DataDir:     t.TempDir(),
+	})
+	defer srv.Close()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/accounts/missing/refresh", nil)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("refresh without key: got %d want 401", rec.Code)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/accounts/missing/refresh", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("refresh unknown account: got %d want 404 (%s)", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAccountRefreshRouteRejectsGET(t *testing.T) {
+	srv := New(config.Config{
+		Host:        "127.0.0.1",
+		Port:        3010,
+		ProxyAPIKey: "secret",
+		QoderHome:   t.TempDir(),
+		DataDir:     t.TempDir(),
+	})
+	defer srv.Close()
+
+	body := bytes.NewBufferString(`{"name":"Refreshable","enabled":false}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/accounts", body)
+	req.Header.Set("Authorization", "Bearer secret")
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create account: %d %s", rec.Code, rec.Body.String())
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+
+	// A disabled account has no pool item, so refresh fails closed instead of
+	// silently reporting a stale view.
+	req = httptest.NewRequest(http.MethodPost, "/api/accounts/"+created.ID+"/refresh", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("refresh disabled account: got %d want 502 (%s)", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/accounts/"+created.ID+"/refresh", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	rec = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("GET refresh: got %d want 405", rec.Code)
+	}
+}
