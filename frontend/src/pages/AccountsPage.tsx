@@ -12,6 +12,7 @@ import { BrandMark } from '@/components/BrandMark'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { EmptyPanel } from '@/components/ui/EmptyPanel'
 import { FilterToggle } from '@/components/ui/FilterToggle'
+import { ListPager, type PageSize } from '@/components/ui/ListPager'
 import { SearchBar } from '@/components/ui/SearchBar'
 import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
@@ -58,6 +59,8 @@ export function AccountsPage() {
   const [authPanelId, setAuthPanelId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<AccountFilter>('all')
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState<PageSize>(20)
   const [enabledById, setEnabledById] = useState<Record<string, boolean>>({})
   const [dropSystemById, setDropSystemById] = useState<Record<string, boolean>>({})
   const [autoCheckinById, setAutoCheckinById] = useState<Record<string, boolean>>({})
@@ -110,6 +113,23 @@ export function AccountsPage() {
         .some((value) => String(value || '').toLowerCase().includes(normalized))
     })
   }, [displayRows, filter, query])
+  const filterKey = [query, filter, pageSize].join('\0')
+  const [appliedFilterKey, setAppliedFilterKey] = useState(filterKey)
+  if (appliedFilterKey !== filterKey) {
+    setAppliedFilterKey(filterKey)
+    setPage(1)
+  }
+  const pageCount = Math.max(1, Math.ceil(filteredRows.length / pageSize))
+  const currentPage = Math.min(appliedFilterKey !== filterKey ? 1 : Math.max(1, page), pageCount)
+  if (page !== currentPage) {
+    setPage(currentPage)
+  }
+  const pagedRows = useMemo(() => {
+    const start = (currentPage - 1) * pageSize
+    return filteredRows.slice(start, start + pageSize)
+  }, [currentPage, filteredRows, pageSize])
+  const shownFrom = filteredRows.length === 0 ? 0 : (currentPage - 1) * pageSize + 1
+  const shownTo = Math.min(filteredRows.length, currentPage * pageSize)
 
   if (loading && !hasAccounts) return <AccountsPageSkeleton />
 
@@ -359,7 +379,11 @@ export function AccountsPage() {
                 { id: 'disabled', label: t('disabled') },
               ]}
             />
-            <span className="mono text-xs text-muted">{t('shownAccounts', { shown: filteredRows.length, total: rows.length })}</span>
+            <span className="mono text-xs text-muted">
+              {filteredRows.length
+                ? t('logsShownTotal', { shown: `${shownFrom}–${shownTo}`, total: filteredRows.length })
+                : t('shownAccounts', { shown: 0, total: rows.length })}
+            </span>
           </div>
         </section>
       ) : null}
@@ -384,10 +408,10 @@ export function AccountsPage() {
       ) : null}
 
       {refreshing ? (
-        <AccountsListSkeleton count={Math.max(3, Math.min(6, filteredRows.length || 6))} />
+        <AccountsListSkeleton count={Math.max(3, Math.min(6, pagedRows.length || 6))} />
       ) : (
       <section className="grid gap-2.5 lg:grid-cols-2 xl:grid-cols-3" aria-busy={refreshing}>
-        {filteredRows.map((account) => (
+        {pagedRows.map((account) => (
           <AccountCard
             key={account.id}
             account={account}
@@ -417,6 +441,22 @@ export function AccountsPage() {
         ))}
       </section>
       )}
+
+      {filteredRows.length ? (
+        <ListPager
+          total={filteredRows.length}
+          page={currentPage}
+          pageCount={pageCount}
+          pageSize={pageSize}
+          loading={refreshing}
+          pageSizeLabel={t('logsPageSize')}
+          pageLabel={t('logsPage', { page: currentPage, pages: pageCount })}
+          prevLabel={t('logsPrevPage')}
+          nextLabel={t('logsNextPage')}
+          onPage={setPage}
+          onPageSize={setPageSize}
+        />
+      ) : null}
     </div>
   )
 }
