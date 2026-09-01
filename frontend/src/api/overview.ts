@@ -85,6 +85,15 @@ export function updateProviderReasoning(provider: 'trae' | 'workbuddy', modelKey
   })
 }
 
+export function refreshAccount(accountId: string, options?: { quota?: boolean }) {
+  if (!accountId) throw new Error('account id required')
+  const query = options?.quota ? '?quota=1' : ''
+  return api(`/api/accounts/${encodeURIComponent(accountId)}/refresh${query}`, {
+    method: 'POST',
+    body: '{}',
+  })
+}
+
 export function rewarmWorker(accountId?: string) {
   if (!accountId) throw new Error('account id required')
   return api(`/api/accounts/${encodeURIComponent(accountId)}/rewarm`, { method: 'POST', body: '{}' })

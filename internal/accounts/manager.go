@@ -805,6 +805,51 @@ func (m *Manager) Import(ctx context.Context, input ImportAccount) (Account, err
 	return m.store.Get(ctx, account.ID)
 }
 
+// RefreshAccount re-probes one account's health, quota, and model catalog.
+// forceQuota bypasses the worker's own quota cache, matching the console's
+// "Refresh credits" button. It refreshes only the requested account, so a
+// single card can update without re-probing the whole pool.
+func (m *Manager) RefreshAccount(ctx context.Context, id string, forceQuota bool) error {
+	if m == nil || m.pool == nil {
+		return fmt.Errorf("account manager not ready")
+	}
+	item, ok := m.pool.ByID(id)
+	if !ok {
+		return fmt.Errorf("account %s is not running", id)
+	}
+	return m.refreshOne(ctx, item, forceQuota)
+}
+
+// AccountView returns the same projection the accounts list builds, for one
+// account, so a single-card refresh can update in place.
+func (m *Manager) AccountView(ctx context.Context, id string) (AccountView, error) {
+	if m == nil || m.store == nil {
+		return AccountView{}, fmt.Errorf("account manager not ready")
+	}
+	account, err := m.store.Get(ctx, id)
+	if err != nil {
+		return AccountView{}, err
+	}
+	view := AccountView{Account: account}
+	if item, ok := m.pool.ByID(account.ID); ok {
+		view.Ready = item.Ready == nil || *item.Ready
+		view.Hot = item.Hot != nil && *item.Hot
+		view.InFlight = item.InFlight
+		view.Restarts = item.Restarts
+		view.Quota = item.Quota
+		if !item.DownUntil.IsZero() && time.Now().Before(item.DownUntil) {
+			view.DownUntil = item.DownUntil.UTC().Format(time.RFC3339)
+		}
+		if view.LastError == "" {
+			view.LastError = item.LastError
+		}
+		if view.LastErrorKind == "" {
+			view.LastErrorKind = item.LastKind
+		}
+	}
+	return view, nil
+}
+
 func (m *Manager) Accounts(ctx context.Context) ([]AccountView, error) {
 	stored, err := m.store.List(ctx)
 	if err != nil {
