@@ -7,7 +7,11 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Refresh a single account from its card: the button re-probes that one account's health, credits, and model catalog and shows a skeleton while it runs, instead of reloading the whole page
+
 ### 中文
+
+- 账号卡片支持单个刷新：按钮只重新探测该账号的运行状态、额度和模型目录，期间显示骨架屏，不再整页刷新
 
 ## 0.2.31 - 2026-09-01
 

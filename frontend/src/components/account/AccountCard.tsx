@@ -14,6 +14,7 @@ import {
 import gsap from 'gsap'
 import { ProviderMark } from '@/components/ProviderMark'
 import { CompactSwitch } from '@/components/ui/CompactSwitch'
+import { AccountCardSkeleton } from '@/components/ui/PageSkeletons'
 import { QuotaMeter } from '@/components/account/QuotaMeter'
 import { RuntimeMeter } from '@/components/account/RuntimeMeter'
 import {
@@ -23,7 +24,7 @@ import {
 } from '@/lib/account'
 import { accountProviderLabel } from '@/lib/provider'
 
-export type AccountBusyKind = 'create' | 'import' | 'device' | 'pat' | 'callback' | 'rewarm' | 'toggle' | 'delete' | 'export' | 'settings' | 'checkin'
+export type AccountBusyKind = 'create' | 'import' | 'device' | 'pat' | 'callback' | 'rewarm' | 'refresh' | 'toggle' | 'delete' | 'export' | 'settings' | 'checkin'
 
 type Translate = (key: string, vars?: Record<string, string | number>) => string
 
@@ -43,6 +44,7 @@ type Props = {
   onSubmitCallback?: () => void
   onExport: () => void
   onRewarm: () => void
+  onRefresh?: () => void
   onDelete: () => void
   onToggle: (selected: boolean) => void
   onToggleDropSystem: (selected: boolean) => void
@@ -77,6 +79,7 @@ export function AccountCard({
   onSubmitCallback,
   onExport,
   onRewarm,
+  onRefresh,
   onDelete,
   onToggle,
   onToggleDropSystem,
@@ -152,6 +155,16 @@ export function AccountCard({
 
     return () => context.revert()
   }, [authPanelOpen])
+
+  // Refreshing replaces the whole card with a skeleton so stale quota and
+  // status are never left on screen while the account is re-probed.
+  if (busyKind === 'refresh') {
+    return (
+      <div data-gsap-reveal aria-busy="true" aria-label={t('refreshingAccount')}>
+        <AccountCardSkeleton />
+      </div>
+    )
+  }
 
   return (
     <Card
@@ -326,6 +339,16 @@ export function AccountCard({
           </Tooltip.Trigger>
           <Tooltip.Content>{t('accountModels')}</Tooltip.Content>
         </Tooltip>
+        {onRefresh ? (
+          <Tooltip>
+            <Tooltip.Trigger>
+              <Button isIconOnly size="sm" variant="secondary" onPress={onRefresh} aria-label={t('refreshAccount')}>
+                <ArrowClockwise size={14} />
+              </Button>
+            </Tooltip.Trigger>
+            <Tooltip.Content>{t('refreshAccount')}</Tooltip.Content>
+          </Tooltip>
+        ) : null}
         <Tooltip>
           <Tooltip.Trigger>
             <Button isIconOnly size="sm" variant="secondary" isDisabled={!account.enabled} isPending={busyKind === 'rewarm'} onPress={onRewarm} aria-label={t('rewarm')}>

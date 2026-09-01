@@ -249,6 +249,30 @@ func (s *Server) handleAccountByID(w http.ResponseWriter, r *http.Request) {
 	}
 
 	action := strings.Join(parts[1:], "/")
+	// Refresh re-probes health, quota, and the model catalog for one account.
+	// It must dispatch before the provider-native block below, which would
+	// otherwise reject it as an unknown action for non-Qoder providers.
+	if action == "refresh" {
+		if r.Method != http.MethodPost {
+			writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "POST only")
+			return
+		}
+		if _, err := s.manager.Store().Get(r.Context(), accountID); err != nil {
+			writeErr(w, http.StatusNotFound, "account_not_found", err.Error())
+			return
+		}
+		if err := s.manager.RefreshAccount(r.Context(), accountID, r.URL.Query().Get("quota") == "1"); err != nil {
+			writeErr(w, http.StatusBadGateway, "account_refresh_failed", err.Error())
+			return
+		}
+		view, err := s.manager.AccountView(r.Context(), accountID)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, "account_view_failed", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, view)
+		return
+	}
 	if account, err := s.manager.Store().Get(r.Context(), accountID); err == nil && action == "checkin" {
 		if r.Method != http.MethodPost {
 			writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "POST only")

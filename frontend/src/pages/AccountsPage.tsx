@@ -23,6 +23,7 @@ import {
   completeLoginCallback,
   fetchLoginStatus,
   loginWithPat,
+  refreshAccount,
   rewarmWorker,
   startDeviceLogin,
   updateAccount,
@@ -253,6 +254,26 @@ export function AccountsPage() {
     })
   }
 
+  async function onRefreshAccount(id: string) {
+    setBusy({ id, kind: 'refresh' })
+    setNoteById((current) => {
+      const next = { ...current }
+      delete next[id]
+      return next
+    })
+    try {
+      await refreshAccount(id, { quota: true })
+    } catch (error) {
+      setNoteById((current) => ({ ...current, [id]: error instanceof Error ? error.message : String(error) }))
+    } finally {
+      setBusy(null)
+      // Re-read the whole pool so header counts and provider tallies stay in
+      // sync with the refreshed card, but keep the silent flag so the list
+      // never unmounts and quota meters animate instead of flashing.
+      await refresh(undefined, { silent: true }).catch(() => undefined)
+    }
+  }
+
   async function onRefreshCredits() {
     setQuotaRefreshing(true)
     try {
@@ -352,7 +373,10 @@ export function AccountsPage() {
           if (!confirmAccount) return
           const id = confirmAccount.id
           setConfirmId(null)
-          void run(id, 'delete', async () => { await deleteAccount(id); await refresh(undefined, { silent: true }) })
+          void run(id, 'delete', async () => {
+            await deleteAccount(id)
+            await refresh(undefined, { silent: true })
+          })
         }}
       />
 
@@ -429,6 +453,7 @@ export function AccountsPage() {
             onPatLogin={() => void onPat(account.id)}
             onExport={() => void onExport(account.id)}
             onRewarm={() => void run(account.id, 'rewarm', async () => { await rewarmWorker(account.id); await refresh(undefined, { silent: true }) })}
+            onRefresh={() => void onRefreshAccount(account.id)}
             onDelete={() => setConfirmId(account.id)}
             onToggle={(selected) => void onToggle(account.id, selected)}
             onToggleDropSystem={(selected) => void onToggleDropSystem(account.id, selected)}
