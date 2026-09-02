@@ -90,6 +90,7 @@ export type Overview = {
     restarts?: number
     kind?: string
     down_until?: string | null
+    model_cooldowns?: Record<string, string>
     last_error?: string
     lastError?: string
     last_error_kind?: string

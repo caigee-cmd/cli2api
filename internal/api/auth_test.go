@@ -17,6 +17,17 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
+func TestClassifyCanceledErrorDoesNotBecomeAuth(t *testing.T) {
+	err := fmt.Errorf("load credential payload: %w", context.Canceled)
+	classified := classifyAPIError(err)
+	if classified.Kind == accounts.KindAuth {
+		t.Fatalf("canceled credential error classified as auth: %+v", classified)
+	}
+	if classified.Failover || classified.Cooldown != 0 || classified.Code != "request_canceled" {
+		t.Fatalf("canceled error classification = %+v", classified)
+	}
+}
+
 func TestManagementRoutesRequireAPIKey(t *testing.T) {
 	srv := New(config.Config{
 		Host:        "127.0.0.1",
