@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.2.33 - 2026-09-02
+
+### English
+
 - Load the Accounts page from a cached lightweight list first, then refresh account health and credits asynchronously; remove the duplicate worker rewarm button so each card keeps one clear refresh action
 - Refresh a single account from its card: the button re-probes that one account's health, credits, and model catalog and shows a skeleton while it runs, instead of reloading the whole page
 
