@@ -7,7 +7,15 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Make account failure handling scope-aware: quota, authentication, readiness, and upstream failures cool the whole account, while rate limits remain isolated to the affected model; cooling accounts no longer receive requests
+- Recognize nested CodeBuddy quota errors such as code `14018`, apply an account cooldown, and expose model-level cooldowns with precise `Retry-After` messages
+- Improve the Accounts console with compact cards, a single primary refresh action, matching skeleton dimensions, and live per-model cooldown indicators
+
 ### 中文
+
+- 完善账号错误范围处理：额度、认证、就绪状态和上游故障冷却整个账号；限流仍只隔离受影响的模型；冷却中的账号不再接收请求
+- 支持识别 CodeBuddy 的嵌套额度错误（包括 `14018`），触发账号冷却，并通过明确的 `Retry-After` 提示模型级冷却
+- 优化账号控制台：卡片更紧凑，只保留一个主要刷新操作，骨架屏尺寸与实际卡片匹配，并实时展示模型级冷却状态
 
 ## 0.2.33 - 2026-09-02
 

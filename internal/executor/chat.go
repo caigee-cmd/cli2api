@@ -91,6 +91,13 @@ func allowedProvidersFrom(ctx context.Context) []string {
 	return providers
 }
 
+func requestContextDone(ctx context.Context, err error) bool {
+	if err == nil {
+		return false
+	}
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || (ctx != nil && ctx.Err() != nil)
+}
+
 func NewChatExecutor(pool *accounts.Pool, workerKey string) ChatExecutor {
 	if pool == nil {
 		pool = accounts.NewPool(nil, nil)
@@ -161,6 +168,17 @@ func (e ChatExecutor) pick(prefer, providerFilter, regionFilter, publicModel str
 	query := e.routeQuery(prefer, providerFilter, regionFilter, publicModel, allowed, excluded)
 	if e.Pool != nil {
 		if item, ok := e.Pool.PickRoute(query); ok {
+			if retryAfter := e.Pool.RetryAfter(item, publicModel); retryAfter > 0 {
+				failover := true
+				message := "all accounts are cooling down"
+				if e.Pool.CooldownScope(item, publicModel) == "model" && strings.TrimSpace(publicModel) != "" {
+					message = fmt.Sprintf("model %s is cooling down on all available accounts", publicModel)
+				}
+				return accounts.Item{}, &providers.Error{
+					Kind: accounts.KindRateLimit, Status: 429,
+					Message: message, Cooldown: retryAfter, Failover: &failover,
+				}
+			}
 			return item, nil
 		}
 		// PickRoute returned false with an eligible route: every
@@ -276,7 +294,7 @@ func (e ChatExecutor) markClassified(id string, c accounts.Classified, model str
 	if e.Pool == nil || id == "" {
 		return
 	}
-	if c.Model == "" {
+	if c.Model == "" && c.Kind == accounts.KindRateLimit {
 		c.Model = model
 	}
 	e.Pool.MarkClassified(id, c)
@@ -380,6 +398,9 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 				return result, nil
 			}
 			lastErr = err
+			if requestContextDone(ctx, err) {
+				return ChatResult{AttemptCount: i + 1, AccountID: item.ID, Provider: item.Provider}, err
+			}
 			if classified.Failover && i+1 < attempts {
 				excluded[item.ID] = struct{}{}
 				continue
@@ -397,6 +418,14 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 		started := time.Now()
 		resp, err := e.HTTPClient.Do(httpReq)
 		if err != nil {
+			if requestContextDone(ctx, err) {
+				latency := int(time.Since(started).Milliseconds())
+				e.recordAttempt(ctx, accounts.RequestAttempt{
+					AttemptIndex: i, AccountID: item.ID, StartedAt: started, FinishedAt: ptrTime(time.Now().UTC()),
+					Status: accounts.AttemptStatusError, ErrorKind: accounts.KindUnavailable, ErrorMessage: err.Error(), LatencyMs: &latency,
+				})
+				return ChatResult{AttemptCount: i + 1, AccountID: item.ID, Provider: item.Provider}, err
+			}
 			classified := accounts.Classify(0, err.Error(), "", accounts.KindUnavailable, "")
 			lastErr = fmt.Errorf("worker %s request failed: %w", item.ID, err)
 			e.markClassified(item.ID, classified, req.Model)
@@ -493,6 +522,9 @@ func (e ChatExecutor) chatInProcessNonStreamAttempt(ctx context.Context, item ac
 	finished := time.Now().UTC()
 	latency := int(finished.Sub(started).Milliseconds())
 	if err != nil {
+		if requestContextDone(ctx, err) {
+			return ChatResult{AccountID: item.ID, Provider: item.Provider}, accounts.Classified{Kind: accounts.KindUnavailable, Message: err.Error()}, err
+		}
 		classified := e.classifyInProcessError(err)
 		if classified.Kind == accounts.KindModelNotAvailable {
 			e.Pool.RemoveModel(item.ID, req.Model)
@@ -539,6 +571,9 @@ func (e ChatExecutor) chatInProcessStreamAttempt(ctx context.Context, item accou
 	if err != nil {
 		finished := time.Now().UTC()
 		latency := int(finished.Sub(started).Milliseconds())
+		if requestContextDone(ctx, err) {
+			return StreamResult{AccountID: item.ID, Provider: item.Provider}, accounts.Classified{Kind: accounts.KindUnavailable, Message: err.Error()}, err
+		}
 		classified := e.classifyInProcessError(err)
 		if classified.Kind == accounts.KindModelNotAvailable {
 			e.Pool.RemoveModel(item.ID, req.Model)
@@ -720,6 +755,9 @@ func (e ChatExecutor) ChatStreamProxy(ctx context.Context, req translate.ChatReq
 				return result, nil
 			}
 			lastErr = err
+			if requestContextDone(ctx, err) {
+				return StreamResult{AttemptCount: i + 1, AccountID: item.ID, Provider: item.Provider}, err
+			}
 			if classified.Failover && i+1 < attempts {
 				excluded[item.ID] = struct{}{}
 				continue
@@ -746,6 +784,14 @@ func (e ChatExecutor) ChatStreamProxy(ctx context.Context, req translate.ChatReq
 		started := time.Now()
 		resp, err := client.Do(httpReq)
 		if err != nil {
+			if requestContextDone(ctx, err) {
+				latency := int(time.Since(started).Milliseconds())
+				e.recordAttempt(ctx, accounts.RequestAttempt{
+					AttemptIndex: i, AccountID: item.ID, StartedAt: started, FinishedAt: ptrTime(time.Now().UTC()),
+					Status: accounts.AttemptStatusError, ErrorKind: accounts.KindUnavailable, ErrorMessage: err.Error(), LatencyMs: &latency,
+				})
+				return StreamResult{AttemptCount: i + 1, AccountID: item.ID, Provider: item.Provider}, err
+			}
 			classified := accounts.Classify(0, err.Error(), "", accounts.KindUnavailable, "")
 			lastErr = fmt.Errorf("worker %s stream request failed: %w", item.ID, err)
 			e.markClassified(item.ID, classified, req.Model)

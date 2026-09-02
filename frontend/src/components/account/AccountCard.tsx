@@ -1,10 +1,11 @@
-import { useLayoutEffect, useRef } from 'react'
-import { Button, Card, Chip, Input, Label, TextArea, TextField, Tooltip } from '@heroui/react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Button, Card, Chip, Dropdown, Input, Label, TextArea, TextField, Tooltip } from '@heroui/react'
 import {
   ArrowClockwise,
   ArrowSquareOut,
   Copy,
   Cube,
+  DotsThreeVertical,
   Key,
   PencilSimple,
   ShieldCheck,
@@ -20,6 +21,7 @@ import { RuntimeMeter } from '@/components/account/RuntimeMeter'
 import {
   accountState,
   cooldownLabel,
+  modelCooldownEntries,
   type AccountRow,
 } from '@/lib/account'
 import { accountProviderLabel } from '@/lib/provider'
@@ -90,8 +92,16 @@ export function AccountCard({
   const chipRef = useRef<HTMLSpanElement>(null)
   const authRef = useRef<HTMLElement>(null)
   const lastStateRef = useRef<string | null>(null)
+  const [, refreshCooldowns] = useState(0)
   const state = accountState(account)
   const cooldown = cooldownLabel(account.down_until || account.cooldown_until)
+  const modelCooldowns = modelCooldownEntries(account)
+
+  useEffect(() => {
+    if (!cooldown && modelCooldowns.length === 0) return
+    const timer = window.setInterval(() => refreshCooldowns((value) => value + 1), 1000)
+    return () => window.clearInterval(timer)
+  }, [cooldown, modelCooldowns.length])
   const stateCopy = stateCopyFor(state, cooldown, t)
   const stateColor = state === 'hot' || state === 'ready'
     ? 'success'
@@ -104,10 +114,6 @@ export function AccountCard({
   const lastError = account.last_error || account.lastError
   const errorKind = account.last_error_kind || account.kind
   const provider = accountProviderLabel(account.provider, account.region, t)
-  const meta = [
-    provider,
-    account.remote_uid ? `UID ${account.remote_uid}` : account.id,
-  ].join(' · ')
 
   useLayoutEffect(() => {
     const chip = chipRef.current
@@ -172,47 +178,64 @@ export function AccountCard({
     >
       <Card.Header className="flex-row items-start justify-between gap-3 px-3 pt-3 pb-2">
         <div className="flex min-w-0 items-center gap-2.5">
-          <ProviderMark provider={account.provider} size={22} />
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-border bg-surface-secondary">
+            <ProviderMark provider={account.provider} size={22} />
+          </div>
           <div className="min-w-0">
-            <Card.Title className="truncate text-[13px] leading-5 tracking-[-0.01em]">{account.name || account.id}</Card.Title>
+            <div className="flex min-w-0 items-center gap-2">
+              <Card.Title className="truncate text-[13px] leading-5 tracking-[-0.01em]">{account.name || account.id}</Card.Title>
+              <span className="shrink-0 rounded-md bg-surface-secondary px-1.5 py-0.5 text-[10px] text-muted">{provider}</span>
+            </div>
             <Card.Description className="mono truncate text-[10px] leading-4" title={`${account.id}${account.remote_uid ? ` · UID ${account.remote_uid}` : ''}`}>
-              {meta}
+              {account.remote_uid ? `UID ${account.remote_uid}` : account.id}
             </Card.Description>
           </div>
         </div>
-        <span ref={chipRef} className="shrink-0">
-          <Chip size="sm" variant="soft" color={stateColor}>{stateCopy}</Chip>
-        </span>
+        <div className="flex max-w-[48%] shrink-0 flex-wrap justify-end gap-1.5">
+          <span ref={chipRef}>
+            <Chip size="sm" variant="soft" color={stateColor}>{stateCopy}</Chip>
+          </span>
+          {modelCooldowns.length ? <Chip size="sm" variant="soft" color="warning">{t('partialCooling')}</Chip> : null}
+        </div>
       </Card.Header>
 
       <Card.Content className="gap-2.5 px-3 pb-2.5">
-        <RuntimeMeter state={state} label={t('runtimeState')} stateCopy={stateCopy} />
-        {account.quota ? (
-          <QuotaMeter
-            quota={account.quota}
-            label={t('quota')}
-            usedLabel={t('quotaUsed')}
-            remainingLabel={t('quotaRemaining')}
-            addOnLabel={t('quotaAddOn')}
-            exceededLabel={t('quotaExceeded')}
-          />
+        {modelCooldowns.length ? (
+          <div className="flex items-start gap-2 rounded-2xl border border-warning/25 bg-warning/5 px-2.5 py-2 text-[11px] text-warning-foreground">
+            <span className="status-dot mt-0.5 shrink-0" data-state="warn" />
+            <div className="min-w-0">
+              <div className="font-medium">{t('partialCooling')}</div>
+              <div className="mt-0.5 break-words text-warning-foreground/80">
+                {modelCooldowns.slice(0, 3).map(([model, until]) => `${model} ${cooldownLabel(until)}`).join(' · ')}
+                {modelCooldowns.length > 3 ? ` · +${modelCooldowns.length - 3}` : ''}
+              </div>
+            </div>
+          </div>
         ) : null}
+        <div className="rounded-2xl border border-border bg-surface-secondary/45 p-2.5">
+          <RuntimeMeter state={state} label={t('runtimeState')} stateCopy={stateCopy} />
+          <div className="mt-2.5 grid grid-cols-3 gap-2 border-t border-separator pt-2.5 text-[10px] text-muted">
+            <span><span className="mono block text-[12px] font-medium text-foreground">{inFlight}/{account.max_inflight ?? 4}</span>{t('inFlight')}</span>
+            <span><span className="mono block text-[12px] font-medium text-foreground">{account.priority ?? 50}</span>{t('priority')}</span>
+            <span><span className="mono block text-[12px] font-medium text-foreground">{account.restarts ?? 0}</span>{t('restarts')}</span>
+          </div>
+        </div>
 
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted">
-          <span>
-            <span className="mono font-medium text-foreground">{inFlight}/{account.max_inflight ?? 4}</span>
-            {' '}{t('inFlight')}
-          </span>
-          <span>
-            {t('priority')} <span className="mono font-medium text-foreground">{account.priority ?? 50}</span>
-          </span>
-          <span>
-            {t('restarts')} <span className="mono font-medium text-foreground">{account.restarts ?? 0}</span>
-          </span>
+        <div className="min-h-[58px] rounded-2xl border border-border bg-surface-secondary/25 p-2.5">
+          {account.quota ? (
+            <QuotaMeter
+              quota={account.quota}
+              label={t('quota')}
+              usedLabel={t('quotaUsed')}
+              remainingLabel={t('quotaRemaining')}
+              addOnLabel={t('quotaAddOn')}
+              exceededLabel={t('quotaExceeded')}
+            />
+          ) : <span className="text-[11px] text-muted">{t('statsUnknown')}</span>}
         </div>
 
         {account.provider === 'workbuddy' ? (
-          <div className="grid gap-2">
+          <div className="grid gap-2 rounded-2xl border border-border bg-surface-secondary/20 p-2.5">
             <div className="flex items-center justify-between gap-3 text-[11px]">
               <Tooltip>
                 <Tooltip.Trigger>
@@ -263,7 +286,7 @@ export function AccountCard({
         ) : null}
 
         {lastError ? (
-          <div className="flex gap-2 text-xs leading-5 text-danger">
+          <div className="flex gap-2 rounded-2xl border border-danger/25 bg-danger/5 p-2.5 text-xs leading-5 text-danger">
             <WarningCircle size={14} className="mt-0.5 shrink-0" />
             <div className="min-w-0">
               {errorKind ? <div className="mono mb-0.5 text-[10px] opacity-75">{errorKind}</div> : null}
@@ -317,55 +340,40 @@ export function AccountCard({
         </section>
       ) : null}
 
-      <Card.Footer className="flex-wrap gap-1.5 border-t border-separator px-3 py-2">
-        <Button
-          size="sm"
-          variant={state === 'login' ? 'primary' : 'secondary'}
-          isDisabled={!account.enabled}
-          onPress={onToggleAuthPanel}
-        >
-          <Key size={14} />{t('authentication')}
-        </Button>
-        <Button size="sm" variant="secondary" onPress={onEdit}>
-          <PencilSimple size={14} />{t('editAccount')}
-        </Button>
-        <Tooltip>
-          <Tooltip.Trigger>
-            <Button isIconOnly size="sm" variant="secondary" onPress={onViewModels} aria-label={t('accountModels')}>
-              <Cube size={14} />
-            </Button>
-          </Tooltip.Trigger>
-          <Tooltip.Content>{t('accountModels')}</Tooltip.Content>
-        </Tooltip>
+      <Card.Footer className="flex items-center gap-2 border-t border-separator px-3 py-2.5">
         {onRefresh ? (
-          <Tooltip>
-            <Tooltip.Trigger>
-              <Button isIconOnly size="sm" variant="secondary" onPress={onRefresh} aria-label={t('refreshAccount')}>
-                <ArrowClockwise size={14} />
-              </Button>
-            </Tooltip.Trigger>
-            <Tooltip.Content>{t('refreshAccount')}</Tooltip.Content>
-          </Tooltip>
+          <Button className="min-w-0 flex-1" size="sm" variant="primary" onPress={onRefresh}>
+            <ArrowClockwise size={14} />{t('refreshAccount')}
+          </Button>
         ) : null}
-        {account.auth_type !== 'none' ? (
-          <Tooltip>
-            <Tooltip.Trigger>
-              <Button isIconOnly size="sm" variant="secondary" isPending={busyKind === 'export'} onPress={onExport} aria-label={t('export')}>
-                <Copy size={14} />
-              </Button>
-            </Tooltip.Trigger>
-            <Tooltip.Content>{t('export')}</Tooltip.Content>
-          </Tooltip>
-        ) : null}
-        <Tooltip>
-          <Tooltip.Trigger>
-            <Button isIconOnly size="sm" variant="danger-soft" isPending={busyKind === 'delete'} onPress={onDelete} aria-label={t('delete')}>
-              <TrashSimple size={14} />
+        <Dropdown>
+          <Dropdown.Trigger>
+            <Button isIconOnly size="sm" variant="secondary" aria-label={t('more')}>
+              <DotsThreeVertical size={16} />
             </Button>
-          </Tooltip.Trigger>
-          <Tooltip.Content>{t('delete')}</Tooltip.Content>
-        </Tooltip>
-        <div className="ml-auto flex items-center gap-2">
+          </Dropdown.Trigger>
+          <Dropdown.Popover placement="bottom end">
+            <Dropdown.Menu
+              aria-label={t('more')}
+              onAction={(key) => {
+                if (key === 'auth') onToggleAuthPanel()
+                if (key === 'models') onViewModels()
+                if (key === 'edit') onEdit()
+                if (key === 'export') onExport()
+                if (key === 'checkin') onCheckin?.()
+                if (key === 'delete') onDelete()
+              }}
+            >
+              <Dropdown.Item id="auth" isDisabled={!account.enabled} textValue={t('authentication')}><Key size={15} />{t('authentication')}</Dropdown.Item>
+              <Dropdown.Item id="models" textValue={t('accountModels')}><Cube size={15} />{t('accountModels')}</Dropdown.Item>
+              <Dropdown.Item id="edit" textValue={t('editAccount')}><PencilSimple size={15} />{t('editAccount')}</Dropdown.Item>
+              {account.auth_type !== 'none' ? <Dropdown.Item id="export" textValue={t('export')}><Copy size={15} />{t('export')}</Dropdown.Item> : null}
+              {onCheckin ? <Dropdown.Item id="checkin" isDisabled={!account.enabled} textValue={t('checkinNow')}><ArrowClockwise size={15} />{t('checkinNow')}</Dropdown.Item> : null}
+              <Dropdown.Item id="delete" textValue={t('delete')} className="text-danger"><TrashSimple size={15} />{t('delete')}</Dropdown.Item>
+            </Dropdown.Menu>
+          </Dropdown.Popover>
+        </Dropdown>
+        <div className="ml-auto flex shrink-0 items-center gap-2">
           <CompactSwitch
             isSelected={Boolean(account.enabled)}
             isDisabled={busyKind === 'toggle'}
