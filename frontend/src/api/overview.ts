@@ -6,6 +6,12 @@ export function fetchOverview(keyOverride?: string, options?: { refreshQuota?: b
   return api<Overview>(path, {}, keyOverride)
 }
 
+export function fetchAccounts(refresh = false) {
+  return api<{ object?: string; data?: NonNullable<Overview['accounts']> }>(
+    `/api/accounts?refresh=${refresh ? '1' : '0'}`,
+  )
+}
+
 export function startDeviceLogin(accountId?: string) {
   if (!accountId) throw new Error('account id required')
   return api<{ authUrl?: string; status?: string; message?: string }>(`/api/accounts/${encodeURIComponent(accountId)}/login/device`, {

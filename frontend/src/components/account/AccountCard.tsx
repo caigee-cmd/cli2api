@@ -43,7 +43,6 @@ type Props = {
   onCallbackChange?: (value: string) => void
   onSubmitCallback?: () => void
   onExport: () => void
-  onRewarm: () => void
   onRefresh?: () => void
   onDelete: () => void
   onToggle: (selected: boolean) => void
@@ -78,7 +77,6 @@ export function AccountCard({
   onCallbackChange,
   onSubmitCallback,
   onExport,
-  onRewarm,
   onRefresh,
   onDelete,
   onToggle,
@@ -349,14 +347,6 @@ export function AccountCard({
             <Tooltip.Content>{t('refreshAccount')}</Tooltip.Content>
           </Tooltip>
         ) : null}
-        <Tooltip>
-          <Tooltip.Trigger>
-            <Button isIconOnly size="sm" variant="secondary" isDisabled={!account.enabled} isPending={busyKind === 'rewarm'} onPress={onRewarm} aria-label={t('rewarm')}>
-              <ArrowClockwise size={14} />
-            </Button>
-          </Tooltip.Trigger>
-          <Tooltip.Content>{t('rewarm')}</Tooltip.Content>
-        </Tooltip>
         {account.auth_type !== 'none' ? (
           <Tooltip>
             <Tooltip.Trigger>
