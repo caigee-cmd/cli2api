@@ -45,6 +45,16 @@ const (
 // nextBackoffCooldown lengthens the cooldown for a repeatedly failing account.
 // level is the count of consecutive failures of this kind; the returned level
 // is the value to store for the next failure. Success resets it to zero.
+func clampBackoffLevel(level int) int {
+	if level < 0 {
+		return 0
+	}
+	if level > backoffMaxLevel {
+		return backoffMaxLevel
+	}
+	return level
+}
+
 func nextBackoffCooldown(base time.Duration, level int) (time.Duration, int) {
 	if level < 0 {
 		level = 0
@@ -128,7 +138,7 @@ func Classify(status int, body, retryAfter, kindHint, failoverHint string) Class
 	case KindQuota:
 		out.Status = 429
 		out.Failover = false
-		out.Cooldown = 0
+		out.Cooldown = time.Hour
 		out.Code = firstNonEmpty(code, "insufficient_quota")
 		out.Type = "insufficient_quota"
 	case KindRateLimit:
@@ -201,9 +211,29 @@ func extractError(body string) (msg, code, typ, kind string) {
 	if json.Unmarshal([]byte(text), &parsed) == nil {
 		if errObj, ok := parsed["error"].(map[string]any); ok {
 			msg, _ = errObj["message"].(string)
+			if msg == "" {
+				msg, _ = errObj["msg"].(string)
+			}
 			code = stringifyJSONCode(errObj["code"])
 			typ, _ = errObj["type"].(string)
 			kind, _ = errObj["kind"].(string)
+			if data, ok := errObj["data"].(map[string]any); ok {
+				if msg == "" {
+					msg, _ = data["message"].(string)
+					if msg == "" {
+						msg, _ = data["msg"].(string)
+					}
+				}
+				if code == "" {
+					code = stringifyJSONCode(data["code"])
+				}
+				if typ == "" {
+					typ, _ = data["type"].(string)
+				}
+				if kind == "" {
+					kind, _ = data["kind"].(string)
+				}
+			}
 			return msg, code, typ, kind
 		}
 		if m, ok := parsed["message"].(string); ok {
@@ -239,7 +269,7 @@ func stringifyJSONCode(v any) string {
 }
 
 func quotaLike(lower, code, typ string) bool {
-	if code == "insufficient_quota" || typ == "insufficient_quota" || code == "1005" || code == "4008" {
+	if code == "insufficient_quota" || typ == "insufficient_quota" || code == "1005" || code == "4008" || code == "14018" {
 		return true
 	}
 	return strings.Contains(lower, "insufficient_quota") ||
@@ -247,7 +277,10 @@ func quotaLike(lower, code, typ string) bool {
 		strings.Contains(lower, "#token-limit") ||
 		strings.Contains(lower, "exceeded your current quota") ||
 		strings.Contains(lower, "oversized prompt") ||
-		strings.Contains(lower, "local precheck rejected")
+		strings.Contains(lower, "local precheck rejected") ||
+		strings.Contains(lower, "额度已用尽") ||
+		strings.Contains(lower, "额度用尽") ||
+		strings.Contains(lower, "购买加量包")
 }
 
 func rateLike(lower string) bool {

@@ -310,8 +310,9 @@ func (m *Manager) restoreCooldowns(ctx context.Context) {
 			continue
 		}
 		if row.Model == "" {
-			if row.BackoffLevel > item.BackoffLevel {
-				item.BackoffLevel = row.BackoffLevel
+			level := clampBackoffLevel(row.BackoffLevel)
+			if level > item.BackoffLevel {
+				item.BackoffLevel = level
 			}
 			item.DownUntil = row.DownUntil
 		} else {
@@ -325,12 +326,12 @@ func (m *Manager) restoreCooldowns(ctx context.Context) {
 				item.ModelDownUntil = map[string]time.Time{}
 			}
 			item.ModelDownUntil[row.Model] = row.DownUntil
-			if row.BackoffLevel > 0 {
+			if level := clampBackoffLevel(row.BackoffLevel); level > 0 {
 				if item.ModelBackoff == nil {
 					item.ModelBackoff = map[string]int{}
 				}
-				if row.BackoffLevel > item.ModelBackoff[row.Model] {
-					item.ModelBackoff[row.Model] = row.BackoffLevel
+				if level > item.ModelBackoff[row.Model] {
+					item.ModelBackoff[row.Model] = level
 				}
 			}
 			if row.ModelKind != "" {
@@ -768,12 +769,13 @@ type ImportAccount struct {
 
 type AccountView struct {
 	Account
-	Ready     bool           `json:"ready"`
-	Hot       bool           `json:"hot"`
-	InFlight  int            `json:"in_flight"`
-	Restarts  int            `json:"restarts"`
-	DownUntil string         `json:"down_until,omitempty"`
-	Quota     *QuotaSnapshot `json:"quota,omitempty"`
+	Ready          bool              `json:"ready"`
+	Hot            bool              `json:"hot"`
+	InFlight       int               `json:"in_flight"`
+	Restarts       int               `json:"restarts"`
+	DownUntil      string            `json:"down_until,omitempty"`
+	ModelCooldowns map[string]string `json:"model_cooldowns,omitempty"`
+	Quota          *QuotaSnapshot    `json:"quota,omitempty"`
 }
 
 func (m *Manager) Import(ctx context.Context, input ImportAccount) (Account, error) {
@@ -837,6 +839,7 @@ func (m *Manager) AccountView(ctx context.Context, id string) (AccountView, erro
 		view.InFlight = item.InFlight
 		view.Restarts = item.Restarts
 		view.Quota = item.Quota
+		view.ModelCooldowns = activeModelCooldowns(item.ModelDownUntil)
 		if !item.DownUntil.IsZero() && time.Now().Before(item.DownUntil) {
 			view.DownUntil = item.DownUntil.UTC().Format(time.RFC3339)
 		}
@@ -864,6 +867,7 @@ func (m *Manager) Accounts(ctx context.Context) ([]AccountView, error) {
 			view.InFlight = item.InFlight
 			view.Restarts = item.Restarts
 			view.Quota = item.Quota
+			view.ModelCooldowns = activeModelCooldowns(item.ModelDownUntil)
 			if !item.DownUntil.IsZero() && time.Now().Before(item.DownUntil) {
 				view.DownUntil = item.DownUntil.UTC().Format(time.RFC3339)
 			}
@@ -877,6 +881,23 @@ func (m *Manager) Accounts(ctx context.Context) ([]AccountView, error) {
 		views = append(views, view)
 	}
 	return views, nil
+}
+
+func activeModelCooldowns(cooldowns map[string]time.Time) map[string]string {
+	if len(cooldowns) == 0 {
+		return nil
+	}
+	now := time.Now()
+	active := make(map[string]string, len(cooldowns))
+	for model, until := range cooldowns {
+		if now.Before(until) {
+			active[model] = until.UTC().Format(time.RFC3339)
+		}
+	}
+	if len(active) == 0 {
+		return nil
+	}
+	return active
 }
 
 func (m *Manager) AccountURL(id string) (string, bool) {

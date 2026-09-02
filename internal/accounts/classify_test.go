@@ -12,6 +12,13 @@ func TestClassifyQuotaDoesNotFailover(t *testing.T) {
 	}
 }
 
+func TestClassifyCodeBuddyQuotaExhausted(t *testing.T) {
+	got := Classify(400, `{"error":{"data":{"code":14018,"msg":"额度已用尽，请购买加量包"}}}`, "", "", "")
+	if got.Kind != KindQuota || got.Failover || got.Status != 429 || got.Cooldown != time.Hour {
+		t.Fatalf("got %+v", got)
+	}
+}
+
 func TestClassifyRateLimitHonorsRetryAfter(t *testing.T) {
 	got := Classify(429, "too many requests", "90", "", "")
 	if got.Kind != KindRateLimit || !got.Failover || got.Cooldown != 90*time.Second {

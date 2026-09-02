@@ -654,7 +654,7 @@ ON CONFLICT(account_id, model) DO UPDATE SET
   message = excluded.message,
   model_kind = excluded.model_kind,
   updated_at = excluded.updated_at`,
-			accountID, canonicalCooldownModel(row.Model), formatTime(row.DownUntil), row.BackoffLevel,
+			accountID, canonicalCooldownModel(row.Model), formatTime(row.DownUntil), clampBackoffLevel(row.BackoffLevel),
 			row.Kind, row.Message, row.ModelKind, formatTime(now)); err != nil {
 			return fmt.Errorf("save cooldown: %w", err)
 		}

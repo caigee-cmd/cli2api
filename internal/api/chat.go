@@ -2,6 +2,7 @@ package api
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -356,7 +357,9 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			// resolveProviderFilter) so the cooldown key matches the key
 			// PickRoute uses; publicModel may still carry "qoder/" and would
 			// write a cooldown that routing never hits.
-			s.executor.ObserveStreamFailure(upstream.AccountID, relayErr, req.Model)
+			if r.Context().Err() == nil && !errors.Is(relayErr, context.Canceled) && !errors.Is(relayErr, context.DeadlineExceeded) {
+				s.executor.ObserveStreamFailure(upstream.AccountID, relayErr, req.Model)
+			}
 			panic(http.ErrAbortHandler)
 		}
 		return
@@ -447,6 +450,12 @@ func buildChatUsage(res executor.ChatResult) map[string]any {
 func classifyAPIError(err error) accounts.Classified {
 	if err == nil {
 		return accounts.Classify(0, "", "", accounts.KindUnavailable, "")
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return accounts.Classified{
+			Kind: accounts.KindUnavailable, Status: 499, Failover: false,
+			Code: "request_canceled", Message: err.Error(),
+		}
 	}
 	var classifiedErr *providers.Error
 	if errors.As(err, &classifiedErr) && classifiedErr != nil && classifiedErr.Kind != "" {
