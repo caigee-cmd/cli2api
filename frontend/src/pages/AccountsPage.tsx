@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button } from '@heroui/react'
 import {
   MagnifyingGlass,
@@ -15,16 +15,15 @@ import { FilterToggle } from '@/components/ui/FilterToggle'
 import { ListPager, type PageSize } from '@/components/ui/ListPager'
 import { SearchBar } from '@/components/ui/SearchBar'
 import { useI18n } from '@/hooks/useI18n'
-import { useOverview } from '@/hooks/useOverview'
 import {
   checkinAccount,
   deleteAccount,
   exportAccount,
+  fetchAccounts,
   completeLoginCallback,
   fetchLoginStatus,
   loginWithPat,
   refreshAccount,
-  rewarmWorker,
   startDeviceLogin,
   updateAccount,
 } from '@/api/overview'
@@ -44,10 +43,12 @@ const EMPTY_ACCOUNTS: AccountRow[] = []
 
 export function AccountsPage() {
   const { t } = useI18n()
-  const { overview, loading, refresh } = useOverview()
-  const rows = overview?.accounts ?? EMPTY_ACCOUNTS
+  const [accounts, setAccounts] = useState<AccountRow[]>([])
+  const [accountsLoading, setAccountsLoading] = useState(true)
+  const [accountsRefreshing, setAccountsRefreshing] = useState(false)
+  const rows = accounts
   const hasAccounts = rows.length > 0
-  const refreshing = loading && hasAccounts
+  const refreshing = accountsRefreshing && hasAccounts
   const [addOpen, setAddOpen] = useState(false)
   const [busy, setBusy] = useState<AccountBusy | null>(null)
   const [patById, setPatById] = useState<Record<string, string>>({})
@@ -69,6 +70,28 @@ export function AccountsPage() {
   const [inflightById, setInflightById] = useState<Record<string, number>>({})
   const [priorityById, setPriorityById] = useState<Record<string, number>>({})
   const [quotaRefreshing, setQuotaRefreshing] = useState(false)
+  const reloadAccounts = useCallback(async (refresh = false) => {
+    if (refresh) setAccountsRefreshing(true)
+    try {
+      const response = await fetchAccounts(refresh)
+      setAccounts(response.data || EMPTY_ACCOUNTS)
+    } finally {
+      setAccountsLoading(false)
+      if (refresh) setAccountsRefreshing(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    let active = true
+    void (async () => {
+      try {
+        await reloadAccounts(false)
+        if (active) await reloadAccounts(true)
+      } catch {
+      }
+    })()
+    return () => { active = false }
+  }, [reloadAccounts])
   const displayRows = useMemo(() => rows.map((account) => {
     const enabled = enabledById[account.id]
     const dropSystem = dropSystemById[account.id]
@@ -132,7 +155,7 @@ export function AccountsPage() {
   const shownFrom = filteredRows.length === 0 ? 0 : (currentPage - 1) * pageSize + 1
   const shownTo = Math.min(filteredRows.length, currentPage * pageSize)
 
-  if (loading && !hasAccounts) return <AccountsPageSkeleton />
+  if (accountsLoading && !hasAccounts) return <AccountsPageSkeleton />
 
   async function run(id: string, kind: AccountBusyKind, action: () => Promise<void>) {
     setBusy({ id, kind })
@@ -164,7 +187,7 @@ export function AccountsPage() {
         setNoteById((current) => ({ ...current, [id]: login.message || t('waitingQoderLogin') }))
         if (login.status === 'ok' || login.status === 'error') break
       }
-      await refresh(undefined, { silent: true })
+      await reloadAccounts(true)
     })
   }
 
@@ -178,7 +201,7 @@ export function AccountsPage() {
       setNoteById((current) => ({ ...current, [id]: t('wizardStartingSession') }))
       await completeLoginCallback(id, pasted)
       setCallbackById((current) => ({ ...current, [id]: '' }))
-      await refresh(undefined, { silent: true })
+      await reloadAccounts(true)
     })
     if (ok) {
       setAuthPanelId((current) => (current === id ? null : current))
@@ -196,7 +219,7 @@ export function AccountsPage() {
       setNoteById((current) => ({ ...current, [id]: t('wizardStartingSession') }))
       await loginWithPat(pat, id)
       setPatById((current) => ({ ...current, [id]: '' }))
-      await refresh(undefined, { silent: true })
+      await reloadAccounts(true)
     })
   }
 
@@ -212,7 +235,7 @@ export function AccountsPage() {
     setEnabledById((current) => ({ ...current, [id]: selected }))
     await run(id, 'toggle', async () => {
       await updateAccount(id, { enabled: selected })
-      await refresh(undefined, { silent: true })
+      await reloadAccounts(false)
     })
     setEnabledById((current) => {
       const next = { ...current }
@@ -225,7 +248,7 @@ export function AccountsPage() {
     setDropSystemById((current) => ({ ...current, [id]: selected }))
     await run(id, 'toggle', async () => {
       await updateAccount(id, { drop_system_prompt: selected })
-      await refresh(undefined, { silent: true })
+      await reloadAccounts(false)
     })
     setDropSystemById((current) => {
       const next = { ...current }
@@ -238,7 +261,7 @@ export function AccountsPage() {
     setAutoCheckinById((current) => ({ ...current, [id]: selected }))
     await run(id, 'toggle', async () => {
       await updateAccount(id, { workbuddy_auto_checkin: selected })
-      await refresh(undefined, { silent: true })
+      await reloadAccounts(false)
     })
     setAutoCheckinById((current) => {
       const next = { ...current }
@@ -250,7 +273,7 @@ export function AccountsPage() {
   async function onCheckin(id: string) {
     await run(id, 'checkin', async () => {
       await checkinAccount(id)
-      await refresh(undefined, { silent: true })
+      await reloadAccounts(false)
     })
   }
 
@@ -270,14 +293,14 @@ export function AccountsPage() {
       // Re-read the whole pool so header counts and provider tallies stay in
       // sync with the refreshed card, but keep the silent flag so the list
       // never unmounts and quota meters animate instead of flashing.
-      await refresh(undefined, { silent: true }).catch(() => undefined)
+      await reloadAccounts(false).catch(() => undefined)
     }
   }
 
   async function onRefreshCredits() {
     setQuotaRefreshing(true)
     try {
-      await refresh(undefined, { silent: true, refreshQuota: true })
+      await reloadAccounts(true)
     } finally {
       setQuotaRefreshing(false)
     }
@@ -291,7 +314,7 @@ export function AccountsPage() {
     setBusy({ id, kind: 'settings' })
     try {
       await updateAccount(id, input)
-      await refresh(undefined, { silent: true })
+      await reloadAccounts(false)
     } catch (error) {
       throw error instanceof Error ? error : new Error(String(error))
     } finally {
@@ -349,7 +372,7 @@ export function AccountsPage() {
         </div>
       </section>
 
-      <AddAccountModal isOpen={addOpen} onClose={() => setAddOpen(false)} onAdded={() => void refresh(undefined, { silent: true })} />
+      <AddAccountModal isOpen={addOpen} onClose={() => setAddOpen(false)} onAdded={() => void reloadAccounts(true)} />
       <AccountModelsModal key={modelsId ?? 'closed'} account={modelsAccount} t={t} onClose={() => setModelsId(null)} />
       <EditAccountModal
         key={editId ?? 'closed'}
@@ -375,7 +398,7 @@ export function AccountsPage() {
           setConfirmId(null)
           void run(id, 'delete', async () => {
             await deleteAccount(id)
-            await refresh(undefined, { silent: true })
+            await reloadAccounts(false)
           })
         }}
       />
@@ -452,7 +475,6 @@ export function AccountsPage() {
             onDeviceLogin={() => void onDeviceLogin(account.id)}
             onPatLogin={() => void onPat(account.id)}
             onExport={() => void onExport(account.id)}
-            onRewarm={() => void run(account.id, 'rewarm', async () => { await rewarmWorker(account.id); await refresh(undefined, { silent: true }) })}
             onRefresh={() => void onRefreshAccount(account.id)}
             onDelete={() => setConfirmId(account.id)}
             onToggle={(selected) => void onToggle(account.id, selected)}
