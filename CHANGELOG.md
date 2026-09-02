@@ -7,10 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Load the Accounts page from a cached lightweight list first, then refresh account health and credits asynchronously; remove the duplicate worker rewarm button so each card keeps one clear refresh action
 - Refresh a single account from its card: the button re-probes that one account's health, credits, and model catalog and shows a skeleton while it runs, instead of reloading the whole page
 
 ### 中文
 
+- 账号页先加载轻量缓存列表，再异步刷新账号状态和额度；移除重复的 Worker 重启按钮，让每张卡片只保留一个明确的刷新操作
 - 账号卡片支持单个刷新：按钮只重新探测该账号的运行状态、额度和模型目录，期间显示骨架屏，不再整页刷新
 
 ## 0.2.31 - 2026-09-01
