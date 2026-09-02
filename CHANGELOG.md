@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.2.34 - 2026-09-02
+
+### English
+
 - Make account failure handling scope-aware: quota, authentication, readiness, and upstream failures cool the whole account, while rate limits remain isolated to the affected model; cooling accounts no longer receive requests
 - Recognize nested CodeBuddy quota errors such as code `14018`, apply an account cooldown, and expose model-level cooldowns with precise `Retry-After` messages
 - Improve the Accounts console with compact cards, a single primary refresh action, matching skeleton dimensions, and live per-model cooldown indicators
