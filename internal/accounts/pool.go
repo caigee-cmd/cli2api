@@ -1,6 +1,7 @@
 package accounts
 
 import (
+	"log"
 	"sort"
 	"strings"
 	"sync"
@@ -560,6 +561,37 @@ func resumeAt(item Item, q RouteQuery) time.Time {
 	return next
 }
 
+// CooldownScope identifies whether the retry hint is caused by the whole
+// account or only by the requested model.
+func (p *Pool) CooldownScope(item Item, publicModel string) string {
+	now := time.Now()
+	if itemDown(item, now) {
+		return "account"
+	}
+	if itemModelDown(item, RouteQuery{PublicModel: publicModel}, now) {
+		return "model"
+	}
+	return ""
+}
+
+// RetryAfter reports how long the selected item remains unavailable for a route.
+// PickRoute may return a cooling item as a retry hint; callers must check this
+// value before dispatching the request.
+func (p *Pool) RetryAfter(item Item, publicModel string) time.Duration {
+	if p == nil {
+		return 0
+	}
+	until := resumeAt(item, RouteQuery{PublicModel: publicModel})
+	if until.IsZero() {
+		return 0
+	}
+	remaining := time.Until(until)
+	if remaining <= 0 {
+		return 0
+	}
+	return remaining
+}
+
 func (p *Pool) MarkDown(id string, d time.Duration, err string) {
 	p.MarkClassified(id, Classified{Kind: KindUnavailable, Cooldown: d, Message: err})
 }
@@ -581,6 +613,9 @@ func (p *Pool) MarkClassified(id string, c Classified) {
 		// on model-B must not make a later auth on model-A look like a
 		// repeat. Account-wide LastKind covers non-model-scoped failures.
 		model := routeModel(c.Model)
+		if c.Kind != KindRateLimit {
+			model = ""
+		}
 		var prevKind string
 		if model != "" {
 			if p.items[i].ModelLastKind != nil {
@@ -599,7 +634,7 @@ func (p *Pool) MarkClassified(id string, c Classified) {
 				p.items[i].LastKind = c.Kind
 			}
 		}
-		if c.Cooldown > 0 && (c.Failover || c.Kind != KindQuota) {
+		if c.Cooldown > 0 {
 			// Repeated failures of the same kind back off exponentially so a
 			// persistently broken account stops consuming attempts at a fixed
 			// interval. A new failure kind starts the ladder over. Backoff is
@@ -611,10 +646,14 @@ func (p *Pool) MarkClassified(id string, c Classified) {
 					if p.items[i].ModelBackoff == nil {
 						p.items[i].ModelBackoff = map[string]int{}
 					}
-					p.items[i].ModelBackoff[model]++
+					if p.items[i].ModelBackoff[model] < backoffMaxLevel {
+						p.items[i].ModelBackoff[model]++
+					}
 					level = p.items[i].ModelBackoff[model]
 				} else {
-					p.items[i].BackoffLevel++
+					if p.items[i].BackoffLevel < backoffMaxLevel {
+						p.items[i].BackoffLevel++
+					}
 					level = p.items[i].BackoffLevel
 				}
 			} else {
@@ -682,6 +721,10 @@ func (p *Pool) MarkOK(id, model string) {
 		}
 		scoped := routeModel(model)
 		if scoped != "" {
+			wasCooling := false
+			if until, ok := p.items[i].ModelDownUntil[scoped]; ok && time.Now().Before(until) {
+				wasCooling = true
+			}
 			// Model-scoped success: clear only this model's
 			// cooldown/backoff/last-kind.
 			if p.items[i].ModelDownUntil != nil {
@@ -704,6 +747,9 @@ func (p *Pool) MarkOK(id, model string) {
 			}
 			// Only declare the account fully healthy when no cooldown of
 			// any scope remains; otherwise keep the in-flight failure state.
+			if wasCooling {
+				log.Printf("pool cooldown cleared account=%s model=%s", id, scoped)
+			}
 			if p.items[i].DownUntil.IsZero() && len(p.items[i].ModelDownUntil) == 0 {
 				p.items[i].LastError = ""
 				p.items[i].LastKind = ""
@@ -856,19 +902,26 @@ func (p *Pool) Snapshot() []map[string]any {
 		if item.Hot != nil {
 			hot = *item.Hot
 		}
+		modelCooldowns := map[string]string{}
+		for model, until := range item.ModelDownUntil {
+			if now.Before(until) {
+				modelCooldowns[model] = until.UTC().Format(time.RFC3339)
+			}
+		}
 		out = append(out, map[string]any{
-			"id":         item.ID,
-			"url":        item.URL,
-			"provider":   item.Provider,
-			"region":     item.Region,
-			"runtime":    item.Runtime,
-			"ready":      ready,
-			"hot":        hot,
-			"in_flight":  item.InFlight,
-			"restarts":   item.Restarts,
-			"kind":       item.LastKind,
-			"down_until": nullableTime(item.DownUntil, now),
-			"last_error": item.LastError,
+			"id":              item.ID,
+			"url":             item.URL,
+			"provider":        item.Provider,
+			"region":          item.Region,
+			"runtime":         item.Runtime,
+			"ready":           ready,
+			"hot":             hot,
+			"in_flight":       item.InFlight,
+			"restarts":        item.Restarts,
+			"kind":            item.LastKind,
+			"down_until":      nullableTime(item.DownUntil, now),
+			"model_cooldowns": modelCooldowns,
+			"last_error":      item.LastError,
 		})
 	}
 	return out
@@ -958,13 +1011,13 @@ func (p *Pool) Upsert(item Item) {
 			if item.BackoffLevel == 0 {
 				item.BackoffLevel = p.items[i].BackoffLevel
 			}
-			if item.ModelDownUntil == nil {
+			if len(item.ModelDownUntil) == 0 && len(p.items[i].ModelDownUntil) > 0 {
 				item.ModelDownUntil = p.items[i].ModelDownUntil
 			}
-			if item.ModelBackoff == nil {
+			if len(item.ModelBackoff) == 0 && len(p.items[i].ModelBackoff) > 0 {
 				item.ModelBackoff = p.items[i].ModelBackoff
 			}
-			if item.ModelLastKind == nil {
+			if len(item.ModelLastKind) == 0 && len(p.items[i].ModelLastKind) > 0 {
 				item.ModelLastKind = p.items[i].ModelLastKind
 			}
 			if item.StateVersion == 0 {

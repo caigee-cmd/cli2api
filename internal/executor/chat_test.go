@@ -350,6 +350,36 @@ func TestChatNonStreamSuccessScopedByModelLeavesOtherModelCooled(t *testing.T) {
 	}
 }
 
+func TestChatNonStreamCancellationDoesNotFailoverOrCooldown(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		http.Error(w, "unexpected request", http.StatusBadGateway)
+	}))
+	defer srv.Close()
+
+	pool := accounts.NewPool([]string{srv.URL, srv.URL}, []string{"a", "b"})
+	ex := NewChatExecutor(pool, "")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := ex.ChatNonStream(ctx, translate.ChatRequest{
+		Model:    "glm-5.3-flash",
+		Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	}, "", "")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context canceled", err)
+	}
+	if hits.Load() != 0 {
+		t.Fatalf("hits = %d, want no upstream requests", hits.Load())
+	}
+	for _, id := range []string{"a", "b"} {
+		item, _ := pool.ByID(id)
+		if !item.DownUntil.IsZero() || len(item.ModelDownUntil) != 0 {
+			t.Fatalf("account %s was cooled after cancellation: %+v", id, item)
+		}
+	}
+}
+
 func TestChatStreamProxyDoesNotUseClientTotalTimeout(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -402,17 +432,48 @@ func TestObserveStreamFailureCoolsDownQuotaAccount(t *testing.T) {
 	if !ok {
 		t.Fatal("account missing")
 	}
-	if item.ModelLastKind["deepseek-v4-flash"] != accounts.KindQuota {
-		t.Fatalf("model last kind=%q want %q", item.ModelLastKind["deepseek-v4-flash"], accounts.KindQuota)
+	if item.LastKind != accounts.KindQuota {
+		t.Fatalf("account last kind=%q want %q", item.LastKind, accounts.KindQuota)
 	}
-	// The failure carries a model, so the cooldown is scoped to that model
-	// and the account stays available for every other model.
-	until, scoped := item.ModelDownUntil["deepseek-v4-flash"]
-	if !scoped || until.IsZero() {
-		t.Fatalf("quota failure must cool the model, got %v", item.ModelDownUntil)
+	if item.DownUntil.IsZero() {
+		t.Fatalf("quota failure must cool the whole account")
 	}
-	if !item.DownUntil.IsZero() {
-		t.Fatalf("model-scoped failure must not take the whole account down: %v", item.DownUntil)
+	if len(item.ModelDownUntil) != 0 {
+		t.Fatalf("account-scoped quota must not create model cooldowns: %v", item.ModelDownUntil)
+	}
+}
+
+func TestChatNonStreamDoesNotDispatchWhileAccountCooling(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		io.WriteString(w, `{"choices":[{"message":{"content":"unexpected"}}]}`)
+	}))
+	defer srv.Close()
+
+	pool := accounts.NewPool([]string{srv.URL}, []string{"a"})
+	pool.MarkClassified("a", accounts.Classified{
+		Kind: accounts.KindRateLimit, Cooldown: time.Hour, Failover: true,
+		Model: "glm-5.3", Message: "model rate limited",
+	})
+	ex := NewChatExecutor(pool, "")
+	ex.HTTPClient = srv.Client()
+	_, err := ex.ChatNonStream(context.Background(), translate.ChatRequest{
+		Model:    "glm-5.3",
+		Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	}, "", "")
+	if err == nil {
+		t.Fatal("expected cooling error")
+	}
+	var classified *providers.Error
+	if !errors.As(err, &classified) || classified.Kind != accounts.KindRateLimit {
+		t.Fatalf("expected rate_limit cooling error, got %#v", err)
+	}
+	if !strings.Contains(classified.Message, "glm-5.3") {
+		t.Fatalf("cooling error should name the model, got %q", classified.Message)
+	}
+	if hits.Load() != 0 {
+		t.Fatalf("cooling account received %d requests", hits.Load())
 	}
 }
 

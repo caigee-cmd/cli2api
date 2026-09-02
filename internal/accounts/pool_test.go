@@ -57,6 +57,36 @@ func TestMarkOKClearsCooldown(t *testing.T) {
 	}
 }
 
+func TestBackoffLevelIsCapped(t *testing.T) {
+	p := NewPool([]string{"http://a:3020"}, []string{"a"})
+	for i := 0; i < backoffMaxLevel+20; i++ {
+		p.MarkClassified("a", Classified{Kind: KindUnavailable, Cooldown: time.Second, Failover: true})
+	}
+	item, _ := p.ByID("a")
+	if item.BackoffLevel != backoffMaxLevel {
+		t.Fatalf("account backoff level = %d, want %d", item.BackoffLevel, backoffMaxLevel)
+	}
+
+	p.MarkClassified("a", Classified{Kind: KindRateLimit, Cooldown: time.Second, Failover: true, Model: "glm-5.3"})
+	for i := 0; i < backoffMaxLevel+20; i++ {
+		p.MarkClassified("a", Classified{Kind: KindRateLimit, Cooldown: time.Second, Failover: true, Model: "glm-5.3"})
+	}
+	item, _ = p.ByID("a")
+	if item.ModelBackoff["glm-5.3"] != backoffMaxLevel {
+		t.Fatalf("model backoff level = %d, want %d", item.ModelBackoff["glm-5.3"], backoffMaxLevel)
+	}
+}
+
+func TestUpsertKeepsExistingModelCooldownWhenEmptyMaps(t *testing.T) {
+	p := NewPool([]string{"http://a:3020"}, []string{"a"})
+	p.MarkClassified("a", Classified{Kind: KindRateLimit, Cooldown: time.Hour, Failover: true, Model: "glm-5.3"})
+	p.Upsert(Item{ID: "a", URL: "http://a:3020", ModelDownUntil: map[string]time.Time{}, ModelBackoff: map[string]int{}, ModelLastKind: map[string]string{}})
+	item, _ := p.ByID("a")
+	if _, ok := item.ModelDownUntil["glm-5.3"]; !ok {
+		t.Fatalf("upsert cleared model cooldown: %+v", item)
+	}
+}
+
 func TestPickSkipsQuotaCooldownOnlyWhenMarkedDown(t *testing.T) {
 	p := NewPool([]string{"http://a:3020", "http://b:3020"}, []string{"a", "b"})
 	p.MarkClassified("a", Classified{Kind: KindQuota, Cooldown: 0, Message: "quota", Failover: false})
@@ -367,31 +397,29 @@ func TestItemCloneIsDeep(t *testing.T) {
 }
 
 // P2#3: per-model last-kind prevents cross-model backoff confusion. The
-// sequence rate_limit(model-A) -> auth(model-B) -> auth(model-A) must NOT
-// escalate model-A's backoff: model-A's last kind was rate_limit, so the
-// third failure (auth) is a kind change, restarting model-A's ladder at 0.
-// A second auth(model-A) must THEN escalate, proving the ladder works.
-func TestModelBackoffIndependentLastKind(t *testing.T) {
+// Account-level failures must share one backoff ladder even when callers
+// accidentally attach a model. Only rate limits are model-scoped.
+func TestAccountBackoffIgnoresModelForAccountFailures(t *testing.T) {
 	p := NewPool([]string{"http://a:3020"}, []string{"a"})
 	base := 30 * time.Second
-	// 1. model-A rate_limit  (ladder level 0)
 	p.MarkClassified("a", Classified{Kind: KindRateLimit, Cooldown: base, Failover: true, Model: "glm-5.3"})
-	// 2. model-B auth        (must not touch model-A's ladder)
 	p.MarkClassified("a", Classified{Kind: KindAuth, Cooldown: base, Failover: true, Model: "deepseek-v4-flash"})
-	// 3. model-A auth        (kind CHANGE for model-A -> ladder restarts at 0)
-	p.MarkClassified("a", Classified{Kind: KindAuth, Cooldown: base, Failover: true, Model: "glm-5.3"})
 	item, _ := p.ByID("a")
-	if got := item.ModelBackoff["glm-5.3"]; got != 0 {
-		t.Fatalf("model-A backoff must restart to 0 on kind change, got %d", got)
+	if item.DownUntil.IsZero() {
+		t.Fatal("account failure must set account cooldown")
 	}
-	// 4. model-A auth again  (now a repeat auth -> ladder climbs to 1)
+	if len(item.ModelDownUntil) != 1 {
+		t.Fatalf("only the rate limit should be model-scoped, got %+v", item.ModelDownUntil)
+	}
 	p.MarkClassified("a", Classified{Kind: KindAuth, Cooldown: base, Failover: true, Model: "glm-5.3"})
 	item, _ = p.ByID("a")
-	if got := item.ModelBackoff["glm-5.3"]; got != 1 {
-		t.Fatalf("model-A backoff must climb to 1 on second auth, got %d", got)
+	if item.BackoffLevel != 1 {
+		t.Fatalf("repeated account auth should climb account backoff, got %d", item.BackoffLevel)
 	}
-	// model-B's ladder is untouched by model-A's activity.
-	if got := item.ModelBackoff["deepseek-v4-flash"]; got != 0 {
-		t.Fatalf("model-B backoff must stay 0, got %d", got)
+	if _, ok := item.ModelBackoff["deepseek-v4-flash"]; ok {
+		t.Fatalf("account auth must not create a model backoff: %+v", item.ModelBackoff)
+	}
+	if _, ok := item.ModelLastKind["deepseek-v4-flash"]; ok {
+		t.Fatalf("account auth must not create a model kind: %+v", item.ModelLastKind)
 	}
 }

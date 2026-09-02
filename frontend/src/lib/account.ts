@@ -12,6 +12,12 @@ export function cooldownLabel(until?: string | null) {
   return seconds < 60 ? `${seconds}s` : `${Math.ceil(seconds / 60)}m`
 }
 
+export function modelCooldownEntries(account: AccountRow) {
+  return Object.entries(account.model_cooldowns ?? {})
+    .filter(([, until]) => Boolean(cooldownLabel(until)))
+    .sort(([left], [right]) => left.localeCompare(right))
+}
+
 export function accountState(account: AccountRow): AccountState {
   if (!account.enabled) return 'disabled'
   if (cooldownLabel(account.down_until || account.cooldown_until)) return 'cooling'

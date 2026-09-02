@@ -129,22 +129,37 @@ export function AccountCardSkeleton() {
     <article className="overflow-hidden rounded-3xl border border-border bg-surface">
       <div className="space-y-2.5 px-3 pt-3 pb-2.5">
         <div className="flex items-start justify-between gap-3">
-          <div className="flex items-center gap-2.5">
-            <SkeletonBlock className="size-[22px]" />
-            <div className="space-y-1">
-              <SkeletonBlock className="h-4 w-28" />
+          <div className="flex min-w-0 items-center gap-2.5">
+            <SkeletonBlock className="size-9 rounded-xl" />
+            <div className="min-w-0 space-y-1.5">
+              <div className="flex items-center gap-2">
+                <SkeletonBlock className="h-4 w-28" />
+                <SkeletonBlock className="h-4 w-16" />
+              </div>
               <SkeletonBlock className="h-3 w-40" />
             </div>
           </div>
           <SkeletonBlock className="h-5 w-14" />
         </div>
-        <SkeletonBlock className="h-2 w-full" />
-        <SkeletonBlock className="h-1.5 w-full rounded-[1px]" />
-        <SkeletonBlock className="h-3 w-36" />
       </div>
-      <div className="flex items-center gap-1.5 border-t border-separator px-3 py-2">
-        <SkeletonBlock className="h-8 w-24" />
-        <SkeletonBlock className="size-8" />
+      <div className="space-y-2.5 px-3 pb-3">
+        <div className="rounded-2xl border border-border bg-surface-secondary/45 p-2.5">
+          <SkeletonBlock className="h-3 w-20" />
+          <SkeletonBlock className="mt-2.5 h-2 w-full" />
+          <div className="mt-2.5 grid grid-cols-3 gap-2 border-t border-separator pt-2.5">
+            <SkeletonBlock className="h-7 w-full" />
+            <SkeletonBlock className="h-7 w-full" />
+            <SkeletonBlock className="h-7 w-full" />
+          </div>
+        </div>
+        <div className="min-h-[58px] rounded-2xl border border-border bg-surface-secondary/25 p-2.5">
+          <SkeletonBlock className="h-3 w-20" />
+          <SkeletonBlock className="mt-2 h-1.5 w-full rounded-[1px]" />
+          <SkeletonBlock className="mt-2 h-3 w-36" />
+        </div>
+      </div>
+      <div className="flex items-center gap-2 border-t border-separator px-3 py-2.5">
+        <SkeletonBlock className="h-8 flex-1" />
         <SkeletonBlock className="size-8" />
         <SkeletonBlock className="ml-auto h-[18px] w-[74px]" />
       </div>
