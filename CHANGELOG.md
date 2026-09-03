@@ -7,7 +7,11 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Prevent system updates and overview loading from reusing expired account-refresh contexts while checking account state
+
 ### 中文
+
+- 修复系统更新和 Overview 加载复用已过期账号刷新 context 的问题，避免账号列表查询超时
 
 ## 0.2.38 - 2026-09-03
 
