@@ -27,7 +27,7 @@ import {
   startDeviceLogin,
   updateAccount,
 } from '@/api/overview'
-import { AccountsListSkeleton, AccountsPageSkeleton } from '@/components/ui/PageSkeletons'
+import { AccountsPageSkeleton } from '@/components/ui/PageSkeletons'
 import {
   accountState,
   isAvailable,
@@ -86,7 +86,7 @@ export function AccountsPage() {
     void (async () => {
       try {
         await reloadAccounts(false)
-        if (active) await reloadAccounts(true)
+        if (active) void reloadAccounts(true).catch(() => undefined)
       } catch {
       }
     })()
@@ -365,6 +365,7 @@ export function AccountsPage() {
           ))}
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {accountsRefreshing ? <span className="text-xs text-muted" role="status">{t('refreshing')}</span> : null}
           <Button size="sm" variant="secondary" isPending={quotaRefreshing} onPress={() => void onRefreshCredits()}>
             {t('refreshCredits')}
           </Button>
@@ -454,15 +455,13 @@ export function AccountsPage() {
         />
       ) : null}
 
-      {refreshing ? (
-        <AccountsListSkeleton count={Math.max(3, Math.min(6, pagedRows.length || 6))} />
-      ) : (
       <section className="grid gap-2.5 lg:grid-cols-2 xl:grid-cols-3" aria-busy={refreshing}>
         {pagedRows.map((account) => (
           <AccountCard
             key={account.id}
             account={account}
             busyKind={busy?.id === account.id ? busy.kind : ''}
+            detailsLoading={refreshing}
             authPanelOpen={authPanelId === account.id}
             authUrl={urlById[account.id]}
             note={noteById[account.id]}
@@ -487,7 +486,6 @@ export function AccountsPage() {
           />
         ))}
       </section>
-      )}
 
       {filteredRows.length ? (
         <ListPager
@@ -495,7 +493,7 @@ export function AccountsPage() {
           page={currentPage}
           pageCount={pageCount}
           pageSize={pageSize}
-          loading={refreshing}
+          loading={false}
           pageSizeLabel={t('logsPageSize')}
           pageLabel={t('logsPage', { page: currentPage, pages: pageCount })}
           prevLabel={t('logsPrevPage')}
