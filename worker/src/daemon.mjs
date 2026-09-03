@@ -213,6 +213,7 @@ function sendClassified(res, err, extra = {}) {
       code: classified.code,
       kind: classified.kind,
       failover: classified.failover,
+      ...(classified.retryAfterSec > 0 ? { retry_after: classified.retryAfterSec } : {}),
     },
   });
   headers["content-length"] = Buffer.byteLength(body);
@@ -443,7 +444,9 @@ async function chatStream(reqBody, res) {
       return await run();
     }
     if (res.headersSent) {
-      res.destroy(err);
+      try {
+        res.end();
+      } catch {}
       return null;
     }
     throw err;

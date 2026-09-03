@@ -104,6 +104,7 @@ func New(cfg config.Config) *Server {
 		agent = control.NewHTTPAgentClient(cfg.UpdateAgentURL, cfg.UpdateAgentToken)
 	}
 	chatExecutor := executor.NewChatExecutor(pool, proxyAPIKey)
+	chatExecutor.MaxAttempts = cfg.MaxRetryAccounts
 	chatExecutor.Providers = providerReg
 	chatExecutor.OnAttempt = recorder.Attempt
 	s := &Server{

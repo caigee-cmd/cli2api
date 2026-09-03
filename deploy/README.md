@@ -85,6 +85,7 @@ Pin a request to a specific account with the `X-Qoder-Account: acc_...` header.
 | `QODER_DATA_DIR` | `/data` | SQLite database and durable account credentials |
 | `QODER_RUNTIME_DIR` | `/run/cli2api` | Ephemeral per-account Qoder runtime homes |
 | `QODER_MAX_INFLIGHT` | `4` | Maximum concurrent requests per account |
+| `QODER_MAX_RETRY_ACCOUNTS` | `4` | Maximum accounts attempted for one request (1-64) |
 | `QODER_WORKER_BASE_PORT` | `32100` | Internal worker port range |
 | `QODERCLI_JS` | image default | Pinned Qoder Global CLI bundle |
 | `QODERCNCLI_JS` | image default | Pinned Qoder CN CLI bundle |

@@ -7,7 +7,17 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Add a configurable per-request retry-account budget, with `QODER_MAX_RETRY_ACCOUNTS` capped at 64
+- Parse `Retry-After` and reset hints from duration, date, Unix timestamp, and nested provider error payloads; protect short rate-limit hints with a 30-second floor
+- Normalize streaming failures into structured OpenAI-compatible SSE error frames and report incomplete or interrupted upstream streams explicitly
+- Improve account card text contrast in dark mode, including cooldown details, IDs, and usage metadata
+
 ### 中文
+
+- 增加单次请求的可配置账号重试预算，支持 `QODER_MAX_RETRY_ACCOUNTS`，上限为 64
+- 支持从 duration、日期、Unix 时间戳和嵌套 provider 错误中解析 `Retry-After`/重置提示，并为过短的限流提示设置 30 秒保护下限
+- 将流式失败统一转换为 OpenAI 兼容的结构化 SSE 错误帧，并明确报告上游流中断或未完成
+- 提升深色模式下账号卡片的文字对比度，优化冷却详情、账号标识和使用信息的可读性
 
 ## 0.2.35 - 2026-09-03
 

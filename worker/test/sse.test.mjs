@@ -44,7 +44,7 @@ test("prefers concrete quota errors over empty content", () => {
   assert.equal(parsed.error?.code, "insufficient_quota");
 });
 
-test("does not commit an SSE response when upstream fails before the first event", async () => {
+test("emits a structured error event when upstream fails before the first event", async () => {
   const upstream = {
     body: new ReadableStream({
       start(controller) {
@@ -63,11 +63,12 @@ test("does not commit an SSE response when upstream fails before the first event
     pipeNestedSseToOpenAI(upstream, res, { model: "minimax-m3" }),
     /upstream_stream_interrupted: socket closed/,
   );
-  assert.equal(output, "");
+  assert.match(output, /event: error/);
+  assert.match(output, /upstream_stream_interrupted/);
 });
 
 
-test("surfaces a provider SSE error before committing output", async () => {
+test("surfaces a structured provider SSE error", async () => {
   const payload = JSON.stringify({ error: { code: "provider_error", message: "upstream rejected" } });
   const upstream = {
     body: new ReadableStream({
@@ -84,10 +85,11 @@ test("surfaces a provider SSE error before committing output", async () => {
     pipeNestedSseToOpenAI(upstream, res, { model: "minimax-m3" }),
     /provider_error:.*upstream rejected/,
   );
-  assert.equal(output, "");
+  assert.match(output, /event: error/);
+  assert.match(output, /provider_error/);
 });
 
-test("finishes a valid stream that ends without upstream DONE", async () => {
+test("reports a structured error when upstream ends without DONE", async () => {
   const upstream = {
     body: new ReadableStream({
       start(controller) {
@@ -97,10 +99,14 @@ test("finishes a valid stream that ends without upstream DONE", async () => {
       },
     }),
   };
-  const res = { write() {} };
+  let output = "";
+  const res = { write(chunk) { output += chunk; } };
 
-  const result = await pipeNestedSseToOpenAI(upstream, res, { model: "minimax-m3" });
-  assert.equal(result.content, "partial");
+  await assert.rejects(
+    pipeNestedSseToOpenAI(upstream, res, { model: "minimax-m3" }),
+    /upstream_stream_incomplete/,
+  );
+  assert.match(output, /upstream_stream_incomplete/);
 });
 
 

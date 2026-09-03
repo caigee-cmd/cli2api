@@ -1,5 +1,6 @@
 import { estimateTokens } from "./plaintext.mjs";
 import { resolveUsage, usageLooksUseful } from "./usage.mjs";
+import { classifyError } from "./errors.mjs";
 
 function scoreUpstreamError(err) {
   if (!err || typeof err !== "object") return 0;
@@ -22,9 +23,10 @@ function rememberError(prev, next) {
 }
 
 function formatUpstreamError(err) {
-  const code = err?.code || err?.type || "upstream_error";
-  const type = err?.type || "api_error";
-  let msg = err?.message || err?.localizedMessage || JSON.stringify(err).slice(0, 300);
+  const nested = err?.data && typeof err.data === "object" ? err.data : {};
+  const code = err?.code || err?.type || nested.code || nested.msgCode || "upstream_error";
+  const type = err?.type || nested.type || "api_error";
+  let msg = err?.message || err?.localizedMessage || err?.msg || nested.message || nested.msg || JSON.stringify(err).slice(0, 300);
   // Aliyun/Qoder often returns insufficient_quota for input token-limit, not zero balance.
   if (code === "insufficient_quota" || type === "insufficient_quota" || /token-limit|exceeded your current quota/i.test(String(msg))) {
     return {
@@ -134,13 +136,40 @@ export async function readSSEText(res, { maxBytes = 2_000_000 } = {}) {
 function extractDeltaFromOuter(raw) {
   if (raw === "[DONE]") return { done: true };
   const outer = JSON.parse(raw);
+  if (outer === "[DONE]") return { done: true };
   if (typeof outer?.body === "string") {
-    if (outer.body === "[DONE]") return { done: true };
+    if (outer.body === "[DONE]" || outer.body === '"[DONE]"') return { done: true };
     const body = JSON.parse(outer.body);
     return { body, statusCode: outer.statusCodeValue || outer.statusCode };
   }
   if (outer?.choices) return { body: outer };
   return { body: outer };
+}
+
+function writeStructuredStreamError(res, source) {
+  if (!res || res.destroyed || res.writableEnded) return;
+  const raw = source && typeof source === "object" ? source : { message: String(source || "upstream stream failed") };
+  const message = String(raw.message || raw.localizedMessage || "upstream stream failed");
+  const classified = classifyError({
+    ...raw,
+    error: raw,
+    body: JSON.stringify({ error: raw }),
+    message,
+  });
+  const payload = {
+    message: classified.message,
+    type: raw.type || classified.type,
+    code: raw.code != null ? String(raw.code) : classified.code,
+    kind: raw.kind || classified.kind,
+    status: classified.status,
+    failover: classified.failover,
+    ...(classified.retryAfterSec > 0 ? { retry_after: classified.retryAfterSec } : {}),
+  };
+  try {
+    res.write(`event: error\ndata: ${JSON.stringify({ error: payload })}\n\n`);
+    if (typeof res.flush === "function") res.flush();
+  } catch {
+  }
 }
 
 /**
@@ -199,6 +228,14 @@ export async function pipeNestedSseToOpenAI(upstreamRes, res, { model = "auto", 
         toolCallCount: toolCallsByIndex.size,
         finishReason,
         error: detail,
+      });
+      writeStructuredStreamError(res, {
+        code: "upstream_stream_interrupted",
+        type: "api_error",
+        kind: "unavailable",
+        status: 502,
+        failover: true,
+        message: detail,
       });
       throw new Error(`upstream_stream_interrupted: ${detail}`);
     }
@@ -340,6 +377,7 @@ export async function pipeNestedSseToOpenAI(upstreamRes, res, { model = "auto", 
       finishReason,
     });
     const formatted = formatUpstreamError(sawError);
+    writeStructuredStreamError(res, { ...sawError, ...formatted });
     throw new Error(
       formatted.code + ": " + formatted.message,
     );
@@ -354,6 +392,15 @@ export async function pipeNestedSseToOpenAI(upstreamRes, res, { model = "auto", 
       toolCallCount: toolCallsByIndex.size,
       finishReason,
     });
+    writeStructuredStreamError(res, {
+      code: "upstream_stream_incomplete",
+      type: "api_error",
+      kind: "unavailable",
+      status: 502,
+      failover: true,
+      message: "upstream stream ended before [DONE]",
+    });
+    throw new Error("upstream_stream_incomplete: upstream stream ended before [DONE]");
   }
 
   const usage = resolveUsage(usageAcc, {
@@ -375,7 +422,15 @@ export async function pipeNestedSseToOpenAI(upstreamRes, res, { model = "auto", 
       eventCount,
       finishReason,
     });
-    throw new Error("upstream returned empty content (possible context overflow / silent reject)");
+    writeStructuredStreamError(res, {
+      code: "upstream_empty",
+      type: "api_error",
+      kind: "unavailable",
+      status: 502,
+      failover: true,
+      message: "upstream returned empty content (possible context overflow / silent reject)",
+    });
+    throw new Error("upstream_empty: upstream returned empty content (possible context overflow / silent reject)");
   }
   const finalReason = finishReason || (tool_calls.length ? "tool_calls" : "stop");
   writeChunk({}, finalReason);
