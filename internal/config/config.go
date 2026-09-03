@@ -10,6 +10,7 @@ type Config struct {
 	Host              string
 	Port              int
 	ProxyAPIKey       string
+	MaxRetryAccounts  int
 	QoderHome         string
 	DataDir           string
 	RuntimeDir        string
@@ -46,6 +47,15 @@ func Load() (Config, error) {
 			workerBasePort = n
 		}
 	}
+	maxRetryAccounts := 4
+	if v := strings.TrimSpace(os.Getenv("QODER_MAX_RETRY_ACCOUNTS")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			maxRetryAccounts = n
+		}
+	}
+	if maxRetryAccounts > 64 {
+		maxRetryAccounts = 64
+	}
 	dataDir := strings.TrimSpace(os.Getenv("QODER_DATA_DIR"))
 	if dataDir == "" {
 		if userHome, err := os.UserHomeDir(); err == nil {
@@ -62,6 +72,7 @@ func Load() (Config, error) {
 		Host:              host,
 		Port:              port,
 		ProxyAPIKey:       "",
+		MaxRetryAccounts:  maxRetryAccounts,
 		QoderHome:         home,
 		DataDir:           dataDir,
 		RuntimeDir:        runtimeDir,

@@ -1,6 +1,8 @@
 package accounts
 
 import (
+	"net/http"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -8,7 +10,7 @@ import (
 func TestClassifyQuotaDoesNotFailover(t *testing.T) {
 	got := Classify(500, `{"error":{"code":"insufficient_quota","message":"token-limit"}}`, "", "", "")
 	if got.Kind != KindQuota || got.Failover || got.Status != 429 {
-		t.Fatalf("got %+v", got)
+		t.Fatalf("got %#v", got)
 	}
 }
 
@@ -60,5 +62,40 @@ func TestClassifyContentScreeningStaysRequestLevel(t *testing.T) {
 		if got.Kind != KindInvalidRequest || got.Failover || got.Cooldown != 0 || got.Status != 400 {
 			t.Fatalf("body=%q got %+v", body, got)
 		}
+	}
+}
+
+func TestParseRetryAfterSupportsDurationAndDateFormats(t *testing.T) {
+	got := ParseRetryAfter("708.717057ms", time.Minute)
+	if got < 708*time.Millisecond || got > 709*time.Millisecond {
+		t.Fatalf("duration=%v", got)
+	}
+
+	future := time.Now().Add(45 * time.Second).UTC()
+	for _, raw := range []string{future.Format(time.RFC3339), future.Format(http.TimeFormat)} {
+		got = ParseRetryAfter(raw, 0)
+		if got < 40*time.Second || got > 46*time.Second {
+			t.Fatalf("raw=%q date duration=%v", raw, got)
+		}
+	}
+}
+
+func TestParseRetryAfterSupportsUnixSecondsAndMilliseconds(t *testing.T) {
+	future := time.Now().Add(45 * time.Second)
+	for _, raw := range []string{
+		strconv.FormatInt(future.Unix(), 10),
+		strconv.FormatInt(future.UnixMilli(), 10),
+	} {
+		got := ParseRetryAfter(raw, 0)
+		if got < 40*time.Second || got > 46*time.Second {
+			t.Fatalf("raw=%q duration=%v", raw, got)
+		}
+	}
+}
+
+func TestClassifyRateLimitUsesBodyHintAndMinimumCooldown(t *testing.T) {
+	got := Classify(400, `{"error":{"code":"RESOURCE_EXHAUSTED","message":"busy","quotaResetDelay":"708.717057ms"}}`, "", "", "")
+	if got.Kind != KindRateLimit || !got.Failover || got.Status != 429 || got.Cooldown != 30*time.Second {
+		t.Fatalf("got %+v", got)
 	}
 }

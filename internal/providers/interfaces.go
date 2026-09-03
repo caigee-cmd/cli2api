@@ -134,11 +134,14 @@ type AccountProber interface {
 // Error is the in-process adapter error the executor classifies for
 // cooldown and failover. Kind must be an accounts taxonomy value.
 type Error struct {
-	Kind     string
-	Status   int
-	Message  string
-	Cooldown time.Duration
-	Failover *bool
+	Kind       string
+	Status     int
+	Message    string
+	Code       string
+	Type       string
+	Cooldown   time.Duration
+	RetryAfter time.Duration
+	Failover   *bool
 }
 
 func (e *Error) Error() string {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { classifyError, shouldFailover } from "../src/errors.mjs";
+import { classifyError, parseRetryAfter, shouldFailover } from "../src/errors.mjs";
 
 test("quota is 429 and does not failover", () => {
   const got = classifyError({
@@ -62,4 +62,29 @@ test("shouldFailover reads nested JSON", () => {
     false,
   );
   assert.equal(shouldFailover(429, JSON.stringify({ error: { message: "too many requests" } })), true);
+});
+
+test("short rate-limit hints use the storm-protection floor", () => {
+  const got = classifyError({
+    status: 400,
+    body: JSON.stringify({ error: { code: "RESOURCE_EXHAUSTED", quotaResetDelay: "708.717057ms" } }),
+  });
+  assert.equal(got.kind, "rate_limit");
+  assert.equal(got.retryAfterSec, 30);
+});
+
+test("parses duration and Unix millisecond retry hints", () => {
+  assert.equal(parseRetryAfter("708.717057ms", 60), 1);
+  const resetAt = Date.now() + 45_000;
+  const seconds = parseRetryAfter(String(resetAt), 0);
+  assert.ok(seconds >= 40 && seconds <= 46, `seconds=${seconds}`);
+});
+
+test("recognizes nested CodeBuddy quota code", () => {
+  const got = classifyError({
+    body: JSON.stringify({ error: { data: { code: 14018, msg: "额度已用尽" } } }),
+  });
+  assert.equal(got.kind, "quota");
+  assert.equal(got.code, "14018");
+  assert.equal(got.failover, false);
 });
