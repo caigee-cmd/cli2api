@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Button, Card, Chip, Modal } from '@heroui/react'
 import {
   ArrowClockwise,
@@ -14,25 +14,15 @@ import {
 import { fetchConsoleKey, rotateConsoleKey, type ConsoleKeyView } from '@/api/keys'
 import { fetchSystemSettings, fetchSystemUpdate, startSystemUpdate, updateSystemSettings, type StartUpdateResult, type SystemSettings, type SystemUpdateInfo } from '@/api/system'
 import { useApiKey } from '@/hooks/useApiKey'
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { PageAlert } from '@/components/ui/PageAlert'
 import { SystemBodySkeleton, SystemPageSkeleton } from '@/components/ui/PageSkeletons'
-import { ReleaseNotes } from '@/components/ReleaseNotes'
 import { useI18n } from '@/hooks/useI18n'
-import { extractReleaseNotes } from '@/lib/releaseNotes'
 import { CompactSwitch } from '@/components/ui/CompactSwitch'
 
-const activeStates = new Set(['preparing', 'checking', 'draining', 'backing_up', 'submitting', 'running', 'queued', 'pulling', 'recreating', 'rolling_back'])
-
-function statusColor(state?: string): 'success' | 'warning' | 'danger' | 'default' {
-  if (state === 'succeeded') return 'success'
-  if (state === 'failed' || state === 'rolled_back' || state === 'unavailable') return 'danger'
-  if (state && activeStates.has(state)) return 'warning'
-  return 'default'
-}
+const activeStates = new Set(['preparing', 'checking', 'backing_up', 'submitting', 'running', 'queued', 'pulling', 'recreating', 'rolling_back'])
 
 export function SystemPage() {
-  const { lang, t } = useI18n()
+  const { t } = useI18n()
   const { setApiKey } = useApiKey()
   const [info, setInfo] = useState<SystemUpdateInfo | null>(null)
   const [consoleKey, setConsoleKey] = useState<ConsoleKeyView | null>(null)
@@ -45,11 +35,8 @@ export function SystemPage() {
   const [loading, setLoading] = useState(true)
   const [checking, setChecking] = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  const [confirmOpen, setConfirmOpen] = useState(false)
   const [error, setError] = useState('')
   const [started, setStarted] = useState<StartUpdateResult | null>(null)
-  const [updateStartedAt, setUpdateStartedAt] = useState<number | null>(null)
-  const [updateElapsed, setUpdateElapsed] = useState(0)
   const [reloadIn, setReloadIn] = useState<number | null>(null)
 
   const load = useCallback(async (force = false, quiet = false) => {
@@ -57,14 +44,14 @@ export function SystemPage() {
     try {
       const result = await fetchSystemUpdate(force)
       setInfo(result)
-      setError(result.update?.state === 'failed' || result.update?.state === 'rolled_back' ? (result.update.error || '') : '')
-    } catch (err) {
-      if (!quiet) setError(err instanceof Error ? err.message : String(err))
+      setError(result.update?.state === 'failed' || result.update?.state === 'rolled_back' ? t('updateFailedHint') : '')
+    } catch {
+      if (!quiet) setError(t('updateCheckFailedHint'))
     } finally {
       setLoading(false)
       if (force && !quiet) setChecking(false)
     }
-  }, [])
+  }, [t])
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -89,21 +76,11 @@ export function SystemPage() {
     const state = info.update.state
     if (state === 'succeeded') {
       setSubmitting(false)
-      setUpdateStartedAt(null)
       setReloadIn((current) => current ?? 3)
     } else if (state === 'failed' || state === 'rolled_back') {
       setSubmitting(false)
-      setUpdateStartedAt(null)
     }
   }, [info, started, submitting])
-
-  useEffect(() => {
-    if (updateStartedAt == null || reloadIn != null) return
-    const update = () => setUpdateElapsed(Math.floor((Date.now() - updateStartedAt) / 1000))
-    update()
-    const timer = window.setInterval(update, 1000)
-    return () => window.clearInterval(timer)
-  }, [updateStartedAt, reloadIn])
 
   useEffect(() => {
     if (reloadIn == null) return
@@ -116,33 +93,18 @@ export function SystemPage() {
   }, [reloadIn])
 
   const canUpdate = Boolean(info?.managed && info?.has_update && info?.next_version && info?.agent?.available && !active)
-  const statusMatchesStarted = Boolean(started && info?.update?.job_id === started.job_id)
-  const visibleState = reloadIn != null
-    ? 'succeeded'
-    : submitting && !statusMatchesStarted
-      ? 'preparing'
-      : preparationState === 'running'
-        ? agentState
-        : preparationState || agentState
-  const updateRunning = preparationState === 'running' || (statusMatchesStarted && activeStates.has(agentState))
-  const stateLabel = t(`updateState_${visibleState === 'checking' && preparationState === 'running' ? 'health_checking' : visibleState}`)
-  const releaseBody = useMemo(() => extractReleaseNotes(info?.release?.body, lang), [info, lang])
 
   async function applyUpdate() {
     setSubmitting(true)
     setStarted(null)
-    setUpdateStartedAt(Date.now())
-    setUpdateElapsed(0)
-    setConfirmOpen(false)
     setError('')
     try {
       const result = await startSystemUpdate()
       setStarted(result)
       await load(false, true)
-    } catch (err) {
+    } catch {
       setSubmitting(false)
-      setUpdateStartedAt(null)
-      setError(err instanceof Error ? err.message : String(err))
+      setError(t('updateFailedHint'))
     }
   }
 
@@ -205,54 +167,16 @@ export function SystemPage() {
               </div>
             </div>
 
-            {info?.skipped_versions?.length ? (
-              <div className="mt-4 rounded-lg border border-separator bg-surface-secondary px-4 py-3">
-                <div className="text-xs font-medium text-muted">{t('skippedBetweenLabel')}</div>
-                <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                  <span className="mono text-xs text-muted">{info.current_version}</span>
-                  {info.skipped_versions.map((version) => (
-                    <span key={version} className="mono flex items-center gap-1.5 text-xs text-muted">
-                      <span aria-hidden>→</span>
-                      <span className="rounded border border-separator bg-surface px-1.5 py-0.5">{version}</span>
-                    </span>
-                  ))}
-                  <span className="mono flex items-center gap-1.5 text-xs font-semibold text-foreground">
-                    <span aria-hidden>→</span>
-                    <span className="rounded border border-separator bg-surface px-1.5 py-0.5">{info.next_version}</span>
-                  </span>
-                </div>
-              </div>
-            ) : null}
-
-            <div className="release-notes-panel mt-5">
-              <div className="text-xs font-medium text-muted">{t('releaseNotes')}</div>
-              <div className="release-notes-box">
-                <ReleaseNotes markdown={releaseBody} emptyLabel={t('updateNoNotes')} />
-              </div>
-            </div>
-
-            <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-2 text-xs text-muted">
-                <span className="status-dot" data-state={info?.agent?.available ? 'ok' : 'danger'} />
-                {info?.agent?.available ? t('updaterReady') : t('updaterUnavailable')}
-              </div>
-              <Button isDisabled={!canUpdate && reloadIn == null} isPending={submitting || active} onPress={() => setConfirmOpen(true)}>
+            <div className="mt-5 flex flex-wrap items-center justify-end gap-3">
+              <Button isDisabled={!canUpdate || reloadIn != null} isPending={submitting || active} onPress={() => void applyUpdate()}>
                 <ArrowCircleUp size={16} />
-                {reloadIn != null ? t('updateReloadingIn', { seconds: reloadIn }) : active ? stateLabel : t('updateNow')}
+                {reloadIn != null ? t('updateReloadingIn', { seconds: reloadIn }) : active || submitting ? t('updateInProgress') : t('updateNow')}
               </Button>
             </div>
+            {!info?.agent?.available && !active ? <p className="mt-3 text-right text-xs text-muted">{t('updateUnavailableHint')}</p> : null}
             {active ? (
               <div className="mt-4 rounded-lg border border-warning/25 bg-warning/5 px-3 py-3" role="status" aria-live="polite">
-                <div className="flex items-center justify-between gap-3 text-xs">
-                  <div className="flex min-w-0 items-center gap-2 font-medium text-warning-foreground dark:text-warning">
-                    <span className="status-dot shrink-0" data-state="warn" />
-                    <span className="truncate">{stateLabel}</span>
-                  </div>
-                  {updateStartedAt != null ? <span className="mono shrink-0 text-[10px] text-muted">{t('updateElapsed', { seconds: updateElapsed })}</span> : null}
-                </div>
-                <p className="mt-1.5 text-xs leading-5 text-muted">
-                  {reloadIn != null ? t('updateReloadingHint') : updateRunning ? t('updateRunningHint') : t('updatePreparingHint')}
-                </p>
+                <p className="text-xs leading-5 text-muted">{reloadIn != null ? t('updateReloadingHint') : t('updateInProgressHint')}</p>
               </div>
             ) : null}
           </div>
@@ -298,7 +222,6 @@ export function SystemPage() {
               <div className="flex items-center gap-2"><CheckCircle size={14} className="text-success" />{t('sqliteKeepFive')}</div>
               <div className="flex items-center gap-2"><CheckCircle size={14} className="text-success" />{t('sqliteRollbackTogether')}</div>
             </div>
-            {info?.update?.backup_path ? <div className="mono mt-4 break-all border-t border-separator pt-3 text-[10px] text-muted">{info.update.backup_path}</div> : null}
           </Card>
 
           <Card data-gsap-reveal>
@@ -318,25 +241,6 @@ export function SystemPage() {
             </div>
           </Card>
 
-          <Card data-gsap-reveal>
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <h3 className="font-semibold">{t('updateStatus')}</h3>
-                <p className="mt-1 text-xs text-muted">{info?.update?.job_id || info?.agent?.job_id || (info?.agent?.available ? t('noUpdateJob') : t('updaterNeedsHost'))}</p>
-              </div>
-              <Chip size="sm" variant="soft" color={statusColor(visibleState)}>{stateLabel}</Chip>
-            </div>
-            {info?.agent?.available ? null : (
-              <div className="mt-4 space-y-2 text-xs leading-5 text-muted">
-                <p>{t('updaterUnavailableHint')}</p>
-                <ul className="list-disc space-y-1 pl-4 text-muted">
-                  <li>{t('updaterNeedInstall')}</li>
-                  <li>{t('updaterNeedCompose')}</li>
-                  <li>{t('updaterNeedRelease')}</li>
-                </ul>
-              </div>
-            )}
-          </Card>
         </div>
       </div>
       )}
@@ -400,19 +304,6 @@ export function SystemPage() {
         </Modal.Backdrop>
       </Modal.Root>
 
-      <ConfirmDialog
-        isOpen={confirmOpen}
-        title={t('confirmUpdate')}
-        description={`${t('confirmUpdateHint')} ${info?.current_version || ''} → ${info?.next_version || ''}`}
-        confirmLabel={reloadIn != null ? t('updateReloadingIn', { seconds: reloadIn }) : submitting ? t('updateState_preparing') : t('updateNow')}
-        cancelLabel={t('cancel')}
-        closeLabel={t('close')}
-        status="warning"
-        confirmVariant="primary"
-        isPending={submitting}
-        onClose={() => { if (!submitting && reloadIn == null) setConfirmOpen(false) }}
-        onConfirm={() => void applyUpdate()}
-      />
     </div>
   )
 }

@@ -39,6 +39,14 @@ export type ModelInfo = {
   can_disable_thinking?: boolean
 }
 
+export type CheckinRecord = {
+  id: string
+  account_id: string
+  status: string
+  message?: string
+  created_at: string
+}
+
 export type Overview = {
   ok?: boolean
   time?: string
@@ -96,6 +104,7 @@ export type Overview = {
     last_error_kind?: string
     last_checkin_at?: string
     last_checkin_msg?: string
+    last_checkin_status?: string
     quota?: AccountQuota
     created_at?: string
     updated_at?: string

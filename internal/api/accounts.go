@@ -275,6 +275,28 @@ func (s *Server) handleAccountByID(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, view)
 		return
 	}
+	if action == "checkins" {
+		if r.Method != http.MethodGet {
+			writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "GET only")
+			return
+		}
+		account, err := s.manager.Store().Get(r.Context(), accountID)
+		if err != nil {
+			writeErr(w, http.StatusNotFound, "account_not_found", err.Error())
+			return
+		}
+		if account.Provider != "workbuddy" {
+			writeErr(w, http.StatusBadRequest, "provider_unsupported", "check-in is only available for WorkBuddy accounts")
+			return
+		}
+		records, err := s.manager.Store().ListCheckinRecords(r.Context(), accountID, 20)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, "checkin_list_failed", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"object": "list", "data": records})
+		return
+	}
 	if account, err := s.manager.Store().Get(r.Context(), accountID); err == nil && action == "checkin" {
 		if r.Method != http.MethodPost {
 			writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "POST only")

@@ -5,6 +5,7 @@ import {
   Plus,
 } from '@phosphor-icons/react'
 import { AccountCard, type AccountBusyKind } from '@/components/account/AccountCard'
+import { AccountCheckinRecordsModal } from '@/components/account/AccountCheckinRecordsModal'
 import { AccountModelsModal } from '@/components/account/AccountModelsModal'
 import { EditAccountModal } from '@/components/account/EditAccountModal'
 import { AddAccountModal } from '@/components/AddAccountModal'
@@ -12,7 +13,7 @@ import { BrandMark } from '@/components/BrandMark'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { EmptyPanel } from '@/components/ui/EmptyPanel'
 import { FilterToggle } from '@/components/ui/FilterToggle'
-import { ListPager, type PageSize } from '@/components/ui/ListPager'
+import { ACCOUNT_PAGE_SIZES, ListPager, type PageSize } from '@/components/ui/ListPager'
 import { SearchBar } from '@/components/ui/SearchBar'
 import { useI18n } from '@/hooks/useI18n'
 import {
@@ -40,12 +41,14 @@ type AccountBusy = { id: string; kind: AccountBusyKind }
 type AccountFilter = 'all' | 'available' | 'attention' | 'disabled'
 
 const EMPTY_ACCOUNTS: AccountRow[] = []
+const ACCOUNT_REFRESH_BATCH_SIZE = 2
 
 export function AccountsPage() {
   const { t } = useI18n()
   const [accounts, setAccounts] = useState<AccountRow[]>([])
   const [accountsLoading, setAccountsLoading] = useState(true)
   const [accountsRefreshing, setAccountsRefreshing] = useState(false)
+  const [refreshingById, setRefreshingById] = useState<Record<string, boolean>>({})
   const rows = accounts
   const hasAccounts = rows.length > 0
   const refreshing = accountsRefreshing && hasAccounts
@@ -57,12 +60,13 @@ export function AccountsPage() {
   const [urlById, setUrlById] = useState<Record<string, string>>({})
   const [confirmId, setConfirmId] = useState<string | null>(null)
   const [modelsId, setModelsId] = useState<string | null>(null)
+  const [checkinHistoryId, setCheckinHistoryId] = useState<string | null>(null)
   const [editId, setEditId] = useState<string | null>(null)
   const [authPanelId, setAuthPanelId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<AccountFilter>('all')
   const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState<PageSize>(20)
+  const [pageSize, setPageSize] = useState<PageSize>(5)
   const [enabledById, setEnabledById] = useState<Record<string, boolean>>({})
   const [dropSystemById, setDropSystemById] = useState<Record<string, boolean>>({})
   const [autoCheckinById, setAutoCheckinById] = useState<Record<string, boolean>>({})
@@ -74,10 +78,40 @@ export function AccountsPage() {
     if (refresh) setAccountsRefreshing(true)
     try {
       const response = await fetchAccounts(refresh)
-      setAccounts(response.data || EMPTY_ACCOUNTS)
+      const next = response.data || EMPTY_ACCOUNTS
+      setAccounts(next)
+      return next
     } finally {
       setAccountsLoading(false)
       if (refresh) setAccountsRefreshing(false)
+    }
+  }, [])
+
+  const refreshAccountsInBatches = useCallback(async (ids: string[], forceQuota = true) => {
+    const accountIds = [...new Set(ids)]
+    if (!accountIds.length) return
+    setAccountsRefreshing(true)
+    try {
+      for (let start = 0; start < accountIds.length; start += ACCOUNT_REFRESH_BATCH_SIZE) {
+        const batch = accountIds.slice(start, start + ACCOUNT_REFRESH_BATCH_SIZE)
+        await Promise.all(batch.map(async (id) => {
+          setRefreshingById((current) => ({ ...current, [id]: true }))
+          try {
+            const refreshed = await refreshAccount(id, { quota: forceQuota })
+            setAccounts((current) => current.map((account) => account.id === id ? refreshed : account))
+          } catch (error) {
+            setNoteById((current) => ({ ...current, [id]: error instanceof Error ? error.message : String(error) }))
+          } finally {
+            setRefreshingById((current) => {
+              const next = { ...current }
+              delete next[id]
+              return next
+            })
+          }
+        }))
+      }
+    } finally {
+      setAccountsRefreshing(false)
     }
   }, [])
 
@@ -85,13 +119,13 @@ export function AccountsPage() {
     let active = true
     void (async () => {
       try {
-        await reloadAccounts(false)
-        if (active) void reloadAccounts(true).catch(() => undefined)
+        const initialAccounts = await reloadAccounts(false)
+        if (active) void refreshAccountsInBatches(initialAccounts.map((account) => account.id)).catch(() => undefined)
       } catch {
       }
     })()
     return () => { active = false }
-  }, [reloadAccounts])
+  }, [refreshAccountsInBatches, reloadAccounts])
   const displayRows = useMemo(() => rows.map((account) => {
     const enabled = enabledById[account.id]
     const dropSystem = dropSystemById[account.id]
@@ -122,6 +156,7 @@ export function AccountsPage() {
   }, [displayRows])
   const confirmAccount = displayRows.find((account) => account.id === confirmId)
   const modelsAccount = displayRows.find((account) => account.id === modelsId) || null
+  const checkinHistoryAccount = displayRows.find((account) => account.id === checkinHistoryId) || null
   const editAccount = displayRows.find((account) => account.id === editId) || null
   const filteredRows = useMemo(() => {
     const normalized = query.trim().toLowerCase()
@@ -187,7 +222,8 @@ export function AccountsPage() {
         setNoteById((current) => ({ ...current, [id]: login.message || t('waitingQoderLogin') }))
         if (login.status === 'ok' || login.status === 'error') break
       }
-      await reloadAccounts(true)
+      await reloadAccounts(false)
+      await refreshAccountsInBatches([id])
     })
   }
 
@@ -201,7 +237,8 @@ export function AccountsPage() {
       setNoteById((current) => ({ ...current, [id]: t('wizardStartingSession') }))
       await completeLoginCallback(id, pasted)
       setCallbackById((current) => ({ ...current, [id]: '' }))
-      await reloadAccounts(true)
+      await reloadAccounts(false)
+      await refreshAccountsInBatches([id])
     })
     if (ok) {
       setAuthPanelId((current) => (current === id ? null : current))
@@ -219,7 +256,8 @@ export function AccountsPage() {
       setNoteById((current) => ({ ...current, [id]: t('wizardStartingSession') }))
       await loginWithPat(pat, id)
       setPatById((current) => ({ ...current, [id]: '' }))
-      await reloadAccounts(true)
+      await reloadAccounts(false)
+      await refreshAccountsInBatches([id])
     })
   }
 
@@ -272,8 +310,11 @@ export function AccountsPage() {
 
   async function onCheckin(id: string) {
     await run(id, 'checkin', async () => {
-      await checkinAccount(id)
-      await reloadAccounts(false)
+      try {
+        await checkinAccount(id)
+      } finally {
+        await reloadAccounts(false)
+      }
     })
   }
 
@@ -285,22 +326,16 @@ export function AccountsPage() {
       return next
     })
     try {
-      await refreshAccount(id, { quota: true })
-    } catch (error) {
-      setNoteById((current) => ({ ...current, [id]: error instanceof Error ? error.message : String(error) }))
+      await refreshAccountsInBatches([id])
     } finally {
       setBusy(null)
-      // Re-read the whole pool so header counts and provider tallies stay in
-      // sync with the refreshed card, but keep the silent flag so the list
-      // never unmounts and quota meters animate instead of flashing.
-      await reloadAccounts(false).catch(() => undefined)
     }
   }
 
   async function onRefreshCredits() {
     setQuotaRefreshing(true)
     try {
-      await reloadAccounts(true)
+      await refreshAccountsInBatches(accounts.map((account) => account.id))
     } finally {
       setQuotaRefreshing(false)
     }
@@ -373,8 +408,9 @@ export function AccountsPage() {
         </div>
       </section>
 
-      <AddAccountModal isOpen={addOpen} onClose={() => setAddOpen(false)} onAdded={() => void reloadAccounts(true)} />
+      <AddAccountModal isOpen={addOpen} onClose={() => setAddOpen(false)} onAdded={() => void reloadAccounts(false)} />
       <AccountModelsModal key={modelsId ?? 'closed'} account={modelsAccount} t={t} onClose={() => setModelsId(null)} />
+      <AccountCheckinRecordsModal key={checkinHistoryId ?? 'closed'} account={checkinHistoryAccount} t={t} onClose={() => setCheckinHistoryId(null)} />
       <EditAccountModal
         key={editId ?? 'closed'}
         account={editAccount}
@@ -461,7 +497,7 @@ export function AccountsPage() {
             key={account.id}
             account={account}
             busyKind={busy?.id === account.id ? busy.kind : ''}
-            detailsLoading={refreshing}
+            detailsLoading={Boolean(refreshingById[account.id])}
             authPanelOpen={authPanelId === account.id}
             authUrl={urlById[account.id]}
             note={noteById[account.id]}
@@ -479,7 +515,8 @@ export function AccountsPage() {
             onToggle={(selected) => void onToggle(account.id, selected)}
             onToggleDropSystem={(selected) => void onToggleDropSystem(account.id, selected)}
             onToggleAutoCheckin={(selected) => void onToggleAutoCheckin(account.id, selected)}
-            onCheckin={() => void onCheckin(account.id)}
+            onCheckin={account.provider === 'workbuddy' ? () => void onCheckin(account.id) : undefined}
+            onViewCheckins={account.provider === 'workbuddy' ? () => setCheckinHistoryId(account.id) : undefined}
             onEdit={() => setEditId(account.id)}
             onToggleAuthPanel={() => setAuthPanelId((current) => current === account.id ? null : account.id)}
             onViewModels={() => setModelsId(account.id)}
@@ -493,6 +530,7 @@ export function AccountsPage() {
           page={currentPage}
           pageCount={pageCount}
           pageSize={pageSize}
+          pageSizes={ACCOUNT_PAGE_SIZES}
           loading={false}
           pageSizeLabel={t('logsPageSize')}
           pageLabel={t('logsPage', { page: currentPage, pages: pageCount })}

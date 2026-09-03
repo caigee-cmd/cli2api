@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/config"
@@ -618,5 +619,49 @@ func TestAccountRefreshRouteRejectsGET(t *testing.T) {
 	srv.Handler().ServeHTTP(rec, req)
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("GET refresh: got %d want 405", rec.Code)
+	}
+}
+
+func TestAccountCheckinRecordsRoute(t *testing.T) {
+	srv := New(config.Config{
+		Host: "127.0.0.1", Port: 3010, ProxyAPIKey: "secret",
+		QoderHome: t.TempDir(), DataDir: t.TempDir(),
+	})
+	defer srv.Close()
+
+	account, err := srv.manager.Store().Create(context.Background(), accounts.CreateAccount{
+		Name: "WorkBuddy", Provider: "workbuddy", Region: "cn", Enabled: false,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := time.Date(2026, 9, 3, 1, 0, 0, 0, time.UTC)
+	if err := srv.manager.Store().RecordCheckin(context.Background(), account.ID, "success", "签到成功", at); err != nil {
+		t.Fatal(err)
+	}
+
+	path := "/api/accounts/" + account.ID + "/checkins"
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("checkin records without key: got %d", rec.Code)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, path, nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	rec = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("checkin records: got %d %s", rec.Code, rec.Body.String())
+	}
+	var payload struct {
+		Data []accounts.CheckinRecord `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Data) != 1 || payload.Data[0].Status != "success" {
+		t.Fatalf("checkin records payload=%+v", payload.Data)
 	}
 }

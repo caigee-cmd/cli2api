@@ -1271,7 +1271,15 @@ func (m *Manager) CheckinAccount(ctx context.Context, accountID string) (Account
 	if msg == "" {
 		msg = "ok"
 	}
-	_ = m.store.RecordCheckin(ctx, accountID, msg, time.Now().UTC())
+	status := "success"
+	var already alreadyCheckedIn
+	if checkErr != nil {
+		status = "error"
+		if errors.As(checkErr, &already) && already.AlreadyCheckedIn() {
+			status = "already"
+		}
+	}
+	_ = m.store.RecordCheckin(ctx, accountID, status, msg, time.Now().UTC())
 	if adapter, ok := m.providers.Get("workbuddy"); ok && adapter.Prober != nil {
 		m.fetchProviderQuota(ctx, accountID, adapter.Prober)
 	}
@@ -1279,11 +1287,7 @@ func (m *Manager) CheckinAccount(ctx context.Context, accountID string) (Account
 	if getErr != nil {
 		return account, getErr
 	}
-	if checkErr == nil {
-		return account, nil
-	}
-	var already alreadyCheckedIn
-	if errors.As(checkErr, &already) && already.AlreadyCheckedIn() {
+	if checkErr == nil || status == "already" {
 		return account, nil
 	}
 	return account, checkErr

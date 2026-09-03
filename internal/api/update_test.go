@@ -92,6 +92,11 @@ func TestSystemUpdateBacksUpSQLiteBeforeSubmittingNextVersion(t *testing.T) {
 	}
 	srv.updateChecker = checker
 	srv.updateAgent = agent
+	account, err := srv.manager.Store().Create(context.Background(), accounts.CreateAccount{Name: "busy", Enabled: false})
+	if err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+	srv.manager.Pool().Upsert(accounts.Item{ID: account.ID, Provider: "qoder", InFlight: 1})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/system/update", strings.NewReader(`{"target_version":"v9.9.9"}`))
 	req.Header.Set("Authorization", "Bearer secret")
@@ -142,24 +147,6 @@ func TestSystemUpdateDoesNotBackupWhenNoNextVersionExists(t *testing.T) {
 	entries, err := os.ReadDir(filepath.Join(dataDir, "backups"))
 	if err == nil && len(entries) != 0 {
 		t.Fatalf("unexpected backups: %v", entries)
-	}
-}
-
-func TestWaitForUpdateIdleReadsInFlightFromPool(t *testing.T) {
-	dataDir := t.TempDir()
-	srv := New(config.Config{
-		Host: "127.0.0.1", Port: 3010, ProxyAPIKey: "secret",
-		QoderHome: t.TempDir(), DataDir: dataDir,
-	})
-	defer srv.Close()
-
-	srv.manager.Pool().Upsert(accounts.Item{ID: "account-1", InFlight: 1})
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
-	defer cancel()
-
-	err := srv.waitForUpdateIdle(ctx)
-	if err == nil || !strings.Contains(err.Error(), "1 request(s) are still in flight") || strings.Contains(err.Error(), "list accounts") {
-		t.Fatalf("expected in-flight timeout without account-list error, got %v", err)
 	}
 }
 
