@@ -15,7 +15,7 @@ import {
 import gsap from 'gsap'
 import { ProviderMark } from '@/components/ProviderMark'
 import { CompactSwitch } from '@/components/ui/CompactSwitch'
-import { AccountCardSkeleton } from '@/components/ui/PageSkeletons'
+import { AccountCardSkeleton, SkeletonBlock } from '@/components/ui/PageSkeletons'
 import { QuotaMeter } from '@/components/account/QuotaMeter'
 import { RuntimeMeter } from '@/components/account/RuntimeMeter'
 import {
@@ -33,6 +33,7 @@ type Translate = (key: string, vars?: Record<string, string | number>) => string
 type Props = {
   account: AccountRow
   busyKind: AccountBusyKind | ''
+  detailsLoading?: boolean
   authPanelOpen: boolean
   authUrl?: string
   note?: string
@@ -67,6 +68,7 @@ function stateCopyFor(state: ReturnType<typeof accountState>, cooldown: string, 
 export function AccountCard({
   account,
   busyKind,
+  detailsLoading = false,
   authPanelOpen,
   authUrl,
   note,
@@ -114,6 +116,25 @@ export function AccountCard({
   const lastError = account.last_error || account.lastError
   const errorKind = account.last_error_kind || account.kind
   const provider = accountProviderLabel(account.provider, account.region, t)
+
+  const detailsSkeleton = (
+    <>
+      <div className="rounded-2xl border border-border bg-surface-secondary/45 p-2.5">
+        <SkeletonBlock className="h-3 w-20" />
+        <SkeletonBlock className="mt-2.5 h-2 w-full" />
+        <div className="mt-2.5 grid grid-cols-3 gap-2 border-t border-separator pt-2.5">
+          <SkeletonBlock className="h-7 w-full" />
+          <SkeletonBlock className="h-7 w-full" />
+          <SkeletonBlock className="h-7 w-full" />
+        </div>
+      </div>
+      <div className="min-h-[58px] rounded-2xl border border-border bg-surface-secondary/25 p-2.5">
+        <SkeletonBlock className="h-3 w-20" />
+        <SkeletonBlock className="mt-2 h-1.5 w-full rounded-[1px]" />
+        <SkeletonBlock className="mt-2 h-3 w-36" />
+      </div>
+    </>
+  )
 
   useLayoutEffect(() => {
     const chip = chipRef.current
@@ -174,6 +195,7 @@ export function AccountCard({
     <Card
       data-gsap-reveal
       data-state={state}
+      aria-busy={detailsLoading}
       className="account-card overflow-hidden p-0"
     >
       <Card.Header className="flex-row items-start justify-between gap-3 px-3 pt-3 pb-2">
@@ -192,14 +214,19 @@ export function AccountCard({
           </div>
         </div>
         <div className="flex max-w-[48%] shrink-0 flex-wrap justify-end gap-1.5">
-          <span ref={chipRef}>
-            <Chip size="sm" variant="soft" color={stateColor}>{stateCopy}</Chip>
-          </span>
-          {modelCooldowns.length ? <Chip size="sm" variant="soft" color="warning">{t('partialCooling')}</Chip> : null}
+          {detailsLoading ? <SkeletonBlock className="h-5 w-16" /> : (
+            <>
+              <span ref={chipRef}>
+                <Chip size="sm" variant="soft" color={stateColor}>{stateCopy}</Chip>
+              </span>
+              {modelCooldowns.length ? <Chip size="sm" variant="soft" color="warning">{t('partialCooling')}</Chip> : null}
+            </>
+          )}
         </div>
       </Card.Header>
 
       <Card.Content className="gap-2.5 px-3 pb-2.5">
+        {detailsLoading ? detailsSkeleton : <>
         {modelCooldowns.length ? (
           <div className="flex items-start gap-2 rounded-2xl border border-warning/25 bg-warning/5 px-2.5 py-2 text-[11px] text-warning-foreground dark:text-warning">
             <span className="status-dot mt-0.5 shrink-0" data-state="warn" />
@@ -294,6 +321,7 @@ export function AccountCard({
             </div>
           </div>
         ) : null}
+        </>}
       </Card.Content>
 
       {authPanelOpen && account.enabled ? (
