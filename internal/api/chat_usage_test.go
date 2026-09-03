@@ -2,9 +2,11 @@ package api
 
 import (
 	"errors"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/executor"
@@ -120,5 +122,60 @@ func TestSSEDeltaHasTokenIgnoresEmptyRoleChunks(t *testing.T) {
 	}
 	if !sseDeltaHasToken(`data: {"choices":[{"delta":{"tool_calls":[{"index":0}]}}]}`) {
 		t.Fatal("tool call delta should count as first token")
+	}
+}
+
+func TestClassifyAPIErrorPreservesProviderFields(t *testing.T) {
+	got := classifyAPIError(&providers.Error{
+		Kind:       accounts.KindRateLimit,
+		Status:     429,
+		Code:       "RESOURCE_EXHAUSTED",
+		Type:       "rate_limit_error",
+		Message:    "provider busy",
+		RetryAfter: time.Second,
+	})
+	if got.Kind != accounts.KindRateLimit || got.Code != "RESOURCE_EXHAUSTED" || got.Type != "rate_limit_error" || got.Cooldown != 30*time.Second {
+		t.Fatalf("classified=%+v", got)
+	}
+}
+
+func TestRelayOpenAIStreamClassifiesAndSuppressesStructuredError(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	body := strings.Join([]string{
+		"event: error",
+		`data: {"error":{"code":"RESOURCE_EXHAUSTED","type":"rate_limit_error","message":"provider busy","retry_after":"1s"}}`,
+		"",
+		"data: [DONE]",
+		"",
+	}, "\n")
+	_, err := relayOpenAIStream(recorder, strings.NewReader(body))
+	if err == nil {
+		t.Fatal("expected structured stream error")
+	}
+	var providerErr *providers.Error
+	if !errors.As(err, &providerErr) || providerErr == nil {
+		t.Fatalf("error=%T %v", err, err)
+	}
+	if providerErr.Kind != accounts.KindRateLimit || providerErr.Code != "RESOURCE_EXHAUSTED" || providerErr.RetryAfter != 30*time.Second {
+		t.Fatalf("provider error=%+v", providerErr)
+	}
+	output := recorder.Body.String()
+	if strings.Contains(output, "event: error") {
+		t.Fatalf("internal error event leaked to client: %s", output)
+	}
+	if !strings.Contains(output, `"message":"provider busy"`) || !strings.Contains(output, `"code":"RESOURCE_EXHAUSTED"`) {
+		t.Fatalf("structured error was not emitted: %s", output)
+	}
+}
+
+func TestRelayOpenAIStreamReportsIncompleteStreamStructurally(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	_, err := relayOpenAIStream(recorder, strings.NewReader("data: partial\n\n"))
+	var providerErr *providers.Error
+	if !errors.As(err, &providerErr) || providerErr.Code != "upstream_stream_incomplete" || providerErr.Status != http.StatusBadGateway {
+		t.Fatalf("error=%T %+v", err, err)
+	}
+	if !strings.Contains(recorder.Body.String(), `"code":"upstream_stream_incomplete"`) {
+		t.Fatalf("structured incomplete-stream error was not emitted: %s", recorder.Body.String())
 	}
 }

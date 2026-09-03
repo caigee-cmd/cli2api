@@ -41,3 +41,14 @@ func TestLoadLocalUpdaterEndpoint(t *testing.T) {
 		t.Fatalf("updater config = %+v", cfg)
 	}
 }
+
+func TestLoadRetryAccountBudget(t *testing.T) {
+	t.Setenv("QODER_MAX_RETRY_ACCOUNTS", "99")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.MaxRetryAccounts != 64 {
+		t.Fatalf("max retry accounts = %d", cfg.MaxRetryAccounts)
+	}
+}
