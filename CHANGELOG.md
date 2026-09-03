@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.2.41 - 2026-09-03
+
+### English
+
 - Make the account toolbar compact enough to keep common actions visible, with overflow reserved for secondary actions
 - Reduce account card density so account lists are easier to scan
 
