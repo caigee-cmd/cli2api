@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.2.38 - 2026-09-03
+
+### English
+
 - Keep cached account cards visible while health, quota, and model details refresh asynchronously, with inline skeletons and usable pagination
 
 ### 中文
