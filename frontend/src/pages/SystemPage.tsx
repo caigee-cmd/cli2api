@@ -48,6 +48,8 @@ export function SystemPage() {
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [error, setError] = useState('')
   const [started, setStarted] = useState<StartUpdateResult | null>(null)
+  const [updateStartedAt, setUpdateStartedAt] = useState<number | null>(null)
+  const [updateElapsed, setUpdateElapsed] = useState(0)
   const [reloadIn, setReloadIn] = useState<number | null>(null)
 
   const load = useCallback(async (force = false, quiet = false) => {
@@ -56,9 +58,6 @@ export function SystemPage() {
       const result = await fetchSystemUpdate(force)
       setInfo(result)
       setError('')
-      if (result.agent.state === 'succeeded' || result.agent.state === 'rolled_back' || result.agent.state === 'failed') {
-        setSubmitting(false)
-      }
     } catch (err) {
       if (!quiet) setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -84,6 +83,27 @@ export function SystemPage() {
   }, [active, load, reloadIn])
 
   useEffect(() => {
+    if (!submitting || !started || !info || info.agent.job_id !== started.job_id) return
+    const state = info.agent.state
+    if (state === 'succeeded') {
+      setSubmitting(false)
+      setUpdateStartedAt(null)
+      setReloadIn((current) => current ?? 3)
+    } else if (state === 'failed' || state === 'rolled_back') {
+      setSubmitting(false)
+      setUpdateStartedAt(null)
+    }
+  }, [info, started, submitting])
+
+  useEffect(() => {
+    if (updateStartedAt == null || reloadIn != null) return
+    const update = () => setUpdateElapsed(Math.floor((Date.now() - updateStartedAt) / 1000))
+    update()
+    const timer = window.setInterval(update, 1000)
+    return () => window.clearInterval(timer)
+  }, [updateStartedAt, reloadIn])
+
+  useEffect(() => {
     if (reloadIn == null) return
     if (reloadIn <= 0) {
       window.location.reload()
@@ -95,20 +115,29 @@ export function SystemPage() {
 
   const canUpdate = Boolean(info?.managed && info?.has_update && info?.next_version && info?.agent?.available && !active)
   const agentState = info?.agent?.state || 'unavailable'
-  const stateLabel = t(`updateState_${agentState}`)
+  const statusMatchesStarted = Boolean(started && info?.agent?.job_id === started.job_id)
+  const visibleState = reloadIn != null
+    ? 'succeeded'
+    : submitting && (!statusMatchesStarted || !activeStates.has(agentState))
+      ? 'preparing'
+      : agentState
+  const stateLabel = t(`updateState_${visibleState}`)
   const releaseBody = useMemo(() => extractReleaseNotes(info?.release?.body, lang), [info, lang])
 
   async function applyUpdate() {
     setSubmitting(true)
+    setStarted(null)
+    setUpdateStartedAt(Date.now())
+    setUpdateElapsed(0)
+    setConfirmOpen(false)
     setError('')
     try {
       const result = await startSystemUpdate()
       setStarted(result)
-      setConfirmOpen(false)
-      setReloadIn(10)
       await load(false, true)
     } catch (err) {
       setSubmitting(false)
+      setUpdateStartedAt(null)
       setError(err instanceof Error ? err.message : String(err))
     }
   }
@@ -208,6 +237,20 @@ export function SystemPage() {
                 {reloadIn != null ? t('updateReloadingIn', { seconds: reloadIn }) : active ? stateLabel : t('updateNow')}
               </Button>
             </div>
+            {active ? (
+              <div className="mt-4 rounded-lg border border-warning/25 bg-warning/5 px-3 py-3" role="status" aria-live="polite">
+                <div className="flex items-center justify-between gap-3 text-xs">
+                  <div className="flex min-w-0 items-center gap-2 font-medium text-warning-foreground dark:text-warning">
+                    <span className="status-dot shrink-0" data-state="warn" />
+                    <span className="truncate">{stateLabel}</span>
+                  </div>
+                  {updateStartedAt != null ? <span className="mono shrink-0 text-[10px] text-muted">{t('updateElapsed', { seconds: updateElapsed })}</span> : null}
+                </div>
+                <p className="mt-1.5 text-xs leading-5 text-muted">
+                  {reloadIn != null ? t('updateReloadingHint') : started ? t('updateRunningHint') : t('updatePreparingHint')}
+                </p>
+              </div>
+            ) : null}
           </div>
         </Card>
 
@@ -277,7 +320,7 @@ export function SystemPage() {
                 <h3 className="font-semibold">{t('updateStatus')}</h3>
                 <p className="mt-1 text-xs text-muted">{info?.agent?.job_id || (info?.agent?.available ? t('noUpdateJob') : t('updaterNeedsHost'))}</p>
               </div>
-              <Chip size="sm" variant="soft" color={statusColor(agentState)}>{stateLabel}</Chip>
+              <Chip size="sm" variant="soft" color={statusColor(visibleState)}>{stateLabel}</Chip>
             </div>
             {info?.agent?.available ? null : (
               <div className="mt-4 space-y-2 text-xs leading-5 text-muted">
@@ -357,7 +400,7 @@ export function SystemPage() {
         isOpen={confirmOpen}
         title={t('confirmUpdate')}
         description={`${t('confirmUpdateHint')} ${info?.current_version || ''} → ${info?.next_version || ''}`}
-        confirmLabel={reloadIn != null ? t('updateReloadingIn', { seconds: reloadIn }) : t('updateNow')}
+        confirmLabel={reloadIn != null ? t('updateReloadingIn', { seconds: reloadIn }) : submitting ? t('updateState_preparing') : t('updateNow')}
         cancelLabel={t('cancel')}
         closeLabel={t('close')}
         status="warning"
