@@ -37,7 +37,7 @@ export function QuotaMeter({ quota, label, usedLabel, remainingLabel, addOnLabel
         {label}
         {quota.exceeded ? <span className="ml-1.5 text-danger">{exceededLabel}</span> : null}
       </Label>
-      <Meter.Output className="mono text-[10px] text-muted">
+      <Meter.Output className="mono text-[10px] text-foreground/65">
         {usedLabel} {used} · {remainingLabel} {remaining}
         {addOn ? ` · ${addOn}` : ''}
       </Meter.Output>
