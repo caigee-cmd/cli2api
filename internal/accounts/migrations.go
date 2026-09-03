@@ -172,6 +172,16 @@ CREATE TABLE IF NOT EXISTS account_cooldowns (
 CREATE INDEX IF NOT EXISTS account_cooldowns_until ON account_cooldowns(down_until);`},
 	{filename: "012_account_cooldown_model_kind.sql", sql: `
 ALTER TABLE account_cooldowns ADD COLUMN model_kind TEXT NOT NULL DEFAULT '';`},
+	{filename: "013_checkin_records.sql", sql: `
+ALTER TABLE accounts ADD COLUMN last_checkin_status TEXT NOT NULL DEFAULT '';
+CREATE TABLE IF NOT EXISTS checkin_records (
+  id TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  status TEXT NOT NULL,
+  message TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS checkin_records_account_created_at ON checkin_records(account_id, created_at DESC);`},
 }
 
 const schemaMigrationsDDL = `

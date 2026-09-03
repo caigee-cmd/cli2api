@@ -7,7 +7,15 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Interrupt active connections instead of waiting for in-flight requests before managed updates; clients can retry interrupted requests
+- Load the Accounts page first, refresh account details in small batches, and default pagination to five accounts
+- Add compact WorkBuddy check-in status, check-in history, manual check-in, and scheduled daily check-ins around 09:00 and 21:00 local time
+
 ### 中文
+
+- 托管更新前不再等待在途请求结束，而是直接中断现有连接并由客户端重试
+- Accounts 页面先加载账号列表，再按小批次刷新账号详情，默认分页调整为每页 5 个账号
+- 增加紧凑的 WorkBuddy 签到状态、签到记录、手动签到，以及本地时间约 09:00 和 21:00 的每日自动签到
 
 ## 0.2.39 - 2026-09-03
 

@@ -7,6 +7,7 @@ import {
   Cube,
   DotsThreeVertical,
   Key,
+  ListBullets,
   PencilSimple,
   ShieldCheck,
   TrashSimple,
@@ -52,6 +53,7 @@ type Props = {
   onToggleDropSystem: (selected: boolean) => void
   onToggleAutoCheckin?: (selected: boolean) => void
   onCheckin?: () => void
+  onViewCheckins?: () => void
   onEdit: () => void
   onToggleAuthPanel: () => void
   onViewModels: () => void
@@ -63,6 +65,17 @@ function stateCopyFor(state: ReturnType<typeof accountState>, cooldown: string, 
   if (state === 'cooling') return cooldown ? `${t('cooling')} ${cooldown}` : t('cooling')
   if (state === 'disabled') return t('disabled')
   return t('needQoderLogin')
+}
+
+function checkinStatusFor(account: AccountRow, t: Translate) {
+  if (account.last_checkin_status === 'error') return { label: t('checkinFailed'), state: 'warn' as const }
+  if (!account.last_checkin_at) return { label: t('checkinPending'), state: undefined }
+  const date = new Date(account.last_checkin_at)
+  const now = new Date()
+  if (!Number.isNaN(date.getTime()) && date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth() && date.getDate() === now.getDate()) {
+    return { label: t('checkinToday'), state: 'ok' as const }
+  }
+  return { label: t('checkinPending'), state: undefined }
 }
 
 export function AccountCard({
@@ -87,6 +100,7 @@ export function AccountCard({
   onToggleDropSystem,
   onToggleAutoCheckin,
   onCheckin,
+  onViewCheckins,
   onEdit,
   onToggleAuthPanel,
   onViewModels,
@@ -116,6 +130,7 @@ export function AccountCard({
   const lastError = account.last_error || account.lastError
   const errorKind = account.last_error_kind || account.kind
   const provider = accountProviderLabel(account.provider, account.region, t)
+  const checkin = checkinStatusFor(account, t)
 
   const detailsSkeleton = (
     <>
@@ -291,21 +306,15 @@ export function AccountCard({
                 onChange={(selected) => onToggleAutoCheckin?.(selected)}
               />
             </div>
-            <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-foreground/65">
-              <span className="min-w-0 break-words">
-                {account.last_checkin_at
-                  ? `${t('lastCheckin')}: ${account.last_checkin_msg || '—'} · ${account.last_checkin_at}`
-                  : t('lastCheckinNone')}
-              </span>
-              {onCheckin ? (
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  isPending={busyKind === 'checkin'}
-                  isDisabled={!account.enabled}
-                  onPress={onCheckin}
-                >
-                  {t('checkinNow')}
+            <div className="flex items-center justify-between gap-2 text-[11px]">
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="status-dot shrink-0" data-state={checkin.state} />
+                <span className="font-medium">{t('checkinStatus')}</span>
+                <span className="truncate text-foreground/65">{checkin.label}</span>
+              </div>
+              {onViewCheckins ? (
+                <Button size="sm" variant="ghost" onPress={onViewCheckins}>
+                  {t('checkinRecords')}
                 </Button>
               ) : null}
             </div>
@@ -388,6 +397,7 @@ export function AccountCard({
                 if (key === 'models') onViewModels()
                 if (key === 'edit') onEdit()
                 if (key === 'export') onExport()
+                if (key === 'checkin-records') onViewCheckins?.()
                 if (key === 'checkin') onCheckin?.()
                 if (key === 'delete') onDelete()
               }}
@@ -396,6 +406,7 @@ export function AccountCard({
               <Dropdown.Item id="models" textValue={t('accountModels')}><Cube size={15} />{t('accountModels')}</Dropdown.Item>
               <Dropdown.Item id="edit" textValue={t('editAccount')}><PencilSimple size={15} />{t('editAccount')}</Dropdown.Item>
               {account.auth_type !== 'none' ? <Dropdown.Item id="export" textValue={t('export')}><Copy size={15} />{t('export')}</Dropdown.Item> : null}
+              {onViewCheckins ? <Dropdown.Item id="checkin-records" textValue={t('checkinRecords')}><ListBullets size={15} />{t('checkinRecords')}</Dropdown.Item> : null}
               {onCheckin ? <Dropdown.Item id="checkin" isDisabled={!account.enabled} textValue={t('checkinNow')}><ArrowClockwise size={15} />{t('checkinNow')}</Dropdown.Item> : null}
               <Dropdown.Item id="delete" textValue={t('delete')} className="text-danger"><TrashSimple size={15} />{t('delete')}</Dropdown.Item>
             </Dropdown.Menu>
