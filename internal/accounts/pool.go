@@ -181,7 +181,14 @@ func itemWeight(item Item) int {
 	return NormalizeWeight(item.Weight)
 }
 
+func itemReady(item Item) bool {
+	return item.Ready == nil || *item.Ready
+}
+
 func routeMatches(item Item, q RouteQuery) bool {
+	if !itemReady(item) {
+		return false
+	}
 	if _, skip := q.Excluded[item.ID]; skip {
 		return false
 	}
