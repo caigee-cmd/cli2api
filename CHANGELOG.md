@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.2.35 - 2026-09-03
+
+### English
+
 - Exclude accounts marked not ready from routing so stale workers do not consume failover attempts
 
 ### 中文
