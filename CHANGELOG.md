@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.2.39 - 2026-09-03
+
+### English
+
 - Prevent system updates and overview loading from reusing expired account-refresh contexts while checking account state
 
 ### 中文
