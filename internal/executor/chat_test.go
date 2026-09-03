@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -567,5 +568,21 @@ func TestObserveStreamFailureLeavesHealthyAccountAlone(t *testing.T) {
 	item, _ := pool.ByID("acc-ok")
 	if item.LastKind != "" || !item.DownUntil.IsZero() {
 		t.Fatalf("account polluted: kind=%q down=%v", item.LastKind, item.DownUntil)
+	}
+}
+
+func TestAttemptsForHonorsRetryBudget(t *testing.T) {
+	pool := accounts.NewPool(nil, nil)
+	for i := 0; i < 8; i++ {
+		pool.Upsert(accounts.Item{ID: fmt.Sprintf("a%d", i), Provider: "qoder", Region: "global", Runtime: "child_process"})
+	}
+	ex := NewChatExecutor(pool, "")
+	ex.MaxAttempts = 3
+	if got := ex.attemptsFor("qoder", "global", "", nil); got != 3 {
+		t.Fatalf("attempt budget = %d", got)
+	}
+	ex.MaxAttempts = 0
+	if got := ex.attemptsFor("qoder", "global", "", nil); got != 4 {
+		t.Fatalf("default attempt budget = %d", got)
 	}
 }

@@ -184,9 +184,9 @@ export function AccountCard({
           <div className="min-w-0">
             <div className="flex min-w-0 items-center gap-2">
               <Card.Title className="truncate text-[13px] leading-5 tracking-[-0.01em]">{account.name || account.id}</Card.Title>
-              <span className="shrink-0 rounded-md bg-surface-secondary px-1.5 py-0.5 text-[10px] text-muted">{provider}</span>
+              <span className="shrink-0 rounded-md bg-surface-secondary px-1.5 py-0.5 text-[10px] text-foreground/65">{provider}</span>
             </div>
-            <Card.Description className="mono truncate text-[10px] leading-4" title={`${account.id}${account.remote_uid ? ` · UID ${account.remote_uid}` : ''}`}>
+            <Card.Description className="mono truncate text-[10px] leading-4 text-foreground/60" title={`${account.id}${account.remote_uid ? ` · UID ${account.remote_uid}` : ''}`}>
               {account.remote_uid ? `UID ${account.remote_uid}` : account.id}
             </Card.Description>
           </div>
@@ -201,11 +201,11 @@ export function AccountCard({
 
       <Card.Content className="gap-2.5 px-3 pb-2.5">
         {modelCooldowns.length ? (
-          <div className="flex items-start gap-2 rounded-2xl border border-warning/25 bg-warning/5 px-2.5 py-2 text-[11px] text-warning-foreground">
+          <div className="flex items-start gap-2 rounded-2xl border border-warning/25 bg-warning/5 px-2.5 py-2 text-[11px] text-warning-foreground dark:text-warning">
             <span className="status-dot mt-0.5 shrink-0" data-state="warn" />
             <div className="min-w-0">
               <div className="font-medium">{t('partialCooling')}</div>
-              <div className="mt-0.5 break-words text-warning-foreground/80">
+              <div className="mt-0.5 break-words text-warning-foreground/80 dark:text-warning/80">
                 {modelCooldowns.slice(0, 3).map(([model, until]) => `${model} ${cooldownLabel(until)}`).join(' · ')}
                 {modelCooldowns.length > 3 ? ` · +${modelCooldowns.length - 3}` : ''}
               </div>
@@ -214,7 +214,7 @@ export function AccountCard({
         ) : null}
         <div className="rounded-2xl border border-border bg-surface-secondary/45 p-2.5">
           <RuntimeMeter state={state} label={t('runtimeState')} stateCopy={stateCopy} />
-          <div className="mt-2.5 grid grid-cols-3 gap-2 border-t border-separator pt-2.5 text-[10px] text-muted">
+          <div className="mt-2.5 grid grid-cols-3 gap-2 border-t border-separator pt-2.5 text-[10px] text-foreground/65">
             <span><span className="mono block text-[12px] font-medium text-foreground">{inFlight}/{account.max_inflight ?? 4}</span>{t('inFlight')}</span>
             <span><span className="mono block text-[12px] font-medium text-foreground">{account.priority ?? 50}</span>{t('priority')}</span>
             <span><span className="mono block text-[12px] font-medium text-foreground">{account.restarts ?? 0}</span>{t('restarts')}</span>
@@ -231,7 +231,7 @@ export function AccountCard({
               addOnLabel={t('quotaAddOn')}
               exceededLabel={t('quotaExceeded')}
             />
-          ) : <span className="text-[11px] text-muted">{t('statsUnknown')}</span>}
+          ) : <span className="text-[11px] text-foreground/65">{t('statsUnknown')}</span>}
         </div>
 
         {account.provider === 'workbuddy' ? (
@@ -264,7 +264,7 @@ export function AccountCard({
                 onChange={(selected) => onToggleAutoCheckin?.(selected)}
               />
             </div>
-            <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-foreground/65">
               <span className="min-w-0 break-words">
                 {account.last_checkin_at
                   ? `${t('lastCheckin')}: ${account.last_checkin_msg || '—'} · ${account.last_checkin_at}`

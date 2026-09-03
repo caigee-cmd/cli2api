@@ -2,6 +2,7 @@ package accounts
 
 import (
 	"encoding/json"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -18,6 +19,7 @@ const (
 )
 
 const maxRetryAfter = 10 * time.Minute
+const minRateLimitCooldown = 30 * time.Second
 
 type Classified struct {
 	Kind       string
@@ -74,32 +76,111 @@ func nextBackoffCooldown(base time.Duration, level int) (time.Duration, int) {
 }
 
 func ParseRetryAfter(raw string, fallback time.Duration) time.Duration {
-	text := strings.TrimSpace(raw)
-	if text != "" {
-		if sec, err := strconv.ParseFloat(text, 64); err == nil && sec > 0 {
-			d := time.Duration(sec * float64(time.Second))
-			if d > maxRetryAfter {
-				return maxRetryAfter
-			}
-			return d
-		}
-		if t, err := time.Parse(time.RFC1123, text); err == nil {
-			d := time.Until(t)
-			if d > 0 {
-				if d > maxRetryAfter {
-					return maxRetryAfter
-				}
-				return d
-			}
-		}
+	if parsed := parseRetryAfterValue(raw, time.Now()); parsed > 0 {
+		return clampRetryAfter(parsed)
 	}
-	if fallback < 0 {
+	return clampRetryAfter(fallback)
+}
+
+func ParseRetryAfterHint(body, header string, fallback time.Duration) time.Duration {
+	now := time.Now()
+	if parsed := parseRetryAfterValue(header, now); parsed > 0 {
+		return clampRetryAfter(parsed)
+	}
+	if parsed := retryAfterFromBody(body, now); parsed > 0 {
+		return clampRetryAfter(parsed)
+	}
+	return clampRetryAfter(fallback)
+}
+
+func parseRetryAfterValue(raw string, now time.Time) time.Duration {
+	text := strings.TrimSpace(raw)
+	if text == "" {
 		return 0
 	}
-	if fallback > maxRetryAfter {
+	if duration, err := time.ParseDuration(text); err == nil && duration > 0 {
+		return duration
+	}
+	if value, err := strconv.ParseFloat(text, 64); err == nil && value > 0 {
+		if value >= 1e12 && value < 1e14 {
+			return time.Unix(0, int64(value)*int64(time.Millisecond)).Sub(now)
+		}
+		if value >= 1e9 && value < 1e11 {
+			return time.Unix(int64(value), 0).Sub(now)
+		}
+		return time.Duration(value * float64(time.Second))
+	}
+	if parsed, err := http.ParseTime(text); err == nil {
+		return parsed.Sub(now)
+	}
+	if parsed, err := time.Parse(time.RFC3339, text); err == nil {
+		return parsed.Sub(now)
+	}
+	return 0
+}
+
+func clampRetryAfter(value time.Duration) time.Duration {
+	if value <= 0 {
+		return 0
+	}
+	if value > maxRetryAfter {
 		return maxRetryAfter
 	}
-	return fallback
+	return value
+}
+
+func retryAfterFromBody(body string, now time.Time) time.Duration {
+	var value any
+	if json.Unmarshal([]byte(strings.TrimSpace(body)), &value) != nil {
+		return 0
+	}
+	return retryAfterFromJSON(value, now)
+}
+
+func retryAfterFromJSON(value any, now time.Time) time.Duration {
+	switch current := value.(type) {
+	case map[string]any:
+		for _, wanted := range []string{"retry_after", "retryafter", "quotaresetdelay", "resets_in_seconds", "resets_at", "reset_at"} {
+			for key, raw := range current {
+				if strings.ToLower(strings.TrimSpace(key)) != wanted {
+					continue
+				}
+				if hint := parseRetryAfterJSONValue(raw, now); hint > 0 {
+					return hint
+				}
+			}
+		}
+		for _, raw := range current {
+			if hint := retryAfterFromJSON(raw, now); hint > 0 {
+				return hint
+			}
+		}
+	case []any:
+		for _, raw := range current {
+			if hint := retryAfterFromJSON(raw, now); hint > 0 {
+				return hint
+			}
+		}
+	case string:
+		var nested any
+		if json.Unmarshal([]byte(strings.TrimSpace(current)), &nested) == nil {
+			return retryAfterFromJSON(nested, now)
+		}
+	}
+	return 0
+}
+
+func parseRetryAfterJSONValue(value any, now time.Time) time.Duration {
+	switch current := value.(type) {
+	case string:
+		return parseRetryAfterValue(current, now)
+	case float64:
+		return parseRetryAfterValue(strconv.FormatFloat(current, 'f', -1, 64), now)
+	case json.Number:
+		return parseRetryAfterValue(current.String(), now)
+	default:
+		return 0
+	}
 }
 
 func Classify(status int, body, retryAfter, kindHint, failoverHint string) Classified {
@@ -118,7 +199,7 @@ func Classify(status int, body, retryAfter, kindHint, failoverHint string) Class
 			kind = KindInvalidRequest
 		case authLike(lower) && !quotaLike(lower, code, typ) && !rateLike(lower):
 			kind = KindAuth
-		case rateLike(lower) || status == 429:
+		case rateLike(lower) || code == "429" || status == 429:
 			kind = KindRateLimit
 		case status == 401 || status == 403:
 			kind = KindAuth
@@ -144,7 +225,10 @@ func Classify(status int, body, retryAfter, kindHint, failoverHint string) Class
 	case KindRateLimit:
 		out.Status = 429
 		out.Failover = true
-		out.Cooldown = ParseRetryAfter(retryAfter, 60*time.Second)
+		out.Cooldown = ParseRetryAfterHint(body, retryAfter, 60*time.Second)
+		if out.Cooldown > 0 && out.Cooldown < minRateLimitCooldown {
+			out.Cooldown = minRateLimitCooldown
+		}
 	case KindAuth:
 		if status == 401 {
 			out.Status = 401
@@ -152,12 +236,12 @@ func Classify(status int, body, retryAfter, kindHint, failoverHint string) Class
 			out.Status = 403
 		}
 		out.Failover = true
-		out.Cooldown = ParseRetryAfter(retryAfter, 30*time.Second)
+		out.Cooldown = ParseRetryAfterHint(body, retryAfter, 30*time.Second)
 		out.Code = firstNonEmpty(code, "unauthorized")
 	case KindNotReady:
 		out.Status = 503
 		out.Failover = true
-		out.Cooldown = ParseRetryAfter(retryAfter, 10*time.Second)
+		out.Cooldown = ParseRetryAfterHint(body, retryAfter, 10*time.Second)
 		out.Code = firstNonEmpty(code, "not_ready")
 	case KindInvalidRequest:
 		// Request content the upstream rejected; retrying on another account
@@ -187,7 +271,7 @@ func Classify(status int, body, retryAfter, kindHint, failoverHint string) Class
 			out.Status = 502
 		}
 		out.Failover = true
-		out.Cooldown = ParseRetryAfter(retryAfter, 15*time.Second)
+		out.Cooldown = ParseRetryAfterHint(body, retryAfter, 15*time.Second)
 		out.Code = firstNonEmpty(code, "upstream_error")
 	}
 	if failoverHint == "0" {
@@ -249,6 +333,21 @@ func extractError(body string) (msg, code, typ, kind string) {
 		if msg != "" || code != "" {
 			return msg, code, typ, kind
 		}
+		if nested, ok := parsed["body"]; ok {
+			switch value := nested.(type) {
+			case string:
+				if innerMsg, innerCode, innerType, innerKind := extractError(value); innerMsg != "" || innerCode != "" {
+					return innerMsg, innerCode, innerType, innerKind
+				}
+			case map[string]any:
+				encoded, err := json.Marshal(value)
+				if err == nil {
+					if innerMsg, innerCode, innerType, innerKind := extractError(string(encoded)); innerMsg != "" || innerCode != "" {
+						return innerMsg, innerCode, innerType, innerKind
+					}
+				}
+			}
+		}
 	}
 	return text, "", "", ""
 }
@@ -288,6 +387,8 @@ func rateLike(lower string) bool {
 		strings.Contains(lower, "rate limit") ||
 		strings.Contains(lower, "rate-limit") ||
 		strings.Contains(lower, "response code=429") ||
+		strings.Contains(lower, "resource_exhausted") ||
+		strings.Contains(lower, "rate_limit_exceeded") ||
 		strings.Contains(lower, "account busy") ||
 		strings.Contains(lower, "in-flight")
 }

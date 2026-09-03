@@ -44,6 +44,24 @@ type streamRelayStats struct {
 	FirstTokenAt     *time.Time
 }
 
+type streamRelayWriteError struct {
+	err error
+}
+
+func (e *streamRelayWriteError) Error() string {
+	if e == nil || e.err == nil {
+		return "stream write error"
+	}
+	return "stream write error: " + e.err.Error()
+}
+
+func (e *streamRelayWriteError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.err
+}
+
 func relayOpenAIStream(w http.ResponseWriter, body io.Reader) (streamRelayStats, error) {
 	var writer io.Writer = w
 	if flusher, ok := w.(http.Flusher); ok {
@@ -54,30 +72,304 @@ func relayOpenAIStream(w http.ResponseWriter, body io.Reader) (streamRelayStats,
 	scanner.Buffer(make([]byte, 0, 64*1024), maxSSELineSize)
 	sawDone := false
 	var stats streamRelayStats
+	var frame []string
+	var streamErr error
+
+	flushFrame := func() error {
+		if len(frame) == 0 {
+			return nil
+		}
+		eventName, data := parseSSEFrame(frame)
+		if classifiedErr := classifyStreamSSEError(eventName, data); classifiedErr != nil {
+			if streamErr == nil {
+				streamErr = classifiedErr
+			}
+			if err := writeStructuredStreamError(writer, classifiedErr); err != nil {
+				return err
+			}
+			frame = nil
+			return nil
+		}
+		for _, line := range frame {
+			line = strings.TrimSuffix(line, "\r")
+			if stats.FirstTokenAt == nil && sseDeltaHasToken(line) {
+				now := time.Now()
+				stats.FirstTokenAt = &now
+			}
+			if usage, ok := parseStreamUsageLine(line); ok {
+				usage.FirstTokenAt = stats.FirstTokenAt
+				stats = usage
+			}
+			if strings.TrimSpace(strings.TrimPrefix(line, "data:")) == "[DONE]" {
+				sawDone = true
+			}
+		}
+		output := strings.Join(frame, "\n") + "\n\n"
+		if _, err := io.WriteString(writer, output); err != nil {
+			return &streamRelayWriteError{err: err}
+		}
+		frame = nil
+		return nil
+	}
+
 	for scanner.Scan() {
-		line := scanner.Text()
-		if stats.FirstTokenAt == nil && sseDeltaHasToken(line) {
-			now := time.Now()
-			stats.FirstTokenAt = &now
+		line := strings.TrimSuffix(scanner.Text(), "\r")
+		if line == "" {
+			if err := flushFrame(); err != nil {
+				return stats, err
+			}
+			continue
 		}
-		if usage, ok := parseStreamUsageLine(line); ok {
-			usage.FirstTokenAt = stats.FirstTokenAt
-			stats = usage
-		}
-		if _, err := io.WriteString(writer, line+"\n"); err != nil {
-			return stats, err
-		}
-		if strings.TrimSpace(strings.TrimPrefix(line, "data:")) == "[DONE]" {
-			sawDone = true
-		}
+		frame = append(frame, line)
 	}
 	if err := scanner.Err(); err != nil {
-		return stats, fmt.Errorf("stream read error: %w", err)
+		if streamErr != nil {
+			return stats, streamErr
+		}
+		streamErr := newStreamProviderError("upstream_stream_interrupted", "stream read error: "+err.Error(), http.StatusBadGateway)
+		if writeErr := writeStructuredStreamError(writer, streamErr); writeErr != nil {
+			return stats, writeErr
+		}
+		return stats, streamErr
+	}
+	if err := flushFrame(); err != nil {
+		return stats, err
+	}
+	if streamErr != nil {
+		return stats, streamErr
 	}
 	if !sawDone {
-		return stats, fmt.Errorf("stream ended before [DONE]")
+		streamErr := newStreamProviderError("upstream_stream_incomplete", "stream ended before [DONE]", http.StatusBadGateway)
+		if writeErr := writeStructuredStreamError(writer, streamErr); writeErr != nil {
+			return stats, writeErr
+		}
+		return stats, streamErr
 	}
 	return stats, nil
+}
+
+func writeStructuredStreamError(writer io.Writer, providerErr *providers.Error) error {
+	if providerErr == nil {
+		return nil
+	}
+	status := providerErr.Status
+	if status == 0 {
+		status = http.StatusBadGateway
+	}
+	code := firstNonEmpty(providerErr.Code, "upstream_error")
+	typ := firstNonEmpty(providerErr.Type, "api_error")
+	message := firstNonEmpty(providerErr.Message, code)
+	failover := false
+	if providerErr.Failover != nil {
+		failover = *providerErr.Failover
+	}
+	retryAfter := providerErr.RetryAfter
+	if retryAfter <= 0 {
+		retryAfter = providerErr.Cooldown
+	}
+	errorPayload := map[string]any{
+		"message":  message,
+		"type":     typ,
+		"code":     code,
+		"kind":     firstNonEmpty(providerErr.Kind, accounts.KindUnavailable),
+		"status":   status,
+		"failover": failover,
+	}
+	if retryAfter > 0 {
+		seconds := int(retryAfter / time.Second)
+		if retryAfter%time.Second != 0 {
+			seconds++
+		}
+		if seconds < 1 {
+			seconds = 1
+		}
+		errorPayload["retry_after"] = seconds
+	}
+	payload, err := json.Marshal(map[string]any{"error": errorPayload})
+	if err != nil {
+		return err
+	}
+	if _, err := io.WriteString(writer, "data: "+string(payload)+"\n\n"); err != nil {
+		return &streamRelayWriteError{err: err}
+	}
+	return nil
+}
+
+func parseSSEFrame(lines []string) (eventName, data string) {
+	eventName = "message"
+	dataLines := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSuffix(line, "\r")
+		if strings.HasPrefix(line, "event:") {
+			eventName = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
+			if eventName == "" {
+				eventName = "message"
+			}
+			continue
+		}
+		if strings.HasPrefix(line, "data:") {
+			value := strings.TrimPrefix(line, "data:")
+			if strings.HasPrefix(value, " ") {
+				value = value[1:]
+			}
+			dataLines = append(dataLines, value)
+		}
+	}
+	return eventName, strings.Join(dataLines, "\n")
+}
+
+func classifyStreamSSEError(eventName, data string) *providers.Error {
+	force := strings.EqualFold(strings.TrimSpace(eventName), "error")
+	if !force && !streamJSONLooksLikeError(data) {
+		return nil
+	}
+	status := streamErrorStatus(data)
+	body := strings.TrimSpace(data)
+	if inner := streamErrorBody(data); inner != "" {
+		body = inner
+	}
+	classified := accounts.Classify(status, body, "", "", "")
+	return providerErrorFromClassified(classified)
+}
+
+func streamJSONLooksLikeError(raw string) bool {
+	var value any
+	if json.Unmarshal([]byte(strings.TrimSpace(raw)), &value) != nil {
+		return false
+	}
+	return streamValueLooksLikeError(value)
+}
+
+func streamValueLooksLikeError(value any) bool {
+	object, ok := value.(map[string]any)
+	if !ok {
+		if nested, ok := value.(string); ok {
+			var parsed any
+			return json.Unmarshal([]byte(strings.TrimSpace(nested)), &parsed) == nil && streamValueLooksLikeError(parsed)
+		}
+		return false
+	}
+	if _, ok := object["choices"]; ok {
+		return false
+	}
+	if _, ok := object["error"]; ok {
+		return true
+	}
+	if nested, ok := object["body"]; ok {
+		if streamValueLooksLikeError(nested) {
+			return true
+		}
+	}
+	if status, ok := object["status"].(float64); ok && status >= 400 {
+		return true
+	}
+	for _, key := range []string{"code", "msgCode", "kind"} {
+		if _, ok := object[key]; ok {
+			return true
+		}
+	}
+	if message, ok := object["message"].(string); ok && strings.TrimSpace(message) != "" {
+		return true
+	}
+	return false
+}
+
+func streamErrorBody(raw string) string {
+	var value any
+	if json.Unmarshal([]byte(strings.TrimSpace(raw)), &value) != nil {
+		return ""
+	}
+	for {
+		switch current := value.(type) {
+		case string:
+			var nested any
+			if json.Unmarshal([]byte(strings.TrimSpace(current)), &nested) != nil {
+				return current
+			}
+			value = nested
+		case map[string]any:
+			nested, ok := current["body"]
+			if !ok {
+				encoded, err := json.Marshal(current)
+				if err != nil {
+					return raw
+				}
+				return string(encoded)
+			}
+			value = nested
+		default:
+			return raw
+		}
+	}
+}
+
+func streamErrorStatus(raw string) int {
+	var value any
+	if json.Unmarshal([]byte(strings.TrimSpace(raw)), &value) != nil {
+		return 0
+	}
+	for {
+		switch current := value.(type) {
+		case map[string]any:
+			for _, key := range []string{"status", "statusCode", "statusCodeValue"} {
+				if status, ok := current[key].(float64); ok && int(status) >= 400 {
+					return int(status)
+				}
+			}
+			if nested, ok := current["body"]; ok {
+				value = nested
+				continue
+			}
+			if nested, ok := current["error"]; ok {
+				value = nested
+				continue
+			}
+			return 0
+		case string:
+			var nested any
+			if json.Unmarshal([]byte(strings.TrimSpace(current)), &nested) != nil {
+				return 0
+			}
+			value = nested
+		default:
+			return 0
+		}
+	}
+}
+
+func newStreamProviderError(code, message string, status int) *providers.Error {
+	body, _ := json.Marshal(map[string]any{
+		"error": map[string]any{
+			"code":    code,
+			"message": message,
+			"kind":    accounts.KindUnavailable,
+		},
+	})
+	classified := accounts.Classify(status, string(body), "", accounts.KindUnavailable, "1")
+	return providerErrorFromClassified(classified)
+}
+
+func providerErrorFromClassified(classified accounts.Classified) *providers.Error {
+	failover := classified.Failover
+	retryAfter := classified.RetryAfter
+	if retryAfter <= 0 {
+		retryAfter = classified.Cooldown
+	}
+	return &providers.Error{
+		Kind:       classified.Kind,
+		Status:     classified.Status,
+		Message:    classified.Message,
+		Code:       classified.Code,
+		Type:       classified.Type,
+		Cooldown:   classified.Cooldown,
+		RetryAfter: retryAfter,
+		Failover:   &failover,
+	}
+}
+
+func isStreamClientDisconnect(err error) bool {
+	var writeErr *streamRelayWriteError
+	return errors.As(err, &writeErr)
 }
 
 func sseDeltaHasToken(line string) bool {
@@ -335,7 +627,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		stats, relayErr := relayOpenAIStream(w, upstream.Response.Body)
 		status := accounts.RequestStatusOK
 		if relayErr != nil {
-			if strings.Contains(relayErr.Error(), "before [DONE]") || strings.Contains(strings.ToLower(relayErr.Error()), "broken pipe") {
+			if isStreamClientDisconnect(relayErr) {
 				status = accounts.RequestStatusCanceled
 			} else {
 				status = accounts.RequestStatusError
@@ -357,7 +649,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			// resolveProviderFilter) so the cooldown key matches the key
 			// PickRoute uses; publicModel may still carry "qoder/" and would
 			// write a cooldown that routing never hits.
-			if r.Context().Err() == nil && !errors.Is(relayErr, context.Canceled) && !errors.Is(relayErr, context.DeadlineExceeded) {
+			if r.Context().Err() == nil && !errors.Is(relayErr, context.Canceled) && !errors.Is(relayErr, context.DeadlineExceeded) && !isStreamClientDisconnect(relayErr) {
 				s.executor.ObserveStreamFailure(upstream.AccountID, relayErr, req.Model)
 			}
 			panic(http.ErrAbortHandler)
@@ -458,16 +750,42 @@ func classifyAPIError(err error) accounts.Classified {
 		}
 	}
 	var classifiedErr *providers.Error
-	if errors.As(err, &classifiedErr) && classifiedErr != nil && classifiedErr.Kind != "" {
-		failover := ""
+	if errors.As(err, &classifiedErr) && classifiedErr != nil {
+		message := strings.TrimSpace(classifiedErr.Message)
+		if message == "" {
+			message = classifiedErr.Error()
+		}
+		raw := strings.TrimSpace(strings.Join([]string{message, classifiedErr.Code, classifiedErr.Type}, " "))
+		failoverHint := ""
 		if classifiedErr.Failover != nil {
 			if *classifiedErr.Failover {
-				failover = "1"
+				failoverHint = "1"
 			} else {
-				failover = "0"
+				failoverHint = "0"
 			}
 		}
-		return accounts.Classify(classifiedErr.Status, classifiedErr.Message, "", classifiedErr.Kind, failover)
+		classified := accounts.Classify(classifiedErr.Status, raw, "", classifiedErr.Kind, failoverHint)
+		if classifiedErr.Code != "" {
+			classified.Code = classifiedErr.Code
+		}
+		if classifiedErr.Type != "" {
+			classified.Type = classifiedErr.Type
+		}
+		if classifiedErr.Message != "" {
+			classified.Message = classifiedErr.Message
+		}
+		providerRetryAfter := classifiedErr.RetryAfter
+		if providerRetryAfter <= 0 {
+			providerRetryAfter = classifiedErr.Cooldown
+		}
+		if providerRetryAfter > 0 {
+			classified.Cooldown = providerRetryAfter
+			if classified.Kind == accounts.KindRateLimit && classified.Cooldown < 30*time.Second {
+				classified.Cooldown = 30 * time.Second
+			}
+		}
+		classified.RetryAfter = classified.Cooldown
+		return classified
 	}
 	return accounts.Classify(0, err.Error(), "", "", "")
 }
@@ -479,7 +797,14 @@ func writeClassifiedErr(w http.ResponseWriter, err error) {
 	}
 	classified := classifyAPIError(err)
 	if classified.RetryAfter > 0 {
-		w.Header().Set("Retry-After", fmt.Sprintf("%d", int(classified.RetryAfter.Seconds())))
+		seconds := int(classified.RetryAfter / time.Second)
+		if classified.RetryAfter%time.Second != 0 {
+			seconds++
+		}
+		if seconds < 1 {
+			seconds = 1
+		}
+		w.Header().Set("Retry-After", fmt.Sprintf("%d", seconds))
 	}
 	w.Header().Set("X-Qoder-Error-Kind", classified.Kind)
 	if classified.Failover {
