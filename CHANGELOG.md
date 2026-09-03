@@ -7,7 +7,11 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Exclude accounts marked not ready from routing so stale workers do not consume failover attempts
+
 ### 中文
+
+- 路由时排除明确未就绪的账号，避免失效 Worker 消耗 failover 尝试
 
 ## 0.2.34 - 2026-09-02
 
