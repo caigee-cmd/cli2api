@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/config"
 	control "github.com/caigee-cmd/cli2api/internal/update"
 )
@@ -141,6 +142,24 @@ func TestSystemUpdateDoesNotBackupWhenNoNextVersionExists(t *testing.T) {
 	entries, err := os.ReadDir(filepath.Join(dataDir, "backups"))
 	if err == nil && len(entries) != 0 {
 		t.Fatalf("unexpected backups: %v", entries)
+	}
+}
+
+func TestWaitForUpdateIdleReadsInFlightFromPool(t *testing.T) {
+	dataDir := t.TempDir()
+	srv := New(config.Config{
+		Host: "127.0.0.1", Port: 3010, ProxyAPIKey: "secret",
+		QoderHome: t.TempDir(), DataDir: dataDir,
+	})
+	defer srv.Close()
+
+	srv.manager.Pool().Upsert(accounts.Item{ID: "account-1", InFlight: 1})
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+
+	err := srv.waitForUpdateIdle(ctx)
+	if err == nil || !strings.Contains(err.Error(), "1 request(s) are still in flight") || strings.Contains(err.Error(), "list accounts") {
+		t.Fatalf("expected in-flight timeout without account-list error, got %v", err)
 	}
 }
 

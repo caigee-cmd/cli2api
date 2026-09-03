@@ -248,14 +248,14 @@ func newSystemUpdateJobID() (string, error) {
 
 func (s *Server) waitForUpdateIdle(ctx context.Context) error {
 	for {
-		_ = s.manager.RefreshAll(ctx, false)
-		accounts, err := s.manager.Accounts(ctx)
-		if err != nil {
-			return err
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
 		}
 		inFlight := 0
-		for _, account := range accounts {
-			inFlight += account.InFlight
+		for _, item := range s.manager.Pool().Items() {
+			inFlight += item.InFlight
 		}
 		if inFlight == 0 {
 			return nil

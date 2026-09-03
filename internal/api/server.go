@@ -285,8 +285,14 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
-	_ = s.manager.RefreshAll(r.Context(), r.URL.Query().Get("refresh") == "1")
-	accountViews, _ := s.manager.Accounts(r.Context())
+	refreshCtx, refreshCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	_ = s.manager.RefreshAll(refreshCtx, r.URL.Query().Get("refresh") == "1")
+	refreshCancel()
+	accountViews, err := s.manager.Accounts(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "account_list_failed", err.Error())
+		return
+	}
 	readyCount := 0
 	hotCount := 0
 	for _, account := range accountViews {
