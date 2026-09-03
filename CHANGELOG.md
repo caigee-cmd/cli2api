@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.2.36 - 2026-09-03
+
+### English
+
 - Add a configurable per-request retry-account budget, with `QODER_MAX_RETRY_ACCOUNTS` capped at 64
 - Parse `Retry-After` and reset hints from duration, date, Unix timestamp, and nested provider error payloads; protect short rate-limit hints with a 30-second floor
 - Normalize streaming failures into structured OpenAI-compatible SSE error frames and report incomplete or interrupted upstream streams explicitly
