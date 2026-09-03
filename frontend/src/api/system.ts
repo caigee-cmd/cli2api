@@ -13,6 +13,18 @@ export type UpdateAgentStatus = {
   finished_at?: string
 }
 
+export type UpdatePreparationStatus = {
+  job_id: string
+  agent_job_id?: string
+  state: string
+  current_version?: string
+  target_version?: string
+  backup_path?: string
+  error?: string
+  started_at?: string
+  finished_at?: string
+}
+
 export type SystemUpdateInfo = {
   current_version: string
   next_version?: string
@@ -29,6 +41,7 @@ export type SystemUpdateInfo = {
     html_url?: string
   }
   agent: UpdateAgentStatus
+  update?: UpdatePreparationStatus
 }
 
 export type SystemSettings = {
@@ -37,9 +50,9 @@ export type SystemSettings = {
 
 export type StartUpdateResult = {
   job_id: string
-  current_version: string
-  target_version: string
-  backup: {
+  current_version?: string
+  target_version?: string
+  backup?: {
     name: string
     created_at: string
   }
