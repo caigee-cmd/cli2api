@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"path/filepath"
@@ -20,9 +22,22 @@ type updateAgent interface {
 	Apply(context.Context, control.ApplyRequest) (control.ApplyResponse, error)
 }
 
+type systemUpdateJob struct {
+	JobID          string `json:"job_id"`
+	AgentJobID     string `json:"agent_job_id,omitempty"`
+	State          string `json:"state"`
+	CurrentVersion string `json:"current_version,omitempty"`
+	TargetVersion  string `json:"target_version,omitempty"`
+	BackupPath     string `json:"backup_path,omitempty"`
+	Error          string `json:"error,omitempty"`
+	StartedAt      string `json:"started_at,omitempty"`
+	FinishedAt     string `json:"finished_at,omitempty"`
+}
+
 type systemUpdateInfo struct {
 	control.Info
-	Agent control.AgentStatus `json:"agent"`
+	Agent  control.AgentStatus `json:"agent"`
+	Update *systemUpdateJob    `json:"update,omitempty"`
 }
 
 func (s *Server) handleSystemUpdate(w http.ResponseWriter, r *http.Request) {
@@ -48,37 +63,65 @@ func (s *Server) handleSystemUpdateInfo(w http.ResponseWriter, r *http.Request) 
 	if statusErr != nil {
 		status = control.AgentStatus{Available: false, State: "unavailable", Error: statusErr.Error()}
 	}
-	writeJSON(w, http.StatusOK, systemUpdateInfo{Info: info, Agent: status})
+	writeJSON(w, http.StatusOK, systemUpdateInfo{Info: info, Agent: status, Update: s.snapshotUpdateJob()})
 }
 
-func (s *Server) handleSystemUpdateApply(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleSystemUpdateApply(w http.ResponseWriter, _ *http.Request) {
 	if !s.updateRunning.CompareAndSwap(false, true) {
 		writeErr(w, http.StatusConflict, "update_in_progress", "An update is already in progress")
 		return
 	}
-	accepted := false
-	defer func() {
-		if !accepted {
-			s.maintenance.Store(false)
-			s.updateRunning.Store(false)
-		}
-	}()
-
-	info, err := s.updateChecker.Check(r.Context(), true)
+	jobID, err := newSystemUpdateJobID()
 	if err != nil {
-		writeErr(w, http.StatusBadGateway, "update_check_failed", err.Error())
+		s.updateRunning.Store(false)
+		writeErr(w, http.StatusInternalServerError, "update_job_failed", err.Error())
+		return
+	}
+
+	s.updateMu.Lock()
+	s.updateJob = &systemUpdateJob{JobID: jobID, State: "preparing", StartedAt: time.Now().UTC().Format(time.RFC3339)}
+	s.updateMu.Unlock()
+	s.maintenance.Store(true)
+	go s.prepareSystemUpdate(jobID)
+
+	writeJSON(w, http.StatusAccepted, map[string]any{"job_id": jobID})
+}
+
+func (s *Server) prepareSystemUpdate(jobID string) {
+	ctx := context.Background()
+	setUpdateState := func(state string) {
+		s.mutateUpdateJob(jobID, func(job *systemUpdateJob) { job.State = state })
+	}
+	fail := func(message string) {
+		s.mutateUpdateJob(jobID, func(job *systemUpdateJob) {
+			job.State = "failed"
+			job.Error = message
+			job.FinishedAt = time.Now().UTC().Format(time.RFC3339)
+		})
+		s.maintenance.Store(false)
+		s.updateRunning.Store(false)
+	}
+
+	setUpdateState("checking")
+	info, err := s.updateChecker.Check(ctx, true)
+	if err != nil {
+		fail(err.Error())
 		return
 	}
 	if !info.Managed {
-		writeErr(w, http.StatusConflict, "update_not_managed", "Development builds cannot update from the console")
+		fail("Development builds cannot update from the console")
 		return
 	}
 	if !info.HasUpdate || strings.TrimSpace(info.NextVersion) == "" {
-		writeErr(w, http.StatusConflict, "already_up_to_date", "No next release is available")
+		fail("No next release is available")
 		return
 	}
+	s.mutateUpdateJob(jobID, func(job *systemUpdateJob) {
+		job.CurrentVersion = info.CurrentVersion
+		job.TargetVersion = info.NextVersion
+	})
 
-	statusCtx, statusCancel := context.WithTimeout(context.Background(), 3*time.Second)
+	statusCtx, statusCancel := context.WithTimeout(ctx, 3*time.Second)
 	status, err := s.updateAgent.Status(statusCtx)
 	statusCancel()
 	if err != nil || !status.Available {
@@ -86,47 +129,121 @@ func (s *Server) handleSystemUpdateApply(w http.ResponseWriter, r *http.Request)
 		if err != nil {
 			message = err.Error()
 		}
-		writeErr(w, http.StatusServiceUnavailable, "updater_unavailable", message)
+		fail(message)
 		return
 	}
 	if updaterStateActive(status.State) {
-		writeErr(w, http.StatusConflict, "update_in_progress", "Updater daemon is busy")
+		fail("Updater daemon is busy")
 		return
 	}
 
-	s.maintenance.Store(true)
-	drainCtx, drainCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	setUpdateState("draining")
+	drainCtx, drainCancel := context.WithTimeout(ctx, 30*time.Second)
 	err = s.waitForUpdateIdle(drainCtx)
 	drainCancel()
 	if err != nil {
-		writeErr(w, http.StatusConflict, "requests_in_flight", err.Error())
+		fail(err.Error())
 		return
 	}
 
-	backup, err := s.manager.Store().Backup(context.Background(), filepath.Join(s.cfg.DataDir, "backups"), 5)
+	setUpdateState("backing_up")
+	backup, err := s.manager.Store().Backup(ctx, filepath.Join(s.cfg.DataDir, "backups"), 5)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "sqlite_backup_failed", err.Error())
+		fail(err.Error())
 		return
 	}
+	s.mutateUpdateJob(jobID, func(job *systemUpdateJob) {
+		job.BackupPath = filepath.Join("/data/backups", backup.Name)
+	})
+
+	setUpdateState("submitting")
 	request := control.ApplyRequest{
 		CurrentVersion: info.CurrentVersion,
 		TargetVersion:  info.NextVersion,
 		BackupPath:     filepath.Join("/data/backups", backup.Name),
 	}
-	applyCtx, applyCancel := context.WithTimeout(context.Background(), 8*time.Second)
+	applyCtx, applyCancel := context.WithTimeout(ctx, 8*time.Second)
 	response, err := s.updateAgent.Apply(applyCtx, request)
 	applyCancel()
 	if err != nil {
-		writeErr(w, http.StatusBadGateway, "update_submit_failed", err.Error())
+		fail(err.Error())
 		return
 	}
 
-	accepted = true
-	go s.monitorUpdate(response.JobID)
-	writeJSON(w, http.StatusAccepted, map[string]any{
-		"job_id": response.JobID, "current_version": info.CurrentVersion,
-		"target_version": info.NextVersion, "backup": backup,
+	s.mutateUpdateJob(jobID, func(job *systemUpdateJob) {
+		job.State = "running"
+		job.AgentJobID = response.JobID
 	})
+	go s.monitorUpdate(jobID, response.JobID)
+}
+
+func (s *Server) snapshotUpdateJob() *systemUpdateJob {
+	s.updateMu.Lock()
+	defer s.updateMu.Unlock()
+	if s.updateJob == nil {
+		return nil
+	}
+	copy := *s.updateJob
+	return &copy
+}
+
+func (s *Server) mutateUpdateJob(jobID string, mutate func(*systemUpdateJob)) bool {
+	s.updateMu.Lock()
+	defer s.updateMu.Unlock()
+	if s.updateJob == nil || s.updateJob.JobID != jobID {
+		return false
+	}
+	mutate(s.updateJob)
+	return true
+}
+
+func (s *Server) monitorUpdate(jobID, agentJobID string) {
+	deadline := time.Now().Add(15 * time.Minute)
+	for time.Now().Before(deadline) {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		status, err := s.updateAgent.Status(ctx)
+		cancel()
+		if err == nil && (status.JobID == "" || status.JobID == agentJobID) {
+			if status.State == "failed" {
+				s.finishUpdateJob(jobID, "failed", status.Error, true)
+				s.maintenance.Store(false)
+				s.updateRunning.Store(false)
+				return
+			}
+			if status.State == "rolled_back" {
+				s.finishUpdateJob(jobID, "rolled_back", status.Error, true)
+				s.maintenance.Store(false)
+				s.updateRunning.Store(false)
+				return
+			}
+			if status.State == "succeeded" {
+				s.finishUpdateJob(jobID, "succeeded", "", true)
+				return
+			}
+		}
+		time.Sleep(2 * time.Second)
+	}
+	s.finishUpdateJob(jobID, "failed", "Updater health check timed out", true)
+	s.maintenance.Store(false)
+	s.updateRunning.Store(false)
+}
+
+func (s *Server) finishUpdateJob(jobID, state, message string, finished bool) {
+	s.mutateUpdateJob(jobID, func(job *systemUpdateJob) {
+		job.State = state
+		job.Error = message
+		if finished {
+			job.FinishedAt = time.Now().UTC().Format(time.RFC3339)
+		}
+	})
+}
+
+func newSystemUpdateJobID() (string, error) {
+	value := make([]byte, 8)
+	if _, err := rand.Read(value); err != nil {
+		return "", fmt.Errorf("generate update job id: %w", err)
+	}
+	return "update-" + hex.EncodeToString(value), nil
 }
 
 func (s *Server) waitForUpdateIdle(ctx context.Context) error {
@@ -149,28 +266,6 @@ func (s *Server) waitForUpdateIdle(ctx context.Context) error {
 		case <-time.After(500 * time.Millisecond):
 		}
 	}
-}
-
-func (s *Server) monitorUpdate(jobID string) {
-	deadline := time.Now().Add(15 * time.Minute)
-	for time.Now().Before(deadline) {
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		status, err := s.updateAgent.Status(ctx)
-		cancel()
-		if err == nil && (status.JobID == "" || status.JobID == jobID) {
-			if status.State == "failed" {
-				s.maintenance.Store(false)
-				s.updateRunning.Store(false)
-				return
-			}
-			if status.State == "rolled_back" || status.State == "succeeded" {
-				return
-			}
-		}
-		time.Sleep(2 * time.Second)
-	}
-	s.maintenance.Store(false)
-	s.updateRunning.Store(false)
 }
 
 func updaterStateActive(state string) bool {

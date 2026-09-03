@@ -48,6 +48,8 @@ type Server struct {
 	crossProviderModelPool atomic.Bool
 	maintenance            atomic.Bool
 	updateRunning          atomic.Bool
+	updateMu               sync.Mutex
+	updateJob              *systemUpdateJob
 }
 
 func New(cfg config.Config) *Server {

@@ -7,7 +7,13 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Make console updates asynchronous: return immediately with a local job ID and show release checks, request draining, SQLite backup, submission, updater progress, failures, and automatic reload as one continuous status flow
+- Restore update progress after a page refresh by exposing the preparation job from the system update endpoint
+
 ### 中文
+
+- 控制台更新改为异步执行：立即返回本地任务 ID，并连续展示版本检查、等待请求结束、SQLite 备份、提交、宿主机更新、失败和自动刷新状态
+- 系统更新接口返回准备任务状态，页面刷新后可以恢复显示更新进度
 
 ## 0.2.36 - 2026-09-03
 
