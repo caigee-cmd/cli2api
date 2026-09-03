@@ -137,15 +137,6 @@ func (s *Server) prepareSystemUpdate(jobID string) {
 		return
 	}
 
-	setUpdateState("draining")
-	drainCtx, drainCancel := context.WithTimeout(ctx, 30*time.Second)
-	err = s.waitForUpdateIdle(drainCtx)
-	drainCancel()
-	if err != nil {
-		fail(err.Error())
-		return
-	}
-
 	setUpdateState("backing_up")
 	backup, err := s.manager.Store().Backup(ctx, filepath.Join(s.cfg.DataDir, "backups"), 5)
 	if err != nil {
@@ -244,28 +235,6 @@ func newSystemUpdateJobID() (string, error) {
 		return "", fmt.Errorf("generate update job id: %w", err)
 	}
 	return "update-" + hex.EncodeToString(value), nil
-}
-
-func (s *Server) waitForUpdateIdle(ctx context.Context) error {
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-		inFlight := 0
-		for _, item := range s.manager.Pool().Items() {
-			inFlight += item.InFlight
-		}
-		if inFlight == 0 {
-			return nil
-		}
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("%d request(s) are still in flight", inFlight)
-		case <-time.After(500 * time.Millisecond):
-		}
-	}
 }
 
 func updaterStateActive(state string) bool {

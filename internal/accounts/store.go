@@ -35,15 +35,16 @@ type Account struct {
 	DropSystemPrompt bool `json:"drop_system_prompt"`
 	// WorkBuddyAutoCheckin opts into scheduled daily-checkin (default off).
 	WorkBuddyAutoCheckin bool `json:"workbuddy_auto_checkin"`
-	// LastCheckinAt / LastCheckinMsg are display-only WorkBuddy ops results.
-	LastCheckinAt  string     `json:"last_checkin_at,omitempty"`
-	LastCheckinMsg string     `json:"last_checkin_msg,omitempty"`
-	Status         string     `json:"status"`
-	LastError      string     `json:"last_error,omitempty"`
-	LastErrorKind  string     `json:"last_error_kind,omitempty"`
-	CooldownUntil  *time.Time `json:"cooldown_until,omitempty"`
-	CreatedAt      time.Time  `json:"created_at"`
-	UpdatedAt      time.Time  `json:"updated_at"`
+	// LastCheckin* are display-only WorkBuddy ops results.
+	LastCheckinAt     string     `json:"last_checkin_at,omitempty"`
+	LastCheckinMsg    string     `json:"last_checkin_msg,omitempty"`
+	LastCheckinStatus string     `json:"last_checkin_status,omitempty"`
+	Status            string     `json:"status"`
+	LastError         string     `json:"last_error,omitempty"`
+	LastErrorKind     string     `json:"last_error_kind,omitempty"`
+	CooldownUntil     *time.Time `json:"cooldown_until,omitempty"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
 }
 
 type CreateAccount struct {
@@ -171,7 +172,7 @@ func (s *Store) Create(ctx context.Context, input CreateAccount) (Account, error
 func (s *Store) Get(ctx context.Context, id string) (Account, error) {
 	row := s.db.QueryRowContext(ctx, `
 	SELECT id, name, provider, provider_region, remote_uid, auth_type, enabled, max_inflight, priority,
-	       drop_system_prompt, workbuddy_auto_checkin, last_checkin_at, last_checkin_msg,
+	       drop_system_prompt, workbuddy_auto_checkin, last_checkin_at, last_checkin_msg, last_checkin_status,
 	       status, last_error, last_error_kind, cooldown_until, created_at, updated_at
 	FROM accounts WHERE id = ?`, strings.TrimSpace(id))
 	account, err := scanAccount(row)
@@ -194,7 +195,7 @@ func scanAccount(row rowScanner) (Account, error) {
 	err := row.Scan(
 		&account.ID, &account.Name, &account.Provider, &account.ProviderRegion, &account.RemoteUID,
 		&account.AuthType, &account.Enabled, &account.MaxInFlight, &account.Priority,
-		&account.DropSystemPrompt, &account.WorkBuddyAutoCheckin, &account.LastCheckinAt, &account.LastCheckinMsg,
+		&account.DropSystemPrompt, &account.WorkBuddyAutoCheckin, &account.LastCheckinAt, &account.LastCheckinMsg, &account.LastCheckinStatus,
 		&account.Status, &account.LastError, &account.LastErrorKind, &cooldown, &created, &updated,
 	)
 	if err != nil {
@@ -235,7 +236,7 @@ func parseTime(value string) time.Time {
 func (s *Store) List(ctx context.Context) ([]Account, error) {
 	rows, err := s.db.QueryContext(ctx, `
 	SELECT id, name, provider, provider_region, remote_uid, auth_type, enabled, max_inflight, priority,
-	       drop_system_prompt, workbuddy_auto_checkin, last_checkin_at, last_checkin_msg,
+	       drop_system_prompt, workbuddy_auto_checkin, last_checkin_at, last_checkin_msg, last_checkin_status,
 	       status, last_error, last_error_kind, cooldown_until, created_at, updated_at
 	FROM accounts ORDER BY created_at, id`)
 	if err != nil {
@@ -581,14 +582,40 @@ WHERE id = ?`, remoteUID, status, lastError, lastKind, formatTime(time.Now().UTC
 	return nil
 }
 
-// RecordCheckin stores the latest WorkBuddy check-in display fields only.
-func (s *Store) RecordCheckin(ctx context.Context, id, msg string, at time.Time) error {
+type CheckinRecord struct {
+	ID        string    `json:"id"`
+	AccountID string    `json:"account_id"`
+	Status    string    `json:"status"`
+	Message   string    `json:"message"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+func newCheckinRecordID() string {
+	raw := make([]byte, 8)
+	if _, err := rand.Read(raw); err != nil {
+		return fmt.Sprintf("checkin_%d", time.Now().UnixNano())
+	}
+	return "checkin_" + hex.EncodeToString(raw)
+}
+
+func (s *Store) RecordCheckin(ctx context.Context, id, status, msg string, at time.Time) error {
 	if at.IsZero() {
 		at = time.Now().UTC()
 	}
-	result, err := s.db.ExecContext(ctx, `
-UPDATE accounts SET last_checkin_at = ?, last_checkin_msg = ?, updated_at = ?
-WHERE id = ?`, formatTime(at), strings.TrimSpace(msg), formatTime(time.Now().UTC()), strings.TrimSpace(id))
+	accountID := strings.TrimSpace(id)
+	status = strings.TrimSpace(status)
+	if status == "" {
+		status = "success"
+	}
+	message := strings.TrimSpace(msg)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin record checkin: %w", err)
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `
+UPDATE accounts SET last_checkin_at = ?, last_checkin_msg = ?, last_checkin_status = ?, updated_at = ?
+WHERE id = ?`, formatTime(at), message, status, formatTime(time.Now().UTC()), accountID)
 	if err != nil {
 		return fmt.Errorf("record checkin: %w", err)
 	}
@@ -596,7 +623,46 @@ WHERE id = ?`, formatTime(at), strings.TrimSpace(msg), formatTime(time.Now().UTC
 	if changed == 0 {
 		return ErrAccountNotFound
 	}
+	if _, err := tx.ExecContext(ctx, `
+INSERT INTO checkin_records (id, account_id, status, message, created_at) VALUES (?, ?, ?, ?, ?)`,
+		newCheckinRecordID(), accountID, status, message, formatTime(at)); err != nil {
+		return fmt.Errorf("insert checkin record: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit checkin record: %w", err)
+	}
 	return nil
+}
+
+func (s *Store) ListCheckinRecords(ctx context.Context, accountID string, limit int) ([]CheckinRecord, error) {
+	if _, err := s.Get(ctx, accountID); err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 50 {
+		limit = 50
+	}
+	rows, err := s.db.QueryContext(ctx, `
+SELECT id, account_id, status, message, created_at
+FROM checkin_records WHERE account_id = ?
+ORDER BY created_at DESC, id DESC LIMIT ?`, strings.TrimSpace(accountID), limit)
+	if err != nil {
+		return nil, fmt.Errorf("list checkin records: %w", err)
+	}
+	defer rows.Close()
+	records := make([]CheckinRecord, 0)
+	for rows.Next() {
+		var record CheckinRecord
+		var created string
+		if err := rows.Scan(&record.ID, &record.AccountID, &record.Status, &record.Message, &created); err != nil {
+			return nil, fmt.Errorf("scan checkin record: %w", err)
+		}
+		record.CreatedAt = parseTime(created)
+		records = append(records, record)
+	}
+	return records, rows.Err()
 }
 
 // canonicalCooldownModel normalizes a model key for storage. Unlike

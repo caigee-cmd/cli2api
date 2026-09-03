@@ -395,15 +395,19 @@ func TestStoreDefaultsWorkBuddyAutoCheckinOff(t *testing.T) {
 		t.Fatalf("updated=%+v err=%v", updated, err)
 	}
 	at := time.Date(2026, 8, 30, 9, 5, 0, 0, time.UTC)
-	if err := store.RecordCheckin(ctx, account.ID, "签到成功", at); err != nil {
+	if err := store.RecordCheckin(ctx, account.ID, "success", "签到成功", at); err != nil {
 		t.Fatal(err)
 	}
 	recorded, err := store.Get(ctx, account.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if recorded.LastCheckinMsg != "签到成功" || recorded.LastCheckinAt == "" {
+	if recorded.LastCheckinMsg != "签到成功" || recorded.LastCheckinStatus != "success" || recorded.LastCheckinAt == "" {
 		t.Fatalf("recorded=%+v", recorded)
+	}
+	records, err := store.ListCheckinRecords(ctx, account.ID, 20)
+	if err != nil || len(records) != 1 || records[0].Status != "success" || records[0].Message != recorded.LastCheckinMsg {
+		t.Fatalf("records=%+v err=%v", records, err)
 	}
 }
 

@@ -1,5 +1,5 @@
 import { api } from './client'
-import type { Overview } from './types'
+import type { CheckinRecord, Overview } from './types'
 
 export function fetchOverview(keyOverride?: string, options?: { refreshQuota?: boolean }) {
   const path = options?.refreshQuota ? '/api/overview?refresh=1' : '/api/overview'
@@ -168,6 +168,10 @@ export function checkinAccount(accountId: string) {
     method: 'POST',
     body: '{}',
   })
+}
+
+export function fetchCheckinRecords(accountId: string) {
+  return api<{ object?: string; data?: CheckinRecord[] }>(`/api/accounts/${encodeURIComponent(accountId)}/checkins`)
 }
 
 export function updateAccount(accountId: string, input: Record<string, unknown>) {
