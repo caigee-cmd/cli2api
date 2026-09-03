@@ -7,6 +7,18 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Make the account toolbar compact enough to keep common actions visible, with overflow reserved for secondary actions
+- Reduce account card density so account lists are easier to scan
+
+### 中文
+
+- 收紧账号工具栏，让常用操作直接展示，只把次要操作放进更多菜单
+- 降低账号卡片的信息密度，让账号列表更容易浏览
+
+## 0.2.40 - 2026-09-03
+
+### English
+
 - Interrupt active connections instead of waiting for in-flight requests before managed updates; clients can retry interrupted requests
 - Load the Accounts page first, refresh account details in small batches, and default pagination to five accounts
 - Add compact WorkBuddy check-in status, check-in history, manual check-in, and scheduled daily check-ins around 09:00 and 21:00 local time
