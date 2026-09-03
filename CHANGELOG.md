@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.2.37 - 2026-09-03
+
+### English
+
 - Make console updates asynchronous: return immediately with a local job ID and show release checks, request draining, SQLite backup, submission, updater progress, failures, and automatic reload as one continuous status flow
 - Restore update progress after a page refresh by exposing the preparation job from the system update endpoint
 
