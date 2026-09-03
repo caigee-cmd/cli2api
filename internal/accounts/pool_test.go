@@ -31,6 +31,28 @@ func TestRoundRobinSkipsDownAccounts(t *testing.T) {
 	}
 }
 
+func TestRoundRobinSkipsNotReadyAccounts(t *testing.T) {
+	p := NewPool([]string{"http://a:3020", "http://b:3020", "http://c:3020"}, []string{"a", "b", "c"})
+	p.MergeHealth("a", false, false, 0, 0, "account not found")
+
+	first, ok := p.Pick("", nil)
+	if !ok || first.ID != "b" {
+		t.Fatalf("not-ready a should be skipped, got %+v ok=%v", first, ok)
+	}
+
+	p.MergeHealth("b", false, false, 0, 0, "worker unavailable")
+	second, ok := p.Pick("", nil)
+	if !ok || second.ID != "c" {
+		t.Fatalf("not-ready b should be skipped, got %+v ok=%v", second, ok)
+	}
+
+	p.MergeHealth("a", true, true, 0, 0, "")
+	third, ok := p.Pick("", nil)
+	if !ok || third.ID != "a" {
+		t.Fatalf("ready a should rejoin rotation, got %+v ok=%v", third, ok)
+	}
+}
+
 func TestUpsertKeepsExistingQuota(t *testing.T) {
 	p := NewPool([]string{"http://a:3020"}, []string{"a"})
 	p.MergeQuota("a", &QuotaSnapshot{Remaining: 900, Total: 1000, Unit: "credits"})
