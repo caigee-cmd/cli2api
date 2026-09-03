@@ -3,6 +3,7 @@ import { Button, Card, Chip, Dropdown, Input, Label, TextArea, TextField, Toolti
 import {
   ArrowClockwise,
   ArrowSquareOut,
+  CalendarCheck,
   Copy,
   Cube,
   DotsThreeVertical,
@@ -213,10 +214,10 @@ export function AccountCard({
       aria-busy={detailsLoading}
       className="account-card overflow-hidden p-0"
     >
-      <Card.Header className="flex-row items-start justify-between gap-3 px-3 pt-3 pb-2">
+      <Card.Header className="flex-row items-start justify-between gap-2.5 px-3 pt-2.5 pb-1.5">
         <div className="flex min-w-0 items-center gap-2.5">
-          <div className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-border bg-surface-secondary">
-            <ProviderMark provider={account.provider} size={22} />
+          <div className="flex size-8 shrink-0 items-center justify-center rounded-xl border border-border bg-surface-secondary">
+            <ProviderMark provider={account.provider} size={20} />
           </div>
           <div className="min-w-0">
             <div className="flex min-w-0 items-center gap-2">
@@ -240,7 +241,7 @@ export function AccountCard({
         </div>
       </Card.Header>
 
-      <Card.Content className="gap-2.5 px-3 pb-2.5">
+      <Card.Content className="gap-2 px-3 pb-2">
         {detailsLoading ? detailsSkeleton : <>
         {modelCooldowns.length ? (
           <div className="flex items-start gap-2 rounded-2xl border border-warning/25 bg-warning/5 px-2.5 py-2 text-[11px] text-warning-foreground dark:text-warning">
@@ -254,16 +255,16 @@ export function AccountCard({
             </div>
           </div>
         ) : null}
-        <div className="rounded-2xl border border-border bg-surface-secondary/45 p-2.5">
+        <div className="rounded-2xl border border-border bg-surface-secondary/45 p-2">
           <RuntimeMeter state={state} label={t('runtimeState')} stateCopy={stateCopy} />
-          <div className="mt-2.5 grid grid-cols-3 gap-2 border-t border-separator pt-2.5 text-[10px] text-foreground/65">
+          <div className="mt-2 grid grid-cols-3 gap-2 border-t border-separator pt-2 text-[10px] text-foreground/65">
             <span><span className="mono block text-[12px] font-medium text-foreground">{inFlight}/{account.max_inflight ?? 4}</span>{t('inFlight')}</span>
             <span><span className="mono block text-[12px] font-medium text-foreground">{account.priority ?? 50}</span>{t('priority')}</span>
             <span><span className="mono block text-[12px] font-medium text-foreground">{account.restarts ?? 0}</span>{t('restarts')}</span>
           </div>
         </div>
 
-        <div className="min-h-[58px] rounded-2xl border border-border bg-surface-secondary/25 p-2.5">
+        <div className="min-h-[52px] rounded-2xl border border-border bg-surface-secondary/25 p-2">
           {account.quota ? (
             <QuotaMeter
               quota={account.quota}
@@ -277,7 +278,7 @@ export function AccountCard({
         </div>
 
         {account.provider === 'workbuddy' ? (
-          <div className="grid gap-2 rounded-2xl border border-border bg-surface-secondary/20 p-2.5">
+          <div className="grid gap-1.5 rounded-2xl border border-border bg-surface-secondary/20 p-2">
             <div className="flex items-center justify-between gap-3 text-[11px]">
               <Tooltip>
                 <Tooltip.Trigger>
@@ -306,23 +307,18 @@ export function AccountCard({
                 onChange={(selected) => onToggleAutoCheckin?.(selected)}
               />
             </div>
-            <div className="flex items-center justify-between gap-2 text-[11px]">
+            <div className="flex items-center gap-2 text-[11px]">
               <div className="flex min-w-0 items-center gap-2">
                 <span className="status-dot shrink-0" data-state={checkin.state} />
                 <span className="font-medium">{t('checkinStatus')}</span>
                 <span className="truncate text-foreground/65">{checkin.label}</span>
               </div>
-              {onViewCheckins ? (
-                <Button size="sm" variant="ghost" onPress={onViewCheckins}>
-                  {t('checkinRecords')}
-                </Button>
-              ) : null}
             </div>
           </div>
         ) : null}
 
         {lastError ? (
-          <div className="flex gap-2 rounded-2xl border border-danger/25 bg-danger/5 p-2.5 text-xs leading-5 text-danger">
+          <div className="flex gap-2 rounded-2xl border border-danger/25 bg-danger/5 p-2 text-xs leading-5 text-danger">
             <WarningCircle size={14} className="mt-0.5 shrink-0" />
             <div className="min-w-0">
               {errorKind ? <div className="mono mb-0.5 text-[10px] opacity-75">{errorKind}</div> : null}
@@ -377,11 +373,50 @@ export function AccountCard({
         </section>
       ) : null}
 
-      <Card.Footer className="flex items-center gap-2 border-t border-separator px-3 py-2.5">
+      <Card.Footer className="flex flex-wrap items-center gap-1.5 border-t border-separator px-3 py-2">
         {onRefresh ? (
-          <Button className="min-w-0 flex-1" size="sm" variant="primary" onPress={onRefresh}>
-            <ArrowClockwise size={14} />{t('refreshAccount')}
-          </Button>
+          <Tooltip>
+            <Tooltip.Trigger>
+              <Button isIconOnly size="sm" variant="secondary" onPress={onRefresh} aria-label={t('refreshAccount')}>
+                <ArrowClockwise size={15} />
+              </Button>
+            </Tooltip.Trigger>
+            <Tooltip.Content>{t('refreshAccount')}</Tooltip.Content>
+          </Tooltip>
+        ) : null}
+        <Tooltip>
+          <Tooltip.Trigger>
+            <Button isIconOnly size="sm" variant={authPanelOpen ? 'secondary' : 'ghost'} isDisabled={!account.enabled} onPress={onToggleAuthPanel} aria-label={t('authentication')}>
+              <Key size={15} />
+            </Button>
+          </Tooltip.Trigger>
+          <Tooltip.Content>{t('authentication')}</Tooltip.Content>
+        </Tooltip>
+        <Tooltip>
+          <Tooltip.Trigger>
+            <Button isIconOnly size="sm" variant="ghost" onPress={onViewModels} aria-label={t('accountModels')}>
+              <Cube size={15} />
+            </Button>
+          </Tooltip.Trigger>
+          <Tooltip.Content>{t('accountModels')}</Tooltip.Content>
+        </Tooltip>
+        <Tooltip>
+          <Tooltip.Trigger>
+            <Button isIconOnly size="sm" variant="ghost" onPress={onEdit} aria-label={t('editAccount')}>
+              <PencilSimple size={15} />
+            </Button>
+          </Tooltip.Trigger>
+          <Tooltip.Content>{t('editAccount')}</Tooltip.Content>
+        </Tooltip>
+        {onCheckin ? (
+          <Tooltip>
+            <Tooltip.Trigger>
+              <Button isIconOnly size="sm" variant="ghost" isDisabled={!account.enabled} isPending={busyKind === 'checkin'} onPress={onCheckin} aria-label={t('checkinNow')}>
+                <CalendarCheck size={15} />
+              </Button>
+            </Tooltip.Trigger>
+            <Tooltip.Content>{t('checkinNow')}</Tooltip.Content>
+          </Tooltip>
         ) : null}
         <Dropdown>
           <Dropdown.Trigger>
@@ -393,21 +428,13 @@ export function AccountCard({
             <Dropdown.Menu
               aria-label={t('more')}
               onAction={(key) => {
-                if (key === 'auth') onToggleAuthPanel()
-                if (key === 'models') onViewModels()
-                if (key === 'edit') onEdit()
                 if (key === 'export') onExport()
                 if (key === 'checkin-records') onViewCheckins?.()
-                if (key === 'checkin') onCheckin?.()
                 if (key === 'delete') onDelete()
               }}
             >
-              <Dropdown.Item id="auth" isDisabled={!account.enabled} textValue={t('authentication')}><Key size={15} />{t('authentication')}</Dropdown.Item>
-              <Dropdown.Item id="models" textValue={t('accountModels')}><Cube size={15} />{t('accountModels')}</Dropdown.Item>
-              <Dropdown.Item id="edit" textValue={t('editAccount')}><PencilSimple size={15} />{t('editAccount')}</Dropdown.Item>
               {account.auth_type !== 'none' ? <Dropdown.Item id="export" textValue={t('export')}><Copy size={15} />{t('export')}</Dropdown.Item> : null}
               {onViewCheckins ? <Dropdown.Item id="checkin-records" textValue={t('checkinRecords')}><ListBullets size={15} />{t('checkinRecords')}</Dropdown.Item> : null}
-              {onCheckin ? <Dropdown.Item id="checkin" isDisabled={!account.enabled} textValue={t('checkinNow')}><ArrowClockwise size={15} />{t('checkinNow')}</Dropdown.Item> : null}
               <Dropdown.Item id="delete" textValue={t('delete')} className="text-danger"><TrashSimple size={15} />{t('delete')}</Dropdown.Item>
             </Dropdown.Menu>
           </Dropdown.Popover>

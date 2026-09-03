@@ -491,7 +491,7 @@ export function AccountsPage() {
         />
       ) : null}
 
-      <section className="grid gap-2.5 lg:grid-cols-2 xl:grid-cols-3" aria-busy={refreshing}>
+      <section className="grid gap-2.5 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4" aria-busy={refreshing}>
         {pagedRows.map((account) => (
           <AccountCard
             key={account.id}
