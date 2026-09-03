@@ -22,7 +22,7 @@ import { useI18n } from '@/hooks/useI18n'
 import { extractReleaseNotes } from '@/lib/releaseNotes'
 import { CompactSwitch } from '@/components/ui/CompactSwitch'
 
-const activeStates = new Set(['queued', 'preparing', 'pulling', 'recreating', 'checking', 'rolling_back'])
+const activeStates = new Set(['preparing', 'checking', 'draining', 'backing_up', 'submitting', 'running', 'queued', 'pulling', 'recreating', 'rolling_back'])
 
 function statusColor(state?: string): 'success' | 'warning' | 'danger' | 'default' {
   if (state === 'succeeded') return 'success'
@@ -57,7 +57,7 @@ export function SystemPage() {
     try {
       const result = await fetchSystemUpdate(force)
       setInfo(result)
-      setError('')
+      setError(result.update?.state === 'failed' || result.update?.state === 'rolled_back' ? (result.update.error || '') : '')
     } catch (err) {
       if (!quiet) setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -75,7 +75,9 @@ export function SystemPage() {
     return () => window.clearTimeout(timer)
   }, [load])
 
-  const active = Boolean(info?.agent?.state && activeStates.has(info.agent.state)) || submitting || reloadIn != null
+  const agentState = info?.agent?.state || 'unavailable'
+  const preparationState = info?.update?.state || ''
+  const active = Boolean(activeStates.has(preparationState) || activeStates.has(agentState)) || submitting || reloadIn != null
   useEffect(() => {
     if (!active || reloadIn != null) return
     const timer = window.setInterval(() => void load(false, true), 2000)
@@ -83,8 +85,8 @@ export function SystemPage() {
   }, [active, load, reloadIn])
 
   useEffect(() => {
-    if (!submitting || !started || !info || info.agent.job_id !== started.job_id) return
-    const state = info.agent.state
+    if (!submitting || !started || !info || info.update?.job_id !== started.job_id) return
+    const state = info.update.state
     if (state === 'succeeded') {
       setSubmitting(false)
       setUpdateStartedAt(null)
@@ -114,14 +116,16 @@ export function SystemPage() {
   }, [reloadIn])
 
   const canUpdate = Boolean(info?.managed && info?.has_update && info?.next_version && info?.agent?.available && !active)
-  const agentState = info?.agent?.state || 'unavailable'
-  const statusMatchesStarted = Boolean(started && info?.agent?.job_id === started.job_id)
+  const statusMatchesStarted = Boolean(started && info?.update?.job_id === started.job_id)
   const visibleState = reloadIn != null
     ? 'succeeded'
-    : submitting && (!statusMatchesStarted || !activeStates.has(agentState))
+    : submitting && !statusMatchesStarted
       ? 'preparing'
-      : agentState
-  const stateLabel = t(`updateState_${visibleState}`)
+      : preparationState === 'running'
+        ? agentState
+        : preparationState || agentState
+  const updateRunning = preparationState === 'running' || (statusMatchesStarted && activeStates.has(agentState))
+  const stateLabel = t(`updateState_${visibleState === 'checking' && preparationState === 'running' ? 'health_checking' : visibleState}`)
   const releaseBody = useMemo(() => extractReleaseNotes(info?.release?.body, lang), [info, lang])
 
   async function applyUpdate() {
@@ -247,7 +251,7 @@ export function SystemPage() {
                   {updateStartedAt != null ? <span className="mono shrink-0 text-[10px] text-muted">{t('updateElapsed', { seconds: updateElapsed })}</span> : null}
                 </div>
                 <p className="mt-1.5 text-xs leading-5 text-muted">
-                  {reloadIn != null ? t('updateReloadingHint') : started ? t('updateRunningHint') : t('updatePreparingHint')}
+                  {reloadIn != null ? t('updateReloadingHint') : updateRunning ? t('updateRunningHint') : t('updatePreparingHint')}
                 </p>
               </div>
             ) : null}
@@ -294,7 +298,7 @@ export function SystemPage() {
               <div className="flex items-center gap-2"><CheckCircle size={14} className="text-success" />{t('sqliteKeepFive')}</div>
               <div className="flex items-center gap-2"><CheckCircle size={14} className="text-success" />{t('sqliteRollbackTogether')}</div>
             </div>
-            {started?.backup?.name ? <div className="mono mt-4 break-all border-t border-separator pt-3 text-[10px] text-muted">{started.backup.name}</div> : null}
+            {info?.update?.backup_path ? <div className="mono mt-4 break-all border-t border-separator pt-3 text-[10px] text-muted">{info.update.backup_path}</div> : null}
           </Card>
 
           <Card data-gsap-reveal>
@@ -318,7 +322,7 @@ export function SystemPage() {
             <div className="flex items-center justify-between gap-3">
               <div>
                 <h3 className="font-semibold">{t('updateStatus')}</h3>
-                <p className="mt-1 text-xs text-muted">{info?.agent?.job_id || (info?.agent?.available ? t('noUpdateJob') : t('updaterNeedsHost'))}</p>
+                <p className="mt-1 text-xs text-muted">{info?.update?.job_id || info?.agent?.job_id || (info?.agent?.available ? t('noUpdateJob') : t('updaterNeedsHost'))}</p>
               </div>
               <Chip size="sm" variant="soft" color={statusColor(visibleState)}>{stateLabel}</Chip>
             </div>
