@@ -7,7 +7,11 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Document the staged update flow and its restart confirmation boundary for the next patch release
+
 ### 中文
+
+- 补充分阶段更新流程及重启确认边界的发布说明
 
 ## 0.2.43 - 2026-09-04
 
