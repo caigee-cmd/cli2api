@@ -3,6 +3,7 @@ import { api } from './client'
 export type UpdateAgentStatus = {
   protocol_version?: number
   available: boolean
+  staged_update?: boolean
   state: string
   job_id?: string
   current_version?: string
@@ -74,5 +75,9 @@ export function updateSystemSettings(crossProviderModelPool: boolean) {
 }
 
 export function startSystemUpdate() {
-  return api<StartUpdateResult>('/api/system/update', { method: 'POST', body: '{}' })
+  return api<StartUpdateResult>('/api/system/update/prepare', { method: 'POST', body: '{}' })
+}
+
+export function applyPreparedSystemUpdate() {
+  return api<StartUpdateResult>('/api/system/update/apply', { method: 'POST', body: '{}' })
 }
