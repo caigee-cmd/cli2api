@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.2.42 - 2026-09-04
+
+### English
+
 - Distinguish hard quota exhaustion from prompt token limits, and cool exhausted accounts until the next local midnight
 - Keep explicitly identified conversations on one account with bounded in-memory session affinity, same-provider/region escape, and routing-source request logs
 - Add stateless Anthropic Messages and OpenAI Responses adapters for text and function-tool conversations
