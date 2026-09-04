@@ -26,8 +26,11 @@ func NextLocalMidnightCooldown() time.Duration {
 }
 
 func nextLocalMidnightCooldown(now time.Time) time.Duration {
-	local := now.In(time.Local)
-	next := time.Date(local.Year(), local.Month(), local.Day()+1, 0, 0, 0, 0, time.Local)
+	zone := now.Location()
+	if zone == nil {
+		zone = time.Local
+	}
+	next := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, zone)
 	return next.Sub(now)
 }
 
