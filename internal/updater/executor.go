@@ -13,6 +13,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	control "github.com/caigee-cmd/cli2api/internal/update"
 )
 
 type ExecutorConfig struct {
@@ -90,6 +92,24 @@ func NewExecutor(config ExecutorConfig) *Executor {
 	}
 }
 
+func (e *Executor) Prepare(ctx context.Context, _ string, request control.PrepareRequest, progress func(string)) error {
+	if err := e.validateConfig(); err != nil {
+		return err
+	}
+	if _, err := control.ParseVersion(request.CurrentVersion); err != nil {
+		return fmt.Errorf("invalid current version")
+	}
+	if _, err := control.ParseVersion(request.TargetVersion); err != nil {
+		return fmt.Errorf("invalid target version")
+	}
+	targetImage := e.config.ImageRepository + ":" + request.TargetVersion
+	progress("pulling")
+	if _, err := e.runner.Run(ctx, "docker", "pull", targetImage); err != nil {
+		return fmt.Errorf("pull target image: %w", err)
+	}
+	return nil
+}
+
 func (e *Executor) Apply(ctx context.Context, _ string, request ApplyRequest, progress func(string)) (bool, error) {
 	if err := e.validateConfig(); err != nil {
 		return false, err
@@ -116,9 +136,16 @@ func (e *Executor) Apply(ctx context.Context, _ string, request ApplyRequest, pr
 	if err := e.verifyBackupExists(ctx, mount, currentImage, request.BackupPath); err != nil {
 		return false, err
 	}
-	progress("pulling")
-	if _, err := e.runner.Run(ctx, "docker", "pull", targetImage); err != nil {
-		return false, err
+	if request.SkipPull {
+		progress("image_ready")
+		if _, err := e.runner.Run(ctx, "docker", "image", "inspect", targetImage); err != nil {
+			return false, fmt.Errorf("prepared image is unavailable: %w", err)
+		}
+	} else {
+		progress("pulling")
+		if _, err := e.runner.Run(ctx, "docker", "pull", targetImage); err != nil {
+			return false, err
+		}
 	}
 	if err := setEnvValueAtomic(e.config.EnvFile, envMode, "CLI2API_IMAGE", targetImage); err != nil {
 		return false, err

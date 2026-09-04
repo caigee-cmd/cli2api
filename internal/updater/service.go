@@ -26,6 +26,10 @@ type applier interface {
 	Apply(context.Context, string, ApplyRequest, func(string)) (bool, error)
 }
 
+type preparer interface {
+	Prepare(context.Context, string, control.PrepareRequest, func(string)) error
+}
+
 type Config struct {
 	SocketPath    string
 	ListenAddress string
@@ -43,7 +47,7 @@ type Service struct {
 var backupNamePattern = regexp.MustCompile(`^qoder-[0-9]{8}T[0-9]{6}\.[0-9]{9}Z\.db$`)
 
 func NewService(config Config, applier applier) *Service {
-	service := &Service{config: config, applier: applier, status: control.AgentStatus{ProtocolVersion: control.AgentProtocolVersion, Available: true, State: "idle"}}
+	service := &Service{config: config, applier: applier, status: control.AgentStatus{ProtocolVersion: control.AgentProtocolVersion, Available: true, StagedUpdate: true, State: "idle"}}
 	service.loadStatus()
 	return service
 }
@@ -52,6 +56,8 @@ func (s *Service) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/v1/status", s.handleStatus)
+	mux.HandleFunc("/v1/prepare", s.handlePrepare)
+	mux.HandleFunc("/v1/apply", s.handleApply)
 	mux.HandleFunc("/v1/update", s.handleUpdate)
 	if strings.TrimSpace(s.config.AuthToken) == "" {
 		return mux
@@ -145,6 +151,7 @@ func (s *Service) handleStatus(w http.ResponseWriter, r *http.Request) {
 	s.mu.Unlock()
 	status.ProtocolVersion = control.AgentProtocolVersion
 	status.Available = true
+	status.StagedUpdate = true
 	writeJSON(w, http.StatusOK, status)
 }
 
@@ -164,7 +171,82 @@ func (s *Service) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	request.SkipPull = false
+	s.startApply(w, request)
+}
 
+func (s *Service) handlePrepare(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "POST only")
+		return
+	}
+	var request control.PrepareRequest
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&request); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := validatePrepareRequest(request); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	worker, ok := s.applier.(preparer)
+	if !ok {
+		writeError(w, http.StatusNotImplemented, "image preparation is not supported by this updater")
+		return
+	}
+
+	s.mu.Lock()
+	if isActiveState(s.status.State) || s.status.State == "ready_to_apply" {
+		s.mu.Unlock()
+		writeError(w, http.StatusConflict, "update already in progress")
+		return
+	}
+	jobID, err := newJobID()
+	if err != nil {
+		s.mu.Unlock()
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	s.status = control.AgentStatus{ProtocolVersion: control.AgentProtocolVersion, Available: true, StagedUpdate: true, State: "queued", JobID: jobID, CurrentVersion: request.CurrentVersion, TargetVersion: request.TargetVersion, StartedAt: now}
+	s.persistStatusLocked()
+	s.mu.Unlock()
+
+	writeJSON(w, http.StatusAccepted, control.ApplyResponse{JobID: jobID})
+	go s.runPrepare(worker, jobID, request)
+}
+
+func (s *Service) handleApply(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "POST only")
+		return
+	}
+	var request ApplyRequest
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&request); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := validateApplyRequest(request); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	s.mu.Lock()
+	if s.status.State != "ready_to_apply" || s.status.TargetVersion != request.TargetVersion || s.status.CurrentVersion != request.CurrentVersion {
+		s.mu.Unlock()
+		writeError(w, http.StatusConflict, "target image is not prepared")
+		return
+	}
+	request.SkipPull = true
+	s.mu.Unlock()
+	s.startApply(w, request)
+}
+
+func (s *Service) startApply(w http.ResponseWriter, request ApplyRequest) {
 	s.mu.Lock()
 	if isActiveState(s.status.State) {
 		s.mu.Unlock()
@@ -180,7 +262,7 @@ func (s *Service) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	s.status = control.AgentStatus{
 		ProtocolVersion: control.AgentProtocolVersion,
-		Available:       true, State: "queued", JobID: jobID,
+		Available:       true, StagedUpdate: true, State: "queued", JobID: jobID,
 		CurrentVersion: request.CurrentVersion, TargetVersion: request.TargetVersion,
 		BackupPath: request.BackupPath, StartedAt: now,
 	}
@@ -189,6 +271,17 @@ func (s *Service) handleUpdate(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusAccepted, control.ApplyResponse{JobID: jobID})
 	go s.run(jobID, request)
+}
+
+func (s *Service) runPrepare(worker preparer, jobID string, request control.PrepareRequest) {
+	time.Sleep(250 * time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	defer cancel()
+	if err := worker.Prepare(ctx, jobID, request, func(state string) { s.updateState(jobID, state, "", false) }); err != nil {
+		s.updateState(jobID, "failed", err.Error(), true)
+		return
+	}
+	s.updateState(jobID, "ready_to_apply", "", false)
 }
 
 func (s *Service) run(jobID string, request ApplyRequest) {
@@ -224,6 +317,17 @@ func (s *Service) updateState(jobID, state, message string, finished bool) {
 }
 
 func validateApplyRequest(request ApplyRequest) error {
+	if err := validatePrepareRequest(control.PrepareRequest{CurrentVersion: request.CurrentVersion, TargetVersion: request.TargetVersion}); err != nil {
+		return err
+	}
+	clean := path.Clean(request.BackupPath)
+	if clean != request.BackupPath || path.Dir(clean) != "/data/backups" || !backupNamePattern.MatchString(path.Base(clean)) {
+		return fmt.Errorf("invalid sqlite backup path")
+	}
+	return nil
+}
+
+func validatePrepareRequest(request control.PrepareRequest) error {
 	current, err := control.ParseVersion(request.CurrentVersion)
 	if err != nil {
 		return fmt.Errorf("invalid current version")
@@ -231,10 +335,6 @@ func validateApplyRequest(request ApplyRequest) error {
 	target, err := control.ParseVersion(request.TargetVersion)
 	if err != nil || target.Compare(current) <= 0 {
 		return fmt.Errorf("target version must be a newer stable release")
-	}
-	clean := path.Clean(request.BackupPath)
-	if clean != request.BackupPath || path.Dir(clean) != "/data/backups" || !backupNamePattern.MatchString(path.Base(clean)) {
-		return fmt.Errorf("invalid sqlite backup path")
 	}
 	return nil
 }
@@ -270,6 +370,7 @@ func (s *Service) loadStatus() {
 	}
 	status.ProtocolVersion = control.AgentProtocolVersion
 	status.Available = true
+	status.StagedUpdate = true
 	if isActiveState(status.State) {
 		status.State = "failed"
 		status.Error = "updater restarted during an active operation"

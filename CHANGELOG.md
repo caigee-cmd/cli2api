@@ -15,11 +15,13 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 - Polish the API access console with connection status, compact endpoint cards, and copy/open actions for supported routes
 - Expose the Anthropic Messages and OpenAI Responses routes in the console access catalog and overview metadata
+- Split managed updates into image preparation and operator-confirmed restart, with durable progress states and rollback kept on the restart step
 
 ### 中文
 
 - 优化 API 接入控制台，增加连接状态、紧凑端点卡片，以及支持端点的复制和打开操作
 - 在控制台接入目录和概览元数据中展示 Anthropic Messages 与 OpenAI Responses 端点
+- 托管更新拆为镜像准备和人工确认重启两步，过程状态可追踪，重启步骤仍保留回滚
 
 ## 0.2.42 - 2026-09-04
 

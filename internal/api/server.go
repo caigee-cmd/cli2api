@@ -180,6 +180,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc(endpoint.HealthPath, s.handleHealth)
 	s.mux.HandleFunc("/api/overview", s.withConsoleKey(s.handleOverview))
 	s.mux.HandleFunc("/api/system/update", s.withConsoleKey(s.handleSystemUpdate))
+	s.mux.HandleFunc("/api/system/update/prepare", s.withConsoleKey(s.handleSystemUpdatePrepare))
+	s.mux.HandleFunc("/api/system/update/apply", s.withConsoleKey(s.handleSystemUpdateConfirm))
 	s.mux.HandleFunc("/api/system/settings", s.withConsoleKey(s.handleSystemSettings))
 	s.mux.HandleFunc("/api/system/console-key", s.withConsoleKey(s.handleConsoleKey))
 	s.mux.HandleFunc("/api/keys", s.withConsoleKey(s.handleAPIKeys))

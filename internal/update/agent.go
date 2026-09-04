@@ -10,12 +10,18 @@ import (
 	"time"
 )
 
-const AgentProtocolVersion = 1
+const AgentProtocolVersion = 2
+
+type PrepareRequest struct {
+	CurrentVersion string `json:"current_version"`
+	TargetVersion  string `json:"target_version"`
+}
 
 type ApplyRequest struct {
 	CurrentVersion string `json:"current_version"`
 	TargetVersion  string `json:"target_version"`
 	BackupPath     string `json:"backup_path"`
+	SkipPull       bool   `json:"skip_pull,omitempty"`
 }
 
 type ApplyResponse struct {
@@ -25,6 +31,7 @@ type ApplyResponse struct {
 type AgentStatus struct {
 	ProtocolVersion int    `json:"protocol_version"`
 	Available       bool   `json:"available"`
+	StagedUpdate    bool   `json:"staged_update"`
 	State           string `json:"state"`
 	JobID           string `json:"job_id,omitempty"`
 	CurrentVersion  string `json:"current_version,omitempty"`
@@ -38,6 +45,11 @@ type AgentStatus struct {
 type Agent interface {
 	Status(context.Context) (AgentStatus, error)
 	Apply(context.Context, ApplyRequest) (ApplyResponse, error)
+}
+
+type PreparedAgent interface {
+	Prepare(context.Context, PrepareRequest) (ApplyResponse, error)
+	ApplyPrepared(context.Context, ApplyRequest) (ApplyResponse, error)
 }
 
 type AgentClient struct {
@@ -80,7 +92,7 @@ func (c *AgentClient) Status(ctx context.Context) (AgentStatus, error) {
 		return AgentStatus{Available: false, State: "unavailable", Error: err.Error()}, err
 	}
 	status.Available = true
-	if status.ProtocolVersion != 0 && status.ProtocolVersion != AgentProtocolVersion {
+	if status.ProtocolVersion != 0 && (status.ProtocolVersion < 1 || status.ProtocolVersion > AgentProtocolVersion) {
 		return AgentStatus{Available: false, State: "unavailable", Error: fmt.Sprintf("unsupported updater protocol %d", status.ProtocolVersion)}, fmt.Errorf("unsupported updater protocol %d", status.ProtocolVersion)
 	}
 	return status, nil
@@ -89,6 +101,29 @@ func (c *AgentClient) Status(ctx context.Context) (AgentStatus, error) {
 func (c *AgentClient) Apply(ctx context.Context, request ApplyRequest) (ApplyResponse, error) {
 	var response ApplyResponse
 	if err := c.doJSON(ctx, http.MethodPost, "/v1/update", request, &response); err != nil {
+		return ApplyResponse{}, err
+	}
+	if strings.TrimSpace(response.JobID) == "" {
+		return ApplyResponse{}, fmt.Errorf("updater returned empty job id")
+	}
+	return response, nil
+}
+
+func (c *AgentClient) ApplyPrepared(ctx context.Context, request ApplyRequest) (ApplyResponse, error) {
+	var response ApplyResponse
+	request.SkipPull = true
+	if err := c.doJSON(ctx, http.MethodPost, "/v1/apply", request, &response); err != nil {
+		return ApplyResponse{}, err
+	}
+	if strings.TrimSpace(response.JobID) == "" {
+		return ApplyResponse{}, fmt.Errorf("updater returned empty job id")
+	}
+	return response, nil
+}
+
+func (c *AgentClient) Prepare(ctx context.Context, request PrepareRequest) (ApplyResponse, error) {
+	var response ApplyResponse
+	if err := c.doJSON(ctx, http.MethodPost, "/v1/prepare", request, &response); err != nil {
 		return ApplyResponse{}, err
 	}
 	if strings.TrimSpace(response.JobID) == "" {
