@@ -324,6 +324,7 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		"models":   models,
 		"access": map[string]any{
 			"openai_base_url": "/v1", "chat_completions": endpoint.ChatCompletionsPath,
+			"messages": endpoint.MessagesPath, "responses": endpoint.ResponsesPath,
 			"models": endpoint.ModelsPath, "health": endpoint.HealthPath,
 			"hint": "Console APIs and /v1 require the API key stored in SQLite.",
 		},

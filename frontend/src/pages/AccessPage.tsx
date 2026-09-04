@@ -20,6 +20,7 @@ import { PageAlert } from '@/components/ui/PageAlert'
 import { AccessPageSkeleton } from '@/components/ui/PageSkeletons'
 import { ProviderMark } from '@/components/ProviderMark'
 import { accountProviderLabel } from '@/lib/provider'
+import { EndpointList } from '@/components/EndpointList'
 
 type RequestState = 'idle' | 'loading' | 'success' | 'error'
 
@@ -100,6 +101,8 @@ export function AccessPage() {
   const poolModels = overview?.models || []
   const accounts = overview?.accounts || []
   const base = absUrl(overview?.access?.openai_base_url || '/v1')
+  const chatPath = overview?.access?.chat_completions || '/v1/chat/completions'
+  const chatEndpoint = absUrl(chatPath)
   const [model, setModel] = useState('')
   const [accountId, setAccountId] = useState('')
   const [accountCatalog, setAccountCatalog] = useState<{ accountId: string; models: ModelInfo[]; error: string } | null>(null)
@@ -146,12 +149,12 @@ export function AccessPage() {
   }), [prompt, selectedModel])
 
   const curl = useMemo(
-    () => `curl -sS ${shellQuote(`${base}/chat/completions`)} \\
+    () => `curl -sS ${shellQuote(chatEndpoint)} \\
   -H "Authorization: Bearer $CLI2API_API_KEY" \\
   -H ${shellQuote('Content-Type: application/json')}${selectedAccount ? ` \\
   -H ${shellQuote(`X-Qoder-Account: ${selectedAccount}`)}` : ''} \\
   -d ${shellQuote(JSON.stringify(payload))}`,
-    [base, payload, selectedAccount],
+    [chatEndpoint, payload, selectedAccount],
   )
 
   if (loading && !overview) return <AccessPageSkeleton />
@@ -201,6 +204,17 @@ export function AccessPage() {
       </section>
 
       <section data-gsap-reveal className="grid overflow-hidden rounded-3xl border border-border bg-surface sm:grid-cols-3">
+        <div className="border-b border-separator px-5 py-4 sm:col-span-3">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h3 className="font-semibold tracking-[-0.015em]">{t('connection')}</h3>
+              <p className="mt-0.5 text-xs leading-5 text-muted">{t('clientConfigHint')}</p>
+            </div>
+            <Chip size="sm" variant="soft" color={readyAccounts.length ? 'success' : 'warning'}>
+              {readyAccounts.length ? t('endpointReady') : t('degraded')}
+            </Chip>
+          </div>
+        </div>
         <div className="min-w-0 border-b border-separator p-4 sm:col-span-2 sm:border-r sm:border-b-0 sm:p-5">
           <div className="mb-2 flex items-center justify-between gap-3">
             <span className="text-xs font-medium text-muted">{t('baseUrl')}</span>
@@ -222,6 +236,8 @@ export function AccessPage() {
         </div>
       </section>
 
+      <EndpointList access={overview?.access} />
+
       <Card data-gsap-reveal className="overflow-hidden p-0">
         <div className="grid xl:grid-cols-[minmax(440px,.92fr)_minmax(0,1.08fr)]">
           <div className="border-b border-separator xl:border-r xl:border-b-0">
@@ -232,7 +248,7 @@ export function AccessPage() {
                 </div>
                 <div>
                   <h3 className="font-semibold tracking-[-0.015em]">{t('requestBuilder')}</h3>
-                  <p className="mt-0.5 text-xs text-muted">POST /chat/completions</p>
+                  <p className="mt-0.5 text-xs text-muted">POST {chatPath}</p>
                 </div>
               </div>
             </div>

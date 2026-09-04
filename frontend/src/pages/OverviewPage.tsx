@@ -1,11 +1,9 @@
-import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import gsap from 'gsap'
 import { Link } from 'react-router-dom'
-import { Button, Card, Chip } from '@heroui/react'
+import { Card, Chip } from '@heroui/react'
 import {
-  ArrowSquareOut,
   ArrowUpRight,
-  Copy,
   Cube,
   Pulse,
 } from '@phosphor-icons/react'
@@ -22,7 +20,6 @@ import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
 import { formatCompact, formatLatency, formatPercent } from '@/lib/format'
 import { accountProviderFamilyLabel, accountProviderLabel } from '@/lib/provider'
-import { absUrl } from '@/lib/url'
 import { ProviderMark } from '@/components/ProviderMark'
 
 type AccountRow = NonNullable<Overview['accounts']>[number]
@@ -76,7 +73,6 @@ export function OverviewPage() {
   const [hours, setHours] = useState<StatsWindow>(24)
   const [stats, setStats] = useState<RequestStats | null>(null)
   const [statsError, setStatsError] = useState('')
-  const [copiedEndpoint, setCopiedEndpoint] = useState('')
   const [statsLoading, setStatsLoading] = useState(true)
 
   const proxyOk = Boolean(overview?.proxy?.ok)
@@ -87,9 +83,7 @@ export function OverviewPage() {
   const coolingAccounts = accounts.filter((account) => account.down_until || account.cooldown_until).length
   const inFlight = accounts.reduce((total, account) => total + (account.in_flight ?? account.inFlight ?? 0), 0)
   const modelCount = overview?.models?.length ?? 0
-  const lastError = accounts.map((account) => account.last_error || account.lastError).find(Boolean) || '—'
   const traffic = stats ?? EMPTY_STATS
-  const base = absUrl(overview?.access?.openai_base_url || '/v1')
 
   useEffect(() => {
     let cancelled = false
@@ -111,13 +105,6 @@ export function OverviewPage() {
       cancelled = true
     }
   }, [hours])
-
-  const endpoints = useMemo(() => [
-    { name: t('endpointOpenAI'), url: base, method: 'BASE' },
-    { name: t('endpointChat'), url: absUrl(overview?.access?.chat_completions || `${base}/chat/completions`), method: 'POST' },
-    { name: t('endpointModels'), url: absUrl(overview?.access?.models || `${base}/models`), method: 'GET' },
-    { name: t('endpointHealth'), url: absUrl(overview?.access?.health || '/health'), method: 'GET' },
-  ], [base, overview, t])
 
   const metrics = [
     { label: t('metricRequests'), value: traffic.totals.requests as number | null, kind: 'compact' as const, detail: t('statsWindowHint', { window: t(hours === 1 ? 'statsWindow1h' : hours === 168 ? 'statsWindow7d' : 'statsWindow24h') }), ok: traffic.totals.requests > 0 },
@@ -395,31 +382,6 @@ export function OverviewPage() {
           )}
         </Card>
 
-        <Card data-gsap-reveal className="overflow-hidden p-0">
-          <div className="border-b border-separator px-5 py-4">
-            <h3 className="font-semibold tracking-[-0.015em]">{t('endpoints')}</h3>
-            <p className="mt-0.5 text-xs text-muted">{t('routesHint')}</p>
-          </div>
-          <div className="divide-y divide-separator">
-            {endpoints.map((item) => (
-              <div key={item.name} className="group grid gap-2 px-5 py-3.5 sm:grid-cols-[56px_minmax(0,1fr)_auto] sm:items-center">
-                <span className="mono text-[10px] font-semibold text-muted">{item.method}</span>
-                <div className="min-w-0">
-                  <div className="text-sm font-medium">{item.name}</div>
-                  <code className="mono mt-1 block truncate text-[11px] text-muted">{item.url}</code>
-                </div>
-                <div className="flex gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100">
-                  <Button isIconOnly size="sm" variant="ghost" aria-label={t('copy')} onPress={() => { void navigator.clipboard.writeText(item.url); setCopiedEndpoint(item.name); window.setTimeout(() => setCopiedEndpoint(''), 1100) }}>{copiedEndpoint === item.name ? <span className="mono text-[9px] text-success">OK</span> : <Copy size={14} />}</Button>
-                  <Button isIconOnly size="sm" variant="ghost" aria-label={t('open')} onPress={() => window.open(item.url, '_blank', 'noopener,noreferrer')}><ArrowSquareOut size={14} /></Button>
-                </div>
-              </div>
-            ))}
-          </div>
-          <div className="flex items-center justify-between border-t border-separator px-5 py-3 text-xs text-muted">
-            <span className="truncate">{lastError === '—' ? 'Authorization: Bearer' : lastError}</span>
-            <Link to="/logs" className="inline-flex items-center gap-1 hover:text-foreground">{t('navLogs')}<ArrowUpRight size={12} /></Link>
-          </div>
-        </Card>
       </section>
     </div>
   )
