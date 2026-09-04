@@ -112,6 +112,8 @@ export type Overview = {
   access?: {
     openai_base_url?: string
     chat_completions?: string
+    messages?: string
+    responses?: string
     models?: string
     health?: string
   }
