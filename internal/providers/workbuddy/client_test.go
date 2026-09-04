@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -490,6 +491,7 @@ func TestErrorMapping(t *testing.T) {
 		{200, `{"code":11128,"msg":"first message is not system prompt"}`, "invalid_request"},
 		{200, `{"code":12001,"msg":"内容包含敏感信息"}`, "invalid_request"},
 		{200, `{"code":12002,"msg":"sensitive content detected"}`, "invalid_request"},
+		{429, `{"code": "insufficient_quota", "msg": "token-limit"}`, "invalid_request"},
 	}
 	for _, c := range cases {
 		got := Classify(c.status, c.body)
@@ -727,6 +729,30 @@ func TestDailyCheckinAlreadyCheckedIn(t *testing.T) {
 	}
 	if msg != "今日已签到" {
 		t.Fatalf("msg=%q", msg)
+	}
+}
+
+func TestDailyCheckinRetriesTransientFailures(t *testing.T) {
+	var calls atomic.Int32
+	client, store := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) < 3 {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"code":10001,"msg":"select checkin records failed: context deadline exceeded"}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "msg": "签到成功"})
+	}))
+	payload, _ := json.Marshal(Credential{
+		AccessToken: "at", RefreshToken: "rt", ExpiresAt: 4102444800, Domain: DomainCN, UID: "u1",
+	})
+	_ = store.SaveCredentialPayload(context.Background(), "acc1", CredentialFormat, payload)
+	msg, err := client.DailyCheckin(context.Background(), "acc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if msg != "签到成功" || calls.Load() != 3 {
+		t.Fatalf("msg=%q calls=%d", msg, calls.Load())
 	}
 }
 

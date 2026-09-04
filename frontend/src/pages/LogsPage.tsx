@@ -172,6 +172,15 @@ export function LogsPage() {
     return accountProviderLabel(provider, account?.region, t)
   }
 
+  function routingLabel(routing?: string) {
+    switch (routing) {
+      case 'pin': return t('logsRouting_pin')
+      case 'sticky': return t('logsRouting_sticky')
+      case 'sticky_escape': return t('logsRouting_sticky_escape')
+      default: return t('logsRouting_pool')
+    }
+  }
+
   const accountOptions = useMemo(
     () => (accounts || []).map((account) => ({ id: account.id, label: account.name || account.id })),
     [accounts],
@@ -785,6 +794,7 @@ export function LogsPage() {
                     [t('logsColLatency'), formatLatency(selected?.latency_ms)],
                     [t('logsColTTFT'), formatLatency(selected?.ttfb_ms)],
                     [t('logsColStream'), selected?.stream ? t('logsStreamYes') : t('logsStreamNo')],
+                    [t('logsRouting'), selected ? routingLabel(selected.routing) : '—'],
                   ].map(([label, value]) => (
                     <div key={String(label)}>
                       <dt className="text-[11px] text-muted">{label}</dt>

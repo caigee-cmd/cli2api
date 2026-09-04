@@ -7,7 +7,15 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Distinguish hard quota exhaustion from prompt token limits, and cool exhausted accounts until the next local midnight
+- Keep explicitly identified conversations on one account with bounded in-memory session affinity, same-provider/region escape, and routing-source request logs
+- Add stateless Anthropic Messages and OpenAI Responses adapters for text and function-tool conversations
+
 ### 中文
+
+- 区分账号额度耗尽和请求 token 超限，真正额度耗尽的账号冷却到本地次日凌晨
+- 增加基于显式会话标识的有界内存会话粘性路由、同提供方同区域逃逸，以及路由来源请求日志
+- 新增面向文本与函数工具对话的无状态 Anthropic Messages 与 OpenAI Responses 适配层
 
 ## 0.2.41 - 2026-09-03
 

@@ -27,6 +27,7 @@ export type RequestLog = {
   mapped_model?: string
   account_id?: string
   provider?: string
+  routing?: string
   prompt_tokens?: number | null
   completion_tokens?: number | null
   cache_read_tokens?: number | null

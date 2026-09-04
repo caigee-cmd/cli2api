@@ -763,16 +763,14 @@ func extractCode(body string) string {
 
 func classifiedCooldown(kind, code string) time.Duration {
 	switch code {
-	case "1005":
-		return quotaCooldownPlan
-	case "4008":
-		return quotaCooldownSolo
+	case "1005", "4008":
+		return accounts.NextLocalMidnightCooldown()
 	case "4011":
 		return hardRateCooldown
 	}
 	switch kind {
 	case accounts.KindQuota:
-		return time.Hour
+		return accounts.NextLocalMidnightCooldown()
 	case accounts.KindAuth:
 		return 30 * time.Minute
 	case accounts.KindRateLimit:
@@ -786,6 +784,9 @@ func classifiedCooldown(kind, code string) time.Duration {
 func Classify(status int, body string) providers.ClassifiedError {
 	text := strings.ToLower(body)
 	code := extractCode(body)
+	if accounts.IsPromptLimitText(body) {
+		return providers.ClassifiedError{Kind: accounts.KindInvalidRequest, Status: 400, Message: strings.TrimSpace(body)}
+	}
 	switch {
 	case code == "1001" || status == 401 || strings.Contains(text, "unauthorized"):
 		return providers.ClassifiedError{Kind: accounts.KindAuth, Status: 401, Message: firstNonEmpty(strings.TrimSpace(body), "session dead; re-login required")}
@@ -801,7 +802,7 @@ func Classify(status int, body string) providers.ClassifiedError {
 		return providers.ClassifiedError{Kind: accounts.KindRateLimit, Status: 429, Message: strings.TrimSpace(body)}
 	case status == 404:
 		return providers.ClassifiedError{Kind: accounts.KindUnavailable, Status: 404, Message: strings.TrimSpace(body)}
-	case status == 400 || accounts.IsInvalidRequestText(body):
+	case status == 400 || accounts.IsPromptLimitText(body) || accounts.IsInvalidRequestText(body):
 		return providers.ClassifiedError{Kind: accounts.KindInvalidRequest, Status: firstNonEmptyStatus(status, 400), Message: strings.TrimSpace(body)}
 	case status >= 500:
 		return providers.ClassifiedError{Kind: accounts.KindUnavailable, Status: status, Message: strings.TrimSpace(body)}
