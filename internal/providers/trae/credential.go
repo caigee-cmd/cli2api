@@ -45,11 +45,9 @@ const (
 )
 
 const (
-	refreshLead       = 24 * time.Hour
-	loginPendingTTL   = 10 * time.Minute
-	quotaCooldownPlan = 12 * time.Hour
-	quotaCooldownSolo = 6 * time.Hour
-	hardRateCooldown  = 5 * time.Minute
+	refreshLead      = 24 * time.Hour
+	loginPendingTTL  = 10 * time.Minute
+	hardRateCooldown = 5 * time.Minute
 )
 
 // Credential is the canonical storage payload shape.

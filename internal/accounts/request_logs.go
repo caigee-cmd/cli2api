@@ -36,6 +36,7 @@ type RequestLog struct {
 	MappedModel      string           `json:"mapped_model,omitempty"`
 	AccountID        string           `json:"account_id,omitempty"`
 	Provider         string           `json:"provider,omitempty"`
+	Routing          string           `json:"routing,omitempty"`
 	PromptTokens     *int             `json:"prompt_tokens,omitempty"`
 	CompletionTokens *int             `json:"completion_tokens,omitempty"`
 	CacheReadTokens  *int             `json:"cache_read_tokens,omitempty"`
@@ -183,12 +184,12 @@ func (s *Store) InsertRequestLog(ctx context.Context, log RequestLog) error {
 	}
 	_, err := s.db.ExecContext(ctx, `
 INSERT INTO request_logs (
-	  id, created_at, finished_at, stream, status, requested_model, mapped_model, account_id, provider,
+	  id, created_at, finished_at, stream, status, requested_model, mapped_model, account_id, provider, routing,
 	  prompt_tokens, completion_tokens, cache_read_tokens, cache_write_tokens, usage_source, credits,
 	  latency_ms, ttfb_ms, error_kind, error_code, error_message, attempt_count
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		log.ID, formatTime(log.CreatedAt), finished, boolToInt(log.Stream), log.Status,
-		log.RequestedModel, log.MappedModel, nullIfEmpty(log.AccountID), strings.TrimSpace(log.Provider),
+		log.RequestedModel, log.MappedModel, nullIfEmpty(log.AccountID), strings.TrimSpace(log.Provider), strings.TrimSpace(log.Routing),
 		nullableInt(log.PromptTokens), nullableInt(log.CompletionTokens),
 		nullableInt(log.CacheReadTokens), nullableInt(log.CacheWriteTokens),
 		log.UsageSource, nullableFloat(log.Credits), nullableInt(log.LatencyMs), nullableInt(log.TTFBMs),
@@ -210,12 +211,12 @@ func (s *Store) UpdateRequestLog(ctx context.Context, log RequestLog) error {
 	}
 	result, err := s.db.ExecContext(ctx, `
 	UPDATE request_logs SET
-	  finished_at = ?, status = ?, requested_model = ?, mapped_model = ?, account_id = ?, provider = ?,
+	  finished_at = ?, status = ?, requested_model = ?, mapped_model = ?, account_id = ?, provider = ?, routing = ?,
 	  prompt_tokens = ?, completion_tokens = ?, cache_read_tokens = ?, cache_write_tokens = ?,
 	  usage_source = ?, credits = ?, latency_ms = ?, ttfb_ms = ?,
 	  error_kind = ?, error_code = ?, error_message = ?, attempt_count = ?
 	WHERE id = ?`,
-		finished, log.Status, log.RequestedModel, log.MappedModel, nullIfEmpty(log.AccountID), strings.TrimSpace(log.Provider),
+		finished, log.Status, log.RequestedModel, log.MappedModel, nullIfEmpty(log.AccountID), strings.TrimSpace(log.Provider), strings.TrimSpace(log.Routing),
 		nullableInt(log.PromptTokens), nullableInt(log.CompletionTokens),
 		nullableInt(log.CacheReadTokens), nullableInt(log.CacheWriteTokens),
 		log.UsageSource, nullableFloat(log.Credits), nullableInt(log.LatencyMs), nullableInt(log.TTFBMs),
@@ -280,7 +281,7 @@ func (s *Store) ListRequestLogs(ctx context.Context, filter RequestLogFilter) (R
 
 	query := `
 	SELECT id, created_at, finished_at, stream, status, requested_model, mapped_model, account_id,
-	       COALESCE(NULLIF(provider, ''), (SELECT provider FROM accounts WHERE accounts.id = request_logs.account_id), ''),
+	       COALESCE(NULLIF(provider, ''), (SELECT provider FROM accounts WHERE accounts.id = request_logs.account_id), ''), routing,
 	       prompt_tokens, completion_tokens, cache_read_tokens, cache_write_tokens, usage_source, credits,
 	       latency_ms, ttfb_ms, error_kind, error_code, error_message, attempt_count
 	FROM request_logs` + where + ` ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`
@@ -617,7 +618,7 @@ func percentileNearestRank(sorted []int, percentile int) int {
 func (s *Store) GetRequestLog(ctx context.Context, id string) (RequestLog, error) {
 	row := s.db.QueryRowContext(ctx, `
 	SELECT id, created_at, finished_at, stream, status, requested_model, mapped_model, account_id,
-	       COALESCE(NULLIF(provider, ''), (SELECT provider FROM accounts WHERE accounts.id = request_logs.account_id), ''),
+	       COALESCE(NULLIF(provider, ''), (SELECT provider FROM accounts WHERE accounts.id = request_logs.account_id), ''), routing,
 	       prompt_tokens, completion_tokens, cache_read_tokens, cache_write_tokens, usage_source, credits,
 	       latency_ms, ttfb_ms, error_kind, error_code, error_message, attempt_count
 	FROM request_logs WHERE id = ?`, strings.TrimSpace(id))
@@ -755,7 +756,7 @@ func scanRequestLog(row rowScanner) (RequestLog, error) {
 		created               string
 	)
 	err := row.Scan(
-		&log.ID, &created, &finished, &stream, &log.Status, &log.RequestedModel, &log.MappedModel, &accountID, &log.Provider,
+		&log.ID, &created, &finished, &stream, &log.Status, &log.RequestedModel, &log.MappedModel, &accountID, &log.Provider, &log.Routing,
 		&prompt, &completion, &cacheRead, &cacheWrite, &log.UsageSource, &credits,
 		&latency, &ttfb, &log.ErrorKind, &log.ErrorCode, &log.ErrorMessage, &log.AttemptCount,
 	)

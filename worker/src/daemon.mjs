@@ -225,16 +225,21 @@ function sendClassified(res, err, extra = {}) {
 function humanizeUpstreamError(code, msg) {
   const c = String(code || "");
   const m = String(msg || "");
+  if (/token-limit|oversized prompt|prompt too (large|long)|context length|local precheck rejected/i.test(m)) {
+    return {
+      code: "prompt_too_large",
+      type: "invalid_request_error",
+      message: "Upstream model input token limit hit. Reduce system prompt / history / tools. Detail: " + m,
+    };
+  }
   if (
     c === "insufficient_quota" ||
-    /token-limit|exceeded your current quota/i.test(m)
+    /exceeded your current quota|额度已用尽|额度用尽|购买加量包/i.test(m)
   ) {
     return {
       code: "insufficient_quota",
       type: "insufficient_quota",
-      message:
-        "Upstream model token/quota limit hit (often input too large or model-specific rate limit), not necessarily zero account balance. Reduce system prompt / history / tools. Detail: " +
-        m,
+      message: "Upstream model quota exhausted. Detail: " + m,
     };
   }
   if (/unknown sse issue|response code=429/i.test(m)) {
@@ -319,6 +324,11 @@ async function prepareUpstream(reqBody) {
     maxInputTokens: reqBody.max_input_tokens,
     tools: reqBody.tools || [],
     toolChoice: reqBody.tool_choice,
+    temperature: reqBody.temperature,
+    topP: reqBody.top_p,
+    stop: reqBody.stop,
+    parallelToolCalls: reqBody.parallel_tool_calls,
+    responseFormat: reqBody.response_format,
   });
   const approxPrompt = estimatePromptTokens(reqBody.messages || []) + estimateTokens(plain.system || "");
   const systemLen = String(plain.system || "").length;

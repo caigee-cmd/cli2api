@@ -126,7 +126,7 @@ export function OverviewPageSkeleton() {
 
 export function AccountCardSkeleton() {
   return (
-    <article className="overflow-hidden rounded-3xl border border-border bg-surface">
+    <article className="min-h-[280px] overflow-hidden rounded-3xl border border-border bg-surface">
       <div className="space-y-2 px-3 pt-2.5 pb-1.5">
         <div className="flex items-start justify-between gap-2.5">
           <div className="flex min-w-0 items-center gap-2.5">
@@ -169,7 +169,7 @@ export function AccountCardSkeleton() {
   )
 }
 
-export function AccountsListSkeleton({ count = 6 }: { count?: number }) {
+export function AccountsListSkeleton({ count = 5 }: { count?: number }) {
   return (
     <section className="grid gap-2.5 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4" aria-label="Loading accounts">
       {Array.from({ length: count }, (_, index) => <AccountCardSkeleton key={index} />)}

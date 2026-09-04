@@ -195,6 +195,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/chat", s.withConsoleKey(s.handleChatCompletions))
 	s.mux.HandleFunc(endpoint.ModelsPath, s.withAPIKey(s.handleModels))
 	s.mux.HandleFunc(endpoint.ChatCompletionsPath, s.withAPIKey(s.handleChatCompletions))
+	s.mux.HandleFunc(endpoint.MessagesPath, s.withAPIKey(s.handleAnthropicMessages))
+	s.mux.HandleFunc(endpoint.ResponsesPath, s.withAPIKey(s.handleResponses))
 
 	ui := webui.Handler()
 	s.mux.Handle("/assets/", ui)

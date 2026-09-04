@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -38,6 +39,8 @@ type Client struct {
 }
 
 const catalogTimeout = 15 * time.Second
+
+var dailyCheckinRetryDelays = []time.Duration{time.Second, 3 * time.Second}
 
 func NewClient(store Store) *Client {
 	return &Client{
@@ -547,6 +550,9 @@ type ClassifiedError = providers.Error
 // Classify maps WorkBuddy HTTP/error bodies onto the internal taxonomy.
 func Classify(status int, body string) providers.ClassifiedError {
 	text := strings.ToLower(body)
+	if accounts.IsPromptLimitText(body) {
+		return providers.ClassifiedError{Kind: accounts.KindInvalidRequest, Status: 400, Message: strings.TrimSpace(body)}
+	}
 	switch {
 	case status == 402 || strings.Contains(text, "insufficient credit") ||
 		strings.Contains(text, "quota exceeded") || strings.Contains(text, "积分不足") ||
@@ -559,7 +565,7 @@ func Classify(status int, body string) providers.ClassifiedError {
 		return providers.ClassifiedError{Kind: accounts.KindRateLimit, Status: 429, Message: strings.TrimSpace(body)}
 	case status == 404:
 		return providers.ClassifiedError{Kind: accounts.KindUnavailable, Status: 404, Message: strings.TrimSpace(body)}
-	case status == 400 || accounts.IsInvalidRequestText(body) || isMissingSystemPrompt(body):
+	case status == 400 || accounts.IsPromptLimitText(body) || accounts.IsInvalidRequestText(body) || isMissingSystemPrompt(body):
 		// Request-level rejection (content screening, malformed fields,
 		// missing leading system message): retrying on another account
 		// cannot help and the account is healthy.
@@ -572,7 +578,7 @@ func Classify(status int, body string) providers.ClassifiedError {
 		if env.Code == sessionDeadCode || strings.Contains(strings.ToLower(env.Msg), sessionDeadText) {
 			return providers.ClassifiedError{Kind: accounts.KindAuth, Status: 401, Message: "session dead; re-login required"}
 		}
-		if accounts.IsInvalidRequestText(env.Msg) || isMissingSystemPrompt(env.Msg) || env.Code == missingSystemPromptCode {
+		if accounts.IsPromptLimitText(env.Msg) || accounts.IsInvalidRequestText(env.Msg) || isMissingSystemPrompt(env.Msg) || env.Code == missingSystemPromptCode {
 			return providers.ClassifiedError{Kind: accounts.KindInvalidRequest, Status: firstNonEmptyStatus(status, 400), Message: env.Msg}
 		}
 		return providers.ClassifiedError{Kind: accounts.KindUnavailable, Status: 502, Message: env.Msg}
@@ -697,10 +703,14 @@ func (c *Client) DailyCheckin(ctx context.Context, accountID string) (string, er
 	if err != nil {
 		return "", err
 	}
-	body, status, err := c.do(ctx, http.MethodPost, credential.BillingBase()+pathDailyCheckin, []byte("{}"),
-		func(h http.Header) { SetBillingHeaders(h, credential) })
-	if err != nil {
-		return "", err
+	var body []byte
+	var status int
+	for attempt := 0; ; attempt++ {
+		body, status, err = c.do(ctx, http.MethodPost, credential.BillingBase()+pathDailyCheckin, []byte("{}"),
+			func(h http.Header) { SetBillingHeaders(h, credential) })
+		if !retryDailyCheckin(ctx, err, status, attempt) {
+			break
+		}
 	}
 	text := strings.TrimSpace(string(body))
 	classified := Classify(status, text)
@@ -729,6 +739,27 @@ func (c *Client) DailyCheckin(ctx context.Context, accountID string) (string, er
 		msg = "ok"
 	}
 	return msg, nil
+}
+
+func retryDailyCheckin(ctx context.Context, err error, status, attempt int) bool {
+	if attempt >= len(dailyCheckinRetryDelays) || ctx.Err() != nil {
+		return false
+	}
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return false
+		}
+	} else if status < http.StatusInternalServerError {
+		return false
+	}
+	timer := time.NewTimer(dailyCheckinRetryDelays[attempt])
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
 }
 
 // Keepalive forces a token refresh for the account. Session-dead uses the

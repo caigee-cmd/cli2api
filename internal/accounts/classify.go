@@ -21,6 +21,16 @@ const (
 const maxRetryAfter = 10 * time.Minute
 const minRateLimitCooldown = 30 * time.Second
 
+func NextLocalMidnightCooldown() time.Duration {
+	return nextLocalMidnightCooldown(time.Now())
+}
+
+func nextLocalMidnightCooldown(now time.Time) time.Duration {
+	local := now.In(time.Local)
+	next := time.Date(local.Year(), local.Month(), local.Day()+1, 0, 0, 0, 0, time.Local)
+	return next.Sub(now)
+}
+
 type Classified struct {
 	Kind       string
 	Status     int
@@ -207,6 +217,9 @@ func Classify(status int, body, retryAfter, kindHint, failoverHint string) Class
 			kind = KindUnavailable
 		}
 	}
+	if promptLimitLike(lower) {
+		kind = KindInvalidRequest
+	}
 	if kind == KindAuth && quotaLike(lower, code, typ) {
 		kind = KindQuota
 	}
@@ -219,7 +232,7 @@ func Classify(status int, body, retryAfter, kindHint, failoverHint string) Class
 	case KindQuota:
 		out.Status = 429
 		out.Failover = false
-		out.Cooldown = time.Hour
+		out.Cooldown = NextLocalMidnightCooldown()
 		out.Code = firstNonEmpty(code, "insufficient_quota")
 		out.Type = "insufficient_quota"
 	case KindRateLimit:
@@ -246,9 +259,13 @@ func Classify(status int, body, retryAfter, kindHint, failoverHint string) Class
 	case KindInvalidRequest:
 		// Request content the upstream rejected; retrying on another account
 		// cannot succeed, and the account itself is healthy.
-		out.Status = status
-		if out.Status < 400 {
+		if promptLimitLike(lower) {
 			out.Status = 400
+		} else {
+			out.Status = status
+			if out.Status < 400 {
+				out.Status = 400
+			}
 		}
 		out.Failover = false
 		out.Cooldown = 0
@@ -372,14 +389,24 @@ func quotaLike(lower, code, typ string) bool {
 		return true
 	}
 	return strings.Contains(lower, "insufficient_quota") ||
-		strings.Contains(lower, "token-limit") ||
-		strings.Contains(lower, "#token-limit") ||
 		strings.Contains(lower, "exceeded your current quota") ||
-		strings.Contains(lower, "oversized prompt") ||
-		strings.Contains(lower, "local precheck rejected") ||
 		strings.Contains(lower, "额度已用尽") ||
 		strings.Contains(lower, "额度用尽") ||
 		strings.Contains(lower, "购买加量包")
+}
+
+func promptLimitLike(lower string) bool {
+	return strings.Contains(lower, "token-limit") ||
+		strings.Contains(lower, "#token-limit") ||
+		strings.Contains(lower, "oversized prompt") ||
+		strings.Contains(lower, "prompt too large") ||
+		strings.Contains(lower, "prompt too long") ||
+		strings.Contains(lower, "context length") ||
+		strings.Contains(lower, "local precheck rejected")
+}
+
+func IsPromptLimitText(text string) bool {
+	return promptLimitLike(strings.ToLower(text))
 }
 
 func rateLike(lower string) bool {
@@ -423,8 +450,8 @@ func modelNotAvailableLike(lower, code string) bool {
 
 // IsInvalidRequestText reports whether an error body looks like an upstream
 // content-screening rejection: the request itself is the problem, so no
-// account should fail over or cool down. Auth and quota shapes are matched
-// earlier in Classify and never reach this check.
+// account should fail over or cool down. Quota and prompt-limit shapes are
+// matched earlier in Classify and never reach this check.
 func IsInvalidRequestText(text string) bool {
 	lower := strings.ToLower(text)
 	return strings.Contains(lower, "sensitive") ||

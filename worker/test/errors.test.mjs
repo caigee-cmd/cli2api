@@ -2,10 +2,18 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { classifyError, parseRetryAfter, shouldFailover } from "../src/errors.mjs";
 
-test("quota is 429 and does not failover", () => {
+test("prompt token limit is request-level and does not cool accounts", () => {
   const got = classifyError({
-    message: "insufficient_quota: Upstream model token/quota limit hit #token-limit",
+    message: "insufficient_quota: Upstream model input token-limit",
   });
+  assert.equal(got.kind, "invalid_request");
+  assert.equal(got.status, 400);
+  assert.equal(got.failover, false);
+  assert.equal(got.cooldownSec, 0);
+});
+
+test("hard quota is 429 and does not failover", () => {
+  const got = classifyError({ message: "insufficient_quota: account quota exhausted" });
   assert.equal(got.kind, "quota");
   assert.equal(got.status, 429);
   assert.equal(got.failover, false);
@@ -21,7 +29,7 @@ test("generic 429 rate limit failovers with cooldown", () => {
 
 test("auth is not confused by token-limit", () => {
   const got = classifyError({ message: "insufficient_quota token-limit unauthorized" });
-  assert.equal(got.kind, "quota");
+  assert.equal(got.kind, "invalid_request");
   assert.equal(got.failover, false);
 });
 
