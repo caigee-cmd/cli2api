@@ -7,16 +7,36 @@ import (
 	"time"
 )
 
-func TestClassifyQuotaDoesNotFailover(t *testing.T) {
+func TestClassifyPromptLimitDoesNotCoolAccount(t *testing.T) {
 	got := Classify(500, `{"error":{"code":"insufficient_quota","message":"token-limit"}}`, "", "", "")
-	if got.Kind != KindQuota || got.Failover || got.Status != 429 {
+	if got.Kind != KindInvalidRequest || got.Failover || got.Status != 400 || got.Cooldown != 0 {
+		t.Fatalf("got %#v", got)
+	}
+}
+
+func TestNextLocalMidnightCooldown(t *testing.T) {
+	loc := time.FixedZone("UTC+8", 8*60*60)
+	now := time.Date(2026, time.September, 4, 23, 45, 0, 0, loc)
+	if got := nextLocalMidnightCooldown(now); got != 15*time.Minute {
+		t.Fatalf("cooldown=%s", got)
+	}
+
+	utc := time.Date(2026, time.September, 4, 23, 45, 0, 0, time.UTC)
+	if got := nextLocalMidnightCooldown(utc); got != 15*time.Minute {
+		t.Fatalf("utc cooldown=%s", got)
+	}
+}
+
+func TestClassifyHardQuotaDoesNotFailover(t *testing.T) {
+	got := Classify(429, `{"error":{"code":"insufficient_quota","message":"account quota exhausted"}}`, "", "", "")
+	if got.Kind != KindQuota || got.Failover || got.Status != 429 || got.Cooldown <= 0 || got.Cooldown > 24*time.Hour {
 		t.Fatalf("got %#v", got)
 	}
 }
 
 func TestClassifyCodeBuddyQuotaExhausted(t *testing.T) {
 	got := Classify(400, `{"error":{"data":{"code":14018,"msg":"额度已用尽，请购买加量包"}}}`, "", "", "")
-	if got.Kind != KindQuota || got.Failover || got.Status != 429 || got.Cooldown != time.Hour {
+	if got.Kind != KindQuota || got.Failover || got.Status != 429 || got.Cooldown <= 0 || got.Cooldown > 24*time.Hour {
 		t.Fatalf("got %+v", got)
 	}
 }

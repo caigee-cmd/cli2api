@@ -7,7 +7,12 @@ type ChatRequest struct {
 	Messages              []ChatMessage   `json:"messages"`
 	Stream                bool            `json:"stream"`
 	MaxTokens             json.RawMessage `json:"max_tokens"`
+	MaxCompletionTokens   json.RawMessage `json:"max_completion_tokens,omitempty"`
 	Temperature           json.RawMessage `json:"temperature"`
+	TopP                  json.RawMessage `json:"top_p,omitempty"`
+	Stop                  json.RawMessage `json:"stop,omitempty"`
+	ParallelToolCalls     *bool           `json:"parallel_tool_calls,omitempty"`
+	ResponseFormat        json.RawMessage `json:"response_format,omitempty"`
 	Tools                 json.RawMessage `json:"tools,omitempty"`
 	ToolChoice            json.RawMessage `json:"tool_choice,omitempty"`
 	IsReasoning           *bool           `json:"is_reasoning,omitempty"`

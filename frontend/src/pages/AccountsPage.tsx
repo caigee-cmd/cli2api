@@ -47,11 +47,8 @@ export function AccountsPage() {
   const { t } = useI18n()
   const [accounts, setAccounts] = useState<AccountRow[]>([])
   const [accountsLoading, setAccountsLoading] = useState(true)
-  const [accountsRefreshing, setAccountsRefreshing] = useState(false)
-  const [refreshingById, setRefreshingById] = useState<Record<string, boolean>>({})
   const rows = accounts
   const hasAccounts = rows.length > 0
-  const refreshing = accountsRefreshing && hasAccounts
   const [addOpen, setAddOpen] = useState(false)
   const [busy, setBusy] = useState<AccountBusy | null>(null)
   const [patById, setPatById] = useState<Record<string, string>>({})
@@ -75,7 +72,6 @@ export function AccountsPage() {
   const [priorityById, setPriorityById] = useState<Record<string, number>>({})
   const [quotaRefreshing, setQuotaRefreshing] = useState(false)
   const reloadAccounts = useCallback(async (refresh = false) => {
-    if (refresh) setAccountsRefreshing(true)
     try {
       const response = await fetchAccounts(refresh)
       const next = response.data || EMPTY_ACCOUNTS
@@ -83,35 +79,22 @@ export function AccountsPage() {
       return next
     } finally {
       setAccountsLoading(false)
-      if (refresh) setAccountsRefreshing(false)
     }
   }, [])
 
   const refreshAccountsInBatches = useCallback(async (ids: string[], forceQuota = true) => {
     const accountIds = [...new Set(ids)]
     if (!accountIds.length) return
-    setAccountsRefreshing(true)
-    try {
-      for (let start = 0; start < accountIds.length; start += ACCOUNT_REFRESH_BATCH_SIZE) {
-        const batch = accountIds.slice(start, start + ACCOUNT_REFRESH_BATCH_SIZE)
-        await Promise.all(batch.map(async (id) => {
-          setRefreshingById((current) => ({ ...current, [id]: true }))
-          try {
-            const refreshed = await refreshAccount(id, { quota: forceQuota })
-            setAccounts((current) => current.map((account) => account.id === id ? refreshed : account))
-          } catch (error) {
-            setNoteById((current) => ({ ...current, [id]: error instanceof Error ? error.message : String(error) }))
-          } finally {
-            setRefreshingById((current) => {
-              const next = { ...current }
-              delete next[id]
-              return next
-            })
-          }
-        }))
-      }
-    } finally {
-      setAccountsRefreshing(false)
+    for (let start = 0; start < accountIds.length; start += ACCOUNT_REFRESH_BATCH_SIZE) {
+      const batch = accountIds.slice(start, start + ACCOUNT_REFRESH_BATCH_SIZE)
+      await Promise.all(batch.map(async (id) => {
+        try {
+          const refreshed = await refreshAccount(id, { quota: forceQuota })
+          setAccounts((current) => current.map((account) => account.id === id ? refreshed : account))
+        } catch (error) {
+          setNoteById((current) => ({ ...current, [id]: error instanceof Error ? error.message : String(error) }))
+        }
+      }))
     }
   }, [])
 
@@ -400,7 +383,6 @@ export function AccountsPage() {
           ))}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {accountsRefreshing ? <span className="text-xs text-muted" role="status">{t('refreshing')}</span> : null}
           <Button size="sm" variant="secondary" isPending={quotaRefreshing} onPress={() => void onRefreshCredits()}>
             {t('refreshCredits')}
           </Button>
@@ -472,7 +454,7 @@ export function AccountsPage() {
         </section>
       ) : null}
 
-      {!refreshing && !hasAccounts ? (
+      {!hasAccounts ? (
         <EmptyPanel
           className="rounded-3xl border border-dashed border-border"
           icon={<BrandMark size={28} />}
@@ -491,13 +473,12 @@ export function AccountsPage() {
         />
       ) : null}
 
-      <section className="grid gap-2.5 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4" aria-busy={refreshing}>
+      <section className="grid auto-rows-[minmax(280px,auto)] gap-2.5 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
         {pagedRows.map((account) => (
           <AccountCard
             key={account.id}
             account={account}
             busyKind={busy?.id === account.id ? busy.kind : ''}
-            detailsLoading={Boolean(refreshingById[account.id])}
             authPanelOpen={authPanelId === account.id}
             authUrl={urlById[account.id]}
             note={noteById[account.id]}

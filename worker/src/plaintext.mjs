@@ -208,6 +208,22 @@ function normalizeToolCall(toolCall, messageIndex, callIndex, usedIds, sourceIds
   };
 }
 
+function normalizeContentForUpstream(content) {
+  if (!Array.isArray(content)) return content == null ? "" : content;
+  return content.map((part) => {
+    if (typeof part === "string") return { type: "text", text: part };
+    if (!part || typeof part !== "object") return null;
+    if (["text", "input_text", "output_text"].includes(part.type)) {
+      return { type: "text", text: String(part.text ?? part.content ?? "") };
+    }
+    if (part.type === "image_url") {
+      const image = typeof part.image_url === "string" ? { url: part.image_url } : part.image_url;
+      if (image?.url) return { type: "image_url", image_url: image };
+    }
+    return null;
+  }).filter(Boolean);
+}
+
 function normalizeMessagesForUpstream(messages = []) {
   const usedIds = new Set();
   const sourceIds = new Map();
@@ -239,7 +255,10 @@ function normalizeMessagesForUpstream(messages = []) {
     if (role === "assistant") {
       flushToolResults();
       consumedBatchIds = new Set();
-      const out = { role, content: contentToString(message?.content) };
+      const normalizedContent = role === "system" || role === "developer"
+        ? contentToString(message?.content)
+        : normalizeContentForUpstream(message?.content);
+      const out = { role, content: normalizedContent };
       if (Array.isArray(message?.tool_calls) && message.tool_calls.length) {
         out.tool_calls = message.tool_calls.map((toolCall, callIndex) => {
           const normalizedCall = normalizeToolCall(toolCall, messageIndex, callIndex, usedIds, sourceIds);
@@ -494,6 +513,11 @@ export function buildPlainChatBody({
   maxInputTokens,
   tools = [],
   toolChoice,
+  temperature,
+  topP,
+  stop,
+  parallelToolCalls,
+  responseFormat,
 }) {
   const base = template ? structuredClone(template) : {};
   const reqId = crypto.randomUUID();
@@ -510,7 +534,7 @@ export function buildPlainChatBody({
   // Upstream capture format keeps system both as top-level `system` and as messages[role=system].
   const sysFromMsgs = openaiMessages
     .filter((m) => m.role === "system" || m.role === "developer")
-    .map((m) => m.content)
+    .map((m) => contentToString(m.content))
     .filter(Boolean);
   const nonSystem = openaiMessages.filter((m) => m.role !== "system" && m.role !== "developer");
 
@@ -560,6 +584,11 @@ export function buildPlainChatBody({
     ...(reasoningBudgetTokens !== undefined ? { reasoning_budget_tokens: reasoningBudgetTokens } : {}),
     ...(contextLength !== undefined ? { context_length: contextLength } : {}),
     ...(toolChoice !== undefined ? { tool_choice: toolChoice } : {}),
+    ...(temperature !== undefined ? { temperature } : {}),
+    ...(topP !== undefined ? { top_p: topP } : {}),
+    ...(stop !== undefined ? { stop } : {}),
+    ...(parallelToolCalls !== undefined ? { parallel_tool_calls: parallelToolCalls } : {}),
+    ...(responseFormat !== undefined ? { response_format: responseFormat } : {}),
   };
 
   return {

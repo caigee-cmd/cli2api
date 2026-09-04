@@ -21,7 +21,7 @@ Long-lived workers, multi-account scheduling, one-command Docker start.
 
 ## Features
 
-- **OpenAI-compatible proxy**: `/v1/chat/completions`, `/v1/models` — streaming/non-streaming, tool calls, `reasoning_content`
+- **OpenAI / Anthropic-compatible proxy**: `/v1/chat/completions`, `/v1/responses`, `/v1/messages`, `/v1/models` — streaming/non-streaming text, images, and function tools; file inputs are rejected explicitly. `messages` / `responses` are stateless adapters today and do not support server-side conversations or upstream-specific tools.
 - **Multi-channel account pool**: Qoder Global / Qoder CN, WorkBuddy Global / WorkBuddy CN, Trae CN Solo — region isolation, account pinning, concurrency limits, cooldowns, and same-family failover
 - **Long-lived warm workers**: one isolated Node process and runtime directory per account keeps authentication, WASM encoding, and cloud SSE connections warm. Typical small-chat latency is ~1-2s after warmup, versus ~10s+ for spawn-per-request wrappers
 - **Multiple login methods**: browser Device Flow OAuth, PAT, and `qoder-native-v1` credential import/export
@@ -50,7 +50,7 @@ Base URL: http://127.0.0.1:3010/v1
 API Key:  <the key printed on first startup>
 ```
 
-Without an account header the scheduler picks a ready account; pin a request with the `X-Qoder-Account: acc_...` header. curl / PowerShell examples in the [deployment guide](deploy/README.md).
+Without an account header the scheduler picks a ready account; pin a request with the `X-Qoder-Account: acc_...` header. Anthropic `POST /v1/messages` and OpenAI `POST /v1/responses` are also available; both require the complete conversation in each request and do not support server-side continuation through `previous_response_id` / `conversation`. curl / PowerShell examples in the [deployment guide](deploy/README.md).
 
 ## How it works
 
@@ -82,10 +82,9 @@ CLI2API is a local gateway: it does not provide accounts, quotas, or an official
 **In progress**
 
 - Live-account acceptance for Qoder CN and WorkBuddy (login, failover, mixed account pools)
-- Phase I: Anthropic `/v1/messages` ingress adapter and the canonical conversation contract
-
 **Supported**
 
+- Stateless text, image, and function-tool adapters for Anthropic `/v1/messages` and OpenAI `/v1/responses`
 - WorkBuddy daily check-in and token keepalive (per-account opt-in, off by default; console can check in now / refresh credits)
 
 **Planned**

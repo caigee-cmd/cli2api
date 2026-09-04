@@ -236,7 +236,7 @@ func TestChatNonStreamUnknownModelDoesNotHitWorkers(t *testing.T) {
 	}
 }
 
-func TestChatNonStreamDoesNotFailoverQuota(t *testing.T) {
+func TestChatNonStreamPromptLimitDoesNotCoolOrFailover(t *testing.T) {
 	a := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Qoder-Account", "a")
 		w.Header().Set("X-Qoder-Error-Kind", "quota")
@@ -245,7 +245,7 @@ func TestChatNonStreamDoesNotFailoverQuota(t *testing.T) {
 	}))
 	defer a.Close()
 	b := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Fatal("quota should not failover")
+		t.Fatal("prompt limit should not failover")
 	}))
 	defer b.Close()
 	pool := accounts.NewPool([]string{a.URL, b.URL}, []string{"a", "b"})
@@ -256,7 +256,43 @@ func TestChatNonStreamDoesNotFailoverQuota(t *testing.T) {
 		Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
 	}, "a", "")
 	if err == nil {
-		t.Fatal("expected quota error")
+		t.Fatal("expected prompt limit error")
+	}
+	item, _ := pool.ByID("a")
+	if !item.DownUntil.IsZero() {
+		t.Fatalf("prompt limit must not cool account: %+v", item)
+	}
+}
+
+func TestChatNonStreamHardQuotaCoolsAccount(t *testing.T) {
+	a := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Qoder-Account", "a")
+		w.Header().Set("X-Qoder-Error-Kind", "quota")
+		w.Header().Set("X-Qoder-Failover", "0")
+		http.Error(w, `{"error":{"message":"account quota exhausted","code":"insufficient_quota","kind":"quota"}}`, http.StatusTooManyRequests)
+	}))
+	defer a.Close()
+	b := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("hard quota should not failover current request")
+	}))
+	defer b.Close()
+	pool := accounts.NewPool([]string{a.URL, b.URL}, []string{"a", "b"})
+	ex := NewChatExecutor(pool, "")
+	ex.HTTPClient = a.Client()
+	_, err := ex.ChatNonStream(context.Background(), translate.ChatRequest{
+		Model:    "qwen3.7-plus",
+		Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	}, "a", "")
+	if err == nil {
+		t.Fatal("expected hard quota error")
+	}
+	item, _ := pool.ByID("a")
+	if item.DownUntil.IsZero() {
+		t.Fatalf("hard quota must cool account: %+v", item)
+	}
+	until := item.DownUntil.In(time.Local)
+	if until.Hour() != 0 || until.Minute() != 0 || until.Second() != 0 {
+		t.Fatalf("hard quota cooldown must end at local midnight: %s", item.DownUntil)
 	}
 }
 
@@ -438,6 +474,10 @@ func TestObserveStreamFailureCoolsDownQuotaAccount(t *testing.T) {
 	}
 	if item.DownUntil.IsZero() {
 		t.Fatalf("quota failure must cool the whole account")
+	}
+	until := item.DownUntil.In(time.Local)
+	if until.Hour() != 0 || until.Minute() != 0 || until.Second() != 0 {
+		t.Fatalf("quota cooldown must end at local midnight: %s", item.DownUntil)
 	}
 	if len(item.ModelDownUntil) != 0 {
 		t.Fatalf("account-scoped quota must not create model cooldowns: %v", item.ModelDownUntil)

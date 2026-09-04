@@ -306,3 +306,28 @@ func TestSummarizeRequestLogs(t *testing.T) {
 		t.Fatalf("1h series = %+v", hourStats.Series)
 	}
 }
+
+func TestRequestLogPersistsRouting(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	id := NewRequestID()
+	if err := store.InsertRequestLog(ctx, RequestLog{
+		ID: id, CreatedAt: time.Now().UTC(), Status: RequestStatusOK,
+		RequestedModel: "glm-5.2", AccountID: "account-b", Routing: "sticky_escape",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	listed, err := store.ListRequestLogs(ctx, RequestLogFilter{Limit: 10})
+	if err != nil || len(listed.Items) != 1 || listed.Items[0].Routing != "sticky_escape" {
+		t.Fatalf("listed = %+v, err=%v", listed, err)
+	}
+	detail, err := store.GetRequestLog(ctx, id)
+	if err != nil || detail.Routing != "sticky_escape" {
+		t.Fatalf("detail = %+v, err=%v", detail, err)
+	}
+}
