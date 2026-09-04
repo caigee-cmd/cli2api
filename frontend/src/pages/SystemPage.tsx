@@ -12,14 +12,14 @@ import {
   X,
 } from '@phosphor-icons/react'
 import { fetchConsoleKey, rotateConsoleKey, type ConsoleKeyView } from '@/api/keys'
-import { fetchSystemSettings, fetchSystemUpdate, startSystemUpdate, updateSystemSettings, type StartUpdateResult, type SystemSettings, type SystemUpdateInfo } from '@/api/system'
+import { applyPreparedSystemUpdate, fetchSystemSettings, fetchSystemUpdate, startSystemUpdate, updateSystemSettings, type StartUpdateResult, type SystemSettings, type SystemUpdateInfo } from '@/api/system'
 import { useApiKey } from '@/hooks/useApiKey'
 import { PageAlert } from '@/components/ui/PageAlert'
 import { SystemBodySkeleton, SystemPageSkeleton } from '@/components/ui/PageSkeletons'
 import { useI18n } from '@/hooks/useI18n'
 import { CompactSwitch } from '@/components/ui/CompactSwitch'
 
-const activeStates = new Set(['preparing', 'checking', 'backing_up', 'submitting', 'running', 'queued', 'pulling', 'recreating', 'rolling_back'])
+const activeStates = new Set(['preparing', 'preparing_image', 'checking', 'backing_up', 'submitting', 'running', 'queued', 'pulling', 'recreating', 'rolling_back'])
 
 export function SystemPage() {
   const { t } = useI18n()
@@ -74,7 +74,9 @@ export function SystemPage() {
   useEffect(() => {
     if (!submitting || !started || !info || info.update?.job_id !== started.job_id) return
     const state = info.update.state
-    if (state === 'succeeded') {
+    if (state === 'ready_to_apply') {
+      setSubmitting(false)
+    } else if (state === 'succeeded') {
       setSubmitting(false)
       setReloadIn((current) => current ?? 3)
     } else if (state === 'failed' || state === 'rolled_back') {
@@ -92,14 +94,28 @@ export function SystemPage() {
     return () => window.clearTimeout(timer)
   }, [reloadIn])
 
-  const canUpdate = Boolean(info?.managed && info?.has_update && info?.next_version && info?.agent?.available && !active)
+  const canPrepare = Boolean(info?.managed && info?.has_update && info?.next_version && info?.agent?.available && info?.agent?.staged_update && preparationState !== 'ready_to_apply' && !active)
+  const canApply = Boolean(preparationState === 'ready_to_apply' && info?.agent?.available && !active)
 
-  async function applyUpdate() {
+  async function prepareUpdate() {
     setSubmitting(true)
     setStarted(null)
     setError('')
     try {
       const result = await startSystemUpdate()
+      setStarted(result)
+      await load(false, true)
+    } catch {
+      setSubmitting(false)
+      setError(t('updateFailedHint'))
+    }
+  }
+
+  async function confirmUpdate() {
+    setSubmitting(true)
+    setError('')
+    try {
+      const result = await applyPreparedSystemUpdate()
       setStarted(result)
       await load(false, true)
     } catch {
@@ -168,13 +184,18 @@ export function SystemPage() {
             </div>
 
             <div className="mt-5 flex flex-wrap items-center justify-end gap-3">
-              <Button isDisabled={!canUpdate || reloadIn != null} isPending={submitting || active} onPress={() => void applyUpdate()}>
+              <Button isDisabled={(!canPrepare && !canApply) || reloadIn != null} isPending={submitting || active} onPress={() => void (canApply ? confirmUpdate() : prepareUpdate())}>
                 <ArrowCircleUp size={16} />
-                {reloadIn != null ? t('updateReloadingIn', { seconds: reloadIn }) : active || submitting ? t('updateInProgress') : t('updateNow')}
+                {reloadIn != null ? t('updateReloadingIn', { seconds: reloadIn }) : canApply ? t('applyUpdateNow') : active || submitting ? t('updateInProgress') : t('updateNow')}
               </Button>
             </div>
             {!info?.agent?.available && !active ? <p className="mt-3 text-right text-xs text-muted">{t('updateUnavailableHint')}</p> : null}
-            {active ? (
+            {info?.agent?.available && !info.agent.staged_update && !active ? <p className="mt-3 text-right text-xs text-muted">{t('updateStagedUnavailableHint')}</p> : null}
+            {preparationState === 'ready_to_apply' ? (
+              <div className="mt-4 rounded-lg border border-success/25 bg-success/5 px-3 py-3" role="status" aria-live="polite">
+                <p className="text-xs leading-5 text-muted">{t('updateReadyHint')}</p>
+              </div>
+            ) : active ? (
               <div className="mt-4 rounded-lg border border-warning/25 bg-warning/5 px-3 py-3" role="status" aria-live="polite">
                 <p className="text-xs leading-5 text-muted">{reloadIn != null ? t('updateReloadingHint') : t('updateInProgressHint')}</p>
               </div>
