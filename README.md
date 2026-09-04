@@ -21,7 +21,7 @@
 
 ## 功能
 
-- **OpenAI 兼容代理**：`/v1/chat/completions`、`/v1/models`，流式/非流式、工具调用、`reasoning_content`
+- **OpenAI / Anthropic 兼容代理**：`/v1/chat/completions`、`/v1/responses`、`/v1/messages`、`/v1/models`；支持流式/非流式、文本、图片与函数工具调用；文件输入会明确拒绝。`messages` / `responses` 当前为无状态适配层，不支持服务端会话或上游专属工具。
 - **多渠道账号池**：Qoder 国际版 / 国内版、WorkBuddy 国际版 / 国内版、Trae 国内版 Solo；地域隔离、账号固定、并发限制、冷却与同族故障切换
 - **常驻热 worker**：每账号独立 Node 进程与运行目录，鉴权、WASM 编码和云端 SSE 连接保持热；预热后小对话延迟约 1-2 秒，按请求拉起 CLI 的方案通常要 10 秒以上
 - **多种登录方式**：浏览器 Device Flow OAuth、PAT、`qoder-native-v1` 凭证导入/导出
@@ -50,7 +50,7 @@ Base URL: http://127.0.0.1:3010/v1
 API Key:  <首次启动时生成的 Key>
 ```
 
-不指定账号时，调度器自动选择可用账号；需要固定账号时加请求头 `X-Qoder-Account: acc_...`。curl / PowerShell 示例见 [部署说明](deploy/README.md)。
+不指定账号时，调度器自动选择可用账号；需要固定账号时加请求头 `X-Qoder-Account: acc_...`。除 Chat Completions 外，也可使用 Anthropic `POST /v1/messages` 与 OpenAI `POST /v1/responses`；两者要求请求携带完整对话，不支持 `previous_response_id` / `conversation` 服务端续接。curl / PowerShell 示例见 [部署说明](deploy/README.md)。
 
 ## 工作方式
 
@@ -82,10 +82,9 @@ CLI2API 是本地网关：不提供账号、额度或官方 API 服务，不做�
 **进行中**
 
 - Qoder 国内版与 WorkBuddy 的真账号验收（登录、故障切换、混合账号池）
-- Phase I：Anthropic `/v1/messages` 入口适配层与统一会话契约
-
 **已支持**
 
+- Anthropic `/v1/messages` 与 OpenAI `/v1/responses` 的无状态文本 / 函数工具适配层
 - WorkBuddy 每日签到与 token 保活（账号级开关，默认关闭；控制台可立即签到 / 刷新积分）
 
 **规划中**

@@ -28,13 +28,19 @@ function formatUpstreamError(err) {
   const type = err?.type || nested.type || "api_error";
   let msg = err?.message || err?.localizedMessage || err?.msg || nested.message || nested.msg || JSON.stringify(err).slice(0, 300);
   // Aliyun/Qoder often returns insufficient_quota for input token-limit, not zero balance.
-  if (code === "insufficient_quota" || type === "insufficient_quota" || /token-limit|exceeded your current quota/i.test(String(msg))) {
+  if (/token-limit|oversized prompt|prompt too (large|long)|context length|local precheck rejected/i.test(String(msg))) {
+    return {
+      code: "prompt_too_large",
+      type: "invalid_request_error",
+      message: "Upstream model input token limit hit. Reduce system prompt / history / tools. Detail: " + msg,
+    };
+  }
+  if (code === "insufficient_quota" || type === "insufficient_quota" || /exceeded your current quota|额度已用尽|额度用尽|购买加量包/i.test(String(msg))) {
     return {
       code: "insufficient_quota",
       type: "insufficient_quota",
       message:
-        "Upstream model token/quota limit hit (often input too large or model-specific rate limit), not necessarily zero account balance. Reduce system prompt / history / tools. Detail: " +
-        msg,
+        "Upstream model quota exhausted. Detail: " + msg,
     };
   }
   if (/unknown sse issue|sse connection failed|response code=429/i.test(String(msg))) {

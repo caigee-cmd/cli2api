@@ -3,6 +3,8 @@ package api
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +14,7 @@ import (
 	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
+	"github.com/caigee-cmd/cli2api/internal/auth"
 	"github.com/caigee-cmd/cli2api/internal/executor"
 	"github.com/caigee-cmd/cli2api/internal/providers"
 	"github.com/caigee-cmd/cli2api/internal/translate"
@@ -570,6 +573,10 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid_request", "messages required")
 		return
 	}
+	if err := translate.ValidateChatRequest(req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
 	publicModel := req.Model
 	if s.rejectsBareModel(publicModel) {
 		writeErr(w, http.StatusBadRequest, "provider_prefix_required", "cross-provider model pool is disabled; use a provider-prefixed model ID such as qoder/glm-5.2")
@@ -598,17 +605,20 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		RequestedModel: firstNonEmpty(publicModel, req.Model),
 	})
 	ctx := executor.WithAllowedProviders(executor.WithRequestID(r.Context(), requestID), identity.AllowedProviders)
+	if sessionKey := requestSessionKey(r, identity); sessionKey != "" {
+		ctx = executor.WithSessionKey(ctx, sessionKey)
+	}
 	w.Header().Set("X-Request-Id", requestID)
 
 	if req.Stream {
 		upstream, err := s.executor.ChatStreamProxy(ctx, req, prefer, providerFilter)
 		if err != nil {
-			s.finishRequestLog(requestID, started, req, publicModel, upstream.AccountID, firstNonEmpty(upstream.Provider, providerFilter), accounts.RequestStatusError, upstream.TTFBMs, nil, err, upstream.AttemptCount)
+			s.finishRequestLog(requestID, started, req, publicModel, upstream.AccountID, firstNonEmpty(upstream.Provider, providerFilter), upstream.Routing, accounts.RequestStatusError, upstream.TTFBMs, nil, err, upstream.AttemptCount)
 			writeClassifiedErr(w, err)
 			return
 		}
 		defer upstream.Response.Body.Close()
-		s.finishRequestLog(requestID, started, req, publicModel, upstream.AccountID, firstNonEmpty(upstream.Provider, providerFilter), accounts.RequestStatusStreaming, upstream.TTFBMs, nil, nil, upstream.AttemptCount)
+		s.finishRequestLog(requestID, started, req, publicModel, upstream.AccountID, firstNonEmpty(upstream.Provider, providerFilter), upstream.Routing, accounts.RequestStatusStreaming, upstream.TTFBMs, nil, nil, upstream.AttemptCount)
 		w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
@@ -640,7 +650,10 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 				ttfb = 1
 			}
 		}
-		s.finishRequestLog(requestID, started, req, publicModel, upstream.AccountID, firstNonEmpty(upstream.Provider, providerFilter), status, ttfb, &stats, relayErr, upstream.AttemptCount)
+		s.finishRequestLog(requestID, started, req, publicModel, upstream.AccountID, firstNonEmpty(upstream.Provider, providerFilter), upstream.Routing, status, ttfb, &stats, relayErr, upstream.AttemptCount)
+		if relayErr == nil {
+			s.executor.CommitSession(ctx, upstream.Routing, upstream.AccountID)
+		}
 		if relayErr != nil {
 			// The upstream answered 200 and failed inside the stream, so the
 			// executor's attempt loop never saw it. Feed the classified state
@@ -659,14 +672,14 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 
 	res, err := s.executor.ChatNonStream(ctx, req, prefer, providerFilter)
 	if err != nil {
-		s.finishRequestLog(requestID, started, req, publicModel, res.AccountID, firstNonEmpty(res.Provider, providerFilter), accounts.RequestStatusError, 0, nil, err, res.AttemptCount)
+		s.finishRequestLog(requestID, started, req, publicModel, res.AccountID, firstNonEmpty(res.Provider, providerFilter), res.Routing, accounts.RequestStatusError, 0, nil, err, res.AttemptCount)
 		writeClassifiedErr(w, err)
 		return
 	}
 	if publicModel != "" {
 		res.Model = publicModel
 	}
-	s.finishRequestLog(requestID, started, req, publicModel, res.AccountID, firstNonEmpty(res.Provider, providerFilter), accounts.RequestStatusOK, 0, &streamRelayStats{
+	s.finishRequestLog(requestID, started, req, publicModel, res.AccountID, firstNonEmpty(res.Provider, providerFilter), res.Routing, accounts.RequestStatusOK, 0, &streamRelayStats{
 		PromptTokens: ptrInt(res.PromptTokens), CompletionTokens: ptrInt(res.CompletionTokens),
 		CacheReadTokens: res.CacheReadTokens, CacheWriteTokens: res.CacheWriteTokens,
 		CachedTokens: res.CachedTokens, UsageSource: res.UsageSource, Credits: res.Credits, Model: res.Model,
@@ -815,6 +828,22 @@ func writeClassifiedErr(w http.ResponseWriter, err error) {
 	writeErr(w, classified.Status, classified.Code, classified.Message)
 }
 
+func requestSessionKey(r *http.Request, identity auth.Identity) string {
+	if r == nil {
+		return ""
+	}
+	raw := strings.TrimSpace(r.Header.Get("X-CLI2API-Session"))
+	if raw == "" {
+		return ""
+	}
+	namespace := "console"
+	if identity.Kind == auth.KindKey && identity.KeyID != "" {
+		namespace = "key:" + identity.KeyID
+	}
+	sum := sha256.Sum256([]byte(namespace + "\x00" + raw))
+	return hex.EncodeToString(sum[:])
+}
+
 func (s *Server) startRequestLog(entry accounts.RequestLog) {
 	if s.recorder == nil {
 		return
@@ -822,7 +851,7 @@ func (s *Server) startRequestLog(entry accounts.RequestLog) {
 	s.recorder.Start(entry)
 }
 
-func (s *Server) finishRequestLog(requestID string, started time.Time, req translate.ChatRequest, publicModel, accountID, provider, status string, ttfb int, stats *streamRelayStats, err error, attemptCount int) {
+func (s *Server) finishRequestLog(requestID string, started time.Time, req translate.ChatRequest, publicModel, accountID, provider, routing, status string, ttfb int, stats *streamRelayStats, err error, attemptCount int) {
 	if s.recorder == nil || requestID == "" {
 		return
 	}
@@ -834,6 +863,7 @@ func (s *Server) finishRequestLog(requestID string, started time.Time, req trans
 		RequestedModel: firstNonEmpty(publicModel, req.Model),
 		AccountID:      accountID,
 		Provider:       provider,
+		Routing:        routing,
 		AttemptCount:   attemptCount,
 	}
 	if status != accounts.RequestStatusStarted && status != accounts.RequestStatusStreaming {

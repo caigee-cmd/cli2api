@@ -1,4 +1,5 @@
-const QUOTA_RE = /insufficient_quota|#token-limit|token-limit|exceeded your current quota|oversized prompt|local precheck rejected|额度已用尽|额度用尽|购买加量包/i;
+const PROMPT_LIMIT_RE = /#?token-limit|oversized prompt|prompt too (large|long)|context length|local precheck rejected/i;
+const QUOTA_RE = /insufficient_quota|exceeded your current quota|额度已用尽|额度用尽|购买加量包/i;
 const RATE_RE = /too many requests|rate.?limit|response code=429|resource_exhausted|rate_limit_exceeded|account busy|in-flight/i;
 const AUTH_RE = /null pointer|FORBIDDEN|Duplicate request|\b401\b|\b403\b|unauthorized|auth|credential|refresh.?token|access.?token/i;
 const NOT_READY_RE = /hot context not ready|auth manager not captured|not ready|loginWithDeviceFlow unavailable|loginWithPAT unavailable|worker may not be warm/i;
@@ -10,6 +11,7 @@ export const KIND_AUTH = "auth";
 export const KIND_NOT_READY = "not_ready";
 export const KIND_UNAVAILABLE = "unavailable";
 export const KIND_MODEL_NOT_AVAILABLE = "model_not_available";
+export const KIND_INVALID_REQUEST = "invalid_request";
 
 const MAX_RETRY_AFTER_SEC = 10 * 60;
 const MIN_RATE_LIMIT_COOLDOWN_SEC = 30;
@@ -129,7 +131,9 @@ export function classifyError(input = {}) {
   const retryRaw = input.retryAfter ?? input.retry_after ?? payload.retry_after ?? payload.retryAfter ?? nestedPayload.retry_after ?? nestedPayload.retryAfter;
 
   let kind = kindHint;
-  if (!kind) {
+  if (PROMPT_LIMIT_RE.test(searchable)) {
+    kind = KIND_INVALID_REQUEST;
+  } else if (!kind) {
     if (QUOTA_RE.test(searchable) || ["insufficient_quota", "1005", "4008", "14018"].includes(payloadCode)) {
       kind = KIND_QUOTA;
     } else if (MODEL_RE.test(searchable) || payloadCode === "model_not_available" || payloadCode === "model_catalog_unavailable") {
@@ -156,10 +160,15 @@ export function classifyError(input = {}) {
     [KIND_AUTH]: { status: statusHint === 401 ? 401 : 403, failover: true, cooldownSec: 30, code: "unauthorized", type: "api_error" },
     [KIND_NOT_READY]: { status: 503, failover: true, cooldownSec: 10, code: "not_ready", type: "api_error" },
     [KIND_MODEL_NOT_AVAILABLE]: { status: 400, failover: true, cooldownSec: 0, code: "model_not_available", type: "invalid_request_error" },
+    [KIND_INVALID_REQUEST]: { status: 400, failover: false, cooldownSec: 0, code: "invalid_request", type: "invalid_request_error" },
     [KIND_UNAVAILABLE]: { status: statusHint >= 500 ? statusHint : 502, failover: true, cooldownSec: 15, code: "upstream_error", type: "api_error" },
   };
   const conf = defaults[kind] || defaults[KIND_UNAVAILABLE];
-  const status = statusHint >= 400 && kind !== KIND_QUOTA ? (kind === KIND_RATE_LIMIT ? 429 : statusHint) : conf.status;
+  const status = kind === KIND_INVALID_REQUEST
+    ? 400
+    : statusHint >= 400 && kind !== KIND_QUOTA
+      ? (kind === KIND_RATE_LIMIT ? 429 : statusHint)
+      : conf.status;
   let retryAfterSec = parseRetryAfter(retryRaw, retryHintFromValue(payload) || conf.cooldownSec);
   if (kind === KIND_RATE_LIMIT && retryAfterSec > 0 && retryAfterSec < MIN_RATE_LIMIT_COOLDOWN_SEC) {
     retryAfterSec = MIN_RATE_LIMIT_COOLDOWN_SEC;

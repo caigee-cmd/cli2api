@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
+	"github.com/caigee-cmd/cli2api/internal/auth"
 	"github.com/caigee-cmd/cli2api/internal/executor"
 	"github.com/caigee-cmd/cli2api/internal/providers"
 )
@@ -50,6 +51,28 @@ func TestBuildChatUsagePreservesPromptCacheTokens(t *testing.T) {
 	details, ok := usage["prompt_tokens_details"].(map[string]any)
 	if !ok || details["cached_tokens"] != 64 {
 		t.Fatalf("prompt token details = %#v", usage["prompt_tokens_details"])
+	}
+}
+
+func TestRequestSessionKeyRequiresHeaderAndScopesToIdentity(t *testing.T) {
+	withHeader := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	withHeader.Header.Set("X-CLI2API-Session", "session-a")
+	firstKey := auth.Identity{Kind: auth.KindKey, KeyID: "key-1"}
+	if got := requestSessionKey(withHeader, firstKey); got == "" || got == "session-a" {
+		t.Fatalf("header key = %q", got)
+	}
+	withSameHeader := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	withSameHeader.Header.Set("X-CLI2API-Session", "session-a")
+	if requestSessionKey(withHeader, firstKey) != requestSessionKey(withSameHeader, firstKey) {
+		t.Fatal("same header should derive the same opaque key")
+	}
+	withoutHeader := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	if got := requestSessionKey(withoutHeader, firstKey); got != "" {
+		t.Fatalf("key without header = %q", got)
+	}
+	secondKey := auth.Identity{Kind: auth.KindKey, KeyID: "key-2"}
+	if requestSessionKey(withHeader, firstKey) == requestSessionKey(withHeader, secondKey) {
+		t.Fatal("same session header must be isolated by API key")
 	}
 }
 

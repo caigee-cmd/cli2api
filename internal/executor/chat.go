@@ -22,12 +22,13 @@ type providerRegistry = providers.Registry
 type AttemptHook func(accounts.RequestAttempt)
 
 type ChatExecutor struct {
-	Pool        *accounts.Pool
-	WorkerKey   string
-	HTTPClient  *http.Client
-	Providers   *providerRegistry
-	OnAttempt   AttemptHook
-	MaxAttempts int
+	Pool            *accounts.Pool
+	WorkerKey       string
+	HTTPClient      *http.Client
+	Providers       *providerRegistry
+	OnAttempt       AttemptHook
+	MaxAttempts     int
+	SessionAffinity *SessionAffinity
 }
 
 type ChatResult struct {
@@ -47,6 +48,7 @@ type ChatResult struct {
 	Provider         string
 	AttemptCount     int
 	RawNote          string
+	Routing          string
 }
 
 type StreamResult struct {
@@ -55,6 +57,7 @@ type StreamResult struct {
 	Provider     string
 	AttemptCount int
 	TTFBMs       int
+	Routing      string
 }
 
 type requestIDKey struct{}
@@ -99,14 +102,126 @@ func requestContextDone(ctx context.Context, err error) bool {
 	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || (ctx != nil && ctx.Err() != nil)
 }
 
+const (
+	routingPool         = "pool"
+	routingPin          = "pin"
+	routingSticky       = "sticky"
+	routingStickyEscape = "sticky_escape"
+)
+
+type routingPlan struct {
+	Source       string
+	SessionKey   string
+	BoundAccount string
+}
+
+func (r *routingPlan) observe(accountID string) {
+	if r == nil || r.Source != routingSticky || r.BoundAccount == "" {
+		return
+	}
+	if strings.TrimSpace(accountID) != r.BoundAccount {
+		r.Source = routingStickyEscape
+	}
+}
+
+func (e ChatExecutor) bindSession(plan routingPlan, accountID string) {
+	if plan.Source == routingPin || plan.SessionKey == "" || e.SessionAffinity == nil {
+		return
+	}
+	e.SessionAffinity.Bind(plan.SessionKey, accountID)
+}
+
+// CommitSession binds a successfully completed stream. The executor cannot know
+// whether an SSE response reached [DONE], so the relay calls this only after it
+// has finished without an upstream or client error.
+func (e ChatExecutor) CommitSession(ctx context.Context, routing, accountID string) {
+	if routing == routingPin || e.SessionAffinity == nil {
+		return
+	}
+	e.SessionAffinity.Bind(sessionKeyFromContext(ctx), accountID)
+}
+
+func itemProvider(item accounts.Item) string {
+	provider := strings.ToLower(strings.TrimSpace(item.Provider))
+	if provider == "" {
+		return "qoder"
+	}
+	return provider
+}
+
+func itemServesPublicModel(item accounts.Item, publicModel string) bool {
+	want := accounts.CanonicalModelID(publicModel)
+	if want == "" || want == "auto" || item.Models == nil {
+		return true
+	}
+	for _, model := range item.Models {
+		if accounts.CanonicalModelID(model) == want {
+			return true
+		}
+	}
+	return false
+}
+
+func (e ChatExecutor) prepareRouting(ctx context.Context, prefer, providerFilter, publicModel string) (string, string, string, routingPlan) {
+	prefer = strings.TrimSpace(prefer)
+	providerFilter = strings.ToLower(strings.TrimSpace(providerFilter))
+	if prefer != "" {
+		return prefer, providerFilter, "", routingPlan{Source: routingPin}
+	}
+
+	plan := routingPlan{Source: routingPool, SessionKey: sessionKeyFromContext(ctx)}
+	if plan.SessionKey == "" || e.SessionAffinity == nil || e.Pool == nil {
+		return "", providerFilter, "", plan
+	}
+	accountID, ok := e.SessionAffinity.Get(plan.SessionKey)
+	if !ok {
+		return "", providerFilter, "", plan
+	}
+	item, ok := e.Pool.ByID(accountID)
+	if !ok {
+		e.SessionAffinity.Forget(plan.SessionKey)
+		return "", providerFilter, "", plan
+	}
+	if providerFilter != "" && providerFilter != itemProvider(item) {
+		return "", providerFilter, "", plan
+	}
+	if !providerAllowed(itemProvider(item), allowedProvidersFrom(ctx)) || !itemServesPublicModel(item, publicModel) {
+		return "", providerFilter, "", plan
+	}
+	return item.ID, itemProvider(item), itemRegionFilter(item.Region), routingPlan{
+		Source: routingSticky, SessionKey: plan.SessionKey, BoundAccount: item.ID,
+	}
+}
+
+func itemRegionFilter(region string) string {
+	region = strings.ToLower(strings.TrimSpace(region))
+	if region == "" {
+		return "global"
+	}
+	return region
+}
+
+func providerAllowed(provider string, allowed []string) bool {
+	if len(allowed) == 0 {
+		return true
+	}
+	for _, candidate := range allowed {
+		if strings.EqualFold(strings.TrimSpace(candidate), provider) {
+			return true
+		}
+	}
+	return false
+}
+
 func NewChatExecutor(pool *accounts.Pool, workerKey string) ChatExecutor {
 	if pool == nil {
 		pool = accounts.NewPool(nil, nil)
 	}
 	return ChatExecutor{
-		Pool:        pool,
-		WorkerKey:   strings.TrimSpace(workerKey),
-		MaxAttempts: 4,
+		Pool:            pool,
+		WorkerKey:       strings.TrimSpace(workerKey),
+		MaxAttempts:     4,
+		SessionAffinity: NewSessionAffinity(defaultSessionAffinityTTL, defaultSessionAffinityCapacity),
 		HTTPClient: &http.Client{
 			Timeout: 120 * time.Second,
 		},
@@ -119,8 +234,25 @@ func buildWorkerPayload(req translate.ChatRequest, stream bool) map[string]any {
 		"messages": req.Messages,
 		"stream":   stream,
 	}
-	if len(req.MaxTokens) > 0 {
+	if len(req.MaxCompletionTokens) > 0 {
+		payload["max_tokens"] = req.MaxCompletionTokens
+	} else if len(req.MaxTokens) > 0 {
 		payload["max_tokens"] = req.MaxTokens
+	}
+	if len(req.Temperature) > 0 {
+		payload["temperature"] = json.RawMessage(req.Temperature)
+	}
+	if len(req.TopP) > 0 {
+		payload["top_p"] = json.RawMessage(req.TopP)
+	}
+	if len(req.Stop) > 0 {
+		payload["stop"] = json.RawMessage(req.Stop)
+	}
+	if req.ParallelToolCalls != nil {
+		payload["parallel_tool_calls"] = *req.ParallelToolCalls
+	}
+	if len(req.ResponseFormat) > 0 {
+		payload["response_format"] = json.RawMessage(req.ResponseFormat)
 	}
 	if req.IsReasoning != nil {
 		payload["is_reasoning"] = *req.IsReasoning
@@ -294,7 +426,7 @@ func (e ChatExecutor) ObserveStreamFailure(accountID string, err error, model st
 		// and fail the same way. Force the cooldown.
 		classified.Failover = true
 		if classified.Cooldown <= 0 {
-			classified.Cooldown = time.Hour
+			classified.Cooldown = accounts.NextLocalMidnightCooldown()
 		}
 	}
 	e.markClassified(accountID, classified, model)
@@ -375,22 +507,28 @@ func classifyWorkerErr(resp *http.Response, body string) accounts.Classified {
 	return accounts.Classify(status, body, retryAfter, kind, failover)
 }
 
-func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatRequest, prefer, providerFilter string) (ChatResult, error) {
+func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatRequest, prefer, providerFilter string) (result ChatResult, returnErr error) {
+	routing := routingPlan{Source: routingPool}
+	var regionFilter string
+	defer func() { result.Routing = routing.Source }()
 	payload, err := json.Marshal(buildWorkerPayload(req, false))
 	if err != nil {
 		return ChatResult{}, err
 	}
+	prefer, providerFilter, regionFilter, routing = e.prepareRouting(ctx, prefer, providerFilter, req.Model)
 	excluded := map[string]struct{}{}
 	var lastErr error
-	regionFilter := ""
-	if prefer != "" && e.Pool != nil {
+	if regionFilter == "" && prefer != "" && e.Pool != nil {
 		if pinnedItem, ok := e.Pool.ByID(prefer); ok {
 			regionFilter = pinRegion("", pinnedItem.Region)
 		}
 	}
 	allowed := allowedProvidersFrom(ctx)
 	attempts := e.attemptsFor(providerFilter, regionFilter, req.Model, allowed)
-	pinned := prefer
+	pinned := ""
+	if routing.Source == routingPin {
+		pinned = prefer
+	}
 	for i := 0; i < attempts; i++ {
 		item, err := e.pick(prefer, providerFilter, regionFilter, req.Model, allowed, excluded)
 		if err != nil {
@@ -399,6 +537,7 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 			}
 			return ChatResult{}, err
 		}
+		routing.observe(item.ID)
 		prefer = ""
 		if regionFilter == "" {
 			regionFilter = pinRegion(regionFilter, item.Region)
@@ -408,6 +547,8 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 			result, classified, err := e.chatInProcessNonStreamAttempt(ctx, item, req, i)
 			if err == nil {
 				result.AttemptCount = i + 1
+				routing.observe(result.AccountID)
+				e.bindSession(routing, result.AccountID)
 				return result, nil
 			}
 			lastErr = err
@@ -495,6 +636,8 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 		result.AccountID = item.ID
 		result.Provider = firstNonEmpty(item.Provider, "qoder")
 		result.AttemptCount = i + 1
+		routing.observe(item.ID)
+		e.bindSession(routing, item.ID)
 		e.markOK(item.ID, req.Model)
 		e.recordAttempt(ctx, accounts.RequestAttempt{
 			AttemptIndex: i, AccountID: item.ID, StartedAt: started, FinishedAt: &finished,
@@ -763,22 +906,28 @@ func decodeChatResult(req translate.ChatRequest, body []byte) (ChatResult, error
 	}, nil
 }
 
-func (e ChatExecutor) ChatStreamProxy(ctx context.Context, req translate.ChatRequest, prefer, providerFilter string) (StreamResult, error) {
+func (e ChatExecutor) ChatStreamProxy(ctx context.Context, req translate.ChatRequest, prefer, providerFilter string) (result StreamResult, returnErr error) {
+	routing := routingPlan{Source: routingPool}
+	var regionFilter string
+	defer func() { result.Routing = routing.Source }()
 	payload, err := json.Marshal(buildWorkerPayload(req, true))
 	if err != nil {
 		return StreamResult{}, err
 	}
+	prefer, providerFilter, regionFilter, routing = e.prepareRouting(ctx, prefer, providerFilter, req.Model)
 	excluded := map[string]struct{}{}
 	var lastErr error
-	regionFilter := ""
-	if prefer != "" && e.Pool != nil {
+	if regionFilter == "" && prefer != "" && e.Pool != nil {
 		if pinnedItem, ok := e.Pool.ByID(prefer); ok {
 			regionFilter = pinRegion("", pinnedItem.Region)
 		}
 	}
 	allowed := allowedProvidersFrom(ctx)
 	attempts := e.attemptsFor(providerFilter, regionFilter, req.Model, allowed)
-	pinned := prefer
+	pinned := ""
+	if routing.Source == routingPin {
+		pinned = prefer
+	}
 	startedAll := time.Now()
 	for i := 0; i < attempts; i++ {
 		item, err := e.pick(prefer, providerFilter, regionFilter, req.Model, allowed, excluded)
@@ -788,6 +937,7 @@ func (e ChatExecutor) ChatStreamProxy(ctx context.Context, req translate.ChatReq
 			}
 			return StreamResult{}, err
 		}
+		routing.observe(item.ID)
 		prefer = ""
 		if regionFilter == "" {
 			regionFilter = pinRegion(regionFilter, item.Region)
@@ -797,6 +947,7 @@ func (e ChatExecutor) ChatStreamProxy(ctx context.Context, req translate.ChatReq
 			result, classified, err := e.chatInProcessStreamAttempt(ctx, item, req, i)
 			if err == nil {
 				result.AttemptCount = i + 1
+				routing.observe(result.AccountID)
 				return result, nil
 			}
 			lastErr = err
@@ -888,6 +1039,7 @@ func (e ChatExecutor) ChatStreamProxy(ctx context.Context, req translate.ChatReq
 			AttemptIndex: i, AccountID: item.ID, StartedAt: started, FinishedAt: &headerAt,
 			Status: accounts.AttemptStatusOK, HTTPStatus: ptrInt(resp.StatusCode), LatencyMs: &ttfb,
 		})
+		routing.observe(item.ID)
 		return StreamResult{
 			Response:     resp,
 			AccountID:    item.ID,

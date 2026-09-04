@@ -278,8 +278,8 @@ func TestChatStreamQuotaErrorAfterContentIsReadable(t *testing.T) {
 	if classified.Kind != accounts.KindQuota {
 		t.Fatalf("kind=%s", classified.Kind)
 	}
-	if classified.Cooldown != quotaCooldownSolo {
-		t.Fatalf("cooldown=%v want %v", classified.Cooldown, quotaCooldownSolo)
+	if classified.Cooldown <= 0 || classified.Cooldown > 24*time.Hour {
+		t.Fatalf("cooldown=%v", classified.Cooldown)
 	}
 }
 
@@ -573,25 +573,32 @@ func TestModelsEmptyIsError(t *testing.T) {
 
 func TestErrorMappingAndCooldown(t *testing.T) {
 	cases := []struct {
-		status   int
-		body     string
-		kind     string
-		cooldown time.Duration
+		status       int
+		body         string
+		kind         string
+		cooldown     time.Duration
+		nextMidnight bool
 	}{
-		{401, `{"code":1001}`, "auth", 30 * time.Minute},
-		{200, `{"code":1005,"message":"plan"}`, "quota", quotaCooldownPlan},
-		{200, `{"code":4008}`, "quota", quotaCooldownSolo},
-		{200, `{"code":4001}`, "invalid_request", 0},
-		{200, `{"code":4011}`, "rate_limit", hardRateCooldown},
-		{429, "too many requests", "rate_limit", time.Minute},
-		{500, "boom", "unavailable", 0},
+		{401, `{"code":1001}`, "auth", 30 * time.Minute, false},
+		{200, `{"code":1005,"message":"plan"}`, "quota", 0, true},
+		{200, `{"code":4008}`, "quota", 0, true},
+		{200, `{"code":4001}`, "invalid_request", 0, false},
+		{429, `{"code":"insufficient_quota","message":"token-limit"}`, "invalid_request", 0, false},
+		{200, `{"code":4011}`, "rate_limit", hardRateCooldown, false},
+		{429, "too many requests", "rate_limit", time.Minute, false},
+		{500, "boom", "unavailable", 0, false},
 	}
 	for _, c := range cases {
 		got := Classify(c.status, c.body)
 		if got.Kind != c.kind {
 			t.Fatalf("Classify(%d,%s)=%+v want %s", c.status, c.body, got, c.kind)
 		}
-		if cooldown := classifiedCooldown(got.Kind, extractCode(c.body)); cooldown != c.cooldown {
+		cooldown := classifiedCooldown(got.Kind, extractCode(c.body))
+		if c.nextMidnight {
+			if cooldown <= 0 || cooldown > 24*time.Hour {
+				t.Fatalf("cooldown(%s)=%s", c.body, cooldown)
+			}
+		} else if cooldown != c.cooldown {
 			t.Fatalf("cooldown(%s)=%s want %s", c.body, cooldown, c.cooldown)
 		}
 		err := wrapClassified(got, extractCode(c.body))

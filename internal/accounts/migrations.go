@@ -182,6 +182,9 @@ CREATE TABLE IF NOT EXISTS checkin_records (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS checkin_records_account_created_at ON checkin_records(account_id, created_at DESC);`},
+	{filename: "014_request_log_routing.sql", sql: `
+ALTER TABLE request_logs ADD COLUMN routing TEXT NOT NULL DEFAULT '';
+CREATE INDEX IF NOT EXISTS request_logs_routing ON request_logs(routing);`},
 }
 
 const schemaMigrationsDDL = `
