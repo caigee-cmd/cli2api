@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.2.43 - 2026-09-04
+
+### English
+
 - Polish the API access console with connection status, compact endpoint cards, and copy/open actions for supported routes
 - Expose the Anthropic Messages and OpenAI Responses routes in the console access catalog and overview metadata
 
