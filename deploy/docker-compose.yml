@@ -11,7 +11,6 @@ services:
       QODER_DATA_DIR: "/data"
       QODER_RUNTIME_DIR: "/run/cli2api"
       QODER_WORKER_BASE_PORT: "${QODER_WORKER_BASE_PORT:-32100}"
-      QODER_MAX_INFLIGHT: "${QODER_MAX_INFLIGHT:-4}"
       UPDATE_SOCKET_PATH: "/run/cli2api-updater/updater.sock"
       UPDATE_AGENT_URL: "${UPDATE_AGENT_URL:-}"
       UPDATE_AGENT_TOKEN: "${UPDATE_AGENT_TOKEN:-}"

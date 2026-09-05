@@ -22,7 +22,7 @@ func TestListRequestLogsFiltersAndPagination(t *testing.T) {
 	defer srv.Close()
 
 	ctx := context.Background()
-	base := time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)
+	base := time.Now().UTC().Add(-10 * time.Minute).Truncate(time.Second)
 	for i := 0; i < 5; i++ {
 		account := "acc_a"
 		model := "glm-5.3"
@@ -63,7 +63,7 @@ func TestListRequestLogsFiltersAndPagination(t *testing.T) {
 		t.Fatalf("page = %+v", listed)
 	}
 
-	filtered := get("/api/logs/requests?account=acc_b&model=qwen3.7-plus&stream=1&from=2026-08-28T12:00:00Z&to=2026-08-28T12:04:00Z")
+	filtered := get("/api/logs/requests?account=acc_b&model=qwen3.7-plus&stream=1&from=" + base.Format(time.RFC3339) + "&to=" + base.Add(4*time.Minute).Format(time.RFC3339))
 	if filtered.Code != http.StatusOK {
 		t.Fatalf("filter status=%d body=%s", filtered.Code, filtered.Body.String())
 	}
@@ -145,7 +145,7 @@ func TestRequestStatsWindow(t *testing.T) {
 	defer srv.Close()
 
 	ctx := context.Background()
-	base := time.Date(2026, 8, 28, 12, 10, 0, 0, time.UTC)
+	base := time.Now().UTC().Add(-40 * time.Minute).Truncate(time.Second)
 	latency := 180
 	prompt, completion := 11, 22
 	if err := srv.recorder.Store().InsertRequestLog(ctx, accounts.RequestLog{
@@ -162,7 +162,7 @@ func TestRequestStatsWindow(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/logs/stats?from=2026-08-28T12:00:00Z&to=2026-08-28T13:00:00Z", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/logs/stats?from="+base.Add(-10*time.Minute).Format(time.RFC3339)+"&to="+base.Add(50*time.Minute).Format(time.RFC3339), nil)
 	req.Header.Set("Authorization", "Bearer secret")
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, req)

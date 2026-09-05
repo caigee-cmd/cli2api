@@ -36,16 +36,172 @@ type fakeStarter struct {
 	accounts []Account
 	homes    []string
 	started  chan *fakeProcess
+	failures int
 }
 
 func (s *fakeStarter) Start(_ context.Context, account Account, home string, port int) (ManagedProcess, error) {
 	s.accounts = append(s.accounts, account)
 	s.homes = append(s.homes, home)
+	if s.failures > 0 {
+		s.failures--
+		return nil, errors.New("simulated start failure")
+	}
 	process := &fakeProcess{url: "http://127.0.0.1:" + itoa(port), done: make(chan error, 1)}
 	if s.started != nil {
 		s.started <- process
 	}
 	return process, nil
+}
+
+type delayedStarter struct {
+	mu         sync.Mutex
+	accounts   []Account
+	started    chan *fakeProcess
+	all        []*fakeProcess
+	delayAfter int
+	delay      time.Duration
+}
+
+func (s *delayedStarter) Start(_ context.Context, account Account, _ string, port int) (ManagedProcess, error) {
+	s.mu.Lock()
+	s.accounts = append(s.accounts, account)
+	count := len(s.accounts)
+	delay := time.Duration(0)
+	if s.delayAfter > 0 && count > s.delayAfter {
+		delay = s.delay
+	}
+	s.mu.Unlock()
+	if delay > 0 {
+		time.Sleep(delay)
+	}
+	process := &fakeProcess{url: "http://127.0.0.1:" + itoa(port), done: make(chan error, 1)}
+	s.mu.Lock()
+	s.all = append(s.all, process)
+	s.mu.Unlock()
+	if s.started != nil {
+		s.started <- process
+	}
+	return process, nil
+}
+
+func (s *delayedStarter) startCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.accounts)
+}
+
+func (s *delayedStarter) processes() []*fakeProcess {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]*fakeProcess, len(s.all))
+	copy(out, s.all)
+	return out
+}
+
+func TestManagerRetriesInitialStartFailure(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	account, err := store.Create(ctx, CreateAccount{Name: "RetryBoot", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	starter := &fakeStarter{failures: 1, started: make(chan *fakeProcess, 1)}
+	manager := NewManager(ManagerConfig{DataDir: t.TempDir(), RestartDelay: time.Millisecond}, store, starter)
+	defer manager.Close()
+	if err := manager.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := manager.Pool().Pick("", nil); ok {
+		t.Fatal("failed account must not be routable during recovery")
+	}
+	select {
+	case <-starter.started:
+	case <-time.After(time.Second):
+		t.Fatal("initial start failure was not recovered")
+	}
+	item, ok := manager.Pool().ByID(account.ID)
+	if !ok {
+		t.Fatal("account disappeared during recovery")
+	}
+	if item.Restarts != 1 || item.RuntimeState != "starting" || item.Ready == nil || *item.Ready {
+		t.Fatalf("recovered runtime state = %+v", item)
+	}
+}
+
+func TestManagerDisabledAccountDoesNotRestartAfterStartFailure(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	account, err := store.Create(ctx, CreateAccount{Name: "DisableRetry", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	starter := &fakeStarter{failures: 100}
+	manager := NewManager(ManagerConfig{DataDir: t.TempDir(), RestartDelay: 50 * time.Millisecond}, store, starter)
+	defer manager.Close()
+	if err := manager.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Update(ctx, account.ID, UpdateAccount{Enabled: boolPtr(false)}); err != nil {
+		t.Fatal(err)
+	}
+	attempts := len(starter.accounts)
+	time.Sleep(100 * time.Millisecond)
+	if got := len(starter.accounts); got != attempts {
+		t.Fatalf("disabled account was restarted: attempts %d -> %d", attempts, got)
+	}
+}
+
+func TestManagerReenableDuringRecoveryDoesNotGetMarkedStarting(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	account, err := store.Create(ctx, CreateAccount{Name: "ReenableRetry", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	starter := &fakeStarter{failures: 1}
+	manager := NewManager(ManagerConfig{DataDir: t.TempDir(), RestartDelay: 100 * time.Millisecond}, store, starter)
+	defer manager.Close()
+	if err := manager.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	deadline := time.Now().Add(time.Second)
+	foundDead := false
+	for time.Now().Before(deadline) {
+		item, ok := manager.Pool().ByID(account.ID)
+		if ok && item.RuntimeState == "dead" {
+			foundDead = true
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if !foundDead {
+		t.Fatal("account did not enter recovery")
+	}
+	if err := manager.Update(ctx, account.ID, UpdateAccount{Enabled: boolPtr(false)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Update(ctx, account.ID, UpdateAccount{Enabled: boolPtr(true)}); err != nil {
+		t.Fatal(err)
+	}
+
+	time.Sleep(2 * time.Duration(100*time.Millisecond))
+	item, ok := manager.Pool().ByID(account.ID)
+	if !ok || item.RuntimeState != "starting" || item.Ready == nil || *item.Ready {
+		t.Fatalf("reenabled account was clobbered by stale recovery: %+v ok=%v", item, ok)
+	}
 }
 
 func TestManagerStartsEnabledAccountsAndMaterializesCredentials(t *testing.T) {
@@ -86,6 +242,14 @@ func TestManagerStartsEnabledAccountsAndMaterializesCredentials(t *testing.T) {
 	if string(userBlob) != "ciphertext" || string(machineID) != "machine-1" {
 		t.Fatalf("materialized user=%q machine=%q", userBlob, machineID)
 	}
+	item, ok := manager.Pool().ByID(account.ID)
+	if !ok || item.URL != "http://127.0.0.1:32100" || item.RuntimeState != "starting" {
+		t.Fatalf("started item = %+v ok=%v", item, ok)
+	}
+	if _, ok := manager.Pool().Pick("", nil); ok {
+		t.Fatal("starting account must not be routable before health succeeds")
+	}
+	manager.Pool().MergeHealth(account.ID, true, false, 0, 0, "")
 	picked, ok := manager.Pool().Pick("", nil)
 	if !ok || picked.ID != account.ID || picked.URL != "http://127.0.0.1:32100" {
 		t.Fatalf("picked = %+v ok=%v", picked, ok)
@@ -266,6 +430,40 @@ func TestManagerRefreshesHealthAndPersistsUID(t *testing.T) {
 	item, _ := manager.pool.ByID(account.ID)
 	if item.Hot == nil || !*item.Hot || item.InFlight != 2 {
 		t.Fatalf("pool health = %+v", item)
+	}
+}
+
+func TestManagerRefreshSkipsDeadRecovery(t *testing.T) {
+	called := 0
+	worker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called++
+		http.Error(w, "connection refused", http.StatusBadGateway)
+	}))
+	defer worker.Close()
+	ctx := context.Background()
+	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	account, err := store.Create(ctx, CreateAccount{Name: "DeadRefresh", Enabled: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := NewManager(ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	defer manager.Close()
+	restartAt := time.Now().Add(time.Minute)
+	manager.pool.Upsert(Item{ID: account.ID, URL: worker.URL})
+	manager.pool.SetRuntimeState(account.ID, "dead", restartAt, 2, "account daemon exited")
+	if err := manager.RefreshAll(ctx, false); err != nil {
+		t.Fatal(err)
+	}
+	if called != 0 {
+		t.Fatalf("health probe called %d times, want 0", called)
+	}
+	item, ok := manager.pool.ByID(account.ID)
+	if !ok || item.RuntimeState != "dead" || item.RestartBackoffLevel != 2 || item.NextRestartAt.IsZero() {
+		t.Fatalf("dead recovery was overwritten: %+v ok=%v", item, ok)
 	}
 }
 
@@ -492,6 +690,104 @@ func TestManagerRestartsUnexpectedlyExitedEnabledAccount(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("account process was not restarted")
+	}
+}
+
+func TestCloseStopsRecoveryBeforeNewDaemonEscapes(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if _, err := store.Create(ctx, CreateAccount{Name: "CloseRace", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	starter := &delayedStarter{started: make(chan *fakeProcess, 2), delayAfter: 1, delay: 80 * time.Millisecond}
+	manager := NewManager(ManagerConfig{DataDir: t.TempDir(), RestartDelay: time.Millisecond}, store, starter)
+	if err := manager.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	first := <-starter.started
+	first.done <- errors.New("crashed")
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if starter.startCount() >= 2 {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if starter.startCount() < 2 {
+		t.Fatal("recovery did not attempt a restart before Close")
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- manager.Close() }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Close returned error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close blocked while a recovery start was in flight")
+	}
+
+	for _, process := range starter.processes() {
+		if !process.stopped && process != first {
+			t.Fatal("recovery process was left running after Close")
+		}
+	}
+	if got := starter.startCount(); got != 2 {
+		t.Fatalf("starts after Close = %d, want 2", got)
+	}
+}
+
+func TestManagerEscalatesConsecutiveRestartBackoffSeparately(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	account, err := store.Create(ctx, CreateAccount{Name: "Backoff", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	starter := &fakeStarter{started: make(chan *fakeProcess, 3)}
+	manager := NewManager(ManagerConfig{DataDir: t.TempDir(), RestartDelay: time.Millisecond}, store, starter)
+	defer manager.Close()
+	if err := manager.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	first := <-starter.started
+	first.done <- errors.New("first crash")
+	second := <-starter.started
+	second.done <- errors.New("second crash")
+	third := <-starter.started
+	if third == second {
+		t.Fatal("manager reused exited process")
+	}
+	item, ok := manager.Pool().ByID(account.ID)
+	if !ok {
+		t.Fatal("account disappeared during consecutive recovery")
+	}
+	if item.Restarts != 2 || item.RestartBackoffLevel != 2 {
+		t.Fatalf("restart count/backoff = %d/%d, want 2/2", item.Restarts, item.RestartBackoffLevel)
+	}
+}
+
+func TestManagerRestartDelayIsBounded(t *testing.T) {
+	manager := NewManager(ManagerConfig{RestartDelay: 2 * time.Second, RestartMaxDelay: 5 * time.Second}, nil, &fakeStarter{})
+	if got := manager.restartDelay(1); got != 2*time.Second {
+		t.Fatalf("level 1 delay = %v", got)
+	}
+	if got := manager.restartDelay(2); got != 4*time.Second {
+		t.Fatalf("level 2 delay = %v", got)
+	}
+	if got := manager.restartDelay(3); got != 5*time.Second {
+		t.Fatalf("level 3 delay = %v", got)
 	}
 }
 
@@ -894,21 +1190,26 @@ func TestPersistFailureKeepsDirtyEntryAndRetries(t *testing.T) {
 		Kind: KindRateLimit, Cooldown: time.Hour,
 		Failover: true, Model: "glm-5.3", Message: "write-will-fail",
 	})
-	// Give the drainer a few retry intervals to attempt (and fail) the write.
-	time.Sleep(persistRetryBackoff * 3)
-
-	manager.persistMu.Lock()
-	dirty, dirtyOK := manager.persistDirty[account.ID]
-	version := manager.persistedVersions[account.ID]
-	manager.persistMu.Unlock()
-	if !dirtyOK {
-		t.Fatal("dirty entry must be retained after a failed write, got empty dirty set")
-	}
-	if dirty.LastError != "write-will-fail" {
-		t.Fatalf("dirty entry must be the failed snapshot, got %q", dirty.LastError)
-	}
-	if version != 0 {
-		t.Fatalf("persistedVersions must not advance on failure, got %d", version)
+	// The drainer removes the snapshot while a write is in flight, then
+	// puts it back after the failure. Sampling at a multiple of the retry
+	// backoff can land in that empty window, so poll until the failed
+	// snapshot is visible again.
+	var dirty Item
+	var dirtyOK bool
+	var version uint64
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		manager.persistMu.Lock()
+		dirty, dirtyOK = manager.persistDirty[account.ID]
+		version = manager.persistedVersions[account.ID]
+		manager.persistMu.Unlock()
+		if dirtyOK && dirty.LastError == "write-will-fail" && version == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("dirty entry must be retained after a failed write, ok=%v version=%d lastError=%q", dirtyOK, version, dirty.LastError)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 
 	// Reopen the db on the same file; the drainer's retry loop must now
