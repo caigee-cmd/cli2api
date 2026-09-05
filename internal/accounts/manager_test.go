@@ -1190,21 +1190,26 @@ func TestPersistFailureKeepsDirtyEntryAndRetries(t *testing.T) {
 		Kind: KindRateLimit, Cooldown: time.Hour,
 		Failover: true, Model: "glm-5.3", Message: "write-will-fail",
 	})
-	// Give the drainer a few retry intervals to attempt (and fail) the write.
-	time.Sleep(persistRetryBackoff * 3)
-
-	manager.persistMu.Lock()
-	dirty, dirtyOK := manager.persistDirty[account.ID]
-	version := manager.persistedVersions[account.ID]
-	manager.persistMu.Unlock()
-	if !dirtyOK {
-		t.Fatal("dirty entry must be retained after a failed write, got empty dirty set")
-	}
-	if dirty.LastError != "write-will-fail" {
-		t.Fatalf("dirty entry must be the failed snapshot, got %q", dirty.LastError)
-	}
-	if version != 0 {
-		t.Fatalf("persistedVersions must not advance on failure, got %d", version)
+	// The drainer removes the snapshot while a write is in flight, then
+	// puts it back after the failure. Sampling at a multiple of the retry
+	// backoff can land in that empty window, so poll until the failed
+	// snapshot is visible again.
+	var dirty Item
+	var dirtyOK bool
+	var version uint64
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		manager.persistMu.Lock()
+		dirty, dirtyOK = manager.persistDirty[account.ID]
+		version = manager.persistedVersions[account.ID]
+		manager.persistMu.Unlock()
+		if dirtyOK && dirty.LastError == "write-will-fail" && version == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("dirty entry must be retained after a failed write, ok=%v version=%d lastError=%q", dirtyOK, version, dirty.LastError)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 
 	// Reopen the db on the same file; the drainer's retry loop must now
