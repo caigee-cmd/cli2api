@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.2.45 - 2026-09-05
+
+### English
+
 - Add console-selectable account routing strategies: round-robin, weighted round-robin, and fill-first
 - Recover failed account runtimes with exponential backoff, and surface starting, recovering, and auth-failed states on account cards
 - Show session-affinity TTL, hits, misses, escapes, and the last miss/escape reason on the System page
