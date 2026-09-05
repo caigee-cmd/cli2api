@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.2.44 - 2026-09-04
+
+### English
+
 - Document the staged update flow and its restart confirmation boundary for the next patch release
 
 ### 中文
