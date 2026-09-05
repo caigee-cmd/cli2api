@@ -2,6 +2,11 @@
 
 ## 1. Start
 
+Docker Compose is the supported way to run CLI2API. Published images, the
+console System-page updater, pre-update SQLite snapshots, and automatic
+rollback all assume this single-container install. A source checkout of Go /
+Node is for development; it does not receive managed updates.
+
 The deployment is one container containing the Go control plane, provider
 adapters, Node runtime, pinned qodercli, and frontend. SQLite and account
 credentials persist in the `qoder-data` volume; per-account ephemeral runtimes
