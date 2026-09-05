@@ -7,7 +7,11 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Recommend Docker Compose as the supported install and managed-update path in the README and deployment guide
+
 ### 中文
+
+- 在 README 与部署说明中明确推荐 Docker Compose 作为官方安装与托管更新路径
 
 ## 0.2.45 - 2026-09-05
 

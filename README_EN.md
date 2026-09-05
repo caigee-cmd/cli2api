@@ -6,7 +6,7 @@
 
 Supports **Qoder Global**, **Qoder CN**, **WorkBuddy Global**, **WorkBuddy CN**, and **Trae CN Solo**.
 
-Long-lived account runtimes, multi-account scheduling, one-command Docker start.
+Long-lived account runtimes, multi-account scheduling. Deploy with Docker; that is the supported install and update path.
 
 [![License](https://img.shields.io/github/license/caigee-cmd/cli2api)](LICENSE)
 [![LINUX DO](https://img.shields.io/badge/LINUX%20DO-community-ff6a00)](https://linux.do)
@@ -28,6 +28,8 @@ Long-lived account runtimes, multi-account scheduling, one-command Docker start.
 - **Cross-platform**: `linux/amd64` / `linux/arm64` images; macOS and Windows run them through Docker Desktop
 
 ## Quick start
+
+**Deploy with Docker.** Published images and console managed updates (pre-update snapshot, automatic rollback, next-version upgrades) are built around the single Compose container. Running the Go / Node sources directly is not on that update path.
 
 Requirements: Docker (Docker Desktop on macOS/Windows, Docker Engine + Compose on Linux) and a Qoder, WorkBuddy, or Trae account you control. On Windows, Docker Desktop must use Linux containers.
 
