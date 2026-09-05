@@ -6,7 +6,7 @@
 
 支持 **Qoder 国际版**、**Qoder 国内版**、**WorkBuddy 国际版**、**WorkBuddy 国内版** 和 **Trae 国内版 Solo**。
 
-常驻运行时、多账号调度，Docker 一键启动。
+常驻运行时、多账号调度。请用 Docker 部署，这是官方支持的安装与更新路径。
 
 [![License](https://img.shields.io/github/license/caigee-cmd/cli2api)](LICENSE)
 [![LINUX DO](https://img.shields.io/badge/LINUX%20DO-community-ff6a00)](https://linux.do)
@@ -28,6 +28,8 @@
 - **跨平台**：`linux/amd64` / `linux/arm64` 镜像；macOS、Windows 通过 Docker Desktop 运行
 
 ## 快速开始
+
+**强烈建议用 Docker 部署。** 发布镜像、控制台托管更新（升级前快照、失败回滚、逐版本升级）都按单容器 Compose 安装来设计；从源码直接跑 Go / Node 不在这条更新路径上。
 
 依赖：Docker（macOS / Windows 用 Docker Desktop，Linux 用 Docker Engine + Compose），以及一个你自己控制的 Qoder、WorkBuddy 或 Trae 账号。Windows 的 Docker Desktop 必须切换到 Linux containers。
 
