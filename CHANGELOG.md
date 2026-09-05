@@ -7,7 +7,19 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Add console-selectable account routing strategies: round-robin, weighted round-robin, and fill-first
+- Recover failed account runtimes with exponential backoff, and surface starting, recovering, and auth-failed states on account cards
+- Show session-affinity TTL, hits, misses, escapes, and the last miss/escape reason on the System page
+- Configure per-account concurrency in the console instead of the global `QODER_MAX_INFLIGHT` environment variable
+- Align the README and deployment documentation with current provider capabilities, session affinity, API routes, and per-account concurrency settings
+
 ### 中文
+
+- 控制台可选择账号调度策略：轮询、加权轮询、填满优先
+- 账号运行时启动失败后按指数退避自动恢复，并在账号卡片上展示启动中、恢复中、登录失败状态
+- 在系统页展示会话粘性 TTL、命中、未命中、逃逸，以及最近一次未命中/逃逸原因
+- 账号并发改为控制台按账号配置，不再使用全局环境变量 `QODER_MAX_INFLIGHT`
+- 同步 README 与部署文档，修正当前 Provider 能力、会话粘性、API 端点和账号级并发配置说明
 
 ## 0.2.44 - 2026-09-04
 

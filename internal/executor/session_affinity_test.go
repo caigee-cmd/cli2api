@@ -29,6 +29,26 @@ func TestSessionAffinityExpiresAndEvictsLeastRecentlyUsed(t *testing.T) {
 	}
 }
 
+func TestSessionAffinityStatsTrackRoutingEvents(t *testing.T) {
+	affinity := NewSessionAffinity(time.Minute, 4)
+	affinity.Bind("session", "a")
+	affinity.Bind("session", "b")
+	if _, ok := affinity.Get("session"); !ok {
+		t.Fatal("expected session binding")
+	}
+	if _, ok := affinity.Get("missing"); ok {
+		t.Fatal("unexpected missing binding")
+	}
+	affinity.RecordEscape("rate_limit")
+	stats := affinity.Stats()
+	if stats.Bindings != 1 || stats.Hits != 1 || stats.Misses != 1 || stats.Escapes != 1 || stats.Rebindings != 1 {
+		t.Fatalf("stats = %+v", stats)
+	}
+	if stats.LastEscapeReason != "rate_limit" || stats.LastMissReason != "not_found" || stats.TTLSeconds != 60 {
+		t.Fatalf("escape stats = %+v", stats)
+	}
+}
+
 func TestChatNonStreamSessionAffinityAndPinPriority(t *testing.T) {
 	server := func(id string) *httptest.Server {
 		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -94,6 +114,9 @@ func TestChatNonStreamSessionAffinityEscapesWithinBoundRegion(t *testing.T) {
 	}
 	if bound, ok := executor.SessionAffinity.Get("session-1"); !ok || bound != "b" {
 		t.Fatalf("escaped binding = %q, %v", bound, ok)
+	}
+	if reason := executor.SessionAffinity.Stats().LastEscapeReason; reason != "account_cooldown" {
+		t.Fatalf("escape reason = %q, want account_cooldown", reason)
 	}
 }
 

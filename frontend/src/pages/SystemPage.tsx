@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Button, Card, Chip, Modal } from '@heroui/react'
+import { Button, Card, Chip, Description, Label, ListBox, Modal, Select } from '@heroui/react'
 import {
   ArrowClockwise,
   ArrowCircleUp,
@@ -130,9 +130,24 @@ export function SystemPage() {
     setSettingsBusy(true)
     setError('')
     try {
-      setSettings(await updateSystemSettings(enabled))
+      setSettings(await updateSystemSettings({ cross_provider_model_pool: enabled }))
     } catch (err) {
       setSettings((current) => current ? { ...current, cross_provider_model_pool: previous } : current)
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSettingsBusy(false)
+    }
+  }
+
+  async function updateRoutingStrategy(strategy: SystemSettings['routing_strategy']) {
+    const previous = settings?.routing_strategy || 'round-robin'
+    setSettings((current) => current ? { ...current, routing_strategy: strategy } : current)
+    setSettingsBusy(true)
+    setError('')
+    try {
+      setSettings(await updateSystemSettings({ routing_strategy: strategy }))
+    } catch (err) {
+      setSettings((current) => current ? { ...current, routing_strategy: previous } : current)
       setError(err instanceof Error ? err.message : String(err))
     } finally {
       setSettingsBusy(false)
@@ -224,6 +239,46 @@ export function SystemPage() {
               <span>{t('crossProviderModelPoolStatus')}</span>
               <span className="font-medium text-foreground">{settings?.cross_provider_model_pool ? t('enabled') : t('disabled')}</span>
             </div>
+          </Card>
+
+          <Card data-gsap-reveal>
+            <div className="flex items-start gap-3">
+              <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-surface-secondary text-foreground"><SlidersHorizontal size={15} /></div>
+              <div>
+                <h3 className="font-semibold">{t('routingStrategyTitle')}</h3>
+                <p className="mt-1 text-xs leading-5 text-muted">{t('routingStrategyHint')}</p>
+              </div>
+            </div>
+            <Select
+              className="mt-4"
+              fullWidth
+              value={settings?.routing_strategy || 'round-robin'}
+              isDisabled={settingsBusy || !settings}
+              onChange={(value) => {
+                if (typeof value === 'string' && value) void updateRoutingStrategy(value as SystemSettings['routing_strategy'])
+              }}
+            >
+              <Label className="text-sm font-medium text-muted">{t('routingStrategy')}</Label>
+              <Select.Trigger className="items-center">
+                <Select.Value className="min-w-0 truncate" />
+                <Select.Indicator />
+              </Select.Trigger>
+              <Select.Popover>
+                <ListBox>
+                  <ListBox.Item id="round-robin" textValue="round-robin"><Label>{t('routingRoundRobin')}</Label><ListBox.ItemIndicator /></ListBox.Item>
+                  <ListBox.Item id="weighted-round-robin" textValue="weighted-round-robin"><Label>{t('routingWeightedRoundRobin')}</Label><ListBox.ItemIndicator /></ListBox.Item>
+                  <ListBox.Item id="fill-first" textValue="fill-first"><Label>{t('routingFillFirst')}</Label><ListBox.ItemIndicator /></ListBox.Item>
+                </ListBox>
+              </Select.Popover>
+            </Select>
+            <div className="mt-4 grid grid-cols-2 gap-2 border-t border-separator pt-3 text-xs text-muted sm:grid-cols-4">
+              <div><span className="mono block text-sm font-medium text-foreground">{settings?.session_affinity?.ttl_seconds ? `${Math.round(settings.session_affinity.ttl_seconds / 60)}m` : '—'}</span>{t('sessionAffinityTTL')}</div>
+              <div><span className="mono block text-sm font-medium text-foreground">{settings?.session_affinity?.hits ?? 0}</span>{t('sessionAffinityHits')}</div>
+              <div><span className="mono block text-sm font-medium text-foreground">{settings?.session_affinity?.misses ?? 0}</span>{t('sessionAffinityMisses')}</div>
+              <div><span className="mono block text-sm font-medium text-foreground">{settings?.session_affinity?.escapes ?? 0}</span>{t('sessionAffinityEscapes')}</div>
+            </div>
+            {settings?.session_affinity?.last_escape_reason ? <Description className="mt-3 text-xs">{t('lastSessionEscape')}: {settings.session_affinity.last_escape_reason}</Description> : null}
+            {settings?.session_affinity?.last_miss_reason ? <Description className="mt-1 text-xs">{t('lastSessionMiss')}: {settings.session_affinity.last_miss_reason}</Description> : null}
           </Card>
 
           <Card data-gsap-reveal>

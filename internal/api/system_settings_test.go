@@ -61,6 +61,52 @@ func TestSystemSettingsRoutePersistsAndAppliesModelPool(t *testing.T) {
 	}
 }
 
+func TestSystemSettingsRoutePersistsAndAppliesRoutingStrategy(t *testing.T) {
+	srv := New(config.Config{
+		Host: "127.0.0.1", Port: 3010, ProxyAPIKey: "secret",
+		QoderHome: t.TempDir(), DataDir: t.TempDir(),
+	})
+	defer srv.Close()
+
+	request := httptest.NewRequest(http.MethodPatch, "/api/system/settings", bytes.NewBufferString(`{"routing_strategy":"fill-first"}`))
+	request.Header.Set("Authorization", "Bearer secret")
+	response := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte(`"routing_strategy":"fill-first"`)) {
+		t.Fatalf("updated settings: %d %s", response.Code, response.Body.String())
+	}
+	if got := srv.pool.RoutingStrategy(); got != accounts.RoutingStrategyFillFirst {
+		t.Fatalf("runtime strategy = %q", got)
+	}
+	value, ok, err := srv.manager.Store().GetSecret(context.Background(), routingStrategySecret)
+	if err != nil || !ok || value != accounts.RoutingStrategyFillFirst {
+		t.Fatalf("persisted strategy=%q ok=%v err=%v", value, ok, err)
+	}
+}
+
+func TestSystemSettingsRejectsInvalidStrategyWithoutPartialUpdate(t *testing.T) {
+	srv := New(config.Config{
+		Host: "127.0.0.1", Port: 3010, ProxyAPIKey: "secret",
+		QoderHome: t.TempDir(), DataDir: t.TempDir(),
+	})
+	defer srv.Close()
+
+	request := httptest.NewRequest(http.MethodPatch, "/api/system/settings", bytes.NewBufferString(`{"cross_provider_model_pool":false,"routing_strategy":"invalid"}`))
+	request.Header.Set("Authorization", "Bearer secret")
+	response := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("invalid strategy response: %d %s", response.Code, response.Body.String())
+	}
+	if !srv.crossProviderModelPool.Load() {
+		t.Fatal("invalid strategy request partially changed model pool setting")
+	}
+	value, ok, err := srv.manager.Store().GetSecret(context.Background(), crossProviderModelPoolSecret)
+	if err != nil || !ok || value != "1" {
+		t.Fatalf("cross-provider setting after invalid request=%q ok=%v err=%v", value, ok, err)
+	}
+}
+
 func TestChatRejectsBareModelWhenCrossProviderPoolDisabled(t *testing.T) {
 	srv := New(config.Config{
 		Host: "127.0.0.1", Port: 3010, ProxyAPIKey: "secret",

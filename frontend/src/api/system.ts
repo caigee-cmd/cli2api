@@ -47,6 +47,19 @@ export type SystemUpdateInfo = {
 
 export type SystemSettings = {
   cross_provider_model_pool: boolean
+  routing_strategy: 'round-robin' | 'weighted-round-robin' | 'fill-first'
+  session_affinity?: {
+    ttl_seconds?: number
+    capacity?: number
+    bindings?: number
+    hits?: number
+    misses?: number
+    escapes?: number
+    rebindings?: number
+    last_escape_at?: string
+    last_escape_reason?: string
+    last_miss_reason?: string
+  }
 }
 
 export type StartUpdateResult = {
@@ -67,10 +80,10 @@ export function fetchSystemSettings() {
   return api<SystemSettings>('/api/system/settings')
 }
 
-export function updateSystemSettings(crossProviderModelPool: boolean) {
+export function updateSystemSettings(input: { cross_provider_model_pool?: boolean; routing_strategy?: SystemSettings['routing_strategy'] }) {
   return api<SystemSettings>('/api/system/settings', {
     method: 'PATCH',
-    body: JSON.stringify({ cross_provider_model_pool: crossProviderModelPool }),
+    body: JSON.stringify(input),
   })
 }
 
