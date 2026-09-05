@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/providers"
 )
@@ -116,11 +117,12 @@ func TestManagerDoesNotSpawnDaemonForInProcessProvider(t *testing.T) {
 }
 
 type fakeProber struct {
-	health providers.AccountHealth
-	quota  *providers.QuotaInfo
-	probeN int
-	quotaN int
-	err    error
+	health    providers.AccountHealth
+	quota     *providers.QuotaInfo
+	probeN    int
+	quotaN    int
+	quotaDone chan struct{}
+	err       error
 }
 
 func (f *fakeProber) Probe(ctx context.Context, accountID string) (providers.AccountHealth, error) {
@@ -130,6 +132,9 @@ func (f *fakeProber) Probe(ctx context.Context, accountID string) (providers.Acc
 
 func (f *fakeProber) Quota(ctx context.Context, accountID string) (*providers.QuotaInfo, error) {
 	f.quotaN++
+	if f.quotaDone != nil {
+		close(f.quotaDone)
+	}
 	return f.quota, nil
 }
 
@@ -154,6 +159,7 @@ func TestManagerRefreshUsesInProcessProber(t *testing.T) {
 			Used: 100, Total: 1000, Remaining: 900, Percentage: 10, Unit: "credits",
 			FetchedAt: "2026-08-26T00:00:00Z",
 		},
+		quotaDone: make(chan struct{}),
 	}
 	registry := providers.NewRegistry()
 	registry.Register(providers.Adapter{ID: "workbuddy", Prober: prober})
@@ -164,6 +170,11 @@ func TestManagerRefreshUsesInProcessProber(t *testing.T) {
 
 	if err := manager.RefreshAll(ctx, false); err != nil {
 		t.Fatal(err)
+	}
+	select {
+	case <-prober.quotaDone:
+	case <-time.After(time.Second):
+		t.Fatal("quota refresh did not complete")
 	}
 	if prober.probeN != 1 || prober.quotaN != 1 {
 		t.Fatalf("probeN=%d quotaN=%d", prober.probeN, prober.quotaN)

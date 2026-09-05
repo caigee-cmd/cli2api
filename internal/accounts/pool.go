@@ -24,6 +24,23 @@ type QuotaSnapshot struct {
 	FetchedAt  string  `json:"fetched_at"`
 }
 
+const (
+	RoutingStrategyRoundRobin         = "round-robin"
+	RoutingStrategyWeightedRoundRobin = "weighted-round-robin"
+	RoutingStrategyFillFirst          = "fill-first"
+)
+
+func NormalizeRoutingStrategy(strategy string) string {
+	switch strings.ToLower(strings.TrimSpace(strategy)) {
+	case RoutingStrategyFillFirst:
+		return RoutingStrategyFillFirst
+	case RoutingStrategyWeightedRoundRobin:
+		return RoutingStrategyWeightedRoundRobin
+	default:
+		return RoutingStrategyRoundRobin
+	}
+}
+
 type Item struct {
 	ID       string
 	URL      string
@@ -42,9 +59,12 @@ type Item struct {
 	InFlight  int
 	// MaxInFlight caps concurrent requests routed to this account. Zero
 	// means unknown and does not block routing.
-	MaxInFlight int
-	Restarts    int
-	Quota       *QuotaSnapshot
+	MaxInFlight         int
+	Restarts            int
+	RuntimeState        string
+	NextRestartAt       time.Time
+	RestartBackoffLevel int
+	Quota               *QuotaSnapshot
 	// Models is the last successful per-account catalog snapshot. A nil
 	// slice means unknown (fail open); a non-nil slice, including empty,
 	// is used to filter PublicModel. Entries keep the provider-native
@@ -227,7 +247,8 @@ type Pool struct {
 	lastRegion map[string]string
 	// weightCounter holds smooth-WRR running counters per route, keyed like
 	// lastPicked and then by account ID. Only used when weights differ.
-	weightCounter map[string]map[string]int64
+	weightCounter   map[string]map[string]int64
+	routingStrategy string
 	// stateCounter is the monotonic source for Item.StateVersion. Bumped
 	// under p.mu on every persistable mutation, so the version stamped onto
 	// a snapshot reflects its true production order even though the observer
@@ -266,7 +287,42 @@ func NewPool(urls []string, ids []string) *Pool {
 			ID: id, URL: url, Provider: "qoder", Runtime: "child_process",
 		})
 	}
-	return &Pool{items: items}
+	return &Pool{items: items, routingStrategy: RoutingStrategyRoundRobin}
+}
+
+func (p *Pool) SetRoutingStrategy(strategy string) {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	p.routingStrategy = NormalizeRoutingStrategy(strategy)
+	p.lastPicked = make(map[string]string)
+	p.lastRegion = make(map[string]string)
+	p.weightCounter = make(map[string]map[string]int64)
+	p.mu.Unlock()
+}
+
+func (p *Pool) RoutingStrategy() string {
+	if p == nil {
+		return RoutingStrategyRoundRobin
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return NormalizeRoutingStrategy(p.routingStrategy)
+}
+
+func (p *Pool) SetWeight(id string, weight int) {
+	if p == nil || id == "" {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for i := range p.items {
+		if p.items[i].ID == id {
+			p.items[i].Weight = NormalizeWeight(weight)
+			return
+		}
+	}
 }
 
 func (p *Pool) Len() int {
@@ -418,7 +474,20 @@ func (p *Pool) PickRoute(q RouteQuery) (Item, bool) {
 	} else {
 		p.lastRegion[key] = itemRegion(available[0])
 	}
-	if weighted, ok := p.pickWeighted(available, key); ok {
+	if p.routingStrategy == RoutingStrategyFillFirst {
+		picked := pickFillFirst(available)
+		p.lastPicked[key] = picked.ID
+		p.lastRegion[key] = itemRegion(picked)
+		return picked, true
+	}
+	if p.routingStrategy == RoutingStrategyWeightedRoundRobin {
+		weighted, ok := p.pickWeighted(available, key)
+		if !ok {
+			picked := available[successorIndex(available, p.lastPicked[key])]
+			p.lastPicked[key] = picked.ID
+			p.lastRegion[key] = itemRegion(picked)
+			return picked, true
+		}
 		// Differentiated weights: smooth weighted round-robin keeps the load
 		// proportional without bursting one high-weight account first.
 		p.lastPicked[key] = weighted.ID
@@ -429,6 +498,17 @@ func (p *Pool) PickRoute(q RouteQuery) (Item, bool) {
 	p.lastPicked[key] = picked.ID
 	p.lastRegion[key] = itemRegion(picked)
 	return picked, true
+}
+
+func pickFillFirst(available []Item) Item {
+	picked := available[0]
+	for _, item := range available[1:] {
+		if itemWeight(item) > itemWeight(picked) ||
+			(itemWeight(item) == itemWeight(picked) && item.ID < picked.ID) {
+			picked = item
+		}
+	}
+	return picked
 }
 
 // pickWeighted runs smooth weighted round-robin when candidates have differing
@@ -501,6 +581,8 @@ func (p *Pool) ensureRotationKey(key string) {
 	}
 	if _, ok := p.lastPicked[key]; !ok && len(p.lastPicked) >= rotationLimit {
 		p.lastPicked = make(map[string]string)
+		p.lastRegion = make(map[string]string)
+		p.weightCounter = make(map[string]map[string]int64)
 	}
 }
 
@@ -812,13 +894,62 @@ func (p *Pool) MergeHealth(id string, ready, hot bool, inFlight, restarts int, l
 		if p.items[i].ID != id {
 			continue
 		}
+		// A crashed daemon sits in dead with a restart deadline. Overview
+		// refresh probes the stale URL and would otherwise wipe the
+		// countdown into auth_failed before recoverAccount can spawn again.
+		if p.items[i].RuntimeState == "dead" && !ready && !hot {
+			if lastError != "" {
+				p.items[i].LastError = lastError
+			}
+			return
+		}
 		r, h := ready, hot
 		p.items[i].Ready = &r
 		p.items[i].Hot = &h
 		p.items[i].InFlight = inFlight
 		p.items[i].Restarts = restarts
 		p.items[i].LastError = lastError
+		p.items[i].NextRestartAt = time.Time{}
+		p.items[i].RestartBackoffLevel = 0
+		if ready || hot {
+			p.items[i].RuntimeState = "ready"
+		} else if lastError != "" {
+			p.items[i].RuntimeState = "auth_failed"
+		} else {
+			p.items[i].RuntimeState = "starting"
+		}
 		if lastError == "" {
+			p.items[i].LastKind = ""
+		}
+		return
+	}
+}
+
+func (p *Pool) SetRuntimeState(id, state string, nextRestartAt time.Time, backoffLevel int, lastError string) {
+	if p == nil || id == "" {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for i := range p.items {
+		if p.items[i].ID != id {
+			continue
+		}
+		p.items[i].RuntimeState = strings.TrimSpace(state)
+		p.items[i].NextRestartAt = nextRestartAt
+		p.items[i].RestartBackoffLevel = backoffLevel
+		if p.items[i].RuntimeState == "ready" || p.items[i].RuntimeState == "hot" {
+			ready := true
+			p.items[i].Ready = &ready
+		} else {
+			ready, hot := false, false
+			p.items[i].Ready = &ready
+			p.items[i].Hot = &hot
+		}
+		if lastError != "" {
+			p.items[i].LastError = lastError
+		} else if p.items[i].RuntimeState == "ready" || p.items[i].RuntimeState == "hot" {
+			p.items[i].LastError = ""
 			p.items[i].LastKind = ""
 		}
 		return
@@ -916,19 +1047,22 @@ func (p *Pool) Snapshot() []map[string]any {
 			}
 		}
 		out = append(out, map[string]any{
-			"id":              item.ID,
-			"url":             item.URL,
-			"provider":        item.Provider,
-			"region":          item.Region,
-			"runtime":         item.Runtime,
-			"ready":           ready,
-			"hot":             hot,
-			"in_flight":       item.InFlight,
-			"restarts":        item.Restarts,
-			"kind":            item.LastKind,
-			"down_until":      nullableTime(item.DownUntil, now),
-			"model_cooldowns": modelCooldowns,
-			"last_error":      item.LastError,
+			"id":                    item.ID,
+			"url":                   item.URL,
+			"provider":              item.Provider,
+			"region":                item.Region,
+			"runtime":               item.Runtime,
+			"ready":                 ready,
+			"hot":                   hot,
+			"in_flight":             item.InFlight,
+			"restarts":              item.Restarts,
+			"runtime_state":         item.RuntimeState,
+			"next_restart_at":       nullableTime(item.NextRestartAt, now),
+			"restart_backoff_level": item.RestartBackoffLevel,
+			"kind":                  item.LastKind,
+			"down_until":            nullableTime(item.DownUntil, now),
+			"model_cooldowns":       modelCooldowns,
+			"last_error":            item.LastError,
 		})
 	}
 	return out
@@ -1035,6 +1169,15 @@ func (p *Pool) Upsert(item Item) {
 			}
 			if item.MaxInFlight == 0 {
 				item.MaxInFlight = p.items[i].MaxInFlight
+			}
+			if item.RuntimeState == "" {
+				item.RuntimeState = p.items[i].RuntimeState
+			}
+			if item.NextRestartAt.IsZero() {
+				item.NextRestartAt = p.items[i].NextRestartAt
+			}
+			if item.RestartBackoffLevel == 0 {
+				item.RestartBackoffLevel = p.items[i].RestartBackoffLevel
 			}
 			if item.Ready == nil {
 				item.Ready = p.items[i].Ready

@@ -53,6 +53,37 @@ func TestRoundRobinSkipsNotReadyAccounts(t *testing.T) {
 	}
 }
 
+func TestMergeHealthDoesNotClobberDeadRecovery(t *testing.T) {
+	p := NewPool([]string{"http://a:3020"}, []string{"a"})
+	restartAt := time.Now().Add(time.Minute)
+	p.SetRuntimeState("a", "dead", restartAt, 2, "account daemon exited")
+
+	p.MergeHealth("a", false, false, 0, 1, "connection refused")
+
+	item, ok := p.ByID("a")
+	if !ok {
+		t.Fatal("account disappeared")
+	}
+	if item.RuntimeState != "dead" {
+		t.Fatalf("runtime state = %q, want dead", item.RuntimeState)
+	}
+	if item.RestartBackoffLevel != 2 {
+		t.Fatalf("backoff level = %d, want 2", item.RestartBackoffLevel)
+	}
+	if item.NextRestartAt.IsZero() || item.NextRestartAt.Before(time.Now()) {
+		t.Fatalf("next restart at = %v, want a future deadline", item.NextRestartAt)
+	}
+	if item.LastError != "connection refused" {
+		t.Fatalf("last error = %q, want probe error kept for display", item.LastError)
+	}
+
+	p.MergeHealth("a", true, false, 0, 1, "")
+	item, _ = p.ByID("a")
+	if item.RuntimeState != "ready" || !item.NextRestartAt.IsZero() {
+		t.Fatalf("successful health should leave recovery, got %+v", item)
+	}
+}
+
 func TestUpsertKeepsExistingQuota(t *testing.T) {
 	p := NewPool([]string{"http://a:3020"}, []string{"a"})
 	p.MergeQuota("a", &QuotaSnapshot{Remaining: 900, Total: 1000, Unit: "credits"})
@@ -193,6 +224,7 @@ func TestMaxInFlightUnsetDoesNotBlock(t *testing.T) {
 
 func TestWeightedRotationIsProportional(t *testing.T) {
 	p := NewPool([]string{"http://a:3020", "http://b:3020"}, []string{"a", "b"})
+	p.SetRoutingStrategy(RoutingStrategyWeightedRoundRobin)
 	p.Upsert(Item{ID: "a", Weight: 90})
 	p.Upsert(Item{ID: "b", Weight: 10})
 	counts := map[string]int{}
@@ -216,6 +248,24 @@ func TestUniformWeightsUsePlainRoundRobin(t *testing.T) {
 	}
 	if counts["a"] != 4 || counts["b"] != 4 {
 		t.Fatalf("uniform weights must stay even, got %v", counts)
+	}
+}
+
+func TestFillFirstUsesHighestPriorityUntilUnavailable(t *testing.T) {
+	p := NewPool(nil, nil)
+	p.SetRoutingStrategy(RoutingStrategyFillFirst)
+	p.Upsert(Item{ID: "low", Weight: 20})
+	p.Upsert(Item{ID: "high", Weight: 80})
+	for i := 0; i < 4; i++ {
+		item, ok := p.Pick("", nil)
+		if !ok || item.ID != "high" {
+			t.Fatalf("fill-first pick %d = %+v, ok=%v", i, item, ok)
+		}
+	}
+	p.MarkDown("high", time.Hour, "busy")
+	item, ok := p.Pick("", nil)
+	if !ok || item.ID != "low" {
+		t.Fatalf("fill-first fallback = %+v, ok=%v", item, ok)
 	}
 }
 
@@ -290,6 +340,16 @@ func TestNormalizeWeight(t *testing.T) {
 	}
 }
 
+func TestSetWeightUpdatesLiveRouting(t *testing.T) {
+	p := NewPool(nil, nil)
+	p.Upsert(Item{ID: "a", Weight: 10})
+	p.SetWeight("a", 90)
+	item, ok := p.ByID("a")
+	if !ok || item.Weight != 90 {
+		t.Fatalf("live weight = %+v, ok=%v", item, ok)
+	}
+}
+
 // P1#1: a pinned account that is model-cooled (or saturated) must not be
 // returned over the pin; the pool falls through to normal scheduling among
 // the remaining eligible accounts, so the client's X-Qoder-Account can no
@@ -360,6 +420,21 @@ func TestBackoffResetsOnKindChange(t *testing.T) {
 	got := time.Until(second.DownUntil)
 	if got > base+5*time.Second {
 		t.Fatalf("kind change must reset backoff, got cooldown %v > base %v", got, base)
+	}
+}
+
+func TestRotationStateRemainsBoundedForLongTailModels(t *testing.T) {
+	p := NewPool([]string{"http://a:3020", "http://b:3020"}, []string{"a", "b"})
+	p.SetRoutingStrategy(RoutingStrategyWeightedRoundRobin)
+	p.Upsert(Item{ID: "a", Weight: 80})
+	p.Upsert(Item{ID: "b", Weight: 20})
+	for i := 0; i < rotationLimit+1; i++ {
+		if _, ok := p.PickRoute(RouteQuery{PublicModel: "model-" + itoa(i)}); !ok {
+			t.Fatalf("pick %d failed", i)
+		}
+	}
+	if len(p.lastPicked) > rotationLimit || len(p.lastRegion) > rotationLimit || len(p.weightCounter) > rotationLimit {
+		t.Fatalf("rotation state exceeded limit: picked=%d region=%d weights=%d", len(p.lastPicked), len(p.lastRegion), len(p.weightCounter))
 	}
 }
 

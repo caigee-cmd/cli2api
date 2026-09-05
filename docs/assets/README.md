@@ -6,7 +6,7 @@ Static assets embedded by `README.md` and `README_EN.md` via relative links.
 
 | File | Source | Update rule |
 |------|--------|-------------|
-| `overview-card.png` | Hand-maintained overview card in both READMEs | Regenerate when supported login methods, account types, endpoints, or deployment targets change |
+| `overview-card.png` | Legacy overview card, not currently linked | Retained for historical reference; do not regenerate |
 | `readme/hero-{zh,en}.svg` | Hand-maintained SVG heroes (console dark-theme palette, Prompt C mark) | Re-sync copy with the tagline and flow text in the matching README |
 | `readme/console-window-{zh,en}.svg` | Hand-maintained console mockup (Accounts + Access) | Regenerate when console pages, account card fields, or nav items change |
 | `readme/architecture-{zh,en}.svg` | Hand-maintained architecture diagram | Regenerate when the request path or worker model changes |

@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="500" viewBox="0 0 1200 500" role="img" aria-labelledby="arch-title-en arch-desc-en" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', system-ui, sans-serif">
-  <title id="arch-title-en">CLI2API architecture — OpenAI clients are routed by a Go control plane to one Node worker per account, then to the Qoder cloud</title>
-  <desc id="arch-desc-en">Dark architecture diagram: from top to bottom, OpenAI clients, the CLI2API Go API with SQLite control plane, one isolated Node worker per account, and the Qoder cloud; annotations note warm login sessions, isolated HOMEs, and region-scoped failover.</desc>
+  <title id="arch-title-en">CLI2API architecture — OpenAI clients are routed by a Go control plane to one isolated runtime per account, then to the provider upstream</title>
+  <desc id="arch-desc-en">Dark architecture diagram: from top to bottom, OpenAI clients, the CLI2API Go API with SQLite control plane, one isolated runtime per account, and the provider upstream; annotations note warm sessions, account isolation, and region-scoped failover.</desc>
 
   <rect width="1200" height="500" rx="26" fill="#060607"/>
 
@@ -32,16 +32,16 @@
   <circle cx="367" cy="294" r="4" fill="#FCFCFC"/>
   <circle cx="613" cy="294" r="4" fill="#FCFCFC"/>
 
-  <!-- 3. workers -->
+  <!-- 3. account runtimes -->
   <rect x="260" y="310" width="214" height="64" rx="12" fill="#18181B" stroke="#3F3F46"/>
-  <text x="367" y="337" text-anchor="middle" font-size="18" font-weight="600" fill="#FCFCFC">Node worker · acct A</text>
-  <text x="367" y="360" text-anchor="middle" font-size="16" fill="#71717A">own HOME · WASM</text>
+  <text x="367" y="337" text-anchor="middle" font-size="18" font-weight="600" fill="#FCFCFC">Account runtime · A</text>
+  <text x="367" y="360" text-anchor="middle" font-size="16" fill="#71717A">Node/WASM / in-process</text>
 
   <rect x="506" y="310" width="214" height="64" rx="12" fill="#18181B" stroke="#3F3F46"/>
-  <text x="613" y="337" text-anchor="middle" font-size="18" font-weight="600" fill="#FCFCFC">Node worker · acct B</text>
-  <text x="613" y="360" text-anchor="middle" font-size="16" fill="#71717A">own HOME · WASM</text>
+  <text x="613" y="337" text-anchor="middle" font-size="18" font-weight="600" fill="#FCFCFC">Account runtime · B</text>
+  <text x="613" y="360" text-anchor="middle" font-size="16" fill="#71717A">Node/WASM / in-process</text>
 
-  <!-- arrows workers -> cloud -->
+  <!-- arrows runtimes -> upstream -->
   <line x1="367" y1="374" x2="367" y2="400" stroke="#52525B" stroke-width="2"/>
   <line x1="613" y1="374" x2="613" y2="400" stroke="#52525B" stroke-width="2"/>
   <path d="M361 400 l6 8 6 -8" fill="none" stroke="#52525B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -51,8 +51,8 @@
 
   <!-- 4. cloud -->
   <rect x="260" y="408" width="460" height="60" rx="12" fill="#18181B" stroke="#3F3F46"/>
-  <text x="490" y="434" text-anchor="middle" font-size="20" font-weight="600" fill="#FCFCFC">Qoder cloud</text>
-  <text x="490" y="457" text-anchor="middle" font-size="18" fill="#71717A">HTTP / SSE · Global and CN routed separately</text>
+  <text x="490" y="434" text-anchor="middle" font-size="20" font-weight="600" fill="#FCFCFC">Provider upstream</text>
+  <text x="490" y="457" text-anchor="middle" font-size="18" fill="#71717A">HTTP / SSE · routed by provider and region</text>
 
   <!-- right annotations -->
   <line x1="720" y1="227" x2="782" y2="227" stroke="#52525B"/>
@@ -60,8 +60,8 @@
   <text x="782" y="245" font-size="18" fill="#71717A">no full CLI spawn per request</text>
 
   <line x1="720" y1="342" x2="782" y2="342" stroke="#52525B"/>
-  <text x="782" y="336" font-size="18" fill="#71717A">One process and HOME per account</text>
-  <text x="782" y="360" font-size="18" fill="#71717A">WASM contexts never shared</text>
+  <text x="782" y="336" font-size="18" fill="#71717A">One isolated runtime per account</text>
+  <text x="782" y="360" font-size="18" fill="#71717A">Qoder gets HOME; others use adapters</text>
 
   <line x1="720" y1="438" x2="782" y2="438" stroke="#52525B"/>
   <text x="782" y="432" font-size="18" fill="#71717A">Region-scoped failover</text>

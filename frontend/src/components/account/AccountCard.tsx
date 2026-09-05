@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { Button, Card, Chip, Dropdown, Input, Label, TextArea, TextField, Tooltip } from '@heroui/react'
+import { Button, Card, Chip, Dropdown, Input, Label, Meter, TextArea, TextField, Tooltip } from '@heroui/react'
 import {
   ArrowClockwise,
   ArrowSquareOut,
@@ -63,6 +63,9 @@ function stateCopyFor(state: ReturnType<typeof accountState>, cooldown: string, 
   if (state === 'hot') return t('signedIn')
   if (state === 'ready') return t('ready')
   if (state === 'cooling') return cooldown ? `${t('cooling')} ${cooldown}` : t('cooling')
+  if (state === 'starting') return t('starting')
+  if (state === 'dead') return cooldown ? `${t('dead')} ${cooldown}` : t('dead')
+  if (state === 'auth_failed') return t('authFailed')
   if (state === 'disabled') return t('disabled')
   return t('needQoderLogin')
 }
@@ -110,19 +113,20 @@ export function AccountCard({
   const [, refreshCooldowns] = useState(0)
   const state = accountState(account)
   const cooldown = cooldownLabel(account.down_until || account.cooldown_until)
+  const restartIn = cooldownLabel(account.next_restart_at)
   const modelCooldowns = modelCooldownEntries(account)
 
   useEffect(() => {
-    if (!cooldown && modelCooldowns.length === 0) return
+    if (!cooldown && !restartIn && modelCooldowns.length === 0) return
     const timer = window.setInterval(() => refreshCooldowns((value) => value + 1), 1000)
     return () => window.clearInterval(timer)
-  }, [cooldown, modelCooldowns.length])
-  const stateCopy = stateCopyFor(state, cooldown, t)
+  }, [cooldown, restartIn, modelCooldowns.length])
+  const stateCopy = stateCopyFor(state, state === 'dead' ? restartIn : cooldown, t)
   const stateColor = state === 'hot' || state === 'ready'
     ? 'success'
     : state === 'cooling'
       ? 'warning'
-      : state === 'login'
+      : state === 'login' || state === 'dead' || state === 'auth_failed'
         ? 'danger'
         : undefined
   const inFlight = account.in_flight ?? account.inFlight ?? 0
@@ -259,6 +263,22 @@ export function AccountCard({
             <span><span className="mono block text-[12px] font-medium text-foreground">{account.priority ?? 50}</span>{t('priority')}</span>
             <span><span className="mono block text-[12px] font-medium text-foreground">{account.restarts ?? 0}</span>{t('restarts')}</span>
           </div>
+          <Meter
+            className="mt-2"
+            color="accent"
+            size="sm"
+            minValue={1}
+            maxValue={100}
+            value={Math.min(100, Math.max(1, account.priority ?? 50))}
+            aria-label={t('routingWeight')}
+            valueLabel={`${t('routingWeight')} ${account.priority ?? 50}/100`}
+          >
+            <div className="flex items-center justify-between text-[10px] text-foreground/65">
+              <Label>{t('routingWeight')}</Label>
+              <Meter.Output className="mono">{account.priority ?? 50}/100</Meter.Output>
+            </div>
+            <Meter.Track><Meter.Fill /></Meter.Track>
+          </Meter>
         </div>
 
         <div className="min-h-[52px] rounded-2xl border border-border bg-surface-secondary/25 p-2">
