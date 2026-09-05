@@ -68,6 +68,21 @@ export type Overview = {
     lastError?: string
     last_error?: string
   }
+  routing?: {
+    strategy?: string
+    session_affinity?: {
+      ttl_seconds?: number
+      capacity?: number
+      bindings?: number
+      hits?: number
+      misses?: number
+      escapes?: number
+      rebindings?: number
+      last_escape_at?: string
+      last_escape_reason?: string
+      last_miss_reason?: string
+    }
+  }
   auth?: {
     has_user_blob?: boolean
     has_pat?: boolean
@@ -96,6 +111,9 @@ export type Overview = {
     in_flight?: number
     inFlight?: number
     restarts?: number
+    runtime_state?: string
+    next_restart_at?: string
+    restart_backoff_level?: number
     kind?: string
     down_until?: string | null
     model_cooldowns?: Record<string, string>

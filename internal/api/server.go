@@ -73,6 +73,10 @@ func New(cfg config.Config) *Server {
 	if err != nil {
 		panic(err)
 	}
+	routingStrategy, err := ensureRoutingStrategy(context.Background(), store)
+	if err != nil {
+		panic(err)
+	}
 	cfg.ProxyAPIKey = proxyAPIKey
 	runtimeDir := cfg.RuntimeDir
 	if runtimeDir == "" {
@@ -90,12 +94,14 @@ func New(cfg config.Config) *Server {
 		panic(err)
 	}
 	pool := manager.Pool()
+	pool.SetRoutingStrategy(routingStrategy)
 	providerReg := providers.NewRegistry()
 	workbuddyClient := workbuddy.NewClient(store)
 	providerReg.Register(workbuddyClient.Adapter())
 	providerReg.Register(trae.NewClient(store).Adapter())
 	manager.SetProviders(providerReg)
 	manager.SetWorkBuddy(workbuddyClient)
+	go manager.RefreshAll(context.Background(), false)
 	recorder := applogs.NewRequestRecorder(store)
 	stopLogs := make(chan struct{})
 	go recorder.PurgeLoop(stopLogs, time.Hour)
@@ -321,6 +327,10 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		"worker": map[string]any{
 			"ok": readyCount > 0, "hot": hotCount > 0, "ready_count": readyCount,
 			"hot_count": hotCount, "account_count": len(accountViews),
+		},
+		"routing": map[string]any{
+			"strategy":         s.pool.RoutingStrategy(),
+			"session_affinity": s.executor.SessionAffinity.Stats(),
 		},
 		"accounts": accountViews,
 		"models":   models,

@@ -113,15 +113,7 @@ type routingPlan struct {
 	Source       string
 	SessionKey   string
 	BoundAccount string
-}
-
-func (r *routingPlan) observe(accountID string) {
-	if r == nil || r.Source != routingSticky || r.BoundAccount == "" {
-		return
-	}
-	if strings.TrimSpace(accountID) != r.BoundAccount {
-		r.Source = routingStickyEscape
-	}
+	PublicModel  string
 }
 
 func (e ChatExecutor) bindSession(plan routingPlan, accountID string) {
@@ -129,6 +121,45 @@ func (e ChatExecutor) bindSession(plan routingPlan, accountID string) {
 		return
 	}
 	e.SessionAffinity.Bind(plan.SessionKey, accountID)
+}
+
+func (e ChatExecutor) observeRouting(plan *routingPlan, accountID string) {
+	if plan == nil || plan.Source != routingSticky || plan.BoundAccount == "" {
+		return
+	}
+	if strings.TrimSpace(accountID) == plan.BoundAccount {
+		return
+	}
+	plan.Source = routingStickyEscape
+	if e.SessionAffinity != nil {
+		e.SessionAffinity.RecordEscape(e.stickyEscapeReason(plan))
+	}
+}
+
+func (e ChatExecutor) stickyEscapeReason(plan *routingPlan) string {
+	if plan == nil || e.Pool == nil {
+		return "upstream_failover"
+	}
+	item, ok := e.Pool.ByID(plan.BoundAccount)
+	if !ok {
+		return "account_missing"
+	}
+	if item.Ready != nil && !*item.Ready {
+		return "not_ready"
+	}
+	if !item.DownUntil.IsZero() && time.Now().Before(item.DownUntil) {
+		return "account_cooldown"
+	}
+	model := accounts.CanonicalModelID(plan.PublicModel)
+	if model != "auto" {
+		if until, ok := item.ModelDownUntil[model]; ok && time.Now().Before(until) {
+			return "model_cooldown"
+		}
+	}
+	if item.MaxInFlight > 0 && item.InFlight >= item.MaxInFlight {
+		return "concurrency_saturated"
+	}
+	return "upstream_failover"
 }
 
 // CommitSession binds a successfully completed stream. The executor cannot know
@@ -170,6 +201,7 @@ func (e ChatExecutor) prepareRouting(ctx context.Context, prefer, providerFilter
 	}
 
 	plan := routingPlan{Source: routingPool, SessionKey: sessionKeyFromContext(ctx)}
+	plan.PublicModel = publicModel
 	if plan.SessionKey == "" || e.SessionAffinity == nil || e.Pool == nil {
 		return "", providerFilter, "", plan
 	}
@@ -179,17 +211,24 @@ func (e ChatExecutor) prepareRouting(ctx context.Context, prefer, providerFilter
 	}
 	item, ok := e.Pool.ByID(accountID)
 	if !ok {
+		e.SessionAffinity.RecordEscape("account_missing")
 		e.SessionAffinity.Forget(plan.SessionKey)
 		return "", providerFilter, "", plan
 	}
 	if providerFilter != "" && providerFilter != itemProvider(item) {
+		e.SessionAffinity.RecordEscape("provider_mismatch")
 		return "", providerFilter, "", plan
 	}
-	if !providerAllowed(itemProvider(item), allowedProvidersFrom(ctx)) || !itemServesPublicModel(item, publicModel) {
+	if !providerAllowed(itemProvider(item), allowedProvidersFrom(ctx)) {
+		e.SessionAffinity.RecordEscape("provider_not_allowed")
+		return "", providerFilter, "", plan
+	}
+	if !itemServesPublicModel(item, publicModel) {
+		e.SessionAffinity.RecordEscape("model_unavailable")
 		return "", providerFilter, "", plan
 	}
 	return item.ID, itemProvider(item), itemRegionFilter(item.Region), routingPlan{
-		Source: routingSticky, SessionKey: plan.SessionKey, BoundAccount: item.ID,
+		Source: routingSticky, SessionKey: plan.SessionKey, BoundAccount: item.ID, PublicModel: publicModel,
 	}
 }
 
@@ -537,7 +576,7 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 			}
 			return ChatResult{}, err
 		}
-		routing.observe(item.ID)
+		e.observeRouting(&routing, item.ID)
 		prefer = ""
 		if regionFilter == "" {
 			regionFilter = pinRegion(regionFilter, item.Region)
@@ -547,7 +586,7 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 			result, classified, err := e.chatInProcessNonStreamAttempt(ctx, item, req, i)
 			if err == nil {
 				result.AttemptCount = i + 1
-				routing.observe(result.AccountID)
+				e.observeRouting(&routing, result.AccountID)
 				e.bindSession(routing, result.AccountID)
 				return result, nil
 			}
@@ -636,7 +675,7 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 		result.AccountID = item.ID
 		result.Provider = firstNonEmpty(item.Provider, "qoder")
 		result.AttemptCount = i + 1
-		routing.observe(item.ID)
+		e.observeRouting(&routing, item.ID)
 		e.bindSession(routing, item.ID)
 		e.markOK(item.ID, req.Model)
 		e.recordAttempt(ctx, accounts.RequestAttempt{
@@ -937,7 +976,7 @@ func (e ChatExecutor) ChatStreamProxy(ctx context.Context, req translate.ChatReq
 			}
 			return StreamResult{}, err
 		}
-		routing.observe(item.ID)
+		e.observeRouting(&routing, item.ID)
 		prefer = ""
 		if regionFilter == "" {
 			regionFilter = pinRegion(regionFilter, item.Region)
@@ -947,7 +986,7 @@ func (e ChatExecutor) ChatStreamProxy(ctx context.Context, req translate.ChatReq
 			result, classified, err := e.chatInProcessStreamAttempt(ctx, item, req, i)
 			if err == nil {
 				result.AttemptCount = i + 1
-				routing.observe(result.AccountID)
+				e.observeRouting(&routing, result.AccountID)
 				return result, nil
 			}
 			lastErr = err
@@ -1039,7 +1078,7 @@ func (e ChatExecutor) ChatStreamProxy(ctx context.Context, req translate.ChatReq
 			AttemptIndex: i, AccountID: item.ID, StartedAt: started, FinishedAt: &headerAt,
 			Status: accounts.AttemptStatusOK, HTTPStatus: ptrInt(resp.StatusCode), LatencyMs: &ttfb,
 		})
-		routing.observe(item.ID)
+		e.observeRouting(&routing, item.ID)
 		return StreamResult{
 			Response:     resp,
 			AccountID:    item.ID,

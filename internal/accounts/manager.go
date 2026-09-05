@@ -19,17 +19,20 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/providers"
 )
 
+var errManagerClosed = errors.New("account manager closed")
+
 type ManagerConfig struct {
-	DataDir        string
-	BasePort       int
-	NodeBinary     string
-	DaemonPath     string
-	QoderCLIPath   string
-	QoderCNCLIPath string
-	TemplatePath   string
-	ProxyAPIKey    string
-	MaxLogWriters  io.Writer
-	RestartDelay   time.Duration
+	DataDir         string
+	BasePort        int
+	NodeBinary      string
+	DaemonPath      string
+	QoderCLIPath    string
+	QoderCNCLIPath  string
+	TemplatePath    string
+	ProxyAPIKey     string
+	MaxLogWriters   io.Writer
+	RestartDelay    time.Duration
+	RestartMaxDelay time.Duration
 }
 
 type ManagedProcess interface {
@@ -51,19 +54,22 @@ type WorkBuddyMaintainer interface {
 }
 
 type Manager struct {
-	config     ManagerConfig
-	store      *Store
-	starter    ProcessStarter
-	pool       *Pool
-	providers  *providers.Registry
-	workbuddy  WorkBuddyMaintainer
-	mu         sync.Mutex
-	processes  map[string]ManagedProcess
-	restarts   map[string]int
-	nextPort   int
-	httpClient *http.Client
-	runCtx     context.Context
-	cancel     context.CancelFunc
+	config         ManagerConfig
+	store          *Store
+	starter        ProcessStarter
+	pool           *Pool
+	providers      *providers.Registry
+	workbuddy      WorkBuddyMaintainer
+	mu             sync.Mutex
+	processes      map[string]ManagedProcess
+	restarts       map[string]int
+	restartBackoff map[string]int
+	recovering     map[string]bool
+	recoverDone    sync.WaitGroup
+	nextPort       int
+	httpClient     *http.Client
+	runCtx         context.Context
+	cancel         context.CancelFunc
 	// The persistence path is one mutex-guarded goroutine. The dirty set
 	// is keyed by account ID and merged on enqueue: a stale snapshot (older
 	// StateVersion) that arrives after a newer one is discarded, so the final
@@ -93,6 +99,12 @@ func NewManager(config ManagerConfig, store *Store, starter ProcessStarter) *Man
 	if config.RestartDelay <= 0 {
 		config.RestartDelay = time.Second
 	}
+	if config.RestartMaxDelay <= 0 {
+		config.RestartMaxDelay = time.Minute
+	}
+	if config.RestartMaxDelay < config.RestartDelay {
+		config.RestartMaxDelay = config.RestartDelay
+	}
 	if starter == nil {
 		starter = ExecStarter{Config: config}
 	}
@@ -104,6 +116,8 @@ func NewManager(config ManagerConfig, store *Store, starter ProcessStarter) *Man
 		pool:              NewPool(nil, nil),
 		processes:         map[string]ManagedProcess{},
 		restarts:          map[string]int{},
+		restartBackoff:    map[string]int{},
+		recovering:        map[string]bool{},
 		nextPort:          config.BasePort,
 		httpClient:        &http.Client{Timeout: 2 * time.Second},
 		runCtx:            runCtx,
@@ -360,16 +374,8 @@ func (m *Manager) Start(ctx context.Context) error {
 		if !account.Enabled {
 			continue
 		}
-		if err := m.startAccount(ctx, account); err != nil {
-			// Mark the failure in memory without triggering the observer: a
-			// boot-time MarkDown(0) used to enqueue SaveCooldowns, whose
-			// empty in-memory cooldown set DELETEd any persisted cooldowns
-			// for this account — so restoreCooldowns below had nothing to
-			// reload and a rate-limited account walked straight back into
-			// rotation after a restart that failed to start it. MergeHealth
-			// records the error state without persisting, leaving SQLite
-			// intact for restoreCooldowns.
-			m.pool.MergeHealth(account.ID, false, false, 0, m.restarts[account.ID], err.Error())
+		if err := m.startAccountWithRecovery(ctx, account); err != nil {
+			log.Printf("account %s initial start failed: %v", account.ID, err)
 		}
 	}
 	// After registration so there is an item to restore into.
@@ -406,7 +412,7 @@ func (m *Manager) ReplaceProxyAPIKey(ctx context.Context, key string) error {
 		if err := m.stopAccount(account.ID); err != nil {
 			return err
 		}
-		if err := m.startAccount(ctx, account); err != nil {
+		if err := m.startAccountWithRecovery(ctx, account); err != nil {
 			return err
 		}
 	}
@@ -446,7 +452,10 @@ func (m *Manager) Close() error {
 	m.persistCond.Broadcast()
 	m.persistMu.Unlock()
 	m.persistDone.Wait()
+	m.mu.Lock()
 	m.cancel()
+	m.mu.Unlock()
+	m.recoverDone.Wait()
 	m.mu.Lock()
 	processes := make([]ManagedProcess, 0, len(m.processes))
 	for _, process := range m.processes {
@@ -467,14 +476,22 @@ func (m *Manager) startAccount(ctx context.Context, account Account) error {
 		return err
 	}
 	if descriptor.Runtime == providers.RuntimeInProcess {
+		if m.runCtx.Err() != nil {
+			return errManagerClosed
+		}
 		m.pool.Upsert(Item{
 			ID: account.ID, Provider: descriptor.ID, Region: account.ProviderRegion,
 			Runtime: string(descriptor.Runtime), DropSystemPrompt: account.DropSystemPrompt,
 			Weight: NormalizeWeight(account.Priority), MaxInFlight: account.MaxInFlight,
+			RuntimeState: "starting",
 		})
 		return nil
 	}
 	m.mu.Lock()
+	if m.runCtx.Err() != nil {
+		m.mu.Unlock()
+		return errManagerClosed
+	}
 	if _, exists := m.processes[account.ID]; exists {
 		m.mu.Unlock()
 		return nil
@@ -482,6 +499,13 @@ func (m *Manager) startAccount(ctx context.Context, account Account) error {
 	port := m.nextPort
 	m.nextPort++
 	m.mu.Unlock()
+	notReady := false
+	m.pool.Upsert(Item{
+		ID: account.ID, Provider: descriptor.ID, Region: account.ProviderRegion,
+		Runtime: string(descriptor.Runtime),
+		Weight:  NormalizeWeight(account.Priority), MaxInFlight: account.MaxInFlight,
+		Ready: &notReady, RuntimeState: "starting",
+	})
 
 	home := filepath.Join(m.config.DataDir, "runtime", account.ID)
 	if err := materializeHome(ctx, m.store, account, home); err != nil {
@@ -492,15 +516,24 @@ func (m *Manager) startAccount(ctx context.Context, account Account) error {
 		return fmt.Errorf("start account %s: %w", account.ID, err)
 	}
 	m.mu.Lock()
+	if m.runCtx.Err() != nil {
+		m.mu.Unlock()
+		_ = process.Stop()
+		return errManagerClosed
+	}
+	if _, exists := m.processes[account.ID]; exists {
+		m.mu.Unlock()
+		_ = process.Stop()
+		return nil
+	}
 	m.processes[account.ID] = process
-	m.mu.Unlock()
-	m.mu.Lock()
 	restarts := m.restarts[account.ID]
 	m.mu.Unlock()
 	m.pool.Upsert(Item{
 		ID: account.ID, URL: process.URL(), Provider: descriptor.ID,
 		Region: account.ProviderRegion, Runtime: string(descriptor.Runtime), Restarts: restarts,
 		Weight: NormalizeWeight(account.Priority), MaxInFlight: account.MaxInFlight,
+		Ready: &notReady, RuntimeState: "starting",
 	})
 	go m.watchAccount(account.ID, process)
 	return nil
@@ -645,7 +678,7 @@ func (m *Manager) Create(ctx context.Context, input CreateAccount) (Account, err
 		return Account{}, err
 	}
 	if account.Enabled {
-		if err := m.startAccount(ctx, account); err != nil {
+		if err := m.startAccountWithRecovery(ctx, account); err != nil {
 			return account, err
 		}
 	}
@@ -669,17 +702,20 @@ func (m *Manager) Update(ctx context.Context, id string, input UpdateAccount) er
 	if before.DropSystemPrompt != after.DropSystemPrompt {
 		m.pool.SetDropSystemPrompt(id, after.DropSystemPrompt)
 	}
+	if before.Priority != after.Priority {
+		m.pool.SetWeight(id, after.Priority)
+	}
 	if before.Enabled && !after.Enabled {
 		return m.stopAccount(id)
 	}
 	if !before.Enabled && after.Enabled {
-		return m.startAccount(ctx, after)
+		return m.startAccountWithRecovery(ctx, after)
 	}
 	if before.Enabled && after.Enabled && before.MaxInFlight != after.MaxInFlight {
 		if err := m.stopAccount(id); err != nil {
 			return err
 		}
-		return m.startAccount(ctx, after)
+		return m.startAccountWithRecovery(ctx, after)
 	}
 	return nil
 }
@@ -693,6 +729,7 @@ func (m *Manager) Delete(ctx context.Context, id string) error {
 	}
 	m.mu.Lock()
 	delete(m.restarts, id)
+	delete(m.restartBackoff, id)
 	m.mu.Unlock()
 	runtimeDir := filepath.Join(m.config.DataDir, "runtime", id)
 	if err := os.RemoveAll(runtimeDir); err != nil {
@@ -755,6 +792,119 @@ func (m *Manager) stopAccount(id string) error {
 	return process.Stop()
 }
 
+func (m *Manager) startAccountWithRecovery(ctx context.Context, account Account) error {
+	err := m.startAccount(ctx, account)
+	if err != nil && !errors.Is(err, errManagerClosed) && m.runCtx.Err() == nil {
+		m.beginAccountRecovery(account.ID, err)
+	}
+	return err
+}
+
+func (m *Manager) beginAccountRecovery(id string, startErr error) {
+	if m == nil || m.store == nil || strings.TrimSpace(id) == "" {
+		return
+	}
+	message := "account daemon failed to start"
+	if startErr != nil {
+		message = startErr.Error()
+	}
+	m.mu.Lock()
+	if m.runCtx.Err() != nil {
+		m.mu.Unlock()
+		return
+	}
+	if m.recovering[id] {
+		m.mu.Unlock()
+		return
+	}
+	m.recovering[id] = true
+	m.restarts[id]++
+	restarts := m.restarts[id]
+	if m.restartBackoff[id] < backoffMaxLevel {
+		m.restartBackoff[id]++
+	}
+	backoffLevel := m.restartBackoff[id]
+	m.recoverDone.Add(1)
+	go m.recoverAccount(id, restarts, backoffLevel, message)
+	m.mu.Unlock()
+	m.pool.SetRuntimeState(id, "dead", time.Now().Add(m.restartDelay(backoffLevel)), backoffLevel, message)
+}
+
+func (m *Manager) recoverAccount(id string, restarts, backoffLevel int, message string) {
+	defer func() {
+		m.mu.Lock()
+		delete(m.recovering, id)
+		m.mu.Unlock()
+		m.recoverDone.Done()
+	}()
+
+	_ = m.store.Observe(context.Background(), id, "", "dead", message, KindUnavailable)
+
+	for {
+		if m.runCtx.Err() != nil {
+			return
+		}
+		account, err := m.store.Get(m.runCtx, id)
+		if errors.Is(err, ErrAccountNotFound) || (err == nil && !account.Enabled) {
+			m.pool.SetRuntimeState(id, "disabled", time.Time{}, restarts, message)
+			return
+		}
+		if err != nil {
+			message = err.Error()
+		}
+
+		delay := m.restartDelay(backoffLevel)
+		m.pool.SetRuntimeState(id, "dead", time.Now().Add(delay), backoffLevel, message)
+		timer := time.NewTimer(delay)
+		select {
+		case <-timer.C:
+		case <-m.runCtx.Done():
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			return
+		}
+
+		if m.runCtx.Err() != nil {
+			return
+		}
+		account, err = m.store.Get(m.runCtx, id)
+		if errors.Is(err, ErrAccountNotFound) || (err == nil && !account.Enabled) {
+			m.pool.SetRuntimeState(id, "disabled", time.Time{}, restarts, message)
+			return
+		}
+		if err != nil {
+			message = err.Error()
+			m.mu.Lock()
+			m.restarts[id]++
+			restarts = m.restarts[id]
+			m.mu.Unlock()
+			continue
+		}
+
+		if m.runCtx.Err() != nil {
+			return
+		}
+		err = m.startAccount(m.runCtx, account)
+		if err == nil || errors.Is(err, errManagerClosed) || m.runCtx.Err() != nil {
+			return
+		}
+		message = err.Error()
+		m.mu.Lock()
+		m.restarts[id]++
+		restarts = m.restarts[id]
+		if m.restartBackoff[id] < backoffMaxLevel {
+			m.restartBackoff[id]++
+		}
+		backoffLevel = m.restartBackoff[id]
+		m.mu.Unlock()
+		_ = m.store.Observe(context.Background(), id, "", "dead", message, KindUnavailable)
+	}
+}
+
 type ImportAccount struct {
 	Name                 string
 	Provider             string
@@ -769,13 +919,16 @@ type ImportAccount struct {
 
 type AccountView struct {
 	Account
-	Ready          bool              `json:"ready"`
-	Hot            bool              `json:"hot"`
-	InFlight       int               `json:"in_flight"`
-	Restarts       int               `json:"restarts"`
-	DownUntil      string            `json:"down_until,omitempty"`
-	ModelCooldowns map[string]string `json:"model_cooldowns,omitempty"`
-	Quota          *QuotaSnapshot    `json:"quota,omitempty"`
+	Ready               bool              `json:"ready"`
+	Hot                 bool              `json:"hot"`
+	InFlight            int               `json:"in_flight"`
+	Restarts            int               `json:"restarts"`
+	RuntimeState        string            `json:"runtime_state,omitempty"`
+	NextRestartAt       string            `json:"next_restart_at,omitempty"`
+	RestartBackoffLevel int               `json:"restart_backoff_level,omitempty"`
+	DownUntil           string            `json:"down_until,omitempty"`
+	ModelCooldowns      map[string]string `json:"model_cooldowns,omitempty"`
+	Quota               *QuotaSnapshot    `json:"quota,omitempty"`
 }
 
 func (m *Manager) Import(ctx context.Context, input ImportAccount) (Account, error) {
@@ -800,7 +953,7 @@ func (m *Manager) Import(ctx context.Context, input ImportAccount) (Account, err
 		if err != nil {
 			return Account{}, err
 		}
-		if err := m.startAccount(ctx, account); err != nil {
+		if err := m.startAccountWithRecovery(ctx, account); err != nil {
 			return account, err
 		}
 	}
@@ -838,6 +991,11 @@ func (m *Manager) AccountView(ctx context.Context, id string) (AccountView, erro
 		view.Hot = item.Hot != nil && *item.Hot
 		view.InFlight = item.InFlight
 		view.Restarts = item.Restarts
+		view.RuntimeState = item.RuntimeState
+		view.RestartBackoffLevel = item.RestartBackoffLevel
+		if !item.NextRestartAt.IsZero() && time.Now().Before(item.NextRestartAt) {
+			view.NextRestartAt = item.NextRestartAt.UTC().Format(time.RFC3339)
+		}
 		view.Quota = item.Quota
 		view.ModelCooldowns = activeModelCooldowns(item.ModelDownUntil)
 		if !item.DownUntil.IsZero() && time.Now().Before(item.DownUntil) {
@@ -866,6 +1024,11 @@ func (m *Manager) Accounts(ctx context.Context) ([]AccountView, error) {
 			view.Hot = item.Hot != nil && *item.Hot
 			view.InFlight = item.InFlight
 			view.Restarts = item.Restarts
+			view.RuntimeState = item.RuntimeState
+			view.RestartBackoffLevel = item.RestartBackoffLevel
+			if !item.NextRestartAt.IsZero() && time.Now().Before(item.NextRestartAt) {
+				view.NextRestartAt = item.NextRestartAt.UTC().Format(time.RFC3339)
+			}
 			view.Quota = item.Quota
 			view.ModelCooldowns = activeModelCooldowns(item.ModelDownUntil)
 			if !item.DownUntil.IsZero() && time.Now().Before(item.DownUntil) {
@@ -905,6 +1068,15 @@ func (m *Manager) AccountURL(id string) (string, bool) {
 	return item.URL, ok
 }
 
+func (m *Manager) resetRestartBackoff(id string) {
+	if m == nil || id == "" {
+		return
+	}
+	m.mu.Lock()
+	delete(m.restartBackoff, id)
+	m.mu.Unlock()
+}
+
 func (m *Manager) RefreshAll(ctx context.Context, forceQuota bool) error {
 	var joined error
 	for _, item := range m.pool.Items() {
@@ -916,6 +1088,9 @@ func (m *Manager) RefreshAll(ctx context.Context, forceQuota bool) error {
 }
 
 func (m *Manager) refreshOne(ctx context.Context, item Item, forceQuota bool) error {
+	if item.RuntimeState == "dead" {
+		return nil
+	}
 	if item.Runtime == string(providers.RuntimeInProcess) || strings.TrimSpace(item.URL) == "" {
 		return m.refreshInProcess(ctx, item)
 	}
@@ -945,6 +1120,9 @@ func (m *Manager) refreshOne(ctx context.Context, item Item, forceQuota bool) er
 	}
 	ready := resp.StatusCode < 300 && health.OK && health.Ready
 	m.pool.MergeHealth(item.ID, ready, health.Hot, health.InFlight, item.Restarts, health.LastError)
+	if ready || health.Hot {
+		m.resetRestartBackoff(item.ID)
+	}
 	status := "login_required"
 	if ready || health.Hot {
 		status = "ready"
@@ -976,6 +1154,9 @@ func (m *Manager) refreshInProcess(ctx context.Context, item Item) error {
 		return fmt.Errorf("probe account %s: %w", item.ID, err)
 	}
 	m.pool.MergeHealth(item.ID, health.Ready, health.Hot, health.InFlight, item.Restarts, health.LastError)
+	if health.Ready || health.Hot {
+		m.resetRestartBackoff(item.ID)
+	}
 	status := "login_required"
 	if health.Ready || health.Hot {
 		status = "ready"
@@ -986,7 +1167,11 @@ func (m *Manager) refreshInProcess(ctx context.Context, item Item) error {
 		return err
 	}
 	if health.Ready || health.Hot {
-		m.fetchProviderQuota(ctx, item.ID, adapter.Prober)
+		go func(accountID string, prober providers.AccountProber) {
+			quotaCtx, cancel := context.WithTimeout(m.runCtx, 5*time.Second)
+			defer cancel()
+			m.fetchProviderQuota(quotaCtx, accountID, prober)
+		}(item.ID, adapter.Prober)
 		m.fetchAccountModels(ctx, item)
 	}
 	return nil
@@ -1225,24 +1410,30 @@ func (m *Manager) watchAccount(id string, process ManagedProcess) {
 		return
 	}
 	delete(m.processes, id)
-	m.restarts[id]++
 	m.mu.Unlock()
-	m.pool.Remove(id)
 	message := "account daemon exited"
 	if exitErr != nil {
 		message = exitErr.Error()
 	}
-	_ = m.store.Observe(context.Background(), id, "", "error", message, KindUnavailable)
-	select {
-	case <-time.After(m.config.RestartDelay):
-	case <-m.runCtx.Done():
-		return
+	m.beginAccountRecovery(id, errors.New(message))
+}
+
+func (m *Manager) restartDelay(level int) time.Duration {
+	if level <= 0 {
+		level = 1
 	}
-	account, err := m.store.Get(context.Background(), id)
-	if err != nil || !account.Enabled {
-		return
+	delay := m.config.RestartDelay
+	for step := 1; step < level && delay < m.config.RestartMaxDelay; step++ {
+		if delay > m.config.RestartMaxDelay/2 {
+			delay = m.config.RestartMaxDelay
+			break
+		}
+		delay *= 2
 	}
-	_ = m.startAccount(context.Background(), account)
+	if delay > m.config.RestartMaxDelay {
+		return m.config.RestartMaxDelay
+	}
+	return delay
 }
 
 // alreadyCheckedIn is implemented by workbuddy.AlreadyCheckedInError without

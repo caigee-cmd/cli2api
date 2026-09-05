@@ -2,9 +2,10 @@
 
 ## 1. Start
 
-The deployment is one container containing the Go control plane, Node runtime,
-pinned qodercli, and frontend. SQLite and account credentials persist in the
-`qoder-data` volume; per-account Qoder runtime homes use tmpfs.
+The deployment is one container containing the Go control plane, provider
+adapters, Node runtime, pinned qodercli, and frontend. SQLite and account
+credentials persist in the `qoder-data` volume; per-account ephemeral runtimes
+use tmpfs where the provider requires them.
 
 From the repository root, use:
 
@@ -32,12 +33,14 @@ docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d
 Add `--build` to build from the checked-out source. Only `127.0.0.1:3010` is
 published. Account and credential operations require the key stored in SQLite.
 
-## 2. Qoder login storage
+## 2. Account login storage
 
-After startup, add accounts from `/accounts` using browser OAuth, PAT, or a
-`qoder-native-v1` credential bundle. The encrypted Qoder user blob and matching
-`machine_id` are stored in SQLite. Workers materialize those files only under the
-per-account tmpfs runtime directory while running.
+After startup, add accounts from `/accounts` using the login methods supported by
+each provider: Qoder browser OAuth, PAT, or `qoder-native-v1` import; WorkBuddy /
+Trae browser OAuth or their provider credential import where applicable. Provider
+credentials are stored in SQLite. Qoder workers materialize
+their auth files only under the per-account tmpfs runtime directory; in-process
+providers keep their adapter state in the Go process.
 
 ## 3. Gateway
 
@@ -57,7 +60,7 @@ curl http://127.0.0.1:3010/v1/chat/completions \
   -H "Authorization: Bearer $CLI2API_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "qwen3.7-plus",
+    "model": "<model-id-from-v1-models>",
     "messages": [{"role": "user", "content": "Reply with OK only"}],
     "stream": false
   }'
@@ -69,30 +72,34 @@ PowerShell equivalent:
 $env:CLI2API_API_KEY = "paste-the-key-printed-on-first-start"
 $Headers = @{ Authorization = "Bearer $env:CLI2API_API_KEY" }
 $Body = @{
-  model = "qwen3.7-plus"
+  model = "<model-id-from-v1-models>"
   messages = @(@{ role = "user"; content = "Reply with OK only" })
   stream = $false
 } | ConvertTo-Json -Depth 4
 Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:3010/v1/chat/completions" -Headers $Headers -ContentType "application/json" -Body $Body
 ```
 
-Pin a request to a specific account with the `X-Qoder-Account: acc_...` header.
+Pin a request to a specific account with the `X-Qoder-Account: acc_...` header
+(a historical header name that applies to every provider). Add `X-CLI2API-Session`
+when consecutive requests should prefer the same account.
 
 ## 5. Configuration
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `QODER_DATA_DIR` | `/data` | SQLite database and durable account credentials |
-| `QODER_RUNTIME_DIR` | `/run/cli2api` | Ephemeral per-account Qoder runtime homes |
-| `QODER_MAX_INFLIGHT` | `4` | Maximum concurrent requests per account |
+| `QODER_RUNTIME_DIR` | `/run/cli2api` | Ephemeral per-account runtime homes for providers that use child processes |
 | `QODER_MAX_RETRY_ACCOUNTS` | `4` | Maximum accounts attempted for one request (1-64) |
-| `QODER_WORKER_BASE_PORT` | `32100` | Internal worker port range |
+| `QODER_WORKER_BASE_PORT` | `32100` | Internal child-runtime port range |
 | `QODERCLI_JS` | image default | Pinned Qoder Global CLI bundle |
 | `QODERCNCLI_JS` | image default | Pinned Qoder CN CLI bundle |
 | `UPDATE_GITHUB_TOKEN` | empty | Optional GitHub token for release checks |
 | `UPDATE_AGENT_URL` | empty | Docker Desktop host updater URL, written by the installer |
 | `UPDATE_AGENT_TOKEN` | empty | Docker Desktop updater token, written by the installer |
 | `CLI2API_UPDATER_SOCKET_DIR` | platform-specific | Host directory mounted read-only for the Linux updater socket |
+
+Per-account concurrency is configured through `max_inflight` in the console; it is
+persisted with each account and passed to its runtime.
 
 The API key is generated once and stored in SQLite. There is no environment-variable bootstrap path; changing container environment variables does not replace the stored key.
 
@@ -103,7 +110,9 @@ The API key is generated once and stored in SQLite. There is no environment-vari
 | `GET` | `/health` | Health probe; no API key required |
 | `GET` | `/v1/models` | Model catalog |
 | `POST` | `/v1/chat/completions` | OpenAI-compatible chat |
-| `GET/POST` | `/api/*` | Console management API |
+| `POST` | `/v1/messages` | Anthropic-compatible messages |
+| `POST` | `/v1/responses` | OpenAI Responses-compatible API |
+| `GET/POST/PATCH/DELETE` | `/api/*` | Console management API |
 
 All console and API routes except `/health` require the API key stored in SQLite.
 

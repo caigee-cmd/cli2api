@@ -1,7 +1,8 @@
 # Contributing
 
-CLI2API is Qoder-first. Keep changes focused and do not add other providers until the
-current Qoder milestone is complete. Hard rules live in `AGENTS.md`.
+CLI2API keeps the Qoder execution path stable while supporting provider-specific
+adapters for Qoder, WorkBuddy, and Trae. Keep new provider work behind the shared
+account, routing, and protocol contracts. Hard rules live in `AGENTS.md`.
 
 ## Setup
 
@@ -39,7 +40,8 @@ The favicon set and OG social card live in `frontend/public/`. After editing the
 1. `cd frontend && npm run sync` — copies the assets into `internal/webui/static/` (embedded into the Go binary by `//go:embed`).
 2. Add a matching entry under `## Unreleased` in `CHANGELOG.md` in both `### English` and `### 中文`.
 
-The READMEs instead show `docs/assets/overview-card.png`, which is hand-maintained; regenerate it when login methods, account types, endpoints, or deployment targets change.
+Keep README diagrams and provider lists aligned with the supported account types,
+endpoints, and deployment targets.
 
 Adding a new file to the favicon suite? Update three places:
 
@@ -62,7 +64,8 @@ by hand.
 ## Rules
 
 - Keep the Go layers: auth / endpoint / executor / translate / api
-- Keep one Qoder HOME and one Node daemon per enabled account
+- Keep one isolated runtime per enabled account: Qoder uses one HOME and Node daemon;
+  in-process providers use their adapter and must not spawn a child daemon
 - Keep qodercli compatibility checks in `worker/src/compat.mjs`
 - Preserve the proven WASM encode and HTTP/SSE request path
 - Use HeroUI for console components
