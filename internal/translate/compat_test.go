@@ -56,3 +56,72 @@ func TestTranslateAnthropicToolResultLiftsImages(t *testing.T) {
 		t.Fatalf("image part=%#v", parts[0])
 	}
 }
+
+func TestTranslatedImageOnlyRequestsProduceContentSessionSeed(t *testing.T) {
+	anthropic, err := TranslateAnthropicMessages(AnthropicMessagesRequest{
+		Model: "glm-5.2",
+		Messages: []AnthropicMessage{
+			{Role: "user", Content: json.RawMessage(`[{"type":"image","source":{"type":"url","url":"https://example.com/cat.png"}}]`)},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	anthropicSeed := ContentSessionSeed(anthropic)
+	if anthropicSeed == "" {
+		t.Fatalf("anthropic image-only seed empty; content=%#v", anthropic.Messages[0].Content)
+	}
+	anthropicLater, err := TranslateAnthropicMessages(AnthropicMessagesRequest{
+		Model: "glm-5.2",
+		Messages: []AnthropicMessage{
+			{Role: "user", Content: json.RawMessage(`[{"type":"image","source":{"type":"url","url":"https://example.com/cat.png"}}]`)},
+			{Role: "assistant", Content: json.RawMessage(`[{"type":"text","text":"a cat"}]`)},
+			{Role: "user", Content: json.RawMessage(`[{"type":"text","text":"what color?"}]`)},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ContentSessionSeed(anthropicLater) != anthropicSeed {
+		t.Fatalf("anthropic later turn changed seed:\nfirst=%q\nlater=%q", anthropicSeed, ContentSessionSeed(anthropicLater))
+	}
+
+	responses, err := TranslateResponses(ResponsesRequest{
+		Model: "glm-5.2",
+		Input: json.RawMessage(`[{"role":"user","content":[{"type":"input_image","image_url":"https://example.com/cat.png"}]}]`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	responsesSeed := ContentSessionSeed(responses)
+	if responsesSeed == "" {
+		t.Fatalf("responses image-only seed empty; content=%#v", responses.Messages[0].Content)
+	}
+	responsesLater, err := TranslateResponses(ResponsesRequest{
+		Model: "glm-5.2",
+		Input: json.RawMessage(`[
+				{"role":"user","content":[{"type":"input_image","image_url":"https://example.com/cat.png"}]},
+				{"role":"assistant","content":[{"type":"output_text","text":"a cat"}]},
+				{"role":"user","content":[{"type":"input_text","text":"what color?"}]}
+			]`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ContentSessionSeed(responsesLater) != responsesSeed {
+		t.Fatalf("responses later turn changed seed:\nfirst=%q\nlater=%q", responsesSeed, ContentSessionSeed(responsesLater))
+	}
+
+	otherAnthropic, err := TranslateAnthropicMessages(AnthropicMessagesRequest{
+		Model: "glm-5.2",
+		Messages: []AnthropicMessage{
+			{Role: "user", Content: json.RawMessage(`[{"type":"image","source":{"type":"url","url":"https://example.com/dog.png"}}]`)},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ContentSessionSeed(otherAnthropic) == anthropicSeed {
+		t.Fatal("different anthropic images must not share a seed")
+	}
+}

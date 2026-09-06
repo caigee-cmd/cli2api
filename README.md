@@ -50,7 +50,7 @@ Base URL: http://127.0.0.1:3010/v1
 API Key:  <首次启动时生成的 Key>
 ```
 
-不指定账号时，调度器自动选择可用账号；需要固定账号时加请求头 `X-Qoder-Account: acc_...`（历史命名，适用于所有 provider）。除 Chat Completions 外，也可使用 Anthropic `POST /v1/messages` 与 OpenAI `POST /v1/responses`；两者要求请求携带完整对话，不支持 `previous_response_id` / `conversation` 服务端续接。需要会话粘性时，可设置 `X-CLI2API-Session`；curl / PowerShell 示例见 [部署说明](deploy/README.md)。
+不指定账号时，调度器自动选择可用账号；需要固定账号时加请求头 `X-Qoder-Account: acc_...`（历史命名，适用于所有 provider）。除 Chat Completions 外，也可使用 Anthropic `POST /v1/messages` 与 OpenAI `POST /v1/responses`；两者要求请求携带完整对话，不支持 `previous_response_id` / `conversation` 服务端续接。同一段对话默认按首条用户消息（含纯图片）粘到同一个账号；也可显式设置 `X-CLI2API-Session`。curl / PowerShell 示例见 [部署说明](deploy/README.md)。
 
 ## 工作方式
 
@@ -87,7 +87,7 @@ CLI2API 是本地网关：不提供账号、额度或官方 API 服务，不做�
 
 - Anthropic `/v1/messages` 与 OpenAI `/v1/responses` 的无状态文本 / 函数工具适配层
 - WorkBuddy 每日签到与 token 保活（账号级开关，默认关闭；控制台可立即签到 / 刷新积分）
-- 会话粘性路由：通过 `X-CLI2API-Session` 优先复用同一账号，并在失败时按规则切换
+- 会话粘性路由：默认按对话内容（首条用户消息，含纯图片）复用同一账号，也可设置 `X-CLI2API-Session`，并在失败时按规则切换
 - 请求历史按账号过滤，以及请求状态、延迟、Token 和用量统计
 
 **长期**

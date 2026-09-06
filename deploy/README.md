@@ -85,8 +85,10 @@ Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:3010/v1/chat/completions" 
 ```
 
 Pin a request to a specific account with the `X-Qoder-Account: acc_...` header
-(a historical header name that applies to every provider). Add `X-CLI2API-Session`
-when consecutive requests should prefer the same account.
+(a historical header name that applies to every provider). Consecutive turns of
+the same conversation prefer the same account from the first user message
+(including image-only turns);
+`X-CLI2API-Session` remains an optional override.
 
 ## 5. Configuration
 

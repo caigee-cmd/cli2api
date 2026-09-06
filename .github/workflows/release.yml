@@ -1,9 +1,18 @@
 name: Release
 
-run-name: Release next patch from ${{ github.ref_name }}
+run-name: Release next ${{ inputs.bump || 'patch' }} from ${{ github.ref_name }}
 
 on:
   workflow_dispatch:
+    inputs:
+      bump:
+        description: SemVer component to increment from the latest published release
+        type: choice
+        default: patch
+        options:
+          - patch
+          - minor
+          - major
 
 concurrency:
   group: release
@@ -54,16 +63,24 @@ jobs:
           done
           echo "Timed out waiting for CI on $GITHUB_SHA" >&2
           exit 1
-      - name: Calculate next patch version
+      - name: Calculate next version
         id: version
         env:
           GH_TOKEN: ${{ github.token }}
+          BUMP: ${{ inputs.bump || 'patch' }}
         run: |
           set -euo pipefail
           if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
             echo "Release workflow must run from main, got $GITHUB_REF" >&2
             exit 1
           fi
+          case "$BUMP" in
+            patch|minor|major) ;;
+            *)
+              echo "Unsupported bump $BUMP" >&2
+              exit 1
+              ;;
+          esac
 
           git fetch --tags --force
           previous_tag="$({
@@ -78,7 +95,20 @@ jobs:
           else
             version="${previous_tag#v}"
             IFS=. read -r major minor patch <<< "$version"
-            patch=$((patch + 1))
+            case "$BUMP" in
+              major)
+                major=$((major + 1))
+                minor=0
+                patch=0
+                ;;
+              minor)
+                minor=$((minor + 1))
+                patch=0
+                ;;
+              patch)
+                patch=$((patch + 1))
+                ;;
+            esac
             if ! git merge-base --is-ancestor "$previous_tag" "$GITHUB_SHA"; then
               echo "$previous_tag is not an ancestor of $GITHUB_SHA" >&2
               exit 1

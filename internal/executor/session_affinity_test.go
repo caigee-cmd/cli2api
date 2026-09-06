@@ -147,12 +147,139 @@ func TestChatStreamProxySessionAffinity(t *testing.T) {
 		t.Fatal(err)
 	}
 	first.Response.Body.Close()
-	executor.CommitSession(ctx, first.Routing, first.AccountID)
+	executor.CommitSession(ctx, req, first.Routing, first.AccountID)
 	second, err := executor.ChatStreamProxy(ctx, req, "", "")
 	if err != nil || second.AccountID != "a" || second.Routing != routingSticky {
 		t.Fatalf("second = %+v, err=%v", second, err)
 	}
 	second.Response.Body.Close()
+}
+
+func TestChatNonStreamContentSessionAffinityWithoutExplicitKey(t *testing.T) {
+	server := func(id string) *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = io.WriteString(w, `{"model":"glm-5.2","choices":[{"message":{"content":"`+id+`"},"finish_reason":"stop"}],"usage":{"source":"upstream"}}`)
+		}))
+	}
+	a := server("a")
+	defer a.Close()
+	b := server("b")
+	defer b.Close()
+
+	pool := accounts.NewPool(nil, nil)
+	pool.Upsert(accounts.Item{ID: "a", URL: a.URL, Provider: "qoder", Region: "global", Runtime: "child_process"})
+	pool.Upsert(accounts.Item{ID: "b", URL: b.URL, Provider: "qoder", Region: "global", Runtime: "child_process"})
+	executor := NewChatExecutor(pool, "")
+	firstReq := translate.ChatRequest{Model: "glm-5.2", Messages: []translate.ChatMessage{{Role: "user", Content: "plan the refactor"}}}
+	laterReq := translate.ChatRequest{
+		Model: "glm-5.2",
+		Messages: []translate.ChatMessage{
+			{Role: "user", Content: "plan the refactor"},
+			{Role: "assistant", Content: "ok"},
+			{Role: "user", Content: "continue"},
+		},
+	}
+	otherReq := translate.ChatRequest{Model: "glm-5.2", Messages: []translate.ChatMessage{{Role: "user", Content: "a different conversation"}}}
+
+	first, err := executor.ChatNonStream(context.Background(), firstReq, "", "")
+	if err != nil || first.AccountID != "a" || first.Routing != routingPool {
+		t.Fatalf("first = %+v, err=%v", first, err)
+	}
+	later, err := executor.ChatNonStream(context.Background(), laterReq, "", "")
+	if err != nil || later.AccountID != "a" || later.Routing != routingSticky {
+		t.Fatalf("later = %+v, err=%v", later, err)
+	}
+	other, err := executor.ChatNonStream(context.Background(), otherReq, "", "")
+	if err != nil || other.AccountID != "b" || other.Routing != routingPool {
+		t.Fatalf("other = %+v, err=%v", other, err)
+	}
+}
+
+func TestChatNonStreamImageOnlyContentSessionAffinity(t *testing.T) {
+	server := func(id string) *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = io.WriteString(w, `{"model":"glm-5.2","choices":[{"message":{"content":"`+id+`"},"finish_reason":"stop"}],"usage":{"source":"upstream"}}`)
+		}))
+	}
+	a := server("a")
+	defer a.Close()
+	b := server("b")
+	defer b.Close()
+
+	pool := accounts.NewPool(nil, nil)
+	pool.Upsert(accounts.Item{ID: "a", URL: a.URL, Provider: "qoder", Region: "global", Runtime: "child_process"})
+	pool.Upsert(accounts.Item{ID: "b", URL: b.URL, Provider: "qoder", Region: "global", Runtime: "child_process"})
+	executor := NewChatExecutor(pool, "")
+	image := []any{map[string]any{"type": "image_url", "image_url": map[string]any{"url": "https://example.com/cat.png"}}}
+	firstReq := translate.ChatRequest{Model: "glm-5.2", Messages: []translate.ChatMessage{{Role: "user", Content: image}}}
+	laterReq := translate.ChatRequest{
+		Model: "glm-5.2",
+		Messages: []translate.ChatMessage{
+			{Role: "user", Content: image},
+			{Role: "assistant", Content: "a cat"},
+			{Role: "user", Content: "what color?"},
+		},
+	}
+	otherReq := translate.ChatRequest{Model: "glm-5.2", Messages: []translate.ChatMessage{{
+		Role:    "user",
+		Content: []any{map[string]any{"type": "image_url", "image_url": map[string]any{"url": "https://example.com/dog.png"}}},
+	}}}
+
+	first, err := executor.ChatNonStream(context.Background(), firstReq, "", "")
+	if err != nil || first.AccountID != "a" || first.Routing != routingPool {
+		t.Fatalf("first = %+v, err=%v", first, err)
+	}
+	later, err := executor.ChatNonStream(context.Background(), laterReq, "", "")
+	if err != nil || later.AccountID != "a" || later.Routing != routingSticky {
+		t.Fatalf("later = %+v, err=%v", later, err)
+	}
+	other, err := executor.ChatNonStream(context.Background(), otherReq, "", "")
+	if err != nil || other.AccountID != "b" || other.Routing != routingPool {
+		t.Fatalf("other = %+v, err=%v", other, err)
+	}
+}
+
+func TestChatStreamProxyContentSessionAffinityWithoutExplicitKey(t *testing.T) {
+	server := func() *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = io.WriteString(w, "data: [DONE]\n\n")
+		}))
+	}
+	a := server()
+	defer a.Close()
+	b := server()
+	defer b.Close()
+
+	pool := accounts.NewPool(nil, nil)
+	pool.Upsert(accounts.Item{ID: "a", URL: a.URL, Provider: "qoder", Region: "global", Runtime: "child_process"})
+	pool.Upsert(accounts.Item{ID: "b", URL: b.URL, Provider: "qoder", Region: "global", Runtime: "child_process"})
+	executor := NewChatExecutor(pool, "")
+	firstReq := translate.ChatRequest{Model: "glm-5.2", Stream: true, Messages: []translate.ChatMessage{{Role: "user", Content: "plan the refactor"}}}
+	laterReq := translate.ChatRequest{
+		Model:  "glm-5.2",
+		Stream: true,
+		Messages: []translate.ChatMessage{
+			{Role: "user", Content: "plan the refactor"},
+			{Role: "assistant", Content: "ok"},
+			{Role: "user", Content: "continue"},
+		},
+	}
+
+	first, err := executor.ChatStreamProxy(context.Background(), firstReq, "", "")
+	if err != nil || first.AccountID != "a" || first.Routing != routingPool {
+		t.Fatalf("first = %+v, err=%v", first, err)
+	}
+	if _, err := io.ReadAll(first.Response.Body); err != nil {
+		t.Fatal(err)
+	}
+	first.Response.Body.Close()
+	executor.CommitSession(context.Background(), firstReq, first.Routing, first.AccountID)
+	later, err := executor.ChatStreamProxy(context.Background(), laterReq, "", "")
+	if err != nil || later.AccountID != "a" || later.Routing != routingSticky {
+		t.Fatalf("later = %+v, err=%v", later, err)
+	}
+	later.Response.Body.Close()
 }
 
 func TestChatNonStreamSessionAffinityRateLimitEscapesSameRegion(t *testing.T) {

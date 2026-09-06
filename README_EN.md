@@ -50,7 +50,7 @@ Base URL: http://127.0.0.1:3010/v1
 API Key:  <the key printed on first startup>
 ```
 
-Without an account header the scheduler picks a ready account; pin a request with the `X-Qoder-Account: acc_...` header (a historical name that applies to every provider). Anthropic `POST /v1/messages` and OpenAI `POST /v1/responses` are also available; both require the complete conversation in each request and do not support server-side continuation through `previous_response_id` / `conversation`. Use `X-CLI2API-Session` when session-sticky routing is desired. curl / PowerShell examples in the [deployment guide](deploy/README.md).
+Without an account header the scheduler picks a ready account; pin a request with the `X-Qoder-Account: acc_...` header (a historical name that applies to every provider). Anthropic `POST /v1/messages` and OpenAI `POST /v1/responses` are also available; both require the complete conversation in each request and do not support server-side continuation through `previous_response_id` / `conversation`. Multi-turn requests stick to the same account from the first user message (including image-only turns) by default; `X-CLI2API-Session` remains an optional override. curl / PowerShell examples in the [deployment guide](deploy/README.md).
 
 ## How it works
 
@@ -87,7 +87,7 @@ CLI2API is a local gateway: it does not provide accounts, quotas, or an official
 
 - Stateless text and function-tool adapters for Anthropic `/v1/messages` and OpenAI `/v1/responses`; image input where the provider supports it
 - WorkBuddy daily check-in and token keepalive (per-account opt-in, off by default; console can check in now / refresh credits)
-- Session-sticky routing via `X-CLI2API-Session`, with rule-based failover when the bound account cannot serve the request
+- Session-sticky routing from conversation content (first user message, including image-only turns), or via `X-CLI2API-Session`, with rule-based failover when the bound account cannot serve the request
 - Request history filtering by account, plus request status, latency, token, and usage statistics
 
 **Longer term**

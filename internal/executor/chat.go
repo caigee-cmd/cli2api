@@ -165,11 +165,11 @@ func (e ChatExecutor) stickyEscapeReason(plan *routingPlan) string {
 // CommitSession binds a successfully completed stream. The executor cannot know
 // whether an SSE response reached [DONE], so the relay calls this only after it
 // has finished without an upstream or client error.
-func (e ChatExecutor) CommitSession(ctx context.Context, routing, accountID string) {
+func (e ChatExecutor) CommitSession(ctx context.Context, req translate.ChatRequest, routing, accountID string) {
 	if routing == routingPin || e.SessionAffinity == nil {
 		return
 	}
-	e.SessionAffinity.Bind(sessionKeyFromContext(ctx), accountID)
+	e.SessionAffinity.Bind(resolveSessionKey(ctx, req), accountID)
 }
 
 func itemProvider(item accounts.Item) string {
@@ -193,15 +193,15 @@ func itemServesPublicModel(item accounts.Item, publicModel string) bool {
 	return false
 }
 
-func (e ChatExecutor) prepareRouting(ctx context.Context, prefer, providerFilter, publicModel string) (string, string, string, routingPlan) {
+func (e ChatExecutor) prepareRouting(ctx context.Context, prefer, providerFilter string, req translate.ChatRequest) (string, string, string, routingPlan) {
 	prefer = strings.TrimSpace(prefer)
 	providerFilter = strings.ToLower(strings.TrimSpace(providerFilter))
+	publicModel := req.Model
 	if prefer != "" {
-		return prefer, providerFilter, "", routingPlan{Source: routingPin}
+		return prefer, providerFilter, "", routingPlan{Source: routingPin, PublicModel: publicModel}
 	}
 
-	plan := routingPlan{Source: routingPool, SessionKey: sessionKeyFromContext(ctx)}
-	plan.PublicModel = publicModel
+	plan := routingPlan{Source: routingPool, SessionKey: resolveSessionKey(ctx, req), PublicModel: publicModel}
 	if plan.SessionKey == "" || e.SessionAffinity == nil || e.Pool == nil {
 		return "", providerFilter, "", plan
 	}
@@ -579,7 +579,7 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 	if err != nil {
 		return ChatResult{}, err
 	}
-	prefer, providerFilter, regionFilter, routing = e.prepareRouting(ctx, prefer, providerFilter, req.Model)
+	prefer, providerFilter, regionFilter, routing = e.prepareRouting(ctx, prefer, providerFilter, req)
 	excluded := map[string]struct{}{}
 	var lastErr error
 	if regionFilter == "" && prefer != "" && e.Pool != nil {
@@ -978,7 +978,7 @@ func (e ChatExecutor) ChatStreamProxy(ctx context.Context, req translate.ChatReq
 	if err != nil {
 		return StreamResult{}, err
 	}
-	prefer, providerFilter, regionFilter, routing = e.prepareRouting(ctx, prefer, providerFilter, req.Model)
+	prefer, providerFilter, regionFilter, routing = e.prepareRouting(ctx, prefer, providerFilter, req)
 	excluded := map[string]struct{}{}
 	var lastErr error
 	if regionFilter == "" && prefer != "" && e.Pool != nil {

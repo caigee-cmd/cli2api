@@ -63,7 +63,7 @@ func (s *Server) prepareCompatibilityExecution(r *http.Request, request translat
 		RequestedModel: firstNonEmpty(publicModel, request.Model),
 	})
 	ctx := executor.WithAllowedProviders(executor.WithRequestID(r.Context(), requestID), identity.AllowedProviders)
-	if sessionKey := requestSessionKey(r, identity); sessionKey != "" {
+	if sessionKey := requestSessionKey(r, identity, request); sessionKey != "" {
 		ctx = executor.WithSessionKey(ctx, sessionKey)
 	}
 	return compatibilityExecution{
@@ -135,7 +135,7 @@ func (s *Server) handleAnthropicMessagesStream(w http.ResponseWriter, r *http.Re
 	ttfb := streamTTFB(execution.started, upstream.TTFBMs, stats)
 	s.finishCompatibility(execution, upstream.AccountID, upstream.Provider, upstream.Routing, status, ttfb, &stats, relayErr, upstream.AttemptCount)
 	if relayErr == nil {
-		s.executor.CommitSession(execution.ctx, upstream.Routing, upstream.AccountID)
+		s.executor.CommitSession(execution.ctx, execution.request, upstream.Routing, upstream.AccountID)
 		return
 	}
 	if !isStreamClientDisconnect(relayErr) {
@@ -203,7 +203,7 @@ func (s *Server) handleResponsesStream(w http.ResponseWriter, r *http.Request, e
 	ttfb := streamTTFB(execution.started, upstream.TTFBMs, stats)
 	s.finishCompatibility(execution, upstream.AccountID, upstream.Provider, upstream.Routing, status, ttfb, &stats, relayErr, upstream.AttemptCount)
 	if relayErr == nil {
-		s.executor.CommitSession(execution.ctx, upstream.Routing, upstream.AccountID)
+		s.executor.CommitSession(execution.ctx, execution.request, upstream.Routing, upstream.AccountID)
 		return
 	}
 	if !isStreamClientDisconnect(relayErr) {

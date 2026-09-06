@@ -659,7 +659,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		RequestedModel: firstNonEmpty(publicModel, req.Model),
 	})
 	ctx := executor.WithAllowedProviders(executor.WithRequestID(r.Context(), requestID), identity.AllowedProviders)
-	if sessionKey := requestSessionKey(r, identity); sessionKey != "" {
+	if sessionKey := requestSessionKey(r, identity, req); sessionKey != "" {
 		ctx = executor.WithSessionKey(ctx, sessionKey)
 	}
 	w.Header().Set("X-Request-Id", requestID)
@@ -706,7 +706,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 		s.finishRequestLog(requestID, started, req, publicModel, upstream.AccountID, firstNonEmpty(upstream.Provider, providerFilter), upstream.Routing, status, ttfb, &stats, relayErr, upstream.AttemptCount)
 		if relayErr == nil {
-			s.executor.CommitSession(ctx, upstream.Routing, upstream.AccountID)
+			s.executor.CommitSession(ctx, req, upstream.Routing, upstream.AccountID)
 		}
 		if relayErr != nil {
 			// The upstream answered 200 and failed inside the stream, so the
@@ -882,11 +882,18 @@ func writeClassifiedErr(w http.ResponseWriter, err error) {
 	writeErr(w, classified.Status, classified.Code, classified.Message)
 }
 
-func requestSessionKey(r *http.Request, identity auth.Identity) string {
-	if r == nil {
-		return ""
+func requestSessionKey(r *http.Request, identity auth.Identity, req translate.ChatRequest) string {
+	raw := ""
+	kind := "content"
+	if r != nil {
+		raw = strings.TrimSpace(r.Header.Get("X-CLI2API-Session"))
+		if raw != "" {
+			kind = "header"
+		}
 	}
-	raw := strings.TrimSpace(r.Header.Get("X-CLI2API-Session"))
+	if raw == "" {
+		raw = translate.ContentSessionSeed(req)
+	}
 	if raw == "" {
 		return ""
 	}
@@ -894,7 +901,7 @@ func requestSessionKey(r *http.Request, identity auth.Identity) string {
 	if identity.Kind == auth.KindKey && identity.KeyID != "" {
 		namespace = "key:" + identity.KeyID
 	}
-	sum := sha256.Sum256([]byte(namespace + "\x00" + raw))
+	sum := sha256.Sum256([]byte(namespace + "\x00" + kind + "\x00" + raw))
 	return hex.EncodeToString(sum[:])
 }
 
