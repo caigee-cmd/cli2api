@@ -460,7 +460,7 @@ func updaterApplyActive(status control.AgentStatus) bool {
 	switch status.State {
 	case "recreating", "rolling_back":
 		return true
-	case "queued", "preparing", "pulling", "checking":
+	case "queued", "preparing", "pulling", "host_binary", "checking":
 		return status.BackupPath != ""
 	default:
 		return false
@@ -481,7 +481,7 @@ func cancellablePreparedUpdate(job *systemUpdateJob, status control.AgentStatus)
 		}
 	}
 	switch status.State {
-	case "queued", "pulling", "preparing", "image_ready":
+	case "queued", "pulling", "host_binary", "preparing", "image_ready":
 		return status.BackupPath == ""
 	default:
 		return false
@@ -493,7 +493,7 @@ func hostCancellable(status control.AgentStatus) bool {
 		return true
 	}
 	switch status.State {
-	case "queued", "pulling", "preparing", "image_ready":
+	case "queued", "pulling", "host_binary", "preparing", "image_ready":
 		return status.BackupPath == ""
 	default:
 		return false
@@ -571,7 +571,7 @@ func newSystemUpdateJobID() (string, error) {
 
 func updaterStateActive(state string) bool {
 	switch state {
-	case "queued", "preparing", "pulling", "recreating", "checking", "rolling_back", "ready_to_apply":
+	case "queued", "preparing", "pulling", "host_binary", "recreating", "checking", "rolling_back", "ready_to_apply":
 		return true
 	default:
 		return false

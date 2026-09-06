@@ -30,6 +30,11 @@ type preparer interface {
 	Prepare(context.Context, string, control.PrepareRequest, func(string)) error
 }
 
+type hostBinaryUpdater interface {
+	CommitHostBinary() error
+	RestartHost()
+}
+
 type Config struct {
 	SocketPath    string
 	ListenAddress string
@@ -329,6 +334,15 @@ func (s *Service) run(jobID string, request ApplyRequest) {
 	})
 	if err == nil {
 		s.updateState(jobID, "succeeded", "", true)
+		if host, ok := s.applier.(hostBinaryUpdater); ok {
+			if commitErr := host.CommitHostBinary(); commitErr != nil {
+				s.updateState(jobID, "succeeded", commitErr.Error(), true)
+			}
+			go func() {
+				time.Sleep(750 * time.Millisecond)
+				host.RestartHost()
+			}()
+		}
 		return
 	}
 	state := "failed"
@@ -377,7 +391,7 @@ func validatePrepareRequest(request control.PrepareRequest) error {
 
 func isActiveState(state string) bool {
 	switch state {
-	case "queued", "preparing", "pulling", "recreating", "checking", "rolling_back":
+	case "queued", "preparing", "pulling", "host_binary", "recreating", "checking", "rolling_back":
 		return true
 	default:
 		return false
@@ -388,7 +402,7 @@ func cancellableStatus(status control.AgentStatus) bool {
 	switch status.State {
 	case "ready_to_apply":
 		return true
-	case "queued", "pulling", "preparing", "image_ready":
+	case "queued", "pulling", "host_binary", "preparing", "image_ready":
 		return status.BackupPath == ""
 	default:
 		return false

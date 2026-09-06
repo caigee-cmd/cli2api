@@ -47,10 +47,14 @@ func main() {
 		authToken = strings.TrimSpace(string(data))
 	}
 
+	hostBinary, err := os.Executable()
+	if err != nil {
+		log.Fatal(err)
+	}
 	executor := updater.NewExecutor(updater.ExecutorConfig{
 		ComposeFile: composeFile, EnvFile: envFile, ServiceName: serviceName,
 		ContainerName: containerName, ImageRepository: imageRepository, HealthURL: healthURL,
-		HealthTimeout: healthTimeout,
+		HealthTimeout: healthTimeout, HostBinaryPath: hostBinary,
 	})
 	service := updater.NewService(updater.Config{
 		SocketPath: socketPath, ListenAddress: listenAddress, AuthToken: authToken, StatusFile: statusFile,

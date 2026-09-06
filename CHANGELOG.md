@@ -7,7 +7,11 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Replace the host updater binary from the same GitHub release during a managed update, and prefer the latest updater asset when installing
+
 ### 中文
+
+- 托管更新会从同一 GitHub Release 替换宿主机更新器二进制；安装脚本改为优先下载最新 updater 资源
 
 ## 0.2.47 - 2026-09-06
 

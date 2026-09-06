@@ -111,12 +111,15 @@ install_released_updater() {
   local destination="$1"
   local os_name="$2"
   local version asset temp_dir checksum_file expected actual base_url source_label
-  version="$(running_release_version)" || return 1
-  asset="$(updater_asset_name "${os_name}")" || return 2
-  temp_dir="$(mktemp -d)"
-  checksum_file="${temp_dir}/cli2api-updater_checksums.txt"
+	asset="$(updater_asset_name "${os_name}")" || return 2
+	temp_dir="$(mktemp -d)"
+	checksum_file="${temp_dir}/cli2api-updater_checksums.txt"
+	local sources=(latest)
+	if version="$(running_release_version)"; then
+	  sources+=("${version}")
+	fi
 
-  for source_label in "${version}" latest; do
+	for source_label in "${sources[@]}"; do
     if [[ "${source_label}" == "latest" ]]; then
       base_url="https://github.com/${GITHUB_REPOSITORY}/releases/latest/download"
     else
@@ -167,14 +170,14 @@ install_linux() {
     exit 1
   fi
 
-  local temp_dir status
-  temp_dir="$(mktemp -d)"
-  if docker cp "${CONTAINER_NAME}:/app/cli2api-updater" "${temp_dir}/cli2api-updater" >/dev/null 2>&1; then
-    install -m 0755 "${temp_dir}/cli2api-updater" /usr/local/bin/cli2api-updater
-    echo "Installed updater from the running container."
-  elif install_released_updater /usr/local/bin/cli2api-updater linux; then
-    :
-  else
+	local temp_dir status
+	temp_dir="$(mktemp -d)"
+	if install_released_updater /usr/local/bin/cli2api-updater linux; then
+	    :
+	  elif docker cp "${CONTAINER_NAME}:/app/cli2api-updater" "${temp_dir}/cli2api-updater" >/dev/null 2>&1; then
+	    install -m 0755 "${temp_dir}/cli2api-updater" /usr/local/bin/cli2api-updater
+	    echo "Installed updater from the running container."
+	  else
     status=$?
     if [[ "${status}" -ne 1 ]]; then
       rm -rf "${temp_dir}"

@@ -19,10 +19,10 @@ import { SystemPageSkeleton } from '@/components/ui/PageSkeletons'
 import { useI18n } from '@/hooks/useI18n'
 import { CompactSwitch } from '@/components/ui/CompactSwitch'
 
-const busyStates = new Set(['preparing', 'preparing_image', 'checking', 'backing_up', 'submitting', 'running', 'queued', 'pulling', 'image_ready', 'recreating', 'rolling_back'])
+const busyStates = new Set(['preparing', 'preparing_image', 'checking', 'backing_up', 'submitting', 'running', 'queued', 'pulling', 'host_binary', 'image_ready', 'recreating', 'rolling_back'])
 const applyJobStates = new Set(['backing_up', 'running'])
 const applyAgentStates = new Set(['recreating', 'rolling_back'])
-const progressAgentStates = new Set(['queued', 'pulling', 'image_ready', 'preparing', 'recreating', 'checking', 'rolling_back'])
+const progressAgentStates = new Set(['queued', 'pulling', 'host_binary', 'image_ready', 'preparing', 'recreating', 'checking', 'rolling_back'])
 
 export function SystemPage() {
   const { t } = useI18n()

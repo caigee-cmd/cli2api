@@ -135,9 +135,11 @@ Start `qoder-api-proxy` once before installing the optional host updater.
 | Windows ARM64 | Docker Desktop Linux containers | `cli2api-updater_windows_arm64.exe` |
 
 Release assets include a SHA256 manifest. Installers use a verified prebuilt
-updater whenever possible. Linux first copies the matching binary from the
-running container; older releases without assets can use the latest compatible
-asset or fall back to a local Go `1.25.6+` build.
+updater whenever possible. They download the latest GitHub updater asset
+first, then the asset matching the running container, then copy
+`/app/cli2api-updater` from the container, and finally fall back to a local
+Go `1.25.6+` build. A managed console update also stages that host binary
+from the target release and replaces it after the new container is healthy.
 
 macOS + Docker Desktop:
 
@@ -178,8 +180,8 @@ The updater remains unavailable for development builds without a semantic
 version. The System page updates directly to the latest stable release and
 lists the intermediate versions it passes over.
 
-The updater API currently reports protocol version `1`. Protocol `0` remains
-temporarily accepted for bootstrap compatibility; unknown versions fail closed.
+The updater API currently reports protocol version `2`. Protocol `1` remains
+accepted for staged-update hosts; unknown versions fail closed.
 
 ## 8. Platform notes
 
