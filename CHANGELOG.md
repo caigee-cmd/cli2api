@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.3.0 - 2026-09-06
+
+### English
+
 - Keep multi-turn conversations on the same account from the first user message by default, including image-only turns, without requiring `X-CLI2API-Session`
 - Cache `GET /api/models` for 5 minutes so the console catalog page does not re-hit WorkBuddy or Trae on every load; `?refresh=1` still fetches live. Overview stays uncached.
 
