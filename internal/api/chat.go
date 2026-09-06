@@ -543,9 +543,16 @@ func (s *Server) filterModelsForIdentity(r *http.Request, models []map[string]an
 	return filtered
 }
 
+const modelsAPICacheTTL = 5 * time.Minute
+
+type modelsAPICacheEntry struct {
+	models []map[string]any
+	at     time.Time
+}
+
 func (s *Server) handleModelsAPI(w http.ResponseWriter, r *http.Request) {
 	refresh := r.URL.Query().Get("refresh") == "1"
-	models, err := s.fetchWorkerModelsFor(refresh, s.requestedAccount(r))
+	models, err := s.fetchModelsAPI(refresh, s.requestedAccount(r))
 	if err != nil {
 		// 503, not 502: some reverse proxies replace origin 502 JSON with
 		// their own HTML error page, which the console then renders as the
@@ -557,6 +564,53 @@ func (s *Server) handleModelsAPI(w http.ResponseWriter, r *http.Request) {
 		"object": "list",
 		"data":   s.decorateModelsWithContext(r.Context(), s.filterModelsForIdentity(r, models)),
 	})
+}
+
+func modelsAPICacheKey(accountID string) string {
+	if strings.TrimSpace(accountID) == "" {
+		return "*"
+	}
+	return accountID
+}
+
+func cloneModelList(models []map[string]any) []map[string]any {
+	if models == nil {
+		return nil
+	}
+	out := make([]map[string]any, 0, len(models))
+	for _, model := range models {
+		item := make(map[string]any, len(model))
+		for key, value := range model {
+			item[key] = value
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+// fetchModelsAPI serves GET /api/models from a 5-minute snapshot. Overview and
+// /v1/models keep calling fetchWorkerModelsFor directly so they stay live.
+func (s *Server) fetchModelsAPI(refresh bool, accountID string) ([]map[string]any, error) {
+	key := modelsAPICacheKey(accountID)
+	if !refresh {
+		s.modelsAPICacheMu.Lock()
+		entry, ok := s.modelsAPICache[key]
+		s.modelsAPICacheMu.Unlock()
+		if ok && time.Since(entry.at) < modelsAPICacheTTL {
+			return cloneModelList(entry.models), nil
+		}
+	}
+	models, err := s.fetchWorkerModelsFor(refresh, accountID)
+	if err != nil {
+		return nil, err
+	}
+	s.modelsAPICacheMu.Lock()
+	if s.modelsAPICache == nil {
+		s.modelsAPICache = map[string]modelsAPICacheEntry{}
+	}
+	s.modelsAPICache[key] = modelsAPICacheEntry{models: cloneModelList(models), at: time.Now()}
+	s.modelsAPICacheMu.Unlock()
+	return cloneModelList(models), nil
 }
 
 func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {

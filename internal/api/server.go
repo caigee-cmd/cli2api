@@ -50,6 +50,8 @@ type Server struct {
 	updateRunning          atomic.Bool
 	updateMu               sync.Mutex
 	updateJob              *systemUpdateJob
+	modelsAPICacheMu       sync.Mutex
+	modelsAPICache         map[string]modelsAPICacheEntry
 }
 
 func New(cfg config.Config) *Server {
