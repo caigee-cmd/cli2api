@@ -12,7 +12,6 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -48,6 +47,22 @@ func (e *Executor) stageHostBinary(ctx context.Context, version string, progress
 	return nil
 }
 
+func (e *Executor) refreshStagedHostBinaryFromContainer(ctx context.Context) error {
+	if runtime.GOOS != "linux" {
+		return nil
+	}
+	hostPath := strings.TrimSpace(e.config.HostBinaryPath)
+	if hostPath == "" {
+		return nil
+	}
+	staged := hostPath + ".new"
+	source := e.config.ContainerName + ":/app/cli2api-updater"
+	if _, err := e.runner.Run(ctx, "docker", "cp", source, staged); err != nil {
+		return err
+	}
+	return os.Chmod(staged, 0o755)
+}
+
 func (e *Executor) CommitHostBinary() error {
 	hostPath := strings.TrimSpace(e.config.HostBinaryPath)
 	if hostPath == "" {
@@ -60,24 +75,30 @@ func (e *Executor) CommitHostBinary() error {
 		}
 		return err
 	}
-	backup := hostPath + ".backup"
-	_ = os.Remove(backup)
-	if _, err := os.Stat(hostPath); err == nil {
-		if err := os.Rename(hostPath, backup); err != nil {
+	return replaceRunningBinary(hostPath, staged)
+}
+
+func replaceRunningBinary(currentPath, nextPath string) error {
+	backupPath := currentPath + ".backup"
+	_ = os.Remove(backupPath)
+	if _, err := os.Stat(currentPath); err == nil {
+		if err := os.Rename(currentPath, backupPath); err != nil {
 			return fmt.Errorf("backup host updater: %w", err)
 		}
 	}
-	if err := os.Rename(staged, hostPath); err != nil {
+	if err := os.Rename(nextPath, currentPath); err != nil {
 		if runtime.GOOS == "windows" {
 			return nil
 		}
-		if restoreErr := os.Rename(backup, hostPath); restoreErr != nil && !os.IsNotExist(restoreErr) {
+		if restoreErr := os.Rename(backupPath, currentPath); restoreErr != nil && !os.IsNotExist(restoreErr) {
 			return fmt.Errorf("replace host updater: %w (restore error: %v)", err, restoreErr)
 		}
 		return fmt.Errorf("replace host updater: %w", err)
 	}
 	return nil
 }
+
+var osExit = os.Exit
 
 func (e *Executor) RestartHost() {
 	if len(e.config.RestartCommand) > 0 {
@@ -94,13 +115,10 @@ func (e *Executor) RestartHost() {
 		}
 		script += ` & schtasks /Run /TN "CLI2API Updater"`
 		_ = exec.Command("cmd.exe", "/C", script).Start()
-		os.Exit(0)
-	}
-	proc, err := os.FindProcess(os.Getpid())
-	if err != nil {
+		osExit(0)
 		return
 	}
-	_ = proc.Signal(syscall.SIGTERM)
+	osExit(0)
 }
 
 func (e *Executor) downloadReleaseFile(ctx context.Context, version, name string) ([]byte, error) {

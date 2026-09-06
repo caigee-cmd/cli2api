@@ -339,7 +339,7 @@ func (s *Service) run(jobID string, request ApplyRequest) {
 				s.updateState(jobID, "succeeded", commitErr.Error(), true)
 			}
 			go func() {
-				time.Sleep(750 * time.Millisecond)
+				time.Sleep(100 * time.Millisecond)
 				host.RestartHost()
 			}()
 		}

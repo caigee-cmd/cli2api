@@ -189,6 +189,11 @@ func (e *Executor) Apply(ctx context.Context, _ string, request ApplyRequest, pr
 		}
 		return e.rollback(request, before, mount, currentImage, envMode, err, progress)
 	}
+	if err := e.refreshStagedHostBinaryFromContainer(ctx); err != nil && strings.TrimSpace(e.config.HostBinaryPath) != "" {
+		if _, statErr := os.Stat(e.config.HostBinaryPath + ".new"); statErr != nil {
+			return false, fmt.Errorf("copy host updater from container: %w", err)
+		}
+	}
 	return false, nil
 }
 

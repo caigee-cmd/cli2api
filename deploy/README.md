@@ -138,8 +138,10 @@ Release assets include a SHA256 manifest. Installers use a verified prebuilt
 updater whenever possible. They download the latest GitHub updater asset
 first, then the asset matching the running container, then copy
 `/app/cli2api-updater` from the container, and finally fall back to a local
-Go `1.25.6+` build. A managed console update also stages that host binary
-from the target release and replaces it after the new container is healthy.
+Go `1.25.6+` build. A managed console update stages the host binary from the
+target release, copies `/app/cli2api-updater` from the new Linux container when
+possible, then atomically replaces the running updater and exits so systemd or
+LaunchAgent starts the new process.
 
 macOS + Docker Desktop:
 

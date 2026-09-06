@@ -7,11 +7,11 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
-- Replace the host updater binary from the same GitHub release during a managed update, and prefer the latest updater asset when installing
+- Replace the running host-updater binary in place after a managed update and exit so systemd or LaunchAgent starts the new process
 
 ### 中文
 
-- 托管更新会从同一 GitHub Release 替换宿主机更新器二进制；安装脚本改为优先下载最新 updater 资源
+- 托管更新成功后就地替换正在运行的宿主机更新器二进制并退出，由 systemd / LaunchAgent 拉起新进程
 
 ## 0.2.47 - 2026-09-06
 

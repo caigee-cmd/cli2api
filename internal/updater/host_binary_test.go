@@ -79,3 +79,15 @@ func TestVerifyHostBinaryChecksumRejectsMismatch(t *testing.T) {
 		t.Fatal("expected checksum mismatch")
 	}
 }
+
+func TestRestartHostExitsProcess(t *testing.T) {
+	exited := 0
+	original := osExit
+	osExit = func(code int) { exited = code }
+	t.Cleanup(func() { osExit = original })
+	executor := NewExecutor(ExecutorConfig{})
+	executor.RestartHost()
+	if exited != 0 {
+		t.Fatalf("exit = %d", exited)
+	}
+}
