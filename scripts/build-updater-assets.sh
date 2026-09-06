@@ -3,6 +3,9 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUTPUT_DIR="${1:-${ROOT_DIR}/dist/updater}"
+APP_VERSION="${APP_VERSION:-${RELEASE_TAG:-dev}}"
+APP_COMMIT="${APP_COMMIT:-unknown}"
+LDFLAGS="-s -w -X github.com/caigee-cmd/cli2api/internal/buildinfo.Version=${APP_VERSION} -X github.com/caigee-cmd/cli2api/internal/buildinfo.Commit=${APP_COMMIT}"
 
 mkdir -p "${OUTPUT_DIR}"
 
@@ -17,8 +20,8 @@ for target in \
     suffix=".exe"
   fi
   output="${OUTPUT_DIR}/cli2api-updater_${goos}_${goarch}${suffix}"
-  CGO_ENABLED=0 GOOS="${goos}" GOARCH="${goarch}" \
-    go build -trimpath -ldflags="-s -w" -o "${output}" "${ROOT_DIR}/cmd/updater"
+	  CGO_ENABLED=0 GOOS="${goos}" GOARCH="${goarch}" \
+	    go build -trimpath -ldflags="${LDFLAGS}" -o "${output}" "${ROOT_DIR}/cmd/updater"
 done
 
 checksum_file="${OUTPUT_DIR}/cli2api-updater_checksums.txt"

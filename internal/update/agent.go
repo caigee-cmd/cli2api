@@ -32,6 +32,7 @@ type AgentStatus struct {
 	ProtocolVersion int    `json:"protocol_version"`
 	Available       bool   `json:"available"`
 	StagedUpdate    bool   `json:"staged_update"`
+	Version         string `json:"version,omitempty"`
 	State           string `json:"state"`
 	JobID           string `json:"job_id,omitempty"`
 	CurrentVersion  string `json:"current_version,omitempty"`

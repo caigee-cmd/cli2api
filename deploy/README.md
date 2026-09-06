@@ -135,9 +135,13 @@ Start `qoder-api-proxy` once before installing the optional host updater.
 | Windows ARM64 | Docker Desktop Linux containers | `cli2api-updater_windows_arm64.exe` |
 
 Release assets include a SHA256 manifest. Installers use a verified prebuilt
-updater whenever possible. Linux first copies the matching binary from the
-running container; older releases without assets can use the latest compatible
-asset or fall back to a local Go `1.25.6+` build.
+updater whenever possible. They download the latest GitHub updater asset
+first, then the asset matching the running container, then copy
+`/app/cli2api-updater` from the container, and finally fall back to a local
+Go `1.25.6+` build. A managed console update stages the host binary from the
+target release, copies `/app/cli2api-updater` from the new Linux container when
+possible, then atomically replaces the running updater and exits so systemd or
+LaunchAgent starts the new process.
 
 macOS + Docker Desktop:
 
@@ -169,17 +173,24 @@ Before replacement, the Go process pauses new API requests, waits for active
 requests to drain, and creates a verified SQLite snapshot in `/data/backups`.
 The updater recreates only `qoder-api-proxy`; it never runs
 `docker compose down -v`, and it verifies that the same `/data` mount remains
-attached. If the new version fails its versioned health check, the updater
-restores both the previous image and the pre-update SQLite snapshot, then pins
+attached. If the new version fails its versioned health check, or the host-updater binary
+cannot be replaced, the updater restores the previous image and the pre-update
+SQLite snapshot, discards any staged `.new` host binary, then pins
 `CLI2API_IMAGE` to the previous version for future restarts. The five most recent
 snapshots are retained.
 
 The updater remains unavailable for development builds without a semantic
-version. The System page updates directly to the latest stable release and
-lists the intermediate versions it passes over.
+version. The System page updates directly to the latest stable release, lists
+the intermediate versions it passes over, and can roll back to one of the three
+previous stable releases. An older host updater that does not yet speak staged
+updates still completes one jump, then replaces itself.
 
-The updater API currently reports protocol version `1`. Protocol `0` remains
-temporarily accepted for bootstrap compatibility; unknown versions fail closed.
+Release updater assets and the `/app/cli2api-updater` binary inside the image
+are stamped with the same `Version` and `Commit` as the application. Status
+reports that version next to protocol `2`.
+
+The updater API currently reports protocol version `2`. Protocol `1` remains
+accepted for staged-update hosts; unknown versions fail closed.
 
 ## 8. Platform notes
 

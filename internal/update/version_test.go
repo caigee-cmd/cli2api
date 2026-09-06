@@ -49,6 +49,20 @@ func TestUpgradePathListsIntermediateStableVersions(t *testing.T) {
 	}
 }
 
+func TestSelectPreviousReleasesListsNewerFirst(t *testing.T) {
+	releases := []Release{
+		{TagName: "v0.2.1"},
+		{TagName: "v0.2.3"},
+		{TagName: "v0.2.2"},
+		{TagName: "v0.2.0", Prerelease: true},
+		{TagName: "v0.2.4"},
+	}
+	previous := SelectPreviousReleases("v0.2.4", releases, 3)
+	if len(previous) != 3 || previous[0].TagName != "v0.2.3" || previous[1].TagName != "v0.2.2" || previous[2].TagName != "v0.2.1" {
+		t.Fatalf("previous = %+v", previous)
+	}
+}
+
 func TestSelectNextReleaseRejectsDevelopmentVersion(t *testing.T) {
 	if _, ok := SelectNextRelease("dev", []Release{{TagName: "v0.2.2"}}); ok {
 		t.Fatal("development builds must not be managed")

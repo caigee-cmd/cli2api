@@ -24,12 +24,12 @@ Long-lived account runtimes, multi-account scheduling. Deploy with Docker; that 
 - **Account-level runtimes**: Qoder accounts use an isolated Node process, HOME, and WASM context; WorkBuddy / Trae use in-process HTTP/SSE adapters. Each provider owns its login and upstream runtime boundary
 - **Provider-specific login methods**: browser Device Flow OAuth, PAT, and credential import/export where supported
 - **Web console**: accounts, models, access, request history, and runtime logs, with light and dark themes
-- **Deployment and ops**: single Docker Compose container, safe managed updates (pre-update snapshot, automatic rollback on failure, next-version-only upgrades), binds `127.0.0.1` by default
+- **Deployment and ops**: single Docker Compose container, safe managed updates (pre-update snapshot, automatic rollback on failure, jump to the latest stable release, roll back to one of the three previous stables), binds `127.0.0.1` by default
 - **Cross-platform**: `linux/amd64` / `linux/arm64` images; macOS and Windows run them through Docker Desktop
 
 ## Quick start
 
-**Deploy with Docker.** Published images and console managed updates (pre-update snapshot, automatic rollback, next-version upgrades) are built around the single Compose container. Running the Go / Node sources directly is not on that update path.
+**Deploy with Docker.** Published images and console managed updates (pre-update snapshot, automatic rollback, jump to the latest stable release) are built around the single Compose container. Running the Go / Node sources directly is not on that update path.
 
 Requirements: Docker (Docker Desktop on macOS/Windows, Docker Engine + Compose on Linux) and a Qoder, WorkBuddy, or Trae account you control. On Windows, Docker Desktop must use Linux containers.
 

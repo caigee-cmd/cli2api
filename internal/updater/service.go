@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/caigee-cmd/cli2api/internal/buildinfo"
 	control "github.com/caigee-cmd/cli2api/internal/update"
 )
 
@@ -28,6 +29,10 @@ type applier interface {
 
 type preparer interface {
 	Prepare(context.Context, string, control.PrepareRequest, func(string)) error
+}
+
+type hostBinaryUpdater interface {
+	RestartHost()
 }
 
 type Config struct {
@@ -154,6 +159,7 @@ func (s *Service) handleStatus(w http.ResponseWriter, r *http.Request) {
 	status.ProtocolVersion = control.AgentProtocolVersion
 	status.Available = true
 	status.StagedUpdate = true
+	status.Version = buildinfo.Version
 	writeJSON(w, http.StatusOK, status)
 }
 
@@ -329,6 +335,12 @@ func (s *Service) run(jobID string, request ApplyRequest) {
 	})
 	if err == nil {
 		s.updateState(jobID, "succeeded", "", true)
+		if host, ok := s.applier.(hostBinaryUpdater); ok {
+			go func() {
+				time.Sleep(100 * time.Millisecond)
+				host.RestartHost()
+			}()
+		}
 		return
 	}
 	state := "failed"
@@ -353,8 +365,13 @@ func (s *Service) updateState(jobID, state, message string, finished bool) {
 }
 
 func validateApplyRequest(request ApplyRequest) error {
-	if err := validatePrepareRequest(control.PrepareRequest{CurrentVersion: request.CurrentVersion, TargetVersion: request.TargetVersion}); err != nil {
-		return err
+	current, err := control.ParseVersion(request.CurrentVersion)
+	if err != nil {
+		return fmt.Errorf("invalid current version")
+	}
+	target, err := control.ParseVersion(request.TargetVersion)
+	if err != nil || target.Compare(current) == 0 {
+		return fmt.Errorf("target version must be a different stable release")
 	}
 	clean := path.Clean(request.BackupPath)
 	if clean != request.BackupPath || path.Dir(clean) != "/data/backups" || !backupNamePattern.MatchString(path.Base(clean)) {
@@ -377,7 +394,7 @@ func validatePrepareRequest(request control.PrepareRequest) error {
 
 func isActiveState(state string) bool {
 	switch state {
-	case "queued", "preparing", "pulling", "recreating", "checking", "rolling_back":
+	case "queued", "preparing", "pulling", "host_binary", "recreating", "checking", "rolling_back":
 		return true
 	default:
 		return false
@@ -388,7 +405,7 @@ func cancellableStatus(status control.AgentStatus) bool {
 	switch status.State {
 	case "ready_to_apply":
 		return true
-	case "queued", "pulling", "preparing", "image_ready":
+	case "queued", "pulling", "host_binary", "preparing", "image_ready":
 		return status.BackupPath == ""
 	default:
 		return false

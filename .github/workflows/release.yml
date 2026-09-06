@@ -131,6 +131,10 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Build host updater assets
+        env:
+          APP_VERSION: ${{ needs.prepare.outputs.tag }}
+          APP_COMMIT: ${{ needs.prepare.outputs.sha }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
         run: ./scripts/build-updater-assets.sh release-assets
       - uses: actions/upload-artifact@v4
         with:

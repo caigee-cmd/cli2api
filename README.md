@@ -24,12 +24,12 @@
 - **账号级常驻运行时**：Qoder 账号使用独立 Node 进程、HOME 与 WASM 上下文；WorkBuddy / Trae 使用进程内 HTTP/SSE 适配器。登录态、云端连接和账号隔离由各 provider 的运行时负责
 - **按 provider 支持多种登录方式**：浏览器 Device Flow OAuth、PAT，以及适用 provider 的凭证导入/导出
 - **Web 控制台**：账号、模型、接入、请求历史与运行时日志，明暗主题
-- **部署与运维**：Docker Compose 单容器、安全托管更新（升级前快照、失败自动回滚、逐版本升级）、默认只监听 `127.0.0.1`
+- **部署与运维**：Docker Compose 单容器、安全托管更新（升级前快照、失败自动回滚、直接最新稳定版、可回滚最近三个稳定版）、默认只监听 `127.0.0.1`
 - **跨平台**：`linux/amd64` / `linux/arm64` 镜像；macOS、Windows 通过 Docker Desktop 运行
 
 ## 快速开始
 
-**强烈建议用 Docker 部署。** 发布镜像、控制台托管更新（升级前快照、失败回滚、逐版本升级）都按单容器 Compose 安装来设计；从源码直接跑 Go / Node 不在这条更新路径上。
+**强烈建议用 Docker 部署。** 发布镜像、控制台托管更新（升级前快照、失败回滚、直接最新稳定版）都按单容器 Compose 安装来设计；从源码直接跑 Go / Node 不在这条更新路径上。
 
 依赖：Docker（macOS / Windows 用 Docker Desktop，Linux 用 Docker Engine + Compose），以及一个你自己控制的 Qoder、WorkBuddy 或 Trae 账号。Windows 的 Docker Desktop 必须切换到 Linux containers。
 
