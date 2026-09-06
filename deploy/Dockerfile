@@ -17,8 +17,8 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 COPY --from=frontend /web/dist/ ./internal/webui/static/
-RUN CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" go build -trimpath -ldflags "-X github.com/caigee-cmd/cli2api/internal/buildinfo.Version=${APP_VERSION} -X github.com/caigee-cmd/cli2api/internal/buildinfo.Commit=${APP_COMMIT}" -o /out/qoder-api-proxy ./cmd/server \
-  && CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" go build -trimpath -o /out/cli2api-updater ./cmd/updater
+	RUN CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" go build -trimpath -ldflags "-s -w -X github.com/caigee-cmd/cli2api/internal/buildinfo.Version=${APP_VERSION} -X github.com/caigee-cmd/cli2api/internal/buildinfo.Commit=${APP_COMMIT}" -o /out/qoder-api-proxy ./cmd/server \
+	  && CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" go build -trimpath -ldflags "-s -w -X github.com/caigee-cmd/cli2api/internal/buildinfo.Version=${APP_VERSION} -X github.com/caigee-cmd/cli2api/internal/buildinfo.Commit=${APP_COMMIT}" -o /out/cli2api-updater ./cmd/updater
 
 # ---- single runtime ----
 FROM node:20-bookworm-slim

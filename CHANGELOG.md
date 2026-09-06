@@ -8,10 +8,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 ### English
 
 - Replace the running host-updater binary in place after a managed update and exit so systemd or LaunchAgent starts the new process
+- Roll back a failed host-binary swap with the container, stamp updater version into release assets, let an old updater complete one jump, and offer the three previous stable releases on the System page
 
 ### 中文
 
 - 托管更新成功后就地替换正在运行的宿主机更新器二进制并退出，由 systemd / LaunchAgent 拉起新进程
+- 宿主机二进制替换失败时连容器一起回滚；Release 附件打上 updater 版本号；旧更新器可完成一次升级；系统页可回滚到最近三个稳定版
 
 ## 0.2.47 - 2026-09-06
 

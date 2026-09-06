@@ -63,6 +63,14 @@ func (e *Executor) refreshStagedHostBinaryFromContainer(ctx context.Context) err
 	return os.Chmod(staged, 0o755)
 }
 
+func (e *Executor) discardStagedHostBinary() {
+	hostPath := strings.TrimSpace(e.config.HostBinaryPath)
+	if hostPath == "" {
+		return
+	}
+	_ = os.Remove(hostPath + ".new")
+}
+
 func (e *Executor) CommitHostBinary() error {
 	hostPath := strings.TrimSpace(e.config.HostBinaryPath)
 	if hostPath == "" {

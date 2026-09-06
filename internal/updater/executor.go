@@ -191,8 +191,11 @@ func (e *Executor) Apply(ctx context.Context, _ string, request ApplyRequest, pr
 	}
 	if err := e.refreshStagedHostBinaryFromContainer(ctx); err != nil && strings.TrimSpace(e.config.HostBinaryPath) != "" {
 		if _, statErr := os.Stat(e.config.HostBinaryPath + ".new"); statErr != nil {
-			return false, fmt.Errorf("copy host updater from container: %w", err)
+			return e.rollback(request, before, mount, currentImage, envMode, fmt.Errorf("copy host updater from container: %w", err), progress)
 		}
+	}
+	if err := e.CommitHostBinary(); err != nil {
+		return e.rollback(request, before, mount, currentImage, envMode, err, progress)
 	}
 	return false, nil
 }
@@ -202,6 +205,7 @@ func (e *Executor) rollback(request ApplyRequest, before containerInspect, mount
 	defer cancel()
 
 	progress("rolling_back")
+	e.discardStagedHostBinary()
 	if err := e.compose(ctx, "stop", e.config.ServiceName); err != nil {
 		return false, rollbackFailed(cause, err)
 	}

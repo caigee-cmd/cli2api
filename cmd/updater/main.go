@@ -55,6 +55,7 @@ func main() {
 		ComposeFile: composeFile, EnvFile: envFile, ServiceName: serviceName,
 		ContainerName: containerName, ImageRepository: imageRepository, HealthURL: healthURL,
 		HealthTimeout: healthTimeout, HostBinaryPath: hostBinary,
+		GitHubToken: strings.TrimSpace(os.Getenv("UPDATE_GITHUB_TOKEN")),
 	})
 	service := updater.NewService(updater.Config{
 		SocketPath: socketPath, ListenAddress: listenAddress, AuthToken: authToken, StatusFile: statusFile,

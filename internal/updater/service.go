@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/caigee-cmd/cli2api/internal/buildinfo"
 	control "github.com/caigee-cmd/cli2api/internal/update"
 )
 
@@ -31,7 +32,6 @@ type preparer interface {
 }
 
 type hostBinaryUpdater interface {
-	CommitHostBinary() error
 	RestartHost()
 }
 
@@ -159,6 +159,7 @@ func (s *Service) handleStatus(w http.ResponseWriter, r *http.Request) {
 	status.ProtocolVersion = control.AgentProtocolVersion
 	status.Available = true
 	status.StagedUpdate = true
+	status.Version = buildinfo.Version
 	writeJSON(w, http.StatusOK, status)
 }
 
@@ -335,9 +336,6 @@ func (s *Service) run(jobID string, request ApplyRequest) {
 	if err == nil {
 		s.updateState(jobID, "succeeded", "", true)
 		if host, ok := s.applier.(hostBinaryUpdater); ok {
-			if commitErr := host.CommitHostBinary(); commitErr != nil {
-				s.updateState(jobID, "succeeded", commitErr.Error(), true)
-			}
 			go func() {
 				time.Sleep(100 * time.Millisecond)
 				host.RestartHost()
@@ -367,8 +365,13 @@ func (s *Service) updateState(jobID, state, message string, finished bool) {
 }
 
 func validateApplyRequest(request ApplyRequest) error {
-	if err := validatePrepareRequest(control.PrepareRequest{CurrentVersion: request.CurrentVersion, TargetVersion: request.TargetVersion}); err != nil {
-		return err
+	current, err := control.ParseVersion(request.CurrentVersion)
+	if err != nil {
+		return fmt.Errorf("invalid current version")
+	}
+	target, err := control.ParseVersion(request.TargetVersion)
+	if err != nil || target.Compare(current) == 0 {
+		return fmt.Errorf("target version must be a different stable release")
 	}
 	clean := path.Clean(request.BackupPath)
 	if clean != request.BackupPath || path.Dir(clean) != "/data/backups" || !backupNamePattern.MatchString(path.Base(clean)) {

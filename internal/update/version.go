@@ -129,3 +129,33 @@ func UpgradePath(current, target string, releases []Release) []string {
 	}
 	return path
 }
+
+func SelectPreviousReleases(current string, releases []Release, limit int) []Release {
+	currentVersion, err := ParseVersion(current)
+	if err != nil || limit <= 0 {
+		return nil
+	}
+	candidates := make([]Release, 0, len(releases))
+	seen := map[string]bool{}
+	for _, release := range releases {
+		if release.Draft || release.Prerelease {
+			continue
+		}
+		version, err := ParseVersion(release.TagName)
+		if err != nil || version.Compare(currentVersion) >= 0 || seen[version.String()] {
+			continue
+		}
+		release.TagName = version.String()
+		seen[version.String()] = true
+		candidates = append(candidates, release)
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		left, _ := ParseVersion(candidates[i].TagName)
+		right, _ := ParseVersion(candidates[j].TagName)
+		return left.Compare(right) > 0
+	})
+	if len(candidates) > limit {
+		candidates = candidates[:limit]
+	}
+	return candidates
+}

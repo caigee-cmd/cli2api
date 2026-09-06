@@ -30,6 +30,12 @@ export type SystemUpdateInfo = {
   current_version: string
   next_version?: string
   skipped_versions?: string[]
+  rollback_versions?: Array<{
+    tag_name: string
+    name?: string
+    published_at?: string
+    html_url?: string
+  }>
   has_update: boolean
   managed: boolean
   cached: boolean
@@ -97,4 +103,8 @@ export function applyPreparedSystemUpdate() {
 
 export function cancelSystemUpdate() {
   return api<{ ok: boolean }>('/api/system/update/cancel', { method: 'POST', body: '{}' })
+}
+
+export function rollbackSystemUpdate(version: string) {
+  return api<StartUpdateResult>('/api/system/update/rollback', { method: 'POST', body: JSON.stringify({ version }) })
 }

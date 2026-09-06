@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"path/filepath"
@@ -76,6 +77,41 @@ func (s *Server) handleSystemUpdatePrepare(w http.ResponseWriter, _ *http.Reques
 	s.updateMu.Unlock()
 	go s.prepareImageSystemUpdate(jobID)
 	writeJSON(w, http.StatusAccepted, map[string]any{"job_id": jobID})
+}
+
+func (s *Server) handleSystemUpdateRollback(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "POST only")
+		return
+	}
+	var body struct {
+		Version string `json:"version"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&body); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid_request", "version is required")
+		return
+	}
+	target := strings.TrimSpace(body.Version)
+	if target == "" {
+		writeErr(w, http.StatusBadRequest, "invalid_request", "version is required")
+		return
+	}
+	if !s.updateRunning.CompareAndSwap(false, true) {
+		writeErr(w, http.StatusConflict, "update_in_progress", "An update is already in progress")
+		return
+	}
+	jobID, err := newSystemUpdateJobID()
+	if err != nil {
+		s.updateRunning.Store(false)
+		writeErr(w, http.StatusInternalServerError, "update_job_failed", err.Error())
+		return
+	}
+	s.updateMu.Lock()
+	s.updateJob = &systemUpdateJob{JobID: jobID, State: "preparing", TargetVersion: target, StartedAt: time.Now().UTC().Format(time.RFC3339)}
+	s.updateMu.Unlock()
+	s.maintenance.Store(true)
+	go s.rollbackSystemUpdate(jobID, target)
+	writeJSON(w, http.StatusAccepted, map[string]any{"job_id": jobID, "target_version": target})
 }
 
 func (s *Server) handleSystemUpdateCancel(w http.ResponseWriter, r *http.Request) {
@@ -234,12 +270,14 @@ func (s *Server) prepareImageSystemUpdate(jobID string) {
 		return
 	}
 	if !status.StagedUpdate {
-		fail("Host updater must be updated before staged updates can be used")
+		s.maintenance.Store(true)
+		s.submitOneShotUpdate(jobID, info.CurrentVersion, info.NextVersion)
 		return
 	}
 	agent, ok := s.updateAgent.(preparedUpdateAgent)
 	if !ok {
-		fail("Host updater does not support staged updates")
+		s.maintenance.Store(true)
+		s.submitOneShotUpdate(jobID, info.CurrentVersion, info.NextVersion)
 		return
 	}
 
@@ -309,7 +347,67 @@ func (s *Server) prepareSystemUpdate(jobID string) {
 		return
 	}
 
-	setUpdateState("backing_up")
+	s.submitOneShotUpdate(jobID, info.CurrentVersion, info.NextVersion)
+}
+
+func (s *Server) rollbackSystemUpdate(jobID, targetVersion string) {
+	ctx := context.Background()
+	fail := func(message string) {
+		s.finishUpdateJob(jobID, "failed", message, true)
+		s.maintenance.Store(false)
+		s.updateRunning.Store(false)
+	}
+	s.mutateUpdateJob(jobID, func(job *systemUpdateJob) { job.State = "checking" })
+	info, err := s.updateChecker.Check(ctx, true)
+	if err != nil {
+		fail(err.Error())
+		return
+	}
+	if !info.Managed {
+		fail("Development builds cannot update from the console")
+		return
+	}
+	allowed := false
+	for _, release := range info.RollbackVersions {
+		if release.TagName == targetVersion {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
+		fail("version is not in the allowed rollback list")
+		return
+	}
+	s.mutateUpdateJob(jobID, func(job *systemUpdateJob) {
+		job.CurrentVersion = info.CurrentVersion
+		job.TargetVersion = targetVersion
+	})
+	statusCtx, statusCancel := context.WithTimeout(ctx, 3*time.Second)
+	status, err := s.updateAgent.Status(statusCtx)
+	statusCancel()
+	if err != nil || !status.Available {
+		message := "Updater daemon is unavailable"
+		if err != nil {
+			message = err.Error()
+		}
+		fail(message)
+		return
+	}
+	if updaterStateActive(status.State) {
+		fail("Updater daemon is busy")
+		return
+	}
+	s.submitOneShotUpdate(jobID, info.CurrentVersion, targetVersion)
+}
+
+func (s *Server) submitOneShotUpdate(jobID, currentVersion, targetVersion string) {
+	ctx := context.Background()
+	fail := func(message string) {
+		s.finishUpdateJob(jobID, "failed", message, true)
+		s.maintenance.Store(false)
+		s.updateRunning.Store(false)
+	}
+	s.mutateUpdateJob(jobID, func(job *systemUpdateJob) { job.State = "backing_up" })
 	backup, err := s.manager.Store().Backup(ctx, filepath.Join(s.cfg.DataDir, "backups"), 5)
 	if err != nil {
 		fail(err.Error())
@@ -317,12 +415,11 @@ func (s *Server) prepareSystemUpdate(jobID string) {
 	}
 	s.mutateUpdateJob(jobID, func(job *systemUpdateJob) {
 		job.BackupPath = filepath.Join("/data/backups", backup.Name)
+		job.State = "submitting"
 	})
-
-	setUpdateState("submitting")
 	request := control.ApplyRequest{
-		CurrentVersion: info.CurrentVersion,
-		TargetVersion:  info.NextVersion,
+		CurrentVersion: currentVersion,
+		TargetVersion:  targetVersion,
 		BackupPath:     filepath.Join("/data/backups", backup.Name),
 	}
 	applyCtx, applyCancel := context.WithTimeout(ctx, 8*time.Second)
@@ -332,7 +429,6 @@ func (s *Server) prepareSystemUpdate(jobID string) {
 		fail(err.Error())
 		return
 	}
-
 	s.mutateUpdateJob(jobID, func(job *systemUpdateJob) {
 		job.State = "running"
 		job.AgentJobID = response.JobID
@@ -579,7 +675,7 @@ func updaterStateActive(state string) bool {
 }
 
 func blocksDuringUpdate(path string) bool {
-	if path == "/api/system/update" || path == "/api/system/update/prepare" || path == "/api/system/update/apply" || path == "/api/system/update/cancel" || path == "/health" {
+	if path == "/api/system/update" || path == "/api/system/update/prepare" || path == "/api/system/update/apply" || path == "/api/system/update/cancel" || path == "/api/system/update/rollback" || path == "/health" {
 		return false
 	}
 	return strings.HasPrefix(path, "/api/") || strings.HasPrefix(path, "/v1/")
