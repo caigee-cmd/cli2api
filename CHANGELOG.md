@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.2.48 - 2026-09-06
+
+### English
+
 - Replace the running host-updater binary in place after a managed update and exit so systemd or LaunchAgent starts the new process
 - Roll back a failed host-binary swap with the container, stamp updater version into release assets, let an old updater complete one jump, and offer the three previous stable releases on the System page
 
