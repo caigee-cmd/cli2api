@@ -42,6 +42,7 @@ type Service struct {
 	applier applier
 	mu      sync.Mutex
 	status  control.AgentStatus
+	cancel  context.CancelFunc
 }
 
 var backupNamePattern = regexp.MustCompile(`^qoder-[0-9]{8}T[0-9]{6}\.[0-9]{9}Z\.db$`)
@@ -58,6 +59,7 @@ func (s *Service) Handler() http.Handler {
 	mux.HandleFunc("/v1/status", s.handleStatus)
 	mux.HandleFunc("/v1/prepare", s.handlePrepare)
 	mux.HandleFunc("/v1/apply", s.handleApply)
+	mux.HandleFunc("/v1/cancel", s.handleCancel)
 	mux.HandleFunc("/v1/update", s.handleUpdate)
 	if strings.TrimSpace(s.config.AuthToken) == "" {
 		return mux
@@ -210,12 +212,34 @@ func (s *Service) handlePrepare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	s.cancel = cancel
 	s.status = control.AgentStatus{ProtocolVersion: control.AgentProtocolVersion, Available: true, StagedUpdate: true, State: "queued", JobID: jobID, CurrentVersion: request.CurrentVersion, TargetVersion: request.TargetVersion, StartedAt: now}
 	s.persistStatusLocked()
 	s.mu.Unlock()
 
 	writeJSON(w, http.StatusAccepted, control.ApplyResponse{JobID: jobID})
-	go s.runPrepare(worker, jobID, request)
+	go s.runPrepare(ctx, worker, jobID, request)
+}
+
+func (s *Service) handleCancel(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "POST only")
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !cancellableStatus(s.status) {
+		writeError(w, http.StatusConflict, "update cannot be cancelled")
+		return
+	}
+	if s.cancel != nil {
+		s.cancel()
+		s.cancel = nil
+	}
+	s.status = control.AgentStatus{ProtocolVersion: control.AgentProtocolVersion, Available: true, StagedUpdate: true, State: "idle", FinishedAt: time.Now().UTC().Format(time.RFC3339)}
+	s.persistStatusLocked()
+	writeJSON(w, http.StatusOK, s.status)
 }
 
 func (s *Service) handleApply(w http.ResponseWriter, r *http.Request) {
@@ -273,11 +297,23 @@ func (s *Service) startApply(w http.ResponseWriter, request ApplyRequest) {
 	go s.run(jobID, request)
 }
 
-func (s *Service) runPrepare(worker preparer, jobID string, request control.PrepareRequest) {
-	time.Sleep(250 * time.Millisecond)
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
-	defer cancel()
+func (s *Service) runPrepare(ctx context.Context, worker preparer, jobID string, request control.PrepareRequest) {
+	defer func() {
+		s.mu.Lock()
+		if s.status.JobID == jobID {
+			s.cancel = nil
+		}
+		s.mu.Unlock()
+	}()
+	select {
+	case <-ctx.Done():
+		return
+	case <-time.After(250 * time.Millisecond):
+	}
 	if err := worker.Prepare(ctx, jobID, request, func(state string) { s.updateState(jobID, state, "", false) }); err != nil {
+		if ctx.Err() != nil {
+			return
+		}
 		s.updateState(jobID, "failed", err.Error(), true)
 		return
 	}
@@ -343,6 +379,17 @@ func isActiveState(state string) bool {
 	switch state {
 	case "queued", "preparing", "pulling", "recreating", "checking", "rolling_back":
 		return true
+	default:
+		return false
+	}
+}
+
+func cancellableStatus(status control.AgentStatus) bool {
+	switch status.State {
+	case "ready_to_apply":
+		return true
+	case "queued", "pulling", "preparing", "image_ready":
+		return status.BackupPath == ""
 	default:
 		return false
 	}
