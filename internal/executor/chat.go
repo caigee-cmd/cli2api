@@ -342,16 +342,7 @@ func (e ChatExecutor) pick(prefer, providerFilter, regionFilter, publicModel str
 	if e.Pool != nil {
 		if item, ok := e.Pool.PickRoute(query); ok {
 			if retryAfter := e.Pool.RetryAfter(item, publicModel); retryAfter > 0 {
-				failover := true
-				message := "all accounts are cooling down"
-				if e.Pool.CooldownScope(item, publicModel) == "model" && strings.TrimSpace(publicModel) != "" {
-					message = fmt.Sprintf("model %s is cooling down on all available accounts", publicModel)
-				}
-				return accounts.Item{}, &providers.Error{
-					Kind: accounts.KindRateLimit, Status: 429, Code: "rate_limit",
-					Type: "api_error", Message: message, Cooldown: retryAfter,
-					RetryAfter: retryAfter, Failover: &failover,
-				}
+				return accounts.Item{}, coolingPickError(item, publicModel, retryAfter)
 			}
 			return item, nil
 		}
@@ -391,6 +382,33 @@ func (e ChatExecutor) pick(prefer, providerFilter, regionFilter, publicModel str
 		return accounts.Item{}, fmt.Errorf("no accounts available for this api key")
 	}
 	return accounts.Item{}, fmt.Errorf("no worker accounts configured")
+}
+
+func coolingPickError(item accounts.Item, publicModel string, retryAfter time.Duration) error {
+	failover := true
+	kind := accounts.KindRateLimit
+	code := "rate_limit"
+	typ := "api_error"
+	message := "all accounts are cooling down"
+	if !item.DownUntil.IsZero() && time.Now().Before(item.DownUntil) && item.LastKind == accounts.KindQuota {
+		kind = accounts.KindQuota
+		code = "insufficient_quota"
+		typ = "insufficient_quota"
+		failover = false
+		if strings.TrimSpace(publicModel) != "" {
+			message = fmt.Sprintf("all accounts that can serve %s are on quota cooldown", publicModel)
+		} else {
+			message = "all accounts are on quota cooldown"
+		}
+	} else if strings.TrimSpace(publicModel) != "" {
+		if until, ok := item.ModelDownUntil[accounts.CanonicalModelID(publicModel)]; ok && !until.IsZero() {
+			message = fmt.Sprintf("model %s is cooling down on all available accounts", publicModel)
+		}
+	}
+	return &providers.Error{
+		Kind: kind, Status: 429, Code: code, Type: typ, Message: message,
+		Cooldown: retryAfter, RetryAfter: retryAfter, Failover: &failover,
+	}
 }
 
 func (e ChatExecutor) attemptsFor(providerFilter, regionFilter, publicModel string, allowed []string) int {
@@ -455,6 +473,13 @@ func (e ChatExecutor) ObserveStreamFailure(accountID string, err error, model st
 	}
 	if classified.Kind == accounts.KindInvalidRequest {
 		// The request body was rejected; the account itself is healthy.
+		return
+	}
+	if classified.Kind == accounts.KindModelNotAvailable {
+		// Streaming 200 headers already recorded this model as proven.
+		// MarkClassified ignores catalog misses, so drop the stale ID
+		// here or the next pick will keep sending it.
+		e.Pool.RemoveModel(accountID, model)
 		return
 	}
 	if classified.Kind == accounts.KindQuota {
