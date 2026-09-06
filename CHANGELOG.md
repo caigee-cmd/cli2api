@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.2.46 - 2026-09-06
+
+### English
+
 - Recommend Docker Compose as the supported install and managed-update path in the README and deployment guide
 - Keep an account on a model route after a later catalog refresh omits an ID it already served, and report pool-wide quota cooldown as `insufficient_quota` instead of a generic rate limit
 
