@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -225,6 +226,65 @@ func TestModelsAPICatalogFailureUses503(t *testing.T) {
 	}
 	if !bytes.Contains(rec.Body.Bytes(), []byte(`"catalog_failed"`)) {
 		t.Fatalf("body=%s", rec.Body.String())
+	}
+}
+
+type countingCatalog struct {
+	hits   atomic.Int32
+	models []providers.ModelInfo
+}
+
+func (c *countingCatalog) Models(context.Context, string) ([]providers.ModelInfo, error) {
+	c.hits.Add(1)
+	return c.models, nil
+}
+
+func TestModelsAPICachesCatalogForFiveMinutes(t *testing.T) {
+	srv := New(config.Config{
+		Host: "127.0.0.1", Port: 3010, ProxyAPIKey: "secret",
+		QoderHome: t.TempDir(), DataDir: t.TempDir(),
+	})
+	defer srv.Close()
+	catalog := &countingCatalog{models: []providers.ModelInfo{{
+		NativeModel: "glm-5.3", PublicModel: "glm-5.3", DisplayName: "GLM",
+	}}}
+	srv.pool.Upsert(accounts.Item{ID: "wb-cn", Provider: "workbuddy", Runtime: string(providers.RuntimeInProcess)})
+	srv.providers.Register(providers.Adapter{ID: "workbuddy", Models: catalog})
+
+	getModels := func(path string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set("Authorization", "Bearer secret")
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, req)
+		return rec
+	}
+
+	first := getModels("/api/models?account=wb-cn")
+	if first.Code != http.StatusOK {
+		t.Fatalf("first /api/models = %d %s", first.Code, first.Body.String())
+	}
+	second := getModels("/api/models?account=wb-cn")
+	if second.Code != http.StatusOK {
+		t.Fatalf("cached /api/models = %d %s", second.Code, second.Body.String())
+	}
+	if catalog.hits.Load() != 1 {
+		t.Fatalf("cached /api/models hits = %d, want 1", catalog.hits.Load())
+	}
+
+	overview := getModels("/api/overview")
+	if overview.Code != http.StatusOK {
+		t.Fatalf("/api/overview = %d %s", overview.Code, overview.Body.String())
+	}
+	if catalog.hits.Load() != 2 {
+		t.Fatalf("overview must not use /api/models cache, hits = %d", catalog.hits.Load())
+	}
+
+	refreshed := getModels("/api/models?account=wb-cn&refresh=1")
+	if refreshed.Code != http.StatusOK {
+		t.Fatalf("refresh /api/models = %d %s", refreshed.Code, refreshed.Body.String())
+	}
+	if catalog.hits.Load() != 3 {
+		t.Fatalf("refresh=1 hits = %d, want 3", catalog.hits.Load())
 	}
 }
 
