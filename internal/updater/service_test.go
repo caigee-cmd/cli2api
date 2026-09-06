@@ -114,3 +114,18 @@ func TestServicePreparesImageBeforeApply(t *testing.T) {
 		t.Fatal("prepared update did not start")
 	}
 }
+
+func TestServiceCancelsPreparedImage(t *testing.T) {
+	service := NewService(Config{}, &stagedApplier{prepareCalled: make(chan struct{}), applyCalled: make(chan struct{})})
+	service.status = control.AgentStatus{ProtocolVersion: control.AgentProtocolVersion, Available: true, StagedUpdate: true, State: "ready_to_apply", JobID: "job-1", CurrentVersion: "v0.2.1", TargetVersion: "v0.2.2"}
+	cancel := httptest.NewRecorder()
+	service.Handler().ServeHTTP(cancel, httptest.NewRequest(http.MethodPost, "/v1/cancel", strings.NewReader(`{}`)))
+	if cancel.Code != http.StatusOK {
+		t.Fatalf("cancel status = %d body=%s", cancel.Code, cancel.Body.String())
+	}
+	status := httptest.NewRecorder()
+	service.Handler().ServeHTTP(status, httptest.NewRequest(http.MethodGet, "/v1/status", nil))
+	if !strings.Contains(status.Body.String(), `"state":"idle"`) {
+		t.Fatalf("status = %s", status.Body.String())
+	}
+}

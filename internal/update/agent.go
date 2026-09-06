@@ -50,6 +50,7 @@ type Agent interface {
 type PreparedAgent interface {
 	Prepare(context.Context, PrepareRequest) (ApplyResponse, error)
 	ApplyPrepared(context.Context, ApplyRequest) (ApplyResponse, error)
+	Cancel(context.Context) error
 }
 
 type AgentClient struct {
@@ -130,6 +131,10 @@ func (c *AgentClient) Prepare(ctx context.Context, request PrepareRequest) (Appl
 		return ApplyResponse{}, fmt.Errorf("updater returned empty job id")
 	}
 	return response, nil
+}
+
+func (c *AgentClient) Cancel(ctx context.Context) error {
+	return c.doJSON(ctx, http.MethodPost, "/v1/cancel", map[string]any{}, nil)
 }
 
 func (c *AgentClient) doJSON(ctx context.Context, method, path string, input, output any) error {
