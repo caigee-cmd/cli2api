@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.2.47 - 2026-09-06
+
+### English
+
 - Show staged update progress and host-updater errors on the System page, instead of leaving the button stuck on Updating
 - Keep the update card visible while checking GitHub, reload after a successful restart, and allow cancelling a hung image download or discarding a prepared image
 
