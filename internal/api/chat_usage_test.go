@@ -12,6 +12,7 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/auth"
 	"github.com/caigee-cmd/cli2api/internal/executor"
 	"github.com/caigee-cmd/cli2api/internal/providers"
+	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
 func intPtr(value int) *int { return &value }
@@ -58,21 +59,61 @@ func TestRequestSessionKeyRequiresHeaderAndScopesToIdentity(t *testing.T) {
 	withHeader := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	withHeader.Header.Set("X-CLI2API-Session", "session-a")
 	firstKey := auth.Identity{Kind: auth.KindKey, KeyID: "key-1"}
-	if got := requestSessionKey(withHeader, firstKey); got == "" || got == "session-a" {
+	emptyReq := translate.ChatRequest{}
+	if got := requestSessionKey(withHeader, firstKey, emptyReq); got == "" || got == "session-a" {
 		t.Fatalf("header key = %q", got)
 	}
 	withSameHeader := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	withSameHeader.Header.Set("X-CLI2API-Session", "session-a")
-	if requestSessionKey(withHeader, firstKey) != requestSessionKey(withSameHeader, firstKey) {
+	if requestSessionKey(withHeader, firstKey, emptyReq) != requestSessionKey(withSameHeader, firstKey, emptyReq) {
 		t.Fatal("same header should derive the same opaque key")
 	}
 	withoutHeader := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
-	if got := requestSessionKey(withoutHeader, firstKey); got != "" {
+	if got := requestSessionKey(withoutHeader, firstKey, emptyReq); got != "" {
 		t.Fatalf("key without header = %q", got)
 	}
 	secondKey := auth.Identity{Kind: auth.KindKey, KeyID: "key-2"}
-	if requestSessionKey(withHeader, firstKey) == requestSessionKey(withHeader, secondKey) {
+	if requestSessionKey(withHeader, firstKey, emptyReq) == requestSessionKey(withHeader, secondKey, emptyReq) {
 		t.Fatal("same session header must be isolated by API key")
+	}
+}
+
+func TestRequestSessionKeyFallsBackToContentSeed(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	identity := auth.Identity{Kind: auth.KindKey, KeyID: "key-1"}
+	first := translate.ChatRequest{
+		Model:    "glm-5.2",
+		Messages: []translate.ChatMessage{{Role: "user", Content: "plan the refactor"}},
+	}
+	later := translate.ChatRequest{
+		Model: "glm-5.2",
+		Messages: []translate.ChatMessage{
+			{Role: "user", Content: "plan the refactor"},
+			{Role: "assistant", Content: "ok"},
+			{Role: "user", Content: "continue"},
+		},
+	}
+	got := requestSessionKey(req, identity, first)
+	if got == "" {
+		t.Fatal("expected content-derived session key")
+	}
+	if requestSessionKey(req, identity, later) != got {
+		t.Fatal("later turn must keep the same content-derived session key")
+	}
+	other := translate.ChatRequest{
+		Model:    "glm-5.2",
+		Messages: []translate.ChatMessage{{Role: "user", Content: "a different conversation"}},
+	}
+	if requestSessionKey(req, identity, other) == got {
+		t.Fatal("different first user message must not share a session key")
+	}
+	headerReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	headerReq.Header.Set("X-CLI2API-Session", "explicit")
+	if requestSessionKey(headerReq, identity, first) == got {
+		t.Fatal("explicit header must outrank the content seed")
+	}
+	if requestSessionKey(req, auth.Identity{Kind: auth.KindKey, KeyID: "key-2"}, first) == got {
+		t.Fatal("content-derived session keys must stay isolated by API key")
 	}
 }
 
