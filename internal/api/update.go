@@ -27,6 +27,10 @@ type preparedUpdateAgent interface {
 	ApplyPrepared(context.Context, control.ApplyRequest) (control.ApplyResponse, error)
 }
 
+type cancellableUpdateAgent interface {
+	Cancel(context.Context) error
+}
+
 type systemUpdateJob struct {
 	JobID          string `json:"job_id"`
 	AgentJobID     string `json:"agent_job_id,omitempty"`
@@ -74,6 +78,53 @@ func (s *Server) handleSystemUpdatePrepare(w http.ResponseWriter, _ *http.Reques
 	writeJSON(w, http.StatusAccepted, map[string]any{"job_id": jobID})
 }
 
+func (s *Server) handleSystemUpdateCancel(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "POST only")
+		return
+	}
+	statusCtx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	status, statusErr := s.updateAgent.Status(statusCtx)
+	cancel()
+	if statusErr != nil || !status.Available {
+		message := "Updater daemon is unavailable"
+		if statusErr != nil {
+			message = statusErr.Error()
+		}
+		writeErr(w, http.StatusBadGateway, "updater_unavailable", message)
+		return
+	}
+	job := s.snapshotUpdateJob()
+	if applyingPreparedUpdate(job) || updaterApplyActive(status) {
+		writeErr(w, http.StatusConflict, "update_in_progress", "An update is already in progress")
+		return
+	}
+	if !cancellablePreparedUpdate(job, status) {
+		writeErr(w, http.StatusConflict, "update_not_cancellable", "No staged update is waiting to be cancelled")
+		return
+	}
+	if hostCancellable(status) {
+		agent, ok := s.updateAgent.(cancellableUpdateAgent)
+		if !ok {
+			writeErr(w, http.StatusConflict, "update_not_cancellable", "Host updater does not support cancelling staged updates")
+			return
+		}
+		cancelCtx, cancelReq := context.WithTimeout(r.Context(), 8*time.Second)
+		err := agent.Cancel(cancelCtx)
+		cancelReq()
+		if err != nil {
+			writeErr(w, http.StatusBadGateway, "update_cancel_failed", err.Error())
+			return
+		}
+	}
+	if job != nil {
+		s.finishUpdateJob(job.JobID, "failed", "Update cancelled", true)
+	}
+	s.updateRunning.Store(false)
+	s.maintenance.Store(false)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
 func (s *Server) handleSystemUpdateConfirm(w http.ResponseWriter, r *http.Request) {
 	statusCtx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	status, _ := s.updateAgent.Status(statusCtx)
@@ -107,6 +158,9 @@ func (s *Server) handleSystemUpdateInfo(w http.ResponseWriter, r *http.Request) 
 		status = control.AgentStatus{Available: false, State: "unavailable", Error: statusErr.Error()}
 	}
 	job := s.adoptPreparedUpdate(status)
+	if job == nil && status.State == "succeeded" && strings.TrimSpace(status.JobID) != "" {
+		job = &systemUpdateJob{JobID: "agent-" + status.JobID, AgentJobID: status.JobID, State: "succeeded", CurrentVersion: status.CurrentVersion, TargetVersion: status.TargetVersion, StartedAt: status.StartedAt, FinishedAt: status.FinishedAt}
+	}
 	writeJSON(w, http.StatusOK, systemUpdateInfo{Info: info, Agent: status, Update: job})
 }
 
@@ -345,6 +399,10 @@ func (s *Server) monitorPreparedUpdate(jobID, agentJobID string) {
 				s.finishUpdateJob(jobID, "failed", status.Error, true)
 				s.updateRunning.Store(false)
 				return
+			case "idle":
+				s.finishUpdateJob(jobID, "failed", "Update cancelled", true)
+				s.updateRunning.Store(false)
+				return
 			}
 		}
 		time.Sleep(2 * time.Second)
@@ -393,6 +451,50 @@ func applyingPreparedUpdate(job *systemUpdateJob) bool {
 		return true
 	case "submitting":
 		return job.BackupPath != ""
+	default:
+		return false
+	}
+}
+
+func updaterApplyActive(status control.AgentStatus) bool {
+	switch status.State {
+	case "recreating", "rolling_back":
+		return true
+	case "queued", "preparing", "pulling", "checking":
+		return status.BackupPath != ""
+	default:
+		return false
+	}
+}
+
+func cancellablePreparedUpdate(job *systemUpdateJob, status control.AgentStatus) bool {
+	if applyingPreparedUpdate(job) || updaterApplyActive(status) {
+		return false
+	}
+	if status.State == "ready_to_apply" {
+		return true
+	}
+	if job != nil {
+		switch job.State {
+		case "preparing", "checking", "submitting", "preparing_image":
+			return job.BackupPath == ""
+		}
+	}
+	switch status.State {
+	case "queued", "pulling", "preparing", "image_ready":
+		return status.BackupPath == ""
+	default:
+		return false
+	}
+}
+
+func hostCancellable(status control.AgentStatus) bool {
+	if status.State == "ready_to_apply" {
+		return true
+	}
+	switch status.State {
+	case "queued", "pulling", "preparing", "image_ready":
+		return status.BackupPath == ""
 	default:
 		return false
 	}
@@ -477,7 +579,7 @@ func updaterStateActive(state string) bool {
 }
 
 func blocksDuringUpdate(path string) bool {
-	if path == "/api/system/update" || path == "/api/system/update/prepare" || path == "/api/system/update/apply" || path == "/health" {
+	if path == "/api/system/update" || path == "/api/system/update/prepare" || path == "/api/system/update/apply" || path == "/api/system/update/cancel" || path == "/health" {
 		return false
 	}
 	return strings.HasPrefix(path, "/api/") || strings.HasPrefix(path, "/v1/")

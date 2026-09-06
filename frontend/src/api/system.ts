@@ -94,3 +94,7 @@ export function startSystemUpdate() {
 export function applyPreparedSystemUpdate() {
   return api<StartUpdateResult>('/api/system/update/apply', { method: 'POST', body: '{}' })
 }
+
+export function cancelSystemUpdate() {
+  return api<{ ok: boolean }>('/api/system/update/cancel', { method: 'POST', body: '{}' })
+}

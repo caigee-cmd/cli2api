@@ -8,10 +8,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 ### English
 
 - Show staged update progress and host-updater errors on the System page, instead of leaving the button stuck on Updating
+- Keep the update card visible while checking GitHub, reload after a successful restart, and allow cancelling a hung image download or discarding a prepared image
 
 ### 中文
 
 - 系统页展示分阶段更新的真实进度和宿主机更新器错误，避免按钮一直停在「更新中」
+- 检查更新时不再拆掉更新卡片；重启成功后自动刷新；下载卡住可取消，已下载镜像可放弃
 
 ## 0.2.46 - 2026-09-06
 
