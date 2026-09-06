@@ -25,12 +25,18 @@ type ExecutorConfig struct {
 	ImageRepository string
 	HealthURL       string
 	HealthTimeout   time.Duration
+	HostBinaryPath  string
+	GitHubRepo      string
+	GitHubToken     string
+	RestartCommand  []string
 }
 
 type Executor struct {
-	config ExecutorConfig
-	runner commandRunner
-	client *http.Client
+	config   ExecutorConfig
+	runner   commandRunner
+	client   *http.Client
+	download *http.Client
+	fetch    func(context.Context, string, string) ([]byte, error)
 }
 
 type commandRunner interface {
@@ -85,10 +91,14 @@ func NewExecutor(config ExecutorConfig) *Executor {
 	if config.HealthTimeout <= 0 {
 		config.HealthTimeout = 120 * time.Second
 	}
+	if strings.TrimSpace(config.GitHubRepo) == "" {
+		config.GitHubRepo = "caigee-cmd/cli2api"
+	}
 	return &Executor{
-		config: config,
-		runner: execCommandRunner{},
-		client: &http.Client{Timeout: 3 * time.Second},
+		config:   config,
+		runner:   execCommandRunner{},
+		client:   &http.Client{Timeout: 3 * time.Second},
+		download: &http.Client{Timeout: 10 * time.Minute},
 	}
 }
 
@@ -107,7 +117,7 @@ func (e *Executor) Prepare(ctx context.Context, _ string, request control.Prepar
 	if _, err := e.runner.Run(ctx, "docker", "pull", targetImage); err != nil {
 		return fmt.Errorf("pull target image: %w", err)
 	}
-	return nil
+	return e.stageHostBinary(ctx, request.TargetVersion, progress)
 }
 
 func (e *Executor) Apply(ctx context.Context, _ string, request ApplyRequest, progress func(string)) (bool, error) {
@@ -141,9 +151,15 @@ func (e *Executor) Apply(ctx context.Context, _ string, request ApplyRequest, pr
 		if _, err := e.runner.Run(ctx, "docker", "image", "inspect", targetImage); err != nil {
 			return false, fmt.Errorf("prepared image is unavailable: %w", err)
 		}
+		if err := e.stageHostBinary(ctx, request.TargetVersion, progress); err != nil {
+			return false, err
+		}
 	} else {
 		progress("pulling")
 		if _, err := e.runner.Run(ctx, "docker", "pull", targetImage); err != nil {
+			return false, err
+		}
+		if err := e.stageHostBinary(ctx, request.TargetVersion, progress); err != nil {
 			return false, err
 		}
 	}
@@ -173,6 +189,14 @@ func (e *Executor) Apply(ctx context.Context, _ string, request ApplyRequest, pr
 		}
 		return e.rollback(request, before, mount, currentImage, envMode, err, progress)
 	}
+	if err := e.refreshStagedHostBinaryFromContainer(ctx); err != nil && strings.TrimSpace(e.config.HostBinaryPath) != "" {
+		if _, statErr := os.Stat(e.config.HostBinaryPath + ".new"); statErr != nil {
+			return e.rollback(request, before, mount, currentImage, envMode, fmt.Errorf("copy host updater from container: %w", err), progress)
+		}
+	}
+	if err := e.CommitHostBinary(); err != nil {
+		return e.rollback(request, before, mount, currentImage, envMode, err, progress)
+	}
 	return false, nil
 }
 
@@ -181,6 +205,7 @@ func (e *Executor) rollback(request ApplyRequest, before containerInspect, mount
 	defer cancel()
 
 	progress("rolling_back")
+	e.discardStagedHostBinary()
 	if err := e.compose(ctx, "stop", e.config.ServiceName); err != nil {
 		return false, rollbackFailed(cause, err)
 	}

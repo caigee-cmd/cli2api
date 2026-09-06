@@ -259,9 +259,9 @@ func TestValidateApplyRequestRejectsUnsafeInput(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, request := range []ApplyRequest{
-		{CurrentVersion: "v0.2.1", TargetVersion: "latest", BackupPath: valid.BackupPath},
-		{CurrentVersion: "v0.2.2", TargetVersion: "v0.2.1", BackupPath: valid.BackupPath},
-		{CurrentVersion: "v0.2.1", TargetVersion: "v0.2.2", BackupPath: "/etc/passwd"},
+			{CurrentVersion: "v0.2.1", TargetVersion: "latest", BackupPath: valid.BackupPath},
+			{CurrentVersion: "v0.2.1", TargetVersion: "v0.2.1", BackupPath: valid.BackupPath},
+			{CurrentVersion: "v0.2.1", TargetVersion: "v0.2.2", BackupPath: "/etc/passwd"},
 		{CurrentVersion: "v0.2.1", TargetVersion: "v0.2.2", BackupPath: "/data/backups/../qoder.db"},
 	} {
 		if err := validateApplyRequest(request); err == nil {

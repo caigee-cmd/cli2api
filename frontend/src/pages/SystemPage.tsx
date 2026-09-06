@@ -12,17 +12,17 @@ import {
   X,
 } from '@phosphor-icons/react'
 import { fetchConsoleKey, rotateConsoleKey, type ConsoleKeyView } from '@/api/keys'
-import { applyPreparedSystemUpdate, cancelSystemUpdate, fetchSystemSettings, fetchSystemUpdate, startSystemUpdate, updateSystemSettings, type StartUpdateResult, type SystemSettings, type SystemUpdateInfo } from '@/api/system'
+import { applyPreparedSystemUpdate, cancelSystemUpdate, fetchSystemSettings, fetchSystemUpdate, rollbackSystemUpdate, startSystemUpdate, updateSystemSettings, type StartUpdateResult, type SystemSettings, type SystemUpdateInfo } from '@/api/system'
 import { useApiKey } from '@/hooks/useApiKey'
 import { PageAlert } from '@/components/ui/PageAlert'
 import { SystemPageSkeleton } from '@/components/ui/PageSkeletons'
 import { useI18n } from '@/hooks/useI18n'
 import { CompactSwitch } from '@/components/ui/CompactSwitch'
 
-const busyStates = new Set(['preparing', 'preparing_image', 'checking', 'backing_up', 'submitting', 'running', 'queued', 'pulling', 'image_ready', 'recreating', 'rolling_back'])
+const busyStates = new Set(['preparing', 'preparing_image', 'checking', 'backing_up', 'submitting', 'running', 'queued', 'pulling', 'host_binary', 'image_ready', 'recreating', 'rolling_back'])
 const applyJobStates = new Set(['backing_up', 'running'])
 const applyAgentStates = new Set(['recreating', 'rolling_back'])
-const progressAgentStates = new Set(['queued', 'pulling', 'image_ready', 'preparing', 'recreating', 'checking', 'rolling_back'])
+const progressAgentStates = new Set(['queued', 'pulling', 'host_binary', 'image_ready', 'preparing', 'recreating', 'checking', 'rolling_back'])
 
 export function SystemPage() {
   const { t } = useI18n()
@@ -118,9 +118,10 @@ export function SystemPage() {
     return () => window.clearTimeout(timer)
   }, [reloadIn])
 
-  const canPrepare = Boolean(info?.managed && info?.has_update && info?.next_version && info?.agent?.available && info?.agent?.staged_update && !readyToApply && !busy && !submitting && reloadIn == null)
+  const canPrepare = Boolean(info?.managed && info?.has_update && info?.next_version && info?.agent?.available && !readyToApply && !busy && !submitting && reloadIn == null)
   const canApply = Boolean(readyToApply && info?.agent?.available && !applying && !submitting && reloadIn == null)
   const canCancel = Boolean(info?.agent?.available && (preparing || readyToApply) && !applying && !submitting && reloadIn == null)
+  const canRollback = Boolean(info?.managed && info?.agent?.available && (info.rollback_versions?.length ?? 0) > 0 && !readyToApply && !busy && !submitting && reloadIn == null)
 
   async function prepareUpdate() {
     setSubmitting(true)
@@ -143,6 +144,22 @@ export function SystemPage() {
     setError('')
     try {
       const result = await applyPreparedSystemUpdate()
+      setStarted(result)
+      await load(false, true)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('updateFailedHint'))
+      await load(false, true)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  async function rollbackTo(version: string) {
+    setSubmitting(true)
+    setStarted(null)
+    setError('')
+    try {
+      const result = await rollbackSystemUpdate(version)
       setStarted(result)
       await load(false, true)
     } catch (err) {
@@ -253,7 +270,20 @@ export function SystemPage() {
               </Button>
             </div>
             {!info?.agent?.available && !busy ? <p className="mt-3 text-right text-xs text-muted">{t('updateUnavailableHint')}</p> : null}
-            {info?.agent?.available && !info.agent.staged_update && !busy ? <p className="mt-3 text-right text-xs text-muted">{t('updateStagedUnavailableHint')}</p> : null}
+            {info?.agent?.available && !info.agent.staged_update && !busy ? <p className="mt-3 text-right text-xs text-muted">{t('updateLegacyOneShotHint')}</p> : null}
+            {canRollback ? (
+              <div className="mt-4 rounded-lg border border-separator px-3 py-3">
+                <p className="text-xs font-medium text-foreground">{t('rollbackToVersion')}</p>
+                <p className="mt-1 text-xs leading-5 text-muted">{t('rollbackToVersionHint')}</p>
+                <div className="mt-3 flex flex-wrap justify-end gap-2">
+                  {info?.rollback_versions?.map((release) => (
+                    <Button key={release.tag_name} size="sm" variant="ghost" isDisabled={submitting} onPress={() => void rollbackTo(release.tag_name)}>
+                      {release.tag_name}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
             {readyToApply || busy || reloadIn != null || justUpdated ? (
               <div className={`mt-4 rounded-lg border px-3 py-3 ${readyToApply || justUpdated ? 'border-success/25 bg-success/5' : 'border-warning/25 bg-warning/5'}`} role="status" aria-live="polite">
                 {updateStateText ? <p className="text-xs font-medium text-foreground">{updateStateText}{targetVersion ? ` · ${targetVersion}` : ''}{elapsed ? ` · ${t('updateElapsed', { seconds: elapsed })}` : ''}</p> : null}

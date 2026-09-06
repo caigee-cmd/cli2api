@@ -133,18 +133,19 @@ function Get-UpdaterAssetName {
 function Install-ReleasedUpdater {
     param([string]$Destination)
 
-    $Version = Get-RunningReleaseVersion
-    if ([string]::IsNullOrWhiteSpace($Version)) {
-        return $false
-    }
     $AssetName = Get-UpdaterAssetName
     $TempDir = Join-Path ([System.IO.Path]::GetTempPath()) ("cli2api-updater-" + [Guid]::NewGuid().ToString("N"))
     New-Item -ItemType Directory -Force -Path $TempDir | Out-Null
     $AssetPath = Join-Path $TempDir $AssetName
     $ChecksumPath = Join-Path $TempDir "cli2api-updater_checksums.txt"
+    $Sources = @("latest")
+    $Version = Get-RunningReleaseVersion
+    if (-not [string]::IsNullOrWhiteSpace($Version)) {
+        $Sources += $Version
+    }
 
     try {
-        foreach ($SourceLabel in @($Version, "latest")) {
+        foreach ($SourceLabel in $Sources) {
             if ($SourceLabel -eq "latest") {
                 $BaseUrl = "https://github.com/$GitHubRepository/releases/latest/download"
             } else {
