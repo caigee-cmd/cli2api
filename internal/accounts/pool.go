@@ -71,6 +71,11 @@ type Item struct {
 	// spelling so Trae config_name case is preserved.
 	Models   []string
 	ModelsAt time.Time
+	// ProvenModels are public IDs this account has actually served. A
+	// later catalog refresh must not drop a model that just succeeded:
+	// WorkBuddy CLI snapshots can omit a live ID and would otherwise
+	// leave only quota-cooled empty-catalog accounts on that route.
+	ProvenModels []string
 	// ModelDownUntil is per-model cooldown. One model hitting a limit must
 	// not take the whole account offline for other models.
 	ModelDownUntil map[string]time.Time
@@ -138,15 +143,90 @@ func routeModel(model string) string {
 	return id
 }
 
-func itemHasModel(item Item, publicModel string) bool {
-	want := routeModel(publicModel)
+func itemHasCatalogModel(item Item, want string) bool {
 	if want == "" || item.Models == nil {
-		return true
+		return false
 	}
 	for _, model := range item.Models {
 		if CanonicalModelID(model) == want {
 			return true
 		}
+	}
+	return false
+}
+
+func itemHasProvenModel(item Item, want string) bool {
+	if want == "" {
+		return false
+	}
+	for _, model := range item.ProvenModels {
+		if CanonicalModelID(model) == want {
+			return true
+		}
+	}
+	return false
+}
+
+func rememberProvenModel(item *Item, model string) {
+	if item == nil {
+		return
+	}
+	want := routeModel(model)
+	if want == "" || itemHasProvenModel(*item, want) {
+		return
+	}
+	native := NativeModelID(*item, model)
+	if strings.TrimSpace(native) == "" {
+		native = model
+	}
+	item.ProvenModels = append(item.ProvenModels, native)
+}
+
+func dropProvenModel(item *Item, want string) {
+	if item == nil || want == "" || len(item.ProvenModels) == 0 {
+		return
+	}
+	next := item.ProvenModels[:0]
+	for _, model := range item.ProvenModels {
+		if CanonicalModelID(model) != want {
+			next = append(next, model)
+		}
+	}
+	if len(next) == 0 {
+		item.ProvenModels = nil
+		return
+	}
+	item.ProvenModels = next
+}
+
+// itemCouldServeModel reports whether this account belongs on a model route
+// at all, including unknown-catalog accounts that are currently cooling.
+// Cooling empty-catalog accounts must stay visible as retry hints so a
+// quota pool is not reported as model_not_available.
+func itemCouldServeModel(item Item, publicModel string) bool {
+	want := routeModel(publicModel)
+	if want == "" {
+		return true
+	}
+	if itemHasCatalogModel(item, want) || itemHasProvenModel(item, want) {
+		return true
+	}
+	return item.Models == nil
+}
+
+func itemHasModel(item Item, publicModel string) bool {
+	want := routeModel(publicModel)
+	if want == "" {
+		return true
+	}
+	if itemHasCatalogModel(item, want) || itemHasProvenModel(item, want) {
+		return true
+	}
+	if item.Models == nil {
+		// Unknown catalog fail-open only for accounts that can send now.
+		// A quota-cooled account must not occupy this model just because
+		// its catalog fetch failed.
+		return !itemDown(item, time.Now())
 	}
 	return false
 }
@@ -160,6 +240,11 @@ func NativeModelID(item Item, publicModel string) string {
 		return strings.TrimSpace(publicModel)
 	}
 	for _, model := range item.Models {
+		if CanonicalModelID(model) == want {
+			return model
+		}
+	}
+	for _, model := range item.ProvenModels {
 		if CanonicalModelID(model) == want {
 			return model
 		}
@@ -205,7 +290,7 @@ func itemReady(item Item) bool {
 	return item.Ready == nil || *item.Ready
 }
 
-func routeMatches(item Item, q RouteQuery) bool {
+func routeBaseMatches(item Item, q RouteQuery) bool {
 	if !itemReady(item) {
 		return false
 	}
@@ -221,10 +306,15 @@ func routeMatches(item Item, q RouteQuery) bool {
 	if q.RegionFilter != "" && itemRegion(item) != strings.ToLower(strings.TrimSpace(q.RegionFilter)) {
 		return false
 	}
-	if !itemHasModel(item, q.PublicModel) {
-		return false
-	}
 	return true
+}
+
+func routeMatches(item Item, q RouteQuery) bool {
+	return routeBaseMatches(item, q) && itemHasModel(item, q.PublicModel)
+}
+
+func routeHintMatches(item Item, q RouteQuery) bool {
+	return routeBaseMatches(item, q) && itemCouldServeModel(item, q.PublicModel)
 }
 
 type Pool struct {
@@ -401,7 +491,7 @@ func (p *Pool) PickRoute(q RouteQuery) (Item, bool) {
 		}
 		if pinned != nil {
 			if _, skip := q.Excluded[pinned.ID]; !skip {
-				if routeModel(q.PublicModel) != "" && pinned.Models != nil && !itemHasModel(*pinned, q.PublicModel) {
+				if routeModel(q.PublicModel) != "" && !itemCouldServeModel(*pinned, q.PublicModel) {
 					return Item{}, false
 				}
 				if routeMatches(*pinned, q) && !itemDown(*pinned, now) &&
@@ -433,8 +523,11 @@ func (p *Pool) PickRoute(q RouteQuery) (Item, bool) {
 		// the caller can report a classified retry-after error.
 		var best Item
 		found := false
-		for _, i := range eligible {
+		for i := range p.items {
 			item := p.items[i]
+			if !routeHintMatches(item, q) {
+				continue
+			}
 			if !itemDown(item, now) && !itemModelDown(item, q, now) {
 				// Saturated only — skip; not a candidate for the retry hint.
 				continue
@@ -844,6 +937,7 @@ func (p *Pool) MarkOK(id, model string) {
 				p.items[i].LastKind = ""
 				p.items[i].BackoffLevel = 0
 			}
+			rememberProvenModel(&p.items[i], model)
 		} else {
 			// Account-wide success: the account proved it can serve traffic.
 			p.items[i].DownUntil = time.Time{}
@@ -995,16 +1089,19 @@ func (p *Pool) RemoveModel(id, model string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	for i := range p.items {
-		if p.items[i].ID != id || p.items[i].Models == nil {
+		if p.items[i].ID != id {
 			continue
 		}
-		next := make([]string, 0, len(p.items[i].Models))
-		for _, existing := range p.items[i].Models {
-			if CanonicalModelID(existing) != want {
-				next = append(next, existing)
+		if p.items[i].Models != nil {
+			next := make([]string, 0, len(p.items[i].Models))
+			for _, existing := range p.items[i].Models {
+				if CanonicalModelID(existing) != want {
+					next = append(next, existing)
+				}
 			}
+			p.items[i].Models = next
 		}
-		p.items[i].Models = next
+		dropProvenModel(&p.items[i], want)
 		return
 	}
 }
@@ -1100,6 +1197,9 @@ func (item Item) clone() Item {
 	if item.Models != nil {
 		out.Models = append([]string(nil), item.Models...)
 	}
+	if item.ProvenModels != nil {
+		out.ProvenModels = append([]string(nil), item.ProvenModels...)
+	}
 	if item.Quota != nil {
 		q := *item.Quota
 		out.Quota = &q
@@ -1191,6 +1291,9 @@ func (p *Pool) Upsert(item Item) {
 			if item.Models == nil {
 				item.Models = p.items[i].Models
 				item.ModelsAt = p.items[i].ModelsAt
+			}
+			if item.ProvenModels == nil {
+				item.ProvenModels = p.items[i].ProvenModels
 			}
 			p.items[i] = item
 			return

@@ -8,10 +8,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 ### English
 
 - Recommend Docker Compose as the supported install and managed-update path in the README and deployment guide
+- Keep an account on a model route after a later catalog refresh omits an ID it already served, and report pool-wide quota cooldown as `insufficient_quota` instead of a generic rate limit
 
 ### 中文
 
 - 在 README 与部署说明中明确推荐 Docker Compose 作为官方安装与托管更新路径
+- 账号已成功服务过的模型，在后续目录刷新漏掉该 ID 时仍可继续路由；全池额度冷却改为返回 `insufficient_quota`，而不是笼统的限流错误
 
 ## 0.2.45 - 2026-09-05
 

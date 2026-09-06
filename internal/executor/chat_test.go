@@ -518,6 +518,112 @@ func TestChatNonStreamDoesNotDispatchWhileAccountCooling(t *testing.T) {
 	}
 }
 
+func TestChatNonStreamUsesProvenAccountOverQuotaCatalog(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{{"finish_reason": "stop", "message": map[string]any{"content": "ok"}}},
+			"usage":   map[string]any{"source": "upstream"},
+		})
+	}))
+	defer srv.Close()
+
+	pool := accounts.NewPool(nil, nil)
+	pool.Upsert(accounts.Item{ID: "quota", URL: "http://127.0.0.1:1", Provider: "workbuddy", Region: "cn", Runtime: "child_process"})
+	pool.Upsert(accounts.Item{ID: "ready", URL: srv.URL, Provider: "workbuddy", Region: "cn", Runtime: "child_process"})
+	pool.MarkClassified("quota", accounts.Classified{Kind: accounts.KindQuota, Cooldown: time.Hour, Message: "额度已用尽"})
+	pool.MarkOK("ready", "deepseek-v4-flash")
+	pool.MergeModels("ready", []string{"glm-5.2"})
+
+	ex := NewChatExecutor(pool, "")
+	ex.HTTPClient = srv.Client()
+	got, err := ex.ChatNonStream(context.Background(), translate.ChatRequest{
+		Model:    "deepseek-v4-flash",
+		Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	}, "", "workbuddy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.AccountID != "ready" || hits.Load() != 1 {
+		t.Fatalf("got %+v hits=%d", got, hits.Load())
+	}
+}
+
+func TestChatNonStreamExpiredQuotaDoesNotMaskModelRateLimit(t *testing.T) {
+	pool := accounts.NewPool(nil, nil)
+	pool.Upsert(accounts.Item{
+		ID: "a", URL: "http://127.0.0.1:1", Provider: "workbuddy", Region: "cn", Runtime: "child_process",
+		DownUntil: time.Now().Add(-time.Minute), LastKind: accounts.KindQuota,
+	})
+	pool.MarkClassified("a", accounts.Classified{
+		Kind: accounts.KindRateLimit, Cooldown: time.Hour, Failover: true,
+		Model: "deepseek-v4-flash", Message: "too many requests",
+	})
+	ex := NewChatExecutor(pool, "")
+	_, err := ex.ChatNonStream(context.Background(), translate.ChatRequest{
+		Model:    "deepseek-v4-flash",
+		Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	}, "", "workbuddy")
+	if err == nil {
+		t.Fatal("expected model cooling error")
+	}
+	var classified *providers.Error
+	if !errors.As(err, &classified) || classified.Kind != accounts.KindRateLimit || classified.Code != "rate_limit" {
+		t.Fatalf("expired quota must not mask a live model rate limit, got %#v", err)
+	}
+	if classified.Failover == nil || !*classified.Failover {
+		t.Fatal("model rate-limit cooling must remain failoverable")
+	}
+}
+
+func TestChatNonStreamQuotaCoolingIsQuotaNotRateLimit(t *testing.T) {
+	pool := accounts.NewPool(nil, nil)
+	pool.Upsert(accounts.Item{ID: "quota", URL: "http://127.0.0.1:1", Provider: "workbuddy", Region: "cn", Runtime: "child_process"})
+	pool.MarkClassified("quota", accounts.Classified{Kind: accounts.KindQuota, Cooldown: time.Hour, Message: "额度已用尽"})
+	ex := NewChatExecutor(pool, "")
+	_, err := ex.ChatNonStream(context.Background(), translate.ChatRequest{
+		Model:    "deepseek-v4-flash",
+		Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	}, "", "workbuddy")
+	if err == nil {
+		t.Fatal("expected quota cooling error")
+	}
+	var classified *providers.Error
+	if !errors.As(err, &classified) || classified.Kind != accounts.KindQuota || classified.Code != "insufficient_quota" {
+		t.Fatalf("expected quota cooling error, got %#v", err)
+	}
+	if !strings.Contains(classified.Message, "quota cooldown") {
+		t.Fatalf("quota cooling error should say quota, got %q", classified.Message)
+	}
+}
+
+func TestObserveStreamFailureDropsProvenModel(t *testing.T) {
+	pool := accounts.NewPool(nil, nil)
+	pool.Upsert(accounts.Item{ID: "ready", Provider: "workbuddy", Region: "cn", Runtime: "child_process"})
+	pool.MarkOK("ready", "deepseek-v4-flash")
+	pool.MergeModels("ready", []string{"glm-5.2"})
+	item, ok := pool.ByID("ready")
+	if !ok || len(item.ProvenModels) != 1 {
+		t.Fatalf("expected proven model before stream failure, got %+v", item)
+	}
+
+	ex := NewChatExecutor(pool, "")
+	ex.ObserveStreamFailure("ready", &providers.Error{
+		Kind:    accounts.KindModelNotAvailable,
+		Status:  400,
+		Message: "model not available",
+	}, "deepseek-v4-flash")
+
+	item, _ = pool.ByID("ready")
+	if len(item.ProvenModels) != 0 {
+		t.Fatalf("stream catalog miss must drop proven model, got %v", item.ProvenModels)
+	}
+	if _, ok := pool.PickRoute(accounts.RouteQuery{PublicModel: "deepseek-v4-flash", ProviderFilter: "workbuddy"}); ok {
+		t.Fatal("account must leave the omitted-model route after a stream catalog miss")
+	}
+}
+
 func TestObserveStreamFailureWithoutModelTakesAccountDown(t *testing.T) {
 	pool := accounts.NewPool([]string{"http://127.0.0.1:1"}, []string{"acc-quota"})
 	pool.Upsert(accounts.Item{ID: "acc-quota"})
