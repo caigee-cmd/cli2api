@@ -520,3 +520,37 @@ func TestAccountBackoffIgnoresModelForAccountFailures(t *testing.T) {
 		t.Fatalf("account auth must not create a model kind: %+v", item.ModelLastKind)
 	}
 }
+
+func TestQuotaCooledEmptyCatalogDoesNotBlockProvenAccount(t *testing.T) {
+	p := NewPool(nil, nil)
+	p.Upsert(Item{ID: "quota", Provider: "workbuddy", Region: "cn"})
+	p.Upsert(Item{ID: "ready", Provider: "workbuddy", Region: "cn"})
+	p.MarkClassified("quota", Classified{Kind: KindQuota, Cooldown: time.Hour, Message: "额度已用尽"})
+	p.MarkOK("ready", "deepseek-v4-flash")
+	p.MergeModels("ready", []string{"glm-5.2"})
+
+	item, ok := p.PickRoute(RouteQuery{PublicModel: "deepseek-v4-flash", ProviderFilter: "workbuddy"})
+	if !ok || item.ID != "ready" {
+		t.Fatalf("proven ready account must win over quota-cooled empty catalog, got %+v ok=%v", item, ok)
+	}
+	if retry := p.RetryAfter(item, "deepseek-v4-flash"); retry > 0 {
+		t.Fatalf("ready account must be dispatchable, retry-after=%v", retry)
+	}
+}
+
+func TestQuotaCooledEmptyCatalogSurfacesQuotaHint(t *testing.T) {
+	p := NewPool(nil, nil)
+	p.Upsert(Item{ID: "quota", Provider: "workbuddy", Region: "cn"})
+	p.MarkClassified("quota", Classified{Kind: KindQuota, Cooldown: time.Hour, Message: "额度已用尽"})
+
+	item, ok := p.PickRoute(RouteQuery{PublicModel: "deepseek-v4-flash", ProviderFilter: "workbuddy"})
+	if !ok || item.ID != "quota" {
+		t.Fatalf("quota-cooled empty catalog must surface as a retry hint, got %+v ok=%v", item, ok)
+	}
+	if retry := p.RetryAfter(item, "deepseek-v4-flash"); retry <= 0 {
+		t.Fatal("quota hint must carry retry-after")
+	}
+	if p.LenRoute(RouteQuery{PublicModel: "deepseek-v4-flash", ProviderFilter: "workbuddy"}) != 0 {
+		t.Fatal("quota-cooled empty catalog must not count as a live candidate")
+	}
+}
