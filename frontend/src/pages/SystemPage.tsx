@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button, Card, Chip, Description, Label, ListBox, Modal, Select } from '@heroui/react'
 import {
   ArrowClockwise,
@@ -15,9 +15,12 @@ import { fetchConsoleKey, rotateConsoleKey, type ConsoleKeyView } from '@/api/ke
 import { applyPreparedSystemUpdate, cancelSystemUpdate, fetchSystemSettings, fetchSystemUpdate, rollbackSystemUpdate, startSystemUpdate, updateSystemSettings, type StartUpdateResult, type SystemSettings, type SystemUpdateInfo } from '@/api/system'
 import { useApiKey } from '@/hooks/useApiKey'
 import { PageAlert } from '@/components/ui/PageAlert'
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { SystemPageSkeleton } from '@/components/ui/PageSkeletons'
 import { useI18n } from '@/hooks/useI18n'
 import { CompactSwitch } from '@/components/ui/CompactSwitch'
+import { VersionHistory } from '@/components/VersionHistory'
+import { buildVersionHistory } from '@/lib/versionHistory'
 
 const busyStates = new Set(['preparing', 'preparing_image', 'checking', 'backing_up', 'submitting', 'running', 'queued', 'pulling', 'host_binary', 'image_ready', 'recreating', 'rolling_back'])
 const applyJobStates = new Set(['backing_up', 'running'])
@@ -43,6 +46,7 @@ export function SystemPage() {
   const [reloadIn, setReloadIn] = useState<number | null>(null)
   const [now, setNow] = useState(() => Date.now())
   const [initialVersion, setInitialVersion] = useState('')
+  const [restoreTarget, setRestoreTarget] = useState('')
 
   const load = useCallback(async (force = false, quiet = false) => {
     if (force && !quiet) setChecking(true)
@@ -122,6 +126,27 @@ export function SystemPage() {
   const canApply = Boolean(readyToApply && info?.agent?.available && !applying && !submitting && reloadIn == null)
   const canCancel = Boolean(info?.agent?.available && (preparing || readyToApply) && !applying && !submitting && reloadIn == null)
   const canRollback = Boolean(info?.managed && info?.agent?.available && (info.rollback_versions?.length ?? 0) > 0 && !readyToApply && !busy && !submitting && reloadIn == null)
+  const historyReleases = useMemo(
+    () => buildVersionHistory(info?.current_version || '', info?.next_version, info?.release, info?.recent_releases, info?.rollback_versions),
+    [info?.current_version, info?.next_version, info?.release, info?.recent_releases, info?.rollback_versions],
+  )
+  const rollbackTags = useMemo(() => (info?.rollback_versions || []).map((release) => release.tag_name), [info?.rollback_versions])
+  const primaryLabel = reloadIn != null
+    ? t('updateReloadingIn', { seconds: reloadIn })
+    : canApply
+      ? t('applyUpdateNow')
+      : applying
+        ? t('updateInProgress')
+        : preparing || submitting
+          ? t('updatePreparingImage')
+          : t('updateNow')
+  const statusHint = reloadIn != null
+    ? t('updateReloadingHint')
+    : readyToApply
+      ? t('updateReadyTargetHint', { version: targetVersion || info?.next_version || '' })
+      : applying
+        ? t('updateApplyingHint')
+        : t('updatePreparingImageHint')
 
   async function prepareUpdate() {
     setSubmitting(true)
@@ -266,32 +291,28 @@ export function SystemPage() {
               ) : null}
               <Button isDisabled={(!canPrepare && !canApply) || reloadIn != null} isPending={submitting || busy || reloadIn != null} onPress={() => void (canApply ? confirmUpdate() : prepareUpdate())}>
                 <ArrowCircleUp size={16} />
-                {reloadIn != null ? t('updateReloadingIn', { seconds: reloadIn }) : canApply ? t('applyUpdateNow') : applying ? t('updateInProgress') : preparing || submitting ? t('updatePreparingImage') : t('updateNow')}
+                {primaryLabel}
               </Button>
             </div>
             {!info?.agent?.available && !busy ? <p className="mt-3 text-right text-xs text-muted">{t('updateUnavailableHint')}</p> : null}
             {info?.agent?.available && !info.agent.staged_update && !busy ? <p className="mt-3 text-right text-xs text-muted">{t('updateLegacyOneShotHint')}</p> : null}
-            {canRollback ? (
-              <div className="mt-4 rounded-lg border border-separator px-3 py-3">
-                <p className="text-xs font-medium text-foreground">{t('rollbackToVersion')}</p>
-                <p className="mt-1 text-xs leading-5 text-muted">{t('rollbackToVersionHint')}</p>
-                <div className="mt-3 flex flex-wrap justify-end gap-2">
-                  {info?.rollback_versions?.map((release) => (
-                    <Button key={release.tag_name} size="sm" variant="ghost" isDisabled={submitting} onPress={() => void rollbackTo(release.tag_name)}>
-                      {release.tag_name}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-            ) : null}
             {readyToApply || busy || reloadIn != null || justUpdated ? (
               <div className={`mt-4 rounded-lg border px-3 py-3 ${readyToApply || justUpdated ? 'border-success/25 bg-success/5' : 'border-warning/25 bg-warning/5'}`} role="status" aria-live="polite">
                 {updateStateText ? <p className="text-xs font-medium text-foreground">{updateStateText}{targetVersion ? ` · ${targetVersion}` : ''}{elapsed ? ` · ${t('updateElapsed', { seconds: elapsed })}` : ''}</p> : null}
-                <p className="mt-1 text-xs leading-5 text-muted">{reloadIn != null ? t('updateReloadingHint') : readyToApply ? t('updateReadyTargetHint', { version: targetVersion || info?.next_version || '' }) : applying ? t('updateApplyingHint') : t('updatePreparingImageHint')}</p>
+                <p className="mt-1 text-xs leading-5 text-muted">{statusHint}</p>
                 {newerThanPrepared ? <p className="mt-1 text-xs leading-5 text-warning">{t('updateNewerReleaseHint', { latest: info?.next_version || '' })}</p> : null}
                 {info?.update?.error || info?.agent?.error ? <p className="mt-1 text-xs leading-5 text-danger">{info?.update?.error || info?.agent?.error}</p> : null}
               </div>
             ) : null}
+            <VersionHistory
+              releases={historyReleases}
+              currentVersion={info?.current_version || ''}
+              nextVersion={info?.next_version}
+              rollbackTags={rollbackTags}
+              canRollback={canRollback}
+              submitting={submitting}
+              onRestore={setRestoreTarget}
+            />
           </div>
         </Card>
 
@@ -396,6 +417,24 @@ export function SystemPage() {
 
         </div>
       </div>
+
+      <ConfirmDialog
+        isOpen={Boolean(restoreTarget)}
+        title={t('restoreVersionTitle', { version: restoreTarget })}
+        description={t('restoreVersionHint')}
+        confirmLabel={t('restoreThisVersion')}
+        cancelLabel={t('cancel')}
+        closeLabel={t('close')}
+        isPending={submitting}
+        status="warning"
+        confirmVariant="primary"
+        onClose={() => { if (!submitting) setRestoreTarget('') }}
+        onConfirm={() => {
+          const version = restoreTarget
+          setRestoreTarget('')
+          void rollbackTo(version)
+        }}
+      />
 
       <Modal.Root isOpen={rotateOpen} onOpenChange={(open: boolean) => { if (!open && !consoleBusy) setRotateOpen(false) }}>
         <Modal.Backdrop variant="blur" isDismissable={!consoleBusy}>

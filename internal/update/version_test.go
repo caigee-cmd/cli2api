@@ -49,6 +49,30 @@ func TestUpgradePathListsIntermediateStableVersions(t *testing.T) {
 	}
 }
 
+func TestSelectRecentReleasesKeepsCurrentAndBoundsHistory(t *testing.T) {
+	releases := []Release{
+		{TagName: "v0.3.0", Body: "latest"},
+		{TagName: "v0.2.9", Body: "skip-2"},
+		{TagName: "v0.2.8", Body: "skip-1"},
+		{TagName: "v0.2.7", Body: "current"},
+		{TagName: "v0.2.6", Body: "prev-1"},
+		{TagName: "v0.2.5", Body: "prev-2"},
+		{TagName: "v0.2.4", Body: "prev-3"},
+		{TagName: "v0.2.3", Body: "older"},
+		{TagName: "v0.2.2", Prerelease: true},
+	}
+	recent := SelectRecentReleases("v0.2.7", releases, 8)
+	if len(recent) != 8 {
+		t.Fatalf("recent len = %d, want 8", len(recent))
+	}
+	if recent[0].TagName != "v0.3.0" || recent[1].TagName != "v0.2.9" || recent[3].TagName != "v0.2.7" || recent[7].TagName != "v0.2.3" {
+		t.Fatalf("recent = %+v", recent)
+	}
+	if capped := SelectRecentReleases("v0.2.7", releases, 4); len(capped) != 4 || capped[0].TagName != "v0.3.0" || capped[1].TagName != "v0.2.7" || capped[2].TagName != "v0.2.6" {
+		t.Fatalf("capped = %+v", capped)
+	}
+}
+
 func TestSelectPreviousReleasesListsNewerFirst(t *testing.T) {
 	releases := []Release{
 		{TagName: "v0.2.1"},

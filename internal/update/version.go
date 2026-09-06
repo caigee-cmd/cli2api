@@ -159,3 +159,95 @@ func SelectPreviousReleases(current string, releases []Release, limit int) []Rel
 	}
 	return candidates
 }
+
+// SelectRecentReleases returns a bounded newest-first history for the System page:
+// the latest update when one exists, the running version, a few older rollback
+// targets, then skipped versions in between. Extra older releases fill remaining slots.
+func SelectRecentReleases(current string, releases []Release, limit int) []Release {
+	if limit <= 0 {
+		return nil
+	}
+	currentVersion, err := ParseVersion(current)
+	if err != nil {
+		return nil
+	}
+	stable := make([]Release, 0, len(releases)+1)
+	byTag := map[string]Release{}
+	for _, release := range releases {
+		if release.Draft || release.Prerelease {
+			continue
+		}
+		version, err := ParseVersion(release.TagName)
+		if err != nil {
+			continue
+		}
+		release.TagName = version.String()
+		if _, exists := byTag[release.TagName]; exists {
+			continue
+		}
+		byTag[release.TagName] = release
+		stable = append(stable, release)
+	}
+	currentTag := currentVersion.String()
+	if _, exists := byTag[currentTag]; !exists {
+		stub := Release{TagName: currentTag}
+		byTag[currentTag] = stub
+		stable = append(stable, stub)
+	}
+	if len(stable) == 0 {
+		return nil
+	}
+	sort.SliceStable(stable, func(i, j int) bool {
+		left, _ := ParseVersion(stable[i].TagName)
+		right, _ := ParseVersion(stable[j].TagName)
+		return left.Compare(right) > 0
+	})
+
+	wanted := make([]string, 0, limit)
+	add := func(tag string) {
+		tag = strings.TrimSpace(tag)
+		if tag == "" {
+			return
+		}
+		if _, ok := byTag[tag]; !ok {
+			return
+		}
+		for _, existing := range wanted {
+			if existing == tag {
+				return
+			}
+		}
+		if len(wanted) >= limit {
+			return
+		}
+		wanted = append(wanted, tag)
+	}
+
+	if next, ok := SelectNextRelease(current, releases); ok {
+		add(next.TagName)
+	}
+	add(currentVersion.String())
+	for _, release := range SelectPreviousReleases(current, releases, 3) {
+		add(release.TagName)
+	}
+	if next, ok := SelectNextRelease(current, releases); ok {
+		skipped := UpgradePath(current, next.TagName, releases)
+		for i := len(skipped) - 1; i >= 0; i-- {
+			add(skipped[i])
+		}
+	}
+	for _, release := range stable {
+		add(release.TagName)
+	}
+
+	selected := make([]Release, 0, len(wanted))
+	for _, tag := range wanted {
+		selected = append(selected, byTag[tag])
+	}
+	sort.SliceStable(selected, func(i, j int) bool {
+		left, _ := ParseVersion(selected[i].TagName)
+		right, _ := ParseVersion(selected[j].TagName)
+		return left.Compare(right) > 0
+	})
+	return selected
+}

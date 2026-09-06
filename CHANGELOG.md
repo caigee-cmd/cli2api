@@ -7,7 +7,13 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Show a compact version history on the System page: one release open at a time, with notes and restore for the three previous versions
+- Use plain update copy on the System page: download the update, tap Update now, then refresh after a short countdown
+
 ### 中文
+
+- 系统页用折叠列表展示近期版本：一次只展开一条，可看说明，并可恢复到最近三个旧版本
+- 系统页更新文案改为普通说法：先下载更新，再点立即更新，完成后倒计时刷新页面
 
 ## 0.3.0 - 2026-09-06
 
