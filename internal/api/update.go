@@ -74,16 +74,16 @@ func (s *Server) handleSystemUpdatePrepare(w http.ResponseWriter, _ *http.Reques
 	writeJSON(w, http.StatusAccepted, map[string]any{"job_id": jobID})
 }
 
-func (s *Server) handleSystemUpdateConfirm(w http.ResponseWriter, _ *http.Request) {
-	s.updateMu.Lock()
-	job := s.updateJob
+func (s *Server) handleSystemUpdateConfirm(w http.ResponseWriter, r *http.Request) {
+	statusCtx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	status, _ := s.updateAgent.Status(statusCtx)
+	cancel()
+	job := s.adoptPreparedUpdate(status)
 	if job == nil || job.State != "ready_to_apply" {
-		s.updateMu.Unlock()
 		writeErr(w, http.StatusConflict, "update_not_ready", "The target image is not ready to apply")
 		return
 	}
 	jobID := job.JobID
-	s.updateMu.Unlock()
 	if !s.updateRunning.Load() {
 		writeErr(w, http.StatusConflict, "update_not_ready", "The update preparation has expired")
 		return
@@ -106,18 +106,7 @@ func (s *Server) handleSystemUpdateInfo(w http.ResponseWriter, r *http.Request) 
 	if statusErr != nil {
 		status = control.AgentStatus{Available: false, State: "unavailable", Error: statusErr.Error()}
 	}
-	job := s.snapshotUpdateJob()
-	if job == nil && status.State == "ready_to_apply" && status.JobID != "" {
-		job = &systemUpdateJob{JobID: "agent-" + status.JobID, AgentJobID: status.JobID, State: "ready_to_apply", CurrentVersion: status.CurrentVersion, TargetVersion: status.TargetVersion, StartedAt: status.StartedAt}
-		s.updateMu.Lock()
-		if s.updateJob == nil {
-			s.updateJob = job
-			s.updateRunning.Store(true)
-		} else {
-			job = s.updateJob
-		}
-		s.updateMu.Unlock()
-	}
+	job := s.adoptPreparedUpdate(status)
 	writeJSON(w, http.StatusOK, systemUpdateInfo{Info: info, Agent: status, Update: job})
 }
 
@@ -362,6 +351,51 @@ func (s *Server) monitorPreparedUpdate(jobID, agentJobID string) {
 	}
 	s.finishUpdateJob(jobID, "failed", "Image preparation timed out", true)
 	s.updateRunning.Store(false)
+}
+
+func (s *Server) adoptPreparedUpdate(status control.AgentStatus) *systemUpdateJob {
+	if status.State != "ready_to_apply" || strings.TrimSpace(status.JobID) == "" {
+		return s.snapshotUpdateJob()
+	}
+	s.updateMu.Lock()
+	defer s.updateMu.Unlock()
+	if s.updateJob != nil {
+		if applyingPreparedUpdate(s.updateJob) {
+			copy := *s.updateJob
+			return &copy
+		}
+		s.updateJob.State = "ready_to_apply"
+		s.updateJob.AgentJobID = status.JobID
+		if s.updateJob.CurrentVersion == "" {
+			s.updateJob.CurrentVersion = status.CurrentVersion
+		}
+		if s.updateJob.TargetVersion == "" {
+			s.updateJob.TargetVersion = status.TargetVersion
+		}
+		s.updateJob.Error = ""
+		s.updateRunning.Store(true)
+		copy := *s.updateJob
+		return &copy
+	}
+	job := &systemUpdateJob{JobID: "agent-" + status.JobID, AgentJobID: status.JobID, State: "ready_to_apply", CurrentVersion: status.CurrentVersion, TargetVersion: status.TargetVersion, StartedAt: status.StartedAt}
+	s.updateJob = job
+	s.updateRunning.Store(true)
+	copy := *job
+	return &copy
+}
+
+func applyingPreparedUpdate(job *systemUpdateJob) bool {
+	if job == nil {
+		return false
+	}
+	switch job.State {
+	case "backing_up", "running":
+		return true
+	case "submitting":
+		return job.BackupPath != ""
+	default:
+		return false
+	}
 }
 
 func (s *Server) snapshotUpdateJob() *systemUpdateJob {

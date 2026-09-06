@@ -7,7 +7,11 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Show staged update progress and host-updater errors on the System page, instead of leaving the button stuck on Updating
+
 ### 中文
+
+- 系统页展示分阶段更新的真实进度和宿主机更新器错误，避免按钮一直停在「更新中」
 
 ## 0.2.46 - 2026-09-06
 

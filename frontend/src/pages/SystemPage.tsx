@@ -19,7 +19,11 @@ import { SystemBodySkeleton, SystemPageSkeleton } from '@/components/ui/PageSkel
 import { useI18n } from '@/hooks/useI18n'
 import { CompactSwitch } from '@/components/ui/CompactSwitch'
 
-const activeStates = new Set(['preparing', 'preparing_image', 'checking', 'backing_up', 'submitting', 'running', 'queued', 'pulling', 'recreating', 'rolling_back'])
+const busyStates = new Set(['preparing', 'preparing_image', 'checking', 'backing_up', 'submitting', 'running', 'queued', 'pulling', 'image_ready', 'recreating', 'rolling_back'])
+const applyJobStates = new Set(['backing_up', 'running'])
+const applyAgentStates = new Set(['recreating', 'rolling_back'])
+const progressAgentStates = new Set(['queued', 'pulling', 'image_ready', 'preparing', 'recreating', 'checking', 'rolling_back'])
+const terminalJobStates = new Set(['ready_to_apply', 'succeeded', 'failed', 'rolled_back'])
 
 export function SystemPage() {
   const { t } = useI18n()
@@ -44,9 +48,14 @@ export function SystemPage() {
     try {
       const result = await fetchSystemUpdate(force)
       setInfo(result)
-      setError(result.update?.state === 'failed' || result.update?.state === 'rolled_back' ? t('updateFailedHint') : '')
-    } catch {
-      if (!quiet) setError(t('updateCheckFailedHint'))
+      const failed = result.update?.state === 'failed' || result.update?.state === 'rolled_back' || result.agent?.state === 'failed' || result.agent?.state === 'rolled_back'
+      if (failed) {
+        setError(result.update?.error || result.agent?.error || t('updateFailedHint'))
+      } else if (!quiet) {
+        setError('')
+      }
+    } catch (err) {
+      if (!quiet) setError(err instanceof Error ? err.message : t('updateCheckFailedHint'))
     } finally {
       setLoading(false)
       if (force && !quiet) setChecking(false)
@@ -64,25 +73,30 @@ export function SystemPage() {
 
   const agentState = info?.agent?.state || 'unavailable'
   const preparationState = info?.update?.state || ''
-  const active = Boolean(activeStates.has(preparationState) || activeStates.has(agentState)) || submitting || reloadIn != null
+  const applying = applyJobStates.has(preparationState) || applyAgentStates.has(agentState) || Boolean(info?.update?.backup_path && busyStates.has(preparationState))
+  const readyToApply = !applying && (preparationState === 'ready_to_apply' || agentState === 'ready_to_apply')
+  const startedCaughtUp = Boolean(started?.job_id && info?.update?.job_id === started.job_id)
+  const waitingForJob = Boolean(started) && !startedCaughtUp && !terminalJobStates.has(preparationState)
+  const preparing = !applying && !readyToApply && (busyStates.has(preparationState) || busyStates.has(agentState) || waitingForJob)
+  const busy = preparing || applying
+  const visibleState = readyToApply
+    ? 'ready_to_apply'
+    : busy && progressAgentStates.has(agentState)
+      ? agentState
+      : (preparationState || agentState)
+  const updateStateLabel = visibleState ? t(`updateState_${visibleState}`) : ''
+  const updateStateText = updateStateLabel.startsWith('updateState_') ? visibleState : updateStateLabel
   useEffect(() => {
-    if (!active || reloadIn != null) return
+    if (reloadIn != null || !busy) return
     const timer = window.setInterval(() => void load(false, true), 2000)
     return () => window.clearInterval(timer)
-  }, [active, load, reloadIn])
+  }, [busy, load, reloadIn])
 
   useEffect(() => {
-    if (!submitting || !started || !info || info.update?.job_id !== started.job_id) return
-    const state = info.update.state
-    if (state === 'ready_to_apply') {
-      setSubmitting(false)
-    } else if (state === 'succeeded') {
-      setSubmitting(false)
-      setReloadIn((current) => current ?? 3)
-    } else if (state === 'failed' || state === 'rolled_back') {
-      setSubmitting(false)
-    }
-  }, [info, started, submitting])
+    if (!started || !info) return
+    if (info.update?.job_id && info.update.job_id !== started.job_id) return
+    if (info.update?.state === 'succeeded') setReloadIn((current) => current ?? 3)
+  }, [info, started])
 
   useEffect(() => {
     if (reloadIn == null) return
@@ -94,8 +108,8 @@ export function SystemPage() {
     return () => window.clearTimeout(timer)
   }, [reloadIn])
 
-  const canPrepare = Boolean(info?.managed && info?.has_update && info?.next_version && info?.agent?.available && info?.agent?.staged_update && preparationState !== 'ready_to_apply' && !active)
-  const canApply = Boolean(preparationState === 'ready_to_apply' && info?.agent?.available && !active)
+  const canPrepare = Boolean(info?.managed && info?.has_update && info?.next_version && info?.agent?.available && info?.agent?.staged_update && !readyToApply && !busy && !submitting && reloadIn == null)
+  const canApply = Boolean(readyToApply && info?.agent?.available && !applying && !submitting && reloadIn == null)
 
   async function prepareUpdate() {
     setSubmitting(true)
@@ -105,9 +119,11 @@ export function SystemPage() {
       const result = await startSystemUpdate()
       setStarted(result)
       await load(false, true)
-    } catch {
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('updateFailedHint'))
+      await load(false, true)
+    } finally {
       setSubmitting(false)
-      setError(t('updateFailedHint'))
     }
   }
 
@@ -118,9 +134,11 @@ export function SystemPage() {
       const result = await applyPreparedSystemUpdate()
       setStarted(result)
       await load(false, true)
-    } catch {
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('updateFailedHint'))
+      await load(false, true)
+    } finally {
       setSubmitting(false)
-      setError(t('updateFailedHint'))
     }
   }
 
@@ -199,20 +217,18 @@ export function SystemPage() {
             </div>
 
             <div className="mt-5 flex flex-wrap items-center justify-end gap-3">
-              <Button isDisabled={(!canPrepare && !canApply) || reloadIn != null} isPending={submitting || active} onPress={() => void (canApply ? confirmUpdate() : prepareUpdate())}>
+              <Button isDisabled={(!canPrepare && !canApply) || reloadIn != null} isPending={submitting || busy || reloadIn != null} onPress={() => void (canApply ? confirmUpdate() : prepareUpdate())}>
                 <ArrowCircleUp size={16} />
-                {reloadIn != null ? t('updateReloadingIn', { seconds: reloadIn }) : canApply ? t('applyUpdateNow') : active || submitting ? t('updateInProgress') : t('updateNow')}
+                {reloadIn != null ? t('updateReloadingIn', { seconds: reloadIn }) : canApply ? t('applyUpdateNow') : applying ? t('updateInProgress') : preparing || submitting ? t('updatePreparingImage') : t('updateNow')}
               </Button>
             </div>
-            {!info?.agent?.available && !active ? <p className="mt-3 text-right text-xs text-muted">{t('updateUnavailableHint')}</p> : null}
-            {info?.agent?.available && !info.agent.staged_update && !active ? <p className="mt-3 text-right text-xs text-muted">{t('updateStagedUnavailableHint')}</p> : null}
-            {preparationState === 'ready_to_apply' ? (
-              <div className="mt-4 rounded-lg border border-success/25 bg-success/5 px-3 py-3" role="status" aria-live="polite">
-                <p className="text-xs leading-5 text-muted">{t('updateReadyHint')}</p>
-              </div>
-            ) : active ? (
-              <div className="mt-4 rounded-lg border border-warning/25 bg-warning/5 px-3 py-3" role="status" aria-live="polite">
-                <p className="text-xs leading-5 text-muted">{reloadIn != null ? t('updateReloadingHint') : t('updateInProgressHint')}</p>
+            {!info?.agent?.available && !busy ? <p className="mt-3 text-right text-xs text-muted">{t('updateUnavailableHint')}</p> : null}
+            {info?.agent?.available && !info.agent.staged_update && !busy ? <p className="mt-3 text-right text-xs text-muted">{t('updateStagedUnavailableHint')}</p> : null}
+            {readyToApply || busy || reloadIn != null ? (
+              <div className={`mt-4 rounded-lg border px-3 py-3 ${readyToApply ? 'border-success/25 bg-success/5' : 'border-warning/25 bg-warning/5'}`} role="status" aria-live="polite">
+                {updateStateText ? <p className="text-xs font-medium text-foreground">{updateStateText}{info?.update?.target_version ? ` · ${info.update.target_version}` : info?.agent?.target_version ? ` · ${info.agent.target_version}` : ''}</p> : null}
+                <p className="mt-1 text-xs leading-5 text-muted">{reloadIn != null ? t('updateReloadingHint') : readyToApply ? t('updateReadyHint') : applying ? t('updateApplyingHint') : t('updatePreparingImageHint')}</p>
+                {info?.update?.error || info?.agent?.error ? <p className="mt-1 text-xs leading-5 text-danger">{info?.update?.error || info?.agent?.error}</p> : null}
               </div>
             ) : null}
           </div>

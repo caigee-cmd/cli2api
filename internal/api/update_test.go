@@ -150,6 +150,43 @@ func TestSystemUpdateDoesNotBackupWhenNoNextVersionExists(t *testing.T) {
 	}
 }
 
+func TestSystemUpdateInfoAdoptsReadyAgentWhenJobStillPreparing(t *testing.T) {
+	srv := New(config.Config{
+		Host: "127.0.0.1", Port: 3010, ProxyAPIKey: "secret",
+		QoderHome: t.TempDir(), DataDir: t.TempDir(),
+	})
+	defer srv.Close()
+	srv.updateChecker = &updateCheckerStub{info: control.Info{CurrentVersion: "v0.2.1", NextVersion: "v0.2.2", HasUpdate: true, Managed: true}}
+	srv.updateAgent = &updateAgentStub{status: control.AgentStatus{
+		Available: true, StagedUpdate: true, State: "ready_to_apply", JobID: "agent-job",
+		CurrentVersion: "v0.2.1", TargetVersion: "v0.2.2",
+	}}
+	srv.updateRunning.Store(true)
+	srv.updateJob = &systemUpdateJob{JobID: "update-1", AgentJobID: "agent-job", State: "preparing_image", CurrentVersion: "v0.2.1", TargetVersion: "v0.2.2"}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/system/update", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"state":"ready_to_apply"`) {
+		t.Fatalf("body = %s", rec.Body.String())
+	}
+	if job := srv.snapshotUpdateJob(); job == nil || job.State != "ready_to_apply" {
+		t.Fatalf("job = %+v", job)
+	}
+
+	confirm := httptest.NewRequest(http.MethodPost, "/api/system/update/apply", strings.NewReader(`{}`))
+	confirm.Header.Set("Authorization", "Bearer secret")
+	confirmRec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(confirmRec, confirm)
+	if confirmRec.Code != http.StatusAccepted {
+		t.Fatalf("confirm status = %d body=%s", confirmRec.Code, confirmRec.Body.String())
+	}
+}
+
 func TestSystemUpdateReturnsBeforePreparationCompletes(t *testing.T) {
 	dataDir := t.TempDir()
 	srv := New(config.Config{
