@@ -7,10 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Keep multi-turn conversations on the same account from the first user message by default, including image-only turns, without requiring `X-CLI2API-Session`
 - Cache `GET /api/models` for 5 minutes so the console catalog page does not re-hit WorkBuddy or Trae on every load; `?refresh=1` still fetches live. Overview stays uncached.
 
 ### 中文
 
+- 同一段多轮对话默认按首条用户消息（含纯图片）粘到同一个账号，不再需要 `X-CLI2API-Session`
 - `GET /api/models` 缓存 5 分钟，控制台模型页不再每次都打 WorkBuddy / Trae 目录；`?refresh=1` 仍即时拉取。Overview 不缓存。
 
 ## 0.2.48 - 2026-09-06

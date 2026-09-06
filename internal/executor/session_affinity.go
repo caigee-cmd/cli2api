@@ -3,9 +3,13 @@ package executor
 import (
 	"container/list"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
 const (
@@ -28,6 +32,22 @@ func sessionKeyFromContext(ctx context.Context) string {
 	}
 	key, _ := ctx.Value(sessionKeyContextKey{}).(string)
 	return strings.TrimSpace(key)
+}
+
+func contentSessionKey(req translate.ChatRequest) string {
+	seed := translate.ContentSessionSeed(req)
+	if seed == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte("content\x00" + seed))
+	return hex.EncodeToString(sum[:])
+}
+
+func resolveSessionKey(ctx context.Context, req translate.ChatRequest) string {
+	if key := sessionKeyFromContext(ctx); key != "" {
+		return key
+	}
+	return contentSessionKey(req)
 }
 
 type sessionBinding struct {
