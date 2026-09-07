@@ -7,7 +7,11 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Strip empty WorkBuddy chat-stream deltas so clients do not render a flood of blank thinking chunks
+
 ### 中文
+
+- WorkBuddy 的 chat 流式不再带上空的 `content` / `reasoning_content`，避免客户端刷出空白思考
 
 ## 0.3.3 - 2026-09-07
 
