@@ -7,7 +7,11 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Drop the System page version-history hint; the list already opens one release at a time
+
 ### 中文
+
+- 系统页历史版本不再显示「一次只展开一条」的说明，列表本身就是一次只开一个版本
 
 ## 0.3.2 - 2026-09-07
 

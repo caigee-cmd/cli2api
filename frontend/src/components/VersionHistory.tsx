@@ -42,7 +42,6 @@ export function VersionHistory({
     <div className="mt-5">
       <div className="mb-2">
         <p className="text-xs font-medium text-foreground">{t('versionHistory')}</p>
-        <p className="mt-1 text-xs leading-5 text-muted">{t('versionHistoryHint')}</p>
       </div>
       <Accordion className="rounded-lg border border-separator" hideSeparator defaultExpandedKeys={defaultExpanded ? [defaultExpanded] : []}>
         {releases.map((release) => {
