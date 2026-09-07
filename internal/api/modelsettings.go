@@ -32,7 +32,7 @@ func defaultContextForModel(model string) int {
 }
 
 func (s *Server) applyModelContextDefaults(ctx context.Context, req *translate.ChatRequest, providerFilter string) error {
-	if req == nil || strings.TrimSpace(req.Model) == "" {
+	if s == nil || s.manager == nil || req == nil || strings.TrimSpace(req.Model) == "" {
 		return nil
 	}
 	if providerFilter != "" && providerFilter != "qoder" {

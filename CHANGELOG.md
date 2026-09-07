@@ -17,6 +17,20 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 - 系统页更新文案改为普通说法：先下载更新，再点立即更新，完成后倒计时刷新页面
 - 模型页补充说明：Trae 的 Max 是更大上下文，推理强度只是请求未指定时的默认档，不会锁死每次调用
 
+## 0.3.1 - 2026-09-07
+
+### English
+
+- Share one provider, region, and model match across API-key allowlists, sticky sessions, and pool picks, and reuse the same chat preflight for `/v1` and compatibility routes
+- Canonicalize mixed-case provider IDs when storing accounts and looking up in-process adapters so a routed WorkBuddy account cannot miss its adapter
+- Document provider-prefixed model IDs on the Access page, and keep named API keys limited to those providers for both chat routing and `/v1/models`
+
+### 中文
+
+- API key 白名单、会话粘滞和池调度共用同一套供应商 / 区域 / 模型匹配；`/v1` 与兼容接口共用同一套请求预检
+- 账号入库和 in-process adapter 查找都按规范供应商 ID，避免 `WorkBuddy` 这类大小写混写选中后找不到执行器
+- API 接入页说明可用模型前缀指定供应商；客户端密钥在对话调度和 `/v1/models` 上都只看到允许的供应商
+
 ## 0.3.0 - 2026-09-06
 
 ### English
