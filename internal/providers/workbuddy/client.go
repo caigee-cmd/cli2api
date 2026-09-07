@@ -717,6 +717,9 @@ func (c *Client) DailyCheckin(ctx context.Context, accountID string) (string, er
 	if classified.Kind == accounts.KindAuth {
 		return "", fmt.Errorf("workbuddy checkin session dead: re-login required")
 	}
+	if msg, ok := alreadyCheckedInMessage(status, body); ok {
+		return msg, AlreadyCheckedInError{Msg: msg}
+	}
 	if status >= 300 {
 		return "", fmt.Errorf("checkin status=%d: %s", status, text)
 	}
@@ -726,10 +729,6 @@ func (c *Client) DailyCheckin(ctx context.Context, accountID string) (string, er
 	}
 	msg := strings.TrimSpace(env.Msg)
 	if env.Code != 0 {
-		lower := strings.ToLower(msg)
-		if strings.Contains(msg, "已签到") || (strings.Contains(lower, "already") && strings.Contains(lower, "check")) {
-			return msg, AlreadyCheckedInError{Msg: msg}
-		}
 		if msg == "" {
 			msg = fmt.Sprintf("checkin code=%d", env.Code)
 		}
@@ -739,6 +738,25 @@ func (c *Client) DailyCheckin(ctx context.Context, accountID string) (string, er
 		msg = "ok"
 	}
 	return msg, nil
+}
+
+func alreadyCheckedInMessage(status int, body []byte) (string, bool) {
+	var env envelope
+	msg := ""
+	if json.Unmarshal(body, &env) == nil {
+		msg = strings.TrimSpace(env.Msg)
+		if env.Code == 0 && status < 300 {
+			return "", false
+		}
+	}
+	if msg == "" {
+		msg = strings.TrimSpace(string(body))
+	}
+	lower := strings.ToLower(msg)
+	if strings.Contains(msg, "已签到") || (strings.Contains(lower, "already") && strings.Contains(lower, "check")) {
+		return msg, true
+	}
+	return "", false
 }
 
 func retryDailyCheckin(ctx context.Context, err error, status, attempt int) bool {
