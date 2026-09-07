@@ -1455,6 +1455,12 @@ func (m *Manager) CheckinAccount(ctx context.Context, accountID string) (Account
 	if account.Provider != "workbuddy" {
 		return account, fmt.Errorf("check-in is only available for WorkBuddy accounts")
 	}
+	if checkedInLocalDay(account.LastCheckinAt, account.LastCheckinStatus, time.Now()) {
+		if adapter, ok := m.providers.Get("workbuddy"); ok && adapter.Prober != nil {
+			m.fetchProviderQuota(ctx, accountID, adapter.Prober)
+		}
+		return m.store.Get(ctx, accountID)
+	}
 	msg, checkErr := m.workbuddy.DailyCheckin(ctx, accountID)
 	if msg == "" && checkErr != nil {
 		msg = checkErr.Error()
@@ -1499,10 +1505,39 @@ func (m *Manager) CheckinOptedIn(ctx context.Context) {
 		if account.Provider != "workbuddy" || !account.Enabled || !account.WorkBuddyAutoCheckin {
 			continue
 		}
+		if checkedInLocalDay(account.LastCheckinAt, account.LastCheckinStatus, time.Now()) {
+			continue
+		}
 		if _, err := m.CheckinAccount(ctx, account.ID); err != nil {
 			log.Printf("workbuddy checkin account_id=%s op=checkin err=%v", account.ID, err)
 		}
 	}
+}
+
+// checkedInLocalDay is true when the last recorded check-in is success or
+// already on the process-local calendar day. Error rows do not skip, so the
+// evening slot can retry a morning miss.
+func checkedInLocalDay(at, status string, now time.Time) bool {
+	switch strings.TrimSpace(status) {
+	case "success", "already":
+	default:
+		return false
+	}
+	raw := strings.TrimSpace(at)
+	if raw == "" {
+		return false
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, raw)
+	if err != nil {
+		parsed, err = time.Parse(time.RFC3339, raw)
+		if err != nil {
+			return false
+		}
+	}
+	loc := now.Location()
+	localAt := parsed.In(loc)
+	localNow := now.In(loc)
+	return localAt.Year() == localNow.Year() && localAt.YearDay() == localNow.YearDay()
 }
 
 // KeepaliveWorkBuddy refreshes tokens for enabled WorkBuddy accounts.
