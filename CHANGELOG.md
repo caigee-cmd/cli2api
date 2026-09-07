@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.3.1 - 2026-09-07
+
+### English
+
 - Share one provider, region, and model match across API-key allowlists, sticky sessions, and pool picks, and reuse the same chat preflight for `/v1` and compatibility routes
 - Canonicalize mixed-case provider IDs when storing accounts and looking up in-process adapters so a routed WorkBuddy account cannot miss its adapter
 - Document provider-prefixed model IDs on the Access page, and keep named API keys limited to those providers for both chat routing and `/v1/models`
