@@ -236,6 +236,8 @@ export function AccessPage() {
         </div>
       </section>
 
+      <p data-gsap-reveal className="max-w-3xl text-sm leading-6 text-muted">{t('providerPrefixHint')}</p>
+
       <EndpointList access={overview?.access} />
 
       <Card data-gsap-reveal className="overflow-hidden p-0">

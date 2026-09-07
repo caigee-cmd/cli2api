@@ -10,7 +10,9 @@ import (
 	"testing"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
+	"github.com/caigee-cmd/cli2api/internal/auth"
 	"github.com/caigee-cmd/cli2api/internal/executor"
+	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
 func newCompatibilityServer(t *testing.T, worker http.HandlerFunc) (*Server, func()) {
@@ -225,5 +227,87 @@ func TestResponsesRejectsStatefulPreviousResponseID(t *testing.T) {
 	server.handleResponses(recorder, request)
 	if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), "previous_response_id") {
 		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestPrepareCompatibilityExecutionReusesChatPreflight(t *testing.T) {
+	server, closeServer := newCompatibilityServer(t, func(http.ResponseWriter, *http.Request) {
+		t.Fatal("preflight must not reach the worker")
+	})
+	defer closeServer()
+	identity := auth.KeyIdentity(accounts.APIKey{ID: "key_1", Name: "ci", Providers: []string{"qoder", "workbuddy"}, Enabled: true})
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	req = req.WithContext(auth.WithIdentity(req.Context(), identity))
+	req.Header.Set("X-Qoder-Account", "account-a")
+	chat := translate.ChatRequest{Model: "workbuddy/glm-5.2", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}}}
+
+	got, err := server.prepareChatExecution(req, chat)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compat, err := server.prepareCompatibilityExecution(req, chat)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.providerFilter != "workbuddy" || got.prefer != "account-a" || got.request.Model != "glm-5.2" || got.publicModel != "workbuddy/glm-5.2" {
+		t.Fatalf("chat execution=%+v", got)
+	}
+	if compat.providerFilter != got.providerFilter || compat.prefer != got.prefer || compat.request.Model != got.request.Model || compat.publicModel != got.publicModel {
+		t.Fatalf("compat=%+v chat=%+v", compat, got)
+	}
+}
+
+func TestV1AndCompatibilitySharePreflightErrors(t *testing.T) {
+	server, closeServer := newCompatibilityServer(t, func(http.ResponseWriter, *http.Request) {
+		t.Fatal("preflight errors must not reach the worker")
+	})
+	defer closeServer()
+	server.crossProviderModelPool.Store(false)
+	identity := auth.KeyIdentity(accounts.APIKey{ID: "key_1", Name: "ci", Providers: []string{"qoder"}, Enabled: true})
+
+	post := func(path, body string, handler func(http.ResponseWriter, *http.Request)) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+		req = req.WithContext(auth.WithIdentity(req.Context(), identity))
+		rec := httptest.NewRecorder()
+		handler(rec, req)
+		return rec
+	}
+
+	chatBare := post("/v1/chat/completions", `{"model":"glm-5.2","messages":[{"role":"user","content":"hi"}]}`, server.handleChatCompletions)
+	anthBare := post("/v1/messages", `{"model":"glm-5.2","max_tokens":32,"messages":[{"role":"user","content":"hi"}]}`, server.handleAnthropicMessages)
+	respBare := post("/v1/responses", `{"model":"glm-5.2","input":"hi"}`, server.handleResponses)
+	if chatBare.Code != http.StatusBadRequest || !strings.Contains(chatBare.Body.String(), `"provider_prefix_required"`) {
+		t.Fatalf("chat bare=%d %s", chatBare.Code, chatBare.Body.String())
+	}
+	if anthBare.Code != http.StatusBadRequest || !strings.Contains(anthBare.Body.String(), "cross-provider model pool is disabled") {
+		t.Fatalf("anthropic bare=%d %s", anthBare.Code, anthBare.Body.String())
+	}
+	if respBare.Code != http.StatusBadRequest || !strings.Contains(respBare.Body.String(), `"provider_prefix_required"`) {
+		t.Fatalf("responses bare=%d %s", respBare.Code, respBare.Body.String())
+	}
+
+	chatDenied := post("/v1/chat/completions", `{"model":"workbuddy/glm-5.2","messages":[{"role":"user","content":"hi"}]}`, server.handleChatCompletions)
+	anthDenied := post("/v1/messages", `{"model":"workbuddy/glm-5.2","max_tokens":32,"messages":[{"role":"user","content":"hi"}]}`, server.handleAnthropicMessages)
+	respDenied := post("/v1/responses", `{"model":"workbuddy/glm-5.2","input":"hi"}`, server.handleResponses)
+	if chatDenied.Code != http.StatusForbidden || !strings.Contains(chatDenied.Body.String(), `"provider_not_allowed"`) {
+		t.Fatalf("chat denied=%d %s", chatDenied.Code, chatDenied.Body.String())
+	}
+	if anthDenied.Code != http.StatusForbidden || !strings.Contains(anthDenied.Body.String(), "This API key cannot use provider workbuddy") {
+		t.Fatalf("anthropic denied=%d %s", anthDenied.Code, anthDenied.Body.String())
+	}
+	if respDenied.Code != http.StatusForbidden || !strings.Contains(respDenied.Body.String(), `"provider_not_allowed"`) {
+		t.Fatalf("responses denied=%d %s", respDenied.Code, respDenied.Body.String())
+	}
+
+	server.crossProviderModelPool.Store(true)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"glm-5.2","messages":[{"role":"user","content":"hi"}]}`))
+	req = req.WithContext(auth.WithIdentity(req.Context(), identity))
+	execution, err := server.prepareChatExecution(req, translate.ChatRequest{Model: "glm-5.2", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if execution.providerFilter != "" {
+		t.Fatalf("bare model with pool on must keep an empty filter, got %q", execution.providerFilter)
 	}
 }

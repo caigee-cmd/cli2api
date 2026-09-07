@@ -25,19 +25,10 @@ func (i Identity) Console() bool {
 }
 
 func (i Identity) AllowsProvider(provider string) bool {
-	if len(i.AllowedProviders) == 0 {
+	if strings.TrimSpace(provider) == "" {
 		return true
 	}
-	family := strings.ToLower(strings.TrimSpace(provider))
-	if family == "" {
-		return true
-	}
-	for _, item := range i.AllowedProviders {
-		if strings.ToLower(strings.TrimSpace(item)) == family {
-			return true
-		}
-	}
-	return false
+	return accounts.ProviderAllowed(provider, i.AllowedProviders)
 }
 
 type ctxKey struct{}

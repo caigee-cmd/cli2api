@@ -17,59 +17,13 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
-type compatibilityHTTPError struct {
-	Status  int
-	Code    string
-	Message string
-}
-
-func (e *compatibilityHTTPError) Error() string { return e.Message }
-
-type compatibilityExecution struct {
-	ctx            context.Context
-	requestID      string
-	started        time.Time
-	request        translate.ChatRequest
-	publicModel    string
-	providerFilter string
-	prefer         string
-}
+type compatibilityExecution = chatExecution
 
 func (s *Server) prepareCompatibilityExecution(r *http.Request, request translate.ChatRequest) (compatibilityExecution, error) {
 	if len(request.Messages) == 0 {
-		return compatibilityExecution{}, &compatibilityHTTPError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "input messages required"}
+		return compatibilityExecution{}, &chatHTTPError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "input messages required"}
 	}
-	publicModel := request.Model
-	if s.rejectsBareModel(publicModel) {
-		return compatibilityExecution{}, &compatibilityHTTPError{Status: http.StatusBadRequest, Code: "provider_prefix_required", Message: "cross-provider model pool is disabled; use a provider-prefixed model ID such as qoder/glm-5.2"}
-	}
-	providerFilter := s.resolveProviderFilter(&request)
-	prefer := s.requestedAccount(r)
-	providerFilter = s.applyPinnedProviderFilter(providerFilter, publicModel, prefer)
-	identity := s.requestIdentity(r)
-	if providerFilter != "" && !identity.AllowsProvider(providerFilter) {
-		return compatibilityExecution{}, &compatibilityHTTPError{Status: http.StatusForbidden, Code: "provider_not_allowed", Message: "This API key cannot use provider " + providerFilter}
-	}
-	if s.manager != nil {
-		if err := s.applyModelContextDefaults(r.Context(), &request, providerFilter); err != nil {
-			return compatibilityExecution{}, &compatibilityHTTPError{Status: http.StatusInternalServerError, Code: "model_setting_failed", Message: err.Error()}
-		}
-		s.manager.EnsureModelCatalogs(r.Context(), false)
-	}
-	requestID := accounts.NewRequestID()
-	started := time.Now().UTC()
-	s.startRequestLog(accounts.RequestLog{
-		ID: requestID, CreatedAt: started, Stream: request.Stream, Status: accounts.RequestStatusStarted,
-		RequestedModel: firstNonEmpty(publicModel, request.Model),
-	})
-	ctx := executor.WithAllowedProviders(executor.WithRequestID(r.Context(), requestID), identity.AllowedProviders)
-	if sessionKey := requestSessionKey(r, identity, request); sessionKey != "" {
-		ctx = executor.WithSessionKey(ctx, sessionKey)
-	}
-	return compatibilityExecution{
-		ctx: ctx, requestID: requestID, started: started, request: request,
-		publicModel: publicModel, providerFilter: providerFilter, prefer: prefer,
-	}, nil
+	return s.prepareChatExecution(r, request)
 }
 
 func (s *Server) finishCompatibility(execution compatibilityExecution, accountID, provider, routing, status string, ttfb int, stats *streamRelayStats, err error, attempts int) {
@@ -261,7 +215,7 @@ func streamTTFB(started time.Time, fallback int, stats streamRelayStats) int {
 }
 
 func writeAnthropicCompatibilityError(w http.ResponseWriter, err error) {
-	var requestErr *compatibilityHTTPError
+	var requestErr *chatHTTPError
 	if errors.As(err, &requestErr) {
 		writeAnthropicError(w, requestErr.Status, "invalid_request_error", requestErr.Message)
 		return
@@ -271,7 +225,7 @@ func writeAnthropicCompatibilityError(w http.ResponseWriter, err error) {
 }
 
 func writeCompatibilityOpenAIError(w http.ResponseWriter, err error) {
-	var requestErr *compatibilityHTTPError
+	var requestErr *chatHTTPError
 	if errors.As(err, &requestErr) {
 		writeErr(w, requestErr.Status, requestErr.Code, requestErr.Message)
 		return
