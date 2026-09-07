@@ -2,9 +2,11 @@ package workbuddy
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"sort"
 	"strings"
 	"time"
@@ -161,5 +163,144 @@ func mergeToolCalls(merged map[int]map[string]any, order *[]int, raw json.RawMes
 			arguments, _ := function["arguments"].(string)
 			function["arguments"] = arguments + delta.Function.Arguments
 		}
+	}
+}
+
+// rewriteChatStream strips empty WorkBuddy delta fields. Upstream chat chunks
+// always include content:"", reasoning_content:"", refusal:"", tool_calls:[],
+// and a dummy function_call; OpenAI-compatible clients then render a flood of
+// blank thinking events.
+func rewriteChatStream(resp *http.Response) *http.Response {
+	pr, pw := io.Pipe()
+	go func() {
+		defer resp.Body.Close()
+		defer pw.Close()
+		if err := copySanitizedSSE(resp.Body, pw); err != nil {
+			_ = pw.CloseWithError(err)
+		}
+	}()
+	out := *resp
+	out.Body = pr
+	out.ContentLength = -1
+	header := resp.Header.Clone()
+	header.Del("Content-Length")
+	out.Header = header
+	return &out
+}
+
+func copySanitizedSSE(src io.Reader, dst io.Writer) error {
+	scanner := bufio.NewScanner(src)
+	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
+	sentRole := false
+	for scanner.Scan() {
+		line := strings.TrimSuffix(scanner.Text(), "\r")
+		if line == "" {
+			continue
+		}
+		if !strings.HasPrefix(line, "data:") {
+			if _, err := fmt.Fprintf(dst, "%s\n", line); err != nil {
+				return err
+			}
+			continue
+		}
+		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if payload == "" {
+			continue
+		}
+		cleaned, ok := sanitizeSSEPayload(payload, &sentRole)
+		if !ok {
+			continue
+		}
+		if _, err := fmt.Fprintf(dst, "data: %s\n\n", cleaned); err != nil {
+			return err
+		}
+	}
+	return scanner.Err()
+}
+
+func sanitizeSSEPayload(payload string, sentRole *bool) (string, bool) {
+	if payload == "[DONE]" {
+		return payload, true
+	}
+	decoder := json.NewDecoder(bytes.NewReader([]byte(payload)))
+	decoder.UseNumber()
+	var chunk map[string]any
+	if err := decoder.Decode(&chunk); err != nil {
+		return payload, true
+	}
+	keep := chunk["usage"] != nil
+	if choices, ok := chunk["choices"].([]any); ok {
+		for _, raw := range choices {
+			choice, _ := raw.(map[string]any)
+			if choice == nil {
+				continue
+			}
+			if delta, ok := choice["delta"].(map[string]any); ok {
+				sanitizeDelta(delta)
+				if sentRole != nil {
+					if _, hasRole := delta["role"]; hasRole && *sentRole {
+						delete(delta, "role")
+					}
+				}
+				if len(delta) > 0 {
+					keep = true
+					if sentRole != nil {
+						if _, hasRole := delta["role"]; hasRole {
+							*sentRole = true
+						}
+					}
+				}
+			}
+			switch finish := choice["finish_reason"].(type) {
+			case string:
+				if finish == "" {
+					delete(choice, "finish_reason")
+				} else {
+					keep = true
+				}
+			case nil:
+				delete(choice, "finish_reason")
+			}
+		}
+	}
+	if !keep {
+		return "", false
+	}
+	encoded, err := json.Marshal(chunk)
+	if err != nil {
+		return payload, true
+	}
+	return string(encoded), true
+}
+
+func sanitizeDelta(delta map[string]any) {
+	dropEmptyString(delta, "content")
+	dropEmptyString(delta, "reasoning_content")
+	dropEmptyString(delta, "refusal")
+	if extra, ok := delta["extra_fields"]; ok && extra == nil {
+		delete(delta, "extra_fields")
+	}
+	if calls, ok := delta["tool_calls"].([]any); ok && len(calls) == 0 {
+		delete(delta, "tool_calls")
+	}
+	if delta["tool_calls"] == nil {
+		delete(delta, "tool_calls")
+	}
+	switch call := delta["function_call"].(type) {
+	case nil:
+		delete(delta, "function_call")
+	case map[string]any:
+		name, _ := call["name"].(string)
+		args, _ := call["arguments"].(string)
+		if name == "" && args == "" {
+			delete(delta, "function_call")
+		}
+	}
+}
+
+func dropEmptyString(delta map[string]any, key string) {
+	value, ok := delta[key].(string)
+	if ok && value == "" {
+		delete(delta, key)
 	}
 }

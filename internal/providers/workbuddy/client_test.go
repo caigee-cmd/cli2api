@@ -504,6 +504,73 @@ func TestErrorMapping(t *testing.T) {
 	}
 }
 
+func TestCopySanitizedSSEDropsEmptyThinkingDeltas(t *testing.T) {
+	input := strings.Join([]string{
+		`data: {"id":"c1","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"role":"assistant","content":"","reasoning_content":"think","function_call":null,"refusal":"","tool_calls":[],"extra_fields":null},"logprobs":null,"finish_reason":""}]}`,
+		`data: {"id":"c1","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"role":"assistant","content":"OK","reasoning_content":"","function_call":null,"refusal":"","tool_calls":[],"extra_fields":null},"logprobs":null,"finish_reason":""}]}`,
+		`data: {"id":"c1","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"role":"assistant","content":"","reasoning_content":"","function_call":{"name":"","arguments":""},"refusal":"","tool_calls":[],"extra_fields":null},"logprobs":null,"finish_reason":"stop"}],"usage":{"prompt_tokens":16,"completion_tokens":2}}`,
+		`data: [DONE]`,
+		"",
+	}, "\n\n")
+	var out strings.Builder
+	if err := copySanitizedSSE(strings.NewReader(input), &out); err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	if strings.Contains(text, `"content":""`) || strings.Contains(text, `"reasoning_content":""`) || strings.Contains(text, `"function_call"`) {
+		t.Fatalf("empty delta fields leaked: %s", text)
+	}
+	if !strings.Contains(text, `"reasoning_content":"think"`) || !strings.Contains(text, `"content":"OK"`) {
+		t.Fatalf("real deltas dropped: %s", text)
+	}
+	if strings.Count(text, `"role":"assistant"`) != 1 {
+		t.Fatalf("role should appear once, got %s", text)
+	}
+	if !strings.Contains(text, `"finish_reason":"stop"`) || !strings.Contains(text, `"prompt_tokens":16`) || !strings.Contains(text, "data: [DONE]") {
+		t.Fatalf("terminal chunk missing: %s", text)
+	}
+}
+
+func TestChatStreamStripsEmptyWorkBuddyDeltas(t *testing.T) {
+	payload, _ := Credential{AccessToken: "at", UID: "u1", Domain: "codebuddy.cn", ExpiresAt: 4102444800}.Encode()
+	store := &memStore{items: map[string][]byte{"acc1": payload}}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == pathModelsCN {
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{
+				"models": []map[string]any{{"id": "glm-5.3-flash", "name": "GLM"}},
+				"agents": []map[string]any{{"name": "cli", "models": []string{"glm-5.3-flash"}}},
+			}})
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(
+			`data: {"choices":[{"delta":{"role":"assistant","content":"","reasoning_content":"think","function_call":null,"refusal":"","tool_calls":[]},"finish_reason":""}]}` + "\n\n" +
+				`data: {"choices":[{"delta":{"role":"assistant","content":"OK","reasoning_content":"","function_call":null},"finish_reason":""}]}` + "\n\n" +
+				`data: {"choices":[{"delta":{"content":"","reasoning_content":"","function_call":{"name":"","arguments":""}},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1}}` + "\n\n" +
+				"data: [DONE]\n\n",
+		))
+	}))
+	defer server.Close()
+	client := NewClient(store)
+	client.http = server.Client()
+	client.http.Transport = rewriteTransport{server: server.URL, round: server.Client().Transport}
+	resp, err := client.ChatStream(context.Background(), "acc1", translate.ChatRequest{
+		Model: "glm-5.3-flash", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	text := string(body)
+	if strings.Contains(text, `"content":""`) || strings.Contains(text, `"reasoning_content":""`) {
+		t.Fatalf("empty thinking leaked: %s", text)
+	}
+	if !strings.Contains(text, `"reasoning_content":"think"`) || !strings.Contains(text, `"content":"OK"`) || !strings.Contains(text, "data: [DONE]") {
+		t.Fatalf("stream=%s", text)
+	}
+}
+
 func TestPrepareBodyForcesStreamAndStringToolChoice(t *testing.T) {
 	out := PrepareBody([]byte(`{"model":"m","stream":false,"tool_choice":{"type":"function","function":{"name":"get_time"}}}`))
 	var body map[string]any
