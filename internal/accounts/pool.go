@@ -118,12 +118,29 @@ type RouteQuery struct {
 	Excluded         map[string]struct{}
 }
 
-func itemRegion(item Item) string {
-	region := strings.ToLower(strings.TrimSpace(item.Region))
+// NormalizeProviderFamily maps a stored or requested provider ID onto the
+// canonical family name. An empty value is Qoder, matching the historical
+// default account family.
+func NormalizeProviderFamily(provider string) string {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	if provider == "" {
+		return "qoder"
+	}
+	return provider
+}
+
+// NormalizeRegion maps a stored or requested region onto the canonical
+// routing region. An empty value is global.
+func NormalizeRegion(region string) string {
+	region = strings.ToLower(strings.TrimSpace(region))
 	if region == "" {
 		return "global"
 	}
 	return region
+}
+
+func itemRegion(item Item) string {
+	return NormalizeRegion(item.Region)
 }
 
 func CanonicalModelID(model string) string {
@@ -214,6 +231,20 @@ func itemCouldServeModel(item Item, publicModel string) bool {
 	return item.Models == nil
 }
 
+// ItemHasModel reports whether this account can serve publicModel on a live
+// pick. Cooling empty-catalog accounts fail closed here so they do not occupy
+// the route just because a catalog fetch failed.
+func ItemHasModel(item Item, publicModel string) bool {
+	return itemHasModel(item, publicModel)
+}
+
+// ItemCouldServeModel reports whether this account belongs on a model route at
+// all, including cooling unknown-catalog accounts. Sticky routing uses this so
+// a bound cooling account still pins provider/region before PickRoute escapes.
+func ItemCouldServeModel(item Item, publicModel string) bool {
+	return itemCouldServeModel(item, publicModel)
+}
+
 func itemHasModel(item Item, publicModel string) bool {
 	want := routeModel(publicModel)
 	if want == "" {
@@ -252,20 +283,24 @@ func NativeModelID(item Item, publicModel string) string {
 	return strings.TrimSpace(publicModel)
 }
 
-func providerAllowed(provider string, allowed []string) bool {
+// ProviderAllowed reports whether an account family may be used under an API
+// key allowlist. An empty allowlist means every family. An empty provider is
+// treated as Qoder, the same default PickRoute uses.
+func ProviderAllowed(provider string, allowed []string) bool {
 	if len(allowed) == 0 {
 		return true
 	}
-	family := strings.ToLower(strings.TrimSpace(provider))
-	if family == "" {
-		family = "qoder"
-	}
+	family := NormalizeProviderFamily(provider)
 	for _, item := range allowed {
 		if strings.ToLower(strings.TrimSpace(item)) == family {
 			return true
 		}
 	}
 	return false
+}
+
+func providerAllowed(provider string, allowed []string) bool {
+	return ProviderAllowed(provider, allowed)
 }
 
 // NormalizeWeight maps a stored priority onto a scheduling weight. The
@@ -300,10 +335,10 @@ func routeBaseMatches(item Item, q RouteQuery) bool {
 	if !providerAllowed(item.Provider, q.AllowedProviders) {
 		return false
 	}
-	if q.ProviderFilter != "" && item.Provider != q.ProviderFilter {
+	if q.ProviderFilter != "" && NormalizeProviderFamily(item.Provider) != NormalizeProviderFamily(q.ProviderFilter) {
 		return false
 	}
-	if q.RegionFilter != "" && itemRegion(item) != strings.ToLower(strings.TrimSpace(q.RegionFilter)) {
+	if q.RegionFilter != "" && itemRegion(item) != NormalizeRegion(q.RegionFilter) {
 		return false
 	}
 	return true
@@ -1232,6 +1267,8 @@ func (p *Pool) Upsert(item Item) {
 	if p == nil || item.ID == "" {
 		return
 	}
+	item.Provider = NormalizeProviderFamily(item.Provider)
+	item.Region = NormalizeRegion(item.Region)
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	for i := range p.items {
