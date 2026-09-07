@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.3.3 - 2026-09-07
+
+### English
+
 - Drop the System page version-history hint; the list already opens one release at a time
 
 ### 中文
