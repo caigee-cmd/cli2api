@@ -732,6 +732,26 @@ func TestDailyCheckinAlreadyCheckedIn(t *testing.T) {
 	}
 }
 
+func TestDailyCheckinAlreadyCheckedInHTTP400(t *testing.T) {
+	client, store := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{"code": 10001, "msg": "今天已签到，请明天再来", "requestId": "2647945e-7f7e-44cc-9e34-737dd078119e"})
+	}))
+	payload, _ := json.Marshal(Credential{
+		AccessToken: "at", RefreshToken: "rt", ExpiresAt: 4102444800, Domain: DomainCN, UID: "u1",
+	})
+	_ = store.SaveCredentialPayload(context.Background(), "acc1", CredentialFormat, payload)
+	msg, err := client.DailyCheckin(context.Background(), "acc1")
+	var already AlreadyCheckedInError
+	if !errors.As(err, &already) {
+		t.Fatalf("HTTP 400 already-checked-in must not be a generic failure, err=%v", err)
+	}
+	if msg != "今天已签到，请明天再来" {
+		t.Fatalf("msg=%q", msg)
+	}
+}
+
 func TestDailyCheckinRetriesTransientFailures(t *testing.T) {
 	var calls atomic.Int32
 	client, store := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
