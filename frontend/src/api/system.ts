@@ -33,6 +33,14 @@ export type SystemUpdateInfo = {
   rollback_versions?: Array<{
     tag_name: string
     name?: string
+    body?: string
+    published_at?: string
+    html_url?: string
+  }>
+  recent_releases?: Array<{
+    tag_name: string
+    name?: string
+    body?: string
     published_at?: string
     html_url?: string
   }>

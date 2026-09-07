@@ -40,19 +40,27 @@ export function ModelDetailsModal({ model, t, onClose }: Props) {
               <section>
                 <div className="text-xs font-medium text-muted">{t('contextWindowCol')}</div>
                 <div className="mt-1 text-sm">{formatTokens(windowDev)}{windowMax && windowMax !== windowDev ? ` → ${formatTokens(windowMax)}` : ''}</div>
+                {model.supports_max_mode ? <p className="mt-1 text-[11px] leading-5 text-muted">{t('maxModeHint')}</p> : null}
                 {model.prompt_max_tokens ? <div className="mt-1 text-[11px] text-muted">{t('promptMaxTokens')}: {formatTokens(model.prompt_max_tokens)}</div> : null}
                 {model.max_output_tokens ? <div className="text-[11px] text-muted">{t('maxOutputTokens')}: {formatTokens(model.max_output_tokens)}</div> : null}
               </section>
               <section>
                 <div className="text-xs font-medium text-muted">{t('reasoningLevels')}</div>
                 {options.length ? (
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {options.map((level) => (
-                      <Chip key={level} size="sm" variant="soft" color={level === (model.reasoning_effort || model.reasoning_default) ? 'success' : 'default'}>
-                        {level}{level === model.reasoning_default ? ` · ${t('defaultValue')}` : ''}{level === model.reasoning_effort && level !== model.reasoning_default ? ` · ${t('custom')}` : ''}
-                      </Chip>
-                    ))}
-                  </div>
+                  <>
+                    <p className="mt-1 text-[11px] leading-5 text-muted">{t('reasoningHint')}</p>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {options.map((level) => {
+                        const key = `reasoningLevel_${level}`
+                        const label = t(key)
+                        return (
+                          <Chip key={level} size="sm" variant="soft" color={level === (model.reasoning_effort || model.reasoning_default) ? 'success' : 'default'}>
+                            {label === key ? level : label}{level === model.reasoning_default ? ` · ${t('defaultValue')}` : ''}{level === model.reasoning_effort && level !== model.reasoning_default ? ` · ${t('custom')}` : ''}
+                          </Chip>
+                        )
+                      })}
+                    </div>
+                  </>
                 ) : (
                   <div className="mt-1 text-sm text-muted">
                     {model.reasoning_type ? t('reasoningFixed', { type: model.reasoning_type }) : t('noReasoningLevels')}

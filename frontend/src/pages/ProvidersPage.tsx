@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Button, Card, Chip, Input, Table } from '@heroui/react'
+import { Button, Card, Chip, Input, Table, Tooltip } from '@heroui/react'
 import { Cube, ArrowClockwise, ArrowCounterClockwise, FloppyDisk, MagnifyingGlass, Info } from '@phosphor-icons/react'
 import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
@@ -43,6 +43,19 @@ function reasoningLabel(t: (key: string, vars?: Record<string, string | number>)
 
 type Translate = (key: string, vars?: Record<string, string | number>) => string
 
+function HintLabel({ label, hint }: { label: string; hint: string }) {
+  return (
+    <Tooltip>
+      <Tooltip.Trigger>
+        <span className="cursor-help text-[11px] text-muted">{label}</span>
+      </Tooltip.Trigger>
+      <Tooltip.Content>
+        <p className="max-w-xs text-xs leading-5">{hint}</p>
+      </Tooltip.Content>
+    </Tooltip>
+  )
+}
+
 function ModelContextControls({
   model,
   drafts,
@@ -75,7 +88,7 @@ function ModelContextControls({
           onChange={(event) => onDraft(key, event.target.value)}
           aria-label={`${model.id} ${t('contextWindowCol')}`}
         />
-        <span className="mono text-[10px] text-muted">tokens</span>
+        <HintLabel label="tokens" hint={t('qoderContextHint')} />
       </div>
     )
   }
@@ -90,23 +103,29 @@ function ModelContextControls({
             ariaLabel={`${model.id} ${t('maxMode')}`}
             onChange={(selected) => onToggleTraeMax(model, selected)}
           />
-          <span className="text-[11px] text-muted">{t('maxMode')}{model.catalog_context_length_max ? ` ${formatTokens(model.catalog_context_length_max)}` : ''}</span>
+          <HintLabel
+            label={`${t('maxMode')}${model.catalog_context_length_max ? ` ${formatTokens(model.catalog_context_length_max)}` : ''}`}
+            hint={t('maxModeHint')}
+          />
         </div>
       ) : null}
       {(model.reasoning_options || []).length > 1 ? (
-        <FilterSelect
-          className="min-w-28"
-          ariaLabel={`${model.id} ${t('reasoningLevels')}`}
-          value={model.reasoning_effort || model.reasoning_default || model.reasoning_options?.[0] || ''}
-          onChange={(next) => { if (next) onReasoningChange(model, next) }}
-          options={(model.reasoning_options || []).map((level) => ({ id: level, label: reasoningLabel(t, level) }))}
-        />
+        <div className="flex min-w-0 items-center gap-2">
+          <HintLabel label={t('reasoningLevels')} hint={t('reasoningHint')} />
+          <FilterSelect
+            className="min-w-28"
+            ariaLabel={`${model.id} ${t('reasoningLevels')}`}
+            value={model.reasoning_effort || model.reasoning_default || model.reasoning_options?.[0] || ''}
+            onChange={(next) => { if (next) onReasoningChange(model, next) }}
+            options={(model.reasoning_options || []).map((level) => ({ id: level, label: reasoningLabel(t, level) }))}
+          />
+        </div>
       ) : (model.reasoning_options || []).length === 1 ? (
-        <span className="text-[11px] text-muted">{reasoningLabel(t, model.reasoning_options![0])}</span>
+        <HintLabel label={`${t('reasoningLevels')} ${reasoningLabel(t, model.reasoning_options![0])}`} hint={t('reasoningHint')} />
       ) : model.reasoning_type ? (
         <span className="text-[11px] text-muted">{t('reasoningFixed', { type: model.reasoning_type })}</span>
       ) : provider === 'trae' && !model.supports_max_mode ? (
-        <span className="text-[11px] text-muted">{t('catalogWindow')}</span>
+        <HintLabel label={t('catalogWindow')} hint={t('catalogWindowHint')} />
       ) : null}
     </div>
   )
@@ -378,7 +397,7 @@ export function ProvidersPage() {
             <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-surface-secondary text-muted"><Cube size={16} /></div>
             <div className="min-w-0">
               <div className="text-sm font-semibold">{t('providerCatalog')}</div>
-              <div className="mono mt-0.5 text-[10px] leading-4 text-muted">{t('contextConfigHint')}</div>
+              <div className="mt-0.5 text-xs leading-5 text-muted">{t('contextConfigHint')}</div>
             </div>
           </div>
           <Chip size="sm" variant="soft" className="shrink-0">{filtered.length}</Chip>
@@ -450,7 +469,7 @@ export function ProvidersPage() {
                     <Table.Column>{t('requestIdCol')}</Table.Column>
                     <Table.Column>{t('providerCol')}</Table.Column>
                     <Table.Column>{t('qoderKeyCol')}</Table.Column>
-                    <Table.Column>{t('contextWindowCol')}</Table.Column>
+                    <Table.Column>{t('modelDefaultsCol')}</Table.Column>
                     <Table.Column>{t('stateCol')}</Table.Column>
                     <Table.Column>{t('actions')}</Table.Column>
                   </Table.Header>

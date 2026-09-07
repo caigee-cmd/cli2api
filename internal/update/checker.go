@@ -15,6 +15,7 @@ type Info struct {
 	NextVersion      string    `json:"next_version,omitempty"`
 	SkippedVersions  []string  `json:"skipped_versions,omitempty"`
 	RollbackVersions []Release `json:"rollback_versions,omitempty"`
+	RecentReleases   []Release `json:"recent_releases,omitempty"`
 	HasUpdate        bool      `json:"has_update"`
 	Managed          bool      `json:"managed"`
 	Cached           bool      `json:"cached"`
@@ -74,6 +75,7 @@ func (c *Checker) Check(ctx context.Context, force bool) (Info, error) {
 		info.Release = &next
 	}
 	info.RollbackVersions = SelectPreviousReleases(currentVersion, releases, 3)
+	info.RecentReleases = SelectRecentReleases(currentVersion, releases, 8)
 	c.mu.Lock()
 	c.cached = &info
 	c.expiresAt = time.Now().Add(c.cacheTTL)

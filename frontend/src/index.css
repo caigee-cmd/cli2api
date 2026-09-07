@@ -190,6 +190,11 @@ body {
   padding-right: 0.15rem;
 }
 
+.release-notes-box--compact {
+  max-height: 10rem;
+  margin-top: 0;
+}
+
 .release-notes {
   color: var(--foreground);
   font-size: 0.75rem;
