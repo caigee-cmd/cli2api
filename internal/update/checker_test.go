@@ -37,6 +37,9 @@ func TestCheckerTargetsLatestReleaseAndReportsSkippedVersions(t *testing.T) {
 	if info.Release == nil || info.Release.Name != "latest" {
 		t.Fatalf("release = %+v", info.Release)
 	}
+	if len(info.RecentReleases) != 4 || info.RecentReleases[0].TagName != "v0.2.4" || info.RecentReleases[3].TagName != "v0.2.1" {
+		t.Fatalf("recent = %+v", info.RecentReleases)
+	}
 }
 
 func TestCheckerDisablesDevelopmentBuilds(t *testing.T) {
