@@ -1384,3 +1384,137 @@ func TestEnsureModelCatalogsDoesNotBlock(t *testing.T) {
 		t.Fatal("EnsureModelCatalogs blocked >2s; must be async/non-blocking")
 	}
 }
+
+type fakeCheckinMaintainer struct {
+	calls int
+	msg   string
+	err   error
+}
+
+func (f *fakeCheckinMaintainer) DailyCheckin(context.Context, string) (string, error) {
+	f.calls++
+	return f.msg, f.err
+}
+
+func (f *fakeCheckinMaintainer) Keepalive(context.Context, string) error { return nil }
+
+type fakeAlreadyCheckedInError struct{ msg string }
+
+func (e fakeAlreadyCheckedInError) Error() string        { return e.msg }
+func (fakeAlreadyCheckedInError) AlreadyCheckedIn() bool { return true }
+
+func TestCheckedInLocalDay(t *testing.T) {
+	loc := time.FixedZone("CST", 8*3600)
+	now := time.Date(2026, 9, 7, 21, 0, 0, 0, loc)
+	today := time.Date(2026, 9, 7, 0, 1, 28, 0, loc).UTC().Format(time.RFC3339Nano)
+	yesterday := time.Date(2026, 9, 6, 17, 0, 2, 0, loc).UTC().Format(time.RFC3339Nano)
+	if !checkedInLocalDay(today, "success", now) {
+		t.Fatal("same-day success must skip")
+	}
+	if !checkedInLocalDay(today, "already", now) {
+		t.Fatal("same-day already must skip")
+	}
+	if checkedInLocalDay(today, "error", now) {
+		t.Fatal("same-day error must retry")
+	}
+	if checkedInLocalDay(yesterday, "success", now) {
+		t.Fatal("yesterday success must not skip")
+	}
+	if checkedInLocalDay("", "success", now) {
+		t.Fatal("empty timestamp must not skip")
+	}
+}
+
+func TestCheckinOptedInSkipsSameDaySuccess(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	account, err := store.Create(ctx, CreateAccount{
+		Name: "wb", Provider: "workbuddy", Region: "cn", Enabled: true,
+		WorkBuddyAutoCheckin: boolPtr(true),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RecordCheckin(ctx, account.ID, "success", "ok", time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	ops := &fakeCheckinMaintainer{msg: "ok"}
+	manager := NewManager(ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	defer manager.Close()
+	manager.SetWorkBuddy(ops)
+	manager.CheckinOptedIn(ctx)
+	if ops.calls != 0 {
+		t.Fatalf("scheduled check-in must skip same-day success, calls=%d", ops.calls)
+	}
+	records, err := store.ListCheckinRecords(ctx, account.ID, 20)
+	if err != nil || len(records) != 1 {
+		t.Fatalf("records=%+v err=%v", records, err)
+	}
+}
+
+func TestCheckinOptedInRetriesSameDayError(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	account, err := store.Create(ctx, CreateAccount{
+		Name: "wb", Provider: "workbuddy", Region: "cn", Enabled: true,
+		WorkBuddyAutoCheckin: boolPtr(true),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RecordCheckin(ctx, account.ID, "error", "timeout", time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	ops := &fakeCheckinMaintainer{msg: "ok"}
+	manager := NewManager(ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	defer manager.Close()
+	manager.SetWorkBuddy(ops)
+	manager.CheckinOptedIn(ctx)
+	if ops.calls != 1 {
+		t.Fatalf("same-day error must retry, calls=%d", ops.calls)
+	}
+}
+
+func TestCheckinAccountRecordsFirstAlreadyThenSkips(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	account, err := store.Create(ctx, CreateAccount{
+		Name: "wb", Provider: "workbuddy", Region: "cn", Enabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ops := &fakeCheckinMaintainer{msg: "今天已签到，请明天再来", err: fakeAlreadyCheckedInError{msg: "今天已签到，请明天再来"}}
+	manager := NewManager(ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	defer manager.Close()
+	manager.SetWorkBuddy(ops)
+	updated, err := manager.CheckinAccount(ctx, account.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.LastCheckinStatus != "already" || ops.calls != 1 {
+		t.Fatalf("first already: status=%q calls=%d", updated.LastCheckinStatus, ops.calls)
+	}
+	if _, err := manager.CheckinAccount(ctx, account.ID); err != nil {
+		t.Fatal(err)
+	}
+	if ops.calls != 1 {
+		t.Fatalf("second already must skip upstream, calls=%d", ops.calls)
+	}
+	records, err := store.ListCheckinRecords(ctx, account.ID, 20)
+	if err != nil || len(records) != 1 || records[0].Status != "already" {
+		t.Fatalf("records=%+v err=%v", records, err)
+	}
+}
