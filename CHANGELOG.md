@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.3.2 - 2026-09-07
+
+### English
+
 - Show a compact version history on the System page: one release open at a time, with notes and restore for the three previous versions
 - Use plain update copy on the System page: download the update, tap Update now, then refresh after a short countdown
 - Explain Models-page defaults: Trae Max is a larger context window, and reasoning intensity is a fallback when the request omits it
