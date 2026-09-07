@@ -155,6 +155,12 @@ func TestChatNonStreamDoesNotFailoverAcrossQoderRegions(t *testing.T) {
 	if hitsCN.Load() != 0 {
 		t.Fatalf("cn hits=%d", hitsCN.Load())
 	}
+	if n := pool.LenRoute(accounts.RouteQuery{ProviderFilter: "qoder", RegionFilter: "global", Excluded: map[string]struct{}{"g1": {}}}); n != 1 {
+		t.Fatalf("after first global failure, remaining global candidates = %d", n)
+	}
+	if n := pool.LenRoute(accounts.RouteQuery{ProviderFilter: "qoder", RegionFilter: "cn"}); n != 1 {
+		t.Fatalf("cn candidates after global pin = %d", n)
+	}
 }
 
 func TestChatNonStreamPinnedCNDoesNotEscapeToGlobal(t *testing.T) {

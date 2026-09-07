@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
@@ -58,6 +60,26 @@ func TestInProcessProviderPinnedChatDoesNotTouchWorkers(t *testing.T) {
 	}
 }
 
+func TestInProcessMixedCaseProviderExecutesRegisteredAdapter(t *testing.T) {
+	pool := accounts.NewPool(nil, nil)
+	pool.Upsert(accounts.Item{ID: "wb1", Provider: "WorkBuddy", Region: "CN", Runtime: "in_process"})
+	registry := providers.NewRegistry()
+	fake := &fakeInProcessChat{}
+	registry.Register(providers.Adapter{ID: "WorkBuddy", Chat: fake})
+
+	ex := NewChatExecutor(pool, "")
+	ex.Providers = registry
+	result, err := ex.ChatNonStream(context.Background(), translate.ChatRequest{
+		Model: "glm-5.2", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	}, "", "WORKBUDDY")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Content != "OK" || result.AccountID != "wb1" || result.Provider != "workbuddy" || fake.calls != 1 {
+		t.Fatalf("result=%+v calls=%d", result, fake.calls)
+	}
+}
+
 func TestInProcessProviderFilterRoutesWithoutPin(t *testing.T) {
 	pool := accounts.NewPool([]string{"http://127.0.0.1:1"}, []string{"qoder1"})
 	pool.Upsert(accounts.Item{ID: "wb1", Provider: "workbuddy", Region: "cn", Runtime: "in_process"})
@@ -95,6 +117,35 @@ func TestAPIKeyAllowlistBlocksOtherProviderFamily(t *testing.T) {
 	}
 	if fake.calls != 0 {
 		t.Fatalf("unexpected workbuddy calls=%d", fake.calls)
+	}
+}
+
+func TestAPIKeyAllowlistKeepsBareModelInsideAllowedFamily(t *testing.T) {
+	qoder := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"model":"glm-5.2","choices":[{"message":{"content":"qoder"},"finish_reason":"stop"}],"usage":{"source":"upstream"}}`)
+	}))
+	defer qoder.Close()
+	pool := accounts.NewPool(nil, nil)
+	pool.Upsert(accounts.Item{ID: "q1", URL: qoder.URL, Provider: "qoder", Runtime: "child_process"})
+	pool.Upsert(accounts.Item{ID: "wb1", Provider: "workbuddy", Region: "cn", Runtime: "in_process"})
+	registry := providers.NewRegistry()
+	fake := &fakeInProcessChat{}
+	registry.Register(providers.Adapter{ID: "workbuddy", Chat: fake})
+	ex := NewChatExecutor(pool, "")
+	ex.HTTPClient = qoder.Client()
+	ex.Providers = registry
+	ctx := WithAllowedProviders(context.Background(), []string{"qoder"})
+	result, err := ex.ChatNonStream(ctx, translate.ChatRequest{
+		Model: "glm-5.2", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	}, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.AccountID != "q1" || result.Provider != "qoder" || fake.calls != 0 {
+		t.Fatalf("result=%+v workbuddy calls=%d", result, fake.calls)
+	}
+	if n := pool.LenRoute(accounts.RouteQuery{PublicModel: "glm-5.2", AllowedProviders: []string{"qoder"}}); n != 1 {
+		t.Fatalf("qoder-only allowlist candidates = %d", n)
 	}
 }
 

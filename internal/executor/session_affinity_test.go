@@ -312,3 +312,33 @@ func TestChatNonStreamSessionAffinityRateLimitEscapesSameRegion(t *testing.T) {
 		t.Fatalf("result = %+v, err=%v", result, err)
 	}
 }
+
+func TestChatNonStreamSessionAffinityHonorsProvenModels(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"model":"glm-5.2","choices":[{"message":{"content":"a"},"finish_reason":"stop"}],"usage":{"source":"upstream"}}`)
+	}))
+	defer server.Close()
+	other := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("sticky account with a proven model must not escape to the catalog-only account")
+	}))
+	defer other.Close()
+
+	pool := accounts.NewPool(nil, nil)
+	pool.Upsert(accounts.Item{
+		ID: "a", URL: server.URL, Provider: "qoder", Region: "global", Runtime: "child_process",
+		Models: []string{"hy3"}, ProvenModels: []string{"glm-5.2"},
+	})
+	pool.Upsert(accounts.Item{
+		ID: "b", URL: other.URL, Provider: "qoder", Region: "global", Runtime: "child_process",
+		Models: []string{"glm-5.2"},
+	})
+	executor := NewChatExecutor(pool, "")
+	executor.SessionAffinity.Bind("session-proven", "a")
+
+	result, err := executor.ChatNonStream(WithSessionKey(context.Background(), "session-proven"), translate.ChatRequest{
+		Model: "glm-5.2", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	}, "", "")
+	if err != nil || result.AccountID != "a" || result.Routing != routingSticky {
+		t.Fatalf("result = %+v, err=%v", result, err)
+	}
+}

@@ -563,6 +563,46 @@ func TestNamedAPIKeyCannotManageConsoleOrKeys(t *testing.T) {
 	}
 }
 
+func TestNamedAPIKeyModelsListOnlyIncludesAllowedProviders(t *testing.T) {
+	srv := New(config.Config{
+		Host: "127.0.0.1", Port: 3010, ProxyAPIKey: "secret",
+		QoderHome: t.TempDir(), DataDir: t.TempDir(),
+	})
+	defer srv.Close()
+	created, err := srv.manager.Store().CreateAPIKey(context.Background(), accounts.CreateAPIKey{
+		Name: "ci", Providers: []string{"qoder"}, Enabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.pool.Upsert(accounts.Item{ID: "wb1", Provider: "workbuddy", Runtime: string(providers.RuntimeInProcess)})
+	srv.providers.Register(providers.Adapter{ID: "workbuddy", Models: &countingCatalog{models: []providers.ModelInfo{{
+		NativeModel: "glm-5.2", PublicModel: "glm-5.2", DisplayName: "GLM",
+	}}}})
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	req.Header.Set("Authorization", "Bearer "+created.Secret)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("named key GET /v1/models = %d %s", rec.Code, rec.Body.String())
+	}
+	if bytes.Contains(rec.Body.Bytes(), []byte(`"workbuddy"`)) || bytes.Contains(rec.Body.Bytes(), []byte(`"owned_by":"workbuddy"`)) {
+		t.Fatalf("qoder-only key must not list workbuddy models: %s", rec.Body.String())
+	}
+
+	console := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	console.Header.Set("Authorization", "Bearer secret")
+	consoleRec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(consoleRec, console)
+	if consoleRec.Code != http.StatusOK {
+		t.Fatalf("console GET /v1/models = %d %s", consoleRec.Code, consoleRec.Body.String())
+	}
+	if !bytes.Contains(consoleRec.Body.Bytes(), []byte(`"workbuddy"`)) {
+		t.Fatalf("console key must still list workbuddy models: %s", consoleRec.Body.String())
+	}
+}
+
 func TestAPIKeysCRUDAndConsoleKeyPrefix(t *testing.T) {
 	srv := New(config.Config{
 		Host: "127.0.0.1", Port: 3010, ProxyAPIKey: "secret",
