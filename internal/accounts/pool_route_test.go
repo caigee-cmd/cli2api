@@ -37,6 +37,98 @@ func TestPickRouteRespectsProviderFamilyAndCooldown(t *testing.T) {
 	}
 }
 
+func TestNormalizeProviderRegionAndAllowlist(t *testing.T) {
+	if got := NormalizeProviderFamily(""); got != "qoder" {
+		t.Fatalf("empty provider = %q", got)
+	}
+	if got := NormalizeRegion(""); got != "global" {
+		t.Fatalf("empty region = %q", got)
+	}
+	if !ProviderAllowed("", []string{"qoder"}) {
+		t.Fatal("empty account provider must match a qoder allowlist")
+	}
+	if ProviderAllowed("trae", []string{"qoder"}) {
+		t.Fatal("trae must not match a qoder allowlist")
+	}
+	if !ProviderAllowed("workbuddy", nil) {
+		t.Fatal("empty allowlist must admit every family")
+	}
+	if !ProviderAllowed("Qoder", []string{"qoder"}) || !ProviderAllowed("qoder", []string{"QODER"}) {
+		t.Fatal("provider allowlists must match case-insensitively")
+	}
+
+	ready := Item{ID: "a", Models: []string{"hy3"}, ProvenModels: []string{"glm-5.2"}}
+	if !ItemHasModel(ready, "glm-5.2") {
+		t.Fatal("proven models must satisfy ItemHasModel")
+	}
+	if ItemHasModel(Item{ID: "b", Models: []string{"hy3"}}, "glm-5.2") {
+		t.Fatal("catalog without the model must fail ItemHasModel")
+	}
+	coolingUnknown := Item{ID: "c", DownUntil: time.Now().Add(time.Hour)}
+	if ItemHasModel(coolingUnknown, "glm-5.2") {
+		t.Fatal("cooling empty catalog must fail ItemHasModel")
+	}
+	if !ItemCouldServeModel(coolingUnknown, "glm-5.2") {
+		t.Fatal("cooling empty catalog must still belong on the model route")
+	}
+}
+
+func TestPickRouteNormalizesProviderAndRegion(t *testing.T) {
+	p := NewPool(nil, nil)
+	p.Upsert(Item{ID: "q1", URL: "http://q1", Runtime: "child_process"})
+	p.Upsert(Item{ID: "q2", URL: "http://q2", Provider: "Qoder", Region: "Global", Runtime: "child_process"})
+	p.Upsert(Item{ID: "w1", Provider: "WorkBuddy", Region: "CN", Runtime: "in_process"})
+
+	qoder, ok := p.PickRoute(RouteQuery{ProviderFilter: "QODER", PreferAccount: "q1"})
+	if !ok || qoder.ID != "q1" {
+		t.Fatalf("empty provider must match qoder filter, got %+v ok=%v", qoder, ok)
+	}
+	global, ok := p.PickRoute(RouteQuery{ProviderFilter: "qoder", RegionFilter: "GLOBAL", PreferAccount: "q1"})
+	if !ok || global.ID != "q1" {
+		t.Fatalf("empty region must match global filter, got %+v ok=%v", global, ok)
+	}
+	workbuddy, ok := p.PickRoute(RouteQuery{ProviderFilter: "workbuddy", RegionFilter: "cn"})
+	if !ok || workbuddy.ID != "w1" {
+		t.Fatalf("mixed-case provider/region = %+v ok=%v", workbuddy, ok)
+	}
+	stored, ok := p.ByID("w1")
+	if !ok || stored.Provider != "workbuddy" || stored.Region != "cn" {
+		t.Fatalf("upsert must store canonical provider/region, got %+v", stored)
+	}
+	empty, ok := p.ByID("q1")
+	if !ok || empty.Provider != "qoder" || empty.Region != "global" {
+		t.Fatalf("empty provider/region must store qoder/global, got %+v", empty)
+	}
+}
+
+func TestPickRouteCandidateCountShrinksAfterRegionPin(t *testing.T) {
+	p := NewPool(nil, nil)
+	p.Upsert(Item{ID: "g1", URL: "http://g1", Provider: "qoder", Region: "global", Runtime: "child_process"})
+	p.Upsert(Item{ID: "g2", URL: "http://g2", Provider: "qoder", Region: "global", Runtime: "child_process"})
+	p.Upsert(Item{ID: "c1", URL: "http://c1", Provider: "qoder", Region: "cn", Runtime: "child_process"})
+
+	open := RouteQuery{ProviderFilter: "qoder"}
+	if n := p.LenRoute(open); n != 3 {
+		t.Fatalf("unpinned qoder candidates = %d", n)
+	}
+	first, ok := p.PickRoute(open)
+	if !ok || first.ID != "g1" {
+		t.Fatalf("first pick = %+v ok=%v", first, ok)
+	}
+
+	pinned := RouteQuery{ProviderFilter: "qoder", RegionFilter: first.Region, Excluded: map[string]struct{}{first.ID: {}}}
+	if n := p.LenRoute(pinned); n != 1 {
+		t.Fatalf("after first failure, same-region candidates = %d, want 1", n)
+	}
+	if n := p.LenRoute(RouteQuery{ProviderFilter: "qoder", RegionFilter: "cn"}); n != 1 {
+		t.Fatalf("cn candidates must stay out of the pinned retry set, got %d", n)
+	}
+	retry, ok := p.PickRoute(pinned)
+	if !ok || retry.ID != "g2" {
+		t.Fatalf("retry pick = %+v ok=%v", retry, ok)
+	}
+}
+
 func TestPickRouteHonorsAPIKeyAllowlist(t *testing.T) {
 	p := NewPool(nil, nil)
 	p.Upsert(Item{ID: "q1", URL: "http://q1", Provider: "qoder", Runtime: "child_process"})

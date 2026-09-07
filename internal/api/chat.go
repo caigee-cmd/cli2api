@@ -473,14 +473,6 @@ func providerPrefix(model string) string {
 	return ""
 }
 
-func normalizeProviderFamily(provider string) string {
-	provider = strings.ToLower(strings.TrimSpace(provider))
-	if provider == "" {
-		return "qoder"
-	}
-	return provider
-}
-
 // resolveProviderFilter enforces public-model ID rules. Prefixed IDs pin one
 // provider family. Bare IDs are rejected when the cross-provider model pool
 // setting is disabled; when enabled, the filter is empty for a shared route
@@ -518,7 +510,7 @@ func (s *Server) applyPinnedProviderFilter(providerFilter, publicModel, prefer s
 	if !ok {
 		return providerFilter
 	}
-	pinned := normalizeProviderFamily(item.Provider)
+	pinned := accounts.NormalizeProviderFamily(item.Provider)
 	if providerFilter == "" || providerFilter == pinned {
 		return providerFilter
 	}
@@ -613,6 +605,67 @@ func (s *Server) fetchModelsAPI(refresh bool, accountID string) ([]map[string]an
 	return cloneModelList(models), nil
 }
 
+type chatHTTPError struct {
+	Status  int
+	Code    string
+	Message string
+}
+
+func (e *chatHTTPError) Error() string { return e.Message }
+
+type chatExecution struct {
+	ctx            context.Context
+	requestID      string
+	started        time.Time
+	request        translate.ChatRequest
+	publicModel    string
+	providerFilter string
+	prefer         string
+}
+
+func (s *Server) prepareChatExecution(r *http.Request, request translate.ChatRequest) (chatExecution, error) {
+	publicModel := request.Model
+	if s.rejectsBareModel(publicModel) {
+		return chatExecution{}, &chatHTTPError{Status: http.StatusBadRequest, Code: "provider_prefix_required", Message: "cross-provider model pool is disabled; use a provider-prefixed model ID such as qoder/glm-5.2"}
+	}
+	providerFilter := s.resolveProviderFilter(&request)
+	prefer := s.requestedAccount(r)
+	providerFilter = s.applyPinnedProviderFilter(providerFilter, publicModel, prefer)
+	identity := s.requestIdentity(r)
+	if providerFilter != "" && !identity.AllowsProvider(providerFilter) {
+		return chatExecution{}, &chatHTTPError{Status: http.StatusForbidden, Code: "provider_not_allowed", Message: "This API key cannot use provider " + providerFilter}
+	}
+	if err := s.applyModelContextDefaults(r.Context(), &request, providerFilter); err != nil {
+		return chatExecution{}, &chatHTTPError{Status: http.StatusInternalServerError, Code: "model_setting_failed", Message: err.Error()}
+	}
+	if s.manager != nil {
+		s.manager.EnsureModelCatalogs(r.Context(), false)
+	}
+	requestID := accounts.NewRequestID()
+	started := time.Now().UTC()
+	s.startRequestLog(accounts.RequestLog{
+		ID: requestID, CreatedAt: started, Stream: request.Stream, Status: accounts.RequestStatusStarted,
+		RequestedModel: firstNonEmpty(publicModel, request.Model),
+	})
+	ctx := executor.WithAllowedProviders(executor.WithRequestID(r.Context(), requestID), identity.AllowedProviders)
+	if sessionKey := requestSessionKey(r, identity, request); sessionKey != "" {
+		ctx = executor.WithSessionKey(ctx, sessionKey)
+	}
+	return chatExecution{
+		ctx: ctx, requestID: requestID, started: started, request: request,
+		publicModel: publicModel, providerFilter: providerFilter, prefer: prefer,
+	}, nil
+}
+
+func writeChatHTTPError(w http.ResponseWriter, err error) {
+	var requestErr *chatHTTPError
+	if errors.As(err, &requestErr) {
+		writeErr(w, requestErr.Status, requestErr.Code, requestErr.Message)
+		return
+	}
+	writeClassifiedErr(w, err)
+}
+
 func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "POST only")
@@ -631,37 +684,18 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	publicModel := req.Model
-	if s.rejectsBareModel(publicModel) {
-		writeErr(w, http.StatusBadRequest, "provider_prefix_required", "cross-provider model pool is disabled; use a provider-prefixed model ID such as qoder/glm-5.2")
+	execution, err := s.prepareChatExecution(r, req)
+	if err != nil {
+		writeChatHTTPError(w, err)
 		return
 	}
-	providerFilter := s.resolveProviderFilter(&req)
-	prefer := s.requestedAccount(r)
-	providerFilter = s.applyPinnedProviderFilter(providerFilter, publicModel, prefer)
-	identity := s.requestIdentity(r)
-	if providerFilter != "" && !identity.AllowsProvider(providerFilter) {
-		writeErr(w, http.StatusForbidden, "provider_not_allowed", "This API key cannot use provider "+providerFilter)
-		return
-	}
-	if err := s.applyModelContextDefaults(r.Context(), &req, providerFilter); err != nil {
-		writeErr(w, http.StatusInternalServerError, "model_setting_failed", err.Error())
-		return
-	}
-	if s.manager != nil {
-		s.manager.EnsureModelCatalogs(r.Context(), false)
-	}
-
-	requestID := accounts.NewRequestID()
-	started := time.Now().UTC()
-	s.startRequestLog(accounts.RequestLog{
-		ID: requestID, CreatedAt: started, Stream: req.Stream, Status: accounts.RequestStatusStarted,
-		RequestedModel: firstNonEmpty(publicModel, req.Model),
-	})
-	ctx := executor.WithAllowedProviders(executor.WithRequestID(r.Context(), requestID), identity.AllowedProviders)
-	if sessionKey := requestSessionKey(r, identity, req); sessionKey != "" {
-		ctx = executor.WithSessionKey(ctx, sessionKey)
-	}
+	req = execution.request
+	publicModel := execution.publicModel
+	prefer := execution.prefer
+	providerFilter := execution.providerFilter
+	requestID := execution.requestID
+	started := execution.started
+	ctx := execution.ctx
 	w.Header().Set("X-Request-Id", requestID)
 
 	if req.Stream {
