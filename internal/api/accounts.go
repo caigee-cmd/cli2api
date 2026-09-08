@@ -24,8 +24,8 @@ func (s *Server) handleProviders(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleAccounts(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		if r.URL.Query().Get("refresh") != "0" {
-			_ = s.manager.RefreshAll(r.Context(), r.URL.Query().Get("refresh") == "1")
+		if r.URL.Query().Get("refresh") == "1" {
+			_ = s.manager.RefreshAll(r.Context(), true)
 		}
 		items, err := s.manager.Accounts(r.Context())
 		if err != nil {
