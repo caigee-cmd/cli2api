@@ -2,6 +2,32 @@ import { estimateTokens } from "./plaintext.mjs";
 import { resolveUsage, usageLooksUseful } from "./usage.mjs";
 import { classifyError } from "./errors.mjs";
 
+const diagnosticModels = new Set(
+  String(process.env.QODER_SSE_DIAGNOSTIC_MODELS || "")
+    .split(",")
+    .map((model) => model.trim().toLowerCase().replace(/[\s_]+/g, "-"))
+    .filter(Boolean),
+);
+
+function shouldDiagnoseModel(model) {
+  const normalized = String(model || "").trim().toLowerCase().replace(/[\s_]+/g, "-");
+  return diagnosticModels.has("*") || diagnosticModels.has(normalized);
+}
+
+function summarizeSseBody(body) {
+  if (!body || typeof body !== "object") return { kind: typeof body };
+  const choice = Array.isArray(body.choices) ? body.choices[0] : null;
+  const delta = choice?.delta && typeof choice.delta === "object" ? choice.delta : null;
+  return {
+    keys: Object.keys(body).slice(0, 24),
+    choiceKeys: choice ? Object.keys(choice).slice(0, 24) : [],
+    deltaKeys: delta ? Object.keys(delta).slice(0, 24) : [],
+    choiceCount: Array.isArray(body.choices) ? body.choices.length : 0,
+    hasError: Boolean(body.error),
+    hasUsage: usageLooksUseful(body),
+  };
+}
+
 function scoreUpstreamError(err) {
   if (!err || typeof err !== "object") return 0;
   const code = String(err.code || "").toLowerCase();
@@ -198,6 +224,39 @@ export async function pipeNestedSseToOpenAI(upstreamRes, res, { model = "auto", 
   let nextToolCallIndex = 0;
   let finishReason = null;
   let usageAcc = null;
+  const diagnostic = shouldDiagnoseModel(model);
+  let frameCount = 0;
+  let parseErrorCount = 0;
+  let usageSeen = false;
+  const eventNames = new Set();
+  const frameKinds = new Set();
+  const statusCodes = new Set();
+  const bodyShapes = [];
+  const recordBodyShape = (body) => {
+    if (!diagnostic || bodyShapes.length >= 12) return;
+    bodyShapes.push(summarizeSseBody(body));
+  };
+  const emitDiagnostic = (stage) => {
+    if (!diagnostic) return;
+    console.error("[sse] qoder model diagnostic", JSON.stringify({
+      stage,
+      model,
+      upstreamStatus: upstreamRes.status ?? null,
+      eventCount,
+      frameCount,
+      eventNames: [...eventNames],
+      frameKinds: [...frameKinds],
+      statusCodes: [...statusCodes],
+      bodyShapes,
+      sawDone,
+      finishReason,
+      contentLength: content.length,
+      reasoningLength: reasoning.length,
+      toolCallCount: toolCallsByIndex.size,
+      parseErrorCount,
+      usageSeen,
+    }));
+  };
 
   const writeChunk = (delta, finish_reason = null) => {
     res.write(
@@ -226,6 +285,7 @@ export async function pipeNestedSseToOpenAI(upstreamRes, res, { model = "auto", 
       readResult = await reader.read();
     } catch (err) {
       const detail = err?.message || String(err);
+      emitDiagnostic("read_error");
       console.error("[sse] upstream stream read failed", {
         model,
         eventCount,
@@ -265,11 +325,15 @@ export async function pipeNestedSseToOpenAI(upstreamRes, res, { model = "auto", 
       if (!line.startsWith("data:")) continue;
       const raw = line.slice(5).trim();
       if (!raw) continue;
+      frameCount += 1;
+      if (eventName) eventNames.add(eventName);
       try {
         if (eventName === "error") {
           try {
             const errBody = JSON.parse(raw);
             sawError = rememberError(sawError, errBody.error || errBody);
+            frameKinds.add("error");
+            recordBodyShape(errBody);
             eventCount += 1;
           } catch {
             sawError = rememberError(sawError, { message: raw });
@@ -280,12 +344,17 @@ export async function pipeNestedSseToOpenAI(upstreamRes, res, { model = "auto", 
         const extracted = extractDeltaFromOuter(raw);
         if (extracted.done) {
           sawDone = true;
+          frameKinds.add("done");
           continue;
         }
         const body = extracted.body;
+        frameKinds.add("body");
+        if (extracted.statusCode != null) statusCodes.add(Number(extracted.statusCode));
+        recordBodyShape(body);
         if (!body) continue;
         eventCount += 1;
         if (usageLooksUseful(body)) {
+          usageSeen = true;
           usageAcc = resolveUsage([usageAcc, body], usageAcc || {});
         }
         // Nested OpenAI-style error: { error: { message, type, code } }
@@ -360,6 +429,8 @@ export async function pipeNestedSseToOpenAI(upstreamRes, res, { model = "auto", 
         }
         eventName = "message";
       } catch (err) {
+        parseErrorCount += 1;
+        frameKinds.add("invalid");
         console.error("[sse] frame parse failed", {
           model,
           eventCount,
@@ -371,6 +442,7 @@ export async function pipeNestedSseToOpenAI(upstreamRes, res, { model = "auto", 
   }
 
   if (sawError) {
+    emitDiagnostic("provider_error");
     console.error("[sse] upstream provider error", {
       model,
       eventCount,
@@ -389,7 +461,8 @@ export async function pipeNestedSseToOpenAI(upstreamRes, res, { model = "auto", 
     );
   }
 
-  if (!sawDone) {
+  if (!sawDone && !finishReason) {
+    emitDiagnostic("incomplete");
     console.error("[sse] upstream stream ended without done", {
       model,
       eventCount,
@@ -409,6 +482,7 @@ export async function pipeNestedSseToOpenAI(upstreamRes, res, { model = "auto", 
     throw new Error("upstream_stream_incomplete: upstream stream ended before [DONE]");
   }
 
+  emitDiagnostic("complete");
   const usage = resolveUsage(usageAcc, {
     prompt_tokens: promptTokens,
     completion_tokens: estimatedCompletion || estimateTokens(content + reasoning),

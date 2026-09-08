@@ -110,6 +110,32 @@ test("reports a structured error when upstream ends without DONE", async () => {
 });
 
 
+test("accepts a completed choice when upstream omits DONE", async () => {
+  const upstream = {
+    body: new ReadableStream({
+      start(controller) {
+        const body = JSON.stringify({
+          body: JSON.stringify({
+            choices: [
+              { delta: { content: "complete" }, finish_reason: "stop" },
+            ],
+          }),
+        });
+        controller.enqueue(new TextEncoder().encode("data: " + body + "\n\n"));
+        controller.close();
+      },
+    }),
+  };
+  let output = "";
+  const res = { write(chunk) { output += chunk; } };
+
+  const result = await pipeNestedSseToOpenAI(upstream, res, { model: "qoder-extreme" });
+  assert.equal(result.content, "complete");
+  assert.match(output, /"finish_reason":"stop"/);
+  assert.match(output, /data: \[DONE\]/);
+  assert.doesNotMatch(output, /upstream_stream_incomplete/);
+});
+
 test("normalizes missing tool call indexes and ids", async () => {
   const nested = (body) => "data: " + JSON.stringify({ body: JSON.stringify(body) }) + "\n";
   const upstream = {
