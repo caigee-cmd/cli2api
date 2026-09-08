@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.3.5 - 2026-09-08
+
+### English
+
 - Persist account quota snapshots and quota-exhausted state in SQLite so account filters and pagination use stored state without refreshing every account on page load
 - Add compact provider filters with account counts and make the Accounts page show 20 accounts per page by default
 - Simplify the Access page layout and tighten supported endpoint cards
