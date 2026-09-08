@@ -97,6 +97,7 @@ the same conversation prefer the same account from the first user message
 | `QODER_DATA_DIR` | `/data` | SQLite database and durable account credentials |
 | `QODER_RUNTIME_DIR` | `/run/cli2api` | Ephemeral per-account runtime homes for providers that use child processes |
 | `QODER_MAX_RETRY_ACCOUNTS` | `4` | Maximum accounts attempted for one request (1-64) |
+| `QODER_SSE_DIAGNOSTIC_MODELS` | empty | Comma-separated Qoder model IDs for redacted SSE diagnostics in Runtime Logs; `*` enables all |
 | `QODER_WORKER_BASE_PORT` | `32100` | Internal child-runtime port range |
 | `QODERCLI_JS` | image default | Pinned Qoder Global CLI bundle |
 | `QODERCNCLI_JS` | image default | Pinned Qoder CN CLI bundle |
@@ -104,6 +105,8 @@ the same conversation prefer the same account from the first user message
 | `UPDATE_AGENT_URL` | empty | Docker Desktop host updater URL, written by the installer |
 | `UPDATE_AGENT_TOKEN` | empty | Docker Desktop updater token, written by the installer |
 | `CLI2API_UPDATER_SOCKET_DIR` | platform-specific | Host directory mounted read-only for the Linux updater socket |
+
+For a problematic Qoder model, set `QODER_SSE_DIAGNOSTIC_MODELS` to the exact model ID shown by `/v1/models`, for example `qoder-extreme`, then recreate the container. Diagnostics record only SSE shape, event counts, status codes, finish signals, and field lengths; they do not record prompt, response, tool arguments, or token contents.
 
 Per-account concurrency is configured through `max_inflight` in the console; it is
 persisted with each account and passed to its runtime.
