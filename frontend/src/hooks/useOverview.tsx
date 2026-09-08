@@ -59,7 +59,7 @@ export function OverviewProvider({ children }: { children: ReactNode }) {
       setError(null)
       return
     }
-    void refresh().catch(() => undefined)
+    void refresh(undefined, { refreshQuota: false }).catch(() => undefined)
   }, [apiKey, refresh])
 
   const value = useMemo(
