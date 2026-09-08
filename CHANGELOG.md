@@ -12,7 +12,6 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 ### 中文
 
 - 控制台初始化不再刷新全部账号，账号较多时不会因排队读取 credential payload 而超时
-
 ## 0.3.5 - 2026-09-08
 
 ### English
