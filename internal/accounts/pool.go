@@ -326,6 +326,9 @@ func itemReady(item Item) bool {
 }
 
 func routeBaseMatches(item Item, q RouteQuery) bool {
+	if item.Quota != nil && (item.Quota.Exceeded || item.Quota.Percentage >= 100) {
+		return false
+	}
 	if !itemReady(item) {
 		return false
 	}

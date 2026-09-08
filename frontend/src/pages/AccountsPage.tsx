@@ -62,8 +62,9 @@ export function AccountsPage() {
   const [authPanelId, setAuthPanelId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<AccountFilter>('all')
+  const [providerFilter, setProviderFilter] = useState('')
   const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState<PageSize>(5)
+  const [pageSize, setPageSize] = useState<PageSize>(20)
   const [enabledById, setEnabledById] = useState<Record<string, boolean>>({})
   const [dropSystemById, setDropSystemById] = useState<Record<string, boolean>>({})
   const [autoCheckinById, setAutoCheckinById] = useState<Record<string, boolean>>({})
@@ -99,16 +100,8 @@ export function AccountsPage() {
   }, [])
 
   useEffect(() => {
-    let active = true
-    void (async () => {
-      try {
-        const initialAccounts = await reloadAccounts(false)
-        if (active) void refreshAccountsInBatches(initialAccounts.map((account) => account.id)).catch(() => undefined)
-      } catch {
-      }
-    })()
-    return () => { active = false }
-  }, [refreshAccountsInBatches, reloadAccounts])
+    void reloadAccounts(false).catch(() => undefined)
+  }, [reloadAccounts])
   const displayRows = useMemo(() => rows.map((account) => {
     const enabled = enabledById[account.id]
     const dropSystem = dropSystemById[account.id]
@@ -150,12 +143,13 @@ export function AccountsPage() {
         || (filter === 'attention' && account.enabled && state !== 'hot' && state !== 'ready')
         || (filter === 'disabled' && state === 'disabled')
       if (!matchesFilter) return false
+      if (providerFilter && String(account.provider || 'qoder').toLowerCase() !== providerFilter) return false
       if (!normalized) return true
       return [account.name, account.id, account.remote_uid, account.provider, account.auth_type]
         .some((value) => String(value || '').toLowerCase().includes(normalized))
     })
-  }, [displayRows, filter, query])
-  const filterKey = [query, filter, pageSize].join('\0')
+  }, [displayRows, filter, providerFilter, query])
+  const filterKey = [query, filter, providerFilter, pageSize].join('\0')
   const [appliedFilterKey, setAppliedFilterKey] = useState(filterKey)
   if (appliedFilterKey !== filterKey) {
     setAppliedFilterKey(filterKey)
@@ -374,13 +368,7 @@ export function AccountsPage() {
             <span className="text-muted">{t('inFlight')}</span>
             <span className="mono font-medium">{inFlightCount}</span>
           </div>
-          {providerCounts.map(([provider, count]) => (
-            <div key={provider} className="flex items-center gap-1.5">
-              <ProviderMark provider={provider} size={12} />
-              <span className="text-muted">{accountProviderFamilyLabel(provider, t)}</span>
-              <span className="mono font-medium">{count}</span>
-            </div>
-          ))}
+
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button size="sm" variant="secondary" isPending={quotaRefreshing} onPress={() => void onRefreshCredits()}>
@@ -434,6 +422,19 @@ export function AccountsPage() {
             />
           </div>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <FilterToggle
+              value={providerFilter}
+              onChange={setProviderFilter}
+              ariaLabel={t('providerFilterAll')}
+              options={[
+                { id: '', label: t('providerFilterAll') + ' ' + rows.length },
+                ...providerCounts.map(([provider, count]) => ({
+                  id: provider,
+                  label: accountProviderFamilyLabel(provider, t) + ' ' + count,
+                  icon: <ProviderMark provider={provider} size={13} />,
+                })),
+              ]}
+            />
             <FilterToggle
               value={filter}
               onChange={(next) => setFilter(next as AccountFilter)}

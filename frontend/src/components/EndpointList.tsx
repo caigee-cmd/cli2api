@@ -23,8 +23,8 @@ export function EndpointList({ access }: EndpointListProps) {
   ], [access, base, t])
 
   return (
-    <Card data-gsap-reveal className="overflow-hidden p-0">
-      <div className="flex items-start justify-between gap-4 border-b border-separator px-5 py-5 sm:px-6">
+    <Card data-gsap-reveal className="overflow-hidden border-border p-0 shadow-none">
+      <div className="flex items-start justify-between gap-4 border-b border-separator px-5 py-4 sm:px-6">
         <div>
           <div className="flex items-center gap-2">
             <h3 className="font-semibold tracking-[-0.015em]">{t('endpoints')}</h3>
@@ -32,26 +32,22 @@ export function EndpointList({ access }: EndpointListProps) {
           </div>
           <p className="mt-1 text-xs leading-5 text-muted">{t('routesHint')}</p>
         </div>
-        <div className="hidden items-center gap-2 text-xs text-muted sm:flex">
-          <span className="status-dot" data-state="ok" />
-          {t('endpointReady')}
-        </div>
       </div>
-      <div className="grid gap-3 p-4 sm:grid-cols-2 sm:p-5">
+      <div className="grid gap-2.5 p-3 sm:grid-cols-2 sm:p-4 lg:grid-cols-3">
         {endpoints.map((item) => (
-          <div key={item.name} className="group min-w-0 rounded-2xl border border-border bg-surface-secondary/35 p-4 transition-colors hover:border-foreground/20">
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex min-w-0 items-center gap-3">
-                <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-surface text-muted">{item.icon}</span>
+          <div key={item.name} className="group min-w-0 rounded-lg bg-surface-secondary/45 p-3 transition-colors hover:bg-surface-secondary/65">
+            <div className="flex items-start justify-between gap-2.5">
+              <div className="flex min-w-0 items-center gap-2.5">
+                <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-surface text-muted">{item.icon}</span>
                 <div className="min-w-0">
                   <div className="truncate text-sm font-semibold">{item.name}</div>
-                  <code className="mono mt-1 block truncate text-[11px] text-muted">{item.url}</code>
+                  <code className="mono mt-0.5 block truncate text-[11px] text-muted">{item.url}</code>
                 </div>
               </div>
               <Chip size="sm" variant="soft">{item.method}</Chip>
             </div>
-            <p className="mt-3 min-h-10 text-xs leading-5 text-muted">{item.hint}</p>
-            <div className="mt-3 flex items-center justify-between gap-2 border-t border-separator pt-3">
+            <p className="mt-2 min-h-0 text-xs leading-5 text-muted">{item.hint}</p>
+            <div className="mt-2 flex items-center justify-between gap-2 border-t border-separator pt-2">
               <span className="text-[10px] font-medium text-muted">{item.method === 'BASE' ? t('endpointBaseLabel') : t('endpointAuthLabel')}</span>
               <div className="flex gap-1">
                 <Button isIconOnly size="sm" variant="ghost" aria-label={t('copy')} onPress={() => { void navigator.clipboard.writeText(item.url); setCopiedEndpoint(item.name); window.setTimeout(() => setCopiedEndpoint(''), 1100) }}>
