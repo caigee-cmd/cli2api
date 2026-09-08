@@ -7,11 +7,18 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.3.6 - 2026-09-08
+
+### English
+
 - Avoid refreshing every account during console initialization, preventing credential payload timeouts when the account list is large
 
 ### 中文
 
 - 控制台初始化不再刷新全部账号，账号较多时不会因排队读取 credential payload 而超时
+
 ## 0.3.5 - 2026-09-08
 
 ### English
