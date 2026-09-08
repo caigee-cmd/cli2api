@@ -299,9 +299,11 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
-	refreshCtx, refreshCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	_ = s.manager.RefreshAll(refreshCtx, r.URL.Query().Get("refresh") == "1")
-	refreshCancel()
+	if r.URL.Query().Get("refresh") == "1" {
+		refreshCtx, refreshCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_ = s.manager.RefreshAll(refreshCtx, true)
+		refreshCancel()
+	}
 	accountViews, err := s.manager.Accounts(r.Context())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "account_list_failed", err.Error())
