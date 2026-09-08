@@ -7,7 +7,17 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Persist account quota snapshots and quota-exhausted state in SQLite so account filters and pagination use stored state without refreshing every account on page load
+- Add compact provider filters with account counts and make the Accounts page show 20 accounts per page by default
+- Simplify the Access page layout and tighten supported endpoint cards
+- Accept completed Qoder SSE streams that omit a final [DONE] marker when a finish reason was already received
+
 ### 中文
+
+- 将账号额度快照和「额度已用尽」状态持久化到 SQLite，账号筛选和分页直接使用已存状态，不再在页面加载时逐个刷新
+- 账号页新增带数量的供应商筛选，并将默认每页显示改为 20 个账号
+- 简化 Access 页面布局，收紧支持端点卡片
+- Qoder SSE 已收到结束原因但缺少最终 [DONE] 标记时，仍按正常完成处理
 
 ## 0.3.4 - 2026-09-07
 

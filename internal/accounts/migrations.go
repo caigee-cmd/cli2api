@@ -185,6 +185,8 @@ CREATE INDEX IF NOT EXISTS checkin_records_account_created_at ON checkin_records
 	{filename: "014_request_log_routing.sql", sql: `
 ALTER TABLE request_logs ADD COLUMN routing TEXT NOT NULL DEFAULT '';
 CREATE INDEX IF NOT EXISTS request_logs_routing ON request_logs(routing);`},
+	{filename: "015_account_quota_state.sql", sql: `
+ALTER TABLE accounts ADD COLUMN quota_json TEXT NOT NULL DEFAULT '';`},
 }
 
 const schemaMigrationsDDL = `

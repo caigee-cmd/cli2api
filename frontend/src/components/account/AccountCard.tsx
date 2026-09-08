@@ -63,6 +63,7 @@ function stateCopyFor(state: ReturnType<typeof accountState>, cooldown: string, 
   if (state === 'hot') return t('signedIn')
   if (state === 'ready') return t('ready')
   if (state === 'cooling') return cooldown ? `${t('cooling')} ${cooldown}` : t('cooling')
+  if (state === 'quota_exhausted') return t('quotaExceeded')
   if (state === 'starting') return t('starting')
   if (state === 'dead') return cooldown ? `${t('dead')} ${cooldown}` : t('dead')
   if (state === 'auth_failed') return t('authFailed')
@@ -126,6 +127,8 @@ export function AccountCard({
     ? 'success'
     : state === 'cooling'
       ? 'warning'
+      : state === 'quota_exhausted'
+        ? 'danger'
       : state === 'login' || state === 'dead' || state === 'auth_failed'
         ? 'danger'
         : undefined
