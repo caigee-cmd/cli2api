@@ -542,3 +542,40 @@ func TestLoadCooldownsPrunesExpired(t *testing.T) {
 		t.Fatalf("expired cooldown must not be written or returned, got %+v", loaded)
 	}
 }
+
+func TestStorePersistsQuotaAndStatus(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	account, err := store.Create(ctx, CreateAccount{Name: "Quota", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	quota := &QuotaSnapshot{Used: 100, Total: 100, Remaining: 0, Percentage: 100, Unit: "credits", Exceeded: true}
+	if err := store.SaveQuota(ctx, account.ID, quota); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := store.Get(ctx, account.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Quota == nil || stored.Quota.Remaining != 0 || stored.Quota.Exceeded != true {
+		t.Fatalf("quota = %+v", stored.Quota)
+	}
+	if stored.Status != "quota_exhausted" || !stored.Enabled {
+		t.Fatalf("account state = %+v", stored)
+	}
+	if err := store.SaveQuota(ctx, account.ID, &QuotaSnapshot{Used: 10, Total: 100, Remaining: 90, Percentage: 10, Unit: "credits"}); err != nil {
+		t.Fatal(err)
+	}
+	stored, err = store.Get(ctx, account.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != "ready" || stored.Quota == nil || stored.Quota.Remaining != 90 {
+		t.Fatalf("recovered account state = %+v", stored)
+	}
+}

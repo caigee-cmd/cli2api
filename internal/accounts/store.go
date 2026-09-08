@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -36,15 +37,16 @@ type Account struct {
 	// WorkBuddyAutoCheckin opts into scheduled daily-checkin (default off).
 	WorkBuddyAutoCheckin bool `json:"workbuddy_auto_checkin"`
 	// LastCheckin* are display-only WorkBuddy ops results.
-	LastCheckinAt     string     `json:"last_checkin_at,omitempty"`
-	LastCheckinMsg    string     `json:"last_checkin_msg,omitempty"`
-	LastCheckinStatus string     `json:"last_checkin_status,omitempty"`
-	Status            string     `json:"status"`
-	LastError         string     `json:"last_error,omitempty"`
-	LastErrorKind     string     `json:"last_error_kind,omitempty"`
-	CooldownUntil     *time.Time `json:"cooldown_until,omitempty"`
-	CreatedAt         time.Time  `json:"created_at"`
-	UpdatedAt         time.Time  `json:"updated_at"`
+	LastCheckinAt     string         `json:"last_checkin_at,omitempty"`
+	LastCheckinMsg    string         `json:"last_checkin_msg,omitempty"`
+	LastCheckinStatus string         `json:"last_checkin_status,omitempty"`
+	Status            string         `json:"status"`
+	LastError         string         `json:"last_error,omitempty"`
+	LastErrorKind     string         `json:"last_error_kind,omitempty"`
+	CooldownUntil     *time.Time     `json:"cooldown_until,omitempty"`
+	Quota             *QuotaSnapshot `json:"-"`
+	CreatedAt         time.Time      `json:"created_at"`
+	UpdatedAt         time.Time      `json:"updated_at"`
 }
 
 type CreateAccount struct {
@@ -173,7 +175,7 @@ func (s *Store) Get(ctx context.Context, id string) (Account, error) {
 	row := s.db.QueryRowContext(ctx, `
 	SELECT id, name, provider, provider_region, remote_uid, auth_type, enabled, max_inflight, priority,
 	       drop_system_prompt, workbuddy_auto_checkin, last_checkin_at, last_checkin_msg, last_checkin_status,
-	       status, last_error, last_error_kind, cooldown_until, created_at, updated_at
+	       status, last_error, last_error_kind, cooldown_until, quota_json, created_at, updated_at
 	FROM accounts WHERE id = ?`, strings.TrimSpace(id))
 	account, err := scanAccount(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -191,12 +193,12 @@ type rowScanner interface {
 
 func scanAccount(row rowScanner) (Account, error) {
 	var account Account
-	var cooldown, created, updated sql.NullString
+	var cooldown, quotaJSON, created, updated sql.NullString
 	err := row.Scan(
 		&account.ID, &account.Name, &account.Provider, &account.ProviderRegion, &account.RemoteUID,
 		&account.AuthType, &account.Enabled, &account.MaxInFlight, &account.Priority,
 		&account.DropSystemPrompt, &account.WorkBuddyAutoCheckin, &account.LastCheckinAt, &account.LastCheckinMsg, &account.LastCheckinStatus,
-		&account.Status, &account.LastError, &account.LastErrorKind, &cooldown, &created, &updated,
+		&account.Status, &account.LastError, &account.LastErrorKind, &cooldown, &quotaJSON, &created, &updated,
 	)
 	if err != nil {
 		return Account{}, err
@@ -212,6 +214,12 @@ func scanAccount(row rowScanner) (Account, error) {
 	if cooldown.Valid && cooldown.String != "" {
 		parsed := parseTime(cooldown.String)
 		account.CooldownUntil = &parsed
+	}
+	if quotaJSON.Valid && quotaJSON.String != "" {
+		var quota QuotaSnapshot
+		if json.Unmarshal([]byte(quotaJSON.String), &quota) == nil {
+			account.Quota = &quota
+		}
 	}
 	return account, nil
 }
@@ -237,7 +245,7 @@ func (s *Store) List(ctx context.Context) ([]Account, error) {
 	rows, err := s.db.QueryContext(ctx, `
 	SELECT id, name, provider, provider_region, remote_uid, auth_type, enabled, max_inflight, priority,
 	       drop_system_prompt, workbuddy_auto_checkin, last_checkin_at, last_checkin_msg, last_checkin_status,
-	       status, last_error, last_error_kind, cooldown_until, created_at, updated_at
+	       status, last_error, last_error_kind, cooldown_until, quota_json, created_at, updated_at
 	FROM accounts ORDER BY created_at, id`)
 	if err != nil {
 		return nil, fmt.Errorf("list accounts: %w", err)
@@ -568,10 +576,41 @@ SELECT format, payload FROM account_credential_payloads WHERE account_id = ?`, a
 	return format, payload, nil
 }
 
+func (s *Store) SaveQuota(ctx context.Context, id string, quota *QuotaSnapshot) error {
+	if quota == nil {
+		return nil
+	}
+	payload, err := json.Marshal(quota)
+	if err != nil {
+		return fmt.Errorf("marshal quota: %w", err)
+	}
+	status := "ready"
+	if quota.Exceeded || quota.Percentage >= 100 {
+		status = "quota_exhausted"
+	}
+	result, err := s.db.ExecContext(ctx, `
+UPDATE accounts SET quota_json = ?, status = CASE
+  WHEN ? = 'quota_exhausted' THEN 'quota_exhausted'
+  WHEN status = 'quota_exhausted' THEN 'ready'
+  ELSE status
+END, updated_at = ?
+WHERE id = ?`, string(payload), status, formatTime(time.Now().UTC()), id)
+	if err != nil {
+		return fmt.Errorf("save quota: %w", err)
+	}
+	changed, _ := result.RowsAffected()
+	if changed == 0 {
+		return ErrAccountNotFound
+	}
+	return nil
+}
 func (s *Store) Observe(ctx context.Context, id, remoteUID, status, lastError, lastKind string) error {
 	result, err := s.db.ExecContext(ctx, `
-UPDATE accounts SET remote_uid = ?, status = ?, last_error = ?, last_error_kind = ?, updated_at = ?
-WHERE id = ?`, remoteUID, status, lastError, lastKind, formatTime(time.Now().UTC()), id)
+UPDATE accounts SET remote_uid = ?, status = CASE
+  WHEN accounts.status = 'quota_exhausted' AND ? = 'ready' THEN accounts.status
+  ELSE ?
+END, last_error = ?, last_error_kind = ?, updated_at = ?
+WHERE id = ?`, remoteUID, status, status, lastError, lastKind, formatTime(time.Now().UTC()), id)
 	if err != nil {
 		return fmt.Errorf("observe account: %w", err)
 	}

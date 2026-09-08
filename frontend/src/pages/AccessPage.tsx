@@ -191,7 +191,7 @@ export function AccessPage() {
         : t('requestIdle')
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <section className="grid gap-5 border-b border-separator pb-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
         <div data-gsap-reveal>
           <h2 className="text-2xl font-semibold tracking-[-0.035em]">{t('apiPlayground')}</h2>
@@ -203,40 +203,40 @@ export function AccessPage() {
         </div>
       </section>
 
-      <section data-gsap-reveal className="grid overflow-hidden rounded-3xl border border-border bg-surface sm:grid-cols-3">
-        <div className="border-b border-separator px-5 py-4 sm:col-span-3">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <h3 className="font-semibold tracking-[-0.015em]">{t('connection')}</h3>
-              <p className="mt-0.5 text-xs leading-5 text-muted">{t('clientConfigHint')}</p>
+      <section data-gsap-reveal className="overflow-hidden rounded-2xl border border-border bg-surface">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-separator px-4 py-3">
+          <div className="min-w-0">
+            <div className="text-xs font-medium text-muted">{t('baseUrl')}</div>
+            <code className="mono mt-0.5 block truncate text-sm font-medium text-foreground">{base}</code>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="hidden text-right sm:block">
+              <div className="text-[10px] font-medium text-muted">{t('protocol')}</div>
+              <div className="text-xs font-medium">HTTP / SSE</div>
             </div>
+            <div className="hidden text-right sm:block">
+              <div className="text-[10px] font-medium text-muted">{t('authentication')}</div>
+              <div className="mono text-[11px] font-medium">Bearer API key</div>
+            </div>
+            <Button isIconOnly size="sm" variant="ghost" aria-label={t('copyBaseUrl')} onPress={() => void copy(base, 'base')}>
+              {copied === 'base' ? <Check size={15} /> : <Copy size={15} />}
+            </Button>
             <Chip size="sm" variant="soft" color={readyAccounts.length ? 'success' : 'warning'}>
               {readyAccounts.length ? t('endpointReady') : t('degraded')}
             </Chip>
           </div>
         </div>
-        <div className="min-w-0 border-b border-separator p-4 sm:col-span-2 sm:border-r sm:border-b-0 sm:p-5">
-          <div className="mb-2 flex items-center justify-between gap-3">
-            <span className="text-xs font-medium text-muted">{t('baseUrl')}</span>
-            <Button isIconOnly size="sm" variant="ghost" aria-label={t('copyBaseUrl')} onPress={() => void copy(base, 'base')}>
-              {copied === 'base' ? <Check size={15} /> : <Copy size={15} />}
-            </Button>
+        <div className="grid grid-cols-2 divide-x divide-separator sm:hidden">
+          <div className="p-3">
+            <div className="text-[10px] font-medium text-muted">{t('protocol')}</div>
+            <div className="mt-0.5 text-xs font-medium">HTTP / SSE</div>
           </div>
-          <code className="mono block truncate text-sm font-medium text-foreground">{base}</code>
-        </div>
-        <div className="grid grid-cols-2 divide-x divide-separator sm:grid-cols-1 sm:divide-x-0 sm:divide-y">
-          <div className="p-4 sm:px-5 sm:py-3">
-            <div className="text-xs font-medium text-muted">{t('protocol')}</div>
-            <div className="mt-1 text-sm font-medium">HTTP / SSE</div>
-          </div>
-          <div className="p-4 sm:px-5 sm:py-3">
-            <div className="text-xs font-medium text-muted">{t('authentication')}</div>
-            <div className="mono mt-1 truncate text-xs font-medium">Bearer API key</div>
+          <div className="p-3">
+            <div className="text-[10px] font-medium text-muted">{t('authentication')}</div>
+            <div className="mono mt-0.5 truncate text-[11px] font-medium">Bearer API key</div>
           </div>
         </div>
       </section>
-
-      <p data-gsap-reveal className="max-w-3xl text-sm leading-6 text-muted">{t('providerPrefixHint')}</p>
 
       <EndpointList access={overview?.access} />
 

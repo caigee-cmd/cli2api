@@ -1,7 +1,7 @@
 import { Pagination, ToggleButton, ToggleButtonGroup } from '@heroui/react'
 
 export const PAGE_SIZES = [20, 50, 100] as const
-export const ACCOUNT_PAGE_SIZES = [5, 20, 50, 100] as const
+export const ACCOUNT_PAGE_SIZES = [20, 50, 100] as const
 export type PageSize = (typeof ACCOUNT_PAGE_SIZES)[number]
 
 function pageTokens(page: number, pageCount: number): Array<number | 'gap'> {

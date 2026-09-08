@@ -482,7 +482,7 @@ func (m *Manager) startAccount(ctx context.Context, account Account) error {
 		m.pool.Upsert(Item{
 			ID: account.ID, Provider: descriptor.ID, Region: account.ProviderRegion,
 			Runtime: string(descriptor.Runtime), DropSystemPrompt: account.DropSystemPrompt,
-			Weight: NormalizeWeight(account.Priority), MaxInFlight: account.MaxInFlight,
+			Weight: NormalizeWeight(account.Priority), MaxInFlight: account.MaxInFlight, Quota: account.Quota,
 			RuntimeState: "starting",
 		})
 		return nil
@@ -503,7 +503,7 @@ func (m *Manager) startAccount(ctx context.Context, account Account) error {
 	m.pool.Upsert(Item{
 		ID: account.ID, Provider: descriptor.ID, Region: account.ProviderRegion,
 		Runtime: string(descriptor.Runtime),
-		Weight:  NormalizeWeight(account.Priority), MaxInFlight: account.MaxInFlight,
+		Weight:  NormalizeWeight(account.Priority), MaxInFlight: account.MaxInFlight, Quota: account.Quota,
 		Ready: &notReady, RuntimeState: "starting",
 	})
 
@@ -532,7 +532,7 @@ func (m *Manager) startAccount(ctx context.Context, account Account) error {
 	m.pool.Upsert(Item{
 		ID: account.ID, URL: process.URL(), Provider: descriptor.ID,
 		Region: account.ProviderRegion, Runtime: string(descriptor.Runtime), Restarts: restarts,
-		Weight: NormalizeWeight(account.Priority), MaxInFlight: account.MaxInFlight,
+		Weight: NormalizeWeight(account.Priority), MaxInFlight: account.MaxInFlight, Quota: account.Quota,
 		Ready: &notReady, RuntimeState: "starting",
 	})
 	go m.watchAccount(account.ID, process)
@@ -985,7 +985,7 @@ func (m *Manager) AccountView(ctx context.Context, id string) (AccountView, erro
 	if err != nil {
 		return AccountView{}, err
 	}
-	view := AccountView{Account: account}
+	view := AccountView{Account: account, Quota: account.Quota}
 	if item, ok := m.pool.ByID(account.ID); ok {
 		view.Ready = item.Ready == nil || *item.Ready
 		view.Hot = item.Hot != nil && *item.Hot
@@ -996,7 +996,9 @@ func (m *Manager) AccountView(ctx context.Context, id string) (AccountView, erro
 		if !item.NextRestartAt.IsZero() && time.Now().Before(item.NextRestartAt) {
 			view.NextRestartAt = item.NextRestartAt.UTC().Format(time.RFC3339)
 		}
-		view.Quota = item.Quota
+		if item.Quota != nil {
+			view.Quota = item.Quota
+		}
 		view.ModelCooldowns = activeModelCooldowns(item.ModelDownUntil)
 		if !item.DownUntil.IsZero() && time.Now().Before(item.DownUntil) {
 			view.DownUntil = item.DownUntil.UTC().Format(time.RFC3339)
@@ -1018,7 +1020,7 @@ func (m *Manager) Accounts(ctx context.Context) ([]AccountView, error) {
 	}
 	views := make([]AccountView, 0, len(stored))
 	for _, account := range stored {
-		view := AccountView{Account: account}
+		view := AccountView{Account: account, Quota: account.Quota}
 		if item, ok := m.pool.ByID(account.ID); ok {
 			view.Ready = item.Ready == nil || *item.Ready
 			view.Hot = item.Hot != nil && *item.Hot
@@ -1183,14 +1185,13 @@ func (m *Manager) fetchProviderQuota(ctx context.Context, accountID string, prob
 	}
 	info, err := prober.Quota(ctx, accountID)
 	if err != nil || info == nil {
-		m.pool.MergeQuota(accountID, nil)
 		return
 	}
 	unit := info.Unit
 	if unit == "" {
 		unit = "credits"
 	}
-	m.pool.MergeQuota(accountID, &QuotaSnapshot{
+	quota := &QuotaSnapshot{
 		Used:       info.Used,
 		Total:      info.Total,
 		Remaining:  info.Remaining,
@@ -1198,7 +1199,18 @@ func (m *Manager) fetchProviderQuota(ctx context.Context, accountID string, prob
 		Unit:       unit,
 		Exceeded:   info.Exceeded,
 		FetchedAt:  info.FetchedAt,
-	})
+	}
+	m.persistQuota(ctx, accountID, quota)
+}
+
+func (m *Manager) persistQuota(ctx context.Context, accountID string, quota *QuotaSnapshot) {
+	if quota == nil {
+		return
+	}
+	m.pool.MergeQuota(accountID, quota)
+	if err := m.store.SaveQuota(ctx, accountID, quota); err != nil {
+		log.Printf("persist quota account=%s: %v", accountID, err)
+	}
 }
 
 const modelCatalogTTL = 5 * time.Minute
@@ -1349,7 +1361,8 @@ func (m *Manager) fetchQuota(ctx context.Context, accountID, workerURL string, f
 	if json.NewDecoder(resp.Body).Decode(&payload) != nil || payload.Quota == nil {
 		return
 	}
-	m.pool.MergeQuota(accountID, payload.Quota.snapshot())
+	quota := payload.Quota.snapshot()
+	m.persistQuota(ctx, accountID, quota)
 }
 
 // workerQuota mirrors the daemon /admin/quota response shape.
