@@ -565,6 +565,12 @@ type modelsAPICacheEntry struct {
 	at     time.Time
 }
 
+type modelsAPIRefresh struct {
+	done   chan struct{}
+	models []map[string]any
+	err    error
+}
+
 func (s *Server) handleModelsAPI(w http.ResponseWriter, r *http.Request) {
 	refresh := r.URL.Query().Get("refresh") == "1"
 	models, err := s.fetchModelsAPI(refresh, s.requestedAccount(r))
@@ -603,29 +609,59 @@ func cloneModelList(models []map[string]any) []map[string]any {
 	return out
 }
 
-// fetchModelsAPI serves GET /api/models from a 5-minute snapshot. Overview and
-// /v1/models keep calling fetchWorkerModelsFor directly so they stay live.
+// fetchModelsAPI serves GET /api/models from a 5-minute snapshot. Expired
+// snapshots are returned immediately while one background refresh updates the
+// cache. A cold cache waits for the one in-flight refresh instead of starting
+// duplicate upstream catalog requests.
 func (s *Server) fetchModelsAPI(refresh bool, accountID string) ([]map[string]any, error) {
 	key := modelsAPICacheKey(accountID)
-	if !refresh {
-		s.modelsAPICacheMu.Lock()
-		entry, ok := s.modelsAPICache[key]
-		s.modelsAPICacheMu.Unlock()
-		if ok && time.Since(entry.at) < modelsAPICacheTTL {
-			return cloneModelList(entry.models), nil
-		}
-	}
-	models, err := s.fetchWorkerModelsFor(refresh, accountID)
-	if err != nil {
-		return nil, err
-	}
 	s.modelsAPICacheMu.Lock()
-	if s.modelsAPICache == nil {
-		s.modelsAPICache = map[string]modelsAPICacheEntry{}
+	entry, hasCache := s.modelsAPICache[key]
+	if !refresh && hasCache && time.Since(entry.at) < modelsAPICacheTTL {
+		s.modelsAPICacheMu.Unlock()
+		return cloneModelList(entry.models), nil
 	}
-	s.modelsAPICache[key] = modelsAPICacheEntry{models: cloneModelList(models), at: time.Now()}
+	if !refresh && hasCache {
+		_ = s.startModelsAPIRefreshLocked(key, true, accountID)
+		s.modelsAPICacheMu.Unlock()
+		return cloneModelList(entry.models), nil
+	}
+	refreshing := s.startModelsAPIRefreshLocked(key, refresh, accountID)
 	s.modelsAPICacheMu.Unlock()
-	return cloneModelList(models), nil
+	<-refreshing.done
+	if refreshing.err != nil {
+		return nil, refreshing.err
+	}
+	return cloneModelList(refreshing.models), nil
+}
+
+func (s *Server) startModelsAPIRefreshLocked(key string, force bool, accountID string) *modelsAPIRefresh {
+	if s.modelsAPIRefresh == nil {
+		s.modelsAPIRefresh = map[string]*modelsAPIRefresh{}
+	}
+	if refreshing, ok := s.modelsAPIRefresh[key]; ok {
+		return refreshing
+	}
+	refreshing := &modelsAPIRefresh{done: make(chan struct{})}
+	s.modelsAPIRefresh[key] = refreshing
+	go func() {
+		models, err := s.fetchWorkerModelsFor(force, accountID)
+		refreshing.models = models
+		refreshing.err = err
+		if err == nil {
+			s.modelsAPICacheMu.Lock()
+			if s.modelsAPICache == nil {
+				s.modelsAPICache = map[string]modelsAPICacheEntry{}
+			}
+			s.modelsAPICache[key] = modelsAPICacheEntry{models: cloneModelList(models), at: time.Now()}
+			s.modelsAPICacheMu.Unlock()
+		}
+		s.modelsAPICacheMu.Lock()
+		delete(s.modelsAPIRefresh, key)
+		s.modelsAPICacheMu.Unlock()
+		close(refreshing.done)
+	}()
+	return refreshing
 }
 
 type chatHTTPError struct {

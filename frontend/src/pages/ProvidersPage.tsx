@@ -3,7 +3,7 @@ import { Button, Card, Chip, Input, Table, Tooltip } from '@heroui/react'
 import { Cube, ArrowClockwise, ArrowCounterClockwise, FloppyDisk, MagnifyingGlass, Info } from '@phosphor-icons/react'
 import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
-import { fetchModels, refreshModels, updateModelContext, updateProviderReasoning, updateTraeMaxMode } from '@/api/overview'
+import { fetchModelsCached, refreshModels, updateModelContext, updateProviderReasoning, updateTraeMaxMode } from '@/api/overview'
 import type { Overview } from '@/api/types'
 import { ProviderMark } from '@/components/ProviderMark'
 import { ModelDetailsModal, formatTokens } from '@/components/ModelDetailsModal'
@@ -182,7 +182,7 @@ export function ProvidersPage() {
   const [modelsLoading, setModelsLoading] = useState(true)
   useEffect(() => {
     let cancelled = false
-    void fetchModels()
+    void fetchModelsCached()
       .then((data) => { if (!cancelled) setModels(data.data || []) })
       .catch(() => undefined)
       .finally(() => { if (!cancelled) setModelsLoading(false) })
