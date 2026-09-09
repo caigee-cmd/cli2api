@@ -7,7 +7,11 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Load the overview dashboard from a lightweight summary first, fetch account and model details per page in parallel, and cache request statistics briefly to reduce SQLite work during console startup
+
 ### 中文
+
+- 首页先加载轻量概览摘要，账号和模型详情按页面并行请求，并短暂缓存请求统计，减少控制台启动时对 SQLite 的读取压力
 
 ## 0.3.7 - 2026-09-09
 
