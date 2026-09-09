@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { fetchOverview } from '@/api/overview'
+import { fetchOverviewSummary } from '@/api/overview'
 import { isUnauthorized } from '@/api/client'
 import { useApiKey } from '@/hooks/useApiKey'
 import type { Overview } from '@/api/types'
@@ -34,10 +34,9 @@ export function OverviewProvider({ children }: { children: ReactNode }) {
       throw new Error('missing_api_key')
     }
     const silent = Boolean(options?.silent)
-    const refreshQuota = options?.refreshQuota ?? !silent
     if (!silent) setLoading(true)
     try {
-      const data = await fetchOverview(key, { refreshQuota })
+      const data = await fetchOverviewSummary(key)
       setOverview(data)
       setError(null)
       return data

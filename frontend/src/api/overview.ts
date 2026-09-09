@@ -6,6 +6,10 @@ export function fetchOverview(keyOverride?: string, options?: { refreshQuota?: b
   return api<Overview>(path, {}, keyOverride)
 }
 
+export function fetchOverviewSummary(keyOverride?: string) {
+  return api<Overview>('/api/overview/summary', {}, keyOverride)
+}
+
 export function fetchAccounts(refresh = false) {
   return api<{ object?: string; data?: NonNullable<Overview['accounts']> }>(
     `/api/accounts?refresh=${refresh ? '1' : '0'}`,

@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -9,6 +10,11 @@ import (
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 )
+
+type statsCacheEntry struct {
+	stats     accounts.RequestStats
+	expiresAt time.Time
+}
 
 func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/api/logs")
@@ -35,7 +41,7 @@ func (s *Server) handleRequestStats(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusServiceUnavailable, "logs_unavailable", "request logs unavailable")
 		return
 	}
-	now := time.Now().UTC()
+	now := time.Now().UTC().Truncate(10 * time.Second)
 	hours := 24
 	if raw := strings.TrimSpace(r.URL.Query().Get("hours")); raw != "" {
 		if n, err := strconv.Atoi(raw); err == nil {
@@ -55,11 +61,25 @@ func (s *Server) handleRequestStats(w http.ResponseWriter, r *http.Request) {
 		value := to.Add(-time.Duration(hours) * time.Hour)
 		from = &value
 	}
+	cacheKey := fmt.Sprintf("%d:%d", from.Unix(), to.Unix())
+	s.statsCacheMu.Lock()
+	if cached, ok := s.statsCache[cacheKey]; ok && time.Now().Before(cached.expiresAt) {
+		s.statsCacheMu.Unlock()
+		writeJSON(w, http.StatusOK, cached.stats)
+		return
+	}
+	s.statsCacheMu.Unlock()
 	stats, err := s.recorder.Store().SummarizeRequestLogs(r.Context(), *from, *to)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "stats_failed", err.Error())
 		return
 	}
+	s.statsCacheMu.Lock()
+	if s.statsCache == nil {
+		s.statsCache = make(map[string]statsCacheEntry)
+	}
+	s.statsCache[cacheKey] = statsCacheEntry{stats: stats, expiresAt: time.Now().Add(10 * time.Second)}
+	s.statsCacheMu.Unlock()
 	writeJSON(w, http.StatusOK, stats)
 }
 
