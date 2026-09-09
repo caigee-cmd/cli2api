@@ -1,6 +1,9 @@
 package translate
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"strings"
+)
 
 type ChatRequest struct {
 	Model                 string          `json:"model"`
@@ -72,4 +75,22 @@ func ContentToString(content any) string {
 		b, _ := json.Marshal(v)
 		return string(b)
 	}
+}
+
+func EmptyMessageIndexes(messages []ChatMessage) []int {
+	indexes := make([]int, 0)
+	for index, message := range messages {
+		if strings.TrimSpace(ContentToString(message.Content)) == "" && len(message.ToolCalls) == 0 {
+			indexes = append(indexes, index)
+		}
+	}
+	return indexes
+}
+
+func MessageRoles(messages []ChatMessage) []string {
+	roles := make([]string, len(messages))
+	for index, message := range messages {
+		roles[index] = message.Role
+	}
+	return roles
 }

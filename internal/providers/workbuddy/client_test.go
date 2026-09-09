@@ -582,7 +582,7 @@ func TestPrepareBodyForcesStreamAndStringToolChoice(t *testing.T) {
 	}
 }
 
-func TestPrepareBodyInsertsEmptyLeadingSystem(t *testing.T) {
+func TestPrepareBodyInsertsNonEmptyLeadingSystem(t *testing.T) {
 	out := PrepareBody([]byte(`{"model":"m","messages":[{"role":"user","content":"hi"}]}`))
 	var body map[string]any
 	if err := json.Unmarshal(out, &body); err != nil {
@@ -594,7 +594,7 @@ func TestPrepareBodyInsertsEmptyLeadingSystem(t *testing.T) {
 	}
 	first, _ := messages[0].(map[string]any)
 	second, _ := messages[1].(map[string]any)
-	if first["role"] != "system" || first["content"] != "" || second["role"] != "user" {
+	if first["role"] != "system" || first["content"] != "You are a helpful assistant." || second["role"] != "user" {
 		t.Fatalf("messages=%v", body["messages"])
 	}
 
@@ -610,6 +610,32 @@ func TestPrepareBodyInsertsEmptyLeadingSystem(t *testing.T) {
 	firstKept, _ := keptMessages[0].(map[string]any)
 	if firstKept["content"] != "keep me" {
 		t.Fatalf("existing system rewritten: %v", keptBody["messages"])
+	}
+}
+
+func TestPrepareBodyNormalizesEmptyMessageContent(t *testing.T) {
+	out := PrepareBody([]byte(`{"model":"m","messages":[{"role":"user","content":""},{"role":"assistant","content":null},{"role":"user","content":[]}]}`))
+	var body map[string]any
+	if err := json.Unmarshal(out, &body); err != nil {
+		t.Fatal(err)
+	}
+	messages, _ := body["messages"].([]any)
+	if len(messages) != 1 {
+		t.Fatalf("messages=%v", messages)
+	}
+	message, _ := messages[0].(map[string]any)
+	if message["role"] != "system" || message["content"] != "You are a helpful assistant." {
+		t.Fatalf("messages=%v", messages)
+	}
+
+	withToolCall := PrepareBody([]byte(`{"model":"m","messages":[{"role":"assistant","content":"","tool_calls":[{"id":"call_1"}]}]}`))
+	var toolBody map[string]any
+	if err := json.Unmarshal(withToolCall, &toolBody); err != nil {
+		t.Fatal(err)
+	}
+	toolMessages, _ := toolBody["messages"].([]any)
+	if len(toolMessages) != 2 {
+		t.Fatalf("tool message was dropped: %v", toolMessages)
 	}
 }
 

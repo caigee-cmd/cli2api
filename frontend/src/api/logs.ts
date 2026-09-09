@@ -56,6 +56,9 @@ export type RequestLog = {
   error_code?: string
   error_message?: string
   attempt_count: number
+  message_count?: number
+  empty_message_indexes?: number[]
+  message_roles?: string[]
   attempts?: RequestAttempt[]
   stream_diagnostic?: RequestStreamDiagnostic
 }
