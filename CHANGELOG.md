@@ -7,7 +7,11 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Return cached provider models immediately while refreshing expired catalogs in the background, and deduplicate concurrent catalog loads
+
 ### 中文
+
+- 供应商模型目录优先立即返回缓存，并在缓存过期后后台刷新，同时合并并发目录请求
 
 ## 0.4.1 - 2026-09-09
 
