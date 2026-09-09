@@ -45,16 +45,56 @@ export function loginWithPat(pat: string, accountId?: string) {
   })
 }
 
+type ModelsResponse = { data?: Overview['models'] }
+
+type ModelsMemoryEntry = {
+  data: ModelsResponse
+  at: number
+  pending?: Promise<ModelsResponse>
+}
+
+const modelsMemoryTTL = 30_000
+const modelsMemoryCache = new Map<string, ModelsMemoryEntry>()
+
+function modelsMemoryKey(accountId?: string) {
+  return accountId || '*'
+}
+
 export function fetchModels(accountId?: string, refresh = false) {
   const q = new URLSearchParams()
   if (refresh) q.set('refresh', '1')
   if (accountId) q.set('account', accountId)
   const query = q.toString()
-  return api<{ data?: Overview['models'] }>(`/api/models${query ? `?${query}` : ''}`)
+  return api<ModelsResponse>(`/api/models${query ? `?${query}` : ''}`)
+}
+
+export function fetchModelsCached(accountId?: string) {
+  const key = modelsMemoryKey(accountId)
+  const cached = modelsMemoryCache.get(key)
+  if (cached && Date.now() - cached.at < modelsMemoryTTL) {
+    return Promise.resolve(cached.data)
+  }
+  if (cached?.pending) return cached.pending
+  const pending = fetchModels(accountId).then((data) => {
+    modelsMemoryCache.set(key, { data, at: Date.now() })
+    return data
+  }).finally(() => {
+    const current = modelsMemoryCache.get(key)
+    if (current?.pending === pending) {
+      modelsMemoryCache.set(key, { data: current.data, at: current.at })
+    }
+  })
+  modelsMemoryCache.set(key, { data: cached?.data || {}, at: cached?.at || 0, pending })
+  return pending
 }
 
 export function refreshModels(accountId?: string) {
-  return fetchModels(accountId, true)
+  const key = modelsMemoryKey(accountId)
+  modelsMemoryCache.delete(key)
+  return fetchModels(accountId, true).then((data) => {
+    modelsMemoryCache.set(key, { data, at: Date.now() })
+    return data
+  })
 }
 
 export function updateModelContext(modelKey: string, contextLength: number) {
