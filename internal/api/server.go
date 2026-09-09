@@ -52,6 +52,8 @@ type Server struct {
 	updateJob              *systemUpdateJob
 	modelsAPICacheMu       sync.Mutex
 	modelsAPICache         map[string]modelsAPICacheEntry
+	statsCacheMu           sync.Mutex
+	statsCache             map[string]statsCacheEntry
 }
 
 func New(cfg config.Config) *Server {
@@ -187,6 +189,7 @@ func (s *Server) Close() error {
 func (s *Server) routes() {
 	s.mux.HandleFunc(endpoint.HealthPath, s.handleHealth)
 	s.mux.HandleFunc("/api/overview", s.withConsoleKey(s.handleOverview))
+	s.mux.HandleFunc("/api/overview/summary", s.withConsoleKey(s.handleOverviewSummary))
 	s.mux.HandleFunc("/api/system/update", s.withConsoleKey(s.handleSystemUpdate))
 	s.mux.HandleFunc("/api/system/update/prepare", s.withConsoleKey(s.handleSystemUpdatePrepare))
 	s.mux.HandleFunc("/api/system/update/apply", s.withConsoleKey(s.handleSystemUpdateConfirm))
@@ -311,6 +314,8 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 	}
 	readyCount := 0
 	hotCount := 0
+	coolingCount := 0
+	inFlight := 0
 	for _, account := range accountViews {
 		if account.Ready {
 			readyCount++
@@ -318,6 +323,10 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		if account.Hot {
 			hotCount++
 		}
+		if account.DownUntil != "" {
+			coolingCount++
+		}
+		inFlight += account.InFlight
 	}
 	models := s.decorateModelsWithContext(r.Context(), s.filterModelsForIdentity(r, s.fetchWorkerModels(false)))
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -349,6 +358,63 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		"ui": map[string]any{
 			"needs_api_key_for_chat":        s.cfg.ProxyAPIKey != "",
 			"proxy_api_key_required_for_v1": s.cfg.ProxyAPIKey != "",
+		},
+	})
+}
+
+func (s *Server) handleOverviewSummary(w http.ResponseWriter, r *http.Request) {
+	accountViews, err := s.manager.Accounts(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "account_list_failed", err.Error())
+		return
+	}
+	readyCount := 0
+	hotCount := 0
+	coolingCount := 0
+	inFlight := 0
+	for _, account := range accountViews {
+		if account.Ready {
+			readyCount++
+		}
+		if account.Hot {
+			hotCount++
+		}
+		if account.DownUntil != "" {
+			coolingCount++
+		}
+		inFlight += account.InFlight
+	}
+	modelCount := 0
+	s.modelsAPICacheMu.Lock()
+	if cached, ok := s.modelsAPICache[modelsAPICacheKey("")]; ok && time.Since(cached.at) < modelsAPICacheTTL {
+		modelCount = len(cached.models)
+	}
+	s.modelsAPICacheMu.Unlock()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":   true,
+		"time": time.Now().Format(time.RFC3339),
+		"proxy": map[string]any{
+			"ok": true, "service": "cli2api", "port": s.cfg.Port,
+			"providers":                 providerIDs(),
+			"cross_provider_model_pool": s.crossProviderModelPool.Load(),
+			"version":                   buildinfo.Version, "commit": buildinfo.Commit,
+			"chat_url": "/v1/chat/completions",
+		},
+		"worker": map[string]any{
+			"ok": readyCount > 0, "hot": hotCount > 0,
+			"ready_count": readyCount, "hot_count": hotCount,
+			"account_count": len(accountViews), "cooling_count": coolingCount,
+			"in_flight": inFlight,
+		},
+		"model_count": modelCount,
+		"routing": map[string]any{
+			"strategy":         s.pool.RoutingStrategy(),
+			"session_affinity": s.executor.SessionAffinity.Stats(),
+		},
+		"access": map[string]any{
+			"openai_base_url": "/v1", "chat_completions": endpoint.ChatCompletionsPath,
+			"messages": endpoint.MessagesPath, "responses": endpoint.ResponsesPath,
+			"models": endpoint.ModelsPath, "health": endpoint.HealthPath,
 		},
 	})
 }

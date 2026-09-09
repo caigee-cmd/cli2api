@@ -41,6 +41,7 @@ func TestManagementRoutesRequireAPIKey(t *testing.T) {
 
 	for _, path := range []string{
 		"/api/overview",
+		"/api/overview/summary",
 		"/api/models",
 		"/api/chat",
 		"/api/accounts",
@@ -62,6 +63,42 @@ func TestManagementRoutesRequireAPIKey(t *testing.T) {
 		if rec.Code != http.StatusUnauthorized {
 			t.Fatalf("%s %s without key: got %d want 401 body=%s", method, path, rec.Code, rec.Body.String())
 		}
+	}
+}
+
+func TestOverviewSummaryReturnsLightweightSnapshot(t *testing.T) {
+	dir := t.TempDir()
+	srv := New(config.Config{
+		Host: "127.0.0.1", Port: 3010, ProxyAPIKey: "secret",
+		QoderHome: dir, DataDir: dir,
+	})
+	defer srv.Close()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/overview/summary", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var summary struct {
+		Proxy struct {
+			Service string `json:"service"`
+		} `json:"proxy"`
+		Worker struct {
+			AccountCount int `json:"account_count"`
+		} `json:"worker"`
+		Models   []map[string]any `json:"models"`
+		Accounts []map[string]any `json:"accounts"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &summary); err != nil {
+		t.Fatal(err)
+	}
+	if summary.Proxy.Service != "cli2api" || summary.Worker.AccountCount != 0 {
+		t.Fatalf("summary = %+v", summary)
+	}
+	if summary.Models != nil || summary.Accounts != nil {
+		t.Fatalf("summary must not include detail collections: %+v", summary)
 	}
 }
 
