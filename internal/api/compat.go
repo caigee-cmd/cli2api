@@ -86,8 +86,16 @@ func (s *Server) handleAnthropicMessagesStream(w http.ResponseWriter, r *http.Re
 	writer := compatibilityStreamWriter(w)
 	stats, relayErr := relayAnthropicStream(writer, upstream.Response.Body, execution.requestID, firstNonEmpty(execution.publicModel, execution.request.Model))
 	status := streamRequestStatus(relayErr)
+	if r.Context().Err() != nil || errors.Is(relayErr, context.Canceled) || errors.Is(relayErr, context.DeadlineExceeded) {
+		status = accounts.RequestStatusCanceled
+	}
+	s.recordStreamDiagnostic(execution.requestID, upstream.Response, execution.started, stats, relayErr, r.Context().Err())
 	ttfb := streamTTFB(execution.started, upstream.TTFBMs, stats)
-	s.finishCompatibility(execution, upstream.AccountID, upstream.Provider, upstream.Routing, status, ttfb, &stats, relayErr, upstream.AttemptCount)
+	logErr := relayErr
+	if status == accounts.RequestStatusCanceled {
+		logErr = context.Canceled
+	}
+	s.finishCompatibility(execution, upstream.AccountID, upstream.Provider, upstream.Routing, status, ttfb, &stats, logErr, upstream.AttemptCount)
 	if relayErr == nil {
 		s.executor.CommitSession(execution.ctx, execution.request, upstream.Routing, upstream.AccountID)
 		return
@@ -154,8 +162,16 @@ func (s *Server) handleResponsesStream(w http.ResponseWriter, r *http.Request, e
 	writer := compatibilityStreamWriter(w)
 	stats, relayErr := relayResponsesStream(writer, upstream.Response.Body, execution.requestID, firstNonEmpty(execution.publicModel, execution.request.Model))
 	status := streamRequestStatus(relayErr)
+	if r.Context().Err() != nil || errors.Is(relayErr, context.Canceled) || errors.Is(relayErr, context.DeadlineExceeded) {
+		status = accounts.RequestStatusCanceled
+	}
+	s.recordStreamDiagnostic(execution.requestID, upstream.Response, execution.started, stats, relayErr, r.Context().Err())
 	ttfb := streamTTFB(execution.started, upstream.TTFBMs, stats)
-	s.finishCompatibility(execution, upstream.AccountID, upstream.Provider, upstream.Routing, status, ttfb, &stats, relayErr, upstream.AttemptCount)
+	logErr := relayErr
+	if status == accounts.RequestStatusCanceled {
+		logErr = context.Canceled
+	}
+	s.finishCompatibility(execution, upstream.AccountID, upstream.Provider, upstream.Routing, status, ttfb, &stats, logErr, upstream.AttemptCount)
 	if relayErr == nil {
 		s.executor.CommitSession(execution.ctx, execution.request, upstream.Routing, upstream.AccountID)
 		return

@@ -12,6 +12,7 @@ type RequestStore interface {
 	InsertRequestLog(ctx context.Context, log accounts.RequestLog) error
 	UpdateRequestLog(ctx context.Context, log accounts.RequestLog) error
 	InsertRequestAttempt(ctx context.Context, attempt accounts.RequestAttempt) error
+	InsertRequestStreamDiagnostic(ctx context.Context, diagnostic accounts.RequestStreamDiagnostic) error
 	PurgeRequestLogs(ctx context.Context, olderThan time.Duration, maxRows int) (int64, error)
 	ClearRequestLogs(ctx context.Context) (int64, error)
 	ListRequestLogs(ctx context.Context, filter accounts.RequestLogFilter) (accounts.RequestLogList, error)
@@ -70,6 +71,14 @@ func (r *RequestRecorder) Attempt(attempt accounts.RequestAttempt) {
 	r.enqueue(func() {
 		if err := r.store.InsertRequestAttempt(context.Background(), attempt); err != nil {
 			logf("insert request attempt: %v", err)
+		}
+	})
+}
+
+func (r *RequestRecorder) StreamDiagnostic(diagnostic accounts.RequestStreamDiagnostic) {
+	r.enqueue(func() {
+		if err := r.store.InsertRequestStreamDiagnostic(context.Background(), diagnostic); err != nil {
+			logf("insert request stream diagnostic: %v", err)
 		}
 	})
 }
