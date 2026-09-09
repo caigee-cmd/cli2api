@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.4.1 - 2026-09-09
+
+### English
+
 - Normalize empty WorkBuddy message content, preserve tool-call messages, and record non-sensitive message-shape diagnostics for request troubleshooting
 
 ### 中文
