@@ -669,6 +669,8 @@ func (s *Server) prepareChatExecution(r *http.Request, request translate.ChatReq
 	s.startRequestLog(accounts.RequestLog{
 		ID: requestID, CreatedAt: started, Stream: request.Stream, Status: accounts.RequestStatusStarted,
 		RequestedModel: firstNonEmpty(publicModel, request.Model),
+		MessageCount:   len(request.Messages), EmptyMessageIndexes: translate.EmptyMessageIndexes(request.Messages),
+		MessageRoles: translate.MessageRoles(request.Messages),
 	})
 	ctx := executor.WithAllowedProviders(executor.WithRequestID(r.Context(), requestID), identity.AllowedProviders)
 	if sessionKey := requestSessionKey(r, identity, request); sessionKey != "" {
