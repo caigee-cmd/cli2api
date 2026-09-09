@@ -52,6 +52,7 @@ type Server struct {
 	updateJob              *systemUpdateJob
 	modelsAPICacheMu       sync.Mutex
 	modelsAPICache         map[string]modelsAPICacheEntry
+	modelsAPIRefresh       map[string]*modelsAPIRefresh
 	statsCacheMu           sync.Mutex
 	statsCache             map[string]statsCacheEntry
 }
