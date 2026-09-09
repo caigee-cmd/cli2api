@@ -45,6 +45,21 @@ type streamRelayStats struct {
 	Credits          *float64
 	Model            string
 	FirstTokenAt     *time.Time
+	SSEEventCount    int
+	BytesRead        int64
+	LastEvent        string
+	SawDone          bool
+}
+
+type countingReader struct {
+	reader io.Reader
+	bytes  int64
+}
+
+func (r *countingReader) Read(p []byte) (int, error) {
+	n, err := r.reader.Read(p)
+	r.bytes += int64(n)
+	return n, err
 }
 
 type streamRelayWriteError struct {
@@ -65,16 +80,17 @@ func (e *streamRelayWriteError) Unwrap() error {
 	return e.err
 }
 
-func relayOpenAIStream(w http.ResponseWriter, body io.Reader) (streamRelayStats, error) {
+func relayOpenAIStream(w http.ResponseWriter, body io.Reader) (stats streamRelayStats, returnErr error) {
+	countedBody := &countingReader{reader: body}
+	defer func() { stats.BytesRead = countedBody.bytes }()
 	var writer io.Writer = w
 	if flusher, ok := w.(http.Flusher); ok {
 		writer = streamFlushWriter{w: w, f: flusher}
 	}
 
-	scanner := bufio.NewScanner(body)
+	scanner := bufio.NewScanner(countedBody)
 	scanner.Buffer(make([]byte, 0, 64*1024), maxSSELineSize)
 	sawDone := false
-	var stats streamRelayStats
 	var frame []string
 	var streamErr error
 
@@ -83,6 +99,8 @@ func relayOpenAIStream(w http.ResponseWriter, body io.Reader) (streamRelayStats,
 			return nil
 		}
 		eventName, data := parseSSEFrame(frame)
+		stats.SSEEventCount++
+		stats.LastEvent = eventName
 		if classifiedErr := classifyStreamSSEError(eventName, data); classifiedErr != nil {
 			if streamErr == nil {
 				streamErr = classifiedErr
@@ -101,10 +119,15 @@ func relayOpenAIStream(w http.ResponseWriter, body io.Reader) (streamRelayStats,
 			}
 			if usage, ok := parseStreamUsageLine(line); ok {
 				usage.FirstTokenAt = stats.FirstTokenAt
+				usage.SSEEventCount = stats.SSEEventCount
+				usage.BytesRead = stats.BytesRead
+				usage.LastEvent = stats.LastEvent
+				usage.SawDone = stats.SawDone
 				stats = usage
 			}
 			if strings.TrimSpace(strings.TrimPrefix(line, "data:")) == "[DONE]" {
 				sawDone = true
+				stats.SawDone = true
 			}
 		}
 		output := strings.Join(frame, "\n") + "\n\n"
@@ -725,12 +748,13 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		stats, relayErr := relayOpenAIStream(w, upstream.Response.Body)
 		status := accounts.RequestStatusOK
 		if relayErr != nil {
-			if isStreamClientDisconnect(relayErr) {
+			if isStreamClientDisconnect(relayErr) || r.Context().Err() != nil || errors.Is(relayErr, context.Canceled) || errors.Is(relayErr, context.DeadlineExceeded) {
 				status = accounts.RequestStatusCanceled
 			} else {
 				status = accounts.RequestStatusError
 			}
 		}
+		s.recordStreamDiagnostic(requestID, upstream.Response, started, stats, relayErr, r.Context().Err())
 		ttfb := upstream.TTFBMs
 		if stats.FirstTokenAt != nil {
 			ttfb = int(stats.FirstTokenAt.Sub(started).Milliseconds())
@@ -738,7 +762,11 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 				ttfb = 1
 			}
 		}
-		s.finishRequestLog(requestID, started, req, publicModel, upstream.AccountID, firstNonEmpty(upstream.Provider, providerFilter), upstream.Routing, status, ttfb, &stats, relayErr, upstream.AttemptCount)
+		logErr := relayErr
+		if status == accounts.RequestStatusCanceled {
+			logErr = context.Canceled
+		}
+		s.finishRequestLog(requestID, started, req, publicModel, upstream.AccountID, firstNonEmpty(upstream.Provider, providerFilter), upstream.Routing, status, ttfb, &stats, logErr, upstream.AttemptCount)
 		if relayErr == nil {
 			s.executor.CommitSession(ctx, req, upstream.Routing, upstream.AccountID)
 		}
@@ -990,6 +1018,56 @@ func (s *Server) finishRequestLog(requestID string, started time.Time, req trans
 		entry.ErrorMessage = classified.Message
 	}
 	s.recorder.Finish(entry)
+}
+
+func (s *Server) recordStreamDiagnostic(requestID string, response *http.Response, started time.Time, stats streamRelayStats, relayErr, contextErr error) {
+	if s.recorder == nil || requestID == "" {
+		return
+	}
+	finished := time.Now().UTC()
+	diagnostic := accounts.RequestStreamDiagnostic{
+		RequestID:     requestID,
+		CreatedAt:     started,
+		FinishedAt:    &finished,
+		SSEEventCount: stats.SSEEventCount,
+		BytesRead:     stats.BytesRead,
+		LastEvent:     stats.LastEvent,
+		SawDone:       stats.SawDone,
+	}
+	if response != nil {
+		status := response.StatusCode
+		diagnostic.UpstreamStatus = &status
+		if response.ContentLength >= 0 {
+			contentLength := int(response.ContentLength)
+			diagnostic.ContentLength = contentLength
+		}
+		diagnostic.UpstreamRequestID = firstNonEmpty(
+			response.Header.Get("X-Request-ID"),
+			response.Header.Get("X-Request-Id"),
+			response.Header.Get("X-Upstream-Request-ID"),
+		)
+	}
+	if contextErr != nil {
+		diagnostic.ContextErr = contextErr.Error()
+	}
+	if relayErr != nil {
+		diagnostic.RelayError = relayErr.Error()
+	}
+	switch {
+	case isStreamClientDisconnect(relayErr):
+		diagnostic.CancellationSource = "client_disconnect"
+	case contextErr != nil:
+		diagnostic.CancellationSource = "request_context_canceled"
+	case errors.Is(relayErr, context.DeadlineExceeded):
+		diagnostic.CancellationSource = "request_timeout"
+	case errors.Is(relayErr, context.Canceled):
+		diagnostic.CancellationSource = "upstream_context_canceled"
+	case relayErr != nil:
+		diagnostic.CancellationSource = "upstream_stream_error"
+	default:
+		diagnostic.CancellationSource = "completed"
+	}
+	s.recorder.StreamDiagnostic(diagnostic)
 }
 
 func ptrInt(value int) *int { return &value }

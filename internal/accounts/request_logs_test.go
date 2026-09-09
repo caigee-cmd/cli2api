@@ -47,6 +47,15 @@ func TestRequestLogsInsertListGetAndPurge(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	upstreamStatus := 200
+	if err := store.InsertRequestStreamDiagnostic(ctx, RequestStreamDiagnostic{
+		RequestID: parentID, CreatedAt: now, FinishedAt: &finished, UpstreamStatus: &upstreamStatus,
+		ContextErr: "context canceled", CancellationSource: "request_context_canceled",
+		RelayError: "stream read error: context canceled", SSEEventCount: 4, BytesRead: 512,
+		ContentLength: -1, LastEvent: "message", SawDone: false,
+	}); err != nil {
+		t.Fatal(err)
+	}
 	if err := store.InsertRequestAttempt(ctx, RequestAttempt{
 		ID: NewAttemptID(), RequestID: parentID, AttemptIndex: 1, AccountID: "acc_b",
 		StartedAt: now, FinishedAt: &finished, Status: AttemptStatusOK,
@@ -69,6 +78,10 @@ func TestRequestLogsInsertListGetAndPurge(t *testing.T) {
 	}
 	if got.AccountID != wb.ID || got.Provider != "workbuddy" || len(got.Attempts) != 2 || got.Attempts[0].Status != AttemptStatusFailover {
 		t.Fatalf("detail = %+v", got)
+	}
+	if got.StreamDiagnostic == nil || got.StreamDiagnostic.UpstreamStatus == nil || *got.StreamDiagnostic.UpstreamStatus != 200 ||
+		got.StreamDiagnostic.CancellationSource != "request_context_canceled" || got.StreamDiagnostic.SSEEventCount != 4 || got.StreamDiagnostic.SawDone {
+		t.Fatalf("stream diagnostic = %+v", got.StreamDiagnostic)
 	}
 
 	filtered, err := store.ListRequestLogs(ctx, RequestLogFilter{AccountID: wb.ID, Status: RequestStatusOK})
