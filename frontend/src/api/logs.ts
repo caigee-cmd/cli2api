@@ -17,6 +17,22 @@ export type RequestAttempt = {
   usage_source?: string
 }
 
+export type RequestStreamDiagnostic = {
+  request_id: string
+  created_at: string
+  finished_at?: string | null
+  upstream_status?: number | null
+  upstream_request_id?: string
+  context_err?: string
+  cancellation_source?: string
+  relay_error?: string
+  sse_event_count: number
+  bytes_read: number
+  content_length: number
+  last_event?: string
+  saw_done: boolean
+}
+
 export type RequestLog = {
   id: string
   created_at: string
@@ -41,6 +57,7 @@ export type RequestLog = {
   error_message?: string
   attempt_count: number
   attempts?: RequestAttempt[]
+  stream_diagnostic?: RequestStreamDiagnostic
 }
 
 export type RequestLogList = {

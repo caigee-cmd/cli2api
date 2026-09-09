@@ -27,29 +27,46 @@ const (
 var ErrRequestLogNotFound = errors.New("request log not found")
 
 type RequestLog struct {
-	ID               string           `json:"id"`
-	CreatedAt        time.Time        `json:"created_at"`
-	FinishedAt       *time.Time       `json:"finished_at,omitempty"`
-	Stream           bool             `json:"stream"`
-	Status           string           `json:"status"`
-	RequestedModel   string           `json:"requested_model"`
-	MappedModel      string           `json:"mapped_model,omitempty"`
-	AccountID        string           `json:"account_id,omitempty"`
-	Provider         string           `json:"provider,omitempty"`
-	Routing          string           `json:"routing,omitempty"`
-	PromptTokens     *int             `json:"prompt_tokens,omitempty"`
-	CompletionTokens *int             `json:"completion_tokens,omitempty"`
-	CacheReadTokens  *int             `json:"cache_read_tokens,omitempty"`
-	CacheWriteTokens *int             `json:"cache_write_tokens,omitempty"`
-	UsageSource      string           `json:"usage_source,omitempty"`
-	Credits          *float64         `json:"credits,omitempty"`
-	LatencyMs        *int             `json:"latency_ms,omitempty"`
-	TTFBMs           *int             `json:"ttfb_ms,omitempty"`
-	ErrorKind        string           `json:"error_kind,omitempty"`
-	ErrorCode        string           `json:"error_code,omitempty"`
-	ErrorMessage     string           `json:"error_message,omitempty"`
-	AttemptCount     int              `json:"attempt_count"`
-	Attempts         []RequestAttempt `json:"attempts,omitempty"`
+	ID               string                   `json:"id"`
+	CreatedAt        time.Time                `json:"created_at"`
+	FinishedAt       *time.Time               `json:"finished_at,omitempty"`
+	Stream           bool                     `json:"stream"`
+	Status           string                   `json:"status"`
+	RequestedModel   string                   `json:"requested_model"`
+	MappedModel      string                   `json:"mapped_model,omitempty"`
+	AccountID        string                   `json:"account_id,omitempty"`
+	Provider         string                   `json:"provider,omitempty"`
+	Routing          string                   `json:"routing,omitempty"`
+	PromptTokens     *int                     `json:"prompt_tokens,omitempty"`
+	CompletionTokens *int                     `json:"completion_tokens,omitempty"`
+	CacheReadTokens  *int                     `json:"cache_read_tokens,omitempty"`
+	CacheWriteTokens *int                     `json:"cache_write_tokens,omitempty"`
+	UsageSource      string                   `json:"usage_source,omitempty"`
+	Credits          *float64                 `json:"credits,omitempty"`
+	LatencyMs        *int                     `json:"latency_ms,omitempty"`
+	TTFBMs           *int                     `json:"ttfb_ms,omitempty"`
+	ErrorKind        string                   `json:"error_kind,omitempty"`
+	ErrorCode        string                   `json:"error_code,omitempty"`
+	ErrorMessage     string                   `json:"error_message,omitempty"`
+	AttemptCount     int                      `json:"attempt_count"`
+	Attempts         []RequestAttempt         `json:"attempts,omitempty"`
+	StreamDiagnostic *RequestStreamDiagnostic `json:"stream_diagnostic,omitempty"`
+}
+
+type RequestStreamDiagnostic struct {
+	RequestID          string     `json:"request_id"`
+	CreatedAt          time.Time  `json:"created_at"`
+	FinishedAt         *time.Time `json:"finished_at,omitempty"`
+	UpstreamStatus     *int       `json:"upstream_status,omitempty"`
+	UpstreamRequestID  string     `json:"upstream_request_id,omitempty"`
+	ContextErr         string     `json:"context_err,omitempty"`
+	CancellationSource string     `json:"cancellation_source,omitempty"`
+	RelayError         string     `json:"relay_error,omitempty"`
+	SSEEventCount      int        `json:"sse_event_count"`
+	BytesRead          int64      `json:"bytes_read"`
+	ContentLength      int        `json:"content_length"`
+	LastEvent          string     `json:"last_event,omitempty"`
+	SawDone            bool       `json:"saw_done"`
 }
 
 type RequestAttempt struct {
@@ -634,7 +651,81 @@ func (s *Store) GetRequestLog(ctx context.Context, id string) (RequestLog, error
 		return RequestLog{}, err
 	}
 	log.Attempts = attempts
+	diagnostic, err := s.getRequestStreamDiagnostic(ctx, log.ID)
+	if err != nil {
+		return RequestLog{}, err
+	}
+	log.StreamDiagnostic = diagnostic
 	return log, nil
+}
+
+func (s *Store) InsertRequestStreamDiagnostic(ctx context.Context, diagnostic RequestStreamDiagnostic) error {
+	if strings.TrimSpace(diagnostic.RequestID) == "" {
+		return fmt.Errorf("request stream diagnostic request id required")
+	}
+	if diagnostic.CreatedAt.IsZero() {
+		diagnostic.CreatedAt = time.Now().UTC()
+	}
+	var finished any
+	if diagnostic.FinishedAt != nil {
+		finished = formatTime(*diagnostic.FinishedAt)
+	}
+	_, err := s.db.ExecContext(ctx, `
+INSERT INTO request_stream_diagnostics (
+  request_id, created_at, finished_at, upstream_status, upstream_request_id, context_err,
+  cancellation_source, relay_error, sse_event_count, bytes_read, content_length,
+  last_event, saw_done
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(request_id) DO UPDATE SET
+  finished_at = excluded.finished_at, upstream_status = excluded.upstream_status,
+  upstream_request_id = excluded.upstream_request_id, context_err = excluded.context_err,
+  cancellation_source = excluded.cancellation_source, relay_error = excluded.relay_error,
+  sse_event_count = excluded.sse_event_count, bytes_read = excluded.bytes_read,
+  content_length = excluded.content_length, last_event = excluded.last_event,
+  saw_done = excluded.saw_done`,
+		diagnostic.RequestID, formatTime(diagnostic.CreatedAt), finished, nullableInt(diagnostic.UpstreamStatus),
+		diagnostic.UpstreamRequestID, diagnostic.ContextErr, diagnostic.CancellationSource, diagnostic.RelayError,
+		diagnostic.SSEEventCount, diagnostic.BytesRead, diagnostic.ContentLength, diagnostic.LastEvent,
+		boolToInt(diagnostic.SawDone),
+	)
+	if err != nil {
+		return fmt.Errorf("insert request stream diagnostic: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) getRequestStreamDiagnostic(ctx context.Context, requestID string) (*RequestStreamDiagnostic, error) {
+	var diagnostic RequestStreamDiagnostic
+	var created, finished, upstreamRequestID, contextErr, cancellationSource, relayError string
+	var upstreamStatus sql.NullInt64
+	var sawDone int
+	err := s.db.QueryRowContext(ctx, `
+SELECT request_id, created_at, finished_at, upstream_status, upstream_request_id, context_err,
+       cancellation_source, relay_error, sse_event_count, bytes_read, content_length,
+       last_event, saw_done
+FROM request_stream_diagnostics WHERE request_id = ?`, requestID).Scan(
+		&diagnostic.RequestID, &created, &finished, &upstreamStatus, &upstreamRequestID, &contextErr,
+		&cancellationSource, &relayError, &diagnostic.SSEEventCount, &diagnostic.BytesRead,
+		&diagnostic.ContentLength, &diagnostic.LastEvent, &sawDone,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get request stream diagnostic: %w", err)
+	}
+	diagnostic.CreatedAt = parseTime(created)
+	if finished != "" {
+		parsed := parseTime(finished)
+		diagnostic.FinishedAt = &parsed
+	}
+	if upstreamStatus.Valid {
+		diagnostic.UpstreamStatus = nullIntPtr(upstreamStatus)
+	}
+	diagnostic.UpstreamRequestID, diagnostic.ContextErr = upstreamRequestID, contextErr
+	diagnostic.CancellationSource, diagnostic.RelayError = cancellationSource, relayError
+	diagnostic.SawDone = sawDone != 0
+	return &diagnostic, nil
 }
 
 func (s *Store) listRequestAttempts(ctx context.Context, requestID string) ([]RequestAttempt, error) {
