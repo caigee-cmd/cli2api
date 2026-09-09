@@ -67,7 +67,13 @@ export type Overview = {
     rewarm_count?: number
     lastError?: string
     last_error?: string
+    account_count?: number
+    ready_count?: number
+    hot_count?: number
+    cooling_count?: number
+    in_flight?: number
   }
+  model_count?: number
   routing?: {
     strategy?: string
     session_affinity?: {

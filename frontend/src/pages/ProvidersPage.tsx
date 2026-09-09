@@ -1,9 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Button, Card, Chip, Input, Table, Tooltip } from '@heroui/react'
 import { Cube, ArrowClockwise, ArrowCounterClockwise, FloppyDisk, MagnifyingGlass, Info } from '@phosphor-icons/react'
 import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
-import { refreshModels, updateModelContext, updateProviderReasoning, updateTraeMaxMode } from '@/api/overview'
+import { fetchModels, refreshModels, updateModelContext, updateProviderReasoning, updateTraeMaxMode } from '@/api/overview'
 import type { Overview } from '@/api/types'
 import { ProviderMark } from '@/components/ProviderMark'
 import { ModelDetailsModal, formatTokens } from '@/components/ModelDetailsModal'
@@ -167,7 +167,7 @@ function ModelActions({
 
 export function ProvidersPage() {
   const { t } = useI18n()
-  const { overview, loading, setOverview } = useOverview()
+  const { overview, loading } = useOverview()
   const [filter, setFilter] = useState('')
   const [providerFilter, setProviderFilter] = useState('')
   const [page, setPage] = useState(1)
@@ -178,7 +178,16 @@ export function ProvidersPage() {
   const [messageError, setMessageError] = useState(false)
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [detailModel, setDetailModel] = useState<ModelInfo | null>(null)
-  const models = useMemo(() => overview?.models || [], [overview?.models])
+  const [models, setModels] = useState<ModelInfo[]>([])
+  const [modelsLoading, setModelsLoading] = useState(true)
+  useEffect(() => {
+    let cancelled = false
+    void fetchModels()
+      .then((data) => { if (!cancelled) setModels(data.data || []) })
+      .catch(() => undefined)
+      .finally(() => { if (!cancelled) setModelsLoading(false) })
+    return () => { cancelled = true }
+  }, [])
   const providers = useMemo(() => {
     const ids = new Set<string>()
     for (const model of models) ids.add(modelProvider(model))
@@ -216,7 +225,7 @@ export function ProvidersPage() {
     ? t('logsShownTotal', { shown: `${shownFrom}–${shownTo}`, total: filtered.length })
     : t('shownTotal', { shown: 0, total: models.length })
 
-  if (loading && !overview) return <ProvidersPageSkeleton />
+  if ((loading && !overview) || modelsLoading) return <ProvidersPageSkeleton />
 
   function updateModelInOverview(model: ModelInfo, result: Awaited<ReturnType<typeof updateModelContext>>) {
     const key = modelSettingsKey(model)
@@ -229,7 +238,7 @@ export function ProvidersPage() {
           context_custom: result.context_custom,
         }
       : item)
-    setOverview({ ...(overview || {}), models: nextModels })
+    setModels(nextModels)
     setDrafts((current) => ({ ...current, [key]: String(result.context_length) }))
   }
 
@@ -247,7 +256,7 @@ export function ProvidersPage() {
         context_length: maxMode && max ? max : dev,
       }
     })
-    setOverview({ ...(overview || {}), models: nextModels })
+    setModels(nextModels)
   }
 
   function updateReasoningInOverview(model: ModelInfo, effort: string) {
@@ -261,7 +270,7 @@ export function ProvidersPage() {
         context_custom: Boolean(item.max_mode) || Boolean(effort && effort !== item.reasoning_default),
       }
     })
-    setOverview({ ...(overview || {}), models: nextModels })
+    setModels(nextModels)
   }
 
   async function onRefresh() {
@@ -270,7 +279,7 @@ export function ProvidersPage() {
     setMessageError(false)
     try {
       const data = await refreshModels()
-      setOverview({ ...(overview || {}), models: data.data || [] })
+      setModels(data.data || [])
     } catch (error) {
       setMessageError(true)
       setMessage(error instanceof Error ? error.message : String(error))

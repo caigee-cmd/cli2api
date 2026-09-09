@@ -18,6 +18,7 @@ import { PageAlert } from '@/components/ui/PageAlert'
 import { OverviewPageSkeleton, RankListSkeleton, SkeletonBlock, TrafficChartSkeleton } from '@/components/ui/PageSkeletons'
 import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
+import { fetchAccounts, fetchModels } from '@/api/overview'
 import { formatCompact, formatLatency, formatPercent } from '@/lib/format'
 import { accountProviderFamilyLabel, accountProviderLabel } from '@/lib/provider'
 import { ProviderMark } from '@/components/ProviderMark'
@@ -74,16 +75,28 @@ export function OverviewPage() {
   const [stats, setStats] = useState<RequestStats | null>(null)
   const [statsError, setStatsError] = useState('')
   const [statsLoading, setStatsLoading] = useState(true)
+  const [accounts, setAccounts] = useState<NonNullable<Overview['accounts']>>([])
+  const [accountsLoading, setAccountsLoading] = useState(true)
+  const [modelCount, setModelCount] = useState(0)
 
   const proxyOk = Boolean(overview?.proxy?.ok)
   const workerOk = Boolean(overview?.worker?.ok)
-  const accounts = overview?.accounts || []
-  const readyAccounts = accounts.filter((account) => account.ready).length
-  const hotAccounts = accounts.filter((account) => account.hot).length
-  const coolingAccounts = accounts.filter((account) => account.down_until || account.cooldown_until).length
-  const inFlight = accounts.reduce((total, account) => total + (account.in_flight ?? account.inFlight ?? 0), 0)
-  const modelCount = overview?.models?.length ?? 0
+  const readyAccounts = overview?.worker?.ready_count ?? 0
+  const hotAccounts = overview?.worker?.hot_count ?? 0
+  const coolingAccounts = overview?.worker?.cooling_count ?? 0
+  const inFlight = overview?.worker?.in_flight ?? 0
   const traffic = stats ?? EMPTY_STATS
+
+  useEffect(() => {
+    let cancelled = false
+    void Promise.allSettled([fetchAccounts(false), fetchModels()]).then(([accountsResult, modelsResult]) => {
+      if (cancelled) return
+      if (accountsResult.status === 'fulfilled') setAccounts(accountsResult.value.data || [])
+      if (modelsResult.status === 'fulfilled') setModelCount((modelsResult.value.data || []).length)
+    })
+      .finally(() => { if (!cancelled) setAccountsLoading(false) })
+    return () => { cancelled = true }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -244,7 +257,7 @@ export function OverviewPage() {
             ))}
           </div>
           <div className="divide-y divide-separator">
-            {loading ? (
+            {accountsLoading ? (
               <RankListSkeleton />
             ) : accounts.length === 0 ? (
               <div className="px-5 py-8 text-sm text-muted">{t('noAccounts')}</div>

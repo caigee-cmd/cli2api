@@ -12,8 +12,8 @@ import {
 } from '@phosphor-icons/react'
 import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
-import { fetchModels, testChat } from '@/api/overview'
-import type { ModelInfo } from '@/api/types'
+import { fetchAccounts, fetchModels, testChat } from '@/api/overview'
+import type { ModelInfo, Overview } from '@/api/types'
 import { absUrl } from '@/lib/url'
 import { EmptyPanel } from '@/components/ui/EmptyPanel'
 import { PageAlert } from '@/components/ui/PageAlert'
@@ -98,8 +98,17 @@ function PlaygroundSelect({
 export function AccessPage() {
   const { t } = useI18n()
   const { overview, loading } = useOverview()
-  const poolModels = overview?.models || []
-  const accounts = overview?.accounts || []
+  const [poolModels, setPoolModels] = useState<ModelInfo[]>([])
+  const [accounts, setAccounts] = useState<NonNullable<Overview['accounts']>>([])
+  useEffect(() => {
+    let cancelled = false
+    void Promise.allSettled([fetchModels(), fetchAccounts(false)]).then(([modelsResult, accountsResult]) => {
+      if (cancelled) return
+      if (modelsResult.status === 'fulfilled') setPoolModels(modelsResult.value.data || [])
+      if (accountsResult.status === 'fulfilled') setAccounts(accountsResult.value.data || [])
+    })
+    return () => { cancelled = true }
+  }, [])
   const base = absUrl(overview?.access?.openai_base_url || '/v1')
   const chatPath = overview?.access?.chat_completions || '/v1/chat/completions'
   const chatEndpoint = absUrl(chatPath)

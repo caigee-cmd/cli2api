@@ -182,6 +182,20 @@ func TestRequestStatsWindow(t *testing.T) {
 	if len(stats.Errors) != 1 || stats.Errors[0].Key != accounts.KindUnavailable {
 		t.Fatalf("errors = %+v", stats.Errors)
 	}
+
+	second := httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/logs/stats?from="+base.Add(-10*time.Minute).Format(time.RFC3339)+"&to="+base.Add(50*time.Minute).Format(time.RFC3339), nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	srv.Handler().ServeHTTP(second, req)
+	if second.Code != http.StatusOK {
+		t.Fatalf("cached status=%d body=%s", second.Code, second.Body.String())
+	}
+	srv.statsCacheMu.Lock()
+	cacheEntries := len(srv.statsCache)
+	srv.statsCacheMu.Unlock()
+	if cacheEntries != 1 {
+		t.Fatalf("stats cache entries=%d, want 1", cacheEntries)
+	}
 }
 
 func TestParseQueryTimeDateOnlyEndOfDay(t *testing.T) {
