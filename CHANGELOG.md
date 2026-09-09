@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.4.0 - 2026-09-09
+
+### English
+
 - Load the overview dashboard from a lightweight summary first, fetch account and model details per page in parallel, and cache request statistics briefly to reduce SQLite work during console startup
 
 ### 中文
