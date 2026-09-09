@@ -31,6 +31,8 @@ import {
   type RequestLog,
   type RuntimeLogEntry,
 } from '@/api/logs'
+import { fetchAccounts, fetchModels } from '@/api/overview'
+import type { Overview } from '@/api/types'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { EmptyPanel } from '@/components/ui/EmptyPanel'
 import { FilterSearchSelect } from '@/components/ui/FilterSearchSelect'
@@ -41,7 +43,6 @@ import { PageAlert } from '@/components/ui/PageAlert'
 import { LogsPageSkeleton, LogsRequestListSkeleton, LogsRuntimeListSkeleton } from '@/components/ui/PageSkeletons'
 import { SearchBar } from '@/components/ui/SearchBar'
 import { useI18n } from '@/hooks/useI18n'
-import { useOverview } from '@/hooks/useOverview'
 import { accountProviderLabel } from '@/lib/provider'
 
 type PageTab = 'requests' | 'runtime'
@@ -120,9 +121,8 @@ function rangeFromPreset(preset: TimeRange) {
 
 export function LogsPage() {
   const { t, lang } = useI18n()
-  const { overview } = useOverview()
-  const accounts = overview?.accounts
-  const models = overview?.models
+  const [accounts, setAccounts] = useState<NonNullable<Overview['accounts']>>([])
+  const [models, setModels] = useState<NonNullable<Overview['models']>>([])
   const [tab, setTab] = useState<PageTab>('requests')
   const [loading, setLoading] = useState(true)
   const [booted, setBooted] = useState(false)
@@ -150,6 +150,16 @@ export function LogsPage() {
   const [detailOpen, setDetailOpen] = useState(false)
   const [clearOpen, setClearOpen] = useState(false)
   const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    void Promise.allSettled([fetchAccounts(false), fetchModels()]).then(([accountsResult, modelsResult]) => {
+      if (cancelled) return
+      if (accountsResult.status === 'fulfilled') setAccounts(accountsResult.value.data || [])
+      if (modelsResult.status === 'fulfilled') setModels(modelsResult.value.data || [])
+    })
+    return () => { cancelled = true }
+  }, [])
 
   const accountNameById = useMemo(() => {
     const names = new Map<string, string>()

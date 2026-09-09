@@ -140,8 +140,8 @@ export function AppSidebar({ mobileOpen, onClose }: Props) {
   const proxyOk = Boolean(overview?.proxy?.ok)
   const workerOk = Boolean(overview?.worker?.ok)
   const healthy = proxyOk && workerOk
-  const accountCount = overview?.accounts?.length ?? 0
-  const hotCount = overview?.accounts?.filter((account) => account.hot).length ?? 0
+  const accountCount = overview?.worker?.account_count ?? 0
+  const hotCount = overview?.worker?.hot_count ?? 0
   const showStatusSkeleton = loading
 
   function toggleCollapsed() {

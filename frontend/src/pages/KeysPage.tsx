@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Card, Checkbox, Chip, Description, Form, Input, Label, Modal } from '@heroui/react'
 import { Copy, Key, Plus, TrashSimple, X } from '@phosphor-icons/react'
 import { createAPIKey, deleteAPIKey, fetchAPIKeys, updateAPIKey, type APIKeyRecord } from '@/api/keys'
+import { fetchAccounts } from '@/api/overview'
 import { BrandMark } from '@/components/BrandMark'
 import { ProviderMark } from '@/components/ProviderMark'
 import { CompactSwitch } from '@/components/ui/CompactSwitch'
@@ -10,7 +11,6 @@ import { EmptyPanel } from '@/components/ui/EmptyPanel'
 import { PageAlert } from '@/components/ui/PageAlert'
 import { KeysPageSkeleton, SkeletonBlock } from '@/components/ui/PageSkeletons'
 import { useI18n } from '@/hooks/useI18n'
-import { useOverview } from '@/hooks/useOverview'
 import { accountProviderFamilyLabel } from '@/lib/provider'
 
 const PROVIDER_IDS = ['qoder', 'workbuddy', 'trae']
@@ -29,7 +29,7 @@ function formatTime(value?: string) {
 
 export function KeysPage() {
   const { t } = useI18n()
-  const { overview } = useOverview()
+  const [accountProviders, setAccountProviders] = useState<string[]>([])
   const [keys, setKeys] = useState<APIKeyRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [busyId, setBusyId] = useState('')
@@ -40,13 +40,17 @@ export function KeysPage() {
   const [revealed, setRevealed] = useState<APIKeyRecord | null>(null)
   const [copied, setCopied] = useState(false)
 
+  useEffect(() => {
+    void fetchAccounts(false).then((result) => {
+      setAccountProviders([...new Set((result.data || []).map((account) => account.provider).filter(Boolean) as string[])])
+    }).catch(() => undefined)
+  }, [])
+
   const availableProviders = useMemo(() => {
     const ids = new Set(PROVIDER_IDS)
-    for (const account of overview?.accounts || []) {
-      if (account.provider) ids.add(account.provider)
-    }
+    for (const provider of accountProviders) ids.add(provider)
     return [...ids]
-  }, [overview?.accounts])
+  }, [accountProviders])
 
   async function load() {
     setLoading(true)
