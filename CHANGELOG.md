@@ -7,7 +7,15 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Add asynchronous stream diagnostics for cancellation source, upstream status, SSE progress, and incomplete streams
+- Classify client and request-context stream cancellations separately from upstream unavailability
+- Show stream diagnostics in request details without storing prompt or response content
+
 ### 中文
+
+- 异步记录流取消来源、上游状态、SSE 进度和未完成流等诊断信息
+- 将客户端断开和请求上下文取消与上游不可用分开归类
+- 请求详情展示流诊断，但不保存提示词或响应正文
 
 ## 0.3.6 - 2026-09-08
 

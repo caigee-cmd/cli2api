@@ -816,6 +816,32 @@ export function LogsPage() {
                     {selected.error_message}
                   </div>
                 ) : null}
+                {selected?.stream_diagnostic ? (
+                  <div className="rounded-lg border border-separator bg-surface-secondary px-3 py-3 text-xs">
+                    <div className="font-medium text-muted">{t('logsStreamDiagnostics')}</div>
+                    <dl className="mt-2 grid gap-2 sm:grid-cols-2">
+                      {[
+                        [t('logsCancellationSource'), selected.stream_diagnostic.cancellation_source || '—'],
+                        [t('logsUpstreamStatus'), selected.stream_diagnostic.upstream_status ?? '—'],
+                        [t('logsSSEEvents'), selected.stream_diagnostic.sse_event_count],
+                        [t('logsBytesRead'), selected.stream_diagnostic.bytes_read],
+                        [t('logsLastEvent'), selected.stream_diagnostic.last_event || '—'],
+                        [t('logsStreamComplete'), selected.stream_diagnostic.saw_done ? 'yes' : 'no'],
+                      ].map(([label, value]) => (
+                        <div key={String(label)}>
+                          <dt className="text-[10px] text-muted">{label}</dt>
+                          <dd className="mono mt-0.5 break-all">{value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                    {selected.stream_diagnostic.context_err || selected.stream_diagnostic.relay_error ? (
+                      <div className="mt-2 space-y-1 break-all text-muted">
+                        {selected.stream_diagnostic.context_err ? <div>context: {selected.stream_diagnostic.context_err}</div> : null}
+                        {selected.stream_diagnostic.relay_error ? <div>relay: {selected.stream_diagnostic.relay_error}</div> : null}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
                 <div>
                   <div className="text-xs font-medium text-muted">{t('logsAttempts')}</div>
                   {selected?.attempts?.length ? (

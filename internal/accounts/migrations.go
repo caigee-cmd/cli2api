@@ -187,6 +187,23 @@ ALTER TABLE request_logs ADD COLUMN routing TEXT NOT NULL DEFAULT '';
 CREATE INDEX IF NOT EXISTS request_logs_routing ON request_logs(routing);`},
 	{filename: "015_account_quota_state.sql", sql: `
 ALTER TABLE accounts ADD COLUMN quota_json TEXT NOT NULL DEFAULT '';`},
+	{filename: "016_request_stream_diagnostics.sql", sql: `
+CREATE TABLE IF NOT EXISTS request_stream_diagnostics (
+  request_id TEXT PRIMARY KEY REFERENCES request_logs(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL,
+  finished_at TEXT,
+  upstream_status INTEGER,
+  upstream_request_id TEXT NOT NULL DEFAULT '',
+  context_err TEXT NOT NULL DEFAULT '',
+  cancellation_source TEXT NOT NULL DEFAULT '',
+  relay_error TEXT NOT NULL DEFAULT '',
+  sse_event_count INTEGER NOT NULL DEFAULT 0,
+  bytes_read INTEGER NOT NULL DEFAULT 0,
+  content_length INTEGER NOT NULL DEFAULT 0,
+  last_event TEXT NOT NULL DEFAULT '',
+  saw_done INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS request_stream_diagnostics_created_at ON request_stream_diagnostics(created_at DESC);`},
 }
 
 const schemaMigrationsDDL = `

@@ -169,6 +169,9 @@ func TestRelayOpenAIStreamCapturesUsageChunk(t *testing.T) {
 	if stats.FirstTokenAt == nil {
 		t.Fatal("first token timestamp missing")
 	}
+	if stats.SSEEventCount != 1 || stats.BytesRead != int64(len(body)) || stats.LastEvent != "message" || !stats.SawDone {
+		t.Fatalf("stream diagnostics = %+v", stats)
+	}
 }
 
 func TestSSEDeltaHasTokenIgnoresEmptyRoleChunks(t *testing.T) {
