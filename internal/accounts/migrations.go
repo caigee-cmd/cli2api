@@ -204,6 +204,10 @@ CREATE TABLE IF NOT EXISTS request_stream_diagnostics (
   saw_done INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS request_stream_diagnostics_created_at ON request_stream_diagnostics(created_at DESC);`},
+	{filename: "017_request_message_shape.sql", sql: `
+ALTER TABLE request_logs ADD COLUMN message_count INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE request_logs ADD COLUMN empty_message_indexes TEXT NOT NULL DEFAULT '';
+ALTER TABLE request_logs ADD COLUMN message_roles TEXT NOT NULL DEFAULT '';`},
 }
 
 const schemaMigrationsDDL = `

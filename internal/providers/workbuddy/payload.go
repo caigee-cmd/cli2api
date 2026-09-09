@@ -18,6 +18,7 @@ func PrepareBody(src []byte) []byte {
 	body["stream"] = true
 	normalizeToolChoice(body)
 	dropEmptyTools(body)
+	normalizeEmptyMessageContent(body)
 	ensureLeadingSystem(body)
 	out, err := json.Marshal(body)
 	if err != nil {
@@ -26,9 +27,53 @@ func PrepareBody(src []byte) []byte {
 	return out
 }
 
+func normalizeEmptyMessageContent(body map[string]any) {
+	raw, ok := body["messages"]
+	if !ok {
+		return
+	}
+	list, ok := raw.([]any)
+	if !ok {
+		return
+	}
+	kept := make([]any, 0, len(list))
+	for _, item := range list {
+		message, ok := item.(map[string]any)
+		if !ok {
+			kept = append(kept, item)
+			continue
+		}
+		content, exists := message["content"]
+		empty := !exists || content == nil
+		if value, ok := content.(string); ok {
+			empty = strings.TrimSpace(value) == ""
+		}
+		if value, ok := content.([]any); ok {
+			empty = len(value) == 0
+		}
+		if empty && !hasToolCalls(message) {
+			continue
+		}
+		kept = append(kept, item)
+	}
+	body["messages"] = kept
+}
+
+func hasToolCalls(message map[string]any) bool {
+	raw, ok := message["tool_calls"]
+	if !ok || raw == nil {
+		return false
+	}
+	if calls, ok := raw.([]any); ok {
+		return len(calls) > 0
+	}
+	return true
+}
+
 // ensureLeadingSystem satisfies WorkBuddy Global code 11128 ("first message
 // is not system prompt"). Drop-system-prompt strips caller identity, which
-// would otherwise leave a user message first. An empty system slot is enough.
+// would otherwise leave a user message first. The placeholder must be non-empty
+// because WorkBuddy rejects messages with empty content (code 11151).
 func ensureLeadingSystem(body map[string]any) {
 	raw, ok := body["messages"]
 	if !ok {
@@ -38,7 +83,7 @@ func ensureLeadingSystem(body map[string]any) {
 	if !ok {
 		return
 	}
-	placeholder := map[string]any{"role": "system", "content": ""}
+	placeholder := map[string]any{"role": "system", "content": "You are a helpful assistant."}
 	if len(list) == 0 {
 		body["messages"] = []any{placeholder}
 		return

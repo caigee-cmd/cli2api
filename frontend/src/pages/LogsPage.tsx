@@ -820,6 +820,16 @@ export function LogsPage() {
                     </dd>
                   </div>
                 </dl>
+                {selected && selected.message_count ? (
+                  <div className="rounded-lg border border-separator bg-surface-secondary px-3 py-3 text-xs">
+                    <div className="font-medium text-muted">{t('logsMessageShape')}</div>
+                    <dl className="mt-2 grid gap-2 sm:grid-cols-2">
+                      <div><dt className="text-[10px] text-muted">{t('logsMessageCount')}</dt><dd className="mono mt-0.5">{selected.message_count}</dd></div>
+                      <div><dt className="text-[10px] text-muted">{t('logsEmptyMessageIndexes')}</dt><dd className="mono mt-0.5 break-all">{selected.empty_message_indexes?.length ? selected.empty_message_indexes.join(', ') : '—'}</dd></div>
+                      <div className="sm:col-span-2"><dt className="text-[10px] text-muted">{t('logsMessageRoles')}</dt><dd className="mono mt-0.5 break-all">{selected.message_roles?.join(' → ') || '—'}</dd></div>
+                    </dl>
+                  </div>
+                ) : null}
                 {selected?.error_message ? (
                   <div className="rounded-lg border border-separator bg-surface-secondary px-3 py-2 text-xs leading-5 text-muted">
                     {selected.error_kind ? <span className="mono mr-2 text-muted">{selected.error_kind}</span> : null}

@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -27,30 +28,33 @@ const (
 var ErrRequestLogNotFound = errors.New("request log not found")
 
 type RequestLog struct {
-	ID               string                   `json:"id"`
-	CreatedAt        time.Time                `json:"created_at"`
-	FinishedAt       *time.Time               `json:"finished_at,omitempty"`
-	Stream           bool                     `json:"stream"`
-	Status           string                   `json:"status"`
-	RequestedModel   string                   `json:"requested_model"`
-	MappedModel      string                   `json:"mapped_model,omitempty"`
-	AccountID        string                   `json:"account_id,omitempty"`
-	Provider         string                   `json:"provider,omitempty"`
-	Routing          string                   `json:"routing,omitempty"`
-	PromptTokens     *int                     `json:"prompt_tokens,omitempty"`
-	CompletionTokens *int                     `json:"completion_tokens,omitempty"`
-	CacheReadTokens  *int                     `json:"cache_read_tokens,omitempty"`
-	CacheWriteTokens *int                     `json:"cache_write_tokens,omitempty"`
-	UsageSource      string                   `json:"usage_source,omitempty"`
-	Credits          *float64                 `json:"credits,omitempty"`
-	LatencyMs        *int                     `json:"latency_ms,omitempty"`
-	TTFBMs           *int                     `json:"ttfb_ms,omitempty"`
-	ErrorKind        string                   `json:"error_kind,omitempty"`
-	ErrorCode        string                   `json:"error_code,omitempty"`
-	ErrorMessage     string                   `json:"error_message,omitempty"`
-	AttemptCount     int                      `json:"attempt_count"`
-	Attempts         []RequestAttempt         `json:"attempts,omitempty"`
-	StreamDiagnostic *RequestStreamDiagnostic `json:"stream_diagnostic,omitempty"`
+	ID                  string                   `json:"id"`
+	CreatedAt           time.Time                `json:"created_at"`
+	FinishedAt          *time.Time               `json:"finished_at,omitempty"`
+	Stream              bool                     `json:"stream"`
+	Status              string                   `json:"status"`
+	RequestedModel      string                   `json:"requested_model"`
+	MappedModel         string                   `json:"mapped_model,omitempty"`
+	AccountID           string                   `json:"account_id,omitempty"`
+	Provider            string                   `json:"provider,omitempty"`
+	Routing             string                   `json:"routing,omitempty"`
+	PromptTokens        *int                     `json:"prompt_tokens,omitempty"`
+	CompletionTokens    *int                     `json:"completion_tokens,omitempty"`
+	CacheReadTokens     *int                     `json:"cache_read_tokens,omitempty"`
+	CacheWriteTokens    *int                     `json:"cache_write_tokens,omitempty"`
+	UsageSource         string                   `json:"usage_source,omitempty"`
+	Credits             *float64                 `json:"credits,omitempty"`
+	LatencyMs           *int                     `json:"latency_ms,omitempty"`
+	TTFBMs              *int                     `json:"ttfb_ms,omitempty"`
+	ErrorKind           string                   `json:"error_kind,omitempty"`
+	ErrorCode           string                   `json:"error_code,omitempty"`
+	ErrorMessage        string                   `json:"error_message,omitempty"`
+	AttemptCount        int                      `json:"attempt_count"`
+	MessageCount        int                      `json:"message_count,omitempty"`
+	EmptyMessageIndexes []int                    `json:"empty_message_indexes,omitempty"`
+	MessageRoles        []string                 `json:"message_roles,omitempty"`
+	Attempts            []RequestAttempt         `json:"attempts,omitempty"`
+	StreamDiagnostic    *RequestStreamDiagnostic `json:"stream_diagnostic,omitempty"`
 }
 
 type RequestStreamDiagnostic struct {
@@ -203,14 +207,14 @@ func (s *Store) InsertRequestLog(ctx context.Context, log RequestLog) error {
 INSERT INTO request_logs (
 	  id, created_at, finished_at, stream, status, requested_model, mapped_model, account_id, provider, routing,
 	  prompt_tokens, completion_tokens, cache_read_tokens, cache_write_tokens, usage_source, credits,
-	  latency_ms, ttfb_ms, error_kind, error_code, error_message, attempt_count
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	  latency_ms, ttfb_ms, error_kind, error_code, error_message, attempt_count, message_count, empty_message_indexes, message_roles
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		log.ID, formatTime(log.CreatedAt), finished, boolToInt(log.Stream), log.Status,
 		log.RequestedModel, log.MappedModel, nullIfEmpty(log.AccountID), strings.TrimSpace(log.Provider), strings.TrimSpace(log.Routing),
 		nullableInt(log.PromptTokens), nullableInt(log.CompletionTokens),
 		nullableInt(log.CacheReadTokens), nullableInt(log.CacheWriteTokens),
 		log.UsageSource, nullableFloat(log.Credits), nullableInt(log.LatencyMs), nullableInt(log.TTFBMs),
-		log.ErrorKind, log.ErrorCode, log.ErrorMessage, log.AttemptCount,
+		log.ErrorKind, log.ErrorCode, log.ErrorMessage, log.AttemptCount, log.MessageCount, encodeIntSlice(log.EmptyMessageIndexes), encodeStringSlice(log.MessageRoles),
 	)
 	if err != nil {
 		return fmt.Errorf("insert request log: %w", err)
@@ -231,13 +235,13 @@ func (s *Store) UpdateRequestLog(ctx context.Context, log RequestLog) error {
 	  finished_at = ?, status = ?, requested_model = ?, mapped_model = ?, account_id = ?, provider = ?, routing = ?,
 	  prompt_tokens = ?, completion_tokens = ?, cache_read_tokens = ?, cache_write_tokens = ?,
 	  usage_source = ?, credits = ?, latency_ms = ?, ttfb_ms = ?,
-	  error_kind = ?, error_code = ?, error_message = ?, attempt_count = ?
+	  error_kind = ?, error_code = ?, error_message = ?, attempt_count = ?, message_count = ?, empty_message_indexes = ?, message_roles = ?
 	WHERE id = ?`,
 		finished, log.Status, log.RequestedModel, log.MappedModel, nullIfEmpty(log.AccountID), strings.TrimSpace(log.Provider), strings.TrimSpace(log.Routing),
 		nullableInt(log.PromptTokens), nullableInt(log.CompletionTokens),
 		nullableInt(log.CacheReadTokens), nullableInt(log.CacheWriteTokens),
 		log.UsageSource, nullableFloat(log.Credits), nullableInt(log.LatencyMs), nullableInt(log.TTFBMs),
-		log.ErrorKind, log.ErrorCode, log.ErrorMessage, log.AttemptCount, log.ID,
+		log.ErrorKind, log.ErrorCode, log.ErrorMessage, log.AttemptCount, log.MessageCount, encodeIntSlice(log.EmptyMessageIndexes), encodeStringSlice(log.MessageRoles), log.ID,
 	)
 	if err != nil {
 		return fmt.Errorf("update request log: %w", err)
@@ -300,7 +304,7 @@ func (s *Store) ListRequestLogs(ctx context.Context, filter RequestLogFilter) (R
 	SELECT id, created_at, finished_at, stream, status, requested_model, mapped_model, account_id,
 	       COALESCE(NULLIF(provider, ''), (SELECT provider FROM accounts WHERE accounts.id = request_logs.account_id), ''), routing,
 	       prompt_tokens, completion_tokens, cache_read_tokens, cache_write_tokens, usage_source, credits,
-	       latency_ms, ttfb_ms, error_kind, error_code, error_message, attempt_count
+	       latency_ms, ttfb_ms, error_kind, error_code, error_message, attempt_count, message_count, empty_message_indexes, message_roles
 	FROM request_logs` + where + ` ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`
 	args = append(args, limit, offset)
 	rows, err := s.db.QueryContext(ctx, query, args...)
@@ -637,7 +641,7 @@ func (s *Store) GetRequestLog(ctx context.Context, id string) (RequestLog, error
 	SELECT id, created_at, finished_at, stream, status, requested_model, mapped_model, account_id,
 	       COALESCE(NULLIF(provider, ''), (SELECT provider FROM accounts WHERE accounts.id = request_logs.account_id), ''), routing,
 	       prompt_tokens, completion_tokens, cache_read_tokens, cache_write_tokens, usage_source, credits,
-	       latency_ms, ttfb_ms, error_kind, error_code, error_message, attempt_count
+	       latency_ms, ttfb_ms, error_kind, error_code, error_message, attempt_count, message_count, empty_message_indexes, message_roles
 	FROM request_logs WHERE id = ?`, strings.TrimSpace(id))
 	log, err := scanRequestLog(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -835,21 +839,60 @@ func buildRequestLogWhere(filter RequestLogFilter) (string, []any) {
 	return " WHERE " + strings.Join(clauses, " AND "), args
 }
 
+func encodeIntSlice(values []int) string {
+	if len(values) == 0 {
+		return ""
+	}
+	raw, _ := json.Marshal(values)
+	return string(raw)
+}
+
+func encodeStringSlice(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	raw, _ := json.Marshal(values)
+	return string(raw)
+}
+
+func decodeIntSlice(raw string) []int {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	var values []int
+	if json.Unmarshal([]byte(raw), &values) != nil {
+		return nil
+	}
+	return values
+}
+
+func decodeStringSlice(raw string) []string {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	var values []string
+	if json.Unmarshal([]byte(raw), &values) != nil {
+		return nil
+	}
+	return values
+}
+
 func scanRequestLog(row rowScanner) (RequestLog, error) {
 	var (
-		log                   RequestLog
-		finished, accountID   sql.NullString
-		stream                int
-		prompt, completion    sql.NullInt64
-		cacheRead, cacheWrite sql.NullInt64
-		credits               sql.NullFloat64
-		latency, ttfb         sql.NullInt64
-		created               string
+		log                        RequestLog
+		finished, accountID        sql.NullString
+		stream                     int
+		prompt, completion         sql.NullInt64
+		cacheRead, cacheWrite      sql.NullInt64
+		credits                    sql.NullFloat64
+		latency, ttfb              sql.NullInt64
+		emptyIndexes, messageRoles sql.NullString
+		created                    string
 	)
 	err := row.Scan(
 		&log.ID, &created, &finished, &stream, &log.Status, &log.RequestedModel, &log.MappedModel, &accountID, &log.Provider, &log.Routing,
 		&prompt, &completion, &cacheRead, &cacheWrite, &log.UsageSource, &credits,
-		&latency, &ttfb, &log.ErrorKind, &log.ErrorCode, &log.ErrorMessage, &log.AttemptCount,
+		&latency, &ttfb, &log.ErrorKind, &log.ErrorCode, &log.ErrorMessage, &log.AttemptCount, &log.MessageCount, &emptyIndexes, &messageRoles,
 	)
 	if err != nil {
 		return RequestLog{}, err
@@ -863,6 +906,8 @@ func scanRequestLog(row rowScanner) (RequestLog, error) {
 	if accountID.Valid {
 		log.AccountID = accountID.String
 	}
+	log.EmptyMessageIndexes = decodeIntSlice(emptyIndexes.String)
+	log.MessageRoles = decodeStringSlice(messageRoles.String)
 	log.PromptTokens = nullIntPtr(prompt)
 	log.CompletionTokens = nullIntPtr(completion)
 	log.CacheReadTokens = nullIntPtr(cacheRead)

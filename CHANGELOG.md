@@ -7,7 +7,11 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Normalize empty WorkBuddy message content, preserve tool-call messages, and record non-sensitive message-shape diagnostics for request troubleshooting
+
 ### 中文
+
+- 规范化 WorkBuddy 的空消息内容，保留工具调用消息，并记录不含正文的消息结构诊断，方便排查请求问题
 
 ## 0.4.0 - 2026-09-09
 
