@@ -7,7 +7,11 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Show missing Qoder account quota as loading or unavailable instead of incorrectly labeling it as requiring login
+
 ### 中文
+
+- 将 Qoder 账号缺失的额度信息显示为“额度获取中”或“额度不可用”，避免误显示为需要登录
 
 ## 0.4.5 - 2026-09-10
 
