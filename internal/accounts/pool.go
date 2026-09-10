@@ -1148,6 +1148,9 @@ func (p *Pool) RemoveModel(id, model string) {
 			p.items[i].Models = next
 		}
 		dropProvenModel(&p.items[i], want)
+		// Force the manager to refresh this account's catalog on the next
+		// request instead of trusting the now-mutated snapshot for the TTL.
+		p.items[i].ModelsAt = time.Time{}
 		return
 	}
 }
@@ -1387,7 +1390,9 @@ func (p *Pool) Items() []Item {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	items := make([]Item, len(p.items))
-	copy(items, p.items)
+	for i := range p.items {
+		items[i] = p.items[i].clone()
+	}
 	return items
 }
 

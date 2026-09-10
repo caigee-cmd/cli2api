@@ -625,8 +625,36 @@ func TestObserveStreamFailureDropsProvenModel(t *testing.T) {
 	if len(item.ProvenModels) != 0 {
 		t.Fatalf("stream catalog miss must drop proven model, got %v", item.ProvenModels)
 	}
+	if !item.ModelsAt.IsZero() {
+		t.Fatalf("explicit model miss must invalidate catalog freshness, got %s", item.ModelsAt)
+	}
 	if _, ok := pool.PickRoute(accounts.RouteQuery{PublicModel: "deepseek-v4-flash", ProviderFilter: "workbuddy"}); ok {
 		t.Fatal("account must leave the omitted-model route after a stream catalog miss")
+	}
+}
+
+func TestObserveStreamCatalogUnavailablePreservesModel(t *testing.T) {
+	pool := accounts.NewPool(nil, nil)
+	pool.Upsert(accounts.Item{ID: "ready", Provider: "workbuddy", Region: "cn", Runtime: "child_process"})
+	pool.MergeModels("ready", []string{"deepseek-v4-flash"})
+
+	ex := NewChatExecutor(pool, "")
+	ex.ObserveStreamFailure("ready", &providers.Error{
+		Kind:    accounts.KindModelNotAvailable,
+		Status:  503,
+		Code:    "model_catalog_unavailable",
+		Message: "model_catalog_unavailable: dynamic model catalog is unavailable",
+	}, "deepseek-v4-flash")
+
+	item, _ := pool.ByID("ready")
+	if len(item.Models) != 1 || item.Models[0] != "deepseek-v4-flash" {
+		t.Fatalf("catalog outage must preserve cached model, got %v", item.Models)
+	}
+	if item.ModelsAt.IsZero() {
+		t.Fatal("catalog outage must preserve the last successful snapshot timestamp")
+	}
+	if _, ok := pool.PickRoute(accounts.RouteQuery{PublicModel: "deepseek-v4-flash", ProviderFilter: "workbuddy"}); !ok {
+		t.Fatal("catalog outage must not remove a healthy account from the model route")
 	}
 }
 
