@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.4.3 - 2026-09-10
+
+### English
+
 - Remove the fixed 120-second timeout from WorkBuddy non-streaming chat aggregation and preserve upstream read errors instead of reporting a missing [DONE] marker
 
 ### 中文
