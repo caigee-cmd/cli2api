@@ -7,6 +7,16 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Remove the fixed 120-second timeout from WorkBuddy non-streaming chat aggregation and preserve upstream read errors instead of reporting a missing [DONE] marker
+
+### 中文
+
+- 移除 WorkBuddy 非流式聊天聚合的固定 120 秒超时，并保留上游读取错误，避免误报缺少 [DONE] 标记
+
+## 0.4.2 - 2026-09-09
+
+### English
+
 - Return cached provider models immediately while refreshing expired catalogs in the background, and deduplicate concurrent catalog loads
 
 ### 中文
