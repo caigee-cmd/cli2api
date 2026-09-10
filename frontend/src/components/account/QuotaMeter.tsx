@@ -8,18 +8,22 @@ type Props = {
   usedLabel: string
   remainingLabel: string
   addOnLabel: string
+  resourcePackageLabel: string
   exceededLabel: string
 }
 
-export function QuotaMeter({ quota, label, usedLabel, remainingLabel, addOnLabel, exceededLabel }: Props) {
+export function QuotaMeter({ quota, label, usedLabel, remainingLabel, addOnLabel, resourcePackageLabel, exceededLabel }: Props) {
   const ratio = quotaUsedRatio(quota)
   const tone = quotaTone(quota)
   const color = tone === 'danger' ? 'danger' : tone === 'warn' ? 'warning' : 'success'
   const unit = quota.unit || 'credits'
   const used = `${formatQuotaAmount(quota.used)} / ${formatQuotaAmount(quota.total)} ${unit}`
   const remaining = `${formatQuotaAmount(quota.remaining)} ${unit}`
-  const addOn = quota.has_add_on
+  const addOn = quota.has_add_on && quota.add_on_available !== false
     ? `${addOnLabel} ${formatQuotaAmount(quota.add_on_used)} / ${formatQuotaAmount(quota.add_on_total)} ${quota.add_on_unit || 'credits'}`
+    : ''
+  const resourcePackage = quota.has_resource_package && quota.resource_package_available !== false
+    ? `${resourcePackageLabel} ${remainingLabel} ${formatQuotaAmount(quota.resource_package_remaining)} ${quota.resource_package_unit || 'credits'}`
     : ''
 
   return (
@@ -31,7 +35,7 @@ export function QuotaMeter({ quota, label, usedLabel, remainingLabel, addOnLabel
       maxValue={100}
       value={Math.round(ratio * 100)}
       aria-label={label}
-      valueLabel={`${usedLabel} ${used} · ${remainingLabel} ${remaining}${addOn ? ` · ${addOn}` : ''}`}
+      valueLabel={`${usedLabel} ${used} · ${remainingLabel} ${remaining}${addOn ? ` · ${addOn}` : ''}${resourcePackage ? ` · ${resourcePackage}` : ''}`}
     >
       <Label className="text-[11px] font-medium">
         {label}
@@ -40,6 +44,7 @@ export function QuotaMeter({ quota, label, usedLabel, remainingLabel, addOnLabel
       <Meter.Output className="mono text-[10px] text-foreground/65">
         {usedLabel} {used} · {remainingLabel} {remaining}
         {addOn ? ` · ${addOn}` : ''}
+        {resourcePackage ? ` · ${resourcePackage}` : ''}
       </Meter.Output>
       <Meter.Track>
         <Meter.Fill />

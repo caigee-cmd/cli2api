@@ -113,8 +113,9 @@ type AccountHealth struct {
 	LastError string
 }
 
-// QuotaInfo is display-only usage for the accounts console. Callers must treat
-// probe readiness and quota independently; quota errors never flip Ready.
+// QuotaInfo is account usage for the console and exhausted-account routing.
+// Callers must treat probe readiness and quota independently; quota errors
+// never flip Ready.
 type QuotaInfo struct {
 	Used       float64
 	Total      float64

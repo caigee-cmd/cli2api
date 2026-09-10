@@ -7,7 +7,11 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Keep Qoder accounts routable when their base quota is exhausted but an available add-on or organization resource package still has credits, and show resource-package balance in the console
+
 ### 中文
+
+- Qoder 主额度用尽但可用附加包或组织资源包仍有余额时继续参与路由，并在控制台展示资源包余额
 
 ## 0.4.3 - 2026-09-10
 

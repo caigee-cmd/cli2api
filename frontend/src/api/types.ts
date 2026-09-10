@@ -8,7 +8,15 @@ export type AccountQuota = {
   has_add_on?: boolean
   add_on_used?: number
   add_on_total?: number
+  add_on_remaining?: number
   add_on_unit?: string
+  add_on_available?: boolean
+  has_resource_package?: boolean
+  resource_package_used?: number
+  resource_package_total?: number
+  resource_package_remaining?: number
+  resource_package_unit?: string
+  resource_package_available?: boolean
   fetched_at?: string
 }
 

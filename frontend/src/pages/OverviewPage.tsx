@@ -63,7 +63,7 @@ function errorLabel(kind: string, t: (key: string) => string) {
 }
 
 function quotaTone(percentage?: number, exceeded?: boolean) {
-  if (exceeded || (percentage ?? 0) >= 100) return 'danger'
+  if (exceeded) return 'danger'
   if ((percentage ?? 0) >= 80) return 'warning'
   return 'ok'
 }

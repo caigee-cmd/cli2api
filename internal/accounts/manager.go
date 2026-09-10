@@ -1134,8 +1134,9 @@ func (m *Manager) refreshOne(ctx context.Context, item Item, forceQuota bool) er
 	if err := m.store.Observe(ctx, item.ID, health.UID, status, health.LastError, ""); err != nil {
 		return err
 	}
-	// Quota is display-only: fetch after the health/observe path so a quota
-	// outage never flips account readiness or scheduling state.
+	// Fetch quota after the health/observe path so a quota endpoint outage
+	// never changes readiness. A successful exhausted snapshot may still
+	// keep the account out of request routing.
 	if health.Hot || ready {
 		m.fetchQuota(ctx, item.ID, item.URL, forceQuota)
 		m.fetchAccountModels(ctx, item)
@@ -1380,6 +1381,11 @@ type workerQuotaBlock struct {
 	Remaining  float64 `json:"remaining"`
 	Percentage float64 `json:"percentage"`
 	Unit       string  `json:"unit"`
+	Available  *bool   `json:"available"`
+}
+
+func (w *workerQuotaBlock) hasRemaining() bool {
+	return w != nil && w.Remaining > 0 && (w.Available == nil || *w.Available)
 }
 
 func (w *workerQuota) snapshot() *QuotaSnapshot {
@@ -1402,10 +1408,26 @@ func (w *workerQuota) snapshot() *QuotaSnapshot {
 		snapshot.HasAddOn = true
 		snapshot.AddOnUsed = w.AddOnQuota.Used
 		snapshot.AddOnTotal = w.AddOnQuota.Total
+		snapshot.AddOnRemaining = w.AddOnQuota.Remaining
 		snapshot.AddOnUnit = w.AddOnQuota.Unit
+		snapshot.AddOnAvailable = w.AddOnQuota.Available
 		if snapshot.AddOnUnit == "" {
 			snapshot.AddOnUnit = "credits"
 		}
+	}
+	if w.OrgResourcePackage != nil {
+		snapshot.HasResourcePackage = true
+		snapshot.ResourcePackageUsed = w.OrgResourcePackage.Used
+		snapshot.ResourcePackageTotal = w.OrgResourcePackage.Total
+		snapshot.ResourcePackageRemaining = w.OrgResourcePackage.Remaining
+		snapshot.ResourcePackageUnit = w.OrgResourcePackage.Unit
+		snapshot.ResourcePackageAvailable = w.OrgResourcePackage.Available
+		if snapshot.ResourcePackageUnit == "" {
+			snapshot.ResourcePackageUnit = "credits"
+		}
+	}
+	if snapshot.Exceeded && (w.AddOnQuota.hasRemaining() || w.OrgResourcePackage.hasRemaining()) {
+		snapshot.Exceeded = false
 	}
 	return snapshot
 }
