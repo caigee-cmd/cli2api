@@ -200,6 +200,9 @@ func Classify(status int, body, retryAfter, kindHint, failoverHint string) Class
 	msg, code, typ, nestedKind := extractError(body)
 	kind := strings.TrimSpace(firstNonEmpty(kindHint, nestedKind))
 	lower := strings.ToLower(msg + " " + code + " " + typ)
+	catalogUnavailable := strings.Contains(lower, "model_catalog_unavailable") ||
+		strings.Contains(lower, "dynamic model catalog is unavailable") ||
+		strings.Contains(lower, "model catalog unavailable")
 	if kind == "" {
 		switch {
 		case quotaLike(lower, code, typ):
@@ -282,6 +285,11 @@ func Classify(status int, body, retryAfter, kindHint, failoverHint string) Class
 		out.Cooldown = 0
 		out.Type = firstNonEmpty(typ, "invalid_request_error")
 		out.Code = firstNonEmpty(code, "model_not_available")
+		if catalogUnavailable {
+			out.Status = 503
+			out.Type = "api_error"
+			out.Code = "model_catalog_unavailable"
+		}
 	default:
 		if status >= 500 {
 			out.Status = status

@@ -69,6 +69,16 @@ func TestClassifyModelNotAvailableDoesNotCooldown(t *testing.T) {
 	}
 }
 
+func TestClassifyModelCatalogUnavailablePreservesDistinctCode(t *testing.T) {
+	got := Classify(400, `{"error":{"message":"model_catalog_unavailable: dynamic model catalog is unavailable","code":"model_not_available"}}`, "", "", "")
+	if got.Kind != KindModelNotAvailable || !got.Failover || got.Cooldown != 0 {
+		t.Fatalf("got %#v", got)
+	}
+	if got.Status != 503 || got.Code != "model_catalog_unavailable" || got.Type != "api_error" {
+		t.Fatalf("catalog outage must remain distinguishable, got %#v", got)
+	}
+}
+
 func TestClassifyTraePlanLimitIsQuota(t *testing.T) {
 	got := Classify(0, `{"code":1005,"message":""}`, "", "", "")
 	if got.Kind != KindQuota || got.Failover || got.Status != 429 {
