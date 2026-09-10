@@ -7,7 +7,11 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Open request-history details immediately with a loading skeleton while the full record is fetched
+
 ### 中文
+
+- 点击请求历史后立即打开详情弹窗，并在完整记录获取期间显示骨架屏
 
 ## 0.4.7 - 2026-09-10
 
