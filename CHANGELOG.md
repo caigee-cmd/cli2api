@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.4.5 - 2026-09-10
+
+### English
+
 - Open runtime log lines in a larger scrollable HeroUI detail modal, and align request-log details with the same roomy layout
 
 ### 中文
