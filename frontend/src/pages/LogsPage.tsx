@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { getLocalTimeZone, type DateValue } from '@internationalized/date'
 import {
   Button,
@@ -40,7 +40,7 @@ import { FilterSelect } from '@/components/ui/FilterSelect'
 import { FilterToggle } from '@/components/ui/FilterToggle'
 import { ListPager, type PageSize } from '@/components/ui/ListPager'
 import { PageAlert } from '@/components/ui/PageAlert'
-import { LogsPageSkeleton, LogsRequestListSkeleton, LogsRuntimeListSkeleton } from '@/components/ui/PageSkeletons'
+import { LogsPageSkeleton, LogsRequestListSkeleton, LogsRuntimeListSkeleton, SkeletonBlock } from '@/components/ui/PageSkeletons'
 import { SearchBar } from '@/components/ui/SearchBar'
 import { useI18n } from '@/hooks/useI18n'
 import { accountProviderLabel } from '@/lib/provider'
@@ -102,6 +102,30 @@ function TokenSplit({ log, inLabel, outLabel }: { log: RequestLog; inLabel: stri
   )
 }
 
+function RequestDetailSkeleton() {
+  return (
+    <div className="space-y-5" aria-busy="true" aria-live="polite">
+      <div className="grid gap-4 sm:grid-cols-2">
+        {Array.from({ length: 8 }, (_, index) => (
+          <div key={index} className="space-y-2">
+            <SkeletonBlock className="h-3 w-20" />
+            <SkeletonBlock className="h-5 w-36 max-w-full" />
+          </div>
+        ))}
+      </div>
+      <div className="space-y-3 rounded-lg bg-surface-secondary px-3 py-3">
+        <SkeletonBlock className="h-3 w-24" />
+        <SkeletonBlock className="h-4 w-full" />
+        <SkeletonBlock className="h-4 w-4/5" />
+      </div>
+      <div className="space-y-3">
+        <SkeletonBlock className="h-3 w-20" />
+        <SkeletonBlock className="h-16 w-full" />
+      </div>
+    </div>
+  )
+}
+
 function formatLatency(ms?: number | null) {
   if (ms == null) return '—'
   if (ms < 1000) return `${ms}ms`
@@ -157,6 +181,9 @@ export function LogsPage() {
   const [runtimeDetailOpen, setRuntimeDetailOpen] = useState(false)
   const [selected, setSelected] = useState<RequestLog | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
+  const [detailLoading, setDetailLoading] = useState(false)
+  const [detailError, setDetailError] = useState('')
+  const detailRequestRef = useRef(0)
   const [clearOpen, setClearOpen] = useState(false)
   const [busy, setBusy] = useState(false)
 
@@ -369,17 +396,21 @@ export function LogsPage() {
     setPage(1)
   }
 
-  async function openDetail(id: string) {
-    setBusy(true)
+  async function openDetail(request: RequestLog) {
+    const requestVersion = ++detailRequestRef.current
+    setSelected(request)
+    setDetailError('')
+    setDetailLoading(true)
+    setDetailOpen(true)
     try {
-      const detail = await fetchRequestLog(id)
+      const detail = await fetchRequestLog(request.id)
+      if (detailRequestRef.current !== requestVersion) return
       setSelected(detail)
-      setDetailOpen(true)
-      setError('')
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      if (detailRequestRef.current !== requestVersion) return
+      setDetailError(err instanceof Error ? err.message : String(err))
     } finally {
-      setBusy(false)
+      if (detailRequestRef.current === requestVersion) setDetailLoading(false)
     }
   }
 
@@ -659,7 +690,7 @@ export function LogsPage() {
                     </Table.Header>
                     <Table.Body>
                       {requests.map((item) => (
-                        <Table.Row key={item.id} className="cursor-pointer" onAction={() => void openDetail(item.id)}>
+                        <Table.Row key={item.id} className="cursor-pointer" onAction={() => void openDetail(item)}>
                           <Table.Cell>
                             <div className="py-1">
                               <div className="mono text-xs">{formatTime(item.created_at, lang)}</div>
@@ -855,7 +886,15 @@ export function LogsPage() {
         </Modal.Backdrop>
       </Modal.Root>
 
-      <Modal.Root isOpen={detailOpen} onOpenChange={setDetailOpen}>
+      <Modal.Root isOpen={detailOpen} onOpenChange={(open: boolean) => {
+        setDetailOpen(open)
+        if (!open) {
+          detailRequestRef.current += 1
+          setDetailLoading(false)
+          setDetailError('')
+          setSelected(null)
+        }
+      }}>
         <Modal.Backdrop variant="blur">
           <Modal.Container size="lg" scroll="inside">
             <Modal.Dialog className="w-full max-w-4xl">
@@ -869,7 +908,13 @@ export function LogsPage() {
                 </Modal.CloseTrigger>
               </Modal.Header>
               <Modal.Body className="space-y-4 px-5 pb-5">
-                <dl className="grid gap-3 sm:grid-cols-2">
+                {detailLoading ? (
+                  <RequestDetailSkeleton />
+                ) : detailError ? (
+                  <PageAlert title={t('requestFailed')} description={detailError} />
+                ) : (
+                  <>
+                    <dl className="grid gap-3 sm:grid-cols-2">
                   {[
                     [t('logsColStatus'), selected?.status || '—'],
                     [t('logsColModel'), selected?.requested_model || '—'],
@@ -957,6 +1002,8 @@ export function LogsPage() {
                     <p className="mt-2 text-xs text-muted">{t('logsNoAttempts')}</p>
                   )}
                 </div>
+                  </>
+                )}
               </Modal.Body>
             </Modal.Dialog>
           </Modal.Container>
