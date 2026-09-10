@@ -22,6 +22,8 @@ var ErrAccountNotFound = errors.New("account not found")
 var ErrSecretNotFound = errors.New("secret not found")
 var ErrAPIKeyNotFound = errors.New("api key not found")
 
+const defaultWorkBuddyCheckinTime = "09:00"
+
 type Account struct {
 	ID             string `json:"id"`
 	Name           string `json:"name"`
@@ -34,8 +36,10 @@ type Account struct {
 	Priority       int    `json:"priority"`
 	// DropSystemPrompt drops caller system prompts before provider-native chat.
 	DropSystemPrompt bool `json:"drop_system_prompt"`
-	// WorkBuddyAutoCheckin opts into scheduled daily-checkin (default off).
+	// WorkBuddyAutoCheckin opts into scheduled daily check-in (default off).
 	WorkBuddyAutoCheckin bool `json:"workbuddy_auto_checkin"`
+	// WorkBuddyCheckinTime is the process-local daily check-in time.
+	WorkBuddyCheckinTime string `json:"workbuddy_checkin_time"`
 	// LastCheckin* are display-only WorkBuddy ops results.
 	LastCheckinAt     string         `json:"last_checkin_at,omitempty"`
 	LastCheckinMsg    string         `json:"last_checkin_msg,omitempty"`
@@ -58,6 +62,7 @@ type CreateAccount struct {
 	Priority             int
 	DropSystemPrompt     *bool
 	WorkBuddyAutoCheckin *bool
+	WorkBuddyCheckinTime string
 }
 
 type UpdateAccount struct {
@@ -67,6 +72,7 @@ type UpdateAccount struct {
 	Priority             *int
 	DropSystemPrompt     *bool
 	WorkBuddyAutoCheckin *bool
+	WorkBuddyCheckinTime *string
 }
 
 type NativeCredential struct {
@@ -140,6 +146,10 @@ func (s *Store) Create(ctx context.Context, input CreateAccount) (Account, error
 	if input.WorkBuddyAutoCheckin != nil {
 		autoCheckin = *input.WorkBuddyAutoCheckin
 	}
+	checkinTime, err := normalizeWorkBuddyCheckinTime(input.WorkBuddyCheckinTime)
+	if err != nil {
+		return Account{}, err
+	}
 	account := Account{
 		ID:                   newAccountID(),
 		Name:                 name,
@@ -151,6 +161,7 @@ func (s *Store) Create(ctx context.Context, input CreateAccount) (Account, error
 		Priority:             priority,
 		DropSystemPrompt:     dropSystemPrompt,
 		WorkBuddyAutoCheckin: autoCheckin,
+		WorkBuddyCheckinTime: checkinTime,
 		Status:               "offline",
 		CreatedAt:            now,
 		UpdatedAt:            now,
@@ -158,11 +169,11 @@ func (s *Store) Create(ctx context.Context, input CreateAccount) (Account, error
 	_, err = s.db.ExecContext(ctx, `
 	INSERT INTO accounts (
 	  id, name, provider, provider_region, auth_type, enabled, max_inflight, priority, drop_system_prompt,
-	  workbuddy_auto_checkin, status, created_at, updated_at
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	  workbuddy_auto_checkin, workbuddy_checkin_time, status, created_at, updated_at
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		account.ID, account.Name, account.Provider, account.ProviderRegion, account.AuthType,
 		account.Enabled, account.MaxInFlight, account.Priority, account.DropSystemPrompt,
-		account.WorkBuddyAutoCheckin, account.Status,
+		account.WorkBuddyAutoCheckin, account.WorkBuddyCheckinTime, account.Status,
 		formatTime(account.CreatedAt), formatTime(account.UpdatedAt),
 	)
 	if err != nil {
@@ -174,7 +185,7 @@ func (s *Store) Create(ctx context.Context, input CreateAccount) (Account, error
 func (s *Store) Get(ctx context.Context, id string) (Account, error) {
 	row := s.db.QueryRowContext(ctx, `
 	SELECT id, name, provider, provider_region, remote_uid, auth_type, enabled, max_inflight, priority,
-	       drop_system_prompt, workbuddy_auto_checkin, last_checkin_at, last_checkin_msg, last_checkin_status,
+	       drop_system_prompt, workbuddy_auto_checkin, workbuddy_checkin_time, last_checkin_at, last_checkin_msg, last_checkin_status,
 	       status, last_error, last_error_kind, cooldown_until, quota_json, created_at, updated_at
 	FROM accounts WHERE id = ?`, strings.TrimSpace(id))
 	account, err := scanAccount(row)
@@ -197,7 +208,7 @@ func scanAccount(row rowScanner) (Account, error) {
 	err := row.Scan(
 		&account.ID, &account.Name, &account.Provider, &account.ProviderRegion, &account.RemoteUID,
 		&account.AuthType, &account.Enabled, &account.MaxInFlight, &account.Priority,
-		&account.DropSystemPrompt, &account.WorkBuddyAutoCheckin, &account.LastCheckinAt, &account.LastCheckinMsg, &account.LastCheckinStatus,
+		&account.DropSystemPrompt, &account.WorkBuddyAutoCheckin, &account.WorkBuddyCheckinTime, &account.LastCheckinAt, &account.LastCheckinMsg, &account.LastCheckinStatus,
 		&account.Status, &account.LastError, &account.LastErrorKind, &cooldown, &quotaJSON, &created, &updated,
 	)
 	if err != nil {
@@ -208,6 +219,9 @@ func scanAccount(row rowScanner) (Account, error) {
 	}
 	if account.ProviderRegion == "" {
 		account.ProviderRegion = "global"
+	}
+	if account.WorkBuddyCheckinTime == "" {
+		account.WorkBuddyCheckinTime = defaultWorkBuddyCheckinTime
 	}
 	account.CreatedAt = parseTime(created.String)
 	account.UpdatedAt = parseTime(updated.String)
@@ -244,7 +258,7 @@ func parseTime(value string) time.Time {
 func (s *Store) List(ctx context.Context) ([]Account, error) {
 	rows, err := s.db.QueryContext(ctx, `
 	SELECT id, name, provider, provider_region, remote_uid, auth_type, enabled, max_inflight, priority,
-	       drop_system_prompt, workbuddy_auto_checkin, last_checkin_at, last_checkin_msg, last_checkin_status,
+	       drop_system_prompt, workbuddy_auto_checkin, workbuddy_checkin_time, last_checkin_at, last_checkin_msg, last_checkin_status,
 	       status, last_error, last_error_kind, cooldown_until, quota_json, created_at, updated_at
 	FROM accounts ORDER BY created_at, id`)
 	if err != nil {
@@ -285,12 +299,18 @@ func (s *Store) Update(ctx context.Context, id string, input UpdateAccount) erro
 	if input.WorkBuddyAutoCheckin != nil {
 		account.WorkBuddyAutoCheckin = *input.WorkBuddyAutoCheckin
 	}
+	if input.WorkBuddyCheckinTime != nil {
+		account.WorkBuddyCheckinTime, err = normalizeWorkBuddyCheckinTime(*input.WorkBuddyCheckinTime)
+		if err != nil {
+			return err
+		}
+	}
 	account.UpdatedAt = time.Now().UTC()
 	result, err := s.db.ExecContext(ctx, `
 	UPDATE accounts SET name = ?, enabled = ?, max_inflight = ?, priority = ?, drop_system_prompt = ?,
-	                    workbuddy_auto_checkin = ?, updated_at = ?
+	                    workbuddy_auto_checkin = ?, workbuddy_checkin_time = ?, updated_at = ?
 	WHERE id = ?`, account.Name, account.Enabled, account.MaxInFlight, account.Priority, account.DropSystemPrompt,
-		account.WorkBuddyAutoCheckin, formatTime(account.UpdatedAt), account.ID)
+		account.WorkBuddyAutoCheckin, account.WorkBuddyCheckinTime, formatTime(account.UpdatedAt), account.ID)
 	if err != nil {
 		return fmt.Errorf("update account: %w", err)
 	}
@@ -299,6 +319,18 @@ func (s *Store) Update(ctx context.Context, id string, input UpdateAccount) erro
 		return ErrAccountNotFound
 	}
 	return nil
+}
+
+func normalizeWorkBuddyCheckinTime(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return defaultWorkBuddyCheckinTime, nil
+	}
+	parsed, err := time.Parse("15:04", value)
+	if err != nil || parsed.Format("15:04") != value {
+		return "", fmt.Errorf("workbuddy_checkin_time must use HH:mm")
+	}
+	return value, nil
 }
 
 func (s *Store) Delete(ctx context.Context, id string) error {

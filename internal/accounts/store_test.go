@@ -387,11 +387,16 @@ func TestStoreDefaultsWorkBuddyAutoCheckinOff(t *testing.T) {
 	if account.WorkBuddyAutoCheckin {
 		t.Fatalf("auto check-in must default off: %+v", account)
 	}
-	if err := store.Update(ctx, account.ID, UpdateAccount{WorkBuddyAutoCheckin: boolPtr(true)}); err != nil {
+	if account.WorkBuddyCheckinTime != "09:00" {
+		t.Fatalf("default check-in time=%q", account.WorkBuddyCheckinTime)
+	}
+	if err := store.Update(ctx, account.ID, UpdateAccount{
+		WorkBuddyAutoCheckin: boolPtr(true), WorkBuddyCheckinTime: stringPtr("18:30"),
+	}); err != nil {
 		t.Fatal(err)
 	}
 	updated, err := store.Get(ctx, account.ID)
-	if err != nil || !updated.WorkBuddyAutoCheckin {
+	if err != nil || !updated.WorkBuddyAutoCheckin || updated.WorkBuddyCheckinTime != "18:30" {
 		t.Fatalf("updated=%+v err=%v", updated, err)
 	}
 	at := time.Date(2026, 8, 30, 9, 5, 0, 0, time.UTC)
@@ -411,25 +416,62 @@ func TestStoreDefaultsWorkBuddyAutoCheckinOff(t *testing.T) {
 	}
 }
 
-func TestNextWorkBuddyFireKinds(t *testing.T) {
-	loc := time.FixedZone("CST", 8*3600)
-	now := time.Date(2026, 8, 30, 8, 0, 0, 0, loc)
-	delay, kind := nextWorkBuddyFire(now)
-	if kind != "checkin" {
-		t.Fatalf("kind=%q", kind)
+func TestStoreRejectsInvalidWorkBuddyCheckinTime(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
 	}
-	if delay <= 0 || delay > 2*time.Hour {
-		t.Fatalf("delay=%v", delay)
+	defer store.Close()
+	if _, err := store.Create(ctx, CreateAccount{
+		Name: "wb", Provider: "workbuddy", Region: "cn", WorkBuddyCheckinTime: "9:00",
+	}); err == nil {
+		t.Fatal("expected invalid create time")
 	}
-	evening := time.Date(2026, 8, 30, 21, 30, 0, 0, loc)
-	_, kind = nextWorkBuddyFire(evening)
-	if kind != "keepalive" {
-		t.Fatalf("after 21:30 want keepalive, got %q", kind)
+	account, err := store.Create(ctx, CreateAccount{Name: "wb", Provider: "workbuddy", Region: "cn"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Update(ctx, account.ID, UpdateAccount{WorkBuddyCheckinTime: stringPtr("24:00")}); err == nil {
+		t.Fatal("expected invalid update time")
 	}
 }
 
-func boolPtr(value bool) *bool { return &value }
-func intPtr(value int) *int    { return &value }
+func TestNextWorkBuddyFireKinds(t *testing.T) {
+	loc := time.FixedZone("CST", 8*3600)
+	accounts := []Account{{
+		Provider: "workbuddy", Enabled: true, WorkBuddyAutoCheckin: true, WorkBuddyCheckinTime: "08:30",
+	}}
+	now := time.Date(2026, 8, 30, 8, 0, 0, 0, loc)
+	delay, fire := nextWorkBuddyFire(now, accounts)
+	if len(fire.checkinTimes) != 1 || fire.checkinTimes[0] != "08:30" {
+		t.Fatalf("fire=%+v", fire)
+	}
+	if delay <= 0 || delay > 45*time.Minute {
+		t.Fatalf("delay=%v", delay)
+	}
+	evening := time.Date(2026, 8, 30, 21, 30, 0, 0, loc)
+	_, fire = nextWorkBuddyFire(evening, accounts)
+	if !fire.keepalive {
+		t.Fatalf("after 21:30 want keepalive, got %+v", fire)
+	}
+}
+
+func TestNextWorkBuddyFireCombinesCollidingTasks(t *testing.T) {
+	loc := time.FixedZone("CST", 8*3600)
+	accounts := []Account{{
+		Provider: "workbuddy", Enabled: true, WorkBuddyAutoCheckin: true, WorkBuddyCheckinTime: "22:00",
+	}}
+	now := time.Date(2026, 8, 30, 21, 30, 0, 0, loc)
+	_, fire := nextWorkBuddyFire(now, accounts)
+	if !fire.keepalive || len(fire.checkinTimes) != 1 || fire.checkinTimes[0] != "22:00" {
+		t.Fatalf("fire=%+v", fire)
+	}
+}
+
+func boolPtr(value bool) *bool       { return &value }
+func intPtr(value int) *int          { return &value }
+func stringPtr(value string) *string { return &value }
 
 // Managed updates recreate the container regularly, and cooldowns used to live
 // only in memory: a just-quarantined account walked straight back into

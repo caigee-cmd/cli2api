@@ -319,7 +319,7 @@ export function AccountCard({
             <div className="flex items-center justify-between gap-3 text-[11px]">
               <Tooltip>
                 <Tooltip.Trigger>
-                  <span className="font-medium">{t('autoCheckin')}</span>
+                  <span className="font-medium">{t('autoCheckin')} · {account.workbuddy_checkin_time || '09:00'}</span>
                 </Tooltip.Trigger>
                 <Tooltip.Content>{t('autoCheckinHint')}</Tooltip.Content>
               </Tooltip>
