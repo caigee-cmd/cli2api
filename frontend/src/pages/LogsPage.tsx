@@ -659,7 +659,7 @@ export function LogsPage() {
                     </Table.Header>
                     <Table.Body>
                       {requests.map((item) => (
-                        <Table.Row key={item.id} className="cursor-pointer" onClick={() => void openDetail(item.id)}>
+                        <Table.Row key={item.id} className="cursor-pointer" onAction={() => void openDetail(item.id)}>
                           <Table.Cell>
                             <div className="py-1">
                               <div className="mono text-xs">{formatTime(item.created_at, lang)}</div>
