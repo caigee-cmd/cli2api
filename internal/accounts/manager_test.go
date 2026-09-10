@@ -1483,6 +1483,61 @@ func TestCheckinOptedInSkipsSameDaySuccess(t *testing.T) {
 	}
 }
 
+func TestScheduledCheckinRespectsConfiguredTime(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	_, err = store.Create(ctx, CreateAccount{
+		Name: "wb", Provider: "workbuddy", Region: "cn", Enabled: true,
+		WorkBuddyAutoCheckin: boolPtr(true), WorkBuddyCheckinTime: "18:30",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ops := &fakeCheckinMaintainer{msg: "ok"}
+	manager := NewManager(ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	defer manager.Close()
+	manager.SetWorkBuddy(ops)
+	loc := time.FixedZone("CST", 8*3600)
+	manager.checkinOptedIn(ctx, time.Date(2026, 8, 30, 18, 29, 0, 0, loc), "21:00", true)
+	if ops.calls != 0 {
+		t.Fatalf("before configured time calls=%d", ops.calls)
+	}
+	manager.checkinOptedIn(ctx, time.Date(2026, 8, 30, 18, 30, 0, 0, loc), "18:30", false)
+	if ops.calls != 1 {
+		t.Fatalf("at configured time calls=%d", ops.calls)
+	}
+}
+
+func TestScheduledCheckinDoesNotImmediatelyRetrySameTime(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	_, err = store.Create(ctx, CreateAccount{
+		Name: "wb", Provider: "workbuddy", Region: "cn", Enabled: true,
+		WorkBuddyAutoCheckin: boolPtr(true), WorkBuddyCheckinTime: "21:00",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ops := &fakeCheckinMaintainer{err: errors.New("timeout")}
+	manager := NewManager(ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	defer manager.Close()
+	manager.SetWorkBuddy(ops)
+	now := time.Date(2026, 8, 30, 21, 0, 0, 0, time.FixedZone("CST", 8*3600))
+	manager.checkinOptedIn(ctx, now, "21:00", false)
+	manager.checkinOptedIn(ctx, now, "21:00", true)
+	if ops.calls != 1 {
+		t.Fatalf("same-time retry duplicated check-in, calls=%d", ops.calls)
+	}
+}
+
 func TestCheckinOptedInRetriesSameDayError(t *testing.T) {
 	ctx := context.Background()
 	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))

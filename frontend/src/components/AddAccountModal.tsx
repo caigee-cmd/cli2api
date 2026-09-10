@@ -131,6 +131,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
   const [priority, setPriority] = useState('50')
   const [dropSystemPrompt, setDropSystemPrompt] = useState(true)
   const [autoCheckin, setAutoCheckin] = useState(false)
+  const [autoCheckinTime, setAutoCheckinTime] = useState('09:00')
   const [pat, setPat] = useState('')
   const [json, setJson] = useState('')
   const [phase, setPhase] = useState<Phase>('idle')
@@ -208,6 +209,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
       priority: parsedPriority(),
       drop_system_prompt: showDropSystem ? dropSystemPrompt : true,
       workbuddy_auto_checkin: showAutoCheckin ? autoCheckin : false,
+      workbuddy_checkin_time: showAutoCheckin ? autoCheckinTime : undefined,
     }
   }
 
@@ -223,6 +225,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
     setPriority('50')
     setDropSystemPrompt(true)
     setAutoCheckin(false)
+    setAutoCheckinTime('09:00')
     setPat('')
     setJson('')
     setAdvancedOpen(false)
@@ -371,6 +374,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
         priority: options.priority,
         drop_system_prompt: options.drop_system_prompt,
         workbuddy_auto_checkin: options.workbuddy_auto_checkin,
+        workbuddy_checkin_time: options.workbuddy_checkin_time,
       })
       setPhase('done')
       setMessage(t('accountImported'))
@@ -503,6 +507,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
 
                   <section className="mt-5 space-y-2.5">
                     <Input
+                      className="h-12 text-base"
                       value={name}
                       onChange={(event) => setName(event.target.value)}
                       placeholder={t('wizardNamePh')}
@@ -563,17 +568,33 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                           </div>
                         ) : null}
                         {showAutoCheckin ? (
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="min-w-0">
-                              <div className="text-xs font-medium text-muted">{t('autoCheckin')}</div>
-                              <p className="mt-0.5 text-[11px] leading-4 text-muted">{t('autoCheckinCreateHint')}</p>
+                          <div className="space-y-2.5">
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="text-xs font-medium text-muted">{t('autoCheckin')}</div>
+                                <p className="mt-0.5 text-[11px] leading-4 text-muted">{t('autoCheckinCreateHint')}</p>
+                              </div>
+                              <CompactSwitch
+                                isSelected={autoCheckin}
+                                isDisabled={settingsLocked}
+                                ariaLabel={t('autoCheckin')}
+                                onChange={setAutoCheckin}
+                              />
                             </div>
-                            <CompactSwitch
-                              isSelected={autoCheckin}
-                              isDisabled={settingsLocked}
-                              ariaLabel={t('autoCheckin')}
-                              onChange={setAutoCheckin}
-                            />
+                            {autoCheckin ? (
+                              <label className="block space-y-1.5 rounded-lg bg-surface-secondary/55 p-3">
+                                <span className="text-xs font-medium text-muted">{t('autoCheckinTime')}</span>
+                                <Input
+                                  className="h-11 w-full text-base sm:max-w-48"
+                                  type="time"
+                                  value={autoCheckinTime}
+                                  onChange={(event) => setAutoCheckinTime(event.target.value || '09:00')}
+                                  aria-label={t('autoCheckinTime')}
+                                  disabled={settingsLocked}
+                                />
+                                <p className="text-[11px] leading-4 text-muted">{t('autoCheckinTimeHint')}</p>
+                              </label>
+                            ) : null}
                           </div>
                         ) : null}
                       </div>
