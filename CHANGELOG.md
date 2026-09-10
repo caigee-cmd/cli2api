@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.4.6 - 2026-09-10
+
+### English
+
 - Show missing Qoder account quota as loading or unavailable instead of incorrectly labeling it as requiring login
 
 ### 中文
