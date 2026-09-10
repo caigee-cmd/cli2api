@@ -7,7 +7,11 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Open runtime log lines in a larger scrollable HeroUI detail modal, and align request-log details with the same roomy layout
+
 ### 中文
+
+- 运行日志行可打开更大的可滚动 HeroUI 详情弹窗，并同步优化请求日志详情的宽度与布局
 
 ## 0.4.4 - 2026-09-10
 
