@@ -7,10 +7,14 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Let WorkBuddy accounts choose their automatic daily check-in time during creation, with a 21:00 retry for failed attempts
+- Enlarge the account-name input in the create-account wizard
 - Open request-history details immediately with a loading skeleton while the full record is fetched
 
 ### 中文
 
+- WorkBuddy 账号创建时可选择每日自动签到时间，失败会在 21:00 重试
+- 放大创建账号向导中的账号名称输入框
 - 点击请求历史后立即打开详情弹窗，并在完整记录获取期间显示骨架屏
 
 ## 0.4.7 - 2026-09-10

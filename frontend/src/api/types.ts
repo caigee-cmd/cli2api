@@ -117,6 +117,7 @@ export type Overview = {
     priority?: number
     drop_system_prompt?: boolean
     workbuddy_auto_checkin?: boolean
+    workbuddy_checkin_time?: string
     status?: string
     cooldown_until?: string | null
     url?: string

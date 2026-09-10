@@ -43,6 +43,7 @@ func (s *Server) handleAccounts(w http.ResponseWriter, r *http.Request) {
 			Priority             int    `json:"priority"`
 			DropSystemPrompt     *bool  `json:"drop_system_prompt"`
 			WorkBuddyAutoCheckin *bool  `json:"workbuddy_auto_checkin"`
+			WorkBuddyCheckinTime string `json:"workbuddy_checkin_time"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 			writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
@@ -56,6 +57,7 @@ func (s *Server) handleAccounts(w http.ResponseWriter, r *http.Request) {
 			Name: input.Name, Provider: input.Provider, Region: input.Region,
 			Enabled: input.Enabled, MaxInFlight: input.MaxInFlight, Priority: input.Priority,
 			DropSystemPrompt: input.DropSystemPrompt, WorkBuddyAutoCheckin: input.WorkBuddyAutoCheckin,
+			WorkBuddyCheckinTime: input.WorkBuddyCheckinTime,
 		})
 		if err != nil {
 			writeErr(w, http.StatusBadRequest, "account_create_failed", err.Error())
@@ -87,6 +89,7 @@ func (s *Server) handleAccountImport(w http.ResponseWriter, r *http.Request) {
 		Priority             int             `json:"priority"`
 		DropSystemPrompt     *bool           `json:"drop_system_prompt"`
 		WorkBuddyAutoCheckin *bool           `json:"workbuddy_auto_checkin"`
+		WorkBuddyCheckinTime string          `json:"workbuddy_checkin_time"`
 		UserBlob             string          `json:"user_blob"`
 		MachineID            string          `json:"machine_id"`
 		Credential           json.RawMessage `json:"credential"`
@@ -105,8 +108,8 @@ func (s *Server) handleAccountImport(w http.ResponseWriter, r *http.Request) {
 		account, err := s.manager.Import(r.Context(), accounts.ImportAccount{
 			Name: input.Name, Provider: input.Provider, Region: input.Region, Enabled: input.Enabled,
 			MaxInFlight: input.MaxInFlight, Priority: input.Priority, DropSystemPrompt: input.DropSystemPrompt,
-			WorkBuddyAutoCheckin: input.WorkBuddyAutoCheckin,
-			Credential:           accounts.NativeCredential{UserBlob: blob, MachineID: input.MachineID},
+			WorkBuddyAutoCheckin: input.WorkBuddyAutoCheckin, WorkBuddyCheckinTime: input.WorkBuddyCheckinTime,
+			Credential: accounts.NativeCredential{UserBlob: blob, MachineID: input.MachineID},
 		})
 		if err != nil {
 			writeErr(w, http.StatusBadRequest, "account_import_failed", err.Error())
@@ -137,6 +140,7 @@ func (s *Server) handleAccountImport(w http.ResponseWriter, r *http.Request) {
 			Name: input.Name, Provider: "trae", Region: input.Region, Enabled: false,
 			MaxInFlight: input.MaxInFlight, Priority: input.Priority, DropSystemPrompt: input.DropSystemPrompt,
 			WorkBuddyAutoCheckin: input.WorkBuddyAutoCheckin,
+			WorkBuddyCheckinTime: input.WorkBuddyCheckinTime,
 		})
 		if err != nil {
 			writeErr(w, http.StatusBadRequest, "account_import_failed", err.Error())
@@ -173,6 +177,7 @@ func (s *Server) handleAccountImport(w http.ResponseWriter, r *http.Request) {
 			Name: input.Name, Provider: "workbuddy", Region: input.Region, Enabled: false,
 			MaxInFlight: input.MaxInFlight, Priority: input.Priority, DropSystemPrompt: input.DropSystemPrompt,
 			WorkBuddyAutoCheckin: input.WorkBuddyAutoCheckin,
+			WorkBuddyCheckinTime: input.WorkBuddyCheckinTime,
 		})
 		if err != nil {
 			writeErr(w, http.StatusBadRequest, "account_import_failed", err.Error())
@@ -217,12 +222,13 @@ func (s *Server) handleAccountByID(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, account)
 		case http.MethodPatch:
 			var input struct {
-				Name                 string `json:"name"`
-				Enabled              *bool  `json:"enabled"`
-				MaxInFlight          *int   `json:"max_inflight"`
-				Priority             *int   `json:"priority"`
-				DropSystemPrompt     *bool  `json:"drop_system_prompt"`
-				WorkBuddyAutoCheckin *bool  `json:"workbuddy_auto_checkin"`
+				Name                 string  `json:"name"`
+				Enabled              *bool   `json:"enabled"`
+				MaxInFlight          *int    `json:"max_inflight"`
+				Priority             *int    `json:"priority"`
+				DropSystemPrompt     *bool   `json:"drop_system_prompt"`
+				WorkBuddyAutoCheckin *bool   `json:"workbuddy_auto_checkin"`
+				WorkBuddyCheckinTime *string `json:"workbuddy_checkin_time"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 				writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
@@ -231,6 +237,7 @@ func (s *Server) handleAccountByID(w http.ResponseWriter, r *http.Request) {
 			err := s.manager.Update(r.Context(), accountID, accounts.UpdateAccount{
 				Name: input.Name, Enabled: input.Enabled, MaxInFlight: input.MaxInFlight, Priority: input.Priority,
 				DropSystemPrompt: input.DropSystemPrompt, WorkBuddyAutoCheckin: input.WorkBuddyAutoCheckin,
+				WorkBuddyCheckinTime: input.WorkBuddyCheckinTime,
 			})
 			if err != nil {
 				writeErr(w, http.StatusBadRequest, "account_update_failed", err.Error())

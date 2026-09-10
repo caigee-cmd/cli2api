@@ -190,6 +190,7 @@ export function createAccount(
     priority?: number
     drop_system_prompt?: boolean
     workbuddy_auto_checkin?: boolean
+    workbuddy_checkin_time?: string
   },
 ) {
   return api('/api/accounts', {
@@ -203,6 +204,7 @@ export function createAccount(
       priority: options?.priority ?? 50,
       drop_system_prompt: options?.drop_system_prompt,
       workbuddy_auto_checkin: options?.workbuddy_auto_checkin,
+      workbuddy_checkin_time: options?.workbuddy_checkin_time,
     }),
   })
 }
