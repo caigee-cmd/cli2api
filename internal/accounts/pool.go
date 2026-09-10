@@ -8,20 +8,28 @@ import (
 	"time"
 )
 
-// QuotaSnapshot is the display-only quota state for one account.
-// A zero value means "unknown"; it never influences routing or cooldown.
+// QuotaSnapshot is the quota state for one account.
+// A zero value means "unknown"; only Exceeded influences routing.
 type QuotaSnapshot struct {
-	Used       float64 `json:"used"`
-	Total      float64 `json:"total"`
-	Remaining  float64 `json:"remaining"`
-	Percentage float64 `json:"percentage"`
-	Unit       string  `json:"unit"`
-	Exceeded   bool    `json:"exceeded"`
-	HasAddOn   bool    `json:"has_add_on"`
-	AddOnUsed  float64 `json:"add_on_used"`
-	AddOnTotal float64 `json:"add_on_total"`
-	AddOnUnit  string  `json:"add_on_unit"`
-	FetchedAt  string  `json:"fetched_at"`
+	Used                     float64 `json:"used"`
+	Total                    float64 `json:"total"`
+	Remaining                float64 `json:"remaining"`
+	Percentage               float64 `json:"percentage"`
+	Unit                     string  `json:"unit"`
+	Exceeded                 bool    `json:"exceeded"`
+	HasAddOn                 bool    `json:"has_add_on"`
+	AddOnUsed                float64 `json:"add_on_used"`
+	AddOnTotal               float64 `json:"add_on_total"`
+	AddOnRemaining           float64 `json:"add_on_remaining"`
+	AddOnUnit                string  `json:"add_on_unit"`
+	AddOnAvailable           *bool   `json:"add_on_available,omitempty"`
+	HasResourcePackage       bool    `json:"has_resource_package"`
+	ResourcePackageUsed      float64 `json:"resource_package_used"`
+	ResourcePackageTotal     float64 `json:"resource_package_total"`
+	ResourcePackageRemaining float64 `json:"resource_package_remaining"`
+	ResourcePackageUnit      string  `json:"resource_package_unit"`
+	ResourcePackageAvailable *bool   `json:"resource_package_available,omitempty"`
+	FetchedAt                string  `json:"fetched_at"`
 }
 
 const (
@@ -326,7 +334,7 @@ func itemReady(item Item) bool {
 }
 
 func routeBaseMatches(item Item, q RouteQuery) bool {
-	if item.Quota != nil && (item.Quota.Exceeded || item.Quota.Percentage >= 100) {
+	if item.Quota != nil && item.Quota.Exceeded {
 		return false
 	}
 	if !itemReady(item) {

@@ -647,7 +647,7 @@ func (c *Client) Probe(ctx context.Context, accountID string) (providers.Account
 	}, nil
 }
 
-// Quota fetches display-only remaining credits from the billing meter API.
+// Quota fetches remaining credits from the billing meter API.
 // Failures return an error for the caller to ignore without flipping readiness.
 func (c *Client) Quota(ctx context.Context, accountID string) (*providers.QuotaInfo, error) {
 	credential, err := c.resolvedCredential(ctx, accountID)
