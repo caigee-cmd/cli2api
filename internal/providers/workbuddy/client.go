@@ -405,12 +405,17 @@ func (c *Client) ChatNonStream(ctx context.Context, accountID string, req transl
 	if err != nil {
 		return providers.ChatOutcome{}, err
 	}
-	resp, err := c.http.Do(httpReq)
+	client := *c.http
+	client.Timeout = 0
+	resp, err := client.Do(httpReq)
 	if err != nil {
 		return providers.ChatOutcome{}, err
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
+	if readErr != nil {
+		return providers.ChatOutcome{}, fmt.Errorf("read workbuddy stream: %w", readErr)
+	}
 	if resp.StatusCode >= 300 {
 		return providers.ChatOutcome{}, classifiedError(resp.StatusCode, body)
 	}

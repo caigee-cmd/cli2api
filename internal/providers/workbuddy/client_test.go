@@ -193,6 +193,67 @@ func TestChatNonStreamAggregatesToolsAndReasoning(t *testing.T) {
 	}
 }
 
+func TestChatNonStreamReadLifecycle(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		cancel   bool
+		truncate bool
+	}{
+		{name: "exceeds shared client timeout"},
+		{name: "preserves context cancellation", cancel: true},
+		{name: "preserves truncated body error", truncate: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			client, store := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if test.truncate {
+					w.Header().Set("Content-Length", "100000")
+				}
+				w.Header().Set("Content-Type", "text/event-stream")
+				_, _ = io.WriteString(w, "data: {}\n\n")
+				w.(http.Flusher).Flush()
+				if test.cancel {
+					cancel()
+					return
+				}
+				if test.truncate {
+					return
+				}
+				select {
+				case <-time.After(60 * time.Millisecond):
+					_, _ = io.WriteString(w, chatSSE)
+				case <-r.Context().Done():
+				}
+			}))
+			payload, _ := (Credential{AccessToken: "at", UID: "u1", Domain: "codebuddy.cn", ExpiresAt: 4102444800}).Encode()
+			store.items = map[string][]byte{"acc1": payload}
+			client.rememberCatalog([]providers.ModelInfo{{NativeModel: "glm-5.2", Capabilities: providers.ModelCapabilities{ReasoningOptions: []string{"low", "high"}}}})
+			client.http.Timeout = 10 * time.Millisecond
+			out, err := client.ChatNonStream(ctx, "acc1", translate.ChatRequest{
+				Model: "glm-5.2", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+			})
+			switch {
+			case test.cancel:
+				if !errors.Is(err, context.Canceled) {
+					t.Fatalf("expected cancellation, got %v", err)
+				}
+			case test.truncate:
+				if !errors.Is(err, io.ErrUnexpectedEOF) {
+					t.Fatalf("expected body read error, got %v", err)
+				}
+			default:
+				if err != nil || out.Content != "OK" {
+					t.Fatalf("outcome=%+v err=%v", out, err)
+				}
+			}
+			if client.http.Timeout != 10*time.Millisecond {
+				t.Fatal("shared client timeout was changed")
+			}
+		})
+	}
+}
+
 func TestModelsFiltersCliAgentAndDisabled(t *testing.T) {
 	payload, _ := Credential{AccessToken: "at", UID: "u1", Domain: "codebuddy.cn", ExpiresAt: 4102444800}.Encode()
 	store := &memStore{items: map[string][]byte{"acc1": payload}}
