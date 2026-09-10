@@ -585,7 +585,7 @@ func (s *Store) SaveQuota(ctx context.Context, id string, quota *QuotaSnapshot) 
 		return fmt.Errorf("marshal quota: %w", err)
 	}
 	status := "ready"
-	if quota.Exceeded || quota.Percentage >= 100 {
+	if quota.Exceeded {
 		status = "quota_exhausted"
 	}
 	result, err := s.db.ExecContext(ctx, `

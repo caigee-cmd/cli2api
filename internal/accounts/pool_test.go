@@ -31,6 +31,21 @@ func TestRoundRobinSkipsDownAccounts(t *testing.T) {
 	}
 }
 
+func TestPickKeepsMonthlyExhaustedAccountWithResourcePackage(t *testing.T) {
+	p := NewPool([]string{"http://a:3020"}, []string{"a"})
+	p.MergeQuota("a", &QuotaSnapshot{
+		Percentage:               100,
+		Exceeded:                 false,
+		HasResourcePackage:       true,
+		ResourcePackageRemaining: 50,
+	})
+
+	item, ok := p.Pick("", nil)
+	if !ok || item.ID != "a" {
+		t.Fatalf("resource-package account should remain routable, got %+v ok=%v", item, ok)
+	}
+}
+
 func TestRoundRobinSkipsNotReadyAccounts(t *testing.T) {
 	p := NewPool([]string{"http://a:3020", "http://b:3020", "http://c:3020"}, []string{"a", "b", "c"})
 	p.MergeHealth("a", false, false, 0, 0, "account not found")

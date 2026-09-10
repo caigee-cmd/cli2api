@@ -578,4 +578,17 @@ func TestStorePersistsQuotaAndStatus(t *testing.T) {
 	if stored.Status != "ready" || stored.Quota == nil || stored.Quota.Remaining != 90 {
 		t.Fatalf("recovered account state = %+v", stored)
 	}
+	if err := store.SaveQuota(ctx, account.ID, &QuotaSnapshot{
+		Used: 100, Total: 100, Percentage: 100, Exceeded: false,
+		HasResourcePackage: true, ResourcePackageRemaining: 25,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	stored, err = store.Get(ctx, account.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != "ready" || stored.Quota == nil || stored.Quota.Exceeded {
+		t.Fatalf("resource-package account state = %+v", stored)
+	}
 }
