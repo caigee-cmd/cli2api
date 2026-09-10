@@ -64,7 +64,9 @@ function stateCopyFor(state: ReturnType<typeof accountState>, cooldown: string, 
   if (state === 'ready') return t('ready')
   if (state === 'cooling') return cooldown ? `${t('cooling')} ${cooldown}` : t('cooling')
   if (state === 'quota_exhausted') return t('quotaExceeded')
+  if (state === 'loading') return t('quotaLoading')
   if (state === 'starting') return t('starting')
+  if (state === 'unavailable') return t('quotaUnavailable')
   if (state === 'dead') return cooldown ? `${t('dead')} ${cooldown}` : t('dead')
   if (state === 'auth_failed') return t('authFailed')
   if (state === 'disabled') return t('disabled')
@@ -129,7 +131,7 @@ export function AccountCard({
       ? 'warning'
       : state === 'quota_exhausted'
         ? 'danger'
-      : state === 'login' || state === 'dead' || state === 'auth_failed'
+      : state === 'login' || state === 'unavailable' || state === 'dead' || state === 'auth_failed'
         ? 'danger'
         : undefined
   const inFlight = account.in_flight ?? account.inFlight ?? 0
@@ -295,7 +297,7 @@ export function AccountCard({
               resourcePackageLabel={t('quotaResourcePackage')}
               exceededLabel={t('quotaExceeded')}
             />
-          ) : <span className="text-[11px] text-foreground/65">{t('statsUnknown')}</span>}
+          ) : <span className="text-[11px] text-foreground/65">{state === 'loading' ? t('quotaLoading') : t('quotaUnavailable')}</span>}
         </div>
 
         {account.provider === 'workbuddy' ? (
