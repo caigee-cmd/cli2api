@@ -70,7 +70,7 @@ export function quotaUsedRatio(quota: AccountQuota) {
 
 export function quotaTone(quota: AccountQuota): QuotaTone {
   const percentage = quota.percentage ?? 0
-  if (quota.exceeded || percentage >= 100) return 'danger'
+  if (quota.exceeded) return 'danger'
   if (percentage >= 80) return 'warn'
   return 'ok'
 }

@@ -292,6 +292,7 @@ export function AccountCard({
               usedLabel={t('quotaUsed')}
               remainingLabel={t('quotaRemaining')}
               addOnLabel={t('quotaAddOn')}
+              resourcePackageLabel={t('quotaResourcePackage')}
               exceededLabel={t('quotaExceeded')}
             />
           ) : <span className="text-[11px] text-foreground/65">{t('statsUnknown')}</span>}
