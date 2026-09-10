@@ -914,6 +914,7 @@ type ImportAccount struct {
 	Priority             int
 	DropSystemPrompt     *bool
 	WorkBuddyAutoCheckin *bool
+	WorkBuddyCheckinTime string
 	Credential           NativeCredential
 }
 
@@ -936,6 +937,7 @@ func (m *Manager) Import(ctx context.Context, input ImportAccount) (Account, err
 		Name: input.Name, Provider: input.Provider, Region: input.Region, Enabled: false,
 		MaxInFlight: input.MaxInFlight, Priority: input.Priority, DropSystemPrompt: input.DropSystemPrompt,
 		WorkBuddyAutoCheckin: input.WorkBuddyAutoCheckin,
+		WorkBuddyCheckinTime: input.WorkBuddyCheckinTime,
 	})
 	if err != nil {
 		return Account{}, err
@@ -1277,6 +1279,7 @@ func (m *Manager) fetchAccountModels(ctx context.Context, item Item) {
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(item.URL, "/")+"/admin/models", nil)
 	if err != nil {
+		log.Printf("catalog refresh failed account=%s provider=%s stage=request: %v", item.ID, item.Provider, err)
 		return
 	}
 	if m.config.ProxyAPIKey != "" {
@@ -1285,16 +1288,20 @@ func (m *Manager) fetchAccountModels(ctx context.Context, item Item) {
 	client := &http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
+		log.Printf("catalog refresh failed account=%s provider=%s stage=http: %v", item.ID, item.Provider, err)
 		return
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		log.Printf("catalog refresh failed account=%s provider=%s stage=status status=%d body=%q", item.ID, item.Provider, resp.StatusCode, strings.TrimSpace(string(body)))
 		return
 	}
 	var parsed struct {
 		Data []map[string]any `json:"data"`
 	}
-	if json.NewDecoder(resp.Body).Decode(&parsed) != nil {
+	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+		log.Printf("catalog refresh failed account=%s provider=%s stage=decode: %v", item.ID, item.Provider, err)
 		return
 	}
 	m.pool.MergeModels(item.ID, catalogIDs(parsed.Data, nil))
@@ -1528,6 +1535,10 @@ func (m *Manager) CheckinAccount(ctx context.Context, accountID string) (Account
 // CheckinOptedIn runs check-in for every enabled WorkBuddy account with
 // workbuddy_auto_checkin on. Cooldown accounts are included; disabled skip.
 func (m *Manager) CheckinOptedIn(ctx context.Context) {
+	m.checkinOptedIn(ctx, time.Now(), "", false)
+}
+
+func (m *Manager) checkinOptedIn(ctx context.Context, now time.Time, scheduledTime string, retryDue bool) {
 	if m == nil || m.workbuddy == nil {
 		return
 	}
@@ -1540,13 +1551,31 @@ func (m *Manager) CheckinOptedIn(ctx context.Context) {
 		if account.Provider != "workbuddy" || !account.Enabled || !account.WorkBuddyAutoCheckin {
 			continue
 		}
-		if checkedInLocalDay(account.LastCheckinAt, account.LastCheckinStatus, time.Now()) {
+		if scheduledTime != "" {
+			if retryDue {
+				if account.WorkBuddyCheckinTime == scheduledTime || !workBuddyCheckinDue(account.WorkBuddyCheckinTime, now) {
+					continue
+				}
+			} else if account.WorkBuddyCheckinTime != scheduledTime {
+				continue
+			}
+		}
+		if checkedInLocalDay(account.LastCheckinAt, account.LastCheckinStatus, now) {
 			continue
 		}
 		if _, err := m.CheckinAccount(ctx, account.ID); err != nil {
 			log.Printf("workbuddy checkin account_id=%s op=checkin err=%v", account.ID, err)
 		}
 	}
+}
+
+func workBuddyCheckinDue(value string, now time.Time) bool {
+	parsed, err := time.Parse("15:04", value)
+	if err != nil {
+		parsed, _ = time.Parse("15:04", defaultWorkBuddyCheckinTime)
+	}
+	due := time.Date(now.Year(), now.Month(), now.Day(), parsed.Hour(), parsed.Minute(), 0, 0, now.Location())
+	return !due.After(now)
 }
 
 // checkedInLocalDay is true when the last recorded check-in is success or
@@ -1600,14 +1629,23 @@ func (m *Manager) KeepaliveWorkBuddy(ctx context.Context, onlyOptIn bool) {
 	}
 }
 
-// RunWorkBuddyMaintenanceLoop fires check-in near 09:00/21:00 and keepalive
-// near 22:00 in the process local zone, with minute jitter. Stop by closing stop.
+// RunWorkBuddyMaintenanceLoop fires each opted-in account at its configured
+// local time, retries due failures near 21:00, and keeps tokens alive near
+// 22:00. Stop by closing stop.
 func (m *Manager) RunWorkBuddyMaintenanceLoop(stop <-chan struct{}) {
 	if m == nil {
 		return
 	}
 	for {
-		delay, kind := nextWorkBuddyFire(time.Now())
+		accounts, err := m.store.List(context.Background())
+		if err != nil {
+			log.Printf("workbuddy schedule list: %v", err)
+		}
+		delay, fire := nextWorkBuddyFire(time.Now(), accounts)
+		if delay > time.Minute {
+			delay = time.Minute
+			fire = workBuddyFire{}
+		}
 		timer := time.NewTimer(delay)
 		select {
 		case <-stop:
@@ -1618,10 +1656,14 @@ func (m *Manager) RunWorkBuddyMaintenanceLoop(stop <-chan struct{}) {
 			return
 		case <-timer.C:
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-			switch kind {
-			case "checkin":
-				m.CheckinOptedIn(ctx)
-			case "keepalive":
+			now := time.Now()
+			for _, scheduledTime := range fire.checkinTimes {
+				m.checkinOptedIn(ctx, now, scheduledTime, false)
+			}
+			if fire.retry {
+				m.checkinOptedIn(ctx, now, "21:00", true)
+			}
+			if fire.keepalive {
 				m.KeepaliveWorkBuddy(ctx, true)
 			}
 			cancel()
@@ -1629,27 +1671,55 @@ func (m *Manager) RunWorkBuddyMaintenanceLoop(stop <-chan struct{}) {
 	}
 }
 
-func nextWorkBuddyFire(now time.Time) (time.Duration, string) {
+type workBuddyFire struct {
+	checkinTimes []string
+	retry        bool
+	keepalive    bool
+}
+
+func nextWorkBuddyFire(now time.Time, accounts []Account) (time.Duration, workBuddyFire) {
 	type slot struct {
-		hour int
+		time string
 		kind string
 	}
-	slots := []slot{{9, "checkin"}, {21, "checkin"}, {22, "keepalive"}}
+	slots := []slot{{"21:00", "retry"}, {"22:00", "keepalive"}}
+	seen := map[string]bool{}
+	for _, account := range accounts {
+		if account.Provider != "workbuddy" || !account.Enabled || !account.WorkBuddyAutoCheckin {
+			continue
+		}
+		checkinTime, err := normalizeWorkBuddyCheckinTime(account.WorkBuddyCheckinTime)
+		if err != nil || seen[checkinTime] {
+			continue
+		}
+		seen[checkinTime] = true
+		slots = append(slots, slot{checkinTime, "checkin"})
+	}
 	loc := now.Location()
 	var best time.Time
-	var bestKind string
+	var fire workBuddyFire
 	for _, slot := range slots {
-		candidate := time.Date(now.Year(), now.Month(), now.Day(), slot.hour, 0, 0, 0, loc)
+		parsed, _ := time.Parse("15:04", slot.time)
+		candidate := time.Date(now.Year(), now.Month(), now.Day(), parsed.Hour(), parsed.Minute(), 0, 0, loc)
+		candidate = candidate.Add(time.Duration(candidate.Unix()%15) * time.Minute)
 		if !candidate.After(now) {
 			candidate = candidate.Add(24 * time.Hour)
 		}
-		// Minute jitter 0–14 keeps multi-account fleets off the exact hour.
-		jitter := time.Duration(candidate.UnixNano()%15) * time.Minute
-		candidate = candidate.Add(jitter)
-		if bestKind == "" || candidate.Before(best) {
+		if best.IsZero() || candidate.Before(best) {
 			best = candidate
-			bestKind = slot.kind
+			fire = workBuddyFire{}
+		}
+		if !candidate.Equal(best) {
+			continue
+		}
+		switch slot.kind {
+		case "checkin":
+			fire.checkinTimes = append(fire.checkinTimes, slot.time)
+		case "retry":
+			fire.retry = true
+		case "keepalive":
+			fire.keepalive = true
 		}
 	}
-	return best.Sub(now), bestKind
+	return best.Sub(now), fire
 }
