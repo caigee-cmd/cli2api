@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.4.7 - 2026-09-10
+
+### English
+
 - Restore opening request-history details by using the table row action event supported by HeroUI
 
 ### 中文
