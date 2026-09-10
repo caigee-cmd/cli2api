@@ -67,6 +67,13 @@ function levelDot(level?: string) {
   return 'ok'
 }
 
+function runtimeLevelColor(level?: string): 'success' | 'warning' | 'danger' | 'default' {
+  if (level === 'error') return 'danger'
+  if (level === 'warn') return 'warning'
+  if (level === 'info') return 'success'
+  return 'default'
+}
+
 function formatTime(value?: string | null, lang: 'en' | 'zh' = 'zh') {
   if (!value) return '—'
   const date = new Date(value)
@@ -146,6 +153,8 @@ export function LogsPage() {
   const [total, setTotal] = useState(0)
   const [runtime, setRuntime] = useState<RuntimeLogEntry[]>([])
   const [runtimeTotal, setRuntimeTotal] = useState(0)
+  const [selectedRuntime, setSelectedRuntime] = useState<RuntimeLogEntry | null>(null)
+  const [runtimeDetailOpen, setRuntimeDetailOpen] = useState(false)
   const [selected, setSelected] = useState<RequestLog | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
   const [clearOpen, setClearOpen] = useState(false)
@@ -372,6 +381,11 @@ export function LogsPage() {
     } finally {
       setBusy(false)
     }
+  }
+
+  function openRuntimeDetail(entry: RuntimeLogEntry) {
+    setSelectedRuntime(entry)
+    setRuntimeDetailOpen(true)
   }
 
   async function onClear() {
@@ -749,7 +763,19 @@ export function LogsPage() {
             ) : (
               <div className="divide-y divide-separator">
                 {runtime.map((entry) => (
-                  <div key={entry.id} className="grid gap-2 px-5 py-3 sm:grid-cols-[150px_72px_minmax(0,1fr)] sm:items-start">
+                  <div
+                    key={entry.id}
+                    className="grid cursor-pointer gap-2 px-5 py-3 transition-colors hover:bg-surface-secondary/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent sm:grid-cols-[150px_72px_minmax(0,1fr)] sm:items-start"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => openRuntimeDetail(entry)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault()
+                        openRuntimeDetail(entry)
+                      }
+                    }}
+                  >
                     <div className="mono text-[11px] text-muted">{formatTime(entry.time, lang)}</div>
                     <div className="flex items-center gap-2 text-xs">
                       <span className="status-dot" data-state={levelDot(entry.level)} />
@@ -781,20 +807,68 @@ export function LogsPage() {
         </Tabs.Panel>
       </Tabs>
 
-      <Modal isOpen={detailOpen} onOpenChange={setDetailOpen}>
-        <Modal.Backdrop>
-          <Modal.Container size="lg">
-            <Modal.Dialog>
-              <Modal.Header className="items-start justify-between gap-3">
-                <div>
-                  <Modal.Heading>{t('logsDetailTitle')}</Modal.Heading>
-                  <p className="mono mt-1 text-[11px] text-muted">{selected?.id}</p>
+      <Modal.Root isOpen={runtimeDetailOpen} onOpenChange={(open: boolean) => {
+        setRuntimeDetailOpen(open)
+        if (!open) setSelectedRuntime(null)
+      }}>
+        <Modal.Backdrop variant="blur">
+          <Modal.Container size="lg" scroll="inside">
+            <Modal.Dialog className="w-full max-w-4xl">
+              <Modal.Header className="items-start justify-between gap-4 px-5 pt-5">
+                <div className="min-w-0">
+                  <Modal.Heading className="text-lg font-semibold tracking-[-0.01em]">{t('logsRuntimeDetailTitle')}</Modal.Heading>
+                  <p className="mono mt-1 text-[11px] text-muted">{selectedRuntime ? `#${selectedRuntime.id}` : '—'}</p>
                 </div>
-                <Modal.CloseTrigger aria-label={t('close')}>
-                  <X size={14} />
+                <Modal.CloseTrigger aria-label={t('close')} className="grid size-8 shrink-0 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-secondary hover:text-foreground">
+                  <X size={16} />
                 </Modal.CloseTrigger>
               </Modal.Header>
-              <Modal.Body className="space-y-4">
+              <Modal.Body className="space-y-5 px-5 pb-5">
+                <dl className="grid gap-3 sm:grid-cols-2">
+                  {[
+                    [t('logsColTime'), selectedRuntime ? formatTime(selectedRuntime.time, lang) : '—'],
+                    [t('logsRuntimeLevel'), selectedRuntime?.level || '—'],
+                    [t('logsRuntimeSource'), selectedRuntime?.source || '—'],
+                    [t('logsColAccount'), selectedRuntime?.account_id || '—'],
+                  ].map(([label, value]) => (
+                    <div key={String(label)}>
+                      <dt className="text-[11px] text-muted">{label}</dt>
+                      <dd className="mt-1 break-all text-sm font-medium">
+                        {label === t('logsRuntimeLevel') && selectedRuntime ? (
+                          <Chip size="sm" variant="soft" color={runtimeLevelColor(selectedRuntime.level)}>
+                            {selectedRuntime.level}
+                          </Chip>
+                        ) : value}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+                <section className="space-y-2">
+                  <div className="text-xs font-medium text-muted">{t('logsRuntimeMessage')}</div>
+                  <pre className="mono max-h-[min(38rem,60vh)] overflow-auto whitespace-pre-wrap break-words rounded-lg bg-surface-secondary px-4 py-3 text-xs leading-6 text-foreground">
+                    {selectedRuntime?.message || '—'}
+                  </pre>
+                </section>
+              </Modal.Body>
+            </Modal.Dialog>
+          </Modal.Container>
+        </Modal.Backdrop>
+      </Modal.Root>
+
+      <Modal.Root isOpen={detailOpen} onOpenChange={setDetailOpen}>
+        <Modal.Backdrop variant="blur">
+          <Modal.Container size="lg" scroll="inside">
+            <Modal.Dialog className="w-full max-w-4xl">
+              <Modal.Header className="items-start justify-between gap-4 px-5 pt-5">
+                <div className="min-w-0">
+                  <Modal.Heading className="text-lg font-semibold tracking-[-0.01em]">{t('logsDetailTitle')}</Modal.Heading>
+                  <p className="mono mt-1 text-[11px] text-muted">{selected?.id}</p>
+                </div>
+                <Modal.CloseTrigger aria-label={t('close')} className="grid size-8 shrink-0 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-secondary hover:text-foreground">
+                  <X size={16} />
+                </Modal.CloseTrigger>
+              </Modal.Header>
+              <Modal.Body className="space-y-4 px-5 pb-5">
                 <dl className="grid gap-3 sm:grid-cols-2">
                   {[
                     [t('logsColStatus'), selected?.status || '—'],
@@ -821,7 +895,7 @@ export function LogsPage() {
                   </div>
                 </dl>
                 {selected && selected.message_count ? (
-                  <div className="rounded-lg border border-separator bg-surface-secondary px-3 py-3 text-xs">
+                  <div className="rounded-lg bg-surface-secondary px-3 py-3 text-xs">
                     <div className="font-medium text-muted">{t('logsMessageShape')}</div>
                     <dl className="mt-2 grid gap-2 sm:grid-cols-2">
                       <div><dt className="text-[10px] text-muted">{t('logsMessageCount')}</dt><dd className="mono mt-0.5">{selected.message_count}</dd></div>
@@ -831,13 +905,13 @@ export function LogsPage() {
                   </div>
                 ) : null}
                 {selected?.error_message ? (
-                  <div className="rounded-lg border border-separator bg-surface-secondary px-3 py-2 text-xs leading-5 text-muted">
+                  <div className="rounded-lg bg-surface-secondary px-3 py-2 text-xs leading-5 text-muted">
                     {selected.error_kind ? <span className="mono mr-2 text-muted">{selected.error_kind}</span> : null}
                     {selected.error_message}
                   </div>
                 ) : null}
                 {selected?.stream_diagnostic ? (
-                  <div className="rounded-lg border border-separator bg-surface-secondary px-3 py-3 text-xs">
+                  <div className="rounded-lg bg-surface-secondary px-3 py-3 text-xs">
                     <div className="font-medium text-muted">{t('logsStreamDiagnostics')}</div>
                     <dl className="mt-2 grid gap-2 sm:grid-cols-2">
                       {[
@@ -865,7 +939,7 @@ export function LogsPage() {
                 <div>
                   <div className="text-xs font-medium text-muted">{t('logsAttempts')}</div>
                   {selected?.attempts?.length ? (
-                    <div className="mt-2 divide-y divide-separator rounded-lg border border-separator">
+                    <div className="mt-2 divide-y divide-separator overflow-hidden rounded-lg bg-surface-secondary">
                       {selected.attempts.map((attempt) => (
                         <div key={attempt.id} className="grid gap-1 px-3 py-2.5 text-xs sm:grid-cols-[48px_minmax(0,1fr)_auto]">
                           <div className="mono text-muted">#{attempt.attempt_index}</div>
@@ -887,7 +961,7 @@ export function LogsPage() {
             </Modal.Dialog>
           </Modal.Container>
         </Modal.Backdrop>
-      </Modal>
+      </Modal.Root>
 
       <ConfirmDialog
         isOpen={clearOpen}
