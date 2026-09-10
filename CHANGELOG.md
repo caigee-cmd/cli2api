@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.4.4 - 2026-09-10
+
+### English
+
 - Keep Qoder accounts routable when their base quota is exhausted but an available add-on or organization resource package still has credits, and show resource-package balance in the console
 
 ### 中文
