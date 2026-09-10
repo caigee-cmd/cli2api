@@ -128,6 +128,7 @@ export function classifyError(input = {}) {
   const payloadCode = String(payload.code ?? payload.msgCode ?? nestedPayload.code ?? nestedPayload.msgCode ?? "").trim();
   const payloadType = String(payload.type || nestedPayload.type || "").trim();
   const searchable = `${message} ${payloadCode} ${payloadType} ${payload.msg || nestedPayload.msg || ""}`;
+  const catalogUnavailable = /model_catalog_unavailable|dynamic model catalog is unavailable|model catalog unavailable/i.test(searchable);
   const retryRaw = input.retryAfter ?? input.retry_after ?? payload.retry_after ?? payload.retryAfter ?? nestedPayload.retry_after ?? nestedPayload.retryAfter;
 
   let kind = kindHint;
@@ -175,12 +176,12 @@ export function classifyError(input = {}) {
   }
   return {
     kind,
-    status: kind === KIND_QUOTA ? 429 : status || conf.status,
+    status: kind === KIND_QUOTA ? 429 : catalogUnavailable ? 503 : status || conf.status,
     failover: typeof payload.failover === "boolean" ? payload.failover : conf.failover,
     cooldownSec: retryAfterSec,
     retryAfterSec,
-    code: payloadCode || conf.code,
-    type: payloadType || conf.type,
+    code: catalogUnavailable ? "model_catalog_unavailable" : payloadCode || conf.code,
+    type: catalogUnavailable ? "api_error" : payloadType || conf.type,
     message: message || payloadCode || conf.code,
   };
 }

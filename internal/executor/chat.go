@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -300,7 +302,7 @@ func (e ChatExecutor) routeQuery(prefer, providerFilter, regionFilter, publicMod
 	}
 }
 
-func (e ChatExecutor) pick(prefer, providerFilter, regionFilter, publicModel string, allowed []string, excluded map[string]struct{}) (accounts.Item, error) {
+func (e ChatExecutor) pick(requestID, prefer, providerFilter, regionFilter, publicModel string, allowed []string, excluded map[string]struct{}) (accounts.Item, error) {
 	query := e.routeQuery(prefer, providerFilter, regionFilter, publicModel, allowed, excluded)
 	if e.Pool != nil {
 		if item, ok := e.Pool.PickRoute(query); ok {
@@ -328,7 +330,8 @@ func (e ChatExecutor) pick(prefer, providerFilter, regionFilter, publicModel str
 			unfiltered := query
 			unfiltered.PublicModel = ""
 			if e.Pool.LenRoute(unfiltered) > 0 {
-				return accounts.Item{}, fmt.Errorf("model_not_available: %s is not available for this Qoder account", publicModel)
+				e.logModelRouteMiss(requestID, query)
+				return accounts.Item{}, fmt.Errorf("model_not_available: %s is not available for the selected accounts", publicModel)
 			}
 		}
 	}
@@ -345,6 +348,77 @@ func (e ChatExecutor) pick(prefer, providerFilter, regionFilter, publicModel str
 		return accounts.Item{}, fmt.Errorf("no accounts available for this api key")
 	}
 	return accounts.Item{}, fmt.Errorf("no worker accounts configured")
+}
+
+func (e ChatExecutor) logModelRouteMiss(requestID string, query accounts.RouteQuery) {
+	if e.Pool == nil {
+		return
+	}
+	allowed := append([]string(nil), query.AllowedProviders...)
+	sort.Strings(allowed)
+	excluded := make([]string, 0, len(query.Excluded))
+	for id := range query.Excluded {
+		excluded = append(excluded, id)
+	}
+	sort.Strings(excluded)
+	summaries := make([]string, 0, e.Pool.Len())
+	for _, item := range e.Pool.Items() {
+		summaries = append(summaries, modelRouteAccountSummary(item, query.PublicModel, query.Excluded))
+	}
+	log.Printf("model route unavailable request_id=%q model=%q provider=%q region=%q prefer=%q allowed=%q excluded=%q accounts=[%s]",
+		requestID, query.PublicModel, query.ProviderFilter, query.RegionFilter, query.PreferAccount,
+		strings.Join(allowed, ","), strings.Join(excluded, ","), strings.Join(summaries, " "))
+}
+
+func modelRouteAccountSummary(item accounts.Item, publicModel string, excluded map[string]struct{}) string {
+	ready := item.Ready == nil || *item.Ready
+	hot := item.Hot != nil && *item.Hot
+	quotaExceeded := item.Quota != nil && item.Quota.Exceeded
+	_, isExcluded := excluded[item.ID]
+	want := accounts.CanonicalModelID(publicModel)
+	catalogHas, provenHas := false, false
+	for _, model := range item.Models {
+		catalogHas = catalogHas || accounts.CanonicalModelID(model) == want
+	}
+	for _, model := range item.ProvenModels {
+		provenHas = provenHas || accounts.CanonicalModelID(model) == want
+	}
+	catalog := "unknown"
+	if item.Models != nil {
+		catalog = fmt.Sprintf("count:%d models:%s", len(item.Models), compactModelList(item.Models, 12))
+	}
+	catalogAge := "unknown"
+	if !item.ModelsAt.IsZero() {
+		catalogAge = time.Since(item.ModelsAt).Round(time.Second).String()
+	}
+	modelDownUntil := time.Time{}
+	if item.ModelDownUntil != nil {
+		modelDownUntil = item.ModelDownUntil[want]
+	}
+	return fmt.Sprintf("{id:%q provider:%q region:%q ready:%t hot:%t quota_exceeded:%t down_until:%q model_down_until:%q in_flight:%d/%d excluded:%t catalog_has:%t proven_has:%t catalog_age:%q catalog:%q}",
+		item.ID, item.Provider, item.Region, ready, hot, quotaExceeded, logTime(item.DownUntil), logTime(modelDownUntil),
+		item.InFlight, item.MaxInFlight, isExcluded, catalogHas, provenHas, catalogAge, catalog)
+}
+
+func compactModelList(models []string, limit int) string {
+	if len(models) == 0 {
+		return "[]"
+	}
+	if limit <= 0 || limit > len(models) {
+		limit = len(models)
+	}
+	shown := append([]string(nil), models[:limit]...)
+	if limit < len(models) {
+		return fmt.Sprintf("[%s,+%d]", strings.Join(shown, ","), len(models)-limit)
+	}
+	return "[" + strings.Join(shown, ",") + "]"
+}
+
+func logTime(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.UTC().Format(time.RFC3339)
 }
 
 func coolingPickError(item accounts.Item, publicModel string, retryAfter time.Duration) error {
@@ -429,10 +503,7 @@ func (e ChatExecutor) ObserveStreamFailure(accountID string, err error, model st
 		return
 	}
 	if classified.Kind == accounts.KindModelNotAvailable {
-		// Streaming 200 headers already recorded this model as proven.
-		// MarkClassified ignores catalog misses, so drop the stale ID
-		// here or the next pick will keep sending it.
-		e.Pool.RemoveModel(accountID, model)
+		e.handleModelAvailabilityFailure("", "stream_body", accountID, model, classified)
 		return
 	}
 	if classified.Kind == accounts.KindQuota {
@@ -447,6 +518,39 @@ func (e ChatExecutor) ObserveStreamFailure(accountID string, err error, model st
 		}
 	}
 	e.markClassified(accountID, classified, model)
+}
+
+func (e ChatExecutor) handleModelAvailabilityFailure(requestID, source, accountID, model string, classified accounts.Classified) {
+	if e.Pool == nil || accountID == "" {
+		return
+	}
+	item, _ := e.Pool.ByID(accountID)
+	action := "preserve_catalog"
+	if shouldEvictUnavailableModel(classified) {
+		e.Pool.RemoveModel(accountID, model)
+		action = "evict_model"
+	}
+	log.Printf("model route account failure request_id=%q source=%q account=%q provider=%q region=%q model=%q kind=%q code=%q status=%d action=%q message=%q account_state=%s",
+		requestID, source, accountID, item.Provider, item.Region, model, classified.Kind, classified.Code,
+		classified.Status, action, truncateLogValue(classified.Message, 300), modelRouteAccountSummary(item, model, nil))
+}
+
+func shouldEvictUnavailableModel(classified accounts.Classified) bool {
+	if classified.Kind != accounts.KindModelNotAvailable {
+		return false
+	}
+	searchable := strings.ToLower(strings.Join([]string{classified.Code, classified.Message}, " "))
+	return !strings.Contains(searchable, "model_catalog_unavailable") &&
+		!strings.Contains(searchable, "dynamic model catalog is unavailable") &&
+		!strings.Contains(searchable, "model catalog unavailable")
+}
+
+func truncateLogValue(value string, limit int) string {
+	value = strings.TrimSpace(value)
+	if limit <= 0 || len(value) <= limit {
+		return value
+	}
+	return value[:limit] + "..."
 }
 
 // markClassified records a classified failure. model scopes the cooldown to
@@ -525,6 +629,7 @@ func classifyWorkerErr(resp *http.Response, body string) accounts.Classified {
 }
 
 type routeLoop struct {
+	requestID      string
 	prefer         string
 	providerFilter string
 	regionFilter   string
@@ -546,6 +651,7 @@ func (e ChatExecutor) newRouteLoop(ctx context.Context, prefer, providerFilter s
 	}
 	allowed := allowedProvidersFrom(ctx)
 	loop := routeLoop{
+		requestID:      RequestIDFromContext(ctx),
 		prefer:         prefer,
 		providerFilter: providerFilter,
 		regionFilter:   regionFilter,
@@ -561,7 +667,7 @@ func (e ChatExecutor) newRouteLoop(ctx context.Context, prefer, providerFilter s
 }
 
 func (l *routeLoop) pickNext(e ChatExecutor, publicModel string) (accounts.Item, int, error) {
-	item, err := e.pick(l.prefer, l.providerFilter, l.regionFilter, publicModel, l.allowed, l.excluded)
+	item, err := e.pick(l.requestID, l.prefer, l.providerFilter, l.regionFilter, publicModel, l.allowed, l.excluded)
 	if err != nil {
 		return accounts.Item{}, l.index, err
 	}
@@ -675,7 +781,7 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 			classified := classifyWorkerErr(resp, msg)
 			loop.lastErr = providerErrorFromClassified(classified)
 			if classified.Kind == accounts.KindModelNotAvailable {
-				e.Pool.RemoveModel(item.ID, req.Model)
+				e.handleModelAvailabilityFailure(RequestIDFromContext(ctx), "worker_non_stream", item.ID, req.Model, classified)
 			}
 			e.markClassified(item.ID, classified, req.Model)
 			status := accounts.AttemptStatusError
@@ -755,7 +861,7 @@ func (e ChatExecutor) chatInProcessNonStreamAttempt(ctx context.Context, item ac
 		}
 		classified := e.classifyInProcessError(err)
 		if classified.Kind == accounts.KindModelNotAvailable {
-			e.Pool.RemoveModel(item.ID, req.Model)
+			e.handleModelAvailabilityFailure(RequestIDFromContext(ctx), "provider_non_stream", item.ID, req.Model, classified)
 		}
 		e.markClassified(item.ID, classified, req.Model)
 		status := accounts.AttemptStatusError
@@ -804,7 +910,7 @@ func (e ChatExecutor) chatInProcessStreamAttempt(ctx context.Context, item accou
 		}
 		classified := e.classifyInProcessError(err)
 		if classified.Kind == accounts.KindModelNotAvailable {
-			e.Pool.RemoveModel(item.ID, req.Model)
+			e.handleModelAvailabilityFailure(RequestIDFromContext(ctx), "provider_stream", item.ID, req.Model, classified)
 		}
 		e.markClassified(item.ID, classified, req.Model)
 		status := accounts.AttemptStatusError
@@ -1062,7 +1168,7 @@ func (e ChatExecutor) ChatStreamProxy(ctx context.Context, req translate.ChatReq
 			classified := classifyWorkerErr(resp, msg)
 			loop.lastErr = providerErrorFromClassified(classified)
 			if classified.Kind == accounts.KindModelNotAvailable {
-				e.Pool.RemoveModel(item.ID, req.Model)
+				e.handleModelAvailabilityFailure(RequestIDFromContext(ctx), "worker_stream", item.ID, req.Model, classified)
 			}
 			e.markClassified(item.ID, classified, req.Model)
 			finished := time.Now().UTC()

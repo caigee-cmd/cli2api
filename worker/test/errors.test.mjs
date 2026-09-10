@@ -64,6 +64,18 @@ test("model_not_available failovers without cooldown", () => {
   assert.equal(got.cooldownSec, 0);
 });
 
+test("model catalog outage keeps a distinct retryable code", () => {
+  const got = classifyError({
+    message: "model_catalog_unavailable: Qoder dynamic model catalog is unavailable",
+  });
+  assert.equal(got.kind, "model_not_available");
+  assert.equal(got.status, 503);
+  assert.equal(got.failover, true);
+  assert.equal(got.cooldownSec, 0);
+  assert.equal(got.code, "model_catalog_unavailable");
+  assert.equal(got.type, "api_error");
+});
+
 test("shouldFailover reads nested JSON", () => {
   assert.equal(
     shouldFailover(429, JSON.stringify({ error: { message: "insufficient_quota", code: "insufficient_quota" } })),
