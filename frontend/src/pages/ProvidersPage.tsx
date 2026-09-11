@@ -94,7 +94,15 @@ function ModelContextControls({
   }
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-3">
-      <span className="mono text-xs text-muted">{formatTokens(model.catalog_context_length || model.context_length)}</span>
+      <span className="mono text-xs text-muted">
+        {formatTokens(model.catalog_context_length || model.context_length)}
+        {model.catalog_context_length_max && model.catalog_context_length_max !== (model.catalog_context_length || model.context_length)
+          ? ` → ${formatTokens(model.catalog_context_length_max)}`
+          : ''}
+      </span>
+      {provider === 'workbuddy' && model.catalog_context_length_max && model.catalog_context_length_max !== (model.catalog_context_length || model.context_length) ? (
+        <HintLabel label={t('catalogWindow')} hint={t('workbuddyContextHint')} />
+      ) : null}
       {provider === 'trae' && model.supports_max_mode ? (
         <div className="flex items-center gap-2">
           <CompactSwitch

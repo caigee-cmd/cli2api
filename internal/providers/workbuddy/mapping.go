@@ -2,10 +2,19 @@ package workbuddy
 
 import (
 	"encoding/json"
+	"strings"
 
+	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/providers"
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
+
+// officialTopLevelReasoningModels need the 2.132.0 CLI field names. The
+// nested reasoning object that GLM / Hy4 still accept returns no thinking
+// tokens for these ids.
+var officialTopLevelReasoningModels = map[string]struct{}{
+	"deepseek-v4.1-flash": {},
+}
 
 func requestedReasoningLevel(req translate.ChatRequest) string {
 	if len(req.ReasoningEffort) > 0 {
@@ -58,23 +67,49 @@ func applyChatReasoning(obj map[string]any, req translate.ChatRequest, storedLev
 	}
 	level = providers.ResolveReasoningLevel(level, caps)
 	if level == "" {
-		delete(obj, "reasoning")
+		clearChatReasoning(obj)
 		return
 	}
 	if level == "none" {
 		if !caps.CanDisableThinking {
 			level = providers.ResolveReasoningLevel(caps.ReasoningDefault, caps)
 			if level == "" || level == "none" {
-				delete(obj, "reasoning")
+				clearChatReasoning(obj)
 				return
 			}
 		} else {
-			delete(obj, "reasoning")
+			clearChatReasoning(obj)
 			return
 		}
 	}
 	if level == "max" {
 		level = "xhigh"
 	}
+	if usesTopLevelReasoningFields(req.Model) {
+		delete(obj, "reasoning")
+		obj["reasoning_effort"] = level
+		obj["reasoning_summary"] = "auto"
+		obj["verbosity"] = "high"
+		return
+	}
+	delete(obj, "reasoning_effort")
+	delete(obj, "reasoning_summary")
+	delete(obj, "verbosity")
 	obj["reasoning"] = map[string]any{"effort": level, "summary": "auto"}
+}
+
+func clearChatReasoning(obj map[string]any) {
+	delete(obj, "reasoning")
+	delete(obj, "reasoning_effort")
+	delete(obj, "reasoning_summary")
+	delete(obj, "verbosity")
+}
+
+func usesTopLevelReasoningFields(model string) bool {
+	key := accounts.CanonicalModelID(model)
+	if i := strings.LastIndex(key, "/"); i >= 0 {
+		key = key[i+1:]
+	}
+	_, ok := officialTopLevelReasoningModels[key]
+	return ok
 }

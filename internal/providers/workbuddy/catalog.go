@@ -15,17 +15,23 @@ type catalogReasoning struct {
 	Summary            string   `json:"summary"`
 }
 
+type catalogContextWindow struct {
+	DefaultLength    int   `json:"defaultLength"`
+	SupportedLengths []int `json:"supportedLengths"`
+}
+
 type catalogModelEntry struct {
-	ID                string           `json:"id"`
-	Name              string           `json:"name"`
-	MaxInputTokens    int              `json:"maxInputTokens"`
-	MaxOutputTokens   int              `json:"maxOutputTokens"`
-	Disabled          bool             `json:"disabled"`
-	OnlyReasoning     bool             `json:"onlyReasoning"`
-	SupportsReasoning bool             `json:"supportsReasoning"`
-	SupportsImages    bool             `json:"supportsImages"`
-	SupportsToolCall  bool             `json:"supportsToolCall"`
-	Reasoning         catalogReasoning `json:"reasoning"`
+	ID                string               `json:"id"`
+	Name              string               `json:"name"`
+	MaxInputTokens    int                  `json:"maxInputTokens"`
+	MaxOutputTokens   int                  `json:"maxOutputTokens"`
+	Disabled          bool                 `json:"disabled"`
+	OnlyReasoning     bool                 `json:"onlyReasoning"`
+	SupportsReasoning bool                 `json:"supportsReasoning"`
+	SupportsImages    bool                 `json:"supportsImages"`
+	SupportsToolCall  bool                 `json:"supportsToolCall"`
+	ContextWindow     catalogContextWindow `json:"contextWindow"`
+	Reasoning         catalogReasoning     `json:"reasoning"`
 }
 
 func catalogModel(model catalogModelEntry) providers.ModelInfo {
@@ -49,12 +55,14 @@ func catalogModel(model catalogModelEntry) providers.ModelInfo {
 	if canDisable && (len(options) > 0 || model.SupportsReasoning) && !containsLevel(options, "none") {
 		options = append([]string{"none"}, options...)
 	}
+	window, windowMax := contextWindows(model)
 	return providers.ModelInfo{
 		NativeModel: model.ID,
 		PublicModel: model.ID,
 		DisplayName: model.Name,
 		Capabilities: providers.ModelCapabilities{
-			ContextWindow:      model.MaxInputTokens,
+			ContextWindow:      window,
+			ContextWindowMax:   windowMax,
 			MaxOutput:          model.MaxOutputTokens,
 			Tools:              true,
 			Images:             model.SupportsImages,
@@ -64,6 +72,54 @@ func catalogModel(model catalogModelEntry) providers.ModelInfo {
 			CanDisableThinking: canDisable,
 		},
 	}
+}
+
+func contextWindows(model catalogModelEntry) (int, int) {
+	cap := model.MaxInputTokens
+	seen := map[int]struct{}{}
+	var lengths []int
+	for _, value := range model.ContextWindow.SupportedLengths {
+		if value <= 0 || (cap > 0 && value > cap) {
+			continue
+		}
+		if _, dup := seen[value]; dup {
+			continue
+		}
+		seen[value] = struct{}{}
+		lengths = append(lengths, value)
+	}
+	for i := 0; i < len(lengths); i++ {
+		for j := i + 1; j < len(lengths); j++ {
+			if lengths[j] < lengths[i] {
+				lengths[i], lengths[j] = lengths[j], lengths[i]
+			}
+		}
+	}
+	dev := model.ContextWindow.DefaultLength
+	if dev <= 0 || (cap > 0 && dev > cap) || (len(lengths) > 0 && !containsWindow(lengths, dev)) {
+		if len(lengths) > 0 {
+			dev = lengths[0]
+		} else {
+			dev = cap
+		}
+	}
+	max := cap
+	if len(lengths) > 0 {
+		max = lengths[len(lengths)-1]
+	}
+	if max == dev {
+		max = 0
+	}
+	return dev, max
+}
+
+func containsWindow(values []int, want int) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func containsLevel(options []string, level string) bool {
