@@ -211,12 +211,13 @@ func TestChatNonStreamReadLifecycle(t *testing.T) {
 					w.Header().Set("Content-Length", "100000")
 				}
 				w.Header().Set("Content-Type", "text/event-stream")
-				_, _ = io.WriteString(w, "data: {}\n\n")
-				w.(http.Flusher).Flush()
-				if test.cancel {
-					cancel()
-					return
-				}
+					_, _ = io.WriteString(w, "data: {}\n\n")
+					w.(http.Flusher).Flush()
+					if test.cancel {
+						cancel()
+						<-r.Context().Done()
+						return
+					}
 				if test.truncate {
 					return
 				}
