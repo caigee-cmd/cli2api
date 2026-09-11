@@ -306,8 +306,15 @@ func TestModelsParsesReasoningOptions(t *testing.T) {
 					"onlyReasoning": true, "supportsReasoning": true,
 					"reasoning": map[string]any{"effort": "medium"},
 				},
+				{
+					"id": "deepseek-v4.1-flash", "name": "Deepseek-V4.1-Flash",
+					"maxInputTokens": 1000000, "maxOutputTokens": 128000,
+					"onlyReasoning": true, "supportsReasoning": true,
+					"contextWindow": map[string]any{"defaultLength": 300000, "supportedLengths": []int{300000, 1000000}},
+					"reasoning":     map[string]any{"effort": "high", "summary": "auto"},
+				},
 			},
-			"agents": []map[string]any{{"name": "cli", "models": []string{"glm-5.3", "glm-5.2"}}},
+			"agents": []map[string]any{{"name": "cli", "models": []string{"glm-5.3", "glm-5.2", "deepseek-v4.1-flash"}}},
 		}})
 	}))
 	defer server.Close()
@@ -318,7 +325,7 @@ func TestModelsParsesReasoningOptions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(models) != 2 {
+	if len(models) != 3 {
 		t.Fatalf("models=%+v", models)
 	}
 	glm53 := models[0]
@@ -331,6 +338,13 @@ func TestModelsParsesReasoningOptions(t *testing.T) {
 	glm52 := models[1]
 	if glm52.Capabilities.CanDisableThinking || glm52.Capabilities.ReasoningDefault != "medium" || strings.Join(glm52.Capabilities.ReasoningOptions, ",") != "medium" {
 		t.Fatalf("glm-5.2 caps=%+v", glm52.Capabilities)
+	}
+	if glm52.Capabilities.ContextWindow != 1000000 || glm52.Capabilities.ContextWindowMax != 0 {
+		t.Fatalf("glm-5.2 window=%+v", glm52.Capabilities)
+	}
+	ds := models[2]
+	if ds.NativeModel != "deepseek-v4.1-flash" || ds.Capabilities.ContextWindow != 300000 || ds.Capabilities.ContextWindowMax != 1000000 || ds.Capabilities.MaxMode {
+		t.Fatalf("deepseek window=%+v", ds.Capabilities)
 	}
 }
 
@@ -366,6 +380,43 @@ func TestChatRequestSendsCatalogReasoningEffort(t *testing.T) {
 	reasoning, _ := got["reasoning"].(map[string]any)
 	if reasoning["effort"] != "xhigh" {
 		t.Fatalf("reasoning=%v", got["reasoning"])
+	}
+}
+
+func TestChatRequestSendsOfficialReasoningFieldsForDeepseekFlash(t *testing.T) {
+	payload, _ := Credential{AccessToken: "at", UID: "u1", Domain: "codebuddy.cn", ExpiresAt: 4102444800}.Encode()
+	store := &memStore{items: map[string][]byte{"acc1": payload}}
+	var got map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == pathModelsCN {
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{
+				"models": []map[string]any{{
+					"id": "deepseek-v4.1-flash", "name": "Deepseek V4.1 Flash",
+					"onlyReasoning": true, "supportsReasoning": true,
+					"reasoning": map[string]any{"effort": "high", "summary": "auto"},
+				}},
+				"agents": []map[string]any{{"name": "cli", "models": []string{"deepseek-v4.1-flash"}}},
+			}})
+			return
+		}
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(chatSSE))
+	}))
+	defer server.Close()
+	client := NewClient(store)
+	client.http = server.Client()
+	client.http.Transport = rewriteTransport{server: server.URL, round: server.Client().Transport}
+	if _, err := client.ChatNonStream(context.Background(), "acc1", translate.ChatRequest{
+		Model: "deepseek-v4.1-flash", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := got["reasoning"]; ok {
+		t.Fatalf("deepseek kept nested reasoning: %v", got["reasoning"])
+	}
+	if got["reasoning_effort"] != "high" || got["reasoning_summary"] != "auto" || got["verbosity"] != "high" {
+		t.Fatalf("deepseek fields=%v", got)
 	}
 }
 

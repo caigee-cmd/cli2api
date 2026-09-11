@@ -7,6 +7,18 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Send WorkBuddy Deepseek V4.1 Flash thinking as official top-level reasoning fields so streamed thinking comes back
+- Show WorkBuddy catalog context budgets (default and optional window) on the model list without inventing a Trae Max switch
+
+### 中文
+
+- WorkBuddy 的 Deepseek V4.1 Flash 改为发送官方顶层思考字段，流式思考内容可以返回
+- 模型列表展示 WorkBuddy 目录里的默认和可选上下文窗口，不套用 Trae 的更大上下文开关
+
+## 0.4.8 - 2026-09-11
+
+### English
+
 - Preserve cached model routes when the dynamic model catalog is temporarily unavailable, while refreshing genuine model misses
 - Let WorkBuddy accounts choose their automatic daily check-in time during creation, with a 21:00 retry for failed attempts
 - Enlarge the account-name input in the create-account wizard

@@ -72,7 +72,7 @@ func (s *Server) decorateProviderSettings(ctx context.Context, item map[string]a
 	dev, _ := asInt(item["catalog_context_length"])
 	max, _ := asInt(item["catalog_context_length_max"])
 	supportsMax, _ := item["supports_max_mode"].(bool)
-	if !supportsMax && max > 0 && max != dev {
+	if provider == "trae" && !supportsMax && max > 0 && max != dev {
 		supportsMax = true
 		item["supports_max_mode"] = true
 	}
