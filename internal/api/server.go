@@ -172,12 +172,41 @@ func generateAPIKey() (string, error) {
 
 func (s *Server) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isOpenAIEndpoint(r.URL.Path) {
+			setOpenAICORSHeaders(w, r)
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+		}
 		if s.maintenance.Load() && blocksDuringUpdate(r.URL.Path) {
 			writeErr(w, http.StatusServiceUnavailable, "service_updating", "Service update in progress")
 			return
 		}
 		s.mux.ServeHTTP(w, r)
 	})
+}
+
+func isOpenAIEndpoint(path string) bool {
+	switch path {
+	case endpoint.ModelsPath, endpoint.ChatCompletionsPath, endpoint.MessagesPath, endpoint.ResponsesPath:
+		return true
+	default:
+		return false
+	}
+}
+
+func setOpenAICORSHeaders(w http.ResponseWriter, r *http.Request) {
+	header := w.Header()
+	header.Set("Access-Control-Allow-Origin", "*")
+	header.Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+	requestedHeaders := strings.TrimSpace(r.Header.Get("Access-Control-Request-Headers"))
+	if requestedHeaders == "" {
+		requestedHeaders = "Authorization, Content-Type, X-API-Key, X-Requested-With"
+	}
+	header.Set("Access-Control-Allow-Headers", requestedHeaders)
+	header.Set("Access-Control-Expose-Headers", "X-Request-Id, X-Qoder-Account, X-CLI2API-Account, X-CLI2API-Provider")
+	header.Set("Access-Control-Max-Age", "600")
 }
 
 func (s *Server) Close() error {
