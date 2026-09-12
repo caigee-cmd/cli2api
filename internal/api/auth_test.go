@@ -30,6 +30,69 @@ func TestClassifyCanceledErrorDoesNotBecomeAuth(t *testing.T) {
 	}
 }
 
+func TestCORSPreflightSkipsAPIKey(t *testing.T) {
+	srv := New(config.Config{
+		Host:        "127.0.0.1",
+		Port:        3010,
+		ProxyAPIKey: "secret",
+		QoderHome:   t.TempDir(),
+	})
+	defer srv.Close()
+	h := srv.Handler()
+
+	for _, path := range []string{
+		"/v1/models",
+		"/v1/chat/completions",
+		"/v1/messages",
+		"/v1/responses",
+	} {
+		req := httptest.NewRequest(http.MethodOptions, path, nil)
+		req.Header.Set("Origin", "chrome-extension://abc")
+		req.Header.Set("Access-Control-Request-Method", http.MethodPost)
+		req.Header.Set("Access-Control-Request-Headers", "authorization,content-type,x-api-key")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusNoContent {
+			t.Fatalf("OPTIONS %s: got %d want 204 body=%s", path, rec.Code, rec.Body.String())
+		}
+		if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "chrome-extension://abc" {
+			t.Fatalf("OPTIONS %s allow-origin=%q", path, got)
+		}
+		allowHeaders := strings.ToLower(rec.Header().Get("Access-Control-Allow-Headers"))
+		if !strings.Contains(allowHeaders, "authorization") || !strings.Contains(allowHeaders, "content-type") {
+			t.Fatalf("OPTIONS %s allow-headers=%q", path, rec.Header().Get("Access-Control-Allow-Headers"))
+		}
+		if rec.Body.Len() != 0 {
+			t.Fatalf("OPTIONS %s body=%s", path, rec.Body.String())
+		}
+	}
+}
+
+func TestCORSHeadersOnUnauthorizedChat(t *testing.T) {
+	srv := New(config.Config{
+		Host:        "127.0.0.1",
+		Port:        3010,
+		ProxyAPIKey: "secret",
+		QoderHome:   t.TempDir(),
+	})
+	defer srv.Close()
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader([]byte("{}")))
+	req.Header.Set("Origin", "chrome-extension://abc")
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("POST without key: got %d want 401 body=%s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "chrome-extension://abc" {
+		t.Fatalf("allow-origin=%q", got)
+	}
+	if got := rec.Header().Get("Access-Control-Expose-Headers"); !strings.Contains(got, "X-Request-Id") {
+		t.Fatalf("expose-headers=%q", got)
+	}
+}
+
 func TestManagementRoutesRequireAPIKey(t *testing.T) {
 	srv := New(config.Config{
 		Host:        "127.0.0.1",
