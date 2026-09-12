@@ -172,12 +172,48 @@ func generateAPIKey() (string, error) {
 
 func (s *Server) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if applyCORS(w, r) {
+			return
+		}
 		if s.maintenance.Load() && blocksDuringUpdate(r.URL.Path) {
 			writeErr(w, http.StatusServiceUnavailable, "service_updating", "Service update in progress")
 			return
 		}
 		s.mux.ServeHTTP(w, r)
 	})
+}
+
+const (
+	corsAllowMethods  = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+	corsAllowHeaders  = "Authorization, Content-Type, x-api-key, X-CLI2API-Session, X-Qoder-Account"
+	corsExposeHeaders = "X-Request-Id, X-Qoder-Account, X-CLI2API-Account, X-CLI2API-Provider, Retry-After"
+)
+
+func applyCORS(w http.ResponseWriter, r *http.Request) bool {
+	origin := strings.TrimSpace(r.Header.Get("Origin"))
+	if origin == "" && r.Method != http.MethodOptions {
+		return false
+	}
+	allowOrigin := origin
+	if allowOrigin == "" {
+		allowOrigin = "*"
+	}
+	header := w.Header()
+	header.Set("Access-Control-Allow-Origin", allowOrigin)
+	header.Set("Access-Control-Allow-Methods", corsAllowMethods)
+	allowHeaders := strings.TrimSpace(r.Header.Get("Access-Control-Request-Headers"))
+	if allowHeaders == "" {
+		allowHeaders = corsAllowHeaders
+	}
+	header.Set("Access-Control-Allow-Headers", allowHeaders)
+	header.Set("Access-Control-Expose-Headers", corsExposeHeaders)
+	header.Set("Access-Control-Max-Age", "86400")
+	header.Add("Vary", "Origin")
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return true
+	}
+	return false
 }
 
 func (s *Server) Close() error {

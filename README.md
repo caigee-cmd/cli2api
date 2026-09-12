@@ -102,7 +102,7 @@ CLI2API 是本地网关：不提供账号、额度或官方 API 服务，不做�
 
 ## 安全
 
-默认只监听 `127.0.0.1:3010`；除 `/health` 和静态前端资源外，所有 API 与控制台数据接口均需要 API Key。不要提交 `.qoder`、Token、Cookie、登录 Blob 或原始抓包；凭证导出是显式敏感操作，请妥善保管导出文件。上游 API 或 CLI 更新可能导致兼容性变化，项目会固定并检查 qodercli 版本。发现安全问题请按 [SECURITY.md](SECURITY.md) 私下报告。
+默认只监听 `127.0.0.1:3010`；除 `/health`、静态前端资源和 CORS 预检 `OPTIONS` 外，所有 API 与控制台数据接口均需要 API Key。不要提交 `.qoder`、Token、Cookie、登录 Blob 或原始抓包；凭证导出是显式敏感操作，请妥善保管导出文件。上游 API 或 CLI 更新可能导致兼容性变化，项目会固定并检查 qodercli 版本。发现安全问题请按 [SECURITY.md](SECURITY.md) 私下报告。
 
 ## 社区
 

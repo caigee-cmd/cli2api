@@ -102,7 +102,7 @@ CLI2API is a local gateway: it does not provide accounts, quotas, or an official
 
 ## Security
 
-The service binds `127.0.0.1:3010` by default; all APIs and console data endpoints require the API key except `/health` and static frontend assets. Never commit `.qoder`, tokens, cookies, auth blobs, or raw captures; credential export is an explicit sensitive operation — protect exported files. Upstream API or CLI changes may affect compatibility; qodercli is pinned and checked. Please report security issues privately according to [SECURITY.md](SECURITY.md).
+The service binds `127.0.0.1:3010` by default; all APIs and console data endpoints require the API key except `/health`, static frontend assets, and CORS preflight `OPTIONS`. Never commit `.qoder`, tokens, cookies, auth blobs, or raw captures; credential export is an explicit sensitive operation — protect exported files. Upstream API or CLI changes may affect compatibility; qodercli is pinned and checked. Please report security issues privately according to [SECURITY.md](SECURITY.md).
 
 ## Community
 
