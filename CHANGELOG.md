@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.4.10 - 2026-09-12
+
+### English
+
 - Allow CORS preflight requests on the OpenAI-compatible endpoints without weakening API-key authentication on actual requests
 - Repair WorkBuddy tool history after a canceled tool round so the next turn is not rejected as a broken tool sequence
 - Send WorkBuddy Deepseek V4.1 Flash thinking as official top-level reasoning fields so streamed thinking comes back
