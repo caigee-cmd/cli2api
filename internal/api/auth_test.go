@@ -66,6 +66,54 @@ func TestManagementRoutesRequireAPIKey(t *testing.T) {
 	}
 }
 
+func TestOpenAIEndpointsAllowCORSPreflightWithoutAPIKey(t *testing.T) {
+	srv := New(config.Config{
+		Host: "127.0.0.1", Port: 3010, ProxyAPIKey: "secret", QoderHome: t.TempDir(), DataDir: t.TempDir(),
+	})
+	defer srv.Close()
+
+	for _, path := range []string{
+		"/v1/models",
+		"/v1/chat/completions",
+		"/v1/messages",
+		"/v1/responses",
+	} {
+		req := httptest.NewRequest(http.MethodOptions, path, nil)
+		req.Header.Set("Origin", "chrome-extension://example")
+		req.Header.Set("Access-Control-Request-Method", http.MethodPost)
+		req.Header.Set("Access-Control-Request-Headers", "authorization, content-type")
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, req)
+		if rec.Code != http.StatusNoContent {
+			t.Fatalf("OPTIONS %s: got %d body=%s", path, rec.Code, rec.Body.String())
+		}
+		if rec.Header().Get("Access-Control-Allow-Origin") != "*" ||
+			rec.Header().Get("Access-Control-Allow-Methods") == "" ||
+			rec.Header().Get("Access-Control-Allow-Headers") == "" {
+			t.Fatalf("OPTIONS %s missing CORS headers: %v", path, rec.Header())
+		}
+	}
+
+	chat := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"m","messages":[{"role":"user","content":"hi"}]}`))
+	chat.Header.Set("Origin", "chrome-extension://example")
+	chatRec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(chatRec, chat)
+	if chatRec.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated chat: got %d want 401", chatRec.Code)
+	}
+	if chatRec.Header().Get("Access-Control-Allow-Origin") != "*" {
+		t.Fatalf("unauthenticated chat missing CORS headers: %v", chatRec.Header())
+	}
+
+	management := httptest.NewRequest(http.MethodOptions, "/api/chat", nil)
+	management.Header.Set("Origin", "chrome-extension://example")
+	managementRec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(managementRec, management)
+	if managementRec.Code != http.StatusUnauthorized {
+		t.Fatalf("management OPTIONS: got %d want 401", managementRec.Code)
+	}
+}
+
 func TestOverviewSummaryReturnsLightweightSnapshot(t *testing.T) {
 	dir := t.TempDir()
 	srv := New(config.Config{

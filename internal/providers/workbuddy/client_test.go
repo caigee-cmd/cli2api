@@ -193,6 +193,106 @@ func TestChatNonStreamAggregatesToolsAndReasoning(t *testing.T) {
 	}
 }
 
+func TestChatNonStreamSendsSingleAndMultiTurnHistories(t *testing.T) {
+	tests := []struct {
+		name          string
+		messages      []translate.ChatMessage
+		wantRoles     string
+		wantToolCalls int
+		wantToolID    string
+	}{
+		{
+			name:      "single turn",
+			messages:  []translate.ChatMessage{{Role: "user", Content: "hello"}},
+			wantRoles: "system,user",
+		},
+		{
+			name: "complete multi turn with tools",
+			messages: []translate.ChatMessage{
+				{Role: "user", Content: "look this up"},
+				{Role: "assistant", Content: "", ToolCalls: json.RawMessage(`[{"id":"call_1","type":"function","function":{"name":"search","arguments":"{}"}},{"id":"call_2","type":"function","function":{"name":"search","arguments":"{}"}}]`)},
+				{Role: "tool", ToolCallID: "call_1", Content: "first result"},
+				{Role: "tool", ToolCallID: "call_2", Content: "second result"},
+				{Role: "user", Content: "continue"},
+			},
+			wantRoles:     "system,user,assistant,tool,tool,user",
+			wantToolCalls: 2,
+			wantToolID:    "call_2",
+		},
+		{
+			name: "interrupted multi turn",
+			messages: []translate.ChatMessage{
+				{Role: "user", Content: "look this up"},
+				{Role: "assistant", Content: "", ToolCalls: json.RawMessage(`[{"id":"call_interrupted","type":"function","function":{"name":"search","arguments":"{}"}}]`)},
+				{Role: "user", Content: "stop and answer me"},
+			},
+			wantRoles: "system,user,user",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			payload, _ := Credential{AccessToken: "at", UID: "u1", Domain: "codebuddy.cn", ExpiresAt: 4102444800}.Encode()
+			store := &memStore{items: map[string][]byte{"acc1": payload}}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != pathChat {
+					t.Fatalf("path=%s", r.URL.Path)
+				}
+				var body map[string]any
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Fatalf("decode request: %v", err)
+				}
+				if body["stream"] != true {
+					t.Fatalf("stream=%v", body["stream"])
+				}
+				if got := strings.Join(messageRoles(body), ","); got != test.wantRoles {
+					t.Fatalf("roles=%s want=%s messages=%v", got, test.wantRoles, body["messages"])
+				}
+				messages, _ := body["messages"].([]any)
+				for _, raw := range messages {
+					message, _ := raw.(map[string]any)
+					if message["role"] != "assistant" {
+						continue
+					}
+					calls, _ := message["tool_calls"].([]any)
+					if len(calls) != test.wantToolCalls {
+						t.Fatalf("tool calls=%v want=%d", message["tool_calls"], test.wantToolCalls)
+					}
+				}
+				if test.wantToolID != "" {
+					found := false
+					for _, raw := range messages {
+						message, _ := raw.(map[string]any)
+						if message["role"] == "tool" && message["tool_call_id"] == test.wantToolID {
+							found = true
+						}
+					}
+					if !found {
+						t.Fatalf("tool result %q not found: %v", test.wantToolID, messages)
+					}
+				}
+				w.Header().Set("Content-Type", "text/event-stream")
+				_, _ = io.WriteString(w, `data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}
+
+data: [DONE]
+
+`)
+			}))
+			defer server.Close()
+			client := NewClient(store)
+			client.rememberCatalog([]providers.ModelInfo{{NativeModel: "glm-5.2", Capabilities: providers.ModelCapabilities{ReasoningOptions: []string{"none", "medium"}}}})
+			client.http = server.Client()
+			client.http.Transport = rewriteTransport{server: server.URL, round: server.Client().Transport}
+
+			if _, err := client.ChatNonStream(context.Background(), "acc1", translate.ChatRequest{
+				Model: "glm-5.2", Messages: test.messages,
+			}); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
 func TestChatNonStreamReadLifecycle(t *testing.T) {
 	for _, test := range []struct {
 		name     string
@@ -211,13 +311,13 @@ func TestChatNonStreamReadLifecycle(t *testing.T) {
 					w.Header().Set("Content-Length", "100000")
 				}
 				w.Header().Set("Content-Type", "text/event-stream")
-					_, _ = io.WriteString(w, "data: {}\n\n")
-					w.(http.Flusher).Flush()
-					if test.cancel {
-						cancel()
-						<-r.Context().Done()
-						return
-					}
+				_, _ = io.WriteString(w, "data: {}\n\n")
+				w.(http.Flusher).Flush()
+				if test.cancel {
+					cancel()
+					<-r.Context().Done()
+					return
+				}
 				if test.truncate {
 					return
 				}
@@ -602,6 +702,7 @@ func TestErrorMapping(t *testing.T) {
 		{500, "boom", "unavailable"},
 		{400, `{"code":11101,"msg":"bad request"}`, "invalid_request"},
 		{200, `{"code":11128,"msg":"first message is not system prompt"}`, "invalid_request"},
+		{200, `{"code":11148,"msg":"tool calls and tool results do not match, please start a new conversation and retry","extError":{"code":"tool_call_sequence_broken"}}`, "invalid_request"},
 		{200, `{"code":12001,"msg":"内容包含敏感信息"}`, "invalid_request"},
 		{200, `{"code":12002,"msg":"sensitive content detected"}`, "invalid_request"},
 		{429, `{"code": "insufficient_quota", "msg": "token-limit"}`, "invalid_request"},
@@ -747,9 +848,79 @@ func TestPrepareBodyNormalizesEmptyMessageContent(t *testing.T) {
 		t.Fatal(err)
 	}
 	toolMessages, _ := toolBody["messages"].([]any)
-	if len(toolMessages) != 2 {
-		t.Fatalf("tool message was dropped: %v", toolMessages)
+	if len(toolMessages) != 1 {
+		t.Fatalf("unmatched tool_calls should be dropped: %v", toolMessages)
 	}
+	first, _ := toolMessages[0].(map[string]any)
+	if first["role"] != "system" {
+		t.Fatalf("messages=%v", toolMessages)
+	}
+}
+
+func TestPrepareBodyRepairsInterruptedToolSequence(t *testing.T) {
+	out := PrepareBody([]byte(`{"model":"m","messages":[
+			{"role":"user","content":"look this up"},
+			{"role":"assistant","content":"","tool_calls":[{"id":"call_abc","type":"function","function":{"name":"search","arguments":"{\"q\":\"par"}},{"id":"","function":{"name":"search","arguments":""}}]},
+			{"role":"user","content":"continue"}
+		]}`))
+	var body map[string]any
+	if err := json.Unmarshal(out, &body); err != nil {
+		t.Fatal(err)
+	}
+	roles := messageRoles(body)
+	if strings.Join(roles, ",") != "system,user,user" {
+		t.Fatalf("interrupted tool_calls should be dropped: %v", body["messages"])
+	}
+
+	paired := PrepareBody([]byte(`{"model":"m","messages":[
+			{"role":"user","content":"look this up"},
+			{"role":"assistant","content":"","tool_calls":[{"id":"call_abc","type":"function","function":{"name":"search","arguments":"{}"}},{"id":"call_def","type":"function","function":{"name":"search","arguments":"{}"}}]},
+			{"role":"tool","tool_call_id":"call_abc","content":""},
+			{"role":"user","content":"go on"}
+		]}`))
+	if err := json.Unmarshal(paired, &body); err != nil {
+		t.Fatal(err)
+	}
+	roles = messageRoles(body)
+	if strings.Join(roles, ",") != "system,user,user" {
+		t.Fatalf("partial tool round should be dropped as a unit: %v", body["messages"])
+	}
+
+	complete := PrepareBody([]byte(`{"model":"m","messages":[
+			{"role":"user","content":"look this up"},
+			{"role":"assistant","content":"","tool_calls":[{"id":"call_abc","type":"function","function":{"name":"search","arguments":"{}"}}]},
+			{"role":"tool","tool_call_id":"call_abc","content":"ok"},
+			{"role":"user","content":"thanks"}
+		]}`))
+	if err := json.Unmarshal(complete, &body); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(messageRoles(body), ",") != "system,user,assistant,tool,user" {
+		t.Fatalf("complete tool round-trip rewritten: %v", body["messages"])
+	}
+
+	orphan := PrepareBody([]byte(`{"model":"m","messages":[
+			{"role":"user","content":"hi"},
+			{"role":"tool","tool_call_id":"call_orphan","content":"leftover"},
+			{"role":"user","content":"again"}
+		]}`))
+	if err := json.Unmarshal(orphan, &body); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(messageRoles(body), ",") != "system,user,user" {
+		t.Fatalf("orphan tool result kept: %v", body["messages"])
+	}
+}
+
+func messageRoles(body map[string]any) []string {
+	messages, _ := body["messages"].([]any)
+	roles := make([]string, 0, len(messages))
+	for _, item := range messages {
+		message, _ := item.(map[string]any)
+		role, _ := message["role"].(string)
+		roles = append(roles, role)
+	}
+	return roles
 }
 
 func TestPrepareBodyDropsNullAndEmptyTools(t *testing.T) {

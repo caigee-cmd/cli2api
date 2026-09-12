@@ -570,7 +570,7 @@ func Classify(status int, body string) providers.ClassifiedError {
 		return providers.ClassifiedError{Kind: accounts.KindRateLimit, Status: 429, Message: strings.TrimSpace(body)}
 	case status == 404:
 		return providers.ClassifiedError{Kind: accounts.KindUnavailable, Status: 404, Message: strings.TrimSpace(body)}
-	case status == 400 || accounts.IsPromptLimitText(body) || accounts.IsInvalidRequestText(body) || isMissingSystemPrompt(body):
+	case status == 400 || accounts.IsPromptLimitText(body) || accounts.IsInvalidRequestText(body) || isMissingSystemPrompt(body) || isBrokenToolSequence(body):
 		// Request-level rejection (content screening, malformed fields,
 		// missing leading system message): retrying on another account
 		// cannot help and the account is healthy.
@@ -583,7 +583,7 @@ func Classify(status int, body string) providers.ClassifiedError {
 		if env.Code == sessionDeadCode || strings.Contains(strings.ToLower(env.Msg), sessionDeadText) {
 			return providers.ClassifiedError{Kind: accounts.KindAuth, Status: 401, Message: "session dead; re-login required"}
 		}
-		if accounts.IsPromptLimitText(env.Msg) || accounts.IsInvalidRequestText(env.Msg) || isMissingSystemPrompt(env.Msg) || env.Code == missingSystemPromptCode {
+		if accounts.IsPromptLimitText(env.Msg) || accounts.IsInvalidRequestText(env.Msg) || isMissingSystemPrompt(env.Msg) || isBrokenToolSequence(env.Msg) || env.Code == missingSystemPromptCode || env.Code == toolCallSequenceCode {
 			return providers.ClassifiedError{Kind: accounts.KindInvalidRequest, Status: firstNonEmptyStatus(status, 400), Message: env.Msg}
 		}
 		return providers.ClassifiedError{Kind: accounts.KindUnavailable, Status: 502, Message: env.Msg}
@@ -602,6 +602,13 @@ func isMissingSystemPrompt(text string) bool {
 	lower := strings.ToLower(text)
 	return strings.Contains(lower, missingSystemPromptText) ||
 		strings.Contains(lower, fmt.Sprintf("%d", missingSystemPromptCode))
+}
+
+func isBrokenToolSequence(text string) bool {
+	lower := strings.ToLower(text)
+	return strings.Contains(lower, toolCallSequenceText) ||
+		strings.Contains(lower, "tool_call_sequence_broken") ||
+		strings.Contains(lower, fmt.Sprintf("%d", toolCallSequenceCode))
 }
 
 func catalogErrorBody(body []byte) string {
