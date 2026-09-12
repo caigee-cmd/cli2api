@@ -124,7 +124,7 @@ The API key is generated once and stored in SQLite. There is no environment-vari
 | `POST` | `/v1/responses` | OpenAI Responses-compatible API |
 | `GET/POST/PATCH/DELETE` | `/api/*` | Console management API |
 
-All console and API routes except `/health` require the API key stored in SQLite.
+All console and API routes except `/health` and CORS preflight `OPTIONS` require the API key stored in SQLite.
 
 ## 7. Managed next-version update
 
