@@ -47,6 +47,8 @@ const (
 	sessionDeadText         = "Offline user session not found"
 	missingSystemPromptCode = 11128
 	missingSystemPromptText = "first message is not system prompt"
+	toolCallSequenceCode    = 11148
+	toolCallSequenceText    = "tool calls and tool results do not match"
 
 	// rateLimitCode marks a usage limit whose response carries the absolute
 	// reset timestamp. Cooling down for the generic rate-limit fallback would

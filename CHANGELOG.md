@@ -7,11 +7,15 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Allow CORS preflight requests on the OpenAI-compatible endpoints without weakening API-key authentication on actual requests
+- Repair WorkBuddy tool history after a canceled tool round so the next turn is not rejected as a broken tool sequence
 - Send WorkBuddy Deepseek V4.1 Flash thinking as official top-level reasoning fields so streamed thinking comes back
 - Show WorkBuddy catalog context budgets (default and optional window) on the model list without inventing a Trae Max switch
 
 ### 中文
 
+- OpenAI 兼容接口允许跨域预检请求，但实际请求仍必须通过 API Key 认证
+- WorkBuddy 在工具调用中途停止后，下一轮会修好不完整的 tool 记录，避免被当成工具序列损坏拒绝
 - WorkBuddy 的 Deepseek V4.1 Flash 改为发送官方顶层思考字段，流式思考内容可以返回
 - 模型列表展示 WorkBuddy 目录里的默认和可选上下文窗口，不套用 Trae 的更大上下文开关
 
