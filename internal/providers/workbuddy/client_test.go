@@ -383,8 +383,16 @@ func TestModelsFiltersCliAgentAndDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(models) != 1 || models[0].NativeModel != "glm-5.2" || models[0].Capabilities.ContextWindow != 128000 {
+	// Disabled models must still be filtered out, but agent filtering is
+	// intentionally removed so all non-disabled models are exposed.
+	if len(models) != 2 {
 		t.Fatalf("models=%+v", models)
+	}
+	if models[0].NativeModel != "glm-5.2" || models[0].Capabilities.ContextWindow != 128000 {
+		t.Fatalf("models[0]=%+v", models[0])
+	}
+	if models[1].NativeModel != "web-model" {
+		t.Fatalf("models[1]=%+v", models[1])
 	}
 }
 

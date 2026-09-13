@@ -188,12 +188,3 @@ func (c Credential) IsGlobal() bool {
 	}
 	return strings.Contains(domain, DomainGlobal) || strings.Contains(domain, "workbuddy")
 }
-
-func isCLIAgent(name string) bool {
-	switch strings.ToLower(strings.TrimSpace(name)) {
-	case "cli", "codebuddy", "workbuddy":
-		return true
-	default:
-		return false
-	}
-}
