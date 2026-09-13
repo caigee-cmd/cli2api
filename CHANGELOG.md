@@ -7,7 +7,11 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Accept `tool_reference` blocks inside Anthropic tool results and keep them as text instead of rejecting the whole request
+
 ### 中文
+
+- 接受 Anthropic 工具结果中的 `tool_reference` 块并保留为文本，不再整条请求报错
 
 ## 0.4.10 - 2026-09-12
 
