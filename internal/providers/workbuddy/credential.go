@@ -47,6 +47,8 @@ const (
 	sessionDeadText         = "Offline user session not found"
 	missingSystemPromptCode = 11128
 	missingSystemPromptText = "first message is not system prompt"
+	toolCallSequenceCode    = 11148
+	toolCallSequenceText    = "tool calls and tool results do not match"
 
 	// rateLimitCode marks a usage limit whose response carries the absolute
 	// reset timestamp. Cooling down for the generic rate-limit fallback would
@@ -185,13 +187,4 @@ func (c Credential) IsGlobal() bool {
 		return false
 	}
 	return strings.Contains(domain, DomainGlobal) || strings.Contains(domain, "workbuddy")
-}
-
-func isCLIAgent(name string) bool {
-	switch strings.ToLower(strings.TrimSpace(name)) {
-	case "cli", "codebuddy", "workbuddy":
-		return true
-	default:
-		return false
-	}
 }

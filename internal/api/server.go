@@ -172,8 +172,12 @@ func generateAPIKey() (string, error) {
 
 func (s *Server) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if applyCORS(w, r) {
-			return
+		if isOpenAIEndpoint(r.URL.Path) {
+			setOpenAICORSHeaders(w, r)
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
 		}
 		if s.maintenance.Load() && blocksDuringUpdate(r.URL.Path) {
 			writeErr(w, http.StatusServiceUnavailable, "service_updating", "Service update in progress")
@@ -183,37 +187,26 @@ func (s *Server) Handler() http.Handler {
 	})
 }
 
-const (
-	corsAllowMethods  = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
-	corsAllowHeaders  = "Authorization, Content-Type, x-api-key, X-CLI2API-Session, X-Qoder-Account"
-	corsExposeHeaders = "X-Request-Id, X-Qoder-Account, X-CLI2API-Account, X-CLI2API-Provider, Retry-After"
-)
-
-func applyCORS(w http.ResponseWriter, r *http.Request) bool {
-	origin := strings.TrimSpace(r.Header.Get("Origin"))
-	if origin == "" && r.Method != http.MethodOptions {
+func isOpenAIEndpoint(path string) bool {
+	switch path {
+	case endpoint.ModelsPath, endpoint.ChatCompletionsPath, endpoint.MessagesPath, endpoint.ResponsesPath:
+		return true
+	default:
 		return false
 	}
-	allowOrigin := origin
-	if allowOrigin == "" {
-		allowOrigin = "*"
-	}
+}
+
+func setOpenAICORSHeaders(w http.ResponseWriter, r *http.Request) {
 	header := w.Header()
-	header.Set("Access-Control-Allow-Origin", allowOrigin)
-	header.Set("Access-Control-Allow-Methods", corsAllowMethods)
-	allowHeaders := strings.TrimSpace(r.Header.Get("Access-Control-Request-Headers"))
-	if allowHeaders == "" {
-		allowHeaders = corsAllowHeaders
+	header.Set("Access-Control-Allow-Origin", "*")
+	header.Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+	requestedHeaders := strings.TrimSpace(r.Header.Get("Access-Control-Request-Headers"))
+	if requestedHeaders == "" {
+		requestedHeaders = "Authorization, Content-Type, X-API-Key, X-Requested-With"
 	}
-	header.Set("Access-Control-Allow-Headers", allowHeaders)
-	header.Set("Access-Control-Expose-Headers", corsExposeHeaders)
-	header.Set("Access-Control-Max-Age", "86400")
-	header.Add("Vary", "Origin")
-	if r.Method == http.MethodOptions {
-		w.WriteHeader(http.StatusNoContent)
-		return true
-	}
-	return false
+	header.Set("Access-Control-Allow-Headers", requestedHeaders)
+	header.Set("Access-Control-Expose-Headers", "X-Request-Id, X-Qoder-Account, X-CLI2API-Account, X-CLI2API-Provider")
+	header.Set("Access-Control-Max-Age", "600")
 }
 
 func (s *Server) Close() error {
