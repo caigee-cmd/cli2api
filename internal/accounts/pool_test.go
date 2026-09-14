@@ -569,3 +569,17 @@ func TestQuotaCooledEmptyCatalogSurfacesQuotaHint(t *testing.T) {
 		t.Fatal("quota-cooled empty catalog must not count as a live candidate")
 	}
 }
+
+func TestNormalizeModelNameStripsProviderPrefix(t *testing.T) {
+	for input, want := range map[string]string{
+		"DeepSeek: DeepSeek V4.1 Flash": "deepseek-v4.1-flash",
+		"DeepSeek_V4.1_Flash":           "deepseek-v4.1-flash",
+		"workbuddy/deepseek-v4.1-flash": "deepseek-v4.1-flash",
+		"MiniMax-M3":                    "minimax-m3",
+		"Qwen3.7-Plus":                  "qwen3.7-plus",
+	} {
+		if got := NormalizeModelName(input); got != want {
+			t.Fatalf("NormalizeModelName(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
