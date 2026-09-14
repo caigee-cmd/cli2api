@@ -242,7 +242,17 @@ func (s *Server) fetchProviderModels(refresh bool, accountID string) ([]map[stri
 		}
 		sawAny = true
 		for _, model := range models {
-			key := model.NativeModel + "@" + item.Provider
+			// Dedup on the public model ID (what clients request and what the
+			// entry exposes as "id"), not the upstream native ID. Two entries
+			// may legitimately share a native model — e.g. a WorkBuddy alias
+			// where NativeModel=deep-model and PublicModel=deepseek-v4.1-flash
+			// alongside the native deep-model entry. Keying on the native ID
+			// would drop the alias from the merged catalog.
+			publicKey := strings.TrimSpace(model.PublicModel)
+			if publicKey == "" {
+				publicKey = strings.TrimSpace(model.NativeModel)
+			}
+			key := publicKey + "@" + item.Provider
 			if _, dup := seen[key]; dup {
 				continue
 			}

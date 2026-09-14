@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/providers"
+	proxyutil "github.com/caigee-cmd/cli2api/internal/proxy"
 )
 
 var errManagerClosed = errors.New("account manager closed")
@@ -30,6 +31,7 @@ type ManagerConfig struct {
 	QoderCNCLIPath  string
 	TemplatePath    string
 	ProxyAPIKey     string
+	ProxyURL        string
 	MaxLogWriters   io.Writer
 	RestartDelay    time.Duration
 	RestartMaxDelay time.Duration
@@ -43,6 +45,19 @@ type ManagedProcess interface {
 
 type ProcessStarter interface {
 	Start(context.Context, Account, string, int) (ManagedProcess, error)
+}
+
+// ProxyConfigurableStarter lets the manager push the global outbound proxy to a
+// starter that can apply it to newly spawned workers. Kept optional so test
+// starters need not implement it.
+type ProxyConfigurableStarter interface {
+	SetProxyURL(string)
+}
+
+// APIKeyConfigurableStarter is the sibling of ProxyConfigurableStarter for the
+// manager's proxy API key.
+type APIKeyConfigurableStarter interface {
+	SetProxyAPIKey(string)
 }
 
 // WorkBuddyMaintainer is the Phase N ops surface. Implemented by
@@ -90,6 +105,14 @@ type Manager struct {
 	persistClosed     bool
 	persistCloseCh    chan struct{} // closed by Close(); drainer's retry backoff watches it
 	persistDone       sync.WaitGroup
+
+	// Serializes ReloadProxyURL so two settings PATCHes cannot interleave
+	// stop/start cycles. proxyReloadPending stays true while the applied global
+	// proxy differs from what the running workers use (a reload attempt failed,
+	// or one was never made), so resubmitting the same value can still retry
+	// instead of being treated as a no-op. Guarded by mu.
+	proxyReloadMu      sync.Mutex
+	proxyReloadPending bool
 }
 
 func NewManager(config ManagerConfig, store *Store, starter ProcessStarter) *Manager {
@@ -106,7 +129,7 @@ func NewManager(config ManagerConfig, store *Store, starter ProcessStarter) *Man
 		config.RestartMaxDelay = config.RestartDelay
 	}
 	if starter == nil {
-		starter = ExecStarter{Config: config}
+		starter = &ExecStarter{Config: config}
 	}
 	runCtx, cancel := context.WithCancel(context.Background())
 	manager := &Manager{
@@ -392,10 +415,6 @@ func (m *Manager) ReplaceProxyAPIKey(ctx context.Context, key string) error {
 	}
 	m.mu.Lock()
 	m.config.ProxyAPIKey = key
-	if starter, ok := m.starter.(ExecStarter); ok {
-		starter.Config.ProxyAPIKey = key
-		m.starter = starter
-	}
 	accounts := make([]Account, 0, len(m.processes))
 	for id := range m.processes {
 		account, err := m.store.Get(ctx, id)
@@ -408,6 +427,12 @@ func (m *Manager) ReplaceProxyAPIKey(ctx context.Context, key string) error {
 		}
 	}
 	m.mu.Unlock()
+	// Push to the starter outside the manager lock; the default starter is the
+	// pointer *ExecStarter, so assert the behavior interface rather than the
+	// concrete (and never-matching) value type.
+	if starter, ok := m.starter.(APIKeyConfigurableStarter); ok {
+		starter.SetProxyAPIKey(key)
+	}
 	for _, account := range accounts {
 		if err := m.stopAccount(account.ID); err != nil {
 			return err
@@ -603,7 +628,31 @@ func (w *prefixLogWriter) Write(p []byte) (int, error) {
 }
 
 type ExecStarter struct {
+	mu     sync.RWMutex
 	Config ManagerConfig
+}
+
+// configSnapshot returns a stable copy of the starter config. Start uses one
+// snapshot for the whole spawn so a concurrent SetProxyURL cannot race with
+// reading fields.
+func (s *ExecStarter) configSnapshot() ManagerConfig {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.Config
+}
+
+// SetProxyURL updates the global proxy used for future spawns.
+func (s *ExecStarter) SetProxyURL(value string) {
+	s.mu.Lock()
+	s.Config.ProxyURL = strings.TrimSpace(value)
+	s.mu.Unlock()
+}
+
+// SetProxyAPIKey updates the manager proxy API key used for future spawns.
+func (s *ExecStarter) SetProxyAPIKey(value string) {
+	s.mu.Lock()
+	s.Config.ProxyAPIKey = value
+	s.mu.Unlock()
 }
 
 type execProcess struct {
@@ -624,34 +673,38 @@ func (p *execProcess) Stop() error {
 	return p.cmd.Process.Kill()
 }
 
-func (s ExecStarter) Start(_ context.Context, account Account, home string, port int) (ManagedProcess, error) {
-	node := s.Config.NodeBinary
-	if node == "" {
-		node = "node"
+func proxyEnv(env []string, raw string) []string {
+	if strings.TrimSpace(raw) == "" {
+		return env
 	}
-	if s.Config.DaemonPath == "" {
-		return nil, fmt.Errorf("worker daemon path required")
+	filtered := make([]string, 0, len(env)+2)
+	for _, value := range env {
+		key := strings.SplitN(value, "=", 2)[0]
+		switch strings.ToUpper(key) {
+		case "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY":
+			continue
+		}
+		filtered = append(filtered, value)
 	}
-	cliPath, site, configDir, configEnv, err := qoderRuntimeSpec(s.Config, account, home)
+	if setting, err := proxyutil.Parse(raw); err == nil && setting.Mode == proxyutil.ModeProxy {
+		filtered = append(filtered, "HTTP_PROXY="+raw, "HTTPS_PROXY="+raw, "http_proxy="+raw, "https_proxy="+raw)
+	}
+	return filtered
+}
+
+func (s *ExecStarter) Start(_ context.Context, account Account, home string, port int) (ManagedProcess, error) {
+	config := s.configSnapshot()
+	env, err := starterEnv(config, account, home, port)
 	if err != nil {
 		return nil, err
 	}
-	cmd := exec.Command(node, s.Config.DaemonPath)
-	cmd.Env = append(os.Environ(),
-		"HOME="+home,
-		"QODER_HOME="+configDir,
-		configEnv+"="+configDir,
-		"QODER_SITE="+site,
-		"QODER_ACCOUNT_ID="+account.ID,
-		"QODER_MAX_INFLIGHT="+strconv.Itoa(account.MaxInFlight),
-		"WORKER_HOST=127.0.0.1",
-		"WORKER_PORT="+strconv.Itoa(port),
-		"PROXY_API_KEY="+s.Config.ProxyAPIKey,
-		"QODERCLI_JS="+cliPath,
-		"PLAIN_TEMPLATE_PATH="+s.Config.TemplatePath,
-		"QODER_WARMUP_CWD="+filepath.Join(home, "work"),
-	)
-	writer := s.Config.MaxLogWriters
+	node := config.NodeBinary
+	if node == "" {
+		node = "node"
+	}
+	cmd := exec.Command(node, config.DaemonPath)
+	cmd.Env = env
+	writer := config.MaxLogWriters
 	if writer == nil {
 		writer = os.Stderr
 	}
@@ -672,6 +725,36 @@ func (s ExecStarter) Start(_ context.Context, account Account, home string, port
 	return process, nil
 }
 
+// starterEnv builds the worker environment from a stable config snapshot. The
+// effective proxy is resolved once (account override wins, else global) and
+// applied to both the proxy env vars and QODER_PROXY_URL.
+func starterEnv(config ManagerConfig, account Account, home string, port int) ([]string, error) {
+	if config.DaemonPath == "" {
+		return nil, fmt.Errorf("worker daemon path required")
+	}
+	cliPath, site, configDir, configEnv, err := qoderRuntimeSpec(config, account, home)
+	if err != nil {
+		return nil, err
+	}
+	effectiveProxy := proxyutil.Effective(account.ProxyURL, config.ProxyURL)
+	env := proxyEnv(os.Environ(), effectiveProxy)
+	return append(env,
+		"HOME="+home,
+		"QODER_HOME="+configDir,
+		configEnv+"="+configDir,
+		"QODER_SITE="+site,
+		"QODER_ACCOUNT_ID="+account.ID,
+		"QODER_MAX_INFLIGHT="+strconv.Itoa(account.MaxInFlight),
+		"WORKER_HOST=127.0.0.1",
+		"WORKER_PORT="+strconv.Itoa(port),
+		"PROXY_API_KEY="+config.ProxyAPIKey,
+		"QODERCLI_JS="+cliPath,
+		"PLAIN_TEMPLATE_PATH="+config.TemplatePath,
+		"QODER_WARMUP_CWD="+filepath.Join(home, "work"),
+		"QODER_PROXY_URL="+effectiveProxy,
+	), nil
+}
+
 func (m *Manager) Create(ctx context.Context, input CreateAccount) (Account, error) {
 	account, err := m.store.Create(ctx, input)
 	if err != nil {
@@ -683,6 +766,71 @@ func (m *Manager) Create(ctx context.Context, input CreateAccount) (Account, err
 		}
 	}
 	return account, nil
+}
+
+func (m *Manager) ReloadProxyURL(ctx context.Context, value string) error {
+	// Serialize reloads so concurrent PATCHes cannot interleave stop/start.
+	m.proxyReloadMu.Lock()
+	defer m.proxyReloadMu.Unlock()
+
+	value = strings.TrimSpace(value)
+
+	m.mu.Lock()
+	unchanged := strings.TrimSpace(m.config.ProxyURL) == value
+	// Skip only when nothing changed AND the running workers already match the
+	// desired value. A previous failure leaves proxyReloadPending set, so the
+	// same value can be retried.
+	if unchanged && !m.proxyReloadPending {
+		m.mu.Unlock()
+		return nil
+	}
+	m.config.ProxyURL = value
+	m.proxyReloadPending = true
+	m.mu.Unlock()
+
+	// Push to the starter outside the manager lock so we never nest the
+	// manager lock around the starter lock.
+	if starter, ok := m.starter.(ProxyConfigurableStarter); ok {
+		starter.SetProxyURL(value)
+	}
+
+	accounts, err := m.store.List(ctx)
+	if err != nil {
+		return err
+	}
+	var joined error
+	for _, account := range accounts {
+		if !m.shouldRestartForGlobalProxy(account) {
+			continue
+		}
+		if err := m.stopAccount(account.ID); err != nil {
+			joined = errors.Join(joined, fmt.Errorf("stop account %s: %w", account.ID, err))
+			continue
+		}
+		if err := m.startAccountWithRecovery(ctx, account); err != nil {
+			joined = errors.Join(joined, fmt.Errorf("restart account %s: %w", account.ID, err))
+		}
+	}
+
+	// Clear the pending flag only when every worker switched successfully, so a
+	// later identical PATCH retries the ones that failed.
+	if joined == nil {
+		m.mu.Lock()
+		m.proxyReloadPending = false
+		m.mu.Unlock()
+	}
+	return joined
+}
+
+// shouldRestartForGlobalProxy reports whether a global proxy change must
+// restart the account's worker: only enabled child-process (Qoder) accounts
+// with no per-account proxy inherit the global setting.
+func (m *Manager) shouldRestartForGlobalProxy(account Account) bool {
+	descriptor, _, err := providers.Resolve(account.Provider, account.ProviderRegion)
+	return err == nil &&
+		account.Enabled &&
+		strings.TrimSpace(account.ProxyURL) == "" &&
+		descriptor.Runtime == providers.RuntimeChildProcess
 }
 
 func (m *Manager) Update(ctx context.Context, id string, input UpdateAccount) error {
@@ -710,6 +858,15 @@ func (m *Manager) Update(ctx context.Context, id string, input UpdateAccount) er
 	}
 	if !before.Enabled && after.Enabled {
 		return m.startAccountWithRecovery(ctx, after)
+	}
+	if before.Enabled && after.Enabled && before.ProxyURL != after.ProxyURL {
+		descriptor, _, resolveErr := providers.Resolve(after.Provider, after.ProviderRegion)
+		if resolveErr == nil && descriptor.Runtime == providers.RuntimeChildProcess {
+			if err := m.stopAccount(id); err != nil {
+				return err
+			}
+			return m.startAccountWithRecovery(ctx, after)
+		}
 	}
 	if before.Enabled && after.Enabled && before.MaxInFlight != after.MaxInFlight {
 		if err := m.stopAccount(id); err != nil {
@@ -915,6 +1072,7 @@ type ImportAccount struct {
 	DropSystemPrompt     *bool
 	WorkBuddyAutoCheckin *bool
 	WorkBuddyCheckinTime string
+	ProxyURL             string
 	Credential           NativeCredential
 }
 
@@ -930,6 +1088,7 @@ type AccountView struct {
 	DownUntil           string            `json:"down_until,omitempty"`
 	ModelCooldowns      map[string]string `json:"model_cooldowns,omitempty"`
 	Quota               *QuotaSnapshot    `json:"quota,omitempty"`
+	ProxyURL            string            `json:"proxy_url,omitempty"`
 }
 
 func (m *Manager) Import(ctx context.Context, input ImportAccount) (Account, error) {
@@ -937,7 +1096,7 @@ func (m *Manager) Import(ctx context.Context, input ImportAccount) (Account, err
 		Name: input.Name, Provider: input.Provider, Region: input.Region, Enabled: false,
 		MaxInFlight: input.MaxInFlight, Priority: input.Priority, DropSystemPrompt: input.DropSystemPrompt,
 		WorkBuddyAutoCheckin: input.WorkBuddyAutoCheckin,
-		WorkBuddyCheckinTime: input.WorkBuddyCheckinTime,
+		WorkBuddyCheckinTime: input.WorkBuddyCheckinTime, ProxyURL: input.ProxyURL,
 	})
 	if err != nil {
 		return Account{}, err
@@ -987,7 +1146,7 @@ func (m *Manager) AccountView(ctx context.Context, id string) (AccountView, erro
 	if err != nil {
 		return AccountView{}, err
 	}
-	view := AccountView{Account: account, Quota: account.Quota}
+	view := AccountView{Account: account, Quota: account.Quota, ProxyURL: proxyutil.Redact(account.ProxyURL)}
 	if item, ok := m.pool.ByID(account.ID); ok {
 		view.Ready = item.Ready == nil || *item.Ready
 		view.Hot = item.Hot != nil && *item.Hot
@@ -1022,7 +1181,7 @@ func (m *Manager) Accounts(ctx context.Context) ([]AccountView, error) {
 	}
 	views := make([]AccountView, 0, len(stored))
 	for _, account := range stored {
-		view := AccountView{Account: account, Quota: account.Quota}
+		view := AccountView{Account: account, Quota: account.Quota, ProxyURL: proxyutil.Redact(account.ProxyURL)}
 		if item, ok := m.pool.ByID(account.ID); ok {
 			view.Ready = item.Ready == nil || *item.Ready
 			view.Hot = item.Hot != nil && *item.Hot

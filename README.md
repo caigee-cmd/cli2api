@@ -21,6 +21,7 @@
 
 - **OpenAI / Anthropic 兼容代理**：`/v1/chat/completions`、`/v1/responses`、`/v1/messages`、`/v1/models`；支持流式/非流式、文本与函数工具调用；图片能力取决于 provider（当前 Qoder 支持，WorkBuddy / Trae 不支持）；文件输入会明确拒绝。`messages` / `responses` 当前为无状态适配层，不支持服务端会话或上游专属工具。
 - **多渠道账号池**：Qoder 国际版 / 国内版、WorkBuddy 国际版 / 国内版、Trae 国内版 Solo；地域隔离、账号固定、并发限制、冷却与同族故障切换
+- **代理出口**：支持统一 HTTP(S) 代理，也支持账号级覆盖；账号可用 `direct` / `none` 显式直连。SOCKS5 仅支持 WorkBuddy / Trae 的账号级代理，Qoder 账号级代理只支持 HTTP(S)
 - **账号级常驻运行时**：Qoder 账号使用独立 Node 进程、HOME 与 WASM 上下文；WorkBuddy / Trae 使用进程内 HTTP/SSE 适配器。登录态、云端连接和账号隔离由各 provider 的运行时负责
 - **按 provider 支持多种登录方式**：浏览器 Device Flow OAuth、PAT，以及适用 provider 的凭证导入/导出
 - **Web 控制台**：账号、模型、接入、请求历史与运行时日志，明暗主题

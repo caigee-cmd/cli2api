@@ -134,10 +134,15 @@ func containsLevel(options []string, level string) bool {
 func (c *Client) rememberCatalog(models []providers.ModelInfo) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.catalog = make(map[string]providers.ModelInfo, len(models))
+	c.catalog = make(map[string]providers.ModelInfo, len(models)*2)
 	for _, model := range models {
-		c.catalog[model.NativeModel] = model
-		c.catalog[strings.ToLower(model.NativeModel)] = model
+		for _, key := range []string{model.NativeModel, model.PublicModel} {
+			if strings.TrimSpace(key) == "" {
+				continue
+			}
+			c.catalog[key] = model
+			c.catalog[strings.ToLower(key)] = model
+		}
 	}
 }
 

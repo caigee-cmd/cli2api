@@ -64,6 +64,23 @@ type fakeStarter struct {
 	homes    []string
 	started  chan *fakeProcess
 	failures int
+
+	setProxyMu sync.Mutex
+	proxyURLs  []string
+}
+
+// SetProxyURL lets fakeStarter satisfy ProxyConfigurableStarter so reload tests
+// can observe whether the manager attempted a reload.
+func (s *fakeStarter) SetProxyURL(value string) {
+	s.setProxyMu.Lock()
+	s.proxyURLs = append(s.proxyURLs, value)
+	s.setProxyMu.Unlock()
+}
+
+func (s *fakeStarter) proxySetCount() int {
+	s.setProxyMu.Lock()
+	defer s.setProxyMu.Unlock()
+	return len(s.proxyURLs)
 }
 
 func (s *fakeStarter) Start(_ context.Context, account Account, home string, port int) (ManagedProcess, error) {

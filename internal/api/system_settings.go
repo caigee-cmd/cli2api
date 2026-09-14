@@ -9,17 +9,44 @@ import (
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/executor"
+	"github.com/caigee-cmd/cli2api/internal/proxy"
 )
 
 const (
 	crossProviderModelPoolSecret = "cross_provider_model_pool"
 	routingStrategySecret        = "routing_strategy"
+	proxyURLSecret               = "proxy_url"
 )
 
 type systemSettings struct {
 	CrossProviderModelPool bool                          `json:"cross_provider_model_pool"`
 	RoutingStrategy        string                        `json:"routing_strategy"`
+	ProxyURL               string                        `json:"proxy_url"`
 	SessionAffinity        executor.SessionAffinityStats `json:"session_affinity"`
+}
+
+func ensureProxyURL(ctx context.Context, store *accounts.Store, bootstrap string) (string, error) {
+	value, ok, err := store.GetSecret(ctx, proxyURLSecret)
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		value = strings.TrimSpace(bootstrap)
+		if value != "" {
+			if err := proxy.ValidateHTTPOnly(value); err != nil {
+				return "", fmt.Errorf("invalid %s setting: %w", proxyURLSecret, err)
+			}
+		}
+		if value != "" {
+			if err := store.SetSecret(ctx, proxyURLSecret, value); err != nil {
+				return "", fmt.Errorf("initialize system settings: %w", err)
+			}
+		}
+	}
+	if err := proxy.ValidateHTTPOnly(value); err != nil {
+		return "", fmt.Errorf("invalid %s setting: %w", proxyURLSecret, err)
+	}
+	return strings.TrimSpace(value), nil
 }
 
 func ensureCrossProviderModelPool(ctx context.Context, store *accounts.Store) (bool, error) {
@@ -56,9 +83,11 @@ func ensureRoutingStrategy(ctx context.Context, store *accounts.Store) (string, 
 }
 
 func (s *Server) currentSystemSettings() systemSettings {
+	proxyURL, _, _ := s.manager.Store().GetSecret(context.Background(), proxyURLSecret)
 	return systemSettings{
 		CrossProviderModelPool: s.crossProviderModelPool.Load(),
 		RoutingStrategy:        s.pool.RoutingStrategy(),
+		ProxyURL:               proxy.Redact(proxyURL),
 		SessionAffinity:        s.executor.SessionAffinity.Stats(),
 	}
 }
@@ -82,12 +111,13 @@ func (s *Server) handleSystemSettings(w http.ResponseWriter, r *http.Request) {
 		var input struct {
 			CrossProviderModelPool *bool   `json:"cross_provider_model_pool"`
 			RoutingStrategy        *string `json:"routing_strategy"`
+			ProxyURL               *string `json:"proxy_url"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 			writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
 			return
 		}
-		if input.CrossProviderModelPool == nil && input.RoutingStrategy == nil {
+		if input.CrossProviderModelPool == nil && input.RoutingStrategy == nil && input.ProxyURL == nil {
 			writeErr(w, http.StatusBadRequest, "invalid_request", "a system setting is required")
 			return
 		}
@@ -103,6 +133,43 @@ func (s *Server) handleSystemSettings(w http.ResponseWriter, r *http.Request) {
 
 		s.settingsMu.Lock()
 		defer s.settingsMu.Unlock()
+		if input.ProxyURL != nil {
+			// Read the persisted value, resolve redacted re-submits, validate,
+			// and compare inside the same critical section that saves and
+			// reloads. Doing the read outside the lock would let two concurrent
+			// PATCHes interleave: a request submitting the old value could
+			// compute proxyChanged against a stale read and then skip the write
+			// while switching the runtime back to the old proxy, leaving the
+			// database and the running workers disagreeing.
+			existing, _, err := s.manager.Store().GetSecret(r.Context(), proxyURLSecret)
+			if err != nil {
+				writeErr(w, http.StatusInternalServerError, "system_settings_read_failed", err.Error())
+				return
+			}
+			proxyURL := proxy.Preserve(existing, *input.ProxyURL)
+			if err := proxy.ValidateHTTPOnly(proxyURL); err != nil {
+				writeErr(w, http.StatusBadRequest, "invalid_proxy_url", err.Error())
+				return
+			}
+			proxyChanged := proxyURL != strings.TrimSpace(existing)
+
+			// Persist clears as an explicit empty value (not a delete) so the
+			// next boot distinguishes "user cleared it" from "never set" and
+			// does not re-apply the environment bootstrap. An unchanged value
+			// skips the write, but we still call ReloadProxyURL: whether the
+			// workers actually need restarting is the Manager's call, which
+			// knows if a previous reload failed.
+			if proxyChanged {
+				if err := s.manager.Store().SetSecretOrEmpty(r.Context(), proxyURLSecret, proxyURL); err != nil {
+					writeErr(w, http.StatusInternalServerError, "system_settings_save_failed", err.Error())
+					return
+				}
+			}
+			if err := s.manager.ReloadProxyURL(r.Context(), proxyURL); err != nil {
+				writeErr(w, http.StatusInternalServerError, "proxy_reload_failed", err.Error())
+				return
+			}
+		}
 		if input.CrossProviderModelPool != nil {
 			enabled := *input.CrossProviderModelPool
 			value := "0"

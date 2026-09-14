@@ -132,6 +132,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
   const [dropSystemPrompt, setDropSystemPrompt] = useState(true)
   const [autoCheckin, setAutoCheckin] = useState(false)
   const [autoCheckinTime, setAutoCheckinTime] = useState('09:00')
+  const [proxyUrl, setProxyUrl] = useState('')
   const [pat, setPat] = useState('')
   const [json, setJson] = useState('')
   const [phase, setPhase] = useState<Phase>('idle')
@@ -210,6 +211,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
       drop_system_prompt: showDropSystem ? dropSystemPrompt : true,
       workbuddy_auto_checkin: showAutoCheckin ? autoCheckin : false,
       workbuddy_checkin_time: showAutoCheckin ? autoCheckinTime : undefined,
+      proxy_url: proxyUrl.trim(),
     }
   }
 
@@ -226,6 +228,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
     setDropSystemPrompt(true)
     setAutoCheckin(false)
     setAutoCheckinTime('09:00')
+    setProxyUrl('')
     setPat('')
     setJson('')
     setAdvancedOpen(false)
@@ -553,6 +556,17 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                             <p className="text-[11px] leading-4 text-muted">{t('priorityHint')}</p>
                           </label>
                         </div>
+                        <label className="block space-y-1.5">
+                          <span className="text-xs font-medium text-muted">{t('proxyUrl')}</span>
+                          <Input
+                            value={proxyUrl}
+                            onChange={(event) => setProxyUrl(event.target.value)}
+                            placeholder={t('proxyUrlPlaceholder')}
+                            aria-label={t('proxyUrl')}
+                            disabled={settingsLocked}
+                          />
+                          <p className="text-[11px] leading-4 text-muted">{t('proxyUrlHint')}</p>
+                        </label>
                         {showDropSystem ? (
                           <div className="flex items-center justify-between gap-3">
                             <div className="min-w-0">

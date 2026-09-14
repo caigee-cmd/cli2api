@@ -17,6 +17,7 @@ import (
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/providers"
+	proxyutil "github.com/caigee-cmd/cli2api/internal/proxy"
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
@@ -32,6 +33,8 @@ type Store interface {
 type Client struct {
 	store Store
 	http  *http.Client
+
+	transports proxyutil.TransportCache
 
 	mu          sync.Mutex
 	loginStates map[string]string
@@ -64,7 +67,57 @@ type envelope struct {
 	Data json.RawMessage `json:"data"`
 }
 
-func (c *Client) do(ctx context.Context, method, rawURL string, body []byte, setHeaders func(http.Header)) ([]byte, int, error) {
+func (c *Client) globalProxy(ctx context.Context) (string, error) {
+	store, ok := c.store.(interface {
+		GetSecret(context.Context, string) (string, bool, error)
+	})
+	if !ok {
+		return "", nil
+	}
+
+	value, found, err := store.GetSecret(ctx, "proxy_url")
+	if err != nil {
+		return "", fmt.Errorf("load global proxy setting: %w", err)
+	}
+	if !found {
+		return "", nil
+	}
+	return strings.TrimSpace(value), nil
+}
+
+func (c *Client) effectiveProxy(ctx context.Context, accountID string) (string, error) {
+	account, err := c.store.Get(ctx, accountID)
+	if err != nil {
+		return "", err
+	}
+
+	if value := strings.TrimSpace(account.ProxyURL); value != "" {
+		return value, nil
+	}
+
+	return c.globalProxy(ctx)
+}
+
+func (c *Client) httpClient(ctx context.Context, accountID string) (*http.Client, error) {
+	rawProxy, err := c.effectiveProxy(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	client := *c.http
+
+	transport, err := c.transports.Get(rawProxy)
+	if err != nil {
+		return nil, err
+	}
+	if transport != nil {
+		client.Transport = transport
+	}
+
+	return &client, nil
+}
+
+func (c *Client) do(ctx context.Context, accountID, method, rawURL string, body []byte, setHeaders func(http.Header)) ([]byte, int, error) {
 	var reader io.Reader
 	if body != nil {
 		reader = bytes.NewReader(body)
@@ -76,7 +129,11 @@ func (c *Client) do(ctx context.Context, method, rawURL string, body []byte, set
 	if setHeaders != nil {
 		setHeaders(req.Header)
 	}
-	resp, err := c.http.Do(req)
+	client, err := c.httpClient(ctx, accountID)
+	if err != nil {
+		return nil, 0, err
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -94,7 +151,7 @@ func (c *Client) StartLogin(ctx context.Context, accountID string) (providers.Lo
 	if account, err := c.store.Get(ctx, accountID); err == nil && account.ProviderRegion == "global" {
 		base = ChatBaseGlobal
 	}
-	body, status, err := c.do(ctx, http.MethodPost, base+pathAuthState+"?platform=CLI", []byte("{}"),
+	body, status, err := c.do(ctx, accountID, http.MethodPost, base+pathAuthState+"?platform=CLI", []byte("{}"),
 		func(h http.Header) { setCommonHeaders(h, base == ChatBaseGlobal) })
 	if err != nil {
 		return providers.LoginSession{}, err
@@ -132,7 +189,7 @@ func (c *Client) PollLogin(ctx context.Context, accountID string) (bool, string,
 	if account, err := c.store.Get(ctx, accountID); err == nil && account.ProviderRegion == "global" {
 		base = ChatBaseGlobal
 	}
-	tokenBody, status, err := c.do(ctx, http.MethodGet, base+pathAuthToken+"?state="+url.QueryEscape(state), nil,
+	tokenBody, status, err := c.do(ctx, accountID, http.MethodGet, base+pathAuthToken+"?state="+url.QueryEscape(state), nil,
 		func(h http.Header) { setCommonHeaders(h, base == ChatBaseGlobal) })
 	if err != nil {
 		return false, "", err
@@ -154,7 +211,7 @@ func (c *Client) PollLogin(ctx context.Context, accountID string) (bool, string,
 	if err := json.Unmarshal(tokenEnv.Data, &token); err != nil || token.AccessToken == "" {
 		return false, "waiting for authorization", nil
 	}
-	accountBody, _, err := c.do(ctx, http.MethodGet, base+pathAuthAccount+"?state="+url.QueryEscape(state), nil,
+	accountBody, _, err := c.do(ctx, accountID, http.MethodGet, base+pathAuthAccount+"?state="+url.QueryEscape(state), nil,
 		func(h http.Header) {
 			setCommonHeaders(h, base == ChatBaseGlobal)
 			h.Set("Authorization", "Bearer "+token.AccessToken)
@@ -248,7 +305,7 @@ func (c *Client) resolvedCredential(ctx context.Context, accountID string) (Cred
 // account by surfacing the auth taxonomy to the manager.
 func (c *Client) Refresh(ctx context.Context, accountID string, credential Credential) (Credential, error) {
 	credential = c.overlayRegion(ctx, accountID, credential)
-	body, status, err := c.do(ctx, http.MethodPost, credential.ChatBase()+pathTokenRefresh, []byte("{}"),
+	body, status, err := c.do(ctx, accountID, http.MethodPost, credential.ChatBase()+pathTokenRefresh, []byte("{}"),
 		func(h http.Header) { SetRefreshHeaders(h, credential) })
 	if err != nil {
 		return credential, err
@@ -304,7 +361,7 @@ func (c *Client) Models(ctx context.Context, accountID string) ([]providers.Mode
 	}
 	ctx, cancel := context.WithTimeout(ctx, catalogTimeout)
 	defer cancel()
-	body, status, err := c.do(ctx, http.MethodGet, credential.ChatBase()+credential.catalogPath(), nil,
+	body, status, err := c.do(ctx, accountID, http.MethodGet, credential.ChatBase()+credential.catalogPath(), nil,
 		func(h http.Header) { SetCatalogHeaders(h, credential) })
 	if err != nil {
 		return nil, err
@@ -329,10 +386,25 @@ func (c *Client) Models(ctx context.Context, accountID string) ([]providers.Mode
 	if env.Code != 0 {
 		return nil, fmt.Errorf("models envelope code=%d msg=%s", env.Code, env.Msg)
 	}
+	cliModels := map[string]struct{}{}
+	for _, agent := range env.Data.Agents {
+		if !isCLIAgent(agent.Name) {
+			continue
+		}
+		for _, id := range agent.Models {
+			cliModels[id] = struct{}{}
+		}
+	}
+	filterCLI := len(cliModels) > 0
 	var out []providers.ModelInfo
 	for _, model := range env.Data.Models {
 		if model.Disabled {
 			continue
+		}
+		if filterCLI {
+			if _, ok := cliModels[model.ID]; !ok {
+				continue
+			}
 		}
 		out = append(out, catalogModel(model))
 	}
@@ -346,7 +418,7 @@ func (c *Client) Models(ctx context.Context, accountID string) ([]providers.Mode
 
 func (c *Client) chatRequest(ctx context.Context, accountID string, credential Credential, req translate.ChatRequest) (*http.Request, error) {
 	body := map[string]any{
-		"model":       req.Model,
+		"model":       upstreamModelID(req.Model),
 		"messages":    req.Messages,
 		"max_tokens":  req.MaxTokens,
 		"temperature": req.Temperature,
@@ -391,7 +463,10 @@ func (c *Client) ChatNonStream(ctx context.Context, accountID string, req transl
 	if err != nil {
 		return providers.ChatOutcome{}, err
 	}
-	client := *c.http
+	client, err := c.httpClient(ctx, accountID)
+	if err != nil {
+		return providers.ChatOutcome{}, err
+	}
 	client.Timeout = 0
 	resp, err := client.Do(httpReq)
 	if err != nil {
@@ -421,7 +496,10 @@ func (c *Client) ChatStream(ctx context.Context, accountID string, req translate
 	if err != nil {
 		return nil, err
 	}
-	client := *c.http
+	client, err := c.httpClient(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
 	client.Timeout = 0
 	resp, err := client.Do(httpReq)
 	if err != nil {
@@ -647,7 +725,7 @@ func (c *Client) Quota(ctx context.Context, accountID string) (*providers.QuotaI
 	if err != nil {
 		return nil, err
 	}
-	remain, used, total, err := c.UserResource(ctx, credential)
+	remain, used, total, err := c.UserResource(ctx, accountID, credential)
 	if err != nil {
 		return nil, err
 	}
@@ -704,7 +782,7 @@ func (c *Client) DailyCheckin(ctx context.Context, accountID string) (string, er
 	var body []byte
 	var status int
 	for attempt := 0; ; attempt++ {
-		body, status, err = c.do(ctx, http.MethodPost, credential.BillingBase()+pathDailyCheckin, []byte("{}"),
+		body, status, err = c.do(ctx, accountID, http.MethodPost, credential.BillingBase()+pathDailyCheckin, []byte("{}"),
 			func(h http.Header) { SetBillingHeaders(h, credential) })
 		if !retryDailyCheckin(ctx, err, status, attempt) {
 			break
@@ -794,7 +872,7 @@ func (c *Client) Keepalive(ctx context.Context, accountID string) error {
 }
 
 // UserResource aggregates package remain/used/total from get-user-resource.
-func (c *Client) UserResource(ctx context.Context, credential Credential) (remain, used, total int64, err error) {
+func (c *Client) UserResource(ctx context.Context, accountID string, credential Credential) (remain, used, total int64, err error) {
 	now := time.Now()
 	payload, err := json.Marshal(map[string]any{
 		"PageNumber":               1,
@@ -807,7 +885,7 @@ func (c *Client) UserResource(ctx context.Context, credential Credential) (remai
 	if err != nil {
 		return 0, 0, 0, err
 	}
-	body, status, err := c.do(ctx, http.MethodPost, credential.BillingBase()+pathUserResource, payload,
+	body, status, err := c.do(ctx, accountID, http.MethodPost, credential.BillingBase()+pathUserResource, payload,
 		func(h http.Header) { SetBillingHeaders(h, credential) })
 	if err != nil {
 		return 0, 0, 0, err
@@ -934,6 +1012,21 @@ var workbuddyModelAliases = map[string]string{
 	"deepseek-v4.1-flash": "deep-model",
 }
 
+func upstreamModelID(model string) string {
+	canonical := accounts.CanonicalModelID(model)
+	for alias, nativeModel := range workbuddyModelAliases {
+		if accounts.CanonicalModelID(alias) == canonical {
+			return nativeModel
+		}
+	}
+	return model
+}
+
+// appendAliasModels publishes each workbuddyModelAliases alias alongside the
+// CLI-visible model it mirrors. Aliases are derived strictly from out (the
+// models that survived the CLI agent filter): an alias must never be invented
+// from the unfiltered catalog, or /v1/models would advertise a model the CLI
+// agent cannot actually route.
 func appendAliasModels(out []providers.ModelInfo) []providers.ModelInfo {
 	if len(out) == 0 || len(workbuddyModelAliases) == 0 {
 		return out
@@ -941,18 +1034,22 @@ func appendAliasModels(out []providers.ModelInfo) []providers.ModelInfo {
 	seen := make(map[string]struct{}, len(out))
 	for _, model := range out {
 		seen[model.NativeModel] = struct{}{}
+		seen[model.PublicModel] = struct{}{}
 	}
 	for alias, nativeModel := range workbuddyModelAliases {
 		if _, ok := seen[alias]; ok {
 			continue
 		}
-		if base, ok := findModelInfoByNativeModel(out, nativeModel); ok {
-			clone := base
-			clone.NativeModel = alias
-			clone.PublicModel = alias
-			clone.DisplayName = aliasDisplayName(alias, base.DisplayName)
-			out = append(out, clone)
+		base, ok := findModelInfoByNativeModel(out, nativeModel)
+		if !ok {
+			continue
 		}
+		clone := base
+		clone.NativeModel = nativeModel
+		clone.PublicModel = alias
+		clone.DisplayName = aliasDisplayName(alias, base.DisplayName)
+		out = append(out, clone)
+		seen[alias] = struct{}{}
 	}
 	return out
 }

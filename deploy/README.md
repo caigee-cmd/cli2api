@@ -99,6 +99,7 @@ the same conversation prefer the same account from the first user message
 | `QODER_MAX_RETRY_ACCOUNTS` | `4` | Maximum accounts attempted for one request (1-64) |
 | `QODER_SSE_DIAGNOSTIC_MODELS` | empty | Comma-separated Qoder model IDs for redacted SSE diagnostics in Runtime Logs; `*` enables all |
 | `QODER_WORKER_BASE_PORT` | `32100` | Internal child-runtime port range |
+| `QODER_PROXY_URL` | empty | Global outbound proxy; supports `http(s)://`, `direct`, or `none`. Global proxies must be HTTP(S); SOCKS5 is only accepted for WorkBuddy / Trae account-level proxies |
 | `QODERCLI_JS` | image default | Pinned Qoder Global CLI bundle |
 | `QODERCNCLI_JS` | image default | Pinned Qoder CN CLI bundle |
 | `UPDATE_GITHUB_TOKEN` | empty | Optional GitHub token for release checks |

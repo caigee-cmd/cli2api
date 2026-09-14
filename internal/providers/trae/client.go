@@ -16,6 +16,7 @@ import (
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/providers"
+	proxyutil "github.com/caigee-cmd/cli2api/internal/proxy"
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
@@ -42,6 +43,8 @@ type Client struct {
 	store Store
 	http  *http.Client
 
+	transports proxyutil.TransportCache
+
 	mu       sync.Mutex
 	pending  map[string]*loginPending
 	listener net.Listener
@@ -63,7 +66,57 @@ func NewClient(store Store) *Client {
 	}
 }
 
-func (c *Client) do(ctx context.Context, method, rawURL string, body []byte, setHeaders func(http.Header)) ([]byte, int, error) {
+func (c *Client) globalProxy(ctx context.Context) (string, error) {
+	store, ok := c.store.(interface {
+		GetSecret(context.Context, string) (string, bool, error)
+	})
+	if !ok {
+		return "", nil
+	}
+
+	value, found, err := store.GetSecret(ctx, "proxy_url")
+	if err != nil {
+		return "", fmt.Errorf("load global proxy setting: %w", err)
+	}
+	if !found {
+		return "", nil
+	}
+	return strings.TrimSpace(value), nil
+}
+
+func (c *Client) effectiveProxy(ctx context.Context, accountID string) (string, error) {
+	account, err := c.store.Get(ctx, accountID)
+	if err != nil {
+		return "", err
+	}
+
+	if value := strings.TrimSpace(account.ProxyURL); value != "" {
+		return value, nil
+	}
+
+	return c.globalProxy(ctx)
+}
+
+func (c *Client) httpClient(ctx context.Context, accountID string) (*http.Client, error) {
+	rawProxy, err := c.effectiveProxy(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	client := *c.http
+
+	transport, err := c.transports.Get(rawProxy)
+	if err != nil {
+		return nil, err
+	}
+	if transport != nil {
+		client.Transport = transport
+	}
+
+	return &client, nil
+}
+
+func (c *Client) do(ctx context.Context, accountID, method, rawURL string, body []byte, setHeaders func(http.Header)) ([]byte, int, error) {
 	var reader io.Reader
 	if body != nil {
 		reader = bytes.NewReader(body)
@@ -75,7 +128,11 @@ func (c *Client) do(ctx context.Context, method, rawURL string, body []byte, set
 	if setHeaders != nil {
 		setHeaders(req.Header)
 	}
-	resp, err := c.http.Do(req)
+	client, err := c.httpClient(ctx, accountID)
+	if err != nil {
+		return nil, 0, err
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -200,14 +257,14 @@ func (c *Client) CompleteLogin(ctx context.Context, accountID, callbackURL strin
 
 func (c *Client) finishCredential(ctx context.Context, accountID string, credential Credential) error {
 	if strings.TrimSpace(credential.RefreshToken) != "" {
-		refreshed, err := c.ExchangeToken(ctx, credential)
+		refreshed, err := c.ExchangeToken(ctx, accountID, credential)
 		if err != nil {
 			return err
 		}
 		credential = refreshed
 	}
 	if strings.TrimSpace(credential.UID) == "" && strings.TrimSpace(credential.AccessToken) != "" {
-		info, err := c.GetUserInfo(ctx, credential)
+		info, err := c.GetUserInfo(ctx, accountID, credential)
 		if err == nil {
 			credential.UID = info.UID
 			if info.Nickname != "" {
@@ -384,7 +441,7 @@ func BuildLoginURL(machineID, deviceID, callbackURL, trace string) string {
 	return ConsoleHost + pathAuthorization + "?" + values.Encode()
 }
 
-func (c *Client) ExchangeToken(ctx context.Context, credential Credential) (Credential, error) {
+func (c *Client) ExchangeToken(ctx context.Context, accountID string, credential Credential) (Credential, error) {
 	if strings.TrimSpace(credential.RefreshToken) == "" {
 		return credential, fmt.Errorf("no refreshToken")
 	}
@@ -397,7 +454,7 @@ func (c *Client) ExchangeToken(ctx context.Context, credential Credential) (Cred
 	if err != nil {
 		return credential, err
 	}
-	payload, status, err := c.do(ctx, http.MethodPost, credential.AuthBase()+pathExchange, body, SetOAuthHeaders)
+	payload, status, err := c.do(ctx, accountID, http.MethodPost, credential.AuthBase()+pathExchange, body, SetOAuthHeaders)
 	if err != nil {
 		return credential, err
 	}
@@ -440,7 +497,7 @@ type userInfo struct {
 	EnterpriseID string
 }
 
-func (c *Client) GetUserInfo(ctx context.Context, credential Credential) (userInfo, error) {
+func (c *Client) GetUserInfo(ctx context.Context, accountID string, credential Credential) (userInfo, error) {
 	body, err := json.Marshal(map[string]any{
 		"ReqSource":  "IDE",
 		"IDEVersion": IdeVersion,
@@ -448,7 +505,7 @@ func (c *Client) GetUserInfo(ctx context.Context, credential Credential) (userIn
 	if err != nil {
 		return userInfo{}, err
 	}
-	payload, status, err := c.do(ctx, http.MethodPost, credential.AuthBase()+pathUserInfo, body, func(h http.Header) {
+	payload, status, err := c.do(ctx, accountID, http.MethodPost, credential.AuthBase()+pathUserInfo, body, func(h http.Header) {
 		SetOAuthHeaders(h)
 		if credential.AccessToken != "" {
 			h.Set("X-Cloudide-Token", credential.AccessToken)
@@ -494,7 +551,7 @@ func (c *Client) credential(ctx context.Context, accountID string) (Credential, 
 	if !credential.needsRefresh(now) {
 		return credential, nil
 	}
-	refreshed, err := c.ExchangeToken(ctx, credential)
+	refreshed, err := c.ExchangeToken(ctx, accountID, credential)
 	if err != nil {
 		_ = c.store.Observe(ctx, accountID, credential.UID, "login_required", err.Error(), accounts.KindAuth)
 		return credential, err
@@ -528,7 +585,7 @@ func (c *Client) Models(ctx context.Context, accountID string) ([]providers.Mode
 	if err != nil {
 		return nil, err
 	}
-	payload, status, err := c.do(ctx, http.MethodPost, credential.ChatBase()+pathModels, body,
+	payload, status, err := c.do(ctx, accountID, http.MethodPost, credential.ChatBase()+pathModels, body,
 		func(h http.Header) { SetCatalogHeaders(h, credential) })
 	if err != nil {
 		return nil, err
@@ -652,7 +709,12 @@ func (c *Client) ChatNonStream(ctx context.Context, accountID string, req transl
 	if err != nil {
 		return providers.ChatOutcome{}, err
 	}
-	resp, err := c.http.Do(httpReq)
+	client, err := c.httpClient(ctx, accountID)
+	if err != nil {
+		return providers.ChatOutcome{}, err
+	}
+	client.Timeout = 0
+	resp, err := client.Do(httpReq)
 	if err != nil {
 		return providers.ChatOutcome{}, err
 	}
@@ -677,7 +739,10 @@ func (c *Client) ChatStream(ctx context.Context, accountID string, req translate
 	if err != nil {
 		return nil, err
 	}
-	client := *c.http
+	client, err := c.httpClient(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
 	client.Timeout = 0
 	resp, err := client.Do(httpReq)
 	if err != nil {
@@ -844,7 +909,7 @@ func (c *Client) Quota(ctx context.Context, accountID string) (*providers.QuotaI
 	if err != nil {
 		return nil, err
 	}
-	remain, used, total, err := c.UserEntUsage(ctx, credential)
+	remain, used, total, err := c.UserEntUsage(ctx, accountID, credential)
 	if err != nil {
 		return nil, err
 	}
@@ -875,8 +940,8 @@ func (c *Client) Quota(ctx context.Context, accountID string) (*providers.QuotaI
 	}, nil
 }
 
-func (c *Client) UserEntUsage(ctx context.Context, credential Credential) (remain, used, total int64, err error) {
-	body, status, err := c.do(ctx, http.MethodPost, credential.BillingBase()+pathEntUsage, []byte("{}"),
+func (c *Client) UserEntUsage(ctx context.Context, accountID string, credential Credential) (remain, used, total int64, err error) {
+	body, status, err := c.do(ctx, accountID, http.MethodPost, credential.BillingBase()+pathEntUsage, []byte("{}"),
 		func(h http.Header) { SetUgHeaders(h, credential) })
 	if err != nil {
 		return 0, 0, 0, err
@@ -980,8 +1045,8 @@ func int64FromAny(value any) int64 {
 	}
 }
 
-func (c *Client) CheckinStatus(ctx context.Context, credential Credential) ([]byte, error) {
-	body, status, err := c.do(ctx, http.MethodPost, credential.BillingBase()+pathCheckinStatus, []byte("{}"),
+func (c *Client) CheckinStatus(ctx context.Context, accountID string, credential Credential) ([]byte, error) {
+	body, status, err := c.do(ctx, accountID, http.MethodPost, credential.BillingBase()+pathCheckinStatus, []byte("{}"),
 		func(h http.Header) { SetUgHeaders(h, credential) })
 	if err != nil {
 		return nil, err
@@ -992,8 +1057,8 @@ func (c *Client) CheckinStatus(ctx context.Context, credential Credential) ([]by
 	return body, nil
 }
 
-func (c *Client) CheckinClaim(ctx context.Context, credential Credential) ([]byte, error) {
-	body, status, err := c.do(ctx, http.MethodPost, credential.BillingBase()+pathCheckinClaim, []byte("{}"),
+func (c *Client) CheckinClaim(ctx context.Context, accountID string, credential Credential) ([]byte, error) {
+	body, status, err := c.do(ctx, accountID, http.MethodPost, credential.BillingBase()+pathCheckinClaim, []byte("{}"),
 		func(h http.Header) { SetUgHeaders(h, credential) })
 	if err != nil {
 		return nil, err

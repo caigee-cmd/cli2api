@@ -210,6 +210,8 @@ ALTER TABLE request_logs ADD COLUMN empty_message_indexes TEXT NOT NULL DEFAULT 
 ALTER TABLE request_logs ADD COLUMN message_roles TEXT NOT NULL DEFAULT '';`},
 	{filename: "018_workbuddy_checkin_time.sql", sql: `
 ALTER TABLE accounts ADD COLUMN workbuddy_checkin_time TEXT NOT NULL DEFAULT '09:00';`},
+	{filename: "019_account_proxy.sql", sql: `
+ALTER TABLE accounts ADD COLUMN proxy_url TEXT NOT NULL DEFAULT '';`},
 }
 
 const schemaMigrationsDDL = `
