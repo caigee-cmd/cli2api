@@ -965,6 +965,12 @@ func (e ChatExecutor) classifyInProcessError(err error) accounts.Classified {
 	}
 	var providerErr *providers.Error
 	if !errors.As(err, &providerErr) || providerErr == nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return accounts.Classified{
+				Kind: accounts.KindCanceled, Status: 499, Failover: false,
+				Code: "request_canceled", Message: err.Error(),
+			}
+		}
 		return accounts.Classify(0, err.Error(), "", accounts.KindUnavailable, "")
 	}
 	message := strings.TrimSpace(providerErr.Message)
