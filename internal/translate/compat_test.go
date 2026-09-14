@@ -2,6 +2,7 @@ package translate
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -123,5 +124,44 @@ func TestTranslatedImageOnlyRequestsProduceContentSessionSeed(t *testing.T) {
 	}
 	if ContentSessionSeed(otherAnthropic) == anthropicSeed {
 		t.Fatal("different anthropic images must not share a seed")
+	}
+}
+
+func TestTranslateAnthropicToolReferenceDegradesToText(t *testing.T) {
+	request := AnthropicMessagesRequest{
+		Model: "deepseek-flash",
+		Messages: []AnthropicMessage{
+			{Role: "assistant", Content: json.RawMessage(`[{"type":"tool_use","id":"toolu_1","name":"ToolSearch","input":{"query":"stop task"}}]`)},
+			{Role: "user", Content: json.RawMessage(`[{"type":"tool_result","tool_use_id":"toolu_1","content":[{"type":"tool_reference","tool_name":"TaskStop"}]}]`)},
+			{Role: "user", Content: json.RawMessage(`[{"type":"text","text":"continue"}]`)},
+		},
+	}
+	chat, err := TranslateAnthropicMessages(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(chat.Messages) != 3 || chat.Messages[1].Role != "tool" {
+		t.Fatalf("messages=%#v", chat.Messages)
+	}
+	got := ContentToString(chat.Messages[1].Content)
+	if !strings.Contains(got, "TaskStop") {
+		t.Fatalf("tool reference lost: %#v", chat.Messages[1].Content)
+	}
+	if chat.Messages[2].Role != "user" || ContentToString(chat.Messages[2].Content) != "continue" {
+		t.Fatalf("trailing user message=%#v", chat.Messages[2])
+	}
+
+	unnamed := AnthropicMessagesRequest{
+		Model: "deepseek-flash",
+		Messages: []AnthropicMessage{
+			{Role: "user", Content: json.RawMessage(`[{"type":"tool_result","tool_use_id":"toolu_2","content":[{"type":"tool_reference"}]}]`)},
+		},
+	}
+	chat, err = TranslateAnthropicMessages(unnamed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ContentToString(chat.Messages[0].Content) == "" {
+		t.Fatalf("unnamed tool reference must still render text: %#v", chat.Messages[0].Content)
 	}
 }
