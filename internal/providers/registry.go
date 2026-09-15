@@ -162,10 +162,34 @@ var Trae = ProviderDescriptor{
 	DefaultRegion: "cn",
 }
 
+// Devin descriptor. Protocol constants stay in internal/providers/devin.
+// Global-only Connect-RPC adapter; no Devin CLI child process.
+var Devin = ProviderDescriptor{
+	ID:                "devin",
+	Label:             "Devin",
+	Runtime:           RuntimeInProcess,
+	AuthTypes:         []AuthType{AuthOAuth},
+	CredentialFormats: []string{"devin-session-v1"},
+	Capabilities: ProviderCapabilities{
+		Chat: true, Stream: true, Tools: true, Images: true, Reasoning: true,
+		ModelCatalog: true, Usage: true, Login: true, BrowserLogin: true,
+		PATLogin: false, ImportExport: true,
+	},
+	Regions: []RegionDescriptor{
+		{
+			ID: "global", Label: "Global", ChatBase: "https://server.codeium.com",
+			BillingBase: "https://api.devin.ai", AuthBase: "https://app.devin.ai",
+			DefaultDomain: "devin.ai",
+		},
+	},
+	DefaultRegion: "global",
+}
+
 var registry = map[string]ProviderDescriptor{
 	Qoder.ID:     Qoder,
 	WorkBuddy.ID: WorkBuddy,
 	Trae.ID:      Trae,
+	Devin.ID:     Devin,
 }
 
 func Get(id string) (ProviderDescriptor, bool) {
@@ -174,7 +198,7 @@ func Get(id string) (ProviderDescriptor, bool) {
 }
 
 func List() []ProviderDescriptor {
-	return []ProviderDescriptor{Qoder, WorkBuddy, Trae}
+	return []ProviderDescriptor{Qoder, WorkBuddy, Trae, Devin}
 }
 
 // Resolve validates a provider/region pair. Empty values fall back to the

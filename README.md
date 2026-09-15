@@ -4,7 +4,7 @@
 
 **把你自己的登录态，变成一个本机 OpenAI 兼容 API**
 
-支持 **Qoder 国际版**、**Qoder 国内版**、**WorkBuddy 国际版**、**WorkBuddy 国内版** 和 **Trae 国内版 Solo**。
+支持 **Qoder 国际版**、**Qoder 国内版**、**WorkBuddy 国际版**、**WorkBuddy 国内版**、**Trae 国内版 Solo**，以及实验性的 **Devin**（`provider=devin`，浏览器 OAuth / session token 导入；尚未宣称生产可用）。
 
 常驻运行时、多账号调度。请用 Docker 部署，这是官方支持的安装与更新路径。
 
@@ -20,9 +20,9 @@
 ## 功能
 
 - **OpenAI / Anthropic 兼容代理**：`/v1/chat/completions`、`/v1/responses`、`/v1/messages`、`/v1/models`；支持流式/非流式、文本与函数工具调用；图片能力取决于 provider（当前 Qoder 支持，WorkBuddy / Trae 不支持）；文件输入会明确拒绝。`messages` / `responses` 当前为无状态适配层，不支持服务端会话或上游专属工具。
-- **多渠道账号池**：Qoder 国际版 / 国内版、WorkBuddy 国际版 / 国内版、Trae 国内版 Solo；地域隔离、账号固定、并发限制、冷却与同族故障切换
-- **代理出口**：支持统一 HTTP(S) 代理，也支持账号级覆盖；账号可用 `direct` / `none` 显式直连。SOCKS5 仅支持 WorkBuddy / Trae 的账号级代理，Qoder 账号级代理只支持 HTTP(S)
-- **账号级常驻运行时**：Qoder 账号使用独立 Node 进程、HOME 与 WASM 上下文；WorkBuddy / Trae 使用进程内 HTTP/SSE 适配器。登录态、云端连接和账号隔离由各 provider 的运行时负责
+- **多渠道账号池**：Qoder 国际版 / 国内版、WorkBuddy 国际版 / 国内版、Trae 国内版 Solo，以及实验性 Devin；地域隔离、账号固定、并发限制、冷却与同族故障切换
+- **代理出口**：支持统一 HTTP(S) 代理，也支持账号级覆盖；账号可用 `direct` / `none` 显式直连。SOCKS5 仅支持 WorkBuddy / Trae / Devin 的账号级代理，Qoder 账号级代理只支持 HTTP(S)
+- **账号级常驻运行时**：Qoder 账号使用独立 Node 进程、HOME 与 WASM 上下文；WorkBuddy / Trae / Devin 使用进程内 HTTP/SSE（或 Connect）适配器。登录态、云端连接和账号隔离由各 provider 的运行时负责
 - **按 provider 支持多种登录方式**：浏览器 Device Flow OAuth、PAT，以及适用 provider 的凭证导入/导出
 - **Web 控制台**：账号、模型、接入、请求历史与运行时日志，明暗主题
 - **部署与运维**：Docker Compose 单容器、安全托管更新（升级前快照、失败自动回滚、直接最新稳定版、可回滚最近三个稳定版）、默认只监听 `127.0.0.1`
@@ -32,7 +32,7 @@
 
 **强烈建议用 Docker 部署。** 发布镜像、控制台托管更新（升级前快照、失败回滚、直接最新稳定版）都按单容器 Compose 安装来设计；从源码直接跑 Go / Node 不在这条更新路径上。
 
-依赖：Docker（macOS / Windows 用 Docker Desktop，Linux 用 Docker Engine + Compose），以及一个你自己控制的 Qoder、WorkBuddy 或 Trae 账号。Windows 的 Docker Desktop 必须切换到 Linux containers。
+依赖：Docker（macOS / Windows 用 Docker Desktop，Linux 用 Docker Engine + Compose），以及一个你自己控制的 Qoder、WorkBuddy、Trae 或实验性 Devin 账号。Windows 的 Docker Desktop 必须切换到 Linux containers。
 
 ```bash
 git clone https://github.com/caigee-cmd/cli2api.git
@@ -59,7 +59,7 @@ API Key:  <首次启动时生成的 Key>
   <img src="./docs/assets/readme/architecture-zh.svg" width="100%" alt="CLI2API 架构：OpenAI 客户端经 Go 控制面路由到每账号独立运行时，再连接各 provider 上游">
 </p>
 
-每个启用账号拥有独立运行时：Qoder 使用独立 Node 进程、HOME 和 WASM 上下文，WorkBuddy / Trae 使用进程内适配器。Go 负责账号持久化、调度、并发限制、冷却、失败切换，并管理需要子进程的 provider 生命周期。
+每个启用账号拥有独立运行时：Qoder 使用独立 Node 进程、HOME 和 WASM 上下文，WorkBuddy / Trae / Devin 使用进程内适配器。Go 负责账号持久化、调度、并发限制、冷却、失败切换，并管理需要子进程的 provider 生命周期。
 
 ## 控制台
 
@@ -71,7 +71,7 @@ API Key:  <首次启动时生成的 Key>
 
 ## 适合什么场景
 
-- 想在本机或私有服务器上统一接入 Qoder / WorkBuddy / Trae
+- 想在本机或私有服务器上统一接入 Qoder / WorkBuddy / Trae（以及实验性 Devin）
 - 已经在使用 OpenAI API 格式的客户端或脚本
 - 需要在多个账号之间自动路由和故障切换
 - 想保留登录能力，同时避免每个请求启动完整 CLI Agent
