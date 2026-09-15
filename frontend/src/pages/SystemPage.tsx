@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Button, Card, Chip, Description, Label, ListBox, Modal, Select } from '@heroui/react'
+import { Button, Card, Chip, Description, Input, Label, ListBox, Modal, Select } from '@heroui/react'
 import {
   ArrowClockwise,
   ArrowCircleUp,
@@ -33,6 +33,7 @@ export function SystemPage() {
   const [info, setInfo] = useState<SystemUpdateInfo | null>(null)
   const [consoleKey, setConsoleKey] = useState<ConsoleKeyView | null>(null)
   const [settings, setSettings] = useState<SystemSettings | null>(null)
+  const [checkinTimeDraft, setCheckinTimeDraft] = useState('09:00')
   const [settingsBusy, setSettingsBusy] = useState(false)
   const [consoleBusy, setConsoleBusy] = useState(false)
   const [rotateOpen, setRotateOpen] = useState(false)
@@ -72,7 +73,10 @@ export function SystemPage() {
     const timer = window.setTimeout(() => {
       void load(false)
       void fetchConsoleKey().then(setConsoleKey).catch(() => undefined)
-      void fetchSystemSettings().then(setSettings).catch((err) => setError(err instanceof Error ? err.message : String(err)))
+      void fetchSystemSettings().then((result) => {
+        setSettings(result)
+        setCheckinTimeDraft(result.workbuddy_checkin_time || '09:00')
+      }).catch((err) => setError(err instanceof Error ? err.message : String(err)))
     }, 0)
     return () => window.clearTimeout(timer)
   }, [load])
@@ -225,6 +229,27 @@ export function SystemPage() {
     }
   }
 
+  async function updateWorkBuddyCheckinTime(value: string) {
+    const next = value || '09:00'
+    const previous = settings?.workbuddy_checkin_time || '09:00'
+    setCheckinTimeDraft(next)
+    if (!settings || next === previous) return
+    setSettings((current) => current ? { ...current, workbuddy_checkin_time: next } : current)
+    setSettingsBusy(true)
+    setError('')
+    try {
+      const result = await updateSystemSettings({ workbuddy_checkin_time: next })
+      setSettings(result)
+      setCheckinTimeDraft(result.workbuddy_checkin_time || next)
+    } catch (err) {
+      setSettings((current) => current ? { ...current, workbuddy_checkin_time: previous } : current)
+      setCheckinTimeDraft(previous)
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSettingsBusy(false)
+    }
+  }
+
   async function updateRoutingStrategy(strategy: SystemSettings['routing_strategy']) {
     const previous = settings?.routing_strategy || 'round-robin'
     setSettings((current) => current ? { ...current, routing_strategy: strategy } : current)
@@ -336,6 +361,28 @@ export function SystemPage() {
             <div className="mt-4 flex items-center justify-between border-t border-separator pt-3 text-xs text-muted">
               <span>{t('crossProviderModelPoolStatus')}</span>
               <span className="font-medium text-foreground">{settings?.cross_provider_model_pool ? t('enabled') : t('disabled')}</span>
+            </div>
+          </Card>
+
+          <Card data-gsap-reveal>
+            <div className="flex items-start gap-3">
+              <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-surface-secondary text-foreground"><SlidersHorizontal size={15} /></div>
+              <div>
+                <h3 className="font-semibold">{t('workbuddyCheckinSettingsTitle')}</h3>
+                <p className="mt-1 text-xs leading-5 text-muted">{t('workbuddyCheckinSettingsHint')}</p>
+              </div>
+            </div>
+            <div className="mt-4 space-y-1.5">
+              <Label className="text-sm font-medium text-muted">{t('autoCheckinTime')}</Label>
+              <Input
+                type="time"
+                value={checkinTimeDraft}
+                onChange={(event) => setCheckinTimeDraft(event.target.value || '09:00')}
+                onBlur={(event) => void updateWorkBuddyCheckinTime(event.target.value.trim())}
+                aria-label={t('autoCheckinTime')}
+                disabled={settingsBusy || !settings}
+              />
+              <Description className="text-xs leading-5 text-muted">{t('workbuddyCheckinSettingsFieldHint')}</Description>
             </div>
           </Card>
 

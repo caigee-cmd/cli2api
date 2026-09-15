@@ -12,16 +12,18 @@ type Props = {
   busy: boolean
   t: Translate
   onClose: () => void
-  onSave: (input: { name: string; max_inflight: number; priority: number }) => Promise<void>
+  onSave: (input: { name: string; max_inflight: number; priority: number; workbuddy_checkin_time?: string }) => Promise<void>
 }
 
 export function EditAccountModal({ account, busy, t, onClose, onSave }: Props) {
   const [name, setName] = useState(account?.name || '')
   const [maxInFlight, setMaxInFlight] = useState<number>(account?.max_inflight ?? 4)
   const [priority, setPriority] = useState<number>(account?.priority ?? 50)
+  const [autoCheckinTime, setAutoCheckinTime] = useState(account?.workbuddy_checkin_time || '09:00')
   const [error, setError] = useState('')
   const title = t('editAccountTitle', { name: account?.name || account?.id || '' })
   const provider = account ? accountProviderLabel(account.provider, account.region, t) : ''
+  const showCheckinTime = account?.provider === 'workbuddy'
 
   async function submit(event?: { preventDefault(): void }) {
     event?.preventDefault()
@@ -40,7 +42,12 @@ export function EditAccountModal({ account, busy, t, onClose, onSave }: Props) {
     }
     setError('')
     try {
-      await onSave({ name: trimmed, max_inflight: maxInFlight, priority })
+      await onSave({
+        name: trimmed,
+        max_inflight: maxInFlight,
+        priority,
+        workbuddy_checkin_time: showCheckinTime ? (autoCheckinTime || '09:00') : undefined,
+      })
       onClose()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -127,6 +134,19 @@ export function EditAccountModal({ account, busy, t, onClose, onSave }: Props) {
                     <Description className="text-xs leading-5 text-muted">{t('priorityHint')}</Description>
                   </NumberField>
                 </div>
+                {showCheckinTime ? (
+                  <div className="space-y-1.5">
+                    <Label className="text-sm font-medium text-muted">{t('autoCheckinTime')}</Label>
+                    <Input
+                      type="time"
+                      value={autoCheckinTime}
+                      onChange={(event) => setAutoCheckinTime(event.target.value || '09:00')}
+                      aria-label={t('autoCheckinTime')}
+                      disabled={busy}
+                    />
+                    <Description className="text-xs leading-5 text-muted">{t('autoCheckinTimeHint')}</Description>
+                  </div>
+                ) : null}
               </Form>
             </Modal.Body>
             <Modal.Footer className="justify-end gap-2 px-6 pb-6">
