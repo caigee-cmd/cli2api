@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.5.0 - 2026-09-15
+
+### English
+
 - Accept `tool_reference` blocks inside Anthropic tool results and keep them as text instead of rejecting the whole request
 - Route outbound traffic through a global HTTP(S) proxy, with an optional per-account override (`direct` / `none` for explicit direct connections; WorkBuddy and Trae account overrides also accept SOCKS5)
 - Expose WorkBuddy `deepseek-v4.1-flash` through the catalog alias so the model routes instead of being rejected
