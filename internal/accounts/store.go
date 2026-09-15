@@ -16,6 +16,7 @@ import (
 	_ "modernc.org/sqlite"
 
 	"github.com/caigee-cmd/cli2api/internal/providers"
+	"github.com/caigee-cmd/cli2api/internal/proxy"
 )
 
 var ErrAccountNotFound = errors.New("account not found")
@@ -43,6 +44,7 @@ type Account struct {
 	WorkBuddyAutoCheckin bool `json:"workbuddy_auto_checkin"`
 	// WorkBuddyCheckinTime is the process-local daily check-in time.
 	WorkBuddyCheckinTime string `json:"workbuddy_checkin_time"`
+	ProxyURL             string `json:"-"`
 	// LastCheckin* are display-only WorkBuddy ops results.
 	LastCheckinAt     string         `json:"last_checkin_at,omitempty"`
 	LastCheckinMsg    string         `json:"last_checkin_msg,omitempty"`
@@ -66,6 +68,7 @@ type CreateAccount struct {
 	DropSystemPrompt     *bool
 	WorkBuddyAutoCheckin *bool
 	WorkBuddyCheckinTime string
+	ProxyURL             string
 }
 
 type UpdateAccount struct {
@@ -76,6 +79,7 @@ type UpdateAccount struct {
 	DropSystemPrompt     *bool
 	WorkBuddyAutoCheckin *bool
 	WorkBuddyCheckinTime *string
+	ProxyURL             *string
 }
 
 type NativeCredential struct {
@@ -123,6 +127,27 @@ func (s *Store) migrate(ctx context.Context) error {
 	return s.runMigrations(ctx)
 }
 
+// validateAccountProxy enforces the per-provider proxy boundary. Child-process
+// providers (Qoder) can only forward every cloud request through an http(s)
+// proxy, so SOCKS is rejected for them; in-process providers (WorkBuddy, Trae)
+// may use any scheme Parse accepts.
+func validateAccountProxy(providerID, region, raw string) error {
+	descriptor, _, err := providers.Resolve(providerID, region)
+	if err != nil {
+		return err
+	}
+
+	if descriptor.Runtime == providers.RuntimeChildProcess {
+		if err := proxy.ValidateHTTPOnly(raw); err != nil {
+			return fmt.Errorf("Qoder account proxy: %w", err)
+		}
+		return nil
+	}
+
+	_, err = proxy.Parse(raw)
+	return err
+}
+
 func (s *Store) Create(ctx context.Context, input CreateAccount) (Account, error) {
 	name := strings.TrimSpace(input.Name)
 	if name == "" {
@@ -130,6 +155,9 @@ func (s *Store) Create(ctx context.Context, input CreateAccount) (Account, error
 	}
 	descriptor, region, err := providers.Resolve(input.Provider, input.Region)
 	if err != nil {
+		return Account{}, err
+	}
+	if err := validateAccountProxy(input.Provider, input.Region, input.ProxyURL); err != nil {
 		return Account{}, err
 	}
 	maxInFlight := input.MaxInFlight
@@ -165,6 +193,7 @@ func (s *Store) Create(ctx context.Context, input CreateAccount) (Account, error
 		DropSystemPrompt:     dropSystemPrompt,
 		WorkBuddyAutoCheckin: autoCheckin,
 		WorkBuddyCheckinTime: checkinTime,
+		ProxyURL:             strings.TrimSpace(input.ProxyURL),
 		Status:               "offline",
 		CreatedAt:            now,
 		UpdatedAt:            now,
@@ -172,11 +201,11 @@ func (s *Store) Create(ctx context.Context, input CreateAccount) (Account, error
 	_, err = s.db.ExecContext(ctx, `
 	INSERT INTO accounts (
 	  id, name, provider, provider_region, auth_type, enabled, max_inflight, priority, drop_system_prompt,
-	  workbuddy_auto_checkin, workbuddy_checkin_time, status, created_at, updated_at
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	  workbuddy_auto_checkin, workbuddy_checkin_time, proxy_url, status, created_at, updated_at
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		account.ID, account.Name, account.Provider, account.ProviderRegion, account.AuthType,
 		account.Enabled, account.MaxInFlight, account.Priority, account.DropSystemPrompt,
-		account.WorkBuddyAutoCheckin, account.WorkBuddyCheckinTime, account.Status,
+		account.WorkBuddyAutoCheckin, account.WorkBuddyCheckinTime, account.ProxyURL, account.Status,
 		formatTime(account.CreatedAt), formatTime(account.UpdatedAt),
 	)
 	if err != nil {
@@ -188,7 +217,7 @@ func (s *Store) Create(ctx context.Context, input CreateAccount) (Account, error
 func (s *Store) Get(ctx context.Context, id string) (Account, error) {
 	row := s.db.QueryRowContext(ctx, `
 	SELECT id, name, provider, provider_region, remote_uid, auth_type, enabled, max_inflight, priority,
-	       drop_system_prompt, workbuddy_auto_checkin, workbuddy_checkin_time, last_checkin_at, last_checkin_msg, last_checkin_status,
+	       drop_system_prompt, workbuddy_auto_checkin, workbuddy_checkin_time, proxy_url, last_checkin_at, last_checkin_msg, last_checkin_status,
 	       status, last_error, last_error_kind, cooldown_until, quota_json, created_at, updated_at
 	FROM accounts WHERE id = ?`, strings.TrimSpace(id))
 	account, err := scanAccount(row)
@@ -211,7 +240,7 @@ func scanAccount(row rowScanner) (Account, error) {
 	err := row.Scan(
 		&account.ID, &account.Name, &account.Provider, &account.ProviderRegion, &account.RemoteUID,
 		&account.AuthType, &account.Enabled, &account.MaxInFlight, &account.Priority,
-		&account.DropSystemPrompt, &account.WorkBuddyAutoCheckin, &account.WorkBuddyCheckinTime, &account.LastCheckinAt, &account.LastCheckinMsg, &account.LastCheckinStatus,
+		&account.DropSystemPrompt, &account.WorkBuddyAutoCheckin, &account.WorkBuddyCheckinTime, &account.ProxyURL, &account.LastCheckinAt, &account.LastCheckinMsg, &account.LastCheckinStatus,
 		&account.Status, &account.LastError, &account.LastErrorKind, &cooldown, &quotaJSON, &created, &updated,
 	)
 	if err != nil {
@@ -261,7 +290,7 @@ func parseTime(value string) time.Time {
 func (s *Store) List(ctx context.Context) ([]Account, error) {
 	rows, err := s.db.QueryContext(ctx, `
 	SELECT id, name, provider, provider_region, remote_uid, auth_type, enabled, max_inflight, priority,
-	       drop_system_prompt, workbuddy_auto_checkin, workbuddy_checkin_time, last_checkin_at, last_checkin_msg, last_checkin_status,
+	       drop_system_prompt, workbuddy_auto_checkin, workbuddy_checkin_time, proxy_url, last_checkin_at, last_checkin_msg, last_checkin_status,
 	       status, last_error, last_error_kind, cooldown_until, quota_json, created_at, updated_at
 	FROM accounts ORDER BY created_at, id`)
 	if err != nil {
@@ -308,12 +337,19 @@ func (s *Store) Update(ctx context.Context, id string, input UpdateAccount) erro
 			return err
 		}
 	}
+	if input.ProxyURL != nil {
+		proxyURL := proxy.Preserve(account.ProxyURL, *input.ProxyURL)
+		if err := validateAccountProxy(account.Provider, account.ProviderRegion, proxyURL); err != nil {
+			return err
+		}
+		account.ProxyURL = proxyURL
+	}
 	account.UpdatedAt = time.Now().UTC()
 	result, err := s.db.ExecContext(ctx, `
 	UPDATE accounts SET name = ?, enabled = ?, max_inflight = ?, priority = ?, drop_system_prompt = ?,
-	                    workbuddy_auto_checkin = ?, workbuddy_checkin_time = ?, updated_at = ?
+	                    workbuddy_auto_checkin = ?, workbuddy_checkin_time = ?, proxy_url = ?, updated_at = ?
 	WHERE id = ?`, account.Name, account.Enabled, account.MaxInFlight, account.Priority, account.DropSystemPrompt,
-		account.WorkBuddyAutoCheckin, account.WorkBuddyCheckinTime, formatTime(account.UpdatedAt), account.ID)
+		account.WorkBuddyAutoCheckin, account.WorkBuddyCheckinTime, account.ProxyURL, formatTime(account.UpdatedAt), account.ID)
 	if err != nil {
 		return fmt.Errorf("update account: %w", err)
 	}
@@ -551,6 +587,38 @@ ON CONFLICT(name) DO UPDATE SET value=excluded.value, updated_at=excluded.update
 		name, value, now, now)
 	if err != nil {
 		return fmt.Errorf("save secret: %w", err)
+	}
+	return nil
+}
+
+// SetSecretOrEmpty stores a secret, allowing an explicitly empty value to
+// persist. Use it when "cleared" is a meaningful state that must be
+// distinguished from "never configured" (for example the global proxy, where
+// an absent row triggers first-run bootstrap from the environment).
+func (s *Store) SetSecretOrEmpty(ctx context.Context, name, value string) error {
+	name = strings.TrimSpace(name)
+	value = strings.TrimSpace(value)
+	if name == "" {
+		return fmt.Errorf("secret name required")
+	}
+	now := formatTime(time.Now().UTC())
+	_, err := s.db.ExecContext(ctx, `
+INSERT INTO app_secrets (name, value, created_at, updated_at) VALUES (?, ?, ?, ?)
+ON CONFLICT(name) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`,
+		name, value, now, now)
+	if err != nil {
+		return fmt.Errorf("save secret: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) DeleteSecret(ctx context.Context, name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return fmt.Errorf("secret name required")
+	}
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM app_secrets WHERE name = ?`, name); err != nil {
+		return fmt.Errorf("delete secret: %w", err)
 	}
 	return nil
 }

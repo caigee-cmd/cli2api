@@ -74,6 +74,10 @@ func New(cfg config.Config) *Server {
 	if initialized {
 		log.Printf("[security] initialized API key and stored it in SQLite: %s", proxyAPIKey)
 	}
+	proxyURL, err := ensureProxyURL(context.Background(), store, cfg.ProxyURL)
+	if err != nil {
+		panic(err)
+	}
 	crossProviderModelPool, err := ensureCrossProviderModelPool(context.Background(), store)
 	if err != nil {
 		panic(err)
@@ -95,7 +99,7 @@ func New(cfg config.Config) *Server {
 	manager := accounts.NewManager(accounts.ManagerConfig{
 		DataDir: runtimeDir, BasePort: cfg.WorkerBasePort, NodeBinary: cfg.NodeBinary,
 		DaemonPath: cfg.WorkerDaemonPath, QoderCLIPath: cfg.QoderCLIPath, QoderCNCLIPath: cfg.QoderCNCLIPath,
-		TemplatePath: cfg.PlainTemplatePath, ProxyAPIKey: proxyAPIKey,
+		TemplatePath: cfg.PlainTemplatePath, ProxyAPIKey: proxyAPIKey, ProxyURL: proxyURL,
 		MaxLogWriters: io.MultiWriter(os.Stderr, ring),
 	}, store, nil)
 	if err := manager.Start(context.Background()); err != nil {

@@ -318,7 +318,7 @@ export function AccountsPage() {
     }
   }
 
-  async function onSaveSettings(id: string, input: { name: string; max_inflight: number; priority: number; workbuddy_checkin_time?: string }) {
+  async function onSaveSettings(id: string, input: { name: string; max_inflight: number; priority: number; proxy_url?: string; workbuddy_checkin_time?: string }) {
     if (!id) throw new Error(t('accountNameRequired'))
     setNameById((current) => ({ ...current, [id]: input.name }))
     setInflightById((current) => ({ ...current, [id]: input.max_inflight }))

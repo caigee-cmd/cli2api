@@ -25,6 +25,12 @@ type memStore struct {
 	lastKind   string
 	lastStatus string
 	settings   map[string]accounts.ProviderModelSetting
+
+	accountProxyURL string
+	secretValue     string
+	secretFound     bool
+	secretErr       error
+	secretCalls     int
 }
 
 func (s *memStore) Get(ctx context.Context, id string) (accounts.Account, error) {
@@ -32,7 +38,14 @@ func (s *memStore) Get(ctx context.Context, id string) (accounts.Account, error)
 	if region == "" {
 		region = "cn"
 	}
-	return accounts.Account{ID: id, Provider: "workbuddy", ProviderRegion: region}, nil
+	return accounts.Account{ID: id, Provider: "workbuddy", ProviderRegion: region, ProxyURL: s.accountProxyURL}, nil
+}
+func (s *memStore) GetSecret(ctx context.Context, key string) (string, bool, error) {
+	s.secretCalls++
+	if s.secretErr != nil {
+		return "", false, s.secretErr
+	}
+	return s.secretValue, s.secretFound, nil
 }
 func (s *memStore) LoadCredentialPayload(ctx context.Context, accountID string) (string, []byte, error) {
 	payload, ok := s.items[accountID]
@@ -383,16 +396,8 @@ func TestModelsFiltersCliAgentAndDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Disabled models must still be filtered out, but agent filtering is
-	// intentionally removed so all non-disabled models are exposed.
-	if len(models) != 2 {
+	if len(models) != 1 || models[0].NativeModel != "glm-5.2" || models[0].Capabilities.ContextWindow != 128000 {
 		t.Fatalf("models=%+v", models)
-	}
-	if models[0].NativeModel != "glm-5.2" || models[0].Capabilities.ContextWindow != 128000 {
-		t.Fatalf("models[0]=%+v", models[0])
-	}
-	if models[1].NativeModel != "web-model" {
-		t.Fatalf("models[1]=%+v", models[1])
 	}
 }
 
@@ -571,7 +576,110 @@ func TestChatRequestFindsStoredReasoningByCanonicalKey(t *testing.T) {
 	}
 }
 
-func TestModelsAcceptsGlobalAgentNamesAndUsesAccountRegion(t *testing.T) {
+func TestModelsAddsDeepseekAliasForDeepModel(t *testing.T) {
+	payload, _ := Credential{AccessToken: "at", UID: "u1", Domain: "codebuddy.cn", ExpiresAt: 4102444800}.Encode()
+	store := &memStore{items: map[string][]byte{"acc1": payload}}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{
+			"models": []map[string]any{{
+				"id": "deep-model", "name": "Deep", "maxInputTokens": 1000000,
+				"supportsReasoning": true, "reasoning": map[string]any{"defaultEffort": "high", "supportedEfforts": []string{"low", "high"}},
+			}},
+			"agents": []map[string]any{{"name": "cli", "models": []string{"deep-model"}}},
+		}})
+	}))
+	defer server.Close()
+	client := NewClient(store)
+	client.http = server.Client()
+	client.http.Transport = rewriteTransport{server: server.URL, round: server.Client().Transport}
+
+	models, err := client.Models(context.Background(), "acc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 2 {
+		t.Fatalf("models=%+v", models)
+	}
+	alias := models[1]
+	if alias.NativeModel != "deep-model" || alias.PublicModel != "deepseek-v4.1-flash" || alias.DisplayName != "Deepseek-V4.1-Flash" {
+		t.Fatalf("alias=%+v", alias)
+	}
+	if alias.Capabilities.ReasoningDefault != "high" {
+		t.Fatalf("alias capabilities=%+v", alias.Capabilities)
+	}
+}
+
+// Regression: aliases must be derived from the CLI-filtered model list. When
+// the CLI agent does not expose deep-model, the catalog fallback must not
+// resurrect deepseek-v4.1-flash and advertise a model chat cannot route.
+func TestModelsSkipsAliasWhenNativeModelNotCLIVisible(t *testing.T) {
+	payload, _ := Credential{AccessToken: "at", UID: "u1", Domain: "codebuddy.cn", ExpiresAt: 4102444800}.Encode()
+	store := &memStore{items: map[string][]byte{"acc1": payload}}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{
+			"models": []map[string]any{
+				{"id": "glm-5.2", "name": "GLM"},
+				{"id": "deep-model", "name": "Deep", "maxInputTokens": 1000000, "supportsReasoning": true},
+			},
+			// deep-model exists in the catalog but is not a CLI agent model.
+			"agents": []map[string]any{{"name": "cli", "models": []string{"glm-5.2"}}},
+		}})
+	}))
+	defer server.Close()
+	client := NewClient(store)
+	client.http = server.Client()
+	client.http.Transport = rewriteTransport{server: server.URL, round: server.Client().Transport}
+
+	models, err := client.Models(context.Background(), "acc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 1 || models[0].NativeModel != "glm-5.2" {
+		t.Fatalf("alias leaked from unfiltered catalog: models=%+v", models)
+	}
+}
+
+func TestChatRequestMapsDeepseekAliasToNativeModel(t *testing.T) {
+	payload, _ := Credential{AccessToken: "at", UID: "u1", Domain: "codebuddy.cn", ExpiresAt: 4102444800}.Encode()
+	store := &memStore{items: map[string][]byte{"acc1": payload}}
+	var got map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == pathModelsCN {
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{
+				"models": []map[string]any{{
+					"id": "deep-model", "name": "Deep", "maxInputTokens": 1000000,
+					"supportsReasoning": true, "onlyReasoning": true,
+					"reasoning": map[string]any{"defaultEffort": "high", "supportedEfforts": []string{"low", "high"}},
+				}},
+				"agents": []map[string]any{{"name": "cli", "models": []string{"deep-model"}}},
+			}})
+			return
+		}
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatalf("decode chat body: %v", err)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(chatSSE))
+	}))
+	defer server.Close()
+	client := NewClient(store)
+	client.http = server.Client()
+	client.http.Transport = rewriteTransport{server: server.URL, round: server.Client().Transport}
+
+	if _, err := client.ChatNonStream(context.Background(), "acc1", translate.ChatRequest{
+		Model: "deepseek-v4.1-flash", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got["model"] != "deep-model" {
+		t.Fatalf("upstream model=%v body=%v", got["model"], got)
+	}
+	if got["reasoning_effort"] != "high" || got["reasoning_summary"] != "auto" || got["verbosity"] != "high" {
+		t.Fatalf("reasoning fields=%v", got)
+	}
+}
+
+func TestModelsAcceptsGlobalCLIAgentNamesAndUsesAccountRegion(t *testing.T) {
 	payload, _ := Credential{AccessToken: "at", UID: "u1", Domain: "codebuddy.cn", ExpiresAt: 4102444800}.Encode()
 	store := &memStore{items: map[string][]byte{"acc1": payload}, region: "global"}
 	var origin, requestHost, ideType string
@@ -602,7 +710,7 @@ func TestModelsAcceptsGlobalAgentNamesAndUsesAccountRegion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(models) != 2 || models[0].NativeModel != "glm-5.2" || models[1].NativeModel != "web-model" {
+	if len(models) != 1 || models[0].NativeModel != "glm-5.2" {
 		t.Fatalf("models=%+v", models)
 	}
 	if origin != "https://www.workbuddy.ai" {
@@ -1240,5 +1348,110 @@ func TestRateLimitErrorCarriesResetCooldown(t *testing.T) {
 	}
 	if out.Cooldown <= 28*time.Minute || out.Cooldown > 30*time.Minute {
 		t.Fatalf("cooldown=%v want ~30m", out.Cooldown)
+	}
+}
+
+func TestHTTPClientFailsClosedOnSecretError(t *testing.T) {
+	store := &memStore{secretErr: errors.New("db down")}
+	client := NewClient(store)
+	if _, err := client.httpClient(context.Background(), "acc1"); err == nil {
+		t.Fatal("httpClient succeeded despite a global proxy read error")
+	}
+}
+
+func TestHTTPClientAccountDirectSkipsGlobalRead(t *testing.T) {
+	store := &memStore{accountProxyURL: "direct", secretErr: errors.New("db down")}
+	client := NewClient(store)
+	if _, err := client.httpClient(context.Background(), "acc1"); err != nil {
+		t.Fatalf("account direct must not read the global proxy: %v", err)
+	}
+	if store.secretCalls != 0 {
+		t.Fatalf("global proxy was read %d times for an account with a proxy override", store.secretCalls)
+	}
+}
+
+func TestHTTPClientUsesGlobalProxyWhenAccountIsBlank(t *testing.T) {
+	store := &memStore{secretValue: "http://global.example:8080", secretFound: true}
+	client := NewClient(store)
+	httpClient, err := client.httpClient(context.Background(), "acc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport, ok := httpClient.Transport.(*http.Transport)
+	if !ok || transport == nil {
+		t.Fatalf("transport = %#v", httpClient.Transport)
+	}
+	req, _ := http.NewRequest(http.MethodGet, "https://example.com", nil)
+	proxyURL, err := transport.Proxy(req)
+	if err != nil || proxyURL == nil || proxyURL.String() != "http://global.example:8080" {
+		t.Fatalf("transport proxy = %v err=%v", proxyURL, err)
+	}
+}
+
+func TestHTTPClientKeepsInjectedTransportWhenUnconfigured(t *testing.T) {
+	store := &memStore{}
+	client := NewClient(store)
+	custom := rewriteTransport{}
+	client.http.Transport = custom
+	httpClient, err := client.httpClient(context.Background(), "acc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if httpClient.Transport != custom {
+		t.Fatalf("unconfigured client replaced the injected transport: %#v", httpClient.Transport)
+	}
+}
+
+func TestHTTPClientReusesTransportByProxyURL(t *testing.T) {
+	store := &memStore{secretValue: "http://global.example:8080", secretFound: true}
+	client := NewClient(store)
+
+	first, err := client.httpClient(context.Background(), "acc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := client.httpClient(context.Background(), "acc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Transport == nil || first.Transport != second.Transport {
+		t.Fatal("transport was not reused across requests")
+	}
+
+	// Different accounts sharing the same global proxy reuse the transport.
+	third, err := client.httpClient(context.Background(), "acc2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if third.Transport != first.Transport {
+		t.Fatal("same global proxy did not share a transport across accounts")
+	}
+}
+
+func TestHTTPClientDifferentProxiesUseDifferentTransports(t *testing.T) {
+	store := &memStore{secretValue: "http://global.example:8080", secretFound: true}
+	client := NewClient(store)
+
+	inherited, err := client.httpClient(context.Background(), "acc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	store.accountProxyURL = "http://account.example:9090"
+	overridden, err := client.httpClient(context.Background(), "acc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inherited.Transport == overridden.Transport {
+		t.Fatal("different proxy URLs shared a transport")
+	}
+
+	store.accountProxyURL = "direct"
+	direct, err := client.httpClient(context.Background(), "acc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if direct.Transport == inherited.Transport || direct.Transport == overridden.Transport {
+		t.Fatal("direct did not get its own transport")
 	}
 }

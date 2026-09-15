@@ -34,6 +34,7 @@ export function SystemPage() {
   const [consoleKey, setConsoleKey] = useState<ConsoleKeyView | null>(null)
   const [settings, setSettings] = useState<SystemSettings | null>(null)
   const [checkinTimeDraft, setCheckinTimeDraft] = useState('09:00')
+  const [proxyDraft, setProxyDraft] = useState('')
   const [settingsBusy, setSettingsBusy] = useState(false)
   const [consoleBusy, setConsoleBusy] = useState(false)
   const [rotateOpen, setRotateOpen] = useState(false)
@@ -76,6 +77,7 @@ export function SystemPage() {
       void fetchSystemSettings().then((result) => {
         setSettings(result)
         setCheckinTimeDraft(result.workbuddy_checkin_time || '09:00')
+        setProxyDraft(result.proxy_url || '')
       }).catch((err) => setError(err instanceof Error ? err.message : String(err)))
     }, 0)
     return () => window.clearTimeout(timer)
@@ -229,6 +231,32 @@ export function SystemPage() {
     }
   }
 
+  async function updateProxyURL(value: string) {
+    const saved = settings?.proxy_url || ''
+    // Nothing changed in the field: keep the draft as-is and skip the PATCH so
+    // a no-op blur never reloads workers.
+    if (value === saved) {
+      setProxyDraft(saved)
+      return
+    }
+    const previousDraft = proxyDraft
+    setProxyDraft(value)
+    setSettings((current) => current ? { ...current, proxy_url: value } : current)
+    setSettingsBusy(true)
+    setError('')
+    try {
+      const updated = await updateSystemSettings({ proxy_url: value })
+      setSettings(updated)
+      setProxyDraft(updated.proxy_url || '')
+    } catch (err) {
+      setProxyDraft(previousDraft)
+      setSettings((current) => current ? { ...current, proxy_url: saved } : current)
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSettingsBusy(false)
+    }
+  }
+
   async function updateWorkBuddyCheckinTime(value: string) {
     const next = value || '09:00'
     const previous = settings?.workbuddy_checkin_time || '09:00'
@@ -361,6 +389,27 @@ export function SystemPage() {
             <div className="mt-4 flex items-center justify-between border-t border-separator pt-3 text-xs text-muted">
               <span>{t('crossProviderModelPoolStatus')}</span>
               <span className="font-medium text-foreground">{settings?.cross_provider_model_pool ? t('enabled') : t('disabled')}</span>
+            </div>
+          </Card>
+
+          <Card data-gsap-reveal>
+            <div className="flex items-start gap-3">
+              <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-surface-secondary text-foreground"><SlidersHorizontal size={15} /></div>
+              <div>
+                <h3 className="font-semibold">{t('proxySettingsTitle')}</h3>
+                <p className="mt-1 text-xs leading-5 text-muted">{t('proxySettingsHint')}</p>
+              </div>
+            </div>
+            <div className="mt-4 space-y-1.5">
+              <Label className="text-sm font-medium text-muted">{t('proxyUrl')}</Label>
+              <Input
+                value={proxyDraft}
+                onChange={(event) => setProxyDraft(event.target.value)}
+                onBlur={(event) => void updateProxyURL(event.target.value.trim())}
+                placeholder={t('proxyUrlPlaceholder')}
+                disabled={settingsBusy || !settings}
+              />
+              <Description className="text-xs leading-5 text-muted">{t('proxyUrlHint')}</Description>
             </div>
           </Card>
 

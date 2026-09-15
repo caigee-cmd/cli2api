@@ -13,6 +13,7 @@ import (
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/config"
+	"github.com/caigee-cmd/cli2api/internal/providers"
 )
 
 func TestWaitForWorkerAuthManagerRetriesUntilReady(t *testing.T) {
@@ -136,5 +137,39 @@ func TestFetchWorkerModelsForNotFoundAccount(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "not found") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+// A WorkBuddy alias shares its native model with the base entry but exposes a
+// distinct public model ID. Deduping the merged catalog on the native ID would
+// drop the alias; keying on the public ID keeps both the native model and the
+// alias visible to clients.
+func TestFetchProviderModelsKeepsAliasWithSharedNativeModel(t *testing.T) {
+	srv := New(config.Config{
+		Host: "127.0.0.1", Port: 3010, ProxyAPIKey: "secret",
+		QoderHome: t.TempDir(), DataDir: t.TempDir(),
+	})
+	defer srv.Close()
+	srv.pool.Upsert(accounts.Item{ID: "wb-cn", Provider: "workbuddy", Runtime: string(providers.RuntimeInProcess)})
+	srv.providers.Register(providers.Adapter{ID: "workbuddy", Models: &countingCatalog{models: []providers.ModelInfo{
+		{NativeModel: "deep-model", PublicModel: "deep-model", DisplayName: "Deep"},
+		{NativeModel: "deep-model", PublicModel: "deepseek-v4.1-flash", DisplayName: "Deepseek-V4.1-Flash"},
+	}}})
+
+	models, err := srv.fetchWorkerModelsFor(false, "wb-cn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := map[string]bool{}
+	for _, model := range models {
+		if id, _ := model["id"].(string); id != "" {
+			ids[id] = true
+		}
+	}
+	if !ids["deep-model"] {
+		t.Fatalf("native model missing from catalog: %v", ids)
+	}
+	if !ids["deepseek-v4.1-flash"] {
+		t.Fatalf("alias dropped from catalog: %v", ids)
 	}
 }

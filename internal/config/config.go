@@ -10,6 +10,7 @@ type Config struct {
 	Host              string
 	Port              int
 	ProxyAPIKey       string
+	ProxyURL          string
 	MaxRetryAccounts  int
 	QoderHome         string
 	DataDir           string
@@ -72,6 +73,7 @@ func Load() (Config, error) {
 		Host:              host,
 		Port:              port,
 		ProxyAPIKey:       "",
+		ProxyURL:          strings.TrimSpace(os.Getenv("QODER_PROXY_URL")),
 		MaxRetryAccounts:  maxRetryAccounts,
 		QoderHome:         home,
 		DataDir:           dataDir,

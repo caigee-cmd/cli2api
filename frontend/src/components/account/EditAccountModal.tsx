@@ -12,7 +12,7 @@ type Props = {
   busy: boolean
   t: Translate
   onClose: () => void
-  onSave: (input: { name: string; max_inflight: number; priority: number; workbuddy_checkin_time?: string }) => Promise<void>
+  onSave: (input: { name: string; max_inflight: number; priority: number; proxy_url: string; workbuddy_checkin_time?: string }) => Promise<void>
 }
 
 export function EditAccountModal({ account, busy, t, onClose, onSave }: Props) {
@@ -20,6 +20,7 @@ export function EditAccountModal({ account, busy, t, onClose, onSave }: Props) {
   const [maxInFlight, setMaxInFlight] = useState<number>(account?.max_inflight ?? 4)
   const [priority, setPriority] = useState<number>(account?.priority ?? 50)
   const [autoCheckinTime, setAutoCheckinTime] = useState(account?.workbuddy_checkin_time || '09:00')
+  const [proxyUrl, setProxyUrl] = useState(account?.proxy_url || '')
   const [error, setError] = useState('')
   const title = t('editAccountTitle', { name: account?.name || account?.id || '' })
   const provider = account ? accountProviderLabel(account.provider, account.region, t) : ''
@@ -46,6 +47,7 @@ export function EditAccountModal({ account, busy, t, onClose, onSave }: Props) {
         name: trimmed,
         max_inflight: maxInFlight,
         priority,
+        proxy_url: proxyUrl.trim(),
         workbuddy_checkin_time: showCheckinTime ? (autoCheckinTime || '09:00') : undefined,
       })
       onClose()
@@ -133,6 +135,17 @@ export function EditAccountModal({ account, busy, t, onClose, onSave }: Props) {
                     </NumberField.Group>
                     <Description className="text-xs leading-5 text-muted">{t('priorityHint')}</Description>
                   </NumberField>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-sm font-medium text-muted">{t('proxyUrl')}</Label>
+                  <Input
+                    value={proxyUrl}
+                    onChange={(event) => setProxyUrl(event.target.value)}
+                    placeholder={t('proxyUrlPlaceholder')}
+                    aria-label={t('proxyUrl')}
+                    disabled={busy}
+                  />
+                  <Description className="text-xs leading-5 text-muted">{t('proxyUrlHint')}</Description>
                 </div>
                 {showCheckinTime ? (
                   <div className="space-y-1.5">

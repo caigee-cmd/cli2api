@@ -21,6 +21,12 @@ type memStore struct {
 	region   string
 	settings map[string]accounts.ProviderModelSetting
 	lookups  []string
+
+	accountProxyURL string
+	secretValue     string
+	secretFound     bool
+	secretErr       error
+	secretCalls     int
 }
 
 func (s *memStore) Get(ctx context.Context, id string) (accounts.Account, error) {
@@ -28,7 +34,14 @@ func (s *memStore) Get(ctx context.Context, id string) (accounts.Account, error)
 	if region == "" {
 		region = "cn"
 	}
-	return accounts.Account{ID: id, Provider: "trae", ProviderRegion: region}, nil
+	return accounts.Account{ID: id, Provider: "trae", ProviderRegion: region, ProxyURL: s.accountProxyURL}, nil
+}
+func (s *memStore) GetSecret(ctx context.Context, key string) (string, bool, error) {
+	s.secretCalls++
+	if s.secretErr != nil {
+		return "", false, s.secretErr
+	}
+	return s.secretValue, s.secretFound, nil
 }
 func (s *memStore) LoadCredentialPayload(ctx context.Context, accountID string) (string, []byte, error) {
 	payload, ok := s.items[accountID]
@@ -705,5 +718,101 @@ func TestParseCallbackReadsRefreshAndUserInfo(t *testing.T) {
 	info, err := ParseCallback(`http://127.0.0.1:18080/authorize?refreshToken=rt&userInfo={"UserID":"u1","ScreenName":"N"}`)
 	if err != nil || info.RefreshToken != "rt" || info.UID != "u1" {
 		t.Fatalf("info=%+v err=%v", info, err)
+	}
+}
+
+func TestHTTPClientFailsClosedOnSecretError(t *testing.T) {
+	store := &memStore{secretErr: errors.New("db down")}
+	client := NewClient(store)
+	if _, err := client.httpClient(context.Background(), "acc1"); err == nil {
+		t.Fatal("httpClient succeeded despite a global proxy read error")
+	}
+}
+
+func TestHTTPClientAccountDirectSkipsGlobalRead(t *testing.T) {
+	store := &memStore{accountProxyURL: "direct", secretErr: errors.New("db down")}
+	client := NewClient(store)
+	if _, err := client.httpClient(context.Background(), "acc1"); err != nil {
+		t.Fatalf("account direct must not read the global proxy: %v", err)
+	}
+	if store.secretCalls != 0 {
+		t.Fatalf("global proxy was read %d times for an account with a proxy override", store.secretCalls)
+	}
+}
+
+func TestHTTPClientUsesGlobalProxyWhenAccountIsBlank(t *testing.T) {
+	store := &memStore{secretValue: "http://global.example:8080", secretFound: true}
+	client := NewClient(store)
+	httpClient, err := client.httpClient(context.Background(), "acc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport, ok := httpClient.Transport.(*http.Transport)
+	if !ok || transport == nil {
+		t.Fatalf("transport = %#v", httpClient.Transport)
+	}
+	req, _ := http.NewRequest(http.MethodGet, "https://example.com", nil)
+	proxyURL, err := transport.Proxy(req)
+	if err != nil || proxyURL == nil || proxyURL.String() != "http://global.example:8080" {
+		t.Fatalf("transport proxy = %v err=%v", proxyURL, err)
+	}
+}
+
+func TestHTTPClientKeepsInjectedTransportWhenUnconfigured(t *testing.T) {
+	store := &memStore{}
+	client := NewClient(store)
+	custom := rewriteTransport{}
+	client.http.Transport = custom
+	httpClient, err := client.httpClient(context.Background(), "acc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if httpClient.Transport != custom {
+		t.Fatalf("unconfigured client replaced the injected transport: %#v", httpClient.Transport)
+	}
+}
+
+func TestHTTPClientReusesTransportByProxyURL(t *testing.T) {
+	store := &memStore{secretValue: "http://global.example:8080", secretFound: true}
+	client := NewClient(store)
+
+	first, err := client.httpClient(context.Background(), "acc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := client.httpClient(context.Background(), "acc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Transport == nil || first.Transport != second.Transport {
+		t.Fatal("transport was not reused across requests")
+	}
+}
+
+func TestHTTPClientDifferentProxiesUseDifferentTransports(t *testing.T) {
+	store := &memStore{secretValue: "http://global.example:8080", secretFound: true}
+	client := NewClient(store)
+
+	inherited, err := client.httpClient(context.Background(), "acc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	store.accountProxyURL = "socks5://proxy.example:1080"
+	overridden, err := client.httpClient(context.Background(), "acc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inherited.Transport == overridden.Transport {
+		t.Fatal("different proxy URLs shared a transport")
+	}
+
+	store.accountProxyURL = "direct"
+	direct, err := client.httpClient(context.Background(), "acc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if direct.Transport == inherited.Transport || direct.Transport == overridden.Transport {
+		t.Fatal("direct did not get its own transport")
 	}
 }

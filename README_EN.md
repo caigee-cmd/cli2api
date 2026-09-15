@@ -21,6 +21,7 @@ Long-lived account runtimes, multi-account scheduling. Deploy with Docker; that 
 
 - **OpenAI / Anthropic-compatible proxy**: `/v1/chat/completions`, `/v1/responses`, `/v1/messages`, `/v1/models` — streaming/non-streaming text and function tools; image support depends on the provider (currently supported by Qoder, not WorkBuddy / Trae); file inputs are rejected explicitly. `messages` / `responses` are stateless adapters today and do not support server-side conversations or upstream-specific tools.
 - **Multi-channel account pool**: Qoder Global / Qoder CN, WorkBuddy Global / WorkBuddy CN, Trae CN Solo — region isolation, account pinning, concurrency limits, cooldowns, and same-family failover
+- **Outbound proxies**: set one global HTTP(S) proxy or override it per account; use `direct` / `none` for explicit direct access. SOCKS5 is available for WorkBuddy / Trae account-level proxies only; Qoder account-level proxies are HTTP(S) only
 - **Account-level runtimes**: Qoder accounts use an isolated Node process, HOME, and WASM context; WorkBuddy / Trae use in-process HTTP/SSE adapters. Each provider owns its login and upstream runtime boundary
 - **Provider-specific login methods**: browser Device Flow OAuth, PAT, and credential import/export where supported
 - **Web console**: accounts, models, access, request history, and runtime logs, with light and dark themes

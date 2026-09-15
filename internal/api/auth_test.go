@@ -130,12 +130,14 @@ func TestOpenAIEndpointsAllowCORSPreflightWithoutAPIKey(t *testing.T) {
 		t.Fatalf("unauthenticated chat missing CORS headers: %v", chatRec.Header())
 	}
 
-	management := httptest.NewRequest(http.MethodOptions, "/api/chat", nil)
-	management.Header.Set("Origin", "chrome-extension://example")
-	managementRec := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(managementRec, management)
-	if managementRec.Code != http.StatusUnauthorized {
-		t.Fatalf("management OPTIONS: got %d want 401", managementRec.Code)
+	for _, path := range []string{"/api/chat", "/api/keys", "/api/accounts"} {
+		management := httptest.NewRequest(http.MethodOptions, path, nil)
+		management.Header.Set("Origin", "chrome-extension://example")
+		managementRec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(managementRec, management)
+		if managementRec.Code != http.StatusUnauthorized {
+			t.Fatalf("management OPTIONS %s: got %d want 401", path, managementRec.Code)
+		}
 	}
 }
 
