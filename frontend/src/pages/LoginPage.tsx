@@ -51,7 +51,7 @@ export function LoginPage() {
   return (
     <div className="relative min-h-dvh overflow-hidden bg-background text-foreground">
       <div className="absolute inset-x-0 top-0 h-px bg-border" />
-      <main ref={pageRef} className="relative z-10 mx-auto grid min-h-dvh w-full max-w-[1480px] lg:grid-cols-[minmax(0,1.22fr)_minmax(420px,.78fr)]">
+      <main ref={pageRef} className="relative z-10 mx-auto grid min-h-dvh w-full max-w-[1480px] lg:grid-cols-[minmax(0,1fr)_minmax(480px,45%)]">
         <section className="flex min-h-[52vh] flex-col border-separator px-5 py-6 sm:px-10 sm:py-8 lg:min-h-dvh lg:border-r lg:px-14 lg:py-10 xl:px-20">
           <header className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-3">

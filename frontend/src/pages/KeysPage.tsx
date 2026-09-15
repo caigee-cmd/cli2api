@@ -8,6 +8,7 @@ import { ProviderMark } from '@/components/ProviderMark'
 import { CompactSwitch } from '@/components/ui/CompactSwitch'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { EmptyPanel } from '@/components/ui/EmptyPanel'
+import { FormRow } from '@/components/ui/FormRow'
 import { PageAlert } from '@/components/ui/PageAlert'
 import { KeysPageSkeleton, SkeletonBlock } from '@/components/ui/PageSkeletons'
 import { useI18n } from '@/hooks/useI18n'
@@ -333,10 +334,9 @@ function KeyEditorModal({
                     <Alert.Content><Alert.Title>{error}</Alert.Title></Alert.Content>
                   </Alert>
                 ) : null}
-                <div className="space-y-2">
-                  <Label className="text-sm font-medium text-muted">{t('keysName')}</Label>
-                  <Input value={name} onChange={(event) => setName(event.target.value)} placeholder={t('keysNamePh')} />
-                </div>
+                <FormRow label={t('keysName')}>
+                  <Input value={name} onChange={(event) => setName(event.target.value)} placeholder={t('keysNamePh')} aria-label={t('keysName')} />
+                </FormRow>
                 <div className="space-y-2">
                   <Label className="text-sm font-medium text-muted">{t('keysProviders')}</Label>
                   <Description className="text-xs leading-5 text-muted">{t('keysProvidersHint')}</Description>

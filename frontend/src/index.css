@@ -6,6 +6,32 @@
   --font-mono: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
 }
 
+/* Softer field corners + visible borders: HeroUI inputs / textareas /
+   number-field groups / select triggers all read these vars. The stock
+   theme ships --field-border-width:0px and --field-border:transparent,
+   relying on a barely-visible shadow instead — fields look flat on both
+   light and dark surfaces, so draw a real border. */
+:root,
+.light,
+.default,
+[data-theme="light"],
+[data-theme="default"] {
+  --field-radius: 16px;
+  --field-border-width: 1px;
+  --field-border: oklch(80% 0.008 286.32);
+  --field-border-hover: oklch(70% 0.012 285.9);
+  --field-border-focus: oklch(62% 0.04 285.9);
+}
+
+.dark,
+[data-theme="dark"] {
+  --field-radius: 16px;
+  --field-border-width: 1px;
+  --field-border: oklch(38% 0.008 286.033);
+  --field-border-hover: oklch(47% 0.012 285.9);
+  --field-border-focus: oklch(58% 0.04 285.9);
+}
+
 /* Chrome accent is Charcoal Ink. Signal Cyan stays on the C tip / scan only.
    Dark inverts the fill so an ink button does not vanish on Off-Black Night. */
 :root,

@@ -16,6 +16,7 @@ import { applyPreparedSystemUpdate, cancelSystemUpdate, fetchSystemSettings, fet
 import { useApiKey } from '@/hooks/useApiKey'
 import { PageAlert } from '@/components/ui/PageAlert'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
+import { FormRow } from '@/components/ui/FormRow'
 import { SystemPageSkeleton } from '@/components/ui/PageSkeletons'
 import { useI18n } from '@/hooks/useI18n'
 import { CompactSwitch } from '@/components/ui/CompactSwitch'
@@ -421,17 +422,17 @@ export function SystemPage() {
                 <p className="mt-1 text-xs leading-5 text-muted">{t('workbuddyCheckinSettingsHint')}</p>
               </div>
             </div>
-            <div className="mt-4 space-y-1.5">
-              <Label className="text-sm font-medium text-muted">{t('autoCheckinTime')}</Label>
-              <Input
-                type="time"
-                value={checkinTimeDraft}
-                onChange={(event) => setCheckinTimeDraft(event.target.value || '09:00')}
-                onBlur={(event) => void updateWorkBuddyCheckinTime(event.target.value.trim())}
-                aria-label={t('autoCheckinTime')}
-                disabled={settingsBusy || !settings}
-              />
-              <Description className="text-xs leading-5 text-muted">{t('workbuddyCheckinSettingsFieldHint')}</Description>
+            <div className="mt-4 border-t border-separator pt-4">
+              <FormRow label={t('autoCheckinTime')} hint={t('workbuddyCheckinSettingsFieldHint')}>
+                <Input
+                  type="time"
+                  value={checkinTimeDraft}
+                  onChange={(event) => setCheckinTimeDraft(event.target.value || '09:00')}
+                  onBlur={(event) => void updateWorkBuddyCheckinTime(event.target.value.trim())}
+                  aria-label={t('autoCheckinTime')}
+                  disabled={settingsBusy || !settings}
+                />
+              </FormRow>
             </div>
           </Card>
 
@@ -443,28 +444,31 @@ export function SystemPage() {
                 <p className="mt-1 text-xs leading-5 text-muted">{t('routingStrategyHint')}</p>
               </div>
             </div>
-            <Select
-              className="mt-4"
-              fullWidth
-              value={settings?.routing_strategy || 'round-robin'}
-              isDisabled={settingsBusy || !settings}
-              onChange={(value) => {
-                if (typeof value === 'string' && value) void updateRoutingStrategy(value as SystemSettings['routing_strategy'])
-              }}
-            >
-              <Label className="text-sm font-medium text-muted">{t('routingStrategy')}</Label>
-              <Select.Trigger className="items-center">
-                <Select.Value className="min-w-0 truncate" />
-                <Select.Indicator />
-              </Select.Trigger>
-              <Select.Popover>
-                <ListBox>
-                  <ListBox.Item id="round-robin" textValue="round-robin"><Label>{t('routingRoundRobin')}</Label><ListBox.ItemIndicator /></ListBox.Item>
-                  <ListBox.Item id="weighted-round-robin" textValue="weighted-round-robin"><Label>{t('routingWeightedRoundRobin')}</Label><ListBox.ItemIndicator /></ListBox.Item>
-                  <ListBox.Item id="fill-first" textValue="fill-first"><Label>{t('routingFillFirst')}</Label><ListBox.ItemIndicator /></ListBox.Item>
-                </ListBox>
-              </Select.Popover>
-            </Select>
+            <div className="mt-4 border-t border-separator pt-4">
+              <FormRow label={t('routingStrategy')}>
+                <Select
+                  fullWidth
+                  aria-label={t('routingStrategy')}
+                  value={settings?.routing_strategy || 'round-robin'}
+                  isDisabled={settingsBusy || !settings}
+                  onChange={(value) => {
+                    if (typeof value === 'string' && value) void updateRoutingStrategy(value as SystemSettings['routing_strategy'])
+                  }}
+                >
+                  <Select.Trigger className="items-center">
+                    <Select.Value className="min-w-0 truncate" />
+                    <Select.Indicator />
+                  </Select.Trigger>
+                  <Select.Popover>
+                    <ListBox>
+                      <ListBox.Item id="round-robin" textValue="round-robin"><Label>{t('routingRoundRobin')}</Label><ListBox.ItemIndicator /></ListBox.Item>
+                      <ListBox.Item id="weighted-round-robin" textValue="weighted-round-robin"><Label>{t('routingWeightedRoundRobin')}</Label><ListBox.ItemIndicator /></ListBox.Item>
+                      <ListBox.Item id="fill-first" textValue="fill-first"><Label>{t('routingFillFirst')}</Label><ListBox.ItemIndicator /></ListBox.Item>
+                    </ListBox>
+                  </Select.Popover>
+                </Select>
+              </FormRow>
+            </div>
             <div className="mt-4 grid grid-cols-2 gap-2 border-t border-separator pt-3 text-xs text-muted sm:grid-cols-4">
               <div><span className="mono block text-sm font-medium text-foreground">{settings?.session_affinity?.ttl_seconds ? `${Math.round(settings.session_affinity.ttl_seconds / 60)}m` : '—'}</span>{t('sessionAffinityTTL')}</div>
               <div><span className="mono block text-sm font-medium text-foreground">{settings?.session_affinity?.hits ?? 0}</span>{t('sessionAffinityHits')}</div>

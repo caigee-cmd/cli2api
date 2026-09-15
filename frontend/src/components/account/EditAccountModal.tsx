@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { Alert, Button, Chip, Description, Form, Input, Label, Modal, NumberField } from '@heroui/react'
+import { Alert, Button, Chip, Form, Input, Modal, NumberField } from '@heroui/react'
 import { X } from '@phosphor-icons/react'
 import { ProviderMark } from '@/components/ProviderMark'
+import { FormRow } from '@/components/ui/FormRow'
 import type { AccountRow } from '@/lib/account'
 import { accountProviderLabel } from '@/lib/provider'
 
@@ -90,9 +91,8 @@ export function EditAccountModal({ account, busy, t, onClose, onSave }: Props) {
                   </Alert.Content>
                 </Alert>
               ) : null}
-              <Form className="space-y-5" onSubmit={(event) => void submit(event)}>
-                <div className="space-y-1.5">
-                  <Label className="text-sm font-medium text-muted">{t('accountName')}</Label>
+              <Form className="space-y-4" onSubmit={(event) => void submit(event)}>
+                <FormRow label={t('accountName')}>
                   <Input
                     value={name}
                     onChange={(event) => setName(event.target.value)}
@@ -101,8 +101,8 @@ export function EditAccountModal({ account, busy, t, onClose, onSave }: Props) {
                     disabled={busy}
                     autoFocus
                   />
-                </div>
-                <div className="grid gap-5 sm:grid-cols-2">
+                </FormRow>
+                <FormRow label={t('maxInflight')} hint={t('maxInflightHint')}>
                   <NumberField
                     value={maxInFlight}
                     onChange={(value) => setMaxInFlight(value ?? 4)}
@@ -111,14 +111,14 @@ export function EditAccountModal({ account, busy, t, onClose, onSave }: Props) {
                     isDisabled={busy}
                     isRequired
                   >
-                    <Label className="text-sm font-medium text-muted">{t('maxInflight')}</Label>
                     <NumberField.Group>
                       <NumberField.DecrementButton />
-                      <NumberField.Input />
+                      <NumberField.Input aria-label={t('maxInflight')} />
                       <NumberField.IncrementButton />
                     </NumberField.Group>
-                    <Description className="text-xs leading-5 text-muted">{t('maxInflightHint')}</Description>
                   </NumberField>
+                </FormRow>
+                <FormRow label={t('priority')} hint={t('priorityHint')}>
                   <NumberField
                     value={priority}
                     onChange={(value) => setPriority(value ?? 50)}
@@ -127,17 +127,14 @@ export function EditAccountModal({ account, busy, t, onClose, onSave }: Props) {
                     isDisabled={busy}
                     isRequired
                   >
-                    <Label className="text-sm font-medium text-muted">{t('priority')}</Label>
                     <NumberField.Group>
                       <NumberField.DecrementButton />
-                      <NumberField.Input />
+                      <NumberField.Input aria-label={t('priority')} />
                       <NumberField.IncrementButton />
                     </NumberField.Group>
-                    <Description className="text-xs leading-5 text-muted">{t('priorityHint')}</Description>
                   </NumberField>
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-sm font-medium text-muted">{t('proxyUrl')}</Label>
+                </FormRow>
+                <FormRow label={t('proxyUrl')} hint={t('proxyUrlHint')}>
                   <Input
                     value={proxyUrl}
                     onChange={(event) => setProxyUrl(event.target.value)}
@@ -145,11 +142,9 @@ export function EditAccountModal({ account, busy, t, onClose, onSave }: Props) {
                     aria-label={t('proxyUrl')}
                     disabled={busy}
                   />
-                  <Description className="text-xs leading-5 text-muted">{t('proxyUrlHint')}</Description>
-                </div>
+                </FormRow>
                 {showCheckinTime ? (
-                  <div className="space-y-1.5">
-                    <Label className="text-sm font-medium text-muted">{t('autoCheckinTime')}</Label>
+                  <FormRow label={t('autoCheckinTime')} hint={t('autoCheckinTimeHint')}>
                     <Input
                       type="time"
                       value={autoCheckinTime}
@@ -157,8 +152,7 @@ export function EditAccountModal({ account, busy, t, onClose, onSave }: Props) {
                       aria-label={t('autoCheckinTime')}
                       disabled={busy}
                     />
-                    <Description className="text-xs leading-5 text-muted">{t('autoCheckinTimeHint')}</Description>
-                  </div>
+                  </FormRow>
                 ) : null}
               </Form>
             </Modal.Body>
