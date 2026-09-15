@@ -912,7 +912,7 @@ func classifyAPIError(err error) accounts.Classified {
 	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return accounts.Classified{
-			Kind: accounts.KindUnavailable, Status: 499, Failover: false,
+			Kind: accounts.KindCanceled, Status: 499, Failover: false,
 			Code: "request_canceled", Message: err.Error(),
 		}
 	}
