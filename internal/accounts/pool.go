@@ -160,8 +160,29 @@ func CanonicalModelID(model string) string {
 	return key
 }
 
+// NormalizeModelName converts display-name formats sent by external clients
+// into the canonical model ID used for routing. It currently strips a leading
+// "Provider: " segment (single-word provider, no spaces) before lowercasing
+// and folding separators so names like "DeepSeek: DeepSeek V4.1 Flash" become
+// "deepseek-v4.1-flash".
+func NormalizeModelName(model string) string {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return model
+	}
+	parts := strings.SplitN(model, ":", 2)
+	if len(parts) == 2 {
+		provider := strings.TrimSpace(parts[0])
+		displayName := strings.TrimSpace(parts[1])
+		if !strings.Contains(provider, " ") {
+			model = displayName
+		}
+	}
+	return CanonicalModelID(model)
+}
+
 func routeModel(model string) string {
-	id := CanonicalModelID(model)
+	id := NormalizeModelName(model)
 	if id == "" || id == "auto" {
 		return ""
 	}

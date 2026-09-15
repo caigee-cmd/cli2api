@@ -16,6 +16,7 @@ const (
 	KindUnavailable       = "unavailable"
 	KindInvalidRequest    = "invalid_request"
 	KindModelNotAvailable = "model_not_available"
+	KindCanceled          = "canceled"
 )
 
 const maxRetryAfter = 10 * time.Minute

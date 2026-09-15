@@ -25,7 +25,7 @@ func TestClassifyCanceledErrorDoesNotBecomeAuth(t *testing.T) {
 	if classified.Kind == accounts.KindAuth {
 		t.Fatalf("canceled credential error classified as auth: %+v", classified)
 	}
-	if classified.Failover || classified.Cooldown != 0 || classified.Code != "request_canceled" {
+	if classified.Kind != accounts.KindCanceled || classified.Failover || classified.Cooldown != 0 || classified.Code != "request_canceled" {
 		t.Fatalf("canceled error classification = %+v", classified)
 	}
 }
