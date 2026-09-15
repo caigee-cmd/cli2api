@@ -84,6 +84,71 @@ func TestSystemSettingsRoutePersistsAndAppliesRoutingStrategy(t *testing.T) {
 	}
 }
 
+func TestEnsureWorkBuddyCheckinTimeDefaultsToNine(t *testing.T) {
+	store, err := accounts.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	value, err := ensureWorkBuddyCheckinTime(context.Background(), store)
+	if err != nil || value != accounts.DefaultWorkBuddyCheckinTime {
+		t.Fatalf("value=%q err=%v", value, err)
+	}
+	stored, ok, err := store.GetSecret(context.Background(), accounts.WorkBuddyCheckinTimeSecret)
+	if err != nil || !ok || stored != accounts.DefaultWorkBuddyCheckinTime {
+		t.Fatalf("stored=%q ok=%v err=%v", stored, ok, err)
+	}
+}
+
+func TestSystemSettingsRoutePersistsWorkBuddyCheckinTime(t *testing.T) {
+	srv := New(config.Config{
+		Host: "127.0.0.1", Port: 3010, ProxyAPIKey: "secret",
+		QoderHome: t.TempDir(), DataDir: t.TempDir(),
+	})
+	defer srv.Close()
+
+	request := httptest.NewRequest(http.MethodGet, "/api/system/settings", nil)
+	request.Header.Set("Authorization", "Bearer secret")
+	response := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte(`"workbuddy_checkin_time":"09:00"`)) {
+		t.Fatalf("default settings: %d %s", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodPatch, "/api/system/settings", bytes.NewBufferString(`{"workbuddy_checkin_time":"18:30"}`))
+	request.Header.Set("Authorization", "Bearer secret")
+	response = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte(`"workbuddy_checkin_time":"18:30"`)) {
+		t.Fatalf("updated settings: %d %s", response.Code, response.Body.String())
+	}
+	stored, ok, err := srv.manager.Store().GetSecret(context.Background(), accounts.WorkBuddyCheckinTimeSecret)
+	if err != nil || !ok || stored != "18:30" {
+		t.Fatalf("persisted=%q ok=%v err=%v", stored, ok, err)
+	}
+}
+
+func TestSystemSettingsRejectsInvalidWorkBuddyCheckinTime(t *testing.T) {
+	srv := New(config.Config{
+		Host: "127.0.0.1", Port: 3010, ProxyAPIKey: "secret",
+		QoderHome: t.TempDir(), DataDir: t.TempDir(),
+	})
+	defer srv.Close()
+
+	request := httptest.NewRequest(http.MethodPatch, "/api/system/settings", bytes.NewBufferString(`{"workbuddy_checkin_time":"9:00"}`))
+	request.Header.Set("Authorization", "Bearer secret")
+	response := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("invalid time response: %d %s", response.Code, response.Body.String())
+	}
+	stored, ok, err := srv.manager.Store().GetSecret(context.Background(), accounts.WorkBuddyCheckinTimeSecret)
+	if err != nil || !ok || stored != accounts.DefaultWorkBuddyCheckinTime {
+		t.Fatalf("default overwritten after invalid patch: stored=%q ok=%v err=%v", stored, ok, err)
+	}
+}
+
 func TestSystemSettingsRejectsInvalidStrategyWithoutPartialUpdate(t *testing.T) {
 	srv := New(config.Config{
 		Host: "127.0.0.1", Port: 3010, ProxyAPIKey: "secret",

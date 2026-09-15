@@ -62,6 +62,7 @@ export type SystemUpdateInfo = {
 export type SystemSettings = {
   cross_provider_model_pool: boolean
   routing_strategy: 'round-robin' | 'weighted-round-robin' | 'fill-first'
+  workbuddy_checkin_time: string
   session_affinity?: {
     ttl_seconds?: number
     capacity?: number
@@ -94,7 +95,7 @@ export function fetchSystemSettings() {
   return api<SystemSettings>('/api/system/settings')
 }
 
-export function updateSystemSettings(input: { cross_provider_model_pool?: boolean; routing_strategy?: SystemSettings['routing_strategy'] }) {
+export function updateSystemSettings(input: { cross_provider_model_pool?: boolean; routing_strategy?: SystemSettings['routing_strategy']; workbuddy_checkin_time?: string }) {
   return api<SystemSettings>('/api/system/settings', {
     method: 'PATCH',
     body: JSON.stringify(input),
