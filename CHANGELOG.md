@@ -7,7 +7,11 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Stop rewriting WorkBuddy `deepseek-v4.1-flash` to the stale `deep-model` upstream ID when the live catalog already exposes the native spelling, so chat no longer silently falls back to other models
+
 ### 中文
+
+- WorkBuddy 在线上目录已原生提供 `deepseek-v4.1-flash` 时，不再把它改写成过期的上游 ID `deep-model`，避免聊天静默落到其他模型
 
 ## 0.5.1 - 2026-09-15
 
