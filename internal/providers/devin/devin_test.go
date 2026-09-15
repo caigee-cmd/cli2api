@@ -373,7 +373,7 @@ func TestAggregateConnectStreamMissingEOS(t *testing.T) {
 	textFrame = AppendTag(textFrame, 3, BytesType)
 	textFrame = AppendString(textFrame, "orphan")
 	framed := WrapConnectEnvelope(textFrame)
-	_, err := aggregateConnectStream(bytes.NewReader(framed))
+	_, err := aggregateConnectStream(bytes.NewReader(framed), nil)
 	if err == nil {
 		t.Fatal("expected missing EOS error")
 	}
@@ -544,34 +544,119 @@ func TestClassifyMCPConfigPermissionDenied(t *testing.T) {
 	}
 }
 
-func TestParseToolsStripsMCPNamespace(t *testing.T) {
+func TestParseToolsAliasesMCPNamespace(t *testing.T) {
 	raw := json.RawMessage(`[
 		{"type":"function","function":{"name":"exec_command","description":"run","parameters":{"type":"object"}}},
 		{"type":"function","function":{"name":"mcp__computer-use__left_click","description":"click","parameters":{"type":"object"}}},
 		{"type":"function","function":{"name":"MCP__plugin_chrome__click","description":"click","parameters":{"type":"object"}}},
 		{"type":"function","function":{"name":"web_search","description":"search","parameters":{"type":"object"}}}
 	]`)
-	tools := parseTools(raw)
-	if len(tools) != 2 {
-		t.Fatalf("tools=%d want 2 (mcp stripped): %+v", len(tools), tools)
-	}
-	if tools[0].Name != "exec_command" || tools[1].Name != "web_search" {
-		t.Fatalf("tools=%+v", tools)
-	}
+	historyCalls, _ := json.Marshal([]map[string]any{{
+		"id":   "call_1",
+		"type": "function",
+		"function": map[string]any{
+			"name":      "mcp__computer-use__left_click",
+			"arguments": `{"x":1}`,
+		},
+	}})
 	payload := BuildChatPayload(translate.ChatRequest{
 		Model: "swe-2",
 		Messages: []translate.ChatMessage{
 			{Role: "user", Content: "hi"},
+			{Role: "assistant", Content: "", ToolCalls: historyCalls},
+			{Role: "tool", ToolCallID: "call_1", Content: "ok"},
 		},
 		Tools: raw,
 	}, nil)
-	if len(payload.Tools) != 2 {
-		t.Fatalf("payload tools=%d want 2", len(payload.Tools))
+	if len(payload.Tools) != 4 {
+		t.Fatalf("tools=%d want 4: %+v", len(payload.Tools), payload.Tools)
 	}
+	wantAlias := "mcp_computer_use_left_click"
+	foundAlias := false
 	for _, tool := range payload.Tools {
 		if strings.HasPrefix(strings.ToLower(tool.Name), "mcp__") {
 			t.Fatalf("mcp tool leaked into payload: %s", tool.Name)
 		}
+		if tool.Name == wantAlias {
+			foundAlias = true
+		}
+	}
+	if !foundAlias {
+		t.Fatalf("missing alias %q in %+v", wantAlias, payload.Tools)
+	}
+	if payload.OriginalByAlias[wantAlias] != "mcp__computer-use__left_click" {
+		t.Fatalf("reverse map=%v", payload.OriginalByAlias)
+	}
+	if len(payload.Prompts) < 2 || len(payload.Prompts[1].ToolCalls) != 1 {
+		t.Fatalf("history prompts=%+v", payload.Prompts)
+	}
+	if payload.Prompts[1].ToolCalls[0].Name != wantAlias {
+		t.Fatalf("history tool call name=%q", payload.Prompts[1].ToolCalls[0].Name)
+	}
+	if restoreToolName(wantAlias, payload.OriginalByAlias) != "mcp__computer-use__left_click" {
+		t.Fatalf("restore failed")
+	}
+}
+
+func TestChatStreamRestoresMCPToolName(t *testing.T) {
+	original := "mcp__computer-use__left_click"
+	alias := "mcp_computer_use_left_click"
+	toolFrame := buildToolCallDeltaFrame("call_1", alias, `{"x":2}`, 0)
+
+	var buf bytes.Buffer
+	buf.Write(WrapConnectEnvelope(toolFrame))
+	buf.Write(WrapConnectEnvelopeWithFlag(ConnectFlagEndStream, []byte(`{}`)))
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != PathGetChatMessage {
+			http.NotFound(w, r)
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		if bytes.Contains(body, []byte(original)) {
+			t.Errorf("upstream request still contains original mcp name")
+		}
+		if !bytes.Contains(body, []byte(alias)) {
+			t.Errorf("upstream request missing aliased mcp name")
+		}
+		w.Header().Set("Content-Type", ContentTypeConnectProto)
+		_, _ = w.Write(buf.Bytes())
+	}))
+	defer server.Close()
+
+	store := newMemStore()
+	store.accounts["acc1"] = accounts.Account{ID: "acc1", Provider: "devin", ProviderRegion: "global"}
+	cred := Credential{SessionToken: FormatSessionToken("eyJabc.def.ghi"), DeviceSeed: "seed", BaseURL: server.URL}
+	payload, err := cred.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.creds["acc1"] = payload
+
+	tools := json.RawMessage(`[{"type":"function","function":{"name":"mcp__computer-use__left_click","description":"click","parameters":{"type":"object"}}}]`)
+	client := NewClient(store)
+	client.SetBases(AppBase, APIBase, server.URL)
+	resp, err := client.ChatStream(context.Background(), "acc1", translate.ChatRequest{
+		Model: "swe-2-high",
+		Messages: []translate.ChatMessage{
+			{Role: "user", Content: "click"},
+		},
+		Tools: tools,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(body)
+	if !strings.Contains(text, original) {
+		t.Fatalf("client stream missing restored mcp name: %s", text)
+	}
+	if strings.Contains(text, `"`+alias+`"`) {
+		t.Fatalf("client stream still exposes alias: %s", text)
 	}
 }
 
