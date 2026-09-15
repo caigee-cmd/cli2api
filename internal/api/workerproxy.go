@@ -11,6 +11,9 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/caigee-cmd/cli2api/internal/accounts"
+	"github.com/caigee-cmd/cli2api/internal/providers"
 )
 
 var (
@@ -212,12 +215,105 @@ func (s *Server) fetchWorkerModelsFor(refresh bool, accountID string) ([]map[str
 	return parsed.Data, nil
 }
 
+// modelsNumericCapFields / modelsBoolCapFields list the capability fields the
+// merged catalog intersects conservatively when the same public model is
+// served by accounts of different regions: numeric fields take the minimum,
+// boolean fields are ANDed. Other fields (display name, reasoning options)
+// keep the first-seen value.
+var modelsNumericCapFields = []string{
+	"catalog_context_length", "catalog_context_length_max",
+	"max_output_tokens", "prompt_max_tokens",
+}
+var modelsBoolCapFields = []string{"supports_max_mode", "can_disable_thinking"}
+
+func addModelRegion(entry map[string]any, region string) {
+	region = strings.TrimSpace(region)
+	if region == "" {
+		return
+	}
+	for _, existing := range entryModelRegions(entry) {
+		if existing == region {
+			return
+		}
+	}
+	entry["regions"] = append(entryModelRegions(entry), region)
+}
+
+func entryModelRegions(entry map[string]any) []string {
+	raw, ok := entry["regions"].([]string)
+	if !ok {
+		return nil
+	}
+	return raw
+}
+
+// mergeModelEntryCapabilities folds a later source entry into the merged one
+// conservatively: numeric capability fields take the minimum of the two,
+// boolean capability fields are ANDed. A field missing from either side keeps
+// the merged value (missing means "unknown", not "zero").
+func mergeModelEntryCapabilities(merged, incoming map[string]any) {
+	for _, field := range modelsNumericCapFields {
+		mergedValue, ok1 := numericFieldValue(merged[field])
+		incomingValue, ok2 := numericFieldValue(incoming[field])
+		if ok1 && ok2 && incomingValue < mergedValue {
+			merged[field] = incomingValue
+		}
+	}
+	for _, field := range modelsBoolCapFields {
+		if value, ok := incoming[field].(bool); ok && !value {
+			merged[field] = false
+		}
+	}
+}
+
+func numericFieldValue(value any) (float64, bool) {
+	switch v := value.(type) {
+	case int:
+		return float64(v), true
+	case int64:
+		return float64(v), true
+	case float64:
+		return v, true
+	default:
+		return 0, false
+	}
+}
+
+// modelCapabilitiesEntry renders one adapter ModelInfo into the same entry
+// shape used in the merged catalog, so capability intersection works on
+// duplicate sources of the same public model.
+func modelCapabilitiesEntry(model providers.ModelInfo) map[string]any {
+	entry := map[string]any{}
+	if model.Capabilities.ContextWindow > 0 {
+		entry["catalog_context_length"] = model.Capabilities.ContextWindow
+	}
+	if model.Capabilities.ContextWindowMax > 0 {
+		entry["catalog_context_length_max"] = model.Capabilities.ContextWindowMax
+	}
+	if model.Capabilities.MaxOutput > 0 {
+		entry["max_output_tokens"] = model.Capabilities.MaxOutput
+	}
+	if model.Capabilities.PromptMaxTokens > 0 {
+		entry["prompt_max_tokens"] = model.Capabilities.PromptMaxTokens
+	}
+	if model.Capabilities.MaxMode {
+		entry["supports_max_mode"] = true
+	}
+	if model.Capabilities.CanDisableThinking {
+		entry["can_disable_thinking"] = true
+	}
+	return entry
+}
+
 // fetchProviderModels merges catalogs across accounts. Qoder models come from
 // worker daemons; in-process providers come from their adapters. Each entry is
-// tagged with the provider that actually serves it.
+// tagged with the provider that actually serves it and the regions of the
+// accounts that provide it; entries served by several regions of one provider
+// merge into a single public entry with a conservative capability
+// intersection.
 func (s *Server) fetchProviderModels(refresh bool, accountID string) ([]map[string]any, error) {
 	var merged []map[string]any
-	seen := map[string]struct{}{}
+	seen := map[string]map[string]any{}
 	sawAny := false
 	var lastErr error
 	for _, item := range s.pool.Items() {
@@ -253,10 +349,11 @@ func (s *Server) fetchProviderModels(refresh bool, accountID string) ([]map[stri
 				publicKey = strings.TrimSpace(model.NativeModel)
 			}
 			key := publicKey + "@" + item.Provider
-			if _, dup := seen[key]; dup {
+			if existing, dup := seen[key]; dup {
+				addModelRegion(existing, item.Region)
+				mergeModelEntryCapabilities(existing, modelCapabilitiesEntry(model))
 				continue
 			}
-			seen[key] = struct{}{}
 			entry := map[string]any{
 				"id": model.PublicModel, "object": "model", "owned_by": item.Provider,
 				"provider": item.Provider, "native_model": model.NativeModel,
@@ -291,6 +388,8 @@ func (s *Server) fetchProviderModels(refresh bool, accountID string) ([]map[stri
 			if model.Capabilities.CanDisableThinking {
 				entry["can_disable_thinking"] = true
 			}
+			addModelRegion(entry, item.Region)
+			seen[key] = entry
 			merged = append(merged, entry)
 		}
 	}
@@ -313,18 +412,34 @@ func (s *Server) fetchProviderModels(refresh bool, accountID string) ([]map[stri
 	}
 	for _, model := range qoderModels {
 		key, _ := model["id"].(string)
-		if _, dup := seen[key+"@qoder"]; dup {
+		if existing, dup := seen[key+"@qoder"]; dup {
+			addModelRegion(existing, qoderModelRegion(model))
+			mergeModelEntryCapabilities(existing, model)
 			continue
 		}
-		seen[key+"@qoder"] = struct{}{}
+		seen[key+"@qoder"] = model
 		model["provider"] = "qoder"
 		model["owned_by"] = "qoder"
+		region := qoderModelRegion(model)
+		addModelRegion(model, region)
 		merged = append(merged, model)
 	}
 	return merged, nil
 }
 
+// qoderModelRegion returns the region stamped on a per-account Qoder worker
+// catalog entry (see fetchQoderModels), defaulting to global.
+func qoderModelRegion(model map[string]any) string {
+	region, _ := model["_qoder_region"].(string)
+	delete(model, "_qoder_region")
+	return region
+}
+
 func (s *Server) fetchQoderModels(refresh bool, accountID string) []map[string]any {
+	region := "global"
+	if item, ok := s.pool.ByID(accountID); ok {
+		region = accounts.NormalizeRegion(item.Region)
+	}
 	path := "/admin/models"
 	if refresh {
 		path += "?refresh=1"
@@ -338,8 +453,22 @@ func (s *Server) fetchQoderModels(refresh bool, accountID string) []map[string]a
 	var parsed struct {
 		Data []map[string]any `json:"data"`
 	}
-	if json.Unmarshal(body, &parsed) != nil {
+	if json.Unmarshal(body, &parsed) != nil || len(parsed.Data) == 0 {
 		return nil
+	}
+	for _, model := range parsed.Data {
+		if model == nil {
+			continue
+		}
+		if _, ok := model["provider"]; !ok {
+			model["provider"] = "qoder"
+		}
+		if _, ok := model["owned_by"]; !ok {
+			model["owned_by"] = "qoder"
+		}
+		// Internal marker consumed by fetchProviderModels; stripped from the
+		// merged output before it reaches any client.
+		model["_qoder_region"] = region
 	}
 	return parsed.Data
 }

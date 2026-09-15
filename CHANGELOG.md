@@ -7,7 +7,11 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Allow named API keys to restrict routing to specific provider regions while keeping legacy family grants compatible, and show the same region-aware scope in the model catalog
+
 ### 中文
+
+- 支持将命名 API Key 的路由限制到具体供应商区域，同时兼容旧的供应商族授权，并让模型目录使用相同的区域权限过滤
 
 ## 0.5.0 - 2026-09-15
 

@@ -13,8 +13,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	"github.com/caigee-cmd/cli2api/internal/providers"
 )
 
 type APIKey struct {
@@ -59,21 +57,40 @@ func NormalizeAPIKeyProviders(ids []string) ([]string, error) {
 	if len(ids) == 0 {
 		return []string{}, nil
 	}
-	seen := map[string]struct{}{}
-	out := make([]string, 0, len(ids))
+	grants := make([]ProviderGrant, 0, len(ids))
 	for _, id := range ids {
 		id = strings.ToLower(strings.TrimSpace(id))
 		if id == "" {
 			continue
 		}
-		if _, _, err := providers.Resolve(id, ""); err != nil {
-			return nil, fmt.Errorf("unknown provider %q", id)
+		grant, err := ParseProviderGrant(id)
+		if err != nil {
+			return nil, err
 		}
-		if _, ok := seen[id]; ok {
+		grants = append(grants, grant)
+	}
+	// A bare family entry subsumes every region-scoped entry of the same
+	// family: ["workbuddy", "workbuddy:cn"] stores only "workbuddy". Keep the
+	// bare entry (not the union) so a future new region stays denied unless
+	// the caller re-authorizes it explicitly.
+	bare := map[string]bool{}
+	for _, grant := range grants {
+		if grant.Region == "" {
+			bare[grant.Provider] = true
+		}
+	}
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(grants))
+	for _, grant := range grants {
+		if grant.Region != "" && bare[grant.Provider] {
 			continue
 		}
-		seen[id] = struct{}{}
-		out = append(out, id)
+		canonical := grant.String()
+		if _, ok := seen[canonical]; ok {
+			continue
+		}
+		seen[canonical] = struct{}{}
+		out = append(out, canonical)
 	}
 	return out, nil
 }

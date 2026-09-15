@@ -351,6 +351,16 @@ func (c *countingCatalog) Models(context.Context, string) ([]providers.ModelInfo
 	return c.models, nil
 }
 
+// regionCatalog serves a distinct model list per account, so pool items of
+// different regions of one provider genuinely serve different models.
+type regionCatalog struct {
+	byAccount map[string][]providers.ModelInfo
+}
+
+func (c *regionCatalog) Models(_ context.Context, accountID string) ([]providers.ModelInfo, error) {
+	return c.byAccount[accountID], nil
+}
+
 func TestModelsAPICachesCatalogForFiveMinutes(t *testing.T) {
 	srv := New(config.Config{
 		Host: "127.0.0.1", Port: 3010, ProxyAPIKey: "secret",
@@ -875,5 +885,126 @@ func TestAccountCheckinRecordsRoute(t *testing.T) {
 	}
 	if len(payload.Data) != 1 || payload.Data[0].Status != "success" {
 		t.Fatalf("checkin records payload=%+v", payload.Data)
+	}
+}
+
+func TestNamedAPIKeyRegionScopedModelsList(t *testing.T) {
+	srv := New(config.Config{
+		Host: "127.0.0.1", Port: 3010, ProxyAPIKey: "secret",
+		QoderHome: t.TempDir(), DataDir: t.TempDir(),
+	})
+	defer srv.Close()
+
+	srv.pool.Upsert(accounts.Item{ID: "wc1", Provider: "workbuddy", Region: "cn", Runtime: string(providers.RuntimeInProcess)})
+	srv.pool.Upsert(accounts.Item{ID: "wg1", Provider: "workbuddy", Region: "global", Runtime: string(providers.RuntimeInProcess)})
+	srv.pool.Upsert(accounts.Item{ID: "t1", Provider: "trae", Region: "cn", Runtime: string(providers.RuntimeInProcess)})
+	// The catalog fake returns different models per account so each region
+	// genuinely serves a distinct model set.
+	srv.providers.Register(providers.Adapter{ID: "workbuddy", Models: &regionCatalog{
+		byAccount: map[string][]providers.ModelInfo{
+			"wc1": {{NativeModel: "glm-5.2", PublicModel: "glm-5.2", DisplayName: "GLM"}},
+			"wg1": {{NativeModel: "kimi-k3", PublicModel: "kimi-k3", DisplayName: "Kimi"}},
+		},
+	}})
+	srv.providers.Register(providers.Adapter{ID: "trae", Models: &regionCatalog{
+		byAccount: map[string][]providers.ModelInfo{
+			"t1": {{NativeModel: "deepseek-v4", PublicModel: "deepseek-v4", DisplayName: "DS"}},
+		},
+	}})
+
+	fetch := func(secret string) string {
+		req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+		req.Header.Set("Authorization", "Bearer "+secret)
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("GET /v1/models = %d %s", rec.Code, rec.Body.String())
+		}
+		return rec.Body.String()
+	}
+
+	// CN-only key: only models served by the cn account appear; the same
+	// public model id is not duplicated per region.
+	cnKey, err := srv.manager.Store().CreateAPIKey(context.Background(), accounts.CreateAPIKey{
+		Name: "cn-only", Providers: []string{"workbuddy:cn"}, Enabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cnBody := fetch(cnKey.Secret)
+	if !bytes.Contains([]byte(cnBody), []byte(`"id":"glm-5.2"`)) {
+		t.Fatalf("cn-only key must still see glm-5.2 served by the cn account: %s", cnBody)
+	}
+	if bytes.Contains([]byte(cnBody), []byte(`"deepseek-v4"`)) {
+		t.Fatalf("cn-only key must not see trae models: %s", cnBody)
+	}
+	if bytes.Count([]byte(cnBody), []byte(`"id":"glm-5.2"`)) != 1 {
+		t.Fatalf("model entries must dedup across regions: %s", cnBody)
+	}
+
+	// Global-only key: glm-5.2 exists in the pool but is only served by the
+	// cn account, so it disappears; kimi-k3 (served by global) stays.
+	globalKey, err := srv.manager.Store().CreateAPIKey(context.Background(), accounts.CreateAPIKey{
+		Name: "global-only", Providers: []string{"workbuddy:global"}, Enabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	globalBody := fetch(globalKey.Secret)
+	if bytes.Contains([]byte(globalBody), []byte(`"glm-5.2"`)) {
+		t.Fatalf("global-only key must not see models only served by cn accounts: %s", globalBody)
+	}
+	if !bytes.Contains([]byte(globalBody), []byte(`"id":"kimi-k3"`)) {
+		t.Fatalf("global-only key must see the model served by the global account: %s", globalBody)
+	}
+
+	// Legacy bare entry keeps every region.
+	bareKey, err := srv.manager.Store().CreateAPIKey(context.Background(), accounts.CreateAPIKey{
+		Name: "bare", Providers: []string{"workbuddy"}, Enabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bareBody := fetch(bareKey.Secret)
+	if !bytes.Contains([]byte(bareBody), []byte(`"id":"glm-5.2"`)) {
+		t.Fatalf("bare family entry must still list glm-5.2: %s", bareBody)
+	}
+	if bytes.Contains([]byte(bareBody), []byte(`"deepseek-v4"`)) {
+		t.Fatalf("bare workbuddy entry must not list trae models: %s", bareBody)
+	}
+}
+
+func TestAPIKeyRejectsMalformedRegionGrants(t *testing.T) {
+	srv := New(config.Config{
+		Host: "127.0.0.1", Port: 3010, ProxyAPIKey: "secret",
+		QoderHome: t.TempDir(), DataDir: t.TempDir(),
+	})
+	defer srv.Close()
+
+	for _, providers := range [][]string{
+		{"workbuddy:"},
+		{":cn"},
+		{"workbuddy:cn:x"},
+		{"unknown:cn"},
+		{"workbuddy:antarctica"},
+	} {
+		payload, _ := json.Marshal(map[string]any{"name": "bad", "providers": providers})
+		req := httptest.NewRequest(http.MethodPost, "/api/keys", bytes.NewReader(payload))
+		req.Header.Set("Authorization", "Bearer secret")
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("POST /api/keys providers=%v = %d %s, want 400", providers, rec.Code, rec.Body.String())
+		}
+	}
+
+	// Well-formed region entries are accepted.
+	payload, _ := json.Marshal(map[string]any{"name": "ok", "providers": []string{"workbuddy:cn", "qoder:global"}})
+	req := httptest.NewRequest(http.MethodPost, "/api/keys", bytes.NewReader(payload))
+	req.Header.Set("Authorization", "Bearer secret")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK && rec.Code != http.StatusCreated {
+		t.Fatalf("POST /api/keys with region grants = %d %s", rec.Code, rec.Body.String())
 	}
 }
