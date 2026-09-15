@@ -598,6 +598,50 @@ func TestParseToolsAliasesMCPNamespace(t *testing.T) {
 	}
 }
 
+func TestParseToolsExpandsNamespaceAndDropsHostedShells(t *testing.T) {
+	raw := json.RawMessage(`[
+		{"type":"function","function":{"name":"lookup","description":"lookup","parameters":{"type":"object"}}},
+		{"type":"namespace","name":"mcp__computer-use","tools":[
+			{"type":"function","name":"left_click","description":"click","parameters":{"type":"object","properties":{"x":{"type":"number"}}}},
+			{"type":"function","function":{"name":"mcp__computer-use__type","description":"type","parameters":{"type":"object"}}}
+		]},
+		{"type":"mcp","server_label":"computer-use"},
+		{"type":"web_search"},
+		{"type":"namespace","name":"mcp__empty","tools":[]}
+	]`)
+	payload := BuildChatPayload(translate.ChatRequest{
+		Model:    "swe-2",
+		Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+		Tools:    raw,
+	}, nil)
+	names := make([]string, 0, len(payload.Tools))
+	for _, tool := range payload.Tools {
+		names = append(names, tool.Name)
+		if tool.Name == "mcp__computer-use" || tool.Name == "mcp_computer_use" {
+			t.Fatalf("namespace shell leaked as tool: %s", tool.Name)
+		}
+		if tool.Name == "web_search" || tool.Name == "computer-use" {
+			t.Fatalf("hosted shell leaked as tool: %s", tool.Name)
+		}
+	}
+	want := map[string]bool{
+		"lookup":                      true,
+		"mcp_computer_use_left_click": true,
+		"mcp_computer_use_type":       true,
+	}
+	if len(payload.Tools) != 3 {
+		t.Fatalf("tools=%v want 3", names)
+	}
+	for _, tool := range payload.Tools {
+		if !want[tool.Name] {
+			t.Fatalf("unexpected tool %q in %v", tool.Name, names)
+		}
+	}
+	if payload.OriginalByAlias["mcp_computer_use_left_click"] != "mcp__computer-use__left_click" {
+		t.Fatalf("reverse map=%v", payload.OriginalByAlias)
+	}
+}
+
 func TestChatStreamRestoresMCPToolName(t *testing.T) {
 	original := "mcp__computer-use__left_click"
 	alias := "mcp_computer_use_left_click"
