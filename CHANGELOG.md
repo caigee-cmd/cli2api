@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.5.1 - 2026-09-15
+
+### English
+
 - Allow named API keys to restrict routing to specific provider regions while keeping legacy family grants compatible, and show the same region-aware scope in the model catalog
 
 ### 中文
