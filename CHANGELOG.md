@@ -8,12 +8,18 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 ### English
 
 - Accept `tool_reference` blocks inside Anthropic tool results and keep them as text instead of rejecting the whole request
+- Route outbound traffic through a global HTTP(S) proxy, with an optional per-account override (`direct` / `none` for explicit direct connections; WorkBuddy and Trae account overrides also accept SOCKS5)
+- Expose WorkBuddy `deepseek-v4.1-flash` through the catalog alias so the model routes instead of being rejected
+- Normalize display-name model inputs (for example `DeepSeek: DeepSeek V4.1 Flash`) to canonical IDs before routing, and classify client-canceled requests as canceled instead of unavailable
 - Align create-account and edit-account form fields, and let WorkBuddy accounts set their own daily check-in time
 - Add a system-wide WorkBuddy check-in default that new accounts inherit
 
 ### 中文
 
 - 接受 Anthropic 工具结果中的 `tool_reference` 块并保留为文本，不再整条请求报错
+- 支持统一 HTTP(S) 出站代理，并可对单个账号设置覆盖（`direct` / `none` 显式直连；WorkBuddy 与 Trae 的账号级代理还支持 SOCKS5）
+- WorkBuddy 通过目录别名暴露 `deepseek-v4.1-flash`，模型可以正常路由而不再被拒绝
+- 将 display-name 形式的模型输入（如 `DeepSeek: DeepSeek V4.1 Flash`）归一化为规范 ID 后再路由，并把客户端主动取消的请求归类为“已取消”而非“不可用”
 - 对齐创建和编辑账号表单，并允许 WorkBuddy 账号单独设置每日签到时间
 - 系统设置增加 WorkBuddy 默认签到时间，新建账号会继承该时间
 
