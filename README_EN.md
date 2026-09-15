@@ -4,7 +4,7 @@
 
 **Turn your own logins into a local OpenAI-compatible API**
 
-Supports **Qoder Global**, **Qoder CN**, **WorkBuddy Global**, **WorkBuddy CN**, and **Trae CN Solo**.
+Supports **Qoder Global**, **Qoder CN**, **WorkBuddy Global**, **WorkBuddy CN**, **Trae CN Solo**, and experimental **Devin** (`provider=devin`, browser OAuth / session token import; not claimed production-ready).
 
 Long-lived account runtimes, multi-account scheduling. Deploy with Docker; that is the supported install and update path.
 
@@ -20,9 +20,9 @@ Long-lived account runtimes, multi-account scheduling. Deploy with Docker; that 
 ## Features
 
 - **OpenAI / Anthropic-compatible proxy**: `/v1/chat/completions`, `/v1/responses`, `/v1/messages`, `/v1/models` — streaming/non-streaming text and function tools; image support depends on the provider (currently supported by Qoder, not WorkBuddy / Trae); file inputs are rejected explicitly. `messages` / `responses` are stateless adapters today and do not support server-side conversations or upstream-specific tools.
-- **Multi-channel account pool**: Qoder Global / Qoder CN, WorkBuddy Global / WorkBuddy CN, Trae CN Solo — region isolation, account pinning, concurrency limits, cooldowns, and same-family failover
-- **Outbound proxies**: set one global HTTP(S) proxy or override it per account; use `direct` / `none` for explicit direct access. SOCKS5 is available for WorkBuddy / Trae account-level proxies only; Qoder account-level proxies are HTTP(S) only
-- **Account-level runtimes**: Qoder accounts use an isolated Node process, HOME, and WASM context; WorkBuddy / Trae use in-process HTTP/SSE adapters. Each provider owns its login and upstream runtime boundary
+- **Multi-channel account pool**: Qoder Global / Qoder CN, WorkBuddy Global / WorkBuddy CN, Trae CN Solo, plus experimental Devin — region isolation, account pinning, concurrency limits, cooldowns, and same-family failover
+- **Outbound proxies**: set one global HTTP(S) proxy or override it per account; use `direct` / `none` for explicit direct access. SOCKS5 is available for WorkBuddy / Trae / Devin account-level proxies only; Qoder account-level proxies are HTTP(S) only
+- **Account-level runtimes**: Qoder accounts use an isolated Node process, HOME, and WASM context; WorkBuddy / Trae / Devin use in-process HTTP/SSE (or Connect) adapters. Each provider owns its login and upstream runtime boundary
 - **Provider-specific login methods**: browser Device Flow OAuth, PAT, and credential import/export where supported
 - **Web console**: accounts, models, access, request history, and runtime logs, with light and dark themes
 - **Deployment and ops**: single Docker Compose container, safe managed updates (pre-update snapshot, automatic rollback on failure, jump to the latest stable release, roll back to one of the three previous stables), binds `127.0.0.1` by default
@@ -32,7 +32,7 @@ Long-lived account runtimes, multi-account scheduling. Deploy with Docker; that 
 
 **Deploy with Docker.** Published images and console managed updates (pre-update snapshot, automatic rollback, jump to the latest stable release) are built around the single Compose container. Running the Go / Node sources directly is not on that update path.
 
-Requirements: Docker (Docker Desktop on macOS/Windows, Docker Engine + Compose on Linux) and a Qoder, WorkBuddy, or Trae account you control. On Windows, Docker Desktop must use Linux containers.
+Requirements: Docker (Docker Desktop on macOS/Windows, Docker Engine + Compose on Linux) and a Qoder, WorkBuddy, Trae, or experimental Devin account you control. On Windows, Docker Desktop must use Linux containers.
 
 ```bash
 git clone https://github.com/caigee-cmd/cli2api.git
@@ -59,7 +59,7 @@ Without an account header the scheduler picks a ready account; pin a request wit
   <img src="./docs/assets/readme/architecture-en.svg" width="100%" alt="CLI2API architecture: OpenAI clients are routed by the Go control plane to one isolated runtime per account, then to the provider upstream">
 </p>
 
-Each enabled account gets an isolated runtime: Qoder uses its own Node process, HOME, and WASM context, while WorkBuddy / Trae use in-process adapters. Go owns persistence, scheduling, concurrency limits, cooldowns, failover, and the lifecycle of providers that need child processes.
+Each enabled account gets an isolated runtime: Qoder uses its own Node process, HOME, and WASM context, while WorkBuddy / Trae / Devin use in-process adapters. Go owns persistence, scheduling, concurrency limits, cooldowns, failover, and the lifecycle of providers that need child processes.
 
 ## Console
 
@@ -71,7 +71,7 @@ Accounts, models, access, and logs all live in one web console. Each account sig
 
 ## Use cases
 
-- Connect Qoder / WorkBuddy / Trae to local or private-server tooling
+- Connect Qoder / WorkBuddy / Trae (and experimental Devin) to local or private-server tooling
 - Reuse OpenAI-compatible clients and scripts
 - Route requests across multiple accounts with failover
 - Keep login state available without starting a full CLI Agent per request

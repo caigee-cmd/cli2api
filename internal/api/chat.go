@@ -488,7 +488,7 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 
 func providerPrefix(model string) string {
 	model = strings.TrimSpace(model)
-	for _, prefix := range []string{"qoder/", "workbuddy/", "trae/"} {
+	for _, prefix := range []string{"qoder/", "workbuddy/", "trae/", "devin/"} {
 		if strings.HasPrefix(model, prefix) {
 			return strings.TrimSuffix(prefix, "/")
 		}

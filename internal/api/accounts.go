@@ -9,6 +9,7 @@ import (
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/providers"
+	"github.com/caigee-cmd/cli2api/internal/providers/devin"
 	"github.com/caigee-cmd/cli2api/internal/providers/trae"
 	"github.com/caigee-cmd/cli2api/internal/providers/workbuddy"
 )
@@ -199,8 +200,52 @@ func (s *Server) handleAccountImport(w http.ResponseWriter, r *http.Request) {
 		}
 		imported, _ := s.manager.Store().Get(r.Context(), account.ID)
 		writeJSON(w, http.StatusCreated, imported)
+	case devin.CredentialFormat:
+		payload := input.Credential
+		if len(payload) == 0 {
+			payload = json.RawMessage(raw)
+		}
+		if err := devin.ValidateCredential(payload); err != nil {
+			writeErr(w, http.StatusBadRequest, "invalid_credential", err.Error())
+			return
+		}
+		credential, err := devin.DecodeCredential(payload)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, "invalid_credential", err.Error())
+			return
+		}
+		credential = devin.EnsureDeviceSeed(credential)
+		encoded, err := credential.Encode()
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, "invalid_credential", err.Error())
+			return
+		}
+		account, err := s.manager.Create(r.Context(), accounts.CreateAccount{
+			Name: input.Name, Provider: "devin", Region: input.Region, Enabled: false,
+			MaxInFlight: input.MaxInFlight, Priority: input.Priority, DropSystemPrompt: input.DropSystemPrompt,
+			WorkBuddyAutoCheckin: input.WorkBuddyAutoCheckin,
+			WorkBuddyCheckinTime: input.WorkBuddyCheckinTime, ProxyURL: input.ProxyURL,
+		})
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, "account_import_failed", err.Error())
+			return
+		}
+		if err := s.manager.Store().SaveCredentialPayload(r.Context(), account.ID, devin.CredentialFormat, encoded); err != nil {
+			_ = s.manager.Delete(r.Context(), account.ID)
+			writeErr(w, http.StatusBadRequest, "account_import_failed", err.Error())
+			return
+		}
+		if credential.UserID != "" && input.Enabled {
+			enabled := true
+			if err := s.manager.Update(r.Context(), account.ID, accounts.UpdateAccount{Enabled: &enabled}); err != nil {
+				writeErr(w, http.StatusBadRequest, "account_import_failed", err.Error())
+				return
+			}
+		}
+		imported, _ := s.manager.Store().Get(r.Context(), account.ID)
+		writeJSON(w, http.StatusCreated, imported)
 	default:
-		writeErr(w, http.StatusBadRequest, "unsupported_credential_format", "format must be qoder-native-v1, workbuddy-oauth-v1, or trae-oauth-v1")
+		writeErr(w, http.StatusBadRequest, "unsupported_credential_format", "format must be qoder-native-v1, workbuddy-oauth-v1, trae-oauth-v1, or devin-session-v1")
 	}
 }
 

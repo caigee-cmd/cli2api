@@ -1,0 +1,131 @@
+{
+  "devin": [
+    {
+      "id": "swe-2",
+      "type": "devin",
+      "display_name": "SWE-2",
+      "context_length": 262000,
+      "max_completion_tokens": 128000,
+      "supportedInputModalities": [
+        "text",
+        "image"
+      ],
+      "thinking": {
+        "levels": [
+          "medium",
+          "high",
+          "max"
+        ]
+      }
+    },
+    {
+      "id": "swe-1-7",
+      "type": "devin",
+      "display_name": "SWE-1.7",
+      "context_length": 262000,
+      "max_completion_tokens": 128000,
+      "supportedInputModalities": [
+        "text",
+        "image"
+      ],
+      "thinking": {
+        "levels": [
+          "medium",
+          "max"
+        ]
+      }
+    },
+    {
+      "id": "swe-1-6",
+      "type": "devin",
+      "display_name": "SWE-1.6",
+      "context_length": 200000,
+      "max_completion_tokens": 128000,
+      "supportedInputModalities": [
+        "text"
+      ]
+    },
+    {
+      "id": "glm-5-2",
+      "type": "devin",
+      "display_name": "GLM-5.2",
+      "context_length": 200000,
+      "max_completion_tokens": 128000,
+      "supportedInputModalities": [
+        "text"
+      ],
+      "thinking": {
+        "levels": [
+          "none",
+          "high"
+        ]
+      }
+    },
+    {
+      "id": "glm-5-3",
+      "type": "devin",
+      "display_name": "GLM-5.3",
+      "context_length": 1048576,
+      "max_completion_tokens": 128000,
+      "supportedInputModalities": [
+        "text"
+      ],
+      "thinking": {
+        "levels": [
+          "low",
+          "high",
+          "max"
+        ]
+      }
+    },
+    {
+      "id": "glm-5-3-flash",
+      "type": "devin",
+      "display_name": "GLM-5.3 Flash",
+      "context_length": 1000000,
+      "max_completion_tokens": 128000,
+      "supportedInputModalities": [
+        "text"
+      ],
+      "thinking": {
+        "levels": [
+          "low",
+          "high",
+          "max"
+        ]
+      }
+    },
+    {
+      "id": "deepseek-v4-flash",
+      "type": "devin",
+      "display_name": "DeepSeek V4 Flash",
+      "context_length": 1048576,
+      "max_completion_tokens": 128000,
+      "supportedInputModalities": [
+        "text"
+      ],
+      "thinking": {
+        "levels": [
+          "high",
+          "max"
+        ]
+      }
+    },
+    {
+      "id": "deepseek-v4-1-flash",
+      "type": "devin",
+      "display_name": "DeepSeek V4.1 Flash",
+      "context_length": 1048576,
+      "max_completion_tokens": 128000,
+      "supportedInputModalities": [
+        "text"
+      ],
+      "thinking": {
+        "levels": [
+          "high",
+          "max"
+        ]
+      }
+    }
+  ]
+}

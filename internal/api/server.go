@@ -25,6 +25,7 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/executor"
 	applogs "github.com/caigee-cmd/cli2api/internal/logs"
 	"github.com/caigee-cmd/cli2api/internal/providers"
+	"github.com/caigee-cmd/cli2api/internal/providers/devin"
 	"github.com/caigee-cmd/cli2api/internal/providers/trae"
 	"github.com/caigee-cmd/cli2api/internal/providers/workbuddy"
 	control "github.com/caigee-cmd/cli2api/internal/update"
@@ -111,6 +112,7 @@ func New(cfg config.Config) *Server {
 	workbuddyClient := workbuddy.NewClient(store)
 	providerReg.Register(workbuddyClient.Adapter())
 	providerReg.Register(trae.NewClient(store).Adapter())
+	providerReg.Register(devin.NewClient(store).Adapter())
 	manager.SetProviders(providerReg)
 	manager.SetWorkBuddy(workbuddyClient)
 	go manager.RefreshAll(context.Background(), false)
