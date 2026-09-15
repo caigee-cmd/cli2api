@@ -526,6 +526,9 @@ func TestChatRequestSendsOfficialReasoningFieldsForDeepseekFlash(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	if got["model"] != "deepseek-v4.1-flash" {
+		t.Fatalf("upstream model=%v body=%v", got["model"], got)
+	}
 	if _, ok := got["reasoning"]; ok {
 		t.Fatalf("deepseek kept nested reasoning: %v", got["reasoning"])
 	}
@@ -676,6 +679,68 @@ func TestChatRequestMapsDeepseekAliasToNativeModel(t *testing.T) {
 	}
 	if got["reasoning_effort"] != "high" || got["reasoning_summary"] != "auto" || got["verbosity"] != "high" {
 		t.Fatalf("reasoning fields=%v", got)
+	}
+}
+
+// Regression: once WorkBuddy publishes deepseek-v4.1-flash as a native CLI
+// model, chat must send that ID instead of the stale deep-model alias.
+func TestChatRequestKeepsNativeDeepseekWhenCatalogHasIt(t *testing.T) {
+	payload, _ := Credential{AccessToken: "at", UID: "u1", Domain: "codebuddy.cn", ExpiresAt: 4102444800}.Encode()
+	store := &memStore{items: map[string][]byte{"acc1": payload}}
+	var got map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == pathModelsCN {
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{
+				"models": []map[string]any{{
+					"id": "deepseek-v4.1-flash", "name": "Deepseek-V4.1-Flash", "maxInputTokens": 1000000,
+					"supportsReasoning": true, "onlyReasoning": true,
+					"reasoning": map[string]any{"defaultEffort": "high", "supportedEfforts": []string{"high"}},
+				}},
+				"agents": []map[string]any{{"name": "cli", "models": []string{"deepseek-v4.1-flash"}}},
+			}})
+			return
+		}
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatalf("decode chat body: %v", err)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(chatSSE))
+	}))
+	defer server.Close()
+	client := NewClient(store)
+	client.http = server.Client()
+	client.http.Transport = rewriteTransport{server: server.URL, round: server.Client().Transport}
+
+	if _, err := client.ChatNonStream(context.Background(), "acc1", translate.ChatRequest{
+		Model: "deepseek-v4.1-flash", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got["model"] != "deepseek-v4.1-flash" {
+		t.Fatalf("upstream model=%v body=%v", got["model"], got)
+	}
+}
+
+func TestUpstreamModelIDDoesNotHardcodeStaleDeepModel(t *testing.T) {
+	client := NewClient(&memStore{items: map[string][]byte{}})
+	if got := client.upstreamModelID("deepseek-v4.1-flash"); got != "deepseek-v4.1-flash" {
+		t.Fatalf("cold catalog rewrite = %q", got)
+	}
+	client.rememberCatalog([]providers.ModelInfo{{
+		NativeModel: "deepseek-v4.1-flash",
+		PublicModel: "deepseek-v4.1-flash",
+		DisplayName: "Deepseek-V4.1-Flash",
+	}})
+	if got := client.upstreamModelID("deepseek-v4.1-flash"); got != "deepseek-v4.1-flash" {
+		t.Fatalf("native catalog rewrite = %q", got)
+	}
+	client.rememberCatalog([]providers.ModelInfo{{
+		NativeModel: "deep-model",
+		PublicModel: "deepseek-v4.1-flash",
+		DisplayName: "Deepseek-V4.1-Flash",
+	}})
+	if got := client.upstreamModelID("deepseek-v4.1-flash"); got != "deep-model" {
+		t.Fatalf("legacy alias rewrite = %q", got)
 	}
 }
 
