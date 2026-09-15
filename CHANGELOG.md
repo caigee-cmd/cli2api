@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.5.3 - 2026-09-15
+
+### English
+
 - Add experimental Devin support (`provider=devin`) with browser OAuth or session-token import, Connect-RPC chat stream/non-stream, and a fail-closed TTL model catalog; not claimed production-ready
 
 ### 中文
