@@ -7,7 +7,11 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Add experimental Devin support (`provider=devin`) with browser OAuth or session-token import, Connect-RPC chat stream/non-stream, and a fail-closed TTL model catalog; not claimed production-ready
+
 ### 中文
+
+- 新增实验性 Devin 支持（`provider=devin`）：可用浏览器 OAuth 或导入 session token，支持 Connect-RPC 聊天流式/非流式，以及失败即显式报错的 TTL 模型目录；尚未宣称生产可用
 
 ## 0.5.2 - 2026-09-15
 
