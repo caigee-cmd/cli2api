@@ -28,10 +28,18 @@ func Classify(status int, body string) providers.ClassifiedError {
 	safeBody := redactSecrets(strings.TrimSpace(body))
 	text := strings.ToLower(safeBody)
 	switch {
-	case status == 401 || status == 403 ||
+	case isDevinMCPConfigDenial(text):
+		// Codex/Desktop MCP tool dumps make Devin return permission_denied.
+		// That is a request-shape problem, not a dead session — do not cool
+		// the account as auth.
+		return providers.ClassifiedError{
+			Kind:    accounts.KindInvalidRequest,
+			Status:  400,
+			Message: firstNonEmpty(safeBody, "devin rejected MCP/hosted tools in the request"),
+		}
+	case status == 401 ||
 		strings.Contains(text, "unauthenticated") ||
 		strings.Contains(text, "unauthorized") ||
-		strings.Contains(text, "permission_denied") ||
 		strings.Contains(text, "session dead"):
 		return providers.ClassifiedError{
 			Kind:    accounts.KindAuth,
@@ -57,7 +65,8 @@ func Classify(status int, body string) providers.ClassifiedError {
 			Status:  429,
 			Message: firstNonEmpty(safeBody, "rate limited"),
 		}
-	case status == 400 || status == 422 ||
+	case status == 400 || status == 422 || status == 403 ||
+		strings.Contains(text, "permission_denied") ||
 		strings.Contains(text, "invalid_argument") ||
 		strings.Contains(text, "failed_precondition") ||
 		accounts.IsInvalidRequestText(safeBody) ||
@@ -114,6 +123,16 @@ func classifiedCooldown(kind string) time.Duration {
 	default:
 		return 0
 	}
+}
+
+func isDevinMCPConfigDenial(text string) bool {
+	if text == "" {
+		return false
+	}
+	if strings.Contains(text, "mcp configuration") {
+		return true
+	}
+	return strings.Contains(text, "permission_denied") && strings.Contains(text, "mcp")
 }
 
 func firstNonEmptyStatus(status, fallback int) int {

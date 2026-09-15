@@ -498,8 +498,11 @@ func TestRemoteCatalogHTTPtestSuccessAndFailure(t *testing.T) {
 
 func TestClassifyAuthForbiddenQuotaTrailer(t *testing.T) {
 	got := Classify(403, "permission_denied")
-	if got.Kind != accounts.KindAuth || got.Status != 403 {
-		t.Fatalf("403 classify=%+v", got)
+	if got.Kind != accounts.KindInvalidRequest {
+		t.Fatalf("bare permission_denied classify=%+v want invalid_request", got)
+	}
+	if got.Status != 400 && got.Status != 403 {
+		t.Fatalf("bare permission_denied status=%d want 400 or 403", got.Status)
 	}
 	got = Classify(401, "")
 	if got.Kind != accounts.KindAuth {
@@ -516,6 +519,59 @@ func TestClassifyAuthForbiddenQuotaTrailer(t *testing.T) {
 	got = Classify(status, err.Error())
 	if got.Kind != accounts.KindQuota && got.Kind != accounts.KindRateLimit {
 		t.Fatalf("classified trailer=%+v", got)
+	}
+}
+
+func TestClassifyMCPConfigPermissionDenied(t *testing.T) {
+	body := "devin upstream error (permission_denied): Unable to process request due to an MCP configuration issue. (trace ID: 3de0a0f4c7f0e2cd3bd8e001a46749bd)"
+	got := Classify(403, body)
+	if got.Kind != accounts.KindInvalidRequest || got.Status != 400 {
+		t.Fatalf("MCP permission_denied classify=%+v", got)
+	}
+	err := classifiedError(403, body)
+	var providerErr *providers.Error
+	if !errors.As(err, &providerErr) {
+		t.Fatalf("classifiedError type=%T", err)
+	}
+	if providerErr.Kind != accounts.KindInvalidRequest {
+		t.Fatalf("kind=%s", providerErr.Kind)
+	}
+	if providerErr.Cooldown != 0 {
+		t.Fatalf("cooldown=%s want 0", providerErr.Cooldown)
+	}
+	if providerErr.Failover == nil || *providerErr.Failover {
+		t.Fatalf("failover=%v want false", providerErr.Failover)
+	}
+}
+
+func TestParseToolsStripsMCPNamespace(t *testing.T) {
+	raw := json.RawMessage(`[
+		{"type":"function","function":{"name":"exec_command","description":"run","parameters":{"type":"object"}}},
+		{"type":"function","function":{"name":"mcp__computer-use__left_click","description":"click","parameters":{"type":"object"}}},
+		{"type":"function","function":{"name":"MCP__plugin_chrome__click","description":"click","parameters":{"type":"object"}}},
+		{"type":"function","function":{"name":"web_search","description":"search","parameters":{"type":"object"}}}
+	]`)
+	tools := parseTools(raw)
+	if len(tools) != 2 {
+		t.Fatalf("tools=%d want 2 (mcp stripped): %+v", len(tools), tools)
+	}
+	if tools[0].Name != "exec_command" || tools[1].Name != "web_search" {
+		t.Fatalf("tools=%+v", tools)
+	}
+	payload := BuildChatPayload(translate.ChatRequest{
+		Model: "swe-2",
+		Messages: []translate.ChatMessage{
+			{Role: "user", Content: "hi"},
+		},
+		Tools: raw,
+	}, nil)
+	if len(payload.Tools) != 2 {
+		t.Fatalf("payload tools=%d want 2", len(payload.Tools))
+	}
+	for _, tool := range payload.Tools {
+		if strings.HasPrefix(strings.ToLower(tool.Name), "mcp__") {
+			t.Fatalf("mcp tool leaked into payload: %s", tool.Name)
+		}
 	}
 }
 
