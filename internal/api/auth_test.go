@@ -30,6 +30,31 @@ func TestClassifyCanceledErrorDoesNotBecomeAuth(t *testing.T) {
 	}
 }
 
+func TestCORSHeadersOnUnauthorizedChat(t *testing.T) {
+	srv := New(config.Config{
+		Host:        "127.0.0.1",
+		Port:        3010,
+		ProxyAPIKey: "secret",
+		QoderHome:   t.TempDir(),
+	})
+	defer srv.Close()
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader([]byte("{}")))
+	req.Header.Set("Origin", "chrome-extension://abc")
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("POST without key: got %d want 401 body=%s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "*" {
+		t.Fatalf("allow-origin=%q", got)
+	}
+	if got := rec.Header().Get("Access-Control-Expose-Headers"); !strings.Contains(got, "X-Request-Id") {
+		t.Fatalf("expose-headers=%q", got)
+	}
+}
+
 func TestManagementRoutesRequireAPIKey(t *testing.T) {
 	srv := New(config.Config{
 		Host:        "127.0.0.1",

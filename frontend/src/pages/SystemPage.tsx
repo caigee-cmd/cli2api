@@ -33,6 +33,7 @@ export function SystemPage() {
   const [info, setInfo] = useState<SystemUpdateInfo | null>(null)
   const [consoleKey, setConsoleKey] = useState<ConsoleKeyView | null>(null)
   const [settings, setSettings] = useState<SystemSettings | null>(null)
+  const [checkinTimeDraft, setCheckinTimeDraft] = useState('09:00')
   const [proxyDraft, setProxyDraft] = useState('')
   const [settingsBusy, setSettingsBusy] = useState(false)
   const [consoleBusy, setConsoleBusy] = useState(false)
@@ -75,6 +76,7 @@ export function SystemPage() {
       void fetchConsoleKey().then(setConsoleKey).catch(() => undefined)
       void fetchSystemSettings().then((result) => {
         setSettings(result)
+        setCheckinTimeDraft(result.workbuddy_checkin_time || '09:00')
         setProxyDraft(result.proxy_url || '')
       }).catch((err) => setError(err instanceof Error ? err.message : String(err)))
     }, 0)
@@ -239,6 +241,7 @@ export function SystemPage() {
     }
     const previousDraft = proxyDraft
     setProxyDraft(value)
+    setSettings((current) => current ? { ...current, proxy_url: value } : current)
     setSettingsBusy(true)
     setError('')
     try {
@@ -248,6 +251,27 @@ export function SystemPage() {
     } catch (err) {
       setProxyDraft(previousDraft)
       setSettings((current) => current ? { ...current, proxy_url: saved } : current)
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSettingsBusy(false)
+    }
+  }
+
+  async function updateWorkBuddyCheckinTime(value: string) {
+    const next = value || '09:00'
+    const previous = settings?.workbuddy_checkin_time || '09:00'
+    setCheckinTimeDraft(next)
+    if (!settings || next === previous) return
+    setSettings((current) => current ? { ...current, workbuddy_checkin_time: next } : current)
+    setSettingsBusy(true)
+    setError('')
+    try {
+      const result = await updateSystemSettings({ workbuddy_checkin_time: next })
+      setSettings(result)
+      setCheckinTimeDraft(result.workbuddy_checkin_time || next)
+    } catch (err) {
+      setSettings((current) => current ? { ...current, workbuddy_checkin_time: previous } : current)
+      setCheckinTimeDraft(previous)
       setError(err instanceof Error ? err.message : String(err))
     } finally {
       setSettingsBusy(false)
@@ -386,6 +410,28 @@ export function SystemPage() {
                 disabled={settingsBusy || !settings}
               />
               <Description className="text-xs leading-5 text-muted">{t('proxyUrlHint')}</Description>
+            </div>
+          </Card>
+
+          <Card data-gsap-reveal>
+            <div className="flex items-start gap-3">
+              <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-surface-secondary text-foreground"><SlidersHorizontal size={15} /></div>
+              <div>
+                <h3 className="font-semibold">{t('workbuddyCheckinSettingsTitle')}</h3>
+                <p className="mt-1 text-xs leading-5 text-muted">{t('workbuddyCheckinSettingsHint')}</p>
+              </div>
+            </div>
+            <div className="mt-4 space-y-1.5">
+              <Label className="text-sm font-medium text-muted">{t('autoCheckinTime')}</Label>
+              <Input
+                type="time"
+                value={checkinTimeDraft}
+                onChange={(event) => setCheckinTimeDraft(event.target.value || '09:00')}
+                onBlur={(event) => void updateWorkBuddyCheckinTime(event.target.value.trim())}
+                aria-label={t('autoCheckinTime')}
+                disabled={settingsBusy || !settings}
+              />
+              <Description className="text-xs leading-5 text-muted">{t('workbuddyCheckinSettingsFieldHint')}</Description>
             </div>
           </Card>
 

@@ -22,6 +22,7 @@ type systemSettings struct {
 	CrossProviderModelPool bool                          `json:"cross_provider_model_pool"`
 	RoutingStrategy        string                        `json:"routing_strategy"`
 	ProxyURL               string                        `json:"proxy_url"`
+	WorkBuddyCheckinTime   string                        `json:"workbuddy_checkin_time"`
 	SessionAffinity        executor.SessionAffinityStats `json:"session_affinity"`
 }
 
@@ -82,12 +83,36 @@ func ensureRoutingStrategy(ctx context.Context, store *accounts.Store) (string, 
 	return accounts.NormalizeRoutingStrategy(value), nil
 }
 
+func ensureWorkBuddyCheckinTime(ctx context.Context, store *accounts.Store) (string, error) {
+	value, ok, err := store.GetSecret(ctx, accounts.WorkBuddyCheckinTimeSecret)
+	if err != nil {
+		return "", err
+	}
+	if !ok || strings.TrimSpace(value) == "" {
+		value = accounts.DefaultWorkBuddyCheckinTime
+		if err := store.SetSecret(ctx, accounts.WorkBuddyCheckinTimeSecret, value); err != nil {
+			return "", fmt.Errorf("initialize workbuddy check-in time: %w", err)
+		}
+	}
+	normalized, err := accounts.NormalizeWorkBuddyCheckinTime(value)
+	if err != nil {
+		return "", fmt.Errorf("invalid %s setting: %w", accounts.WorkBuddyCheckinTimeSecret, err)
+	}
+	if normalized != value {
+		if err := store.SetSecret(ctx, accounts.WorkBuddyCheckinTimeSecret, normalized); err != nil {
+			return "", fmt.Errorf("initialize workbuddy check-in time: %w", err)
+		}
+	}
+	return normalized, nil
+}
+
 func (s *Server) currentSystemSettings() systemSettings {
 	proxyURL, _, _ := s.manager.Store().GetSecret(context.Background(), proxyURLSecret)
 	return systemSettings{
 		CrossProviderModelPool: s.crossProviderModelPool.Load(),
 		RoutingStrategy:        s.pool.RoutingStrategy(),
 		ProxyURL:               proxy.Redact(proxyURL),
+		WorkBuddyCheckinTime:   s.manager.Store().WorkBuddyCheckinTimeDefault(context.Background()),
 		SessionAffinity:        s.executor.SessionAffinity.Stats(),
 	}
 }
@@ -112,12 +137,13 @@ func (s *Server) handleSystemSettings(w http.ResponseWriter, r *http.Request) {
 			CrossProviderModelPool *bool   `json:"cross_provider_model_pool"`
 			RoutingStrategy        *string `json:"routing_strategy"`
 			ProxyURL               *string `json:"proxy_url"`
+			WorkBuddyCheckinTime   *string `json:"workbuddy_checkin_time"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 			writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
 			return
 		}
-		if input.CrossProviderModelPool == nil && input.RoutingStrategy == nil && input.ProxyURL == nil {
+		if input.CrossProviderModelPool == nil && input.RoutingStrategy == nil && input.ProxyURL == nil && input.WorkBuddyCheckinTime == nil {
 			writeErr(w, http.StatusBadRequest, "invalid_request", "a system setting is required")
 			return
 		}
@@ -129,6 +155,15 @@ func (s *Server) handleSystemSettings(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			strategy = accounts.NormalizeRoutingStrategy(rawStrategy)
+		}
+		var checkinTime string
+		if input.WorkBuddyCheckinTime != nil {
+			normalized, err := accounts.NormalizeWorkBuddyCheckinTime(*input.WorkBuddyCheckinTime)
+			if err != nil || strings.TrimSpace(*input.WorkBuddyCheckinTime) == "" {
+				writeErr(w, http.StatusBadRequest, "invalid_workbuddy_checkin_time", "workbuddy_checkin_time must use HH:mm")
+				return
+			}
+			checkinTime = normalized
 		}
 
 		s.settingsMu.Lock()
@@ -188,6 +223,12 @@ func (s *Server) handleSystemSettings(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			s.pool.SetRoutingStrategy(strategy)
+		}
+		if input.WorkBuddyCheckinTime != nil {
+			if err := s.manager.Store().SetSecret(r.Context(), accounts.WorkBuddyCheckinTimeSecret, checkinTime); err != nil {
+				writeErr(w, http.StatusInternalServerError, "system_settings_save_failed", err.Error())
+				return
+			}
 		}
 		writeJSON(w, http.StatusOK, s.currentSystemSettings())
 	default:

@@ -271,6 +271,16 @@ func anthropicToolResultContent(raw json.RawMessage) (string, []any, error) {
 		switch rawMapString(source, "type") {
 		case "text":
 			texts = append(texts, rawMapContentString(source, "text"))
+		case "tool_reference":
+			// Claude Code's tool search returns references to tools it has
+			// just made available. The Qoder upstream has no equivalent
+			// block, so keep the information as text instead of rejecting
+			// the whole request.
+			name := rawMapString(source, "tool_name")
+			if name == "" {
+				name = "unknown"
+			}
+			texts = append(texts, "Tool available: "+name)
 		case "image":
 			image, err := anthropicImagePart(source)
 			if err != nil {
