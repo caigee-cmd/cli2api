@@ -7,7 +7,11 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Strip Codex/Desktop `mcp__*` tools from Devin requests and treat MCP configuration `permission_denied` as an invalid request instead of cooling the account as auth
+
 ### 中文
+
+- Devin 请求会剥离 Codex/Desktop 的 `mcp__*` 工具，并把 MCP 配置类 `permission_denied` 归为无效请求，而不再按鉴权失败冷却账号
 
 ## 0.5.3 - 2026-09-15
 

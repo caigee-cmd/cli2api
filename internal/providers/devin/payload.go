@@ -195,7 +195,7 @@ func parseTools(raw json.RawMessage) []Tool {
 	out := make([]Tool, 0, len(tools))
 	for _, t := range tools {
 		name := firstNonEmpty(t.Function.Name, t.Name)
-		if name == "" {
+		if name == "" || isDevinUnsupportedToolName(name) {
 			continue
 		}
 		desc := firstNonEmpty(t.Function.Description, t.Description)
@@ -206,6 +206,14 @@ func parseTools(raw json.RawMessage) []Tool {
 		out = append(out, Tool{Name: name, Description: desc, Parameters: params})
 	}
 	return out
+}
+
+// isDevinUnsupportedToolName drops Codex/Desktop MCP and similar hosted tools.
+// Devin cannot host those namespaces and rejects the whole request with an MCP
+// configuration permission_denied trailer if they are forwarded.
+func isDevinUnsupportedToolName(name string) bool {
+	lower := strings.ToLower(strings.TrimSpace(name))
+	return strings.HasPrefix(lower, "mcp__")
 }
 
 func extractReasoning(msg translate.ChatMessage) string {
