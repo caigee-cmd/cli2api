@@ -1572,7 +1572,7 @@ func (m *Manager) checkinOptedIn(ctx context.Context, now time.Time, scheduledTi
 func workBuddyCheckinDue(value string, now time.Time) bool {
 	parsed, err := time.Parse("15:04", value)
 	if err != nil {
-		parsed, _ = time.Parse("15:04", defaultWorkBuddyCheckinTime)
+		parsed, _ = time.Parse("15:04", DefaultWorkBuddyCheckinTime)
 	}
 	due := time.Date(now.Year(), now.Month(), now.Day(), parsed.Hour(), parsed.Minute(), 0, 0, now.Location())
 	return !due.After(now)
@@ -1688,7 +1688,7 @@ func nextWorkBuddyFire(now time.Time, accounts []Account) (time.Duration, workBu
 		if account.Provider != "workbuddy" || !account.Enabled || !account.WorkBuddyAutoCheckin {
 			continue
 		}
-		checkinTime, err := normalizeWorkBuddyCheckinTime(account.WorkBuddyCheckinTime)
+			checkinTime, err := NormalizeWorkBuddyCheckinTime(account.WorkBuddyCheckinTime)
 		if err != nil || seen[checkinTime] {
 			continue
 		}

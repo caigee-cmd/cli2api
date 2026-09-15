@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Button, Description, Input, Label, ListBox, Modal, Select, Skeleton, TextArea } from '@heroui/react'
+import { Button, Description, Input, Label, ListBox, Modal, NumberField, Select, Skeleton, TextArea } from '@heroui/react'
 import { ArrowSquareOut, CaretLeft, CaretRight, CheckCircle, FileCode, Key, ShieldCheck, X } from '@phosphor-icons/react'
 import { BrandMark } from '@/components/BrandMark'
 import { ProviderMark } from '@/components/ProviderMark'
@@ -17,6 +17,7 @@ import {
   startDeviceLogin,
   type ProviderDescriptor,
 } from '@/api/overview'
+import { fetchSystemSettings } from '@/api/system'
 
 type Props = {
   isOpen: boolean
@@ -127,10 +128,11 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
   const [typesLoading, setTypesLoading] = useState(false)
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [name, setName] = useState('')
-  const [maxInFlight, setMaxInFlight] = useState('4')
-  const [priority, setPriority] = useState('50')
+  const [maxInFlight, setMaxInFlight] = useState(4)
+  const [priority, setPriority] = useState(50)
   const [dropSystemPrompt, setDropSystemPrompt] = useState(true)
   const [autoCheckin, setAutoCheckin] = useState(false)
+  const [defaultCheckinTime, setDefaultCheckinTime] = useState('09:00')
   const [autoCheckinTime, setAutoCheckinTime] = useState('09:00')
   const [pat, setPat] = useState('')
   const [json, setJson] = useState('')
@@ -159,12 +161,18 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
     setTypesLoading(true)
     setProviderOptions([])
     setAccountType('')
-    void loadProviderOptions()
-      .then((options) => {
+    void Promise.all([
+      loadProviderOptions(),
+      fetchSystemSettings().catch(() => null),
+    ])
+      .then(([options, settings]) => {
         if (cancelled) return
         setProviderOptions(options)
         setAccountType(options[0]?.id || '')
         setTab('browser')
+        const fallback = settings?.workbuddy_checkin_time || '09:00'
+        setDefaultCheckinTime(fallback)
+        setAutoCheckinTime(fallback)
       })
       .finally(() => {
         if (!cancelled) setTypesLoading(false)
@@ -192,15 +200,13 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
   }, [showImportTab, showPatTab, tab])
 
   function parsedMaxInFlight() {
-    const value = Number(maxInFlight)
-    if (!Number.isInteger(value) || value < 1 || value > 32) return 4
-    return value
+    if (!Number.isInteger(maxInFlight) || maxInFlight < 1 || maxInFlight > 32) return 4
+    return maxInFlight
   }
 
   function parsedPriority() {
-    const value = Number(priority)
-    if (!Number.isInteger(value) || value < 1 || value > 100) return 50
-    return value
+    if (!Number.isInteger(priority) || priority < 1 || priority > 100) return 50
+    return priority
   }
 
   function accountOptions() {
@@ -221,11 +227,11 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
     setProviderOptions([])
     setTypesLoading(false)
     setName('')
-    setMaxInFlight('4')
-    setPriority('50')
+    setMaxInFlight(4)
+    setPriority(50)
     setDropSystemPrompt(true)
     setAutoCheckin(false)
-    setAutoCheckinTime('09:00')
+    setAutoCheckinTime(defaultCheckinTime)
     setPat('')
     setJson('')
     setAdvancedOpen(false)
@@ -506,14 +512,16 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                   </section>
 
                   <section className="mt-5 space-y-2.5">
-                    <Input
-                      className="h-12 text-base"
-                      value={name}
-                      onChange={(event) => setName(event.target.value)}
-                      placeholder={t('wizardNamePh')}
-                      aria-label={t('accountName')}
-                      disabled={settingsLocked}
-                    />
+                    <div className="space-y-1.5">
+                      <Label className="text-sm font-medium text-muted">{t('accountName')}</Label>
+                      <Input
+                        value={name}
+                        onChange={(event) => setName(event.target.value)}
+                        placeholder={t('wizardNamePh')}
+                        aria-label={t('accountName')}
+                        disabled={settingsLocked}
+                      />
+                    </div>
                     <button
                       type="button"
                       onClick={() => setAdvancedOpen((open) => !open)}
@@ -524,40 +532,46 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                       {t('wizardAdvanced')}
                     </button>
                     {advancedOpen ? (
-                      <div className="space-y-3 rounded-lg border border-separator px-3.5 py-3">
-                        <div className="grid gap-3 sm:grid-cols-2">
-                          <label className="block space-y-1.5">
-                            <span className="text-xs font-medium text-muted">{t('maxInflight')}</span>
-                            <Input
-                              type="number"
-                              min={1}
-                              max={32}
-                              value={maxInFlight}
-                              onChange={(event) => setMaxInFlight(event.target.value)}
-                              aria-label={t('maxInflight')}
-                              disabled={settingsLocked}
-                            />
-                            <p className="text-[11px] leading-4 text-muted">{t('maxInflightHint')}</p>
-                          </label>
-                          <label className="block space-y-1.5">
-                            <span className="text-xs font-medium text-muted">{t('priority')}</span>
-                            <Input
-                              type="number"
-                              min={1}
-                              max={100}
-                              value={priority}
-                              onChange={(event) => setPriority(event.target.value)}
-                              aria-label={t('priority')}
-                              disabled={settingsLocked}
-                            />
-                            <p className="text-[11px] leading-4 text-muted">{t('priorityHint')}</p>
-                          </label>
+                      <div className="space-y-5 rounded-lg border border-separator px-3.5 py-3">
+                        <div className="grid gap-5 sm:grid-cols-2">
+                          <NumberField
+                            value={maxInFlight}
+                            onChange={(value) => setMaxInFlight(value ?? 4)}
+                            minValue={1}
+                            maxValue={32}
+                            isDisabled={settingsLocked}
+                            isRequired
+                          >
+                            <Label className="text-sm font-medium text-muted">{t('maxInflight')}</Label>
+                            <NumberField.Group>
+                              <NumberField.DecrementButton />
+                              <NumberField.Input />
+                              <NumberField.IncrementButton />
+                            </NumberField.Group>
+                            <Description className="text-xs leading-5 text-muted">{t('maxInflightHint')}</Description>
+                          </NumberField>
+                          <NumberField
+                            value={priority}
+                            onChange={(value) => setPriority(value ?? 50)}
+                            minValue={1}
+                            maxValue={100}
+                            isDisabled={settingsLocked}
+                            isRequired
+                          >
+                            <Label className="text-sm font-medium text-muted">{t('priority')}</Label>
+                            <NumberField.Group>
+                              <NumberField.DecrementButton />
+                              <NumberField.Input />
+                              <NumberField.IncrementButton />
+                            </NumberField.Group>
+                            <Description className="text-xs leading-5 text-muted">{t('priorityHint')}</Description>
+                          </NumberField>
                         </div>
                         {showDropSystem ? (
                           <div className="flex items-center justify-between gap-3">
                             <div className="min-w-0">
-                              <div className="text-xs font-medium text-muted">{t('dropSystemPrompt')}</div>
-                              <p className="mt-0.5 text-[11px] leading-4 text-muted">{t('dropSystemPromptCreateHint')}</p>
+                              <div className="text-sm font-medium text-muted">{t('dropSystemPrompt')}</div>
+                              <p className="mt-0.5 text-xs leading-5 text-muted">{t('dropSystemPromptCreateHint')}</p>
                             </div>
                             <CompactSwitch
                               isSelected={dropSystemPrompt}
@@ -568,11 +582,11 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                           </div>
                         ) : null}
                         {showAutoCheckin ? (
-                          <div className="space-y-2.5">
+                          <div className="space-y-5">
                             <div className="flex items-center justify-between gap-3">
                               <div className="min-w-0">
-                                <div className="text-xs font-medium text-muted">{t('autoCheckin')}</div>
-                                <p className="mt-0.5 text-[11px] leading-4 text-muted">{t('autoCheckinCreateHint')}</p>
+                                <div className="text-sm font-medium text-muted">{t('autoCheckin')}</div>
+                                <p className="mt-0.5 text-xs leading-5 text-muted">{t('autoCheckinCreateHint')}</p>
                               </div>
                               <CompactSwitch
                                 isSelected={autoCheckin}
@@ -582,18 +596,17 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                               />
                             </div>
                             {autoCheckin ? (
-                              <label className="block space-y-1.5 rounded-lg bg-surface-secondary/55 p-3">
-                                <span className="text-xs font-medium text-muted">{t('autoCheckinTime')}</span>
+                              <div className="space-y-1.5">
+                                <Label className="text-sm font-medium text-muted">{t('autoCheckinTime')}</Label>
                                 <Input
-                                  className="h-11 w-full text-base sm:max-w-48"
                                   type="time"
                                   value={autoCheckinTime}
-                                  onChange={(event) => setAutoCheckinTime(event.target.value || '09:00')}
+                                  onChange={(event) => setAutoCheckinTime(event.target.value || defaultCheckinTime)}
                                   aria-label={t('autoCheckinTime')}
                                   disabled={settingsLocked}
                                 />
-                                <p className="text-[11px] leading-4 text-muted">{t('autoCheckinTimeHint')}</p>
-                              </label>
+                                <Description className="text-xs leading-5 text-muted">{t('autoCheckinTimeHint')}</Description>
+                              </div>
                             ) : null}
                           </div>
                         ) : null}

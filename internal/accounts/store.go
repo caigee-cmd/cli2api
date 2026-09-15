@@ -22,7 +22,10 @@ var ErrAccountNotFound = errors.New("account not found")
 var ErrSecretNotFound = errors.New("secret not found")
 var ErrAPIKeyNotFound = errors.New("api key not found")
 
-const defaultWorkBuddyCheckinTime = "09:00"
+const (
+	DefaultWorkBuddyCheckinTime = "09:00"
+	WorkBuddyCheckinTimeSecret  = "workbuddy_checkin_time"
+)
 
 type Account struct {
 	ID             string `json:"id"`
@@ -146,7 +149,7 @@ func (s *Store) Create(ctx context.Context, input CreateAccount) (Account, error
 	if input.WorkBuddyAutoCheckin != nil {
 		autoCheckin = *input.WorkBuddyAutoCheckin
 	}
-	checkinTime, err := normalizeWorkBuddyCheckinTime(input.WorkBuddyCheckinTime)
+	checkinTime, err := s.resolveWorkBuddyCheckinTime(ctx, input.WorkBuddyCheckinTime)
 	if err != nil {
 		return Account{}, err
 	}
@@ -221,7 +224,7 @@ func scanAccount(row rowScanner) (Account, error) {
 		account.ProviderRegion = "global"
 	}
 	if account.WorkBuddyCheckinTime == "" {
-		account.WorkBuddyCheckinTime = defaultWorkBuddyCheckinTime
+		account.WorkBuddyCheckinTime = DefaultWorkBuddyCheckinTime
 	}
 	account.CreatedAt = parseTime(created.String)
 	account.UpdatedAt = parseTime(updated.String)
@@ -300,7 +303,7 @@ func (s *Store) Update(ctx context.Context, id string, input UpdateAccount) erro
 		account.WorkBuddyAutoCheckin = *input.WorkBuddyAutoCheckin
 	}
 	if input.WorkBuddyCheckinTime != nil {
-		account.WorkBuddyCheckinTime, err = normalizeWorkBuddyCheckinTime(*input.WorkBuddyCheckinTime)
+		account.WorkBuddyCheckinTime, err = s.resolveWorkBuddyCheckinTime(ctx, *input.WorkBuddyCheckinTime)
 		if err != nil {
 			return err
 		}
@@ -321,10 +324,29 @@ func (s *Store) Update(ctx context.Context, id string, input UpdateAccount) erro
 	return nil
 }
 
-func normalizeWorkBuddyCheckinTime(value string) (string, error) {
+func (s *Store) WorkBuddyCheckinTimeDefault(ctx context.Context) string {
+	value, ok, err := s.GetSecret(ctx, WorkBuddyCheckinTimeSecret)
+	if err != nil || !ok {
+		return DefaultWorkBuddyCheckinTime
+	}
+	normalized, err := NormalizeWorkBuddyCheckinTime(value)
+	if err != nil {
+		return DefaultWorkBuddyCheckinTime
+	}
+	return normalized
+}
+
+func (s *Store) resolveWorkBuddyCheckinTime(ctx context.Context, value string) (string, error) {
+	if strings.TrimSpace(value) == "" {
+		return s.WorkBuddyCheckinTimeDefault(ctx), nil
+	}
+	return NormalizeWorkBuddyCheckinTime(value)
+}
+
+func NormalizeWorkBuddyCheckinTime(value string) (string, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
-		return defaultWorkBuddyCheckinTime, nil
+		return DefaultWorkBuddyCheckinTime, nil
 	}
 	parsed, err := time.Parse("15:04", value)
 	if err != nil || parsed.Format("15:04") != value {
