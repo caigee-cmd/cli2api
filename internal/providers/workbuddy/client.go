@@ -417,14 +417,6 @@ func (c *Client) Models(ctx context.Context, accountID string) ([]providers.Mode
 }
 
 func (c *Client) chatRequest(ctx context.Context, accountID string, credential Credential, req translate.ChatRequest) (*http.Request, error) {
-	body := map[string]any{
-		"model":       upstreamModelID(req.Model),
-		"messages":    req.Messages,
-		"max_tokens":  req.MaxTokens,
-		"temperature": req.Temperature,
-		"tools":       req.Tools,
-		"tool_choice": req.ToolChoice,
-	}
 	caps := c.capsFor(req.Model)
 	storedLevel := ""
 	if setter, ok := c.store.(interface {
@@ -436,9 +428,20 @@ func (c *Client) chatRequest(ctx context.Context, accountID string, credential C
 			storedLevel = stored.ReasoningEffort
 		}
 	}
-	if len(caps.ReasoningOptions) == 0 && accountID != "" {
+	// Resolve the upstream model after the live catalog is warm. WorkBuddy has
+	// renamed deepseek-v4.1-flash from the old deep-model alias; sending the
+	// stale alias lets upstream silently fall back to another model.
+	if (!c.hasCatalogEntry(req.Model) || len(caps.ReasoningOptions) == 0) && accountID != "" {
 		_, _ = c.Models(ctx, accountID)
 		caps = c.capsFor(req.Model)
+	}
+	body := map[string]any{
+		"model":       c.upstreamModelID(req.Model),
+		"messages":    req.Messages,
+		"max_tokens":  req.MaxTokens,
+		"temperature": req.Temperature,
+		"tools":       req.Tools,
+		"tool_choice": req.ToolChoice,
 	}
 	applyChatReasoning(body, req, storedLevel, caps)
 	payload, err := json.Marshal(body)
@@ -1012,11 +1015,39 @@ var workbuddyModelAliases = map[string]string{
 	"deepseek-v4.1-flash": "deep-model",
 }
 
-func upstreamModelID(model string) string {
+func (c *Client) hasCatalogEntry(model string) bool {
+	model = strings.TrimSpace(model)
+	if model == "" || c == nil {
+		return false
+	}
 	canonical := accounts.CanonicalModelID(model)
-	for alias, nativeModel := range workbuddyModelAliases {
-		if accounts.CanonicalModelID(alias) == canonical {
-			return nativeModel
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, ok := c.catalog[model]; ok {
+		return true
+	}
+	_, ok := c.catalog[canonical]
+	return ok
+}
+
+// upstreamModelID returns the native ID to send upstream. For current
+// WorkBuddy catalogs that already expose deepseek-v4.1-flash natively, that
+// ID is used as-is. Older catalogs that only expose deep-model still work
+// because appendAliasModels indexes the public alias onto a ModelInfo whose
+// NativeModel is deep-model. There is intentionally no hardcoded rewrite
+// here: blindly mapping to deep-model on a cold/missing catalog is what made
+// production silently fall back to kimi/glm.
+func (c *Client) upstreamModelID(model string) string {
+	canonical := accounts.CanonicalModelID(model)
+	if c != nil {
+		c.mu.Lock()
+		info, ok := c.catalog[model]
+		if !ok {
+			info, ok = c.catalog[canonical]
+		}
+		c.mu.Unlock()
+		if ok && strings.TrimSpace(info.NativeModel) != "" {
+			return info.NativeModel
 		}
 	}
 	return model
