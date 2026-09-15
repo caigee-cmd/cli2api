@@ -19,7 +19,7 @@ func (c *Client) ChatNonStream(ctx context.Context, accountID string, req transl
 	if err != nil {
 		return providers.ChatOutcome{}, err
 	}
-	httpReq, err := c.buildChatHTTPRequest(ctx, credential, req)
+	httpReq, originalByAlias, err := c.buildChatHTTPRequest(ctx, credential, req)
 	if err != nil {
 		return providers.ChatOutcome{}, err
 	}
@@ -37,7 +37,7 @@ func (c *Client) ChatNonStream(ctx context.Context, accountID string, req transl
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		return providers.ChatOutcome{}, classifiedError(resp.StatusCode, string(body))
 	}
-	aggregate, err := aggregateConnectStream(resp.Body)
+	aggregate, err := aggregateConnectStream(resp.Body, originalByAlias)
 	if err != nil {
 		return providers.ChatOutcome{}, err
 	}
@@ -49,7 +49,7 @@ func (c *Client) ChatStream(ctx context.Context, accountID string, req translate
 	if err != nil {
 		return nil, err
 	}
-	httpReq, err := c.buildChatHTTPRequest(ctx, credential, req)
+	httpReq, originalByAlias, err := c.buildChatHTTPRequest(ctx, credential, req)
 	if err != nil {
 		return nil, err
 	}
@@ -67,10 +67,10 @@ func (c *Client) ChatStream(ctx context.Context, accountID string, req translate
 		resp.Body.Close()
 		return nil, classifiedError(resp.StatusCode, string(body))
 	}
-	return rewriteConnectStream(resp, firstNonEmpty(req.Model, "devin"))
+	return rewriteConnectStream(resp, firstNonEmpty(req.Model, "devin"), originalByAlias)
 }
 
-func (c *Client) buildChatHTTPRequest(ctx context.Context, credential Credential, req translate.ChatRequest) (*http.Request, error) {
+func (c *Client) buildChatHTTPRequest(ctx context.Context, credential Credential, req translate.ChatRequest) (*http.Request, map[string]string, error) {
 	payload := BuildChatPayload(req, currentLevels())
 	proto := BuildGetChatMessageRequest(
 		credential.SessionToken,
@@ -88,7 +88,7 @@ func (c *Client) buildChatHTTPRequest(ctx context.Context, credential Credential
 	endpoint := strings.TrimRight(firstNonEmpty(credential.BaseURL, c.serverBase, ServerBase), "/") + PathGetChatMessage
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	httpReq.Header.Set("Authorization", BasicAuthHeader(credential.SessionToken))
 	httpReq.Header.Set("Content-Type", ContentTypeConnectProto)
@@ -96,7 +96,7 @@ func (c *Client) buildChatHTTPRequest(ctx context.Context, credential Credential
 	httpReq.Header.Set("Accept", "*/*")
 	httpReq.Header.Set("Sentry-Trace", GenerateSentryTrace())
 	httpReq.Header["User-Agent"] = []string{""}
-	return httpReq, nil
+	return httpReq, payload.OriginalByAlias, nil
 }
 
 type aggregateResult struct {
@@ -109,7 +109,7 @@ type aggregateResult struct {
 	CompletionTokens int
 }
 
-func aggregateConnectStream(r io.Reader) (aggregateResult, error) {
+func aggregateConnectStream(r io.Reader, originalByAlias map[string]string) (aggregateResult, error) {
 	var out aggregateResult
 	out.FinishReason = "stop"
 	toolAcc := map[int]*ToolCallDelta{}
@@ -144,13 +144,16 @@ func aggregateConnectStream(r io.Reader) (aggregateResult, error) {
 			acc, ok := toolAcc[idx]
 			if !ok {
 				cp := delta
+				if cp.Name != "" {
+					cp.Name = restoreToolName(cp.Name, originalByAlias)
+				}
 				toolAcc[idx] = &cp
 			} else {
 				if delta.ID != "" {
 					acc.ID = delta.ID
 				}
 				if delta.Name != "" {
-					acc.Name = delta.Name
+					acc.Name = restoreToolName(delta.Name, originalByAlias)
 				}
 				acc.Arguments += delta.Arguments
 			}
@@ -222,7 +225,7 @@ func outcomeFromAggregate(aggregate aggregateResult, fallbackModel string) provi
 	return out
 }
 
-func rewriteConnectStream(upstream *http.Response, model string) (*http.Response, error) {
+func rewriteConnectStream(upstream *http.Response, model string, originalByAlias map[string]string) (*http.Response, error) {
 	pr, pw := io.Pipe()
 	go func() {
 		defer upstream.Body.Close()
@@ -300,17 +303,22 @@ func rewriteConnectStream(upstream *http.Response, model string) (*http.Response
 				}
 			}
 			for _, delta := range frame.ToolCallDeltas {
+				name := delta.Name
+				if name != "" {
+					name = restoreToolName(name, originalByAlias)
+				}
 				idx := delta.Index
 				acc, ok := toolAcc[idx]
 				if !ok {
 					cp := delta
+					cp.Name = name
 					toolAcc[idx] = &cp
 				} else {
 					if delta.ID != "" {
 						acc.ID = delta.ID
 					}
-					if delta.Name != "" {
-						acc.Name = delta.Name
+					if name != "" {
+						acc.Name = name
 					}
 					acc.Arguments += delta.Arguments
 				}
@@ -319,7 +327,7 @@ func rewriteConnectStream(upstream *http.Response, model string) (*http.Response
 					"id":    delta.ID,
 					"type":  "function",
 					"function": map[string]any{
-						"name":      delta.Name,
+						"name":      name,
 						"arguments": delta.Arguments,
 					},
 				}

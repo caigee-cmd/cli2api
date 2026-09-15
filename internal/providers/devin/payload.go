@@ -1,6 +1,8 @@
 package devin
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"strconv"
 	"strings"
@@ -8,19 +10,23 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
+const maxDevinToolAliasLen = 64
+
 // ChatPayload is the normalized Devin Interactions request.
 type ChatPayload struct {
-	System      string
-	Prompts     []Prompt
-	Tools       []Tool
-	Temperature *float64
-	MaxTokens   int
-	ModelUID    string
-	Effort      string
-	Budget      int
+	System          string
+	Prompts         []Prompt
+	Tools           []Tool
+	Temperature     *float64
+	MaxTokens       int
+	ModelUID        string
+	Effort          string
+	Budget          int
+	OriginalByAlias map[string]string
 }
 
 func BuildChatPayload(req translate.ChatRequest, catalogLevels map[string][]string) ChatPayload {
+	aliases := newToolAliasMaps()
 	var systemParts []string
 	prompts := make([]Prompt, 0, len(req.Messages))
 	for _, msg := range req.Messages {
@@ -38,7 +44,7 @@ func BuildChatPayload(req translate.ChatRequest, catalogLevels map[string][]stri
 			text, images := splitContent(msg.Content)
 			thinking := extractReasoning(msg)
 			p := Prompt{Source: 2, Content: text, Images: images, Thinking: thinking}
-			p.ToolCalls = parseToolCalls(msg.ToolCalls)
+			p.ToolCalls = parseToolCalls(msg.ToolCalls, aliases)
 			prompts = append(prompts, p)
 		case "tool":
 			text := translate.ContentToString(msg.Content)
@@ -59,14 +65,15 @@ func BuildChatPayload(req translate.ChatRequest, catalogLevels map[string][]stri
 	modelUID := ResolveChatModelUID(req.Model, effort, budget, catalogLevels)
 
 	return ChatPayload{
-		System:      system,
-		Prompts:     prompts,
-		Tools:       parseTools(req.Tools),
-		Temperature: temp,
-		MaxTokens:   maxTokens,
-		ModelUID:    modelUID,
-		Effort:      effort,
-		Budget:      budget,
+		System:          system,
+		Prompts:         prompts,
+		Tools:           parseTools(req.Tools, aliases),
+		Temperature:     temp,
+		MaxTokens:       maxTokens,
+		ModelUID:        modelUID,
+		Effort:          effort,
+		Budget:          budget,
+		OriginalByAlias: aliases.originalByAlias,
 	}
 }
 
@@ -145,7 +152,7 @@ func decodeDataURL(raw string) Image {
 	return Image{Base64Data: data, MimeType: mime}
 }
 
-func parseToolCalls(raw json.RawMessage) []ToolCall {
+func parseToolCalls(raw json.RawMessage, aliases *toolAliasMaps) []ToolCall {
 	if len(raw) == 0 {
 		return nil
 	}
@@ -169,12 +176,15 @@ func parseToolCalls(raw json.RawMessage) []ToolCall {
 		if name == "" && args == "" && c.ID == "" {
 			continue
 		}
+		if name != "" {
+			name = aliases.alias(name)
+		}
 		out = append(out, ToolCall{ID: c.ID, Name: name, Arguments: args})
 	}
 	return out
 }
 
-func parseTools(raw json.RawMessage) []Tool {
+func parseTools(raw json.RawMessage, aliases *toolAliasMaps) []Tool {
 	if len(raw) == 0 {
 		return nil
 	}
@@ -195,9 +205,10 @@ func parseTools(raw json.RawMessage) []Tool {
 	out := make([]Tool, 0, len(tools))
 	for _, t := range tools {
 		name := firstNonEmpty(t.Function.Name, t.Name)
-		if name == "" || isDevinUnsupportedToolName(name) {
+		if name == "" {
 			continue
 		}
+		name = aliases.alias(name)
 		desc := firstNonEmpty(t.Function.Description, t.Description)
 		params := t.Function.Parameters
 		if len(params) == 0 {
@@ -208,12 +219,68 @@ func parseTools(raw json.RawMessage) []Tool {
 	return out
 }
 
-// isDevinUnsupportedToolName drops Codex/Desktop MCP and similar hosted tools.
-// Devin cannot host those namespaces and rejects the whole request with an MCP
-// configuration permission_denied trailer if they are forwarded.
-func isDevinUnsupportedToolName(name string) bool {
-	lower := strings.ToLower(strings.TrimSpace(name))
-	return strings.HasPrefix(lower, "mcp__")
+type toolAliasMaps struct {
+	aliasByOriginal map[string]string
+	originalByAlias map[string]string
+}
+
+func newToolAliasMaps() *toolAliasMaps {
+	return &toolAliasMaps{
+		aliasByOriginal: map[string]string{},
+		originalByAlias: map[string]string{},
+	}
+}
+
+func needsDevinToolAlias(name string) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(name)), "mcp__")
+}
+
+func (m *toolAliasMaps) alias(original string) string {
+	original = strings.TrimSpace(original)
+	if original == "" || m == nil {
+		return original
+	}
+	if !needsDevinToolAlias(original) {
+		return original
+	}
+	if existing, ok := m.aliasByOriginal[original]; ok {
+		return existing
+	}
+	alias := makeDevinToolAlias(original)
+	for {
+		if prev, ok := m.originalByAlias[alias]; !ok || prev == original {
+			break
+		}
+		alias = makeDevinToolAlias(original + "#" + alias)
+	}
+	m.aliasByOriginal[original] = alias
+	m.originalByAlias[alias] = original
+	return alias
+}
+
+func makeDevinToolAlias(original string) string {
+	alias := strings.ReplaceAll(original, "__", "_")
+	alias = strings.ReplaceAll(alias, "-", "_")
+	alias = strings.TrimSpace(alias)
+	if alias == "" {
+		alias = "mcp_tool"
+	}
+	if len(alias) <= maxDevinToolAliasLen && !strings.Contains(alias, "__") {
+		return alias
+	}
+	sum := sha256.Sum256([]byte(original))
+	return "mcp_" + hex.EncodeToString(sum[:8])
+}
+
+func restoreToolName(name string, originalByAlias map[string]string) string {
+	name = strings.TrimSpace(name)
+	if name == "" || len(originalByAlias) == 0 {
+		return name
+	}
+	if original, ok := originalByAlias[name]; ok && original != "" {
+		return original
+	}
+	return name
 }
 
 func extractReasoning(msg translate.ChatMessage) string {
