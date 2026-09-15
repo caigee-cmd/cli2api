@@ -5,6 +5,7 @@ import { BrandMark } from '@/components/BrandMark'
 import { ProviderMark } from '@/components/ProviderMark'
 import { CompactSwitch } from '@/components/ui/CompactSwitch'
 import { FilterToggle } from '@/components/ui/FilterToggle'
+import { FormRow } from '@/components/ui/FormRow'
 import { OptionTiles } from '@/components/ui/OptionTiles'
 import { useI18n } from '@/hooks/useI18n'
 import {
@@ -514,9 +515,8 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                     {typesReady && hint ? <p className="min-h-5 text-xs leading-5 text-muted">{hint}</p> : null}
                   </section>
 
-                  <section className="mt-5 space-y-2.5">
-                    <div className="space-y-1.5">
-                      <Label className="text-sm font-medium text-muted">{t('accountName')}</Label>
+                  <section className="mt-5 space-y-3">
+                    <FormRow label={t('accountName')}>
                       <Input
                         value={name}
                         onChange={(event) => setName(event.target.value)}
@@ -524,7 +524,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                         aria-label={t('accountName')}
                         disabled={settingsLocked}
                       />
-                    </div>
+                    </FormRow>
                     <button
                       type="button"
                       onClick={() => setAdvancedOpen((open) => !open)}
@@ -535,8 +535,8 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                       {t('wizardAdvanced')}
                     </button>
                     {advancedOpen ? (
-                      <div className="space-y-5 rounded-lg border border-separator px-3.5 py-3">
-                        <div className="grid gap-5 sm:grid-cols-2">
+                      <div className="space-y-3 rounded-lg border border-separator px-3.5 py-3.5">
+                        <FormRow label={t('maxInflight')} hint={t('maxInflightHint')}>
                           <NumberField
                             value={maxInFlight}
                             onChange={(value) => setMaxInFlight(value ?? 4)}
@@ -545,14 +545,14 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                             isDisabled={settingsLocked}
                             isRequired
                           >
-                            <Label className="text-sm font-medium text-muted">{t('maxInflight')}</Label>
                             <NumberField.Group>
                               <NumberField.DecrementButton />
-                              <NumberField.Input />
+                              <NumberField.Input aria-label={t('maxInflight')} />
                               <NumberField.IncrementButton />
                             </NumberField.Group>
-                            <Description className="text-xs leading-5 text-muted">{t('maxInflightHint')}</Description>
                           </NumberField>
+                        </FormRow>
+                        <FormRow label={t('priority')} hint={t('priorityHint')}>
                           <NumberField
                             value={priority}
                             onChange={(value) => setPriority(value ?? 50)}
@@ -561,17 +561,14 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                             isDisabled={settingsLocked}
                             isRequired
                           >
-                            <Label className="text-sm font-medium text-muted">{t('priority')}</Label>
                             <NumberField.Group>
                               <NumberField.DecrementButton />
-                              <NumberField.Input />
+                              <NumberField.Input aria-label={t('priority')} />
                               <NumberField.IncrementButton />
                             </NumberField.Group>
-                            <Description className="text-xs leading-5 text-muted">{t('priorityHint')}</Description>
                           </NumberField>
-                        </div>
-                        <label className="block space-y-1.5">
-                          <span className="text-xs font-medium text-muted">{t('proxyUrl')}</span>
+                        </FormRow>
+                        <FormRow label={t('proxyUrl')} hint={t('proxyUrlHint')}>
                           <Input
                             value={proxyUrl}
                             onChange={(event) => setProxyUrl(event.target.value)}
@@ -579,8 +576,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                             aria-label={t('proxyUrl')}
                             disabled={settingsLocked}
                           />
-                          <p className="text-[11px] leading-4 text-muted">{t('proxyUrlHint')}</p>
-                        </label>
+                        </FormRow>
                         {showDropSystem ? (
                           <div className="flex items-center justify-between gap-3">
                             <div className="min-w-0">
@@ -596,7 +592,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                           </div>
                         ) : null}
                         {showAutoCheckin ? (
-                          <div className="space-y-5">
+                          <div className="space-y-3 border-t border-separator pt-3">
                             <div className="flex items-center justify-between gap-3">
                               <div className="min-w-0">
                                 <div className="text-sm font-medium text-muted">{t('autoCheckin')}</div>
@@ -610,8 +606,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                               />
                             </div>
                             {autoCheckin ? (
-                              <div className="space-y-1.5">
-                                <Label className="text-sm font-medium text-muted">{t('autoCheckinTime')}</Label>
+                              <FormRow label={t('autoCheckinTime')} hint={t('autoCheckinTimeHint')}>
                                 <Input
                                   type="time"
                                   value={autoCheckinTime}
@@ -619,8 +614,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                                   aria-label={t('autoCheckinTime')}
                                   disabled={settingsLocked}
                                 />
-                                <Description className="text-xs leading-5 text-muted">{t('autoCheckinTimeHint')}</Description>
-                              </div>
+                              </FormRow>
                             ) : null}
                           </div>
                         ) : null}
@@ -706,7 +700,9 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                       </>
                     ) : tab === 'pat' ? (
                       <>
-                        <Input type="password" value={pat} onChange={(event) => setPat(event.target.value)} placeholder={t('wizardPatPh')} aria-label={t('wizardPatPh')} disabled={busy} />
+                        <FormRow label={t('tabPat')}>
+                          <Input type="password" value={pat} onChange={(event) => setPat(event.target.value)} placeholder={t('wizardPatPh')} aria-label={t('wizardPatPh')} disabled={busy} />
+                        </FormRow>
                         {message ? (
                           <p className="flex items-center gap-2 rounded-lg border border-separator bg-surface-secondary px-3 py-2 text-xs">{isDone ? <CheckCircle size={14} className="shrink-0 text-success" /> : null}<span className={isDone ? 'font-medium text-foreground' : 'text-muted'}>{message}</span></p>
                         ) : null}

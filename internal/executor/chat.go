@@ -204,7 +204,7 @@ func (e ChatExecutor) prepareRouting(ctx context.Context, prefer, providerFilter
 		e.SessionAffinity.RecordEscape("provider_mismatch")
 		return "", providerFilter, "", plan
 	}
-	if !accounts.ProviderAllowed(itemProvider(item), allowedProvidersFrom(ctx)) {
+	if !accounts.ProviderRegionAllowed(itemProvider(item), accounts.NormalizeRegion(item.Region), allowedProvidersFrom(ctx)) {
 		e.SessionAffinity.RecordEscape("provider_not_allowed")
 		return "", providerFilter, "", plan
 	}
@@ -342,6 +342,12 @@ func (e ChatExecutor) pick(requestID, prefer, providerFilter, regionFilter, publ
 		return accounts.Item{}, fmt.Errorf("no %s/%s accounts available", providerFilter, regionFilter)
 	}
 	if providerFilter != "" {
+		// A key whose grant list narrows this family to a single region
+		// should fail with that region in the message, even when the
+		// request itself did not pin one.
+		if regionFilter, narrowed := keyGrantedSingleRegion(providerFilter, allowed); narrowed {
+			return accounts.Item{}, fmt.Errorf("no %s/%s accounts available", providerFilter, regionFilter)
+		}
 		return accounts.Item{}, fmt.Errorf("no %s accounts available", providerFilter)
 	}
 	if len(allowed) > 0 {
@@ -472,6 +478,23 @@ func pinRegion(current, next string) string {
 		return current
 	}
 	return accounts.NormalizeRegion(next)
+}
+
+// keyGrantedSingleRegion inspects an API key allowlist for one provider
+// family. It returns the single region the grants narrow the family to, with
+// narrowed=true. A bare family entry or an empty allowlist means every region
+// (narrowed=false); two or more distinct region grants also stay false — in
+// that case region stickiness keeps working exactly as before: the first
+// picked account decides the region for the rest of the request.
+func keyGrantedSingleRegion(providerFilter string, allowed []string) (string, bool) {
+	if providerFilter == "" || len(allowed) == 0 {
+		return "", false
+	}
+	regions, allRegions := accounts.GrantedRegions(providerFilter, allowed)
+	if allRegions || len(regions) != 1 {
+		return "", false
+	}
+	return regions[0], true
 }
 
 func isInProcessItem(item accounts.Item) bool {
@@ -644,12 +667,22 @@ type routeLoop struct {
 
 func (e ChatExecutor) newRouteLoop(ctx context.Context, prefer, providerFilter string, req translate.ChatRequest) routeLoop {
 	prefer, providerFilter, regionFilter, routing := e.prepareRouting(ctx, prefer, providerFilter, req)
+	allowed := allowedProvidersFrom(ctx)
+	// A key whose grants narrow the selected family to exactly one region
+	// pre-seeds the region filter: scheduling never even considers accounts
+	// of other regions — including a pin to an out-of-grant account (the
+	// grant overrides the pinned account's region, so the pin falls back
+	// into the granted region) and every failover hop.
+	if providerFilter != "" {
+		if granted, narrowed := keyGrantedSingleRegion(providerFilter, allowed); narrowed {
+			regionFilter = granted
+		}
+	}
 	if regionFilter == "" && prefer != "" && e.Pool != nil {
 		if pinnedItem, ok := e.Pool.ByID(prefer); ok {
 			regionFilter = pinRegion("", pinnedItem.Region)
 		}
 	}
-	allowed := allowedProvidersFrom(ctx)
 	loop := routeLoop{
 		requestID:      RequestIDFromContext(ctx),
 		prefer:         prefer,

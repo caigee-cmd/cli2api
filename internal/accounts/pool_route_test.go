@@ -232,3 +232,71 @@ func TestQuotaUsesLongCooldownWithoutRotation(t *testing.T) {
 		t.Fatalf("quota should not remove the account from rotation: %+v", item)
 	}
 }
+
+func TestPickRouteRegionScopedAllowlist(t *testing.T) {
+	p := NewPool(nil, nil)
+	p.Upsert(Item{ID: "wc1", Provider: "workbuddy", Region: "cn", Runtime: "in_process"})
+	p.Upsert(Item{ID: "wg1", Provider: "workbuddy", Region: "global", Runtime: "in_process"})
+	p.Upsert(Item{ID: "q1", Provider: "qoder", Region: "global", Runtime: "child_process"})
+
+	// A cn-only key picks the cn account and never the global one.
+	for i := 0; i < 10; i++ {
+		got, ok := p.PickRoute(RouteQuery{AllowedProviders: []string{"workbuddy:cn"}})
+		if !ok || got.ID != "wc1" {
+			t.Fatalf("cn-only pick = %+v ok=%v, want wc1", got, ok)
+		}
+	}
+
+	// LenRoute counts only granted candidates.
+	if n := p.LenRoute(RouteQuery{AllowedProviders: []string{"workbuddy:cn"}}); n != 1 {
+		t.Fatalf("cn-only LenRoute = %d, want 1", n)
+	}
+	if n := p.LenRoute(RouteQuery{AllowedProviders: []string{"workbuddy:cn", "workbuddy:global"}}); n != 2 {
+		t.Fatalf("cn+global LenRoute = %d, want 2", n)
+	}
+
+	// Pin to an out-of-grant account falls back to scheduling inside the
+	// grant, never to the pinned account.
+	got, ok := p.PickRoute(RouteQuery{AllowedProviders: []string{"workbuddy:cn"}, PreferAccount: "wg1"})
+	if !ok || got.ID != "wc1" {
+		t.Fatalf("pin outside grant = %+v ok=%v, want wc1", got, ok)
+	}
+
+	// The legacy bare family entry keeps admitting every region.
+	for _, region := range []string{"cn", "global"} {
+		got, ok := p.PickRoute(RouteQuery{AllowedProviders: []string{"workbuddy"}, RegionFilter: region})
+		if !ok || got.Region != region {
+			t.Fatalf("bare grant region %s pick = %+v ok=%v", region, got, ok)
+		}
+	}
+
+	// Family filter plus a region-scoped grant never crosses regions.
+	if _, ok := p.PickRoute(RouteQuery{ProviderFilter: "workbuddy", RegionFilter: "global", AllowedProviders: []string{"workbuddy:cn"}}); ok {
+		t.Fatal("cn-only key must not pick a global account even with an explicit region filter")
+	}
+
+	// A key granted qoder only never sees workbuddy accounts regardless of region.
+	if _, ok := p.PickRoute(RouteQuery{AllowedProviders: []string{"qoder:global"}, ProviderFilter: "workbuddy"}); ok {
+		t.Fatal("qoder-only key must not pick workbuddy")
+	}
+}
+
+func TestPickRouteRegionScopedFailoverStaysInsideGrant(t *testing.T) {
+	p := NewPool(nil, nil)
+	p.Upsert(Item{ID: "wc1", Provider: "workbuddy", Region: "cn", Runtime: "in_process"})
+	p.Upsert(Item{ID: "wc2", Provider: "workbuddy", Region: "cn", Runtime: "in_process"})
+	p.Upsert(Item{ID: "wg1", Provider: "workbuddy", Region: "global", Runtime: "in_process"})
+
+	// Failover after a cn account 429 must land on the other cn account,
+	// never on the global one.
+	p.MarkClassified("wc1", Classified{Kind: KindRateLimit, Cooldown: time.Hour, Message: "429", Failover: true})
+	got, ok := p.PickRoute(RouteQuery{AllowedProviders: []string{"workbuddy:cn"}, Excluded: map[string]struct{}{"wc1": {}}})
+	if !ok || got.ID != "wc2" {
+		t.Fatalf("failover inside grant = %+v ok=%v, want wc2", got, ok)
+	}
+
+	// With every cn account excluded, the global account must not surface.
+	if _, ok := p.PickRoute(RouteQuery{AllowedProviders: []string{"workbuddy:cn"}, Excluded: map[string]struct{}{"wc1": {}, "wc2": {}}}); ok {
+		t.Fatal("exhausted cn grant must not fall through to global")
+	}
+}

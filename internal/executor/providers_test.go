@@ -361,3 +361,113 @@ func TestProviderPickFiltersByProviderFamily(t *testing.T) {
 }
 
 var _ = json.RawMessage{}
+
+func TestAPIKeyRegionScopedGrantNeverCrossesRegions(t *testing.T) {
+	pool := accounts.NewPool(nil, nil)
+	pool.Upsert(accounts.Item{ID: "wc1", Provider: "workbuddy", Region: "cn", Runtime: "in_process"})
+	pool.Upsert(accounts.Item{ID: "wg1", Provider: "workbuddy", Region: "global", Runtime: "in_process"})
+	registry := providers.NewRegistry()
+	fake := &fakeInProcessChat{}
+	registry.Register(providers.Adapter{ID: "workbuddy", Chat: fake})
+	ex := NewChatExecutor(pool, "")
+	ex.Providers = registry
+
+	// CN-only key with bare provider filter lands on the CN account.
+	ctx := WithAllowedProviders(context.Background(), []string{"workbuddy:cn"})
+	result, err := ex.ChatNonStream(ctx, translate.ChatRequest{
+		Model: "glm-5.2", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	}, "", "workbuddy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.AccountID != "wc1" {
+		t.Fatalf("cn-only key landed on %q, want wc1", result.AccountID)
+	}
+
+	// Pin to the global account must not execute on it.
+	_, err = ex.ChatNonStream(ctx, translate.ChatRequest{
+		Model: "glm-5.2", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	}, "wg1", "workbuddy")
+	if err != nil {
+		// Falls back into the cn grant — acceptable, but must be wc1.
+		t.Fatalf("pin fallback should succeed via the granted account: %v", err)
+	}
+	if got := fake.calls; got != 2 {
+		t.Fatalf("calls=%d want 2 (pin fell back into the cn grant)", got)
+	}
+
+	// The error ladder reports the granted region, not the pinned one.
+	emptyPool := accounts.NewPool(nil, nil)
+	emptyPool.Upsert(accounts.Item{ID: "wg1", Provider: "workbuddy", Region: "global", Runtime: "in_process"})
+	exEmpty := NewChatExecutor(emptyPool, "")
+	exEmpty.Providers = registry
+	_, err = exEmpty.ChatNonStream(ctx, translate.ChatRequest{
+		Model: "glm-5.2", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	}, "", "workbuddy")
+	if err == nil {
+		t.Fatal("cn-only key with only a global account must fail")
+	}
+	if msg := err.Error(); msg != "no workbuddy/cn accounts available" {
+		t.Fatalf("error = %q, want the granted-region message", msg)
+	}
+}
+
+func TestAPIKeyRegionScopedFailoverStaysInsideGrant(t *testing.T) {
+	pool := accounts.NewPool(nil, nil)
+	pool.Upsert(accounts.Item{ID: "wc1", Provider: "workbuddy", Region: "cn", Runtime: "in_process"})
+	pool.Upsert(accounts.Item{ID: "wg1", Provider: "workbuddy", Region: "global", Runtime: "in_process"})
+	registry := providers.NewRegistry()
+	failingCN := &flakyInProcessChat{fail: true}
+	failingCN.provider = "workbuddy"
+	registry.Register(providers.Adapter{ID: "workbuddy", Chat: failingCN})
+	ex := NewChatExecutor(pool, "")
+	ex.Providers = registry
+
+	ctx := WithAllowedProviders(context.Background(), []string{"workbuddy:cn"})
+	_, err := ex.ChatNonStream(ctx, translate.ChatRequest{
+		Model: "glm-5.2", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	}, "", "workbuddy")
+	if err == nil {
+		t.Fatal("single failing cn account must fail, not cross to global")
+	}
+}
+
+type flakyInProcessChat struct {
+	fail bool
+	fakeInProcessChat
+}
+
+func (f *flakyInProcessChat) ChatNonStream(ctx context.Context, accountID string, req translate.ChatRequest) (providers.ChatOutcome, error) {
+	f.calls++
+	if f.fail {
+		failover := true
+		return providers.ChatOutcome{}, &providers.Error{
+			Kind: accounts.KindRateLimit, Status: 429, Code: "rate_limit",
+			Message: "429", Failover: &failover,
+		}
+	}
+	return f.fakeInProcessChat.ChatNonStream(ctx, accountID, req)
+}
+
+func TestAPIKeyRegionScopedMultiRegionKeepsSticky(t *testing.T) {
+	pool := accounts.NewPool(nil, nil)
+	pool.Upsert(accounts.Item{ID: "wc1", Provider: "workbuddy", Region: "cn", Runtime: "in_process"})
+	pool.Upsert(accounts.Item{ID: "wg1", Provider: "workbuddy", Region: "global", Runtime: "in_process"})
+	registry := providers.NewRegistry()
+	fake := &fakeInProcessChat{}
+	registry.Register(providers.Adapter{ID: "workbuddy", Chat: fake})
+	ex := NewChatExecutor(pool, "")
+	ex.Providers = registry
+
+	// Key granted both regions: the request sticks to the first picked region.
+	ctx := WithAllowedProviders(context.Background(), []string{"workbuddy:cn", "workbuddy:global"})
+	result, err := ex.ChatNonStream(ctx, translate.ChatRequest{
+		Model: "glm-5.2", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	}, "", "workbuddy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.AccountID != "wc1" && result.AccountID != "wg1" {
+		t.Fatalf("multi-region grant picked unexpected account %q", result.AccountID)
+	}
+}

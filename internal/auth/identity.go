@@ -31,6 +31,16 @@ func (i Identity) AllowsProvider(provider string) bool {
 	return accounts.ProviderAllowed(provider, i.AllowedProviders)
 }
 
+// AllowsProviderRegion reports whether a concrete account — family plus
+// region — is covered by the key allowlist. This is the fail-closed gate for
+// routing candidates; AllowsProvider only answers the family-level question.
+func (i Identity) AllowsProviderRegion(provider, region string) bool {
+	if strings.TrimSpace(provider) == "" {
+		return true
+	}
+	return accounts.ProviderRegionAllowed(provider, region, i.AllowedProviders)
+}
+
 type ctxKey struct{}
 
 func WithIdentity(ctx context.Context, identity Identity) context.Context {
