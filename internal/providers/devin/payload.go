@@ -188,27 +188,103 @@ func parseTools(raw json.RawMessage, aliases *toolAliasMaps) []Tool {
 	if len(raw) == 0 {
 		return nil
 	}
-	var tools []struct {
-		Type     string `json:"type"`
-		Function struct {
+	var items []json.RawMessage
+	if json.Unmarshal(raw, &items) != nil {
+		return nil
+	}
+	out := make([]Tool, 0, len(items))
+	seen := map[string]struct{}{}
+	appendTool := func(name, desc string, params json.RawMessage) {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			return
+		}
+		name = aliases.alias(name)
+		if _, ok := seen[name]; ok {
+			return
+		}
+		seen[name] = struct{}{}
+		out = append(out, Tool{Name: name, Description: desc, Parameters: params})
+	}
+	for _, item := range items {
+		var probe struct {
+			Type string `json:"type"`
+			Name string `json:"name"`
+		}
+		if json.Unmarshal(item, &probe) != nil {
+			continue
+		}
+		typ := strings.ToLower(strings.TrimSpace(probe.Type))
+		switch typ {
+		case "namespace":
+			// Codex/Desktop namespace wrappers trip Devin upstream. Keep nested
+			// function tools (expanded to top-level) and drop the shell itself.
+			for _, nested := range expandNamespaceTools(item, strings.TrimSpace(probe.Name)) {
+				appendTool(nested.Name, nested.Description, nested.Parameters)
+			}
+		case "mcp":
+			// Hosted MCP connector entries are not Devin function tools.
+			continue
+		case "web_search", "web_search_preview":
+			continue
+		default:
+			var t struct {
+				Function struct {
+					Name        string          `json:"name"`
+					Description string          `json:"description"`
+					Parameters  json.RawMessage `json:"parameters"`
+				} `json:"function"`
+				Name        string          `json:"name"`
+				Description string          `json:"description"`
+				Parameters  json.RawMessage `json:"parameters"`
+			}
+			if json.Unmarshal(item, &t) != nil {
+				continue
+			}
+			name := firstNonEmpty(t.Function.Name, t.Name)
+			desc := firstNonEmpty(t.Function.Description, t.Description)
+			params := t.Function.Parameters
+			if len(params) == 0 {
+				params = t.Parameters
+			}
+			appendTool(name, desc, params)
+		}
+	}
+	return out
+}
+
+func expandNamespaceTools(raw json.RawMessage, namespace string) []Tool {
+	var wrapper struct {
+		Tools []json.RawMessage `json:"tools"`
+	}
+	if json.Unmarshal(raw, &wrapper) != nil || len(wrapper.Tools) == 0 {
+		return nil
+	}
+	out := make([]Tool, 0, len(wrapper.Tools))
+	for _, item := range wrapper.Tools {
+		var t struct {
+			Type     string `json:"type"`
+			Function struct {
+				Name        string          `json:"name"`
+				Description string          `json:"description"`
+				Parameters  json.RawMessage `json:"parameters"`
+			} `json:"function"`
 			Name        string          `json:"name"`
 			Description string          `json:"description"`
 			Parameters  json.RawMessage `json:"parameters"`
-		} `json:"function"`
-		Name        string          `json:"name"`
-		Description string          `json:"description"`
-		Parameters  json.RawMessage `json:"parameters"`
-	}
-	if json.Unmarshal(raw, &tools) != nil {
-		return nil
-	}
-	out := make([]Tool, 0, len(tools))
-	for _, t := range tools {
+		}
+		if json.Unmarshal(item, &t) != nil {
+			continue
+		}
+		typ := strings.ToLower(strings.TrimSpace(t.Type))
+		if typ != "" && typ != "function" {
+			continue
+		}
 		name := firstNonEmpty(t.Function.Name, t.Name)
+		name = qualifyNamespaceToolName(namespace, name)
 		if name == "" {
 			continue
 		}
-		name = aliases.alias(name)
 		desc := firstNonEmpty(t.Function.Description, t.Description)
 		params := t.Function.Parameters
 		if len(params) == 0 {
@@ -217,6 +293,21 @@ func parseTools(raw json.RawMessage, aliases *toolAliasMaps) []Tool {
 		out = append(out, Tool{Name: name, Description: desc, Parameters: params})
 	}
 	return out
+}
+
+func qualifyNamespaceToolName(namespace, name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+	if needsDevinToolAlias(name) || strings.Contains(name, "__") {
+		return name
+	}
+	namespace = strings.TrimSpace(namespace)
+	if namespace == "" {
+		return name
+	}
+	return strings.TrimRight(namespace, "_") + "__" + strings.TrimLeft(name, "_")
 }
 
 type toolAliasMaps struct {
