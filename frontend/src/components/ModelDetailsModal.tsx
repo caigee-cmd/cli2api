@@ -1,6 +1,8 @@
 import { Chip, Modal } from '@heroui/react'
 import { X } from '@phosphor-icons/react'
 import type { ModelInfo } from '@/api/types'
+import { modelCreditsText, modelIsFree } from '@/lib/format'
+import { accountProviderLabel } from '@/lib/provider'
 
 type Translate = (key: string, vars?: Record<string, string | number>) => string
 
@@ -22,6 +24,11 @@ export function ModelDetailsModal({ model, t, onClose }: Props) {
   const options = model.reasoning_options || []
   const windowDev = model.catalog_context_length || model.default_context_length || model.context_length
   const windowMax = model.catalog_context_length_max
+  const credits = modelCreditsText(model)
+  const free = modelIsFree(model)
+  const provider = String(model.provider || model.owned_by || 'qoder').trim().toLowerCase()
+  const region = String(model.region || model.regions?.[0] || '').trim().toLowerCase()
+  const providerLabel = accountProviderLabel(provider, region || undefined, t)
   return (
     <Modal.Root isOpen onOpenChange={(next: boolean) => { if (!next) onClose() }}>
       <Modal.Backdrop variant="blur">
@@ -29,8 +36,14 @@ export function ModelDetailsModal({ model, t, onClose }: Props) {
           <Modal.Dialog>
             <Modal.Header className="items-start justify-between gap-4 px-5 pt-5">
               <div>
-                <div className="text-base font-semibold tracking-[-0.015em]">{model.display_name || model.id}</div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="text-base font-semibold tracking-[-0.015em]">{model.display_name || model.id}</div>
+                  {free ? <Chip size="sm" variant="soft" color="success">{t('modelFree')}</Chip> : null}
+                </div>
                 <div className="mono mt-1 text-[11px] text-muted">{model.id}</div>
+                <div className="mt-1 text-[11px] text-muted">
+                  {providerLabel}{credits ? ` · ${credits}` : ''}
+                </div>
               </div>
               <Modal.CloseTrigger aria-label={t('close')} className="grid size-8 place-items-center rounded-lg text-muted hover:bg-surface-secondary">
                 <X size={16} />

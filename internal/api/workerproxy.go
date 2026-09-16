@@ -166,8 +166,30 @@ func (s *Server) fetchWorkerModels(refresh bool) []map[string]any {
 	return models
 }
 
+// catalogMode controls how fetchProviderModels folds accounts that share a
+// public model ID.
+//
+//   - catalogModeMerge: one entry per provider+model for OpenAI-compatible
+//     /v1/models and the default console catalog. Regions are unioned;
+//     capabilities intersect conservatively; credits/free are omitted when
+//     source regions disagree so a single-region price is never shown as
+//     universal.
+//   - catalogModeExpand: one entry per provider+region+model for the
+//     Providers page (?view=regional) so each row carries that region's
+//     real credits, free flag, and capabilities.
+type catalogMode int
+
+const (
+	catalogModeMerge catalogMode = iota
+	catalogModeExpand
+)
+
 func (s *Server) fetchWorkerModelsFor(refresh bool, accountID string) ([]map[string]any, error) {
-	models, err := s.fetchProviderModels(refresh, accountID)
+	return s.fetchWorkerModelsForMode(refresh, accountID, catalogModeMerge)
+}
+
+func (s *Server) fetchWorkerModelsForMode(refresh bool, accountID string, mode catalogMode) ([]map[string]any, error) {
+	models, err := s.fetchProviderModels(refresh, accountID, mode)
 	if err != nil {
 		return nil, err
 	}
@@ -182,6 +204,9 @@ func (s *Server) fetchWorkerModelsFor(refresh bool, accountID string) ([]map[str
 			return nil, fmt.Errorf("account %s not found", accountID)
 		}
 	}
+	// Last-resort path for a lone Qoder worker with no in-process providers
+	// and no pool URLs folded above. Stamp region the same way expand/merge
+	// would, so Providers filters never treat CN catalogs as unlabeled.
 	path := "/admin/models"
 	if refresh {
 		path += "?refresh=1"
@@ -201,6 +226,12 @@ func (s *Server) fetchWorkerModelsFor(refresh bool, accountID string) ([]map[str
 	if json.Unmarshal(body, &parsed) != nil || len(parsed.Data) == 0 {
 		return nil, nil
 	}
+	region := "global"
+	if accountID != "" {
+		if item, ok := s.pool.ByID(accountID); ok {
+			region = accounts.NormalizeRegion(item.Region)
+		}
+	}
 	for _, model := range parsed.Data {
 		if model == nil {
 			continue
@@ -211,6 +242,11 @@ func (s *Server) fetchWorkerModelsFor(refresh bool, accountID string) ([]map[str
 		if _, ok := model["owned_by"]; !ok {
 			model["owned_by"] = "qoder"
 		}
+		if mode == catalogModeExpand {
+			model["region"] = region
+		} else {
+			addModelRegion(model, region)
+		}
 	}
 	return parsed.Data, nil
 }
@@ -218,12 +254,13 @@ func (s *Server) fetchWorkerModelsFor(refresh bool, accountID string) ([]map[str
 // modelsNumericCapFields / modelsBoolCapFields list the capability fields the
 // merged catalog intersects conservatively when the same public model is
 // served by accounts of different regions: numeric fields take the minimum,
-// boolean fields are ANDed. Other fields (display name, reasoning options)
-// keep the first-seen value.
+// boolean fields are ANDed. Other fields (display name, reasoning options,
+// credits) keep the first-seen value.
 var modelsNumericCapFields = []string{
 	"catalog_context_length", "catalog_context_length_max",
 	"max_output_tokens", "prompt_max_tokens",
 }
+
 var modelsBoolCapFields = []string{"supports_max_mode", "can_disable_thinking"}
 
 func addModelRegion(entry map[string]any, region string) {
@@ -240,11 +277,16 @@ func addModelRegion(entry map[string]any, region string) {
 }
 
 func entryModelRegions(entry map[string]any) []string {
-	raw, ok := entry["regions"].([]string)
-	if !ok {
-		return nil
+	if raw, ok := entry["regions"].([]string); ok {
+		return raw
 	}
-	return raw
+	if region, ok := entry["region"].(string); ok {
+		region = strings.TrimSpace(region)
+		if region != "" {
+			return []string{region}
+		}
+	}
+	return nil
 }
 
 // mergeModelEntryCapabilities folds a later source entry into the merged one
@@ -263,6 +305,32 @@ func mergeModelEntryCapabilities(merged, incoming map[string]any) {
 		if value, ok := incoming[field].(bool); ok && !value {
 			merged[field] = false
 		}
+	}
+}
+
+func modelEntryCredits(entry map[string]any) string {
+	credits, _ := entry["credits"].(string)
+	return strings.TrimSpace(credits)
+}
+
+func modelEntryFree(entry map[string]any) (bool, bool) {
+	free, ok := entry["free"].(bool)
+	return free, ok
+}
+
+// mergeModelEntryPricing drops credits/free from a merged entry when source
+// regions disagree. Keeping the first-seen price would present one region's
+// catalog rate as if it applied everywhere.
+func mergeModelEntryPricing(merged, incoming map[string]any) {
+	if modelEntryCredits(merged) != modelEntryCredits(incoming) {
+		delete(merged, "credits")
+		delete(merged, "free")
+		return
+	}
+	mergedFree, hasMergedFree := modelEntryFree(merged)
+	incomingFree, hasIncomingFree := modelEntryFree(incoming)
+	if hasMergedFree != hasIncomingFree || mergedFree != incomingFree {
+		delete(merged, "free")
 	}
 }
 
@@ -305,13 +373,55 @@ func modelCapabilitiesEntry(model providers.ModelInfo) map[string]any {
 	return entry
 }
 
-// fetchProviderModels merges catalogs across accounts. Qoder models come from
-// worker daemons; in-process providers come from their adapters. Each entry is
-// tagged with the provider that actually serves it and the regions of the
-// accounts that provide it; entries served by several regions of one provider
-// merge into a single public entry with a conservative capability
-// intersection.
-func (s *Server) fetchProviderModels(refresh bool, accountID string) ([]map[string]any, error) {
+func providerModelEntry(model providers.ModelInfo, provider string) map[string]any {
+	entry := map[string]any{
+		"id": model.PublicModel, "object": "model", "owned_by": provider,
+		"provider": provider, "native_model": model.NativeModel,
+	}
+	if strings.TrimSpace(model.DisplayName) != "" {
+		entry["display_name"] = model.DisplayName
+	}
+	if credits := strings.TrimSpace(model.Credits); credits != "" {
+		entry["credits"] = credits
+	}
+	if model.Free {
+		entry["free"] = true
+	}
+	if model.Capabilities.ContextWindow > 0 {
+		entry["catalog_context_length"] = model.Capabilities.ContextWindow
+	}
+	if model.Capabilities.ContextWindowMax > 0 {
+		entry["catalog_context_length_max"] = model.Capabilities.ContextWindowMax
+	}
+	if model.Capabilities.MaxOutput > 0 {
+		entry["max_output_tokens"] = model.Capabilities.MaxOutput
+	}
+	if model.Capabilities.PromptMaxTokens > 0 {
+		entry["prompt_max_tokens"] = model.Capabilities.PromptMaxTokens
+	}
+	if model.Capabilities.MaxMode {
+		entry["supports_max_mode"] = true
+	}
+	if len(model.Capabilities.ReasoningOptions) > 0 {
+		entry["reasoning_options"] = model.Capabilities.ReasoningOptions
+	}
+	if model.Capabilities.ReasoningDefault != "" {
+		entry["reasoning_default"] = model.Capabilities.ReasoningDefault
+	}
+	if model.Capabilities.ReasoningType != "" {
+		entry["reasoning_type"] = model.Capabilities.ReasoningType
+	}
+	if model.Capabilities.CanDisableThinking {
+		entry["can_disable_thinking"] = true
+	}
+	return entry
+}
+
+// fetchProviderModels builds the in-process + Qoder catalog. Merge mode is for
+// OpenAI-compatible clients: one public entry per provider+model. Expand mode
+// is for the console: one entry per provider+region+model with that region's
+// credits/free/capabilities intact.
+func (s *Server) fetchProviderModels(refresh bool, accountID string, mode catalogMode) ([]map[string]any, error) {
 	var merged []map[string]any
 	seen := map[string]map[string]any{}
 	sawAny := false
@@ -337,6 +447,7 @@ func (s *Server) fetchProviderModels(refresh bool, accountID string) ([]map[stri
 			continue
 		}
 		sawAny = true
+		region := accounts.NormalizeRegion(item.Region)
 		for _, model := range models {
 			// Dedup on the public model ID (what clients request and what the
 			// entry exposes as "id"), not the upstream native ID. Two entries
@@ -349,57 +460,30 @@ func (s *Server) fetchProviderModels(refresh bool, accountID string) ([]map[stri
 				publicKey = strings.TrimSpace(model.NativeModel)
 			}
 			key := publicKey + "@" + item.Provider
+			if mode == catalogModeExpand {
+				key += "@" + region
+			}
 			if existing, dup := seen[key]; dup {
-				addModelRegion(existing, item.Region)
-				mergeModelEntryCapabilities(existing, modelCapabilitiesEntry(model))
+				if mode == catalogModeMerge {
+					addModelRegion(existing, region)
+					mergeModelEntryCapabilities(existing, modelCapabilitiesEntry(model))
+					mergeModelEntryPricing(existing, providerModelEntry(model, item.Provider))
+				}
 				continue
 			}
-			entry := map[string]any{
-				"id": model.PublicModel, "object": "model", "owned_by": item.Provider,
-				"provider": item.Provider, "native_model": model.NativeModel,
+			entry := providerModelEntry(model, item.Provider)
+			if mode == catalogModeExpand {
+				entry["region"] = region
+			} else {
+				addModelRegion(entry, region)
 			}
-			if strings.TrimSpace(model.DisplayName) != "" {
-				entry["display_name"] = model.DisplayName
-			}
-			if model.Capabilities.ContextWindow > 0 {
-				entry["catalog_context_length"] = model.Capabilities.ContextWindow
-			}
-			if model.Capabilities.ContextWindowMax > 0 {
-				entry["catalog_context_length_max"] = model.Capabilities.ContextWindowMax
-			}
-			if model.Capabilities.MaxOutput > 0 {
-				entry["max_output_tokens"] = model.Capabilities.MaxOutput
-			}
-			if model.Capabilities.PromptMaxTokens > 0 {
-				entry["prompt_max_tokens"] = model.Capabilities.PromptMaxTokens
-			}
-			if model.Capabilities.MaxMode {
-				entry["supports_max_mode"] = true
-			}
-			if len(model.Capabilities.ReasoningOptions) > 0 {
-				entry["reasoning_options"] = model.Capabilities.ReasoningOptions
-			}
-			if model.Capabilities.ReasoningDefault != "" {
-				entry["reasoning_default"] = model.Capabilities.ReasoningDefault
-			}
-			if model.Capabilities.ReasoningType != "" {
-				entry["reasoning_type"] = model.Capabilities.ReasoningType
-			}
-			if model.Capabilities.CanDisableThinking {
-				entry["can_disable_thinking"] = true
-			}
-			addModelRegion(entry, item.Region)
 			seen[key] = entry
 			merged = append(merged, entry)
 		}
 	}
-	if !sawAny {
-		if accountID != "" && lastErr != nil {
-			return nil, lastErr
-		}
-		return nil, nil
-	}
-	// Merge Qoder daemon models alongside in-process providers.
+	// Fold Qoder daemon models alongside in-process providers. Do this even
+	// when no WorkBuddy/Trae accounts exist; returning nil here used to skip
+	// region stamping and send pure-Qoder pools through the unlabeled fallback.
 	var qoderModels []map[string]any
 	for _, item := range s.pool.Items() {
 		if item.Provider != "qoder" || item.URL == "" {
@@ -412,17 +496,35 @@ func (s *Server) fetchProviderModels(refresh bool, accountID string) ([]map[stri
 	}
 	for _, model := range qoderModels {
 		key, _ := model["id"].(string)
-		if existing, dup := seen[key+"@qoder"]; dup {
-			addModelRegion(existing, qoderModelRegion(model))
-			mergeModelEntryCapabilities(existing, model)
+		region := qoderModelRegion(model)
+		seenKey := key + "@qoder"
+		if mode == catalogModeExpand {
+			seenKey += "@" + region
+		}
+		if existing, dup := seen[seenKey]; dup {
+			if mode == catalogModeMerge {
+				addModelRegion(existing, region)
+				mergeModelEntryCapabilities(existing, model)
+				mergeModelEntryPricing(existing, model)
+			}
 			continue
 		}
-		seen[key+"@qoder"] = model
+		seen[seenKey] = model
 		model["provider"] = "qoder"
 		model["owned_by"] = "qoder"
-		region := qoderModelRegion(model)
-		addModelRegion(model, region)
+		if mode == catalogModeExpand {
+			model["region"] = region
+		} else {
+			addModelRegion(model, region)
+		}
 		merged = append(merged, model)
+		sawAny = true
+	}
+	if !sawAny {
+		if accountID != "" && lastErr != nil {
+			return nil, lastErr
+		}
+		return nil, nil
 	}
 	return merged, nil
 }
@@ -432,7 +534,7 @@ func (s *Server) fetchProviderModels(refresh bool, accountID string) ([]map[stri
 func qoderModelRegion(model map[string]any) string {
 	region, _ := model["_qoder_region"].(string)
 	delete(model, "_qoder_region")
-	return region
+	return accounts.NormalizeRegion(region)
 }
 
 func (s *Server) fetchQoderModels(refresh bool, accountID string) []map[string]any {
@@ -467,7 +569,7 @@ func (s *Server) fetchQoderModels(refresh bool, accountID string) []map[string]a
 			model["owned_by"] = "qoder"
 		}
 		// Internal marker consumed by fetchProviderModels; stripped from the
-		// merged output before it reaches any client.
+		// output before it reaches any client.
 		model["_qoder_region"] = region
 	}
 	return parsed.Data

@@ -425,7 +425,7 @@ func (s *Server) handleOverviewSummary(w http.ResponseWriter, r *http.Request) {
 	}
 	modelCount := 0
 	s.modelsAPICacheMu.Lock()
-	if cached, ok := s.modelsAPICache[modelsAPICacheKey("")]; ok && time.Since(cached.at) < modelsAPICacheTTL {
+	if cached, ok := s.modelsAPICache[modelsAPICacheKey("", catalogModeMerge)]; ok && time.Since(cached.at) < modelsAPICacheTTL {
 		modelCount = len(cached.models)
 	}
 	s.modelsAPICacheMu.Unlock()

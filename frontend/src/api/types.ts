@@ -29,7 +29,11 @@ export type ModelInfo = {
   provider?: string
   owned_by?: string
   native_model?: string
+  region?: string
+  regions?: string[]
   stale?: boolean
+  credits?: string
+  free?: boolean
   context_length?: number
   default_context_length?: number
   context_custom?: boolean

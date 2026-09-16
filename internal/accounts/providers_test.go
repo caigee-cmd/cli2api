@@ -179,16 +179,28 @@ func TestManagerRefreshUsesInProcessProber(t *testing.T) {
 	if prober.probeN != 1 || prober.quotaN != 1 {
 		t.Fatalf("probeN=%d quotaN=%d", prober.probeN, prober.quotaN)
 	}
-	item, _ := manager.pool.ByID(account.ID)
+	// Quota() signals before persistQuota merges into the pool / SQLite; wait
+	// for both instead of racing the channel alone.
+	deadline := time.Now().Add(time.Second)
+	var item Item
+	var updated Account
+	for {
+		item, _ = manager.pool.ByID(account.ID)
+		updated, err = store.Get(ctx, account.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if item.Quota != nil && item.Quota.Remaining == 900 && item.Quota.Total == 1000 &&
+			updated.Quota != nil && updated.Quota.Remaining == 900 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("quota pool=%+v store=%+v", item.Quota, updated.Quota)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 	if item.Ready == nil || !*item.Ready || item.Hot == nil || !*item.Hot || item.LastError != "" {
 		t.Fatalf("pool item = %+v", item)
-	}
-	if item.Quota == nil || item.Quota.Remaining != 900 || item.Quota.Total != 1000 {
-		t.Fatalf("quota = %+v", item.Quota)
-	}
-	updated, err := store.Get(ctx, account.ID)
-	if err != nil {
-		t.Fatal(err)
 	}
 	if updated.Status != "ready" || updated.RemoteUID != "wb-uid" || updated.LastError != "" {
 		t.Fatalf("store account = %+v", updated)

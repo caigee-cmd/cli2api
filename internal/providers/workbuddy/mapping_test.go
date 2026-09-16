@@ -31,7 +31,15 @@ func TestApplyChatReasoningUsesOfficialFieldsForDeepseekFlash(t *testing.T) {
 		ReasoningDefault:   "high",
 		CanDisableThinking: false,
 	}
-	for _, model := range []string{"deepseek-v4.1-flash", "DeepSeek_V4.1_Flash", "workbuddy/deepseek-v4.1-flash"} {
+	for _, model := range []string{
+		"deepseek-v4.1-flash",
+		"DeepSeek_V4.1_Flash",
+		"workbuddy/deepseek-v4.1-flash",
+		"deepseek-v4-flash",
+		"deepseek-v4-pro",
+		"workbuddy/deepseek-v4-pro",
+		"deep-model",
+	} {
 		obj := map[string]any{"reasoning": map[string]any{"effort": "stale"}}
 		applyChatReasoning(obj, translate.ChatRequest{Model: model}, "", caps)
 		if _, ok := obj["reasoning"]; ok {

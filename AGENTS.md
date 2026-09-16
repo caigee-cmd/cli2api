@@ -22,6 +22,7 @@ Do not add new `TODO.md`, `NOTES.md`, or extra plan files. Extra design docs are
 - Keep architecture: auth / endpoint / executor / translate / api
 - Prefer direct HTTP/SSE to Qoder cloud APIs
 - Pin qodercli / qoderclicn hooks in `worker/src/compat.mjs`; fail loudly on mismatch. Qoder CN is `provider=qoder` + `region=cn`, not a new family
+- Reasoning levels are catalog-driven: map client values through `internal/providers/reasoning.go` (`none`/`low`/`medium`/`high`/`xhigh`/`max`), clamp anything the model does not allow back to an allowed level, and treat the console value as a default only (it never locks a call or caps a higher client value)
 - Console UI: React + Tailwind v4 + **HeroUI only** for components
 - Follow `docs/DESIGN.md` (taste v1 adapted for this console)
 - Keep iterating Qoder login, usage, and account routing. Borrow scheduling ideas from [sub2api](https://github.com/Wei-Shaw/sub2api), not its commercial gateway
@@ -37,4 +38,5 @@ Do not add new `TODO.md`, `NOTES.md`, or extra plan files. Extra design docs are
 - Copy sub2api billing, Redis slots, multi-tenant API keys, or session-hash-for-profit
 - Add a new component library, purple AI chrome, centered generic login cards, or emoji in UI copy
 - Start Cursor / Anthropic until the current Qoder milestone in `docs/PLAN.md` is done. Qoder CN is that milestone (`provider=qoder` + `region=cn`); do not spawn a full `qoderclicn` per request
+- Invent reasoning levels a model does not declare. Catalog effort wins: keep `onlyReasoning` models locked (DeepSeek is `high`), and do not give WorkBuddy a Trae-style Max switch or send a context-window switch on chat
 - Change the SQL bytes of a shipped SQLite migration in `internal/accounts/migrations.go`. Tabs, spaces, and comments inside the raw string count. `gofmt` on the Go around it is fine; indenting the SQL is not. Existing databases panic on boot with `checksum mismatch`

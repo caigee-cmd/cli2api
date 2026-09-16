@@ -546,13 +546,14 @@ func (s *Server) applyPinnedProviderFilter(providerFilter, publicModel, prefer s
 	return pinned
 }
 
-// filterModelsForIdentity narrows a merged model catalog to what the request's
+// filterModelsForIdentity narrows a model catalog to what the request's
 // identity may actually call. /v1/models answers "can this key call this
-// public model": an entry stays when the key's grants cover the provider
-// family and at least one of the regions that serve it. Unrestricted
-// identities (empty allowlist) keep every entry. This filter runs after the
-// /api/models cache lookup and must not be folded into the cached snapshot —
-// the snapshot is shared across keys.
+// public model": a merged entry stays when the key's grants cover the
+// provider family and at least one of the regions that serve it. Console
+// /api/models rows are already one region each and use the same check via
+// the singular region field. Unrestricted identities (empty allowlist) keep
+// every entry. This filter runs after the /api/models cache lookup and must
+// not be folded into the cached snapshot — the snapshot is shared across keys.
 func (s *Server) filterModelsForIdentity(r *http.Request, models []map[string]any) []map[string]any {
 	identity := s.requestIdentity(r)
 	if len(identity.AllowedProviders) == 0 {
@@ -575,9 +576,11 @@ func (s *Server) filterModelsForIdentity(r *http.Request, models []map[string]an
 	return filtered
 }
 
-// identityAllowsAnyModelRegion checks a merged catalog entry's region set
-// against the identity's grants. Entries without region information (e.g. a
-// legacy single-worker catalog) fall back to the family-level decision.
+// identityAllowsAnyModelRegion checks a catalog entry's region set against
+// the identity's grants. Merged /v1 entries expose regions[]; expanded
+// console entries expose a singular region. Entries without region
+// information (e.g. a legacy single-worker catalog) fall back to the
+// family-level decision.
 func identityAllowsAnyModelRegion(identity auth.Identity, model map[string]any) bool {
 	regions := entryModelRegions(model)
 	if len(regions) == 0 {
@@ -610,7 +613,13 @@ type modelsAPIRefresh struct {
 
 func (s *Server) handleModelsAPI(w http.ResponseWriter, r *http.Request) {
 	refresh := r.URL.Query().Get("refresh") == "1"
-	models, err := s.fetchModelsAPI(refresh, s.requestedAccount(r))
+	mode := catalogModeMerge
+	// Providers page asks for one row per provider+region so credits/free stay
+	// truthful. Access / Overview keep the default merged catalog.
+	if strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("view")), "regional") {
+		mode = catalogModeExpand
+	}
+	models, err := s.fetchModelsAPI(refresh, s.requestedAccount(r), mode)
 	if err != nil {
 		// 503, not 502: some reverse proxies replace origin 502 JSON with
 		// their own HTML error page, which the console then renders as the
@@ -624,11 +633,15 @@ func (s *Server) handleModelsAPI(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func modelsAPICacheKey(accountID string) string {
-	if strings.TrimSpace(accountID) == "" {
-		return "*"
+func modelsAPICacheKey(accountID string, mode catalogMode) string {
+	view := "merged"
+	if mode == catalogModeExpand {
+		view = "regional"
 	}
-	return accountID
+	if strings.TrimSpace(accountID) == "" {
+		return "*@" + view
+	}
+	return accountID + "@" + view
 }
 
 func cloneModelList(models []map[string]any) []map[string]any {
@@ -649,9 +662,10 @@ func cloneModelList(models []map[string]any) []map[string]any {
 // fetchModelsAPI serves GET /api/models from a 5-minute snapshot. Expired
 // snapshots are returned immediately while one background refresh updates the
 // cache. A cold cache waits for the one in-flight refresh instead of starting
-// duplicate upstream catalog requests.
-func (s *Server) fetchModelsAPI(refresh bool, accountID string) ([]map[string]any, error) {
-	key := modelsAPICacheKey(accountID)
+// duplicate upstream catalog requests. Merge and regional views use separate
+// cache keys so Providers cannot poison Access / Overview.
+func (s *Server) fetchModelsAPI(refresh bool, accountID string, mode catalogMode) ([]map[string]any, error) {
+	key := modelsAPICacheKey(accountID, mode)
 	s.modelsAPICacheMu.Lock()
 	entry, hasCache := s.modelsAPICache[key]
 	if !refresh && hasCache && time.Since(entry.at) < modelsAPICacheTTL {
@@ -659,11 +673,11 @@ func (s *Server) fetchModelsAPI(refresh bool, accountID string) ([]map[string]an
 		return cloneModelList(entry.models), nil
 	}
 	if !refresh && hasCache {
-		_ = s.startModelsAPIRefreshLocked(key, true, accountID)
+		_ = s.startModelsAPIRefreshLocked(key, true, accountID, mode)
 		s.modelsAPICacheMu.Unlock()
 		return cloneModelList(entry.models), nil
 	}
-	refreshing := s.startModelsAPIRefreshLocked(key, refresh, accountID)
+	refreshing := s.startModelsAPIRefreshLocked(key, refresh, accountID, mode)
 	s.modelsAPICacheMu.Unlock()
 	<-refreshing.done
 	if refreshing.err != nil {
@@ -672,7 +686,7 @@ func (s *Server) fetchModelsAPI(refresh bool, accountID string) ([]map[string]an
 	return cloneModelList(refreshing.models), nil
 }
 
-func (s *Server) startModelsAPIRefreshLocked(key string, force bool, accountID string) *modelsAPIRefresh {
+func (s *Server) startModelsAPIRefreshLocked(key string, force bool, accountID string, mode catalogMode) *modelsAPIRefresh {
 	if s.modelsAPIRefresh == nil {
 		s.modelsAPIRefresh = map[string]*modelsAPIRefresh{}
 	}
@@ -682,7 +696,7 @@ func (s *Server) startModelsAPIRefreshLocked(key string, force bool, accountID s
 	refreshing := &modelsAPIRefresh{done: make(chan struct{})}
 	s.modelsAPIRefresh[key] = refreshing
 	go func() {
-		models, err := s.fetchWorkerModelsFor(force, accountID)
+		models, err := s.fetchWorkerModelsForMode(force, accountID, mode)
 		refreshing.models = models
 		refreshing.err = err
 		if err == nil {
@@ -1076,38 +1090,38 @@ func (s *Server) finishRequestLog(requestID string, started time.Time, req trans
 	} else if !req.Stream && entry.LatencyMs != nil {
 		entry.TTFBMs = entry.LatencyMs
 	}
-if stats != nil {
-			entry.PromptTokens = stats.PromptTokens
-			entry.CompletionTokens = stats.CompletionTokens
-			entry.CacheReadTokens = stats.CacheReadTokens
-			entry.CacheWriteTokens = stats.CacheWriteTokens
-			entry.UsageSource = stats.UsageSource
-			consumed := stats.ConsumedCredits
-			if consumed == nil {
-				consumed = stats.Credits
-			}
-			entry.Credits = consumed
-			if stats.Model != "" {
-				entry.MappedModel = stats.Model
-			}
+	if stats != nil {
+		entry.PromptTokens = stats.PromptTokens
+		entry.CompletionTokens = stats.CompletionTokens
+		entry.CacheReadTokens = stats.CacheReadTokens
+		entry.CacheWriteTokens = stats.CacheWriteTokens
+		entry.UsageSource = stats.UsageSource
+		consumed := stats.ConsumedCredits
+		if consumed == nil {
+			consumed = stats.Credits
 		}
-		if err != nil {
-			classified := classifyAPIError(err)
-			entry.ErrorKind = classified.Kind
-			entry.ErrorCode = classified.Code
-			entry.ErrorMessage = classified.Message
-		}
-		s.recorder.Finish(entry)
-		if stats != nil && entry.Credits != nil {
-			s.recorder.UsageDetail(accounts.RequestUsageDetail{
-				RequestID: requestID,
-				CreatedAt: started,
-				Provider:  provider,
-				Credit:    entry.Credits,
-				Unit:      "credits",
-			})
+		entry.Credits = consumed
+		if stats.Model != "" {
+			entry.MappedModel = stats.Model
 		}
 	}
+	if err != nil {
+		classified := classifyAPIError(err)
+		entry.ErrorKind = classified.Kind
+		entry.ErrorCode = classified.Code
+		entry.ErrorMessage = classified.Message
+	}
+	s.recorder.Finish(entry)
+	if stats != nil && entry.Credits != nil {
+		s.recorder.UsageDetail(accounts.RequestUsageDetail{
+			RequestID: requestID,
+			CreatedAt: started,
+			Provider:  provider,
+			Credit:    entry.Credits,
+			Unit:      "credits",
+		})
+	}
+}
 
 func (s *Server) recordStreamDiagnostic(requestID string, response *http.Response, started time.Time, stats streamRelayStats, relayErr, contextErr error) {
 	if s.recorder == nil || requestID == "" {

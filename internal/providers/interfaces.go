@@ -34,6 +34,8 @@ type ModelInfo struct {
 	NativeModel  string            `json:"native_model"`
 	PublicModel  string            `json:"public_model"`
 	DisplayName  string            `json:"display_name,omitempty"`
+	Credits      string            `json:"credits,omitempty"`
+	Free         bool              `json:"free,omitempty"`
 	Capabilities ModelCapabilities `json:"capabilities"`
 }
 
