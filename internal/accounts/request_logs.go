@@ -309,12 +309,13 @@ func (s *Store) ListRequestLogs(ctx context.Context, filter RequestLogFilter) (R
 		return RequestLogList{}, fmt.Errorf("count request logs: %w", err)
 	}
 
-	query := `
-	SELECT id, created_at, finished_at, stream, status, requested_model, mapped_model, account_id,
-	       COALESCE(NULLIF(provider, ''), (SELECT provider FROM accounts WHERE accounts.id = request_logs.account_id), ''), routing,
-	       prompt_tokens, completion_tokens, cache_read_tokens, cache_write_tokens, usage_source, credits,
-	       latency_ms, ttfb_ms, error_kind, error_code, error_message, attempt_count, message_count, empty_message_indexes, message_roles
-	FROM request_logs` + where + ` ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`
+query := `
+		SELECT id, created_at, finished_at, stream, status, requested_model, mapped_model, account_id,
+		       COALESCE(NULLIF(provider, ''), (SELECT provider FROM accounts WHERE accounts.id = request_logs.account_id), ''), routing,
+		       prompt_tokens, completion_tokens, cache_read_tokens, cache_write_tokens, usage_source,
+		       COALESCE(credits, (SELECT credit FROM request_usage_details WHERE request_usage_details.request_id = request_logs.id)),
+		       latency_ms, ttfb_ms, error_kind, error_code, error_message, attempt_count, message_count, empty_message_indexes, message_roles
+		FROM request_logs` + where + ` ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`
 	args = append(args, limit, offset)
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -646,12 +647,13 @@ func percentileNearestRank(sorted []int, percentile int) int {
 }
 
 func (s *Store) GetRequestLog(ctx context.Context, id string) (RequestLog, error) {
-	row := s.db.QueryRowContext(ctx, `
-	SELECT id, created_at, finished_at, stream, status, requested_model, mapped_model, account_id,
-	       COALESCE(NULLIF(provider, ''), (SELECT provider FROM accounts WHERE accounts.id = request_logs.account_id), ''), routing,
-	       prompt_tokens, completion_tokens, cache_read_tokens, cache_write_tokens, usage_source, credits,
-	       latency_ms, ttfb_ms, error_kind, error_code, error_message, attempt_count, message_count, empty_message_indexes, message_roles
-	FROM request_logs WHERE id = ?`, strings.TrimSpace(id))
+row := s.db.QueryRowContext(ctx, `
+		SELECT id, created_at, finished_at, stream, status, requested_model, mapped_model, account_id,
+		       COALESCE(NULLIF(provider, ''), (SELECT provider FROM accounts WHERE accounts.id = request_logs.account_id), ''), routing,
+		       prompt_tokens, completion_tokens, cache_read_tokens, cache_write_tokens, usage_source,
+		       COALESCE(credits, (SELECT credit FROM request_usage_details WHERE request_usage_details.request_id = request_logs.id)),
+		       latency_ms, ttfb_ms, error_kind, error_code, error_message, attempt_count, message_count, empty_message_indexes, message_roles
+		FROM request_logs WHERE id = ?`, strings.TrimSpace(id))
 	log, err := scanRequestLog(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return RequestLog{}, ErrRequestLogNotFound

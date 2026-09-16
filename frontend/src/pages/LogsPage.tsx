@@ -88,16 +88,37 @@ function formatTime(value?: string | null, lang: 'en' | 'zh' = 'zh') {
   }).format(date)
 }
 
-function TokenSplit({ log, inLabel, outLabel }: { log: RequestLog; inLabel: string; outLabel: string }) {
+function TokenSplit({
+  log,
+  inLabel,
+  outLabel,
+  pointsLabel,
+}: {
+  log: RequestLog
+  inLabel: string
+  outLabel: string
+  pointsLabel?: (value: string) => string
+}) {
   const prompt = log.prompt_tokens
   const completion = log.completion_tokens
-  if (prompt == null && completion == null) {
+  const credit = log.credits ?? log.usage_detail?.credit
+  const creditText = credit != null && Number.isFinite(credit) ? formatCredit(credit) : null
+  if (prompt == null && completion == null && creditText == null) {
     return <span className="mono text-xs text-muted">—</span>
   }
   return (
     <div className="leading-4">
-      <div className="mono text-xs">{prompt ?? 0} / {completion ?? 0}</div>
-      <div className="mt-0.5 text-[10px] text-muted">{inLabel} / {outLabel}</div>
+      {prompt != null || completion != null ? (
+        <>
+          <div className="mono text-xs">{prompt ?? 0} / {completion ?? 0}</div>
+          <div className="mt-0.5 text-[10px] text-muted">{inLabel} / {outLabel}</div>
+        </>
+      ) : null}
+      {creditText != null ? (
+        <div className={`mono text-[10px] text-success ${prompt != null || completion != null ? 'mt-0.5' : ''}`}>
+          {pointsLabel ? pointsLabel(creditText) : creditText}
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -724,7 +745,14 @@ export function LogsPage() {
                           <Table.Cell><span className="text-xs text-muted">{item.stream ? t('logsStreamYes') : t('logsStreamNo')}</span></Table.Cell>
                           <Table.Cell><span className="mono text-xs">{formatLatency(item.latency_ms)}</span></Table.Cell>
                           <Table.Cell><span className="mono text-xs">{formatLatency(item.ttfb_ms)}</span></Table.Cell>
-                          <Table.Cell><TokenSplit log={item} inLabel={t('logsTokensIn')} outLabel={t('logsTokensOut')} /></Table.Cell>
+                          <Table.Cell>
+                            <TokenSplit
+                              log={item}
+                              inLabel={t('logsTokensIn')}
+                              outLabel={t('logsTokensOut')}
+                              pointsLabel={(value) => t('logsTokensPoints', { value })}
+                            />
+                          </Table.Cell>
                         </Table.Row>
                       ))}
                     </Table.Body>
@@ -939,7 +967,12 @@ export function LogsPage() {
                     <dt className="text-[11px] text-muted">{t('logsColTokens')}</dt>
                     <dd className="mt-1">
                       {selected ? (
-                        <TokenSplit log={selected} inLabel={t('logsTokensIn')} outLabel={t('logsTokensOut')} />
+                        <TokenSplit
+                          log={selected}
+                          inLabel={t('logsTokensIn')}
+                          outLabel={t('logsTokensOut')}
+                          pointsLabel={(value) => t('logsTokensPoints', { value })}
+                        />
                       ) : '—'}
                     </dd>
                   </div>
