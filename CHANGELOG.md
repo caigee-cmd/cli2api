@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.5.4 - 2026-09-16
+
+### English
+
 - Alias Codex/Desktop `mcp__*` tools for Devin upstream and restore the original names on tool calls so the local client can execute MCP, while still treating MCP configuration `permission_denied` as an invalid request instead of auth cooldown
 - Expand Codex/Desktop `type: "namespace"` tool wrappers into plain function tools for Devin and drop hosted shells such as `type: "mcp"` / `web_search`, which were enough to trip the upstream provider
 - Record each request's consumed points (WorkBuddy `usage.credit`) in a dedicated request-detail table and show them in the console request detail, keeping the query-oriented request log row lean
