@@ -4,13 +4,19 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
-const maxDevinToolAliasLen = 64
+const (
+	maxDevinToolAliasLen     = 64
+	maxDevinToolsDiagLen     = 1800
+	maxDevinToolDiagNameLen  = 96
+	maxDevinNamespaceNestLen = 12
+)
 
 // ChatPayload is the normalized Devin Interactions request.
 type ChatPayload struct {
@@ -23,6 +29,10 @@ type ChatPayload struct {
 	Effort          string
 	Budget          int
 	OriginalByAlias map[string]string
+	// ToolsDiag is a compact inbound/outbound tools type+name summary for
+	// temporary MCP configuration denial debugging. It never includes
+	// descriptions or parameter schemas.
+	ToolsDiag string
 }
 
 func BuildChatPayload(req translate.ChatRequest, catalogLevels map[string][]string) ChatPayload {
@@ -63,17 +73,19 @@ func BuildChatPayload(req translate.ChatRequest, catalogLevels map[string][]stri
 	maxTokens := parseMaxTokens(req)
 	temp := parseTemperature(req)
 	modelUID := ResolveChatModelUID(req.Model, effort, budget, catalogLevels)
+	tools := parseTools(req.Tools, aliases)
 
 	return ChatPayload{
 		System:          system,
 		Prompts:         prompts,
-		Tools:           parseTools(req.Tools, aliases),
+		Tools:           tools,
 		Temperature:     temp,
 		MaxTokens:       maxTokens,
 		ModelUID:        modelUID,
 		Effort:          effort,
 		Budget:          budget,
 		OriginalByAlias: aliases.originalByAlias,
+		ToolsDiag:       buildToolsDiag(req.Tools, tools),
 	}
 }
 
@@ -372,6 +384,112 @@ func restoreToolName(name string, originalByAlias map[string]string) string {
 		return original
 	}
 	return name
+}
+
+func buildToolsDiag(raw json.RawMessage, outbound []Tool) string {
+	inbound := summarizeInboundTools(raw)
+	outNames := make([]string, 0, len(outbound))
+	for _, tool := range outbound {
+		if name := truncateDiagName(tool.Name); name != "" {
+			outNames = append(outNames, name)
+		}
+	}
+	parts := make([]string, 0, 2)
+	if inbound != "" {
+		parts = append(parts, "in="+inbound)
+	} else if len(raw) > 0 {
+		parts = append(parts, "in=<unparsed>")
+	} else {
+		parts = append(parts, "in=<none>")
+	}
+	if len(outNames) == 0 {
+		parts = append(parts, "out=<none>")
+	} else {
+		parts = append(parts, fmt.Sprintf("out(%d)=[%s]", len(outNames), strings.Join(outNames, ",")))
+	}
+	return truncateDiag(strings.Join(parts, " "))
+}
+
+func summarizeInboundTools(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var items []json.RawMessage
+	if json.Unmarshal(raw, &items) != nil {
+		return ""
+	}
+	entries := make([]string, 0, len(items))
+	for _, item := range items {
+		entries = append(entries, summarizeInboundToolItem(item)...)
+	}
+	if len(entries) == 0 {
+		return "[]"
+	}
+	return fmt.Sprintf("[%s]", strings.Join(entries, ","))
+}
+
+func summarizeInboundToolItem(raw json.RawMessage) []string {
+	var probe struct {
+		Type     string `json:"type"`
+		Name     string `json:"name"`
+		Function struct {
+			Name string `json:"name"`
+		} `json:"function"`
+		ServerLabel string            `json:"server_label"`
+		Tools       []json.RawMessage `json:"tools"`
+	}
+	if json.Unmarshal(raw, &probe) != nil {
+		return []string{"<?>"}
+	}
+	typ := strings.ToLower(strings.TrimSpace(probe.Type))
+	if typ == "" {
+		typ = "function"
+	}
+	name := firstNonEmpty(probe.Function.Name, probe.Name, probe.ServerLabel)
+	entry := typ
+	if trimmed := truncateDiagName(name); trimmed != "" {
+		entry += ":" + trimmed
+	}
+	out := []string{entry}
+	if typ == "namespace" {
+		limit := len(probe.Tools)
+		if limit > maxDevinNamespaceNestLen {
+			limit = maxDevinNamespaceNestLen
+		}
+		for i := 0; i < limit; i++ {
+			for _, nested := range summarizeInboundToolItem(probe.Tools[i]) {
+				out = append(out, "ns."+nested)
+			}
+		}
+		if len(probe.Tools) > maxDevinNamespaceNestLen {
+			out = append(out, fmt.Sprintf("ns.<+%d>", len(probe.Tools)-maxDevinNamespaceNestLen))
+		}
+	}
+	return out
+}
+
+func truncateDiagName(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+	runes := []rune(name)
+	if len(runes) <= maxDevinToolDiagNameLen {
+		return name
+	}
+	return string(runes[:maxDevinToolDiagNameLen-1]) + "…"
+}
+
+func truncateDiag(text string) string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return ""
+	}
+	runes := []rune(text)
+	if len(runes) <= maxDevinToolsDiagLen {
+		return text
+	}
+	return string(runes[:maxDevinToolsDiagLen-1]) + "…"
 }
 
 func extractReasoning(msg translate.ChatMessage) string {

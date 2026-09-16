@@ -14,12 +14,18 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
+type chatRequestBuild struct {
+	httpReq         *http.Request
+	originalByAlias map[string]string
+	toolsDiag       string
+}
+
 func (c *Client) ChatNonStream(ctx context.Context, accountID string, req translate.ChatRequest) (providers.ChatOutcome, error) {
 	credential, err := c.credential(ctx, accountID)
 	if err != nil {
 		return providers.ChatOutcome{}, err
 	}
-	httpReq, originalByAlias, err := c.buildChatHTTPRequest(ctx, credential, req)
+	built, err := c.buildChatHTTPRequest(ctx, credential, req)
 	if err != nil {
 		return providers.ChatOutcome{}, err
 	}
@@ -28,16 +34,16 @@ func (c *Client) ChatNonStream(ctx context.Context, accountID string, req transl
 		return providers.ChatOutcome{}, err
 	}
 	client.Timeout = 0
-	resp, err := client.Do(httpReq)
+	resp, err := client.Do(built.httpReq)
 	if err != nil {
 		return providers.ChatOutcome{}, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-		return providers.ChatOutcome{}, classifiedError(resp.StatusCode, string(body))
+		return providers.ChatOutcome{}, classifiedErrorWithToolsDiag(resp.StatusCode, string(body), built.toolsDiag)
 	}
-	aggregate, err := aggregateConnectStream(resp.Body, originalByAlias)
+	aggregate, err := aggregateConnectStream(resp.Body, built.originalByAlias, built.toolsDiag)
 	if err != nil {
 		return providers.ChatOutcome{}, err
 	}
@@ -49,7 +55,7 @@ func (c *Client) ChatStream(ctx context.Context, accountID string, req translate
 	if err != nil {
 		return nil, err
 	}
-	httpReq, originalByAlias, err := c.buildChatHTTPRequest(ctx, credential, req)
+	built, err := c.buildChatHTTPRequest(ctx, credential, req)
 	if err != nil {
 		return nil, err
 	}
@@ -58,19 +64,19 @@ func (c *Client) ChatStream(ctx context.Context, accountID string, req translate
 		return nil, err
 	}
 	client.Timeout = 0
-	resp, err := client.Do(httpReq)
+	resp, err := client.Do(built.httpReq)
 	if err != nil {
 		return nil, err
 	}
 	if resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		resp.Body.Close()
-		return nil, classifiedError(resp.StatusCode, string(body))
+		return nil, classifiedErrorWithToolsDiag(resp.StatusCode, string(body), built.toolsDiag)
 	}
-	return rewriteConnectStream(resp, firstNonEmpty(req.Model, "devin"), originalByAlias)
+	return rewriteConnectStream(resp, firstNonEmpty(req.Model, "devin"), built.originalByAlias, built.toolsDiag)
 }
 
-func (c *Client) buildChatHTTPRequest(ctx context.Context, credential Credential, req translate.ChatRequest) (*http.Request, map[string]string, error) {
+func (c *Client) buildChatHTTPRequest(ctx context.Context, credential Credential, req translate.ChatRequest) (chatRequestBuild, error) {
 	payload := BuildChatPayload(req, currentLevels())
 	proto := BuildGetChatMessageRequest(
 		credential.SessionToken,
@@ -88,7 +94,7 @@ func (c *Client) buildChatHTTPRequest(ctx context.Context, credential Credential
 	endpoint := strings.TrimRight(firstNonEmpty(credential.BaseURL, c.serverBase, ServerBase), "/") + PathGetChatMessage
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
-		return nil, nil, err
+		return chatRequestBuild{}, err
 	}
 	httpReq.Header.Set("Authorization", BasicAuthHeader(credential.SessionToken))
 	httpReq.Header.Set("Content-Type", ContentTypeConnectProto)
@@ -96,7 +102,11 @@ func (c *Client) buildChatHTTPRequest(ctx context.Context, credential Credential
 	httpReq.Header.Set("Accept", "*/*")
 	httpReq.Header.Set("Sentry-Trace", GenerateSentryTrace())
 	httpReq.Header["User-Agent"] = []string{""}
-	return httpReq, payload.OriginalByAlias, nil
+	return chatRequestBuild{
+		httpReq:         httpReq,
+		originalByAlias: payload.OriginalByAlias,
+		toolsDiag:       payload.ToolsDiag,
+	}, nil
 }
 
 type aggregateResult struct {
@@ -109,7 +119,7 @@ type aggregateResult struct {
 	CompletionTokens int
 }
 
-func aggregateConnectStream(r io.Reader, originalByAlias map[string]string) (aggregateResult, error) {
+func aggregateConnectStream(r io.Reader, originalByAlias map[string]string, toolsDiag string) (aggregateResult, error) {
 	var out aggregateResult
 	out.FinishReason = "stop"
 	toolAcc := map[int]*ToolCallDelta{}
@@ -125,7 +135,7 @@ func aggregateConnectStream(r io.Reader, originalByAlias map[string]string) (agg
 		if flag&ConnectFlagEndStream != 0 {
 			sawEOS = true
 			if status, trailerErr := ParseTrailerError(payload); trailerErr != nil {
-				return out, classifiedError(status, trailerErr.Error())
+				return out, classifiedErrorWithToolsDiag(status, trailerErr.Error(), toolsDiag)
 			}
 			break
 		}
@@ -176,7 +186,7 @@ func aggregateConnectStream(r io.Reader, originalByAlias map[string]string) (agg
 		}
 	}
 	if !sawEOS {
-		return out, classifiedError(502, "devin stream truncated: missing EOS trailer")
+		return out, classifiedErrorWithToolsDiag(502, "devin stream truncated: missing EOS trailer", toolsDiag)
 	}
 	if len(toolAcc) > 0 {
 		out.FinishReason = "tool_calls"
@@ -225,7 +235,7 @@ func outcomeFromAggregate(aggregate aggregateResult, fallbackModel string) provi
 	return out
 }
 
-func rewriteConnectStream(upstream *http.Response, model string, originalByAlias map[string]string) (*http.Response, error) {
+func rewriteConnectStream(upstream *http.Response, model string, originalByAlias map[string]string, toolsDiag string) (*http.Response, error) {
 	pr, pw := io.Pipe()
 	go func() {
 		defer upstream.Body.Close()
@@ -273,7 +283,7 @@ func rewriteConnectStream(upstream *http.Response, model string, originalByAlias
 			if flag&ConnectFlagEndStream != 0 {
 				sawEOS = true
 				if status, trailerErr := ParseTrailerError(payload); trailerErr != nil {
-					_ = pw.CloseWithError(classifiedError(status, trailerErr.Error()))
+					_ = pw.CloseWithError(classifiedErrorWithToolsDiag(status, trailerErr.Error(), toolsDiag))
 					return
 				}
 				break
@@ -347,10 +357,10 @@ func rewriteConnectStream(upstream *http.Response, model string, originalByAlias
 				}
 			}
 		}
-		if !sawEOS {
-			_ = pw.CloseWithError(classifiedError(502, "devin stream truncated: missing EOS trailer"))
-			return
-		}
+			if !sawEOS {
+				_ = pw.CloseWithError(classifiedErrorWithToolsDiag(502, "devin stream truncated: missing EOS trailer", toolsDiag))
+				return
+			}
 		finish := "stop"
 		if len(toolAcc) > 0 {
 			finish = "tool_calls"
