@@ -212,6 +212,20 @@ ALTER TABLE request_logs ADD COLUMN message_roles TEXT NOT NULL DEFAULT '';`},
 ALTER TABLE accounts ADD COLUMN workbuddy_checkin_time TEXT NOT NULL DEFAULT '09:00';`},
 	{filename: "019_account_proxy.sql", sql: `
 ALTER TABLE accounts ADD COLUMN proxy_url TEXT NOT NULL DEFAULT '';`},
+	{filename: "020_request_usage_details.sql", sql: `
+CREATE TABLE IF NOT EXISTS request_usage_details (
+  request_id TEXT PRIMARY KEY REFERENCES request_logs(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL,
+  provider TEXT NOT NULL DEFAULT '',
+  credit REAL,
+  unit TEXT NOT NULL DEFAULT 'credits'
+);
+CREATE INDEX IF NOT EXISTS request_usage_details_created_at ON request_usage_details(created_at DESC);
+INSERT OR IGNORE INTO request_usage_details (request_id, created_at, provider, credit, unit)
+  SELECT rl.id, rl.created_at, COALESCE(NULLIF(rl.provider, ''), a.provider, ''), rl.credits, 'credits'
+  FROM request_logs rl
+  LEFT JOIN accounts a ON a.id = rl.account_id
+  WHERE rl.credits IS NOT NULL;`},
 }
 
 const schemaMigrationsDDL = `

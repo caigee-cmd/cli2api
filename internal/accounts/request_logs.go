@@ -55,6 +55,15 @@ type RequestLog struct {
 	MessageRoles        []string                 `json:"message_roles,omitempty"`
 	Attempts            []RequestAttempt         `json:"attempts,omitempty"`
 	StreamDiagnostic    *RequestStreamDiagnostic `json:"stream_diagnostic,omitempty"`
+	UsageDetail         *RequestUsageDetail      `json:"usage_detail,omitempty"`
+}
+
+type RequestUsageDetail struct {
+	RequestID string    `json:"request_id"`
+	CreatedAt time.Time `json:"created_at"`
+	Provider  string    `json:"provider,omitempty"`
+	Credit    *float64  `json:"credit,omitempty"`
+	Unit      string    `json:"unit,omitempty"`
 }
 
 type RequestStreamDiagnostic struct {
@@ -660,7 +669,59 @@ func (s *Store) GetRequestLog(ctx context.Context, id string) (RequestLog, error
 		return RequestLog{}, err
 	}
 	log.StreamDiagnostic = diagnostic
+	usageDetail, err := s.getRequestUsageDetail(ctx, log.ID)
+	if err != nil {
+		return RequestLog{}, err
+	}
+	log.UsageDetail = usageDetail
 	return log, nil
+}
+
+func (s *Store) InsertRequestUsageDetail(ctx context.Context, detail RequestUsageDetail) error {
+	if strings.TrimSpace(detail.RequestID) == "" {
+		return fmt.Errorf("request usage detail request id required")
+	}
+	if detail.CreatedAt.IsZero() {
+		detail.CreatedAt = time.Now().UTC()
+	}
+	unit := strings.TrimSpace(detail.Unit)
+	if unit == "" {
+		unit = "credits"
+	}
+	_, err := s.db.ExecContext(ctx, `
+INSERT INTO request_usage_details (request_id, created_at, provider, credit, unit)
+VALUES (?, ?, ?, ?, ?)
+ON CONFLICT(request_id) DO UPDATE SET
+  provider = excluded.provider, credit = excluded.credit, unit = excluded.unit`,
+		detail.RequestID, formatTime(detail.CreatedAt), detail.Provider, nullableFloat(detail.Credit), unit,
+	)
+	if err != nil {
+		return fmt.Errorf("insert request usage detail: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) getRequestUsageDetail(ctx context.Context, requestID string) (*RequestUsageDetail, error) {
+	var detail RequestUsageDetail
+	var created string
+	var credit sql.NullFloat64
+	err := s.db.QueryRowContext(ctx, `
+SELECT request_id, created_at, provider, credit, unit
+FROM request_usage_details WHERE request_id = ?`, requestID).Scan(
+		&detail.RequestID, &created, &detail.Provider, &credit, &detail.Unit,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get request usage detail: %w", err)
+	}
+	detail.CreatedAt = parseTime(created)
+	if credit.Valid {
+		value := credit.Float64
+		detail.Credit = &value
+	}
+	return &detail, nil
 }
 
 func (s *Store) InsertRequestStreamDiagnostic(ctx context.Context, diagnostic RequestStreamDiagnostic) error {

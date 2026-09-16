@@ -64,7 +64,8 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request)
 	s.finishCompatibility(execution, result.AccountID, result.Provider, result.Routing, accounts.RequestStatusOK, 0, &streamRelayStats{
 		PromptTokens: ptrInt(result.PromptTokens), CompletionTokens: ptrInt(result.CompletionTokens),
 		CacheReadTokens: result.CacheReadTokens, CacheWriteTokens: result.CacheWriteTokens,
-		CachedTokens: result.CachedTokens, UsageSource: result.UsageSource, Credits: result.Credits, Model: result.Model,
+		CachedTokens: result.CachedTokens, UsageSource: result.UsageSource, Credits: result.Credits,
+		ConsumedCredits: result.ConsumedCredits, Model: result.Model,
 	}, nil, result.AttemptCount)
 	writeJSON(w, http.StatusOK, anthropicMessageResponse(execution.requestID, firstNonEmpty(result.Model, execution.publicModel), result.Content, result.Reasoning, decodeOpenAIToolCalls(result.ToolCalls), result.FinishReason, result.PromptTokens, result.CompletionTokens))
 }
@@ -140,7 +141,8 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 	s.finishCompatibility(execution, result.AccountID, result.Provider, result.Routing, accounts.RequestStatusOK, 0, &streamRelayStats{
 		PromptTokens: ptrInt(result.PromptTokens), CompletionTokens: ptrInt(result.CompletionTokens),
 		CacheReadTokens: result.CacheReadTokens, CacheWriteTokens: result.CacheWriteTokens,
-		CachedTokens: result.CachedTokens, UsageSource: result.UsageSource, Credits: result.Credits, Model: result.Model,
+		CachedTokens: result.CachedTokens, UsageSource: result.UsageSource, Credits: result.Credits,
+		ConsumedCredits: result.ConsumedCredits, Model: result.Model,
 	}, nil, result.AttemptCount)
 	writeJSON(w, http.StatusOK, responsesResponse(execution.requestID, firstNonEmpty(result.Model, execution.publicModel), result.Content, result.Reasoning, decodeOpenAIToolCalls(result.ToolCalls), result.PromptTokens, result.CompletionTokens))
 }

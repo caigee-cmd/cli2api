@@ -1520,3 +1520,61 @@ func TestHTTPClientDifferentProxiesUseDifferentTransports(t *testing.T) {
 		t.Fatal("direct did not get its own transport")
 	}
 }
+
+func TestOutcomeFromAggregateReadsConsumedCredit(t *testing.T) {
+	aggregate, err := Aggregate(strings.NewReader(strings.Join([]string{
+		`data: {"id":"c1","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"role":"assistant","content":"hi"},"finish_reason":""}]}`,
+		`data: {"id":"c1","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":16,"completion_tokens":2,"credit":0.75}}`,
+		`data: [DONE]`,
+		"",
+	}, "\n")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	outcome, err := outcomeFromAggregate(aggregate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outcome.PromptTokens != 16 || outcome.CompletionTokens != 2 {
+		t.Fatalf("tokens = %d/%d", outcome.PromptTokens, outcome.CompletionTokens)
+	}
+	if outcome.Credits == nil || *outcome.Credits != 0.75 {
+		t.Fatalf("consumed credit = %v, want 0.75", outcome.Credits)
+	}
+}
+
+func TestOutcomeFromAggregateMissingCreditStaysNil(t *testing.T) {
+	aggregate, err := Aggregate(strings.NewReader(strings.Join([]string{
+		`data: {"id":"c1","choices":[{"index":0,"delta":{"content":"hi"},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":1}}`,
+		`data: [DONE]`,
+		"",
+	}, "\n")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	outcome, err := outcomeFromAggregate(aggregate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outcome.Credits != nil {
+		t.Fatalf("missing credit should stay nil, got %v", *outcome.Credits)
+	}
+}
+
+func TestOutcomeFromAggregateExplicitZeroCredit(t *testing.T) {
+	aggregate, err := Aggregate(strings.NewReader(strings.Join([]string{
+		`data: {"id":"c1","choices":[{"index":0,"delta":{"content":"hi"},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":1,"credit":0}}`,
+		`data: [DONE]`,
+		"",
+	}, "\n")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	outcome, err := outcomeFromAggregate(aggregate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outcome.Credits == nil || *outcome.Credits != 0 {
+		t.Fatalf("explicit zero credit should be recorded, got %v", outcome.Credits)
+	}
+}

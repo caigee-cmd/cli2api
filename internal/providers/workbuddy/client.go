@@ -524,9 +524,10 @@ func outcomeFromAggregate(aggregate map[string]any) (providers.ChatOutcome, erro
 	var parsed struct {
 		Model string `json:"model"`
 		Usage struct {
-			PromptTokens     int    `json:"prompt_tokens"`
-			CompletionTokens int    `json:"completion_tokens"`
-			Source           string `json:"source"`
+			PromptTokens     int      `json:"prompt_tokens"`
+			CompletionTokens int      `json:"completion_tokens"`
+			Source           string   `json:"source"`
+			Credit           *float64 `json:"credit"`
 		} `json:"usage"`
 		Choices []struct {
 			FinishReason string `json:"finish_reason"`
@@ -552,6 +553,7 @@ func outcomeFromAggregate(aggregate map[string]any) (providers.ChatOutcome, erro
 	out.Model = parsed.Model
 	out.PromptTokens = parsed.Usage.PromptTokens
 	out.CompletionTokens = parsed.Usage.CompletionTokens
+	out.Credits = parsed.Usage.Credit
 	return out, nil
 }
 

@@ -43,6 +43,7 @@ type streamRelayStats struct {
 	CachedTokens     *int
 	UsageSource      string
 	Credits          *float64
+	ConsumedCredits  *float64
 	Model            string
 	FirstTokenAt     *time.Time
 	SSEEventCount    int
@@ -459,6 +460,7 @@ func parseStreamUsageLine(line string) (streamRelayStats, bool) {
 			CacheWriteTokens *int     `json:"cache_write_tokens"`
 			Source           string   `json:"source"`
 			Credits          *float64 `json:"credits"`
+			Credit           *float64 `json:"credit"`
 			PromptDetails    struct {
 				CachedTokens *int `json:"cached_tokens"`
 			} `json:"prompt_tokens_details"`
@@ -467,6 +469,10 @@ func parseStreamUsageLine(line string) (streamRelayStats, bool) {
 	if err := json.Unmarshal([]byte(payload), &parsed); err != nil || parsed.Usage == nil {
 		return streamRelayStats{}, false
 	}
+	credits := parsed.Usage.Credits
+	if credits == nil {
+		credits = parsed.Usage.Credit
+	}
 	return streamRelayStats{
 		PromptTokens:     parsed.Usage.PromptTokens,
 		CompletionTokens: parsed.Usage.CompletionTokens,
@@ -474,7 +480,7 @@ func parseStreamUsageLine(line string) (streamRelayStats, bool) {
 		CacheWriteTokens: parsed.Usage.CacheWriteTokens,
 		CachedTokens:     parsed.Usage.PromptDetails.CachedTokens,
 		UsageSource:      firstNonEmpty(parsed.Usage.Source, "estimate"),
-		Credits:          parsed.Usage.Credits,
+		Credits:          credits,
 		Model:            parsed.Model,
 	}, true
 }
@@ -867,7 +873,8 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	s.finishRequestLog(requestID, started, req, publicModel, res.AccountID, firstNonEmpty(res.Provider, providerFilter), res.Routing, accounts.RequestStatusOK, 0, &streamRelayStats{
 		PromptTokens: ptrInt(res.PromptTokens), CompletionTokens: ptrInt(res.CompletionTokens),
 		CacheReadTokens: res.CacheReadTokens, CacheWriteTokens: res.CacheWriteTokens,
-		CachedTokens: res.CachedTokens, UsageSource: res.UsageSource, Credits: res.Credits, Model: res.Model,
+		CachedTokens: res.CachedTokens, UsageSource: res.UsageSource, Credits: res.Credits,
+		ConsumedCredits: res.ConsumedCredits, Model: res.Model,
 	}, nil, res.AttemptCount)
 	message := map[string]any{
 		"role":    "assistant",
@@ -1075,7 +1082,6 @@ func (s *Server) finishRequestLog(requestID string, started time.Time, req trans
 		entry.CacheReadTokens = stats.CacheReadTokens
 		entry.CacheWriteTokens = stats.CacheWriteTokens
 		entry.UsageSource = stats.UsageSource
-		entry.Credits = stats.Credits
 		if stats.Model != "" {
 			entry.MappedModel = stats.Model
 		}
@@ -1087,6 +1093,21 @@ func (s *Server) finishRequestLog(requestID string, started time.Time, req trans
 		entry.ErrorMessage = classified.Message
 	}
 	s.recorder.Finish(entry)
+	if stats != nil {
+		consumed := stats.ConsumedCredits
+		if consumed == nil {
+			consumed = stats.Credits
+		}
+		if consumed != nil {
+			s.recorder.UsageDetail(accounts.RequestUsageDetail{
+				RequestID: requestID,
+				CreatedAt: started,
+				Provider:  provider,
+				Credit:    consumed,
+				Unit:      "credits",
+			})
+		}
+	}
 }
 
 func (s *Server) recordStreamDiagnostic(requestID string, response *http.Response, started time.Time, stats streamRelayStats, relayErr, contextErr error) {
