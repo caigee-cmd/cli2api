@@ -8,10 +8,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 ### English
 
 - Show consumed points under the Tokens column in request history when a provider reports them; keep writing the value on the request log row, and fall back to the request-detail table for rows that only stored it there
+- Temporary Devin diagnostic: when upstream returns an MCP configuration `permission_denied`, append a compact tools type/name summary (`tools_diag`) to the error so request logs can show what Desktop sent versus what was forwarded
 
 ### 中文
 
 - 请求历史上游若回报消耗点数，会在 Tokens 列下方以绿色小字展示；继续写入请求日志主表对应字段，并对仅记在详情表的历史行做回退读取
+- 临时诊断：Devin 上游返回 MCP 配置类 `permission_denied` 时，会在错误信息追加精简的 tools type/name 摘要（`tools_diag`），便于从请求日志对照 Desktop 入站与实际上游转发内容
 
 ## 0.5.4 - 2026-09-16
 
