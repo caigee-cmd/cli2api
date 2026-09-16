@@ -132,6 +132,11 @@ function formatLatency(ms?: number | null) {
   return `${(ms / 1000).toFixed(1)}s`
 }
 
+function formatCredit(value?: number | null) {
+  if (value == null || !Number.isFinite(value)) return '—'
+  return String(Math.round(value * 10000) / 10000)
+}
+
 function dateValueToISO(value: DateValue | null | undefined, endOfMinute = false) {
   if (!value) return undefined
   const date = value.toDate(getLocalTimeZone())
@@ -979,6 +984,22 @@ export function LogsPage() {
                         {selected.stream_diagnostic.relay_error ? <div>relay: {selected.stream_diagnostic.relay_error}</div> : null}
                       </div>
                     ) : null}
+                  </div>
+                ) : null}
+                {selected?.usage_detail ? (
+                  <div className="rounded-lg bg-surface-secondary px-3 py-3 text-xs">
+                    <div className="font-medium text-muted">{t('logsUsageDetail')}</div>
+                    <dl className="mt-2 grid gap-2 sm:grid-cols-2">
+                      {[
+                        [t('logsCreditConsumed'), `${formatCredit(selected.usage_detail.credit)} ${selected.usage_detail.unit || 'credits'}`],
+                        [t('logsColProvider'), selected.usage_detail.provider || '—'],
+                      ].map(([label, value]) => (
+                        <div key={String(label)}>
+                          <dt className="text-[10px] text-muted">{label}</dt>
+                          <dd className="mono mt-0.5 break-all">{value}</dd>
+                        </div>
+                      ))}
+                    </dl>
                   </div>
                 ) : null}
                 <div>

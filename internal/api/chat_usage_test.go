@@ -246,3 +246,24 @@ func TestRelayOpenAIStreamReportsIncompleteStreamStructurally(t *testing.T) {
 		t.Fatalf("structured incomplete-stream error was not emitted: %s", recorder.Body.String())
 	}
 }
+
+func TestParseStreamUsageLineReadsWorkBuddyCredit(t *testing.T) {
+	stats, ok := parseStreamUsageLine(`data: {"model":"hy3","usage":{"prompt_tokens":16,"completion_tokens":2,"credit":0.75}}`)
+	if !ok || stats.Credits == nil || *stats.Credits != 0.75 {
+		t.Fatalf("stats = %+v ok=%v", stats, ok)
+	}
+}
+
+func TestParseStreamUsageLinePrefersPluralCredits(t *testing.T) {
+	stats, ok := parseStreamUsageLine(`data: {"usage":{"prompt_tokens":1,"completion_tokens":1,"credits":3.5,"credit":0.5}}`)
+	if !ok || stats.Credits == nil || *stats.Credits != 3.5 {
+		t.Fatalf("stats = %+v ok=%v", stats, ok)
+	}
+}
+
+func TestParseStreamUsageLineMissingCreditStaysNil(t *testing.T) {
+	stats, ok := parseStreamUsageLine(`data: {"usage":{"prompt_tokens":1,"completion_tokens":1}}`)
+	if !ok || stats.Credits != nil {
+		t.Fatalf("stats = %+v ok=%v", stats, ok)
+	}
+}

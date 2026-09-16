@@ -70,6 +70,7 @@ type ChatOutcome struct {
 	PromptTokens     int
 	CompletionTokens int
 	UsageSource      string
+	Credits          *float64
 }
 
 // ProviderChat executes chat for one account. Stream implementations return

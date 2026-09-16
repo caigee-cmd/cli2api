@@ -33,6 +33,14 @@ export type RequestStreamDiagnostic = {
   saw_done: boolean
 }
 
+export type RequestUsageDetail = {
+  request_id: string
+  created_at: string
+  provider?: string
+  credit?: number | null
+  unit?: string
+}
+
 export type RequestLog = {
   id: string
   created_at: string
@@ -61,6 +69,7 @@ export type RequestLog = {
   message_roles?: string[]
   attempts?: RequestAttempt[]
   stream_diagnostic?: RequestStreamDiagnostic
+  usage_detail?: RequestUsageDetail
 }
 
 export type RequestLogList = {

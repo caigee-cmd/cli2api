@@ -46,6 +46,7 @@ type ChatResult struct {
 	CachedTokens     *int
 	UsageSource      string
 	Credits          *float64
+	ConsumedCredits  *float64
 	AccountID        string
 	Provider         string
 	AttemptCount     int
@@ -923,6 +924,7 @@ func (e ChatExecutor) chatInProcessNonStreamAttempt(ctx context.Context, item ac
 		PromptTokens:     outcome.PromptTokens,
 		CompletionTokens: outcome.CompletionTokens,
 		UsageSource:      outcome.UsageSource,
+		ConsumedCredits:  outcome.Credits,
 		AccountID:        item.ID,
 		Provider:         item.Provider,
 	}, accounts.Classified{}, nil

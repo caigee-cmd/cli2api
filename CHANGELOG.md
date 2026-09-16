@@ -9,11 +9,13 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 - Alias Codex/Desktop `mcp__*` tools for Devin upstream and restore the original names on tool calls so the local client can execute MCP, while still treating MCP configuration `permission_denied` as an invalid request instead of auth cooldown
 - Expand Codex/Desktop `type: "namespace"` tool wrappers into plain function tools for Devin and drop hosted shells such as `type: "mcp"` / `web_search`, which were enough to trip the upstream provider
+- Record each request's consumed points (WorkBuddy `usage.credit`) in a dedicated request-detail table and show them in the console request detail, keeping the query-oriented request log row lean
 
 ### 中文
 
 - Devin 会对 Codex/Desktop 的 `mcp__*` 工具做上游别名并在返回的 tool_calls 中还原原名，便于本地客户端执行 MCP；MCP 配置类 `permission_denied` 仍归为无效请求，不再按鉴权失败冷却账号
 - Devin 会把 Codex/Desktop 的 `type: "namespace"` 工具包装展开成普通 function，并丢弃 `type: "mcp"` / `web_search` 这类 hosted 外壳；此前仅这些外壳就足以让上游失败
+- 每次请求消耗的点数（WorkBuddy `usage.credit`）记入独立的请求详情表，并在控制台请求详情中展示；面向查询的请求日志主表保持精简
 
 ## 0.5.3 - 2026-09-15
 

@@ -211,3 +211,46 @@ func TestParseQueryTimeDateOnlyEndOfDay(t *testing.T) {
 		t.Fatalf("to=%s", to.UTC())
 	}
 }
+
+func TestGetRequestLogExposesUsageDetail(t *testing.T) {
+	dir := t.TempDir()
+	srv := New(config.Config{
+		Host: "127.0.0.1", Port: 3010, ProxyAPIKey: "secret",
+		QoderHome: dir, DataDir: dir,
+	})
+	defer srv.Close()
+
+	ctx := context.Background()
+	id := accounts.NewRequestID()
+	created := time.Now().UTC().Add(-time.Minute).Truncate(time.Second)
+	if err := srv.recorder.Store().InsertRequestLog(ctx, accounts.RequestLog{
+		ID: id, CreatedAt: created, Status: accounts.RequestStatusOK,
+		RequestedModel: "hy3", AccountID: "acc_wb", Provider: "workbuddy",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	consumed := 0.75
+	if err := srv.recorder.Store().InsertRequestUsageDetail(ctx, accounts.RequestUsageDetail{
+		RequestID: id, CreatedAt: created, Provider: "workbuddy", Credit: &consumed, Unit: "credits",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/logs/requests/"+id, nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		UsageDetail *accounts.RequestUsageDetail `json:"usage_detail"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.UsageDetail == nil || got.UsageDetail.Credit == nil || *got.UsageDetail.Credit != 0.75 ||
+		got.UsageDetail.Unit != "credits" || got.UsageDetail.Provider != "workbuddy" {
+		t.Fatalf("usage_detail = %+v", got.UsageDetail)
+	}
+}

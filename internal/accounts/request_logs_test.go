@@ -63,6 +63,12 @@ func TestRequestLogsInsertListGetAndPurge(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	consumed := 0.75
+	if err := store.InsertRequestUsageDetail(ctx, RequestUsageDetail{
+		RequestID: parentID, CreatedAt: now, Provider: "workbuddy", Credit: &consumed, Unit: "credits",
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	list, err := store.ListRequestLogs(ctx, RequestLogFilter{Limit: 10})
 	if err != nil {
@@ -70,6 +76,9 @@ func TestRequestLogsInsertListGetAndPurge(t *testing.T) {
 	}
 	if list.Total != 1 || len(list.Items) != 1 || list.Items[0].Status != RequestStatusOK || list.Items[0].Provider != "workbuddy" {
 		t.Fatalf("list = %+v", list)
+	}
+	if list.Items[0].UsageDetail != nil {
+		t.Fatalf("list should not carry usage detail: %+v", list.Items[0].UsageDetail)
 	}
 
 	got, err := store.GetRequestLog(ctx, parentID)
@@ -82,6 +91,10 @@ func TestRequestLogsInsertListGetAndPurge(t *testing.T) {
 	if got.StreamDiagnostic == nil || got.StreamDiagnostic.UpstreamStatus == nil || *got.StreamDiagnostic.UpstreamStatus != 200 ||
 		got.StreamDiagnostic.CancellationSource != "request_context_canceled" || got.StreamDiagnostic.SSEEventCount != 4 || got.StreamDiagnostic.SawDone {
 		t.Fatalf("stream diagnostic = %+v", got.StreamDiagnostic)
+	}
+	if got.UsageDetail == nil || got.UsageDetail.Credit == nil || *got.UsageDetail.Credit != 0.75 ||
+		got.UsageDetail.Unit != "credits" || got.UsageDetail.Provider != "workbuddy" {
+		t.Fatalf("usage detail = %+v", got.UsageDetail)
 	}
 
 	filtered, err := store.ListRequestLogs(ctx, RequestLogFilter{AccountID: wb.ID, Status: RequestStatusOK})
@@ -127,6 +140,77 @@ func TestRequestLogsInsertListGetAndPurge(t *testing.T) {
 	cleared, err := store.ClearRequestLogs(ctx)
 	if err != nil || cleared < 1 {
 		t.Fatalf("clear = %d err=%v", cleared, err)
+	}
+	var usageRows int
+	if err := store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM request_usage_details`).Scan(&usageRows); err != nil {
+		t.Fatal(err)
+	}
+	if usageRows != 0 {
+		t.Fatalf("usage detail rows survived clear: %d", usageRows)
+	}
+}
+
+func TestUsageDetailBackfillUsesProviderThenAccountFallback(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	account, err := store.Create(ctx, CreateAccount{Name: "WB", Provider: "workbuddy", Region: "cn"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().UTC()
+	explicit, fallback, missing := 1.5, 2.5, 3.5
+	rows := []RequestLog{
+		{ID: NewRequestID(), CreatedAt: now, Status: RequestStatusOK, RequestedModel: "m1", Provider: "trae", AccountID: account.ID, Credits: &explicit},
+		{ID: NewRequestID(), CreatedAt: now, Status: RequestStatusOK, RequestedModel: "m2", AccountID: account.ID, Credits: &fallback},
+		{ID: NewRequestID(), CreatedAt: now, Status: RequestStatusOK, RequestedModel: "m3", AccountID: "ghost", Credits: &missing},
+	}
+	for _, row := range rows {
+		if err := store.InsertRequestLog(ctx, row); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if _, err := store.db.ExecContext(ctx, `DROP TABLE IF EXISTS request_usage_details`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.ExecContext(ctx, `DELETE FROM schema_migrations WHERE filename = '020_request_usage_details.sql'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.runMigrations(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	explicitDetail, err := store.getRequestUsageDetail(ctx, rows[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if explicitDetail == nil || explicitDetail.Provider != "trae" {
+		t.Fatalf("explicit provider row = %+v, want trae", explicitDetail)
+	}
+
+	fallbackDetail, err := store.getRequestUsageDetail(ctx, rows[1].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fallbackDetail == nil || fallbackDetail.Provider != "workbuddy" {
+		t.Fatalf("account fallback row = %+v, want workbuddy", fallbackDetail)
+	}
+	if fallbackDetail.Credit == nil || *fallbackDetail.Credit != fallback || fallbackDetail.Unit != "credits" {
+		t.Fatalf("account fallback credit/unit = %+v", fallbackDetail)
+	}
+
+	missingDetail, err := store.getRequestUsageDetail(ctx, rows[2].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if missingDetail == nil || missingDetail.Provider != "" {
+		t.Fatalf("unreachable account row = %+v, want empty provider", missingDetail)
 	}
 }
 
