@@ -373,7 +373,7 @@ func TestAggregateConnectStreamMissingEOS(t *testing.T) {
 	textFrame = AppendTag(textFrame, 3, BytesType)
 	textFrame = AppendString(textFrame, "orphan")
 	framed := WrapConnectEnvelope(textFrame)
-	_, err := aggregateConnectStream(bytes.NewReader(framed), nil)
+	_, err := aggregateConnectStream(bytes.NewReader(framed), nil, "")
 	if err == nil {
 		t.Fatal("expected missing EOS error")
 	}
@@ -541,6 +541,60 @@ func TestClassifyMCPConfigPermissionDenied(t *testing.T) {
 	}
 	if providerErr.Failover == nil || *providerErr.Failover {
 		t.Fatalf("failover=%v want false", providerErr.Failover)
+	}
+
+	diag := "in=[namespace:mcp__computer-use,ns.function:left_click] out(1)=[mcp_computer_use_left_click]"
+	err = classifiedErrorWithToolsDiag(403, body, diag)
+	if !errors.As(err, &providerErr) {
+		t.Fatalf("classifiedErrorWithToolsDiag type=%T", err)
+	}
+	if !strings.Contains(providerErr.Message, "tools_diag="+diag) {
+		t.Fatalf("message missing tools_diag: %s", providerErr.Message)
+	}
+	if providerErr.Kind != accounts.KindInvalidRequest || providerErr.Cooldown != 0 {
+		t.Fatalf("diag classify=%+v", providerErr)
+	}
+}
+
+func TestBuildToolsDiagSummarizesInboundAndOutbound(t *testing.T) {
+	raw := json.RawMessage(`[
+		{"type":"namespace","name":"mcp__computer-use","tools":[
+			{"type":"function","name":"left_click","parameters":{"type":"object"}},
+			{"type":"function","function":{"name":"mcp__computer-use__type","parameters":{"type":"object"}}}
+		]},
+		{"type":"mcp","server_label":"browser"},
+		{"type":"web_search"},
+		{"type":"custom","name":"weird_shell"},
+		{"type":"function","function":{"name":"lookup","parameters":{"type":"object"}}}
+	]`)
+	payload := BuildChatPayload(translate.ChatRequest{
+		Model:    "swe-2",
+		Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+		Tools:    raw,
+	}, nil)
+	if !strings.Contains(payload.ToolsDiag, "in=[") {
+		t.Fatalf("missing inbound summary: %s", payload.ToolsDiag)
+	}
+	if !strings.Contains(payload.ToolsDiag, "namespace:mcp__computer-use") {
+		t.Fatalf("missing namespace entry: %s", payload.ToolsDiag)
+	}
+	if !strings.Contains(payload.ToolsDiag, "ns.function:left_click") {
+		t.Fatalf("missing nested function: %s", payload.ToolsDiag)
+	}
+	if !strings.Contains(payload.ToolsDiag, "mcp:browser") {
+		t.Fatalf("missing mcp shell: %s", payload.ToolsDiag)
+	}
+	if !strings.Contains(payload.ToolsDiag, "web_search") {
+		t.Fatalf("missing web_search: %s", payload.ToolsDiag)
+	}
+	if !strings.Contains(payload.ToolsDiag, "custom:weird_shell") {
+		t.Fatalf("missing custom type: %s", payload.ToolsDiag)
+	}
+	if !strings.Contains(payload.ToolsDiag, "out(") || !strings.Contains(payload.ToolsDiag, "lookup") {
+		t.Fatalf("missing outbound summary: %s", payload.ToolsDiag)
+	}
+	if strings.Contains(payload.ToolsDiag, `"parameters"`) || strings.Contains(payload.ToolsDiag, "description") {
+		t.Fatalf("diag leaked schema/description: %s", payload.ToolsDiag)
 	}
 }
 

@@ -1,6 +1,7 @@
 package devin
 
 import (
+	"log"
 	"regexp"
 	"strings"
 	"time"
@@ -94,6 +95,10 @@ func Classify(status int, body string) providers.ClassifiedError {
 }
 
 func classifiedError(status int, body string) error {
+	return classifiedErrorWithToolsDiag(status, body, "")
+}
+
+func classifiedErrorWithToolsDiag(status int, body, toolsDiag string) error {
 	classified := Classify(status, body)
 	if classified.Kind == "" {
 		classified = providers.ClassifiedError{
@@ -102,14 +107,35 @@ func classifiedError(status int, body string) error {
 			Message: firstNonEmpty(redactSecrets(strings.TrimSpace(body)), "upstream error"),
 		}
 	}
+	message := classified.Message
+	if toolsDiag != "" && isDevinMCPConfigDenial(strings.ToLower(message)+" "+strings.ToLower(body)) {
+		log.Printf("devin mcp configuration denial tools_diag=%s", toolsDiag)
+		message = appendToolsDiag(message, toolsDiag)
+	}
 	failover := classified.Kind != accounts.KindInvalidRequest
 	return &providers.Error{
 		Kind:     classified.Kind,
 		Status:   classified.Status,
-		Message:  classified.Message,
+		Message:  message,
 		Cooldown: classifiedCooldown(classified.Kind),
 		Failover: &failover,
 	}
+}
+
+func appendToolsDiag(message, toolsDiag string) string {
+	message = strings.TrimSpace(message)
+	toolsDiag = strings.TrimSpace(toolsDiag)
+	if toolsDiag == "" {
+		return message
+	}
+	suffix := "tools_diag=" + toolsDiag
+	if message == "" {
+		return suffix
+	}
+	if strings.Contains(message, "tools_diag=") {
+		return message
+	}
+	return message + " | " + suffix
 }
 
 func classifiedCooldown(kind string) time.Duration {
