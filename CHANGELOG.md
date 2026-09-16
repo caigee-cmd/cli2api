@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.5.5 - 2026-09-16
+
+### English
+
 - Source WorkBuddy model credits and free badges from the official catalog instead of hardcoded prices, and let the Providers page request `/api/models?view=regional` so each provider region keeps its own price while Access/Overview stay on the merged catalog
 - When the same model is merged across regions with conflicting credits, omit the price on the merged `/v1` and default `/api/models` rows instead of keeping the first account's rate
 - Show consumed points under the Tokens column in request history when a provider reports them; keep writing the value on the request log row, and fall back to the request-detail table for rows that only stored it there
