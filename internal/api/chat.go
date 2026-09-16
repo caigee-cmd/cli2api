@@ -1076,39 +1076,38 @@ func (s *Server) finishRequestLog(requestID string, started time.Time, req trans
 	} else if !req.Stream && entry.LatencyMs != nil {
 		entry.TTFBMs = entry.LatencyMs
 	}
-	if stats != nil {
-		entry.PromptTokens = stats.PromptTokens
-		entry.CompletionTokens = stats.CompletionTokens
-		entry.CacheReadTokens = stats.CacheReadTokens
-		entry.CacheWriteTokens = stats.CacheWriteTokens
-		entry.UsageSource = stats.UsageSource
-		if stats.Model != "" {
-			entry.MappedModel = stats.Model
+if stats != nil {
+			entry.PromptTokens = stats.PromptTokens
+			entry.CompletionTokens = stats.CompletionTokens
+			entry.CacheReadTokens = stats.CacheReadTokens
+			entry.CacheWriteTokens = stats.CacheWriteTokens
+			entry.UsageSource = stats.UsageSource
+			consumed := stats.ConsumedCredits
+			if consumed == nil {
+				consumed = stats.Credits
+			}
+			entry.Credits = consumed
+			if stats.Model != "" {
+				entry.MappedModel = stats.Model
+			}
 		}
-	}
-	if err != nil {
-		classified := classifyAPIError(err)
-		entry.ErrorKind = classified.Kind
-		entry.ErrorCode = classified.Code
-		entry.ErrorMessage = classified.Message
-	}
-	s.recorder.Finish(entry)
-	if stats != nil {
-		consumed := stats.ConsumedCredits
-		if consumed == nil {
-			consumed = stats.Credits
+		if err != nil {
+			classified := classifyAPIError(err)
+			entry.ErrorKind = classified.Kind
+			entry.ErrorCode = classified.Code
+			entry.ErrorMessage = classified.Message
 		}
-		if consumed != nil {
+		s.recorder.Finish(entry)
+		if stats != nil && entry.Credits != nil {
 			s.recorder.UsageDetail(accounts.RequestUsageDetail{
 				RequestID: requestID,
 				CreatedAt: started,
 				Provider:  provider,
-				Credit:    consumed,
+				Credit:    entry.Credits,
 				Unit:      "credits",
 			})
 		}
 	}
-}
 
 func (s *Server) recordStreamDiagnostic(requestID string, response *http.Response, started time.Time, stats streamRelayStats, relayErr, contextErr error) {
 	if s.recorder == nil || requestID == "" {

@@ -74,12 +74,15 @@ func TestRequestLogsInsertListGetAndPurge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if list.Total != 1 || len(list.Items) != 1 || list.Items[0].Status != RequestStatusOK || list.Items[0].Provider != "workbuddy" {
-		t.Fatalf("list = %+v", list)
-	}
-	if list.Items[0].UsageDetail != nil {
-		t.Fatalf("list should not carry usage detail: %+v", list.Items[0].UsageDetail)
-	}
+if list.Total != 1 || len(list.Items) != 1 || list.Items[0].Status != RequestStatusOK || list.Items[0].Provider != "workbuddy" {
+			t.Fatalf("list = %+v", list)
+		}
+		if list.Items[0].Credits == nil || *list.Items[0].Credits != 0.75 {
+			t.Fatalf("list credits fallback = %+v", list.Items[0].Credits)
+		}
+		if list.Items[0].UsageDetail != nil {
+			t.Fatalf("list should not carry usage detail: %+v", list.Items[0].UsageDetail)
+		}
 
 	got, err := store.GetRequestLog(ctx, parentID)
 	if err != nil {

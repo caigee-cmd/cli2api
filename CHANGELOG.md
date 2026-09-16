@@ -7,7 +7,11 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Show consumed points under the Tokens column in request history when a provider reports them; keep writing the value on the request log row, and fall back to the request-detail table for rows that only stored it there
+
 ### 中文
+
+- 请求历史上游若回报消耗点数，会在 Tokens 列下方以绿色小字展示；继续写入请求日志主表对应字段，并对仅记在详情表的历史行做回退读取
 
 ## 0.5.4 - 2026-09-16
 
