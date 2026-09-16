@@ -7,11 +7,15 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Source WorkBuddy model credits and free badges from the official catalog instead of hardcoded prices, and let the Providers page request `/api/models?view=regional` so each provider region keeps its own price while Access/Overview stay on the merged catalog
+- When the same model is merged across regions with conflicting credits, omit the price on the merged `/v1` and default `/api/models` rows instead of keeping the first account's rate
 - Show consumed points under the Tokens column in request history when a provider reports them; keep writing the value on the request log row, and fall back to the request-detail table for rows that only stored it there
 - Temporary Devin diagnostic: when upstream returns an MCP configuration `permission_denied`, append a compact tools type/name summary (`tools_diag`) to the error so request logs can show what Desktop sent versus what was forwarded
 
 ### 中文
 
+- WorkBuddy 模型积分与免费标记改为读取官方目录；Providers 页通过 `/api/models?view=regional` 按供应商区域展示各自价格，Access/Overview 仍使用合并目录
+- 同一模型跨区域合并且价格冲突时，合并后的 `/v1` 与默认 `/api/models` 条目会省略价格，不再保留首个账户的费率
 - 请求历史上游若回报消耗点数，会在 Tokens 列下方以绿色小字展示；继续写入请求日志主表对应字段，并对仅记在详情表的历史行做回退读取
 - 临时诊断：Devin 上游返回 MCP 配置类 `permission_denied` 时，会在错误信息追加精简的 tools type/name 摘要（`tools_diag`），便于从请求日志对照 Desktop 入站与实际上游转发内容
 
