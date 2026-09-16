@@ -25,6 +25,20 @@ export function formatCountKind(value: number, kind: 'int' | 'compact' | 'percen
   return String(Math.round(value))
 }
 
+/** Official WorkBuddy catalog credits text, when present. */
+export function modelCreditsText(model: { credits?: string | null }) {
+  const credits = (model.credits || '').trim()
+  return credits || ''
+}
+
+export function modelIsFree(model: { free?: boolean | null; credits?: string | null }) {
+  if (model.free) return true
+  const credits = modelCreditsText(model).toLowerCase()
+  if (!credits) return false
+  const match = credits.match(/(\d+(?:\.\d+)?)/)
+  return Boolean(match && Number(match[1]) === 0)
+}
+
 function trimFixed(value: number) {
   const digits = Math.abs(value) >= 10 ? 0 : 1
   return Number(value.toFixed(digits)).toString()

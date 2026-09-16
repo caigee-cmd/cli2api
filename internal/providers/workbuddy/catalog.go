@@ -1,7 +1,9 @@
 package workbuddy
 
 import (
+	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/providers"
@@ -23,6 +25,7 @@ type catalogContextWindow struct {
 type catalogModelEntry struct {
 	ID                string               `json:"id"`
 	Name              string               `json:"name"`
+	Credits           string               `json:"credits"`
 	MaxInputTokens    int                  `json:"maxInputTokens"`
 	MaxOutputTokens   int                  `json:"maxOutputTokens"`
 	Disabled          bool                 `json:"disabled"`
@@ -56,10 +59,13 @@ func catalogModel(model catalogModelEntry) providers.ModelInfo {
 		options = append([]string{"none"}, options...)
 	}
 	window, windowMax := contextWindows(model)
+	credits := strings.TrimSpace(model.Credits)
 	return providers.ModelInfo{
 		NativeModel: model.ID,
 		PublicModel: model.ID,
 		DisplayName: model.Name,
+		Credits:     credits,
+		Free:        catalogCreditsFree(credits),
 		Capabilities: providers.ModelCapabilities{
 			ContextWindow:      window,
 			ContextWindowMax:   windowMax,
@@ -72,6 +78,40 @@ func catalogModel(model catalogModelEntry) providers.ModelInfo {
 			CanDisableThinking: canDisable,
 		},
 	}
+}
+
+// catalogCreditsFree reports whether the official credits text means free.
+// Empty / unparseable strings stay non-free so Auto-style blanks are not
+// inventively marked.
+func catalogCreditsFree(credits string) bool {
+	credits = strings.TrimSpace(credits)
+	if credits == "" {
+		return false
+	}
+	start := -1
+	end := -1
+	for i, r := range credits {
+		if start < 0 {
+			if r == '.' || unicode.IsDigit(r) {
+				start = i
+				end = i + 1
+			}
+			continue
+		}
+		if r == '.' || unicode.IsDigit(r) {
+			end = i + 1
+			continue
+		}
+		break
+	}
+	if start < 0 || end <= start {
+		return false
+	}
+	value, err := strconv.ParseFloat(credits[start:end], 64)
+	if err != nil {
+		return false
+	}
+	return value == 0
 }
 
 func contextWindows(model catalogModelEntry) (int, int) {

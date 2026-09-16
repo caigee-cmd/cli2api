@@ -154,7 +154,7 @@ func TestChatNonStreamAggregatesToolsAndReasoning(t *testing.T) {
 	payload, _ := Credential{AccessToken: "at", UID: "u1", Domain: "codebuddy.cn", ExpiresAt: 4102444800}.Encode()
 	store := &memStore{items: map[string][]byte{"acc1": payload}}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == pathModelsCN {
+		if r.URL.Path == pathProductConfig {
 			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{
 				"models": []map[string]any{{"id": "glm-5.2", "name": "GLM", "maxInputTokens": 128000}},
 				"agents": []map[string]any{{"name": "cli", "models": []string{"glm-5.2"}}},
@@ -368,11 +368,11 @@ func TestChatNonStreamReadLifecycle(t *testing.T) {
 	}
 }
 
-func TestModelsFiltersCliAgentAndDisabled(t *testing.T) {
+func TestModelsUsesProductConfigCLIAllowlist(t *testing.T) {
 	payload, _ := Credential{AccessToken: "at", UID: "u1", Domain: "codebuddy.cn", ExpiresAt: 4102444800}.Encode()
 	store := &memStore{items: map[string][]byte{"acc1": payload}}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != pathModelsCN {
+		if r.URL.Path != pathProductConfig {
 			t.Fatalf("path=%s", r.URL.Path)
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{
@@ -380,10 +380,12 @@ func TestModelsFiltersCliAgentAndDisabled(t *testing.T) {
 				{"id": "glm-5.2", "name": "GLM", "maxInputTokens": 128000, "maxOutputTokens": 16384},
 				{"id": "secret-model", "disabled": true},
 				{"id": "web-model"},
+				{"id": "deepseek-v4.1-flash", "name": "Deepseek-V4.1-Flash"},
 			},
+			// IDE parity: intersect /v3/config models with CLI agent allowlist.
 			"agents": []map[string]any{
 				{"name": "web", "models": []string{"web-model"}},
-				{"name": "cli", "models": []string{"glm-5.2", "secret-model"}},
+				{"name": "cli", "models": []string{"glm-5.2", "secret-model", "deepseek-v4.1-flash"}},
 			},
 		}})
 	}))
@@ -396,8 +398,24 @@ func TestModelsFiltersCliAgentAndDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(models) != 1 || models[0].NativeModel != "glm-5.2" || models[0].Capabilities.ContextWindow != 128000 {
+	got := map[string]providers.ModelInfo{}
+	for _, model := range models {
+		got[model.NativeModel] = model
+	}
+	if len(got) != 2 {
 		t.Fatalf("models=%+v", models)
+	}
+	if got["glm-5.2"].Capabilities.ContextWindow != 128000 {
+		t.Fatalf("models=%+v", models)
+	}
+	if _, ok := got["deepseek-v4.1-flash"]; !ok {
+		t.Fatalf("missing deepseek-v4.1-flash: %+v", models)
+	}
+	if _, ok := got["web-model"]; ok {
+		t.Fatalf("non-cli model leaked: %+v", models)
+	}
+	if _, ok := got["secret-model"]; ok {
+		t.Fatalf("disabled model leaked: %+v", models)
 	}
 }
 
@@ -467,7 +485,7 @@ func TestChatRequestSendsCatalogReasoningEffort(t *testing.T) {
 	store := &memStore{items: map[string][]byte{"acc1": payload}}
 	var got map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == pathModelsCN {
+		if r.URL.Path == pathProductConfig {
 			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{
 				"models": []map[string]any{{
 					"id": "glm-5.3", "name": "GLM-5.3", "supportsReasoning": true,
@@ -502,7 +520,7 @@ func TestChatRequestSendsOfficialReasoningFieldsForDeepseekFlash(t *testing.T) {
 	store := &memStore{items: map[string][]byte{"acc1": payload}}
 	var got map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == pathModelsCN {
+		if r.URL.Path == pathProductConfig {
 			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{
 				"models": []map[string]any{{
 					"id": "deepseek-v4.1-flash", "name": "Deepseek V4.1 Flash",
@@ -550,7 +568,7 @@ func TestChatRequestFindsStoredReasoningByCanonicalKey(t *testing.T) {
 	}
 	var got map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == pathModelsCN {
+		if r.URL.Path == pathProductConfig {
 			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{
 				"models": []map[string]any{{
 					"id": "glm-5.3", "name": "GLM-5.3", "supportsReasoning": true,
@@ -579,10 +597,13 @@ func TestChatRequestFindsStoredReasoningByCanonicalKey(t *testing.T) {
 	}
 }
 
-func TestModelsAddsDeepseekAliasForDeepModel(t *testing.T) {
+func TestModelsDoesNotInventDeepseekAlias(t *testing.T) {
 	payload, _ := Credential{AccessToken: "at", UID: "u1", Domain: "codebuddy.cn", ExpiresAt: 4102444800}.Encode()
 	store := &memStore{items: map[string][]byte{"acc1": payload}}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != pathProductConfig {
+			t.Fatalf("path=%s", r.URL.Path)
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{
 			"models": []map[string]any{{
 				"id": "deep-model", "name": "Deep", "maxInputTokens": 1000000,
@@ -600,33 +621,34 @@ func TestModelsAddsDeepseekAliasForDeepModel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(models) != 2 {
+	if len(models) != 1 || models[0].NativeModel != "deep-model" || models[0].PublicModel != "deep-model" {
 		t.Fatalf("models=%+v", models)
-	}
-	alias := models[1]
-	if alias.NativeModel != "deep-model" || alias.PublicModel != "deepseek-v4.1-flash" || alias.DisplayName != "Deepseek-V4.1-Flash" {
-		t.Fatalf("alias=%+v", alias)
-	}
-	if alias.Capabilities.ReasoningDefault != "high" {
-		t.Fatalf("alias capabilities=%+v", alias.Capabilities)
 	}
 }
 
-// Regression: aliases must be derived from the CLI-filtered model list. When
-// the CLI agent does not expose deep-model, the catalog fallback must not
-// resurrect deepseek-v4.1-flash and advertise a model chat cannot route.
-func TestModelsSkipsAliasWhenNativeModelNotCLIVisible(t *testing.T) {
-	payload, _ := Credential{AccessToken: "at", UID: "u1", Domain: "codebuddy.cn", ExpiresAt: 4102444800}.Encode()
-	store := &memStore{items: map[string][]byte{"acc1": payload}}
+func TestModelsExposesProductConfigDeepseekWithoutPersonalCatalog(t *testing.T) {
+	payload, _ := Credential{AccessToken: "at", UID: "u1", Domain: "www.workbuddy.ai", ExpiresAt: 4102444800}.Encode()
+	store := &memStore{items: map[string][]byte{"acc1": payload}, region: "global"}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{
-			"models": []map[string]any{
-				{"id": "glm-5.2", "name": "GLM"},
-				{"id": "deep-model", "name": "Deep", "maxInputTokens": 1000000, "supportsReasoning": true},
-			},
-			// deep-model exists in the catalog but is not a CLI agent model.
-			"agents": []map[string]any{{"name": "cli", "models": []string{"glm-5.2"}}},
-		}})
+		switch r.URL.Path {
+		case pathProductConfig:
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{
+				"models": []map[string]any{
+					{"id": "deep-model", "name": "Deep"},
+					{"id": "deepseek-v4.1-flash", "name": "Deepseek-V4.1-Flash"},
+					{"id": "glm-5.2", "name": "GLM"},
+				},
+				"agents": []map[string]any{{"name": "cli", "models": []string{"deep-model", "deepseek-v4.1-flash", "glm-5.2"}}},
+			}})
+		case pathModelsGlobal:
+			// personal/models intentionally lacks deepseek-v4.1-flash.
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{
+				"models": []map[string]any{{"id": "deep-model"}, {"id": "glm-5.2"}},
+				"agents": []map[string]any{{"name": "cli", "models": []string{"deep-model", "glm-5.2"}}},
+			}})
+		default:
+			t.Fatalf("unexpected path=%s", r.URL.Path)
+		}
 	}))
 	defer server.Close()
 	client := NewClient(store)
@@ -637,59 +659,26 @@ func TestModelsSkipsAliasWhenNativeModelNotCLIVisible(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(models) != 1 || models[0].NativeModel != "glm-5.2" {
-		t.Fatalf("alias leaked from unfiltered catalog: models=%+v", models)
+	got := map[string]struct{}{}
+	for _, model := range models {
+		got[model.PublicModel] = struct{}{}
+	}
+	if _, ok := got["deepseek-v4.1-flash"]; !ok {
+		t.Fatalf("product-config deepseek missing: %+v", models)
+	}
+	if _, ok := got["deep-model"]; !ok {
+		t.Fatalf("missing deep-model: %+v", models)
 	}
 }
 
-func TestChatRequestMapsDeepseekAliasToNativeModel(t *testing.T) {
-	payload, _ := Credential{AccessToken: "at", UID: "u1", Domain: "codebuddy.cn", ExpiresAt: 4102444800}.Encode()
-	store := &memStore{items: map[string][]byte{"acc1": payload}}
-	var got map[string]any
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == pathModelsCN {
-			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{
-				"models": []map[string]any{{
-					"id": "deep-model", "name": "Deep", "maxInputTokens": 1000000,
-					"supportsReasoning": true, "onlyReasoning": true,
-					"reasoning": map[string]any{"defaultEffort": "high", "supportedEfforts": []string{"low", "high"}},
-				}},
-				"agents": []map[string]any{{"name": "cli", "models": []string{"deep-model"}}},
-			}})
-			return
-		}
-		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
-			t.Fatalf("decode chat body: %v", err)
-		}
-		w.Header().Set("Content-Type", "text/event-stream")
-		_, _ = w.Write([]byte(chatSSE))
-	}))
-	defer server.Close()
-	client := NewClient(store)
-	client.http = server.Client()
-	client.http.Transport = rewriteTransport{server: server.URL, round: server.Client().Transport}
-
-	if _, err := client.ChatNonStream(context.Background(), "acc1", translate.ChatRequest{
-		Model: "deepseek-v4.1-flash", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if got["model"] != "deep-model" {
-		t.Fatalf("upstream model=%v body=%v", got["model"], got)
-	}
-	if got["reasoning_effort"] != "high" || got["reasoning_summary"] != "auto" || got["verbosity"] != "high" {
-		t.Fatalf("reasoning fields=%v", got)
-	}
-}
-
-// Regression: once WorkBuddy publishes deepseek-v4.1-flash as a native CLI
-// model, chat must send that ID instead of the stale deep-model alias.
+// Regression: once WorkBuddy publishes deepseek-v4.1-flash as a native
+// model, chat must send that ID instead of rewriting it.
 func TestChatRequestKeepsNativeDeepseekWhenCatalogHasIt(t *testing.T) {
 	payload, _ := Credential{AccessToken: "at", UID: "u1", Domain: "codebuddy.cn", ExpiresAt: 4102444800}.Encode()
 	store := &memStore{items: map[string][]byte{"acc1": payload}}
 	var got map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == pathModelsCN {
+		if r.URL.Path == pathProductConfig {
 			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{
 				"models": []map[string]any{{
 					"id": "deepseek-v4.1-flash", "name": "Deepseek-V4.1-Flash", "maxInputTokens": 1000000,
@@ -719,9 +708,12 @@ func TestChatRequestKeepsNativeDeepseekWhenCatalogHasIt(t *testing.T) {
 	if got["model"] != "deepseek-v4.1-flash" {
 		t.Fatalf("upstream model=%v body=%v", got["model"], got)
 	}
+	if got["reasoning_effort"] != "high" || got["reasoning_summary"] != "auto" || got["verbosity"] != "high" {
+		t.Fatalf("reasoning fields=%v", got)
+	}
 }
 
-func TestUpstreamModelIDDoesNotHardcodeStaleDeepModel(t *testing.T) {
+func TestUpstreamModelIDUsesCatalogNativeWithoutHardcodedRewrite(t *testing.T) {
 	client := NewClient(&memStore{items: map[string][]byte{}})
 	if got := client.upstreamModelID("deepseek-v4.1-flash"); got != "deepseek-v4.1-flash" {
 		t.Fatalf("cold catalog rewrite = %q", got)
@@ -734,27 +726,29 @@ func TestUpstreamModelIDDoesNotHardcodeStaleDeepModel(t *testing.T) {
 	if got := client.upstreamModelID("deepseek-v4.1-flash"); got != "deepseek-v4.1-flash" {
 		t.Fatalf("native catalog rewrite = %q", got)
 	}
+	// Without an invented public alias entry, requesting deepseek must stay deepseek.
 	client.rememberCatalog([]providers.ModelInfo{{
 		NativeModel: "deep-model",
-		PublicModel: "deepseek-v4.1-flash",
-		DisplayName: "Deepseek-V4.1-Flash",
+		PublicModel: "deep-model",
+		DisplayName: "Deep",
 	}})
-	if got := client.upstreamModelID("deepseek-v4.1-flash"); got != "deep-model" {
-		t.Fatalf("legacy alias rewrite = %q", got)
+	if got := client.upstreamModelID("deepseek-v4.1-flash"); got != "deepseek-v4.1-flash" {
+		t.Fatalf("unexpected rewrite = %q", got)
 	}
 }
 
-func TestModelsAcceptsGlobalCLIAgentNamesAndUsesAccountRegion(t *testing.T) {
+func TestModelsUsesAccountRegionAndDesktopCatalogUA(t *testing.T) {
 	payload, _ := Credential{AccessToken: "at", UID: "u1", Domain: "codebuddy.cn", ExpiresAt: 4102444800}.Encode()
 	store := &memStore{items: map[string][]byte{"acc1": payload}, region: "global"}
-	var origin, requestHost, ideType string
+	var origin, requestHost, ideType, userAgent string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != pathModelsGlobal {
+		if r.URL.Path != pathProductConfig {
 			t.Fatalf("path=%s", r.URL.Path)
 		}
 		origin = r.Header.Get("Origin")
 		requestHost = r.Host
 		ideType = r.Header.Get("X-IDE-Type")
+		userAgent = r.Header.Get("User-Agent")
 		_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{
 			"models": []map[string]any{
 				{"id": "glm-5.2", "name": "GLM", "maxInputTokens": 128000, "maxOutputTokens": 16384},
@@ -784,13 +778,16 @@ func TestModelsAcceptsGlobalCLIAgentNamesAndUsesAccountRegion(t *testing.T) {
 	if ideType != "" {
 		t.Fatalf("catalog must not send chat-only CLI headers, got X-IDE-Type=%q host=%s", ideType, requestHost)
 	}
+	if userAgent != DesktopUserAgent {
+		t.Fatalf("catalog UA=%q want desktop %q", userAgent, DesktopUserAgent)
+	}
 }
 
 func TestModelsWithoutAgentsReturnsEnabledModels(t *testing.T) {
 	payload, _ := Credential{AccessToken: "at", UID: "u1", Domain: "www.workbuddy.ai", ExpiresAt: 4102444800}.Encode()
 	store := &memStore{items: map[string][]byte{"acc1": payload}, region: "global"}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != pathModelsGlobal {
+		if r.URL.Path != pathProductConfig {
 			t.Fatalf("path=%s", r.URL.Path)
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{
@@ -814,6 +811,118 @@ func TestModelsWithoutAgentsReturnsEnabledModels(t *testing.T) {
 	}
 }
 
+func TestCatalogCreditsFreeParsing(t *testing.T) {
+	cases := []struct {
+		in   string
+		free bool
+	}{
+		{"", false},
+		{"x0.00", true},
+		{"x0.00 credits", true},
+		{"x0.79", false},
+		{"x0.34 credits", false},
+		{"credits", false},
+	}
+	for _, tc := range cases {
+		if got := catalogCreditsFree(tc.in); got != tc.free {
+			t.Fatalf("credits=%q free=%v want %v", tc.in, got, tc.free)
+		}
+	}
+}
+
+func TestModelsExposesOfficialCreditsAndFree(t *testing.T) {
+	payload, _ := Credential{AccessToken: "at", UID: "u1", Domain: "www.workbuddy.ai", ExpiresAt: 4102444800}.Encode()
+	store := &memStore{items: map[string][]byte{"acc1": payload}, region: "global"}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != pathProductConfig {
+			t.Fatalf("path=%s", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{
+			"models": []map[string]any{
+				{"id": "deepseek-v4.1-flash", "name": "Deepseek", "credits": "x0.00"},
+				{"id": "glm-5.3", "name": "GLM", "credits": "x0.79"},
+				{"id": "default-model", "name": "Auto", "credits": ""},
+			},
+			"agents": []map[string]any{
+				{"name": "cli", "models": []string{"deepseek-v4.1-flash", "glm-5.3", "default-model"}},
+			},
+		}})
+	}))
+	defer server.Close()
+	client := NewClient(store)
+	client.http = server.Client()
+	client.http.Transport = rewriteTransport{server: server.URL, round: server.Client().Transport}
+
+	models, err := client.Models(context.Background(), "acc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]providers.ModelInfo{}
+	for _, model := range models {
+		byID[model.NativeModel] = model
+	}
+	if m := byID["deepseek-v4.1-flash"]; m.Credits != "x0.00" || !m.Free {
+		t.Fatalf("free model=%+v", m)
+	}
+	if m := byID["glm-5.3"]; m.Credits != "x0.79" || m.Free {
+		t.Fatalf("paid model=%+v", m)
+	}
+	if m := byID["default-model"]; m.Credits != "" || m.Free {
+		t.Fatalf("blank credits must not invent free: %+v", m)
+	}
+}
+
+func TestModelsExposesCNCreditsAndFree(t *testing.T) {
+	payload, _ := Credential{AccessToken: "at", UID: "u1", Domain: "codebuddy.cn", ExpiresAt: 4102444800}.Encode()
+	store := &memStore{items: map[string][]byte{"acc1": payload}, region: "cn"}
+	var origin, userAgent string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != pathProductConfig {
+			t.Fatalf("path=%s", r.URL.Path)
+		}
+		origin = r.Header.Get("Origin")
+		userAgent = r.Header.Get("User-Agent")
+		_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{
+			"models": []map[string]any{
+				{"id": "hy3", "name": "Hunyuan", "credits": "x0.00 credits"},
+				{"id": "glm-5.2", "name": "GLM", "credits": "x0.79 credits"},
+				{"id": "glm-5.1", "name": "GLM 5.1", "credits": ""},
+			},
+			"agents": []map[string]any{
+				{"name": "cli", "models": []string{"hy3", "glm-5.2", "glm-5.1"}},
+			},
+		}})
+	}))
+	defer server.Close()
+	client := NewClient(store)
+	client.http = server.Client()
+	client.http.Transport = rewriteTransport{server: server.URL, round: server.Client().Transport}
+
+	models, err := client.Models(context.Background(), "acc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if origin != "https://www.codebuddy.cn" {
+		t.Fatalf("CN origin=%s", origin)
+	}
+	if userAgent != UserAgent {
+		t.Fatalf("CN catalog must keep CLI UA, got %q", userAgent)
+	}
+	byID := map[string]providers.ModelInfo{}
+	for _, model := range models {
+		byID[model.NativeModel] = model
+	}
+	if m := byID["hy3"]; m.Credits != "x0.00 credits" || !m.Free {
+		t.Fatalf("CN free model=%+v", m)
+	}
+	if m := byID["glm-5.2"]; m.Credits != "x0.79 credits" || m.Free {
+		t.Fatalf("CN paid model=%+v", m)
+	}
+	if m := byID["glm-5.1"]; m.Credits != "" || m.Free {
+		t.Fatalf("CN blank credits must not invent free: %+v", m)
+	}
+}
+
 func TestIsGlobalRecognizesWorkBuddyDomains(t *testing.T) {
 	if (Credential{Domain: "www.workbuddy.ai"}).IsGlobal() != true {
 		t.Fatal("workbuddy.ai should be global")
@@ -828,10 +937,16 @@ func TestIsGlobalRecognizesWorkBuddyDomains(t *testing.T) {
 		t.Fatal("empty domain should not be global")
 	}
 	if (Credential{Domain: "www.workbuddy.ai"}).catalogPath() != pathModelsGlobal {
-		t.Fatal("global catalog must use the plugin JSON path")
+		t.Fatal("global personal catalog must use the plugin JSON path")
 	}
 	if (Credential{Domain: "codebuddy.cn"}).catalogPath() != pathModelsCN {
-		t.Fatal("CN catalog must keep the console path")
+		t.Fatal("CN personal catalog must keep the console path")
+	}
+	if (Credential{Domain: "www.workbuddy.ai"}).productConfigPath() != pathProductConfig {
+		t.Fatal("product config path must be /v3/config")
+	}
+	if (Credential{Domain: "codebuddy.cn"}).productConfigPath() != pathProductConfig {
+		t.Fatal("product config path must stay /v3/config for CN")
 	}
 }
 
@@ -840,10 +955,10 @@ func TestModelsGlobalHTMLErrorDoesNotLeakPage(t *testing.T) {
 	store := &memStore{items: map[string][]byte{"acc1": payload}, region: "global"}
 	var sawConsolePath bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == pathModelsCN {
+		if r.URL.Path == pathModelsCN || r.URL.Path == pathModelsGlobal {
 			sawConsolePath = true
 		}
-		if r.URL.Path != pathModelsGlobal {
+		if r.URL.Path != pathProductConfig {
 			t.Fatalf("path=%s", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "text/html")
@@ -857,16 +972,16 @@ func TestModelsGlobalHTMLErrorDoesNotLeakPage(t *testing.T) {
 
 	_, err := client.Models(context.Background(), "acc1")
 	if err == nil {
-		t.Fatal("expected catalog error")
+		t.Fatal("expected models error")
 	}
 	if sawConsolePath {
-		t.Fatal("global catalog must not hit the console OIDC path")
+		t.Fatal("models listing must not fall back to personal/models paths")
 	}
-	if !strings.Contains(err.Error(), "models status=500") || strings.Contains(err.Error(), "<html") {
-		t.Fatalf("error leaked html: %v", err)
+	if !strings.Contains(err.Error(), "models status=500") {
+		t.Fatalf("err=%v", err)
 	}
-	if !strings.Contains(err.Error(), "upstream html error page") {
-		t.Fatalf("error=%v", err)
+	if strings.Contains(err.Error(), "<html") || strings.Contains(err.Error(), "openresty") {
+		t.Fatalf("html leaked: %v", err)
 	}
 }
 
@@ -930,7 +1045,7 @@ func TestChatStreamStripsEmptyWorkBuddyDeltas(t *testing.T) {
 	payload, _ := Credential{AccessToken: "at", UID: "u1", Domain: "codebuddy.cn", ExpiresAt: 4102444800}.Encode()
 	store := &memStore{items: map[string][]byte{"acc1": payload}}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == pathModelsCN {
+		if r.URL.Path == pathProductConfig {
 			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{
 				"models": []map[string]any{{"id": "glm-5.3-flash", "name": "GLM"}},
 				"agents": []map[string]any{{"name": "cli", "models": []string{"glm-5.3-flash"}}},
@@ -1123,6 +1238,29 @@ func TestPrepareBodyDropsNullAndEmptyTools(t *testing.T) {
 	}
 	if _, ok := emptyBody["tool_choice"]; ok {
 		t.Fatalf("tool_choice without tools should be dropped: %v", emptyBody)
+	}
+}
+
+func TestCatalogHeadersUseDesktopUAOnlyForGlobal(t *testing.T) {
+	global := http.Header{}
+	SetCatalogHeaders(global, Credential{AccessToken: "at", UID: "u1", Domain: "www.workbuddy.ai"})
+	if global.Get("User-Agent") != DesktopUserAgent {
+		t.Fatalf("global catalog UA=%q", global.Get("User-Agent"))
+	}
+	if global.Get("X-IDE-Type") != "" || global.Get("X-Agent-Intent") != "" || global.Get("X-Request-ID") != "" {
+		t.Fatalf("catalog must not carry chat CLI channel headers: %+v", global)
+	}
+	if global.Get("X-Product") != "SaaS" || global.Get("Authorization") != "Bearer at" {
+		t.Fatalf("catalog missing identity: %+v", global)
+	}
+
+	cn := http.Header{}
+	SetCatalogHeaders(cn, Credential{AccessToken: "at", UID: "u2", Domain: "www.codebuddy.cn"})
+	if cn.Get("User-Agent") != UserAgent {
+		t.Fatalf("CN catalog UA=%q want CLI %q", cn.Get("User-Agent"), UserAgent)
+	}
+	if cn.Get("X-IDE-Type") != "" {
+		t.Fatalf("CN catalog must not carry chat CLI channel headers: %+v", cn)
 	}
 }
 

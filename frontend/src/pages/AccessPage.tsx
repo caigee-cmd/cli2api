@@ -15,6 +15,7 @@ import { useOverview } from '@/hooks/useOverview'
 import { fetchAccounts, fetchModels, testChat } from '@/api/overview'
 import type { ModelInfo, Overview } from '@/api/types'
 import { absUrl } from '@/lib/url'
+import { modelCreditsText, modelIsFree } from '@/lib/format'
 import { EmptyPanel } from '@/components/ui/EmptyPanel'
 import { PageAlert } from '@/components/ui/PageAlert'
 import { AccessPageSkeleton } from '@/components/ui/PageSkeletons'
@@ -302,12 +303,19 @@ export function AccessPage() {
                       value={selectedModel}
                       onChange={setModel}
                       placeholder={t('model')}
-                      options={models.map((item) => ({
-                        id: item.id,
-                        textValue: `${item.display_name || item.id} ${item.id} ${item.owned_by || item.provider || ''}`,
-                        label: item.display_name || item.id,
-                        hint: item.provider || item.owned_by ? `${item.id} · ${item.provider || item.owned_by}` : item.id,
-                      }))}
+                      options={models.map((item) => {
+                        const credits = modelCreditsText(item)
+                        const free = modelIsFree(item)
+                        const title = item.display_name || item.id
+                        const badge = free ? t('modelFree') : credits
+                        const provider = item.provider || item.owned_by || ''
+                        return {
+                          id: item.id,
+                          textValue: `${title} ${item.id} ${provider} ${credits} ${free ? 'free' : ''}`,
+                          label: badge ? `${title} ${badge}` : title,
+                          hint: [item.id, provider, badge].filter(Boolean).join(' · '),
+                        }
+                      })}
                     />
                   ) : (
                     <div className="flex flex-col gap-1">

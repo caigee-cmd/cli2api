@@ -3,7 +3,7 @@ import { Button, Card, Chip, Input, Table, Tooltip } from '@heroui/react'
 import { Cube, ArrowClockwise, ArrowCounterClockwise, FloppyDisk, MagnifyingGlass, Info } from '@phosphor-icons/react'
 import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
-import { fetchModelsCached, refreshModels, updateModelContext, updateProviderReasoning, updateTraeMaxMode } from '@/api/overview'
+import { fetchModelsCached, fetchProviders, refreshModels, updateModelContext, updateProviderReasoning, updateTraeMaxMode, type ProviderDescriptor } from '@/api/overview'
 import type { Overview } from '@/api/types'
 import { ProviderMark } from '@/components/ProviderMark'
 import { ModelDetailsModal, formatTokens } from '@/components/ModelDetailsModal'
@@ -14,8 +14,27 @@ import { ListPager, type PageSize } from '@/components/ui/ListPager'
 import { PageAlert } from '@/components/ui/PageAlert'
 import { ProvidersPageSkeleton, ProvidersTableSkeleton } from '@/components/ui/PageSkeletons'
 import { SearchBar } from '@/components/ui/SearchBar'
+import { modelCreditsText, modelIsFree } from '@/lib/format'
+import { accountProviderLabel } from '@/lib/provider'
 
 type ModelInfo = NonNullable<Overview['models']>[number]
+
+type ProviderRegionOption = {
+  value: string
+  provider: string
+  region: string
+}
+
+function providerRegionOptions(descriptors: ProviderDescriptor[]): ProviderRegionOption[] {
+  const options: ProviderRegionOption[] = []
+  for (const descriptor of descriptors) {
+    for (const region of descriptor.regions || []) {
+      if (!region?.id) continue
+      options.push({ value: `${descriptor.id}:${region.id}`, provider: descriptor.id, region: region.id })
+    }
+  }
+  return options
+}
 
 function modelSettingsKey(model: ModelInfo) {
   return model.settings_key || model.id
@@ -26,8 +45,15 @@ function modelProvider(model: ModelInfo) {
   return String(model.provider || model.owned_by || 'qoder').trim().toLowerCase()
 }
 
+function modelRegion(model: ModelInfo) {
+  const region = String(model.region || '').trim().toLowerCase()
+  if (region) return region
+  const regions = model.regions || []
+  return String(regions[0] || '').trim().toLowerCase()
+}
+
 function modelRowKey(model: ModelInfo) {
-  return `${modelProvider(model)}:${model.settings_key || model.id}:${model.native_model || model.mapped_key || ''}`
+  return `${modelProvider(model)}:${modelRegion(model) || 'any'}:${model.settings_key || model.id}:${model.native_model || model.mapped_key || ''}`
 }
 
 function routedModelName(model: ModelInfo) {
@@ -178,6 +204,7 @@ export function ProvidersPage() {
   const { overview, loading } = useOverview()
   const [filter, setFilter] = useState('')
   const [providerFilter, setProviderFilter] = useState('')
+  const [providerOptions, setProviderOptions] = useState<ProviderRegionOption[]>([])
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState<PageSize>(50)
   const [busy, setBusy] = useState(false)
@@ -190,27 +217,33 @@ export function ProvidersPage() {
   const [modelsLoading, setModelsLoading] = useState(true)
   useEffect(() => {
     let cancelled = false
-    void fetchModelsCached()
+    void fetchModelsCached(undefined, 'regional')
       .then((data) => { if (!cancelled) setModels(data.data || []) })
       .catch(() => undefined)
       .finally(() => { if (!cancelled) setModelsLoading(false) })
+    void fetchProviders()
+      .then((result) => {
+        if (!cancelled) setProviderOptions(providerRegionOptions(result.data || []))
+      })
+      .catch(() => undefined)
     return () => { cancelled = true }
   }, [])
-  const providers = useMemo(() => {
-    const ids = new Set<string>()
-    for (const model of models) ids.add(modelProvider(model))
-    return [...ids].sort()
-  }, [models])
 
   const filtered = useMemo(() => {
     const query = filter.trim().toLowerCase()
+    const [filterProvider, filterRegion] = providerFilter.includes(':')
+      ? providerFilter.split(':', 2)
+      : [providerFilter, '']
     return models.filter((model) => {
       const provider = modelProvider(model)
-      if (providerFilter && provider !== providerFilter) return false
+      const region = modelRegion(model)
+      if (filterProvider && provider !== filterProvider) return false
+      if (filterRegion && region !== filterRegion) return false
       if (!query) return true
-      return `${model.display_name || ''} ${model.id} ${model.mapped_key || ''} ${model.provider || ''} ${model.owned_by || ''}`.toLowerCase().includes(query)
+      const providerLabel = accountProviderLabel(provider, region || undefined, t)
+      return `${model.display_name || ''} ${model.id} ${model.mapped_key || ''} ${provider} ${providerLabel} ${model.owned_by || ''} ${region} ${model.credits || ''} ${model.free ? 'free' : ''}`.toLowerCase().includes(query)
     })
-  }, [filter, models, providerFilter])
+  }, [filter, models, providerFilter, t])
 
   const filterKey = [filter, providerFilter, pageSize].join('\0')
   const [appliedFilterKey, setAppliedFilterKey] = useState(filterKey)
@@ -286,7 +319,7 @@ export function ProvidersPage() {
     setMessage('')
     setMessageError(false)
     try {
-      const data = await refreshModels()
+      const data = await refreshModels(undefined, 'regional')
       setModels(data.data || [])
     } catch (error) {
       setMessageError(true)
@@ -395,7 +428,10 @@ export function ProvidersPage() {
               onChange={setProviderFilter}
               options={[
                 { id: '', label: t('providerFilterAll') },
-                ...providers.map((provider) => ({ id: provider, label: provider })),
+                ...providerOptions.map((option) => ({
+                  id: option.value,
+                  label: accountProviderLabel(option.provider, option.region, t),
+                })),
               ]}
             />
             <Button size="sm" variant="secondary" isPending={busy} onPress={() => void onRefresh()}>
@@ -435,13 +471,21 @@ export function ProvidersPage() {
                 const key = modelSettingsKey(model)
                 const saving = savingKey === key
                 const provider = modelProvider(model)
+                const region = modelRegion(model)
+                const providerLabel = accountProviderLabel(provider, region || undefined, t)
+                const credits = modelCreditsText(model)
+                const free = modelIsFree(model)
                 return (
                   <article key={modelRowKey(model)} className="space-y-3 px-4 py-4">
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex min-w-0 items-start gap-3">
                         <span className="status-dot mt-1.5" data-state={model.stale ? undefined : 'ok'} />
                         <div className="min-w-0">
-                          <div className="truncate font-medium">{model.display_name || model.id}</div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <div className="truncate font-medium">{model.display_name || model.id}</div>
+                            {free ? <Chip size="sm" variant="soft" color="success">{t('modelFree')}</Chip> : null}
+                            {credits ? <span className="mono text-[11px] text-muted">{credits}</span> : null}
+                          </div>
                           <div className="mono mt-0.5 truncate text-[11px] text-muted">{model.id}</div>
                           {routedModelName(model) ? <div className="mt-0.5 text-[10px] text-muted">{t('routedTo', { model: routedModelName(model) })}</div> : null}
                         </div>
@@ -453,7 +497,7 @@ export function ProvidersPage() {
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
                       <span className="inline-flex items-center gap-1.5">
                         <ProviderMark provider={provider} size={14} />
-                        <span className="font-medium">{provider}</span>
+                        <span className="font-medium">{providerLabel}</span>
                       </span>
                       <span className="mono break-all text-muted">{model.mapped_key || model.native_model || model.id}</span>
                     </div>
@@ -495,13 +539,21 @@ export function ProvidersPage() {
                       const key = modelSettingsKey(model)
                       const saving = savingKey === key
                       const provider = modelProvider(model)
+                      const region = modelRegion(model)
+                      const providerLabel = accountProviderLabel(provider, region || undefined, t)
+                      const credits = modelCreditsText(model)
+                      const free = modelIsFree(model)
                       return (
                         <Table.Row key={modelRowKey(model)}>
                           <Table.Cell>
                             <div className="flex items-center gap-3 py-1">
                               <span className="status-dot" data-state={model.stale ? undefined : 'ok'} />
                               <div className="min-w-0">
-                                <div className="font-medium">{model.display_name || model.id}</div>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <div className="font-medium">{model.display_name || model.id}</div>
+                                  {free ? <Chip size="sm" variant="soft" color="success">{t('modelFree')}</Chip> : null}
+                                  {credits ? <span className="mono text-[11px] text-muted">{credits}</span> : null}
+                                </div>
                                 {routedModelName(model) ? <div className="mt-0.5 text-[10px] text-muted">{t('routedTo', { model: routedModelName(model) })}</div> : null}
                               </div>
                             </div>
@@ -510,7 +562,7 @@ export function ProvidersPage() {
                           <Table.Cell>
                             <div className="flex items-center gap-2">
                               <ProviderMark provider={provider} size={14} />
-                              <span className="text-xs font-medium">{provider}</span>
+                              <span className="text-xs font-medium">{providerLabel}</span>
                             </div>
                           </Table.Cell>
                           <Table.Cell><span className="mono text-xs text-muted">{model.mapped_key || model.native_model || model.id}</span></Table.Cell>

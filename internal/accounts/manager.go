@@ -1369,10 +1369,30 @@ func (m *Manager) persistQuota(ctx context.Context, accountID string, quota *Quo
 	if quota == nil {
 		return
 	}
+	if m.forceReady(accountID) {
+		// Local/dev override: keep the account routable even when upstream
+		// still reports a hard zero balance. Marker file:
+		//   $QODER_DATA_DIR/force-ready/<accountID>
+		quota.Exceeded = false
+		if quota.Remaining <= 0 {
+			quota.Remaining = 1
+		}
+		if quota.Percentage >= 100 {
+			quota.Percentage = 99
+		}
+	}
 	m.pool.MergeQuota(accountID, quota)
 	if err := m.store.SaveQuota(ctx, accountID, quota); err != nil {
 		log.Printf("persist quota account=%s: %v", accountID, err)
 	}
+}
+
+func (m *Manager) forceReady(accountID string) bool {
+	if m == nil || strings.TrimSpace(accountID) == "" || strings.TrimSpace(m.config.DataDir) == "" {
+		return false
+	}
+	_, err := os.Stat(filepath.Join(m.config.DataDir, "force-ready", accountID))
+	return err == nil
 }
 
 const modelCatalogTTL = 5 * time.Minute

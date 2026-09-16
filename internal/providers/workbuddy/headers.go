@@ -70,10 +70,19 @@ func setIdentityHeaders(header http.Header, credential Credential) {
 	header.Set("X-Product", "SaaS")
 }
 
-// SetCatalogHeaders carries access identity for the models endpoint. Chat-only
-// CLI channel headers stay off this path.
+// SetCatalogHeaders carries access identity for the product-config catalog
+// (/v3/config). Chat-only CLI channel headers stay off this path.
+//
+// UA is region-gated on purpose:
+//   - Global: desktop UA matches the WorkBuddy AI dropdown (CLI UA omits
+//     deepseek-v4.1-flash on the same account).
+//   - CN: keep the CLI UA. Live A/B showed WorkBuddy desktop UA on CN returns
+//     a different, worse set (no glm-5.3-flash / empty cli agent allowlist).
 func SetCatalogHeaders(header http.Header, credential Credential) {
 	setIdentityHeaders(header, credential)
+	if credential.IsGlobal() {
+		header.Set("User-Agent", DesktopUserAgent)
+	}
 }
 
 // SetChatHeaders carries access identity but never the refresh token.

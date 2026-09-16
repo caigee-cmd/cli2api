@@ -8,6 +8,7 @@ import { EmptyPanel } from '@/components/ui/EmptyPanel'
 import { SkeletonBlock } from '@/components/ui/PageSkeletons'
 import { PageAlert } from '@/components/ui/PageAlert'
 import type { AccountRow } from '@/lib/account'
+import { modelCreditsText, modelIsFree } from '@/lib/format'
 import { accountProviderLabel } from '@/lib/provider'
 
 type Translate = (key: string, vars?: Record<string, string | number>) => string
@@ -113,12 +114,16 @@ export function AccountModelsModal({ account, t, onClose }: Props) {
                   {models.map((model) => {
                     const ownedBy = model.provider || model.owned_by || account?.provider || 'qoder'
                     const routed = routedModelName(model)
+                    const credits = modelCreditsText(model)
+                    const free = modelIsFree(model)
                     return (
                       <li key={model.id} className="flex items-start gap-3 px-3 py-2.5">
                         <span className="status-dot mt-1.5" data-state={model.stale ? undefined : 'ok'} />
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="truncate text-sm font-medium">{model.display_name || model.id}</span>
+                            {free ? <Chip size="sm" variant="soft" color="success">{t('modelFree')}</Chip> : null}
+                            {credits ? <span className="mono text-[11px] text-muted">{credits}</span> : null}
                             {model.stale ? <Chip size="sm" variant="soft" color="warning">{t('fallback')}</Chip> : null}
                           </div>
                           <div className="mono mt-0.5 truncate text-[11px] text-muted">{model.id}</div>

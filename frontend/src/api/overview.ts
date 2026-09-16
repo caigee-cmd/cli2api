@@ -56,26 +56,27 @@ type ModelsMemoryEntry = {
 const modelsMemoryTTL = 30_000
 const modelsMemoryCache = new Map<string, ModelsMemoryEntry>()
 
-function modelsMemoryKey(accountId?: string) {
-  return accountId || '*'
+function modelsMemoryKey(accountId?: string, view?: 'regional') {
+  return `${accountId || '*'}@${view || 'merged'}`
 }
 
-export function fetchModels(accountId?: string, refresh = false) {
+export function fetchModels(accountId?: string, refresh = false, view?: 'regional') {
   const q = new URLSearchParams()
   if (refresh) q.set('refresh', '1')
   if (accountId) q.set('account', accountId)
+  if (view) q.set('view', view)
   const query = q.toString()
   return api<ModelsResponse>(`/api/models${query ? `?${query}` : ''}`)
 }
 
-export function fetchModelsCached(accountId?: string) {
-  const key = modelsMemoryKey(accountId)
+export function fetchModelsCached(accountId?: string, view?: 'regional') {
+  const key = modelsMemoryKey(accountId, view)
   const cached = modelsMemoryCache.get(key)
   if (cached && Date.now() - cached.at < modelsMemoryTTL) {
     return Promise.resolve(cached.data)
   }
   if (cached?.pending) return cached.pending
-  const pending = fetchModels(accountId).then((data) => {
+  const pending = fetchModels(accountId, false, view).then((data) => {
     modelsMemoryCache.set(key, { data, at: Date.now() })
     return data
   }).finally(() => {
@@ -88,10 +89,10 @@ export function fetchModelsCached(accountId?: string) {
   return pending
 }
 
-export function refreshModels(accountId?: string) {
-  const key = modelsMemoryKey(accountId)
+export function refreshModels(accountId?: string, view?: 'regional') {
+  const key = modelsMemoryKey(accountId, view)
   modelsMemoryCache.delete(key)
-  return fetchModels(accountId, true).then((data) => {
+  return fetchModels(accountId, true, view).then((data) => {
     modelsMemoryCache.set(key, { data, at: Date.now() })
     return data
   })

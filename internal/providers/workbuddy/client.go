@@ -352,8 +352,10 @@ func (c *Client) Refresh(ctx context.Context, accountID string, credential Crede
 	return credential, nil
 }
 
-// Models fetches the dynamic catalog. Failure is an explicit error; there is
-// no static fallback list.
+// Models fetches the IDE-parity product config catalog (/v3/config). Failure
+// is an explicit error; there is no static fallback list. This intentionally
+// mirrors the WorkBuddy desktop dropdown source rather than
+// /v2/enterprises/personal/models, which can omit IDE-visible ids.
 func (c *Client) Models(ctx context.Context, accountID string) ([]providers.ModelInfo, error) {
 	credential, err := c.resolvedCredential(ctx, accountID)
 	if err != nil {
@@ -361,7 +363,7 @@ func (c *Client) Models(ctx context.Context, accountID string) ([]providers.Mode
 	}
 	ctx, cancel := context.WithTimeout(ctx, catalogTimeout)
 	defer cancel()
-	body, status, err := c.do(ctx, accountID, http.MethodGet, credential.ChatBase()+credential.catalogPath(), nil,
+	body, status, err := c.do(ctx, accountID, http.MethodGet, credential.ChatBase()+credential.productConfigPath(), nil,
 		func(h http.Header) { SetCatalogHeaders(h, credential) })
 	if err != nil {
 		return nil, err
@@ -386,6 +388,12 @@ func (c *Client) Models(ctx context.Context, accountID string) ([]providers.Mode
 	if env.Code != 0 {
 		return nil, fmt.Errorf("models envelope code=%d msg=%s", env.Code, env.Msg)
 	}
+	if env.Data.Models == nil {
+		return nil, fmt.Errorf("workbuddy product config returned no models")
+	}
+	// IDE dropdown intersects product-config models with the CLI agent
+	// allowlist from the same /v3/config payload. If agents are absent,
+	// keep every enabled model. Do not invent public aliases.
 	cliModels := map[string]struct{}{}
 	for _, agent := range env.Data.Agents {
 		if !isCLIAgent(agent.Name) {
@@ -408,9 +416,8 @@ func (c *Client) Models(ctx context.Context, accountID string) ([]providers.Mode
 		}
 		out = append(out, catalogModel(model))
 	}
-	out = appendAliasModels(out)
 	if len(out) == 0 {
-		return nil, fmt.Errorf("workbuddy model catalog returned no cli models")
+		return nil, fmt.Errorf("workbuddy product config returned no models")
 	}
 	c.rememberCatalog(out)
 	return out, nil
@@ -428,9 +435,9 @@ func (c *Client) chatRequest(ctx context.Context, accountID string, credential C
 			storedLevel = stored.ReasoningEffort
 		}
 	}
-	// Resolve the upstream model after the live catalog is warm. WorkBuddy has
-	// renamed deepseek-v4.1-flash from the old deep-model alias; sending the
-	// stale alias lets upstream silently fall back to another model.
+	// Warm the live catalog before resolving the upstream model id and
+	// reasoning caps. Catalog entries are authoritative; we do not invent
+	// aliases when a requested id is missing.
 	if (!c.hasCatalogEntry(req.Model) || len(caps.ReasoningOptions) == 0) && accountID != "" {
 		_, _ = c.Models(ctx, accountID)
 		caps = c.capsFor(req.Model)
@@ -1013,10 +1020,6 @@ func (classifier) Classify(status int, body string) providers.ClassifiedError {
 	return Classify(status, body)
 }
 
-var workbuddyModelAliases = map[string]string{
-	"deepseek-v4.1-flash": "deep-model",
-}
-
 func (c *Client) hasCatalogEntry(model string) bool {
 	model = strings.TrimSpace(model)
 	if model == "" || c == nil {
@@ -1032,13 +1035,9 @@ func (c *Client) hasCatalogEntry(model string) bool {
 	return ok
 }
 
-// upstreamModelID returns the native ID to send upstream. For current
-// WorkBuddy catalogs that already expose deepseek-v4.1-flash natively, that
-// ID is used as-is. Older catalogs that only expose deep-model still work
-// because appendAliasModels indexes the public alias onto a ModelInfo whose
-// NativeModel is deep-model. There is intentionally no hardcoded rewrite
-// here: blindly mapping to deep-model on a cold/missing catalog is what made
-// production silently fall back to kimi/glm.
+// upstreamModelID returns the catalog NativeModel when the request model is a
+// known catalog entry; otherwise it sends the request model unchanged. There
+// is no hardcoded id rewrite table.
 func (c *Client) upstreamModelID(model string) string {
 	canonical := accounts.CanonicalModelID(model)
 	if c != nil {
@@ -1053,56 +1052,4 @@ func (c *Client) upstreamModelID(model string) string {
 		}
 	}
 	return model
-}
-
-// appendAliasModels publishes each workbuddyModelAliases alias alongside the
-// CLI-visible model it mirrors. Aliases are derived strictly from out (the
-// models that survived the CLI agent filter): an alias must never be invented
-// from the unfiltered catalog, or /v1/models would advertise a model the CLI
-// agent cannot actually route.
-func appendAliasModels(out []providers.ModelInfo) []providers.ModelInfo {
-	if len(out) == 0 || len(workbuddyModelAliases) == 0 {
-		return out
-	}
-	seen := make(map[string]struct{}, len(out))
-	for _, model := range out {
-		seen[model.NativeModel] = struct{}{}
-		seen[model.PublicModel] = struct{}{}
-	}
-	for alias, nativeModel := range workbuddyModelAliases {
-		if _, ok := seen[alias]; ok {
-			continue
-		}
-		base, ok := findModelInfoByNativeModel(out, nativeModel)
-		if !ok {
-			continue
-		}
-		clone := base
-		clone.NativeModel = nativeModel
-		clone.PublicModel = alias
-		clone.DisplayName = aliasDisplayName(alias, base.DisplayName)
-		out = append(out, clone)
-		seen[alias] = struct{}{}
-	}
-	return out
-}
-
-func findModelInfoByNativeModel(models []providers.ModelInfo, nativeModel string) (providers.ModelInfo, bool) {
-	for _, model := range models {
-		if model.NativeModel == nativeModel {
-			return model, true
-		}
-	}
-	return providers.ModelInfo{}, false
-}
-
-func aliasDisplayName(alias, fallback string) string {
-	switch alias {
-	case "deepseek-v4.1-flash":
-		return "Deepseek-V4.1-Flash"
-	}
-	if strings.TrimSpace(fallback) != "" {
-		return fallback
-	}
-	return strings.ToUpper(string(alias[0])) + alias[1:]
 }
