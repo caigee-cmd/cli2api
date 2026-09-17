@@ -524,7 +524,7 @@ func consumeOpenAIStream(body io.Reader, handle func(json.RawMessage, *streamedC
 		frame = append(frame, line)
 	}
 	if err := scanner.Err(); err != nil {
-		return stats, output, newStreamProviderError("upstream_stream_interrupted", "stream read error: "+err.Error(), http.StatusBadGateway)
+		return stats, output, streamReadProviderError(err)
 	}
 	if err := flush(); err != nil {
 		return stats, output, err
