@@ -19,18 +19,17 @@
 
 ## 功能
 
-- **OpenAI / Anthropic 兼容代理**：`/v1/chat/completions`、`/v1/responses`、`/v1/messages`、`/v1/models`；支持流式/非流式、文本与函数工具调用；图片能力取决于 provider（当前 Qoder 支持，WorkBuddy / Trae 不支持）；文件输入会明确拒绝。`messages` / `responses` 当前为无状态适配层，不支持服务端会话或上游专属工具。
-- **多渠道账号池**：Qoder 国际版 / 国内版、WorkBuddy 国际版 / 国内版、Trae 国内版 Solo，以及实验性 Devin；地域隔离、账号固定、并发限制、冷却与同族故障切换
-- **代理出口**：支持统一 HTTP(S) 代理，也支持账号级覆盖；账号可用 `direct` / `none` 显式直连。SOCKS5 仅支持 WorkBuddy / Trae / Devin 的账号级代理，Qoder 账号级代理只支持 HTTP(S)
-- **账号级常驻运行时**：Qoder 账号使用独立 Node 进程、HOME 与 WASM 上下文；WorkBuddy / Trae / Devin 使用进程内 HTTP/SSE（或 Connect）适配器。登录态、云端连接和账号隔离由各 provider 的运行时负责
+- **OpenAI / Anthropic 兼容代理**：`/v1/chat/completions`、`/v1/responses`、`/v1/messages`、`/v1/models`；支持流式/非流式、文本与函数工具调用。图片能力取决于 provider（当前 Qoder 支持，WorkBuddy / Trae 不支持），文件输入会明确拒绝。`messages` / `responses` 为无状态适配层，不支持服务端会话或上游专属工具
+- **多渠道账号池**：地域隔离、账号固定、并发限制、冷却与同族故障切换
+- **代理出口**：统一 HTTP(S) 代理，支持账号级覆盖，可用 `direct` / `none` 显式直连。SOCKS5 仅支持 WorkBuddy / Trae / Devin 的账号级代理，Qoder 账号级只支持 HTTP(S)
 - **按 provider 支持多种登录方式**：浏览器 Device Flow OAuth、PAT，以及适用 provider 的凭证导入/导出
-- **Web 控制台**：账号、模型、接入、请求历史与运行时日志，明暗主题
-- **部署与运维**：Docker Compose 单容器、安全托管更新（升级前快照、失败自动回滚、直接最新稳定版、可回滚最近三个稳定版）、默认只监听 `127.0.0.1`
-- **跨平台**：`linux/amd64` / `linux/arm64` 镜像；macOS、Windows 通过 Docker Desktop 运行
+- **Web 控制台**：账号、模型、接入、请求历史与运行时日志；请求历史可按账号过滤，并查看状态、延迟、Token 与用量统计；明暗主题
+- **账号保活**：WorkBuddy 每日签到与 token 保活（账号级开关，默认关闭；控制台可立即签到 / 刷新积分）
+- **部署与运维**：Docker Compose 单容器、安全托管更新（升级前快照、失败自动回滚、直接最新稳定版、可回滚最近三个稳定版）、默认只监听 `127.0.0.1`；提供 `linux/amd64` / `linux/arm64` 镜像，macOS、Windows 通过 Docker Desktop 运行
 
 ## 快速开始
 
-**强烈建议用 Docker 部署。** 发布镜像、控制台托管更新（升级前快照、失败回滚、直接最新稳定版）都按单容器 Compose 安装来设计；从源码直接跑 Go / Node 不在这条更新路径上。
+**强烈建议用 Docker 部署。** 发布镜像与控制台托管更新都按单容器 Compose 安装设计；从源码直接跑 Go / Node 不在这条更新路径上。
 
 依赖：Docker（macOS / Windows 用 Docker Desktop，Linux 用 Docker Engine + Compose），以及一个你自己控制的 Qoder、WorkBuddy、Trae 或实验性 Devin 账号。Windows 的 Docker Desktop 必须切换到 Linux containers。
 
@@ -51,7 +50,7 @@ Base URL: http://127.0.0.1:3010/v1
 API Key:  <首次启动时生成的 Key>
 ```
 
-不指定账号时，调度器自动选择可用账号；需要固定账号时加请求头 `X-Qoder-Account: acc_...`（历史命名，适用于所有 provider）。除 Chat Completions 外，也可使用 Anthropic `POST /v1/messages` 与 OpenAI `POST /v1/responses`；两者要求请求携带完整对话，不支持 `previous_response_id` / `conversation` 服务端续接。同一段对话默认按首条用户消息（含纯图片）粘到同一个账号；也可显式设置 `X-CLI2API-Session`。curl / PowerShell 示例见 [部署说明](deploy/README.md)。
+不指定账号时，调度器自动选择可用账号；需要固定账号时加请求头 `X-Qoder-Account: acc_...`（历史命名，适用于所有 provider）。同一段对话默认按首条用户消息（含纯图片）粘到同一个账号，也可显式设置 `X-CLI2API-Session`。curl / PowerShell 示例见 [部署说明](deploy/README.md)。
 
 ## 工作方式
 
@@ -67,14 +66,12 @@ API Key:  <首次启动时生成的 Key>
   <img src="./docs/assets/readme/console-window-zh.svg" width="100%" alt="CLI2API 控制台 Accounts 页：每个账号显示登录方式、就绪状态与额度，右侧 Access 面板提供 Base URL 与快速验证">
 </p>
 
-账号、模型、接入和日志都在同一个 Web 控制台里管理：每个账号按 provider 支持的方式登录（浏览器 OAuth、PAT 或凭证导入），就绪状态和额度一目了然，Access 页可以直接复制 Base URL 并做一次快速验证。
+账号、模型、接入和日志都在同一个 Web 控制台里管理：就绪状态和额度一目了然，Access 页可以直接复制 Base URL 并做一次快速验证。
 
 ## 适合什么场景
 
-- 想在本机或私有服务器上统一接入 Qoder / WorkBuddy / Trae（以及实验性 Devin）
-- 已经在使用 OpenAI API 格式的客户端或脚本
-- 需要在多个账号之间自动路由和故障切换
-- 想保留登录能力，同时避免每个请求启动完整 CLI Agent
+- 想在本机或私有服务器上统一接入各上游账号，并在多个账号之间自动路由和故障切换
+- 已经在使用 OpenAI API 格式的客户端或脚本，且不想每个请求都启动完整 CLI Agent
 
 CLI2API 是本地网关：不提供账号、额度或官方 API 服务，不做多用户共享转售。
 
@@ -83,13 +80,6 @@ CLI2API 是本地网关：不提供账号、额度或官方 API 服务，不做�
 **进行中**
 
 - Qoder 国内版与 WorkBuddy 的真账号验收（登录、故障切换、混合账号池）
-
-**已支持**
-
-- Anthropic `/v1/messages` 与 OpenAI `/v1/responses` 的无状态文本 / 函数工具适配层
-- WorkBuddy 每日签到与 token 保活（账号级开关，默认关闭；控制台可立即签到 / 刷新积分）
-- 会话粘性路由：默认按对话内容（首条用户消息，含纯图片）复用同一账号，也可设置 `X-CLI2API-Session`，并在失败时按规则切换
-- 请求历史按账号过滤，以及请求状态、延迟、Token 和用量统计
 
 **长期**
 
@@ -105,13 +95,9 @@ CLI2API 是本地网关：不提供账号、额度或官方 API 服务，不做�
 
 默认只监听 `127.0.0.1:3010`；除 `/health`、静态前端资源和 OpenAI 兼容 `/v1/*` 的 CORS 预检 `OPTIONS` 外，所有 API 与控制台数据接口均需要 API Key。不要提交 `.qoder`、Token、Cookie、登录 Blob 或原始抓包；凭证导出是显式敏感操作，请妥善保管导出文件。上游 API 或 CLI 更新可能导致兼容性变化，项目会固定并检查 qodercli 版本。发现安全问题请按 [SECURITY.md](SECURITY.md) 私下报告。
 
-## 社区
+## 社区与贡献
 
-中文讨论见 [LINUX DO](https://linux.do)。缺陷和功能请求请继续走 GitHub [Issue](https://github.com/caigee-cmd/cli2api/issues)。
-
-## 贡献
-
-欢迎提交 Issue、改进文档和 Pull Request，规则见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+中文讨论见 [LINUX DO](https://linux.do)。缺陷和功能请求请走 GitHub [Issue](https://github.com/caigee-cmd/cli2api/issues)；文档改进与 Pull Request 见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ## 许可证
 
