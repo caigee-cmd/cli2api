@@ -9,6 +9,20 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### 中文
 
+## 0.5.6 - 2026-09-17
+
+### English
+
+- Expand Codex/Desktop `type: "namespace"` tool wrappers into plain function tools (nested names qualified as `namespace__name`) for the Responses adapter, Trae, and WorkBuddy, and drop hosted shells such as `type: "mcp"` / `web_search` that upstreams reject
+- Replay Responses `reasoning` items onto the following assistant message or function call as `reasoning_content`, so WorkBuddy thinking-mode history survives translation
+- Accept content-block arrays in Responses `function_call_output` and lift `input_image` blocks into a following user message
+
+### 中文
+
+- Responses 适配层、Trae 与 WorkBuddy 都会把 Codex/Desktop 的 `type: "namespace"` 工具包装展开成普通 function（嵌套名限定为 `namespace__name`），并丢弃上游会拒绝的 `type: "mcp"` / `web_search` 等 hosted 外壳
+- Responses 的 `reasoning` 条目会作为 `reasoning_content` 回放到紧随其后的 assistant 消息或函数调用上，WorkBuddy 思考模式的历史得以保留
+- Responses 的 `function_call_output` 支持内容块数组，并把 `input_image` 块提升为随后的 user 消息
+
 ## 0.5.5 - 2026-09-16
 
 ### English
