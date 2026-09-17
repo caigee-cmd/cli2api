@@ -78,7 +78,7 @@ func (c *Client) ChatStream(ctx context.Context, accountID string, req translate
 
 func (c *Client) buildChatHTTPRequest(ctx context.Context, credential Credential, req translate.ChatRequest) (chatRequestBuild, error) {
 	payload := BuildChatPayload(req, currentLevels())
-	proto := BuildGetChatMessageRequest(
+	proto, err := BuildGetChatMessageRequest(
 		credential.SessionToken,
 		credential.DeviceSeed,
 		payload.ModelUID,
@@ -90,6 +90,9 @@ func (c *Client) buildChatHTTPRequest(ctx context.Context, credential Credential
 		"",
 		"",
 	)
+	if err != nil {
+		return chatRequestBuild{}, fmt.Errorf("encode Devin chat request: %w", err)
+	}
 	body := WrapConnectEnvelope(proto)
 	endpoint := strings.TrimRight(firstNonEmpty(credential.BaseURL, c.serverBase, ServerBase), "/") + PathGetChatMessage
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
@@ -121,10 +124,42 @@ type aggregateResult struct {
 	CacheWriteTokens *int
 }
 
+type toolCallAccumulator struct{ calls []*ToolCallDelta }
+
+func (a *toolCallAccumulator) add(delta ToolCallDelta) (int, *ToolCallDelta) {
+	for index, call := range a.calls {
+		if delta.ID != "" && call.ID == delta.ID {
+			return index, mergeToolCallDelta(call, delta)
+		}
+	}
+	if len(a.calls) > 0 {
+		lastIndex := len(a.calls) - 1
+		last := a.calls[lastIndex]
+		if (delta.ID != "" && last.ID == "") || (delta.ID == "" && (delta.Name == "" || delta.Name == last.Name)) {
+			return lastIndex, mergeToolCallDelta(last, delta)
+		}
+	}
+	// LIMIT: Devin omits an index from ChatToolCall; interleaved anonymous tool
+	// deltas cannot be disambiguated until the upstream protocol supplies one.
+	a.calls = append(a.calls, &delta)
+	return len(a.calls) - 1, &delta
+}
+
+func mergeToolCallDelta(target *ToolCallDelta, delta ToolCallDelta) *ToolCallDelta {
+	if delta.ID != "" {
+		target.ID = delta.ID
+	}
+	if delta.Name != "" {
+		target.Name = delta.Name
+	}
+	target.Arguments += delta.Arguments
+	return target
+}
+
 func aggregateConnectStream(r io.Reader, originalByAlias map[string]string, toolsDiag string) (aggregateResult, error) {
 	var out aggregateResult
 	out.FinishReason = "stop"
-	toolAcc := map[int]*ToolCallDelta{}
+	var toolAcc toolCallAccumulator
 	sawEOS := false
 	for {
 		flag, payload, err := ReadConnectFrame(r)
@@ -152,23 +187,10 @@ func aggregateConnectStream(r io.Reader, originalByAlias map[string]string, tool
 			out.Reasoning += frame.ThinkingText
 		}
 		for _, delta := range frame.ToolCallDeltas {
-			idx := delta.Index
-			acc, ok := toolAcc[idx]
-			if !ok {
-				cp := delta
-				if cp.Name != "" {
-					cp.Name = restoreToolName(cp.Name, originalByAlias)
-				}
-				toolAcc[idx] = &cp
-			} else {
-				if delta.ID != "" {
-					acc.ID = delta.ID
-				}
-				if delta.Name != "" {
-					acc.Name = restoreToolName(delta.Name, originalByAlias)
-				}
-				acc.Arguments += delta.Arguments
+			if delta.Name != "" {
+				delta.Name = restoreToolName(delta.Name, originalByAlias)
 			}
+			toolAcc.add(delta)
 		}
 		if frame.Usage != nil {
 			cacheRead, cacheWrite := int(frame.Usage.CachedTokens), int(frame.Usage.CacheWriteTokens)
@@ -192,22 +214,9 @@ func aggregateConnectStream(r io.Reader, originalByAlias map[string]string, tool
 	if !sawEOS {
 		return out, classifiedErrorWithToolsDiag(502, "devin stream truncated: missing EOS trailer", toolsDiag)
 	}
-	if len(toolAcc) > 0 {
+	if len(toolAcc.calls) > 0 {
 		out.FinishReason = "tool_calls"
-		keys := make([]int, 0, len(toolAcc))
-		for k := range toolAcc {
-			keys = append(keys, k)
-		}
-		// stable-ish order by index
-		for i := 0; i < len(keys); i++ {
-			for j := i + 1; j < len(keys); j++ {
-				if keys[j] < keys[i] {
-					keys[i], keys[j] = keys[j], keys[i]
-				}
-			}
-		}
-		for _, idx := range keys {
-			tc := toolAcc[idx]
+		for idx, tc := range toolAcc.calls {
 			out.ToolCalls = append(out.ToolCalls, map[string]any{
 				"id":   tc.ID,
 				"type": "function",
@@ -273,7 +282,7 @@ func rewriteConnectStream(upstream *http.Response, model string, originalByAlias
 			return err
 		}
 
-		toolAcc := map[int]*ToolCallDelta{}
+		var toolAcc toolCallAccumulator
 		sawEOS := false
 		var lastUsage any
 		roleSent := false
@@ -323,21 +332,8 @@ func rewriteConnectStream(upstream *http.Response, model string, originalByAlias
 				if name != "" {
 					name = restoreToolName(name, originalByAlias)
 				}
-				idx := delta.Index
-				acc, ok := toolAcc[idx]
-				if !ok {
-					cp := delta
-					cp.Name = name
-					toolAcc[idx] = &cp
-				} else {
-					if delta.ID != "" {
-						acc.ID = delta.ID
-					}
-					if name != "" {
-						acc.Name = name
-					}
-					acc.Arguments += delta.Arguments
-				}
+				delta.Name = name
+				idx, _ := toolAcc.add(delta)
 				toolDelta := map[string]any{
 					"index": idx,
 					"id":    delta.ID,
@@ -366,12 +362,12 @@ func rewriteConnectStream(upstream *http.Response, model string, originalByAlias
 				}
 			}
 		}
-			if !sawEOS {
-				_ = pw.CloseWithError(classifiedErrorWithToolsDiag(502, "devin stream truncated: missing EOS trailer", toolsDiag))
-				return
-			}
+		if !sawEOS {
+			_ = pw.CloseWithError(classifiedErrorWithToolsDiag(502, "devin stream truncated: missing EOS trailer", toolsDiag))
+			return
+		}
 		finish := "stop"
-		if len(toolAcc) > 0 {
+		if len(toolAcc.calls) > 0 {
 			finish = "tool_calls"
 		}
 		if err := writeChunk(map[string]any{}, finish, lastUsage); err != nil {

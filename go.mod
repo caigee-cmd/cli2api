@@ -6,6 +6,7 @@ require github.com/joho/godotenv v1.5.1
 
 require (
 	golang.org/x/net v0.56.0
+	google.golang.org/protobuf v1.36.10
 	modernc.org/sqlite v1.57.0
 )
 
