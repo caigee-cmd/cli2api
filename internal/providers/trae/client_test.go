@@ -652,6 +652,31 @@ func TestPrepareBodyForcesSoloShape(t *testing.T) {
 	}
 }
 
+func TestPrepareBodyExpandsNamespaceTools(t *testing.T) {
+	out := PrepareBody([]byte(`{"model":"glm-5.3","messages":[{"role":"user","content":"hi"}],"tools":[
+		{"type":"namespace","name":"mcp__computer-use","tools":[
+			{"type":"function","name":"left_click","parameters":{"type":"object","properties":{"x":{"type":"number"}}}}
+		]},
+		{"type":"mcp","server_label":"computer-use"}
+	]}`))
+	var body map[string]any
+	if err := json.Unmarshal(out, &body); err != nil {
+		t.Fatal(err)
+	}
+	tools, _ := body["tools"].([]any)
+	if len(tools) != 1 {
+		t.Fatalf("tools=%v", body["tools"])
+	}
+	tool, _ := tools[0].(map[string]any)
+	fn, _ := tool["function"].(map[string]any)
+	if fn["name"] != "mcp__computer-use__left_click" {
+		t.Fatalf("name=%v", fn["name"])
+	}
+	if _, ok := fn["parameters"].(string); !ok {
+		t.Fatalf("parameters should remain Trae JSON string: %v", fn["parameters"])
+	}
+}
+
 func TestProbeReadyWithCredential(t *testing.T) {
 	client, store := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatalf("probe should not hit network when credential is fresh: %s", r.URL.Path)

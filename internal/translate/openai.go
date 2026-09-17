@@ -30,11 +30,12 @@ type ChatRequest struct {
 }
 
 type ChatMessage struct {
-	Role       string          `json:"role"`
-	Content    any             `json:"content"`
-	Name       string          `json:"name,omitempty"`
-	ToolCallID string          `json:"tool_call_id,omitempty"`
-	ToolCalls  json.RawMessage `json:"tool_calls,omitempty"`
+	Role             string          `json:"role"`
+	Content          any             `json:"content"`
+	Name             string          `json:"name,omitempty"`
+	ToolCallID       string          `json:"tool_call_id,omitempty"`
+	ToolCalls        json.RawMessage `json:"tool_calls,omitempty"`
+	ReasoningContent string          `json:"reasoning_content,omitempty"`
 }
 
 // DropSystemMessages removes caller system/developer messages from a chat

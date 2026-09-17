@@ -1153,6 +1153,24 @@ func TestPrepareBodyNormalizesEmptyMessageContent(t *testing.T) {
 	}
 }
 
+func TestPrepareBodyKeepsReasoningOnlyAssistant(t *testing.T) {
+	out := PrepareBody([]byte(`{"model":"m","messages":[{"role":"assistant","content":"","reasoning_content":"think"},{"role":"user","content":"hi"}]}`))
+	var body map[string]any
+	if err := json.Unmarshal(out, &body); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, item := range body["messages"].([]any) {
+		message, _ := item.(map[string]any)
+		if messageRole(message) == "assistant" && stringField(message, "reasoning_content") == "think" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("reasoning-only assistant dropped: %v", body["messages"])
+	}
+}
+
 func TestPrepareBodyRepairsInterruptedToolSequence(t *testing.T) {
 	out := PrepareBody([]byte(`{"model":"m","messages":[
 			{"role":"user","content":"look this up"},
@@ -1238,6 +1256,34 @@ func TestPrepareBodyDropsNullAndEmptyTools(t *testing.T) {
 	}
 	if _, ok := emptyBody["tool_choice"]; ok {
 		t.Fatalf("tool_choice without tools should be dropped: %v", emptyBody)
+	}
+}
+
+func TestPrepareBodyExpandsNamespaceTools(t *testing.T) {
+	out := PrepareBody([]byte(`{"model":"m","tools":[
+		{"type":"namespace","name":"mcp__computer-use","tools":[
+			{"type":"function","name":"left_click","parameters":{"type":"object"}}
+		]},
+		{"type":"web_search"},
+		{"type":"function","function":{"name":"lookup","parameters":{"type":"object"}}}
+	]}`))
+	var body map[string]any
+	if err := json.Unmarshal(out, &body); err != nil {
+		t.Fatal(err)
+	}
+	tools, _ := body["tools"].([]any)
+	if len(tools) != 2 {
+		t.Fatalf("tools=%v", body["tools"])
+	}
+	names := make([]string, 0, len(tools))
+	for _, item := range tools {
+		tool, _ := item.(map[string]any)
+		fn, _ := tool["function"].(map[string]any)
+		name, _ := fn["name"].(string)
+		names = append(names, name)
+	}
+	if names[0] != "mcp__computer-use__left_click" || names[1] != "lookup" {
+		t.Fatalf("names=%v", names)
 	}
 }
 

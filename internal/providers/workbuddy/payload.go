@@ -3,6 +3,8 @@ package workbuddy
 import (
 	"encoding/json"
 	"strings"
+
+	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
 // PrepareBody forces streaming and normalizes tool_choice to the string form
@@ -17,6 +19,7 @@ func PrepareBody(src []byte) []byte {
 	}
 	body["stream"] = true
 	normalizeToolChoice(body)
+	normalizeTools(body)
 	dropEmptyTools(body)
 	repairToolSequence(body)
 	normalizeEmptyMessageContent(body)
@@ -26,6 +29,31 @@ func PrepareBody(src []byte) []byte {
 		return src
 	}
 	return out
+}
+
+func normalizeTools(body map[string]any) {
+	raw, ok := body["tools"]
+	if !ok || raw == nil {
+		return
+	}
+	encoded, err := json.Marshal(raw)
+	if err != nil {
+		return
+	}
+	normalized, err := translate.NormalizeOpenAITools(encoded)
+	if err != nil {
+		return
+	}
+	if len(normalized) == 0 {
+		delete(body, "tools")
+		delete(body, "tool_choice")
+		return
+	}
+	var tools []any
+	if err := json.Unmarshal(normalized, &tools); err != nil {
+		return
+	}
+	body["tools"] = tools
 }
 
 func normalizeEmptyMessageContent(body map[string]any) {
@@ -44,7 +72,7 @@ func normalizeEmptyMessageContent(body map[string]any) {
 			kept = append(kept, item)
 			continue
 		}
-		if messageContentEmpty(message) && !hasToolCalls(message) && !isToolResult(message) {
+		if messageContentEmpty(message) && !hasToolCalls(message) && !hasReasoningContent(message) && !isToolResult(message) {
 			continue
 		}
 		kept = append(kept, item)
@@ -75,6 +103,10 @@ func hasToolCalls(message map[string]any) bool {
 		return len(calls) > 0
 	}
 	return true
+}
+
+func hasReasoningContent(message map[string]any) bool {
+	return strings.TrimSpace(stringField(message, "reasoning_content")) != ""
 }
 
 func isToolResult(message map[string]any) bool {
