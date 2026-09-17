@@ -117,6 +117,8 @@ type aggregateResult struct {
 	FinishReason     string
 	PromptTokens     int
 	CompletionTokens int
+	CacheReadTokens  *int
+	CacheWriteTokens *int
 }
 
 func aggregateConnectStream(r io.Reader, originalByAlias map[string]string, toolsDiag string) (aggregateResult, error) {
@@ -169,6 +171,8 @@ func aggregateConnectStream(r io.Reader, originalByAlias map[string]string, tool
 			}
 		}
 		if frame.Usage != nil {
+			cacheRead, cacheWrite := int(frame.Usage.CachedTokens), int(frame.Usage.CacheWriteTokens)
+			out.CacheReadTokens, out.CacheWriteTokens = &cacheRead, &cacheWrite
 			if frame.Usage.PromptTokens > 0 {
 				out.PromptTokens = int(frame.Usage.PromptTokens)
 			}
@@ -226,6 +230,8 @@ func outcomeFromAggregate(aggregate aggregateResult, fallbackModel string) provi
 		FinishReason:     firstNonEmpty(aggregate.FinishReason, "stop"),
 		PromptTokens:     aggregate.PromptTokens,
 		CompletionTokens: aggregate.CompletionTokens,
+		CacheReadTokens:  aggregate.CacheReadTokens,
+		CacheWriteTokens: aggregate.CacheWriteTokens,
 		UsageSource:      "upstream",
 	}
 	if len(aggregate.ToolCalls) > 0 {
@@ -348,9 +354,12 @@ func rewriteConnectStream(upstream *http.Response, model string, originalByAlias
 			}
 			if frame.Usage != nil {
 				lastUsage = map[string]any{
-					"prompt_tokens":     frame.Usage.PromptTokens,
-					"completion_tokens": frame.Usage.CompletionTokens,
-					"total_tokens":      frame.Usage.PromptTokens + frame.Usage.CompletionTokens,
+					"prompt_tokens":         frame.Usage.PromptTokens,
+					"completion_tokens":     frame.Usage.CompletionTokens,
+					"total_tokens":          frame.Usage.PromptTokens + frame.Usage.CompletionTokens,
+					"cache_read_tokens":     frame.Usage.CachedTokens,
+					"cache_write_tokens":    frame.Usage.CacheWriteTokens,
+					"prompt_tokens_details": map[string]any{"cached_tokens": frame.Usage.CachedTokens},
 				}
 				if frame.Usage.ModelName != "" {
 					model = frame.Usage.ModelName

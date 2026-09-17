@@ -64,6 +64,7 @@ type Usage struct {
 	PromptTokens     int64
 	CompletionTokens int64
 	CachedTokens     int64
+	CacheWriteTokens int64
 	StatusCode       uint64
 	RequestID        string
 	ModelName        string
@@ -622,7 +623,9 @@ func parseUsageField(data []byte) *Usage {
 				u.CompletionTokens = int64(v)
 			case 4:
 				u.PromptTokens += int64(v)
+				u.CacheWriteTokens = int64(v)
 			case 5:
+				u.PromptTokens += int64(v)
 				u.CachedTokens = int64(v)
 			case 6:
 				u.StatusCode = v

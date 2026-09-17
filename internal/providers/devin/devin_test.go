@@ -201,10 +201,15 @@ func TestChatNonStreamHTTPtest(t *testing.T) {
 	var stopFrame []byte
 	stopFrame = AppendTag(stopFrame, 5, VarintType)
 	stopFrame = AppendVarint(stopFrame, 2)
+	// GetChatMessageResponse.usage with independent upstream input, cache write,
+	// and cache read fields. This captured-shape wire fixture is intentionally
+	// not produced by the local request encoder.
+	usageFrame := []byte{0x3a, 0x08, 0x10, 0x09, 0x18, 0x02, 0x20, 0x05, 0x28, 0x07}
 
 	var buf bytes.Buffer
 	buf.Write(WrapConnectEnvelope(textFrame))
 	buf.Write(WrapConnectEnvelope(stopFrame))
+	buf.Write(WrapConnectEnvelope(usageFrame))
 	buf.Write(WrapConnectEnvelopeWithFlag(ConnectFlagEndStream, []byte(`{}`)))
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -260,6 +265,12 @@ func TestChatNonStreamHTTPtest(t *testing.T) {
 	if out.FinishReason != "stop" {
 		t.Fatalf("finish=%q", out.FinishReason)
 	}
+	if out.PromptTokens != 21 || out.CompletionTokens != 2 {
+		t.Fatalf("token totals = %d/%d", out.PromptTokens, out.CompletionTokens)
+	}
+	if out.CacheReadTokens == nil || *out.CacheReadTokens != 7 || out.CacheWriteTokens == nil || *out.CacheWriteTokens != 5 {
+		t.Fatalf("cache usage = read:%v write:%v", out.CacheReadTokens, out.CacheWriteTokens)
+	}
 }
 
 func TestResolveChatModelUIDWithFixture(t *testing.T) {
@@ -311,11 +322,13 @@ func TestChatStreamTextToolAndDone(t *testing.T) {
 	textFrame2 := AppendTag(nil, 3, BytesType)
 	textFrame2 = AppendString(textFrame2, "answer")
 	toolFrame := buildToolCallDeltaFrame("call_1", "lookup", `{"q":"x"}`, 0)
+	usageFrame := []byte{0x3a, 0x08, 0x10, 0x09, 0x18, 0x02, 0x20, 0x05, 0x28, 0x07}
 
 	var buf bytes.Buffer
 	buf.Write(WrapConnectEnvelope(textFrame))
 	buf.Write(WrapConnectEnvelope(textFrame2))
 	buf.Write(WrapConnectEnvelope(toolFrame))
+	buf.Write(WrapConnectEnvelope(usageFrame))
 	buf.Write(WrapConnectEnvelopeWithFlag(ConnectFlagEndStream, []byte(`{}`)))
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -365,6 +378,9 @@ func TestChatStreamTextToolAndDone(t *testing.T) {
 	}
 	if !strings.Contains(text, "data: [DONE]") {
 		t.Fatalf("missing DONE marker: %s", text)
+	}
+	if !strings.Contains(text, `"prompt_tokens":21`) || !strings.Contains(text, `"cache_read_tokens":7`) || !strings.Contains(text, `"cache_write_tokens":5`) {
+		t.Fatalf("missing upstream usage: %s", text)
 	}
 }
 
