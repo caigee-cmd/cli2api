@@ -2,17 +2,28 @@
 
 Go + Node service that turns a local Qoder CLI login into an OpenAI-compatible API.
 
-Keep writing-code docs in these files only:
+## Docs
 
-| File | What belongs there |
-|------|--------------------|
-| `AGENTS.md` | Hard rules for agents. Short. |
-| `docs/DESIGN.md` | Architecture, login, routing, console, design system. |
-| `docs/PLAN.md` | Current milestone checklist. |
-| `docs/PROVIDERS.md` | Future account-provider design. Not a current milestone. |
-| `docs/PROVIDERS_TRAE_SOLO.md` | Trae CN Solo in-process adapter survey. Not a current milestone. |
+Read this file first. Every other doc carries YAML frontmatter
+(`id / title / scope / status / read-when / summary / related / last-updated`);
+use `read-when` to decide whether to open it.
 
-Do not add new `TODO.md`, `NOTES.md`, or extra plan files. Extra design docs are `docs/PROVIDERS.md` (WorkBuddy / Qoder CN / future account types) and `docs/PROVIDERS_TRAE_SOLO.md` (Trae CN Solo). `docs/PROVIDERS_TRAE.md` is superseded; do not implement from it. User-facing install stays in `README.md` (Chinese) / `README_EN.md` (English). Local protocol facts stay in ignored `docs/capture-notes.md`. Host ops stay gitignored in `docs/PRIVATE_DEPLOYMENT.md`.
+| File | Read when | What belongs there |
+|------|-----------|--------------------|
+| `AGENTS.md` | always | Hard rules for agents. Short. |
+| `docs/ARCHITECTURE.md` | backend, protocol adapters, login, account routing, migrations, console IA, managed update | Architecture, runtime, login, routing contract, console IA |
+| `docs/DESIGN.md` | any console UI work | Frontend design system: tokens, radii, type, HeroUI picks, copy |
+| `docs/REQUEST.md` | routing, failover, cooldown, session affinity, error taxonomy | Per-request pick / failover / cooldown contract |
+| `docs/PLAN.md` | before starting a milestone | Current milestone checklist |
+| `docs/PROVIDERS.md` | adding / designing a provider | Future account-provider design. Not a current milestone. |
+| `docs/PROVIDERS_TRAE_SOLO.md` | Trae CN Solo work | Trae CN Solo in-process adapter survey. Not a current milestone. |
+| `docs/DEVELOPMENT.md` | build / test / release | Local build loop and maintainer release workflow |
+| `docs/capture-notes.md` (ignored) | protocol facts | Local redacted protocol facts |
+| `docs/PRIVATE_DEPLOYMENT.md` (ignored) | host ops | Host ops runbook |
+
+Keep these files only. Do not add new `TODO.md`, `NOTES.md`, or extra plan files.
+`docs/PROVIDERS_TRAE.md` is superseded; do not implement from it. User-facing
+install stays in `README.md` (Chinese) / `README_EN.md` (English).
 
 ## Do
 
