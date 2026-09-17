@@ -2,6 +2,8 @@ package api
 
 import (
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -16,6 +18,12 @@ import (
 )
 
 func intPtr(value int) *int { return &value }
+
+func closedStreamPipe(err error) *io.PipeReader {
+	reader, writer := io.Pipe()
+	_ = writer.CloseWithError(err)
+	return reader
+}
 
 func TestWriteClassifiedErrKeepsTraeQuotaKind(t *testing.T) {
 	recorder := httptest.NewRecorder()
@@ -244,6 +252,55 @@ func TestRelayOpenAIStreamReportsIncompleteStreamStructurally(t *testing.T) {
 	}
 	if !strings.Contains(recorder.Body.String(), `"code":"upstream_stream_incomplete"`) {
 		t.Fatalf("structured incomplete-stream error was not emitted: %s", recorder.Body.String())
+	}
+}
+
+func TestRelayOpenAIStreamPreservesTypedReadError(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	failover := false
+	want := &providers.Error{
+		Kind: accounts.KindInvalidRequest, Status: http.StatusBadRequest,
+		Code: "invalid_argument", Type: "invalid_request_error", Message: "upstream rejected request",
+		RetryAfter: 45 * time.Second, Failover: &failover,
+	}
+	_, err := relayOpenAIStream(recorder, closedStreamPipe(fmt.Errorf("Connect trailer: %w", want)))
+	var got *providers.Error
+	if !errors.As(err, &got) || got != want {
+		t.Fatalf("error=%T %+v want pointer=%p", err, err, want)
+	}
+	if got.Kind != accounts.KindInvalidRequest || got.Status != http.StatusBadRequest || got.Code != "invalid_argument" ||
+		got.Type != "invalid_request_error" || got.RetryAfter != 45*time.Second || got.Failover == nil || *got.Failover {
+		t.Fatalf("provider error=%+v", got)
+	}
+	output := recorder.Body.String()
+	if !strings.Contains(output, `"code":"invalid_argument"`) || !strings.Contains(output, `"retry_after":45`) || strings.Contains(output, "upstream_stream_interrupted") {
+		t.Fatalf("structured error=%s", output)
+	}
+	pool := accounts.NewPool(nil, nil)
+	pool.Upsert(accounts.Item{ID: "devin-account"})
+	executor.NewChatExecutor(pool, "").ObserveStreamFailure("devin-account", got, "swe-2")
+	item, _ := pool.ByID("devin-account")
+	if item.LastKind != "" || !item.DownUntil.IsZero() {
+		t.Fatalf("invalid request cooled account: kind=%q down=%v", item.LastKind, item.DownUntil)
+	}
+}
+
+func TestRelayOpenAIStreamWrapsUnknownReadError(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	_, err := relayOpenAIStream(recorder, closedStreamPipe(errors.New("socket closed")))
+	var got *providers.Error
+	if !errors.As(err, &got) || got.Kind != accounts.KindUnavailable || got.Code != "upstream_stream_interrupted" || got.Status != http.StatusBadGateway {
+		t.Fatalf("error=%T %+v", err, err)
+	}
+	if !strings.Contains(got.Message, "stream read error: socket closed") {
+		t.Fatalf("message=%q", got.Message)
+	}
+	pool := accounts.NewPool(nil, nil)
+	pool.Upsert(accounts.Item{ID: "devin-account"})
+	executor.NewChatExecutor(pool, "").ObserveStreamFailure("devin-account", got, "swe-2")
+	item, _ := pool.ByID("devin-account")
+	if item.LastKind != accounts.KindUnavailable || item.DownUntil.IsZero() {
+		t.Fatalf("transport interruption was not unavailable: kind=%q down=%v", item.LastKind, item.DownUntil)
 	}
 }
 

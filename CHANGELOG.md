@@ -7,7 +7,11 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Preserve typed upstream stream errors through the OpenAI, Anthropic, and Responses relays so invalid Devin requests do not falsely cool accounts, while transport interruptions remain retryable
+
 ### 中文
+
+- OpenAI、Anthropic 与 Responses 流式转发会保留上游的类型化错误，避免无效的 Devin 请求被错误地冷却账号，同时传输中断仍可重试
 
 ## 0.5.6 - 2026-09-17
 

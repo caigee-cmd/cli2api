@@ -153,7 +153,7 @@ func relayOpenAIStream(w http.ResponseWriter, body io.Reader) (stats streamRelay
 		if streamErr != nil {
 			return stats, streamErr
 		}
-		streamErr := newStreamProviderError("upstream_stream_interrupted", "stream read error: "+err.Error(), http.StatusBadGateway)
+		streamErr := streamReadProviderError(err)
 		if writeErr := writeStructuredStreamError(writer, streamErr); writeErr != nil {
 			return stats, writeErr
 		}
@@ -374,6 +374,14 @@ func newStreamProviderError(code, message string, status int) *providers.Error {
 	})
 	classified := accounts.Classify(status, string(body), "", accounts.KindUnavailable, "1")
 	return providerErrorFromClassified(classified)
+}
+
+func streamReadProviderError(err error) *providers.Error {
+	var providerErr *providers.Error
+	if errors.As(err, &providerErr) && providerErr != nil {
+		return providerErr
+	}
+	return newStreamProviderError("upstream_stream_interrupted", "stream read error: "+err.Error(), http.StatusBadGateway)
 }
 
 func providerErrorFromClassified(classified accounts.Classified) *providers.Error {

@@ -2,18 +2,43 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/auth"
 	"github.com/caigee-cmd/cli2api/internal/executor"
+	"github.com/caigee-cmd/cli2api/internal/providers"
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
+
+func TestCompatibilityStreamsPreserveTypedReadError(t *testing.T) {
+	failover := false
+	want := &providers.Error{
+		Kind: accounts.KindInvalidRequest, Status: http.StatusBadRequest,
+		Code: "invalid_argument", Type: "invalid_request_error", Message: "upstream rejected request",
+		RetryAfter: 45 * time.Second, Failover: &failover,
+	}
+	for name, relay := range map[string]func(io.Writer, io.Reader, string, string) (streamRelayStats, error){
+		"anthropic": relayAnthropicStream,
+		"responses": relayResponsesStream,
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := relay(httptest.NewRecorder(), closedStreamPipe(fmt.Errorf("Connect trailer: %w", want)), "req_1", "devin/swe-2")
+			var got *providers.Error
+			if !errors.As(err, &got) || got != want {
+				t.Fatalf("error=%T %+v want pointer=%p", err, err, want)
+			}
+		})
+	}
+}
 
 func newCompatibilityServer(t *testing.T, worker http.HandlerFunc) (*Server, func()) {
 	t.Helper()
