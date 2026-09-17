@@ -375,6 +375,57 @@ func translateResponsesInput(raw json.RawMessage) ([]ChatMessage, error) {
 		return nil, fmt.Errorf("input must be a string or an array")
 	}
 	messages := make([]ChatMessage, 0, len(items))
+	pendingReasoning := ""
+	appendAssistant := func(message ChatMessage) {
+		if pendingReasoning != "" {
+			if message.ReasoningContent != "" {
+				message.ReasoningContent = pendingReasoning + "\n" + message.ReasoningContent
+			} else {
+				message.ReasoningContent = pendingReasoning
+			}
+			pendingReasoning = ""
+		}
+		// Responses replays one model turn as adjacent items (reasoning,
+		// assistant message, function_call*). WorkBuddy thinking mode needs a
+		// single assistant message that keeps reasoning_content with any
+		// tool_calls from that same turn.
+		if n := len(messages); n > 0 && messages[n-1].Role == "assistant" {
+			prev := &messages[n-1]
+			if message.ReasoningContent != "" {
+				if prev.ReasoningContent != "" {
+					prev.ReasoningContent += "\n" + message.ReasoningContent
+				} else {
+					prev.ReasoningContent = message.ReasoningContent
+				}
+			}
+			if contentPresent(message.Content) && !contentPresent(prev.Content) {
+				prev.Content = message.Content
+			} else if contentPresent(message.Content) && contentPresent(prev.Content) {
+				prev.Content = mergeAssistantContent(prev.Content, message.Content)
+			}
+			if len(message.ToolCalls) > 0 {
+				prev.ToolCalls = mergeToolCallJSON(prev.ToolCalls, message.ToolCalls)
+			}
+			return
+		}
+		messages = append(messages, message)
+	}
+	flushPendingReasoning := func() {
+		if pendingReasoning == "" {
+			return
+		}
+		if n := len(messages); n > 0 && messages[n-1].Role == "assistant" {
+			if messages[n-1].ReasoningContent != "" {
+				messages[n-1].ReasoningContent += "\n" + pendingReasoning
+			} else {
+				messages[n-1].ReasoningContent = pendingReasoning
+			}
+			pendingReasoning = ""
+			return
+		}
+		messages = append(messages, ChatMessage{Role: "assistant", Content: "", ReasoningContent: pendingReasoning})
+		pendingReasoning = ""
+	}
 	for itemIndex, item := range items {
 		var source map[string]json.RawMessage
 		if err := json.Unmarshal(item, &source); err != nil {
@@ -391,17 +442,26 @@ func translateResponsesInput(raw json.RawMessage) ([]ChatMessage, error) {
 			if err != nil {
 				return nil, fmt.Errorf("input[%d].content: %w", itemIndex, err)
 			}
-			messages = append(messages, ChatMessage{Role: role, Content: content})
+			if role == "assistant" {
+				appendAssistant(ChatMessage{Role: role, Content: content})
+			} else {
+				flushPendingReasoning()
+				messages = append(messages, ChatMessage{Role: role, Content: content})
+			}
 		case "function_call_output":
 			callID := rawMapString(source, "call_id")
 			if callID == "" {
 				return nil, fmt.Errorf("input[%d].call_id required", itemIndex)
 			}
-			content, err := compatibilityText(rawMapJSON(source, "output"), map[string]bool{"input_text": true, "output_text": true, "text": true})
+			content, images, err := responsesFunctionCallOutput(rawMapJSON(source, "output"))
 			if err != nil {
 				return nil, fmt.Errorf("input[%d].output: %w", itemIndex, err)
 			}
+			flushPendingReasoning()
 			messages = append(messages, ChatMessage{Role: "tool", ToolCallID: callID, Content: content})
+			if len(images) > 0 {
+				messages = append(messages, ChatMessage{Role: "user", Content: images})
+			}
 		case "input_file":
 			return nil, fmt.Errorf("input[%d] file inputs are not supported by the Qoder upstream", itemIndex)
 		case "function_call":
@@ -420,45 +480,89 @@ func translateResponsesInput(raw json.RawMessage) ([]ChatMessage, error) {
 			if !json.Valid(arguments) {
 				return nil, fmt.Errorf("input[%d].arguments must be valid JSON", itemIndex)
 			}
-			messages = append(messages, ChatMessage{Role: "assistant", Content: "", ToolCalls: marshalToolCalls([]compatibilityToolCall{{ID: callID, Name: name, Arguments: arguments}})})
+			appendAssistant(ChatMessage{Role: "assistant", Content: "", ToolCalls: marshalToolCalls([]compatibilityToolCall{{ID: callID, Name: name, Arguments: arguments}})})
+		case "reasoning":
+			// Codex/Desktop replays prior Responses reasoning items. WorkBuddy
+			// thinking mode requires that text back on the assistant turn as
+			// reasoning_content, so keep it pending until the next assistant
+			// message or function_call.
+			text, err := responsesReasoningText(source)
+			if err != nil {
+				return nil, fmt.Errorf("input[%d]: %w", itemIndex, err)
+			}
+			if text == "" {
+				continue
+			}
+			if pendingReasoning != "" {
+				pendingReasoning += "\n" + text
+			} else {
+				pendingReasoning = text
+			}
 		case "additional_tools":
 			continue
 		default:
 			return nil, fmt.Errorf("input[%d] type %q is not supported", itemIndex, itemType)
 		}
 	}
+	flushPendingReasoning()
 	return messages, nil
 }
 
+func responsesReasoningText(source map[string]json.RawMessage) (string, error) {
+	if text, err := compatibilityText(rawMapJSON(source, "summary"), map[string]bool{"summary_text": true, "text": true}); err == nil && text != "" {
+		return text, nil
+	} else if err != nil && !emptyJSON(rawMapJSON(source, "summary")) {
+		return "", err
+	}
+	if text, err := compatibilityText(rawMapJSON(source, "content"), map[string]bool{"reasoning_text": true, "summary_text": true, "text": true, "output_text": true}); err == nil && text != "" {
+		return text, nil
+	} else if err != nil && !emptyJSON(rawMapJSON(source, "content")) {
+		return "", err
+	}
+	return "", nil
+}
+
+func responsesFunctionCallOutput(raw json.RawMessage) (string, []any, error) {
+	if text, ok := rawJSONString(raw); ok {
+		return text, nil, nil
+	}
+	var blocks []json.RawMessage
+	if err := json.Unmarshal(raw, &blocks); err != nil {
+		return "", nil, fmt.Errorf("must be a string or an array of content blocks")
+	}
+	texts := make([]string, 0, len(blocks))
+	images := make([]any, 0)
+	for index, block := range blocks {
+		var source map[string]json.RawMessage
+		if err := json.Unmarshal(block, &source); err != nil {
+			return "", nil, fmt.Errorf("content[%d] must be an object", index)
+		}
+		switch rawMapString(source, "type") {
+		case "input_text", "output_text", "text":
+			texts = append(texts, rawMapContentString(source, "text"))
+		case "input_image", "image_url":
+			imageURL := rawMapString(source, "image_url")
+			if imageURL == "" {
+				var nested map[string]json.RawMessage
+				if json.Unmarshal(source["image_url"], &nested) == nil {
+					imageURL = rawMapString(nested, "url")
+				}
+			}
+			if imageURL == "" {
+				return "", nil, fmt.Errorf("content[%d] image URL required", index)
+			}
+			images = append(images, map[string]any{"type": "image_url", "image_url": map[string]string{"url": imageURL}})
+		case "input_file", "file":
+			return "", nil, fmt.Errorf("content[%d] file inputs are not supported by the Qoder upstream", index)
+		default:
+			return "", nil, fmt.Errorf("content[%d] type %q is not supported", index, rawMapString(source, "type"))
+		}
+	}
+	return strings.Join(texts, "\n"), images, nil
+}
+
 func translateResponsesTools(raw json.RawMessage) (json.RawMessage, error) {
-	if emptyJSON(raw) {
-		return nil, nil
-	}
-	var source []map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &source); err != nil {
-		return nil, fmt.Errorf("tools must be an array")
-	}
-	tools := make([]map[string]any, 0, len(source))
-	for toolIndex, tool := range source {
-		if toolType := rawMapString(tool, "type"); toolType != "function" {
-			return nil, fmt.Errorf("tools[%d] type %q is not supported", toolIndex, toolType)
-		}
-		name := rawMapString(tool, "name")
-		if name == "" {
-			return nil, fmt.Errorf("tools[%d].name required", toolIndex)
-		}
-		parameters := rawMapJSON(tool, "parameters")
-		if len(parameters) == 0 {
-			parameters = json.RawMessage(`{"type":"object","properties":{}}`)
-		}
-		tools = append(tools, map[string]any{
-			"type": "function",
-			"function": map[string]any{
-				"name": name, "description": rawMapString(tool, "description"), "parameters": json.RawMessage(parameters),
-			},
-		})
-	}
-	return json.Marshal(tools)
+	return NormalizeOpenAITools(raw)
 }
 
 func translateResponsesToolChoice(raw json.RawMessage) (json.RawMessage, error) {
@@ -804,6 +908,40 @@ func marshalToolCalls(calls []compatibilityToolCall) json.RawMessage {
 	}
 	result, _ := json.Marshal(encoded)
 	return result
+}
+
+func mergeToolCallJSON(left, right json.RawMessage) json.RawMessage {
+	if len(left) == 0 || string(left) == "null" {
+		return append(json.RawMessage(nil), right...)
+	}
+	if len(right) == 0 || string(right) == "null" {
+		return append(json.RawMessage(nil), left...)
+	}
+	var leftCalls, rightCalls []json.RawMessage
+	if json.Unmarshal(left, &leftCalls) != nil || json.Unmarshal(right, &rightCalls) != nil {
+		return append(json.RawMessage(nil), right...)
+	}
+	merged := append(append([]json.RawMessage{}, leftCalls...), rightCalls...)
+	encoded, err := json.Marshal(merged)
+	if err != nil {
+		return append(json.RawMessage(nil), right...)
+	}
+	return encoded
+}
+
+func mergeAssistantContent(left, right any) any {
+	leftText := strings.TrimSpace(ContentToString(left))
+	rightText := strings.TrimSpace(ContentToString(right))
+	switch {
+	case leftText == "":
+		return right
+	case rightText == "":
+		return left
+	case leftText == rightText:
+		return left
+	default:
+		return leftText + "\n" + rightText
+	}
 }
 
 func rawJSONString(raw json.RawMessage) (string, bool) {
