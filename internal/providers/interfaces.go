@@ -71,6 +71,8 @@ type ChatOutcome struct {
 	FinishReason     string
 	PromptTokens     int
 	CompletionTokens int
+	CacheReadTokens  *int
+	CacheWriteTokens *int
 	UsageSource      string
 	Credits          *float64
 }

@@ -107,12 +107,21 @@ func TestParseTrailerErrorMapping(t *testing.T) {
 
 func TestBuildGetUserStatusRequestContainsToken(t *testing.T) {
 	token := "devin-session-token$eyJtest"
-	req := BuildGetUserStatusRequest(token, strings.Repeat("ab", FingerprintHexLen/2))
+	req, err := BuildGetUserStatusRequest(token, strings.Repeat("ab", FingerprintHexLen/2))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !bytes.Contains(req, []byte(token)) {
 		t.Fatal("request missing session token")
 	}
 	if !bytes.Contains(req, []byte(ClientName)) {
 		t.Fatal("request missing client name")
+	}
+	if !bytes.Contains(req, append([]byte{0x0a, byte(len(ClientName))}, ClientName...)) {
+		t.Fatal("request missing status client name field")
+	}
+	if bytes.Contains(req, append([]byte{0xe2, 0x01, byte(len(ClientName))}, ClientName...)) {
+		t.Fatal("status request unexpectedly contains chat-only metadata field 28")
 	}
 }
 
@@ -195,16 +204,17 @@ func (m *memStore) Observe(_ context.Context, id, remoteUID, status, lastError, 
 }
 
 func TestChatNonStreamHTTPtest(t *testing.T) {
-	var textFrame []byte
-	textFrame = AppendTag(textFrame, 3, BytesType)
-	textFrame = AppendString(textFrame, "hello from devin")
-	var stopFrame []byte
-	stopFrame = AppendTag(stopFrame, 5, VarintType)
-	stopFrame = AppendVarint(stopFrame, 2)
+	textFrame := []byte("\x1a\x10hello from devin")
+	stopFrame := []byte{0x28, 0x02}
+	// GetChatMessageResponse.usage with independent upstream input, cache write,
+	// and cache read fields. This captured-shape wire fixture is intentionally
+	// not produced by the local request encoder.
+	usageFrame := []byte{0x3a, 0x08, 0x10, 0x09, 0x18, 0x02, 0x20, 0x05, 0x28, 0x07}
 
 	var buf bytes.Buffer
 	buf.Write(WrapConnectEnvelope(textFrame))
 	buf.Write(WrapConnectEnvelope(stopFrame))
+	buf.Write(WrapConnectEnvelope(usageFrame))
 	buf.Write(WrapConnectEnvelopeWithFlag(ConnectFlagEndStream, []byte(`{}`)))
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -260,6 +270,12 @@ func TestChatNonStreamHTTPtest(t *testing.T) {
 	if out.FinishReason != "stop" {
 		t.Fatalf("finish=%q", out.FinishReason)
 	}
+	if out.PromptTokens != 21 || out.CompletionTokens != 2 {
+		t.Fatalf("token totals = %d/%d", out.PromptTokens, out.CompletionTokens)
+	}
+	if out.CacheReadTokens == nil || *out.CacheReadTokens != 7 || out.CacheWriteTokens == nil || *out.CacheWriteTokens != 5 {
+		t.Fatalf("cache usage = read:%v write:%v", out.CacheReadTokens, out.CacheWriteTokens)
+	}
 }
 
 func TestResolveChatModelUIDWithFixture(t *testing.T) {
@@ -285,37 +301,17 @@ func TestFingerprintLength(t *testing.T) {
 	}
 }
 
-func buildToolCallDeltaFrame(id, name, args string, index int) []byte {
-	var tc []byte
-	tc = AppendTag(tc, 1, BytesType)
-	tc = AppendBytes(tc, []byte(id))
-	tc = AppendTag(tc, 2, BytesType)
-	tc = AppendBytes(tc, []byte(name))
-	tc = AppendTag(tc, 3, BytesType)
-	tc = AppendBytes(tc, []byte(args))
-	tc = AppendTag(tc, 4, VarintType)
-	tc = AppendVarint(tc, uint64(index))
-
-	var frame []byte
-	frame = AppendTag(frame, 6, BytesType)
-	frame = AppendBytes(frame, tc)
-	frame = AppendTag(frame, 5, VarintType)
-	frame = AppendVarint(frame, 10)
-	return frame
-}
-
 func TestChatStreamTextToolAndDone(t *testing.T) {
-	var textFrame []byte
-	textFrame = AppendTag(textFrame, 3, BytesType)
-	textFrame = AppendString(textFrame, "partial ")
-	textFrame2 := AppendTag(nil, 3, BytesType)
-	textFrame2 = AppendString(textFrame2, "answer")
-	toolFrame := buildToolCallDeltaFrame("call_1", "lookup", `{"q":"x"}`, 0)
+	textFrame := []byte("\x1a\x08partial ")
+	textFrame2 := []byte("\x1a\x06answer")
+	toolFrame := []byte("\x32\x1b\x0a\x06call_1\x12\x06lookup\x1a\x09{\"q\":\"x\"}\x28\x0a")
+	usageFrame := []byte{0x3a, 0x08, 0x10, 0x09, 0x18, 0x02, 0x20, 0x05, 0x28, 0x07}
 
 	var buf bytes.Buffer
 	buf.Write(WrapConnectEnvelope(textFrame))
 	buf.Write(WrapConnectEnvelope(textFrame2))
 	buf.Write(WrapConnectEnvelope(toolFrame))
+	buf.Write(WrapConnectEnvelope(usageFrame))
 	buf.Write(WrapConnectEnvelopeWithFlag(ConnectFlagEndStream, []byte(`{}`)))
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -366,13 +362,13 @@ func TestChatStreamTextToolAndDone(t *testing.T) {
 	if !strings.Contains(text, "data: [DONE]") {
 		t.Fatalf("missing DONE marker: %s", text)
 	}
+	if !strings.Contains(text, `"prompt_tokens":21`) || !strings.Contains(text, `"cache_read_tokens":7`) || !strings.Contains(text, `"cache_write_tokens":5`) {
+		t.Fatalf("missing upstream usage: %s", text)
+	}
 }
 
 func TestAggregateConnectStreamMissingEOS(t *testing.T) {
-	var textFrame []byte
-	textFrame = AppendTag(textFrame, 3, BytesType)
-	textFrame = AppendString(textFrame, "orphan")
-	framed := WrapConnectEnvelope(textFrame)
+	framed := WrapConnectEnvelope([]byte("\x1a\x06orphan"))
 	_, err := aggregateConnectStream(bytes.NewReader(framed), nil, "")
 	if err == nil {
 		t.Fatal("expected missing EOS error")
@@ -382,15 +378,82 @@ func TestAggregateConnectStreamMissingEOS(t *testing.T) {
 	}
 }
 
+func TestAggregateConnectStreamKeepsDistinctToolIDs(t *testing.T) {
+	frames := [][]byte{
+		[]byte("\x32\x12\x0a\x06call_a\x12\x05alpha\x1a\x01{"),
+		[]byte("\x32\x12\x0a\x06call_b\x12\x04beta\x1a\x02[]"),
+		[]byte("\x32\x10\x0a\x06call_a\x1a\x06\"a\":1}"),
+	}
+	var stream bytes.Buffer
+	for _, frame := range frames {
+		stream.Write(WrapConnectEnvelope(frame))
+	}
+	stream.Write(WrapConnectEnvelopeWithFlag(ConnectFlagEndStream, []byte(`{}`)))
+	aggregate, err := aggregateConnectStream(&stream, nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(aggregate.ToolCalls) != 2 {
+		t.Fatalf("tool calls = %#v", aggregate.ToolCalls)
+	}
+	if aggregate.ToolCalls[0]["id"] != "call_a" || aggregate.ToolCalls[0]["function"].(map[string]any)["arguments"] != `{"a":1}` {
+		t.Fatalf("first tool = %#v", aggregate.ToolCalls[0])
+	}
+	if aggregate.ToolCalls[1]["id"] != "call_b" {
+		t.Fatalf("second tool = %#v", aggregate.ToolCalls[1])
+	}
+}
+
+func TestChatStreamKeepsDistinctToolIDs(t *testing.T) {
+	frames := [][]byte{
+		[]byte("\x32\x12\x0a\x06call_a\x12\x05alpha\x1a\x01{"),
+		[]byte("\x32\x12\x0a\x06call_b\x12\x04beta\x1a\x02[]"),
+		[]byte("\x32\x10\x0a\x06call_a\x1a\x06\"a\":1}"),
+	}
+	var stream bytes.Buffer
+	for _, frame := range frames {
+		stream.Write(WrapConnectEnvelope(frame))
+	}
+	stream.Write(WrapConnectEnvelopeWithFlag(ConnectFlagEndStream, []byte(`{}`)))
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", ContentTypeConnectProto)
+		_, _ = w.Write(stream.Bytes())
+	}))
+	defer server.Close()
+	store := newMemStore()
+	store.accounts["acc1"] = accounts.Account{ID: "acc1", Provider: "devin", ProviderRegion: "global"}
+	credential := Credential{SessionToken: FormatSessionToken("eyJabc.def.ghi"), DeviceSeed: "seed", BaseURL: server.URL}
+	encoded, err := credential.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.creds["acc1"] = encoded
+	client := NewClient(store)
+	client.SetBases(AppBase, APIBase, server.URL)
+	response, err := client.ChatStream(context.Background(), "acc1", translate.ChatRequest{Model: "swe-2-high", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(body)
+	for _, want := range []string{`"id":"call_a"`, `"id":"call_b"`, `"index":0`, `"index":1`} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("stream missing %s: %s", want, text)
+		}
+	}
+}
+
 func TestChatStreamCancelClosesBody(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		close(started)
 		<-release
-		var textFrame []byte
-		textFrame = AppendTag(textFrame, 3, BytesType)
-		textFrame = AppendString(textFrame, "late")
+		textFrame := []byte("\x1a\x04late")
 		var buf bytes.Buffer
 		buf.Write(WrapConnectEnvelope(textFrame))
 		buf.Write(WrapConnectEnvelopeWithFlag(ConnectFlagEndStream, []byte(`{}`)))
@@ -699,7 +762,7 @@ func TestParseToolsExpandsNamespaceAndDropsHostedShells(t *testing.T) {
 func TestChatStreamRestoresMCPToolName(t *testing.T) {
 	original := "mcp__computer-use__left_click"
 	alias := "mcp_computer_use_left_click"
-	toolFrame := buildToolCallDeltaFrame("call_1", alias, `{"x":2}`, 0)
+	toolFrame := []byte("\x32\x2e\x0a\x06call_1\x12\x1bmcp_computer_use_left_click\x1a\x07{\"x\":2}\x28\x0a")
 
 	var buf bytes.Buffer
 	buf.Write(WrapConnectEnvelope(toolFrame))

@@ -8,10 +8,17 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 ### English
 
 - Preserve typed upstream stream errors through the OpenAI, Anthropic, and Responses relays so invalid Devin requests do not falsely cool accounts, while transport interruptions remain retryable
+- Report Devin cache reads and writes in OpenAI-compatible usage, with prompt
+  totals including all upstream input tokens
+- Generate Devin chat and account-status protobuf types from extracted descriptors
+  with a manual update command; builds and CI use committed Go bindings without
+  downloading releases or regenerating schemas
 
 ### 中文
 
 - OpenAI、Anthropic 与 Responses 流式转发会保留上游的类型化错误，避免无效的 Devin 请求被错误地冷却账号，同时传输中断仍可重试
+- Devin 的缓存读取与写入会显示在 OpenAI 兼容 usage 中，prompt 总数包含全部上游输入 token
+- 新增手动更新命令，提取 descriptor 并生成 Devin 聊天与账号状态 protobuf 类型；构建与 CI 直接使用已提交的 Go 文件，不下载发行包或重新生成 schema
 
 ## 0.5.6 - 2026-09-17
 
