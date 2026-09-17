@@ -923,6 +923,8 @@ func (e ChatExecutor) chatInProcessNonStreamAttempt(ctx context.Context, item ac
 		FinishReason:     outcome.FinishReason,
 		PromptTokens:     outcome.PromptTokens,
 		CompletionTokens: outcome.CompletionTokens,
+		CacheReadTokens:  outcome.CacheReadTokens,
+		CacheWriteTokens: outcome.CacheWriteTokens,
 		UsageSource:      outcome.UsageSource,
 		ConsumedCredits:  outcome.Credits,
 		AccountID:        item.ID,

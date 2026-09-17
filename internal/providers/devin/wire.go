@@ -10,12 +10,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math"
 	"net/http"
 	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
+
+	apipb "github.com/caigee-cmd/cli2api/internal/providers/devin/devinpb/api_server_pb"
+	chatpb "github.com/caigee-cmd/cli2api/internal/providers/devin/devinpb/chat_pb"
+	commonpb "github.com/caigee-cmd/cli2api/internal/providers/devin/devinpb/codeium_common_pb"
+	cortexpb "github.com/caigee-cmd/cli2api/internal/providers/devin/devinpb/cortex_pb"
+	"google.golang.org/protobuf/proto"
 )
 
 // Tool is a tool definition in GetChatMessageRequest.
@@ -37,7 +42,6 @@ type ToolCallDelta struct {
 	ID        string
 	Name      string
 	Arguments string
-	Index     int
 }
 
 // Image is an image attachment on a prompt.
@@ -64,7 +68,7 @@ type Usage struct {
 	PromptTokens     int64
 	CompletionTokens int64
 	CachedTokens     int64
-	StatusCode       uint64
+	CacheWriteTokens int64
 	RequestID        string
 	ModelName        string
 	Headers          map[string]string
@@ -186,31 +190,42 @@ func ReadConnectFrame(r io.Reader) (flag byte, payload []byte, err error) {
 	return flag, payload, nil
 }
 
-func BuildClientMetadata(sessionToken, deviceSeed, osName string) []byte {
+func BuildClientMetadata(sessionToken, deviceSeed, osName string) ([]byte, error) {
+	return proto.Marshal(clientMetadata(sessionToken, deviceSeed, osName))
+}
+
+func clientMetadata(sessionToken, deviceSeed, osName string) *commonpb.Metadata {
+	return metadataWithFingerprint(sessionToken, GenerateDeviceFingerprint(deviceSeed), osName)
+}
+
+func metadataWithFingerprint(sessionToken, deviceFingerprint, osName string) *commonpb.Metadata {
 	if osName == "" {
 		osName = runtime.GOOS
 	}
-	deviceFingerprint := GenerateDeviceFingerprint(deviceSeed)
-	var f1Bytes []byte
-	f1Bytes = AppendTag(f1Bytes, 1, BytesType)
-	f1Bytes = AppendString(f1Bytes, ClientProductLabel)
-	f1Bytes = AppendTag(f1Bytes, 2, BytesType)
-	f1Bytes = AppendString(f1Bytes, ClientVersion)
-	f1Bytes = AppendTag(f1Bytes, 3, BytesType)
-	f1Bytes = AppendString(f1Bytes, sessionToken)
-	f1Bytes = AppendTag(f1Bytes, 4, BytesType)
-	f1Bytes = AppendString(f1Bytes, "en")
-	f1Bytes = AppendTag(f1Bytes, 5, BytesType)
-	f1Bytes = AppendString(f1Bytes, osName)
-	f1Bytes = AppendTag(f1Bytes, 7, BytesType)
-	f1Bytes = AppendString(f1Bytes, ClientVersion)
-	f1Bytes = AppendTag(f1Bytes, 12, BytesType)
-	f1Bytes = AppendString(f1Bytes, ClientName)
-	f1Bytes = AppendTag(f1Bytes, 28, BytesType)
-	f1Bytes = AppendString(f1Bytes, ClientName)
-	f1Bytes = AppendTag(f1Bytes, 31, BytesType)
-	f1Bytes = AppendString(f1Bytes, deviceFingerprint)
-	return f1Bytes
+	return &commonpb.Metadata{
+		IdeName:          ClientProductLabel,
+		ExtensionVersion: ClientVersion,
+		ApiKey:           sessionToken,
+		Locale:           "en",
+		Os:               osName,
+		IdeVersion:       ClientVersion,
+		ExtensionName:    ClientName,
+		IdeType:          ClientName,
+		F:                deviceFingerprint,
+	}
+}
+
+func statusMetadata(sessionToken, deviceFingerprint string) *commonpb.Metadata {
+	return &commonpb.Metadata{
+		IdeName:          ClientName,
+		ExtensionVersion: ClientVersion,
+		ApiKey:           sessionToken,
+		Locale:           "en",
+		Os:               runtime.GOOS,
+		IdeVersion:       ClientVersion,
+		ExtensionName:    ClientName,
+		F:                deviceFingerprint,
+	}
 }
 
 func BuildGetChatMessageRequest(
@@ -224,7 +239,7 @@ func BuildGetChatMessageRequest(
 	maxTokens int,
 	sessionID string,
 	cascadeID string,
-) []byte {
+) ([]byte, error) {
 	if maxTokens <= 0 {
 		maxTokens = DefaultMaxTokens
 	}
@@ -236,246 +251,135 @@ func BuildGetChatMessageRequest(
 	}
 	osName := runtime.GOOS
 
-	reqBytes := make([]byte, 0, 4096+len(systemPrompt))
-	f1Bytes := BuildClientMetadata(sessionToken, deviceSeed, osName)
-	reqBytes = AppendTag(reqBytes, 1, BytesType)
-	reqBytes = AppendBytes(reqBytes, f1Bytes)
-
-	if strings.TrimSpace(systemPrompt) != "" {
-		reqBytes = AppendTag(reqBytes, 2, BytesType)
-		reqBytes = AppendString(reqBytes, systemPrompt)
+	req := &apipb.GetChatMessageRequest{
+		Metadata:    clientMetadata(sessionToken, deviceSeed, osName),
+		RequestType: apipb.ChatMessageRequestType_CHAT_MESSAGE_REQUEST_TYPE_CASCADE,
+		Configuration: &commonpb.CompletionConfiguration{
+			NumCompletions: 1, MaxTokens: uint64(maxTokens),
+			MaxNewlines: 400, TopK: 40,
+			TopP: float64(float32(0.95)),
+		},
+		CascadeId:    cascadeID,
+		PlannerMode:  commonpb.ConversationalPlannerMode_CONVERSATIONAL_PLANNER_MODE_DEFAULT,
+		ChatModelUid: chatModelUID,
 	}
-
+	if strings.TrimSpace(systemPrompt) != "" {
+		req.Prompt = systemPrompt
+	}
+	tempVal := 1.0
+	if temperature != nil {
+		tempVal = *temperature
+	}
+	req.Configuration.Temperature = tempVal
 	for _, p := range prompts {
-		var pBytes []byte
 		msgID := p.MessageID
 		if msgID == "" {
 			msgID = randomHex(16)
 		}
-		pBytes = AppendTag(pBytes, 1, BytesType)
-		pBytes = AppendString(pBytes, msgID)
-
 		source := p.Source
 		if source <= 0 {
 			source = 1
 		}
-		pBytes = AppendTag(pBytes, 2, VarintType)
-		pBytes = AppendVarint(pBytes, uint64(source))
-
-		pBytes = AppendTag(pBytes, 3, BytesType)
-		pBytes = AppendString(pBytes, p.Content)
-
+		prompt := &chatpb.ChatMessagePrompt{MessageId: msgID, Source: commonpb.ChatMessageSource(source), Prompt: p.Content}
 		for _, tc := range p.ToolCalls {
-			var tcBytes []byte
-			if tc.ID != "" {
-				tcBytes = AppendTag(tcBytes, 1, BytesType)
-				tcBytes = AppendString(tcBytes, tc.ID)
-			}
-			if tc.Name != "" {
-				tcBytes = AppendTag(tcBytes, 2, BytesType)
-				tcBytes = AppendString(tcBytes, tc.Name)
-			}
-			if tc.Arguments != "" {
-				tcBytes = AppendTag(tcBytes, 3, BytesType)
-				tcBytes = AppendString(tcBytes, tc.Arguments)
-			}
-			pBytes = AppendTag(pBytes, 6, BytesType)
-			pBytes = AppendBytes(pBytes, tcBytes)
+			prompt.ToolCalls = append(prompt.ToolCalls, &commonpb.ChatToolCall{Id: tc.ID, Name: tc.Name, ArgumentsJson: tc.Arguments})
 		}
-
 		if p.ToolCallID != "" {
-			pBytes = AppendTag(pBytes, 7, BytesType)
-			pBytes = AppendString(pBytes, p.ToolCallID)
+			prompt.ToolCallId = p.ToolCallID
 		}
-
 		for _, img := range p.Images {
 			data := strings.TrimSpace(img.Base64Data)
 			if data == "" {
 				continue
 			}
-			var imgBytes []byte
-			imgBytes = AppendTag(imgBytes, 1, BytesType)
-			imgBytes = AppendString(imgBytes, data)
 			mime := strings.TrimSpace(img.MimeType)
 			if mime == "" {
 				mime = "image/png"
 			}
-			imgBytes = AppendTag(imgBytes, 2, BytesType)
-			imgBytes = AppendString(imgBytes, mime)
-			pBytes = AppendTag(pBytes, 10, BytesType)
-			pBytes = AppendBytes(pBytes, imgBytes)
+			prompt.Images = append(prompt.Images, &commonpb.ImageData{Base64Data: data, MimeType: mime})
 		}
-
 		if p.Thinking != "" {
-			pBytes = AppendTag(pBytes, 11, BytesType)
-			pBytes = AppendString(pBytes, p.Thinking)
+			prompt.Thinking = p.Thinking
 		}
 		if len(p.Signature) > 0 {
-			pBytes = AppendTag(pBytes, 12, BytesType)
-			pBytes = AppendBytes(pBytes, p.Signature)
+			prompt.Signature = string(p.Signature)
 		}
 		if p.SignatureType != "" {
-			pBytes = AppendTag(pBytes, 18, BytesType)
-			pBytes = AppendString(pBytes, p.SignatureType)
+			prompt.SignatureType = p.SignatureType
 		}
-
-		reqBytes = AppendTag(reqBytes, 3, BytesType)
-		reqBytes = AppendBytes(reqBytes, pBytes)
+		req.ChatMessagePrompts = append(req.ChatMessagePrompts, prompt)
 	}
-
-	reqBytes = AppendTag(reqBytes, 7, VarintType)
-	reqBytes = AppendVarint(reqBytes, 5)
-
-	var f8Bytes []byte
-	f8Bytes = AppendTag(f8Bytes, 1, VarintType)
-	f8Bytes = AppendVarint(f8Bytes, 1)
-	f8Bytes = AppendTag(f8Bytes, 2, VarintType)
-	f8Bytes = AppendVarint(f8Bytes, uint64(maxTokens))
-	f8Bytes = AppendTag(f8Bytes, 3, VarintType)
-	f8Bytes = AppendVarint(f8Bytes, 400)
-	tempVal := 1.0
-	if temperature != nil {
-		tempVal = *temperature
-	}
-	f8Bytes = AppendTag(f8Bytes, 5, Fixed64Type)
-	f8Bytes = AppendFloat64(f8Bytes, tempVal)
-	f8Bytes = AppendTag(f8Bytes, 7, VarintType)
-	f8Bytes = AppendVarint(f8Bytes, 40)
-	f8Bytes = AppendTag(f8Bytes, 8, Fixed64Type)
-	f8Bytes = AppendFixed64(f8Bytes, math.Float64bits(float64(float32(0.95))))
-	reqBytes = AppendTag(reqBytes, 8, BytesType)
-	reqBytes = AppendBytes(reqBytes, f8Bytes)
-
 	for _, tool := range tools {
-		var tBytes []byte
-		if tool.Name != "" {
-			tBytes = AppendTag(tBytes, 1, BytesType)
-			tBytes = AppendString(tBytes, tool.Name)
-		}
 		desc := tool.Description
 		if strings.Contains(desc, "Takes a task_id parameter identifying the task") {
 			desc = strings.ReplaceAll(desc, "Takes a task_id parameter identifying the task", "Takes a taskId parameter identifying the task")
 		}
-		if desc != "" {
-			tBytes = AppendTag(tBytes, 2, BytesType)
-			tBytes = AppendString(tBytes, desc)
-		}
+		definition := &chatpb.ChatToolDefinition{Name: tool.Name, Description: desc}
 		if len(tool.Parameters) > 0 {
-			tBytes = AppendTag(tBytes, 3, BytesType)
-			tBytes = AppendBytes(tBytes, tool.Parameters)
+			definition.JsonSchemaString = string(tool.Parameters)
 		}
-		reqBytes = AppendTag(reqBytes, 10, BytesType)
-		reqBytes = AppendBytes(reqBytes, tBytes)
+		req.Tools = append(req.Tools, definition)
 	}
-
 	turnIndex := NextSessionTurnIndex(sessionID)
-	var f15Bytes []byte
-	f15Bytes = AppendTag(f15Bytes, 1, BytesType)
-	f15Bytes = AppendString(f15Bytes, sessionID)
+	trajectory := &cortexpb.CortexTrajectoryReference{TrajectoryId: sessionID, TrajectoryType: cortexpb.CortexTrajectoryType_CORTEX_TRAJECTORY_TYPE_CASCADE}
 	if turnIndex > 0 {
-		f15Bytes = AppendTag(f15Bytes, 2, VarintType)
-		f15Bytes = AppendVarint(f15Bytes, uint64(turnIndex))
+		trajectory.StepIndex = int32(turnIndex)
 	}
-	f15Bytes = AppendTag(f15Bytes, 3, VarintType)
-	f15Bytes = AppendVarint(f15Bytes, 4)
 	if len(prompts) > 0 && prompts[len(prompts)-1].Source == 1 {
 		if turnIndex == 0 || len(prompts) < 2 || prompts[len(prompts)-2].Source != 1 {
-			f15Bytes = AppendTag(f15Bytes, 4, VarintType)
-			f15Bytes = AppendVarint(f15Bytes, 14)
+			trajectory.StepType = cortexpb.CortexStepType_CORTEX_STEP_TYPE_USER_INPUT
 		}
 	}
-	reqBytes = AppendTag(reqBytes, 15, BytesType)
-	reqBytes = AppendBytes(reqBytes, f15Bytes)
-
-	reqBytes = AppendTag(reqBytes, 16, BytesType)
-	reqBytes = AppendString(reqBytes, cascadeID)
-	reqBytes = AppendTag(reqBytes, 20, VarintType)
-	reqBytes = AppendVarint(reqBytes, 1)
-	reqBytes = AppendTag(reqBytes, 21, BytesType)
-	reqBytes = AppendString(reqBytes, chatModelUID)
-	return reqBytes
+	req.TrajectoryReference = trajectory
+	return proto.Marshal(req)
 }
 
 func ParseFrame(payload []byte) (FrameResult, error) {
-	var res FrameResult
-	var textParts []string
-	var thinkingParts []string
-	pos := 0
-	for pos < len(payload) {
-		num, typ, n := ConsumeTag(payload[pos:])
-		if n <= 0 {
-			return res, fmt.Errorf("consume tag error at offset %d: %w", pos, ParseError(n))
-		}
-		pos += n
-		switch typ {
-		case VarintType:
-			v, vn := ConsumeVarint(payload[pos:])
-			if vn <= 0 {
-				return res, fmt.Errorf("consume varint error at offset %d: %w", pos, ParseError(vn))
+	var frame apipb.GetChatMessageResponse
+	if err := proto.Unmarshal(payload, &frame); err != nil {
+		return FrameResult{}, fmt.Errorf("decode Devin response: %w", err)
+	}
+	result := FrameResult{
+		OutputID:       frame.GetOutputId(),
+		Timestamp:      uint64(frame.GetTimestamp().GetSeconds()),
+		ContentText:    frame.GetDeltaText(),
+		DeltaTokens:    uint64(frame.GetDeltaTokens()),
+		StopReason:     uint64(frame.GetStopReason()),
+		ThinkingText:   frame.GetDeltaThinking(),
+		DeltaSignature: []byte(frame.GetDeltaSignature()),
+		DeltaSigType:   frame.GetDeltaSignatureType(),
+		Latency:        frame.GetLatency(),
+		MessageID:      frame.GetMessageId(),
+	}
+	for _, call := range frame.GetDeltaToolCalls() {
+		result.ToolCallDeltas = append(result.ToolCallDeltas, ToolCallDelta{ID: call.GetId(), Name: call.GetName(), Arguments: call.GetArgumentsJson()})
+	}
+	if usage := frame.GetUsage(); usage != nil {
+		result.Usage = usageFromProto(usage)
+	}
+	return result, nil
+}
+
+func usageFromProto(usage *commonpb.ModelUsageStats) *Usage {
+	result := &Usage{
+		PromptTokens:     int64(usage.GetInputTokens() + usage.GetCacheWriteTokens() + usage.GetCacheReadTokens()),
+		CompletionTokens: int64(usage.GetOutputTokens()),
+		CachedTokens:     int64(usage.GetCacheReadTokens()),
+		CacheWriteTokens: int64(usage.GetCacheWriteTokens()),
+		ModelName:        usage.GetModelUid(),
+	}
+	for key, value := range usage.GetResponseHeader() {
+		if key != "" {
+			if result.Headers == nil {
+				result.Headers = map[string]string{}
 			}
-			pos += vn
-			switch num {
-			case 2:
-				res.Timestamp = v
-			case 4:
-				res.DeltaTokens = v
-			case 5:
-				res.StopReason = v
+			result.Headers[key] = value
+			if (strings.EqualFold(key, "x-request-id") || strings.EqualFold(key, "request-id")) && value != "" {
+				result.RequestID = value
 			}
-		case Fixed64Type:
-			v, fn := ConsumeFixed64(payload[pos:])
-			if fn <= 0 {
-				return res, fmt.Errorf("consume fixed64 error at offset %d: %w", pos, ParseError(fn))
-			}
-			pos += fn
-			if num == 12 {
-				res.Latency = math.Float64frombits(v)
-			}
-		case Fixed32Type:
-			_, fn := ConsumeFixed32(payload[pos:])
-			if fn <= 0 {
-				return res, fmt.Errorf("consume fixed32 error at offset %d: %w", pos, ParseError(fn))
-			}
-			pos += fn
-		case BytesType:
-			val, bn := ConsumeBytes(payload[pos:])
-			if bn <= 0 {
-				return res, fmt.Errorf("consume bytes error at offset %d: %w", pos, ParseError(bn))
-			}
-			pos += bn
-			switch num {
-			case 1:
-				res.OutputID = string(val)
-			case 2:
-				res.Timestamp = parseTimestamp(val)
-			case 3:
-				textParts = append(textParts, string(val))
-			case 6:
-				if tc, err := parseToolCallDelta(val); err == nil {
-					res.ToolCallDeltas = append(res.ToolCallDeltas, tc)
-				}
-			case 7:
-				res.Usage = parseUsageField(val)
-			case 9:
-				thinkingParts = append(thinkingParts, string(val))
-			case 10:
-				res.DeltaSignature = append(res.DeltaSignature, val...)
-			case 17:
-				res.MessageID = string(val)
-			case 21:
-				res.DeltaSigType = string(val)
-			}
-		default:
-			return res, fmt.Errorf("unsupported wire type %d at offset %d", typ, pos)
 		}
 	}
-	if len(textParts) > 0 {
-		res.ContentText = strings.Join(textParts, "")
-	}
-	if len(thinkingParts) > 0 {
-		res.ThinkingText = strings.Join(thinkingParts, "")
-	}
-	return res, nil
+	return result
 }
 
 func ParseTrailerError(payload []byte) (statusCode int, err error) {
@@ -528,180 +432,6 @@ func ParseTrailerError(payload []byte) (statusCode int, err error) {
 		}
 	}
 	return httpCode, fmt.Errorf("devin upstream error (%s): %s", trailer.Error.Code, trailer.Error.Message)
-}
-
-func parseToolCallDelta(data []byte) (ToolCallDelta, error) {
-	var tc ToolCallDelta
-	pos := 0
-	for pos < len(data) {
-		num, typ, n := ConsumeTag(data[pos:])
-		if n <= 0 {
-			return tc, ParseError(n)
-		}
-		pos += n
-		switch typ {
-		case VarintType:
-			v, vn := ConsumeVarint(data[pos:])
-			if vn <= 0 {
-				return tc, ParseError(vn)
-			}
-			pos += vn
-			if num == 4 {
-				tc.Index = int(v)
-			}
-		case BytesType:
-			val, bn := ConsumeBytes(data[pos:])
-			if bn <= 0 {
-				return tc, ParseError(bn)
-			}
-			pos += bn
-			switch num {
-			case 1:
-				tc.ID = string(val)
-			case 2:
-				tc.Name = string(val)
-			case 3:
-				tc.Arguments = string(val)
-			}
-		default:
-			nSkip := ConsumeFieldValue(num, typ, data[pos:])
-			if nSkip <= 0 {
-				return tc, ParseError(nSkip)
-			}
-			pos += nSkip
-		}
-	}
-	return tc, nil
-}
-
-func parseTimestamp(data []byte) uint64 {
-	pos := 0
-	var secs uint64
-	for pos < len(data) {
-		num, typ, n := ConsumeTag(data[pos:])
-		if n <= 0 {
-			break
-		}
-		pos += n
-		if typ == VarintType {
-			v, vn := ConsumeVarint(data[pos:])
-			if vn <= 0 {
-				break
-			}
-			pos += vn
-			if num == 1 {
-				secs = v
-			}
-		} else {
-			break
-		}
-	}
-	return secs
-}
-
-func parseUsageField(data []byte) *Usage {
-	u := &Usage{}
-	pos := 0
-	for pos < len(data) {
-		num, typ, n := ConsumeTag(data[pos:])
-		if n <= 0 {
-			break
-		}
-		pos += n
-		switch typ {
-		case VarintType:
-			v, vn := ConsumeVarint(data[pos:])
-			if vn <= 0 {
-				return u
-			}
-			pos += vn
-			switch num {
-			case 2:
-				u.PromptTokens += int64(v)
-			case 3:
-				u.CompletionTokens = int64(v)
-			case 4:
-				u.PromptTokens += int64(v)
-			case 5:
-				u.CachedTokens = int64(v)
-			case 6:
-				u.StatusCode = v
-			}
-		case BytesType:
-			val, bn := ConsumeBytes(data[pos:])
-			if bn <= 0 {
-				return u
-			}
-			pos += bn
-			switch num {
-			case 8:
-				k, v := parseHeaderField(val)
-				if k != "" {
-					if u.Headers == nil {
-						u.Headers = map[string]string{}
-					}
-					u.Headers[k] = v
-					if (strings.EqualFold(k, "x-request-id") || strings.EqualFold(k, "request-id")) && v != "" {
-						u.RequestID = v
-					}
-				}
-			case 9:
-				u.ModelName = string(val)
-			}
-		case Fixed64Type:
-			_, fn := ConsumeFixed64(data[pos:])
-			if fn <= 0 {
-				return u
-			}
-			pos += fn
-		case Fixed32Type:
-			_, fn := ConsumeFixed32(data[pos:])
-			if fn <= 0 {
-				return u
-			}
-			pos += fn
-		default:
-			nSkip := ConsumeFieldValue(num, typ, data[pos:])
-			if nSkip <= 0 {
-				return u
-			}
-			pos += nSkip
-		}
-	}
-	return u
-}
-
-func parseHeaderField(data []byte) (string, string) {
-	var key, val string
-	pos := 0
-	for pos < len(data) {
-		num, typ, n := ConsumeTag(data[pos:])
-		if n <= 0 {
-			break
-		}
-		pos += n
-		switch typ {
-		case BytesType:
-			b, bn := ConsumeBytes(data[pos:])
-			if bn <= 0 {
-				return key, val
-			}
-			pos += bn
-			switch num {
-			case 1:
-				key = string(b)
-			case 2:
-				val = string(b)
-			}
-		default:
-			nSkip := ConsumeFieldValue(num, typ, data[pos:])
-			if nSkip <= 0 {
-				return key, val
-			}
-			pos += nSkip
-		}
-	}
-	return key, val
 }
 
 func BasicAuthHeader(sessionToken string) string {
