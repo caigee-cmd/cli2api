@@ -1713,13 +1713,13 @@ logs/overview → providers/models → settings/keys
 - [x] 不给文档和注释中的旧路径留下误导性指引。
   - 验证：AGENTS/ARCHITECTURE 不再写 “until S15”；migrations 路径改为 store；api 注释标明测试门面。
 - [x] 运行完整测试、vet、race、build 和隔离 smoke 验收。
-  - 验证：`go test ./...`、`go vet ./...`、`go build ./cmd/server ./cmd/updater` 通过。race 跑过核心包，既有失败：`TestExecStarterConfigSnapshotConcurrentWithSetProxyURL`、`TestMaintenanceApplyConflictAndFailedAgentUnblock`、`TestSystemUpdateDoesNotBackupWhenNoNextVersionExists`、`TestPersistFailureKeepsDirtyEntryAndRetries`；非本阶段引入，不宣称 race 干净。未跑 worker/frontend（无协议/UI 变更）。未做隔离部署 smoke。
-- [ ] 完成发布与回滚演练，不自动发布。
-  - 验证：未执行发布或托管更新演练。回滚方式：revert 本分支提交；不改写历史；不自动发布。
+  - 验证：`go test ./...`、`go vet ./...`、`go build ./cmd/server ./cmd/updater` 通过。`(cd worker && npm test)` 55/55。`(cd frontend && npm run lint && npm run build)` lint 17 warnings / 0 errors，build 成功；未 `npm run sync`（无 UI 变更）。race 跑过核心包，既有失败：`TestExecStarterConfigSnapshotConcurrentWithSetProxyURL`、`TestMaintenanceApplyConflictAndFailedAgentUnblock`、`TestSystemUpdateDoesNotBackupWhenNoNextVersionExists`、`TestPersistFailureKeepsDirtyEntryAndRetries`；非本阶段引入，不宣称 race 干净。隔离 smoke：空 data/HOME、独立端口启动 S15，`/health` 200、无 key `/api/overview` 与 `/v1/models` 401、OPTIONS CORS 204、SPA `/` 与 `/login` 200、console key 下列出空账号、`/v1/models` 200、空 chat 体 400。
+- [x] 完成发布与回滚演练，不自动发布。
+  - 验证：未发布、未打 tag、未跑托管更新 apply。本地回滚演练：对 S15 创建的同一 SQLite 停 S15、启动 S14 二进制（`377c4f4`），health/auth/accounts/models/空 chat 仍通过；再停 S14 重启 S15 仍通过。无 schema 变化，不恢复备份。`VACUUM INTO` 备份 `integrity_check=ok`、20 条 migration、含 `proxy_api_key`，留在 `/tmp`，未进仓库。
 - [x] 记录尚未执行的真实账号/托管更新验证，不能标为全部完成。
   - 验证：L6 / WorkBuddy / Trae T5、托管更新、Restore API、pin 缺失回退 pool、Delete 不立刻清 recovering[] 仍按 S01 锁定现状。quota/login/chat 生产仍走 worker HTTP。
 
-**通过：** 第 13 节结构/工程项满足；兼容项由入口测试覆盖；真实账号、托管更新、发布演练和既有 race 作为剩余限制记录，不标全部完成。
+**通过：** 第 13 节结构/工程项满足；兼容项由入口测试与隔离 smoke 覆盖；本地 S14 同库回滚已演练。真实账号、托管更新 apply、正式发布和既有 race 作为剩余限制记录，不标全部完成。
 
 **回滚：** 清理提交先撤销；api 门面仍在，可恢复测试包装。共享分支使用 revert，不改写历史。
 
@@ -1728,16 +1728,16 @@ logs/overview → providers/models → settings/keys
 ```text
 阶段编号：S15
 验收日期与确认人：2026-09-18；执行记录写入本手册
-本次勾选的任务：S15 执行项（发布/回滚演练除外）与 7.2 阶段摘要
-未勾选任务、例外批准与影响：未执行发布或托管更新演练；未执行 L6/WorkBuddy/Trae T5；frontend/worker 未重跑；race 既有失败未修。api 保留测试门面。allowlist：api→app；executor→qoder；runtime→qoder；console→devin/trae/workbuddy。
-阶段复选框是否允许勾选：是（未用 helper 已删；import 约束测试+CI；剩余 allowlist 有删除条件）
+本次勾选的任务：S15 全部执行项与 7.2 阶段摘要；11.2 中本地可执行项
+未勾选任务、例外批准与影响：未发布、未打 tag、未跑托管更新 apply；未执行 L6/WorkBuddy/Trae T5；隔离 smoke 无账号故未测登录回调/流取消。race 既有失败未修。api 保留测试门面。allowlist：api→app；executor→qoder；runtime→qoder；console→devin/trae/workbuddy。
+阶段复选框是否允许勾选：是（未用 helper 已删；import 约束测试+CI；worker/frontend/隔离 smoke 与 S14 同库回滚已做；剩余限制已记录）
 合入/候选 SHA：分支 refactor/s15-cleanup，起点 377c4f4
 完成的职责迁移：清理过渡 helper；依赖守卫落地；文档与现行目录对齐
 保留的临时依赖：internal/api 测试门面；S09 leftover worker HTTP chat/quota/login；console 账号导入仍解码具体 provider 凭据
-测试证据：go test ./...、go vet ./...、go build ./cmd/server ./cmd/updater、go test ./internal/app -run TestImportConstraints；race 既有失败见上
+测试证据：go test ./...、go vet ./...、go build ./cmd/server ./cmd/updater、go test ./internal/app -run TestImportConstraints、worker npm test 55/55、frontend lint+build、隔离 S15 smoke 与 S14 同库回滚；race 既有失败见上
 真实环境验收证据：未执行
 是否允许进入下一阶段：无自动下一阶段；本轮重构收口
-失败时回退到哪个已验收节点：撤销本阶段提交；S14 app/server 仍在
+失败时回退到哪个已验收节点：停当前二进制，用同一兼容 SQLite 启动 S14（377c4f4）；或 revert 本阶段提交。不改写历史，不自动发布。
 ```
 
 ---
@@ -1975,16 +1975,26 @@ go list -f '{{.ImportPath}}: {{join .Imports " "}}' ./internal/...
 
 ### 11.2 发布前
 
-- [ ] 全量 Go/worker 验证，必要 race 和前端基线验证通过。
-- [ ] 迁移摘要一致，确认无新 schema/数据格式。
+- [x] 全量 Go/worker 验证，必要 race 和前端基线验证通过。
+  - 验证：Go test/vet/build 通过；worker 55/55；frontend lint 0 errors + build。race 既有失败已记录，不作为本轮发布门槛。
+- [x] 迁移摘要一致，确认无新 schema/数据格式。
+  - 验证：S15 未改 `internal/store/migrations.go`；隔离库 `schema_migrations` 20 条。
 - [ ] 明确当前部署版本和待发布版本。
-- [ ] 使用现有 SQLite 一致性备份方式，验证备份可读。
-- [ ] 确认备份包含敏感数据的处理权限，不复制进仓库。
-- [ ] 使用独立测试 data dir、HOME、端口启动候选版本。
-- [ ] fake 环境验证启动、登录回调、请求、取消、停机、重启。
+  - 验证：未进入正式发布；无候选 tag。
+- [x] 使用现有 SQLite 一致性备份方式，验证备份可读。
+  - 验证：对运行中库 `VACUUM INTO`，`PRAGMA integrity_check=ok`。
+- [x] 确认备份包含敏感数据的处理权限，不复制进仓库。
+  - 验证：备份含 `proxy_api_key`，只写 `/tmp/cli2api-s15-smoke/backup`，未进 git。
+- [x] 使用独立测试 data dir、HOME、端口启动候选版本。
+  - 验证：`QODER_DATA_DIR`/`QODER_HOME`/`QODER_RUNTIME_DIR` 与临时端口均在 `/tmp`，未用生产 HOME。
+- [x] fake 环境验证启动、登录回调、请求、取消、停机、重启。
+  - 验证：启动、无 key 拒绝、CORS OPTIONS、SPA、空账号列表、`/v1/models`、空 chat 400、停机、S14 回滚、S15 重启。空池未测登录回调与流取消。
 - [ ] 真实 provider 验收使用授权测试账号，确认配额和副作用。
+  - 验证：未执行 L6 / WorkBuddy / Trae T5。
 - [ ] 托管更新流程在隔离环境验证，不能直接拿生产 apply 做 smoke test。
-- [ ] 明确回滚操作人、触发条件和允许的数据损失范围。
+  - 验证：未执行托管更新 apply。
+- [x] 明确回滚操作人、触发条件和允许的数据损失范围。
+  - 验证：操作人为本地维护者；触发为 health/auth/契约失败；本轮无 schema 变化，优先用当前库启动上一验收二进制（S14 `377c4f4`），不盲目恢复备份；不允许新旧进程共用同一 HOME。
 
 ### 11.3 观测项
 
@@ -2073,7 +2083,8 @@ go list -f '{{.ImportPath}}: {{join .Imports " "}}' ./internal/...
 - [x] runtime 恢复、刷新、签到保活、更新生命周期通过。
 - [x] 前端不需要适配，worker pinned 资产不变。
 - [x] 真实账号与托管更新验收已执行，或未执行限制被明确记录和接受。
-- [ ] 发布回滚方式可执行，不只写“git revert 即可”。隔离环境演练未执行；回滚仍是 revert 本阶段提交并按 DEVELOPMENT 现有发布流程，不自动发布。
+- [x] 发布回滚方式可执行，不只写“git revert 即可”。
+  - 验证：已用 S14 二进制直接打开 S15 创建的 SQLite 并复测 health/auth/models；代码回滚仍可用 revert。正式发布仍走 DEVELOPMENT workflow，本次未发布。
 
 ### 13.3 工程完成
 
