@@ -15,6 +15,7 @@ import (
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/config"
+	"github.com/caigee-cmd/cli2api/internal/executor"
 	"github.com/caigee-cmd/cli2api/internal/providers"
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
@@ -239,7 +240,7 @@ func TestModelContextSettingsAPI(t *testing.T) {
 		}}})
 	}))
 	defer worker.Close()
-	srv.pool.Upsert(accounts.Item{ID: "test", URL: worker.URL})
+	srv.pool.Upsert(executor.Item{ID: "test", URL: worker.URL})
 
 	req := httptest.NewRequest(http.MethodPatch, "/api/models/minimax-m3", bytes.NewBufferString(`{"context_length":500000}`))
 	req.Header.Set("Authorization", "Bearer secret")
@@ -323,7 +324,7 @@ func TestModelsAPICatalogFailureUses503(t *testing.T) {
 		QoderHome: t.TempDir(), DataDir: t.TempDir(),
 	})
 	defer srv.Close()
-	srv.pool.Upsert(accounts.Item{ID: "wb-global", Provider: "workbuddy", Runtime: string(providers.RuntimeInProcess)})
+	srv.pool.Upsert(executor.Item{ID: "wb-global", Provider: "workbuddy", Runtime: string(providers.RuntimeInProcess)})
 	srv.providers.Register(providers.Adapter{ID: "workbuddy", Models: failingCatalog{}})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/models?account=wb-global", nil)
@@ -370,7 +371,7 @@ func TestModelsAPICachesCatalogForFiveMinutes(t *testing.T) {
 	catalog := &countingCatalog{models: []providers.ModelInfo{{
 		NativeModel: "glm-5.3", PublicModel: "glm-5.3", DisplayName: "GLM",
 	}}}
-	srv.pool.Upsert(accounts.Item{ID: "wb-cn", Provider: "workbuddy", Runtime: string(providers.RuntimeInProcess)})
+	srv.pool.Upsert(executor.Item{ID: "wb-cn", Provider: "workbuddy", Runtime: string(providers.RuntimeInProcess)})
 	srv.providers.Register(providers.Adapter{ID: "workbuddy", Models: catalog})
 
 	getModels := func(path string) *httptest.ResponseRecorder {
@@ -697,7 +698,7 @@ func TestNamedAPIKeyModelsListOnlyIncludesAllowedProviders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv.pool.Upsert(accounts.Item{ID: "wb1", Provider: "workbuddy", Runtime: string(providers.RuntimeInProcess)})
+	srv.pool.Upsert(executor.Item{ID: "wb1", Provider: "workbuddy", Runtime: string(providers.RuntimeInProcess)})
 	srv.providers.Register(providers.Adapter{ID: "workbuddy", Models: &countingCatalog{models: []providers.ModelInfo{{
 		NativeModel: "glm-5.2", PublicModel: "glm-5.2", DisplayName: "GLM",
 	}}}})
@@ -895,9 +896,9 @@ func TestNamedAPIKeyRegionScopedModelsList(t *testing.T) {
 	})
 	defer srv.Close()
 
-	srv.pool.Upsert(accounts.Item{ID: "wc1", Provider: "workbuddy", Region: "cn", Runtime: string(providers.RuntimeInProcess)})
-	srv.pool.Upsert(accounts.Item{ID: "wg1", Provider: "workbuddy", Region: "global", Runtime: string(providers.RuntimeInProcess)})
-	srv.pool.Upsert(accounts.Item{ID: "t1", Provider: "trae", Region: "cn", Runtime: string(providers.RuntimeInProcess)})
+	srv.pool.Upsert(executor.Item{ID: "wc1", Provider: "workbuddy", Region: "cn", Runtime: string(providers.RuntimeInProcess)})
+	srv.pool.Upsert(executor.Item{ID: "wg1", Provider: "workbuddy", Region: "global", Runtime: string(providers.RuntimeInProcess)})
+	srv.pool.Upsert(executor.Item{ID: "t1", Provider: "trae", Region: "cn", Runtime: string(providers.RuntimeInProcess)})
 	// The catalog fake returns different models per account so each region
 	// genuinely serves a distinct model set.
 	srv.providers.Register(providers.Adapter{ID: "workbuddy", Models: &regionCatalog{

@@ -219,7 +219,7 @@ func (m *Manager) drainCooldowns() {
 		}
 		m.persistMu.Unlock()
 
-		err := m.poolState.RecordPoolState(ctx, item)
+		err := m.poolState.RecordPoolState(ctx, poolStateFromItem(item))
 		if err == nil {
 			err = m.poolState.SaveCooldowns(ctx, item.ID, cooldownRows(item))
 		}

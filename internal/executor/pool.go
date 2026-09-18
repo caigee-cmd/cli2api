@@ -1,4 +1,4 @@
-package accounts
+package executor
 
 import (
 	"log"
@@ -7,47 +7,6 @@ import (
 	"sync"
 	"time"
 )
-
-// QuotaSnapshot is the quota state for one account.
-// A zero value means "unknown"; only Exceeded influences routing.
-type QuotaSnapshot struct {
-	Used                     float64 `json:"used"`
-	Total                    float64 `json:"total"`
-	Remaining                float64 `json:"remaining"`
-	Percentage               float64 `json:"percentage"`
-	Unit                     string  `json:"unit"`
-	Exceeded                 bool    `json:"exceeded"`
-	HasAddOn                 bool    `json:"has_add_on"`
-	AddOnUsed                float64 `json:"add_on_used"`
-	AddOnTotal               float64 `json:"add_on_total"`
-	AddOnRemaining           float64 `json:"add_on_remaining"`
-	AddOnUnit                string  `json:"add_on_unit"`
-	AddOnAvailable           *bool   `json:"add_on_available,omitempty"`
-	HasResourcePackage       bool    `json:"has_resource_package"`
-	ResourcePackageUsed      float64 `json:"resource_package_used"`
-	ResourcePackageTotal     float64 `json:"resource_package_total"`
-	ResourcePackageRemaining float64 `json:"resource_package_remaining"`
-	ResourcePackageUnit      string  `json:"resource_package_unit"`
-	ResourcePackageAvailable *bool   `json:"resource_package_available,omitempty"`
-	FetchedAt                string  `json:"fetched_at"`
-}
-
-const (
-	RoutingStrategyRoundRobin         = "round-robin"
-	RoutingStrategyWeightedRoundRobin = "weighted-round-robin"
-	RoutingStrategyFillFirst          = "fill-first"
-)
-
-func NormalizeRoutingStrategy(strategy string) string {
-	switch strings.ToLower(strings.TrimSpace(strategy)) {
-	case RoutingStrategyFillFirst:
-		return RoutingStrategyFillFirst
-	case RoutingStrategyWeightedRoundRobin:
-		return RoutingStrategyWeightedRoundRobin
-	default:
-		return RoutingStrategyRoundRobin
-	}
-}
 
 type Item struct {
 	ID       string
@@ -126,59 +85,8 @@ type RouteQuery struct {
 	Excluded         map[string]struct{}
 }
 
-// NormalizeProviderFamily maps a stored or requested provider ID onto the
-// canonical family name. An empty value is Qoder, matching the historical
-// default account family.
-func NormalizeProviderFamily(provider string) string {
-	provider = strings.ToLower(strings.TrimSpace(provider))
-	if provider == "" {
-		return "qoder"
-	}
-	return provider
-}
-
-// NormalizeRegion maps a stored or requested region onto the canonical
-// routing region. An empty value is global.
-func NormalizeRegion(region string) string {
-	region = strings.ToLower(strings.TrimSpace(region))
-	if region == "" {
-		return "global"
-	}
-	return region
-}
-
 func itemRegion(item Item) string {
 	return NormalizeRegion(item.Region)
-}
-
-func CanonicalModelID(model string) string {
-	key := strings.ToLower(strings.TrimSpace(model))
-	key = strings.NewReplacer("_", "-", " ", "-").Replace(key)
-	if key == "" {
-		return "auto"
-	}
-	return key
-}
-
-// NormalizeModelName converts display-name formats sent by external clients
-// into the canonical model ID used for routing. It currently strips a leading
-// "Provider: " segment (single-word provider, no spaces) before lowercasing
-// and folding separators so names like "DeepSeek: DeepSeek V4.1 Flash" become
-// "deepseek-v4.1-flash".
-func NormalizeModelName(model string) string {
-	model = strings.TrimSpace(model)
-	if model == "" {
-		return model
-	}
-	parts := strings.SplitN(model, ":", 2)
-	if len(parts) == 2 {
-		provider := strings.TrimSpace(parts[0])
-		displayName := strings.TrimSpace(parts[1])
-		if !strings.Contains(provider, " ") {
-			model = displayName
-		}
-	}
-	return CanonicalModelID(model)
 }
 
 func routeModel(model string) string {
@@ -312,38 +220,9 @@ func NativeModelID(item Item, publicModel string) string {
 	return strings.TrimSpace(publicModel)
 }
 
-// ProviderAllowed reports whether an account family may be used under an API
-// key allowlist — i.e. whether any entry (bare or region-scoped) grants some
-// region of the family. An empty allowlist means every family. An empty
-// provider is treated as Qoder, the same default PickRoute uses. Region-level
-// narrowing happens per candidate account via ProviderRegionAllowed.
-func ProviderAllowed(provider string, allowed []string) bool {
-	return grantsAllowFamily(provider, allowed)
-}
-
-// ProviderRegionAllowed reports whether a specific account (provider family
-// plus region) is covered by an API key allowlist. This is the fail-closed
-// gate every routed candidate must pass; ProviderAllowed alone answers only
-// the family-level question and must not be used to admit an account.
-func ProviderRegionAllowed(provider, region string, allowed []string) bool {
-	return GrantsAllowed(provider, region, allowed)
-}
-
 func providerAllowed(provider, region string, allowed []string) bool {
 	return ProviderRegionAllowed(provider, region, allowed)
 }
-
-// NormalizeWeight maps a stored priority onto a scheduling weight. The
-// console exposes 1..100 with 50 as the default; anything outside the range
-// falls back to the default so a bad row cannot distort rotation.
-func NormalizeWeight(priority int) int {
-	if priority < 1 || priority > 100 {
-		return defaultWeight
-	}
-	return priority
-}
-
-const defaultWeight = 50
 
 // itemWeight is the effective scheduling weight. Every account at the default
 // keeps plain round-robin; differentiated accounts are picked proportionally.

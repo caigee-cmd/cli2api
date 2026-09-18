@@ -833,16 +833,16 @@ FROM account_cooldowns WHERE down_until > ? ORDER BY account_id, model`, now)
 	return out, rows.Err()
 }
 
-func (s *Store) RecordPoolState(ctx context.Context, item accounts.Item) error {
+func (s *Store) RecordPoolState(ctx context.Context, state accounts.PoolState) error {
 	var cooldown any
 	status := "ready"
-	if !item.DownUntil.IsZero() && time.Now().Before(item.DownUntil) {
-		cooldown = formatTime(item.DownUntil)
+	if !state.DownUntil.IsZero() && time.Now().Before(state.DownUntil) {
+		cooldown = formatTime(state.DownUntil)
 		status = "cooling"
 	}
 	_, err := s.db.ExecContext(ctx, `
-UPDATE accounts SET status = ?, last_error = ?, last_error_kind = ?, cooldown_until = ?, updated_at = ?
-WHERE id = ?`, status, item.LastError, item.LastKind, cooldown, formatTime(time.Now().UTC()), item.ID)
+	UPDATE accounts SET status = ?, last_error = ?, last_error_kind = ?, cooldown_until = ?, updated_at = ?
+	WHERE id = ?`, status, state.LastError, state.LastErrorKind, cooldown, formatTime(time.Now().UTC()), state.ID)
 	if err != nil {
 		return fmt.Errorf("record pool state: %w", err)
 	}

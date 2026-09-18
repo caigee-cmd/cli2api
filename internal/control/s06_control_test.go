@@ -54,7 +54,7 @@ func newFakeStore(log *callLog) *fakeStore {
 	}
 }
 
-func (s *fakeStore) RecordPoolState(context.Context, accounts.Item) error { return nil }
+func (s *fakeStore) RecordPoolState(context.Context, accounts.PoolState) error { return nil }
 func (s *fakeStore) SaveCooldowns(context.Context, string, []accounts.CooldownRow) error {
 	return nil
 }

@@ -3,7 +3,7 @@ package api
 import (
 	"testing"
 
-	"github.com/caigee-cmd/cli2api/internal/accounts"
+	"github.com/caigee-cmd/cli2api/internal/executor"
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
@@ -58,8 +58,8 @@ func TestDisabledCrossProviderModelPoolRejectsBareModels(t *testing.T) {
 }
 
 func TestApplyPinnedProviderFilterOverridesBareDefault(t *testing.T) {
-	pool := accounts.NewPool([]string{"http://q1"}, []string{"q1"})
-	pool.Upsert(accounts.Item{ID: "wb1", Provider: "workbuddy", Runtime: "in_process"})
+	pool := executor.NewPool([]string{"http://q1"}, []string{"q1"})
+	pool.Upsert(executor.Item{ID: "wb1", Provider: "workbuddy", Runtime: "in_process"})
 	s := &Server{pool: pool}
 
 	if got := s.applyPinnedProviderFilter("qoder", "glm-5.2", "wb1"); got != "workbuddy" {

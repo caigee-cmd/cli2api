@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
+	"github.com/caigee-cmd/cli2api/internal/executor"
 	"github.com/caigee-cmd/cli2api/internal/providers"
 )
 
@@ -248,7 +249,7 @@ func classifyStreamSSEError(eventName, data string) *providers.Error {
 	if inner := streamErrorBody(data); inner != "" {
 		body = inner
 	}
-	classified := accounts.Classify(status, body, "", "", "")
+	classified := executor.Classify(status, body, "", "", "")
 	return providerErrorFromClassified(classified)
 }
 
@@ -365,7 +366,7 @@ func newStreamProviderError(code, message string, status int) *providers.Error {
 			"kind":    accounts.KindUnavailable,
 		},
 	})
-	classified := accounts.Classify(status, string(body), "", accounts.KindUnavailable, "1")
+	classified := executor.Classify(status, string(body), "", accounts.KindUnavailable, "1")
 	return providerErrorFromClassified(classified)
 }
 
@@ -377,7 +378,7 @@ func streamReadProviderError(err error) *providers.Error {
 	return newStreamProviderError("upstream_stream_interrupted", "stream read error: "+err.Error(), http.StatusBadGateway)
 }
 
-func providerErrorFromClassified(classified accounts.Classified) *providers.Error {
+func providerErrorFromClassified(classified executor.Classified) *providers.Error {
 	failover := classified.Failover
 	retryAfter := classified.RetryAfter
 	if retryAfter <= 0 {

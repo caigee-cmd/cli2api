@@ -1,4 +1,4 @@
-package accounts
+package executor
 
 import (
 	"encoding/json"
@@ -8,32 +8,8 @@ import (
 	"time"
 )
 
-const (
-	KindQuota             = "quota"
-	KindRateLimit         = "rate_limit"
-	KindAuth              = "auth"
-	KindNotReady          = "not_ready"
-	KindUnavailable       = "unavailable"
-	KindInvalidRequest    = "invalid_request"
-	KindModelNotAvailable = "model_not_available"
-	KindCanceled          = "canceled"
-)
-
 const maxRetryAfter = 10 * time.Minute
 const minRateLimitCooldown = 30 * time.Second
-
-func NextLocalMidnightCooldown() time.Duration {
-	return nextLocalMidnightCooldown(time.Now())
-}
-
-func nextLocalMidnightCooldown(now time.Time) time.Duration {
-	zone := now.Location()
-	if zone == nil {
-		zone = time.Local
-	}
-	next := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, zone)
-	return next.Sub(now)
-}
 
 type Classified struct {
 	Kind       string
@@ -55,22 +31,8 @@ type Classified struct {
 const (
 	backoffFloor    = 30 * time.Second
 	backoffCeiling  = 6 * time.Hour
-	BackoffMaxLevel = 8
 	backoffMaxLevel = BackoffMaxLevel
 )
-
-// nextBackoffCooldown lengthens the cooldown for a repeatedly failing account.
-// level is the count of consecutive failures of this kind; the returned level
-// is the value to store for the next failure. Success resets it to zero.
-func ClampBackoffLevel(level int) int {
-	if level < 0 {
-		return 0
-	}
-	if level > backoffMaxLevel {
-		return backoffMaxLevel
-	}
-	return level
-}
 
 func clampBackoffLevel(level int) int {
 	return ClampBackoffLevel(level)
@@ -413,17 +375,7 @@ func quotaLike(lower, code, typ string) bool {
 }
 
 func promptLimitLike(lower string) bool {
-	return strings.Contains(lower, "token-limit") ||
-		strings.Contains(lower, "#token-limit") ||
-		strings.Contains(lower, "oversized prompt") ||
-		strings.Contains(lower, "prompt too large") ||
-		strings.Contains(lower, "prompt too long") ||
-		strings.Contains(lower, "context length") ||
-		strings.Contains(lower, "local precheck rejected")
-}
-
-func IsPromptLimitText(text string) bool {
-	return promptLimitLike(strings.ToLower(text))
+	return IsPromptLimitText(lower)
 }
 
 func rateLike(lower string) bool {
@@ -463,29 +415,4 @@ func modelNotAvailableLike(lower, code string) bool {
 		strings.Contains(lower, "is not available for this qoder account") ||
 		strings.Contains(lower, "model_catalog_unavailable") ||
 		strings.Contains(lower, "no accounts serve model")
-}
-
-// IsInvalidRequestText reports whether an error body looks like an upstream
-// content-screening rejection: the request itself is the problem, so no
-// account should fail over or cool down. Quota and prompt-limit shapes are
-// matched earlier in Classify and never reach this check.
-func IsInvalidRequestText(text string) bool {
-	lower := strings.ToLower(text)
-	return strings.Contains(lower, "sensitive") ||
-		strings.Contains(lower, "敏感") ||
-		strings.Contains(lower, "违规") ||
-		strings.Contains(lower, "风险") ||
-		strings.Contains(lower, "拦截") ||
-		strings.Contains(lower, "moderation") ||
-		strings.Contains(lower, "content filter") ||
-		strings.Contains(lower, "content_filter")
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if trimmed := strings.TrimSpace(value); trimmed != "" {
-			return trimmed
-		}
-	}
-	return ""
 }

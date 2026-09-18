@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/caigee-cmd/cli2api/internal/accounts"
+	"github.com/caigee-cmd/cli2api/internal/executor"
 	accountruntime "github.com/caigee-cmd/cli2api/internal/runtime"
 	"net/http"
 	"net/http/httptest"
@@ -107,7 +108,7 @@ func TestManagerRefreshUsesInProcessProber(t *testing.T) {
 
 	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
 	manager.SetProviders(registry)
-	manager.Pool().Upsert(accounts.Item{ID: account.ID, Provider: "workbuddy", Runtime: "in_process"})
+	manager.Pool().Upsert(executor.Item{ID: account.ID, Provider: "workbuddy", Runtime: "in_process"})
 
 	if err := manager.RefreshAll(ctx, false); err != nil {
 		t.Fatal(err)
@@ -123,7 +124,7 @@ func TestManagerRefreshUsesInProcessProber(t *testing.T) {
 	// Quota() signals before persistQuota merges into the pool / SQLite; wait
 	// for both instead of racing the channel alone.
 	deadline := time.Now().Add(time.Second)
-	var item accounts.Item
+	var item executor.Item
 	var updated accounts.Account
 	for {
 		item, _ = manager.Pool().ByID(account.ID)
@@ -176,7 +177,7 @@ func TestManagerRefreshSkipsEmptyURLWithoutProber(t *testing.T) {
 		t.Fatal(err)
 	}
 	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
-	manager.Pool().Upsert(accounts.Item{ID: account.ID, Provider: "workbuddy", Runtime: "in_process"})
+	manager.Pool().Upsert(executor.Item{ID: account.ID, Provider: "workbuddy", Runtime: "in_process"})
 	if err := manager.RefreshAll(ctx, false); err != nil {
 		t.Fatalf("refresh without prober must be a no-op, got %v", err)
 	}
@@ -227,7 +228,7 @@ func TestManagerRefreshUsesQoderAdapterCatalog(t *testing.T) {
 	registry := providers.NewRegistry()
 	registry.Register(client.Adapter())
 	manager.SetProviders(registry)
-	manager.Pool().Upsert(accounts.Item{ID: account.ID, URL: worker.URL, Provider: "qoder", Runtime: "child_process"})
+	manager.Pool().Upsert(executor.Item{ID: account.ID, URL: worker.URL, Provider: "qoder", Runtime: "child_process"})
 	if err := manager.RefreshAll(ctx, false); err != nil {
 		t.Fatal(err)
 	}
@@ -257,7 +258,7 @@ func TestQoderAdapterRegistrationDoesNotProbeEmptyURL(t *testing.T) {
 	registry := providers.NewRegistry()
 	registry.Register(client.Adapter())
 	manager.SetProviders(registry)
-	manager.Pool().Upsert(accounts.Item{ID: account.ID, Provider: "qoder", Runtime: "child_process"})
+	manager.Pool().Upsert(executor.Item{ID: account.ID, Provider: "qoder", Runtime: "child_process"})
 	if err := manager.RefreshAll(ctx, false); err != nil {
 		t.Fatalf("empty-URL qoder with Adapter must stay a no-op, got %v", err)
 	}

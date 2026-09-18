@@ -14,7 +14,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/auth"
 	"github.com/caigee-cmd/cli2api/internal/buildinfo"
 	"github.com/caigee-cmd/cli2api/internal/config"
@@ -35,7 +34,7 @@ type Server struct {
 	cfg                    config.Config
 	auth                   auth.Verifier
 	executor               executor.ChatExecutor
-	pool                   *accounts.Pool
+	pool                   *executor.Pool
 	manager                *accountruntime.Manager
 	control                *appsvc.Services
 	providers              *providers.Registry

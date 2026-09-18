@@ -23,7 +23,7 @@ type providerRegistry = providers.Registry
 type AttemptHook func(accounts.RequestAttempt)
 
 type ChatExecutor struct {
-	Pool            *accounts.Pool
+	Pool            *Pool
 	WorkerKey       string
 	HTTPClient      *http.Client
 	Providers       *providerRegistry
@@ -174,16 +174,16 @@ func (e ChatExecutor) CommitSession(ctx context.Context, req translate.ChatReque
 	e.SessionAffinity.Bind(resolveSessionKey(ctx, req), accountID)
 }
 
-func itemProvider(item accounts.Item) string {
+func itemProvider(item Item) string {
 	return accounts.NormalizeProviderFamily(item.Provider)
 }
 
 // stickyAccountCanServeModel keeps a bound cooling empty-catalog account on
 // the same model so regional escape still works, but does not let that
 // unknown catalog pin a later, different model (Devin → Deepseek compact).
-func stickyAccountCanServeModel(item accounts.Item, publicModel string) bool {
+func stickyAccountCanServeModel(item Item, publicModel string) bool {
 	if item.Models != nil {
-		return accounts.ItemCouldServeModel(item, publicModel)
+		return ItemCouldServeModel(item, publicModel)
 	}
 	if strings.TrimSpace(publicModel) == "" {
 		return true
@@ -193,7 +193,7 @@ func stickyAccountCanServeModel(item accounts.Item, publicModel string) bool {
 	}
 	probe := item
 	probe.Models = []string{}
-	return accounts.ItemCouldServeModel(probe, publicModel)
+	return ItemCouldServeModel(probe, publicModel)
 }
 
 func (e ChatExecutor) prepareRouting(ctx context.Context, prefer, providerFilter string, req translate.ChatRequest) (string, string, string, routingPlan) {
@@ -235,9 +235,9 @@ func (e ChatExecutor) prepareRouting(ctx context.Context, prefer, providerFilter
 	}
 }
 
-func NewChatExecutor(pool *accounts.Pool, workerKey string) ChatExecutor {
+func NewChatExecutor(pool *Pool, workerKey string) ChatExecutor {
 	if pool == nil {
-		pool = accounts.NewPool(nil, nil)
+		pool = NewPool(nil, nil)
 	}
 	return ChatExecutor{
 		Pool:            pool,
@@ -309,8 +309,8 @@ func buildWorkerPayload(req translate.ChatRequest, stream bool) map[string]any {
 	return payload
 }
 
-func (e ChatExecutor) routeQuery(prefer, providerFilter, regionFilter, publicModel string, allowed []string, excluded map[string]struct{}) accounts.RouteQuery {
-	return accounts.RouteQuery{
+func (e ChatExecutor) routeQuery(prefer, providerFilter, regionFilter, publicModel string, allowed []string, excluded map[string]struct{}) RouteQuery {
+	return RouteQuery{
 		PublicModel:      publicModel,
 		PreferAccount:    prefer,
 		ProviderFilter:   providerFilter,
@@ -320,12 +320,12 @@ func (e ChatExecutor) routeQuery(prefer, providerFilter, regionFilter, publicMod
 	}
 }
 
-func (e ChatExecutor) pick(requestID, prefer, providerFilter, regionFilter, publicModel string, allowed []string, excluded map[string]struct{}) (accounts.Item, error) {
+func (e ChatExecutor) pick(requestID, prefer, providerFilter, regionFilter, publicModel string, allowed []string, excluded map[string]struct{}) (Item, error) {
 	query := e.routeQuery(prefer, providerFilter, regionFilter, publicModel, allowed, excluded)
 	if e.Pool != nil {
 		if item, ok := e.Pool.PickRoute(query); ok {
 			if retryAfter := e.Pool.RetryAfter(item, publicModel); retryAfter > 0 {
-				return accounts.Item{}, coolingPickError(item, publicModel, retryAfter)
+				return Item{}, coolingPickError(item, publicModel, retryAfter)
 			}
 			return item, nil
 		}
@@ -338,7 +338,7 @@ func (e ChatExecutor) pick(requestID, prefer, providerFilter, regionFilter, publ
 		// check: saturated means the model IS served, just at capacity.
 		if e.Pool.LenRoute(query) > 0 {
 			failover := true
-			return accounts.Item{}, &providers.Error{
+			return Item{}, &providers.Error{
 				Kind: accounts.KindRateLimit, Status: 429, Code: "rate_limit",
 				Type: "api_error", Message: "all accounts at capacity",
 				Cooldown: 5 * time.Second, RetryAfter: 5 * time.Second, Failover: &failover,
@@ -349,32 +349,32 @@ func (e ChatExecutor) pick(requestID, prefer, providerFilter, regionFilter, publ
 			unfiltered.PublicModel = ""
 			if e.Pool.LenRoute(unfiltered) > 0 {
 				e.logModelRouteMiss(requestID, query)
-				return accounts.Item{}, fmt.Errorf("model_not_available: %s is not available for the selected accounts", publicModel)
+				return Item{}, fmt.Errorf("model_not_available: %s is not available for the selected accounts", publicModel)
 			}
 		}
 	}
 	if len(allowed) > 0 && providerFilter != "" && !accounts.ProviderAllowed(providerFilter, allowed) {
-		return accounts.Item{}, fmt.Errorf("api key cannot use provider %s", providerFilter)
+		return Item{}, fmt.Errorf("api key cannot use provider %s", providerFilter)
 	}
 	if providerFilter != "" && regionFilter != "" {
-		return accounts.Item{}, fmt.Errorf("no %s/%s accounts available", providerFilter, regionFilter)
+		return Item{}, fmt.Errorf("no %s/%s accounts available", providerFilter, regionFilter)
 	}
 	if providerFilter != "" {
 		// A key whose grant list narrows this family to a single region
 		// should fail with that region in the message, even when the
 		// request itself did not pin one.
 		if regionFilter, narrowed := keyGrantedSingleRegion(providerFilter, allowed); narrowed {
-			return accounts.Item{}, fmt.Errorf("no %s/%s accounts available", providerFilter, regionFilter)
+			return Item{}, fmt.Errorf("no %s/%s accounts available", providerFilter, regionFilter)
 		}
-		return accounts.Item{}, fmt.Errorf("no %s accounts available", providerFilter)
+		return Item{}, fmt.Errorf("no %s accounts available", providerFilter)
 	}
 	if len(allowed) > 0 {
-		return accounts.Item{}, fmt.Errorf("no accounts available for this api key")
+		return Item{}, fmt.Errorf("no accounts available for this api key")
 	}
-	return accounts.Item{}, fmt.Errorf("no worker accounts configured")
+	return Item{}, fmt.Errorf("no worker accounts configured")
 }
 
-func (e ChatExecutor) logModelRouteMiss(requestID string, query accounts.RouteQuery) {
+func (e ChatExecutor) logModelRouteMiss(requestID string, query RouteQuery) {
 	if e.Pool == nil {
 		return
 	}
@@ -394,7 +394,7 @@ func (e ChatExecutor) logModelRouteMiss(requestID string, query accounts.RouteQu
 		strings.Join(allowed, ","), strings.Join(excluded, ","), strings.Join(summaries, " "))
 }
 
-func modelRouteAccountSummary(item accounts.Item, publicModel string, excluded map[string]struct{}) string {
+func modelRouteAccountSummary(item Item, publicModel string, excluded map[string]struct{}) string {
 	ready := item.Ready == nil || *item.Ready
 	hot := item.Hot != nil && *item.Hot
 	quotaExceeded := item.Quota != nil && item.Quota.Exceeded
@@ -445,7 +445,7 @@ func logTime(value time.Time) string {
 	return value.UTC().Format(time.RFC3339)
 }
 
-func coolingPickError(item accounts.Item, publicModel string, retryAfter time.Duration) error {
+func coolingPickError(item Item, publicModel string, retryAfter time.Duration) error {
 	failover := true
 	kind := accounts.KindRateLimit
 	code := "rate_limit"
@@ -515,7 +515,7 @@ func keyGrantedSingleRegion(providerFilter string, allowed []string) (string, bo
 	return regions[0], true
 }
 
-func isInProcessItem(item accounts.Item) bool {
+func isInProcessItem(item Item) bool {
 	if item.Runtime == string(providers.RuntimeInProcess) {
 		return true
 	}
@@ -555,13 +555,13 @@ func (e ChatExecutor) ObserveStreamFailure(accountID string, err error, model st
 		// and fail the same way. Force the cooldown.
 		classified.Failover = true
 		if classified.Cooldown <= 0 {
-			classified.Cooldown = accounts.NextLocalMidnightCooldown()
+			classified.Cooldown = NextLocalMidnightCooldown()
 		}
 	}
 	e.markClassified(accountID, classified, model)
 }
 
-func (e ChatExecutor) handleModelAvailabilityFailure(requestID, source, accountID, model string, classified accounts.Classified) {
+func (e ChatExecutor) handleModelAvailabilityFailure(requestID, source, accountID, model string, classified Classified) {
 	if e.Pool == nil || accountID == "" {
 		return
 	}
@@ -576,7 +576,7 @@ func (e ChatExecutor) handleModelAvailabilityFailure(requestID, source, accountI
 		classified.Status, action, truncateLogValue(classified.Message, 300), modelRouteAccountSummary(item, model, nil))
 }
 
-func shouldEvictUnavailableModel(classified accounts.Classified) bool {
+func shouldEvictUnavailableModel(classified Classified) bool {
 	if classified.Kind != accounts.KindModelNotAvailable {
 		return false
 	}
@@ -597,7 +597,7 @@ func truncateLogValue(value string, limit int) string {
 // markClassified records a classified failure. model scopes the cooldown to
 // the requested public model so one rate-limited model does not take the
 // whole account offline; pass "" for an account-wide cooldown.
-func (e ChatExecutor) markClassified(id string, c accounts.Classified, model string) {
+func (e ChatExecutor) markClassified(id string, c Classified, model string) {
 	if e.Pool == nil || id == "" {
 		return
 	}
@@ -633,7 +633,7 @@ func (e ChatExecutor) recordAttempt(ctx context.Context, attempt accounts.Reques
 	e.OnAttempt(attempt)
 }
 
-func (e ChatExecutor) newWorkerRequest(ctx context.Context, item accounts.Item, payload []byte, prefer string) (*http.Request, error) {
+func (e ChatExecutor) newWorkerRequest(ctx context.Context, item Item, payload []byte, prefer string) (*http.Request, error) {
 	account := prefer
 	if account == "" {
 		account = item.ID
@@ -641,7 +641,7 @@ func (e ChatExecutor) newWorkerRequest(ctx context.Context, item accounts.Item, 
 	return qoder.NewChatRequest(ctx, item.URL, account, RequestIDFromContext(ctx), e.WorkerKey, payload)
 }
 
-func classifyWorkerErr(resp *http.Response, body string) accounts.Classified {
+func classifyWorkerErr(resp *http.Response, body string) Classified {
 	status := 0
 	retryAfter := ""
 	kind := ""
@@ -652,7 +652,7 @@ func classifyWorkerErr(resp *http.Response, body string) accounts.Classified {
 		kind = resp.Header.Get("X-Qoder-Error-Kind")
 		failover = resp.Header.Get("X-Qoder-Failover")
 	}
-	return accounts.Classify(status, body, retryAfter, kind, failover)
+	return Classify(status, body, retryAfter, kind, failover)
 }
 
 type routeLoop struct {
@@ -703,10 +703,10 @@ func (e ChatExecutor) newRouteLoop(ctx context.Context, prefer, providerFilter s
 	return loop
 }
 
-func (l *routeLoop) pickNext(e ChatExecutor, publicModel string) (accounts.Item, int, error) {
+func (l *routeLoop) pickNext(e ChatExecutor, publicModel string) (Item, int, error) {
 	item, err := e.pick(l.requestID, l.prefer, l.providerFilter, l.regionFilter, publicModel, l.allowed, l.excluded)
 	if err != nil {
-		return accounts.Item{}, l.index, err
+		return Item{}, l.index, err
 	}
 	attemptIndex := l.index
 	e.observeRouting(&l.routing, item.ID)
@@ -719,22 +719,22 @@ func (l *routeLoop) pickNext(e ChatExecutor, publicModel string) (accounts.Item,
 	return item, attemptIndex, nil
 }
 
-func (l routeLoop) canFailover(classified accounts.Classified) bool {
+func (l routeLoop) canFailover(classified Classified) bool {
 	return classified.Failover && l.index < l.attempts
 }
 
-func (l *routeLoop) exclude(item accounts.Item) {
+func (l *routeLoop) exclude(item Item) {
 	l.excluded[item.ID] = struct{}{}
 }
 
-func (l routeLoop) headerAccount(item accounts.Item, attemptIndex int) string {
+func (l routeLoop) headerAccount(item Item, attemptIndex int) string {
 	if attemptIndex == 0 && l.pinned != "" {
 		return l.pinned
 	}
 	return item.ID
 }
 
-func (l routeLoop) resultProvider(item accounts.Item) string {
+func (l routeLoop) resultProvider(item Item) string {
 	return firstNonEmpty(item.Provider, "qoder")
 }
 
@@ -795,7 +795,7 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 				})
 				return ChatResult{AttemptCount: i + 1, AccountID: item.ID, Provider: item.Provider}, err
 			}
-			classified := accounts.Classify(0, err.Error(), "", accounts.KindUnavailable, "")
+			classified := Classify(0, err.Error(), "", accounts.KindUnavailable, "")
 			loop.lastErr = fmt.Errorf("worker %s request failed: %w", item.ID, err)
 			e.markClassified(item.ID, classified, req.Model)
 			latency := int(time.Since(started).Milliseconds())
@@ -873,8 +873,8 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 // prompts when the account opts in; Qoder workers intentionally preserve them.
 // WorkBuddy still needs a leading system slot after the strip (code 11128);
 // the adapter inserts an empty placeholder, this helper only drops caller text.
-func sanitizeForItem(item accounts.Item, req translate.ChatRequest) translate.ChatRequest {
-	if native := accounts.NativeModelID(item, req.Model); native != "" {
+func sanitizeForItem(item Item, req translate.ChatRequest) translate.ChatRequest {
+	if native := NativeModelID(item, req.Model); native != "" {
 		req.Model = native
 	}
 	if item.DropSystemPrompt && itemProvider(item) != "qoder" {
@@ -883,10 +883,10 @@ func sanitizeForItem(item accounts.Item, req translate.ChatRequest) translate.Ch
 	return req
 }
 
-func (e ChatExecutor) chatInProcessNonStreamAttempt(ctx context.Context, item accounts.Item, req translate.ChatRequest, attemptIndex int) (ChatResult, accounts.Classified, error) {
+func (e ChatExecutor) chatInProcessNonStreamAttempt(ctx context.Context, item Item, req translate.ChatRequest, attemptIndex int) (ChatResult, Classified, error) {
 	adapter, _ := e.Providers.Get(itemProvider(item))
 	if adapter.Chat == nil {
-		return ChatResult{}, accounts.Classified{}, fmt.Errorf("provider %s does not implement chat", item.Provider)
+		return ChatResult{}, Classified{}, fmt.Errorf("provider %s does not implement chat", item.Provider)
 	}
 	started := time.Now()
 	outcome, err := adapter.Chat.ChatNonStream(ctx, item.ID, sanitizeForItem(item, req))
@@ -894,7 +894,7 @@ func (e ChatExecutor) chatInProcessNonStreamAttempt(ctx context.Context, item ac
 	latency := int(finished.Sub(started).Milliseconds())
 	if err != nil {
 		if requestContextDone(ctx, err) {
-			return ChatResult{AccountID: item.ID, Provider: item.Provider}, accounts.Classified{Kind: accounts.KindUnavailable, Message: err.Error()}, err
+			return ChatResult{AccountID: item.ID, Provider: item.Provider}, Classified{Kind: accounts.KindUnavailable, Message: err.Error()}, err
 		}
 		classified := e.classifyInProcessError(err)
 		if classified.Kind == accounts.KindModelNotAvailable {
@@ -932,13 +932,13 @@ func (e ChatExecutor) chatInProcessNonStreamAttempt(ctx context.Context, item ac
 		ConsumedCredits:  outcome.Credits,
 		AccountID:        item.ID,
 		Provider:         item.Provider,
-	}, accounts.Classified{}, nil
+	}, Classified{}, nil
 }
 
-func (e ChatExecutor) chatInProcessStreamAttempt(ctx context.Context, item accounts.Item, req translate.ChatRequest, attemptIndex int) (StreamResult, accounts.Classified, error) {
+func (e ChatExecutor) chatInProcessStreamAttempt(ctx context.Context, item Item, req translate.ChatRequest, attemptIndex int) (StreamResult, Classified, error) {
 	adapter, _ := e.Providers.Get(itemProvider(item))
 	if adapter.Chat == nil {
-		return StreamResult{}, accounts.Classified{}, fmt.Errorf("provider %s does not implement chat", item.Provider)
+		return StreamResult{}, Classified{}, fmt.Errorf("provider %s does not implement chat", item.Provider)
 	}
 	started := time.Now()
 	resp, err := adapter.Chat.ChatStream(ctx, item.ID, sanitizeForItem(item, req))
@@ -946,7 +946,7 @@ func (e ChatExecutor) chatInProcessStreamAttempt(ctx context.Context, item accou
 		finished := time.Now().UTC()
 		latency := int(finished.Sub(started).Milliseconds())
 		if requestContextDone(ctx, err) {
-			return StreamResult{AccountID: item.ID, Provider: item.Provider}, accounts.Classified{Kind: accounts.KindUnavailable, Message: err.Error()}, err
+			return StreamResult{AccountID: item.ID, Provider: item.Provider}, Classified{Kind: accounts.KindUnavailable, Message: err.Error()}, err
 		}
 		classified := e.classifyInProcessError(err)
 		if classified.Kind == accounts.KindModelNotAvailable {
@@ -970,10 +970,10 @@ func (e ChatExecutor) chatInProcessStreamAttempt(ctx context.Context, item accou
 		AttemptIndex: attemptIndex, AccountID: item.ID, StartedAt: started, FinishedAt: &headerAt,
 		Status: accounts.AttemptStatusOK, HTTPStatus: ptrInt(http.StatusOK), LatencyMs: &ttfb,
 	})
-	return StreamResult{Response: resp, AccountID: item.ID, Provider: item.Provider, TTFBMs: ttfb}, accounts.Classified{}, nil
+	return StreamResult{Response: resp, AccountID: item.ID, Provider: item.Provider, TTFBMs: ttfb}, Classified{}, nil
 }
 
-func providerErrorFromClassified(classified accounts.Classified) *providers.Error {
+func providerErrorFromClassified(classified Classified) *providers.Error {
 	failover := classified.Failover
 	retryAfter := classified.RetryAfter
 	if retryAfter <= 0 {
@@ -991,7 +991,7 @@ func providerErrorFromClassified(classified accounts.Classified) *providers.Erro
 	}
 }
 
-func providerErrorFor(err error, classified accounts.Classified) error {
+func providerErrorFor(err error, classified Classified) error {
 	var providerErr *providers.Error
 	if !errors.As(err, &providerErr) || providerErr == nil {
 		return err
@@ -999,19 +999,19 @@ func providerErrorFor(err error, classified accounts.Classified) error {
 	return providerErrorFromClassified(classified)
 }
 
-func (e ChatExecutor) classifyInProcessError(err error) accounts.Classified {
+func (e ChatExecutor) classifyInProcessError(err error) Classified {
 	if err == nil {
-		return accounts.Classify(0, "", "", accounts.KindUnavailable, "")
+		return Classify(0, "", "", accounts.KindUnavailable, "")
 	}
 	var providerErr *providers.Error
 	if !errors.As(err, &providerErr) || providerErr == nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return accounts.Classified{
+			return Classified{
 				Kind: accounts.KindCanceled, Status: 499, Failover: false,
 				Code: "request_canceled", Message: err.Error(),
 			}
 		}
-		return accounts.Classify(0, err.Error(), "", accounts.KindUnavailable, "")
+		return Classify(0, err.Error(), "", accounts.KindUnavailable, "")
 	}
 	message := strings.TrimSpace(providerErr.Message)
 	if message == "" {
@@ -1026,7 +1026,7 @@ func (e ChatExecutor) classifyInProcessError(err error) accounts.Classified {
 			failoverHint = "0"
 		}
 	}
-	classified := accounts.Classify(providerErr.Status, raw, "", providerErr.Kind, failoverHint)
+	classified := Classify(providerErr.Status, raw, "", providerErr.Kind, failoverHint)
 	if providerErr.Code != "" {
 		classified.Code = providerErr.Code
 	}
@@ -1193,7 +1193,7 @@ func (e ChatExecutor) ChatStreamProxy(ctx context.Context, req translate.ChatReq
 				})
 				return StreamResult{AttemptCount: i + 1, AccountID: item.ID, Provider: item.Provider}, err
 			}
-			classified := accounts.Classify(0, err.Error(), "", accounts.KindUnavailable, "")
+			classified := Classify(0, err.Error(), "", accounts.KindUnavailable, "")
 			loop.lastErr = fmt.Errorf("worker %s stream request failed: %w", item.ID, err)
 			e.markClassified(item.ID, classified, req.Model)
 			latency := int(time.Since(started).Milliseconds())

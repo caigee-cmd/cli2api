@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/config"
+	"github.com/caigee-cmd/cli2api/internal/executor"
 	"github.com/caigee-cmd/cli2api/internal/providers"
 )
 
@@ -97,7 +97,7 @@ func TestDeviceLoginWaitsForAuthManagerThenOpens(t *testing.T) {
 		WorkerDaemonPath: "/dev/null",
 	})
 	t.Cleanup(func() { _ = srv.Close() })
-	srv.pool.Upsert(accounts.Item{ID: "acc-cn", URL: worker.URL, Provider: "qoder", Region: "cn"})
+	srv.pool.Upsert(executor.Item{ID: "acc-cn", URL: worker.URL, Provider: "qoder", Region: "cn"})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/accounts/acc-cn/login/device", nil)
 	req.Header.Set("Authorization", "Bearer secret")
@@ -129,7 +129,7 @@ func TestFetchWorkerModelsForNotFoundAccount(t *testing.T) {
 	})
 	t.Cleanup(func() { _ = srv.Close() })
 	// A running account that must never receive the query.
-	srv.pool.Upsert(accounts.Item{ID: "real-acc", URL: "http://127.0.0.1:1", Provider: "qoder", Region: "global", Runtime: "child_process"})
+	srv.pool.Upsert(executor.Item{ID: "real-acc", URL: "http://127.0.0.1:1", Provider: "qoder", Region: "global", Runtime: "child_process"})
 
 	_, err := srv.fetchWorkerModelsFor(false, "nonexistent")
 	if err == nil {
@@ -150,7 +150,7 @@ func TestFetchProviderModelsKeepsAliasWithSharedNativeModel(t *testing.T) {
 		QoderHome: t.TempDir(), DataDir: t.TempDir(),
 	})
 	defer srv.Close()
-	srv.pool.Upsert(accounts.Item{ID: "wb-cn", Provider: "workbuddy", Runtime: string(providers.RuntimeInProcess)})
+	srv.pool.Upsert(executor.Item{ID: "wb-cn", Provider: "workbuddy", Runtime: string(providers.RuntimeInProcess)})
 	srv.providers.Register(providers.Adapter{ID: "workbuddy", Models: &countingCatalog{models: []providers.ModelInfo{
 		{NativeModel: "deep-model", PublicModel: "deep-model", DisplayName: "Deep"},
 		{NativeModel: "deep-model", PublicModel: "deepseek-v4.1-flash", DisplayName: "Deepseek-V4.1-Flash"},
@@ -180,7 +180,7 @@ func TestFetchProviderModelsExposesCreditsAndFree(t *testing.T) {
 		QoderHome: t.TempDir(), DataDir: t.TempDir(),
 	})
 	defer srv.Close()
-	srv.pool.Upsert(accounts.Item{ID: "wb-global", Provider: "workbuddy", Runtime: string(providers.RuntimeInProcess)})
+	srv.pool.Upsert(executor.Item{ID: "wb-global", Provider: "workbuddy", Runtime: string(providers.RuntimeInProcess)})
 	srv.providers.Register(providers.Adapter{ID: "workbuddy", Models: &countingCatalog{models: []providers.ModelInfo{
 		{NativeModel: "deepseek-v4.1-flash", PublicModel: "deepseek-v4.1-flash", DisplayName: "Deepseek", Credits: "x0.00", Free: true},
 		{NativeModel: "glm-5.3", PublicModel: "glm-5.3", DisplayName: "GLM", Credits: "x0.79"},
@@ -221,8 +221,8 @@ func TestFetchProviderModelsExpandKeepsPerRegionCredits(t *testing.T) {
 		QoderHome: t.TempDir(), DataDir: t.TempDir(),
 	})
 	defer srv.Close()
-	srv.pool.Upsert(accounts.Item{ID: "wb-cn", Provider: "workbuddy", Region: "cn", Runtime: string(providers.RuntimeInProcess)})
-	srv.pool.Upsert(accounts.Item{ID: "wb-global", Provider: "workbuddy", Region: "global", Runtime: string(providers.RuntimeInProcess)})
+	srv.pool.Upsert(executor.Item{ID: "wb-cn", Provider: "workbuddy", Region: "cn", Runtime: string(providers.RuntimeInProcess)})
+	srv.pool.Upsert(executor.Item{ID: "wb-global", Provider: "workbuddy", Region: "global", Runtime: string(providers.RuntimeInProcess)})
 	srv.providers.Register(providers.Adapter{ID: "workbuddy", Models: &regionCatalog{
 		byAccount: map[string][]providers.ModelInfo{
 			"wb-cn": {{
@@ -316,7 +316,7 @@ func TestFetchProviderModelsExpandStampsQoderRegion(t *testing.T) {
 		QoderHome: t.TempDir(), DataDir: t.TempDir(), WorkerDaemonPath: "/dev/null",
 	})
 	defer srv.Close()
-	srv.pool.Upsert(accounts.Item{ID: "q-cn", URL: worker.URL, Provider: "qoder", Region: "cn", Runtime: "child_process"})
+	srv.pool.Upsert(executor.Item{ID: "q-cn", URL: worker.URL, Provider: "qoder", Region: "cn", Runtime: "child_process"})
 
 	expanded, err := srv.fetchWorkerModelsForMode(false, "", catalogModeExpand)
 	if err != nil {

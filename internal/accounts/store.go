@@ -5,11 +5,21 @@ import (
 	"time"
 )
 
+// PoolState is the persistable account-wide slice of a live pool item.
+// Store and AccountStore stay free of executor types; runtime maps Item onto
+// this DTO before writing.
+type PoolState struct {
+	ID            string
+	DownUntil     time.Time
+	LastError     string
+	LastErrorKind string
+}
+
 // PoolStateStore is the cooldown persistence surface used by the pool
 // observer drainer. Pool and executor never see the SQLite type; they emit
-// Item snapshots, and Manager writes through this interface.
+// snapshots, and Manager writes through this interface.
 type PoolStateStore interface {
-	RecordPoolState(ctx context.Context, item Item) error
+	RecordPoolState(ctx context.Context, state PoolState) error
 	SaveCooldowns(ctx context.Context, accountID string, rows []CooldownRow) error
 	LoadCooldowns(ctx context.Context) ([]CooldownRow, error)
 }

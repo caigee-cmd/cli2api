@@ -39,12 +39,12 @@ func buildChatUsage(res executor.ChatResult) map[string]any {
 	return out
 }
 
-func classifyAPIError(err error) accounts.Classified {
+func classifyAPIError(err error) executor.Classified {
 	if err == nil {
-		return accounts.Classify(0, "", "", accounts.KindUnavailable, "")
+		return executor.Classify(0, "", "", accounts.KindUnavailable, "")
 	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return accounts.Classified{
+		return executor.Classified{
 			Kind: accounts.KindCanceled, Status: 499, Failover: false,
 			Code: "request_canceled", Message: err.Error(),
 		}
@@ -64,7 +64,7 @@ func classifyAPIError(err error) accounts.Classified {
 				failoverHint = "0"
 			}
 		}
-		classified := accounts.Classify(classifiedErr.Status, raw, "", classifiedErr.Kind, failoverHint)
+		classified := executor.Classify(classifiedErr.Status, raw, "", classifiedErr.Kind, failoverHint)
 		if classifiedErr.Code != "" {
 			classified.Code = classifiedErr.Code
 		}
@@ -87,7 +87,7 @@ func classifyAPIError(err error) accounts.Classified {
 		classified.RetryAfter = classified.Cooldown
 		return classified
 	}
-	return accounts.Classify(0, err.Error(), "", "", "")
+	return executor.Classify(0, err.Error(), "", "", "")
 }
 
 func writeClassifiedErr(w http.ResponseWriter, err error) {

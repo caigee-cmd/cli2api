@@ -4,7 +4,7 @@ title: 后端工程化重构实施手册（行为保持）
 scope: [backend, package-boundaries, refactoring, compatibility, testing, rollout]
 status: in-progress
 read-when: 评估或执行不改变现有功能的后端职责拆分、制定重构 PR、检查兼容性与回滚条件时
-summary: 基于现有实现的渐进式工程化重构方案，包含目标职责、迁移映射、状态所有权、16 个实施阶段、测试矩阵、PR 规则、发布回滚和完成标准。S00–S09 已验收；Pool/route 尚未迁出 accounts。
+summary: 基于现有实现的渐进式工程化重构方案，包含目标职责、迁移映射、状态所有权、16 个实施阶段、测试矩阵、PR 规则、发布回滚和完成标准。S00–S10 已验收；共享请求准备尚未迁出 api。
 related: [AGENTS.md, docs/ARCHITECTURE.md, docs/REQUEST.md, docs/PLAN.md, docs/DEVELOPMENT.md]
 last-updated: 2026-09-18
 ---
@@ -527,7 +527,7 @@ executor 仍 import accounts
 - [x] S07：runtime 迁移完成，任务与资源所有权验证通过。
 - [x] S08：Qoder 具体实现归位，上游交互与启动配置验证通过。
 - [x] S09：Qoder Adapter 分能力接线完成，兼容验证通过。
-- [ ] S10：调度职责迁移完成，选号/冷却/状态持久化验证通过。
+- [x] S10：调度职责迁移完成，选号/冷却/状态持久化验证通过。
 - [ ] S11：共享请求准备与模型服务完成，所有入口行为验证通过。
 - [ ] S12：gateway 迁移完成，HTTP/SSE 契约验证通过。
 - [ ] S13：console/update 迁移完成，控制台与更新契约验证通过。
@@ -1417,19 +1417,45 @@ runtime 本阶段临时 import `providers/qoder`（HOME/CLI 包装与 worker HTT
 
 执行：
 
-- [ ] 把 Pool/Item/RouteQuery/ItemHasModel 及策略迁入 executor 的调度职责。
-- [ ] 移动错误分类及 Retry-After/退避 helper 时保持所有判断顺序。
-- [ ] provider 使用中立 Error/ClassifiedError；不 import executor taxonomy 实现。
-- [ ] 保留同一 Pool 实例，不因 runtime/control 各构造一次产生两套状态。
-- [ ] 保留 in-flight 增减、成功/失败观察和 rewarm 调用时机。
-- [ ] 保留账号/模型冷却、kind、backoff 和 StateVersion 顺序。
-- [ ] 将持久化观察器接到原写入队列，保留队列排序、drain 与关闭方式。
-- [ ] 原子更新调用点，避免 accounts.Pool alias 反向引用 executor。
-- [ ] 对固定候选和请求序列比较选择轨迹，不只比较最终 HTTP 成功率。
+- [x] 把 Pool/Item/RouteQuery/ItemHasModel 及策略迁入 executor 的调度职责。
+  - 验证：`internal/executor/pool.go` 持有 `Pool`/`Item`/`RouteQuery`；`accounts` 保留 `Account`/`QuotaSnapshot`/`CooldownRow` 与 ID/grant/kind helpers。无 `accounts.Pool` 反向 alias。
+- [x] 移动错误分类及 Retry-After/退避 helper 时保持所有判断顺序。
+  - 验证：`Classify`/`ParseRetryAfter*`/`nextBackoffCooldown` 迁到 `internal/executor/classify.go`；判断顺序未改。`Kind*`/`IsInvalidRequestText`/`IsPromptLimitText`/`NextLocalMidnightCooldown` 留在 `accounts` 供 provider 使用。
+- [x] provider 使用中立 Error/ClassifiedError；不 import executor taxonomy 实现。
+  - 验证：`go list` 显示 workbuddy/trae/devin/qoder 仍只 import `accounts` + `providers`，不 import `executor`。
+- [x] 保留同一 Pool 实例，不因 runtime/control 各构造一次产生两套状态。
+  - 验证：生产仍 `manager := NewManager(...)` → `pool := manager.Pool()` → `NewChatExecutor(pool, ...)`。control 不构造 Pool。
+- [x] 保留 in-flight 增减、成功/失败观察和 rewarm 调用时机。
+  - 验证：未改 `MergeHealth`/`MarkOK`/`MarkClassified` 调用点；rewarm 仍在 api `provider != "qoder"` 分支。
+- [x] 保留账号/模型冷却、kind、backoff 和 StateVersion 顺序。
+  - 验证：`MarkClassified`/`MarkOK` 算法原样搬迁；`pool_test.go`/`pool_route_test.go` 随文件迁入 executor。
+- [x] 将持久化观察器接到原写入队列，保留队列排序、drain 与关闭方式。
+  - 验证：`SetObserver` 仍写入 runtime `persistDirty`；drainer 仍按最低 ID drain、version 丢弃、Flush 关停。`RecordPoolState` 改为 `accounts.PoolState` DTO，store 不 import executor。
+- [x] 原子更新调用点，避免 accounts.Pool alias 反向引用 executor。
+  - 验证：`accounts` 不 import `executor`；runtime alias 是 `Item = executor.Item`。store 用 `PoolState`。
+- [x] 对固定候选和请求序列比较选择轨迹，不只比较最终 HTTP 成功率。
+  - 验证：原 round-robin/WRR/fill-first/sticky/pin/grants/catalog+proven/model cooldown 测试随包迁移并通过。
 
 **通过：** 三种策略、sticky、pin、grants、catalog/proven、模型冷却和持久化顺序测试通过。
 
 **回滚：** pool 包归属迁移独立于算法；回滚代码不改变已持久化格式。
+
+#### S10 阶段验收
+
+```text
+阶段编号：S10
+验收日期与确认人：2026-09-18；执行记录写入本手册
+本次勾选的任务：S10 全部执行项与 7.2 阶段摘要
+未勾选任务、例外批准与影响：未改选号/冷却算法；未修 pin fallback / recovering 已知行为。race/frontend/真实账号/托管更新不在本阶段。
+阶段复选框是否允许勾选：是（Pool/classify 迁入 executor；单实例；无 accounts↔executor 环；provider 不 import executor）
+合入/候选 SHA：分支 refactor/s10-pool-route，起点 470ff96
+完成的职责迁移：调度状态与分类策略归 executor；accounts 保留实体、grants、taxonomy 常量和 ID helpers
+保留的临时依赖：runtime 仍构造并持有 *executor.Pool；api 经 manager.Pool() 注入同一实例；prepare 仍在 api
+测试证据：go test ./...、go vet ./...、go build ./cmd/server ./cmd/updater
+真实环境验收证据：未执行
+是否允许进入下一阶段：S11（共享请求准备与模型服务）可开始；不自动开工
+失败时回退到哪个已验收节点：撤销本阶段提交；S09 Adapter 接线仍在
+```
 
 ### S11：提取共享请求准备与模型服务
 

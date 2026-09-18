@@ -276,8 +276,8 @@ func TestRelayOpenAIStreamPreservesTypedReadError(t *testing.T) {
 	if !strings.Contains(output, `"code":"invalid_argument"`) || !strings.Contains(output, `"retry_after":45`) || strings.Contains(output, "upstream_stream_interrupted") {
 		t.Fatalf("structured error=%s", output)
 	}
-	pool := accounts.NewPool(nil, nil)
-	pool.Upsert(accounts.Item{ID: "devin-account"})
+	pool := executor.NewPool(nil, nil)
+	pool.Upsert(executor.Item{ID: "devin-account"})
 	executor.NewChatExecutor(pool, "").ObserveStreamFailure("devin-account", got, "swe-2")
 	item, _ := pool.ByID("devin-account")
 	if item.LastKind != "" || !item.DownUntil.IsZero() {
@@ -295,8 +295,8 @@ func TestRelayOpenAIStreamWrapsUnknownReadError(t *testing.T) {
 	if !strings.Contains(got.Message, "stream read error: socket closed") {
 		t.Fatalf("message=%q", got.Message)
 	}
-	pool := accounts.NewPool(nil, nil)
-	pool.Upsert(accounts.Item{ID: "devin-account"})
+	pool := executor.NewPool(nil, nil)
+	pool.Upsert(executor.Item{ID: "devin-account"})
 	executor.NewChatExecutor(pool, "").ObserveStreamFailure("devin-account", got, "swe-2")
 	item, _ := pool.ByID("devin-account")
 	if item.LastKind != accounts.KindUnavailable || item.DownUntil.IsZero() {

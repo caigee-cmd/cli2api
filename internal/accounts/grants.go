@@ -12,9 +12,9 @@ import (
 // family, and set for a region-scoped grant ("workbuddy:cn").
 //
 // Grants stay in accounts: ParseProviderGrant uses the providers catalog, and
-// Pool wrappers (ProviderAllowed / ProviderRegionAllowed) plus
-// NormalizeAPIKeyProviders own the runtime/write paths. Moving this file to
-// auth would create accounts → auth while auth already imports accounts.
+// ProviderAllowed / ProviderRegionAllowed plus NormalizeAPIKeyProviders own
+// the runtime/write paths. Moving this file to auth would create
+// accounts → auth while auth already imports accounts.
 type ProviderGrant struct {
 	Provider string
 	Region   string

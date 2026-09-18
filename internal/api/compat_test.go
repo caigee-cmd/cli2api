@@ -43,8 +43,8 @@ func TestCompatibilityStreamsPreserveTypedReadError(t *testing.T) {
 func newCompatibilityServer(t *testing.T, worker http.HandlerFunc) (*Server, func()) {
 	t.Helper()
 	upstream := httptest.NewServer(worker)
-	pool := accounts.NewPool(nil, nil)
-	pool.Upsert(accounts.Item{ID: "account-a", URL: upstream.URL, Provider: "qoder", Region: "global", Runtime: "child_process"})
+	pool := executor.NewPool(nil, nil)
+	pool.Upsert(executor.Item{ID: "account-a", URL: upstream.URL, Provider: "qoder", Region: "global", Runtime: "child_process"})
 	chatExecutor := executor.NewChatExecutor(pool, "")
 	chatExecutor.HTTPClient = upstream.Client()
 	server := &Server{executor: chatExecutor, pool: pool}

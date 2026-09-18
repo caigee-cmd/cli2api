@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/caigee-cmd/cli2api/internal/accounts"
+	"github.com/caigee-cmd/cli2api/internal/executor"
 	accountruntime "github.com/caigee-cmd/cli2api/internal/runtime"
 	"net/http"
 	"net/http/httptest"
@@ -145,7 +146,7 @@ func TestManagerRetriesInitialStartFailure(t *testing.T) {
 		t.Fatal("initial start failure was not recovered")
 	}
 	deadline := time.Now().Add(time.Second)
-	var item accounts.Item
+	var item executor.Item
 	var ok bool
 	for time.Now().Before(deadline) {
 		item, ok = manager.Pool().ByID(account.ID)
@@ -446,7 +447,7 @@ func TestManagerRefreshesHealthAndPersistsUID(t *testing.T) {
 		t.Fatal(err)
 	}
 	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
-	manager.Pool().Upsert(accounts.Item{ID: account.ID, URL: worker.URL})
+	manager.Pool().Upsert(executor.Item{ID: account.ID, URL: worker.URL})
 	if err := manager.RefreshAll(ctx, false); err != nil {
 		t.Fatal(err)
 	}
@@ -483,7 +484,7 @@ func TestManagerRefreshSkipsDeadRecovery(t *testing.T) {
 	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
 	defer manager.Close()
 	restartAt := time.Now().Add(time.Minute)
-	manager.Pool().Upsert(accounts.Item{ID: account.ID, URL: worker.URL})
+	manager.Pool().Upsert(executor.Item{ID: account.ID, URL: worker.URL})
 	manager.Pool().SetRuntimeState(account.ID, "dead", restartAt, 2, "account daemon exited")
 	if err := manager.RefreshAll(ctx, false); err != nil {
 		t.Fatal(err)
@@ -535,7 +536,7 @@ func TestManagerRefreshFetchesQuotaWithoutAffectingHealth(t *testing.T) {
 		t.Fatal(err)
 	}
 	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir(), ProxyAPIKey: "proxy-key"}, store, &fakeStarter{})
-	manager.Pool().Upsert(accounts.Item{ID: account.ID, URL: worker.URL})
+	manager.Pool().Upsert(executor.Item{ID: account.ID, URL: worker.URL})
 	if err := manager.RefreshAll(ctx, false); err != nil {
 		t.Fatal(err)
 	}
@@ -591,7 +592,7 @@ func TestManagerRefreshCachesAccountCatalog(t *testing.T) {
 		t.Fatal(err)
 	}
 	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
-	manager.Pool().Upsert(accounts.Item{ID: account.ID, URL: worker.URL})
+	manager.Pool().Upsert(executor.Item{ID: account.ID, URL: worker.URL})
 	if err := manager.RefreshAll(ctx, false); err != nil {
 		t.Fatal(err)
 	}
@@ -635,7 +636,7 @@ func TestManagerQuotaFailureLeavesAccountReady(t *testing.T) {
 		t.Fatal(err)
 	}
 	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
-	manager.Pool().Upsert(accounts.Item{ID: account.ID, URL: worker.URL})
+	manager.Pool().Upsert(executor.Item{ID: account.ID, URL: worker.URL})
 	if err := manager.RefreshAll(ctx, false); err != nil {
 		t.Fatalf("quota outage must not fail refresh: %v", err)
 	}
@@ -680,7 +681,7 @@ func TestManagerRefreshCanForceQuotaBypass(t *testing.T) {
 		t.Fatal(err)
 	}
 	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
-	manager.Pool().Upsert(accounts.Item{ID: account.ID, URL: worker.URL})
+	manager.Pool().Upsert(executor.Item{ID: account.ID, URL: worker.URL})
 	if err := manager.RefreshAll(ctx, true); err != nil {
 		t.Fatal(err)
 	}
@@ -891,8 +892,8 @@ func TestManagerPersistsSchedulerCooldown(t *testing.T) {
 		t.Fatal(err)
 	}
 	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
-	manager.Pool().Upsert(accounts.Item{ID: account.ID, URL: "http://127.0.0.1:1"})
-	manager.Pool().MarkClassified(account.ID, accounts.Classified{Kind: accounts.KindRateLimit, Message: "429", Cooldown: time.Minute, Failover: true})
+	manager.Pool().Upsert(executor.Item{ID: account.ID, URL: "http://127.0.0.1:1"})
+	manager.Pool().MarkClassified(account.ID, executor.Classified{Kind: accounts.KindRateLimit, Message: "429", Cooldown: time.Minute, Failover: true})
 	// The observer persists asynchronously through a single drainer
 	// goroutine; wait for it to catch up before asserting SQLite state.
 	manager.Flush()
@@ -930,7 +931,7 @@ func TestObserverSavesAreSerialized(t *testing.T) {
 	}
 	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
 	defer manager.Close()
-	manager.Pool().Upsert(accounts.Item{ID: account.ID, URL: "http://127.0.0.1:1"})
+	manager.Pool().Upsert(executor.Item{ID: account.ID, URL: "http://127.0.0.1:1"})
 	// Fire several cooldown updates concurrently; the last one to set
 	// ModelDownUntil must win, not whichever snapshot happens to write last.
 	const workers = 8
@@ -939,7 +940,7 @@ func TestObserverSavesAreSerialized(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			manager.Pool().MarkClassified(account.ID, accounts.Classified{
+			manager.Pool().MarkClassified(account.ID, executor.Classified{
 				Kind: accounts.KindRateLimit, Cooldown: time.Duration(i+1) * time.Minute,
 				Failover: true, Model: "glm-5.3", Message: "429",
 			})
@@ -1028,7 +1029,7 @@ func TestCloseConcurrentObserverNoPanic(t *testing.T) {
 		t.Fatal(err)
 	}
 	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
-	manager.Pool().Upsert(accounts.Item{ID: account.ID, URL: "http://127.0.0.1:1"})
+	manager.Pool().Upsert(executor.Item{ID: account.ID, URL: "http://127.0.0.1:1"})
 	stop := make(chan struct{})
 	go func() {
 		for {
@@ -1036,7 +1037,7 @@ func TestCloseConcurrentObserverNoPanic(t *testing.T) {
 			case <-stop:
 				return
 			default:
-				manager.Pool().MarkClassified(account.ID, accounts.Classified{
+				manager.Pool().MarkClassified(account.ID, executor.Classified{
 					Kind: accounts.KindRateLimit, Cooldown: time.Minute,
 					Failover: true, Model: "glm-5.3", Message: "429",
 				})
@@ -1068,10 +1069,10 @@ func TestFlushStrictlyAfterEnqueue(t *testing.T) {
 	}
 	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
 	defer manager.Close()
-	manager.Pool().Upsert(accounts.Item{ID: account.ID, URL: "http://127.0.0.1:1"})
+	manager.Pool().Upsert(executor.Item{ID: account.ID, URL: "http://127.0.0.1:1"})
 	// Enqueue a known cooldown, then flush. The SQLite row must reflect it
 	// after Flush returns.
-	manager.Pool().MarkClassified(account.ID, accounts.Classified{
+	manager.Pool().MarkClassified(account.ID, executor.Classified{
 		Kind: accounts.KindRateLimit, Cooldown: time.Hour,
 		Failover: true, Model: "glm-5.3", Message: "strict-429",
 	})
@@ -1115,7 +1116,7 @@ func TestModelLastKindPersistedAcrossRestart(t *testing.T) {
 	}
 	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
 	defer manager.Close()
-	manager.Pool().Upsert(accounts.Item{ID: account.ID, URL: "http://127.0.0.1:1"})
+	manager.Pool().Upsert(executor.Item{ID: account.ID, URL: "http://127.0.0.1:1"})
 	manager.TestRestoreCooldowns(ctx)
 	item, _ := manager.Pool().ByID(account.ID)
 	if item.ModelLastKind == nil || item.ModelLastKind["glm-5.3"] != accounts.KindRateLimit {
@@ -1143,7 +1144,7 @@ func TestStateVersionOrdersAcrossDelayedObserver(t *testing.T) {
 	}
 	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
 	defer manager.Close()
-	manager.Pool().Upsert(accounts.Item{ID: account.ID, URL: "http://127.0.0.1:1"})
+	manager.Pool().Upsert(executor.Item{ID: account.ID, URL: "http://127.0.0.1:1"})
 
 	// Wrap the observer so the FIRST call (the older snapshot A) blocks on a
 	// latch until after B has enqueued. The second call (B) enqueues
@@ -1151,7 +1152,7 @@ func TestStateVersionOrdersAcrossDelayedObserver(t *testing.T) {
 	blockA := make(chan struct{})
 	startedA := make(chan struct{})
 	original := manager.Pool().Observer()
-	manager.Pool().SetObserver(func(item accounts.Item) {
+	manager.Pool().SetObserver(func(item executor.Item) {
 		if item.StateVersion == 1 && item.ID == account.ID {
 			close(startedA)
 			<-blockA // hold A back until B has enqueued
@@ -1161,13 +1162,13 @@ func TestStateVersionOrdersAcrossDelayedObserver(t *testing.T) {
 	})
 
 	// Fire A (version 1, message "old"); the observer will block on blockA.
-	go manager.Pool().MarkClassified(account.ID, accounts.Classified{
+	go manager.Pool().MarkClassified(account.ID, executor.Classified{
 		Kind: accounts.KindRateLimit, Cooldown: time.Hour,
 		Failover: true, Model: "glm-5.3", Message: "old-snapshot",
 	})
 	<-startedA
 	// Fire B (version 2, message "new"); it enqueues immediately while A is held.
-	manager.Pool().MarkClassified(account.ID, accounts.Classified{
+	manager.Pool().MarkClassified(account.ID, executor.Classified{
 		Kind: accounts.KindRateLimit, Cooldown: time.Hour,
 		Failover: true, Model: "glm-5.3", Message: "new-snapshot",
 	})
@@ -1208,7 +1209,7 @@ func TestPersistQueueBoundedPerAccount(t *testing.T) {
 	}
 	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
 	defer manager.Close()
-	manager.Pool().Upsert(accounts.Item{ID: account.ID, URL: "http://127.0.0.1:1"})
+	manager.Pool().Upsert(executor.Item{ID: account.ID, URL: "http://127.0.0.1:1"})
 
 	const workers = 64
 	var wg sync.WaitGroup
@@ -1216,7 +1217,7 @@ func TestPersistQueueBoundedPerAccount(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			manager.Pool().MarkClassified(account.ID, accounts.Classified{
+			manager.Pool().MarkClassified(account.ID, executor.Classified{
 				Kind: accounts.KindRateLimit, Cooldown: time.Minute,
 				Failover: true, Model: "glm-5.3", Message: fmt.Sprintf("burst-%d", i),
 			})
@@ -1264,7 +1265,7 @@ func TestPersistFailureKeepsDirtyEntryAndRetries(t *testing.T) {
 	}
 	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
 	defer manager.Close()
-	manager.Pool().Upsert(accounts.Item{ID: account.ID, URL: "http://127.0.0.1:1"})
+	manager.Pool().Upsert(executor.Item{ID: account.ID, URL: "http://127.0.0.1:1"})
 
 	// Close the underlying db so SaveCooldowns fails. The drainer must
 	// re-enqueue the snapshot and back off; it must NOT advance
@@ -1272,7 +1273,7 @@ func TestPersistFailureKeepsDirtyEntryAndRetries(t *testing.T) {
 	if err := store.DB().Close(); err != nil {
 		t.Fatal(err)
 	}
-	manager.Pool().MarkClassified(account.ID, accounts.Classified{
+	manager.Pool().MarkClassified(account.ID, executor.Classified{
 		Kind: accounts.KindRateLimit, Cooldown: time.Hour,
 		Failover: true, Model: "glm-5.3", Message: "write-will-fail",
 	})
@@ -1280,7 +1281,7 @@ func TestPersistFailureKeepsDirtyEntryAndRetries(t *testing.T) {
 	// puts it back after the failure. Sampling at a multiple of the retry
 	// backoff can land in that empty window, so poll until the failed
 	// snapshot is visible again.
-	var dirty accounts.Item
+	var dirty executor.Item
 	var dirtyOK bool
 	var version uint64
 	deadline := time.Now().Add(2 * time.Second)
@@ -1327,14 +1328,14 @@ func TestCloseDuringPersistentDBFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
-	manager.Pool().Upsert(accounts.Item{ID: account.ID, URL: "http://127.0.0.1:1"})
+	manager.Pool().Upsert(executor.Item{ID: account.ID, URL: "http://127.0.0.1:1"})
 
 	// Close the underlying db so writes persistently fail, forcing the
 	// drainer into its retry backoff.
 	if err := store.DB().Close(); err != nil {
 		t.Fatal(err)
 	}
-	manager.Pool().MarkClassified(account.ID, accounts.Classified{
+	manager.Pool().MarkClassified(account.ID, executor.Classified{
 		Kind: accounts.KindRateLimit, Cooldown: time.Hour,
 		Failover: true, Model: "glm-5.3", Message: "stuck",
 	})
@@ -1389,7 +1390,7 @@ func TestRestoreModelCooldownDoesNotPolluteAccountBackoff(t *testing.T) {
 	}
 	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
 	defer manager.Close()
-	manager.Pool().Upsert(accounts.Item{ID: account.ID, URL: "http://127.0.0.1:1"})
+	manager.Pool().Upsert(executor.Item{ID: account.ID, URL: "http://127.0.0.1:1"})
 	manager.TestRestoreCooldowns(ctx)
 
 	item, _ := manager.Pool().ByID(account.ID)
@@ -1406,7 +1407,7 @@ func TestRestoreModelCooldownDoesNotPolluteAccountBackoff(t *testing.T) {
 	// Verify the fix end-to-end: trigger an account-wide failure on a
 	// different model. The backoff ladder must start at level 0 (first
 	// failure), not level 3.
-	manager.Pool().MarkClassified(account.ID, accounts.Classified{
+	manager.Pool().MarkClassified(account.ID, executor.Classified{
 		Kind: accounts.KindUnavailable, Cooldown: 60 * time.Second,
 		Failover: true, Model: "deepseek-v4-flash", Message: "conn refused",
 	})
@@ -1448,9 +1449,9 @@ func TestEnsureModelCatalogsDoesNotBlock(t *testing.T) {
 
 	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
 	defer manager.Close()
-	manager.Pool().Upsert(accounts.Item{ID: "slow-a", URL: slowA.URL, Provider: "qoder", Runtime: "child_process"})
-	manager.Pool().Upsert(accounts.Item{ID: "slow-b", URL: slowB.URL, Provider: "qoder", Runtime: "child_process"})
-	manager.Pool().Upsert(accounts.Item{ID: "slow-c", URL: slowC.URL, Provider: "qoder", Runtime: "child_process"})
+	manager.Pool().Upsert(executor.Item{ID: "slow-a", URL: slowA.URL, Provider: "qoder", Runtime: "child_process"})
+	manager.Pool().Upsert(executor.Item{ID: "slow-b", URL: slowB.URL, Provider: "qoder", Runtime: "child_process"})
+	manager.Pool().Upsert(executor.Item{ID: "slow-c", URL: slowC.URL, Provider: "qoder", Runtime: "child_process"})
 
 	// With the old serial implementation, this would block ~45s.
 	// With the async fix it returns in milliseconds.

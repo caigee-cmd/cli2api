@@ -1,4 +1,4 @@
-package accounts
+package executor
 
 import (
 	"net/http"
@@ -17,12 +17,12 @@ func TestClassifyPromptLimitDoesNotCoolAccount(t *testing.T) {
 func TestNextLocalMidnightCooldown(t *testing.T) {
 	loc := time.FixedZone("UTC+8", 8*60*60)
 	now := time.Date(2026, time.September, 4, 23, 45, 0, 0, loc)
-	if got := nextLocalMidnightCooldown(now); got != 15*time.Minute {
+	if got := NextLocalMidnightCooldownAt(now); got != 15*time.Minute {
 		t.Fatalf("cooldown=%s", got)
 	}
 
 	utc := time.Date(2026, time.September, 4, 23, 45, 0, 0, time.UTC)
-	if got := nextLocalMidnightCooldown(utc); got != 15*time.Minute {
+	if got := NextLocalMidnightCooldownAt(utc); got != 15*time.Minute {
 		t.Fatalf("utc cooldown=%s", got)
 	}
 }

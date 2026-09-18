@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"github.com/caigee-cmd/cli2api/internal/accounts"
+	"github.com/caigee-cmd/cli2api/internal/executor"
 )
 
 type (
@@ -13,8 +14,9 @@ type (
 	ImportAccount    = accounts.ImportAccount
 	AccountView      = accounts.AccountView
 	NativeCredential = accounts.NativeCredential
-	Item             = accounts.Item
-	Pool             = accounts.Pool
+	Item             = executor.Item
+	Pool             = executor.Pool
+	Classified       = executor.Classified
 	CooldownRow      = accounts.CooldownRow
 	QuotaSnapshot    = accounts.QuotaSnapshot
 	CheckinRecord    = accounts.CheckinRecord
@@ -29,7 +31,7 @@ const (
 var ErrAccountNotFound = accounts.ErrAccountNotFound
 
 func NewPool(urls, ids []string) *Pool {
-	return accounts.NewPool(urls, ids)
+	return executor.NewPool(urls, ids)
 }
 
 func NormalizeWeight(priority int) int {
@@ -42,4 +44,13 @@ func clampBackoffLevel(level int) int {
 
 func NormalizeWorkBuddyCheckinTime(value string) (string, error) {
 	return accounts.NormalizeWorkBuddyCheckinTime(value)
+}
+
+func poolStateFromItem(item Item) accounts.PoolState {
+	return accounts.PoolState{
+		ID:            item.ID,
+		DownUntil:     item.DownUntil,
+		LastError:     item.LastError,
+		LastErrorKind: item.LastKind,
+	}
 }

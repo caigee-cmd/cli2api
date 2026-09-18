@@ -286,7 +286,7 @@ func TestRegionGrantDoesNotEscapeOnChat(t *testing.T) {
 		t.Fatal(err)
 	}
 	ready := true
-	srv.pool.Upsert(accounts.Item{ID: "wb-global", Provider: "workbuddy", Region: "global", Runtime: string(providers.RuntimeInProcess), Ready: &ready})
+	srv.pool.Upsert(executor.Item{ID: "wb-global", Provider: "workbuddy", Region: "global", Runtime: string(providers.RuntimeInProcess), Ready: &ready})
 	rec := serveS01(t, srv, http.MethodPost, endpoint.ChatCompletionsPath, `{"model":"workbuddy/glm-5.2","messages":[{"role":"user","content":"hi"}]}`, created.Secret)
 	if rec.Code == http.StatusOK {
 		t.Fatalf("region grant escaped: %d %s", rec.Code, rec.Body.String())
@@ -295,9 +295,9 @@ func TestRegionGrantDoesNotEscapeOnChat(t *testing.T) {
 
 type failingFlushWriter struct{}
 
-func (failingFlushWriter) Header() http.Header        { return make(http.Header) }
-func (failingFlushWriter) WriteHeader(int)            {}
-func (failingFlushWriter) Flush()                     {}
+func (failingFlushWriter) Header() http.Header { return make(http.Header) }
+func (failingFlushWriter) WriteHeader(int)     {}
+func (failingFlushWriter) Flush()              {}
 func (failingFlushWriter) Write([]byte) (int, error) {
 	return 0, errors.New("client closed")
 }
@@ -314,8 +314,8 @@ func TestOpenAIStreamCancelClosesUpstreamBody(t *testing.T) {
 		once.Do(func() { close(released) })
 	}))
 	t.Cleanup(upstream.Close)
-	pool := accounts.NewPool(nil, nil)
-	pool.Upsert(accounts.Item{ID: "account-a", URL: upstream.URL, Provider: "qoder", Region: "global", Runtime: "child_process"})
+	pool := executor.NewPool(nil, nil)
+	pool.Upsert(executor.Item{ID: "account-a", URL: upstream.URL, Provider: "qoder", Region: "global", Runtime: "child_process"})
 	chatExecutor := executor.NewChatExecutor(pool, "")
 	chatExecutor.HTTPClient = upstream.Client()
 	server := &Server{executor: chatExecutor, pool: pool}
