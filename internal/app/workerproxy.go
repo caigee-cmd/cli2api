@@ -55,16 +55,6 @@ func (a *App) RequestedAccount(r *http.Request) string {
 	return id
 }
 
-func (a *App) selectedAccountID(r *http.Request) string {
-	if id := a.RequestedAccount(r); id != "" {
-		return id
-	}
-	if item, ok := a.Pool.First(); ok {
-		return item.ID
-	}
-	return ""
-}
-
 // proxyAccountWorker forwards a console request to the per-account Node worker
 // and optionally syncs the account auth_type after a successful login.
 func (a *App) proxyAccountWorker(w http.ResponseWriter, r *http.Request, accountID, path, syncAuth string) {

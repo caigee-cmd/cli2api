@@ -61,26 +61,6 @@ func (a *App) newConsole() *appconsole.Handler {
 	return h
 }
 
-func (a *App) consoleHandler() *appconsole.Handler {
-	if a == nil {
-		return &appconsole.Handler{}
-	}
-	if a.Console == nil {
-		a.Console = a.newConsole()
-	}
-	if a.Console.Update == nil {
-		a.Console.Update = a.updater()
-	}
-	if a.Console.Chat == nil {
-		a.Console.Chat = a.gatewayHandler().HandleChatCompletions
-	}
-	return a.Console
-}
-
-func (a *App) updater() *appupdate.Coordinator {
-	return a.SyncUpdate()
-}
-
 func (a *App) SyncUpdate() *appupdate.Coordinator {
 	if a == nil {
 		return &appupdate.Coordinator{}
@@ -100,12 +80,4 @@ func (a *App) SyncUpdate() *appupdate.Coordinator {
 		a.Console.Update = a.Update
 	}
 	return a.Update
-}
-
-func (a *App) snapshotUpdateJob() *appupdate.Job {
-	return a.updater().Snapshot()
-}
-
-func (a *App) finishUpdateJob(jobID, state, message string, finished bool) {
-	a.updater().Finish(jobID, state, message, finished)
 }

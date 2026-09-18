@@ -6,7 +6,6 @@ import (
 
 	"github.com/caigee-cmd/cli2api/internal/control"
 	apigateway "github.com/caigee-cmd/cli2api/internal/gateway"
-	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
 func (a *App) newGateway() *apigateway.Handler {
@@ -51,12 +50,4 @@ func (a *App) gatewayHandler() *apigateway.Handler {
 		a.Gateway = a.newGateway()
 	}
 	return a.Gateway
-}
-
-func (a *App) prepareChatExecution(r *http.Request, request translate.ChatRequest) (chatExecution, error) {
-	return a.gatewayHandler().PrepareChatExecution(r, request)
-}
-
-func (a *App) prepareCompatibilityExecution(r *http.Request, request translate.ChatRequest) (compatibilityExecution, error) {
-	return a.gatewayHandler().PrepareCompatibilityExecution(r, request)
 }

@@ -13,6 +13,8 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - name: Import constraints
+        run: go test ./internal/app -run TestImportConstraints -count=1
       - run: go test ./...
       - run: go vet ./...
       - name: Validate bilingual changelog

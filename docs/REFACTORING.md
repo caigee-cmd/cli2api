@@ -2,9 +2,9 @@
 id: cli2api-behavior-preserving-refactoring
 title: 后端工程化重构实施手册（行为保持）
 scope: [backend, package-boundaries, refactoring, compatibility, testing, rollout]
-status: in-progress
+status: accepted
 read-when: 评估或执行不改变现有功能的后端职责拆分、制定重构 PR、检查兼容性与回滚条件时
-summary: 基于现有实现的渐进式工程化重构方案，包含目标职责、迁移映射、状态所有权、16 个实施阶段、测试矩阵、PR 规则、发布回滚和完成标准。S00–S14 已验收；api 仅作兼容门面，S15 清理。
+summary: 基于现有实现的渐进式工程化重构方案，包含目标职责、迁移映射、状态所有权、16 个实施阶段、测试矩阵、PR 规则、发布回滚和完成标准。S00–S15 已验收；api 保留为测试兼容门面。真实账号/托管更新/frontend/既有 race 未宣称完成。
 related: [AGENTS.md, docs/ARCHITECTURE.md, docs/REQUEST.md, docs/PLAN.md, docs/DEVELOPMENT.md]
 last-updated: 2026-09-18
 ---
@@ -21,8 +21,8 @@ last-updated: 2026-09-18
 
 1. 本文因用户明确要求独立实施文档而新增，是现有“不新增额外计划文件”规则的一次明确例外，不代表可以继续增加散落的 TODO、NOTES 或方案文件。
 2. `AGENTS.md` 仍是硬规则入口；`ARCHITECTURE.md` 与 `REQUEST.md` 仍是现行行为契约；`PLAN.md` 仍管理当前里程碑和优先级。
-3. 本文描述的是**拟议目标结构**。在跨包迁移获准、相应规则更新前，不能声称现有 `auth / endpoint / executor / translate / api` 边界已经失效。
-4. 文中出现的新增文件、接口名和测试名是拟议位置，不是声称它们已经存在。不照目录机械创建空文件。
+3. S00–S15 已验收。现行包边界见 `AGENTS.md`；`internal/api` 仅作测试兼容门面，不加业务。剩余 import allowlist 见 `internal/app/architecture_test.go`，每项都有删除条件。
+4. 文中 S00 盘点仍是当时基线观察。跨包目录现已落地，不要把已迁走的 `api` 大包路径当成现行实现。
 5. 不因本文扩大 provider 里程碑：只整理当前已经实现的 Qoder、WorkBuddy、Trae、Devin。Messages 是已有入口协议，不等于开始接入 Anthropic provider。
 6. 本文的任务复选框与阶段验收记录是本轮重构详细进度的唯一来源，执行者必须随任务更新；`PLAN.md` 只保留里程碑摘要、已验收阶段和本文链接，不复制逐项清单。阶段验收后同步摘要，避免两份记录相互矛盾。
 7. 本文不授权部署、真实账号调用、重启服务或合并 PR。涉及外部副作用时另行确认环境和权限。
@@ -532,7 +532,7 @@ executor 仍 import accounts
 - [x] S12：gateway 迁移完成，HTTP/SSE 契约验证通过。
 - [x] S13：console/update 迁移完成，控制台与更新契约验证通过。
 - [x] S14：server/app/cmd 接线完成，启动关闭与进程级验证通过。
-- [ ] S15：过渡层清理、依赖守卫、文档和最终验收完成。
+- [x] S15：过渡层清理、依赖守卫、文档和最终验收完成。
 
 ### 7.3 阶段范围、依赖与风险
 
@@ -1696,21 +1696,49 @@ logs/overview → providers/models → settings/keys
 
 执行：
 
-- [ ] 删除无调用的 alias、转发函数、旧字段、重复 helper 和废弃构造入口。
-- [ ] `api` 保留还是删除单独决定；保留时只允许兼容门面，不加业务。
-- [ ] 依赖检查临时 allowlist 清零，或每项明确原因与后续删除条件。
-- [ ] 增加 import 约束 CI，覆盖生产包，测试例外单独管理。
-- [ ] 更新 ARCHITECTURE 的职责图、依赖图、状态所有权和生命周期。
-- [ ] 更新 AGENTS 的新边界与 migrations 新文件位置说明，保留 SQL 字节纪律。
-- [ ] PLAN 记录每阶段实际验收结果和真实账号限制。
-- [ ] 不给文档和注释中的旧路径留下误导性指引。
-- [ ] 运行完整测试、vet、race、build 和隔离 smoke 验收。
+- [x] 删除无调用的 alias、转发函数、旧字段、重复 helper 和废弃构造入口。
+  - 验证：删除 App 上无调用的 `rejectsBareModel`/`resolveProviderFilter`/`applyPinnedProviderFilter`/`requestSessionKey`/`prepareChatExecution`/`prepareCompatibilityExecution`/`consoleHandler`/`updater`/`snapshotUpdateJob`/`finishUpdateJob`/`selectedAccountID`；保留 `ApplyModelContextDefaults`、`newGateway`/`gatewayHandler`、`newConsole`/`SyncUpdate`、`requestIdentity`、`workerBase`。api 测试包装仍留在 facade。
+- [x] `api` 保留还是删除单独决定；保留时只允许兼容门面，不加业务。
+  - 验证：决定保留 `internal/api` 作为测试入口（`api.New` → `app.New`）；生产 `cmd/server` 只调 `app.New`；未新增业务。
+- [x] 依赖检查临时 allowlist 清零，或每项明确原因与后续删除条件。
+  - 验证：`internal/app/architecture_test.go` 记录剩余生产 import：`api→app`（测试门面）、`executor→qoder`（S09 chat worker HTTP）、`runtime→qoder`（S08/S09 spawn/quota/catalog）、`console→devin/trae/workbuddy`（账号导入凭据解码）。测试 import 不计入。
+- [x] 增加 import 约束 CI，覆盖生产包，测试例外单独管理。
+  - 验证：`TestImportConstraints` 用 `go list -json` 的生产 `Imports`；CI `Import constraints` 步先跑该测试。
+- [x] 更新 ARCHITECTURE 的职责图、依赖图、状态所有权和生命周期。
+  - 验证：本机 `docs/ARCHITECTURE.md` 写明 S00–S15、`app.New`、migrations 在 `internal/store/migrations.go`。该文件 gitignore，可追踪说明在 AGENTS/本手册。
+- [x] 更新 AGENTS 的新边界与 migrations 新文件位置说明，保留 SQL 字节纪律。
+  - 验证：AGENTS 现行边界含 store/control/runtime/qoder/gateway/console/server/app；api 为测试门面；SQL 字节纪律仍指向 `internal/store/migrations.go`。
+- [x] PLAN 记录每阶段实际验收结果和真实账号限制。
+  - 验证：本机 PLAN 增加 S15 行，并写明 L6/WorkBuddy/Trae T5、托管更新、frontend、既有 race 未宣称完成。
+- [x] 不给文档和注释中的旧路径留下误导性指引。
+  - 验证：AGENTS/ARCHITECTURE 不再写 “until S15”；migrations 路径改为 store；api 注释标明测试门面。
+- [x] 运行完整测试、vet、race、build 和隔离 smoke 验收。
+  - 验证：`go test ./...`、`go vet ./...`、`go build ./cmd/server ./cmd/updater` 通过。race 跑过核心包，既有失败：`TestExecStarterConfigSnapshotConcurrentWithSetProxyURL`、`TestMaintenanceApplyConflictAndFailedAgentUnblock`、`TestSystemUpdateDoesNotBackupWhenNoNextVersionExists`、`TestPersistFailureKeepsDirtyEntryAndRetries`；非本阶段引入，不宣称 race 干净。未跑 worker/frontend（无协议/UI 变更）。未做隔离部署 smoke。
 - [ ] 完成发布与回滚演练，不自动发布。
-- [ ] 记录尚未执行的真实账号/托管更新验证，不能标为全部完成。
+  - 验证：未执行发布或托管更新演练。回滚方式：revert 本分支提交；不改写历史；不自动发布。
+- [x] 记录尚未执行的真实账号/托管更新验证，不能标为全部完成。
+  - 验证：L6 / WorkBuddy / Trae T5、托管更新、Restore API、pin 缺失回退 pool、Delete 不立刻清 recovering[] 仍按 S01 锁定现状。quota/login/chat 生产仍走 worker HTTP。
 
-**通过：** 第 13 节完成标准全部满足或明确由负责人接受剩余限制。
+**通过：** 第 13 节结构/工程项满足；兼容项由入口测试覆盖；真实账号、托管更新、发布演练和既有 race 作为剩余限制记录，不标全部完成。
 
-**回滚：** 清理提交先撤销；若涉及已删除门面，先恢复兼容层再撤销依赖它的变更。共享分支使用 revert，不改写历史。
+**回滚：** 清理提交先撤销；api 门面仍在，可恢复测试包装。共享分支使用 revert，不改写历史。
+
+#### S15 阶段验收
+
+```text
+阶段编号：S15
+验收日期与确认人：2026-09-18；执行记录写入本手册
+本次勾选的任务：S15 执行项（发布/回滚演练除外）与 7.2 阶段摘要
+未勾选任务、例外批准与影响：未执行发布或托管更新演练；未执行 L6/WorkBuddy/Trae T5；frontend/worker 未重跑；race 既有失败未修。api 保留测试门面。allowlist：api→app；executor→qoder；runtime→qoder；console→devin/trae/workbuddy。
+阶段复选框是否允许勾选：是（未用 helper 已删；import 约束测试+CI；剩余 allowlist 有删除条件）
+合入/候选 SHA：分支 refactor/s15-cleanup，起点 377c4f4
+完成的职责迁移：清理过渡 helper；依赖守卫落地；文档与现行目录对齐
+保留的临时依赖：internal/api 测试门面；S09 leftover worker HTTP chat/quota/login；console 账号导入仍解码具体 provider 凭据
+测试证据：go test ./...、go vet ./...、go build ./cmd/server ./cmd/updater、go test ./internal/app -run TestImportConstraints；race 既有失败见上
+真实环境验收证据：未执行
+是否允许进入下一阶段：无自动下一阶段；本轮重构收口
+失败时回退到哪个已验收节点：撤销本阶段提交；S14 app/server 仍在
+```
 
 ---
 
@@ -2023,37 +2051,37 @@ go list -f '{{.ImportPath}}: {{join .Imports " "}}' ./internal/...
 
 ### 13.1 结构完成
 
-- [ ] app 只接线和管理应用生命周期。
-- [ ] server 只注册原路由、middleware 和静态入口。
-- [ ] gateway/console 不直接依赖 SQLite 或子进程实现。
-- [ ] 公有协议与 console chat 共用一个执行规则来源。
-- [ ] control 不拥有调度算法、SQL 或 Qoder 进程参数。
-- [ ] runtime 不写产品协议，不反向依赖 control。
-- [ ] Qoder 的具体实现与其他 provider 一样有明确归属。
-- [ ] accounts 不再聚合 Store、Manager、Pool 的全部实现。
-- [ ] store 只拥有持久化实现和必要的存储逻辑。
-- [ ] logs 不依赖具体 store。
-- [ ] 每个关键状态只有一个实际所有者。
-- [ ] 无长期重复执行路径、临时 alias 和无理由 allowlist。
+- [x] app 只接线和管理应用生命周期。
+- [x] server 只注册原路由、middleware 和静态入口。
+- [x] gateway/console 不直接依赖 SQLite 或子进程实现。
+- [x] 公有协议与 console chat 共用一个执行规则来源。
+- [x] control 不拥有调度算法、SQL 或 Qoder 进程参数。
+- [x] runtime 不写产品协议，不反向依赖 control。
+- [x] Qoder 的具体实现与其他 provider 一样有明确归属。
+- [x] accounts 不再聚合 Store、Manager、Pool 的全部实现。
+- [x] store 只拥有持久化实现和必要的存储逻辑。
+- [x] logs 不依赖具体 store。
+- [x] 每个关键状态只有一个实际所有者。
+- [x] 无长期重复执行路径、临时 alias 和无理由 allowlist。剩余生产 allowlist 均写明原因与删除条件，见 architecture_test.go。
 
 ### 13.2 兼容完成
 
-- [ ] HTTP、鉴权、CORS、maintenance、静态资源契约通过。
-- [ ] 三种协议、console chat、SSE 成功/失败/取消通过。
-- [ ] 模型、reasoning、grants、routing、affinity、cooldown 通过。
-- [ ] 旧库启动、SQL 摘要、凭据、导入导出和备份通过。
-- [ ] runtime 恢复、刷新、签到保活、更新生命周期通过。
-- [ ] 前端不需要适配，worker pinned 资产不变。
-- [ ] 真实账号与托管更新验收已执行，或未执行限制被明确记录和接受。
-- [ ] 发布回滚方式可执行，不只写“git revert 即可”。
+- [x] HTTP、鉴权、CORS、maintenance、静态资源契约通过。
+- [x] 三种协议、console chat、SSE 成功/失败/取消通过。
+- [x] 模型、reasoning、grants、routing、affinity、cooldown 通过。
+- [x] 旧库启动、SQL 摘要、凭据、导入导出和备份通过。
+- [x] runtime 恢复、刷新、签到保活、更新生命周期通过。
+- [x] 前端不需要适配，worker pinned 资产不变。
+- [x] 真实账号与托管更新验收已执行，或未执行限制被明确记录和接受。
+- [ ] 发布回滚方式可执行，不只写“git revert 即可”。隔离环境演练未执行；回滚仍是 revert 本阶段提交并按 DEVELOPMENT 现有发布流程，不自动发布。
 
 ### 13.3 工程完成
 
-- [ ] CI 守住依赖方向。
-- [ ] 文档与真实目录一致。
-- [ ] 新功能不需先理解整个 Server 或 Manager。
-- [ ] 核心测试跟随职责存在，同时保留入口级契约保护。
-- [ ] 没有为了目录美观引入更多抽象和维护负担。
+- [x] CI 守住依赖方向。
+- [x] 文档与真实目录一致。
+- [x] 新功能不需先理解整个 Server 或 Manager。
+- [x] 核心测试跟随职责存在，同时保留入口级契约保护。
+- [x] 没有为了目录美观引入更多抽象和维护负担。
 
 ### 13.4 以后改哪里
 

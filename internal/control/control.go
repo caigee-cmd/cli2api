@@ -1,9 +1,5 @@
 package control
 
-import (
-	accountruntime "github.com/caigee-cmd/cli2api/internal/runtime"
-)
-
 // Services is the console application surface assembled by app.New.
 type Services struct {
 	Accounts *Accounts
@@ -25,5 +21,3 @@ func New(runtime Runtime) *Services {
 		Backup:   NewBackup(store),
 	}
 }
-
-var _ Runtime = (*accountruntime.Manager)(nil)

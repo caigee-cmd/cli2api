@@ -9,7 +9,3 @@ import (
 func ensureProxyAPIKey(ctx context.Context, store app.SecretStore, bootstrap string) (string, bool, error) {
 	return app.EnsureProxyAPIKey(ctx, store, bootstrap)
 }
-
-func generateAPIKey() (string, error) {
-	return app.GenerateAPIKey()
-}
