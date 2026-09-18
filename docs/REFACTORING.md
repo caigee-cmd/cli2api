@@ -4,7 +4,7 @@ title: 后端工程化重构实施手册（行为保持）
 scope: [backend, package-boundaries, refactoring, compatibility, testing, rollout]
 status: in-progress
 read-when: 评估或执行不改变现有功能的后端职责拆分、制定重构 PR、检查兼容性与回滚条件时
-summary: 基于现有实现的渐进式工程化重构方案，包含目标职责、迁移映射、状态所有权、16 个实施阶段、测试矩阵、PR 规则、发布回滚和完成标准。S00–S08 已验收；Qoder Adapter 尚未接入。
+summary: 基于现有实现的渐进式工程化重构方案，包含目标职责、迁移映射、状态所有权、16 个实施阶段、测试矩阵、PR 规则、发布回滚和完成标准。S00–S09 已验收；Pool/route 尚未迁出 accounts。
 related: [AGENTS.md, docs/ARCHITECTURE.md, docs/REQUEST.md, docs/PLAN.md, docs/DEVELOPMENT.md]
 last-updated: 2026-09-18
 ---
@@ -526,7 +526,7 @@ executor 仍 import accounts
 - [x] S06：control 操作迁移完成，副作用顺序验证通过。
 - [x] S07：runtime 迁移完成，任务与资源所有权验证通过。
 - [x] S08：Qoder 具体实现归位，上游交互与启动配置验证通过。
-- [ ] S09：Qoder Adapter 分能力接线完成，兼容验证通过。
+- [x] S09：Qoder Adapter 分能力接线完成，兼容验证通过。
 - [ ] S10：调度职责迁移完成，选号/冷却/状态持久化验证通过。
 - [ ] S11：共享请求准备与模型服务完成，所有入口行为验证通过。
 - [ ] S12：gateway 迁移完成，HTTP/SSE 契约验证通过。
@@ -1369,20 +1369,47 @@ runtime 本阶段临时 import `providers/qoder`（HOME/CLI 包装与 worker HTT
 
 执行：
 
-- [ ] 复用现有 providers.Adapter 和 Registry。
-- [ ] 用 Adapter 包住 S08 的旧行为，先不删除原调用路径。
-- [ ] 分能力迁移：目录/配额/登录/chat/stream 的顺序按依赖确定。
-- [ ] 用 fake upstream 对比旧调用与 Adapter 调用的参数、headers、错误、usage。
-- [ ] 核对 nil adapter、unsupported capability 和默认 Qoder 路径的既有处理。
-- [ ] Qoder readiness/hot 等 child 特性仍保留，不假设 in-process 同构。
-- [ ] 签到/保活能力如需泛化，只整理能力名；不让未支持 provider 获得新行为。
-- [ ] 所有能力验收后再删除旧 executor/workerproxy 产品分支。
+- [x] 复用现有 providers.Adapter 和 Registry。
+  - 验证：`qoder.Client.Adapter()` 填 `Login`/`Chat`/`Models`；`api.New` 对同一 `providerReg` `Register`，再 `SetProviders` / `chatExecutor.Providers`。
+- [x] 用 Adapter 包住 S08 的旧行为，先不删除原调用路径。
+  - 验证：`internal/providers/qoder/adapter.go` 调 `WorkerClient` / `NewChatRequest` / `WaitForAuthManager`；workerproxy/executor Qoder 分支仍在。
+- [x] 分能力迁移：目录/配额/登录/chat/stream 的顺序按依赖确定。
+  - 验证：本阶段只把 runtime `fetchAccountModels` 切到 `adapter.Models`（有 URL 的 child Qoder）。quota/login/chat 生产仍走 worker Health/`fetchQuota`/`proxyAccountWorker`/`newWorkerRequest`。
+- [x] 用 fake upstream 对比旧调用与 Adapter 调用的参数、headers、错误、usage。
+  - 验证：`adapter_test.go` 对比 `/admin/models` ids/Bearer、quota add-on Exceeded、login AuthManager 等待、chat path/headers/body/usage。
+- [x] 核对 nil adapter、unsupported capability 和默认 Qoder 路径的既有处理。
+  - 验证：未注册 Adapter 时仍 `WorkerClient.Models`；空 URL Qoder 不走 `fetchProviderModels`；`isInProcessItem` 对有 URL 的 Qoder 仍为 false。
+- [x] Qoder readiness/hot 等 child 特性仍保留，不假设 in-process 同构。
+  - 验证：`Qoder.Runtime` 仍是 `child_process`；注册 Adapter **省略 Prober**，空 URL 刷新仍 no-op。`TestQoderAdapterRegistrationDoesNotProbeEmptyURL`。
+- [x] 签到/保活能力如需泛化，只整理能力名；不让未支持 provider 获得新行为。
+  - 验证：未给 Qoder 加 check-in；`RunWorkBuddyMaintenanceLoop` 仍只 `Get("workbuddy")`。
+- [x] 所有能力验收后再删除旧 executor/workerproxy 产品分支。
+  - 验证：本阶段未删 `proxyAccountWorker`/`newWorkerRequest`/PAT/rewarm；quota/login/chat 未切生产。
 
-旧路径保留仅供代码迁移和离线测试，不能给生产增加新旧双写、双请求或额外客户端开关。
+旧路径保留仅供代码迁移和离线测试，不能给生产增加新旧双写、双请求或额外客户端开关。runtime catalog 只走 Adapter **或** `WorkerClient`，不会两次 `/admin/models`。
+
+生产未切：`fetchQuota`（`QuotaInfo` 会丢掉 add-on/package）、`accounts.go` `provider != "qoder"` 登录分派、executor worker HTTP。这些留给后续能力切片，不在本阶段假装完成。
 
 **通过：** Registry 接线改变，但 fake 捕获的上游交互一致；真实账号测试另行 opt-in。
 
 **回滚：** 可撤销某项能力切换，不必撤销 S08 的机械代码移动。
+
+#### S09 阶段验收
+
+```text
+阶段编号：S09
+验收日期与确认人：2026-09-18；执行记录写入本手册
+本次勾选的任务：S09 全部执行项与 7.2 阶段摘要
+未勾选任务、例外批准与影响：quota/login/chat/stream 生产仍走旧路径；未删 workerproxy/executor Qoder 分支。race/frontend/真实账号/托管更新不在本阶段。
+阶段复选框是否允许勾选：是（Adapter 注册；runtime catalog 单路径切换；fake 对比通过；child_process 未改）
+合入/候选 SHA：分支 refactor/s09-qoder-adapter，起点 d8eb840
+完成的职责迁移：Qoder Adapter 包住 S08 worker 方法；runtime 目录刷新经 Registry.Models
+保留的临时依赖：executor/api 仍直接 WorkerClient/NewChatRequest；Adapter 省略 Prober
+测试证据：go test ./...、go vet ./...、go build ./cmd/server ./cmd/updater
+真实环境验收证据：未执行
+是否允许进入下一阶段：S10（Pool/route/classify）可开始；不自动开工
+失败时回退到哪个已验收节点：撤销本阶段提交；S08 Qoder 协议基线仍在
+```
 
 ### S10：迁移 Pool、route、classify
 

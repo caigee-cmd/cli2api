@@ -2,13 +2,17 @@ package runtime_test
 
 import (
 	"context"
+	"encoding/json"
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 	accountruntime "github.com/caigee-cmd/cli2api/internal/runtime"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/providers"
+	"github.com/caigee-cmd/cli2api/internal/providers/qoder"
 	sqlstore "github.com/caigee-cmd/cli2api/internal/store"
 )
 
@@ -178,6 +182,87 @@ func TestManagerRefreshSkipsEmptyURLWithoutProber(t *testing.T) {
 	}
 	item, _ := manager.Pool().ByID(account.ID)
 	if item.Ready != nil || item.LastError != "" {
+		t.Fatalf("pool should be untouched, got %+v", item)
+	}
+}
+
+func TestManagerRefreshUsesQoderAdapterCatalog(t *testing.T) {
+	var modelHits int
+	worker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/health":
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "ready": true, "hot": true, "uid": "qoder-uid-1"})
+		case "/admin/quota":
+			http.Error(w, "quota unused", http.StatusBadGateway)
+		case "/admin/models":
+			modelHits++
+			if r.Header.Get("Authorization") != "Bearer proxy-key" {
+				t.Errorf("models auth = %q", r.Header.Get("Authorization"))
+			}
+			if r.Header.Get("X-Qoder-Account") != "" {
+				t.Errorf("runtime catalog sent X-Qoder-Account = %q", r.Header.Get("X-Qoder-Account"))
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]any{
+				{"id": "hy3", "mapped_key": "hy3", "display_name": "HY3"},
+				{"id": "glm-5.2", "mapped_key": "gmodel", "display_name": "GLM-5.2"},
+			}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer worker.Close()
+	ctx := context.Background()
+	store, err := sqlstore.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	account, err := store.Create(ctx, accounts.CreateAccount{Name: "Catalog", Enabled: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir(), ProxyAPIKey: "proxy-key"}, store, &fakeStarter{})
+	client := qoder.NewClient()
+	client.Bind(manager.AccountURL, manager.ProxyAPIKey)
+	registry := providers.NewRegistry()
+	registry.Register(client.Adapter())
+	manager.SetProviders(registry)
+	manager.Pool().Upsert(accounts.Item{ID: account.ID, URL: worker.URL, Provider: "qoder", Runtime: "child_process"})
+	if err := manager.RefreshAll(ctx, false); err != nil {
+		t.Fatal(err)
+	}
+	item, _ := manager.Pool().ByID(account.ID)
+	if !containsModel(item.Models, "hy3") || !containsModel(item.Models, "gmodel") {
+		t.Fatalf("cached models = %#v", item.Models)
+	}
+	if modelHits != 1 {
+		t.Fatalf("adapter catalog double-fetched models: hits=%d", modelHits)
+	}
+}
+
+func TestQoderAdapterRegistrationDoesNotProbeEmptyURL(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlstore.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	account, err := store.Create(ctx, accounts.CreateAccount{Name: "EmptyQoder", Enabled: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	client := qoder.NewClient()
+	client.Bind(manager.AccountURL, manager.ProxyAPIKey)
+	registry := providers.NewRegistry()
+	registry.Register(client.Adapter())
+	manager.SetProviders(registry)
+	manager.Pool().Upsert(accounts.Item{ID: account.ID, Provider: "qoder", Runtime: "child_process"})
+	if err := manager.RefreshAll(ctx, false); err != nil {
+		t.Fatalf("empty-URL qoder with Adapter must stay a no-op, got %v", err)
+	}
+	item, _ := manager.Pool().ByID(account.ID)
+	if item.Ready != nil || item.LastError != "" || item.Models != nil {
 		t.Fatalf("pool should be untouched, got %+v", item)
 	}
 }

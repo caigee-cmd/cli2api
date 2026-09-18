@@ -403,6 +403,15 @@ func (m *Manager) Start(ctx context.Context) error {
 func (m *Manager) Pool() *Pool         { return m.pool }
 func (m *Manager) Store() AccountStore { return m.store }
 
+func (m *Manager) ProxyAPIKey() string {
+	if m == nil {
+		return ""
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.config.ProxyAPIKey
+}
+
 // SetProviders wires optional in-process account probers (WorkBuddy, etc.).
 func (m *Manager) SetProviders(registry *providers.Registry) {
 	if m == nil {
