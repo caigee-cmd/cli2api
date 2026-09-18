@@ -85,6 +85,31 @@ func TestChatNonStreamSessionAffinityAndPinPriority(t *testing.T) {
 	}
 }
 
+func TestChatNonStreamSessionAffinityEscapesUnknownCatalogOnLaterModel(t *testing.T) {
+	server := func(id string) *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = io.WriteString(w, `{"model":"`+id+`","choices":[{"message":{"content":"`+id+`"},"finish_reason":"stop"}],"usage":{"source":"upstream"}}`)
+		}))
+	}
+	devin := server("devin")
+	defer devin.Close()
+	workbuddy := server("workbuddy")
+	defer workbuddy.Close()
+
+	pool := accounts.NewPool(nil, nil)
+	pool.Upsert(accounts.Item{ID: "devin", URL: devin.URL, Provider: "devin", Region: "global", Runtime: "child_process", Models: []string{"gpt-5-6-sol"}, ProvenModels: []string{"gpt-5-6-sol"}})
+	pool.Upsert(accounts.Item{ID: "workbuddy", URL: workbuddy.URL, Provider: "workbuddy", Region: "global", Runtime: "child_process", Models: []string{"deepseek-v4.1-flash"}})
+	executor := NewChatExecutor(pool, "")
+	executor.SessionAffinity.Bind("compact-session", "devin")
+
+	result, err := executor.ChatNonStream(WithSessionKey(context.Background(), "compact-session"), translate.ChatRequest{
+		Model: "deepseek-v4.1-flash", Messages: []translate.ChatMessage{{Role: "user", Content: "compact"}},
+	}, "", "")
+	if err != nil || result.AccountID != "workbuddy" || result.Routing != routingPool {
+		t.Fatalf("result = %+v, err=%v", result, err)
+	}
+}
+
 func TestChatNonStreamSessionAffinityEscapesWithinBoundRegion(t *testing.T) {
 	server := func(id string) *httptest.Server {
 		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

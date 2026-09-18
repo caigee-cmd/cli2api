@@ -5,6 +5,21 @@ import (
 	"testing"
 )
 
+func TestContentSessionSeedDiffersByModel(t *testing.T) {
+	shared := []ChatMessage{
+		{Role: "system", Content: "you are a bot"},
+		{Role: "user", Content: "compact this conversation"},
+	}
+	devin := ContentSessionSeed(ChatRequest{Model: "devin/gpt-5-6-sol", Messages: shared})
+	deepseek := ContentSessionSeed(ChatRequest{Model: "deepseek-v4.1-flash", Messages: shared})
+	if devin == "" || deepseek == "" {
+		t.Fatalf("expected seeds, got devin=%q deepseek=%q", devin, deepseek)
+	}
+	if devin == deepseek {
+		t.Fatal("different models must not share a session seed")
+	}
+}
+
 func TestContentSessionSeedStableAcrossLaterTurns(t *testing.T) {
 	first := ChatRequest{
 		Model: "GLM-5.2",
