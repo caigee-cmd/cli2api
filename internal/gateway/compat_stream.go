@@ -1,4 +1,4 @@
-package api
+package gateway
 
 import (
 	"bufio"
@@ -16,9 +16,9 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/executor"
 )
 
-func (s *Server) observeCompatibilityStreamFailure(r *http.Request, execution compatibilityExecution, upstream executor.StreamResult, relayErr error) {
-	if r.Context().Err() == nil && !errors.Is(relayErr, context.Canceled) && !errors.Is(relayErr, context.DeadlineExceeded) && !isStreamClientDisconnect(relayErr) {
-		s.executor.ObserveStreamFailure(upstream.AccountID, relayErr, execution.request.Model)
+func (h *Handler) observeCompatibilityStreamFailure(r *http.Request, execution Execution, upstream executor.StreamResult, relayErr error) {
+	if r.Context().Err() == nil && !errors.Is(relayErr, context.Canceled) && !errors.Is(relayErr, context.DeadlineExceeded) && !IsStreamClientDisconnect(relayErr) {
+		h.Executor.ObserveStreamFailure(upstream.AccountID, relayErr, execution.Request.Model)
 	}
 }
 
@@ -38,7 +38,7 @@ func setCompatibilityStreamHeaders(w http.ResponseWriter, accountID, provider st
 
 func compatibilityStreamWriter(w http.ResponseWriter) io.Writer {
 	if flusher, ok := w.(http.Flusher); ok {
-		return streamFlushWriter{w: w, f: flusher}
+		return StreamFlushWriter{W: w, F: flusher}
 	}
 	return w
 }
@@ -47,13 +47,13 @@ func streamRequestStatus(err error) string {
 	if err == nil {
 		return accounts.RequestStatusOK
 	}
-	if isStreamClientDisconnect(err) {
+	if IsStreamClientDisconnect(err) {
 		return accounts.RequestStatusCanceled
 	}
 	return accounts.RequestStatusError
 }
 
-func streamTTFB(started time.Time, fallback int, stats streamRelayStats) int {
+func streamTTFB(started time.Time, fallback int, stats StreamRelayStats) int {
 	if stats.FirstTokenAt == nil {
 		return fallback
 	}
@@ -71,22 +71,22 @@ func writeSSEEvent(writer io.Writer, event string, payload any) error {
 	}
 	if event != "" {
 		if _, err := fmt.Fprintf(writer, "event: %s\n", event); err != nil {
-			return &streamRelayWriteError{err: err}
+			return &StreamRelayWriteError{err: err}
 		}
 	}
 	if _, err := fmt.Fprintf(writer, "data: %s\n\n", encoded); err != nil {
-		return &streamRelayWriteError{err: err}
+		return &StreamRelayWriteError{err: err}
 	}
 	return nil
 }
 
 func writeAnthropicStreamError(writer io.Writer, err error) error {
-	classified := classifyAPIError(err)
+	classified := ClassifyAPIError(err)
 	return writeSSEEvent(writer, "error", map[string]any{"type": "error", "error": map[string]string{"type": anthropicErrorType(classified.Kind), "message": classified.Message}})
 }
 
 func writeResponsesStreamError(writer io.Writer, err error) error {
-	classified := classifyAPIError(err)
+	classified := ClassifyAPIError(err)
 	return writeSSEEvent(writer, "error", map[string]any{"type": "error", "error": map[string]any{"type": classified.Type, "code": classified.Code, "message": classified.Message}})
 }
 
@@ -169,8 +169,8 @@ func (o *streamedChatOutput) calls() []proxyToolCall {
 	return calls
 }
 
-func consumeOpenAIStream(body io.Reader, handle func(json.RawMessage, *streamedChatOutput) error) (streamRelayStats, streamedChatOutput, error) {
-	var stats streamRelayStats
+func consumeOpenAIStream(body io.Reader, handle func(json.RawMessage, *streamedChatOutput) error) (StreamRelayStats, streamedChatOutput, error) {
+	var stats StreamRelayStats
 	var output streamedChatOutput
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 0, 64*1024), maxSSELineSize)
@@ -193,7 +193,7 @@ func consumeOpenAIStream(body io.Reader, handle func(json.RawMessage, *streamedC
 		if !json.Valid(payload) {
 			return nil
 		}
-		if usage, ok := parseStreamUsageLine("data: " + string(payload)); ok {
+		if usage, ok := ParseStreamUsageLine("data: " + string(payload)); ok {
 			usage.FirstTokenAt = stats.FirstTokenAt
 			stats = usage
 		}
@@ -227,13 +227,13 @@ func consumeOpenAIStream(body io.Reader, handle func(json.RawMessage, *streamedC
 	return stats, output, nil
 }
 
-func relayAnthropicStream(writer io.Writer, body io.Reader, requestID, model string) (streamRelayStats, error) {
+func RelayAnthropicStream(writer io.Writer, body io.Reader, requestID, model string) (StreamRelayStats, error) {
 	messageID := "msg_" + requestID
 	if err := writeSSEEvent(writer, "message_start", map[string]any{"type": "message_start", "message": map[string]any{
 		"id": messageID, "type": "message", "role": "assistant", "model": model, "content": []any{}, "stop_reason": nil, "stop_sequence": nil,
 		"usage": map[string]int{"input_tokens": 0, "output_tokens": 0},
 	}}); err != nil {
-		return streamRelayStats{}, err
+		return StreamRelayStats{}, err
 	}
 	textStarted := false
 	textBlockIndex := -1
@@ -384,13 +384,13 @@ func (w *responsesEventWriter) write(event string, payload any) error {
 	return writeSSEEvent(w.writer, event, payload)
 }
 
-func relayResponsesStream(writer io.Writer, body io.Reader, requestID, model string) (streamRelayStats, error) {
+func RelayResponsesStream(writer io.Writer, body io.Reader, requestID, model string) (StreamRelayStats, error) {
 	eventWriter := responsesEventWriter{writer: writer}
 	responseID := "resp_" + requestID
 	created := time.Now().Unix()
 	inProgress := map[string]any{"id": responseID, "object": "response", "created_at": created, "status": "in_progress", "model": model, "output": []any{}}
 	if err := eventWriter.write("response.created", map[string]any{"type": "response.created", "response": inProgress}); err != nil {
-		return streamRelayStats{}, err
+		return StreamRelayStats{}, err
 	}
 	textStarted := false
 	reasoningStarted := false

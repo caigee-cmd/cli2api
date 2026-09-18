@@ -1,4 +1,4 @@
-package api
+package gateway
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
-func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) HandleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "POST only")
 		return
@@ -29,29 +29,29 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	execution, err := s.prepareChatExecution(r, req)
+	execution, err := h.PrepareChatExecution(r, req)
 	if err != nil {
 		writeChatHTTPError(w, err)
 		return
 	}
-	req = execution.request
-	publicModel := execution.publicModel
-	prefer := execution.prefer
-	providerFilter := execution.providerFilter
-	requestID := execution.requestID
-	started := execution.started
-	ctx := execution.ctx
+	req = execution.Request
+	publicModel := execution.PublicModel
+	prefer := execution.Prefer
+	providerFilter := execution.ProviderFilter
+	requestID := execution.RequestID
+	started := execution.Started
+	ctx := execution.Context
 	w.Header().Set("X-Request-Id", requestID)
 
 	if req.Stream {
-		upstream, err := s.executor.ChatStreamProxy(ctx, req, prefer, providerFilter)
+		upstream, err := h.Executor.ChatStreamProxy(ctx, req, prefer, providerFilter)
 		if err != nil {
-			s.finishRequestLog(requestID, started, req, publicModel, upstream.AccountID, firstNonEmpty(upstream.Provider, providerFilter), upstream.Routing, accounts.RequestStatusError, upstream.TTFBMs, nil, err, upstream.AttemptCount)
-			writeClassifiedErr(w, err)
+			h.finishRequestLog(requestID, started, req, publicModel, upstream.AccountID, firstNonEmpty(upstream.Provider, providerFilter), upstream.Routing, accounts.RequestStatusError, upstream.TTFBMs, nil, err, upstream.AttemptCount)
+			WriteClassifiedErr(w, err)
 			return
 		}
 		defer upstream.Response.Body.Close()
-		s.finishRequestLog(requestID, started, req, publicModel, upstream.AccountID, firstNonEmpty(upstream.Provider, providerFilter), upstream.Routing, accounts.RequestStatusStreaming, upstream.TTFBMs, nil, nil, upstream.AttemptCount)
+		h.finishRequestLog(requestID, started, req, publicModel, upstream.AccountID, firstNonEmpty(upstream.Provider, providerFilter), upstream.Routing, accounts.RequestStatusStreaming, upstream.TTFBMs, nil, nil, upstream.AttemptCount)
 		w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
@@ -67,16 +67,16 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		if flusher, ok := w.(http.Flusher); ok {
 			flusher.Flush()
 		}
-		stats, relayErr := relayOpenAIStream(w, upstream.Response.Body)
+		stats, relayErr := RelayOpenAIStream(w, upstream.Response.Body)
 		status := accounts.RequestStatusOK
 		if relayErr != nil {
-			if isStreamClientDisconnect(relayErr) || r.Context().Err() != nil || errors.Is(relayErr, context.Canceled) || errors.Is(relayErr, context.DeadlineExceeded) {
+			if IsStreamClientDisconnect(relayErr) || r.Context().Err() != nil || errors.Is(relayErr, context.Canceled) || errors.Is(relayErr, context.DeadlineExceeded) {
 				status = accounts.RequestStatusCanceled
 			} else {
 				status = accounts.RequestStatusError
 			}
 		}
-		s.recordStreamDiagnostic(requestID, upstream.Response, started, stats, relayErr, r.Context().Err())
+		h.recordStreamDiagnostic(requestID, upstream.Response, started, stats, relayErr, r.Context().Err())
 		ttfb := upstream.TTFBMs
 		if stats.FirstTokenAt != nil {
 			ttfb = int(stats.FirstTokenAt.Sub(started).Milliseconds())
@@ -88,9 +88,9 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		if status == accounts.RequestStatusCanceled {
 			logErr = context.Canceled
 		}
-		s.finishRequestLog(requestID, started, req, publicModel, upstream.AccountID, firstNonEmpty(upstream.Provider, providerFilter), upstream.Routing, status, ttfb, &stats, logErr, upstream.AttemptCount)
+		h.finishRequestLog(requestID, started, req, publicModel, upstream.AccountID, firstNonEmpty(upstream.Provider, providerFilter), upstream.Routing, status, ttfb, &stats, logErr, upstream.AttemptCount)
 		if relayErr == nil {
-			s.executor.CommitSession(ctx, req, upstream.Routing, upstream.AccountID)
+			h.Executor.CommitSession(ctx, req, upstream.Routing, upstream.AccountID)
 		}
 		if relayErr != nil {
 			// The upstream answered 200 and failed inside the stream, so the
@@ -100,24 +100,24 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			// resolveProviderFilter) so the cooldown key matches the key
 			// PickRoute uses; publicModel may still carry "qoder/" and would
 			// write a cooldown that routing never hits.
-			if r.Context().Err() == nil && !errors.Is(relayErr, context.Canceled) && !errors.Is(relayErr, context.DeadlineExceeded) && !isStreamClientDisconnect(relayErr) {
-				s.executor.ObserveStreamFailure(upstream.AccountID, relayErr, req.Model)
+			if r.Context().Err() == nil && !errors.Is(relayErr, context.Canceled) && !errors.Is(relayErr, context.DeadlineExceeded) && !IsStreamClientDisconnect(relayErr) {
+				h.Executor.ObserveStreamFailure(upstream.AccountID, relayErr, req.Model)
 			}
 			panic(http.ErrAbortHandler)
 		}
 		return
 	}
 
-	res, err := s.executor.ChatNonStream(ctx, req, prefer, providerFilter)
+	res, err := h.Executor.ChatNonStream(ctx, req, prefer, providerFilter)
 	if err != nil {
-		s.finishRequestLog(requestID, started, req, publicModel, res.AccountID, firstNonEmpty(res.Provider, providerFilter), res.Routing, accounts.RequestStatusError, 0, nil, err, res.AttemptCount)
-		writeClassifiedErr(w, err)
+		h.finishRequestLog(requestID, started, req, publicModel, res.AccountID, firstNonEmpty(res.Provider, providerFilter), res.Routing, accounts.RequestStatusError, 0, nil, err, res.AttemptCount)
+		WriteClassifiedErr(w, err)
 		return
 	}
 	if publicModel != "" {
 		res.Model = publicModel
 	}
-	s.finishRequestLog(requestID, started, req, publicModel, res.AccountID, firstNonEmpty(res.Provider, providerFilter), res.Routing, accounts.RequestStatusOK, 0, &streamRelayStats{
+	h.finishRequestLog(requestID, started, req, publicModel, res.AccountID, firstNonEmpty(res.Provider, providerFilter), res.Routing, accounts.RequestStatusOK, 0, &StreamRelayStats{
 		PromptTokens: ptrInt(res.PromptTokens), CompletionTokens: ptrInt(res.CompletionTokens),
 		CacheReadTokens: res.CacheReadTokens, CacheWriteTokens: res.CacheWriteTokens,
 		CachedTokens: res.CachedTokens, UsageSource: res.UsageSource, Credits: res.Credits,
@@ -161,19 +161,19 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			"message":       message,
 			"finish_reason": finishReason,
 		}},
-		"usage": buildChatUsage(res),
+		"usage": BuildChatUsage(res),
 	})
 }
 
-func (s *Server) startRequestLog(entry accounts.RequestLog) {
-	if s.recorder == nil {
+func (h *Handler) startRequestLog(entry accounts.RequestLog) {
+	if h.Recorder == nil {
 		return
 	}
-	s.recorder.Start(entry)
+	h.Recorder.Start(entry)
 }
 
-func (s *Server) finishRequestLog(requestID string, started time.Time, req translate.ChatRequest, publicModel, accountID, provider, routing, status string, ttfb int, stats *streamRelayStats, err error, attemptCount int) {
-	if s.recorder == nil || requestID == "" {
+func (h *Handler) finishRequestLog(requestID string, started time.Time, req translate.ChatRequest, publicModel, accountID, provider, routing, status string, ttfb int, stats *StreamRelayStats, err error, attemptCount int) {
+	if h.Recorder == nil || requestID == "" {
 		return
 	}
 	entry := accounts.RequestLog{
@@ -214,14 +214,14 @@ func (s *Server) finishRequestLog(requestID string, started time.Time, req trans
 		}
 	}
 	if err != nil {
-		classified := classifyAPIError(err)
+		classified := ClassifyAPIError(err)
 		entry.ErrorKind = classified.Kind
 		entry.ErrorCode = classified.Code
 		entry.ErrorMessage = classified.Message
 	}
-	s.recorder.Finish(entry)
+	h.Recorder.Finish(entry)
 	if stats != nil && entry.Credits != nil {
-		s.recorder.UsageDetail(accounts.RequestUsageDetail{
+		h.Recorder.UsageDetail(accounts.RequestUsageDetail{
 			RequestID: requestID,
 			CreatedAt: started,
 			Provider:  provider,
@@ -231,8 +231,8 @@ func (s *Server) finishRequestLog(requestID string, started time.Time, req trans
 	}
 }
 
-func (s *Server) recordStreamDiagnostic(requestID string, response *http.Response, started time.Time, stats streamRelayStats, relayErr, contextErr error) {
-	if s.recorder == nil || requestID == "" {
+func (h *Handler) recordStreamDiagnostic(requestID string, response *http.Response, started time.Time, stats StreamRelayStats, relayErr, contextErr error) {
+	if h.Recorder == nil || requestID == "" {
 		return
 	}
 	finished := time.Now().UTC()
@@ -265,7 +265,7 @@ func (s *Server) recordStreamDiagnostic(requestID string, response *http.Respons
 		diagnostic.RelayError = relayErr.Error()
 	}
 	switch {
-	case isStreamClientDisconnect(relayErr):
+	case IsStreamClientDisconnect(relayErr):
 		diagnostic.CancellationSource = "client_disconnect"
 	case contextErr != nil:
 		diagnostic.CancellationSource = "request_context_canceled"
@@ -278,7 +278,7 @@ func (s *Server) recordStreamDiagnostic(requestID string, response *http.Respons
 	default:
 		diagnostic.CancellationSource = "completed"
 	}
-	s.recorder.StreamDiagnostic(diagnostic)
+	h.Recorder.StreamDiagnostic(diagnostic)
 }
 
 func ptrInt(value int) *int { return &value }

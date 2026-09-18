@@ -141,7 +141,7 @@ func TestBuildChatUsagePreservesZeroPromptCacheTokens(t *testing.T) {
 
 func TestStreamFlushWriterFlushesEachWrite(t *testing.T) {
 	recorder := httptest.NewRecorder()
-	writer := streamFlushWriter{w: recorder, f: recorder}
+	writer := streamFlushWriter{W: recorder, F: recorder}
 	if _, err := writer.Write([]byte("data: test\n\n")); err != nil {
 		t.Fatal(err)
 	}

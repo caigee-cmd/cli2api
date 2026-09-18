@@ -1,4 +1,4 @@
-package api
+package gateway
 
 import (
 	"encoding/json"
@@ -6,8 +6,6 @@ import (
 
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
-
-type compatibilityExecution = chatExecution
 
 type proxyToolCall struct {
 	ID        string
@@ -39,13 +37,13 @@ func decodeOpenAIToolCalls(raw json.RawMessage) []proxyToolCall {
 	return calls
 }
 
-func (s *Server) prepareCompatibilityExecution(r *http.Request, request translate.ChatRequest) (compatibilityExecution, error) {
+func (h *Handler) PrepareCompatibilityExecution(r *http.Request, request translate.ChatRequest) (Execution, error) {
 	if len(request.Messages) == 0 {
-		return compatibilityExecution{}, &chatHTTPError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "input messages required"}
+		return Execution{}, &chatHTTPError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "input messages required"}
 	}
-	return s.prepareChatExecution(r, request)
+	return h.PrepareChatExecution(r, request)
 }
 
-func (s *Server) finishCompatibility(execution compatibilityExecution, accountID, provider, routing, status string, ttfb int, stats *streamRelayStats, err error, attempts int) {
-	s.finishRequestLog(execution.requestID, execution.started, execution.request, execution.publicModel, accountID, firstNonEmpty(provider, execution.providerFilter), routing, status, ttfb, stats, err, attempts)
+func (h *Handler) finishCompatibility(execution Execution, accountID, provider, routing, status string, ttfb int, stats *StreamRelayStats, err error, attempts int) {
+	h.finishRequestLog(execution.RequestID, execution.Started, execution.Request, execution.PublicModel, accountID, firstNonEmpty(provider, execution.ProviderFilter), routing, status, ttfb, stats, err, attempts)
 }

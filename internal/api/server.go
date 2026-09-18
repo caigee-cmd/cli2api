@@ -19,6 +19,7 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/config"
 	appsvc "github.com/caigee-cmd/cli2api/internal/control"
 	"github.com/caigee-cmd/cli2api/internal/executor"
+	apigateway "github.com/caigee-cmd/cli2api/internal/gateway"
 	applogs "github.com/caigee-cmd/cli2api/internal/logs"
 	"github.com/caigee-cmd/cli2api/internal/providers"
 	"github.com/caigee-cmd/cli2api/internal/providers/devin"
@@ -52,6 +53,7 @@ type Server struct {
 	updateJob              *systemUpdateJob
 	statsCacheMu           sync.Mutex
 	statsCache             map[string]statsCacheEntry
+	gateway                *apigateway.Handler
 }
 
 func New(cfg config.Config) *Server {
@@ -145,6 +147,7 @@ func New(cfg config.Config) *Server {
 	}
 	s.crossProviderModelPool.Store(crossProviderModelPool)
 	s.control.Catalog = appsvc.NewCatalog(s.fetchCatalogModels)
+	s.gateway = s.newGateway()
 	s.routes()
 	return s
 }

@@ -4,7 +4,7 @@ title: 后端工程化重构实施手册（行为保持）
 scope: [backend, package-boundaries, refactoring, compatibility, testing, rollout]
 status: in-progress
 read-when: 评估或执行不改变现有功能的后端职责拆分、制定重构 PR、检查兼容性与回滚条件时
-summary: 基于现有实现的渐进式工程化重构方案，包含目标职责、迁移映射、状态所有权、16 个实施阶段、测试矩阵、PR 规则、发布回滚和完成标准。S00–S11 已验收；gateway HTTP 尚未迁出 api。
+summary: 基于现有实现的渐进式工程化重构方案，包含目标职责、迁移映射、状态所有权、16 个实施阶段、测试矩阵、PR 规则、发布回滚和完成标准。S00–S12 已验收；console HTTP 尚未迁出 api。
 related: [AGENTS.md, docs/ARCHITECTURE.md, docs/REQUEST.md, docs/PLAN.md, docs/DEVELOPMENT.md]
 last-updated: 2026-09-18
 ---
@@ -529,7 +529,7 @@ executor 仍 import accounts
 - [x] S09：Qoder Adapter 分能力接线完成，兼容验证通过。
 - [x] S10：调度职责迁移完成，选号/冷却/状态持久化验证通过。
 - [x] S11：共享请求准备与模型服务完成，所有入口行为验证通过。
-- [ ] S12：gateway 迁移完成，HTTP/SSE 契约验证通过。
+- [x] S12：gateway 迁移完成，HTTP/SSE 契约验证通过。
 - [ ] S13：console/update 迁移完成，控制台与更新契约验证通过。
 - [ ] S14：server/app/cmd 接线完成，启动关闭与进程级验证通过。
 - [ ] S15：过渡层清理、依赖守卫、文档和最终验收完成。
@@ -1534,19 +1534,43 @@ handler decode → executor prepare/execute → handler relay SSE
 
 每个入口均执行：
 
-- [ ] 创建明确依赖的 handler，不携带整个 Server。
-- [ ] 移动已有解码、转换、输出和错误映射实现。
-- [ ] 保留 headers/status/body/flush/defer 和日志收尾。
-- [ ] 通过旧 routes 注入新 handler；路由包此时不必同时迁移。
-- [ ] 测试继续从旧 URL 进入，而不只直接调用新包内部方法。
-- [ ] 调用 executor 和共享查询接口，不直接访问 Store 或 Manager。
-- [ ] 移除对应旧 handler 实现，或只保留单层无逻辑转发。
+- [x] 创建明确依赖的 handler，不携带整个 Server。
+  - 验证：`gateway.Handler` 注入 Executor/Recorder/Pool/CatalogQuery/Settings；不持有 `api.Server`。
+- [x] 移动已有解码、转换、输出和错误映射实现。
+  - 验证：OpenAI/SSE/Messages/Responses/`/v1/models` 实现迁入 `internal/gateway`。
+- [x] 保留 headers/status/body/flush/defer 和日志收尾。
+  - 验证：原 stream flush、AbortHandler、CommitSession/ObserveStreamFailure 时机未改；协议测试通过。
+- [x] 通过旧 routes 注入新 handler；路由包此时不必同时迁移。
+  - 验证：`routes.go` 仍注册同一路径；`handleChatCompletions` 等为单层转发。`/api/chat` 复用同一 OpenAI handler。
+- [x] 测试继续从旧 URL 进入，而不只直接调用新包内部方法。
+  - 验证：`s01_protocol_contract_test` / `compat_test` / `auth_test` 仍打 `/v1/*`。
+- [x] 调用 executor 和共享查询接口，不直接访问 Store 或 Manager。
+  - 验证：`go list` 显示 gateway 不 import store/runtime；catalog 经 `CatalogQuery` 回调。
+- [x] 移除对应旧 handler 实现，或只保留单层无逻辑转发。
+  - 验证：删除 `api/chat.go`/`compat_*.go`/`chat_stream.go`/`chat_usage.go`；api 仅 wrappers + aliases。
 
 第一轮一个 gateway package，避免根包装配子包时又被子包 import 根包的循环。
 
 **通过：** 三种协议兼容矩阵与 stream 测试通过，路由/鉴权不变。
 
 **回滚：** 逐协议撤销接线；协议算法移动和路由注册分开审查。
+
+#### S12 阶段验收
+
+```text
+阶段编号：S12
+验收日期与确认人：2026-09-18；执行记录写入本手册
+本次勾选的任务：S12 全部执行项与 7.2 阶段摘要
+未勾选任务、例外批准与影响：路由/鉴权/webui 仍在 api；console `/api/models` 仍在 api。race/frontend/真实账号不在本阶段。
+阶段复选框是否允许勾选：是（gateway.Handler 注入依赖；旧 URL 测试通过；无 store/manager import）
+合入/候选 SHA：分支 refactor/s12-gateway，起点 22b525e
+完成的职责迁移：公有协议 HTTP/SSE 归 internal/gateway；api 只转发
+保留的临时依赖：routes/auth/maintenance 仍在 api；display catalog fetch 回调回 api/control
+测试证据：go test ./...、go vet ./...、go build ./cmd/server ./cmd/updater
+真实环境验收证据：未执行
+是否允许进入下一阶段：S13（console/update HTTP）可开始；不自动开工
+失败时回退到哪个已验收节点：撤销本阶段提交；S11 prepare/catalog 仍在
+```
 
 ### S13：迁移 console 与更新控制面
 

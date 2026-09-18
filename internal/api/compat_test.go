@@ -274,10 +274,10 @@ func TestPrepareCompatibilityExecutionReusesChatPreflight(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.providerFilter != "workbuddy" || got.prefer != "account-a" || got.request.Model != "glm-5.2" || got.publicModel != "workbuddy/glm-5.2" {
+	if got.ProviderFilter != "workbuddy" || got.Prefer != "account-a" || got.Request.Model != "glm-5.2" || got.PublicModel != "workbuddy/glm-5.2" {
 		t.Fatalf("chat execution=%+v", got)
 	}
-	if compat.providerFilter != got.providerFilter || compat.prefer != got.prefer || compat.request.Model != got.request.Model || compat.publicModel != got.publicModel {
+	if compat.ProviderFilter != got.ProviderFilter || compat.Prefer != got.Prefer || compat.Request.Model != got.Request.Model || compat.PublicModel != got.PublicModel {
 		t.Fatalf("compat=%+v chat=%+v", compat, got)
 	}
 }
@@ -332,7 +332,7 @@ func TestV1AndCompatibilitySharePreflightErrors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if execution.providerFilter != "" {
-		t.Fatalf("bare model with pool on must keep an empty filter, got %q", execution.providerFilter)
+	if execution.ProviderFilter != "" {
+		t.Fatalf("bare model with pool on must keep an empty filter, got %q", execution.ProviderFilter)
 	}
 }

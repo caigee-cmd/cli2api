@@ -1,4 +1,4 @@
-package api
+package gateway
 
 import (
 	"context"
@@ -13,7 +13,7 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/providers"
 )
 
-func buildChatUsage(res executor.ChatResult) map[string]any {
+func BuildChatUsage(res executor.ChatResult) map[string]any {
 	out := map[string]any{
 		"prompt_tokens":     res.PromptTokens,
 		"completion_tokens": res.CompletionTokens,
@@ -39,7 +39,7 @@ func buildChatUsage(res executor.ChatResult) map[string]any {
 	return out
 }
 
-func classifyAPIError(err error) executor.Classified {
+func ClassifyAPIError(err error) executor.Classified {
 	if err == nil {
 		return executor.Classify(0, "", "", accounts.KindUnavailable, "")
 	}
@@ -90,12 +90,12 @@ func classifyAPIError(err error) executor.Classified {
 	return executor.Classify(0, err.Error(), "", "", "")
 }
 
-func writeClassifiedErr(w http.ResponseWriter, err error) {
+func WriteClassifiedErr(w http.ResponseWriter, err error) {
 	if err == nil {
 		writeErr(w, http.StatusServiceUnavailable, "upstream_not_ready", "upstream not ready")
 		return
 	}
-	classified := classifyAPIError(err)
+	classified := ClassifyAPIError(err)
 	if classified.RetryAfter > 0 {
 		seconds := int(classified.RetryAfter / time.Second)
 		if classified.RetryAfter%time.Second != 0 {

@@ -1,4 +1,4 @@
-package api
+package gateway
 
 import (
 	"bufio"
@@ -16,20 +16,20 @@ import (
 
 const maxSSELineSize = 16 * 1024 * 1024
 
-type streamFlushWriter struct {
-	w http.ResponseWriter
-	f http.Flusher
+type StreamFlushWriter struct {
+	W http.ResponseWriter
+	F http.Flusher
 }
 
-func (w streamFlushWriter) Write(data []byte) (int, error) {
-	n, err := w.w.Write(data)
+func (w StreamFlushWriter) Write(data []byte) (int, error) {
+	n, err := w.W.Write(data)
 	if n > 0 {
-		w.f.Flush()
+		w.F.Flush()
 	}
 	return n, err
 }
 
-type streamRelayStats struct {
+type StreamRelayStats struct {
 	PromptTokens     *int
 	CompletionTokens *int
 	CacheReadTokens  *int
@@ -57,30 +57,30 @@ func (r *countingReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
-type streamRelayWriteError struct {
+type StreamRelayWriteError struct {
 	err error
 }
 
-func (e *streamRelayWriteError) Error() string {
+func (e *StreamRelayWriteError) Error() string {
 	if e == nil || e.err == nil {
 		return "stream write error"
 	}
 	return "stream write error: " + e.err.Error()
 }
 
-func (e *streamRelayWriteError) Unwrap() error {
+func (e *StreamRelayWriteError) Unwrap() error {
 	if e == nil {
 		return nil
 	}
 	return e.err
 }
 
-func relayOpenAIStream(w http.ResponseWriter, body io.Reader) (stats streamRelayStats, returnErr error) {
+func RelayOpenAIStream(w http.ResponseWriter, body io.Reader) (stats StreamRelayStats, returnErr error) {
 	countedBody := &countingReader{reader: body}
 	defer func() { stats.BytesRead = countedBody.bytes }()
 	var writer io.Writer = w
 	if flusher, ok := w.(http.Flusher); ok {
-		writer = streamFlushWriter{w: w, f: flusher}
+		writer = StreamFlushWriter{W: w, F: flusher}
 	}
 
 	scanner := bufio.NewScanner(countedBody)
@@ -108,11 +108,11 @@ func relayOpenAIStream(w http.ResponseWriter, body io.Reader) (stats streamRelay
 		}
 		for _, line := range frame {
 			line = strings.TrimSuffix(line, "\r")
-			if stats.FirstTokenAt == nil && sseDeltaHasToken(line) {
+			if stats.FirstTokenAt == nil && SSEDeltaHasToken(line) {
 				now := time.Now()
 				stats.FirstTokenAt = &now
 			}
-			if usage, ok := parseStreamUsageLine(line); ok {
+			if usage, ok := ParseStreamUsageLine(line); ok {
 				usage.FirstTokenAt = stats.FirstTokenAt
 				usage.SSEEventCount = stats.SSEEventCount
 				usage.BytesRead = stats.BytesRead
@@ -127,7 +127,7 @@ func relayOpenAIStream(w http.ResponseWriter, body io.Reader) (stats streamRelay
 		}
 		output := strings.Join(frame, "\n") + "\n\n"
 		if _, err := io.WriteString(writer, output); err != nil {
-			return &streamRelayWriteError{err: err}
+			return &StreamRelayWriteError{err: err}
 		}
 		frame = nil
 		return nil
@@ -211,7 +211,7 @@ func writeStructuredStreamError(writer io.Writer, providerErr *providers.Error) 
 		return err
 	}
 	if _, err := io.WriteString(writer, "data: "+string(payload)+"\n\n"); err != nil {
-		return &streamRelayWriteError{err: err}
+		return &StreamRelayWriteError{err: err}
 	}
 	return nil
 }
@@ -250,7 +250,7 @@ func classifyStreamSSEError(eventName, data string) *providers.Error {
 		body = inner
 	}
 	classified := executor.Classify(status, body, "", "", "")
-	return providerErrorFromClassified(classified)
+	return ProviderErrorFromClassified(classified)
 }
 
 func streamJSONLooksLikeError(raw string) bool {
@@ -367,7 +367,7 @@ func newStreamProviderError(code, message string, status int) *providers.Error {
 		},
 	})
 	classified := executor.Classify(status, string(body), "", accounts.KindUnavailable, "1")
-	return providerErrorFromClassified(classified)
+	return ProviderErrorFromClassified(classified)
 }
 
 func streamReadProviderError(err error) *providers.Error {
@@ -378,7 +378,7 @@ func streamReadProviderError(err error) *providers.Error {
 	return newStreamProviderError("upstream_stream_interrupted", "stream read error: "+err.Error(), http.StatusBadGateway)
 }
 
-func providerErrorFromClassified(classified executor.Classified) *providers.Error {
+func ProviderErrorFromClassified(classified executor.Classified) *providers.Error {
 	failover := classified.Failover
 	retryAfter := classified.RetryAfter
 	if retryAfter <= 0 {
@@ -396,12 +396,12 @@ func providerErrorFromClassified(classified executor.Classified) *providers.Erro
 	}
 }
 
-func isStreamClientDisconnect(err error) bool {
-	var writeErr *streamRelayWriteError
+func IsStreamClientDisconnect(err error) bool {
+	var writeErr *StreamRelayWriteError
 	return errors.As(err, &writeErr)
 }
 
-func sseDeltaHasToken(line string) bool {
+func SSEDeltaHasToken(line string) bool {
 	payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 	if payload == "" || payload == "[DONE]" {
 		return false
@@ -448,10 +448,10 @@ func jsonHasArray(raw json.RawMessage) bool {
 	return len(parts) > 0
 }
 
-func parseStreamUsageLine(line string) (streamRelayStats, bool) {
+func ParseStreamUsageLine(line string) (StreamRelayStats, bool) {
 	payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 	if payload == "" || payload == "[DONE]" {
-		return streamRelayStats{}, false
+		return StreamRelayStats{}, false
 	}
 	var parsed struct {
 		Model string `json:"model"`
@@ -469,13 +469,13 @@ func parseStreamUsageLine(line string) (streamRelayStats, bool) {
 		} `json:"usage"`
 	}
 	if err := json.Unmarshal([]byte(payload), &parsed); err != nil || parsed.Usage == nil {
-		return streamRelayStats{}, false
+		return StreamRelayStats{}, false
 	}
 	credits := parsed.Usage.Credits
 	if credits == nil {
 		credits = parsed.Usage.Credit
 	}
-	return streamRelayStats{
+	return StreamRelayStats{
 		PromptTokens:     parsed.Usage.PromptTokens,
 		CompletionTokens: parsed.Usage.CompletionTokens,
 		CacheReadTokens:  parsed.Usage.CacheReadTokens,

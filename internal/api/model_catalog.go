@@ -4,20 +4,8 @@ import (
 	"net/http"
 
 	"github.com/caigee-cmd/cli2api/internal/auth"
-	"github.com/caigee-cmd/cli2api/internal/control"
 	"github.com/caigee-cmd/cli2api/internal/executor"
 )
-
-func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
-	models, err := s.fetchDisplayModels(false, "", control.CatalogModeMerge)
-	if err != nil {
-		models = nil
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"object": "list",
-		"data":   s.decorateModelsWithContext(r.Context(), s.filterModelsForIdentity(r, models)),
-	})
-}
 
 func providerPrefix(model string) string {
 	return executor.ProviderPrefix(model)
