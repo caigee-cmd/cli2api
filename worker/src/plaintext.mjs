@@ -235,6 +235,7 @@ function normalizeMessagesForUpstream(messages = []) {
 
   const flushToolResults = () => {
     if (!pendingToolResults.length) return;
+    const images = [];
     const order = new Map(currentBatch.map((id, index) => [id, index]));
     pendingToolResults.sort((left, right) => {
       const leftOrder = order.has(left.toolCallId) ? order.get(left.toolCallId) : Number.MAX_SAFE_INTEGER;
@@ -245,8 +246,12 @@ function normalizeMessagesForUpstream(messages = []) {
       const belongsToCurrentBatch = currentBatch.length > 0
         ? order.has(result.toolCallId)
         : callsById.has(result.toolCallId);
-      if (belongsToCurrentBatch) normalized.push(result.message);
+      if (belongsToCurrentBatch) {
+        normalized.push(result.message);
+        images.push(...result.images);
+      }
     }
+    if (images.length) normalized.push({ role: "user", content: images });
     pendingToolResults = [];
   };
 
@@ -288,14 +293,26 @@ function normalizeMessagesForUpstream(messages = []) {
         tool_call_id: toolCallId,
       };
       if (message?.name) out.name = String(message.name);
-      pendingToolResults.push({ message: out, toolCallId });
+      const images = (Array.isArray(message.content) ? message.content : []).flatMap((part) => {
+        if (part?.type === "image_url") {
+          return normalizeContentForUpstream([part]);
+        }
+        if (part?.type === "image" && typeof part.data === "string" && part.data && (part.mimeType || part.mime_type)) {
+          return [{ type: "image_url", image_url: { url: `data:${part.mimeType || part.mime_type};base64,${part.data}` } }];
+        }
+        return [];
+      });
+      pendingToolResults.push({ message: out, toolCallId, images });
       continue;
     }
 
     flushToolResults();
     currentBatch = [];
     consumedBatchIds = new Set();
-    normalized.push({ role, content: contentToString(message?.content) });
+    normalized.push({
+      role,
+      content: role === "user" ? normalizeContentForUpstream(message?.content) : contentToString(message?.content),
+    });
   }
 
   flushToolResults();
