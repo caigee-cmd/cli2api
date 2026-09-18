@@ -1,7 +1,6 @@
 package executor
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -14,8 +13,8 @@ import (
 	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
-	"github.com/caigee-cmd/cli2api/internal/endpoint"
 	"github.com/caigee-cmd/cli2api/internal/providers"
+	"github.com/caigee-cmd/cli2api/internal/providers/qoder"
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
@@ -227,10 +226,10 @@ func (e ChatExecutor) prepareRouting(ctx context.Context, prefer, providerFilter
 		e.SessionAffinity.RecordEscape("provider_not_allowed")
 		return "", providerFilter, "", plan
 	}
-if !stickyAccountCanServeModel(item, publicModel) {
-			e.SessionAffinity.RecordEscape("model_unavailable")
-			return "", providerFilter, "", plan
-		}
+	if !stickyAccountCanServeModel(item, publicModel) {
+		e.SessionAffinity.RecordEscape("model_unavailable")
+		return "", providerFilter, "", plan
+	}
 	return item.ID, itemProvider(item), accounts.NormalizeRegion(item.Region), routingPlan{
 		Source: routingSticky, SessionKey: plan.SessionKey, BoundAccount: item.ID, PublicModel: publicModel,
 	}
@@ -635,25 +634,11 @@ func (e ChatExecutor) recordAttempt(ctx context.Context, attempt accounts.Reques
 }
 
 func (e ChatExecutor) newWorkerRequest(ctx context.Context, item accounts.Item, payload []byte, prefer string) (*http.Request, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, item.URL+endpoint.ChatCompletionsPath, bytes.NewReader(payload))
-	if err != nil {
-		return nil, err
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	if e.WorkerKey != "" {
-		httpReq.Header.Set("Authorization", "Bearer "+e.WorkerKey)
-	}
 	account := prefer
 	if account == "" {
 		account = item.ID
 	}
-	if account != "" {
-		httpReq.Header.Set("X-Qoder-Account", account)
-	}
-	if requestID := RequestIDFromContext(ctx); requestID != "" {
-		httpReq.Header.Set("X-Request-Id", requestID)
-	}
-	return httpReq, nil
+	return qoder.NewChatRequest(ctx, item.URL, account, RequestIDFromContext(ctx), e.WorkerKey, payload)
 }
 
 func classifyWorkerErr(resp *http.Response, body string) accounts.Classified {

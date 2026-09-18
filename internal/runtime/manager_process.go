@@ -4,21 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
-	"os"
-	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/caigee-cmd/cli2api/internal/providers"
-	proxyutil "github.com/caigee-cmd/cli2api/internal/proxy"
+	"github.com/caigee-cmd/cli2api/internal/providers/qoder"
 )
 
-// Child-process lifecycle and Qoder HOME/CLI materialization. In-process
-// providers only Upsert the pool; Qoder paths below understand HOME, CLI, and
-// daemon env. processes/nextPort remain on Manager; this file does not copy them.
+// Child-process lifecycle. HOME/CLI/daemon spawn live in providers/qoder;
+// this file owns process tables, restart, and pool upsert.
 
 func (m *Manager) ReplaceProxyAPIKey(ctx context.Context, key string) error {
 	if m == nil {
@@ -54,6 +48,7 @@ func (m *Manager) ReplaceProxyAPIKey(ctx context.Context, key string) error {
 	}
 	return nil
 }
+
 func (m *Manager) startAccount(ctx context.Context, account Account) error {
 	descriptor, _, err := providers.Resolve(account.Provider, account.ProviderRegion)
 	if err != nil {
@@ -92,7 +87,7 @@ func (m *Manager) startAccount(ctx context.Context, account Account) error {
 	})
 
 	home := filepath.Join(m.config.DataDir, "runtime", account.ID)
-	if err := materializeHome(ctx, m.store, account, home); err != nil {
+	if err := qoder.MaterializeHome(ctx, m.store, account, home); err != nil {
 		return err
 	}
 	process, err := m.starter.Start(ctx, account, home, port)
@@ -123,196 +118,89 @@ func (m *Manager) startAccount(ctx context.Context, account Account) error {
 	return nil
 }
 
-func qoderConfigDirName(region string) string {
-	if strings.EqualFold(strings.TrimSpace(region), "cn") {
-		return ".qoder-cn"
-	}
-	return ".qoder"
-}
-
-func qoderAuthDir(home, region string) string {
-	return filepath.Join(home, qoderConfigDirName(region), ".auth")
-}
-
-func materializeHome(ctx context.Context, store AccountStore, account Account, home string) error {
-	authDir := qoderAuthDir(home, account.ProviderRegion)
-	if err := os.MkdirAll(authDir, 0o700); err != nil {
-		return fmt.Errorf("create account home: %w", err)
-	}
-	credential, err := store.LoadCredential(ctx, account.ID)
-	if errors.Is(err, ErrAccountNotFound) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	if err := os.WriteFile(filepath.Join(authDir, "user"), credential.UserBlob, 0o600); err != nil {
-		return fmt.Errorf("write user credential: %w", err)
-	}
-	if err := os.WriteFile(filepath.Join(authDir, "machine_id"), []byte(credential.MachineID), 0o600); err != nil {
-		return fmt.Errorf("write machine id: %w", err)
-	}
-	return nil
-}
-
-type prefixLogWriter struct {
-	prefix string
-	next   io.Writer
-	buf    []byte
-}
-
-func (w *prefixLogWriter) Write(p []byte) (int, error) {
-	if w == nil || w.next == nil {
-		return len(p), nil
-	}
-	w.buf = append(w.buf, p...)
-	for {
-		idx := -1
-		for i, b := range w.buf {
-			if b == '\n' {
-				idx = i
-				break
-			}
-		}
-		if idx < 0 {
-			break
-		}
-		line := append([]byte(nil), w.buf[:idx+1]...)
-		w.buf = w.buf[idx+1:]
-		if _, err := w.next.Write(append([]byte(w.prefix), line...)); err != nil {
-			return len(p), err
-		}
-	}
-	return len(p), nil
-}
-
 type ExecStarter struct {
-	mu     sync.RWMutex
 	Config ManagerConfig
+	inner  *qoder.Starter
 }
 
-// configSnapshot returns a stable copy of the starter config. Start uses one
-// snapshot for the whole spawn so a concurrent SetProxyURL cannot race with
-// reading fields.
+func NewExecStarter(config ManagerConfig) *ExecStarter {
+	return &ExecStarter{Config: config, inner: &qoder.Starter{Config: starterConfig(config)}}
+}
+
+func (s *ExecStarter) ensureInner() *qoder.Starter {
+	if s.inner == nil {
+		s.inner = &qoder.Starter{Config: starterConfig(s.Config)}
+	}
+	return s.inner
+}
+
+func starterConfig(config ManagerConfig) qoder.StarterConfig {
+	return qoder.StarterConfig{
+		NodeBinary:     config.NodeBinary,
+		DaemonPath:     config.DaemonPath,
+		QoderCLIPath:   config.QoderCLIPath,
+		QoderCNCLIPath: config.QoderCNCLIPath,
+		TemplatePath:   config.TemplatePath,
+		ProxyAPIKey:    config.ProxyAPIKey,
+		ProxyURL:       config.ProxyURL,
+		MaxLogWriters:  config.MaxLogWriters,
+	}
+}
+
 func (s *ExecStarter) ConfigSnapshot() ManagerConfig {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.Config
+	if s == nil {
+		return ManagerConfig{}
+	}
+	cfg := s.ensureInner().ConfigSnapshot()
+	out := ManagerConfig{
+		NodeBinary:     cfg.NodeBinary,
+		DaemonPath:     cfg.DaemonPath,
+		QoderCLIPath:   cfg.QoderCLIPath,
+		QoderCNCLIPath: cfg.QoderCNCLIPath,
+		TemplatePath:   cfg.TemplatePath,
+		ProxyAPIKey:    cfg.ProxyAPIKey,
+		ProxyURL:       cfg.ProxyURL,
+		MaxLogWriters:  cfg.MaxLogWriters,
+	}
+	s.Config = out
+	return out
 }
 
-// SetProxyURL updates the global proxy used for future spawns.
 func (s *ExecStarter) SetProxyURL(value string) {
-	s.mu.Lock()
+	if s == nil {
+		return
+	}
+	s.ensureInner().SetProxyURL(value)
 	s.Config.ProxyURL = strings.TrimSpace(value)
-	s.mu.Unlock()
 }
 
-// SetProxyAPIKey updates the manager proxy API key used for future spawns.
 func (s *ExecStarter) SetProxyAPIKey(value string) {
-	s.mu.Lock()
+	if s == nil {
+		return
+	}
+	s.ensureInner().SetProxyAPIKey(value)
 	s.Config.ProxyAPIKey = value
-	s.mu.Unlock()
 }
 
-type execProcess struct {
-	cmd  *exec.Cmd
-	url  string
-	done chan error
+func (s *ExecStarter) Start(ctx context.Context, account Account, home string, port int) (ManagedProcess, error) {
+	if s == nil {
+		s = NewExecStarter(ManagerConfig{})
+	}
+	return s.ensureInner().Start(ctx, account, home, port)
 }
 
-func (p *execProcess) URL() string        { return p.url }
-func (p *execProcess) Done() <-chan error { return p.done }
-func (p *execProcess) Stop() error {
-	if p.cmd == nil || p.cmd.Process == nil {
-		return nil
-	}
-	if err := p.cmd.Process.Signal(os.Interrupt); err == nil {
-		return nil
-	}
-	return p.cmd.Process.Kill()
-}
-
-func proxyEnv(env []string, raw string) []string {
-	if strings.TrimSpace(raw) == "" {
-		return env
-	}
-	filtered := make([]string, 0, len(env)+2)
-	for _, value := range env {
-		key := strings.SplitN(value, "=", 2)[0]
-		switch strings.ToUpper(key) {
-		case "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY":
-			continue
-		}
-		filtered = append(filtered, value)
-	}
-	if setting, err := proxyutil.Parse(raw); err == nil && setting.Mode == proxyutil.ModeProxy {
-		filtered = append(filtered, "HTTP_PROXY="+raw, "HTTPS_PROXY="+raw, "http_proxy="+raw, "https_proxy="+raw)
-	}
-	return filtered
-}
-
-func (s *ExecStarter) Start(_ context.Context, account Account, home string, port int) (ManagedProcess, error) {
-	config := s.ConfigSnapshot()
-	env, err := StarterEnv(config, account, home, port)
-	if err != nil {
-		return nil, err
-	}
-	node := config.NodeBinary
-	if node == "" {
-		node = "node"
-	}
-	cmd := exec.Command(node, config.DaemonPath)
-	cmd.Env = env
-	writer := config.MaxLogWriters
-	if writer == nil {
-		writer = os.Stderr
-	}
-	writer = &prefixLogWriter{prefix: "[account=" + account.ID + "] ", next: writer}
-	cmd.Stdout = writer
-	cmd.Stderr = writer
-	if err := os.MkdirAll(filepath.Join(home, "work"), 0o700); err != nil {
-		return nil, err
-	}
-	if err := cmd.Start(); err != nil {
-		return nil, err
-	}
-	process := &execProcess{cmd: cmd, url: "http://127.0.0.1:" + strconv.Itoa(port), done: make(chan error, 1)}
-	go func() {
-		process.done <- cmd.Wait()
-		close(process.done)
-	}()
-	return process, nil
-}
-
-// starterEnv builds the worker environment from a stable config snapshot. The
-// effective proxy is resolved once (account override wins, else global) and
-// applied to both the proxy env vars and QODER_PROXY_URL.
 func StarterEnv(config ManagerConfig, account Account, home string, port int) ([]string, error) {
-	if config.DaemonPath == "" {
-		return nil, fmt.Errorf("worker daemon path required")
-	}
-	cliPath, site, configDir, configEnv, err := QoderRuntimeSpec(config, account, home)
-	if err != nil {
-		return nil, err
-	}
-	effectiveProxy := proxyutil.Effective(account.ProxyURL, config.ProxyURL)
-	env := proxyEnv(os.Environ(), effectiveProxy)
-	return append(env,
-		"HOME="+home,
-		"QODER_HOME="+configDir,
-		configEnv+"="+configDir,
-		"QODER_SITE="+site,
-		"QODER_ACCOUNT_ID="+account.ID,
-		"QODER_MAX_INFLIGHT="+strconv.Itoa(account.MaxInFlight),
-		"WORKER_HOST=127.0.0.1",
-		"WORKER_PORT="+strconv.Itoa(port),
-		"PROXY_API_KEY="+config.ProxyAPIKey,
-		"QODERCLI_JS="+cliPath,
-		"PLAIN_TEMPLATE_PATH="+config.TemplatePath,
-		"QODER_WARMUP_CWD="+filepath.Join(home, "work"),
-		"QODER_PROXY_URL="+effectiveProxy,
-	), nil
+	return qoder.StarterEnv(starterConfig(config), account, home, port)
 }
+
+func QoderRuntimeSpec(cfg ManagerConfig, account Account, home string) (cliPath, site, configDir, configEnv string, err error) {
+	spec, err := qoder.RuntimeSpec(cfg.QoderCLIPath, cfg.QoderCNCLIPath, account.ProviderRegion, home)
+	if err != nil {
+		return "", "", "", "", err
+	}
+	return spec.CLIPath, spec.Site, spec.ConfigDir, spec.ConfigEnv, nil
+}
+
 func (m *Manager) ReloadProxyURL(ctx context.Context, value string) error {
 	// Serialize reloads so concurrent PATCHes cannot interleave stop/start.
 	m.proxyReloadMu.Lock()
@@ -377,26 +265,6 @@ func (m *Manager) shouldRestartForGlobalProxy(account Account) bool {
 		strings.TrimSpace(account.ProxyURL) == "" &&
 		descriptor.Runtime == providers.RuntimeChildProcess
 }
-func QoderRuntimeSpec(cfg ManagerConfig, account Account, home string) (cliPath, site, configDir, configEnv string, err error) {
-	region := strings.ToLower(strings.TrimSpace(account.ProviderRegion))
-	configDir = filepath.Join(home, qoderConfigDirName(region))
-	switch region {
-	case "", "global":
-		cliPath = strings.TrimSpace(cfg.QoderCLIPath)
-		if cliPath == "" {
-			return "", "", "", "", fmt.Errorf("qoder global CLI path required")
-		}
-		return cliPath, "global", configDir, "QODER_CONFIG_DIR", nil
-	case "cn":
-		cliPath = strings.TrimSpace(cfg.QoderCNCLIPath)
-		if cliPath == "" {
-			return "", "", "", "", fmt.Errorf("qoder CN CLI path required: set QODERCNCLI_JS to @qodercn-ai/qoderclicn bundle/qoderclicn.js")
-		}
-		return cliPath, "cn", configDir, "QODERCN_CONFIG_DIR", nil
-	default:
-		return "", "", "", "", fmt.Errorf("unknown qoder region %q", account.ProviderRegion)
-	}
-}
 
 func (m *Manager) SyncCredential(ctx context.Context, id, authType string) error {
 	account, err := m.store.Get(ctx, id)
@@ -404,19 +272,7 @@ func (m *Manager) SyncCredential(ctx context.Context, id, authType string) error
 		return err
 	}
 	home := filepath.Join(m.config.DataDir, "runtime", id)
-	authDir := qoderAuthDir(home, account.ProviderRegion)
-	userBlob, err := os.ReadFile(filepath.Join(authDir, "user"))
-	if err != nil {
-		return fmt.Errorf("read qoder user credential: %w", err)
-	}
-	machineID, err := os.ReadFile(filepath.Join(authDir, "machine_id"))
-	if err != nil {
-		return fmt.Errorf("read qoder machine id: %w", err)
-	}
-	return m.store.SaveCredential(ctx, id, authType, NativeCredential{
-		UserBlob:  userBlob,
-		MachineID: string(machineID),
-	})
+	return qoder.SyncCredential(ctx, m.store, account, home, authType)
 }
 
 func (m *Manager) stopAccount(id string) error {
@@ -430,6 +286,7 @@ func (m *Manager) stopAccount(id string) error {
 	}
 	return process.Stop()
 }
+
 func (m *Manager) AccountURL(id string) (string, bool) {
 	item, ok := m.pool.ByID(id)
 	return item.URL, ok

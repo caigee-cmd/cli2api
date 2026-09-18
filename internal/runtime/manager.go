@@ -122,7 +122,7 @@ func NewManager(config ManagerConfig, store AccountStore, starter ProcessStarter
 		config.RestartMaxDelay = config.RestartDelay
 	}
 	if starter == nil {
-		starter = &ExecStarter{Config: config}
+		starter = NewExecStarter(config)
 	}
 	runCtx, cancel := context.WithCancel(context.Background())
 	manager := &Manager{

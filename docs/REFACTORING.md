@@ -4,7 +4,7 @@ title: 后端工程化重构实施手册（行为保持）
 scope: [backend, package-boundaries, refactoring, compatibility, testing, rollout]
 status: in-progress
 read-when: 评估或执行不改变现有功能的后端职责拆分、制定重构 PR、检查兼容性与回滚条件时
-summary: 基于现有实现的渐进式工程化重构方案，包含目标职责、迁移映射、状态所有权、16 个实施阶段、测试矩阵、PR 规则、发布回滚和完成标准。S00–S07 已验收；Qoder 具体实现尚未归位。
+summary: 基于现有实现的渐进式工程化重构方案，包含目标职责、迁移映射、状态所有权、16 个实施阶段、测试矩阵、PR 规则、发布回滚和完成标准。S00–S08 已验收；Qoder Adapter 尚未接入。
 related: [AGENTS.md, docs/ARCHITECTURE.md, docs/REQUEST.md, docs/PLAN.md, docs/DEVELOPMENT.md]
 last-updated: 2026-09-18
 ---
@@ -525,7 +525,7 @@ executor 仍 import accounts
 - [x] S05：Store 迁移完成，历史 SQL 摘要与旧库兼容通过。
 - [x] S06：control 操作迁移完成，副作用顺序验证通过。
 - [x] S07：runtime 迁移完成，任务与资源所有权验证通过。
-- [ ] S08：Qoder 具体实现归位，上游交互与启动配置验证通过。
+- [x] S08：Qoder 具体实现归位，上游交互与启动配置验证通过。
 - [ ] S09：Qoder Adapter 分能力接线完成，兼容验证通过。
 - [ ] S10：调度职责迁移完成，选号/冷却/状态持久化验证通过。
 - [ ] S11：共享请求准备与模型服务完成，所有入口行为验证通过。
@@ -1323,18 +1323,45 @@ ExecStarter / HOME / CLI 环境仍在 runtime（S08 再归 providers/qoder）。
 
 执行：
 
-- [ ] 将 HOME 物化、CLI 路径选择、daemon 命令参数移至 `providers/qoder`。
-- [ ] 将 worker catalog/quota/chat/login 通信提取为 provider 方法。
-- [ ] HTTP handler 留在 api/后续 console，provider 不接收浏览器 ResponseWriter。
-- [ ] runtime 持有通用 ManagedProcess/ProcessStarter，负责重启策略，不重复维护 HOME。
-- [ ] 为 worker transport、返回体和失败建立 fake server 测试。
-- [ ] 核对 qoder/qoderclicn 的 region、配置目录、环境变量和 worker 管理 key。
-- [ ] 保留 AuthManager 等待、轮询、超时和 token 同步时机。
-- [ ] 不改 worker/src 协议、不升级 CLI、不修改 compat hook。
+- [x] 将 HOME 物化、CLI 路径选择、daemon 命令参数移至 `providers/qoder`。
+  - 验证：`internal/providers/qoder/{home,starter}.go` 持有 `MaterializeHome`/`RuntimeSpec`/`StarterEnv`/`Starter.Start`；runtime `ExecStarter` 只转发。
+- [x] 将 worker catalog/quota/chat/login 通信提取为 provider 方法。
+  - 验证：`WorkerClient.Health/Models/Quota/Admin`、`NewChatRequest`、`LoginCompleteAuthType`、`WaitForAuthManager`；probe/catalog/quota、workerproxy、executor 改走这些方法。
+- [x] HTTP handler 留在 api/后续 console，provider 不接收浏览器 ResponseWriter。
+  - 验证：`qoder` 无 `http.ResponseWriter`；`proxyAccountWorker` 仍 `writeErr` + 复制 header/status/body。
+- [x] runtime 持有通用 ManagedProcess/ProcessStarter，负责重启策略，不重复维护 HOME。
+  - 验证：进程表/`ReloadProxyURL`/`stopAccount` 仍在 runtime；HOME 只调 `qoder.MaterializeHome`/`SyncCredential`。
+- [x] 为 worker transport、返回体和失败建立 fake server 测试。
+  - 验证：`internal/providers/qoder/worker_test.go` 用 `httptest` 覆盖 health/models/quota/admin、transport/decode、chat headers、AuthManager 轮询。
+- [x] 核对 qoder/qoderclicn 的 region、配置目录、环境变量和 worker 管理 key。
+  - 验证：CN 仍 `region=cn`、`.qoder-cn`、`QODERCN_CONFIG_DIR`；global `.qoder`/`QODER_CONFIG_DIR`；`PROXY_API_KEY` 与 `Authorization: Bearer` 保留。既有 runtime spec/proxy env 测试仍走兼容包装。
+- [x] 保留 AuthManager 等待、轮询、超时和 token 同步时机。
+  - 验证：默认 90s / 200ms；login 成功后仍 `LoginCompleteAuthType` 再 `SyncCredential`。api `waitForWorkerAuthManager` 测试保留。
+- [x] 不改 worker/src 协议、不升级 CLI、不修改 compat hook。
+  - 验证：本阶段 diff 不含 `worker/src`、CLI 路径或 `compat.mjs`。
 
 **通过：** 同样输入产生同样 worker 请求和进程启动配置；默认测试不启动真实 CLI。
 
 **回滚：** 旧调用点转发到搬后的实现，逐项可撤销；不在同一个提交切换整个注册架构。
+
+runtime 本阶段临时 import `providers/qoder`（HOME/CLI 包装与 worker HTTP）。S09 再用 Adapter 收口，不在本阶段改 Registry。executor 调 `qoder.NewChatRequest` 只为抽出请求形状，未改 failover。
+
+#### S08 阶段验收
+
+```text
+阶段编号：S08
+验收日期与确认人：2026-09-18；执行记录写入本手册
+本次勾选的任务：S08 全部执行项与 7.2 阶段摘要
+未勾选任务、例外批准与影响：未接入 providers.Adapter（S09）。runtime/executor/api 仍直接调用 qoder 方法。race/frontend/真实账号/托管更新不在本阶段。默认测试未跑 -race、未启动真实 CLI。
+阶段复选框是否允许勾选：是（HOME/CLI/worker 协议归 providers/qoder；HTTP 仍在 api；fake worker 测试通过）
+合入/候选 SHA：分支 refactor/s08-qoder-provider，起点 06522f2
+完成的职责迁移：Qoder HOME/CLI/daemon env 与 worker health/models/quota/login/chat 请求归 internal/providers/qoder
+保留的临时依赖：runtime ExecStarter/QoderRuntimeSpec/StarterEnv 兼容包装；api 仍映射 login/models HTTP；executor 仍选号后调 NewChatRequest
+测试证据：go test ./...、go vet ./...、go build ./cmd/server ./cmd/updater
+真实环境验收证据：未执行
+是否允许进入下一阶段：S09（接入 Qoder Adapter）可开始；不自动开工
+失败时回退到哪个已验收节点：撤销本阶段提交；S07 runtime 基线仍在
+```
 
 ### S09：接入 Qoder Adapter
 

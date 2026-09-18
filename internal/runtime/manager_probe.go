@@ -2,16 +2,15 @@ package runtime
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/providers"
+	"github.com/caigee-cmd/cli2api/internal/providers/qoder"
 )
 
 // Health/probe scheduling. Quota fetch failures must not flip Ready.
@@ -46,31 +45,19 @@ func (m *Manager) refreshOne(ctx context.Context, item Item, forceQuota bool) er
 	if item.Runtime == string(providers.RuntimeInProcess) || strings.TrimSpace(item.URL) == "" {
 		return m.refreshInProcess(ctx, item)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, item.URL+"/health", nil)
+	client := qoder.WorkerClient{HTTP: m.httpClient}
+	health, statusCode, err := client.Health(ctx, item.URL)
 	if err != nil {
-		return err
-	}
-	resp, err := m.httpClient.Do(req)
-	if err != nil {
-		ready := false
-		hot := false
-		m.pool.MergeHealth(item.ID, ready, hot, 0, item.Restarts, err.Error())
-		_ = m.store.Observe(ctx, item.ID, "", "error", err.Error(), KindUnavailable)
-		return fmt.Errorf("health account %s: %w", item.ID, err)
-	}
-	defer resp.Body.Close()
-	var health struct {
-		OK        bool   `json:"ok"`
-		Ready     bool   `json:"ready"`
-		Hot       bool   `json:"hot"`
-		UID       string `json:"uid"`
-		InFlight  int    `json:"inFlight"`
-		LastError string `json:"lastError"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&health); err != nil {
+		if statusCode == 0 {
+			ready := false
+			hot := false
+			m.pool.MergeHealth(item.ID, ready, hot, 0, item.Restarts, err.Error())
+			_ = m.store.Observe(ctx, item.ID, "", "error", err.Error(), KindUnavailable)
+			return fmt.Errorf("health account %s: %w", item.ID, err)
+		}
 		return fmt.Errorf("decode account %s health: %w", item.ID, err)
 	}
-	ready := resp.StatusCode < 300 && health.OK && health.Ready
+	ready := statusCode < 300 && health.OK && health.Ready
 	m.pool.MergeHealth(item.ID, ready, health.Hot, health.InFlight, item.Restarts, health.LastError)
 	if ready || health.Hot {
 		m.resetRestartBackoff(item.ID)
@@ -129,6 +116,7 @@ func (m *Manager) refreshInProcess(ctx context.Context, item Item) error {
 	}
 	return nil
 }
+
 func (m *Manager) forceReady(accountID string) bool {
 	if m == nil || strings.TrimSpace(accountID) == "" || strings.TrimSpace(m.config.DataDir) == "" {
 		return false

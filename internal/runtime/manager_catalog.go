@@ -2,14 +2,14 @@ package runtime
 
 import (
 	"context"
-	"encoding/json"
-	"io"
+	"errors"
 	"log"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/providers"
+	"github.com/caigee-cmd/cli2api/internal/providers/qoder"
 )
 
 // Per-account catalog snapshots on Pool items. Qoder uses worker /admin/models;
@@ -69,34 +69,32 @@ func (m *Manager) fetchAccountModels(ctx context.Context, item Item) {
 		m.fetchProviderModels(ctx, item)
 		return
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(item.URL, "/")+"/admin/models", nil)
+	client := qoder.WorkerClient{
+		HTTP:        &http.Client{Timeout: 15 * time.Second},
+		ProxyAPIKey: m.config.ProxyAPIKey,
+	}
+	entries, status, rawBody, err := client.Models(ctx, item.URL, false)
 	if err != nil {
-		log.Printf("catalog refresh failed account=%s provider=%s stage=request: %v", item.ID, item.Provider, err)
+		var transport qoder.TransportError
+		switch {
+		case errors.As(err, &transport):
+			log.Printf("catalog refresh failed account=%s provider=%s stage=http: %v", item.ID, item.Provider, err)
+		case status == 0:
+			log.Printf("catalog refresh failed account=%s provider=%s stage=request: %v", item.ID, item.Provider, err)
+		default:
+			log.Printf("catalog refresh failed account=%s provider=%s stage=decode: %v", item.ID, item.Provider, err)
+		}
 		return
 	}
-	if m.config.ProxyAPIKey != "" {
-		req.Header.Set("Authorization", "Bearer "+m.config.ProxyAPIKey)
-	}
-	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Printf("catalog refresh failed account=%s provider=%s stage=http: %v", item.ID, item.Provider, err)
+	if status >= 300 {
+		snippet := strings.TrimSpace(rawBody)
+		if len(snippet) > 512 {
+			snippet = snippet[:512]
+		}
+		log.Printf("catalog refresh failed account=%s provider=%s stage=status status=%d body=%q", item.ID, item.Provider, status, snippet)
 		return
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		log.Printf("catalog refresh failed account=%s provider=%s stage=status status=%d body=%q", item.ID, item.Provider, resp.StatusCode, strings.TrimSpace(string(body)))
-		return
-	}
-	var parsed struct {
-		Data []map[string]any `json:"data"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
-		log.Printf("catalog refresh failed account=%s provider=%s stage=decode: %v", item.ID, item.Provider, err)
-		return
-	}
-	m.pool.MergeModels(item.ID, catalogIDs(parsed.Data, nil))
+	m.pool.MergeModels(item.ID, qoder.CatalogIDs(entries, nil))
 }
 
 func (m *Manager) fetchProviderModels(ctx context.Context, item Item) {
@@ -118,18 +116,3 @@ func (m *Manager) fetchProviderModels(ctx context.Context, item Item) {
 	}
 	m.pool.MergeModels(item.ID, ids)
 }
-
-func catalogIDs(entries []map[string]any, extras []string) []string {
-	ids := append([]string{}, extras...)
-	for _, entry := range entries {
-		for _, key := range []string{"id", "mapped_key", "native_model", "display_name"} {
-			value, _ := entry[key].(string)
-			if strings.TrimSpace(value) != "" {
-				ids = append(ids, value)
-			}
-		}
-	}
-	return ids
-}
-
-// fetchQuota pulls the account quota snapshot from the worker daemon. Errors

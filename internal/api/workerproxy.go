@@ -1,9 +1,7 @@
 package api
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -14,11 +12,12 @@ import (
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/providers"
+	"github.com/caigee-cmd/cli2api/internal/providers/qoder"
 )
 
 var (
-	errAccountNotRunning = errors.New("account is disabled or not running")
-	errWorkerNotWarm     = errors.New("account worker is still starting")
+	errAccountNotRunning = qoder.ErrAccountNotRunning
+	errWorkerNotWarm     = qoder.ErrWorkerNotWarm
 
 	workerLoginReadyTimeout  = 90 * time.Second
 	workerLoginReadyInterval = 200 * time.Millisecond
@@ -41,7 +40,7 @@ func (s *Server) workerForAccount(id string) string {
 		// An explicit account ID that is not in the pool must not fall
 		// back to the first running account — that would route a models
 		// query (and potentially subsequent requests) to the wrong
-		// account. Return empty so workerGet surfaces a clear error.
+		// account. Return empty so workerModels surfaces a clear error.
 		return ""
 	}
 	return s.workerBase()
@@ -94,71 +93,56 @@ func (s *Server) proxyAccountWorker(w http.ResponseWriter, r *http.Request, acco
 		writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	req, err := http.NewRequestWithContext(r.Context(), r.Method, workerURL+path, bytes.NewReader(body))
+	client := qoder.WorkerClient{
+		HTTP:        &http.Client{Timeout: 120 * time.Second},
+		ProxyAPIKey: s.cfg.ProxyAPIKey,
+	}
+	statusCode, header, responseBody, err := client.Admin(r.Context(), workerURL, r.Method, path, r.Header.Get("Content-Type"), body)
 	if err != nil {
+		var transport qoder.TransportError
+		if errors.As(err, &transport) {
+			writeErr(w, http.StatusBadGateway, "worker_unavailable", err.Error())
+			return
+		}
 		writeErr(w, http.StatusInternalServerError, "worker_request_failed", err.Error())
 		return
 	}
-	if contentType := r.Header.Get("Content-Type"); contentType != "" {
-		req.Header.Set("Content-Type", contentType)
-	}
-	if key := s.cfg.ProxyAPIKey; key != "" {
-		req.Header.Set("Authorization", "Bearer "+key)
-	}
-	resp, err := (&http.Client{Timeout: 120 * time.Second}).Do(req)
-	if err != nil {
-		writeErr(w, http.StatusBadGateway, "worker_unavailable", err.Error())
-		return
-	}
-	defer resp.Body.Close()
-	responseBody, _ := io.ReadAll(resp.Body)
-	for key, values := range resp.Header {
+	for key, values := range header {
 		for _, value := range values {
 			w.Header().Add(key, value)
 		}
 	}
-	if resp.StatusCode < 300 && syncAuth != "" {
-		authType := syncAuth
-		if syncAuth == "oauth_if_complete" {
-			var status struct {
-				Login struct {
-					Status string `json:"status"`
-				} `json:"login"`
-			}
-			if json.Unmarshal(responseBody, &status) != nil || status.Login.Status != "ok" {
-				authType = ""
-			} else {
-				authType = "oauth"
-			}
-		}
-		if authType != "" {
+	if statusCode < 300 {
+		if authType := qoder.LoginCompleteAuthType(syncAuth, responseBody); authType != "" {
 			if err := s.manager.SyncCredential(r.Context(), accountID, authType); err != nil {
 				writeErr(w, http.StatusBadGateway, "credential_sync_failed", err.Error())
 				return
 			}
 		}
 	}
-	w.WriteHeader(resp.StatusCode)
+	w.WriteHeader(statusCode)
 	_, _ = w.Write(responseBody)
 }
 
-func (s *Server) workerGet(path string, timeout time.Duration, accountID string) (*http.Response, error) {
+func (s *Server) workerModels(timeout time.Duration, accountID string, refresh bool) ([]map[string]any, error) {
 	workerURL := s.workerForAccount(accountID)
 	if workerURL == "" {
 		return nil, fmt.Errorf("no running Qoder account")
 	}
-	req, err := http.NewRequest(http.MethodGet, workerURL+path, nil)
+	client := qoder.WorkerClient{
+		HTTP:        &http.Client{Timeout: timeout},
+		ProxyAPIKey: s.cfg.ProxyAPIKey,
+		AccountID:   accountID,
+	}
+	entries, _, _, err := client.Models(context.Background(), workerURL, refresh)
 	if err != nil {
-		return nil, err
+		var transport qoder.TransportError
+		if errors.As(err, &transport) {
+			return nil, err
+		}
+		return nil, nil
 	}
-	if key := s.cfg.ProxyAPIKey; key != "" {
-		req.Header.Set("Authorization", "Bearer "+key)
-	}
-	if accountID != "" {
-		req.Header.Set("X-Qoder-Account", accountID)
-	}
-	client := &http.Client{Timeout: timeout}
-	return client.Do(req)
+	return entries, nil
 }
 
 func (s *Server) fetchWorkerModels(refresh bool) []map[string]any {
@@ -207,23 +191,14 @@ func (s *Server) fetchWorkerModelsForMode(refresh bool, accountID string, mode c
 	// Last-resort path for a lone Qoder worker with no in-process providers
 	// and no pool URLs folded above. Stamp region the same way expand/merge
 	// would, so Providers filters never treat CN catalogs as unlabeled.
-	path := "/admin/models"
-	if refresh {
-		path += "?refresh=1"
-	}
-	resp, err := s.workerGet(path, 60*time.Second, accountID)
+	parsed, err := s.workerModels(60*time.Second, accountID, refresh)
 	if err != nil {
 		if accountID != "" {
 			return nil, err
 		}
 		return nil, nil
 	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	var parsed struct {
-		Data []map[string]any `json:"data"`
-	}
-	if json.Unmarshal(body, &parsed) != nil || len(parsed.Data) == 0 {
+	if len(parsed) == 0 {
 		return nil, nil
 	}
 	region := "global"
@@ -232,7 +207,7 @@ func (s *Server) fetchWorkerModelsForMode(refresh bool, accountID string, mode c
 			region = accounts.NormalizeRegion(item.Region)
 		}
 	}
-	for _, model := range parsed.Data {
+	for _, model := range parsed {
 		if model == nil {
 			continue
 		}
@@ -248,7 +223,7 @@ func (s *Server) fetchWorkerModelsForMode(refresh bool, accountID string, mode c
 			addModelRegion(model, region)
 		}
 	}
-	return parsed.Data, nil
+	return parsed, nil
 }
 
 // modelsNumericCapFields / modelsBoolCapFields list the capability fields the
@@ -542,23 +517,11 @@ func (s *Server) fetchQoderModels(refresh bool, accountID string) []map[string]a
 	if item, ok := s.pool.ByID(accountID); ok {
 		region = accounts.NormalizeRegion(item.Region)
 	}
-	path := "/admin/models"
-	if refresh {
-		path += "?refresh=1"
-	}
-	resp, err := s.workerGet(path, 60*time.Second, accountID)
-	if err != nil {
+	parsed, err := s.workerModels(60*time.Second, accountID, refresh)
+	if err != nil || len(parsed) == 0 {
 		return nil
 	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	var parsed struct {
-		Data []map[string]any `json:"data"`
-	}
-	if json.Unmarshal(body, &parsed) != nil || len(parsed.Data) == 0 {
-		return nil
-	}
-	for _, model := range parsed.Data {
+	for _, model := range parsed {
 		if model == nil {
 			continue
 		}
@@ -572,7 +535,7 @@ func (s *Server) fetchQoderModels(refresh bool, accountID string) []map[string]a
 		// output before it reaches any client.
 		model["_qoder_region"] = region
 	}
-	return parsed.Data
+	return parsed
 }
 
 func (s *Server) waitForWorkerLogin(ctx context.Context, accountID string) (string, error) {
@@ -586,77 +549,5 @@ func (s *Server) waitForWorkerLogin(ctx context.Context, accountID string) (stri
 }
 
 func waitForWorkerAuthManager(ctx context.Context, lookup func() (string, bool), timeout, interval time.Duration) (string, error) {
-	if timeout <= 0 {
-		timeout = 90 * time.Second
-	}
-	if interval <= 0 {
-		interval = 200 * time.Millisecond
-	}
-	deadline := time.Now().Add(timeout)
-	client := &http.Client{Timeout: 2 * time.Second}
-	var lastErr error
-	for {
-		if err := ctx.Err(); err != nil {
-			if lastErr != nil {
-				return "", lastErr
-			}
-			return "", err
-		}
-		workerURL, ok := lookup()
-		workerURL = strings.TrimRight(strings.TrimSpace(workerURL), "/")
-		if !ok || workerURL == "" {
-			lastErr = errAccountNotRunning
-		} else {
-			ready, err := workerReportsAuthManager(ctx, client, workerURL)
-			if err != nil {
-				lastErr = err
-			} else if ready {
-				return workerURL, nil
-			} else {
-				lastErr = errWorkerNotWarm
-			}
-		}
-		if !time.Now().Before(deadline) {
-			if lastErr == nil {
-				lastErr = errWorkerNotWarm
-			}
-			if errors.Is(lastErr, errAccountNotRunning) {
-				return "", lastErr
-			}
-			return "", fmt.Errorf("%w: %v", errWorkerNotWarm, lastErr)
-		}
-		timer := time.NewTimer(interval)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			if lastErr != nil {
-				return "", lastErr
-			}
-			return "", ctx.Err()
-		case <-timer.C:
-		}
-	}
-}
-
-func workerReportsAuthManager(ctx context.Context, client *http.Client, workerURL string) (bool, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, workerURL+"/health", nil)
-	if err != nil {
-		return false, err
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return false, err
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if resp.StatusCode >= 400 {
-		return false, fmt.Errorf("worker health status %d", resp.StatusCode)
-	}
-	var health struct {
-		HasAuthManager bool `json:"hasAuthManager"`
-	}
-	if err := json.Unmarshal(body, &health); err != nil {
-		return false, err
-	}
-	return health.HasAuthManager, nil
+	return qoder.WaitForAuthManager(ctx, lookup, timeout, interval)
 }
