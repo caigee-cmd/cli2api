@@ -18,10 +18,11 @@ use `read-when` to decide whether to open it.
 | `docs/PROVIDERS.md` | adding / designing a provider | Future account-provider design. Not a current milestone. |
 | `docs/PROVIDERS_TRAE_SOLO.md` | Trae CN Solo work | Trae CN Solo in-process adapter survey. Not a current milestone. |
 | `docs/DEVELOPMENT.md` | build / test / release | Local build loop and maintainer release workflow |
+| `docs/REFACTORING.md` | behavior-preserving backend split | Proposed package split and S00–S15 checklist. Exception to “no extra plan files”. Not yet the live architecture. |
 | `docs/capture-notes.md` (ignored) | protocol facts | Local redacted protocol facts |
 | `docs/PRIVATE_DEPLOYMENT.md` (ignored) | host ops | Host ops runbook |
 
-Keep these files only. Do not add new `TODO.md`, `NOTES.md`, or extra plan files.
+Keep these files only. Do not add new `TODO.md`, `NOTES.md`, or extra plan files. `docs/REFACTORING.md` is the one approved exception; do not add more plan files beside it.
 `docs/PROVIDERS_TRAE.md` is superseded; do not implement from it. User-facing
 install stays in `README.md` (Chinese) / `README_EN.md` (English).
 
@@ -30,7 +31,7 @@ install stays in `README.md` (Chinese) / `README_EN.md` (English).
 - Pull latest `main` and merge it into the current branch before starting any feature work (skip only when already on up-to-date `main`)
 - After console UI changes, run `cd frontend && npm run sync` so `internal/webui/static` matches `frontend/dist`. Do not commit a stale hashed JS/CSS pair.
 - When `main` is checked out in another worktree, merge PRs with `gh api` / GitHub; do not `git checkout main` here.
-- Keep architecture: auth / endpoint / executor / translate / api
+- Keep architecture: auth / endpoint / executor / translate / api. The proposed split in `docs/REFACTORING.md` is not live until the matching cross-package stage is accepted; do not implement from the target tree during S00–S03.
 - Prefer direct HTTP/SSE to Qoder cloud APIs
 - Pin qodercli / qoderclicn hooks in `worker/src/compat.mjs`; fail loudly on mismatch. Qoder CN is `provider=qoder` + `region=cn`, not a new family
 - Reasoning levels are catalog-driven: map client values through `internal/providers/reasoning.go` (`none`/`low`/`medium`/`high`/`xhigh`/`max`), clamp anything the model does not allow back to an allowed level, and treat the console value as a default only (it never locks a call or caps a higher client value)
