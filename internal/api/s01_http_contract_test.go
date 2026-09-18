@@ -66,7 +66,7 @@ func TestHealthStaysOpenAndReportsMaintenance(t *testing.T) {
 		t.Fatalf("providers=%v", payload["providers"])
 	}
 
-	srv.maintenance.Store(true)
+	srv.updater().Maintenance.Store(true)
 	maintained := serveS01(t, srv, http.MethodGet, endpoint.HealthPath, "", "")
 	if maintained.Code != http.StatusOK {
 		t.Fatalf("health during maintenance: %d %s", maintained.Code, maintained.Body.String())
@@ -106,7 +106,7 @@ func TestNamedAPIKeyCannotUseConsoleChat(t *testing.T) {
 
 func TestMaintenanceBlocksAPIAndV1ButKeepsUpdateAndHealth(t *testing.T) {
 	srv := newS01HTTPServer(t)
-	srv.maintenance.Store(true)
+	srv.updater().Maintenance.Store(true)
 	srv.updateChecker = &updateCheckerStub{info: control.Info{CurrentVersion: "v0.5.7", Managed: true}}
 	srv.updateAgent = &updateAgentStub{status: control.AgentStatus{Available: true, State: "idle"}}
 
@@ -292,14 +292,14 @@ func TestMaintenanceApplyConflictAndFailedAgentUnblock(t *testing.T) {
 		Available: true, StagedUpdate: true, State: "ready_to_apply", JobID: "agent-job",
 		CurrentVersion: "v0.2.1", TargetVersion: "v0.2.2",
 	}}
-	srv.updateRunning.Store(true)
-	srv.updateJob = &systemUpdateJob{JobID: "update-1", AgentJobID: "agent-job", State: "ready_to_apply", CurrentVersion: "v0.2.1", TargetVersion: "v0.2.2"}
+	srv.updater().Running.Store(true)
+	srv.updater().ReplaceJob(&systemUpdateJob{JobID: "update-1", AgentJobID: "agent-job", State: "ready_to_apply", CurrentVersion: "v0.2.1", TargetVersion: "v0.2.2"})
 
 	apply := serveS01(t, srv, http.MethodPost, "/api/system/update/apply", `{}`, "secret")
 	if apply.Code != http.StatusAccepted {
 		t.Fatalf("apply: %d %s", apply.Code, apply.Body.String())
 	}
-	if !srv.maintenance.Load() {
+	if !srv.updater().Maintenance.Load() {
 		t.Fatal("apply should set maintenance")
 	}
 	conflict := serveS01(t, srv, http.MethodPost, "/api/system/update/prepare", "", "secret")
@@ -307,17 +307,17 @@ func TestMaintenanceApplyConflictAndFailedAgentUnblock(t *testing.T) {
 		t.Fatalf("prepare conflict: %d %s", conflict.Code, conflict.Body.String())
 	}
 
-		srv.maintenance.Store(true)
-		srv.updateRunning.Store(true)
-		srv.updateJob = &systemUpdateJob{JobID: "update-2", AgentJobID: "agent-fail", State: "running"}
+		srv.updater().Maintenance.Store(true)
+		srv.updater().Running.Store(true)
+		srv.updater().ReplaceJob(&systemUpdateJob{JobID: "update-2", AgentJobID: "agent-fail", State: "running"})
 		srv.finishUpdateJob("update-2", "failed", "host apply failed", true)
-		srv.maintenance.Store(false)
-		srv.updateRunning.Store(false)
+		srv.updater().Maintenance.Store(false)
+		srv.updater().Running.Store(false)
 		job := srv.snapshotUpdateJob()
 		if job == nil || job.State != "failed" || job.Error != "host apply failed" {
 			t.Fatalf("failed agent job=%+v", job)
 		}
-		if srv.maintenance.Load() || srv.updateRunning.Load() {
+		if srv.updater().Maintenance.Load() || srv.updater().Running.Load() {
 			t.Fatal("failed agent should unblock traffic")
 		}
 		open := serveS01(t, srv, http.MethodGet, "/api/overview", "", "secret")

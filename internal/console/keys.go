@@ -1,4 +1,4 @@
-package api
+package console
 
 import (
 	"encoding/json"
@@ -8,8 +8,9 @@ import (
 	"strings"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
-	"github.com/caigee-cmd/cli2api/internal/auth"
 )
+
+const proxyAPIKeySecret = "proxy_api_key"
 
 type consoleKeyView struct {
 	Prefix  string `json:"prefix"`
@@ -18,10 +19,10 @@ type consoleKeyView struct {
 	Secret  string `json:"secret,omitempty"`
 }
 
-func (s *Server) handleAPIKeys(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) HandleAPIKeys(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		keys, err := s.control.Keys.List(r.Context())
+		keys, err := h.Control.Keys.List(r.Context())
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, "api_key_list_failed", err.Error())
 			return
@@ -41,7 +42,7 @@ func (s *Server) handleAPIKeys(w http.ResponseWriter, r *http.Request) {
 		if input.Enabled != nil {
 			enabled = *input.Enabled
 		}
-		key, err := s.control.Keys.Create(r.Context(), accounts.CreateAPIKey{
+		key, err := h.Control.Keys.Create(r.Context(), accounts.CreateAPIKey{
 			Name: input.Name, Providers: input.Providers, Enabled: enabled,
 		})
 		if err != nil {
@@ -54,7 +55,7 @@ func (s *Server) handleAPIKeys(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handleAPIKeyByID(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) HandleAPIKeyByID(w http.ResponseWriter, r *http.Request) {
 	id := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/keys/"), "/")
 	if id == "" || strings.Contains(id, "/") {
 		writeErr(w, http.StatusNotFound, "api_key_not_found", "api key id required")
@@ -62,7 +63,7 @@ func (s *Server) handleAPIKeyByID(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case http.MethodGet:
-		key, err := s.control.Keys.Get(r.Context(), id)
+		key, err := h.Control.Keys.Get(r.Context(), id)
 		if errors.Is(err, accounts.ErrAPIKeyNotFound) {
 			writeErr(w, http.StatusNotFound, "api_key_not_found", err.Error())
 			return
@@ -82,7 +83,7 @@ func (s *Server) handleAPIKeyByID(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
 			return
 		}
-		key, err := s.control.Keys.Update(r.Context(), id, accounts.UpdateAPIKey{
+		key, err := h.Control.Keys.Update(r.Context(), id, accounts.UpdateAPIKey{
 			Name: input.Name, Providers: input.Providers, Enabled: input.Enabled,
 		})
 		if errors.Is(err, accounts.ErrAPIKeyNotFound) {
@@ -95,7 +96,7 @@ func (s *Server) handleAPIKeyByID(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, key)
 	case http.MethodDelete:
-		if err := s.control.Keys.Delete(r.Context(), id); errors.Is(err, accounts.ErrAPIKeyNotFound) {
+		if err := h.Control.Keys.Delete(r.Context(), id); errors.Is(err, accounts.ErrAPIKeyNotFound) {
 			writeErr(w, http.StatusNotFound, "api_key_not_found", err.Error())
 			return
 		} else if err != nil {
@@ -108,11 +109,15 @@ func (s *Server) handleAPIKeyByID(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handleConsoleKey(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) HandleConsoleKey(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
+		secret := ""
+		if h.Cfg != nil {
+			secret = h.Cfg.ProxyAPIKey
+		}
 		writeJSON(w, http.StatusOK, consoleKeyView{
-			Prefix: accounts.APIKeyPrefix(s.cfg.ProxyAPIKey),
+			Prefix: accounts.APIKeyPrefix(secret),
 			Hint:   "This key unlocks the console and can call every provider.",
 		})
 	case http.MethodPost:
@@ -127,19 +132,25 @@ func (s *Server) handleConsoleKey(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusBadRequest, "invalid_request", "set rotate=true to mint a new console key")
 			return
 		}
-		secret, err := generateAPIKey()
+		if h.GenerateAPIKey == nil {
+			writeErr(w, http.StatusInternalServerError, "console_key_rotate_failed", "key generator unavailable")
+			return
+		}
+		secret, err := h.GenerateAPIKey()
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, "console_key_rotate_failed", err.Error())
 			return
 		}
-		if err := s.control.Keys.SetConsoleSecret(r.Context(), proxyAPIKeySecret, secret); err != nil {
+		if err := h.Control.Keys.SetConsoleSecret(r.Context(), proxyAPIKeySecret, secret); err != nil {
 			writeErr(w, http.StatusInternalServerError, "console_key_rotate_failed", err.Error())
 			return
 		}
-		s.cfg.ProxyAPIKey = secret
-		s.auth = auth.NewVerifier(secret, s.control.Accounts.Store())
-		s.executor.WorkerKey = secret
-		if err := s.control.Accounts.ReplaceProxyAPIKey(r.Context(), secret); err != nil {
+		if h.OnConsoleKeyRotated != nil {
+			h.OnConsoleKeyRotated(secret)
+		} else if h.Cfg != nil {
+			h.Cfg.ProxyAPIKey = secret
+		}
+		if err := h.Control.Accounts.ReplaceProxyAPIKey(r.Context(), secret); err != nil {
 			writeErr(w, http.StatusInternalServerError, "console_key_rotate_failed", err.Error())
 			return
 		}

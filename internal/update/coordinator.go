@@ -1,4 +1,4 @@
-package api
+package update
 
 import (
 	"context"
@@ -9,30 +9,55 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
-	control "github.com/caigee-cmd/cli2api/internal/update"
+	"github.com/caigee-cmd/cli2api/internal/accounts"
 )
 
-type updateChecker interface {
-	Check(context.Context, bool) (control.Info, error)
+type ReleaseChecker interface {
+	Check(context.Context, bool) (Info, error)
 }
 
-type updateAgent interface {
-	Status(context.Context) (control.AgentStatus, error)
-	Apply(context.Context, control.ApplyRequest) (control.ApplyResponse, error)
+type Coordinator struct {
+	Checker ReleaseChecker
+	Agent   Agent
+	Backup  func(context.Context, string, int) (accounts.Backup, error)
+	DataDir string
+
+	Maintenance atomic.Bool
+	Running     atomic.Bool
+	mu          sync.Mutex
+	Job         *Job
+}
+
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+func writeErr(w http.ResponseWriter, status int, code, msg string) {
+	writeJSON(w, status, map[string]any{
+		"error": map[string]any{
+			"message": msg,
+			"type":    "api_error",
+			"code":    code,
+		},
+	})
 }
 
 type preparedUpdateAgent interface {
-	Prepare(context.Context, control.PrepareRequest) (control.ApplyResponse, error)
-	ApplyPrepared(context.Context, control.ApplyRequest) (control.ApplyResponse, error)
+	Prepare(context.Context, PrepareRequest) (ApplyResponse, error)
+	ApplyPrepared(context.Context, ApplyRequest) (ApplyResponse, error)
 }
 
 type cancellableUpdateAgent interface {
 	Cancel(context.Context) error
 }
 
-type systemUpdateJob struct {
+type Job struct {
 	JobID          string `json:"job_id"`
 	AgentJobID     string `json:"agent_job_id,omitempty"`
 	State          string `json:"state"`
@@ -45,41 +70,41 @@ type systemUpdateJob struct {
 }
 
 type systemUpdateInfo struct {
-	control.Info
-	Agent  control.AgentStatus `json:"agent"`
-	Update *systemUpdateJob    `json:"update,omitempty"`
+	Info
+	Agent  AgentStatus `json:"agent"`
+	Update *Job        `json:"update,omitempty"`
 }
 
-func (s *Server) handleSystemUpdate(w http.ResponseWriter, r *http.Request) {
+func (c *Coordinator) Handle(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		s.handleSystemUpdateInfo(w, r)
+		c.HandleInfo(w, r)
 	case http.MethodPost:
-		s.handleSystemUpdateApply(w, r)
+		c.HandleApplyNow(w, r)
 	default:
 		writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "GET or POST only")
 	}
 }
 
-func (s *Server) handleSystemUpdatePrepare(w http.ResponseWriter, _ *http.Request) {
-	if !s.updateRunning.CompareAndSwap(false, true) {
+func (c *Coordinator) HandlePrepare(w http.ResponseWriter, _ *http.Request) {
+	if !c.Running.CompareAndSwap(false, true) {
 		writeErr(w, http.StatusConflict, "update_in_progress", "An update is already in progress")
 		return
 	}
 	jobID, err := newSystemUpdateJobID()
 	if err != nil {
-		s.updateRunning.Store(false)
+		c.Running.Store(false)
 		writeErr(w, http.StatusInternalServerError, "update_job_failed", err.Error())
 		return
 	}
-	s.updateMu.Lock()
-	s.updateJob = &systemUpdateJob{JobID: jobID, State: "preparing", StartedAt: time.Now().UTC().Format(time.RFC3339)}
-	s.updateMu.Unlock()
-	go s.prepareImageSystemUpdate(jobID)
+	c.mu.Lock()
+	c.Job = &Job{JobID: jobID, State: "preparing", StartedAt: time.Now().UTC().Format(time.RFC3339)}
+	c.mu.Unlock()
+	go c.prepareImage(jobID)
 	writeJSON(w, http.StatusAccepted, map[string]any{"job_id": jobID})
 }
 
-func (s *Server) handleSystemUpdateRollback(w http.ResponseWriter, r *http.Request) {
+func (c *Coordinator) HandleRollback(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "POST only")
 		return
@@ -96,31 +121,31 @@ func (s *Server) handleSystemUpdateRollback(w http.ResponseWriter, r *http.Reque
 		writeErr(w, http.StatusBadRequest, "invalid_request", "version is required")
 		return
 	}
-	if !s.updateRunning.CompareAndSwap(false, true) {
+	if !c.Running.CompareAndSwap(false, true) {
 		writeErr(w, http.StatusConflict, "update_in_progress", "An update is already in progress")
 		return
 	}
 	jobID, err := newSystemUpdateJobID()
 	if err != nil {
-		s.updateRunning.Store(false)
+		c.Running.Store(false)
 		writeErr(w, http.StatusInternalServerError, "update_job_failed", err.Error())
 		return
 	}
-	s.updateMu.Lock()
-	s.updateJob = &systemUpdateJob{JobID: jobID, State: "preparing", TargetVersion: target, StartedAt: time.Now().UTC().Format(time.RFC3339)}
-	s.updateMu.Unlock()
-	s.maintenance.Store(true)
-	go s.rollbackSystemUpdate(jobID, target)
+	c.mu.Lock()
+	c.Job = &Job{JobID: jobID, State: "preparing", TargetVersion: target, StartedAt: time.Now().UTC().Format(time.RFC3339)}
+	c.mu.Unlock()
+	c.Maintenance.Store(true)
+	go c.rollback(jobID, target)
 	writeJSON(w, http.StatusAccepted, map[string]any{"job_id": jobID, "target_version": target})
 }
 
-func (s *Server) handleSystemUpdateCancel(w http.ResponseWriter, r *http.Request) {
+func (c *Coordinator) HandleCancel(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "POST only")
 		return
 	}
 	statusCtx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
-	status, statusErr := s.updateAgent.Status(statusCtx)
+	status, statusErr := c.Agent.Status(statusCtx)
 	cancel()
 	if statusErr != nil || !status.Available {
 		message := "Updater daemon is unavailable"
@@ -130,7 +155,7 @@ func (s *Server) handleSystemUpdateCancel(w http.ResponseWriter, r *http.Request
 		writeErr(w, http.StatusBadGateway, "updater_unavailable", message)
 		return
 	}
-	job := s.snapshotUpdateJob()
+	job := c.Snapshot()
 	if applyingPreparedUpdate(job) || updaterApplyActive(status) {
 		writeErr(w, http.StatusConflict, "update_in_progress", "An update is already in progress")
 		return
@@ -140,7 +165,7 @@ func (s *Server) handleSystemUpdateCancel(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if hostCancellable(status) {
-		agent, ok := s.updateAgent.(cancellableUpdateAgent)
+		agent, ok := c.Agent.(cancellableUpdateAgent)
 		if !ok {
 			writeErr(w, http.StatusConflict, "update_not_cancellable", "Host updater does not support cancelling staged updates")
 			return
@@ -154,89 +179,89 @@ func (s *Server) handleSystemUpdateCancel(w http.ResponseWriter, r *http.Request
 		}
 	}
 	if job != nil {
-		s.finishUpdateJob(job.JobID, "failed", "Update cancelled", true)
+		c.Finish(job.JobID, "failed", "Update cancelled", true)
 	}
-	s.updateRunning.Store(false)
-	s.maintenance.Store(false)
+	c.Running.Store(false)
+	c.Maintenance.Store(false)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
-func (s *Server) handleSystemUpdateConfirm(w http.ResponseWriter, r *http.Request) {
+func (c *Coordinator) HandleApply(w http.ResponseWriter, r *http.Request) {
 	statusCtx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
-	status, _ := s.updateAgent.Status(statusCtx)
+	status, _ := c.Agent.Status(statusCtx)
 	cancel()
-	job := s.adoptPreparedUpdate(status)
+	job := c.adoptPrepared(status)
 	if job == nil || job.State != "ready_to_apply" {
 		writeErr(w, http.StatusConflict, "update_not_ready", "The target image is not ready to apply")
 		return
 	}
 	jobID := job.JobID
-	if !s.updateRunning.Load() {
+	if !c.Running.Load() {
 		writeErr(w, http.StatusConflict, "update_not_ready", "The update preparation has expired")
 		return
 	}
-	s.maintenance.Store(true)
-	s.mutateUpdateJob(jobID, func(job *systemUpdateJob) { job.State = "backing_up" })
-	go s.applyPreparedSystemUpdate(jobID)
+	c.Maintenance.Store(true)
+	c.Mutate(jobID, func(job *Job) { job.State = "backing_up" })
+	go c.applyPrepared(jobID)
 	writeJSON(w, http.StatusAccepted, map[string]any{"job_id": jobID})
 }
 
-func (s *Server) handleSystemUpdateInfo(w http.ResponseWriter, r *http.Request) {
-	info, err := s.updateChecker.Check(r.Context(), r.URL.Query().Get("force") == "1")
+func (c *Coordinator) HandleInfo(w http.ResponseWriter, r *http.Request) {
+	info, err := c.Checker.Check(r.Context(), r.URL.Query().Get("force") == "1")
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, "update_check_failed", err.Error())
 		return
 	}
 	statusCtx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
-	status, statusErr := s.updateAgent.Status(statusCtx)
+	status, statusErr := c.Agent.Status(statusCtx)
 	if statusErr != nil {
-		status = control.AgentStatus{Available: false, State: "unavailable", Error: statusErr.Error()}
+		status = AgentStatus{Available: false, State: "unavailable", Error: statusErr.Error()}
 	}
-	job := s.adoptPreparedUpdate(status)
+	job := c.adoptPrepared(status)
 	if job == nil && status.State == "succeeded" && strings.TrimSpace(status.JobID) != "" {
-		job = &systemUpdateJob{JobID: "agent-" + status.JobID, AgentJobID: status.JobID, State: "succeeded", CurrentVersion: status.CurrentVersion, TargetVersion: status.TargetVersion, StartedAt: status.StartedAt, FinishedAt: status.FinishedAt}
+		job = &Job{JobID: "agent-" + status.JobID, AgentJobID: status.JobID, State: "succeeded", CurrentVersion: status.CurrentVersion, TargetVersion: status.TargetVersion, StartedAt: status.StartedAt, FinishedAt: status.FinishedAt}
 	}
 	writeJSON(w, http.StatusOK, systemUpdateInfo{Info: info, Agent: status, Update: job})
 }
 
-func (s *Server) handleSystemUpdateApply(w http.ResponseWriter, _ *http.Request) {
-	if !s.updateRunning.CompareAndSwap(false, true) {
+func (c *Coordinator) HandleApplyNow(w http.ResponseWriter, _ *http.Request) {
+	if !c.Running.CompareAndSwap(false, true) {
 		writeErr(w, http.StatusConflict, "update_in_progress", "An update is already in progress")
 		return
 	}
 	jobID, err := newSystemUpdateJobID()
 	if err != nil {
-		s.updateRunning.Store(false)
+		c.Running.Store(false)
 		writeErr(w, http.StatusInternalServerError, "update_job_failed", err.Error())
 		return
 	}
 
-	s.updateMu.Lock()
-	s.updateJob = &systemUpdateJob{JobID: jobID, State: "preparing", StartedAt: time.Now().UTC().Format(time.RFC3339)}
-	s.updateMu.Unlock()
-	s.maintenance.Store(true)
-	go s.prepareSystemUpdate(jobID)
+	c.mu.Lock()
+	c.Job = &Job{JobID: jobID, State: "preparing", StartedAt: time.Now().UTC().Format(time.RFC3339)}
+	c.mu.Unlock()
+	c.Maintenance.Store(true)
+	go c.prepareOneShot(jobID)
 
 	writeJSON(w, http.StatusAccepted, map[string]any{"job_id": jobID})
 }
 
-func (s *Server) prepareImageSystemUpdate(jobID string) {
+func (c *Coordinator) prepareImage(jobID string) {
 	ctx := context.Background()
 	setUpdateState := func(state string) {
-		s.mutateUpdateJob(jobID, func(job *systemUpdateJob) { job.State = state })
+		c.Mutate(jobID, func(job *Job) { job.State = state })
 	}
 	fail := func(message string) {
-		s.mutateUpdateJob(jobID, func(job *systemUpdateJob) {
+		c.Mutate(jobID, func(job *Job) {
 			job.State = "failed"
 			job.Error = message
 			job.FinishedAt = time.Now().UTC().Format(time.RFC3339)
 		})
-		s.updateRunning.Store(false)
+		c.Running.Store(false)
 	}
 
 	setUpdateState("checking")
-	info, err := s.updateChecker.Check(ctx, true)
+	info, err := c.Checker.Check(ctx, true)
 	if err != nil {
 		fail(err.Error())
 		return
@@ -249,13 +274,13 @@ func (s *Server) prepareImageSystemUpdate(jobID string) {
 		fail("No next release is available")
 		return
 	}
-	s.mutateUpdateJob(jobID, func(job *systemUpdateJob) {
+	c.Mutate(jobID, func(job *Job) {
 		job.CurrentVersion = info.CurrentVersion
 		job.TargetVersion = info.NextVersion
 	})
 
 	statusCtx, statusCancel := context.WithTimeout(ctx, 3*time.Second)
-	status, err := s.updateAgent.Status(statusCtx)
+	status, err := c.Agent.Status(statusCtx)
 	statusCancel()
 	if err != nil || !status.Available {
 		message := "Updater daemon is unavailable"
@@ -270,19 +295,19 @@ func (s *Server) prepareImageSystemUpdate(jobID string) {
 		return
 	}
 	if !status.StagedUpdate {
-		s.maintenance.Store(true)
-		s.submitOneShotUpdate(jobID, info.CurrentVersion, info.NextVersion)
+		c.Maintenance.Store(true)
+		c.submitOneShot(jobID, info.CurrentVersion, info.NextVersion)
 		return
 	}
-	agent, ok := s.updateAgent.(preparedUpdateAgent)
+	agent, ok := c.Agent.(preparedUpdateAgent)
 	if !ok {
-		s.maintenance.Store(true)
-		s.submitOneShotUpdate(jobID, info.CurrentVersion, info.NextVersion)
+		c.Maintenance.Store(true)
+		c.submitOneShot(jobID, info.CurrentVersion, info.NextVersion)
 		return
 	}
 
 	setUpdateState("submitting")
-	request := control.PrepareRequest{CurrentVersion: info.CurrentVersion, TargetVersion: info.NextVersion}
+	request := PrepareRequest{CurrentVersion: info.CurrentVersion, TargetVersion: info.NextVersion}
 	prepareCtx, prepareCancel := context.WithTimeout(ctx, 8*time.Second)
 	response, err := agent.Prepare(prepareCtx, request)
 	prepareCancel()
@@ -290,30 +315,30 @@ func (s *Server) prepareImageSystemUpdate(jobID string) {
 		fail(err.Error())
 		return
 	}
-	s.mutateUpdateJob(jobID, func(job *systemUpdateJob) {
+	c.Mutate(jobID, func(job *Job) {
 		job.State = "preparing_image"
 		job.AgentJobID = response.JobID
 	})
-	go s.monitorPreparedUpdate(jobID, response.JobID)
+	go c.monitorPrepared(jobID, response.JobID)
 }
 
-func (s *Server) prepareSystemUpdate(jobID string) {
+func (c *Coordinator) prepareOneShot(jobID string) {
 	ctx := context.Background()
 	setUpdateState := func(state string) {
-		s.mutateUpdateJob(jobID, func(job *systemUpdateJob) { job.State = state })
+		c.Mutate(jobID, func(job *Job) { job.State = state })
 	}
 	fail := func(message string) {
-		s.mutateUpdateJob(jobID, func(job *systemUpdateJob) {
+		c.Mutate(jobID, func(job *Job) {
 			job.State = "failed"
 			job.Error = message
 			job.FinishedAt = time.Now().UTC().Format(time.RFC3339)
 		})
-		s.maintenance.Store(false)
-		s.updateRunning.Store(false)
+		c.Maintenance.Store(false)
+		c.Running.Store(false)
 	}
 
 	setUpdateState("checking")
-	info, err := s.updateChecker.Check(ctx, true)
+	info, err := c.Checker.Check(ctx, true)
 	if err != nil {
 		fail(err.Error())
 		return
@@ -326,13 +351,13 @@ func (s *Server) prepareSystemUpdate(jobID string) {
 		fail("No next release is available")
 		return
 	}
-	s.mutateUpdateJob(jobID, func(job *systemUpdateJob) {
+	c.Mutate(jobID, func(job *Job) {
 		job.CurrentVersion = info.CurrentVersion
 		job.TargetVersion = info.NextVersion
 	})
 
 	statusCtx, statusCancel := context.WithTimeout(ctx, 3*time.Second)
-	status, err := s.updateAgent.Status(statusCtx)
+	status, err := c.Agent.Status(statusCtx)
 	statusCancel()
 	if err != nil || !status.Available {
 		message := "Updater daemon is unavailable"
@@ -347,18 +372,18 @@ func (s *Server) prepareSystemUpdate(jobID string) {
 		return
 	}
 
-	s.submitOneShotUpdate(jobID, info.CurrentVersion, info.NextVersion)
+	c.submitOneShot(jobID, info.CurrentVersion, info.NextVersion)
 }
 
-func (s *Server) rollbackSystemUpdate(jobID, targetVersion string) {
+func (c *Coordinator) rollback(jobID, targetVersion string) {
 	ctx := context.Background()
 	fail := func(message string) {
-		s.finishUpdateJob(jobID, "failed", message, true)
-		s.maintenance.Store(false)
-		s.updateRunning.Store(false)
+		c.Finish(jobID, "failed", message, true)
+		c.Maintenance.Store(false)
+		c.Running.Store(false)
 	}
-	s.mutateUpdateJob(jobID, func(job *systemUpdateJob) { job.State = "checking" })
-	info, err := s.updateChecker.Check(ctx, true)
+	c.Mutate(jobID, func(job *Job) { job.State = "checking" })
+	info, err := c.Checker.Check(ctx, true)
 	if err != nil {
 		fail(err.Error())
 		return
@@ -378,12 +403,12 @@ func (s *Server) rollbackSystemUpdate(jobID, targetVersion string) {
 		fail("version is not in the allowed rollback list")
 		return
 	}
-	s.mutateUpdateJob(jobID, func(job *systemUpdateJob) {
+	c.Mutate(jobID, func(job *Job) {
 		job.CurrentVersion = info.CurrentVersion
 		job.TargetVersion = targetVersion
 	})
 	statusCtx, statusCancel := context.WithTimeout(ctx, 3*time.Second)
-	status, err := s.updateAgent.Status(statusCtx)
+	status, err := c.Agent.Status(statusCtx)
 	statusCancel()
 	if err != nil || !status.Available {
 		message := "Updater daemon is unavailable"
@@ -397,148 +422,158 @@ func (s *Server) rollbackSystemUpdate(jobID, targetVersion string) {
 		fail("Updater daemon is busy")
 		return
 	}
-	s.submitOneShotUpdate(jobID, info.CurrentVersion, targetVersion)
+	c.submitOneShot(jobID, info.CurrentVersion, targetVersion)
 }
 
-func (s *Server) submitOneShotUpdate(jobID, currentVersion, targetVersion string) {
+func (c *Coordinator) submitOneShot(jobID, currentVersion, targetVersion string) {
 	ctx := context.Background()
 	fail := func(message string) {
-		s.finishUpdateJob(jobID, "failed", message, true)
-		s.maintenance.Store(false)
-		s.updateRunning.Store(false)
+		c.Finish(jobID, "failed", message, true)
+		c.Maintenance.Store(false)
+		c.Running.Store(false)
 	}
-	s.mutateUpdateJob(jobID, func(job *systemUpdateJob) { job.State = "backing_up" })
-	backup, err := s.control.Backup.Snapshot(ctx, filepath.Join(s.cfg.DataDir, "backups"), 5)
+	c.Mutate(jobID, func(job *Job) { job.State = "backing_up" })
+	if c.Backup == nil {
+		fail("backup unavailable")
+		return
+	}
+	backup, err := c.Backup(ctx, filepath.Join(c.DataDir, "backups"), 5)
 	if err != nil {
 		fail(err.Error())
 		return
 	}
-	s.mutateUpdateJob(jobID, func(job *systemUpdateJob) {
+	c.Mutate(jobID, func(job *Job) {
 		job.BackupPath = filepath.Join("/data/backups", backup.Name)
 		job.State = "submitting"
 	})
-	request := control.ApplyRequest{
+	request := ApplyRequest{
 		CurrentVersion: currentVersion,
 		TargetVersion:  targetVersion,
 		BackupPath:     filepath.Join("/data/backups", backup.Name),
 	}
 	applyCtx, applyCancel := context.WithTimeout(ctx, 8*time.Second)
-	response, err := s.updateAgent.Apply(applyCtx, request)
+	response, err := c.Agent.Apply(applyCtx, request)
 	applyCancel()
 	if err != nil {
 		fail(err.Error())
 		return
 	}
-	s.mutateUpdateJob(jobID, func(job *systemUpdateJob) {
+	c.Mutate(jobID, func(job *Job) {
 		job.State = "running"
 		job.AgentJobID = response.JobID
 	})
-	go s.monitorUpdate(jobID, response.JobID)
+	go c.monitor(jobID, response.JobID)
 }
 
-func (s *Server) applyPreparedSystemUpdate(jobID string) {
-	job := s.snapshotUpdateJob()
+func (c *Coordinator) applyPrepared(jobID string) {
+	job := c.Snapshot()
 	if job == nil || job.JobID != jobID {
-		s.finishUpdateJob(jobID, "failed", "Update preparation was lost", true)
-		s.maintenance.Store(false)
-		s.updateRunning.Store(false)
+		c.Finish(jobID, "failed", "Update preparation was lost", true)
+		c.Maintenance.Store(false)
+		c.Running.Store(false)
 		return
 	}
-	agent, ok := s.updateAgent.(preparedUpdateAgent)
+	agent, ok := c.Agent.(preparedUpdateAgent)
 	if !ok {
-		s.finishUpdateJob(jobID, "failed", "Host updater does not support staged updates", true)
-		s.maintenance.Store(false)
-		s.updateRunning.Store(false)
+		c.Finish(jobID, "failed", "Host updater does not support staged updates", true)
+		c.Maintenance.Store(false)
+		c.Running.Store(false)
 		return
 	}
 	ctx := context.Background()
-	backup, err := s.control.Backup.Snapshot(ctx, filepath.Join(s.cfg.DataDir, "backups"), 5)
-	if err != nil {
-		s.finishUpdateJob(jobID, "failed", err.Error(), true)
-		s.maintenance.Store(false)
-		s.updateRunning.Store(false)
+	if c.Backup == nil {
+		c.Finish(jobID, "failed", "backup unavailable", true)
+		c.Maintenance.Store(false)
+		c.Running.Store(false)
 		return
 	}
-	s.mutateUpdateJob(jobID, func(job *systemUpdateJob) {
+	backup, err := c.Backup(ctx, filepath.Join(c.DataDir, "backups"), 5)
+	if err != nil {
+		c.Finish(jobID, "failed", err.Error(), true)
+		c.Maintenance.Store(false)
+		c.Running.Store(false)
+		return
+	}
+	c.Mutate(jobID, func(job *Job) {
 		job.BackupPath = filepath.Join("/data/backups", backup.Name)
 		job.State = "submitting"
 	})
-	request := control.ApplyRequest{CurrentVersion: job.CurrentVersion, TargetVersion: job.TargetVersion, BackupPath: filepath.Join("/data/backups", backup.Name)}
+	request := ApplyRequest{CurrentVersion: job.CurrentVersion, TargetVersion: job.TargetVersion, BackupPath: filepath.Join("/data/backups", backup.Name)}
 	applyCtx, applyCancel := context.WithTimeout(ctx, 8*time.Second)
 	response, err := agent.ApplyPrepared(applyCtx, request)
 	applyCancel()
 	if err != nil {
-		s.finishUpdateJob(jobID, "failed", err.Error(), true)
-		s.maintenance.Store(false)
-		s.updateRunning.Store(false)
+		c.Finish(jobID, "failed", err.Error(), true)
+		c.Maintenance.Store(false)
+		c.Running.Store(false)
 		return
 	}
-	s.mutateUpdateJob(jobID, func(job *systemUpdateJob) {
+	c.Mutate(jobID, func(job *Job) {
 		job.State = "running"
 		job.AgentJobID = response.JobID
 	})
-	go s.monitorUpdate(jobID, response.JobID)
+	go c.monitor(jobID, response.JobID)
 }
 
-func (s *Server) monitorPreparedUpdate(jobID, agentJobID string) {
+func (c *Coordinator) monitorPrepared(jobID, agentJobID string) {
 	deadline := time.Now().Add(15 * time.Minute)
 	for time.Now().Before(deadline) {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		status, err := s.updateAgent.Status(ctx)
+		status, err := c.Agent.Status(ctx)
 		cancel()
 		if err == nil && (status.JobID == "" || status.JobID == agentJobID) {
 			switch status.State {
 			case "ready_to_apply":
-				s.mutateUpdateJob(jobID, func(job *systemUpdateJob) { job.State = "ready_to_apply" })
+				c.Mutate(jobID, func(job *Job) { job.State = "ready_to_apply" })
 				return
 			case "failed":
-				s.finishUpdateJob(jobID, "failed", status.Error, true)
-				s.updateRunning.Store(false)
+				c.Finish(jobID, "failed", status.Error, true)
+				c.Running.Store(false)
 				return
 			case "idle":
-				s.finishUpdateJob(jobID, "failed", "Update cancelled", true)
-				s.updateRunning.Store(false)
+				c.Finish(jobID, "failed", "Update cancelled", true)
+				c.Running.Store(false)
 				return
 			}
 		}
 		time.Sleep(2 * time.Second)
 	}
-	s.finishUpdateJob(jobID, "failed", "Image preparation timed out", true)
-	s.updateRunning.Store(false)
+	c.Finish(jobID, "failed", "Image preparation timed out", true)
+	c.Running.Store(false)
 }
 
-func (s *Server) adoptPreparedUpdate(status control.AgentStatus) *systemUpdateJob {
+func (c *Coordinator) adoptPrepared(status AgentStatus) *Job {
 	if status.State != "ready_to_apply" || strings.TrimSpace(status.JobID) == "" {
-		return s.snapshotUpdateJob()
+		return c.Snapshot()
 	}
-	s.updateMu.Lock()
-	defer s.updateMu.Unlock()
-	if s.updateJob != nil {
-		if applyingPreparedUpdate(s.updateJob) {
-			copy := *s.updateJob
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.Job != nil {
+		if applyingPreparedUpdate(c.Job) {
+			copy := *c.Job
 			return &copy
 		}
-		s.updateJob.State = "ready_to_apply"
-		s.updateJob.AgentJobID = status.JobID
-		if s.updateJob.CurrentVersion == "" {
-			s.updateJob.CurrentVersion = status.CurrentVersion
+		c.Job.State = "ready_to_apply"
+		c.Job.AgentJobID = status.JobID
+		if c.Job.CurrentVersion == "" {
+			c.Job.CurrentVersion = status.CurrentVersion
 		}
-		if s.updateJob.TargetVersion == "" {
-			s.updateJob.TargetVersion = status.TargetVersion
+		if c.Job.TargetVersion == "" {
+			c.Job.TargetVersion = status.TargetVersion
 		}
-		s.updateJob.Error = ""
-		s.updateRunning.Store(true)
-		copy := *s.updateJob
+		c.Job.Error = ""
+		c.Running.Store(true)
+		copy := *c.Job
 		return &copy
 	}
-	job := &systemUpdateJob{JobID: "agent-" + status.JobID, AgentJobID: status.JobID, State: "ready_to_apply", CurrentVersion: status.CurrentVersion, TargetVersion: status.TargetVersion, StartedAt: status.StartedAt}
-	s.updateJob = job
-	s.updateRunning.Store(true)
+	job := &Job{JobID: "agent-" + status.JobID, AgentJobID: status.JobID, State: "ready_to_apply", CurrentVersion: status.CurrentVersion, TargetVersion: status.TargetVersion, StartedAt: status.StartedAt}
+	c.Job = job
+	c.Running.Store(true)
 	copy := *job
 	return &copy
 }
 
-func applyingPreparedUpdate(job *systemUpdateJob) bool {
+func applyingPreparedUpdate(job *Job) bool {
 	if job == nil {
 		return false
 	}
@@ -552,7 +587,7 @@ func applyingPreparedUpdate(job *systemUpdateJob) bool {
 	}
 }
 
-func updaterApplyActive(status control.AgentStatus) bool {
+func updaterApplyActive(status AgentStatus) bool {
 	switch status.State {
 	case "recreating", "rolling_back":
 		return true
@@ -563,7 +598,7 @@ func updaterApplyActive(status control.AgentStatus) bool {
 	}
 }
 
-func cancellablePreparedUpdate(job *systemUpdateJob, status control.AgentStatus) bool {
+func cancellablePreparedUpdate(job *Job, status AgentStatus) bool {
 	if applyingPreparedUpdate(job) || updaterApplyActive(status) {
 		return false
 	}
@@ -584,7 +619,7 @@ func cancellablePreparedUpdate(job *systemUpdateJob, status control.AgentStatus)
 	}
 }
 
-func hostCancellable(status control.AgentStatus) bool {
+func hostCancellable(status AgentStatus) bool {
 	if status.State == "ready_to_apply" {
 		return true
 	}
@@ -596,59 +631,65 @@ func hostCancellable(status control.AgentStatus) bool {
 	}
 }
 
-func (s *Server) snapshotUpdateJob() *systemUpdateJob {
-	s.updateMu.Lock()
-	defer s.updateMu.Unlock()
-	if s.updateJob == nil {
+func (c *Coordinator) ReplaceJob(job *Job) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.Job = job
+}
+
+func (c *Coordinator) Snapshot() *Job {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.Job == nil {
 		return nil
 	}
-	copy := *s.updateJob
+	copy := *c.Job
 	return &copy
 }
 
-func (s *Server) mutateUpdateJob(jobID string, mutate func(*systemUpdateJob)) bool {
-	s.updateMu.Lock()
-	defer s.updateMu.Unlock()
-	if s.updateJob == nil || s.updateJob.JobID != jobID {
+func (c *Coordinator) Mutate(jobID string, mutate func(*Job)) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.Job == nil || c.Job.JobID != jobID {
 		return false
 	}
-	mutate(s.updateJob)
+	mutate(c.Job)
 	return true
 }
 
-func (s *Server) monitorUpdate(jobID, agentJobID string) {
+func (c *Coordinator) monitor(jobID, agentJobID string) {
 	deadline := time.Now().Add(15 * time.Minute)
 	for time.Now().Before(deadline) {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		status, err := s.updateAgent.Status(ctx)
+		status, err := c.Agent.Status(ctx)
 		cancel()
 		if err == nil && (status.JobID == "" || status.JobID == agentJobID) {
 			if status.State == "failed" {
-				s.finishUpdateJob(jobID, "failed", status.Error, true)
-				s.maintenance.Store(false)
-				s.updateRunning.Store(false)
+				c.Finish(jobID, "failed", status.Error, true)
+				c.Maintenance.Store(false)
+				c.Running.Store(false)
 				return
 			}
 			if status.State == "rolled_back" {
-				s.finishUpdateJob(jobID, "rolled_back", status.Error, true)
-				s.maintenance.Store(false)
-				s.updateRunning.Store(false)
+				c.Finish(jobID, "rolled_back", status.Error, true)
+				c.Maintenance.Store(false)
+				c.Running.Store(false)
 				return
 			}
 			if status.State == "succeeded" {
-				s.finishUpdateJob(jobID, "succeeded", "", true)
+				c.Finish(jobID, "succeeded", "", true)
 				return
 			}
 		}
 		time.Sleep(2 * time.Second)
 	}
-	s.finishUpdateJob(jobID, "failed", "Updater health check timed out", true)
-	s.maintenance.Store(false)
-	s.updateRunning.Store(false)
+	c.Finish(jobID, "failed", "Updater health check timed out", true)
+	c.Maintenance.Store(false)
+	c.Running.Store(false)
 }
 
-func (s *Server) finishUpdateJob(jobID, state, message string, finished bool) {
-	s.mutateUpdateJob(jobID, func(job *systemUpdateJob) {
+func (c *Coordinator) Finish(jobID, state, message string, finished bool) {
+	c.Mutate(jobID, func(job *Job) {
 		job.State = state
 		job.Error = message
 		if finished {
@@ -674,7 +715,7 @@ func updaterStateActive(state string) bool {
 	}
 }
 
-func blocksDuringUpdate(path string) bool {
+func BlocksDuringUpdate(path string) bool {
 	if path == "/api/system/update" || path == "/api/system/update/prepare" || path == "/api/system/update/apply" || path == "/api/system/update/cancel" || path == "/api/system/update/rollback" || path == "/health" {
 		return false
 	}

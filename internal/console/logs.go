@@ -1,4 +1,4 @@
-package api
+package console
 
 import (
 	"errors"
@@ -16,28 +16,28 @@ type statsCacheEntry struct {
 	expiresAt time.Time
 }
 
-func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) HandleLogs(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/api/logs")
 	path = strings.Trim(path, "/")
 	switch {
 	case path == "requests" && r.Method == http.MethodGet:
-		s.handleListRequestLogs(w, r)
+		h.handleListRequestLogs(w, r)
 	case path == "requests" && r.Method == http.MethodDelete:
-		s.handleClearRequestLogs(w, r)
+		h.handleClearRequestLogs(w, r)
 	case strings.HasPrefix(path, "requests/") && r.Method == http.MethodGet:
 		id := strings.TrimPrefix(path, "requests/")
-		s.handleGetRequestLog(w, r, id)
+		h.handleGetRequestLog(w, r, id)
 	case path == "runtime" && r.Method == http.MethodGet:
-		s.handleRuntimeLogs(w, r)
+		h.handleRuntimeLogs(w, r)
 	case path == "stats" && r.Method == http.MethodGet:
-		s.handleRequestStats(w, r)
+		h.handleRequestStats(w, r)
 	default:
 		writeErr(w, http.StatusNotFound, "not_found", "unknown logs endpoint")
 	}
 }
 
-func (s *Server) handleRequestStats(w http.ResponseWriter, r *http.Request) {
-	if s.recorder == nil || s.recorder.Store() == nil {
+func (h *Handler) handleRequestStats(w http.ResponseWriter, r *http.Request) {
+	if h.Recorder == nil || h.Recorder.Store() == nil {
 		writeErr(w, http.StatusServiceUnavailable, "logs_unavailable", "request logs unavailable")
 		return
 	}
@@ -51,40 +51,40 @@ func (s *Server) handleRequestStats(w http.ResponseWriter, r *http.Request) {
 	if hours != 1 && hours != 24 && hours != 168 {
 		hours = 24
 	}
-	to := parseQueryTime(r.URL.Query().Get("to"), true)
+	to := ParseQueryTime(r.URL.Query().Get("to"), true)
 	if to == nil {
 		value := now
 		to = &value
 	}
-	from := parseQueryTime(r.URL.Query().Get("from"), false)
+	from := ParseQueryTime(r.URL.Query().Get("from"), false)
 	if from == nil {
 		value := to.Add(-time.Duration(hours) * time.Hour)
 		from = &value
 	}
 	cacheKey := fmt.Sprintf("%d:%d", from.Unix(), to.Unix())
-	s.statsCacheMu.Lock()
-	if cached, ok := s.statsCache[cacheKey]; ok && time.Now().Before(cached.expiresAt) {
-		s.statsCacheMu.Unlock()
+	h.statsCacheMu.Lock()
+	if cached, ok := h.statsCache[cacheKey]; ok && time.Now().Before(cached.expiresAt) {
+		h.statsCacheMu.Unlock()
 		writeJSON(w, http.StatusOK, cached.stats)
 		return
 	}
-	s.statsCacheMu.Unlock()
-	stats, err := s.recorder.Store().SummarizeRequestLogs(r.Context(), *from, *to)
+	h.statsCacheMu.Unlock()
+	stats, err := h.Recorder.Store().SummarizeRequestLogs(r.Context(), *from, *to)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "stats_failed", err.Error())
 		return
 	}
-	s.statsCacheMu.Lock()
-	if s.statsCache == nil {
-		s.statsCache = make(map[string]statsCacheEntry)
+	h.statsCacheMu.Lock()
+	if h.statsCache == nil {
+		h.statsCache = make(map[string]statsCacheEntry)
 	}
-	s.statsCache[cacheKey] = statsCacheEntry{stats: stats, expiresAt: time.Now().Add(10 * time.Second)}
-	s.statsCacheMu.Unlock()
+	h.statsCache[cacheKey] = statsCacheEntry{stats: stats, expiresAt: time.Now().Add(10 * time.Second)}
+	h.statsCacheMu.Unlock()
 	writeJSON(w, http.StatusOK, stats)
 }
 
-func (s *Server) handleListRequestLogs(w http.ResponseWriter, r *http.Request) {
-	if s.recorder == nil || s.recorder.Store() == nil {
+func (h *Handler) handleListRequestLogs(w http.ResponseWriter, r *http.Request) {
+	if h.Recorder == nil || h.Recorder.Store() == nil {
 		writeErr(w, http.StatusServiceUnavailable, "logs_unavailable", "request logs unavailable")
 		return
 	}
@@ -95,8 +95,8 @@ func (s *Server) handleListRequestLogs(w http.ResponseWriter, r *http.Request) {
 		Model:     r.URL.Query().Get("model"),
 		ID:        r.URL.Query().Get("id"),
 		Query:     r.URL.Query().Get("q"),
-		From:      parseQueryTime(r.URL.Query().Get("from"), false),
-		To:        parseQueryTime(r.URL.Query().Get("to"), true),
+		From:      ParseQueryTime(r.URL.Query().Get("from"), false),
+		To:        ParseQueryTime(r.URL.Query().Get("to"), true),
 	}
 	if raw := strings.TrimSpace(r.URL.Query().Get("stream")); raw != "" {
 		value := raw == "1" || strings.EqualFold(raw, "true")
@@ -112,7 +112,7 @@ func (s *Server) handleListRequestLogs(w http.ResponseWriter, r *http.Request) {
 			filter.Offset = n
 		}
 	}
-	list, err := s.recorder.Store().ListRequestLogs(r.Context(), filter)
+	list, err := h.Recorder.Store().ListRequestLogs(r.Context(), filter)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "list_failed", err.Error())
 		return
@@ -120,12 +120,12 @@ func (s *Server) handleListRequestLogs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, list)
 }
 
-func (s *Server) handleGetRequestLog(w http.ResponseWriter, r *http.Request, id string) {
-	if s.recorder == nil || s.recorder.Store() == nil {
+func (h *Handler) handleGetRequestLog(w http.ResponseWriter, r *http.Request, id string) {
+	if h.Recorder == nil || h.Recorder.Store() == nil {
 		writeErr(w, http.StatusServiceUnavailable, "logs_unavailable", "request logs unavailable")
 		return
 	}
-	item, err := s.recorder.Store().GetRequestLog(r.Context(), id)
+	item, err := h.Recorder.Store().GetRequestLog(r.Context(), id)
 	if errors.Is(err, accounts.ErrRequestLogNotFound) {
 		writeErr(w, http.StatusNotFound, "not_found", "request log not found")
 		return
@@ -137,12 +137,12 @@ func (s *Server) handleGetRequestLog(w http.ResponseWriter, r *http.Request, id 
 	writeJSON(w, http.StatusOK, item)
 }
 
-func (s *Server) handleClearRequestLogs(w http.ResponseWriter, r *http.Request) {
-	if s.recorder == nil || s.recorder.Store() == nil {
+func (h *Handler) handleClearRequestLogs(w http.ResponseWriter, r *http.Request) {
+	if h.Recorder == nil || h.Recorder.Store() == nil {
 		writeErr(w, http.StatusServiceUnavailable, "logs_unavailable", "request logs unavailable")
 		return
 	}
-	deleted, err := s.recorder.Store().ClearRequestLogs(r.Context())
+	deleted, err := h.Recorder.Store().ClearRequestLogs(r.Context())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "clear_failed", err.Error())
 		return
@@ -150,8 +150,8 @@ func (s *Server) handleClearRequestLogs(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "deleted": deleted})
 }
 
-func (s *Server) handleRuntimeLogs(w http.ResponseWriter, r *http.Request) {
-	if s.ring == nil {
+func (h *Handler) handleRuntimeLogs(w http.ResponseWriter, r *http.Request) {
+	if h.Ring == nil {
 		writeErr(w, http.StatusServiceUnavailable, "logs_unavailable", "runtime logs unavailable")
 		return
 	}
@@ -173,7 +173,7 @@ func (s *Server) handleRuntimeLogs(w http.ResponseWriter, r *http.Request) {
 			offset = n
 		}
 	}
-	entries, total := s.ring.Snapshot(afterID, limit, offset, r.URL.Query().Get("level"), r.URL.Query().Get("q"), r.URL.Query().Get("account"))
+	entries, total := h.Ring.Snapshot(afterID, limit, offset, r.URL.Query().Get("level"), r.URL.Query().Get("q"), r.URL.Query().Get("account"))
 	writeJSON(w, http.StatusOK, map[string]any{
 		"items":  entries,
 		"count":  len(entries),
@@ -197,7 +197,7 @@ func clampRuntimeOffset(offset int) int {
 	return offset
 }
 
-func parseQueryTime(raw string, endOfDay bool) *time.Time {
+func ParseQueryTime(raw string, endOfDay bool) *time.Time {
 	text := strings.TrimSpace(raw)
 	if text == "" {
 		return nil

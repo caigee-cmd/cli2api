@@ -53,10 +53,6 @@ func (s *Server) gatewayHandler() *apigateway.Handler {
 	return s.gateway
 }
 
-func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
-	s.gatewayHandler().HandleChatCompletions(w, r)
-}
-
 func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request) {
 	s.gatewayHandler().HandleAnthropicMessages(w, r)
 }

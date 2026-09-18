@@ -6,6 +6,7 @@ import (
 
 	"github.com/caigee-cmd/cli2api/internal/auth"
 	"github.com/caigee-cmd/cli2api/internal/endpoint"
+	appupdate "github.com/caigee-cmd/cli2api/internal/update"
 )
 
 func (s *Server) Handler() http.Handler {
@@ -17,7 +18,7 @@ func (s *Server) Handler() http.Handler {
 				return
 			}
 		}
-		if s.maintenance.Load() && blocksDuringUpdate(r.URL.Path) {
+		if s.updater().Maintenance.Load() && appupdate.BlocksDuringUpdate(r.URL.Path) {
 			writeErr(w, http.StatusServiceUnavailable, "service_updating", "Service update in progress")
 			return
 		}

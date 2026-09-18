@@ -28,6 +28,6 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"time":                      time.Now().UTC().Format(time.RFC3339),
 		"version":                   buildinfo.Version,
 		"commit":                    buildinfo.Commit,
-		"maintenance":               s.maintenance.Load(),
+		"maintenance":               s.updater().Maintenance.Load(),
 	})
 }

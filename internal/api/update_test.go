@@ -173,8 +173,8 @@ func TestSystemUpdateInfoAdoptsReadyAgentWhenJobStillPreparing(t *testing.T) {
 		Available: true, StagedUpdate: true, State: "ready_to_apply", JobID: "agent-job",
 		CurrentVersion: "v0.2.1", TargetVersion: "v0.2.2",
 	}}
-	srv.updateRunning.Store(true)
-	srv.updateJob = &systemUpdateJob{JobID: "update-1", AgentJobID: "agent-job", State: "preparing_image", CurrentVersion: "v0.2.1", TargetVersion: "v0.2.2"}
+	srv.updater().Running.Store(true)
+	srv.updater().ReplaceJob(&systemUpdateJob{JobID: "update-1", AgentJobID: "agent-job", State: "preparing_image", CurrentVersion: "v0.2.1", TargetVersion: "v0.2.2"})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/system/update", nil)
 	req.Header.Set("Authorization", "Bearer secret")
@@ -211,8 +211,8 @@ func TestSystemUpdateCancelDiscardsReadyImage(t *testing.T) {
 		CurrentVersion: "v0.2.1", TargetVersion: "v0.2.2",
 	}}
 	srv.updateAgent = agent
-	srv.updateRunning.Store(true)
-	srv.updateJob = &systemUpdateJob{JobID: "update-1", AgentJobID: "agent-job", State: "ready_to_apply", CurrentVersion: "v0.2.1", TargetVersion: "v0.2.2"}
+	srv.updater().Running.Store(true)
+	srv.updater().ReplaceJob(&systemUpdateJob{JobID: "update-1", AgentJobID: "agent-job", State: "ready_to_apply", CurrentVersion: "v0.2.1", TargetVersion: "v0.2.2"})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/system/update/cancel", strings.NewReader(`{}`))
 	req.Header.Set("Authorization", "Bearer secret")
@@ -221,7 +221,7 @@ func TestSystemUpdateCancelDiscardsReadyImage(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
 	}
-	if srv.updateRunning.Load() {
+	if srv.updater().Running.Load() {
 		t.Fatal("update still marked running")
 	}
 	if job := srv.snapshotUpdateJob(); job == nil || job.State != "failed" || job.Error != "Update cancelled" {

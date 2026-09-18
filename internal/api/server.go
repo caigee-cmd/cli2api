@@ -17,6 +17,7 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/auth"
 	"github.com/caigee-cmd/cli2api/internal/buildinfo"
 	"github.com/caigee-cmd/cli2api/internal/config"
+	appconsole "github.com/caigee-cmd/cli2api/internal/console"
 	appsvc "github.com/caigee-cmd/cli2api/internal/control"
 	"github.com/caigee-cmd/cli2api/internal/executor"
 	apigateway "github.com/caigee-cmd/cli2api/internal/gateway"
@@ -28,7 +29,7 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/providers/workbuddy"
 	accountruntime "github.com/caigee-cmd/cli2api/internal/runtime"
 	sqlstore "github.com/caigee-cmd/cli2api/internal/store"
-	control "github.com/caigee-cmd/cli2api/internal/update"
+	appupdate "github.com/caigee-cmd/cli2api/internal/update"
 )
 
 type Server struct {
@@ -43,17 +44,13 @@ type Server struct {
 	ring                   *applogs.Ring
 	stopLogs               chan struct{}
 	mux                    *http.ServeMux
-	updateChecker          updateChecker
-	updateAgent            updateAgent
+	updateChecker          appupdate.ReleaseChecker
+	updateAgent            appupdate.Agent
 	settingsMu             sync.Mutex
 	crossProviderModelPool atomic.Bool
-	maintenance            atomic.Bool
-	updateRunning          atomic.Bool
-	updateMu               sync.Mutex
-	updateJob              *systemUpdateJob
-	statsCacheMu           sync.Mutex
-	statsCache             map[string]statsCacheEntry
 	gateway                *apigateway.Handler
+	console                *appconsole.Handler
+	update                 *appupdate.Coordinator
 }
 
 func New(cfg config.Config) *Server {
@@ -121,10 +118,10 @@ func New(cfg config.Config) *Server {
 	stopLogs := make(chan struct{})
 	go recorder.PurgeLoop(stopLogs, time.Hour)
 	go manager.RunWorkBuddyMaintenanceLoop(stopLogs)
-	checker := control.NewChecker(buildinfo.Version, control.NewGitHubReleaseSource("caigee-cmd/cli2api", cfg.UpdateGitHubToken))
-	var agent control.Agent = control.NewUnixAgentClient(cfg.UpdateSocketPath)
+	checker := appupdate.NewChecker(buildinfo.Version, appupdate.NewGitHubReleaseSource("caigee-cmd/cli2api", cfg.UpdateGitHubToken))
+	var agent appupdate.Agent = appupdate.NewUnixAgentClient(cfg.UpdateSocketPath)
 	if strings.TrimSpace(cfg.UpdateAgentURL) != "" {
-		agent = control.NewHTTPAgentClient(cfg.UpdateAgentURL, cfg.UpdateAgentToken)
+		agent = appupdate.NewHTTPAgentClient(cfg.UpdateAgentURL, cfg.UpdateAgentToken)
 	}
 	chatExecutor := executor.NewChatExecutor(pool, proxyAPIKey)
 	chatExecutor.MaxAttempts = cfg.MaxRetryAccounts
@@ -147,7 +144,10 @@ func New(cfg config.Config) *Server {
 	}
 	s.crossProviderModelPool.Store(crossProviderModelPool)
 	s.control.Catalog = appsvc.NewCatalog(s.fetchCatalogModels)
+	s.update = s.newUpdateCoordinator()
 	s.gateway = s.newGateway()
+	s.console = s.newConsole()
+	s.console.Update = s.update
 	s.routes()
 	return s
 }
@@ -173,13 +173,4 @@ func writeErr(w http.ResponseWriter, status int, code, msg string) {
 			"code":    code,
 		},
 	})
-}
-
-func firstNonEmpty(vals ...string) string {
-	for _, v := range vals {
-		if s := strings.TrimSpace(v); s != "" {
-			return s
-		}
-	}
-	return ""
 }

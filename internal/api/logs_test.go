@@ -190,9 +190,7 @@ func TestRequestStatsWindow(t *testing.T) {
 	if second.Code != http.StatusOK {
 		t.Fatalf("cached status=%d body=%s", second.Code, second.Body.String())
 	}
-	srv.statsCacheMu.Lock()
-	cacheEntries := len(srv.statsCache)
-	srv.statsCacheMu.Unlock()
+	cacheEntries := srv.consoleHandler().StatsCacheSize()
 	if cacheEntries != 1 {
 		t.Fatalf("stats cache entries=%d, want 1", cacheEntries)
 	}

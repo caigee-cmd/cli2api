@@ -29,7 +29,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/accounts/", s.withConsoleKey(s.handleAccountByID))
 	s.mux.HandleFunc("/api/logs", s.withConsoleKey(s.handleLogs))
 	s.mux.HandleFunc("/api/logs/", s.withConsoleKey(s.handleLogs))
-	s.mux.HandleFunc("/api/chat", s.withConsoleKey(s.handleChatCompletions))
+	s.mux.HandleFunc("/api/chat", s.withConsoleKey(s.handleConsoleChat))
 	s.mux.HandleFunc(endpoint.ModelsPath, s.withAPIKey(s.handleModels))
 	s.mux.HandleFunc(endpoint.ChatCompletionsPath, s.withAPIKey(s.handleChatCompletions))
 	s.mux.HandleFunc(endpoint.MessagesPath, s.withAPIKey(s.handleAnthropicMessages))

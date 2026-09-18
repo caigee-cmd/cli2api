@@ -4,7 +4,7 @@ title: 后端工程化重构实施手册（行为保持）
 scope: [backend, package-boundaries, refactoring, compatibility, testing, rollout]
 status: in-progress
 read-when: 评估或执行不改变现有功能的后端职责拆分、制定重构 PR、检查兼容性与回滚条件时
-summary: 基于现有实现的渐进式工程化重构方案，包含目标职责、迁移映射、状态所有权、16 个实施阶段、测试矩阵、PR 规则、发布回滚和完成标准。S00–S12 已验收；console HTTP 尚未迁出 api。
+summary: 基于现有实现的渐进式工程化重构方案，包含目标职责、迁移映射、状态所有权、16 个实施阶段、测试矩阵、PR 规则、发布回滚和完成标准。S00–S13 已验收；routes/auth/webui 仍在 api。
 related: [AGENTS.md, docs/ARCHITECTURE.md, docs/REQUEST.md, docs/PLAN.md, docs/DEVELOPMENT.md]
 last-updated: 2026-09-18
 ---
@@ -530,7 +530,7 @@ executor 仍 import accounts
 - [x] S10：调度职责迁移完成，选号/冷却/状态持久化验证通过。
 - [x] S11：共享请求准备与模型服务完成，所有入口行为验证通过。
 - [x] S12：gateway 迁移完成，HTTP/SSE 契约验证通过。
-- [ ] S13：console/update 迁移完成，控制台与更新契约验证通过。
+- [x] S13：console/update 迁移完成，控制台与更新契约验证通过。
 - [ ] S14：server/app/cmd 接线完成，启动关闭与进程级验证通过。
 - [ ] S15：过渡层清理、依赖守卫、文档和最终验收完成。
 
@@ -1585,21 +1585,49 @@ logs/overview → providers/models → settings/keys
 
 执行：
 
-- [ ] 每个 handler 只做 HTTP 输入、调用服务、响应映射。
-- [ ] 保留账号子路径、导入、登录回调和手动刷新各 action。
-- [ ] 保留 regional models 与普通 merged view 的差异。
-- [ ] 保留 key secret 返回/脱敏、grants 和 last-used 更新语义。
-- [ ] 保留 logs 过滤、分页、统计窗口、bucket 和 stats cache。
-- [ ] 更新 handler 调用 update 协调能力，不自己再保存一份 maintenance/job。
-- [ ] server 通过只读接口/函数读取同一 maintenance 状态；update 不依赖 server。
-- [ ] 保留 prepare/apply/cancel/rollback 状态转移、任务互斥、agent 接管和超时。
-- [ ] console chat 复用同一个 executor，不向自己的 `/v1` 发 HTTP 请求。
-- [ ] 初期可复用同一个 OpenAI handler 实例作为两条路由入口，鉴权仍分别包装。
-- [ ] 最终将 HTTP 协议复用与执行复用分清，不复制 SSE、prepare 或 failover。
+- [x] 每个 handler 只做 HTTP 输入、调用服务、响应映射。
+  - 验证：`internal/console` Handler 解码/映射；control/logs/update 编排；catalog fetch、Qoder worker proxy、live auth 由 api 注入。
+- [x] 保留账号子路径、导入、登录回调和手动刷新各 action。
+  - 验证：`HandleAccountByID` 保留 refresh/checkin/login/export/rewarm；非 Qoder Login adapter 与 Qoder `proxyAccountWorker` 注入路径未改。
+- [x] 保留 regional models 与普通 merged view 的差异。
+  - 验证：`/api/models?view=regional` 仍走 `CatalogModeExpand`；`/v1/models` 与默认 console 仍 merge。
+- [x] 保留 key secret 返回/脱敏、grants 和 last-used 更新语义。
+  - 验证：console key rotate 仍 SetSecret → live cfg/auth/executor → ReplaceProxyAPIKey；named key CRUD 与 Touch 仍在 withAPIKey。
+- [x] 保留 logs 过滤、分页、统计窗口、bucket 和 stats cache。
+  - 验证：stats cache 随 console Handler；`TestListRequestLogsFiltersAndPagination` 与 stats cache 测试通过。
+- [x] 更新 handler 调用 update 协调能力，不自己再保存一份 maintenance/job。
+  - 验证：job/mutex/atomic 只在 `update.Coordinator`；api Server 不再持有 maintenance/updateJob 字段。
+- [x] server 通过只读接口/函数读取同一 maintenance 状态；update 不依赖 server。
+  - 验证：middleware/health 读 `updater().Maintenance`；coordinator 不 import api。
+- [x] 保留 prepare/apply/cancel/rollback 状态转移、任务互斥、agent 接管和超时。
+  - 验证：原 `update.go` 状态机迁入 coordinator；`update_test.go` 与 S01 maintenance 合同测试通过。
+- [x] console chat 复用同一个 executor，不向自己的 `/v1` 发 HTTP 请求。
+  - 验证：`/api/chat` → `console.HandleChat` → 同一 `gateway.HandleChatCompletions`；无 HTTP 自环。
+- [x] 初期可复用同一个 OpenAI handler 实例作为两条路由入口，鉴权仍分别包装。
+  - 验证：`withConsoleKey(/api/chat)` 与 `withAPIKey(/v1/chat/completions)` 分别包装同一 gateway 方法。
+- [x] 最终将 HTTP 协议复用与执行复用分清，不复制 SSE、prepare 或 failover。
+  - 验证：未复制 openai_stream/prepare/failover；console 只转发。
 
 **通过：** 前端无需改动；所有 console 路由仍要求管理员 key；更新验收独立通过。
 
 **回滚：** 按功能组撤销，更新状态迁移单独提交，避免被普通查询接口变更捆绑。
+
+#### S13 阶段验收
+
+```text
+阶段编号：S13
+验收日期与确认人：2026-09-18；执行记录写入本手册
+本次勾选的任务：S13 全部执行项与 7.2 阶段摘要
+未勾选任务、例外批准与影响：routes/auth/maintenance 包装/webui 仍在 api；catalog fetch 与 Qoder worker proxy 仍由 api 注入。race/frontend/真实账号/托管更新真实验收不在本阶段。
+阶段复选框是否允许勾选：是（console.Handler 与 update.Coordinator 注入依赖；旧 URL 测试通过；console 无 store/runtime import）
+合入/候选 SHA：分支 refactor/s13-console-update，起点 aa0ed85
+完成的职责迁移：操作员 HTTP 归 internal/console；更新状态机归 internal/update.Coordinator；api 只转发
+保留的临时依赖：routes/auth/webui 仍在 api；display catalog fetch 与 Qoder login proxy 回调回 api
+测试证据：go test ./...、go vet ./...、go build ./cmd/server ./cmd/updater
+真实环境验收证据：未执行
+是否允许进入下一阶段：S14（server/app/cmd）可开始；不自动开工
+失败时回退到哪个已验收节点：撤销本阶段提交；S12 gateway 仍在
+```
 
 ### S14：提取 server/app，切换 cmd 接线
 
