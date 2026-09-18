@@ -12,12 +12,16 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/providers"
+	apipb "github.com/caigee-cmd/cli2api/internal/providers/devin/devinpb/api_server_pb"
+	commonpb "github.com/caigee-cmd/cli2api/internal/providers/devin/devinpb/codeium_common_pb"
 	"github.com/caigee-cmd/cli2api/internal/translate"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestFormatSessionToken(t *testing.T) {
@@ -666,6 +670,7 @@ func TestParseToolsAliasesMCPNamespace(t *testing.T) {
 		{"type":"function","function":{"name":"exec_command","description":"run","parameters":{"type":"object"}}},
 		{"type":"function","function":{"name":"mcp__computer-use__left_click","description":"click","parameters":{"type":"object"}}},
 		{"type":"function","function":{"name":"MCP__plugin_chrome__click","description":"click","parameters":{"type":"object"}}},
+		{"type":"function","function":{"name":"list_mcp_resources","description":"list","parameters":{"type":"object"}}},
 		{"type":"function","function":{"name":"web_search","description":"search","parameters":{"type":"object"}}}
 	]`)
 	historyCalls, _ := json.Marshal([]map[string]any{{
@@ -685,14 +690,14 @@ func TestParseToolsAliasesMCPNamespace(t *testing.T) {
 		},
 		Tools: raw,
 	}, nil)
-	if len(payload.Tools) != 4 {
-		t.Fatalf("tools=%d want 4: %+v", len(payload.Tools), payload.Tools)
+	if len(payload.Tools) != 5 {
+		t.Fatalf("tools=%d want 5: %+v", len(payload.Tools), payload.Tools)
 	}
-	wantAlias := "mcp_computer_use_left_click"
+	wantAlias := makeDevinToolAlias("mcp__computer-use__left_click")
 	foundAlias := false
 	for _, tool := range payload.Tools {
-		if strings.HasPrefix(strings.ToLower(tool.Name), "mcp__") {
-			t.Fatalf("mcp tool leaked into payload: %s", tool.Name)
+		if strings.Contains(strings.ToLower(tool.Name), "mcp") {
+			t.Fatalf("mcp semantics leaked into payload: %s", tool.Name)
 		}
 		if tool.Name == wantAlias {
 			foundAlias = true
@@ -712,6 +717,10 @@ func TestParseToolsAliasesMCPNamespace(t *testing.T) {
 	}
 	if restoreToolName(wantAlias, payload.OriginalByAlias) != "mcp__computer-use__left_click" {
 		t.Fatalf("restore failed")
+	}
+	listAlias := makeDevinToolAlias("list_mcp_resources")
+	if payload.OriginalByAlias[listAlias] != "list_mcp_resources" {
+		t.Fatalf("list_mcp_resources not aliased: %v", payload.OriginalByAlias)
 	}
 }
 
@@ -740,11 +749,14 @@ func TestParseToolsExpandsNamespaceAndDropsHostedShells(t *testing.T) {
 		if tool.Name == "web_search" || tool.Name == "computer-use" {
 			t.Fatalf("hosted shell leaked as tool: %s", tool.Name)
 		}
+		if tool.Name != "lookup" && strings.Contains(strings.ToLower(tool.Name), "mcp") {
+			t.Fatalf("mcp semantics leaked into payload: %s", tool.Name)
+		}
 	}
 	want := map[string]bool{
-		"lookup":                      true,
-		"mcp_computer_use_left_click": true,
-		"mcp_computer_use_type":       true,
+		"lookup": true,
+		makeDevinToolAlias("mcp__computer-use__left_click"): true,
+		makeDevinToolAlias("mcp__computer-use__type"):       true,
 	}
 	if len(payload.Tools) != 3 {
 		t.Fatalf("tools=%v want 3", names)
@@ -754,15 +766,81 @@ func TestParseToolsExpandsNamespaceAndDropsHostedShells(t *testing.T) {
 			t.Fatalf("unexpected tool %q in %v", tool.Name, names)
 		}
 	}
-	if payload.OriginalByAlias["mcp_computer_use_left_click"] != "mcp__computer-use__left_click" {
+	leftAlias := makeDevinToolAlias("mcp__computer-use__left_click")
+	if payload.OriginalByAlias[leftAlias] != "mcp__computer-use__left_click" {
 		t.Fatalf("reverse map=%v", payload.OriginalByAlias)
+	}
+}
+
+func TestCodexToolsetAliasesHaveNoMCPSemantics(t *testing.T) {
+	names := []string{
+		"exec_command", "write_stdin", "list_mcp_resources", "list_mcp_resource_templates", "read_mcp_resource",
+		"request_user_input", "view_image",
+		"multi_agent_v1__close_agent", "multi_agent_v1__resume_agent", "multi_agent_v1__send_input",
+		"multi_agent_v1__spawn_agent", "multi_agent_v1__wait_agent",
+		"mcp__codex_app__automation_update", "mcp__codex_app__create_thread", "mcp__node_repl__js",
+		"get_goal", "create_goal", "update_goal",
+	}
+	tools := make([]map[string]any, 0, len(names))
+	for _, name := range names {
+		tools = append(tools, map[string]any{
+			"type": "function",
+			"function": map[string]any{
+				"name":       name,
+				"parameters": map[string]any{"type": "object"},
+			},
+		})
+	}
+	raw, err := json.Marshal(tools)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := BuildChatPayload(translate.ChatRequest{
+		Model:    "swe-2",
+		Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+		Tools:    raw,
+	}, nil)
+	if len(payload.Tools) != len(names) {
+		t.Fatalf("tools=%d want %d", len(payload.Tools), len(names))
+	}
+	keptPlain := map[string]bool{}
+	for _, tool := range payload.Tools {
+		if strings.Contains(strings.ToLower(tool.Name), "mcp") {
+			t.Fatalf("outbound still has mcp semantics: %s", tool.Name)
+		}
+		keptPlain[tool.Name] = true
+	}
+	for _, plain := range []string{"exec_command", "write_stdin", "view_image", "get_goal", "multi_agent_v1__close_agent"} {
+		if !keptPlain[plain] {
+			t.Fatalf("plain tool %q was renamed unexpectedly: %+v", plain, payload.Tools)
+		}
+	}
+	if restoreToolName(makeDevinToolAlias("list_mcp_resources"), payload.OriginalByAlias) != "list_mcp_resources" {
+		t.Fatalf("list_mcp_resources restore failed: %v", payload.OriginalByAlias)
+	}
+	stripped := stripMCPSemanticTools(payload.Tools, payload.OriginalByAlias)
+	if countMCPSemanticTools(stripped, payload.OriginalByAlias) != 0 {
+		t.Fatalf("strip left mcp tools: %+v", stripped)
+	}
+	if len(stripped) == 0 || len(stripped) >= len(payload.Tools) {
+		t.Fatalf("strip count=%d from %d", len(stripped), len(payload.Tools))
 	}
 }
 
 func TestChatStreamRestoresMCPToolName(t *testing.T) {
 	original := "mcp__computer-use__left_click"
-	alias := "mcp_computer_use_left_click"
-	toolFrame := []byte("\x32\x2e\x0a\x06call_1\x12\x1bmcp_computer_use_left_click\x1a\x07{\"x\":2}\x28\x0a")
+	alias := makeDevinToolAlias(original)
+	toolFrame, err := proto.Marshal(&apipb.GetChatMessageResponse{
+		DeltaToolCalls: []*commonpb.ChatToolCall{{
+			Id:            "call_1",
+			Name:          alias,
+			ArgumentsJson: `{"x":2}`,
+		}},
+		StopReason: commonpb.StopReason_STOP_REASON_FUNCTION_CALL,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	var buf bytes.Buffer
 	buf.Write(WrapConnectEnvelope(toolFrame))
@@ -779,6 +857,9 @@ func TestChatStreamRestoresMCPToolName(t *testing.T) {
 		}
 		if !bytes.Contains(body, []byte(alias)) {
 			t.Errorf("upstream request missing aliased mcp name")
+		}
+		if bytes.Contains(body, []byte("mcp_computer_use_left_click")) {
+			t.Errorf("upstream request still uses soft mcp_ alias")
 		}
 		w.Header().Set("Content-Type", ContentTypeConnectProto)
 		_, _ = w.Write(buf.Bytes())
@@ -818,6 +899,231 @@ func TestChatStreamRestoresMCPToolName(t *testing.T) {
 	}
 	if strings.Contains(text, `"`+alias+`"`) {
 		t.Fatalf("client stream still exposes alias: %s", text)
+	}
+}
+
+func TestChatNonStreamFallsBackAfterMCPConfigDenial(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != PathGetChatMessage {
+			http.NotFound(w, r)
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		n := calls.Add(1)
+		w.Header().Set("Content-Type", ContentTypeConnectProto)
+		if n == 1 {
+			if !bytes.Contains(body, []byte(makeDevinToolAlias("list_mcp_resources"))) {
+				t.Errorf("first request missing aliased list_mcp_resources")
+			}
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`permission_denied: Unable to process request due to an MCP configuration issue.`))
+			return
+		}
+		if bytes.Contains(body, []byte(makeDevinToolAlias("list_mcp_resources"))) || bytes.Contains(body, []byte("list_mcp_resources")) {
+			t.Errorf("fallback request still contains mcp tool")
+		}
+		if !bytes.Contains(body, []byte("exec_command")) {
+			t.Errorf("fallback request dropped plain exec_command")
+		}
+		var buf bytes.Buffer
+		buf.Write(WrapConnectEnvelope([]byte("\x1a\x02OK")))
+		buf.Write(WrapConnectEnvelopeWithFlag(ConnectFlagEndStream, []byte(`{}`)))
+		_, _ = w.Write(buf.Bytes())
+	}))
+	defer server.Close()
+
+	store := newMemStore()
+	store.accounts["acc1"] = accounts.Account{ID: "acc1", Provider: "devin", ProviderRegion: "global"}
+	cred := Credential{SessionToken: FormatSessionToken("eyJabc.def.ghi"), DeviceSeed: "seed", BaseURL: server.URL}
+	payload, err := cred.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.creds["acc1"] = payload
+	client := NewClient(store)
+	client.SetBases(AppBase, APIBase, server.URL)
+
+	tools := json.RawMessage(`[
+		{"type":"function","function":{"name":"exec_command","parameters":{"type":"object"}}},
+		{"type":"function","function":{"name":"list_mcp_resources","parameters":{"type":"object"}}},
+		{"type":"function","function":{"name":"mcp__codex_app__create_thread","parameters":{"type":"object"}}}
+	]`)
+	out, err := client.ChatNonStream(context.Background(), "acc1", translate.ChatRequest{
+		Model:    "swe-2",
+		Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+		Tools:    tools,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Content != "OK" {
+		t.Fatalf("content=%q", out.Content)
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("calls=%d want 2", calls.Load())
+	}
+}
+
+func TestChatStreamFallsBackAfterImmediateMCPTrailer(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != PathGetChatMessage {
+			http.NotFound(w, r)
+			return
+		}
+		n := calls.Add(1)
+		w.Header().Set("Content-Type", ContentTypeConnectProto)
+		var buf bytes.Buffer
+		if n == 1 {
+			buf.Write(WrapConnectEnvelopeWithFlag(ConnectFlagEndStream, []byte(`{"error":{"code":"permission_denied","message":"Unable to process request due to an MCP configuration issue."}}`)))
+			_, _ = w.Write(buf.Bytes())
+			return
+		}
+		buf.Write(WrapConnectEnvelope([]byte("\x1a\x02OK")))
+		buf.Write(WrapConnectEnvelopeWithFlag(ConnectFlagEndStream, []byte(`{}`)))
+		_, _ = w.Write(buf.Bytes())
+	}))
+	defer server.Close()
+
+	store := newMemStore()
+	store.accounts["acc1"] = accounts.Account{ID: "acc1", Provider: "devin", ProviderRegion: "global"}
+	cred := Credential{SessionToken: FormatSessionToken("eyJabc.def.ghi"), DeviceSeed: "seed", BaseURL: server.URL}
+	payload, err := cred.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.creds["acc1"] = payload
+	client := NewClient(store)
+	client.SetBases(AppBase, APIBase, server.URL)
+
+	tools := json.RawMessage(`[
+		{"type":"function","function":{"name":"exec_command","parameters":{"type":"object"}}},
+		{"type":"function","function":{"name":"mcp__node_repl__js","parameters":{"type":"object"}}}
+	]`)
+	resp, err := client.ChatStream(context.Background(), "acc1", translate.ChatRequest{
+		Model:    "swe-2",
+		Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+		Tools:    tools,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "OK") {
+		t.Fatalf("body=%s", body)
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("calls=%d want 2", calls.Load())
+	}
+}
+
+func TestChatStreamKeepsCoreToolsAfterStripStillDenied(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != PathGetChatMessage {
+			http.NotFound(w, r)
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		n := calls.Add(1)
+		w.Header().Set("Content-Type", ContentTypeConnectProto)
+		var buf bytes.Buffer
+		switch n {
+		case 1:
+			if !bytes.Contains(body, []byte(makeDevinToolAlias("list_mcp_resources"))) {
+				t.Errorf("initial request missing aliased list_mcp_resources")
+			}
+			buf.Write(WrapConnectEnvelopeWithFlag(ConnectFlagEndStream, []byte(`{"error":{"code":"permission_denied","message":"Unable to process request due to an MCP configuration issue."}}`)))
+			_, _ = w.Write(buf.Bytes())
+			return
+		case 2:
+			if !bytes.Contains(body, []byte("exec_command")) {
+				t.Errorf("strip_mcp fallback missing exec_command")
+			}
+			if bytes.Contains(body, []byte("list_mcp_resources")) || bytes.Contains(body, []byte(makeDevinToolAlias("list_mcp_resources"))) {
+				t.Errorf("strip_mcp fallback still has mcp tool")
+			}
+			buf.Write(WrapConnectEnvelopeWithFlag(ConnectFlagEndStream, []byte(`{"error":{"code":"permission_denied","message":"Unable to process request due to an MCP configuration issue."}}`)))
+			_, _ = w.Write(buf.Bytes())
+			return
+		default:
+			if !bytes.Contains(body, []byte("exec_command")) {
+				t.Errorf("core_tools fallback missing exec_command")
+			}
+			if !bytes.Contains(body, []byte("write_stdin")) || !bytes.Contains(body, []byte("view_image")) || !bytes.Contains(body, []byte("request_user_input")) {
+				t.Errorf("core_tools fallback missing one of the core tools")
+			}
+			if bytes.Contains(body, []byte("MCP configuration")) || bytes.Contains(body, []byte("mcp_server")) {
+				t.Errorf("core_tools fallback still carries MCP wording")
+			}
+			if bytes.Contains(body, []byte("get_goal")) || bytes.Contains(body, []byte("multi_agent_v1__")) {
+				t.Errorf("core_tools fallback kept non-core tools")
+			}
+			buf.Write(WrapConnectEnvelope([]byte("\x1a\x02OK")))
+			buf.Write(WrapConnectEnvelopeWithFlag(ConnectFlagEndStream, []byte(`{}`)))
+			_, _ = w.Write(buf.Bytes())
+		}
+	}))
+	defer server.Close()
+
+	store := newMemStore()
+	store.accounts["acc1"] = accounts.Account{ID: "acc1", Provider: "devin", ProviderRegion: "global"}
+	cred := Credential{SessionToken: FormatSessionToken("eyJabc.def.ghi"), DeviceSeed: "seed", BaseURL: server.URL}
+	payload, err := cred.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.creds["acc1"] = payload
+	client := NewClient(store)
+	client.SetBases(AppBase, APIBase, server.URL)
+
+	tools := json.RawMessage(`[
+		{"type":"function","function":{"name":"exec_command","description":"Runs a command alongside MCP configuration","parameters":{"type":"object","properties":{"mcp_server":{"type":"string"}}}}},
+		{"type":"function","function":{"name":"write_stdin","description":"write","parameters":{"type":"object"}}},
+		{"type":"function","function":{"name":"get_goal","description":"goal","parameters":{"type":"object"}}},
+		{"type":"function","function":{"name":"list_mcp_resources","parameters":{"type":"object"}}}
+	]`)
+	resp, err := client.ChatStream(context.Background(), "acc1", translate.ChatRequest{
+		Model:    "swe-2",
+		Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+		Tools:    tools,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "OK") {
+		t.Fatalf("body=%s", body)
+	}
+	if calls.Load() != 3 {
+		t.Fatalf("calls=%d want 3", calls.Load())
+	}
+}
+
+func TestKeepCoreLocalToolsUsesMinimalSchemas(t *testing.T) {
+	in := []Tool{
+		{Name: "get_goal", Description: "goal", Parameters: json.RawMessage(`{"type":"object"}`)},
+		{Name: "exec_command", Description: "Runs a command alongside MCP configuration", Parameters: json.RawMessage(`{"type":"object","properties":{"mcp_server":{"type":"string"}}}`)},
+		{Name: "write_stdin", Description: "write", Parameters: json.RawMessage(`{"type":"object"}`)},
+	}
+	got := keepCoreLocalTools(in)
+	if len(got) != 2 {
+		t.Fatalf("tools=%+v want 2", got)
+	}
+	if got[0].Name != "exec_command" || got[1].Name != "write_stdin" {
+		t.Fatalf("order=%+v", got)
+	}
+	if strings.Contains(strings.ToLower(got[0].Description), "mcp") || strings.Contains(strings.ToLower(string(got[0].Parameters)), "mcp") {
+		t.Fatalf("exec_command still has mcp wording: %+v", got[0])
 	}
 }
 

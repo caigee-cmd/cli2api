@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -16,8 +18,14 @@ import (
 
 type chatRequestBuild struct {
 	httpReq         *http.Request
+	payload         ChatPayload
 	originalByAlias map[string]string
 	toolsDiag       string
+	// fallbackStage:
+	// 0=initial
+	// 1=strip MCP-looking tools
+	// 2=keep only core local tools with minimal schemas (final)
+	fallbackStage int
 }
 
 func (c *Client) ChatNonStream(ctx context.Context, accountID string, req translate.ChatRequest) (providers.ChatOutcome, error) {
@@ -25,29 +33,32 @@ func (c *Client) ChatNonStream(ctx context.Context, accountID string, req transl
 	if err != nil {
 		return providers.ChatOutcome{}, err
 	}
-	built, err := c.buildChatHTTPRequest(ctx, credential, req)
-	if err != nil {
-		return providers.ChatOutcome{}, err
-	}
 	client, err := c.httpClient(ctx, accountID)
 	if err != nil {
 		return providers.ChatOutcome{}, err
 	}
 	client.Timeout = 0
-	resp, err := client.Do(built.httpReq)
+
+	built, err := c.buildChatHTTPRequest(ctx, credential, req)
 	if err != nil {
 		return providers.ChatOutcome{}, err
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-		return providers.ChatOutcome{}, classifiedErrorWithToolsDiag(resp.StatusCode, string(body), built.toolsDiag)
+	var lastErr error
+	for {
+		outcome, denial, err := c.chatNonStreamOnce(client, built, req.Model)
+		if err == nil {
+			return outcome, nil
+		}
+		lastErr = err
+		if !denial {
+			return providers.ChatOutcome{}, err
+		}
+		fallback, ok := c.buildNextMCPFallback(ctx, credential, built)
+		if !ok {
+			return providers.ChatOutcome{}, lastErr
+		}
+		built = fallback
 	}
-	aggregate, err := aggregateConnectStream(resp.Body, built.originalByAlias, built.toolsDiag)
-	if err != nil {
-		return providers.ChatOutcome{}, err
-	}
-	return outcomeFromAggregate(aggregate, firstNonEmpty(req.Model, aggregate.Model)), nil
 }
 
 func (c *Client) ChatStream(ctx context.Context, accountID string, req translate.ChatRequest) (*http.Response, error) {
@@ -55,29 +66,146 @@ func (c *Client) ChatStream(ctx context.Context, accountID string, req translate
 	if err != nil {
 		return nil, err
 	}
-	built, err := c.buildChatHTTPRequest(ctx, credential, req)
-	if err != nil {
-		return nil, err
-	}
 	client, err := c.httpClient(ctx, accountID)
 	if err != nil {
 		return nil, err
 	}
 	client.Timeout = 0
-	resp, err := client.Do(built.httpReq)
+
+	built, err := c.buildChatHTTPRequest(ctx, credential, req)
 	if err != nil {
 		return nil, err
+	}
+	var lastErr error
+	for {
+		resp, denial, err := c.chatStreamOnce(client, built)
+		if err == nil {
+			return rewriteConnectStream(resp, firstNonEmpty(req.Model, "devin"), built.originalByAlias, built.toolsDiag)
+		}
+		lastErr = err
+		if !denial {
+			return nil, err
+		}
+		fallback, ok := c.buildNextMCPFallback(ctx, credential, built)
+		if !ok {
+			return nil, lastErr
+		}
+		built = fallback
+	}
+}
+
+func (c *Client) chatNonStreamOnce(client *http.Client, built chatRequestBuild, model string) (providers.ChatOutcome, bool, error) {
+	resp, err := client.Do(built.httpReq)
+	if err != nil {
+		return providers.ChatOutcome{}, false, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		err := classifiedErrorWithToolsDiag(resp.StatusCode, string(body), built.toolsDiag)
+		return providers.ChatOutcome{}, isMCPConfigDenialError(err), err
+	}
+	aggregate, err := aggregateConnectStream(resp.Body, built.originalByAlias, built.toolsDiag)
+	if err != nil {
+		return providers.ChatOutcome{}, isMCPConfigDenialError(err), err
+	}
+	return outcomeFromAggregate(aggregate, firstNonEmpty(model, aggregate.Model)), false, nil
+}
+
+func (c *Client) chatStreamOnce(client *http.Client, built chatRequestBuild) (*http.Response, bool, error) {
+	resp, err := client.Do(built.httpReq)
+	if err != nil {
+		return nil, false, err
 	}
 	if resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		resp.Body.Close()
-		return nil, classifiedErrorWithToolsDiag(resp.StatusCode, string(body), built.toolsDiag)
+		err := classifiedErrorWithToolsDiag(resp.StatusCode, string(body), built.toolsDiag)
+		return nil, isMCPConfigDenialError(err), err
 	}
-	return rewriteConnectStream(resp, firstNonEmpty(req.Model, "devin"), built.originalByAlias, built.toolsDiag)
+	// MCP configuration denials often arrive as an end-stream trailer on HTTP
+	// 200 before any content. Peek while we still have a fallback left
+	// (through core_tools). Do not drop all tools.
+	if built.fallbackStage < 2 {
+		peeked, denialErr, perr := peekConnectStreamMCPDenial(resp.Body, built.toolsDiag)
+		if perr != nil {
+			resp.Body.Close()
+			return nil, false, perr
+		}
+		if denialErr != nil {
+			resp.Body.Close()
+			return nil, true, denialErr
+		}
+		resp.Body = io.NopCloser(io.MultiReader(bytes.NewReader(peeked), resp.Body))
+	}
+	return resp, false, nil
 }
 
 func (c *Client) buildChatHTTPRequest(ctx context.Context, credential Credential, req translate.ChatRequest) (chatRequestBuild, error) {
 	payload := BuildChatPayload(req, currentLevels())
+	return c.buildChatHTTPRequestFromPayload(ctx, credential, payload, 0)
+}
+
+func (c *Client) buildNextMCPFallback(ctx context.Context, credential Credential, built chatRequestBuild) (chatRequestBuild, bool) {
+	switch built.fallbackStage {
+	case 0:
+		if len(built.payload.Tools) == 0 && !promptHasMCPSemantics(built.payload) {
+			return chatRequestBuild{}, false
+		}
+		payload := built.payload
+		before := len(payload.Tools)
+		payload.Tools = stripMCPSemanticTools(payload.Tools, payload.OriginalByAlias)
+		payload.Tools = scrubMCPTextFromTools(payload.Tools)
+		payload.Prompts = scrubMCPToolCallsFromPrompts(payload.Prompts, payload.OriginalByAlias)
+		payload.System = scrubMCPText(payload.System)
+		payload.ToolsDiag = appendFallbackDiag(built.toolsDiag, "fallback=strip_mcp", payload.Tools)
+		logMCPFallback("strip_mcp", before, payload.Tools, payload.ToolsDiag)
+		next, err := c.buildChatHTTPRequestFromPayload(ctx, credential, payload, 1)
+		if err != nil {
+			return chatRequestBuild{}, false
+		}
+		return next, true
+	case 1:
+		before := len(built.payload.Tools)
+		// Final fallback: always keep the core local tools with minimal
+		// schemas. Never drop all tools — that leaves the model unable to read
+		// or run commands.
+		payload := built.payload
+		payload.Tools = coreLocalTools()
+		payload.Prompts = scrubMCPToolCallsFromPrompts(payload.Prompts, payload.OriginalByAlias)
+		payload.System = scrubMCPText(payload.System)
+		payload.ToolsDiag = appendFallbackDiag(built.toolsDiag, "fallback=core_tools", payload.Tools)
+		logMCPFallback("core_tools", before, payload.Tools, payload.ToolsDiag)
+		next, err := c.buildChatHTTPRequestFromPayload(ctx, credential, payload, 2)
+		if err != nil {
+			return chatRequestBuild{}, false
+		}
+		return next, true
+	default:
+		return chatRequestBuild{}, false
+	}
+}
+
+func appendFallbackDiag(base, label string, tools []Tool) string {
+	suffix := label + " out(" + fmt.Sprintf("%d", len(tools)) + ")"
+	base = strings.TrimSpace(base)
+	if base == "" {
+		return suffix
+	}
+	return base + " | " + suffix
+}
+
+func logMCPFallback(stage string, before int, tools []Tool, diag string) {
+	names := make([]string, 0, len(tools))
+	for _, tool := range tools {
+		if name := strings.TrimSpace(tool.Name); name != "" {
+			names = append(names, name)
+		}
+	}
+	log.Printf("devin mcp fallback stage=%s before_tools=%d after_tools=%d names=%v diag=%s", stage, before, len(tools), names, diag)
+}
+
+func (c *Client) buildChatHTTPRequestFromPayload(ctx context.Context, credential Credential, payload ChatPayload, fallbackStage int) (chatRequestBuild, error) {
 	proto, err := BuildGetChatMessageRequest(
 		credential.SessionToken,
 		credential.DeviceSeed,
@@ -107,9 +235,62 @@ func (c *Client) buildChatHTTPRequest(ctx context.Context, credential Credential
 	httpReq.Header["User-Agent"] = []string{""}
 	return chatRequestBuild{
 		httpReq:         httpReq,
+		payload:         payload,
 		originalByAlias: payload.OriginalByAlias,
 		toolsDiag:       payload.ToolsDiag,
+		fallbackStage:   fallbackStage,
 	}, nil
+}
+
+func isMCPConfigDenialError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var providerErr *providers.Error
+	if errors.As(err, &providerErr) {
+		return isDevinMCPConfigDenial(strings.ToLower(providerErr.Message))
+	}
+	return isDevinMCPConfigDenial(strings.ToLower(err.Error()))
+}
+
+// peekConnectStreamMCPDenial reads Connect frames until the stream either
+// produces visible output or ends. If it ends with an MCP configuration
+// denial and no output, the denial error is returned so the caller can retry.
+// Otherwise the exact bytes consumed are returned for splicing back into Body.
+func peekConnectStreamMCPDenial(r io.Reader, toolsDiag string) (peeked []byte, denialErr error, err error) {
+	var buf bytes.Buffer
+	tee := io.TeeReader(r, &buf)
+	sawOutput := false
+	for {
+		flag, payload, readErr := ReadConnectFrame(tee)
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			return buf.Bytes(), nil, readErr
+		}
+		if flag&ConnectFlagEndStream != 0 {
+			if status, trailerErr := ParseTrailerError(payload); trailerErr != nil {
+				classified := classifiedErrorWithToolsDiag(status, trailerErr.Error(), toolsDiag)
+				if !sawOutput && isMCPConfigDenialError(classified) {
+					return buf.Bytes(), classified, nil
+				}
+				// Non-MCP trailer error (or denial after output): let the
+				// normal rewrite path surface it from the spliced bytes.
+				return buf.Bytes(), nil, nil
+			}
+			return buf.Bytes(), nil, nil
+		}
+		frame, parseErr := ParseFrame(payload)
+		if parseErr != nil {
+			return buf.Bytes(), nil, nil
+		}
+		if frame.ContentText != "" || frame.ThinkingText != "" || len(frame.ToolCallDeltas) > 0 {
+			sawOutput = true
+			return buf.Bytes(), nil, nil
+		}
+	}
+	return buf.Bytes(), nil, nil
 }
 
 type aggregateResult struct {

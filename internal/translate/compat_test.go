@@ -6,6 +6,38 @@ import (
 	"testing"
 )
 
+func TestTranslateResponsesDropsOrphanToolChoiceWhenToolsEmpty(t *testing.T) {
+	chat, err := TranslateResponses(ResponsesRequest{
+		Model:      "devin/gpt-5-6-sol",
+		Input:      json.RawMessage(`[{"role":"user","content":[{"type":"input_text","text":"compact this conversation"}]}]`),
+		Tools:      json.RawMessage(`[{"type":"mcp","server_label":"codex_app"},{"type":"web_search"}]`),
+		ToolChoice: json.RawMessage(`{"type":"function","name":"exec_command"}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(chat.Tools) > 0 {
+		t.Fatalf("tools=%s want empty after hosted shells drop", chat.Tools)
+	}
+	if len(chat.ToolChoice) > 0 {
+		t.Fatalf("tool_choice=%s want dropped", chat.ToolChoice)
+	}
+}
+
+func TestValidateChatRequestDropsOrphanToolChoice(t *testing.T) {
+	req := ChatRequest{
+		Model:      "devin/gpt-5-6-sol",
+		Messages:   []ChatMessage{{Role: "user", Content: "compact"}},
+		ToolChoice: json.RawMessage(`"auto"`),
+	}
+	if err := ValidateChatRequest(&req); err != nil {
+		t.Fatal(err)
+	}
+	if len(req.ToolChoice) > 0 {
+		t.Fatalf("tool_choice=%s want dropped", req.ToolChoice)
+	}
+}
+
 func TestTranslateResponsesUnquotesFunctionCallArguments(t *testing.T) {
 	request := ResponsesRequest{
 		Model: "qoder/glm-5.2",

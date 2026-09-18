@@ -179,6 +179,24 @@ func itemProvider(item accounts.Item) string {
 	return accounts.NormalizeProviderFamily(item.Provider)
 }
 
+// stickyAccountCanServeModel keeps a bound cooling empty-catalog account on
+// the same model so regional escape still works, but does not let that
+// unknown catalog pin a later, different model (Devin → Deepseek compact).
+func stickyAccountCanServeModel(item accounts.Item, publicModel string) bool {
+	if item.Models != nil {
+		return accounts.ItemCouldServeModel(item, publicModel)
+	}
+	if strings.TrimSpace(publicModel) == "" {
+		return true
+	}
+	if len(item.ProvenModels) == 0 {
+		return true
+	}
+	probe := item
+	probe.Models = []string{}
+	return accounts.ItemCouldServeModel(probe, publicModel)
+}
+
 func (e ChatExecutor) prepareRouting(ctx context.Context, prefer, providerFilter string, req translate.ChatRequest) (string, string, string, routingPlan) {
 	prefer = strings.TrimSpace(prefer)
 	providerFilter = strings.ToLower(strings.TrimSpace(providerFilter))
@@ -209,10 +227,10 @@ func (e ChatExecutor) prepareRouting(ctx context.Context, prefer, providerFilter
 		e.SessionAffinity.RecordEscape("provider_not_allowed")
 		return "", providerFilter, "", plan
 	}
-	if !accounts.ItemCouldServeModel(item, publicModel) {
-		e.SessionAffinity.RecordEscape("model_unavailable")
-		return "", providerFilter, "", plan
-	}
+if !stickyAccountCanServeModel(item, publicModel) {
+			e.SessionAffinity.RecordEscape("model_unavailable")
+			return "", providerFilter, "", plan
+		}
 	return item.ID, itemProvider(item), accounts.NormalizeRegion(item.Region), routingPlan{
 		Source: routingSticky, SessionKey: plan.SessionKey, BoundAccount: item.ID, PublicModel: publicModel,
 	}

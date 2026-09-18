@@ -13,12 +13,18 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 - Generate Devin chat and account-status protobuf types from extracted descriptors
   with a manual update command; builds and CI use committed Go bindings without
   downloading releases or regenerating schemas
+- Neutralize Codex/Desktop MCP-looking tool names for Devin (`mcp__*`, `list_mcp_*`, and any name containing `mcp`) into reversible `cx_tool_*` aliases, restore the originals on tool calls for local execution, scrub residual MCP text on fallback, and if upstream still returns an MCP configuration `permission_denied` retry by stripping those tools then keeping only core local tools (`exec_command` / `write_stdin` / `view_image` / `request_user_input`) with minimal schemas; log each fallback stage and never drop all tools
+- Ignore orphan `tool_choice` when Codex compact / recovery turns send a choice with no remaining tools, instead of failing with `tool_choice requires tools`
+- Keep session affinity from pinning a later model onto an empty-catalog account, so a Deepseek compact after a Devin turn routes to WorkBuddy instead of Devin
 
 ### 中文
 
 - OpenAI、Anthropic 与 Responses 流式转发会保留上游的类型化错误，避免无效的 Devin 请求被错误地冷却账号，同时传输中断仍可重试
 - Devin 的缓存读取与写入会显示在 OpenAI 兼容 usage 中，prompt 总数包含全部上游输入 token
 - 新增手动更新命令，提取 descriptor 并生成 Devin 聊天与账号状态 protobuf 类型；构建与 CI 直接使用已提交的 Go 文件，不下载发行包或重新生成 schema
+- Devin 会把 Codex/Desktop 带 MCP 语义的工具名（`mcp__*`、`list_mcp_*` 以及名称含 `mcp` 的工具）中性化为可逆的 `cx_tool_*` 别名，并在返回的 tool_calls 中还原原名供本地执行；若上游仍返回 MCP 配置类 `permission_denied`，会先清洗残留 MCP 文案并去掉这些工具再试，再失败则只保留核心本地工具（`exec_command` / `write_stdin` / `view_image` / `request_user_input`，最小 schema），每次 fallback 都会打日志，且不再清空全部 tools
+- Codex compact / 恢复轮次如果带了 `tool_choice` 但 tools 已被规范化为空，会忽略这个孤立的 `tool_choice`，不再报 `tool_choice requires tools`
+- 会话粘性不会再把后续模型钉到空 catalog 账号上，因此 Devin 之后的 Deepseek compact 会走 WorkBuddy，而不是误打到 Devin
 
 ## 0.5.6 - 2026-09-17
 

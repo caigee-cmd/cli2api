@@ -800,10 +800,10 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid_request", "messages required")
 		return
 	}
-	if err := translate.ValidateChatRequest(req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
-		return
-	}
+if err := translate.ValidateChatRequest(&req); err != nil {
+			writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
+			return
+		}
 	execution, err := s.prepareChatExecution(r, req)
 	if err != nil {
 		writeChatHTTPError(w, err)

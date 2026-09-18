@@ -119,21 +119,21 @@ func TranslateAnthropicMessages(request AnthropicMessagesRequest) (ChatRequest, 
 	if err != nil {
 		return ChatRequest{}, err
 	}
-	chat.Tools = tools
-	toolChoice, err := translateAnthropicToolChoice(request.ToolChoice)
-	if err != nil {
-		return ChatRequest{}, err
+chat.Tools = tools
+		toolChoice, err := translateAnthropicToolChoice(request.ToolChoice)
+		if err != nil {
+			return ChatRequest{}, err
+		}
+		chat.ToolChoice = sanitizeToolChoice(chat.Tools, toolChoice)
+		chat.ParallelToolCalls = anthropicParallelToolCalls(request.ToolChoice)
+		if effort := anthropicReasoningEffort(request.OutputConfig); len(effort) > 0 {
+			chat.ReasoningEffort = effort
+		}
+		if err := validateToolChoice(chat.Tools, chat.ToolChoice); err != nil {
+			return ChatRequest{}, err
+		}
+		return chat, nil
 	}
-	chat.ToolChoice = toolChoice
-	chat.ParallelToolCalls = anthropicParallelToolCalls(request.ToolChoice)
-	if effort := anthropicReasoningEffort(request.OutputConfig); len(effort) > 0 {
-		chat.ReasoningEffort = effort
-	}
-	if err := validateToolChoice(chat.Tools, chat.ToolChoice); err != nil {
-		return ChatRequest{}, err
-	}
-	return chat, nil
-}
 
 func TranslateResponses(request ResponsesRequest) (ChatRequest, error) {
 	if strings.TrimSpace(request.PreviousID) != "" || !emptyJSON(request.Conversation) {
@@ -175,21 +175,24 @@ func TranslateResponses(request ResponsesRequest) (ChatRequest, error) {
 	if err != nil {
 		return ChatRequest{}, err
 	}
-	chat.Tools = tools
-	toolChoice, err := translateResponsesToolChoice(request.ToolChoice)
-	if err != nil {
-		return ChatRequest{}, err
+chat.Tools = tools
+		toolChoice, err := translateResponsesToolChoice(request.ToolChoice)
+		if err != nil {
+			return ChatRequest{}, err
+		}
+		// Codex Desktop compact / recovery turns can keep a tool_choice while
+		// tools normalize to empty (hosted shells dropped, etc). Drop the
+		// orphan choice instead of failing the whole turn.
+		chat.ToolChoice = sanitizeToolChoice(chat.Tools, toolChoice)
+		chat.ResponseFormat, err = translateResponsesTextFormat(request.Text)
+		if err != nil {
+			return ChatRequest{}, err
+		}
+		if err := validateToolChoice(chat.Tools, chat.ToolChoice); err != nil {
+			return ChatRequest{}, err
+		}
+		return chat, nil
 	}
-	chat.ToolChoice = toolChoice
-	chat.ResponseFormat, err = translateResponsesTextFormat(request.Text)
-	if err != nil {
-		return ChatRequest{}, err
-	}
-	if err := validateToolChoice(chat.Tools, chat.ToolChoice); err != nil {
-		return ChatRequest{}, err
-	}
-	return chat, nil
-}
 
 func anthropicMessageParts(raw json.RawMessage) (any, []compatibilityToolCall, []compatibilityToolResult, error) {
 	if rawText, ok := rawJSONString(raw); ok {
@@ -636,14 +639,73 @@ func anthropicParallelToolCalls(raw json.RawMessage) *bool {
 	return nil
 }
 
-func ValidateChatRequest(request ChatRequest) error {
+func ValidateChatRequest(request *ChatRequest) error {
+	if request == nil {
+		return fmt.Errorf("request required")
+	}
 	if strings.TrimSpace(request.Model) == "" {
 		return fmt.Errorf("model required")
 	}
 	if len(request.MaxTokens) > 0 && len(request.MaxCompletionTokens) > 0 {
 		return fmt.Errorf("max_tokens and max_completion_tokens are mutually exclusive")
 	}
+	request.ToolChoice = sanitizeToolChoice(request.Tools, request.ToolChoice)
 	return validateToolChoice(request.Tools, request.ToolChoice)
+}
+
+// sanitizeToolChoice drops orphan tool_choice values when tools are empty, and
+// clears named tool choices that no longer exist after tool normalization.
+func sanitizeToolChoice(tools, choice json.RawMessage) json.RawMessage {
+	if emptyJSON(choice) {
+		return nil
+	}
+	if emptyJSON(tools) {
+		return nil
+	}
+	var declared []map[string]json.RawMessage
+	if json.Unmarshal(tools, &declared) != nil || len(declared) == 0 {
+		return nil
+	}
+	names := make(map[string]bool, len(declared))
+	for _, tool := range declared {
+		name, _ := rawJSONString(tool["name"])
+		if name == "" {
+			fn, _ := tool["function"]
+			var function map[string]json.RawMessage
+			if json.Unmarshal(fn, &function) == nil {
+				name, _ = rawJSONString(function["name"])
+			}
+		}
+		if name != "" {
+			names[strings.TrimSpace(name)] = true
+		}
+	}
+	if text, ok := rawJSONString(choice); ok {
+		switch strings.ToLower(strings.TrimSpace(text)) {
+		case "none", "auto", "required":
+			return choice
+		default:
+			if names[strings.TrimSpace(text)] {
+				return choice
+			}
+			return nil
+		}
+	}
+	var object map[string]json.RawMessage
+	if json.Unmarshal(choice, &object) != nil {
+		return choice
+	}
+	name := rawMapString(object, "name")
+	if name == "" {
+		var function map[string]json.RawMessage
+		if json.Unmarshal(object["function"], &function) == nil {
+			name, _ = rawJSONString(function["name"])
+		}
+	}
+	if name != "" && !names[strings.TrimSpace(name)] {
+		return nil
+	}
+	return choice
 }
 
 func validateToolChoice(tools, choice json.RawMessage) error {
