@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -107,8 +109,8 @@ func TestNamedAPIKeyCannotUseConsoleChat(t *testing.T) {
 func TestMaintenanceBlocksAPIAndV1ButKeepsUpdateAndHealth(t *testing.T) {
 	srv := newS01HTTPServer(t)
 	srv.updater().Maintenance.Store(true)
-	srv.UpdateChecker = &updateCheckerStub{info: control.Info{CurrentVersion: "v0.5.7", Managed: true}}
-	srv.UpdateAgent = &updateAgentStub{status: control.AgentStatus{Available: true, State: "idle"}}
+	srv.Update.Checker = &updateCheckerStub{info: control.Info{CurrentVersion: "v0.5.7", Managed: true}}
+	srv.Update.Agent = &updateAgentStub{status: control.AgentStatus{Available: true, State: "idle"}}
 
 	blocked := []struct{ method, path, body string }{
 		{http.MethodGet, "/api/overview", ""},
@@ -285,13 +287,40 @@ func TestClearRequestLogsRequiresConsoleKey(t *testing.T) {
 	}
 }
 
+// Hold the staged operation until the test has observed maintenance/conflict.
+// An unsupported staged agent fails immediately and makes those assertions
+// depend on goroutine scheduling rather than the HTTP contract.
+type blockedStagedAgent struct {
+	*updateAgentStub
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (a *blockedStagedAgent) Prepare(context.Context, control.PrepareRequest) (control.ApplyResponse, error) {
+	return control.ApplyResponse{}, errors.New("unused prepare")
+}
+func (a *blockedStagedAgent) ApplyPrepared(ctx context.Context, _ control.ApplyRequest) (control.ApplyResponse, error) {
+	close(a.entered)
+	select {
+	case <-a.release:
+		return control.ApplyResponse{}, errors.New("host apply failed")
+	case <-ctx.Done():
+		return control.ApplyResponse{}, ctx.Err()
+	}
+}
+
 func TestMaintenanceApplyConflictAndFailedAgentUnblock(t *testing.T) {
 	srv := newS01HTTPServer(t)
-	srv.UpdateChecker = &updateCheckerStub{info: control.Info{CurrentVersion: "v0.2.1", NextVersion: "v0.2.2", HasUpdate: true, Managed: true}}
-	srv.UpdateAgent = &updateAgentStub{status: control.AgentStatus{
-		Available: true, StagedUpdate: true, State: "ready_to_apply", JobID: "agent-job",
-		CurrentVersion: "v0.2.1", TargetVersion: "v0.2.2",
-	}}
+	srv.Update.Checker = &updateCheckerStub{info: control.Info{CurrentVersion: "v0.2.1", NextVersion: "v0.2.2", HasUpdate: true, Managed: true}}
+	agent := &blockedStagedAgent{
+		updateAgentStub: &updateAgentStub{status: control.AgentStatus{
+			Available: true, StagedUpdate: true, State: "ready_to_apply", JobID: "agent-job", CurrentVersion: "v0.2.1", TargetVersion: "v0.2.2",
+		}}, entered: make(chan struct{}), release: make(chan struct{}),
+	}
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(agent.release) }) }
+	defer release()
+	srv.Update.Agent = agent
 	srv.updater().Running.Store(true)
 	srv.updater().ReplaceJob(&systemUpdateJob{JobID: "update-1", AgentJobID: "agent-job", State: "ready_to_apply", CurrentVersion: "v0.2.1", TargetVersion: "v0.2.2"})
 
@@ -307,12 +336,13 @@ func TestMaintenanceApplyConflictAndFailedAgentUnblock(t *testing.T) {
 		t.Fatalf("prepare conflict: %d %s", conflict.Code, conflict.Body.String())
 	}
 
-	srv.updater().Maintenance.Store(true)
-	srv.updater().Running.Store(true)
-	srv.updater().ReplaceJob(&systemUpdateJob{JobID: "update-2", AgentJobID: "agent-fail", State: "running"})
-	srv.finishUpdateJob("update-2", "failed", "host apply failed", true)
-	srv.updater().Maintenance.Store(false)
-	srv.updater().Running.Store(false)
+	select {
+	case <-agent.entered:
+	case <-time.After(3 * time.Second):
+		t.Fatal("staged apply did not reach fake agent")
+	}
+	release()
+	waitForUpdateCondition(t, func() bool { return !srv.updater().Running.Load() && !srv.updater().Maintenance.Load() })
 	job := srv.snapshotUpdateJob()
 	if job == nil || job.State != "failed" || job.Error != "host apply failed" {
 		t.Fatalf("failed agent job=%+v", job)

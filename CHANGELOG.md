@@ -7,6 +7,9 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Keep console-key rotation synchronized with live HTTP authentication and Qoder worker requests without restarting the API server
+- Remove per-request update dependency rewrites and restore thread-safe Qoder starter configuration during proxy/key changes
+
 - Preserve typed upstream stream errors through the OpenAI, Anthropic, and Responses relays so invalid Devin requests do not falsely cool accounts, while transport interruptions remain retryable
 - Report Devin cache reads and writes in OpenAI-compatible usage, with prompt
   totals including all upstream input tokens
@@ -18,6 +21,9 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 - Keep session affinity from pinning a later model onto an empty-catalog account, so a Deepseek compact after a Devin turn routes to WorkBuddy instead of Devin
 
 ### 中文
+
+- 控制台密钥轮换会同步到正在使用的 HTTP 鉴权和 Qoder worker 请求，无需重启 API 服务
+- 移除更新接口逐请求重写依赖的竞态，并恢复代理/密钥变更时 Qoder 启动器配置的并发安全
 
 - OpenAI、Anthropic 与 Responses 流式转发会保留上游的类型化错误，避免无效的 Devin 请求被错误地冷却账号，同时传输中断仍可重试
 - Devin 的缓存读取与写入会显示在 OpenAI 兼容 usage 中，prompt 总数包含全部上游输入 token

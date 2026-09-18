@@ -89,7 +89,7 @@ func (m *Manager) fetchAccountModels(ctx context.Context, item Item) {
 	}
 	client := qoder.WorkerClient{
 		HTTP:        &http.Client{Timeout: 15 * time.Second},
-		ProxyAPIKey: m.config.ProxyAPIKey,
+		ProxyAPIKey: m.ProxyAPIKey(),
 	}
 	entries, status, rawBody, err := client.Models(ctx, item.URL, false)
 	if err != nil || status >= 300 {

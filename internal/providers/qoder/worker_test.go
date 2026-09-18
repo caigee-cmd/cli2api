@@ -14,6 +14,7 @@ import (
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/endpoint"
+	"github.com/caigee-cmd/cli2api/internal/logs"
 )
 
 func TestWorkerClientHealthModelsQuotaAndAdmin(t *testing.T) {
@@ -248,5 +249,26 @@ func TestStarterEnvSetsRegionAndProxy(t *testing.T) {
 	}
 	if cnValues["QODER_SITE"] != "cn" || cnValues["QODERCN_CONFIG_DIR"] != "/tmp/cn/.qoder-cn" || cnValues["QODERCLI_JS"] != "/usr/lib/qoderclicn.js" {
 		t.Fatalf("cn env = %+v", cnValues)
+	}
+}
+
+func TestPrefixWriterAddsAccountPrefix(t *testing.T) {
+	ring := logs.NewRing(10)
+	writer := &prefixLogWriter{prefix: "[account=acc_x] ", next: ring}
+	if _, err := writer.Write([]byte("hello\nworld")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writer.Write([]byte("\n")); err != nil {
+		t.Fatal(err)
+	}
+	entries := ring.Latest(10)
+	if len(entries) != 2 {
+		t.Fatalf("entries=%+v", entries)
+	}
+	if entries[1].AccountID != "acc_x" || !strings.Contains(entries[1].Message, "[account=acc_x] hello") {
+		t.Fatalf("first=%+v", entries[1])
+	}
+	if entries[0].AccountID != "acc_x" {
+		t.Fatalf("second=%+v", entries[0])
 	}
 }

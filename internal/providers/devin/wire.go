@@ -137,13 +137,6 @@ func NextSessionTurnIndex(sessionID string) int {
 	return int(counter.Add(1) - 1)
 }
 
-// ResetSessionTurnIndex clears a session counter (tests).
-func ResetSessionTurnIndex(sessionID string) {
-	sessionTurnMu.Lock()
-	delete(sessionTurns, strings.TrimSpace(sessionID))
-	sessionTurnMu.Unlock()
-}
-
 func WrapConnectEnvelope(protoBytes []byte) []byte {
 	return WrapConnectEnvelopeWithFlag(ConnectFlagData, protoBytes)
 }
@@ -188,10 +181,6 @@ func ReadConnectFrame(r io.Reader) (flag byte, payload []byte, err error) {
 		payload = decomp
 	}
 	return flag, payload, nil
-}
-
-func BuildClientMetadata(sessionToken, deviceSeed, osName string) ([]byte, error) {
-	return proto.Marshal(clientMetadata(sessionToken, deviceSeed, osName))
 }
 
 func clientMetadata(sessionToken, deviceSeed, osName string) *commonpb.Metadata {

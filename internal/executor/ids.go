@@ -50,10 +50,6 @@ func NormalizeWeight(priority int) int {
 	return accounts.NormalizeWeight(priority)
 }
 
-func ClampBackoffLevel(level int) int {
-	return accounts.ClampBackoffLevel(level)
-}
-
 func ProviderAllowed(provider string, allowed []string) bool {
 	return accounts.ProviderAllowed(provider, allowed)
 }

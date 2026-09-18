@@ -94,10 +94,6 @@ func Classify(status int, body string) providers.ClassifiedError {
 	return providers.ClassifiedError{}
 }
 
-func classifiedError(status int, body string) error {
-	return classifiedErrorWithToolsDiag(status, body, "")
-}
-
 func classifiedErrorWithToolsDiag(status int, body, toolsDiag string) error {
 	classified := Classify(status, body)
 	if classified.Kind == "" {

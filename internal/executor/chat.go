@@ -23,8 +23,10 @@ type providerRegistry = providers.Registry
 type AttemptHook func(accounts.RequestAttempt)
 
 type ChatExecutor struct {
-	Pool            *Pool
-	WorkerKey       string
+	Pool      *Pool
+	WorkerKey string
+	// WorkerKeySource, when set, supplies the live key shared by executor copies.
+	WorkerKeySource func() string
 	HTTPClient      *http.Client
 	Providers       *providerRegistry
 	OnAttempt       AttemptHook
@@ -248,65 +250,6 @@ func NewChatExecutor(pool *Pool, workerKey string) ChatExecutor {
 			Timeout: 120 * time.Second,
 		},
 	}
-}
-
-func buildWorkerPayload(req translate.ChatRequest, stream bool) map[string]any {
-	payload := map[string]any{
-		"model":    req.Model,
-		"messages": req.Messages,
-		"stream":   stream,
-	}
-	if len(req.MaxCompletionTokens) > 0 {
-		payload["max_tokens"] = req.MaxCompletionTokens
-	} else if len(req.MaxTokens) > 0 {
-		payload["max_tokens"] = req.MaxTokens
-	}
-	if len(req.Temperature) > 0 {
-		payload["temperature"] = json.RawMessage(req.Temperature)
-	}
-	if len(req.TopP) > 0 {
-		payload["top_p"] = json.RawMessage(req.TopP)
-	}
-	if len(req.Stop) > 0 {
-		payload["stop"] = json.RawMessage(req.Stop)
-	}
-	if req.ParallelToolCalls != nil {
-		payload["parallel_tool_calls"] = *req.ParallelToolCalls
-	}
-	if len(req.ResponseFormat) > 0 {
-		payload["response_format"] = json.RawMessage(req.ResponseFormat)
-	}
-	if req.IsReasoning != nil {
-		payload["is_reasoning"] = *req.IsReasoning
-	}
-	if req.EnableThinking != nil {
-		payload["enable_thinking"] = *req.EnableThinking
-	}
-	if req.EnableReasoning != nil {
-		payload["enable_reasoning"] = *req.EnableReasoning
-	}
-	if len(req.Thinking) > 0 {
-		payload["thinking"] = json.RawMessage(req.Thinking)
-	}
-	if len(req.ReasoningEffort) > 0 {
-		payload["reasoning_effort"] = json.RawMessage(req.ReasoningEffort)
-	}
-	if len(req.ReasoningBudgetTokens) > 0 {
-		payload["reasoning_budget_tokens"] = json.RawMessage(req.ReasoningBudgetTokens)
-	}
-	if len(req.ContextLength) > 0 {
-		payload["context_length"] = json.RawMessage(req.ContextLength)
-	}
-	if len(req.MaxInputTokens) > 0 {
-		payload["max_input_tokens"] = json.RawMessage(req.MaxInputTokens)
-	}
-	if len(req.Tools) > 0 {
-		payload["tools"] = json.RawMessage(req.Tools)
-	}
-	if len(req.ToolChoice) > 0 {
-		payload["tool_choice"] = json.RawMessage(req.ToolChoice)
-	}
-	return payload
 }
 
 func (e ChatExecutor) routeQuery(prefer, providerFilter, regionFilter, publicModel string, allowed []string, excluded map[string]struct{}) RouteQuery {
@@ -638,7 +581,11 @@ func (e ChatExecutor) newWorkerRequest(ctx context.Context, item Item, payload [
 	if account == "" {
 		account = item.ID
 	}
-	return qoder.NewChatRequest(ctx, item.URL, account, RequestIDFromContext(ctx), e.WorkerKey, payload)
+	key := e.WorkerKey
+	if e.WorkerKeySource != nil {
+		key = e.WorkerKeySource()
+	}
+	return qoder.NewChatRequest(ctx, item.URL, account, RequestIDFromContext(ctx), key, payload)
 }
 
 func classifyWorkerErr(resp *http.Response, body string) Classified {
@@ -748,7 +695,7 @@ func (l routeLoop) pickFailure(err error) (int, string, string, error) {
 func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatRequest, prefer, providerFilter string) (result ChatResult, returnErr error) {
 	loop := e.newRouteLoop(ctx, prefer, providerFilter, req)
 	defer func() { result.Routing = loop.routing.Source }()
-	payload, err := json.Marshal(buildWorkerPayload(req, false))
+	payload, err := json.Marshal(qoder.BuildChatPayload(req, false))
 	if err != nil {
 		return ChatResult{}, err
 	}
@@ -816,7 +763,7 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 		if resp.StatusCode >= 300 {
 			msg := strings.TrimSpace(string(body))
 			classified := classifyWorkerErr(resp, msg)
-			loop.lastErr = providerErrorFromClassified(classified)
+			loop.lastErr = ProviderErrorFromClassified(classified)
 			if classified.Kind == accounts.KindModelNotAvailable {
 				e.handleModelAvailabilityFailure(RequestIDFromContext(ctx), "worker_non_stream", item.ID, req.Model, classified)
 			}
@@ -973,7 +920,9 @@ func (e ChatExecutor) chatInProcessStreamAttempt(ctx context.Context, item Item,
 	return StreamResult{Response: resp, AccountID: item.ID, Provider: item.Provider, TTFBMs: ttfb}, Classified{}, nil
 }
 
-func providerErrorFromClassified(classified Classified) *providers.Error {
+// ProviderErrorFromClassified preserves routing classification at the provider
+// error boundary, including the cooldown fallback for missing Retry-After.
+func ProviderErrorFromClassified(classified Classified) *providers.Error {
 	failover := classified.Failover
 	retryAfter := classified.RetryAfter
 	if retryAfter <= 0 {
@@ -996,7 +945,7 @@ func providerErrorFor(err error, classified Classified) error {
 	if !errors.As(err, &providerErr) || providerErr == nil {
 		return err
 	}
-	return providerErrorFromClassified(classified)
+	return ProviderErrorFromClassified(classified)
 }
 
 func (e ChatExecutor) classifyInProcessError(err error) Classified {
@@ -1146,7 +1095,7 @@ func (e ChatExecutor) streamHTTPClient() *http.Client {
 func (e ChatExecutor) ChatStreamProxy(ctx context.Context, req translate.ChatRequest, prefer, providerFilter string) (result StreamResult, returnErr error) {
 	loop := e.newRouteLoop(ctx, prefer, providerFilter, req)
 	defer func() { result.Routing = loop.routing.Source }()
-	payload, err := json.Marshal(buildWorkerPayload(req, true))
+	payload, err := json.Marshal(qoder.BuildChatPayload(req, true))
 	if err != nil {
 		return StreamResult{}, err
 	}
@@ -1212,7 +1161,7 @@ func (e ChatExecutor) ChatStreamProxy(ctx context.Context, req translate.ChatReq
 			resp.Body.Close()
 			msg := strings.TrimSpace(string(body))
 			classified := classifyWorkerErr(resp, msg)
-			loop.lastErr = providerErrorFromClassified(classified)
+			loop.lastErr = ProviderErrorFromClassified(classified)
 			if classified.Kind == accounts.KindModelNotAvailable {
 				e.handleModelAvailabilityFailure(RequestIDFromContext(ctx), "worker_stream", item.ID, req.Model, classified)
 			}

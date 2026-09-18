@@ -165,13 +165,6 @@ func (h *Handler) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
-func (h *Handler) startRequestLog(entry accounts.RequestLog) {
-	if h.Recorder == nil {
-		return
-	}
-	h.Recorder.Start(entry)
-}
-
 func (h *Handler) finishRequestLog(requestID string, started time.Time, req translate.ChatRequest, publicModel, accountID, provider, routing, status string, ttfb int, stats *StreamRelayStats, err error, attemptCount int) {
 	if h.Recorder == nil || requestID == "" {
 		return

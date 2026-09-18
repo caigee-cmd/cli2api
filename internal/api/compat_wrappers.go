@@ -33,7 +33,7 @@ func (s *Server) updater() *appupdate.Coordinator {
 	if s == nil || s.App == nil {
 		return &appupdate.Coordinator{}
 	}
-	return s.App.SyncUpdate()
+	return s.App.Update
 }
 
 func (s *Server) consoleHandler() *appconsole.Handler {
@@ -45,10 +45,6 @@ func (s *Server) consoleHandler() *appconsole.Handler {
 
 func (s *Server) snapshotUpdateJob() *appupdate.Job {
 	return s.updater().Snapshot()
-}
-
-func (s *Server) finishUpdateJob(jobID, state, message string, finished bool) {
-	s.updater().Finish(jobID, state, message, finished)
 }
 
 func (s *Server) prepareChatExecution(r *http.Request, request translate.ChatRequest) (chatExecution, error) {
@@ -121,8 +117,8 @@ func (s *Server) ensureGateway() *apigateway.Handler {
 	if application.Gateway == nil {
 		application.Gateway = &apigateway.Handler{
 			Executor:          application.Executor,
-			Recorder:          application.Recorder,
 			Pool:              application.Pool,
+			Recorder:          application.Recorder,
 			CrossProviderPool: &application.CrossProviderModelPool,
 			RequestedAccount:  application.RequestedAccount,
 		}

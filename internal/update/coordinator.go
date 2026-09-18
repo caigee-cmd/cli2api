@@ -20,6 +20,8 @@ type ReleaseChecker interface {
 	Check(context.Context, bool) (Info, error)
 }
 
+// Coordinator dependencies are injected before serving requests and must not
+// be replaced while requests or background update tasks are running.
 type Coordinator struct {
 	Checker ReleaseChecker
 	Agent   Agent

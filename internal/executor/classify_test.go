@@ -129,3 +129,24 @@ func TestClassifyRateLimitUsesBodyHintAndMinimumCooldown(t *testing.T) {
 		t.Fatalf("got %+v", got)
 	}
 }
+
+func TestProviderErrorFromClassifiedPreservesFields(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		retryAfter time.Duration
+		failover   bool
+		wantRetry  time.Duration
+	}{
+		{"explicit", time.Minute, true, time.Minute},
+		{"fallback", 0, false, 2 * time.Minute},
+		{"negative", -time.Second, true, 2 * time.Minute},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			c := Classified{Kind: KindRateLimit, Status: 429, Code: "limit", Type: "rate_limit_error", Message: "retry later", Cooldown: 2 * time.Minute, RetryAfter: tt.retryAfter, Failover: tt.failover}
+			got := ProviderErrorFromClassified(c)
+			if got.Kind != c.Kind || got.Status != c.Status || got.Code != c.Code || got.Type != c.Type || got.Message != c.Message || got.Cooldown != c.Cooldown || got.RetryAfter != tt.wantRetry || got.Failover == nil || *got.Failover != tt.failover {
+				t.Fatalf("conversion lost classification: %+v", got)
+			}
+		})
+	}
+}

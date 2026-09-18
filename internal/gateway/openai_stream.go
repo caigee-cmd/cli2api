@@ -378,24 +378,6 @@ func streamReadProviderError(err error) *providers.Error {
 	return newStreamProviderError("upstream_stream_interrupted", "stream read error: "+err.Error(), http.StatusBadGateway)
 }
 
-func ProviderErrorFromClassified(classified executor.Classified) *providers.Error {
-	failover := classified.Failover
-	retryAfter := classified.RetryAfter
-	if retryAfter <= 0 {
-		retryAfter = classified.Cooldown
-	}
-	return &providers.Error{
-		Kind:       classified.Kind,
-		Status:     classified.Status,
-		Message:    classified.Message,
-		Code:       classified.Code,
-		Type:       classified.Type,
-		Cooldown:   classified.Cooldown,
-		RetryAfter: retryAfter,
-		Failover:   &failover,
-	}
-}
-
 func IsStreamClientDisconnect(err error) bool {
 	var writeErr *StreamRelayWriteError
 	return errors.As(err, &writeErr)
@@ -485,4 +467,10 @@ func ParseStreamUsageLine(line string) (StreamRelayStats, bool) {
 		Credits:          credits,
 		Model:            parsed.Model,
 	}, true
+}
+
+// ProviderErrorFromClassified keeps the gateway conversion entry point while
+// sharing classification mapping with executor.
+func ProviderErrorFromClassified(classified executor.Classified) *providers.Error {
+	return executor.ProviderErrorFromClassified(classified)
 }

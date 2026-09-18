@@ -39,45 +39,26 @@ var catalogURLs = []string{
 }
 
 var (
-	catalogMu       sync.RWMutex
-	injectedCatalog []providers.ModelInfo
-	injectedLevels  map[string][]string
+	catalogMu sync.RWMutex
 
 	cachedCatalog []providers.ModelInfo
 	cachedLevels  map[string][]string
 	cachedAt      time.Time
-	cacheSource   string
 
 	catalogHTTPClient = &http.Client{Timeout: 20 * time.Second}
 )
 
-// SetCatalog injects a catalog for tests / mapping. Production Models() never
-// forges a static table; it returns an explicit error until a remote or injected
-// catalog is available.
-func SetCatalog(models []providers.ModelInfo, levels map[string][]string) {
-	catalogMu.Lock()
-	defer catalogMu.Unlock()
-	injectedCatalog = append([]providers.ModelInfo(nil), models...)
-	injectedLevels = cloneLevels(levels)
-}
-
 func ClearCatalog() {
 	catalogMu.Lock()
 	defer catalogMu.Unlock()
-	injectedCatalog = nil
-	injectedLevels = nil
 	cachedCatalog = nil
 	cachedLevels = nil
 	cachedAt = time.Time{}
-	cacheSource = ""
 }
 
 func currentLevels() map[string][]string {
 	catalogMu.RLock()
 	defer catalogMu.RUnlock()
-	if len(injectedLevels) > 0 {
-		return cloneLevels(injectedLevels)
-	}
 	return cloneLevels(cachedLevels)
 }
 
@@ -154,13 +135,12 @@ func ParseCatalogJSON(raw []byte) ([]providers.ModelInfo, map[string][]string, e
 	return models, levels, nil
 }
 
-func setCachedCatalog(models []providers.ModelInfo, levels map[string][]string, source string, at time.Time) {
+func setCachedCatalog(models []providers.ModelInfo, levels map[string][]string, at time.Time) {
 	catalogMu.Lock()
 	defer catalogMu.Unlock()
 	cachedCatalog = cloneModels(models)
 	cachedLevels = cloneLevels(levels)
 	cachedAt = at
-	cacheSource = source
 }
 
 func cachedCatalogSnapshot(now time.Time) ([]providers.ModelInfo, map[string][]string, bool) {
@@ -225,7 +205,7 @@ func FetchRemoteCatalog(ctx context.Context) ([]providers.ModelInfo, map[string]
 	if err != nil {
 		return nil, nil, fmt.Errorf("devin catalog parse failed from %s: %w", source, err)
 	}
-	setCachedCatalog(models, levels, source, time.Now())
+	setCachedCatalog(models, levels, time.Now())
 	return cloneModels(models), cloneLevels(levels), nil
 }
 
@@ -248,13 +228,6 @@ func (c *Client) Models(ctx context.Context, accountID string) ([]providers.Mode
 	if _, err := c.credential(ctx, accountID); err != nil {
 		return nil, err
 	}
-	catalogMu.RLock()
-	if len(injectedCatalog) > 0 {
-		out := cloneModels(injectedCatalog)
-		catalogMu.RUnlock()
-		return out, nil
-	}
-	catalogMu.RUnlock()
 	if models, _, ok := cachedCatalogSnapshot(time.Now()); ok {
 		return models, nil
 	}

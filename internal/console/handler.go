@@ -17,19 +17,19 @@ import (
 // Handler is the operator HTTP surface. It decodes requests, calls control/
 // logs/update services, and maps responses. It must not import store or the
 // runtime manager; catalog fetch, Qoder worker proxy, and live auth rotation
-// are injected by api.
+// are injected by app.
 type Handler struct {
-	Control             *appsvc.Services
-	Cfg                 *config.Config
-	Executor            *executor.ChatExecutor
-	Pool                *executor.Pool
-	Providers           *providers.Registry
-	Recorder            *applogs.RequestRecorder
-	Ring                *applogs.Ring
-	CrossProviderPool   *atomic.Bool
-	SettingsMu          *sync.Mutex
-	Update              *control.Coordinator
-	UpdateForRequest    func() *control.Coordinator
+	Control           *appsvc.Services
+	Cfg               *config.Config
+	Executor          *executor.ChatExecutor
+	Pool              *executor.Pool
+	Providers         *providers.Registry
+	Recorder          *applogs.RequestRecorder
+	Ring              *applogs.Ring
+	CrossProviderPool *atomic.Bool
+	SettingsMu        *sync.Mutex
+	Update            *control.Coordinator
+
 	Chat                http.HandlerFunc
 	RequestedAccount    func(*http.Request) string
 	FilterModels        func(*http.Request, []map[string]any) []map[string]any
@@ -39,6 +39,7 @@ type Handler struct {
 	ProxyAccountWorker  func(http.ResponseWriter, *http.Request, string, string, string)
 	GenerateAPIKey      func() (string, error)
 	OnConsoleKeyRotated func(secret string)
+	ConsoleKey          func() string
 
 	statsCacheMu sync.Mutex
 	statsCache   map[string]statsCacheEntry
@@ -97,6 +98,9 @@ func (h *Handler) cfgPort() int {
 }
 
 func (h *Handler) cfgProxyAPIKey() string {
+	if h != nil && h.ConsoleKey != nil {
+		return h.ConsoleKey()
+	}
 	if h == nil || h.Cfg == nil {
 		return ""
 	}
@@ -110,18 +114,4 @@ func (h *Handler) StatsCacheSize() int {
 	h.statsCacheMu.Lock()
 	defer h.statsCacheMu.Unlock()
 	return len(h.statsCache)
-}
-
-func (h *Handler) routingStrategy() string {
-	if h == nil || h.Pool == nil {
-		return ""
-	}
-	return h.Pool.RoutingStrategy()
-}
-
-func (h *Handler) sessionAffinityStats() executor.SessionAffinityStats {
-	if h == nil || h.Executor == nil || h.Executor.SessionAffinity == nil {
-		return executor.SessionAffinityStats{}
-	}
-	return h.Executor.SessionAffinity.Stats()
 }

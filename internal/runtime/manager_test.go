@@ -2,7 +2,6 @@ package runtime_test
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -53,12 +53,6 @@ func (s *fakeStarter) SetProxyURL(value string) {
 	s.setProxyMu.Lock()
 	s.proxyURLs = append(s.proxyURLs, value)
 	s.setProxyMu.Unlock()
-}
-
-func (s *fakeStarter) proxySetCount() int {
-	s.setProxyMu.Lock()
-	defer s.setProxyMu.Unlock()
-	return len(s.proxyURLs)
 }
 
 func (s *fakeStarter) Start(_ context.Context, account accounts.Account, home string, port int) (accountruntime.ManagedProcess, error) {
@@ -1247,11 +1241,27 @@ func TestPersistQueueBoundedPerAccount(t *testing.T) {
 	}
 }
 
+// failPoolWrites injects persistence failures without replacing the live DB
+// pointer underneath the drainer. All successful writes still hit real SQLite.
+type failPoolWrites struct {
+	*sqlstore.Store
+	failing  atomic.Bool
+	failures atomic.Int32
+}
+
+func (s *failPoolWrites) RecordPoolState(ctx context.Context, state accounts.PoolState) error {
+	if s.failing.Load() {
+		s.failures.Add(1)
+		return errors.New("injected pool-state write failure")
+	}
+	return s.Store.RecordPoolState(ctx, state)
+}
+
 // P1: when a SQLite write fails (db locked, disk error, connection), the
 // snapshot must stay in the dirty set and be retried rather than be dropped.
 // persistedVersions must only advance on success, otherwise a later stale
 // snapshot could be discarded even though the newer state never reached disk.
-// Closing the underlying db handle forces the drainer's writes to fail.
+// The injected storage failure leaves the underlying SQLite handle stable.
 func TestPersistFailureKeepsDirtyEntryAndRetries(t *testing.T) {
 	ctx := context.Background()
 	dbPath := filepath.Join(t.TempDir(), "qoder.db")
@@ -1259,20 +1269,19 @@ func TestPersistFailureKeepsDirtyEntryAndRetries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer store.Close()
+	failing := &failPoolWrites{Store: store}
+	failing.failing.Store(true)
 	account, err := store.Create(ctx, accounts.CreateAccount{Name: "FailingWrite", Enabled: false})
 	if err != nil {
 		t.Fatal(err)
 	}
-	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, failing, &fakeStarter{})
 	defer manager.Close()
 	manager.Pool().Upsert(executor.Item{ID: account.ID, URL: "http://127.0.0.1:1"})
 
-	// Close the underlying db so SaveCooldowns fails. The drainer must
-	// re-enqueue the snapshot and back off; it must NOT advance
-	// persistedVersions or drop the entry.
-	if err := store.DB().Close(); err != nil {
-		t.Fatal(err)
-	}
+	// The drainer must re-enqueue the failed snapshot without advancing its
+	// persisted version, then retry when the same storage recovers.
 	manager.Pool().MarkClassified(account.ID, executor.Classified{
 		Kind: accounts.KindRateLimit, Cooldown: time.Hour,
 		Failover: true, Model: "glm-5.3", Message: "write-will-fail",
@@ -1287,7 +1296,7 @@ func TestPersistFailureKeepsDirtyEntryAndRetries(t *testing.T) {
 	deadline := time.Now().Add(2 * time.Second)
 	for {
 		dirty, version, dirtyOK = manager.TestPersistSnapshot(account.ID)
-		if dirtyOK && dirty.LastError == "write-will-fail" && version == 0 {
+		if dirtyOK && dirty.LastError == "write-will-fail" && version == 0 && failing.failures.Load() > 0 {
 			break
 		}
 		if time.Now().After(deadline) {
@@ -1296,19 +1305,16 @@ func TestPersistFailureKeepsDirtyEntryAndRetries(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 
-	// Reopen the db on the same file; the drainer's retry loop must now
-	// succeed and clear the dirty entry.
-	reopened, err := sql.Open("sqlite", dbPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	store.ReplaceDB(reopened)
-	// SQLite needs the same pragmas as OpenStore for WAL; the test only reads
-	// cooldowns so a bare open suffices. Wait for the drainer to retry.
+	// Recover storage without an unsynchronized DB pointer swap.
+	failing.failing.Store(false)
 	manager.Flush()
 	afterDirty := manager.TestPersistDirtyLen()
 	if afterDirty != 0 {
 		t.Fatalf("dirty set must drain once writes succeed, got %d", afterDirty)
+	}
+	saved, err := store.Get(ctx, account.ID)
+	if err != nil || saved.LastError != "write-will-fail" {
+		t.Fatalf("retry did not persist latest state: %+v err=%v", saved, err)
 	}
 }
 

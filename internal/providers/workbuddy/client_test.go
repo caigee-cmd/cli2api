@@ -936,12 +936,6 @@ func TestIsGlobalRecognizesWorkBuddyDomains(t *testing.T) {
 	if (Credential{}).IsGlobal() {
 		t.Fatal("empty domain should not be global")
 	}
-	if (Credential{Domain: "www.workbuddy.ai"}).catalogPath() != pathModelsGlobal {
-		t.Fatal("global personal catalog must use the plugin JSON path")
-	}
-	if (Credential{Domain: "codebuddy.cn"}).catalogPath() != pathModelsCN {
-		t.Fatal("CN personal catalog must keep the console path")
-	}
 	if (Credential{Domain: "www.workbuddy.ai"}).productConfigPath() != pathProductConfig {
 		t.Fatal("product config path must be /v3/config")
 	}

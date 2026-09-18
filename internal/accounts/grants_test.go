@@ -24,7 +24,7 @@ func TestParseProviderGrant(t *testing.T) {
 		if got != want {
 			t.Fatalf("ParseProviderGrant(%q) = %+v, want %+v", input, got, want)
 		}
-		if got.String() != input && got.String() != input && !(got.Provider != "" && got.String() == lowerASCII(input)) {
+		if got.String() != input && !(got.Provider != "" && got.String() == lowerASCII(input)) {
 			t.Fatalf("round trip mismatch: %q -> %q", input, got.String())
 		}
 	}

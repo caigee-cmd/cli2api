@@ -159,13 +159,6 @@ func (c Credential) ChatBase() string {
 	return ChatBaseCN
 }
 
-func (c Credential) catalogPath() string {
-	if c.IsGlobal() {
-		return pathModelsGlobal
-	}
-	return pathModelsCN
-}
-
 // productConfigPath is the IDE dropdown source (CloudProductManager /v3/config).
 func (c Credential) productConfigPath() string {
 	return pathProductConfig

@@ -21,7 +21,7 @@ type RequestPersister interface {
 }
 
 // RequestQuery is the console/HTTP read surface. The recorder never
-// calls these methods; api handlers reach them through Store() when the
+// calls these methods; console handlers reach them through Store() when the
 // injected value also implements RequestStore.
 type RequestQuery interface {
 	ClearRequestLogs(ctx context.Context) (int64, error)
@@ -30,9 +30,8 @@ type RequestQuery interface {
 	SummarizeRequestLogs(ctx context.Context, from, to time.Time) (accounts.RequestStats, error)
 }
 
-// RequestStore is the union the SQLite store already implements. Kept so
-// existing api query handlers can keep calling recorder.Store() without
-// a second injected dependency this stage.
+// RequestStore is the union the SQLite store already implements. It keeps
+// query handlers on the same injected dependency as the recorder.
 type RequestStore interface {
 	RequestPersister
 	RequestQuery

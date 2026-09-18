@@ -20,7 +20,9 @@ func TestWaitForWorkerAuthManagerRetriesUntilReady(t *testing.T) {
 	var hits atomic.Int32
 	worker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/health" {
-			t.Fatalf("path = %s", r.URL.Path)
+			t.Errorf("path = %s", r.URL.Path)
+			http.NotFound(w, r)
+			return
 		}
 		n := hits.Add(1)
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -302,8 +304,20 @@ func TestFetchProviderModelsExpandKeepsPerRegionCredits(t *testing.T) {
 
 func TestFetchProviderModelsExpandStampsQoderRegion(t *testing.T) {
 	worker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// App startup may probe the pool after this fake worker is registered.
+		// Handle background traffic separately from the catalog assertions.
+		if r.URL.Path == "/health" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "ready": true, "hot": true})
+			return
+		}
+		if r.URL.Path == "/admin/quota" {
+			http.NotFound(w, r)
+			return
+		}
 		if r.URL.Path != "/admin/models" {
-			t.Fatalf("path = %s", r.URL.Path)
+			t.Errorf("path = %s", r.URL.Path)
+			http.NotFound(w, r)
+			return
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"data": []map[string]any{{"id": "glm-5.2", "object": "model"}},

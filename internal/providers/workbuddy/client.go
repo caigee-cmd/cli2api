@@ -436,7 +436,7 @@ func (c *Client) chatRequest(ctx context.Context, accountID string, credential C
 	caps := c.capsFor(req.Model)
 	storedLevel := ""
 	if setter, ok := c.store.(ModelSettingReader); ok {
-		// settingModelKey must canonicalize exactly like api.modelContextKey
+		// CanonicalModelID must match control.ModelContextKey
 		// so console-saved reasoning levels are found at chat time.
 		if stored, err := setter.GetProviderModelSetting(ctx, "workbuddy", accounts.CanonicalModelID(req.Model)); err == nil {
 			storedLevel = stored.ReasoningEffort

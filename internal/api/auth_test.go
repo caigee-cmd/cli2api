@@ -232,8 +232,20 @@ func TestModelContextSettingsAPI(t *testing.T) {
 	defer srv.Close()
 
 	worker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// App startup may probe the pool after this fake worker is registered.
+		// Handle background traffic separately from the catalog assertions.
+		if r.URL.Path == "/health" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "ready": true, "hot": true})
+			return
+		}
+		if r.URL.Path == "/admin/quota" {
+			http.NotFound(w, r)
+			return
+		}
 		if r.URL.Path != "/admin/models" {
-			t.Fatalf("worker path = %s", r.URL.Path)
+			t.Errorf("worker path = %s", r.URL.Path)
+			http.NotFound(w, r)
+			return
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]any{{
 			"id": "minimax-m3", "display_name": "MiniMax-M3", "mapped_key": "mmodel",

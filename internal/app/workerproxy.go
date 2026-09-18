@@ -19,7 +19,6 @@ import (
 var (
 	errAccountNotRunning = qoder.ErrAccountNotRunning
 	ErrWorkerNotWarm     = qoder.ErrWorkerNotWarm
-	errWorkerNotWarm     = qoder.ErrWorkerNotWarm
 
 	workerLoginReadyTimeout  = 90 * time.Second
 	workerLoginReadyInterval = 200 * time.Millisecond
@@ -87,7 +86,7 @@ func (a *App) proxyAccountWorker(w http.ResponseWriter, r *http.Request, account
 	}
 	client := qoder.WorkerClient{
 		HTTP:        &http.Client{Timeout: 120 * time.Second},
-		ProxyAPIKey: a.Cfg.ProxyAPIKey,
+		ProxyAPIKey: a.Auth.ConsoleKey(),
 	}
 	statusCode, header, responseBody, err := client.Admin(r.Context(), workerURL, r.Method, path, r.Header.Get("Content-Type"), body)
 	if err != nil {
@@ -123,7 +122,7 @@ func (a *App) workerModels(timeout time.Duration, accountID string, refresh bool
 	}
 	client := qoder.WorkerClient{
 		HTTP:        &http.Client{Timeout: timeout},
-		ProxyAPIKey: a.Cfg.ProxyAPIKey,
+		ProxyAPIKey: a.Auth.ConsoleKey(),
 		AccountID:   accountID,
 	}
 	entries, _, _, err := client.Models(context.Background(), workerURL, refresh)

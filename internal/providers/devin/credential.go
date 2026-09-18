@@ -86,13 +86,6 @@ func (c Credential) Ready() bool {
 	return token != "" && (strings.HasPrefix(token, TokenPrefix) || strings.HasPrefix(token, "eyJ"))
 }
 
-func (c Credential) ServerURL() string {
-	if strings.TrimSpace(c.BaseURL) != "" {
-		return strings.TrimRight(strings.TrimSpace(c.BaseURL), "/")
-	}
-	return ServerBase
-}
-
 func ValidateCredential(payload []byte) error {
 	credential, err := DecodeCredential(payload)
 	if err != nil {

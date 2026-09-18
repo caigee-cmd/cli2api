@@ -112,15 +112,16 @@ func (h *Handler) HandleAPIKeyByID(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) HandleConsoleKey(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		secret := ""
-		if h.Cfg != nil {
-			secret = h.Cfg.ProxyAPIKey
-		}
+		secret := h.cfgProxyAPIKey()
 		writeJSON(w, http.StatusOK, consoleKeyView{
 			Prefix: accounts.APIKeyPrefix(secret),
 			Hint:   "This key unlocks the console and can call every provider.",
 		})
 	case http.MethodPost:
+		if h.SettingsMu != nil {
+			h.SettingsMu.Lock()
+			defer h.SettingsMu.Unlock()
+		}
 		var input struct {
 			Rotate bool `json:"rotate"`
 		}

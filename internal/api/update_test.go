@@ -102,8 +102,8 @@ func TestSystemUpdateBacksUpSQLiteBeforeSubmittingNextVersion(t *testing.T) {
 		status:      control.AgentStatus{Available: true, State: "failed", JobID: "job-1"},
 		applyCalled: make(chan struct{}),
 	}
-	srv.UpdateChecker = checker
-	srv.UpdateAgent = agent
+	srv.Update.Checker = checker
+	srv.Update.Agent = agent
 	account, err := srv.Manager.Store().Create(context.Background(), accounts.CreateAccount{Name: "busy", Enabled: false})
 	if err != nil {
 		t.Fatalf("create account: %v", err)
@@ -142,8 +142,8 @@ func TestSystemUpdateDoesNotBackupWhenNoNextVersionExists(t *testing.T) {
 		QoderHome: t.TempDir(), DataDir: dataDir,
 	})
 	defer srv.Close()
-	srv.UpdateChecker = &updateCheckerStub{info: control.Info{CurrentVersion: "v0.2.1", Managed: true}}
-	srv.UpdateAgent = &updateAgentStub{}
+	srv.Update.Checker = &updateCheckerStub{info: control.Info{CurrentVersion: "v0.2.1", Managed: true}}
+	srv.Update.Agent = &updateAgentStub{}
 
 	req := httptest.NewRequest(http.MethodPost, "/api/system/update", nil)
 	req.Header.Set("Authorization", "Bearer secret")
@@ -168,8 +168,8 @@ func TestSystemUpdateInfoAdoptsReadyAgentWhenJobStillPreparing(t *testing.T) {
 		QoderHome: t.TempDir(), DataDir: t.TempDir(),
 	})
 	defer srv.Close()
-	srv.UpdateChecker = &updateCheckerStub{info: control.Info{CurrentVersion: "v0.2.1", NextVersion: "v0.2.2", HasUpdate: true, Managed: true}}
-	srv.UpdateAgent = &updateAgentStub{status: control.AgentStatus{
+	srv.Update.Checker = &updateCheckerStub{info: control.Info{CurrentVersion: "v0.2.1", NextVersion: "v0.2.2", HasUpdate: true, Managed: true}}
+	srv.Update.Agent = &updateAgentStub{status: control.AgentStatus{
 		Available: true, StagedUpdate: true, State: "ready_to_apply", JobID: "agent-job",
 		CurrentVersion: "v0.2.1", TargetVersion: "v0.2.2",
 	}}
@@ -205,12 +205,12 @@ func TestSystemUpdateCancelDiscardsReadyImage(t *testing.T) {
 		QoderHome: t.TempDir(), DataDir: t.TempDir(),
 	})
 	defer srv.Close()
-	srv.UpdateChecker = &updateCheckerStub{info: control.Info{CurrentVersion: "v0.2.1", NextVersion: "v0.2.2", HasUpdate: true, Managed: true}}
+	srv.Update.Checker = &updateCheckerStub{info: control.Info{CurrentVersion: "v0.2.1", NextVersion: "v0.2.2", HasUpdate: true, Managed: true}}
 	agent := &updateAgentStub{status: control.AgentStatus{
 		Available: true, StagedUpdate: true, State: "ready_to_apply", JobID: "agent-job",
 		CurrentVersion: "v0.2.1", TargetVersion: "v0.2.2",
 	}}
-	srv.UpdateAgent = agent
+	srv.Update.Agent = agent
 	srv.updater().Running.Store(true)
 	srv.updater().ReplaceJob(&systemUpdateJob{JobID: "update-1", AgentJobID: "agent-job", State: "ready_to_apply", CurrentVersion: "v0.2.1", TargetVersion: "v0.2.2"})
 
@@ -235,8 +235,8 @@ func TestSystemUpdateInfoSurfacesSucceededAgent(t *testing.T) {
 		QoderHome: t.TempDir(), DataDir: t.TempDir(),
 	})
 	defer srv.Close()
-	srv.UpdateChecker = &updateCheckerStub{info: control.Info{CurrentVersion: "v0.2.2", Managed: true}}
-	srv.UpdateAgent = &updateAgentStub{status: control.AgentStatus{
+	srv.Update.Checker = &updateCheckerStub{info: control.Info{CurrentVersion: "v0.2.2", Managed: true}}
+	srv.Update.Agent = &updateAgentStub{status: control.AgentStatus{
 		Available: true, StagedUpdate: true, State: "succeeded", JobID: "agent-job",
 		CurrentVersion: "v0.2.1", TargetVersion: "v0.2.2",
 	}}
@@ -271,8 +271,8 @@ func TestSystemUpdateReturnsBeforePreparationCompletes(t *testing.T) {
 		status:      control.AgentStatus{Available: true, State: "failed", JobID: "job-1"},
 		applyCalled: make(chan struct{}),
 	}
-	srv.UpdateChecker = checker
-	srv.UpdateAgent = agent
+	srv.Update.Checker = checker
+	srv.Update.Agent = agent
 
 	req := httptest.NewRequest(http.MethodPost, "/api/system/update", nil)
 	req.Header.Set("Authorization", "Bearer secret")

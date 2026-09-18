@@ -595,7 +595,7 @@ func TestClassifyMCPConfigPermissionDenied(t *testing.T) {
 	if got.Kind != accounts.KindInvalidRequest || got.Status != 400 {
 		t.Fatalf("MCP permission_denied classify=%+v", got)
 	}
-	err := classifiedError(403, body)
+	err := classifiedErrorWithToolsDiag(403, body, "")
 	var providerErr *providers.Error
 	if !errors.As(err, &providerErr) {
 		t.Fatalf("classifiedError type=%T", err)
@@ -1109,21 +1109,22 @@ func TestChatStreamKeepsCoreToolsAfterStripStillDenied(t *testing.T) {
 	}
 }
 
-func TestKeepCoreLocalToolsUsesMinimalSchemas(t *testing.T) {
-	in := []Tool{
-		{Name: "get_goal", Description: "goal", Parameters: json.RawMessage(`{"type":"object"}`)},
-		{Name: "exec_command", Description: "Runs a command alongside MCP configuration", Parameters: json.RawMessage(`{"type":"object","properties":{"mcp_server":{"type":"string"}}}`)},
-		{Name: "write_stdin", Description: "write", Parameters: json.RawMessage(`{"type":"object"}`)},
+func TestCoreLocalToolsUsesMinimalSchemas(t *testing.T) {
+	got := coreLocalTools()
+	want := []string{"exec_command", "write_stdin", "view_image", "request_user_input"}
+	if len(got) != len(want) {
+		t.Fatalf("tools=%+v want %d", got, len(want))
 	}
-	got := keepCoreLocalTools(in)
-	if len(got) != 2 {
-		t.Fatalf("tools=%+v want 2", got)
-	}
-	if got[0].Name != "exec_command" || got[1].Name != "write_stdin" {
-		t.Fatalf("order=%+v", got)
-	}
-	if strings.Contains(strings.ToLower(got[0].Description), "mcp") || strings.Contains(strings.ToLower(string(got[0].Parameters)), "mcp") {
-		t.Fatalf("exec_command still has mcp wording: %+v", got[0])
+	for i, tool := range got {
+		if tool.Name != want[i] {
+			t.Fatalf("tool[%d]=%q want %q", i, tool.Name, want[i])
+		}
+		if strings.Contains(strings.ToLower(tool.Description), "tool") || strings.Contains(strings.ToLower(string(tool.Parameters)), "tool") {
+			t.Fatalf("unsanitized schema: %+v", tool)
+		}
+		if !json.Valid(tool.Parameters) {
+			t.Fatalf("invalid schema: %s", tool.Parameters)
+		}
 	}
 }
 
@@ -1145,7 +1146,7 @@ func TestCredentialErrorsDoNotLeakToken(t *testing.T) {
 		t.Fatal("encoded payload should keep formatted token for storage")
 	}
 
-	apiErr := classifiedError(401, "session dead; token="+FormatSessionToken(secret))
+	apiErr := classifiedErrorWithToolsDiag(401, "session dead; token="+FormatSessionToken(secret), "")
 	if apiErr == nil {
 		t.Fatal("expected classified error")
 	}
@@ -1173,4 +1174,19 @@ func TestModelsRequiresCredential(t *testing.T) {
 	if _, err := client.Models(context.Background(), "missing"); err == nil {
 		t.Fatal("expected credential load failure")
 	}
+}
+
+// Count semantic tools for test assertions only.
+func countMCPSemanticTools(tools []Tool, originalByAlias map[string]string) int {
+	count := 0
+	for _, tool := range tools {
+		original := tool.Name
+		if mapped, ok := originalByAlias[tool.Name]; ok && mapped != "" {
+			original = mapped
+		}
+		if needsDevinToolAlias(original) || needsDevinToolAlias(tool.Name) {
+			count++
+		}
+	}
+	return count
 }

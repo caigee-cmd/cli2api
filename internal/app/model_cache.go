@@ -10,7 +10,3 @@ func (a *App) fetchDisplayModels(refresh bool, accountID string, mode control.Ca
 	}
 	return a.Control.Catalog.Get(refresh, accountID, mode)
 }
-
-func (a *App) fetchCatalogModels(refresh bool, accountID string, mode control.CatalogMode) ([]map[string]any, error) {
-	return a.FetchWorkerModelsForMode(refresh, accountID, mode)
-}

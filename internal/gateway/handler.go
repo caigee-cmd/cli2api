@@ -7,17 +7,16 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/auth"
 	"github.com/caigee-cmd/cli2api/internal/executor"
 	applogs "github.com/caigee-cmd/cli2api/internal/logs"
-	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
 // CatalogQuery loads the public /v1/models display catalog. Gateway must not
-// import store or the runtime manager; api injects the existing fetch path.
+// import store or the runtime manager; app injects the catalog fetch path.
 type CatalogQuery func(refresh bool, accountID string) ([]map[string]any, error)
 
 type Handler struct {
 	Executor          executor.ChatExecutor
-	Recorder          *applogs.RequestRecorder
 	Pool              *executor.Pool
+	Recorder          *applogs.RequestRecorder
 	ModelContexts     executor.ModelContextStore
 	Catalogs          executor.CatalogPreparer
 	Logs              executor.RequestStarter
@@ -48,19 +47,4 @@ func (h *Handler) requestedAccount(r *http.Request) string {
 
 func (h *Handler) crossProviderPoolOn() bool {
 	return h != nil && h.CrossProviderPool != nil && h.CrossProviderPool.Load()
-}
-
-func (h *Handler) rejectsBareModel(model string) bool {
-	return executor.RejectsBareModel(model, h.crossProviderPoolOn())
-}
-
-func (h *Handler) resolveProviderFilter(req *translate.ChatRequest) string {
-	return executor.ResolveProviderFilter(req, h.crossProviderPoolOn())
-}
-
-func (h *Handler) applyPinnedProviderFilter(providerFilter, publicModel, prefer string) string {
-	if h == nil {
-		return providerFilter
-	}
-	return executor.ApplyPinnedProviderFilter(h.Pool, providerFilter, publicModel, prefer)
 }

@@ -645,7 +645,7 @@ func (c *Client) capsFor(model string) providers.ModelCapabilities {
 	return providers.ModelCapabilities{}
 }
 
-// settingModelKey mirrors api.modelContextKey so provider settings saved by
+// settingModelKey mirrors control.ModelContextKey so provider settings saved by
 // the console are found again at chat time. Trae config_name is mixed-case and
 // may contain underscores; both sides must canonicalize identically.
 func settingModelKey(model string) string {

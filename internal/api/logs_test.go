@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -33,7 +34,8 @@ func TestListRequestLogsFiltersAndPagination(t *testing.T) {
 			stream = true
 		}
 		if err := srv.Recorder.Store().InsertRequestLog(ctx, accounts.RequestLog{
-			ID: accounts.NewRequestID(), CreatedAt: base.Add(time.Duration(i) * time.Minute),
+			// Distinct eight-character prefixes keep the prefix-query assertion deterministic.
+			ID: fmt.Sprintf("req_%04d-fixture", i), CreatedAt: base.Add(time.Duration(i) * time.Minute),
 			Status: accounts.RequestStatusOK, RequestedModel: model, AccountID: account, Stream: stream,
 		}); err != nil {
 			t.Fatal(err)

@@ -34,10 +34,6 @@ const (
 	backoffMaxLevel = BackoffMaxLevel
 )
 
-func clampBackoffLevel(level int) int {
-	return ClampBackoffLevel(level)
-}
-
 func nextBackoffCooldown(base time.Duration, level int) (time.Duration, int) {
 	if level < 0 {
 		level = 0

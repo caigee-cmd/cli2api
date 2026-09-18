@@ -62,7 +62,7 @@ func (m *Manager) persistQuota(ctx context.Context, accountID string, quota *Quo
 func (m *Manager) fetchQuota(ctx context.Context, accountID, workerURL string, force bool) {
 	client := qoder.WorkerClient{
 		HTTP:        &http.Client{Timeout: 5 * time.Second},
-		ProxyAPIKey: m.config.ProxyAPIKey,
+		ProxyAPIKey: m.ProxyAPIKey(),
 	}
 	quota, err := client.Quota(ctx, workerURL, force)
 	if err != nil || quota == nil {

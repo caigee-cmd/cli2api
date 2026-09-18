@@ -586,10 +586,3 @@ func derefInt(value *int) int {
 	}
 	return *value
 }
-
-func boolToInt(value bool) int {
-	if value {
-		return 1
-	}
-	return 0
-}

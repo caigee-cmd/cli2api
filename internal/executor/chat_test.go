@@ -18,34 +18,6 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
-func TestBuildWorkerPayloadForwardsReasoningAndContextParameters(t *testing.T) {
-	enableThinking := true
-	payload := buildWorkerPayload(translate.ChatRequest{
-		Model:                 "minimax-m3",
-		Messages:              []translate.ChatMessage{{Role: "user", Content: "hi"}},
-		EnableThinking:        &enableThinking,
-		ReasoningEffort:       json.RawMessage(`"high"`),
-		ReasoningBudgetTokens: json.RawMessage(`16384`),
-		ContextLength:         json.RawMessage(`500000`),
-		MaxInputTokens:        json.RawMessage(`1000000`),
-	}, true)
-
-	if payload["enable_thinking"] != true {
-		t.Fatalf("enable_thinking = %#v", payload["enable_thinking"])
-	}
-	for key, want := range map[string]string{
-		"reasoning_effort":        `"high"`,
-		"reasoning_budget_tokens": "16384",
-		"context_length":          "500000",
-		"max_input_tokens":        "1000000",
-	} {
-		got, ok := payload[key].(json.RawMessage)
-		if !ok || string(got) != want {
-			t.Fatalf("%s = %#v, want %s", key, payload[key], want)
-		}
-	}
-}
-
 func TestDecodeChatResultPreservesPromptCacheUsage(t *testing.T) {
 	result, err := decodeChatResult(translate.ChatRequest{Model: "minimax-m3"}, []byte(`{
 		"model":"minimax-m3",

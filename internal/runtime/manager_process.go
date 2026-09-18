@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/caigee-cmd/cli2api/internal/providers"
 	"github.com/caigee-cmd/cli2api/internal/providers/qoder"
@@ -119,6 +120,8 @@ func (m *Manager) startAccount(ctx context.Context, account Account) error {
 }
 
 type ExecStarter struct {
+	mu sync.Mutex
+	// Config is initial configuration; after first use access it through methods.
 	Config ManagerConfig
 	inner  *qoder.Starter
 }
@@ -127,7 +130,8 @@ func NewExecStarter(config ManagerConfig) *ExecStarter {
 	return &ExecStarter{Config: config, inner: &qoder.Starter{Config: starterConfig(config)}}
 }
 
-func (s *ExecStarter) ensureInner() *qoder.Starter {
+// ensureInnerLocked is called with s.mu held.
+func (s *ExecStarter) ensureInnerLocked() *qoder.Starter {
 	if s.inner == nil {
 		s.inner = &qoder.Starter{Config: starterConfig(s.Config)}
 	}
@@ -151,26 +155,18 @@ func (s *ExecStarter) ConfigSnapshot() ManagerConfig {
 	if s == nil {
 		return ManagerConfig{}
 	}
-	cfg := s.ensureInner().ConfigSnapshot()
-	out := ManagerConfig{
-		NodeBinary:     cfg.NodeBinary,
-		DaemonPath:     cfg.DaemonPath,
-		QoderCLIPath:   cfg.QoderCLIPath,
-		QoderCNCLIPath: cfg.QoderCNCLIPath,
-		TemplatePath:   cfg.TemplatePath,
-		ProxyAPIKey:    cfg.ProxyAPIKey,
-		ProxyURL:       cfg.ProxyURL,
-		MaxLogWriters:  cfg.MaxLogWriters,
-	}
-	s.Config = out
-	return out
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.Config
 }
 
 func (s *ExecStarter) SetProxyURL(value string) {
 	if s == nil {
 		return
 	}
-	s.ensureInner().SetProxyURL(value)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.ensureInnerLocked().SetProxyURL(value)
 	s.Config.ProxyURL = strings.TrimSpace(value)
 }
 
@@ -178,7 +174,9 @@ func (s *ExecStarter) SetProxyAPIKey(value string) {
 	if s == nil {
 		return
 	}
-	s.ensureInner().SetProxyAPIKey(value)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.ensureInnerLocked().SetProxyAPIKey(value)
 	s.Config.ProxyAPIKey = value
 }
 
@@ -186,7 +184,10 @@ func (s *ExecStarter) Start(ctx context.Context, account Account, home string, p
 	if s == nil {
 		s = NewExecStarter(ManagerConfig{})
 	}
-	return s.ensureInner().Start(ctx, account, home, port)
+	s.mu.Lock()
+	inner := s.ensureInnerLocked()
+	s.mu.Unlock()
+	return inner.Start(ctx, account, home, port)
 }
 
 func StarterEnv(config ManagerConfig, account Account, home string, port int) ([]string, error) {

@@ -8,28 +8,6 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/control"
 )
 
-const (
-	defaultContextLength  = 180000
-	miniMaxM3ContextLimit = 1000000
-)
-
-func canonicalModelID(model string) string {
-	key := strings.ToLower(strings.TrimSpace(model))
-	key = strings.NewReplacer("_", "-", " ", "-").Replace(key)
-	return key
-}
-
-func modelContextKey(model string) string {
-	return canonicalModelID(model)
-}
-
-func defaultContextForModel(model string) int {
-	if canonicalModelID(model) == "minimax-m3" {
-		return miniMaxM3ContextLimit
-	}
-	return defaultContextLength
-}
-
 func splitModelSettingPath(raw, queryProvider string) (provider, modelKey string) {
 	raw = strings.TrimPrefix(raw, "/api/models/")
 	provider = strings.ToLower(strings.TrimSpace(queryProvider))
@@ -40,7 +18,7 @@ func splitModelSettingPath(raw, queryProvider string) (provider, modelKey string
 			break
 		}
 	}
-	return provider, modelContextKey(raw)
+	return provider, control.ModelContextKey(raw)
 }
 
 func (h *Handler) HandleModelsAPI(w http.ResponseWriter, r *http.Request) {
@@ -77,7 +55,7 @@ func (h *Handler) HandleModelSetting(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusInternalServerError, "model_setting_failed", err.Error())
 			return
 		}
-		defaultValue := defaultContextForModel(modelKey)
+		defaultValue := control.DefaultContextForModel(modelKey)
 		if !custom {
 			value = defaultValue
 		}
@@ -100,11 +78,11 @@ func (h *Handler) HandleModelSetting(w http.ResponseWriter, r *http.Request) {
 		value := input.ContextLength
 		custom := value > 0
 		if !custom {
-			value = defaultContextForModel(modelKey)
+			value = control.DefaultContextForModel(modelKey)
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"model": modelKey, "context_length": value,
-			"default_context_length": defaultContextForModel(modelKey), "context_custom": custom,
+			"default_context_length": control.DefaultContextForModel(modelKey), "context_custom": custom,
 		})
 	default:
 		writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "GET or PATCH only")

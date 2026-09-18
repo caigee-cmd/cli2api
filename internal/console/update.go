@@ -7,11 +7,6 @@ import (
 )
 
 func (h *Handler) updateCoordinator() *appupdate.Coordinator {
-	if h != nil && h.UpdateForRequest != nil {
-		if coord := h.UpdateForRequest(); coord != nil {
-			return coord
-		}
-	}
 	if h != nil {
 		return h.Update
 	}

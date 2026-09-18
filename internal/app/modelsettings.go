@@ -6,29 +6,8 @@ import (
 	"strings"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
+	"github.com/caigee-cmd/cli2api/internal/control"
 )
-
-const (
-	defaultContextLength  = 180000
-	miniMaxM3ContextLimit = 1000000
-)
-
-func canonicalModelID(model string) string {
-	key := strings.ToLower(strings.TrimSpace(model))
-	key = strings.NewReplacer("_", "-", " ", "-").Replace(key)
-	return key
-}
-
-func modelContextKey(model string) string {
-	return canonicalModelID(model)
-}
-
-func defaultContextForModel(model string) int {
-	if canonicalModelID(model) == "minimax-m3" {
-		return miniMaxM3ContextLimit
-	}
-	return defaultContextLength
-}
 
 func asInt(value any) (int, bool) {
 	switch typed := value.(type) {
@@ -99,7 +78,7 @@ func (a *App) decorateModelsWithContext(ctx context.Context, models []map[string
 			provider, _ = item["owned_by"].(string)
 		}
 		provider = strings.ToLower(strings.TrimSpace(provider))
-		settingsKey := modelContextKey(id)
+		settingsKey := control.ModelContextKey(id)
 		item["settings_key"] = settingsKey
 		item["context_editable"] = provider == "" || provider == "qoder"
 		if catalogWindow, ok := asInt(item["catalog_context_length"]); ok && catalogWindow > 0 {
@@ -109,7 +88,7 @@ func (a *App) decorateModelsWithContext(ctx context.Context, models []map[string
 		case "trae", "workbuddy":
 			a.decorateProviderSettings(ctx, item, provider, settingsKey)
 		default:
-			defaultValue := defaultContextForModel(settingsKey)
+			defaultValue := control.DefaultContextForModel(settingsKey)
 			value, custom := settings[settingsKey]
 			if !custom {
 				value = defaultValue

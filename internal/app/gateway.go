@@ -14,8 +14,8 @@ func (a *App) newGateway() *apigateway.Handler {
 	}
 	h := &apigateway.Handler{
 		Executor:          a.Executor,
-		Recorder:          a.Recorder,
 		Pool:              a.Pool,
+		Recorder:          a.Recorder,
 		CrossProviderPool: &a.CrossProviderModelPool,
 		RequestedAccount:  a.RequestedAccount,
 		FilterModels:      a.filterModelsForIdentity,

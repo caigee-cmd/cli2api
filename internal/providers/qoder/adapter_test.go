@@ -208,3 +208,62 @@ func TestAdapterChatRequestMatchesNewChatRequest(t *testing.T) {
 		t.Fatalf("outcome = %+v", outcome)
 	}
 }
+
+func TestBuildChatPayloadForwardsReasoningAndContextParameters(t *testing.T) {
+	enableThinking := true
+	payload := BuildChatPayload(translate.ChatRequest{
+		Model:                 "minimax-m3",
+		Messages:              []translate.ChatMessage{{Role: "user", Content: "hi"}},
+		EnableThinking:        &enableThinking,
+		ReasoningEffort:       json.RawMessage(`"high"`),
+		ReasoningBudgetTokens: json.RawMessage(`16384`),
+		ContextLength:         json.RawMessage(`500000`),
+		MaxInputTokens:        json.RawMessage(`1000000`),
+	}, true)
+
+	if payload["enable_thinking"] != true {
+		t.Fatalf("enable_thinking = %#v", payload["enable_thinking"])
+	}
+	for key, want := range map[string]string{
+		"reasoning_effort":        `"high"`,
+		"reasoning_budget_tokens": "16384",
+		"context_length":          "500000",
+		"max_input_tokens":        "1000000",
+	} {
+		got, ok := payload[key].(json.RawMessage)
+		if !ok || string(got) != want {
+			t.Fatalf("%s = %#v, want %s", key, payload[key], want)
+		}
+	}
+}
+
+func TestBuildChatPayloadTokenPrecedenceAndOmission(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		req := translate.ChatRequest{Model: "m", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}}}
+		payload := BuildChatPayload(req, stream)
+		if len(payload) != 3 || payload["stream"] != stream || payload["model"] != "m" {
+			t.Fatalf("minimal payload=%+v", payload)
+		}
+		req.MaxTokens = json.RawMessage(`12`)
+		payload = BuildChatPayload(req, stream)
+		if string(payload["max_tokens"].(json.RawMessage)) != "12" {
+			t.Fatalf("max_tokens=%v", payload["max_tokens"])
+		}
+		req.MaxCompletionTokens = json.RawMessage(`34`)
+		payload = BuildChatPayload(req, stream)
+		if string(payload["max_tokens"].(json.RawMessage)) != "34" {
+			t.Fatalf("completion token precedence=%v", payload["max_tokens"])
+		}
+		no := false
+		req.EnableThinking = &no
+		req.EnableReasoning = &no
+		req.IsReasoning = &no
+		req.ParallelToolCalls = &no
+		payload = BuildChatPayload(req, stream)
+		for _, key := range []string{"enable_thinking", "enable_reasoning", "is_reasoning", "parallel_tool_calls"} {
+			if value, ok := payload[key]; !ok || value != false {
+				t.Fatalf("explicit false %s=%v present=%v", key, value, ok)
+			}
+		}
+	}
+}

@@ -2,8 +2,10 @@ package auth
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
@@ -68,5 +70,53 @@ func TestVerifierAcceptsNamedAPIKey(t *testing.T) {
 	}
 	if !identity.AllowsProvider("qoder") || identity.AllowsProvider("trae") {
 		t.Fatalf("provider allowlist = %+v", identity.AllowedProviders)
+	}
+}
+
+func TestVerifierCopiesShareRotatedConsoleKey(t *testing.T) {
+	original := NewVerifier("old-key", nil)
+	copied := original
+	original.SetConsoleKey("  new-key  ")
+	for _, v := range []Verifier{original, copied} {
+		for _, tc := range []struct {
+			key      string
+			accepted bool
+		}{{"old-key", false}, {"new-key", true}} {
+			req := httptest.NewRequest("GET", "/", nil)
+			req.Header.Set("Authorization", "Bearer "+tc.key)
+			_, ok := v.Authenticate(req.Context(), req)
+			if ok != tc.accepted {
+				t.Fatalf("key acceptance=%v want %v", ok, tc.accepted)
+			}
+		}
+	}
+}
+
+func TestVerifierConcurrentRotationAndAuthentication(t *testing.T) {
+	original := NewVerifier("first-key", nil)
+	copied := original
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 1000; i++ {
+			original.SetConsoleKey(fmt.Sprintf("key-%d", i))
+		}
+	}()
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 1000; j++ {
+				req := httptest.NewRequest("GET", "/", nil)
+				req.Header.Set("Authorization", "Bearer "+copied.ConsoleKey())
+				// Rotation may happen between these operations; acceptance is not asserted.
+				copied.Authenticate(req.Context(), req)
+			}
+		}()
+	}
+	wg.Wait()
+	if copied.ConsoleKey() != "key-999" {
+		t.Fatal("copy did not observe final key")
 	}
 }

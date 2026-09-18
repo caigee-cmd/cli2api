@@ -2,12 +2,14 @@ package runtime_test
 
 import (
 	"context"
+	"fmt"
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 	accountruntime "github.com/caigee-cmd/cli2api/internal/runtime"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	sqlstore "github.com/caigee-cmd/cli2api/internal/store"
 )
@@ -306,5 +308,50 @@ func TestReloadProxyURLRetriesAfterFailureWithSameValue(t *testing.T) {
 	}
 	if got := len(starter.accounts); got != 2 {
 		t.Fatalf("post-success identical value restarted the worker: starts = %d, want 2", got)
+	}
+}
+
+func TestExecStarterConcurrentKeyProxyAndSnapshot(t *testing.T) {
+	for _, constructed := range []bool{false, true} {
+		t.Run(fmt.Sprintf("constructor=%v", constructed), func(t *testing.T) {
+			initial := accountruntime.ManagerConfig{DataDir: "runtime-dir", BasePort: 32100, NodeBinary: "node", DaemonPath: "daemon.mjs", QoderCLIPath: "qodercli.js", RestartDelay: time.Second}
+			starter := &accountruntime.ExecStarter{Config: initial}
+			if constructed {
+				starter = accountruntime.NewExecStarter(initial)
+			}
+			var wg sync.WaitGroup
+			wg.Add(3)
+			go func() {
+				defer wg.Done()
+				for i := 0; i < 500; i++ {
+					starter.SetProxyURL(" http://proxy.example:8080 ")
+				}
+			}()
+			go func() {
+				defer wg.Done()
+				for i := 0; i < 500; i++ {
+					starter.SetProxyAPIKey("rotated-key")
+				}
+			}()
+			go func() {
+				defer wg.Done()
+				for i := 0; i < 500; i++ {
+					cfg := starter.ConfigSnapshot()
+					if cfg.DataDir != initial.DataDir || cfg.BasePort != initial.BasePort || cfg.RestartDelay != initial.RestartDelay {
+						t.Error("snapshot lost runtime fields")
+						return
+					}
+				}
+			}()
+			wg.Wait()
+			cfg := starter.ConfigSnapshot()
+			if cfg.ProxyURL != "http://proxy.example:8080" || cfg.ProxyAPIKey != "rotated-key" {
+				t.Fatal("snapshot did not retain both updates")
+			}
+			env := starterEnvForTest(t, starter, accounts.Account{ID: "a", Provider: "qoder", ProviderRegion: "global"}, t.TempDir(), 32100)
+			if envValue(env, "QODER_PROXY_URL") != cfg.ProxyURL || envValue(env, "PROXY_API_KEY") != cfg.ProxyAPIKey {
+				t.Fatal("worker environment did not use final credentials/proxy")
+			}
+		})
 	}
 }

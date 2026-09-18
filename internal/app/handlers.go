@@ -3,19 +3,18 @@ package app
 import (
 	"context"
 
-	"github.com/caigee-cmd/cli2api/internal/auth"
 	appconsole "github.com/caigee-cmd/cli2api/internal/console"
 	"github.com/caigee-cmd/cli2api/internal/control"
 	appupdate "github.com/caigee-cmd/cli2api/internal/update"
 )
 
-func (a *App) newUpdateCoordinator() *appupdate.Coordinator {
+func (a *App) newUpdateCoordinator(checker appupdate.ReleaseChecker, agent appupdate.Agent) *appupdate.Coordinator {
 	if a == nil {
 		return &appupdate.Coordinator{}
 	}
 	coord := &appupdate.Coordinator{
-		Checker: a.UpdateChecker,
-		Agent:   a.UpdateAgent,
+		Checker: checker,
+		Agent:   agent,
 		DataDir: a.Cfg.DataDir,
 	}
 	if a.Control != nil && a.Control.Backup != nil {
@@ -44,40 +43,14 @@ func (a *App) newConsole() *appconsole.Handler {
 		FetchDisplayModels: func(refresh bool, accountID string, mode control.CatalogMode) ([]map[string]any, error) {
 			return a.fetchDisplayModels(refresh, accountID, mode)
 		},
-		ProxyAccountWorker: a.proxyAccountWorker,
-		GenerateAPIKey:     GenerateAPIKey,
-		OnConsoleKeyRotated: func(secret string) {
-			a.Cfg.ProxyAPIKey = secret
-			store := a.Control.Accounts.Store()
-			a.Auth = auth.NewVerifier(secret, store)
-			a.Executor.WorkerKey = secret
-		},
+		ProxyAccountWorker:  a.proxyAccountWorker,
+		GenerateAPIKey:      GenerateAPIKey,
+		ConsoleKey:          a.Auth.ConsoleKey,
+		OnConsoleKeyRotated: a.Auth.SetConsoleKey,
 		DecorateModels: func(ctx context.Context, models []map[string]any) []map[string]any {
 			return a.decorateModelsWithContext(ctx, models)
 		},
-		Chat:             a.gatewayHandler().HandleChatCompletions,
-		UpdateForRequest: a.SyncUpdate,
+		Chat: a.gatewayHandler().HandleChatCompletions,
 	}
 	return h
-}
-
-func (a *App) SyncUpdate() *appupdate.Coordinator {
-	if a == nil {
-		return &appupdate.Coordinator{}
-	}
-	if a.Update == nil {
-		a.Update = a.newUpdateCoordinator()
-	}
-	a.Update.Checker = a.UpdateChecker
-	a.Update.Agent = a.UpdateAgent
-	if a.Update.DataDir == "" {
-		a.Update.DataDir = a.Cfg.DataDir
-	}
-	if a.Update.Backup == nil && a.Control != nil && a.Control.Backup != nil {
-		a.Update.Backup = a.Control.Backup.Snapshot
-	}
-	if a.Console != nil {
-		a.Console.Update = a.Update
-	}
-	return a.Update
 }

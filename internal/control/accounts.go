@@ -126,10 +126,3 @@ func (a *Accounts) ReloadProxyURL(ctx context.Context, value string) error {
 func (a *Accounts) ReplaceProxyAPIKey(ctx context.Context, key string) error {
 	return a.runtime.ReplaceProxyAPIKey(ctx, key)
 }
-
-func (a *Accounts) Store() accounts.AccountStore {
-	if a == nil || a.runtime == nil {
-		return nil
-	}
-	return a.runtime.Store()
-}

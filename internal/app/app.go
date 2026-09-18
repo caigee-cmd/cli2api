@@ -45,8 +45,6 @@ type App struct {
 	Recorder               *applogs.RequestRecorder
 	Ring                   *applogs.Ring
 	stopLogs               chan struct{}
-	UpdateChecker          appupdate.ReleaseChecker
-	UpdateAgent            appupdate.Agent
 	SettingsMu             sync.Mutex
 	CrossProviderModelPool atomic.Bool
 	Gateway                *apigateway.Handler
@@ -130,37 +128,27 @@ func New(cfg config.Config) *App {
 	chatExecutor.Providers = providerReg
 	chatExecutor.OnAttempt = recorder.Attempt
 	a := &App{
-		Cfg:           cfg,
-		Auth:          auth.NewVerifier(proxyAPIKey, store),
-		Executor:      chatExecutor,
-		Pool:          pool,
-		Manager:       manager,
-		Control:       appsvc.New(manager),
-		Providers:     providerReg,
-		Recorder:      recorder,
-		Ring:          ring,
-		stopLogs:      stopLogs,
-		UpdateChecker: checker,
-		UpdateAgent:   agent,
+		Cfg:       cfg,
+		Auth:      auth.NewVerifier(proxyAPIKey, store),
+		Executor:  chatExecutor,
+		Pool:      pool,
+		Manager:   manager,
+		Control:   appsvc.New(manager),
+		Providers: providerReg,
+		Recorder:  recorder,
+		Ring:      ring,
+		stopLogs:  stopLogs,
 	}
 	a.CrossProviderModelPool.Store(crossProviderModelPool)
-	a.Control.Catalog = appsvc.NewCatalog(a.fetchCatalogModels)
-	a.Update = a.newUpdateCoordinator()
+	a.Control.Catalog = appsvc.NewCatalog(a.FetchWorkerModelsForMode)
+	// Auth copies and all executor copies read the same atomic live key.
+	// Cfg.ProxyAPIKey and Executor.WorkerKey remain bootstrap snapshots.
+	a.Executor.WorkerKeySource = a.Auth.ConsoleKey
+	a.Update = a.newUpdateCoordinator(checker, agent)
 	a.Gateway = a.newGateway()
 	a.Console = a.newConsole()
 	a.Console.Update = a.Update
-	a.HTTP = httpserver.New(httpserver.Server{
-		Auth:          a.Auth,
-		Gateway:       a.Gateway,
-		Console:       a.Console,
-		Update:        a.Update,
-		CrossProvider: &a.CrossProviderModelPool,
-		TouchKey: func(ctx context.Context, keyID string) {
-			if a.Control != nil && a.Control.Keys != nil {
-				_ = a.Control.Keys.Touch(ctx, keyID)
-			}
-		},
-	})
+	a.HTTP = a.newHTTP()
 	return a
 }
 
@@ -186,8 +174,8 @@ func (a *App) RebuildHTTP() {
 		a.Gateway = a.newGateway()
 	} else {
 		a.Gateway.Executor = a.Executor
-		a.Gateway.Recorder = a.Recorder
 		a.Gateway.Pool = a.Pool
+		a.Gateway.Recorder = a.Recorder
 		a.Gateway.CrossProviderPool = &a.CrossProviderModelPool
 		if a.Control != nil {
 			a.Gateway.ModelContexts = a.Control.Settings
@@ -206,7 +194,19 @@ func (a *App) RebuildHTTP() {
 	if a.Console.Chat == nil && a.Gateway != nil {
 		a.Console.Chat = a.Gateway.HandleChatCompletions
 	}
-	a.HTTP = httpserver.New(httpserver.Server{
+	a.HTTP = a.newHTTP()
+}
+
+func (a *App) requestIdentity(r *http.Request) auth.Identity {
+	identity, ok := auth.IdentityFrom(r.Context())
+	if ok {
+		return identity
+	}
+	return auth.Identity{Kind: auth.KindNone}
+}
+
+func (a *App) newHTTP() *httpserver.Server {
+	return httpserver.New(httpserver.Server{
 		Auth:          a.Auth,
 		Gateway:       a.Gateway,
 		Console:       a.Console,
@@ -218,12 +218,4 @@ func (a *App) RebuildHTTP() {
 			}
 		},
 	})
-}
-
-func (a *App) requestIdentity(r *http.Request) auth.Identity {
-	identity, ok := auth.IdentityFrom(r.Context())
-	if ok {
-		return identity
-	}
-	return auth.Identity{Kind: auth.KindNone}
 }
