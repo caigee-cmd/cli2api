@@ -408,7 +408,7 @@ func (s *Server) submitOneShotUpdate(jobID, currentVersion, targetVersion string
 		s.updateRunning.Store(false)
 	}
 	s.mutateUpdateJob(jobID, func(job *systemUpdateJob) { job.State = "backing_up" })
-	backup, err := s.manager.Store().Backup(ctx, filepath.Join(s.cfg.DataDir, "backups"), 5)
+	backup, err := s.control.Backup.Snapshot(ctx, filepath.Join(s.cfg.DataDir, "backups"), 5)
 	if err != nil {
 		fail(err.Error())
 		return
@@ -452,7 +452,7 @@ func (s *Server) applyPreparedSystemUpdate(jobID string) {
 		return
 	}
 	ctx := context.Background()
-	backup, err := s.manager.Store().Backup(ctx, filepath.Join(s.cfg.DataDir, "backups"), 5)
+	backup, err := s.control.Backup.Snapshot(ctx, filepath.Join(s.cfg.DataDir, "backups"), 5)
 	if err != nil {
 		s.finishUpdateJob(jobID, "failed", err.Error(), true)
 		s.maintenance.Store(false)

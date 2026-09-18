@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
@@ -32,13 +33,13 @@ func defaultContextForModel(model string) int {
 }
 
 func (s *Server) applyModelContextDefaults(ctx context.Context, req *translate.ChatRequest, providerFilter string) error {
-	if s == nil || s.manager == nil || req == nil || strings.TrimSpace(req.Model) == "" {
+	if s == nil || s.control == nil || s.control.Settings == nil || req == nil || strings.TrimSpace(req.Model) == "" {
 		return nil
 	}
 	if providerFilter != "" && providerFilter != "qoder" {
 		return nil
 	}
-	contextLength, ok, err := s.manager.Store().GetModelContext(ctx, modelContextKey(req.Model))
+	contextLength, ok, err := s.control.Settings.GetModelContext(ctx, modelContextKey(req.Model))
 	if err != nil || !ok {
 		return err
 	}
@@ -76,7 +77,10 @@ func (s *Server) decorateProviderSettings(ctx context.Context, item map[string]a
 		supportsMax = true
 		item["supports_max_mode"] = true
 	}
-	setting, _ := s.manager.Store().GetProviderModelSetting(ctx, provider, settingsKey)
+	var setting accounts.ProviderModelSetting
+	if s.control != nil && s.control.Settings != nil {
+		setting, _ = s.control.Settings.GetProviderModelSetting(ctx, provider, settingsKey)
+	}
 	maxMode := setting.MaxMode && supportsMax && provider == "trae"
 	item["max_mode"] = maxMode
 	window := dev
@@ -99,9 +103,12 @@ func (s *Server) decorateProviderSettings(ctx context.Context, item map[string]a
 }
 
 func (s *Server) decorateModelsWithContext(ctx context.Context, models []map[string]any) []map[string]any {
-	settings, err := s.manager.Store().ListModelContexts(ctx)
-	if err != nil {
-		settings = map[string]int{}
+	settings := map[string]int{}
+	if s.control != nil && s.control.Settings != nil {
+		listed, err := s.control.Settings.ListModelContexts(ctx)
+		if err == nil {
+			settings = listed
+		}
 	}
 	decorated := make([]map[string]any, 0, len(models))
 	for _, model := range models {
@@ -164,7 +171,7 @@ func (s *Server) handleModelSetting(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case http.MethodGet:
-		value, custom, err := s.manager.Store().GetModelContext(r.Context(), modelKey)
+		value, custom, err := s.control.Settings.GetModelContext(r.Context(), modelKey)
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, "model_setting_failed", err.Error())
 			return
@@ -185,7 +192,7 @@ func (s *Server) handleModelSetting(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
 			return
 		}
-		if err := s.manager.Store().SetModelContext(r.Context(), modelKey, input.ContextLength); err != nil {
+		if err := s.control.Settings.SetModelContext(r.Context(), modelKey, input.ContextLength); err != nil {
 			writeErr(w, http.StatusBadRequest, "model_setting_failed", err.Error())
 			return
 		}
@@ -206,7 +213,7 @@ func (s *Server) handleModelSetting(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleProviderModelSetting(w http.ResponseWriter, r *http.Request, provider, modelKey string) {
 	switch r.Method {
 	case http.MethodGet:
-		setting, err := s.manager.Store().GetProviderModelSetting(r.Context(), provider, modelKey)
+		setting, err := s.control.Settings.GetProviderModelSetting(r.Context(), provider, modelKey)
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, "model_setting_failed", err.Error())
 			return
@@ -233,7 +240,7 @@ func (s *Server) handleProviderModelSetting(w http.ResponseWriter, r *http.Reque
 			writeErr(w, http.StatusBadRequest, "invalid_request", "workbuddy has no max-mode switch")
 			return
 		}
-		setting, err := s.manager.Store().GetProviderModelSetting(r.Context(), provider, modelKey)
+		setting, err := s.control.Settings.GetProviderModelSetting(r.Context(), provider, modelKey)
 		if err != nil {
 			writeErr(w, http.StatusBadRequest, "model_setting_failed", err.Error())
 			return
@@ -244,7 +251,7 @@ func (s *Server) handleProviderModelSetting(w http.ResponseWriter, r *http.Reque
 		if input.ReasoningEffort != nil {
 			setting.ReasoningEffort = strings.TrimSpace(*input.ReasoningEffort)
 		}
-		if err := s.manager.Store().SetProviderModelSetting(r.Context(), provider, modelKey, setting); err != nil {
+		if err := s.control.Settings.SetProviderModelSetting(r.Context(), provider, modelKey, setting); err != nil {
 			writeErr(w, http.StatusBadRequest, "model_setting_failed", err.Error())
 			return
 		}

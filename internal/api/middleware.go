@@ -54,8 +54,8 @@ func (s *Server) withAPIKey(next http.HandlerFunc) http.HandlerFunc {
 			writeErr(w, http.StatusUnauthorized, "invalid_api_key", "Missing/invalid API key")
 			return
 		}
-		if identity.Kind == auth.KindKey && s.manager != nil {
-			_ = s.manager.Store().TouchAPIKey(r.Context(), identity.KeyID)
+		if identity.Kind == auth.KindKey && s.control != nil && s.control.Keys != nil {
+			_ = s.control.Keys.Touch(r.Context(), identity.KeyID)
 		}
 		next(w, r.WithContext(auth.WithIdentity(r.Context(), identity)))
 	}

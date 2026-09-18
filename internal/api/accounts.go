@@ -25,10 +25,7 @@ func (s *Server) handleProviders(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleAccounts(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		if r.URL.Query().Get("refresh") == "1" {
-			_ = s.manager.RefreshAll(r.Context(), true)
-		}
-		items, err := s.manager.Accounts(r.Context())
+		items, err := s.control.Accounts.List(r.Context(), r.URL.Query().Get("refresh") == "1")
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, "account_list_failed", err.Error())
 			return
@@ -55,7 +52,7 @@ func (s *Server) handleAccounts(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusBadRequest, "invalid_provider", err.Error())
 			return
 		}
-		account, err := s.manager.Create(r.Context(), accounts.CreateAccount{
+		account, err := s.control.Accounts.Create(r.Context(), accounts.CreateAccount{
 			Name: input.Name, Provider: input.Provider, Region: input.Region,
 			Enabled: input.Enabled, MaxInFlight: input.MaxInFlight, Priority: input.Priority,
 			DropSystemPrompt: input.DropSystemPrompt, WorkBuddyAutoCheckin: input.WorkBuddyAutoCheckin,
@@ -108,7 +105,7 @@ func (s *Server) handleAccountImport(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusBadRequest, "invalid_user_blob", "user_blob must be base64")
 			return
 		}
-		account, err := s.manager.Import(r.Context(), accounts.ImportAccount{
+		account, err := s.control.Accounts.ImportNative(r.Context(), accounts.ImportAccount{
 			Name: input.Name, Provider: input.Provider, Region: input.Region, Enabled: input.Enabled,
 			MaxInFlight: input.MaxInFlight, Priority: input.Priority, DropSystemPrompt: input.DropSystemPrompt,
 			WorkBuddyAutoCheckin: input.WorkBuddyAutoCheckin, WorkBuddyCheckinTime: input.WorkBuddyCheckinTime, ProxyURL: input.ProxyURL,
@@ -139,29 +136,16 @@ func (s *Server) handleAccountImport(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusBadRequest, "invalid_credential", err.Error())
 			return
 		}
-		account, err := s.manager.Create(r.Context(), accounts.CreateAccount{
+		imported, err := s.control.Accounts.ImportCredentialPayload(r.Context(), accounts.CreateAccount{
 			Name: input.Name, Provider: "trae", Region: input.Region, Enabled: false,
 			MaxInFlight: input.MaxInFlight, Priority: input.Priority, DropSystemPrompt: input.DropSystemPrompt,
 			WorkBuddyAutoCheckin: input.WorkBuddyAutoCheckin,
 			WorkBuddyCheckinTime: input.WorkBuddyCheckinTime, ProxyURL: input.ProxyURL,
-		})
+		}, trae.CredentialFormat, encoded, credential.UID != "" && input.Enabled)
 		if err != nil {
 			writeErr(w, http.StatusBadRequest, "account_import_failed", err.Error())
 			return
 		}
-		if err := s.manager.Store().SaveCredentialPayload(r.Context(), account.ID, trae.CredentialFormat, encoded); err != nil {
-			_ = s.manager.Delete(r.Context(), account.ID)
-			writeErr(w, http.StatusBadRequest, "account_import_failed", err.Error())
-			return
-		}
-		if credential.UID != "" && input.Enabled {
-			enabled := true
-			if err := s.manager.Update(r.Context(), account.ID, accounts.UpdateAccount{Enabled: &enabled}); err != nil {
-				writeErr(w, http.StatusBadRequest, "account_import_failed", err.Error())
-				return
-			}
-		}
-		imported, _ := s.manager.Store().Get(r.Context(), account.ID)
 		writeJSON(w, http.StatusCreated, imported)
 	case workbuddy.CredentialFormat:
 		payload := input.Credential
@@ -176,29 +160,16 @@ func (s *Server) handleAccountImport(w http.ResponseWriter, r *http.Request) {
 			UID string `json:"uid"`
 		}
 		_ = json.Unmarshal(payload, &credential)
-		account, err := s.manager.Create(r.Context(), accounts.CreateAccount{
+		imported, err := s.control.Accounts.ImportCredentialPayload(r.Context(), accounts.CreateAccount{
 			Name: input.Name, Provider: "workbuddy", Region: input.Region, Enabled: false,
 			MaxInFlight: input.MaxInFlight, Priority: input.Priority, DropSystemPrompt: input.DropSystemPrompt,
 			WorkBuddyAutoCheckin: input.WorkBuddyAutoCheckin,
 			WorkBuddyCheckinTime: input.WorkBuddyCheckinTime, ProxyURL: input.ProxyURL,
-		})
+		}, workbuddy.CredentialFormat, payload, credential.UID != "" && input.Enabled)
 		if err != nil {
 			writeErr(w, http.StatusBadRequest, "account_import_failed", err.Error())
 			return
 		}
-		if err := s.manager.Store().SaveCredentialPayload(r.Context(), account.ID, workbuddy.CredentialFormat, payload); err != nil {
-			_ = s.manager.Delete(r.Context(), account.ID)
-			writeErr(w, http.StatusBadRequest, "account_import_failed", err.Error())
-			return
-		}
-		if credential.UID != "" && input.Enabled {
-			enabled := true
-			if err := s.manager.Update(r.Context(), account.ID, accounts.UpdateAccount{Enabled: &enabled}); err != nil {
-				writeErr(w, http.StatusBadRequest, "account_import_failed", err.Error())
-				return
-			}
-		}
-		imported, _ := s.manager.Store().Get(r.Context(), account.ID)
 		writeJSON(w, http.StatusCreated, imported)
 	case devin.CredentialFormat:
 		payload := input.Credential
@@ -220,29 +191,16 @@ func (s *Server) handleAccountImport(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusBadRequest, "invalid_credential", err.Error())
 			return
 		}
-		account, err := s.manager.Create(r.Context(), accounts.CreateAccount{
+		imported, err := s.control.Accounts.ImportCredentialPayload(r.Context(), accounts.CreateAccount{
 			Name: input.Name, Provider: "devin", Region: input.Region, Enabled: false,
 			MaxInFlight: input.MaxInFlight, Priority: input.Priority, DropSystemPrompt: input.DropSystemPrompt,
 			WorkBuddyAutoCheckin: input.WorkBuddyAutoCheckin,
 			WorkBuddyCheckinTime: input.WorkBuddyCheckinTime, ProxyURL: input.ProxyURL,
-		})
+		}, devin.CredentialFormat, encoded, credential.UserID != "" && input.Enabled)
 		if err != nil {
 			writeErr(w, http.StatusBadRequest, "account_import_failed", err.Error())
 			return
 		}
-		if err := s.manager.Store().SaveCredentialPayload(r.Context(), account.ID, devin.CredentialFormat, encoded); err != nil {
-			_ = s.manager.Delete(r.Context(), account.ID)
-			writeErr(w, http.StatusBadRequest, "account_import_failed", err.Error())
-			return
-		}
-		if credential.UserID != "" && input.Enabled {
-			enabled := true
-			if err := s.manager.Update(r.Context(), account.ID, accounts.UpdateAccount{Enabled: &enabled}); err != nil {
-				writeErr(w, http.StatusBadRequest, "account_import_failed", err.Error())
-				return
-			}
-		}
-		imported, _ := s.manager.Store().Get(r.Context(), account.ID)
 		writeJSON(w, http.StatusCreated, imported)
 	default:
 		writeErr(w, http.StatusBadRequest, "unsupported_credential_format", "format must be qoder-native-v1, workbuddy-oauth-v1, trae-oauth-v1, or devin-session-v1")
@@ -261,7 +219,7 @@ func (s *Server) handleAccountByID(w http.ResponseWriter, r *http.Request) {
 	if len(parts) == 1 {
 		switch r.Method {
 		case http.MethodGet:
-			account, err := s.manager.AccountView(r.Context(), accountID)
+			account, err := s.control.Accounts.Get(r.Context(), accountID)
 			if err != nil {
 				writeErr(w, http.StatusNotFound, "account_not_found", err.Error())
 				return
@@ -282,7 +240,7 @@ func (s *Server) handleAccountByID(w http.ResponseWriter, r *http.Request) {
 				writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
 				return
 			}
-			err := s.manager.Update(r.Context(), accountID, accounts.UpdateAccount{
+			account, err := s.control.Accounts.Update(r.Context(), accountID, accounts.UpdateAccount{
 				Name: input.Name, Enabled: input.Enabled, MaxInFlight: input.MaxInFlight, Priority: input.Priority,
 				DropSystemPrompt: input.DropSystemPrompt, WorkBuddyAutoCheckin: input.WorkBuddyAutoCheckin,
 				WorkBuddyCheckinTime: input.WorkBuddyCheckinTime, ProxyURL: input.ProxyURL,
@@ -291,10 +249,9 @@ func (s *Server) handleAccountByID(w http.ResponseWriter, r *http.Request) {
 				writeErr(w, http.StatusBadRequest, "account_update_failed", err.Error())
 				return
 			}
-			account, _ := s.manager.Store().Get(r.Context(), accountID)
 			writeJSON(w, http.StatusOK, account)
 		case http.MethodDelete:
-			if err := s.manager.Delete(r.Context(), accountID); err != nil {
+			if err := s.control.Accounts.Delete(r.Context(), accountID); err != nil {
 				writeErr(w, http.StatusBadRequest, "account_delete_failed", err.Error())
 				return
 			}
@@ -314,15 +271,15 @@ func (s *Server) handleAccountByID(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "POST only")
 			return
 		}
-		if _, err := s.manager.Store().Get(r.Context(), accountID); err != nil {
+		if _, err := s.control.Accounts.GetStored(r.Context(), accountID); err != nil {
 			writeErr(w, http.StatusNotFound, "account_not_found", err.Error())
 			return
 		}
-		if err := s.manager.RefreshAccount(r.Context(), accountID, r.URL.Query().Get("quota") == "1"); err != nil {
+		if err := s.control.Accounts.RefreshAccount(r.Context(), accountID, r.URL.Query().Get("quota") == "1"); err != nil {
 			writeErr(w, http.StatusBadGateway, "account_refresh_failed", err.Error())
 			return
 		}
-		view, err := s.manager.AccountView(r.Context(), accountID)
+		view, err := s.control.Accounts.Get(r.Context(), accountID)
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, "account_view_failed", err.Error())
 			return
@@ -335,7 +292,7 @@ func (s *Server) handleAccountByID(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "GET only")
 			return
 		}
-		account, err := s.manager.Store().Get(r.Context(), accountID)
+		account, err := s.control.Accounts.GetStored(r.Context(), accountID)
 		if err != nil {
 			writeErr(w, http.StatusNotFound, "account_not_found", err.Error())
 			return
@@ -344,7 +301,7 @@ func (s *Server) handleAccountByID(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusBadRequest, "provider_unsupported", "check-in is only available for WorkBuddy accounts")
 			return
 		}
-		records, err := s.manager.Store().ListCheckinRecords(r.Context(), accountID, 20)
+		records, err := s.control.Accounts.ListCheckins(r.Context(), accountID, 20)
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, "checkin_list_failed", err.Error())
 			return
@@ -352,7 +309,7 @@ func (s *Server) handleAccountByID(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"object": "list", "data": records})
 		return
 	}
-	if account, err := s.manager.Store().Get(r.Context(), accountID); err == nil && action == "checkin" {
+	if account, err := s.control.Accounts.GetStored(r.Context(), accountID); err == nil && action == "checkin" {
 		if r.Method != http.MethodPost {
 			writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "POST only")
 			return
@@ -361,7 +318,7 @@ func (s *Server) handleAccountByID(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusBadRequest, "provider_unsupported", "check-in is only available for WorkBuddy accounts")
 			return
 		}
-		updated, err := s.manager.CheckinAccount(r.Context(), accountID)
+		updated, err := s.control.Accounts.Checkin(r.Context(), accountID)
 		if err != nil {
 			writeErr(w, http.StatusBadRequest, "checkin_failed", err.Error())
 			return
@@ -370,7 +327,7 @@ func (s *Server) handleAccountByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Provider-native actions dispatch before the Qoder worker proxy.
-	if account, err := s.manager.Store().Get(r.Context(), accountID); err == nil && account.Provider != "qoder" {
+	if account, err := s.control.Accounts.GetStored(r.Context(), accountID); err == nil && account.Provider != "qoder" {
 		adapter, ok := s.providers.Get(account.Provider)
 		if !ok || adapter.Login == nil {
 			writeErr(w, http.StatusBadRequest, "provider_unsupported", "provider does not support this action")
@@ -433,7 +390,7 @@ func (s *Server) handleAccountByID(w http.ResponseWriter, r *http.Request) {
 				writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "GET only")
 				return
 			}
-			format, payload, err := s.manager.Store().LoadCredentialPayload(r.Context(), accountID)
+			format, payload, err := s.control.Accounts.LoadCredentialPayload(r.Context(), accountID)
 			if err != nil {
 				writeErr(w, http.StatusNotFound, "credential_not_found", err.Error())
 				return
@@ -453,12 +410,12 @@ func (s *Server) handleAccountByID(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "GET only")
 			return
 		}
-		account, err := s.manager.Store().Get(r.Context(), accountID)
+		account, err := s.control.Accounts.GetStored(r.Context(), accountID)
 		if err != nil {
 			writeErr(w, http.StatusNotFound, "account_not_found", err.Error())
 			return
 		}
-		credential, err := s.manager.Store().LoadCredential(r.Context(), accountID)
+		credential, err := s.control.Accounts.LoadNativeCredential(r.Context(), accountID)
 		if err != nil {
 			writeErr(w, http.StatusNotFound, "credential_not_found", err.Error())
 			return

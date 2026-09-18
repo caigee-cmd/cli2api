@@ -12,10 +12,10 @@ import (
 func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query().Get("refresh") == "1" {
 		refreshCtx, refreshCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		_ = s.manager.RefreshAll(refreshCtx, true)
+		_ = s.control.Accounts.RefreshAll(refreshCtx, true)
 		refreshCancel()
 	}
-	accountViews, err := s.manager.Accounts(r.Context())
+	accountViews, err := s.control.Accounts.List(r.Context(), false)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "account_list_failed", err.Error())
 		return
@@ -71,7 +71,7 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleOverviewSummary(w http.ResponseWriter, r *http.Request) {
-	accountViews, err := s.manager.Accounts(r.Context())
+	accountViews, err := s.control.Accounts.List(r.Context(), false)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "account_list_failed", err.Error())
 		return

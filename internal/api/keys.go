@@ -21,13 +21,10 @@ type consoleKeyView struct {
 func (s *Server) handleAPIKeys(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		keys, err := s.manager.Store().ListAPIKeys(r.Context())
+		keys, err := s.control.Keys.List(r.Context())
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, "api_key_list_failed", err.Error())
 			return
-		}
-		if keys == nil {
-			keys = []accounts.APIKey{}
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"object": "list", "data": keys})
 	case http.MethodPost:
@@ -44,7 +41,7 @@ func (s *Server) handleAPIKeys(w http.ResponseWriter, r *http.Request) {
 		if input.Enabled != nil {
 			enabled = *input.Enabled
 		}
-		key, err := s.manager.Store().CreateAPIKey(r.Context(), accounts.CreateAPIKey{
+		key, err := s.control.Keys.Create(r.Context(), accounts.CreateAPIKey{
 			Name: input.Name, Providers: input.Providers, Enabled: enabled,
 		})
 		if err != nil {
@@ -65,7 +62,7 @@ func (s *Server) handleAPIKeyByID(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case http.MethodGet:
-		key, err := s.manager.Store().GetAPIKey(r.Context(), id)
+		key, err := s.control.Keys.Get(r.Context(), id)
 		if errors.Is(err, accounts.ErrAPIKeyNotFound) {
 			writeErr(w, http.StatusNotFound, "api_key_not_found", err.Error())
 			return
@@ -85,7 +82,7 @@ func (s *Server) handleAPIKeyByID(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
 			return
 		}
-		key, err := s.manager.Store().UpdateAPIKey(r.Context(), id, accounts.UpdateAPIKey{
+		key, err := s.control.Keys.Update(r.Context(), id, accounts.UpdateAPIKey{
 			Name: input.Name, Providers: input.Providers, Enabled: input.Enabled,
 		})
 		if errors.Is(err, accounts.ErrAPIKeyNotFound) {
@@ -98,7 +95,7 @@ func (s *Server) handleAPIKeyByID(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, key)
 	case http.MethodDelete:
-		if err := s.manager.Store().DeleteAPIKey(r.Context(), id); errors.Is(err, accounts.ErrAPIKeyNotFound) {
+		if err := s.control.Keys.Delete(r.Context(), id); errors.Is(err, accounts.ErrAPIKeyNotFound) {
 			writeErr(w, http.StatusNotFound, "api_key_not_found", err.Error())
 			return
 		} else if err != nil {
@@ -135,14 +132,14 @@ func (s *Server) handleConsoleKey(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusInternalServerError, "console_key_rotate_failed", err.Error())
 			return
 		}
-		if err := s.manager.Store().SetSecret(r.Context(), proxyAPIKeySecret, secret); err != nil {
+		if err := s.control.Keys.SetConsoleSecret(r.Context(), proxyAPIKeySecret, secret); err != nil {
 			writeErr(w, http.StatusInternalServerError, "console_key_rotate_failed", err.Error())
 			return
 		}
 		s.cfg.ProxyAPIKey = secret
-		s.auth = auth.NewVerifier(secret, s.manager.Store())
+		s.auth = auth.NewVerifier(secret, s.control.Accounts.Store())
 		s.executor.WorkerKey = secret
-		if err := s.manager.ReplaceProxyAPIKey(r.Context(), secret); err != nil {
+		if err := s.control.Accounts.ReplaceProxyAPIKey(r.Context(), secret); err != nil {
 			writeErr(w, http.StatusInternalServerError, "console_key_rotate_failed", err.Error())
 			return
 		}

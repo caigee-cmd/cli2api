@@ -18,6 +18,7 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/auth"
 	"github.com/caigee-cmd/cli2api/internal/buildinfo"
 	"github.com/caigee-cmd/cli2api/internal/config"
+	appsvc "github.com/caigee-cmd/cli2api/internal/control"
 	"github.com/caigee-cmd/cli2api/internal/executor"
 	applogs "github.com/caigee-cmd/cli2api/internal/logs"
 	"github.com/caigee-cmd/cli2api/internal/providers"
@@ -34,6 +35,7 @@ type Server struct {
 	executor               executor.ChatExecutor
 	pool                   *accounts.Pool
 	manager                *accounts.Manager
+	control                *appsvc.Services
 	providers              *providers.Registry
 	recorder               *applogs.RequestRecorder
 	ring                   *applogs.Ring
@@ -131,6 +133,7 @@ func New(cfg config.Config) *Server {
 		executor:      chatExecutor,
 		pool:          pool,
 		manager:       manager,
+		control:       appsvc.New(manager),
 		providers:     providerReg,
 		recorder:      recorder,
 		ring:          ring,

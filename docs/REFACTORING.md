@@ -4,7 +4,7 @@ title: 后端工程化重构实施手册（行为保持）
 scope: [backend, package-boundaries, refactoring, compatibility, testing, rollout]
 status: in-progress
 read-when: 评估或执行不改变现有功能的后端职责拆分、制定重构 PR、检查兼容性与回滚条件时
-summary: 基于现有实现的渐进式工程化重构方案，包含目标职责、迁移映射、状态所有权、16 个实施阶段、测试矩阵、PR 规则、发布回滚和完成标准。S00–S05 已验收；control/runtime 跨包迁移尚未开始。
+summary: 基于现有实现的渐进式工程化重构方案，包含目标职责、迁移映射、状态所有权、16 个实施阶段、测试矩阵、PR 规则、发布回滚和完成标准。S00–S06 已验收；runtime 跨包迁移尚未开始。
 related: [AGENTS.md, docs/ARCHITECTURE.md, docs/REQUEST.md, docs/PLAN.md, docs/DEVELOPMENT.md]
 last-updated: 2026-09-18
 ---
@@ -523,7 +523,7 @@ executor 仍 import accounts
 - [x] S03：accounts 同包拆文件完成，生命周期回归通过。
 - [x] S04：类型/接口边界整理完成，无循环依赖。
 - [x] S05：Store 迁移完成，历史 SQL 摘要与旧库兼容通过。
-- [ ] S06：control 操作迁移完成，副作用顺序验证通过。
+- [x] S06：control 操作迁移完成，副作用顺序验证通过。
 - [ ] S07：runtime 迁移完成，任务与资源所有权验证通过。
 - [ ] S08：Qoder 具体实现归位，上游交互与启动配置验证通过。
 - [ ] S09：Qoder Adapter 分能力接线完成，兼容验证通过。
@@ -1209,21 +1209,63 @@ grants 不迁到 auth：`ParseProviderGrant` 依赖 `providers.Get`，Pool 与 `
 
 执行：
 
-- [ ] 对 Create/Update/Delete/Import/登录完成/代理更新/key 更新列出成功和中途失败路径。
-- [ ] control 初期通过窄接口调用旧 Manager，不直接重新实现进程操作。
-- [ ] 先移动账号操作编排，再移动设置/key 操作。
-- [ ] 保留同一临界区内的步骤，不拆出锁后产生新的中间可见状态。
-- [ ] 保留落库成功但 runtime 失败时的现有返回与恢复方式。
-- [ ] AccountView 组合持久化数据和实时快照，不维护第二份运行时状态。
-- [ ] 查询保留 `refresh=0/1`、forceQuota 与被动展示的区别。
-- [ ] 备份控制逻辑调用 store 备份能力，不复制 SQLite 备份实现。
-- [ ] HTTP 错误映射暂时仍在 api，control 返回原有可识别错误。
+- [x] 对 Create/Update/Delete/Import/登录完成/代理更新/key 更新列出成功和中途失败路径。
+  - 验证：见下方「S06 操作路径」。登录完成仍走 provider adapter / Qoder worker proxy，control 不重做。
+- [x] control 初期通过窄接口调用旧 Manager，不直接重新实现进程操作。
+  - 验证：`control.Runtime` 由 `*accounts.Manager` 满足；Create/Update/Delete/Import/Refresh/Checkin/ReloadProxyURL/ReplaceProxyAPIKey 转发 Manager。
+- [x] 先移动账号操作编排，再移动设置/key 操作。
+  - 验证：`internal/control/accounts.go` 先立 facade；随后 Keys/Settings/Backup 与 HTTP 接线。
+- [x] 保留同一临界区内的步骤，不拆出锁后产生新的中间可见状态。
+  - 验证：PATCH settings 仍在 `settingsMu` 内读/比/写/ReloadProxyURL；console key 仍是 SetSecret → live cfg/auth/executor → ReplaceProxyAPIKey。
+- [x] 保留落库成功但 runtime 失败时的现有返回与恢复方式。
+  - 验证：Create 启动失败仍返回已有行+err；Import native 凭据失败仍 Delete；payload 失败 Delete；Get 失败仍 201。`s06_control_test.go` 锁顺序。
+- [x] AccountView 组合持久化数据和实时快照，不维护第二份运行时状态。
+  - 验证：`Accounts.Get` 调 `runtime.AccountView`；control 不缓存 Ready/Hot/InFlight。
+- [x] 查询保留 `refresh=0/1`、forceQuota 与被动展示的区别。
+  - 验证：列表 `refresh=1` → RefreshAll(true)+Accounts；overview `refresh=1` 单独 RefreshAll(true) 后再 List(false)；单账号 refresh 仍先 GetStored、再 RefreshAccount(quota==1)、再 AccountView。
+- [x] 备份控制逻辑调用 store 备份能力，不复制 SQLite 备份实现。
+  - 验证：`Backup.Snapshot` → `store.Backup`；无 VACUUM SQL。
+- [x] HTTP 错误映射暂时仍在 api，control 返回原有可识别错误。
+  - 验证：handler 仍 `writeErr`；control 不映射状态码。登录/worker proxy 仍在 api。
 
-**禁止：** 事件总线、异步 CRUD、新事务补偿、统一重试、重做参数验证。
+**禁止：** 事件总线、异步 CRUD、新事务补偿、统一重试、重做参数验证。未引入。
 
 **通过：** 每个操作的数据库/runtime/pool 状态和失败顺序与旧实现一致。
 
 **回滚：** 保留旧窄入口期间可逐操作撤销；不要依靠并行执行新旧操作来比对。
+
+#### S06 操作路径
+
+成功与中途失败均以旧 Manager/HTTP 为准，control 只转发：
+
+| 操作 | 成功顺序 | 中途失败 |
+|---|---|---|
+| Create | `store.Create` → 若 Enabled `startAccountWithRecovery` → 返回行 | Create 失败无行；启动失败返回已有行+err |
+| Update | Get → `store.Update` → Get after → pool DropSystemPrompt/weight；disable→stop；enable→start；enabled+child proxy/MaxInFlight→stop+start | Get/Update 失败无 runtime；stop/start 失败时行已更新 |
+| Delete | `stopAccount` → `store.Delete` → 清 restarts/backoff → `RemoveAll` runtime dir | stop 失败行仍在；Delete 失败时进程已停 |
+| Import native | Create disabled → SaveCredential；失败 Delete；若 Enabled Update+start | 凭据失败删行；enable 失败留下 disabled；start 失败返回 enabled 行+err |
+| Import trae/WB/devin | Create disabled → SaveCredentialPayload；失败 Delete；UID/UserID 非空且 Enabled 才 Update；Get 忽略错误 | payload 失败删行；enable 失败留下凭据；Get 失败仍 201 |
+| 登录完成 | HTTP 调 provider Login 或 Qoder worker proxy | control 不重做；错误码仍在 api |
+| 代理 PATCH | `settingsMu` 内读/Preserve/校验；变则 `SetSecretOrEmpty`；始终 `ReloadProxyURL` | 读失败 500；校验失败 400；reload 失败 500（可能已落库） |
+| Console key | `SetSecret` → live cfg/auth/executor → `ReplaceProxyAPIKey` | persist 失败不换 live；Replace 失败时 secret 已 live |
+| Backup | `store.Backup(dir, keep)` | 原错误上抛；无 Restore API |
+
+#### S06 阶段验收
+
+```text
+阶段编号：S06
+验收日期与确认人：2026-09-18；执行记录写入本手册
+本次勾选的任务：S06 全部执行项与 7.2 阶段摘要
+未勾选任务、例外批准与影响：登录完成仍在 api/provider；Qoder worker proxy 仍用 Manager.AccountURL/SyncCredential；Close 仍 manager.Close+Store.Close。真实账号/托管更新/race/frontend 不在本阶段
+阶段复选框是否允许勾选：是（薄 facade；副作用顺序测试通过；HTTP 错误映射仍在 api）
+合入/候选 SHA：分支 refactor/s06-control，起点 4fb2b76
+完成的职责迁移：账号/key/settings/backup 编排归 internal/control；进程启停仍在 Manager
+保留的临时依赖：api.New 仍组装 Manager；Server 仍持有 manager（probe/worker proxy/Close）；Runtime 由 *accounts.Manager 实现
+测试证据：go test ./...、go vet ./...、go build ./cmd/server ./cmd/updater
+真实环境验收证据：未执行
+是否允许进入下一阶段：S07（提取 runtime 生命周期）可开始；不自动开工
+失败时回退到哪个已验收节点：撤销本阶段提交；S05 Store 基线仍在
+```
 
 ### S07：提取 runtime 生命周期
 

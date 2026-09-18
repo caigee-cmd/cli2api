@@ -107,12 +107,12 @@ func ensureWorkBuddyCheckinTime(ctx context.Context, store secretStore) (string,
 }
 
 func (s *Server) currentSystemSettings() systemSettings {
-	proxyURL, _, _ := s.manager.Store().GetSecret(context.Background(), proxyURLSecret)
+	proxyURL, _, _ := s.control.Settings.GetSecret(context.Background(), proxyURLSecret)
 	return systemSettings{
 		CrossProviderModelPool: s.crossProviderModelPool.Load(),
 		RoutingStrategy:        s.pool.RoutingStrategy(),
 		ProxyURL:               proxy.Redact(proxyURL),
-		WorkBuddyCheckinTime:   s.manager.Store().WorkBuddyCheckinTimeDefault(context.Background()),
+		WorkBuddyCheckinTime:   s.control.Settings.WorkBuddyCheckinTimeDefault(context.Background()),
 		SessionAffinity:        s.executor.SessionAffinity.Stats(),
 	}
 }
@@ -176,7 +176,7 @@ func (s *Server) handleSystemSettings(w http.ResponseWriter, r *http.Request) {
 			// compute proxyChanged against a stale read and then skip the write
 			// while switching the runtime back to the old proxy, leaving the
 			// database and the running workers disagreeing.
-			existing, _, err := s.manager.Store().GetSecret(r.Context(), proxyURLSecret)
+			existing, _, err := s.control.Settings.GetSecret(r.Context(), proxyURLSecret)
 			if err != nil {
 				writeErr(w, http.StatusInternalServerError, "system_settings_read_failed", err.Error())
 				return
@@ -195,12 +195,12 @@ func (s *Server) handleSystemSettings(w http.ResponseWriter, r *http.Request) {
 			// workers actually need restarting is the Manager's call, which
 			// knows if a previous reload failed.
 			if proxyChanged {
-				if err := s.manager.Store().SetSecretOrEmpty(r.Context(), proxyURLSecret, proxyURL); err != nil {
+				if err := s.control.Settings.SetSecretOrEmpty(r.Context(), proxyURLSecret, proxyURL); err != nil {
 					writeErr(w, http.StatusInternalServerError, "system_settings_save_failed", err.Error())
 					return
 				}
 			}
-			if err := s.manager.ReloadProxyURL(r.Context(), proxyURL); err != nil {
+			if err := s.control.Accounts.ReloadProxyURL(r.Context(), proxyURL); err != nil {
 				writeErr(w, http.StatusInternalServerError, "proxy_reload_failed", err.Error())
 				return
 			}
@@ -211,21 +211,21 @@ func (s *Server) handleSystemSettings(w http.ResponseWriter, r *http.Request) {
 			if enabled {
 				value = "1"
 			}
-			if err := s.manager.Store().SetSecret(r.Context(), crossProviderModelPoolSecret, value); err != nil {
+			if err := s.control.Settings.SetSecret(r.Context(), crossProviderModelPoolSecret, value); err != nil {
 				writeErr(w, http.StatusInternalServerError, "system_settings_save_failed", err.Error())
 				return
 			}
 			s.crossProviderModelPool.Store(enabled)
 		}
 		if input.RoutingStrategy != nil {
-			if err := s.manager.Store().SetSecret(r.Context(), routingStrategySecret, strategy); err != nil {
+			if err := s.control.Settings.SetSecret(r.Context(), routingStrategySecret, strategy); err != nil {
 				writeErr(w, http.StatusInternalServerError, "system_settings_save_failed", err.Error())
 				return
 			}
 			s.pool.SetRoutingStrategy(strategy)
 		}
 		if input.WorkBuddyCheckinTime != nil {
-			if err := s.manager.Store().SetSecret(r.Context(), accounts.WorkBuddyCheckinTimeSecret, checkinTime); err != nil {
+			if err := s.control.Settings.SetSecret(r.Context(), accounts.WorkBuddyCheckinTimeSecret, checkinTime); err != nil {
 				writeErr(w, http.StatusInternalServerError, "system_settings_save_failed", err.Error())
 				return
 			}
