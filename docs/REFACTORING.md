@@ -4,7 +4,7 @@ title: 后端工程化重构实施手册（行为保持）
 scope: [backend, package-boundaries, refactoring, compatibility, testing, rollout]
 status: in-progress
 read-when: 评估或执行不改变现有功能的后端职责拆分、制定重构 PR、检查兼容性与回滚条件时
-summary: 基于现有实现的渐进式工程化重构方案，包含目标职责、迁移映射、状态所有权、16 个实施阶段、测试矩阵、PR 规则、发布回滚和完成标准。S00–S13 已验收；routes/auth/webui 仍在 api。
+summary: 基于现有实现的渐进式工程化重构方案，包含目标职责、迁移映射、状态所有权、16 个实施阶段、测试矩阵、PR 规则、发布回滚和完成标准。S00–S14 已验收；api 仅作兼容门面，S15 清理。
 related: [AGENTS.md, docs/ARCHITECTURE.md, docs/REQUEST.md, docs/PLAN.md, docs/DEVELOPMENT.md]
 last-updated: 2026-09-18
 ---
@@ -531,7 +531,7 @@ executor 仍 import accounts
 - [x] S11：共享请求准备与模型服务完成，所有入口行为验证通过。
 - [x] S12：gateway 迁移完成，HTTP/SSE 契约验证通过。
 - [x] S13：console/update 迁移完成，控制台与更新契约验证通过。
-- [ ] S14：server/app/cmd 接线完成，启动关闭与进程级验证通过。
+- [x] S14：server/app/cmd 接线完成，启动关闭与进程级验证通过。
 - [ ] S15：过渡层清理、依赖守卫、文档和最终验收完成。
 
 ### 7.3 阶段范围、依赖与风险
@@ -1635,28 +1635,60 @@ logs/overview → providers/models → settings/keys
 
 先 server：
 
-- [ ] 迁移原 route 注册、health、中间件和 webui fallback。
-- [ ] 接收构造好的 handler 和 auth/update 读接口，不自行建 Store/Manager。
-- [ ] CORS → OPTIONS → maintenance → mux/auth 顺序按原实现保持。
-- [ ] 保留 ServeMux 的精确/前缀匹配和默认错误行为。
+- [x] 迁移原 route 注册、health、中间件和 webui fallback。
+  - 验证：`internal/server` 含 router/middleware/health/webui；ServeMux 路径与 SPA fallback 未改。
+- [x] 接收构造好的 handler 和 auth/update 读接口，不自行建 Store/Manager。
+  - 验证：`server.New` 只收 Auth/Gateway/Console/Update/TouchKey；无 store/runtime import。
+- [x] CORS → OPTIONS → maintenance → mux/auth 顺序按原实现保持。
+  - 验证：`Handler()` 仍先 OpenAI CORS/OPTIONS，再 `BlocksDuringUpdate`，再 mux。
+- [x] 保留 ServeMux 的精确/前缀匹配和默认错误行为。
+  - 验证：路由注册仍用 `http.ServeMux`；S01 HTTP 契约测试通过。
 
 再 app：
 
-- [ ] 原样记录 New 内的每一步初始化以及后台 goroutine 启动点。
-- [ ] 将 store/config bootstrap/log ring/provider/runtime/executor/control/handler 接线归位。
-- [ ] 保留默认 data/runtime 目录、key/proxy bootstrap 优先级和错误行为。
-- [ ] 保留 manager.Start、provider SetProviders、refresh/maintenance 的真实顺序。
-- [ ] app 只持有需要关闭的资源和对外 Handler，不提供服务定位器给各模块。
-- [ ] 保留 shutdown 顺序；不要擅自修改 panic/error、重入 Close 或 timeout 策略。
-- [ ] 确认新 app/server/gateway/console 不再 import 旧 api。
-- [ ] 此时才允许 `api.New → app.New` 兼容转发。
-- [ ] 最后修改 `cmd/server` 的 import 与构造调用。
-- [ ] cmd 的 dotenv、配置来源、信号、ReadHeaderTimeout/IdleTimeout/Shutdown timeout 不变。
-- [ ] `cmd/updater` 不动。
+- [x] 原样记录 New 内的每一步初始化以及后台 goroutine 启动点。
+  - 验证：`app.New` 顺序仍是 OpenStore → key/proxy/settings bootstrap → ring → Manager.Start → providers → RefreshAll goroutine → recorder PurgeLoop → WorkBuddy loop → executor → gateway/console → HTTP server。
+- [x] 将 store/config bootstrap/log ring/provider/runtime/executor/control/handler 接线归位。
+  - 验证：上述接线均在 `internal/app`；catalog fetch 与 Qoder worker proxy 随 assembler。
+- [x] 保留默认 data/runtime 目录、key/proxy bootstrap 优先级和错误行为。
+  - 验证：默认 data/runtime 路径与 `ensure*` 行为随文件迁入 app；bootstrap 测试经 api 包装通过。
+- [x] 保留 manager.Start、provider SetProviders、refresh/maintenance 的真实顺序。
+  - 验证：Start 后 Register/SetProviders/SetWorkBuddy，再 `go RefreshAll`。
+- [x] app 只持有需要关闭的资源和对外 Handler，不提供服务定位器给各模块。
+  - 验证：模块仍经构造注入；gateway/console/server 不回头取 App。
+- [x] 保留 shutdown 顺序；不要擅自修改 panic/error、重入 Close 或 timeout 策略。
+  - 验证：`Close` 仍 close stopLogs 后 `manager.Close`+store.Close；cmd Shutdown timeout 10s 未改。
+- [x] 确认新 app/server/gateway/console 不再 import 旧 api。
+  - 验证：`go list` 上述包无 `internal/api` import。
+- [x] 此时才允许 `api.New → app.New` 兼容转发。
+  - 验证：`api.New` 构造 `app.New`；测试仍走 `api.New`。
+- [x] 最后修改 `cmd/server` 的 import 与构造调用。
+  - 验证：`cmd/server` import `internal/app` 并调用 `app.New`。
+- [x] cmd 的 dotenv、配置来源、信号、ReadHeaderTimeout/IdleTimeout/Shutdown timeout 不变。
+  - 验证：`godotenv.Load`、`config.Load`、SIGINT/SIGTERM、10s/120s/10s 未改。
+- [x] `cmd/updater` 不动。
+  - 验证：未改 `cmd/updater`。
 
 **通过：** 从 cmd 构建和进程级 smoke test 通过；初始化轨迹与旧版一致；无循环 import。
 
 **回滚：** 切换 cmd 的提交可单独撤销；兼容 api 门面存在期间可恢复旧调用名，但它不是两套 runtime。
+
+#### S14 阶段验收
+
+```text
+阶段编号：S14
+验收日期与确认人：2026-09-18；执行记录写入本手册
+本次勾选的任务：S14 全部执行项与 7.2 阶段摘要
+未勾选任务、例外批准与影响：api 保留为测试兼容门面（api.New → app.New）；catalog fetch 与 Qoder worker proxy 仍由 app 注入。race/frontend/真实账号不在本阶段。
+阶段复选框是否允许勾选：是（server 不建 Store/Manager；app.New 保持启动顺序；cmd/server 已切换；app/server/gateway/console 不 import api）
+合入/候选 SHA：分支 refactor/s14-app-server，起点 c7f696a
+完成的职责迁移：HTTP 路由/中间件归 internal/server；组装归 internal/app；cmd/server 调用 app.New
+保留的临时依赖：internal/api 兼容门面与测试包装；S15 清理 alias/未用 helper
+测试证据：go test ./...、go vet ./internal/app ./internal/server ./internal/api ./cmd/server、go build ./cmd/server ./cmd/updater
+真实环境验收证据：未执行
+是否允许进入下一阶段：S15（清理/依赖守卫）可开始；不自动开工
+失败时回退到哪个已验收节点：撤销本阶段提交；S13 console/update 仍在
+```
 
 ### S15：清理、依赖守卫和最终验收
 

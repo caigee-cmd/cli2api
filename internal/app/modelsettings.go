@@ -1,4 +1,4 @@
-package api
+package app
 
 import (
 	"context"
@@ -13,17 +13,17 @@ const (
 	miniMaxM3ContextLimit = 1000000
 )
 
-func canonicalModelID(model string) string {
+func CanonicalModelID(model string) string {
 	key := strings.ToLower(strings.TrimSpace(model))
 	key = strings.NewReplacer("_", "-", " ", "-").Replace(key)
 	return key
 }
-func modelContextKey(model string) string {
-	return canonicalModelID(model)
+func ModelContextKey(model string) string {
+	return CanonicalModelID(model)
 }
 
 func defaultContextForModel(model string) int {
-	if canonicalModelID(model) == "minimax-m3" {
+	if CanonicalModelID(model) == "minimax-m3" {
 		return miniMaxM3ContextLimit
 	}
 	return defaultContextLength
@@ -45,7 +45,7 @@ func asInt(value any) (int, bool) {
 	}
 }
 
-func (s *Server) decorateProviderSettings(ctx context.Context, item map[string]any, provider, settingsKey string) {
+func (a *App) decorateProviderSettings(ctx context.Context, item map[string]any, provider, settingsKey string) {
 	dev, _ := asInt(item["catalog_context_length"])
 	max, _ := asInt(item["catalog_context_length_max"])
 	supportsMax, _ := item["supports_max_mode"].(bool)
@@ -54,8 +54,8 @@ func (s *Server) decorateProviderSettings(ctx context.Context, item map[string]a
 		item["supports_max_mode"] = true
 	}
 	var setting accounts.ProviderModelSetting
-	if s.control != nil && s.control.Settings != nil {
-		setting, _ = s.control.Settings.GetProviderModelSetting(ctx, provider, settingsKey)
+	if a.Control != nil && a.Control.Settings != nil {
+		setting, _ = a.Control.Settings.GetProviderModelSetting(ctx, provider, settingsKey)
 	}
 	maxMode := setting.MaxMode && supportsMax && provider == "trae"
 	item["max_mode"] = maxMode
@@ -78,10 +78,10 @@ func (s *Server) decorateProviderSettings(ctx context.Context, item map[string]a
 	item["context_custom"] = maxMode || (setting.ReasoningEffort != "" && setting.ReasoningEffort != defaultLevel)
 }
 
-func (s *Server) decorateModelsWithContext(ctx context.Context, models []map[string]any) []map[string]any {
+func (a *App) decorateModelsWithContext(ctx context.Context, models []map[string]any) []map[string]any {
 	settings := map[string]int{}
-	if s.control != nil && s.control.Settings != nil {
-		listed, err := s.control.Settings.ListModelContexts(ctx)
+	if a.Control != nil && a.Control.Settings != nil {
+		listed, err := a.Control.Settings.ListModelContexts(ctx)
 		if err == nil {
 			settings = listed
 		}
@@ -98,7 +98,7 @@ func (s *Server) decorateModelsWithContext(ctx context.Context, models []map[str
 			provider, _ = item["owned_by"].(string)
 		}
 		provider = strings.ToLower(strings.TrimSpace(provider))
-		settingsKey := modelContextKey(id)
+		settingsKey := ModelContextKey(id)
 		item["settings_key"] = settingsKey
 		item["context_editable"] = provider == "" || provider == "qoder"
 		if catalogWindow, ok := asInt(item["catalog_context_length"]); ok && catalogWindow > 0 {
@@ -106,7 +106,7 @@ func (s *Server) decorateModelsWithContext(ctx context.Context, models []map[str
 		}
 		switch provider {
 		case "trae", "workbuddy":
-			s.decorateProviderSettings(ctx, item, provider, settingsKey)
+			a.decorateProviderSettings(ctx, item, provider, settingsKey)
 		default:
 			defaultValue := defaultContextForModel(settingsKey)
 			value, custom := settings[settingsKey]

@@ -10,7 +10,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/caigee-cmd/cli2api/internal/api"
+	"github.com/caigee-cmd/cli2api/internal/app"
 	"github.com/caigee-cmd/cli2api/internal/config"
 	"github.com/joho/godotenv"
 )
@@ -21,12 +21,12 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	app := api.New(cfg)
-	defer app.Close()
+	application := app.New(cfg)
+	defer application.Close()
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
 	httpServer := &http.Server{
 		Addr:              addr,
-		Handler:           app.Handler(),
+		Handler:           application.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}

@@ -89,7 +89,7 @@ func TestUnauthorizedChatReturnsInvalidAPIKeyBody(t *testing.T) {
 
 func TestNamedAPIKeyCannotUseConsoleChat(t *testing.T) {
 	srv := newS01HTTPServer(t)
-	created, err := srv.manager.Store().CreateAPIKey(context.Background(), accounts.CreateAPIKey{
+	created, err := srv.Manager.Store().CreateAPIKey(context.Background(), accounts.CreateAPIKey{
 		Name: "ci", Providers: []string{"qoder"}, Enabled: true,
 	})
 	if err != nil {
@@ -107,8 +107,8 @@ func TestNamedAPIKeyCannotUseConsoleChat(t *testing.T) {
 func TestMaintenanceBlocksAPIAndV1ButKeepsUpdateAndHealth(t *testing.T) {
 	srv := newS01HTTPServer(t)
 	srv.updater().Maintenance.Store(true)
-	srv.updateChecker = &updateCheckerStub{info: control.Info{CurrentVersion: "v0.5.7", Managed: true}}
-	srv.updateAgent = &updateAgentStub{status: control.AgentStatus{Available: true, State: "idle"}}
+	srv.UpdateChecker = &updateCheckerStub{info: control.Info{CurrentVersion: "v0.5.7", Managed: true}}
+	srv.UpdateAgent = &updateAgentStub{status: control.AgentStatus{Available: true, State: "idle"}}
 
 	blocked := []struct{ method, path, body string }{
 		{http.MethodGet, "/api/overview", ""},
@@ -236,21 +236,21 @@ func TestFailedNativeImportLeavesNoAccount(t *testing.T) {
 	if rec.Code != http.StatusBadRequest || !bytes.Contains(rec.Body.Bytes(), []byte(`"code":"account_import_failed"`)) {
 		t.Fatalf("import: %d %s", rec.Code, rec.Body.String())
 	}
-	accounts, err := srv.manager.Store().List(context.Background())
+	accounts, err := srv.Manager.Store().List(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(accounts) != 0 {
 		t.Fatalf("leftover accounts=%+v", accounts)
 	}
-	if items := srv.pool.Items(); len(items) != 0 {
+	if items := srv.Pool.Items(); len(items) != 0 {
 		t.Fatalf("leftover pool=%+v", items)
 	}
 }
 
 func TestNamedAPIKeyCannotImportAccounts(t *testing.T) {
 	srv := newS01HTTPServer(t)
-	created, err := srv.manager.Store().CreateAPIKey(context.Background(), accounts.CreateAPIKey{
+	created, err := srv.Manager.Store().CreateAPIKey(context.Background(), accounts.CreateAPIKey{
 		Name: "ci", Providers: []string{"qoder"}, Enabled: true,
 	})
 	if err != nil {
@@ -264,12 +264,12 @@ func TestNamedAPIKeyCannotImportAccounts(t *testing.T) {
 
 func TestClearRequestLogsRequiresConsoleKey(t *testing.T) {
 	srv := newS01HTTPServer(t)
-	if err := srv.recorder.Store().InsertRequestLog(context.Background(), accounts.RequestLog{
+	if err := srv.Recorder.Store().InsertRequestLog(context.Background(), accounts.RequestLog{
 		ID: accounts.NewRequestID(), CreatedAt: time.Now().UTC(), Status: accounts.RequestStatusOK, RequestedModel: "glm-5.2",
 	}); err != nil {
 		t.Fatal(err)
 	}
-	created, err := srv.manager.Store().CreateAPIKey(context.Background(), accounts.CreateAPIKey{
+	created, err := srv.Manager.Store().CreateAPIKey(context.Background(), accounts.CreateAPIKey{
 		Name: "ci", Providers: []string{"qoder"}, Enabled: true,
 	})
 	if err != nil {
@@ -287,8 +287,8 @@ func TestClearRequestLogsRequiresConsoleKey(t *testing.T) {
 
 func TestMaintenanceApplyConflictAndFailedAgentUnblock(t *testing.T) {
 	srv := newS01HTTPServer(t)
-	srv.updateChecker = &updateCheckerStub{info: control.Info{CurrentVersion: "v0.2.1", NextVersion: "v0.2.2", HasUpdate: true, Managed: true}}
-	srv.updateAgent = &updateAgentStub{status: control.AgentStatus{
+	srv.UpdateChecker = &updateCheckerStub{info: control.Info{CurrentVersion: "v0.2.1", NextVersion: "v0.2.2", HasUpdate: true, Managed: true}}
+	srv.UpdateAgent = &updateAgentStub{status: control.AgentStatus{
 		Available: true, StagedUpdate: true, State: "ready_to_apply", JobID: "agent-job",
 		CurrentVersion: "v0.2.1", TargetVersion: "v0.2.2",
 	}}
@@ -307,21 +307,21 @@ func TestMaintenanceApplyConflictAndFailedAgentUnblock(t *testing.T) {
 		t.Fatalf("prepare conflict: %d %s", conflict.Code, conflict.Body.String())
 	}
 
-		srv.updater().Maintenance.Store(true)
-		srv.updater().Running.Store(true)
-		srv.updater().ReplaceJob(&systemUpdateJob{JobID: "update-2", AgentJobID: "agent-fail", State: "running"})
-		srv.finishUpdateJob("update-2", "failed", "host apply failed", true)
-		srv.updater().Maintenance.Store(false)
-		srv.updater().Running.Store(false)
-		job := srv.snapshotUpdateJob()
-		if job == nil || job.State != "failed" || job.Error != "host apply failed" {
-			t.Fatalf("failed agent job=%+v", job)
-		}
-		if srv.updater().Maintenance.Load() || srv.updater().Running.Load() {
-			t.Fatal("failed agent should unblock traffic")
-		}
-		open := serveS01(t, srv, http.MethodGet, "/api/overview", "", "secret")
-		if open.Code != http.StatusOK {
-			t.Fatalf("overview after failed agent: %d %s", open.Code, open.Body.String())
-		}
+	srv.updater().Maintenance.Store(true)
+	srv.updater().Running.Store(true)
+	srv.updater().ReplaceJob(&systemUpdateJob{JobID: "update-2", AgentJobID: "agent-fail", State: "running"})
+	srv.finishUpdateJob("update-2", "failed", "host apply failed", true)
+	srv.updater().Maintenance.Store(false)
+	srv.updater().Running.Store(false)
+	job := srv.snapshotUpdateJob()
+	if job == nil || job.State != "failed" || job.Error != "host apply failed" {
+		t.Fatalf("failed agent job=%+v", job)
 	}
+	if srv.updater().Maintenance.Load() || srv.updater().Running.Load() {
+		t.Fatal("failed agent should unblock traffic")
+	}
+	open := serveS01(t, srv, http.MethodGet, "/api/overview", "", "secret")
+	if open.Code != http.StatusOK {
+		t.Fatalf("overview after failed agent: %d %s", open.Code, open.Body.String())
+	}
+}

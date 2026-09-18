@@ -4,7 +4,7 @@ import (
 	accountruntime "github.com/caigee-cmd/cli2api/internal/runtime"
 )
 
-// Services is the console application surface assembled by api.New.
+// Services is the console application surface assembled by app.New.
 type Services struct {
 	Accounts *Accounts
 	Keys     *Keys

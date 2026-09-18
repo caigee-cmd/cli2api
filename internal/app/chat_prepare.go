@@ -1,4 +1,4 @@
-package api
+package app
 
 import (
 	"context"
@@ -14,27 +14,27 @@ type chatHTTPError = executor.PrepareError
 type chatExecution = apigateway.Execution
 type compatibilityExecution = apigateway.Execution
 
-func (s *Server) rejectsBareModel(model string) bool {
-	poolOn := s != nil && s.crossProviderModelPool.Load()
+func (a *App) rejectsBareModel(model string) bool {
+	poolOn := a != nil && a.CrossProviderModelPool.Load()
 	return executor.RejectsBareModel(model, poolOn)
 }
 
-func (s *Server) resolveProviderFilter(req *translate.ChatRequest) string {
-	poolOn := s != nil && s.crossProviderModelPool.Load()
+func (a *App) resolveProviderFilter(req *translate.ChatRequest) string {
+	poolOn := a != nil && a.CrossProviderModelPool.Load()
 	return executor.ResolveProviderFilter(req, poolOn)
 }
 
-func (s *Server) applyPinnedProviderFilter(providerFilter, publicModel, prefer string) string {
-	if s == nil {
+func (a *App) applyPinnedProviderFilter(providerFilter, publicModel, prefer string) string {
+	if a == nil {
 		return providerFilter
 	}
-	return executor.ApplyPinnedProviderFilter(s.pool, providerFilter, publicModel, prefer)
+	return executor.ApplyPinnedProviderFilter(a.Pool, providerFilter, publicModel, prefer)
 }
 
-func (s *Server) applyModelContextDefaults(ctx context.Context, req *translate.ChatRequest, providerFilter string) error {
+func (a *App) ApplyModelContextDefaults(ctx context.Context, req *translate.ChatRequest, providerFilter string) error {
 	var store executor.ModelContextStore
-	if s != nil && s.control != nil {
-		store = s.control.Settings
+	if a != nil && a.Control != nil {
+		store = a.Control.Settings
 	}
 	return executor.ApplyModelContextDefaults(ctx, store, req, providerFilter)
 }

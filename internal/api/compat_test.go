@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
+	"github.com/caigee-cmd/cli2api/internal/app"
 	"github.com/caigee-cmd/cli2api/internal/auth"
 	"github.com/caigee-cmd/cli2api/internal/executor"
 	"github.com/caigee-cmd/cli2api/internal/providers"
@@ -47,7 +48,7 @@ func newCompatibilityServer(t *testing.T, worker http.HandlerFunc) (*Server, fun
 	pool.Upsert(executor.Item{ID: "account-a", URL: upstream.URL, Provider: "qoder", Region: "global", Runtime: "child_process"})
 	chatExecutor := executor.NewChatExecutor(pool, "")
 	chatExecutor.HTTPClient = upstream.Client()
-	server := &Server{executor: chatExecutor, pool: pool}
+	server := &Server{App: &app.App{Executor: chatExecutor, Pool: pool}}
 	return server, upstream.Close
 }
 
@@ -287,7 +288,7 @@ func TestV1AndCompatibilitySharePreflightErrors(t *testing.T) {
 		t.Fatal("preflight errors must not reach the worker")
 	})
 	defer closeServer()
-	server.crossProviderModelPool.Store(false)
+	server.CrossProviderModelPool.Store(false)
 	identity := auth.KeyIdentity(accounts.APIKey{ID: "key_1", Name: "ci", Providers: []string{"qoder"}, Enabled: true})
 
 	post := func(path, body string, handler func(http.ResponseWriter, *http.Request)) *httptest.ResponseRecorder {
@@ -325,7 +326,7 @@ func TestV1AndCompatibilitySharePreflightErrors(t *testing.T) {
 		t.Fatalf("responses denied=%d %s", respDenied.Code, respDenied.Body.String())
 	}
 
-	server.crossProviderModelPool.Store(true)
+	server.CrossProviderModelPool.Store(true)
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"glm-5.2","messages":[{"role":"user","content":"hi"}]}`))
 	req = req.WithContext(auth.WithIdentity(req.Context(), identity))
 	execution, err := server.prepareChatExecution(req, translate.ChatRequest{Model: "glm-5.2", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}}})

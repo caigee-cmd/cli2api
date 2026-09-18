@@ -29,6 +29,7 @@ type Handler struct {
 	CrossProviderPool   *atomic.Bool
 	SettingsMu          *sync.Mutex
 	Update              *control.Coordinator
+	UpdateForRequest    func() *control.Coordinator
 	Chat                http.HandlerFunc
 	RequestedAccount    func(*http.Request) string
 	FilterModels        func(*http.Request, []map[string]any) []map[string]any

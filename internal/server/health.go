@@ -1,4 +1,4 @@
-package api
+package server
 
 import (
 	"net/http"
@@ -22,7 +22,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"ok":                        true,
 		"service":                   "cli2api",
 		"providers":                 providerIDs(),
-		"cross_provider_model_pool": s.crossProviderModelPool.Load(),
+		"cross_provider_model_pool": s.crossProviderOn(),
 		"phase":                     "ui-preview",
 		"chat_url":                  endpoint.ChatCompletionsPath,
 		"time":                      time.Now().UTC().Format(time.RFC3339),

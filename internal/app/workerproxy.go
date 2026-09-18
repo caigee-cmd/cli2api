@@ -1,4 +1,4 @@
-package api
+package app
 
 import (
 	"context"
@@ -17,6 +17,7 @@ import (
 
 var (
 	errAccountNotRunning = qoder.ErrAccountNotRunning
+	ErrWorkerNotWarm     = qoder.ErrWorkerNotWarm
 	errWorkerNotWarm     = qoder.ErrWorkerNotWarm
 
 	workerLoginReadyTimeout  = 90 * time.Second
@@ -25,16 +26,16 @@ var (
 
 // workerBase returns the URL of the first running account session. Prefer
 // workerForAccount with an explicit id.
-func (s *Server) workerBase() string {
-	if item, ok := s.pool.First(); ok {
+func (a *App) workerBase() string {
+	if item, ok := a.Pool.First(); ok {
 		return item.URL
 	}
 	return ""
 }
 
-func (s *Server) workerForAccount(id string) string {
+func (a *App) workerForAccount(id string) string {
 	if id != "" {
-		if item, ok := s.pool.ByID(id); ok {
+		if item, ok := a.Pool.ByID(id); ok {
 			return item.URL
 		}
 		// An explicit account ID that is not in the pool must not fall
@@ -43,10 +44,10 @@ func (s *Server) workerForAccount(id string) string {
 		// account. Return empty so workerModels surfaces a clear error.
 		return ""
 	}
-	return s.workerBase()
+	return a.workerBase()
 }
 
-func (s *Server) requestedAccount(r *http.Request) string {
+func (a *App) RequestedAccount(r *http.Request) string {
 	id := strings.TrimSpace(r.URL.Query().Get("account"))
 	if id == "" {
 		id = strings.TrimSpace(r.Header.Get("X-Qoder-Account"))
@@ -54,11 +55,11 @@ func (s *Server) requestedAccount(r *http.Request) string {
 	return id
 }
 
-func (s *Server) selectedAccountID(r *http.Request) string {
-	if id := s.requestedAccount(r); id != "" {
+func (a *App) selectedAccountID(r *http.Request) string {
+	if id := a.RequestedAccount(r); id != "" {
 		return id
 	}
-	if item, ok := s.pool.First(); ok {
+	if item, ok := a.Pool.First(); ok {
 		return item.ID
 	}
 	return ""
@@ -66,11 +67,11 @@ func (s *Server) selectedAccountID(r *http.Request) string {
 
 // proxyAccountWorker forwards a console request to the per-account Node worker
 // and optionally syncs the account auth_type after a successful login.
-func (s *Server) proxyAccountWorker(w http.ResponseWriter, r *http.Request, accountID, path, syncAuth string) {
+func (a *App) proxyAccountWorker(w http.ResponseWriter, r *http.Request, accountID, path, syncAuth string) {
 	waitForLogin := path == "/admin/login/device" || path == "/admin/login/pat"
 	var workerURL string
 	if waitForLogin {
-		readyURL, err := s.waitForWorkerLogin(r.Context(), accountID)
+		readyURL, err := a.waitForWorkerLogin(r.Context(), accountID)
 		if err != nil {
 			if errors.Is(err, errAccountNotRunning) {
 				writeErr(w, http.StatusConflict, "account_not_running", errAccountNotRunning.Error())
@@ -82,7 +83,7 @@ func (s *Server) proxyAccountWorker(w http.ResponseWriter, r *http.Request, acco
 		workerURL = readyURL
 	} else {
 		var ok bool
-		workerURL, ok = s.manager.AccountURL(accountID)
+		workerURL, ok = a.Manager.AccountURL(accountID)
 		if !ok {
 			writeErr(w, http.StatusConflict, "account_not_running", "account is disabled or not running")
 			return
@@ -95,7 +96,7 @@ func (s *Server) proxyAccountWorker(w http.ResponseWriter, r *http.Request, acco
 	}
 	client := qoder.WorkerClient{
 		HTTP:        &http.Client{Timeout: 120 * time.Second},
-		ProxyAPIKey: s.cfg.ProxyAPIKey,
+		ProxyAPIKey: a.Cfg.ProxyAPIKey,
 	}
 	statusCode, header, responseBody, err := client.Admin(r.Context(), workerURL, r.Method, path, r.Header.Get("Content-Type"), body)
 	if err != nil {
@@ -114,7 +115,7 @@ func (s *Server) proxyAccountWorker(w http.ResponseWriter, r *http.Request, acco
 	}
 	if statusCode < 300 {
 		if authType := qoder.LoginCompleteAuthType(syncAuth, responseBody); authType != "" {
-			if err := s.manager.SyncCredential(r.Context(), accountID, authType); err != nil {
+			if err := a.Manager.SyncCredential(r.Context(), accountID, authType); err != nil {
 				writeErr(w, http.StatusBadGateway, "credential_sync_failed", err.Error())
 				return
 			}
@@ -124,14 +125,14 @@ func (s *Server) proxyAccountWorker(w http.ResponseWriter, r *http.Request, acco
 	_, _ = w.Write(responseBody)
 }
 
-func (s *Server) workerModels(timeout time.Duration, accountID string, refresh bool) ([]map[string]any, error) {
-	workerURL := s.workerForAccount(accountID)
+func (a *App) workerModels(timeout time.Duration, accountID string, refresh bool) ([]map[string]any, error) {
+	workerURL := a.workerForAccount(accountID)
 	if workerURL == "" {
 		return nil, fmt.Errorf("no running Qoder account")
 	}
 	client := qoder.WorkerClient{
 		HTTP:        &http.Client{Timeout: timeout},
-		ProxyAPIKey: s.cfg.ProxyAPIKey,
+		ProxyAPIKey: a.Cfg.ProxyAPIKey,
 		AccountID:   accountID,
 	}
 	entries, _, _, err := client.Models(context.Background(), workerURL, refresh)
@@ -145,35 +146,35 @@ func (s *Server) workerModels(timeout time.Duration, accountID string, refresh b
 	return entries, nil
 }
 
-func (s *Server) fetchWorkerModels(refresh bool) []map[string]any {
-	models, _ := s.fetchWorkerModelsFor(refresh, "")
+func (a *App) fetchWorkerModels(refresh bool) []map[string]any {
+	models, _ := a.FetchWorkerModelsFor(refresh, "")
 	return models
 }
 
-// catalogMode controls how fetchProviderModels folds accounts that share a
+// CatalogMode controls how fetchProviderModels folds accounts that share a
 // public model ID.
 //
-//   - catalogModeMerge: one entry per provider+model for OpenAI-compatible
+//   - CatalogModeMerge: one entry per provider+model for OpenAI-compatible
 //     /v1/models and the default console catalog. Regions are unioned;
 //     capabilities intersect conservatively; credits/free are omitted when
 //     source regions disagree so a single-region price is never shown as
 //     universal.
-//   - catalogModeExpand: one entry per provider+region+model for the
+//   - CatalogModeExpand: one entry per provider+region+model for the
 //     Providers page (?view=regional) so each row carries that region's
 //     real credits, free flag, and capabilities.
-type catalogMode int
+type CatalogMode int
 
 const (
-	catalogModeMerge catalogMode = iota
-	catalogModeExpand
+	CatalogModeMerge CatalogMode = iota
+	CatalogModeExpand
 )
 
-func (s *Server) fetchWorkerModelsFor(refresh bool, accountID string) ([]map[string]any, error) {
-	return s.fetchWorkerModelsForMode(refresh, accountID, catalogModeMerge)
+func (a *App) FetchWorkerModelsFor(refresh bool, accountID string) ([]map[string]any, error) {
+	return a.FetchWorkerModelsForMode(refresh, accountID, CatalogModeMerge)
 }
 
-func (s *Server) fetchWorkerModelsForMode(refresh bool, accountID string, mode catalogMode) ([]map[string]any, error) {
-	models, err := s.fetchProviderModels(refresh, accountID, mode)
+func (a *App) FetchWorkerModelsForMode(refresh bool, accountID string, mode CatalogMode) ([]map[string]any, error) {
+	models, err := a.fetchProviderModels(refresh, accountID, mode)
 	if err != nil {
 		return nil, err
 	}
@@ -184,14 +185,14 @@ func (s *Server) fetchWorkerModelsForMode(refresh bool, accountID string, mode c
 	// fall back to another account's catalog — that misleads the client
 	// and can route subsequent requests to the wrong account.
 	if accountID != "" {
-		if _, ok := s.pool.ByID(accountID); !ok {
+		if _, ok := a.Pool.ByID(accountID); !ok {
 			return nil, fmt.Errorf("account %s not found", accountID)
 		}
 	}
 	// Last-resort path for a lone Qoder worker with no in-process providers
 	// and no pool URLs folded above. Stamp region the same way expand/merge
 	// would, so Providers filters never treat CN catalogs as unlabeled.
-	parsed, err := s.workerModels(60*time.Second, accountID, refresh)
+	parsed, err := a.workerModels(60*time.Second, accountID, refresh)
 	if err != nil {
 		if accountID != "" {
 			return nil, err
@@ -203,7 +204,7 @@ func (s *Server) fetchWorkerModelsForMode(refresh bool, accountID string, mode c
 	}
 	region := "global"
 	if accountID != "" {
-		if item, ok := s.pool.ByID(accountID); ok {
+		if item, ok := a.Pool.ByID(accountID); ok {
 			region = accounts.NormalizeRegion(item.Region)
 		}
 	}
@@ -217,7 +218,7 @@ func (s *Server) fetchWorkerModelsForMode(refresh bool, accountID string, mode c
 		if _, ok := model["owned_by"]; !ok {
 			model["owned_by"] = "qoder"
 		}
-		if mode == catalogModeExpand {
+		if mode == CatalogModeExpand {
 			model["region"] = region
 		} else {
 			addModelRegion(model, region)
@@ -243,15 +244,15 @@ func addModelRegion(entry map[string]any, region string) {
 	if region == "" {
 		return
 	}
-	for _, existing := range entryModelRegions(entry) {
+	for _, existing := range EntryModelRegions(entry) {
 		if existing == region {
 			return
 		}
 	}
-	entry["regions"] = append(entryModelRegions(entry), region)
+	entry["regions"] = append(EntryModelRegions(entry), region)
 }
 
-func entryModelRegions(entry map[string]any) []string {
+func EntryModelRegions(entry map[string]any) []string {
 	if raw, ok := entry["regions"].([]string); ok {
 		return raw
 	}
@@ -396,19 +397,19 @@ func providerModelEntry(model providers.ModelInfo, provider string) map[string]a
 // OpenAI-compatible clients: one public entry per provider+model. Expand mode
 // is for the console: one entry per provider+region+model with that region's
 // credits/free/capabilities intact.
-func (s *Server) fetchProviderModels(refresh bool, accountID string, mode catalogMode) ([]map[string]any, error) {
+func (a *App) fetchProviderModels(refresh bool, accountID string, mode CatalogMode) ([]map[string]any, error) {
 	var merged []map[string]any
 	seen := map[string]map[string]any{}
 	sawAny := false
 	var lastErr error
-	for _, item := range s.pool.Items() {
+	for _, item := range a.Pool.Items() {
 		if accountID != "" && item.ID != accountID {
 			continue
 		}
 		if item.Provider == "" || item.Provider == "qoder" {
 			continue
 		}
-		adapter, ok := s.providers.Get(item.Provider)
+		adapter, ok := a.Providers.Get(item.Provider)
 		if !ok || adapter.Models == nil {
 			continue
 		}
@@ -435,11 +436,11 @@ func (s *Server) fetchProviderModels(refresh bool, accountID string, mode catalo
 				publicKey = strings.TrimSpace(model.NativeModel)
 			}
 			key := publicKey + "@" + item.Provider
-			if mode == catalogModeExpand {
+			if mode == CatalogModeExpand {
 				key += "@" + region
 			}
 			if existing, dup := seen[key]; dup {
-				if mode == catalogModeMerge {
+				if mode == CatalogModeMerge {
 					addModelRegion(existing, region)
 					mergeModelEntryCapabilities(existing, modelCapabilitiesEntry(model))
 					mergeModelEntryPricing(existing, providerModelEntry(model, item.Provider))
@@ -447,7 +448,7 @@ func (s *Server) fetchProviderModels(refresh bool, accountID string, mode catalo
 				continue
 			}
 			entry := providerModelEntry(model, item.Provider)
-			if mode == catalogModeExpand {
+			if mode == CatalogModeExpand {
 				entry["region"] = region
 			} else {
 				addModelRegion(entry, region)
@@ -460,24 +461,24 @@ func (s *Server) fetchProviderModels(refresh bool, accountID string, mode catalo
 	// when no WorkBuddy/Trae accounts exist; returning nil here used to skip
 	// region stamping and send pure-Qoder pools through the unlabeled fallback.
 	var qoderModels []map[string]any
-	for _, item := range s.pool.Items() {
+	for _, item := range a.Pool.Items() {
 		if item.Provider != "qoder" || item.URL == "" {
 			continue
 		}
 		if accountID != "" && item.ID != accountID {
 			continue
 		}
-		qoderModels = append(qoderModels, s.fetchQoderModels(refresh, item.ID)...)
+		qoderModels = append(qoderModels, a.fetchQoderModels(refresh, item.ID)...)
 	}
 	for _, model := range qoderModels {
 		key, _ := model["id"].(string)
 		region := qoderModelRegion(model)
 		seenKey := key + "@qoder"
-		if mode == catalogModeExpand {
+		if mode == CatalogModeExpand {
 			seenKey += "@" + region
 		}
 		if existing, dup := seen[seenKey]; dup {
-			if mode == catalogModeMerge {
+			if mode == CatalogModeMerge {
 				addModelRegion(existing, region)
 				mergeModelEntryCapabilities(existing, model)
 				mergeModelEntryPricing(existing, model)
@@ -487,7 +488,7 @@ func (s *Server) fetchProviderModels(refresh bool, accountID string, mode catalo
 		seen[seenKey] = model
 		model["provider"] = "qoder"
 		model["owned_by"] = "qoder"
-		if mode == catalogModeExpand {
+		if mode == CatalogModeExpand {
 			model["region"] = region
 		} else {
 			addModelRegion(model, region)
@@ -512,12 +513,12 @@ func qoderModelRegion(model map[string]any) string {
 	return accounts.NormalizeRegion(region)
 }
 
-func (s *Server) fetchQoderModels(refresh bool, accountID string) []map[string]any {
+func (a *App) fetchQoderModels(refresh bool, accountID string) []map[string]any {
 	region := "global"
-	if item, ok := s.pool.ByID(accountID); ok {
+	if item, ok := a.Pool.ByID(accountID); ok {
 		region = accounts.NormalizeRegion(item.Region)
 	}
-	parsed, err := s.workerModels(60*time.Second, accountID, refresh)
+	parsed, err := a.workerModels(60*time.Second, accountID, refresh)
 	if err != nil || len(parsed) == 0 {
 		return nil
 	}
@@ -538,16 +539,16 @@ func (s *Server) fetchQoderModels(refresh bool, accountID string) []map[string]a
 	return parsed
 }
 
-func (s *Server) waitForWorkerLogin(ctx context.Context, accountID string) (string, error) {
-	workerURL, ok := s.manager.AccountURL(accountID)
+func (a *App) waitForWorkerLogin(ctx context.Context, accountID string) (string, error) {
+	workerURL, ok := a.Manager.AccountURL(accountID)
 	if !ok || strings.TrimSpace(workerURL) == "" {
 		return "", errAccountNotRunning
 	}
-	return waitForWorkerAuthManager(ctx, func() (string, bool) {
+	return WaitForWorkerAuthManager(ctx, func() (string, bool) {
 		return workerURL, true
 	}, workerLoginReadyTimeout, workerLoginReadyInterval)
 }
 
-func waitForWorkerAuthManager(ctx context.Context, lookup func() (string, bool), timeout, interval time.Duration) (string, error) {
+func WaitForWorkerAuthManager(ctx context.Context, lookup func() (string, bool), timeout, interval time.Duration) (string, error) {
 	return qoder.WaitForAuthManager(ctx, lookup, timeout, interval)
 }

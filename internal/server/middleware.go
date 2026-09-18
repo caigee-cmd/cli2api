@@ -1,4 +1,4 @@
-package api
+package server
 
 import (
 	"net/http"
@@ -50,13 +50,13 @@ func setOpenAICORSHeaders(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) withAPIKey(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		identity, ok := s.auth.Authenticate(r.Context(), r)
+		identity, ok := s.Auth.Authenticate(r.Context(), r)
 		if !ok {
 			writeErr(w, http.StatusUnauthorized, "invalid_api_key", "Missing/invalid API key")
 			return
 		}
-		if identity.Kind == auth.KindKey && s.control != nil && s.control.Keys != nil {
-			_ = s.control.Keys.Touch(r.Context(), identity.KeyID)
+		if identity.Kind == auth.KindKey && s.TouchKey != nil {
+			s.TouchKey(r.Context(), identity.KeyID)
 		}
 		next(w, r.WithContext(auth.WithIdentity(r.Context(), identity)))
 	}
@@ -71,12 +71,4 @@ func (s *Server) withConsoleKey(next http.HandlerFunc) http.HandlerFunc {
 		}
 		next(w, r)
 	})
-}
-
-func (s *Server) requestIdentity(r *http.Request) auth.Identity {
-	identity, ok := auth.IdentityFrom(r.Context())
-	if ok {
-		return identity
-	}
-	return auth.Identity{Kind: auth.KindNone}
 }

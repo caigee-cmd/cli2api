@@ -1,4 +1,4 @@
-package api
+package app
 
 import (
 	"net/http"
@@ -19,8 +19,8 @@ func providerPrefix(model string) string {
 // the singular region field. Unrestricted identities (empty allowlist) keep
 // every entry. This filter runs after the /api/models cache lookup and must
 // not be folded into the cached snapshot — the snapshot is shared across keys.
-func (s *Server) filterModelsForIdentity(r *http.Request, models []map[string]any) []map[string]any {
-	identity := s.requestIdentity(r)
+func (a *App) filterModelsForIdentity(r *http.Request, models []map[string]any) []map[string]any {
+	identity := a.requestIdentity(r)
 	if len(identity.AllowedProviders) == 0 {
 		return models
 	}
@@ -47,7 +47,7 @@ func (s *Server) filterModelsForIdentity(r *http.Request, models []map[string]an
 // information (e.g. a legacy single-worker catalog) fall back to the
 // family-level decision.
 func identityAllowsAnyModelRegion(identity auth.Identity, model map[string]any) bool {
-	regions := entryModelRegions(model)
+	regions := EntryModelRegions(model)
 	if len(regions) == 0 {
 		return true
 	}

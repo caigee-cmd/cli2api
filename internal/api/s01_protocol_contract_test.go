@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
+	"github.com/caigee-cmd/cli2api/internal/app"
 	"github.com/caigee-cmd/cli2api/internal/auth"
 	"github.com/caigee-cmd/cli2api/internal/config"
 	"github.com/caigee-cmd/cli2api/internal/endpoint"
@@ -73,10 +74,9 @@ func TestOpenAINonStreamContractThroughHandler(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
-	server.recorder = applogs.NewRequestRecorder(store)
-	server.auth = auth.NewVerifier("secret", store)
-	server.mux = http.NewServeMux()
-	server.routes()
+	server.Recorder = applogs.NewRequestRecorder(store)
+	server.Auth = auth.NewVerifier("secret", store)
+	server.RebuildHTTP()
 
 	req := httptest.NewRequest(http.MethodPost, endpoint.ChatCompletionsPath, strings.NewReader(`{"model":"qoder/glm-5.2","messages":[{"role":"user","content":"hi"}]}`))
 	req.Header.Set("Authorization", "Bearer secret")
@@ -140,10 +140,9 @@ func TestOpenAIStreamAndConsoleChatShareHandler(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
-	server.recorder = applogs.NewRequestRecorder(store)
-	server.auth = auth.NewVerifier("secret", store)
-	server.mux = http.NewServeMux()
-	server.routes()
+	server.Recorder = applogs.NewRequestRecorder(store)
+	server.Auth = auth.NewVerifier("secret", store)
+	server.RebuildHTTP()
 
 	for _, path := range []string{endpoint.ChatCompletionsPath, "/api/chat"} {
 		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"model":"qoder/glm-5.2","stream":true,"messages":[{"role":"user","content":"hi"}]}`))
@@ -235,7 +234,7 @@ func TestOpenAIStreamWriteFailureDoesNotObserveDisconnect(t *testing.T) {
 	if !isStreamClientDisconnect(err) {
 		t.Fatal("write failure should count as client disconnect")
 	}
-	item, _ := server.pool.ByID("account-a")
+	item, _ := server.Pool.ByID("account-a")
 	if item.LastKind != "" || !item.DownUntil.IsZero() {
 		t.Fatalf("disconnect cooled account: %+v", item)
 	}
@@ -279,14 +278,14 @@ func TestRegionGrantDoesNotEscapeOnChat(t *testing.T) {
 		QoderHome: t.TempDir(), DataDir: t.TempDir(), RuntimeDir: t.TempDir(),
 	})
 	t.Cleanup(func() { _ = srv.Close() })
-	created, err := srv.manager.Store().CreateAPIKey(context.Background(), accounts.CreateAPIKey{
+	created, err := srv.Manager.Store().CreateAPIKey(context.Background(), accounts.CreateAPIKey{
 		Name: "cn-only", Providers: []string{"workbuddy:cn"}, Enabled: true,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	ready := true
-	srv.pool.Upsert(executor.Item{ID: "wb-global", Provider: "workbuddy", Region: "global", Runtime: string(providers.RuntimeInProcess), Ready: &ready})
+	srv.Pool.Upsert(executor.Item{ID: "wb-global", Provider: "workbuddy", Region: "global", Runtime: string(providers.RuntimeInProcess), Ready: &ready})
 	rec := serveS01(t, srv, http.MethodPost, endpoint.ChatCompletionsPath, `{"model":"workbuddy/glm-5.2","messages":[{"role":"user","content":"hi"}]}`, created.Secret)
 	if rec.Code == http.StatusOK {
 		t.Fatalf("region grant escaped: %d %s", rec.Code, rec.Body.String())
@@ -318,7 +317,7 @@ func TestOpenAIStreamCancelClosesUpstreamBody(t *testing.T) {
 	pool.Upsert(executor.Item{ID: "account-a", URL: upstream.URL, Provider: "qoder", Region: "global", Runtime: "child_process"})
 	chatExecutor := executor.NewChatExecutor(pool, "")
 	chatExecutor.HTTPClient = upstream.Client()
-	server := &Server{executor: chatExecutor, pool: pool}
+	server := &Server{App: &app.App{Executor: chatExecutor, Pool: pool}}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	req := httptest.NewRequest(http.MethodPost, endpoint.ChatCompletionsPath, strings.NewReader(`{"model":"qoder/glm-5.2","stream":true,"messages":[{"role":"user","content":"hi"}]}`))

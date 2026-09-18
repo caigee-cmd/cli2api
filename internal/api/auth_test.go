@@ -200,7 +200,7 @@ func TestModelContextSettingsApplyToChatDefaults(t *testing.T) {
 		QoderHome: t.TempDir(), DataDir: t.TempDir(),
 	})
 	defer srv.Close()
-	if err := srv.manager.Store().SetModelContext(context.Background(), "minimax-m3", 500000); err != nil {
+	if err := srv.Manager.Store().SetModelContext(context.Background(), "minimax-m3", 500000); err != nil {
 		t.Fatal(err)
 	}
 	req := translate.ChatRequest{Model: "MiniMax-M3"}
@@ -240,7 +240,7 @@ func TestModelContextSettingsAPI(t *testing.T) {
 		}}})
 	}))
 	defer worker.Close()
-	srv.pool.Upsert(executor.Item{ID: "test", URL: worker.URL})
+	srv.Pool.Upsert(executor.Item{ID: "test", URL: worker.URL})
 
 	req := httptest.NewRequest(http.MethodPatch, "/api/models/minimax-m3", bytes.NewBufferString(`{"context_length":500000}`))
 	req.Header.Set("Authorization", "Bearer secret")
@@ -265,7 +265,7 @@ func TestTraeMaxModeSettingDoesNotChangeQoderContext(t *testing.T) {
 		QoderHome: t.TempDir(), DataDir: t.TempDir(),
 	})
 	defer srv.Close()
-	if err := srv.manager.Store().SetModelContext(context.Background(), "glm-5.2", 250000); err != nil {
+	if err := srv.Manager.Store().SetModelContext(context.Background(), "glm-5.2", 250000); err != nil {
 		t.Fatal(err)
 	}
 
@@ -277,7 +277,7 @@ func TestTraeMaxModeSettingDoesNotChangeQoderContext(t *testing.T) {
 		t.Fatalf("PATCH trae max mode: %d %s", rec.Code, rec.Body.String())
 	}
 
-	got, ok, err := srv.manager.Store().GetModelContext(context.Background(), "glm-5.2")
+	got, ok, err := srv.Manager.Store().GetModelContext(context.Background(), "glm-5.2")
 	if err != nil || !ok || got != 250000 {
 		t.Fatalf("qoder context mutated: %d %v %v", got, ok, err)
 	}
@@ -296,7 +296,7 @@ func TestWorkBuddyReasoningSettingDoesNotChangeQoderContext(t *testing.T) {
 		QoderHome: t.TempDir(), DataDir: t.TempDir(),
 	})
 	defer srv.Close()
-	if err := srv.manager.Store().SetModelContext(context.Background(), "glm-5.3", 250000); err != nil {
+	if err := srv.Manager.Store().SetModelContext(context.Background(), "glm-5.3", 250000); err != nil {
 		t.Fatal(err)
 	}
 	req := httptest.NewRequest(http.MethodPatch, "/api/models/workbuddy/glm-5.3", bytes.NewBufferString(`{"reasoning_effort":"xhigh"}`))
@@ -306,7 +306,7 @@ func TestWorkBuddyReasoningSettingDoesNotChangeQoderContext(t *testing.T) {
 	if rec.Code != http.StatusOK || !bytes.Contains(rec.Body.Bytes(), []byte(`"reasoning_effort":"xhigh"`)) {
 		t.Fatalf("PATCH workbuddy reasoning: %d %s", rec.Code, rec.Body.String())
 	}
-	got, ok, err := srv.manager.Store().GetModelContext(context.Background(), "glm-5.3")
+	got, ok, err := srv.Manager.Store().GetModelContext(context.Background(), "glm-5.3")
 	if err != nil || !ok || got != 250000 {
 		t.Fatalf("qoder context mutated: %d %v %v", got, ok, err)
 	}
@@ -324,8 +324,8 @@ func TestModelsAPICatalogFailureUses503(t *testing.T) {
 		QoderHome: t.TempDir(), DataDir: t.TempDir(),
 	})
 	defer srv.Close()
-	srv.pool.Upsert(executor.Item{ID: "wb-global", Provider: "workbuddy", Runtime: string(providers.RuntimeInProcess)})
-	srv.providers.Register(providers.Adapter{ID: "workbuddy", Models: failingCatalog{}})
+	srv.Pool.Upsert(executor.Item{ID: "wb-global", Provider: "workbuddy", Runtime: string(providers.RuntimeInProcess)})
+	srv.Providers.Register(providers.Adapter{ID: "workbuddy", Models: failingCatalog{}})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/models?account=wb-global", nil)
 	req.Header.Set("Authorization", "Bearer secret")
@@ -371,8 +371,8 @@ func TestModelsAPICachesCatalogForFiveMinutes(t *testing.T) {
 	catalog := &countingCatalog{models: []providers.ModelInfo{{
 		NativeModel: "glm-5.3", PublicModel: "glm-5.3", DisplayName: "GLM",
 	}}}
-	srv.pool.Upsert(executor.Item{ID: "wb-cn", Provider: "workbuddy", Runtime: string(providers.RuntimeInProcess)})
-	srv.providers.Register(providers.Adapter{ID: "workbuddy", Models: catalog})
+	srv.Pool.Upsert(executor.Item{ID: "wb-cn", Provider: "workbuddy", Runtime: string(providers.RuntimeInProcess)})
+	srv.Providers.Register(providers.Adapter{ID: "workbuddy", Models: catalog})
 
 	getModels := func(path string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
@@ -657,7 +657,7 @@ func TestNamedAPIKeyCannotManageConsoleOrKeys(t *testing.T) {
 		QoderHome: t.TempDir(), DataDir: t.TempDir(),
 	})
 	defer srv.Close()
-	created, err := srv.manager.Store().CreateAPIKey(context.Background(), accounts.CreateAPIKey{
+	created, err := srv.Manager.Store().CreateAPIKey(context.Background(), accounts.CreateAPIKey{
 		Name: "ci", Providers: []string{"qoder"}, Enabled: true,
 	})
 	if err != nil {
@@ -692,14 +692,14 @@ func TestNamedAPIKeyModelsListOnlyIncludesAllowedProviders(t *testing.T) {
 		QoderHome: t.TempDir(), DataDir: t.TempDir(),
 	})
 	defer srv.Close()
-	created, err := srv.manager.Store().CreateAPIKey(context.Background(), accounts.CreateAPIKey{
+	created, err := srv.Manager.Store().CreateAPIKey(context.Background(), accounts.CreateAPIKey{
 		Name: "ci", Providers: []string{"qoder"}, Enabled: true,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv.pool.Upsert(executor.Item{ID: "wb1", Provider: "workbuddy", Runtime: string(providers.RuntimeInProcess)})
-	srv.providers.Register(providers.Adapter{ID: "workbuddy", Models: &countingCatalog{models: []providers.ModelInfo{{
+	srv.Pool.Upsert(executor.Item{ID: "wb1", Provider: "workbuddy", Runtime: string(providers.RuntimeInProcess)})
+	srv.Providers.Register(providers.Adapter{ID: "workbuddy", Models: &countingCatalog{models: []providers.ModelInfo{{
 		NativeModel: "glm-5.2", PublicModel: "glm-5.2", DisplayName: "GLM",
 	}}}})
 
@@ -852,14 +852,14 @@ func TestAccountCheckinRecordsRoute(t *testing.T) {
 	})
 	defer srv.Close()
 
-	account, err := srv.manager.Store().Create(context.Background(), accounts.CreateAccount{
+	account, err := srv.Manager.Store().Create(context.Background(), accounts.CreateAccount{
 		Name: "WorkBuddy", Provider: "workbuddy", Region: "cn", Enabled: false,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	at := time.Date(2026, 9, 3, 1, 0, 0, 0, time.UTC)
-	if err := srv.manager.Store().RecordCheckin(context.Background(), account.ID, "success", "签到成功", at); err != nil {
+	if err := srv.Manager.Store().RecordCheckin(context.Background(), account.ID, "success", "签到成功", at); err != nil {
 		t.Fatal(err)
 	}
 
@@ -896,18 +896,18 @@ func TestNamedAPIKeyRegionScopedModelsList(t *testing.T) {
 	})
 	defer srv.Close()
 
-	srv.pool.Upsert(executor.Item{ID: "wc1", Provider: "workbuddy", Region: "cn", Runtime: string(providers.RuntimeInProcess)})
-	srv.pool.Upsert(executor.Item{ID: "wg1", Provider: "workbuddy", Region: "global", Runtime: string(providers.RuntimeInProcess)})
-	srv.pool.Upsert(executor.Item{ID: "t1", Provider: "trae", Region: "cn", Runtime: string(providers.RuntimeInProcess)})
+	srv.Pool.Upsert(executor.Item{ID: "wc1", Provider: "workbuddy", Region: "cn", Runtime: string(providers.RuntimeInProcess)})
+	srv.Pool.Upsert(executor.Item{ID: "wg1", Provider: "workbuddy", Region: "global", Runtime: string(providers.RuntimeInProcess)})
+	srv.Pool.Upsert(executor.Item{ID: "t1", Provider: "trae", Region: "cn", Runtime: string(providers.RuntimeInProcess)})
 	// The catalog fake returns different models per account so each region
 	// genuinely serves a distinct model set.
-	srv.providers.Register(providers.Adapter{ID: "workbuddy", Models: &regionCatalog{
+	srv.Providers.Register(providers.Adapter{ID: "workbuddy", Models: &regionCatalog{
 		byAccount: map[string][]providers.ModelInfo{
 			"wc1": {{NativeModel: "glm-5.2", PublicModel: "glm-5.2", DisplayName: "GLM"}},
 			"wg1": {{NativeModel: "kimi-k3", PublicModel: "kimi-k3", DisplayName: "Kimi"}},
 		},
 	}})
-	srv.providers.Register(providers.Adapter{ID: "trae", Models: &regionCatalog{
+	srv.Providers.Register(providers.Adapter{ID: "trae", Models: &regionCatalog{
 		byAccount: map[string][]providers.ModelInfo{
 			"t1": {{NativeModel: "deepseek-v4", PublicModel: "deepseek-v4", DisplayName: "DS"}},
 		},
@@ -926,7 +926,7 @@ func TestNamedAPIKeyRegionScopedModelsList(t *testing.T) {
 
 	// CN-only key: only models served by the cn account appear; the same
 	// public model id is not duplicated per region.
-	cnKey, err := srv.manager.Store().CreateAPIKey(context.Background(), accounts.CreateAPIKey{
+	cnKey, err := srv.Manager.Store().CreateAPIKey(context.Background(), accounts.CreateAPIKey{
 		Name: "cn-only", Providers: []string{"workbuddy:cn"}, Enabled: true,
 	})
 	if err != nil {
@@ -945,7 +945,7 @@ func TestNamedAPIKeyRegionScopedModelsList(t *testing.T) {
 
 	// Global-only key: glm-5.2 exists in the pool but is only served by the
 	// cn account, so it disappears; kimi-k3 (served by global) stays.
-	globalKey, err := srv.manager.Store().CreateAPIKey(context.Background(), accounts.CreateAPIKey{
+	globalKey, err := srv.Manager.Store().CreateAPIKey(context.Background(), accounts.CreateAPIKey{
 		Name: "global-only", Providers: []string{"workbuddy:global"}, Enabled: true,
 	})
 	if err != nil {
@@ -960,7 +960,7 @@ func TestNamedAPIKeyRegionScopedModelsList(t *testing.T) {
 	}
 
 	// Legacy bare entry keeps every region.
-	bareKey, err := srv.manager.Store().CreateAPIKey(context.Background(), accounts.CreateAPIKey{
+	bareKey, err := srv.Manager.Store().CreateAPIKey(context.Background(), accounts.CreateAPIKey{
 		Name: "bare", Providers: []string{"workbuddy"}, Enabled: true,
 	})
 	if err != nil {
