@@ -46,7 +46,7 @@ endpoints, and deployment targets.
 Adding a new file to the favicon suite? Update three places:
 
 - `frontend/scripts/sync-static.mjs` (the `for (const name of [...])` whitelist)
-- `internal/api/server.go` (both `s.mux.Handle(...)` and the path allow-list inside the `/` catch-all)
+- `internal/server/router.go` (both `s.mux.Handle(...)` and the path allow-list inside the `/` catch-all)
 - `frontend/index.html` and `internal/webui/static/index.html` (any new `<link>` or `<meta>` tags)
 
 `favicon.svg` uses `stroke="currentColor"` for theme inheritance. Only add a
@@ -64,7 +64,7 @@ when the published behavior warrants a series bump.
 
 ## Rules
 
-- Keep the Go layers: auth / endpoint / executor / translate / api
+- Keep the Go layers: auth / endpoint / executor / translate, plus store / control / runtime / gateway / console / server / app. `internal/api` is a test-only facade over `app.New`; do not add business there.
 - Keep one isolated runtime per enabled account: Qoder uses one HOME and Node daemon;
   in-process providers use their adapter and must not spawn a child daemon
 - Keep qodercli compatibility checks in `worker/src/compat.mjs`

@@ -4,12 +4,7 @@ import (
 	"net/http"
 
 	"github.com/caigee-cmd/cli2api/internal/auth"
-	"github.com/caigee-cmd/cli2api/internal/executor"
 )
-
-func providerPrefix(model string) string {
-	return executor.ProviderPrefix(model)
-}
 
 // filterModelsForIdentity narrows a model catalog to what the request's
 // identity may actually call. /v1/models answers "can this key call this

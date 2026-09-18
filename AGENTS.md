@@ -18,7 +18,7 @@ use `read-when` to decide whether to open it.
 | `docs/PROVIDERS.md` | adding / designing a provider | Future account-provider design. Not a current milestone. |
 | `docs/PROVIDERS_TRAE_SOLO.md` | Trae CN Solo work | Trae CN Solo in-process adapter survey. Not a current milestone. |
 | `docs/DEVELOPMENT.md` | build / test / release | Local build loop and maintainer release workflow |
-| `docs/REFACTORING.md` | behavior-preserving backend split | Accepted S00–S15 package split and remaining allowlist. Exception to “no extra plan files”. |
+| `docs/REFACTORING.md` | accepted package split | Live package map, remaining import allowlist, and unclaimed live-account limits. Not a plan to re-run. |
 | `docs/capture-notes.md` (ignored) | protocol facts | Local redacted protocol facts |
 | `docs/PRIVATE_DEPLOYMENT.md` (ignored) | host ops | Host ops runbook |
 

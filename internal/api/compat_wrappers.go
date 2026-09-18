@@ -8,6 +8,7 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/app"
 	"github.com/caigee-cmd/cli2api/internal/auth"
 	appconsole "github.com/caigee-cmd/cli2api/internal/console"
+	"github.com/caigee-cmd/cli2api/internal/control"
 	"github.com/caigee-cmd/cli2api/internal/executor"
 	apigateway "github.com/caigee-cmd/cli2api/internal/gateway"
 	"github.com/caigee-cmd/cli2api/internal/translate"
@@ -17,11 +18,11 @@ import (
 type chatExecution = apigateway.Execution
 type compatibilityExecution = apigateway.Execution
 type systemUpdateJob = appupdate.Job
-type catalogMode = app.CatalogMode
+type catalogMode = control.CatalogMode
 
 const (
-	catalogModeMerge  = app.CatalogModeMerge
-	catalogModeExpand = app.CatalogModeExpand
+	catalogModeMerge  = control.CatalogModeMerge
+	catalogModeExpand = control.CatalogModeExpand
 )
 
 func parseQueryTime(raw string, endOfDay bool) *time.Time {

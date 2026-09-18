@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
+	"github.com/caigee-cmd/cli2api/internal/control"
 	"github.com/caigee-cmd/cli2api/internal/providers"
 	"github.com/caigee-cmd/cli2api/internal/providers/qoder"
 )
@@ -141,29 +142,11 @@ func (a *App) fetchWorkerModels(refresh bool) []map[string]any {
 	return models
 }
 
-// CatalogMode controls how fetchProviderModels folds accounts that share a
-// public model ID.
-//
-//   - CatalogModeMerge: one entry per provider+model for OpenAI-compatible
-//     /v1/models and the default console catalog. Regions are unioned;
-//     capabilities intersect conservatively; credits/free are omitted when
-//     source regions disagree so a single-region price is never shown as
-//     universal.
-//   - CatalogModeExpand: one entry per provider+region+model for the
-//     Providers page (?view=regional) so each row carries that region's
-//     real credits, free flag, and capabilities.
-type CatalogMode int
-
-const (
-	CatalogModeMerge CatalogMode = iota
-	CatalogModeExpand
-)
-
 func (a *App) FetchWorkerModelsFor(refresh bool, accountID string) ([]map[string]any, error) {
-	return a.FetchWorkerModelsForMode(refresh, accountID, CatalogModeMerge)
+	return a.FetchWorkerModelsForMode(refresh, accountID, control.CatalogModeMerge)
 }
 
-func (a *App) FetchWorkerModelsForMode(refresh bool, accountID string, mode CatalogMode) ([]map[string]any, error) {
+func (a *App) FetchWorkerModelsForMode(refresh bool, accountID string, mode control.CatalogMode) ([]map[string]any, error) {
 	models, err := a.fetchProviderModels(refresh, accountID, mode)
 	if err != nil {
 		return nil, err
@@ -208,7 +191,7 @@ func (a *App) FetchWorkerModelsForMode(refresh bool, accountID string, mode Cata
 		if _, ok := model["owned_by"]; !ok {
 			model["owned_by"] = "qoder"
 		}
-		if mode == CatalogModeExpand {
+		if mode == control.CatalogModeExpand {
 			model["region"] = region
 		} else {
 			addModelRegion(model, region)
@@ -387,7 +370,7 @@ func providerModelEntry(model providers.ModelInfo, provider string) map[string]a
 // OpenAI-compatible clients: one public entry per provider+model. Expand mode
 // is for the console: one entry per provider+region+model with that region's
 // credits/free/capabilities intact.
-func (a *App) fetchProviderModels(refresh bool, accountID string, mode CatalogMode) ([]map[string]any, error) {
+func (a *App) fetchProviderModels(refresh bool, accountID string, mode control.CatalogMode) ([]map[string]any, error) {
 	var merged []map[string]any
 	seen := map[string]map[string]any{}
 	sawAny := false
@@ -426,11 +409,11 @@ func (a *App) fetchProviderModels(refresh bool, accountID string, mode CatalogMo
 				publicKey = strings.TrimSpace(model.NativeModel)
 			}
 			key := publicKey + "@" + item.Provider
-			if mode == CatalogModeExpand {
+			if mode == control.CatalogModeExpand {
 				key += "@" + region
 			}
 			if existing, dup := seen[key]; dup {
-				if mode == CatalogModeMerge {
+				if mode == control.CatalogModeMerge {
 					addModelRegion(existing, region)
 					mergeModelEntryCapabilities(existing, modelCapabilitiesEntry(model))
 					mergeModelEntryPricing(existing, providerModelEntry(model, item.Provider))
@@ -438,7 +421,7 @@ func (a *App) fetchProviderModels(refresh bool, accountID string, mode CatalogMo
 				continue
 			}
 			entry := providerModelEntry(model, item.Provider)
-			if mode == CatalogModeExpand {
+			if mode == control.CatalogModeExpand {
 				entry["region"] = region
 			} else {
 				addModelRegion(entry, region)
@@ -464,11 +447,11 @@ func (a *App) fetchProviderModels(refresh bool, accountID string, mode CatalogMo
 		key, _ := model["id"].(string)
 		region := qoderModelRegion(model)
 		seenKey := key + "@qoder"
-		if mode == CatalogModeExpand {
+		if mode == control.CatalogModeExpand {
 			seenKey += "@" + region
 		}
 		if existing, dup := seen[seenKey]; dup {
-			if mode == CatalogModeMerge {
+			if mode == control.CatalogModeMerge {
 				addModelRegion(existing, region)
 				mergeModelEntryCapabilities(existing, model)
 				mergeModelEntryPricing(existing, model)
@@ -478,7 +461,7 @@ func (a *App) fetchProviderModels(refresh bool, accountID string, mode CatalogMo
 		seen[seenKey] = model
 		model["provider"] = "qoder"
 		model["owned_by"] = "qoder"
-		if mode == CatalogModeExpand {
+		if mode == control.CatalogModeExpand {
 			model["region"] = region
 		} else {
 			addModelRegion(model, region)
