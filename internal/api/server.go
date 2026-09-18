@@ -2,11 +2,8 @@ package api
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -21,7 +18,6 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/auth"
 	"github.com/caigee-cmd/cli2api/internal/buildinfo"
 	"github.com/caigee-cmd/cli2api/internal/config"
-	"github.com/caigee-cmd/cli2api/internal/endpoint"
 	"github.com/caigee-cmd/cli2api/internal/executor"
 	applogs "github.com/caigee-cmd/cli2api/internal/logs"
 	"github.com/caigee-cmd/cli2api/internal/providers"
@@ -29,7 +25,6 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/providers/trae"
 	"github.com/caigee-cmd/cli2api/internal/providers/workbuddy"
 	control "github.com/caigee-cmd/cli2api/internal/update"
-	"github.com/caigee-cmd/cli2api/internal/webui"
 )
 
 type Server struct {
@@ -148,314 +143,11 @@ func New(cfg config.Config) *Server {
 	return s
 }
 
-const proxyAPIKeySecret = "proxy_api_key"
-
-func ensureProxyAPIKey(ctx context.Context, store *accounts.Store, bootstrap string) (string, bool, error) {
-	if value, ok, err := store.GetSecret(ctx, proxyAPIKeySecret); err != nil {
-		return "", false, err
-	} else if ok && strings.TrimSpace(value) != "" {
-		return value, false, nil
-	}
-
-	key := strings.TrimSpace(bootstrap)
-	if key == "" || key == "change-me" || key == "dev-key" {
-		generated, err := generateAPIKey()
-		if err != nil {
-			return "", false, err
-		}
-		key = generated
-	}
-	if err := store.SetSecret(ctx, proxyAPIKeySecret, key); err != nil {
-		return "", false, err
-	}
-	return key, true, nil
-}
-
-func generateAPIKey() (string, error) {
-	bytes := make([]byte, 32)
-	if _, err := rand.Read(bytes); err != nil {
-		return "", fmt.Errorf("generate proxy api key: %w", err)
-	}
-	return base64.RawURLEncoding.EncodeToString(bytes), nil
-}
-
-func (s *Server) Handler() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if isOpenAIEndpoint(r.URL.Path) {
-			setOpenAICORSHeaders(w, r)
-			if r.Method == http.MethodOptions {
-				w.WriteHeader(http.StatusNoContent)
-				return
-			}
-		}
-		if s.maintenance.Load() && blocksDuringUpdate(r.URL.Path) {
-			writeErr(w, http.StatusServiceUnavailable, "service_updating", "Service update in progress")
-			return
-		}
-		s.mux.ServeHTTP(w, r)
-	})
-}
-
-func isOpenAIEndpoint(path string) bool {
-	switch path {
-	case endpoint.ModelsPath, endpoint.ChatCompletionsPath, endpoint.MessagesPath, endpoint.ResponsesPath:
-		return true
-	default:
-		return false
-	}
-}
-
-func setOpenAICORSHeaders(w http.ResponseWriter, r *http.Request) {
-	header := w.Header()
-	header.Set("Access-Control-Allow-Origin", "*")
-	header.Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-	requestedHeaders := strings.TrimSpace(r.Header.Get("Access-Control-Request-Headers"))
-	if requestedHeaders == "" {
-		requestedHeaders = "Authorization, Content-Type, X-API-Key, X-Requested-With"
-	}
-	header.Set("Access-Control-Allow-Headers", requestedHeaders)
-	header.Set("Access-Control-Expose-Headers", "X-Request-Id, X-Qoder-Account, X-CLI2API-Account, X-CLI2API-Provider")
-	header.Set("Access-Control-Max-Age", "600")
-}
-
 func (s *Server) Close() error {
 	if s.stopLogs != nil {
 		close(s.stopLogs)
 	}
 	return errors.Join(s.manager.Close(), s.manager.Store().Close())
-}
-
-func (s *Server) routes() {
-	s.mux.HandleFunc(endpoint.HealthPath, s.handleHealth)
-	s.mux.HandleFunc("/api/overview", s.withConsoleKey(s.handleOverview))
-	s.mux.HandleFunc("/api/overview/summary", s.withConsoleKey(s.handleOverviewSummary))
-	s.mux.HandleFunc("/api/system/update", s.withConsoleKey(s.handleSystemUpdate))
-	s.mux.HandleFunc("/api/system/update/prepare", s.withConsoleKey(s.handleSystemUpdatePrepare))
-	s.mux.HandleFunc("/api/system/update/apply", s.withConsoleKey(s.handleSystemUpdateConfirm))
-	s.mux.HandleFunc("/api/system/update/cancel", s.withConsoleKey(s.handleSystemUpdateCancel))
-	s.mux.HandleFunc("/api/system/update/rollback", s.withConsoleKey(s.handleSystemUpdateRollback))
-	s.mux.HandleFunc("/api/system/settings", s.withConsoleKey(s.handleSystemSettings))
-	s.mux.HandleFunc("/api/system/console-key", s.withConsoleKey(s.handleConsoleKey))
-	s.mux.HandleFunc("/api/keys", s.withConsoleKey(s.handleAPIKeys))
-	s.mux.HandleFunc("/api/keys/", s.withConsoleKey(s.handleAPIKeyByID))
-	s.mux.HandleFunc("/api/models", s.withConsoleKey(s.handleModelsAPI))
-	s.mux.HandleFunc("/api/models/", s.withConsoleKey(s.handleModelSetting))
-	s.mux.HandleFunc("/api/providers", s.withConsoleKey(s.handleProviders))
-	s.mux.HandleFunc("/api/accounts", s.withConsoleKey(s.handleAccounts))
-	s.mux.HandleFunc("/api/accounts/import", s.withConsoleKey(s.handleAccountImport))
-	s.mux.HandleFunc("/api/accounts/", s.withConsoleKey(s.handleAccountByID))
-	s.mux.HandleFunc("/api/logs", s.withConsoleKey(s.handleLogs))
-	s.mux.HandleFunc("/api/logs/", s.withConsoleKey(s.handleLogs))
-	s.mux.HandleFunc("/api/chat", s.withConsoleKey(s.handleChatCompletions))
-	s.mux.HandleFunc(endpoint.ModelsPath, s.withAPIKey(s.handleModels))
-	s.mux.HandleFunc(endpoint.ChatCompletionsPath, s.withAPIKey(s.handleChatCompletions))
-	s.mux.HandleFunc(endpoint.MessagesPath, s.withAPIKey(s.handleAnthropicMessages))
-	s.mux.HandleFunc(endpoint.ResponsesPath, s.withAPIKey(s.handleResponses))
-
-	ui := webui.Handler()
-	s.mux.Handle("/assets/", ui)
-	s.mux.Handle("/favicon.svg", ui)
-	s.mux.Handle("/favicon-dark.svg", ui)
-	s.mux.Handle("/apple-touch-icon.svg", ui)
-	s.mux.Handle("/og-card.svg", ui)
-	s.mux.Handle("/site.webmanifest", ui)
-	s.mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/" &&
-			!strings.HasPrefix(r.URL.Path, "/assets/") &&
-			r.URL.Path != "/favicon.svg" &&
-			r.URL.Path != "/favicon-dark.svg" &&
-			r.URL.Path != "/apple-touch-icon.svg" &&
-			r.URL.Path != "/og-card.svg" &&
-			r.URL.Path != "/site.webmanifest" {
-			switch r.URL.Path {
-			case "/login", "/auth", "/providers", "/access", "/accounts", "/system", "/logs", "/keys":
-			default:
-				http.NotFound(w, r)
-				return
-			}
-		}
-		data, err := webui.IndexHTML()
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write(data)
-	})
-}
-
-func (s *Server) withAPIKey(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		identity, ok := s.auth.Authenticate(r.Context(), r)
-		if !ok {
-			writeErr(w, http.StatusUnauthorized, "invalid_api_key", "Missing/invalid API key")
-			return
-		}
-		if identity.Kind == auth.KindKey && s.manager != nil {
-			_ = s.manager.Store().TouchAPIKey(r.Context(), identity.KeyID)
-		}
-		next(w, r.WithContext(auth.WithIdentity(r.Context(), identity)))
-	}
-}
-
-func (s *Server) withConsoleKey(next http.HandlerFunc) http.HandlerFunc {
-	return s.withAPIKey(func(w http.ResponseWriter, r *http.Request) {
-		identity, _ := auth.IdentityFrom(r.Context())
-		if !identity.Console() {
-			writeErr(w, http.StatusForbidden, "console_key_required", "This endpoint requires the console API key")
-			return
-		}
-		next(w, r)
-	})
-}
-
-func (s *Server) requestIdentity(r *http.Request) auth.Identity {
-	identity, ok := auth.IdentityFrom(r.Context())
-	if ok {
-		return identity
-	}
-	return auth.Identity{Kind: auth.KindNone}
-}
-
-func providerIDs() []string {
-	out := make([]string, 0, len(providers.List()))
-	for _, d := range providers.List() {
-		out = append(out, d.ID)
-	}
-	return out
-}
-
-func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":                        true,
-		"service":                   "cli2api",
-		"providers":                 providerIDs(),
-		"cross_provider_model_pool": s.crossProviderModelPool.Load(),
-		"phase":                     "ui-preview",
-		"chat_url":                  endpoint.ChatCompletionsPath,
-		"time":                      time.Now().UTC().Format(time.RFC3339),
-		"version":                   buildinfo.Version,
-		"commit":                    buildinfo.Commit,
-		"maintenance":               s.maintenance.Load(),
-	})
-}
-
-func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Query().Get("refresh") == "1" {
-		refreshCtx, refreshCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		_ = s.manager.RefreshAll(refreshCtx, true)
-		refreshCancel()
-	}
-	accountViews, err := s.manager.Accounts(r.Context())
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "account_list_failed", err.Error())
-		return
-	}
-	readyCount := 0
-	hotCount := 0
-	coolingCount := 0
-	inFlight := 0
-	for _, account := range accountViews {
-		if account.Ready {
-			readyCount++
-		}
-		if account.Hot {
-			hotCount++
-		}
-		if account.DownUntil != "" {
-			coolingCount++
-		}
-		inFlight += account.InFlight
-	}
-	models := s.decorateModelsWithContext(r.Context(), s.filterModelsForIdentity(r, s.fetchWorkerModels(false)))
-	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":   true,
-		"time": time.Now().Format(time.RFC3339),
-		"proxy": map[string]any{
-			"ok": true, "service": "cli2api", "port": s.cfg.Port,
-			"providers":                 providerIDs(),
-			"cross_provider_model_pool": s.crossProviderModelPool.Load(),
-			"version":                   buildinfo.Version, "commit": buildinfo.Commit,
-			"chat_url": "/v1/chat/completions",
-		},
-		"worker": map[string]any{
-			"ok": readyCount > 0, "hot": hotCount > 0, "ready_count": readyCount,
-			"hot_count": hotCount, "account_count": len(accountViews),
-		},
-		"routing": map[string]any{
-			"strategy":         s.pool.RoutingStrategy(),
-			"session_affinity": s.executor.SessionAffinity.Stats(),
-		},
-		"accounts": accountViews,
-		"models":   models,
-		"access": map[string]any{
-			"openai_base_url": "/v1", "chat_completions": endpoint.ChatCompletionsPath,
-			"messages": endpoint.MessagesPath, "responses": endpoint.ResponsesPath,
-			"models": endpoint.ModelsPath, "health": endpoint.HealthPath,
-			"hint": "Console APIs and /v1 require the API key stored in SQLite.",
-		},
-		"ui": map[string]any{
-			"needs_api_key_for_chat":        s.cfg.ProxyAPIKey != "",
-			"proxy_api_key_required_for_v1": s.cfg.ProxyAPIKey != "",
-		},
-	})
-}
-
-func (s *Server) handleOverviewSummary(w http.ResponseWriter, r *http.Request) {
-	accountViews, err := s.manager.Accounts(r.Context())
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "account_list_failed", err.Error())
-		return
-	}
-	readyCount := 0
-	hotCount := 0
-	coolingCount := 0
-	inFlight := 0
-	for _, account := range accountViews {
-		if account.Ready {
-			readyCount++
-		}
-		if account.Hot {
-			hotCount++
-		}
-		if account.DownUntil != "" {
-			coolingCount++
-		}
-		inFlight += account.InFlight
-	}
-	modelCount := 0
-	s.modelsAPICacheMu.Lock()
-	if cached, ok := s.modelsAPICache[modelsAPICacheKey("", catalogModeMerge)]; ok && time.Since(cached.at) < modelsAPICacheTTL {
-		modelCount = len(cached.models)
-	}
-	s.modelsAPICacheMu.Unlock()
-	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":   true,
-		"time": time.Now().Format(time.RFC3339),
-		"proxy": map[string]any{
-			"ok": true, "service": "cli2api", "port": s.cfg.Port,
-			"providers":                 providerIDs(),
-			"cross_provider_model_pool": s.crossProviderModelPool.Load(),
-			"version":                   buildinfo.Version, "commit": buildinfo.Commit,
-			"chat_url": "/v1/chat/completions",
-		},
-		"worker": map[string]any{
-			"ok": readyCount > 0, "hot": hotCount > 0,
-			"ready_count": readyCount, "hot_count": hotCount,
-			"account_count": len(accountViews), "cooling_count": coolingCount,
-			"in_flight": inFlight,
-		},
-		"model_count": modelCount,
-		"routing": map[string]any{
-			"strategy":         s.pool.RoutingStrategy(),
-			"session_affinity": s.executor.SessionAffinity.Stats(),
-		},
-		"access": map[string]any{
-			"openai_base_url": "/v1", "chat_completions": endpoint.ChatCompletionsPath,
-			"messages": endpoint.MessagesPath, "responses": endpoint.ResponsesPath,
-			"models": endpoint.ModelsPath, "health": endpoint.HealthPath,
-		},
-	})
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

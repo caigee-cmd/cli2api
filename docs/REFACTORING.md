@@ -4,7 +4,7 @@ title: 后端工程化重构实施手册（行为保持）
 scope: [backend, package-boundaries, refactoring, compatibility, testing, rollout]
 status: in-progress
 read-when: 评估或执行不改变现有功能的后端职责拆分、制定重构 PR、检查兼容性与回滚条件时
-summary: 基于现有实现的渐进式工程化重构方案，包含目标职责、迁移映射、状态所有权、16 个实施阶段、测试矩阵、PR 规则、发布回滚和完成标准。S00/S01 已验收；跨包迁移尚未开始。
+summary: 基于现有实现的渐进式工程化重构方案，包含目标职责、迁移映射、状态所有权、16 个实施阶段、测试矩阵、PR 规则、发布回滚和完成标准。S00–S02 已验收；跨包迁移尚未开始。
 related: [AGENTS.md, docs/ARCHITECTURE.md, docs/REQUEST.md, docs/PLAN.md, docs/DEVELOPMENT.md]
 last-updated: 2026-09-18
 ---
@@ -519,7 +519,7 @@ executor 仍 import accounts
 
 - [x] S00：基线、规则、入口与状态所有权盘点完成并验收。
 - [x] S01：行为保护测试补齐，基线结果与限制已记录。
-- [ ] S02：api 同包拆文件完成，行为回归通过。
+- [x] S02：api 同包拆文件完成，行为回归通过。
 - [ ] S03：accounts 同包拆文件完成，生命周期回归通过。
 - [ ] S04：类型/接口边界整理完成，无循环依赖。
 - [ ] S05：Store 迁移完成，历史 SQL 摘要与旧库兼容通过。
@@ -879,19 +879,53 @@ compat.go        → compat_messages.go / compat_responses.go / compat_stream.go
 
 执行：
 
-- [ ] 全部仍使用 `package api`。
-- [ ] 原函数签名、方法接收者和字段不变。
-- [ ] 只调整文件位置和必要 import。
-- [ ] 共享 helper 留在本包，不为了移动文件导出。
-- [ ] 测试文件可按职责搬，但断言和 fixture 不重写。
-- [ ] 保持原控制流、defer 位置、返回值和调用顺序。
-- [ ] 只格式化涉及的普通 Go 文件，不运行会触碰全仓内容的大范围清理。
+- [x] 全部仍使用 `package api`。
+  - 验证：2026-09-18；分支 `refactor/s02-api-split`；新文件均 `package api`，无新 package。
+- [x] 原函数签名、方法接收者和字段不变。
+  - 验证：`Server` 字段、`New`/`Handler`/`routes`/`handleChatCompletions` 等仍是原接收者；未改导出符号。
+- [x] 只调整文件位置和必要 import。
+  - 验证：按职责切开 `server.go`/`chat.go`/`compat.go`；import 仅为编译所需。
+- [x] 共享 helper 留在本包，不为了移动文件导出。
+  - 验证：`writeErr`/`firstNonEmpty`/`relayOpenAIStream` 等仍未导出。
+- [x] 测试文件可按职责搬，但断言和 fixture 不重写。
+  - 验证：测试文件未搬；S01 断言保持。
+- [x] 保持原控制流、defer 位置、返回值和调用顺序。
+  - 验证：函数体整段移动；无新 goroutine/interface/运行时参数。
+- [x] 只格式化涉及的普通 Go 文件，不运行会触碰全仓内容的大范围清理。
+  - 验证：`gofmt` 仅作用于 `internal/api/*.go`；误碰的 S01 测试已还原。
 
 **交付：** 文件能表达职责，Server 暂时仍保留原结构。
 
 **通过：** diff 可识别为移动；S01 测试通过；没有新 goroutine/interface/运行时参数。
 
 **回滚：** 回滚该移动提交。
+
+实际切分：
+
+```text
+server.go        → server.go / bootstrap.go / routes.go / middleware.go / health.go / overview.go
+chat.go          → chat.go / chat_prepare.go / chat_stream.go / chat_usage.go / model_catalog.go / model_cache.go
+compat.go        → compat.go / compat_messages.go / compat_responses.go / compat_stream.go
+```
+
+`compat.go` 仍保留共享 alias、tool-call 解码和 prepare/finish。测试文件未搬。
+
+#### S02 阶段验收
+
+```text
+阶段编号：S02
+验收日期与确认人：2026-09-18；执行记录写入本手册
+本次勾选的任务：S02 全部执行项与 7.2 阶段摘要
+未勾选任务、例外批准与影响：无
+阶段复选框是否允许勾选：是（同包移动；S01 测试通过）
+合入/候选 SHA：分支 refactor/s02-api-split，起点 6fd061a
+完成的职责迁移：api 文件按职责拆分；package 边界未变
+保留的临时依赖：Server 仍持有原字段
+测试证据：go test ./...、go vet ./...、go build ./cmd/server ./cmd/updater
+真实环境验收证据：未执行
+是否允许进入下一阶段：S03（accounts 同包拆文件）可开始；不自动开工
+失败时回退到哪个已验收节点：撤销本阶段移动提交；S01 测试基线仍在
+```
 
 ### S03：accounts 同包拆文件
 
