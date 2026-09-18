@@ -14,6 +14,7 @@ import (
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/executor"
+	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
 func (h *Handler) observeCompatibilityStreamFailure(r *http.Request, execution Execution, upstream executor.StreamResult, relayErr error) {
@@ -374,9 +375,11 @@ func RelayAnthropicStream(writer io.Writer, body io.Reader, requestID, model str
 type responsesEventWriter struct {
 	writer         io.Writer
 	sequenceNumber int
+	toolNames      map[string]translate.ResponseToolName
 }
 
 func (w *responsesEventWriter) write(event string, payload any) error {
+	translate.RestoreResponseToolNames(payload, w.toolNames)
 	if object, ok := payload.(map[string]any); ok {
 		object["sequence_number"] = w.sequenceNumber
 		w.sequenceNumber++
@@ -384,8 +387,8 @@ func (w *responsesEventWriter) write(event string, payload any) error {
 	return writeSSEEvent(w.writer, event, payload)
 }
 
-func RelayResponsesStream(writer io.Writer, body io.Reader, requestID, model string) (StreamRelayStats, error) {
-	eventWriter := responsesEventWriter{writer: writer}
+func RelayResponsesStream(writer io.Writer, body io.Reader, requestID, model string, names map[string]translate.ResponseToolName) (StreamRelayStats, error) {
+	eventWriter := responsesEventWriter{writer: writer, toolNames: names}
 	responseID := "resp_" + requestID
 	created := time.Now().Unix()
 	inProgress := map[string]any{"id": responseID, "object": "response", "created_at": created, "status": "in_progress", "model": model, "output": []any{}}
@@ -498,6 +501,12 @@ func RelayResponsesStream(writer io.Writer, body io.Reader, requestID, model str
 					toolOutputIndexes[index] = nextOutputIndex
 					nextOutputIndex++
 					item := map[string]any{"id": fmt.Sprintf("fc_%s_%d", requestID, index), "type": "function_call", "status": "in_progress", "call_id": toolCallIDs[index], "name": toolCallNames[index], "arguments": ""}
+					if namespace, name, custom := translate.DecodeCustomToolName(toolCallNames[index]); custom {
+						item = map[string]any{"id": fmt.Sprintf("ctc_%s_%d", requestID, index), "type": "custom_tool_call", "status": "in_progress", "call_id": toolCallIDs[index], "name": name, "input": ""}
+						if namespace != "" {
+							item["namespace"] = namespace
+						}
+					}
 					if err := eventWriter.write("response.output_item.added", map[string]any{"type": "response.output_item.added", "output_index": toolOutputIndexes[index], "item": item}); err != nil {
 						return err
 					}
@@ -510,7 +519,13 @@ func RelayResponsesStream(writer io.Writer, body io.Reader, requestID, model str
 					}
 					emitted := toolArgumentLengths[index]
 					if len(accumulated) > emitted {
-						if err := eventWriter.write("response.function_call_arguments.delta", map[string]any{"type": "response.function_call_arguments.delta", "output_index": toolOutputIndexes[index], "item_id": fmt.Sprintf("fc_%s_%d", requestID, index), "call_id": toolCallIDs[index], "name": toolCallNames[index], "delta": accumulated[emitted:]}); err != nil {
+						deltaPayload := map[string]any{"type": "response.function_call_arguments.delta", "output_index": toolOutputIndexes[index], "item_id": fmt.Sprintf("fc_%s_%d", requestID, index), "call_id": toolCallIDs[index], "name": toolCallNames[index], "delta": accumulated[emitted:]}
+						if _, _, custom := translate.DecodeCustomToolName(toolCallNames[index]); custom {
+							toolArgumentLengths[index] = len(accumulated)
+							continue
+						}
+						eventName, _ := deltaPayload["type"].(string)
+						if err := eventWriter.write(eventName, deltaPayload); err != nil {
 							return err
 						}
 						toolArgumentLengths[index] = len(accumulated)
@@ -546,19 +561,48 @@ func RelayResponsesStream(writer io.Writer, body io.Reader, requestID, model str
 				call.ID = fmt.Sprintf("call_%s_%d", requestID, callIndex)
 			}
 		}
-		item := responseFunctionCallItem(requestID, callIndex, call)
+		item := proxyToolCallItem(requestID, callIndex, call)
 		outputIndex, ok := toolOutputIndexes[callIndex]
 		if !ok {
 			outputIndex = nextOutputIndex
 			nextOutputIndex++
 		}
-		if !toolAnnounced[callIndex] {
-			if err := eventWriter.write("response.output_item.added", map[string]any{"type": "response.output_item.added", "output_index": outputIndex, "item": map[string]any{"id": item["id"], "type": "function_call", "status": "in_progress", "call_id": call.ID, "name": call.Name, "arguments": ""}}); err != nil {
+		if namespace, name, custom := translate.DecodeCustomToolName(call.Name); custom {
+			input := ""
+			var payload struct {
+				Input string `json:"input"`
+			}
+			if json.Unmarshal([]byte(call.Arguments), &payload) == nil {
+				input = payload.Input
+			} else {
+				input = call.Arguments
+			}
+			if !toolAnnounced[callIndex] {
+				added := map[string]any{"id": item["id"], "type": "custom_tool_call", "status": "in_progress", "call_id": call.ID, "name": name, "input": ""}
+				if namespace != "" {
+					added["namespace"] = namespace
+				}
+				if err := eventWriter.write("response.output_item.added", map[string]any{"type": "response.output_item.added", "output_index": outputIndex, "item": added}); err != nil {
+					return stats, err
+				}
+			}
+			if input != "" {
+				if err := eventWriter.write("response.custom_tool_call_input.delta", map[string]any{"type": "response.custom_tool_call_input.delta", "output_index": outputIndex, "item_id": item["id"], "call_id": call.ID, "delta": input}); err != nil {
+					return stats, err
+				}
+			}
+			if err := eventWriter.write("response.custom_tool_call_input.done", map[string]any{"type": "response.custom_tool_call_input.done", "output_index": outputIndex, "item_id": item["id"], "call_id": call.ID, "name": name, "input": input}); err != nil {
 				return stats, err
 			}
-		}
-		if err := eventWriter.write("response.function_call_arguments.done", map[string]any{"type": "response.function_call_arguments.done", "output_index": outputIndex, "item_id": item["id"], "call_id": call.ID, "name": call.Name, "arguments": call.Arguments}); err != nil {
-			return stats, err
+		} else {
+			if !toolAnnounced[callIndex] {
+				if err := eventWriter.write("response.output_item.added", map[string]any{"type": "response.output_item.added", "output_index": outputIndex, "item": map[string]any{"id": item["id"], "type": "function_call", "status": "in_progress", "call_id": call.ID, "name": call.Name, "arguments": ""}}); err != nil {
+					return stats, err
+				}
+			}
+			if err := eventWriter.write("response.function_call_arguments.done", map[string]any{"type": "response.function_call_arguments.done", "output_index": outputIndex, "item_id": item["id"], "call_id": call.ID, "name": call.Name, "arguments": call.Arguments}); err != nil {
+				return stats, err
+			}
 		}
 		if err := eventWriter.write("response.output_item.done", map[string]any{"type": "response.output_item.done", "output_index": outputIndex, "item": item}); err != nil {
 			return stats, err

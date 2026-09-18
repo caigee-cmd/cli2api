@@ -6,6 +6,8 @@ import (
 )
 
 type ChatRequest struct {
+	ResponseToolNames map[string]ResponseToolName `json:"-"`
+
 	Model                 string          `json:"model"`
 	Messages              []ChatMessage   `json:"messages"`
 	Stream                bool            `json:"stream"`

@@ -1281,6 +1281,28 @@ func TestPrepareBodyExpandsNamespaceTools(t *testing.T) {
 	}
 }
 
+func TestPrepareBodyKeepsEncodedCustomFunctionTools(t *testing.T) {
+	const encodedName = "functions__codex_custom__apply_patch"
+	out := PrepareBody([]byte(`{"model":"m","tools":[{"type":"function","function":{"name":"functions__codex_custom__apply_patch","parameters":{"type":"object","properties":{"input":{"type":"string"}},"required":["input"]}}}],"tool_choice":"functions__codex_custom__apply_patch"}`))
+	var body map[string]any
+	if err := json.Unmarshal(out, &body); err != nil {
+		t.Fatal(err)
+	}
+	tools, _ := body["tools"].([]any)
+	if len(tools) != 1 {
+		t.Fatalf("tools=%v", body["tools"])
+	}
+	tool, _ := tools[0].(map[string]any)
+	fn, _ := tool["function"].(map[string]any)
+	if fn["name"] != encodedName {
+		t.Fatalf("encoded custom function name changed: %v", fn["name"])
+	}
+	choice, _ := body["tool_choice"].(string)
+	if choice != encodedName {
+		t.Fatalf("encoded custom tool choice changed: %v", body["tool_choice"])
+	}
+}
+
 func TestCatalogHeadersUseDesktopUAOnlyForGlobal(t *testing.T) {
 	global := http.Header{}
 	SetCatalogHeaders(global, Credential{AccessToken: "at", UID: "u1", Domain: "www.workbuddy.ai"})

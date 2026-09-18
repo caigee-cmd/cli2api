@@ -20,6 +20,114 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
+func TestResponsesNamespaceHandlerRoundTrip(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprint(stream), func(t *testing.T) {
+			calls := 0
+			server, closeServer := newCompatibilityServer(t, func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				var body map[string]any
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Fatal(err)
+				}
+				if calls == 2 {
+					messages := body["messages"].([]any)
+					found := false
+					for _, raw := range messages {
+						message := raw.(map[string]any)
+						if tools, ok := message["tool_calls"].([]any); ok {
+							for _, rawCall := range tools {
+								call := rawCall.(map[string]any)
+								if call["id"] == "call_probe" && call["function"].(map[string]any)["name"] == "mcp__fastctx__glob" {
+									found = true
+								}
+							}
+						}
+					}
+					if !found {
+						t.Errorf("history name/id missing: %v", messages)
+					}
+					_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"ROUNDTRIP_OK"},"finish_reason":"stop"}]}`)
+					return
+				}
+				if stream {
+					w.Header().Set("Content-Type", "text/event-stream")
+					_, _ = io.WriteString(w, "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_probe\",\"function\":{\"name\":\"mcp__fastctx__glob\",\"arguments\":\"{\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n")
+				} else {
+					_, _ = io.WriteString(w, `{"choices":[{"message":{"tool_calls":[{"id":"call_probe","type":"function","function":{"name":"mcp__fastctx__glob","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}`)
+				}
+			})
+			defer closeServer()
+			tools := []any{map[string]any{"type": "namespace", "name": "mcp__fastctx", "tools": []any{map[string]any{"type": "function", "name": "glob", "parameters": map[string]any{"type": "object", "properties": map[string]any{}}}}}}
+			request := map[string]any{"model": "qoder/glm-5.2", "input": "find", "tools": tools, "stream": stream}
+			send := func() *httptest.ResponseRecorder {
+				data, _ := json.Marshal(request)
+				recorder := httptest.NewRecorder()
+				server.handleResponses(recorder, httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(string(data))))
+				if recorder.Code != 200 {
+					t.Fatalf("status=%d %s", recorder.Code, recorder.Body.String())
+				}
+				return recorder
+			}
+			recorder := send()
+			var completed map[string]any
+			check := func(item map[string]any) {
+				if item["name"] != "glob" || item["namespace"] != "mcp__fastctx" || item["call_id"] != "call_probe" {
+					t.Fatalf("wrong tool identity: %v", item)
+				}
+			}
+			if stream {
+				seen := map[string]bool{}
+				for _, line := range strings.Split(recorder.Body.String(), "\n") {
+					if !strings.HasPrefix(line, "data: ") {
+						continue
+					}
+					var event map[string]any
+					if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &event); err != nil {
+						t.Fatal(err)
+					}
+					typ, _ := event["type"].(string)
+					if item, ok := event["item"].(map[string]any); ok && item["type"] == "function_call" {
+						check(item)
+						seen[typ] = true
+					}
+					if typ == "response.function_call_arguments.delta" || typ == "response.function_call_arguments.done" {
+						check(event)
+						seen[typ] = true
+					}
+					if typ == "response.completed" {
+						completed = event["response"].(map[string]any)
+					}
+				}
+				for _, typ := range []string{"response.output_item.added", "response.output_item.done", "response.function_call_arguments.delta", "response.function_call_arguments.done"} {
+					if !seen[typ] {
+						t.Fatalf("missing %s", typ)
+					}
+				}
+			} else if err := json.Unmarshal(recorder.Body.Bytes(), &completed); err != nil {
+				t.Fatal(err)
+			}
+			if completed == nil {
+				t.Fatal("no completed response")
+			}
+			output := completed["output"].([]any)
+			item := output[len(output)-1].(map[string]any)
+			check(item)
+			if item["arguments"] != "{}" {
+				t.Fatal(item)
+			}
+			request["stream"] = false
+			request["input"] = []any{map[string]any{"role": "user", "content": "find"}, item, map[string]any{"type": "function_call_output", "call_id": "call_probe", "output": "found"}}
+			if result := send(); !strings.Contains(result.Body.String(), "ROUNDTRIP_OK") {
+				t.Fatal(result.Body.String())
+			}
+			if calls != 2 {
+				t.Fatalf("upstream calls=%d", calls)
+			}
+		})
+	}
+}
+
 func TestCompatibilityStreamsPreserveTypedReadError(t *testing.T) {
 	failover := false
 	want := &providers.Error{
@@ -239,6 +347,62 @@ func TestResponsesStreamKeepsDistinctFunctionCallIDs(t *testing.T) {
 	}
 	if len(uniqueIDs) != 2 {
 		t.Fatalf("expected two distinct function-call item ids, got %#v in %s", uniqueIDs, body)
+	}
+}
+
+func TestResponsesNonStreamRestoresCustomToolCall(t *testing.T) {
+	server, closeServer := newCompatibilityServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"model": "glm-5.2", "choices": []any{map[string]any{"message": map[string]any{
+				"content": "", "tool_calls": []any{map[string]any{"id": "call_custom", "type": "function", "function": map[string]string{"name": "__codex_custom__exec", "arguments": `{"input":"patch text"}`}}},
+			}, "finish_reason": "tool_calls"}},
+			"usage": map[string]any{"prompt_tokens": 8, "completion_tokens": 3},
+		})
+	})
+	defer closeServer()
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"qoder/glm-5.2","input":"hi"}`))
+	recorder := httptest.NewRecorder()
+	server.handleResponses(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var response struct {
+		Output []struct {
+			Type  string `json:"type"`
+			Name  string `json:"name"`
+			Input string `json:"input"`
+		} `json:"output"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Output) != 1 || response.Output[0].Type != "custom_tool_call" || response.Output[0].Name != "exec" || response.Output[0].Input != "patch text" {
+		t.Fatalf("output=%+v", response.Output)
+	}
+}
+
+func TestResponsesStreamWritesCustomToolCallEvents(t *testing.T) {
+	server, closeServer := newCompatibilityServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_custom\",\"function\":{\"name\":\"__codex_custom__exec\",\"arguments\":\"{\\\"input\\\":\\\"patch\"}}]}}]}\n\n")
+		_, _ = io.WriteString(w, "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\" text\\\"}\"}}]}}]}\n\n")
+		_, _ = io.WriteString(w, "data: {\"choices\":[{\"finish_reason\":\"tool_calls\"}]}\n\n")
+		_, _ = io.WriteString(w, "data: [DONE]\n\n")
+	})
+	defer closeServer()
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"qoder/glm-5.2","stream":true,"input":"hi"}`))
+	recorder := httptest.NewRecorder()
+	server.handleResponses(recorder, request)
+	body := recorder.Body.String()
+	for _, expected := range []string{"event: response.custom_tool_call_input.delta", `"delta":"patch text"`, "event: response.custom_tool_call_input.done", `"type":"custom_tool_call"`, `"name":"exec"`, `"input":"patch text"`} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("missing %q in %s", expected, body)
+		}
+	}
+	if strings.Contains(body, "__codex_custom__") {
+		t.Fatalf("custom marker leaked into response: %s", body)
 	}
 }
 

@@ -36,6 +36,52 @@ test("normalizes model ids only for stable public/settings keys", () => {
   assert.equal(canonicalModelID("GLM-5.2"), "glm-5.2");
 });
 
+test("preserves user images in the final Qoder request without changing system text", () => {
+  const images = [
+    { type: "image_url", image_url: { url: "data:image/png;base64,cHJvYmU=", detail: "high" } },
+    { type: "image_url", image_url: { url: "https://example.com/probe.png" } },
+  ];
+  const body = buildPlainChatBody({
+    model: "deepseek-flash",
+    messages: [
+      { role: "system", content: [{ type: "text", text: "Inspect images" }] },
+      { role: "user", content: [{ type: "text", text: "Compare these" }, ...images] },
+    ],
+  });
+  assert.equal(body.system, "Inspect images");
+  assert.deepEqual(body.messages[1].content, [{ type: "text", text: "Compare these" }, ...images]);
+});
+
+test("preserves tool images after the complete parallel result batch and drops orphan images", () => {
+  const image = { type: "image_url", image_url: { url: "data:image/png;base64,cHJvYmU=" } };
+  const body = buildPlainChatBody({ model: "deepseek-flash", messages: [
+    { role: "assistant", content: "", tool_calls: [
+      { id: "a", function: { name: "view", arguments: "{}" } },
+      { id: "b", function: { name: "view", arguments: "{}" } },
+    ] },
+    { role: "tool", tool_call_id: "orphan", content: [{ type: "image_url", image_url: { url: "orphan" } }] },
+    { role: "tool", tool_call_id: "b", content: [image] },
+    { role: "tool", tool_call_id: "a", content: [{ type: "image", mimeType: "image/png", data: "bWNw" }] },
+    { role: "user", content: "Describe the results" },
+  ] });
+  assert.deepEqual(body.messages.map(x => x.role), ["assistant", "tool", "tool", "user", "user"]);
+  assert.deepEqual(body.messages.slice(1, 3).map(x => x.tool_call_id), ["a", "b"]);
+  assert.deepEqual(body.messages[3].content, [
+    { type: "image_url", image_url: { url: "data:image/png;base64,bWNw" } }, image,
+  ]);
+  assert.equal(JSON.stringify(body).includes('"url":"orphan"'), false);
+});
+
+test("preserves images extracted from Responses tool output into a user message", () => {
+  const image = { type: "image_url", image_url: { url: "data:image/png;base64,cHJvYmU=" } };
+  const body = buildPlainChatBody({ model: "deepseek-flash", messages: [
+    { role: "assistant", content: "", tool_calls: [{ id: "a", function: { name: "view", arguments: "{}" } }] },
+    { role: "tool", tool_call_id: "a", content: "Image attached" },
+    { role: "user", content: [image] },
+  ] });
+  assert.deepEqual(body.messages[2], { role: "user", content: [image] });
+});
+
 test("detects reasoning flags from OpenAI-style fields", () => {
   assert.equal(wantsReasoning({ enable_thinking: true }), true);
   assert.equal(wantsReasoning({ reasoning_effort: "high" }), true);

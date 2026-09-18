@@ -20,7 +20,7 @@ func relayAnthropicStream(writer io.Writer, body io.Reader, requestID, model str
 }
 
 func relayResponsesStream(writer io.Writer, body io.Reader, requestID, model string) (streamRelayStats, error) {
-	return apigateway.RelayResponsesStream(writer, body, requestID, model)
+	return apigateway.RelayResponsesStream(writer, body, requestID, model, nil)
 }
 
 func sseDeltaHasToken(line string) bool {

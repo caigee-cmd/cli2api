@@ -6,6 +6,32 @@ import (
 	"strings"
 )
 
+// RestoreResponseToolNames only visits protocol containers, never user content
+// or tool arguments. The same operation serves JSON responses and SSE events.
+func RestoreResponseToolNames(value any, names map[string]ResponseToolName) {
+	if len(names) == 0 {
+		return
+	}
+	switch item := value.(type) {
+	case []any:
+		for _, child := range item {
+			RestoreResponseToolNames(child, names)
+		}
+	case map[string]any:
+		typ, _ := item["type"].(string)
+		if typ == "function_call" || typ == "response.function_call_arguments.delta" || typ == "response.function_call_arguments.done" {
+			name, _ := item["name"].(string)
+			if identity, ok := names[name]; ok && item["namespace"] == nil {
+				item["name"] = identity.Name
+				item["namespace"] = identity.Namespace
+			}
+		}
+		for _, key := range []string{"response", "output", "item"} {
+			RestoreResponseToolNames(item[key], names)
+		}
+	}
+}
+
 // AnthropicMessagesRequest is the supported subset of Anthropic's Messages API.
 type AnthropicMessagesRequest struct {
 	Model         string             `json:"model"`
@@ -119,21 +145,21 @@ func TranslateAnthropicMessages(request AnthropicMessagesRequest) (ChatRequest, 
 	if err != nil {
 		return ChatRequest{}, err
 	}
-chat.Tools = tools
-		toolChoice, err := translateAnthropicToolChoice(request.ToolChoice)
-		if err != nil {
-			return ChatRequest{}, err
-		}
-		chat.ToolChoice = sanitizeToolChoice(chat.Tools, toolChoice)
-		chat.ParallelToolCalls = anthropicParallelToolCalls(request.ToolChoice)
-		if effort := anthropicReasoningEffort(request.OutputConfig); len(effort) > 0 {
-			chat.ReasoningEffort = effort
-		}
-		if err := validateToolChoice(chat.Tools, chat.ToolChoice); err != nil {
-			return ChatRequest{}, err
-		}
-		return chat, nil
+	chat.Tools = tools
+	toolChoice, err := translateAnthropicToolChoice(request.ToolChoice)
+	if err != nil {
+		return ChatRequest{}, err
 	}
+	chat.ToolChoice = sanitizeToolChoice(chat.Tools, toolChoice)
+	chat.ParallelToolCalls = anthropicParallelToolCalls(request.ToolChoice)
+	if effort := anthropicReasoningEffort(request.OutputConfig); len(effort) > 0 {
+		chat.ReasoningEffort = effort
+	}
+	if err := validateToolChoice(chat.Tools, chat.ToolChoice); err != nil {
+		return ChatRequest{}, err
+	}
+	return chat, nil
+}
 
 func TranslateResponses(request ResponsesRequest) (ChatRequest, error) {
 	if strings.TrimSpace(request.PreviousID) != "" || !emptyJSON(request.Conversation) {
@@ -171,28 +197,33 @@ func TranslateResponses(request ResponsesRequest) (ChatRequest, error) {
 	if err != nil {
 		return ChatRequest{}, err
 	}
-	tools, err := translateResponsesTools(mergeJSONArray(request.Tools, additionalTools))
+	mergedTools := mergeJSONArray(request.Tools, additionalTools)
+	chat.ResponseToolNames, err = responseToolNames(mergedTools)
 	if err != nil {
 		return ChatRequest{}, err
 	}
-chat.Tools = tools
-		toolChoice, err := translateResponsesToolChoice(request.ToolChoice)
-		if err != nil {
-			return ChatRequest{}, err
-		}
-		// Codex Desktop compact / recovery turns can keep a tool_choice while
-		// tools normalize to empty (hosted shells dropped, etc). Drop the
-		// orphan choice instead of failing the whole turn.
-		chat.ToolChoice = sanitizeToolChoice(chat.Tools, toolChoice)
-		chat.ResponseFormat, err = translateResponsesTextFormat(request.Text)
-		if err != nil {
-			return ChatRequest{}, err
-		}
-		if err := validateToolChoice(chat.Tools, chat.ToolChoice); err != nil {
-			return ChatRequest{}, err
-		}
-		return chat, nil
+	tools, err := translateResponsesTools(mergedTools)
+	if err != nil {
+		return ChatRequest{}, err
 	}
+	chat.Tools = tools
+	toolChoice, err := translateResponsesToolChoice(request.ToolChoice)
+	if err != nil {
+		return ChatRequest{}, err
+	}
+	// Codex Desktop compact / recovery turns can keep a tool_choice while
+	// tools normalize to empty (hosted shells dropped, etc). Drop the
+	// orphan choice instead of failing the whole turn.
+	chat.ToolChoice = sanitizeToolChoice(chat.Tools, toolChoice)
+	chat.ResponseFormat, err = translateResponsesTextFormat(request.Text)
+	if err != nil {
+		return ChatRequest{}, err
+	}
+	if err := validateToolChoice(chat.Tools, chat.ToolChoice); err != nil {
+		return ChatRequest{}, err
+	}
+	return chat, nil
+}
 
 func anthropicMessageParts(raw json.RawMessage) (any, []compatibilityToolCall, []compatibilityToolResult, error) {
 	if rawText, ok := rawJSONString(raw); ok {
@@ -465,10 +496,27 @@ func translateResponsesInput(raw json.RawMessage) ([]ChatMessage, error) {
 			if len(images) > 0 {
 				messages = append(messages, ChatMessage{Role: "user", Content: images})
 			}
+		case "custom_tool_call_output":
+			callID := rawMapString(source, "call_id")
+			if callID == "" {
+				return nil, fmt.Errorf("input[%d].call_id required", itemIndex)
+			}
+			content, images, err := responsesFunctionCallOutput(rawMapJSON(source, "output"))
+			if err != nil {
+				return nil, fmt.Errorf("input[%d].output: %w", itemIndex, err)
+			}
+			flushPendingReasoning()
+			messages = append(messages, ChatMessage{Role: "tool", ToolCallID: callID, Content: content})
+			if len(images) > 0 {
+				messages = append(messages, ChatMessage{Role: "user", Content: images})
+			}
 		case "input_file":
 			return nil, fmt.Errorf("input[%d] file inputs are not supported by the Qoder upstream", itemIndex)
 		case "function_call":
 			name := rawMapString(source, "name")
+			if namespace := rawMapString(source, "namespace"); namespace != "" {
+				name = qualifyNamespaceToolName(namespace, name)
+			}
 			callID := firstRawMapString(source, "call_id", "id")
 			if name == "" || callID == "" {
 				return nil, fmt.Errorf("input[%d] function_call requires name and call_id", itemIndex)
@@ -484,6 +532,19 @@ func translateResponsesInput(raw json.RawMessage) ([]ChatMessage, error) {
 				return nil, fmt.Errorf("input[%d].arguments must be valid JSON", itemIndex)
 			}
 			appendAssistant(ChatMessage{Role: "assistant", Content: "", ToolCalls: marshalToolCalls([]compatibilityToolCall{{ID: callID, Name: name, Arguments: arguments}})})
+		case "custom_tool_call":
+			name := rawMapString(source, "name")
+			namespace := rawMapString(source, "namespace")
+			callID := firstRawMapString(source, "call_id", "id")
+			if name == "" || callID == "" {
+				return nil, fmt.Errorf("input[%d] custom_tool_call requires name and call_id", itemIndex)
+			}
+			input := rawMapString(source, "input")
+			arguments, err := json.Marshal(map[string]string{"input": input})
+			if err != nil {
+				return nil, fmt.Errorf("input[%d] custom_tool_call input: %w", itemIndex, err)
+			}
+			appendAssistant(ChatMessage{Role: "assistant", Content: "", ToolCalls: marshalToolCalls([]compatibilityToolCall{{ID: callID, Name: EncodeCustomToolName(namespace, name), Arguments: arguments}})})
 		case "reasoning":
 			// Codex/Desktop replays prior Responses reasoning items. WorkBuddy
 			// thinking mode requires that text back on the assistant turn as
@@ -579,14 +640,25 @@ func translateResponsesToolChoice(raw json.RawMessage) (json.RawMessage, error) 
 	if err := json.Unmarshal(raw, &source); err != nil {
 		return nil, fmt.Errorf("tool_choice must be a string or an object")
 	}
-	if rawMapString(source, "type") != "function" {
+	switch rawMapString(source, "type") {
+	case "function":
+		name := rawMapString(source, "name")
+		if name == "" {
+			return nil, fmt.Errorf("tool_choice.name required")
+		}
+		if namespace := rawMapString(source, "namespace"); namespace != "" {
+			name = qualifyNamespaceToolName(namespace, name)
+		}
+		return json.Marshal(map[string]any{"type": "function", "function": map[string]string{"name": name}})
+	case "custom":
+		name := rawMapString(source, "name")
+		if name == "" {
+			return nil, fmt.Errorf("tool_choice.name required")
+		}
+		return json.Marshal(map[string]any{"type": "function", "function": map[string]string{"name": EncodeCustomToolName(rawMapString(source, "namespace"), name)}})
+	default:
 		return nil, fmt.Errorf("tool_choice type %q is not supported", rawMapString(source, "type"))
 	}
-	name := rawMapString(source, "name")
-	if name == "" {
-		return nil, fmt.Errorf("tool_choice.name required")
-	}
-	return json.Marshal(map[string]any{"type": "function", "function": map[string]string{"name": name}})
 }
 
 func responseReasoningEffort(raw json.RawMessage) json.RawMessage {

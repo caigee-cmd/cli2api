@@ -2,8 +2,121 @@ package translate
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
+
+const namespaceTestTools = `[{"type":"namespace","name":"mcp__fastctx","tools":[{"type":"function","name":"glob","parameters":{"type":"object"}}]}]`
+
+func TestResponsesNamespaceMappingMatchesNormalization(t *testing.T) {
+	for _, raw := range []string{
+		`[{"type":" NAMESPACE ","name":" mcp__fastctx ","tools":[{"type":" FUNCTION ","function":{"name":"glob"}}]}]`,
+		`[{"type":"namespace","name":"mcp__fastctx","tools":null}]`,
+		`[{"type":"namespace","name":"mcp__fastctx","tools":{}}]`,
+	} {
+		names, err := responseToolNames(json.RawMessage(raw))
+		if err != nil {
+			t.Fatal(err)
+		}
+		normalized, err := NormalizeOpenAITools(json.RawMessage(raw))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var tools []struct {
+			Function struct {
+				Name string `json:"name"`
+			} `json:"function"`
+		}
+		if len(normalized) > 0 {
+			if err := json.Unmarshal(normalized, &tools); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if len(names) != len(tools) {
+			t.Fatalf("mapping=%v tools=%s", names, normalized)
+		}
+		for _, tool := range tools {
+			if names[tool.Function.Name] != (ResponseToolName{Namespace: "mcp__fastctx", Name: "glob"}) {
+				t.Fatal(names)
+			}
+		}
+	}
+}
+
+func TestResponsesNamespaceHistoryAndChoice(t *testing.T) {
+	var source ResponsesRequest
+	if err := json.Unmarshal([]byte(`{"model":"test","input":[{"role":"user","content":"find"},{"type":"function_call","namespace":"mcp__fastctx","name":"glob","call_id":"call_1","arguments":"{}"},{"type":"function_call_output","call_id":"call_1","output":"found"}],"tool_choice":{"type":"function","namespace":"mcp__fastctx","name":"glob"}}`), &source); err != nil {
+		t.Fatal(err)
+	}
+	source.Tools = json.RawMessage(namespaceTestTools)
+	chat, err := TranslateResponses(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if chat.ResponseToolNames["mcp__fastctx__glob"] != (ResponseToolName{Namespace: "mcp__fastctx", Name: "glob"}) {
+		t.Fatal(chat.ResponseToolNames)
+	}
+	if !strings.Contains(string(chat.Messages[1].ToolCalls), `"name":"mcp__fastctx__glob"`) {
+		t.Fatal(string(chat.Messages[1].ToolCalls))
+	}
+	if !strings.Contains(string(chat.ToolChoice), `"name":"mcp__fastctx__glob"`) {
+		t.Fatal(string(chat.ToolChoice))
+	}
+	if chat.Messages[2].ToolCallID != "call_1" {
+		t.Fatal(chat.Messages)
+	}
+	encoded, _ := json.Marshal(chat)
+	if strings.Contains(string(encoded), "ResponseToolNames") || strings.Contains(string(encoded), `"Namespace"`) {
+		t.Fatal("internal metadata leaked")
+	}
+}
+
+func TestResponsesNamespaceAdditionalTools(t *testing.T) {
+	var source ResponsesRequest
+	if err := json.Unmarshal([]byte(`{"model":"test","input":[{"role":"user","content":"find"},{"type":"additional_tools","tools":`+namespaceTestTools+`}]}`), &source); err != nil {
+		t.Fatal(err)
+	}
+	chat, err := TranslateResponses(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(chat.ResponseToolNames) != 1 {
+		t.Fatalf("additional tools mapping=%v", chat.ResponseToolNames)
+	}
+}
+
+func TestResponsesNamespaceCollision(t *testing.T) {
+	for _, extra := range []string{
+		`{"type":"function","name":"mcp__fastctx__glob"}`,
+		`{"type":"namespace","name":"other","tools":[{"type":"function","name":"mcp__fastctx__glob"}]}`,
+	} {
+		raw := strings.TrimSuffix(namespaceTestTools, "]") + "," + extra + "]"
+		if _, err := responseToolNames(json.RawMessage(raw)); err == nil {
+			t.Fatalf("expected collision: %s", raw)
+		}
+	}
+}
+
+func TestRestoreNamespaceUsesDeclarationsOnly(t *testing.T) {
+	names, err := responseToolNames(json.RawMessage(`[{"type":"namespace","name":"one","tools":[{"type":"function","name":"lookup"}]},{"type":"namespace","name":"two","tools":[{"type":"function","name":"lookup"}]},{"type":"function","name":"mcp__flat__glob"}]`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"one__lookup", "two__lookup", "mcp__flat__glob"} {
+		item := map[string]any{"type": "function_call", "name": name, "arguments": `{"name":"one__lookup"}`}
+		RestoreResponseToolNames(item, names)
+		if identity, ok := names[name]; ok {
+			if item["name"] != identity.Name || item["namespace"] != identity.Namespace {
+				t.Fatal(item)
+			}
+		} else if item["name"] != name || item["namespace"] != nil {
+			t.Fatal(item)
+		}
+		if item["arguments"] != `{"name":"one__lookup"}` {
+			t.Fatal("arguments changed")
+		}
+	}
+}
 
 func TestNormalizeOpenAIToolsExpandsNamespaceAndDropsHostedShells(t *testing.T) {
 	raw := json.RawMessage(`[
@@ -16,7 +129,7 @@ func TestNormalizeOpenAIToolsExpandsNamespaceAndDropsHostedShells(t *testing.T) 
 		{"type":"web_search"},
 		{"type":"web_search_preview"},
 		{"type":"namespace","name":"mcp__empty","tools":[]},
-		{"type":"custom","name":"ignored"}
+		{"type":"custom","name":"exec","description":"run code","format":{"type":"grammar","syntax":"lark","definition":"start: \"x\""}}
 	]`)
 	got, err := NormalizeOpenAITools(raw)
 	if err != nil {
@@ -33,7 +146,7 @@ func TestNormalizeOpenAIToolsExpandsNamespaceAndDropsHostedShells(t *testing.T) 
 	if err := json.Unmarshal(got, &tools); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"lookup", "mcp__computer-use__left_click", "mcp__computer-use__type"}
+	want := []string{"lookup", "mcp__computer-use__left_click", "mcp__computer-use__type", "__codex_custom__exec"}
 	if len(tools) != len(want) {
 		t.Fatalf("tools=%v want %v", toolNames(tools), want)
 	}
@@ -44,6 +157,73 @@ func TestNormalizeOpenAIToolsExpandsNamespaceAndDropsHostedShells(t *testing.T) 
 	}
 	if string(tools[1].Function.Parameters) == "" || string(tools[1].Function.Parameters) == "null" {
 		t.Fatalf("left_click parameters missing: %s", tools[1].Function.Parameters)
+	}
+}
+
+func TestNormalizeOpenAIToolsExpandsNamespacedCustomTools(t *testing.T) {
+	got, err := NormalizeOpenAITools(json.RawMessage(`[
+		{"type":"namespace","name":"functions","tools":[
+			{"type":"custom","name":"apply_patch","description":"Apply a patch","format":{"type":"grammar","syntax":"lark","definition":"start: patch"}}
+		]}
+	]`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tools []struct {
+		Function struct {
+			Name        string          `json:"name"`
+			Parameters  json.RawMessage `json:"parameters"`
+			Description string          `json:"description"`
+		} `json:"function"`
+	}
+	if err := json.Unmarshal(got, &tools); err != nil {
+		t.Fatal(err)
+	}
+	if len(tools) != 1 || tools[0].Function.Name != "functions__codex_custom__apply_patch" {
+		t.Fatalf("tools=%s", got)
+	}
+	if !strings.Contains(tools[0].Function.Description, "start: patch") {
+		t.Fatalf("description=%q", tools[0].Function.Description)
+	}
+	namespace, name, ok := DecodeCustomToolName(tools[0].Function.Name)
+	if !ok || namespace != "functions" || name != "apply_patch" {
+		t.Fatalf("decoded=(%q,%q,%v)", namespace, name, ok)
+	}
+}
+
+func TestTranslateResponsesAcceptsCustomToolChoice(t *testing.T) {
+	chat, err := TranslateResponses(ResponsesRequest{
+		Model:      "workbuddy/glm-5.2",
+		Input:      json.RawMessage(`"hi"`),
+		Tools:      json.RawMessage(`[{"type":"custom","name":"exec","format":{"type":"grammar","syntax":"lark","definition":"start: \"x\""}}]`),
+		ToolChoice: json.RawMessage(`{"type":"custom","name":"exec"}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(chat.Tools), `"name":"__codex_custom__exec"`) {
+		t.Fatalf("tools=%s", chat.Tools)
+	}
+	if !strings.Contains(string(chat.ToolChoice), `"__codex_custom__exec"`) {
+		t.Fatalf("tool_choice=%s", chat.ToolChoice)
+	}
+}
+
+func TestTranslateResponsesDropsAutoChoiceWhenToolsNormalizeEmpty(t *testing.T) {
+	chat, err := TranslateResponses(ResponsesRequest{
+		Model:      "workbuddy/glm-5.2",
+		Input:      json.RawMessage(`"hi"`),
+		Tools:      json.RawMessage(`[{"type":"mcp","server_label":"codex_apps"}]`),
+		ToolChoice: json.RawMessage(`"auto"`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(chat.Tools) != 0 || len(chat.ToolChoice) != 0 {
+		t.Fatalf("tools=%q choice=%q", chat.Tools, chat.ToolChoice)
+	}
+	if err := ValidateChatRequest(&chat); err != nil {
+		t.Fatal(err)
 	}
 }
 

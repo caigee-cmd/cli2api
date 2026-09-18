@@ -9,6 +9,9 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 - Keep console-key rotation synchronized with live HTTP authentication and Qoder worker requests without restarting the API server
 - Remove per-request update dependency rewrites and restore thread-safe Qoder starter configuration during proxy/key changes
+- Restore Responses function namespaces in JSON and SSE output, and preserve qualified tool identities when replaying calls or selecting a function.
+- Preserve Qoder user images and image-bearing tool results, emitting tool-result images after their complete ordered tool batch.
+- Bridge Responses custom tools through function calls, restoring custom output/events and replaying tool results. Format rules are descriptive, not grammar-enforced; custom input events are emitted after argument collection.
 
 - Preserve typed upstream stream errors through the OpenAI, Anthropic, and Responses relays so invalid Devin requests do not falsely cool accounts, while transport interruptions remain retryable
 - Report Devin cache reads and writes in OpenAI-compatible usage, with prompt
@@ -24,6 +27,9 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 - 控制台密钥轮换会同步到正在使用的 HTTP 鉴权和 Qoder worker 请求，无需重启 API 服务
 - 移除更新接口逐请求重写依赖的竞态，并恢复代理/密钥变更时 Qoder 启动器配置的并发安全
+- Responses 的 JSON 和 SSE 输出会还原 function 的命名空间，历史调用回放与指定函数选择也会保留完整工具身份。
+- 保留 Qoder 用户消息及工具结果中的图片，并在完整、有序的工具结果批次之后发送工具图片。
+- 通过 function 调用桥接 Responses custom 工具，还原 custom 输出与事件并回放工具结果。格式规则仅作为描述传递，不强制执行语法约束；custom 输入事件在参数收集后发送。
 
 - OpenAI、Anthropic 与 Responses 流式转发会保留上游的类型化错误，避免无效的 Devin 请求被错误地冷却账号，同时传输中断仍可重试
 - Devin 的缓存读取与写入会显示在 OpenAI 兼容 usage 中，prompt 总数包含全部上游输入 token

@@ -49,7 +49,9 @@ func (h *Handler) HandleResponses(w http.ResponseWriter, r *http.Request) {
 		CachedTokens: result.CachedTokens, UsageSource: result.UsageSource, Credits: result.Credits,
 		ConsumedCredits: result.ConsumedCredits, Model: result.Model,
 	}, nil, result.AttemptCount)
-	writeJSON(w, http.StatusOK, responsesResponse(execution.RequestID, firstNonEmpty(result.Model, execution.PublicModel), result.Content, result.Reasoning, decodeOpenAIToolCalls(result.ToolCalls), result.PromptTokens, result.CompletionTokens))
+	response := responsesResponse(execution.RequestID, firstNonEmpty(result.Model, execution.PublicModel), result.Content, result.Reasoning, decodeOpenAIToolCalls(result.ToolCalls), result.PromptTokens, result.CompletionTokens)
+	translate.RestoreResponseToolNames(response, execution.Request.ResponseToolNames)
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, execution Execution) {
@@ -67,7 +69,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 		flusher.Flush()
 	}
 	writer := compatibilityStreamWriter(w)
-	stats, relayErr := RelayResponsesStream(writer, upstream.Response.Body, execution.RequestID, firstNonEmpty(execution.PublicModel, execution.Request.Model))
+	stats, relayErr := RelayResponsesStream(writer, upstream.Response.Body, execution.RequestID, firstNonEmpty(execution.PublicModel, execution.Request.Model), execution.Request.ResponseToolNames)
 	status := streamRequestStatus(relayErr)
 	if r.Context().Err() != nil || errors.Is(relayErr, context.Canceled) || errors.Is(relayErr, context.DeadlineExceeded) {
 		status = accounts.RequestStatusCanceled
@@ -118,7 +120,7 @@ func responsesOutputItems(requestID, content, reasoning string, toolCalls []prox
 		})
 	}
 	for callIndex, call := range toolCalls {
-		items = append(items, responseFunctionCallItem(requestID, callIndex, call))
+		items = append(items, proxyToolCallItem(requestID, callIndex, call))
 	}
 	return items
 }

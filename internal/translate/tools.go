@@ -8,6 +8,115 @@ import (
 
 const defaultToolParameters = `{"type":"object","properties":{}}`
 
+// ResponseToolName is request-local metadata; it must never reach the provider.
+type ResponseToolName struct {
+	Namespace string
+	Name      string
+}
+
+// responseToolNames records actual declarations, rather than guessing identity
+// by splitting names (both namespaces and tool names can contain underscores).
+func responseToolNames(raw json.RawMessage) (map[string]ResponseToolName, error) {
+	if emptyJSON(raw) {
+		return nil, nil
+	}
+	var items []json.RawMessage
+	if err := json.Unmarshal(raw, &items); err != nil {
+		return nil, err
+	}
+	all := map[string]ResponseToolName{}
+	names := map[string]ResponseToolName{}
+	register := func(flat string, identity ResponseToolName) error {
+		if flat == "" {
+			return nil
+		}
+		if previous, exists := all[flat]; exists && previous != identity {
+			return fmt.Errorf("tool name collision for %q", flat)
+		}
+		all[flat] = identity
+		return nil
+	}
+	for _, rawItem := range items {
+		var item map[string]json.RawMessage
+		if json.Unmarshal(rawItem, &item) != nil {
+			continue
+		}
+		typ := strings.ToLower(strings.TrimSpace(rawMapString(item, "type")))
+		switch typ {
+		case "namespace":
+			for _, tool := range expandNamespaceToolItems(rawItem, strings.TrimSpace(rawMapString(item, "name"))) {
+				if err := register(tool.name, tool.identity); err != nil {
+					return nil, err
+				}
+				if tool.identity.Namespace != "" {
+					names[tool.name] = tool.identity
+				}
+			}
+		case "function", "":
+			name, _, _ := toolFields(item)
+			flat := name
+			if err := register(flat, ResponseToolName{Name: name}); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return names, nil
+}
+
+const (
+	customToolMarker     = "__codex_custom__"
+	customToolParameters = `{"type":"object","properties":{"input":{"type":"string","description":"Raw freeform input for the custom tool."}},"required":["input"],"additionalProperties":false}`
+)
+
+// EncodeCustomToolName maps a Codex custom/freeform tool onto an upstream
+// function name. The marker keeps the round trip reversible without changing
+// the namespace/name identity carried by CustomToolCall.
+func EncodeCustomToolName(namespace, name string) string {
+	return customToolName(namespace, name)
+}
+
+// DecodeCustomToolName reverses EncodeCustomToolName. It returns ok=false for
+// ordinary function tools.
+func DecodeCustomToolName(upstreamName string) (namespace, name string, ok bool) {
+	upstreamName = strings.TrimSpace(upstreamName)
+	index := strings.Index(upstreamName, customToolMarker)
+	if index < 0 {
+		return "", "", false
+	}
+	name = strings.TrimSpace(upstreamName[index+len(customToolMarker):])
+	if name == "" {
+		return "", "", false
+	}
+	return strings.TrimSpace(upstreamName[:index]), name, true
+}
+
+func customToolName(namespace, name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+	namespace = strings.TrimSpace(namespace)
+	if namespace == "" {
+		return customToolMarker + name
+	}
+	return strings.TrimRight(namespace, "_") + customToolMarker + name
+}
+
+func customToolDescription(description string, format json.RawMessage) string {
+	description = strings.TrimSpace(description)
+	if len(format) == 0 || string(format) == "null" {
+		return description
+	}
+	formatted := strings.TrimSpace(string(format))
+	if formatted == "" {
+		return description
+	}
+	if description == "" {
+		return "Custom tool input format:\n" + formatted
+	}
+	return description + "\n\nCustom tool input format:\n" + formatted
+}
+
 // NormalizeOpenAITools expands Codex/Desktop namespace wrappers into plain
 // OpenAI function tools and drops hosted shells such as mcp / web_search.
 // Nested tools may be Responses-flat or Chat Completions shaped. Short nested
@@ -55,6 +164,9 @@ func NormalizeOpenAITools(raw json.RawMessage) (json.RawMessage, error) {
 			for _, nested := range expandNamespaceToolItems(item, strings.TrimSpace(rawMapString(probe, "name"))) {
 				appendTool(nested.name, nested.description, nested.parameters)
 			}
+		case "custom":
+			name := customToolName("", rawMapString(probe, "name"))
+			appendTool(name, customToolDescription(rawMapString(probe, "description"), rawMapJSON(probe, "format")), json.RawMessage(customToolParameters))
 		case "mcp", "web_search", "web_search_preview":
 			continue
 		case "function", "":
@@ -72,8 +184,10 @@ func NormalizeOpenAITools(raw json.RawMessage) (json.RawMessage, error) {
 
 type normalizedTool struct {
 	name        string
+	identity    ResponseToolName
 	description string
 	parameters  json.RawMessage
+	custom      bool
 }
 
 func expandNamespaceToolItems(raw json.RawMessage, namespace string) []normalizedTool {
@@ -90,15 +204,29 @@ func expandNamespaceToolItems(raw json.RawMessage, namespace string) []normalize
 			continue
 		}
 		typ := strings.ToLower(strings.TrimSpace(rawMapString(probe, "type")))
+		if typ == "custom" {
+			name := customToolName(namespace, rawMapString(probe, "name"))
+			if name == "" {
+				continue
+			}
+			out = append(out, normalizedTool{
+				name:        name,
+				description: customToolDescription(rawMapString(probe, "description"), rawMapJSON(probe, "format")),
+				parameters:  json.RawMessage(customToolParameters),
+				custom:      true,
+			})
+			continue
+		}
 		if typ != "" && typ != "function" {
 			continue
 		}
 		name, description, parameters := toolFields(probe)
+		identity := ResponseToolName{Namespace: namespace, Name: name}
 		name = qualifyNamespaceToolName(namespace, name)
 		if name == "" {
 			continue
 		}
-		out = append(out, normalizedTool{name: name, description: description, parameters: parameters})
+		out = append(out, normalizedTool{name: name, identity: identity, description: description, parameters: parameters})
 	}
 	return out
 }
