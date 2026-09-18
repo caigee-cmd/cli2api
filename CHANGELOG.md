@@ -7,6 +7,8 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Restore Responses function namespaces in JSON and SSE output, and preserve qualified tool identities when replaying calls or selecting a function.
+
 - Preserve typed upstream stream errors through the OpenAI, Anthropic, and Responses relays so invalid Devin requests do not falsely cool accounts, while transport interruptions remain retryable
 - Report Devin cache reads and writes in OpenAI-compatible usage, with prompt
   totals including all upstream input tokens
@@ -18,6 +20,8 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 - Keep session affinity from pinning a later model onto an empty-catalog account, so a Deepseek compact after a Devin turn routes to WorkBuddy instead of Devin
 
 ### 中文
+
+- Responses 的 JSON 和 SSE 输出会还原 function 的命名空间，历史调用回放与指定函数选择也会保留完整工具身份。
 
 - OpenAI、Anthropic 与 Responses 流式转发会保留上游的类型化错误，避免无效的 Devin 请求被错误地冷却账号，同时传输中断仍可重试
 - Devin 的缓存读取与写入会显示在 OpenAI 兼容 usage 中，prompt 总数包含全部上游输入 token

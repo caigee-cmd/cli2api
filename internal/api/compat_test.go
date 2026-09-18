@@ -19,6 +19,114 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
+func TestResponsesNamespaceHandlerRoundTrip(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprint(stream), func(t *testing.T) {
+			calls := 0
+			server, closeServer := newCompatibilityServer(t, func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				var body map[string]any
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Fatal(err)
+				}
+				if calls == 2 {
+					messages := body["messages"].([]any)
+					found := false
+					for _, raw := range messages {
+						message := raw.(map[string]any)
+						if tools, ok := message["tool_calls"].([]any); ok {
+							for _, rawCall := range tools {
+								call := rawCall.(map[string]any)
+								if call["id"] == "call_probe" && call["function"].(map[string]any)["name"] == "mcp__fastctx__glob" {
+									found = true
+								}
+							}
+						}
+					}
+					if !found {
+						t.Errorf("history name/id missing: %v", messages)
+					}
+					_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"ROUNDTRIP_OK"},"finish_reason":"stop"}]}`)
+					return
+				}
+				if stream {
+					w.Header().Set("Content-Type", "text/event-stream")
+					_, _ = io.WriteString(w, "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_probe\",\"function\":{\"name\":\"mcp__fastctx__glob\",\"arguments\":\"{\"}}]}}]}\n\ndata: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n")
+				} else {
+					_, _ = io.WriteString(w, `{"choices":[{"message":{"tool_calls":[{"id":"call_probe","type":"function","function":{"name":"mcp__fastctx__glob","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}`)
+				}
+			})
+			defer closeServer()
+			tools := []any{map[string]any{"type": "namespace", "name": "mcp__fastctx", "tools": []any{map[string]any{"type": "function", "name": "glob", "parameters": map[string]any{"type": "object", "properties": map[string]any{}}}}}}
+			request := map[string]any{"model": "qoder/glm-5.2", "input": "find", "tools": tools, "stream": stream}
+			send := func() *httptest.ResponseRecorder {
+				data, _ := json.Marshal(request)
+				recorder := httptest.NewRecorder()
+				server.handleResponses(recorder, httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(string(data))))
+				if recorder.Code != 200 {
+					t.Fatalf("status=%d %s", recorder.Code, recorder.Body.String())
+				}
+				return recorder
+			}
+			recorder := send()
+			var completed map[string]any
+			check := func(item map[string]any) {
+				if item["name"] != "glob" || item["namespace"] != "mcp__fastctx" || item["call_id"] != "call_probe" {
+					t.Fatalf("wrong tool identity: %v", item)
+				}
+			}
+			if stream {
+				seen := map[string]bool{}
+				for _, line := range strings.Split(recorder.Body.String(), "\n") {
+					if !strings.HasPrefix(line, "data: ") {
+						continue
+					}
+					var event map[string]any
+					if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &event); err != nil {
+						t.Fatal(err)
+					}
+					typ, _ := event["type"].(string)
+					if item, ok := event["item"].(map[string]any); ok && item["type"] == "function_call" {
+						check(item)
+						seen[typ] = true
+					}
+					if typ == "response.function_call_arguments.delta" || typ == "response.function_call_arguments.done" {
+						check(event)
+						seen[typ] = true
+					}
+					if typ == "response.completed" {
+						completed = event["response"].(map[string]any)
+					}
+				}
+				for _, typ := range []string{"response.output_item.added", "response.output_item.done", "response.function_call_arguments.delta", "response.function_call_arguments.done"} {
+					if !seen[typ] {
+						t.Fatalf("missing %s", typ)
+					}
+				}
+			} else if err := json.Unmarshal(recorder.Body.Bytes(), &completed); err != nil {
+				t.Fatal(err)
+			}
+			if completed == nil {
+				t.Fatal("no completed response")
+			}
+			output := completed["output"].([]any)
+			item := output[len(output)-1].(map[string]any)
+			check(item)
+			if item["arguments"] != "{}" {
+				t.Fatal(item)
+			}
+			request["stream"] = false
+			request["input"] = []any{map[string]any{"role": "user", "content": "find"}, item, map[string]any{"type": "function_call_output", "call_id": "call_probe", "output": "found"}}
+			if result := send(); !strings.Contains(result.Body.String(), "ROUNDTRIP_OK") {
+				t.Fatal(result.Body.String())
+			}
+			if calls != 2 {
+				t.Fatalf("upstream calls=%d", calls)
+			}
+		})
+	}
+}
+
 func TestCompatibilityStreamsPreserveTypedReadError(t *testing.T) {
 	failover := false
 	want := &providers.Error{
