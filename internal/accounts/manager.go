@@ -60,9 +60,21 @@ type WorkBuddyMaintainer interface {
 	Keepalive(ctx context.Context, accountID string) error
 }
 
+// PoolStateStore is the cooldown persistence surface used by the pool
+// observer drainer. Pool and executor never see *Store; they emit Item
+// snapshots, and Manager writes through this interface.
+type PoolStateStore interface {
+	RecordPoolState(ctx context.Context, item Item) error
+	SaveCooldowns(ctx context.Context, accountID string, rows []CooldownRow) error
+	LoadCooldowns(ctx context.Context) ([]CooldownRow, error)
+}
+
+var _ PoolStateStore = (*Store)(nil)
+
 type Manager struct {
 	config         ManagerConfig
 	store          *Store
+	poolState      PoolStateStore
 	starter        ProcessStarter
 	pool           *Pool
 	providers      *providers.Registry
@@ -127,6 +139,7 @@ func NewManager(config ManagerConfig, store *Store, starter ProcessStarter) *Man
 	manager := &Manager{
 		config:            config,
 		store:             store,
+		poolState:         store,
 		starter:           starter,
 		pool:              NewPool(nil, nil),
 		processes:         map[string]ManagedProcess{},
@@ -217,9 +230,9 @@ func (m *Manager) drainCooldowns() {
 		}
 		m.persistMu.Unlock()
 
-		err := m.store.RecordPoolState(ctx, item)
+		err := m.poolState.RecordPoolState(ctx, item)
 		if err == nil {
-			err = m.store.SaveCooldowns(ctx, item.ID, cooldownRows(item))
+			err = m.poolState.SaveCooldowns(ctx, item.ID, cooldownRows(item))
 		}
 		m.persistMu.Lock()
 		if err != nil {
@@ -327,7 +340,7 @@ func cooldownRows(item Item) []CooldownRow {
 // are registered. Managed updates recreate the container regularly, and
 // without this a rate-limited account would be retried immediately on boot.
 func (m *Manager) restoreCooldowns(ctx context.Context) {
-	rows, err := m.store.LoadCooldowns(ctx)
+	rows, err := m.poolState.LoadCooldowns(ctx)
 	if err != nil {
 		log.Printf("restore cooldowns: %v", err)
 		return

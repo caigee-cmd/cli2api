@@ -412,8 +412,13 @@ type Pool struct {
 	// a snapshot reflects its true production order even though the observer
 	// runs after the lock is released.
 	stateCounter uint64
-	observer     func(Item)
+	observer     PoolObserver
 }
+
+// PoolObserver receives a cloned Item after a persistable mutation
+// (MarkClassified / MarkOK). The callback is data-only: Pool never
+// accepts *Store, and the Manager persist goroutine is the writer.
+type PoolObserver func(Item)
 
 // rotationLimit bounds the cursor map so long-tailed model IDs cannot grow it
 // without bound. Hitting the limit resets every route's cursor, which costs
@@ -1418,7 +1423,7 @@ func (p *Pool) Items() []Item {
 	return items
 }
 
-func (p *Pool) SetObserver(observer func(Item)) {
+func (p *Pool) SetObserver(observer PoolObserver) {
 	if p == nil {
 		return
 	}

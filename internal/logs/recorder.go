@@ -8,25 +8,42 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 )
 
-type RequestStore interface {
+// RequestPersister is the write surface the recorder actually uses.
+// Query methods stay off this interface so a later store package can
+// satisfy logs without logs depending on the concrete SQLite type.
+type RequestPersister interface {
 	InsertRequestLog(ctx context.Context, log accounts.RequestLog) error
 	UpdateRequestLog(ctx context.Context, log accounts.RequestLog) error
 	InsertRequestAttempt(ctx context.Context, attempt accounts.RequestAttempt) error
 	InsertRequestStreamDiagnostic(ctx context.Context, diagnostic accounts.RequestStreamDiagnostic) error
 	InsertRequestUsageDetail(ctx context.Context, detail accounts.RequestUsageDetail) error
 	PurgeRequestLogs(ctx context.Context, olderThan time.Duration, maxRows int) (int64, error)
+}
+
+// RequestQuery is the console/HTTP read surface. The recorder never
+// calls these methods; api handlers reach them through Store() when the
+// injected value also implements RequestStore.
+type RequestQuery interface {
 	ClearRequestLogs(ctx context.Context) (int64, error)
 	ListRequestLogs(ctx context.Context, filter accounts.RequestLogFilter) (accounts.RequestLogList, error)
 	GetRequestLog(ctx context.Context, id string) (accounts.RequestLog, error)
 	SummarizeRequestLogs(ctx context.Context, from, to time.Time) (accounts.RequestStats, error)
 }
 
+// RequestStore is the union *accounts.Store already implements. Kept so
+// existing api query handlers can keep calling recorder.Store() without
+// a second injected dependency this stage.
+type RequestStore interface {
+	RequestPersister
+	RequestQuery
+}
+
 type RequestRecorder struct {
-	store RequestStore
+	store RequestPersister
 	queue chan func()
 }
 
-func NewRequestRecorder(store RequestStore) *RequestRecorder {
+func NewRequestRecorder(store RequestPersister) *RequestRecorder {
 	recorder := &RequestRecorder{
 		store: store,
 		queue: make(chan func(), 256),
@@ -121,10 +138,11 @@ func (r *RequestRecorder) purgeOnce() {
 }
 
 func (r *RequestRecorder) Store() RequestStore {
-	if r == nil {
+	if r == nil || r.store == nil {
 		return nil
 	}
-	return r.store
+	store, _ := r.store.(RequestStore)
+	return store
 }
 
 func logf(format string, args ...any) {

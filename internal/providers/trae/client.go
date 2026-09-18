@@ -28,6 +28,23 @@ type Store interface {
 	Observe(ctx context.Context, id, remoteUID, status, lastError, lastKind string) error
 }
 
+// SecretReader is optional. Missing it means no global proxy, not an error.
+type SecretReader interface {
+	GetSecret(context.Context, string) (string, bool, error)
+}
+
+// ModelSettingReader is optional. Missing it falls through to the legacy
+// max-mode-only assertion when the request did not set IsMaxMode.
+type ModelSettingReader interface {
+	GetProviderModelSetting(context.Context, string, string) (accounts.ProviderModelSetting, error)
+}
+
+// ModelMaxModeReader is the Trae-only fallback used when ModelSettingReader
+// is absent. Do not fold it into Store; test fakes without it must still skip.
+type ModelMaxModeReader interface {
+	GetProviderModelMaxMode(context.Context, string, string) (bool, error)
+}
+
 type loginPending struct {
 	machineID   string
 	deviceID    string
@@ -67,9 +84,7 @@ func NewClient(store Store) *Client {
 }
 
 func (c *Client) globalProxy(ctx context.Context) (string, error) {
-	store, ok := c.store.(interface {
-		GetSecret(context.Context, string) (string, bool, error)
-	})
+	store, ok := c.store.(SecretReader)
 	if !ok {
 		return "", nil
 	}
@@ -658,9 +673,7 @@ func (c *Client) chatRequest(ctx context.Context, credential Credential, req tra
 			maxMode = *req.IsMaxMode
 		}
 		caps := c.capsFor(req.Model)
-		if setter, ok := c.store.(interface {
-			GetProviderModelSetting(context.Context, string, string) (accounts.ProviderModelSetting, error)
-		}); ok {
+		if setter, ok := c.store.(ModelSettingReader); ok {
 			if stored, err := setter.GetProviderModelSetting(ctx, "trae", settingModelKey(req.Model)); err == nil {
 				if req.IsMaxMode == nil {
 					maxMode = stored.MaxMode
@@ -668,9 +681,7 @@ func (c *Client) chatRequest(ctx context.Context, credential Credential, req tra
 				storedLevel = stored.ReasoningEffort
 			}
 		} else if req.IsMaxMode == nil {
-			if maxSetter, ok := c.store.(interface {
-				GetProviderModelMaxMode(context.Context, string, string) (bool, error)
-			}); ok {
+			if maxSetter, ok := c.store.(ModelMaxModeReader); ok {
 				if stored, err := maxSetter.GetProviderModelMaxMode(ctx, "trae", settingModelKey(req.Model)); err == nil {
 					maxMode = stored
 				}

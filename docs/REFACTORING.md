@@ -4,7 +4,7 @@ title: 后端工程化重构实施手册（行为保持）
 scope: [backend, package-boundaries, refactoring, compatibility, testing, rollout]
 status: in-progress
 read-when: 评估或执行不改变现有功能的后端职责拆分、制定重构 PR、检查兼容性与回滚条件时
-summary: 基于现有实现的渐进式工程化重构方案，包含目标职责、迁移映射、状态所有权、16 个实施阶段、测试矩阵、PR 规则、发布回滚和完成标准。S00–S03 已验收；跨包迁移尚未开始。
+summary: 基于现有实现的渐进式工程化重构方案，包含目标职责、迁移映射、状态所有权、16 个实施阶段、测试矩阵、PR 规则、发布回滚和完成标准。S00–S04 已验收；Store 跨包迁移尚未开始。
 related: [AGENTS.md, docs/ARCHITECTURE.md, docs/REQUEST.md, docs/PLAN.md, docs/DEVELOPMENT.md]
 last-updated: 2026-09-18
 ---
@@ -521,7 +521,7 @@ executor 仍 import accounts
 - [x] S01：行为保护测试补齐，基线结果与限制已记录。
 - [x] S02：api 同包拆文件完成，行为回归通过。
 - [x] S03：accounts 同包拆文件完成，生命周期回归通过。
-- [ ] S04：类型/接口边界整理完成，无循环依赖。
+- [x] S04：类型/接口边界整理完成，无循环依赖。
 - [ ] S05：Store 迁移完成，历史 SQL 摘要与旧库兼容通过。
 - [ ] S06：control 操作迁移完成，副作用顺序验证通过。
 - [ ] S07：runtime 迁移完成，任务与资源所有权验证通过。
@@ -1016,21 +1016,35 @@ Qoder 专属：`manager_process.go` HOME/CLI/daemon env、`watchAccount`。通�
 
 执行顺序：
 
-1. 列出 accounts、auth、logs、providers、executor 的实际 import 图。
-2. 列出 Account、APIKey、ProviderGrant、RequestLog、RequestAttempt、Item、RouteQuery 的使用点。
-3. 将基础实体与带 Store/Manager 接收者的实现区分开。
-4. 先让 logs recorder 消费持久化接口，再考虑将 RequestLog 类型移入 logs。
-5. 迁 grants 前解除 auth 对旧 grants helper 的引用，避免 auth/accounts 双向依赖。
-6. 为 Manager 的 pool、storage、starter 能力定义最小消费方接口；能复用已有接口就复用。
-7. 为 Pool 持久化通知整理中立数据输入，不把整个 Store 注入执行层。
-8. 检查 provider 的显式接口与 optional type assertion 能力是否都被保留。
-9. 每处理一个边界就运行 `go list ./...` 和相关测试。
+- [x] 列出 accounts、auth、logs、providers、executor 的实际 import 图。
+  - 验证：`go list`；accounts ↛ auth/logs/executor；providers 根包不 import accounts。
+- [x] 列出 Account、APIKey、ProviderGrant、RequestLog、RequestAttempt、Item、RouteQuery 的使用点。
+  - 验证：见下方类型表。
+- [x] 将基础实体与带 Store/Manager 接收者的实现区分开。
+  - 验证：实体仍在 accounts；Store/Manager 方法未搬。
+- [x] 先让 logs recorder 消费持久化接口，再考虑将 RequestLog 类型移入 logs。
+  - 验证：`RequestPersister`/`RequestQuery` 拆开；RequestLog 本阶段不搬，避免 accounts↔logs。
+- [x] 迁 grants 前解除 auth 对旧 grants helper 的引用，避免 auth/accounts 双向依赖。
+  - 验证：grants 留在 accounts；auth 只用 Pool wrappers。未制造 accounts→auth。
+- [x] 为 Manager 的 pool、storage、starter 能力定义最小消费方接口；能复用已有接口就复用。
+  - 验证：新增 `PoolStateStore`；复用 `ProcessStarter`/`KeyLookup`/provider `Store`。
+- [x] 为 Pool 持久化通知整理中立数据输入，不把整个 Store 注入执行层。
+  - 验证：`PoolObserver func(Item)`；executor 仍不持有 Store。
+- [x] 检查 provider 的显式接口与 optional type assertion 能力是否都被保留。
+  - 验证：必选四方法不变；`SecretReader`/`ModelSettingReader`/`ModelMaxModeReader` 仍 optional。
+- [x] 每处理一个边界就运行 `go list ./...` 和相关测试。
+  - 验证：定向包测试后全量 `go test ./...`。
 
-- [ ] 不增加大而全的 domain/common 包。
-- [ ] 不把 SQL 行类型导出作为 HTTP 返回值。
-- [ ] 类型字段、tags、nil/empty 和默认值保持。
-- [ ] 兼容 alias 经过 import 环路检查。
-- [ ] 新接口均有具体调用方，不为“未来可能”定义空能力。
+- [x] 不增加大而全的 domain/common 包。
+  - 验证：2026-09-18；分支 `refactor/s04-type-interfaces`；未新增 `internal/domain` / `internal/common`。实体仍在 `accounts`。
+- [x] 不把 SQL 行类型导出作为 HTTP 返回值。
+  - 验证：未新增 HTTP DTO；`CooldownRow` 仍只给 persist 使用。
+- [x] 类型字段、tags、nil/empty 和默认值保持。
+  - 验证：未改 `Account`/`APIKey`/`Item`/`RequestLog` 字段或 JSON tag。
+- [x] 兼容 alias 经过 import 环路检查。
+  - 验证：未加 `accounts.Store = store.Store` 一类 alias。`go list` 生产 import 无环。
+- [x] 新接口均有具体调用方，不为“未来可能”定义空能力。
+  - 验证：见下方消费方表。
 
 如果一次完整拆类型牵涉太多文件，允许只先注入接口，保留实体当前位置；实现搬完后再完成轻量化。不要为追求一次完成而把十几种类型全部重命名。
 
@@ -1039,6 +1053,68 @@ Qoder 专属：`manager_process.go` HOME/CLI/daemon env、`watchAccount`。通�
 **通过：** 全量编译通过；可解释每个新接口的真实消费方；没有行为适配代码被偷偷加入。
 
 **回滚：** 按接口/类型批次撤销，不与后续 Store 移动混成一个提交。
+
+#### S04 import 图与类型位置
+
+生产 import（与 S00 相同，无新环）：
+
+```text
+accounts  → providers, proxy
+auth      → accounts
+logs      → accounts
+executor  → accounts, endpoint, providers, translate
+providers (root) → translate
+providers/devin, trae, workbuddy → accounts, providers, proxy, translate
+```
+
+实体仍在 `accounts`（本阶段不搬，避免 Store 方法反向 import logs/executor/auth）：
+
+| 类型 | 定义 | 生产消费方 |
+|---|---|---|
+| `Account` | `store.go` | Manager、三个 in-process provider `Get` |
+| `APIKey` | `api_keys.go` | `auth.KeyLookup`、console keys |
+| `ProviderGrant` | `grants.go` | 仅 accounts（`NormalizeAPIKeyProviders` / Pool wrappers） |
+| `RequestLog` / `RequestAttempt` | `request_logs.go` | logs recorder、executor `OnAttempt`、api handlers |
+| `Item` / `RouteQuery` | `pool.go` | executor 选号、Manager persist observer |
+
+grants 不迁到 auth：`ParseProviderGrant` 依赖 `providers.Get`，Pool 与 `api_keys.go` 会形成 `accounts → auth`。auth 继续用 `ProviderAllowed` / `ProviderRegionAllowed`。
+
+#### S04 消费方接口
+
+| 接口 | 定义位置 | 真实调用方 | 实现 |
+|---|---|---|---|
+| `logs.RequestPersister` | `internal/logs/recorder.go` | `RequestRecorder` Start/Finish/Attempt/Usage/Purge | `*accounts.Store` |
+| `logs.RequestQuery` | 同上 | api `/api/logs` 经 `recorder.Store()` | `*accounts.Store` |
+| `logs.RequestStore` | persist+query 联合 | 现有 `Store()` 返回值，避免本阶段给 api 再注入一份 | `*accounts.Store` |
+| `accounts.PoolStateStore` | `manager.go` | `drainCooldowns` / `restoreCooldowns` | `*accounts.Store` |
+| `accounts.PoolObserver` | `pool.go` | `MarkClassified` / `MarkOK` 通知；Manager 设 observer | `func(Item)` |
+| `auth.KeyLookup` | 已有 | `Verifier.Authenticate` | `*accounts.Store` |
+| `workbuddy/trae/devin.Store` | 已有四方法 | provider CRUD/凭据 | `*accounts.Store` |
+| `SecretReader` | 三个 provider client | `globalProxy`；缺则空串 | `GetSecret` |
+| `ModelSettingReader` | workbuddy + trae | chatRequest 读控制台 reasoning/Max | `GetProviderModelSetting` |
+| `ModelMaxModeReader` | trae only | 无 setting reader 时的 legacy Max | `GetProviderModelMaxMode` |
+| `ProcessStarter` 等 | 已有 | Manager 启停 | `ExecStarter` |
+
+未把 optional 方法并进必选 `Store`：测试 fake 缺这些方法时仍跳过，行为与匿名 type assertion 相同。
+
+未做：搬 Store（S05）；搬 `RequestLog` 到 logs；给 executor 的 Pool 再套一层接口（S10）。
+
+#### S04 阶段验收
+
+```text
+阶段编号：S04
+验收日期与确认人：2026-09-18；执行记录写入本手册
+本次勾选的任务：S04 全部执行项与 7.2 阶段摘要
+未勾选任务、例外批准与影响：类型仍留在 accounts；Store 未迁。真实账号/托管更新/race/frontend 不在本阶段
+阶段复选框是否允许勾选：是（接口注入；无循环；行为测试通过）
+合入/候选 SHA：分支 refactor/s04-type-interfaces，起点 a029b6c
+完成的职责迁移：消费方接口；实体与 SQLite 仍在 accounts
+保留的临时依赖：api/Manager 仍持有 *accounts.Store；NewManager 签名未改
+测试证据：go test ./...、go vet ./...、go build ./cmd/server ./cmd/updater
+真实环境验收证据：未执行
+是否允许进入下一阶段：S05（迁移 SQLite Store）可开始；不自动开工
+失败时回退到哪个已验收节点：撤销本阶段接口提交；S03 基线仍在
+```
 
 ### S05：迁移 SQLite Store
 

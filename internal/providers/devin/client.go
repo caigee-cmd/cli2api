@@ -23,6 +23,11 @@ type Store interface {
 	Observe(ctx context.Context, id, remoteUID, status, lastError, lastKind string) error
 }
 
+// SecretReader is optional. Missing it means no global proxy, not an error.
+type SecretReader interface {
+	GetSecret(context.Context, string) (string, bool, error)
+}
+
 type loginPending struct {
 	pkce        PKCECodes
 	state       string
@@ -80,9 +85,7 @@ func (c *Client) SetBases(app, api, server string) {
 }
 
 func (c *Client) globalProxy(ctx context.Context) (string, error) {
-	store, ok := c.store.(interface {
-		GetSecret(context.Context, string) (string, bool, error)
-	})
+	store, ok := c.store.(SecretReader)
 	if !ok {
 		return "", nil
 	}

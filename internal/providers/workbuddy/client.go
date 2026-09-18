@@ -30,6 +30,17 @@ type Store interface {
 	Observe(ctx context.Context, id, remoteUID, status, lastError, lastKind string) error
 }
 
+// SecretReader is optional. Missing it means no global proxy, not an error.
+type SecretReader interface {
+	GetSecret(context.Context, string) (string, bool, error)
+}
+
+// ModelSettingReader is optional. Missing it means console-saved reasoning
+// defaults are skipped, matching the previous anonymous type assertion.
+type ModelSettingReader interface {
+	GetProviderModelSetting(context.Context, string, string) (accounts.ProviderModelSetting, error)
+}
+
 type Client struct {
 	store Store
 	http  *http.Client
@@ -68,9 +79,7 @@ type envelope struct {
 }
 
 func (c *Client) globalProxy(ctx context.Context) (string, error) {
-	store, ok := c.store.(interface {
-		GetSecret(context.Context, string) (string, bool, error)
-	})
+	store, ok := c.store.(SecretReader)
 	if !ok {
 		return "", nil
 	}
@@ -426,9 +435,7 @@ func (c *Client) Models(ctx context.Context, accountID string) ([]providers.Mode
 func (c *Client) chatRequest(ctx context.Context, accountID string, credential Credential, req translate.ChatRequest) (*http.Request, error) {
 	caps := c.capsFor(req.Model)
 	storedLevel := ""
-	if setter, ok := c.store.(interface {
-		GetProviderModelSetting(context.Context, string, string) (accounts.ProviderModelSetting, error)
-	}); ok {
+	if setter, ok := c.store.(ModelSettingReader); ok {
 		// settingModelKey must canonicalize exactly like api.modelContextKey
 		// so console-saved reasoning levels are found at chat time.
 		if stored, err := setter.GetProviderModelSetting(ctx, "workbuddy", accounts.CanonicalModelID(req.Model)); err == nil {
