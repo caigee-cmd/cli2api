@@ -4,7 +4,7 @@ title: 后端工程化重构实施手册（行为保持）
 scope: [backend, package-boundaries, refactoring, compatibility, testing, rollout]
 status: in-progress
 read-when: 评估或执行不改变现有功能的后端职责拆分、制定重构 PR、检查兼容性与回滚条件时
-summary: 基于现有实现的渐进式工程化重构方案，包含目标职责、迁移映射、状态所有权、16 个实施阶段、测试矩阵、PR 规则、发布回滚和完成标准。S00–S02 已验收；跨包迁移尚未开始。
+summary: 基于现有实现的渐进式工程化重构方案，包含目标职责、迁移映射、状态所有权、16 个实施阶段、测试矩阵、PR 规则、发布回滚和完成标准。S00–S03 已验收；跨包迁移尚未开始。
 related: [AGENTS.md, docs/ARCHITECTURE.md, docs/REQUEST.md, docs/PLAN.md, docs/DEVELOPMENT.md]
 last-updated: 2026-09-18
 ---
@@ -520,7 +520,7 @@ executor 仍 import accounts
 - [x] S00：基线、规则、入口与状态所有权盘点完成并验收。
 - [x] S01：行为保护测试补齐，基线结果与限制已记录。
 - [x] S02：api 同包拆文件完成，行为回归通过。
-- [ ] S03：accounts 同包拆文件完成，生命周期回归通过。
+- [x] S03：accounts 同包拆文件完成，生命周期回归通过。
 - [ ] S04：类型/接口边界整理完成，无循环依赖。
 - [ ] S05：Store 迁移完成，历史 SQL 摘要与旧库兼容通过。
 - [ ] S06：control 操作迁移完成，副作用顺序验证通过。
@@ -946,17 +946,69 @@ manager_maintenance.go
 
 执行：
 
-- [ ] 全部仍是 `package accounts`。
-- [ ] Pool、Store 和 Manager 的类型归属暂不改变。
-- [ ] 不拆 mutex、不复制进程表、不改变 channel 所有权。
-- [ ] 标出每个操作读写哪些状态，但不重排操作。
-- [ ] 标出 Qoder 专属实现与通用生命周期的分界。
-- [ ] 标出 WorkBuddy 专属协议和维护调度的分界。
-- [ ] 迁移已有测试，保持 race/并发断言。
+- [x] 全部仍是 `package accounts`。
+  - 验证：2026-09-18；分支 `refactor/s03-accounts-split`；新文件均 `package accounts`。
+- [x] Pool、Store 和 Manager 的类型归属暂不改变。
+  - 验证：`Manager`/`Pool`/`Store` 仍在 accounts；未迁类型。
+- [x] 不拆 mutex、不复制进程表、不改变 channel 所有权。
+  - 验证：`mu`、`processes`、`persistMu`/`persistCond`/`persistCloseCh`、`runCtx` 仍在 `Manager` 上。
+- [x] 标出每个操作读写哪些状态，但不重排操作。
+  - 验证：见下方状态读写表；函数体整段移动。
+- [x] 标出 Qoder 专属实现与通用生命周期的分界。
+  - 验证：HOME/CLI/`ExecStarter`/`watchAccount` 在 process/recovery；in-process 仍只 Upsert pool。
+- [x] 标出 WorkBuddy 专属协议和维护调度的分界。
+  - 验证：check-in/keepalive 仅在 `manager_maintenance.go`，经 `WorkBuddyMaintainer`。
+- [x] 迁移已有测试，保持 race/并发断言。
+  - 验证：测试文件未搬；`go test ./internal/accounts` 通过。
 
 **通过：** CRUD、refresh、restart、maintenance 既有测试保持，数据库与运行时路径不变。
 
 **回滚：** 单包移动提交回滚即可。
+
+实际切分：
+
+```text
+manager.go                 类型、NewManager、persist drainer、Start/Close、SetProviders
+manager_accounts.go        Create/Update/Delete/Import、AccountView
+manager_process.go         start/stop、ExecStarter、Qoder HOME/CLI、ReloadProxyURL
+manager_recovery.go        startAccountWithRecovery、watchAccount、recoverAccount
+manager_probe.go           RefreshAll/RefreshAccount/refreshOne/refreshInProcess
+manager_catalog.go         EnsureModelCatalogs、fetchAccountModels/fetchProviderModels
+manager_quota.go           fetchQuota/fetchProviderQuota/persistQuota
+manager_maintenance.go     WorkBuddy check-in/keepalive loop
+```
+
+状态读写（未重排）：
+
+| 文件 | 读 | 写 |
+|---|---|---|
+| manager.go | store.List、persist dirty | persistClosed、runCtx cancel、Stop 子进程 |
+| manager_accounts.go | store、pool 快照 | store CRUD；经 start/stop 副作用 |
+| manager_process.go | store 凭据、config | processes、nextPort、pool Upsert/Remove |
+| manager_recovery.go | store.Get、runCtx | recovering/restarts/restartBackoff、pool RuntimeState |
+| manager_probe.go | pool items、worker/adapter health | MergeHealth；quota 失败不改 Ready |
+| manager_catalog.go | pool ModelsAt | MergeModels |
+| manager_quota.go | worker/adapter quota | MergeQuota + SaveQuota |
+| manager_maintenance.go | store 账号/checkin 记录 | check-in 记录；不写 chat cooldown |
+
+Qoder 专属：`manager_process.go` HOME/CLI/daemon env、`watchAccount`。通用生命周期：Start/Close、recovery maps。WorkBuddy 专属：`manager_maintenance.go`。in-process 探测走 probe/catalog/quota 的 adapter 分支。
+
+#### S03 阶段验收
+
+```text
+阶段编号：S03
+验收日期与确认人：2026-09-18；执行记录写入本手册
+本次勾选的任务：S03 全部执行项与 7.2 阶段摘要
+未勾选任务、例外批准与影响：无
+阶段复选框是否允许勾选：是（同包移动；生命周期测试通过）
+合入/候选 SHA：分支 refactor/s03-accounts-split，起点 d0a147c
+完成的职责迁移：Manager 方法按文件拆分；类型与锁未迁
+保留的临时依赖：accounts 仍聚合 Store/Manager/Pool
+测试证据：go test ./...、go vet ./...、go build ./cmd/server ./cmd/updater
+真实环境验收证据：未执行
+是否允许进入下一阶段：S04 可开始；不自动开工
+失败时回退到哪个已验收节点：撤销本阶段移动提交；S02 基线仍在
+```
 
 ### S04：整理轻量类型与消费方接口
 
