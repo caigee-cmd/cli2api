@@ -185,11 +185,11 @@ func TestCanonicalModelIDNormalizesWithoutAliases(t *testing.T) {
 		"qmodel":       "qmodel",
 		"GLM-5.2":      "glm-5.2",
 	} {
-		if got := canonicalModelID(input); got != want {
-			t.Fatalf("canonicalModelID(%q) = %q, want %q", input, got, want)
+		if got := accounts.CanonicalModelID(input); got != want {
+			t.Fatalf("CanonicalModelID(%q) = %q, want %q", input, got, want)
 		}
 	}
-	if modelContextKey("glm-5.2") == modelContextKey("qwen3.7-plus") {
+	if accounts.CanonicalModelID("glm-5.2") == accounts.CanonicalModelID("qwen3.7-plus") {
 		t.Fatal("GLM-5.2 and Qwen3.7-Plus must have independent context settings")
 	}
 }

@@ -6,7 +6,6 @@ import (
 
 	"github.com/caigee-cmd/cli2api/internal/executor"
 	apigateway "github.com/caigee-cmd/cli2api/internal/gateway"
-	"github.com/caigee-cmd/cli2api/internal/providers"
 )
 
 type streamRelayStats = apigateway.StreamRelayStats
@@ -42,10 +41,6 @@ func writeClassifiedErr(w http.ResponseWriter, err error) {
 
 func buildChatUsage(res executor.ChatResult) map[string]any {
 	return apigateway.BuildChatUsage(res)
-}
-
-func providerErrorFromClassified(classified executor.Classified) *providers.Error {
-	return apigateway.ProviderErrorFromClassified(classified)
 }
 
 func parseStreamUsageLine(line string) (streamRelayStats, bool) {

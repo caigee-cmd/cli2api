@@ -13,17 +13,18 @@ const (
 	miniMaxM3ContextLimit = 1000000
 )
 
-func CanonicalModelID(model string) string {
+func canonicalModelID(model string) string {
 	key := strings.ToLower(strings.TrimSpace(model))
 	key = strings.NewReplacer("_", "-", " ", "-").Replace(key)
 	return key
 }
-func ModelContextKey(model string) string {
-	return CanonicalModelID(model)
+
+func modelContextKey(model string) string {
+	return canonicalModelID(model)
 }
 
 func defaultContextForModel(model string) int {
-	if CanonicalModelID(model) == "minimax-m3" {
+	if canonicalModelID(model) == "minimax-m3" {
 		return miniMaxM3ContextLimit
 	}
 	return defaultContextLength
@@ -98,7 +99,7 @@ func (a *App) decorateModelsWithContext(ctx context.Context, models []map[string
 			provider, _ = item["owned_by"].(string)
 		}
 		provider = strings.ToLower(strings.TrimSpace(provider))
-		settingsKey := ModelContextKey(id)
+		settingsKey := modelContextKey(id)
 		item["settings_key"] = settingsKey
 		item["context_editable"] = provider == "" || provider == "qoder"
 		if catalogWindow, ok := asInt(item["catalog_context_length"]); ok && catalogWindow > 0 {

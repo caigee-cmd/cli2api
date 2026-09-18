@@ -20,10 +20,6 @@ func ensureCrossProviderModelPool(ctx context.Context, store app.SecretStore) (b
 	return app.EnsureCrossProviderModelPool(ctx, store)
 }
 
-func ensureRoutingStrategy(ctx context.Context, store app.SecretStore) (string, error) {
-	return app.EnsureRoutingStrategy(ctx, store)
-}
-
 func ensureWorkBuddyCheckinTime(ctx context.Context, store app.SecretStore) (string, error) {
 	return app.EnsureWorkBuddyCheckinTime(ctx, store)
 }

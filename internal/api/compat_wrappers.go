@@ -83,10 +83,10 @@ func (s *Server) applyPinnedProviderFilter(providerFilter, publicModel, prefer s
 }
 
 func (s *Server) applyModelContextDefaults(ctx context.Context, req *translate.ChatRequest, providerFilter string) error {
-	if s == nil || s.App == nil {
+	if s == nil || s.App == nil || s.Control == nil {
 		return nil
 	}
-	return s.App.ApplyModelContextDefaults(ctx, req, providerFilter)
+	return executor.ApplyModelContextDefaults(ctx, s.Control.Settings, req, providerFilter)
 }
 
 func (s *Server) fetchWorkerModelsFor(refresh bool, accountID string) ([]map[string]any, error) {
@@ -151,31 +151,12 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 	s.ensureGateway().HandleResponses(w, r)
 }
 
-func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
-	s.ensureGateway().HandleModels(w, r)
-}
-
-func (s *Server) routes() {
-	if s == nil {
-		return
-	}
-	s.ensureApp().RebuildHTTP()
-}
-
 func requestSessionKey(r *http.Request, identity auth.Identity, req translate.ChatRequest) string {
 	header := ""
 	if r != nil {
 		header = r.Header.Get("X-CLI2API-Session")
 	}
 	return executor.SessionKeyFor(header, identity, req)
-}
-
-func canonicalModelID(model string) string {
-	return app.CanonicalModelID(model)
-}
-
-func modelContextKey(model string) string {
-	return app.ModelContextKey(model)
 }
 
 func waitForWorkerAuthManager(ctx context.Context, lookup func() (string, bool), timeout, interval time.Duration) (string, error) {

@@ -3,6 +3,7 @@ package api
 import (
 	"testing"
 
+	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/app"
 	"github.com/caigee-cmd/cli2api/internal/executor"
 	"github.com/caigee-cmd/cli2api/internal/translate"
@@ -13,10 +14,10 @@ func modelChatRequest(model string) *translate.ChatRequest {
 }
 
 func TestProviderPrefixedModelsStayDistinct(t *testing.T) {
-	if modelContextKey("glm-5.2") == modelContextKey("qoder/glm-5.2") {
+	if accounts.CanonicalModelID("glm-5.2") == accounts.CanonicalModelID("qoder/glm-5.2") {
 		t.Fatal("bare and provider-prefixed models must not share context settings")
 	}
-	if modelContextKey("qoder/glm-5.2") == modelContextKey("workbuddy/glm-5.2") {
+	if accounts.CanonicalModelID("qoder/glm-5.2") == accounts.CanonicalModelID("workbuddy/glm-5.2") {
 		t.Fatal("provider-prefixed models must not share context settings")
 	}
 }
