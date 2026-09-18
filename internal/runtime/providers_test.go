@@ -1,8 +1,9 @@
-package accounts_test
+package runtime_test
 
 import (
 	"context"
 	"github.com/caigee-cmd/cli2api/internal/accounts"
+	accountruntime "github.com/caigee-cmd/cli2api/internal/runtime"
 	"path/filepath"
 	"testing"
 	"time"
@@ -19,7 +20,7 @@ func TestManagerDoesNotSpawnDaemonForInProcessProvider(t *testing.T) {
 	}
 	defer store.Close()
 	starter := &fakeStarter{}
-	manager := accounts.NewManager(accounts.ManagerConfig{DataDir: t.TempDir(), BasePort: 32300}, store, starter)
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir(), BasePort: 32300}, store, starter)
 	if err := manager.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +101,7 @@ func TestManagerRefreshUsesInProcessProber(t *testing.T) {
 	registry := providers.NewRegistry()
 	registry.Register(providers.Adapter{ID: "workbuddy", Prober: prober})
 
-	manager := accounts.NewManager(accounts.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
 	manager.SetProviders(registry)
 	manager.Pool().Upsert(accounts.Item{ID: account.ID, Provider: "workbuddy", Runtime: "in_process"})
 
@@ -170,7 +171,7 @@ func TestManagerRefreshSkipsEmptyURLWithoutProber(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manager := accounts.NewManager(accounts.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
 	manager.Pool().Upsert(accounts.Item{ID: account.ID, Provider: "workbuddy", Runtime: "in_process"})
 	if err := manager.RefreshAll(ctx, false); err != nil {
 		t.Fatalf("refresh without prober must be a no-op, got %v", err)

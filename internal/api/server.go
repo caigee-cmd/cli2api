@@ -25,6 +25,7 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/providers/devin"
 	"github.com/caigee-cmd/cli2api/internal/providers/trae"
 	"github.com/caigee-cmd/cli2api/internal/providers/workbuddy"
+	accountruntime "github.com/caigee-cmd/cli2api/internal/runtime"
 	sqlstore "github.com/caigee-cmd/cli2api/internal/store"
 	control "github.com/caigee-cmd/cli2api/internal/update"
 )
@@ -34,7 +35,7 @@ type Server struct {
 	auth                   auth.Verifier
 	executor               executor.ChatExecutor
 	pool                   *accounts.Pool
-	manager                *accounts.Manager
+	manager                *accountruntime.Manager
 	control                *appsvc.Services
 	providers              *providers.Registry
 	recorder               *applogs.RequestRecorder
@@ -95,7 +96,7 @@ func New(cfg config.Config) *Server {
 	}
 	ring := applogs.NewRing(2000)
 	log.SetOutput(io.MultiWriter(os.Stderr, ring))
-	manager := accounts.NewManager(accounts.ManagerConfig{
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{
 		DataDir: runtimeDir, BasePort: cfg.WorkerBasePort, NodeBinary: cfg.NodeBinary,
 		DaemonPath: cfg.WorkerDaemonPath, QoderCLIPath: cfg.QoderCLIPath, QoderCNCLIPath: cfg.QoderCNCLIPath,
 		TemplatePath: cfg.PlainTemplatePath, ProxyAPIKey: proxyAPIKey, ProxyURL: proxyURL,

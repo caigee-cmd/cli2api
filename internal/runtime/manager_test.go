@@ -1,4 +1,4 @@
-package accounts_test
+package runtime_test
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/caigee-cmd/cli2api/internal/accounts"
+	accountruntime "github.com/caigee-cmd/cli2api/internal/runtime"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -59,7 +60,7 @@ func (s *fakeStarter) proxySetCount() int {
 	return len(s.proxyURLs)
 }
 
-func (s *fakeStarter) Start(_ context.Context, account accounts.Account, home string, port int) (accounts.ManagedProcess, error) {
+func (s *fakeStarter) Start(_ context.Context, account accounts.Account, home string, port int) (accountruntime.ManagedProcess, error) {
 	s.accounts = append(s.accounts, account)
 	s.homes = append(s.homes, home)
 	if s.failures > 0 {
@@ -82,7 +83,7 @@ type delayedStarter struct {
 	delay      time.Duration
 }
 
-func (s *delayedStarter) Start(_ context.Context, account accounts.Account, _ string, port int) (accounts.ManagedProcess, error) {
+func (s *delayedStarter) Start(_ context.Context, account accounts.Account, _ string, port int) (accountruntime.ManagedProcess, error) {
 	s.mu.Lock()
 	s.accounts = append(s.accounts, account)
 	count := len(s.accounts)
@@ -130,7 +131,7 @@ func TestManagerRetriesInitialStartFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	starter := &fakeStarter{failures: 1, started: make(chan *fakeProcess, 1)}
-	manager := accounts.NewManager(accounts.ManagerConfig{DataDir: t.TempDir(), RestartDelay: time.Millisecond}, store, starter)
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir(), RestartDelay: time.Millisecond}, store, starter)
 	defer manager.Close()
 	if err := manager.Start(ctx); err != nil {
 		t.Fatal(err)
@@ -173,7 +174,7 @@ func TestManagerDisabledAccountDoesNotRestartAfterStartFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	starter := &fakeStarter{failures: 100}
-	manager := accounts.NewManager(accounts.ManagerConfig{DataDir: t.TempDir(), RestartDelay: 50 * time.Millisecond}, store, starter)
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir(), RestartDelay: 50 * time.Millisecond}, store, starter)
 	defer manager.Close()
 	if err := manager.Start(ctx); err != nil {
 		t.Fatal(err)
@@ -200,7 +201,7 @@ func TestManagerReenableDuringRecoveryDoesNotGetMarkedStarting(t *testing.T) {
 		t.Fatal(err)
 	}
 	starter := &fakeStarter{failures: 1}
-	manager := accounts.NewManager(accounts.ManagerConfig{DataDir: t.TempDir(), RestartDelay: 100 * time.Millisecond}, store, starter)
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir(), RestartDelay: 100 * time.Millisecond}, store, starter)
 	defer manager.Close()
 	if err := manager.Start(ctx); err != nil {
 		t.Fatal(err)
@@ -250,7 +251,7 @@ func TestManagerStartsEnabledAccountsAndMaterializesCredentials(t *testing.T) {
 		t.Fatal(err)
 	}
 	starter := &fakeStarter{}
-	manager := accounts.NewManager(accounts.ManagerConfig{DataDir: dataDir, BasePort: 32100}, store, starter)
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: dataDir, BasePort: 32100}, store, starter)
 	if err := manager.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -294,7 +295,7 @@ func TestManagerCreatesDisablesAndDeletesAccount(t *testing.T) {
 	}
 	defer store.Close()
 	starter := &fakeStarter{}
-	manager := accounts.NewManager(accounts.ManagerConfig{DataDir: dataDir, BasePort: 32200}, store, starter)
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: dataDir, BasePort: 32200}, store, starter)
 
 	account, err := manager.Create(ctx, accounts.CreateAccount{Name: "New", Enabled: true})
 	if err != nil {
@@ -333,7 +334,7 @@ func TestManagerSyncsCredentialWrittenByQoderCLI(t *testing.T) {
 	}
 	defer store.Close()
 	starter := &fakeStarter{}
-	manager := accounts.NewManager(accounts.ManagerConfig{DataDir: dataDir}, store, starter)
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: dataDir}, store, starter)
 	account, err := manager.Create(ctx, accounts.CreateAccount{Name: "OAuth", Enabled: true})
 	if err != nil {
 		t.Fatal(err)
@@ -358,25 +359,25 @@ func TestManagerSyncsCredentialWrittenByQoderCLI(t *testing.T) {
 }
 
 func TestQoderRuntimeSpecSelectsCNCLIAndConfigDir(t *testing.T) {
-	cfg := accounts.ManagerConfig{
+	cfg := accountruntime.ManagerConfig{
 		QoderCLIPath:   "/opt/qodercli.js",
 		QoderCNCLIPath: "/opt/qoderclicn.js",
 	}
-	globalPath, globalSite, globalDir, globalEnv, err := accounts.QoderRuntimeSpec(cfg, accounts.Account{ProviderRegion: "global"}, "/run/acc-g")
+	globalPath, globalSite, globalDir, globalEnv, err := accountruntime.QoderRuntimeSpec(cfg, accounts.Account{ProviderRegion: "global"}, "/run/acc-g")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if globalPath != "/opt/qodercli.js" || globalSite != "global" || globalDir != "/run/acc-g/.qoder" || globalEnv != "QODER_CONFIG_DIR" {
 		t.Fatalf("global spec path=%s site=%s dir=%s env=%s", globalPath, globalSite, globalDir, globalEnv)
 	}
-	cnPath, cnSite, cnDir, cnEnv, err := accounts.QoderRuntimeSpec(cfg, accounts.Account{ProviderRegion: "cn"}, "/run/acc-c")
+	cnPath, cnSite, cnDir, cnEnv, err := accountruntime.QoderRuntimeSpec(cfg, accounts.Account{ProviderRegion: "cn"}, "/run/acc-c")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if cnPath != "/opt/qoderclicn.js" || cnSite != "cn" || cnDir != "/run/acc-c/.qoder-cn" || cnEnv != "QODERCN_CONFIG_DIR" {
 		t.Fatalf("cn spec path=%s site=%s dir=%s env=%s", cnPath, cnSite, cnDir, cnEnv)
 	}
-	if _, _, _, _, err := accounts.QoderRuntimeSpec(accounts.ManagerConfig{QoderCLIPath: "/opt/qodercli.js"}, accounts.Account{ProviderRegion: "cn"}, "/run/acc-c"); err == nil {
+	if _, _, _, _, err := accountruntime.QoderRuntimeSpec(accountruntime.ManagerConfig{QoderCLIPath: "/opt/qodercli.js"}, accounts.Account{ProviderRegion: "cn"}, "/run/acc-c"); err == nil {
 		t.Fatal("expected missing CN CLI path to fail")
 	}
 }
@@ -397,7 +398,7 @@ func TestManagerMaterializesAndSyncsQoderCNCredentials(t *testing.T) {
 		t.Fatal(err)
 	}
 	starter := &fakeStarter{}
-	manager := accounts.NewManager(accounts.ManagerConfig{DataDir: dataDir, BasePort: 32400}, store, starter)
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: dataDir, BasePort: 32400}, store, starter)
 	if err := manager.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -444,7 +445,7 @@ func TestManagerRefreshesHealthAndPersistsUID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manager := accounts.NewManager(accounts.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
 	manager.Pool().Upsert(accounts.Item{ID: account.ID, URL: worker.URL})
 	if err := manager.RefreshAll(ctx, false); err != nil {
 		t.Fatal(err)
@@ -479,7 +480,7 @@ func TestManagerRefreshSkipsDeadRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manager := accounts.NewManager(accounts.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
 	defer manager.Close()
 	restartAt := time.Now().Add(time.Minute)
 	manager.Pool().Upsert(accounts.Item{ID: account.ID, URL: worker.URL})
@@ -533,7 +534,7 @@ func TestManagerRefreshFetchesQuotaWithoutAffectingHealth(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manager := accounts.NewManager(accounts.ManagerConfig{DataDir: t.TempDir(), ProxyAPIKey: "proxy-key"}, store, &fakeStarter{})
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir(), ProxyAPIKey: "proxy-key"}, store, &fakeStarter{})
 	manager.Pool().Upsert(accounts.Item{ID: account.ID, URL: worker.URL})
 	if err := manager.RefreshAll(ctx, false); err != nil {
 		t.Fatal(err)
@@ -589,7 +590,7 @@ func TestManagerRefreshCachesAccountCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manager := accounts.NewManager(accounts.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
 	manager.Pool().Upsert(accounts.Item{ID: account.ID, URL: worker.URL})
 	if err := manager.RefreshAll(ctx, false); err != nil {
 		t.Fatal(err)
@@ -633,7 +634,7 @@ func TestManagerQuotaFailureLeavesAccountReady(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manager := accounts.NewManager(accounts.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
 	manager.Pool().Upsert(accounts.Item{ID: account.ID, URL: worker.URL})
 	if err := manager.RefreshAll(ctx, false); err != nil {
 		t.Fatalf("quota outage must not fail refresh: %v", err)
@@ -678,7 +679,7 @@ func TestManagerRefreshCanForceQuotaBypass(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manager := accounts.NewManager(accounts.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
 	manager.Pool().Upsert(accounts.Item{ID: account.ID, URL: worker.URL})
 	if err := manager.RefreshAll(ctx, true); err != nil {
 		t.Fatal(err)
@@ -701,7 +702,7 @@ func TestManagerDeleteDuringRestartDoesNotLeaveDuplicateRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	starter := &fakeStarter{started: make(chan *fakeProcess, 4)}
-	manager := accounts.NewManager(accounts.ManagerConfig{DataDir: dataDir, RestartDelay: 30 * time.Millisecond, RestartMaxDelay: 30 * time.Millisecond}, store, starter)
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: dataDir, RestartDelay: 30 * time.Millisecond, RestartMaxDelay: 30 * time.Millisecond}, store, starter)
 	if err := manager.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -759,7 +760,7 @@ func TestManagerRestartsUnexpectedlyExitedEnabledAccount(t *testing.T) {
 		t.Fatal(err)
 	}
 	starter := &fakeStarter{started: make(chan *fakeProcess, 2)}
-	manager := accounts.NewManager(accounts.ManagerConfig{DataDir: t.TempDir(), RestartDelay: time.Millisecond}, store, starter)
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir(), RestartDelay: time.Millisecond}, store, starter)
 	if err := manager.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -792,7 +793,7 @@ func TestCloseStopsRecoveryBeforeNewDaemonEscapes(t *testing.T) {
 	}
 
 	starter := &delayedStarter{started: make(chan *fakeProcess, 2), delayAfter: 1, delay: 80 * time.Millisecond}
-	manager := accounts.NewManager(accounts.ManagerConfig{DataDir: t.TempDir(), RestartDelay: time.Millisecond}, store, starter)
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir(), RestartDelay: time.Millisecond}, store, starter)
 	if err := manager.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -843,7 +844,7 @@ func TestManagerEscalatesConsecutiveRestartBackoffSeparately(t *testing.T) {
 		t.Fatal(err)
 	}
 	starter := &fakeStarter{started: make(chan *fakeProcess, 3)}
-	manager := accounts.NewManager(accounts.ManagerConfig{DataDir: t.TempDir(), RestartDelay: time.Millisecond}, store, starter)
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir(), RestartDelay: time.Millisecond}, store, starter)
 	defer manager.Close()
 	if err := manager.Start(ctx); err != nil {
 		t.Fatal(err)
@@ -866,7 +867,7 @@ func TestManagerEscalatesConsecutiveRestartBackoffSeparately(t *testing.T) {
 }
 
 func TestManagerRestartDelayIsBounded(t *testing.T) {
-	manager := accounts.NewManager(accounts.ManagerConfig{RestartDelay: 2 * time.Second, RestartMaxDelay: 5 * time.Second}, nil, &fakeStarter{})
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{RestartDelay: 2 * time.Second, RestartMaxDelay: 5 * time.Second}, nil, &fakeStarter{})
 	if got := manager.TestRestartDelay(1); got != 2*time.Second {
 		t.Fatalf("level 1 delay = %v", got)
 	}
@@ -889,7 +890,7 @@ func TestManagerPersistsSchedulerCooldown(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manager := accounts.NewManager(accounts.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
 	manager.Pool().Upsert(accounts.Item{ID: account.ID, URL: "http://127.0.0.1:1"})
 	manager.Pool().MarkClassified(account.ID, accounts.Classified{Kind: accounts.KindRateLimit, Message: "429", Cooldown: time.Minute, Failover: true})
 	// The observer persists asynchronously through a single drainer
@@ -908,7 +909,7 @@ func TestManagerPersistsSchedulerCooldown(t *testing.T) {
 // bring the account's process up.
 type failingStarter struct{}
 
-func (f *failingStarter) Start(_ context.Context, _ accounts.Account, _ string, _ int) (accounts.ManagedProcess, error) {
+func (f *failingStarter) Start(_ context.Context, _ accounts.Account, _ string, _ int) (accountruntime.ManagedProcess, error) {
 	return nil, errors.New("start failed")
 }
 
@@ -927,7 +928,7 @@ func TestObserverSavesAreSerialized(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manager := accounts.NewManager(accounts.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
 	defer manager.Close()
 	manager.Pool().Upsert(accounts.Item{ID: account.ID, URL: "http://127.0.0.1:1"})
 	// Fire several cooldown updates concurrently; the last one to set
@@ -989,7 +990,7 @@ func TestStartFailureKeepsPersistedCooldowns(t *testing.T) {
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	manager := accounts.NewManager(accounts.ManagerConfig{DataDir: t.TempDir(), QoderCLIPath: "unused"}, store, &failingStarter{})
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir(), QoderCLIPath: "unused"}, store, &failingStarter{})
 	if err := manager.Start(ctx); err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -1026,7 +1027,7 @@ func TestCloseConcurrentObserverNoPanic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manager := accounts.NewManager(accounts.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
 	manager.Pool().Upsert(accounts.Item{ID: account.ID, URL: "http://127.0.0.1:1"})
 	stop := make(chan struct{})
 	go func() {
@@ -1065,7 +1066,7 @@ func TestFlushStrictlyAfterEnqueue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manager := accounts.NewManager(accounts.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
 	defer manager.Close()
 	manager.Pool().Upsert(accounts.Item{ID: account.ID, URL: "http://127.0.0.1:1"})
 	// Enqueue a known cooldown, then flush. The SQLite row must reflect it
@@ -1112,7 +1113,7 @@ func TestModelLastKindPersistedAcrossRestart(t *testing.T) {
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	manager := accounts.NewManager(accounts.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
 	defer manager.Close()
 	manager.Pool().Upsert(accounts.Item{ID: account.ID, URL: "http://127.0.0.1:1"})
 	manager.TestRestoreCooldowns(ctx)
@@ -1140,7 +1141,7 @@ func TestStateVersionOrdersAcrossDelayedObserver(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manager := accounts.NewManager(accounts.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
 	defer manager.Close()
 	manager.Pool().Upsert(accounts.Item{ID: account.ID, URL: "http://127.0.0.1:1"})
 
@@ -1205,7 +1206,7 @@ func TestPersistQueueBoundedPerAccount(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manager := accounts.NewManager(accounts.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
 	defer manager.Close()
 	manager.Pool().Upsert(accounts.Item{ID: account.ID, URL: "http://127.0.0.1:1"})
 
@@ -1261,7 +1262,7 @@ func TestPersistFailureKeepsDirtyEntryAndRetries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manager := accounts.NewManager(accounts.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
 	defer manager.Close()
 	manager.Pool().Upsert(accounts.Item{ID: account.ID, URL: "http://127.0.0.1:1"})
 
@@ -1325,7 +1326,7 @@ func TestCloseDuringPersistentDBFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manager := accounts.NewManager(accounts.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
 	manager.Pool().Upsert(accounts.Item{ID: account.ID, URL: "http://127.0.0.1:1"})
 
 	// Close the underlying db so writes persistently fail, forcing the
@@ -1338,7 +1339,7 @@ func TestCloseDuringPersistentDBFailure(t *testing.T) {
 		Failover: true, Model: "glm-5.3", Message: "stuck",
 	})
 	// Let the drainer enter the retry loop (it fails, backs off, retries).
-	time.Sleep(accounts.PersistRetryBackoff() * 2)
+	time.Sleep(accountruntime.PersistRetryBackoff() * 2)
 
 	// Close must return within a bounded time despite the stuck DB.
 	done := make(chan error, 1)
@@ -1386,7 +1387,7 @@ func TestRestoreModelCooldownDoesNotPolluteAccountBackoff(t *testing.T) {
 	if err := store.SaveCooldowns(ctx, account.ID, rows); err != nil {
 		t.Fatal(err)
 	}
-	manager := accounts.NewManager(accounts.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
 	defer manager.Close()
 	manager.Pool().Upsert(accounts.Item{ID: account.ID, URL: "http://127.0.0.1:1"})
 	manager.TestRestoreCooldowns(ctx)
@@ -1445,7 +1446,7 @@ func TestEnsureModelCatalogsDoesNotBlock(t *testing.T) {
 	}))
 	defer slowC.Close()
 
-	manager := accounts.NewManager(accounts.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
 	defer manager.Close()
 	manager.Pool().Upsert(accounts.Item{ID: "slow-a", URL: slowA.URL, Provider: "qoder", Runtime: "child_process"})
 	manager.Pool().Upsert(accounts.Item{ID: "slow-b", URL: slowB.URL, Provider: "qoder", Runtime: "child_process"})
@@ -1489,19 +1490,19 @@ func TestCheckedInLocalDay(t *testing.T) {
 	now := time.Date(2026, 9, 7, 21, 0, 0, 0, loc)
 	today := time.Date(2026, 9, 7, 0, 1, 28, 0, loc).UTC().Format(time.RFC3339Nano)
 	yesterday := time.Date(2026, 9, 6, 17, 0, 2, 0, loc).UTC().Format(time.RFC3339Nano)
-	if !accounts.CheckedInLocalDay(today, "success", now) {
+	if !accountruntime.CheckedInLocalDay(today, "success", now) {
 		t.Fatal("same-day success must skip")
 	}
-	if !accounts.CheckedInLocalDay(today, "already", now) {
+	if !accountruntime.CheckedInLocalDay(today, "already", now) {
 		t.Fatal("same-day already must skip")
 	}
-	if accounts.CheckedInLocalDay(today, "error", now) {
+	if accountruntime.CheckedInLocalDay(today, "error", now) {
 		t.Fatal("same-day error must retry")
 	}
-	if accounts.CheckedInLocalDay(yesterday, "success", now) {
+	if accountruntime.CheckedInLocalDay(yesterday, "success", now) {
 		t.Fatal("yesterday success must not skip")
 	}
-	if accounts.CheckedInLocalDay("", "success", now) {
+	if accountruntime.CheckedInLocalDay("", "success", now) {
 		t.Fatal("empty timestamp must not skip")
 	}
 }
@@ -1524,7 +1525,7 @@ func TestCheckinOptedInSkipsSameDaySuccess(t *testing.T) {
 		t.Fatal(err)
 	}
 	ops := &fakeCheckinMaintainer{msg: "ok"}
-	manager := accounts.NewManager(accounts.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
 	defer manager.Close()
 	manager.SetWorkBuddy(ops)
 	manager.CheckinOptedIn(ctx)
@@ -1552,7 +1553,7 @@ func TestScheduledCheckinRespectsConfiguredTime(t *testing.T) {
 		t.Fatal(err)
 	}
 	ops := &fakeCheckinMaintainer{msg: "ok"}
-	manager := accounts.NewManager(accounts.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
 	defer manager.Close()
 	manager.SetWorkBuddy(ops)
 	loc := time.FixedZone("CST", 8*3600)
@@ -1581,7 +1582,7 @@ func TestScheduledCheckinDoesNotImmediatelyRetrySameTime(t *testing.T) {
 		t.Fatal(err)
 	}
 	ops := &fakeCheckinMaintainer{err: errors.New("timeout")}
-	manager := accounts.NewManager(accounts.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
 	defer manager.Close()
 	manager.SetWorkBuddy(ops)
 	now := time.Date(2026, 8, 30, 21, 0, 0, 0, time.FixedZone("CST", 8*3600))
@@ -1610,7 +1611,7 @@ func TestCheckinOptedInRetriesSameDayError(t *testing.T) {
 		t.Fatal(err)
 	}
 	ops := &fakeCheckinMaintainer{msg: "ok"}
-	manager := accounts.NewManager(accounts.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
 	defer manager.Close()
 	manager.SetWorkBuddy(ops)
 	manager.CheckinOptedIn(ctx)
@@ -1633,7 +1634,7 @@ func TestCheckinAccountRecordsFirstAlreadyThenSkips(t *testing.T) {
 		t.Fatal(err)
 	}
 	ops := &fakeCheckinMaintainer{msg: "今天已签到，请明天再来", err: fakeAlreadyCheckedInError{msg: "今天已签到，请明天再来"}}
-	manager := accounts.NewManager(accounts.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
 	defer manager.Close()
 	manager.SetWorkBuddy(ops)
 	updated, err := manager.CheckinAccount(ctx, account.ID)
@@ -1652,6 +1653,80 @@ func TestCheckinAccountRecordsFirstAlreadyThenSkips(t *testing.T) {
 	records, err := store.ListCheckinRecords(ctx, account.ID, 20)
 	if err != nil || len(records) != 1 || records[0].Status != "already" {
 		t.Fatalf("records=%+v err=%v", records, err)
+	}
+}
+
+func TestCloseStopsRunningChildren(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlstore.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if _, err := store.Create(ctx, accounts.CreateAccount{Name: "CloseStop", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	starter := &fakeStarter{started: make(chan *fakeProcess, 1)}
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, starter)
+	if err := manager.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	first := <-starter.started
+	if err := manager.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if !first.stopped {
+		t.Fatal("Close must stop running children after persist drain")
+	}
+	if manager.TestProcessCount() != 0 {
+		t.Fatalf("processes leftover=%d", manager.TestProcessCount())
+	}
+}
+
+func TestCloseCancelsRecoveryWithoutRespawn(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlstore.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	account, err := store.Create(ctx, accounts.CreateAccount{Name: "CloseCancel", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	starter := &fakeStarter{started: make(chan *fakeProcess, 2)}
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{
+		DataDir: t.TempDir(), RestartDelay: time.Hour, RestartMaxDelay: time.Hour,
+	}, store, starter)
+	if err := manager.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	first := <-starter.started
+	first.done <- errors.New("crashed")
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) && !manager.TestRecovering(account.ID) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if !manager.TestRecovering(account.ID) {
+		t.Fatal("expected recovery goroutine after crash")
+	}
+	done := make(chan error, 1)
+	go func() { done <- manager.Close() }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Close: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close did not return after canceling recovery")
+	}
+	if manager.TestRecovering(account.ID) {
+		t.Fatal("recovery flag must clear after Close waits recoverDone")
+	}
+	select {
+	case extra := <-starter.started:
+		t.Fatalf("close must not spawn another process: %+v", extra)
+	default:
 	}
 }
 

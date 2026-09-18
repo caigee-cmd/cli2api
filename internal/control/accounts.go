@@ -7,7 +7,7 @@ import (
 )
 
 // Runtime is the account lifecycle surface control calls. Implemented by
-// *accounts.Manager; control does not reimplement process start/stop.
+// *accountruntime.Manager; control does not reimplement process start/stop.
 type Runtime interface {
 	Create(ctx context.Context, input accounts.CreateAccount) (accounts.Account, error)
 	Update(ctx context.Context, id string, input accounts.UpdateAccount) error

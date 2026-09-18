@@ -1,4 +1,4 @@
-package accounts
+package runtime
 
 import (
 	"context"
@@ -87,35 +87,6 @@ func (m *Manager) Delete(ctx context.Context, id string) error {
 		return fmt.Errorf("remove account runtime: %w", err)
 	}
 	return nil
-}
-
-type ImportAccount struct {
-	Name                 string
-	Provider             string
-	Region               string
-	Enabled              bool
-	MaxInFlight          int
-	Priority             int
-	DropSystemPrompt     *bool
-	WorkBuddyAutoCheckin *bool
-	WorkBuddyCheckinTime string
-	ProxyURL             string
-	Credential           NativeCredential
-}
-
-type AccountView struct {
-	Account
-	Ready               bool              `json:"ready"`
-	Hot                 bool              `json:"hot"`
-	InFlight            int               `json:"in_flight"`
-	Restarts            int               `json:"restarts"`
-	RuntimeState        string            `json:"runtime_state,omitempty"`
-	NextRestartAt       string            `json:"next_restart_at,omitempty"`
-	RestartBackoffLevel int               `json:"restart_backoff_level,omitempty"`
-	DownUntil           string            `json:"down_until,omitempty"`
-	ModelCooldowns      map[string]string `json:"model_cooldowns,omitempty"`
-	Quota               *QuotaSnapshot    `json:"quota,omitempty"`
-	ProxyURL            string            `json:"proxy_url,omitempty"`
 }
 
 func (m *Manager) Import(ctx context.Context, input ImportAccount) (Account, error) {

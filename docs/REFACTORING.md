@@ -4,7 +4,7 @@ title: 后端工程化重构实施手册（行为保持）
 scope: [backend, package-boundaries, refactoring, compatibility, testing, rollout]
 status: in-progress
 read-when: 评估或执行不改变现有功能的后端职责拆分、制定重构 PR、检查兼容性与回滚条件时
-summary: 基于现有实现的渐进式工程化重构方案，包含目标职责、迁移映射、状态所有权、16 个实施阶段、测试矩阵、PR 规则、发布回滚和完成标准。S00–S06 已验收；runtime 跨包迁移尚未开始。
+summary: 基于现有实现的渐进式工程化重构方案，包含目标职责、迁移映射、状态所有权、16 个实施阶段、测试矩阵、PR 规则、发布回滚和完成标准。S00–S07 已验收；Qoder 具体实现尚未归位。
 related: [AGENTS.md, docs/ARCHITECTURE.md, docs/REQUEST.md, docs/PLAN.md, docs/DEVELOPMENT.md]
 last-updated: 2026-09-18
 ---
@@ -524,7 +524,7 @@ executor 仍 import accounts
 - [x] S04：类型/接口边界整理完成，无循环依赖。
 - [x] S05：Store 迁移完成，历史 SQL 摘要与旧库兼容通过。
 - [x] S06：control 操作迁移完成，副作用顺序验证通过。
-- [ ] S07：runtime 迁移完成，任务与资源所有权验证通过。
+- [x] S07：runtime 迁移完成，任务与资源所有权验证通过。
 - [ ] S08：Qoder 具体实现归位，上游交互与启动配置验证通过。
 - [ ] S09：Qoder Adapter 分能力接线完成，兼容验证通过。
 - [ ] S10：调度职责迁移完成，选号/冷却/状态持久化验证通过。
@@ -1273,20 +1273,49 @@ grants 不迁到 auth：`ParseProviderGrant` 依赖 `providers.Get`，Pool 与 `
 
 执行：
 
-- [ ] 迁移进程表、启动/停止/watch、restart/backoff、恢复任务。
-- [ ] 迁移 probe/catalog/quota 刷新调度和关闭路径。
-- [ ] 迁移 maintenance loop，但保留当前 WorkBuddy 能力调用与调度语义。
-- [ ] runtime 经 starter/provider 能力调用实现，不 import 具体产品包。
-- [ ] pool 尚未迁移时，通过已建立的边界使用原实现，避免双向 import。
-- [ ] 构造与启动分工先复刻旧行为，不顺便实现 lazy start。
-- [ ] process、goroutine、ticker、channel 各有唯一所有者。
-- [ ] 代理/key 改动仍以原方式应用到既有 worker 和新 worker。
-- [ ] 保持启动失败、恢复失败、账号删除与 watch 并发时的现有处理。
-- [ ] 保持 shutdown 先后关系，补取消/退出测试。
+- [x] 迁移进程表、启动/停止/watch、restart/backoff、恢复任务。
+  - 验证：`internal/runtime/manager.go` + `manager_process.go` + `manager_recovery.go`；`processes/restarts/restartBackoff/recovering` 仍只在 Manager。
+- [x] 迁移 probe/catalog/quota 刷新调度和关闭路径。
+  - 验证：`manager_probe.go` / `manager_catalog.go` / `manager_quota.go` 随 Manager 迁出；Close 仍停 persist → cancel runCtx → recoverDone → Stop 子进程。
+- [x] 迁移 maintenance loop，但保留当前 WorkBuddy 能力调用与调度语义。
+  - 验证：`RunWorkBuddyMaintenanceLoop` 仍走 `WorkBuddyMaintainer`；slot 21:00/22:00 与 `nextWorkBuddyFire` 测试随包迁移。
+- [x] runtime 经 starter/provider 能力调用实现，不 import 具体产品包。
+  - 验证：runtime import `providers` 契约与 `accounts` 轻量类型；不 import workbuddy/trae/devin。
+- [x] pool 尚未迁移时，通过已建立的边界使用原实现，避免双向 import。
+  - 验证：`accounts` 不 import `runtime`；runtime 用 `accounts.Pool`/`Item`。
+- [x] 构造与启动分工先复刻旧行为，不顺便实现 lazy start。
+  - 验证：`NewManager` 立刻 `go drainCooldowns`；`Start` 仍列出启用账号 `startAccountWithRecovery` 再 `restoreCooldowns`。
+- [x] process、goroutine、ticker、channel 各有唯一所有者。
+  - 验证：进程表/watch/recover 仍在 Manager；persist drainer 与 `persistCloseCh` 所有权未拆。
+- [x] 代理/key 改动仍以原方式应用到既有 worker 和新 worker。
+  - 验证：`ReloadProxyURL`/`ReplaceProxyAPIKey` 仍先推 starter 再 stop/start 已有 child；proxy 测试随包迁移。
+- [x] 保持启动失败、恢复失败、账号删除与 watch 并发时的现有处理。
+  - 验证：既有 manager 测试迁到 `internal/runtime`；Delete-during-recovery 不额外 spawn。
+- [x] 保持 shutdown 先后关系，补取消/退出测试。
+  - 验证：`TestCloseStopsRunningChildren`、`TestCloseCancelsRecoveryWithoutRespawn`；既有 `TestCloseDuringPersistentDBFailure` 保留。
 
 **通过：** fake starter 可验证每个账号的 Start/Stop 次数；无重复维护循环；race 检查通过或原有问题被明确隔离。
 
 **回滚：** 保持 manager 兼容入口的方向无环；按生命周期迁移提交撤销。
+
+ExecStarter / HOME / CLI 环境仍在 runtime（S08 再归 providers/qoder）。账号 CRUD 方法随 Manager 迁出，control 仍经 Runtime 调用，accounts 不再持有进程表。
+
+#### S07 阶段验收
+
+```text
+阶段编号：S07
+验收日期与确认人：2026-09-18；执行记录写入本手册
+本次勾选的任务：S07 全部执行项与 7.2 阶段摘要
+未勾选任务、例外批准与影响：Qoder HOME/CLI/ExecStarter 仍在 runtime（S08）。Pool 仍在 accounts（S10）。race/frontend/真实账号/托管更新不在本阶段。默认测试未跑 -race。
+阶段复选框是否允许勾选：是（生命周期迁出；accounts 不 import runtime；关闭顺序测试通过）
+合入/候选 SHA：分支 refactor/s07-runtime，起点 261fdfc
+完成的职责迁移：Manager 进程/恢复/探测/维护归 internal/runtime；accounts 保留类型、Pool、AccountStore
+保留的临时依赖：api.New 仍组装 runtime.Manager；control.Runtime 由 *runtime.Manager 实现；Qoder 具体 starter 仍在 runtime
+测试证据：go test ./...、go vet ./...、go build ./cmd/server ./cmd/updater
+真实环境验收证据：未执行
+是否允许进入下一阶段：S08（归位 Qoder 具体实现）可开始；不自动开工
+失败时回退到哪个已验收节点：撤销本阶段提交；S06 control 基线仍在
+```
 
 ### S08：归位 Qoder 具体实现
 

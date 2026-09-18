@@ -55,13 +55,14 @@ type Classified struct {
 const (
 	backoffFloor    = 30 * time.Second
 	backoffCeiling  = 6 * time.Hour
-	backoffMaxLevel = 8
+	BackoffMaxLevel = 8
+	backoffMaxLevel = BackoffMaxLevel
 )
 
 // nextBackoffCooldown lengthens the cooldown for a repeatedly failing account.
 // level is the count of consecutive failures of this kind; the returned level
 // is the value to store for the next failure. Success resets it to zero.
-func clampBackoffLevel(level int) int {
+func ClampBackoffLevel(level int) int {
 	if level < 0 {
 		return 0
 	}
@@ -69,6 +70,10 @@ func clampBackoffLevel(level int) int {
 		return backoffMaxLevel
 	}
 	return level
+}
+
+func clampBackoffLevel(level int) int {
+	return ClampBackoffLevel(level)
 }
 
 func nextBackoffCooldown(base time.Duration, level int) (time.Duration, int) {

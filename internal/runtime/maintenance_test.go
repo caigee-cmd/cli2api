@@ -1,4 +1,4 @@
-package accounts
+package runtime
 
 import (
 	"testing"
@@ -36,7 +36,3 @@ func TestNextWorkBuddyFireCombinesCollidingTasks(t *testing.T) {
 		t.Fatalf("fire=%+v", fire)
 	}
 }
-
-// Managed updates recreate the container regularly, and cooldowns used to live
-// only in memory: a just-quarantined account walked straight back into
-// rotation after every restart.

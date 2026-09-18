@@ -2,10 +2,6 @@ package accounts
 
 import "testing"
 
-var _ ProcessStarter = (*ExecStarter)(nil)
-var _ ProxyConfigurableStarter = (*ExecStarter)(nil)
-var _ APIKeyConfigurableStarter = (*ExecStarter)(nil)
-
 func TestPoolObserverIsDataOnly(t *testing.T) {
 	var seen Item
 	pool := NewPool(nil, nil)

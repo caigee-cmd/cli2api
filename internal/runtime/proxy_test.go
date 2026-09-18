@@ -1,8 +1,9 @@
-package accounts_test
+package runtime_test
 
 import (
 	"context"
 	"github.com/caigee-cmd/cli2api/internal/accounts"
+	accountruntime "github.com/caigee-cmd/cli2api/internal/runtime"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -12,7 +13,7 @@ import (
 )
 
 func TestExecStarterSetProxyURLAppliesToNewWorkers(t *testing.T) {
-	starter := &accounts.ExecStarter{Config: accounts.ManagerConfig{
+	starter := &accountruntime.ExecStarter{Config: accountruntime.ManagerConfig{
 		DaemonPath:   "/app/worker/daemon.mjs",
 		QoderCLIPath: "/usr/lib/qodercli.js",
 	}}
@@ -39,7 +40,7 @@ func TestExecStarterSetProxyURLAppliesToNewWorkers(t *testing.T) {
 }
 
 func TestStarterEnvAccountProxyOverridesGlobal(t *testing.T) {
-	config := accounts.ManagerConfig{
+	config := accountruntime.ManagerConfig{
 		DaemonPath:   "/app/worker/daemon.mjs",
 		QoderCLIPath: "/usr/lib/qodercli.js",
 		ProxyURL:     "http://global.example:8080",
@@ -76,7 +77,7 @@ func TestStarterEnvAccountProxyOverridesGlobal(t *testing.T) {
 }
 
 func TestExecStarterConfigSnapshotConcurrentWithSetProxyURL(t *testing.T) {
-	starter := &accounts.ExecStarter{Config: accounts.ManagerConfig{
+	starter := &accountruntime.ExecStarter{Config: accountruntime.ManagerConfig{
 		DaemonPath:   "/app/worker/daemon.mjs",
 		QoderCLIPath: "/usr/lib/qodercli.js",
 	}}
@@ -124,7 +125,7 @@ func TestReloadProxyURLRestartsOnlyInheritingQoder(t *testing.T) {
 	}
 
 	starter := &fakeStarter{}
-	manager := accounts.NewManager(accounts.ManagerConfig{DataDir: t.TempDir()}, store, starter)
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, starter)
 	defer manager.Close()
 	if err := manager.Start(ctx); err != nil {
 		t.Fatal(err)
@@ -171,7 +172,7 @@ func TestReloadProxyURLLogsAllFailuresAndContinues(t *testing.T) {
 	}
 
 	starter := &fakeStarter{}
-	manager := accounts.NewManager(accounts.ManagerConfig{DataDir: t.TempDir()}, store, starter)
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, starter)
 	defer manager.Close()
 	if err := manager.Start(ctx); err != nil {
 		t.Fatal(err)
@@ -193,14 +194,14 @@ func TestReloadProxyURLLogsAllFailuresAndContinues(t *testing.T) {
 	}
 }
 
-func starterEnvForTest(t *testing.T, starter *accounts.ExecStarter, account accounts.Account, home string, port int) []string {
+func starterEnvForTest(t *testing.T, starter *accountruntime.ExecStarter, account accounts.Account, home string, port int) []string {
 	t.Helper()
 	return starterEnvForTestConfig(t, starter.ConfigSnapshot(), account, home, port)
 }
 
-func starterEnvForTestConfig(t *testing.T, config accounts.ManagerConfig, account accounts.Account, home string, port int) []string {
+func starterEnvForTestConfig(t *testing.T, config accountruntime.ManagerConfig, account accounts.Account, home string, port int) []string {
 	t.Helper()
-	env, err := accounts.StarterEnv(config, account, home, port)
+	env, err := accountruntime.StarterEnv(config, account, home, port)
 	if err != nil {
 		t.Fatalf("starterEnv: %v", err)
 	}
@@ -229,7 +230,7 @@ func TestReloadProxyURLSkipsUnchangedValue(t *testing.T) {
 	}
 
 	starter := &fakeStarter{}
-	manager := accounts.NewManager(accounts.ManagerConfig{DataDir: t.TempDir(), ProxyURL: "http://global.example:8080"}, store, starter)
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir(), ProxyURL: "http://global.example:8080"}, store, starter)
 	defer manager.Close()
 	if err := manager.Start(ctx); err != nil {
 		t.Fatal(err)
@@ -268,7 +269,7 @@ func TestReloadProxyURLRetriesAfterFailureWithSameValue(t *testing.T) {
 	}
 
 	starter := &fakeStarter{}
-	manager := accounts.NewManager(accounts.ManagerConfig{DataDir: t.TempDir(), ProxyURL: "http://old.example:8080"}, store, starter)
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir(), ProxyURL: "http://old.example:8080"}, store, starter)
 	defer manager.Close()
 	if err := manager.Start(ctx); err != nil {
 		t.Fatal(err)
