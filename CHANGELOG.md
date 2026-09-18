@@ -7,6 +7,8 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Preserve Qoder user images and image-bearing tool results, emitting tool-result images after their complete ordered tool batch.
+
 - Preserve typed upstream stream errors through the OpenAI, Anthropic, and Responses relays so invalid Devin requests do not falsely cool accounts, while transport interruptions remain retryable
 - Report Devin cache reads and writes in OpenAI-compatible usage, with prompt
   totals including all upstream input tokens
@@ -18,6 +20,8 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 - Keep session affinity from pinning a later model onto an empty-catalog account, so a Deepseek compact after a Devin turn routes to WorkBuddy instead of Devin
 
 ### 中文
+
+- 保留 Qoder 用户消息及工具结果中的图片，并在完整、有序的工具结果批次之后发送工具图片。
 
 - OpenAI、Anthropic 与 Responses 流式转发会保留上游的类型化错误，避免无效的 Devin 请求被错误地冷却账号，同时传输中断仍可重试
 - Devin 的缓存读取与写入会显示在 OpenAI 兼容 usage 中，prompt 总数包含全部上游输入 token
