@@ -7,6 +7,7 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Restore Responses function namespaces in JSON and SSE output, and preserve qualified tool identities when replaying calls or selecting a function.
 - Preserve Qoder user images and image-bearing tool results, emitting tool-result images after their complete ordered tool batch.
 - Bridge Responses custom tools through function calls, restoring custom output/events and replaying tool results. Format rules are descriptive, not grammar-enforced; custom input events are emitted after argument collection.
 
@@ -22,6 +23,7 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### 中文
 
+- Responses 的 JSON 和 SSE 输出会还原 function 的命名空间，历史调用回放与指定函数选择也会保留完整工具身份。
 - 保留 Qoder 用户消息及工具结果中的图片，并在完整、有序的工具结果批次之后发送工具图片。
 - 通过 function 调用桥接 Responses custom 工具，还原 custom 输出与事件并回放工具结果。格式规则仅作为描述传递，不强制执行语法约束；custom 输入事件在参数收集后发送。
 

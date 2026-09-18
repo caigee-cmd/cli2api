@@ -6,6 +6,32 @@ import (
 	"strings"
 )
 
+// RestoreResponseToolNames only visits protocol containers, never user content
+// or tool arguments. The same operation serves JSON responses and SSE events.
+func RestoreResponseToolNames(value any, names map[string]ResponseToolName) {
+	if len(names) == 0 {
+		return
+	}
+	switch item := value.(type) {
+	case []any:
+		for _, child := range item {
+			RestoreResponseToolNames(child, names)
+		}
+	case map[string]any:
+		typ, _ := item["type"].(string)
+		if typ == "function_call" || typ == "response.function_call_arguments.delta" || typ == "response.function_call_arguments.done" {
+			name, _ := item["name"].(string)
+			if identity, ok := names[name]; ok && item["namespace"] == nil {
+				item["name"] = identity.Name
+				item["namespace"] = identity.Namespace
+			}
+		}
+		for _, key := range []string{"response", "output", "item"} {
+			RestoreResponseToolNames(item[key], names)
+		}
+	}
+}
+
 // AnthropicMessagesRequest is the supported subset of Anthropic's Messages API.
 type AnthropicMessagesRequest struct {
 	Model         string             `json:"model"`
@@ -129,6 +155,12 @@ func TranslateAnthropicMessages(request AnthropicMessagesRequest) (ChatRequest, 
 	if effort := anthropicReasoningEffort(request.OutputConfig); len(effort) > 0 {
 		chat.ReasoningEffort = effort
 	}
+	}
+	chat.ToolChoice = sanitizeToolChoice(chat.Tools, toolChoice)
+	chat.ParallelToolCalls = anthropicParallelToolCalls(request.ToolChoice)
+	if effort := anthropicReasoningEffort(request.OutputConfig); len(effort) > 0 {
+		chat.ReasoningEffort = effort
+	}
 	if err := validateToolChoice(chat.Tools, chat.ToolChoice); err != nil {
 		return ChatRequest{}, err
 	}
@@ -171,7 +203,12 @@ func TranslateResponses(request ResponsesRequest) (ChatRequest, error) {
 	if err != nil {
 		return ChatRequest{}, err
 	}
-	tools, err := translateResponsesTools(mergeJSONArray(request.Tools, additionalTools))
+	mergedTools := mergeJSONArray(request.Tools, additionalTools)
+	chat.ResponseToolNames, err = responseToolNames(mergedTools)
+	if err != nil {
+		return ChatRequest{}, err
+	}
+	tools, err := translateResponsesTools(mergedTools)
 	if err != nil {
 		return ChatRequest{}, err
 	}
@@ -483,6 +520,9 @@ func translateResponsesInput(raw json.RawMessage) ([]ChatMessage, error) {
 			return nil, fmt.Errorf("input[%d] file inputs are not supported by the Qoder upstream", itemIndex)
 		case "function_call":
 			name := rawMapString(source, "name")
+			if namespace := rawMapString(source, "namespace"); namespace != "" {
+				name = qualifyNamespaceToolName(namespace, name)
+			}
 			callID := firstRawMapString(source, "call_id", "id")
 			if name == "" || callID == "" {
 				return nil, fmt.Errorf("input[%d] function_call requires name and call_id", itemIndex)
@@ -622,6 +662,14 @@ func translateResponsesToolChoice(raw json.RawMessage) (json.RawMessage, error) 
 	default:
 		return nil, fmt.Errorf("tool_choice type %q is not supported", rawMapString(source, "type"))
 	}
+	name := rawMapString(source, "name")
+	if name == "" {
+		return nil, fmt.Errorf("tool_choice.name required")
+	}
+	if namespace := rawMapString(source, "namespace"); namespace != "" {
+		name = qualifyNamespaceToolName(namespace, name)
+	}
+	return json.Marshal(map[string]any{"type": "function", "function": map[string]string{"name": name}})
 }
 
 func responseReasoningEffort(raw json.RawMessage) json.RawMessage {

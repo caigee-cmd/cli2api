@@ -144,7 +144,9 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 		CachedTokens: result.CachedTokens, UsageSource: result.UsageSource, Credits: result.Credits,
 		ConsumedCredits: result.ConsumedCredits, Model: result.Model,
 	}, nil, result.AttemptCount)
-	writeJSON(w, http.StatusOK, responsesResponse(execution.requestID, firstNonEmpty(result.Model, execution.publicModel), result.Content, result.Reasoning, decodeOpenAIToolCalls(result.ToolCalls), result.PromptTokens, result.CompletionTokens))
+	response := responsesResponse(execution.requestID, firstNonEmpty(result.Model, execution.publicModel), result.Content, result.Reasoning, decodeOpenAIToolCalls(result.ToolCalls), result.PromptTokens, result.CompletionTokens)
+	translate.RestoreResponseToolNames(response, execution.request.ResponseToolNames)
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (s *Server) handleResponsesStream(w http.ResponseWriter, r *http.Request, execution compatibilityExecution) {
@@ -162,7 +164,7 @@ func (s *Server) handleResponsesStream(w http.ResponseWriter, r *http.Request, e
 		flusher.Flush()
 	}
 	writer := compatibilityStreamWriter(w)
-	stats, relayErr := relayResponsesStream(writer, upstream.Response.Body, execution.requestID, firstNonEmpty(execution.publicModel, execution.request.Model))
+	stats, relayErr := relayResponsesStreamWithNames(writer, upstream.Response.Body, execution.requestID, firstNonEmpty(execution.publicModel, execution.request.Model), execution.request.ResponseToolNames)
 	status := streamRequestStatus(relayErr)
 	if r.Context().Err() != nil || errors.Is(relayErr, context.Canceled) || errors.Is(relayErr, context.DeadlineExceeded) {
 		status = accounts.RequestStatusCanceled
@@ -708,9 +710,11 @@ func relayAnthropicStream(writer io.Writer, body io.Reader, requestID, model str
 type responsesEventWriter struct {
 	writer         io.Writer
 	sequenceNumber int
+	toolNames      map[string]translate.ResponseToolName
 }
 
 func (w *responsesEventWriter) write(event string, payload any) error {
+	translate.RestoreResponseToolNames(payload, w.toolNames)
 	if object, ok := payload.(map[string]any); ok {
 		object["sequence_number"] = w.sequenceNumber
 		w.sequenceNumber++
@@ -719,7 +723,11 @@ func (w *responsesEventWriter) write(event string, payload any) error {
 }
 
 func relayResponsesStream(writer io.Writer, body io.Reader, requestID, model string) (streamRelayStats, error) {
-	eventWriter := responsesEventWriter{writer: writer}
+	return relayResponsesStreamWithNames(writer, body, requestID, model, nil)
+}
+
+func relayResponsesStreamWithNames(writer io.Writer, body io.Reader, requestID, model string, names map[string]translate.ResponseToolName) (streamRelayStats, error) {
+	eventWriter := responsesEventWriter{writer: writer, toolNames: names}
 	responseID := "resp_" + requestID
 	created := time.Now().Unix()
 	inProgress := map[string]any{"id": responseID, "object": "response", "created_at": created, "status": "in_progress", "model": model, "output": []any{}}
