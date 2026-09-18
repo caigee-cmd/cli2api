@@ -15,8 +15,8 @@ use `read-when` to decide whether to open it.
 | `docs/DESIGN.md` | any console UI work | Frontend design system: tokens, radii, type, HeroUI picks, copy |
 | `docs/REQUEST.md` | routing, failover, cooldown, session affinity, error taxonomy | Per-request pick / failover / cooldown contract |
 | `docs/PLAN.md` | before starting a milestone | Current milestone checklist |
-| `docs/PROVIDERS.md` | adding / designing a provider | Future account-provider design. Not a current milestone. |
-| `docs/PROVIDERS_TRAE_SOLO.md` | Trae CN Solo work | Trae CN Solo in-process adapter survey. Not a current milestone. |
+| `docs/PROVIDERS.md` | adding / designing a provider, or checking WorkBuddy / Qoder CN / Devin protocol facts | Provider protocol facts and extension design. WorkBuddy adapter is implemented; remaining work is live-account acceptance. |
+| `docs/PROVIDERS_TRAE_SOLO.md` | Trae CN Work adapter work | Trae CN Work in-process adapter survey. Adapter is implemented; T5 live acceptance is still open. |
 | `docs/DEVELOPMENT.md` | build / test / release | Local build loop and maintainer release workflow |
 | `docs/REFACTORING.md` | accepted package split | Live package map, remaining import allowlist, and unclaimed live-account limits. Not a plan to re-run. |
 | `docs/capture-notes.md` (ignored) | protocol facts | Local redacted protocol facts |

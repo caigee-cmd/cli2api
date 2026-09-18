@@ -4,7 +4,7 @@
 
 **Turn your own logins into a local OpenAI-compatible API**
 
-Supports **Qoder Global**, **Qoder CN**, **WorkBuddy Global**, **WorkBuddy CN**, **Trae CN Solo**, and experimental **Devin** (`provider=devin`, browser OAuth / session token import; not claimed production-ready).
+Supports **Qoder Global**, **Qoder CN**, **WorkBuddy Global**, **WorkBuddy CN**, **Trae CN Work**, and experimental **Devin** (`provider=devin`, browser OAuth / session token import; not claimed production-ready).
 
 Long-lived account runtimes, multi-account scheduling. Deploy with Docker; that is the supported install and update path.
 
@@ -79,7 +79,7 @@ CLI2API is a local gateway: it does not provide accounts, quotas, or an official
 
 **In progress**
 
-- Live-account acceptance for Qoder CN and WorkBuddy (login, failover, mixed account pools)
+- Live-account acceptance for Qoder CN, WorkBuddy, and Trae CN Work (login, failover, mixed account pools)
 
 **Longer term**
 

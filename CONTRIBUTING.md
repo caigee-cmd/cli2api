@@ -75,5 +75,7 @@ when the published behavior warrants a series bump.
 - Do not commit `.env`, `.qoder`, auth blobs, tokens, raw captures, host IPs, or
   `docs/PRIVATE_DEPLOYMENT.md`
 
-Hard rules live in `AGENTS.md`. Maintainer design, milestone, and release notes
-are local gitignored files, not part of the public tree.
+Hard rules live in `AGENTS.md`. Maintainer design, milestone, provider, and
+release notes stay local and gitignored (`docs/DESIGN.md`, `docs/PLAN.md`,
+`docs/ARCHITECTURE.md`, `docs/DEVELOPMENT.md`, …). `docs/REFACTORING.md` is
+the tracked exception; do not add extra plan files beside it.

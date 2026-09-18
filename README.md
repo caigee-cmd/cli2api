@@ -4,7 +4,7 @@
 
 **把你自己的登录态，变成一个本机 OpenAI 兼容 API**
 
-支持 **Qoder 国际版**、**Qoder 国内版**、**WorkBuddy 国际版**、**WorkBuddy 国内版**、**Trae 国内版 Solo**，以及实验性的 **Devin**（`provider=devin`，浏览器 OAuth / session token 导入；尚未宣称生产可用）。
+支持 **Qoder 国际版**、**Qoder 国内版**、**WorkBuddy 国际版**、**WorkBuddy 国内版**、**Trae 国内版 Work**，以及实验性的 **Devin**（`provider=devin`，浏览器 OAuth / session token 导入；尚未宣称生产可用）。
 
 常驻运行时、多账号调度。请用 Docker 部署，这是官方支持的安装与更新路径。
 
@@ -79,7 +79,7 @@ CLI2API 是本地网关：不提供账号、额度或官方 API 服务，不做�
 
 **进行中**
 
-- Qoder 国内版与 WorkBuddy 的真账号验收（登录、故障切换、混合账号池）
+- Qoder 国内版、WorkBuddy、Trae 国内版 Work 的真账号验收（登录、故障切换、混合账号池）
 
 **长期**
 
