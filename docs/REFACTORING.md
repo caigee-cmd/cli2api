@@ -4,7 +4,7 @@ title: 后端工程化重构实施手册（行为保持）
 scope: [backend, package-boundaries, refactoring, compatibility, testing, rollout]
 status: in-progress
 read-when: 评估或执行不改变现有功能的后端职责拆分、制定重构 PR、检查兼容性与回滚条件时
-summary: 基于现有实现的渐进式工程化重构方案，包含目标职责、迁移映射、状态所有权、16 个实施阶段、测试矩阵、PR 规则、发布回滚和完成标准。S00 已验收；跨包迁移尚未开始。
+summary: 基于现有实现的渐进式工程化重构方案，包含目标职责、迁移映射、状态所有权、16 个实施阶段、测试矩阵、PR 规则、发布回滚和完成标准。S00/S01 已验收；跨包迁移尚未开始。
 related: [AGENTS.md, docs/ARCHITECTURE.md, docs/REQUEST.md, docs/PLAN.md, docs/DEVELOPMENT.md]
 last-updated: 2026-09-18
 ---
@@ -518,7 +518,7 @@ executor 仍 import accounts
 以下是阶段级摘要，详细完成情况以第 8 节任务和阶段验收记录为依据。**不因文档已编写而勾选；S00 已按第 8 节任务与验收记录勾选。**
 
 - [x] S00：基线、规则、入口与状态所有权盘点完成并验收。
-- [ ] S01：行为保护测试补齐，基线结果与限制已记录。
+- [x] S01：行为保护测试补齐，基线结果与限制已记录。
 - [ ] S02：api 同包拆文件完成，行为回归通过。
 - [ ] S03：accounts 同包拆文件完成，生命周期回归通过。
 - [ ] S04：类型/接口边界整理完成，无循环依赖。
@@ -797,16 +797,26 @@ PLAN 优先级：即时门槛仍是 L6 / WorkBuddy / Trae T5 真实验收。重�
 
 执行：
 
-- [ ] 运行已有 Go/worker 测试和 vet，记录失败而不是修改预期掩盖失败。
-- [ ] 使用现有 test helper、fake worker/provider 和临时数据库，不重复造测试框架。
-- [ ] 补鉴权、CORS、maintenance、路由方法与 fallback 测试。
-- [ ] 补三种协议 + console chat 的关键请求/响应契约。
-- [ ] 补 reasoning/default/grants/pin/sticky/pool 的跨层关键路径。
-- [ ] 补 SSE 正常结束、错误事件、断流、取消和下游写失败。
-- [ ] 补旧数据库启动、历史 migration 摘要、导入导出、备份恢复。
-- [ ] 补生命周期、签到保活与更新状态机的可控 fake 测试。
-- [ ] 标明哪些既有测试已经覆盖，不为了增加数量重写它们。
-- [ ] 将真实账号验收作为显式 opt-in，不放入默认测试。
+- [x] 运行已有 Go/worker 测试和 vet，记录失败而不是修改预期掩盖失败。
+  - 验证：2026-09-18；分支 `refactor/s01-behavior-tests`；命令：`go test ./...`、`go vet ./...`、`go build ./cmd/server ./cmd/updater`、`cd worker && npm test`；结果：通过，未改预期掩盖失败。
+- [x] 使用现有 test helper、fake worker/provider 和临时数据库，不重复造测试框架。
+  - 验证：复用 `api.New`、`newCompatibilityServer`、`accounts.OpenStore`、`fakeStarter`、`updateCheckerStub`/`updateAgentStub`、`applogs.NewRequestRecorder`；无新测试框架。
+- [x] 补鉴权、CORS、maintenance、路由方法与 fallback 测试。
+  - 验证：`internal/api/s01_http_contract_test.go`（H01–H05）。
+- [x] 补三种协议 + console chat 的关键请求/响应契约。
+  - 验证：OpenAI 非流式/流式与 `/api/chat` 经 `Server.Handler`；Messages/Responses 既有 `compat_test.go` 未重写；空消息/畸形 JSON 四入口。
+- [x] 补 reasoning/default/grants/pin/sticky/pool 的跨层关键路径。
+  - 验证：HTTP 补 named key `/api/chat` 403、region grant 不逃逸、缺失 pin 回落到 pool（现行为）。reasoning clamp / sticky seed / 三种策略仍由既有 mapping、session_affinity、pool 测试覆盖，未重写。
+- [x] 补 SSE 正常结束、错误事件、断流、取消和下游写失败。
+  - 验证：handler 级成功流、流开始前 HTTP 错误、缺 `[DONE]` 不重放、写失败视为 disconnect、取消关闭上游 Body。既有 `chat_usage_test.go` relay 用例保留。
+- [x] 补旧数据库启动、历史 migration 摘要、导入导出、备份恢复。
+  - 验证：全部 001–020 filename/order/SQL hash；备份 keep=2 修剪；失败 native import 不留账号。无独立 Restore API，记为已知限制。既有 006/007 checksum 测试未改。
+- [x] 补生命周期、签到保活与更新状态机的可控 fake 测试。
+  - 验证：删除发生在恢复中时不重复 spawn；apply 期间 prepare 409；失败 agent 解除 maintenance。签到/保活既有 `manager_test.go` 未重写。
+- [x] 标明哪些既有测试已经覆盖，不为了增加数量重写它们。
+  - 验证：见下方「S01 覆盖与限制」。
+- [x] 将真实账号验收作为显式 opt-in，不放入默认测试。
+  - 验证：未增加云端/真实凭据调用；PLAN L6 / WorkBuddy / Trae T5 仍是独立门槛。
 
 测试先在旧实现上通过；随后移动实现时测试预期不变。若基线表现与文档冲突，先明确哪项契约需要独立修复，不在重构中裁定新行为。
 
@@ -815,6 +825,43 @@ PLAN 优先级：即时门槛仍是 L6 / WorkBuddy / Trae T5 真实验收。重�
 **通过：** 关键成功/失败路径有断言；测试不会访问生产 HOME、真实凭据或对外调用。
 
 **回滚：** 测试 PR 可单独撤销，不改生产行为。
+
+#### S01 覆盖与限制
+
+既有覆盖（未重写）：`auth_test.go` named/console key 与 models grants；OpenAI CORS 预检；SPA `/auth|/accounts|/login|/logs`；`compat_test.go` Messages/Responses 事件名；`system_settings_test.go` / `provider_routes_test.go` 交叉池前缀；`session_affinity_test.go` / `session_seed_test.go` pin/sticky/image-only；`classify_test.go` + executor/pool 分类与策略；`TestStateVersionOrdersAcrossDelayedObserver`；`chat_usage_test.go` relay 缺 DONE/错误事件/typed read；`manager_test.go` 启停/探测/签到；`backup_test.go` 006/007；`logs_test.go` 过滤分页；`update_test.go` prepare/cancel/adopt。
+
+本次新增：
+
+- `internal/api/s01_http_contract_test.go`
+- `internal/api/s01_protocol_contract_test.go`
+- `TestPublishedMigrationsKeepOrderedFilenameAndSQLDigest` / `TestStoreBackupPrunesOlderSnapshots`
+- `TestManagerDeleteDuringRestartDoesNotLeaveDuplicateRecovery`
+
+已知限制（不勾成已验证）：
+
+- 无独立 SQLite Restore 入口，只锁 Backup + prune。
+- 无仓库内旧版 `.db` fixture；旧 checksum 仍用 006/007 改 checksum 再打开。
+- HTTP 层未再测 catalog clamp / onlyReasoning（仍在 provider mapping 测试）。
+- `monitorUpdate` 2s 轮询未在默认测试中实跑整段；失败解除 maintenance 按 `finishUpdateJob` 现路径锁定。
+- 缺失 `X-Qoder-Account` 回落到 pool（不是 404）；Delete 不立即清 `recovering[]`。这是现行为，不在本阶段修复。
+- 真实账号、托管更新、race、frontend 未跑。
+
+#### S01 阶段验收
+
+```text
+阶段编号：S01
+验收日期与确认人：2026-09-18；执行记录写入本手册
+本次勾选的任务：S01 全部执行项与 7.2 阶段摘要
+未勾选任务、例外批准与影响：真实账号/托管更新/race/frontend 不在本阶段；Restore API 不存在
+阶段复选框是否允许勾选：是（测试补齐且通过；无生产行为变更）
+合入/候选 SHA：分支 refactor/s01-behavior-tests，起点 ed46c02
+完成的职责迁移：无
+保留的临时依赖：现行 api/accounts 大包
+测试证据：go test ./...、go vet ./...、go build ./cmd/server ./cmd/updater、worker npm test 55/55
+真实环境验收证据：未执行
+是否允许进入下一阶段：S02（api 同包拆文件）可开始；不自动开工
+失败时回退到哪个已验收节点：撤销本阶段测试提交；S00 文档基线仍在
+```
 
 ### S02：api 同包拆文件
 

@@ -159,21 +159,30 @@ func TestManagerRetriesInitialStartFailure(t *testing.T) {
 	if err := manager.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := manager.Pool().Pick("", nil); ok {
-		t.Fatal("failed account must not be routable during recovery")
-	}
-	select {
-	case <-starter.started:
-	case <-time.After(time.Second):
-		t.Fatal("initial start failure was not recovered")
-	}
-	item, ok := manager.Pool().ByID(account.ID)
-	if !ok {
-		t.Fatal("account disappeared during recovery")
-	}
-	if item.Restarts != 1 || item.RuntimeState != "starting" || item.Ready == nil || *item.Ready {
-		t.Fatalf("recovered runtime state = %+v", item)
-	}
+		if _, ok := manager.Pool().Pick("", nil); ok {
+			t.Fatal("failed account must not be routable during recovery")
+		}
+		select {
+		case <-starter.started:
+		case <-time.After(time.Second):
+			t.Fatal("initial start failure was not recovered")
+		}
+		deadline := time.Now().Add(time.Second)
+		var item Item
+		var ok bool
+		for time.Now().Before(deadline) {
+			item, ok = manager.Pool().ByID(account.ID)
+			if ok && item.Restarts == 1 && item.RuntimeState == "starting" && item.Ready != nil && !*item.Ready {
+				break
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		if !ok {
+			t.Fatal("account disappeared during recovery")
+		}
+		if item.Restarts != 1 || item.RuntimeState != "starting" || item.Ready == nil || *item.Ready {
+			t.Fatalf("recovered runtime state = %+v", item)
+		}
 }
 
 func TestManagerDisabledAccountDoesNotRestartAfterStartFailure(t *testing.T) {
@@ -700,6 +709,68 @@ func TestManagerRefreshCanForceQuotaBypass(t *testing.T) {
 	}
 	if gotQuery != "refresh=1" {
 		t.Fatalf("forced quota refresh query = %q", gotQuery)
+	}
+}
+
+func TestManagerDeleteDuringRestartDoesNotLeaveDuplicateRecovery(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	store, err := OpenStore(filepath.Join(dataDir, "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	account, err := store.Create(ctx, CreateAccount{Name: "Crash", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	starter := &fakeStarter{started: make(chan *fakeProcess, 4)}
+	manager := NewManager(ManagerConfig{DataDir: dataDir, RestartDelay: 30 * time.Millisecond, RestartMaxDelay: 30 * time.Millisecond}, store, starter)
+	if err := manager.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	first := <-starter.started
+	first.done <- errors.New("crashed")
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		manager.mu.Lock()
+		recovering := manager.recovering[account.ID]
+		manager.mu.Unlock()
+		if recovering {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if err := manager.Delete(ctx, account.ID); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if _, err := store.Get(ctx, account.ID); !errors.Is(err, ErrAccountNotFound) {
+		t.Fatalf("deleted account still in store: %v", err)
+	}
+	if _, ok := manager.Pool().ByID(account.ID); ok {
+		t.Fatal("deleted account remained in pool")
+	}
+	manager.mu.Lock()
+	processCount := len(manager.processes)
+	recovering := manager.recovering[account.ID]
+	manager.mu.Unlock()
+	if processCount != 0 {
+		t.Fatalf("leftover processes=%d", processCount)
+	}
+	if recovering {
+		// Delete does not clear recovering[]; the goroutine exits after the
+		// next store lookup sees ErrAccountNotFound. Assert it does not spawn
+		// another process while that flag is still set.
+		select {
+		case extra := <-starter.started:
+			t.Fatalf("delete during recovery started another process: %+v", extra)
+		case <-time.After(80 * time.Millisecond):
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dataDir, "runtime", account.ID)); !os.IsNotExist(err) {
+		t.Fatalf("runtime dir leftover: %v", err)
 	}
 }
 
