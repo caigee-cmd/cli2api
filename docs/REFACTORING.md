@@ -4,7 +4,7 @@ title: 后端工程化重构实施手册（行为保持）
 scope: [backend, package-boundaries, refactoring, compatibility, testing, rollout]
 status: in-progress
 read-when: 评估或执行不改变现有功能的后端职责拆分、制定重构 PR、检查兼容性与回滚条件时
-summary: 基于现有实现的渐进式工程化重构方案，包含目标职责、迁移映射、状态所有权、16 个实施阶段、测试矩阵、PR 规则、发布回滚和完成标准。S00–S10 已验收；共享请求准备尚未迁出 api。
+summary: 基于现有实现的渐进式工程化重构方案，包含目标职责、迁移映射、状态所有权、16 个实施阶段、测试矩阵、PR 规则、发布回滚和完成标准。S00–S11 已验收；gateway HTTP 尚未迁出 api。
 related: [AGENTS.md, docs/ARCHITECTURE.md, docs/REQUEST.md, docs/PLAN.md, docs/DEVELOPMENT.md]
 last-updated: 2026-09-18
 ---
@@ -528,7 +528,7 @@ executor 仍 import accounts
 - [x] S08：Qoder 具体实现归位，上游交互与启动配置验证通过。
 - [x] S09：Qoder Adapter 分能力接线完成，兼容验证通过。
 - [x] S10：调度职责迁移完成，选号/冷却/状态持久化验证通过。
-- [ ] S11：共享请求准备与模型服务完成，所有入口行为验证通过。
+- [x] S11：共享请求准备与模型服务完成，所有入口行为验证通过。
 - [ ] S12：gateway 迁移完成，HTTP/SSE 契约验证通过。
 - [ ] S13：console/update 迁移完成，控制台与更新契约验证通过。
 - [ ] S14：server/app/cmd 接线完成，启动关闭与进程级验证通过。
@@ -1471,16 +1471,26 @@ executor：按原顺序完成解析、授权相关检查、默认值、目录准
 
 执行：
 
-- [ ] 提取实际跨入口复用的参数，不传整个 `*http.Request`。
-- [ ] 保留请求校验与 prepare 内各步骤相对顺序。
-- [ ] 保留 request ID/started 的生成位置与日志启动时机。
-- [ ] session seed 保持现有身份隔离、字段和算法。
-- [ ] 模型聚合和默认设置以消费方接口提供，不 import SQLite。
-- [ ] 分清 API 展示缓存、runtime 目录和 pool proven membership，不合并缓存。
-- [ ] gateway/console 使用同一展示缓存服务，保持 TTL/key/refresh 去重。
-- [ ] reasoning.go 保持 catalog-driven 和原 clamp 规则。
-- [ ] 保留 CommitSession/ObserveStreamFailure 等完成反馈，先不发明通用 event stream。
-- [ ] 三种协议和 console chat 都调用相同执行准备能力。
+- [x] 提取实际跨入口复用的参数，不传整个 `*http.Request`。
+  - 验证：`executor.PrepareInput` 只含 Identity/pin/session header/request；api 从 `*http.Request` 抽出后调用。executor 不 import store。
+- [x] 保留请求校验与 prepare 内各步骤相对顺序。
+  - 验证：bare-model → prefix/filter → pin → grant → context defaults → EnsureModelCatalogs → request ID/log → session ctx。HTTP decode/`ValidateChatRequest` 仍在各 handler。
+- [x] 保留 request ID/started 的生成位置与日志启动时机。
+  - 验证：ID/started 在 Prepare 内、EnsureModelCatalogs 之后、返回前 `Logs.Start(RequestStatusStarted)`。
+- [x] session seed 保持现有身份隔离、字段和算法。
+  - 验证：`SessionKeyFor` 仍是 `namespace\\x00kind\\x00raw` SHA-256；header 优先于 content seed；key vs console 隔离。`TestPrepareSessionKeyIsolatesByIdentity` 与原 api session 测试通过。
+- [x] 模型聚合和默认设置以消费方接口提供，不 import SQLite。
+  - 验证：`ModelContextStore`/`CatalogPreparer`/`RequestStarter` 注入；Qoder-only context defaults 未改。
+- [x] 分清 API 展示缓存、runtime 目录和 pool proven membership，不合并缓存。
+  - 验证：`control.Catalog` 只缓存 display rows；runtime `EnsureModelCatalogs` 与 pool proven 仍独立。overview 未把 live fetch 并进该缓存。
+- [x] gateway/console 使用同一展示缓存服务，保持 TTL/key/refresh 去重。
+  - 验证：`/v1/models` 与 `/api/models` 都走 `fetchDisplayModels` → `control.Catalog`；merge/regional 分 key；stale 立即返回并后台刷新。
+- [x] reasoning.go 保持 catalog-driven 和原 clamp 规则。
+  - 验证：未改 `internal/providers/reasoning.go`。
+- [x] 保留 CommitSession/ObserveStreamFailure 等完成反馈，先不发明通用 event stream。
+  - 验证：流式 handler 仍在原时机调用，未加 event bus。
+- [x] 三种协议和 console chat 都调用相同执行准备能力。
+  - 验证：chat/messages/responses/`/api/chat` 仍 `prepareChatExecution`/`prepareCompatibilityExecution`，后者只加 empty-messages 后调用同一 Prepare。
 
 流式仍保持：
 
@@ -1492,6 +1502,23 @@ handler decode → executor prepare/execute → handler relay SSE
 **通过：** prepare 不依赖 HTTP/SQLite；四类入口执行轨迹一致，协议输出保持各自格式。
 
 **回滚：** 可撤销某入口接入；不保留两份 prepare 业务规则长期分叉。
+
+#### S11 阶段验收
+
+```text
+阶段编号：S11
+验收日期与确认人：2026-09-18；执行记录写入本手册
+本次勾选的任务：S11 全部执行项与 7.2 阶段摘要
+未勾选任务、例外批准与影响：gateway/console 包未拆出；handler 仍在 api。overview live catalog 仍独立于 display cache。race/frontend/真实账号不在本阶段。
+阶段复选框是否允许勾选：是（Prepare 抽出；四入口共用；display cache 共享；executor 无 SQLite）
+合入/候选 SHA：分支 refactor/s11-prepare-models，起点 80a407d
+完成的职责迁移：请求准备归 executor；展示目录缓存归 control.Catalog
+保留的临时依赖：HTTP decode/SSE/错误映射仍在 api；runtime catalog 刷新仍经注入接口
+测试证据：go test ./...、go vet ./...、go build ./cmd/server ./cmd/updater
+真实环境验收证据：未执行
+是否允许进入下一阶段：S12（gateway HTTP）可开始；不自动开工
+失败时回退到哪个已验收节点：撤销本阶段提交；S10 Pool/classify 仍在
+```
 
 ### S12：迁移 gateway
 

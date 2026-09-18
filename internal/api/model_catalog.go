@@ -2,72 +2,25 @@ package api
 
 import (
 	"net/http"
-	"strings"
 
-	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/auth"
-	"github.com/caigee-cmd/cli2api/internal/translate"
+	"github.com/caigee-cmd/cli2api/internal/control"
+	"github.com/caigee-cmd/cli2api/internal/executor"
 )
 
 func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
+	models, err := s.fetchDisplayModels(false, "", control.CatalogModeMerge)
+	if err != nil {
+		models = nil
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"object": "list",
-		"data":   s.decorateModelsWithContext(r.Context(), s.filterModelsForIdentity(r, s.fetchWorkerModels(false))),
+		"data":   s.decorateModelsWithContext(r.Context(), s.filterModelsForIdentity(r, models)),
 	})
 }
 
 func providerPrefix(model string) string {
-	model = strings.TrimSpace(model)
-	for _, prefix := range []string{"qoder/", "workbuddy/", "trae/", "devin/"} {
-		if strings.HasPrefix(model, prefix) {
-			return strings.TrimSuffix(prefix, "/")
-		}
-	}
-	return ""
-}
-
-// resolveProviderFilter enforces public-model ID rules. Prefixed IDs pin one
-// provider family. Bare IDs are rejected when the cross-provider model pool
-// setting is disabled; when enabled, the filter is empty for a shared route
-// pool.
-func (s *Server) rejectsBareModel(model string) bool {
-	return strings.TrimSpace(model) != "" && !s.crossProviderModelPool.Load() && providerPrefix(model) == ""
-}
-
-func (s *Server) resolveProviderFilter(req *translate.ChatRequest) string {
-	model := strings.TrimSpace(req.Model)
-	if model == "" {
-		return ""
-	}
-	if prefix := providerPrefix(model); prefix != "" {
-		req.Model = strings.TrimPrefix(model, prefix+"/")
-		return prefix
-	}
-	if s != nil && s.crossProviderModelPool.Load() {
-		return ""
-	}
-	return "qoder"
-}
-
-// applyPinnedProviderFilter lets an explicit account pin select its provider
-// family for bare model IDs. Prefixed model IDs keep their forced family so a
-// mismatched pin still fails closed inside PickRoute.
-func (s *Server) applyPinnedProviderFilter(providerFilter, publicModel, prefer string) string {
-	if prefer == "" || s == nil || s.pool == nil {
-		return providerFilter
-	}
-	if providerPrefix(publicModel) != "" {
-		return providerFilter
-	}
-	item, ok := s.pool.ByID(prefer)
-	if !ok {
-		return providerFilter
-	}
-	pinned := accounts.NormalizeProviderFamily(item.Provider)
-	if providerFilter == "" || providerFilter == pinned {
-		return providerFilter
-	}
-	return pinned
+	return executor.ProviderPrefix(model)
 }
 
 // filterModelsForIdentity narrows a model catalog to what the request's

@@ -50,9 +50,6 @@ type Server struct {
 	updateRunning          atomic.Bool
 	updateMu               sync.Mutex
 	updateJob              *systemUpdateJob
-	modelsAPICacheMu       sync.Mutex
-	modelsAPICache         map[string]modelsAPICacheEntry
-	modelsAPIRefresh       map[string]*modelsAPIRefresh
 	statsCacheMu           sync.Mutex
 	statsCache             map[string]statsCacheEntry
 }
@@ -147,6 +144,7 @@ func New(cfg config.Config) *Server {
 		updateAgent:   agent,
 	}
 	s.crossProviderModelPool.Store(crossProviderModelPool)
+	s.control.Catalog = appsvc.NewCatalog(s.fetchCatalogModels)
 	s.routes()
 	return s
 }

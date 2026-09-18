@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/buildinfo"
+	"github.com/caigee-cmd/cli2api/internal/control"
 	"github.com/caigee-cmd/cli2api/internal/endpoint"
 )
 
@@ -93,11 +94,9 @@ func (s *Server) handleOverviewSummary(w http.ResponseWriter, r *http.Request) {
 		inFlight += account.InFlight
 	}
 	modelCount := 0
-	s.modelsAPICacheMu.Lock()
-	if cached, ok := s.modelsAPICache[modelsAPICacheKey("", catalogModeMerge)]; ok && time.Since(cached.at) < modelsAPICacheTTL {
-		modelCount = len(cached.models)
+	if s.control != nil && s.control.Catalog != nil {
+		modelCount = s.control.Catalog.CachedCount("", control.CatalogModeMerge)
 	}
-	s.modelsAPICacheMu.Unlock()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":   true,
 		"time": time.Now().Format(time.RFC3339),

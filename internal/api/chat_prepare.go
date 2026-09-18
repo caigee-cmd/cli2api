@@ -2,26 +2,16 @@ package api
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"net/http"
-	"strings"
 	"time"
 
-	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/auth"
 	"github.com/caigee-cmd/cli2api/internal/executor"
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
-type chatHTTPError struct {
-	Status  int
-	Code    string
-	Message string
-}
-
-func (e *chatHTTPError) Error() string { return e.Message }
+type chatHTTPError = executor.PrepareError
 
 type chatExecution struct {
 	ctx            context.Context
@@ -34,38 +24,52 @@ type chatExecution struct {
 }
 
 func (s *Server) prepareChatExecution(r *http.Request, request translate.ChatRequest) (chatExecution, error) {
-	publicModel := request.Model
-	if s.rejectsBareModel(publicModel) {
-		return chatExecution{}, &chatHTTPError{Status: http.StatusBadRequest, Code: "provider_prefix_required", Message: "cross-provider model pool is disabled; use a provider-prefixed model ID such as qoder/glm-5.2"}
+	var identity auth.Identity
+	if r != nil {
+		identity = s.requestIdentity(r)
 	}
-	providerFilter := s.resolveProviderFilter(&request)
-	prefer := s.requestedAccount(r)
-	providerFilter = s.applyPinnedProviderFilter(providerFilter, publicModel, prefer)
-	identity := s.requestIdentity(r)
-	if providerFilter != "" && !identity.AllowsProvider(providerFilter) {
-		return chatExecution{}, &chatHTTPError{Status: http.StatusForbidden, Code: "provider_not_allowed", Message: "This API key cannot use provider " + providerFilter}
+	sessionHeader := ""
+	prefer := ""
+	ctx := context.Background()
+	if r != nil {
+		sessionHeader = r.Header.Get("X-CLI2API-Session")
+		prefer = s.requestedAccount(r)
+		ctx = r.Context()
 	}
-	if err := s.applyModelContextDefaults(r.Context(), &request, providerFilter); err != nil {
-		return chatExecution{}, &chatHTTPError{Status: http.StatusInternalServerError, Code: "model_setting_failed", Message: err.Error()}
+	var modelContexts executor.ModelContextStore
+	if s.control != nil && s.control.Settings != nil {
+		modelContexts = s.control.Settings
 	}
+	var catalogs executor.CatalogPreparer
 	if s.manager != nil {
-		s.manager.EnsureModelCatalogs(r.Context(), false)
+		catalogs = s.manager
 	}
-	requestID := accounts.NewRequestID()
-	started := time.Now().UTC()
-	s.startRequestLog(accounts.RequestLog{
-		ID: requestID, CreatedAt: started, Stream: request.Stream, Status: accounts.RequestStatusStarted,
-		RequestedModel: firstNonEmpty(publicModel, request.Model),
-		MessageCount:   len(request.Messages), EmptyMessageIndexes: translate.EmptyMessageIndexes(request.Messages),
-		MessageRoles: translate.MessageRoles(request.Messages),
+	var logs executor.RequestStarter
+	if s.recorder != nil {
+		logs = s.recorder
+	}
+	got, err := s.executor.Prepare(executor.PrepareInput{
+		Context:           ctx,
+		Request:           request,
+		Identity:          identity,
+		PreferAccount:     prefer,
+		SessionHeader:     sessionHeader,
+		CrossProviderPool: s.crossProviderModelPool.Load(),
+		ModelContexts:     modelContexts,
+		Catalogs:          catalogs,
+		Logs:              logs,
 	})
-	ctx := executor.WithAllowedProviders(executor.WithRequestID(r.Context(), requestID), identity.AllowedProviders)
-	if sessionKey := requestSessionKey(r, identity, request); sessionKey != "" {
-		ctx = executor.WithSessionKey(ctx, sessionKey)
+	if err != nil {
+		return chatExecution{}, err
 	}
 	return chatExecution{
-		ctx: ctx, requestID: requestID, started: started, request: request,
-		publicModel: publicModel, providerFilter: providerFilter, prefer: prefer,
+		ctx:            got.Context,
+		requestID:      got.RequestID,
+		started:        got.Started,
+		request:        got.Request,
+		publicModel:    got.PublicModel,
+		providerFilter: got.ProviderFilter,
+		prefer:         got.Prefer,
 	}, nil
 }
 
@@ -78,25 +82,35 @@ func writeChatHTTPError(w http.ResponseWriter, err error) {
 	writeClassifiedErr(w, err)
 }
 
+func (s *Server) rejectsBareModel(model string) bool {
+	poolOn := s != nil && s.crossProviderModelPool.Load()
+	return executor.RejectsBareModel(model, poolOn)
+}
+
+func (s *Server) resolveProviderFilter(req *translate.ChatRequest) string {
+	poolOn := s != nil && s.crossProviderModelPool.Load()
+	return executor.ResolveProviderFilter(req, poolOn)
+}
+
+func (s *Server) applyPinnedProviderFilter(providerFilter, publicModel, prefer string) string {
+	if s == nil {
+		return providerFilter
+	}
+	return executor.ApplyPinnedProviderFilter(s.pool, providerFilter, publicModel, prefer)
+}
+
+func (s *Server) applyModelContextDefaults(ctx context.Context, req *translate.ChatRequest, providerFilter string) error {
+	var store executor.ModelContextStore
+	if s != nil && s.control != nil {
+		store = s.control.Settings
+	}
+	return executor.ApplyModelContextDefaults(ctx, store, req, providerFilter)
+}
+
 func requestSessionKey(r *http.Request, identity auth.Identity, req translate.ChatRequest) string {
-	raw := ""
-	kind := "content"
+	header := ""
 	if r != nil {
-		raw = strings.TrimSpace(r.Header.Get("X-CLI2API-Session"))
-		if raw != "" {
-			kind = "header"
-		}
+		header = r.Header.Get("X-CLI2API-Session")
 	}
-	if raw == "" {
-		raw = translate.ContentSessionSeed(req)
-	}
-	if raw == "" {
-		return ""
-	}
-	namespace := "console"
-	if identity.Kind == auth.KindKey && identity.KeyID != "" {
-		namespace = "key:" + identity.KeyID
-	}
-	sum := sha256.Sum256([]byte(namespace + "\x00" + kind + "\x00" + raw))
-	return hex.EncodeToString(sum[:])
+	return executor.SessionKeyFor(header, identity, req)
 }

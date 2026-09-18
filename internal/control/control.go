@@ -10,6 +10,7 @@ type Services struct {
 	Keys     *Keys
 	Settings *Settings
 	Backup   *Backup
+	Catalog  *Catalog
 }
 
 func New(runtime Runtime) *Services {

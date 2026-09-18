@@ -4,11 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
-	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
 const (
@@ -30,27 +28,6 @@ func defaultContextForModel(model string) int {
 		return miniMaxM3ContextLimit
 	}
 	return defaultContextLength
-}
-
-func (s *Server) applyModelContextDefaults(ctx context.Context, req *translate.ChatRequest, providerFilter string) error {
-	if s == nil || s.control == nil || s.control.Settings == nil || req == nil || strings.TrimSpace(req.Model) == "" {
-		return nil
-	}
-	if providerFilter != "" && providerFilter != "qoder" {
-		return nil
-	}
-	contextLength, ok, err := s.control.Settings.GetModelContext(ctx, modelContextKey(req.Model))
-	if err != nil || !ok {
-		return err
-	}
-	value := json.RawMessage(strconv.Itoa(contextLength))
-	if len(req.ContextLength) == 0 {
-		req.ContextLength = append(json.RawMessage(nil), value...)
-	}
-	if len(req.MaxInputTokens) == 0 {
-		req.MaxInputTokens = append(json.RawMessage(nil), value...)
-	}
-	return nil
 }
 
 func asInt(value any) (int, bool) {
