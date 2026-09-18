@@ -20,6 +20,7 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/executor"
 	applogs "github.com/caigee-cmd/cli2api/internal/logs"
 	"github.com/caigee-cmd/cli2api/internal/providers"
+	sqlstore "github.com/caigee-cmd/cli2api/internal/store"
 )
 
 func waitForRequestLog(t *testing.T, store applogs.RequestStore, id, status string) accounts.RequestLog {
@@ -67,7 +68,7 @@ func TestOpenAINonStreamContractThroughHandler(t *testing.T) {
 		_, _ = io.WriteString(w, openaiNonStreamBody())
 	})
 	defer closeServer()
-	store, err := accounts.OpenStore(t.TempDir() + "/qoder.db")
+	store, err := sqlstore.OpenStore(t.TempDir() + "/qoder.db")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +135,7 @@ func TestOpenAIStreamAndConsoleChatShareHandler(t *testing.T) {
 		_, _ = io.WriteString(w, openaiStreamChunks())
 	})
 	defer closeServer()
-	store, err := accounts.OpenStore(t.TempDir() + "/qoder.db")
+	store, err := sqlstore.OpenStore(t.TempDir() + "/qoder.db")
 	if err != nil {
 		t.Fatal(err)
 	}

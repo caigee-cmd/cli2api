@@ -7,10 +7,6 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 )
 
-var _ Store = (*accounts.Store)(nil)
-var _ SecretReader = (*accounts.Store)(nil)
-var _ ModelSettingReader = (*accounts.Store)(nil)
-
 type requiredStore struct{}
 
 func (requiredStore) Get(context.Context, string) (accounts.Account, error) {

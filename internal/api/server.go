@@ -24,6 +24,7 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/providers/devin"
 	"github.com/caigee-cmd/cli2api/internal/providers/trae"
 	"github.com/caigee-cmd/cli2api/internal/providers/workbuddy"
+	sqlstore "github.com/caigee-cmd/cli2api/internal/store"
 	control "github.com/caigee-cmd/cli2api/internal/update"
 )
 
@@ -59,7 +60,7 @@ func New(cfg config.Config) *Server {
 		dataDir = filepath.Join(cfg.QoderHome, ".proxy-data")
 	}
 	cfg.DataDir = dataDir
-	store, err := accounts.OpenStore(filepath.Join(dataDir, "qoder.db"))
+	store, err := sqlstore.OpenStore(filepath.Join(dataDir, "qoder.db"))
 	if err != nil {
 		panic(err)
 	}

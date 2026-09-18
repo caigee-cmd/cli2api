@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"context"
+	sqlstore "github.com/caigee-cmd/cli2api/internal/store"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -14,7 +15,7 @@ import (
 )
 
 func TestEnsureCrossProviderModelPoolDefaultsToEnabled(t *testing.T) {
-	store, err := accounts.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	store, err := sqlstore.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +87,7 @@ func TestSystemSettingsRoutePersistsAndAppliesRoutingStrategy(t *testing.T) {
 }
 
 func TestEnsureWorkBuddyCheckinTimeDefaultsToNine(t *testing.T) {
-	store, err := accounts.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	store, err := sqlstore.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +192,7 @@ func TestChatRejectsBareModelWhenCrossProviderPoolDisabled(t *testing.T) {
 }
 
 func TestEnsureProxyURLRejectsSOCKSBootstrap(t *testing.T) {
-	store, err := accounts.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	store, err := sqlstore.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,7 +207,7 @@ func TestEnsureProxyURLRejectsSOCKSBootstrap(t *testing.T) {
 }
 
 func TestEnsureProxyURLAcceptsHTTPBootstrap(t *testing.T) {
-	store, err := accounts.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	store, err := sqlstore.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -334,7 +335,7 @@ func TestSystemSettingsProxyURLClearPersistsEmptyValue(t *testing.T) {
 
 func TestEnsureProxyURLDoesNotReapplyBootstrapAfterClear(t *testing.T) {
 	ctx := context.Background()
-	store, err := accounts.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	store, err := sqlstore.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

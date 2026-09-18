@@ -22,7 +22,7 @@ import (
 )
 
 // Store is the persistence surface the adapter needs. It matches
-// *accounts.Store without importing the concrete manager.
+// the SQLite store without importing the concrete type.
 type Store interface {
 	Get(ctx context.Context, id string) (accounts.Account, error)
 	LoadCredentialPayload(ctx context.Context, accountID string) (string, []byte, error)

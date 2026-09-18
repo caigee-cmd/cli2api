@@ -134,7 +134,7 @@ func qoderAuthDir(home, region string) string {
 	return filepath.Join(home, qoderConfigDirName(region), ".auth")
 }
 
-func materializeHome(ctx context.Context, store *Store, account Account, home string) error {
+func materializeHome(ctx context.Context, store AccountStore, account Account, home string) error {
 	authDir := qoderAuthDir(home, account.ProviderRegion)
 	if err := os.MkdirAll(authDir, 0o700); err != nil {
 		return fmt.Errorf("create account home: %w", err)
@@ -194,7 +194,7 @@ type ExecStarter struct {
 // configSnapshot returns a stable copy of the starter config. Start uses one
 // snapshot for the whole spawn so a concurrent SetProxyURL cannot race with
 // reading fields.
-func (s *ExecStarter) configSnapshot() ManagerConfig {
+func (s *ExecStarter) ConfigSnapshot() ManagerConfig {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.Config
@@ -252,8 +252,8 @@ func proxyEnv(env []string, raw string) []string {
 }
 
 func (s *ExecStarter) Start(_ context.Context, account Account, home string, port int) (ManagedProcess, error) {
-	config := s.configSnapshot()
-	env, err := starterEnv(config, account, home, port)
+	config := s.ConfigSnapshot()
+	env, err := StarterEnv(config, account, home, port)
 	if err != nil {
 		return nil, err
 	}
@@ -287,11 +287,11 @@ func (s *ExecStarter) Start(_ context.Context, account Account, home string, por
 // starterEnv builds the worker environment from a stable config snapshot. The
 // effective proxy is resolved once (account override wins, else global) and
 // applied to both the proxy env vars and QODER_PROXY_URL.
-func starterEnv(config ManagerConfig, account Account, home string, port int) ([]string, error) {
+func StarterEnv(config ManagerConfig, account Account, home string, port int) ([]string, error) {
 	if config.DaemonPath == "" {
 		return nil, fmt.Errorf("worker daemon path required")
 	}
-	cliPath, site, configDir, configEnv, err := qoderRuntimeSpec(config, account, home)
+	cliPath, site, configDir, configEnv, err := QoderRuntimeSpec(config, account, home)
 	if err != nil {
 		return nil, err
 	}
@@ -377,7 +377,7 @@ func (m *Manager) shouldRestartForGlobalProxy(account Account) bool {
 		strings.TrimSpace(account.ProxyURL) == "" &&
 		descriptor.Runtime == providers.RuntimeChildProcess
 }
-func qoderRuntimeSpec(cfg ManagerConfig, account Account, home string) (cliPath, site, configDir, configEnv string, err error) {
+func QoderRuntimeSpec(cfg ManagerConfig, account Account, home string) (cliPath, site, configDir, configEnv string, err error) {
 	region := strings.ToLower(strings.TrimSpace(account.ProviderRegion))
 	configDir = filepath.Join(home, qoderConfigDirName(region))
 	switch region {

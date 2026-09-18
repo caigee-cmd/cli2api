@@ -1431,3 +1431,12 @@ func (p *Pool) SetObserver(observer PoolObserver) {
 	p.observer = observer
 	p.mu.Unlock()
 }
+
+func (p *Pool) Observer() PoolObserver {
+	if p == nil {
+		return nil
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.observer
+}

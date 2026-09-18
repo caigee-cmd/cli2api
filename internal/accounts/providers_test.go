@@ -1,95 +1,31 @@
-package accounts
+package accounts_test
 
 import (
 	"context"
+	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/providers"
+	sqlstore "github.com/caigee-cmd/cli2api/internal/store"
 )
-
-func TestStorePersistsProviderAndRegion(t *testing.T) {
-	ctx := context.Background()
-	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
-
-	created, err := store.Create(ctx, CreateAccount{
-		Name: "WB", Provider: "workbuddy", Region: "cn", Enabled: true,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if created.Provider != "workbuddy" || created.ProviderRegion != "cn" {
-		t.Fatalf("created = %+v", created)
-	}
-	got, err := store.Get(ctx, created.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Provider != "workbuddy" || got.ProviderRegion != "cn" {
-		t.Fatalf("reloaded provider=%q region=%q", got.Provider, got.ProviderRegion)
-	}
-
-	legacy, err := store.Create(ctx, CreateAccount{Name: "Legacy", Enabled: false})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if legacy.Provider != "qoder" || legacy.ProviderRegion != "global" {
-		t.Fatalf("legacy defaults = %+v", legacy)
-	}
-}
-
-func TestStoreRejectsUnknownProviderAndRegion(t *testing.T) {
-	ctx := context.Background()
-	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
-	if _, err := store.Create(ctx, CreateAccount{Name: "X", Provider: "cursor"}); err == nil {
-		t.Fatal("expected unknown provider rejection")
-	}
-	if _, err := store.Create(ctx, CreateAccount{Name: "X", Provider: "qoder", Region: "eu"}); err == nil {
-		t.Fatal("expected unknown region rejection")
-	}
-	created, err := store.Create(ctx, CreateAccount{Name: "CN", Provider: "qoder", Region: "cn"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if created.Provider != "qoder" || created.ProviderRegion != "cn" {
-		t.Fatalf("qoder cn = %+v", created)
-	}
-	trae, err := store.Create(ctx, CreateAccount{Name: "Trae", Provider: "trae", Region: "cn"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if trae.Provider != "trae" || trae.ProviderRegion != "cn" {
-		t.Fatalf("trae cn = %+v", trae)
-	}
-	if _, err := store.Create(ctx, CreateAccount{Name: "X", Provider: "trae", Region: "global"}); err == nil {
-		t.Fatal("expected trae global rejection")
-	}
-}
 
 func TestManagerDoesNotSpawnDaemonForInProcessProvider(t *testing.T) {
 	ctx := context.Background()
-	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	store, err := sqlstore.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer store.Close()
 	starter := &fakeStarter{}
-	manager := NewManager(ManagerConfig{DataDir: t.TempDir(), BasePort: 32300}, store, starter)
+	manager := accounts.NewManager(accounts.ManagerConfig{DataDir: t.TempDir(), BasePort: 32300}, store, starter)
 	if err := manager.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
 	defer manager.Close()
 
-	account, err := manager.Create(ctx, CreateAccount{
+	account, err := manager.Create(ctx, accounts.CreateAccount{
 		Name: "WB", Provider: "workbuddy", Region: "cn", Enabled: true,
 	})
 	if err != nil {
@@ -103,7 +39,7 @@ func TestManagerDoesNotSpawnDaemonForInProcessProvider(t *testing.T) {
 		t.Fatalf("pool item = %+v ok=%v", item, ok)
 	}
 
-	qoder, err := manager.Create(ctx, CreateAccount{Name: "Q", Provider: "qoder", Enabled: true})
+	qoder, err := manager.Create(ctx, accounts.CreateAccount{Name: "Q", Provider: "qoder", Enabled: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,18 +76,18 @@ func (f *fakeProber) Quota(ctx context.Context, accountID string) (*providers.Qu
 
 func TestManagerRefreshUsesInProcessProber(t *testing.T) {
 	ctx := context.Background()
-	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	store, err := sqlstore.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	account, err := store.Create(ctx, CreateAccount{
+	account, err := store.Create(ctx, accounts.CreateAccount{
 		Name: "WB", Provider: "workbuddy", Region: "cn", Enabled: false,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = store.Observe(ctx, account.ID, "", "error", "Get \"/health\": unsupported protocol scheme \"\"", KindUnavailable)
+	_ = store.Observe(ctx, account.ID, "", "error", "Get \"/health\": unsupported protocol scheme \"\"", accounts.KindUnavailable)
 
 	prober := &fakeProber{
 		health: providers.AccountHealth{Ready: true, Hot: true, UID: "wb-uid"},
@@ -164,9 +100,9 @@ func TestManagerRefreshUsesInProcessProber(t *testing.T) {
 	registry := providers.NewRegistry()
 	registry.Register(providers.Adapter{ID: "workbuddy", Prober: prober})
 
-	manager := NewManager(ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	manager := accounts.NewManager(accounts.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
 	manager.SetProviders(registry)
-	manager.pool.Upsert(Item{ID: account.ID, Provider: "workbuddy", Runtime: "in_process"})
+	manager.Pool().Upsert(accounts.Item{ID: account.ID, Provider: "workbuddy", Runtime: "in_process"})
 
 	if err := manager.RefreshAll(ctx, false); err != nil {
 		t.Fatal(err)
@@ -182,10 +118,10 @@ func TestManagerRefreshUsesInProcessProber(t *testing.T) {
 	// Quota() signals before persistQuota merges into the pool / SQLite; wait
 	// for both instead of racing the channel alone.
 	deadline := time.Now().Add(time.Second)
-	var item Item
-	var updated Account
+	var item accounts.Item
+	var updated accounts.Account
 	for {
-		item, _ = manager.pool.ByID(account.ID)
+		item, _ = manager.Pool().ByID(account.ID)
 		updated, err = store.Get(ctx, account.ID)
 		if err != nil {
 			t.Fatal(err)
@@ -205,10 +141,10 @@ func TestManagerRefreshUsesInProcessProber(t *testing.T) {
 	if updated.Status != "ready" || updated.RemoteUID != "wb-uid" || updated.LastError != "" {
 		t.Fatalf("store account = %+v", updated)
 	}
-	if err := manager.startAccount(ctx, updated); err != nil {
+	if err := manager.TestStartAccount(ctx, updated); err != nil {
 		t.Fatal(err)
 	}
-	item, _ = manager.pool.ByID(account.ID)
+	item, _ = manager.Pool().ByID(account.ID)
 	if item.Quota == nil || item.Quota.Remaining != 900 {
 		t.Fatalf("in-process upsert cleared quota: %+v", item.Quota)
 	}
@@ -223,23 +159,23 @@ func TestManagerRefreshUsesInProcessProber(t *testing.T) {
 
 func TestManagerRefreshSkipsEmptyURLWithoutProber(t *testing.T) {
 	ctx := context.Background()
-	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	store, err := sqlstore.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	account, err := store.Create(ctx, CreateAccount{
+	account, err := store.Create(ctx, accounts.CreateAccount{
 		Name: "WB", Provider: "workbuddy", Region: "cn", Enabled: false,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	manager := NewManager(ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
-	manager.pool.Upsert(Item{ID: account.ID, Provider: "workbuddy", Runtime: "in_process"})
+	manager := accounts.NewManager(accounts.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	manager.Pool().Upsert(accounts.Item{ID: account.ID, Provider: "workbuddy", Runtime: "in_process"})
 	if err := manager.RefreshAll(ctx, false); err != nil {
 		t.Fatalf("refresh without prober must be a no-op, got %v", err)
 	}
-	item, _ := manager.pool.ByID(account.ID)
+	item, _ := manager.Pool().ByID(account.ID)
 	if item.Ready != nil || item.LastError != "" {
 		t.Fatalf("pool should be untouched, got %+v", item)
 	}

@@ -8,10 +8,6 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 )
 
-var _ RequestStore = (*accounts.Store)(nil)
-var _ RequestPersister = (*accounts.Store)(nil)
-var _ RequestQuery = (*accounts.Store)(nil)
-
 type persistOnly struct{}
 
 func (persistOnly) InsertRequestLog(context.Context, accounts.RequestLog) error {

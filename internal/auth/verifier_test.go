@@ -9,8 +9,6 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 )
 
-var _ KeyLookup = (*accounts.Store)(nil)
-
 func TestVerifierAcceptsConfiguredAPIKeyHeaders(t *testing.T) {
 	verifier := NewVerifier("secret", nil)
 	for _, header := range []struct {

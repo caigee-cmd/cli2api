@@ -1,7 +1,8 @@
-package accounts
+package store
 
 import (
 	"context"
+	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"path/filepath"
 	"testing"
 	"time"
@@ -16,39 +17,39 @@ func TestRequestLogsInsertListGetAndPurge(t *testing.T) {
 	defer store.Close()
 
 	now := time.Now().UTC()
-	if _, err := store.Create(ctx, CreateAccount{Name: "A", Provider: "qoder", Region: "global"}); err != nil {
+	if _, err := store.Create(ctx, accounts.CreateAccount{Name: "A", Provider: "qoder", Region: "global"}); err != nil {
 		t.Fatal(err)
 	}
-	wb, err := store.Create(ctx, CreateAccount{Name: "WB", Provider: "workbuddy", Region: "cn"})
+	wb, err := store.Create(ctx, accounts.CreateAccount{Name: "WB", Provider: "workbuddy", Region: "cn"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	parentID := NewRequestID()
+	parentID := accounts.NewRequestID()
 	prompt, completion := 12, 34
-	if err := store.InsertRequestLog(ctx, RequestLog{
-		ID: parentID, CreatedAt: now, Stream: false, Status: RequestStatusStarted,
+	if err := store.InsertRequestLog(ctx, accounts.RequestLog{
+		ID: parentID, CreatedAt: now, Stream: false, Status: accounts.RequestStatusStarted,
 		RequestedModel: "glm-5.3", AccountID: wb.ID, AttemptCount: 0,
 	}); err != nil {
 		t.Fatal(err)
 	}
 	finished := now.Add(120 * time.Millisecond)
 	latency := 120
-	if err := store.UpdateRequestLog(ctx, RequestLog{
-		ID: parentID, CreatedAt: now, FinishedAt: &finished, Stream: false, Status: RequestStatusOK,
+	if err := store.UpdateRequestLog(ctx, accounts.RequestLog{
+		ID: parentID, CreatedAt: now, FinishedAt: &finished, Stream: false, Status: accounts.RequestStatusOK,
 		RequestedModel: "glm-5.3", AccountID: wb.ID, PromptTokens: &prompt, CompletionTokens: &completion,
 		UsageSource: "upstream", LatencyMs: &latency, AttemptCount: 2,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.InsertRequestAttempt(ctx, RequestAttempt{
-		ID: NewAttemptID(), RequestID: parentID, AttemptIndex: 0, AccountID: "acc_a",
-		StartedAt: now, FinishedAt: &finished, Status: AttemptStatusFailover,
-		ErrorKind: KindRateLimit, ErrorMessage: "too many requests",
+	if err := store.InsertRequestAttempt(ctx, accounts.RequestAttempt{
+		ID: accounts.NewAttemptID(), RequestID: parentID, AttemptIndex: 0, AccountID: "acc_a",
+		StartedAt: now, FinishedAt: &finished, Status: accounts.AttemptStatusFailover,
+		ErrorKind: accounts.KindRateLimit, ErrorMessage: "too many requests",
 	}); err != nil {
 		t.Fatal(err)
 	}
 	upstreamStatus := 200
-	if err := store.InsertRequestStreamDiagnostic(ctx, RequestStreamDiagnostic{
+	if err := store.InsertRequestStreamDiagnostic(ctx, accounts.RequestStreamDiagnostic{
 		RequestID: parentID, CreatedAt: now, FinishedAt: &finished, UpstreamStatus: &upstreamStatus,
 		ContextErr: "context canceled", CancellationSource: "request_context_canceled",
 		RelayError: "stream read error: context canceled", SSEEventCount: 4, BytesRead: 512,
@@ -56,39 +57,39 @@ func TestRequestLogsInsertListGetAndPurge(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.InsertRequestAttempt(ctx, RequestAttempt{
-		ID: NewAttemptID(), RequestID: parentID, AttemptIndex: 1, AccountID: "acc_b",
-		StartedAt: now, FinishedAt: &finished, Status: AttemptStatusOK,
+	if err := store.InsertRequestAttempt(ctx, accounts.RequestAttempt{
+		ID: accounts.NewAttemptID(), RequestID: parentID, AttemptIndex: 1, AccountID: "acc_b",
+		StartedAt: now, FinishedAt: &finished, Status: accounts.AttemptStatusOK,
 		PromptTokens: &prompt, CompletionTokens: &completion, UsageSource: "upstream",
 	}); err != nil {
 		t.Fatal(err)
 	}
 	consumed := 0.75
-	if err := store.InsertRequestUsageDetail(ctx, RequestUsageDetail{
+	if err := store.InsertRequestUsageDetail(ctx, accounts.RequestUsageDetail{
 		RequestID: parentID, CreatedAt: now, Provider: "workbuddy", Credit: &consumed, Unit: "credits",
 	}); err != nil {
 		t.Fatal(err)
 	}
 
-	list, err := store.ListRequestLogs(ctx, RequestLogFilter{Limit: 10})
+	list, err := store.ListRequestLogs(ctx, accounts.RequestLogFilter{Limit: 10})
 	if err != nil {
 		t.Fatal(err)
 	}
-if list.Total != 1 || len(list.Items) != 1 || list.Items[0].Status != RequestStatusOK || list.Items[0].Provider != "workbuddy" {
-			t.Fatalf("list = %+v", list)
-		}
-		if list.Items[0].Credits == nil || *list.Items[0].Credits != 0.75 {
-			t.Fatalf("list credits fallback = %+v", list.Items[0].Credits)
-		}
-		if list.Items[0].UsageDetail != nil {
-			t.Fatalf("list should not carry usage detail: %+v", list.Items[0].UsageDetail)
-		}
+	if list.Total != 1 || len(list.Items) != 1 || list.Items[0].Status != accounts.RequestStatusOK || list.Items[0].Provider != "workbuddy" {
+		t.Fatalf("list = %+v", list)
+	}
+	if list.Items[0].Credits == nil || *list.Items[0].Credits != 0.75 {
+		t.Fatalf("list credits fallback = %+v", list.Items[0].Credits)
+	}
+	if list.Items[0].UsageDetail != nil {
+		t.Fatalf("list should not carry usage detail: %+v", list.Items[0].UsageDetail)
+	}
 
 	got, err := store.GetRequestLog(ctx, parentID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.AccountID != wb.ID || got.Provider != "workbuddy" || len(got.Attempts) != 2 || got.Attempts[0].Status != AttemptStatusFailover {
+	if got.AccountID != wb.ID || got.Provider != "workbuddy" || len(got.Attempts) != 2 || got.Attempts[0].Status != accounts.AttemptStatusFailover {
 		t.Fatalf("detail = %+v", got)
 	}
 	if got.StreamDiagnostic == nil || got.StreamDiagnostic.UpstreamStatus == nil || *got.StreamDiagnostic.UpstreamStatus != 200 ||
@@ -100,35 +101,35 @@ if list.Total != 1 || len(list.Items) != 1 || list.Items[0].Status != RequestSta
 		t.Fatalf("usage detail = %+v", got.UsageDetail)
 	}
 
-	filtered, err := store.ListRequestLogs(ctx, RequestLogFilter{AccountID: wb.ID, Status: RequestStatusOK})
+	filtered, err := store.ListRequestLogs(ctx, accounts.RequestLogFilter{AccountID: wb.ID, Status: accounts.RequestStatusOK})
 	if err != nil || filtered.Total != 1 {
 		t.Fatalf("filtered = %+v err=%v", filtered, err)
 	}
-	none, err := store.ListRequestLogs(ctx, RequestLogFilter{ErrorKind: KindQuota})
+	none, err := store.ListRequestLogs(ctx, accounts.RequestLogFilter{ErrorKind: accounts.KindQuota})
 	if err != nil || none.Total != 0 {
 		t.Fatalf("error filter = %+v err=%v", none, err)
 	}
 
 	from := now.Add(-time.Second)
 	to := now.Add(time.Second)
-	timed, err := store.ListRequestLogs(ctx, RequestLogFilter{From: &from, To: &to, Model: "glm-5.3"})
+	timed, err := store.ListRequestLogs(ctx, accounts.RequestLogFilter{From: &from, To: &to, Model: "glm-5.3"})
 	if err != nil || timed.Total != 1 {
 		t.Fatalf("time/model filter = %+v err=%v", timed, err)
 	}
 	tooNew := now.Add(time.Hour)
-	emptyTime, err := store.ListRequestLogs(ctx, RequestLogFilter{From: &tooNew})
+	emptyTime, err := store.ListRequestLogs(ctx, accounts.RequestLogFilter{From: &tooNew})
 	if err != nil || emptyTime.Total != 0 {
 		t.Fatalf("future from filter = %+v err=%v", emptyTime, err)
 	}
 
-	page, err := store.ListRequestLogs(ctx, RequestLogFilter{Limit: 1, Offset: 0})
+	page, err := store.ListRequestLogs(ctx, accounts.RequestLogFilter{Limit: 1, Offset: 0})
 	if err != nil || page.Total != 1 || page.Limit != 1 || page.Offset != 0 || len(page.Items) != 1 {
 		t.Fatalf("page = %+v err=%v", page, err)
 	}
 
-	oldID := NewRequestID()
-	if err := store.InsertRequestLog(ctx, RequestLog{
-		ID: oldID, CreatedAt: now.Add(-10 * 24 * time.Hour), Status: RequestStatusError, RequestedModel: "old",
+	oldID := accounts.NewRequestID()
+	if err := store.InsertRequestLog(ctx, accounts.RequestLog{
+		ID: oldID, CreatedAt: now.Add(-10 * 24 * time.Hour), Status: accounts.RequestStatusError, RequestedModel: "old",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +137,7 @@ if list.Total != 1 || len(list.Items) != 1 || list.Items[0].Status != RequestSta
 	if err != nil || deleted < 1 {
 		t.Fatalf("purge deleted=%d err=%v", deleted, err)
 	}
-	if _, err := store.GetRequestLog(ctx, oldID); err != ErrRequestLogNotFound {
+	if _, err := store.GetRequestLog(ctx, oldID); err != accounts.ErrRequestLogNotFound {
 		t.Fatalf("expected old log gone, got %v", err)
 	}
 
@@ -145,7 +146,7 @@ if list.Total != 1 || len(list.Items) != 1 || list.Items[0].Status != RequestSta
 		t.Fatalf("clear = %d err=%v", cleared, err)
 	}
 	var usageRows int
-	if err := store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM request_usage_details`).Scan(&usageRows); err != nil {
+	if err := store.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM request_usage_details`).Scan(&usageRows); err != nil {
 		t.Fatal(err)
 	}
 	if usageRows != 0 {
@@ -161,17 +162,17 @@ func TestUsageDetailBackfillUsesProviderThenAccountFallback(t *testing.T) {
 	}
 	defer store.Close()
 
-	account, err := store.Create(ctx, CreateAccount{Name: "WB", Provider: "workbuddy", Region: "cn"})
+	account, err := store.Create(ctx, accounts.CreateAccount{Name: "WB", Provider: "workbuddy", Region: "cn"})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	now := time.Now().UTC()
 	explicit, fallback, missing := 1.5, 2.5, 3.5
-	rows := []RequestLog{
-		{ID: NewRequestID(), CreatedAt: now, Status: RequestStatusOK, RequestedModel: "m1", Provider: "trae", AccountID: account.ID, Credits: &explicit},
-		{ID: NewRequestID(), CreatedAt: now, Status: RequestStatusOK, RequestedModel: "m2", AccountID: account.ID, Credits: &fallback},
-		{ID: NewRequestID(), CreatedAt: now, Status: RequestStatusOK, RequestedModel: "m3", AccountID: "ghost", Credits: &missing},
+	rows := []accounts.RequestLog{
+		{ID: accounts.NewRequestID(), CreatedAt: now, Status: accounts.RequestStatusOK, RequestedModel: "m1", Provider: "trae", AccountID: account.ID, Credits: &explicit},
+		{ID: accounts.NewRequestID(), CreatedAt: now, Status: accounts.RequestStatusOK, RequestedModel: "m2", AccountID: account.ID, Credits: &fallback},
+		{ID: accounts.NewRequestID(), CreatedAt: now, Status: accounts.RequestStatusOK, RequestedModel: "m3", AccountID: "ghost", Credits: &missing},
 	}
 	for _, row := range rows {
 		if err := store.InsertRequestLog(ctx, row); err != nil {
@@ -179,10 +180,10 @@ func TestUsageDetailBackfillUsesProviderThenAccountFallback(t *testing.T) {
 		}
 	}
 
-	if _, err := store.db.ExecContext(ctx, `DROP TABLE IF EXISTS request_usage_details`); err != nil {
+	if _, err := store.DB().ExecContext(ctx, `DROP TABLE IF EXISTS request_usage_details`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.db.ExecContext(ctx, `DELETE FROM schema_migrations WHERE filename = '020_request_usage_details.sql'`); err != nil {
+	if _, err := store.DB().ExecContext(ctx, `DELETE FROM schema_migrations WHERE filename = '020_request_usage_details.sql'`); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.runMigrations(ctx); err != nil {
@@ -233,47 +234,47 @@ func TestRequestLogsPaginationAndTimeFilter(t *testing.T) {
 			account = "acc_b"
 			model = "qwen3.7-plus"
 		}
-		if err := store.InsertRequestLog(ctx, RequestLog{
-			ID: NewRequestID(), CreatedAt: base.Add(time.Duration(i) * time.Minute),
-			Status: RequestStatusOK, RequestedModel: model, AccountID: account,
+		if err := store.InsertRequestLog(ctx, accounts.RequestLog{
+			ID: accounts.NewRequestID(), CreatedAt: base.Add(time.Duration(i) * time.Minute),
+			Status: accounts.RequestStatusOK, RequestedModel: model, AccountID: account,
 		}); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	page1, err := store.ListRequestLogs(ctx, RequestLogFilter{Limit: 2, Offset: 0})
+	page1, err := store.ListRequestLogs(ctx, accounts.RequestLogFilter{Limit: 2, Offset: 0})
 	if err != nil || page1.Total != 5 || page1.Limit != 2 || page1.Offset != 0 || len(page1.Items) != 2 {
 		t.Fatalf("page1 = %+v err=%v", page1, err)
 	}
-	page3, err := store.ListRequestLogs(ctx, RequestLogFilter{Limit: 2, Offset: 4})
+	page3, err := store.ListRequestLogs(ctx, accounts.RequestLogFilter{Limit: 2, Offset: 4})
 	if err != nil || page3.Total != 5 || len(page3.Items) != 1 {
 		t.Fatalf("page3 = %+v err=%v", page3, err)
 	}
 
 	from := base.Add(2 * time.Minute)
 	to := base.Add(3 * time.Minute)
-	window, err := store.ListRequestLogs(ctx, RequestLogFilter{From: &from, To: &to, Limit: 10})
+	window, err := store.ListRequestLogs(ctx, accounts.RequestLogFilter{From: &from, To: &to, Limit: 10})
 	if err != nil || window.Total != 2 {
 		t.Fatalf("window = %+v err=%v", window, err)
 	}
-	accountB, err := store.ListRequestLogs(ctx, RequestLogFilter{AccountID: "acc_b", Limit: 10})
+	accountB, err := store.ListRequestLogs(ctx, accounts.RequestLogFilter{AccountID: "acc_b", Limit: 10})
 	if err != nil || accountB.Total != 2 {
 		t.Fatalf("account = %+v err=%v", accountB, err)
 	}
-	model, err := store.ListRequestLogs(ctx, RequestLogFilter{Model: "qwen3.7-plus", Limit: 10})
+	model, err := store.ListRequestLogs(ctx, accounts.RequestLogFilter{Model: "qwen3.7-plus", Limit: 10})
 	if err != nil || model.Total != 2 {
 		t.Fatalf("model = %+v err=%v", model, err)
 	}
 	exactID := page1.Items[0].ID
-	byID, err := store.ListRequestLogs(ctx, RequestLogFilter{ID: exactID, Limit: 10})
+	byID, err := store.ListRequestLogs(ctx, accounts.RequestLogFilter{ID: exactID, Limit: 10})
 	if err != nil || byID.Total != 1 || byID.Items[0].ID != exactID {
 		t.Fatalf("id = %+v err=%v", byID, err)
 	}
-	prefix, err := store.ListRequestLogs(ctx, RequestLogFilter{Query: exactID[:8], Limit: 10})
+	prefix, err := store.ListRequestLogs(ctx, accounts.RequestLogFilter{Query: exactID[:8], Limit: 10})
 	if err != nil || prefix.Total != 1 || prefix.Items[0].ID != exactID {
 		t.Fatalf("id prefix = %+v err=%v", prefix, err)
 	}
-	noneQuery, err := store.ListRequestLogs(ctx, RequestLogFilter{Query: "glm-5.3", Limit: 10})
+	noneQuery, err := store.ListRequestLogs(ctx, accounts.RequestLogFilter{Query: "glm-5.3", Limit: 10})
 	if err != nil || noneQuery.Total != 0 {
 		t.Fatalf("query should only match ids, got %+v err=%v", noneQuery, err)
 	}
@@ -289,9 +290,9 @@ func TestRequestLogsCapPurgeKeepsNewest(t *testing.T) {
 
 	base := time.Now().UTC()
 	for i := 0; i < 5; i++ {
-		if err := store.InsertRequestLog(ctx, RequestLog{
-			ID: NewRequestID(), CreatedAt: base.Add(time.Duration(i) * time.Second),
-			Status: RequestStatusOK, RequestedModel: "m",
+		if err := store.InsertRequestLog(ctx, accounts.RequestLog{
+			ID: accounts.NewRequestID(), CreatedAt: base.Add(time.Duration(i) * time.Second),
+			Status: accounts.RequestStatusOK, RequestedModel: "m",
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -299,7 +300,7 @@ func TestRequestLogsCapPurgeKeepsNewest(t *testing.T) {
 	if _, err := store.PurgeRequestLogs(ctx, 30*24*time.Hour, 3); err != nil {
 		t.Fatal(err)
 	}
-	list, err := store.ListRequestLogs(ctx, RequestLogFilter{Limit: 10})
+	list, err := store.ListRequestLogs(ctx, accounts.RequestLogFilter{Limit: 10})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -319,8 +320,8 @@ func TestSummarizeRequestLogs(t *testing.T) {
 	base := time.Date(2026, 8, 28, 10, 15, 0, 0, time.UTC)
 	insert := func(at time.Time, status, model, account, provider, kind string, latency, prompt, completion int, stream bool) {
 		t.Helper()
-		log := RequestLog{
-			ID: NewRequestID(), CreatedAt: at, Status: status, RequestedModel: model, AccountID: account,
+		log := accounts.RequestLog{
+			ID: accounts.NewRequestID(), CreatedAt: at, Status: status, RequestedModel: model, AccountID: account,
 			Provider: provider, ErrorKind: kind, Stream: stream, AttemptCount: 1,
 		}
 		if latency > 0 {
@@ -336,11 +337,11 @@ func TestSummarizeRequestLogs(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	insert(base, RequestStatusOK, "glm-5.3", "acc_a", "qoder", "", 100, 12, 34, false)
-	insert(base.Add(20*time.Minute), RequestStatusOK, "glm-5.3", "acc_a", "qoder", "", 200, 10, 20, true)
-	insert(base.Add(90*time.Minute), RequestStatusError, "qwen3.7-plus", "acc_b", "workbuddy", KindRateLimit, 400, 8, 0, false)
-	insert(base.Add(2*time.Hour), RequestStatusCanceled, "glm-5.3", "acc_a", "qoder", "", 0, 0, 0, false)
-	insert(base.Add(-30*time.Hour), RequestStatusOK, "old", "acc_a", "qoder", "", 50, 1, 1, false)
+	insert(base, accounts.RequestStatusOK, "glm-5.3", "acc_a", "qoder", "", 100, 12, 34, false)
+	insert(base.Add(20*time.Minute), accounts.RequestStatusOK, "glm-5.3", "acc_a", "qoder", "", 200, 10, 20, true)
+	insert(base.Add(90*time.Minute), accounts.RequestStatusError, "qwen3.7-plus", "acc_b", "workbuddy", accounts.KindRateLimit, 400, 8, 0, false)
+	insert(base.Add(2*time.Hour), accounts.RequestStatusCanceled, "glm-5.3", "acc_a", "qoder", "", 0, 0, 0, false)
+	insert(base.Add(-30*time.Hour), accounts.RequestStatusOK, "old", "acc_a", "qoder", "", 50, 1, 1, false)
 
 	from := time.Date(2026, 8, 28, 10, 0, 0, 0, time.UTC)
 	to := time.Date(2026, 8, 28, 13, 0, 0, 0, time.UTC)
@@ -366,7 +367,7 @@ func TestSummarizeRequestLogs(t *testing.T) {
 	if stats.Latency.P95Ms == nil || *stats.Latency.P95Ms != 400 {
 		t.Fatalf("p95 = %+v", stats.Latency.P95Ms)
 	}
-	if len(stats.Errors) != 1 || stats.Errors[0].Key != KindRateLimit || stats.Errors[0].Count != 1 {
+	if len(stats.Errors) != 1 || stats.Errors[0].Key != accounts.KindRateLimit || stats.Errors[0].Count != 1 {
 		t.Fatalf("errors = %+v", stats.Errors)
 	}
 	if len(stats.Models) == 0 || stats.Models[0].Key != "glm-5.3" || stats.Models[0].Count != 3 {
@@ -415,14 +416,14 @@ func TestRequestLogPersistsRouting(t *testing.T) {
 	}
 	defer store.Close()
 
-	id := NewRequestID()
-	if err := store.InsertRequestLog(ctx, RequestLog{
-		ID: id, CreatedAt: time.Now().UTC(), Status: RequestStatusOK,
+	id := accounts.NewRequestID()
+	if err := store.InsertRequestLog(ctx, accounts.RequestLog{
+		ID: id, CreatedAt: time.Now().UTC(), Status: accounts.RequestStatusOK,
 		RequestedModel: "glm-5.2", AccountID: "account-b", Routing: "sticky_escape",
 	}); err != nil {
 		t.Fatal(err)
 	}
-	listed, err := store.ListRequestLogs(ctx, RequestLogFilter{Limit: 10})
+	listed, err := store.ListRequestLogs(ctx, accounts.RequestLogFilter{Limit: 10})
 	if err != nil || len(listed.Items) != 1 || listed.Items[0].Routing != "sticky_escape" {
 		t.Fatalf("listed = %+v, err=%v", listed, err)
 	}

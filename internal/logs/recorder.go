@@ -30,7 +30,7 @@ type RequestQuery interface {
 	SummarizeRequestLogs(ctx context.Context, from, to time.Time) (accounts.RequestStats, error)
 }
 
-// RequestStore is the union *accounts.Store already implements. Kept so
+// RequestStore is the union the SQLite store already implements. Kept so
 // existing api query handlers can keep calling recorder.Store() without
 // a second injected dependency this stage.
 type RequestStore interface {

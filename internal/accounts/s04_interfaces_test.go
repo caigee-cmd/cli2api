@@ -2,7 +2,6 @@ package accounts
 
 import "testing"
 
-var _ PoolStateStore = (*Store)(nil)
 var _ ProcessStarter = (*ExecStarter)(nil)
 var _ ProxyConfigurableStarter = (*ExecStarter)(nil)
 var _ APIKeyConfigurableStarter = (*ExecStarter)(nil)

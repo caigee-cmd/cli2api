@@ -11,11 +11,6 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
-var _ Store = (*accounts.Store)(nil)
-var _ SecretReader = (*accounts.Store)(nil)
-var _ ModelSettingReader = (*accounts.Store)(nil)
-var _ ModelMaxModeReader = (*accounts.Store)(nil)
-
 type requiredStore struct {
 	items map[string][]byte
 }

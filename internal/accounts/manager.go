@@ -61,19 +61,55 @@ type WorkBuddyMaintainer interface {
 }
 
 // PoolStateStore is the cooldown persistence surface used by the pool
-// observer drainer. Pool and executor never see *Store; they emit Item
-// snapshots, and Manager writes through this interface.
+// observer drainer. Pool and executor never see the SQLite type; they emit
+// Item snapshots, and Manager writes through this interface.
 type PoolStateStore interface {
 	RecordPoolState(ctx context.Context, item Item) error
 	SaveCooldowns(ctx context.Context, accountID string, rows []CooldownRow) error
 	LoadCooldowns(ctx context.Context) ([]CooldownRow, error)
 }
 
-var _ PoolStateStore = (*Store)(nil)
+// AccountStore is the persistence surface Manager and console HTTP use.
+// The SQLite implementation lives in internal/store; this package must not
+// import it.
+type AccountStore interface {
+	PoolStateStore
+	Close() error
+	Backup(ctx context.Context, directory string, keep int) (Backup, error)
+	Create(ctx context.Context, input CreateAccount) (Account, error)
+	Get(ctx context.Context, id string) (Account, error)
+	List(ctx context.Context) ([]Account, error)
+	Update(ctx context.Context, id string, input UpdateAccount) error
+	Delete(ctx context.Context, id string) error
+	SaveCredential(ctx context.Context, accountID, authType string, credential NativeCredential) error
+	LoadCredential(ctx context.Context, accountID string) (NativeCredential, error)
+	SaveCredentialPayload(ctx context.Context, accountID, format string, payload []byte) error
+	LoadCredentialPayload(ctx context.Context, accountID string) (string, []byte, error)
+	Observe(ctx context.Context, id, remoteUID, status, lastError, lastKind string) error
+	SaveQuota(ctx context.Context, id string, quota *QuotaSnapshot) error
+	RecordCheckin(ctx context.Context, id, status, msg string, at time.Time) error
+	ListCheckinRecords(ctx context.Context, accountID string, limit int) ([]CheckinRecord, error)
+	GetSecret(ctx context.Context, name string) (string, bool, error)
+	SetSecret(ctx context.Context, name, value string) error
+	SetSecretOrEmpty(ctx context.Context, name, value string) error
+	WorkBuddyCheckinTimeDefault(ctx context.Context) string
+	GetModelContext(ctx context.Context, modelID string) (int, bool, error)
+	SetModelContext(ctx context.Context, modelID string, contextLength int) error
+	ListModelContexts(ctx context.Context) (map[string]int, error)
+	GetProviderModelSetting(ctx context.Context, provider, modelID string) (ProviderModelSetting, error)
+	SetProviderModelSetting(ctx context.Context, provider, modelID string, setting ProviderModelSetting) error
+	CreateAPIKey(ctx context.Context, input CreateAPIKey) (APIKey, error)
+	ListAPIKeys(ctx context.Context) ([]APIKey, error)
+	GetAPIKey(ctx context.Context, id string) (APIKey, error)
+	LookupAPIKey(ctx context.Context, secret string) (APIKey, bool, error)
+	UpdateAPIKey(ctx context.Context, id string, input UpdateAPIKey) (APIKey, error)
+	DeleteAPIKey(ctx context.Context, id string) error
+	TouchAPIKey(ctx context.Context, id string) error
+}
 
 type Manager struct {
 	config         ManagerConfig
-	store          *Store
+	store          AccountStore
 	poolState      PoolStateStore
 	starter        ProcessStarter
 	pool           *Pool
@@ -119,7 +155,7 @@ type Manager struct {
 	proxyReloadPending bool
 }
 
-func NewManager(config ManagerConfig, store *Store, starter ProcessStarter) *Manager {
+func NewManager(config ManagerConfig, store AccountStore, starter ProcessStarter) *Manager {
 	if config.BasePort <= 0 {
 		config.BasePort = 32100
 	}
@@ -411,8 +447,8 @@ func (m *Manager) Start(ctx context.Context) error {
 	return nil
 }
 
-func (m *Manager) Pool() *Pool   { return m.pool }
-func (m *Manager) Store() *Store { return m.store }
+func (m *Manager) Pool() *Pool         { return m.pool }
+func (m *Manager) Store() AccountStore { return m.store }
 
 // SetProviders wires optional in-process account probers (WorkBuddy, etc.).
 func (m *Manager) SetProviders(registry *providers.Registry) {
@@ -466,3 +502,62 @@ func (m *Manager) Close() error {
 }
 
 const persistRetryBackoff = 500 * time.Millisecond
+
+func (m *Manager) TestProcess(id string) ManagedProcess {
+	if m == nil {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.processes[id]
+}
+
+func (m *Manager) TestProcessCount() int {
+	if m == nil {
+		return 0
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.processes)
+}
+
+func (m *Manager) TestRecovering(id string) bool {
+	if m == nil {
+		return false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.recovering[id]
+}
+
+func (m *Manager) TestRestartDelay(level int) time.Duration {
+	return m.restartDelay(level)
+}
+
+func (m *Manager) TestPersistDirtyLen() int {
+	m.persistMu.Lock()
+	defer m.persistMu.Unlock()
+	return len(m.persistDirty)
+}
+
+func (m *Manager) TestPersistSnapshot(id string) (item Item, version uint64, ok bool) {
+	m.persistMu.Lock()
+	defer m.persistMu.Unlock()
+	item, ok = m.persistDirty[id]
+	version = m.persistedVersions[id]
+	return item, version, ok
+}
+
+func PersistRetryBackoff() time.Duration { return persistRetryBackoff }
+
+func (m *Manager) TestCheckinOptedIn(ctx context.Context, now time.Time, scheduledTime string, retryDue bool) {
+	m.checkinOptedIn(ctx, now, scheduledTime, retryDue)
+}
+
+func (m *Manager) TestRestoreCooldowns(ctx context.Context) {
+	m.restoreCooldowns(ctx)
+}
+
+func (m *Manager) TestStartAccount(ctx context.Context, account Account) error {
+	return m.startAccount(ctx, account)
+}

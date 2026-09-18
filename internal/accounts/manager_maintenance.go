@@ -31,7 +31,7 @@ func (m *Manager) CheckinAccount(ctx context.Context, accountID string) (Account
 	if account.Provider != "workbuddy" {
 		return account, fmt.Errorf("check-in is only available for WorkBuddy accounts")
 	}
-	if checkedInLocalDay(account.LastCheckinAt, account.LastCheckinStatus, time.Now()) {
+	if CheckedInLocalDay(account.LastCheckinAt, account.LastCheckinStatus, time.Now()) {
 		if adapter, ok := m.providers.Get("workbuddy"); ok && adapter.Prober != nil {
 			m.fetchProviderQuota(ctx, accountID, adapter.Prober)
 		}
@@ -94,7 +94,7 @@ func (m *Manager) checkinOptedIn(ctx context.Context, now time.Time, scheduledTi
 				continue
 			}
 		}
-		if checkedInLocalDay(account.LastCheckinAt, account.LastCheckinStatus, now) {
+		if CheckedInLocalDay(account.LastCheckinAt, account.LastCheckinStatus, now) {
 			continue
 		}
 		if _, err := m.CheckinAccount(ctx, account.ID); err != nil {
@@ -115,7 +115,7 @@ func workBuddyCheckinDue(value string, now time.Time) bool {
 // checkedInLocalDay is true when the last recorded check-in is success or
 // already on the process-local calendar day. Error rows do not skip, so the
 // evening slot can retry a morning miss.
-func checkedInLocalDay(at, status string, now time.Time) bool {
+func CheckedInLocalDay(at, status string, now time.Time) bool {
 	switch strings.TrimSpace(status) {
 	case "success", "already":
 	default:

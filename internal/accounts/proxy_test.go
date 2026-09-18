@@ -1,104 +1,24 @@
-package accounts
+package accounts_test
 
 import (
 	"context"
+	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
+
+	sqlstore "github.com/caigee-cmd/cli2api/internal/store"
 )
 
-func TestValidateAccountProxy(t *testing.T) {
-	ok := []struct {
-		provider string
-		region   string
-		raw      string
-	}{
-		{provider: "qoder", region: "global", raw: ""},
-		{provider: "qoder", region: "global", raw: "direct"},
-		{provider: "qoder", region: "cn", raw: "http://proxy.example:8080"},
-		{provider: "qoder", region: "global", raw: "https://proxy.example:8443"},
-		{provider: "workbuddy", raw: "socks5://proxy.example:1080"},
-		{provider: "trae", raw: "socks5h://proxy.example:1080"},
-	}
-	for _, test := range ok {
-		if err := validateAccountProxy(test.provider, test.region, test.raw); err != nil {
-			t.Fatalf("validateAccountProxy(%q,%q,%q) = %v, want nil", test.provider, test.region, test.raw, err)
-		}
-	}
-
-	rejected := []struct {
-		provider string
-		region   string
-		raw      string
-	}{
-		{provider: "qoder", region: "global", raw: "socks5://proxy.example:1080"},
-		{provider: "qoder", region: "cn", raw: "socks5h://proxy.example:1080"},
-	}
-	for _, test := range rejected {
-		if err := validateAccountProxy(test.provider, test.region, test.raw); err == nil {
-			t.Fatalf("validateAccountProxy(%q,%q,%q) unexpectedly succeeded", test.provider, test.region, test.raw)
-		}
-	}
-}
-
-func TestStoreCreateRejectsQoderSOCKS(t *testing.T) {
-	ctx := context.Background()
-	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
-
-	if _, err := store.Create(ctx, CreateAccount{Name: "QoderSocks", Enabled: true, ProxyURL: "socks5://proxy.example:1080"}); err == nil {
-		t.Fatal("Qoder account with SOCKS proxy was accepted")
-	}
-	if _, err := store.Create(ctx, CreateAccount{Name: "QoderHTTP", Enabled: true, ProxyURL: "http://proxy.example:8080"}); err != nil {
-		t.Fatalf("Qoder account with HTTP proxy rejected: %v", err)
-	}
-	if _, err := store.Create(ctx, CreateAccount{Name: "WbSocks", Provider: "workbuddy", ProxyURL: "socks5://proxy.example:1080"}); err != nil {
-		t.Fatalf("WorkBuddy account with SOCKS proxy rejected: %v", err)
-	}
-	if _, err := store.Create(ctx, CreateAccount{Name: "TraeSocks", Provider: "trae", ProxyURL: "socks5://proxy.example:1080"}); err != nil {
-		t.Fatalf("Trae account with SOCKS proxy rejected: %v", err)
-	}
-}
-
-func TestStoreUpdateKeepsOriginalOnRejectedProxy(t *testing.T) {
-	ctx := context.Background()
-	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
-
-	account, err := store.Create(ctx, CreateAccount{Name: "QoderUpdate", Enabled: true, ProxyURL: "http://proxy.example:8080"})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	socks := "socks5://proxy.example:1080"
-	if err := store.Update(ctx, account.ID, UpdateAccount{ProxyURL: &socks}); err == nil {
-		t.Fatal("Qoder proxy update to SOCKS was accepted")
-	}
-
-	reloaded, err := store.Get(ctx, account.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if reloaded.ProxyURL != "http://proxy.example:8080" {
-		t.Fatalf("stored proxy changed after rejected update: %q", reloaded.ProxyURL)
-	}
-}
-
 func TestExecStarterSetProxyURLAppliesToNewWorkers(t *testing.T) {
-	starter := &ExecStarter{Config: ManagerConfig{
+	starter := &accounts.ExecStarter{Config: accounts.ManagerConfig{
 		DaemonPath:   "/app/worker/daemon.mjs",
 		QoderCLIPath: "/usr/lib/qodercli.js",
 	}}
 
 	starter.SetProxyURL("http://proxy.example:8080")
-	env := starterEnvForTest(t, starter, Account{ID: "acc1", Provider: "qoder", ProviderRegion: "global", MaxInFlight: 4}, "/tmp/home", 32100)
+	env := starterEnvForTest(t, starter, accounts.Account{ID: "acc1", Provider: "qoder", ProviderRegion: "global", MaxInFlight: 4}, "/tmp/home", 32100)
 
 	if got := envValue(env, "QODER_PROXY_URL"); got != "http://proxy.example:8080" {
 		t.Fatalf("QODER_PROXY_URL = %q", got)
@@ -109,7 +29,7 @@ func TestExecStarterSetProxyURLAppliesToNewWorkers(t *testing.T) {
 
 	// A later update is visible to the next spawn.
 	starter.SetProxyURL("  direct  ")
-	env = starterEnvForTest(t, starter, Account{ID: "acc1", Provider: "qoder", ProviderRegion: "global", MaxInFlight: 4}, "/tmp/home", 32100)
+	env = starterEnvForTest(t, starter, accounts.Account{ID: "acc1", Provider: "qoder", ProviderRegion: "global", MaxInFlight: 4}, "/tmp/home", 32100)
 	if got := envValue(env, "QODER_PROXY_URL"); got != "direct" {
 		t.Fatalf("QODER_PROXY_URL after update = %q", got)
 	}
@@ -119,14 +39,14 @@ func TestExecStarterSetProxyURLAppliesToNewWorkers(t *testing.T) {
 }
 
 func TestStarterEnvAccountProxyOverridesGlobal(t *testing.T) {
-	config := ManagerConfig{
+	config := accounts.ManagerConfig{
 		DaemonPath:   "/app/worker/daemon.mjs",
 		QoderCLIPath: "/usr/lib/qodercli.js",
 		ProxyURL:     "http://global.example:8080",
 	}
 
-	// Account override wins.
-	env := starterEnvForTestConfig(t, config, Account{
+	// accounts.Account override wins.
+	env := starterEnvForTestConfig(t, config, accounts.Account{
 		ID: "acc1", Provider: "qoder", ProviderRegion: "global", MaxInFlight: 4,
 		ProxyURL: "http://account.example:9090",
 	}, "/tmp/home", 32100)
@@ -134,8 +54,8 @@ func TestStarterEnvAccountProxyOverridesGlobal(t *testing.T) {
 		t.Fatalf("account override QODER_PROXY_URL = %q", got)
 	}
 
-	// Account "direct" beats the global HTTP proxy.
-	env = starterEnvForTestConfig(t, config, Account{
+	// accounts.Account "direct" beats the global HTTP proxy.
+	env = starterEnvForTestConfig(t, config, accounts.Account{
 		ID: "acc1", Provider: "qoder", ProviderRegion: "global", MaxInFlight: 4,
 		ProxyURL: "direct",
 	}, "/tmp/home", 32100)
@@ -147,7 +67,7 @@ func TestStarterEnvAccountProxyOverridesGlobal(t *testing.T) {
 	}
 
 	// Empty account proxy inherits the global.
-	env = starterEnvForTestConfig(t, config, Account{
+	env = starterEnvForTestConfig(t, config, accounts.Account{
 		ID: "acc1", Provider: "qoder", ProviderRegion: "global", MaxInFlight: 4,
 	}, "/tmp/home", 32100)
 	if got := envValue(env, "QODER_PROXY_URL"); got != "http://global.example:8080" {
@@ -156,7 +76,7 @@ func TestStarterEnvAccountProxyOverridesGlobal(t *testing.T) {
 }
 
 func TestExecStarterConfigSnapshotConcurrentWithSetProxyURL(t *testing.T) {
-	starter := &ExecStarter{Config: ManagerConfig{
+	starter := &accounts.ExecStarter{Config: accounts.ManagerConfig{
 		DaemonPath:   "/app/worker/daemon.mjs",
 		QoderCLIPath: "/usr/lib/qodercli.js",
 	}}
@@ -172,7 +92,7 @@ func TestExecStarterConfigSnapshotConcurrentWithSetProxyURL(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 500; i++ {
-			_ = starter.configSnapshot()
+			_ = starter.ConfigSnapshot()
 		}
 	}()
 	wg.Wait()
@@ -180,31 +100,31 @@ func TestExecStarterConfigSnapshotConcurrentWithSetProxyURL(t *testing.T) {
 
 func TestReloadProxyURLRestartsOnlyInheritingQoder(t *testing.T) {
 	ctx := context.Background()
-	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	store, err := sqlstore.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer store.Close()
 
-	inherits, err := store.Create(ctx, CreateAccount{Name: "InheritsGlobal", Enabled: true})
+	inherits, err := store.Create(ctx, accounts.CreateAccount{Name: "InheritsGlobal", Enabled: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	overrides, err := store.Create(ctx, CreateAccount{Name: "HasAccountProxy", Enabled: true, ProxyURL: "http://account.example:9090"})
+	overrides, err := store.Create(ctx, accounts.CreateAccount{Name: "HasAccountProxy", Enabled: true, ProxyURL: "http://account.example:9090"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	workbuddy, err := store.Create(ctx, CreateAccount{Name: "WorkBuddy", Provider: "workbuddy", Enabled: true})
+	workbuddy, err := store.Create(ctx, accounts.CreateAccount{Name: "WorkBuddy", Provider: "workbuddy", Enabled: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	trae, err := store.Create(ctx, CreateAccount{Name: "Trae", Provider: "trae", Enabled: true})
+	trae, err := store.Create(ctx, accounts.CreateAccount{Name: "Trae", Provider: "trae", Enabled: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	starter := &fakeStarter{}
-	manager := NewManager(ManagerConfig{DataDir: t.TempDir()}, store, starter)
+	manager := accounts.NewManager(accounts.ManagerConfig{DataDir: t.TempDir()}, store, starter)
 	defer manager.Close()
 	if err := manager.Start(ctx); err != nil {
 		t.Fatal(err)
@@ -235,23 +155,23 @@ func TestReloadProxyURLRestartsOnlyInheritingQoder(t *testing.T) {
 
 func TestReloadProxyURLLogsAllFailuresAndContinues(t *testing.T) {
 	ctx := context.Background()
-	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	store, err := sqlstore.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer store.Close()
 
-	first, err := store.Create(ctx, CreateAccount{Name: "First", Enabled: true})
+	first, err := store.Create(ctx, accounts.CreateAccount{Name: "First", Enabled: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := store.Create(ctx, CreateAccount{Name: "Second", Enabled: true})
+	second, err := store.Create(ctx, accounts.CreateAccount{Name: "Second", Enabled: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	starter := &fakeStarter{}
-	manager := NewManager(ManagerConfig{DataDir: t.TempDir()}, store, starter)
+	manager := accounts.NewManager(accounts.ManagerConfig{DataDir: t.TempDir()}, store, starter)
 	defer manager.Close()
 	if err := manager.Start(ctx); err != nil {
 		t.Fatal(err)
@@ -273,14 +193,14 @@ func TestReloadProxyURLLogsAllFailuresAndContinues(t *testing.T) {
 	}
 }
 
-func starterEnvForTest(t *testing.T, starter *ExecStarter, account Account, home string, port int) []string {
+func starterEnvForTest(t *testing.T, starter *accounts.ExecStarter, account accounts.Account, home string, port int) []string {
 	t.Helper()
-	return starterEnvForTestConfig(t, starter.configSnapshot(), account, home, port)
+	return starterEnvForTestConfig(t, starter.ConfigSnapshot(), account, home, port)
 }
 
-func starterEnvForTestConfig(t *testing.T, config ManagerConfig, account Account, home string, port int) []string {
+func starterEnvForTestConfig(t *testing.T, config accounts.ManagerConfig, account accounts.Account, home string, port int) []string {
 	t.Helper()
-	env, err := starterEnv(config, account, home, port)
+	env, err := accounts.StarterEnv(config, account, home, port)
 	if err != nil {
 		t.Fatalf("starterEnv: %v", err)
 	}
@@ -298,18 +218,18 @@ func envValue(env []string, key string) string {
 
 func TestReloadProxyURLSkipsUnchangedValue(t *testing.T) {
 	ctx := context.Background()
-	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	store, err := sqlstore.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer store.Close()
 
-	if _, err := store.Create(ctx, CreateAccount{Name: "Inherits", Enabled: true}); err != nil {
+	if _, err := store.Create(ctx, accounts.CreateAccount{Name: "Inherits", Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
 
 	starter := &fakeStarter{}
-	manager := NewManager(ManagerConfig{DataDir: t.TempDir(), ProxyURL: "http://global.example:8080"}, store, starter)
+	manager := accounts.NewManager(accounts.ManagerConfig{DataDir: t.TempDir(), ProxyURL: "http://global.example:8080"}, store, starter)
 	defer manager.Close()
 	if err := manager.Start(ctx); err != nil {
 		t.Fatal(err)
@@ -335,54 +255,20 @@ func TestReloadProxyURLSkipsUnchangedValue(t *testing.T) {
 	}
 }
 
-func TestSetSecretOrEmptyPersistsClearedValue(t *testing.T) {
-	ctx := context.Background()
-	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
-
-	if err := store.SetSecretOrEmpty(ctx, "proxy_url", "http://proxy.example:8080"); err != nil {
-		t.Fatal(err)
-	}
-	value, found, err := store.GetSecret(ctx, "proxy_url")
-	if err != nil || !found || value != "http://proxy.example:8080" {
-		t.Fatalf("value=%q found=%v err=%v", value, found, err)
-	}
-
-	// Clearing keeps the row present with an empty value, unlike DeleteSecret.
-	if err := store.SetSecretOrEmpty(ctx, "proxy_url", "   "); err != nil {
-		t.Fatal(err)
-	}
-	value, found, err = store.GetSecret(ctx, "proxy_url")
-	if err != nil || !found || value != "" {
-		t.Fatalf("after clear: value=%q found=%v err=%v (want found empty row)", value, found, err)
-	}
-
-	// SetSecret still rejects empty so unrelated secrets keep their contract.
-	if err := store.SetSecret(ctx, "other", ""); err == nil {
-		t.Fatal("SetSecret accepted an empty value")
-	}
-}
-
-// A failed global-proxy reload must stay retryable with the same value. The
-// manager tracks a pending flag so "same value" alone does not short-circuit
-// the reload while workers still run on the old proxy.
 func TestReloadProxyURLRetriesAfterFailureWithSameValue(t *testing.T) {
 	ctx := context.Background()
-	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	store, err := sqlstore.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer store.Close()
 
-	if _, err := store.Create(ctx, CreateAccount{Name: "Inherits", Enabled: true}); err != nil {
+	if _, err := store.Create(ctx, accounts.CreateAccount{Name: "Inherits", Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
 
 	starter := &fakeStarter{}
-	manager := NewManager(ManagerConfig{DataDir: t.TempDir(), ProxyURL: "http://old.example:8080"}, store, starter)
+	manager := accounts.NewManager(accounts.ManagerConfig{DataDir: t.TempDir(), ProxyURL: "http://old.example:8080"}, store, starter)
 	defer manager.Close()
 	if err := manager.Start(ctx); err != nil {
 		t.Fatal(err)

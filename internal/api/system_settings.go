@@ -26,7 +26,7 @@ type systemSettings struct {
 	SessionAffinity        executor.SessionAffinityStats `json:"session_affinity"`
 }
 
-func ensureProxyURL(ctx context.Context, store *accounts.Store, bootstrap string) (string, error) {
+func ensureProxyURL(ctx context.Context, store secretStore, bootstrap string) (string, error) {
 	value, ok, err := store.GetSecret(ctx, proxyURLSecret)
 	if err != nil {
 		return "", err
@@ -50,7 +50,7 @@ func ensureProxyURL(ctx context.Context, store *accounts.Store, bootstrap string
 	return strings.TrimSpace(value), nil
 }
 
-func ensureCrossProviderModelPool(ctx context.Context, store *accounts.Store) (bool, error) {
+func ensureCrossProviderModelPool(ctx context.Context, store secretStore) (bool, error) {
 	value, ok, err := store.GetSecret(ctx, crossProviderModelPoolSecret)
 	if err != nil {
 		return false, err
@@ -69,7 +69,7 @@ func ensureCrossProviderModelPool(ctx context.Context, store *accounts.Store) (b
 	return enabled, nil
 }
 
-func ensureRoutingStrategy(ctx context.Context, store *accounts.Store) (string, error) {
+func ensureRoutingStrategy(ctx context.Context, store secretStore) (string, error) {
 	value, ok, err := store.GetSecret(ctx, routingStrategySecret)
 	if err != nil {
 		return "", err
@@ -83,7 +83,7 @@ func ensureRoutingStrategy(ctx context.Context, store *accounts.Store) (string, 
 	return accounts.NormalizeRoutingStrategy(value), nil
 }
 
-func ensureWorkBuddyCheckinTime(ctx context.Context, store *accounts.Store) (string, error) {
+func ensureWorkBuddyCheckinTime(ctx context.Context, store secretStore) (string, error) {
 	value, ok, err := store.GetSecret(ctx, accounts.WorkBuddyCheckinTimeSecret)
 	if err != nil {
 		return "", err

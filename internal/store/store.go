@@ -1,4 +1,4 @@
-package accounts
+package store
 
 import (
 	"context"
@@ -13,79 +13,11 @@ import (
 	"strings"
 	"time"
 
-	_ "modernc.org/sqlite"
-
+	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/providers"
 	"github.com/caigee-cmd/cli2api/internal/proxy"
+	_ "modernc.org/sqlite"
 )
-
-var ErrAccountNotFound = errors.New("account not found")
-var ErrSecretNotFound = errors.New("secret not found")
-var ErrAPIKeyNotFound = errors.New("api key not found")
-
-const (
-	DefaultWorkBuddyCheckinTime = "09:00"
-	WorkBuddyCheckinTimeSecret  = "workbuddy_checkin_time"
-)
-
-type Account struct {
-	ID             string `json:"id"`
-	Name           string `json:"name"`
-	RemoteUID      string `json:"remote_uid,omitempty"`
-	Provider       string `json:"provider"`
-	ProviderRegion string `json:"region"`
-	AuthType       string `json:"auth_type"`
-	Enabled        bool   `json:"enabled"`
-	MaxInFlight    int    `json:"max_inflight"`
-	Priority       int    `json:"priority"`
-	// DropSystemPrompt drops caller system prompts before provider-native chat.
-	DropSystemPrompt bool `json:"drop_system_prompt"`
-	// WorkBuddyAutoCheckin opts into scheduled daily check-in (default off).
-	WorkBuddyAutoCheckin bool `json:"workbuddy_auto_checkin"`
-	// WorkBuddyCheckinTime is the process-local daily check-in time.
-	WorkBuddyCheckinTime string `json:"workbuddy_checkin_time"`
-	ProxyURL             string `json:"-"`
-	// LastCheckin* are display-only WorkBuddy ops results.
-	LastCheckinAt     string         `json:"last_checkin_at,omitempty"`
-	LastCheckinMsg    string         `json:"last_checkin_msg,omitempty"`
-	LastCheckinStatus string         `json:"last_checkin_status,omitempty"`
-	Status            string         `json:"status"`
-	LastError         string         `json:"last_error,omitempty"`
-	LastErrorKind     string         `json:"last_error_kind,omitempty"`
-	CooldownUntil     *time.Time     `json:"cooldown_until,omitempty"`
-	Quota             *QuotaSnapshot `json:"-"`
-	CreatedAt         time.Time      `json:"created_at"`
-	UpdatedAt         time.Time      `json:"updated_at"`
-}
-
-type CreateAccount struct {
-	Name                 string
-	Provider             string
-	Region               string
-	Enabled              bool
-	MaxInFlight          int
-	Priority             int
-	DropSystemPrompt     *bool
-	WorkBuddyAutoCheckin *bool
-	WorkBuddyCheckinTime string
-	ProxyURL             string
-}
-
-type UpdateAccount struct {
-	Name                 string
-	Enabled              *bool
-	MaxInFlight          *int
-	Priority             *int
-	DropSystemPrompt     *bool
-	WorkBuddyAutoCheckin *bool
-	WorkBuddyCheckinTime *string
-	ProxyURL             *string
-}
-
-type NativeCredential struct {
-	UserBlob  []byte `json:"-"`
-	MachineID string `json:"machine_id"`
-}
 
 type Store struct {
 	db *sql.DB
@@ -123,6 +55,24 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
+// DB exposes the SQLite handle for tests that close or reopen the same file
+// while a Manager persist goroutine is still running.
+func (s *Store) DB() *sql.DB {
+	if s == nil {
+		return nil
+	}
+	return s.db
+}
+
+// ReplaceDB swaps the SQLite handle. Persist-failure tests close the original
+// connection and reopen the same file while Manager is still running.
+func (s *Store) ReplaceDB(db *sql.DB) {
+	if s == nil {
+		return
+	}
+	s.db = db
+}
+
 func (s *Store) migrate(ctx context.Context) error {
 	return s.runMigrations(ctx)
 }
@@ -148,17 +98,17 @@ func validateAccountProxy(providerID, region, raw string) error {
 	return err
 }
 
-func (s *Store) Create(ctx context.Context, input CreateAccount) (Account, error) {
+func (s *Store) Create(ctx context.Context, input accounts.CreateAccount) (accounts.Account, error) {
 	name := strings.TrimSpace(input.Name)
 	if name == "" {
-		return Account{}, fmt.Errorf("account name required")
+		return accounts.Account{}, fmt.Errorf("account name required")
 	}
 	descriptor, region, err := providers.Resolve(input.Provider, input.Region)
 	if err != nil {
-		return Account{}, err
+		return accounts.Account{}, err
 	}
 	if err := validateAccountProxy(input.Provider, input.Region, input.ProxyURL); err != nil {
-		return Account{}, err
+		return accounts.Account{}, err
 	}
 	maxInFlight := input.MaxInFlight
 	if maxInFlight <= 0 {
@@ -179,9 +129,9 @@ func (s *Store) Create(ctx context.Context, input CreateAccount) (Account, error
 	}
 	checkinTime, err := s.resolveWorkBuddyCheckinTime(ctx, input.WorkBuddyCheckinTime)
 	if err != nil {
-		return Account{}, err
+		return accounts.Account{}, err
 	}
-	account := Account{
+	account := accounts.Account{
 		ID:                   newAccountID(),
 		Name:                 name,
 		Provider:             descriptor.ID,
@@ -209,12 +159,12 @@ func (s *Store) Create(ctx context.Context, input CreateAccount) (Account, error
 		formatTime(account.CreatedAt), formatTime(account.UpdatedAt),
 	)
 	if err != nil {
-		return Account{}, fmt.Errorf("create account: %w", err)
+		return accounts.Account{}, fmt.Errorf("create account: %w", err)
 	}
 	return account, nil
 }
 
-func (s *Store) Get(ctx context.Context, id string) (Account, error) {
+func (s *Store) Get(ctx context.Context, id string) (accounts.Account, error) {
 	row := s.db.QueryRowContext(ctx, `
 	SELECT id, name, provider, provider_region, remote_uid, auth_type, enabled, max_inflight, priority,
 	       drop_system_prompt, workbuddy_auto_checkin, workbuddy_checkin_time, proxy_url, last_checkin_at, last_checkin_msg, last_checkin_status,
@@ -222,10 +172,10 @@ func (s *Store) Get(ctx context.Context, id string) (Account, error) {
 	FROM accounts WHERE id = ?`, strings.TrimSpace(id))
 	account, err := scanAccount(row)
 	if errors.Is(err, sql.ErrNoRows) {
-		return Account{}, ErrAccountNotFound
+		return accounts.Account{}, accounts.ErrAccountNotFound
 	}
 	if err != nil {
-		return Account{}, fmt.Errorf("get account: %w", err)
+		return accounts.Account{}, fmt.Errorf("get account: %w", err)
 	}
 	return account, nil
 }
@@ -234,8 +184,8 @@ type rowScanner interface {
 	Scan(...any) error
 }
 
-func scanAccount(row rowScanner) (Account, error) {
-	var account Account
+func scanAccount(row rowScanner) (accounts.Account, error) {
+	var account accounts.Account
 	var cooldown, quotaJSON, created, updated sql.NullString
 	err := row.Scan(
 		&account.ID, &account.Name, &account.Provider, &account.ProviderRegion, &account.RemoteUID,
@@ -244,7 +194,7 @@ func scanAccount(row rowScanner) (Account, error) {
 		&account.Status, &account.LastError, &account.LastErrorKind, &cooldown, &quotaJSON, &created, &updated,
 	)
 	if err != nil {
-		return Account{}, err
+		return accounts.Account{}, err
 	}
 	if account.Provider == "" {
 		account.Provider = "qoder"
@@ -253,7 +203,7 @@ func scanAccount(row rowScanner) (Account, error) {
 		account.ProviderRegion = "global"
 	}
 	if account.WorkBuddyCheckinTime == "" {
-		account.WorkBuddyCheckinTime = DefaultWorkBuddyCheckinTime
+		account.WorkBuddyCheckinTime = accounts.DefaultWorkBuddyCheckinTime
 	}
 	account.CreatedAt = parseTime(created.String)
 	account.UpdatedAt = parseTime(updated.String)
@@ -262,7 +212,7 @@ func scanAccount(row rowScanner) (Account, error) {
 		account.CooldownUntil = &parsed
 	}
 	if quotaJSON.Valid && quotaJSON.String != "" {
-		var quota QuotaSnapshot
+		var quota accounts.QuotaSnapshot
 		if json.Unmarshal([]byte(quotaJSON.String), &quota) == nil {
 			account.Quota = &quota
 		}
@@ -287,7 +237,7 @@ func parseTime(value string) time.Time {
 	return parsed
 }
 
-func (s *Store) List(ctx context.Context) ([]Account, error) {
+func (s *Store) List(ctx context.Context) ([]accounts.Account, error) {
 	rows, err := s.db.QueryContext(ctx, `
 	SELECT id, name, provider, provider_region, remote_uid, auth_type, enabled, max_inflight, priority,
 	       drop_system_prompt, workbuddy_auto_checkin, workbuddy_checkin_time, proxy_url, last_checkin_at, last_checkin_msg, last_checkin_status,
@@ -297,7 +247,7 @@ func (s *Store) List(ctx context.Context) ([]Account, error) {
 		return nil, fmt.Errorf("list accounts: %w", err)
 	}
 	defer rows.Close()
-	var accounts []Account
+	var accounts []accounts.Account
 	for rows.Next() {
 		account, err := scanAccount(rows)
 		if err != nil {
@@ -308,7 +258,7 @@ func (s *Store) List(ctx context.Context) ([]Account, error) {
 	return accounts, rows.Err()
 }
 
-func (s *Store) Update(ctx context.Context, id string, input UpdateAccount) error {
+func (s *Store) Update(ctx context.Context, id string, input accounts.UpdateAccount) error {
 	account, err := s.Get(ctx, id)
 	if err != nil {
 		return err
@@ -355,19 +305,19 @@ func (s *Store) Update(ctx context.Context, id string, input UpdateAccount) erro
 	}
 	changed, _ := result.RowsAffected()
 	if changed == 0 {
-		return ErrAccountNotFound
+		return accounts.ErrAccountNotFound
 	}
 	return nil
 }
 
 func (s *Store) WorkBuddyCheckinTimeDefault(ctx context.Context) string {
-	value, ok, err := s.GetSecret(ctx, WorkBuddyCheckinTimeSecret)
+	value, ok, err := s.GetSecret(ctx, accounts.WorkBuddyCheckinTimeSecret)
 	if err != nil || !ok {
-		return DefaultWorkBuddyCheckinTime
+		return accounts.DefaultWorkBuddyCheckinTime
 	}
-	normalized, err := NormalizeWorkBuddyCheckinTime(value)
+	normalized, err := accounts.NormalizeWorkBuddyCheckinTime(value)
 	if err != nil {
-		return DefaultWorkBuddyCheckinTime
+		return accounts.DefaultWorkBuddyCheckinTime
 	}
 	return normalized
 }
@@ -376,19 +326,7 @@ func (s *Store) resolveWorkBuddyCheckinTime(ctx context.Context, value string) (
 	if strings.TrimSpace(value) == "" {
 		return s.WorkBuddyCheckinTimeDefault(ctx), nil
 	}
-	return NormalizeWorkBuddyCheckinTime(value)
-}
-
-func NormalizeWorkBuddyCheckinTime(value string) (string, error) {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return DefaultWorkBuddyCheckinTime, nil
-	}
-	parsed, err := time.Parse("15:04", value)
-	if err != nil || parsed.Format("15:04") != value {
-		return "", fmt.Errorf("workbuddy_checkin_time must use HH:mm")
-	}
-	return value, nil
+	return accounts.NormalizeWorkBuddyCheckinTime(value)
 }
 
 func (s *Store) Delete(ctx context.Context, id string) error {
@@ -398,7 +336,7 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 	}
 	changed, _ := result.RowsAffected()
 	if changed == 0 {
-		return ErrAccountNotFound
+		return accounts.ErrAccountNotFound
 	}
 	return nil
 }
@@ -467,12 +405,7 @@ func providerModelKey(provider, modelID string) (string, string, error) {
 	return provider, modelID, nil
 }
 
-type ProviderModelSetting struct {
-	MaxMode         bool
-	ReasoningEffort string
-}
-
-func (s *Store) SetProviderModelSetting(ctx context.Context, provider, modelID string, setting ProviderModelSetting) error {
+func (s *Store) SetProviderModelSetting(ctx context.Context, provider, modelID string, setting accounts.ProviderModelSetting) error {
 	provider, modelID, err := providerModelKey(provider, modelID)
 	if err != nil {
 		return err
@@ -499,21 +432,21 @@ func (s *Store) SetProviderModelSetting(ctx context.Context, provider, modelID s
 	return nil
 }
 
-func (s *Store) GetProviderModelSetting(ctx context.Context, provider, modelID string) (ProviderModelSetting, error) {
+func (s *Store) GetProviderModelSetting(ctx context.Context, provider, modelID string) (accounts.ProviderModelSetting, error) {
 	provider, modelID, err := providerModelKey(provider, modelID)
 	if err != nil {
-		return ProviderModelSetting{}, err
+		return accounts.ProviderModelSetting{}, err
 	}
 	var maxMode int
 	var effort string
 	err = s.db.QueryRowContext(ctx, `SELECT max_mode, reasoning_effort FROM provider_model_settings WHERE provider = ? AND model_id = ?`, provider, modelID).Scan(&maxMode, &effort)
 	if errors.Is(err, sql.ErrNoRows) {
-		return ProviderModelSetting{}, nil
+		return accounts.ProviderModelSetting{}, nil
 	}
 	if err != nil {
-		return ProviderModelSetting{}, fmt.Errorf("get provider model setting: %w", err)
+		return accounts.ProviderModelSetting{}, fmt.Errorf("get provider model setting: %w", err)
 	}
-	return ProviderModelSetting{MaxMode: maxMode != 0, ReasoningEffort: strings.TrimSpace(effort)}, nil
+	return accounts.ProviderModelSetting{MaxMode: maxMode != 0, ReasoningEffort: strings.TrimSpace(effort)}, nil
 }
 
 func (s *Store) SetProviderModelMaxMode(ctx context.Context, provider, modelID string, maxMode bool) error {
@@ -623,7 +556,7 @@ func (s *Store) DeleteSecret(ctx context.Context, name string) error {
 	return nil
 }
 
-func (s *Store) SaveCredential(ctx context.Context, accountID, authType string, credential NativeCredential) error {
+func (s *Store) SaveCredential(ctx context.Context, accountID, authType string, credential accounts.NativeCredential) error {
 	if len(credential.UserBlob) == 0 || strings.TrimSpace(credential.MachineID) == "" {
 		return fmt.Errorf("native credential requires user blob and machine id")
 	}
@@ -646,16 +579,16 @@ ON CONFLICT(account_id) DO UPDATE SET user_blob=excluded.user_blob, machine_id=e
 	return tx.Commit()
 }
 
-func (s *Store) LoadCredential(ctx context.Context, accountID string) (NativeCredential, error) {
-	var credential NativeCredential
+func (s *Store) LoadCredential(ctx context.Context, accountID string) (accounts.NativeCredential, error) {
+	var credential accounts.NativeCredential
 	err := s.db.QueryRowContext(ctx, `
 SELECT user_blob, machine_id FROM account_credentials WHERE account_id = ?`, accountID).
 		Scan(&credential.UserBlob, &credential.MachineID)
 	if errors.Is(err, sql.ErrNoRows) {
-		return NativeCredential{}, ErrAccountNotFound
+		return accounts.NativeCredential{}, accounts.ErrAccountNotFound
 	}
 	if err != nil {
-		return NativeCredential{}, fmt.Errorf("load credential: %w", err)
+		return accounts.NativeCredential{}, fmt.Errorf("load credential: %w", err)
 	}
 	return credential, nil
 }
@@ -690,7 +623,7 @@ func (s *Store) LoadCredentialPayload(ctx context.Context, accountID string) (st
 SELECT format, payload FROM account_credential_payloads WHERE account_id = ?`, accountID).
 		Scan(&format, &payload)
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", nil, ErrAccountNotFound
+		return "", nil, accounts.ErrAccountNotFound
 	}
 	if err != nil {
 		return "", nil, fmt.Errorf("load credential payload: %w", err)
@@ -698,7 +631,7 @@ SELECT format, payload FROM account_credential_payloads WHERE account_id = ?`, a
 	return format, payload, nil
 }
 
-func (s *Store) SaveQuota(ctx context.Context, id string, quota *QuotaSnapshot) error {
+func (s *Store) SaveQuota(ctx context.Context, id string, quota *accounts.QuotaSnapshot) error {
 	if quota == nil {
 		return nil
 	}
@@ -722,7 +655,7 @@ WHERE id = ?`, string(payload), status, formatTime(time.Now().UTC()), id)
 	}
 	changed, _ := result.RowsAffected()
 	if changed == 0 {
-		return ErrAccountNotFound
+		return accounts.ErrAccountNotFound
 	}
 	return nil
 }
@@ -738,17 +671,9 @@ WHERE id = ?`, remoteUID, status, status, lastError, lastKind, formatTime(time.N
 	}
 	changed, _ := result.RowsAffected()
 	if changed == 0 {
-		return ErrAccountNotFound
+		return accounts.ErrAccountNotFound
 	}
 	return nil
-}
-
-type CheckinRecord struct {
-	ID        string    `json:"id"`
-	AccountID string    `json:"account_id"`
-	Status    string    `json:"status"`
-	Message   string    `json:"message"`
-	CreatedAt time.Time `json:"created_at"`
 }
 
 func newCheckinRecordID() string {
@@ -782,7 +707,7 @@ WHERE id = ?`, formatTime(at), message, status, formatTime(time.Now().UTC()), ac
 	}
 	changed, _ := result.RowsAffected()
 	if changed == 0 {
-		return ErrAccountNotFound
+		return accounts.ErrAccountNotFound
 	}
 	if _, err := tx.ExecContext(ctx, `
 INSERT INTO checkin_records (id, account_id, status, message, created_at) VALUES (?, ?, ?, ?, ?)`,
@@ -795,7 +720,7 @@ INSERT INTO checkin_records (id, account_id, status, message, created_at) VALUES
 	return nil
 }
 
-func (s *Store) ListCheckinRecords(ctx context.Context, accountID string, limit int) ([]CheckinRecord, error) {
+func (s *Store) ListCheckinRecords(ctx context.Context, accountID string, limit int) ([]accounts.CheckinRecord, error) {
 	if _, err := s.Get(ctx, accountID); err != nil {
 		return nil, err
 	}
@@ -813,9 +738,9 @@ ORDER BY created_at DESC, id DESC LIMIT ?`, strings.TrimSpace(accountID), limit)
 		return nil, fmt.Errorf("list checkin records: %w", err)
 	}
 	defer rows.Close()
-	records := make([]CheckinRecord, 0)
+	records := make([]accounts.CheckinRecord, 0)
 	for rows.Next() {
-		var record CheckinRecord
+		var record accounts.CheckinRecord
 		var created string
 		if err := rows.Scan(&record.ID, &record.AccountID, &record.Status, &record.Message, &created); err != nil {
 			return nil, fmt.Errorf("scan checkin record: %w", err)
@@ -827,34 +752,20 @@ ORDER BY created_at DESC, id DESC LIMIT ?`, strings.TrimSpace(accountID), limit)
 }
 
 // canonicalCooldownModel normalizes a model key for storage. Unlike
-// CanonicalModelID it leaves the empty key alone: "" is a real primary-key
-// value meaning "account-wide", and CanonicalModelID would rewrite it to
+// accounts.CanonicalModelID it leaves the empty key alone: "" is a real primary-key
+// value meaning "account-wide", and accounts.CanonicalModelID would rewrite it to
 // "auto", collapsing the account row into the model namespace.
 func canonicalCooldownModel(model string) string {
 	if strings.TrimSpace(model) == "" {
 		return ""
 	}
-	return CanonicalModelID(model)
-}
-
-// CooldownRow is one persisted cooldown: account-wide when Model is empty,
-// scoped to a single canonical model otherwise. ModelKind holds the
-// per-model previous failure kind (empty for the account-wide row) so the
-// backoff ladder can resume after a restart without cross-model confusion.
-type CooldownRow struct {
-	AccountID    string
-	Model        string
-	DownUntil    time.Time
-	BackoffLevel int
-	Kind         string
-	Message      string
-	ModelKind    string
+	return accounts.CanonicalModelID(model)
 }
 
 // SaveCooldowns replaces the persisted cooldown set for one account. Rows
 // whose deadline already passed are dropped instead of being written, so a
 // long-lived process cannot accumulate expired entries.
-func (s *Store) SaveCooldowns(ctx context.Context, accountID string, rows []CooldownRow) error {
+func (s *Store) SaveCooldowns(ctx context.Context, accountID string, rows []accounts.CooldownRow) error {
 	if accountID == "" {
 		return nil
 	}
@@ -896,7 +807,7 @@ ON CONFLICT(account_id, model) DO UPDATE SET
 // LoadCooldowns returns every cooldown whose deadline is still in the future.
 // Expired rows are pruned in the same statement so repeated restarts do not
 // re-read stale entries.
-func (s *Store) LoadCooldowns(ctx context.Context) ([]CooldownRow, error) {
+func (s *Store) LoadCooldowns(ctx context.Context) ([]accounts.CooldownRow, error) {
 	now := formatTime(time.Now().UTC())
 	if _, err := s.db.ExecContext(ctx, `DELETE FROM account_cooldowns WHERE down_until <= ?`, now); err != nil {
 		return nil, fmt.Errorf("prune expired cooldowns: %w", err)
@@ -908,9 +819,9 @@ FROM account_cooldowns WHERE down_until > ? ORDER BY account_id, model`, now)
 		return nil, fmt.Errorf("load cooldowns: %w", err)
 	}
 	defer rows.Close()
-	var out []CooldownRow
+	var out []accounts.CooldownRow
 	for rows.Next() {
-		var row CooldownRow
+		var row accounts.CooldownRow
 		var until, model string
 		if err := rows.Scan(&row.AccountID, &model, &until, &row.BackoffLevel, &row.Kind, &row.Message, &row.ModelKind); err != nil {
 			return nil, fmt.Errorf("scan cooldown: %w", err)
@@ -922,7 +833,7 @@ FROM account_cooldowns WHERE down_until > ? ORDER BY account_id, model`, now)
 	return out, rows.Err()
 }
 
-func (s *Store) RecordPoolState(ctx context.Context, item Item) error {
+func (s *Store) RecordPoolState(ctx context.Context, item accounts.Item) error {
 	var cooldown any
 	status := "ready"
 	if !item.DownUntil.IsZero() && time.Now().Before(item.DownUntil) {
@@ -936,4 +847,16 @@ WHERE id = ?`, status, item.LastError, item.LastKind, cooldown, formatTime(time.
 		return fmt.Errorf("record pool state: %w", err)
 	}
 	return nil
+}
+
+const backoffMaxLevel = 8
+
+func clampBackoffLevel(level int) int {
+	if level < 0 {
+		return 0
+	}
+	if level > backoffMaxLevel {
+		return backoffMaxLevel
+	}
+	return level
 }

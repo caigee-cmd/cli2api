@@ -1,10 +1,11 @@
-package accounts
+package store
 
 import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"os"
 	"path/filepath"
 	"testing"
@@ -22,11 +23,11 @@ func TestStoreBackupCreatesConsistentSQLiteSnapshot(t *testing.T) {
 	}
 	defer store.Close()
 
-	account, err := store.Create(ctx, CreateAccount{Name: "Primary", Enabled: true})
+	account, err := store.Create(ctx, accounts.CreateAccount{Name: "Primary", Enabled: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SaveCredential(ctx, account.ID, "native", NativeCredential{
+	if err := store.SaveCredential(ctx, account.ID, "native", accounts.NativeCredential{
 		UserBlob: []byte("encrypted-user"), MachineID: "machine-1",
 	}); err != nil {
 		t.Fatal(err)
@@ -118,7 +119,7 @@ func TestPublishedMigrationsKeepOrderedFilenameAndSQLDigest(t *testing.T) {
 			t.Fatalf("%s digest helper drifted", item.filename)
 		}
 		var recorded string
-		if err := store.db.QueryRow("SELECT checksum FROM schema_migrations WHERE filename = ?", item.filename).Scan(&recorded); err != nil {
+		if err := store.DB().QueryRow("SELECT checksum FROM schema_migrations WHERE filename = ?", item.filename).Scan(&recorded); err != nil {
 			t.Fatal(err)
 		}
 		if recorded != want[i].checksum {
@@ -170,7 +171,7 @@ func TestStoreRecordsImmutableMigrationChecksums(t *testing.T) {
 	}
 	defer store.Close()
 
-	rows, err := store.db.QueryContext(ctx, "SELECT filename, checksum FROM schema_migrations ORDER BY filename")
+	rows, err := store.DB().QueryContext(ctx, "SELECT filename, checksum FROM schema_migrations ORDER BY filename")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +201,7 @@ func TestStoreRejectsChangedAppliedMigration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.db.Exec("UPDATE schema_migrations SET checksum = 'changed' WHERE filename = '001_initial_schema.sql'"); err != nil {
+	if _, err := store.DB().Exec("UPDATE schema_migrations SET checksum = 'changed' WHERE filename = '001_initial_schema.sql'"); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.Close(); err != nil {
@@ -244,13 +245,13 @@ func TestStoreOpensDatabaseWithV0219RequestLogProviderChecksum(t *testing.T) {
 		t.Fatal(err)
 	}
 	var recorded string
-	if err := store.db.QueryRow("SELECT checksum FROM schema_migrations WHERE filename = ?", requestLogProviderMigration).Scan(&recorded); err != nil {
+	if err := store.DB().QueryRow("SELECT checksum FROM schema_migrations WHERE filename = ?", requestLogProviderMigration).Scan(&recorded); err != nil {
 		t.Fatal(err)
 	}
 	if recorded != requestLogProviderChecksum {
 		t.Fatalf("fresh 006 checksum = %s, want %s", recorded, requestLogProviderChecksum)
 	}
-	if _, err := store.db.Exec("UPDATE schema_migrations SET checksum = ? WHERE filename = ?", requestLogProviderV0219, requestLogProviderMigration); err != nil {
+	if _, err := store.DB().Exec("UPDATE schema_migrations SET checksum = ? WHERE filename = ?", requestLogProviderV0219, requestLogProviderMigration); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.Close(); err != nil {
@@ -296,13 +297,13 @@ func TestStoreOpensDatabaseWithRetabbedProviderModelSettingsChecksum(t *testing.
 		t.Fatal(err)
 	}
 	var recorded string
-	if err := store.db.QueryRow("SELECT checksum FROM schema_migrations WHERE filename = ?", providerModelSettingsMigration).Scan(&recorded); err != nil {
+	if err := store.DB().QueryRow("SELECT checksum FROM schema_migrations WHERE filename = ?", providerModelSettingsMigration).Scan(&recorded); err != nil {
 		t.Fatal(err)
 	}
 	if recorded != providerModelSettingsChecksum {
 		t.Fatalf("fresh 007 checksum = %s, want %s", recorded, providerModelSettingsChecksum)
 	}
-	if _, err := store.db.Exec("UPDATE schema_migrations SET checksum = ? WHERE filename = ?", providerModelSettingsRetabbed, providerModelSettingsMigration); err != nil {
+	if _, err := store.DB().Exec("UPDATE schema_migrations SET checksum = ? WHERE filename = ?", providerModelSettingsRetabbed, providerModelSettingsMigration); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.Close(); err != nil {

@@ -6,13 +6,16 @@ import (
 	"encoding/base64"
 	"fmt"
 	"strings"
-
-	"github.com/caigee-cmd/cli2api/internal/accounts"
 )
+
+type secretStore interface {
+	GetSecret(ctx context.Context, name string) (string, bool, error)
+	SetSecret(ctx context.Context, name, value string) error
+}
 
 const proxyAPIKeySecret = "proxy_api_key"
 
-func ensureProxyAPIKey(ctx context.Context, store *accounts.Store, bootstrap string) (string, bool, error) {
+func ensureProxyAPIKey(ctx context.Context, store secretStore, bootstrap string) (string, bool, error) {
 	if value, ok, err := store.GetSecret(ctx, proxyAPIKeySecret); err != nil {
 		return "", false, err
 	} else if ok && strings.TrimSpace(value) != "" {

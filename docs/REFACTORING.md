@@ -4,7 +4,7 @@ title: 后端工程化重构实施手册（行为保持）
 scope: [backend, package-boundaries, refactoring, compatibility, testing, rollout]
 status: in-progress
 read-when: 评估或执行不改变现有功能的后端职责拆分、制定重构 PR、检查兼容性与回滚条件时
-summary: 基于现有实现的渐进式工程化重构方案，包含目标职责、迁移映射、状态所有权、16 个实施阶段、测试矩阵、PR 规则、发布回滚和完成标准。S00–S04 已验收；Store 跨包迁移尚未开始。
+summary: 基于现有实现的渐进式工程化重构方案，包含目标职责、迁移映射、状态所有权、16 个实施阶段、测试矩阵、PR 规则、发布回滚和完成标准。S00–S05 已验收；control/runtime 跨包迁移尚未开始。
 related: [AGENTS.md, docs/ARCHITECTURE.md, docs/REQUEST.md, docs/PLAN.md, docs/DEVELOPMENT.md]
 last-updated: 2026-09-18
 ---
@@ -522,7 +522,7 @@ executor 仍 import accounts
 - [x] S02：api 同包拆文件完成，行为回归通过。
 - [x] S03：accounts 同包拆文件完成，生命周期回归通过。
 - [x] S04：类型/接口边界整理完成，无循环依赖。
-- [ ] S05：Store 迁移完成，历史 SQL 摘要与旧库兼容通过。
+- [x] S05：Store 迁移完成，历史 SQL 摘要与旧库兼容通过。
 - [ ] S06：control 操作迁移完成，副作用顺序验证通过。
 - [ ] S07：runtime 迁移完成，任务与资源所有权验证通过。
 - [ ] S08：Qoder 具体实现归位，上游交互与启动配置验证通过。
@@ -1122,17 +1122,28 @@ grants 不迁到 auth：`ParseProviderGrant` 依赖 `providers.Get`，Pool 与 `
 
 执行：
 
-- [ ] 迁移前记录全部已发布 migration 的 filename/order/原始 SQL 摘要。
-- [ ] 确认 store 所需数据类型不再由数据库实现反向拥有。
-- [ ] 将 Store 类型、OpenStore、同一接收者的方法集合迁到 store。
-- [ ] 将 SQL helpers、扫描、事务、备份实现一并归位。
-- [ ] 文件可先整体移动，再另一个 PR 同包拆 accounts/credentials/logs/settings。
-- [ ] 原子更新相关构造点与 import，避免 accounts→store→accounts alias 环路。
-- [ ] auth、providers、logs 等通过已有/新增消费方接口接入。
-- [ ] 保留 SQLite 驱动、PRAGMA、busy timeout、连接池、序列化与错误。
-- [ ] 再次计算 SQL 摘要，与迁移前逐条比较。
-- [ ] 使用干净数据库和合成旧数据库分别启动、读写、重启。
-- [ ] 测试导入导出、备份校验及恢复，检查敏感字段未进入快照。
+- [x] 迁移前记录全部已发布 migration 的 filename/order/原始 SQL 摘要。
+  - 验证：001–020 SHA-256 与 S01 `TestPublishedMigrationsKeepOrderedFilenameAndSQLDigest` 一致（见下方摘要表）。
+- [x] 确认 store 所需数据类型不再由数据库实现反向拥有。
+  - 验证：`Account`/`APIKey`/`RequestLog`/`Item`/`CooldownRow` 等仍在 `accounts`；`store` import `accounts`，`accounts` 不 import `store`。
+- [x] 将 Store 类型、OpenStore、同一接收者的方法集合迁到 store。
+  - 验证：`internal/store` 含 `OpenStore` 与全部 `func (s *Store)`。
+- [x] 将 SQL helpers、扫描、事务、备份实现一并归位。
+  - 验证：`migrations.go`/`backup.go`/`request_logs.go`/`api_keys.go` 的 SQL 路径随 Store 迁移。
+- [x] 文件可先整体移动，再另一个 PR 同包拆 accounts/credentials/logs/settings。
+  - 验证：本阶段整包移动；未再拆 store 子文件。
+- [x] 原子更新相关构造点与 import，避免 accounts→store→accounts alias 环路。
+  - 验证：无 `accounts.Store = store.Store`。`NewManager` 收 `AccountStore`。`api.New` 调 `sqlstore.OpenStore`。
+- [x] auth、providers、logs 等通过已有/新增消费方接口接入。
+  - 验证：`KeyLookup`/`RequestStore`/provider `Store`+optional readers 由 `*store.Store` 满足；编译期断言在 `internal/store/s05_interfaces_test.go`。
+- [x] 保留 SQLite 驱动、PRAGMA、busy timeout、连接池、序列化与错误。
+  - 验证：`OpenStore` 仍是 `modernc.org/sqlite`、`MaxOpenConns(1)`、`foreign_keys=ON`、`busy_timeout=5000`、chmod 0600。
+- [x] 再次计算 SQL 摘要，与迁移前逐条比较。
+  - 验证：20 条 filename/order/hash 全部匹配。
+- [x] 使用干净数据库和合成旧数据库分别启动、读写、重启。
+  - 验证：`store_test` 重开库；`backup_test` 用改 checksum / v0.2.19 / retabbed 007 再打开。
+- [x] 测试导入导出、备份校验及恢复，检查敏感字段未进入快照。
+  - 验证：Backup + prune + integrity_check 测试随包迁移。无独立 Restore API（S01 已知限制）。
 
 禁止把“SQL 看起来一样”当成通过。禁止将历史 SQL 格式化为新的缩进。
 
@@ -1141,6 +1152,48 @@ grants 不迁到 auth：`ParseProviderGrant` 依赖 `providers.Get`，Pool 与 `
 **通过：** 无新 schema、摘要一致、旧库正常打开、原事务行为测试通过。
 
 **回滚：** 撤销代码即可恢复旧包路径；运行过后的数据回滚仍按第 11 节，不假设删除库即可解决。
+
+#### S05 SQL 摘要（迁移前后一致）
+
+| filename | SHA-256 |
+|---|---|
+| 001_initial_schema.sql | `c4a754531f1842133eb8deed76f89a2416df84b3ca50428f300327dea7032072` |
+| 002_normalize_model_settings.sql | `0a498995252285ab7ff7ba7d0be07a174e74ef5cbdc65b19a5d2782a8849afa5` |
+| 003_account_providers.sql | `24bfa90f6d2022daa4c5afaba8b99ab58092e97675565962ad2029b822251e45` |
+| 004_request_logs.sql | `726ad8cc20408b8974afbbaa8be3c5a1da99815fef65e290a323013074302caf` |
+| 005_account_drop_system_prompt.sql | `364e363ca8689d9c4ada8bc67e724680c3631ad231ac6da8c3d62328318f86ca` |
+| 006_request_log_provider.sql | `2deb3ef3aa94df34a8ffd0ac50a69b6cb710e7bf2e9041fc1c1f0bdfd7cb0d67` |
+| 007_provider_model_settings.sql | `b48b62c578bff658ee5843776fe16dd35d11d86c84800398c98d666eb777968a` |
+| 008_api_keys.sql | `6f203268ddecdb1d94c2b58e7c6e2ead750d96bafd8d82839814f645a5c7dbd5` |
+| 009_provider_model_reasoning.sql | `98679b669666db6844fec8c761ad6251fecc05ec2945fc65c286958f918d6eb1` |
+| 010_workbuddy_auto_checkin.sql | `3e74bb499322e90102fc19d13781294effb872d27390309e5dd5399ad7e45ca0` |
+| 011_account_cooldowns.sql | `8dbf7b362dff4d4ea9f87f12d7534cc441f7b1b1158d6ac2380c1ad14dff8aa1` |
+| 012_account_cooldown_model_kind.sql | `a448c3433adfa82606a9deef93d25bfe086745fbc67c1c91845a27b4597f4261` |
+| 013_checkin_records.sql | `378a9abe2aa3ef82bd7cd3f2422bfced951c3ee5857b1bb25a50204df59947f4` |
+| 014_request_log_routing.sql | `a9f4cb61c312641c09d4cf32c83b03682b52258b0f30a10092a26a4c0f245a68` |
+| 015_account_quota_state.sql | `fb8c8bf9b072b7c0b69368067b0439c40764801055e19aa820beddd150fbcaad` |
+| 016_request_stream_diagnostics.sql | `9bc9ac985096ad1ffb5921f314b62a47b03c72cdd9f875b645e1be8c8996bf82` |
+| 017_request_message_shape.sql | `2d705b35b5a316e1f77e00de4f16c59cb0e3893da4f14f8aeb5a60b18765340e` |
+| 018_workbuddy_checkin_time.sql | `b0568fd514bc9462e2bf85d35210fdee6726d498fba84908766d9353aafdd5f6` |
+| 019_account_proxy.sql | `7d27f4b71568d285bea46459bb3e5718c97f842b12149e1922fce7502b68ff6e` |
+| 020_request_usage_details.sql | `ddc2881cd29c84eb7652a9243b05fc22485e8fc3ffcad9f3879b7dcea9e15022` |
+
+#### S05 阶段验收
+
+```text
+阶段编号：S05
+验收日期与确认人：2026-09-18；执行记录写入本手册
+本次勾选的任务：S05 全部执行项与 7.2 阶段摘要
+未勾选任务、例外批准与影响：无独立 Restore API（S01 已知限制）。真实账号/托管更新/race/frontend 不在本阶段。Manager 测试钩子（TestProcess 等）留在 accounts 以便外部测试包使用 SQLite。
+阶段复选框是否允许勾选：是（Store 迁出；SQL 摘要一致；无 import 环）
+合入/候选 SHA：分支 refactor/s05-store-move，起点 a8cb157
+完成的职责迁移：SQLite Store/OpenStore/migrations/backup 归 internal/store；accounts 保留轻量类型与 AccountStore 接口
+保留的临时依赖：api 仍组装 Manager；Store() 返回 AccountStore 而非具体 *store.Store
+测试证据：go test ./...、go vet ./...、go build ./cmd/server ./cmd/updater
+真实环境验收证据：未执行
+是否允许进入下一阶段：S06（提取 control）可开始；不自动开工
+失败时回退到哪个已验收节点：撤销本阶段提交；S04 接口基线仍在
+```
 
 ### S06：提取 control 应用操作
 
