@@ -349,6 +349,62 @@ func TestResponsesStreamKeepsDistinctFunctionCallIDs(t *testing.T) {
 	}
 }
 
+func TestResponsesNonStreamRestoresCustomToolCall(t *testing.T) {
+	server, closeServer := newCompatibilityServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"model": "glm-5.2", "choices": []any{map[string]any{"message": map[string]any{
+				"content": "", "tool_calls": []any{map[string]any{"id": "call_custom", "type": "function", "function": map[string]string{"name": "__codex_custom__exec", "arguments": `{"input":"patch text"}`}}},
+			}, "finish_reason": "tool_calls"}},
+			"usage": map[string]any{"prompt_tokens": 8, "completion_tokens": 3},
+		})
+	})
+	defer closeServer()
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"qoder/glm-5.2","input":"hi"}`))
+	recorder := httptest.NewRecorder()
+	server.handleResponses(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var response struct {
+		Output []struct {
+			Type  string `json:"type"`
+			Name  string `json:"name"`
+			Input string `json:"input"`
+		} `json:"output"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Output) != 1 || response.Output[0].Type != "custom_tool_call" || response.Output[0].Name != "exec" || response.Output[0].Input != "patch text" {
+		t.Fatalf("output=%+v", response.Output)
+	}
+}
+
+func TestResponsesStreamWritesCustomToolCallEvents(t *testing.T) {
+	server, closeServer := newCompatibilityServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_custom\",\"function\":{\"name\":\"__codex_custom__exec\",\"arguments\":\"{\\\"input\\\":\\\"patch\"}}]}}]}\n\n")
+		_, _ = io.WriteString(w, "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\" text\\\"}\"}}]}}]}\n\n")
+		_, _ = io.WriteString(w, "data: {\"choices\":[{\"finish_reason\":\"tool_calls\"}]}\n\n")
+		_, _ = io.WriteString(w, "data: [DONE]\n\n")
+	})
+	defer closeServer()
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"qoder/glm-5.2","stream":true,"input":"hi"}`))
+	recorder := httptest.NewRecorder()
+	server.handleResponses(recorder, request)
+	body := recorder.Body.String()
+	for _, expected := range []string{"event: response.custom_tool_call_input.delta", `"delta":"patch text"`, "event: response.custom_tool_call_input.done", `"type":"custom_tool_call"`, `"name":"exec"`, `"input":"patch text"`} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("missing %q in %s", expected, body)
+		}
+	}
+	if strings.Contains(body, "__codex_custom__") {
+		t.Fatalf("custom marker leaked into response: %s", body)
+	}
+}
+
 func TestResponsesRejectsStatefulPreviousResponseID(t *testing.T) {
 	server, closeServer := newCompatibilityServer(t, func(w http.ResponseWriter, _ *http.Request) {
 		t.Fatal("worker should not receive unsupported stateful response request")

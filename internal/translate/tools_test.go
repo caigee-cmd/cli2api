@@ -129,7 +129,7 @@ func TestNormalizeOpenAIToolsExpandsNamespaceAndDropsHostedShells(t *testing.T) 
 		{"type":"web_search"},
 		{"type":"web_search_preview"},
 		{"type":"namespace","name":"mcp__empty","tools":[]},
-		{"type":"custom","name":"ignored"}
+		{"type":"custom","name":"exec","description":"run code","format":{"type":"grammar","syntax":"lark","definition":"start: \"x\""}}
 	]`)
 	got, err := NormalizeOpenAITools(raw)
 	if err != nil {
@@ -146,7 +146,7 @@ func TestNormalizeOpenAIToolsExpandsNamespaceAndDropsHostedShells(t *testing.T) 
 	if err := json.Unmarshal(got, &tools); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"lookup", "mcp__computer-use__left_click", "mcp__computer-use__type"}
+	want := []string{"lookup", "mcp__computer-use__left_click", "mcp__computer-use__type", "__codex_custom__exec"}
 	if len(tools) != len(want) {
 		t.Fatalf("tools=%v want %v", toolNames(tools), want)
 	}
@@ -157,6 +157,73 @@ func TestNormalizeOpenAIToolsExpandsNamespaceAndDropsHostedShells(t *testing.T) 
 	}
 	if string(tools[1].Function.Parameters) == "" || string(tools[1].Function.Parameters) == "null" {
 		t.Fatalf("left_click parameters missing: %s", tools[1].Function.Parameters)
+	}
+}
+
+func TestNormalizeOpenAIToolsExpandsNamespacedCustomTools(t *testing.T) {
+	got, err := NormalizeOpenAITools(json.RawMessage(`[
+		{"type":"namespace","name":"functions","tools":[
+			{"type":"custom","name":"apply_patch","description":"Apply a patch","format":{"type":"grammar","syntax":"lark","definition":"start: patch"}}
+		]}
+	]`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tools []struct {
+		Function struct {
+			Name        string          `json:"name"`
+			Parameters  json.RawMessage `json:"parameters"`
+			Description string          `json:"description"`
+		} `json:"function"`
+	}
+	if err := json.Unmarshal(got, &tools); err != nil {
+		t.Fatal(err)
+	}
+	if len(tools) != 1 || tools[0].Function.Name != "functions__codex_custom__apply_patch" {
+		t.Fatalf("tools=%s", got)
+	}
+	if !strings.Contains(tools[0].Function.Description, "start: patch") {
+		t.Fatalf("description=%q", tools[0].Function.Description)
+	}
+	namespace, name, ok := DecodeCustomToolName(tools[0].Function.Name)
+	if !ok || namespace != "functions" || name != "apply_patch" {
+		t.Fatalf("decoded=(%q,%q,%v)", namespace, name, ok)
+	}
+}
+
+func TestTranslateResponsesAcceptsCustomToolChoice(t *testing.T) {
+	chat, err := TranslateResponses(ResponsesRequest{
+		Model:      "workbuddy/glm-5.2",
+		Input:      json.RawMessage(`"hi"`),
+		Tools:      json.RawMessage(`[{"type":"custom","name":"exec","format":{"type":"grammar","syntax":"lark","definition":"start: \"x\""}}]`),
+		ToolChoice: json.RawMessage(`{"type":"custom","name":"exec"}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(chat.Tools), `"name":"__codex_custom__exec"`) {
+		t.Fatalf("tools=%s", chat.Tools)
+	}
+	if !strings.Contains(string(chat.ToolChoice), `"__codex_custom__exec"`) {
+		t.Fatalf("tool_choice=%s", chat.ToolChoice)
+	}
+}
+
+func TestTranslateResponsesDropsAutoChoiceWhenToolsNormalizeEmpty(t *testing.T) {
+	chat, err := TranslateResponses(ResponsesRequest{
+		Model:      "workbuddy/glm-5.2",
+		Input:      json.RawMessage(`"hi"`),
+		Tools:      json.RawMessage(`[{"type":"mcp","server_label":"codex_apps"}]`),
+		ToolChoice: json.RawMessage(`"auto"`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(chat.Tools) != 0 || len(chat.ToolChoice) != 0 {
+		t.Fatalf("tools=%q choice=%q", chat.Tools, chat.ToolChoice)
+	}
+	if err := ValidateChatRequest(&chat); err != nil {
+		t.Fatal(err)
 	}
 }
 
