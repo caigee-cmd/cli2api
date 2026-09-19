@@ -163,6 +163,69 @@ func TestManagerRefreshUsesInProcessProber(t *testing.T) {
 	}
 }
 
+func TestManagerRefreshPersistsQuotaWindows(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlstore.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	account, err := store.Create(ctx, accounts.CreateAccount{
+		Name: "Devin", Provider: "devin", Region: "global", Enabled: false,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	prober := &fakeProber{
+		health: providers.AccountHealth{Ready: true, Hot: true, UID: "devin-uid"},
+		quota: &providers.QuotaInfo{
+			Used: 67, Total: 100, Remaining: 33, Percentage: 67, Unit: "percent",
+			FetchedAt: "2026-08-26T00:00:00Z",
+			Windows: []providers.QuotaWindow{
+				{ID: "daily", Label: "Daily quota", Used: 0, Total: 100, Remaining: 100, Percentage: 0, Unit: "percent", ResetAt: "2026-08-26T16:00:00Z"},
+				{ID: "weekly", Label: "Weekly quota", Used: 67, Total: 100, Remaining: 33, Percentage: 67, Unit: "percent", ResetAt: "2026-08-26T16:00:00Z"},
+			},
+		},
+		quotaDone: make(chan struct{}),
+	}
+	registry := providers.NewRegistry()
+	registry.Register(providers.Adapter{ID: "devin", Prober: prober})
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	manager.SetProviders(registry)
+	manager.Pool().Upsert(executor.Item{ID: account.ID, Provider: "devin", Runtime: "in_process"})
+	if err := manager.RefreshAll(ctx, false); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-prober.quotaDone:
+	case <-time.After(time.Second):
+		t.Fatal("quota refresh did not complete")
+	}
+	deadline := time.Now().Add(time.Second)
+	var item executor.Item
+	var updated accounts.Account
+	for {
+		item, _ = manager.Pool().ByID(account.ID)
+		updated, err = store.Get(ctx, account.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if item.Quota != nil && len(item.Quota.Windows) == 2 && updated.Quota != nil && len(updated.Quota.Windows) == 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("quota pool=%+v store=%+v", item.Quota, updated.Quota)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if item.Quota.Remaining != 33 || item.Quota.Windows[0].ID != "daily" || item.Quota.Windows[0].Remaining != 100 || item.Quota.Windows[1].ID != "weekly" {
+		t.Fatalf("pool quota = %+v", item.Quota)
+	}
+	if updated.Quota.Windows[0].ResetAt != "2026-08-26T16:00:00Z" || updated.Quota.Windows[1].Percentage != 67 {
+		t.Fatalf("store quota = %+v", updated.Quota)
+	}
+}
+
 func TestManagerRefreshSkipsEmptyURLWithoutProber(t *testing.T) {
 	ctx := context.Background()
 	store, err := sqlstore.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))

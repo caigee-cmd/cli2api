@@ -1,3 +1,15 @@
+export type AccountQuotaWindow = {
+  id: string
+  label?: string
+  used?: number
+  total?: number
+  remaining?: number
+  percentage?: number
+  unit?: string
+  reset_at?: string
+  exceeded?: boolean
+}
+
 export type AccountQuota = {
   used?: number
   total?: number
@@ -5,6 +17,7 @@ export type AccountQuota = {
   percentage?: number
   unit?: string
   exceeded?: boolean
+  windows?: AccountQuotaWindow[]
   has_add_on?: boolean
   add_on_used?: number
   add_on_total?: number

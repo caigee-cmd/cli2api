@@ -175,6 +175,14 @@ body {
   border-radius: 999px;
 }
 
+.account-meter--window {
+  gap: 0.25rem;
+}
+
+.account-meter--window .meter__track {
+  height: 0.375rem;
+}
+
 .runtime-meter {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));

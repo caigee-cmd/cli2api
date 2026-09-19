@@ -127,6 +127,20 @@ type AccountHealth struct {
 	LastError string
 }
 
+// QuotaWindow is one provider-native usage period. Console cards may render
+// each window; routing still uses the tighter top-level QuotaInfo values.
+type QuotaWindow struct {
+	ID         string
+	Label      string
+	Used       float64
+	Total      float64
+	Remaining  float64
+	Percentage float64
+	Unit       string
+	ResetAt    string
+	Exceeded   bool
+}
+
 // QuotaInfo is account usage for the console and exhausted-account routing.
 // Callers must treat probe readiness and quota independently; quota errors
 // never flip Ready.
@@ -138,6 +152,7 @@ type QuotaInfo struct {
 	Unit       string
 	Exceeded   bool
 	FetchedAt  string
+	Windows    []QuotaWindow
 }
 
 // AccountProber refreshes provider-native readiness and optional display quota.

@@ -248,6 +248,7 @@ export function AccountCard({
         {account.quota ? (
           <QuotaMeter
             quota={account.quota}
+            t={t}
             label={t('quota')}
             usedLabel={t('quotaUsed')}
             remainingLabel={t('quotaRemaining')}

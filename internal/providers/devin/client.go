@@ -408,24 +408,66 @@ func (c *Client) Quota(ctx context.Context, accountID string) (*providers.QuotaI
 	if err != nil {
 		return nil, err
 	}
-	remaining := status.DailyQuotaRemainingPercent
-	if status.WeeklyQuotaRemainingPercent < remaining {
-		remaining = status.WeeklyQuotaRemainingPercent
+	return quotaFromStatus(status, time.Now().UTC()), nil
+}
+
+func quotaFromStatus(status *UserStatus, fetchedAt time.Time) *providers.QuotaInfo {
+	if status == nil {
+		return nil
 	}
-	total := float64(100)
-	used := total - float64(remaining)
-	if used < 0 {
-		used = 0
+	var windows []providers.QuotaWindow
+	if !status.HideDailyQuota {
+		windows = append(windows, percentQuotaWindow("daily", "Daily quota", status.DailyQuotaRemainingPercent, status.DailyQuotaResetAt))
 	}
-	return &providers.QuotaInfo{
-		Used:       used,
-		Total:      total,
+	if !status.HideWeeklyQuota {
+		windows = append(windows, percentQuotaWindow("weekly", "Weekly quota", status.WeeklyQuotaRemainingPercent, status.WeeklyQuotaResetAt))
+	}
+	info := &providers.QuotaInfo{
+		Unit:      QuotaUnit,
+		FetchedAt: fetchedAt.Format(time.RFC3339),
+		Windows:   windows,
+	}
+	if len(windows) == 0 {
+		return info
+	}
+	tightest := windows[0]
+	for _, window := range windows[1:] {
+		if window.Remaining < tightest.Remaining {
+			tightest = window
+		}
+	}
+	info.Used = tightest.Used
+	info.Total = tightest.Total
+	info.Remaining = tightest.Remaining
+	info.Percentage = tightest.Percentage
+	info.Unit = tightest.Unit
+	info.Exceeded = tightest.Exceeded
+	return info
+}
+
+func percentQuotaWindow(id, label string, remainingPercent int64, resetAt time.Time) providers.QuotaWindow {
+	remaining := remainingPercent
+	if remaining < 0 {
+		remaining = 0
+	}
+	if remaining > 100 {
+		remaining = 100
+	}
+	used := 100 - remaining
+	window := providers.QuotaWindow{
+		ID:         id,
+		Label:      label,
+		Used:       float64(used),
+		Total:      100,
 		Remaining:  float64(remaining),
-		Percentage: used,
+		Percentage: float64(used),
 		Unit:       QuotaUnit,
 		Exceeded:   remaining <= 0,
-		FetchedAt:  time.Now().UTC().Format(time.RFC3339),
-	}, nil
+	}
+	if !resetAt.IsZero() {
+		window.ResetAt = resetAt.UTC().Format(time.RFC3339)
+	}
+	return window
 }
 
 func (c *Client) Adapter() providers.Adapter {
