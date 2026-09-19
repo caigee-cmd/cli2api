@@ -126,7 +126,7 @@ export function OverviewPageSkeleton() {
 
 export function AccountCardSkeleton() {
   return (
-    <article className="min-h-[280px] overflow-hidden rounded-3xl border border-border bg-surface">
+    <article className="overflow-hidden rounded-3xl border border-border bg-surface">
       <div className="space-y-2 px-3 pt-2.5 pb-1.5">
         <div className="flex items-start justify-between gap-2.5">
           <div className="flex min-w-0 items-center gap-2.5">
@@ -143,26 +143,24 @@ export function AccountCardSkeleton() {
         </div>
       </div>
       <div className="space-y-2 px-3 pb-2">
-        <div className="rounded-2xl border border-border bg-surface-secondary/45 p-2">
-          <SkeletonBlock className="h-3 w-20" />
-          <SkeletonBlock className="mt-2 h-2 w-full" />
-          <div className="mt-2 grid grid-cols-3 gap-2 border-t border-separator pt-2">
-            <SkeletonBlock className="h-7 w-full" />
-            <SkeletonBlock className="h-7 w-full" />
-            <SkeletonBlock className="h-7 w-full" />
-          </div>
+        <div className="flex items-center gap-2 py-1">
+          <SkeletonBlock className="h-3 w-16" />
+          <SkeletonBlock className="h-2 flex-1" />
+          <SkeletonBlock className="h-3 w-14" />
         </div>
-        <div className="min-h-[52px] rounded-2xl border border-border bg-surface-secondary/25 p-2">
-          <SkeletonBlock className="h-3 w-20" />
-          <SkeletonBlock className="mt-2 h-1.5 w-full rounded-[1px]" />
-          <SkeletonBlock className="mt-2 h-3 w-36" />
+        <div className="space-y-1.5 py-1">
+          <div className="flex items-center justify-between">
+            <SkeletonBlock className="h-3 w-14" />
+            <SkeletonBlock className="h-3 w-24" />
+          </div>
+          <SkeletonBlock className="h-1.5 w-full rounded-[1px]" />
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-1.5 border-t border-separator px-3 py-2">
-        <SkeletonBlock className="size-8" />
-        <SkeletonBlock className="size-8" />
-        <SkeletonBlock className="size-8" />
-        <SkeletonBlock className="size-8" />
+        <SkeletonBlock className="h-3 w-20" />
+        <SkeletonBlock className="size-7" />
+        <SkeletonBlock className="size-7" />
+        <SkeletonBlock className="size-7" />
         <SkeletonBlock className="ml-auto h-[18px] w-[74px]" />
       </div>
     </article>

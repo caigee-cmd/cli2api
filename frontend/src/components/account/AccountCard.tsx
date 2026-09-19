@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { Button, Card, Chip, Dropdown, Input, Label, Meter, TextArea, TextField, Tooltip } from '@heroui/react'
+import { Button, Card, Chip, Dropdown, Input, Label, TextArea, TextField, Tooltip } from '@heroui/react'
 import {
   ArrowClockwise,
   ArrowSquareOut,
@@ -11,6 +11,7 @@ import {
   ListBullets,
   PencilSimple,
   ShieldCheck,
+  TextAa,
   TrashSimple,
   WarningCircle,
 } from '@phosphor-icons/react'
@@ -186,7 +187,7 @@ export function AccountCard({
     <Card
       data-gsap-reveal
       data-state={state}
-      className="account-card min-h-[280px] overflow-hidden p-0"
+      className="account-card overflow-hidden p-0"
     >
       <Card.Header className="flex-row items-start justify-between gap-2.5 px-3 pt-2.5 pb-1.5">
         <div className="flex min-w-0 items-center gap-2.5">
@@ -248,81 +249,39 @@ export function AccountCard({
       </Card.Header>
 
       <Card.Content className="gap-2 px-3 pb-2">
-        <div className="rounded-2xl border border-border bg-surface-secondary/45 p-2">
-          <RuntimeMeter state={state} label={t('runtimeState')} stateCopy={stateCopy} />
-          <div className="mt-2 grid grid-cols-3 gap-2 border-t border-separator pt-2 text-[10px] text-foreground/65">
-            <span><span className="mono block text-[12px] font-medium text-foreground">{inFlight}/{account.max_inflight ?? 4}</span>{t('inFlight')}</span>
-            <span><span className="mono block text-[12px] font-medium text-foreground">{account.priority ?? 50}</span>{t('priority')}</span>
-            <span><span className="mono block text-[12px] font-medium text-foreground">{account.restarts ?? 0}</span>{t('restarts')}</span>
-          </div>
-          <Meter
-            className="mt-2"
-            color="accent"
-            size="sm"
-            minValue={1}
-            maxValue={100}
-            value={Math.min(100, Math.max(1, account.priority ?? 50))}
-            aria-label={t('routingWeight')}
-            valueLabel={`${t('routingWeight')} ${account.priority ?? 50}/100`}
-          >
-            <div className="flex items-center justify-between text-[10px] text-foreground/65">
-              <Label>{t('routingWeight')}</Label>
-              <Meter.Output className="mono">{account.priority ?? 50}/100</Meter.Output>
-            </div>
-            <Meter.Track><Meter.Fill /></Meter.Track>
-          </Meter>
-        </div>
+        <RuntimeMeter state={state} stateCopy={stateCopy} t={t} />
 
-        <div className="min-h-[52px] rounded-2xl border border-border bg-surface-secondary/25 p-2">
-          {account.quota ? (
-            <QuotaMeter
-              quota={account.quota}
-              label={t('quota')}
-              usedLabel={t('quotaUsed')}
-              remainingLabel={t('quotaRemaining')}
-              addOnLabel={t('quotaAddOn')}
-              resourcePackageLabel={t('quotaResourcePackage')}
-              exceededLabel={t('quotaExceeded')}
-            />
-          ) : <span className="text-[11px] text-foreground/65">{state === 'loading' ? t('quotaLoading') : t('quotaUnavailable')}</span>}
-        </div>
-
-        {account.provider === 'workbuddy' ? (
-          <div className="grid gap-1.5 rounded-2xl border border-border bg-surface-secondary/20 p-2">
-            <div className="flex items-center justify-between gap-3 text-[11px]">
-              <Tooltip>
-                <Tooltip.Trigger>
-                  <span className="font-medium">{t('dropSystemPrompt')}</span>
-                </Tooltip.Trigger>
-                <Tooltip.Content>{t('dropSystemPromptHint')}</Tooltip.Content>
-              </Tooltip>
-              <CompactSwitch
-                isSelected={Boolean(account.drop_system_prompt)}
-                isDisabled={busyKind === 'toggle'}
-                ariaLabel={t('dropSystemPrompt')}
-                onChange={onToggleDropSystem}
-              />
-            </div>
-          </div>
-        ) : null}
+        {account.quota ? (
+          <QuotaMeter
+            quota={account.quota}
+            label={t('quota')}
+            usedLabel={t('quotaUsed')}
+            remainingLabel={t('quotaRemaining')}
+            addOnLabel={t('quotaAddOn')}
+            resourcePackageLabel={t('quotaResourcePackage')}
+            exceededLabel={t('quotaExceeded')}
+          />
+        ) : <span className="text-[11px] text-foreground/65">{state === 'loading' ? t('quotaLoading') : t('quotaUnavailable')}</span>}
 
         {onCheckin ? (
-          <div className="grid gap-1.5 rounded-2xl border border-border bg-surface-secondary/20 p-2">
-            <div className="flex items-center justify-between gap-3 text-[11px]">
-              <Tooltip>
-                <Tooltip.Trigger><span className="font-medium">{t('autoCheckin')} · {account.checkin_time || checkinDefaultTime}</span></Tooltip.Trigger>
-                <Tooltip.Content>{account.checkin_time ? t('checkinCustom') : t('checkinInherit')} · {checkinTimezone}</Tooltip.Content>
-              </Tooltip>
-              <CompactSwitch isSelected={Boolean(account.auto_checkin)} isDisabled={Boolean(busyKind)} ariaLabel={t('autoCheckin')} onChange={(selected) => onToggleAutoCheckin?.(selected)} />
-            </div>
+          <div className="flex items-center justify-between gap-3 text-[11px]">
             <Tooltip>
               <Tooltip.Trigger>
-                <span className="flex items-center gap-2 text-[11px]">
+                <span className="flex cursor-help items-center gap-2">
                   <span className="font-medium">{t('lastCheckin')}</span>
                   <span className={checkinStatus === 'error' ? 'text-danger' : 'text-muted'}>{t(checkinLabel)}</span>
                 </span>
               </Tooltip.Trigger>
               <Tooltip.Content>{account.last_checkin_at ? new Date(account.last_checkin_at).toLocaleString() : t('lastCheckinNone')}{account.last_checkin_msg ? ` · ${account.last_checkin_msg}` : ''}</Tooltip.Content>
+            </Tooltip>
+            <Tooltip>
+              <Tooltip.Trigger>
+                <span className="flex cursor-help items-center gap-1.5 text-muted">
+                  <span className="mono text-[10px]">{account.checkin_time || checkinDefaultTime}</span>
+                  <CompactSwitch isSelected={Boolean(account.auto_checkin)} isDisabled={Boolean(busyKind)} ariaLabel={t('autoCheckin')} onChange={(selected) => onToggleAutoCheckin?.(selected)} />
+                </span>
+              </Tooltip.Trigger>
+              <Tooltip.Content>{account.checkin_time ? t('checkinCustom') : t('checkinInherit')}{checkinTimezone ? ` · ${checkinTimezone}` : ''}</Tooltip.Content>
             </Tooltip>
           </div>
         ) : null}
@@ -393,6 +352,25 @@ export function AccountCard({
       ) : null}
 
       <Card.Footer className="flex flex-wrap items-center gap-1.5 border-t border-separator px-3 py-2">
+        <span className="mono mr-1 text-[10px] text-foreground/60" title={`${t('inFlight')} ${inFlight}/${account.max_inflight ?? 4} · ${t('priority')} ${account.priority ?? 50} · ${t('restarts')} ${account.restarts ?? 0}`}>
+          {inFlight}/{account.max_inflight ?? 4} · P{account.priority ?? 50} · R{account.restarts ?? 0}
+        </span>
+        {account.provider === 'workbuddy' ? (
+          <Tooltip>
+            <Tooltip.Trigger>
+              <button
+                type="button"
+                onClick={() => onToggleDropSystem?.(!account.drop_system_prompt)}
+                className={`flex size-7 items-center justify-center rounded-lg border transition-colors ${account.drop_system_prompt ? 'border-accent/40 bg-accent/10 text-accent' : 'border-border text-foreground/50 hover:text-foreground'}`}
+                aria-label={t('dropSystemPrompt')}
+                aria-pressed={Boolean(account.drop_system_prompt)}
+              >
+                <TextAa size={14} />
+              </button>
+            </Tooltip.Trigger>
+            <Tooltip.Content>{t('dropSystemPromptHint')}</Tooltip.Content>
+          </Tooltip>
+        ) : null}
         {onRefresh ? (
           <Tooltip>
             <Tooltip.Trigger>
