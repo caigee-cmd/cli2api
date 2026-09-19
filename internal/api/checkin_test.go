@@ -34,7 +34,7 @@ func TestUnifiedCheckinSettingsAndRoutes(t *testing.T) {
 	if !bytes.Contains(response.Body.Bytes(), []byte(`"qoder":"10:30"`)) || !bytes.Contains(response.Body.Bytes(), []byte(`"workbuddy":"12:00"`)) {
 		t.Fatal(response.Body.String())
 	}
-	for _, body := range []string{`{"checkin_times":{"trae":"10:00"}}`, `{"checkin_times":{"qoder":"25:00"}}`, `{"checkin_times":{"qoder":"9:00"}}`, `{"checkin_times":{"workbuddy":"10:00"},"workbuddy_checkin_time":"11:00"}`} {
+		for _, body := range []string{`{"checkin_times":{"devin":"10:00"}}`, `{"checkin_times":{"qoder":"25:00"}}`, `{"checkin_times":{"qoder":"9:00"}}`, `{"checkin_times":{"workbuddy":"10:00"},"workbuddy_checkin_time":"11:00"}`} {
 		if response := request(http.MethodPatch, "/api/system/settings", body, "test-key"); response.Code != http.StatusBadRequest {
 			t.Fatalf("invalid settings accepted: %s", body)
 		}
