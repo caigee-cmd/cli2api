@@ -9,18 +9,9 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### 中文
 
-## 0.6.0 - 2026-09-19
+## 0.5.7 - 2026-09-18
 
 ### English
-
-- Preserve cancellation and deadline causes in stream read failures without cooling healthy accounts; classify typed upstream stream errors once while retaining the original error chain.
-- Keep Trae and WorkBuddy model settings marked as default after refresh when the selected reasoning level matches the catalog default; ignore inactive Max settings in the custom-state indicator.
-- Clarify setup, administrator versus client keys, compatibility limits, and managed updates; align documentation and README artwork with the accepted refactor boundaries without claiming pending acceptance is complete.
-- Keep console-key rotation synchronized with live HTTP authentication and Qoder worker requests without restarting the API server
-- Remove per-request update dependency rewrites and restore thread-safe Qoder starter configuration during proxy/key changes
-- Restore Responses function namespaces in JSON and SSE output, and preserve qualified tool identities when replaying calls or selecting a function.
-- Preserve Qoder user images and image-bearing tool results, emitting tool-result images after their complete ordered tool batch.
-- Bridge Responses custom tools through function calls, restoring custom output/events and replaying tool results. Format rules are descriptive, not grammar-enforced; custom input events are emitted after argument collection.
 
 - Preserve typed upstream stream errors through the OpenAI, Anthropic, and Responses relays so invalid Devin requests do not falsely cool accounts, while transport interruptions remain retryable
 - Report Devin cache reads and writes in OpenAI-compatible usage, with prompt
@@ -34,6 +25,28 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### 中文
 
+- OpenAI、Anthropic 与 Responses 流式转发会保留上游的类型化错误，避免无效的 Devin 请求被错误地冷却账号，同时传输中断仍可重试
+- Devin 的缓存读取与写入会显示在 OpenAI 兼容 usage 中，prompt 总数包含全部上游输入 token
+- 新增手动更新命令，提取 descriptor 并生成 Devin 聊天与账号状态 protobuf 类型；构建与 CI 直接使用已提交的 Go 文件，不下载发行包或重新生成 schema
+- Devin 会把 Codex/Desktop 带 MCP 语义的工具名（`mcp__*`、`list_mcp_*` 以及名称含 `mcp` 的工具）中性化为可逆的 `cx_tool_*` 别名，并在返回的 tool_calls 中还原原名供本地执行；若上游仍返回 MCP 配置类 `permission_denied`，会先清洗残留 MCP 文案并去掉这些工具再试，再失败则只保留核心本地工具（`exec_command` / `write_stdin` / `view_image` / `request_user_input`，最小 schema），每次 fallback 都会打日志，且不再清空全部 tools
+- Codex compact / 恢复轮次如果带了 `tool_choice` 但 tools 已被规范化为空，会忽略这个孤立的 `tool_choice`，不再报 `tool_choice requires tools`
+- 会话粘性不会再把后续模型钉到空 catalog 账号上，因此 Devin 之后的 Deepseek compact 会走 WorkBuddy，而不是误打到 Devin
+
+## 0.6.0 - 2026-09-19
+
+### English
+
+- Preserve cancellation and deadline causes in stream read failures without cooling healthy accounts; classify typed upstream stream errors once while retaining the original error chain.
+- Keep Trae and WorkBuddy model settings marked as default after refresh when the selected reasoning level matches the catalog default; ignore inactive Max settings in the custom-state indicator.
+- Clarify setup, administrator versus client keys, compatibility limits, and managed updates; align documentation and README artwork with the accepted refactor boundaries without claiming pending acceptance is complete.
+- Keep console-key rotation synchronized with live HTTP authentication and Qoder worker requests without restarting the API server
+- Remove per-request update dependency rewrites and restore thread-safe Qoder starter configuration during proxy/key changes
+- Restore Responses function namespaces in JSON and SSE output, and preserve qualified tool identities when replaying calls or selecting a function.
+- Preserve Qoder user images and image-bearing tool results, emitting tool-result images after their complete ordered tool batch.
+- Bridge Responses custom tools through function calls, restoring custom output/events and replaying tool results. Format rules are descriptive, not grammar-enforced; custom input events are emitted after argument collection.
+
+### 中文
+
 - 流读取失败保留取消与超时原因，不再误冷却健康账号；上游类型化流错误统一分类一次，同时保留原始错误链。
 - Trae、WorkBuddy 选择目录默认推理等级后，刷新仍显示默认状态；未生效的 Max 设置不再误标为自定义。
 - 精简安装与接入说明，区分管理员和客户端密钥，明确兼容范围与托管更新流程；按已验收重构边界同步文档和 README 配图，不将待验收事项写成已完成。
@@ -42,13 +55,6 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 - Responses 的 JSON 和 SSE 输出会还原 function 的命名空间，历史调用回放与指定函数选择也会保留完整工具身份。
 - 保留 Qoder 用户消息及工具结果中的图片，并在完整、有序的工具结果批次之后发送工具图片。
 - 通过 function 调用桥接 Responses custom 工具，还原 custom 输出与事件并回放工具结果。格式规则仅作为描述传递，不强制执行语法约束；custom 输入事件在参数收集后发送。
-
-- OpenAI、Anthropic 与 Responses 流式转发会保留上游的类型化错误，避免无效的 Devin 请求被错误地冷却账号，同时传输中断仍可重试
-- Devin 的缓存读取与写入会显示在 OpenAI 兼容 usage 中，prompt 总数包含全部上游输入 token
-- 新增手动更新命令，提取 descriptor 并生成 Devin 聊天与账号状态 protobuf 类型；构建与 CI 直接使用已提交的 Go 文件，不下载发行包或重新生成 schema
-- Devin 会把 Codex/Desktop 带 MCP 语义的工具名（`mcp__*`、`list_mcp_*` 以及名称含 `mcp` 的工具）中性化为可逆的 `cx_tool_*` 别名，并在返回的 tool_calls 中还原原名供本地执行；若上游仍返回 MCP 配置类 `permission_denied`，会先清洗残留 MCP 文案并去掉这些工具再试，再失败则只保留核心本地工具（`exec_command` / `write_stdin` / `view_image` / `request_user_input`，最小 schema），每次 fallback 都会打日志，且不再清空全部 tools
-- Codex compact / 恢复轮次如果带了 `tool_choice` 但 tools 已被规范化为空，会忽略这个孤立的 `tool_choice`，不再报 `tool_choice requires tools`
-- 会话粘性不会再把后续模型钉到空 catalog 账号上，因此 Devin 之后的 Deepseek compact 会走 WorkBuddy，而不是误打到 Devin
 
 ## 0.5.6 - 2026-09-17
 
