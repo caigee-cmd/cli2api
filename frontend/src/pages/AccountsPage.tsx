@@ -12,6 +12,7 @@ import { AddAccountModal } from '@/components/AddAccountModal'
 import { BrandMark } from '@/components/BrandMark'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { EmptyPanel } from '@/components/ui/EmptyPanel'
+import { PageAlert } from '@/components/ui/PageAlert'
 import { FilterToggle } from '@/components/ui/FilterToggle'
 import { ACCOUNT_PAGE_SIZES, ListPager, type PageSize } from '@/components/ui/ListPager'
 import { SearchBar } from '@/components/ui/SearchBar'
@@ -21,13 +22,16 @@ import {
   deleteAccount,
   exportAccount,
   fetchAccounts,
+  fetchProviders,
   completeLoginCallback,
   fetchLoginStatus,
   loginWithPat,
   refreshAccount,
   startDeviceLogin,
   updateAccount,
+  type ProviderDescriptor,
 } from '@/api/overview'
+import { fetchSystemSettings, type SystemSettings } from '@/api/system'
 import { AccountsPageSkeleton } from '@/components/ui/PageSkeletons'
 import {
   accountState,
@@ -45,6 +49,9 @@ const ACCOUNT_REFRESH_BATCH_SIZE = 2
 
 export function AccountsPage() {
   const { t } = useI18n()
+  const [providers, setProviders] = useState<ProviderDescriptor[]>([])
+  const [settings, setSettings] = useState<SystemSettings | null>(null)
+  const [checkinError, setCheckinError] = useState('')
   const [accounts, setAccounts] = useState<AccountRow[]>([])
   const [accountsLoading, setAccountsLoading] = useState(true)
   const rows = accounts
@@ -67,7 +74,6 @@ export function AccountsPage() {
   const [pageSize, setPageSize] = useState<PageSize>(20)
   const [enabledById, setEnabledById] = useState<Record<string, boolean>>({})
   const [dropSystemById, setDropSystemById] = useState<Record<string, boolean>>({})
-  const [autoCheckinById, setAutoCheckinById] = useState<Record<string, boolean>>({})
   const [nameById, setNameById] = useState<Record<string, string>>({})
   const [inflightById, setInflightById] = useState<Record<string, number>>({})
   const [priorityById, setPriorityById] = useState<Record<string, number>>({})
@@ -102,22 +108,40 @@ export function AccountsPage() {
   useEffect(() => {
     void reloadAccounts(false).catch(() => undefined)
   }, [reloadAccounts])
+  useEffect(() => {
+    let active = true
+    void Promise.all([fetchProviders(), fetchSystemSettings()]).then(([providerData, systemData]) => {
+      if (!active) return
+      setProviders(providerData.data || [])
+      setSettings(systemData)
+    }).catch((error) => {
+      if (active) setCheckinError(error instanceof Error ? error.message : String(error))
+    })
+    return () => { active = false }
+  }, [])
+
+  function checkinPolicyFor(account: AccountRow) {
+    return providers.find((provider) => provider.id === account.provider)?.regions.find((region) => region.id === account.region)?.checkin
+  }
+
+  function checkinTimezoneFor(account: AccountRow) {
+    const timezone = checkinPolicyFor(account)?.timezone
+    return timezone === 'Local' ? settings?.timezone : timezone
+  }
   const displayRows = useMemo(() => rows.map((account) => {
     const enabled = enabledById[account.id]
     const dropSystem = dropSystemById[account.id]
-    const autoCheckin = autoCheckinById[account.id]
     const name = nameById[account.id]
     const inflight = inflightById[account.id]
     const priority = priorityById[account.id]
     let next = account
     if (enabled !== undefined) next = { ...next, enabled }
     if (dropSystem !== undefined) next = { ...next, drop_system_prompt: dropSystem }
-    if (autoCheckin !== undefined) next = { ...next, workbuddy_auto_checkin: autoCheckin }
     if (name !== undefined) next = { ...next, name }
     if (inflight !== undefined) next = { ...next, max_inflight: inflight }
     if (priority !== undefined) next = { ...next, priority }
     return next
-  }), [autoCheckinById, enabledById, dropSystemById, inflightById, nameById, priorityById, rows])
+  }), [enabledById, dropSystemById, inflightById, nameById, priorityById, rows])
 
   const availableCount = displayRows.filter(isAvailable).length
   const attentionCount = displayRows.filter((account) => account.enabled && !isAvailable(account)).length
@@ -272,29 +296,6 @@ export function AccountsPage() {
     })
   }
 
-  async function onToggleAutoCheckin(id: string, selected: boolean) {
-    setAutoCheckinById((current) => ({ ...current, [id]: selected }))
-    await run(id, 'toggle', async () => {
-      await updateAccount(id, { workbuddy_auto_checkin: selected })
-      await reloadAccounts(false)
-    })
-    setAutoCheckinById((current) => {
-      const next = { ...current }
-      delete next[id]
-      return next
-    })
-  }
-
-  async function onCheckin(id: string) {
-    await run(id, 'checkin', async () => {
-      try {
-        await checkinAccount(id)
-      } finally {
-        await reloadAccounts(false)
-      }
-    })
-  }
-
   async function onRefreshAccount(id: string) {
     setBusy({ id, kind: 'refresh' })
     setNoteById((current) => {
@@ -318,7 +319,24 @@ export function AccountsPage() {
     }
   }
 
-  async function onSaveSettings(id: string, input: { name: string; max_inflight: number; priority: number; proxy_url?: string; workbuddy_checkin_time?: string }) {
+  async function onToggleAutoCheckin(id: string, selected: boolean) {
+    await run(id, 'toggle', async () => {
+      await updateAccount(id, { auto_checkin: selected })
+      await reloadAccounts(false)
+    })
+  }
+
+  async function onCheckin(id: string) {
+    await run(id, 'checkin', async () => {
+      try {
+        await checkinAccount(id)
+      } finally {
+        await reloadAccounts(false)
+      }
+    })
+  }
+
+  async function onSaveSettings(id: string, input: { name: string; max_inflight: number; priority: number; proxy_url?: string; checkin_time?: string }) {
     if (!id) throw new Error(t('accountNameRequired'))
     setNameById((current) => ({ ...current, [id]: input.name }))
     setInflightById((current) => ({ ...current, [id]: input.max_inflight }))
@@ -351,6 +369,7 @@ export function AccountsPage() {
 
   return (
     <div className="space-y-4">
+      {checkinError ? <PageAlert title={checkinError} /> : null}
       <section data-gsap-reveal className="grid gap-3 border-b border-separator pb-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
           <div className="flex items-center gap-3">
@@ -384,6 +403,8 @@ export function AccountsPage() {
       <EditAccountModal
         key={editId ?? 'closed'}
         account={editAccount}
+        checkinDefaultTime={editAccount && checkinPolicyFor(editAccount) ? settings?.checkin_times[editAccount.provider || ''] : undefined}
+        checkinTimezone={editAccount ? checkinTimezoneFor(editAccount) : undefined}
         busy={Boolean(busy && busy.id === editId && busy.kind === 'settings')}
         t={t}
         onClose={() => setEditId(null)}
@@ -496,9 +517,11 @@ export function AccountsPage() {
             onDelete={() => setConfirmId(account.id)}
             onToggle={(selected) => void onToggle(account.id, selected)}
             onToggleDropSystem={(selected) => void onToggleDropSystem(account.id, selected)}
-            onToggleAutoCheckin={(selected) => void onToggleAutoCheckin(account.id, selected)}
-            onCheckin={account.provider === 'workbuddy' ? () => void onCheckin(account.id) : undefined}
-            onViewCheckins={account.provider === 'workbuddy' ? () => setCheckinHistoryId(account.id) : undefined}
+            checkinDefaultTime={settings?.checkin_times[account.provider || '']}
+            checkinTimezone={checkinTimezoneFor(account)}
+            onToggleAutoCheckin={checkinPolicyFor(account) ? (selected) => void onToggleAutoCheckin(account.id, selected) : undefined}
+            onCheckin={checkinPolicyFor(account) ? () => void onCheckin(account.id) : undefined}
+            onViewCheckins={checkinPolicyFor(account) ? () => setCheckinHistoryId(account.id) : undefined}
             onEdit={() => setEditId(account.id)}
             onToggleAuthPanel={() => setAuthPanelId((current) => current === account.id ? null : account.id)}
             onViewModels={() => setModelsId(account.id)}

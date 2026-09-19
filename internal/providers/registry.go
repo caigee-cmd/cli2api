@@ -36,12 +36,13 @@ type ProviderCapabilities struct {
 }
 
 type RegionDescriptor struct {
-	ID            string `json:"id"`
-	Label         string `json:"label"`
-	ChatBase      string `json:"chat_base"`
-	BillingBase   string `json:"billing_base"`
-	AuthBase      string `json:"auth_base"`
-	DefaultDomain string `json:"default_domain"`
+	ID            string         `json:"id"`
+	Label         string         `json:"label"`
+	ChatBase      string         `json:"chat_base"`
+	BillingBase   string         `json:"billing_base"`
+	AuthBase      string         `json:"auth_base"`
+	DefaultDomain string         `json:"default_domain"`
+	Checkin       *CheckinPolicy `json:"checkin,omitempty"`
 }
 
 type ProviderDescriptor struct {
@@ -105,6 +106,7 @@ var Qoder = ProviderDescriptor{
 			ID: "cn", Label: "CN", ChatBase: "https://gateway.qoder.com.cn",
 			BillingBase: "https://openapi.qoder.com.cn", AuthBase: "https://qoder.com.cn",
 			DefaultDomain: "qoder.com.cn",
+			Checkin:       &CheckinPolicy{Timezone: "Asia/Shanghai"},
 		},
 	},
 	DefaultRegion: "global",
@@ -128,11 +130,13 @@ var WorkBuddy = ProviderDescriptor{
 			ID: "cn", Label: "CN", ChatBase: "https://copilot.tencent.com",
 			BillingBase: "https://www.codebuddy.cn", AuthBase: "https://copilot.tencent.com",
 			DefaultDomain: "codebuddy.cn",
+			Checkin:       &CheckinPolicy{Timezone: "Local"},
 		},
 		{
 			ID: "global", Label: "Global", ChatBase: "https://www.workbuddy.ai",
 			BillingBase: "https://www.workbuddy.ai", AuthBase: "https://www.workbuddy.ai",
 			DefaultDomain: "workbuddy.ai",
+			Checkin:       &CheckinPolicy{Timezone: "Local"},
 		},
 	},
 	DefaultRegion: "cn",
@@ -157,6 +161,7 @@ var Trae = ProviderDescriptor{
 			ID: "cn", Label: "CN Solo", ChatBase: "https://trae-api-cn.mchost.guru",
 			BillingBase: "https://api.trae.cn", AuthBase: "https://api.trae.com.cn",
 			DefaultDomain: "trae.cn",
+			Checkin:       &CheckinPolicy{Timezone: "Asia/Shanghai"},
 		},
 	},
 	DefaultRegion: "cn",

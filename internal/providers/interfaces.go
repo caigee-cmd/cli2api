@@ -167,6 +167,7 @@ type Adapter struct {
 	Classifier   ErrorClassifier
 	ImportExport ImportExporter
 	Prober       AccountProber
+	Checkin      AccountCheckiner
 }
 
 func (a Adapter) Supports(capability string) bool {
@@ -185,6 +186,8 @@ func (a Adapter) Supports(capability string) bool {
 		return a.ImportExport != nil
 	case "prober":
 		return a.Prober != nil
+	case "checkin":
+		return a.Checkin != nil
 	default:
 		return false
 	}

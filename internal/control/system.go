@@ -4,10 +4,12 @@ import (
 	"context"
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/executor"
+	"github.com/caigee-cmd/cli2api/internal/providers"
 	"github.com/caigee-cmd/cli2api/internal/proxy"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 type System struct {
@@ -19,16 +21,19 @@ type System struct {
 	Mu                *sync.Mutex
 }
 type SystemSettingsPatch struct {
-	CrossProviderModelPool *bool   `json:"cross_provider_model_pool"`
-	RoutingStrategy        *string `json:"routing_strategy"`
-	ProxyURL               *string `json:"proxy_url"`
-	WorkBuddyCheckinTime   *string `json:"workbuddy_checkin_time"`
+	CrossProviderModelPool *bool             `json:"cross_provider_model_pool"`
+	RoutingStrategy        *string           `json:"routing_strategy"`
+	ProxyURL               *string           `json:"proxy_url"`
+	WorkBuddyCheckinTime   *string           `json:"workbuddy_checkin_time"`
+	CheckinTimes           map[string]string `json:"checkin_times"`
 }
 type SystemSettings struct {
 	CrossProviderModelPool bool                          `json:"cross_provider_model_pool"`
 	RoutingStrategy        string                        `json:"routing_strategy"`
 	ProxyURL               string                        `json:"proxy_url"`
 	WorkBuddyCheckinTime   string                        `json:"workbuddy_checkin_time"`
+	CheckinTimes           map[string]string             `json:"checkin_times"`
+	Timezone               string                        `json:"timezone"`
 	SessionAffinity        executor.SessionAffinityStats `json:"session_affinity"`
 }
 
@@ -43,6 +48,13 @@ func (h *System) Current(ctx context.Context) SystemSettings {
 		CrossProviderModelPool: h.CrossProviderPool.Load(),
 		ProxyURL:               proxy.Redact(proxyURL),
 		WorkBuddyCheckinTime:   checkin,
+		CheckinTimes:           map[string]string{},
+		Timezone:               time.Now().Format("MST -07:00"),
+	}
+	for _, descriptor := range providers.List() {
+		if descriptor.SupportsCheckin() && h.Settings != nil {
+			settings.CheckinTimes[descriptor.ID], _ = accounts.CheckinTimeDefault(ctx, h.Settings, descriptor.ID)
+		}
 	}
 	if h.Pool != nil {
 		settings.RoutingStrategy = h.Pool.RoutingStrategy()
@@ -54,7 +66,7 @@ func (h *System) Current(ctx context.Context) SystemSettings {
 }
 
 func (h *System) Patch(ctx context.Context, input SystemSettingsPatch) error {
-	if input.CrossProviderModelPool == nil && input.RoutingStrategy == nil && input.ProxyURL == nil && input.WorkBuddyCheckinTime == nil {
+	if input.CrossProviderModelPool == nil && input.RoutingStrategy == nil && input.ProxyURL == nil && input.WorkBuddyCheckinTime == nil && len(input.CheckinTimes) == 0 {
 		return operationError("invalid_request", "a system setting is required")
 	}
 	var strategy string
@@ -66,12 +78,28 @@ func (h *System) Patch(ctx context.Context, input SystemSettingsPatch) error {
 		strategy = accounts.NormalizeRoutingStrategy(rawStrategy)
 	}
 	var checkinTime string
+	checkinTimes := make(map[string]string, len(input.CheckinTimes))
+	for providerID, value := range input.CheckinTimes {
+		descriptor, found := providers.Get(providerID)
+		if !found || descriptor.ID != providerID || !descriptor.SupportsCheckin() {
+			return operationError("provider_unsupported", "check-in is not available for this provider")
+		}
+		normalized, err := accounts.NormalizeCheckinTime(value)
+		if err != nil {
+			return operationError("invalid_checkin_time", err.Error())
+		}
+		checkinTimes[providerID] = normalized
+	}
 	if input.WorkBuddyCheckinTime != nil {
 		normalized, err := accounts.NormalizeWorkBuddyCheckinTime(*input.WorkBuddyCheckinTime)
 		if err != nil || strings.TrimSpace(*input.WorkBuddyCheckinTime) == "" {
 			return operationError("invalid_workbuddy_checkin_time", "workbuddy_checkin_time must use HH:mm")
 		}
 		checkinTime = normalized
+		if value, exists := checkinTimes["workbuddy"]; exists && value != checkinTime {
+			return operationError("invalid_checkin_time", "conflicting WorkBuddy check-in times")
+		}
+		checkinTimes["workbuddy"] = checkinTime
 	}
 
 	if h.Mu != nil {
@@ -128,8 +156,8 @@ func (h *System) Patch(ctx context.Context, input SystemSettingsPatch) error {
 		}
 		h.Pool.SetRoutingStrategy(strategy)
 	}
-	if input.WorkBuddyCheckinTime != nil {
-		if err := h.Settings.SetSecret(ctx, accounts.WorkBuddyCheckinTimeSecret, checkinTime); err != nil {
+	for providerID, value := range checkinTimes {
+		if err := h.Settings.SetSecret(ctx, accounts.CheckinTimeSecret(providerID), value); err != nil {
 			return operationError("system_settings_save_failed", err.Error())
 		}
 	}

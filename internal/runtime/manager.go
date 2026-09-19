@@ -68,6 +68,7 @@ type Manager struct {
 	pool           *Pool
 	providers      *providers.Registry
 	workbuddy      WorkBuddyMaintainer
+	checkinRunning map[string]bool
 	mu             sync.Mutex
 	processes      map[string]ManagedProcess
 	restarts       map[string]int

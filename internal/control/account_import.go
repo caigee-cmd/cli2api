@@ -19,6 +19,8 @@ type AccountImportInput struct {
 	DropSystemPrompt     *bool           `json:"drop_system_prompt"`
 	WorkBuddyAutoCheckin *bool           `json:"workbuddy_auto_checkin"`
 	WorkBuddyCheckinTime string          `json:"workbuddy_checkin_time"`
+	AutoCheckin          *bool           `json:"auto_checkin"`
+	CheckinTime          string          `json:"checkin_time"`
 	ProxyURL             string          `json:"proxy_url"`
 	UserBlob             string          `json:"user_blob"`
 	MachineID            string          `json:"machine_id"`
@@ -32,6 +34,7 @@ func (a *Accounts) Import(ctx context.Context, input AccountImportInput, raw []b
 			return accounts.Account{}, operationError("invalid_user_blob", "user_blob must be base64")
 		}
 		account, err := a.ImportNative(ctx, accounts.ImportAccount{
+			AutoCheckin: input.AutoCheckin, CheckinTime: input.CheckinTime,
 			Name: input.Name, Provider: input.Provider, Region: input.Region, Enabled: input.Enabled,
 			MaxInFlight: input.MaxInFlight, Priority: input.Priority, DropSystemPrompt: input.DropSystemPrompt,
 			WorkBuddyAutoCheckin: input.WorkBuddyAutoCheckin, WorkBuddyCheckinTime: input.WorkBuddyCheckinTime, ProxyURL: input.ProxyURL,
@@ -60,6 +63,7 @@ func (a *Accounts) Import(ctx context.Context, input AccountImportInput, raw []b
 			return accounts.Account{}, operationError("invalid_credential", err.Error())
 		}
 		account, err := a.ImportCredentialPayload(ctx, accounts.CreateAccount{
+			AutoCheckin: input.AutoCheckin, CheckinTime: input.CheckinTime,
 			Name: input.Name, Provider: descriptor.ID, Region: input.Region,
 			MaxInFlight: input.MaxInFlight, Priority: input.Priority, DropSystemPrompt: input.DropSystemPrompt,
 			WorkBuddyAutoCheckin: input.WorkBuddyAutoCheckin, WorkBuddyCheckinTime: input.WorkBuddyCheckinTime, ProxyURL: input.ProxyURL,

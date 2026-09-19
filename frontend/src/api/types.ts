@@ -122,6 +122,8 @@ export type Overview = {
     drop_system_prompt?: boolean
     workbuddy_auto_checkin?: boolean
     workbuddy_checkin_time?: string
+    auto_checkin?: boolean
+    checkin_time?: string
     proxy_url?: string
     status?: string
     cooldown_until?: string | null

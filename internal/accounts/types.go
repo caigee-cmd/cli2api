@@ -32,6 +32,8 @@ type Account struct {
 	WorkBuddyAutoCheckin bool `json:"workbuddy_auto_checkin"`
 	// WorkBuddyCheckinTime is the process-local daily check-in time.
 	WorkBuddyCheckinTime string `json:"workbuddy_checkin_time"`
+	AutoCheckin          bool   `json:"auto_checkin"`
+	CheckinTime          string `json:"checkin_time"`
 	ProxyURL             string `json:"-"`
 	// LastCheckin* are display-only WorkBuddy ops results.
 	LastCheckinAt     string         `json:"last_checkin_at,omitempty"`
@@ -47,6 +49,8 @@ type Account struct {
 }
 
 type CreateAccount struct {
+	AutoCheckin          *bool
+	CheckinTime          string
 	Name                 string
 	Provider             string
 	Region               string
@@ -60,6 +64,8 @@ type CreateAccount struct {
 }
 
 type UpdateAccount struct {
+	AutoCheckin          *bool
+	CheckinTime          *string
 	Name                 string
 	Enabled              *bool
 	MaxInFlight          *int
@@ -76,6 +82,8 @@ type NativeCredential struct {
 }
 
 type ImportAccount struct {
+	AutoCheckin          *bool
+	CheckinTime          string
 	Name                 string
 	Provider             string
 	Region               string

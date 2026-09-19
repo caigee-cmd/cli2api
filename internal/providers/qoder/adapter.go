@@ -85,10 +85,11 @@ func (c *Client) Adapter() providers.Adapter {
 	// items must not enter refreshInProcess just because an Adapter exists.
 	// Callers that need those methods use the Client directly.
 	return providers.Adapter{
-		ID:     "qoder",
-		Login:  c,
-		Chat:   c,
-		Models: c,
+		ID:      "qoder",
+		Login:   c,
+		Chat:    c,
+		Models:  c,
+		Checkin: c,
 	}
 }
 

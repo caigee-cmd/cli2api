@@ -1014,6 +1014,7 @@ func (c *Client) Adapter() providers.Adapter {
 		Models:     c,
 		Classifier: classifier{},
 		Prober:     c,
+		Checkin:    c,
 	}
 }
 

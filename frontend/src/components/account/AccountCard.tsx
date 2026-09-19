@@ -51,6 +51,8 @@ type Props = {
   onDelete: () => void
   onToggle: (selected: boolean) => void
   onToggleDropSystem: (selected: boolean) => void
+  checkinDefaultTime?: string
+  checkinTimezone?: string
   onToggleAutoCheckin?: (selected: boolean) => void
   onCheckin?: () => void
   onViewCheckins?: () => void
@@ -73,17 +75,6 @@ function stateCopyFor(state: ReturnType<typeof accountState>, cooldown: string, 
   return t('needQoderLogin')
 }
 
-function checkinStatusFor(account: AccountRow, t: Translate) {
-  if (account.last_checkin_status === 'error') return { label: t('checkinFailed'), state: 'warn' as const }
-  if (!account.last_checkin_at) return { label: t('checkinPending'), state: undefined }
-  const date = new Date(account.last_checkin_at)
-  const now = new Date()
-  if (!Number.isNaN(date.getTime()) && date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth() && date.getDate() === now.getDate()) {
-    return { label: t('checkinToday'), state: 'ok' as const }
-  }
-  return { label: t('checkinPending'), state: undefined }
-}
-
 export function AccountCard({
   account,
   busyKind,
@@ -103,6 +94,8 @@ export function AccountCard({
   onDelete,
   onToggle,
   onToggleDropSystem,
+  checkinDefaultTime,
+  checkinTimezone,
   onToggleAutoCheckin,
   onCheckin,
   onViewCheckins,
@@ -138,7 +131,8 @@ export function AccountCard({
   const lastError = account.last_error || account.lastError
   const errorKind = account.last_error_kind || account.kind
   const provider = accountProviderLabel(account.provider, account.region, t)
-  const checkin = checkinStatusFor(account, t)
+  const checkinStatus = account.last_checkin_status
+  const checkinLabel = checkinStatus === 'success' ? 'checkinRecordSuccess' : checkinStatus === 'already' ? 'checkinRecordAlready' : checkinStatus === 'skipped' ? 'checkinRecordSkipped' : checkinStatus === 'error' ? 'checkinRecordFailed' : 'lastCheckinNone'
 
   useLayoutEffect(() => {
     const chip = chipRef.current
@@ -316,27 +310,27 @@ export function AccountCard({
                 onChange={onToggleDropSystem}
               />
             </div>
+          </div>
+        ) : null}
+
+        {onCheckin ? (
+          <div className="grid gap-1.5 rounded-2xl border border-border bg-surface-secondary/20 p-2">
             <div className="flex items-center justify-between gap-3 text-[11px]">
               <Tooltip>
-                <Tooltip.Trigger>
-                  <span className="font-medium">{t('autoCheckin')} · {account.workbuddy_checkin_time || '09:00'}</span>
-                </Tooltip.Trigger>
-                <Tooltip.Content>{t('autoCheckinHint')}</Tooltip.Content>
+                <Tooltip.Trigger><span className="font-medium">{t('autoCheckin')} · {account.checkin_time || checkinDefaultTime}</span></Tooltip.Trigger>
+                <Tooltip.Content>{account.checkin_time ? t('checkinCustom') : t('checkinInherit')} · {checkinTimezone}</Tooltip.Content>
               </Tooltip>
-              <CompactSwitch
-                isSelected={Boolean(account.workbuddy_auto_checkin)}
-                isDisabled={busyKind === 'toggle' || !onToggleAutoCheckin}
-                ariaLabel={t('autoCheckin')}
-                onChange={(selected) => onToggleAutoCheckin?.(selected)}
-              />
+              <CompactSwitch isSelected={Boolean(account.auto_checkin)} isDisabled={Boolean(busyKind)} ariaLabel={t('autoCheckin')} onChange={(selected) => onToggleAutoCheckin?.(selected)} />
             </div>
-            <div className="flex items-center gap-2 text-[11px]">
-              <div className="flex min-w-0 items-center gap-2">
-                <span className="status-dot shrink-0" data-state={checkin.state} />
-                <span className="font-medium">{t('checkinStatus')}</span>
-                <span className="truncate text-foreground/65">{checkin.label}</span>
-              </div>
-            </div>
+            <Tooltip>
+              <Tooltip.Trigger>
+                <span className="flex items-center gap-2 text-[11px]">
+                  <span className="font-medium">{t('lastCheckin')}</span>
+                  <span className={checkinStatus === 'error' ? 'text-danger' : 'text-muted'}>{t(checkinLabel)}</span>
+                </span>
+              </Tooltip.Trigger>
+              <Tooltip.Content>{account.last_checkin_at ? new Date(account.last_checkin_at).toLocaleString() : t('lastCheckinNone')}{account.last_checkin_msg ? ` · ${account.last_checkin_msg}` : ''}</Tooltip.Content>
+            </Tooltip>
           </div>
         ) : null}
 
@@ -433,7 +427,7 @@ export function AccountCard({
         {onCheckin ? (
           <Tooltip>
             <Tooltip.Trigger>
-              <Button isIconOnly size="sm" variant="ghost" isDisabled={!account.enabled} isPending={busyKind === 'checkin'} onPress={onCheckin} aria-label={t('checkinNow')}>
+              <Button isIconOnly size="sm" variant="ghost" isDisabled={!account.enabled || Boolean(busyKind)} isPending={busyKind === 'checkin'} onPress={onCheckin} aria-label={t('checkinNow')}>
                 <CalendarCheck size={15} />
               </Button>
             </Tooltip.Trigger>

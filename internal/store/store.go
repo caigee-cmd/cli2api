@@ -102,6 +102,26 @@ func (s *Store) Create(ctx context.Context, input accounts.CreateAccount) (accou
 	if err != nil {
 		return accounts.Account{}, err
 	}
+	override := strings.TrimSpace(input.CheckinTime)
+	genericAutoCheckin := false
+	if descriptor.ID == "workbuddy" {
+		genericAutoCheckin = autoCheckin
+		if override == "" {
+			override = strings.TrimSpace(input.WorkBuddyCheckinTime)
+		}
+	}
+	if input.AutoCheckin != nil {
+		genericAutoCheckin = *input.AutoCheckin
+	}
+	if err := accounts.ValidateCheckinSettings(descriptor.ID, region.ID, genericAutoCheckin, override); err != nil {
+		return accounts.Account{}, err
+	}
+	if descriptor.ID == "workbuddy" {
+		autoCheckin = genericAutoCheckin
+		if override != "" {
+			checkinTime = override
+		}
+	}
 	account := accounts.Account{
 		ID:                   newAccountID(),
 		Name:                 name,
@@ -114,6 +134,8 @@ func (s *Store) Create(ctx context.Context, input accounts.CreateAccount) (accou
 		DropSystemPrompt:     dropSystemPrompt,
 		WorkBuddyAutoCheckin: autoCheckin,
 		WorkBuddyCheckinTime: checkinTime,
+		AutoCheckin:          genericAutoCheckin,
+		CheckinTime:          override,
 		ProxyURL:             strings.TrimSpace(input.ProxyURL),
 		Status:               "offline",
 		CreatedAt:            now,
@@ -122,12 +144,13 @@ func (s *Store) Create(ctx context.Context, input accounts.CreateAccount) (accou
 	_, err = s.db.ExecContext(ctx, `
 	INSERT INTO accounts (
 	  id, name, provider, provider_region, auth_type, enabled, max_inflight, priority, drop_system_prompt,
-	  workbuddy_auto_checkin, workbuddy_checkin_time, proxy_url, status, created_at, updated_at
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	  workbuddy_auto_checkin, workbuddy_checkin_time, proxy_url, status, created_at, updated_at, auto_checkin, checkin_time
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		account.ID, account.Name, account.Provider, account.ProviderRegion, account.AuthType,
 		account.Enabled, account.MaxInFlight, account.Priority, account.DropSystemPrompt,
 		account.WorkBuddyAutoCheckin, account.WorkBuddyCheckinTime, account.ProxyURL, account.Status,
 		formatTime(account.CreatedAt), formatTime(account.UpdatedAt),
+		account.AutoCheckin, account.CheckinTime,
 	)
 	if err != nil {
 		return accounts.Account{}, fmt.Errorf("create account: %w", err)
@@ -139,7 +162,7 @@ func (s *Store) Get(ctx context.Context, id string) (accounts.Account, error) {
 	row := s.db.QueryRowContext(ctx, `
 	SELECT id, name, provider, provider_region, remote_uid, auth_type, enabled, max_inflight, priority,
 	       drop_system_prompt, workbuddy_auto_checkin, workbuddy_checkin_time, proxy_url, last_checkin_at, last_checkin_msg, last_checkin_status,
-	       status, last_error, last_error_kind, cooldown_until, quota_json, created_at, updated_at
+	       status, last_error, last_error_kind, cooldown_until, quota_json, created_at, updated_at, auto_checkin, checkin_time
 	FROM accounts WHERE id = ?`, strings.TrimSpace(id))
 	account, err := scanAccount(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -163,6 +186,7 @@ func scanAccount(row rowScanner) (accounts.Account, error) {
 		&account.AuthType, &account.Enabled, &account.MaxInFlight, &account.Priority,
 		&account.DropSystemPrompt, &account.WorkBuddyAutoCheckin, &account.WorkBuddyCheckinTime, &account.ProxyURL, &account.LastCheckinAt, &account.LastCheckinMsg, &account.LastCheckinStatus,
 		&account.Status, &account.LastError, &account.LastErrorKind, &cooldown, &quotaJSON, &created, &updated,
+		&account.AutoCheckin, &account.CheckinTime,
 	)
 	if err != nil {
 		return accounts.Account{}, err
@@ -212,7 +236,7 @@ func (s *Store) List(ctx context.Context) ([]accounts.Account, error) {
 	rows, err := s.db.QueryContext(ctx, `
 	SELECT id, name, provider, provider_region, remote_uid, auth_type, enabled, max_inflight, priority,
 	       drop_system_prompt, workbuddy_auto_checkin, workbuddy_checkin_time, proxy_url, last_checkin_at, last_checkin_msg, last_checkin_status,
-	       status, last_error, last_error_kind, cooldown_until, quota_json, created_at, updated_at
+	       status, last_error, last_error_kind, cooldown_until, quota_json, created_at, updated_at, auto_checkin, checkin_time
 	FROM accounts ORDER BY created_at, id`)
 	if err != nil {
 		return nil, fmt.Errorf("list accounts: %w", err)
@@ -251,9 +275,31 @@ func (s *Store) Update(ctx context.Context, id string, input accounts.UpdateAcco
 	}
 	if input.WorkBuddyAutoCheckin != nil {
 		account.WorkBuddyAutoCheckin = *input.WorkBuddyAutoCheckin
+		if account.Provider == "workbuddy" {
+			account.AutoCheckin = *input.WorkBuddyAutoCheckin
+		}
 	}
 	if input.WorkBuddyCheckinTime != nil {
 		account.WorkBuddyCheckinTime, err = s.resolveWorkBuddyCheckinTime(ctx, *input.WorkBuddyCheckinTime)
+		if err != nil {
+			return err
+		}
+		if account.Provider == "workbuddy" {
+			account.CheckinTime = strings.TrimSpace(*input.WorkBuddyCheckinTime)
+		}
+	}
+	if input.AutoCheckin != nil {
+		account.AutoCheckin = *input.AutoCheckin
+	}
+	if input.CheckinTime != nil {
+		account.CheckinTime = strings.TrimSpace(*input.CheckinTime)
+	}
+	if err := accounts.ValidateCheckinSettings(account.Provider, account.ProviderRegion, account.AutoCheckin, account.CheckinTime); err != nil {
+		return err
+	}
+	if account.Provider == "workbuddy" {
+		account.WorkBuddyAutoCheckin = account.AutoCheckin
+		account.WorkBuddyCheckinTime, err = accounts.ResolveCheckinTime(ctx, s, account)
 		if err != nil {
 			return err
 		}
@@ -268,9 +314,9 @@ func (s *Store) Update(ctx context.Context, id string, input accounts.UpdateAcco
 	account.UpdatedAt = time.Now().UTC()
 	result, err := s.db.ExecContext(ctx, `
 	UPDATE accounts SET name = ?, enabled = ?, max_inflight = ?, priority = ?, drop_system_prompt = ?,
-	                    workbuddy_auto_checkin = ?, workbuddy_checkin_time = ?, proxy_url = ?, updated_at = ?
+	                    workbuddy_auto_checkin = ?, workbuddy_checkin_time = ?, proxy_url = ?, updated_at = ?, auto_checkin = ?, checkin_time = ?
 	WHERE id = ?`, account.Name, account.Enabled, account.MaxInFlight, account.Priority, account.DropSystemPrompt,
-		account.WorkBuddyAutoCheckin, account.WorkBuddyCheckinTime, account.ProxyURL, formatTime(account.UpdatedAt), account.ID)
+		account.WorkBuddyAutoCheckin, account.WorkBuddyCheckinTime, account.ProxyURL, formatTime(account.UpdatedAt), account.AutoCheckin, account.CheckinTime, account.ID)
 	if err != nil {
 		return fmt.Errorf("update account: %w", err)
 	}

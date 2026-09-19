@@ -18,7 +18,6 @@ import {
   startDeviceLogin,
   type ProviderDescriptor,
 } from '@/api/overview'
-import { fetchSystemSettings } from '@/api/system'
 
 type Props = {
   isOpen: boolean
@@ -134,9 +133,6 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
   const [maxInFlight, setMaxInFlight] = useState(4)
   const [priority, setPriority] = useState(50)
   const [dropSystemPrompt, setDropSystemPrompt] = useState(true)
-  const [autoCheckin, setAutoCheckin] = useState(false)
-  const [defaultCheckinTime, setDefaultCheckinTime] = useState('09:00')
-  const [autoCheckinTime, setAutoCheckinTime] = useState('09:00')
   const [proxyUrl, setProxyUrl] = useState('')
   const [pat, setPat] = useState('')
   const [json, setJson] = useState('')
@@ -165,18 +161,12 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
     setTypesLoading(true)
     setProviderOptions([])
     setAccountType('')
-    void Promise.all([
-      loadProviderOptions(),
-      fetchSystemSettings().catch(() => null),
-    ])
-      .then(([options, settings]) => {
+    void loadProviderOptions()
+      .then((options) => {
         if (cancelled) return
         setProviderOptions(options)
         setAccountType(options[0]?.id || '')
         setTab('browser')
-        const fallback = settings?.workbuddy_checkin_time || '09:00'
-        setDefaultCheckinTime(fallback)
-        setAutoCheckinTime(fallback)
       })
       .finally(() => {
         if (!cancelled) setTypesLoading(false)
@@ -191,7 +181,6 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
   const showPatTab = activeOption?.descriptor.capabilities?.pat_login !== false
   const showImportTab = activeOption?.descriptor.capabilities?.import_export !== false
   const showDropSystem = activeOption?.provider === 'workbuddy'
-  const showAutoCheckin = activeOption?.provider === 'workbuddy'
   const showCallbackPaste = activeOption?.provider === 'trae' || activeOption?.provider === 'devin'
   const busy = phase === 'busy' || phase === 'polling'
   const settingsLocked = Boolean(createdId.current) || busy
@@ -218,8 +207,6 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
       max_inflight: parsedMaxInFlight(),
       priority: parsedPriority(),
       drop_system_prompt: showDropSystem ? dropSystemPrompt : true,
-      workbuddy_auto_checkin: showAutoCheckin ? autoCheckin : false,
-      workbuddy_checkin_time: showAutoCheckin ? autoCheckinTime : undefined,
       proxy_url: proxyUrl.trim(),
     }
   }
@@ -235,8 +222,6 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
     setMaxInFlight(4)
     setPriority(50)
     setDropSystemPrompt(true)
-    setAutoCheckin(false)
-    setAutoCheckinTime(defaultCheckinTime)
     setProxyUrl('')
     setPat('')
     setJson('')
@@ -386,8 +371,6 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
         max_inflight: options.max_inflight,
         priority: options.priority,
         drop_system_prompt: options.drop_system_prompt,
-        workbuddy_auto_checkin: options.workbuddy_auto_checkin,
-        workbuddy_checkin_time: options.workbuddy_checkin_time,
       })
       setPhase('done')
       setMessage(t('accountImported'))
@@ -592,33 +575,6 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                               ariaLabel={t('dropSystemPrompt')}
                               onChange={setDropSystemPrompt}
                             />
-                          </div>
-                        ) : null}
-                        {showAutoCheckin ? (
-                          <div className="space-y-3 border-t border-separator pt-3">
-                            <div className="flex items-center justify-between gap-3">
-                              <div className="min-w-0">
-                                <div className="text-sm font-medium text-muted">{t('autoCheckin')}</div>
-                                <p className="mt-0.5 text-xs leading-5 text-muted">{t('autoCheckinCreateHint')}</p>
-                              </div>
-                              <CompactSwitch
-                                isSelected={autoCheckin}
-                                isDisabled={settingsLocked}
-                                ariaLabel={t('autoCheckin')}
-                                onChange={setAutoCheckin}
-                              />
-                            </div>
-                            {autoCheckin ? (
-                              <FormRow label={t('autoCheckinTime')} hint={t('autoCheckinTimeHint')}>
-                                <Input
-                                  type="time"
-                                  value={autoCheckinTime}
-                                  onChange={(event) => setAutoCheckinTime(event.target.value || defaultCheckinTime)}
-                                  aria-label={t('autoCheckinTime')}
-                                  disabled={settingsLocked}
-                                />
-                              </FormRow>
-                            ) : null}
                           </div>
                         ) : null}
                       </div>

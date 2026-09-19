@@ -117,7 +117,7 @@ func New(cfg config.Config) *App {
 	recorder := applogs.NewRequestRecorder(store)
 	stopLogs := make(chan struct{})
 	go recorder.PurgeLoop(stopLogs, time.Hour)
-	go manager.RunWorkBuddyMaintenanceLoop(stopLogs)
+	go manager.RunMaintenanceLoop(stopLogs)
 	checker := appupdate.NewChecker(buildinfo.Version, appupdate.NewGitHubReleaseSource("caigee-cmd/cli2api", cfg.UpdateGitHubToken))
 	var agent appupdate.Agent = appupdate.NewUnixAgentClient(cfg.UpdateSocketPath)
 	if strings.TrimSpace(cfg.UpdateAgentURL) != "" {
