@@ -17,7 +17,6 @@ import {
 import gsap from 'gsap'
 import { ProviderMark } from '@/components/ProviderMark'
 import { CompactSwitch } from '@/components/ui/CompactSwitch'
-import { AccountCardSkeleton } from '@/components/ui/PageSkeletons'
 import { QuotaMeter } from '@/components/account/QuotaMeter'
 import { RuntimeMeter } from '@/components/account/RuntimeMeter'
 import {
@@ -179,16 +178,10 @@ export function AccountCard({
     return () => context.revert()
   }, [authPanelOpen])
 
-  // Refreshing replaces the whole card with a skeleton so stale quota and
-  // status are never left on screen while the account is re-probed.
-  if (busyKind === 'refresh') {
-    return (
-      <div data-gsap-reveal className="min-h-[280px]" aria-busy="true" aria-label={t('refreshingAccount')}>
-        <AccountCardSkeleton />
-      </div>
-    )
-  }
-
+  // Refresh keeps the existing card mounted so the layout does not jump.
+  // The refresh button spinner (busyKind === 'refresh') is the only visual
+  // indicator; stale quota / status stay on screen until the new payload
+  // arrives. Cards only mount a skeleton on the very first load.
   return (
     <Card
       data-gsap-reveal
@@ -335,13 +328,23 @@ export function AccountCard({
         ) : null}
 
         {lastError ? (
-          <div className="flex gap-2 rounded-2xl border border-danger/25 bg-danger/5 p-2 text-xs leading-5 text-danger">
-            <WarningCircle size={14} className="mt-0.5 shrink-0" />
-            <div className="min-w-0">
-              {errorKind ? <div className="mono mb-0.5 text-[10px] opacity-75">{errorKind}</div> : null}
-              <p className="break-words">{lastError}</p>
-            </div>
-          </div>
+          <Tooltip>
+            <Tooltip.Trigger>
+              <div className="flex w-full cursor-help gap-2 rounded-2xl border border-danger/25 bg-danger/5 p-2 text-left text-xs leading-5 text-danger">
+                <WarningCircle size={14} className="mt-0.5 shrink-0" />
+                <div className="min-w-0 flex-1">
+                  {errorKind ? <div className="mono mb-0.5 truncate text-[10px] opacity-75">{errorKind}</div> : null}
+                  <p className="break-words line-clamp-3">{lastError}</p>
+                </div>
+              </div>
+            </Tooltip.Trigger>
+            <Tooltip.Content>
+              <div className="max-w-md whitespace-pre-wrap break-words">
+                {errorKind ? <div className="mono mb-1 text-[10px] opacity-75">{errorKind}</div> : null}
+                {lastError}
+              </div>
+            </Tooltip.Content>
+          </Tooltip>
         ) : null}
       </Card.Content>
 
@@ -393,7 +396,7 @@ export function AccountCard({
         {onRefresh ? (
           <Tooltip>
             <Tooltip.Trigger>
-              <Button isIconOnly size="sm" variant="secondary" onPress={onRefresh} aria-label={t('refreshAccount')}>
+              <Button isIconOnly size="sm" variant="secondary" isPending={busyKind === 'refresh'} onPress={onRefresh} aria-label={t('refreshAccount')}>
                 <ArrowClockwise size={15} />
               </Button>
             </Tooltip.Trigger>
