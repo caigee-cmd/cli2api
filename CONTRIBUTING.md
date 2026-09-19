@@ -48,11 +48,15 @@ features separately from pending live-account, managed-update, and release accep
 
 For an end-to-end run, use the Docker Compose flow in `deploy/README.md`.
 
-User-facing changes should add matching bullets to `CHANGELOG.md` under
-`## Unreleased` in both `### English` and `### 中文`. The release workflow
-copies those notes into the GitHub Release body. Do not create version tags
-by hand. The workflow defaults to the next patch; choose `minor` or `major`
-when the published behavior warrants a series bump.
+User-facing changes should add one bilingual Markdown file under
+`changelog/unreleased/` (`### English` and `### 中文`, matching bullet counts).
+Skip that directory for tests, refactors, CI, and docs-only work. File naming
+and shape are in `changelog/unreleased/README.md`. Do not edit `CHANGELOG.md`
+for upcoming notes; it is the published archive. The release workflow concatenates
+the unreleased files into the GitHub Release body, then opens a pull request to
+archive them. Do not create version tags by hand. The workflow defaults to the
+next patch; choose `minor` or `major` when the published behavior warrants a
+series bump.
 
 ## Rules
 

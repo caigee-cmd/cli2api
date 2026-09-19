@@ -316,7 +316,7 @@ jobs:
             echo
             echo "- Image: \`${{ needs.prepare.outputs.image }}:$RELEASE_TAG\`"
             echo "- Updater assets: 6 binaries + SHA256 manifest"
-            echo "- Release notes: bilingual changelog from CHANGELOG.md"
+            echo "- Release notes: bilingual fragments from changelog/unreleased/"
           } >> "$GITHUB_STEP_SUMMARY"
 
   aliases:
@@ -349,6 +349,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -358,21 +359,38 @@ jobs:
         with:
           name: release-notes-${{ needs.prepare.outputs.tag }}
           path: .
-      - name: Freeze published changelog
+      - name: Open changelog archive pull request
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ needs.prepare.outputs.sha }}
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
           RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           set -euo pipefail
-          python3 scripts/release-notes.py freeze "$RELEASE_VERSION" --date "$(date -u +%F)" --notes-file release-notes.md
-          if git diff --quiet -- CHANGELOG.md; then
-            echo "CHANGELOG.md already contains $RELEASE_VERSION"
+          python3 scripts/release-notes.py consume "$RELEASE_VERSION" \
+            --date "$(date -u +%F)" \
+            --notes-file release-notes.md \
+            --release-sha "$RELEASE_SHA"
+          if git diff --quiet -- CHANGELOG.md changelog/unreleased; then
+            echo "CHANGELOG.md already contains $RELEASE_VERSION and shipped fragments are gone"
             exit 0
           fi
+          branch="docs/archive-changelog-${RELEASE_TAG}"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add CHANGELOG.md
-          git commit -m "docs: freeze changelog for $RELEASE_TAG"
-          git pull --rebase origin main
-          git push origin HEAD:main
+          git checkout -B "$branch"
+          git add -A -- CHANGELOG.md changelog/unreleased
+          git commit -m "docs: archive changelog for $RELEASE_TAG"
+          git push --force-with-lease origin "HEAD:refs/heads/$branch"
+          if [[ "$(gh pr list --head "$branch" --base main --json number --jq 'length')" == "0" ]]; then
+            gh pr create --head "$branch" --base main \
+              --title "docs: archive changelog for $RELEASE_TAG" \
+              --body "$(printf '%s\n' \
+                "Archive the notes published in ${RELEASE_TAG}." \
+                "" \
+                "This PR copies the GitHub Release body under \`## ${RELEASE_VERSION}\` and deletes only the \`changelog/unreleased/\` files that existed at \`${RELEASE_SHA}\`. Fragments added after the tag stay unpublished." \
+                "" \
+                "Merge this PR. Do not re-run \`release.yml\` to archive notes — a second run would mint the next patch." \
+                "" \
+                "If required checks do not start (the Actions token cannot retrigger workflows), push an empty commit to \`${branch}\` from a local checkout.")"
+          fi

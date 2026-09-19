@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Render bilingual GitHub release notes from CHANGELOG.md."""
+"""Render bilingual GitHub release notes from changelog fragments."""
 
 from __future__ import annotations
 
 import argparse
 import datetime as dt
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -13,6 +14,7 @@ H2_RE = re.compile(r"^##\s+(.+?)\s*$")
 H3_RE = re.compile(r"^###\s+(.+?)\s*$")
 BULLET_RE = re.compile(r"^[-*]\s+\S")
 VERSION_RE = re.compile(r"^v?(\d+\.\d+\.\d+)(?:\s+-\s+\d{4}-\d{2}-\d{2})?$", re.IGNORECASE)
+FRAGMENT_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*\.md$")
 
 LANG_ALIASES = {
     "english": "English",
@@ -24,6 +26,9 @@ LANG_ALIASES = {
     "zh-cn": "中文",
     "zh-hans": "中文",
 }
+
+DEFAULT_CHANGELOG = Path("CHANGELOG.md")
+DEFAULT_UNRELEASED = Path("changelog/unreleased")
 
 
 class ChangelogError(Exception):
@@ -140,13 +145,6 @@ def require_notes(blocks: dict[str, str], version_label: str) -> dict[str, str]:
     return notes
 
 
-def optional_notes(blocks: dict[str, str], version_label: str) -> dict[str, str] | None:
-    present = [lang for lang in ("English", "中文") if has_bullets(blocks.get(lang, ""))]
-    if not present:
-        return None
-    return require_notes(blocks, version_label)
-
-
 def render_notes(notes: dict[str, str]) -> str:
     return (
         "\n\n".join(
@@ -178,44 +176,31 @@ def bullets(text: str) -> list[str]:
     return items
 
 
-def drop_bullets(text: str, removed: set[str]) -> str:
-    kept: list[str] = []
-    for line in text.splitlines():
-        stripped = line.strip()
-        if BULLET_RE.match(stripped):
-            item = re.sub(r"^[-*]\s+", "", stripped)
-            if item in removed:
-                continue
-        kept.append(line.rstrip())
-    return "\n".join(kept).strip()
+CHANGELOG_INTRO = (
+    "# Changelog\n"
+    "\n"
+    "Published user-facing notes for GitHub Releases and the console update page.\n"
+    "Write upcoming notes as bilingual files in `changelog/unreleased/`.\n"
+)
 
 
-def render_changelog(unreleased: dict[str, str], versions: list[tuple[str, dict[str, str]]]) -> str:
-    chunks = [
-        "# Changelog",
-        "",
-        "User-facing notes for GitHub Releases and the console update page.",
-        "Write each change in both `### English` and `### 中文` under `## Unreleased`.",
-        "",
-        "## Unreleased",
-        "",
-    ]
+def render_version_section(title: str, notes: dict[str, str]) -> str:
+    chunks = [f"## {title}", ""]
     for lang in ("English", "中文"):
         chunks.append(f"### {lang}")
         chunks.append("")
-        body = unreleased.get(lang, "").strip()
-        if body:
-            chunks.append(body)
-            chunks.append("")
-    for title, notes in versions:
-        chunks.append(f"## {title}")
+        chunks.append(notes[lang].strip())
         chunks.append("")
-        for lang in ("English", "中文"):
-            chunks.append(f"### {lang}")
-            chunks.append("")
-            chunks.append(notes[lang].strip())
-            chunks.append("")
-    return "\n".join(chunks).rstrip() + "\n"
+    return "\n".join(chunks)
+
+
+def insert_version_section(original: str, title: str, notes: dict[str, str]) -> str:
+    section = render_version_section(title, notes).rstrip() + "\n"
+    match = re.search(r"^##\s+", original, re.MULTILINE)
+    if match is None:
+        return original.rstrip() + "\n\n" + section
+    start = match.start()
+    return original[:start].rstrip() + "\n\n" + section + "\n" + original[start:]
 
 
 def load_changelog(path: Path) -> list[tuple[str, list[str]]]:
@@ -224,132 +209,185 @@ def load_changelog(path: Path) -> list[tuple[str, list[str]]]:
     return parse_h2(path.read_text(encoding="utf-8"))
 
 
-def notes_from_section(body: list[str], label: str, required: bool) -> dict[str, str] | None:
+def notes_from_section(body: list[str], label: str) -> dict[str, str]:
     blocks = language_blocks(body)
-    for lang in ("English", "中文"):
-        if lang not in blocks:
-            raise ChangelogError(f"{label} is missing a {lang} heading")
-    if required:
-        return require_notes(blocks, label)
-    return optional_notes(blocks, label)
+    return require_notes(blocks, label)
 
 
-def extract(path: Path, version: str) -> str:
-    title, body = find_section(load_changelog(path), version)
-    label = "Unreleased" if section_heading_version(title) == "unreleased" else title
-    return render_notes(require_notes(language_blocks(body), label))
+def fragment_paths(unreleased_dir: Path) -> list[Path]:
+    if not unreleased_dir.exists():
+        return []
+    if not unreleased_dir.is_dir():
+        raise ChangelogError(f"{unreleased_dir} is not a directory")
+    paths: list[Path] = []
+    for path in sorted(unreleased_dir.iterdir(), key=lambda item: item.name):
+        if path.name.lower() in {".gitkeep", "readme.md"} or path.name.startswith("."):
+            continue
+        if not path.is_file():
+            raise ChangelogError(f"unexpected path in unreleased changelog: {path.name}")
+        if not FRAGMENT_NAME_RE.fullmatch(path.name):
+            raise ChangelogError(
+                f"invalid changelog fragment name {path.name!r}; "
+                "use lowercase ASCII kebab-case like check-in-scheduler.md"
+            )
+        paths.append(path)
+    return paths
 
 
-def extract_for_release(path: Path, version: str) -> str:
-    sections = load_changelog(path)
-    _, unreleased_body = find_section(sections, "unreleased")
-    unreleased = notes_from_section(unreleased_body, "Unreleased", required=False)
-    if unreleased:
-        return render_notes(unreleased)
-
+def load_fragment(path: Path) -> dict[str, str]:
+    text = path.read_text(encoding="utf-8")
+    if H2_RE.match(text.lstrip().splitlines()[0] if text.strip() else ""):
+        raise ChangelogError(f"{path.name} must start with ### English and ### 中文, not a ## heading")
     try:
-        title, body = find_section(sections, version)
+        return require_notes(language_blocks(text.splitlines()), path.name)
+    except ChangelogError as exc:
+        raise ChangelogError(f"{path.name}: {exc}") from exc
+
+
+def load_fragments(unreleased_dir: Path) -> list[tuple[str, dict[str, str]]]:
+    loaded: list[tuple[str, dict[str, str]]] = []
+    for path in fragment_paths(unreleased_dir):
+        loaded.append((path.name, load_fragment(path)))
+    return loaded
+
+
+def merge_notes(items: list[dict[str, str]]) -> dict[str, str]:
+    merged: dict[str, str] = {}
+    for lang in ("English", "中文"):
+        parts = [notes[lang].strip() for notes in items if notes[lang].strip()]
+        merged[lang] = "\n".join(parts).strip()
+    return merged
+
+
+def extract_unreleased(unreleased_dir: Path) -> str:
+    fragments = load_fragments(unreleased_dir)
+    if not fragments:
+        raise ChangelogError("changelog/unreleased/ has no bilingual fragment files")
+    return render_notes(merge_notes([notes for _, notes in fragments]))
+
+
+def extract(changelog: Path, unreleased_dir: Path, version: str) -> str:
+    wanted = normalize_version(version)
+    if wanted == "unreleased":
+        return extract_unreleased(unreleased_dir)
+    title, body = find_section(load_changelog(changelog), wanted)
+    return render_notes(notes_from_section(body, title))
+
+
+def extract_for_release(changelog: Path, unreleased_dir: Path, version: str) -> str:
+    fragments = load_fragments(unreleased_dir)
+    if fragments:
+        return render_notes(merge_notes([notes for _, notes in fragments]))
+
+    wanted = normalize_version(version)
+    try:
+        title, body = find_section(load_changelog(changelog), wanted)
     except ChangelogError as exc:
         raise ChangelogError(
-            f"write bilingual notes in ## Unreleased before releasing {normalize_version(version)}"
+            f"add bilingual files in changelog/unreleased/ before releasing {wanted}"
         ) from exc
-    return render_notes(require_notes(language_blocks(body), title))
+    return render_notes(notes_from_section(body, title))
 
 
-def validate(path: Path) -> None:
+def validate_changelog(path: Path) -> list[tuple[str, dict[str, str]]]:
     sections = load_changelog(path)
     if not sections:
         raise ChangelogError("CHANGELOG.md has no version sections")
-    if section_heading_version(sections[0][0]) != "unreleased":
-        raise ChangelogError("CHANGELOG.md must start with ## Unreleased")
 
+    versions: list[tuple[str, dict[str, str]]] = []
     seen: set[str] = set()
     for title, body in sections:
         heading = section_heading_version(title)
         if heading is None:
             raise ChangelogError(f"unsupported changelog heading {title!r}")
+        if heading == "unreleased":
+            raise ChangelogError(
+                "CHANGELOG.md must not contain ## Unreleased; "
+                "write upcoming notes in changelog/unreleased/"
+            )
         if heading in seen:
             raise ChangelogError(f"duplicate changelog section {title!r}")
         seen.add(heading)
-        blocks = language_blocks(body)
-        for lang in ("English", "中文"):
-            if lang not in blocks:
-                raise ChangelogError(f"{title} is missing a {lang} heading")
-        if heading == "unreleased":
-            leftover = optional_notes(blocks, title)
-            if leftover is None and any(has_bullets(blocks[lang]) for lang in ("English", "中文")):
-                raise ChangelogError("Unreleased English and 中文 must stay in sync")
+        versions.append((title, notes_from_section(body, heading)))
+    return versions
+
+
+def validate(changelog: Path, unreleased_dir: Path) -> None:
+    validate_changelog(changelog)
+    load_fragments(unreleased_dir)
+
+
+def fragment_names_at_sha(sha: str) -> list[str]:
+    result = subprocess.run(
+        ["git", "ls-tree", "-r", "--name-only", sha, "--", "changelog/unreleased"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip() or f"exit {result.returncode}"
+        raise ChangelogError(f"could not list changelog fragments at {sha}: {detail}")
+    names: list[str] = []
+    for line in result.stdout.splitlines():
+        path = Path(line.strip())
+        if path.parent != Path("changelog/unreleased"):
             continue
-        require_notes(blocks, heading)
+        if path.name.lower() in {".gitkeep", "readme.md"}:
+            continue
+        if path.suffix == ".md" and FRAGMENT_NAME_RE.fullmatch(path.name):
+            names.append(path.name)
+    return names
 
 
-def freeze(path: Path, version: str, date: str, notes_text: str | None) -> bool:
+def consume(
+    changelog: Path,
+    unreleased_dir: Path,
+    version: str,
+    date: str,
+    notes_text: str,
+    fragment_names: list[str],
+) -> bool:
     version = normalize_version(version)
     if version == "unreleased":
-        raise ChangelogError("cannot freeze Unreleased")
+        raise ChangelogError("cannot archive Unreleased")
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
-        raise ChangelogError(f"invalid freeze date {date!r}")
+        raise ChangelogError(f"invalid archive date {date!r}")
 
-    original = path.read_text(encoding="utf-8")
-    sections = parse_h2(original)
-    _, unreleased_body = find_section(sections, "unreleased")
-    current_unreleased = language_blocks(unreleased_body)
-    for lang in ("English", "中文"):
-        current_unreleased.setdefault(lang, "")
-
-    if notes_text:
-        published = parse_rendered_notes(notes_text)
-    else:
-        published = optional_notes(current_unreleased, "Unreleased")
-        if published is None:
-            published = require_notes(
-                language_blocks(find_section(sections, version)[1]),
-                version,
-            )
-
-    heading = f"{version} - {date}"
-    versions: list[tuple[str, dict[str, str]]] = []
+    published = parse_rendered_notes(notes_text)
+    original = changelog.read_text(encoding="utf-8")
     found = False
-    for title, body in sections:
+    for title, notes in validate_changelog(changelog):
         existing = section_heading_version(title)
-        if existing == "unreleased":
+        if existing != version:
             continue
-        notes = require_notes(language_blocks(body), title)
-        if existing == version:
-            if notes != published:
-                raise ChangelogError(f"{version} already exists with different notes")
-            versions.append((title, notes))
-            found = True
-        else:
-            versions.append((title, notes))
-    if not found:
-        versions.insert(0, (heading, published))
+        if notes != published:
+            raise ChangelogError(f"{version} already exists with different notes")
+        found = True
+        break
 
-    remaining = {
-        lang: drop_bullets(current_unreleased.get(lang, ""), set(bullets(published[lang])))
-        for lang in ("English", "中文")
-    }
-    rewritten = render_changelog(remaining, versions)
-    if rewritten == original:
-        return False
-    path.write_text(rewritten, encoding="utf-8")
-    return True
+    rewritten = original
+    if not found:
+        rewritten = insert_version_section(original, f"{version} - {date}", published)
+    if not rewritten.startswith("# Changelog"):
+        rewritten = CHANGELOG_INTRO + "\n" + rewritten.lstrip()
+
+    changed = rewritten != original
+    if changed:
+        changelog.write_text(rewritten, encoding="utf-8")
+
+    unreleased_dir.mkdir(parents=True, exist_ok=True)
+    for name in fragment_names:
+        path = unreleased_dir / name
+        if path.is_file():
+            path.unlink()
+            changed = True
+    return changed
 
 
 def self_test() -> None:
-    sample = """# Changelog
+    sample_archive = """# Changelog
 
-## Unreleased
-
-### English
-
-- Add host updater
-- Keep SQLite snapshots
-
-### 中文
-
-- 增加本机更新器
-- 保留 SQLite 快照
+Published user-facing notes.
 
 ## 0.1.0 - 2026-08-22
 
@@ -361,105 +399,217 @@ def self_test() -> None:
 
 - 首次发布
 """
-    notes = extract_for_release(_write_tmp(sample), "v0.1.1")
-    assert "## English" in notes and "## 中文" in notes
-    assert "- Add host updater" in notes
-    assert "- 增加本机更新器" in notes
+    with _temp_tree() as (root, changelog, unreleased):
+        changelog.write_text(sample_archive, encoding="utf-8")
+        (unreleased / "host-updater.md").write_text(
+            """### English
 
-    tmp = _write_tmp(sample)
-    validate(tmp)
-    assert freeze(tmp, "v0.1.1", "2026-08-24", notes)
-    frozen = tmp.read_text(encoding="utf-8")
-    assert "## 0.1.1 - 2026-08-24" in frozen
-    assert "- Add host updater" in frozen
-    remaining = language_blocks(find_section(parse_h2(frozen), "unreleased")[1])
-    assert "Add host updater" not in remaining["English"]
-    assert freeze(tmp, "0.1.1", "2026-08-24", notes) is False
+- Add host updater
+- Keep SQLite snapshots
 
-    empty_unreleased = sample.replace("- Add host updater\n- Keep SQLite snapshots\n", "").replace(
-        "- 增加本机更新器\n- 保留 SQLite 快照\n", ""
-    )
-    fallback = extract_for_release(_write_tmp(empty_unreleased), "0.1.0")
-    assert "- First release" in fallback
-    assert "- 首次发布" in fallback
+### 中文
 
+- 增加本机更新器
+- 保留 SQLite 快照
+""",
+            encoding="utf-8",
+        )
+        validate(changelog, unreleased)
+        notes = extract_for_release(changelog, unreleased, "v0.1.1")
+        assert "## English" in notes and "## 中文" in notes
+        assert "- Add host updater" in notes
+        assert "- 增加本机更新器" in notes
+
+        (unreleased / "README.md").write_text("# ignored\n", encoding="utf-8")
+        assert all(name != "README.md" for name, _ in load_fragments(unreleased))
+        leftover = unreleased / "later-work.md"
+        leftover.write_text(
+            """### English
+
+- Keep leftover work
+
+### 中文
+
+- 保留未发布改动
+""",
+            encoding="utf-8",
+        )
+        assert consume(
+            changelog,
+            unreleased,
+            "v0.1.1",
+            "2026-08-24",
+            notes,
+            ["host-updater.md"],
+        )
+        frozen = changelog.read_text(encoding="utf-8")
+        assert "## 0.1.1 - 2026-08-24" in frozen
+        assert "- Add host updater" in frozen
+        assert "\n\n## 0.1.0 - 2026-08-22\n" in frozen
+        assert not (unreleased / "host-updater.md").exists()
+        assert leftover.is_file()
+        assert (unreleased / "README.md").is_file()
+        remaining = extract_unreleased(unreleased)
+        assert "Keep leftover work" in remaining
+        assert "Add host updater" not in remaining
+        assert consume(changelog, unreleased, "0.1.1", "2026-08-24", notes, ["host-updater.md"]) is False
+
+    with _temp_tree() as (root, changelog, unreleased):
+        changelog.write_text(sample_archive, encoding="utf-8")
+        fallback = extract_for_release(changelog, unreleased, "0.1.0")
+        assert "- First release" in fallback
+        try:
+            extract_for_release(changelog, unreleased, "0.1.1")
+        except ChangelogError as exc:
+            assert "unreleased" in str(exc)
+        else:
+            raise AssertionError("expected missing fragments to fail")
+
+    with _temp_tree() as (root, changelog, unreleased):
+        changelog.write_text(sample_archive, encoding="utf-8")
+        (unreleased / "mismatch.md").write_text(
+            """### English
+
+- Add host updater
+
+### 中文
+
+- 增加本机更新器
+- 额外一行
+""",
+            encoding="utf-8",
+        )
+        try:
+            extract_for_release(changelog, unreleased, "0.1.1")
+        except ChangelogError as exc:
+            assert "bullet" in str(exc).lower()
+        else:
+            raise AssertionError("expected mismatched bullet counts to fail")
+
+    with _temp_tree() as (root, changelog, unreleased):
+        changelog.write_text(
+            sample_archive.replace("## 0.1.0", "## Unreleased\n\n### English\n\n### 中文\n\n## 0.1.0"),
+            encoding="utf-8",
+        )
+        try:
+            validate(changelog, unreleased)
+        except ChangelogError as exc:
+            assert "Unreleased" in str(exc)
+        else:
+            raise AssertionError("expected leftover Unreleased heading to fail")
+
+    with _temp_tree() as (root, changelog, unreleased):
+        changelog.write_text(sample_archive, encoding="utf-8")
+        (unreleased / "Bad Name.md").write_text(
+            """### English
+
+- Bad name
+
+### 中文
+
+- 错误文件名
+""",
+            encoding="utf-8",
+        )
+        try:
+            load_fragments(unreleased)
+        except ChangelogError as exc:
+            assert "invalid changelog fragment name" in str(exc)
+        else:
+            raise AssertionError("expected invalid fragment names to fail")
+
+    from io import StringIO
+
+    captured = StringIO()
+    old_stderr = sys.stderr
+    sys.stderr = captured
     try:
-        extract_for_release(_write_tmp(empty_unreleased), "0.1.1")
-    except ChangelogError as exc:
-        assert "Unreleased" in str(exc)
-    else:
-        raise AssertionError("expected missing notes to fail")
-
-    mismatched = sample.replace("- Keep SQLite snapshots\n", "")
-    try:
-        extract_for_release(_write_tmp(mismatched), "0.1.1")
-    except ChangelogError as exc:
-        assert "bullet" in str(exc).lower() or "bullets" in str(exc)
-    else:
-        raise AssertionError("expected mismatched bullet counts to fail")
-
-    leftover = sample.replace(
-        "- Keep SQLite snapshots\n",
-        "- Keep SQLite snapshots\n- Keep leftover work\n",
-    ).replace(
-        "- 保留 SQLite 快照\n",
-        "- 保留 SQLite 快照\n- 保留未发布改动\n",
-    )
-    leftover_path = _write_tmp(leftover)
-    assert freeze(leftover_path, "0.1.2", "2026-08-24", notes)
-    remaining = language_blocks(find_section(parse_h2(leftover_path.read_text(encoding="utf-8")), "unreleased")[1])
-    assert "Keep leftover work" in remaining["English"]
-    assert "保留未发布改动" in remaining["中文"]
-    leftover_path.unlink(missing_ok=True)
-    tmp.unlink(missing_ok=True)
+        assert main(["freeze"]) == 1
+    finally:
+        sys.stderr = old_stderr
+    assert "freeze was removed" in captured.getvalue()
 
 
-def _write_tmp(text: str) -> Path:
-    path = Path("/tmp/cli2api-changelog-test.md")
-    path.write_text(text, encoding="utf-8")
-    return path
+def _temp_tree():
+    import tempfile
+    from contextlib import contextmanager
+
+    @contextmanager
+    def inner():
+        with tempfile.TemporaryDirectory(prefix="cli2api-changelog-") as raw:
+            root = Path(raw)
+            changelog = root / "CHANGELOG.md"
+            unreleased = root / "changelog" / "unreleased"
+            unreleased.mkdir(parents=True)
+            yield root, changelog, unreleased
+
+    return inner()
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--changelog", default="CHANGELOG.md", help="path to CHANGELOG.md")
+    parser.add_argument("--changelog", default=str(DEFAULT_CHANGELOG), help="path to CHANGELOG.md")
+    parser.add_argument(
+        "--unreleased",
+        default=str(DEFAULT_UNRELEASED),
+        help="directory of unpublished bilingual fragments",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    extract_cmd = sub.add_parser("extract", help="print notes for one changelog section")
+    extract_cmd = sub.add_parser("extract", help="print notes for unreleased fragments or one archived version")
     extract_cmd.add_argument("version", help="unreleased or x.y.z")
 
     release_cmd = sub.add_parser("extract-for-release", help="print notes for the next GitHub release")
     release_cmd.add_argument("version", help="x.y.z being published")
 
-    sub.add_parser("validate", help="validate changelog structure")
+    sub.add_parser("validate", help="validate changelog archive and unreleased fragments")
     sub.add_parser("self-test", help="run extractor checks")
 
-    freeze_cmd = sub.add_parser("freeze", help="move published notes out of Unreleased")
-    freeze_cmd.add_argument("version", help="x.y.z being published")
-    freeze_cmd.add_argument("--date", default=dt.date.today().isoformat())
-    freeze_cmd.add_argument("--notes-file", help="rendered notes to freeze; defaults to Unreleased")
+    consume_cmd = sub.add_parser("consume", help="archive published notes and delete shipped fragments")
+    consume_cmd.add_argument("version", help="x.y.z being published")
+    consume_cmd.add_argument("--date", default=dt.date.today().isoformat())
+    consume_cmd.add_argument("--notes-file", required=True, help="rendered notes that were published")
+    consume_cmd.add_argument(
+        "--release-sha",
+        required=True,
+        help="git SHA whose changelog/unreleased files shipped in this release",
+    )
+    sub.add_parser("freeze", help="removed; the release workflow archives via consume")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    path = Path(args.changelog)
+    changelog = Path(args.changelog)
+    unreleased = Path(args.unreleased)
     try:
         if args.command == "self-test":
             self_test()
             return 0
         if args.command == "validate":
-            validate(path)
+            validate(changelog, unreleased)
             return 0
         if args.command == "extract":
-            sys.stdout.write(extract(path, args.version))
+            sys.stdout.write(extract(changelog, unreleased, args.version))
             return 0
         if args.command == "extract-for-release":
-            sys.stdout.write(extract_for_release(path, args.version))
+            sys.stdout.write(extract_for_release(changelog, unreleased, args.version))
             return 0
-        notes_text = Path(args.notes_file).read_text(encoding="utf-8") if args.notes_file else None
-        freeze(path, args.version, args.date, notes_text)
+        if args.command == "freeze":
+            raise ChangelogError(
+                "freeze was removed; write notes in changelog/unreleased/ and let "
+                "release.yml open the archive PR via consume"
+            )
+        notes_text = Path(args.notes_file).read_text(encoding="utf-8")
+        consume(
+            changelog,
+            unreleased,
+            args.version,
+            args.date,
+            notes_text,
+            fragment_names_at_sha(args.release_sha),
+        )
         return 0
     except ChangelogError as exc:
         print(exc, file=sys.stderr)

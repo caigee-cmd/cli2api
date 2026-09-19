@@ -1,13 +1,7 @@
 # Changelog
 
-User-facing notes for GitHub Releases and the console update page.
-Write each change in both `### English` and `### 中文` under `## Unreleased`.
-
-## Unreleased
-
-### English
-
-### 中文
+Published user-facing notes for GitHub Releases and the console update page.
+Write upcoming notes as bilingual files in `changelog/unreleased/`.
 
 ## 0.6.1 - 2026-09-19
 
