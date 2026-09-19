@@ -1,6 +1,9 @@
 package trae
 
-import "net/http"
+import (
+	"net/http"
+	"strings"
+)
 
 func clientUA() string { return UserAgent }
 
@@ -18,9 +21,20 @@ func SetUgHeaders(header http.Header, credential Credential) {
 		header.Set("Authorization", "Cloud-IDE-JWT "+credential.AccessToken)
 	}
 	header.Set("X-User-Region", "CN")
-	if credential.DeviceID != "" {
-		header.Set("X-Device-Id", credential.DeviceID)
+	if deviceID := ugDeviceID(credential.DeviceID); deviceID != "" {
+		header.Set("X-Device-Id", deviceID)
 	}
+}
+
+// ugDeviceID normalises the stored device id to the aha-<hex> shape the UG
+// endpoints expect. The checkin backend keys its per-device daily limit on it
+// and rejects a bare hex id with code 9074 ("too many users right now").
+func ugDeviceID(deviceID string) string {
+	trimmed := strings.TrimSpace(deviceID)
+	if trimmed == "" || strings.HasPrefix(trimmed, "aha-") {
+		return trimmed
+	}
+	return "aha-" + trimmed
 }
 
 func SetSOLOHeaders(header http.Header, credential Credential, stream bool) {
