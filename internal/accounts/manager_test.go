@@ -1489,7 +1489,7 @@ func TestCheckinOptedInSkipsSameDaySuccess(t *testing.T) {
 	ops := &fakeCheckinMaintainer{msg: "ok"}
 	manager := NewManager(ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
 	defer manager.Close()
-	manager.SetWorkBuddy(ops)
+	manager.SetMaintainer("workbuddy", ops)
 	manager.CheckinOptedIn(ctx)
 	if ops.calls != 0 {
 		t.Fatalf("scheduled check-in must skip same-day success, calls=%d", ops.calls)
@@ -1517,7 +1517,7 @@ func TestScheduledCheckinRespectsConfiguredTime(t *testing.T) {
 	ops := &fakeCheckinMaintainer{msg: "ok"}
 	manager := NewManager(ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
 	defer manager.Close()
-	manager.SetWorkBuddy(ops)
+	manager.SetMaintainer("workbuddy", ops)
 	loc := time.FixedZone("CST", 8*3600)
 	manager.checkinOptedIn(ctx, time.Date(2026, 8, 30, 18, 29, 0, 0, loc), "21:00", true)
 	if ops.calls != 0 {
@@ -1546,7 +1546,7 @@ func TestScheduledCheckinDoesNotImmediatelyRetrySameTime(t *testing.T) {
 	ops := &fakeCheckinMaintainer{err: errors.New("timeout")}
 	manager := NewManager(ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
 	defer manager.Close()
-	manager.SetWorkBuddy(ops)
+	manager.SetMaintainer("workbuddy", ops)
 	now := time.Date(2026, 8, 30, 21, 0, 0, 0, time.FixedZone("CST", 8*3600))
 	manager.checkinOptedIn(ctx, now, "21:00", false)
 	manager.checkinOptedIn(ctx, now, "21:00", true)
@@ -1575,7 +1575,7 @@ func TestCheckinOptedInRetriesSameDayError(t *testing.T) {
 	ops := &fakeCheckinMaintainer{msg: "ok"}
 	manager := NewManager(ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
 	defer manager.Close()
-	manager.SetWorkBuddy(ops)
+	manager.SetMaintainer("workbuddy", ops)
 	manager.CheckinOptedIn(ctx)
 	if ops.calls != 1 {
 		t.Fatalf("same-day error must retry, calls=%d", ops.calls)
@@ -1598,7 +1598,7 @@ func TestCheckinAccountRecordsFirstAlreadyThenSkips(t *testing.T) {
 	ops := &fakeCheckinMaintainer{msg: "今天已签到，请明天再来", err: fakeAlreadyCheckedInError{msg: "今天已签到，请明天再来"}}
 	manager := NewManager(ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
 	defer manager.Close()
-	manager.SetWorkBuddy(ops)
+	manager.SetMaintainer("workbuddy", ops)
 	updated, err := manager.CheckinAccount(ctx, account.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -1615,5 +1615,65 @@ func TestCheckinAccountRecordsFirstAlreadyThenSkips(t *testing.T) {
 	records, err := store.ListCheckinRecords(ctx, account.ID, 20)
 	if err != nil || len(records) != 1 || records[0].Status != "already" {
 		t.Fatalf("records=%+v err=%v", records, err)
+	}
+}
+
+// Trae accounts must reach the same check-in path as WorkBuddy ones.
+func TestCheckinAccountDispatchesByProvider(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	account, err := store.Create(ctx, CreateAccount{Name: "tr", Provider: "trae", Region: "cn", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ops := &fakeCheckinMaintainer{msg: "checked in +150 credits"}
+	manager := NewManager(ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	defer manager.Close()
+	if manager.SupportsCheckin("trae") {
+		t.Fatal("trae check-in must stay unsupported until a maintainer is wired")
+	}
+	manager.SetMaintainer("trae", ops)
+	if !manager.SupportsCheckin("trae") || manager.SupportsCheckin("devin") {
+		t.Fatal("provider check-in support must follow the registered maintainers")
+	}
+	updated, err := manager.CheckinAccount(ctx, account.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ops.calls != 1 || updated.LastCheckinStatus != "success" || updated.LastCheckinMsg != "checked in +150 credits" {
+		t.Fatalf("calls=%d account=%+v", ops.calls, updated)
+	}
+	other, err := store.Create(ctx, CreateAccount{Name: "dv", Provider: "devin", Region: "global", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.CheckinAccount(ctx, other.ID); err == nil {
+		t.Fatal("providers without maintainer ops must be rejected")
+	}
+}
+
+func TestCheckinOptedInCoversTraeAccounts(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if _, err := store.Create(ctx, CreateAccount{
+		Name: "tr", Provider: "trae", Region: "cn", Enabled: true, WorkBuddyAutoCheckin: boolPtr(true),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	ops := &fakeCheckinMaintainer{msg: "ok"}
+	manager := NewManager(ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	defer manager.Close()
+	manager.SetMaintainer("trae", ops)
+	manager.CheckinOptedIn(ctx)
+	if ops.calls != 1 {
+		t.Fatalf("opted-in trae account must be checked in, calls=%d", ops.calls)
 	}
 }

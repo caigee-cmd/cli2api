@@ -1045,6 +1045,47 @@ func int64FromAny(value any) int64 {
 	}
 }
 
+// boolFromAny reports the value and whether the key was present at all: the
+// check-in envelope omits "enable" on some responses, and an absent flag must
+// not be read as false.
+func boolFromAny(value any) (bool, bool) {
+	switch typed := value.(type) {
+	case bool:
+		return typed, true
+	case float64:
+		return typed != 0, true
+	case int64:
+		return typed != 0, true
+	case int:
+		return typed != 0, true
+	case json.Number:
+		n, err := typed.Int64()
+		if err != nil {
+			return false, false
+		}
+		return n != 0, true
+	case string:
+		switch strings.ToLower(strings.TrimSpace(typed)) {
+		case "true", "1", "yes":
+			return true, true
+		case "false", "0", "no":
+			return false, true
+		}
+	}
+	return false, false
+}
+
+func stringFromAny(value any) string {
+	switch typed := value.(type) {
+	case nil:
+		return ""
+	case string:
+		return strings.TrimSpace(typed)
+	default:
+		return strings.TrimSpace(fmt.Sprint(typed))
+	}
+}
+
 func (c *Client) CheckinStatus(ctx context.Context, accountID string, credential Credential) ([]byte, error) {
 	body, status, err := c.do(ctx, accountID, http.MethodPost, credential.BillingBase()+pathCheckinStatus, []byte("{}"),
 		func(h http.Header) { SetUgHeaders(h, credential) })
@@ -1067,6 +1108,136 @@ func (c *Client) CheckinClaim(ctx context.Context, accountID string, credential 
 		return nil, classifiedError(status, body)
 	}
 	return body, nil
+}
+
+// AlreadyCheckedInError is a check-in-only miss: the day is already claimed, so
+// the caller records it but must not write chat cooldown.
+type AlreadyCheckedInError struct {
+	Msg string
+}
+
+func (e AlreadyCheckedInError) Error() string {
+	if strings.TrimSpace(e.Msg) == "" {
+		return "trae already checked in"
+	}
+	return e.Msg
+}
+
+func (AlreadyCheckedInError) AlreadyCheckedIn() bool { return true }
+
+// checkinResponse is the subset of the checkin_credits envelope we act on. The
+// grant size floats between days, so credits is only ever echoed back without
+// assuming a value.
+type checkinResponse struct {
+	code        int64
+	message     string
+	credits     int64
+	checkedIn   bool
+	enable      bool
+	enableKnown bool
+}
+
+func parseCheckinResponse(body []byte) (checkinResponse, error) {
+	var raw map[string]any
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return checkinResponse{}, fmt.Errorf("trae checkin parse: %w", err)
+	}
+	checkedIn, _ := boolFromAny(lookupPath(raw, "checked_in"))
+	enable, enableKnown := boolFromAny(lookupPath(raw, "enable"))
+	return checkinResponse{
+		code:        int64FromAny(lookupPath(raw, "code")),
+		message:     firstNonEmpty(stringFromAny(lookupPath(raw, "message")), stringFromAny(lookupPath(raw, "msg"))),
+		credits:     int64FromAny(lookupPath(raw, "credits")),
+		checkedIn:   checkedIn,
+		enable:      enable,
+		enableKnown: enableKnown,
+	}, nil
+}
+
+func isAlreadyCheckedInText(text string) bool {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return false
+	}
+	lower := strings.ToLower(trimmed)
+	return strings.Contains(trimmed, "已签到") || (strings.Contains(lower, "already") && strings.Contains(lower, "check"))
+}
+
+// DailyCheckin claims the upstream daily credit grant. The status leg runs
+// first so a day already claimed is reported without a second call. Body is
+// literal {} and the grant size is read back from the response.
+func (c *Client) DailyCheckin(ctx context.Context, accountID string) (string, error) {
+	credential, err := c.credential(ctx, accountID)
+	if err != nil {
+		return "", err
+	}
+	statusBody, err := c.CheckinStatus(ctx, accountID, credential)
+	if err != nil {
+		return "", err
+	}
+	status, err := parseCheckinResponse(statusBody)
+	if err != nil {
+		return "", err
+	}
+	if status.checkedIn {
+		message := firstNonEmpty(status.message, "already checked in")
+		return message, AlreadyCheckedInError{Msg: message}
+	}
+	if status.enableKnown && !status.enable {
+		return status.message, fmt.Errorf("trae check-in is not enabled for this account")
+	}
+	body, httpStatus, err := c.do(ctx, accountID, http.MethodPost, credential.BillingBase()+pathCheckinClaim, []byte("{}"),
+		func(h http.Header) { SetUgHeaders(h, credential) })
+	if err != nil {
+		return "", err
+	}
+	claim, err := parseCheckinResponse(body)
+	if err != nil {
+		if httpStatus >= 300 {
+			return "", classifiedError(httpStatus, body)
+		}
+		return "", err
+	}
+	if isAlreadyCheckedInText(claim.message) {
+		return firstNonEmpty(claim.message, "already checked in"), AlreadyCheckedInError{Msg: claim.message}
+	}
+	if httpStatus >= 300 {
+		return claim.message, classifiedError(httpStatus, body)
+	}
+	if claim.code != 0 {
+		message := firstNonEmpty(claim.message, fmt.Sprintf("trae checkin code=%d", claim.code))
+		return message, fmt.Errorf("trae checkin code=%d: %s", claim.code, message)
+	}
+	if claim.credits > 0 {
+		return fmt.Sprintf("checked in +%d credits", claim.credits), nil
+	}
+	return firstNonEmpty(claim.message, "ok"), nil
+}
+
+// Keepalive forces a token refresh so the refresh token does not idle out.
+// Session-dead uses the same Observe(auth) path the credential loader uses.
+func (c *Client) Keepalive(ctx context.Context, accountID string) error {
+	_, payload, err := c.store.LoadCredentialPayload(ctx, accountID)
+	if err != nil {
+		return err
+	}
+	credential, err := DecodeCredential(payload)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(credential.RefreshToken) == "" {
+		return fmt.Errorf("trae refresh token missing; re-login required")
+	}
+	refreshed, err := c.ExchangeToken(ctx, accountID, credential)
+	if err != nil {
+		_ = c.store.Observe(ctx, accountID, credential.UID, "login_required", err.Error(), accounts.KindAuth)
+		return err
+	}
+	encoded, err := refreshed.Encode()
+	if err != nil {
+		return err
+	}
+	return c.store.SaveCredentialPayload(ctx, accountID, CredentialFormat, encoded)
 }
 
 func (c *Client) Adapter() providers.Adapter {

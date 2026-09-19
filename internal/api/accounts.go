@@ -340,8 +340,8 @@ func (s *Server) handleAccountByID(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusNotFound, "account_not_found", err.Error())
 			return
 		}
-		if account.Provider != "workbuddy" {
-			writeErr(w, http.StatusBadRequest, "provider_unsupported", "check-in is only available for WorkBuddy accounts")
+		if !s.manager.SupportsCheckin(account.Provider) {
+			writeErr(w, http.StatusBadRequest, "provider_unsupported", "check-in is not available for this provider")
 			return
 		}
 		records, err := s.manager.Store().ListCheckinRecords(r.Context(), accountID, 20)
@@ -357,8 +357,8 @@ func (s *Server) handleAccountByID(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "POST only")
 			return
 		}
-		if account.Provider != "workbuddy" {
-			writeErr(w, http.StatusBadRequest, "provider_unsupported", "check-in is only available for WorkBuddy accounts")
+		if !s.manager.SupportsCheckin(account.Provider) {
+			writeErr(w, http.StatusBadRequest, "provider_unsupported", "check-in is not available for this provider")
 			return
 		}
 		updated, err := s.manager.CheckinAccount(r.Context(), accountID)

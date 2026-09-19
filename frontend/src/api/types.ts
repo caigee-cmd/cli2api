@@ -20,6 +20,13 @@ export type AccountQuota = {
   fetched_at?: string
 }
 
+// Providers whose accounts can opt into the shared daily check-in schedule.
+const CHECKIN_PROVIDERS = ['workbuddy', 'trae']
+
+export function supportsCheckin(provider?: string) {
+  return Boolean(provider && CHECKIN_PROVIDERS.includes(provider))
+}
+
 export type ModelInfo = {
   id: string
   display_name?: string

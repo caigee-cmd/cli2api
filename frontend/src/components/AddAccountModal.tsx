@@ -19,6 +19,7 @@ import {
   type ProviderDescriptor,
 } from '@/api/overview'
 import { fetchSystemSettings } from '@/api/system'
+import { supportsCheckin } from '@/api/types'
 
 type Props = {
   isOpen: boolean
@@ -191,7 +192,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
   const showPatTab = activeOption?.descriptor.capabilities?.pat_login !== false
   const showImportTab = activeOption?.descriptor.capabilities?.import_export !== false
   const showDropSystem = activeOption?.provider === 'workbuddy'
-  const showAutoCheckin = activeOption?.provider === 'workbuddy'
+  const showAutoCheckin = supportsCheckin(activeOption?.provider)
   const showCallbackPaste = activeOption?.provider === 'trae' || activeOption?.provider === 'devin'
   const busy = phase === 'busy' || phase === 'polling'
   const settingsLocked = Boolean(createdId.current) || busy

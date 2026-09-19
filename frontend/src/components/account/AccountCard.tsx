@@ -27,6 +27,7 @@ import {
   type AccountRow,
 } from '@/lib/account'
 import { accountProviderLabel } from '@/lib/provider'
+import { supportsCheckin } from '@/api/types'
 
 export type AccountBusyKind = 'create' | 'import' | 'device' | 'pat' | 'callback' | 'rewarm' | 'refresh' | 'toggle' | 'delete' | 'export' | 'settings' | 'checkin'
 
@@ -316,6 +317,11 @@ export function AccountCard({
                 onChange={onToggleDropSystem}
               />
             </div>
+          </div>
+        ) : null}
+
+        {supportsCheckin(account.provider) ? (
+          <div className="grid gap-1.5 rounded-2xl border border-border bg-surface-secondary/20 p-2">
             <div className="flex items-center justify-between gap-3 text-[11px]">
               <Tooltip>
                 <Tooltip.Trigger>

@@ -35,6 +35,7 @@ import {
   type AccountRow,
 } from '@/lib/account'
 import { accountProviderFamilyLabel } from '@/lib/provider'
+import { supportsCheckin } from '@/api/types'
 import { ProviderMark } from '@/components/ProviderMark'
 
 type AccountBusy = { id: string; kind: AccountBusyKind }
@@ -497,8 +498,8 @@ export function AccountsPage() {
             onToggle={(selected) => void onToggle(account.id, selected)}
             onToggleDropSystem={(selected) => void onToggleDropSystem(account.id, selected)}
             onToggleAutoCheckin={(selected) => void onToggleAutoCheckin(account.id, selected)}
-            onCheckin={account.provider === 'workbuddy' ? () => void onCheckin(account.id) : undefined}
-            onViewCheckins={account.provider === 'workbuddy' ? () => setCheckinHistoryId(account.id) : undefined}
+            onCheckin={supportsCheckin(account.provider) ? () => void onCheckin(account.id) : undefined}
+            onViewCheckins={supportsCheckin(account.provider) ? () => setCheckinHistoryId(account.id) : undefined}
             onEdit={() => setEditId(account.id)}
             onToggleAuthPanel={() => setAuthPanelId((current) => current === account.id ? null : account.id)}
             onViewModels={() => setModelsId(account.id)}
