@@ -1,9 +1,15 @@
 const endpoints = {
   cn: { base: "https://openapi.qoder.com.cn", origin: "https://qoder.com.cn" },
 };
+const campaignsPath = "/sash/api/v1/me/campaigns";
+const maxResponseBytes = 65536;
 
 function object(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function campaignId(value) {
+  return typeof value === "string" && value !== "" ? value : "";
 }
 
 async function readJSON(response) {
@@ -16,7 +22,7 @@ async function readJSON(response) {
       const { value, done } = await reader.read();
       if (done) break;
       size += value.byteLength;
-      if (size > 65536) throw new Error("qoder_checkin_response_too_large");
+      if (size > maxResponseBytes) throw new Error("qoder_checkin_response_too_large");
       chunks.push(value);
     }
   } finally {
@@ -31,6 +37,36 @@ async function readJSON(response) {
   }
   if (!object(payload)) throw new Error("qoder_checkin_invalid_response");
   return payload;
+}
+
+function campaignsFrom(payload) {
+  if ("campaigns" in payload) {
+    if (!Array.isArray(payload.campaigns)) throw new Error("qoder_checkin_invalid_response");
+    return payload.campaigns.filter(object);
+  }
+  if (object(payload.data) && Array.isArray(payload.data.campaigns)) return payload.data.campaigns.filter(object);
+  if (Array.isArray(payload.data)) return payload.data.filter(object);
+  return [];
+}
+
+function unwrapClaim(payload) {
+  return object(payload.data) ? payload.data : payload;
+}
+
+function creditCampaigns(items) {
+  return items.filter((item) => item.actionType === "CLAIM_BENEFIT" && campaignId(item.campaignId));
+}
+
+function claimStatus(items, id) {
+  const item = items.find((campaign) => campaign.campaignId === id);
+  return item?.claimStatus;
+}
+
+function rewardFrom(campaign) {
+  const benefit = object(campaign.benefit) ? campaign.benefit : null;
+  if (!benefit || benefit.kind !== "CREDITS") return;
+  if (typeof benefit.amount !== "number" || !Number.isFinite(benefit.amount) || benefit.amount < 0) return;
+  return benefit.amount;
 }
 
 export function createQoderCheckin({ region, getAuthManager, fetchImpl = (...args) => globalThis.fetch(...args) }) {
@@ -50,13 +86,13 @@ export function createQoderCheckin({ region, getAuthManager, fetchImpl = (...arg
       throw new Error("qoder_checkin_auth_refresh_failed");
     }
 
-    async function request(action, method, refreshed = false) {
+    async function request(path, method, refreshed = false) {
       const user = auth.getUserInfo();
       const token = user?.security_oauth_token ?? user?.access_token;
       if (typeof token !== "string" || !token) throw new Error("qoder_checkin_token_unavailable");
       let response;
       try {
-        response = await fetchImpl(`${endpoint.base}/sash/api/v1/me/daily-check-in/${action}`, {
+        response = await fetchImpl(`${endpoint.base}${path}`, {
           method,
           headers: {
             Authorization: `Bearer ${token}`,
@@ -65,7 +101,6 @@ export function createQoderCheckin({ region, getAuthManager, fetchImpl = (...arg
             Origin: endpoint.origin,
             Referer: `${endpoint.origin}/`,
           },
-          ...(method === "POST" ? { body: "{}" } : {}),
           redirect: "manual",
           signal: AbortSignal.timeout(15000),
         });
@@ -79,49 +114,65 @@ export function createQoderCheckin({ region, getAuthManager, fetchImpl = (...arg
         } catch {
           throw new Error("qoder_checkin_auth_refresh_failed");
         }
-        return request(action, method, true);
+        return request(path, method, true);
       }
-      if (!response.ok && response.status !== 409) {
+      if (!response.ok) {
         await response.body?.cancel().catch(() => {});
         throw new Error(`qoder_checkin_http_${response.status}`);
       }
-      const payload = await readJSON(response);
-      if (response.status === 409 && payload.result !== "ALREADY_CLAIMED") {
-        throw new Error("qoder_checkin_http_409");
-      }
-      return payload;
+      return readJSON(response);
     }
 
-    async function status() {
-      const payload = await request("status", "GET");
-      if (!["CLAIMABLE", "CLAIMED", "DISABLED"].includes(payload.status)) {
-        throw new Error("qoder_checkin_unknown_status");
-      }
-      return payload.status;
+    async function list() {
+      return campaignsFrom(await request(campaignsPath, "GET"));
     }
 
-    const current = await status();
-    if (current === "CLAIMED") return { status: "already", message: "今日已签到" };
-    if (current === "DISABLED") return { status: "skipped", message: "签到活动未开放" };
+    let items;
     try {
-      const payload = await request("claim", "POST");
-      if (payload.result === "ALREADY_CLAIMED") return { status: "already", message: "今日已签到" };
-      if (payload.success !== true) throw new Error("qoder_checkin_claim_unconfirmed");
-      const reward = payload.rewardCredits;
-      if (reward !== undefined && (typeof reward !== "number" || !Number.isFinite(reward) || reward < 0)) {
-        throw new Error("qoder_checkin_invalid_reward");
-      }
-      return {
-        status: "success",
-        message: reward === undefined ? "签到成功" : `签到成功 +${reward} 积分`,
-        ...(reward === undefined ? {} : { reward_credits: reward }),
-      };
+      items = await list();
     } catch (error) {
-      if (await status().catch(() => null) === "CLAIMED") {
-        return { status: "already", message: "已签到（复查确认）" };
+      if (error instanceof Error && error.message === "qoder_checkin_http_404") {
+        return { status: "skipped", message: "签到活动未开放" };
       }
       throw error;
     }
+
+    const benefits = creditCampaigns(items);
+    if (!benefits.length) return { status: "skipped", message: "签到活动未开放" };
+    const claimable = benefits.filter((item) => item.claimStatus === "CLAIMABLE");
+    if (!claimable.length) {
+      if (benefits.some((item) => item.claimStatus === "CLAIMED")) return { status: "already", message: "今日已签到" };
+      return { status: "skipped", message: "签到活动未开放" };
+    }
+
+    let confirmed = 0;
+    let recovered = 0;
+    let reward = 0;
+    let hasReward = false;
+    for (const campaign of claimable) {
+      const path = `${campaignsPath}/${encodeURIComponent(campaign.campaignId)}/claim`;
+      try {
+        const payload = unwrapClaim(await request(path, "POST"));
+        if (payload.status !== "CLAIMED") throw new Error("qoder_checkin_claim_unconfirmed");
+        confirmed += 1;
+      } catch (error) {
+        const current = claimStatus(await list().catch(() => []), campaign.campaignId);
+        if (current === "CLAIMED") recovered += 1;
+        else throw error;
+      }
+      const amount = rewardFrom(campaign);
+      if (amount !== undefined) {
+        hasReward = true;
+        reward += amount;
+      }
+    }
+    if (!confirmed && !recovered) throw new Error("qoder_checkin_claim_unconfirmed");
+    if (!confirmed) return { status: "already", message: "已签到（复查确认）" };
+    return {
+      status: "success",
+      message: hasReward ? `签到成功 +${reward} 积分` : "签到成功",
+      ...(hasReward ? { reward_credits: reward } : {}),
+    };
   }
 
   return function checkin() {
