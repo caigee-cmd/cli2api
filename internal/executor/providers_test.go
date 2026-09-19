@@ -440,10 +440,9 @@ type flakyInProcessChat struct {
 func (f *flakyInProcessChat) ChatNonStream(ctx context.Context, accountID string, req translate.ChatRequest) (providers.ChatOutcome, error) {
 	f.calls++
 	if f.fail {
-		failover := true
 		return providers.ChatOutcome{}, &providers.Error{
 			Kind: accounts.KindRateLimit, Status: 429, Code: "rate_limit",
-			Message: "429", Failover: &failover,
+			Message: "429",
 		}
 	}
 	return f.fakeInProcessChat.ChatNonStream(ctx, accountID, req)

@@ -2,7 +2,9 @@ package logs
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
@@ -37,9 +39,22 @@ type RequestStore interface {
 	RequestQuery
 }
 
+type statsCacheEntry struct {
+	stats     accounts.RequestStats
+	expiresAt time.Time
+}
+
+type StatsQuery struct {
+	Hours int
+	From  *time.Time
+	To    *time.Time
+}
+
 type RequestRecorder struct {
-	store RequestPersister
-	queue chan func()
+	store        RequestPersister
+	queue        chan func()
+	statsCacheMu sync.Mutex
+	statsCache   map[string]statsCacheEntry
 }
 
 func NewRequestRecorder(store RequestPersister) *RequestRecorder {
@@ -142,6 +157,59 @@ func (r *RequestRecorder) Store() RequestStore {
 	}
 	store, _ := r.store.(RequestStore)
 	return store
+}
+
+func NormalizeStatsHours(hours int) int {
+	if hours != 1 && hours != 24 && hours != 168 {
+		return 24
+	}
+	return hours
+}
+
+func (r *RequestRecorder) Stats(ctx context.Context, query StatsQuery) (accounts.RequestStats, error) {
+	store := r.Store()
+	if store == nil {
+		return accounts.RequestStats{}, fmt.Errorf("request logs unavailable")
+	}
+	now := time.Now().UTC().Truncate(10 * time.Second)
+	hours := NormalizeStatsHours(query.Hours)
+	to := query.To
+	if to == nil {
+		value := now
+		to = &value
+	}
+	from := query.From
+	if from == nil {
+		value := to.Add(-time.Duration(hours) * time.Hour)
+		from = &value
+	}
+	cacheKey := fmt.Sprintf("%d:%d", from.Unix(), to.Unix())
+	r.statsCacheMu.Lock()
+	if cached, ok := r.statsCache[cacheKey]; ok && time.Now().Before(cached.expiresAt) {
+		r.statsCacheMu.Unlock()
+		return cached.stats, nil
+	}
+	r.statsCacheMu.Unlock()
+	stats, err := store.SummarizeRequestLogs(ctx, *from, *to)
+	if err != nil {
+		return accounts.RequestStats{}, err
+	}
+	r.statsCacheMu.Lock()
+	if r.statsCache == nil {
+		r.statsCache = make(map[string]statsCacheEntry)
+	}
+	r.statsCache[cacheKey] = statsCacheEntry{stats: stats, expiresAt: time.Now().Add(10 * time.Second)}
+	r.statsCacheMu.Unlock()
+	return stats, nil
+}
+
+func (r *RequestRecorder) StatsCacheSize() int {
+	if r == nil {
+		return 0
+	}
+	r.statsCacheMu.Lock()
+	defer r.statsCacheMu.Unlock()
+	return len(r.statsCache)
 }
 
 func logf(format string, args ...any) {

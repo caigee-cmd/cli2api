@@ -2,7 +2,6 @@ package accounts
 
 import (
 	"strings"
-	"time"
 )
 
 const (
@@ -44,19 +43,6 @@ func promptLimitLike(lower string) bool {
 
 func IsPromptLimitText(text string) bool {
 	return promptLimitLike(strings.ToLower(text))
-}
-
-func NextLocalMidnightCooldown() time.Duration {
-	return NextLocalMidnightCooldownAt(time.Now())
-}
-
-func NextLocalMidnightCooldownAt(now time.Time) time.Duration {
-	zone := now.Location()
-	if zone == nil {
-		zone = time.Local
-	}
-	next := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, zone)
-	return next.Sub(now)
 }
 
 // IsInvalidRequestText reports whether an error body looks like an upstream

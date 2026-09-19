@@ -1,10 +1,10 @@
 # AGENTS
 
-Go + Node service that turns a local Qoder CLI login into an OpenAI-compatible API.
+Go + Node gateway for personal Qoder, WorkBuddy, Trae CN Work, and experimental Devin accounts, with OpenAI / Anthropic-compatible endpoints.
 
 ## Docs
 
-Read this file first. Every other doc carries YAML frontmatter
+Read this file first. Internal contract and planning docs carry YAML frontmatter
 (`id / title / scope / status / read-when / summary / related / last-updated`);
 use `read-when` to decide whether to open it.
 
@@ -18,28 +18,31 @@ use `read-when` to decide whether to open it.
 | `docs/PROVIDERS.md` | adding / designing a provider, or checking WorkBuddy / Qoder CN / Devin protocol facts | Provider protocol facts and extension design. WorkBuddy adapter is implemented; remaining work is live-account acceptance. |
 | `docs/PROVIDERS_TRAE_SOLO.md` | Trae CN Work adapter work | Trae CN Work in-process adapter survey. Adapter is implemented; T5 live acceptance is still open. |
 | `docs/DEVELOPMENT.md` | build / test / release | Local build loop and maintainer release workflow |
-| `docs/REFACTORING.md` | accepted package split | Live package map, remaining import allowlist, and unclaimed live-account limits. Not a plan to re-run. |
+| `docs/REFACTORING.md` | accepted package split and remaining duties | Baseline for current package ownership; distinguishes accepted changes from the pending A–D cleanup. Do not re-run S00–S15 or mark pending work complete. |
 | `docs/capture-notes.md` (ignored) | protocol facts | Local redacted protocol facts |
 | `docs/PRIVATE_DEPLOYMENT.md` (ignored) | host ops | Host ops runbook |
 
 Keep these files only. Do not add new `TODO.md`, `NOTES.md`, or extra plan files. `docs/REFACTORING.md` is the one approved exception; do not add more plan files beside it.
 `docs/PROVIDERS_TRAE.md` is superseded; do not implement from it. User-facing
 install stays in `README.md` (Chinese) / `README_EN.md` (English).
+When updating docs, use `docs/REFACTORING.md` as the package-boundary baseline,
+verify behavior against current code, and keep implementation, local tests,
+live-account acceptance, and release status separate.
 
 ## Do
 
 - Pull latest `main` and merge it into the current branch before starting any feature work (skip only when already on up-to-date `main`)
 - After console UI changes, run `cd frontend && npm run sync` so `internal/webui/static` matches `frontend/dist`. Do not commit a stale hashed JS/CSS pair.
 - When `main` is checked out in another worktree, merge PRs with `gh api` / GitHub; do not `git checkout main` here.
-- Keep architecture: auth / endpoint / executor / translate, plus `internal/store` (SQLite), `internal/control` (console facade), `internal/runtime` (Manager lifecycle), `internal/providers/qoder` (Qoder HOME/CLI/worker protocol and Adapter), `internal/gateway` (public protocol HTTP), `internal/console` (operator HTTP), `internal/server` (routes/middleware/webui), and `internal/app` (process assembly). `internal/api` is a test-only compatibility facade (`api.New` → `app.New`); do not add business there. Account entities stay in `accounts`; Pool/Item/RouteQuery/Classify and request Prepare live in `executor`. Display catalog cache lives in `control.Catalog`. Public `/v1/chat/completions`, `/v1/messages`, `/v1/responses`, and `/v1/models` live in `gateway`; console `/api/*` lives in `console`; `internal/server` registers both. Update job/maintenance lives in `internal/update.Coordinator`. SQLite lives in `internal/store`; process tables live in runtime. Runtime constructs the one Pool and injects it into executor. Qoder stays `child_process`; the registered Adapter omits Prober. Runtime catalog may use `adapter.Models`; quota/login/chat still use worker HTTP. `cmd/server` constructs `app.New`. `accounts` must not import `runtime` or `executor`. Executor Prepare must not take `*http.Request` or import store. Gateway, console, and server must not import store or runtime Manager. App/server/gateway/console must not import `internal/api`. Provider packages must not receive `http.ResponseWriter` or import executor taxonomy.
+- Keep architecture: auth / endpoint / executor / translate, plus `internal/store` (SQLite), `internal/control` (console facade: accounts, keys, settings, catalog, login, import), `internal/runtime` (Manager lifecycle), `internal/providers/qoder` (Qoder HOME/CLI/worker protocol and Adapter), `internal/gateway` (public protocol HTTP), `internal/console` (operator HTTP), `internal/server` (routes/middleware/webui), and `internal/app` (process assembly). `internal/api` is a test-only compatibility facade (`api.New` → `app.New`); do not add business there. Account entities stay in `accounts`; Pool/Item/RouteQuery/Classify and request Prepare live in `executor`. Display catalog cache lives in `control.Catalog`; catalog aggregation, identity filter, and settings decoration live in `control`, not `app`. Public `/v1/chat/completions`, `/v1/messages`, `/v1/responses`, and `/v1/models` live in `gateway`; console `/api/*` lives in `console`; `internal/server` registers both. Console HTTP decodes and maps errors; persist/apply for system settings and console-key rotation live in `control.System` / `control.KeyRotation`. Update job/maintenance lives in `internal/update.Coordinator`. SQLite lives in `internal/store`; process tables live in runtime. Runtime constructs the one Pool and injects it into executor. Qoder stays `child_process`; the registered Adapter omits Prober. Runtime catalog may use `adapter.Models`; quota/login/chat still use worker HTTP. `cmd/server` constructs `app.New`. `accounts` must not import `runtime` or `executor`. Executor Prepare must not take `*http.Request` or import store. Gateway, console, and server must not import store or runtime Manager. App/server/gateway/console must not import `internal/api`. Provider packages must not receive `http.ResponseWriter` or import executor taxonomy; OAuth loopback HTTP stays in `auth.ServeLoopback`. Adapter error classification and cooldown math live in `executor`; gateway only formats the result.
 - Prefer direct HTTP/SSE to Qoder cloud APIs
 - Pin qodercli / qoderclicn hooks in `worker/src/compat.mjs`; fail loudly on mismatch. Qoder CN is `provider=qoder` + `region=cn`, not a new family
 - Reasoning levels are catalog-driven: map client values through `internal/providers/reasoning.go` (`none`/`low`/`medium`/`high`/`xhigh`/`max`), clamp anything the model does not allow back to an allowed level, and treat the console value as a default only (it never locks a call or caps a higher client value)
 - Console UI: React + Tailwind v4 + **HeroUI only** for components
 - Follow `docs/DESIGN.md` (taste v1 adapted for this console)
 - Keep iterating Qoder login, usage, and account routing. Borrow scheduling ideas from [sub2api](https://github.com/Wei-Shaw/sub2api), not its commercial gateway
-- Multi-account = one worker process per Qoder HOME; do not share WASM context
-- Schema changes go in a new numbered SQLite migration. Never rewrite a shipped file
+- Qoder multi-account = one worker process per HOME; do not share WASM context. WorkBuddy / Trae / Devin use in-process adapters, not one child process per account
+- Schema changes go in a new numbered SQLite migration entry in `internal/store/migrations.go`. Never rewrite shipped SQL
 
 ## Don't
 

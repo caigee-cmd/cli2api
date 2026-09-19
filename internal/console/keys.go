@@ -10,8 +10,6 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 )
 
-const proxyAPIKeySecret = "proxy_api_key"
-
 type consoleKeyView struct {
 	Prefix  string `json:"prefix"`
 	Hint    string `json:"hint"`
@@ -118,10 +116,6 @@ func (h *Handler) HandleConsoleKey(w http.ResponseWriter, r *http.Request) {
 			Hint:   "This key unlocks the console and can call every provider.",
 		})
 	case http.MethodPost:
-		if h.SettingsMu != nil {
-			h.SettingsMu.Lock()
-			defer h.SettingsMu.Unlock()
-		}
 		var input struct {
 			Rotate bool `json:"rotate"`
 		}
@@ -133,28 +127,12 @@ func (h *Handler) HandleConsoleKey(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusBadRequest, "invalid_request", "set rotate=true to mint a new console key")
 			return
 		}
-		if h.GenerateAPIKey == nil {
-			writeErr(w, http.StatusInternalServerError, "console_key_rotate_failed", "key generator unavailable")
-			return
-		}
-		secret, err := h.GenerateAPIKey()
+		secret, err := h.KeyRotation.Rotate(r.Context())
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, "console_key_rotate_failed", err.Error())
 			return
 		}
-		if err := h.Control.Keys.SetConsoleSecret(r.Context(), proxyAPIKeySecret, secret); err != nil {
-			writeErr(w, http.StatusInternalServerError, "console_key_rotate_failed", err.Error())
-			return
-		}
-		if h.OnConsoleKeyRotated != nil {
-			h.OnConsoleKeyRotated(secret)
-		} else if h.Cfg != nil {
-			h.Cfg.ProxyAPIKey = secret
-		}
-		if err := h.Control.Accounts.ReplaceProxyAPIKey(r.Context(), secret); err != nil {
-			writeErr(w, http.StatusInternalServerError, "console_key_rotate_failed", err.Error())
-			return
-		}
+
 		writeJSON(w, http.StatusOK, consoleKeyView{
 			Prefix:  accounts.APIKeyPrefix(secret),
 			Hint:    "Store this value now. The console will ask for it on the next sign-in.",

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/executor"
+	"github.com/caigee-cmd/cli2api/internal/providers"
 	accountruntime "github.com/caigee-cmd/cli2api/internal/runtime"
 	"net/http"
 	"net/http/httptest"
@@ -872,6 +873,87 @@ func TestManagerRestartDelayIsBounded(t *testing.T) {
 	if got := manager.TestRestartDelay(3); got != 5*time.Second {
 		t.Fatalf("level 3 delay = %v", got)
 	}
+}
+
+func TestWorkerAdminUsesActionSpecWithoutPathGuessing(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlstore.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	account, err := store.Create(ctx, accounts.CreateAccount{Name: "Login", Enabled: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir(), ProxyAPIKey: "secret"}, store, &fakeStarter{})
+	defer manager.Close()
+
+	t.Run("missing account", func(t *testing.T) {
+		_, err := manager.WorkerAdmin(ctx, providers.AdminRequest{AccountID: "missing", Action: "login/device", Method: http.MethodPost})
+		var action *providers.ActionError
+		if !errors.As(err, &action) || action.Code != "account_not_running" {
+			t.Fatalf("err=%v", err)
+		}
+	})
+
+	t.Run("wait timeout", func(t *testing.T) {
+		worker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/health" {
+				t.Fatalf("path=%s", r.URL.Path)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "hasAuthManager": false})
+		}))
+		defer worker.Close()
+		manager.Pool().Upsert(executor.Item{ID: account.ID, URL: worker.URL, Provider: "qoder"})
+		waitCtx, cancel := context.WithTimeout(ctx, 80*time.Millisecond)
+		defer cancel()
+		_, err := manager.WorkerAdmin(waitCtx, providers.AdminRequest{AccountID: account.ID, Action: "login/device", Method: http.MethodPost})
+		var action *providers.ActionError
+		if !errors.As(err, &action) || action.Code != "not_ready" {
+			t.Fatalf("err=%v", err)
+		}
+	})
+
+	t.Run("http failure", func(t *testing.T) {
+		manager.Pool().Upsert(executor.Item{ID: account.ID, URL: "http://127.0.0.1:1", Provider: "qoder"})
+		_, err := manager.WorkerAdmin(ctx, providers.AdminRequest{AccountID: account.ID, Action: "rewarm", Method: http.MethodPost})
+		var action *providers.ActionError
+		if !errors.As(err, &action) || action.Code != "worker_unavailable" {
+			t.Fatalf("err=%v", err)
+		}
+	})
+
+	t.Run("login incomplete does not sync", func(t *testing.T) {
+		worker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/admin/login/status" {
+				t.Fatalf("path=%s", r.URL.Path)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"login": map[string]any{"status": "pending"}})
+		}))
+		defer worker.Close()
+		manager.Pool().Upsert(executor.Item{ID: account.ID, URL: worker.URL, Provider: "qoder"})
+		got, err := manager.WorkerAdmin(ctx, providers.AdminRequest{AccountID: account.ID, Action: "login/status", Method: http.MethodGet})
+		if err != nil || got.Status != 200 {
+			t.Fatalf("status=%d err=%v", got.Status, err)
+		}
+	})
+
+	t.Run("login complete syncs credential", func(t *testing.T) {
+		worker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/admin/login/status" {
+				t.Fatalf("path=%s", r.URL.Path)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"login": map[string]any{"status": "ok"}})
+		}))
+		defer worker.Close()
+		manager.Pool().Upsert(executor.Item{ID: account.ID, URL: worker.URL, Provider: "qoder"})
+		_, err := manager.WorkerAdmin(ctx, providers.AdminRequest{AccountID: account.ID, Action: "login/status", Method: http.MethodGet})
+		var action *providers.ActionError
+		if !errors.As(err, &action) || action.Code != "credential_sync_failed" {
+			t.Fatalf("err=%v", err)
+		}
+	})
 }
 
 func TestManagerPersistsSchedulerCooldown(t *testing.T) {

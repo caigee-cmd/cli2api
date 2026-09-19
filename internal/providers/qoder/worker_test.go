@@ -136,6 +136,26 @@ func TestNewChatRequestSetsWorkerHeaders(t *testing.T) {
 	}
 }
 
+func TestAdminActionMapsWorkerPaths(t *testing.T) {
+	cases := []struct {
+		action string
+		want   AdminSpec
+		ok     bool
+	}{
+		{"login/device", AdminSpec{Path: "/admin/login/device", WaitForAuthManager: true}, true},
+		{"login/status", AdminSpec{Path: "/admin/login/status", SyncAuth: "oauth_if_complete"}, true},
+		{"login/pat", AdminSpec{Path: "/admin/login/pat", WaitForAuthManager: true, SyncAuth: "pat"}, true},
+		{"rewarm", AdminSpec{Path: "/admin/rewarm"}, true},
+		{"login/callback", AdminSpec{}, false},
+	}
+	for _, tt := range cases {
+		got, ok := AdminAction(tt.action)
+		if ok != tt.ok || got != tt.want {
+			t.Fatalf("%s got=%+v ok=%v want=%+v ok=%v", tt.action, got, ok, tt.want, tt.ok)
+		}
+	}
+}
+
 func TestLoginCompleteAuthType(t *testing.T) {
 	if got := LoginCompleteAuthType("", []byte(`{"login":{"status":"ok"}}`)); got != "" {
 		t.Fatalf("empty sync = %q", got)

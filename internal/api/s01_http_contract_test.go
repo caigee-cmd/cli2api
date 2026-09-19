@@ -91,7 +91,7 @@ func TestUnauthorizedChatReturnsInvalidAPIKeyBody(t *testing.T) {
 
 func TestNamedAPIKeyCannotUseConsoleChat(t *testing.T) {
 	srv := newS01HTTPServer(t)
-	created, err := srv.Manager.Store().CreateAPIKey(context.Background(), accounts.CreateAPIKey{
+	created, err := srv.Control.Keys.Create(context.Background(), accounts.CreateAPIKey{
 		Name: "ci", Providers: []string{"qoder"}, Enabled: true,
 	})
 	if err != nil {
@@ -252,7 +252,7 @@ func TestFailedNativeImportLeavesNoAccount(t *testing.T) {
 
 func TestNamedAPIKeyCannotImportAccounts(t *testing.T) {
 	srv := newS01HTTPServer(t)
-	created, err := srv.Manager.Store().CreateAPIKey(context.Background(), accounts.CreateAPIKey{
+	created, err := srv.Control.Keys.Create(context.Background(), accounts.CreateAPIKey{
 		Name: "ci", Providers: []string{"qoder"}, Enabled: true,
 	})
 	if err != nil {
@@ -271,7 +271,7 @@ func TestClearRequestLogsRequiresConsoleKey(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	created, err := srv.Manager.Store().CreateAPIKey(context.Background(), accounts.CreateAPIKey{
+	created, err := srv.Control.Keys.Create(context.Background(), accounts.CreateAPIKey{
 		Name: "ci", Providers: []string{"qoder"}, Enabled: true,
 	})
 	if err != nil {

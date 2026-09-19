@@ -44,66 +44,17 @@ func (h *Handler) HandleModelSetting(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid_model", "model id required")
 		return
 	}
-	if provider == "trae" || provider == "workbuddy" {
-		h.handleProviderModelSetting(w, r, provider, modelKey)
-		return
-	}
 	switch r.Method {
 	case http.MethodGet:
-		value, custom, err := h.Control.Settings.GetModelContext(r.Context(), modelKey)
+		setting, err := h.Control.Settings.ReadModelSetting(r.Context(), provider, modelKey)
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, "model_setting_failed", err.Error())
 			return
 		}
-		defaultValue := control.DefaultContextForModel(modelKey)
-		if !custom {
-			value = defaultValue
-		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"model": modelKey, "context_length": value,
-			"default_context_length": defaultValue, "context_custom": custom,
-		})
+		writeJSON(w, http.StatusOK, modelSettingResponse(setting))
 	case http.MethodPatch:
 		var input struct {
-			ContextLength int `json:"context_length"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-			writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
-			return
-		}
-		if err := h.Control.Settings.SetModelContext(r.Context(), modelKey, input.ContextLength); err != nil {
-			writeErr(w, http.StatusBadRequest, "model_setting_failed", err.Error())
-			return
-		}
-		value := input.ContextLength
-		custom := value > 0
-		if !custom {
-			value = control.DefaultContextForModel(modelKey)
-		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"model": modelKey, "context_length": value,
-			"default_context_length": control.DefaultContextForModel(modelKey), "context_custom": custom,
-		})
-	default:
-		writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "GET or PATCH only")
-	}
-}
-
-func (h *Handler) handleProviderModelSetting(w http.ResponseWriter, r *http.Request, provider, modelKey string) {
-	switch r.Method {
-	case http.MethodGet:
-		setting, err := h.Control.Settings.GetProviderModelSetting(r.Context(), provider, modelKey)
-		if err != nil {
-			writeErr(w, http.StatusInternalServerError, "model_setting_failed", err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"model": modelKey, "provider": provider,
-			"max_mode": setting.MaxMode, "reasoning_effort": setting.ReasoningEffort,
-			"context_custom": setting.MaxMode || setting.ReasoningEffort != "",
-		})
-	case http.MethodPatch:
-		var input struct {
+			ContextLength   *int    `json:"context_length"`
 			MaxMode         *bool   `json:"max_mode"`
 			ReasoningEffort *string `json:"reasoning_effort"`
 		}
@@ -111,35 +62,31 @@ func (h *Handler) handleProviderModelSetting(w http.ResponseWriter, r *http.Requ
 			writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
 			return
 		}
-		if input.MaxMode == nil && input.ReasoningEffort == nil {
-			writeErr(w, http.StatusBadRequest, "invalid_request", "max_mode or reasoning_effort required")
-			return
-		}
-		if provider == "workbuddy" && input.MaxMode != nil {
-			writeErr(w, http.StatusBadRequest, "invalid_request", "workbuddy has no max-mode switch")
-			return
-		}
-		setting, err := h.Control.Settings.GetProviderModelSetting(r.Context(), provider, modelKey)
-		if err != nil {
-			writeErr(w, http.StatusBadRequest, "model_setting_failed", err.Error())
-			return
-		}
-		if input.MaxMode != nil {
-			setting.MaxMode = *input.MaxMode
-		}
-		if input.ReasoningEffort != nil {
-			setting.ReasoningEffort = strings.TrimSpace(*input.ReasoningEffort)
-		}
-		if err := h.Control.Settings.SetProviderModelSetting(r.Context(), provider, modelKey, setting); err != nil {
-			writeErr(w, http.StatusBadRequest, "model_setting_failed", err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"model": modelKey, "provider": provider,
-			"max_mode": setting.MaxMode, "reasoning_effort": setting.ReasoningEffort,
-			"context_custom": setting.MaxMode || setting.ReasoningEffort != "",
+		setting, err := h.Control.Settings.UpdateModelSetting(r.Context(), provider, modelKey, input.ContextLength, control.ProviderModelSettingPatch{
+			MaxMode: input.MaxMode, ReasoningEffort: input.ReasoningEffort,
 		})
+		if err != nil {
+			writeOperationError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, modelSettingResponse(setting))
 	default:
 		writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "GET or PATCH only")
+	}
+}
+
+func modelSettingResponse(setting control.ModelSetting) map[string]any {
+	switch setting.Provider {
+	case "trae", "workbuddy":
+		return map[string]any{
+			"model": setting.Model, "provider": setting.Provider,
+			"max_mode": setting.MaxMode, "reasoning_effort": setting.ReasoningEffort,
+			"context_custom": setting.ContextCustom,
+		}
+	default:
+		return map[string]any{
+			"model": setting.Model, "context_length": setting.ContextLength,
+			"default_context_length": setting.DefaultContextLength, "context_custom": setting.ContextCustom,
+		}
 	}
 }

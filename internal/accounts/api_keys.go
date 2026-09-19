@@ -36,6 +36,46 @@ type UpdateAPIKey struct {
 	Enabled   *bool
 }
 
+type StoredAPIKey struct {
+	ID        string
+	Name      string
+	Prefix    string
+	KeyHash   string
+	Providers []string
+	Enabled   bool
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+func PrepareCreateAPIKey(input CreateAPIKey) (CreateAPIKey, error) {
+	name := strings.TrimSpace(input.Name)
+	if name == "" {
+		return CreateAPIKey{}, fmt.Errorf("api key name required")
+	}
+	providers, err := NormalizeAPIKeyProviders(input.Providers)
+	if err != nil {
+		return CreateAPIKey{}, err
+	}
+	return CreateAPIKey{Name: name, Providers: providers, Enabled: input.Enabled}, nil
+}
+
+func ApplyAPIKeyUpdate(current APIKey, input UpdateAPIKey) (APIKey, error) {
+	if name := strings.TrimSpace(input.Name); name != "" {
+		current.Name = name
+	}
+	if input.Providers != nil {
+		allowed, err := NormalizeAPIKeyProviders(input.Providers)
+		if err != nil {
+			return APIKey{}, err
+		}
+		current.Providers = allowed
+	}
+	if input.Enabled != nil {
+		current.Enabled = *input.Enabled
+	}
+	return current, nil
+}
+
 func HashAPIKey(secret string) string {
 	sum := sha256.Sum256([]byte(strings.TrimSpace(secret)))
 	return hex.EncodeToString(sum[:])

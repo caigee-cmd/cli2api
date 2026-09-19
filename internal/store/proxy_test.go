@@ -21,8 +21,8 @@ func TestValidateAccountProxy(t *testing.T) {
 		{provider: "trae", raw: "socks5h://proxy.example:1080"},
 	}
 	for _, test := range ok {
-		if err := validateAccountProxy(test.provider, test.region, test.raw); err != nil {
-			t.Fatalf("validateAccountProxy(%q,%q,%q) = %v, want nil", test.provider, test.region, test.raw, err)
+		if err := accounts.ValidateAccountProxy(test.provider, test.region, test.raw); err != nil {
+			t.Fatalf("ValidateAccountProxy(%q,%q,%q) = %v, want nil", test.provider, test.region, test.raw, err)
 		}
 	}
 
@@ -35,8 +35,8 @@ func TestValidateAccountProxy(t *testing.T) {
 		{provider: "qoder", region: "cn", raw: "socks5h://proxy.example:1080"},
 	}
 	for _, test := range rejected {
-		if err := validateAccountProxy(test.provider, test.region, test.raw); err == nil {
-			t.Fatalf("validateAccountProxy(%q,%q,%q) unexpectedly succeeded", test.provider, test.region, test.raw)
+		if err := accounts.ValidateAccountProxy(test.provider, test.region, test.raw); err == nil {
+			t.Fatalf("ValidateAccountProxy(%q,%q,%q) unexpectedly succeeded", test.provider, test.region, test.raw)
 		}
 	}
 }

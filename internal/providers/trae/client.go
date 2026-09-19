@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
+	"github.com/caigee-cmd/cli2api/internal/auth"
 	"github.com/caigee-cmd/cli2api/internal/providers"
 	proxyutil "github.com/caigee-cmd/cli2api/internal/proxy"
 	"github.com/caigee-cmd/cli2api/internal/translate"
@@ -316,21 +317,16 @@ func (c *Client) ensureCallback() (string, error) {
 		return "", fmt.Errorf("trae callback listen: %w", err)
 	}
 	c.listener = ln
-	mux := http.NewServeMux()
-	mux.HandleFunc(pathCallback, c.handleCallback)
-	go func() {
-		_ = http.Serve(ln, mux)
-	}()
+	auth.ServeLoopback(ln, pathCallback, "Trae", c.acceptCallback)
 	addr := ln.Addr().(*net.TCPAddr)
 	return fmt.Sprintf("http://127.0.0.1:%d%s", addr.Port, pathCallback), nil
 }
 
-func (c *Client) handleCallback(w http.ResponseWriter, r *http.Request) {
-	info, err := ParseCallback(r.URL.String())
+func (c *Client) acceptCallback(ctx context.Context, rawURL string) error {
+	info, err := ParseCallback(rawURL)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
 		c.markPendingFailed(err.Error())
-		return
+		return err
 	}
 	credential := Credential{
 		AccessToken:  info.AccessToken,
@@ -355,8 +351,7 @@ func (c *Client) handleCallback(w http.ResponseWriter, r *http.Request) {
 		break
 	}
 	c.mu.Unlock()
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = io.WriteString(w, `<!doctype html><meta charset="utf-8"><title>Trae login</title><p>Login complete. You can close this tab.</p>`)
+	return nil
 }
 
 func (c *Client) markPendingFailed(message string) {
@@ -812,13 +807,11 @@ func classifiedError(status int, body []byte) error {
 }
 
 func wrapClassified(classified providers.ClassifiedError, code string) error {
-	failover := classified.Kind != accounts.KindInvalidRequest
 	return &providers.Error{
-		Kind:     classified.Kind,
-		Status:   classified.Status,
-		Message:  classified.Message,
-		Cooldown: classifiedCooldown(classified.Kind, code),
-		Failover: &failover,
+		Kind:    classified.Kind,
+		Status:  classified.Status,
+		Message: classified.Message,
+		Code:    code,
 	}
 }
 
@@ -826,33 +819,22 @@ func extractCode(body string) string {
 	var env struct {
 		Code any `json:"code"`
 	}
-	if json.Unmarshal([]byte(body), &env) != nil {
+	if json.Unmarshal([]byte(body), &env) != nil || env.Code == nil {
 		return ""
 	}
 	switch v := env.Code.(type) {
+	case nil:
+		return ""
 	case float64:
 		return fmt.Sprintf("%.0f", v)
+	case string:
+		return strings.TrimSpace(v)
 	default:
-		return strings.TrimSpace(fmt.Sprint(v))
-	}
-}
-
-func classifiedCooldown(kind, code string) time.Duration {
-	switch code {
-	case "1005", "4008":
-		return accounts.NextLocalMidnightCooldown()
-	case "4011":
-		return hardRateCooldown
-	}
-	switch kind {
-	case accounts.KindQuota:
-		return accounts.NextLocalMidnightCooldown()
-	case accounts.KindAuth:
-		return 30 * time.Minute
-	case accounts.KindRateLimit:
-		return time.Minute
-	default:
-		return 0
+		text := strings.TrimSpace(fmt.Sprint(v))
+		if text == "" || text == "<nil>" {
+			return ""
+		}
+		return text
 	}
 }
 

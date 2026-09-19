@@ -1,10 +1,15 @@
 package executor
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"testing"
 	"time"
+
+	"github.com/caigee-cmd/cli2api/internal/providers"
 )
 
 func TestClassifyPromptLimitDoesNotCoolAccount(t *testing.T) {
@@ -45,6 +50,50 @@ func TestClassifyRateLimitHonorsRetryAfter(t *testing.T) {
 	got := Classify(429, "too many requests", "90", "", "")
 	if got.Kind != KindRateLimit || !got.Failover || got.Cooldown != 90*time.Second {
 		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestClassifyErrorClampsProviderRateLimitCooldown(t *testing.T) {
+	got := ClassifyError(&providers.Error{
+		Kind: KindRateLimit, Status: 429, Message: "slow down", RetryAfter: 5 * time.Second,
+	})
+	if got.Kind != KindRateLimit || got.Cooldown != 30*time.Second || got.RetryAfter != 30*time.Second {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestClassifyErrorUsesTraeHardRateCode(t *testing.T) {
+	got := ClassifyError(&providers.Error{
+		Kind: KindRateLimit, Status: 429, Message: "hard rate limit", Code: "4011",
+	})
+	if got.Kind != KindRateLimit || !got.Failover || got.Cooldown != 5*time.Minute {
+		t.Fatalf("4011 cooldown must be executor-owned, got %+v", got)
+	}
+}
+
+func TestClassifyErrorKeepsJSONRetryAfterWhenCodeIsSet(t *testing.T) {
+	got := ClassifyError(&providers.Error{
+		Kind: KindRateLimit, Status: 429, Code: "429",
+		Message: `{"code":429,"message":"slow down","retry_after":120}`,
+	})
+	if got.Kind != KindRateLimit || got.Cooldown != 120*time.Second || got.RetryAfter != 120*time.Second {
+		t.Fatalf("retry_after JSON must survive a separate code field, got %+v", got)
+	}
+}
+
+func TestClassifyErrorIgnoresProviderFailoverAndAuthCooldown(t *testing.T) {
+	got := ClassifyError(&providers.Error{
+		Kind: KindQuota, Status: 429, Message: "plan exhausted", RetryAfter: time.Minute,
+	})
+	if got.Kind != KindQuota || got.Failover || got.Cooldown <= 0 || got.Cooldown > 24*time.Hour {
+		t.Fatalf("quota must not fail over and must use local midnight, got %+v", got)
+	}
+
+	got = ClassifyError(&providers.Error{
+		Kind: KindAuth, Status: 401, Message: "session dead", RetryAfter: 30 * time.Minute,
+	})
+	if got.Kind != KindAuth || !got.Failover || got.Cooldown != 30*time.Second {
+		t.Fatalf("auth cooldown/failover must be executor-owned, got %+v", got)
 	}
 }
 
@@ -130,22 +179,94 @@ func TestClassifyRateLimitUsesBodyHintAndMinimumCooldown(t *testing.T) {
 	}
 }
 
-func TestProviderErrorFromClassifiedPreservesFields(t *testing.T) {
-	for _, tt := range []struct {
-		name       string
-		retryAfter time.Duration
-		failover   bool
-		wantRetry  time.Duration
-	}{
-		{"explicit", time.Minute, true, time.Minute},
-		{"fallback", 0, false, 2 * time.Minute},
-		{"negative", -time.Second, true, 2 * time.Minute},
+func TestClassifyErrorKeepsExecutionErrorClassification(t *testing.T) {
+	want := Classified{
+		Kind: KindRateLimit, Status: 429, Code: "rate_limit", Type: "api_error",
+		Message: "all accounts at capacity", Failover: true,
+		Cooldown: 5 * time.Second, RetryAfter: 5 * time.Second,
+	}
+	got := ClassifyError(NewExecutionError(want, errors.New("wrapped")))
+	if got != want {
+		t.Fatalf("execution error was reclassified: %+v", got)
+	}
+}
+
+func TestStreamReadErrorClassifiesProviderOnce(test *testing.T) {
+	original := &providers.Error{Kind: KindQuota, Status: 429, Code: "quota_exhausted", Message: "quota exhausted"}
+	wrapped := fmt.Errorf("Connect trailer: %w", original)
+	got := StreamReadError(wrapped)
+	var executionErr *ExecutionError
+	if !errors.As(got, &executionErr) {
+		test.Fatalf("stream error was not classified: %T %v", got, got)
+	}
+	var providerErr *providers.Error
+	if !errors.As(got, &providerErr) || providerErr != original || !errors.Is(got, wrapped) {
+		test.Fatalf("original error chain was lost: %v", got)
+	}
+	want := executionErr.Classified
+	if want.Kind != KindQuota || want.Status != 429 || want.Failover || want.Cooldown <= 0 {
+		test.Fatalf("classification=%+v", want)
+	}
+	original.Kind = KindAuth
+	original.Status = 401
+	if classified := ClassifyError(got); classified != want {
+		test.Fatalf("classification changed with upstream error: %+v want %+v", classified, want)
+	}
+}
+
+func TestStreamReadErrorPreservesExecutionErrorWrapper(test *testing.T) {
+	original := errors.New("read failure")
+	want := Classified{Kind: KindRateLimit, Status: 429, RetryAfter: 5 * time.Second, Model: "swe-2"}
+	wrapped := fmt.Errorf("stream wrapper: %w", NewExecutionError(want, original))
+	got := StreamReadError(wrapped)
+	if got != wrapped || !errors.Is(got, original) || ClassifyError(got) != want {
+		test.Fatalf("execution error wrapper changed: %v", got)
+	}
+}
+
+func TestStreamReadErrorPreservesCancellation(test *testing.T) {
+	for _, cause := range []error{context.Canceled, context.DeadlineExceeded} {
+		for _, scenario := range []struct {
+			name string
+			err  error
+		}{
+			{"direct", cause},
+			{"wrapped", fmt.Errorf("stream read: %w", cause)},
+			{"joined", errors.Join(&providers.Error{Kind: KindUnavailable, Status: 502, Message: "stream closed"}, cause)},
+		} {
+			test.Run(cause.Error()+"/"+scenario.name, func(test *testing.T) {
+				got := StreamReadError(scenario.err)
+				if !errors.Is(got, cause) || !errors.Is(got, scenario.err) {
+					test.Fatalf("cancellation cause was lost: %v", got)
+				}
+				var executionErr *ExecutionError
+				if !errors.As(got, &executionErr) {
+					test.Fatalf("cancellation was not classified: %T", got)
+				}
+				classified := ClassifyError(got)
+				if classified.Kind != KindCanceled || classified.Status != 499 || classified.Failover || classified.Cooldown != 0 || classified.RetryAfter != 0 {
+					test.Fatalf("cancellation classification=%+v", classified)
+				}
+			})
+		}
+	}
+}
+
+func TestObserveStreamFailureIgnoresCancellation(test *testing.T) {
+	for _, failure := range []error{
+		context.Canceled,
+		fmt.Errorf("stream read: %w", context.DeadlineExceeded),
+		&providers.Error{Kind: KindCanceled, Status: 499, Message: "canceled"},
+		NewExecutionError(Classified{Kind: KindCanceled, Status: 499}, nil),
 	} {
-		t.Run(tt.name, func(t *testing.T) {
-			c := Classified{Kind: KindRateLimit, Status: 429, Code: "limit", Type: "rate_limit_error", Message: "retry later", Cooldown: 2 * time.Minute, RetryAfter: tt.retryAfter, Failover: tt.failover}
-			got := ProviderErrorFromClassified(c)
-			if got.Kind != c.Kind || got.Status != c.Status || got.Code != c.Code || got.Type != c.Type || got.Message != c.Message || got.Cooldown != c.Cooldown || got.RetryAfter != tt.wantRetry || got.Failover == nil || *got.Failover != tt.failover {
-				t.Fatalf("conversion lost classification: %+v", got)
+		test.Run(failure.Error(), func(test *testing.T) {
+			pool := NewPool(nil, nil)
+			pool.Upsert(Item{ID: "healthy"})
+			before, _ := pool.ByID("healthy")
+			NewChatExecutor(pool, "").ObserveStreamFailure("healthy", failure, "swe-2")
+			after, _ := pool.ByID("healthy")
+			if after.LastKind != "" || !after.DownUntil.IsZero() || len(after.ModelDownUntil) != 0 || after.StateVersion != before.StateVersion {
+				test.Fatalf("cancellation mutated pool state: %+v", after)
 			}
 		})
 	}

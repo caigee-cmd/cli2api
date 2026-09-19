@@ -3,6 +3,9 @@ package app
 import (
 	"bytes"
 	"encoding/json"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -31,11 +34,6 @@ var importAllowlist = map[string]map[string]string{
 	},
 	modulePath + "/internal/runtime": {
 		modulePath + "/internal/providers/qoder": "S08/S09 leftover: Qoder child spawn, HOME, catalog, and quota still call providers/qoder until remaining capabilities go through Adapter.",
-	},
-	modulePath + "/internal/console": {
-		modulePath + "/internal/providers/devin":     "Account import still validates/decodes Devin credential blobs in console HTTP.",
-		modulePath + "/internal/providers/trae":      "Account import still validates/decodes Trae credential blobs in console HTTP.",
-		modulePath + "/internal/providers/workbuddy": "Account import still validates/decodes WorkBuddy credential blobs in console HTTP.",
 	},
 }
 
@@ -104,6 +102,9 @@ func forbiddenImport(importer, imp string) (bool, string) {
 	case importer == "internal/console" || strings.HasPrefix(importer, "internal/console/"):
 		if isAny(imp, "internal/store", "database/sql", "modernc.org/sqlite", "internal/runtime", "internal/api") {
 			return true, "console must not import store, SQL, runtime Manager, or api"
+		}
+		if isConcreteProvider(imp) {
+			return true, "console must not import a concrete provider"
 		}
 	case importer == "internal/server" || strings.HasPrefix(importer, "internal/server/"):
 		if isAny(imp, "internal/store", "database/sql", "modernc.org/sqlite", "internal/runtime", "internal/api") {
@@ -237,6 +238,165 @@ func listProductionPackages(t *testing.T, root string) []goPackage {
 		t.Fatal("go list returned no module packages")
 	}
 	return pkgs
+}
+
+func TestDutyBoundaries(t *testing.T) {
+	root := moduleRoot(t)
+	var violations []string
+	walkProductionGoFiles(t, root, func(rel, src string) {
+		switch {
+		case strings.HasPrefix(rel, "internal/app/"):
+			for _, needle := range []string{
+				"func FilterModelsForIdentity",
+				"func DecorateModelsWithContext",
+				"func decorateProviderSettings",
+				"func MergeModelEntryCapabilities",
+				"func NextLocalMidnightCooldown",
+			} {
+				if strings.Contains(src, needle) {
+					violations = append(violations, rel+": app must not implement "+needle)
+				}
+			}
+		case strings.HasPrefix(rel, "internal/control/"):
+			for _, needle := range []string{
+				"/admin/login/",
+				"oauth_if_complete",
+			} {
+				if strings.Contains(src, needle) {
+					violations = append(violations, rel+": control must not hard-code Qoder worker login paths; use qoder.AdminAction")
+				}
+			}
+		case strings.HasPrefix(rel, "internal/console/"):
+			for _, needle := range []string{
+				".SetSecret(",
+				".SetSecretOrEmpty(",
+				".SetConsoleSecret(",
+				".ReplaceProxyAPIKey(",
+				"workbuddy has no max-mode switch",
+				"/admin/login/",
+				"oauth_if_complete",
+				"statsCache",
+			} {
+				if strings.Contains(src, needle) {
+					violations = append(violations, rel+": console must not persist settings/keys, own model-setting rules, login protocol, or stats cache; use control / logs")
+				}
+			}
+		case strings.HasPrefix(rel, "internal/gateway/"):
+			for _, needle := range []string{
+				"func Classify(",
+				"executor.Classify(",
+				"NextLocalMidnightCooldown",
+				"minRateLimitCooldown",
+			} {
+				if strings.Contains(src, needle) {
+					violations = append(violations, rel+": gateway must format classified errors, not own cooldown policy")
+				}
+			}
+		case strings.HasPrefix(rel, "internal/accounts/"):
+			if strings.Contains(src, "func NextLocalMidnightCooldown") {
+				violations = append(violations, rel+": accounts must not compute cooldown durations")
+			}
+		case strings.HasPrefix(rel, "internal/runtime/"):
+			if strings.Contains(src, "/admin/login/") {
+				violations = append(violations, rel+": runtime must not hard-code Qoder worker login paths; use qoder.AdminAction")
+			}
+		case strings.HasPrefix(rel, "internal/store/"):
+			for _, needle := range []string{
+				"GenerateAPIKeySecret",
+				"SecretOnce",
+			} {
+				if strings.Contains(src, needle) {
+					violations = append(violations, rel+": store must persist prepared API keys, not generate secrets")
+				}
+			}
+		case strings.HasPrefix(rel, "internal/providers/"):
+			if writerParamInFile(t, filepath.Join(root, rel)) {
+				violations = append(violations, rel+": provider packages must not receive http.ResponseWriter")
+			}
+			for _, needle := range []string{
+				"func classifiedCooldown",
+				"Failover: &failover",
+				"hardRateCooldown",
+			} {
+				if strings.Contains(src, needle) {
+					violations = append(violations, rel+": provider packages must not set failover or compute cooldown policy")
+				}
+			}
+		}
+	})
+	if !writerParamInFile(t, filepath.Join(root, "internal/auth/loopback.go")) {
+		violations = append(violations, "internal/auth/loopback.go must own the loopback ResponseWriter")
+	}
+	if len(violations) > 0 {
+		t.Fatalf("duty boundaries failed:\n%s", strings.Join(violations, "\n"))
+	}
+}
+
+func walkProductionGoFiles(t *testing.T, root string, fn func(rel, src string)) {
+	t.Helper()
+	err := filepath.WalkDir(filepath.Join(root, "internal"), func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if d.Name() == "testdata" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		src, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		fn(filepath.ToSlash(rel), string(src))
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writerParamInFile(t *testing.T, path string) bool {
+	t.Helper()
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, path, nil, 0)
+	if err != nil {
+		t.Fatalf("parse %s: %v", path, err)
+	}
+	found := false
+	ast.Inspect(file, func(n ast.Node) bool {
+		fn, ok := n.(*ast.FuncType)
+		if !ok || fn.Params == nil {
+			return true
+		}
+		for _, field := range fn.Params.List {
+			if isHTTPResponseWriter(field.Type) {
+				found = true
+				return false
+			}
+		}
+		return true
+	})
+	return found
+}
+
+func isHTTPResponseWriter(expr ast.Expr) bool {
+	switch typed := expr.(type) {
+	case *ast.StarExpr:
+		return isHTTPResponseWriter(typed.X)
+	case *ast.SelectorExpr:
+		ident, ok := typed.X.(*ast.Ident)
+		return ok && ident.Name == "http" && typed.Sel != nil && typed.Sel.Name == "ResponseWriter"
+	default:
+		return false
+	}
 }
 
 func moduleRoot(t *testing.T) string {

@@ -67,9 +67,14 @@ func IsInvalidRequestText(text string) bool {
 }
 
 func NextLocalMidnightCooldown() time.Duration {
-	return accounts.NextLocalMidnightCooldown()
+	return NextLocalMidnightCooldownAt(time.Now())
 }
 
 func NextLocalMidnightCooldownAt(now time.Time) time.Duration {
-	return accounts.NextLocalMidnightCooldownAt(now)
+	zone := now.Location()
+	if zone == nil {
+		zone = time.Local
+	}
+	next := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, zone)
+	return next.Sub(now)
 }

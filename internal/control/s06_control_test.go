@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
+	"github.com/caigee-cmd/cli2api/internal/providers"
 )
 
 type callLog struct {
@@ -123,7 +124,9 @@ func (s *fakeStore) Delete(_ context.Context, id string) error {
 	delete(s.payloads, id)
 	return nil
 }
-func (s *fakeStore) SaveCredential(context.Context, string, string, accounts.NativeCredential) error {
+func (s *fakeStore) SaveCredential(_ context.Context, accountID, _ string, credential accounts.NativeCredential) error {
+	s.log.add("store.SaveCredential")
+	s.native[accountID] = credential
 	return nil
 }
 func (s *fakeStore) LoadCredential(_ context.Context, accountID string) (accounts.NativeCredential, error) {
@@ -178,6 +181,13 @@ func (s *fakeStore) GetModelContext(_ context.Context, modelID string) (int, boo
 	return value, ok, nil
 }
 func (s *fakeStore) SetModelContext(_ context.Context, modelID string, contextLength int) error {
+	if s.updateErr != nil {
+		return s.updateErr
+	}
+	if contextLength == 0 {
+		delete(s.contexts, modelID)
+		return nil
+	}
 	s.contexts[modelID] = contextLength
 	return nil
 }
@@ -185,17 +195,29 @@ func (s *fakeStore) ListModelContexts(context.Context) (map[string]int, error) {
 	return s.contexts, nil
 }
 func (s *fakeStore) GetProviderModelSetting(context.Context, string, string) (accounts.ProviderModelSetting, error) {
+	if s.getErr != nil {
+		return accounts.ProviderModelSetting{}, s.getErr
+	}
 	return s.providerSetting, nil
 }
 func (s *fakeStore) SetProviderModelSetting(_ context.Context, _, _ string, setting accounts.ProviderModelSetting) error {
+	if s.updateErr != nil {
+		return s.updateErr
+	}
 	s.providerSetting = setting
 	return nil
 }
-func (s *fakeStore) CreateAPIKey(_ context.Context, input accounts.CreateAPIKey) (accounts.APIKey, error) {
-	s.log.add("store.CreateAPIKey")
-	key := accounts.APIKey{ID: "key-1", Name: input.Name, Enabled: input.Enabled, Secret: "secret-once"}
-	s.keys[key.ID] = key
-	return key, nil
+func (s *fakeStore) InsertAPIKey(_ context.Context, key accounts.StoredAPIKey) (accounts.APIKey, error) {
+	s.log.add("store.InsertAPIKey")
+	if s.createErr != nil {
+		return accounts.APIKey{}, s.createErr
+	}
+	out := accounts.APIKey{ID: "key-1", Name: key.Name, Prefix: key.Prefix, Providers: key.Providers, Enabled: key.Enabled}
+	if out.Providers == nil {
+		out.Providers = []string{}
+	}
+	s.keys[out.ID] = out
+	return out, nil
 }
 func (s *fakeStore) ListAPIKeys(context.Context) ([]accounts.APIKey, error) {
 	s.log.add("store.ListAPIKeys")
@@ -222,17 +244,20 @@ func (s *fakeStore) GetAPIKey(_ context.Context, id string) (accounts.APIKey, er
 func (s *fakeStore) LookupAPIKey(context.Context, string) (accounts.APIKey, bool, error) {
 	return accounts.APIKey{}, false, nil
 }
-func (s *fakeStore) UpdateAPIKey(_ context.Context, id string, input accounts.UpdateAPIKey) (accounts.APIKey, error) {
-	s.log.add("store.UpdateAPIKey")
-	key, ok := s.keys[id]
+func (s *fakeStore) SaveAPIKey(_ context.Context, key accounts.StoredAPIKey) (accounts.APIKey, error) {
+	s.log.add("store.SaveAPIKey")
+	if s.updateErr != nil {
+		return accounts.APIKey{}, s.updateErr
+	}
+	current, ok := s.keys[key.ID]
 	if !ok {
 		return accounts.APIKey{}, accounts.ErrAPIKeyNotFound
 	}
-	if input.Name != "" {
-		key.Name = input.Name
-	}
-	s.keys[id] = key
-	return key, nil
+	current.Name = key.Name
+	current.Providers = key.Providers
+	current.Enabled = key.Enabled
+	s.keys[key.ID] = current
+	return current, nil
 }
 func (s *fakeStore) DeleteAPIKey(_ context.Context, id string) error {
 	s.log.add("store.DeleteAPIKey")
@@ -254,14 +279,14 @@ func (s *fakeStore) TouchAPIKey(_ context.Context, id string) error {
 type fakeRuntime struct {
 	log         *callLog
 	store       *fakeStore
-	createErr   error
-	updateErr   error
-	deleteErr   error
-	importErr   error
+	startErr    error
+	stopErr     error
+	syncErr     error
 	refreshErr  error
 	checkinErr  error
-	created     accounts.Account
-	imported    accounts.Account
+	started     []string
+	stopped     []string
+	removed     []string
 	views       []accounts.AccountView
 	view        accounts.AccountView
 	checkedIn   accounts.Account
@@ -269,47 +294,35 @@ type fakeRuntime struct {
 	forceQuota  bool
 	proxyURL    string
 	proxyAPIKey string
+	adminReq    providers.AdminRequest
 }
 
-func (r *fakeRuntime) Create(_ context.Context, input accounts.CreateAccount) (accounts.Account, error) {
-	r.log.add("runtime.Create")
-	if r.createErr != nil {
-		account := r.created
-		if account.ID == "" {
-			account = accounts.Account{ID: "acc-1", Name: input.Name, Provider: input.Provider, Enabled: input.Enabled}
-		}
-		r.store.accounts[account.ID] = account
-		return account, r.createErr
+func (r *fakeRuntime) StartAccount(_ context.Context, account accounts.Account) error {
+	r.log.add("runtime.StartAccount")
+	r.started = append(r.started, account.ID)
+	if r.startErr != nil {
+		return r.startErr
 	}
-	account, err := r.store.Create(context.Background(), input)
-	if err != nil {
-		return accounts.Account{}, err
-	}
-	r.created = account
-	return account, nil
+	return nil
 }
-func (r *fakeRuntime) Update(_ context.Context, id string, input accounts.UpdateAccount) error {
-	r.log.add("runtime.Update")
-	if r.updateErr != nil {
-		return r.updateErr
-	}
-	return r.store.Update(context.Background(), id, input)
+func (r *fakeRuntime) StopAccount(id string) error {
+	r.log.add("runtime.StopAccount")
+	r.stopped = append(r.stopped, id)
+	return r.stopErr
 }
-func (r *fakeRuntime) Delete(_ context.Context, id string) error {
-	r.log.add("runtime.Delete")
-	if r.deleteErr != nil {
-		return r.deleteErr
-	}
-	return r.store.Delete(context.Background(), id)
+func (r *fakeRuntime) RemoveAccount(id string) error {
+	r.log.add("runtime.RemoveAccount")
+	r.removed = append(r.removed, id)
+	return nil
 }
-func (r *fakeRuntime) Import(_ context.Context, input accounts.ImportAccount) (accounts.Account, error) {
-	r.log.add("runtime.Import")
-	if r.importErr != nil {
-		return accounts.Account{}, r.importErr
+func (r *fakeRuntime) SyncAccount(_ context.Context, _, after accounts.Account) error {
+	r.log.add("runtime.SyncAccount")
+	if after.Enabled {
+		r.started = append(r.started, after.ID)
+	} else {
+		r.stopped = append(r.stopped, after.ID)
 	}
-	r.imported = accounts.Account{ID: "acc-native", Name: input.Name, Enabled: input.Enabled}
-	r.store.accounts[r.imported.ID] = r.imported
-	return r.imported, nil
+	return r.syncErr
 }
 func (r *fakeRuntime) AccountView(context.Context, string) (accounts.AccountView, error) {
 	r.log.add("runtime.AccountView")
@@ -350,6 +363,11 @@ func (r *fakeRuntime) ReplaceProxyAPIKey(_ context.Context, key string) error {
 	r.proxyAPIKey = key
 	return nil
 }
+func (r *fakeRuntime) WorkerAdmin(_ context.Context, input providers.AdminRequest) (providers.AdminResponse, error) {
+	r.log.add("runtime.WorkerAdmin")
+	r.adminReq = input
+	return providers.AdminResponse{Status: 200}, nil
+}
 func (r *fakeRuntime) Store() accounts.AccountStore {
 	return r.store
 }
@@ -374,7 +392,7 @@ func TestImportCredentialPayloadDeletesOnPayloadFailure(t *testing.T) {
 		t.Fatal("failed payload import left the account")
 	}
 	if got := log.names; !equalCalls(got, []string{
-		"runtime.Create", "store.Create", "store.SaveCredentialPayload", "runtime.Delete", "store.Delete",
+		"store.Create", "store.SaveCredentialPayload", "store.Delete", "runtime.RemoveAccount",
 	}) {
 		t.Fatalf("calls=%v", got)
 	}
@@ -392,7 +410,7 @@ func TestImportCredentialPayloadEnablesAfterCredentialWrite(t *testing.T) {
 		t.Fatalf("imported %+v", account)
 	}
 	if got := log.names; !equalCalls(got, []string{
-		"runtime.Create", "store.Create", "store.SaveCredentialPayload", "runtime.Update", "store.Update", "store.Get",
+		"store.Create", "store.SaveCredentialPayload", "store.Update", "store.Get", "runtime.StartAccount", "store.Get",
 	}) {
 		t.Fatalf("calls=%v", got)
 	}
@@ -414,7 +432,7 @@ func TestImportCredentialPayloadIgnoresGetError(t *testing.T) {
 
 func TestCreatePassesThroughStartFailure(t *testing.T) {
 	svc, runtime, store, _ := newTestServices()
-	runtime.createErr = errors.New("start failed")
+	runtime.startErr = errors.New("start failed")
 	account, err := svc.Accounts.Create(context.Background(), accounts.CreateAccount{Name: "Qoder", Enabled: true})
 	if err == nil || err.Error() != "start failed" {
 		t.Fatalf("err=%v", err)
@@ -438,7 +456,7 @@ func TestUpdateReadsStoreAfterRuntime(t *testing.T) {
 	if !account.Enabled {
 		t.Fatalf("updated %+v", account)
 	}
-	if got := log.names; !equalCalls(got, []string{"runtime.Update", "store.Update", "store.Get"}) {
+	if got := log.names; !equalCalls(got, []string{"store.Get", "store.Update", "store.Get", "runtime.SyncAccount"}) {
 		t.Fatalf("calls=%v", got)
 	}
 }
@@ -497,8 +515,8 @@ func TestBackupSnapshotCallsStore(t *testing.T) {
 }
 
 func TestNativeImportFailureDoesNotCreateViaControl(t *testing.T) {
-	svc, runtime, store, _ := newTestServices()
-	runtime.importErr = errors.New("native credential requires user blob and machine id")
+	svc, _, store, _ := newTestServices()
+	store.createErr = errors.New("native credential requires user blob and machine id")
 	_, err := svc.Accounts.ImportNative(context.Background(), accounts.ImportAccount{
 		Name: "Broken", Credential: accounts.NativeCredential{UserBlob: []byte("cipher")},
 	})
@@ -507,6 +525,57 @@ func TestNativeImportFailureDoesNotCreateViaControl(t *testing.T) {
 	}
 	if len(store.accounts) != 0 {
 		t.Fatalf("leftover accounts=%+v", store.accounts)
+	}
+}
+
+func TestKeysCreateReturnsSecretOnceAndPersistsHashOnly(t *testing.T) {
+	svc, _, store, log := newTestServices()
+	key, err := svc.Keys.Create(context.Background(), accounts.CreateAPIKey{Name: "CI", Providers: []string{"qoder"}, Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if key.Secret == "" || !key.SecretOnce || key.Name != "CI" {
+		t.Fatalf("created=%+v", key)
+	}
+	stored := store.keys[key.ID]
+	if stored.Secret != "" || stored.SecretOnce {
+		t.Fatalf("store leaked secret: %+v", stored)
+	}
+	if got := log.names; !equalCalls(got, []string{"store.InsertAPIKey"}) {
+		t.Fatalf("calls=%v", got)
+	}
+}
+
+func TestKeysCreateRejectsEmptyNameAndSaveFailure(t *testing.T) {
+	svc, _, store, _ := newTestServices()
+	if _, err := svc.Keys.Create(context.Background(), accounts.CreateAPIKey{}); err == nil {
+		t.Fatal("empty name must fail")
+	}
+	store.createErr = errors.New("db write failed")
+	if _, err := svc.Keys.Create(context.Background(), accounts.CreateAPIKey{Name: "CI"}); err == nil {
+		t.Fatal("save failure must fail")
+	}
+	if len(store.keys) != 0 {
+		t.Fatalf("leftover=%+v", store.keys)
+	}
+}
+
+func TestKeysUpdateKeepsOriginalSecret(t *testing.T) {
+	svc, _, store, _ := newTestServices()
+	created, err := svc.Keys.Create(context.Background(), accounts.CreateAPIKey{Name: "CI", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	disabled := false
+	updated, err := svc.Keys.Update(context.Background(), created.ID, accounts.UpdateAPIKey{Name: "CI prod", Providers: []string{"qoder", "trae"}, Enabled: &disabled})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Name != "CI prod" || updated.Enabled || len(updated.Providers) != 2 || updated.Secret != "" {
+		t.Fatalf("updated=%+v", updated)
+	}
+	if store.keys[created.ID].Secret != "" {
+		t.Fatalf("update leaked secret: %+v", store.keys[created.ID])
 	}
 }
 

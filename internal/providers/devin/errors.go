@@ -4,7 +4,6 @@ import (
 	"log"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/providers"
@@ -108,13 +107,10 @@ func classifiedErrorWithToolsDiag(status int, body, toolsDiag string) error {
 		log.Printf("devin mcp configuration denial tools_diag=%s", toolsDiag)
 		message = appendToolsDiag(message, toolsDiag)
 	}
-	failover := classified.Kind != accounts.KindInvalidRequest
 	return &providers.Error{
-		Kind:     classified.Kind,
-		Status:   classified.Status,
-		Message:  message,
-		Cooldown: classifiedCooldown(classified.Kind),
-		Failover: &failover,
+		Kind:    classified.Kind,
+		Status:  classified.Status,
+		Message: message,
 	}
 }
 
@@ -132,19 +128,6 @@ func appendToolsDiag(message, toolsDiag string) string {
 		return message
 	}
 	return message + " | " + suffix
-}
-
-func classifiedCooldown(kind string) time.Duration {
-	switch kind {
-	case accounts.KindQuota:
-		return accounts.NextLocalMidnightCooldown()
-	case accounts.KindAuth:
-		return 30 * time.Minute
-	case accounts.KindRateLimit:
-		return time.Minute
-	default:
-		return 0
-	}
 }
 
 func isDevinMCPConfigDenial(text string) bool {

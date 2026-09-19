@@ -1,16 +1,11 @@
 package gateway
 
 import (
-	"context"
-	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
-	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/executor"
-	"github.com/caigee-cmd/cli2api/internal/providers"
 )
 
 func BuildChatUsage(res executor.ChatResult) map[string]any {
@@ -39,56 +34,7 @@ func BuildChatUsage(res executor.ChatResult) map[string]any {
 	return out
 }
 
-func ClassifyAPIError(err error) executor.Classified {
-	if err == nil {
-		return executor.Classify(0, "", "", accounts.KindUnavailable, "")
-	}
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return executor.Classified{
-			Kind: accounts.KindCanceled, Status: 499, Failover: false,
-			Code: "request_canceled", Message: err.Error(),
-		}
-	}
-	var classifiedErr *providers.Error
-	if errors.As(err, &classifiedErr) && classifiedErr != nil {
-		message := strings.TrimSpace(classifiedErr.Message)
-		if message == "" {
-			message = classifiedErr.Error()
-		}
-		raw := strings.TrimSpace(strings.Join([]string{message, classifiedErr.Code, classifiedErr.Type}, " "))
-		failoverHint := ""
-		if classifiedErr.Failover != nil {
-			if *classifiedErr.Failover {
-				failoverHint = "1"
-			} else {
-				failoverHint = "0"
-			}
-		}
-		classified := executor.Classify(classifiedErr.Status, raw, "", classifiedErr.Kind, failoverHint)
-		if classifiedErr.Code != "" {
-			classified.Code = classifiedErr.Code
-		}
-		if classifiedErr.Type != "" {
-			classified.Type = classifiedErr.Type
-		}
-		if classifiedErr.Message != "" {
-			classified.Message = classifiedErr.Message
-		}
-		providerRetryAfter := classifiedErr.RetryAfter
-		if providerRetryAfter <= 0 {
-			providerRetryAfter = classifiedErr.Cooldown
-		}
-		if providerRetryAfter > 0 {
-			classified.Cooldown = providerRetryAfter
-			if classified.Kind == accounts.KindRateLimit && classified.Cooldown < 30*time.Second {
-				classified.Cooldown = 30 * time.Second
-			}
-		}
-		classified.RetryAfter = classified.Cooldown
-		return classified
-	}
-	return executor.Classify(0, err.Error(), "", "", "")
-}
+func ClassifyAPIError(err error) executor.Classified { return executor.ClassifyError(err) }
 
 func WriteClassifiedErr(w http.ResponseWriter, err error) {
 	if err == nil {

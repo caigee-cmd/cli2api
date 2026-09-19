@@ -2,19 +2,14 @@ package console
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
+	applogs "github.com/caigee-cmd/cli2api/internal/logs"
 )
-
-type statsCacheEntry struct {
-	stats     accounts.RequestStats
-	expiresAt time.Time
-}
 
 func (h *Handler) HandleLogs(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/api/logs")
@@ -37,49 +32,29 @@ func (h *Handler) HandleLogs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleRequestStats(w http.ResponseWriter, r *http.Request) {
-	if h.Recorder == nil || h.Recorder.Store() == nil {
+	if h.Recorder == nil {
 		writeErr(w, http.StatusServiceUnavailable, "logs_unavailable", "request logs unavailable")
 		return
 	}
-	now := time.Now().UTC().Truncate(10 * time.Second)
-	hours := 24
+	hours := 0
 	if raw := strings.TrimSpace(r.URL.Query().Get("hours")); raw != "" {
 		if n, err := strconv.Atoi(raw); err == nil {
 			hours = n
 		}
 	}
-	if hours != 1 && hours != 24 && hours != 168 {
-		hours = 24
-	}
-	to := ParseQueryTime(r.URL.Query().Get("to"), true)
-	if to == nil {
-		value := now
-		to = &value
-	}
-	from := ParseQueryTime(r.URL.Query().Get("from"), false)
-	if from == nil {
-		value := to.Add(-time.Duration(hours) * time.Hour)
-		from = &value
-	}
-	cacheKey := fmt.Sprintf("%d:%d", from.Unix(), to.Unix())
-	h.statsCacheMu.Lock()
-	if cached, ok := h.statsCache[cacheKey]; ok && time.Now().Before(cached.expiresAt) {
-		h.statsCacheMu.Unlock()
-		writeJSON(w, http.StatusOK, cached.stats)
-		return
-	}
-	h.statsCacheMu.Unlock()
-	stats, err := h.Recorder.Store().SummarizeRequestLogs(r.Context(), *from, *to)
+	stats, err := h.Recorder.Stats(r.Context(), applogs.StatsQuery{
+		Hours: hours,
+		From:  ParseQueryTime(r.URL.Query().Get("from"), false),
+		To:    ParseQueryTime(r.URL.Query().Get("to"), true),
+	})
 	if err != nil {
+		if err.Error() == "request logs unavailable" {
+			writeErr(w, http.StatusServiceUnavailable, "logs_unavailable", err.Error())
+			return
+		}
 		writeErr(w, http.StatusInternalServerError, "stats_failed", err.Error())
 		return
 	}
-	h.statsCacheMu.Lock()
-	if h.statsCache == nil {
-		h.statsCache = make(map[string]statsCacheEntry)
-	}
-	h.statsCache[cacheKey] = statsCacheEntry{stats: stats, expiresAt: time.Now().Add(10 * time.Second)}
-	h.statsCacheMu.Unlock()
 	writeJSON(w, http.StatusOK, stats)
 }
 

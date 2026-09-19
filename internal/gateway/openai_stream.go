@@ -11,7 +11,6 @@ import (
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/executor"
-	"github.com/caigee-cmd/cli2api/internal/providers"
 )
 
 const maxSSELineSize = 16 * 1024 * 1024
@@ -147,7 +146,7 @@ func RelayOpenAIStream(w http.ResponseWriter, body io.Reader) (stats StreamRelay
 		if streamErr != nil {
 			return stats, streamErr
 		}
-		streamErr := streamReadProviderError(err)
+		streamErr := executor.StreamReadError(err)
 		if writeErr := writeStructuredStreamError(writer, streamErr); writeErr != nil {
 			return stats, writeErr
 		}
@@ -160,7 +159,7 @@ func RelayOpenAIStream(w http.ResponseWriter, body io.Reader) (stats StreamRelay
 		return stats, streamErr
 	}
 	if !sawDone {
-		streamErr := newStreamProviderError("upstream_stream_incomplete", "stream ended before [DONE]", http.StatusBadGateway)
+		streamErr := executor.StreamIncompleteError()
 		if writeErr := writeStructuredStreamError(writer, streamErr); writeErr != nil {
 			return stats, writeErr
 		}
@@ -169,36 +168,29 @@ func RelayOpenAIStream(w http.ResponseWriter, body io.Reader) (stats StreamRelay
 	return stats, nil
 }
 
-func writeStructuredStreamError(writer io.Writer, providerErr *providers.Error) error {
-	if providerErr == nil {
+func writeStructuredStreamError(writer io.Writer, err error) error {
+	if err == nil {
 		return nil
 	}
-	status := providerErr.Status
+	classified := ClassifyAPIError(err)
+	status := classified.Status
 	if status == 0 {
 		status = http.StatusBadGateway
 	}
-	code := firstNonEmpty(providerErr.Code, "upstream_error")
-	typ := firstNonEmpty(providerErr.Type, "api_error")
-	message := firstNonEmpty(providerErr.Message, code)
-	failover := false
-	if providerErr.Failover != nil {
-		failover = *providerErr.Failover
-	}
-	retryAfter := providerErr.RetryAfter
-	if retryAfter <= 0 {
-		retryAfter = providerErr.Cooldown
-	}
+	code := firstNonEmpty(classified.Code, "upstream_error")
+	typ := firstNonEmpty(classified.Type, "api_error")
+	message := firstNonEmpty(classified.Message, code)
 	errorPayload := map[string]any{
 		"message":  message,
 		"type":     typ,
 		"code":     code,
-		"kind":     firstNonEmpty(providerErr.Kind, accounts.KindUnavailable),
+		"kind":     firstNonEmpty(classified.Kind, accounts.KindUnavailable),
 		"status":   status,
-		"failover": failover,
+		"failover": classified.Failover,
 	}
-	if retryAfter > 0 {
-		seconds := int(retryAfter / time.Second)
-		if retryAfter%time.Second != 0 {
+	if classified.RetryAfter > 0 {
+		seconds := int(classified.RetryAfter / time.Second)
+		if classified.RetryAfter%time.Second != 0 {
 			seconds++
 		}
 		if seconds < 1 {
@@ -206,12 +198,12 @@ func writeStructuredStreamError(writer io.Writer, providerErr *providers.Error) 
 		}
 		errorPayload["retry_after"] = seconds
 	}
-	payload, err := json.Marshal(map[string]any{"error": errorPayload})
-	if err != nil {
-		return err
+	payload, marshalErr := json.Marshal(map[string]any{"error": errorPayload})
+	if marshalErr != nil {
+		return marshalErr
 	}
-	if _, err := io.WriteString(writer, "data: "+string(payload)+"\n\n"); err != nil {
-		return &StreamRelayWriteError{err: err}
+	if _, writeErr := io.WriteString(writer, "data: "+string(payload)+"\n\n"); writeErr != nil {
+		return &StreamRelayWriteError{err: writeErr}
 	}
 	return nil
 }
@@ -239,7 +231,7 @@ func parseSSEFrame(lines []string) (eventName, data string) {
 	return eventName, strings.Join(dataLines, "\n")
 }
 
-func classifyStreamSSEError(eventName, data string) *providers.Error {
+func classifyStreamSSEError(eventName, data string) error {
 	force := strings.EqualFold(strings.TrimSpace(eventName), "error")
 	if !force && !streamJSONLooksLikeError(data) {
 		return nil
@@ -249,8 +241,7 @@ func classifyStreamSSEError(eventName, data string) *providers.Error {
 	if inner := streamErrorBody(data); inner != "" {
 		body = inner
 	}
-	classified := executor.Classify(status, body, "", "", "")
-	return ProviderErrorFromClassified(classified)
+	return executor.ClassifyUpstreamBody(status, body)
 }
 
 func streamJSONLooksLikeError(raw string) bool {
@@ -358,26 +349,6 @@ func streamErrorStatus(raw string) int {
 	}
 }
 
-func newStreamProviderError(code, message string, status int) *providers.Error {
-	body, _ := json.Marshal(map[string]any{
-		"error": map[string]any{
-			"code":    code,
-			"message": message,
-			"kind":    accounts.KindUnavailable,
-		},
-	})
-	classified := executor.Classify(status, string(body), "", accounts.KindUnavailable, "1")
-	return ProviderErrorFromClassified(classified)
-}
-
-func streamReadProviderError(err error) *providers.Error {
-	var providerErr *providers.Error
-	if errors.As(err, &providerErr) && providerErr != nil {
-		return providerErr
-	}
-	return newStreamProviderError("upstream_stream_interrupted", "stream read error: "+err.Error(), http.StatusBadGateway)
-}
-
 func IsStreamClientDisconnect(err error) bool {
 	var writeErr *StreamRelayWriteError
 	return errors.As(err, &writeErr)
@@ -467,10 +438,4 @@ func ParseStreamUsageLine(line string) (StreamRelayStats, bool) {
 		Credits:          credits,
 		Model:            parsed.Model,
 	}, true
-}
-
-// ProviderErrorFromClassified keeps the gateway conversion entry point while
-// sharing classification mapping with executor.
-func ProviderErrorFromClassified(classified executor.Classified) *providers.Error {
-	return executor.ProviderErrorFromClassified(classified)
 }

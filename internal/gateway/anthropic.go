@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/translate"
@@ -94,6 +96,16 @@ func writeAnthropicCompatibilityError(w http.ResponseWriter, err error) {
 		return
 	}
 	classified := ClassifyAPIError(err)
+	if classified.RetryAfter > 0 {
+		seconds := int(classified.RetryAfter / time.Second)
+		if classified.RetryAfter%time.Second != 0 {
+			seconds++
+		}
+		if seconds < 1 {
+			seconds = 1
+		}
+		w.Header().Set("Retry-After", fmt.Sprintf("%d", seconds))
+	}
 	writeAnthropicError(w, classified.Status, anthropicErrorType(classified.Kind), classified.Message)
 }
 

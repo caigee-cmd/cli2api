@@ -1611,8 +1611,8 @@ func TestRateLimitErrorCarriesResetCooldown(t *testing.T) {
 	if !errors.As(classifiedError(429, body), &out) {
 		t.Fatalf("expected classified error")
 	}
-	if out.Cooldown <= 28*time.Minute || out.Cooldown > 30*time.Minute {
-		t.Fatalf("cooldown=%v want ~30m", out.Cooldown)
+	if out.RetryAfter <= 28*time.Minute || out.RetryAfter > 30*time.Minute {
+		t.Fatalf("retry_after=%v want ~30m", out.RetryAfter)
 	}
 }
 

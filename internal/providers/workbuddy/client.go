@@ -576,7 +576,7 @@ func classifiedError(status int, body []byte) error {
 	out := &providers.Error{Kind: classified.Kind, Status: classified.Status, Message: classified.Message}
 	if classified.Kind == accounts.KindRateLimit {
 		if reset := parseQuotaReset(string(body), time.Now()); reset > 0 {
-			out.Cooldown = reset
+			out.RetryAfter = reset
 		}
 	}
 	return out

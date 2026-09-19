@@ -280,12 +280,11 @@ func (e ChatExecutor) pick(requestID, prefer, providerFilter, regionFilter, publ
 		// clean Retry-After. This must precede the model_not_available
 		// check: saturated means the model IS served, just at capacity.
 		if e.Pool.LenRoute(query) > 0 {
-			failover := true
-			return Item{}, &providers.Error{
+			return Item{}, NewExecutionError(Classified{
 				Kind: accounts.KindRateLimit, Status: 429, Code: "rate_limit",
 				Type: "api_error", Message: "all accounts at capacity",
-				Cooldown: 5 * time.Second, RetryAfter: 5 * time.Second, Failover: &failover,
-			}
+				Cooldown: 5 * time.Second, RetryAfter: 5 * time.Second, Failover: true,
+			}, nil)
 		}
 		if publicModel != "" && publicModel != "auto" {
 			unfiltered := query
@@ -409,10 +408,10 @@ func coolingPickError(item Item, publicModel string, retryAfter time.Duration) e
 			message = fmt.Sprintf("model %s is cooling down on all available accounts", publicModel)
 		}
 	}
-	return &providers.Error{
+	return NewExecutionError(Classified{
 		Kind: kind, Status: 429, Code: code, Type: typ, Message: message,
-		Cooldown: retryAfter, RetryAfter: retryAfter, Failover: &failover,
-	}
+		Cooldown: retryAfter, RetryAfter: retryAfter, Failover: failover,
+	}, nil)
 }
 
 func (e ChatExecutor) attemptsFor(providerFilter, regionFilter, publicModel string, allowed []string) int {
@@ -475,11 +474,11 @@ func isInProcessItem(item Item) bool {
 // impossible at that point (bytes are on the wire), so this only records the
 // classified state for the next request's scheduling.
 func (e ChatExecutor) ObserveStreamFailure(accountID string, err error, model string) {
-	if e.Pool == nil || accountID == "" || err == nil {
+	if e.Pool == nil || accountID == "" || err == nil || requestContextDone(nil, err) {
 		return
 	}
 	classified := e.classifyInProcessError(err)
-	if classified.Kind == "" {
+	if classified.Kind == "" || classified.Kind == accounts.KindCanceled {
 		return
 	}
 	if classified.Kind == accounts.KindInvalidRequest {
@@ -743,7 +742,7 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 				return ChatResult{AttemptCount: i + 1, AccountID: item.ID, Provider: item.Provider}, err
 			}
 			classified := Classify(0, err.Error(), "", accounts.KindUnavailable, "")
-			loop.lastErr = fmt.Errorf("worker %s request failed: %w", item.ID, err)
+			loop.lastErr = NewExecutionError(classified, fmt.Errorf("worker %s request failed: %w", item.ID, err))
 			e.markClassified(item.ID, classified, req.Model)
 			latency := int(time.Since(started).Milliseconds())
 			e.recordAttempt(ctx, accounts.RequestAttempt{
@@ -763,7 +762,7 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 		if resp.StatusCode >= 300 {
 			msg := strings.TrimSpace(string(body))
 			classified := classifyWorkerErr(resp, msg)
-			loop.lastErr = ProviderErrorFromClassified(classified)
+			loop.lastErr = NewExecutionError(classified, nil)
 			if classified.Kind == accounts.KindModelNotAvailable {
 				e.handleModelAvailabilityFailure(RequestIDFromContext(ctx), "worker_non_stream", item.ID, req.Model, classified)
 			}
@@ -856,7 +855,7 @@ func (e ChatExecutor) chatInProcessNonStreamAttempt(ctx context.Context, item It
 			AttemptIndex: attemptIndex, AccountID: item.ID, StartedAt: started, FinishedAt: &finished,
 			Status: status, ErrorKind: classified.Kind, ErrorMessage: truncateErr(err.Error()), LatencyMs: &latency,
 		})
-		return ChatResult{AccountID: item.ID, Provider: item.Provider}, classified, providerErrorFor(err, classified)
+		return ChatResult{AccountID: item.ID, Provider: item.Provider}, classified, NewExecutionError(classified, err)
 	}
 	e.markOK(item.ID, req.Model)
 	e.recordAttempt(ctx, accounts.RequestAttempt{
@@ -908,7 +907,7 @@ func (e ChatExecutor) chatInProcessStreamAttempt(ctx context.Context, item Item,
 			AttemptIndex: attemptIndex, AccountID: item.ID, StartedAt: started, FinishedAt: &finished,
 			Status: status, ErrorKind: classified.Kind, ErrorMessage: truncateErr(err.Error()), LatencyMs: &latency,
 		})
-		return StreamResult{AccountID: item.ID, Provider: item.Provider}, classified, providerErrorFor(err, classified)
+		return StreamResult{AccountID: item.ID, Provider: item.Provider}, classified, NewExecutionError(classified, err)
 	}
 	e.markOK(item.ID, req.Model)
 	ttfb := int(time.Since(started).Milliseconds())
@@ -920,84 +919,7 @@ func (e ChatExecutor) chatInProcessStreamAttempt(ctx context.Context, item Item,
 	return StreamResult{Response: resp, AccountID: item.ID, Provider: item.Provider, TTFBMs: ttfb}, Classified{}, nil
 }
 
-// ProviderErrorFromClassified preserves routing classification at the provider
-// error boundary, including the cooldown fallback for missing Retry-After.
-func ProviderErrorFromClassified(classified Classified) *providers.Error {
-	failover := classified.Failover
-	retryAfter := classified.RetryAfter
-	if retryAfter <= 0 {
-		retryAfter = classified.Cooldown
-	}
-	return &providers.Error{
-		Kind:       classified.Kind,
-		Status:     classified.Status,
-		Message:    classified.Message,
-		Code:       classified.Code,
-		Type:       classified.Type,
-		Cooldown:   classified.Cooldown,
-		RetryAfter: retryAfter,
-		Failover:   &failover,
-	}
-}
-
-func providerErrorFor(err error, classified Classified) error {
-	var providerErr *providers.Error
-	if !errors.As(err, &providerErr) || providerErr == nil {
-		return err
-	}
-	return ProviderErrorFromClassified(classified)
-}
-
-func (e ChatExecutor) classifyInProcessError(err error) Classified {
-	if err == nil {
-		return Classify(0, "", "", accounts.KindUnavailable, "")
-	}
-	var providerErr *providers.Error
-	if !errors.As(err, &providerErr) || providerErr == nil {
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return Classified{
-				Kind: accounts.KindCanceled, Status: 499, Failover: false,
-				Code: "request_canceled", Message: err.Error(),
-			}
-		}
-		return Classify(0, err.Error(), "", accounts.KindUnavailable, "")
-	}
-	message := strings.TrimSpace(providerErr.Message)
-	if message == "" {
-		message = providerErr.Error()
-	}
-	raw := strings.TrimSpace(strings.Join([]string{message, providerErr.Code, providerErr.Type}, " "))
-	failoverHint := ""
-	if providerErr.Failover != nil {
-		if *providerErr.Failover {
-			failoverHint = "1"
-		} else {
-			failoverHint = "0"
-		}
-	}
-	classified := Classify(providerErr.Status, raw, "", providerErr.Kind, failoverHint)
-	if providerErr.Code != "" {
-		classified.Code = providerErr.Code
-	}
-	if providerErr.Type != "" {
-		classified.Type = providerErr.Type
-	}
-	if providerErr.Message != "" {
-		classified.Message = providerErr.Message
-	}
-	providerRetryAfter := providerErr.RetryAfter
-	if providerRetryAfter <= 0 {
-		providerRetryAfter = providerErr.Cooldown
-	}
-	if providerRetryAfter > 0 {
-		classified.Cooldown = providerRetryAfter
-		if classified.Kind == accounts.KindRateLimit && classified.Cooldown < 30*time.Second {
-			classified.Cooldown = 30 * time.Second
-		}
-	}
-	classified.RetryAfter = classified.Cooldown
-	return classified
-}
+func (e ChatExecutor) classifyInProcessError(err error) Classified { return ClassifyError(err) }
 
 func lastAccountID(excluded map[string]struct{}) string {
 	for id := range excluded {
@@ -1143,7 +1065,7 @@ func (e ChatExecutor) ChatStreamProxy(ctx context.Context, req translate.ChatReq
 				return StreamResult{AttemptCount: i + 1, AccountID: item.ID, Provider: item.Provider}, err
 			}
 			classified := Classify(0, err.Error(), "", accounts.KindUnavailable, "")
-			loop.lastErr = fmt.Errorf("worker %s stream request failed: %w", item.ID, err)
+			loop.lastErr = NewExecutionError(classified, fmt.Errorf("worker %s stream request failed: %w", item.ID, err))
 			e.markClassified(item.ID, classified, req.Model)
 			latency := int(time.Since(started).Milliseconds())
 			e.recordAttempt(ctx, accounts.RequestAttempt{
@@ -1161,7 +1083,7 @@ func (e ChatExecutor) ChatStreamProxy(ctx context.Context, req translate.ChatReq
 			resp.Body.Close()
 			msg := strings.TrimSpace(string(body))
 			classified := classifyWorkerErr(resp, msg)
-			loop.lastErr = ProviderErrorFromClassified(classified)
+			loop.lastErr = NewExecutionError(classified, nil)
 			if classified.Kind == accounts.KindModelNotAvailable {
 				e.handleModelAvailabilityFailure(RequestIDFromContext(ctx), "worker_stream", item.ID, req.Model, classified)
 			}

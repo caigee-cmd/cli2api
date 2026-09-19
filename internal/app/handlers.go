@@ -27,26 +27,32 @@ func (a *App) newConsole() *appconsole.Handler {
 	if a == nil {
 		return &appconsole.Handler{}
 	}
+	var settings *control.Settings
+	var accounts *control.Accounts
+	var keys *control.Keys
+	if a.Control != nil {
+		settings, accounts, keys = a.Control.Settings, a.Control.Accounts, a.Control.Keys
+		if accounts != nil {
+			accounts.Providers = a.Providers
+		}
+	}
 	h := &appconsole.Handler{
+		System:            &control.System{Settings: settings, Accounts: accounts, Pool: a.Pool, Executor: &a.Executor, CrossProviderPool: &a.CrossProviderModelPool, Mu: &a.SettingsMu},
+		KeyRotation:       &control.KeyRotation{Keys: keys, Accounts: accounts, Mu: &a.SettingsMu, Generate: control.GenerateAPIKey, Publish: a.Auth.SetConsoleKey},
 		Control:           a.Control,
 		Cfg:               &a.Cfg,
 		Executor:          &a.Executor,
 		Pool:              a.Pool,
-		Providers:         a.Providers,
 		Recorder:          a.Recorder,
 		Ring:              a.Ring,
 		CrossProviderPool: &a.CrossProviderModelPool,
-		SettingsMu:        &a.SettingsMu,
 		RequestedAccount:  a.RequestedAccount,
 		FilterModels:      a.filterModelsForIdentity,
 		FetchWorkerModels: a.fetchWorkerModels,
 		FetchDisplayModels: func(refresh bool, accountID string, mode control.CatalogMode) ([]map[string]any, error) {
 			return a.fetchDisplayModels(refresh, accountID, mode)
 		},
-		ProxyAccountWorker:  a.proxyAccountWorker,
-		GenerateAPIKey:      GenerateAPIKey,
-		ConsoleKey:          a.Auth.ConsoleKey,
-		OnConsoleKeyRotated: a.Auth.SetConsoleKey,
+		ConsoleKey: a.Auth.ConsoleKey,
 		DecorateModels: func(ctx context.Context, models []map[string]any) []map[string]any {
 			return a.decorateModelsWithContext(ctx, models)
 		},

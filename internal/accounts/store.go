@@ -53,11 +53,11 @@ type AccountStore interface {
 	ListModelContexts(ctx context.Context) (map[string]int, error)
 	GetProviderModelSetting(ctx context.Context, provider, modelID string) (ProviderModelSetting, error)
 	SetProviderModelSetting(ctx context.Context, provider, modelID string, setting ProviderModelSetting) error
-	CreateAPIKey(ctx context.Context, input CreateAPIKey) (APIKey, error)
+	InsertAPIKey(ctx context.Context, key StoredAPIKey) (APIKey, error)
+	SaveAPIKey(ctx context.Context, key StoredAPIKey) (APIKey, error)
 	ListAPIKeys(ctx context.Context) ([]APIKey, error)
 	GetAPIKey(ctx context.Context, id string) (APIKey, error)
 	LookupAPIKey(ctx context.Context, secret string) (APIKey, bool, error)
-	UpdateAPIKey(ctx context.Context, id string, input UpdateAPIKey) (APIKey, error)
 	DeleteAPIKey(ctx context.Context, id string) error
 	TouchAPIKey(ctx context.Context, id string) error
 }

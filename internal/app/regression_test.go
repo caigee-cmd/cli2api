@@ -39,7 +39,7 @@ func TestConsoleKeyRotationUpdatesExistingHandlerAndWorkerRequests(t *testing.T)
 	a := regressionApp(t)
 	// Capture the production handler once, exactly as http.Server does.
 	h := a.Handler()
-	named, err := a.Manager.Store().CreateAPIKey(context.Background(), accounts.CreateAPIKey{Name: "rotation-test", Providers: []string{"qoder"}, Enabled: true})
+	named, err := a.Control.Keys.Create(context.Background(), accounts.CreateAPIKey{Name: "rotation-test", Providers: []string{"qoder"}, Enabled: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,6 +131,54 @@ func TestConsoleKeyRotationUpdatesExistingHandlerAndWorkerRequests(t *testing.T)
 	}
 	if calls.Load() != 8 {
 		t.Errorf("worker requests=%d want 8", calls.Load())
+	}
+}
+
+func TestSaturatedPoolKeepsFiveSecondRetryAfter(t *testing.T) {
+	a := regressionApp(t)
+	h := a.Handler()
+	var calls atomic.Int32
+	worker := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		calls.Add(1)
+		t.Error("saturated pool must not call upstream")
+	}))
+	defer worker.Close()
+	account, err := a.Manager.Store().Create(context.Background(), accounts.CreateAccount{Name: "saturated", Enabled: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.Pool.Upsert(executor.Item{
+		ID: account.ID, Provider: "qoder", Runtime: "child_process", URL: worker.URL,
+		Models: []string{"glm-5.2"}, MaxInFlight: 1,
+	})
+	a.Pool.MergeHealth(account.ID, true, true, 1, 0, "")
+	a.Gateway.Catalogs = nil
+	for _, path := range []string{"/v1/chat/completions", "/api/chat", "/v1/messages", "/v1/responses"} {
+		for _, stream := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/stream=%v", path, stream), func(t *testing.T) {
+				body := fmt.Sprintf(`{"model":"qoder/glm-5.2","messages":[{"role":"user","content":"hello"}],"max_tokens":32,"stream":%v}`, stream)
+				if path == "/v1/messages" {
+					body = fmt.Sprintf(`{"model":"qoder/glm-5.2","messages":[{"role":"user","content":"hello"}],"max_tokens":32,"stream":%v}`, stream)
+				}
+				if path == "/v1/responses" {
+					body = fmt.Sprintf(`{"model":"qoder/glm-5.2","input":"hello","stream":%v}`, stream)
+				}
+				got := serveRegression(h, "POST", path, "old-key", body)
+				if got.Code != http.StatusTooManyRequests {
+					t.Fatalf("status=%d body=%s", got.Code, got.Body.String())
+				}
+				if got.Header().Get("Retry-After") != "5" {
+					t.Fatalf("Retry-After=%q want 5 body=%s", got.Header().Get("Retry-After"), got.Body.String())
+				}
+				item, _ := a.Pool.ByID(account.ID)
+				if !item.DownUntil.IsZero() {
+					t.Fatalf("capacity error cooled account until %v", item.DownUntil)
+				}
+			})
+		}
+	}
+	if calls.Load() != 0 {
+		t.Fatalf("upstream calls=%d", calls.Load())
 	}
 }
 

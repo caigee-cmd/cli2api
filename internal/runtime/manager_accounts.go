@@ -11,9 +11,63 @@ import (
 	proxyutil "github.com/caigee-cmd/cli2api/internal/proxy"
 )
 
-// Account CRUD and console views. These methods write Store first, then call
-// start/stop/pool helpers. They do not own Manager.mu, processes, or persist channels.
-// Create/Update/Delete/Import order is unchanged.
+// Process start/stop/sync helpers used by control.Accounts. Persistence and
+// enable/import order live in control; these methods only mutate processes and
+// the live pool. They do not own Manager.mu, persist channels, or SQLite writes
+// except the console view reads.
+
+func (m *Manager) StartAccount(ctx context.Context, account Account) error {
+	return m.startAccountWithRecovery(ctx, account)
+}
+
+func (m *Manager) StopAccount(id string) error {
+	return m.stopAccount(id)
+}
+
+func (m *Manager) RemoveAccount(id string) error {
+	m.mu.Lock()
+	delete(m.restarts, id)
+	delete(m.restartBackoff, id)
+	m.mu.Unlock()
+	runtimeDir := filepath.Join(m.config.DataDir, "runtime", id)
+	if err := os.RemoveAll(runtimeDir); err != nil {
+		return fmt.Errorf("remove account runtime: %w", err)
+	}
+	return nil
+}
+
+func (m *Manager) SyncAccount(ctx context.Context, before, after Account) error {
+	// Request sanitization applies per request, so sync it into the pool
+	// without restarting anything.
+	if before.DropSystemPrompt != after.DropSystemPrompt {
+		m.pool.SetDropSystemPrompt(after.ID, after.DropSystemPrompt)
+	}
+	if before.Priority != after.Priority {
+		m.pool.SetWeight(after.ID, after.Priority)
+	}
+	if before.Enabled && !after.Enabled {
+		return m.stopAccount(after.ID)
+	}
+	if !before.Enabled && after.Enabled {
+		return m.startAccountWithRecovery(ctx, after)
+	}
+	if before.Enabled && after.Enabled && before.ProxyURL != after.ProxyURL {
+		descriptor, _, resolveErr := providers.Resolve(after.Provider, after.ProviderRegion)
+		if resolveErr == nil && descriptor.Runtime == providers.RuntimeChildProcess {
+			if err := m.stopAccount(after.ID); err != nil {
+				return err
+			}
+			return m.startAccountWithRecovery(ctx, after)
+		}
+	}
+	if before.Enabled && after.Enabled && before.MaxInFlight != after.MaxInFlight {
+		if err := m.stopAccount(after.ID); err != nil {
+			return err
+		}
+		return m.startAccountWithRecovery(ctx, after)
+	}
+	return nil
+}
 
 func (m *Manager) Create(ctx context.Context, input CreateAccount) (Account, error) {
 	account, err := m.store.Create(ctx, input)
@@ -27,6 +81,7 @@ func (m *Manager) Create(ctx context.Context, input CreateAccount) (Account, err
 	}
 	return account, nil
 }
+
 func (m *Manager) Update(ctx context.Context, id string, input UpdateAccount) error {
 	before, err := m.store.Get(ctx, id)
 	if err != nil {
@@ -39,36 +94,7 @@ func (m *Manager) Update(ctx context.Context, id string, input UpdateAccount) er
 	if err != nil {
 		return err
 	}
-	// Request sanitization applies per request, so sync it into the pool
-	// without restarting anything.
-	if before.DropSystemPrompt != after.DropSystemPrompt {
-		m.pool.SetDropSystemPrompt(id, after.DropSystemPrompt)
-	}
-	if before.Priority != after.Priority {
-		m.pool.SetWeight(id, after.Priority)
-	}
-	if before.Enabled && !after.Enabled {
-		return m.stopAccount(id)
-	}
-	if !before.Enabled && after.Enabled {
-		return m.startAccountWithRecovery(ctx, after)
-	}
-	if before.Enabled && after.Enabled && before.ProxyURL != after.ProxyURL {
-		descriptor, _, resolveErr := providers.Resolve(after.Provider, after.ProviderRegion)
-		if resolveErr == nil && descriptor.Runtime == providers.RuntimeChildProcess {
-			if err := m.stopAccount(id); err != nil {
-				return err
-			}
-			return m.startAccountWithRecovery(ctx, after)
-		}
-	}
-	if before.Enabled && after.Enabled && before.MaxInFlight != after.MaxInFlight {
-		if err := m.stopAccount(id); err != nil {
-			return err
-		}
-		return m.startAccountWithRecovery(ctx, after)
-	}
-	return nil
+	return m.SyncAccount(ctx, before, after)
 }
 
 func (m *Manager) Delete(ctx context.Context, id string) error {
@@ -78,15 +104,7 @@ func (m *Manager) Delete(ctx context.Context, id string) error {
 	if err := m.store.Delete(ctx, id); err != nil {
 		return err
 	}
-	m.mu.Lock()
-	delete(m.restarts, id)
-	delete(m.restartBackoff, id)
-	m.mu.Unlock()
-	runtimeDir := filepath.Join(m.config.DataDir, "runtime", id)
-	if err := os.RemoveAll(runtimeDir); err != nil {
-		return fmt.Errorf("remove account runtime: %w", err)
-	}
-	return nil
+	return m.RemoveAccount(id)
 }
 
 func (m *Manager) Import(ctx context.Context, input ImportAccount) (Account, error) {

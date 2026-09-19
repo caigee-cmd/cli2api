@@ -217,13 +217,13 @@ func consumeOpenAIStream(body io.Reader, handle func(json.RawMessage, *streamedC
 		frame = append(frame, line)
 	}
 	if err := scanner.Err(); err != nil {
-		return stats, output, streamReadProviderError(err)
+		return stats, output, executor.StreamReadError(err)
 	}
 	if err := flush(); err != nil {
 		return stats, output, err
 	}
 	if !sawDone {
-		return stats, output, newStreamProviderError("upstream_stream_incomplete", "stream ended before [DONE]", http.StatusBadGateway)
+		return stats, output, executor.StreamIncompleteError()
 	}
 	return stats, output, nil
 }

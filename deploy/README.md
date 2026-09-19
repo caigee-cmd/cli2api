@@ -2,15 +2,10 @@
 
 ## 1. Start
 
-Docker Compose is the supported way to run CLI2API. Published images, the
-console System-page updater, pre-update SQLite snapshots, and automatic
-rollback all assume this single-container install. A source checkout of Go /
-Node is for development; it does not receive managed updates.
-
-The deployment is one container containing the Go control plane, provider
-adapters, Node runtime, pinned qodercli, and frontend. SQLite and account
-credentials persist in the `qoder-data` volume; per-account ephemeral runtimes
-use tmpfs where the provider requires them.
+Docker Compose is the supported installation. Use Docker Engine + Compose on
+Linux or Docker Desktop on macOS / Windows (Linux containers).
+The `qoder-data` volume stores SQLite and account credentials. Source runs are
+for development and do not support managed updates.
 
 From the repository root, use:
 
@@ -29,37 +24,58 @@ powershell -ExecutionPolicy Bypass -File .\scripts\start.ps1
 Both launchers create `deploy/.env` if needed, pull the published image, fall
 back to a local build when necessary, and wait for `/health`.
 
-To run Compose directly:
+To run Compose directly, create `deploy/.env` first (an empty file is enough
+for defaults; do not overwrite an existing file):
 
 ```bash
 docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d
 ```
 
 Add `--build` to build from the checked-out source. Only `127.0.0.1:3010` is
-published. Account and credential operations require the key stored in SQLite.
+published.
 
-## 2. Account login storage
+Save the administrator key printed once in the first-start logs:
 
-After startup, add accounts from `/accounts` using the login methods supported by
-each provider: Qoder browser OAuth, PAT, or `qoder-native-v1` import; WorkBuddy /
-Trae browser OAuth or their provider credential import where applicable. Provider
-credentials are stored in SQLite. Qoder workers materialize
-their auth files only under the per-account tmpfs runtime directory; in-process
-providers keep their adapter state in the Go process.
+```bash
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml logs qoder-api-proxy
+```
 
-## 3. Gateway
+Open `http://127.0.0.1:3010`, sign in with that key, and add an account.
+Create a separate client key in **API keys** for applications; it only grants
+access to `/v1/*` and can be restricted by provider and region.
 
-For another container on the same Docker network:
+## 2. Add accounts
+
+Use **Accounts** to add an account with its supported login method:
+
+| Provider | Region | Login / import |
+|----------|--------|----------------|
+| Qoder | Global / CN | Browser OAuth, PAT, `qoder-native-v1` |
+| WorkBuddy | Global / CN | Browser OAuth, `workbuddy-oauth-v1` |
+| Trae Work | CN | Browser OAuth, `trae-oauth-v1` |
+| Devin (experimental) | Global | Browser OAuth, `devin-session-v1` |
+
+Qoder CN, WorkBuddy, and Trae still need live-account acceptance; Devin is not
+claimed production-ready. Qoder uses one isolated Node worker per account.
+Other providers use Go in-process adapters. All durable credentials stay in SQLite.
+
+WorkBuddy daily check-in and token keepalive are per-account opt-in and disabled
+by default. Enable them only if you want those automatic account operations.
+
+## 3. Connect a client
+
+Use `http://127.0.0.1:3010/v1` on the host. For another container on the same
+Docker network:
 
 ```text
 base_url = http://qoder-api-proxy:3010/v1
-api_key  = <same key printed on first startup>
+api_key  = <client key created in the console>
 ```
 
-## 4. Connect an OpenAI client
+Get a model ID from **Access** or `GET /v1/models`, then test a request:
 
 ```bash
-export CLI2API_API_KEY='paste-the-key-printed-on-first-start'
+export CLI2API_API_KEY='paste-your-client-key'
 
 curl http://127.0.0.1:3010/v1/chat/completions \
   -H "Authorization: Bearer $CLI2API_API_KEY" \
@@ -74,7 +90,7 @@ curl http://127.0.0.1:3010/v1/chat/completions \
 PowerShell equivalent:
 
 ```powershell
-$env:CLI2API_API_KEY = "paste-the-key-printed-on-first-start"
+$env:CLI2API_API_KEY = "paste-your-client-key"
 $Headers = @{ Authorization = "Bearer $env:CLI2API_API_KEY" }
 $Body = @{
   model = "<model-id-from-v1-models>"
@@ -89,8 +105,27 @@ Pin a request to a specific account with the `X-Qoder-Account: acc_...` header
 the same conversation prefer the same account from the first user message
 (including image-only turns);
 `X-CLI2API-Session` remains an optional override.
+Account pinning is a routing preference, not an authorization boundary: a missing
+account can fall back to the pool, and cooling pins may escape within the same
+provider and region. Use client-key grants to enforce access limits.
 
-## 5. Configuration
+Cross-provider routing for shared model IDs is enabled by default. Use a
+provider-prefixed ID such as `qoder/<model-id>` to restrict the provider.
+When cross-provider routing is disabled, a provider prefix is required.
+Key grants, region constraints, model support, and account readiness still apply.
+
+## 4. Configuration
+
+Most settings are in the console: **System** for the global proxy, **Accounts**
+for per-account proxy and concurrency, and **API keys** for client access.
+Global and Qoder proxies accept HTTP(S) only; WorkBuddy / Trae / Devin account
+proxies also accept SOCKS5. Use `direct` or `none` to bypass proxy inheritance.
+
+The administrator key is generated once and stored in SQLite. Rotate it in the
+console; environment variables cannot replace it.
+
+<details>
+<summary>Advanced environment variables and diagnostics</summary>
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
@@ -99,7 +134,7 @@ the same conversation prefer the same account from the first user message
 | `QODER_MAX_RETRY_ACCOUNTS` | `4` | Maximum accounts attempted for one request (1-64) |
 | `QODER_SSE_DIAGNOSTIC_MODELS` | empty | Comma-separated Qoder model IDs for redacted SSE diagnostics in Runtime Logs; `*` enables all |
 | `QODER_WORKER_BASE_PORT` | `32100` | Internal child-runtime port range |
-| `QODER_PROXY_URL` | empty | Global outbound proxy; supports `http(s)://`, `direct`, or `none`. Global proxies must be HTTP(S); SOCKS5 is only accepted for WorkBuddy / Trae account-level proxies |
+| `QODER_PROXY_URL` | empty | Initial global outbound proxy: `http(s)://`, `direct`, or `none`; saved console settings take precedence |
 | `QODERCLI_JS` | image default | Pinned Qoder Global CLI bundle |
 | `QODERCNCLI_JS` | image default | Pinned Qoder CN CLI bundle |
 | `UPDATE_GITHUB_TOKEN` | empty | Optional GitHub token for release checks |
@@ -107,14 +142,18 @@ the same conversation prefer the same account from the first user message
 | `UPDATE_AGENT_TOKEN` | empty | Docker Desktop updater token, written by the installer |
 | `CLI2API_UPDATER_SOCKET_DIR` | platform-specific | Host directory mounted read-only for the Linux updater socket |
 
-For a problematic Qoder model, set `QODER_SSE_DIAGNOSTIC_MODELS` to the exact model ID shown by `/v1/models`, for example `qoder-extreme`, then recreate the container. Diagnostics record only SSE shape, event counts, status codes, finish signals, and field lengths; they do not record prompt, response, tool arguments, or token contents.
+These are process settings; Compose passes only variables declared in its
+`environment` section. For variables not listed there, add them through a local
+`deploy/docker-compose.override.yml` and include that file with `-f` when running
+Compose directly. An entry in `deploy/.env` alone is not enough.
 
-Per-account concurrency is configured through `max_inflight` in the console; it is
-persisted with each account and passed to its runtime.
+For Qoder stream diagnostics, set `QODER_SSE_DIAGNOSTIC_MODELS` to a model ID
+from `/v1/models` and recreate the container. Diagnostics record event metadata,
+not prompts, responses, tool arguments, or credentials.
 
-The API key is generated once and stored in SQLite. There is no environment-variable bootstrap path; changing container environment variables does not replace the stored key.
+</details>
 
-## 6. Endpoints
+## 5. Endpoints and limits
 
 | Method | Path | Purpose |
 |--------|------|---------|
@@ -125,9 +164,17 @@ The API key is generated once and stored in SQLite. There is no environment-vari
 | `POST` | `/v1/responses` | OpenAI Responses-compatible API |
 | `GET/POST/PATCH/DELETE` | `/api/*` | Console management API |
 
-All console and API routes except `/health` and CORS preflight `OPTIONS` for the OpenAI-compatible `/v1/*` endpoints require the API key stored in SQLite.
+Console `/api/*` requires the administrator key. `/v1/*` accepts that key or an
+enabled client key. `/health`, static frontend resources, and `/v1/*` CORS
+preflight `OPTIONS` do not require authentication.
 
-## 7. Managed next-version update
+Messages / Responses are stateless compatibility APIs, not full official API
+implementations. They do not store server-side conversations or execute
+upstream-specific tools. Qoder supports images where the model allows them;
+experimental Devin accepts base64 data-URL images. WorkBuddy / Trae do not
+support images. File inputs are rejected.
+
+## 6. Managed updates (optional)
 
 Start `qoder-api-proxy` once before installing the optional host updater.
 
@@ -140,14 +187,8 @@ Start `qoder-api-proxy` once before installing the optional host updater.
 | Windows x86-64 | Docker Desktop Linux containers | `cli2api-updater_windows_amd64.exe` |
 | Windows ARM64 | Docker Desktop Linux containers | `cli2api-updater_windows_arm64.exe` |
 
-Release assets include a SHA256 manifest. Installers use a verified prebuilt
-updater whenever possible. They download the latest GitHub updater asset
-first, then the asset matching the running container, then copy
-`/app/cli2api-updater` from the container, and finally fall back to a local
-Go `1.25.6+` build. A managed console update stages the host binary from the
-target release, copies `/app/cli2api-updater` from the new Linux container when
-possible, then atomically replaces the running updater and exits so systemd or
-LaunchAgent starts the new process.
+Installers prefer checksum-verified release binaries and fall back to the
+running container's binary or a local Go build when needed.
 
 macOS + Docker Desktop:
 
@@ -175,35 +216,20 @@ Unix Socket. macOS runs a per-user LaunchAgent and Windows runs a current-user
 Scheduled Task; both Docker Desktop platforms use an authenticated updater bound
 to `127.0.0.1` and reached through `host.docker.internal`.
 
-Before replacement, the Go process pauses new API requests, waits for active
-requests to drain, and creates a verified SQLite snapshot in `/data/backups`.
-The updater recreates only `qoder-api-proxy`; it never runs
-`docker compose down -v`, and it verifies that the same `/data` mount remains
-attached. If the new version fails its versioned health check, or the host-updater binary
-cannot be replaced, the updater restores the previous image and the pre-update
-SQLite snapshot, discards any staged `.new` host binary, then pins
-`CLI2API_IMAGE` to the previous version for future restarts. The five most recent
-snapshots are retained.
+In **System**, download the latest stable update, then confirm installation.
+Confirmation pauses new API traffic, creates a SQLite snapshot, and replaces
+the container. Active connections may be interrupted; clients should retry.
+Development builds without a semantic version cannot use managed updates.
 
-The updater remains unavailable for development builds without a semantic
-version. The System page updates directly to the latest stable release, lists
-the intermediate versions it passes over, and can roll back to one of the three
-previous stable releases. An older host updater that does not yet speak staged
-updates still completes one jump, then replaces itself.
+Updates jump directly to the latest stable release. The console shows skipped
+versions and offers rollback to one of the three previous stable releases.
+If an upgrade fails its health check or updater replacement, the updater restores
+the previous image and pre-update database snapshot. The five most recent
+snapshots are retained in `/data/backups`.
 
-Release updater assets and the `/app/cli2api-updater` binary inside the image
-are stamped with the same `Version` and `Commit` as the application. Status
-reports that version next to protocol `2`.
+The flow is implemented, but live upgrade / rollback acceptance remains pending.
+Keep a separate database backup before upgrading.
 
-The updater API currently reports protocol version `2`. Protocol `1` remains
-accepted for staged-update hosts; unknown versions fail closed.
-
-## 8. Platform notes
-
-- `scripts/start.sh` and `deploy/install-updater.sh` are for macOS/Linux.
-- `scripts/start.ps1` and `deploy/install-updater.ps1` are the Windows equivalents.
-- Published application images are Linux-only and multi-architecture; macOS and Windows run them through Docker Desktop.
-- Published host updater assets cover Linux, macOS, and Windows on `amd64` and `arm64`.
-- Run the Windows updater installer as the same signed-in user that runs Docker Desktop; do not install it as `LocalSystem`.
-- Keep `deploy/.env` private because Docker Desktop mode stores the updater token there.
-- Do not remove `qoder-data` unless you intentionally want to delete SQLite accounts and credentials.
+Keep `deploy/.env` private: Docker Desktop mode stores an updater token there.
+Do not remove `qoder-data` or run `docker compose down -v` unless you intend to
+delete the accounts and credentials.

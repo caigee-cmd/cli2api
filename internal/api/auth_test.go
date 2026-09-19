@@ -324,6 +324,33 @@ func TestWorkBuddyReasoningSettingDoesNotChangeQoderContext(t *testing.T) {
 	}
 }
 
+func TestProviderModelSettingFailuresStayBadRequest(t *testing.T) {
+	srv := New(config.Config{
+		Host: "127.0.0.1", Port: 3010, ProxyAPIKey: "secret",
+		QoderHome: t.TempDir(), DataDir: t.TempDir(),
+	})
+	defer srv.Close()
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/models/workbuddy/glm-5.3", bytes.NewBufferString(`{"max_mode":true}`))
+	req.Header.Set("Authorization", "Bearer secret")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !bytes.Contains(rec.Body.Bytes(), []byte(`"code":"invalid_request"`)) {
+		t.Fatalf("workbuddy max PATCH: %d %s", rec.Code, rec.Body.String())
+	}
+
+	if err := srv.Manager.Store().Close(); err != nil {
+		t.Fatal(err)
+	}
+	req = httptest.NewRequest(http.MethodPatch, "/api/models/trae/glm-5.2", bytes.NewBufferString(`{"max_mode":true}`))
+	req.Header.Set("Authorization", "Bearer secret")
+	rec = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !bytes.Contains(rec.Body.Bytes(), []byte(`"code":"model_setting_failed"`)) {
+		t.Fatalf("closed-store PATCH: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
 type failingCatalog struct{}
 
 func (failingCatalog) Models(context.Context, string) ([]providers.ModelInfo, error) {
@@ -669,7 +696,7 @@ func TestNamedAPIKeyCannotManageConsoleOrKeys(t *testing.T) {
 		QoderHome: t.TempDir(), DataDir: t.TempDir(),
 	})
 	defer srv.Close()
-	created, err := srv.Manager.Store().CreateAPIKey(context.Background(), accounts.CreateAPIKey{
+	created, err := srv.Control.Keys.Create(context.Background(), accounts.CreateAPIKey{
 		Name: "ci", Providers: []string{"qoder"}, Enabled: true,
 	})
 	if err != nil {
@@ -704,7 +731,7 @@ func TestNamedAPIKeyModelsListOnlyIncludesAllowedProviders(t *testing.T) {
 		QoderHome: t.TempDir(), DataDir: t.TempDir(),
 	})
 	defer srv.Close()
-	created, err := srv.Manager.Store().CreateAPIKey(context.Background(), accounts.CreateAPIKey{
+	created, err := srv.Control.Keys.Create(context.Background(), accounts.CreateAPIKey{
 		Name: "ci", Providers: []string{"qoder"}, Enabled: true,
 	})
 	if err != nil {
@@ -938,7 +965,7 @@ func TestNamedAPIKeyRegionScopedModelsList(t *testing.T) {
 
 	// CN-only key: only models served by the cn account appear; the same
 	// public model id is not duplicated per region.
-	cnKey, err := srv.Manager.Store().CreateAPIKey(context.Background(), accounts.CreateAPIKey{
+	cnKey, err := srv.Control.Keys.Create(context.Background(), accounts.CreateAPIKey{
 		Name: "cn-only", Providers: []string{"workbuddy:cn"}, Enabled: true,
 	})
 	if err != nil {
@@ -957,7 +984,7 @@ func TestNamedAPIKeyRegionScopedModelsList(t *testing.T) {
 
 	// Global-only key: glm-5.2 exists in the pool but is only served by the
 	// cn account, so it disappears; kimi-k3 (served by global) stays.
-	globalKey, err := srv.Manager.Store().CreateAPIKey(context.Background(), accounts.CreateAPIKey{
+	globalKey, err := srv.Control.Keys.Create(context.Background(), accounts.CreateAPIKey{
 		Name: "global-only", Providers: []string{"workbuddy:global"}, Enabled: true,
 	})
 	if err != nil {
@@ -972,7 +999,7 @@ func TestNamedAPIKeyRegionScopedModelsList(t *testing.T) {
 	}
 
 	// Legacy bare entry keeps every region.
-	bareKey, err := srv.Manager.Store().CreateAPIKey(context.Background(), accounts.CreateAPIKey{
+	bareKey, err := srv.Control.Keys.Create(context.Background(), accounts.CreateAPIKey{
 		Name: "bare", Providers: []string{"workbuddy"}, Enabled: true,
 	})
 	if err != nil {

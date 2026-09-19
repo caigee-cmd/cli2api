@@ -8,9 +8,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"strings"
 	"time"
+
+	"github.com/caigee-cmd/cli2api/internal/accounts"
 )
 
 func newAPIKeyID() string {
@@ -21,45 +22,57 @@ func newAPIKeyID() string {
 	return "key_" + hex.EncodeToString(raw)
 }
 
-func (s *Store) CreateAPIKey(ctx context.Context, input accounts.CreateAPIKey) (accounts.APIKey, error) {
-	name := strings.TrimSpace(input.Name)
-	if name == "" {
-		return accounts.APIKey{}, fmt.Errorf("api key name required")
+func (s *Store) InsertAPIKey(ctx context.Context, key accounts.StoredAPIKey) (accounts.APIKey, error) {
+	if strings.TrimSpace(key.ID) == "" {
+		key.ID = newAPIKeyID()
 	}
-	allowed, err := accounts.NormalizeAPIKeyProviders(input.Providers)
-	if err != nil {
-		return accounts.APIKey{}, err
+	if key.CreatedAt.IsZero() {
+		key.CreatedAt = time.Now().UTC()
 	}
-	secret, err := accounts.GenerateAPIKeySecret()
-	if err != nil {
-		return accounts.APIKey{}, err
+	if key.UpdatedAt.IsZero() {
+		key.UpdatedAt = key.CreatedAt
 	}
-	now := time.Now().UTC()
-	key := accounts.APIKey{
-		ID:         newAPIKeyID(),
-		Name:       name,
-		Prefix:     accounts.APIKeyPrefix(secret),
-		Providers:  allowed,
-		Enabled:    input.Enabled,
-		CreatedAt:  now,
-		UpdatedAt:  now,
-		Secret:     secret,
-		SecretOnce: true,
+	if key.Providers == nil {
+		key.Providers = []string{}
 	}
-	payload, err := json.Marshal(allowed)
+	payload, err := json.Marshal(key.Providers)
 	if err != nil {
 		return accounts.APIKey{}, err
 	}
 	_, err = s.db.ExecContext(ctx, `
 INSERT INTO api_keys (id, name, key_hash, prefix, providers_json, enabled, created_at, updated_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		key.ID, key.Name, accounts.HashAPIKey(secret), key.Prefix, string(payload), boolToInt(key.Enabled),
+		key.ID, key.Name, key.KeyHash, key.Prefix, string(payload), boolToInt(key.Enabled),
 		formatTime(key.CreatedAt), formatTime(key.UpdatedAt),
 	)
 	if err != nil {
 		return accounts.APIKey{}, fmt.Errorf("create api key: %w", err)
 	}
-	return key, nil
+	return s.GetAPIKey(ctx, key.ID)
+}
+
+func (s *Store) SaveAPIKey(ctx context.Context, key accounts.StoredAPIKey) (accounts.APIKey, error) {
+	if key.Providers == nil {
+		key.Providers = []string{}
+	}
+	if key.UpdatedAt.IsZero() {
+		key.UpdatedAt = time.Now().UTC()
+	}
+	payload, err := json.Marshal(key.Providers)
+	if err != nil {
+		return accounts.APIKey{}, err
+	}
+	result, err := s.db.ExecContext(ctx, `
+UPDATE api_keys SET name = ?, providers_json = ?, enabled = ?, updated_at = ?
+WHERE id = ?`, key.Name, string(payload), boolToInt(key.Enabled), formatTime(key.UpdatedAt), key.ID)
+	if err != nil {
+		return accounts.APIKey{}, fmt.Errorf("update api key: %w", err)
+	}
+	changed, _ := result.RowsAffected()
+	if changed == 0 {
+		return accounts.APIKey{}, accounts.ErrAPIKeyNotFound
+	}
+	return s.GetAPIKey(ctx, key.ID)
 }
 
 func (s *Store) ListAPIKeys(ctx context.Context) ([]accounts.APIKey, error) {
@@ -111,42 +124,6 @@ FROM api_keys WHERE key_hash = ?`, accounts.HashAPIKey(secret))
 		return accounts.APIKey{}, false, fmt.Errorf("lookup api key: %w", err)
 	}
 	return key, true, nil
-}
-
-func (s *Store) UpdateAPIKey(ctx context.Context, id string, input accounts.UpdateAPIKey) (accounts.APIKey, error) {
-	key, err := s.GetAPIKey(ctx, id)
-	if err != nil {
-		return accounts.APIKey{}, err
-	}
-	if name := strings.TrimSpace(input.Name); name != "" {
-		key.Name = name
-	}
-	if input.Providers != nil {
-		allowed, err := accounts.NormalizeAPIKeyProviders(input.Providers)
-		if err != nil {
-			return accounts.APIKey{}, err
-		}
-		key.Providers = allowed
-	}
-	if input.Enabled != nil {
-		key.Enabled = *input.Enabled
-	}
-	key.UpdatedAt = time.Now().UTC()
-	payload, err := json.Marshal(key.Providers)
-	if err != nil {
-		return accounts.APIKey{}, err
-	}
-	result, err := s.db.ExecContext(ctx, `
-UPDATE api_keys SET name = ?, providers_json = ?, enabled = ?, updated_at = ?
-WHERE id = ?`, key.Name, string(payload), boolToInt(key.Enabled), formatTime(key.UpdatedAt), key.ID)
-	if err != nil {
-		return accounts.APIKey{}, fmt.Errorf("update api key: %w", err)
-	}
-	changed, _ := result.RowsAffected()
-	if changed == 0 {
-		return accounts.APIKey{}, accounts.ErrAPIKeyNotFound
-	}
-	return key, nil
 }
 
 func (s *Store) DeleteAPIKey(ctx context.Context, id string) error {

@@ -1,17 +1,14 @@
 package console
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
 	"strings"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
+	"github.com/caigee-cmd/cli2api/internal/control"
 	"github.com/caigee-cmd/cli2api/internal/providers"
-	"github.com/caigee-cmd/cli2api/internal/providers/devin"
-	"github.com/caigee-cmd/cli2api/internal/providers/trae"
-	"github.com/caigee-cmd/cli2api/internal/providers/workbuddy"
 )
 
 func (h *Handler) HandleProviders(w http.ResponseWriter, r *http.Request) {
@@ -78,133 +75,17 @@ func (h *Handler) HandleAccountImport(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	var input struct {
-		Format               string          `json:"format"`
-		Name                 string          `json:"name"`
-		Provider             string          `json:"provider"`
-		Region               string          `json:"region"`
-		Enabled              bool            `json:"enabled"`
-		MaxInFlight          int             `json:"max_inflight"`
-		Priority             int             `json:"priority"`
-		DropSystemPrompt     *bool           `json:"drop_system_prompt"`
-		WorkBuddyAutoCheckin *bool           `json:"workbuddy_auto_checkin"`
-		WorkBuddyCheckinTime string          `json:"workbuddy_checkin_time"`
-		ProxyURL             string          `json:"proxy_url"`
-		UserBlob             string          `json:"user_blob"`
-		MachineID            string          `json:"machine_id"`
-		Credential           json.RawMessage `json:"credential"`
-	}
-	if err := json.Unmarshal(raw, &input); err != nil {
+	var input control.AccountImportInput
+	if err = json.Unmarshal(raw, &input); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	switch input.Format {
-	case "qoder-native-v1":
-		blob, err := base64.StdEncoding.DecodeString(input.UserBlob)
-		if err != nil {
-			writeErr(w, http.StatusBadRequest, "invalid_user_blob", "user_blob must be base64")
-			return
-		}
-		account, err := h.Control.Accounts.ImportNative(r.Context(), accounts.ImportAccount{
-			Name: input.Name, Provider: input.Provider, Region: input.Region, Enabled: input.Enabled,
-			MaxInFlight: input.MaxInFlight, Priority: input.Priority, DropSystemPrompt: input.DropSystemPrompt,
-			WorkBuddyAutoCheckin: input.WorkBuddyAutoCheckin, WorkBuddyCheckinTime: input.WorkBuddyCheckinTime, ProxyURL: input.ProxyURL,
-			Credential: accounts.NativeCredential{UserBlob: blob, MachineID: input.MachineID},
-		})
-		if err != nil {
-			writeErr(w, http.StatusBadRequest, "account_import_failed", err.Error())
-			return
-		}
-		writeJSON(w, http.StatusCreated, account)
-	case trae.CredentialFormat:
-		payload := input.Credential
-		if len(payload) == 0 {
-			payload = json.RawMessage(raw)
-		}
-		if err := trae.ValidateCredential(payload); err != nil {
-			writeErr(w, http.StatusBadRequest, "invalid_credential", err.Error())
-			return
-		}
-		credential, err := trae.DecodeCredential(payload)
-		if err != nil {
-			writeErr(w, http.StatusBadRequest, "invalid_credential", err.Error())
-			return
-		}
-		credential = trae.EnsureDevice(credential)
-		encoded, err := credential.Encode()
-		if err != nil {
-			writeErr(w, http.StatusBadRequest, "invalid_credential", err.Error())
-			return
-		}
-		imported, err := h.Control.Accounts.ImportCredentialPayload(r.Context(), accounts.CreateAccount{
-			Name: input.Name, Provider: "trae", Region: input.Region, Enabled: false,
-			MaxInFlight: input.MaxInFlight, Priority: input.Priority, DropSystemPrompt: input.DropSystemPrompt,
-			WorkBuddyAutoCheckin: input.WorkBuddyAutoCheckin,
-			WorkBuddyCheckinTime: input.WorkBuddyCheckinTime, ProxyURL: input.ProxyURL,
-		}, trae.CredentialFormat, encoded, credential.UID != "" && input.Enabled)
-		if err != nil {
-			writeErr(w, http.StatusBadRequest, "account_import_failed", err.Error())
-			return
-		}
-		writeJSON(w, http.StatusCreated, imported)
-	case workbuddy.CredentialFormat:
-		payload := input.Credential
-		if len(payload) == 0 {
-			payload = json.RawMessage(raw)
-		}
-		if err := workbuddy.ValidateCredential(payload); err != nil {
-			writeErr(w, http.StatusBadRequest, "invalid_credential", err.Error())
-			return
-		}
-		var credential struct {
-			UID string `json:"uid"`
-		}
-		_ = json.Unmarshal(payload, &credential)
-		imported, err := h.Control.Accounts.ImportCredentialPayload(r.Context(), accounts.CreateAccount{
-			Name: input.Name, Provider: "workbuddy", Region: input.Region, Enabled: false,
-			MaxInFlight: input.MaxInFlight, Priority: input.Priority, DropSystemPrompt: input.DropSystemPrompt,
-			WorkBuddyAutoCheckin: input.WorkBuddyAutoCheckin,
-			WorkBuddyCheckinTime: input.WorkBuddyCheckinTime, ProxyURL: input.ProxyURL,
-		}, workbuddy.CredentialFormat, payload, credential.UID != "" && input.Enabled)
-		if err != nil {
-			writeErr(w, http.StatusBadRequest, "account_import_failed", err.Error())
-			return
-		}
-		writeJSON(w, http.StatusCreated, imported)
-	case devin.CredentialFormat:
-		payload := input.Credential
-		if len(payload) == 0 {
-			payload = json.RawMessage(raw)
-		}
-		if err := devin.ValidateCredential(payload); err != nil {
-			writeErr(w, http.StatusBadRequest, "invalid_credential", err.Error())
-			return
-		}
-		credential, err := devin.DecodeCredential(payload)
-		if err != nil {
-			writeErr(w, http.StatusBadRequest, "invalid_credential", err.Error())
-			return
-		}
-		credential = devin.EnsureDeviceSeed(credential)
-		encoded, err := credential.Encode()
-		if err != nil {
-			writeErr(w, http.StatusBadRequest, "invalid_credential", err.Error())
-			return
-		}
-		imported, err := h.Control.Accounts.ImportCredentialPayload(r.Context(), accounts.CreateAccount{
-			Name: input.Name, Provider: "devin", Region: input.Region, Enabled: false,
-			MaxInFlight: input.MaxInFlight, Priority: input.Priority, DropSystemPrompt: input.DropSystemPrompt,
-			WorkBuddyAutoCheckin: input.WorkBuddyAutoCheckin,
-			WorkBuddyCheckinTime: input.WorkBuddyCheckinTime, ProxyURL: input.ProxyURL,
-		}, devin.CredentialFormat, encoded, credential.UserID != "" && input.Enabled)
-		if err != nil {
-			writeErr(w, http.StatusBadRequest, "account_import_failed", err.Error())
-			return
-		}
-		writeJSON(w, http.StatusCreated, imported)
-	default:
-		writeErr(w, http.StatusBadRequest, "unsupported_credential_format", "format must be qoder-native-v1, workbuddy-oauth-v1, trae-oauth-v1, or devin-session-v1")
+	account, err := h.Control.Accounts.Import(r.Context(), input, raw)
+	if err != nil {
+		writeOperationError(w, err)
+		return
 	}
+	writeJSON(w, http.StatusCreated, account)
 }
 
 func (h *Handler) HandleAccountByID(w http.ResponseWriter, r *http.Request) {
@@ -263,9 +144,6 @@ func (h *Handler) HandleAccountByID(w http.ResponseWriter, r *http.Request) {
 	}
 
 	action := strings.Join(parts[1:], "/")
-	// Refresh re-probes health, quota, and the model catalog for one account.
-	// It must dispatch before the provider-native block below, which would
-	// otherwise reject it as an unknown action for non-Qoder providers.
 	if action == "refresh" {
 		if r.Method != http.MethodPost {
 			writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "POST only")
@@ -287,154 +165,91 @@ func (h *Handler) HandleAccountByID(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, view)
 		return
 	}
-	if action == "checkins" {
+	required := map[string]string{
+		"checkins":       http.MethodGet,
+		"checkin":        http.MethodPost,
+		"login/device":   http.MethodPost,
+		"login/status":   http.MethodGet,
+		"login/callback": http.MethodPost,
+	}
+	if want, ok := required[action]; ok && r.Method != want {
+		writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", want+" only")
+		return
+	}
+	if action == "export" {
 		if r.Method != http.MethodGet {
 			writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "GET only")
 			return
 		}
-		account, err := h.Control.Accounts.GetStored(r.Context(), accountID)
+		exported, err := h.Control.Accounts.Export(r.Context(), accountID)
 		if err != nil {
-			writeErr(w, http.StatusNotFound, "account_not_found", err.Error())
+			writeErr(w, http.StatusNotFound, "credential_not_found", err.Error())
 			return
 		}
-		if account.Provider != "workbuddy" {
-			writeErr(w, http.StatusBadRequest, "provider_unsupported", "check-in is only available for WorkBuddy accounts")
+		payload := map[string]any{"format": exported.Format, "name": exported.Name}
+		if exported.Format == "qoder-native-v1" {
+			payload["provider"] = exported.Provider
+			payload["region"] = exported.Region
+			payload["user_blob"] = exported.UserBlob
+			payload["machine_id"] = exported.MachineID
+		} else {
+			payload["credential"] = json.RawMessage(exported.Credential)
+		}
+		writeJSON(w, http.StatusOK, payload)
+		return
+	}
+	var callbackURL string
+	if action == "login/callback" {
+		var input struct {
+			CallbackURL string `json:"callback_url"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+			writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
 			return
 		}
+		callbackURL = input.CallbackURL
+	}
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	result, err := h.Control.Accounts.Admin(r.Context(), control.AccountAdminAction{
+		AccountID: accountID, Action: action, Method: r.Method, ContentType: r.Header.Get("Content-Type"), Body: body, CallbackURL: callbackURL,
+	})
+	if err != nil {
+		writeOperationError(w, err)
+		return
+	}
+	switch result.Kind {
+	case "checkins":
 		records, err := h.Control.Accounts.ListCheckins(r.Context(), accountID, 20)
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, "checkin_list_failed", err.Error())
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"object": "list", "data": records})
-		return
-	}
-	if account, err := h.Control.Accounts.GetStored(r.Context(), accountID); err == nil && action == "checkin" {
-		if r.Method != http.MethodPost {
-			writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "POST only")
-			return
-		}
-		if account.Provider != "workbuddy" {
-			writeErr(w, http.StatusBadRequest, "provider_unsupported", "check-in is only available for WorkBuddy accounts")
-			return
-		}
+	case "checkin":
 		updated, err := h.Control.Accounts.Checkin(r.Context(), accountID)
 		if err != nil {
 			writeErr(w, http.StatusBadRequest, "checkin_failed", err.Error())
 			return
 		}
 		writeJSON(w, http.StatusOK, updated)
-		return
-	}
-	// Provider-native actions dispatch before the Qoder worker proxy.
-	if account, err := h.Control.Accounts.GetStored(r.Context(), accountID); err == nil && account.Provider != "qoder" {
-		adapter, ok := h.Providers.Get(account.Provider)
-		if !ok || adapter.Login == nil {
-			writeErr(w, http.StatusBadRequest, "provider_unsupported", "provider does not support this action")
-			return
+	case "login_start":
+		writeJSON(w, http.StatusOK, map[string]any{"authUrl": result.Session.AuthURL, "status": result.LoginStatus})
+	case "login_status":
+		writeJSON(w, http.StatusOK, map[string]any{"login": map[string]any{"status": result.LoginStatus, "message": result.LoginMsg}})
+	case "login_complete":
+		writeJSON(w, http.StatusOK, map[string]any{"login": map[string]any{"status": result.LoginStatus, "message": result.LoginMsg}})
+	case "worker":
+		for key, values := range result.Worker.Header {
+			for _, value := range values {
+				w.Header().Add(key, value)
+			}
 		}
-		switch action {
-		case "login/device":
-			if r.Method != http.MethodPost {
-				writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "POST only")
-				return
-			}
-			session, err := adapter.Login.StartLogin(r.Context(), accountID)
-			if err != nil {
-				writeErr(w, http.StatusBadRequest, "login_start_failed", err.Error())
-				return
-			}
-			writeJSON(w, http.StatusOK, map[string]any{"authUrl": session.AuthURL, "status": "pending"})
-			return
-		case "login/status":
-			if r.Method != http.MethodGet {
-				writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "GET only")
-				return
-			}
-			done, message, err := adapter.Login.PollLogin(r.Context(), accountID)
-			if err != nil {
-				writeErr(w, http.StatusBadRequest, "login_poll_failed", err.Error())
-				return
-			}
-			status := "pending"
-			if done {
-				status = "ok"
-			}
-			writeJSON(w, http.StatusOK, map[string]any{"login": map[string]any{"status": status, "message": message}})
-			return
-		case "login/callback":
-			if r.Method != http.MethodPost {
-				writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "POST only")
-				return
-			}
-			completer, ok := adapter.Login.(providers.LoginCompleter)
-			if !ok {
-				writeErr(w, http.StatusBadRequest, "provider_unsupported", "provider does not accept a pasted callback URL")
-				return
-			}
-			var input struct {
-				CallbackURL string `json:"callback_url"`
-			}
-			if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-				writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
-				return
-			}
-			if err := completer.CompleteLogin(r.Context(), accountID, input.CallbackURL); err != nil {
-				writeErr(w, http.StatusBadRequest, "login_callback_failed", err.Error())
-				return
-			}
-			writeJSON(w, http.StatusOK, map[string]any{"login": map[string]any{"status": "ok", "message": "login complete"}})
-			return
-		case "export":
-			if r.Method != http.MethodGet {
-				writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "GET only")
-				return
-			}
-			format, payload, err := h.Control.Accounts.LoadCredentialPayload(r.Context(), accountID)
-			if err != nil {
-				writeErr(w, http.StatusNotFound, "credential_not_found", err.Error())
-				return
-			}
-			writeJSON(w, http.StatusOK, map[string]any{
-				"format": format, "name": account.Name, "credential": json.RawMessage(payload),
-			})
-			return
-		default:
-			writeErr(w, http.StatusNotFound, "not_found", "unknown account action")
-			return
-		}
-	}
-	switch action {
-	case "export":
-		if r.Method != http.MethodGet {
-			writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "GET only")
-			return
-		}
-		account, err := h.Control.Accounts.GetStored(r.Context(), accountID)
-		if err != nil {
-			writeErr(w, http.StatusNotFound, "account_not_found", err.Error())
-			return
-		}
-		credential, err := h.Control.Accounts.LoadNativeCredential(r.Context(), accountID)
-		if err != nil {
-			writeErr(w, http.StatusNotFound, "credential_not_found", err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"format": "qoder-native-v1", "name": account.Name,
-			"provider":   account.Provider,
-			"region":     account.ProviderRegion,
-			"user_blob":  base64.StdEncoding.EncodeToString(credential.UserBlob),
-			"machine_id": credential.MachineID,
-		})
-	case "login/device":
-		h.proxyAccountWorker(w, r, accountID, "/admin/login/device", "")
-	case "login/status":
-		h.proxyAccountWorker(w, r, accountID, "/admin/login/status", "oauth_if_complete")
-	case "login/pat":
-		h.proxyAccountWorker(w, r, accountID, "/admin/login/pat", "pat")
-	case "rewarm":
-		h.proxyAccountWorker(w, r, accountID, "/admin/rewarm", "")
+		w.WriteHeader(result.Worker.Status)
+		_, _ = w.Write(result.Worker.Body)
 	default:
 		writeErr(w, http.StatusNotFound, "not_found", "unknown account action")
 	}

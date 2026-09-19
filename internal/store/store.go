@@ -77,25 +77,8 @@ func (s *Store) migrate(ctx context.Context) error {
 	return s.runMigrations(ctx)
 }
 
-// validateAccountProxy enforces the per-provider proxy boundary. Child-process
-// providers (Qoder) can only forward every cloud request through an http(s)
-// proxy, so SOCKS is rejected for them; in-process providers (WorkBuddy, Trae)
-// may use any scheme Parse accepts.
 func validateAccountProxy(providerID, region, raw string) error {
-	descriptor, _, err := providers.Resolve(providerID, region)
-	if err != nil {
-		return err
-	}
-
-	if descriptor.Runtime == providers.RuntimeChildProcess {
-		if err := proxy.ValidateHTTPOnly(raw); err != nil {
-			return fmt.Errorf("Qoder account proxy: %w", err)
-		}
-		return nil
-	}
-
-	_, err = proxy.Parse(raw)
-	return err
+	return accounts.ValidateAccountProxy(providerID, region, raw)
 }
 
 func (s *Store) Create(ctx context.Context, input accounts.CreateAccount) (accounts.Account, error) {
@@ -110,23 +93,11 @@ func (s *Store) Create(ctx context.Context, input accounts.CreateAccount) (accou
 	if err := validateAccountProxy(input.Provider, input.Region, input.ProxyURL); err != nil {
 		return accounts.Account{}, err
 	}
-	maxInFlight := input.MaxInFlight
-	if maxInFlight <= 0 {
-		maxInFlight = 4
-	}
-	priority := input.Priority
-	if priority <= 0 {
-		priority = 50
-	}
+	maxInFlight := accounts.DefaultMaxInFlightValue(input.MaxInFlight)
+	priority := accounts.DefaultPriorityValue(input.Priority)
 	now := time.Now().UTC()
-	dropSystemPrompt := true
-	if input.DropSystemPrompt != nil {
-		dropSystemPrompt = *input.DropSystemPrompt
-	}
-	autoCheckin := false
-	if input.WorkBuddyAutoCheckin != nil {
-		autoCheckin = *input.WorkBuddyAutoCheckin
-	}
+	dropSystemPrompt := accounts.DefaultDropSystemPrompt(input.DropSystemPrompt)
+	autoCheckin := accounts.DefaultWorkBuddyAutoCheckin(input.WorkBuddyAutoCheckin)
 	checkinTime, err := s.resolveWorkBuddyCheckinTime(ctx, input.WorkBuddyCheckinTime)
 	if err != nil {
 		return accounts.Account{}, err
@@ -323,10 +294,7 @@ func (s *Store) WorkBuddyCheckinTimeDefault(ctx context.Context) string {
 }
 
 func (s *Store) resolveWorkBuddyCheckinTime(ctx context.Context, value string) (string, error) {
-	if strings.TrimSpace(value) == "" {
-		return s.WorkBuddyCheckinTimeDefault(ctx), nil
-	}
-	return accounts.NormalizeWorkBuddyCheckinTime(value)
+	return accounts.ResolveWorkBuddyCheckinTime(value, s.WorkBuddyCheckinTimeDefault(ctx))
 }
 
 func (s *Store) Delete(ctx context.Context, id string) error {
@@ -346,8 +314,8 @@ func (s *Store) SetModelContext(ctx context.Context, modelID string, contextLeng
 	if modelID == "" {
 		return fmt.Errorf("model id required")
 	}
-	if contextLength < 0 || contextLength > 4_000_000 || (contextLength > 0 && contextLength < 1024) {
-		return fmt.Errorf("context_length must be 0 or between 1024 and 4000000")
+	if err := accounts.ValidateModelContextLength(contextLength); err != nil {
+		return err
 	}
 	if contextLength == 0 {
 		_, err := s.db.ExecContext(ctx, `DELETE FROM model_settings WHERE model_id = ?`, modelID)

@@ -603,11 +603,8 @@ func TestClassifyMCPConfigPermissionDenied(t *testing.T) {
 	if providerErr.Kind != accounts.KindInvalidRequest {
 		t.Fatalf("kind=%s", providerErr.Kind)
 	}
-	if providerErr.Cooldown != 0 {
-		t.Fatalf("cooldown=%s want 0", providerErr.Cooldown)
-	}
-	if providerErr.Failover == nil || *providerErr.Failover {
-		t.Fatalf("failover=%v want false", providerErr.Failover)
+	if providerErr.RetryAfter != 0 {
+		t.Fatalf("retry_after=%s want 0", providerErr.RetryAfter)
 	}
 
 	diag := "in=[namespace:mcp__computer-use,ns.function:left_click] out(1)=[mcp_computer_use_left_click]"
@@ -618,7 +615,7 @@ func TestClassifyMCPConfigPermissionDenied(t *testing.T) {
 	if !strings.Contains(providerErr.Message, "tools_diag="+diag) {
 		t.Fatalf("message missing tools_diag: %s", providerErr.Message)
 	}
-	if providerErr.Kind != accounts.KindInvalidRequest || providerErr.Cooldown != 0 {
+	if providerErr.Kind != accounts.KindInvalidRequest || providerErr.RetryAfter != 0 {
 		t.Fatalf("diag classify=%+v", providerErr)
 	}
 }

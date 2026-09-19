@@ -129,11 +129,10 @@ func TestResponsesNamespaceHandlerRoundTrip(t *testing.T) {
 }
 
 func TestCompatibilityStreamsPreserveTypedReadError(t *testing.T) {
-	failover := false
 	want := &providers.Error{
 		Kind: accounts.KindInvalidRequest, Status: http.StatusBadRequest,
 		Code: "invalid_argument", Type: "invalid_request_error", Message: "upstream rejected request",
-		RetryAfter: 45 * time.Second, Failover: &failover,
+		RetryAfter: 45 * time.Second,
 	}
 	for name, relay := range map[string]func(io.Writer, io.Reader, string, string) (streamRelayStats, error){
 		"anthropic": relayAnthropicStream,
@@ -141,6 +140,10 @@ func TestCompatibilityStreamsPreserveTypedReadError(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := relay(httptest.NewRecorder(), closedStreamPipe(fmt.Errorf("Connect trailer: %w", want)), "req_1", "devin/swe-2")
+			var executionErr *executor.ExecutionError
+			if !errors.As(err, &executionErr) || executionErr.Classified.Kind != want.Kind {
+				t.Fatalf("stream error was not classified: %T %v", err, err)
+			}
 			var got *providers.Error
 			if !errors.As(err, &got) || got != want {
 				t.Fatalf("error=%T %+v want pointer=%p", err, err, want)

@@ -3,7 +3,6 @@ package devin
 import (
 	"context"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"strings"
@@ -11,6 +10,7 @@ import (
 	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
+	"github.com/caigee-cmd/cli2api/internal/auth"
 	"github.com/caigee-cmd/cli2api/internal/providers"
 	proxyutil "github.com/caigee-cmd/cli2api/internal/proxy"
 )
@@ -313,21 +313,16 @@ func (c *Client) ensureCallback() (string, error) {
 		return "", fmt.Errorf("devin callback listen: %w", err)
 	}
 	c.listener = ln
-	mux := http.NewServeMux()
-	mux.HandleFunc("/callback", c.handleCallback)
-	go func() {
-		_ = http.Serve(ln, mux)
-	}()
+	auth.ServeLoopback(ln, "/callback", "Devin", c.acceptCallback)
 	addr := ln.Addr().(*net.TCPAddr)
 	return fmt.Sprintf("http://127.0.0.1:%d/callback", addr.Port), nil
 }
 
-func (c *Client) handleCallback(w http.ResponseWriter, r *http.Request) {
-	code, state, sessionToken, err := ParseCallbackOrPaste(r.URL.String())
+func (c *Client) acceptCallback(ctx context.Context, rawURL string) error {
+	code, state, sessionToken, err := ParseCallbackOrPaste(rawURL)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
 		c.markPendingFailed(err.Error())
-		return
+		return err
 	}
 	c.mu.Lock()
 	for _, pending := range c.pending {
@@ -351,7 +346,7 @@ func (c *Client) handleCallback(w http.ResponseWriter, r *http.Request) {
 		// Instead set a synthetic token path: keep code in OrgID temporarily? Still ugly.
 		// Simplest: exchange here if verifier present.
 		client := &http.Client{Timeout: 30 * time.Second}
-		token, exErr := ExchangeCode(r.Context(), client, c.apiBase, code, pending.pkce.CodeVerifier)
+		token, exErr := ExchangeCode(ctx, client, c.apiBase, code, pending.pkce.CodeVerifier)
 		if exErr != nil {
 			pending.failed = true
 			pending.message = exErr.Error()
@@ -363,8 +358,7 @@ func (c *Client) handleCallback(w http.ResponseWriter, r *http.Request) {
 		break
 	}
 	c.mu.Unlock()
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = io.WriteString(w, `<!doctype html><meta charset="utf-8"><title>Devin login</title><p>Login complete. You can close this tab.</p>`)
+	return nil
 }
 
 func (c *Client) markPendingFailed(message string) {

@@ -95,11 +95,9 @@ type ErrorClassifier interface {
 }
 
 type ClassifiedError struct {
-	Kind     string `json:"kind"`
-	Status   int    `json:"status"`
-	Failover bool   `json:"failover"`
-	Cooldown string `json:"cooldown,omitempty"`
-	Message  string `json:"message"`
+	Kind    string `json:"kind"`
+	Status  int    `json:"status"`
+	Message string `json:"message"`
 }
 
 // ImportExporter validates and exports provider-specific credential JSON.
@@ -145,9 +143,7 @@ type Error struct {
 	Message    string
 	Code       string
 	Type       string
-	Cooldown   time.Duration
 	RetryAfter time.Duration
-	Failover   *bool
 }
 
 func (e *Error) Error() string {
@@ -193,3 +189,32 @@ func (a Adapter) Supports(capability string) bool {
 		return false
 	}
 }
+
+// CredentialImport prepares a canonical payload without persistence. Ready controls
+// whether an imported account may be enabled immediately.
+type CredentialImport struct {
+	Payload []byte
+	Ready   bool
+}
+type CredentialImporter interface {
+	Format() string
+	PrepareImport([]byte) (CredentialImport, error)
+}
+
+// AdminRequest/Response carry worker protocol data, never a public HTTP writer.
+type AdminRequest struct {
+	AccountID, Action, Method, ContentType string
+	Body                                   []byte
+}
+type AdminResponse struct {
+	Status int
+	Header map[string][]string
+	Body   []byte
+}
+type ActionError struct {
+	Code string
+	Err  error
+}
+
+func (e *ActionError) Error() string { return e.Err.Error() }
+func (e *ActionError) Unwrap() error { return e.Err }

@@ -202,6 +202,27 @@ func (c WorkerClient) Admin(ctx context.Context, workerURL, method, path, conten
 	return resp.StatusCode, resp.Header.Clone(), responseBody, nil
 }
 
+type AdminSpec struct {
+	Path               string
+	WaitForAuthManager bool
+	SyncAuth           string
+}
+
+func AdminAction(action string) (AdminSpec, bool) {
+	switch strings.TrimSpace(action) {
+	case "login/device":
+		return AdminSpec{Path: "/admin/login/device", WaitForAuthManager: true}, true
+	case "login/status":
+		return AdminSpec{Path: "/admin/login/status", SyncAuth: "oauth_if_complete"}, true
+	case "login/pat":
+		return AdminSpec{Path: "/admin/login/pat", WaitForAuthManager: true, SyncAuth: "pat"}, true
+	case "rewarm":
+		return AdminSpec{Path: "/admin/rewarm"}, true
+	default:
+		return AdminSpec{}, false
+	}
+}
+
 func LoginCompleteAuthType(syncAuth string, responseBody []byte) string {
 	if syncAuth == "" {
 		return ""

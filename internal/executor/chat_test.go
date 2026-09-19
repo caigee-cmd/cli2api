@@ -329,9 +329,12 @@ func TestChatNonStreamAllSaturatedReturnsRateLimit(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected a rate-limit error when all accounts are saturated")
 	}
-	var classified *providers.Error
-	if !errors.As(err, &classified) || classified.Kind != accounts.KindRateLimit || classified.Status != 429 {
-		t.Fatalf("expected *providers.Error{rate_limit,429}, got %#v", err)
+	var classified *ExecutionError
+	if !errors.As(err, &classified) || classified.Classified.Kind != accounts.KindRateLimit || classified.Classified.Status != 429 {
+		t.Fatalf("expected *ExecutionError{rate_limit,429}, got %#v", err)
+	}
+	if classified.Classified.RetryAfter != 5*time.Second {
+		t.Fatalf("capacity retry-after=%s", classified.Classified.RetryAfter)
 	}
 }
 
@@ -484,12 +487,12 @@ func TestChatNonStreamDoesNotDispatchWhileAccountCooling(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected cooling error")
 	}
-	var classified *providers.Error
-	if !errors.As(err, &classified) || classified.Kind != accounts.KindRateLimit {
+	var classified *ExecutionError
+	if !errors.As(err, &classified) || classified.Classified.Kind != accounts.KindRateLimit {
 		t.Fatalf("expected rate_limit cooling error, got %#v", err)
 	}
-	if !strings.Contains(classified.Message, "glm-5.3") {
-		t.Fatalf("cooling error should name the model, got %q", classified.Message)
+	if !strings.Contains(classified.Classified.Message, "glm-5.3") {
+		t.Fatalf("cooling error should name the model, got %q", classified.Classified.Message)
 	}
 	if hits.Load() != 0 {
 		t.Fatalf("cooling account received %d requests", hits.Load())
@@ -546,11 +549,11 @@ func TestChatNonStreamExpiredQuotaDoesNotMaskModelRateLimit(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected model cooling error")
 	}
-	var classified *providers.Error
-	if !errors.As(err, &classified) || classified.Kind != accounts.KindRateLimit || classified.Code != "rate_limit" {
+	var classified *ExecutionError
+	if !errors.As(err, &classified) || classified.Classified.Kind != accounts.KindRateLimit || classified.Classified.Code != "rate_limit" {
 		t.Fatalf("expired quota must not mask a live model rate limit, got %#v", err)
 	}
-	if classified.Failover == nil || !*classified.Failover {
+	if !classified.Classified.Failover {
 		t.Fatal("model rate-limit cooling must remain failoverable")
 	}
 }
@@ -567,12 +570,12 @@ func TestChatNonStreamQuotaCoolingIsQuotaNotRateLimit(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected quota cooling error")
 	}
-	var classified *providers.Error
-	if !errors.As(err, &classified) || classified.Kind != accounts.KindQuota || classified.Code != "insufficient_quota" {
+	var classified *ExecutionError
+	if !errors.As(err, &classified) || classified.Classified.Kind != accounts.KindQuota || classified.Classified.Code != "insufficient_quota" {
 		t.Fatalf("expected quota cooling error, got %#v", err)
 	}
-	if !strings.Contains(classified.Message, "quota cooldown") {
-		t.Fatalf("quota cooling error should say quota, got %q", classified.Message)
+	if !strings.Contains(classified.Classified.Message, "quota cooldown") {
+		t.Fatalf("quota cooling error should say quota, got %q", classified.Classified.Message)
 	}
 }
 

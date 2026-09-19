@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -22,6 +23,7 @@ import (
 	applogs "github.com/caigee-cmd/cli2api/internal/logs"
 	"github.com/caigee-cmd/cli2api/internal/providers"
 	sqlstore "github.com/caigee-cmd/cli2api/internal/store"
+	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
 func waitForRequestLog(t *testing.T, store applogs.RequestStore, id, status string) accounts.RequestLog {
@@ -278,7 +280,7 @@ func TestRegionGrantDoesNotEscapeOnChat(t *testing.T) {
 		QoderHome: t.TempDir(), DataDir: t.TempDir(), RuntimeDir: t.TempDir(),
 	})
 	t.Cleanup(func() { _ = srv.Close() })
-	created, err := srv.Manager.Store().CreateAPIKey(context.Background(), accounts.CreateAPIKey{
+	created, err := srv.Control.Keys.Create(context.Background(), accounts.CreateAPIKey{
 		Name: "cn-only", Providers: []string{"workbuddy:cn"}, Enabled: true,
 	})
 	if err != nil {
@@ -289,6 +291,68 @@ func TestRegionGrantDoesNotEscapeOnChat(t *testing.T) {
 	rec := serveS01(t, srv, http.MethodPost, endpoint.ChatCompletionsPath, `{"model":"workbuddy/glm-5.2","messages":[{"role":"user","content":"hi"}]}`, created.Secret)
 	if rec.Code == http.StatusOK {
 		t.Fatalf("region grant escaped: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+type canceledStreamChat struct {
+	cause error
+	calls atomic.Int32
+}
+
+func (chat *canceledStreamChat) ChatNonStream(context.Context, string, translate.ChatRequest) (providers.ChatOutcome, error) {
+	return providers.ChatOutcome{}, providers.ErrUnsupported
+}
+
+func (chat *canceledStreamChat) ChatStream(context.Context, string, translate.ChatRequest) (*http.Response, error) {
+	chat.calls.Add(1)
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": {"text/event-stream"}},
+		Body:       closedStreamPipe(fmt.Errorf("upstream stream: %w", chat.cause)),
+	}, nil
+}
+
+func TestStreamBodyCancellationKeepsAccountHealthyAcrossEndpoints(test *testing.T) {
+	for _, cause := range []error{context.Canceled, context.DeadlineExceeded} {
+		for _, path := range []string{endpoint.ChatCompletionsPath, "/api/chat", endpoint.MessagesPath, endpoint.ResponsesPath} {
+			test.Run(cause.Error()+path, func(test *testing.T) {
+				server := newS01HTTPServer(test)
+				chat := &canceledStreamChat{cause: cause}
+				server.Providers.Register(providers.Adapter{ID: "devin", Chat: chat})
+				account, err := server.Manager.Store().Create(context.Background(), accounts.CreateAccount{Name: "stream cancellation", Provider: "devin"})
+				if err != nil {
+					test.Fatal(err)
+				}
+				server.Pool.Upsert(executor.Item{ID: account.ID, Provider: "devin", Region: "global", Runtime: "in_process", Models: []string{"swe-2"}})
+				server.Gateway.Catalogs = nil
+				body := `{"model":"devin/swe-2","messages":[{"role":"user","content":"hello"}],"max_tokens":32,"stream":true}`
+				if path == endpoint.ResponsesPath {
+					body = `{"model":"devin/swe-2","input":"hello","stream":true}`
+				}
+				request := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+				request.Header.Set("Authorization", "Bearer secret")
+				response := httptest.NewRecorder()
+				func() {
+					defer func() {
+						if recovered := recover(); recovered != nil && recovered != http.ErrAbortHandler {
+							test.Fatalf("unexpected panic: %v", recovered)
+						}
+					}()
+					server.Handler().ServeHTTP(response, request)
+				}()
+				if request.Context().Err() != nil || response.Code != http.StatusOK || chat.calls.Load() != 1 {
+					test.Fatalf("context=%v status=%d calls=%d body=%s", request.Context().Err(), response.Code, chat.calls.Load(), response.Body.String())
+				}
+				item, _ := server.Pool.ByID(account.ID)
+				if item.LastKind != "" || !item.DownUntil.IsZero() || len(item.ModelDownUntil) != 0 {
+					test.Fatalf("canceled stream polluted account state: %+v", item)
+				}
+				entry := waitForRequestLog(test, server.Recorder.Store(), response.Header().Get("X-Request-Id"), accounts.RequestStatusCanceled)
+				if entry.ErrorKind != accounts.KindCanceled {
+					test.Fatalf("canceled stream log=%+v", entry)
+				}
+			})
+		}
 	}
 }
 

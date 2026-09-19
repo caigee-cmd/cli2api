@@ -213,30 +213,36 @@ func TestStoreCreatesNamedAPIKeys(t *testing.T) {
 	}
 	defer store.Close()
 
-	all, err := store.CreateAPIKey(ctx, accounts.CreateAPIKey{Name: "All", Enabled: true})
+	secret := "sk_store_test_secret"
+	all, err := store.InsertAPIKey(ctx, accounts.StoredAPIKey{
+		Name: "All", Prefix: accounts.APIKeyPrefix(secret), KeyHash: accounts.HashAPIKey(secret), Enabled: true,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if all.Providers == nil || len(all.Providers) != 0 {
-		t.Fatalf("empty allowlist providers = %#v", all.Providers)
+	if all.Providers == nil || len(all.Providers) != 0 || all.Secret != "" {
+		t.Fatalf("empty allowlist providers = %#v", all)
 	}
 	listedAll, err := store.ListAPIKeys(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(listedAll) != 1 || listedAll[0].Providers == nil {
+	if len(listedAll) != 1 || listedAll[0].Providers == nil || listedAll[0].Secret != "" {
 		t.Fatalf("listed empty allowlist = %+v", listedAll)
 	}
 	if err := store.DeleteAPIKey(ctx, all.ID); err != nil {
 		t.Fatal(err)
 	}
 
-	created, err := store.CreateAPIKey(ctx, accounts.CreateAPIKey{Name: "CI", Providers: []string{"qoder"}, Enabled: true})
+	created, err := store.InsertAPIKey(ctx, accounts.StoredAPIKey{
+		Name: "CI", Prefix: accounts.APIKeyPrefix(secret), KeyHash: accounts.HashAPIKey(secret),
+		Providers: []string{"qoder"}, Enabled: true,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if created.Secret == "" || created.ID == "" || created.Prefix == "" {
-		t.Fatalf("created key missing secret fields: %+v", created)
+	if created.Secret != "" || created.ID == "" || created.Prefix == "" {
+		t.Fatalf("created key leaked secret fields: %+v", created)
 	}
 	listed, err := store.ListAPIKeys(ctx)
 	if err != nil {
@@ -245,16 +251,17 @@ func TestStoreCreatesNamedAPIKeys(t *testing.T) {
 	if len(listed) != 1 || listed[0].Secret != "" || listed[0].ID != created.ID {
 		t.Fatalf("listed = %+v", listed)
 	}
-	got, ok, err := store.LookupAPIKey(ctx, created.Secret)
+	got, ok, err := store.LookupAPIKey(ctx, secret)
 	if err != nil || !ok || got.ID != created.ID {
 		t.Fatalf("lookup = %+v ok=%v err=%v", got, ok, err)
 	}
-	disabled := false
-	updated, err := store.UpdateAPIKey(ctx, created.ID, accounts.UpdateAPIKey{Name: "CI prod", Providers: []string{"qoder", "trae"}, Enabled: &disabled})
+	updated, err := store.SaveAPIKey(ctx, accounts.StoredAPIKey{
+		ID: created.ID, Name: "CI prod", Prefix: created.Prefix, Providers: []string{"qoder", "trae"}, Enabled: false,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updated.Name != "CI prod" || updated.Enabled || len(updated.Providers) != 2 {
+	if updated.Name != "CI prod" || updated.Enabled || len(updated.Providers) != 2 || updated.Secret != "" {
 		t.Fatalf("updated = %+v", updated)
 	}
 	if err := store.DeleteAPIKey(ctx, created.ID); err != nil {
