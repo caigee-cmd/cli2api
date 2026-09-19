@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.6.1 - 2026-09-19
+
+### English
+
 - Unify WorkBuddy and Qoder CN check-ins with provider default times, inheritable account overrides, and one scheduler. Keep check-in controls and history on account cards, without a separate navigation entry. Preserve existing WorkBuddy settings; Qoder CN live acceptance remains pending.
 - Move the WorkBuddy drop-system-prompt switch off account cards; keep the control and explanation in create and edit.
 - Record requested and resolved reasoning levels on request history; show one value when they match, otherwise `requested → resolved`.
