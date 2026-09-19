@@ -1,6 +1,6 @@
 <div align="center">
 
-<h1><img src="./frontend/public/apple-touch-icon.svg" width="40" height="40" align="middle" alt=""> CLI2API</h1>
+<h1><img src="./frontend/public/apple-touch-icon.svg" width="40" height="40" align="top" alt=""> CLI2API</h1>
 
 **把你自己的登录态，变成一个本机 OpenAI 兼容 API**
 

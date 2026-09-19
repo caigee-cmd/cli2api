@@ -7,7 +7,11 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Align the README header mark with the CLI2API wordmark so the C icon centers on the text cap height instead of dropping below the baseline.
+
 ### 中文
+
+- 让 README 头部的 C 标记与 CLI2API 标题对齐，图标与文字大写高度居中，不再明显低于基线。
 
 ## 0.5.7 - 2026-09-18
 
