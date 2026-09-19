@@ -1,6 +1,6 @@
 <div align="center">
 
-<h1><img src="./frontend/public/apple-touch-icon.svg" width="40" height="40" align="middle" alt=""> CLI2API</h1>
+<h1><img src="./frontend/public/apple-touch-icon.svg" width="40" height="40" align="top" alt=""> CLI2API</h1>
 
 **Turn your own logins into a local OpenAI-compatible API**
 
