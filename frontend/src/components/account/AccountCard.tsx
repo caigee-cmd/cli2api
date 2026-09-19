@@ -419,7 +419,7 @@ export function AccountCard({
             </Dropdown.Menu>
           </Dropdown.Popover>
         </Dropdown>
-        <div className="ml-auto flex shrink-0 items-center gap-3">
+        <div className="ml-auto flex shrink-0 flex-nowrap items-center gap-3 whitespace-nowrap">
           {onCheckin ? (
             <Tooltip>
               <Tooltip.Trigger>

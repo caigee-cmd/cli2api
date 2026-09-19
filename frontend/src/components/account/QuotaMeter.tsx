@@ -30,7 +30,7 @@ export function QuotaMeter({ quota, label, usedLabel, remainingLabel, addOnLabel
     <Meter
       className="account-meter"
       color={color}
-      size="sm"
+      size="md"
       minValue={0}
       maxValue={100}
       value={Math.round(ratio * 100)}
