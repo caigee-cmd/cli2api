@@ -155,12 +155,6 @@ func TranslateAnthropicMessages(request AnthropicMessagesRequest) (ChatRequest, 
 	if effort := anthropicReasoningEffort(request.OutputConfig); len(effort) > 0 {
 		chat.ReasoningEffort = effort
 	}
-	}
-	chat.ToolChoice = sanitizeToolChoice(chat.Tools, toolChoice)
-	chat.ParallelToolCalls = anthropicParallelToolCalls(request.ToolChoice)
-	if effort := anthropicReasoningEffort(request.OutputConfig); len(effort) > 0 {
-		chat.ReasoningEffort = effort
-	}
 	if err := validateToolChoice(chat.Tools, chat.ToolChoice); err != nil {
 		return ChatRequest{}, err
 	}
@@ -649,6 +643,9 @@ func translateResponsesToolChoice(raw json.RawMessage) (json.RawMessage, error) 
 	switch rawMapString(source, "type") {
 	case "function":
 		name := rawMapString(source, "name")
+		if namespace := rawMapString(source, "namespace"); namespace != "" {
+			name = qualifyNamespaceToolName(namespace, name)
+		}
 		if name == "" {
 			return nil, fmt.Errorf("tool_choice.name required")
 		}
@@ -662,14 +659,6 @@ func translateResponsesToolChoice(raw json.RawMessage) (json.RawMessage, error) 
 	default:
 		return nil, fmt.Errorf("tool_choice type %q is not supported", rawMapString(source, "type"))
 	}
-	name := rawMapString(source, "name")
-	if name == "" {
-		return nil, fmt.Errorf("tool_choice.name required")
-	}
-	if namespace := rawMapString(source, "namespace"); namespace != "" {
-		name = qualifyNamespaceToolName(namespace, name)
-	}
-	return json.Marshal(map[string]any{"type": "function", "function": map[string]string{"name": name}})
 }
 
 func responseReasoningEffort(raw json.RawMessage) json.RawMessage {

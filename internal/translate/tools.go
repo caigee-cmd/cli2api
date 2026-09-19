@@ -61,6 +61,8 @@ func responseToolNames(raw json.RawMessage) (map[string]ResponseToolName, error)
 		}
 	}
 	return names, nil
+}
+
 const (
 	customToolMarker     = "__codex_custom__"
 	customToolParameters = `{"type":"object","properties":{"input":{"type":"string","description":"Raw freeform input for the custom tool."}},"required":["input"],"additionalProperties":false}`
