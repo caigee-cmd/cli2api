@@ -125,7 +125,6 @@ export function AccountCard({
       : state === 'login' || state === 'unavailable' || state === 'dead' || state === 'auth_failed'
         ? 'danger'
         : undefined
-  const inFlight = account.in_flight ?? account.inFlight ?? 0
   const lastError = account.last_error || account.lastError
   const errorKind = account.last_error_kind || account.kind
   const provider = accountProviderLabel(account.provider, account.region, t)
@@ -342,9 +341,6 @@ export function AccountCard({
       ) : null}
 
       <Card.Footer className="flex flex-wrap items-center gap-1.5 border-t border-separator px-3 py-2">
-        <span className="mono mr-1 text-[10px] text-foreground/60" title={`${t('inFlight')} ${inFlight}/${account.max_inflight ?? 4} · ${t('priority')} ${account.priority ?? 50} · ${t('restarts')} ${account.restarts ?? 0}`}>
-          {inFlight}/{account.max_inflight ?? 4} · P{account.priority ?? 50} · R{account.restarts ?? 0}
-        </span>
         {account.provider === 'workbuddy' ? (
           <Tooltip>
             <Tooltip.Trigger>
