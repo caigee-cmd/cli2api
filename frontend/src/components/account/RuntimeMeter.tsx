@@ -55,7 +55,7 @@ export function RuntimeMeter({ state, stateCopy, t }: Props) {
         <span>{t('runtimeState')}</span>
       </div>
       <div
-        className="runtime-meter flex-1"
+        className="runtime-meter min-w-[80px] flex-1"
         role="meter"
         aria-label={t('runtimeState')}
         aria-valuemin={0}

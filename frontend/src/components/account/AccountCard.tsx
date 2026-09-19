@@ -52,7 +52,6 @@ type Props = {
   onToggle: (selected: boolean) => void
   onToggleDropSystem: (selected: boolean) => void
   checkinDefaultTime?: string
-  checkinTimezone?: string
   onToggleAutoCheckin?: (selected: boolean) => void
   onCheckin?: () => void
   onViewCheckins?: () => void
@@ -95,7 +94,6 @@ export function AccountCard({
   onToggle,
   onToggleDropSystem,
   checkinDefaultTime,
-  checkinTimezone,
   onToggleAutoCheckin,
   onCheckin,
   onViewCheckins,
@@ -248,8 +246,23 @@ export function AccountCard({
         </div>
       </Card.Header>
 
-      <Card.Content className="gap-2 px-3 pb-2">
-        <RuntimeMeter state={state} stateCopy={stateCopy} t={t} />
+      <Card.Content className="gap-1.5 px-3 pb-2">
+        <div className="flex items-center gap-2">
+          <RuntimeMeter state={state} stateCopy={stateCopy} t={t} />
+          {onCheckin ? (
+            <Tooltip>
+              <Tooltip.Trigger>
+                <span className="flex shrink-0 cursor-help items-center gap-1.5 text-[11px] text-muted">
+                  <span className="font-medium">{t('lastCheckin')}</span>
+                  <span className={checkinStatus === 'error' ? 'text-danger' : ''}>{t(checkinLabel)}</span>
+                  <span className="mono text-[10px] text-foreground/50">{account.checkin_time || checkinDefaultTime}</span>
+                  <CompactSwitch isSelected={Boolean(account.auto_checkin)} isDisabled={Boolean(busyKind)} ariaLabel={t('autoCheckin')} onChange={(selected) => onToggleAutoCheckin?.(selected)} />
+                </span>
+              </Tooltip.Trigger>
+              <Tooltip.Content>{account.last_checkin_at ? new Date(account.last_checkin_at).toLocaleString() : t('lastCheckinNone')}{account.last_checkin_msg ? ` · ${account.last_checkin_msg}` : ''}</Tooltip.Content>
+            </Tooltip>
+          ) : null}
+        </div>
 
         {account.quota ? (
           <QuotaMeter
@@ -262,29 +275,6 @@ export function AccountCard({
             exceededLabel={t('quotaExceeded')}
           />
         ) : <span className="text-[11px] text-foreground/65">{state === 'loading' ? t('quotaLoading') : t('quotaUnavailable')}</span>}
-
-        {onCheckin ? (
-          <div className="flex items-center justify-between gap-3 text-[11px]">
-            <Tooltip>
-              <Tooltip.Trigger>
-                <span className="flex cursor-help items-center gap-2">
-                  <span className="font-medium">{t('lastCheckin')}</span>
-                  <span className={checkinStatus === 'error' ? 'text-danger' : 'text-muted'}>{t(checkinLabel)}</span>
-                </span>
-              </Tooltip.Trigger>
-              <Tooltip.Content>{account.last_checkin_at ? new Date(account.last_checkin_at).toLocaleString() : t('lastCheckinNone')}{account.last_checkin_msg ? ` · ${account.last_checkin_msg}` : ''}</Tooltip.Content>
-            </Tooltip>
-            <Tooltip>
-              <Tooltip.Trigger>
-                <span className="flex cursor-help items-center gap-1.5 text-muted">
-                  <span className="mono text-[10px]">{account.checkin_time || checkinDefaultTime}</span>
-                  <CompactSwitch isSelected={Boolean(account.auto_checkin)} isDisabled={Boolean(busyKind)} ariaLabel={t('autoCheckin')} onChange={(selected) => onToggleAutoCheckin?.(selected)} />
-                </span>
-              </Tooltip.Trigger>
-              <Tooltip.Content>{account.checkin_time ? t('checkinCustom') : t('checkinInherit')}{checkinTimezone ? ` · ${checkinTimezone}` : ''}</Tooltip.Content>
-            </Tooltip>
-          </div>
-        ) : null}
 
         {lastError ? (
           <Tooltip>

@@ -518,7 +518,6 @@ export function AccountsPage() {
             onToggle={(selected) => void onToggle(account.id, selected)}
             onToggleDropSystem={(selected) => void onToggleDropSystem(account.id, selected)}
             checkinDefaultTime={settings?.checkin_times[account.provider || '']}
-            checkinTimezone={checkinTimezoneFor(account)}
             onToggleAutoCheckin={checkinPolicyFor(account) ? (selected) => void onToggleAutoCheckin(account.id, selected) : undefined}
             onCheckin={checkinPolicyFor(account) ? () => void onCheckin(account.id) : undefined}
             onViewCheckins={checkinPolicyFor(account) ? () => setCheckinHistoryId(account.id) : undefined}
