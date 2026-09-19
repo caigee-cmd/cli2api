@@ -28,6 +28,8 @@ type UserStatus struct {
 	WeeklyQuotaRemainingPercent int64
 	DailyQuotaResetAt           time.Time
 	WeeklyQuotaResetAt          time.Time
+	HideDailyQuota              bool
+	HideWeeklyQuota             bool
 	PlanStart                   time.Time
 	PlanEnd                     time.Time
 }
@@ -64,6 +66,8 @@ func ParseGetUserStatusResponse(data []byte) (*UserStatus, error) {
 	status.PlanEnd = timestampTime(planStatus.GetPlanEnd())
 	if plan := planStatus.GetPlanInfo(); plan != nil {
 		status.Plan = plan.GetPlanName()
+		status.HideDailyQuota = plan.GetHideDailyQuota()
+		status.HideWeeklyQuota = plan.GetHideWeeklyQuota()
 		if devin := plan.GetDevinInfo(); devin != nil {
 			status.OrgID, status.OrgName = devin.GetOrgId(), devin.GetAccountDisplayName()
 		}
