@@ -3,6 +3,18 @@
 Published user-facing notes for GitHub Releases and the console update page.
 Write upcoming notes as bilingual files in `changelog/unreleased/`.
 
+## 0.6.2 - 2026-09-19
+
+### English
+
+- Collect upcoming release notes as per-PR files in `changelog/unreleased/` instead of a shared Unreleased section that had to be frozen after each tag.
+- Switch Qoder CN check-in to the official campaign claim API (`/sash/api/v1/me/campaigns/{id}/claim`) instead of the retired daily-check-in endpoints.
+
+### 中文
+
+- 即将发布的说明改到 `changelog/unreleased/` 按 PR 分文件记录，不再共用 Unreleased 小节、发完再冻结。
+- Qoder 国内版签到改为官方活动领取接口（`/sash/api/v1/me/campaigns/{id}/claim`），不再使用已下线的 daily-check-in。
+
 ## 0.6.1 - 2026-09-19
 
 ### English
