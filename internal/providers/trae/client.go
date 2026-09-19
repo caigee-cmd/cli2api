@@ -647,7 +647,7 @@ func settingModelKey(model string) string {
 	return accounts.CanonicalModelID(model)
 }
 
-func (c *Client) chatRequest(ctx context.Context, credential Credential, req translate.ChatRequest, accountID string) (*http.Request, error) {
+func (c *Client) chatRequest(ctx context.Context, credential Credential, req translate.ChatRequest, accountID string) (*http.Request, providers.ResolvedChat, error) {
 	payload, err := json.Marshal(map[string]any{
 		"model":       req.Model,
 		"messages":    req.Messages,
@@ -657,9 +657,10 @@ func (c *Client) chatRequest(ctx context.Context, credential Credential, req tra
 		"tool_choice": req.ToolChoice,
 	})
 	if err != nil {
-		return nil, err
+		return nil, providers.ResolvedChat{}, err
 	}
 	rewritten := PrepareBody(payload)
+	resolved := providers.ResolvedChat{}
 	var obj map[string]any
 	if err := json.Unmarshal(rewritten, &obj); err == nil {
 		maxMode := false
@@ -693,6 +694,7 @@ func (c *Client) chatRequest(ctx context.Context, credential Credential, req tra
 			log.Printf("trae model %q: max mode requested but catalog says unsupported; sending default context window", req.Model)
 		}
 		applySoloChatFields(obj, req, maxMode, storedLevel, caps)
+		resolved.ReasoningLevel = resolvedReasoningLevel(req, storedLevel, caps)
 		if encoded, err := json.Marshal(obj); err == nil {
 			rewritten = encoded
 		}
@@ -700,10 +702,10 @@ func (c *Client) chatRequest(ctx context.Context, credential Credential, req tra
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		credential.ChatBase()+pathChat, bytes.NewReader(rewritten))
 	if err != nil {
-		return nil, err
+		return nil, providers.ResolvedChat{}, err
 	}
 	SetChatHeaders(httpReq.Header, credential)
-	return httpReq, nil
+	return httpReq, resolved, nil
 }
 
 func (c *Client) ChatNonStream(ctx context.Context, accountID string, req translate.ChatRequest) (providers.ChatOutcome, error) {
@@ -711,7 +713,7 @@ func (c *Client) ChatNonStream(ctx context.Context, accountID string, req transl
 	if err != nil {
 		return providers.ChatOutcome{}, err
 	}
-	httpReq, err := c.chatRequest(ctx, credential, req, accountID)
+	httpReq, resolved, err := c.chatRequest(ctx, credential, req, accountID)
 	if err != nil {
 		return providers.ChatOutcome{}, err
 	}
@@ -733,33 +735,42 @@ func (c *Client) ChatNonStream(ctx context.Context, accountID string, req transl
 	if err != nil {
 		return providers.ChatOutcome{}, err
 	}
-	return outcomeFromAggregate(aggregate, req.Model)
+	outcome, err := outcomeFromAggregate(aggregate, req.Model)
+	if err != nil {
+		return providers.ChatOutcome{}, err
+	}
+	outcome.ReasoningLevel = resolved.ReasoningLevel
+	return outcome, nil
 }
 
-func (c *Client) ChatStream(ctx context.Context, accountID string, req translate.ChatRequest) (*http.Response, error) {
+func (c *Client) ChatStream(ctx context.Context, accountID string, req translate.ChatRequest) (*http.Response, providers.ResolvedChat, error) {
 	credential, err := c.credential(ctx, accountID)
 	if err != nil {
-		return nil, err
+		return nil, providers.ResolvedChat{}, err
 	}
-	httpReq, err := c.chatRequest(ctx, credential, req, accountID)
+	httpReq, resolved, err := c.chatRequest(ctx, credential, req, accountID)
 	if err != nil {
-		return nil, err
+		return nil, providers.ResolvedChat{}, err
 	}
 	client, err := c.httpClient(ctx, accountID)
 	if err != nil {
-		return nil, err
+		return nil, providers.ResolvedChat{}, err
 	}
 	client.Timeout = 0
 	resp, err := client.Do(httpReq)
 	if err != nil {
-		return nil, err
+		return nil, providers.ResolvedChat{}, err
 	}
 	if resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		resp.Body.Close()
-		return nil, classifiedError(resp.StatusCode, body)
+		return nil, providers.ResolvedChat{}, classifiedError(resp.StatusCode, body)
 	}
-	return rewriteSoloStream(resp.Body, req.Model)
+	streamResp, err := rewriteSoloStream(resp.Body, req.Model)
+	if err != nil {
+		return nil, providers.ResolvedChat{}, err
+	}
+	return streamResp, resolved, nil
 }
 
 func outcomeFromAggregate(aggregate map[string]any, fallbackModel string) (providers.ChatOutcome, error) {
@@ -1072,6 +1083,7 @@ func (c *Client) Adapter() providers.Adapter {
 		Classifier:   classifier{},
 		ImportExport: importer{},
 		Prober:       c,
+		Checkin:      c,
 	}
 }
 

@@ -158,7 +158,21 @@ body {
 
 .account-meter {
   display: grid;
-  gap: 0.35rem;
+  gap: 0.4rem;
+  grid-template-areas:
+    "output output"
+    "track track";
+}
+
+.account-meter .meter__track {
+  height: 0.5rem;
+  border-radius: 999px;
+  background: var(--separator);
+  overflow: hidden;
+}
+
+.account-meter .meter__fill {
+  border-radius: 999px;
 }
 
 .runtime-meter {

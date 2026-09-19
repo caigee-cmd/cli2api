@@ -98,6 +98,7 @@ func (a *Accounts) Delete(ctx context.Context, id string) error {
 
 func (a *Accounts) ImportNative(ctx context.Context, input accounts.ImportAccount) (accounts.Account, error) {
 	account, err := a.store().Create(ctx, accounts.CreateAccount{
+		AutoCheckin: input.AutoCheckin, CheckinTime: input.CheckinTime,
 		Name: input.Name, Provider: input.Provider, Region: input.Region, Enabled: false,
 		MaxInFlight: input.MaxInFlight, Priority: input.Priority, DropSystemPrompt: input.DropSystemPrompt,
 		WorkBuddyAutoCheckin: input.WorkBuddyAutoCheckin, WorkBuddyCheckinTime: input.WorkBuddyCheckinTime, ProxyURL: input.ProxyURL,
@@ -178,8 +179,8 @@ func (a *Accounts) Checkin(ctx context.Context, id string) (accounts.Account, er
 	if err != nil {
 		return accounts.Account{}, err
 	}
-	if account.Provider != "workbuddy" {
-		return accounts.Account{}, operationError("provider_unsupported", "check-in is only available for WorkBuddy accounts")
+	if _, supported := providers.CheckinFor(account.Provider, account.ProviderRegion); !supported {
+		return accounts.Account{}, operationError("provider_unsupported", "check-in is not available for this provider and region")
 	}
 	return a.runtime.CheckinAccount(ctx, id)
 }
@@ -256,22 +257,14 @@ func (a *Accounts) Admin(ctx context.Context, input AccountAdminAction) (Account
 	account, storeErr := a.GetStored(ctx, input.AccountID)
 	inProcess := storeErr == nil && account.Provider != "" && account.Provider != "qoder"
 	switch input.Action {
-	case "checkins":
+	case "checkins", "checkin":
 		if storeErr != nil {
 			return AccountAdminResult{}, storeErr
 		}
-		if account.Provider != "workbuddy" {
-			return AccountAdminResult{}, operationError("provider_unsupported", "check-in is only available for WorkBuddy accounts")
+		if _, supported := providers.CheckinFor(account.Provider, account.ProviderRegion); !supported {
+			return AccountAdminResult{}, operationError("provider_unsupported", "check-in is not available for this provider and region")
 		}
-		return AccountAdminResult{Kind: "checkins"}, nil
-	case "checkin":
-		if storeErr != nil {
-			return AccountAdminResult{}, storeErr
-		}
-		if account.Provider != "workbuddy" {
-			return AccountAdminResult{}, operationError("provider_unsupported", "check-in is only available for WorkBuddy accounts")
-		}
-		return AccountAdminResult{Kind: "checkin"}, nil
+		return AccountAdminResult{Kind: input.Action}, nil
 	case "login/device":
 		if inProcess {
 			session, err := a.StartLogin(ctx, input.AccountID)

@@ -1058,7 +1058,7 @@ func TestChatStreamStripsEmptyWorkBuddyDeltas(t *testing.T) {
 	client := NewClient(store)
 	client.http = server.Client()
 	client.http.Transport = rewriteTransport{server: server.URL, round: server.Client().Transport}
-	resp, err := client.ChatStream(context.Background(), "acc1", translate.ChatRequest{
+	resp, _, err := client.ChatStream(context.Background(), "acc1", translate.ChatRequest{
 		Model: "glm-5.3-flash", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
 	})
 	if err != nil {

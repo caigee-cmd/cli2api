@@ -1569,6 +1569,22 @@ func (f *fakeCheckinMaintainer) DailyCheckin(context.Context, string) (string, e
 
 func (f *fakeCheckinMaintainer) Keepalive(context.Context, string) error { return nil }
 
+func (fake *fakeCheckinMaintainer) Checkin(ctx context.Context, accountID string) (providers.CheckinResult, error) {
+	message, err := fake.DailyCheckin(ctx, accountID)
+	var already interface{ AlreadyCheckedIn() bool }
+	if errors.As(err, &already) && already.AlreadyCheckedIn() {
+		return providers.CheckinResult{Status: "already", Message: message}, nil
+	}
+	return providers.CheckinResult{Status: "success", Message: message}, err
+}
+
+func registerCheckinMaintainer(manager *accountruntime.Manager, fake *fakeCheckinMaintainer) {
+	registry := providers.NewRegistry()
+	registry.Register(providers.Adapter{ID: "workbuddy", Checkin: fake})
+	manager.SetProviders(registry)
+	manager.SetWorkBuddy(fake)
+}
+
 type fakeAlreadyCheckedInError struct{ msg string }
 
 func (e fakeAlreadyCheckedInError) Error() string        { return e.msg }
@@ -1616,7 +1632,7 @@ func TestCheckinOptedInSkipsSameDaySuccess(t *testing.T) {
 	ops := &fakeCheckinMaintainer{msg: "ok"}
 	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
 	defer manager.Close()
-	manager.SetWorkBuddy(ops)
+	registerCheckinMaintainer(manager, ops)
 	manager.CheckinOptedIn(ctx)
 	if ops.calls != 0 {
 		t.Fatalf("scheduled check-in must skip same-day success, calls=%d", ops.calls)
@@ -1644,7 +1660,7 @@ func TestScheduledCheckinRespectsConfiguredTime(t *testing.T) {
 	ops := &fakeCheckinMaintainer{msg: "ok"}
 	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
 	defer manager.Close()
-	manager.SetWorkBuddy(ops)
+	registerCheckinMaintainer(manager, ops)
 	loc := time.FixedZone("CST", 8*3600)
 	manager.TestCheckinOptedIn(ctx, time.Date(2026, 8, 30, 18, 29, 0, 0, loc), "21:00", true)
 	if ops.calls != 0 {
@@ -1673,7 +1689,7 @@ func TestScheduledCheckinDoesNotImmediatelyRetrySameTime(t *testing.T) {
 	ops := &fakeCheckinMaintainer{err: errors.New("timeout")}
 	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
 	defer manager.Close()
-	manager.SetWorkBuddy(ops)
+	registerCheckinMaintainer(manager, ops)
 	now := time.Date(2026, 8, 30, 21, 0, 0, 0, time.FixedZone("CST", 8*3600))
 	manager.TestCheckinOptedIn(ctx, now, "21:00", false)
 	manager.TestCheckinOptedIn(ctx, now, "21:00", true)
@@ -1702,7 +1718,7 @@ func TestCheckinOptedInRetriesSameDayError(t *testing.T) {
 	ops := &fakeCheckinMaintainer{msg: "ok"}
 	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
 	defer manager.Close()
-	manager.SetWorkBuddy(ops)
+	registerCheckinMaintainer(manager, ops)
 	manager.CheckinOptedIn(ctx)
 	if ops.calls != 1 {
 		t.Fatalf("same-day error must retry, calls=%d", ops.calls)
@@ -1725,7 +1741,7 @@ func TestCheckinAccountRecordsFirstAlreadyThenSkips(t *testing.T) {
 	ops := &fakeCheckinMaintainer{msg: "今天已签到，请明天再来", err: fakeAlreadyCheckedInError{msg: "今天已签到，请明天再来"}}
 	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
 	defer manager.Close()
-	manager.SetWorkBuddy(ops)
+	registerCheckinMaintainer(manager, ops)
 	updated, err := manager.CheckinAccount(ctx, account.ID)
 	if err != nil {
 		t.Fatal(err)

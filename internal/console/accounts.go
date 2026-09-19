@@ -39,6 +39,8 @@ func (h *Handler) HandleAccounts(w http.ResponseWriter, r *http.Request) {
 			DropSystemPrompt     *bool  `json:"drop_system_prompt"`
 			WorkBuddyAutoCheckin *bool  `json:"workbuddy_auto_checkin"`
 			WorkBuddyCheckinTime string `json:"workbuddy_checkin_time"`
+			AutoCheckin          *bool  `json:"auto_checkin"`
+			CheckinTime          string `json:"checkin_time"`
 			ProxyURL             string `json:"proxy_url"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
@@ -50,6 +52,7 @@ func (h *Handler) HandleAccounts(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		account, err := h.Control.Accounts.Create(r.Context(), accounts.CreateAccount{
+			AutoCheckin: input.AutoCheckin, CheckinTime: input.CheckinTime,
 			Name: input.Name, Provider: input.Provider, Region: input.Region,
 			Enabled: input.Enabled, MaxInFlight: input.MaxInFlight, Priority: input.Priority,
 			DropSystemPrompt: input.DropSystemPrompt, WorkBuddyAutoCheckin: input.WorkBuddyAutoCheckin,
@@ -115,6 +118,8 @@ func (h *Handler) HandleAccountByID(w http.ResponseWriter, r *http.Request) {
 				DropSystemPrompt     *bool   `json:"drop_system_prompt"`
 				WorkBuddyAutoCheckin *bool   `json:"workbuddy_auto_checkin"`
 				WorkBuddyCheckinTime *string `json:"workbuddy_checkin_time"`
+				AutoCheckin          *bool   `json:"auto_checkin"`
+				CheckinTime          *string `json:"checkin_time"`
 				ProxyURL             *string `json:"proxy_url"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
@@ -122,6 +127,7 @@ func (h *Handler) HandleAccountByID(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			account, err := h.Control.Accounts.Update(r.Context(), accountID, accounts.UpdateAccount{
+				AutoCheckin: input.AutoCheckin, CheckinTime: input.CheckinTime,
 				Name: input.Name, Enabled: input.Enabled, MaxInFlight: input.MaxInFlight, Priority: input.Priority,
 				DropSystemPrompt: input.DropSystemPrompt, WorkBuddyAutoCheckin: input.WorkBuddyAutoCheckin,
 				WorkBuddyCheckinTime: input.WorkBuddyCheckinTime, ProxyURL: input.ProxyURL,

@@ -5,12 +5,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"log"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/auth"
+	"github.com/caigee-cmd/cli2api/internal/providers"
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
@@ -110,6 +112,7 @@ func (e ChatExecutor) Prepare(in PrepareInput) (PreparedRequest, error) {
 			Stream:              request.Stream,
 			Status:              accounts.RequestStatusStarted,
 			RequestedModel:      firstNonEmpty(publicModel, request.Model),
+			RequestedReasoning:  RequestedReasoningLevel(request),
 			MessageCount:        len(request.Messages),
 			EmptyMessageIndexes: translate.EmptyMessageIndexes(request.Messages),
 			MessageRoles:        translate.MessageRoles(request.Messages),
@@ -118,6 +121,9 @@ func (e ChatExecutor) Prepare(in PrepareInput) (PreparedRequest, error) {
 	ctx := WithAllowedProviders(WithRequestID(in.Context, requestID), in.Identity.AllowedProviders)
 	if sessionKey := SessionKeyFor(in.SessionHeader, in.Identity, request); sessionKey != "" {
 		ctx = WithSessionKey(ctx, sessionKey)
+	}
+	if level := RequestedReasoningLevel(request); level != "" {
+		log.Printf("request reasoning request_id=%q model=%q level=%q", requestID, request.Model, level)
 	}
 	return PreparedRequest{
 		Context:        ctx,
@@ -219,4 +225,46 @@ func SessionKeyFor(header string, identity auth.Identity, req translate.ChatRequ
 	}
 	sum := sha256.Sum256([]byte(namespace + "\x00" + kind + "\x00" + raw))
 	return hex.EncodeToString(sum[:])
+}
+
+// RequestedReasoningLevel surfaces the reasoning level the client asked for,
+// normalized to the provider-neutral vocabulary. Empty when the request did
+// not specify one.
+func RequestedReasoningLevel(req translate.ChatRequest) string {
+	if len(req.ReasoningEffort) > 0 {
+		var value any
+		if json.Unmarshal(req.ReasoningEffort, &value) == nil {
+			switch typed := value.(type) {
+			case string:
+				return providers.NormalizeReasoningLevel(typed)
+			case map[string]any:
+				for _, key := range []string{"effort", "level", "type"} {
+					if text, ok := typed[key].(string); ok {
+						if level := providers.NormalizeReasoningLevel(text); level != "" {
+							return level
+						}
+					}
+				}
+			}
+		}
+	}
+	if req.EnableThinking != nil {
+		if *req.EnableThinking {
+			return "medium"
+		}
+		return "none"
+	}
+	if req.EnableReasoning != nil {
+		if *req.EnableReasoning {
+			return "medium"
+		}
+		return "none"
+	}
+	if req.IsReasoning != nil {
+		if *req.IsReasoning {
+			return "medium"
+		}
+		return "none"
+	}
+	return ""
 }

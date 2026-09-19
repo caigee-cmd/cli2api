@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { inspectQodercliSource, patchQodercliSource } from "../src/compat.mjs";
 
 const PINNED_SOURCE = [
+  "getUserInfo(){return this.cachedUserInfo}",
   "prepareInferRequest(A,e,t,i){",
   "async createWasmContext(){let A=await Ki();this.machineId||(this.machineId=await this.getMachineId()),HlA(this.machineId,A,JSON.stringify(this.getUserInfoForAuth()))}",
   "function kn(){return r9e||(r9e=new o9e),r9e}",
@@ -60,6 +61,7 @@ test("incompatible message mentions both CLI packages", () => {
 
 test("patch injects skip-main boot hook when QNu needle is present", () => {
   const source = [
+    "getUserInfo(){return this.cachedUserInfo}",
     "prepareInferRequest(A,e,t,i){",
     "async createWasmContext(){let A=await Ki();this.machineId||(this.machineId=await this.getMachineId()),HlA(this.machineId,A,JSON.stringify(this.getUserInfoForAuth()))}",
     "function kn(){return r9e||(r9e=new o9e),r9e}",
@@ -69,4 +71,10 @@ test("patch injects skip-main boot hook when QNu needle is present", () => {
   const patched = patchQodercliSource(source);
   assert.match(patched, /__QODER_WORKER_SKIP_MAIN__/);
   assert.match(patched, /__qoderWorkerBoot/);
+});
+
+test("check-in auth accessor changes fail loudly even on patched source", () => {
+  const source = patchQodercliSource(PINNED_SOURCE).replace("getUserInfo(){return this.cachedUserInfo}", "getUserInfo(){return null}");
+  assert.equal(inspectQodercliSource(source).ok, false);
+  assert.throws(() => patchQodercliSource(source), /auth needles/);
 });

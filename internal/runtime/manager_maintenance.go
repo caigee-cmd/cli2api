@@ -4,256 +4,255 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"log"
 	"strings"
 	"time"
+	_ "time/tzdata"
+
+	"github.com/caigee-cmd/cli2api/internal/accounts"
+	"github.com/caigee-cmd/cli2api/internal/providers"
 )
 
-// WorkBuddy check-in/keepalive scheduler. Other providers must not gain this
-// behavior by being listed here. Writes check-in records via Store; never chat cooldown.
-
-// alreadyCheckedIn is implemented by workbuddy.AlreadyCheckedInError without
-// importing that package (accounts <-> workbuddy would cycle).
-type alreadyCheckedIn interface {
-	AlreadyCheckedIn() bool
-}
-
-// CheckinAccount runs one WorkBuddy daily-checkin, records display fields, and
-// refreshes credits. Failures never write chat cooldown.
-func (m *Manager) CheckinAccount(ctx context.Context, accountID string) (Account, error) {
-	if m == nil || m.workbuddy == nil {
-		return Account{}, fmt.Errorf("workbuddy maintainer not configured")
+func (manager *Manager) CheckinAccount(ctx context.Context, accountID string) (Account, error) {
+	if manager == nil {
+		return Account{}, fmt.Errorf("account manager unavailable")
 	}
-	account, err := m.store.Get(ctx, accountID)
+	manager.mu.Lock()
+	if manager.checkinRunning == nil {
+		manager.checkinRunning = make(map[string]bool)
+	}
+	if manager.checkinRunning[accountID] {
+		manager.mu.Unlock()
+		return Account{}, fmt.Errorf("check-in is already running for this account")
+	}
+	manager.checkinRunning[accountID] = true
+	manager.mu.Unlock()
+	defer func() {
+		manager.mu.Lock()
+		delete(manager.checkinRunning, accountID)
+		manager.mu.Unlock()
+	}()
+	account, err := manager.store.Get(ctx, accountID)
 	if err != nil {
 		return Account{}, err
 	}
-	if account.Provider != "workbuddy" {
-		return account, fmt.Errorf("check-in is only available for WorkBuddy accounts")
+	if !account.Enabled {
+		return account, fmt.Errorf("account is disabled")
 	}
-	if CheckedInLocalDay(account.LastCheckinAt, account.LastCheckinStatus, time.Now()) {
-		if adapter, ok := m.providers.Get("workbuddy"); ok && adapter.Prober != nil {
-			m.fetchProviderQuota(ctx, accountID, adapter.Prober)
-		}
-		return m.store.Get(ctx, accountID)
+	policy, supported := providers.CheckinFor(account.Provider, account.ProviderRegion)
+	adapter, registered := manager.providers.Get(account.Provider)
+	if !supported || !registered || adapter.Checkin == nil {
+		return account, providers.ErrUnsupported
 	}
-	msg, checkErr := m.workbuddy.DailyCheckin(ctx, accountID)
-	if msg == "" && checkErr != nil {
-		msg = checkErr.Error()
-	}
-	if msg == "" {
-		msg = "ok"
-	}
-	status := "success"
-	var already alreadyCheckedIn
-	if checkErr != nil {
-		status = "error"
-		if errors.As(checkErr, &already) && already.AlreadyCheckedIn() {
-			status = "already"
-		}
-	}
-	_ = m.store.RecordCheckin(ctx, accountID, status, msg, time.Now().UTC())
-	if adapter, ok := m.providers.Get("workbuddy"); ok && adapter.Prober != nil {
-		m.fetchProviderQuota(ctx, accountID, adapter.Prober)
-	}
-	account, getErr := m.store.Get(ctx, accountID)
-	if getErr != nil {
-		return account, getErr
-	}
-	if checkErr == nil || status == "already" {
-		return account, nil
-	}
-	return account, checkErr
-}
-
-// CheckinOptedIn runs check-in for every enabled WorkBuddy account with
-// workbuddy_auto_checkin on. Cooldown accounts are included; disabled skip.
-func (m *Manager) CheckinOptedIn(ctx context.Context) {
-	m.checkinOptedIn(ctx, time.Now(), "", false)
-}
-
-func (m *Manager) checkinOptedIn(ctx context.Context, now time.Time, scheduledTime string, retryDue bool) {
-	if m == nil || m.workbuddy == nil {
-		return
-	}
-	accounts, err := m.store.List(ctx)
+	location, err := time.LoadLocation(policy.Timezone)
 	if err != nil {
-		log.Printf("workbuddy checkin list: %v", err)
+		return account, fmt.Errorf("invalid check-in timezone: %w", err)
+	}
+	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	defer cancel()
+	stop := context.AfterFunc(manager.runCtx, cancel)
+	defer stop()
+	if CheckedInLocalDay(account.LastCheckinAt, account.LastCheckinStatus, time.Now().In(location)) {
+		manager.refreshCheckinQuota(ctx, accountID, adapter)
+		return manager.store.Get(ctx, accountID)
+	}
+	result, checkErr := adapter.Checkin.Checkin(ctx, accountID)
+	if checkErr == nil && !result.Valid() {
+		checkErr = fmt.Errorf("provider returned an invalid check-in result")
+	}
+	if checkErr != nil {
+		result = providers.CheckinResult{Status: "error", Message: checkErr.Error()}
+	}
+	recordCtx, stopRecording := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	recordErr := manager.store.RecordCheckin(recordCtx, accountID, result.Status, result.Message, time.Now().UTC())
+	stopRecording()
+	if recordErr != nil {
+		return account, errors.Join(checkErr, fmt.Errorf("save check-in result: %w", recordErr))
+	}
+	if result.Status != "skipped" {
+		manager.refreshCheckinQuota(ctx, accountID, adapter)
+	}
+	readCtx, stopReading := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer stopReading()
+	updated, err := manager.store.Get(readCtx, accountID)
+	return updated, errors.Join(checkErr, err)
+}
+
+func (manager *Manager) refreshCheckinQuota(ctx context.Context, accountID string, adapter providers.Adapter) {
+	if ctx.Err() != nil {
 		return
 	}
-	for _, account := range accounts {
-		if account.Provider != "workbuddy" || !account.Enabled || !account.WorkBuddyAutoCheckin {
+	if adapter.Prober != nil {
+		manager.fetchProviderQuota(ctx, accountID, adapter.Prober)
+	} else if workerURL, found := manager.AccountURL(accountID); found {
+		manager.fetchQuota(ctx, accountID, workerURL, true)
+	}
+}
+
+func CheckedInLocalDay(at, status string, now time.Time) bool {
+	if status != "success" && status != "already" {
+		return false
+	}
+	return recordedToday(at, now)
+}
+
+func recordedToday(at string, now time.Time) bool {
+	parsed, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(at))
+	if err != nil {
+		return false
+	}
+	local := parsed.In(now.Location())
+	return local.Year() == now.Year() && local.YearDay() == now.YearDay()
+}
+
+func checkinSlot(value, accountID string, now time.Time) (time.Time, error) {
+	parsed, err := time.Parse("15:04", value)
+	if err != nil {
+		return time.Time{}, err
+	}
+	hash := fnv.New32a()
+	_, _ = hash.Write([]byte(accountID))
+	return time.Date(now.Year(), now.Month(), now.Day(), parsed.Hour(), parsed.Minute(), int(hash.Sum32()%60), 0, now.Location()), nil
+}
+
+func checkinDue(account Account, configuredTime string, now time.Time) bool {
+	if !account.Enabled || !account.AutoCheckin {
+		return false
+	}
+	if recordedToday(account.LastCheckinAt, now) && account.LastCheckinStatus != "error" {
+		return false
+	}
+	due, err := checkinSlot(configuredTime, account.ID, now)
+	if err != nil || now.Before(due) {
+		return false
+	}
+	last, err := time.Parse(time.RFC3339Nano, account.LastCheckinAt)
+	if err != nil || last.Before(due) {
+		return true
+	}
+	retry, _ := checkinSlot("21:00", account.ID, now)
+	return due.Before(retry) && !now.Before(retry) && last.Before(retry)
+}
+
+func (manager *Manager) runScheduledCheckins(ctx context.Context, now time.Time) {
+	items, err := manager.store.List(ctx)
+	if err != nil {
+		log.Printf("checkin schedule list: %v", err)
+		return
+	}
+	for _, account := range items {
+		if ctx.Err() != nil {
+			return
+		}
+		policy, supported := providers.CheckinFor(account.Provider, account.ProviderRegion)
+		adapter, registered := manager.providers.Get(account.Provider)
+		if !supported || !registered || adapter.Checkin == nil || !account.Enabled || !account.AutoCheckin {
+			continue
+		}
+		location, err := time.LoadLocation(policy.Timezone)
+		if err != nil {
+			log.Printf("checkin timezone provider=%s: %v", account.Provider, err)
+			continue
+		}
+		configuredTime, err := accounts.ResolveCheckinTime(ctx, manager.store, account)
+		if err != nil {
+			log.Printf("checkin settings account=%s: %v", account.ID, err)
+			continue
+		}
+		if checkinDue(account, configuredTime, now.In(location)) {
+			if _, err := manager.CheckinAccount(ctx, account.ID); err != nil {
+				log.Printf("checkin account=%s: %v", account.ID, err)
+			}
+		}
+	}
+}
+
+func (manager *Manager) CheckinOptedIn(ctx context.Context) {
+	manager.checkinOptedIn(ctx, time.Now(), "", false)
+}
+
+func (manager *Manager) checkinOptedIn(ctx context.Context, now time.Time, scheduledTime string, retryDue bool) {
+	items, err := manager.store.List(ctx)
+	if err != nil {
+		log.Printf("checkin list: %v", err)
+		return
+	}
+	for _, account := range items {
+		if !account.Enabled || !account.AutoCheckin {
+			continue
+		}
+		configuredTime, err := accounts.ResolveCheckinTime(ctx, manager.store, account)
+		if err != nil {
 			continue
 		}
 		if scheduledTime != "" {
 			if retryDue {
-				if account.WorkBuddyCheckinTime == scheduledTime || !workBuddyCheckinDue(account.WorkBuddyCheckinTime, now) {
+				if configuredTime == scheduledTime || configuredTime > now.Format("15:04") {
 					continue
 				}
-			} else if account.WorkBuddyCheckinTime != scheduledTime {
+			} else if configuredTime != scheduledTime {
 				continue
 			}
 		}
-		if CheckedInLocalDay(account.LastCheckinAt, account.LastCheckinStatus, now) {
-			continue
-		}
-		if _, err := m.CheckinAccount(ctx, account.ID); err != nil {
-			log.Printf("workbuddy checkin account_id=%s op=checkin err=%v", account.ID, err)
+		if _, err := manager.CheckinAccount(ctx, account.ID); err != nil {
+			log.Printf("checkin account=%s: %v", account.ID, err)
 		}
 	}
 }
 
-func workBuddyCheckinDue(value string, now time.Time) bool {
-	parsed, err := time.Parse("15:04", value)
-	if err != nil {
-		parsed, _ = time.Parse("15:04", DefaultWorkBuddyCheckinTime)
-	}
-	due := time.Date(now.Year(), now.Month(), now.Day(), parsed.Hour(), parsed.Minute(), 0, 0, now.Location())
-	return !due.After(now)
-}
-
-// checkedInLocalDay is true when the last recorded check-in is success or
-// already on the process-local calendar day. Error rows do not skip, so the
-// evening slot can retry a morning miss.
-func CheckedInLocalDay(at, status string, now time.Time) bool {
-	switch strings.TrimSpace(status) {
-	case "success", "already":
-	default:
-		return false
-	}
-	raw := strings.TrimSpace(at)
-	if raw == "" {
-		return false
-	}
-	parsed, err := time.Parse(time.RFC3339Nano, raw)
-	if err != nil {
-		parsed, err = time.Parse(time.RFC3339, raw)
-		if err != nil {
-			return false
-		}
-	}
-	loc := now.Location()
-	localAt := parsed.In(loc)
-	localNow := now.In(loc)
-	return localAt.Year() == localNow.Year() && localAt.YearDay() == localNow.YearDay()
-}
-
-// KeepaliveWorkBuddy refreshes tokens for enabled WorkBuddy accounts.
-// When onlyOptIn is true, only auto-checkin accounts are touched (scheduled
-// path). Manual/batch keepalive can pass false.
-func (m *Manager) KeepaliveWorkBuddy(ctx context.Context, onlyOptIn bool) {
-	if m == nil || m.workbuddy == nil {
+func (manager *Manager) KeepaliveWorkBuddy(ctx context.Context, onlyOptIn bool) {
+	if manager == nil || manager.workbuddy == nil {
 		return
 	}
-	accounts, err := m.store.List(ctx)
+	items, err := manager.store.List(ctx)
 	if err != nil {
 		log.Printf("workbuddy keepalive list: %v", err)
 		return
 	}
-	for _, account := range accounts {
-		if account.Provider != "workbuddy" || !account.Enabled {
+	for _, account := range items {
+		if ctx.Err() != nil {
+			return
+		}
+		if account.Provider != "workbuddy" || !account.Enabled || (onlyOptIn && !account.AutoCheckin) {
 			continue
 		}
-		if onlyOptIn && !account.WorkBuddyAutoCheckin {
-			continue
-		}
-		if err := m.workbuddy.Keepalive(ctx, account.ID); err != nil {
-			log.Printf("workbuddy keepalive account_id=%s op=keepalive err=%v", account.ID, err)
+		if err := manager.workbuddy.Keepalive(ctx, account.ID); err != nil {
+			log.Printf("workbuddy keepalive account=%s: %v", account.ID, err)
 		}
 	}
 }
 
-// RunWorkBuddyMaintenanceLoop fires each opted-in account at its configured
-// local time, retries due failures near 21:00, and keeps tokens alive near
-// 22:00. Stop by closing stop.
-func (m *Manager) RunWorkBuddyMaintenanceLoop(stop <-chan struct{}) {
-	if m == nil {
-		return
-	}
-	for {
-		accounts, err := m.store.List(context.Background())
-		if err != nil {
-			log.Printf("workbuddy schedule list: %v", err)
-		}
-		delay, fire := nextWorkBuddyFire(time.Now(), accounts)
-		if delay > time.Minute {
-			delay = time.Minute
-			fire = workBuddyFire{}
-		}
-		timer := time.NewTimer(delay)
+func (manager *Manager) RunMaintenanceLoop(stop <-chan struct{}) {
+	ctx, cancel := context.WithCancel(manager.runCtx)
+	defer cancel()
+	go func() {
 		select {
 		case <-stop:
-			timer.Stop()
-			return
-		case <-m.runCtx.Done():
-			timer.Stop()
-			return
-		case <-timer.C:
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-			now := time.Now()
-			for _, scheduledTime := range fire.checkinTimes {
-				m.checkinOptedIn(ctx, now, scheduledTime, false)
-			}
-			if fire.retry {
-				m.checkinOptedIn(ctx, now, "21:00", true)
-			}
-			if fire.keepalive {
-				m.KeepaliveWorkBuddy(ctx, true)
-			}
 			cancel()
+		case <-ctx.Done():
+		}
+	}()
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	lastKeepaliveDay := ""
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		now := time.Now()
+		manager.runScheduledCheckins(ctx, now)
+		day := now.Format("2006-01-02")
+		if now.Hour() >= 22 && lastKeepaliveDay != day {
+			keepaliveCtx, stopKeepalive := context.WithTimeout(ctx, 2*time.Minute)
+			manager.KeepaliveWorkBuddy(keepaliveCtx, true)
+			stopKeepalive()
+			lastKeepaliveDay = day
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
 		}
 	}
-}
-
-type workBuddyFire struct {
-	checkinTimes []string
-	retry        bool
-	keepalive    bool
-}
-
-func nextWorkBuddyFire(now time.Time, accounts []Account) (time.Duration, workBuddyFire) {
-	type slot struct {
-		time string
-		kind string
-	}
-	slots := []slot{{"21:00", "retry"}, {"22:00", "keepalive"}}
-	seen := map[string]bool{}
-	for _, account := range accounts {
-		if account.Provider != "workbuddy" || !account.Enabled || !account.WorkBuddyAutoCheckin {
-			continue
-		}
-		checkinTime, err := NormalizeWorkBuddyCheckinTime(account.WorkBuddyCheckinTime)
-		if err != nil || seen[checkinTime] {
-			continue
-		}
-		seen[checkinTime] = true
-		slots = append(slots, slot{checkinTime, "checkin"})
-	}
-	loc := now.Location()
-	var best time.Time
-	var fire workBuddyFire
-	for _, slot := range slots {
-		parsed, _ := time.Parse("15:04", slot.time)
-		candidate := time.Date(now.Year(), now.Month(), now.Day(), parsed.Hour(), parsed.Minute(), 0, 0, loc)
-		candidate = candidate.Add(time.Duration(candidate.Unix()%15) * time.Minute)
-		if !candidate.After(now) {
-			candidate = candidate.Add(24 * time.Hour)
-		}
-		if best.IsZero() || candidate.Before(best) {
-			best = candidate
-			fire = workBuddyFire{}
-		}
-		if !candidate.Equal(best) {
-			continue
-		}
-		switch slot.kind {
-		case "checkin":
-			fire.checkinTimes = append(fire.checkinTimes, slot.time)
-		case "retry":
-			fire.retry = true
-		case "keepalive":
-			fire.keepalive = true
-		}
-	}
-	return best.Sub(now), fire
 }

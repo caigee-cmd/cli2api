@@ -274,7 +274,7 @@ func TestChatStreamQuotaErrorAfterContentIsReadable(t *testing.T) {
 	client.http = server.Client()
 	client.http.Transport = rewriteTransport{server: server.URL, round: server.Client().Transport}
 
-	resp, err := client.ChatStream(context.Background(), "acc1", translate.ChatRequest{Model: "deepseek-v4-flash"})
+	resp, _, err := client.ChatStream(context.Background(), "acc1", translate.ChatRequest{Model: "deepseek-v4-flash"})
 	if err != nil {
 		t.Fatalf("upstream 200 must not fail up front: %v", err)
 	}
@@ -316,7 +316,7 @@ func TestChatStreamQuotaErrorBeforeContentStillFailsUpFront(t *testing.T) {
 	client.http = server.Client()
 	client.http.Transport = rewriteTransport{server: server.URL, round: server.Client().Transport}
 
-	resp, err := client.ChatStream(context.Background(), "acc1", translate.ChatRequest{Model: "deepseek-v4-flash"})
+	resp, _, err := client.ChatStream(context.Background(), "acc1", translate.ChatRequest{Model: "deepseek-v4-flash"})
 	if resp != nil {
 		resp.Body.Close()
 	}
@@ -343,7 +343,7 @@ func TestChatStreamRewritesOpenAIChunks(t *testing.T) {
 	client := NewClient(store)
 	client.http = server.Client()
 	client.http.Transport = rewriteTransport{server: server.URL, round: server.Client().Transport}
-	resp, err := client.ChatStream(context.Background(), "acc1", translate.ChatRequest{Model: "glm-5.2"})
+	resp, _, err := client.ChatStream(context.Background(), "acc1", translate.ChatRequest{Model: "glm-5.2"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -375,7 +375,7 @@ func TestChatStreamFirstErrorFailsBeforeOpenAIChunks(t *testing.T) {
 	client := NewClient(store)
 	client.http = server.Client()
 	client.http.Transport = rewriteTransport{server: server.URL, round: server.Client().Transport}
-	resp, err := client.ChatStream(context.Background(), "acc1", translate.ChatRequest{Model: "Doubao-Seed-Evolving"})
+	resp, _, err := client.ChatStream(context.Background(), "acc1", translate.ChatRequest{Model: "Doubao-Seed-Evolving"})
 	if resp != nil {
 		resp.Body.Close()
 	}

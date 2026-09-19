@@ -126,7 +126,7 @@ export function OverviewPageSkeleton() {
 
 export function AccountCardSkeleton() {
   return (
-    <article className="min-h-[280px] overflow-hidden rounded-3xl border border-border bg-surface">
+    <article className="overflow-hidden rounded-3xl border border-border bg-surface">
       <div className="space-y-2 px-3 pt-2.5 pb-1.5">
         <div className="flex items-start justify-between gap-2.5">
           <div className="flex min-w-0 items-center gap-2.5">
@@ -143,26 +143,24 @@ export function AccountCardSkeleton() {
         </div>
       </div>
       <div className="space-y-2 px-3 pb-2">
-        <div className="rounded-2xl border border-border bg-surface-secondary/45 p-2">
-          <SkeletonBlock className="h-3 w-20" />
-          <SkeletonBlock className="mt-2 h-2 w-full" />
-          <div className="mt-2 grid grid-cols-3 gap-2 border-t border-separator pt-2">
-            <SkeletonBlock className="h-7 w-full" />
-            <SkeletonBlock className="h-7 w-full" />
-            <SkeletonBlock className="h-7 w-full" />
-          </div>
+        <div className="flex items-center gap-2 py-1">
+          <SkeletonBlock className="h-3 w-16" />
+          <SkeletonBlock className="h-2 flex-1" />
+          <SkeletonBlock className="h-3 w-14" />
         </div>
-        <div className="min-h-[52px] rounded-2xl border border-border bg-surface-secondary/25 p-2">
-          <SkeletonBlock className="h-3 w-20" />
-          <SkeletonBlock className="mt-2 h-1.5 w-full rounded-[1px]" />
-          <SkeletonBlock className="mt-2 h-3 w-36" />
+        <div className="space-y-1.5 py-1">
+          <div className="flex items-center justify-between">
+            <SkeletonBlock className="h-3 w-14" />
+            <SkeletonBlock className="h-3 w-24" />
+          </div>
+          <SkeletonBlock className="h-1.5 w-full rounded-[1px]" />
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-1.5 border-t border-separator px-3 py-2">
-        <SkeletonBlock className="size-8" />
-        <SkeletonBlock className="size-8" />
-        <SkeletonBlock className="size-8" />
-        <SkeletonBlock className="size-8" />
+        <SkeletonBlock className="h-3 w-20" />
+        <SkeletonBlock className="size-7" />
+        <SkeletonBlock className="size-7" />
+        <SkeletonBlock className="size-7" />
         <SkeletonBlock className="ml-auto h-[18px] w-[74px]" />
       </div>
     </article>
@@ -310,14 +308,15 @@ export function AccessPageSkeleton() {
 export function LogsRequestListSkeleton() {
   return (
     <div aria-label="Loading logs">
-      <div className="hidden grid-cols-9 gap-4 border-b border-separator px-5 py-3 md:grid">
-        {Array.from({ length: 9 }, (_, index) => <SkeletonBlock key={index} className="h-3 w-16" />)}
+      <div className="hidden grid-cols-10 gap-4 border-b border-separator px-5 py-3 md:grid">
+        {Array.from({ length: 10 }, (_, index) => <SkeletonBlock key={index} className="h-3 w-16" />)}
       </div>
       {Array.from({ length: 8 }, (_, index) => (
-        <div key={index} className="grid grid-cols-2 items-center gap-4 border-b border-separator px-5 py-3.5 last:border-0 md:grid-cols-9">
+        <div key={index} className="grid grid-cols-2 items-center gap-4 border-b border-separator px-5 py-3.5 last:border-0 md:grid-cols-10">
           <SkeletonBlock className="h-4 w-28" />
           <SkeletonBlock className="h-4 w-24" />
           <SkeletonBlock className="hidden h-4 w-20 md:block" />
+          <SkeletonBlock className="hidden h-4 w-16 md:block" />
           <SkeletonBlock className="hidden h-4 w-16 md:block" />
           <SkeletonBlock className="hidden h-4 w-16 md:block" />
           <SkeletonBlock className="hidden h-4 w-14 md:block" />

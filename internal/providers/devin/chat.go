@@ -61,34 +61,39 @@ func (c *Client) ChatNonStream(ctx context.Context, accountID string, req transl
 	}
 }
 
-func (c *Client) ChatStream(ctx context.Context, accountID string, req translate.ChatRequest) (*http.Response, error) {
+func (c *Client) ChatStream(ctx context.Context, accountID string, req translate.ChatRequest) (*http.Response, providers.ResolvedChat, error) {
 	credential, err := c.credential(ctx, accountID)
 	if err != nil {
-		return nil, err
+		return nil, providers.ResolvedChat{}, err
 	}
 	client, err := c.httpClient(ctx, accountID)
 	if err != nil {
-		return nil, err
+		return nil, providers.ResolvedChat{}, err
 	}
 	client.Timeout = 0
 
 	built, err := c.buildChatHTTPRequest(ctx, credential, req)
 	if err != nil {
-		return nil, err
+		return nil, providers.ResolvedChat{}, err
 	}
 	var lastErr error
 	for {
 		resp, denial, err := c.chatStreamOnce(client, built)
 		if err == nil {
-			return rewriteConnectStream(resp, firstNonEmpty(req.Model, "devin"), built.originalByAlias, built.toolsDiag)
+			streamResp, err := rewriteConnectStream(resp, firstNonEmpty(req.Model, "devin"), built.originalByAlias, built.toolsDiag)
+			if err != nil {
+				return nil, providers.ResolvedChat{}, err
+			}
+			// Devin does not accept a reasoning level; nothing to surface.
+			return streamResp, providers.ResolvedChat{}, nil
 		}
 		lastErr = err
 		if !denial {
-			return nil, err
+			return nil, providers.ResolvedChat{}, err
 		}
 		fallback, ok := c.buildNextMCPFallback(ctx, credential, built)
 		if !ok {
-			return nil, lastErr
+			return nil, providers.ResolvedChat{}, lastErr
 		}
 		built = fallback
 	}

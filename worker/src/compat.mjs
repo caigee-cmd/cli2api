@@ -10,6 +10,7 @@ export const NEEDLES = {
   modelCatalog: "function kn(){return r9e||(r9e=new o9e),r9e}",
   quotaApi:
     "function zf(){return B_t||(B_t=new nw(_e())),B_t}function tAe(){c4e.clear(),nFA.clear()}",
+  checkinAuth: "getUserInfo(){return this.cachedUserInfo}",
   skipMain:
     "async function QNu(){let{main:A}=await Promise.resolve().then(()=>(Uds(),Fds));await A()}",
 };
@@ -24,8 +25,9 @@ export function inspectQodercliSource(source, { version } = {}) {
   const createWasmFound = alreadyPatched || text.includes(NEEDLES.createWasm);
   const modelCatalogFound = alreadyPatched || text.includes(NEEDLES.modelCatalog);
   const quotaApiFound = alreadyPatched || text.includes(NEEDLES.quotaApi);
+  const checkinAuthFound = text.includes(NEEDLES.checkinAuth);
   const skipMainFound = alreadyPatched || text.includes(NEEDLES.skipMain);
-  const ok = alreadyPatched || (prepareInferFound && createWasmFound && modelCatalogFound && quotaApiFound);
+  const ok = checkinAuthFound && (alreadyPatched || (prepareInferFound && createWasmFound && modelCatalogFound && quotaApiFound));
   const found = version ? `, found ${version}` : "";
   return {
     ok,
@@ -34,6 +36,7 @@ export function inspectQodercliSource(source, { version } = {}) {
     createWasmFound,
     modelCatalogFound,
     quotaApiFound,
+    checkinAuthFound,
     skipMainFound,
     prepareInferPatched: alreadyPatched,
     createWasmPatched: alreadyPatched,
@@ -44,7 +47,7 @@ export function inspectQodercliSource(source, { version } = {}) {
     pinnedVersion: PINNED_QODERCLI_VERSION,
     message: ok
       ? `qodercli hooks compatible${version ? ` (${version})` : ""}`
-      : `incompatible qodercli source: missing WASM/catalog/quota capture needles (pinned ${PINNED_QODERCLI_VERSION}${found}). Pin @qoder-ai/qodercli@${PINNED_QODERCLI_VERSION} or @qodercn-ai/qoderclicn@${PINNED_QODERCLI_VERSION}, or update worker/src/compat.mjs.`,
+      : `incompatible qodercli source: missing WASM/catalog/quota/auth needles (pinned ${PINNED_QODERCLI_VERSION}${found}). Pin @qoder-ai/qodercli@${PINNED_QODERCLI_VERSION} or @qodercn-ai/qoderclicn@${PINNED_QODERCLI_VERSION}, or update worker/src/compat.mjs.`,
   };
 }
 
@@ -53,7 +56,7 @@ export function patchQodercliSource(source, { version } = {}) {
   if (
     text.includes("__QODER_WORKER_INJECTED__") &&
     text.includes("__QODER_WORKER_MODEL_CATALOG__") &&
-    text.includes("__QODER_WORKER_QUOTA_API__")
+    text.includes("__QODER_WORKER_QUOTA_API__") && text.includes(NEEDLES.checkinAuth)
   ) {
     return text;
   }

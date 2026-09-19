@@ -23,7 +23,7 @@ func writeOperationError(w http.ResponseWriter, err error) {
 	if op != nil || errors.As(err, &op) {
 		code = op.Code
 		switch code {
-		case "invalid_request", "invalid_routing_strategy", "invalid_workbuddy_checkin_time", "invalid_proxy_url", "invalid_credential", "unsupported_format", "invalid_user_blob", "account_import_failed", "provider_unsupported", "login_start_failed", "login_poll_failed", "login_callback_failed", "model_setting_failed":
+		case "invalid_request", "invalid_routing_strategy", "invalid_workbuddy_checkin_time", "invalid_checkin_time", "invalid_proxy_url", "invalid_credential", "unsupported_format", "invalid_user_blob", "account_import_failed", "provider_unsupported", "login_start_failed", "login_poll_failed", "login_callback_failed", "model_setting_failed":
 			status = http.StatusBadRequest
 		case "method_not_allowed":
 			status = http.StatusMethodNotAllowed

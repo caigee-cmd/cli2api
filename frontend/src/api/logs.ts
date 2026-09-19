@@ -49,6 +49,8 @@ export type RequestLog = {
   status: string
   requested_model: string
   mapped_model?: string
+  requested_reasoning?: string
+  resolved_reasoning?: string
   account_id?: string
   provider?: string
   routing?: string

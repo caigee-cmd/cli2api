@@ -92,7 +92,10 @@ func TestPrepareAppliesQoderContextAndStartsLog(t *testing.T) {
 	catalogs := &stubCatalogs{}
 	logs := &stubLogs{}
 	got, err := ex.Prepare(PrepareInput{
-		Request:       translate.ChatRequest{Model: "qoder/glm-5.2", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}}},
+		Request: translate.ChatRequest{
+			Model: "qoder/glm-5.2", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+			ReasoningEffort: json.RawMessage(`"high"`),
+		},
 		ModelContexts: contexts,
 		Catalogs:      catalogs,
 		Logs:          logs,
@@ -113,6 +116,9 @@ func TestPrepareAppliesQoderContextAndStartsLog(t *testing.T) {
 	}
 	if len(logs.entries) != 1 || logs.entries[0].ID != "req_log" || logs.entries[0].Status != accounts.RequestStatusStarted {
 		t.Fatalf("logs=%+v", logs.entries)
+	}
+	if logs.entries[0].RequestedReasoning != "high" {
+		t.Fatalf("requested reasoning=%q", logs.entries[0].RequestedReasoning)
 	}
 }
 

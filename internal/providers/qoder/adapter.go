@@ -85,10 +85,11 @@ func (c *Client) Adapter() providers.Adapter {
 	// items must not enter refreshInProcess just because an Adapter exists.
 	// Callers that need those methods use the Client directly.
 	return providers.Adapter{
-		ID:     "qoder",
-		Login:  c,
-		Chat:   c,
-		Models: c,
+		ID:      "qoder",
+		Login:   c,
+		Chat:    c,
+		Models:  c,
+		Checkin: c,
 	}
 }
 
@@ -297,7 +298,7 @@ func (c *Client) PollLogin(ctx context.Context, accountID string) (bool, string,
 }
 
 func (c *Client) ChatNonStream(ctx context.Context, accountID string, req translate.ChatRequest) (providers.ChatOutcome, error) {
-	httpReq, err := c.newChatRequest(ctx, accountID, req, false)
+	httpReq, resolved, err := c.newChatRequest(ctx, accountID, req, false)
 	if err != nil {
 		return providers.ChatOutcome{}, err
 	}
@@ -316,13 +317,18 @@ func (c *Client) ChatNonStream(ctx context.Context, accountID string, req transl
 	if resp.StatusCode >= 300 {
 		return providers.ChatOutcome{}, HTTPStatusError{Op: "chat", Status: resp.StatusCode, Body: strings.TrimSpace(string(body))}
 	}
-	return decodeChatOutcome(req.Model, body)
+	outcome, err := decodeChatOutcome(req.Model, body)
+	if err != nil {
+		return providers.ChatOutcome{}, err
+	}
+	outcome.ReasoningLevel = resolved.ReasoningLevel
+	return outcome, nil
 }
 
-func (c *Client) ChatStream(ctx context.Context, accountID string, req translate.ChatRequest) (*http.Response, error) {
-	httpReq, err := c.newChatRequest(ctx, accountID, req, true)
+func (c *Client) ChatStream(ctx context.Context, accountID string, req translate.ChatRequest) (*http.Response, providers.ResolvedChat, error) {
+	httpReq, resolved, err := c.newChatRequest(ctx, accountID, req, true)
 	if err != nil {
-		return nil, err
+		return nil, providers.ResolvedChat{}, err
 	}
 	c.mu.RLock()
 	httpClient := c.chatHTTP
@@ -337,21 +343,67 @@ func (c *Client) ChatStream(ctx context.Context, accountID string, req translate
 	}
 	resp, err := httpClient.Do(httpReq)
 	if err != nil {
-		return nil, TransportError{Err: err}
+		return nil, providers.ResolvedChat{}, TransportError{Err: err}
 	}
-	return resp, nil
+	return resp, resolved, nil
 }
 
-func (c *Client) newChatRequest(ctx context.Context, accountID string, req translate.ChatRequest, stream bool) (*http.Request, error) {
+func (c *Client) newChatRequest(ctx context.Context, accountID string, req translate.ChatRequest, stream bool) (*http.Request, providers.ResolvedChat, error) {
 	workerURL, err := c.lookup(accountID)
 	if err != nil {
-		return nil, err
+		return nil, providers.ResolvedChat{}, err
 	}
 	payload, err := json.Marshal(BuildChatPayload(req, stream))
 	if err != nil {
-		return nil, err
+		return nil, providers.ResolvedChat{}, err
 	}
-	return NewChatRequest(ctx, workerURL, accountID, "", c.key(), payload)
+	httpReq, err := NewChatRequest(ctx, workerURL, accountID, "", c.key(), payload)
+	if err != nil {
+		return nil, providers.ResolvedChat{}, err
+	}
+	return httpReq, providers.ResolvedChat{ReasoningLevel: resolvedReasoningLevel(req)}, nil
+}
+
+// resolvedReasoningLevel surfaces the reasoning level that qoder forwards to
+// the worker. Qoder does not clamp; the worker applies its own model policy,
+// so this is the normalized client value (or stored default) only.
+func resolvedReasoningLevel(req translate.ChatRequest) string {
+	if len(req.ReasoningEffort) > 0 {
+		var value any
+		if json.Unmarshal(req.ReasoningEffort, &value) == nil {
+			switch typed := value.(type) {
+			case string:
+				return providers.NormalizeReasoningLevel(typed)
+			case map[string]any:
+				for _, key := range []string{"effort", "level", "type"} {
+					if text, ok := typed[key].(string); ok {
+						if level := providers.NormalizeReasoningLevel(text); level != "" {
+							return level
+						}
+					}
+				}
+			}
+		}
+	}
+	if req.EnableThinking != nil {
+		if *req.EnableThinking {
+			return "medium"
+		}
+		return "none"
+	}
+	if req.EnableReasoning != nil {
+		if *req.EnableReasoning {
+			return "medium"
+		}
+		return "none"
+	}
+	if req.IsReasoning != nil {
+		if *req.IsReasoning {
+			return "medium"
+		}
+		return "none"
+	}
+	return ""
 }
 
 func BuildChatPayload(req translate.ChatRequest, stream bool) map[string]any {

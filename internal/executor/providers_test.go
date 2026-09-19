@@ -27,9 +27,9 @@ func (f *fakeInProcessChat) ChatNonStream(ctx context.Context, accountID string,
 	return providers.ChatOutcome{Model: req.Model, Content: "OK", FinishReason: "stop"}, nil
 }
 
-func (f *fakeInProcessChat) ChatStream(ctx context.Context, accountID string, req translate.ChatRequest) (*http.Response, error) {
+func (f *fakeInProcessChat) ChatStream(ctx context.Context, accountID string, req translate.ChatRequest) (*http.Response, providers.ResolvedChat, error) {
 	f.calls++
-	return nil, errors.New("stream unsupported in fake")
+	return nil, providers.ResolvedChat{}, errors.New("stream unsupported in fake")
 }
 
 func TestSanitizeForItemUsesNativeCatalogSpelling(t *testing.T) {
@@ -205,8 +205,8 @@ func (f *rateLimitedThenOKChat) ChatNonStream(ctx context.Context, accountID str
 	return providers.ChatOutcome{Model: req.Model, Content: "OK-" + accountID, FinishReason: "stop"}, nil
 }
 
-func (f *rateLimitedThenOKChat) ChatStream(ctx context.Context, accountID string, req translate.ChatRequest) (*http.Response, error) {
-	return nil, errors.New("stream unsupported in fake")
+func (f *rateLimitedThenOKChat) ChatStream(ctx context.Context, accountID string, req translate.ChatRequest) (*http.Response, providers.ResolvedChat, error) {
+	return nil, providers.ResolvedChat{}, errors.New("stream unsupported in fake")
 }
 
 type systemObservingChat struct {
@@ -224,8 +224,8 @@ func (f *systemObservingChat) ChatNonStream(ctx context.Context, accountID strin
 	return providers.ChatOutcome{Model: req.Model, Content: "OK", FinishReason: "stop"}, nil
 }
 
-func (f *systemObservingChat) ChatStream(ctx context.Context, accountID string, req translate.ChatRequest) (*http.Response, error) {
-	return nil, errors.New("stream unsupported in fake")
+func (f *systemObservingChat) ChatStream(ctx context.Context, accountID string, req translate.ChatRequest) (*http.Response, providers.ResolvedChat, error) {
+	return nil, providers.ResolvedChat{}, errors.New("stream unsupported in fake")
 }
 
 func TestInProcessDropSystemPromptStripsBeforeProvider(t *testing.T) {
@@ -283,8 +283,8 @@ func (f *contentRejectedChat) ChatNonStream(ctx context.Context, accountID strin
 	return providers.ChatOutcome{}, &providers.Error{Kind: accounts.KindInvalidRequest, Status: 400, Message: "sensitive content rejected"}
 }
 
-func (f *contentRejectedChat) ChatStream(ctx context.Context, accountID string, req translate.ChatRequest) (*http.Response, error) {
-	return nil, errors.New("stream unsupported in fake")
+func (f *contentRejectedChat) ChatStream(ctx context.Context, accountID string, req translate.ChatRequest) (*http.Response, providers.ResolvedChat, error) {
+	return nil, providers.ResolvedChat{}, errors.New("stream unsupported in fake")
 }
 
 func TestInProcessContentRejectionDoesNotFailover(t *testing.T) {

@@ -20,6 +20,7 @@ import { FormRow } from '@/components/ui/FormRow'
 import { SystemPageSkeleton } from '@/components/ui/PageSkeletons'
 import { useI18n } from '@/hooks/useI18n'
 import { CompactSwitch } from '@/components/ui/CompactSwitch'
+import { CheckinDefaults } from '@/components/checkin/CheckinDefaults'
 import { VersionHistory } from '@/components/VersionHistory'
 import { buildVersionHistory } from '@/lib/versionHistory'
 
@@ -34,7 +35,6 @@ export function SystemPage() {
   const [info, setInfo] = useState<SystemUpdateInfo | null>(null)
   const [consoleKey, setConsoleKey] = useState<ConsoleKeyView | null>(null)
   const [settings, setSettings] = useState<SystemSettings | null>(null)
-  const [checkinTimeDraft, setCheckinTimeDraft] = useState('09:00')
   const [proxyDraft, setProxyDraft] = useState('')
   const [settingsBusy, setSettingsBusy] = useState(false)
   const [consoleBusy, setConsoleBusy] = useState(false)
@@ -77,7 +77,6 @@ export function SystemPage() {
       void fetchConsoleKey().then(setConsoleKey).catch(() => undefined)
       void fetchSystemSettings().then((result) => {
         setSettings(result)
-        setCheckinTimeDraft(result.workbuddy_checkin_time || '09:00')
         setProxyDraft(result.proxy_url || '')
       }).catch((err) => setError(err instanceof Error ? err.message : String(err)))
     }, 0)
@@ -258,27 +257,6 @@ export function SystemPage() {
     }
   }
 
-  async function updateWorkBuddyCheckinTime(value: string) {
-    const next = value || '09:00'
-    const previous = settings?.workbuddy_checkin_time || '09:00'
-    setCheckinTimeDraft(next)
-    if (!settings || next === previous) return
-    setSettings((current) => current ? { ...current, workbuddy_checkin_time: next } : current)
-    setSettingsBusy(true)
-    setError('')
-    try {
-      const result = await updateSystemSettings({ workbuddy_checkin_time: next })
-      setSettings(result)
-      setCheckinTimeDraft(result.workbuddy_checkin_time || next)
-    } catch (err) {
-      setSettings((current) => current ? { ...current, workbuddy_checkin_time: previous } : current)
-      setCheckinTimeDraft(previous)
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setSettingsBusy(false)
-    }
-  }
-
   async function updateRoutingStrategy(strategy: SystemSettings['routing_strategy']) {
     const previous = settings?.routing_strategy || 'round-robin'
     setSettings((current) => current ? { ...current, routing_strategy: strategy } : current)
@@ -414,27 +392,7 @@ export function SystemPage() {
             </div>
           </Card>
 
-          <Card data-gsap-reveal>
-            <div className="flex items-start gap-3">
-              <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-surface-secondary text-foreground"><SlidersHorizontal size={15} /></div>
-              <div>
-                <h3 className="font-semibold">{t('workbuddyCheckinSettingsTitle')}</h3>
-                <p className="mt-1 text-xs leading-5 text-muted">{t('workbuddyCheckinSettingsHint')}</p>
-              </div>
-            </div>
-            <div className="mt-4 border-t border-separator pt-4">
-              <FormRow label={t('autoCheckinTime')} hint={t('workbuddyCheckinSettingsFieldHint')}>
-                <Input
-                  type="time"
-                  value={checkinTimeDraft}
-                  onChange={(event) => setCheckinTimeDraft(event.target.value || '09:00')}
-                  onBlur={(event) => void updateWorkBuddyCheckinTime(event.target.value.trim())}
-                  aria-label={t('autoCheckinTime')}
-                  disabled={settingsBusy || !settings}
-                />
-              </FormRow>
-            </div>
-          </Card>
+          <CheckinDefaults settings={settings} onSaved={setSettings} />
 
           <Card data-gsap-reveal>
             <div className="flex items-start gap-3">

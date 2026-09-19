@@ -88,6 +88,14 @@ function formatTime(value?: string | null, lang: 'en' | 'zh' = 'zh') {
   }).format(date)
 }
 
+function reasoningLabel(log: Pick<RequestLog, 'requested_reasoning' | 'resolved_reasoning'>) {
+  const requested = log.requested_reasoning?.trim() || ''
+  const resolved = log.resolved_reasoning?.trim() || ''
+  if (!requested && !resolved) return ''
+  if (requested && resolved && requested !== resolved) return `${requested} → ${resolved}`
+  return resolved || requested
+}
+
 function TokenSplit({
   log,
   inLabel,
@@ -706,6 +714,7 @@ export function LogsPage() {
                     <Table.Header>
                       <Table.Column isRowHeader>{t('logsColTime')}</Table.Column>
                       <Table.Column>{t('logsColModel')}</Table.Column>
+                      <Table.Column>{t('logsColReasoning')}</Table.Column>
                       <Table.Column>{t('logsColProvider')}</Table.Column>
                       <Table.Column>{t('logsColAccount')}</Table.Column>
                       <Table.Column>{t('logsColStatus')}</Table.Column>
@@ -728,6 +737,9 @@ export function LogsPage() {
                             {item.mapped_model && item.mapped_model !== item.requested_model ? (
                               <div className="mono mt-0.5 text-[10px] text-muted">{item.mapped_model}</div>
                             ) : null}
+                          </Table.Cell>
+                          <Table.Cell>
+                            <span className="mono text-xs">{reasoningLabel(item) || '—'}</span>
                           </Table.Cell>
                           <Table.Cell>
                             <span className="text-xs">{providerLabel(item)}</span>
@@ -951,6 +963,7 @@ export function LogsPage() {
                   {[
                     [t('logsColStatus'), selected?.status || '—'],
                     [t('logsColModel'), selected?.requested_model || '—'],
+                    [t('logsColReasoning'), selected ? (reasoningLabel(selected) || '—') : '—'],
                     [t('logsColProvider'), selected ? providerLabel(selected) : '—'],
                     [t('logsColAccount'), selected?.account_id ? (accountNameById.get(selected.account_id) || selected.account_id) : '—'],
                     [t('logsColLatency'), formatLatency(selected?.latency_ms)],

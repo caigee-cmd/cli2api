@@ -3,6 +3,7 @@ import { Alert, Button, Chip, Form, Input, Modal, NumberField } from '@heroui/re
 import { X } from '@phosphor-icons/react'
 import { ProviderMark } from '@/components/ProviderMark'
 import { FormRow } from '@/components/ui/FormRow'
+import { CompactSwitch } from '@/components/ui/CompactSwitch'
 import type { AccountRow } from '@/lib/account'
 import { accountProviderLabel } from '@/lib/provider'
 
@@ -10,22 +11,25 @@ type Translate = (key: string, vars?: Record<string, string | number>) => string
 
 type Props = {
   account: AccountRow | null
+  checkinDefaultTime?: string
+  checkinTimezone?: string
   busy: boolean
   t: Translate
   onClose: () => void
-  onSave: (input: { name: string; max_inflight: number; priority: number; proxy_url: string; workbuddy_checkin_time?: string }) => Promise<void>
+  onSave: (input: { name: string; max_inflight: number; priority: number; proxy_url: string; checkin_time?: string; drop_system_prompt?: boolean }) => Promise<void>
 }
 
-export function EditAccountModal({ account, busy, t, onClose, onSave }: Props) {
+export function EditAccountModal({ account, checkinDefaultTime, checkinTimezone, busy, t, onClose, onSave }: Props) {
   const [name, setName] = useState(account?.name || '')
   const [maxInFlight, setMaxInFlight] = useState<number>(account?.max_inflight ?? 4)
   const [priority, setPriority] = useState<number>(account?.priority ?? 50)
-  const [autoCheckinTime, setAutoCheckinTime] = useState(account?.workbuddy_checkin_time || '09:00')
   const [proxyUrl, setProxyUrl] = useState(account?.proxy_url || '')
+  const [dropSystemPrompt, setDropSystemPrompt] = useState(Boolean(account?.drop_system_prompt))
+  const [inheritCheckinTime, setInheritCheckinTime] = useState(!account?.checkin_time)
+  const [checkinTime, setCheckinTime] = useState<string | null>(account?.checkin_time || null)
   const [error, setError] = useState('')
   const title = t('editAccountTitle', { name: account?.name || account?.id || '' })
   const provider = account ? accountProviderLabel(account.provider, account.region, t) : ''
-  const showCheckinTime = account?.provider === 'workbuddy'
 
   async function submit(event?: { preventDefault(): void }) {
     event?.preventDefault()
@@ -42,6 +46,10 @@ export function EditAccountModal({ account, busy, t, onClose, onSave }: Props) {
       setError(t('priorityInvalid'))
       return
     }
+    if (checkinDefaultTime !== undefined && !inheritCheckinTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(checkinTime ?? checkinDefaultTime)) {
+      setError(t('checkinTimeInvalid'))
+      return
+    }
     setError('')
     try {
       await onSave({
@@ -49,7 +57,8 @@ export function EditAccountModal({ account, busy, t, onClose, onSave }: Props) {
         max_inflight: maxInFlight,
         priority,
         proxy_url: proxyUrl.trim(),
-        workbuddy_checkin_time: showCheckinTime ? (autoCheckinTime || '09:00') : undefined,
+        checkin_time: checkinDefaultTime !== undefined ? (inheritCheckinTime ? '' : checkinTime ?? checkinDefaultTime) : undefined,
+        drop_system_prompt: account?.provider === 'workbuddy' ? dropSystemPrompt : undefined,
       })
       onClose()
     } catch (err) {
@@ -143,15 +152,23 @@ export function EditAccountModal({ account, busy, t, onClose, onSave }: Props) {
                     disabled={busy}
                   />
                 </FormRow>
-                {showCheckinTime ? (
-                  <FormRow label={t('autoCheckinTime')} hint={t('autoCheckinTimeHint')}>
-                    <Input
-                      type="time"
-                      value={autoCheckinTime}
-                      onChange={(event) => setAutoCheckinTime(event.target.value || '09:00')}
-                      aria-label={t('autoCheckinTime')}
-                      disabled={busy}
+                {account?.provider === 'workbuddy' ? (
+                  <FormRow label={t('dropSystemPrompt')} hint={t('dropSystemPromptHint')}>
+                    <CompactSwitch
+                      isSelected={dropSystemPrompt}
+                      isDisabled={busy}
+                      ariaLabel={t('dropSystemPrompt')}
+                      onChange={setDropSystemPrompt}
                     />
+                  </FormRow>
+                ) : null}
+                {checkinDefaultTime !== undefined ? (
+                  <FormRow label={t('autoCheckinTime')} hint={t('checkinScheduleHint')}>
+                    <div className="space-y-3">
+                      <CompactSwitch isSelected={inheritCheckinTime} isDisabled={busy} onChange={setInheritCheckinTime} ariaLabel={t('checkinInherit')} label={t('checkinInherit')} />
+                      <p className="text-xs text-muted">{t('checkinDefaultValue', { time: checkinDefaultTime })} · <span className="mono">{checkinTimezone}</span></p>
+                      {!inheritCheckinTime ? <Input type="time" value={checkinTime ?? checkinDefaultTime} onChange={(event) => setCheckinTime(event.target.value)} aria-label={t('autoCheckinTime')} disabled={busy} required /> : null}
+                    </div>
                   </FormRow>
                 ) : null}
               </Form>

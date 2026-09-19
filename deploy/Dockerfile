@@ -32,6 +32,7 @@ COPY --from=build /out/cli2api-updater /app/cli2api-updater
 COPY worker/package.json worker/package-lock.json /app/worker/
 RUN cd /app/worker && npm ci --omit=dev
 COPY worker/src /app/worker
+COPY worker/NOTICE /app/worker/NOTICE
 COPY worker/last-plain.sample.json /app/worker/last-plain.sample.json
 RUN test -f /app/worker/daemon.mjs \
   && test -f /app/worker/compat.mjs \

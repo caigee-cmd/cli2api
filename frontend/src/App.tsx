@@ -30,6 +30,7 @@ export default function App() {
                     <Route path="/providers" element={<ProvidersPage />} />
                     <Route path="/access" element={<AccessPage />} />
                     <Route path="/accounts" element={<AccountsPage />} />
+                    <Route path="/checkins" element={<Navigate to="/accounts" replace />} />
                     <Route path="/logs" element={<LogsPage />} />
                     <Route path="/keys" element={<KeysPage />} />
                     <Route path="/system" element={<SystemPage />} />

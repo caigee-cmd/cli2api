@@ -39,7 +39,7 @@ func (h *Handler) HandleAnthropicMessages(w http.ResponseWriter, r *http.Request
 	}
 	result, err := h.Executor.ChatNonStream(execution.Context, execution.Request, execution.Prefer, execution.ProviderFilter)
 	if err != nil {
-		h.finishCompatibility(execution, result.AccountID, result.Provider, result.Routing, accounts.RequestStatusError, 0, nil, err, result.AttemptCount)
+		h.finishCompatibility(execution, result.AccountID, result.Provider, result.Routing, accounts.RequestStatusError, 0, nil, err, result.AttemptCount, result.ReasoningLevel)
 		writeAnthropicCompatibilityError(w, err)
 		return
 	}
@@ -48,19 +48,19 @@ func (h *Handler) HandleAnthropicMessages(w http.ResponseWriter, r *http.Request
 		CacheReadTokens: result.CacheReadTokens, CacheWriteTokens: result.CacheWriteTokens,
 		CachedTokens: result.CachedTokens, UsageSource: result.UsageSource, Credits: result.Credits,
 		ConsumedCredits: result.ConsumedCredits, Model: result.Model,
-	}, nil, result.AttemptCount)
+	}, nil, result.AttemptCount, result.ReasoningLevel)
 	writeJSON(w, http.StatusOK, anthropicMessageResponse(execution.RequestID, firstNonEmpty(result.Model, execution.PublicModel), result.Content, result.Reasoning, decodeOpenAIToolCalls(result.ToolCalls), result.FinishReason, result.PromptTokens, result.CompletionTokens))
 }
 
 func (h *Handler) handleAnthropicMessagesStream(w http.ResponseWriter, r *http.Request, execution Execution) {
 	upstream, err := h.Executor.ChatStreamProxy(execution.Context, execution.Request, execution.Prefer, execution.ProviderFilter)
 	if err != nil {
-		h.finishCompatibility(execution, upstream.AccountID, upstream.Provider, upstream.Routing, accounts.RequestStatusError, upstream.TTFBMs, nil, err, upstream.AttemptCount)
+		h.finishCompatibility(execution, upstream.AccountID, upstream.Provider, upstream.Routing, accounts.RequestStatusError, upstream.TTFBMs, nil, err, upstream.AttemptCount, upstream.ReasoningLevel)
 		writeAnthropicCompatibilityError(w, err)
 		return
 	}
 	defer upstream.Response.Body.Close()
-	h.finishCompatibility(execution, upstream.AccountID, upstream.Provider, upstream.Routing, accounts.RequestStatusStreaming, upstream.TTFBMs, nil, nil, upstream.AttemptCount)
+	h.finishCompatibility(execution, upstream.AccountID, upstream.Provider, upstream.Routing, accounts.RequestStatusStreaming, upstream.TTFBMs, nil, nil, upstream.AttemptCount, upstream.ReasoningLevel)
 	setCompatibilityStreamHeaders(w, upstream.AccountID, firstNonEmpty(upstream.Provider, execution.ProviderFilter))
 	w.WriteHeader(http.StatusOK)
 	if flusher, ok := w.(http.Flusher); ok {
@@ -78,7 +78,7 @@ func (h *Handler) handleAnthropicMessagesStream(w http.ResponseWriter, r *http.R
 	if status == accounts.RequestStatusCanceled {
 		logErr = context.Canceled
 	}
-	h.finishCompatibility(execution, upstream.AccountID, upstream.Provider, upstream.Routing, status, ttfb, &stats, logErr, upstream.AttemptCount)
+	h.finishCompatibility(execution, upstream.AccountID, upstream.Provider, upstream.Routing, status, ttfb, &stats, logErr, upstream.AttemptCount, upstream.ReasoningLevel)
 	if relayErr == nil {
 		h.Executor.CommitSession(execution.Context, execution.Request, upstream.Routing, upstream.AccountID)
 		return

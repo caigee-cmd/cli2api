@@ -10,6 +10,7 @@ import { parseNestedOpenAIChunks, readSSEText, pipeNestedSseToOpenAI } from "./s
 import { inspectQodercliSource, NEEDLES, PINNED_QODERCLI_VERSION, readQodercliVersion } from "./compat.mjs";
 import { resolveUsage } from "./usage.mjs";
 import { classifyError } from "./errors.mjs";
+import { createQoderCheckin } from "./checkin.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 register(pathToFileURL(path.join(__dirname, "rewrite-loader.mjs")).href);
@@ -19,6 +20,7 @@ const host = process.env.WORKER_HOST || "127.0.0.1";
 const apiKey = process.env.PROXY_API_KEY || "";
 const accountId = process.env.QODER_ACCOUNT_ID || "default";
 const skipCliMain = process.env.QODER_SKIP_CLI_MAIN !== "0";
+const checkin = createQoderCheckin({ region: process.env.QODER_SITE, getAuthManager });
 let bootMode = "pending";
 function defaultQodercliPath() {
   const site = String(process.env.QODER_SITE || "").toLowerCase();
@@ -771,6 +773,14 @@ function maybeStartServer() {
       if (req.method === "GET" && url.pathname === "/admin/quota") {
         const force = url.searchParams.get("refresh") === "1";
         return handleQuota(res, { force });
+      }
+      if (req.method === "POST" && url.pathname === "/admin/checkin") {
+        if (!apiKey) return sendJSON(res, 503, { error: { code: "checkin_unavailable", message: "worker admin key required" } });
+        try {
+          return sendJSON(res, 200, { ok: true, ...await checkin() });
+        } catch (err) {
+          return sendJSON(res, 502, { error: { code: "checkin_failed", message: err.message } });
+        }
       }
       if (req.method === "GET" && url.pathname === "/admin/login/status") {
         return sendJSON(res, 200, {

@@ -109,6 +109,7 @@ func (m *Manager) Delete(ctx context.Context, id string) error {
 
 func (m *Manager) Import(ctx context.Context, input ImportAccount) (Account, error) {
 	account, err := m.store.Create(ctx, CreateAccount{
+		AutoCheckin: input.AutoCheckin, CheckinTime: input.CheckinTime,
 		Name: input.Name, Provider: input.Provider, Region: input.Region, Enabled: false,
 		MaxInFlight: input.MaxInFlight, Priority: input.Priority, DropSystemPrompt: input.DropSystemPrompt,
 		WorkBuddyAutoCheckin: input.WorkBuddyAutoCheckin,

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
+	"github.com/caigee-cmd/cli2api/internal/executor"
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
@@ -46,12 +47,12 @@ func (h *Handler) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 	if req.Stream {
 		upstream, err := h.Executor.ChatStreamProxy(ctx, req, prefer, providerFilter)
 		if err != nil {
-			h.finishRequestLog(requestID, started, req, publicModel, upstream.AccountID, firstNonEmpty(upstream.Provider, providerFilter), upstream.Routing, accounts.RequestStatusError, upstream.TTFBMs, nil, err, upstream.AttemptCount)
+			h.finishRequestLog(requestID, started, req, publicModel, upstream.AccountID, firstNonEmpty(upstream.Provider, providerFilter), upstream.Routing, accounts.RequestStatusError, upstream.TTFBMs, nil, err, upstream.AttemptCount, upstream.ReasoningLevel)
 			WriteClassifiedErr(w, err)
 			return
 		}
 		defer upstream.Response.Body.Close()
-		h.finishRequestLog(requestID, started, req, publicModel, upstream.AccountID, firstNonEmpty(upstream.Provider, providerFilter), upstream.Routing, accounts.RequestStatusStreaming, upstream.TTFBMs, nil, nil, upstream.AttemptCount)
+		h.finishRequestLog(requestID, started, req, publicModel, upstream.AccountID, firstNonEmpty(upstream.Provider, providerFilter), upstream.Routing, accounts.RequestStatusStreaming, upstream.TTFBMs, nil, nil, upstream.AttemptCount, upstream.ReasoningLevel)
 		w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
@@ -88,7 +89,7 @@ func (h *Handler) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 		if status == accounts.RequestStatusCanceled {
 			logErr = context.Canceled
 		}
-		h.finishRequestLog(requestID, started, req, publicModel, upstream.AccountID, firstNonEmpty(upstream.Provider, providerFilter), upstream.Routing, status, ttfb, &stats, logErr, upstream.AttemptCount)
+		h.finishRequestLog(requestID, started, req, publicModel, upstream.AccountID, firstNonEmpty(upstream.Provider, providerFilter), upstream.Routing, status, ttfb, &stats, logErr, upstream.AttemptCount, upstream.ReasoningLevel)
 		if relayErr == nil {
 			h.Executor.CommitSession(ctx, req, upstream.Routing, upstream.AccountID)
 		}
@@ -110,7 +111,7 @@ func (h *Handler) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 
 	res, err := h.Executor.ChatNonStream(ctx, req, prefer, providerFilter)
 	if err != nil {
-		h.finishRequestLog(requestID, started, req, publicModel, res.AccountID, firstNonEmpty(res.Provider, providerFilter), res.Routing, accounts.RequestStatusError, 0, nil, err, res.AttemptCount)
+		h.finishRequestLog(requestID, started, req, publicModel, res.AccountID, firstNonEmpty(res.Provider, providerFilter), res.Routing, accounts.RequestStatusError, 0, nil, err, res.AttemptCount, res.ReasoningLevel)
 		WriteClassifiedErr(w, err)
 		return
 	}
@@ -122,7 +123,7 @@ func (h *Handler) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 		CacheReadTokens: res.CacheReadTokens, CacheWriteTokens: res.CacheWriteTokens,
 		CachedTokens: res.CachedTokens, UsageSource: res.UsageSource, Credits: res.Credits,
 		ConsumedCredits: res.ConsumedCredits, Model: res.Model,
-	}, nil, res.AttemptCount)
+	}, nil, res.AttemptCount, res.ReasoningLevel)
 	message := map[string]any{
 		"role":    "assistant",
 		"content": res.Content,
@@ -165,20 +166,22 @@ func (h *Handler) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
-func (h *Handler) finishRequestLog(requestID string, started time.Time, req translate.ChatRequest, publicModel, accountID, provider, routing, status string, ttfb int, stats *StreamRelayStats, err error, attemptCount int) {
+func (h *Handler) finishRequestLog(requestID string, started time.Time, req translate.ChatRequest, publicModel, accountID, provider, routing, status string, ttfb int, stats *StreamRelayStats, err error, attemptCount int, resolvedReasoning string) {
 	if h.Recorder == nil || requestID == "" {
 		return
 	}
 	entry := accounts.RequestLog{
-		ID:             requestID,
-		CreatedAt:      started,
-		Stream:         req.Stream,
-		Status:         status,
-		RequestedModel: firstNonEmpty(publicModel, req.Model),
-		AccountID:      accountID,
-		Provider:       provider,
-		Routing:        routing,
-		AttemptCount:   attemptCount,
+		ID:                 requestID,
+		CreatedAt:          started,
+		Stream:             req.Stream,
+		Status:             status,
+		RequestedModel:     firstNonEmpty(publicModel, req.Model),
+		RequestedReasoning: executor.RequestedReasoningLevel(req),
+		ResolvedReasoning:  resolvedReasoning,
+		AccountID:          accountID,
+		Provider:           provider,
+		Routing:            routing,
+		AttemptCount:       attemptCount,
 	}
 	if status != accounts.RequestStatusStarted && status != accounts.RequestStatusStreaming {
 		finished := time.Now().UTC()

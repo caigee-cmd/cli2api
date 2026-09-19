@@ -4,11 +4,14 @@ import { runtimeSegments, runtimeTone, type AccountState } from '@/lib/account'
 
 type Props = {
   state: AccountState
-  label: string
   stateCopy: string
+  t: (key: string) => string
 }
 
-export function RuntimeMeter({ state, label, stateCopy }: Props) {
+// Compact horizontal runtime strip. Replaces the previous boxed meter plus
+// the separate inFlight / priority / restarts grid: the same signal (state)
+// fits in a single row, leaving vertical room for the quota block.
+export function RuntimeMeter({ state, stateCopy, t }: Props) {
   const rootRef = useRef<HTMLDivElement>(null)
   const count = runtimeSegments(state)
   const tone = runtimeTone(state)
@@ -46,15 +49,15 @@ export function RuntimeMeter({ state, label, stateCopy }: Props) {
   }, [count, state])
 
   return (
-    <div ref={rootRef} className="account-meter">
-      <div className="flex items-center gap-1.5 text-[11px] font-medium">
+    <div ref={rootRef} className="flex items-center gap-2">
+      <div className="flex items-center gap-1.5 text-[11px] font-medium text-foreground/75">
         <span className="status-dot" data-state={tone === 'muted' ? undefined : tone === 'warn' ? 'warn' : tone} />
-        <span>{label}</span>
+        <span>{t('runtimeState')}</span>
       </div>
       <div
-        className="runtime-meter"
+        className="runtime-meter min-w-[80px] flex-1"
         role="meter"
-        aria-label={label}
+        aria-label={t('runtimeState')}
         aria-valuemin={0}
         aria-valuemax={12}
         aria-valuenow={count}
@@ -70,6 +73,7 @@ export function RuntimeMeter({ state, label, stateCopy }: Props) {
           />
         ))}
       </div>
+      <span className="mono shrink-0 text-[10px] text-foreground/65">{stateCopy}</span>
     </div>
   )
 }

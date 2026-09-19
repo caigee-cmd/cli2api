@@ -164,7 +164,7 @@ export type ProviderDescriptor = {
     pat_login: boolean
     import_export: boolean
   }
-  regions: Array<{ id: string; label: string }>
+  regions: Array<{ id: string; label: string; checkin?: { timezone: string } }>
   default_region: string
 }
 
@@ -182,6 +182,8 @@ export function createAccount(
     drop_system_prompt?: boolean
     workbuddy_auto_checkin?: boolean
     workbuddy_checkin_time?: string
+    auto_checkin?: boolean
+    checkin_time?: string
     proxy_url?: string
   },
 ) {
@@ -197,6 +199,8 @@ export function createAccount(
       drop_system_prompt: options?.drop_system_prompt,
       workbuddy_auto_checkin: options?.workbuddy_auto_checkin,
       workbuddy_checkin_time: options?.workbuddy_checkin_time,
+      auto_checkin: options?.auto_checkin,
+      checkin_time: options?.checkin_time,
       proxy_url: options?.proxy_url,
     }),
   })

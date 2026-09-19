@@ -72,6 +72,6 @@ func (h *Handler) PrepareCompatibilityExecution(r *http.Request, request transla
 	return h.PrepareChatExecution(r, request)
 }
 
-func (h *Handler) finishCompatibility(execution Execution, accountID, provider, routing, status string, ttfb int, stats *StreamRelayStats, err error, attempts int) {
-	h.finishRequestLog(execution.RequestID, execution.Started, execution.Request, execution.PublicModel, accountID, firstNonEmpty(provider, execution.ProviderFilter), routing, status, ttfb, stats, err, attempts)
+func (h *Handler) finishCompatibility(execution Execution, accountID, provider, routing, status string, ttfb int, stats *StreamRelayStats, err error, attempts int, resolvedReasoning string) {
+	h.finishRequestLog(execution.RequestID, execution.Started, execution.Request, execution.PublicModel, accountID, firstNonEmpty(provider, execution.ProviderFilter), routing, status, ttfb, stats, err, attempts, resolvedReasoning)
 }

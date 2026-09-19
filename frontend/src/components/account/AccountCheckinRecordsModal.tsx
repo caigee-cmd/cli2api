@@ -19,6 +19,7 @@ type Props = {
 function recordStatus(record: CheckinRecord, t: Translate) {
   if (record.status === 'success') return { label: t('checkinRecordSuccess'), color: 'success' as const }
   if (record.status === 'already') return { label: t('checkinRecordAlready'), color: 'warning' as const }
+  if (record.status === 'skipped') return { label: t('checkinRecordSkipped'), color: 'default' as const }
   return { label: t('checkinRecordFailed'), color: 'danger' as const }
 }
 

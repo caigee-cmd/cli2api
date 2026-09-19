@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { Button, Card, Chip, Dropdown, Input, Label, Meter, TextArea, TextField, Tooltip } from '@heroui/react'
+import { Button, Card, Chip, Dropdown, Input, Label, TextArea, TextField, Tooltip } from '@heroui/react'
 import {
   ArrowClockwise,
   ArrowSquareOut,
@@ -17,7 +17,6 @@ import {
 import gsap from 'gsap'
 import { ProviderMark } from '@/components/ProviderMark'
 import { CompactSwitch } from '@/components/ui/CompactSwitch'
-import { AccountCardSkeleton } from '@/components/ui/PageSkeletons'
 import { QuotaMeter } from '@/components/account/QuotaMeter'
 import { RuntimeMeter } from '@/components/account/RuntimeMeter'
 import {
@@ -50,7 +49,7 @@ type Props = {
   onRefresh?: () => void
   onDelete: () => void
   onToggle: (selected: boolean) => void
-  onToggleDropSystem: (selected: boolean) => void
+  checkinDefaultTime?: string
   onToggleAutoCheckin?: (selected: boolean) => void
   onCheckin?: () => void
   onViewCheckins?: () => void
@@ -73,17 +72,6 @@ function stateCopyFor(state: ReturnType<typeof accountState>, cooldown: string, 
   return t('needQoderLogin')
 }
 
-function checkinStatusFor(account: AccountRow, t: Translate) {
-  if (account.last_checkin_status === 'error') return { label: t('checkinFailed'), state: 'warn' as const }
-  if (!account.last_checkin_at) return { label: t('checkinPending'), state: undefined }
-  const date = new Date(account.last_checkin_at)
-  const now = new Date()
-  if (!Number.isNaN(date.getTime()) && date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth() && date.getDate() === now.getDate()) {
-    return { label: t('checkinToday'), state: 'ok' as const }
-  }
-  return { label: t('checkinPending'), state: undefined }
-}
-
 export function AccountCard({
   account,
   busyKind,
@@ -102,7 +90,7 @@ export function AccountCard({
   onRefresh,
   onDelete,
   onToggle,
-  onToggleDropSystem,
+  checkinDefaultTime,
   onToggleAutoCheckin,
   onCheckin,
   onViewCheckins,
@@ -134,11 +122,11 @@ export function AccountCard({
       : state === 'login' || state === 'unavailable' || state === 'dead' || state === 'auth_failed'
         ? 'danger'
         : undefined
-  const inFlight = account.in_flight ?? account.inFlight ?? 0
   const lastError = account.last_error || account.lastError
   const errorKind = account.last_error_kind || account.kind
   const provider = accountProviderLabel(account.provider, account.region, t)
-  const checkin = checkinStatusFor(account, t)
+  const checkinStatus = account.last_checkin_status
+  const checkinLabel = checkinStatus === 'success' ? 'checkinRecordSuccess' : checkinStatus === 'already' ? 'checkinRecordAlready' : checkinStatus === 'skipped' ? 'checkinRecordSkipped' : checkinStatus === 'error' ? 'checkinRecordFailed' : 'lastCheckinNone'
 
   useLayoutEffect(() => {
     const chip = chipRef.current
@@ -185,21 +173,15 @@ export function AccountCard({
     return () => context.revert()
   }, [authPanelOpen])
 
-  // Refreshing replaces the whole card with a skeleton so stale quota and
-  // status are never left on screen while the account is re-probed.
-  if (busyKind === 'refresh') {
-    return (
-      <div data-gsap-reveal className="min-h-[280px]" aria-busy="true" aria-label={t('refreshingAccount')}>
-        <AccountCardSkeleton />
-      </div>
-    )
-  }
-
+  // Refresh keeps the existing card mounted so the layout does not jump.
+  // The refresh button spinner (busyKind === 'refresh') is the only visual
+  // indicator; stale quota / status stay on screen until the new payload
+  // arrives. Cards only mount a skeleton on the very first load.
   return (
     <Card
       data-gsap-reveal
       data-state={state}
-      className="account-card min-h-[280px] overflow-hidden p-0"
+      className="account-card overflow-hidden p-0"
     >
       <Card.Header className="flex-row items-start justify-between gap-2.5 px-3 pt-2.5 pb-1.5">
         <div className="flex min-w-0 items-center gap-2.5">
@@ -260,94 +242,39 @@ export function AccountCard({
         </div>
       </Card.Header>
 
-      <Card.Content className="gap-2 px-3 pb-2">
-        <div className="rounded-2xl border border-border bg-surface-secondary/45 p-2">
-          <RuntimeMeter state={state} label={t('runtimeState')} stateCopy={stateCopy} />
-          <div className="mt-2 grid grid-cols-3 gap-2 border-t border-separator pt-2 text-[10px] text-foreground/65">
-            <span><span className="mono block text-[12px] font-medium text-foreground">{inFlight}/{account.max_inflight ?? 4}</span>{t('inFlight')}</span>
-            <span><span className="mono block text-[12px] font-medium text-foreground">{account.priority ?? 50}</span>{t('priority')}</span>
-            <span><span className="mono block text-[12px] font-medium text-foreground">{account.restarts ?? 0}</span>{t('restarts')}</span>
-          </div>
-          <Meter
-            className="mt-2"
-            color="accent"
-            size="sm"
-            minValue={1}
-            maxValue={100}
-            value={Math.min(100, Math.max(1, account.priority ?? 50))}
-            aria-label={t('routingWeight')}
-            valueLabel={`${t('routingWeight')} ${account.priority ?? 50}/100`}
-          >
-            <div className="flex items-center justify-between text-[10px] text-foreground/65">
-              <Label>{t('routingWeight')}</Label>
-              <Meter.Output className="mono">{account.priority ?? 50}/100</Meter.Output>
-            </div>
-            <Meter.Track><Meter.Fill /></Meter.Track>
-          </Meter>
-        </div>
+      <Card.Content className="gap-1.5 px-3 pb-2">
+        <RuntimeMeter state={state} stateCopy={stateCopy} t={t} />
 
-        <div className="min-h-[52px] rounded-2xl border border-border bg-surface-secondary/25 p-2">
-          {account.quota ? (
-            <QuotaMeter
-              quota={account.quota}
-              label={t('quota')}
-              usedLabel={t('quotaUsed')}
-              remainingLabel={t('quotaRemaining')}
-              addOnLabel={t('quotaAddOn')}
-              resourcePackageLabel={t('quotaResourcePackage')}
-              exceededLabel={t('quotaExceeded')}
-            />
-          ) : <span className="text-[11px] text-foreground/65">{state === 'loading' ? t('quotaLoading') : t('quotaUnavailable')}</span>}
-        </div>
-
-        {account.provider === 'workbuddy' ? (
-          <div className="grid gap-1.5 rounded-2xl border border-border bg-surface-secondary/20 p-2">
-            <div className="flex items-center justify-between gap-3 text-[11px]">
-              <Tooltip>
-                <Tooltip.Trigger>
-                  <span className="font-medium">{t('dropSystemPrompt')}</span>
-                </Tooltip.Trigger>
-                <Tooltip.Content>{t('dropSystemPromptHint')}</Tooltip.Content>
-              </Tooltip>
-              <CompactSwitch
-                isSelected={Boolean(account.drop_system_prompt)}
-                isDisabled={busyKind === 'toggle'}
-                ariaLabel={t('dropSystemPrompt')}
-                onChange={onToggleDropSystem}
-              />
-            </div>
-            <div className="flex items-center justify-between gap-3 text-[11px]">
-              <Tooltip>
-                <Tooltip.Trigger>
-                  <span className="font-medium">{t('autoCheckin')} · {account.workbuddy_checkin_time || '09:00'}</span>
-                </Tooltip.Trigger>
-                <Tooltip.Content>{t('autoCheckinHint')}</Tooltip.Content>
-              </Tooltip>
-              <CompactSwitch
-                isSelected={Boolean(account.workbuddy_auto_checkin)}
-                isDisabled={busyKind === 'toggle' || !onToggleAutoCheckin}
-                ariaLabel={t('autoCheckin')}
-                onChange={(selected) => onToggleAutoCheckin?.(selected)}
-              />
-            </div>
-            <div className="flex items-center gap-2 text-[11px]">
-              <div className="flex min-w-0 items-center gap-2">
-                <span className="status-dot shrink-0" data-state={checkin.state} />
-                <span className="font-medium">{t('checkinStatus')}</span>
-                <span className="truncate text-foreground/65">{checkin.label}</span>
-              </div>
-            </div>
-          </div>
-        ) : null}
+        {account.quota ? (
+          <QuotaMeter
+            quota={account.quota}
+            label={t('quota')}
+            usedLabel={t('quotaUsed')}
+            remainingLabel={t('quotaRemaining')}
+            addOnLabel={t('quotaAddOn')}
+            resourcePackageLabel={t('quotaResourcePackage')}
+            exceededLabel={t('quotaExceeded')}
+          />
+        ) : <span className="text-[11px] text-foreground/65">{state === 'loading' ? t('quotaLoading') : t('quotaUnavailable')}</span>}
 
         {lastError ? (
-          <div className="flex gap-2 rounded-2xl border border-danger/25 bg-danger/5 p-2 text-xs leading-5 text-danger">
-            <WarningCircle size={14} className="mt-0.5 shrink-0" />
-            <div className="min-w-0">
-              {errorKind ? <div className="mono mb-0.5 text-[10px] opacity-75">{errorKind}</div> : null}
-              <p className="break-words">{lastError}</p>
-            </div>
-          </div>
+          <Tooltip>
+            <Tooltip.Trigger>
+              <div className="flex w-full cursor-help gap-2 rounded-2xl border border-danger/25 bg-danger/5 p-2 text-left text-xs leading-5 text-danger">
+                <WarningCircle size={14} className="mt-0.5 shrink-0" />
+                <div className="min-w-0 flex-1">
+                  {errorKind ? <div className="mono mb-0.5 truncate text-[10px] opacity-75">{errorKind}</div> : null}
+                  <p className="break-words line-clamp-3">{lastError}</p>
+                </div>
+              </div>
+            </Tooltip.Trigger>
+            <Tooltip.Content>
+              <div className="max-w-md whitespace-pre-wrap break-words">
+                {errorKind ? <div className="mono mb-1 text-[10px] opacity-75">{errorKind}</div> : null}
+                {lastError}
+              </div>
+            </Tooltip.Content>
+          </Tooltip>
         ) : null}
       </Card.Content>
 
@@ -395,11 +322,35 @@ export function AccountCard({
         </section>
       ) : null}
 
+      {onCheckin ? (
+        <div className="flex items-center justify-between gap-3 border-t border-separator px-3 py-1.5 text-[11px] text-muted">
+          <Tooltip>
+            <Tooltip.Trigger>
+              <span className="flex cursor-help items-center gap-2">
+                <span className="font-medium">{t('lastCheckin')}</span>
+                <span className={checkinStatus === 'error' ? 'text-danger' : ''}>{t(checkinLabel)}</span>
+              </span>
+            </Tooltip.Trigger>
+            <Tooltip.Content>{account.last_checkin_at ? new Date(account.last_checkin_at).toLocaleString() : t('lastCheckinNone')}{account.last_checkin_msg ? ` · ${account.last_checkin_msg}` : ''}</Tooltip.Content>
+          </Tooltip>
+          <Tooltip>
+            <Tooltip.Trigger>
+              <span className="flex cursor-help items-center gap-1.5">
+                <span className="font-medium">{t('autoCheckin')}</span>
+                <span className="mono text-[10px] text-foreground/55">{account.checkin_time || checkinDefaultTime}</span>
+                <CompactSwitch isSelected={Boolean(account.auto_checkin)} isDisabled={Boolean(busyKind)} ariaLabel={t('autoCheckin')} onChange={(selected) => onToggleAutoCheckin?.(selected)} />
+              </span>
+            </Tooltip.Trigger>
+            <Tooltip.Content>{account.checkin_time ? t('checkinCustom') : t('checkinInherit')}</Tooltip.Content>
+          </Tooltip>
+        </div>
+      ) : null}
+
       <Card.Footer className="flex flex-wrap items-center gap-1.5 border-t border-separator px-3 py-2">
         {onRefresh ? (
           <Tooltip>
             <Tooltip.Trigger>
-              <Button isIconOnly size="sm" variant="secondary" onPress={onRefresh} aria-label={t('refreshAccount')}>
+              <Button isIconOnly size="sm" variant="secondary" isPending={busyKind === 'refresh'} onPress={onRefresh} aria-label={t('refreshAccount')}>
                 <ArrowClockwise size={15} />
               </Button>
             </Tooltip.Trigger>
@@ -433,7 +384,7 @@ export function AccountCard({
         {onCheckin ? (
           <Tooltip>
             <Tooltip.Trigger>
-              <Button isIconOnly size="sm" variant="ghost" isDisabled={!account.enabled} isPending={busyKind === 'checkin'} onPress={onCheckin} aria-label={t('checkinNow')}>
+              <Button isIconOnly size="sm" variant="ghost" isDisabled={!account.enabled || Boolean(busyKind)} isPending={busyKind === 'checkin'} onPress={onCheckin} aria-label={t('checkinNow')}>
                 <CalendarCheck size={15} />
               </Button>
             </Tooltip.Trigger>
@@ -461,7 +412,7 @@ export function AccountCard({
             </Dropdown.Menu>
           </Dropdown.Popover>
         </Dropdown>
-        <div className="ml-auto flex shrink-0 items-center gap-2">
+        <div className="ml-auto flex shrink-0 flex-nowrap items-center gap-3 whitespace-nowrap">
           <CompactSwitch
             isSelected={Boolean(account.enabled)}
             isDisabled={busyKind === 'toggle'}
