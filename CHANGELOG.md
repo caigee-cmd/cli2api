@@ -7,6 +7,12 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+### 中文
+
+## 0.6.0 - 2026-09-19
+
+### English
+
 - Preserve cancellation and deadline causes in stream read failures without cooling healthy accounts; classify typed upstream stream errors once while retaining the original error chain.
 - Keep Trae and WorkBuddy model settings marked as default after refresh when the selected reasoning level matches the catalog default; ignore inactive Max settings in the custom-state indicator.
 - Clarify setup, administrator versus client keys, compatibility limits, and managed updates; align documentation and README artwork with the accepted refactor boundaries without claiming pending acceptance is complete.
