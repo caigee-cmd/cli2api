@@ -246,22 +246,19 @@ export function AccountCard({
       </Card.Header>
 
       <Card.Content className="gap-1.5 px-3 pb-2">
-        <div className="flex items-center gap-2">
-          <RuntimeMeter state={state} stateCopy={stateCopy} t={t} />
-          {onCheckin ? (
-            <Tooltip>
-              <Tooltip.Trigger>
-                <span className="flex shrink-0 cursor-help items-center gap-1.5 text-[11px] text-muted">
-                  <span className="font-medium">{t('lastCheckin')}</span>
-                  <span className={checkinStatus === 'error' ? 'text-danger' : ''}>{t(checkinLabel)}</span>
-                  <span className="mono text-[10px] text-foreground/50">{account.checkin_time || checkinDefaultTime}</span>
-                  <CompactSwitch isSelected={Boolean(account.auto_checkin)} isDisabled={Boolean(busyKind)} ariaLabel={t('autoCheckin')} onChange={(selected) => onToggleAutoCheckin?.(selected)} />
-                </span>
-              </Tooltip.Trigger>
-              <Tooltip.Content>{account.last_checkin_at ? new Date(account.last_checkin_at).toLocaleString() : t('lastCheckinNone')}{account.last_checkin_msg ? ` · ${account.last_checkin_msg}` : ''}</Tooltip.Content>
-            </Tooltip>
-          ) : null}
-        </div>
+        <RuntimeMeter state={state} stateCopy={stateCopy} t={t} />
+
+        {onCheckin ? (
+          <Tooltip>
+            <Tooltip.Trigger>
+              <span className="flex w-fit cursor-help items-center gap-2 text-[11px] text-muted">
+                <span className="font-medium">{t('lastCheckin')}</span>
+                <span className={checkinStatus === 'error' ? 'text-danger' : ''}>{t(checkinLabel)}</span>
+              </span>
+            </Tooltip.Trigger>
+            <Tooltip.Content>{account.last_checkin_at ? new Date(account.last_checkin_at).toLocaleString() : t('lastCheckinNone')}{account.last_checkin_msg ? ` · ${account.last_checkin_msg}` : ''}</Tooltip.Content>
+          </Tooltip>
+        ) : null}
 
         {account.quota ? (
           <QuotaMeter
@@ -422,7 +419,18 @@ export function AccountCard({
             </Dropdown.Menu>
           </Dropdown.Popover>
         </Dropdown>
-        <div className="ml-auto flex shrink-0 items-center gap-2">
+        <div className="ml-auto flex shrink-0 items-center gap-3">
+          {onCheckin ? (
+            <Tooltip>
+              <Tooltip.Trigger>
+                <span className="flex cursor-help items-center gap-1.5 text-muted">
+                  <span className="mono text-[10px]">{account.checkin_time || checkinDefaultTime}</span>
+                  <CompactSwitch isSelected={Boolean(account.auto_checkin)} isDisabled={Boolean(busyKind)} ariaLabel={t('autoCheckin')} onChange={(selected) => onToggleAutoCheckin?.(selected)} />
+                </span>
+              </Tooltip.Trigger>
+              <Tooltip.Content>{t('autoCheckin')}</Tooltip.Content>
+            </Tooltip>
+          ) : null}
           <CompactSwitch
             isSelected={Boolean(account.enabled)}
             isDisabled={busyKind === 'toggle'}
