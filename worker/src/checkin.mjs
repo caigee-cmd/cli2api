@@ -98,8 +98,11 @@ export function createQoderCheckin({ region, getAuthManager, fetchImpl = (...arg
             Authorization: `Bearer ${token}`,
             Accept: "application/json",
             "Content-Type": "application/json",
+            "User-Agent": "Qoder",
+            "Cosy-ClientType": "10",
+            "Cosy-Version": "0.3.4",
             Origin: endpoint.origin,
-            Referer: `${endpoint.origin}/`,
+            Referer: `${endpoint.base}/growth-page/activity-iframe`,
           },
           redirect: "manual",
           signal: AbortSignal.timeout(15000),
@@ -138,10 +141,15 @@ export function createQoderCheckin({ region, getAuthManager, fetchImpl = (...arg
     }
 
     const benefits = creditCampaigns(items);
-    if (!benefits.length) return { status: "skipped", message: "签到活动未开放" };
+    const summary = items.map((item) => `${item.actionType || "unknown"}:${item.claimStatus || "none"}`).join(",");
+    if (!benefits.length) {
+      console.error("[checkin] no credit campaigns", { count: items.length, summary });
+      return { status: "skipped", message: "签到活动未开放" };
+    }
     const claimable = benefits.filter((item) => item.claimStatus === "CLAIMABLE");
     if (!claimable.length) {
       if (benefits.some((item) => item.claimStatus === "CLAIMED")) return { status: "already", message: "今日已签到" };
+      console.error("[checkin] credit campaigns not claimable", { count: items.length, summary });
       return { status: "skipped", message: "签到活动未开放" };
     }
 

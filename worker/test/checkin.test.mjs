@@ -63,6 +63,10 @@ test("CN check-in lists campaigns then claims the CLAIM_BENEFIT campaign", async
   assert.equal(calls[1].init.body, undefined);
   assert.equal(calls[1].init.headers.Authorization, "Bearer test-token");
   assert.equal(calls[1].init.headers.Origin, "https://qoder.com.cn");
+  assert.equal(calls[1].init.headers["User-Agent"], "Qoder");
+  assert.equal(calls[1].init.headers["Cosy-ClientType"], "10");
+  assert.equal(calls[1].init.headers["Cosy-Version"], "0.3.4");
+  assert.equal(calls[1].init.headers.Referer, "https://openapi.qoder.com.cn/growth-page/activity-iframe");
   assert.equal(calls[1].init.redirect, "manual");
   assert.ok(calls[1].init.signal instanceof AbortSignal);
   assert.ok(!calls.some((call) => String(call.url).includes("daily-check-in")));
