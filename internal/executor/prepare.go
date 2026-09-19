@@ -112,6 +112,7 @@ func (e ChatExecutor) Prepare(in PrepareInput) (PreparedRequest, error) {
 			Stream:              request.Stream,
 			Status:              accounts.RequestStatusStarted,
 			RequestedModel:      firstNonEmpty(publicModel, request.Model),
+			RequestedReasoning:  RequestedReasoningLevel(request),
 			MessageCount:        len(request.Messages),
 			EmptyMessageIndexes: translate.EmptyMessageIndexes(request.Messages),
 			MessageRoles:        translate.MessageRoles(request.Messages),
@@ -121,7 +122,7 @@ func (e ChatExecutor) Prepare(in PrepareInput) (PreparedRequest, error) {
 	if sessionKey := SessionKeyFor(in.SessionHeader, in.Identity, request); sessionKey != "" {
 		ctx = WithSessionKey(ctx, sessionKey)
 	}
-	if level := requestedReasoningLevel(request); level != "" {
+	if level := RequestedReasoningLevel(request); level != "" {
 		log.Printf("request reasoning request_id=%q model=%q level=%q", requestID, request.Model, level)
 	}
 	return PreparedRequest{
@@ -226,10 +227,10 @@ func SessionKeyFor(header string, identity auth.Identity, req translate.ChatRequ
 	return hex.EncodeToString(sum[:])
 }
 
-// requestedReasoningLevel surfaces the reasoning level the client asked for,
+// RequestedReasoningLevel surfaces the reasoning level the client asked for,
 // normalized to the provider-neutral vocabulary. Empty when the request did
 // not specify one.
-func requestedReasoningLevel(req translate.ChatRequest) string {
+func RequestedReasoningLevel(req translate.ChatRequest) string {
 	if len(req.ReasoningEffort) > 0 {
 		var value any
 		if json.Unmarshal(req.ReasoningEffort, &value) == nil {

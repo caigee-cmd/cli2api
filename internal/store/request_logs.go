@@ -26,13 +26,13 @@ func (s *Store) InsertRequestLog(ctx context.Context, log accounts.RequestLog) e
 		finished = formatTime(*log.FinishedAt)
 	}
 	_, err := s.db.ExecContext(ctx, `
-INSERT INTO request_logs (
-	  id, created_at, finished_at, stream, status, requested_model, mapped_model, account_id, provider, routing,
-	  prompt_tokens, completion_tokens, cache_read_tokens, cache_write_tokens, usage_source, credits,
-	  latency_ms, ttfb_ms, error_kind, error_code, error_message, attempt_count, message_count, empty_message_indexes, message_roles
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	INSERT INTO request_logs (
+		  id, created_at, finished_at, stream, status, requested_model, mapped_model, requested_reasoning, resolved_reasoning, account_id, provider, routing,
+		  prompt_tokens, completion_tokens, cache_read_tokens, cache_write_tokens, usage_source, credits,
+		  latency_ms, ttfb_ms, error_kind, error_code, error_message, attempt_count, message_count, empty_message_indexes, message_roles
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		log.ID, formatTime(log.CreatedAt), finished, boolToInt(log.Stream), log.Status,
-		log.RequestedModel, log.MappedModel, nullIfEmpty(log.AccountID), strings.TrimSpace(log.Provider), strings.TrimSpace(log.Routing),
+		log.RequestedModel, log.MappedModel, strings.TrimSpace(log.RequestedReasoning), strings.TrimSpace(log.ResolvedReasoning), nullIfEmpty(log.AccountID), strings.TrimSpace(log.Provider), strings.TrimSpace(log.Routing),
 		nullableInt(log.PromptTokens), nullableInt(log.CompletionTokens),
 		nullableInt(log.CacheReadTokens), nullableInt(log.CacheWriteTokens),
 		log.UsageSource, nullableFloat(log.Credits), nullableInt(log.LatencyMs), nullableInt(log.TTFBMs),
@@ -53,13 +53,13 @@ func (s *Store) UpdateRequestLog(ctx context.Context, log accounts.RequestLog) e
 		finished = formatTime(*log.FinishedAt)
 	}
 	result, err := s.db.ExecContext(ctx, `
-	UPDATE request_logs SET
-	  finished_at = ?, status = ?, requested_model = ?, mapped_model = ?, account_id = ?, provider = ?, routing = ?,
-	  prompt_tokens = ?, completion_tokens = ?, cache_read_tokens = ?, cache_write_tokens = ?,
-	  usage_source = ?, credits = ?, latency_ms = ?, ttfb_ms = ?,
-	  error_kind = ?, error_code = ?, error_message = ?, attempt_count = ?, message_count = ?, empty_message_indexes = ?, message_roles = ?
-	WHERE id = ?`,
-		finished, log.Status, log.RequestedModel, log.MappedModel, nullIfEmpty(log.AccountID), strings.TrimSpace(log.Provider), strings.TrimSpace(log.Routing),
+		UPDATE request_logs SET
+		  finished_at = ?, status = ?, requested_model = ?, mapped_model = ?, requested_reasoning = ?, resolved_reasoning = ?, account_id = ?, provider = ?, routing = ?,
+		  prompt_tokens = ?, completion_tokens = ?, cache_read_tokens = ?, cache_write_tokens = ?,
+		  usage_source = ?, credits = ?, latency_ms = ?, ttfb_ms = ?,
+		  error_kind = ?, error_code = ?, error_message = ?, attempt_count = ?, message_count = ?, empty_message_indexes = ?, message_roles = ?
+		WHERE id = ?`,
+		finished, log.Status, log.RequestedModel, log.MappedModel, strings.TrimSpace(log.RequestedReasoning), strings.TrimSpace(log.ResolvedReasoning), nullIfEmpty(log.AccountID), strings.TrimSpace(log.Provider), strings.TrimSpace(log.Routing),
 		nullableInt(log.PromptTokens), nullableInt(log.CompletionTokens),
 		nullableInt(log.CacheReadTokens), nullableInt(log.CacheWriteTokens),
 		log.UsageSource, nullableFloat(log.Credits), nullableInt(log.LatencyMs), nullableInt(log.TTFBMs),
@@ -123,12 +123,12 @@ func (s *Store) ListRequestLogs(ctx context.Context, filter accounts.RequestLogF
 	}
 
 	query := `
-		SELECT id, created_at, finished_at, stream, status, requested_model, mapped_model, account_id,
-		       COALESCE(NULLIF(provider, ''), (SELECT provider FROM accounts WHERE accounts.id = request_logs.account_id), ''), routing,
-		       prompt_tokens, completion_tokens, cache_read_tokens, cache_write_tokens, usage_source,
-		       COALESCE(credits, (SELECT credit FROM request_usage_details WHERE request_usage_details.request_id = request_logs.id)),
-		       latency_ms, ttfb_ms, error_kind, error_code, error_message, attempt_count, message_count, empty_message_indexes, message_roles
-		FROM request_logs` + where + ` ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`
+			SELECT id, created_at, finished_at, stream, status, requested_model, mapped_model, requested_reasoning, resolved_reasoning, account_id,
+			       COALESCE(NULLIF(provider, ''), (SELECT provider FROM accounts WHERE accounts.id = request_logs.account_id), ''), routing,
+			       prompt_tokens, completion_tokens, cache_read_tokens, cache_write_tokens, usage_source,
+			       COALESCE(credits, (SELECT credit FROM request_usage_details WHERE request_usage_details.request_id = request_logs.id)),
+			       latency_ms, ttfb_ms, error_kind, error_code, error_message, attempt_count, message_count, empty_message_indexes, message_roles
+			FROM request_logs` + where + ` ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`
 	args = append(args, limit, offset)
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -461,12 +461,12 @@ func percentileNearestRank(sorted []int, percentile int) int {
 
 func (s *Store) GetRequestLog(ctx context.Context, id string) (accounts.RequestLog, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, created_at, finished_at, stream, status, requested_model, mapped_model, account_id,
-		       COALESCE(NULLIF(provider, ''), (SELECT provider FROM accounts WHERE accounts.id = request_logs.account_id), ''), routing,
-		       prompt_tokens, completion_tokens, cache_read_tokens, cache_write_tokens, usage_source,
-		       COALESCE(credits, (SELECT credit FROM request_usage_details WHERE request_usage_details.request_id = request_logs.id)),
-		       latency_ms, ttfb_ms, error_kind, error_code, error_message, attempt_count, message_count, empty_message_indexes, message_roles
-		FROM request_logs WHERE id = ?`, strings.TrimSpace(id))
+			SELECT id, created_at, finished_at, stream, status, requested_model, mapped_model, requested_reasoning, resolved_reasoning, account_id,
+			       COALESCE(NULLIF(provider, ''), (SELECT provider FROM accounts WHERE accounts.id = request_logs.account_id), ''), routing,
+			       prompt_tokens, completion_tokens, cache_read_tokens, cache_write_tokens, usage_source,
+			       COALESCE(credits, (SELECT credit FROM request_usage_details WHERE request_usage_details.request_id = request_logs.id)),
+			       latency_ms, ttfb_ms, error_kind, error_code, error_message, attempt_count, message_count, empty_message_indexes, message_roles
+			FROM request_logs WHERE id = ?`, strings.TrimSpace(id))
 	log, err := scanRequestLog(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return accounts.RequestLog{}, accounts.ErrRequestLogNotFound
@@ -766,7 +766,7 @@ func scanRequestLog(row rowScanner) (accounts.RequestLog, error) {
 		created                    string
 	)
 	err := row.Scan(
-		&log.ID, &created, &finished, &stream, &log.Status, &log.RequestedModel, &log.MappedModel, &accountID, &log.Provider, &log.Routing,
+		&log.ID, &created, &finished, &stream, &log.Status, &log.RequestedModel, &log.MappedModel, &log.RequestedReasoning, &log.ResolvedReasoning, &accountID, &log.Provider, &log.Routing,
 		&prompt, &completion, &cacheRead, &cacheWrite, &log.UsageSource, &credits,
 		&latency, &ttfb, &log.ErrorKind, &log.ErrorCode, &log.ErrorMessage, &log.AttemptCount, &log.MessageCount, &emptyIndexes, &messageRoles,
 	)

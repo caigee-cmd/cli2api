@@ -53,6 +53,7 @@ type ChatResult struct {
 	AttemptCount     int
 	RawNote          string
 	Routing          string
+	ReasoningLevel   string
 }
 
 type StreamResult struct {
@@ -798,6 +799,10 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 		result.AccountID = item.ID
 		result.Provider = loop.resultProvider(item)
 		result.AttemptCount = i + 1
+		result.ReasoningLevel = RequestedReasoningLevel(req)
+		if result.ReasoningLevel != "" {
+			logResolvedReasoning(ctx, "chat_non_stream", item, req.Model, result.ReasoningLevel)
+		}
 		e.observeRouting(&loop.routing, item.ID)
 		e.bindSession(loop.routing, item.ID)
 		e.markOK(item.ID, req.Model)
@@ -882,6 +887,7 @@ func (e ChatExecutor) chatInProcessNonStreamAttempt(ctx context.Context, item It
 		ConsumedCredits:  outcome.Credits,
 		AccountID:        item.ID,
 		Provider:         item.Provider,
+		ReasoningLevel:   outcome.ReasoningLevel,
 	}, Classified{}, nil
 }
 
@@ -1123,12 +1129,17 @@ func (e ChatExecutor) ChatStreamProxy(ctx context.Context, req translate.ChatReq
 			Status: accounts.AttemptStatusOK, HTTPStatus: ptrInt(resp.StatusCode), LatencyMs: &ttfb,
 		})
 		e.observeRouting(&loop.routing, item.ID)
+		resolved := RequestedReasoningLevel(req)
+		if resolved != "" {
+			logResolvedReasoning(ctx, "chat_stream", item, req.Model, resolved)
+		}
 		return StreamResult{
-			Response:     resp,
-			AccountID:    item.ID,
-			Provider:     loop.resultProvider(item),
-			AttemptCount: i + 1,
-			TTFBMs:       ttfb,
+			Response:       resp,
+			AccountID:      item.ID,
+			Provider:       loop.resultProvider(item),
+			AttemptCount:   i + 1,
+			TTFBMs:         ttfb,
+			ReasoningLevel: resolved,
 		}, nil
 	}
 	if loop.lastErr == nil {

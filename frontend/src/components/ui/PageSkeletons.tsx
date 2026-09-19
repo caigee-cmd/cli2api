@@ -308,14 +308,15 @@ export function AccessPageSkeleton() {
 export function LogsRequestListSkeleton() {
   return (
     <div aria-label="Loading logs">
-      <div className="hidden grid-cols-9 gap-4 border-b border-separator px-5 py-3 md:grid">
-        {Array.from({ length: 9 }, (_, index) => <SkeletonBlock key={index} className="h-3 w-16" />)}
+      <div className="hidden grid-cols-10 gap-4 border-b border-separator px-5 py-3 md:grid">
+        {Array.from({ length: 10 }, (_, index) => <SkeletonBlock key={index} className="h-3 w-16" />)}
       </div>
       {Array.from({ length: 8 }, (_, index) => (
-        <div key={index} className="grid grid-cols-2 items-center gap-4 border-b border-separator px-5 py-3.5 last:border-0 md:grid-cols-9">
+        <div key={index} className="grid grid-cols-2 items-center gap-4 border-b border-separator px-5 py-3.5 last:border-0 md:grid-cols-10">
           <SkeletonBlock className="h-4 w-28" />
           <SkeletonBlock className="h-4 w-24" />
           <SkeletonBlock className="hidden h-4 w-20 md:block" />
+          <SkeletonBlock className="hidden h-4 w-16 md:block" />
           <SkeletonBlock className="hidden h-4 w-16 md:block" />
           <SkeletonBlock className="hidden h-4 w-16 md:block" />
           <SkeletonBlock className="hidden h-4 w-14 md:block" />

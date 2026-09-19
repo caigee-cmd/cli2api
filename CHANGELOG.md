@@ -8,10 +8,14 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 ### English
 
 - Unify WorkBuddy and Qoder CN check-ins with provider default times, inheritable account overrides, and one scheduler. Keep check-in controls and history on account cards, without a separate navigation entry. Preserve existing WorkBuddy settings; Qoder CN live acceptance remains pending.
+- Move the WorkBuddy drop-system-prompt switch off account cards; keep the control and explanation in create and edit.
+- Record requested and resolved reasoning levels on request history; show one value when they match, otherwise `requested → resolved`.
 
 ### 中文
 
 - 统一 WorkBuddy 与 Qoder 国内版签到：供应商默认时间、账号动态继承/覆盖、公共调度；签到操作和记录留在账号页，不另设签到中心。保留已有 WorkBuddy 设置，Qoder 国内版真实账号验收仍待完成。
+- 从账号卡片上移除 WorkBuddy「丢弃系统提示词」开关，改到新建和编辑里，并保留说明文案。
+- 请求历史记录请求传入与实际上游的推理强度；两者一致时只显示一档，不一致时用 `请求 → 实际`。
 
 ## 0.5.7 - 2026-09-18
 

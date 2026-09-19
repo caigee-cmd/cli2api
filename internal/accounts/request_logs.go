@@ -31,6 +31,8 @@ type RequestLog struct {
 	Status              string                   `json:"status"`
 	RequestedModel      string                   `json:"requested_model"`
 	MappedModel         string                   `json:"mapped_model,omitempty"`
+	RequestedReasoning  string                   `json:"requested_reasoning,omitempty"`
+	ResolvedReasoning   string                   `json:"resolved_reasoning,omitempty"`
 	AccountID           string                   `json:"account_id,omitempty"`
 	Provider            string                   `json:"provider,omitempty"`
 	Routing             string                   `json:"routing,omitempty"`

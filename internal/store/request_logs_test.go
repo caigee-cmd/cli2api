@@ -28,7 +28,7 @@ func TestRequestLogsInsertListGetAndPurge(t *testing.T) {
 	prompt, completion := 12, 34
 	if err := store.InsertRequestLog(ctx, accounts.RequestLog{
 		ID: parentID, CreatedAt: now, Stream: false, Status: accounts.RequestStatusStarted,
-		RequestedModel: "glm-5.3", AccountID: wb.ID, AttemptCount: 0,
+		RequestedModel: "glm-5.3", RequestedReasoning: "high", AccountID: wb.ID, AttemptCount: 0,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +36,7 @@ func TestRequestLogsInsertListGetAndPurge(t *testing.T) {
 	latency := 120
 	if err := store.UpdateRequestLog(ctx, accounts.RequestLog{
 		ID: parentID, CreatedAt: now, FinishedAt: &finished, Stream: false, Status: accounts.RequestStatusOK,
-		RequestedModel: "glm-5.3", AccountID: wb.ID, PromptTokens: &prompt, CompletionTokens: &completion,
+		RequestedModel: "glm-5.3", RequestedReasoning: "high", ResolvedReasoning: "medium", AccountID: wb.ID, PromptTokens: &prompt, CompletionTokens: &completion,
 		UsageSource: "upstream", LatencyMs: &latency, AttemptCount: 2,
 	}); err != nil {
 		t.Fatal(err)
@@ -78,6 +78,9 @@ func TestRequestLogsInsertListGetAndPurge(t *testing.T) {
 	if list.Total != 1 || len(list.Items) != 1 || list.Items[0].Status != accounts.RequestStatusOK || list.Items[0].Provider != "workbuddy" {
 		t.Fatalf("list = %+v", list)
 	}
+	if list.Items[0].RequestedReasoning != "high" || list.Items[0].ResolvedReasoning != "medium" {
+		t.Fatalf("list reasoning = %+v", list.Items[0])
+	}
 	if list.Items[0].Credits == nil || *list.Items[0].Credits != 0.75 {
 		t.Fatalf("list credits fallback = %+v", list.Items[0].Credits)
 	}
@@ -91,6 +94,9 @@ func TestRequestLogsInsertListGetAndPurge(t *testing.T) {
 	}
 	if got.AccountID != wb.ID || got.Provider != "workbuddy" || len(got.Attempts) != 2 || got.Attempts[0].Status != accounts.AttemptStatusFailover {
 		t.Fatalf("detail = %+v", got)
+	}
+	if got.RequestedReasoning != "high" || got.ResolvedReasoning != "medium" {
+		t.Fatalf("detail reasoning = %+v", got)
 	}
 	if got.StreamDiagnostic == nil || got.StreamDiagnostic.UpstreamStatus == nil || *got.StreamDiagnostic.UpstreamStatus != 200 ||
 		got.StreamDiagnostic.CancellationSource != "request_context_canceled" || got.StreamDiagnostic.SSEEventCount != 4 || got.StreamDiagnostic.SawDone {
