@@ -11,7 +11,6 @@ import {
   ListBullets,
   PencilSimple,
   ShieldCheck,
-  TextAa,
   TrashSimple,
   WarningCircle,
 } from '@phosphor-icons/react'
@@ -50,7 +49,6 @@ type Props = {
   onRefresh?: () => void
   onDelete: () => void
   onToggle: (selected: boolean) => void
-  onToggleDropSystem: (selected: boolean) => void
   checkinDefaultTime?: string
   onToggleAutoCheckin?: (selected: boolean) => void
   onCheckin?: () => void
@@ -92,7 +90,6 @@ export function AccountCard({
   onRefresh,
   onDelete,
   onToggle,
-  onToggleDropSystem,
   checkinDefaultTime,
   onToggleAutoCheckin,
   onCheckin,
@@ -350,22 +347,6 @@ export function AccountCard({
       ) : null}
 
       <Card.Footer className="flex flex-wrap items-center gap-1.5 border-t border-separator px-3 py-2">
-        {account.provider === 'workbuddy' ? (
-          <Tooltip>
-            <Tooltip.Trigger>
-              <button
-                type="button"
-                onClick={() => onToggleDropSystem?.(!account.drop_system_prompt)}
-                className={`flex size-7 items-center justify-center rounded-lg border transition-colors ${account.drop_system_prompt ? 'border-accent/40 bg-accent/10 text-accent' : 'border-border text-foreground/50 hover:text-foreground'}`}
-                aria-label={t('dropSystemPrompt')}
-                aria-pressed={Boolean(account.drop_system_prompt)}
-              >
-                <TextAa size={14} />
-              </button>
-            </Tooltip.Trigger>
-            <Tooltip.Content>{t('dropSystemPromptHint')}</Tooltip.Content>
-          </Tooltip>
-        ) : null}
         {onRefresh ? (
           <Tooltip>
             <Tooltip.Trigger>

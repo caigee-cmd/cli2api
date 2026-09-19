@@ -73,7 +73,6 @@ export function AccountsPage() {
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState<PageSize>(20)
   const [enabledById, setEnabledById] = useState<Record<string, boolean>>({})
-  const [dropSystemById, setDropSystemById] = useState<Record<string, boolean>>({})
   const [nameById, setNameById] = useState<Record<string, string>>({})
   const [inflightById, setInflightById] = useState<Record<string, number>>({})
   const [priorityById, setPriorityById] = useState<Record<string, number>>({})
@@ -130,18 +129,16 @@ export function AccountsPage() {
   }
   const displayRows = useMemo(() => rows.map((account) => {
     const enabled = enabledById[account.id]
-    const dropSystem = dropSystemById[account.id]
     const name = nameById[account.id]
     const inflight = inflightById[account.id]
     const priority = priorityById[account.id]
     let next = account
     if (enabled !== undefined) next = { ...next, enabled }
-    if (dropSystem !== undefined) next = { ...next, drop_system_prompt: dropSystem }
     if (name !== undefined) next = { ...next, name }
     if (inflight !== undefined) next = { ...next, max_inflight: inflight }
     if (priority !== undefined) next = { ...next, priority }
     return next
-  }), [enabledById, dropSystemById, inflightById, nameById, priorityById, rows])
+  }), [enabledById, inflightById, nameById, priorityById, rows])
 
   const availableCount = displayRows.filter(isAvailable).length
   const attentionCount = displayRows.filter((account) => account.enabled && !isAvailable(account)).length
@@ -283,19 +280,6 @@ export function AccountsPage() {
     })
   }
 
-  async function onToggleDropSystem(id: string, selected: boolean) {
-    setDropSystemById((current) => ({ ...current, [id]: selected }))
-    await run(id, 'toggle', async () => {
-      await updateAccount(id, { drop_system_prompt: selected })
-      await reloadAccounts(false)
-    })
-    setDropSystemById((current) => {
-      const next = { ...current }
-      delete next[id]
-      return next
-    })
-  }
-
   async function onRefreshAccount(id: string) {
     setBusy({ id, kind: 'refresh' })
     setNoteById((current) => {
@@ -336,7 +320,7 @@ export function AccountsPage() {
     })
   }
 
-  async function onSaveSettings(id: string, input: { name: string; max_inflight: number; priority: number; proxy_url?: string; checkin_time?: string }) {
+  async function onSaveSettings(id: string, input: { name: string; max_inflight: number; priority: number; proxy_url?: string; checkin_time?: string; drop_system_prompt?: boolean }) {
     if (!id) throw new Error(t('accountNameRequired'))
     setNameById((current) => ({ ...current, [id]: input.name }))
     setInflightById((current) => ({ ...current, [id]: input.max_inflight }))
@@ -516,7 +500,6 @@ export function AccountsPage() {
             onRefresh={() => void onRefreshAccount(account.id)}
             onDelete={() => setConfirmId(account.id)}
             onToggle={(selected) => void onToggle(account.id, selected)}
-            onToggleDropSystem={(selected) => void onToggleDropSystem(account.id, selected)}
             checkinDefaultTime={settings?.checkin_times[account.provider || '']}
             onToggleAutoCheckin={checkinPolicyFor(account) ? (selected) => void onToggleAutoCheckin(account.id, selected) : undefined}
             onCheckin={checkinPolicyFor(account) ? () => void onCheckin(account.id) : undefined}

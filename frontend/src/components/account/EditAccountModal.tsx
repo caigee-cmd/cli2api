@@ -16,7 +16,7 @@ type Props = {
   busy: boolean
   t: Translate
   onClose: () => void
-  onSave: (input: { name: string; max_inflight: number; priority: number; proxy_url: string; checkin_time?: string }) => Promise<void>
+  onSave: (input: { name: string; max_inflight: number; priority: number; proxy_url: string; checkin_time?: string; drop_system_prompt?: boolean }) => Promise<void>
 }
 
 export function EditAccountModal({ account, checkinDefaultTime, checkinTimezone, busy, t, onClose, onSave }: Props) {
@@ -24,6 +24,7 @@ export function EditAccountModal({ account, checkinDefaultTime, checkinTimezone,
   const [maxInFlight, setMaxInFlight] = useState<number>(account?.max_inflight ?? 4)
   const [priority, setPriority] = useState<number>(account?.priority ?? 50)
   const [proxyUrl, setProxyUrl] = useState(account?.proxy_url || '')
+  const [dropSystemPrompt, setDropSystemPrompt] = useState(Boolean(account?.drop_system_prompt))
   const [inheritCheckinTime, setInheritCheckinTime] = useState(!account?.checkin_time)
   const [checkinTime, setCheckinTime] = useState<string | null>(account?.checkin_time || null)
   const [error, setError] = useState('')
@@ -57,6 +58,7 @@ export function EditAccountModal({ account, checkinDefaultTime, checkinTimezone,
         priority,
         proxy_url: proxyUrl.trim(),
         checkin_time: checkinDefaultTime !== undefined ? (inheritCheckinTime ? '' : checkinTime ?? checkinDefaultTime) : undefined,
+        drop_system_prompt: account?.provider === 'workbuddy' ? dropSystemPrompt : undefined,
       })
       onClose()
     } catch (err) {
@@ -150,6 +152,16 @@ export function EditAccountModal({ account, checkinDefaultTime, checkinTimezone,
                     disabled={busy}
                   />
                 </FormRow>
+                {account?.provider === 'workbuddy' ? (
+                  <FormRow label={t('dropSystemPrompt')} hint={t('dropSystemPromptHint')}>
+                    <CompactSwitch
+                      isSelected={dropSystemPrompt}
+                      isDisabled={busy}
+                      ariaLabel={t('dropSystemPrompt')}
+                      onChange={setDropSystemPrompt}
+                    />
+                  </FormRow>
+                ) : null}
                 {checkinDefaultTime !== undefined ? (
                   <FormRow label={t('autoCheckinTime')} hint={t('checkinScheduleHint')}>
                     <div className="space-y-3">
