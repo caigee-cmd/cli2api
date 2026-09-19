@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/providers"
 	"github.com/caigee-cmd/cli2api/internal/providers/qoder"
 )
@@ -33,8 +34,34 @@ func (m *Manager) fetchProviderQuota(ctx context.Context, accountID string, prob
 		Unit:       unit,
 		Exceeded:   info.Exceeded,
 		FetchedAt:  info.FetchedAt,
+		Windows:    quotaWindowsFromInfo(info.Windows),
 	}
 	m.persistQuota(ctx, accountID, quota)
+}
+
+func quotaWindowsFromInfo(windows []providers.QuotaWindow) []accounts.QuotaWindow {
+	if len(windows) == 0 {
+		return nil
+	}
+	out := make([]accounts.QuotaWindow, 0, len(windows))
+	for _, window := range windows {
+		unit := window.Unit
+		if unit == "" {
+			unit = "credits"
+		}
+		out = append(out, accounts.QuotaWindow{
+			ID:         window.ID,
+			Label:      window.Label,
+			Used:       window.Used,
+			Total:      window.Total,
+			Remaining:  window.Remaining,
+			Percentage: window.Percentage,
+			Unit:       unit,
+			ResetAt:    window.ResetAt,
+			Exceeded:   window.Exceeded,
+		})
+	}
+	return out
 }
 
 func (m *Manager) persistQuota(ctx context.Context, accountID string, quota *QuotaSnapshot) {

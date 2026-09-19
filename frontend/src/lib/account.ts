@@ -1,4 +1,4 @@
-import type { AccountQuota, Overview } from '@/api/types'
+import type { AccountQuota, AccountQuotaWindow, Overview } from '@/api/types'
 
 export type AccountRow = NonNullable<Overview['accounts']>[number]
 export type AccountState = 'disabled' | 'quota_exhausted' | 'cooling' | 'hot' | 'ready' | 'login' | 'loading' | 'starting' | 'unavailable' | 'dead' | 'auth_failed'
@@ -74,9 +74,28 @@ export function quotaUsedRatio(quota: AccountQuota) {
   return Math.min(1, Math.max(0, percentage / 100))
 }
 
-export function quotaTone(quota: AccountQuota): QuotaTone {
+export function quotaTone(quota: Pick<AccountQuota, 'percentage' | 'exceeded'>): QuotaTone {
   const percentage = quota.percentage ?? 0
   if (quota.exceeded) return 'danger'
   if (percentage >= 80) return 'warn'
   return 'ok'
+}
+
+export function quotaWindows(quota: AccountQuota) {
+  return (quota.windows ?? []).filter((window) => Boolean(window.id))
+}
+
+export function quotaWindowLabel(window: AccountQuotaWindow, t: (key: string) => string) {
+  if (window.id === 'daily') return t('quotaDaily')
+  if (window.id === 'weekly') return t('quotaWeekly')
+  return window.label || t('quota')
+}
+
+export function quotaResetLabel(resetAt: string | undefined, t: (key: string, vars?: Record<string, string | number>) => string) {
+  if (!resetAt) return ''
+  const milliseconds = Date.parse(resetAt) - Date.now()
+  if (!Number.isFinite(milliseconds) || milliseconds <= 0) return t('quotaResetsSoon')
+  const minutes = Math.max(1, Math.ceil(milliseconds / 60000))
+  if (minutes < 60) return t('quotaResetsInMinutes', { n: minutes })
+  return t('quotaResetsInHours', { n: Math.round(minutes / 60) })
 }

@@ -82,3 +82,40 @@ func TestFetchUserStatusMapsPlanAndQuota(t *testing.T) {
 		t.Fatalf("status = %+v, want %+v", got, want)
 	}
 }
+
+func TestQuotaFromStatusKeepsDailyAndWeeklyWindows(t *testing.T) {
+	dailyReset := time.Unix(1700086400, 0).UTC()
+	weeklyReset := time.Unix(1700604800, 0).UTC()
+	got := quotaFromStatus(&UserStatus{
+		DailyQuotaRemainingPercent:  100,
+		WeeklyQuotaRemainingPercent: 33,
+		DailyQuotaResetAt:           dailyReset,
+		WeeklyQuotaResetAt:          weeklyReset,
+	}, time.Unix(1700000000, 0).UTC())
+	if got == nil {
+		t.Fatal("quota info is nil")
+	}
+	if got.Remaining != 33 || got.Percentage != 67 || got.Exceeded {
+		t.Fatalf("tightest quota = %+v", got)
+	}
+	if len(got.Windows) != 2 {
+		t.Fatalf("windows = %+v", got.Windows)
+	}
+	if got.Windows[0].ID != "daily" || got.Windows[0].Remaining != 100 || got.Windows[0].Percentage != 0 || got.Windows[0].ResetAt != dailyReset.Format(time.RFC3339) {
+		t.Fatalf("daily window = %+v", got.Windows[0])
+	}
+	if got.Windows[1].ID != "weekly" || got.Windows[1].Remaining != 33 || got.Windows[1].Percentage != 67 || got.Windows[1].ResetAt != weeklyReset.Format(time.RFC3339) {
+		t.Fatalf("weekly window = %+v", got.Windows[1])
+	}
+}
+
+func TestQuotaFromStatusHidesDailyWindow(t *testing.T) {
+	got := quotaFromStatus(&UserStatus{
+		DailyQuotaRemainingPercent:  0,
+		WeeklyQuotaRemainingPercent: 42,
+		HideDailyQuota:              true,
+	}, time.Unix(1700000000, 0).UTC())
+	if got == nil || got.Remaining != 42 || got.Exceeded || len(got.Windows) != 1 || got.Windows[0].ID != "weekly" {
+		t.Fatalf("hidden daily quota = %+v", got)
+	}
+}
