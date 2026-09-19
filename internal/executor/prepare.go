@@ -5,12 +5,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"log"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/auth"
+	"github.com/caigee-cmd/cli2api/internal/providers"
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
@@ -119,6 +121,9 @@ func (e ChatExecutor) Prepare(in PrepareInput) (PreparedRequest, error) {
 	if sessionKey := SessionKeyFor(in.SessionHeader, in.Identity, request); sessionKey != "" {
 		ctx = WithSessionKey(ctx, sessionKey)
 	}
+	if level := requestedReasoningLevel(request); level != "" {
+		log.Printf("request reasoning request_id=%q model=%q level=%q", requestID, request.Model, level)
+	}
 	return PreparedRequest{
 		Context:        ctx,
 		RequestID:      requestID,
@@ -219,4 +224,46 @@ func SessionKeyFor(header string, identity auth.Identity, req translate.ChatRequ
 	}
 	sum := sha256.Sum256([]byte(namespace + "\x00" + kind + "\x00" + raw))
 	return hex.EncodeToString(sum[:])
+}
+
+// requestedReasoningLevel surfaces the reasoning level the client asked for,
+// normalized to the provider-neutral vocabulary. Empty when the request did
+// not specify one.
+func requestedReasoningLevel(req translate.ChatRequest) string {
+	if len(req.ReasoningEffort) > 0 {
+		var value any
+		if json.Unmarshal(req.ReasoningEffort, &value) == nil {
+			switch typed := value.(type) {
+			case string:
+				return providers.NormalizeReasoningLevel(typed)
+			case map[string]any:
+				for _, key := range []string{"effort", "level", "type"} {
+					if text, ok := typed[key].(string); ok {
+						if level := providers.NormalizeReasoningLevel(text); level != "" {
+							return level
+						}
+					}
+				}
+			}
+		}
+	}
+	if req.EnableThinking != nil {
+		if *req.EnableThinking {
+			return "medium"
+		}
+		return "none"
+	}
+	if req.EnableReasoning != nil {
+		if *req.EnableReasoning {
+			return "medium"
+		}
+		return "none"
+	}
+	if req.IsReasoning != nil {
+		if *req.IsReasoning {
+			return "medium"
+		}
+		return "none"
+	}
+	return ""
 }

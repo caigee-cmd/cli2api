@@ -56,12 +56,13 @@ type ChatResult struct {
 }
 
 type StreamResult struct {
-	Response     *http.Response
-	AccountID    string
-	Provider     string
-	AttemptCount int
-	TTFBMs       int
-	Routing      string
+	Response       *http.Response
+	AccountID      string
+	Provider       string
+	AttemptCount   int
+	TTFBMs         int
+	Routing        string
+	ReasoningLevel string
 }
 
 type requestIDKey struct{}
@@ -838,6 +839,9 @@ func (e ChatExecutor) chatInProcessNonStreamAttempt(ctx context.Context, item It
 	outcome, err := adapter.Chat.ChatNonStream(ctx, item.ID, sanitizeForItem(item, req))
 	finished := time.Now().UTC()
 	latency := int(finished.Sub(started).Milliseconds())
+	if err == nil {
+		logResolvedReasoning(ctx, "chat_non_stream", item, req.Model, outcome.ReasoningLevel)
+	}
 	if err != nil {
 		if requestContextDone(ctx, err) {
 			return ChatResult{AccountID: item.ID, Provider: item.Provider}, Classified{Kind: accounts.KindUnavailable, Message: err.Error()}, err
@@ -887,7 +891,10 @@ func (e ChatExecutor) chatInProcessStreamAttempt(ctx context.Context, item Item,
 		return StreamResult{}, Classified{}, fmt.Errorf("provider %s does not implement chat", item.Provider)
 	}
 	started := time.Now()
-	resp, err := adapter.Chat.ChatStream(ctx, item.ID, sanitizeForItem(item, req))
+	resp, resolved, err := adapter.Chat.ChatStream(ctx, item.ID, sanitizeForItem(item, req))
+	if err == nil {
+		logResolvedReasoning(ctx, "chat_stream", item, req.Model, resolved.ReasoningLevel)
+	}
 	if err != nil {
 		finished := time.Now().UTC()
 		latency := int(finished.Sub(started).Milliseconds())
@@ -916,7 +923,7 @@ func (e ChatExecutor) chatInProcessStreamAttempt(ctx context.Context, item Item,
 		AttemptIndex: attemptIndex, AccountID: item.ID, StartedAt: started, FinishedAt: &headerAt,
 		Status: accounts.AttemptStatusOK, HTTPStatus: ptrInt(http.StatusOK), LatencyMs: &ttfb,
 	})
-	return StreamResult{Response: resp, AccountID: item.ID, Provider: item.Provider, TTFBMs: ttfb}, Classified{}, nil
+	return StreamResult{Response: resp, AccountID: item.ID, Provider: item.Provider, TTFBMs: ttfb, ReasoningLevel: resolved.ReasoningLevel}, Classified{}, nil
 }
 
 func (e ChatExecutor) classifyInProcessError(err error) Classified { return ClassifyError(err) }
@@ -1140,4 +1147,15 @@ func truncateErr(msg string) string {
 		return msg
 	}
 	return msg[:500]
+}
+
+// logResolvedReasoning emits one line per successful chat attempt showing the
+// reasoning level actually sent upstream. Empty levels are omitted to keep
+// noise down for providers that do not accept a reasoning knob.
+func logResolvedReasoning(ctx context.Context, source string, item Item, model, level string) {
+	if level == "" {
+		return
+	}
+	log.Printf("chat reasoning resolved request_id=%q source=%q account=%q provider=%q model=%q level=%q",
+		RequestIDFromContext(ctx), source, item.ID, item.Provider, model, level)
 }

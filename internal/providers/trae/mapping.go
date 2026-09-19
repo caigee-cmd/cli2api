@@ -82,3 +82,13 @@ func applySoloChatFields(obj map[string]any, req translate.ChatRequest, maxMode 
 	}
 	obj["reasoning_effort_level"] = level
 }
+
+// resolvedReasoningLevel returns the clamped reasoning level actually sent
+// upstream for the given request, or empty when no level is included.
+func resolvedReasoningLevel(req translate.ChatRequest, storedLevel string, caps providers.ModelCapabilities) string {
+	level := requestedReasoningLevel(req)
+	if level == "" {
+		level = storedLevel
+	}
+	return clampReasoningLevel(level, caps)
+}

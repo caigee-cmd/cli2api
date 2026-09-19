@@ -339,7 +339,7 @@ func TestChatStreamTextToolAndDone(t *testing.T) {
 
 	client := NewClient(store)
 	client.SetBases(AppBase, APIBase, server.URL)
-	resp, err := client.ChatStream(context.Background(), "acc1", translate.ChatRequest{
+	resp, _, err := client.ChatStream(context.Background(), "acc1", translate.ChatRequest{
 		Model: "swe-2-high",
 		Messages: []translate.ChatMessage{
 			{Role: "user", Content: "hi"},
@@ -434,7 +434,7 @@ func TestChatStreamKeepsDistinctToolIDs(t *testing.T) {
 	store.creds["acc1"] = encoded
 	client := NewClient(store)
 	client.SetBases(AppBase, APIBase, server.URL)
-	response, err := client.ChatStream(context.Background(), "acc1", translate.ChatRequest{Model: "swe-2-high", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}}})
+	response, _, err := client.ChatStream(context.Background(), "acc1", translate.ChatRequest{Model: "swe-2-high", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -481,7 +481,7 @@ func TestChatStreamCancelClosesBody(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
 	go func() {
-		_, err := client.ChatStream(ctx, "acc1", translate.ChatRequest{
+		_, _, err := client.ChatStream(ctx, "acc1", translate.ChatRequest{
 			Model: "swe-2-high",
 			Messages: []translate.ChatMessage{
 				{Role: "user", Content: "hi"},
@@ -875,7 +875,7 @@ func TestChatStreamRestoresMCPToolName(t *testing.T) {
 	tools := json.RawMessage(`[{"type":"function","function":{"name":"mcp__computer-use__left_click","description":"click","parameters":{"type":"object"}}}]`)
 	client := NewClient(store)
 	client.SetBases(AppBase, APIBase, server.URL)
-	resp, err := client.ChatStream(context.Background(), "acc1", translate.ChatRequest{
+	resp, _, err := client.ChatStream(context.Background(), "acc1", translate.ChatRequest{
 		Model: "swe-2-high",
 		Messages: []translate.ChatMessage{
 			{Role: "user", Content: "click"},
@@ -998,7 +998,7 @@ func TestChatStreamFallsBackAfterImmediateMCPTrailer(t *testing.T) {
 		{"type":"function","function":{"name":"exec_command","parameters":{"type":"object"}}},
 		{"type":"function","function":{"name":"mcp__node_repl__js","parameters":{"type":"object"}}}
 	]`)
-	resp, err := client.ChatStream(context.Background(), "acc1", translate.ChatRequest{
+	resp, _, err := client.ChatStream(context.Background(), "acc1", translate.ChatRequest{
 		Model:    "swe-2",
 		Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
 		Tools:    tools,
@@ -1085,7 +1085,7 @@ func TestChatStreamKeepsCoreToolsAfterStripStillDenied(t *testing.T) {
 		{"type":"function","function":{"name":"get_goal","description":"goal","parameters":{"type":"object"}}},
 		{"type":"function","function":{"name":"list_mcp_resources","parameters":{"type":"object"}}}
 	]`)
-	resp, err := client.ChatStream(context.Background(), "acc1", translate.ChatRequest{
+	resp, _, err := client.ChatStream(context.Background(), "acc1", translate.ChatRequest{
 		Model:    "swe-2",
 		Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
 		Tools:    tools,

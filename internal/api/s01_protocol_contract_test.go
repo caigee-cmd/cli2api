@@ -303,13 +303,13 @@ func (chat *canceledStreamChat) ChatNonStream(context.Context, string, translate
 	return providers.ChatOutcome{}, providers.ErrUnsupported
 }
 
-func (chat *canceledStreamChat) ChatStream(context.Context, string, translate.ChatRequest) (*http.Response, error) {
+func (chat *canceledStreamChat) ChatStream(context.Context, string, translate.ChatRequest) (*http.Response, providers.ResolvedChat, error) {
 	chat.calls.Add(1)
 	return &http.Response{
 		StatusCode: http.StatusOK,
 		Header:     http.Header{"Content-Type": {"text/event-stream"}},
 		Body:       closedStreamPipe(fmt.Errorf("upstream stream: %w", chat.cause)),
-	}, nil
+	}, providers.ResolvedChat{}, nil
 }
 
 func TestStreamBodyCancellationKeepsAccountHealthyAcrossEndpoints(test *testing.T) {

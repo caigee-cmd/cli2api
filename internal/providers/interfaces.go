@@ -75,13 +75,24 @@ type ChatOutcome struct {
 	CacheWriteTokens *int
 	UsageSource      string
 	Credits          *float64
+	// ReasoningLevel is the clamped reasoning level actually sent upstream,
+	// empty when the provider did not include one in the payload.
+	ReasoningLevel string
+}
+
+// ResolvedChat carries provider-side metadata for a stream request that the
+// API layer may want to log alongside the relayed upstream response.
+type ResolvedChat struct {
+	// ReasoningLevel is the clamped reasoning level actually sent upstream,
+	// empty when the provider did not include one in the payload.
+	ReasoningLevel string
 }
 
 // ProviderChat executes chat for one account. Stream implementations return
 // the raw upstream response for the API layer to relay.
 type ProviderChat interface {
 	ChatNonStream(ctx context.Context, accountID string, req translate.ChatRequest) (ChatOutcome, error)
-	ChatStream(ctx context.Context, accountID string, req translate.ChatRequest) (*http.Response, error)
+	ChatStream(ctx context.Context, accountID string, req translate.ChatRequest) (*http.Response, ResolvedChat, error)
 }
 
 // ModelCatalogProvider lists models an account can currently serve.
