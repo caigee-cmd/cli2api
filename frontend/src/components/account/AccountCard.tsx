@@ -336,10 +336,16 @@ export function AccountCard({
             </Tooltip.Trigger>
             <Tooltip.Content>{account.last_checkin_at ? new Date(account.last_checkin_at).toLocaleString() : t('lastCheckinNone')}{account.last_checkin_msg ? ` · ${account.last_checkin_msg}` : ''}</Tooltip.Content>
           </Tooltip>
-          <span className="flex items-center gap-1.5">
-            <span className="mono text-[10px] text-foreground/55">{account.checkin_time || checkinDefaultTime}</span>
-            <CompactSwitch isSelected={Boolean(account.auto_checkin)} isDisabled={Boolean(busyKind)} ariaLabel={t('autoCheckin')} onChange={(selected) => onToggleAutoCheckin?.(selected)} />
-          </span>
+          <Tooltip>
+            <Tooltip.Trigger>
+              <span className="flex cursor-help items-center gap-1.5">
+                <span className="font-medium">{t('autoCheckin')}</span>
+                <span className="mono text-[10px] text-foreground/55">{account.checkin_time || checkinDefaultTime}</span>
+                <CompactSwitch isSelected={Boolean(account.auto_checkin)} isDisabled={Boolean(busyKind)} ariaLabel={t('autoCheckin')} onChange={(selected) => onToggleAutoCheckin?.(selected)} />
+              </span>
+            </Tooltip.Trigger>
+            <Tooltip.Content>{account.checkin_time ? t('checkinCustom') : t('checkinInherit')}</Tooltip.Content>
+          </Tooltip>
         </div>
       ) : null}
 
