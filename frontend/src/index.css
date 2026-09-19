@@ -159,6 +159,9 @@ body {
 .account-meter {
   display: grid;
   gap: 0.4rem;
+  grid-template-areas:
+    "output output"
+    "track track";
 }
 
 .account-meter .meter__track {
