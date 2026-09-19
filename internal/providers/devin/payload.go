@@ -401,20 +401,6 @@ func stripMCPSemanticTools(tools []Tool, originalByAlias map[string]string) []To
 	return out
 }
 
-func countMCPSemanticTools(tools []Tool, originalByAlias map[string]string) int {
-	count := 0
-	for _, tool := range tools {
-		original := tool.Name
-		if mapped, ok := originalByAlias[tool.Name]; ok && mapped != "" {
-			original = mapped
-		}
-		if needsDevinToolAlias(original) || needsDevinToolAlias(tool.Name) {
-			count++
-		}
-	}
-	return count
-}
-
 func promptHasMCPSemantics(payload ChatPayload) bool {
 	if strings.Contains(strings.ToLower(payload.System), "mcp") {
 		return true
@@ -554,36 +540,6 @@ var coreLocalToolSchemas = map[string]struct {
 func coreLocalTools() []Tool {
 	out := make([]Tool, 0, len(coreLocalToolOrder))
 	for _, name := range coreLocalToolOrder {
-		schema := coreLocalToolSchemas[name]
-		out = append(out, Tool{
-			Name:        name,
-			Description: schema.description,
-			Parameters:  json.RawMessage(schema.parameters),
-		})
-	}
-	return out
-}
-
-// keepCoreLocalTools returns only the core local tools present in the inbound
-// set, rewritten onto the sanitized schemas. Prefer coreLocalTools() for the
-// final MCP fallback so exec_command remains available even if the client did
-// not send it in that turn's tools array.
-func keepCoreLocalTools(tools []Tool) []Tool {
-	if len(tools) == 0 {
-		return nil
-	}
-	byName := map[string]Tool{}
-	for _, tool := range tools {
-		name := strings.TrimSpace(tool.Name)
-		if _, ok := coreLocalToolSchemas[name]; ok {
-			byName[name] = tool
-		}
-	}
-	out := make([]Tool, 0, len(coreLocalToolOrder))
-	for _, name := range coreLocalToolOrder {
-		if _, ok := byName[name]; !ok {
-			continue
-		}
 		schema := coreLocalToolSchemas[name]
 		out = append(out, Tool{
 			Name:        name,

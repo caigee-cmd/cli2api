@@ -7,6 +7,11 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### English
 
+- Preserve cancellation and deadline causes in stream read failures without cooling healthy accounts; classify typed upstream stream errors once while retaining the original error chain.
+- Keep Trae and WorkBuddy model settings marked as default after refresh when the selected reasoning level matches the catalog default; ignore inactive Max settings in the custom-state indicator.
+- Clarify setup, administrator versus client keys, compatibility limits, and managed updates; align documentation and README artwork with the accepted refactor boundaries without claiming pending acceptance is complete.
+- Keep console-key rotation synchronized with live HTTP authentication and Qoder worker requests without restarting the API server
+- Remove per-request update dependency rewrites and restore thread-safe Qoder starter configuration during proxy/key changes
 - Restore Responses function namespaces in JSON and SSE output, and preserve qualified tool identities when replaying calls or selecting a function.
 - Preserve Qoder user images and image-bearing tool results, emitting tool-result images after their complete ordered tool batch.
 - Bridge Responses custom tools through function calls, restoring custom output/events and replaying tool results. Format rules are descriptive, not grammar-enforced; custom input events are emitted after argument collection.
@@ -23,6 +28,11 @@ Write each change in both `### English` and `### 中文` under `## Unreleased`.
 
 ### 中文
 
+- 流读取失败保留取消与超时原因，不再误冷却健康账号；上游类型化流错误统一分类一次，同时保留原始错误链。
+- Trae、WorkBuddy 选择目录默认推理等级后，刷新仍显示默认状态；未生效的 Max 设置不再误标为自定义。
+- 精简安装与接入说明，区分管理员和客户端密钥，明确兼容范围与托管更新流程；按已验收重构边界同步文档和 README 配图，不将待验收事项写成已完成。
+- 控制台密钥轮换会同步到正在使用的 HTTP 鉴权和 Qoder worker 请求，无需重启 API 服务
+- 移除更新接口逐请求重写依赖的竞态，并恢复代理/密钥变更时 Qoder 启动器配置的并发安全
 - Responses 的 JSON 和 SSE 输出会还原 function 的命名空间，历史调用回放与指定函数选择也会保留完整工具身份。
 - 保留 Qoder 用户消息及工具结果中的图片，并在完整、有序的工具结果批次之后发送工具图片。
 - 通过 function 调用桥接 Responses custom 工具，还原 custom 输出与事件并回放工具结果。格式规则仅作为描述传递，不强制执行语法约束；custom 输入事件在参数收集后发送。

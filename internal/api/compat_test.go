@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
+	"github.com/caigee-cmd/cli2api/internal/app"
 	"github.com/caigee-cmd/cli2api/internal/auth"
 	"github.com/caigee-cmd/cli2api/internal/executor"
 	"github.com/caigee-cmd/cli2api/internal/providers"
@@ -128,11 +129,10 @@ func TestResponsesNamespaceHandlerRoundTrip(t *testing.T) {
 }
 
 func TestCompatibilityStreamsPreserveTypedReadError(t *testing.T) {
-	failover := false
 	want := &providers.Error{
 		Kind: accounts.KindInvalidRequest, Status: http.StatusBadRequest,
 		Code: "invalid_argument", Type: "invalid_request_error", Message: "upstream rejected request",
-		RetryAfter: 45 * time.Second, Failover: &failover,
+		RetryAfter: 45 * time.Second,
 	}
 	for name, relay := range map[string]func(io.Writer, io.Reader, string, string) (streamRelayStats, error){
 		"anthropic": relayAnthropicStream,
@@ -140,6 +140,10 @@ func TestCompatibilityStreamsPreserveTypedReadError(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := relay(httptest.NewRecorder(), closedStreamPipe(fmt.Errorf("Connect trailer: %w", want)), "req_1", "devin/swe-2")
+			var executionErr *executor.ExecutionError
+			if !errors.As(err, &executionErr) || executionErr.Classified.Kind != want.Kind {
+				t.Fatalf("stream error was not classified: %T %v", err, err)
+			}
 			var got *providers.Error
 			if !errors.As(err, &got) || got != want {
 				t.Fatalf("error=%T %+v want pointer=%p", err, err, want)
@@ -151,11 +155,11 @@ func TestCompatibilityStreamsPreserveTypedReadError(t *testing.T) {
 func newCompatibilityServer(t *testing.T, worker http.HandlerFunc) (*Server, func()) {
 	t.Helper()
 	upstream := httptest.NewServer(worker)
-	pool := accounts.NewPool(nil, nil)
-	pool.Upsert(accounts.Item{ID: "account-a", URL: upstream.URL, Provider: "qoder", Region: "global", Runtime: "child_process"})
+	pool := executor.NewPool(nil, nil)
+	pool.Upsert(executor.Item{ID: "account-a", URL: upstream.URL, Provider: "qoder", Region: "global", Runtime: "child_process"})
 	chatExecutor := executor.NewChatExecutor(pool, "")
 	chatExecutor.HTTPClient = upstream.Client()
-	server := &Server{executor: chatExecutor, pool: pool}
+	server := &Server{App: &app.App{Executor: chatExecutor, Pool: pool}}
 	return server, upstream.Close
 }
 
@@ -438,10 +442,10 @@ func TestPrepareCompatibilityExecutionReusesChatPreflight(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.providerFilter != "workbuddy" || got.prefer != "account-a" || got.request.Model != "glm-5.2" || got.publicModel != "workbuddy/glm-5.2" {
+	if got.ProviderFilter != "workbuddy" || got.Prefer != "account-a" || got.Request.Model != "glm-5.2" || got.PublicModel != "workbuddy/glm-5.2" {
 		t.Fatalf("chat execution=%+v", got)
 	}
-	if compat.providerFilter != got.providerFilter || compat.prefer != got.prefer || compat.request.Model != got.request.Model || compat.publicModel != got.publicModel {
+	if compat.ProviderFilter != got.ProviderFilter || compat.Prefer != got.Prefer || compat.Request.Model != got.Request.Model || compat.PublicModel != got.PublicModel {
 		t.Fatalf("compat=%+v chat=%+v", compat, got)
 	}
 }
@@ -451,7 +455,7 @@ func TestV1AndCompatibilitySharePreflightErrors(t *testing.T) {
 		t.Fatal("preflight errors must not reach the worker")
 	})
 	defer closeServer()
-	server.crossProviderModelPool.Store(false)
+	server.CrossProviderModelPool.Store(false)
 	identity := auth.KeyIdentity(accounts.APIKey{ID: "key_1", Name: "ci", Providers: []string{"qoder"}, Enabled: true})
 
 	post := func(path, body string, handler func(http.ResponseWriter, *http.Request)) *httptest.ResponseRecorder {
@@ -489,14 +493,14 @@ func TestV1AndCompatibilitySharePreflightErrors(t *testing.T) {
 		t.Fatalf("responses denied=%d %s", respDenied.Code, respDenied.Body.String())
 	}
 
-	server.crossProviderModelPool.Store(true)
+	server.CrossProviderModelPool.Store(true)
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"glm-5.2","messages":[{"role":"user","content":"hi"}]}`))
 	req = req.WithContext(auth.WithIdentity(req.Context(), identity))
 	execution, err := server.prepareChatExecution(req, translate.ChatRequest{Model: "glm-5.2", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if execution.providerFilter != "" {
-		t.Fatalf("bare model with pool on must keep an empty filter, got %q", execution.providerFilter)
+	if execution.ProviderFilter != "" {
+		t.Fatalf("bare model with pool on must keep an empty filter, got %q", execution.ProviderFilter)
 	}
 }

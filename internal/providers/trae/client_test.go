@@ -291,8 +291,8 @@ func TestChatStreamQuotaErrorAfterContentIsReadable(t *testing.T) {
 	if classified.Kind != accounts.KindQuota {
 		t.Fatalf("kind=%s", classified.Kind)
 	}
-	if classified.Cooldown <= 0 || classified.Cooldown > 24*time.Hour {
-		t.Fatalf("cooldown=%v", classified.Cooldown)
+	if classified.RetryAfter != 0 {
+		t.Fatalf("retry_after=%v", classified.RetryAfter)
 	}
 }
 
@@ -586,42 +586,59 @@ func TestModelsEmptyIsError(t *testing.T) {
 
 func TestErrorMappingAndCooldown(t *testing.T) {
 	cases := []struct {
-		status       int
-		body         string
-		kind         string
-		cooldown     time.Duration
-		nextMidnight bool
+		status int
+		body   string
+		kind   string
+		code   string
 	}{
-		{401, `{"code":1001}`, "auth", 30 * time.Minute, false},
-		{200, `{"code":1005,"message":"plan"}`, "quota", 0, true},
-		{200, `{"code":4008}`, "quota", 0, true},
-		{200, `{"code":4001}`, "invalid_request", 0, false},
-		{429, `{"code":"insufficient_quota","message":"token-limit"}`, "invalid_request", 0, false},
-		{200, `{"code":4011}`, "rate_limit", hardRateCooldown, false},
-		{429, "too many requests", "rate_limit", time.Minute, false},
-		{500, "boom", "unavailable", 0, false},
+		{401, `{"code":1001}`, "auth", "1001"},
+		{200, `{"code":1005,"message":"plan"}`, "quota", "1005"},
+		{200, `{"code":4008}`, "quota", "4008"},
+		{200, `{"code":4001}`, "invalid_request", "4001"},
+		{429, `{"code":"insufficient_quota","message":"token-limit"}`, "invalid_request", "insufficient_quota"},
+		{200, `{"code":4011}`, "rate_limit", "4011"},
+		{429, "too many requests", "rate_limit", ""},
+		{500, "boom", "unavailable", ""},
 	}
 	for _, c := range cases {
 		got := Classify(c.status, c.body)
 		if got.Kind != c.kind {
 			t.Fatalf("Classify(%d,%s)=%+v want %s", c.status, c.body, got, c.kind)
 		}
-		cooldown := classifiedCooldown(got.Kind, extractCode(c.body))
-		if c.nextMidnight {
-			if cooldown <= 0 || cooldown > 24*time.Hour {
-				t.Fatalf("cooldown(%s)=%s", c.body, cooldown)
-			}
-		} else if cooldown != c.cooldown {
-			t.Fatalf("cooldown(%s)=%s want %s", c.body, cooldown, c.cooldown)
-		}
 		err := wrapClassified(got, extractCode(c.body))
 		var classified *providers.Error
 		if !errors.As(err, &classified) {
 			t.Fatalf("wrapClassified type %T", err)
 		}
-		wantFailover := c.kind != "invalid_request"
-		if classified.Failover == nil || *classified.Failover != wantFailover {
-			t.Fatalf("failover(%s)=%v want %v", c.body, classified.Failover, wantFailover)
+		if classified.Kind != c.kind {
+			t.Fatalf("kind(%s)=%s want %s", c.body, classified.Kind, c.kind)
+		}
+		if classified.Code != c.code {
+			t.Fatalf("code(%s)=%s want %s", c.body, classified.Code, c.code)
+		}
+		if classified.RetryAfter != 0 {
+			t.Fatalf("provider must not set retry_after(%s)=%s", c.body, classified.RetryAfter)
+		}
+	}
+}
+
+func TestExtractCodeOmitsMissingAndNull(t *testing.T) {
+	for _, body := range []string{
+		`{"message":"plan limit"}`,
+		`{"code":null,"message":"plan limit"}`,
+		`{"code":"","message":"plan limit"}`,
+		"not json",
+	} {
+		if got := extractCode(body); got != "" {
+			t.Fatalf("extractCode(%s)=%q want empty", body, got)
+		}
+		err := wrapClassified(Classify(429, body), extractCode(body))
+		var classified *providers.Error
+		if !errors.As(err, &classified) {
+			t.Fatalf("wrapClassified type %T", err)
+		}
+		if classified.Code != "" {
+			t.Fatalf("missing code must stay empty, body=%s code=%q", body, classified.Code)
 		}
 	}
 }

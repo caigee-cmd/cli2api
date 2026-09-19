@@ -936,12 +936,6 @@ func TestIsGlobalRecognizesWorkBuddyDomains(t *testing.T) {
 	if (Credential{}).IsGlobal() {
 		t.Fatal("empty domain should not be global")
 	}
-	if (Credential{Domain: "www.workbuddy.ai"}).catalogPath() != pathModelsGlobal {
-		t.Fatal("global personal catalog must use the plugin JSON path")
-	}
-	if (Credential{Domain: "codebuddy.cn"}).catalogPath() != pathModelsCN {
-		t.Fatal("CN personal catalog must keep the console path")
-	}
 	if (Credential{Domain: "www.workbuddy.ai"}).productConfigPath() != pathProductConfig {
 		t.Fatal("product config path must be /v3/config")
 	}
@@ -1617,8 +1611,8 @@ func TestRateLimitErrorCarriesResetCooldown(t *testing.T) {
 	if !errors.As(classifiedError(429, body), &out) {
 		t.Fatalf("expected classified error")
 	}
-	if out.Cooldown <= 28*time.Minute || out.Cooldown > 30*time.Minute {
-		t.Fatalf("cooldown=%v want ~30m", out.Cooldown)
+	if out.RetryAfter <= 28*time.Minute || out.RetryAfter > 30*time.Minute {
+		t.Fatalf("retry_after=%v want ~30m", out.RetryAfter)
 	}
 }
 

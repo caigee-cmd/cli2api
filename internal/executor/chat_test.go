@@ -18,34 +18,6 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
-func TestBuildWorkerPayloadForwardsReasoningAndContextParameters(t *testing.T) {
-	enableThinking := true
-	payload := buildWorkerPayload(translate.ChatRequest{
-		Model:                 "minimax-m3",
-		Messages:              []translate.ChatMessage{{Role: "user", Content: "hi"}},
-		EnableThinking:        &enableThinking,
-		ReasoningEffort:       json.RawMessage(`"high"`),
-		ReasoningBudgetTokens: json.RawMessage(`16384`),
-		ContextLength:         json.RawMessage(`500000`),
-		MaxInputTokens:        json.RawMessage(`1000000`),
-	}, true)
-
-	if payload["enable_thinking"] != true {
-		t.Fatalf("enable_thinking = %#v", payload["enable_thinking"])
-	}
-	for key, want := range map[string]string{
-		"reasoning_effort":        `"high"`,
-		"reasoning_budget_tokens": "16384",
-		"context_length":          "500000",
-		"max_input_tokens":        "1000000",
-	} {
-		got, ok := payload[key].(json.RawMessage)
-		if !ok || string(got) != want {
-			t.Fatalf("%s = %#v, want %s", key, payload[key], want)
-		}
-	}
-}
-
 func TestDecodeChatResultPreservesPromptCacheUsage(t *testing.T) {
 	result, err := decodeChatResult(translate.ChatRequest{Model: "minimax-m3"}, []byte(`{
 		"model":"minimax-m3",
@@ -96,7 +68,7 @@ func TestChatNonStreamFailoversRateLimit(t *testing.T) {
 	}))
 	defer b.Close()
 
-	pool := accounts.NewPool([]string{a.URL, b.URL}, []string{"a", "b"})
+	pool := NewPool([]string{a.URL, b.URL}, []string{"a", "b"})
 	ex := NewChatExecutor(pool, "")
 	ex.HTTPClient = a.Client()
 	got, err := ex.ChatNonStream(context.Background(), translate.ChatRequest{
@@ -137,10 +109,10 @@ func TestChatNonStreamDoesNotFailoverAcrossQoderRegions(t *testing.T) {
 	}))
 	defer cn.Close()
 
-	pool := accounts.NewPool(nil, nil)
-	pool.Upsert(accounts.Item{ID: "g1", URL: globalA.URL, Provider: "qoder", Region: "global", Runtime: "child_process"})
-	pool.Upsert(accounts.Item{ID: "g2", URL: globalB.URL, Provider: "qoder", Region: "global", Runtime: "child_process"})
-	pool.Upsert(accounts.Item{ID: "c1", URL: cn.URL, Provider: "qoder", Region: "cn", Runtime: "child_process"})
+	pool := NewPool(nil, nil)
+	pool.Upsert(Item{ID: "g1", URL: globalA.URL, Provider: "qoder", Region: "global", Runtime: "child_process"})
+	pool.Upsert(Item{ID: "g2", URL: globalB.URL, Provider: "qoder", Region: "global", Runtime: "child_process"})
+	pool.Upsert(Item{ID: "c1", URL: cn.URL, Provider: "qoder", Region: "cn", Runtime: "child_process"})
 	ex := NewChatExecutor(pool, "")
 	ex.HTTPClient = globalA.Client()
 	got, err := ex.ChatNonStream(context.Background(), translate.ChatRequest{
@@ -155,10 +127,10 @@ func TestChatNonStreamDoesNotFailoverAcrossQoderRegions(t *testing.T) {
 	if hitsCN.Load() != 0 {
 		t.Fatalf("cn hits=%d", hitsCN.Load())
 	}
-	if n := pool.LenRoute(accounts.RouteQuery{ProviderFilter: "qoder", RegionFilter: "global", Excluded: map[string]struct{}{"g1": {}}}); n != 1 {
+	if n := pool.LenRoute(RouteQuery{ProviderFilter: "qoder", RegionFilter: "global", Excluded: map[string]struct{}{"g1": {}}}); n != 1 {
 		t.Fatalf("after first global failure, remaining global candidates = %d", n)
 	}
-	if n := pool.LenRoute(accounts.RouteQuery{ProviderFilter: "qoder", RegionFilter: "cn"}); n != 1 {
+	if n := pool.LenRoute(RouteQuery{ProviderFilter: "qoder", RegionFilter: "cn"}); n != 1 {
 		t.Fatalf("cn candidates after global pin = %d", n)
 	}
 }
@@ -176,9 +148,9 @@ func TestChatNonStreamPinnedCNDoesNotEscapeToGlobal(t *testing.T) {
 	}))
 	defer global.Close()
 
-	pool := accounts.NewPool(nil, nil)
-	pool.Upsert(accounts.Item{ID: "c1", URL: cn.URL, Provider: "qoder", Region: "cn", Runtime: "child_process"})
-	pool.Upsert(accounts.Item{ID: "g1", URL: global.URL, Provider: "qoder", Region: "global", Runtime: "child_process"})
+	pool := NewPool(nil, nil)
+	pool.Upsert(Item{ID: "c1", URL: cn.URL, Provider: "qoder", Region: "cn", Runtime: "child_process"})
+	pool.Upsert(Item{ID: "g1", URL: global.URL, Provider: "qoder", Region: "global", Runtime: "child_process"})
 	ex := NewChatExecutor(pool, "")
 	ex.HTTPClient = cn.Client()
 	_, err := ex.ChatNonStream(context.Background(), translate.ChatRequest{
@@ -203,9 +175,9 @@ func TestChatNonStreamRoutesByAccountCatalog(t *testing.T) {
 	}))
 	defer hasModel.Close()
 
-	pool := accounts.NewPool(nil, nil)
-	pool.Upsert(accounts.Item{ID: "a", URL: missing.URL, Provider: "qoder", Region: "global", Runtime: "child_process"})
-	pool.Upsert(accounts.Item{ID: "b", URL: hasModel.URL, Provider: "qoder", Region: "global", Runtime: "child_process"})
+	pool := NewPool(nil, nil)
+	pool.Upsert(Item{ID: "a", URL: missing.URL, Provider: "qoder", Region: "global", Runtime: "child_process"})
+	pool.Upsert(Item{ID: "b", URL: hasModel.URL, Provider: "qoder", Region: "global", Runtime: "child_process"})
 	pool.MergeModels("a", []string{"glm-5.2"})
 	pool.MergeModels("b", []string{"hy3"})
 	ex := NewChatExecutor(pool, "")
@@ -226,7 +198,7 @@ func TestChatNonStreamUnknownModelDoesNotHitWorkers(t *testing.T) {
 		t.Fatal("no worker should be called when no catalog serves the model")
 	}))
 	defer srv.Close()
-	pool := accounts.NewPool([]string{srv.URL}, []string{"a"})
+	pool := NewPool([]string{srv.URL}, []string{"a"})
 	pool.MergeModels("a", []string{"glm-5.2"})
 	ex := NewChatExecutor(pool, "")
 	ex.HTTPClient = srv.Client()
@@ -254,7 +226,7 @@ func TestChatNonStreamPromptLimitDoesNotCoolOrFailover(t *testing.T) {
 		t.Fatal("prompt limit should not failover")
 	}))
 	defer b.Close()
-	pool := accounts.NewPool([]string{a.URL, b.URL}, []string{"a", "b"})
+	pool := NewPool([]string{a.URL, b.URL}, []string{"a", "b"})
 	ex := NewChatExecutor(pool, "")
 	ex.HTTPClient = a.Client()
 	_, err := ex.ChatNonStream(context.Background(), translate.ChatRequest{
@@ -282,7 +254,7 @@ func TestChatNonStreamHardQuotaCoolsAccount(t *testing.T) {
 		t.Fatal("hard quota should not failover current request")
 	}))
 	defer b.Close()
-	pool := accounts.NewPool([]string{a.URL, b.URL}, []string{"a", "b"})
+	pool := NewPool([]string{a.URL, b.URL}, []string{"a", "b"})
 	ex := NewChatExecutor(pool, "")
 	ex.HTTPClient = a.Client()
 	_, err := ex.ChatNonStream(context.Background(), translate.ChatRequest{
@@ -310,7 +282,7 @@ func TestChatNonStreamForwardsPinnedAccount(t *testing.T) {
 		io.WriteString(w, `{"choices":[{"message":{"content":"OK"},"finish_reason":"stop"}],"usage":{"source":"upstream"}}`)
 	}))
 	defer srv.Close()
-	pool := accounts.NewPool([]string{srv.URL}, []string{"default"})
+	pool := NewPool([]string{srv.URL}, []string{"default"})
 	ex := NewChatExecutor(pool, "")
 	ex.HTTPClient = srv.Client()
 	got, err := ex.ChatNonStream(context.Background(), translate.ChatRequest{
@@ -325,7 +297,7 @@ func TestChatNonStreamForwardsPinnedAccount(t *testing.T) {
 }
 
 func TestChatNonStreamFailsWhenSQLitePoolIsEmpty(t *testing.T) {
-	ex := NewChatExecutor(accounts.NewPool(nil, nil), "")
+	ex := NewChatExecutor(NewPool(nil, nil), "")
 	_, err := ex.ChatNonStream(context.Background(), translate.ChatRequest{
 		Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
 	}, "", "")
@@ -335,7 +307,7 @@ func TestChatNonStreamFailsWhenSQLitePoolIsEmpty(t *testing.T) {
 }
 
 func TestNewChatExecutorUsesProxyKeyForInternalDaemon(t *testing.T) {
-	ex := NewChatExecutor(accounts.NewPool(nil, nil), "shared-secret")
+	ex := NewChatExecutor(NewPool(nil, nil), "shared-secret")
 	if ex.WorkerKey != "shared-secret" {
 		t.Fatalf("worker key = %q", ex.WorkerKey)
 	}
@@ -345,9 +317,9 @@ func TestNewChatExecutorUsesProxyKeyForInternalDaemon(t *testing.T) {
 // return a rate-limit error (429) so the client gets a clean Retry-After
 // rather than a round-trip into the worker's own 429.
 func TestChatNonStreamAllSaturatedReturnsRateLimit(t *testing.T) {
-	pool := accounts.NewPool([]string{"http://127.0.0.1:1", "http://127.0.0.1:2"}, []string{"a", "b"})
-	pool.Upsert(accounts.Item{ID: "a", URL: "http://127.0.0.1:1", MaxInFlight: 1})
-	pool.Upsert(accounts.Item{ID: "b", URL: "http://127.0.0.1:2", MaxInFlight: 1})
+	pool := NewPool([]string{"http://127.0.0.1:1", "http://127.0.0.1:2"}, []string{"a", "b"})
+	pool.Upsert(Item{ID: "a", URL: "http://127.0.0.1:1", MaxInFlight: 1})
+	pool.Upsert(Item{ID: "b", URL: "http://127.0.0.1:2", MaxInFlight: 1})
 	pool.MergeHealth("a", true, false, 1, 0, "")
 	pool.MergeHealth("b", true, false, 1, 0, "")
 	ex := NewChatExecutor(pool, "")
@@ -357,9 +329,12 @@ func TestChatNonStreamAllSaturatedReturnsRateLimit(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected a rate-limit error when all accounts are saturated")
 	}
-	var classified *providers.Error
-	if !errors.As(err, &classified) || classified.Kind != accounts.KindRateLimit || classified.Status != 429 {
-		t.Fatalf("expected *providers.Error{rate_limit,429}, got %#v", err)
+	var classified *ExecutionError
+	if !errors.As(err, &classified) || classified.Classified.Kind != accounts.KindRateLimit || classified.Classified.Status != 429 {
+		t.Fatalf("expected *ExecutionError{rate_limit,429}, got %#v", err)
+	}
+	if classified.Classified.RetryAfter != 5*time.Second {
+		t.Fatalf("capacity retry-after=%s", classified.Classified.RetryAfter)
 	}
 }
 
@@ -370,10 +345,10 @@ func TestChatNonStreamSuccessScopedByModelLeavesOtherModelCooled(t *testing.T) {
 		io.WriteString(w, `{"choices":[{"message":{"content":"OK"},"finish_reason":"stop"}],"usage":{"source":"upstream"}}`)
 	}))
 	defer srv.Close()
-	pool := accounts.NewPool([]string{srv.URL}, []string{"a"})
-	pool.Upsert(accounts.Item{ID: "a", URL: srv.URL, Provider: "qoder", Region: "global", Runtime: "child_process"})
+	pool := NewPool([]string{srv.URL}, []string{"a"})
+	pool.Upsert(Item{ID: "a", URL: srv.URL, Provider: "qoder", Region: "global", Runtime: "child_process"})
 	// model-A is rate-limited for an hour.
-	pool.MarkClassified("a", accounts.Classified{
+	pool.MarkClassified("a", Classified{
 		Kind: accounts.KindRateLimit, Cooldown: time.Hour,
 		Failover: true, Model: "glm-5.3", Message: "429",
 	})
@@ -401,7 +376,7 @@ func TestChatNonStreamCancellationDoesNotFailoverOrCooldown(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	pool := accounts.NewPool([]string{srv.URL, srv.URL}, []string{"a", "b"})
+	pool := NewPool([]string{srv.URL, srv.URL}, []string{"a", "b"})
 	ex := NewChatExecutor(pool, "")
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -435,7 +410,7 @@ func TestChatStreamProxyDoesNotUseClientTotalTimeout(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	pool := accounts.NewPool([]string{srv.URL}, []string{"a"})
+	pool := NewPool([]string{srv.URL}, []string{"a"})
 	ex := NewChatExecutor(pool, "")
 	ex.HTTPClient = srv.Client()
 	ex.HTTPClient.Timeout = 10 * time.Millisecond
@@ -461,8 +436,8 @@ func TestChatStreamProxyDoesNotUseClientTotalTimeout(t *testing.T) {
 // attempt loop already returned, so this is the only hook that can mark the
 // account down for the next request.
 func TestObserveStreamFailureCoolsDownQuotaAccount(t *testing.T) {
-	pool := accounts.NewPool([]string{"http://127.0.0.1:1"}, []string{"acc-quota"})
-	pool.Upsert(accounts.Item{ID: "acc-quota"})
+	pool := NewPool([]string{"http://127.0.0.1:1"}, []string{"acc-quota"})
+	pool.Upsert(Item{ID: "acc-quota"})
 	ex := NewChatExecutor(pool, "")
 
 	ex.ObserveStreamFailure("acc-quota", &providers.Error{
@@ -498,8 +473,8 @@ func TestChatNonStreamDoesNotDispatchWhileAccountCooling(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	pool := accounts.NewPool([]string{srv.URL}, []string{"a"})
-	pool.MarkClassified("a", accounts.Classified{
+	pool := NewPool([]string{srv.URL}, []string{"a"})
+	pool.MarkClassified("a", Classified{
 		Kind: accounts.KindRateLimit, Cooldown: time.Hour, Failover: true,
 		Model: "glm-5.3", Message: "model rate limited",
 	})
@@ -512,12 +487,12 @@ func TestChatNonStreamDoesNotDispatchWhileAccountCooling(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected cooling error")
 	}
-	var classified *providers.Error
-	if !errors.As(err, &classified) || classified.Kind != accounts.KindRateLimit {
+	var classified *ExecutionError
+	if !errors.As(err, &classified) || classified.Classified.Kind != accounts.KindRateLimit {
 		t.Fatalf("expected rate_limit cooling error, got %#v", err)
 	}
-	if !strings.Contains(classified.Message, "glm-5.3") {
-		t.Fatalf("cooling error should name the model, got %q", classified.Message)
+	if !strings.Contains(classified.Classified.Message, "glm-5.3") {
+		t.Fatalf("cooling error should name the model, got %q", classified.Classified.Message)
 	}
 	if hits.Load() != 0 {
 		t.Fatalf("cooling account received %d requests", hits.Load())
@@ -535,10 +510,10 @@ func TestChatNonStreamUsesProvenAccountOverQuotaCatalog(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	pool := accounts.NewPool(nil, nil)
-	pool.Upsert(accounts.Item{ID: "quota", URL: "http://127.0.0.1:1", Provider: "workbuddy", Region: "cn", Runtime: "child_process"})
-	pool.Upsert(accounts.Item{ID: "ready", URL: srv.URL, Provider: "workbuddy", Region: "cn", Runtime: "child_process"})
-	pool.MarkClassified("quota", accounts.Classified{Kind: accounts.KindQuota, Cooldown: time.Hour, Message: "额度已用尽"})
+	pool := NewPool(nil, nil)
+	pool.Upsert(Item{ID: "quota", URL: "http://127.0.0.1:1", Provider: "workbuddy", Region: "cn", Runtime: "child_process"})
+	pool.Upsert(Item{ID: "ready", URL: srv.URL, Provider: "workbuddy", Region: "cn", Runtime: "child_process"})
+	pool.MarkClassified("quota", Classified{Kind: accounts.KindQuota, Cooldown: time.Hour, Message: "额度已用尽"})
 	pool.MarkOK("ready", "deepseek-v4-flash")
 	pool.MergeModels("ready", []string{"glm-5.2"})
 
@@ -557,12 +532,12 @@ func TestChatNonStreamUsesProvenAccountOverQuotaCatalog(t *testing.T) {
 }
 
 func TestChatNonStreamExpiredQuotaDoesNotMaskModelRateLimit(t *testing.T) {
-	pool := accounts.NewPool(nil, nil)
-	pool.Upsert(accounts.Item{
+	pool := NewPool(nil, nil)
+	pool.Upsert(Item{
 		ID: "a", URL: "http://127.0.0.1:1", Provider: "workbuddy", Region: "cn", Runtime: "child_process",
 		DownUntil: time.Now().Add(-time.Minute), LastKind: accounts.KindQuota,
 	})
-	pool.MarkClassified("a", accounts.Classified{
+	pool.MarkClassified("a", Classified{
 		Kind: accounts.KindRateLimit, Cooldown: time.Hour, Failover: true,
 		Model: "deepseek-v4-flash", Message: "too many requests",
 	})
@@ -574,19 +549,19 @@ func TestChatNonStreamExpiredQuotaDoesNotMaskModelRateLimit(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected model cooling error")
 	}
-	var classified *providers.Error
-	if !errors.As(err, &classified) || classified.Kind != accounts.KindRateLimit || classified.Code != "rate_limit" {
+	var classified *ExecutionError
+	if !errors.As(err, &classified) || classified.Classified.Kind != accounts.KindRateLimit || classified.Classified.Code != "rate_limit" {
 		t.Fatalf("expired quota must not mask a live model rate limit, got %#v", err)
 	}
-	if classified.Failover == nil || !*classified.Failover {
+	if !classified.Classified.Failover {
 		t.Fatal("model rate-limit cooling must remain failoverable")
 	}
 }
 
 func TestChatNonStreamQuotaCoolingIsQuotaNotRateLimit(t *testing.T) {
-	pool := accounts.NewPool(nil, nil)
-	pool.Upsert(accounts.Item{ID: "quota", URL: "http://127.0.0.1:1", Provider: "workbuddy", Region: "cn", Runtime: "child_process"})
-	pool.MarkClassified("quota", accounts.Classified{Kind: accounts.KindQuota, Cooldown: time.Hour, Message: "额度已用尽"})
+	pool := NewPool(nil, nil)
+	pool.Upsert(Item{ID: "quota", URL: "http://127.0.0.1:1", Provider: "workbuddy", Region: "cn", Runtime: "child_process"})
+	pool.MarkClassified("quota", Classified{Kind: accounts.KindQuota, Cooldown: time.Hour, Message: "额度已用尽"})
 	ex := NewChatExecutor(pool, "")
 	_, err := ex.ChatNonStream(context.Background(), translate.ChatRequest{
 		Model:    "deepseek-v4-flash",
@@ -595,18 +570,18 @@ func TestChatNonStreamQuotaCoolingIsQuotaNotRateLimit(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected quota cooling error")
 	}
-	var classified *providers.Error
-	if !errors.As(err, &classified) || classified.Kind != accounts.KindQuota || classified.Code != "insufficient_quota" {
+	var classified *ExecutionError
+	if !errors.As(err, &classified) || classified.Classified.Kind != accounts.KindQuota || classified.Classified.Code != "insufficient_quota" {
 		t.Fatalf("expected quota cooling error, got %#v", err)
 	}
-	if !strings.Contains(classified.Message, "quota cooldown") {
-		t.Fatalf("quota cooling error should say quota, got %q", classified.Message)
+	if !strings.Contains(classified.Classified.Message, "quota cooldown") {
+		t.Fatalf("quota cooling error should say quota, got %q", classified.Classified.Message)
 	}
 }
 
 func TestObserveStreamFailureDropsProvenModel(t *testing.T) {
-	pool := accounts.NewPool(nil, nil)
-	pool.Upsert(accounts.Item{ID: "ready", Provider: "workbuddy", Region: "cn", Runtime: "child_process"})
+	pool := NewPool(nil, nil)
+	pool.Upsert(Item{ID: "ready", Provider: "workbuddy", Region: "cn", Runtime: "child_process"})
 	pool.MarkOK("ready", "deepseek-v4-flash")
 	pool.MergeModels("ready", []string{"glm-5.2"})
 	item, ok := pool.ByID("ready")
@@ -628,14 +603,14 @@ func TestObserveStreamFailureDropsProvenModel(t *testing.T) {
 	if !item.ModelsAt.IsZero() {
 		t.Fatalf("explicit model miss must invalidate catalog freshness, got %s", item.ModelsAt)
 	}
-	if _, ok := pool.PickRoute(accounts.RouteQuery{PublicModel: "deepseek-v4-flash", ProviderFilter: "workbuddy"}); ok {
+	if _, ok := pool.PickRoute(RouteQuery{PublicModel: "deepseek-v4-flash", ProviderFilter: "workbuddy"}); ok {
 		t.Fatal("account must leave the omitted-model route after a stream catalog miss")
 	}
 }
 
 func TestObserveStreamCatalogUnavailablePreservesModel(t *testing.T) {
-	pool := accounts.NewPool(nil, nil)
-	pool.Upsert(accounts.Item{ID: "ready", Provider: "workbuddy", Region: "cn", Runtime: "child_process"})
+	pool := NewPool(nil, nil)
+	pool.Upsert(Item{ID: "ready", Provider: "workbuddy", Region: "cn", Runtime: "child_process"})
 	pool.MergeModels("ready", []string{"deepseek-v4-flash"})
 
 	ex := NewChatExecutor(pool, "")
@@ -653,14 +628,14 @@ func TestObserveStreamCatalogUnavailablePreservesModel(t *testing.T) {
 	if item.ModelsAt.IsZero() {
 		t.Fatal("catalog outage must preserve the last successful snapshot timestamp")
 	}
-	if _, ok := pool.PickRoute(accounts.RouteQuery{PublicModel: "deepseek-v4-flash", ProviderFilter: "workbuddy"}); !ok {
+	if _, ok := pool.PickRoute(RouteQuery{PublicModel: "deepseek-v4-flash", ProviderFilter: "workbuddy"}); !ok {
 		t.Fatal("catalog outage must not remove a healthy account from the model route")
 	}
 }
 
 func TestObserveStreamFailureWithoutModelTakesAccountDown(t *testing.T) {
-	pool := accounts.NewPool([]string{"http://127.0.0.1:1"}, []string{"acc-quota"})
-	pool.Upsert(accounts.Item{ID: "acc-quota"})
+	pool := NewPool([]string{"http://127.0.0.1:1"}, []string{"acc-quota"})
+	pool.Upsert(Item{ID: "acc-quota"})
 	ex := NewChatExecutor(pool, "")
 
 	ex.ObserveStreamFailure("acc-quota", &providers.Error{
@@ -682,8 +657,8 @@ func TestObserveStreamFailureWithoutModelTakesAccountDown(t *testing.T) {
 // "qoder/glm-5.2" and routing (which queries with "glm-5.2") would never hit
 // it — the account/model would be retried immediately after a stream failure.
 func TestObserveStreamFailureUsesStrippedModel(t *testing.T) {
-	pool := accounts.NewPool([]string{"http://127.0.0.1:1"}, []string{"a"})
-	pool.Upsert(accounts.Item{ID: "a", Provider: "qoder", Region: "global", Runtime: "child_process"})
+	pool := NewPool([]string{"http://127.0.0.1:1"}, []string{"a"})
+	pool.Upsert(Item{ID: "a", Provider: "qoder", Region: "global", Runtime: "child_process"})
 	ex := NewChatExecutor(pool, "")
 
 	// Simulate the chat handler passing the bare model (req.Model after
@@ -704,7 +679,7 @@ func TestObserveStreamFailureUsesStrippedModel(t *testing.T) {
 	// Routing with the bare model must be blocked by the cooldown.
 	// PickRoute returns ok=true with the cooling item as a retry-after
 	// hint; the item itself must not be schedulable right now.
-	picked, okRoute := pool.PickRoute(accounts.RouteQuery{
+	picked, okRoute := pool.PickRoute(RouteQuery{
 		PublicModel:    "glm-5.2",
 		ProviderFilter: "qoder",
 	})
@@ -720,7 +695,7 @@ func TestObserveStreamFailureUsesStrippedModel(t *testing.T) {
 	}
 
 	// A different model on the same account must still be available.
-	_, okOther := pool.PickRoute(accounts.RouteQuery{
+	_, okOther := pool.PickRoute(RouteQuery{
 		PublicModel:    "deepseek-v4-flash",
 		ProviderFilter: "qoder",
 	})
@@ -730,8 +705,8 @@ func TestObserveStreamFailureUsesStrippedModel(t *testing.T) {
 }
 
 func TestObserveStreamFailureLeavesHealthyAccountAlone(t *testing.T) {
-	pool := accounts.NewPool([]string{"http://127.0.0.1:1"}, []string{"acc-ok"})
-	pool.Upsert(accounts.Item{ID: "acc-ok"})
+	pool := NewPool([]string{"http://127.0.0.1:1"}, []string{"acc-ok"})
+	pool.Upsert(Item{ID: "acc-ok"})
 	ex := NewChatExecutor(pool, "")
 
 	// The request body was rejected; retrying elsewhere cannot help and the
@@ -752,9 +727,9 @@ func TestObserveStreamFailureLeavesHealthyAccountAlone(t *testing.T) {
 }
 
 func TestAttemptsForHonorsRetryBudget(t *testing.T) {
-	pool := accounts.NewPool(nil, nil)
+	pool := NewPool(nil, nil)
 	for i := 0; i < 8; i++ {
-		pool.Upsert(accounts.Item{ID: fmt.Sprintf("a%d", i), Provider: "qoder", Region: "global", Runtime: "child_process"})
+		pool.Upsert(Item{ID: fmt.Sprintf("a%d", i), Provider: "qoder", Region: "global", Runtime: "child_process"})
 	}
 	ex := NewChatExecutor(pool, "")
 	ex.MaxAttempts = 3

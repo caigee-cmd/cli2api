@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -32,15 +33,16 @@ func TestListRequestLogsFiltersAndPagination(t *testing.T) {
 			model = "qwen3.7-plus"
 			stream = true
 		}
-		if err := srv.recorder.Store().InsertRequestLog(ctx, accounts.RequestLog{
-			ID: accounts.NewRequestID(), CreatedAt: base.Add(time.Duration(i) * time.Minute),
+		if err := srv.Recorder.Store().InsertRequestLog(ctx, accounts.RequestLog{
+			// Distinct eight-character prefixes keep the prefix-query assertion deterministic.
+			ID: fmt.Sprintf("req_%04d-fixture", i), CreatedAt: base.Add(time.Duration(i) * time.Minute),
 			Status: accounts.RequestStatusOK, RequestedModel: model, AccountID: account, Stream: stream,
 		}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	srv.ring.Append("[account=acc_b] warn line")
-	srv.ring.Append("plain info")
+	srv.Ring.Append("[account=acc_b] warn line")
+	srv.Ring.Append("plain info")
 
 	h := srv.Handler()
 	get := func(path string) *httptest.ResponseRecorder {
@@ -118,9 +120,9 @@ func TestListRequestLogsFiltersAndPagination(t *testing.T) {
 		t.Fatalf("runtime = %+v", snapshot)
 	}
 
-	srv.ring.Append("line one")
-	srv.ring.Append("line two")
-	srv.ring.Append("line three")
+	srv.Ring.Append("line one")
+	srv.Ring.Append("line two")
+	srv.Ring.Append("line three")
 	paged := get("/api/logs/runtime?limit=2&offset=2")
 	if paged.Code != http.StatusOK {
 		t.Fatalf("runtime page status=%d body=%s", paged.Code, paged.Body.String())
@@ -148,14 +150,14 @@ func TestRequestStatsWindow(t *testing.T) {
 	base := time.Now().UTC().Add(-40 * time.Minute).Truncate(time.Second)
 	latency := 180
 	prompt, completion := 11, 22
-	if err := srv.recorder.Store().InsertRequestLog(ctx, accounts.RequestLog{
+	if err := srv.Recorder.Store().InsertRequestLog(ctx, accounts.RequestLog{
 		ID: accounts.NewRequestID(), CreatedAt: base, Status: accounts.RequestStatusOK,
 		RequestedModel: "glm-5.3", AccountID: "acc_a", LatencyMs: &latency,
 		PromptTokens: &prompt, CompletionTokens: &completion,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := srv.recorder.Store().InsertRequestLog(ctx, accounts.RequestLog{
+	if err := srv.Recorder.Store().InsertRequestLog(ctx, accounts.RequestLog{
 		ID: accounts.NewRequestID(), CreatedAt: base.Add(30 * time.Minute), Status: accounts.RequestStatusError,
 		RequestedModel: "qwen3.7-plus", AccountID: "acc_b", ErrorKind: accounts.KindUnavailable,
 	}); err != nil {
@@ -190,9 +192,7 @@ func TestRequestStatsWindow(t *testing.T) {
 	if second.Code != http.StatusOK {
 		t.Fatalf("cached status=%d body=%s", second.Code, second.Body.String())
 	}
-	srv.statsCacheMu.Lock()
-	cacheEntries := len(srv.statsCache)
-	srv.statsCacheMu.Unlock()
+	cacheEntries := srv.consoleHandler().StatsCacheSize()
 	if cacheEntries != 1 {
 		t.Fatalf("stats cache entries=%d, want 1", cacheEntries)
 	}
@@ -223,14 +223,14 @@ func TestGetRequestLogExposesUsageDetail(t *testing.T) {
 	ctx := context.Background()
 	id := accounts.NewRequestID()
 	created := time.Now().UTC().Add(-time.Minute).Truncate(time.Second)
-	if err := srv.recorder.Store().InsertRequestLog(ctx, accounts.RequestLog{
+	if err := srv.Recorder.Store().InsertRequestLog(ctx, accounts.RequestLog{
 		ID: id, CreatedAt: created, Status: accounts.RequestStatusOK,
 		RequestedModel: "hy3", AccountID: "acc_wb", Provider: "workbuddy",
 	}); err != nil {
 		t.Fatal(err)
 	}
 	consumed := 0.75
-	if err := srv.recorder.Store().InsertRequestUsageDetail(ctx, accounts.RequestUsageDetail{
+	if err := srv.Recorder.Store().InsertRequestUsageDetail(ctx, accounts.RequestUsageDetail{
 		RequestID: id, CreatedAt: created, Provider: "workbuddy", Credit: &consumed, Unit: "credits",
 	}); err != nil {
 		t.Fatal(err)

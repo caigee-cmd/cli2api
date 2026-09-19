@@ -31,27 +31,6 @@ func TestRingKeepsLatestAndRedactsSecrets(t *testing.T) {
 	}
 }
 
-func TestPrefixWriterAddsAccountPrefix(t *testing.T) {
-	ring := NewRing(10)
-	writer := &PrefixWriter{Prefix: "[account=acc_x] ", Next: ring}
-	if _, err := writer.Write([]byte("hello\nworld")); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := writer.Write([]byte("\n")); err != nil {
-		t.Fatal(err)
-	}
-	entries := ring.Latest(10)
-	if len(entries) != 2 {
-		t.Fatalf("entries=%+v", entries)
-	}
-	if entries[1].AccountID != "acc_x" || !strings.Contains(entries[1].Message, "[account=acc_x] hello") {
-		t.Fatalf("first=%+v", entries[1])
-	}
-	if entries[0].AccountID != "acc_x" {
-		t.Fatalf("second=%+v", entries[0])
-	}
-}
-
 func TestRingSnapshotFilters(t *testing.T) {
 	ring := NewRing(10)
 	ring.Append("ok line")

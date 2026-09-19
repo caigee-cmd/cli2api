@@ -16,6 +16,7 @@ docs/PROVIDERS.md
 docs/PROVIDERS_TRAE.md
 docs/PROVIDERS_TRAE_SOLO.md
 frontend/node_modules/
+worker/node_modules/
 frontend/dist/
 web/
 

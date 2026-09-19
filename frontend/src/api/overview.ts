@@ -1,11 +1,6 @@
 import { api } from './client'
 import type { CheckinRecord, Overview } from './types'
 
-export function fetchOverview(keyOverride?: string, options?: { refreshQuota?: boolean }) {
-  const path = options?.refreshQuota ? '/api/overview?refresh=1' : '/api/overview'
-  return api<Overview>(path, {}, keyOverride)
-}
-
 export function fetchOverviewSummary(keyOverride?: string) {
   return api<Overview>('/api/overview/summary', {}, keyOverride)
 }
@@ -143,11 +138,6 @@ export function refreshAccount(accountId: string, options?: { quota?: boolean })
     method: 'POST',
     body: '{}',
   })
-}
-
-export function rewarmWorker(accountId?: string) {
-  if (!accountId) throw new Error('account id required')
-  return api(`/api/accounts/${encodeURIComponent(accountId)}/rewarm`, { method: 'POST', body: '{}' })
 }
 
 export function testChat(model: string, content: string, accountId?: string) {

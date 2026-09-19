@@ -189,18 +189,6 @@ func NewTransport(raw string) (*http.Transport, error) {
 	return transport, nil
 }
 
-func NewClient(timeout time.Duration, redirect func(*http.Request, []*http.Request) error, raw string) (*http.Client, error) {
-	transport, err := NewTransport(raw)
-	if err != nil {
-		return nil, err
-	}
-	client := &http.Client{Timeout: timeout, CheckRedirect: redirect}
-	if transport != nil {
-		client.Transport = transport
-	}
-	return client, nil
-}
-
 // maxCachedTransports bounds the cache. Without a limit, every distinct proxy
 // URL (global or per-account) would keep an http.Transport alive forever,
 // pinning its idle connections and proxy credentials even after the operator

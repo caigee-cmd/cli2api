@@ -2,15 +2,14 @@ package api
 
 import (
 	"context"
+	sqlstore "github.com/caigee-cmd/cli2api/internal/store"
 	"path/filepath"
 	"testing"
-
-	"github.com/caigee-cmd/cli2api/internal/accounts"
 )
 
 func TestEnsureProxyAPIKeyGeneratesAndPersists(t *testing.T) {
 	ctx := context.Background()
-	store, err := accounts.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	store, err := sqlstore.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,7 +27,7 @@ func TestEnsureProxyAPIKeyGeneratesAndPersists(t *testing.T) {
 
 func TestEnsureProxyAPIKeyUsesBootstrapOnlyOnce(t *testing.T) {
 	ctx := context.Background()
-	store, err := accounts.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	store, err := sqlstore.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

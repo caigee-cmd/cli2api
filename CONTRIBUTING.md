@@ -1,8 +1,11 @@
 # Contributing
 
 CLI2API keeps the Qoder execution path stable while supporting provider-specific
-adapters for Qoder, WorkBuddy, and Trae. Keep new provider work behind the shared
-account, routing, and protocol contracts. Hard rules live in `AGENTS.md`.
+adapters for Qoder, WorkBuddy, Trae, and experimental Devin. Keep new provider work behind the shared
+account, routing, and protocol contracts. Read [AGENTS.md](AGENTS.md) for hard
+rules and [REFACTORING.md](docs/REFACTORING.md) for accepted package boundaries
+and the separate, still-pending cleanup. Preserve existing uncommitted work;
+before feature work, fetch and merge the latest `origin/main` into your branch.
 
 ## Setup
 
@@ -10,17 +13,20 @@ Requirements: Go from `go.mod`, Node 22+, and npm.
 
 ```bash
 go mod download
-cd worker && npm install
-cd ../frontend && npm ci
+(cd worker && npm ci)
+(cd frontend && npm ci)
 ```
 
 ## Validate
 
 ```bash
+go test ./internal/app -run 'TestImportConstraints|TestDutyBoundaries' -count=1
 go test ./...
+go test -race ./...
 go vet ./...
-cd worker && npm test
-cd ../frontend && npm run build && npm run lint
+(cd worker && npm test)
+(cd frontend && npm run build && npm run lint)
+git diff --check
 ```
 
 After frontend changes:
@@ -31,28 +37,14 @@ cd frontend && npm run sync
 
 `npm run build` only writes `frontend/dist`. Go embeds `internal/webui/static`, so a console change is not in the binary until `sync` runs. Commit the new hashed JS/CSS and `index.html` together; do not leave an old `index-*.js` next to a new `index.html`.
 
-This repo often has `main` checked out in another worktree. Merge from GitHub (`gh pr merge` / the pulls API) instead of `git checkout main` in a busy worktree.
+If `main` is checked out in another worktree, merge PRs through GitHub or `gh api`;
+do not check out `main` in the current worktree.
 
-## Static assets & favicon suite
+## Documentation and releases
 
-The favicon set and OG social card live in `frontend/public/`. After editing them:
-
-1. `cd frontend && npm run sync` — copies the assets into `internal/webui/static/` (embedded into the Go binary by `//go:embed`).
-2. Add a matching entry under `## Unreleased` in `CHANGELOG.md` in both `### English` and `### 中文`.
-
-Keep README diagrams and provider lists aligned with the supported account types,
-endpoints, and deployment targets.
-
-Adding a new file to the favicon suite? Update three places:
-
-- `frontend/scripts/sync-static.mjs` (the `for (const name of [...])` whitelist)
-- `internal/api/server.go` (both `s.mux.Handle(...)` and the path allow-list inside the `/` catch-all)
-- `frontend/index.html` and `internal/webui/static/index.html` (any new `<link>` or `<meta>` tags)
-
-`favicon.svg` uses `stroke="currentColor"` for theme inheritance. Only add a
-new theme-specific variant (`favicon-light.svg`, `favicon-dark.svg`) if the
-inherited color does not work in that mode. Keep each file under 1 KB and
-avoid gradients, filters, masks, and embedded text inside the icon itself.
+Keep README text and diagrams aligned in Chinese and English. Asset maintenance
+notes live in [docs/assets/README.md](docs/assets/README.md). Describe implemented
+features separately from pending live-account, managed-update, and release acceptance.
 
 For an end-to-end run, use the Docker Compose flow in `deploy/README.md`.
 
@@ -64,16 +56,18 @@ when the published behavior warrants a series bump.
 
 ## Rules
 
-- Keep the Go layers: auth / endpoint / executor / translate / api
+- Keep the Go layers: auth / endpoint / executor / translate, plus store / control / runtime / gateway / console / server / app. `internal/api` is a test-only facade over `app.New`; do not add business there.
 - Keep one isolated runtime per enabled account: Qoder uses one HOME and Node daemon;
   in-process providers use their adapter and must not spawn a child daemon
 - Keep qodercli compatibility checks in `worker/src/compat.mjs`
 - Preserve the proven WASM encode and HTTP/SSE request path
 - Use HeroUI for console components
 - Add tests for account, routing, API, or translation behavior changes
-- Treat shipped SQLite migration SQL as immutable. Add a new numbered file instead of editing an applied one; pin the canonical checksum in tests.
+- Treat shipped SQLite migration SQL as immutable. Append a new numbered entry in `internal/store/migrations.go`; pin checksums in `internal/store` tests.
 - Do not commit `.env`, `.qoder`, auth blobs, tokens, raw captures, host IPs, or
   `docs/PRIVATE_DEPLOYMENT.md`
 
-Hard rules live in `AGENTS.md`. Maintainer design, milestone, and release notes
-are local gitignored files, not part of the public tree.
+Hard rules live in `AGENTS.md`. Maintainer design, milestone, provider, and
+release notes stay local and gitignored (`docs/DESIGN.md`, `docs/PLAN.md`,
+`docs/ARCHITECTURE.md`, `docs/DEVELOPMENT.md`, …). `docs/REFACTORING.md` is
+the tracked exception; do not add extra plan files beside it.

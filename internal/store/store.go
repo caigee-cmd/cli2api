@@ -1,0 +1,830 @@
+package store
+
+import (
+	"context"
+	"crypto/rand"
+	"database/sql"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/caigee-cmd/cli2api/internal/accounts"
+	"github.com/caigee-cmd/cli2api/internal/providers"
+	"github.com/caigee-cmd/cli2api/internal/proxy"
+	_ "modernc.org/sqlite"
+)
+
+type Store struct {
+	db *sql.DB
+}
+
+func OpenStore(path string) (*Store, error) {
+	if strings.TrimSpace(path) == "" {
+		return nil, fmt.Errorf("sqlite path required")
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, fmt.Errorf("create sqlite directory: %w", err)
+	}
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		return nil, fmt.Errorf("open sqlite: %w", err)
+	}
+	db.SetMaxOpenConns(1)
+	if _, err := db.Exec("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("configure sqlite: %w", err)
+	}
+	store := &Store{db: db}
+	if err := store.migrate(context.Background()); err != nil {
+		db.Close()
+		return nil, err
+	}
+	_ = os.Chmod(path, 0o600)
+	return store, nil
+}
+
+func (s *Store) Close() error {
+	if s == nil || s.db == nil {
+		return nil
+	}
+	return s.db.Close()
+}
+
+// DB exposes the SQLite handle for tests that close or reopen the same file
+// while a Manager persist goroutine is still running.
+func (s *Store) DB() *sql.DB {
+	if s == nil {
+		return nil
+	}
+	return s.db
+}
+
+// ReplaceDB swaps the SQLite handle. Persist-failure tests close the original
+// connection and reopen the same file while Manager is still running.
+func (s *Store) ReplaceDB(db *sql.DB) {
+	if s == nil {
+		return
+	}
+	s.db = db
+}
+
+func (s *Store) migrate(ctx context.Context) error {
+	return s.runMigrations(ctx)
+}
+
+func validateAccountProxy(providerID, region, raw string) error {
+	return accounts.ValidateAccountProxy(providerID, region, raw)
+}
+
+func (s *Store) Create(ctx context.Context, input accounts.CreateAccount) (accounts.Account, error) {
+	name := strings.TrimSpace(input.Name)
+	if name == "" {
+		return accounts.Account{}, fmt.Errorf("account name required")
+	}
+	descriptor, region, err := providers.Resolve(input.Provider, input.Region)
+	if err != nil {
+		return accounts.Account{}, err
+	}
+	if err := validateAccountProxy(input.Provider, input.Region, input.ProxyURL); err != nil {
+		return accounts.Account{}, err
+	}
+	maxInFlight := accounts.DefaultMaxInFlightValue(input.MaxInFlight)
+	priority := accounts.DefaultPriorityValue(input.Priority)
+	now := time.Now().UTC()
+	dropSystemPrompt := accounts.DefaultDropSystemPrompt(input.DropSystemPrompt)
+	autoCheckin := accounts.DefaultWorkBuddyAutoCheckin(input.WorkBuddyAutoCheckin)
+	checkinTime, err := s.resolveWorkBuddyCheckinTime(ctx, input.WorkBuddyCheckinTime)
+	if err != nil {
+		return accounts.Account{}, err
+	}
+	account := accounts.Account{
+		ID:                   newAccountID(),
+		Name:                 name,
+		Provider:             descriptor.ID,
+		ProviderRegion:       region.ID,
+		AuthType:             "none",
+		Enabled:              input.Enabled,
+		MaxInFlight:          maxInFlight,
+		Priority:             priority,
+		DropSystemPrompt:     dropSystemPrompt,
+		WorkBuddyAutoCheckin: autoCheckin,
+		WorkBuddyCheckinTime: checkinTime,
+		ProxyURL:             strings.TrimSpace(input.ProxyURL),
+		Status:               "offline",
+		CreatedAt:            now,
+		UpdatedAt:            now,
+	}
+	_, err = s.db.ExecContext(ctx, `
+	INSERT INTO accounts (
+	  id, name, provider, provider_region, auth_type, enabled, max_inflight, priority, drop_system_prompt,
+	  workbuddy_auto_checkin, workbuddy_checkin_time, proxy_url, status, created_at, updated_at
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		account.ID, account.Name, account.Provider, account.ProviderRegion, account.AuthType,
+		account.Enabled, account.MaxInFlight, account.Priority, account.DropSystemPrompt,
+		account.WorkBuddyAutoCheckin, account.WorkBuddyCheckinTime, account.ProxyURL, account.Status,
+		formatTime(account.CreatedAt), formatTime(account.UpdatedAt),
+	)
+	if err != nil {
+		return accounts.Account{}, fmt.Errorf("create account: %w", err)
+	}
+	return account, nil
+}
+
+func (s *Store) Get(ctx context.Context, id string) (accounts.Account, error) {
+	row := s.db.QueryRowContext(ctx, `
+	SELECT id, name, provider, provider_region, remote_uid, auth_type, enabled, max_inflight, priority,
+	       drop_system_prompt, workbuddy_auto_checkin, workbuddy_checkin_time, proxy_url, last_checkin_at, last_checkin_msg, last_checkin_status,
+	       status, last_error, last_error_kind, cooldown_until, quota_json, created_at, updated_at
+	FROM accounts WHERE id = ?`, strings.TrimSpace(id))
+	account, err := scanAccount(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return accounts.Account{}, accounts.ErrAccountNotFound
+	}
+	if err != nil {
+		return accounts.Account{}, fmt.Errorf("get account: %w", err)
+	}
+	return account, nil
+}
+
+type rowScanner interface {
+	Scan(...any) error
+}
+
+func scanAccount(row rowScanner) (accounts.Account, error) {
+	var account accounts.Account
+	var cooldown, quotaJSON, created, updated sql.NullString
+	err := row.Scan(
+		&account.ID, &account.Name, &account.Provider, &account.ProviderRegion, &account.RemoteUID,
+		&account.AuthType, &account.Enabled, &account.MaxInFlight, &account.Priority,
+		&account.DropSystemPrompt, &account.WorkBuddyAutoCheckin, &account.WorkBuddyCheckinTime, &account.ProxyURL, &account.LastCheckinAt, &account.LastCheckinMsg, &account.LastCheckinStatus,
+		&account.Status, &account.LastError, &account.LastErrorKind, &cooldown, &quotaJSON, &created, &updated,
+	)
+	if err != nil {
+		return accounts.Account{}, err
+	}
+	if account.Provider == "" {
+		account.Provider = "qoder"
+	}
+	if account.ProviderRegion == "" {
+		account.ProviderRegion = "global"
+	}
+	if account.WorkBuddyCheckinTime == "" {
+		account.WorkBuddyCheckinTime = accounts.DefaultWorkBuddyCheckinTime
+	}
+	account.CreatedAt = parseTime(created.String)
+	account.UpdatedAt = parseTime(updated.String)
+	if cooldown.Valid && cooldown.String != "" {
+		parsed := parseTime(cooldown.String)
+		account.CooldownUntil = &parsed
+	}
+	if quotaJSON.Valid && quotaJSON.String != "" {
+		var quota accounts.QuotaSnapshot
+		if json.Unmarshal([]byte(quotaJSON.String), &quota) == nil {
+			account.Quota = &quota
+		}
+	}
+	return account, nil
+}
+
+func newAccountID() string {
+	raw := make([]byte, 6)
+	if _, err := rand.Read(raw); err != nil {
+		return fmt.Sprintf("acc_%d", time.Now().UnixNano())
+	}
+	return "acc_" + hex.EncodeToString(raw)
+}
+
+func formatTime(value time.Time) string {
+	return value.UTC().Format(time.RFC3339Nano)
+}
+
+func parseTime(value string) time.Time {
+	parsed, _ := time.Parse(time.RFC3339Nano, value)
+	return parsed
+}
+
+func (s *Store) List(ctx context.Context) ([]accounts.Account, error) {
+	rows, err := s.db.QueryContext(ctx, `
+	SELECT id, name, provider, provider_region, remote_uid, auth_type, enabled, max_inflight, priority,
+	       drop_system_prompt, workbuddy_auto_checkin, workbuddy_checkin_time, proxy_url, last_checkin_at, last_checkin_msg, last_checkin_status,
+	       status, last_error, last_error_kind, cooldown_until, quota_json, created_at, updated_at
+	FROM accounts ORDER BY created_at, id`)
+	if err != nil {
+		return nil, fmt.Errorf("list accounts: %w", err)
+	}
+	defer rows.Close()
+	var accounts []accounts.Account
+	for rows.Next() {
+		account, err := scanAccount(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan account: %w", err)
+		}
+		accounts = append(accounts, account)
+	}
+	return accounts, rows.Err()
+}
+
+func (s *Store) Update(ctx context.Context, id string, input accounts.UpdateAccount) error {
+	account, err := s.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	if name := strings.TrimSpace(input.Name); name != "" {
+		account.Name = name
+	}
+	if input.Enabled != nil {
+		account.Enabled = *input.Enabled
+	}
+	if input.MaxInFlight != nil && *input.MaxInFlight > 0 {
+		account.MaxInFlight = *input.MaxInFlight
+	}
+	if input.Priority != nil && *input.Priority > 0 {
+		account.Priority = *input.Priority
+	}
+	if input.DropSystemPrompt != nil {
+		account.DropSystemPrompt = *input.DropSystemPrompt
+	}
+	if input.WorkBuddyAutoCheckin != nil {
+		account.WorkBuddyAutoCheckin = *input.WorkBuddyAutoCheckin
+	}
+	if input.WorkBuddyCheckinTime != nil {
+		account.WorkBuddyCheckinTime, err = s.resolveWorkBuddyCheckinTime(ctx, *input.WorkBuddyCheckinTime)
+		if err != nil {
+			return err
+		}
+	}
+	if input.ProxyURL != nil {
+		proxyURL := proxy.Preserve(account.ProxyURL, *input.ProxyURL)
+		if err := validateAccountProxy(account.Provider, account.ProviderRegion, proxyURL); err != nil {
+			return err
+		}
+		account.ProxyURL = proxyURL
+	}
+	account.UpdatedAt = time.Now().UTC()
+	result, err := s.db.ExecContext(ctx, `
+	UPDATE accounts SET name = ?, enabled = ?, max_inflight = ?, priority = ?, drop_system_prompt = ?,
+	                    workbuddy_auto_checkin = ?, workbuddy_checkin_time = ?, proxy_url = ?, updated_at = ?
+	WHERE id = ?`, account.Name, account.Enabled, account.MaxInFlight, account.Priority, account.DropSystemPrompt,
+		account.WorkBuddyAutoCheckin, account.WorkBuddyCheckinTime, account.ProxyURL, formatTime(account.UpdatedAt), account.ID)
+	if err != nil {
+		return fmt.Errorf("update account: %w", err)
+	}
+	changed, _ := result.RowsAffected()
+	if changed == 0 {
+		return accounts.ErrAccountNotFound
+	}
+	return nil
+}
+
+func (s *Store) WorkBuddyCheckinTimeDefault(ctx context.Context) string {
+	value, ok, err := s.GetSecret(ctx, accounts.WorkBuddyCheckinTimeSecret)
+	if err != nil || !ok {
+		return accounts.DefaultWorkBuddyCheckinTime
+	}
+	normalized, err := accounts.NormalizeWorkBuddyCheckinTime(value)
+	if err != nil {
+		return accounts.DefaultWorkBuddyCheckinTime
+	}
+	return normalized
+}
+
+func (s *Store) resolveWorkBuddyCheckinTime(ctx context.Context, value string) (string, error) {
+	return accounts.ResolveWorkBuddyCheckinTime(value, s.WorkBuddyCheckinTimeDefault(ctx))
+}
+
+func (s *Store) Delete(ctx context.Context, id string) error {
+	result, err := s.db.ExecContext(ctx, `DELETE FROM accounts WHERE id = ?`, strings.TrimSpace(id))
+	if err != nil {
+		return fmt.Errorf("delete account: %w", err)
+	}
+	changed, _ := result.RowsAffected()
+	if changed == 0 {
+		return accounts.ErrAccountNotFound
+	}
+	return nil
+}
+
+func (s *Store) SetModelContext(ctx context.Context, modelID string, contextLength int) error {
+	modelID = strings.TrimSpace(modelID)
+	if modelID == "" {
+		return fmt.Errorf("model id required")
+	}
+	if err := accounts.ValidateModelContextLength(contextLength); err != nil {
+		return err
+	}
+	if contextLength == 0 {
+		_, err := s.db.ExecContext(ctx, `DELETE FROM model_settings WHERE model_id = ?`, modelID)
+		if err != nil {
+			return fmt.Errorf("delete model context: %w", err)
+		}
+		return nil
+	}
+	_, err := s.db.ExecContext(ctx, `
+INSERT INTO model_settings (model_id, context_length, updated_at) VALUES (?, ?, ?)
+ON CONFLICT(model_id) DO UPDATE SET context_length=excluded.context_length, updated_at=excluded.updated_at`,
+		modelID, contextLength, formatTime(time.Now().UTC()))
+	if err != nil {
+		return fmt.Errorf("save model context: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) GetModelContext(ctx context.Context, modelID string) (int, bool, error) {
+	var contextLength int
+	err := s.db.QueryRowContext(ctx, `SELECT context_length FROM model_settings WHERE model_id = ?`, strings.TrimSpace(modelID)).Scan(&contextLength)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, fmt.Errorf("get model context: %w", err)
+	}
+	return contextLength, true, nil
+}
+
+func (s *Store) ListModelContexts(ctx context.Context) (map[string]int, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT model_id, context_length FROM model_settings`)
+	if err != nil {
+		return nil, fmt.Errorf("list model contexts: %w", err)
+	}
+	defer rows.Close()
+	result := make(map[string]int)
+	for rows.Next() {
+		var modelID string
+		var contextLength int
+		if err := rows.Scan(&modelID, &contextLength); err != nil {
+			return nil, fmt.Errorf("scan model context: %w", err)
+		}
+		result[modelID] = contextLength
+	}
+	return result, rows.Err()
+}
+
+func providerModelKey(provider, modelID string) (string, string, error) {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	modelID = strings.TrimSpace(modelID)
+	if provider == "" || modelID == "" {
+		return "", "", fmt.Errorf("provider and model id required")
+	}
+	return provider, modelID, nil
+}
+
+func (s *Store) SetProviderModelSetting(ctx context.Context, provider, modelID string, setting accounts.ProviderModelSetting) error {
+	provider, modelID, err := providerModelKey(provider, modelID)
+	if err != nil {
+		return err
+	}
+	setting.ReasoningEffort = strings.ToLower(strings.TrimSpace(setting.ReasoningEffort))
+	if !setting.MaxMode && setting.ReasoningEffort == "" {
+		_, err := s.db.ExecContext(ctx, `DELETE FROM provider_model_settings WHERE provider = ? AND model_id = ?`, provider, modelID)
+		if err != nil {
+			return fmt.Errorf("delete provider model setting: %w", err)
+		}
+		return nil
+	}
+	maxMode := 0
+	if setting.MaxMode {
+		maxMode = 1
+	}
+	_, err = s.db.ExecContext(ctx, `
+	INSERT INTO provider_model_settings (provider, model_id, max_mode, reasoning_effort, updated_at) VALUES (?, ?, ?, ?, ?)
+	ON CONFLICT(provider, model_id) DO UPDATE SET max_mode=excluded.max_mode, reasoning_effort=excluded.reasoning_effort, updated_at=excluded.updated_at`,
+		provider, modelID, maxMode, setting.ReasoningEffort, formatTime(time.Now().UTC()))
+	if err != nil {
+		return fmt.Errorf("save provider model setting: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) GetProviderModelSetting(ctx context.Context, provider, modelID string) (accounts.ProviderModelSetting, error) {
+	provider, modelID, err := providerModelKey(provider, modelID)
+	if err != nil {
+		return accounts.ProviderModelSetting{}, err
+	}
+	var maxMode int
+	var effort string
+	err = s.db.QueryRowContext(ctx, `SELECT max_mode, reasoning_effort FROM provider_model_settings WHERE provider = ? AND model_id = ?`, provider, modelID).Scan(&maxMode, &effort)
+	if errors.Is(err, sql.ErrNoRows) {
+		return accounts.ProviderModelSetting{}, nil
+	}
+	if err != nil {
+		return accounts.ProviderModelSetting{}, fmt.Errorf("get provider model setting: %w", err)
+	}
+	return accounts.ProviderModelSetting{MaxMode: maxMode != 0, ReasoningEffort: strings.TrimSpace(effort)}, nil
+}
+
+func (s *Store) SetProviderModelMaxMode(ctx context.Context, provider, modelID string, maxMode bool) error {
+	setting, err := s.GetProviderModelSetting(ctx, provider, modelID)
+	if err != nil {
+		return err
+	}
+	setting.MaxMode = maxMode
+	return s.SetProviderModelSetting(ctx, provider, modelID, setting)
+}
+
+func (s *Store) GetProviderModelMaxMode(ctx context.Context, provider, modelID string) (bool, error) {
+	setting, err := s.GetProviderModelSetting(ctx, provider, modelID)
+	if err != nil {
+		return false, err
+	}
+	return setting.MaxMode, nil
+}
+
+func (s *Store) ListProviderModelMaxModes(ctx context.Context, provider string) (map[string]bool, error) {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	if provider == "" {
+		return nil, fmt.Errorf("provider required")
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT model_id, max_mode FROM provider_model_settings WHERE provider = ?`, provider)
+	if err != nil {
+		return nil, fmt.Errorf("list provider model settings: %w", err)
+	}
+	defer rows.Close()
+	result := make(map[string]bool)
+	for rows.Next() {
+		var modelID string
+		var maxMode int
+		if err := rows.Scan(&modelID, &maxMode); err != nil {
+			return nil, fmt.Errorf("scan provider model setting: %w", err)
+		}
+		result[modelID] = maxMode != 0
+	}
+	return result, rows.Err()
+}
+
+func (s *Store) GetSecret(ctx context.Context, name string) (string, bool, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", false, fmt.Errorf("secret name required")
+	}
+	var value string
+	err := s.db.QueryRowContext(ctx, `SELECT value FROM app_secrets WHERE name = ?`, name).Scan(&value)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("get secret: %w", err)
+	}
+	return value, true, nil
+}
+
+func (s *Store) SetSecret(ctx context.Context, name, value string) error {
+	name = strings.TrimSpace(name)
+	value = strings.TrimSpace(value)
+	if name == "" {
+		return fmt.Errorf("secret name required")
+	}
+	if value == "" {
+		return fmt.Errorf("secret value required")
+	}
+	now := formatTime(time.Now().UTC())
+	_, err := s.db.ExecContext(ctx, `
+INSERT INTO app_secrets (name, value, created_at, updated_at) VALUES (?, ?, ?, ?)
+ON CONFLICT(name) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`,
+		name, value, now, now)
+	if err != nil {
+		return fmt.Errorf("save secret: %w", err)
+	}
+	return nil
+}
+
+// SetSecretOrEmpty stores a secret, allowing an explicitly empty value to
+// persist. Use it when "cleared" is a meaningful state that must be
+// distinguished from "never configured" (for example the global proxy, where
+// an absent row triggers first-run bootstrap from the environment).
+func (s *Store) SetSecretOrEmpty(ctx context.Context, name, value string) error {
+	name = strings.TrimSpace(name)
+	value = strings.TrimSpace(value)
+	if name == "" {
+		return fmt.Errorf("secret name required")
+	}
+	now := formatTime(time.Now().UTC())
+	_, err := s.db.ExecContext(ctx, `
+INSERT INTO app_secrets (name, value, created_at, updated_at) VALUES (?, ?, ?, ?)
+ON CONFLICT(name) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`,
+		name, value, now, now)
+	if err != nil {
+		return fmt.Errorf("save secret: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) DeleteSecret(ctx context.Context, name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return fmt.Errorf("secret name required")
+	}
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM app_secrets WHERE name = ?`, name); err != nil {
+		return fmt.Errorf("delete secret: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) SaveCredential(ctx context.Context, accountID, authType string, credential accounts.NativeCredential) error {
+	if len(credential.UserBlob) == 0 || strings.TrimSpace(credential.MachineID) == "" {
+		return fmt.Errorf("native credential requires user blob and machine id")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	now := formatTime(time.Now().UTC())
+	if _, err := tx.ExecContext(ctx, `
+INSERT INTO account_credentials (account_id, user_blob, machine_id, updated_at)
+VALUES (?, ?, ?, ?)
+ON CONFLICT(account_id) DO UPDATE SET user_blob=excluded.user_blob, machine_id=excluded.machine_id, updated_at=excluded.updated_at`,
+		accountID, credential.UserBlob, strings.TrimSpace(credential.MachineID), now); err != nil {
+		return fmt.Errorf("save credential: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE accounts SET auth_type = ?, updated_at = ? WHERE id = ?`, authType, now, accountID); err != nil {
+		return fmt.Errorf("update credential type: %w", err)
+	}
+	return tx.Commit()
+}
+
+func (s *Store) LoadCredential(ctx context.Context, accountID string) (accounts.NativeCredential, error) {
+	var credential accounts.NativeCredential
+	err := s.db.QueryRowContext(ctx, `
+SELECT user_blob, machine_id FROM account_credentials WHERE account_id = ?`, accountID).
+		Scan(&credential.UserBlob, &credential.MachineID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return accounts.NativeCredential{}, accounts.ErrAccountNotFound
+	}
+	if err != nil {
+		return accounts.NativeCredential{}, fmt.Errorf("load credential: %w", err)
+	}
+	return credential, nil
+}
+
+func (s *Store) SaveCredentialPayload(ctx context.Context, accountID, format string, payload []byte) error {
+	if len(payload) == 0 {
+		return fmt.Errorf("credential payload required")
+	}
+	account, err := s.Get(ctx, accountID)
+	if err != nil {
+		return err
+	}
+	if err := providers.ValidateCredentialFormat(account.Provider, format); err != nil {
+		return err
+	}
+	now := formatTime(time.Now().UTC())
+	_, err = s.db.ExecContext(ctx, `
+INSERT INTO account_credential_payloads (account_id, format, payload, updated_at)
+VALUES (?, ?, ?, ?)
+ON CONFLICT(account_id) DO UPDATE SET format=excluded.format, payload=excluded.payload, updated_at=excluded.updated_at`,
+		accountID, format, payload, now)
+	if err != nil {
+		return fmt.Errorf("save credential payload: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) LoadCredentialPayload(ctx context.Context, accountID string) (string, []byte, error) {
+	var format string
+	var payload []byte
+	err := s.db.QueryRowContext(ctx, `
+SELECT format, payload FROM account_credential_payloads WHERE account_id = ?`, accountID).
+		Scan(&format, &payload)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil, accounts.ErrAccountNotFound
+	}
+	if err != nil {
+		return "", nil, fmt.Errorf("load credential payload: %w", err)
+	}
+	return format, payload, nil
+}
+
+func (s *Store) SaveQuota(ctx context.Context, id string, quota *accounts.QuotaSnapshot) error {
+	if quota == nil {
+		return nil
+	}
+	payload, err := json.Marshal(quota)
+	if err != nil {
+		return fmt.Errorf("marshal quota: %w", err)
+	}
+	status := "ready"
+	if quota.Exceeded {
+		status = "quota_exhausted"
+	}
+	result, err := s.db.ExecContext(ctx, `
+UPDATE accounts SET quota_json = ?, status = CASE
+  WHEN ? = 'quota_exhausted' THEN 'quota_exhausted'
+  WHEN status = 'quota_exhausted' THEN 'ready'
+  ELSE status
+END, updated_at = ?
+WHERE id = ?`, string(payload), status, formatTime(time.Now().UTC()), id)
+	if err != nil {
+		return fmt.Errorf("save quota: %w", err)
+	}
+	changed, _ := result.RowsAffected()
+	if changed == 0 {
+		return accounts.ErrAccountNotFound
+	}
+	return nil
+}
+func (s *Store) Observe(ctx context.Context, id, remoteUID, status, lastError, lastKind string) error {
+	result, err := s.db.ExecContext(ctx, `
+UPDATE accounts SET remote_uid = ?, status = CASE
+  WHEN accounts.status = 'quota_exhausted' AND ? = 'ready' THEN accounts.status
+  ELSE ?
+END, last_error = ?, last_error_kind = ?, updated_at = ?
+WHERE id = ?`, remoteUID, status, status, lastError, lastKind, formatTime(time.Now().UTC()), id)
+	if err != nil {
+		return fmt.Errorf("observe account: %w", err)
+	}
+	changed, _ := result.RowsAffected()
+	if changed == 0 {
+		return accounts.ErrAccountNotFound
+	}
+	return nil
+}
+
+func newCheckinRecordID() string {
+	raw := make([]byte, 8)
+	if _, err := rand.Read(raw); err != nil {
+		return fmt.Sprintf("checkin_%d", time.Now().UnixNano())
+	}
+	return "checkin_" + hex.EncodeToString(raw)
+}
+
+func (s *Store) RecordCheckin(ctx context.Context, id, status, msg string, at time.Time) error {
+	if at.IsZero() {
+		at = time.Now().UTC()
+	}
+	accountID := strings.TrimSpace(id)
+	status = strings.TrimSpace(status)
+	if status == "" {
+		status = "success"
+	}
+	message := strings.TrimSpace(msg)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin record checkin: %w", err)
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `
+UPDATE accounts SET last_checkin_at = ?, last_checkin_msg = ?, last_checkin_status = ?, updated_at = ?
+WHERE id = ?`, formatTime(at), message, status, formatTime(time.Now().UTC()), accountID)
+	if err != nil {
+		return fmt.Errorf("record checkin: %w", err)
+	}
+	changed, _ := result.RowsAffected()
+	if changed == 0 {
+		return accounts.ErrAccountNotFound
+	}
+	if _, err := tx.ExecContext(ctx, `
+INSERT INTO checkin_records (id, account_id, status, message, created_at) VALUES (?, ?, ?, ?, ?)`,
+		newCheckinRecordID(), accountID, status, message, formatTime(at)); err != nil {
+		return fmt.Errorf("insert checkin record: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit checkin record: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) ListCheckinRecords(ctx context.Context, accountID string, limit int) ([]accounts.CheckinRecord, error) {
+	if _, err := s.Get(ctx, accountID); err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 50 {
+		limit = 50
+	}
+	rows, err := s.db.QueryContext(ctx, `
+SELECT id, account_id, status, message, created_at
+FROM checkin_records WHERE account_id = ?
+ORDER BY created_at DESC, id DESC LIMIT ?`, strings.TrimSpace(accountID), limit)
+	if err != nil {
+		return nil, fmt.Errorf("list checkin records: %w", err)
+	}
+	defer rows.Close()
+	records := make([]accounts.CheckinRecord, 0)
+	for rows.Next() {
+		var record accounts.CheckinRecord
+		var created string
+		if err := rows.Scan(&record.ID, &record.AccountID, &record.Status, &record.Message, &created); err != nil {
+			return nil, fmt.Errorf("scan checkin record: %w", err)
+		}
+		record.CreatedAt = parseTime(created)
+		records = append(records, record)
+	}
+	return records, rows.Err()
+}
+
+// canonicalCooldownModel normalizes a model key for storage. Unlike
+// accounts.CanonicalModelID it leaves the empty key alone: "" is a real primary-key
+// value meaning "account-wide", and accounts.CanonicalModelID would rewrite it to
+// "auto", collapsing the account row into the model namespace.
+func canonicalCooldownModel(model string) string {
+	if strings.TrimSpace(model) == "" {
+		return ""
+	}
+	return accounts.CanonicalModelID(model)
+}
+
+// SaveCooldowns replaces the persisted cooldown set for one account. Rows
+// whose deadline already passed are dropped instead of being written, so a
+// long-lived process cannot accumulate expired entries.
+func (s *Store) SaveCooldowns(ctx context.Context, accountID string, rows []accounts.CooldownRow) error {
+	if accountID == "" {
+		return nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin cooldown save: %w", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM account_cooldowns WHERE account_id = ?`, accountID); err != nil {
+		return fmt.Errorf("clear cooldowns: %w", err)
+	}
+	now := time.Now().UTC()
+	for _, row := range rows {
+		if row.DownUntil.IsZero() || !now.Before(row.DownUntil) {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `
+INSERT INTO account_cooldowns (account_id, model, down_until, backoff_level, kind, message, model_kind, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(account_id, model) DO UPDATE SET
+  down_until = excluded.down_until,
+  backoff_level = excluded.backoff_level,
+  kind = excluded.kind,
+  message = excluded.message,
+  model_kind = excluded.model_kind,
+  updated_at = excluded.updated_at`,
+			accountID, canonicalCooldownModel(row.Model), formatTime(row.DownUntil), clampBackoffLevel(row.BackoffLevel),
+			row.Kind, row.Message, row.ModelKind, formatTime(now)); err != nil {
+			return fmt.Errorf("save cooldown: %w", err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM account_cooldowns WHERE account_id = ? AND down_until <= ?`,
+		accountID, formatTime(now)); err != nil {
+		return fmt.Errorf("prune cooldowns: %w", err)
+	}
+	return tx.Commit()
+}
+
+// LoadCooldowns returns every cooldown whose deadline is still in the future.
+// Expired rows are pruned in the same statement so repeated restarts do not
+// re-read stale entries.
+func (s *Store) LoadCooldowns(ctx context.Context) ([]accounts.CooldownRow, error) {
+	now := formatTime(time.Now().UTC())
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM account_cooldowns WHERE down_until <= ?`, now); err != nil {
+		return nil, fmt.Errorf("prune expired cooldowns: %w", err)
+	}
+	rows, err := s.db.QueryContext(ctx, `
+SELECT account_id, model, down_until, backoff_level, kind, message, model_kind
+FROM account_cooldowns WHERE down_until > ? ORDER BY account_id, model`, now)
+	if err != nil {
+		return nil, fmt.Errorf("load cooldowns: %w", err)
+	}
+	defer rows.Close()
+	var out []accounts.CooldownRow
+	for rows.Next() {
+		var row accounts.CooldownRow
+		var until, model string
+		if err := rows.Scan(&row.AccountID, &model, &until, &row.BackoffLevel, &row.Kind, &row.Message, &row.ModelKind); err != nil {
+			return nil, fmt.Errorf("scan cooldown: %w", err)
+		}
+		row.DownUntil = parseTime(until)
+		row.Model = canonicalCooldownModel(model)
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) RecordPoolState(ctx context.Context, state accounts.PoolState) error {
+	var cooldown any
+	status := "ready"
+	if !state.DownUntil.IsZero() && time.Now().Before(state.DownUntil) {
+		cooldown = formatTime(state.DownUntil)
+		status = "cooling"
+	}
+	_, err := s.db.ExecContext(ctx, `
+	UPDATE accounts SET status = ?, last_error = ?, last_error_kind = ?, cooldown_until = ?, updated_at = ?
+	WHERE id = ?`, status, state.LastError, state.LastErrorKind, cooldown, formatTime(time.Now().UTC()), state.ID)
+	if err != nil {
+		return fmt.Errorf("record pool state: %w", err)
+	}
+	return nil
+}
+
+const backoffMaxLevel = 8
+
+func clampBackoffLevel(level int) int {
+	if level < 0 {
+		return 0
+	}
+	if level > backoffMaxLevel {
+		return backoffMaxLevel
+	}
+	return level
+}

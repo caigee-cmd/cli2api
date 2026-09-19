@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"context"
+	sqlstore "github.com/caigee-cmd/cli2api/internal/store"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -14,7 +15,7 @@ import (
 )
 
 func TestEnsureCrossProviderModelPoolDefaultsToEnabled(t *testing.T) {
-	store, err := accounts.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	store, err := sqlstore.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,11 +53,11 @@ func TestSystemSettingsRoutePersistsAndAppliesModelPool(t *testing.T) {
 	if response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte(`"cross_provider_model_pool":false`)) {
 		t.Fatalf("updated settings: %d %s", response.Code, response.Body.String())
 	}
-	if srv.crossProviderModelPool.Load() {
+	if srv.CrossProviderModelPool.Load() {
 		t.Fatal("runtime model pool setting remains enabled")
 	}
 
-	value, ok, err := srv.manager.Store().GetSecret(context.Background(), crossProviderModelPoolSecret)
+	value, ok, err := srv.Manager.Store().GetSecret(context.Background(), crossProviderModelPoolSecret)
 	if err != nil || !ok || value != "0" {
 		t.Fatalf("persisted setting=%q ok=%v err=%v", value, ok, err)
 	}
@@ -76,17 +77,17 @@ func TestSystemSettingsRoutePersistsAndAppliesRoutingStrategy(t *testing.T) {
 	if response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte(`"routing_strategy":"fill-first"`)) {
 		t.Fatalf("updated settings: %d %s", response.Code, response.Body.String())
 	}
-	if got := srv.pool.RoutingStrategy(); got != accounts.RoutingStrategyFillFirst {
+	if got := srv.Pool.RoutingStrategy(); got != accounts.RoutingStrategyFillFirst {
 		t.Fatalf("runtime strategy = %q", got)
 	}
-	value, ok, err := srv.manager.Store().GetSecret(context.Background(), routingStrategySecret)
+	value, ok, err := srv.Manager.Store().GetSecret(context.Background(), routingStrategySecret)
 	if err != nil || !ok || value != accounts.RoutingStrategyFillFirst {
 		t.Fatalf("persisted strategy=%q ok=%v err=%v", value, ok, err)
 	}
 }
 
 func TestEnsureWorkBuddyCheckinTimeDefaultsToNine(t *testing.T) {
-	store, err := accounts.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	store, err := sqlstore.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +125,7 @@ func TestSystemSettingsRoutePersistsWorkBuddyCheckinTime(t *testing.T) {
 	if response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte(`"workbuddy_checkin_time":"18:30"`)) {
 		t.Fatalf("updated settings: %d %s", response.Code, response.Body.String())
 	}
-	stored, ok, err := srv.manager.Store().GetSecret(context.Background(), accounts.WorkBuddyCheckinTimeSecret)
+	stored, ok, err := srv.Manager.Store().GetSecret(context.Background(), accounts.WorkBuddyCheckinTimeSecret)
 	if err != nil || !ok || stored != "18:30" {
 		t.Fatalf("persisted=%q ok=%v err=%v", stored, ok, err)
 	}
@@ -144,7 +145,7 @@ func TestSystemSettingsRejectsInvalidWorkBuddyCheckinTime(t *testing.T) {
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("invalid time response: %d %s", response.Code, response.Body.String())
 	}
-	stored, ok, err := srv.manager.Store().GetSecret(context.Background(), accounts.WorkBuddyCheckinTimeSecret)
+	stored, ok, err := srv.Manager.Store().GetSecret(context.Background(), accounts.WorkBuddyCheckinTimeSecret)
 	if err != nil || !ok || stored != accounts.DefaultWorkBuddyCheckinTime {
 		t.Fatalf("default overwritten after invalid patch: stored=%q ok=%v err=%v", stored, ok, err)
 	}
@@ -164,10 +165,10 @@ func TestSystemSettingsRejectsInvalidStrategyWithoutPartialUpdate(t *testing.T) 
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("invalid strategy response: %d %s", response.Code, response.Body.String())
 	}
-	if !srv.crossProviderModelPool.Load() {
+	if !srv.CrossProviderModelPool.Load() {
 		t.Fatal("invalid strategy request partially changed model pool setting")
 	}
-	value, ok, err := srv.manager.Store().GetSecret(context.Background(), crossProviderModelPoolSecret)
+	value, ok, err := srv.Manager.Store().GetSecret(context.Background(), crossProviderModelPoolSecret)
 	if err != nil || !ok || value != "1" {
 		t.Fatalf("cross-provider setting after invalid request=%q ok=%v err=%v", value, ok, err)
 	}
@@ -179,7 +180,7 @@ func TestChatRejectsBareModelWhenCrossProviderPoolDisabled(t *testing.T) {
 		QoderHome: t.TempDir(), DataDir: t.TempDir(),
 	})
 	defer srv.Close()
-	srv.crossProviderModelPool.Store(false)
+	srv.CrossProviderModelPool.Store(false)
 
 	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewBufferString(`{"model":"glm-5.2","messages":[{"role":"user","content":"hi"}]}`))
 	request.Header.Set("Authorization", "Bearer secret")
@@ -191,7 +192,7 @@ func TestChatRejectsBareModelWhenCrossProviderPoolDisabled(t *testing.T) {
 }
 
 func TestEnsureProxyURLRejectsSOCKSBootstrap(t *testing.T) {
-	store, err := accounts.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	store, err := sqlstore.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,7 +207,7 @@ func TestEnsureProxyURLRejectsSOCKSBootstrap(t *testing.T) {
 }
 
 func TestEnsureProxyURLAcceptsHTTPBootstrap(t *testing.T) {
-	store, err := accounts.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	store, err := sqlstore.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -236,7 +237,7 @@ func TestSystemSettingsProxyURLRejectsSOCKS(t *testing.T) {
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("SOCKS global proxy response: %d %s", response.Code, response.Body.String())
 	}
-	if _, ok, err := srv.manager.Store().GetSecret(context.Background(), proxyURLSecret); err != nil || ok {
+	if _, ok, err := srv.Manager.Store().GetSecret(context.Background(), proxyURLSecret); err != nil || ok {
 		t.Fatalf("rejected global proxy was persisted: ok=%v err=%v", ok, err)
 	}
 }
@@ -255,7 +256,7 @@ func TestSystemSettingsProxyURLAcceptsHTTP(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("HTTP global proxy response: %d %s", response.Code, response.Body.String())
 	}
-	stored, ok, err := srv.manager.Store().GetSecret(context.Background(), proxyURLSecret)
+	stored, ok, err := srv.Manager.Store().GetSecret(context.Background(), proxyURLSecret)
 	if err != nil || !ok || stored != "http://proxy.example:8080" {
 		t.Fatalf("stored=%q ok=%v err=%v", stored, ok, err)
 	}
@@ -274,7 +275,7 @@ func TestSystemSettingsProxyURLRetriesFailedReloadWithSameValue(t *testing.T) {
 
 	// An enabled inheriting Qoder account; with no daemon path configured its
 	// worker cannot start, so every reload attempt fails deterministically.
-	if _, err := srv.manager.Store().Create(context.Background(), accounts.CreateAccount{Name: "Inherits", Enabled: true}); err != nil {
+	if _, err := srv.Manager.Store().Create(context.Background(), accounts.CreateAccount{Name: "Inherits", Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
 	patch := func(body string) *httptest.ResponseRecorder {
@@ -290,7 +291,7 @@ func TestSystemSettingsProxyURLRetriesFailedReloadWithSameValue(t *testing.T) {
 	if first.Code != http.StatusInternalServerError {
 		t.Fatalf("first reload response: %d %s", first.Code, first.Body.String())
 	}
-	stored, ok, err := srv.manager.Store().GetSecret(context.Background(), proxyURLSecret)
+	stored, ok, err := srv.Manager.Store().GetSecret(context.Background(), proxyURLSecret)
 	if err != nil || !ok || stored != newProxy {
 		t.Fatalf("stored after failed reload: %q ok=%v err=%v", stored, ok, err)
 	}
@@ -312,7 +313,7 @@ func TestSystemSettingsProxyURLClearPersistsEmptyValue(t *testing.T) {
 	})
 	defer srv.Close()
 
-	if err := srv.manager.Store().SetSecret(context.Background(), proxyURLSecret, "http://proxy.example:8080"); err != nil {
+	if err := srv.Manager.Store().SetSecret(context.Background(), proxyURLSecret, "http://proxy.example:8080"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -326,7 +327,7 @@ func TestSystemSettingsProxyURLClearPersistsEmptyValue(t *testing.T) {
 
 	// The row must remain with an empty value so a restart does not treat the
 	// clear as "never configured" and re-apply the environment bootstrap.
-	stored, ok, err := srv.manager.Store().GetSecret(context.Background(), proxyURLSecret)
+	stored, ok, err := srv.Manager.Store().GetSecret(context.Background(), proxyURLSecret)
 	if err != nil || !ok || stored != "" {
 		t.Fatalf("cleared proxy: stored=%q ok=%v err=%v (want present empty row)", stored, ok, err)
 	}
@@ -334,7 +335,7 @@ func TestSystemSettingsProxyURLClearPersistsEmptyValue(t *testing.T) {
 
 func TestEnsureProxyURLDoesNotReapplyBootstrapAfterClear(t *testing.T) {
 	ctx := context.Background()
-	store, err := accounts.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	store, err := sqlstore.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -373,12 +374,12 @@ func TestSystemSettingsProxyURLReadIsInsideSettingsLock(t *testing.T) {
 
 	const oldProxy = "http://old.example:8080"
 	const newProxy = "http://new.example:9090"
-	if err := srv.manager.Store().SetSecret(ctx, proxyURLSecret, oldProxy); err != nil {
+	if err := srv.Manager.Store().SetSecret(ctx, proxyURLSecret, oldProxy); err != nil {
 		t.Fatal(err)
 	}
 
 	// Take the settings lock so the PATCH cannot enter the critical section.
-	srv.settingsMu.Lock()
+	srv.SettingsMu.Lock()
 
 	type result struct {
 		code int
@@ -396,10 +397,10 @@ func TestSystemSettingsProxyURLReadIsInsideSettingsLock(t *testing.T) {
 	// Give the goroutine time to reach (and block on) the settings lock, then
 	// change the stored value as a concurrent request would.
 	time.Sleep(100 * time.Millisecond)
-	if err := srv.manager.Store().SetSecret(ctx, proxyURLSecret, newProxy); err != nil {
+	if err := srv.Manager.Store().SetSecret(ctx, proxyURLSecret, newProxy); err != nil {
 		t.Fatal(err)
 	}
-	srv.settingsMu.Unlock()
+	srv.SettingsMu.Unlock()
 
 	res := <-done
 	if res.code != http.StatusOK {
@@ -410,7 +411,7 @@ func TestSystemSettingsProxyURLReadIsInsideSettingsLock(t *testing.T) {
 	// must have persisted old.example. If it had compared against a stale read
 	// taken before the lock, it would have skipped the write and left
 	// new.example on disk while pointing the runtime at old.example.
-	stored, ok, err := srv.manager.Store().GetSecret(ctx, proxyURLSecret)
+	stored, ok, err := srv.Manager.Store().GetSecret(ctx, proxyURLSecret)
 	if err != nil || !ok {
 		t.Fatalf("stored proxy missing: ok=%v err=%v", ok, err)
 	}

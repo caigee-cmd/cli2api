@@ -22,12 +22,23 @@ import (
 )
 
 // Store is the persistence surface the adapter needs. It matches
-// *accounts.Store without importing the concrete manager.
+// the SQLite store without importing the concrete type.
 type Store interface {
 	Get(ctx context.Context, id string) (accounts.Account, error)
 	LoadCredentialPayload(ctx context.Context, accountID string) (string, []byte, error)
 	SaveCredentialPayload(ctx context.Context, accountID, format string, payload []byte) error
 	Observe(ctx context.Context, id, remoteUID, status, lastError, lastKind string) error
+}
+
+// SecretReader is optional. Missing it means no global proxy, not an error.
+type SecretReader interface {
+	GetSecret(context.Context, string) (string, bool, error)
+}
+
+// ModelSettingReader is optional. Missing it means console-saved reasoning
+// defaults are skipped, matching the previous anonymous type assertion.
+type ModelSettingReader interface {
+	GetProviderModelSetting(context.Context, string, string) (accounts.ProviderModelSetting, error)
 }
 
 type Client struct {
@@ -68,9 +79,7 @@ type envelope struct {
 }
 
 func (c *Client) globalProxy(ctx context.Context) (string, error) {
-	store, ok := c.store.(interface {
-		GetSecret(context.Context, string) (string, bool, error)
-	})
+	store, ok := c.store.(SecretReader)
 	if !ok {
 		return "", nil
 	}
@@ -426,10 +435,8 @@ func (c *Client) Models(ctx context.Context, accountID string) ([]providers.Mode
 func (c *Client) chatRequest(ctx context.Context, accountID string, credential Credential, req translate.ChatRequest) (*http.Request, error) {
 	caps := c.capsFor(req.Model)
 	storedLevel := ""
-	if setter, ok := c.store.(interface {
-		GetProviderModelSetting(context.Context, string, string) (accounts.ProviderModelSetting, error)
-	}); ok {
-		// settingModelKey must canonicalize exactly like api.modelContextKey
+	if setter, ok := c.store.(ModelSettingReader); ok {
+		// CanonicalModelID must match control.ModelContextKey
 		// so console-saved reasoning levels are found at chat time.
 		if stored, err := setter.GetProviderModelSetting(ctx, "workbuddy", accounts.CanonicalModelID(req.Model)); err == nil {
 			storedLevel = stored.ReasoningEffort
@@ -569,7 +576,7 @@ func classifiedError(status int, body []byte) error {
 	out := &providers.Error{Kind: classified.Kind, Status: classified.Status, Message: classified.Message}
 	if classified.Kind == accounts.KindRateLimit {
 		if reset := parseQuotaReset(string(body), time.Now()); reset > 0 {
-			out.Cooldown = reset
+			out.RetryAfter = reset
 		}
 	}
 	return out

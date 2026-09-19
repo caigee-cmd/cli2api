@@ -27,12 +27,10 @@ func closedStreamPipe(err error) *io.PipeReader {
 
 func TestWriteClassifiedErrKeepsTraeQuotaKind(t *testing.T) {
 	recorder := httptest.NewRecorder()
-	failover := true
 	writeClassifiedErr(recorder, &providers.Error{
-		Kind:     accounts.KindQuota,
-		Status:   429,
-		Message:  `{"code":1005,"message":""}`,
-		Failover: &failover,
+		Kind:    accounts.KindQuota,
+		Status:  429,
+		Message: `{"code":1005,"message":""}`,
 	})
 	if recorder.Code != 429 {
 		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
@@ -141,7 +139,7 @@ func TestBuildChatUsagePreservesZeroPromptCacheTokens(t *testing.T) {
 
 func TestStreamFlushWriterFlushesEachWrite(t *testing.T) {
 	recorder := httptest.NewRecorder()
-	writer := streamFlushWriter{w: recorder, f: recorder}
+	writer := streamFlushWriter{W: recorder, F: recorder}
 	if _, err := writer.Write([]byte("data: test\n\n")); err != nil {
 		t.Fatal(err)
 	}
@@ -227,12 +225,12 @@ func TestRelayOpenAIStreamClassifiesAndSuppressesStructuredError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected structured stream error")
 	}
-	var providerErr *providers.Error
-	if !errors.As(err, &providerErr) || providerErr == nil {
+	var execErr *executor.ExecutionError
+	if !errors.As(err, &execErr) || execErr == nil {
 		t.Fatalf("error=%T %v", err, err)
 	}
-	if providerErr.Kind != accounts.KindRateLimit || providerErr.Code != "RESOURCE_EXHAUSTED" || providerErr.RetryAfter != 30*time.Second {
-		t.Fatalf("provider error=%+v", providerErr)
+	if execErr.Classified.Kind != accounts.KindRateLimit || execErr.Classified.Code != "RESOURCE_EXHAUSTED" || execErr.Classified.RetryAfter != 30*time.Second {
+		t.Fatalf("execution error=%+v", execErr.Classified)
 	}
 	output := recorder.Body.String()
 	if strings.Contains(output, "event: error") {
@@ -246,8 +244,8 @@ func TestRelayOpenAIStreamClassifiesAndSuppressesStructuredError(t *testing.T) {
 func TestRelayOpenAIStreamReportsIncompleteStreamStructurally(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	_, err := relayOpenAIStream(recorder, strings.NewReader("data: partial\n\n"))
-	var providerErr *providers.Error
-	if !errors.As(err, &providerErr) || providerErr.Code != "upstream_stream_incomplete" || providerErr.Status != http.StatusBadGateway {
+	var execErr *executor.ExecutionError
+	if !errors.As(err, &execErr) || execErr.Classified.Code != "upstream_stream_incomplete" || execErr.Classified.Status != http.StatusBadGateway {
 		t.Fatalf("error=%T %+v", err, err)
 	}
 	if !strings.Contains(recorder.Body.String(), `"code":"upstream_stream_incomplete"`) {
@@ -257,28 +255,31 @@ func TestRelayOpenAIStreamReportsIncompleteStreamStructurally(t *testing.T) {
 
 func TestRelayOpenAIStreamPreservesTypedReadError(t *testing.T) {
 	recorder := httptest.NewRecorder()
-	failover := false
 	want := &providers.Error{
 		Kind: accounts.KindInvalidRequest, Status: http.StatusBadRequest,
 		Code: "invalid_argument", Type: "invalid_request_error", Message: "upstream rejected request",
-		RetryAfter: 45 * time.Second, Failover: &failover,
+		RetryAfter: 45 * time.Second,
 	}
 	_, err := relayOpenAIStream(recorder, closedStreamPipe(fmt.Errorf("Connect trailer: %w", want)))
+	var executionErr *executor.ExecutionError
+	if !errors.As(err, &executionErr) || executionErr.Classified.Kind != want.Kind {
+		t.Fatalf("stream error was not classified: %T %v", err, err)
+	}
 	var got *providers.Error
 	if !errors.As(err, &got) || got != want {
 		t.Fatalf("error=%T %+v want pointer=%p", err, err, want)
 	}
 	if got.Kind != accounts.KindInvalidRequest || got.Status != http.StatusBadRequest || got.Code != "invalid_argument" ||
-		got.Type != "invalid_request_error" || got.RetryAfter != 45*time.Second || got.Failover == nil || *got.Failover {
+		got.Type != "invalid_request_error" || got.RetryAfter != 45*time.Second {
 		t.Fatalf("provider error=%+v", got)
 	}
 	output := recorder.Body.String()
-	if !strings.Contains(output, `"code":"invalid_argument"`) || !strings.Contains(output, `"retry_after":45`) || strings.Contains(output, "upstream_stream_interrupted") {
+	if !strings.Contains(output, `"code":"invalid_argument"`) || strings.Contains(output, "upstream_stream_interrupted") {
 		t.Fatalf("structured error=%s", output)
 	}
-	pool := accounts.NewPool(nil, nil)
-	pool.Upsert(accounts.Item{ID: "devin-account"})
-	executor.NewChatExecutor(pool, "").ObserveStreamFailure("devin-account", got, "swe-2")
+	pool := executor.NewPool(nil, nil)
+	pool.Upsert(executor.Item{ID: "devin-account"})
+	executor.NewChatExecutor(pool, "").ObserveStreamFailure("devin-account", err, "swe-2")
 	item, _ := pool.ByID("devin-account")
 	if item.LastKind != "" || !item.DownUntil.IsZero() {
 		t.Fatalf("invalid request cooled account: kind=%q down=%v", item.LastKind, item.DownUntil)
@@ -287,16 +288,20 @@ func TestRelayOpenAIStreamPreservesTypedReadError(t *testing.T) {
 
 func TestRelayOpenAIStreamWrapsUnknownReadError(t *testing.T) {
 	recorder := httptest.NewRecorder()
-	_, err := relayOpenAIStream(recorder, closedStreamPipe(errors.New("socket closed")))
-	var got *providers.Error
-	if !errors.As(err, &got) || got.Kind != accounts.KindUnavailable || got.Code != "upstream_stream_interrupted" || got.Status != http.StatusBadGateway {
+	cause := errors.New("socket closed")
+	_, err := relayOpenAIStream(recorder, closedStreamPipe(cause))
+	if !errors.Is(err, cause) {
+		t.Fatalf("stream read cause was lost: %v", err)
+	}
+	var got *executor.ExecutionError
+	if !errors.As(err, &got) || got.Classified.Kind != accounts.KindUnavailable || got.Classified.Code != "upstream_stream_interrupted" || got.Classified.Status != http.StatusBadGateway {
 		t.Fatalf("error=%T %+v", err, err)
 	}
-	if !strings.Contains(got.Message, "stream read error: socket closed") {
-		t.Fatalf("message=%q", got.Message)
+	if !strings.Contains(got.Classified.Message, "stream read error: socket closed") {
+		t.Fatalf("message=%q", got.Classified.Message)
 	}
-	pool := accounts.NewPool(nil, nil)
-	pool.Upsert(accounts.Item{ID: "devin-account"})
+	pool := executor.NewPool(nil, nil)
+	pool.Upsert(executor.Item{ID: "devin-account"})
 	executor.NewChatExecutor(pool, "").ObserveStreamFailure("devin-account", got, "swe-2")
 	item, _ := pool.ByID("devin-account")
 	if item.LastKind != accounts.KindUnavailable || item.DownUntil.IsZero() {

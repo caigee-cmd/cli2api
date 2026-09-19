@@ -1,7 +1,6 @@
 package logs
 
 import (
-	"bytes"
 	"regexp"
 	"strings"
 	"sync"
@@ -141,32 +140,6 @@ func (r *Ring) appendLine(line string) Entry {
 		r.entries = append(r.entries, entry)
 	}
 	return entry
-}
-
-type PrefixWriter struct {
-	Prefix string
-	Next   interface{ Write([]byte) (int, error) }
-	buf    []byte
-}
-
-func (w *PrefixWriter) Write(p []byte) (int, error) {
-	if w == nil || w.Next == nil {
-		return len(p), nil
-	}
-	w.buf = append(w.buf, p...)
-	for {
-		idx := bytes.IndexByte(w.buf, '\n')
-		if idx < 0 {
-			break
-		}
-		line := append([]byte(nil), w.buf[:idx+1]...)
-		w.buf = w.buf[idx+1:]
-		prefixed := append([]byte(w.Prefix), line...)
-		if _, err := w.Next.Write(prefixed); err != nil {
-			return len(p), err
-		}
-	}
-	return len(p), nil
 }
 
 func splitLines(text string) []string {

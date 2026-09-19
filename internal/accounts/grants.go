@@ -10,6 +10,11 @@ import (
 // ProviderGrant is a single entry of an API key allowlist. Region is empty
 // for a bare family grant ("workbuddy") that covers every region of the
 // family, and set for a region-scoped grant ("workbuddy:cn").
+//
+// Grants stay in accounts: ParseProviderGrant uses the providers catalog, and
+// ProviderAllowed / ProviderRegionAllowed plus NormalizeAPIKeyProviders own
+// the runtime/write paths. Moving this file to auth would create
+// accounts → auth while auth already imports accounts.
 type ProviderGrant struct {
 	Provider string
 	Region   string

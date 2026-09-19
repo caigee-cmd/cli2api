@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
+	"github.com/caigee-cmd/cli2api/internal/app"
+	"github.com/caigee-cmd/cli2api/internal/executor"
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
@@ -12,10 +14,10 @@ func modelChatRequest(model string) *translate.ChatRequest {
 }
 
 func TestProviderPrefixedModelsStayDistinct(t *testing.T) {
-	if modelContextKey("glm-5.2") == modelContextKey("qoder/glm-5.2") {
+	if accounts.CanonicalModelID("glm-5.2") == accounts.CanonicalModelID("qoder/glm-5.2") {
 		t.Fatal("bare and provider-prefixed models must not share context settings")
 	}
-	if modelContextKey("qoder/glm-5.2") == modelContextKey("workbuddy/glm-5.2") {
+	if accounts.CanonicalModelID("qoder/glm-5.2") == accounts.CanonicalModelID("workbuddy/glm-5.2") {
 		t.Fatal("provider-prefixed models must not share context settings")
 	}
 }
@@ -34,7 +36,8 @@ func TestResolveProviderFilterPinsFamilyAndKeepsBareID(t *testing.T) {
 	if got := s.resolveProviderFilter(req); got != "trae" || req.Model != "glm-5.2" {
 		t.Fatalf("filter=%s model=%s", got, req.Model)
 	}
-	s.crossProviderModelPool.Store(true)
+	s.ensureApp()
+	s.CrossProviderModelPool.Store(true)
 	req = modelChatRequest("glm-5.2")
 	if got := s.resolveProviderFilter(req); got != "" || req.Model != "glm-5.2" {
 		t.Fatalf("cross-provider bare filter=%s model=%s", got, req.Model)
@@ -51,16 +54,17 @@ func TestDisabledCrossProviderModelPoolRejectsBareModels(t *testing.T) {
 			t.Fatalf("prefixed model must remain allowed: %s", model)
 		}
 	}
-	s.crossProviderModelPool.Store(true)
+	s.ensureApp()
+	s.CrossProviderModelPool.Store(true)
 	if s.rejectsBareModel("glm-5.2") {
 		t.Fatal("bare model must be allowed when the pool is enabled")
 	}
 }
 
 func TestApplyPinnedProviderFilterOverridesBareDefault(t *testing.T) {
-	pool := accounts.NewPool([]string{"http://q1"}, []string{"q1"})
-	pool.Upsert(accounts.Item{ID: "wb1", Provider: "workbuddy", Runtime: "in_process"})
-	s := &Server{pool: pool}
+	pool := executor.NewPool([]string{"http://q1"}, []string{"q1"})
+	pool.Upsert(executor.Item{ID: "wb1", Provider: "workbuddy", Runtime: "in_process"})
+	s := &Server{App: &app.App{Pool: pool}}
 
 	if got := s.applyPinnedProviderFilter("qoder", "glm-5.2", "wb1"); got != "workbuddy" {
 		t.Fatalf("bare pin override=%s", got)

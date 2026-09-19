@@ -1,12 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="420" viewBox="0 0 1200 420" role="img" aria-labelledby="hero-title hero-desc" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif">
-  <title id="hero-title">CLI2API — 把你的 Qoder CLI 登录态，变成一个本机运行的 OpenAI 兼容 API</title>
-  <desc id="hero-desc">深色卡片：左侧是项目名称与一句话价值，右侧终端面板展示 OpenAI 客户端经 CLI2API 网关连接到 Qoder 云端的请求流。</desc>
+  <title id="hero-title">CLI2API — 把你自己的登录态，变成一个本机 OpenAI 兼容 API</title>
+  <desc id="hero-desc">深色卡片：左侧是项目名称与一句话价值，右侧展示 OpenAI 客户端经 CLI2API 本机网关连接不同上游账号的请求流。</desc>
 
   <rect width="1200" height="420" rx="26" fill="#060607"/>
 
   <!-- left: identity -->
   <g id="title-block">
-    <text x="56" y="88" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="20" letter-spacing="3" fill="#FCFCFC">QODER CLI → OPENAI API</text>
+    <text x="56" y="88" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="20" letter-spacing="3" fill="#FCFCFC">YOUR ACCOUNTS → LOCAL API</text>
 
     <g transform="translate(36 84) scale(0.8)" fill="none">
       <path fill="none" stroke="#FCFCFC" stroke-width="11.4" stroke-linecap="round" stroke-linejoin="round" d="M 91.413 45.646 A 32.000 32.000 0 1 0 91.413 82.354"/>
@@ -15,7 +15,7 @@
     </g>
     <text x="130" y="158" font-size="64" font-weight="700" letter-spacing="-1" fill="#FCFCFC">CLI2API</text>
 
-    <text x="56" y="228" font-size="28" fill="#71717A">把你自己的 Qoder CLI 登录态，</text>
+    <text x="56" y="228" font-size="28" fill="#71717A">把你自己的登录态，</text>
     <text x="56" y="270" font-size="28" fill="#71717A">变成一个本机运行的 OpenAI 兼容 API</text>
 
     <g font-size="18" fill="#FCFCFC">
@@ -48,7 +48,7 @@
     <text x="896" y="204" text-anchor="middle" font-size="18" fill="#71717A">本机网关</text>
 
     <rect x="980" y="152" width="124" height="64" rx="12" fill="#060607" stroke="#3F3F46"/>
-    <text x="1042" y="180" text-anchor="middle" font-size="20" font-weight="600" fill="#FCFCFC">Qoder</text>
+    <text x="1042" y="180" text-anchor="middle" font-size="20" font-weight="600" fill="#FCFCFC">上游账号</text>
     <text x="1042" y="204" text-anchor="middle" font-size="18" fill="#71717A">云端</text>
 
     <!-- arrows with data-flow dots -->

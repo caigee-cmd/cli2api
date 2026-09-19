@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
+	"github.com/caigee-cmd/cli2api/internal/auth"
 	"github.com/caigee-cmd/cli2api/internal/providers"
 	proxyutil "github.com/caigee-cmd/cli2api/internal/proxy"
 	"github.com/caigee-cmd/cli2api/internal/translate"
@@ -26,6 +27,23 @@ type Store interface {
 	LoadCredentialPayload(ctx context.Context, accountID string) (string, []byte, error)
 	SaveCredentialPayload(ctx context.Context, accountID, format string, payload []byte) error
 	Observe(ctx context.Context, id, remoteUID, status, lastError, lastKind string) error
+}
+
+// SecretReader is optional. Missing it means no global proxy, not an error.
+type SecretReader interface {
+	GetSecret(context.Context, string) (string, bool, error)
+}
+
+// ModelSettingReader is optional. Missing it falls through to the legacy
+// max-mode-only assertion when the request did not set IsMaxMode.
+type ModelSettingReader interface {
+	GetProviderModelSetting(context.Context, string, string) (accounts.ProviderModelSetting, error)
+}
+
+// ModelMaxModeReader is the Trae-only fallback used when ModelSettingReader
+// is absent. Do not fold it into Store; test fakes without it must still skip.
+type ModelMaxModeReader interface {
+	GetProviderModelMaxMode(context.Context, string, string) (bool, error)
 }
 
 type loginPending struct {
@@ -67,9 +85,7 @@ func NewClient(store Store) *Client {
 }
 
 func (c *Client) globalProxy(ctx context.Context) (string, error) {
-	store, ok := c.store.(interface {
-		GetSecret(context.Context, string) (string, bool, error)
-	})
+	store, ok := c.store.(SecretReader)
 	if !ok {
 		return "", nil
 	}
@@ -301,21 +317,16 @@ func (c *Client) ensureCallback() (string, error) {
 		return "", fmt.Errorf("trae callback listen: %w", err)
 	}
 	c.listener = ln
-	mux := http.NewServeMux()
-	mux.HandleFunc(pathCallback, c.handleCallback)
-	go func() {
-		_ = http.Serve(ln, mux)
-	}()
+	auth.ServeLoopback(ln, pathCallback, "Trae", c.acceptCallback)
 	addr := ln.Addr().(*net.TCPAddr)
 	return fmt.Sprintf("http://127.0.0.1:%d%s", addr.Port, pathCallback), nil
 }
 
-func (c *Client) handleCallback(w http.ResponseWriter, r *http.Request) {
-	info, err := ParseCallback(r.URL.String())
+func (c *Client) acceptCallback(ctx context.Context, rawURL string) error {
+	info, err := ParseCallback(rawURL)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
 		c.markPendingFailed(err.Error())
-		return
+		return err
 	}
 	credential := Credential{
 		AccessToken:  info.AccessToken,
@@ -340,8 +351,7 @@ func (c *Client) handleCallback(w http.ResponseWriter, r *http.Request) {
 		break
 	}
 	c.mu.Unlock()
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = io.WriteString(w, `<!doctype html><meta charset="utf-8"><title>Trae login</title><p>Login complete. You can close this tab.</p>`)
+	return nil
 }
 
 func (c *Client) markPendingFailed(message string) {
@@ -630,7 +640,7 @@ func (c *Client) capsFor(model string) providers.ModelCapabilities {
 	return providers.ModelCapabilities{}
 }
 
-// settingModelKey mirrors api.modelContextKey so provider settings saved by
+// settingModelKey mirrors control.ModelContextKey so provider settings saved by
 // the console are found again at chat time. Trae config_name is mixed-case and
 // may contain underscores; both sides must canonicalize identically.
 func settingModelKey(model string) string {
@@ -658,9 +668,7 @@ func (c *Client) chatRequest(ctx context.Context, credential Credential, req tra
 			maxMode = *req.IsMaxMode
 		}
 		caps := c.capsFor(req.Model)
-		if setter, ok := c.store.(interface {
-			GetProviderModelSetting(context.Context, string, string) (accounts.ProviderModelSetting, error)
-		}); ok {
+		if setter, ok := c.store.(ModelSettingReader); ok {
 			if stored, err := setter.GetProviderModelSetting(ctx, "trae", settingModelKey(req.Model)); err == nil {
 				if req.IsMaxMode == nil {
 					maxMode = stored.MaxMode
@@ -668,9 +676,7 @@ func (c *Client) chatRequest(ctx context.Context, credential Credential, req tra
 				storedLevel = stored.ReasoningEffort
 			}
 		} else if req.IsMaxMode == nil {
-			if maxSetter, ok := c.store.(interface {
-				GetProviderModelMaxMode(context.Context, string, string) (bool, error)
-			}); ok {
+			if maxSetter, ok := c.store.(ModelMaxModeReader); ok {
 				if stored, err := maxSetter.GetProviderModelMaxMode(ctx, "trae", settingModelKey(req.Model)); err == nil {
 					maxMode = stored
 				}
@@ -801,13 +807,11 @@ func classifiedError(status int, body []byte) error {
 }
 
 func wrapClassified(classified providers.ClassifiedError, code string) error {
-	failover := classified.Kind != accounts.KindInvalidRequest
 	return &providers.Error{
-		Kind:     classified.Kind,
-		Status:   classified.Status,
-		Message:  classified.Message,
-		Cooldown: classifiedCooldown(classified.Kind, code),
-		Failover: &failover,
+		Kind:    classified.Kind,
+		Status:  classified.Status,
+		Message: classified.Message,
+		Code:    code,
 	}
 }
 
@@ -815,33 +819,22 @@ func extractCode(body string) string {
 	var env struct {
 		Code any `json:"code"`
 	}
-	if json.Unmarshal([]byte(body), &env) != nil {
+	if json.Unmarshal([]byte(body), &env) != nil || env.Code == nil {
 		return ""
 	}
 	switch v := env.Code.(type) {
+	case nil:
+		return ""
 	case float64:
 		return fmt.Sprintf("%.0f", v)
+	case string:
+		return strings.TrimSpace(v)
 	default:
-		return strings.TrimSpace(fmt.Sprint(v))
-	}
-}
-
-func classifiedCooldown(kind, code string) time.Duration {
-	switch code {
-	case "1005", "4008":
-		return accounts.NextLocalMidnightCooldown()
-	case "4011":
-		return hardRateCooldown
-	}
-	switch kind {
-	case accounts.KindQuota:
-		return accounts.NextLocalMidnightCooldown()
-	case accounts.KindAuth:
-		return 30 * time.Minute
-	case accounts.KindRateLimit:
-		return time.Minute
-	default:
-		return 0
+		text := strings.TrimSpace(fmt.Sprint(v))
+		if text == "" || text == "<nil>" {
+			return ""
+		}
+		return text
 	}
 }
 
