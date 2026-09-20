@@ -5,7 +5,7 @@ scope: [frontend, console, design-system, heroui, tailwind]
 status: canonical
 read-when: 改控制台 UI / 颜色 / 圆角 / 组件选型 / 图标 / 文案 / favicon 时
 summary: 控制台视觉与组件规范：token、圆角、字体、HeroUI 选型、布局密度、动效、图标、文案、前端自查清单、Favicon 套件。
-related: [docs/ARCHITECTURE.md, AGENTS.md]
+related: [docs/ARCHITECTURE_SUMMARY.md, AGENTS.md]
 last-updated: 2026-09-19
 ---
 
