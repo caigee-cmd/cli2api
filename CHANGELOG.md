@@ -3,6 +3,28 @@
 Published user-facing notes for GitHub Releases and the console update page.
 Write upcoming notes as bilingual files in `changelog/unreleased/`.
 
+## 0.6.4 - 2026-09-19
+
+### English
+
+- Send Qoder CN campaign check-in with the official desktop `Cosy-ClientType` headers so the daily credit activity is not filtered out as unavailable.
+
+### 中文
+
+- Qoder 国内版活动签到补上官方桌面端 `Cosy-ClientType` 请求头，避免每日积分活动被过滤成未开放。
+
+## 0.6.3 - 2026-09-19
+
+### English
+
+- Show Devin daily and weekly included usage as separate account-card meters, including reset time, instead of collapsing them into one tighter percentage.
+- Trae CN check-in now sends the device id in the `aha-<hex>` shape the check-in backend expects, so accounts added through the login flow claim their daily credits instead of always failing with `9074 当前参与用户太多`.
+
+### 中文
+
+- Devin 账号卡片按日额度和周额度分开展示，并带重置时间，不再把两条额度压成一条更紧的百分比。
+- Trae CN 签到改为按后端要求的 `aha-<hex>` 格式发送设备 ID，通过登录流程添加的账号现在能正常领取每日积分，不再一直报 `9074 当前参与用户太多`。
+
 ## 0.6.2 - 2026-09-19
 
 ### English
