@@ -45,6 +45,7 @@ type App struct {
 	Recorder               *applogs.RequestRecorder
 	Ring                   *applogs.Ring
 	stopLogs               chan struct{}
+	stopLogsOnce           sync.Once
 	SettingsMu             sync.Mutex
 	CrossProviderModelPool atomic.Bool
 	Gateway                *apigateway.Handler
@@ -154,9 +155,11 @@ func New(cfg config.Config) *App {
 
 func (a *App) Close() error {
 	if a.stopLogs != nil {
-		close(a.stopLogs)
+		a.stopLogsOnce.Do(func() { close(a.stopLogs) })
 	}
-	return errors.Join(a.Manager.Close(), a.Manager.Store().Close())
+	managerErr := a.Manager.Close()
+	a.Recorder.Close()
+	return errors.Join(managerErr, a.Manager.Store().Close())
 }
 
 func (a *App) Handler() http.Handler {
