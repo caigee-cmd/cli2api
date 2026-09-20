@@ -428,10 +428,14 @@ func ParseStreamUsageLine(line string) (StreamRelayStats, bool) {
 	if credits == nil {
 		credits = parsed.Usage.Credit
 	}
+	cacheRead := parsed.Usage.CacheReadTokens
+	if cacheRead == nil {
+		cacheRead = parsed.Usage.PromptDetails.CachedTokens
+	}
 	return StreamRelayStats{
 		PromptTokens:     parsed.Usage.PromptTokens,
 		CompletionTokens: parsed.Usage.CompletionTokens,
-		CacheReadTokens:  parsed.Usage.CacheReadTokens,
+		CacheReadTokens:  cacheRead,
 		CacheWriteTokens: parsed.Usage.CacheWriteTokens,
 		CachedTokens:     parsed.Usage.PromptDetails.CachedTokens,
 		UsageSource:      firstNonEmpty(parsed.Usage.Source, "estimate"),
