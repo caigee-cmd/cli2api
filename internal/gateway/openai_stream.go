@@ -38,6 +38,7 @@ type StreamRelayStats struct {
 	Credits          *float64
 	ConsumedCredits  *float64
 	Model            string
+	FinishReason     string
 	FirstTokenAt     *time.Time
 	SSEEventCount    int
 	BytesRead        int64

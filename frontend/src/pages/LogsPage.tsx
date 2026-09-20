@@ -46,7 +46,7 @@ import { useI18n } from '@/hooks/useI18n'
 import { accountProviderLabel } from '@/lib/provider'
 
 type PageTab = 'requests' | 'runtime'
-type RequestFilter = 'all' | 'ok' | 'error' | 'canceled'
+type RequestFilter = 'all' | 'ok' | 'incomplete' | 'error' | 'canceled'
 type RuntimeFilter = 'all' | 'info' | 'warn' | 'error'
 type StreamFilter = 'all' | 'stream' | 'sync'
 type TimeRange = 'all' | '1h' | '24h' | '7d' | 'custom'
@@ -56,7 +56,7 @@ type DateRangeValue = { start: DateValue; end: DateValue }
 
 function statusColor(status?: string): 'success' | 'warning' | 'danger' | 'default' {
   if (status === 'ok') return 'success'
-  if (status === 'streaming' || status === 'started') return 'warning'
+  if (status === 'streaming' || status === 'started' || status === 'incomplete') return 'warning'
   if (status === 'error' || status === 'canceled') return 'danger'
   return 'default'
 }
@@ -511,6 +511,7 @@ export function LogsPage() {
                 options={[
                   { id: 'all', label: t('logsFilterAll') },
                   { id: 'ok', label: t('logsFilterOk') },
+                  { id: 'incomplete', label: t('logsFilterIncomplete') },
                   { id: 'error', label: t('logsFilterError') },
                   { id: 'canceled', label: t('logsFilterCanceled') },
                 ]}

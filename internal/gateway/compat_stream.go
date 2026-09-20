@@ -538,6 +538,7 @@ func RelayResponsesStream(writer io.Writer, body io.Reader, requestID, model str
 	if err != nil {
 		return stats, err
 	}
+	stats.FinishReason = output.finishReason
 	if err := closeReasoning(); err != nil {
 		return stats, err
 	}
@@ -608,8 +609,9 @@ func RelayResponsesStream(writer io.Writer, body io.Reader, requestID, model str
 			return stats, err
 		}
 	}
-	completed := responsesResponse(requestID, model, content, output.reasoning.String(), calls, derefInt(stats.PromptTokens), derefInt(stats.CompletionTokens))
-	if err := eventWriter.write("response.completed", map[string]any{"type": "response.completed", "response": completed}); err != nil {
+	terminal := responsesTerminalForFinishReason(output.finishReason)
+	response := responsesResponse(requestID, model, content, output.reasoning.String(), calls, derefInt(stats.PromptTokens), derefInt(stats.CompletionTokens), output.finishReason)
+	if err := eventWriter.write(terminal.event, map[string]any{"type": terminal.event, "response": response}); err != nil {
 		return stats, err
 	}
 	return stats, nil
