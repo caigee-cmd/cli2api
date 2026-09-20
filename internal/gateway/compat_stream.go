@@ -543,6 +543,9 @@ func RelayResponsesStream(writer io.Writer, body io.Reader, requestID, model str
 	}
 	content := output.content.String()
 	calls := output.calls()
+	if err := validateProxyToolCallArguments(calls); err != nil {
+		return stats, err
+	}
 	if textStarted {
 		if err := eventWriter.write("response.output_text.done", map[string]any{"type": "response.output_text.done", "item_id": "msg_" + requestID, "output_index": textOutputIndex, "content_index": 0, "text": content}); err != nil {
 			return stats, err

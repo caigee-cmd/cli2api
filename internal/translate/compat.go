@@ -410,6 +410,7 @@ func translateResponsesInput(raw json.RawMessage) ([]ChatMessage, error) {
 	}
 	messages := make([]ChatMessage, 0, len(items))
 	pendingReasoning := ""
+	invalidFunctionCallIDs := make(map[string]struct{})
 	appendAssistant := func(message ChatMessage) {
 		if pendingReasoning != "" {
 			if message.ReasoningContent != "" {
@@ -487,6 +488,10 @@ func translateResponsesInput(raw json.RawMessage) ([]ChatMessage, error) {
 			if callID == "" {
 				return nil, fmt.Errorf("input[%d].call_id required", itemIndex)
 			}
+			if _, skipped := invalidFunctionCallIDs[callID]; skipped {
+				pendingReasoning = ""
+				continue
+			}
 			content, images, err := responsesFunctionCallOutput(rawMapJSON(source, "output"))
 			if err != nil {
 				return nil, fmt.Errorf("input[%d].output: %w", itemIndex, err)
@@ -529,7 +534,9 @@ func translateResponsesInput(raw json.RawMessage) ([]ChatMessage, error) {
 				arguments = json.RawMessage(`{}`)
 			}
 			if !json.Valid(arguments) {
-				return nil, fmt.Errorf("input[%d].arguments must be valid JSON", itemIndex)
+				invalidFunctionCallIDs[callID] = struct{}{}
+				pendingReasoning = ""
+				continue
 			}
 			appendAssistant(ChatMessage{Role: "assistant", Content: "", ToolCalls: marshalToolCalls([]compatibilityToolCall{{ID: callID, Name: name, Arguments: arguments}})})
 		case "custom_tool_call":
