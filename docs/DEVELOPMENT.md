@@ -5,7 +5,7 @@ scope: [build, validate, release]
 status: canonical
 read-when: 本地构建 / 跑测试 / 发布维护者版本时
 summary: 本地构建与校验命令，以及维护者发布流程（workflow_dispatch、unreleased fragments、归档 PR）。
-related: [CONTRIBUTING.md, docs/ARCHITECTURE.md]
+related: [CONTRIBUTING.md, docs/ARCHITECTURE_SUMMARY.md]
 last-updated: 2026-09-19
 ---
 
@@ -61,7 +61,7 @@ Do not create or push version tags by hand. The tag, GitHub Release, updater ass
 1. `main` is the commit you want to ship. The workflow waits for CI on that exact SHA.
 2. `changelog/unreleased/` has bilingual fragment files for every user-facing change on `main` since the last published tag. The workflow concatenates those files into the GitHub Release and the console System page. `validate` allows an empty unreleased directory; `extract-for-release` fails if it is empty and the new version heading does not already exist.
 3. Do not archive fragments or edit `CHANGELOG.md` yourself before the run. The workflow reads `changelog/unreleased/` first; archive only after the tag is public, through the pull request the workflow opens.
-4. Do not ship a change that edits the SQL bytes of an already-applied SQLite migration. Existing databases panic on boot with `checksum mismatch`, and the host updater rolls back. Append a new numbered entry in `internal/store/migrations.go`; details are in `docs/ARCHITECTURE.md`.
+4. Do not ship a change that edits the SQL bytes of an already-applied SQLite migration. Existing databases panic on boot with `checksum mismatch`, and the host updater rolls back. Append a new numbered entry in `internal/store/migrations.go`; the public architecture map is in `docs/ARCHITECTURE_SUMMARY.md`.
 
 ```bash
 gh workflow run release.yml --ref main

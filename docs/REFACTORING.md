@@ -4,16 +4,16 @@ title: 已验收的后端包边界
 scope: [backend, package-boundaries, regression-tests]
 status: accepted
 read-when: 查现行包归属、剩余 import allowlist、职责残留处理方案、或未宣称的真实账号限制时
-summary: S00–S15 已验收包图、例外与回归记录；2026-09-19 五项职责残留的 A–D 收口已落地，并补齐流错误与目录默认态回归。
-related: [AGENTS.md, docs/ARCHITECTURE.md, docs/PLAN.md, docs/DEVELOPMENT.md]
+summary: S00–S15 包图与 A–D 职责收口已验收；记录现行边界、例外与回归结果。
+related: [AGENTS.md, docs/ARCHITECTURE_SUMMARY.md, docs/DEVELOPMENT.md]
 last-updated: 2026-09-19
 ---
 
 # 已验收的后端包边界
 
-S00–S15 行为保持拆分已完成。不要再按旧 `internal/api` 大包或本文历史阶段去改代码。现行硬规则在 [`AGENTS.md`](../AGENTS.md)，运行时契约在 [`ARCHITECTURE.md`](ARCHITECTURE.md)。
+S00–S15 行为保持拆分已完成。不要再按旧 `internal/api` 大包或本文历史阶段去改代码。现行硬规则在 [`AGENTS.md`](../AGENTS.md)，公共运行时摘要在 [`ARCHITECTURE_SUMMARY.md`](ARCHITECTURE_SUMMARY.md)；更详细的本地契约不在干净 checkout 中保证存在。
 
-核对其他文档时，以本文的现行包图和已完成记录为基准；行为细节仍需对照当前代码。文末 A–D 是局部收口记录，不是重新执行 S00–S15。
+核对其他文档时，以本文的现行包图和已完成记录为基准；行为细节仍需对照当前代码。文末 A–D 是已完成的历史收口记录，不是待办清单，也不是重新执行 S00–S15。
 
 ## 现行包图
 

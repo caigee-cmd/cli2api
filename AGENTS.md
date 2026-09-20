@@ -11,23 +11,31 @@ use `read-when` to decide whether to open it.
 | File | Read when | What belongs there |
 |------|-----------|--------------------|
 | `AGENTS.md` | always | Hard rules for agents. Short. |
-| `docs/ARCHITECTURE.md` | backend, protocol adapters, login, account routing, migrations, console IA, managed update | Architecture, runtime, login, routing contract, console IA |
-| `docs/DESIGN.md` | any console UI work | Frontend design system: tokens, radii, type, HeroUI picks, copy |
-| `docs/REQUEST.md` | routing, failover, cooldown, session affinity, error taxonomy | Per-request pick / failover / cooldown contract |
-| `docs/PLAN.md` | before starting a milestone | Current milestone checklist |
-| `docs/PROVIDERS.md` | adding / designing a provider, or checking WorkBuddy / Qoder CN / Devin protocol facts | Provider protocol facts and extension design. WorkBuddy adapter is implemented; remaining work is live-account acceptance. |
-| `docs/PROVIDERS_TRAE_SOLO.md` | Trae CN Work adapter work | Trae CN Work in-process adapter survey. Adapter is implemented; T5 live acceptance is still open. |
-| `docs/DEVELOPMENT.md` | build / test / release | Local build loop and maintainer release workflow |
+| `docs/ARCHITECTURE_SUMMARY.md` | quick backend orientation | Public package and runtime map for contributors and AI. |
+| `docs/ARCHITECTURE.md` (ignored) | detailed backend, protocol adapters, login, account routing, migrations, console IA, managed update | Local detailed contract; unavailable in a clean checkout. |
+| `docs/DESIGN.md` | any console UI work | Public frontend design system: tokens, radii, type, HeroUI picks, copy. |
+| `docs/REQUEST.md` (ignored) | detailed routing, failover, cooldown, session affinity, error taxonomy | Local request contract; use code/tests and the architecture summary in a clean checkout. |
+| `docs/PLAN.md` (ignored) | milestone work | Local working checklist, not a public product contract. |
+| `docs/PROVIDERS.md` (ignored) | adding or designing a provider | Local provider facts and extension notes. |
+| `docs/PROVIDERS_TRAE_SOLO.md` (ignored) | Trae CN Work adapter work | Local provider survey and protocol notes. |
+| `docs/DEVELOPMENT.md` | build / test / release | Public build, validation, and maintainer release workflow. |
 | `changelog/unreleased/README.md` | user-facing PR notes / release notes | Per-PR bilingual fragments. `CHANGELOG.md` is the published archive |
-| `docs/REFACTORING.md` | accepted package split and remaining duties | Baseline for current package ownership; distinguishes accepted changes from the pending A–D cleanup. Do not re-run S00–S15 or mark pending work complete. |
-| `docs/ARCHITECTURE_SUMMARY.md` | quick backend orientation | Public, concise package and runtime map for contributors and AI. |
+| `docs/REFACTORING.md` | accepted package split | Tracked package-boundary baseline; A–D cleanup is recorded as completed. Do not re-run S00–S15. |
 | `docs/capture-notes.md` (ignored) | protocol facts | Local redacted protocol facts |
 | `docs/PRIVATE_DEPLOYMENT.md` (ignored) | host ops | Host ops runbook |
 
-Keep these files only. Do not add new `TODO.md`, `NOTES.md`, or extra plan files. `docs/REFACTORING.md` is the one approved exception; do not add more plan files beside it.
+Public AI-facing docs are:
+
+- `AGENTS.md` and `CONTRIBUTING.md` for hard rules and contribution workflow.
+- `docs/ARCHITECTURE_SUMMARY.md` for the backend package and runtime map.
+- `docs/DESIGN.md` for console UI work.
+- `docs/DEVELOPMENT.md` for validation and release workflow.
+- `docs/REFACTORING.md` for the accepted package-boundary record.
+
+`docs/ARCHITECTURE.md`, `docs/REQUEST.md`, `docs/PLAN.md`, `docs/PROVIDERS*.md`, `docs/capture-notes.md`, and `docs/PRIVATE_DEPLOYMENT.md` are local-only details. They may not exist in a clean checkout and must not be assumed to be available. Do not add new `TODO.md`, `NOTES.md`, or extra plan files.
 `docs/PROVIDERS_TRAE.md` is superseded; do not implement from it. User-facing
 install stays in `README.md` (Chinese) / `README_EN.md` (English).
-When updating docs, use `docs/REFACTORING.md` as the package-boundary baseline,
+For a clean checkout, start with `AGENTS.md`, then use `docs/ARCHITECTURE_SUMMARY.md` for backend orientation, `docs/DESIGN.md` for UI work, and `docs/DEVELOPMENT.md` for validation and release. Use `docs/REFACTORING.md` as the package-boundary baseline;
 verify behavior against current code, and keep implementation, local tests,
 live-account acceptance, and release status separate.
 
@@ -55,6 +63,6 @@ live-account acceptance, and release status separate.
 - Leave console `/api/*` or worker `/admin/*` unauthenticated
 - Copy sub2api billing, Redis slots, multi-tenant API keys, or session-hash-for-profit
 - Add a new component library, purple AI chrome, centered generic login cards, or emoji in UI copy
-- Start Cursor / Anthropic until the current Qoder milestone in `docs/PLAN.md` is done. Qoder CN is that milestone (`provider=qoder` + `region=cn`); do not spawn a full `qoderclicn` per request
+- Start Cursor / Anthropic only after the current Qoder milestone is explicitly confirmed complete; its detailed checklist is local-only in `docs/PLAN.md`. Qoder CN is that milestone (`provider=qoder` + `region=cn`); do not spawn a full `qoderclicn` per request
 - Invent reasoning levels a model does not declare. Catalog effort wins: keep `onlyReasoning` models locked (DeepSeek is `high`), and do not give WorkBuddy a Trae-style Max switch or send a context-window switch on chat
 - Change the SQL bytes of a shipped SQLite migration in `internal/store/migrations.go`. Tabs, spaces, and comments inside the raw string count. `gofmt` on the Go around it is fine; indenting the SQL is not. Existing databases panic on boot with `checksum mismatch`
