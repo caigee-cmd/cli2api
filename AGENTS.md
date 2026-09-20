@@ -20,6 +20,7 @@ use `read-when` to decide whether to open it.
 | `docs/DEVELOPMENT.md` | build / test / release | Local build loop and maintainer release workflow |
 | `changelog/unreleased/README.md` | user-facing PR notes / release notes | Per-PR bilingual fragments. `CHANGELOG.md` is the published archive |
 | `docs/REFACTORING.md` | accepted package split and remaining duties | Baseline for current package ownership; distinguishes accepted changes from the pending A–D cleanup. Do not re-run S00–S15 or mark pending work complete. |
+| `docs/ARCHITECTURE_SUMMARY.md` | quick backend orientation | Public, concise package and runtime map for contributors and AI. |
 | `docs/capture-notes.md` (ignored) | protocol facts | Local redacted protocol facts |
 | `docs/PRIVATE_DEPLOYMENT.md` (ignored) | host ops | Host ops runbook |
 

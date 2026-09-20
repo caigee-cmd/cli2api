@@ -71,7 +71,8 @@ series bump.
 - Do not commit `.env`, `.qoder`, auth blobs, tokens, raw captures, host IPs, or
   `docs/PRIVATE_DEPLOYMENT.md`
 
-Hard rules live in `AGENTS.md`. Maintainer design, milestone, provider, and
-release notes stay local and gitignored (`docs/DESIGN.md`, `docs/PLAN.md`,
-`docs/ARCHITECTURE.md`, `docs/DEVELOPMENT.md`, …). `docs/REFACTORING.md` is
-the tracked exception; do not add extra plan files beside it.
+Hard rules live in `AGENTS.md`. Detailed milestone, provider, protocol-capture, and
+deployment notes stay local and gitignored (`docs/PLAN.md`, `docs/ARCHITECTURE.md`,
+`docs/REQUEST.md`, `docs/PROVIDERS*.md`, …). Public contributor guidance lives in
+`docs/DESIGN.md`, `docs/DEVELOPMENT.md`, and `docs/ARCHITECTURE_SUMMARY.md`.
+`docs/REFACTORING.md` remains the tracked package-boundary record.
