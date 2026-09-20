@@ -92,6 +92,10 @@ The default deployment exposes only `127.0.0.1:3010`; do not expose it directly 
 
 Chinese-language discussion is on [LINUX DO](https://linux.do). Bugs and feature requests go to GitHub [Issues](https://github.com/caigee-cmd/cli2api/issues); documentation improvements and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## Acknowledgements
+
+Thanks to open-source projects including `workbuddy2api`, `CLIProxyAPI`, and `sub2api` for ideas and inspiration.
+
 ## License
 
 [MIT](LICENSE). Follow each upstream platform's terms when using its accounts.

@@ -92,6 +92,10 @@ Go 网关统一鉴权、调度和记录请求。Qoder 每个账号使用独立 N
 
 中文讨论见 [LINUX DO](https://linux.do)。缺陷和功能请求请走 GitHub [Issue](https://github.com/caigee-cmd/cli2api/issues)；文档改进与 Pull Request 见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
+## 致谢
+
+感谢 `workbuddy2api`、`CLIProxyAPI`、`sub2api` 等开源项目提供的思路与启发。
+
 ## 许可证
 
 [MIT](LICENSE)。使用上游账号时，请遵守对应平台的服务条款。

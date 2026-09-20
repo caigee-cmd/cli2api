@@ -51,7 +51,7 @@ live-account acceptance, and release status separate.
 - Reasoning levels are catalog-driven: map client values through `internal/providers/reasoning.go` (`none`/`low`/`medium`/`high`/`xhigh`/`max`), clamp anything the model does not allow back to an allowed level, and treat the console value as a default only (it never locks a call or caps a higher client value)
 - Console UI: React + Tailwind v4 + **HeroUI only** for components
 - Follow `docs/DESIGN.md` (taste v1 adapted for this console)
-- Keep iterating Qoder login, usage, and account routing. Borrow scheduling ideas from [sub2api](https://github.com/Wei-Shaw/sub2api), not its commercial gateway
+- Keep iterating Qoder login, usage, and account routing. Keep scheduling focused on personal-account routing rather than commercial gateway features
 - Qoder multi-account = one worker process per HOME; do not share WASM context. WorkBuddy / Trae / Devin use in-process adapters, not one child process per account
 - Schema changes go in a new numbered SQLite migration entry in `internal/store/migrations.go`. Never rewrite shipped SQL
 
@@ -61,7 +61,7 @@ live-account acceptance, and release status separate.
 - Expose host ports publicly
 - Commit raw auth blobs / tokens / host IPs / `docs/PRIVATE_DEPLOYMENT.md`
 - Leave console `/api/*` or worker `/admin/*` unauthenticated
-- Copy sub2api billing, Redis slots, multi-tenant API keys, or session-hash-for-profit
+- Add billing, Redis slots, multi-tenant API keys, or session-hash-for-profit
 - Add a new component library, purple AI chrome, centered generic login cards, or emoji in UI copy
 - Start Cursor / Anthropic only after the current Qoder milestone is explicitly confirmed complete; its detailed checklist is local-only in `docs/PLAN.md`. Qoder CN is that milestone (`provider=qoder` + `region=cn`); do not spawn a full `qoderclicn` per request
 - Invent reasoning levels a model does not declare. Catalog effort wins: keep `onlyReasoning` models locked (DeepSeek is `high`), and do not give WorkBuddy a Trae-style Max switch or send a context-window switch on chat

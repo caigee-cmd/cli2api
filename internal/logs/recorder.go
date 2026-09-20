@@ -53,6 +53,9 @@ type StatsQuery struct {
 type RequestRecorder struct {
 	store        RequestPersister
 	queue        chan func()
+	mu           sync.Mutex
+	closed       bool
+	done         chan struct{}
 	statsCacheMu sync.Mutex
 	statsCache   map[string]statsCacheEntry
 }
@@ -61,12 +64,14 @@ func NewRequestRecorder(store RequestPersister) *RequestRecorder {
 	recorder := &RequestRecorder{
 		store: store,
 		queue: make(chan func(), 256),
+		done:  make(chan struct{}),
 	}
 	go recorder.loop()
 	return recorder
 }
 
 func (r *RequestRecorder) loop() {
+	defer close(r.done)
 	for fn := range r.queue {
 		fn()
 	}
@@ -76,11 +81,29 @@ func (r *RequestRecorder) enqueue(fn func()) {
 	if r == nil {
 		return
 	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed {
+		return
+	}
 	select {
 	case r.queue <- fn:
 	default:
 		log.Printf("[logs] request recorder queue full, dropping write")
 	}
+}
+
+func (r *RequestRecorder) Close() {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	if !r.closed {
+		r.closed = true
+		close(r.queue)
+	}
+	r.mu.Unlock()
+	<-r.done
 }
 
 func (r *RequestRecorder) Start(log accounts.RequestLog) {
