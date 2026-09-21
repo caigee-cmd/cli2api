@@ -347,6 +347,7 @@ func TestSummarizeRequestLogs(t *testing.T) {
 	insert(base.Add(20*time.Minute), accounts.RequestStatusOK, "glm-5.3", "acc_a", "qoder", "", 200, 10, 20, true)
 	insert(base.Add(90*time.Minute), accounts.RequestStatusError, "qwen3.7-plus", "acc_b", "workbuddy", accounts.KindRateLimit, 400, 8, 0, false)
 	insert(base.Add(2*time.Hour), accounts.RequestStatusCanceled, "glm-5.3", "acc_a", "qoder", "", 0, 0, 0, false)
+	insert(base.Add(2*time.Hour+15*time.Minute), accounts.RequestStatusIncomplete, "glm-5.3", "acc_a", "qoder", "", 0, 0, 0, false)
 	insert(base.Add(-30*time.Hour), accounts.RequestStatusOK, "old", "acc_a", "qoder", "", 50, 1, 1, false)
 
 	from := time.Date(2026, 8, 28, 10, 0, 0, 0, time.UTC)
@@ -355,10 +356,10 @@ func TestSummarizeRequestLogs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stats.Totals.Requests != 4 || stats.Totals.OK != 2 || stats.Totals.Error != 1 || stats.Totals.Canceled != 1 || stats.Totals.Streaming != 1 {
+	if stats.Totals.Requests != 5 || stats.Totals.OK != 2 || stats.Totals.Incomplete != 1 || stats.Totals.Error != 1 || stats.Totals.Canceled != 1 || stats.Totals.Streaming != 1 {
 		t.Fatalf("totals = %+v", stats.Totals)
 	}
-	if stats.Totals.SuccessRate != 0.5 {
+	if stats.Totals.SuccessRate != 0.4 {
 		t.Fatalf("success rate = %v", stats.Totals.SuccessRate)
 	}
 	if stats.Tokens.Prompt != 30 || stats.Tokens.Completion != 54 || stats.Tokens.Total != 84 {
@@ -376,19 +377,19 @@ func TestSummarizeRequestLogs(t *testing.T) {
 	if len(stats.Errors) != 1 || stats.Errors[0].Key != accounts.KindRateLimit || stats.Errors[0].Count != 1 {
 		t.Fatalf("errors = %+v", stats.Errors)
 	}
-	if len(stats.Models) == 0 || stats.Models[0].Key != "glm-5.3" || stats.Models[0].Count != 3 {
+	if len(stats.Models) == 0 || stats.Models[0].Key != "glm-5.3" || stats.Models[0].Count != 4 {
 		t.Fatalf("models = %+v", stats.Models)
 	}
-	if len(stats.Accounts) == 0 || stats.Accounts[0].Key != "acc_a" || stats.Accounts[0].Count != 3 {
+	if len(stats.Accounts) == 0 || stats.Accounts[0].Key != "acc_a" || stats.Accounts[0].Count != 4 {
 		t.Fatalf("accounts = %+v", stats.Accounts)
 	}
-	if len(stats.Providers) == 0 || stats.Providers[0].Key != "qoder" || stats.Providers[0].Count != 3 {
+	if len(stats.Providers) == 0 || stats.Providers[0].Key != "qoder" || stats.Providers[0].Count != 4 {
 		t.Fatalf("providers = %+v", stats.Providers)
 	}
 	if len(stats.Series) != 3 {
 		t.Fatalf("series len = %d %+v", len(stats.Series), stats.Series)
 	}
-	if stats.Series[0].Requests != 2 || stats.Series[1].Requests != 1 || stats.Series[2].Requests != 1 {
+	if stats.Series[0].Requests != 2 || stats.Series[1].Requests != 1 || stats.Series[2].Requests != 2 {
 		t.Fatalf("series = %+v", stats.Series)
 	}
 

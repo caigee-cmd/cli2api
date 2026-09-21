@@ -9,11 +9,12 @@ import (
 )
 
 const (
-	RequestStatusStarted   = "started"
-	RequestStatusStreaming = "streaming"
-	RequestStatusOK        = "ok"
-	RequestStatusError     = "error"
-	RequestStatusCanceled  = "canceled"
+	RequestStatusStarted    = "started"
+	RequestStatusStreaming  = "streaming"
+	RequestStatusOK         = "ok"
+	RequestStatusIncomplete = "incomplete"
+	RequestStatusError      = "error"
+	RequestStatusCanceled   = "canceled"
 
 	AttemptStatusStarted  = "started"
 	AttemptStatusOK       = "ok"
@@ -140,6 +141,7 @@ type RequestStatsWindow struct {
 type RequestStatsTotals struct {
 	Requests    int     `json:"requests"`
 	OK          int     `json:"ok"`
+	Incomplete  int     `json:"incomplete"`
 	Error       int     `json:"error"`
 	Canceled    int     `json:"canceled"`
 	Streaming   int     `json:"streaming"`
