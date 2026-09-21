@@ -65,6 +65,30 @@ func TestTranslateResponsesUnquotesFunctionCallArguments(t *testing.T) {
 	}
 }
 
+func TestTranslateResponsesSkipsInvalidFunctionCallHistory(t *testing.T) {
+	request := ResponsesRequest{
+		Model: "qoder/deepseek-flash",
+		Input: json.RawMessage(`[
+			{"role":"user","content":"before"},
+			{"type":"function_call","call_id":"call_bad","name":"mcp__fastctx__read","arguments":"{\"path\":\"x\",\"error_retry:: 240}"},
+			{"type":"function_call_output","call_id":"call_bad","output":"unsupported call: mcp__fastctx__read"},
+			{"role":"user","content":"continue"}
+		]`),
+	}
+	chat, err := TranslateResponses(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(chat.Messages) != 2 {
+		t.Fatalf("messages=%#v", chat.Messages)
+	}
+	for _, message := range chat.Messages {
+		if message.Role == "tool" || len(message.ToolCalls) > 0 {
+			t.Fatalf("invalid tool history was retained: %#v", chat.Messages)
+		}
+	}
+}
+
 func TestTranslateAnthropicToolResultLiftsImages(t *testing.T) {
 	request := AnthropicMessagesRequest{
 		Model: "qoder/glm-5.2",
