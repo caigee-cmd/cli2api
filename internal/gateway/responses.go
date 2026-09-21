@@ -43,13 +43,18 @@ func (h *Handler) HandleResponses(w http.ResponseWriter, r *http.Request) {
 		writeCompatibilityOpenAIError(w, err)
 		return
 	}
-	h.finishCompatibility(execution, result.AccountID, result.Provider, result.Routing, accounts.RequestStatusOK, 0, &StreamRelayStats{
+	requestStatus := responsesRequestStatus(result.FinishReason)
+	h.finishCompatibility(execution, result.AccountID, result.Provider, result.Routing, requestStatus, 0, &StreamRelayStats{
 		PromptTokens: ptrInt(result.PromptTokens), CompletionTokens: ptrInt(result.CompletionTokens),
 		CacheReadTokens: result.CacheReadTokens, CacheWriteTokens: result.CacheWriteTokens,
 		CachedTokens: result.CachedTokens, UsageSource: result.UsageSource, Credits: result.Credits,
-		ConsumedCredits: result.ConsumedCredits, Model: result.Model,
+		ConsumedCredits: result.ConsumedCredits, Model: result.Model, FinishReason: result.FinishReason,
 	}, nil, result.AttemptCount, result.ReasoningLevel)
-	response := responsesResponse(execution.RequestID, firstNonEmpty(result.Model, execution.PublicModel), result.Content, result.Reasoning, decodeOpenAIToolCalls(result.ToolCalls), result.PromptTokens, result.CompletionTokens)
+	response := responsesResponse(
+		execution.RequestID, firstNonEmpty(result.Model, execution.PublicModel), result.Content, result.Reasoning,
+		decodeOpenAIToolCalls(result.ToolCalls), result.PromptTokens, result.CompletionTokens, result.FinishReason,
+		result.CacheReadTokens, result.CachedTokens,
+	)
 	translate.RestoreResponseToolNames(response, execution.Request.ResponseToolNames)
 	writeJSON(w, http.StatusOK, response)
 }
@@ -71,6 +76,9 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 	writer := compatibilityStreamWriter(w)
 	stats, relayErr := RelayResponsesStream(writer, upstream.Response.Body, execution.RequestID, firstNonEmpty(execution.PublicModel, execution.Request.Model), execution.Request.ResponseToolNames)
 	status := streamRequestStatus(relayErr)
+	if relayErr == nil {
+		status = responsesRequestStatus(stats.FinishReason)
+	}
 	if r.Context().Err() != nil || errors.Is(relayErr, context.Canceled) || errors.Is(relayErr, context.DeadlineExceeded) {
 		status = accounts.RequestStatusCanceled
 	}
@@ -100,12 +108,49 @@ func writeCompatibilityOpenAIError(w http.ResponseWriter, err error) {
 	WriteClassifiedErr(w, err)
 }
 
-func responsesResponse(requestID, model, content, reasoning string, toolCalls []proxyToolCall, promptTokens, completionTokens int) map[string]any {
-	return map[string]any{
-		"id": "resp_" + requestID, "object": "response", "created_at": time.Now().Unix(), "status": "completed", "model": model,
-		"output": responsesOutputItems(requestID, content, reasoning, toolCalls),
-		"usage":  responsesUsage(promptTokens, completionTokens),
+type responsesTerminal struct {
+	status            string
+	event             string
+	incompleteDetails map[string]any
+}
+
+func responsesTerminalForFinishReason(finishReason string) responsesTerminal {
+	if finishReason == "length" {
+		return responsesTerminal{
+			status: "incomplete",
+			event:  "response.incomplete",
+			incompleteDetails: map[string]any{
+				"reason": "max_output_tokens",
+			},
+		}
 	}
+	return responsesTerminal{status: "completed", event: "response.completed"}
+}
+
+func responsesRequestStatus(finishReason string) string {
+	if responsesTerminalForFinishReason(finishReason).status == "incomplete" {
+		return accounts.RequestStatusIncomplete
+	}
+	return accounts.RequestStatusOK
+}
+
+func responsesResponse(
+	requestID, model, content, reasoning string,
+	toolCalls []proxyToolCall,
+	promptTokens, completionTokens int,
+	finishReason string,
+	cacheReadTokens, cachedTokens *int,
+) map[string]any {
+	terminal := responsesTerminalForFinishReason(finishReason)
+	response := map[string]any{
+		"id": "resp_" + requestID, "object": "response", "created_at": time.Now().Unix(), "status": terminal.status, "model": model,
+		"output": responsesOutputItems(requestID, content, reasoning, toolCalls),
+		"usage":  responsesUsage(promptTokens, completionTokens, cacheReadTokens, cachedTokens),
+	}
+	if terminal.incompleteDetails != nil {
+		response["incomplete_details"] = terminal.incompleteDetails
+	}
+	return response
 }
 
 func responsesOutputItems(requestID, content, reasoning string, toolCalls []proxyToolCall) []any {
@@ -132,6 +177,13 @@ func responseFunctionCallItem(requestID string, callIndex int, call proxyToolCal
 	}
 }
 
-func responsesUsage(promptTokens, completionTokens int) map[string]any {
-	return map[string]any{"input_tokens": promptTokens, "output_tokens": completionTokens, "total_tokens": promptTokens + completionTokens}
+func responsesUsage(promptTokens, completionTokens int, cacheReadTokens, cachedTokens *int) map[string]any {
+	usage := map[string]any{"input_tokens": promptTokens, "output_tokens": completionTokens, "total_tokens": promptTokens + completionTokens}
+	if cacheReadTokens == nil {
+		cacheReadTokens = cachedTokens
+	}
+	if cacheReadTokens != nil {
+		usage["input_tokens_details"] = map[string]any{"cached_tokens": *cacheReadTokens}
+	}
+	return usage
 }

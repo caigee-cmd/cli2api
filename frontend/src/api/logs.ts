@@ -107,6 +107,7 @@ export type RequestStatsWindow = {
 export type RequestStatsTotals = {
   requests: number
   ok: number
+  incomplete: number
   error: number
   canceled: number
   streaming: number

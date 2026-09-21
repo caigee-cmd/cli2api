@@ -1743,6 +1743,39 @@ func TestOutcomeFromAggregateReadsConsumedCredit(t *testing.T) {
 	}
 }
 
+func TestOutcomeFromAggregatePreservesCacheUsage(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		usage string
+		read  int
+		write int
+	}{
+		{name: "top-level cache fields", usage: `"cache_read_tokens":12,"cache_write_tokens":3`, read: 12, write: 3},
+		{name: "cached tokens detail fallback", usage: `"prompt_tokens_details":{"cached_tokens":7},"cache_write_tokens":0`, read: 7, write: 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			aggregate, err := Aggregate(strings.NewReader(strings.Join([]string{
+				`data: {"id":"c1","choices":[{"index":0,"delta":{"content":"hi"},"finish_reason":"stop"}],"usage":{"prompt_tokens":16,"completion_tokens":2,` + test.usage + `}}`,
+				`data: [DONE]`,
+				"",
+			}, "\n")))
+			if err != nil {
+				t.Fatal(err)
+			}
+			outcome, err := outcomeFromAggregate(aggregate)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if outcome.CacheReadTokens == nil || *outcome.CacheReadTokens != test.read {
+				t.Fatalf("cache read = %v, want %d", outcome.CacheReadTokens, test.read)
+			}
+			if outcome.CacheWriteTokens == nil || *outcome.CacheWriteTokens != test.write {
+				t.Fatalf("cache write = %v, want %d", outcome.CacheWriteTokens, test.write)
+			}
+		})
+	}
+}
+
 func TestOutcomeFromAggregateMissingCreditStaysNil(t *testing.T) {
 	aggregate, err := Aggregate(strings.NewReader(strings.Join([]string{
 		`data: {"id":"c1","choices":[{"index":0,"delta":{"content":"hi"},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":1}}`,

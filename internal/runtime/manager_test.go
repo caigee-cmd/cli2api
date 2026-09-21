@@ -853,7 +853,19 @@ func TestManagerEscalatesConsecutiveRestartBackoffSeparately(t *testing.T) {
 	if third == second {
 		t.Fatal("manager reused exited process")
 	}
-	item, ok := manager.Pool().ByID(account.ID)
+	// fakeStarter announces the process before Start returns. Wait until the
+	// manager has registered that process and copied the restart count into the
+	// pool instead of racing the remainder of startAccount.
+	deadline := time.Now().Add(time.Second)
+	var item executor.Item
+	var ok bool
+	for time.Now().Before(deadline) {
+		item, ok = manager.Pool().ByID(account.ID)
+		if ok && item.Restarts == 2 && item.RestartBackoffLevel == 2 {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
 	if !ok {
 		t.Fatal("account disappeared during consecutive recovery")
 	}

@@ -28,7 +28,7 @@ type StatsWindow = 1 | 24 | 168
 
 const EMPTY_STATS: RequestStats = {
   window: { from: '', to: '', hours: 24 },
-  totals: { requests: 0, ok: 0, error: 0, canceled: 0, streaming: 0, success_rate: 0 },
+  totals: { requests: 0, ok: 0, incomplete: 0, error: 0, canceled: 0, streaming: 0, success_rate: 0 },
   latency: {},
   tokens: { prompt: 0, completion: 0, cache_read: 0, total: 0 },
   status: [],
@@ -121,7 +121,7 @@ export function OverviewPage() {
 
   const metrics = [
     { label: t('metricRequests'), value: traffic.totals.requests as number | null, kind: 'compact' as const, detail: t('statsWindowHint', { window: t(hours === 1 ? 'statsWindow1h' : hours === 168 ? 'statsWindow7d' : 'statsWindow24h') }), ok: traffic.totals.requests > 0 },
-    { label: t('metricSuccess'), value: traffic.totals.success_rate, kind: 'percent' as const, detail: `${traffic.totals.ok} ${t('logsFilterOk')} · ${traffic.totals.error} ${t('logsFilterError')}`, ok: traffic.totals.requests === 0 || traffic.totals.success_rate >= 0.9 },
+    { label: t('metricSuccess'), value: traffic.totals.success_rate, kind: 'percent' as const, detail: `${traffic.totals.ok} ${t('logsFilterOk')} · ${traffic.totals.incomplete} ${t('logsFilterIncomplete')} · ${traffic.totals.error} ${t('logsFilterError')}`, ok: traffic.totals.requests === 0 || traffic.totals.success_rate >= 0.9 },
     { label: t('metricLatency'), value: traffic.latency.p95_ms ?? traffic.latency.avg_ms, kind: 'ms' as const, detail: `p50 ${formatLatency(traffic.latency.p50_ms)} · avg ${formatLatency(traffic.latency.avg_ms)}`, ok: traffic.latency.p95_ms == null || traffic.latency.p95_ms < 8000 },
     { label: t('metricTokens'), value: traffic.tokens.total, kind: 'compact' as const, detail: `${formatCompact(traffic.tokens.prompt)} / ${formatCompact(traffic.tokens.completion)}`, ok: true },
   ]
