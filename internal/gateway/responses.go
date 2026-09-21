@@ -50,7 +50,11 @@ func (h *Handler) HandleResponses(w http.ResponseWriter, r *http.Request) {
 		CachedTokens: result.CachedTokens, UsageSource: result.UsageSource, Credits: result.Credits,
 		ConsumedCredits: result.ConsumedCredits, Model: result.Model, FinishReason: result.FinishReason,
 	}, nil, result.AttemptCount, result.ReasoningLevel)
-	response := responsesResponse(execution.RequestID, firstNonEmpty(result.Model, execution.PublicModel), result.Content, result.Reasoning, decodeOpenAIToolCalls(result.ToolCalls), result.PromptTokens, result.CompletionTokens, result.FinishReason)
+	response := responsesResponse(
+		execution.RequestID, firstNonEmpty(result.Model, execution.PublicModel), result.Content, result.Reasoning,
+		decodeOpenAIToolCalls(result.ToolCalls), result.PromptTokens, result.CompletionTokens, result.FinishReason,
+		result.CacheReadTokens, result.CachedTokens,
+	)
 	translate.RestoreResponseToolNames(response, execution.Request.ResponseToolNames)
 	writeJSON(w, http.StatusOK, response)
 }
@@ -130,12 +134,18 @@ func responsesRequestStatus(finishReason string) string {
 	return accounts.RequestStatusOK
 }
 
-func responsesResponse(requestID, model, content, reasoning string, toolCalls []proxyToolCall, promptTokens, completionTokens int, finishReason string) map[string]any {
+func responsesResponse(
+	requestID, model, content, reasoning string,
+	toolCalls []proxyToolCall,
+	promptTokens, completionTokens int,
+	finishReason string,
+	cacheReadTokens, cachedTokens *int,
+) map[string]any {
 	terminal := responsesTerminalForFinishReason(finishReason)
 	response := map[string]any{
 		"id": "resp_" + requestID, "object": "response", "created_at": time.Now().Unix(), "status": terminal.status, "model": model,
 		"output": responsesOutputItems(requestID, content, reasoning, toolCalls),
-		"usage":  responsesUsage(promptTokens, completionTokens),
+		"usage":  responsesUsage(promptTokens, completionTokens, cacheReadTokens, cachedTokens),
 	}
 	if terminal.incompleteDetails != nil {
 		response["incomplete_details"] = terminal.incompleteDetails
@@ -167,6 +177,13 @@ func responseFunctionCallItem(requestID string, callIndex int, call proxyToolCal
 	}
 }
 
-func responsesUsage(promptTokens, completionTokens int) map[string]any {
-	return map[string]any{"input_tokens": promptTokens, "output_tokens": completionTokens, "total_tokens": promptTokens + completionTokens}
+func responsesUsage(promptTokens, completionTokens int, cacheReadTokens, cachedTokens *int) map[string]any {
+	usage := map[string]any{"input_tokens": promptTokens, "output_tokens": completionTokens, "total_tokens": promptTokens + completionTokens}
+	if cacheReadTokens == nil {
+		cacheReadTokens = cachedTokens
+	}
+	if cacheReadTokens != nil {
+		usage["input_tokens_details"] = map[string]any{"cached_tokens": *cacheReadTokens}
+	}
+	return usage
 }
