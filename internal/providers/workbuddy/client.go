@@ -54,7 +54,10 @@ type Client struct {
 
 const catalogTimeout = 15 * time.Second
 
-var dailyCheckinRetryDelays = []time.Duration{time.Second, 3 * time.Second}
+var (
+	dailyCheckinRetryDelays           = []time.Duration{time.Second, 3 * time.Second}
+	dailyCheckinProcessingRetryDelays = []time.Duration{2 * time.Second, 5 * time.Second, 10 * time.Second}
+)
 
 func NewClient(store Store) *Client {
 	return &Client{
@@ -818,7 +821,7 @@ func (c *Client) DailyCheckin(ctx context.Context, accountID string) (string, er
 	for attempt := 0; ; attempt++ {
 		body, status, err = c.do(ctx, accountID, http.MethodPost, credential.BillingBase()+pathDailyCheckin, []byte("{}"),
 			func(h http.Header) { SetBillingHeaders(h, credential) })
-		if !retryDailyCheckin(ctx, err, status, attempt) {
+		if !retryDailyCheckin(ctx, err, status, body, attempt) {
 			break
 		}
 	}
@@ -869,18 +872,23 @@ func alreadyCheckedInMessage(status int, body []byte) (string, bool) {
 	return "", false
 }
 
-func retryDailyCheckin(ctx context.Context, err error, status, attempt int) bool {
-	if attempt >= len(dailyCheckinRetryDelays) || ctx.Err() != nil {
+func retryDailyCheckin(ctx context.Context, err error, status int, body []byte, attempt int) bool {
+	requestProcessing := status == http.StatusTooManyRequests && checkinRequestProcessing(body)
+	delays := dailyCheckinRetryDelays
+	if requestProcessing {
+		delays = dailyCheckinProcessingRetryDelays
+	}
+	if attempt >= len(delays) || ctx.Err() != nil {
 		return false
 	}
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return false
 		}
-	} else if status < http.StatusInternalServerError {
+	} else if status < http.StatusInternalServerError && !requestProcessing {
 		return false
 	}
-	timer := time.NewTimer(dailyCheckinRetryDelays[attempt])
+	timer := time.NewTimer(delays[attempt])
 	defer timer.Stop()
 	select {
 	case <-ctx.Done():
@@ -888,6 +896,18 @@ func retryDailyCheckin(ctx context.Context, err error, status, attempt int) bool
 	case <-timer.C:
 		return true
 	}
+}
+
+func checkinRequestProcessing(body []byte) bool {
+	var env envelope
+	message := strings.TrimSpace(string(body))
+	if json.Unmarshal(body, &env) == nil && strings.TrimSpace(env.Msg) != "" {
+		message = strings.TrimSpace(env.Msg)
+	}
+	lower := strings.ToLower(message)
+	return strings.Contains(message, "请求处理中") ||
+		strings.Contains(lower, "request is being processed") ||
+		strings.Contains(lower, "request processing")
 }
 
 // Keepalive forces a token refresh for the account. Session-dead uses the
