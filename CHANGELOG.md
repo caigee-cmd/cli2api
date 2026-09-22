@@ -3,6 +3,42 @@
 Published user-facing notes for GitHub Releases and the console update page.
 Write upcoming notes as bilingual files in `changelog/unreleased/`.
 
+## 0.6.5 - 2026-09-22
+
+### English
+
+- Console copy buttons now fall back to a hidden-textarea copy when the async Clipboard API is unavailable, so copying works when the console is served over plain http (a non-secure context), not just https/localhost.
+- Trae account quota now counts only the General credit bucket; the Work-only bucket (parsed separately) is excluded so it is not summed into the General figure.
+- Stretch Devin daily and weekly quota meters across the account card, with the title, used percent, bar, and reset time in one compact stack.
+- Add concise acknowledgements for open-source projects that informed the project.
+- Preserve cached input token usage in Responses API output for both streaming and non-streaming requests without double-counting total tokens.
+- Map upstream `finish_reason: length` results to the Responses API `incomplete` terminal state, including streaming events, request logs, statistics, and UI filters.
+- Recover Responses requests from malformed historical function-call arguments by skipping the invalid call/output pair, and avoid emitting invalid JSON arguments in generated Responses output.
+- Trae max mode is now only offered on models that declare a real second tier. Models upstream tags for max mode without a larger window or larger ceilings no longer show a toggle that changes nothing (affects Doubao-Seed-2.1-Turbo, kimi-k2.6, kimi-k2.7-code).
+- Turning Trae max mode off now restores the default-tier prompt/output ceilings immediately. The toggle only switches the context window server-side; the console derives the shown ceilings from the Max tier at render time, so the previously stuck Max values (e.g. 936k prompt / 64k output) no longer linger until a full catalog refresh.
+- Trae login now uses the IDE (PKCE) authorization-code flow: the login URL carries a S256 `code_challenge`, and the pasted callback's `authCodeInfo` code is exchanged at `/trae/api/v3/oauth/ExchangeToken` with the matching verifier and a device public key (EC P-256). Accounts created before the switch keep refreshing with the OAuth client that minted their token (`refresh_client_id`).
+- The Trae model catalog now also fetches a second scene (`chat_v3`) and merges it into the primary scene, so models the primary catalog hides as invisible become selectable. Duplicates prefer the entry carrying a credit rate.
+- Trae chats are now routed to the catalog scene that actually serves each model. The whole catalog is served through `chat_v3` (which also carries the Max-mode tiers), and only models that scene does not list fall back to `solo_work_lite`. Previously every chat went through `solo_work_lite`, so the six models that scene does not carry (Doubao-Seed-Code, deepseek-v4.1-flash, glm-5.3-flash, glm-5.3-flashx, kimi-k2.8-preview, qwen3.8-flash) failed with a param error, and Max mode was sent to a scene without Max tiers. This is derived from catalog membership, so new models route correctly on the next refresh without changes.
+- Preserve WorkBuddy cache-read and cache-write token usage when converting aggregated streaming responses into non-streaming results.
+- Retry WorkBuddy daily check-ins when the upstream temporarily reports that a request is still being processed.
+
+### 中文
+
+- 控制台复制按钮在异步剪贴板 API 不可用时回退到隐藏文本框 + execCommand，因此在纯 http（非安全上下文）下打开控制台时复制也能生效，不再只支持 https/localhost。
+- Trae 账号额度只统计「通用积分」桶；「Work 专属积分」桶（单独解析）不计入，避免混入通用额度。
+- Devin 日额度和周额度条铺满账号卡片，标题、已用百分比、进度条和重置时间落在同一组紧凑块里。
+- 在 README 增加简短的开源项目致谢。
+- 在 Responses API 的流式与非流式输出中保留缓存输入 Token 用量，同时避免在总 Token 数中重复计数。
+- 将上游 `finish_reason: length` 结果映射为 Responses API 的 `incomplete` 终止状态，并同步支持流式事件、请求日志、统计与界面筛选。
+- 当 Responses 历史记录包含格式错误的函数调用参数时，跳过对应的调用与输出以恢复请求，并避免在生成的 Responses 输出中发送无效 JSON 参数。
+- Trae 的「更大上下文」开关现在只在**确有第二档**的模型上出现。上游标了 max mode 但没有更大窗口、也没有更大上限的模型，不再显示一个点了没反应的开关（涉及 Doubao-Seed-2.1-Turbo、kimi-k2.6、kimi-k2.7-code）。
+- 关掉 Trae max mode 后，输入/输出上限**立即**回到默认档。开关在服务端只切上下文窗口；控制台展示层在渲染时从 Max 档取值，因此之前会残留的最大值（如 936k 输入 / 64k 输出）不再需要整表刷新才恢复。
+- Trae 登录改用 IDE（PKCE）授权码流程：登录链接带 S256 `code_challenge`，粘贴回调里的 `authCodeInfo` code 连同 verifier 与设备公钥（EC P-256）交到 `/trae/api/v3/oauth/ExchangeToken` 换取令牌。切换前创建的账号继续用签发其 refresh token 的 OAuth client 刷新（`refresh_client_id`）。
+- Trae 模型目录额外拉取 `chat_v3` 场景并与主场景合并，使主目录里被标为 invisible 的模型变为可选；重复项优先保留带倍率的条目。
+- Trae 聊天现在按「实际提供该模型的目录场景」路由。整个目录默认走 `chat_v3`（该场景也是唯一带 Max 档的），仅当 `chat_v3` 不收录某模型时才回退到 `solo_work_lite`。此前所有聊天一律走 `solo_work_lite`，导致该场景没有的 6 个模型（Doubao-Seed-Code、deepseek-v4.1-flash、glm-5.3-flash、glm-5.3-flashx、kimi-k2.8-preview、qwen3.8-flash）报参数错误，且 Max 模式被发到了没有 Max 档的场景。该路由由目录收录关系推导，新模型下次刷新即自动归位，无需改码。
+- 将 WorkBuddy 聚合流式响应转换为非流式结果时，保留缓存读取与缓存写入 Token 用量。
+- 当 WorkBuddy 上游暂时返回“请求处理中”时，自动重试每日签到。
+
 ## 0.6.4 - 2026-09-19
 
 ### English
