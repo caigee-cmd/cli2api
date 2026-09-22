@@ -26,18 +26,32 @@ func SetUgHeaders(header http.Header, credential Credential) {
 	}
 }
 
-// ugDeviceID normalises the stored device id to the aha-<hex> shape the UG
-// endpoints expect. The checkin backend keys its per-device daily limit on
-// X-Device-Id and rejects a bare hex id with code 9074 ("当前参与用户太多"),
-// whose message reads as a rate limit but is really a device-identity refusal.
-// Trae's own client sends aha-<hex>; a freshly issued credential holds
-// randomHex(16), so every browser-login account would fail to check in.
+// ugDeviceID normalises the stored device id for the UG endpoints. The checkin
+// backend keys its per-device daily limit on X-Device-Id and is picky about the
+// shape: a bare hex id is rejected with 9074, so hex ids get the aha- prefix the
+// IDE client uses; but a *numeric* id (the shape current logins issue) must be
+// sent bare — "aha-<digits>" is itself rejected with 9074.
 func ugDeviceID(deviceID string) string {
 	trimmed := strings.TrimSpace(deviceID)
 	if trimmed == "" || strings.HasPrefix(trimmed, "aha-") {
 		return trimmed
 	}
+	if isAllDigits(trimmed) {
+		return trimmed
+	}
 	return "aha-" + trimmed
+}
+
+func isAllDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func SetSOLOHeaders(header http.Header, credential Credential, stream bool) {

@@ -287,14 +287,18 @@ export function ProvidersPage() {
     const key = modelSettingsKey(model)
     const nextModels = models.map((item) => {
       if (modelSettingsKey(item) !== key || modelProvider(item) !== 'trae') return item
-      const dev = item.catalog_context_length || item.default_context_length || item.context_length
-      const max = item.catalog_context_length_max
       const effort = item.reasoning_effort || item.reasoning_default || ''
+      const itemDev = item.catalog_context_length || item.default_context_length || item.context_length || 0
+      const itemMax = item.catalog_context_length_max || 0
       return {
         ...item,
         max_mode: maxMode,
+        // Only the toggle and its window change here. The prompt/output ceilings
+        // stay at their catalog defaults; the views pick the Max tier from
+        // *_max at render time, so turning max mode off restores the default.
+        context_length: maxMode && itemMax ? itemMax : itemDev,
+        default_context_length: itemDev,
         context_custom: maxMode || Boolean(effort && effort !== item.reasoning_default),
-        context_length: maxMode && max ? max : dev,
       }
     })
     setModels(nextModels)
@@ -603,7 +607,11 @@ export function ProvidersPage() {
         )}
       </Card>
 
-      <ModelDetailsModal model={detailModel} t={t} onClose={() => setDetailModel(null)} />
+      <ModelDetailsModal
+        model={detailModel ? models.find((m) => modelSettingsKey(m) === modelSettingsKey(detailModel)) || detailModel : null}
+        t={t}
+        onClose={() => setDetailModel(null)}
+      />
       <ListPager
         total={filtered.length}
         page={currentPage}

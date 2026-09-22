@@ -2,7 +2,7 @@ import { Chip, Modal } from '@heroui/react'
 import { X } from '@phosphor-icons/react'
 import type { ModelInfo } from '@/api/types'
 import { modelCreditsText, modelIsFree } from '@/lib/format'
-import { accountProviderLabel } from '@/lib/provider'
+import { accountProviderLabel, tieredTraeCaps } from '@/lib/provider'
 
 type Translate = (key: string, vars?: Record<string, string | number>) => string
 
@@ -29,6 +29,9 @@ export function ModelDetailsModal({ model, t, onClose }: Props) {
   const provider = String(model.provider || model.owned_by || 'qoder').trim().toLowerCase()
   const region = String(model.region || model.regions?.[0] || '').trim().toLowerCase()
   const providerLabel = accountProviderLabel(provider, region || undefined, t)
+  // Resolve the tier shown for the current max-mode toggle so the ceilings match
+  // the selected window instead of lingering on the Max tier after a toggle-off.
+  const traeTier = provider === 'trae' ? tieredTraeCaps(model) : undefined
   return (
     <Modal.Root isOpen onOpenChange={(next: boolean) => { if (!next) onClose() }}>
       <Modal.Backdrop variant="blur">
@@ -55,8 +58,12 @@ export function ModelDetailsModal({ model, t, onClose }: Props) {
                 <div className="mt-1 text-sm">{formatTokens(windowDev)}{windowMax && windowMax !== windowDev ? ` → ${formatTokens(windowMax)}` : ''}</div>
                 {model.supports_max_mode ? <p className="mt-1 text-[11px] leading-5 text-muted">{t('maxModeHint')}</p> : null}
                 {!model.supports_max_mode && windowMax && windowMax !== windowDev ? <p className="mt-1 text-[11px] leading-5 text-muted">{t('workbuddyContextHint')}</p> : null}
-                {model.prompt_max_tokens ? <div className="mt-1 text-[11px] text-muted">{t('promptMaxTokens')}: {formatTokens(model.prompt_max_tokens)}</div> : null}
-                {model.max_output_tokens ? <div className="text-[11px] text-muted">{t('maxOutputTokens')}: {formatTokens(model.max_output_tokens)}</div> : null}
+                {traeTier
+                  ? (traeTier.prompt_max_tokens ? <div className="mt-1 text-[11px] text-muted">{t('promptMaxTokens')}: {formatTokens(traeTier.prompt_max_tokens)}</div> : null)
+                  : (model.prompt_max_tokens ? <div className="mt-1 text-[11px] text-muted">{t('promptMaxTokens')}: {formatTokens(model.prompt_max_tokens)}</div> : null)}
+                {traeTier
+                  ? (traeTier.max_output_tokens ? <div className="text-[11px] text-muted">{t('maxOutputTokens')}: {formatTokens(traeTier.max_output_tokens)}</div> : null)
+                  : (model.max_output_tokens ? <div className="text-[11px] text-muted">{t('maxOutputTokens')}: {formatTokens(model.max_output_tokens)}</div> : null)}
               </section>
               <section>
                 <div className="text-xs font-medium text-muted">{t('reasoningLevels')}</div>

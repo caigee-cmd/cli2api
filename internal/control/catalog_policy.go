@@ -111,13 +111,30 @@ func ModelCapabilitiesEntry(model providers.ModelInfo) map[string]any {
 	if model.Capabilities.PromptMaxTokens > 0 {
 		entry["prompt_max_tokens"] = model.Capabilities.PromptMaxTokens
 	}
-	if model.Capabilities.MaxMode {
+	if model.Capabilities.PromptMaxTokensMax > 0 {
+		entry["prompt_max_tokens_max"] = model.Capabilities.PromptMaxTokensMax
+	}
+	if model.Capabilities.MaxOutputMax > 0 {
+		entry["max_output_tokens_max"] = model.Capabilities.MaxOutputMax
+	}
+	if hasMaxTier(model.Capabilities) {
 		entry["supports_max_mode"] = true
 	}
 	if model.Capabilities.CanDisableThinking {
 		entry["can_disable_thinking"] = true
 	}
 	return entry
+}
+
+// hasMaxTier reports whether a Trae model declares a distinct Max-mode tier.
+// Upstream's v2_max_mode_enabled flag is not enough on its own: a model can be
+// tagged for max mode while carrying no larger window and no larger ceilings, in
+// which case a toggle would be a no-op. Require an actual second tier.
+func hasMaxTier(caps providers.ModelCapabilities) bool {
+	if caps.ContextWindowMax > 0 && caps.ContextWindowMax != caps.ContextWindow {
+		return true
+	}
+	return caps.PromptMaxTokensMax > 0 || caps.MaxOutputMax > 0
 }
 
 func ProviderModelEntry(model providers.ModelInfo, provider string) map[string]any {
@@ -146,7 +163,13 @@ func ProviderModelEntry(model providers.ModelInfo, provider string) map[string]a
 	if model.Capabilities.PromptMaxTokens > 0 {
 		entry["prompt_max_tokens"] = model.Capabilities.PromptMaxTokens
 	}
-	if model.Capabilities.MaxMode {
+	if model.Capabilities.PromptMaxTokensMax > 0 {
+		entry["prompt_max_tokens_max"] = model.Capabilities.PromptMaxTokensMax
+	}
+	if model.Capabilities.MaxOutputMax > 0 {
+		entry["max_output_tokens_max"] = model.Capabilities.MaxOutputMax
+	}
+	if hasMaxTier(model.Capabilities) {
 		entry["supports_max_mode"] = true
 	}
 	if len(model.Capabilities.ReasoningOptions) > 0 {
@@ -219,10 +242,18 @@ func catalogInt(value any) (int, bool) {
 func decorateProviderSettings(ctx context.Context, settings *Settings, item map[string]any, provider, settingsKey string) {
 	dev, _ := catalogInt(item["catalog_context_length"])
 	max, _ := catalogInt(item["catalog_context_length_max"])
-	supportsMax, _ := item["supports_max_mode"].(bool)
-	if provider == "trae" && !supportsMax && max > 0 && max != dev {
-		supportsMax = true
-		item["supports_max_mode"] = true
+	// A Trae model truly supports max mode only when it declares a second
+	// (larger) tier. Upstream tags a few models with v2_max_mode_enabled even
+	// though they carry no Max window and no Max ceiling; trusting that flag
+	// alone would surface a toggle that changes nothing. Derive support from the
+	// presence of an actual Max tier instead.
+	promptBase, _ := catalogInt(item["prompt_max_tokens"])
+	promptMaxTier, _ := catalogInt(item["prompt_max_tokens_max"])
+	outBase, _ := catalogInt(item["max_output_tokens"])
+	outMaxTier, _ := catalogInt(item["max_output_tokens_max"])
+	supportsMax := (max > 0 && max != dev) || promptMaxTier > promptBase || outMaxTier > outBase
+	if provider == "trae" {
+		item["supports_max_mode"] = supportsMax
 	}
 	var setting accounts.ProviderModelSetting
 	if settings != nil {
@@ -238,6 +269,10 @@ func decorateProviderSettings(ctx context.Context, settings *Settings, item map[
 		item["context_length"] = window
 		item["default_context_length"] = dev
 	}
+	// The prompt/output ceilings deliberately stay at the default tier here. The
+	// console selects the Max tier from prompt_max_tokens_max / max_output_tokens_max
+	// at render time based on the toggle, so turning max mode off always restores
+	// the default tier instead of leaving the mutated Max value in place.
 	defaultLevel, _ := item["reasoning_default"].(string)
 	selected := defaultLevel
 	if setting.ReasoningEffort != "" {

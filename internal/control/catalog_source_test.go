@@ -184,13 +184,90 @@ func TestDecorateProviderSettingsUsesEffectiveMaxMode(test *testing.T) {
 		test.Run(scenario.name, func(test *testing.T) {
 			store := newFakeStore(&callLog{})
 			store.providerSetting = accounts.ProviderModelSetting{MaxMode: true, ReasoningEffort: "medium"}
-			models := DecorateModelsWithContext(context.Background(), NewSettings(store), []map[string]any{{
+			entry := map[string]any{
 				"id": "glm-5.2", "provider": scenario.provider, "reasoning_default": "medium",
 				"supports_max_mode": scenario.supportsMax,
-			}})
+			}
+			// A real Max tier backs the "supported" case; without it the toggle
+			// would be a no-op and must not be surfaced.
+			if scenario.supportsMax {
+				entry["catalog_context_length"] = 200000
+				entry["catalog_context_length_max"] = 1000000
+			}
+			models := DecorateModelsWithContext(context.Background(), NewSettings(store), []map[string]any{entry})
 			if models[0]["context_custom"] != scenario.wantCustom || models[0]["max_mode"] != scenario.wantCustom {
 				test.Fatalf("model=%v", models[0])
 			}
 		})
 	}
+}
+
+// A model tagged with upstream's v2_max_mode_enabled but carrying no larger
+// window and no larger ceilings has no real Max tier: the toggle must be hidden
+// (supports_max_mode=false) rather than offered as a no-op.
+func TestDecorateHidesMaxModeWithoutRealTier(test *testing.T) {
+	store := newFakeStore(&callLog{})
+	store.providerSetting = accounts.ProviderModelSetting{MaxMode: true}
+	models := DecorateModelsWithContext(context.Background(), NewSettings(store), []map[string]any{{
+		"id": "kimi-k2.7-code", "provider": "trae",
+		"catalog_context_length": 200000, "supports_max_mode": true,
+	}})
+	if models[0]["supports_max_mode"] != false || models[0]["max_mode"] != false {
+		test.Fatalf("no-op toggle leaked: %v", models[0])
+	}
+}
+
+// A ceiling-only Max tier (a larger prompt/output limit but the same window) is
+// still a real tier and must keep the toggle.
+func TestDecorateKeepsMaxModeForCeilingOnlyTier(test *testing.T) {
+	store := newFakeStore(&callLog{})
+	models := DecorateModelsWithContext(context.Background(), NewSettings(store), []map[string]any{{
+		"id": "glm-5.3", "provider": "trae",
+		"catalog_context_length": 200000, "max_output_tokens": 16000,
+		"max_output_tokens_max": 64000, "supports_max_mode": true,
+	}})
+	if models[0]["supports_max_mode"] != true {
+		test.Fatalf("ceiling-only tier dropped: %v", models[0])
+	}
+}
+
+// The Trae max-mode toggle switches the window server-side, but the prompt and
+// output ceilings stay at their catalog defaults — the console resolves the Max
+// tier from *_max at render time. This keeps the toggle reversible: turning max
+// mode off must never leave a mutated Max ceiling behind.
+func TestDecorateTraeMaxModeSwitchesWindowNotCeilings(t *testing.T) {
+	entry := map[string]any{
+		"id": "glm-5.3", "provider": "trae",
+		"catalog_context_length": 200000, "catalog_context_length_max": 1000000,
+		"prompt_max_tokens": 168000, "max_output_tokens": 32000,
+		"prompt_max_tokens_max": 936000, "max_output_tokens_max": 64000,
+		"supports_max_mode": true, "reasoning_default": "high",
+	}
+	// max_mode off -> default window, ceilings at baseline.
+	store := newFakeStore(&callLog{})
+	off := DecorateModelsWithContext(context.Background(), NewSettings(store), []map[string]any{cloneMap(entry)})
+	if off[0]["context_length"] != 200000 || off[0]["prompt_max_tokens"] != 168000 || off[0]["max_output_tokens"] != 32000 {
+		t.Fatalf("off tier=%v", off[0])
+	}
+	// max_mode on -> max window; ceilings stay at baseline (frontend picks *_max).
+	storeOn := newFakeStore(&callLog{})
+	storeOn.providerSetting.MaxMode = true
+	on := DecorateModelsWithContext(context.Background(), NewSettings(storeOn), []map[string]any{cloneMap(entry)})
+	if on[0]["context_length"] != 1000000 {
+		t.Fatalf("on window=%v", on[0])
+	}
+	if on[0]["prompt_max_tokens"] != 168000 || on[0]["max_output_tokens"] != 32000 {
+		t.Fatalf("ceilings must stay at baseline: %v", on[0])
+	}
+	if on[0]["prompt_max_tokens_max"] != 936000 || on[0]["max_output_tokens_max"] != 64000 {
+		t.Fatalf("max tier must remain available: %v", on[0])
+	}
+}
+
+func cloneMap(in map[string]any) map[string]any {
+	out := make(map[string]any, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
 }

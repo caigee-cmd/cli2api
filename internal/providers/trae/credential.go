@@ -21,21 +21,39 @@ const (
 	OAuthHost   = "https://api.trae.com.cn"
 	ConsoleHost = "https://www.trae.cn"
 
-	ClientID       = "en1oxy7wnw8j9n"
-	AppID          = "6eefa01c-1036-4c7e-9ca5-d891f63bfcd8"
-	IdeVersion     = "0.1.52"
+	// Login uses the IDE product markers (PKCE authorization-code flow):
+	// client_id below, auth_from=trae, x_app_version=3.3.62.
+	ClientID = "ono9krqynydwx5"
+	AuthFrom = "trae"
+	AppID    = "6eefa01c-1036-4c7e-9ca5-d891f63bfcd8"
+	// IdeVersion is the x_app_version / IDEVersion sent on login + exchange.
+	IdeVersion     = "3.3.62"
 	IdeVersionCode = "20260811"
 	DeviceBrand    = "83DG"
 	OSVersion      = "Windows 11 Pro"
-	Function       = "solo_work_lite"
+	// Function is the fallback scene for a model that is in no fetched scene
+	// (normally unreachable, since any servable model comes from a catalog).
+	Function = "solo_work_lite"
+	// PrimaryScene absorbs the whole merged catalog. Every model is served
+	// through it by default — it is the superset scene and the only one that
+	// carries max-mode tiers. See sceneFor.
+	PrimaryScene = "chat_v3"
+	// SecondaryScene is the fallback scene, used only for models the primary
+	// scene does not list (e.g. kimi-k2.6, kimi-k2.7-code upstream-hide from it).
+	SecondaryScene = "solo_work_lite"
 	DefaultModel   = "glm-5.2"
 	PluginVersion  = "2.3.62834"
 	UserAgent      = "Trae/" + IdeVersion
 	QuotaUnit      = "entitlement_pack"
+	// LegacyClientID minted the refresh tokens of accounts created before the
+	// PKCE login switch; those accounts carry it as refresh_client_id so token
+	// refresh keeps working.
+	LegacyClientID = "en1oxy7wnw8j9n"
 
 	pathChat          = "/api/agent/v3/llm_utils_chat"
 	pathModels        = "/api/ide/v1/get_detail_param"
 	pathExchange      = "/cloudide/api/v3/trae/oauth/ExchangeToken"
+	pathExchangeCode  = "/trae/api/v3/oauth/ExchangeToken"
 	pathUserInfo      = "/cloudide/api/v3/trae/GetUserInfo"
 	pathCheckinStatus = "/trae/api/v2/ug/checkin_credits/status"
 	pathCheckinClaim  = "/trae/api/v2/ug/checkin_credits/claim"
@@ -62,8 +80,14 @@ type Credential struct {
 	Nickname         string `json:"nickname"`
 	MachineID        string `json:"machine_id"`
 	DeviceID         string `json:"device_id"`
-	IdeVersion       string `json:"ide_version,omitempty"`
-	IdeVersionCode   string `json:"ide_version_code,omitempty"`
+	// DevicePrivateKey is the PEM EC P-256 key backing the device proof the v3
+	// code exchange requires. Never leaves the store.
+	DevicePrivateKey string `json:"device_private_key,omitempty"`
+	// RefreshClientID records which OAuth client minted RefreshToken when it is
+	// not the current login client (accounts created before the PKCE switch).
+	RefreshClientID string `json:"refresh_client_id,omitempty"`
+	IdeVersion      string `json:"ide_version,omitempty"`
+	IdeVersionCode  string `json:"ide_version_code,omitempty"`
 }
 
 func DecodeCredential(payload []byte) (Credential, error) {
@@ -206,12 +230,40 @@ func randomHex(n int) string {
 	return hex.EncodeToString(raw)
 }
 
+// randomNumericDeviceID returns a 16-digit decimal id, the shape Trae's own
+// IDE client sends as device_id. A bare 32-char hex id is rejected by the UG
+// check-in backend (code 9074); a <=16-digit numeric id is accepted.
+func randomNumericDeviceID() string {
+	var buf [8]byte
+	if _, err := rand.Read(buf[:]); err != nil {
+		return fmt.Sprintf("%016d", time.Now().UnixNano()%1e16)
+	}
+	n := uint64(0)
+	for _, b := range buf {
+		n = n<<8 | uint64(b)
+	}
+	return fmt.Sprintf("%016d", n%1e16)
+}
+
 func EnsureDevice(credential Credential) Credential {
 	if strings.TrimSpace(credential.MachineID) == "" {
-		credential.MachineID = randomHex(16)
+		// Trae's IDE client sends a 64-hex machine id; match that shape.
+		credential.MachineID = randomHex(32)
 	}
 	if strings.TrimSpace(credential.DeviceID) == "" {
-		credential.DeviceID = randomHex(16)
+		credential.DeviceID = randomNumericDeviceID()
+	}
+	return credential
+}
+
+// EnsureDeviceKey creates an EC P-256 device keypair when the credential has
+// none, so the v3 code exchange can present a device public key.
+func EnsureDeviceKey(credential Credential) Credential {
+	if strings.TrimSpace(credential.DevicePrivateKey) != "" {
+		return credential
+	}
+	if priv, _, err := generateDeviceKey(); err == nil {
+		credential.DevicePrivateKey = priv
 	}
 	return credential
 }

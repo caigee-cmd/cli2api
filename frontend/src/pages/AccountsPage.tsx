@@ -1,3 +1,4 @@
+import { copyText } from '@/lib/clipboard'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button } from '@heroui/react'
 import {
@@ -262,7 +263,7 @@ export function AccountsPage() {
   async function onExport(id: string) {
     await run(id, 'export', async () => {
       const bundle = await exportAccount(id)
-      await navigator.clipboard.writeText(JSON.stringify(bundle, null, 2))
+      await copyText(JSON.stringify(bundle, null, 2))
       setNoteById((current) => ({ ...current, [id]: t('credentialCopied') }))
     })
   }

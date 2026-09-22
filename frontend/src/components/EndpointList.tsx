@@ -1,3 +1,4 @@
+import { copyText } from '@/lib/clipboard'
 import { useMemo, useState } from 'react'
 import { Button, Card, Chip } from '@heroui/react'
 import { ArrowSquareOut, BracketsCurly, Check, Copy, Heartbeat, ListBullets, PaperPlaneTilt } from '@phosphor-icons/react'
@@ -50,7 +51,7 @@ export function EndpointList({ access }: EndpointListProps) {
             <div className="mt-2 flex items-center justify-between gap-2 border-t border-separator pt-2">
               <span className="text-[10px] font-medium text-muted">{item.method === 'BASE' ? t('endpointBaseLabel') : t('endpointAuthLabel')}</span>
               <div className="flex gap-1">
-                <Button isIconOnly size="sm" variant="ghost" aria-label={t('copy')} onPress={() => { void navigator.clipboard.writeText(item.url); setCopiedEndpoint(item.name); window.setTimeout(() => setCopiedEndpoint(''), 1100) }}>
+                <Button isIconOnly size="sm" variant="ghost" aria-label={t('copy')} onPress={() => { void copyText(item.url); setCopiedEndpoint(item.name); window.setTimeout(() => setCopiedEndpoint(''), 1100) }}>
                   {copiedEndpoint === item.name ? <Check size={14} className="text-success" /> : <Copy size={14} />}
                 </Button>
                 <Button isIconOnly size="sm" variant="ghost" aria-label={t('open')} onPress={() => window.open(item.url, '_blank', 'noopener,noreferrer')}>
