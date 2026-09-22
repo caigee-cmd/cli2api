@@ -1,3 +1,4 @@
+import { copyText } from '@/lib/clipboard'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button, Card, Chip, Description, Input, Label, ListBox, Modal, Select } from '@heroui/react'
 import {
@@ -541,7 +542,7 @@ export function SystemPage() {
               <Modal.Footer className="justify-end">
                 <Button variant="ghost" onPress={() => setRotatedSecret('')}>{t('close')}</Button>
                 <Button onPress={() => {
-                  void navigator.clipboard.writeText(rotatedSecret)
+                  void copyText(rotatedSecret)
                   setCopied(true)
                   window.setTimeout(() => setCopied(false), 1200)
                 }}>

@@ -31,6 +31,7 @@ func seedCheckinCredential(t *testing.T, store *memStore) {
 
 func TestCheckinClaimFlow(t *testing.T) {
 	var paths []string
+	var statusCalls int
 	client, store := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			t.Fatalf("method=%s", r.Method)
@@ -46,9 +47,15 @@ func TestCheckinClaimFlow(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case pathCheckinStatus:
-			_ = json.NewEncoder(w).Encode(map[string]any{"checked_in": false, "credits": 200, "enable": true})
+			statusCalls++
+			// First probe: not yet checked in. Re-probe after claim: flipped.
+			if statusCalls == 1 {
+				_ = json.NewEncoder(w).Encode(map[string]any{"checked_in": false, "credits": 0, "enable": true})
+			} else {
+				_ = json.NewEncoder(w).Encode(map[string]any{"checked_in": true, "credits": 200})
+			}
 		case pathCheckinClaim:
-			_ = json.NewEncoder(w).Encode(map[string]any{"credits": 200})
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0})
 		default:
 			t.Fatalf("unexpected path %s", r.URL.Path)
 		}
@@ -65,7 +72,7 @@ func TestCheckinClaimFlow(t *testing.T) {
 	if result.RewardCredits != 200 {
 		t.Fatalf("reward=%v", result.RewardCredits)
 	}
-	if len(paths) != 2 || paths[0] != pathCheckinStatus || paths[1] != pathCheckinClaim {
+	if len(paths) != 3 || paths[0] != pathCheckinStatus || paths[1] != pathCheckinClaim || paths[2] != pathCheckinStatus {
 		t.Fatalf("paths=%v", paths)
 	}
 }

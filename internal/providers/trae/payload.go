@@ -7,8 +7,9 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
-// PrepareBody rewrites an OpenAI chat body into Trae Solo llm_utils_chat form.
-func PrepareBody(src []byte) []byte {
+// PrepareBody rewrites an OpenAI chat body into Trae llm_utils_chat form.
+// fn is the chat scene; empty falls back to Function.
+func PrepareBody(src []byte, fn string) []byte {
 	if len(src) == 0 {
 		return src
 	}
@@ -17,7 +18,10 @@ func PrepareBody(src []byte) []byte {
 		return src
 	}
 	obj["stream"] = true
-	obj["function"] = Function
+	if fn == "" {
+		fn = Function
+	}
+	obj["function"] = fn
 
 	if msgs, ok := obj["messages"].([]any); ok {
 		for _, mi := range msgs {

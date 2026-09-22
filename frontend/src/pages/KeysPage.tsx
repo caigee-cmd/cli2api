@@ -1,3 +1,4 @@
+import { copyText } from '@/lib/clipboard'
 import { useEffect, useState } from 'react'
 import { Alert, Button, Card, Checkbox, Chip, Description, Form, Input, Label, Modal } from '@heroui/react'
 import { Copy, Key, Plus, TrashSimple, X } from '@phosphor-icons/react'
@@ -137,7 +138,7 @@ export function KeysPage() {
   }, [])
 
   async function copySecret(value: string) {
-    await navigator.clipboard.writeText(value)
+    await copyText(value)
     setCopied(true)
     window.setTimeout(() => setCopied(false), 1200)
   }

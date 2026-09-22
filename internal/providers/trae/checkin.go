@@ -27,7 +27,8 @@ func (e AlreadyCheckedInError) Error() string {
 func (AlreadyCheckedInError) AlreadyCheckedIn() bool { return true }
 
 // Checkin claims the Trae daily credit grant via the ug checkin_credits API.
-// Flow: refresh credential if needed → status probe → claim when eligible.
+// Flow: refresh credential if needed → status probe → claim when eligible →
+// re-probe so success is only reported when the account actually flipped.
 // "今日已签到" maps to Status="already"; session-dead surfaces KindAuth so the
 // manager can flag the account for re-login.
 func (client *Client) Checkin(ctx context.Context, accountID string) (providers.CheckinResult, error) {
@@ -35,7 +36,7 @@ func (client *Client) Checkin(ctx context.Context, accountID string) (providers.
 	if err != nil {
 		return providers.CheckinResult{}, err
 	}
-	checkedIn, credits, enable, err := client.checkinStatus(ctx, accountID, credential)
+	st, err := client.checkinStatus(ctx, accountID, credential)
 	if err != nil {
 		var already AlreadyCheckedInError
 		if errors.As(err, &already) {
@@ -43,80 +44,104 @@ func (client *Client) Checkin(ctx context.Context, accountID string) (providers.
 		}
 		return providers.CheckinResult{}, err
 	}
-	if checkedIn {
+	if st.checkedIn {
 		return providers.CheckinResult{
 			Status:        "already",
 			Message:       "already checked in",
-			RewardCredits: float64(credits),
+			RewardCredits: float64(st.credits + st.extraCredits),
 		}, nil
 	}
-	if !enable {
+	if !st.enable {
 		return providers.CheckinResult{Status: "skipped", Message: "checkin disabled"}, nil
 	}
-	reward, err := client.checkinClaim(ctx, accountID, credential)
-	if err != nil {
+	if err := client.checkinClaim(ctx, accountID, credential); err != nil {
 		var already AlreadyCheckedInError
 		if errors.As(err, &already) {
 			return providers.CheckinResult{Status: "already", Message: already.Msg}, nil
 		}
 		return providers.CheckinResult{}, err
 	}
-	return providers.CheckinResult{Status: "success", Message: "checkin claimed", RewardCredits: reward}, nil
+	// The claim endpoint answers code 0 even when the device identity is
+	// refused (9074) or the daily grant was already taken, so success is
+	// decided by re-probing: a real claim flips checked_in to true.
+	after, err := client.checkinStatus(ctx, accountID, credential)
+	if err != nil {
+		return providers.CheckinResult{}, err
+	}
+	if !after.checkedIn {
+		return providers.CheckinResult{}, fmt.Errorf("trae checkin did not register (device may be rejected); retry later")
+	}
+	return providers.CheckinResult{
+		Status:        "success",
+		Message:       "checkin claimed",
+		RewardCredits: float64(after.credits + after.extraCredits),
+	}, nil
+}
+
+type checkinState struct {
+	checkedIn    bool
+	credits      int64
+	extraCredits int64
+	enable       bool
 }
 
 // checkinStatus decodes the ug checkin_credits/status response. Business
 // "already checked in" yields AlreadyCheckedInError so the caller can return
 // Status="already" without treating it as a failure.
-func (client *Client) checkinStatus(ctx context.Context, accountID string, credential Credential) (checkedIn bool, credits int64, enable bool, err error) {
+func (client *Client) checkinStatus(ctx context.Context, accountID string, credential Credential) (checkinState, error) {
 	body, err := client.CheckinStatus(ctx, accountID, credential)
 	if err != nil {
-		return false, 0, false, err
+		return checkinState{}, err
 	}
 	text := strings.TrimSpace(string(body))
 	classified := Classify(200, text)
 	if classified.Kind == accounts.KindAuth {
-		return false, 0, false, fmt.Errorf("trae checkin session dead: re-login required")
+		return checkinState{}, fmt.Errorf("trae checkin session dead: re-login required")
 	}
 	if msg, ok := alreadyCheckedInMessage(text); ok {
-		return false, 0, false, AlreadyCheckedInError{Msg: msg}
+		return checkinState{}, AlreadyCheckedInError{Msg: msg}
 	}
 	var env struct {
-		CheckedIn bool  `json:"checked_in"`
-		Credits   int64 `json:"credits"`
-		Enable    bool  `json:"enable"`
+		CheckedIn    bool  `json:"checked_in"`
+		Credits      int64 `json:"credits"`
+		ExtraCredits int64 `json:"extra_credits"`
+		Enable       bool  `json:"enable"`
 	}
 	if err := json.Unmarshal(body, &env); err != nil {
-		return false, 0, false, fmt.Errorf("checkin status parse: %w", err)
+		return checkinState{}, fmt.Errorf("checkin status parse: %w", err)
 	}
-	return env.CheckedIn, env.Credits, env.Enable, nil
+	return checkinState{checkedIn: env.CheckedIn, credits: env.Credits, extraCredits: env.ExtraCredits, enable: env.Enable}, nil
 }
 
-// checkinClaim decodes the ug checkin_credits/claim response. The endpoint
-// returns 200 with empty body on success in practice; reward credits come
-// from the trailing status probe when claim does not echo them.
-func (client *Client) checkinClaim(ctx context.Context, accountID string, credential Credential) (float64, error) {
+// checkinClaim posts the ug checkin_credits/claim request. The response is
+// HTTP 200 with a business body {"code":0} on success (idempotent), or a
+// non-zero code such as 9074 when the device identity is refused. Only an
+// "already checked in" marker is treated as a soft success; other non-zero
+// codes are surfaced as errors.
+func (client *Client) checkinClaim(ctx context.Context, accountID string, credential Credential) error {
 	body, err := client.CheckinClaim(ctx, accountID, credential)
 	if err != nil {
-		return 0, err
+		return err
 	}
 	text := strings.TrimSpace(string(body))
 	classified := Classify(200, text)
 	if classified.Kind == accounts.KindAuth {
-		return 0, fmt.Errorf("trae checkin session dead: re-login required")
+		return fmt.Errorf("trae checkin session dead: re-login required")
 	}
 	if msg, ok := alreadyCheckedInMessage(text); ok {
-		return 0, AlreadyCheckedInError{Msg: msg}
+		return AlreadyCheckedInError{Msg: msg}
 	}
 	var env struct {
-		Credits float64 `json:"credits"`
-	}
-	if text == "" {
-		return 0, nil
+		Code    int    `json:"code"`
+		Message string `json:"message"`
 	}
 	if err := json.Unmarshal(body, &env); err != nil {
-		return 0, fmt.Errorf("checkin claim parse: %w", err)
+		return fmt.Errorf("checkin claim parse: %w", err)
 	}
-	return env.Credits, nil
+	if env.Code != 0 {
+		return fmt.Errorf("trae checkin claim rejected (code %d): %s", env.Code, strings.TrimSpace(env.Message))
+	}
+	return nil
 }
 
 // alreadyCheckedInMessage matches the upstream "今日已签到" business error.

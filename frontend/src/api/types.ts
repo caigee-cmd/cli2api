@@ -57,6 +57,8 @@ export type ModelInfo = {
   max_mode?: boolean
   max_output_tokens?: number
   prompt_max_tokens?: number
+  max_output_tokens_max?: number
+  prompt_max_tokens_max?: number
   reasoning_options?: string[]
   reasoning_default?: string
   reasoning_effort?: string

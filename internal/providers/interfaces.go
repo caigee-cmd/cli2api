@@ -16,10 +16,15 @@ import (
 var ErrUnsupported = errors.New("provider capability unsupported")
 
 type ModelCapabilities struct {
-	ContextWindow      int      `json:"context_window,omitempty"`
-	ContextWindowMax   int      `json:"context_window_max,omitempty"`
-	MaxOutput          int      `json:"max_output_tokens,omitempty"`
-	PromptMaxTokens    int      `json:"prompt_max_tokens,omitempty"`
+	ContextWindow    int `json:"context_window,omitempty"`
+	ContextWindowMax int `json:"context_window_max,omitempty"`
+	MaxOutput        int `json:"max_output_tokens,omitempty"`
+	PromptMaxTokens  int `json:"prompt_max_tokens,omitempty"`
+	// MaxMode tiers: when a model declares a second (Max/Max-mode) tier, these
+	// carry the Max-tier prompt/output ceilings so the console can show the
+	// value that matches the max-mode toggle instead of the default tier.
+	PromptMaxTokensMax int      `json:"prompt_max_tokens_max,omitempty"`
+	MaxOutputMax       int      `json:"max_output_tokens_max,omitempty"`
 	MaxMode            bool     `json:"max_mode,omitempty"`
 	Tools              bool     `json:"tools"`
 	Images             bool     `json:"images"`
@@ -37,6 +42,11 @@ type ModelInfo struct {
 	Credits      string            `json:"credits,omitempty"`
 	Free         bool              `json:"free,omitempty"`
 	Capabilities ModelCapabilities `json:"capabilities"`
+	// Scene is the provider-native scene/function a chat for this model must be
+	// sent under. Empty means the provider has no scene split. Providers use it
+	// to keep a model routed to the scene that actually serves it; it is
+	// provider-internal and never a public API field.
+	Scene string `json:"-"`
 }
 
 // CredentialCodec validates and stores provider credentials.

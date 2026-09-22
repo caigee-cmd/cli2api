@@ -1,3 +1,4 @@
+import { copyText } from '@/lib/clipboard'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Button, Card, Chip, Description, Label, ListBox, Select, Skeleton, TextArea } from '@heroui/react'
 import {
@@ -170,7 +171,7 @@ export function AccessPage() {
   if (loading && !overview) return <AccessPageSkeleton />
 
   async function copy(value: string, kind: 'base' | 'curl') {
-    await navigator.clipboard.writeText(value)
+    await copyText(value)
     setCopied(kind)
     window.setTimeout(() => setCopied(''), 1100)
   }

@@ -1162,7 +1162,7 @@ export const messages: Record<Lang, Dict> = {
     quotaRemaining: '剩余',
     quotaDaily: '日额度',
     quotaWeekly: '周额度',
-    quotaUsedPercent: '已用 {n}%',
+    quotaUsedPercent: '{n}%',
     quotaResetsSoon: '即将重置',
     quotaResetsInMinutes: '{n} 分钟后重置',
     quotaResetsInHours: '{n} 小时后重置',

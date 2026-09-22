@@ -1534,6 +1534,69 @@ func TestDailyCheckinRetriesTransientFailures(t *testing.T) {
 	}
 }
 
+func TestDailyCheckinRetriesRequestProcessing(t *testing.T) {
+	originalDelays := dailyCheckinProcessingRetryDelays
+	dailyCheckinProcessingRetryDelays = []time.Duration{0, 0}
+	t.Cleanup(func() { dailyCheckinProcessingRetryDelays = originalDelays })
+
+	var calls atomic.Int32
+	client, store := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) < 3 {
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte(`{"code":10001,"msg":"请求处理中，请勿重复操作"}`))
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "msg": "签到成功"})
+	}))
+	payload, _ := json.Marshal(Credential{
+		AccessToken: "at", RefreshToken: "rt", ExpiresAt: 4102444800, Domain: DomainCN, UID: "u1",
+	})
+	_ = store.SaveCredentialPayload(context.Background(), "acc1", CredentialFormat, payload)
+
+	message, err := client.DailyCheckin(context.Background(), "acc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if message != "签到成功" || calls.Load() != 3 {
+		t.Fatalf("message=%q calls=%d", message, calls.Load())
+	}
+}
+
+func TestDailyCheckinUsesRequestedAccountCredential(t *testing.T) {
+	expected := map[string]string{
+		"token-account-one": "uid-account-one",
+		"token-account-two": "uid-account-two",
+	}
+	seen := map[string]bool{}
+	client, store := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		uid, found := expected[token]
+		if !found || r.Header.Get("X-User-Id") != uid {
+			t.Fatalf("unexpected credential authorization=%q uid=%q", r.Header.Get("Authorization"), r.Header.Get("X-User-Id"))
+		}
+		seen[token] = true
+		_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "msg": "签到成功"})
+	}))
+	for accountID, credential := range map[string]Credential{
+		"acc-one": {AccessToken: "token-account-one", RefreshToken: "refresh-one", ExpiresAt: 4102444800, Domain: DomainCN, UID: "uid-account-one"},
+		"acc-two": {AccessToken: "token-account-two", RefreshToken: "refresh-two", ExpiresAt: 4102444800, Domain: DomainCN, UID: "uid-account-two"},
+	} {
+		payload, err := credential.Encode()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := store.SaveCredentialPayload(context.Background(), accountID, CredentialFormat, payload); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := client.DailyCheckin(context.Background(), accountID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(seen) != len(expected) {
+		t.Fatalf("seen credentials=%v", seen)
+	}
+}
+
 func TestDailyCheckinSessionDeadDoesNotObserve(t *testing.T) {
 	client, store := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)

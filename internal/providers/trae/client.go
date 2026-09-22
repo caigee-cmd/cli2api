@@ -47,14 +47,18 @@ type ModelMaxModeReader interface {
 }
 
 type loginPending struct {
-	machineID   string
-	deviceID    string
-	callbackURL string
-	createdAt   time.Time
-	done        bool
-	failed      bool
-	message     string
-	credential  Credential
+	machineID    string
+	deviceID     string
+	deviceKey    string
+	callbackURL  string
+	codeVerifier string
+	authCode     string
+	trace        string
+	createdAt    time.Time
+	done         bool
+	failed       bool
+	message      string
+	credential   Credential
 }
 
 type Client struct {
@@ -63,10 +67,15 @@ type Client struct {
 
 	transports proxyutil.TransportCache
 
-	mu       sync.Mutex
-	pending  map[string]*loginPending
-	listener net.Listener
-	catalog  map[string]providers.ModelInfo
+	mu      sync.Mutex
+	pending map[string]*loginPending
+	// pendingTraces maps a login_trace_id to the pending entry that issued the
+	// matching code_challenge. The callback echoes loginTraceID, so a pasted
+	// callback can be matched to its exact verifier even when a newer login has
+	// replaced the account's current pending entry.
+	pendingTraces map[string]*loginPending
+	listener      net.Listener
+	catalog       map[string]providers.ModelInfo
 }
 
 const catalogTimeout = 15 * time.Second
@@ -80,7 +89,8 @@ func NewClient(store Store) *Client {
 				return http.ErrUseLastResponse
 			},
 		},
-		pending: map[string]*loginPending{},
+		pending:       map[string]*loginPending{},
+		pendingTraces: map[string]*loginPending{},
 	}
 }
 
@@ -175,20 +185,33 @@ func (c *Client) StartLogin(ctx context.Context, accountID string) (providers.Lo
 		}
 	}
 	credential = EnsureDevice(credential)
+	credential = EnsureDeviceKey(credential)
 	callbackURL, err := c.ensureCallback()
 	if err != nil {
 		return providers.LoginSession{}, err
 	}
 	trace := randomHex(8)
-	c.mu.Lock()
-	c.pending[accountID] = &loginPending{
-		machineID:   credential.MachineID,
-		deviceID:    credential.DeviceID,
-		callbackURL: callbackURL,
-		createdAt:   time.Now(),
+	verifier := ""
+	if v, _, err := pkcePair(); err == nil {
+		verifier = v
 	}
+	c.mu.Lock()
+	if c.pendingTraces == nil {
+		c.pendingTraces = map[string]*loginPending{}
+	}
+	entry := &loginPending{
+		machineID:    credential.MachineID,
+		deviceID:     credential.DeviceID,
+		deviceKey:    credential.DevicePrivateKey,
+		callbackURL:  callbackURL,
+		codeVerifier: verifier,
+		trace:        trace,
+		createdAt:    time.Now(),
+	}
+	c.pending[accountID] = entry
+	c.pendingTraces[trace] = entry
 	c.mu.Unlock()
-	authURL := BuildLoginURL(credential.MachineID, credential.DeviceID, callbackURL, trace)
+	authURL := buildLoginURL(credential.MachineID, credential.DeviceID, callbackURL, trace, verifier)
 	return providers.LoginSession{AuthURL: authURL, State: trace}, nil
 }
 
@@ -210,6 +233,8 @@ func (c *Client) PollLogin(ctx context.Context, accountID string) (bool, string,
 	failed := pending.failed
 	message := pending.message
 	credential := pending.credential
+	authCode := pending.authCode
+	codeVerifier := pending.codeVerifier
 	c.mu.Unlock()
 	if failed {
 		return false, "", fmt.Errorf("%s", firstNonEmpty(message, "login failed"))
@@ -217,7 +242,7 @@ func (c *Client) PollLogin(ctx context.Context, accountID string) (bool, string,
 	if !done {
 		return false, firstNonEmpty(message, "waiting for authorization"), nil
 	}
-	if err := c.finishCredential(ctx, accountID, credential); err != nil {
+	if err := c.finishCredential(ctx, accountID, credential, authCode, codeVerifier); err != nil {
 		return false, "", err
 	}
 	c.mu.Lock()
@@ -239,11 +264,20 @@ func (c *Client) CompleteLogin(ctx context.Context, accountID, callbackURL strin
 		Nickname:     info.Nickname,
 		EnterpriseID: info.EnterpriseID,
 		Domain:       DomainCN,
-		APIHost:      OAuthHost,
+		APIHost:      firstNonEmpty(info.APIHost, OAuthHost),
 	}
 	c.mu.Lock()
 	pending := c.pending[accountID]
+	// Prefer the pending entry whose challenge matches the callback's
+	// loginTraceID, so a pasted callback is paired with the verifier that
+	// actually minted its code even if a newer login replaced the account slot.
+	if info.Trace != "" {
+		if traced := c.pendingTraces[info.Trace]; traced != nil {
+			pending = traced
+		}
+	}
 	c.mu.Unlock()
+	codeVerifier := ""
 	if pending != nil {
 		if pending.done {
 			c.mu.Lock()
@@ -253,6 +287,8 @@ func (c *Client) CompleteLogin(ctx context.Context, accountID, callbackURL strin
 		}
 		credential.MachineID = pending.machineID
 		credential.DeviceID = pending.deviceID
+		credential.DevicePrivateKey = pending.deviceKey
+		codeVerifier = pending.codeVerifier
 	} else if _, payload, err := c.store.LoadCredentialPayload(ctx, accountID); err == nil {
 		if decoded, err := DecodeCredential(payload); err == nil {
 			if decoded.Ready() {
@@ -262,17 +298,28 @@ func (c *Client) CompleteLogin(ctx context.Context, accountID, callbackURL strin
 			credential.DeviceID = decoded.DeviceID
 		}
 	}
-	if err := c.finishCredential(ctx, accountID, credential); err != nil {
+	if err := c.finishCredential(ctx, accountID, credential, info.AuthCode, codeVerifier); err != nil {
 		return err
 	}
 	c.mu.Lock()
 	delete(c.pending, accountID)
+	if pending != nil && pending.trace != "" {
+		delete(c.pendingTraces, pending.trace)
+	}
 	c.mu.Unlock()
 	return nil
 }
 
-func (c *Client) finishCredential(ctx context.Context, accountID string, credential Credential) error {
-	if strings.TrimSpace(credential.RefreshToken) != "" {
+func (c *Client) finishCredential(ctx context.Context, accountID string, credential Credential, authCode, codeVerifier string) error {
+	switch {
+	case strings.TrimSpace(authCode) != "":
+		// Exchange the callback's authorization code with the PKCE verifier.
+		refreshed, err := c.ExchangeAuthCode(ctx, accountID, credential, authCode, codeVerifier)
+		if err != nil {
+			return err
+		}
+		credential = refreshed
+	case strings.TrimSpace(credential.RefreshToken) != "":
 		refreshed, err := c.ExchangeToken(ctx, accountID, credential)
 		if err != nil {
 			return err
@@ -292,6 +339,7 @@ func (c *Client) finishCredential(ctx context.Context, accountID string, credent
 		}
 	}
 	credential = EnsureDevice(credential)
+	credential = EnsureDeviceKey(credential)
 	payload, err := credential.Encode()
 	if err != nil {
 		return err
@@ -346,6 +394,7 @@ func (c *Client) acceptCallback(ctx context.Context, rawURL string) error {
 		credential.MachineID = pending.machineID
 		credential.DeviceID = pending.deviceID
 		pending.credential = credential
+		pending.authCode = info.AuthCode
 		pending.done = true
 		pending.message = "authorization received"
 		break
@@ -368,12 +417,15 @@ func (c *Client) markPendingFailed(message string) {
 }
 
 type callbackInfo struct {
+	AuthCode     string
 	RefreshToken string
 	AccessToken  string
 	UID          string
 	Nickname     string
 	EnterpriseID string
 	ExpiresAt    int64
+	APIHost      string
+	Trace        string
 }
 
 func ParseCallback(rawURL string) (callbackInfo, error) {
@@ -386,8 +438,31 @@ func ParseCallback(rawURL string) (callbackInfo, error) {
 	}
 	query := parsed.Query()
 	info := callbackInfo{
+		AuthCode:     firstNonEmpty(query.Get("code"), query.Get("authCode"), query.Get("auth_code")),
 		RefreshToken: firstNonEmpty(query.Get("refreshToken"), query.Get("refresh_token")),
 		AccessToken:  firstNonEmpty(query.Get("accessToken"), query.Get("userJwt")),
+		Trace:        firstNonEmpty(query.Get("loginTraceID"), query.Get("login_trace_id")),
+	}
+	// The authorization code is delivered inside a JSON authCodeInfo parameter:
+	// {"AuthCode":"...","ExpireAt":...,"ExpireDuration":...}.
+	if info.AuthCode == "" {
+		if raw := firstNonEmpty(query.Get("authCodeInfo"), query.Get("auth_code_info")); raw != "" {
+			var nested struct {
+				AuthCode string `json:"AuthCode"`
+				Code     string `json:"code"`
+			}
+			if json.Unmarshal([]byte(raw), &nested) == nil {
+				info.AuthCode = firstNonEmpty(nested.AuthCode, nested.Code)
+			}
+		}
+	}
+	// The callback also carries host / userRegion hints; prefer the callback host
+	// so the code exchange targets the region the browser logged into.
+	if host := strings.TrimSpace(query.Get("host")); host != "" {
+		host = strings.TrimRight(host, "/")
+		if strings.HasPrefix(host, "http://") || strings.HasPrefix(host, "https://") {
+			info.APIHost = host
+		}
 	}
 	if userInfo := query.Get("userInfo"); userInfo != "" {
 		var nested struct {
@@ -422,16 +497,16 @@ func ParseCallback(rawURL string) (callbackInfo, error) {
 			}
 		}
 	}
-	if info.RefreshToken == "" && info.AccessToken == "" {
-		return callbackInfo{}, fmt.Errorf("callback missing refreshToken and userJwt.Token")
+	if info.RefreshToken == "" && info.AccessToken == "" && info.AuthCode == "" {
+		return callbackInfo{}, fmt.Errorf("callback missing code, refreshToken and userJwt.Token")
 	}
 	return info, nil
 }
 
-func BuildLoginURL(machineID, deviceID, callbackURL, trace string) string {
+func buildLoginURL(machineID, deviceID, callbackURL, trace, codeVerifier string) string {
 	values := url.Values{}
 	values.Set("login_version", "1")
-	values.Set("auth_from", "solo")
+	values.Set("auth_from", AuthFrom)
 	values.Set("login_channel", "native_ide")
 	values.Set("plugin_version", PluginVersion)
 	values.Set("auth_type", "local")
@@ -446,8 +521,16 @@ func BuildLoginURL(machineID, deviceID, callbackURL, trace string) string {
 	values.Set("x_device_brand", "PC")
 	values.Set("x_device_type", "PC")
 	values.Set("x_os_version", "1.0")
+	values.Set("x_env", "")
 	values.Set("x_app_version", IdeVersion)
 	values.Set("x_app_type", "stable")
+	if codeVerifier == "" {
+		codeVerifier, _ = pkceVerifier()
+	}
+	if codeVerifier != "" {
+		values.Set("code_challenge", pkceChallenge(codeVerifier))
+		values.Set("code_challenge_method", "S256")
+	}
 	return ConsoleHost + pathAuthorization + "?" + values.Encode()
 }
 
@@ -456,7 +539,7 @@ func (c *Client) ExchangeToken(ctx context.Context, accountID string, credential
 		return credential, fmt.Errorf("no refreshToken")
 	}
 	body, err := json.Marshal(map[string]any{
-		"ClientID":     ClientID,
+		"ClientID":     c.refreshClientID(credential),
 		"RefreshToken": credential.RefreshToken,
 		"ClientSecret": "-",
 		"UserID":       "",
@@ -485,6 +568,88 @@ func (c *Client) ExchangeToken(ctx context.Context, accountID string, credential
 	}
 	if strings.TrimSpace(env.Result.Token) == "" {
 		return credential, fmt.Errorf("refresh_failed: no token in response — re-login required")
+	}
+	credential.AccessToken = env.Result.Token
+	if env.Result.RefreshToken != "" {
+		credential.RefreshToken = env.Result.RefreshToken
+	}
+	if env.Result.TokenExpireAt != 0 {
+		credential.ExpiresAt = unixSeconds(env.Result.TokenExpireAt)
+	} else if env.Result.TokenExpireDuration > 0 {
+		credential.ExpiresAt = time.Now().Add(time.Duration(env.Result.TokenExpireDuration) * time.Second).Unix()
+	}
+	if env.Result.RefreshExpireAt != 0 {
+		credential.RefreshExpiresAt = unixSeconds(env.Result.RefreshExpireAt)
+	}
+	return credential, nil
+}
+
+// refreshClientID is the OAuth client used to refresh the credential's token.
+// Normally the login client; accounts created before the PKCE switch record the
+// legacy SOLO client that minted their refresh token, because refresh tokens are
+// bound to the client that issued them.
+func (c *Client) refreshClientID(credential Credential) string {
+	if id := strings.TrimSpace(credential.RefreshClientID); id != "" {
+		return id
+	}
+	return ClientID
+}
+
+// ExchangeAuthCode performs the PKCE authorization-code exchange:
+// POST /trae/api/v3/oauth/ExchangeToken with the callback's code and the
+// matching code verifier. The response carries the same token fields as the
+// refresh-token exchange, so it fills the same Credential.
+func (c *Client) ExchangeAuthCode(ctx context.Context, accountID string, credential Credential, authCode, codeVerifier string) (Credential, error) {
+	if strings.TrimSpace(authCode) == "" {
+		return credential, fmt.Errorf("no auth code")
+	}
+	pubKey := devicePublicKeyPEM(credential.DevicePrivateKey)
+	deviceInfo := map[string]any{
+		"DeviceID":      credential.DeviceID,
+		"MachineID":     credential.MachineID,
+		"PlatformCode":  "IDE_PC",
+		"DeviceType":    "PC",
+		"DeviceName":    "cli2api",
+		"DeviceModel":   "",
+		"ClientVersion": IdeVersion,
+		"DeviceBrand":   "",
+		"OSInfo":        "linux",
+		"OSVersion":     "Ubuntu 24.04.4 LTS",
+	}
+	if pubKey != "" {
+		deviceInfo["DevicePublicKey"] = pubKey
+	}
+	body, err := json.Marshal(map[string]any{
+		"ClientID":     ClientID,
+		"AuthCode":     authCode,
+		"CodeVerifier": codeVerifier,
+		"IDEVersion":   IdeVersion,
+		"DeviceInfo":   deviceInfo,
+	})
+	if err != nil {
+		return credential, err
+	}
+	payload, status, err := c.do(ctx, accountID, http.MethodPost, credential.AuthBase()+pathExchangeCode, body, SetOAuthHeaders)
+	if err != nil {
+		return credential, err
+	}
+	if status >= 300 {
+		return credential, classifiedError(status, payload)
+	}
+	var env struct {
+		Result struct {
+			Token               string `json:"Token"`
+			TokenExpireAt       int64  `json:"TokenExpireAt"`
+			TokenExpireDuration int64  `json:"TokenExpireDuration"`
+			RefreshToken        string `json:"RefreshToken"`
+			RefreshExpireAt     int64  `json:"RefreshExpireAt"`
+		} `json:"Result"`
+	}
+	if err := json.Unmarshal(payload, &env); err != nil {
+		return credential, fmt.Errorf("code exchange parse: %w", err)
+	}
+	if strings.TrimSpace(env.Result.Token) == "" {
+		return credential, fmt.Errorf("code_exchange_failed: no token in response")
 	}
 	credential.AccessToken = env.Result.Token
 	if env.Result.RefreshToken != "" {
@@ -583,8 +748,30 @@ func (c *Client) Models(ctx context.Context, accountID string) ([]providers.Mode
 	}
 	ctx, cancel := context.WithTimeout(ctx, catalogTimeout)
 	defer cancel()
+	out, err := c.fetchCatalogScene(ctx, accountID, credential, PrimaryScene)
+	if err != nil {
+		return nil, err
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("trae model catalog returned no models")
+	}
+	// Merge the secondary scene so models the primary scene hides (e.g.
+	// kimi-k2.6) become selectable. Each model keeps the scene it is served
+	// through; a failure here must not sink the primary catalog.
+	if SecondaryScene != "" && SecondaryScene != PrimaryScene {
+		if extra, err := c.fetchCatalogScene(ctx, accountID, credential, SecondaryScene); err == nil {
+			out = mergeCatalogModels(out, extra)
+		}
+	}
+	c.rememberCatalog(out)
+	return out, nil
+}
+
+// fetchCatalogScene fetches and parses one catalog scene (function). It returns
+// an empty slice (no error) when the scene yields nothing usable.
+func (c *Client) fetchCatalogScene(ctx context.Context, accountID string, credential Credential, function string) ([]providers.ModelInfo, error) {
 	body, err := json.Marshal(map[string]any{
-		"function":            Function,
+		"function":            function,
 		"config_names":        nil,
 		"need_prompt":         false,
 		"current_config_info": nil,
@@ -603,14 +790,10 @@ func (c *Client) Models(ctx context.Context, accountID string) ([]providers.Mode
 	if status >= 300 {
 		return nil, classifiedError(status, payload)
 	}
-	out, err := parseCatalogModels(payload)
+	out, err := parseCatalogModels(payload, function)
 	if err != nil {
 		return nil, fmt.Errorf("models parse: %w", err)
 	}
-	if len(out) == 0 {
-		return nil, fmt.Errorf("trae model catalog returned no models")
-	}
-	c.rememberCatalog(out)
 	return out, nil
 }
 
@@ -625,19 +808,35 @@ func (c *Client) rememberCatalog(models []providers.ModelInfo) {
 }
 
 func (c *Client) capsFor(model string) providers.ModelCapabilities {
-	model = strings.TrimSpace(model)
-	c.mu.Lock()
-	info, ok := c.catalog[model]
-	if !ok {
-		// Trae config_name is mixed-case; callers may send the console
-		// canonical form (lowercase, _ folded to -). Try both join keys.
-		info, ok = c.catalog[accounts.CanonicalModelID(model)]
-	}
-	c.mu.Unlock()
-	if ok {
+	if info, ok := c.lookupCatalogModel(model); ok {
 		return info.Capabilities
 	}
 	return providers.ModelCapabilities{}
+}
+
+// sceneFor returns the scene a chat for this model must be sent under. Trae
+// serves the whole catalog through chat_v3 by default; only models that scene
+// does not list (e.g. kimi-k2.6) fall back to solo_work_lite. A model missing
+// from the catalog entirely uses PrimaryScene.
+func (c *Client) sceneFor(model string) string {
+	if info, ok := c.lookupCatalogModel(model); ok && info.Scene != "" {
+		return info.Scene
+	}
+	return PrimaryScene
+}
+
+// lookupCatalogModel resolves a request/console model id to its catalog entry.
+// Trae config_name is mixed-case; callers may send the console canonical form
+// (lowercase, _ folded to -), so both join keys are tried.
+func (c *Client) lookupCatalogModel(model string) (providers.ModelInfo, bool) {
+	model = strings.TrimSpace(model)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if info, ok := c.catalog[model]; ok {
+		return info, true
+	}
+	info, ok := c.catalog[accounts.CanonicalModelID(model)]
+	return info, ok
 }
 
 // settingModelKey mirrors control.ModelContextKey so provider settings saved by
@@ -659,7 +858,7 @@ func (c *Client) chatRequest(ctx context.Context, credential Credential, req tra
 	if err != nil {
 		return nil, providers.ResolvedChat{}, err
 	}
-	rewritten := PrepareBody(payload)
+	rewritten := PrepareBody(payload, c.sceneFor(req.Model))
 	resolved := providers.ResolvedChat{}
 	var obj map[string]any
 	if err := json.Unmarshal(rewritten, &obj); err == nil {
@@ -913,10 +1112,13 @@ func (c *Client) Quota(ctx context.Context, accountID string) (*providers.QuotaI
 	if err != nil {
 		return nil, err
 	}
-	remain, used, total, err := c.UserEntUsage(ctx, accountID, credential)
+	general, _, err := c.UserEntUsage(ctx, accountID, credential)
 	if err != nil {
 		return nil, err
 	}
+	// Only the General bucket is surfaced. The Work-only bucket is parsed (see
+	// parseEntitlementBuckets) but deliberately not summed in or shown.
+	remain, used, total := general.remain, general.used, general.total
 	if total <= 0 && remain > 0 {
 		total = remain
 	}
@@ -944,26 +1146,45 @@ func (c *Client) Quota(ctx context.Context, accountID string) (*providers.QuotaI
 	}, nil
 }
 
-func (c *Client) UserEntUsage(ctx context.Context, accountID string, credential Credential) (remain, used, total int64, err error) {
+func (c *Client) UserEntUsage(ctx context.Context, accountID string, credential Credential) (general, work entitlementBucket, err error) {
 	body, status, err := c.do(ctx, accountID, http.MethodPost, credential.BillingBase()+pathEntUsage, []byte("{}"),
 		func(h http.Header) { SetUgHeaders(h, credential) })
 	if err != nil {
-		return 0, 0, 0, err
+		return entitlementBucket{}, entitlementBucket{}, err
 	}
 	if status >= 300 {
-		return 0, 0, 0, classifiedError(status, body)
+		return entitlementBucket{}, entitlementBucket{}, classifiedError(status, body)
 	}
-	remain, used, total = parseEntitlementUsage(body)
-	if total == 0 && remain == 0 && used == 0 {
-		return 0, 0, 0, fmt.Errorf("entitlement parse: empty pack list")
+	general, work = parseEntitlementBuckets(body)
+	if general.total == 0 && general.remain == 0 && general.used == 0 && work.total == 0 && work.remain == 0 && work.used == 0 {
+		return entitlementBucket{}, entitlementBucket{}, fmt.Errorf("entitlement parse: empty pack list")
 	}
-	return remain, used, total, nil
+	return general, work, nil
 }
 
+// entitlementEndpointWork is the available_endpoint value that marks the
+// "Work 专属积分" bucket; everything else is General.
+const entitlementEndpointWork = 1
+
+type entitlementBucket struct {
+	remain int64
+	used   int64
+	total  int64
+}
+
+// parseEntitlementUsage sums every credit pack (both buckets).
 func parseEntitlementUsage(body []byte) (remain, used, total int64) {
+	general, work := parseEntitlementBuckets(body)
+	return general.remain + work.remain, general.used + work.used, general.total + work.total
+}
+
+// parseEntitlementBuckets splits the credit packs into the General bucket
+// (available_endpoint 0) and the Work-only bucket (available_endpoint 1). The
+// Trae dashboard reports these separately as 通用积分 / Work 专属.
+func parseEntitlementBuckets(body []byte) (general, work entitlementBucket) {
 	var root any
 	if json.Unmarshal(body, &root) != nil {
-		return 0, 0, 0
+		return entitlementBucket{}, entitlementBucket{}
 	}
 	for _, pack := range entitlementPacks(root) {
 		limit := int64FromAny(lookupPath(pack, "entitlement_base_info", "quota", "credits_limit"))
@@ -981,11 +1202,24 @@ func parseEntitlementUsage(body []byte) (remain, used, total int64) {
 		if left < 0 {
 			left = 0
 		}
-		total += limit
-		used += consumed
-		remain += left
+		bucket := &general
+		if isWorkPack(pack) {
+			bucket = &work
+		}
+		bucket.total += limit
+		bucket.used += consumed
+		bucket.remain += left
 	}
-	return remain, used, total
+	return general, work
+}
+
+// isWorkPack reports whether a credit pack belongs to the Work-only bucket.
+func isWorkPack(pack any) bool {
+	value := lookupPath(pack, "entitlement_base_info", "available_endpoint")
+	if value == nil {
+		value = lookupPath(pack, "available_endpoint")
+	}
+	return int64FromAny(value) == entitlementEndpointWork
 }
 
 func entitlementPacks(root any) []any {

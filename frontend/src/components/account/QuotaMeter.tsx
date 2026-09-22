@@ -1,4 +1,3 @@
-import type { ReactNode } from 'react'
 import { Meter, Tooltip } from '@heroui/react'
 import type { AccountQuota, AccountQuotaWindow } from '@/api/types'
 import {
@@ -33,61 +32,6 @@ function extraQuotaLines(quota: AccountQuota, remainingLabel: string, addOnLabel
   return [addOn, resourcePackage].filter(Boolean)
 }
 
-function QuotaBar({
-  quota,
-  label,
-  left,
-  right,
-  valueLabel,
-  extra,
-  compact,
-}: {
-  quota: Pick<AccountQuota, 'percentage' | 'exceeded'>
-  label: string
-  left: ReactNode
-  right: ReactNode
-  valueLabel: string
-  extra?: string[]
-  compact?: boolean
-}) {
-  const ratio = quotaUsedRatio(quota)
-  const tone = quotaTone(quota)
-  const color = tone === 'danger' ? 'danger' : tone === 'warn' ? 'warning' : 'success'
-
-  return (
-    <Tooltip>
-      <Tooltip.Trigger>
-        <div className="cursor-help">
-          <Meter
-            className={compact ? 'account-meter account-meter--window' : 'account-meter'}
-            color={color}
-            size="md"
-            minValue={0}
-            maxValue={100}
-            value={Math.round(ratio * 100)}
-            aria-label={label}
-            valueLabel={valueLabel}
-          >
-            <Meter.Output className="flex w-full items-baseline justify-between text-[10px]">
-              {left}
-              {right}
-            </Meter.Output>
-            <Meter.Track>
-              <Meter.Fill />
-            </Meter.Track>
-          </Meter>
-        </div>
-      </Tooltip.Trigger>
-      <Tooltip.Content>
-        <div className="space-y-0.5">
-          <div>{valueLabel}</div>
-          {extra?.map((line) => <div key={line}>{line}</div>)}
-        </div>
-      </Tooltip.Content>
-    </Tooltip>
-  )
-}
-
 function WindowMeter({
   window,
   t,
@@ -102,36 +46,63 @@ function WindowMeter({
   const usedText = t('quotaUsedPercent', { n: percent })
   const reset = quotaResetLabel(window.reset_at, t)
   const valueLabel = `${label} · ${usedText}${reset ? ` · ${reset}` : ''}`
+  const ratio = quotaUsedRatio(window)
+  const tone = quotaTone(window)
+  const color = tone === 'danger' ? 'danger' : tone === 'warn' ? 'warning' : 'success'
 
   return (
-    <div className="space-y-1">
-      <QuotaBar
-        quota={window}
-        label={label}
-        left={<span className="text-[11px] font-medium text-foreground">{label}</span>}
-        right={<span className="mono text-foreground/55">{usedText}</span>}
-        valueLabel={valueLabel}
-        extra={extra}
-        compact
-      />
-      {reset ? <div className="text-[10px] text-muted">{reset}</div> : null}
-    </div>
+    <Tooltip>
+      <Tooltip.Trigger>
+        <div className="w-full cursor-help">
+          <Meter
+            className="account-meter account-meter--window w-full"
+            color={color}
+            size="md"
+            minValue={0}
+            maxValue={100}
+            value={Math.round(ratio * 100)}
+            aria-label={label}
+            valueLabel={valueLabel}
+          >
+            <Meter.Output className="flex w-full items-baseline justify-between gap-3 text-[11px]">
+              <span className="min-w-0 truncate font-medium text-foreground">{label}</span>
+              <span className="mono shrink-0 text-foreground/70">{usedText}</span>
+            </Meter.Output>
+            <Meter.Track>
+              <Meter.Fill />
+            </Meter.Track>
+          </Meter>
+          {reset ? <div className="mt-1 text-[10px] leading-4 text-muted">{reset}</div> : null}
+        </div>
+      </Tooltip.Trigger>
+      <Tooltip.Content>
+        <div className="space-y-0.5">
+          <div>{valueLabel}</div>
+          {extra?.map((line) => <div key={line}>{line}</div>)}
+        </div>
+      </Tooltip.Content>
+    </Tooltip>
   )
 }
 
 // Trae-style quota block: the remaining count is the headline number; the
 // used / total pair plus unit sits underneath as a secondary mono line.
-// Devin daily/weekly windows render as stacked compact bars with reset copy.
+// Devin daily/weekly windows keep a titled bar with used percent and reset
+// copy in one compact stack.
 export function QuotaMeter({ quota, t, label, usedLabel, remainingLabel, addOnLabel, resourcePackageLabel, exceededLabel }: Props) {
   const unit = quota.unit || 'credits'
   const used = `${formatQuotaAmount(quota.used)} / ${formatQuotaAmount(quota.total)}`
   const remaining = `${formatQuotaAmount(quota.remaining)}`
   const extra = extraQuotaLines(quota, remainingLabel, addOnLabel, resourcePackageLabel)
   const windows = quotaWindows(quota)
+  const ratio = quotaUsedRatio(quota)
+  const tone = quotaTone(quota)
+  const color = tone === 'danger' ? 'danger' : tone === 'warn' ? 'warning' : 'success'
+  const valueLabel = `${usedLabel} ${used} ${unit} · ${remainingLabel} ${remaining} ${unit}${extra.length ? ` · ${extra.join(' · ')}` : ''}`
 
   if (windows.length > 0) {
     return (
-      <div className="space-y-2.5">
+      <div className="w-full space-y-3">
         {windows.map((window, index) => (
           <WindowMeter
             key={window.id || String(index)}
@@ -145,19 +116,40 @@ export function QuotaMeter({ quota, t, label, usedLabel, remainingLabel, addOnLa
   }
 
   return (
-    <QuotaBar
-      quota={quota}
-      label={label}
-      left={(
-        <span className="text-[13px] font-semibold leading-5 text-foreground tabular-nums">
-          {quota.exceeded ? <span className="mr-1.5 text-danger">{exceededLabel}</span> : null}
-          {remaining}
-          <span className="ml-1 text-[10px] font-normal text-foreground/60">{unit}</span>
-        </span>
-      )}
-      right={<span className="mono text-foreground/55">{usedLabel} {used}</span>}
-      valueLabel={`${usedLabel} ${used} ${unit} · ${remainingLabel} ${remaining} ${unit}${extra.length ? ` · ${extra.join(' · ')}` : ''}`}
-      extra={extra}
-    />
+    <Tooltip>
+      <Tooltip.Trigger>
+        <div className="w-full cursor-help">
+          <Meter
+            className="account-meter w-full"
+            color={color}
+            size="md"
+            minValue={0}
+            maxValue={100}
+            value={Math.round(ratio * 100)}
+            aria-label={label}
+            valueLabel={valueLabel}
+          >
+            <Meter.Output className="flex w-full items-baseline justify-between text-[10px]">
+              <span className="text-[13px] font-semibold leading-5 text-foreground tabular-nums">
+                {quota.exceeded ? <span className="mr-1.5 text-danger">{exceededLabel}</span> : null}
+                {remaining}
+                <span className="ml-1 text-[10px] font-normal text-foreground/60">{unit}</span>
+              </span>
+              <span className="mono text-foreground/55">{usedLabel} {used}</span>
+            </Meter.Output>
+            <Meter.Track>
+              <Meter.Fill />
+            </Meter.Track>
+          </Meter>
+        </div>
+      </Tooltip.Trigger>
+      <Tooltip.Content>
+        <div className="space-y-0.5">
+          <div>{usedLabel} {used} {unit}</div>
+          <div>{remainingLabel} {remaining} {unit}</div>
+          {extra.map((line) => <div key={line}>{line}</div>)}
+        </div>
+      </Tooltip.Content>
+    </Tooltip>
   )
 }
