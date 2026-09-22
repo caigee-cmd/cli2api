@@ -10,6 +10,15 @@ export type AccountQuotaWindow = {
   exceeded?: boolean
 }
 
+export type AccountQuotaPackage = {
+  remain?: number
+  used?: number
+  size?: number
+  unit?: string
+  ends_at?: number
+  end_time?: string
+}
+
 export type AccountQuota = {
   used?: number
   total?: number
@@ -18,6 +27,9 @@ export type AccountQuota = {
   unit?: string
   exceeded?: boolean
   windows?: AccountQuotaWindow[]
+  expires_at?: number
+  expiring_remain?: number
+  packages?: AccountQuotaPackage[]
   has_add_on?: boolean
   add_on_used?: number
   add_on_total?: number

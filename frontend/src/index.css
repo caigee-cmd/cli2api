@@ -192,6 +192,14 @@ body {
   height: 0.5rem;
 }
 
+/* HeroUI Tooltip.Trigger is inline-block; quota windows must each occupy a
+   full row on the account card instead of sitting side by side. */
+.account-quota-windows .tooltip__trigger {
+  display: block;
+  width: 100%;
+  min-width: 0;
+}
+
 .runtime-meter {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));

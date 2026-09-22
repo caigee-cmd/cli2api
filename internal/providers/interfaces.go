@@ -151,6 +151,17 @@ type QuotaWindow struct {
 	Exceeded   bool
 }
 
+// QuotaPackage is one upstream credit/resource pack with its own expiry.
+// EndsAt is a Unix second; EndTime is the provider-native wall-clock string.
+type QuotaPackage struct {
+	Remain  float64
+	Used    float64
+	Size    float64
+	Unit    string
+	EndsAt  int64
+	EndTime string
+}
+
 // QuotaInfo is account usage for the console and exhausted-account routing.
 // Callers must treat probe readiness and quota independently; quota errors
 // never flip Ready.
@@ -163,6 +174,16 @@ type QuotaInfo struct {
 	Exceeded   bool
 	FetchedAt  string
 	Windows    []QuotaWindow
+	// ProviderID identifies which adapter produced this info. Callers use it
+	// to gate provider-specific fields (e.g. package expiry) instead of
+	// trusting that every adapter populates them.
+	ProviderID string
+	// ExpiresAt is the soonest package expiry (Unix seconds); 0 means the
+	// provider did not report one. ExpiringRemain is the remaining amount that
+	// expires at that time. Packages carries the per-pack expiry detail.
+	ExpiresAt      int64
+	ExpiringRemain float64
+	Packages       []QuotaPackage
 }
 
 // AccountProber refreshes provider-native readiness and optional display quota.

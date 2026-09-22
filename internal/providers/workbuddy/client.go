@@ -762,7 +762,7 @@ func (c *Client) Quota(ctx context.Context, accountID string) (*providers.QuotaI
 	if err != nil {
 		return nil, err
 	}
-	remain, used, total, err := c.UserResource(ctx, accountID, credential)
+	remain, used, total, packages, err := c.UserResource(ctx, accountID, credential)
 	if err != nil {
 		return nil, err
 	}
@@ -782,14 +782,19 @@ func (c *Client) Quota(ctx context.Context, accountID string) (*providers.QuotaI
 			percentage = 100
 		}
 	}
+	expiresAt, expiringRemain := soonestExpiry(packages)
 	return &providers.QuotaInfo{
-		Used:       float64(used),
-		Total:      float64(total),
-		Remaining:  float64(remain),
-		Percentage: percentage,
-		Unit:       "credits",
-		Exceeded:   total > 0 && remain <= 0,
-		FetchedAt:  time.Now().UTC().Format(time.RFC3339),
+		Used:           float64(used),
+		Total:          float64(total),
+		Remaining:      float64(remain),
+		Percentage:     percentage,
+		Unit:           "credits",
+		Exceeded:       total > 0 && remain <= 0,
+		FetchedAt:      time.Now().UTC().Format(time.RFC3339),
+		ProviderID:     "workbuddy",
+		ExpiresAt:      expiresAt,
+		ExpiringRemain: expiringRemain,
+		Packages:       packages,
 	}, nil
 }
 
@@ -926,7 +931,8 @@ func (c *Client) Keepalive(ctx context.Context, accountID string) error {
 }
 
 // UserResource aggregates package remain/used/total from get-user-resource.
-func (c *Client) UserResource(ctx context.Context, accountID string, credential Credential) (remain, used, total int64, err error) {
+// packages carries the per-pack expiry detail parsed from CycleEndTime.
+func (c *Client) UserResource(ctx context.Context, accountID string, credential Credential) (remain, used, total int64, packages []providers.QuotaPackage, err error) {
 	now := time.Now()
 	payload, err := json.Marshal(map[string]any{
 		"PageNumber":               1,
@@ -937,15 +943,15 @@ func (c *Client) UserResource(ctx context.Context, accountID string, credential 
 		"PackageEndTimeRangeEnd":   now.Add(365 * 101 * 24 * time.Hour).Format("2006-01-02 15:04:05"),
 	})
 	if err != nil {
-		return 0, 0, 0, err
+		return 0, 0, 0, nil, err
 	}
 	body, status, err := c.do(ctx, accountID, http.MethodPost, credential.BillingBase()+pathUserResource, payload,
 		func(h http.Header) { SetBillingHeaders(h, credential) })
 	if err != nil {
-		return 0, 0, 0, err
+		return 0, 0, 0, nil, err
 	}
 	if status >= 300 {
-		return 0, 0, 0, fmt.Errorf("user-resource status=%d: %s", status, strings.TrimSpace(string(body)))
+		return 0, 0, 0, nil, fmt.Errorf("user-resource status=%d: %s", status, strings.TrimSpace(string(body)))
 	}
 	var env struct {
 		Code int    `json:"code"`
@@ -960,22 +966,67 @@ func (c *Client) UserResource(ctx context.Context, accountID string, credential 
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(body, &env); err != nil {
-		return 0, 0, 0, fmt.Errorf("user-resource parse: %w", err)
+		return 0, 0, 0, nil, fmt.Errorf("user-resource parse: %w", err)
 	}
 	if env.Code != 0 {
-		return 0, 0, 0, fmt.Errorf("user-resource code=%d msg=%s", env.Code, env.Msg)
+		return 0, 0, 0, nil, fmt.Errorf("user-resource code=%d msg=%s", env.Code, env.Msg)
 	}
 	remain, used, total = aggregateUserResource(env.Data.Response.Data.Accounts, env.Data.Response.Data.TotalDosage)
-	return remain, used, total, nil
+	return remain, used, total, quotaPackages(env.Data.Response.Data.Accounts), nil
 }
 
 type resourcePackage struct {
-	CapacityRemain      int64 `json:"CapacityRemain"`
-	CapacityUsed        int64 `json:"CapacityUsed"`
-	CapacitySize        int64 `json:"CapacitySize"`
-	CycleCapacityRemain int64 `json:"CycleCapacityRemain"`
-	CycleCapacityUsed   int64 `json:"CycleCapacityUsed"`
-	CycleCapacitySize   int64 `json:"CycleCapacitySize"`
+	CapacityRemain      int64  `json:"CapacityRemain"`
+	CapacityUsed        int64  `json:"CapacityUsed"`
+	CapacitySize        int64  `json:"CapacitySize"`
+	CycleCapacityRemain int64  `json:"CycleCapacityRemain"`
+	CycleCapacityUsed   int64  `json:"CycleCapacityUsed"`
+	CycleCapacitySize   int64  `json:"CycleCapacitySize"`
+	CycleEndTime        string `json:"CycleEndTime"`
+}
+
+// cycleEndTimeZone is the UTC+8 wall clock the upstream billing API uses for
+// CycleEndTime ("2006-01-02 15:04:05").
+var cycleEndTimeZone = time.FixedZone("UTC+8", 8*60*60)
+
+// quotaPackages converts raw packs into per-pack expiry detail for the
+// console. A pack with no parseable CycleEndTime keeps EndsAt zero.
+func quotaPackages(packages []resourcePackage) []providers.QuotaPackage {
+	out := make([]providers.QuotaPackage, 0, len(packages))
+	for _, pkg := range packages {
+		remain, used, size := packageRemainUsed(pkg)
+		entry := providers.QuotaPackage{
+			Remain: float64(remain),
+			Used:   float64(used),
+			Size:   float64(size),
+			Unit:   "credits",
+		}
+		if trimmed := strings.TrimSpace(pkg.CycleEndTime); trimmed != "" {
+			if parsed, err := time.ParseInLocation("2006-01-02 15:04:05", trimmed, cycleEndTimeZone); err == nil {
+				entry.EndsAt = parsed.Unix()
+				entry.EndTime = trimmed
+			}
+		}
+		out = append(out, entry)
+	}
+	return out
+}
+
+// soonestExpiry returns the earliest non-zero pack expiry and the remaining
+// amount that expires at that time.
+func soonestExpiry(packages []providers.QuotaPackage) (expiresAt int64, expiringRemain float64) {
+	for _, pkg := range packages {
+		if pkg.EndsAt <= 0 {
+			continue
+		}
+		if expiresAt == 0 || pkg.EndsAt < expiresAt {
+			expiresAt = pkg.EndsAt
+			expiringRemain = pkg.Remain
+		} else if pkg.EndsAt == expiresAt {
+			expiringRemain += pkg.Remain
+		}
+	}
+	return expiresAt, expiringRemain
 }
 
 func packageRemainUsed(pkg resourcePackage) (remain, used, size int64) {

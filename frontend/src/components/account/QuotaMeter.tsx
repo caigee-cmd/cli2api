@@ -2,6 +2,7 @@ import { Meter, Tooltip } from '@heroui/react'
 import type { AccountQuota, AccountQuotaWindow } from '@/api/types'
 import {
   formatQuotaAmount,
+  quotaExpiryLabel,
   quotaResetLabel,
   quotaTone,
   quotaUsedRatio,
@@ -20,16 +21,20 @@ type Props = {
   addOnLabel: string
   resourcePackageLabel: string
   exceededLabel: string
+  provider?: string
 }
 
-function extraQuotaLines(quota: AccountQuota, remainingLabel: string, addOnLabel: string, resourcePackageLabel: string) {
+function extraQuotaLines(quota: AccountQuota, remainingLabel: string, addOnLabel: string, resourcePackageLabel: string, t: Translate, provider?: string) {
   const addOn = quota.has_add_on && quota.add_on_available !== false
     ? `${addOnLabel} ${formatQuotaAmount(quota.add_on_used)} / ${formatQuotaAmount(quota.add_on_total)} ${quota.add_on_unit || 'credits'}`
     : ''
   const resourcePackage = quota.has_resource_package && quota.resource_package_available !== false
     ? `${resourcePackageLabel} ${remainingLabel} ${formatQuotaAmount(quota.resource_package_remaining)} ${quota.resource_package_unit || 'credits'}`
     : ''
-  return [addOn, resourcePackage].filter(Boolean)
+  // Package-expiry is a WorkBuddy-only surface; never render it for other
+  // providers even if a stale snapshot happens to carry the fields.
+  const expiry = provider === 'workbuddy' ? quotaExpiryLabel(quota, t) : ''
+  return [addOn, resourcePackage, expiry].filter(Boolean)
 }
 
 function WindowMeter({
@@ -52,8 +57,8 @@ function WindowMeter({
 
   return (
     <Tooltip>
-      <Tooltip.Trigger>
-        <div className="w-full cursor-help">
+      <Tooltip.Trigger className="block w-full min-w-0">
+        <div className="w-full min-w-0 cursor-help">
           <Meter
             className="account-meter account-meter--window w-full"
             color={color}
@@ -87,13 +92,13 @@ function WindowMeter({
 
 // Trae-style quota block: the remaining count is the headline number; the
 // used / total pair plus unit sits underneath as a secondary mono line.
-// Devin daily/weekly windows keep a titled bar with used percent and reset
-// copy in one compact stack.
-export function QuotaMeter({ quota, t, label, usedLabel, remainingLabel, addOnLabel, resourcePackageLabel, exceededLabel }: Props) {
+// Devin daily / weekly / monthly windows each occupy a full-width row with
+// a titled bar, used percent, and reset copy.
+export function QuotaMeter({ quota, t, label, usedLabel, remainingLabel, addOnLabel, resourcePackageLabel, exceededLabel, provider }: Props) {
   const unit = quota.unit || 'credits'
   const used = `${formatQuotaAmount(quota.used)} / ${formatQuotaAmount(quota.total)}`
   const remaining = `${formatQuotaAmount(quota.remaining)}`
-  const extra = extraQuotaLines(quota, remainingLabel, addOnLabel, resourcePackageLabel)
+  const extra = extraQuotaLines(quota, remainingLabel, addOnLabel, resourcePackageLabel, t, provider)
   const windows = quotaWindows(quota)
   const ratio = quotaUsedRatio(quota)
   const tone = quotaTone(quota)
@@ -102,14 +107,15 @@ export function QuotaMeter({ quota, t, label, usedLabel, remainingLabel, addOnLa
 
   if (windows.length > 0) {
     return (
-      <div className="w-full space-y-3">
+      <div className="account-quota-windows flex w-full min-w-0 flex-col gap-3">
         {windows.map((window, index) => (
-          <WindowMeter
-            key={window.id || String(index)}
-            window={window}
-            t={t}
-            extra={index === 0 ? extra : undefined}
-          />
+          <div key={window.id || String(index)} className="w-full min-w-0">
+            <WindowMeter
+              window={window}
+              t={t}
+              extra={index === 0 ? extra : undefined}
+            />
+          </div>
         ))}
       </div>
     )

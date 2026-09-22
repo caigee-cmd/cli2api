@@ -36,7 +36,37 @@ func (m *Manager) fetchProviderQuota(ctx context.Context, accountID string, prob
 		FetchedAt:  info.FetchedAt,
 		Windows:    quotaWindowsFromInfo(info.Windows),
 	}
+	// Package-expiry detail is currently only produced by WorkBuddy's
+	// get-user-resource packs; keep other providers from leaking a stale or
+	// fabricated expiry into the snapshot.
+	if info.ProviderID == "workbuddy" {
+		quota.ExpiresAt = info.ExpiresAt
+		quota.ExpiringRemain = info.ExpiringRemain
+		quota.Packages = quotaPackagesFromInfo(info.Packages)
+	}
 	m.persistQuota(ctx, accountID, quota)
+}
+
+func quotaPackagesFromInfo(packages []providers.QuotaPackage) []accounts.QuotaPackage {
+	if len(packages) == 0 {
+		return nil
+	}
+	out := make([]accounts.QuotaPackage, 0, len(packages))
+	for _, pkg := range packages {
+		unit := pkg.Unit
+		if unit == "" {
+			unit = "credits"
+		}
+		out = append(out, accounts.QuotaPackage{
+			Remain:  pkg.Remain,
+			Used:    pkg.Used,
+			Size:    pkg.Size,
+			Unit:    unit,
+			EndsAt:  pkg.EndsAt,
+			EndTime: pkg.EndTime,
+		})
+	}
+	return out
 }
 
 func quotaWindowsFromInfo(windows []providers.QuotaWindow) []accounts.QuotaWindow {
