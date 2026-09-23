@@ -255,6 +255,7 @@ export function AccountCard({
             addOnLabel={t('quotaAddOn')}
             resourcePackageLabel={t('quotaResourcePackage')}
             exceededLabel={t('quotaExceeded')}
+            provider={account.provider}
           />
         ) : <span className="text-[11px] text-foreground/65">{state === 'loading' ? t('quotaLoading') : t('quotaUnavailable')}</span>}
 

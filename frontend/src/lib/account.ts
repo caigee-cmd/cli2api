@@ -88,6 +88,7 @@ export function quotaWindows(quota: AccountQuota) {
 export function quotaWindowLabel(window: AccountQuotaWindow, t: (key: string) => string) {
   if (window.id === 'daily') return t('quotaDaily')
   if (window.id === 'weekly') return t('quotaWeekly')
+  if (window.id === 'monthly') return t('quotaMonthly')
   return window.label || t('quota')
 }
 
@@ -98,4 +99,21 @@ export function quotaResetLabel(resetAt: string | undefined, t: (key: string, va
   const minutes = Math.max(1, Math.ceil(milliseconds / 60000))
   if (minutes < 60) return t('quotaResetsInMinutes', { n: minutes })
   return t('quotaResetsInHours', { n: Math.round(minutes / 60) })
+}
+
+// quotaExpiryLabel renders the soonest package expiry, e.g.
+// "1,500 credits expire on 10/1". returns '' when the provider did not report
+// an expiry.
+export function quotaExpiryLabel(
+  quota: { expires_at?: number; expiring_remain?: number; unit?: string },
+  t: (key: string, vars?: Record<string, string | number>) => string,
+) {
+  if (!quota.expires_at || quota.expires_at <= 0 || !Number.isFinite(quota.expires_at)) return ''
+  const date = new Date(quota.expires_at * 1000)
+  if (Number.isNaN(date.getTime())) return ''
+  const day = `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()}`
+  const amount = quota.expiring_remain && quota.expiring_remain > 0
+    ? `${formatQuotaAmount(quota.expiring_remain)} `
+    : ''
+  return t('quotaExpiresOn', { amount, unit: quota.unit || 'credits', date: day })
 }
