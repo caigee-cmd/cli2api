@@ -57,8 +57,11 @@ func BuildChatPayload(req translate.ChatRequest, catalogLevels map[string][]stri
 			p.ToolCalls = parseToolCalls(msg.ToolCalls, aliases)
 			prompts = append(prompts, p)
 		case "tool":
-			text := translate.ContentToString(msg.Content)
-			prompts = append(prompts, Prompt{Source: 4, Content: text, ToolCallID: strings.TrimSpace(msg.ToolCallID)})
+			// Tool results can carry images (screenshots, rendered output);
+			// Devin accepts Images on any prompt, so pass them through instead
+			// of flattening to text.
+			text, images := splitContent(msg.Content)
+			prompts = append(prompts, Prompt{Source: 4, Content: text, Images: images, ToolCallID: strings.TrimSpace(msg.ToolCallID)})
 		default:
 			text := translate.ContentToString(msg.Content)
 			if strings.TrimSpace(text) == "" && len(msg.ToolCalls) == 0 {

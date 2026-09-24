@@ -118,28 +118,11 @@ func ResolveChatModelUID(rawModel, thinkingLevel string, budgetTokens int, catal
 		allowedLevels = catalogLevels[lowerBase]
 	}
 
-	switch canonicalBase {
-	case "swe-1-7":
-		if effort == "medium" {
-			return "swe-1-7-medium"
-		}
-		return "swe-1-7"
-	case "swe-1-6":
-		if effort == "fast" {
-			return "swe-1-6-fast"
-		}
-		return "swe-1-6"
-	case "glm-5-2":
-		if effort == "none" {
-			return "glm-5-2-none"
-		}
-		if effort == "max" {
-			return "glm-5-2-max"
-		}
-		return "glm-5-2"
-	}
-
 	if len(allowedLevels) == 0 {
+		// No catalog levels: keep the bare model UID rather than guessing an
+		// effort suffix the upstream registry no longer publishes (the remote
+		// catalog is authoritative for suffixed variants like base-low/base-max
+		// or base-low-fast).
 		return canonicalBase
 	}
 	defaultEffort := selectDefaultEffort(canonicalBase, allowedLevels)
@@ -183,6 +166,13 @@ func selectDefaultEffort(baseModel string, levels []string) string {
 	}
 	if hasLow {
 		return "low"
+	}
+	// "none" means no thinking; never pick it as an implicit default — callers
+	// ask for it explicitly. A [none, max] catalog should default to "max".
+	for _, l := range levels {
+		if strings.ToLower(strings.TrimSpace(l)) != "none" {
+			return l
+		}
 	}
 	return levels[0]
 }
