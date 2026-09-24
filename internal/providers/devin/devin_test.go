@@ -296,6 +296,60 @@ func TestResolveChatModelUIDWithFixture(t *testing.T) {
 	if got != "MODEL_PRIVATE_11" {
 		t.Fatalf("alias=%q", got)
 	}
+	// Registry drift checks: suffix variants must be built from catalog levels,
+	// not from a hardcoded table the upstream registry has since renamed.
+	got = ResolveChatModelUID("glm-5-2", "max", 0, levels)
+	if got != "glm-5-2-max" {
+		t.Fatalf("glm-5-2 max=%q", got)
+	}
+	got = ResolveChatModelUID("glm-5-2", "", 0, levels)
+	if got != "glm-5-2-max" {
+		t.Fatalf("glm-5-2 default=%q", got)
+	}
+	got = ResolveChatModelUID("swe-1-7", "", 0, levels)
+	if got != "swe-1-7-medium" {
+		t.Fatalf("swe-1-7 default=%q", got)
+	}
+	got = ResolveChatModelUID("swe-1-7-lightning", "", 0, levels)
+	if got != "swe-1-7-lightning-medium" {
+		t.Fatalf("lightning default=%q", got)
+	}
+	got = ResolveChatModelUID("glm-5-3-flash", "high", 0, levels)
+	if got != "glm-5-3-flash-high" {
+		t.Fatalf("glm-5-3-flash high=%q", got)
+	}
+	// Explicit suffixed ids pass through untouched.
+	got = ResolveChatModelUID("gpt-5-6-sol-low", "", 0, levels)
+	if got != "gpt-5-6-sol-low" {
+		t.Fatalf("suffixed passthrough=%q", got)
+	}
+}
+
+func TestToolResultCarriesImages(t *testing.T) {
+	payload := BuildChatPayload(translate.ChatRequest{
+		Model: "swe-2",
+		Messages: []translate.ChatMessage{
+			{Role: "user", Content: "hi"},
+			{Role: "assistant", Content: "", ToolCalls: json.RawMessage(`[{"id":"call_1","type":"function","function":{"name":"screenshot","arguments":"{}"}}]`)},
+			{Role: "tool", ToolCallID: "call_1", Content: []any{
+				map[string]any{"type": "text", "text": "here is the screenshot"},
+				map[string]any{"type": "image_url", "image_url": map[string]any{"url": "data:image/png;base64,aGVsbG8="}},
+			}},
+		},
+	}, nil)
+	if len(payload.Prompts) != 3 {
+		t.Fatalf("prompts=%d want 3", len(payload.Prompts))
+	}
+	tool := payload.Prompts[2]
+	if tool.Source != 4 || tool.ToolCallID != "call_1" {
+		t.Fatalf("tool prompt=%+v", tool)
+	}
+	if tool.Content != "here is the screenshot" {
+		t.Fatalf("tool content=%q", tool.Content)
+	}
+	if len(tool.Images) != 1 || tool.Images[0].Base64Data != "aGVsbG8=" || tool.Images[0].MimeType != "image/png" {
+		t.Fatalf("tool images=%+v", tool.Images)
+	}
 }
 
 func TestFingerprintLength(t *testing.T) {
