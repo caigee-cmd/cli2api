@@ -3,6 +3,22 @@
 Published user-facing notes for GitHub Releases and the console update page.
 Write upcoming notes as bilingual files in `changelog/unreleased/`.
 
+## 0.6.6 - 2026-09-24
+
+### English
+
+- Devin: resolve `chat_model_uid` from the live model catalog instead of hardcoded suffix tables, so renamed or removed thinking variants (e.g. `swe-1-7`, `glm-5-2`) no longer emit stale upstream model IDs. "None" is never chosen as an implicit default effort.
+- Devin: pass images embedded in tool results through to the upstream prompt instead of dropping them.
+- Stack Devin daily, weekly, and monthly quota meters as separate full-width rows on the account card, instead of sitting side by side.
+- Expose WorkBuddy credit-pack expiry in `GET /api/accounts` quota: a new `packages` array carries each pack's remain/used/size plus its `CycleEndTime` (as `end_time` and a Unix `ends_at`), and the top-level `expires_at` / `expiring_remain` report the soonest expiry and how much remaining credit lapses then. The console quota tooltip now shows "N credits expire on D". All fields are `omitempty`; providers that do not report expiry (Trae, Qoder) simply omit them.
+
+### 中文
+
+- Devin：`chat_model_uid` 改为按实时模型目录解析，不再使用硬编码后缀表；上游已改名或移除的思考档变体（如 `swe-1-7`、`glm-5-2`）不会再发出过期模型 ID。默认档不会隐式选择 `none`。
+- Devin：工具结果中携带的图片现在会透传给上游，不再被丢弃。
+- Devin 日额度、周额度、月额度在账号卡片上各自单独占一行铺满，不再并排挤在一起。
+- 在 `GET /api/accounts` 的 quota 中透出 WorkBuddy 积分包到期时间：新增 `packages` 数组按包返回 remain/used/size 以及 `CycleEndTime`（`end_time` 原始串与 Unix 秒 `ends_at`），顶层 `expires_at` / `expiring_remain` 给出最近一次到期时间及该时点将过期的剩余量；控制台配额 tooltip 现在会显示「N 积分将于某日到期」。所有字段均为 `omitempty`，不上报到期信息的 provider（Trae、Qoder）保持缺省。
+
 ## 0.6.5 - 2026-09-22
 
 ### English
