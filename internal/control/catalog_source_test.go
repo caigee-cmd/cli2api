@@ -271,3 +271,28 @@ func cloneMap(in map[string]any) map[string]any {
 	}
 	return out
 }
+
+func TestDecorateModelsWithContextQoderMaxMode(t *testing.T) {
+	store := newFakeStore(&callLog{})
+	settings := NewSettings(store)
+	entry := map[string]any{
+		"id": "qwen3.8-max", "provider": "qoder",
+		"catalog_context_length": 200000, "catalog_context_length_max": 1000000,
+	}
+
+	off := DecorateModelsWithContext(context.Background(), settings, []map[string]any{cloneMap(entry)})[0]
+	if off["supports_max_mode"] != true || off["max_mode"] != false || off["context_length"] != 200000 {
+		t.Fatalf("qoder max off = %v", off)
+	}
+
+	// Toggle on sends the target window (the frontend has it from the catalog).
+	on := true
+	maxWindow := 1000000
+	if _, err := settings.UpdateModelSetting(context.Background(), "qoder", "qwen3.8-max", &maxWindow, ProviderModelSettingPatch{MaxMode: &on}); err != nil {
+		t.Fatal(err)
+	}
+	decorated := DecorateModelsWithContext(context.Background(), settings, []map[string]any{cloneMap(entry)})[0]
+	if decorated["max_mode"] != true || decorated["context_length"] != 1000000 || decorated["context_custom"] != true {
+		t.Fatalf("qoder max on = %v", decorated)
+	}
+}

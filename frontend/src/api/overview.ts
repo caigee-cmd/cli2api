@@ -106,15 +106,26 @@ export function updateModelContext(modelKey: string, contextLength: number) {
 }
 
 export function updateTraeMaxMode(modelKey: string, maxMode: boolean) {
+  return updateProviderMaxMode('trae', modelKey, maxMode)
+}
+
+export function updateProviderMaxMode(provider: string, modelKey: string, maxMode: boolean, contextWindow?: number | null) {
   return api<{
     model: string
     provider: string
     max_mode: boolean
     reasoning_effort?: string
     context_custom: boolean
-  }>(`/api/models/trae/${encodeURIComponent(modelKey)}`, {
+    context_length?: number
+    default_context_length?: number
+  }>(`/api/models/${encodeURIComponent(provider)}/${encodeURIComponent(modelKey)}`, {
     method: 'PATCH',
-    body: JSON.stringify({ max_mode: maxMode }),
+    // Qoder has no is_max_mode upstream: its toggle maps onto the numeric
+    // window, so send the target window explicitly. Trae ignores context_length
+    // and switches on max_mode alone.
+    body: JSON.stringify(
+      provider === 'qoder' && maxMode && contextWindow ? { max_mode: maxMode, context_length: contextWindow } : { max_mode: maxMode },
+    ),
   })
 }
 

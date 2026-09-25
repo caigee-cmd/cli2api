@@ -286,6 +286,36 @@ func decorateProviderSettings(ctx context.Context, settings *Settings, item map[
 
 // DecorateModelsWithContext applies console settings without mutating the
 // shared catalog snapshot.
+// decorateQoderContext presents Qoder's context like Trae's Max-context switch:
+// a default window and a larger selectable window, with a boolean toggle. Qoder
+// has no is_max_mode flag upstream, so the toggle maps onto the numeric window
+// the adapter already forwards: on stores the larger window, off clears it and
+// the request falls back to the model's default. An explicitly stored window
+// still wins for display so the settings PATCH round-trips. `supports_max_mode`
+// is true only when the catalog advertises a strictly larger window.
+func decorateQoderContext(settings *Settings, item map[string]any, settingsKey string, stored int, hasStored bool) {
+	dev, _ := catalogInt(item["catalog_context_length"])
+	if dev <= 0 && settings != nil {
+		dev = settings.DefaultContextLength(settingsKey)
+	}
+	maxWindow, _ := catalogInt(item["catalog_context_length_max"])
+	supportsMax := maxWindow > dev
+	item["supports_max_mode"] = supportsMax
+	maxMode := supportsMax && hasStored && stored >= maxWindow
+	item["max_mode"] = maxMode
+	window := dev
+	if hasStored && stored > 0 {
+		window = stored
+	}
+	if window > 0 {
+		item["context_length"] = window
+	}
+	if dev > 0 {
+		item["default_context_length"] = dev
+	}
+	item["context_custom"] = hasStored
+}
+
 func DecorateModelsWithContext(ctx context.Context, settings *Settings, models []map[string]any) []map[string]any {
 	configured := map[string]int{}
 	if settings != nil {
@@ -315,8 +345,18 @@ func DecorateModelsWithContext(ctx context.Context, settings *Settings, models [
 		switch provider {
 		case "trae", "workbuddy":
 			decorateProviderSettings(ctx, settings, item, provider, settingsKey)
+		case "qoder":
+			stored, hasStored := configured[settingsKey]
+			decorateQoderContext(settings, item, settingsKey, stored, hasStored)
 		default:
+			// Prefer the window the provider actually reports for this model over
+			// the hardcoded fallback, so the console never mis-sizes a model.
 			defaultValue := DefaultContextForModel(settingsKey)
+			if catalogWindow, ok := catalogInt(item["catalog_context_length"]); ok && catalogWindow > 0 {
+				defaultValue = catalogWindow
+			} else if settings != nil {
+				defaultValue = settings.DefaultContextLength(settingsKey)
+			}
 			value, custom := configured[settingsKey]
 			if !custom {
 				value = defaultValue

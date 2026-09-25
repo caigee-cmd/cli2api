@@ -149,6 +149,60 @@ func (c *Client) Models(ctx context.Context, accountID string) ([]providers.Mode
 	return ModelInfos(entries), nil
 }
 
+func numberField(entry map[string]any, key string) int {
+	if value, ok := numberFieldValue(entry, key); ok {
+		return value
+	}
+	return 0
+}
+
+func numberFieldValue(entry map[string]any, key string) (int, bool) {
+	switch value := entry[key].(type) {
+	case float64:
+		return int(value), true
+	case int:
+		return value, true
+	case json.Number:
+		n, err := value.Int64()
+		return int(n), err == nil
+	default:
+		return 0, false
+	}
+}
+
+func intSliceField(entry map[string]any, key string) ([]int, bool) {
+	raw, ok := entry[key].([]any)
+	if !ok {
+		if typed, ok := entry[key].([]int); ok {
+			return typed, len(typed) > 0
+		}
+		return nil, false
+	}
+	out := make([]int, 0, len(raw))
+	for _, item := range raw {
+		switch value := item.(type) {
+		case float64:
+			out = append(out, int(value))
+		case int:
+			out = append(out, value)
+		case json.Number:
+			if n, err := value.Int64(); err == nil {
+				out = append(out, int(n))
+			}
+		}
+	}
+	return out, len(out) > 0
+}
+
+// contextWindowDefault is the model's default context window: Qoder's
+// `default_context_window` when present, else the legacy `context_length`.
+func contextWindowDefault(entry map[string]any) int {
+	if window, ok := qoderDefaultContextWindow(entry); ok {
+		return window
+	}
+	return 0
+}
+
 func ModelInfos(entries []map[string]any) []providers.ModelInfo {
 	out := make([]providers.ModelInfo, 0, len(entries))
 	for _, entry := range entries {
@@ -167,11 +221,19 @@ func ModelInfos(entries []map[string]any) []providers.ModelInfo {
 			Credits:     qoderEntryCredits(entry),
 			Free:        qoderEntryFree(entry),
 			Capabilities: providers.ModelCapabilities{
-				ContextWindow: numberField(entry, "context_length"),
+				ContextWindow: contextWindowDefault(entry),
 				Reasoning:     boolField(entry, "is_reasoning"),
 				Tools:         true,
 				Images:        true,
 			},
+		}
+		if maxWindow, ok := qoderLargestContextWindow(entry); ok {
+			if maxWindow > info.Capabilities.ContextWindow {
+				info.Capabilities.ContextWindowMax = maxWindow
+			}
+		}
+		if output, ok := numberFieldValue(entry, "max_output_tokens"); ok && output > 0 {
+			info.Capabilities.MaxOutput = output
 		}
 		if info.PublicModel == "" && info.NativeModel == "" {
 			continue
@@ -608,18 +670,4 @@ func stringField(entry map[string]any, keys ...string) string {
 func boolField(entry map[string]any, key string) bool {
 	value, _ := entry[key].(bool)
 	return value
-}
-
-func numberField(entry map[string]any, key string) int {
-	switch value := entry[key].(type) {
-	case float64:
-		return int(value)
-	case int:
-		return value
-	case json.Number:
-		n, _ := value.Int64()
-		return int(n)
-	default:
-		return 0
-	}
 }

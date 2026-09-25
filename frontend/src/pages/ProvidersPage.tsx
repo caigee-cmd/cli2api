@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Button, Card, Chip, Input, Table, Tooltip } from '@heroui/react'
-import { Cube, ArrowClockwise, ArrowCounterClockwise, FloppyDisk, MagnifyingGlass, Info } from '@phosphor-icons/react'
+import { Button, Card, Chip, Table, Tooltip } from '@heroui/react'
+import { Cube, ArrowClockwise, MagnifyingGlass, Info } from '@phosphor-icons/react'
 import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
-import { fetchModelsCached, fetchProviders, refreshModels, updateModelContext, updateProviderReasoning, updateTraeMaxMode, type ProviderDescriptor } from '@/api/overview'
+import { fetchModelsCached, fetchProviders, refreshModels, updateProviderMaxMode, updateProviderReasoning, type ProviderDescriptor } from '@/api/overview'
 import type { Overview } from '@/api/types'
 import { ProviderMark } from '@/components/ProviderMark'
 import { ModelDetailsModal, formatTokens } from '@/components/ModelDetailsModal'
@@ -84,40 +84,18 @@ function HintLabel({ label, hint }: { label: string; hint: string }) {
 
 function ModelContextControls({
   model,
-  drafts,
   saving,
   t,
-  onDraft,
   onToggleTraeMax,
   onReasoningChange,
 }: {
   model: ModelInfo
-  drafts: Record<string, string>
   saving: boolean
   t: Translate
-  onDraft: (key: string, value: string) => void
   onToggleTraeMax: (model: ModelInfo, selected: boolean) => void
   onReasoningChange: (model: ModelInfo, next: string) => void
 }) {
-  const key = modelSettingsKey(model)
   const provider = modelProvider(model)
-  if (provider === 'qoder') {
-    return (
-      <div className="flex min-w-0 flex-wrap items-center gap-2">
-        <Input
-          className="w-full max-w-40"
-          type="number"
-          min={1024}
-          max={4000000}
-          step={1024}
-          value={drafts[key] ?? String(model.context_length || model.default_context_length || '')}
-          onChange={(event) => onDraft(key, event.target.value)}
-          aria-label={`${model.id} ${t('contextWindowCol')}`}
-        />
-        <HintLabel label="tokens" hint={t('qoderContextHint')} />
-      </div>
-    )
-  }
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-3">
       <span className="mono text-xs text-muted">
@@ -129,7 +107,7 @@ function ModelContextControls({
       {provider === 'workbuddy' && model.catalog_context_length_max && model.catalog_context_length_max !== (model.catalog_context_length || model.context_length) ? (
         <HintLabel label={t('catalogWindow')} hint={t('workbuddyContextHint')} />
       ) : null}
-      {provider === 'trae' && model.supports_max_mode ? (
+      {(provider === 'trae' || provider === 'qoder') && model.supports_max_mode ? (
         <div className="flex items-center gap-2">
           <CompactSwitch
             isSelected={Boolean(model.max_mode)}
@@ -139,7 +117,7 @@ function ModelContextControls({
           />
           <HintLabel
             label={`${t('maxMode')}${model.catalog_context_length_max ? ` ${formatTokens(model.catalog_context_length_max)}` : ''}`}
-            hint={t('maxModeHint')}
+            hint={provider === 'qoder' ? t('qoderMaxModeHint') : t('maxModeHint')}
           />
         </div>
       ) : null}
@@ -167,31 +145,13 @@ function ModelContextControls({
 
 function ModelActions({
   model,
-  saving,
   t,
-  onSave,
-  onReset,
   onDetails,
 }: {
   model: ModelInfo
-  saving: boolean
   t: Translate
-  onSave: (model: ModelInfo) => void
-  onReset: (model: ModelInfo) => void
   onDetails: (model: ModelInfo) => void
 }) {
-  if (modelProvider(model) === 'qoder') {
-    return (
-      <div className="flex flex-wrap items-center gap-2">
-        <Button size="sm" variant="secondary" isPending={saving} onPress={() => onSave(model)}>
-          <FloppyDisk size={14} />{t('save')}
-        </Button>
-        <Button size="sm" variant="ghost" isDisabled={saving || !model.context_custom} onPress={() => onReset(model)} aria-label={t('resetDefault')}>
-          <ArrowCounterClockwise size={14} />
-        </Button>
-      </div>
-    )
-  }
   return (
     <Button size="sm" variant="ghost" onPress={() => onDetails(model)}>
       <Info size={14} />{t('modelDetails')}
@@ -211,7 +171,6 @@ export function ProvidersPage() {
   const [savingKey, setSavingKey] = useState('')
   const [message, setMessage] = useState('')
   const [messageError, setMessageError] = useState(false)
-  const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [detailModel, setDetailModel] = useState<ModelInfo | null>(null)
   const [models, setModels] = useState<ModelInfo[]>([])
   const [modelsLoading, setModelsLoading] = useState(true)
@@ -268,25 +227,12 @@ export function ProvidersPage() {
 
   if ((loading && !overview) || modelsLoading) return <ProvidersPageSkeleton />
 
-  function updateModelInOverview(model: ModelInfo, result: Awaited<ReturnType<typeof updateModelContext>>) {
-    const key = modelSettingsKey(model)
-    const nextModels = models.map((item) => modelSettingsKey(item) === key
-      ? {
-          ...item,
-          settings_key: result.model,
-          context_length: result.context_length,
-          default_context_length: result.default_context_length,
-          context_custom: result.context_custom,
-        }
-      : item)
-    setModels(nextModels)
-    setDrafts((current) => ({ ...current, [key]: String(result.context_length) }))
-  }
 
   function updateTraeInOverview(model: ModelInfo, maxMode: boolean) {
     const key = modelSettingsKey(model)
+    const provider = modelProvider(model)
     const nextModels = models.map((item) => {
-      if (modelSettingsKey(item) !== key || modelProvider(item) !== 'trae') return item
+      if (modelSettingsKey(item) !== key || modelProvider(item) !== provider) return item
       const effort = item.reasoning_effort || item.reasoning_default || ''
       const itemDev = item.catalog_context_length || item.default_context_length || item.context_length || 0
       const itemMax = item.catalog_context_length_max || 0
@@ -298,7 +244,7 @@ export function ProvidersPage() {
         // *_max at render time, so turning max mode off restores the default.
         context_length: maxMode && itemMax ? itemMax : itemDev,
         default_context_length: itemDev,
-        context_custom: maxMode || Boolean(effort && effort !== item.reasoning_default),
+        context_custom: provider === 'qoder' ? maxMode : maxMode || Boolean(effort && effort !== item.reasoning_default),
       }
     })
     setModels(nextModels)
@@ -333,28 +279,6 @@ export function ProvidersPage() {
     }
   }
 
-  async function onSave(model: ModelInfo) {
-    const key = modelSettingsKey(model)
-    const value = Number(drafts[key] ?? model.context_length ?? model.default_context_length)
-    if (!Number.isInteger(value) || value < 1024 || value > 4_000_000) {
-      setMessageError(true)
-      setMessage(t('contextInvalid'))
-      return
-    }
-    setSavingKey(key)
-    setMessage('')
-    setMessageError(false)
-    try {
-      const result = await updateModelContext(key, value)
-      updateModelInOverview(model, result)
-      setMessage(t('contextSaved', { model: model.id }))
-    } catch (error) {
-      setMessageError(true)
-      setMessage(error instanceof Error ? error.message : String(error))
-    } finally {
-      setSavingKey('')
-    }
-  }
 
   async function onReasoningChange(model: ModelInfo, effort: string) {
     const provider = modelProvider(model)
@@ -382,11 +306,12 @@ export function ProvidersPage() {
       return
     }
     const key = modelSettingsKey(model)
+    const provider = modelProvider(model)
     setSavingKey(key)
     setMessage('')
     setMessageError(false)
     try {
-      await updateTraeMaxMode(key, maxMode)
+      await updateProviderMaxMode(provider, key, maxMode, model.catalog_context_length_max)
       updateTraeInOverview(model, maxMode)
       setMessage(maxMode ? t('contextMaxOn', { model: model.id }) : t('contextMaxOff', { model: model.id }))
     } catch (error) {
@@ -397,22 +322,6 @@ export function ProvidersPage() {
     }
   }
 
-  async function onReset(model: ModelInfo) {
-    const key = modelSettingsKey(model)
-    setSavingKey(key)
-    setMessage('')
-    setMessageError(false)
-    try {
-      const result = await updateModelContext(key, 0)
-      updateModelInOverview(model, result)
-      setMessage(t('contextReset', { model: model.id }))
-    } catch (error) {
-      setMessageError(true)
-      setMessage(error instanceof Error ? error.message : String(error))
-    } finally {
-      setSavingKey('')
-    }
-  }
 
   return (
     <div className="space-y-6">
@@ -507,19 +416,14 @@ export function ProvidersPage() {
                     </div>
                     <ModelContextControls
                       model={model}
-                      drafts={drafts}
                       saving={saving}
                       t={t}
-                      onDraft={(nextKey, value) => setDrafts((current) => ({ ...current, [nextKey]: value }))}
                       onToggleTraeMax={(item, selected) => void onToggleTraeMax(item, selected)}
                       onReasoningChange={(item, next) => void onReasoningChange(item, next)}
                     />
                     <ModelActions
                       model={model}
-                      saving={saving}
                       t={t}
-                      onSave={(item) => void onSave(item)}
-                      onReset={(item) => void onReset(item)}
                       onDetails={setDetailModel}
                     />
                   </article>
@@ -573,10 +477,8 @@ export function ProvidersPage() {
                           <Table.Cell>
                             <ModelContextControls
                               model={model}
-                              drafts={drafts}
                               saving={saving}
                               t={t}
-                              onDraft={(nextKey, value) => setDrafts((current) => ({ ...current, [nextKey]: value }))}
                               onToggleTraeMax={(item, selected) => void onToggleTraeMax(item, selected)}
                               onReasoningChange={(item, next) => void onReasoningChange(item, next)}
                             />
@@ -589,10 +491,7 @@ export function ProvidersPage() {
                           <Table.Cell>
                             <ModelActions
                               model={model}
-                              saving={saving}
                               t={t}
-                              onSave={(item) => void onSave(item)}
-                              onReset={(item) => void onReset(item)}
                               onDetails={setDetailModel}
                             />
                           </Table.Cell>

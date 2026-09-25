@@ -49,3 +49,18 @@ test("forwards tags so the free badge follows Qoder's limited_time_free signal",
   assert.deepEqual(byId["tagged"].tags, ["limited_time_free"]);
   assert.equal(byId["dual"].tags, undefined);
 });
+
+test("forwards Qoder context metadata (default + selectable windows)", () => {
+  const snapshot = createModelCatalogSnapshot([
+    { key: "qmodel_38max", display_name: "Qwen3.8-Max", context_length: 180000,
+      default_context_window: 200000, available_context_windows: [200000, 400000, 1000000],
+      max_output_tokens: 32000 },
+    { key: "bare", display_name: "Bare" },
+  ]);
+  const byId = Object.fromEntries(snapshot.models.map((m) => [m.id, m]));
+  assert.equal(byId["qwen3.8-max"].default_context_window, 200000);
+  assert.deepEqual(byId["qwen3.8-max"].available_context_windows, [200000, 400000, 1000000]);
+  assert.equal(byId["qwen3.8-max"].max_output_tokens, 32000);
+  assert.equal(byId["bare"].default_context_window, undefined);
+  assert.equal(byId["bare"].available_context_windows, undefined);
+});
