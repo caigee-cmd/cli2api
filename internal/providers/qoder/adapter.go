@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -163,8 +164,8 @@ func ModelInfos(entries []map[string]any) []providers.ModelInfo {
 			PublicModel: publicID,
 			NativeModel: native,
 			DisplayName: stringField(entry, "display_name"),
-			Credits:     stringField(entry, "credits"),
-			Free:        boolField(entry, "free"),
+			Credits:     qoderEntryCredits(entry),
+			Free:        qoderEntryFree(entry),
 			Capabilities: providers.ModelCapabilities{
 				ContextWindow: numberField(entry, "context_length"),
 				Reasoning:     boolField(entry, "is_reasoning"),
@@ -178,6 +179,83 @@ func ModelInfos(entries []map[string]any) []providers.ModelInfo {
 		out = append(out, info)
 	}
 	return out
+}
+
+// qoderEntryCredits renders a catalog entry's price as the console credits text,
+// mirroring the Qoder client label: a model tagged `limited_time_free` reads as
+// "0" (the console then shows its free badge); otherwise the numeric
+// `price_factor` renders as `<factor>x`. An explicit upstream `credits` string
+// wins. Returns "" when Qoder reported neither.
+func qoderEntryCredits(entry map[string]any) string {
+	if explicit := stringField(entry, "credits"); explicit != "" {
+		return explicit
+	}
+	if qoderEntryLimitedTimeFree(entry) {
+		return "0"
+	}
+	factor, ok := floatField(entry, "price_factor")
+	if !ok {
+		return ""
+	}
+	if factor <= 0 {
+		return "0"
+	}
+	return "x" + strconv.FormatFloat(factor, 'f', -1, 64)
+}
+
+// qoderEntryLimitedTimeFree is the Qoder client's own free signal: the
+// `limited_time_free` tag.
+func qoderEntryLimitedTimeFree(entry map[string]any) bool {
+	for _, tag := range stringSliceField(entry, "tags") {
+		if strings.EqualFold(strings.TrimSpace(tag), "limited_time_free") {
+			return true
+		}
+	}
+	return false
+}
+
+// qoderEntryFree reports whether the model should carry the console's free
+// badge. It is derived from the same credits it renders, so the badge can never
+// contradict a positive multiplier: a `limited_time_free` tag or a zero factor
+// is free, and a positive factor is not (Qwen3.8-Max reports is_free=true with
+// a 0.5 factor and the Qoder client still shows "0.50x Credit").
+func qoderEntryFree(entry map[string]any) bool {
+	if qoderEntryLimitedTimeFree(entry) {
+		return true
+	}
+	factor, ok := floatField(entry, "price_factor")
+	return ok && factor <= 0
+}
+
+func stringSliceField(entry map[string]any, key string) []string {
+	if typed, ok := entry[key].([]string); ok {
+		return typed
+	}
+	raw, ok := entry[key].([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(raw))
+	for _, item := range raw {
+		if text, ok := item.(string); ok {
+			out = append(out, text)
+		}
+	}
+	return out
+}
+
+func floatField(entry map[string]any, key string) (float64, bool) {
+	switch value := entry[key].(type) {
+	case float64:
+		return value, true
+	case int:
+		return float64(value), true
+	case json.Number:
+		f, err := value.Float64()
+		return f, err == nil
+	default:
+		return 0, false
+	}
 }
 
 func CatalogIDsFromInfos(models []providers.ModelInfo) []string {

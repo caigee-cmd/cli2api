@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/caigee-cmd/cli2api/internal/providers"
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
@@ -265,5 +266,107 @@ func TestBuildChatPayloadTokenPrecedenceAndOmission(t *testing.T) {
 				t.Fatalf("explicit false %s=%v present=%v", key, value, ok)
 			}
 		}
+	}
+}
+
+func TestModelInfosMapsQoderPriceFields(t *testing.T) {
+	models := ModelInfos([]map[string]any{
+		{"id": "kimi-k3", "mapped_key": "kmodel_latest", "display_name": "Kimi-K3", "price_factor": 1.4},
+		{"id": "qwen3.7-plus", "mapped_key": "qmodel", "display_name": "Qwen3.7-Plus", "price_factor": 0.1},
+		{"id": "qwen3.8-flash", "mapped_key": "qfmodel", "display_name": "Qwen3.8-Flash", "price_factor": 0.0, "is_free": true},
+		{"id": "qwen3.8-max", "mapped_key": "qmodel_38max", "display_name": "Qwen3.8-Max", "price_factor": 0.5, "is_free": true},
+		{"id": "auto", "mapped_key": "auto", "display_name": "Auto", "price_factor": 0.5},
+		// No price data at all: neither credits nor free may be invented.
+		{"id": "no-price", "mapped_key": "npmodel", "display_name": "NoPrice"},
+	})
+
+	byID := map[string]providers.ModelInfo{}
+	for _, m := range models {
+		byID[m.PublicModel] = m
+	}
+
+	if got := byID["kimi-k3"].Credits; got != "x1.4" {
+		t.Errorf("kimi-k3 credits = %q, want x1.4", got)
+	}
+	if got := byID["qwen3.7-plus"].Credits; got != "x0.1" {
+		t.Errorf("qwen3.7-plus credits = %q, want x0.1", got)
+	}
+	if got := byID["auto"].Credits; got != "x0.5" {
+		t.Errorf("auto credits = %q, want x0.5", got)
+	}
+
+	free := byID["qwen3.8-flash"]
+	if !free.Free || free.Credits != "0" {
+		t.Errorf("qwen3.8-flash free=%v credits=%q, want free + \"0\"", free.Free, free.Credits)
+	}
+	// A dual is_free + positive factor model (Qwen3.8-Max) is NOT free: the
+	// Qoder client still labels it with its multiplier.
+	dual := byID["qwen3.8-max"]
+	if dual.Free || dual.Credits != "x0.5" {
+		t.Errorf("qwen3.8-max free=%v credits=%q, want not-free + x0.5", dual.Free, dual.Credits)
+	}
+	for id, m := range byID {
+		if id == "qwen3.8-flash" {
+			continue
+		}
+		if m.Free {
+			t.Errorf("%s must not be flagged free", id)
+		}
+	}
+	if priced := byID["no-price"]; priced.Credits != "" || priced.Free {
+		t.Errorf("no-price must stay unpriced: credits=%q free=%v", priced.Credits, priced.Free)
+	}
+}
+
+func TestModelInfosPrefersExplicitCreditsText(t *testing.T) {
+	models := ModelInfos([]map[string]any{
+		{"id": "x", "mapped_key": "xk", "display_name": "X", "credits": "2x credits", "price_factor": 0.5},
+	})
+	if len(models) != 1 || models[0].Credits != "2x credits" {
+		t.Fatalf("explicit credits text must win: %+v", models)
+	}
+}
+
+func TestApplyModelPricingMapsWorkerFields(t *testing.T) {
+	entry := map[string]any{"id": "kimi-k3", "price_factor": 1.4}
+	ApplyModelPricing(entry)
+	if entry["credits"] != "x1.4" {
+		t.Errorf("credits = %v, want x1.4", entry["credits"])
+	}
+	if _, ok := entry["free"]; ok {
+		t.Errorf("paid model must not be flagged free: %v", entry["free"])
+	}
+
+	freeEntry := map[string]any{"id": "qwen3.8-flash", "price_factor": 0.0, "is_free": true}
+	ApplyModelPricing(freeEntry)
+	if freeEntry["credits"] != "0" || freeEntry["free"] != true {
+		t.Errorf("free model = %+v, want credits 0 + free", freeEntry)
+	}
+
+	// is_free=true with a positive factor (Qwen3.8-Max) must NOT be free and
+	// must show the multiplier, matching the Qoder client label.
+	dual := map[string]any{"id": "qwen3.8-max", "price_factor": 0.5, "is_free": true}
+	ApplyModelPricing(dual)
+	if dual["credits"] != "x0.5" {
+		t.Errorf("dual credits = %v, want x0.5", dual["credits"])
+	}
+	if _, ok := dual["free"]; ok {
+		t.Errorf("dual model must not be flagged free: %v", dual["free"])
+	}
+
+	// limited_time_free tag is the Qoder free signal.
+	tagged := map[string]any{"id": "tagged", "price_factor": 0.5, "tags": []any{"limited_time_free"}}
+	ApplyModelPricing(tagged)
+	if tagged["credits"] != "0" || tagged["free"] != true {
+		t.Errorf("limited_time_free = %+v, want credits 0 + free", tagged)
+	}
+
+	unpriced := map[string]any{"id": "unknown"}
+	ApplyModelPricing(unpriced)
+	if _, ok := unpriced["credits"]; ok {
+		t.Errorf("unpriced model must not gain credits: %+v", unpriced)
+	}
+	if _, ok := unpriced["free"]; ok {
+		t.Errorf("unpriced model must not be flagged free: %+v", unpriced)
 	}
 }
