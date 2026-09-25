@@ -30,6 +30,10 @@ const (
 
 	ChatBase      = "https://chatgpt.com/backend-api/codex"
 	pathResponses = "/responses"
+	// pathWhamUsage is the account usage probe. It returns the same rate_limits
+	// object the websocket codex.rate_limits event carries, without spending a
+	// chat turn. CLIProxyAPI reads those fields from response headers instead.
+	pathWhamUsage = "/wham/usage"
 
 	// Cloaking: upstream gates on the official codex CLI UA/originator.
 	UserAgent  = "codex-tui/0.154.0 (Mac OS 26.5.2; arm64) iTerm.app/3.6.11 (codex-tui; 0.154.0)"

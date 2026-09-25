@@ -665,7 +665,32 @@ func (c *Client) Probe(ctx context.Context, accountID string) (providers.Account
 // response carries, so the console can show the 5h/7d windows without a
 // separate probe endpoint.
 func (c *Client) observeQuotaHeaders(accountID string, header http.Header) {
-	info := quotaFromHeaders(header)
+	c.rememberQuota(accountID, quotaFromHeaders(header))
+}
+
+func (c *Client) Quota(ctx context.Context, accountID string) (*providers.QuotaInfo, error) {
+	credential, err := c.credential(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	body, status, err := c.do(ctx, accountID, http.MethodGet, ChatBase+pathWhamUsage, nil, func(header http.Header) {
+		SetChatHeaders(header, credential, "", false)
+	})
+	if err != nil {
+		return c.cachedQuota(accountID), nil
+	}
+	if status < 300 {
+		if info := quotaFromUsage(body); info != nil {
+			c.rememberQuota(accountID, info)
+			return info, nil
+		}
+	}
+	// A probe that did not carry windows is not a zero balance. Keep the last
+	// windows observed from a chat response rather than saving an empty snapshot.
+	return c.cachedQuota(accountID), nil
+}
+
+func (c *Client) rememberQuota(accountID string, info *providers.QuotaInfo) {
 	if info == nil {
 		return
 	}
@@ -677,24 +702,10 @@ func (c *Client) observeQuotaHeaders(accountID string, header http.Header) {
 	c.mu.Unlock()
 }
 
-func (c *Client) Quota(ctx context.Context, accountID string) (*providers.QuotaInfo, error) {
+func (c *Client) cachedQuota(accountID string) *providers.QuotaInfo {
 	c.mu.Lock()
-	cached := c.quotaCache[accountID]
-	c.mu.Unlock()
-	if cached != nil {
-		return cached, nil
-	}
-	// No standalone usage endpoint: quota rides on chat response headers. Make a
-	// minimal request only when nothing is cached yet? The codex upstream has no
-	// cheap ping; report empty instead of burning a turn.
-	if _, err := c.credential(ctx, accountID); err != nil {
-		return nil, err
-	}
-	return &providers.QuotaInfo{
-		Unit:       QuotaUnit,
-		FetchedAt:  time.Now().UTC().Format(time.RFC3339),
-		ProviderID: "codex",
-	}, nil
+	defer c.mu.Unlock()
+	return c.quotaCache[accountID]
 }
 
 func classifiedError(status int, body []byte) error {
