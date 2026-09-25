@@ -64,6 +64,9 @@ type StreamResult struct {
 	TTFBMs         int
 	Routing        string
 	ReasoningLevel string
+	// NativeResponses marks the body as an upstream OpenAI Responses SSE stream
+	// that /v1/responses can relay verbatim instead of translating.
+	NativeResponses bool
 }
 
 type requestIDKey struct{}
@@ -891,13 +894,22 @@ func (e ChatExecutor) chatInProcessNonStreamAttempt(ctx context.Context, item It
 	}, Classified{}, nil
 }
 
-func (e ChatExecutor) chatInProcessStreamAttempt(ctx context.Context, item Item, req translate.ChatRequest, attemptIndex int) (StreamResult, Classified, error) {
+func (e ChatExecutor) chatInProcessStreamAttempt(ctx context.Context, item Item, req translate.ChatRequest, attemptIndex int, preferNativeResponses bool) (StreamResult, Classified, error) {
 	adapter, _ := e.Providers.Get(itemProvider(item))
 	if adapter.Chat == nil {
 		return StreamResult{}, Classified{}, fmt.Errorf("provider %s does not implement chat", item.Provider)
 	}
 	started := time.Now()
-	resp, resolved, err := adapter.Chat.ChatStream(ctx, item.ID, sanitizeForItem(item, req))
+	var resp *http.Response
+	var resolved providers.ResolvedChat
+	var err error
+	nativeResponses := false
+	if preferNativeResponses && adapter.NativeResponses != nil {
+		resp, resolved, err = adapter.NativeResponses.ResponsesStream(ctx, item.ID, sanitizeForItem(item, req))
+		nativeResponses = err == nil
+	} else {
+		resp, resolved, err = adapter.Chat.ChatStream(ctx, item.ID, sanitizeForItem(item, req))
+	}
 	if err == nil {
 		logResolvedReasoning(ctx, "chat_stream", item, req.Model, resolved.ReasoningLevel)
 	}
@@ -929,7 +941,7 @@ func (e ChatExecutor) chatInProcessStreamAttempt(ctx context.Context, item Item,
 		AttemptIndex: attemptIndex, AccountID: item.ID, StartedAt: started, FinishedAt: &headerAt,
 		Status: accounts.AttemptStatusOK, HTTPStatus: ptrInt(http.StatusOK), LatencyMs: &ttfb,
 	})
-	return StreamResult{Response: resp, AccountID: item.ID, Provider: item.Provider, TTFBMs: ttfb, ReasoningLevel: resolved.ReasoningLevel}, Classified{}, nil
+	return StreamResult{Response: resp, AccountID: item.ID, Provider: item.Provider, TTFBMs: ttfb, ReasoningLevel: resolved.ReasoningLevel, NativeResponses: nativeResponses}, Classified{}, nil
 }
 
 func (e ChatExecutor) classifyInProcessError(err error) Classified { return ClassifyError(err) }
@@ -1028,6 +1040,18 @@ func (e ChatExecutor) streamHTTPClient() *http.Client {
 }
 
 func (e ChatExecutor) ChatStreamProxy(ctx context.Context, req translate.ChatRequest, prefer, providerFilter string) (result StreamResult, returnErr error) {
+	return e.chatStreamProxy(ctx, req, prefer, providerFilter, false)
+}
+
+// ChatStreamProxyNativeResponses is the /v1/responses variant: when the picked
+// account's provider implements NativeResponsesStreamer the upstream body is
+// relayed verbatim and StreamResult.NativeResponses is set, so the gateway can
+// skip translation.
+func (e ChatExecutor) ChatStreamProxyNativeResponses(ctx context.Context, req translate.ChatRequest, prefer, providerFilter string) (result StreamResult, returnErr error) {
+	return e.chatStreamProxy(ctx, req, prefer, providerFilter, true)
+}
+
+func (e ChatExecutor) chatStreamProxy(ctx context.Context, req translate.ChatRequest, prefer, providerFilter string, preferNativeResponses bool) (result StreamResult, returnErr error) {
 	loop := e.newRouteLoop(ctx, prefer, providerFilter, req)
 	defer func() { result.Routing = loop.routing.Source }()
 	payload, err := json.Marshal(qoder.BuildChatPayload(req, true))
@@ -1045,7 +1069,7 @@ func (e ChatExecutor) ChatStreamProxy(ctx context.Context, req translate.ChatReq
 			return StreamResult{}, pickErr
 		}
 		if isInProcessItem(item) {
-			result, classified, err := e.chatInProcessStreamAttempt(ctx, item, req, i)
+			result, classified, err := e.chatInProcessStreamAttempt(ctx, item, req, i, preferNativeResponses)
 			if err == nil {
 				result.AttemptCount = i + 1
 				e.observeRouting(&loop.routing, result.AccountID)

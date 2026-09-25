@@ -105,6 +105,21 @@ type ProviderChat interface {
 	ChatStream(ctx context.Context, accountID string, req translate.ChatRequest) (*http.Response, ResolvedChat, error)
 }
 
+// StreamFormatNames the SSE dialect a ProviderChat.ChatStream body speaks.
+// Empty means OpenAI chat-completions deltas (the shared internal contract);
+// "responses" means the upstream already emits OpenAI Responses events and the
+// /v1/responses endpoint can relay them without translation.
+const StreamFormatResponses = "responses"
+
+// NativeResponsesStreamer is an optional fast path: when a provider's upstream
+// already speaks the OpenAI Responses protocol, the /v1/responses endpoint can
+// relay the upstream body verbatim instead of translating through the shared
+// chat-completions dialect. Providers that do not implement it fall back to
+// ChatStream + translation.
+type NativeResponsesStreamer interface {
+	ResponsesStream(ctx context.Context, accountID string, req translate.ChatRequest) (*http.Response, ResolvedChat, error)
+}
+
 // ModelCatalogProvider lists models an account can currently serve.
 type ModelCatalogProvider interface {
 	Models(ctx context.Context, accountID string) ([]ModelInfo, error)
@@ -225,6 +240,12 @@ type Adapter struct {
 	ImportExport ImportExporter
 	Prober       AccountProber
 	Checkin      AccountCheckiner
+	// StreamFormat declares the SSE dialect ChatStream returns (see
+	// StreamFormat* constants). Empty means chat-completions deltas.
+	StreamFormat string
+	// NativeResponses is the optional /v1/responses passthrough. When set, the
+	// gateway prefers it over ChatStream+translation for responses requests.
+	NativeResponses NativeResponsesStreamer
 }
 
 func (a Adapter) Supports(capability string) bool {
@@ -245,6 +266,8 @@ func (a Adapter) Supports(capability string) bool {
 		return a.Prober != nil
 	case "checkin":
 		return a.Checkin != nil
+	case "native_responses":
+		return a.NativeResponses != nil
 	default:
 		return false
 	}

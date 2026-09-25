@@ -52,6 +52,7 @@ const labelKeys: Record<string, string> = {
   'trae-cn': 'accountTypeTraeCN',
   'devin-global': 'accountTypeDevinGlobal',
   'command-global': 'accountTypeCommandGlobal',
+  'codex-global': 'accountTypeCodexGlobal',
 }
 
 const hintKeys: Record<string, string> = {
@@ -62,6 +63,7 @@ const hintKeys: Record<string, string> = {
   'trae-cn': 'accountTypeTraeCNHint',
   'devin-global': 'accountTypeDevinGlobalHint',
   'command-global': 'accountTypeCommandGlobalHint',
+  'codex-global': 'accountTypeCodexGlobalHint',
 }
 
 function AccountTypeSkeleton({ ariaLabel }: { ariaLabel: string }) {
@@ -186,7 +188,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
   // so the wizard opens on the PAT tab instead of the browser tab.
   const hasBrowserLogin = activeOption?.descriptor.capabilities?.browser_login !== false
   const showDropSystem = activeOption?.provider === 'workbuddy'
-  const showCallbackPaste = activeOption?.provider === 'trae' || activeOption?.provider === 'devin'
+  const showCallbackPaste = activeOption?.provider === 'trae' || activeOption?.provider === 'devin' || activeOption?.provider === 'codex'
   const busy = phase === 'busy' || phase === 'polling'
   const settingsLocked = Boolean(createdId.current) || busy
   const isDone = phase === 'done'

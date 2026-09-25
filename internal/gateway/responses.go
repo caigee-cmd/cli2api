@@ -60,7 +60,7 @@ func (h *Handler) HandleResponses(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, execution Execution) {
-	upstream, err := h.Executor.ChatStreamProxy(execution.Context, execution.Request, execution.Prefer, execution.ProviderFilter)
+	upstream, err := h.Executor.ChatStreamProxyNativeResponses(execution.Context, execution.Request, execution.Prefer, execution.ProviderFilter)
 	if err != nil {
 		h.finishCompatibility(execution, upstream.AccountID, upstream.Provider, upstream.Routing, accounts.RequestStatusError, upstream.TTFBMs, nil, err, upstream.AttemptCount, upstream.ReasoningLevel)
 		writeCompatibilityOpenAIError(w, err)
@@ -74,7 +74,15 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 		flusher.Flush()
 	}
 	writer := compatibilityStreamWriter(w)
-	stats, relayErr := RelayResponsesStream(writer, upstream.Response.Body, execution.RequestID, firstNonEmpty(execution.PublicModel, execution.Request.Model), execution.Request.ResponseToolNames)
+	var stats StreamRelayStats
+	var relayErr error
+	if upstream.NativeResponses {
+		// The upstream already speaks the Responses protocol: relay verbatim and
+		// observe the terminal event for usage/finish accounting.
+		stats, relayErr = RelayNativeResponsesStream(writer, upstream.Response.Body)
+	} else {
+		stats, relayErr = RelayResponsesStream(writer, upstream.Response.Body, execution.RequestID, firstNonEmpty(execution.PublicModel, execution.Request.Model), execution.Request.ResponseToolNames)
+	}
 	status := streamRequestStatus(relayErr)
 	if relayErr == nil {
 		status = responsesRequestStatus(stats.FinishReason)
