@@ -1,6 +1,9 @@
 package codex
 
-import "net/http"
+import (
+	"net/http"
+	"strings"
+)
 
 // SetChatHeaders applies the upstream headers the ChatGPT codex backend expects.
 // Cloaking (codex-tui UA + Originator) is required: the upstream rejects generic
@@ -23,5 +26,19 @@ func SetChatHeaders(h http.Header, credential Credential, sessionID string, stre
 	h.Set("Connection", "Keep-Alive")
 	if sessionID != "" {
 		h.Set("Session-Id", sessionID)
+	}
+}
+
+// applyCodexRequestHeaders adds the request-scoped headers the ChatGPT Codex
+// backend reads alongside the body: the routing hint names the resolved model,
+// and responses-lite models must be marked or the backend serves the wrong
+// protocol variant.
+func applyCodexRequestHeaders(h http.Header, model string, lite bool) {
+	model = strings.TrimSpace(model)
+	if model != "" {
+		h.Set(codexRoutingHintHeader, "model="+model)
+	}
+	if lite {
+		h.Set(codexResponsesLiteHeader, "true")
 	}
 }

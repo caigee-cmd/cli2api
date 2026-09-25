@@ -14,19 +14,32 @@ import (
 type chatHTTPError = executor.PrepareError
 
 type Execution struct {
-	Context        context.Context
-	RequestID      string
-	Started        time.Time
-	Request        translate.ChatRequest
-	PublicModel    string
-	ProviderFilter string
-	Prefer         string
+	Context            context.Context
+	RequestID          string
+	Started            time.Time
+	Request            translate.ChatRequest
+	NativeRequest      *translate.NativeResponsesRequest
+	UseNativeResponses bool
+	PublicModel        string
+	ProviderFilter     string
+	Prefer             string
 	// ResponseToolNames restores namespaced Responses tool identities on the
 	// reply. Gateway-local: it is never handed to the executor or a provider.
 	ResponseToolNames map[string]translate.ResponseToolName
 }
 
+func (h *Handler) PrepareNativeResponsesExecution(r *http.Request, native *translate.NativeResponsesRequest, compat translate.ChatRequest) (Execution, error) {
+	if native == nil {
+		return Execution{}, &chatHTTPError{Status: http.StatusBadRequest, Code: "invalid_request", Message: "responses request required"}
+	}
+	return h.prepareExecution(r, compat, native)
+}
+
 func (h *Handler) PrepareChatExecution(r *http.Request, request translate.ChatRequest) (Execution, error) {
+	return h.prepareExecution(r, request, nil)
+}
+
+func (h *Handler) prepareExecution(r *http.Request, request translate.ChatRequest, native *translate.NativeResponsesRequest) (Execution, error) {
 	var identity auth.Identity
 	if r != nil {
 		identity = h.requestIdentity(r)
@@ -54,9 +67,11 @@ func (h *Handler) PrepareChatExecution(r *http.Request, request translate.ChatRe
 		catalogs = h.Catalogs
 	}
 	got, err := h.Executor.Prepare(executor.PrepareInput{
-		Context:           ctx,
-		Request:           request,
-		Identity:          identity,
+		Context:       ctx,
+		Request:       request,
+		NativeRequest: native,
+		Identity:      identity,
+
 		PreferAccount:     prefer,
 		SessionHeader:     sessionHeader,
 		CrossProviderPool: h.crossProviderPoolOn(),
@@ -68,11 +83,13 @@ func (h *Handler) PrepareChatExecution(r *http.Request, request translate.ChatRe
 		return Execution{}, err
 	}
 	return Execution{
-		Context:        got.Context,
-		RequestID:      got.RequestID,
-		Started:        got.Started,
-		Request:        got.Request,
-		PublicModel:    got.PublicModel,
+		Context:       got.Context,
+		RequestID:     got.RequestID,
+		Started:       got.Started,
+		Request:       got.Request,
+		NativeRequest: got.NativeRequest,
+		PublicModel:   got.PublicModel,
+
 		ProviderFilter: got.ProviderFilter,
 		Prefer:         got.Prefer,
 	}, nil

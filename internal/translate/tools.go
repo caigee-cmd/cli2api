@@ -63,6 +63,24 @@ func responseToolNames(raw json.RawMessage) (map[string]ResponseToolName, error)
 	return names, nil
 }
 
+// ResponseToolNames records namespace tool identities declared on a Responses
+// body. The native path keeps those tools intact upstream, but the reply still
+// has to restore a flattened name when one was produced. A body the
+// compatibility translator cannot carry returns no names rather than an error.
+func ResponseToolNames(raw []byte) map[string]ResponseToolName {
+	var body struct {
+		Tools json.RawMessage `json:"tools"`
+	}
+	if json.Unmarshal(raw, &body) != nil {
+		return nil
+	}
+	names, err := responseToolNames(body.Tools)
+	if err != nil {
+		return nil
+	}
+	return names
+}
+
 const (
 	customToolMarker     = "__codex_custom__"
 	customToolParameters = `{"type":"object","properties":{"input":{"type":"string","description":"Raw freeform input for the custom tool."}},"required":["input"],"additionalProperties":false}`

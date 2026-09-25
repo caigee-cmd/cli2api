@@ -114,8 +114,15 @@ func TestBuildBodyReasoningClamp(t *testing.T) {
 	if json.Unmarshal(body, &obj) != nil {
 		t.Fatal("body not json")
 	}
-	if obj["model"] != "gpt-5.5" || obj["stream"] != true || obj["instructions"] != "" {
+	if obj["model"] != "gpt-5.5" || obj["stream"] != true || obj["instructions"] != "" || obj["store"] != false {
 		t.Fatalf("body %v", obj)
+	}
+	if _, ok := obj["temperature"]; ok {
+		t.Fatalf("temperature forwarded: %v", obj["temperature"])
+	}
+	include, _ := obj["include"].([]any)
+	if len(include) != 1 || include[0] != "reasoning.encrypted_content" {
+		t.Fatalf("include %v", obj["include"])
 	}
 	reasoning, _ := obj["reasoning"].(map[string]any)
 	if reasoning["effort"] != "medium" {
@@ -147,6 +154,40 @@ func TestBuildBodyToolCallItems(t *testing.T) {
 	}
 	if obj.Input[2]["type"] != "function_call" || obj.Input[3]["type"] != "function_call_output" {
 		t.Fatalf("input %v", obj.Input)
+	}
+}
+
+func TestBuildBodyDropsCodexRejectedChatFields(t *testing.T) {
+	req := translate.ChatRequest{
+		Model: "gpt-5.5",
+		Messages: []translate.ChatMessage{
+			{Role: "system", Content: "rules"},
+			{Role: "user", Content: "hi"},
+		},
+		Temperature: json.RawMessage(`0.2`),
+		MaxTokens:   json.RawMessage(`128`),
+		TopP:        json.RawMessage(`0.9`),
+		Tools:       json.RawMessage(`[{"type":"function","function":{"name":"run","parameters":{"type":"object","properties":{}}}}]`),
+	}
+	body, _, err := buildBody(req, capsFor("gpt-5.5"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var obj map[string]any
+	if json.Unmarshal(body, &obj) != nil {
+		t.Fatal("body not json")
+	}
+	for _, field := range []string{"temperature", "top_p", "max_output_tokens", "max_tokens"} {
+		if _, ok := obj[field]; ok {
+			t.Errorf("rejected field %q forwarded", field)
+		}
+	}
+	if obj["store"] != false || obj["parallel_tool_calls"] != true {
+		t.Fatalf("store=%v parallel=%v", obj["store"], obj["parallel_tool_calls"])
+	}
+	input, _ := json.Marshal(obj["input"])
+	if strings.Contains(string(input), `"role":"system"`) || !strings.Contains(string(input), `"role":"developer"`) {
+		t.Fatalf("system role was not rewritten: %s", input)
 	}
 }
 
