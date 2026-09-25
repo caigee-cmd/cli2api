@@ -22,16 +22,17 @@ func (h *Handler) HandleResponses(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	request, err := translate.TranslateResponses(source)
+	translated, err := translate.TranslateResponsesRequest(source)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	execution, err := h.PrepareCompatibilityExecution(r, request)
+	execution, err := h.PrepareCompatibilityExecution(r, translated.Chat)
 	if err != nil {
 		writeCompatibilityOpenAIError(w, err)
 		return
 	}
+	execution.ResponseToolNames = translated.ToolNames
 	w.Header().Set("X-Request-Id", execution.RequestID)
 	if execution.Request.Stream {
 		h.handleResponsesStream(w, r, execution)
@@ -55,7 +56,7 @@ func (h *Handler) HandleResponses(w http.ResponseWriter, r *http.Request) {
 		decodeOpenAIToolCalls(result.ToolCalls), result.PromptTokens, result.CompletionTokens, result.FinishReason,
 		result.CacheReadTokens, result.CachedTokens,
 	)
-	translate.RestoreResponseToolNames(response, execution.Request.ResponseToolNames)
+	translate.RestoreResponseToolNames(response, execution.ResponseToolNames)
 	writeJSON(w, http.StatusOK, response)
 }
 
@@ -79,9 +80,9 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 	if upstream.NativeResponses {
 		// The upstream already speaks the Responses protocol: relay verbatim and
 		// observe the terminal event for usage/finish accounting.
-		stats, relayErr = RelayNativeResponsesStream(writer, upstream.Response.Body)
+		stats, relayErr = RelayNativeResponsesStream(writer, upstream.Response.Body, execution.ResponseToolNames)
 	} else {
-		stats, relayErr = RelayResponsesStream(writer, upstream.Response.Body, execution.RequestID, firstNonEmpty(execution.PublicModel, execution.Request.Model), execution.Request.ResponseToolNames)
+		stats, relayErr = RelayResponsesStream(writer, upstream.Response.Body, execution.RequestID, firstNonEmpty(execution.PublicModel, execution.Request.Model), execution.ResponseToolNames)
 	}
 	status := streamRequestStatus(relayErr)
 	if relayErr == nil {

@@ -21,6 +21,9 @@ type Execution struct {
 	PublicModel    string
 	ProviderFilter string
 	Prefer         string
+	// ResponseToolNames restores namespaced Responses tool identities on the
+	// reply. Gateway-local: it is never handed to the executor or a provider.
+	ResponseToolNames map[string]translate.ResponseToolName
 }
 
 func (h *Handler) PrepareChatExecution(r *http.Request, request translate.ChatRequest) (Execution, error) {
