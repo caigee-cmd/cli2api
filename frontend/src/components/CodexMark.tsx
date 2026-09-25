@@ -3,14 +3,20 @@ type Props = {
   className?: string
 }
 
+// OpenAI blossom. A letter would collide with Command's "C".
 export function CodexMark({ size = 16, className = '' }: Props) {
   return (
-    <span
-      className={`inline-flex shrink-0 items-center justify-center rounded-[22%] bg-black text-white ${className}`.trim()}
-      style={{ width: size, height: size, fontSize: Math.max(9, Math.round(size * 0.5)), fontWeight: 700, lineHeight: 1 }}
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      className={`block shrink-0 text-foreground ${className}`.trim()}
       aria-hidden="true"
     >
-      C
-    </span>
+      <path
+        fill="currentColor"
+        d="M22.28 9.82a5.98 5.98 0 0 0-.52-4.91 6.05 6.05 0 0 0-6.51-2.9A6.07 6.07 0 0 0 4.98 4.18a5.98 5.98 0 0 0-4 2.9 6.05 6.05 0 0 0 .74 7.1 5.98 5.98 0 0 0 .51 4.91 6.05 6.05 0 0 0 6.51 2.9 5.98 5.98 0 0 0 4.51 2.02 6.06 6.06 0 0 0 5.77-4.21 5.98 5.98 0 0 0 4-2.9 6.06 6.06 0 0 0-.74-7.08zM13.26 21.2a4.48 4.48 0 0 1-2.88-.99l.14-6.32 5.02 2.9a.57.57 0 0 0 .28.08.55.55 0 0 0 .48-.28.56.56 0 0 0-.2-.77l-4.94-2.85.03-2.43 6.47 3.74c.07.04.16.06.24.06a.55.55 0 0 0 .27-1.03l-5.96-3.44 2.73-4.72a.56.56 0 0 0-.96-.56l-2.76 4.78-2.76-4.78a.56.56 0 0 0-.96.56l2.73 4.72-5.96 3.44a.55.55 0 0 0-.28 1.03c.08 0 .17-.02.24-.06l6.47-3.74.03 2.43-4.94 2.85a.56.56 0 0 0-.2.77.55.55 0 0 0 .76.2l5.02-2.9.14 6.32a4.48 4.48 0 0 1-2.88.99 4.49 4.49 0 0 1-4.27-3.08 4.5 4.5 0 0 1 2.06-5.18l2.6 1.5-2.15 3.72a.56.56 0 0 0 .2.77.55.55 0 0 0 .76-.2l2.18-3.78 2.18 3.78a.55.55 0 0 0 .76.2.56.56 0 0 0 .2-.77l-2.15-3.72 2.6-1.5a4.5 4.5 0 0 1 2.06 5.18 4.49 4.49 0 0 1-4.27 3.08z"
+      />
+    </svg>
   )
 }
