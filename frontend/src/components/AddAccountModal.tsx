@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Button, Description, Input, Label, ListBox, Modal, NumberField, Select, Skeleton, TextArea } from '@heroui/react'
+import { Button, Input, Modal, NumberField, Skeleton, TextArea } from '@heroui/react'
 import { ArrowSquareOut, CaretLeft, CaretRight, CheckCircle, FileCode, Key, ShieldCheck, X } from '@phosphor-icons/react'
 import { BrandMark } from '@/components/BrandMark'
 import { ProviderMark } from '@/components/ProviderMark'
@@ -123,7 +123,6 @@ type Phase = 'idle' | 'busy' | 'polling' | 'done'
 
 const POLL_ATTEMPTS = 90
 const POLL_INTERVAL = 2000
-const TILE_LIMIT = 6
 
 export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
   const { t } = useI18n()
@@ -412,7 +411,6 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
   }
 
   const tabPending = (key: TabKey) => busy && tab === key
-  const useTypeSelect = providerOptions.length > TILE_LIMIT
   const typeOptions = providerOptions.map((option) => ({
     value: option.id,
     label: optionLabel(option, t),
@@ -442,7 +440,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
   return (
     <Modal.Root isOpen={isOpen} onOpenChange={(next: boolean) => { if (!next) close() }}>
       <Modal.Backdrop variant="blur" isDismissable={!busy}>
-        <Modal.Container size="lg" scroll="inside">
+        <Modal.Container size="lg" scroll="inside" className="sm:max-w-3xl">
           <Modal.Dialog>
             <Modal.Header className="items-start justify-between gap-4 px-5 pt-5">
               <div className="min-w-0">
@@ -467,47 +465,6 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                         <span className="text-sm font-medium text-muted">{t('accountType')}</span>
                         <p className="rounded-lg border border-separator bg-surface-secondary/45 px-3.5 py-3 text-xs leading-5 text-muted">{t('accountTypeHint')}</p>
                       </>
-                    ) : useTypeSelect ? (
-                      <Select
-                        fullWidth
-                        aria-label={t('accountType')}
-                        value={accountType}
-                        isDisabled={settingsLocked}
-                        onChange={(next) => {
-                          if (typeof next === 'string' && next && !settingsLocked) setAccountType(next)
-                        }}
-                      >
-                        <Label className="text-sm font-medium text-muted">{t('accountType')}</Label>
-                        <Select.Trigger className="items-center">
-                          <Select.Value className="min-w-0 truncate">
-                            {({ defaultChildren, isPlaceholder }) => {
-                              const selected = typeOptions.find((option) => option.value === accountType)
-                              if (isPlaceholder || !selected) return defaultChildren
-                              return (
-                                <span className="flex min-w-0 items-center gap-2">
-                                  <span className="grid size-5 shrink-0 place-items-center">{selected.icon}</span>
-                                  <span className="truncate">{selected.label}</span>
-                                </span>
-                              )
-                            }}
-                          </Select.Value>
-                          <Select.Indicator />
-                        </Select.Trigger>
-                        <Select.Popover className="max-h-72">
-                          <ListBox>
-                            {typeOptions.map((option) => (
-                              <ListBox.Item key={option.value} id={option.value} textValue={option.label}>
-                                <span className="grid size-5 shrink-0 place-items-center">{option.icon}</span>
-                                <div className="min-w-0 flex-1">
-                                  <Label className="block truncate">{option.label}</Label>
-                                  {option.hint ? <Description className="truncate">{option.hint}</Description> : null}
-                                </div>
-                                <ListBox.ItemIndicator />
-                              </ListBox.Item>
-                            ))}
-                          </ListBox>
-                        </Select.Popover>
-                      </Select>
                     ) : (
                       <>
                         <span className="text-sm font-medium text-muted">{t('accountType')}</span>
@@ -517,6 +474,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                           value={accountType}
                           onChange={(next) => { if (!settingsLocked) setAccountType(next) }}
                           options={typeOptions}
+                          className="max-h-72 overflow-y-auto overscroll-contain pr-1"
                         />
                       </>
                     )}
