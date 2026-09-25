@@ -370,3 +370,64 @@ func TestApplyModelPricingMapsWorkerFields(t *testing.T) {
 		t.Errorf("unpriced model must not be flagged free: %+v", unpriced)
 	}
 }
+
+func TestApplyModelContextUsesUpstreamWindows(t *testing.T) {
+	// qwen3.8-max: default window 200000, selectable up to 1M.
+	entry := map[string]any{
+		"id":                        "qwen3.8-max",
+		"context_length":            180000,
+		"default_context_window":    200000,
+		"available_context_windows": []any{200000.0, 400000.0, 1000000.0},
+		"max_output_tokens":         32000.0,
+	}
+	ApplyModelContext(entry)
+	if entry["catalog_context_length"] != 200000 {
+		t.Errorf("catalog_context_length = %v, want 200000", entry["catalog_context_length"])
+	}
+	if entry["catalog_context_length_max"] != 1000000 {
+		t.Errorf("catalog_context_length_max = %v, want 1000000", entry["catalog_context_length_max"])
+	}
+	if got, _ := numberFieldValue(entry, "max_output_tokens"); got != 32000 {
+		t.Errorf("max_output_tokens = %v, want 32000", entry["max_output_tokens"])
+	}
+
+	// glm-5.3-flash: max_input_tokens 1M, no higher selectable window.
+	flash := map[string]any{"id": "glm-5.3-flash", "context_length": 1000000.0}
+	ApplyModelContext(flash)
+	if flash["catalog_context_length"] != 1000000 {
+		t.Errorf("glm-5.3-flash window = %v, want 1000000", flash["catalog_context_length"])
+	}
+	if _, ok := flash["catalog_context_length_max"]; ok {
+		t.Errorf("no available_context_windows -> no max tier: %v", flash["catalog_context_length_max"])
+	}
+
+	// No context metadata: nothing invented.
+	bare := map[string]any{"id": "unknown"}
+	ApplyModelContext(bare)
+	if _, ok := bare["catalog_context_length"]; ok {
+		t.Errorf("bare entry must not gain a window: %+v", bare)
+	}
+}
+
+func TestModelInfosCarriesContextWindows(t *testing.T) {
+	models := ModelInfos([]map[string]any{
+		{
+			"id": "qwen3.8-max", "mapped_key": "qmodel_38max", "display_name": "Qwen3.8-Max",
+			"default_context_window": 200000.0, "available_context_windows": []any{200000.0, 1000000.0},
+			"max_output_tokens": 32000.0,
+		},
+	})
+	if len(models) != 1 {
+		t.Fatalf("models = %+v", models)
+	}
+	caps := models[0].Capabilities
+	if caps.ContextWindow != 200000 {
+		t.Errorf("ContextWindow = %d, want 200000", caps.ContextWindow)
+	}
+	if caps.ContextWindowMax != 1000000 {
+		t.Errorf("ContextWindowMax = %d, want 1000000", caps.ContextWindowMax)
+	}
+	if caps.MaxOutput != 32000 {
+		t.Errorf("MaxOutput = %d, want 32000", caps.MaxOutput)
+	}
+}

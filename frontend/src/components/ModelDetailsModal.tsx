@@ -56,7 +56,7 @@ export function ModelDetailsModal({ model, t, onClose }: Props) {
               <section>
                 <div className="text-xs font-medium text-muted">{t('contextWindowCol')}</div>
                 <div className="mt-1 text-sm">{formatTokens(windowDev)}{windowMax && windowMax !== windowDev ? ` → ${formatTokens(windowMax)}` : ''}</div>
-                {model.supports_max_mode ? <p className="mt-1 text-[11px] leading-5 text-muted">{t('maxModeHint')}</p> : null}
+                {model.supports_max_mode ? <p className="mt-1 text-[11px] leading-5 text-muted">{provider === 'qoder' ? t('qoderMaxModeHint') : t('maxModeHint')}</p> : null}
                 {!model.supports_max_mode && windowMax && windowMax !== windowDev ? <p className="mt-1 text-[11px] leading-5 text-muted">{t('workbuddyContextHint')}</p> : null}
                 {traeTier
                   ? (traeTier.prompt_max_tokens ? <div className="mt-1 text-[11px] text-muted">{t('promptMaxTokens')}: {formatTokens(traeTier.prompt_max_tokens)}</div> : null)

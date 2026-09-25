@@ -13,6 +13,17 @@ function numberOrUndefined(value) {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+// numberArrayOrUndefined keeps a positive-integer array, dropping anything else
+// so downstream never sees a malformed window list.
+function numberArrayOrUndefined(value) {
+  if (!Array.isArray(value)) return undefined;
+  const out = [];
+  for (const item of value) {
+    if (typeof item === "number" && Number.isInteger(item) && item > 0) out.push(item);
+  }
+  return out.length > 0 ? out : undefined;
+}
+
 export function createModelCatalogSnapshot(entries) {
   const routes = new Map();
   const models = [];
@@ -37,6 +48,12 @@ export function createModelCatalogSnapshot(entries) {
       price_factor: numberOrUndefined(rawEntry.price_factor),
       is_free: typeof rawEntry.is_free === "boolean" ? rawEntry.is_free : undefined,
       tags: Array.isArray(rawEntry.tags) && rawEntry.tags.length > 0 ? rawEntry.tags.map(String) : undefined,
+      // Qoder's context metadata. The catalog only kept max_input_tokens; these
+      // carry the real default window and the selectable window set, which the
+      // console uses instead of a hardcoded fallback.
+      default_context_window: numberOrUndefined(rawEntry.default_context_window ?? rawEntry.defaultContextWindow),
+      available_context_windows: numberArrayOrUndefined(rawEntry.available_context_windows ?? rawEntry.availableContextWindows),
+      max_output_tokens: numberOrUndefined(rawEntry.max_output_tokens),
     };
 
     routes.set(id, route);
@@ -55,6 +72,9 @@ export function createModelCatalogSnapshot(entries) {
         price_factor: route.price_factor,
         is_free: route.is_free,
         tags: route.tags,
+        default_context_window: route.default_context_window,
+        available_context_windows: route.available_context_windows,
+        max_output_tokens: route.max_output_tokens,
       });
     }
   }

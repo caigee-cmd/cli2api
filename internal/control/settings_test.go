@@ -105,3 +105,38 @@ func TestReadAndUpdateModelSetting(t *testing.T) {
 		t.Fatalf("persist err=%v", err)
 	}
 }
+
+func TestQoderContextToggle(t *testing.T) {
+	svc, _, _, _ := newTestServices()
+	ctx := context.Background()
+
+	// Default read: no stored override, toggle off.
+	got, err := svc.Settings.ReadModelSetting(ctx, "qoder", "glm-5.2")
+	if err != nil || got.MaxMode || got.ContextCustom {
+		t.Fatalf("default=%+v err=%v", got, err)
+	}
+
+	// Turning the toggle on without a catalog bound has no larger tier, so it
+	// must not fabricate a max window.
+	on := true
+	if _, err := svc.Settings.UpdateModelSetting(ctx, "qoder", "glm-5.2", nil, ProviderModelSettingPatch{MaxMode: &on}); err != nil {
+		t.Fatalf("toggle on: %v", err)
+	}
+	got, _ = svc.Settings.ReadModelSetting(ctx, "qoder", "glm-5.2")
+	if got.MaxMode {
+		t.Fatalf("no catalog max tier must stay off: %+v", got)
+	}
+
+	// An explicit window round-trips and reads back as custom.
+	length := 250000
+	got, err = svc.Settings.UpdateModelSetting(ctx, "qoder", "glm-5.2", &length, ProviderModelSettingPatch{})
+	if err != nil || got.ContextLength != 250000 || !got.ContextCustom {
+		t.Fatalf("explicit=%+v err=%v", got, err)
+	}
+	// Clearing removes the override.
+	clear := 0
+	got, err = svc.Settings.UpdateModelSetting(ctx, "qoder", "glm-5.2", &clear, ProviderModelSettingPatch{})
+	if err != nil || got.ContextCustom {
+		t.Fatalf("cleared=%+v err=%v", got, err)
+	}
+}

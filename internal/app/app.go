@@ -144,6 +144,9 @@ func New(cfg config.Config) *App {
 	}
 	a.CrossProviderModelPool.Store(crossProviderModelPool)
 	a.Control.Catalog = appsvc.NewCatalog(a.FetchWorkerModelsForMode)
+	if a.Control.Settings != nil {
+		a.Control.Settings.BindCatalog(a.Control.Catalog)
+	}
 	// Auth copies and all executor copies read the same atomic live key.
 	// Cfg.ProxyAPIKey and Executor.WorkerKey remain bootstrap snapshots.
 	a.Executor.WorkerKeySource = a.Auth.ConsoleKey

@@ -83,6 +83,14 @@ func modelSettingResponse(setting control.ModelSetting) map[string]any {
 			"max_mode": setting.MaxMode, "reasoning_effort": setting.ReasoningEffort,
 			"context_custom": setting.ContextCustom,
 		}
+	case "qoder":
+		return map[string]any{
+			"model": setting.Model, "provider": setting.Provider,
+			"max_mode":               setting.MaxMode,
+			"context_length":         setting.ContextLength,
+			"default_context_length": setting.DefaultContextLength,
+			"context_custom":         setting.ContextCustom,
+		}
 	default:
 		return map[string]any{
 			"model": setting.Model, "context_length": setting.ContextLength,

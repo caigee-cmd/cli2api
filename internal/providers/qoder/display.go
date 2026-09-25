@@ -31,8 +31,70 @@ func (s DisplayCatalog) Models(ctx context.Context, id string, refresh bool) ([]
 	}
 	for _, entry := range entries {
 		ApplyModelPricing(entry)
+		ApplyModelContext(entry)
 	}
 	return entries, nil
+}
+
+// ApplyModelContext writes the display catalog's context keys from the context
+// metadata Qoder reports per model. The worker forwards `default_context_window`
+// (the window the Qoder client selects by default) and `available_context_windows`
+// (the selectable set); the console reads `catalog_context_length` /
+// `catalog_context_length_max`. Without this the console fell back to a
+// hardcoded window (180000) for every model, mis-sizing models such as
+// glm-5.3-flash (1M) and deepseek-v4-pro (96K). Keys already present are left
+// as-is, and nothing is written when Qoder reported no context metadata.
+func ApplyModelContext(entry map[string]any) {
+	if entry == nil {
+		return
+	}
+	if _, ok := entry["catalog_context_length"]; !ok {
+		if window, ok := qoderDefaultContextWindow(entry); ok {
+			entry["catalog_context_length"] = window
+		}
+	}
+	if _, ok := entry["catalog_context_length_max"]; !ok {
+		if maxWindow, ok := qoderLargestContextWindow(entry); ok {
+			entry["catalog_context_length_max"] = maxWindow
+		}
+	}
+	if _, ok := entry["max_output_tokens"]; !ok {
+		if output, ok := numberFieldValue(entry, "max_output_tokens"); ok && output > 0 {
+			entry["max_output_tokens"] = output
+		}
+	}
+}
+
+// qoderDefaultContextWindow is the window the model runs at unless the operator
+// picks another: Qoder's `default_context_window`, else the legacy
+// `context_length` (the worker's max_input_tokens).
+func qoderDefaultContextWindow(entry map[string]any) (int, bool) {
+	if window, ok := numberFieldValue(entry, "default_context_window"); ok && window > 0 {
+		return window, true
+	}
+	if window, ok := numberFieldValue(entry, "context_length"); ok && window > 0 {
+		return window, true
+	}
+	return 0, false
+}
+
+// qoderLargestContextWindow is the largest selectable window, when Qoder
+// advertises more than the default.
+func qoderLargestContextWindow(entry map[string]any) (int, bool) {
+	windows, ok := intSliceField(entry, "available_context_windows")
+	if !ok {
+		return 0, false
+	}
+	largest := 0
+	for _, window := range windows {
+		if window > largest {
+			largest = window
+		}
+	}
+	if largest <= 0 {
+		return 0, false
+	}
+	return largest, true
 }
 
 // ApplyModelPricing writes the display catalog's credits/free keys onto a raw
