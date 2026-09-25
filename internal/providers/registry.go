@@ -254,7 +254,7 @@ func Get(id string) (ProviderDescriptor, bool) {
 }
 
 func List() []ProviderDescriptor {
-	return []ProviderDescriptor{Qoder, WorkBuddy, Trae, Devin, Command}
+	return []ProviderDescriptor{Qoder, WorkBuddy, Trae, Devin, Command, Codex}
 }
 
 // Resolve validates a provider/region pair. Empty values fall back to the

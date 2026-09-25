@@ -32,38 +32,10 @@ func buildBody(req translate.ChatRequest, caps providers.ModelCapabilities) ([]b
 			if req.ToolChoice != nil {
 				obj["tool_choice"] = normalizeToolChoice(req.ToolChoice)
 			}
-			// responses-lite models reject parallel tool calls.
-			if usesResponsesLite(req.Model) {
-				obj["parallel_tool_calls"] = false
-			} else if req.ParallelToolCalls != nil {
+			if req.ParallelToolCalls != nil {
 				obj["parallel_tool_calls"] = *req.ParallelToolCalls
 			}
 		}
-	}
-	if _, hasTools := obj["tools"]; !hasTools {
-		delete(obj, "parallel_tool_calls")
-	}
-
-	if len(req.MaxTokens) > 0 && string(req.MaxTokens) != "null" {
-		var n int
-		if json.Unmarshal(req.MaxTokens, &n) == nil && n > 0 {
-			obj["max_output_tokens"] = n
-		}
-	}
-	if len(req.Temperature) > 0 && string(req.Temperature) != "null" {
-		var t float64
-		if json.Unmarshal(req.Temperature, &t) == nil {
-			obj["temperature"] = t
-		}
-	}
-	if len(req.TopP) > 0 && string(req.TopP) != "null" {
-		var p float64
-		if json.Unmarshal(req.TopP, &p) == nil {
-			obj["top_p"] = p
-		}
-	}
-	if len(req.Stop) > 0 && string(req.Stop) != "null" {
-		obj["stop"] = req.Stop
 	}
 	if len(req.ResponseFormat) > 0 && string(req.ResponseFormat) != "null" {
 		obj["text"] = map[string]any{"format": req.ResponseFormat}
@@ -75,7 +47,21 @@ func buildBody(req translate.ChatRequest, caps providers.ModelCapabilities) ([]b
 		resolved.ReasoningLevel = level
 	}
 
-	body, err := json.Marshal(obj)
+	encoded, err := json.Marshal(obj)
+	if err != nil {
+		return nil, providers.ResolvedChat{}, err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &fields); err != nil {
+		return nil, providers.ResolvedChat{}, err
+	}
+	// Chat and Messages both arrive here already translated. The Codex backend
+	// constraints are the same ones the native Responses path applies, so a
+	// translated request is not a looser shape than a native one.
+	if err := normalizeCodexUpstream(fields, req.Model, usesResponsesLite(req.Model), ""); err != nil {
+		return nil, providers.ResolvedChat{}, err
+	}
+	body, err := json.Marshal(fields)
 	return body, resolved, err
 }
 

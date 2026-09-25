@@ -45,46 +45,24 @@ func RelayNativeResponsesStream(writer io.Writer, body io.Reader, names map[stri
 		if payload == "" || payload == "[DONE]" {
 			return nil
 		}
-		var obj struct {
-			Type     string `json:"type"`
-			Response struct {
-				Status string `json:"status"`
-				Usage  struct {
-					InputTokens  int `json:"input_tokens"`
-					OutputTokens int `json:"output_tokens"`
-					TotalTokens  int `json:"total_tokens"`
-				} `json:"usage"`
-			} `json:"response"`
-		}
-		if json.Unmarshal([]byte(payload), &obj) != nil {
+		event, ok := translate.ParseResponsesEvent(payload)
+		if !ok {
 			return nil
 		}
-		if stats.FirstTokenAt == nil && isFirstTokenEvent(obj.Type) {
+		if stats.FirstTokenAt == nil && event.FirstToken {
 			now := time.Now()
 			stats.FirstTokenAt = &now
 		}
-		switch obj.Type {
-		case "response.completed":
-			sawTerminal = true
-			stats.FinishReason = "stop"
-			if obj.Response.Usage.InputTokens > 0 {
-				stats.PromptTokens = intPtr(obj.Response.Usage.InputTokens)
-			}
-			if obj.Response.Usage.OutputTokens > 0 {
-				stats.CompletionTokens = intPtr(obj.Response.Usage.OutputTokens)
-			}
-		case "response.incomplete":
-			sawTerminal = true
-			stats.FinishReason = "length"
-			if obj.Response.Usage.InputTokens > 0 {
-				stats.PromptTokens = intPtr(obj.Response.Usage.InputTokens)
-			}
-			if obj.Response.Usage.OutputTokens > 0 {
-				stats.CompletionTokens = intPtr(obj.Response.Usage.OutputTokens)
-			}
-		case "response.failed", "error":
-			sawTerminal = true
-			stats.FinishReason = "error"
+		if !event.Terminal {
+			return nil
+		}
+		sawTerminal = true
+		stats.FinishReason = event.FinishReason
+		stats.PromptTokens = event.InputTokens
+		stats.CompletionTokens = event.OutputTokens
+		stats.CachedTokens = event.CachedTokens
+		if event.FinishReason == "error" {
+			return executor.ClassifyUpstreamBody(0, payload)
 		}
 		return nil
 	}
@@ -151,9 +129,3 @@ func frameMentionsToolName(data string, names map[string]translate.ResponseToolN
 	}
 	return false
 }
-
-func isFirstTokenEvent(eventType string) bool {
-	return strings.HasSuffix(eventType, ".delta")
-}
-
-func intPtr(v int) *int { return &v }

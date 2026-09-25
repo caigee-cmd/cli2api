@@ -111,13 +111,27 @@ type ProviderChat interface {
 // /v1/responses endpoint can relay them without translation.
 const StreamFormatResponses = "responses"
 
-// NativeResponsesStreamer is an optional fast path: when a provider's upstream
-// already speaks the OpenAI Responses protocol, the /v1/responses endpoint can
-// relay the upstream body verbatim instead of translating through the shared
-// chat-completions dialect. Providers that do not implement it fall back to
-// ChatStream + translation.
+// RequestOptions are the per-attempt execution decisions the executor makes
+// for one picked account. They travel explicitly, never through ctx, and are
+// recomputed for every failover attempt.
+type RequestOptions struct {
+	// Model is the upstream model id resolved for this account (its catalog
+	// spelling), not the public id the client sent.
+	Model string
+	// DropSystemPrompt removes caller system/developer prompts before send
+	// (account policy for upstreams with content screening).
+	DropSystemPrompt bool
+}
+
+// NativeResponsesStreamer is the optional native OpenAI Responses capability.
+// An adapter implements it only when its upstream speaks Responses and it can
+// build the upstream request from the client's original Responses body, so
+// item identity, reasoning replay, and unknown members survive. The returned
+// body is always an upstream Responses SSE stream; a non-stream client call
+// collects it. Adapters without it serve /v1/responses through ChatStream /
+// ChatNonStream and the shared chat form.
 type NativeResponsesStreamer interface {
-	ResponsesStream(ctx context.Context, accountID string, req translate.ChatRequest) (*http.Response, ResolvedChat, error)
+	ResponsesStream(ctx context.Context, accountID string, req *translate.NativeResponsesRequest, options RequestOptions) (*http.Response, ResolvedChat, error)
 }
 
 // ModelCatalogProvider lists models an account can currently serve.
@@ -243,8 +257,8 @@ type Adapter struct {
 	// StreamFormat declares the SSE dialect ChatStream returns (see
 	// StreamFormat* constants). Empty means chat-completions deltas.
 	StreamFormat string
-	// NativeResponses is the optional /v1/responses passthrough. When set, the
-	// gateway prefers it over ChatStream+translation for responses requests.
+	// NativeResponses is the optional native Responses capability. When set,
+	// /v1/responses requests routed to this adapter skip the chat form.
 	NativeResponses NativeResponsesStreamer
 }
 

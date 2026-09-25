@@ -44,6 +44,7 @@ type RequestStarter interface {
 type PrepareInput struct {
 	Context           context.Context
 	Request           translate.ChatRequest
+	NativeRequest     *translate.NativeResponsesRequest
 	Identity          auth.Identity
 	PreferAccount     string
 	SessionHeader     string
@@ -60,6 +61,7 @@ type PreparedRequest struct {
 	RequestID      string
 	Started        time.Time
 	Request        translate.ChatRequest
+	NativeRequest  *translate.NativeResponsesRequest
 	PublicModel    string
 	ProviderFilter string
 	Prefer         string
@@ -71,6 +73,11 @@ func (e ChatExecutor) Prepare(in PrepareInput) (PreparedRequest, error) {
 	}
 	request := in.Request
 	publicModel := request.Model
+	if in.NativeRequest != nil {
+		publicModel = in.NativeRequest.Model()
+		request.Model = publicModel
+		request.Stream = in.NativeRequest.Stream()
+	}
 	if RejectsBareModel(publicModel, in.CrossProviderPool) {
 		return PreparedRequest{}, &PrepareError{
 			Status:  400,
@@ -88,8 +95,10 @@ func (e ChatExecutor) Prepare(in PrepareInput) (PreparedRequest, error) {
 			Message: "This API key cannot use provider " + providerFilter,
 		}
 	}
-	if err := ApplyModelContextDefaults(in.Context, in.ModelContexts, &request, providerFilter); err != nil {
-		return PreparedRequest{}, &PrepareError{Status: 500, Code: "model_setting_failed", Message: err.Error()}
+	if in.NativeRequest == nil {
+		if err := ApplyModelContextDefaults(in.Context, in.ModelContexts, &request, providerFilter); err != nil {
+			return PreparedRequest{}, &PrepareError{Status: 500, Code: "model_setting_failed", Message: err.Error()}
+		}
 	}
 	if in.Catalogs != nil {
 		in.Catalogs.EnsureModelCatalogs(in.Context, false)
@@ -105,6 +114,12 @@ func (e ChatExecutor) Prepare(in PrepareInput) (PreparedRequest, error) {
 	} else {
 		started = started.UTC()
 	}
+	requestedReasoning := RequestedReasoningLevel(request)
+	if in.NativeRequest != nil {
+		if level := providers.NormalizeReasoningLevel(in.NativeRequest.RequestedReasoningEffort()); level != "" {
+			requestedReasoning = level
+		}
+	}
 	if in.Logs != nil {
 		in.Logs.Start(accounts.RequestLog{
 			ID:                  requestID,
@@ -112,24 +127,29 @@ func (e ChatExecutor) Prepare(in PrepareInput) (PreparedRequest, error) {
 			Stream:              request.Stream,
 			Status:              accounts.RequestStatusStarted,
 			RequestedModel:      firstNonEmpty(publicModel, request.Model),
-			RequestedReasoning:  RequestedReasoningLevel(request),
+			RequestedReasoning:  requestedReasoning,
 			MessageCount:        len(request.Messages),
 			EmptyMessageIndexes: translate.EmptyMessageIndexes(request.Messages),
 			MessageRoles:        translate.MessageRoles(request.Messages),
 		})
 	}
 	ctx := WithAllowedProviders(WithRequestID(in.Context, requestID), in.Identity.AllowedProviders)
-	if sessionKey := SessionKeyFor(in.SessionHeader, in.Identity, request); sessionKey != "" {
+	sessionKey := SessionKeyFor(in.SessionHeader, in.Identity, request)
+	if sessionKey == "" && in.NativeRequest != nil {
+		sessionKey = NativeSessionKeyFor(in.NativeRequest, in.Identity)
+	}
+	if sessionKey != "" {
 		ctx = WithSessionKey(ctx, sessionKey)
 	}
-	if level := RequestedReasoningLevel(request); level != "" {
-		log.Printf("request reasoning request_id=%q model=%q level=%q", requestID, request.Model, level)
+	if requestedReasoning != "" {
+		log.Printf("request reasoning request_id=%q model=%q level=%q", requestID, request.Model, requestedReasoning)
 	}
 	return PreparedRequest{
 		Context:        ctx,
 		RequestID:      requestID,
 		Started:        started,
 		Request:        request,
+		NativeRequest:  in.NativeRequest,
 		PublicModel:    publicModel,
 		ProviderFilter: providerFilter,
 		Prefer:         prefer,
@@ -212,6 +232,18 @@ func ApplyModelContextDefaults(ctx context.Context, store ModelContextStore, req
 
 func modelContextKey(model string) string {
 	return accounts.CanonicalModelID(model)
+}
+
+func NativeSessionKeyFor(req *translate.NativeResponsesRequest, identity auth.Identity) string {
+	if req == nil || strings.TrimSpace(req.SessionSeed()) == "" {
+		return ""
+	}
+	namespace := "console"
+	if identity.Kind == auth.KindKey && identity.KeyID != "" {
+		namespace = "key:" + identity.KeyID
+	}
+	sum := sha256.Sum256([]byte(namespace + "\x00native\x00" + req.SessionSeed()))
+	return hex.EncodeToString(sum[:])
 }
 
 func SessionKeyFor(header string, identity auth.Identity, req translate.ChatRequest) string {

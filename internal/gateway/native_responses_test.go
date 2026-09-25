@@ -52,6 +52,25 @@ func TestRelayNativeResponsesStreamIncomplete(t *testing.T) {
 	_ = stats
 }
 
+func TestRelayNativeResponsesStreamFailedIsTerminalError(t *testing.T) {
+	upstream := strings.Join([]string{
+		`event: response.failed`,
+		`data: {"type":"response.failed","response":{"status":"failed","error":{"code":"rate_limit_exceeded","message":"slow down"}}}`,
+		``,
+	}, "\n")
+	var out bytes.Buffer
+	stats, err := RelayNativeResponsesStream(&out, strings.NewReader(upstream), nil)
+	if err == nil {
+		t.Fatal("failed terminal must surface as an error")
+	}
+	if stats.FinishReason != "error" {
+		t.Fatalf("finish %q", stats.FinishReason)
+	}
+	if !strings.Contains(out.String(), "response.failed") {
+		t.Fatalf("failure event was not relayed: %s", out.String())
+	}
+}
+
 func TestRelayNativeResponsesStreamIncompleteStatus(t *testing.T) {
 	upstream := strings.Join([]string{
 		`event: response.incomplete`,

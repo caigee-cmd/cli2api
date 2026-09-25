@@ -733,11 +733,11 @@ func TestAttemptsForHonorsRetryBudget(t *testing.T) {
 	}
 	ex := NewChatExecutor(pool, "")
 	ex.MaxAttempts = 3
-	if got := ex.attemptsFor("qoder", "global", "", nil); got != 3 {
+	if got := ex.attemptsFor("qoder", "global", "", nil, nil); got != 3 {
 		t.Fatalf("attempt budget = %d", got)
 	}
 	ex.MaxAttempts = 0
-	if got := ex.attemptsFor("qoder", "global", "", nil); got != 4 {
+	if got := ex.attemptsFor("qoder", "global", "", nil, nil); got != 4 {
 		t.Fatalf("default attempt budget = %d", got)
 	}
 }

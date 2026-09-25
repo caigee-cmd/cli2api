@@ -544,12 +544,7 @@ func (c *Client) refreshTokens(ctx context.Context, accountID string, credential
 // ---------------------------------------------------------------------------
 
 func (c *Client) chatRequest(ctx context.Context, credential Credential, req translate.ChatRequest, accountID string) (*http.Request, providers.ResolvedChat, error) {
-	caps := capsFor(req.Model)
-	if len(caps.ReasoningOptions) == 0 {
-		caps.Reasoning = true
-		caps.ReasoningOptions = []string{"low", "medium", "high"}
-	}
-	body, resolved, err := buildBody(req, caps)
+	body, resolved, err := buildBody(req, reasoningCaps(req.Model))
 	if err != nil {
 		return nil, providers.ResolvedChat{}, err
 	}
@@ -570,6 +565,7 @@ func (c *Client) chatRequest(ctx context.Context, credential Credential, req tra
 		return nil, providers.ResolvedChat{}, err
 	}
 	SetChatHeaders(httpReq.Header, credential, sessionID, true)
+	applyCodexRequestHeaders(httpReq.Header, req.Model, usesResponsesLite(req.Model))
 	return httpReq, resolved, nil
 }
 
@@ -643,37 +639,6 @@ func (c *Client) ChatStream(ctx context.Context, accountID string, req translate
 		return nil, providers.ResolvedChat{}, err
 	}
 	resp.Body = &responseBody{Reader: stream.Reader, closer: resp.Body}
-	return resp, resolved, nil
-}
-
-// ResponsesStream is the /v1/responses passthrough: the codex upstream already
-// speaks the Responses protocol, so the gateway can relay the body verbatim.
-// ChatStream still returns the translated chat-completions dialect for the
-// other public endpoints.
-func (c *Client) ResponsesStream(ctx context.Context, accountID string, req translate.ChatRequest) (*http.Response, providers.ResolvedChat, error) {
-	credential, err := c.credential(ctx, accountID)
-	if err != nil {
-		return nil, providers.ResolvedChat{}, err
-	}
-	httpReq, resolved, err := c.chatRequest(ctx, credential, req, accountID)
-	if err != nil {
-		return nil, providers.ResolvedChat{}, err
-	}
-	client, err := c.httpClient(ctx, accountID)
-	if err != nil {
-		return nil, providers.ResolvedChat{}, err
-	}
-	client.Timeout = 0
-	resp, err := client.Do(httpReq)
-	if err != nil {
-		return nil, providers.ResolvedChat{}, err
-	}
-	c.observeQuotaHeaders(accountID, resp.Header)
-	if resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-		resp.Body.Close()
-		return nil, providers.ResolvedChat{}, classifiedError(resp.StatusCode, body)
-	}
 	return resp, resolved, nil
 }
 

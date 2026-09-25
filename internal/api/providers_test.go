@@ -142,9 +142,10 @@ func TestProvidersEndpointExposesDescriptors(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &parsed); err != nil {
 		t.Fatal(err)
 	}
-	if len(parsed.Data) < 4 {
-		t.Fatalf("expected qoder + workbuddy + trae + devin descriptors, got %+v", parsed.Data)
+	if len(parsed.Data) < 6 {
+		t.Fatalf("expected qoder + workbuddy + trae + devin + command + codex descriptors, got %+v", parsed.Data)
 	}
+
 	seen := map[string]string{}
 	for _, item := range parsed.Data {
 		seen[item.ID] = item.Runtime
@@ -155,4 +156,8 @@ func TestProvidersEndpointExposesDescriptors(t *testing.T) {
 	if seen["devin"] != "in_process" {
 		t.Fatalf("devin runtime = %q in %+v", seen["devin"], parsed.Data)
 	}
+	if seen["codex"] != "in_process" {
+		t.Fatalf("codex runtime = %q in %+v", seen["codex"], parsed.Data)
+	}
+
 }
