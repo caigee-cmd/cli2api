@@ -51,6 +51,7 @@ const labelKeys: Record<string, string> = {
   'workbuddy-global': 'accountTypeWorkBuddyGlobal',
   'trae-cn': 'accountTypeTraeCN',
   'devin-global': 'accountTypeDevinGlobal',
+  'command-global': 'accountTypeCommandGlobal',
 }
 
 const hintKeys: Record<string, string> = {
@@ -60,6 +61,7 @@ const hintKeys: Record<string, string> = {
   'workbuddy-global': 'accountTypeWorkBuddyGlobalHint',
   'trae-cn': 'accountTypeTraeCNHint',
   'devin-global': 'accountTypeDevinGlobalHint',
+  'command-global': 'accountTypeCommandGlobalHint',
 }
 
 function AccountTypeSkeleton({ ariaLabel }: { ariaLabel: string }) {
@@ -180,6 +182,9 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
   const typesReady = Boolean(activeOption) && !typesLoading
   const showPatTab = activeOption?.descriptor.capabilities?.pat_login !== false
   const showImportTab = activeOption?.descriptor.capabilities?.import_export !== false
+  // Command Code has no browser login (a pasted user_… key is the only auth),
+  // so the wizard opens on the PAT tab instead of the browser tab.
+  const hasBrowserLogin = activeOption?.descriptor.capabilities?.browser_login !== false
   const showDropSystem = activeOption?.provider === 'workbuddy'
   const showCallbackPaste = activeOption?.provider === 'trae' || activeOption?.provider === 'devin'
   const busy = phase === 'busy' || phase === 'polling'
@@ -191,6 +196,14 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
     if (tab === 'pat' && !showPatTab) setTab('browser')
     if (tab === 'import' && !showImportTab) setTab('browser')
   }, [showImportTab, showPatTab, tab])
+
+  useEffect(() => {
+    // Providers without a browser login (e.g. Command Code) must not land on an
+    // empty browser tab; send the operator to the paste-key tab.
+    if (hasBrowserLogin) return
+    if (showPatTab) setTab('pat')
+    else if (showImportTab) setTab('import')
+  }, [hasBrowserLogin, showImportTab, showPatTab])
 
   function parsedMaxInFlight() {
     if (!Number.isInteger(maxInFlight) || maxInFlight < 1 || maxInFlight > 32) return 4
@@ -357,6 +370,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
       if (activeOption.descriptor.id === 'workbuddy') bundle.format = 'workbuddy-oauth-v1'
       else if (activeOption.descriptor.id === 'trae') bundle.format = 'trae-oauth-v1'
       else if (activeOption.descriptor.id === 'devin') bundle.format = 'devin-session-v1'
+      else if (activeOption.descriptor.id === 'command') bundle.format = 'command-key-v1'
       else bundle.format = 'qoder-native-v1'
     }
     try {
@@ -406,7 +420,9 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
   }))
 
   const methodOptions = [
-    { value: 'browser' as const, label: t('tabBrowser'), icon: <ShieldCheck size={16} /> },
+    activeOption?.descriptor.capabilities?.browser_login !== false
+      ? { value: 'browser' as const, label: t('tabBrowser'), icon: <ShieldCheck size={16} /> }
+      : null,
     showPatTab ? { value: 'pat' as const, label: t('tabPat'), icon: <Key size={16} /> } : null,
     showImportTab ? { value: 'import' as const, label: t('tabImport'), icon: <FileCode size={16} /> } : null,
   ].filter(Boolean) as Array<{ value: TabKey; label: string; icon: React.ReactNode }>
@@ -414,7 +430,11 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
   const tabLead = tab === 'browser'
     ? t('wizardBrowserLead')
     : tab === 'pat'
-      ? t(activeOption?.region === 'cn' && activeOption?.provider === 'qoder' ? 'wizardPatLeadCN' : 'wizardPatLead')
+      ? t(activeOption?.provider === 'command'
+          ? 'wizardPatLeadCommand'
+          : activeOption?.region === 'cn' && activeOption?.provider === 'qoder'
+            ? 'wizardPatLeadCN'
+            : 'wizardPatLead')
       : t('wizardImportLead')
 
   return (

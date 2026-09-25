@@ -89,6 +89,9 @@ export function quotaWindowLabel(window: AccountQuotaWindow, t: (key: string) =>
   if (window.id === 'daily') return t('quotaDaily')
   if (window.id === 'weekly') return t('quotaWeekly')
   if (window.id === 'monthly') return t('quotaMonthly')
+  if (window.id === 'fiveHour') return t('quotaFiveHour')
+  if (window.id === 'weeklyLimit') return t('quotaWeeklyLimit')
+  if (window.id === 'monthlyLimit') return t('quotaMonthlyLimit')
   return window.label || t('quota')
 }
 

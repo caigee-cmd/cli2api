@@ -4,7 +4,7 @@
 
 **把你自己的登录态，变成一个本机 OpenAI 兼容 API**
 
-接入 **Qoder（国际版 / 国内版）**、**WorkBuddy（国际版 / 国内版）**、**Trae 国内版 Work**，以及实验性的 **Devin**。
+接入 **Qoder（国际版 / 国内版）**、**WorkBuddy（国际版 / 国内版）**、**Trae 国内版 Work**，以及实验性的 **Devin** 和 **Command Code**。
 
 用 Docker 部署，在 Web 控制台管理账号，再通过兼容 API 接入客户端。
 
@@ -24,7 +24,7 @@
 - **统一控制台**：管理账号、模型、客户端密钥、代理设置，查看额度和请求日志。
 - **Docker 运维**：持久化账号数据；可选安装宿主机更新器，在控制台下载更新、确认升级和回滚。
 
-Qoder 国内版、WorkBuddy、Trae 的适配代码已实现，真账号验收仍未完成；Devin 为实验性接入，不承诺生产可用。托管更新的真实升级 / 回滚验收也尚未完成。
+Qoder 国内版、WorkBuddy、Trae 的适配代码已实现，真账号验收仍未完成；Devin 与 Command Code 为实验性接入，不承诺生产可用。托管更新的真实升级 / 回滚验收也尚未完成。
 
 ## 快速开始
 
@@ -59,7 +59,7 @@ API Key:  <在 API keys 页面创建的客户端密钥>
   <img src="./docs/assets/readme/architecture-zh.svg" width="100%" alt="CLI2API 架构：OpenAI 客户端经 Go 控制面路由到每账号独立运行时，再连接各 provider 上游">
 </p>
 
-Go 网关统一鉴权、调度和记录请求。Qoder 每个账号使用独立 Node 进程与 HOME；WorkBuddy、Trae、Devin 使用 Go 进程内适配器，不为每次请求启动完整 CLI。
+Go 网关统一鉴权、调度和记录请求。Qoder 每个账号使用独立 Node 进程与 HOME；WorkBuddy、Trae、Devin、Command Code 使用 Go 进程内适配器，不为每次请求启动完整 CLI。
 
 ## 控制台
 

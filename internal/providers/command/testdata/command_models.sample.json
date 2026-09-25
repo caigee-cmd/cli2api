@@ -1,0 +1,122 @@
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "claude-sonnet-5",
+      "object": "model",
+      "created": 1790215590,
+      "owned_by": "command-code",
+      "name": "Claude Sonnet 5",
+      "context_length": 1000000,
+      "supported_endpoints": [
+        "/messages"
+      ]
+    },
+    {
+      "id": "claude-opus-4-8",
+      "object": "model",
+      "created": 1790215590,
+      "owned_by": "command-code",
+      "name": "Claude Opus 4.8",
+      "context_length": 1000000,
+      "supported_endpoints": [
+        "/messages"
+      ]
+    },
+    {
+      "id": "claude-haiku-4-5-20251001",
+      "object": "model",
+      "created": 1790215590,
+      "owned_by": "command-code",
+      "name": "Claude Haiku 4.5",
+      "context_length": 200000,
+      "supported_endpoints": [
+        "/messages"
+      ]
+    },
+    {
+      "id": "deepseek/deepseek-v4-pro",
+      "object": "model",
+      "created": 1790215590,
+      "owned_by": "command-code",
+      "name": "DeepSeek V4 Pro (latest)",
+      "context_length": 1000000,
+      "supported_endpoints": [
+        "/chat/completions",
+        "/responses"
+      ]
+    },
+    {
+      "id": "deepseek/deepseek-v4-flash",
+      "object": "model",
+      "created": 1790215590,
+      "owned_by": "command-code",
+      "name": "DeepSeek V4 Flash (latest)",
+      "context_length": 1000000,
+      "supported_endpoints": [
+        "/chat/completions",
+        "/responses"
+      ]
+    },
+    {
+      "id": "moonshotai/Kimi-K3",
+      "object": "model",
+      "created": 1790215590,
+      "owned_by": "command-code",
+      "name": "Kimi K3",
+      "context_length": 1000000,
+      "supported_endpoints": [
+        "/chat/completions",
+        "/responses"
+      ]
+    },
+    {
+      "id": "zai-org/GLM-5.2",
+      "object": "model",
+      "created": 1790215590,
+      "owned_by": "command-code",
+      "name": "GLM-5.2",
+      "context_length": 1000000,
+      "supported_endpoints": [
+        "/chat/completions",
+        "/responses"
+      ]
+    },
+    {
+      "id": "Qwen/Qwen3.7-Max",
+      "object": "model",
+      "created": 1790215590,
+      "owned_by": "command-code",
+      "name": "Qwen 3.7 Max",
+      "context_length": 1000000,
+      "supported_endpoints": [
+        "/chat/completions",
+        "/responses"
+      ]
+    },
+    {
+      "id": "stepfun/Step-3.7-Flash",
+      "object": "model",
+      "created": 1790215590,
+      "owned_by": "command-code",
+      "name": "Step 3.7 Flash",
+      "context_length": 256000,
+      "supported_endpoints": [
+        "/chat/completions",
+        "/responses"
+      ]
+    },
+    {
+      "id": "tencent/hy3-paid",
+      "object": "model",
+      "created": 1790215590,
+      "owned_by": "command-code",
+      "name": "Tencent Hy3",
+      "context_length": 262144,
+      "supported_endpoints": [
+        "/chat/completions",
+        "/responses"
+      ]
+    }
+  ]
+}

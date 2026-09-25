@@ -4,7 +4,7 @@
 
 **Turn your own logins into a local OpenAI-compatible API**
 
-Connect **Qoder (Global / CN)**, **WorkBuddy (Global / CN)**, **Trae CN Work**, and experimental **Devin** accounts.
+Connect **Qoder (Global / CN)**, **WorkBuddy (Global / CN)**, **Trae CN Work**, and experimental **Devin** and **Command Code** accounts.
 
 Deploy with Docker, manage accounts in the web console, and connect clients through compatible APIs.
 
@@ -24,7 +24,7 @@ Deploy with Docker, manage accounts in the web console, and connect clients thro
 - **Web console**: manage accounts, models, client keys, and proxies; view quotas and request logs.
 - **Docker operations**: persistent account data; an optional host updater lets you download, confirm, and roll back updates from the console.
 
-Qoder CN, WorkBuddy, and Trae adapters are implemented, but live-account acceptance is still pending. Devin is experimental, not production-ready. Live upgrade and rollback acceptance is also pending.
+Qoder CN, WorkBuddy, and Trae adapters are implemented, but live-account acceptance is still pending. Devin and Command Code are experimental, not production-ready. Live upgrade and rollback acceptance is also pending.
 
 ## Quick start
 
@@ -59,7 +59,7 @@ Get a model ID from **Access** or `/v1/models`. Routing is automatic and prefers
   <img src="./docs/assets/readme/architecture-en.svg" width="100%" alt="CLI2API architecture: OpenAI clients are routed by the Go control plane to one isolated runtime per account, then to the provider upstream">
 </p>
 
-The Go gateway handles authentication, routing, and request logging. Each Qoder account has its own Node process and HOME; WorkBuddy, Trae, and Devin use Go in-process adapters. No full CLI is started per request.
+The Go gateway handles authentication, routing, and request logging. Each Qoder account has its own Node process and HOME; WorkBuddy, Trae, Devin, and Command Code use Go in-process adapters. No full CLI is started per request.
 
 ## Console
 

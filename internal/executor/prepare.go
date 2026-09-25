@@ -136,9 +136,15 @@ func (e ChatExecutor) Prepare(in PrepareInput) (PreparedRequest, error) {
 	}, nil
 }
 
+// providerPrefixes are the provider segments a client may pin with a leading
+// "<provider>/" model id. Command Code's own model ids are org-namespaced
+// ("deepseek/…", "moonshotai/…"), so its provider prefix sits in front of an
+// already-namespaced id ("command/deepseek/…").
+var providerPrefixes = []string{"qoder/", "workbuddy/", "trae/", "devin/", "command/"}
+
 func ProviderPrefix(model string) string {
 	model = strings.TrimSpace(model)
-	for _, prefix := range []string{"qoder/", "workbuddy/", "trae/", "devin/"} {
+	for _, prefix := range providerPrefixes {
 		if strings.HasPrefix(model, prefix) {
 			return strings.TrimSuffix(prefix, "/")
 		}

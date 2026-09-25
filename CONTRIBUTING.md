@@ -1,7 +1,7 @@
 # Contributing
 
 CLI2API keeps the Qoder execution path stable while supporting provider-specific
-adapters for Qoder, WorkBuddy, Trae, and experimental Devin. Keep new provider work behind the shared
+adapters for Qoder, WorkBuddy, Trae, and experimental Devin and Command Code. Keep new provider work behind the shared
 account, routing, and protocol contracts. Read [AGENTS.md](AGENTS.md) for hard rules, [docs/ARCHITECTURE_SUMMARY.md](docs/ARCHITECTURE_SUMMARY.md) for the public backend map, and [docs/REFACTORING.md](docs/REFACTORING.md) for accepted package boundaries. Preserve existing uncommitted work;
 before feature work, fetch and merge the latest `origin/main` into your branch.
 

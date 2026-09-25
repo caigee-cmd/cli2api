@@ -1,6 +1,6 @@
 # AGENTS
 
-Go + Node gateway for personal Qoder, WorkBuddy, Trae CN Work, and experimental Devin accounts, with OpenAI / Anthropic-compatible endpoints.
+Go + Node gateway for personal Qoder, WorkBuddy, Trae CN Work, and experimental Devin and Command Code accounts, with OpenAI / Anthropic-compatible endpoints.
 
 ## Docs
 

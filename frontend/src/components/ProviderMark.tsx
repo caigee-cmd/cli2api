@@ -1,3 +1,4 @@
+import { CommandMark } from '@/components/CommandMark'
 import { DevinMark } from '@/components/DevinMark'
 import { QoderMark } from '@/components/QoderMark'
 import { TraeMark } from '@/components/TraeMark'
@@ -20,6 +21,9 @@ export function ProviderMark({ provider, size = 16, className = '' }: Props) {
   }
   if (id === 'devin') {
     return <DevinMark size={size} className={className} />
+  }
+  if (id === 'command') {
+    return <CommandMark size={size} className={className} />
   }
   return <QoderMark size={size} className={className} />
 }

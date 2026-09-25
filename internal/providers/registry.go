@@ -190,11 +190,38 @@ var Devin = ProviderDescriptor{
 	DefaultRegion: "global",
 }
 
+// Command descriptor. Protocol constants stay in internal/providers/command.
+// Global-only in-process adapter. Auth is a single pasted user_… Bearer key
+// shared by the CLI and the API: no OAuth, no browser loopback. Generation goes
+// through /alpha/generate, the CLI's own endpoint, so the $1 Go plan (which has
+// no /provider/v1/* API access) is served too.
+var Command = ProviderDescriptor{
+	ID:                "command",
+	Label:             "Command Code",
+	Runtime:           RuntimeInProcess,
+	AuthTypes:         []AuthType{AuthPAT},
+	CredentialFormats: []string{"command-key-v1"},
+	Capabilities: ProviderCapabilities{
+		Chat: true, Stream: true, Tools: true, Images: true, Reasoning: false,
+		ModelCatalog: true, Usage: true, Login: false, BrowserLogin: false,
+		PATLogin: true, ImportExport: true,
+	},
+	Regions: []RegionDescriptor{
+		{
+			ID: "global", Label: "Global", ChatBase: "https://api.commandcode.ai",
+			BillingBase: "https://api.commandcode.ai", AuthBase: "https://api.commandcode.ai",
+			DefaultDomain: "commandcode.ai",
+		},
+	},
+	DefaultRegion: "global",
+}
+
 var registry = map[string]ProviderDescriptor{
 	Qoder.ID:     Qoder,
 	WorkBuddy.ID: WorkBuddy,
 	Trae.ID:      Trae,
 	Devin.ID:     Devin,
+	Command.ID:   Command,
 }
 
 func Get(id string) (ProviderDescriptor, bool) {
@@ -203,7 +230,7 @@ func Get(id string) (ProviderDescriptor, bool) {
 }
 
 func List() []ProviderDescriptor {
-	return []ProviderDescriptor{Qoder, WorkBuddy, Trae, Devin}
+	return []ProviderDescriptor{Qoder, WorkBuddy, Trae, Devin, Command}
 }
 
 // Resolve validates a provider/region pair. Empty values fall back to the

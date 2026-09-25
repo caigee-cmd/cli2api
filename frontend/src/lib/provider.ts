@@ -15,6 +15,10 @@ export function isDevinProvider(provider?: string) {
   return String(provider || '').toLowerCase() === 'devin'
 }
 
+export function isCommandProvider(provider?: string) {
+  return String(provider || '').toLowerCase() === 'command'
+}
+
 export function accountProviderFamilyLabel(
   provider: string | undefined,
   t: (key: string) => string,
@@ -23,6 +27,7 @@ export function accountProviderFamilyLabel(
   if (isWorkBuddyProvider(providerID)) return 'WorkBuddy'
   if (isTraeProvider(providerID)) return 'Trae'
   if (isDevinProvider(providerID)) return 'Devin'
+  if (isCommandProvider(providerID)) return 'Command Code'
   if (isQoderProvider(providerID)) return 'Qoder'
   return provider || t('account')
 }
@@ -42,6 +47,9 @@ export function accountProviderLabel(
   }
   if (isDevinProvider(providerID)) {
     return t('accountTypeDevinGlobal')
+  }
+  if (isCommandProvider(providerID)) {
+    return t('accountTypeCommandGlobal')
   }
   if (isQoderProvider(providerID)) {
     return regionID === 'cn' ? t('accountTypeQoderCN') : t('accountTypeQoderGlobal')

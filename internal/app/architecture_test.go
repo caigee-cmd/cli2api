@@ -176,7 +176,7 @@ func isConcreteProvider(imp string) bool {
 	rest := strings.TrimPrefix(imp, prefix)
 	root, _, _ := strings.Cut(rest, "/")
 	switch root {
-	case "qoder", "workbuddy", "trae", "devin":
+	case "qoder", "workbuddy", "trae", "devin", "command":
 		return true
 	default:
 		return false
