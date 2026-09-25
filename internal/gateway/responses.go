@@ -1,14 +1,17 @@
 package gateway
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
+	"github.com/caigee-cmd/cli2api/internal/executor"
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
@@ -17,24 +20,66 @@ func (h *Handler) HandleResponses(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "POST only")
 		return
 	}
-	var source translate.ResponsesRequest
-	if err := json.NewDecoder(r.Body).Decode(&source); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
-		return
-	}
-	request, err := translate.TranslateResponses(source)
+	body, err := io.ReadAll(io.LimitReader(r.Body, translate.MaxNativeRequestBytes+1))
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	execution, err := h.PrepareCompatibilityExecution(r, request)
+	if len(body) > translate.MaxNativeRequestBytes {
+		writeErr(w, http.StatusRequestEntityTooLarge, "invalid_request", "request body too large")
+		return
+	}
+	native, err := translate.ParseNativeResponses(body)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	var translated translate.ResponsesTranslation
+	compat, compatErr := native.Compat()
+	if compatErr == nil {
+		translated = compat
+	}
+	compatRequest := translate.ChatRequest{Model: native.Model(), Stream: native.Stream()}
+	if compatErr == nil {
+		compatRequest = translated.Chat
+	}
+	execution, err := h.PrepareNativeResponsesExecution(r, native, compatRequest)
 	if err != nil {
 		writeCompatibilityOpenAIError(w, err)
+		return
+	}
+	execution.ResponseToolNames = translated.ToolNames
+	if len(execution.ResponseToolNames) == 0 && execution.NativeRequest != nil {
+		execution.ResponseToolNames = translate.ResponseToolNames(execution.NativeRequest.Body())
+	}
+	execution.UseNativeResponses = h.Executor.HasNativeResponsesRoute(execution.Context, execution.Request, execution.Prefer, execution.ProviderFilter)
+	if !execution.UseNativeResponses && compatErr != nil {
+		writeErr(w, http.StatusBadRequest, "unsupported_request", "this Responses request requires a native Responses adapter")
 		return
 	}
 	w.Header().Set("X-Request-Id", execution.RequestID)
 	if execution.Request.Stream {
 		h.handleResponsesStream(w, r, execution)
+		return
+	}
+	if execution.UseNativeResponses {
+		nativeResult, err := h.Executor.NativeResponsesNonStream(execution.Context, execution.Request, execution.NativeRequest, execution.Prefer, execution.ProviderFilter)
+		if err != nil || nativeResult.FinishReason == "error" {
+			if err == nil {
+				err = fmt.Errorf("upstream Responses request failed")
+			}
+			h.finishCompatibility(execution, nativeResult.AccountID, nativeResult.Provider, nativeResult.Routing, accounts.RequestStatusError, 0, nil, err, nativeResult.AttemptCount, nativeResult.ReasoningLevel)
+			writeCompatibilityOpenAIError(w, err)
+			return
+		}
+		h.finishCompatibility(execution, nativeResult.AccountID, nativeResult.Provider, nativeResult.Routing, responsesRequestStatus(nativeResult.FinishReason), 0, &StreamRelayStats{
+			PromptTokens: nativeResult.PromptTokens, CompletionTokens: nativeResult.OutputTokens, CachedTokens: nativeResult.CachedTokens,
+			FinishReason: nativeResult.FinishReason,
+		}, nil, nativeResult.AttemptCount, nativeResult.ReasoningLevel)
+		response := restoreNativeResponseJSON(nativeResult.Response, execution.ResponseToolNames)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(response)
 		return
 	}
 	result, err := h.Executor.ChatNonStream(execution.Context, execution.Request, execution.Prefer, execution.ProviderFilter)
@@ -55,12 +100,18 @@ func (h *Handler) HandleResponses(w http.ResponseWriter, r *http.Request) {
 		decodeOpenAIToolCalls(result.ToolCalls), result.PromptTokens, result.CompletionTokens, result.FinishReason,
 		result.CacheReadTokens, result.CachedTokens,
 	)
-	translate.RestoreResponseToolNames(response, execution.Request.ResponseToolNames)
+	translate.RestoreResponseToolNames(response, execution.ResponseToolNames)
 	writeJSON(w, http.StatusOK, response)
 }
 
 func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, execution Execution) {
-	upstream, err := h.Executor.ChatStreamProxy(execution.Context, execution.Request, execution.Prefer, execution.ProviderFilter)
+	var upstream executor.StreamResult
+	var err error
+	if execution.UseNativeResponses {
+		upstream, err = h.Executor.ChatStreamProxyNativeResponses(execution.Context, execution.Request, execution.NativeRequest, execution.Prefer, execution.ProviderFilter)
+	} else {
+		upstream, err = h.Executor.ChatStreamProxy(execution.Context, execution.Request, execution.Prefer, execution.ProviderFilter)
+	}
 	if err != nil {
 		h.finishCompatibility(execution, upstream.AccountID, upstream.Provider, upstream.Routing, accounts.RequestStatusError, upstream.TTFBMs, nil, err, upstream.AttemptCount, upstream.ReasoningLevel)
 		writeCompatibilityOpenAIError(w, err)
@@ -74,7 +125,15 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 		flusher.Flush()
 	}
 	writer := compatibilityStreamWriter(w)
-	stats, relayErr := RelayResponsesStream(writer, upstream.Response.Body, execution.RequestID, firstNonEmpty(execution.PublicModel, execution.Request.Model), execution.Request.ResponseToolNames)
+	var stats StreamRelayStats
+	var relayErr error
+	if upstream.NativeResponses {
+		// The upstream already speaks the Responses protocol: relay verbatim and
+		// observe the terminal event for usage/finish accounting.
+		stats, relayErr = RelayNativeResponsesStream(writer, upstream.Response.Body, execution.ResponseToolNames)
+	} else {
+		stats, relayErr = RelayResponsesStream(writer, upstream.Response.Body, execution.RequestID, firstNonEmpty(execution.PublicModel, execution.Request.Model), execution.ResponseToolNames)
+	}
 	status := streamRequestStatus(relayErr)
 	if relayErr == nil {
 		status = responsesRequestStatus(stats.FinishReason)
@@ -93,10 +152,30 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 		h.Executor.CommitSession(execution.Context, execution.Request, upstream.Routing, upstream.AccountID)
 		return
 	}
-	if !IsStreamClientDisconnect(relayErr) {
+	// A native failure event was already relayed as the stream's terminal
+	// frame. Appending a second error event would contradict it.
+	if !IsStreamClientDisconnect(relayErr) && !(upstream.NativeResponses && stats.FinishReason == "error") {
 		_ = writeResponsesStreamError(writer, relayErr)
 	}
 	h.observeCompatibilityStreamFailure(r, execution, upstream, relayErr)
+}
+
+func restoreNativeResponseJSON(raw json.RawMessage, names map[string]translate.ResponseToolName) []byte {
+	if len(names) == 0 {
+		return raw
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	var value any
+	if decoder.Decode(&value) != nil {
+		return raw
+	}
+	translate.RestoreResponseToolNames(value, names)
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return raw
+	}
+	return encoded
 }
 
 func writeCompatibilityOpenAIError(w http.ResponseWriter, err error) {

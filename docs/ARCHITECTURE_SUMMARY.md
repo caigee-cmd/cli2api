@@ -5,8 +5,8 @@ scope: [backend, runtime, providers, routing, console]
 status: canonical
 read-when: 需要快速理解后端分层、请求路径、运行时和 provider 扩展边界时
 summary: 面向贡献者和 AI 的精简架构摘要；详细协议、里程碑和本地运维资料不在本文维护。
-related: [AGENTS.md, CONTRIBUTING.md, docs/DESIGN.md, docs/REFACTORING.md]
-last-updated: 2026-09-20
+related: [AGENTS.md, CONTRIBUTING.md, docs/DESIGN.md, docs/REFACTORING.md, docs/NATIVE_PROTOCOL_REQUESTS.md]
+last-updated: 2026-09-24
 ---
 
 # CLI2API 架构摘要
@@ -84,6 +84,11 @@ cmd/server
 - API 返回中不得暴露原始 token、auth blob、密钥明文、host 路径或凭证 payload。
 - 管理接口必须认证；默认只绑定本机，不要直接暴露 host 端口到公网。
 - 不提交 `.env`、auth blob、token、raw capture、主机 IP、私有部署 runbook。
+
+## 待实施的原生协议请求设计
+
+三个公共入口与上游协议的对应关系、双路径分派及 Responses 原生请求的演进方案，见 [原生协议请求架构与渐进改造方案](NATIVE_PROTOCOL_REQUESTS.md)。
+该文档状态为 `proposed`：保留 `ChatRequest` 兼容路径，通过显式请求封装和可选原生能力避免同协议往返转换；不是当前实现或已发布能力声明。
 
 ## 修改前检查
 

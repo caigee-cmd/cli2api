@@ -49,12 +49,13 @@ func TestResponsesNamespaceHistoryAndChoice(t *testing.T) {
 		t.Fatal(err)
 	}
 	source.Tools = json.RawMessage(namespaceTestTools)
-	chat, err := TranslateResponses(source)
+	translated, err := TranslateResponsesRequest(source)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if chat.ResponseToolNames["mcp__fastctx__glob"] != (ResponseToolName{Namespace: "mcp__fastctx", Name: "glob"}) {
-		t.Fatal(chat.ResponseToolNames)
+	chat := translated.Chat
+	if translated.ToolNames["mcp__fastctx__glob"] != (ResponseToolName{Namespace: "mcp__fastctx", Name: "glob"}) {
+		t.Fatal(translated.ToolNames)
 	}
 	if !strings.Contains(string(chat.Messages[1].ToolCalls), `"name":"mcp__fastctx__glob"`) {
 		t.Fatal(string(chat.Messages[1].ToolCalls))
@@ -76,12 +77,12 @@ func TestResponsesNamespaceAdditionalTools(t *testing.T) {
 	if err := json.Unmarshal([]byte(`{"model":"test","input":[{"role":"user","content":"find"},{"type":"additional_tools","tools":`+namespaceTestTools+`}]}`), &source); err != nil {
 		t.Fatal(err)
 	}
-	chat, err := TranslateResponses(source)
+	translated, err := TranslateResponsesRequest(source)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(chat.ResponseToolNames) != 1 {
-		t.Fatalf("additional tools mapping=%v", chat.ResponseToolNames)
+	if len(translated.ToolNames) != 1 {
+		t.Fatalf("additional tools mapping=%v", translated.ToolNames)
 	}
 }
 
