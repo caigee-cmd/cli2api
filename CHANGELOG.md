@@ -3,6 +3,16 @@
 Published user-facing notes for GitHub Releases and the console update page.
 Write upcoming notes as bilingual files in `changelog/unreleased/`.
 
+## 0.6.9 - 2026-09-25
+
+### English
+
+- Choose an account type from cards instead of a dropdown, with a Codex mark and a scrollable list that keeps the dialog width stable.
+
+### 中文
+
+- 新建账号改为卡片选择渠道，补上 Codex 图标；渠道过多时列表在固定高度内滚动，弹窗保持加宽后的宽度。
+
 ## 0.6.8 - 2026-09-25
 
 ### English
