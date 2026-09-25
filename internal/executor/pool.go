@@ -83,6 +83,10 @@ type RouteQuery struct {
 	RegionFilter     string
 	AllowedProviders []string
 	Excluded         map[string]struct{}
+	// Eligible, when set, admits only items that can serve the request's
+	// protocol (for example native Responses input the chat form cannot
+	// carry). Nil admits every item.
+	Eligible func(Item) bool
 }
 
 func itemRegion(item Item) string {
@@ -251,6 +255,9 @@ func routeBaseMatches(item Item, q RouteQuery) bool {
 		return false
 	}
 	if q.RegionFilter != "" && itemRegion(item) != NormalizeRegion(q.RegionFilter) {
+		return false
+	}
+	if q.Eligible != nil && !q.Eligible(item) {
 		return false
 	}
 	return true

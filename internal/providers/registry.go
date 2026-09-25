@@ -216,12 +216,36 @@ var Command = ProviderDescriptor{
 	DefaultRegion: "global",
 }
 
+// Codex descriptor. OpenAI Codex (ChatGPT subscription) via the ChatGPT
+// backend Responses endpoint; OAuth with a fixed loopback redirect.
+var Codex = ProviderDescriptor{
+	ID:                "codex",
+	Label:             "Codex",
+	Runtime:           RuntimeInProcess,
+	AuthTypes:         []AuthType{AuthOAuth},
+	CredentialFormats: []string{"codex-oauth-v1"},
+	Capabilities: ProviderCapabilities{
+		Chat: true, Stream: true, Tools: true, Images: true, Reasoning: true,
+		ModelCatalog: true, Usage: true, Login: true, BrowserLogin: true,
+		PATLogin: false, ImportExport: true,
+	},
+	Regions: []RegionDescriptor{
+		{
+			ID: "global", Label: "Global", ChatBase: "https://chatgpt.com/backend-api/codex",
+			AuthBase: "https://auth.openai.com", BillingBase: "https://chatgpt.com",
+			DefaultDomain: "chatgpt.com",
+		},
+	},
+	DefaultRegion: "global",
+}
+
 var registry = map[string]ProviderDescriptor{
 	Qoder.ID:     Qoder,
 	WorkBuddy.ID: WorkBuddy,
 	Trae.ID:      Trae,
 	Devin.ID:     Devin,
 	Command.ID:   Command,
+	Codex.ID:     Codex,
 }
 
 func Get(id string) (ProviderDescriptor, bool) {
@@ -230,7 +254,7 @@ func Get(id string) (ProviderDescriptor, bool) {
 }
 
 func List() []ProviderDescriptor {
-	return []ProviderDescriptor{Qoder, WorkBuddy, Trae, Devin, Command}
+	return []ProviderDescriptor{Qoder, WorkBuddy, Trae, Devin, Command, Codex}
 }
 
 // Resolve validates a provider/region pair. Empty values fall back to the

@@ -105,6 +105,35 @@ type ProviderChat interface {
 	ChatStream(ctx context.Context, accountID string, req translate.ChatRequest) (*http.Response, ResolvedChat, error)
 }
 
+// StreamFormatNames the SSE dialect a ProviderChat.ChatStream body speaks.
+// Empty means OpenAI chat-completions deltas (the shared internal contract);
+// "responses" means the upstream already emits OpenAI Responses events and the
+// /v1/responses endpoint can relay them without translation.
+const StreamFormatResponses = "responses"
+
+// RequestOptions are the per-attempt execution decisions the executor makes
+// for one picked account. They travel explicitly, never through ctx, and are
+// recomputed for every failover attempt.
+type RequestOptions struct {
+	// Model is the upstream model id resolved for this account (its catalog
+	// spelling), not the public id the client sent.
+	Model string
+	// DropSystemPrompt removes caller system/developer prompts before send
+	// (account policy for upstreams with content screening).
+	DropSystemPrompt bool
+}
+
+// NativeResponsesStreamer is the optional native OpenAI Responses capability.
+// An adapter implements it only when its upstream speaks Responses and it can
+// build the upstream request from the client's original Responses body, so
+// item identity, reasoning replay, and unknown members survive. The returned
+// body is always an upstream Responses SSE stream; a non-stream client call
+// collects it. Adapters without it serve /v1/responses through ChatStream /
+// ChatNonStream and the shared chat form.
+type NativeResponsesStreamer interface {
+	ResponsesStream(ctx context.Context, accountID string, req *translate.NativeResponsesRequest, options RequestOptions) (*http.Response, ResolvedChat, error)
+}
+
 // ModelCatalogProvider lists models an account can currently serve.
 type ModelCatalogProvider interface {
 	Models(ctx context.Context, accountID string) ([]ModelInfo, error)
@@ -225,6 +254,12 @@ type Adapter struct {
 	ImportExport ImportExporter
 	Prober       AccountProber
 	Checkin      AccountCheckiner
+	// StreamFormat declares the SSE dialect ChatStream returns (see
+	// StreamFormat* constants). Empty means chat-completions deltas.
+	StreamFormat string
+	// NativeResponses is the optional native Responses capability. When set,
+	// /v1/responses requests routed to this adapter skip the chat form.
+	NativeResponses NativeResponsesStreamer
 }
 
 func (a Adapter) Supports(capability string) bool {
@@ -245,6 +280,8 @@ func (a Adapter) Supports(capability string) bool {
 		return a.Prober != nil
 	case "checkin":
 		return a.Checkin != nil
+	case "native_responses":
+		return a.NativeResponses != nil
 	default:
 		return false
 	}

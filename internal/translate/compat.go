@@ -161,9 +161,33 @@ func TranslateAnthropicMessages(request AnthropicMessagesRequest) (ChatRequest, 
 	return chat, nil
 }
 
+// ResponsesTranslation is a Responses request in the shared chat form plus the
+// request-local tool identity the gateway needs to restore on the way out.
+// ToolNames never travels with Chat: providers only ever see flattened names.
+type ResponsesTranslation struct {
+	Chat      ChatRequest
+	ToolNames map[string]ResponseToolName
+}
+
+// TranslateResponses converts a Responses request into the shared chat form.
+// Callers that relay a Responses reply must use TranslateResponsesRequest so
+// they can restore namespaced tool names.
 func TranslateResponses(request ResponsesRequest) (ChatRequest, error) {
+	translated, err := TranslateResponsesRequest(request)
+	return translated.Chat, err
+}
+
+func TranslateResponsesRequest(request ResponsesRequest) (ResponsesTranslation, error) {
+	chat, names, err := translateResponses(request)
+	if err != nil {
+		return ResponsesTranslation{}, err
+	}
+	return ResponsesTranslation{Chat: chat, ToolNames: names}, nil
+}
+
+func translateResponses(request ResponsesRequest) (ChatRequest, map[string]ResponseToolName, error) {
 	if strings.TrimSpace(request.PreviousID) != "" || !emptyJSON(request.Conversation) {
-		return ChatRequest{}, fmt.Errorf("previous_response_id and conversation are not supported; send the complete conversation in input")
+		return ChatRequest{}, nil, fmt.Errorf("previous_response_id and conversation are not supported; send the complete conversation in input")
 	}
 	chat := ChatRequest{
 		Model:             strings.TrimSpace(request.Model),
@@ -174,12 +198,12 @@ func TranslateResponses(request ResponsesRequest) (ChatRequest, error) {
 		ParallelToolCalls: request.ParallelToolCalls,
 	}
 	if chat.Model == "" {
-		return ChatRequest{}, fmt.Errorf("model required")
+		return ChatRequest{}, nil, fmt.Errorf("model required")
 	}
 	if len(request.Instructions) > 0 && string(request.Instructions) != "null" {
 		instructions, err := compatibilityText(request.Instructions, map[string]bool{"input_text": true, "output_text": true, "text": true})
 		if err != nil {
-			return ChatRequest{}, fmt.Errorf("instructions: %w", err)
+			return ChatRequest{}, nil, fmt.Errorf("instructions: %w", err)
 		}
 		if instructions != "" {
 			chat.Messages = append(chat.Messages, ChatMessage{Role: "system", Content: instructions})
@@ -187,29 +211,29 @@ func TranslateResponses(request ResponsesRequest) (ChatRequest, error) {
 	}
 	inputMessages, err := translateResponsesInput(request.Input)
 	if err != nil {
-		return ChatRequest{}, err
+		return ChatRequest{}, nil, err
 	}
 	chat.Messages = append(chat.Messages, inputMessages...)
 	if len(chat.Messages) == 0 {
-		return ChatRequest{}, fmt.Errorf("input required")
+		return ChatRequest{}, nil, fmt.Errorf("input required")
 	}
 	additionalTools, err := responsesAdditionalTools(request.Input)
 	if err != nil {
-		return ChatRequest{}, err
+		return ChatRequest{}, nil, err
 	}
 	mergedTools := mergeJSONArray(request.Tools, additionalTools)
-	chat.ResponseToolNames, err = responseToolNames(mergedTools)
+	toolNames, err := responseToolNames(mergedTools)
 	if err != nil {
-		return ChatRequest{}, err
+		return ChatRequest{}, nil, err
 	}
 	tools, err := translateResponsesTools(mergedTools)
 	if err != nil {
-		return ChatRequest{}, err
+		return ChatRequest{}, nil, err
 	}
 	chat.Tools = tools
 	toolChoice, err := translateResponsesToolChoice(request.ToolChoice)
 	if err != nil {
-		return ChatRequest{}, err
+		return ChatRequest{}, nil, err
 	}
 	// Codex Desktop compact / recovery turns can keep a tool_choice while
 	// tools normalize to empty (hosted shells dropped, etc). Drop the
@@ -217,12 +241,12 @@ func TranslateResponses(request ResponsesRequest) (ChatRequest, error) {
 	chat.ToolChoice = sanitizeToolChoice(chat.Tools, toolChoice)
 	chat.ResponseFormat, err = translateResponsesTextFormat(request.Text)
 	if err != nil {
-		return ChatRequest{}, err
+		return ChatRequest{}, nil, err
 	}
 	if err := validateToolChoice(chat.Tools, chat.ToolChoice); err != nil {
-		return ChatRequest{}, err
+		return ChatRequest{}, nil, err
 	}
-	return chat, nil
+	return chat, toolNames, nil
 }
 
 func anthropicMessageParts(raw json.RawMessage) (any, []compatibilityToolCall, []compatibilityToolResult, error) {
