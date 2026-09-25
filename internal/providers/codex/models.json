@@ -1,0 +1,196 @@
+{
+  "models": [
+    {
+      "slug": "gpt-6-astra",
+      "display_name": "GPT-6-Astra",
+      "context_window": 272000,
+      "max_context_window": 872000,
+      "default_reasoning_level": "medium",
+      "supported_reasoning_levels": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+        "ultra"
+      ],
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "prefer_websockets": true,
+      "use_responses_lite": true,
+      "supported_in_api": true
+    },
+    {
+      "slug": "gpt-6-sol",
+      "display_name": "GPT-6-Sol",
+      "context_window": 272000,
+      "max_context_window": 872000,
+      "default_reasoning_level": "medium",
+      "supported_reasoning_levels": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+        "ultra"
+      ],
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "prefer_websockets": true,
+      "use_responses_lite": true,
+      "supported_in_api": true
+    },
+    {
+      "slug": "gpt-6-luna",
+      "display_name": "GPT-6-Luna",
+      "context_window": 272000,
+      "max_context_window": 872000,
+      "default_reasoning_level": "medium",
+      "supported_reasoning_levels": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "prefer_websockets": true,
+      "use_responses_lite": true,
+      "supported_in_api": true
+    },
+    {
+      "slug": "gpt-reserve",
+      "display_name": "GPT-Reserve",
+      "context_window": 272000,
+      "max_context_window": 872000,
+      "default_reasoning_level": "medium",
+      "supported_reasoning_levels": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "prefer_websockets": true,
+      "use_responses_lite": true,
+      "supported_in_api": true
+    },
+    {
+      "slug": "gpt-5.6-sol",
+      "display_name": "GPT-5.6-Sol",
+      "context_window": 272000,
+      "max_context_window": 872000,
+      "default_reasoning_level": "low",
+      "supported_reasoning_levels": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+        "ultra"
+      ],
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "prefer_websockets": true,
+      "use_responses_lite": true,
+      "supported_in_api": true
+    },
+    {
+      "slug": "gpt-5.6-terra",
+      "display_name": "GPT-5.6-Terra",
+      "context_window": 272000,
+      "max_context_window": 872000,
+      "default_reasoning_level": "medium",
+      "supported_reasoning_levels": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+        "ultra"
+      ],
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "prefer_websockets": true,
+      "use_responses_lite": true,
+      "supported_in_api": true
+    },
+    {
+      "slug": "gpt-5.6-luna",
+      "display_name": "GPT-5.6-Luna",
+      "context_window": 272000,
+      "max_context_window": 872000,
+      "default_reasoning_level": "medium",
+      "supported_reasoning_levels": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "prefer_websockets": true,
+      "use_responses_lite": true,
+      "supported_in_api": true
+    },
+    {
+      "slug": "gpt-5.5",
+      "display_name": "GPT-5.5",
+      "context_window": 272000,
+      "max_context_window": 272000,
+      "default_reasoning_level": "medium",
+      "supported_reasoning_levels": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "prefer_websockets": true,
+      "use_responses_lite": false,
+      "supported_in_api": true
+    },
+    {
+      "slug": "codex-auto-review",
+      "display_name": "Codex Auto Review",
+      "context_window": 272000,
+      "max_context_window": 872000,
+      "default_reasoning_level": "medium",
+      "supported_reasoning_levels": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "prefer_websockets": true,
+      "use_responses_lite": true,
+      "supported_in_api": true
+    }
+  ]
+}
