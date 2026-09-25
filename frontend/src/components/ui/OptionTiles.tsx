@@ -15,6 +15,7 @@ type Props<T extends string> = {
   onChange: (value: T) => void
   ariaLabel: string
   columns?: 1 | 2 | 3
+  className?: string
 }
 
 const columnClass = {
@@ -29,6 +30,7 @@ export function OptionTiles<T extends string>({
   onChange,
   ariaLabel,
   columns = 2,
+  className = '',
 }: Props<T>) {
   return (
     <RadioGroup
@@ -37,7 +39,7 @@ export function OptionTiles<T extends string>({
       onChange={(next) => {
         if (typeof next === 'string' && next) onChange(next as T)
       }}
-      className={`grid gap-2 ${columnClass[columns]}`}
+      className={`grid gap-2 ${columnClass[columns]} ${className}`.trim()}
     >
       {options.map((option) => (
         <Radio
