@@ -542,7 +542,7 @@ func TestManagerRefreshFetchesQuotaWithoutAffectingHealth(t *testing.T) {
 	if item.Quota == nil {
 		t.Fatalf("expected quota snapshot on pool item, got %+v", item)
 	}
-	if item.Quota.Used != 150 || item.Quota.Total != 600 || item.Quota.Unit != "credits" || item.Quota.Exceeded {
+	if item.Quota.Used != 190 || item.Quota.Total != 700 || item.Quota.Unit != "credits" || item.Quota.Exceeded {
 		t.Fatalf("quota snapshot = %+v", item.Quota)
 	}
 	if !item.Quota.HasAddOn || item.Quota.AddOnTotal != 100 || item.Quota.AddOnUsed != 40 {
@@ -552,7 +552,7 @@ func TestManagerRefreshFetchesQuotaWithoutAffectingHealth(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(views) != 1 || views[0].Quota == nil || views[0].Quota.Remaining != 450 {
+	if len(views) != 1 || views[0].Quota == nil || views[0].Quota.Remaining != 510 {
 		t.Fatalf("account view quota = %+v", views)
 	}
 }
