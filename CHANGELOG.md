@@ -3,6 +3,16 @@
 Published user-facing notes for GitHub Releases and the console update page.
 Write upcoming notes as bilingual files in `changelog/unreleased/`.
 
+## 0.6.8 - 2026-09-25
+
+### English
+
+- Show Codex 5-hour and weekly quota from the account usage probe, and keep a signed-in account on “getting quota” until a real window arrives.
+
+### 中文
+
+- Codex 账号改为从额度探测读取 5 小时和每周窗口；已登录但还没有窗口时显示「额度获取中」，不再显示「额度不可用」或 0/0。
+
 ## 0.6.7 - 2026-09-25
 
 ### English
