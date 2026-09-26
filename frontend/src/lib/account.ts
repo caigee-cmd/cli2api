@@ -85,6 +85,30 @@ export function quotaWindows(quota: AccountQuota) {
   return (quota.windows ?? []).filter((window) => Boolean(window.id))
 }
 
+const codexPlanLabels: Record<string, string> = {
+  free: 'Free',
+  go: 'Go',
+  plus: 'Plus',
+  pro: 'Pro',
+  prolite: 'Pro Lite',
+  promax: 'Pro Max',
+  team: 'Team',
+  business: 'Business',
+  enterprise: 'Enterprise',
+  edu: 'Edu',
+  edu_plus: 'Edu Plus',
+  edu_pro: 'Edu Pro',
+  education: 'Education',
+}
+
+// codexPlanLabel turns an upstream plan_type into the subscription name shown
+// on the account card. Unknown values stay readable; empty stays hidden.
+export function codexPlanLabel(plan: string | undefined) {
+  const raw = plan?.trim().toLowerCase() ?? ''
+  if (!raw || raw === 'unknown' || raw === 'guest') return ''
+  return codexPlanLabels[raw] ?? raw.replace(/[_-]+/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase())
+}
+
 export function quotaWindowLabel(window: AccountQuotaWindow, t: (key: string) => string) {
   if (window.id === 'daily') return t('quotaDaily')
   if (window.id === 'weekly') return t('quotaWeekly')

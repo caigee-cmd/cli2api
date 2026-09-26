@@ -56,4 +56,6 @@ type QuotaSnapshot struct {
 	ResourcePackageUnit      string         `json:"resource_package_unit"`
 	ResourcePackageAvailable *bool          `json:"resource_package_available,omitempty"`
 	FetchedAt                string         `json:"fetched_at"`
+	// Plan is the upstream subscription tier. Empty means not reported.
+	Plan string `json:"plan,omitempty"`
 }

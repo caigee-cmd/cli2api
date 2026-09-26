@@ -5,6 +5,31 @@ import (
 	"testing"
 )
 
+func TestQuotaFromUsageReadsCurrentWindows(t *testing.T) {
+	body := []byte(`{
+		"plan_type":"plus",
+		"rate_limit":{
+			"allowed":true,
+			"limit_reached":false,
+			"primary_window":{"used_percent":0,"limit_window_seconds":18000,"reset_after_seconds":10800,"reset_at":1893456000},
+			"secondary_window":{"used_percent":7,"limit_window_seconds":604800,"reset_after_seconds":432000,"reset_at":1894000000}
+		}
+	}`)
+	info := quotaFromUsage(body)
+	if info == nil || len(info.Windows) != 2 {
+		t.Fatalf("windows = %+v", info)
+	}
+	if info.Windows[0].ID != "fiveHour" || info.Windows[0].Percentage != 0 || info.Windows[0].ResetAt == "" {
+		t.Fatalf("primary = %+v", info.Windows[0])
+	}
+	if info.Windows[1].ID != "weeklyLimit" || info.Windows[1].Percentage != 7 || info.Percentage != 7 {
+		t.Fatalf("secondary = %+v info=%+v", info.Windows[1], info)
+	}
+	if info.Plan != "plus" {
+		t.Fatalf("plan = %q", info.Plan)
+	}
+}
+
 func TestQuotaFromUsageReadsRateLimitWindows(t *testing.T) {
 	body := []byte(`{
 		"plan_type":"plus",
