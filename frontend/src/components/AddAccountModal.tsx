@@ -70,12 +70,9 @@ function AccountTypeSkeleton({ ariaLabel }: { ariaLabel: string }) {
   return (
     <div className="grid grid-cols-1 gap-2 sm:grid-cols-2" aria-busy="true" aria-label={ariaLabel}>
       {Array.from({ length: 4 }, (_, index) => (
-        <div key={index} className="flex items-start gap-2.5 rounded-xl border border-separator px-3.5 py-3">
-          <Skeleton className="mt-0.5 size-[18px] shrink-0 rounded-lg" />
-          <div className="min-w-0 flex-1 space-y-1.5">
-            <Skeleton className="h-4 w-28 rounded-lg" />
-            <Skeleton className="h-3 w-full rounded-lg" />
-          </div>
+        <div key={index} className="flex items-center gap-2.5 rounded-xl border border-separator px-3 py-2.5">
+          <Skeleton className="size-[18px] shrink-0 rounded-lg" />
+          <Skeleton className="h-4 w-28 rounded-lg" />
         </div>
       ))}
     </div>
@@ -478,7 +475,6 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                         />
                       </>
                     )}
-                    {typesReady && hint ? <p className="min-h-5 text-xs leading-5 text-muted">{hint}</p> : null}
                   </section>
 
                   <section className="mt-5 space-y-3">
