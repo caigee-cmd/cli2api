@@ -207,6 +207,9 @@ type QuotaInfo struct {
 	// to gate provider-specific fields (e.g. package expiry) instead of
 	// trusting that every adapter populates them.
 	ProviderID string
+	// Plan is the upstream subscription tier, such as Codex plan_type "plus".
+	// Empty means the provider did not report one.
+	Plan string
 	// ExpiresAt is the soonest package expiry (Unix seconds); 0 means the
 	// provider did not report one. ExpiringRemain is the remaining amount that
 	// expires at that time. Packages carries the per-pack expiry detail.
