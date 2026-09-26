@@ -1,6 +1,7 @@
 import { Meter, Tooltip } from '@heroui/react'
 import type { AccountQuota, AccountQuotaWindow } from '@/api/types'
 import {
+  codexPlanLabel,
   formatQuotaAmount,
   quotaExpiryLabel,
   quotaResetLabel,
@@ -100,6 +101,7 @@ export function QuotaMeter({ quota, t, label, usedLabel, remainingLabel, addOnLa
   const remaining = `${formatQuotaAmount(quota.remaining)}`
   const extra = extraQuotaLines(quota, remainingLabel, addOnLabel, resourcePackageLabel, t, provider)
   const windows = quotaWindows(quota)
+  const plan = provider === 'codex' ? codexPlanLabel(quota.plan) : ''
   const ratio = quotaUsedRatio(quota)
   const tone = quotaTone(quota)
   const color = tone === 'danger' ? 'danger' : tone === 'warn' ? 'warning' : 'success'
@@ -108,6 +110,12 @@ export function QuotaMeter({ quota, t, label, usedLabel, remainingLabel, addOnLa
   if (windows.length > 0) {
     return (
       <div className="account-quota-windows flex w-full min-w-0 flex-col gap-3">
+        {plan ? (
+          <div className="flex items-center justify-between gap-3 text-[11px]">
+            <span className="text-muted">{t('quotaPlan')}</span>
+            <span className="font-medium text-foreground">{plan}</span>
+          </div>
+        ) : null}
         {windows.map((window, index) => (
           <div key={window.id || String(index)} className="w-full min-w-0">
             <WindowMeter

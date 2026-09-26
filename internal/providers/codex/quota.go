@@ -21,34 +21,60 @@ func quotaFromHeaders(h http.Header) *providers.QuotaInfo {
 	return quotaFromWindows(primary, secondary, h.Get("X-Codex-Plan-Type"))
 }
 
-// quotaFromUsage decodes the /wham/usage body. The shape matches the websocket
-// codex.rate_limits event: rate_limits.primary / secondary each carry
-// used_percent, window_minutes, and reset_after_seconds or reset_at.
+// quotaFromUsage decodes GET /wham/usage. The current ChatGPT payload is
+// rate_limit.primary_window / secondary_window, each with used_percent,
+// limit_window_seconds, reset_after_seconds, and reset_at. Older responses
+// and the websocket codex.rate_limits event nest the same windows under
+// rate_limits.primary / secondary with window_minutes instead.
 func quotaFromUsage(body []byte) *providers.QuotaInfo {
-	var payload struct {
-		RateLimits struct {
-			Primary   codexRateWindow `json:"primary"`
-			Secondary codexRateWindow `json:"secondary"`
-		} `json:"rate_limits"`
-		PlanType string `json:"plan_type"`
-	}
+	var payload usagePayload
 	if json.Unmarshal(body, &payload) != nil {
 		return nil
 	}
-	primary := payload.RateLimits.Primary.window("fiveHour", "5-hour limit")
-	secondary := payload.RateLimits.Secondary.window("weeklyLimit", "weekly limit")
+	primary, secondary := payload.windows()
 	return quotaFromWindows(primary, secondary, payload.PlanType)
 }
 
+type usagePayload struct {
+	PlanType   string             `json:"plan_type"`
+	RateLimit  *codexLimitDetails `json:"rate_limit"`
+	RateLimits struct {
+		Primary   codexRateWindow `json:"primary"`
+		Secondary codexRateWindow `json:"secondary"`
+	} `json:"rate_limits"`
+}
+
+func (p usagePayload) windows() (*providers.QuotaWindow, *providers.QuotaWindow) {
+	if p.RateLimit != nil {
+		primary := p.RateLimit.PrimaryWindow.window("fiveHour", "5-hour limit")
+		secondary := p.RateLimit.SecondaryWindow.window("weeklyLimit", "weekly limit")
+		if primary != nil || secondary != nil {
+			return primary, secondary
+		}
+	}
+	return p.RateLimits.Primary.window("fiveHour", "5-hour limit"),
+		p.RateLimits.Secondary.window("weeklyLimit", "weekly limit")
+}
+
+type codexLimitDetails struct {
+	PrimaryWindow   codexRateWindow `json:"primary_window"`
+	SecondaryWindow codexRateWindow `json:"secondary_window"`
+}
+
 type codexRateWindow struct {
-	UsedPercent       float64 `json:"used_percent"`
-	WindowMinutes     int64   `json:"window_minutes"`
-	ResetAfterSeconds int64   `json:"reset_after_seconds"`
-	ResetAt           int64   `json:"reset_at"`
+	UsedPercent        float64 `json:"used_percent"`
+	WindowMinutes      int64   `json:"window_minutes"`
+	LimitWindowSeconds int64   `json:"limit_window_seconds"`
+	ResetAfterSeconds  int64   `json:"reset_after_seconds"`
+	ResetAt            int64   `json:"reset_at"`
 }
 
 func (w codexRateWindow) window(id, label string) *providers.QuotaWindow {
-	if w.UsedPercent < 0 || w.UsedPercent > 100 || w.WindowMinutes <= 0 {
+	minutes := w.WindowMinutes
+	if minutes <= 0 && w.LimitWindowSeconds > 0 {
+		minutes = w.LimitWindowSeconds / 60
+	}
+	if w.UsedPercent < 0 || w.UsedPercent > 100 || minutes <= 0 {
 		return nil
 	}
 	if w.ResetAfterSeconds < 0 && w.ResetAt <= 0 {
@@ -92,7 +118,6 @@ func quotaFromWindows(primary, secondary *providers.QuotaWindow, planType string
 		}
 		exceeded = exceeded || secondary.Exceeded
 	}
-	_ = planType
 	return &providers.QuotaInfo{
 		Used:       usedPct,
 		Total:      100,
@@ -103,6 +128,7 @@ func quotaFromWindows(primary, secondary *providers.QuotaWindow, planType string
 		FetchedAt:  time.Now().UTC().Format(time.RFC3339),
 		Windows:    windows,
 		ProviderID: "codex",
+		Plan:       strings.TrimSpace(planType),
 	}
 }
 

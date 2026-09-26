@@ -43,6 +43,7 @@ export type AccountQuota = {
   resource_package_unit?: string
   resource_package_available?: boolean
   fetched_at?: string
+  plan?: string
 }
 
 export type ModelInfo = {

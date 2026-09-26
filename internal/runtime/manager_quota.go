@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
@@ -45,6 +46,9 @@ func (m *Manager) fetchProviderQuota(ctx context.Context, accountID string, prob
 		quota.ExpiresAt = info.ExpiresAt
 		quota.ExpiringRemain = info.ExpiringRemain
 		quota.Packages = quotaPackagesFromInfo(info.Packages)
+	}
+	if info.ProviderID == "codex" {
+		quota.Plan = strings.TrimSpace(info.Plan)
 	}
 	m.persistQuota(ctx, accountID, quota)
 }
