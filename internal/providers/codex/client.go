@@ -406,11 +406,29 @@ func parseTokenResponse(payload []byte) (Credential, error) {
 	if tok.ExpiresIn > 0 {
 		credential.ExpiresAt = time.Now().Add(time.Duration(tok.ExpiresIn) * time.Second).Unix()
 	}
-	if claims := parseJWTClaims(tok.IDToken); claims != nil {
-		credential.AccountID = firstNonEmpty(claims.AccountID, claims.ChatGPTAccountID)
+	applyJWTIdentity(&credential, tok.IDToken)
+	return credential, nil
+}
+
+// applyJWTIdentity fills AccountID and Email from an id_token. OpenAI puts
+// the ChatGPT account id under https://api.openai.com/auth.chatgpt_account_id,
+// not a top-level account_id. Free accounts only carry the nested claim, so
+// reading the top-level field alone leaves AccountID empty and the console
+// treats a usable login as incomplete.
+func applyJWTIdentity(credential *Credential, token string) {
+	if credential == nil {
+		return
+	}
+	claims := parseJWTClaims(token)
+	if claims == nil {
+		return
+	}
+	if accountID := firstNonEmpty(claims.ChatGPTAccountID, claims.AccountID); accountID != "" {
+		credential.AccountID = accountID
+	}
+	if claims.Email != "" {
 		credential.Email = claims.Email
 	}
-	return credential, nil
 }
 
 type jwtClaims struct {
@@ -429,23 +447,35 @@ func parseJWTClaims(token string) *jwtClaims {
 		return nil
 	}
 	var claims jwtClaims
-	// account_id can nest under https://api.openai.com/auth.
-	var raw map[string]json.RawMessage
-	if json.Unmarshal(payload, &raw) != nil {
+	if json.Unmarshal(payload, &claims) != nil {
 		return nil
 	}
-	_ = json.Unmarshal(payload, &claims)
-	if claims.AccountID == "" {
-		for key, value := range raw {
-			if !strings.HasSuffix(key, "auth") {
-				continue
-			}
-			var nested struct {
-				AccountID string `json:"account_id"`
-			}
-			if json.Unmarshal(value, &nested) == nil && nested.AccountID != "" {
-				claims.AccountID = nested.AccountID
-			}
+	// OpenAI nests the ChatGPT identity under https://api.openai.com/auth.
+	// A free account has chatgpt_account_id there and no top-level account_id.
+	var raw map[string]json.RawMessage
+	if json.Unmarshal(payload, &raw) != nil {
+		return &claims
+	}
+	for key, value := range raw {
+		if !strings.HasSuffix(key, "/auth") && !strings.HasSuffix(key, "auth") {
+			continue
+		}
+		var nested struct {
+			AccountID        string `json:"account_id"`
+			ChatGPTAccountID string `json:"chatgpt_account_id"`
+			Email            string `json:"email"`
+		}
+		if json.Unmarshal(value, &nested) != nil {
+			continue
+		}
+		if claims.ChatGPTAccountID == "" {
+			claims.ChatGPTAccountID = nested.ChatGPTAccountID
+		}
+		if claims.AccountID == "" {
+			claims.AccountID = firstNonEmpty(nested.AccountID, nested.ChatGPTAccountID)
+		}
+		if claims.Email == "" {
+			claims.Email = nested.Email
 		}
 	}
 	return &claims
@@ -464,6 +494,17 @@ func (c *Client) credential(ctx context.Context, accountID string) (Credential, 
 	credential, err := DecodeCredential(payload)
 	if err != nil {
 		return Credential{}, err
+	}
+	// Logins that missed the nested chatgpt_account_id stored a usable token
+	// with an empty AccountID. Probe then reported login failure even though
+	// chat still works. Recover the id from the stored id_token and persist it.
+	if strings.TrimSpace(credential.AccountID) == "" && strings.TrimSpace(credential.IDToken) != "" {
+		applyJWTIdentity(&credential, credential.IDToken)
+		if strings.TrimSpace(credential.AccountID) != "" {
+			if encoded, encErr := credential.Encode(); encErr == nil {
+				_ = c.store.SaveCredentialPayload(ctx, accountID, CredentialFormat, encoded)
+			}
+		}
 	}
 	if !credential.needsRefresh(time.Now()) {
 		return credential, nil
