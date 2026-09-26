@@ -2,6 +2,7 @@ package codex
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -28,7 +29,13 @@ func (s testStore) LoadCredentialPayload(_ context.Context, accountID string) (s
 	}
 	return CredentialFormat, payload, nil
 }
-func (testStore) SaveCredentialPayload(context.Context, string, string, []byte) error { return nil }
+func (s testStore) SaveCredentialPayload(_ context.Context, accountID, _ string, payload []byte) error {
+	if s.items == nil {
+		return nil
+	}
+	s.items[accountID] = payload
+	return nil
+}
 func (testStore) Observe(context.Context, string, string, string, string, string) error {
 	return nil
 }
@@ -81,6 +88,66 @@ func TestCredentialRoundTrip(t *testing.T) {
 	}
 	if decoded.AccessToken != "at" || decoded.AccountID != "acct" || !decoded.Ready() {
 		t.Fatalf("decoded %+v", decoded)
+	}
+}
+
+func unsignedJWT(claims map[string]any) string {
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none","typ":"JWT"}`))
+	payload, _ := json.Marshal(claims)
+	return header + "." + base64.RawURLEncoding.EncodeToString(payload) + ".sig"
+}
+
+func TestParseTokenResponseReadsNestedChatGPTAccount(t *testing.T) {
+	idToken := unsignedJWT(map[string]any{
+		"email": "free@example.com",
+		"https://api.openai.com/auth": map[string]any{
+			"chatgpt_account_id": "acct_free",
+			"chatgpt_plan_type":  "free",
+		},
+	})
+	body, _ := json.Marshal(map[string]any{
+		"access_token":  "at",
+		"refresh_token": "rt",
+		"id_token":      idToken,
+		"expires_in":    3600,
+	})
+	cred, err := parseTokenResponse(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cred.AccountID != "acct_free" || cred.Email != "free@example.com" || !cred.Ready() {
+		t.Fatalf("credential %+v", cred)
+	}
+}
+
+func TestProbeRecoversMissingAccountIDFromIDToken(t *testing.T) {
+	idToken := unsignedJWT(map[string]any{
+		"email": "free@example.com",
+		"https://api.openai.com/auth": map[string]any{
+			"chatgpt_account_id": "acct_free",
+			"chatgpt_plan_type":  "free",
+		},
+	})
+	payload, _ := json.Marshal(Credential{
+		IDToken:      idToken,
+		AccessToken:  "at",
+		RefreshToken: "rt",
+		ExpiresAt:    time.Now().Add(time.Hour).Unix(),
+	})
+	store := testStore{items: map[string][]byte{"acc-1": payload}}
+	health, err := NewClient(store).Probe(context.Background(), "acc-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !health.Ready || health.LastError != "" || health.UID != "free@example.com" {
+		t.Fatalf("health %+v", health)
+	}
+	recovered, err := DecodeCredential(store.items["acc-1"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recovered.AccountID != "acct_free" {
+		t.Fatalf("account id not persisted: %+v", recovered)
 	}
 }
 
