@@ -54,6 +54,24 @@ func streamRequestStatus(err error) string {
 	return accounts.RequestStatusError
 }
 
+// streamLogStatus records a completed upstream stream as success even when the
+// caller closes the connection after the terminal frame. A disconnect before
+// that frame stays canceled; anything else stays an error.
+func streamLogStatus(err error, completed bool, clientGone bool) string {
+	status := streamRequestStatus(err)
+	if err == nil {
+		return status
+	}
+	disconnected := clientGone || IsStreamClientDisconnect(err) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+	if !disconnected {
+		return accounts.RequestStatusError
+	}
+	if completed {
+		return accounts.RequestStatusOK
+	}
+	return accounts.RequestStatusCanceled
+}
+
 func streamTTFB(started time.Time, fallback int, stats StreamRelayStats) int {
 	if stats.FirstTokenAt == nil {
 		return fallback
@@ -196,6 +214,7 @@ func consumeOpenAIStream(body io.Reader, handle func(json.RawMessage, *streamedC
 		}
 		if usage, ok := ParseStreamUsageLine("data: " + string(payload)); ok {
 			usage.FirstTokenAt = stats.FirstTokenAt
+			usage.SawDone = stats.SawDone
 			stats = usage
 		}
 		beforeContent := output.content.Len()
@@ -225,6 +244,7 @@ func consumeOpenAIStream(body io.Reader, handle func(json.RawMessage, *streamedC
 	if !sawDone {
 		return stats, output, executor.StreamIncompleteError()
 	}
+	stats.SawDone = true
 	return stats, output, nil
 }
 
@@ -369,6 +389,7 @@ func RelayAnthropicStream(writer io.Writer, body io.Reader, requestID, model str
 	if err := writeSSEEvent(writer, "message_stop", map[string]string{"type": "message_stop"}); err != nil {
 		return stats, err
 	}
+	stats.SawDone = true
 	return stats, nil
 }
 

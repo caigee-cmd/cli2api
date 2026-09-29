@@ -68,15 +68,15 @@ func (h *Handler) handleAnthropicMessagesStream(w http.ResponseWriter, r *http.R
 	}
 	writer := compatibilityStreamWriter(w)
 	stats, relayErr := RelayAnthropicStream(writer, upstream.Response.Body, execution.RequestID, firstNonEmpty(execution.PublicModel, execution.Request.Model))
-	status := streamRequestStatus(relayErr)
-	if r.Context().Err() != nil || errors.Is(relayErr, context.Canceled) || errors.Is(relayErr, context.DeadlineExceeded) {
-		status = accounts.RequestStatusCanceled
-	}
+	status := streamLogStatus(relayErr, stats.SawDone, r.Context().Err() != nil)
 	h.recordStreamDiagnostic(execution.RequestID, upstream.Response, execution.Started, stats, relayErr, r.Context().Err())
 	ttfb := streamTTFB(execution.Started, upstream.TTFBMs, stats)
 	logErr := relayErr
-	if status == accounts.RequestStatusCanceled {
+	switch status {
+	case accounts.RequestStatusCanceled:
 		logErr = context.Canceled
+	case accounts.RequestStatusOK:
+		logErr = nil
 	}
 	h.finishCompatibility(execution, upstream.AccountID, upstream.Provider, upstream.Routing, status, ttfb, &stats, logErr, upstream.AttemptCount, upstream.ReasoningLevel)
 	if relayErr == nil {
