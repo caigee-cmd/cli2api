@@ -103,6 +103,23 @@ func TestEnsureWorkBuddyCheckinTimeDefaultsToNine(t *testing.T) {
 	}
 }
 
+func TestEnsureCheckinDisabledAccountsDefaultsToFalse(t *testing.T) {
+	store, err := sqlstore.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	value, err := ensureCheckinDisabledAccounts(context.Background(), store)
+	if err != nil || value {
+		t.Fatalf("value=%v err=%v", value, err)
+	}
+	stored, ok, err := store.GetSecret(context.Background(), accounts.CheckinDisabledAccountsSecret)
+	if err != nil || !ok || stored != "0" {
+		t.Fatalf("stored=%q ok=%v err=%v", stored, ok, err)
+	}
+}
+
 func TestSystemSettingsRoutePersistsWorkBuddyCheckinTime(t *testing.T) {
 	srv := New(config.Config{
 		Host: "127.0.0.1", Port: 3010, ProxyAPIKey: "secret",
@@ -127,6 +144,34 @@ func TestSystemSettingsRoutePersistsWorkBuddyCheckinTime(t *testing.T) {
 	}
 	stored, ok, err := srv.Manager.Store().GetSecret(context.Background(), accounts.WorkBuddyCheckinTimeSecret)
 	if err != nil || !ok || stored != "18:30" {
+		t.Fatalf("persisted=%q ok=%v err=%v", stored, ok, err)
+	}
+}
+
+func TestSystemSettingsRoutePersistsDisabledAccountCheckin(t *testing.T) {
+	srv := New(config.Config{
+		Host: "127.0.0.1", Port: 3010, ProxyAPIKey: "secret",
+		QoderHome: t.TempDir(), DataDir: t.TempDir(),
+	})
+	defer srv.Close()
+
+	request := httptest.NewRequest(http.MethodGet, "/api/system/settings", nil)
+	request.Header.Set("Authorization", "Bearer secret")
+	response := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte(`"checkin_disabled_accounts":false`)) {
+		t.Fatalf("default settings: %d %s", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodPatch, "/api/system/settings", bytes.NewBufferString(`{"checkin_disabled_accounts":true}`))
+	request.Header.Set("Authorization", "Bearer secret")
+	response = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte(`"checkin_disabled_accounts":true`)) {
+		t.Fatalf("updated settings: %d %s", response.Code, response.Body.String())
+	}
+	stored, ok, err := srv.Manager.Store().GetSecret(context.Background(), accounts.CheckinDisabledAccountsSecret)
+	if err != nil || !ok || stored != "1" {
 		t.Fatalf("persisted=%q ok=%v err=%v", stored, ok, err)
 	}
 }
