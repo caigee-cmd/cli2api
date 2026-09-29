@@ -511,8 +511,14 @@ func (p *Pool) PickRoute(q RouteQuery) (Item, bool) {
 	// capture the route.
 	if q.RegionFilter == "" {
 		if previous, ok := p.lastRegion[key]; ok {
-			if subset := inRegion(available, previous); len(subset) > 0 {
+			// The latch is a hint, not a commitment: the pool can change
+			// underneath it. Keep the remembered region only while it still
+			// carries a fair share of the route; a latch left far behind by
+			// a bulk pool change is dropped so the route re-seats below.
+			if subset := inRegion(available, previous); len(subset) > 0 && !regionLatchStale(len(subset), available) {
 				available = subset
+			} else {
+				delete(p.lastRegion, key)
 			}
 		}
 		if _, ok := p.lastRegion[key]; !ok {
@@ -636,6 +642,31 @@ func (p *Pool) ensureRotationKey(key string) {
 		p.lastRegion = make(map[string]string)
 		p.weightCounter = make(map[string]map[string]int64)
 	}
+}
+
+// largestRegionCount returns how many candidates sit in the biggest region.
+func largestRegionCount(items []Item) int {
+	counts := map[string]int{}
+	for _, item := range items {
+		counts[itemRegion(item)]++
+	}
+	best := 0
+	for _, count := range counts {
+		if count > best {
+			best = count
+		}
+	}
+	return best
+}
+
+// regionLatchStale reports whether a route's remembered region has been left
+// far behind by the rest of its candidates. The factor-of-two hysteresis keeps
+// a roughly balanced pool on its current region instead of thrashing between
+// two comparable regions, while a latch left behind by a bulk pool change is
+// dropped so the route re-seats on the largest region. Must be called with
+// p.mu held.
+func regionLatchStale(latchedCount int, available []Item) bool {
+	return latchedCount*2 < largestRegionCount(available)
 }
 
 // largestRegion returns the region with the most candidates, breaking ties by

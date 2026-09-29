@@ -300,3 +300,60 @@ func TestPickRouteRegionScopedFailoverStaysInsideGrant(t *testing.T) {
 		t.Fatal("exhausted cn grant must not fall through to global")
 	}
 }
+
+// A route latches onto one region so a balanced pool does not flip between
+// regions as rotation advances. The latch must not survive a bulk change in
+// pool composition: landing many accounts of another region on the route has
+// to re-seat it, otherwise the new accounts never receive any traffic.
+func TestPickRouteReseatsStaleRegionLatch(t *testing.T) {
+	p := NewPool(nil, nil)
+	p.Upsert(Item{ID: "g1", URL: "http://g1", Provider: "workbuddy", Region: "global", Runtime: "in_process"})
+	p.Upsert(Item{ID: "g2", URL: "http://g2", Provider: "workbuddy", Region: "global", Runtime: "in_process"})
+
+	for i := 0; i < 5; i++ {
+		got, ok := p.PickRoute(RouteQuery{ProviderFilter: "workbuddy"})
+		if !ok || got.Region != "global" {
+			t.Fatalf("cold route pick %d = %+v ok=%v, want global", i, got, ok)
+		}
+	}
+
+	// A migration lands many CN accounts on the same route.
+	for i := 0; i < 10; i++ {
+		id := "c" + itoa(i)
+		p.Upsert(Item{ID: id, URL: "http://" + id, Provider: "workbuddy", Region: "cn", Runtime: "in_process"})
+	}
+
+	seen := map[string]int{}
+	for i := 0; i < 12; i++ {
+		got, ok := p.PickRoute(RouteQuery{ProviderFilter: "workbuddy"})
+		if !ok {
+			t.Fatalf("pick %d after migration failed", i)
+		}
+		seen[got.Region]++
+	}
+	if seen["cn"] == 0 {
+		t.Fatalf("stale global latch starved the new cn accounts: %v", seen)
+	}
+	if seen["global"] != 0 {
+		t.Fatalf("route must re-seat fully on the largest region: %v", seen)
+	}
+}
+
+// The hysteresis must not re-seat a roughly balanced pool, or the route would
+// thrash between two comparable regions.
+func TestPickRouteKeepsRegionLatchWhenBalanced(t *testing.T) {
+	p := NewPool(nil, nil)
+	p.Upsert(Item{ID: "g1", URL: "http://g1", Provider: "workbuddy", Region: "global", Runtime: "in_process"})
+	p.Upsert(Item{ID: "c1", URL: "http://c1", Provider: "workbuddy", Region: "cn", Runtime: "in_process"})
+
+	first, ok := p.PickRoute(RouteQuery{ProviderFilter: "workbuddy"})
+	if !ok {
+		t.Fatal("first pick failed")
+	}
+	for i := 0; i < 8; i++ {
+		got, ok := p.PickRoute(RouteQuery{ProviderFilter: "workbuddy"})
+		if !ok || got.Region != first.Region {
+			t.Fatalf("balanced pool flipped region: first=%s pick %d = %+v ok=%v", first.Region, i, got, ok)
+		}
+	}
+}
