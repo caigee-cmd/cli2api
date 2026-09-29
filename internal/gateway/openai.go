@@ -69,14 +69,7 @@ func (h *Handler) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 			flusher.Flush()
 		}
 		stats, relayErr := RelayOpenAIStream(w, upstream.Response.Body)
-		status := accounts.RequestStatusOK
-		if relayErr != nil {
-			if IsStreamClientDisconnect(relayErr) || r.Context().Err() != nil || errors.Is(relayErr, context.Canceled) || errors.Is(relayErr, context.DeadlineExceeded) {
-				status = accounts.RequestStatusCanceled
-			} else {
-				status = accounts.RequestStatusError
-			}
-		}
+		status := streamLogStatus(relayErr, stats.SawDone, r.Context().Err() != nil)
 		h.recordStreamDiagnostic(requestID, upstream.Response, started, stats, relayErr, r.Context().Err())
 		ttfb := upstream.TTFBMs
 		if stats.FirstTokenAt != nil {
@@ -86,8 +79,11 @@ func (h *Handler) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 			}
 		}
 		logErr := relayErr
-		if status == accounts.RequestStatusCanceled {
+		switch status {
+		case accounts.RequestStatusCanceled:
 			logErr = context.Canceled
+		case accounts.RequestStatusOK:
+			logErr = nil
 		}
 		h.finishRequestLog(requestID, started, req, publicModel, upstream.AccountID, firstNonEmpty(upstream.Provider, providerFilter), upstream.Routing, status, ttfb, &stats, logErr, upstream.AttemptCount, upstream.ReasoningLevel)
 		if relayErr == nil {

@@ -1,10 +1,52 @@
 package gateway
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/caigee-cmd/cli2api/internal/accounts"
 )
+
+func TestRelayOpenAIStreamDoneSurvivesUsageReplacement(t *testing.T) {
+	body := strings.Join([]string{
+		`data: {"choices":[{"delta":{"content":"hi"}}]}`,
+		"",
+		`data: {"usage":{"prompt_tokens":1,"completion_tokens":1}}`,
+		`data: [DONE]`,
+		"",
+	}, "\n")
+	recorder := httptest.NewRecorder()
+	stats, err := RelayOpenAIStream(recorder, strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !stats.SawDone || !strings.Contains(recorder.Body.String(), "[DONE]") {
+		t.Fatalf("stats=%+v body=%s", stats, recorder.Body.String())
+	}
+}
+
+func TestStreamLogStatusKeepsCompletedDisconnectSuccessful(t *testing.T) {
+	disconnect := &StreamRelayWriteError{err: errors.New("client closed")}
+	if got := streamLogStatus(disconnect, true, true); got != accounts.RequestStatusOK {
+		t.Fatalf("completed disconnect status=%s", got)
+	}
+	if got := streamLogStatus(context.Canceled, true, false); got != accounts.RequestStatusOK {
+		t.Fatalf("completed context cancel status=%s", got)
+	}
+	if got := streamLogStatus(context.Canceled, false, true); got != accounts.RequestStatusCanceled {
+		t.Fatalf("mid-stream cancel status=%s", got)
+	}
+	if got := streamLogStatus(errors.New("upstream reset"), true, false); got != accounts.RequestStatusError {
+		t.Fatalf("upstream failure status=%s", got)
+	}
+	if got := streamLogStatus(nil, false, false); got != accounts.RequestStatusOK {
+		t.Fatalf("clean stream status=%s", got)
+	}
+}
 
 func TestResponsesResponseMapsLengthToIncomplete(t *testing.T) {
 	response := responsesResponse("req", "model", "", "reasoning", nil, 10, 32, "length", nil, nil)

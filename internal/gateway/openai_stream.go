@@ -118,16 +118,19 @@ func RelayOpenAIStream(w http.ResponseWriter, body io.Reader) (stats StreamRelay
 				usage.BytesRead = stats.BytesRead
 				usage.LastEvent = stats.LastEvent
 				usage.SawDone = stats.SawDone
+				usage.FinishReason = stats.FinishReason
 				stats = usage
 			}
 			if strings.TrimSpace(strings.TrimPrefix(line, "data:")) == "[DONE]" {
 				sawDone = true
-				stats.SawDone = true
 			}
 		}
 		output := strings.Join(frame, "\n") + "\n\n"
 		if _, err := io.WriteString(writer, output); err != nil {
 			return &StreamRelayWriteError{err: err}
+		}
+		if sawDone {
+			stats.SawDone = true
 		}
 		frame = nil
 		return nil

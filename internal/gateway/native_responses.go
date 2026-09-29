@@ -85,6 +85,7 @@ func RelayNativeResponsesStream(writer io.Writer, body io.Reader, names map[stri
 	if !sawTerminal {
 		return stats, executor.StreamIncompleteError()
 	}
+	stats.SawDone = true
 	return stats, nil
 }
 
