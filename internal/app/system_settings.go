@@ -6,3 +6,4 @@ var EnsureProxyURL = control.EnsureProxyURL
 var EnsureCrossProviderModelPool = control.EnsureCrossProviderModelPool
 var EnsureRoutingStrategy = control.EnsureRoutingStrategy
 var EnsureWorkBuddyCheckinTime = control.EnsureWorkBuddyCheckinTime
+var EnsureCheckinDisabledAccounts = control.EnsureCheckinDisabledAccounts

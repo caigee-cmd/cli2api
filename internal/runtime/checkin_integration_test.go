@@ -138,3 +138,28 @@ func TestCheckinRejectsDisabledAndUnsupportedAccounts(t *testing.T) {
 		t.Fatalf("err=%v", err)
 	}
 }
+
+func TestScheduledCheckinCanIncludeDisabledAccountsWhenEnabled(t *testing.T) {
+	var calls atomic.Int64
+	manager, account := newCheckinManager(t, checkinFunc(func(context.Context, string) (providers.CheckinResult, error) {
+		calls.Add(1)
+		return providers.CheckinResult{Status: "success", Message: "claimed"}, nil
+	}))
+	disabled := false
+	if err := manager.store.Update(context.Background(), account.ID, accounts.UpdateAccount{Enabled: &disabled}); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.store.SetSecret(context.Background(), accounts.CheckinDisabledAccountsSecret, "1"); err != nil {
+		t.Fatal(err)
+	}
+
+	location, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().In(location)
+	manager.runScheduledCheckins(context.Background(), time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 0, 0, location))
+	if calls.Load() != 1 {
+		t.Fatalf("scheduled check-in calls=%d", calls.Load())
+	}
+}

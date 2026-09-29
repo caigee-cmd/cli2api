@@ -21,35 +21,43 @@ type System struct {
 	Mu                *sync.Mutex
 }
 type SystemSettingsPatch struct {
-	CrossProviderModelPool *bool             `json:"cross_provider_model_pool"`
-	RoutingStrategy        *string           `json:"routing_strategy"`
-	ProxyURL               *string           `json:"proxy_url"`
-	WorkBuddyCheckinTime   *string           `json:"workbuddy_checkin_time"`
-	CheckinTimes           map[string]string `json:"checkin_times"`
+	CrossProviderModelPool  *bool             `json:"cross_provider_model_pool"`
+	CheckinDisabledAccounts *bool             `json:"checkin_disabled_accounts"`
+	RoutingStrategy         *string           `json:"routing_strategy"`
+	ProxyURL                *string           `json:"proxy_url"`
+	WorkBuddyCheckinTime    *string           `json:"workbuddy_checkin_time"`
+	CheckinTimes            map[string]string `json:"checkin_times"`
 }
 type SystemSettings struct {
-	CrossProviderModelPool bool                          `json:"cross_provider_model_pool"`
-	RoutingStrategy        string                        `json:"routing_strategy"`
-	ProxyURL               string                        `json:"proxy_url"`
-	WorkBuddyCheckinTime   string                        `json:"workbuddy_checkin_time"`
-	CheckinTimes           map[string]string             `json:"checkin_times"`
-	Timezone               string                        `json:"timezone"`
-	SessionAffinity        executor.SessionAffinityStats `json:"session_affinity"`
+	CrossProviderModelPool  bool                          `json:"cross_provider_model_pool"`
+	CheckinDisabledAccounts bool                          `json:"checkin_disabled_accounts"`
+	RoutingStrategy         string                        `json:"routing_strategy"`
+	ProxyURL                string                        `json:"proxy_url"`
+	WorkBuddyCheckinTime    string                        `json:"workbuddy_checkin_time"`
+	CheckinTimes            map[string]string             `json:"checkin_times"`
+	Timezone                string                        `json:"timezone"`
+	SessionAffinity         executor.SessionAffinityStats `json:"session_affinity"`
 }
 
 func (h *System) Current(ctx context.Context) SystemSettings {
 	var proxyURL string
 	checkin := ""
+	checkinDisabledAccounts := false
 	if h.Settings != nil {
 		proxyURL, _, _ = h.Settings.GetSecret(ctx, proxyURLSecret)
 		checkin = h.Settings.WorkBuddyCheckinTimeDefault(ctx)
+		value, ok, err := h.Settings.GetSecret(ctx, checkinDisabledAccountsSecret)
+		if ok && err == nil {
+			checkinDisabledAccounts, _ = parseSettingBool(value)
+		}
 	}
 	settings := SystemSettings{
-		CrossProviderModelPool: h.CrossProviderPool.Load(),
-		ProxyURL:               proxy.Redact(proxyURL),
-		WorkBuddyCheckinTime:   checkin,
-		CheckinTimes:           map[string]string{},
-		Timezone:               time.Now().Format("MST -07:00"),
+		CrossProviderModelPool:  h.CrossProviderPool.Load(),
+		CheckinDisabledAccounts: checkinDisabledAccounts,
+		ProxyURL:                proxy.Redact(proxyURL),
+		WorkBuddyCheckinTime:    checkin,
+		CheckinTimes:            map[string]string{},
+		Timezone:                time.Now().Format("MST -07:00"),
 	}
 	for _, descriptor := range providers.List() {
 		if descriptor.SupportsCheckin() && h.Settings != nil {
@@ -66,7 +74,7 @@ func (h *System) Current(ctx context.Context) SystemSettings {
 }
 
 func (h *System) Patch(ctx context.Context, input SystemSettingsPatch) error {
-	if input.CrossProviderModelPool == nil && input.RoutingStrategy == nil && input.ProxyURL == nil && input.WorkBuddyCheckinTime == nil && len(input.CheckinTimes) == 0 {
+	if input.CrossProviderModelPool == nil && input.CheckinDisabledAccounts == nil && input.RoutingStrategy == nil && input.ProxyURL == nil && input.WorkBuddyCheckinTime == nil && len(input.CheckinTimes) == 0 {
 		return operationError("invalid_request", "a system setting is required")
 	}
 	var strategy string
@@ -149,6 +157,15 @@ func (h *System) Patch(ctx context.Context, input SystemSettingsPatch) error {
 			return operationError("system_settings_save_failed", err.Error())
 		}
 		h.CrossProviderPool.Store(enabled)
+	}
+	if input.CheckinDisabledAccounts != nil {
+		value := "0"
+		if *input.CheckinDisabledAccounts {
+			value = "1"
+		}
+		if err := h.Settings.SetSecret(ctx, checkinDisabledAccountsSecret, value); err != nil {
+			return operationError("system_settings_save_failed", err.Error())
+		}
 	}
 	if input.RoutingStrategy != nil {
 		if err := h.Settings.SetSecret(ctx, routingStrategySecret, strategy); err != nil {

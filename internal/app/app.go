@@ -88,6 +88,9 @@ func New(cfg config.Config) *App {
 	if _, err := EnsureWorkBuddyCheckinTime(context.Background(), store); err != nil {
 		panic(err)
 	}
+	if _, err := EnsureCheckinDisabledAccounts(context.Background(), store); err != nil {
+		panic(err)
+	}
 	cfg.ProxyAPIKey = proxyAPIKey
 	runtimeDir := cfg.RuntimeDir
 	if runtimeDir == "" {

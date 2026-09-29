@@ -15,6 +15,10 @@ import (
 )
 
 func (manager *Manager) CheckinAccount(ctx context.Context, accountID string) (Account, error) {
+	return manager.checkinAccount(ctx, accountID, false)
+}
+
+func (manager *Manager) checkinAccount(ctx context.Context, accountID string, allowDisabled bool) (Account, error) {
 	if manager == nil {
 		return Account{}, fmt.Errorf("account manager unavailable")
 	}
@@ -37,7 +41,7 @@ func (manager *Manager) CheckinAccount(ctx context.Context, accountID string) (A
 	if err != nil {
 		return Account{}, err
 	}
-	if !account.Enabled {
+	if !account.Enabled && !allowDisabled {
 		return account, fmt.Errorf("account is disabled")
 	}
 	policy, supported := providers.CheckinFor(account.Provider, account.ProviderRegion)
@@ -117,7 +121,11 @@ func checkinSlot(value, accountID string, now time.Time) (time.Time, error) {
 }
 
 func checkinDue(account Account, configuredTime string, now time.Time) bool {
-	if !account.Enabled || !account.AutoCheckin {
+	return checkinDueFor(account, configuredTime, now, false)
+}
+
+func checkinDueFor(account Account, configuredTime string, now time.Time, allowDisabled bool) bool {
+	if (!account.Enabled && !allowDisabled) || !account.AutoCheckin {
 		return false
 	}
 	if recordedToday(account.LastCheckinAt, now) && account.LastCheckinStatus != "error" {
@@ -141,13 +149,14 @@ func (manager *Manager) runScheduledCheckins(ctx context.Context, now time.Time)
 		log.Printf("checkin schedule list: %v", err)
 		return
 	}
+	allowDisabled := manager.allowDisabledCheckin(ctx)
 	for _, account := range items {
 		if ctx.Err() != nil {
 			return
 		}
 		policy, supported := providers.CheckinFor(account.Provider, account.ProviderRegion)
 		adapter, registered := manager.providers.Get(account.Provider)
-		if !supported || !registered || adapter.Checkin == nil || !account.Enabled || !account.AutoCheckin {
+		if !supported || !registered || adapter.Checkin == nil || (!account.Enabled && !allowDisabled) || !account.AutoCheckin {
 			continue
 		}
 		location, err := time.LoadLocation(policy.Timezone)
@@ -160,8 +169,8 @@ func (manager *Manager) runScheduledCheckins(ctx context.Context, now time.Time)
 			log.Printf("checkin settings account=%s: %v", account.ID, err)
 			continue
 		}
-		if checkinDue(account, configuredTime, now.In(location)) {
-			if _, err := manager.CheckinAccount(ctx, account.ID); err != nil {
+		if checkinDueFor(account, configuredTime, now.In(location), allowDisabled) {
+			if _, err := manager.checkinAccount(ctx, account.ID, allowDisabled); err != nil {
 				log.Printf("checkin account=%s: %v", account.ID, err)
 			}
 		}
@@ -178,8 +187,9 @@ func (manager *Manager) checkinOptedIn(ctx context.Context, now time.Time, sched
 		log.Printf("checkin list: %v", err)
 		return
 	}
+	allowDisabled := manager.allowDisabledCheckin(ctx)
 	for _, account := range items {
-		if !account.Enabled || !account.AutoCheckin {
+		if (!account.Enabled && !allowDisabled) || !account.AutoCheckin {
 			continue
 		}
 		configuredTime, err := accounts.ResolveCheckinTime(ctx, manager.store, account)
@@ -195,9 +205,22 @@ func (manager *Manager) checkinOptedIn(ctx context.Context, now time.Time, sched
 				continue
 			}
 		}
-		if _, err := manager.CheckinAccount(ctx, account.ID); err != nil {
+		if _, err := manager.checkinAccount(ctx, account.ID, allowDisabled); err != nil {
 			log.Printf("checkin account=%s: %v", account.ID, err)
 		}
+	}
+}
+
+func (manager *Manager) allowDisabledCheckin(ctx context.Context) bool {
+	value, ok, err := manager.store.GetSecret(ctx, accounts.CheckinDisabledAccountsSecret)
+	if err != nil || !ok {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "true", "on", "yes":
+		return true
+	default:
+		return false
 	}
 }
 

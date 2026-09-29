@@ -9,7 +9,10 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/providers"
 )
 
-const DefaultCheckinTime = "09:00"
+const (
+	DefaultCheckinTime            = "09:00"
+	CheckinDisabledAccountsSecret = "checkin_disabled_accounts"
+)
 
 type CheckinSettingsReader interface {
 	GetSecret(context.Context, string) (string, bool, error)
