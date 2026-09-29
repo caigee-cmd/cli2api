@@ -3,6 +3,20 @@
 Published user-facing notes for GitHub Releases and the console update page.
 Write upcoming notes as bilingual files in `changelog/unreleased/`.
 
+## 0.6.12 - 2026-09-29
+
+### English
+
+- The add-account type cards now show only the icon and title. Login details appear when you hover the info button.
+- Codex account cards now read the current usage response, so the 5-hour and weekly windows show up instead of staying on "Getting quota…". The subscription tier from that response is shown above the windows.
+- A stream that already finished is logged as success when the client disconnects afterward. A disconnect before the stream finishes is still canceled.
+
+### 中文
+
+- 添加账号的类型卡片现在只显示图标和标题。登录方式等说明放到信息按钮上，悬停后再展开。
+- Codex 账号卡片现在按当前额度响应读取窗口，5 小时和每周额度会显示出来，不再一直停在「额度获取中…」。响应里的订阅等级会显示在额度窗口上方。
+- 流已经结束后客户端再断开，请求日志记为成功。流还没结束就断开，仍然记为取消。
+
 ## 0.6.10 - 2026-09-26
 
 ### English
