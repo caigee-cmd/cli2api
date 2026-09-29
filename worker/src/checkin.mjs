@@ -69,6 +69,22 @@ function rewardFrom(campaign) {
   return benefit.amount;
 }
 
+async function machineHeaders(auth) {
+  let machineId = auth.machineId;
+  if (typeof auth.getMachineId === "function") {
+    try {
+      machineId = await auth.getMachineId();
+    } catch {
+      machineId = "";
+    }
+  }
+  if (typeof machineId !== "string" || !machineId) return {};
+  return {
+    "Cosy-MachineId": machineId,
+    "Cosy-MachineToken": machineId,
+  };
+}
+
 export function createQoderCheckin({ region, getAuthManager, fetchImpl = (...args) => globalThis.fetch(...args) }) {
   let pending;
 
@@ -85,6 +101,7 @@ export function createQoderCheckin({ region, getAuthManager, fetchImpl = (...arg
     } catch {
       throw new Error("qoder_checkin_auth_refresh_failed");
     }
+    const machineHeadersValue = await machineHeaders(auth);
 
     async function request(path, method, refreshed = false) {
       const user = auth.getUserInfo();
@@ -101,6 +118,7 @@ export function createQoderCheckin({ region, getAuthManager, fetchImpl = (...arg
             "User-Agent": "Qoder",
             "Cosy-ClientType": "10",
             "Cosy-Version": "0.3.4",
+            ...machineHeadersValue,
             Origin: endpoint.origin,
             Referer: `${endpoint.base}/growth-page/activity-iframe`,
           },

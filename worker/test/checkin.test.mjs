@@ -13,6 +13,7 @@ function fixture(responses, options = {}) {
     getUserInfo: () => ({ security_oauth_token: refreshed ? "new-test-token" : "test-token" }),
     refreshTokenIfNeeded: async () => {},
     forceRefreshToken: async () => { refreshed++; },
+    getMachineId: async () => options.machineId,
   };
   const checkin = createQoderCheckin({
     region: "cn",
@@ -66,10 +67,21 @@ test("CN check-in lists campaigns then claims the CLAIM_BENEFIT campaign", async
   assert.equal(calls[1].init.headers["User-Agent"], "Qoder");
   assert.equal(calls[1].init.headers["Cosy-ClientType"], "10");
   assert.equal(calls[1].init.headers["Cosy-Version"], "0.3.4");
+  assert.equal(calls[1].init.headers["Cosy-MachineId"], undefined);
+  assert.equal(calls[1].init.headers["Cosy-MachineToken"], undefined);
   assert.equal(calls[1].init.headers.Referer, "https://openapi.qoder.com.cn/growth-page/activity-iframe");
   assert.equal(calls[1].init.redirect, "manual");
   assert.ok(calls[1].init.signal instanceof AbortSignal);
   assert.ok(!calls.some((call) => String(call.url).includes("daily-check-in")));
+});
+
+test("CN check-in sends the machine identity headers used by the desktop client", async () => {
+  const { checkin, calls } = fixture([json(listed(credit())), json({ status: "CLAIMED" })], { machineId: "machine-test-id" });
+  await checkin();
+  assert.equal(calls[0].init.headers["Cosy-MachineId"], "machine-test-id");
+  assert.equal(calls[0].init.headers["Cosy-MachineToken"], "machine-test-id");
+  assert.equal(calls[1].init.headers["Cosy-MachineId"], "machine-test-id");
+  assert.equal(calls[1].init.headers["Cosy-MachineToken"], "machine-test-id");
 });
 
 test("VIEW_DETAILS campaigns are never claimed", async () => {
