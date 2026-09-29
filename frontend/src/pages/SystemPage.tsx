@@ -232,6 +232,21 @@ export function SystemPage() {
     }
   }
 
+  async function updateCheckinDisabledAccounts(enabled: boolean) {
+    const previous = settings?.checkin_disabled_accounts ?? false
+    setSettings((current) => current ? { ...current, checkin_disabled_accounts: enabled } : current)
+    setSettingsBusy(true)
+    setError('')
+    try {
+      setSettings(await updateSystemSettings({ checkin_disabled_accounts: enabled }))
+    } catch (err) {
+      setSettings((current) => current ? { ...current, checkin_disabled_accounts: previous } : current)
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSettingsBusy(false)
+    }
+  }
+
   async function updateProxyURL(value: string) {
     const saved = settings?.proxy_url || ''
     // Nothing changed in the field: keep the draft as-is and skip the PATCH so
@@ -394,6 +409,28 @@ export function SystemPage() {
           </Card>
 
           <CheckinDefaults settings={settings} onSaved={setSettings} />
+
+          <Card data-gsap-reveal>
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-surface-secondary text-foreground"><CheckCircle size={15} /></div>
+                <div>
+                  <h3 className="font-semibold">{t('checkinDisabledAccountsTitle')}</h3>
+                  <p className="mt-1 text-xs leading-5 text-muted">{t('checkinDisabledAccountsHint')}</p>
+                </div>
+              </div>
+              <CompactSwitch
+                isSelected={settings?.checkin_disabled_accounts ?? false}
+                isDisabled={settingsBusy || !settings}
+                ariaLabel={t('checkinDisabledAccountsAriaLabel')}
+                onChange={(selected) => void updateCheckinDisabledAccounts(selected)}
+              />
+            </div>
+            <div className="mt-4 flex items-center justify-between border-t border-separator pt-3 text-xs text-muted">
+              <span>{t('checkinDisabledAccountsStatus')}</span>
+              <span className="font-medium text-foreground">{settings?.checkin_disabled_accounts ? t('enabled') : t('disabled')}</span>
+            </div>
+          </Card>
 
           <Card data-gsap-reveal>
             <div className="flex items-start gap-3">

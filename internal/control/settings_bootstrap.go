@@ -10,9 +10,10 @@ import (
 )
 
 const (
-	crossProviderModelPoolSecret = "cross_provider_model_pool"
-	routingStrategySecret        = "routing_strategy"
-	proxyURLSecret               = "proxy_url"
+	crossProviderModelPoolSecret  = "cross_provider_model_pool"
+	routingStrategySecret         = "routing_strategy"
+	proxyURLSecret                = "proxy_url"
+	checkinDisabledAccountsSecret = accounts.CheckinDisabledAccountsSecret
 )
 
 func EnsureProxyURL(ctx context.Context, store SecretStore, bootstrap string) (string, error) {
@@ -93,6 +94,25 @@ func EnsureWorkBuddyCheckinTime(ctx context.Context, store SecretStore) (string,
 		}
 	}
 	return normalized, nil
+}
+
+func EnsureCheckinDisabledAccounts(ctx context.Context, store SecretStore) (bool, error) {
+	value, ok, err := store.GetSecret(ctx, checkinDisabledAccountsSecret)
+	if err != nil {
+		return false, err
+	}
+	if !ok || strings.TrimSpace(value) == "" {
+		if err := store.SetSecret(ctx, checkinDisabledAccountsSecret, "0"); err != nil {
+			return false, fmt.Errorf("initialize check-in settings: %w", err)
+		}
+		return false, nil
+	}
+
+	enabled, err := parseSettingBool(value)
+	if err != nil {
+		return false, fmt.Errorf("invalid %s setting: %w", checkinDisabledAccountsSecret, err)
+	}
+	return enabled, nil
 }
 
 func parseSettingBool(value string) (bool, error) {

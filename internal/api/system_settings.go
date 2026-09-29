@@ -23,3 +23,7 @@ func ensureCrossProviderModelPool(ctx context.Context, store app.SecretStore) (b
 func ensureWorkBuddyCheckinTime(ctx context.Context, store app.SecretStore) (string, error) {
 	return app.EnsureWorkBuddyCheckinTime(ctx, store)
 }
+
+func ensureCheckinDisabledAccounts(ctx context.Context, store app.SecretStore) (bool, error) {
+	return app.EnsureCheckinDisabledAccounts(ctx, store)
+}

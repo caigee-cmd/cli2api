@@ -308,3 +308,23 @@ func TestSystemPatchPersistsAndAppliesRuntime(t *testing.T) {
 		t.Fatalf("current=%+v", current)
 	}
 }
+
+func TestSystemPatchPersistsDisabledAccountCheckinSetting(t *testing.T) {
+	svc, _, store, _ := newTestServices()
+	pool := executor.NewPool(nil, nil)
+	var cross atomic.Bool
+	sys := &System{
+		Settings: svc.Settings, Accounts: svc.Accounts, Pool: pool,
+		CrossProviderPool: &cross, Mu: &sync.Mutex{},
+	}
+	enabled := true
+	if err := sys.Patch(context.Background(), SystemSettingsPatch{CheckinDisabledAccounts: &enabled}); err != nil {
+		t.Fatal(err)
+	}
+	if store.secrets[checkinDisabledAccountsSecret] != "1" {
+		t.Fatalf("stored setting=%q", store.secrets[checkinDisabledAccountsSecret])
+	}
+	if !sys.Current(context.Background()).CheckinDisabledAccounts {
+		t.Fatal("current setting is disabled")
+	}
+}
