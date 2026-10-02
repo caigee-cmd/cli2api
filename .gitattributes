@@ -1,0 +1,47 @@
+# 统一换行符，保证跨平台构建产物字节一致。
+# 背景：Windows 上 core.autocrlf=true 会把文本文件 checkout 成 CRLF，
+# 前端构建（Vite）按内容哈希命名产物，换行符差异会导致同一文件哈希漂移
+# （例如 workbuddy-mark SVG 在 Windows 构建后文件名变化）。
+# 这里显式声明 eol=lf，优先级高于 core.autocrlf，任何平台 checkout 都是 LF。
+
+# 默认：自动检测文本，仓库内与工作区统一 LF
+* text=auto eol=lf
+
+# 明确二进制类型，禁止任何换行符转换
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+*.otf binary
+*.gz binary
+*.tgz binary
+*.zip binary
+*.pdf binary
+*.wasm binary
+
+# SVG 是文本，保持 LF（与上面 * 规则一致，显式写出更直观）
+*.svg text eol=lf
+
+# Go / 脚本 / 配置类常见文本
+*.go text eol=lf
+*.mjs text eol=lf
+*.js text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.sh text eol=lf
+
+# Windows 批处理必须保持 CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
