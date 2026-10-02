@@ -3,6 +3,16 @@
 Published user-facing notes for GitHub Releases and the console update page.
 Write upcoming notes as bilingual files in `changelog/unreleased/`.
 
+## 0.6.15 - 2026-10-02
+
+### English
+
+- Run the Qoder CN check-in fingerprint from an executable directory when the account runtime directory cannot run programs.
+
+### 中文
+
+- 账号运行目录不能执行程序时，Qoder 国内版签到会改到可执行目录读取机器指纹。
+
 ## 0.6.14 - 2026-10-02
 
 ### English
