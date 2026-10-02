@@ -10,7 +10,10 @@ function fixture(responses, options = {}) {
   let refreshed = 0;
   const auth = {
     isAuthenticated: () => true,
-    getUserInfo: () => ({ security_oauth_token: refreshed ? "new-test-token" : "test-token" }),
+    getUserInfo: () => ({
+      security_oauth_token: refreshed ? "new-test-token" : "test-token",
+      ...(options.accountId ? { uid: options.accountId } : {}),
+    }),
     refreshTokenIfNeeded: async () => {},
     forceRefreshToken: async () => { refreshed++; },
     getMachineId: async () => options.machineId,
@@ -76,12 +79,40 @@ test("CN check-in lists campaigns then claims the CLAIM_BENEFIT campaign", async
 });
 
 test("CN check-in sends the machine identity headers used by the desktop client", async () => {
-  const { checkin, calls } = fixture([json(listed(credit())), json({ status: "CLAIMED" })], { machineId: "machine-test-id" });
+  const identity = { machineToken: "risk-token", machineType: "risk-type", machineCode: "risk-code" };
+  const reads = [];
+  const { checkin, calls } = fixture([json(listed(credit())), json({ status: "CLAIMED" })], {
+    machineId: "machine-test-id",
+    accountId: "account-1",
+    runtimeInfoPath: () => "/runtime-info",
+    readRiskIdentity: async (executable, account) => {
+      reads.push({ executable, account });
+      return identity;
+    },
+  });
   await checkin();
+  assert.deepEqual(reads, [{ executable: "/runtime-info", account: "account-1" }]);
+  for (const call of calls) {
+    assert.equal(call.init.headers["Cosy-MachineId"], "machine-test-id");
+    assert.equal(call.init.headers["Cosy-MachineToken"], "risk-token");
+    assert.equal(call.init.headers["Cosy-MachineType"], "risk-type");
+    assert.equal(call.init.headers["Cosy-MachineCode"], "risk-code");
+    assert.match(call.init.headers["Cosy-MachineOS"], /_(darwin|linux|win32)$/);
+    assert.equal(typeof call.init.headers["Cosy-MachineHostname"], "string");
+  }
+});
+
+test("CN check-in keeps the machine id when the risk identity bridge is unavailable", async () => {
+  const { checkin, calls } = fixture([json(listed(credit({ status: "CLAIMED" })))], {
+    machineId: "machine-test-id",
+    accountId: "account-1",
+    runtimeInfoPath: () => "",
+  });
+  assert.equal((await checkin()).status, "already");
   assert.equal(calls[0].init.headers["Cosy-MachineId"], "machine-test-id");
   assert.equal(calls[0].init.headers["Cosy-MachineToken"], "machine-test-id");
-  assert.equal(calls[1].init.headers["Cosy-MachineId"], "machine-test-id");
-  assert.equal(calls[1].init.headers["Cosy-MachineToken"], "machine-test-id");
+  assert.equal(calls[0].init.headers["Cosy-MachineType"], undefined);
+  assert.equal(calls[0].init.headers["Cosy-MachineCode"], undefined);
 });
 
 test("VIEW_DETAILS campaigns are never claimed", async () => {

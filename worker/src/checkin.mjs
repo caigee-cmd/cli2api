@@ -1,8 +1,16 @@
+import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
+import { readdirSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
 const endpoints = {
   cn: { base: "https://openapi.qoder.com.cn", origin: "https://qoder.com.cn" },
 };
 const campaignsPath = "/sash/api/v1/me/campaigns";
 const maxResponseBytes = 65536;
+const riskIdentityTimeoutMs = 15000;
+const printableHeader = /^[\x21-\x7e](?:[\x20-\x7e]*[\x21-\x7e])?$/u;
 
 function object(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -69,7 +77,112 @@ function rewardFrom(campaign) {
   return benefit.amount;
 }
 
-async function machineHeaders(auth) {
+function headerValue(value, maxBytes = 4096) {
+  if (typeof value !== "string") return "";
+  const trimmed = value.trim();
+  if (!trimmed || Buffer.byteLength(trimmed, "utf8") > maxBytes || !printableHeader.test(trimmed)) return "";
+  return trimmed;
+}
+
+function machineOS() {
+  const arch = process.arch === "arm64" ? "aarch64" : process.arch === "x64" ? "x86_64" : process.arch;
+  return `${arch}_${process.platform}`;
+}
+
+function machineHostname() {
+  let name = "";
+  try {
+    name = os.hostname();
+  } catch {
+    return "";
+  }
+  const trimmed = name.trim();
+  if (printableHeader.test(trimmed)) return trimmed.length <= 96 ? trimmed : "";
+  const digest = createHash("sha256").update(trimmed, "utf8").digest("hex").slice(0, 8);
+  const safe = trimmed.replace(/[^\x21-\x7e]+/gu, "-").replace(/-{2,}/gu, "-").replace(/^-+|-+$/gu, "");
+  const shortened = `${safe.slice(0, 87)}-${digest}`.replace(/-+$/u, "");
+  return printableHeader.test(shortened) ? shortened : "";
+}
+
+function runtimeInfoPath(home = process.env.QODER_HOME || process.env.HOME || "") {
+  if (!home) return "";
+  const directory = path.join(home, ".bin");
+  let names = [];
+  try {
+    names = readdirSync(directory);
+  } catch {
+    return "";
+  }
+  const prefix = `runtime-info-${process.platform}-${process.arch}-`;
+  const match = names.filter((name) => name.startsWith(prefix)).sort().at(-1);
+  return match ? path.join(directory, match) : "";
+}
+
+function accountId(user) {
+  for (const value of [user?.uid, user?.user_id, user?.userId, user?.id]) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+
+function readRiskIdentity(executable, account) {
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = spawn(executable, ["3", "--account-stdin"], { stdio: ["pipe", "pipe", "pipe"] });
+    } catch {
+      resolve(null);
+      return;
+    }
+    let output = "";
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(value);
+    };
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      finish(null);
+    }, riskIdentityTimeoutMs);
+    timer.unref?.();
+    child.stdout?.on("data", (chunk) => {
+      output += chunk.toString("utf8");
+      if (Buffer.byteLength(output, "utf8") > maxResponseBytes) {
+        child.kill("SIGKILL");
+        finish(null);
+      }
+    });
+    child.once("error", () => finish(null));
+    child.once("close", (code) => {
+      if (code !== 0) {
+        finish(null);
+        return;
+      }
+      const line = output.split("\n", 1)[0];
+      try {
+        const payload = JSON.parse(line);
+        const identity = {
+          machineToken: headerValue(payload.machineToken),
+          machineType: headerValue(payload.machineType),
+          machineCode: headerValue(payload.machineCode),
+        };
+        finish(identity.machineToken && identity.machineType && identity.machineCode ? identity : null);
+      } catch {
+        finish(null);
+      }
+    });
+    child.stdin?.on("error", () => {});
+    child.stdin?.end(`${JSON.stringify({ account })}\n`);
+  });
+}
+
+async function machineHeaders(auth, user, options) {
+  const headers = {
+    "Cosy-MachineOS": machineOS(),
+    "Cosy-MachineHostname": machineHostname(),
+  };
   let machineId = auth.machineId;
   if (typeof auth.getMachineId === "function") {
     try {
@@ -78,14 +191,25 @@ async function machineHeaders(auth) {
       machineId = "";
     }
   }
-  if (typeof machineId !== "string" || !machineId) return {};
-  return {
-    "Cosy-MachineId": machineId,
-    "Cosy-MachineToken": machineId,
-  };
+  const id = headerValue(machineId);
+  if (id) {
+    headers["Cosy-MachineId"] = id;
+    headers["Cosy-MachineToken"] = id;
+  }
+  const executable = (options.runtimeInfoPath ?? runtimeInfoPath)();
+  const account = accountId(user);
+  if (executable && account) {
+    const identity = await (options.readRiskIdentity ?? readRiskIdentity)(executable, account);
+    if (identity) {
+      headers["Cosy-MachineToken"] = identity.machineToken;
+      headers["Cosy-MachineType"] = identity.machineType;
+      headers["Cosy-MachineCode"] = identity.machineCode;
+    }
+  }
+  return headers;
 }
 
-export function createQoderCheckin({ region, getAuthManager, fetchImpl = (...args) => globalThis.fetch(...args) }) {
+export function createQoderCheckin({ region, getAuthManager, fetchImpl = (...args) => globalThis.fetch(...args), ...options }) {
   let pending;
 
   async function execute() {
@@ -101,7 +225,7 @@ export function createQoderCheckin({ region, getAuthManager, fetchImpl = (...arg
     } catch {
       throw new Error("qoder_checkin_auth_refresh_failed");
     }
-    const machineHeadersValue = await machineHeaders(auth);
+    const machineHeadersValue = await machineHeaders(auth, auth.getUserInfo(), options);
 
     async function request(path, method, refreshed = false) {
       const user = auth.getUserInfo();
