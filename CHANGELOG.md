@@ -3,6 +3,20 @@
 Published user-facing notes for GitHub Releases and the console update page.
 Write upcoming notes as bilingual files in `changelog/unreleased/`.
 
+## 0.6.13 - 2026-09-29
+
+### English
+
+- Add a system setting to let disabled accounts continue their opted-in automatic daily check-in without making them eligible for chat routing.
+- Fix Qoder CN daily check-in by sending the desktop machine fingerprint headers required by the campaign service.
+- A routing region latch no longer survives a large change in pool composition. Adding or migrating many accounts of another region now re-seats the route on the largest region instead of leaving the new accounts idle.
+
+### 中文
+
+- 新增系统设置，允许停用账号继续执行已开启的自动签到，同时不会让它们重新参与聊天调度。
+- 修复 Qoder 国内版每日签到，补齐活动服务要求的桌面端机器指纹请求头。
+- 路由的区域锁定不再跨越大规模的账号池变化。新增或迁移大量其他区域的账号后，路由会重新落到账号最多的区域，而不会让新账号闲置。
+
 ## 0.6.12 - 2026-09-29
 
 ### English
