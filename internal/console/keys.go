@@ -32,7 +32,7 @@ func (h *Handler) HandleAPIKeys(w http.ResponseWriter, r *http.Request) {
 			Providers []string `json:"providers"`
 			Enabled   *bool    `json:"enabled"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxConsoleBodyBytes)).Decode(&input); err != nil {
 			writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
 			return
 		}
@@ -77,7 +77,7 @@ func (h *Handler) HandleAPIKeyByID(w http.ResponseWriter, r *http.Request) {
 			Providers []string `json:"providers"`
 			Enabled   *bool    `json:"enabled"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxConsoleBodyBytes)).Decode(&input); err != nil {
 			writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
 			return
 		}
@@ -119,7 +119,7 @@ func (h *Handler) HandleConsoleKey(w http.ResponseWriter, r *http.Request) {
 		var input struct {
 			Rotate bool `json:"rotate"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&input); err != nil && err != io.EOF {
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxConsoleBodyBytes)).Decode(&input); err != nil && err != io.EOF {
 			writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
 			return
 		}
