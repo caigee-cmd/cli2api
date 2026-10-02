@@ -29,6 +29,7 @@ type fakeProcess struct {
 
 func (p *fakeProcess) URL() string        { return p.url }
 func (p *fakeProcess) Done() <-chan error { return p.done }
+func (p *fakeProcess) PID() int           { return 0 }
 func (p *fakeProcess) Stop() error {
 	p.stopped = true
 	select {

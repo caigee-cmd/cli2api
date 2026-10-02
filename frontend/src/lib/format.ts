@@ -12,6 +12,18 @@ export function formatLatency(ms: number | null | undefined) {
   return `${Math.round(ms)}ms`
 }
 
+export function formatBytes(bytes: number | null | undefined) {
+  if (bytes == null || !Number.isFinite(bytes) || bytes < 0) return '—'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let value = bytes
+  let unit = 0
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024
+    unit++
+  }
+  return `${trimFixed(value)} ${units[unit]}`
+}
+
 export function formatPercent(rate: number | null | undefined) {
   if (rate == null || !Number.isFinite(rate)) return '—'
   const pct = rate * 100
