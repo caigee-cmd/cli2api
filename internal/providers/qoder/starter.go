@@ -19,6 +19,8 @@ type Process interface {
 	URL() string
 	Done() <-chan error
 	Stop() error
+	// PID returns the OS process ID, or 0 when not running.
+	PID() int
 }
 
 type StarterConfig struct {
@@ -63,6 +65,12 @@ type execProcess struct {
 
 func (p *execProcess) URL() string        { return p.url }
 func (p *execProcess) Done() <-chan error { return p.done }
+func (p *execProcess) PID() int {
+	if p.cmd == nil || p.cmd.Process == nil {
+		return 0
+	}
+	return p.cmd.Process.Pid
+}
 func (p *execProcess) Stop() error {
 	if p.cmd == nil || p.cmd.Process == nil {
 		return nil
@@ -79,6 +87,11 @@ type prefixLogWriter struct {
 	buf    []byte
 }
 
+// maxPrefixLogLine bounds the buffered bytes held for a single unfinished
+// line. Workers occasionally emit very large single-line JSON dumps; without a
+// cap the buffer would grow for the whole worker lifetime.
+const maxPrefixLogLine = 256 << 10
+
 func (w *prefixLogWriter) Write(p []byte) (int, error) {
 	if w == nil || w.next == nil {
 		return len(p), nil
@@ -93,6 +106,14 @@ func (w *prefixLogWriter) Write(p []byte) (int, error) {
 			}
 		}
 		if idx < 0 {
+			// No newline yet — but don't let one unterminated line grow forever.
+			if len(w.buf) > maxPrefixLogLine {
+				line := append([]byte(nil), w.buf...)
+				w.buf = w.buf[:0]
+				if _, err := w.next.Write(append([]byte(w.prefix), line...)); err != nil {
+					return len(p), err
+				}
+			}
 			break
 		}
 		line := append([]byte(nil), w.buf[:idx+1]...)

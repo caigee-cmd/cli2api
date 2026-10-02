@@ -121,3 +121,26 @@ export function cancelSystemUpdate() {
 export function rollbackSystemUpdate(version: string) {
   return api<StartUpdateResult>('/api/system/update/rollback', { method: 'POST', body: JSON.stringify({ version }) })
 }
+
+export type SystemResources = {
+  sampled_at: string
+  server: {
+    pid: number
+    rss_bytes: number
+    heap_bytes?: number
+    goroutines?: number
+    cpu_percent: number
+  }
+  workers: Array<{
+    account_id: string
+    label?: string
+    pid: number
+    rss_bytes: number
+    cpu_percent: number
+  }>
+  total_rss_bytes: number
+}
+
+export function fetchSystemResources() {
+  return api<SystemResources>('/api/system/resources')
+}

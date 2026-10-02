@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/providers"
@@ -33,6 +34,9 @@ type ManagedProcess interface {
 	URL() string
 	Done() <-chan error
 	Stop() error
+	// PID returns the OS process ID, or 0 when the process is not running or the
+	// starter does not spawn an external process.
+	PID() int
 }
 
 type ProcessStarter interface {
@@ -107,6 +111,13 @@ type Manager struct {
 	// instead of being treated as a no-op. Guarded by mu.
 	proxyReloadMu      sync.Mutex
 	proxyReloadPending bool
+
+	// Latest resource sample (server + workers), published by the maintenance
+	// loop ticker or lazily on first read. atomic.Pointer, never nil after a
+	// successful sampleResources call.
+	resources atomic.Pointer[ResourceSnapshot]
+	resMu     sync.Mutex       // serializes sampleResources
+	cpuPrev   map[int]procTime // pid -> last jiffies sample for CPU% deltas
 }
 
 func NewManager(config ManagerConfig, store AccountStore, starter ProcessStarter) *Manager {
@@ -143,6 +154,7 @@ func NewManager(config ManagerConfig, store AccountStore, starter ProcessStarter
 		persistDirty:      map[string]Item{},
 		persistedVersions: map[string]uint64{},
 		persistCloseCh:    make(chan struct{}),
+		cpuPrev:           map[int]procTime{},
 	}
 	manager.persistCond = sync.NewCond(&manager.persistMu)
 	manager.persistDone.Add(1)

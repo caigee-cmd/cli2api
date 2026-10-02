@@ -77,10 +77,11 @@ function formatUpstreamError(err) {
 
 
 export function parseNestedOpenAIChunks(sseText) {
-  let content = "";
-  let reasoning = "";
+  // Chunk arrays + a single join avoid O(n^2) string reallocation on long
+  // responses and large tool-call argument streams.
+  const contentParts = [];
+  const reasoningParts = [];
   let error = null;
-  const events = [];
   const toolCallsByIndex = new Map();
   let finishReason = null;
   let eventName = "message";
@@ -97,7 +98,6 @@ export function parseNestedOpenAIChunks(sseText) {
       if (eventName === "error") {
         const errBody = JSON.parse(raw);
         error = rememberError(error, errBody.error || errBody);
-        events.push(errBody);
         eventName = "message";
         continue;
       }
@@ -105,7 +105,6 @@ export function parseNestedOpenAIChunks(sseText) {
       const bodyRaw = outer.body;
       if (bodyRaw === "[DONE]") continue;
       const body = typeof bodyRaw === "string" ? JSON.parse(bodyRaw) : bodyRaw;
-      events.push(body);
       if (usageLooksUseful(outer) || usageLooksUseful(body)) {
         usageAcc = resolveUsage([usageAcc, outer, body], usageAcc || {});
       }
@@ -117,9 +116,9 @@ export function parseNestedOpenAIChunks(sseText) {
         const choice = body?.choices?.[0] || {};
         if (choice.finish_reason) finishReason = choice.finish_reason;
         const delta = choice.delta || {};
-        if (delta.content) content += delta.content;
-        if (delta.reasoning_content) reasoning += delta.reasoning_content;
-        else if (delta.reasoning) reasoning += delta.reasoning;
+        if (delta.content) contentParts.push(delta.content);
+        if (delta.reasoning_content) reasoningParts.push(delta.reasoning_content);
+        else if (delta.reasoning) reasoningParts.push(delta.reasoning);
         const tcs = delta.tool_calls || choice.message?.tool_calls;
         if (Array.isArray(tcs)) {
           for (const tc of tcs) {
@@ -127,12 +126,12 @@ export function parseNestedOpenAIChunks(sseText) {
             const prev = toolCallsByIndex.get(idx) || {
               id: "",
               type: "function",
-              function: { name: "", arguments: "" },
+              function: { name: "", arguments: [] },
             };
             if (tc.id) prev.id = tc.id;
             if (tc.type) prev.type = tc.type;
             if (tc.function?.name) prev.function.name += tc.function.name;
-            if (tc.function?.arguments) prev.function.arguments += tc.function.arguments;
+            if (tc.function?.arguments) prev.function.arguments.push(tc.function.arguments);
             toolCallsByIndex.set(idx, prev);
           }
         }
@@ -145,9 +144,14 @@ export function parseNestedOpenAIChunks(sseText) {
   }
   const tool_calls = [...toolCallsByIndex.entries()]
     .sort((a, b) => a[0] - b[0])
-    .map(([, v]) => v)
+    .map(([, v]) => ({
+      ...v,
+      function: v.function
+        ? { ...v.function, arguments: Array.isArray(v.function.arguments) ? v.function.arguments.join("") : v.function.arguments }
+        : v.function,
+    }))
     .filter((v) => v.function?.name);
-  return { content, reasoning, events, error, tool_calls, finish_reason: finishReason, usage: usageAcc };
+  return { content: contentParts.join(""), reasoning: reasoningParts.join(""), error, tool_calls, finish_reason: finishReason, usage: usageAcc };
 }
 
 export async function readSSEText(res, { maxBytes = 2_000_000 } = {}) {
@@ -211,8 +215,12 @@ function writeStructuredStreamError(res, source) {
 export async function pipeNestedSseToOpenAI(upstreamRes, res, { model = "auto", id, promptTokens = 0, estimatedCompletion = 0 } = {}) {
   const chatId = id || `chatcmpl-${Date.now()}`;
   const created = Math.floor(Date.now() / 1000);
-  let content = "";
-  let reasoning = "";
+  // Parts arrays join once at the end — avoids O(n^2) string churn while
+  // still retaining the full text for usage estimation and diagnostics.
+  const contentParts = [];
+  const reasoningParts = [];
+  let contentLen = 0;
+  let reasoningLen = 0;
   let roleSent = false;
   let buffer = "";
   let eventName = "message";
@@ -250,8 +258,8 @@ export async function pipeNestedSseToOpenAI(upstreamRes, res, { model = "auto", 
       bodyShapes,
       sawDone,
       finishReason,
-      contentLength: content.length,
-      reasoningLength: reasoning.length,
+      contentLength: contentLen,
+      reasoningLength: reasoningLen,
       toolCallCount: toolCallsByIndex.size,
       parseErrorCount,
       usageSeen,
@@ -289,8 +297,8 @@ export async function pipeNestedSseToOpenAI(upstreamRes, res, { model = "auto", 
       console.error("[sse] upstream stream read failed", {
         model,
         eventCount,
-        contentLength: content.length,
-        reasoningLength: reasoning.length,
+        contentLength: contentLen,
+        reasoningLength: reasoningLen,
         toolCallCount: toolCallsByIndex.size,
         finishReason,
         error: detail,
@@ -376,15 +384,15 @@ export async function pipeNestedSseToOpenAI(upstreamRes, res, { model = "auto", 
         const delta = choice.delta || {};
         const outDelta = {};
         if (delta.content) {
-          content += delta.content;
+          contentLen += delta.content.length; contentParts.push(delta.content);
           outDelta.content = delta.content;
         }
         // Pass through structured thinking for OpenAI-compatible clients that understand it.
         if (delta.reasoning_content) {
-          reasoning += delta.reasoning_content;
+          reasoningLen += delta.reasoning_content.length; reasoningParts.push(delta.reasoning_content);
           outDelta.reasoning_content = delta.reasoning_content;
         } else if (delta.reasoning) {
-          reasoning += delta.reasoning;
+          reasoningLen += delta.reasoning.length; reasoningParts.push(delta.reasoning);
           outDelta.reasoning_content = delta.reasoning;
         }
         if (Array.isArray(delta.tool_calls) && delta.tool_calls.length) {
@@ -407,12 +415,12 @@ export async function pipeNestedSseToOpenAI(upstreamRes, res, { model = "auto", 
             const prev = toolCallsByIndex.get(idx) || {
               id: `call_${chatId}_${idx}`,
               type: "function",
-              function: { name: "", arguments: "" },
+              function: { name: "", arguments: [] },
             };
             if (tc.id) prev.id = tc.id;
             if (tc.type) prev.type = tc.type;
             if (tc.function?.name) prev.function.name += tc.function.name;
-            if (tc.function?.arguments) prev.function.arguments += tc.function.arguments;
+            if (tc.function?.arguments) prev.function.arguments.push(tc.function.arguments);
             toolCallsByIndex.set(idx, prev);
             outDelta.tool_calls.push({
               ...tc,
@@ -449,8 +457,8 @@ export async function pipeNestedSseToOpenAI(upstreamRes, res, { model = "auto", 
       code: sawError.code || sawError.type || "upstream_error",
       type: sawError.type || "api_error",
       message: String(sawError.message || sawError.localizedMessage || "").slice(0, 300),
-      contentLength: content.length,
-      reasoningLength: reasoning.length,
+      contentLength: contentLen,
+      reasoningLength: reasoningLen,
       toolCallCount: toolCallsByIndex.size,
       finishReason,
     });
@@ -466,8 +474,8 @@ export async function pipeNestedSseToOpenAI(upstreamRes, res, { model = "auto", 
     console.error("[sse] upstream stream ended without done", {
       model,
       eventCount,
-      contentLength: content.length,
-      reasoningLength: reasoning.length,
+      contentLength: contentLen,
+      reasoningLength: reasoningLen,
       toolCallCount: toolCallsByIndex.size,
       finishReason,
     });
@@ -485,16 +493,21 @@ export async function pipeNestedSseToOpenAI(upstreamRes, res, { model = "auto", 
   emitDiagnostic("complete");
   const usage = resolveUsage(usageAcc, {
     prompt_tokens: promptTokens,
-    completion_tokens: estimatedCompletion || estimateTokens(content + reasoning),
+    completion_tokens: estimatedCompletion || estimateTokens(contentLen + reasoningLen),
     source: "estimate",
   });
   const promptTokensOut = usage.prompt_tokens;
   const completionTokens = usage.completion_tokens;
   const tool_calls = [...toolCallsByIndex.entries()]
     .sort((a, b) => a[0] - b[0])
-    .map(([, v]) => v)
+    .map(([, v]) => ({
+      ...v,
+      function: v.function
+        ? { ...v.function, arguments: Array.isArray(v.function.arguments) ? v.function.arguments.join("") : v.function.arguments }
+        : v.function,
+    }))
     .filter((v) => v.function?.name);
-  if (!content && !reasoning && tool_calls.length === 0) {
+  if (!contentLen && !reasoningLen && tool_calls.length === 0) {
     console.error("[sse] empty upstream", {
       model,
       promptTokens,
@@ -537,8 +550,8 @@ export async function pipeNestedSseToOpenAI(upstreamRes, res, { model = "auto", 
   res.write("data: [DONE]\n\n");
   return {
     model,
-    content,
-    reasoning,
+    content: contentParts.join(""),
+    reasoning: reasoningParts.join(""),
     id: chatId,
     promptTokens: promptTokensOut,
     completionTokens,
