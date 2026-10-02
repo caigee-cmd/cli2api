@@ -439,14 +439,14 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
       <Modal.Backdrop variant="blur" isDismissable={!busy}>
         <Modal.Container size="lg" scroll="inside" className="sm:max-w-3xl">
           <Modal.Dialog>
-            <Modal.Header className="items-start justify-between gap-4 px-5 pt-5">
+            <Modal.Header className="relative items-center justify-center px-12 pt-5 text-center">
               <div className="min-w-0">
                 <Modal.Heading className="text-lg font-semibold tracking-[-0.01em]">{t('addAccountTitle')}</Modal.Heading>
                 <p className="mt-1 text-xs font-normal leading-5 text-muted">
                   {step === 'method' ? t('addAccountDesc') : (hint || t('addAccountDesc'))}
                 </p>
               </div>
-              <Modal.CloseTrigger aria-label={t('close')} className="grid size-8 shrink-0 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-secondary hover:text-foreground"><X size={16} /></Modal.CloseTrigger>
+              <Modal.CloseTrigger aria-label={t('close')} className="absolute right-4 top-4 grid size-8 shrink-0 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-secondary hover:text-foreground"><X size={16} /></Modal.CloseTrigger>
             </Modal.Header>
             <Modal.Body className="px-5 pb-2">
               {step === 'method' ? (

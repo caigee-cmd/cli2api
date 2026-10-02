@@ -58,7 +58,7 @@ func (h *Handler) HandleModelSetting(w http.ResponseWriter, r *http.Request) {
 			MaxMode         *bool   `json:"max_mode"`
 			ReasoningEffort *string `json:"reasoning_effort"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxConsoleBodyBytes)).Decode(&input); err != nil {
 			writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
 			return
 		}
