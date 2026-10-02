@@ -35,7 +35,15 @@ type Handler struct {
 	FetchWorkerModels  func(refresh bool) []map[string]any
 	FetchDisplayModels func(refresh bool, accountID string, mode appsvc.CatalogMode) ([]map[string]any, error)
 	ConsoleKey         func() string
+	// Resources returns the latest server+worker process usage snapshot. app
+	// wires it to the runtime manager so console stays runtime-free.
+	Resources func() *SystemResources
 }
+
+// maxConsoleBodyBytes bounds console JSON payloads (settings, keys, account
+// imports). None legitimately exceeds 1 MiB; the cap stops a bad body from
+// being decoded into an unbounded request struct.
+const maxConsoleBodyBytes = 1 << 20
 
 func (h *Handler) requestedAccount(r *http.Request) string {
 	if h != nil && h.RequestedAccount != nil {
