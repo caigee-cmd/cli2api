@@ -43,7 +43,7 @@ func (h *Handler) HandleAccounts(w http.ResponseWriter, r *http.Request) {
 			CheckinTime          string `json:"checkin_time"`
 			ProxyURL             string `json:"proxy_url"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxConsoleBodyBytes)).Decode(&input); err != nil {
 			writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
 			return
 		}
@@ -122,7 +122,7 @@ func (h *Handler) HandleAccountByID(w http.ResponseWriter, r *http.Request) {
 				CheckinTime          *string `json:"checkin_time"`
 				ProxyURL             *string `json:"proxy_url"`
 			}
-			if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+			if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxConsoleBodyBytes)).Decode(&input); err != nil {
 				writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
 				return
 			}
@@ -209,7 +209,7 @@ func (h *Handler) HandleAccountByID(w http.ResponseWriter, r *http.Request) {
 		var input struct {
 			CallbackURL string `json:"callback_url"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxConsoleBodyBytes)).Decode(&input); err != nil {
 			writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
 			return
 		}

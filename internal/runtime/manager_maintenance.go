@@ -272,6 +272,7 @@ func (manager *Manager) RunMaintenanceLoop(stop <-chan struct{}) {
 			stopKeepalive()
 			lastKeepaliveDay = day
 		}
+		manager.sampleResources()
 		select {
 		case <-ctx.Done():
 			return

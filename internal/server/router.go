@@ -18,6 +18,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/system/update/cancel", s.withConsoleKey(s.consoleHandler().HandleSystemUpdateCancel))
 	s.mux.HandleFunc("/api/system/update/rollback", s.withConsoleKey(s.consoleHandler().HandleSystemUpdateRollback))
 	s.mux.HandleFunc("/api/system/settings", s.withConsoleKey(s.consoleHandler().HandleSystemSettings))
+	s.mux.HandleFunc("/api/system/resources", s.withConsoleKey(s.consoleHandler().HandleSystemResources))
 	s.mux.HandleFunc("/api/system/console-key", s.withConsoleKey(s.consoleHandler().HandleConsoleKey))
 	s.mux.HandleFunc("/api/keys", s.withConsoleKey(s.consoleHandler().HandleAPIKeys))
 	s.mux.HandleFunc("/api/keys/", s.withConsoleKey(s.consoleHandler().HandleAPIKeyByID))

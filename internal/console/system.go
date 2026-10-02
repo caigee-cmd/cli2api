@@ -12,7 +12,7 @@ func (h *Handler) HandleSystemSettings(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, h.System.Current(r.Context()))
 	case http.MethodPatch:
 		var input control.SystemSettingsPatch
-		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxConsoleBodyBytes)).Decode(&input); err != nil {
 			writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
 			return
 		}

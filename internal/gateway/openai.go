@@ -12,13 +12,19 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
+// maxChatRequestBytes bounds an inbound /v1/chat/completions or /v1/messages
+// body. Chat requests carry the full message history, so this stays generous
+// (64 MiB, same as translate.MaxNativeRequestBytes) — it exists to stop a
+// pathological body from pinning unbounded memory, not to constrain prompts.
+const maxChatRequestBytes = 64 << 20
+
 func (h *Handler) HandleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "POST only")
 		return
 	}
 	var req translate.ChatRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxChatRequestBytes)).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}

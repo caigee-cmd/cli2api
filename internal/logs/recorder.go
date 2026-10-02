@@ -44,6 +44,10 @@ type statsCacheEntry struct {
 	expiresAt time.Time
 }
 
+// statsCacheMaxEntries bounds the per-window stats cache. At ~1 small entry
+// per distinct 10s window this is generous; eviction just forces a re-query.
+const statsCacheMaxEntries = 256
+
 type StatsQuery struct {
 	Hours int
 	From  *time.Time
@@ -221,7 +225,21 @@ func (r *RequestRecorder) Stats(ctx context.Context, query StatsQuery) (accounts
 	if r.statsCache == nil {
 		r.statsCache = make(map[string]statsCacheEntry)
 	}
-	r.statsCache[cacheKey] = statsCacheEntry{stats: stats, expiresAt: time.Now().Add(10 * time.Second)}
+	now = time.Now()
+	// Evict expired entries and bound the map so it cannot grow forever — a
+	// stats miss is cheap, an unbounded map over arbitrary time windows is not.
+	for k, v := range r.statsCache {
+		if !now.Before(v.expiresAt) {
+			delete(r.statsCache, k)
+		}
+	}
+	for len(r.statsCache) >= statsCacheMaxEntries {
+		for k := range r.statsCache {
+			delete(r.statsCache, k)
+			break
+		}
+	}
+	r.statsCache[cacheKey] = statsCacheEntry{stats: stats, expiresAt: now.Add(10 * time.Second)}
 	r.statsCacheMu.Unlock()
 	return stats, nil
 }
