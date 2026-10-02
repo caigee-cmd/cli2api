@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readdirSync } from "node:fs";
+import { copyFileSync, mkdirSync, readdirSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -104,7 +104,7 @@ function machineHostname() {
   return printableHeader.test(shortened) ? shortened : "";
 }
 
-function runtimeInfoPath(home = process.env.QODER_HOME || process.env.HOME || "") {
+function installedRuntimeInfo(home = process.env.QODER_HOME || process.env.HOME || "") {
   if (!home) return "";
   const directory = path.join(home, ".bin");
   let names = [];
@@ -116,6 +116,23 @@ function runtimeInfoPath(home = process.env.QODER_HOME || process.env.HOME || ""
   const prefix = `runtime-info-${process.platform}-${process.arch}-`;
   const match = names.filter((name) => name.startsWith(prefix)).sort().at(-1);
   return match ? path.join(directory, match) : "";
+}
+
+function executableRuntimeInfo(source, prepare = prepareExecutableRuntimeInfo) {
+  if (!source) return "";
+  try {
+    return prepare(source) || source;
+  } catch {
+    return source;
+  }
+}
+
+function prepareExecutableRuntimeInfo(source) {
+  const directory = process.env.QODER_RUNTIME_INFO_DIR || os.tmpdir();
+  const executable = path.join(directory, path.basename(source));
+  mkdirSync(directory, { recursive: true });
+  copyFileSync(source, executable);
+  return executable;
 }
 
 function accountId(user) {
@@ -196,7 +213,9 @@ async function machineHeaders(auth, user, options) {
     headers["Cosy-MachineId"] = id;
     headers["Cosy-MachineToken"] = id;
   }
-  const executable = (options.runtimeInfoPath ?? runtimeInfoPath)();
+  const executable = options.runtimeInfoPath
+    ? executableRuntimeInfo(options.runtimeInfoPath(), options.prepareRuntimeInfo)
+    : executableRuntimeInfo(installedRuntimeInfo());
   const account = accountId(user);
   if (executable && account) {
     const identity = await (options.readRiskIdentity ?? readRiskIdentity)(executable, account);
