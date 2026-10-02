@@ -102,6 +102,29 @@ test("CN check-in sends the machine identity headers used by the desktop client"
   }
 });
 
+test("CN check-in uses an executable copy when the account runtime directory cannot execute files", async () => {
+  const previous = process.env.QODER_RUNTIME_INFO_DIR;
+  process.env.QODER_RUNTIME_INFO_DIR = "/opt/qoder-runtime";
+  const reads = [];
+  try {
+    const { checkin } = fixture([json(listed(credit({ status: "CLAIMED" })))], {
+      machineId: "machine-test-id",
+      accountId: "account-1",
+      runtimeInfoPath: () => "/run/account/.bin/runtime-info-linux-x64-probe",
+      prepareRuntimeInfo: (source) => `/opt/qoder-runtime/${source.split("/").at(-1)}`,
+      readRiskIdentity: async (executable) => {
+        reads.push(executable);
+        return { machineToken: "risk-token", machineType: "risk-type", machineCode: "risk-code" };
+      },
+    });
+    assert.equal((await checkin()).status, "already");
+    assert.deepEqual(reads, ["/opt/qoder-runtime/runtime-info-linux-x64-probe"]);
+  } finally {
+    if (previous === undefined) delete process.env.QODER_RUNTIME_INFO_DIR;
+    else process.env.QODER_RUNTIME_INFO_DIR = previous;
+  }
+});
+
 test("CN check-in keeps the machine id when the risk identity bridge is unavailable", async () => {
   const { checkin, calls } = fixture([json(listed(credit({ status: "CLAIMED" })))], {
     machineId: "machine-test-id",
