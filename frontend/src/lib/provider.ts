@@ -19,6 +19,11 @@ export function isCommandProvider(provider?: string) {
   return String(provider || '').toLowerCase() === 'command'
 }
 
+export function isOrcaRouterProvider(provider?: string) {
+  const value = String(provider || '').toLowerCase()
+  return value === 'orcarouter' || value === 'orcarouter-oauth'
+}
+
 export function accountProviderFamilyLabel(
   provider: string | undefined,
   t: (key: string) => string,
@@ -28,6 +33,7 @@ export function accountProviderFamilyLabel(
   if (isTraeProvider(providerID)) return 'Trae'
   if (isDevinProvider(providerID)) return 'Devin'
   if (isCommandProvider(providerID)) return 'Command Code'
+  if (isOrcaRouterProvider(providerID)) return 'OrcaRouter'
   if (isQoderProvider(providerID)) return 'Qoder'
   return provider || t('account')
 }
@@ -50,6 +56,12 @@ export function accountProviderLabel(
   }
   if (isCommandProvider(providerID)) {
     return t('accountTypeCommandGlobal')
+  }
+  if (providerID === 'orcarouter-oauth') {
+    return t('accountTypeOrcaRouterOAuthGlobal')
+  }
+  if (isOrcaRouterProvider(providerID)) {
+    return t('accountTypeOrcaRouterGlobal')
   }
   if (isQoderProvider(providerID)) {
     return regionID === 'cn' ? t('accountTypeQoderCN') : t('accountTypeQoderGlobal')

@@ -17,6 +17,105 @@ var modelsNumericCapFields = []string{
 
 var modelsBoolCapFields = []string{"supports_max_mode", "can_disable_thinking"}
 
+// OrcaRouter capability metadata. These travel from the provider catalog into
+// every console/catalog entry so a model selector can filter on what the
+// upstream actually declared instead of guessing from a model name. They are
+// additive: entries from other providers simply omit them.
+var modelsListCapFields = []string{"input_modalities", "output_modalities", "endpoint_types"}
+
+var modelsCapabilityBoolFields = []string{
+	"image_input", "audio_input", "video_input",
+	"embedding", "image_generation", "rerank",
+}
+
+// capabilityFields stamps the declared capability metadata onto one catalog
+// entry. A modality or endpoint the upstream did not declare is never written,
+// so a later reader fails closed rather than assuming a capability.
+func capabilityFields(entry map[string]any, caps providers.ModelCapabilities) {
+	for _, field := range modelsListCapFields {
+		var values []string
+		switch field {
+		case "input_modalities":
+			values = caps.InputModalities
+		case "output_modalities":
+			values = caps.OutputModalities
+		case "endpoint_types":
+			values = caps.EndpointTypes
+		}
+		if len(values) > 0 {
+			entry[field] = values
+		}
+	}
+	for _, field := range modelsCapabilityBoolFields {
+		var declared bool
+		switch field {
+		case "image_input":
+			declared = caps.ImageInput
+		case "audio_input":
+			declared = caps.AudioInput
+		case "video_input":
+			declared = caps.VideoInput
+		case "embedding":
+			declared = caps.Embedding
+		case "image_generation":
+			declared = caps.ImageGeneration
+		case "rerank":
+			declared = caps.Rerank
+		}
+		if declared {
+			entry[field] = true
+		}
+	}
+}
+
+// ModelCapabilityNames is the set of capability filters a caller may request
+// from the catalog. "chat" is the plain text-chat filter; "vision" is chat that
+// also has to accept an image attachment.
+func ModelCapabilityNames() []string {
+	return []string{"chat", "vision", "embedding", "image", "video", "rerank"}
+}
+
+// FilterModelsByCapability keeps only the entries that can serve a capability.
+// Every advertised capability has to be declared in the catalog metadata, and
+// an unknown capability keeps nothing: guessing from a model name is forbidden,
+// so an unrecognized request fails closed instead of leaking the whole list.
+func FilterModelsByCapability(models []map[string]any, capability string) []map[string]any {
+	capability = strings.ToLower(strings.TrimSpace(capability))
+	if capability == "" || capability == "chat" {
+		return models
+	}
+	keep := func(entry map[string]any) bool {
+		switch capability {
+		case "vision":
+			return entryBool(entry, "image_input")
+		case "audio":
+			return entryBool(entry, "audio_input")
+		case "video":
+			return entryBool(entry, "video_input")
+		case "embedding":
+			return entryBool(entry, "embedding")
+		case "image":
+			return entryBool(entry, "image_generation")
+		case "rerank":
+			return entryBool(entry, "rerank")
+		default:
+			return false
+		}
+	}
+	filtered := make([]map[string]any, 0, len(models))
+	for _, entry := range models {
+		if entry != nil && keep(entry) {
+			filtered = append(filtered, entry)
+		}
+	}
+	return filtered
+}
+
+func entryBool(entry map[string]any, field string) bool {
+	value, _ := entry[field].(bool)
+	return value
+}
+
 func AddModelRegion(entry map[string]any, region string) {
 	region = strings.TrimSpace(region)
 	if region == "" {
@@ -123,6 +222,7 @@ func ModelCapabilitiesEntry(model providers.ModelInfo) map[string]any {
 	if model.Capabilities.CanDisableThinking {
 		entry["can_disable_thinking"] = true
 	}
+	capabilityFields(entry, model.Capabilities)
 	return entry
 }
 
@@ -184,6 +284,7 @@ func ProviderModelEntry(model providers.ModelInfo, provider string) map[string]a
 	if model.Capabilities.CanDisableThinking {
 		entry["can_disable_thinking"] = true
 	}
+	capabilityFields(entry, model.Capabilities)
 	return entry
 }
 

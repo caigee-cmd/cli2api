@@ -40,6 +40,19 @@ export function loginWithPat(pat: string, accountId?: string) {
   })
 }
 
+// cancelLogin releases the server-side "login already in progress" lock. The
+// `keepalive` flag lets the request survive a page being unloaded, which is the
+// pagehide path: the generation guard stops the stale request from mutating UI
+// state, but the server work still has to be cancelled explicitly.
+export function cancelLogin(accountId?: string, keepalive = false) {
+  if (!accountId) return Promise.resolve(null)
+  return api(`/api/accounts/${encodeURIComponent(accountId)}/login/cancel`, {
+    method: 'POST',
+    body: '{}',
+    keepalive,
+  }).catch(() => null)
+}
+
 type ModelsResponse = { data?: Overview['models'] }
 
 type ModelsMemoryEntry = {
@@ -51,27 +64,32 @@ type ModelsMemoryEntry = {
 const modelsMemoryTTL = 30_000
 const modelsMemoryCache = new Map<string, ModelsMemoryEntry>()
 
-function modelsMemoryKey(accountId?: string, view?: 'regional') {
-  return `${accountId || '*'}@${view || 'merged'}`
+function modelsMemoryKey(accountId?: string, view?: 'regional', capability?: string) {
+  return `${accountId || '*'}@${view || 'merged'}@${capability || 'chat'}`
 }
 
-export function fetchModels(accountId?: string, refresh = false, view?: 'regional') {
+export type ModelCapability = 'chat' | 'vision' | 'embedding' | 'image' | 'video' | 'rerank'
+
+export function fetchModels(accountId?: string, refresh = false, view?: 'regional', capability?: ModelCapability) {
   const q = new URLSearchParams()
   if (refresh) q.set('refresh', '1')
   if (accountId) q.set('account', accountId)
   if (view) q.set('view', view)
+  // The selector for one entry point only ever shows models whose catalog
+  // metadata declares that capability. `chat` is the default server-side filter.
+  if (capability) q.set('capability', capability)
   const query = q.toString()
   return api<ModelsResponse>(`/api/models${query ? `?${query}` : ''}`)
 }
 
-export function fetchModelsCached(accountId?: string, view?: 'regional') {
-  const key = modelsMemoryKey(accountId, view)
+export function fetchModelsCached(accountId?: string, view?: 'regional', capability?: ModelCapability) {
+  const key = modelsMemoryKey(accountId, view, capability)
   const cached = modelsMemoryCache.get(key)
   if (cached && Date.now() - cached.at < modelsMemoryTTL) {
     return Promise.resolve(cached.data)
   }
   if (cached?.pending) return cached.pending
-  const pending = fetchModels(accountId, false, view).then((data) => {
+  const pending = fetchModels(accountId, false, view, capability).then((data) => {
     modelsMemoryCache.set(key, { data, at: Date.now() })
     return data
   }).finally(() => {
@@ -84,10 +102,10 @@ export function fetchModelsCached(accountId?: string, view?: 'regional') {
   return pending
 }
 
-export function refreshModels(accountId?: string, view?: 'regional') {
-  const key = modelsMemoryKey(accountId, view)
+export function refreshModels(accountId?: string, view?: 'regional', capability?: ModelCapability) {
+  const key = modelsMemoryKey(accountId, view, capability)
   modelsMemoryCache.delete(key)
-  return fetchModels(accountId, true, view).then((data) => {
+  return fetchModels(accountId, true, view, capability).then((data) => {
     modelsMemoryCache.set(key, { data, at: Date.now() })
     return data
   })
@@ -151,7 +169,7 @@ export function refreshAccount(accountId: string, options?: { quota?: boolean })
   })
 }
 
-export function testChat(model: string, content: string, accountId?: string) {
+export function testChat(model: string, content: string | unknown[], accountId?: string) {
   const headers: Record<string, string> = {}
   if (accountId) headers['X-Qoder-Account'] = accountId
   return api('/api/chat', {

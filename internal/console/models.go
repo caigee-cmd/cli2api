@@ -11,7 +11,7 @@ import (
 func splitModelSettingPath(raw, queryProvider string) (provider, modelKey string) {
 	raw = strings.TrimPrefix(raw, "/api/models/")
 	provider = strings.ToLower(strings.TrimSpace(queryProvider))
-	for _, prefix := range []string{"trae/", "workbuddy/", "qoder/", "devin/", "command/", "codex/"} {
+	for _, prefix := range []string{"trae/", "workbuddy/", "qoder/", "devin/", "command/", "codex/", "orcarouter-oauth/", "orcarouter/"} {
 		if strings.HasPrefix(strings.ToLower(raw), prefix) {
 			provider = strings.TrimSuffix(prefix, "/")
 			raw = raw[len(prefix):]
@@ -32,9 +32,16 @@ func (h *Handler) HandleModelsAPI(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusServiceUnavailable, "catalog_failed", err.Error())
 		return
 	}
+	models = h.filterModels(r, models)
+	// ?capability= filters on the catalog-declared capability metadata so a model
+	// selector only ever offers models the upstream says can serve that entry
+	// point. An unknown capability returns an empty list, never a fallback.
+	if capability := strings.TrimSpace(r.URL.Query().Get("capability")); capability != "" {
+		models = control.FilterModelsByCapability(models, capability)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"object": "list",
-		"data":   h.decorateModels(r.Context(), h.filterModels(r, models)),
+		"data":   h.decorateModels(r.Context(), models),
 	})
 }
 

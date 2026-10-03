@@ -6,6 +6,7 @@ type CompactSwitchProps = {
   ariaLabel: string
   label?: string
   size?: 'sm' | 'md' | 'lg'
+  testId?: string
   onChange: (selected: boolean) => void
 }
 
@@ -15,10 +16,11 @@ export function CompactSwitch({
   ariaLabel,
   label,
   size = 'sm',
+  testId,
   onChange,
 }: CompactSwitchProps) {
   return (
-    <Switch size={size} isSelected={isSelected} isDisabled={isDisabled} onChange={onChange}>
+    <Switch size={size} isSelected={isSelected} isDisabled={isDisabled} data-testid={testId} onChange={onChange}>
       <Switch.Content>
         <Switch.Control>
           <Switch.Thumb />

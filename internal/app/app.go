@@ -25,6 +25,7 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/providers/codex"
 	"github.com/caigee-cmd/cli2api/internal/providers/command"
 	"github.com/caigee-cmd/cli2api/internal/providers/devin"
+	"github.com/caigee-cmd/cli2api/internal/providers/orcarouter"
 	"github.com/caigee-cmd/cli2api/internal/providers/qoder"
 	"github.com/caigee-cmd/cli2api/internal/providers/trae"
 	"github.com/caigee-cmd/cli2api/internal/providers/workbuddy"
@@ -116,6 +117,9 @@ func New(cfg config.Config) *App {
 	providerReg.Register(devin.NewClient(store).Adapter())
 	providerReg.Register(command.NewClient(store).Adapter())
 	providerReg.Register(codex.NewClient(store).Adapter())
+	orcarouterClient := orcarouter.NewClient(store)
+	providerReg.Register(orcarouterClient.Adapter())
+	providerReg.Register(orcarouterClient.OAuthAdapter())
 	qoderClient := qoder.NewClient()
 	qoderClient.Bind(manager.AccountURL, manager.ProxyAPIKey)
 	providerReg.Register(qoderClient.Adapter())

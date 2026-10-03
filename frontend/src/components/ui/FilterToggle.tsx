@@ -34,7 +34,7 @@ export function FilterToggle({
       }}
     >
       {options.map((option) => (
-        <ToggleButton key={option.id} id={option.id}>
+        <ToggleButton key={option.id} id={option.id} data-testid="auth-tab" data-tab={option.id}>
           {option.icon}
           {option.label}
         </ToggleButton>

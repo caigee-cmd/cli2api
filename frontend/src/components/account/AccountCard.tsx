@@ -45,6 +45,7 @@ type Props = {
   callbackUrl?: string
   onCallbackChange?: (value: string) => void
   onSubmitCallback?: () => void
+  onPageHideCancel?: () => void
   onExport: () => void
   onRefresh?: () => void
   onDelete: () => void
@@ -86,6 +87,7 @@ export function AccountCard({
   callbackUrl,
   onCallbackChange,
   onSubmitCallback,
+  onPageHideCancel,
   onExport,
   onRefresh,
   onDelete,
@@ -125,6 +127,10 @@ export function AccountCard({
   const lastError = account.last_error || account.lastError
   const errorKind = account.last_error_kind || account.kind
   const provider = accountProviderLabel(account.provider, account.region, t)
+  // Providers that hand the operator a code to paste back (Trae, and the
+  // OrcaRouter PKCE entry) render the callback textarea in the auth panel.
+  const supportsCallbackPaste = (account.provider === 'trae' || account.provider === 'orcarouter-oauth') && Boolean(onSubmitCallback && onCallbackChange)
+  const loginHint = account.provider === 'orcarouter-oauth' ? t('orcarouterLoginHint') : t('qoderLoginHint')
   const checkinStatus = account.last_checkin_status
   const checkinLabel = checkinStatus === 'success' ? 'checkinRecordSuccess' : checkinStatus === 'already' ? 'checkinRecordAlready' : checkinStatus === 'skipped' ? 'checkinRecordSkipped' : checkinStatus === 'error' ? 'checkinRecordFailed' : 'lastCheckinNone'
 
@@ -173,6 +179,17 @@ export function AccountCard({
     return () => context.revert()
   }, [authPanelOpen])
 
+  // A pagehide while the auth panel is open must release the provider's
+  // in-flight login lock even though the page may be restored from the
+  // back-forward cache without a remount. The pagehide listener lives in
+  // AccountsPage so it can also clear the panel's UI state synchronously.
+  useEffect(() => {
+    if (!authPanelOpen || !onPageHideCancel) return
+    const onPageHide = () => onPageHideCancel()
+    window.addEventListener('pagehide', onPageHide)
+    return () => window.removeEventListener('pagehide', onPageHide)
+  }, [authPanelOpen, onPageHideCancel])
+
   // Refresh keeps the existing card mounted so the layout does not jump.
   // The refresh button spinner (busyKind === 'refresh') is the only visual
   // indicator; stale quota / status stay on screen until the new payload
@@ -181,6 +198,8 @@ export function AccountCard({
     <Card
       data-gsap-reveal
       data-state={state}
+      data-testid="account-card"
+      data-provider={account.provider}
       className="account-card overflow-hidden p-0"
     >
       <Card.Header className="flex-row items-start justify-between gap-2.5 px-3 pt-2.5 pb-1.5">
@@ -281,21 +300,21 @@ export function AccountCard({
       </Card.Content>
 
       {authPanelOpen && account.enabled ? (
-        <section ref={authRef} className="grid gap-3 border-t border-separator bg-surface-secondary/55 px-3 py-3">
+        <section ref={authRef} data-testid="auth-panel" className="grid gap-3 border-t border-separator bg-surface-secondary/55 px-3 py-3">
           <div>
             <div className="text-xs font-medium text-muted">{t('oauthDeviceFlow')}</div>
-            <p className="mt-1.5 text-xs leading-5 text-muted">{t('qoderLoginHint')}</p>
+            <p className="mt-1.5 text-xs leading-5 text-muted">{loginHint}</p>
             <div className="mt-2.5 flex flex-wrap gap-2">
-              <Button size="sm" isPending={busyKind === 'device'} onPress={onDeviceLogin}><ShieldCheck size={14} />{t('startBrowserLogin')}</Button>
+              <Button size="sm" data-testid="pkce-connect" isPending={busyKind === 'device'} onPress={onDeviceLogin}><ShieldCheck size={14} />{t('startBrowserLogin')}</Button>
               {authUrl ? <Button size="sm" variant="ghost" onPress={() => window.open(authUrl, '_blank', 'noopener,noreferrer')}><ArrowSquareOut size={14} />{t('open')}</Button> : null}
             </div>
-            {account.provider === 'trae' && onSubmitCallback && onCallbackChange ? (
+            {supportsCallbackPaste ? (
               <div className="mt-3 space-y-2">
                 <p className="text-[11px] leading-4 text-muted">{t('wizardCallbackLead')}</p>
                 <TextArea
                   className="h-24 w-full resize-none font-mono text-xs leading-5"
                   value={callbackUrl || ''}
-                  onChange={(event) => onCallbackChange(event.target.value)}
+                  onChange={(event) => onCallbackChange?.(event.target.value)}
                   placeholder={t('wizardCallbackPh')}
                   aria-label={t('wizardCallbackPh')}
                 />
@@ -310,9 +329,9 @@ export function AccountCard({
             <div className="mt-2.5 flex flex-col gap-2 sm:flex-row">
               <TextField className="flex-1" type="password" value={pat} onChange={onPatChange}>
                 <Label className="sr-only">{t('pat')}</Label>
-                <Input placeholder={t('pasteToken')} aria-label={t('pat')} />
+                <Input data-testid="api-key-input" placeholder={t('pasteToken')} aria-label={t('pat')} />
               </TextField>
-              <Button size="sm" variant="secondary" isPending={busyKind === 'pat'} onPress={onPatLogin}><Key size={14} />{t('usePat')}</Button>
+              <Button size="sm" data-testid="api-key-submit" variant="secondary" isPending={busyKind === 'pat'} onPress={onPatLogin}><Key size={14} />{t('usePat')}</Button>
             </div>
           </div>
           {authUrl || note ? (

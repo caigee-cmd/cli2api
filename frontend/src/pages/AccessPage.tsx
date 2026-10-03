@@ -1,6 +1,6 @@
 import { copyText } from '@/lib/clipboard'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Button, Card, Chip, Description, Label, ListBox, Select, Skeleton, TextArea } from '@heroui/react'
+import { Button, Card, Chip, Description, Input, Label, ListBox, Select, Skeleton, TextArea } from '@heroui/react'
 import {
   ArrowsClockwise,
   BracketsCurly,
@@ -17,6 +17,7 @@ import { fetchAccounts, fetchModels, testChat } from '@/api/overview'
 import type { ModelInfo, Overview } from '@/api/types'
 import { absUrl } from '@/lib/url'
 import { modelCreditsText, modelIsFree } from '@/lib/format'
+import { CompactSwitch } from '@/components/ui/CompactSwitch'
 import { EmptyPanel } from '@/components/ui/EmptyPanel'
 import { PageAlert } from '@/components/ui/PageAlert'
 import { AccessPageSkeleton } from '@/components/ui/PageSkeletons'
@@ -45,6 +46,7 @@ function PlaygroundSelect({
   placeholder,
   isDisabled,
   options,
+  testId,
 }: {
   label: string
   value: string
@@ -52,6 +54,7 @@ function PlaygroundSelect({
   placeholder?: string
   isDisabled?: boolean
   options: PlaygroundOption[]
+  testId?: string
 }) {
   const selected = options.find((option) => option.id === value)
   return (
@@ -60,6 +63,7 @@ function PlaygroundSelect({
       value={value || null}
       placeholder={placeholder}
       isDisabled={isDisabled}
+      data-testid={testId}
       onChange={(next) => {
         if (typeof next === 'string' && next) onChange(next)
       }}
@@ -79,7 +83,7 @@ function PlaygroundSelect({
         </Select.Value>
         <Select.Indicator />
       </Select.Trigger>
-      <Select.Popover className="max-h-72">
+      <Select.Popover className="max-h-72" style={{ width: 'var(--trigger-width)' }}>
         <ListBox>
           {options.map((option) => (
             <ListBox.Item key={option.id} id={option.id} textValue={option.textValue}>
@@ -97,6 +101,11 @@ function PlaygroundSelect({
   )
 }
 
+// DEFAULT_IMAGE_URL is the placeholder attachment the playground sends when an
+// operator enables image attachment without pasting a URL. It is a real,
+// public PNG so the request shape is exercised end to end.
+const DEFAULT_IMAGE_URL = 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/47/PNG_transparency_demonstration_1.png/280px-PNG_transparency_demonstration_1.png'
+
 export function AccessPage() {
   const { t } = useI18n()
   const { overview, loading } = useOverview()
@@ -104,7 +113,11 @@ export function AccessPage() {
   const [accounts, setAccounts] = useState<NonNullable<Overview['accounts']>>([])
   useEffect(() => {
     let cancelled = false
-    void Promise.allSettled([fetchModels(), fetchAccounts(false)]).then(([modelsResult, accountsResult]) => {
+    // The playground sends text chat only, so every pool model is filtered to
+    // the catalog-declared chat capability. OrcaRouter entries carry the
+    // upstream's own supported_endpoint_types/input_modalities metadata; the
+    // server drops non-chat models before they reach this selector.
+    void Promise.allSettled([fetchModels(undefined, false, undefined, 'chat'), fetchAccounts(false)]).then(([modelsResult, accountsResult]) => {
       if (cancelled) return
       if (modelsResult.status === 'fulfilled') setPoolModels(modelsResult.value.data || [])
       if (accountsResult.status === 'fulfilled') setAccounts(accountsResult.value.data || [])
@@ -117,6 +130,13 @@ export function AccessPage() {
   const [model, setModel] = useState('')
   const [accountId, setAccountId] = useState('')
   const [accountCatalog, setAccountCatalog] = useState<{ accountId: string; models: ModelInfo[]; error: string } | null>(null)
+  // Attaching an image changes the required capability, so the model selector
+  // is recomputed for the vision filter; every model that does not declare
+  // image input disappears from the options and the stale selection is cleared.
+  const [imageAttached, setImageAttached] = useState(false)
+  const [imageUrl, setImageUrl] = useState('')
+  const [poolVision, setPoolVision] = useState<ModelInfo[]>([])
+  const [accountVision, setAccountVision] = useState<{ accountId: string; models: ModelInfo[]; error: string } | null>(null)
   const [prompt, setPrompt] = useState('只回复OK')
   const [output, setOutput] = useState('')
   const [requestState, setRequestState] = useState<RequestState>('idle')
@@ -124,15 +144,29 @@ export function AccessPage() {
   const [copied, setCopied] = useState<'base' | 'curl' | ''>('')
   const selectedAccount = accountId || ''
   const catalogReady = !selectedAccount || accountCatalog?.accountId === selectedAccount
-  const models = selectedAccount ? (catalogReady ? accountCatalog?.models || [] : []) : poolModels
-  const modelsLoading = Boolean(selectedAccount) && !catalogReady
-  const modelsError = catalogReady ? accountCatalog?.error || '' : ''
-  const selectedModel = models.some((item) => item.id === model) ? model : models[0]?.id || ''
+  // The selector options come from the capability-filtered catalog: `chat` for a
+  // text turn, `vision` (chat that declares image input) once an image is
+  // attached. Both passes are keyed to the selected account so the list is never
+  // silently swapped between them.
+  const visionReady = !selectedAccount || accountVision?.accountId === selectedAccount
+  const models = imageAttached
+    ? (selectedAccount ? (visionReady ? accountVision?.models || [] : []) : poolVision)
+    : (selectedAccount ? (catalogReady ? accountCatalog?.models || [] : []) : poolModels)
+  const modelsLoading = Boolean(selectedAccount) && (imageAttached ? !visionReady : !catalogReady)
+  const modelsError = imageAttached
+    ? (visionReady ? accountVision?.error || '' : '')
+    : (catalogReady ? accountCatalog?.error || '' : '')
+  // A previously chosen model that no longer satisfies the current capability is
+  // cleared (never silently kept). Only a caller who has not picked yet gets the
+  // first compatible option, so switching to an image never hides a mismatch.
+  const modelCompatible = models.some((item) => item.id === model)
+  const selectedModel = modelCompatible ? model : model ? '' : models[0]?.id || ''
+  const selectionInvalidated = Boolean(model) && !modelCompatible
 
   useEffect(() => {
     if (!selectedAccount) return
     let cancelled = false
-    void fetchModels(selectedAccount)
+    void fetchModels(selectedAccount, false, undefined, 'chat')
       .then((data) => {
         if (cancelled) return
         setAccountCatalog({ accountId: selectedAccount, models: data.data || [], error: '' })
@@ -149,15 +183,55 @@ export function AccessPage() {
       cancelled = true
     }
   }, [selectedAccount])
+
+  useEffect(() => {
+    if (!imageAttached) return
+    let cancelled = false
+    void fetchModels(undefined, false, undefined, 'vision')
+      .then((data) => {
+        if (!cancelled) setPoolVision(data.data || [])
+      })
+      .catch(() => {
+        if (!cancelled) setPoolVision([])
+      })
+    return () => { cancelled = true }
+  }, [imageAttached])
+
+  useEffect(() => {
+    if (!imageAttached || !selectedAccount) return
+    let cancelled = false
+    void fetchModels(selectedAccount, false, undefined, 'vision')
+      .then((data) => {
+        if (cancelled) return
+        setAccountVision({ accountId: selectedAccount, models: data.data || [], error: '' })
+      })
+      .catch((error) => {
+        if (cancelled) return
+        setAccountVision({
+          accountId: selectedAccount,
+          models: [],
+          error: error instanceof Error ? error.message : String(error),
+        })
+      })
+    return () => { cancelled = true }
+  }, [imageAttached, selectedAccount])
   const readyAccounts = accounts.filter((account) => account.enabled !== false && (
     account.ready === true || account.hot === true || account.status === 'ready' || account.status === 'hot'
   ))
 
-  const payload = useMemo(() => ({
-    model: selectedModel,
-    stream: false,
-    messages: [{ role: 'user', content: prompt || '只回复OK' }],
-  }), [prompt, selectedModel])
+  const payload = useMemo(() => {
+    const content: string | unknown[] = imageAttached
+      ? [
+          { type: 'text', text: prompt || '只回复OK' },
+          { type: 'image_url', image_url: { url: imageUrl.trim() || DEFAULT_IMAGE_URL } },
+        ]
+      : (prompt || '只回复OK')
+    return {
+      model: selectedModel,
+      stream: false,
+      messages: [{ role: 'user', content }],
+    }
+  }, [imageAttached, imageUrl, prompt, selectedModel])
 
   const curl = useMemo(
     () => `curl -sS ${shellQuote(chatEndpoint)} \\
@@ -304,6 +378,7 @@ export function AccessPage() {
                       value={selectedModel}
                       onChange={setModel}
                       placeholder={t('model')}
+                      testId="playground-model-select"
                       options={models.map((item) => {
                         const credits = modelCreditsText(item)
                         const free = modelIsFree(item)
@@ -327,7 +402,32 @@ export function AccessPage() {
                     </div>
                   )}
                   <p className="text-xs leading-5 text-muted">{selectedAccount ? t('accountModelHint') : t('modelRoutingHint')}</p>
+                  {selectionInvalidated ? (
+                    <p className="text-xs leading-5 text-warning">{t('modelSelectionCleared')}</p>
+                  ) : null}
                 </div>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-sm font-medium text-muted">{t('attachment')}</div>
+                  <CompactSwitch
+                    isSelected={imageAttached}
+                    ariaLabel={t('attachImage')}
+                    testId="attach-image-switch"
+                    onChange={setImageAttached}
+                  />
+                </div>
+                <p className="text-xs leading-5 text-muted">{t('attachImageHint')}</p>
+                {imageAttached ? (
+                  <Input
+                    fullWidth
+                    value={imageUrl}
+                    onChange={(event) => setImageUrl(event.target.value)}
+                    placeholder={DEFAULT_IMAGE_URL}
+                    aria-label={t('imageUrl')}
+                  />
+                ) : null}
               </div>
 
               <div className="space-y-3">
