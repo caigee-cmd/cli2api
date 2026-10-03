@@ -296,6 +296,14 @@ func (a *Accounts) Admin(ctx context.Context, input AccountAdminAction) (Account
 			return AccountAdminResult{}, err
 		}
 		return AccountAdminResult{Kind: "login_complete", LoginStatus: "ok", LoginMsg: "login complete"}, nil
+	case "login/cancel":
+		if !inProcess {
+			return AccountAdminResult{}, operationError("not_found", "unknown account action")
+		}
+		if err := a.CancelLogin(ctx, input.AccountID); err != nil {
+			return AccountAdminResult{}, err
+		}
+		return AccountAdminResult{Kind: "login_cancel"}, nil
 	case "login/pat":
 		if storeErr != nil {
 			return AccountAdminResult{}, storeErr

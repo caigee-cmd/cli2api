@@ -20,3 +20,11 @@ web/
 
 deploy/docker-compose.override.yml
 .zcode/
+
+# OrcaRouter console evidence (scripts/orca_evidence). Produced by the acceptance
+# run rather than committed: the delivery validator must be able to regenerate
+# the screenshots from the tree it is testing, so a checked-in PNG would prove
+# nothing about that tree.
+orca-evidence/
+scripts/orca_evidence/__pycache__/
+.pytest_cache/

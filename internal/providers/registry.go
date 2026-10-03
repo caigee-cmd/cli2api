@@ -239,13 +239,67 @@ var Codex = ProviderDescriptor{
 	DefaultRegion: "global",
 }
 
+// OrcaRouter descriptor. Protocol constants stay in internal/providers/orcarouter.
+// OrcaRouter is an OpenAI-compatible gateway addressed by "<vendor>/<model>" ids.
+// This is the pasted-API-key entry: an operator supplies an sk-orca-… key from
+// the OrcaRouter console. Inference and the model catalog live on
+// api.orcarouter.ai/v1; authentication lives on www.orcarouter.ai.
+var OrcaRouter = ProviderDescriptor{
+	ID:                "orcarouter",
+	Label:             "OrcaRouter - API",
+	Runtime:           RuntimeInProcess,
+	AuthTypes:         []AuthType{AuthPAT},
+	CredentialFormats: []string{"orcarouter-key-v1"},
+	Capabilities: ProviderCapabilities{
+		Chat: true, Stream: true, Tools: true, Images: true, Reasoning: true,
+		ModelCatalog: true, Usage: false, Login: false, BrowserLogin: false,
+		PATLogin: true, ImportExport: true,
+	},
+	Regions: []RegionDescriptor{
+		{
+			ID: "global", Label: "Global", ChatBase: "https://api.orcarouter.ai/v1",
+			BillingBase: "https://www.orcarouter.ai", AuthBase: "https://www.orcarouter.ai",
+			DefaultDomain: "orcarouter.ai",
+		},
+	},
+	DefaultRegion: "global",
+}
+
+// OrcaRouterOAuth descriptor. Same gateway and same inference API as
+// OrcaRouter, but the credential is obtained by signing in with an OrcaRouter
+// account through OAuth 2.0 + PKCE on the auth origin. The flow returns an
+// ordinary sk-orca-… key, so both entries converge on one credential seam and
+// one chat/catalog path.
+var OrcaRouterOAuth = ProviderDescriptor{
+	ID:                "orcarouter-oauth",
+	Label:             "OrcaRouter - Auth",
+	Runtime:           RuntimeInProcess,
+	AuthTypes:         []AuthType{AuthOAuth},
+	CredentialFormats: []string{"orcarouter-oauth-v1"},
+	Capabilities: ProviderCapabilities{
+		Chat: true, Stream: true, Tools: true, Images: true, Reasoning: true,
+		ModelCatalog: true, Usage: false, Login: true, BrowserLogin: true,
+		PATLogin: false, ImportExport: true,
+	},
+	Regions: []RegionDescriptor{
+		{
+			ID: "global", Label: "Global", ChatBase: "https://api.orcarouter.ai/v1",
+			BillingBase: "https://www.orcarouter.ai", AuthBase: "https://www.orcarouter.ai",
+			DefaultDomain: "orcarouter.ai",
+		},
+	},
+	DefaultRegion: "global",
+}
+
 var registry = map[string]ProviderDescriptor{
-	Qoder.ID:     Qoder,
-	WorkBuddy.ID: WorkBuddy,
-	Trae.ID:      Trae,
-	Devin.ID:     Devin,
-	Command.ID:   Command,
-	Codex.ID:     Codex,
+	Qoder.ID:           Qoder,
+	WorkBuddy.ID:       WorkBuddy,
+	Trae.ID:            Trae,
+	Devin.ID:           Devin,
+	Command.ID:         Command,
+	Codex.ID:           Codex,
+	OrcaRouter.ID:      OrcaRouter,
+	OrcaRouterOAuth.ID: OrcaRouterOAuth,
 }
 
 func Get(id string) (ProviderDescriptor, bool) {
@@ -254,7 +308,7 @@ func Get(id string) (ProviderDescriptor, bool) {
 }
 
 func List() []ProviderDescriptor {
-	return []ProviderDescriptor{Qoder, WorkBuddy, Trae, Devin, Command, Codex}
+	return []ProviderDescriptor{Qoder, WorkBuddy, Trae, Devin, Command, Codex, OrcaRouter, OrcaRouterOAuth}
 }
 
 // Resolve validates a provider/region pair. Empty values fall back to the

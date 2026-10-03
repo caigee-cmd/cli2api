@@ -177,6 +177,7 @@ func (h *Handler) HandleAccountByID(w http.ResponseWriter, r *http.Request) {
 		"login/device":   http.MethodPost,
 		"login/status":   http.MethodGet,
 		"login/callback": http.MethodPost,
+		"login/cancel":   http.MethodPost,
 	}
 	if want, ok := required[action]; ok && r.Method != want {
 		writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", want+" only")
@@ -248,6 +249,8 @@ func (h *Handler) HandleAccountByID(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"login": map[string]any{"status": result.LoginStatus, "message": result.LoginMsg}})
 	case "login_complete":
 		writeJSON(w, http.StatusOK, map[string]any{"login": map[string]any{"status": result.LoginStatus, "message": result.LoginMsg}})
+	case "login_cancel":
+		writeJSON(w, http.StatusOK, map[string]any{"cancelled": true})
 	case "worker":
 		for key, values := range result.Worker.Header {
 			for _, value := range values {

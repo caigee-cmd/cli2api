@@ -33,6 +33,24 @@ type ModelCapabilities struct {
 	ReasoningDefault   string   `json:"reasoning_default,omitempty"`
 	ReasoningType      string   `json:"reasoning_type,omitempty"`
 	CanDisableThinking bool     `json:"can_disable_thinking,omitempty"`
+	// InputModalities is the catalog-declared set of input modalities a model
+	// accepts ("text", "image", "audio", "video"). It is authoritative: a
+	// modality the catalog does not declare must not be advertised, so a
+	// multimodal selector can fail closed instead of guessing from a model name.
+	InputModalities []string `json:"input_modalities,omitempty"`
+	// OutputModalities is the catalog-declared set of output modalities.
+	OutputModalities []string `json:"output_modalities,omitempty"`
+	// EndpointTypes is the catalog-declared set of endpoint types a model can be
+	// spoken to over (e.g. openai, anthropic, embeddings, image-generation).
+	EndpointTypes []string `json:"endpoint_types,omitempty"`
+	// ImageInput, AudioInput, VideoInput, Embedding, ImageGeneration and Rerank
+	// are capability filters derived only from the catalog metadata above.
+	ImageInput      bool `json:"image_input,omitempty"`
+	AudioInput      bool `json:"audio_input,omitempty"`
+	VideoInput      bool `json:"video_input,omitempty"`
+	Embedding       bool `json:"embedding,omitempty"`
+	ImageGeneration bool `json:"image_generation,omitempty"`
+	Rerank          bool `json:"rerank,omitempty"`
 }
 
 type ModelInfo struct {
@@ -70,6 +88,13 @@ type LoginSessionProvider interface {
 // when the automatic loopback redirect cannot reach this process.
 type LoginCompleter interface {
 	CompleteLogin(ctx context.Context, accountID, callbackURL string) error
+}
+
+// LoginCanceler releases a pending browser-login attempt: the provider clears
+// its in-flight session (and any loopback lock it owns) so a second login can
+// start immediately. It must be safe to call when no attempt is in flight.
+type LoginCanceler interface {
+	CancelLogin(ctx context.Context, accountID string) error
 }
 
 // ChatOutcome is the provider-neutral non-stream result.

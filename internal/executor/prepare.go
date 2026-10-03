@@ -159,8 +159,9 @@ func (e ChatExecutor) Prepare(in PrepareInput) (PreparedRequest, error) {
 // providerPrefixes are the provider segments a client may pin with a leading
 // "<provider>/" model id. Command Code's own model ids are org-namespaced
 // ("deepseek/…", "moonshotai/…"), so its provider prefix sits in front of an
-// already-namespaced id ("command/deepseek/…").
-var providerPrefixes = []string{"qoder/", "workbuddy/", "trae/", "devin/", "command/", "codex/"}
+// already-namespaced id ("command/deepseek/…"). OrcaRouter ids are namespaced the
+// same way ("orcarouter/deepseek/deepseek-v4-pro" pins the gateway itself).
+var providerPrefixes = []string{"qoder/", "workbuddy/", "trae/", "devin/", "command/", "codex/", "orcarouter/", "orcarouter-oauth/"}
 
 func ProviderPrefix(model string) string {
 	model = strings.TrimSpace(model)

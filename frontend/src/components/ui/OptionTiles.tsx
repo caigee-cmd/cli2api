@@ -46,6 +46,8 @@ export function OptionTiles<T extends string>({
         <div
           key={option.value}
           data-selected={option.value === value || undefined}
+          data-testid="provider-option"
+          data-provider={option.value}
           className="flex items-center gap-1 rounded-xl border border-border bg-surface-secondary p-1.5 data-selected:border-accent data-selected:bg-accent-soft"
         >
           <Radio

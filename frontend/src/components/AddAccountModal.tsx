@@ -9,6 +9,7 @@ import { FormRow } from '@/components/ui/FormRow'
 import { OptionTiles } from '@/components/ui/OptionTiles'
 import { useI18n } from '@/hooks/useI18n'
 import {
+  cancelLogin,
   createAccount,
   fetchLoginStatus,
   fetchProviders,
@@ -53,6 +54,8 @@ const labelKeys: Record<string, string> = {
   'devin-global': 'accountTypeDevinGlobal',
   'command-global': 'accountTypeCommandGlobal',
   'codex-global': 'accountTypeCodexGlobal',
+  'orcarouter-global': 'accountTypeOrcaRouterGlobal',
+  'orcarouter-oauth-global': 'accountTypeOrcaRouterOAuthGlobal',
 }
 
 const hintKeys: Record<string, string> = {
@@ -64,6 +67,8 @@ const hintKeys: Record<string, string> = {
   'devin-global': 'accountTypeDevinGlobalHint',
   'command-global': 'accountTypeCommandGlobalHint',
   'codex-global': 'accountTypeCodexGlobalHint',
+  'orcarouter-global': 'accountTypeOrcaRouterGlobalHint',
+  'orcarouter-oauth-global': 'accountTypeOrcaRouterOAuthGlobalHint',
 }
 
 function AccountTypeSkeleton({ ariaLabel }: { ariaLabel: string }) {
@@ -143,6 +148,9 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
   const createdId = useRef<string>('')
   const pollTimer = useRef<number | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
+  // Monotonic login generation. Every async response and poll tick must still
+  // belong to the current generation before touching credentials or UI state.
+  const browserGeneration = useRef(0)
 
   function stopPolling() {
     if (pollTimer.current !== null) {
@@ -151,9 +159,41 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
     }
   }
 
+  // releaseLogin invalidates the generation, stops the poll timer, and tells the
+  // server to drop its in-flight attempt for the account this wizard created.
+  // keepalive lets the request outlive a page being unloaded. It never writes UI
+  // state, so it is safe on unmount.
+  function releaseLogin(keepalive: boolean) {
+    browserGeneration.current += 1
+    stopPolling()
+    const id = createdId.current
+    if (id) void cancelLogin(id, keepalive)
+  }
+
   useEffect(() => {
     return () => stopPolling()
   }, [])
+
+  useEffect(() => {
+    if (!isOpen) return
+    // The back-forward cache can restore this page without remounting. Clear the
+    // busy flag and the authorization hint synchronously in the handler itself —
+    // do not rely on an invalidated request's guarded finally, which correctly
+    // refuses to mutate state and would leave the restored page stuck busy — then
+    // send the server cancellation with keepalive.
+    const onPageHide = () => {
+      releaseLogin(true)
+      setPhase('idle')
+      setMessage('')
+      setAuthUrl('')
+    }
+    window.addEventListener('pagehide', onPageHide)
+    return () => {
+      window.removeEventListener('pagehide', onPageHide)
+      // A real unmount cancels the in-flight work without writing UI state.
+      releaseLogin(false)
+    }
+  }, [isOpen])
 
   useEffect(() => {
     if (!isOpen) return
@@ -184,7 +224,8 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
   // so the wizard opens on the PAT tab instead of the browser tab.
   const hasBrowserLogin = activeOption?.descriptor.capabilities?.browser_login !== false
   const showDropSystem = activeOption?.provider === 'workbuddy'
-  const showCallbackPaste = activeOption?.provider === 'trae' || activeOption?.provider === 'devin' || activeOption?.provider === 'codex'
+  const isOrcaRouter = activeOption?.provider === 'orcarouter' || activeOption?.provider === 'orcarouter-oauth'
+  const showCallbackPaste = activeOption?.provider === 'trae' || activeOption?.provider === 'devin' || activeOption?.provider === 'codex' || isOrcaRouter
   const busy = phase === 'busy' || phase === 'polling'
   const settingsLocked = Boolean(createdId.current) || busy
   const isDone = phase === 'done'
@@ -273,15 +314,26 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
     return id
   }
 
+  // While the OrcaRouter PKCE entry is on screen, the start button hands off to
+  // the provider's PKCE login session: the wizard opens, the provider resolves
+  // its own /auth URL, and the operator pastes the callback when the browser
+  // cannot reach this process. The other wizard tabs stay unchanged.
   async function runBrowser() {
+    if (activeOption?.provider === 'orcarouter-oauth') return runOAuthLogin()
     setMessage('')
     setAuthUrl('')
+    // Invalidate any earlier attempt before a new one starts, so a late response
+    // from a previous login cannot overwrite this one.
+    browserGeneration.current += 1
+    const generation = browserGeneration.current
     try {
       setPhase('busy')
       const id = await ensureAccount()
+      if (generation !== browserGeneration.current) return
       setMessage(t('wizardStartingSession'))
       setPhase('polling')
       const output = await startDeviceLogin(id)
+      if (generation !== browserGeneration.current) return
       if (output.authUrl) {
         setAuthUrl(output.authUrl)
         window.open(output.authUrl, '_blank', 'noopener,noreferrer')
@@ -289,18 +341,70 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
       setMessage(t('wizardWaitingBrowser'))
       for (let attempt = 0; attempt < POLL_ATTEMPTS; attempt++) {
         await new Promise((resolve) => { pollTimer.current = window.setTimeout(resolve, POLL_INTERVAL) })
+        if (generation !== browserGeneration.current) return
         const status = await fetchLoginStatus(id)
+        if (generation !== browserGeneration.current) return
         const login = status.login || {}
         if (login.message) setMessage(login.message)
         if (login.status === 'ok') break
         if (login.status === 'error') throw new Error(login.message || 'login failed')
         if (attempt === POLL_ATTEMPTS - 1) throw new Error(t('wizardLoginTimeout'))
       }
+      if (generation !== browserGeneration.current) return
       setPhase('done')
       setMessage(t('wizardAccountReady'))
       onAdded()
       window.setTimeout(finishAndClose, 900)
     } catch (error) {
+      if (generation !== browserGeneration.current) return
+      setPhase('idle')
+      setMessage(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  // runOAuthLogin drives an OrcaRouter PKCE attempt through startDeviceLogin +
+  // fetchLoginStatus, which the console already routes to the in-process login
+  // provider. Run it inside its own generation so a superseded attempt cannot
+  // touch credentials or UI state.
+  async function runOAuthLogin() {
+    setMessage('')
+    setAuthUrl('')
+    browserGeneration.current += 1
+    const generation = browserGeneration.current
+    try {
+      setPhase('busy')
+      const id = await ensureAccount()
+      if (generation !== browserGeneration.current) return
+      setMessage(t('wizardStartingSession'))
+      const output = await startDeviceLogin(id)
+      if (generation !== browserGeneration.current) return
+      if (output.authUrl) {
+        setAuthUrl(output.authUrl)
+        window.open(output.authUrl, '_blank', 'noopener,noreferrer')
+      }
+      setPhase('polling')
+      setMessage(t('wizardWaitingBrowser'))
+      for (let attempt = 0; attempt < POLL_ATTEMPTS; attempt++) {
+        await new Promise((resolve) => { pollTimer.current = window.setTimeout(resolve, POLL_INTERVAL) })
+        if (generation !== browserGeneration.current) return
+        const status = await fetchLoginStatus(id)
+        if (generation !== browserGeneration.current) return
+        const login = status.login || {}
+        if (login.message) setMessage(login.message)
+        if (login.status === 'ok') break
+        if (login.status === 'error') throw new Error(login.message || 'login failed')
+        if (attempt === POLL_ATTEMPTS - 1) throw new Error(t('wizardLoginTimeout'))
+      }
+      if (generation !== browserGeneration.current) return
+      setPhase('done')
+      setMessage(t('wizardAccountReady'))
+      onAdded()
+      window.setTimeout(finishAndClose, 900)
+    } catch (error) {
+      if (generation !== browserGeneration.current) return
+      // A denial, state mismatch, expiry, or a rejected exchange clears the
+      // provider's pending attempt, so return to idle instead of pretending to
+      // still poll. The callback textarea stays available for a fresh attempt.
       setPhase('idle')
       setMessage(error instanceof Error ? error.message : String(error))
     }
@@ -312,16 +416,21 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
       setMessage(t('wizardCallbackPh'))
       return
     }
+    browserGeneration.current += 1
+    const generation = browserGeneration.current
     try {
       setPhase('busy')
       const id = await ensureAccount()
+      if (generation !== browserGeneration.current) return
       stopPolling()
       await completeLoginCallback(id, pasted)
+      if (generation !== browserGeneration.current) return
       setPhase('done')
       setMessage(t('wizardAccountReady'))
       onAdded()
       window.setTimeout(finishAndClose, 900)
     } catch (error) {
+      if (generation !== browserGeneration.current) return
       setPhase('polling')
       setMessage(error instanceof Error ? error.message : String(error))
     }
@@ -425,20 +534,22 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
   ].filter(Boolean) as Array<{ value: TabKey; label: string; icon: React.ReactNode }>
 
   const tabLead = tab === 'browser'
-    ? t('wizardBrowserLead')
+    ? (isOrcaRouter ? t('wizardBrowserLeadOrcaRouter') : t('wizardBrowserLead'))
     : tab === 'pat'
       ? t(activeOption?.provider === 'command'
           ? 'wizardPatLeadCommand'
-          : activeOption?.region === 'cn' && activeOption?.provider === 'qoder'
-            ? 'wizardPatLeadCN'
-            : 'wizardPatLead')
+          : activeOption?.provider === 'orcarouter' || activeOption?.provider === 'orcarouter-oauth'
+            ? 'wizardPatLeadOrcaRouter'
+            : activeOption?.region === 'cn' && activeOption?.provider === 'qoder'
+              ? 'wizardPatLeadCN'
+              : 'wizardPatLead')
       : t('wizardImportLead')
 
   return (
     <Modal.Root isOpen={isOpen} onOpenChange={(next: boolean) => { if (!next) close() }}>
-      <Modal.Backdrop variant="blur" isDismissable={!busy}>
+      <Modal.Backdrop variant="blur" isDismissable={!busy} data-testid="account-modal">
         <Modal.Container size="lg" scroll="inside" className="sm:max-w-3xl">
-          <Modal.Dialog>
+          <Modal.Dialog data-testid="account-modal-dialog">
             <Modal.Header className="relative items-center justify-center px-12 pt-5 text-center">
               <div className="min-w-0">
                 <Modal.Heading className="text-lg font-semibold tracking-[-0.01em]">{t('addAccountTitle')}</Modal.Heading>

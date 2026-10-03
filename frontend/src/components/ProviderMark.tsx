@@ -1,6 +1,7 @@
 import { CommandMark } from '@/components/CommandMark'
 import { CodexMark } from '@/components/CodexMark'
 import { DevinMark } from '@/components/DevinMark'
+import { OrcaRouterMark } from '@/components/OrcaRouterMark'
 import { QoderMark } from '@/components/QoderMark'
 import { TraeMark } from '@/components/TraeMark'
 import { WorkBuddyMark } from '@/components/WorkBuddyMark'
@@ -28,6 +29,9 @@ export function ProviderMark({ provider, size = 16, className = '' }: Props) {
   }
   if (id === 'codex') {
     return <CodexMark size={size} className={className} />
+  }
+  if (id === 'orcarouter' || id === 'orcarouter-oauth') {
+    return <OrcaRouterMark size={size} className={className} />
   }
   return <QoderMark size={size} className={className} />
 }

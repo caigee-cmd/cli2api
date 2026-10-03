@@ -99,3 +99,22 @@ func (a *Accounts) LoginPAT(ctx context.Context, id, token string) error {
 	}
 	return nil
 }
+
+// CancelLogin releases an in-flight browser-login attempt. Providers that hold a
+// pending session or a loopback lock implement providers.LoginCanceler; a
+// provider without one simply has nothing to release. This backs the console
+// Cancel button, switching authentication method, unmount, and pagehide.
+func (a *Accounts) CancelLogin(ctx context.Context, id string) error {
+	login, err := a.login(ctx, id)
+	if err != nil {
+		return err
+	}
+	canceler, ok := login.(providers.LoginCanceler)
+	if !ok {
+		return nil
+	}
+	if err := canceler.CancelLogin(ctx, id); err != nil {
+		return operationError("login_cancel_failed", err.Error())
+	}
+	return nil
+}

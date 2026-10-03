@@ -20,6 +20,7 @@ import { SearchBar } from '@/components/ui/SearchBar'
 import { useI18n } from '@/hooks/useI18n'
 import {
   checkinAccount,
+  cancelLogin,
   deleteAccount,
   exportAccount,
   fetchAccounts,
@@ -203,6 +204,18 @@ export function AccountsPage() {
     } finally {
       setBusy(null)
     }
+  }
+
+  // releaseAccountLogin cancels an in-flight provider login for one account and
+  // clears the panel state. pagehide calls it synchronously (the bfcache can
+  // restore the page without a remount), so it must not depend on a later
+  // effect cleanup — the keepalive request cancels the server work even as the
+  // document is being unloaded.
+  function releaseAccountLogin(id: string) {
+    void cancelLogin(id, true)
+    setAuthPanelId((current) => (current === id ? null : current))
+    setUrlById((current) => ({ ...current, [id]: '' }))
+    setNoteById((current) => ({ ...current, [id]: '' }))
   }
 
   async function onDeviceLogin(id: string) {
@@ -452,6 +465,9 @@ export function AccountsPage() {
                 { id: 'disabled', label: t('disabled') },
               ]}
             />
+            {/* Evidence hook: a stable selector for the login-required / auth
+                attention filter so an automated run can assert the card state. */}
+            <span hidden data-testid="account-filter-anchor" />
             <span className="mono text-xs text-muted">
               {filteredRows.length
                 ? t('logsShownTotal', { shown: `${shownFrom}–${shownTo}`, total: filteredRows.length })
@@ -495,6 +511,7 @@ export function AccountsPage() {
             callbackUrl={callbackById[account.id] || ''}
             onCallbackChange={(value) => setCallbackById((current) => ({ ...current, [account.id]: value }))}
             onSubmitCallback={() => void onCallback(account.id)}
+            onPageHideCancel={() => releaseAccountLogin(account.id)}
             onDeviceLogin={() => void onDeviceLogin(account.id)}
             onPatLogin={() => void onPat(account.id)}
             onExport={() => void onExport(account.id)}
