@@ -239,6 +239,30 @@ var Codex = ProviderDescriptor{
 	DefaultRegion: "global",
 }
 
+// Zhipu descriptor. Protocol constants stay in internal/providers/zhipu.
+// CN-only in-process adapter. Auth is a pasted API key; pay-as-you-go and
+// Coding Plan differ by base URL, not by a second provider family.
+var Zhipu = ProviderDescriptor{
+	ID:                "zhipu",
+	Label:             "Zhipu GLM",
+	Runtime:           RuntimeInProcess,
+	AuthTypes:         []AuthType{AuthPAT},
+	CredentialFormats: []string{"zhipu-key-v1"},
+	Capabilities: ProviderCapabilities{
+		Chat: true, Stream: true, Tools: true, Images: false, Reasoning: true,
+		ModelCatalog: true, Usage: true, Login: false, BrowserLogin: false,
+		PATLogin: true, ImportExport: true,
+	},
+	Regions: []RegionDescriptor{
+		{
+			ID: "cn", Label: "CN", ChatBase: "https://open.bigmodel.cn",
+			BillingBase: "https://open.bigmodel.cn", AuthBase: "https://open.bigmodel.cn",
+			DefaultDomain: "bigmodel.cn",
+		},
+	},
+	DefaultRegion: "cn",
+}
+
 var registry = map[string]ProviderDescriptor{
 	Qoder.ID:     Qoder,
 	WorkBuddy.ID: WorkBuddy,
@@ -246,6 +270,7 @@ var registry = map[string]ProviderDescriptor{
 	Devin.ID:     Devin,
 	Command.ID:   Command,
 	Codex.ID:     Codex,
+	Zhipu.ID:     Zhipu,
 }
 
 func Get(id string) (ProviderDescriptor, bool) {
@@ -254,7 +279,7 @@ func Get(id string) (ProviderDescriptor, bool) {
 }
 
 func List() []ProviderDescriptor {
-	return []ProviderDescriptor{Qoder, WorkBuddy, Trae, Devin, Command, Codex}
+	return []ProviderDescriptor{Qoder, WorkBuddy, Trae, Devin, Command, Codex, Zhipu}
 }
 
 // Resolve validates a provider/region pair. Empty values fall back to the
