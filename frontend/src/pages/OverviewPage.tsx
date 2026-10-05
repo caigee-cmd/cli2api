@@ -332,6 +332,10 @@ export function OverviewPage() {
           </div>
         </Card>
 
+        <ResourcesCard resources={resources} t={t} />
+      </section>
+
+      <section className="grid gap-5 xl:grid-cols-2 2xl:grid-cols-3">
         <Card data-gsap-reveal className="overflow-hidden p-0">
           <div className="flex items-center justify-between gap-3 border-b border-separator px-5 py-4">
             <div>
@@ -355,9 +359,6 @@ export function OverviewPage() {
             />
           )}
         </Card>
-      </section>
-
-      <section className="grid gap-5 xl:grid-cols-2 2xl:grid-cols-3">
         <Card data-gsap-reveal className="overflow-hidden p-0">
           <div className="flex items-center justify-between gap-3 border-b border-separator px-5 py-4">
             <div>
@@ -413,8 +414,6 @@ export function OverviewPage() {
             />
           )}
         </Card>
-
-        <ResourcesCard resources={resources} t={t} />
       </section>
     </div>
   )
