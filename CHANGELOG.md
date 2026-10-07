@@ -3,6 +3,18 @@
 Published user-facing notes for GitHub Releases and the console update page.
 Write upcoming notes as bilingual files in `changelog/unreleased/`.
 
+## 0.6.18 - 2026-10-07
+
+### English
+
+- Qoder CN check-in no longer sends a partial machine identity. Without the official runtime-info identity, those headers hid the claimable credit campaign.
+- Qoder chat now signs requests in the Go process and calls the gateway directly. Per-account Node workers stay for login, model catalog, and quota, and are no longer on the chat path.
+
+### 中文
+
+- Qoder 国内版签到在没有官方 runtime-info 机器身份时不再发送半套机器头。之前这些头会让可领取的积分活动从列表里消失。
+- Qoder 聊天改为在 Go 进程内签名并直连网关。每个账号的 Node worker 仍负责登录、模型目录和配额，不再参与聊天请求。
+
 ## 0.6.17 - 2026-10-05
 
 ### English
