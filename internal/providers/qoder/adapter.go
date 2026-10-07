@@ -34,6 +34,10 @@ type Client struct {
 
 	loginTimeout  time.Duration
 	loginInterval time.Duration
+
+	// direct is the in-process chat path. When set, chat does not enter the
+	// per-account Node worker. Login, catalog, and quota still use that worker.
+	direct *Direct
 }
 
 func NewClient() *Client {
@@ -46,6 +50,17 @@ func NewClient() *Client {
 		loginTimeout:  90 * time.Second,
 		loginInterval: 200 * time.Millisecond,
 	}
+}
+
+// SetDirect switches chat onto the in-process COSY client. A nil direct keeps
+// the worker HTTP path used by tests that stub a worker URL.
+func (c *Client) SetDirect(direct *Direct) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	c.direct = direct
+	c.mu.Unlock()
 }
 
 func (c *Client) Bind(locate func(string) (string, bool), proxyAPIKey func() string) {
@@ -92,6 +107,15 @@ func (c *Client) Adapter() providers.Adapter {
 		Models:  c,
 		Checkin: c,
 	}
+}
+
+func (c *Client) directClient() *Direct {
+	if c == nil {
+		return nil
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.direct
 }
 
 func (c *Client) lookup(accountID string) (string, error) {
@@ -438,6 +462,9 @@ func (c *Client) PollLogin(ctx context.Context, accountID string) (bool, string,
 }
 
 func (c *Client) ChatNonStream(ctx context.Context, accountID string, req translate.ChatRequest) (providers.ChatOutcome, error) {
+	if direct := c.directClient(); direct != nil {
+		return direct.ChatNonStream(ctx, accountID, req)
+	}
 	httpReq, resolved, err := c.newChatRequest(ctx, accountID, req, false)
 	if err != nil {
 		return providers.ChatOutcome{}, err
@@ -466,6 +493,9 @@ func (c *Client) ChatNonStream(ctx context.Context, accountID string, req transl
 }
 
 func (c *Client) ChatStream(ctx context.Context, accountID string, req translate.ChatRequest) (*http.Response, providers.ResolvedChat, error) {
+	if direct := c.directClient(); direct != nil {
+		return direct.ChatStream(ctx, accountID, req)
+	}
 	httpReq, resolved, err := c.newChatRequest(ctx, accountID, req, true)
 	if err != nil {
 		return nil, providers.ResolvedChat{}, err

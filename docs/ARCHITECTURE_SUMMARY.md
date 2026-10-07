@@ -20,7 +20,7 @@ CLI2API 是一个面向个人部署的 Go + Node 网关：
 
 - 对外提供 OpenAI Chat Completions、Anthropic Messages、OpenAI Responses 和 Models 兼容接口。
 - 管理多个上游账号，并按 provider、region、model、pin、会话粘性和冷却状态选号。
-- Qoder 使用每账号隔离的 Node child process；WorkBuddy、Trae CN Work 和 Devin 使用 Go 进程内 adapter。
+- Qoder 登录、目录和配额仍使用每账号隔离的 Node child process；Qoder 聊天在 Go 进程内签名直连网关。WorkBuddy、Trae CN Work 和 Devin 使用 Go 进程内 adapter。
 - 控制台负责账号、密钥、设置、目录、日志、登录、导入和更新操作。
 - 这是个人网关，不实现计费、Redis 槽位、多租户商业网关或公开暴露的管理端口。
 
@@ -71,8 +71,9 @@ cmd/server
 ## Provider 边界
 
 - Qoder Global 和 Qoder CN 是同一个 `provider=qoder`，通过 `region` 区分，不创建新的 provider family。
-- Qoder 每个账号使用独立 HOME 和独立 child process；不得为每个请求启动完整 CLI agent。
+- Qoder 登录仍使用独立 HOME 和独立 child process，不共享 WASM context；聊天不加载 CLI bundle。不得为每个请求启动完整 CLI agent。
 - Qoder 的 CLI / worker 兼容性版本固定在 `worker/src/compat.mjs`，不兼容时应明确失败。
+- Qoder 聊天改为在 Go 进程内使用 COSY 客户端签名直连网关（[`internal/providers/qoder/cosy.go`](../internal/providers/qoder/cosy.go)）。COSY 协议版本固定在 [`COSYVersion = "1.1.32"`](cosy.go:23)，支持中国区（`gateway.qoder.com.cn`）和全球区（`api1.qoder.sh`）双端点。
 - WorkBuddy、Trae CN Work、Devin 使用进程内 adapter，不复制 Qoder worker 生命周期。
 - provider 负责上游事实映射；executor 负责是否切号、冷却多久和是否 failover。
 - Provider 能力、模型目录和 reasoning level 必须以实际 catalog 声明为准，不凭空增加模型能力。
