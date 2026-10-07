@@ -130,11 +130,11 @@ func TestCheckinRejectsDisabledAndUnsupportedAccounts(t *testing.T) {
 	if _, err := manager.CheckinAccount(context.Background(), account.ID); err == nil {
 		t.Fatal("disabled account accepted")
 	}
-	global, err := manager.store.Create(context.Background(), accounts.CreateAccount{Name: "global", Provider: "qoder", Region: "global", Enabled: true})
+	unsupported, err := manager.store.Create(context.Background(), accounts.CreateAccount{Name: "devin", Provider: "devin", Region: "global", Enabled: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := manager.CheckinAccount(context.Background(), global.ID); !errors.Is(err, providers.ErrUnsupported) {
+	if _, err := manager.CheckinAccount(context.Background(), unsupported.ID); !errors.Is(err, providers.ErrUnsupported) {
 		t.Fatalf("err=%v", err)
 	}
 }
