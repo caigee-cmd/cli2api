@@ -3,6 +3,16 @@
 Published user-facing notes for GitHub Releases and the console update page.
 Write upcoming notes as bilingual files in `changelog/unreleased/`.
 
+## 0.6.17 - 2026-10-05
+
+### English
+
+- Move the Overview resources card up beside the account pool, ahead of the traffic rankings.
+
+### 中文
+
+- 概览页的资源占用卡片提前到账号池旁边，排在流量排行之前。
+
 ## 0.6.16 - 2026-10-04
 
 ### English
