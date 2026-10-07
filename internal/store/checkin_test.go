@@ -67,8 +67,8 @@ func TestProviderCheckinRejectsUnsupportedRegionsAndInvalidTimes(t *testing.T) {
 	}
 	defer store.Close()
 	for _, input := range []accounts.CreateAccount{
-		{Name: "global", Provider: "qoder", Region: "global", AutoCheckin: boolPtr(true)},
 		{Name: "unsupported", Provider: "devin", Region: "global", CheckinTime: "10:00"},
+		{Name: "unsupported", Provider: "devin", Region: "global", AutoCheckin: boolPtr(true)},
 		{Name: "invalid", Provider: "qoder", Region: "cn", CheckinTime: "9:00"},
 		{Name: "invalid", Provider: "qoder", Region: "cn", CheckinTime: "24:00"},
 	} {
@@ -76,11 +76,22 @@ func TestProviderCheckinRejectsUnsupportedRegionsAndInvalidTimes(t *testing.T) {
 			t.Fatalf("accepted %+v", input)
 		}
 	}
-	account, err := store.Create(ctx, accounts.CreateAccount{Name: "global", Provider: "qoder", Region: "global"})
+	account, err := store.Create(ctx, accounts.CreateAccount{Name: "global", Provider: "qoder", Region: "global", AutoCheckin: boolPtr(true)})
+	if err != nil || !account.AutoCheckin {
+		t.Fatalf("global check-in rejected: %+v err=%v", account, err)
+	}
+	off := false
+	if err := store.Update(ctx, account.ID, accounts.UpdateAccount{AutoCheckin: &off}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Update(ctx, account.ID, accounts.UpdateAccount{AutoCheckin: boolPtr(true)}); err != nil {
+		t.Fatal(err)
+	}
+	devin, err := store.Create(ctx, accounts.CreateAccount{Name: "devin", Provider: "devin", Region: "global"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Update(ctx, account.ID, accounts.UpdateAccount{AutoCheckin: boolPtr(true)}); err == nil {
+	if err := store.Update(ctx, devin.ID, accounts.UpdateAccount{AutoCheckin: boolPtr(true)}); err == nil {
 		t.Fatal("enabled unsupported region")
 	}
 }

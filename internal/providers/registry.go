@@ -101,6 +101,7 @@ var Qoder = ProviderDescriptor{
 			ID: "global", Label: "Global", ChatBase: "https://api1.qoder.sh",
 			BillingBase: "https://openapi.qoder.sh", AuthBase: "https://qoder.sh",
 			DefaultDomain: "qoder.global",
+			Checkin:       &CheckinPolicy{Timezone: "Asia/Shanghai"},
 		},
 		{
 			ID: "cn", Label: "CN", ChatBase: "https://gateway.qoder.com.cn",

@@ -170,8 +170,21 @@ test("404 list is skipped, not a protocol error", async () => {
   assert.equal(calls.length, 1);
 });
 
+test("global check-in uses the international campaign host", async () => {
+  const id = "01a0f1db-9cc0-725f-a2f4-ca596883291d";
+  const { checkin, calls } = fixture([json(listed(credit({ id }), details())), json({ status: "CLAIMED" })], { region: "global" });
+  assert.deepEqual(await checkin(), { status: "success", message: "签到成功 +100 积分", reward_credits: 100 });
+  assert.equal(calls[0].url, "https://openapi.qoder.sh/sash/api/v1/me/campaigns");
+  assert.equal(calls[0].init.method, "GET");
+  assert.equal(calls[1].url, `https://openapi.qoder.sh/sash/api/v1/me/campaigns/${id}/claim`);
+  assert.equal(calls[1].init.method, "POST");
+  assert.equal(calls[1].init.headers.Origin, "https://qoder.sh");
+  assert.equal(calls[1].init.headers.Referer, "https://openapi.qoder.sh/growth-page/activity-iframe");
+  assert.equal(calls[1].init.headers["Cosy-Version"], "0.3.4");
+});
+
 test("unsupported regions never touch auth or the network", async () => {
-  const { checkin, calls } = fixture([], { region: "global", getAuthManager: () => { throw new Error("unexpected auth access"); } });
+  const { checkin, calls } = fixture([], { region: "eu", getAuthManager: () => { throw new Error("unexpected auth access"); } });
   await assert.rejects(checkin(), /region_unsupported/);
   assert.equal(calls.length, 0);
 });
