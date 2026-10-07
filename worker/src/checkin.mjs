@@ -196,10 +196,17 @@ function readRiskIdentity(executable, account) {
 }
 
 async function machineHeaders(auth, user, options) {
-  const headers = {
-    "Cosy-MachineOS": machineOS(),
-    "Cosy-MachineHostname": machineHostname(),
-  };
+  const executable = options.runtimeInfoPath
+    ? executableRuntimeInfo(options.runtimeInfoPath(), options.prepareRuntimeInfo)
+    : executableRuntimeInfo(installedRuntimeInfo());
+  const account = accountId(user);
+  const identity = executable && account
+    ? await (options.readRiskIdentity ?? readRiskIdentity)(executable, account)
+    : null;
+  // A partial machine identity is treated as an unofficial client and the
+  // claimable credit campaign is removed from the list. Send the full desktop
+  // set only when runtime-info produced one; otherwise send none.
+  if (!identity) return {};
   let machineId = auth.machineId;
   if (typeof auth.getMachineId === "function") {
     try {
@@ -208,23 +215,16 @@ async function machineHeaders(auth, user, options) {
       machineId = "";
     }
   }
+  const headers = {};
   const id = headerValue(machineId);
-  if (id) {
-    headers["Cosy-MachineId"] = id;
-    headers["Cosy-MachineToken"] = id;
-  }
-  const executable = options.runtimeInfoPath
-    ? executableRuntimeInfo(options.runtimeInfoPath(), options.prepareRuntimeInfo)
-    : executableRuntimeInfo(installedRuntimeInfo());
-  const account = accountId(user);
-  if (executable && account) {
-    const identity = await (options.readRiskIdentity ?? readRiskIdentity)(executable, account);
-    if (identity) {
-      headers["Cosy-MachineToken"] = identity.machineToken;
-      headers["Cosy-MachineType"] = identity.machineType;
-      headers["Cosy-MachineCode"] = identity.machineCode;
-    }
-  }
+  if (id) headers["Cosy-MachineId"] = id;
+  headers["Cosy-MachineToken"] = identity.machineToken;
+  headers["Cosy-MachineType"] = identity.machineType;
+  headers["Cosy-MachineCode"] = identity.machineCode;
+  const osName = machineOS();
+  const hostname = machineHostname();
+  if (osName) headers["Cosy-MachineOS"] = osName;
+  if (hostname) headers["Cosy-MachineHostname"] = hostname;
   return headers;
 }
 
