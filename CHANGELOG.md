@@ -3,6 +3,16 @@
 Published user-facing notes for GitHub Releases and the console update page.
 Write upcoming notes as bilingual files in `changelog/unreleased/`.
 
+## 0.6.19 - 2026-10-07
+
+### English
+
+- Qoder Global accounts can claim the same daily credit campaign as Qoder CN, including automatic check-in. It stays off until the account turns it on.
+
+### 中文
+
+- Qoder 国际版账号可以领取和国内版相同的每日积分活动，并沿用现有自动签到。账号未开启前不会自动签。
+
 ## 0.6.18 - 2026-10-07
 
 ### English
