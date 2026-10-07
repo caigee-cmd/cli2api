@@ -769,12 +769,21 @@ func TestManagerRestartsUnexpectedlyExitedEnabledAccount(t *testing.T) {
 		if second == first {
 			t.Fatal("manager reused exited process")
 		}
-		item, ok := manager.Pool().ByID(starter.accounts[0].ID)
-		if !ok || item.Restarts != 1 {
+	case <-time.After(2 * time.Second):
+		t.Fatal("account process was not restarted")
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	var item executor.Item
+	var ok bool
+	for {
+		item, ok = manager.Pool().ByID(starter.accounts[0].ID)
+		if ok && item.Restarts == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
 			t.Fatalf("restart state = %+v ok=%v", item, ok)
 		}
-	case <-time.After(time.Second):
-		t.Fatal("account process was not restarted")
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 

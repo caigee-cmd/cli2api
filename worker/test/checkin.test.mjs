@@ -125,17 +125,16 @@ test("CN check-in uses an executable copy when the account runtime directory can
   }
 });
 
-test("CN check-in keeps the machine id when the risk identity bridge is unavailable", async () => {
+test("CN check-in omits machine headers when the risk identity bridge is unavailable", async () => {
   const { checkin, calls } = fixture([json(listed(credit({ status: "CLAIMED" })))], {
     machineId: "machine-test-id",
     accountId: "account-1",
     runtimeInfoPath: () => "",
   });
   assert.equal((await checkin()).status, "already");
-  assert.equal(calls[0].init.headers["Cosy-MachineId"], "machine-test-id");
-  assert.equal(calls[0].init.headers["Cosy-MachineToken"], "machine-test-id");
-  assert.equal(calls[0].init.headers["Cosy-MachineType"], undefined);
-  assert.equal(calls[0].init.headers["Cosy-MachineCode"], undefined);
+  for (const name of ["Cosy-MachineId", "Cosy-MachineToken", "Cosy-MachineType", "Cosy-MachineCode", "Cosy-MachineOS", "Cosy-MachineHostname"]) {
+    assert.equal(calls[0].init.headers[name], undefined);
+  }
 });
 
 test("VIEW_DETAILS campaigns are never claimed", async () => {
