@@ -1567,6 +1567,38 @@ func TestDailyCheckinAlreadyCheckedInHTTP400(t *testing.T) {
 	}
 }
 
+func TestDailyCheckinSurfacesTransportError(t *testing.T) {
+	originalDelays := dailyCheckinRetryDelays
+	dailyCheckinRetryDelays = []time.Duration{0, 0}
+	t.Cleanup(func() { dailyCheckinRetryDelays = originalDelays })
+
+	client, store := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hijacker, ok := w.(http.Hijacker)
+		if !ok {
+			t.Errorf("response writer is not a hijacker")
+			return
+		}
+		conn, _, err := hijacker.Hijack()
+		if err != nil {
+			t.Errorf("hijack: %v", err)
+			return
+		}
+		_ = conn.Close()
+	}))
+	payload, _ := json.Marshal(Credential{
+		AccessToken: "at", RefreshToken: "rt", ExpiresAt: 4102444800, Domain: DomainCN, UID: "u1",
+	})
+	_ = store.SaveCredentialPayload(context.Background(), "acc1", CredentialFormat, payload)
+
+	_, err := client.DailyCheckin(context.Background(), "acc1")
+	if err == nil {
+		t.Fatal("a dropped connection must fail the check-in")
+	}
+	if strings.Contains(err.Error(), "checkin parse") {
+		t.Fatalf("transport error was reported as a parse error: %v", err)
+	}
+}
+
 func TestDailyCheckinRetriesTransientFailures(t *testing.T) {
 	var calls atomic.Int32
 	client, store := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

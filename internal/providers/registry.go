@@ -130,7 +130,7 @@ var WorkBuddy = ProviderDescriptor{
 			ID: "cn", Label: "CN", ChatBase: "https://copilot.tencent.com",
 			BillingBase: "https://www.codebuddy.cn", AuthBase: "https://copilot.tencent.com",
 			DefaultDomain: "codebuddy.cn",
-			Checkin:       &CheckinPolicy{Timezone: "Local"},
+			Checkin:       &CheckinPolicy{Timezone: "Asia/Shanghai"},
 		},
 		{
 			ID: "global", Label: "Global", ChatBase: "https://www.workbuddy.ai",
