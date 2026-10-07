@@ -6,6 +6,7 @@ import path from "node:path";
 
 const endpoints = {
   cn: { base: "https://openapi.qoder.com.cn", origin: "https://qoder.com.cn" },
+  global: { base: "https://openapi.qoder.sh", origin: "https://qoder.sh" },
 };
 const campaignsPath = "/sash/api/v1/me/campaigns";
 const maxResponseBytes = 65536;

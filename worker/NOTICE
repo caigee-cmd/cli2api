@@ -1,8 +1,11 @@
-Qoder CN check-in follows the official Qoder CN desktop campaign API:
+Qoder check-in follows the official desktop campaign API. CN and Global use the
+same paths on different hosts:
 
   GET  https://openapi.qoder.com.cn/sash/api/v1/me/campaigns
   POST https://openapi.qoder.com.cn/sash/api/v1/me/campaigns/{campaignId}/claim
+  GET  https://openapi.qoder.sh/sash/api/v1/me/campaigns
+  POST https://openapi.qoder.sh/sash/api/v1/me/campaigns/{campaignId}/claim
 
-Observed from Qoder CN 0.3.4 (activity iframe
-https://g.alicdn.com/qbase/qoder/0.0.704/growth-page/activity-iframe/activity-iframe.js).
-The worker reuses the pinned AuthManager and does not copy Qoder's campaign UI.
+CN was observed from Qoder CN 0.3.4. Global was observed from the Qoder desktop
+client on 2026-10-07. The worker reuses the pinned AuthManager and does not copy
+Qoder's campaign UI.
