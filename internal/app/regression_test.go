@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -16,6 +15,7 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/app"
 	"github.com/caigee-cmd/cli2api/internal/config"
 	"github.com/caigee-cmd/cli2api/internal/executor"
+	"github.com/caigee-cmd/cli2api/internal/providers/qoder"
 	"github.com/caigee-cmd/cli2api/internal/update"
 )
 
@@ -79,36 +79,39 @@ func TestConsoleKeyRotationUpdatesExistingHandlerAndWorkerRequests(t *testing.T)
 		}
 		currentKey = result.Secret
 	}
-	// A fake ready worker uses the runtime's current key, without spawning a CLI.
+	// Chat no longer enters the login worker. The gateway sees a COSY bearer,
+	// never the console key that rotation just changed.
 	var calls atomic.Int32
 	worker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/chat/completions" {
-			http.NotFound(w, r)
-			return
-		}
 		calls.Add(1)
-		if r.Header.Get("Authorization") != "Bearer "+currentKey {
-			t.Error("worker received stale key")
+		if strings.Contains(r.Header.Get("Authorization"), currentKey) {
+			t.Error("upstream received the console key")
 			w.WriteHeader(401)
 			return
 		}
-		var req struct {
-			Stream bool `json:"stream"`
-		}
-		_ = json.NewDecoder(r.Body).Decode(&req)
-		if req.Stream {
-			w.Header().Set("Content-Type", "text/event-stream")
-			fmt.Fprint(w, "data: {\"id\":\"test\",\"model\":\"glm-5.2\",\"choices\":[{\"delta\":{\"content\":\"OK\"}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+		if !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer COSY.") {
+			t.Errorf("authorization = %q", r.Header.Get("Authorization"))
+			w.WriteHeader(401)
 			return
 		}
-		io.WriteString(w, `{"model":"glm-5.2","choices":[{"message":{"content":"OK"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1}}`)
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"body\":{\"choices\":[{\"delta\":{\"content\":\"OK\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1}}}\n\n")
 	}))
 	defer worker.Close()
 	account, err := a.Manager.Store().Create(context.Background(), accounts.CreateAccount{Name: "fake-worker", Enabled: false})
 	if err != nil {
 		t.Fatal(err)
 	}
-	a.Pool.Upsert(executor.Item{ID: account.ID, Provider: "qoder", Runtime: "child_process", URL: worker.URL, Models: []string{"glm-5.2"}})
+	if err := a.Manager.Store().SaveCredential(context.Background(), account.ID, "oauth", accounts.NativeCredential{
+		UserBlob:  []byte(`{"uid":"u-rotation","access_token":"dt-rotation"}`),
+		MachineID: "0123456789abcdef",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	original := qoder.ChatEndpointHook
+	qoder.ChatEndpointHook = func(string) string { return worker.URL + "/algo/api/v2/service/pro/sse/agent_chat_generation?Encode=1" }
+	t.Cleanup(func() { qoder.ChatEndpointHook = original })
+	a.Pool.Upsert(executor.Item{ID: account.ID, Provider: "qoder", Runtime: "child_process", URL: "http://127.0.0.1:1", Models: []string{"glm-5.2"}})
 	// Catalog probing is tested separately; keep the fake worker deterministic.
 	a.Gateway.Catalogs = nil
 	for _, path := range []string{"/v1/chat/completions", "/api/chat", "/v1/messages", "/v1/responses"} {
