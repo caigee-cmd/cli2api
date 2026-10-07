@@ -160,7 +160,7 @@ func (e ChatExecutor) Prepare(in PrepareInput) (PreparedRequest, error) {
 // "<provider>/" model id. Command Code's own model ids are org-namespaced
 // ("deepseek/…", "moonshotai/…"), so its provider prefix sits in front of an
 // already-namespaced id ("command/deepseek/…").
-var providerPrefixes = []string{"qoder/", "workbuddy/", "trae/", "devin/", "command/", "codex/"}
+var providerPrefixes = []string{"qoder/", "workbuddy/", "trae/", "devin/", "command/", "codex/", "zhipu/"}
 
 func ProviderPrefix(model string) string {
 	model = strings.TrimSpace(model)

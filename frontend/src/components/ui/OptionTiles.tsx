@@ -1,6 +1,5 @@
-import type { ReactNode } from 'react'
-import { Button, Label, Radio, RadioGroup, Tooltip } from '@heroui/react'
-import { Info } from '@phosphor-icons/react'
+import { useLayoutEffect, useRef, type ReactNode } from 'react'
+import gsap from 'gsap'
 
 type Option<T extends string> = {
   value: T
@@ -22,7 +21,7 @@ type Props<T extends string> = {
 const columnClass = {
   1: 'grid-cols-1',
   2: 'grid-cols-1 sm:grid-cols-2',
-  3: 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3',
+  3: 'grid-cols-1 sm:grid-cols-3',
 } as const
 
 export function OptionTiles<T extends string>({
@@ -33,56 +32,58 @@ export function OptionTiles<T extends string>({
   columns = 2,
   className = '',
 }: Props<T>) {
+  const root = useRef<HTMLDivElement>(null)
+
+  useLayoutEffect(() => {
+    const group = root.current
+    if (!group) return
+    const context = gsap.context(() => {
+      const media = gsap.matchMedia()
+      media.add('(prefers-reduced-motion: reduce)', () => {
+        gsap.set('[data-option-tile]', { autoAlpha: 1, y: 0 })
+      })
+      media.add('(prefers-reduced-motion: no-preference)', () => {
+        gsap.fromTo(
+          '[data-option-tile]',
+          { autoAlpha: 0, y: 8 },
+          { autoAlpha: 1, y: 0, duration: 0.32, stagger: 0.035, ease: 'power3.out', overwrite: true },
+        )
+      })
+    }, group)
+    return () => context.revert()
+  }, [options.length])
+
   return (
-    <RadioGroup
+    <div
+      ref={root}
+      role="radiogroup"
       aria-label={ariaLabel}
-      value={value}
-      onChange={(next) => {
-        if (typeof next === 'string' && next) onChange(next as T)
-      }}
-      className={`grid gap-2 ${columnClass[columns]} ${className}`.trim()}
+      className={`grid gap-3 ${columnClass[columns]} ${className}`.trim()}
     >
-      {options.map((option) => (
-        <div
-          key={option.value}
-          data-selected={option.value === value || undefined}
-          className="flex items-center gap-1 rounded-xl border border-border bg-surface-secondary p-1.5 data-selected:border-accent data-selected:bg-accent-soft"
-        >
-          <Radio
-            value={option.value}
-            isDisabled={option.disabled}
-            className="min-w-0 flex-1 border-0 bg-transparent p-1.5"
+      {options.map((option) => {
+        const selected = option.value === value
+        return (
+          <button
+            key={option.value}
+            type="button"
+            role="radio"
+            aria-checked={selected}
+            data-option-tile=""
+            data-selected={selected || undefined}
+            disabled={option.disabled}
+            title={option.hint}
+            onClick={() => onChange(option.value)}
+            className="flex h-16 min-w-0 items-center gap-3 rounded-2xl border border-border bg-surface px-4 text-left transition-colors hover:bg-surface-secondary disabled:cursor-not-allowed disabled:opacity-50 data-selected:border-accent data-selected:bg-accent-soft"
           >
-            <Radio.Content className="w-full items-center">
-              {option.icon ? <span className="shrink-0">{option.icon}</span> : null}
-              <Radio.Control>
-                <Radio.Indicator />
-              </Radio.Control>
-              <div className="min-w-0 flex-1">
-                <Label className="block truncate">{option.label}</Label>
-              </div>
-            </Radio.Content>
-          </Radio>
-          {option.hint ? (
-            <Tooltip>
-              <Tooltip.Trigger>
-                <Button
-                  isIconOnly
-                  size="sm"
-                  variant="ghost"
-                  aria-label={option.hint}
-                  className="shrink-0 text-muted"
-                >
-                  <Info size={14} />
-                </Button>
-              </Tooltip.Trigger>
-              <Tooltip.Content>
-                <p className="max-w-xs text-xs leading-5">{option.hint}</p>
-              </Tooltip.Content>
-            </Tooltip>
-          ) : null}
-        </div>
-      ))}
-    </RadioGroup>
+            {option.icon ? (
+              <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-surface-secondary text-foreground [&_svg]:size-[18px]">
+                {option.icon}
+              </span>
+            ) : null}
+            <span className="min-w-0 flex-1 truncate text-sm font-medium leading-5 text-foreground">{option.label}</span>
+          </button>
+        )
+      })}
+    </div>
   )
 }

@@ -131,6 +131,12 @@ const (
 	routingStickyEscape = "sticky_escape"
 )
 
+// maxWorkerResponseBytes caps a fully buffered worker response. Non-stream
+// completions are decoded from a single []byte; without a limit one inflated
+// upstream payload could pin unbounded memory per in-flight request. 64 MiB
+// matches translate.MaxCollectedResponseBytes used by the other collectors.
+const maxWorkerResponseBytes = 64 << 20
+
 type routingPlan struct {
 	Source       string
 	SessionKey   string
@@ -777,7 +783,9 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 			loop.exclude(item)
 			continue
 		}
-		body, _ := io.ReadAll(resp.Body)
+		// Non-stream worker responses are buffered whole; cap them so a
+		// pathological upstream cannot pin unbounded memory per request.
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxWorkerResponseBytes))
 		resp.Body.Close()
 		finished := time.Now().UTC()
 		latency := int(finished.Sub(started).Milliseconds())
@@ -1020,7 +1028,7 @@ func decodeChatResult(req translate.ChatRequest, body []byte) (ChatResult, error
 		} `json:"choices"`
 	}
 	if err := json.Unmarshal(body, &parsed); err != nil {
-		return ChatResult{}, fmt.Errorf("decode worker response: %w; body=%s", err, string(body))
+		return ChatResult{}, fmt.Errorf("decode worker response: %w; body=%s", err, truncateErr(string(body)))
 	}
 	content := ""
 	reasoning := ""
@@ -1199,7 +1207,7 @@ func (e ChatExecutor) chatStreamProxy(ctx context.Context, req translate.ChatReq
 			item.ID = account
 		}
 		if resp.StatusCode >= 300 {
-			body, _ := io.ReadAll(resp.Body)
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, maxWorkerResponseBytes))
 			resp.Body.Close()
 			msg := strings.TrimSpace(string(body))
 			classified := classifyWorkerErr(resp, msg)

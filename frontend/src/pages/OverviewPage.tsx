@@ -4,10 +4,12 @@ import { Link } from 'react-router-dom'
 import { Card, Chip } from '@heroui/react'
 import {
   ArrowUpRight,
+  Cpu,
   Cube,
   Pulse,
 } from '@phosphor-icons/react'
 import { fetchRequestStats, type RequestStats } from '@/api/logs'
+import { fetchSystemResources, type SystemResources } from '@/api/system'
 import type { Overview } from '@/api/types'
 import { CountUp } from '@/components/overview/CountUp'
 import { TrafficChartEmpty } from '@/components/overview/TrafficChartEmpty'
@@ -19,7 +21,7 @@ import { OverviewPageSkeleton, RankListSkeleton, SkeletonBlock, TrafficChartSkel
 import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
 import { fetchAccounts, fetchModels } from '@/api/overview'
-import { formatCompact, formatLatency, formatPercent } from '@/lib/format'
+import { formatBytes, formatCompact, formatLatency, formatPercent } from '@/lib/format'
 import { accountProviderFamilyLabel, accountProviderLabel } from '@/lib/provider'
 import { ProviderMark } from '@/components/ProviderMark'
 
@@ -78,6 +80,7 @@ export function OverviewPage() {
   const [accounts, setAccounts] = useState<NonNullable<Overview['accounts']>>([])
   const [accountsLoading, setAccountsLoading] = useState(true)
   const [modelCount, setModelCount] = useState(0)
+  const [resources, setResources] = useState<SystemResources | null>(null)
 
   const proxyOk = Boolean(overview?.proxy?.ok)
   const workerOk = Boolean(overview?.worker?.ok)
@@ -118,6 +121,22 @@ export function OverviewPage() {
       cancelled = true
     }
   }, [hours])
+
+  // Resource usage polls on its own 5s cadence; independent of the stats window.
+  useEffect(() => {
+    let cancelled = false
+    const tick = () => {
+      void fetchSystemResources()
+        .then((data) => { if (!cancelled) setResources(data) })
+        .catch(() => { /* keep last good sample */ })
+    }
+    tick()
+    const timer = setInterval(tick, 5000)
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+    }
+  }, [])
 
   const metrics = [
     { label: t('metricRequests'), value: traffic.totals.requests as number | null, kind: 'compact' as const, detail: t('statsWindowHint', { window: t(hours === 1 ? 'statsWindow1h' : hours === 168 ? 'statsWindow7d' : 'statsWindow24h') }), ok: traffic.totals.requests > 0 },
@@ -313,6 +332,10 @@ export function OverviewPage() {
           </div>
         </Card>
 
+        <ResourcesCard resources={resources} t={t} />
+      </section>
+
+      <section className="grid gap-5 xl:grid-cols-2 2xl:grid-cols-3">
         <Card data-gsap-reveal className="overflow-hidden p-0">
           <div className="flex items-center justify-between gap-3 border-b border-separator px-5 py-4">
             <div>
@@ -336,9 +359,6 @@ export function OverviewPage() {
             />
           )}
         </Card>
-      </section>
-
-      <section className="grid gap-5 xl:grid-cols-2 2xl:grid-cols-3">
         <Card data-gsap-reveal className="overflow-hidden p-0">
           <div className="flex items-center justify-between gap-3 border-b border-separator px-5 py-4">
             <div>
@@ -394,9 +414,75 @@ export function OverviewPage() {
             />
           )}
         </Card>
-
       </section>
     </div>
+  )
+}
+
+function resourcesTone(rssBytes: number, cpuPercent: number) {
+  if (rssBytes >= 2 * 1024 * 1024 * 1024 || cpuPercent >= 200) return 'danger'
+  if (rssBytes >= 1024 * 1024 * 1024 || cpuPercent >= 100) return 'warning'
+  return 'ok'
+}
+
+function ResourcesCard({ resources, t }: { resources: SystemResources | null; t: (key: string, vars?: Record<string, string | number>) => string }) {
+  const workers = [...(resources?.workers ?? [])].sort((a, b) => b.rss_bytes - a.rss_bytes)
+  const server = resources?.server
+  return (
+    <Card data-gsap-reveal className="overflow-hidden p-0">
+      <div className="flex items-center justify-between gap-3 border-b border-separator px-5 py-4">
+        <div>
+          <h3 className="font-semibold tracking-[-0.015em]">{t('resTitle')}</h3>
+          <p className="mt-0.5 text-xs text-muted">{t('resHint')}</p>
+        </div>
+        <Chip size="sm" variant="soft" color={resources ? 'success' : 'default'}>
+          {resources ? formatBytes(resources.total_rss_bytes) : '—'}
+        </Chip>
+      </div>
+      <div className="divide-y divide-separator">
+        {!resources ? (
+          <RankListSkeleton rows={3} />
+        ) : (
+          <>
+            <div className="px-5 py-3">
+              <div className="flex items-baseline justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="status-dot shrink-0" data-state={resourcesTone(server?.rss_bytes ?? 0, server?.cpu_percent ?? 0)} />
+                  <div className="truncate text-sm font-medium">{t('resServer')}</div>
+                  <span className="mono text-[10px] text-muted">pid {server?.pid}</span>
+                </div>
+                <div className="mono shrink-0 text-[11px] text-muted">
+                  {formatBytes(server?.rss_bytes)} · {(server?.cpu_percent ?? 0).toFixed(1)}%
+                </div>
+              </div>
+            </div>
+            {workers.length === 0 ? (
+              <div className="px-5 py-4 text-sm text-muted">{t('resEmpty')}</div>
+            ) : workers.map((worker) => (
+              <div key={worker.pid} className="px-5 py-3">
+                <div className="flex items-baseline justify-between gap-3">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="status-dot shrink-0" data-state={resourcesTone(worker.rss_bytes, worker.cpu_percent)} />
+                    <div className="truncate text-sm font-medium">{worker.label || worker.account_id}</div>
+                    <span className="mono text-[10px] text-muted">pid {worker.pid}</span>
+                  </div>
+                  <div className="mono shrink-0 text-[11px] text-muted">
+                    {formatBytes(worker.rss_bytes)} · {worker.cpu_percent.toFixed(1)}%
+                  </div>
+                </div>
+              </div>
+            ))}
+          </>
+        )}
+      </div>
+      <div className="flex items-center justify-between border-t border-separator px-5 py-3 text-[11px] text-muted">
+        <span className="mono">{server?.goroutines ?? 0} {t('resGoroutines')}</span>
+        <span className="mono inline-flex items-center gap-1">
+          <Cpu size={11} />
+          {resources?.sampled_at ? new Date(resources.sampled_at).toLocaleTimeString() : '—'}
+        </span>
+      </div>
+    </Card>
   )
 }
 

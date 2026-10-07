@@ -3,6 +3,60 @@
 Published user-facing notes for GitHub Releases and the console update page.
 Write upcoming notes as bilingual files in `changelog/unreleased/`.
 
+## 0.6.16 - 2026-10-04
+
+### English
+
+- Add a Zhipu GLM account. Paste an API key to proxy the official OpenAI-compatible endpoint, with Coding Plan quota on coding keys.
+
+### 中文
+
+- 新增智谱 GLM 账号。粘贴 API Key 即可反向代理官方 OpenAI 兼容端点，Coding Plan 密钥会显示套餐额度。
+
+## 0.6.15 - 2026-10-02
+
+### English
+
+- Run the Qoder CN check-in fingerprint from an executable directory when the account runtime directory cannot run programs.
+
+### 中文
+
+- 账号运行目录不能执行程序时，Qoder 国内版签到会改到可执行目录读取机器指纹。
+
+## 0.6.14 - 2026-10-02
+
+### English
+
+- Fixed the Add Account dialog: the account-type tiles now vertically center the provider icon, radio dot, label, and info button on one line (previously they sat ~8px low), and the dialog title and subtitle are centered.
+- Replaced the Codex account mark with the official OpenAI Codex logo (the cloud/`>_` prompt glyph) instead of the generic OpenAI blossom.
+- The overview page now shows a Resources card with live memory (RSS) and CPU usage for the server process and each managed worker, refreshed every 5 seconds, plus a new `GET /api/system/resources` endpoint.
+- Bounded several unbounded memory paths: non-stream worker responses are capped at 64 MiB, inbound `/v1` request bodies at 64 MiB and console bodies at 1 MiB, per-worker log line buffering at 256 KiB, and the stats cache now evicts entries. Worker SSE parsing no longer retains every frame and builds large strings incrementally instead of repeated concatenation.
+- Qoder CN daily check-in now also sends the desktop machine OS, hostname, and risk fingerprint (`Cosy-MachineType` / `Cosy-MachineCode`) that the campaign service requires. v0.6.13 already sent the machine id headers.
+- Fix the Overview traffic chart so the success and failure lines each plot their own counts instead of both tracking total requests, and make the failure line cover every non-success outcome (error, incomplete, canceled) so no traffic disappears from the curve.
+
+### 中文
+
+- 修复「添加账号」弹窗对齐：账号类型卡片内的提供方图标、单选圆点、文字和提示按钮现在垂直居中对齐（此前整体偏下约 8px），弹窗标题与副标题改为居中。
+- Codex 账号图标换成官方 OpenAI Codex logo（云朵/`>_` 提示符），不再用通用的 OpenAI 花朵标。
+- 概览页新增「资源占用」卡片，每 5 秒刷新展示主进程和各 worker 进程的内存（RSS）与 CPU 占用，并新增 `GET /api/system/resources` 接口。
+- 收紧了多处内存上限：非流式 worker 响应限制 64 MiB，`/v1` 入站请求体限制 64 MiB、console 请求体限制 1 MiB，单条 worker 日志行缓冲限制 256 KiB，统计缓存加入淘汰；worker SSE 解析不再保留全部帧，大字符串改为增量拼接。
+- Qoder 国内版每日签到在 v0.6.13 已发送的机器身份请求头之外，补上活动服务要求的桌面端机器系统、主机名和风控指纹（`Cosy-MachineType` / `Cosy-MachineCode`）。
+- 修复概览页流量折线图：成功与失败各自显示自己的计数，不再都跟着总请求数；失败折线覆盖全部未成功请求（失败、未完成、取消），曲线不再丢数据。
+
+## 0.6.13 - 2026-09-29
+
+### English
+
+- Add a system setting to let disabled accounts continue their opted-in automatic daily check-in without making them eligible for chat routing.
+- Fix Qoder CN daily check-in by sending the desktop machine fingerprint headers required by the campaign service.
+- A routing region latch no longer survives a large change in pool composition. Adding or migrating many accounts of another region now re-seats the route on the largest region instead of leaving the new accounts idle.
+
+### 中文
+
+- 新增系统设置，允许停用账号继续执行已开启的自动签到，同时不会让它们重新参与聊天调度。
+- 修复 Qoder 国内版每日签到，补齐活动服务要求的桌面端机器指纹请求头。
+- 路由的区域锁定不再跨越大规模的账号池变化。新增或迁移大量其他区域的账号后，路由会重新落到账号最多的区域，而不会让新账号闲置。
+
 ## 0.6.12 - 2026-09-29
 
 ### English
