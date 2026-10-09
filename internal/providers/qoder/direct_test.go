@@ -2,6 +2,7 @@ package qoder
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -98,6 +99,126 @@ func TestDirectChatClassifiesUpstreamStatus(t *testing.T) {
 	_, err := direct.ChatNonStream(context.Background(), "acc", translate.ChatRequest{Model: "auto"})
 	classified, ok := err.(*providers.Error)
 	if !ok || classified.Kind != accounts.KindAuth || classified.Status != http.StatusForbidden {
+		t.Fatalf("err = %#v", err)
+	}
+}
+
+func newDirectFor(t *testing.T, upstream *httptest.Server) *Direct {
+	t.Helper()
+	direct := NewDirect(memoryCredentials{
+		credential: accounts.NativeCredential{UserBlob: []byte(`{"uid":"u","access_token":"dt"}`), MachineID: "0123456789abcdef"},
+	}, nil)
+	direct.SetHTTP(upstream.Client())
+	original := ChatEndpointHook
+	ChatEndpointHook = func(string) string { return upstream.URL }
+	t.Cleanup(func() { ChatEndpointHook = original })
+	return direct
+}
+
+func TestDirectChatStreamRejectsEmptyUpstreamBeforeRelay(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		// Real-world failure: heartbeats only, then a clean close without
+		// content, finish_reason, usage, or an error frame.
+		_, _ = io.WriteString(w, "data: {\"body\":{\"choices\":[{\"delta\":{},\"finish_reason\":null}]}}\n\n")
+		_, _ = io.WriteString(w, "data: {\"body\":{\"choices\":[{\"delta\":{},\"finish_reason\":null}]}}\n\n")
+	}))
+	defer upstream.Close()
+	direct := newDirectFor(t, upstream)
+
+	resp, _, err := direct.ChatStream(context.Background(), "acc", translate.ChatRequest{Model: "auto"})
+	if err == nil {
+		resp.Body.Close()
+		t.Fatal("expected error for empty upstream stream")
+	}
+	var providerErr *providers.Error
+	if !errors.As(err, &providerErr) || providerErr.Kind != accounts.KindUnavailable || providerErr.Code != "upstream_empty" {
+		t.Fatalf("err = %#v", err)
+	}
+	if resp != nil {
+		t.Fatalf("resp = %v, want nil", resp)
+	}
+}
+
+func TestDirectChatStreamReplaysPeekedFrames(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: {\"body\":{\"choices\":[{\"delta\":{\"content\":\"he\"}}]}}\n\n")
+		_, _ = io.WriteString(w, "data: {\"body\":{\"choices\":[{\"delta\":{\"content\":\"llo\"},\"finish_reason\":\"stop\"}]}}\n\n")
+	}))
+	defer upstream.Close()
+	direct := newDirectFor(t, upstream)
+
+	resp, _, err := direct.ChatStream(context.Background(), "acc", translate.ChatRequest{Model: "auto"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	text := string(body)
+	if !strings.Contains(text, `"content":"he"`) || !strings.Contains(text, `"content":"llo"`) {
+		t.Fatalf("peeked frames lost: %s", text)
+	}
+	if !strings.Contains(text, `"finish_reason":"stop"`) {
+		t.Fatalf("upstream finish_reason lost: %s", text)
+	}
+	if !strings.Contains(text, "data: [DONE]") {
+		t.Fatalf("missing [DONE]: %s", text)
+	}
+}
+
+func TestDirectChatStreamSalvagesTruncatedStream(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		// Content streamed but the connection dropped before the terminal
+		// finish_reason: the relay must synthesize one so strict OpenAI
+		// clients do not fail with "Stream ended without finish_reason".
+		_, _ = io.WriteString(w, "data: {\"body\":{\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}}\n\n")
+	}))
+	defer upstream.Close()
+	direct := newDirectFor(t, upstream)
+
+	resp, _, err := direct.ChatStream(context.Background(), "acc", translate.ChatRequest{Model: "auto"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), `"finish_reason":"stop"`) {
+		t.Fatalf("missing synthesized finish_reason: %s", body)
+	}
+}
+
+func TestDirectChatStreamSalvagesTruncatedToolCalls(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: {\"body\":{\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"get_time\",\"arguments\":\"{}\"}}]}}]}}\n\n")
+	}))
+	defer upstream.Close()
+	direct := newDirectFor(t, upstream)
+
+	resp, _, err := direct.ChatStream(context.Background(), "acc", translate.ChatRequest{Model: "auto"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), `"finish_reason":"tool_calls"`) {
+		t.Fatalf("missing tool_calls finish_reason: %s", body)
+	}
+}
+
+func TestDirectChatNonStreamRejectsEmptyUpstream(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: {\"body\":{\"choices\":[{\"delta\":{},\"finish_reason\":null}]}}\n\n")
+	}))
+	defer upstream.Close()
+	direct := newDirectFor(t, upstream)
+
+	_, err := direct.ChatNonStream(context.Background(), "acc", translate.ChatRequest{Model: "auto"})
+	var providerErr *providers.Error
+	if !errors.As(err, &providerErr) || providerErr.Code != "upstream_empty" {
 		t.Fatalf("err = %#v", err)
 	}
 }
