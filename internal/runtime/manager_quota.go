@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"strings"
@@ -11,6 +12,13 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/providers"
 	"github.com/caigee-cmd/cli2api/internal/providers/qoder"
 )
+
+// QuotaRefreshError reports an upstream quota refresh failure without
+// implying that the account itself is unhealthy or unavailable.
+type QuotaRefreshError struct{ Err error }
+
+func (e *QuotaRefreshError) Error() string { return e.Err.Error() }
+func (e *QuotaRefreshError) Unwrap() error { return e.Err }
 
 // Quota snapshots: pool MergeQuota then Store.SaveQuota. Worker JSON is Qoder-only;
 // in-process providers use AccountProber.Quota.
@@ -132,14 +140,21 @@ func (m *Manager) persistQuota(ctx context.Context, accountID string, quota *Quo
 	}
 }
 
-func (m *Manager) fetchQuota(ctx context.Context, accountID, workerURL string, force bool) {
+func (m *Manager) fetchQuota(ctx context.Context, accountID, workerURL string, force bool) error {
+	if strings.TrimSpace(workerURL) == "" {
+		return fmt.Errorf("quota worker URL is empty")
+	}
 	client := qoder.WorkerClient{
 		HTTP:        &http.Client{Timeout: 5 * time.Second},
 		ProxyAPIKey: m.ProxyAPIKey(),
 	}
 	quota, err := client.Quota(ctx, workerURL, force)
 	if err != nil || quota == nil {
-		return
+		if err != nil {
+			return &QuotaRefreshError{Err: fmt.Errorf("fetch quota account=%s: %w", accountID, err)}
+		}
+		return &QuotaRefreshError{Err: fmt.Errorf("fetch quota account=%s: empty response", accountID)}
 	}
 	m.persistQuota(ctx, accountID, quota)
+	return nil
 }
