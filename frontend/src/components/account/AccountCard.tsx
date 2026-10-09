@@ -325,7 +325,7 @@ export function AccountCard({
       ) : null}
 
       {onCheckin ? (
-        <div className="flex items-center justify-between gap-3 border-t border-separator px-3 py-1.5 text-[11px] text-muted">
+        <div className="flex items-start justify-between gap-3 border-t border-separator px-3 py-1.5 text-[11px] text-muted">
           <Tooltip>
             <Tooltip.Trigger>
               <span className="flex cursor-help items-center gap-2">
