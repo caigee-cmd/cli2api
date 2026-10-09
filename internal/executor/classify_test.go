@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/providers"
 )
 
@@ -269,5 +270,41 @@ func TestObserveStreamFailureIgnoresCancellation(test *testing.T) {
 				test.Fatalf("cancellation mutated pool state: %+v", after)
 			}
 		})
+	}
+}
+
+func TestClassifyErrorUpstreamEmptyNoCooldown(t *testing.T) {
+	// A heartbeat-only empty upstream stream says nothing about the account's
+	// health: fail over, but never cool the account down.
+	err := ClassifyError(&providers.Error{
+		Kind:    accounts.KindUnavailable,
+		Status:  http.StatusBadGateway,
+		Code:    "upstream_empty",
+		Message: "upstream returned empty content (possible context overflow / silent reject)",
+	})
+	if err.Code != "upstream_empty" {
+		t.Errorf("expected Code='upstream_empty', got '%s'", err.Code)
+	}
+	if !err.Failover {
+		t.Error("expected Failover=true for upstream_empty")
+	}
+	if err.Cooldown != 0 {
+		t.Errorf("expected Cooldown=0 for upstream_empty, got %v", err.Cooldown)
+	}
+	if err.RetryAfter != 0 {
+		t.Errorf("expected RetryAfter=0 for upstream_empty, got %v", err.RetryAfter)
+	}
+	if err.Kind != accounts.KindUnavailable {
+		t.Errorf("expected Kind='unavailable', got '%s'", err.Kind)
+	}
+	// A plain unavailable error keeps its default cooldown so only the
+	// upstream_empty special case is exempt.
+	generic := ClassifyError(&providers.Error{
+		Kind:    accounts.KindUnavailable,
+		Status:  http.StatusBadGateway,
+		Message: "connection reset by peer",
+	})
+	if generic.Cooldown <= 0 {
+		t.Errorf("expected generic unavailable to keep cooldown, got %v", generic.Cooldown)
 	}
 }
