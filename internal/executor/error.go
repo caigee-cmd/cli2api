@@ -112,6 +112,14 @@ func ClassifyError(err error) Classified {
 	if providerErr.Message != "" {
 		classified.Message = providerErr.Message
 	}
+	if providerErr.Code == "upstream_empty" {
+		// A heartbeat-only upstream stream says nothing about the account's
+		// health: the credential, quota, and rate-limit state are all fine, and
+		// the same account may succeed on the very next request. Fail over so
+		// another account serves the turn, but never cool this one down.
+		classified.Failover = true
+		classified.Cooldown = 0
+	}
 	if classified.Kind == accounts.KindRateLimit {
 		switch {
 		case providerErr.Code == "4011" && providerErr.RetryAfter <= 0:
