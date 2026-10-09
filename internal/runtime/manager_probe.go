@@ -32,6 +32,13 @@ func (m *Manager) RefreshAll(ctx context.Context, forceQuota bool) error {
 	var joined error
 	for _, item := range m.pool.Items() {
 		if err := m.refreshOne(ctx, item, forceQuota); err != nil {
+			var quotaErr *QuotaRefreshError
+			if errors.As(err, &quotaErr) {
+				// Background maintenance must remain best-effort. The manual
+				// single-account endpoint still returns this typed error so the
+				// console can show that quota refresh did not complete.
+				continue
+			}
 			joined = errors.Join(joined, err)
 		}
 	}
@@ -75,8 +82,15 @@ func (m *Manager) refreshOne(ctx context.Context, item Item, forceQuota bool) er
 	// never changes readiness. A successful exhausted snapshot may still
 	// keep the account out of request routing.
 	if health.Hot || ready {
-		m.fetchQuota(ctx, item.ID, item.URL, forceQuota)
+		// Quota and model discovery are independent upstream operations. Run
+		// them concurrently so a quota outage cannot prevent catalog refresh.
+		quotaDone := make(chan error, 1)
+		go func() { quotaDone <- m.fetchQuota(ctx, item.ID, item.URL, forceQuota) }()
 		m.fetchAccountModels(ctx, item)
+		quotaErr := <-quotaDone
+		if quotaErr != nil {
+			return quotaErr
+		}
 	}
 	return nil
 }
