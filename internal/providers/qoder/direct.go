@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -136,7 +137,13 @@ func (d *Direct) ChatStream(ctx context.Context, accountID string, req translate
 		resp.Body.Close()
 		return nil, providers.ResolvedChat{}, upstreamStatusError(resp.StatusCode, raw)
 	}
-	return rewriteUpstreamSSE(resp, prepared.model), providers.ResolvedChat{ReasoningLevel: prepared.level}, nil
+	guarded, err := ensureMeaningfulUpstream(resp)
+	if err != nil {
+		// ensureMeaningfulUpstream closes the body on failure; no client bytes
+		// have been written yet, so the executor can still fail over.
+		return nil, providers.ResolvedChat{}, err
+	}
+	return rewriteUpstreamSSE(guarded, prepared.model), providers.ResolvedChat{ReasoningLevel: prepared.level}, nil
 }
 
 func upstreamStatusError(status int, body []byte) error {
@@ -154,6 +161,88 @@ func upstreamStatusError(status int, body []byte) error {
 		kind = accounts.KindInvalidRequest
 	}
 	return &providers.Error{Kind: kind, Status: status, Message: message}
+}
+
+// emptyUpstreamError mirrors the worker path's upstream_empty classification.
+// The executor cools the account down and fails over instead of relaying a
+// spec-invalid completion (no content, no finish_reason) that strict OpenAI
+// clients reject with "Stream ended without finish_reason".
+func emptyUpstreamError() error {
+	return &providers.Error{
+		Kind:    accounts.KindUnavailable,
+		Status:  http.StatusBadGateway,
+		Code:    "upstream_empty",
+		Message: "upstream returned empty content (possible context overflow / silent reject)",
+	}
+}
+
+// ensureMeaningfulUpstream peeks the upstream SSE body before anything is
+// relayed to the client. Qoder's gateway sometimes answers 200 with heartbeat
+// frames only (no content, no finish_reason, no usage, no error) and closes
+// the stream; relaying that verbatim produced a spec-invalid empty
+// completion. Peek before the first client byte so the failure can still be
+// classified and retried on another account. On success the buffered bytes
+// are replayed ahead of the remaining body, preserving real-time streaming.
+func ensureMeaningfulUpstream(resp *http.Response) (*http.Response, error) {
+	br := bufio.NewReader(resp.Body)
+	var pending bytes.Buffer
+	for {
+		line, readErr := br.ReadString('\n')
+		if line != "" {
+			pending.WriteString(line)
+			if data, ok := strings.CutPrefix(strings.TrimSpace(line), "data:"); ok && meaningfulDataLine(strings.TrimSpace(data)) {
+				resp.Body = peekedBody{Reader: io.MultiReader(&pending, br), Closer: resp.Body}
+				return resp, nil
+			}
+		}
+		if readErr != nil {
+			resp.Body.Close()
+			if errors.Is(readErr, io.EOF) {
+				return nil, emptyUpstreamError()
+			}
+			return nil, &providers.Error{
+				Kind:    accounts.KindUnavailable,
+				Status:  http.StatusBadGateway,
+				Code:    "upstream_stream_interrupted",
+				Message: readErr.Error(),
+			}
+		}
+	}
+}
+
+// peekedBody keeps the original body's Close wired to the upstream response
+// while prepending the peeked bytes.
+type peekedBody struct {
+	io.Reader
+	io.Closer
+}
+
+// meaningfulDataLine reports whether a single upstream SSE data line carries
+// any payload a relayed completion needs: content, reasoning, tool calls, a
+// terminal finish_reason, usage, or an error. Heartbeat and empty-delta
+// frames are not meaningful.
+func meaningfulDataLine(payload string) bool {
+	if payload == "" || payload == "[DONE]" {
+		return false
+	}
+	var outer map[string]any
+	if json.Unmarshal([]byte(payload), &outer) != nil {
+		return false
+	}
+	body := outer
+	if nested, ok := outer["body"]; ok {
+		switch typed := nested.(type) {
+		case string:
+			var inner map[string]any
+			if json.Unmarshal([]byte(typed), &inner) == nil {
+				body = inner
+			}
+		case map[string]any:
+			body = typed
+		}
+	}
+	frame := frameFromBody(body)
+	return frame.content != "" || frame.reasoning != "" || len(frame.tools) > 0 || frame.finish != "" || frame.usage != nil || frame.errText != ""
 }
 
 // BuildPlainChatBody is the plaintext agent_chat_generation document. The
@@ -323,6 +412,13 @@ func outcomeFromUpstreamSSE(model string, raw []byte) (providers.ChatOutcome, er
 			status = http.StatusBadGateway
 		}
 		return providers.ChatOutcome{}, &providers.Error{Kind: kind, Status: status, Message: frame.errText}
+	}
+	// Guard against the same empty-stream failure mode as the streaming path:
+	// an upstream body without content, reasoning, tool calls, a terminal
+	// finish_reason, or an error frame is a silent upstream reject, not a
+	// completed (empty) answer.
+	if frame.finish == "" && frame.content == "" && frame.reasoning == "" && len(frame.tools) == 0 {
+		return providers.ChatOutcome{}, emptyUpstreamError()
 	}
 	out := providers.ChatOutcome{
 		Model:        model,
@@ -499,9 +595,20 @@ func rewriteUpstreamSSE(resp *http.Response, model string) *http.Response {
 }
 
 func writeOpenAIChunks(w io.Writer, src io.Reader, model string) error {
+	var sawFinish, sawTools, sawPayload, sawError bool
 	err := walkUpstream(src, func(body map[string]any) error {
 		frame := frameFromBody(body)
+		if frame.finish != "" {
+			sawFinish = true
+		}
+		if frame.content != "" || frame.reasoning != "" || len(frame.tools) > 0 || frame.usage != nil {
+			sawPayload = true
+		}
+		if len(frame.tools) > 0 {
+			sawTools = true
+		}
 		if frame.errText != "" && frame.content == "" && frame.reasoning == "" && len(frame.tools) == 0 {
+			sawError = true
 			payload, _ := json.Marshal(map[string]any{"error": map[string]any{"message": frame.errText, "type": "api_error"}})
 			_, err := fmt.Fprintf(w, "data: %s\n\n", payload)
 			return err
@@ -525,6 +632,38 @@ func writeOpenAIChunks(w io.Writer, src io.Reader, model string) error {
 	})
 	if err != nil {
 		return err
+	}
+	if !sawFinish {
+		if sawPayload {
+			// Upstream streamed real content but was cut before the terminal
+			// finish_reason. The bytes are already on the wire, so salvage the
+			// completion with a synthesized terminal chunk instead of leaving
+			// strict OpenAI clients with "Stream ended without finish_reason".
+			finish := "stop"
+			if sawTools {
+				finish = "tool_calls"
+			}
+			chunk := map[string]any{
+				"id": "chatcmpl-qoder", "object": "chat.completion.chunk", "model": model,
+				"choices": []any{map[string]any{"index": 0, "delta": map[string]any{}, "finish_reason": finish}},
+			}
+			payload, err := json.Marshal(chunk)
+			if err != nil {
+				return err
+			}
+			if _, err := fmt.Fprintf(w, "data: %s\n\n", payload); err != nil {
+				return err
+			}
+		} else if !sawError {
+			// Empty upstream stream that slipped past the pre-relay guard:
+			// surface it as an error frame so the gateway classifies and logs
+			// the failure instead of reporting a successful empty answer.
+			err := emptyUpstreamError()
+			payload, _ := json.Marshal(map[string]any{"error": map[string]any{"message": err.Error(), "type": "api_error"}})
+			if _, err := fmt.Fprintf(w, "data: %s\n\n", payload); err != nil {
+				return err
+			}
+		}
 	}
 	_, err = io.WriteString(w, "data: [DONE]\n\n")
 	return err
