@@ -830,6 +830,9 @@ func (c *Client) DailyCheckin(ctx context.Context, accountID string) (string, er
 			break
 		}
 	}
+	if err != nil {
+		return "", err
+	}
 	text := strings.TrimSpace(string(body))
 	classified := Classify(status, text)
 	if classified.Kind == accounts.KindAuth {
