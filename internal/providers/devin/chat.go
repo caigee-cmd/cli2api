@@ -107,7 +107,7 @@ func (c *Client) chatNonStreamOnce(client *http.Client, built chatRequestBuild, 
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-		err := classifiedErrorWithToolsDiag(resp.StatusCode, string(body), built.toolsDiag)
+		err := classifiedErrorWithHeaders(resp.StatusCode, resp.Header, string(body), built.toolsDiag)
 		return providers.ChatOutcome{}, isMCPConfigDenialError(err), err
 	}
 	aggregate, err := aggregateConnectStream(resp.Body, built.originalByAlias, built.toolsDiag)
@@ -125,7 +125,7 @@ func (c *Client) chatStreamOnce(client *http.Client, built chatRequestBuild) (*h
 	if resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		resp.Body.Close()
-		err := classifiedErrorWithToolsDiag(resp.StatusCode, string(body), built.toolsDiag)
+		err := classifiedErrorWithHeaders(resp.StatusCode, resp.Header, string(body), built.toolsDiag)
 		return nil, isMCPConfigDenialError(err), err
 	}
 	// MCP configuration denials often arrive as an end-stream trailer on HTTP

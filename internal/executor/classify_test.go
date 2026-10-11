@@ -82,12 +82,24 @@ func TestClassifyErrorKeepsJSONRetryAfterWhenCodeIsSet(t *testing.T) {
 	}
 }
 
+func TestClassifyErrorHonorsProviderQuotaReset(t *testing.T) {
+	got := ClassifyError(&providers.Error{
+		Kind: KindQuota, Status: 429, Message: "usage quota exhausted", RetryAfter: 13 * time.Minute,
+	})
+	if got.Kind != KindQuota || got.Failover || got.Cooldown != 13*time.Minute || got.RetryAfter != 13*time.Minute {
+		t.Fatalf("quota reset hint must replace local midnight without failing over, got %+v", got)
+	}
+	if got.Model != "" {
+		t.Fatalf("quota cooldown must stay account-wide, got model %q", got.Model)
+	}
+}
+
 func TestClassifyErrorIgnoresProviderFailoverAndAuthCooldown(t *testing.T) {
 	got := ClassifyError(&providers.Error{
-		Kind: KindQuota, Status: 429, Message: "plan exhausted", RetryAfter: time.Minute,
+		Kind: KindQuota, Status: 429, Message: "plan exhausted",
 	})
 	if got.Kind != KindQuota || got.Failover || got.Cooldown <= 0 || got.Cooldown > 24*time.Hour {
-		t.Fatalf("quota must not fail over and must use local midnight, got %+v", got)
+		t.Fatalf("quota without a reset hint must use local midnight, got %+v", got)
 	}
 
 	got = ClassifyError(&providers.Error{
