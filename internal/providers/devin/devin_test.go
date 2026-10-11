@@ -165,6 +165,107 @@ func TestClassify401And429(t *testing.T) {
 	}
 }
 
+func TestDevinResetHintFromMessage(t *testing.T) {
+	now := time.Date(2026, 10, 8, 18, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name string
+		msg  string
+		want time.Duration
+	}{
+		{
+			name: "minutes",
+			msg:  "Reached free model rate limit. Your limit will reset in 13 minutes (at 18:13 UTC).",
+			want: 13 * time.Minute,
+		},
+		{
+			name: "hours and minutes",
+			msg:  "Reached free model rate limit. Your limit will reset in 5 hours 30 minutes (at 23:30 UTC).",
+			want: 5*time.Hour + 30*time.Minute,
+		},
+		{
+			name: "seconds",
+			msg:  "Your limit will reset in 52 seconds (at 18:01 UTC).",
+			want: 52 * time.Second,
+		},
+		{
+			name: "single hour",
+			msg:  "Your limit will reset in 1 hour (at 19:00 UTC).",
+			want: time.Hour,
+		},
+		{
+			name: "no hint",
+			msg:  "Your weekly usage quota has been exhausted.",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := resetHintFromMessage(tc.msg, now)
+			if got != tc.want {
+				t.Fatalf("reset hint = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestDevinResetHintAbsoluteRollsToNextDay(t *testing.T) {
+	now := time.Date(2026, 10, 8, 17, 55, 0, 0, time.UTC)
+	got := resetHintFromMessage("reset at unknown (at 18:01 UTC)", now)
+	if got != 6*time.Minute {
+		t.Fatalf("absolute hint = %v, want 6m", got)
+	}
+	later := time.Date(2026, 10, 8, 18, 30, 0, 0, time.UTC)
+	got = resetHintFromMessage("(at 18:01 UTC)", later)
+	if got <= 23*time.Hour || got > 24*time.Hour {
+		t.Fatalf("rollover hint = %v, want just under 24h", got)
+	}
+}
+
+func TestClassifyDevinRateLimitCarriesResetHint(t *testing.T) {
+	body := "devin upstream error (resource_exhausted): Reached free model rate limit. Your limit will reset in 13 minutes (at 18:13 UTC)."
+	err := classifiedErrorWithHeaders(http.StatusTooManyRequests, http.Header{}, body, "")
+	var providerErr *providers.Error
+	if !errors.As(err, &providerErr) {
+		t.Fatalf("error type = %T", err)
+	}
+	if providerErr.Kind != accounts.KindRateLimit || providerErr.RetryAfter != 13*time.Minute {
+		t.Fatalf("model rate limit = %+v, want rate_limit 13m", providerErr)
+	}
+
+	header := http.Header{}
+	header.Set("Retry-After", "90")
+	err = classifiedErrorWithHeaders(http.StatusTooManyRequests, header, body, "")
+	if !errors.As(err, &providerErr) {
+		t.Fatalf("error type = %T", err)
+	}
+	if providerErr.RetryAfter != 90*time.Second {
+		t.Fatalf("Retry-After = %v, want 90s", providerErr.RetryAfter)
+	}
+}
+
+func TestClassifyDevinUsageQuotaIsAccountScoped(t *testing.T) {
+	body := "devin upstream error (failed_precondition): Your weekly usage quota has been exhausted."
+	err := classifiedErrorWithToolsDiag(http.StatusTooManyRequests, body, "")
+	var providerErr *providers.Error
+	if !errors.As(err, &providerErr) {
+		t.Fatalf("error type = %T", err)
+	}
+	if providerErr.Kind != accounts.KindQuota {
+		t.Fatalf("usage quota kind = %s, want quota", providerErr.Kind)
+	}
+	if providerErr.RetryAfter != 0 {
+		t.Fatalf("quota without a reset hint must leave retry_after empty, got %v", providerErr.RetryAfter)
+	}
+
+	hinted := "Your weekly usage quota has been exhausted. Your limit will reset in 9 minutes (at 18:09 UTC)."
+	err = classifiedErrorWithToolsDiag(http.StatusTooManyRequests, hinted, "")
+	if !errors.As(err, &providerErr) {
+		t.Fatalf("error type = %T", err)
+	}
+	if providerErr.Kind != accounts.KindQuota || providerErr.RetryAfter != 9*time.Minute {
+		t.Fatalf("quota reset = %+v, want quota 9m", providerErr)
+	}
+}
+
 type memStore struct {
 	accounts map[string]accounts.Account
 	creds    map[string][]byte
