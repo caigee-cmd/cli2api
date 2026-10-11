@@ -120,7 +120,8 @@ func ClassifyError(err error) Classified {
 		classified.Failover = true
 		classified.Cooldown = 0
 	}
-	if classified.Kind == accounts.KindRateLimit {
+	switch classified.Kind {
+	case accounts.KindRateLimit:
 		switch {
 		case providerErr.Code == "4011" && providerErr.RetryAfter <= 0:
 			classified.Cooldown = 5 * time.Minute
@@ -129,6 +130,12 @@ func ClassifyError(err error) Classified {
 			if classified.Cooldown < 30*time.Second {
 				classified.Cooldown = 30 * time.Second
 			}
+		}
+	case accounts.KindQuota:
+		// A parsed upstream reset replaces the local-midnight fallback.
+		// Quota stays account-wide and does not fail over mid-request.
+		if providerErr.RetryAfter > 0 {
+			classified.Cooldown = providerErr.RetryAfter
 		}
 	}
 	classified.RetryAfter = classified.Cooldown
