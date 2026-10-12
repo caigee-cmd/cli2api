@@ -744,6 +744,40 @@ func TestClassifyAuthForbiddenQuotaTrailer(t *testing.T) {
 	}
 }
 
+func TestClassifyExpiredTokenAndConnectAuthDenial(t *testing.T) {
+	// 1. HTTP 401 token expired
+	got := Classify(401, `{"message":"token has expired"}`)
+	if got.Kind != accounts.KindAuth || got.Status != 401 {
+		t.Fatalf("expired token classify=%+v want kind=auth, status=401", got)
+	}
+
+	// 2. Connect trailer permission_denied with internal error
+	body := "devin upstream error (permission_denied): an internal error occurred (trace ID: 3bd4ba1ff74ce0f9554a938c1157e80d)"
+	got = Classify(403, body)
+	if got.Kind != accounts.KindAuth || got.Status != 403 {
+		t.Fatalf("connect auth denial trailer classify=%+v want kind=auth, status=403", got)
+	}
+
+	// 3. Seat management HTTP 403 with permission_denied and internal error
+	seatErr := `devin seat management error (status 403): {"code":"permission_denied","message":"an internal error occurred"}`
+	got = Classify(403, seatErr)
+	if got.Kind != accounts.KindAuth || got.Status != 403 {
+		t.Fatalf("seat management denial classify=%+v want kind=auth, status=403", got)
+	}
+
+	// 4. Token expired in status 400
+	got = Classify(400, "token has expired")
+	if got.Kind != accounts.KindAuth {
+		t.Fatalf("token expired text classify=%+v want kind=auth", got)
+	}
+
+	// 5. Bare permission_denied without internal error remains invalid_request
+	got = Classify(403, "permission_denied")
+	if got.Kind != accounts.KindInvalidRequest {
+		t.Fatalf("bare permission_denied classify=%+v want kind=invalid_request", got)
+	}
+}
+
 func TestClassifyMCPConfigPermissionDenied(t *testing.T) {
 	body := "devin upstream error (permission_denied): Unable to process request due to an MCP configuration issue. (trace ID: 3de0a0f4c7f0e2cd3bd8e001a46749bd)"
 	got := Classify(403, body)

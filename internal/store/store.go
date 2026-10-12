@@ -849,9 +849,13 @@ FROM account_cooldowns WHERE down_until > ? ORDER BY account_id, model`, now)
 
 func (s *Store) RecordPoolState(ctx context.Context, state accounts.PoolState) error {
 	var cooldown any
-	status := "ready"
 	if !state.DownUntil.IsZero() && time.Now().Before(state.DownUntil) {
 		cooldown = formatTime(state.DownUntil)
+	}
+	status := "ready"
+	if state.LastErrorKind == accounts.KindAuth {
+		status = "login_required"
+	} else if cooldown != nil {
 		status = "cooling"
 	}
 	_, err := s.db.ExecContext(ctx, `
