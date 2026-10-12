@@ -629,30 +629,34 @@ func writeOpenAIChunks(w io.Writer, src io.Reader, model string) error {
 			"choices": []any{map[string]any{"index": 0, "delta": deltaOf(frame), "finish_reason": emptyOrNil(frame.finish)}},
 		}
 		if len(frame.usage) > 0 {
-			var usage map[string]any
-			if json.Unmarshal(frame.usage, &usage) == nil {
-				var cachedTokens any
-				if ptd, ok := usage["prompt_tokens_details"].(map[string]any); ok {
-					cachedTokens = ptd["cached_tokens"]
-				}
-				if cachedTokens == nil {
-					cachedTokens = usage["cache_read_tokens"]
-				}
-				if cachedTokens == nil {
-					cachedTokens = usage["prompt_cache_hit_tokens"]
-				}
-				if cachedTokens != nil {
-					if _, ok := usage["cache_read_tokens"]; !ok {
-						usage["cache_read_tokens"] = cachedTokens
+			var rawUsage any
+			if json.Unmarshal(frame.usage, &rawUsage) == nil {
+				if usage, ok := rawUsage.(map[string]any); ok {
+					var cachedTokens any
+					if ptd, ok := usage["prompt_tokens_details"].(map[string]any); ok {
+						cachedTokens = ptd["cached_tokens"]
 					}
-					if _, ok := usage["prompt_cache_hit_tokens"]; !ok {
-						usage["prompt_cache_hit_tokens"] = cachedTokens
+					if cachedTokens == nil {
+						cachedTokens = usage["cache_read_tokens"]
 					}
-					if _, ok := usage["prompt_tokens_details"]; !ok {
-						usage["prompt_tokens_details"] = map[string]any{"cached_tokens": cachedTokens}
+					if cachedTokens == nil {
+						cachedTokens = usage["prompt_cache_hit_tokens"]
 					}
+					if cachedTokens != nil {
+						if _, ok := usage["cache_read_tokens"]; !ok {
+							usage["cache_read_tokens"] = cachedTokens
+						}
+						if _, ok := usage["prompt_cache_hit_tokens"]; !ok {
+							usage["prompt_cache_hit_tokens"] = cachedTokens
+						}
+						if _, ok := usage["prompt_tokens_details"]; !ok {
+							usage["prompt_tokens_details"] = map[string]any{"cached_tokens": cachedTokens}
+						}
+					}
+					chunk["usage"] = usage
+				} else {
+					chunk["usage"] = rawUsage
 				}
-				chunk["usage"] = usage
 			}
 		}
 		payload, err := json.Marshal(chunk)

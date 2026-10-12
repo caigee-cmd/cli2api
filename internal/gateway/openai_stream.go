@@ -166,7 +166,7 @@ func RelayOpenAIStream(w http.ResponseWriter, body io.Reader) (stats StreamRelay
 		return stats, streamErr
 	}
 	if !sawDone {
-		if stats.FinishReason != "" {
+		if stats.FinishReason != "" && (stats.FirstTokenAt != nil || stats.SSEEventCount > 0) {
 			sawDone = true
 			stats.SawDone = true
 			if _, err := io.WriteString(writer, "data: [DONE]\n\n"); err != nil {

@@ -44,43 +44,35 @@ func normalizeTraeUsage(raw []byte) any {
 	if len(raw) == 0 {
 		return nil
 	}
-	var u struct {
-		PromptTokens         int      `json:"prompt_tokens"`
-		CompletionTokens     int      `json:"completion_tokens"`
-		TotalTokens          int      `json:"total_tokens"`
-		CacheReadTokens      *int     `json:"cache_read_tokens"`
-		CacheWriteTokens     *int     `json:"cache_write_tokens"`
-		PromptCacheHitTokens *int     `json:"prompt_cache_hit_tokens"`
-		PromptDetails        *struct {
-			CachedTokens *int `json:"cached_tokens"`
-		} `json:"prompt_tokens_details"`
-	}
-	if err := json.Unmarshal(raw, &u); err != nil {
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
 		return json.RawMessage(raw)
 	}
-	cacheRead := u.CacheReadTokens
-	if cacheRead == nil && u.PromptDetails != nil {
-		cacheRead = u.PromptDetails.CachedTokens
+	var cachedTokens any
+	if ptd, ok := m["prompt_tokens_details"].(map[string]any); ok {
+		cachedTokens = ptd["cached_tokens"]
 	}
-	if cacheRead == nil {
-		cacheRead = u.PromptCacheHitTokens
+	if cachedTokens == nil {
+		cachedTokens = m["cache_read_tokens"]
 	}
-	total := u.TotalTokens
-	if total == 0 {
-		total = u.PromptTokens + u.CompletionTokens
+	if cachedTokens == nil {
+		cachedTokens = m["prompt_cache_hit_tokens"]
 	}
-	m := map[string]any{
-		"prompt_tokens":     u.PromptTokens,
-		"completion_tokens": u.CompletionTokens,
-		"total_tokens":      total,
+	if cachedTokens != nil {
+		if _, ok := m["cache_read_tokens"]; !ok {
+			m["cache_read_tokens"] = cachedTokens
+		}
+		if _, ok := m["prompt_cache_hit_tokens"]; !ok {
+			m["prompt_cache_hit_tokens"] = cachedTokens
+		}
+		if _, ok := m["prompt_tokens_details"]; !ok {
+			m["prompt_tokens_details"] = map[string]any{"cached_tokens": cachedTokens}
+		}
 	}
-	if cacheRead != nil {
-		m["cache_read_tokens"] = *cacheRead
-		m["prompt_cache_hit_tokens"] = *cacheRead
-		m["prompt_tokens_details"] = map[string]any{"cached_tokens": *cacheRead}
-	}
-	if u.CacheWriteTokens != nil {
-		m["cache_write_tokens"] = *u.CacheWriteTokens
+	if _, ok := m["total_tokens"]; !ok {
+		pt, _ := m["prompt_tokens"].(float64)
+		ct, _ := m["completion_tokens"].(float64)
+		m["total_tokens"] = int(pt + ct)
 	}
 	return m
 }
