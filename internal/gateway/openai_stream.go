@@ -112,6 +112,9 @@ func RelayOpenAIStream(w http.ResponseWriter, body io.Reader) (stats StreamRelay
 				now := time.Now()
 				stats.FirstTokenAt = &now
 			}
+			if fr := SSEDeltaFinishReason(line); fr != "" {
+				stats.FinishReason = fr
+			}
 			if usage, ok := ParseStreamUsageLine(line); ok {
 				usage.FirstTokenAt = stats.FirstTokenAt
 				usage.SSEEventCount = stats.SSEEventCount
@@ -163,6 +166,14 @@ func RelayOpenAIStream(w http.ResponseWriter, body io.Reader) (stats StreamRelay
 		return stats, streamErr
 	}
 	if !sawDone {
+		if stats.FinishReason != "" {
+			sawDone = true
+			stats.SawDone = true
+			if _, err := io.WriteString(writer, "data: [DONE]\n\n"); err != nil {
+				return stats, &StreamRelayWriteError{err: err}
+			}
+			return stats, nil
+		}
 		streamErr := executor.StreamIncompleteError()
 		if writeErr := writeStructuredStreamError(writer, streamErr); writeErr != nil {
 			return stats, writeErr
@@ -405,6 +416,22 @@ func jsonHasArray(raw json.RawMessage) bool {
 	return len(parts) > 0
 }
 
+func SSEDeltaFinishReason(line string) string {
+	payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+	if payload == "" || payload == "[DONE]" {
+		return ""
+	}
+	var parsed struct {
+		Choices []struct {
+			FinishReason string `json:"finish_reason"`
+		} `json:"choices"`
+	}
+	if json.Unmarshal([]byte(payload), &parsed) != nil || len(parsed.Choices) == 0 {
+		return ""
+	}
+	return parsed.Choices[0].FinishReason
+}
+
 func ParseStreamUsageLine(line string) (StreamRelayStats, bool) {
 	payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 	if payload == "" || payload == "[DONE]" {
@@ -413,14 +440,15 @@ func ParseStreamUsageLine(line string) (StreamRelayStats, bool) {
 	var parsed struct {
 		Model string `json:"model"`
 		Usage *struct {
-			PromptTokens     *int     `json:"prompt_tokens"`
-			CompletionTokens *int     `json:"completion_tokens"`
-			CacheReadTokens  *int     `json:"cache_read_tokens"`
-			CacheWriteTokens *int     `json:"cache_write_tokens"`
-			Source           string   `json:"source"`
-			Credits          *float64 `json:"credits"`
-			Credit           *float64 `json:"credit"`
-			PromptDetails    struct {
+			PromptTokens         *int     `json:"prompt_tokens"`
+			CompletionTokens     *int     `json:"completion_tokens"`
+			CacheReadTokens      *int     `json:"cache_read_tokens"`
+			CacheWriteTokens     *int     `json:"cache_write_tokens"`
+			PromptCacheHitTokens *int     `json:"prompt_cache_hit_tokens"`
+			Source               string   `json:"source"`
+			Credits              *float64 `json:"credits"`
+			Credit               *float64 `json:"credit"`
+			PromptDetails        struct {
 				CachedTokens *int `json:"cached_tokens"`
 			} `json:"prompt_tokens_details"`
 		} `json:"usage"`
@@ -436,12 +464,19 @@ func ParseStreamUsageLine(line string) (StreamRelayStats, bool) {
 	if cacheRead == nil {
 		cacheRead = parsed.Usage.PromptDetails.CachedTokens
 	}
+	if cacheRead == nil {
+		cacheRead = parsed.Usage.PromptCacheHitTokens
+	}
+	cachedTokens := parsed.Usage.PromptDetails.CachedTokens
+	if cachedTokens == nil {
+		cachedTokens = cacheRead
+	}
 	return StreamRelayStats{
 		PromptTokens:     parsed.Usage.PromptTokens,
 		CompletionTokens: parsed.Usage.CompletionTokens,
 		CacheReadTokens:  cacheRead,
 		CacheWriteTokens: parsed.Usage.CacheWriteTokens,
-		CachedTokens:     parsed.Usage.PromptDetails.CachedTokens,
+		CachedTokens:     cachedTokens,
 		UsageSource:      firstNonEmpty(parsed.Usage.Source, "estimate"),
 		Credits:          credits,
 		Model:            parsed.Model,

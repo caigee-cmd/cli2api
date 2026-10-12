@@ -639,12 +639,16 @@ func decodeChatOutcome(fallbackModel string, body []byte) (providers.ChatOutcome
 	var parsed struct {
 		Model string `json:"model"`
 		Usage struct {
-			PromptTokens     int      `json:"prompt_tokens"`
-			CompletionTokens int      `json:"completion_tokens"`
-			CacheReadTokens  *int     `json:"cache_read_tokens"`
-			CacheWriteTokens *int     `json:"cache_write_tokens"`
-			Source           string   `json:"source"`
-			Credits          *float64 `json:"credits"`
+			PromptTokens         int      `json:"prompt_tokens"`
+			CompletionTokens     int      `json:"completion_tokens"`
+			CacheReadTokens      *int     `json:"cache_read_tokens"`
+			CacheWriteTokens     *int     `json:"cache_write_tokens"`
+			PromptCacheHitTokens *int     `json:"prompt_cache_hit_tokens"`
+			Source               string   `json:"source"`
+			Credits              *float64 `json:"credits"`
+			PromptDetails        struct {
+				CachedTokens *int `json:"cached_tokens"`
+			} `json:"prompt_tokens_details"`
 		} `json:"usage"`
 		Choices []struct {
 			FinishReason string `json:"finish_reason"`
@@ -658,11 +662,18 @@ func decodeChatOutcome(fallbackModel string, body []byte) (providers.ChatOutcome
 	if err := json.Unmarshal(body, &parsed); err != nil {
 		return providers.ChatOutcome{}, fmt.Errorf("decode worker response: %w", err)
 	}
+	cacheRead := parsed.Usage.CacheReadTokens
+	if cacheRead == nil {
+		cacheRead = parsed.Usage.PromptDetails.CachedTokens
+	}
+	if cacheRead == nil {
+		cacheRead = parsed.Usage.PromptCacheHitTokens
+	}
 	outcome := providers.ChatOutcome{
 		Model:            parsed.Model,
 		PromptTokens:     parsed.Usage.PromptTokens,
 		CompletionTokens: parsed.Usage.CompletionTokens,
-		CacheReadTokens:  parsed.Usage.CacheReadTokens,
+		CacheReadTokens:  cacheRead,
 		CacheWriteTokens: parsed.Usage.CacheWriteTokens,
 		UsageSource:      parsed.Usage.Source,
 		Credits:          parsed.Usage.Credits,

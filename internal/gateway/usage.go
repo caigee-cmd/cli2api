@@ -27,6 +27,7 @@ func BuildChatUsage(res executor.ChatResult) map[string]any {
 	}
 	if cachedTokens != nil {
 		out["prompt_tokens_details"] = map[string]any{"cached_tokens": *cachedTokens}
+		out["prompt_cache_hit_tokens"] = *cachedTokens
 	}
 	if res.Credits != nil {
 		out["credits"] = *res.Credits

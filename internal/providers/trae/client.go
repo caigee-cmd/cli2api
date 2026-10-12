@@ -980,8 +980,14 @@ func outcomeFromAggregate(aggregate map[string]any, fallbackModel string) (provi
 	var parsed struct {
 		Model string `json:"model"`
 		Usage struct {
-			PromptTokens     int `json:"prompt_tokens"`
-			CompletionTokens int `json:"completion_tokens"`
+			PromptTokens         int      `json:"prompt_tokens"`
+			CompletionTokens     int      `json:"completion_tokens"`
+			CacheReadTokens      *int     `json:"cache_read_tokens"`
+			CacheWriteTokens     *int     `json:"cache_write_tokens"`
+			PromptCacheHitTokens *int     `json:"prompt_cache_hit_tokens"`
+			PromptDetails        struct {
+				CachedTokens *int `json:"cached_tokens"`
+			} `json:"prompt_tokens_details"`
 		} `json:"usage"`
 		Choices []struct {
 			FinishReason string `json:"finish_reason"`
@@ -1009,6 +1015,15 @@ func outcomeFromAggregate(aggregate map[string]any, fallbackModel string) (provi
 	}
 	out.PromptTokens = parsed.Usage.PromptTokens
 	out.CompletionTokens = parsed.Usage.CompletionTokens
+	cacheRead := parsed.Usage.CacheReadTokens
+	if cacheRead == nil {
+		cacheRead = parsed.Usage.PromptDetails.CachedTokens
+	}
+	if cacheRead == nil {
+		cacheRead = parsed.Usage.PromptCacheHitTokens
+	}
+	out.CacheReadTokens = cacheRead
+	out.CacheWriteTokens = parsed.Usage.CacheWriteTokens
 	return out, nil
 }
 

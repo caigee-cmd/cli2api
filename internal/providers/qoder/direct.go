@@ -445,11 +445,15 @@ func applyUsage(out *providers.ChatOutcome, raw json.RawMessage) {
 		return
 	}
 	var usage struct {
-		PromptTokens     int      `json:"prompt_tokens"`
-		CompletionTokens int      `json:"completion_tokens"`
-		CacheReadTokens  *int     `json:"cache_read_tokens"`
-		CacheWriteTokens *int     `json:"cache_write_tokens"`
-		Credits          *float64 `json:"credits"`
+		PromptTokens         int      `json:"prompt_tokens"`
+		CompletionTokens     int      `json:"completion_tokens"`
+		CacheReadTokens      *int     `json:"cache_read_tokens"`
+		CacheWriteTokens     *int     `json:"cache_write_tokens"`
+		PromptCacheHitTokens *int     `json:"prompt_cache_hit_tokens"`
+		Credits              *float64 `json:"credits"`
+		PromptDetails        struct {
+			CachedTokens *int `json:"cached_tokens"`
+		} `json:"prompt_tokens_details"`
 	}
 	if json.Unmarshal(raw, &usage) != nil {
 		out.UsageSource = "estimate"
@@ -457,7 +461,14 @@ func applyUsage(out *providers.ChatOutcome, raw json.RawMessage) {
 	}
 	out.PromptTokens = usage.PromptTokens
 	out.CompletionTokens = usage.CompletionTokens
-	out.CacheReadTokens = usage.CacheReadTokens
+	cacheRead := usage.CacheReadTokens
+	if cacheRead == nil {
+		cacheRead = usage.PromptDetails.CachedTokens
+	}
+	if cacheRead == nil {
+		cacheRead = usage.PromptCacheHitTokens
+	}
+	out.CacheReadTokens = cacheRead
 	out.CacheWriteTokens = usage.CacheWriteTokens
 	out.Credits = usage.Credits
 }
@@ -618,8 +629,29 @@ func writeOpenAIChunks(w io.Writer, src io.Reader, model string) error {
 			"choices": []any{map[string]any{"index": 0, "delta": deltaOf(frame), "finish_reason": emptyOrNil(frame.finish)}},
 		}
 		if len(frame.usage) > 0 {
-			var usage any
+			var usage map[string]any
 			if json.Unmarshal(frame.usage, &usage) == nil {
+				var cachedTokens any
+				if ptd, ok := usage["prompt_tokens_details"].(map[string]any); ok {
+					cachedTokens = ptd["cached_tokens"]
+				}
+				if cachedTokens == nil {
+					cachedTokens = usage["cache_read_tokens"]
+				}
+				if cachedTokens == nil {
+					cachedTokens = usage["prompt_cache_hit_tokens"]
+				}
+				if cachedTokens != nil {
+					if _, ok := usage["cache_read_tokens"]; !ok {
+						usage["cache_read_tokens"] = cachedTokens
+					}
+					if _, ok := usage["prompt_cache_hit_tokens"]; !ok {
+						usage["prompt_cache_hit_tokens"] = cachedTokens
+					}
+					if _, ok := usage["prompt_tokens_details"]; !ok {
+						usage["prompt_tokens_details"] = map[string]any{"cached_tokens": cachedTokens}
+					}
+				}
 				chunk["usage"] = usage
 			}
 		}
