@@ -356,6 +356,9 @@ func TestChatStreamRewritesOpenAIChunks(t *testing.T) {
 	if !strings.Contains(text, `"object":"chat.completion.chunk"`) || !strings.Contains(text, "data: [DONE]") {
 		t.Fatalf("stream=%s", text)
 	}
+	if !strings.Contains(text, `"finish_reason":"tool_calls"`) || !strings.Contains(text, `"prompt_tokens":3`) {
+		t.Fatalf("terminal chunk missing finish_reason or usage: %s", text)
+	}
 	if strings.Contains(text, "event: output") {
 		t.Fatalf("must rewrite solo events, got %s", text)
 	}

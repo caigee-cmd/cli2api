@@ -607,6 +607,9 @@ func rewriteUpstreamSSE(resp *http.Response, model string) *http.Response {
 
 func writeOpenAIChunks(w io.Writer, src io.Reader, model string) error {
 	var sawFinish, sawTools, sawPayload, sawError bool
+	var lastUsage any
+	var lastChunkEmittedHadUsage bool
+
 	err := walkUpstream(src, func(body map[string]any) error {
 		frame := frameFromBody(body)
 		if frame.finish != "" {
@@ -654,11 +657,17 @@ func writeOpenAIChunks(w io.Writer, src io.Reader, model string) error {
 						}
 					}
 					chunk["usage"] = usage
+					lastUsage = usage
 				} else {
 					chunk["usage"] = rawUsage
+					lastUsage = rawUsage
 				}
 			}
+		} else if frame.finish != "" && lastUsage != nil {
+			chunk["usage"] = lastUsage
 		}
+
+		lastChunkEmittedHadUsage = (chunk["usage"] != nil)
 		payload, err := json.Marshal(chunk)
 		if err != nil {
 			return err
@@ -683,6 +692,9 @@ func writeOpenAIChunks(w io.Writer, src io.Reader, model string) error {
 				"id": "chatcmpl-qoder", "object": "chat.completion.chunk", "model": model,
 				"choices": []any{map[string]any{"index": 0, "delta": map[string]any{}, "finish_reason": finish}},
 			}
+			if lastUsage != nil {
+				chunk["usage"] = lastUsage
+			}
 			payload, err := json.Marshal(chunk)
 			if err != nil {
 				return err
@@ -699,6 +711,19 @@ func writeOpenAIChunks(w io.Writer, src io.Reader, model string) error {
 			if _, err := fmt.Fprintf(w, "data: %s\n\n", payload); err != nil {
 				return err
 			}
+		}
+	} else if !lastChunkEmittedHadUsage && lastUsage != nil {
+		chunk := map[string]any{
+			"id": "chatcmpl-qoder", "object": "chat.completion.chunk", "model": model,
+			"choices": []any{},
+			"usage":   lastUsage,
+		}
+		payload, err := json.Marshal(chunk)
+		if err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(w, "data: %s\n\n", payload); err != nil {
+			return err
 		}
 	}
 	_, err = io.WriteString(w, "data: [DONE]\n\n")

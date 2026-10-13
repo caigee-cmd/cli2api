@@ -274,6 +274,7 @@ func startSoloRewrite(src io.ReadCloser, upstream io.Closer, model string) (*htt
 			_, err = fmt.Fprintf(pw, "data: %s\n\n", encoded)
 			return err
 		}
+		var lastUsage any
 		err := scanSolo(src, func(ev soloEvent) error {
 			switch ev.Name {
 			case "metadata":
@@ -312,7 +313,8 @@ func startSoloRewrite(src io.ReadCloser, upstream io.Closer, model string) (*htt
 				pendingUsage = nil
 				return writeChunk(delta, "", usage)
 			case "token_usage":
-				pendingUsage = normalizeTraeUsage(ev.Data)
+				lastUsage = normalizeTraeUsage(ev.Data)
+				pendingUsage = lastUsage
 			case "done":
 				ended = true
 				var done struct {
@@ -324,6 +326,9 @@ func startSoloRewrite(src io.ReadCloser, upstream io.Closer, model string) (*htt
 					finish = "stop"
 				}
 				usage := pendingUsage
+				if usage == nil && lastUsage != nil {
+					usage = lastUsage
+				}
 				pendingUsage = nil
 				if err := writeChunk(map[string]any{}, finish, usage); err != nil {
 					return err
@@ -343,7 +348,11 @@ func startSoloRewrite(src io.ReadCloser, upstream io.Closer, model string) (*htt
 			return nil
 		})
 		if !ended {
-			_ = writeChunk(map[string]any{}, "stop", pendingUsage)
+			usage := pendingUsage
+			if usage == nil && lastUsage != nil {
+				usage = lastUsage
+			}
+			_ = writeChunk(map[string]any{}, "stop", usage)
 			_, _ = io.WriteString(pw, "data: [DONE]\n\n")
 		}
 		if err != nil {
