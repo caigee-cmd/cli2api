@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import gsap from 'gsap'
 import { Button, Input, Modal, NumberField, Skeleton, TextArea } from '@heroui/react'
-import { ArrowSquareOut, CaretLeft, CaretRight, CheckCircle, FileCode, Key, ShieldCheck, X } from '@phosphor-icons/react'
+import { ArrowSquareOut, CaretLeft, CaretRight, Check, CheckCircle, Copy, FileCode, Key, ShieldCheck, X } from '@phosphor-icons/react'
+import { copyText } from '@/lib/clipboard'
 import { BrandMark } from '@/components/BrandMark'
 import { ProviderMark } from '@/components/ProviderMark'
 import { CompactSwitch } from '@/components/ui/CompactSwitch'
@@ -146,6 +147,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
   const [phase, setPhase] = useState<Phase>('idle')
   const [message, setMessage] = useState('')
   const [authUrl, setAuthUrl] = useState('')
+  const [authCopied, setAuthCopied] = useState(false)
   const [callbackUrl, setCallbackUrl] = useState('')
   const stepBody = useRef<HTMLDivElement>(null)
   const createdId = useRef<string>('')
@@ -252,6 +254,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
     setPhase('idle')
     setMessage('')
     setAuthUrl('')
+    setAuthCopied(false)
     setCallbackUrl('')
     createdId.current = ''
   }
@@ -317,7 +320,6 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
       const output = await startDeviceLogin(id)
       if (output.authUrl) {
         setAuthUrl(output.authUrl)
-        window.open(output.authUrl, '_blank', 'noopener,noreferrer')
       }
       setMessage(t('wizardWaitingBrowser'))
       for (let attempt = 0; attempt < POLL_ATTEMPTS; attempt++) {
@@ -675,6 +677,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                         setTab(next as TabKey)
                         setMessage('')
                         setAuthUrl('')
+                        setAuthCopied(false)
                       }
                     }}
                     ariaLabel={t('authentication')}
@@ -696,9 +699,26 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                               <StatusIcon phase={phase} busy={busy} tab={tab} forTab="browser" />
                               <span className="text-muted">{message || t('loginOpenMsg')}</span>
                             </div>
-                            <button onClick={() => window.open(authUrl, '_blank', 'noopener,noreferrer')} className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-foreground hover:underline">
-                              <ArrowSquareOut size={12} />{t('wizardOpenBrowser')}
-                            </button>
+                            <code className="mono mt-2 block break-all text-xs leading-5 text-foreground">{authUrl}</code>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              <Button size="sm" variant="secondary" onPress={() => window.open(authUrl, '_blank', 'noopener,noreferrer')}>
+                                <ArrowSquareOut size={14} />{t('openAuthUrl')}
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onPress={() => {
+                                  void copyText(authUrl).then((ok) => {
+                                    if (!ok) return
+                                    setAuthCopied(true)
+                                    window.setTimeout(() => setAuthCopied(false), 1100)
+                                  })
+                                }}
+                              >
+                                {authCopied ? <Check size={14} className="text-success" /> : <Copy size={14} />}
+                                {authCopied ? t('copied') : t('copy')}
+                              </Button>
+                            </div>
                           </div>
                         ) : null}
                         {message && !authUrl ? (
