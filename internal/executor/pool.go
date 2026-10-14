@@ -38,6 +38,11 @@ type Item struct {
 	// spelling so Trae config_name case is preserved.
 	Models   []string
 	ModelsAt time.Time
+	// FreeModels are the public IDs in Models the provider prices at zero.
+	// A zero-price model spends no credits, so an account whose quota is
+	// exhausted can still serve it and must not be filtered out on quota
+	// alone. Nil means the provider reported no pricing.
+	FreeModels []string
 	// ProvenModels are public IDs this account has actually served. A
 	// later catalog refresh must not drop a model that just succeeded:
 	// WorkBuddy CLI snapshots can omit a live ID and would otherwise
@@ -238,8 +243,26 @@ func itemReady(item Item) bool {
 	return item.Ready == nil || *item.Ready
 }
 
+// itemServesFreeModel reports whether publicModel is one this account prices at
+// zero. A zero-price model spends no credits, so an exhausted account can still
+// serve it; filtering it out on quota alone would drop the account from routes
+// that would in fact work. Models the catalog has not priced are not assumed
+// free — the price is unknown, and the account stays filtered out.
+func itemServesFreeModel(item Item, publicModel string) bool {
+	want := routeModel(publicModel)
+	if want == "" || len(item.FreeModels) == 0 {
+		return false
+	}
+	for _, model := range item.FreeModels {
+		if CanonicalModelID(model) == want {
+			return true
+		}
+	}
+	return false
+}
+
 func routeBaseMatches(item Item, q RouteQuery) bool {
-	if item.Quota != nil && item.Quota.Exceeded {
+	if item.Quota != nil && item.Quota.Exceeded && !itemServesFreeModel(item, q.PublicModel) {
 		return false
 	}
 	if !itemReady(item) {
@@ -1041,6 +1064,14 @@ func (p *Pool) SetRuntimeState(id, state string, nextRestartAt time.Time, backof
 }
 
 func (p *Pool) MergeModels(id string, models []string) {
+	p.MergeModelsWithPricing(id, models, nil)
+}
+
+// MergeModelsWithPricing replaces an account's cached catalog and records which
+// of those models the provider prices at zero. A nil free list means the
+// provider reported no pricing, which is treated as "nothing known is free"
+// rather than "everything is free".
+func (p *Pool) MergeModelsWithPricing(id string, models, freeModels []string) {
 	if p == nil || id == "" {
 		return
 	}
@@ -1058,11 +1089,26 @@ func (p *Pool) MergeModels(id string, models []string) {
 		seen[canonical] = struct{}{}
 		copied = append(copied, native)
 	}
+	free := make([]string, 0, len(freeModels))
+	freeSeen := map[string]struct{}{}
+	for _, model := range freeModels {
+		native := strings.TrimSpace(model)
+		canonical := CanonicalModelID(native)
+		if canonical == "" || canonical == "auto" || native == "" {
+			continue
+		}
+		if _, ok := freeSeen[canonical]; ok {
+			continue
+		}
+		freeSeen[canonical] = struct{}{}
+		free = append(free, native)
+	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	for i := range p.items {
 		if p.items[i].ID == id {
 			p.items[i].Models = copied
+			p.items[i].FreeModels = free
 			p.items[i].ModelsAt = time.Now()
 			return
 		}
@@ -1090,6 +1136,15 @@ func (p *Pool) RemoveModel(id, model string) {
 				}
 			}
 			p.items[i].Models = next
+		}
+		if p.items[i].FreeModels != nil {
+			nextFree := make([]string, 0, len(p.items[i].FreeModels))
+			for _, existing := range p.items[i].FreeModels {
+				if CanonicalModelID(existing) != want {
+					nextFree = append(nextFree, existing)
+				}
+			}
+			p.items[i].FreeModels = nextFree
 		}
 		dropProvenModel(&p.items[i], want)
 		// Force the manager to refresh this account's catalog on the next

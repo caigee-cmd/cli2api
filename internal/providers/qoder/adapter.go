@@ -352,6 +352,21 @@ func CatalogIDsFromInfos(models []providers.ModelInfo) []string {
 	return ids
 }
 
+// FreeCatalogIDsFromInfos returns the same id spellings CatalogIDsFromInfos
+// produces, restricted to the models Qoder prices at zero. A free model spends
+// no credits, so the routing pool must know about it to keep serving it from an
+// account whose paid quota is exhausted.
+func FreeCatalogIDsFromInfos(models []providers.ModelInfo) []string {
+	var ids []string
+	for _, model := range models {
+		if !model.Free {
+			continue
+		}
+		ids = append(ids, model.PublicModel, model.NativeModel, model.DisplayName)
+	}
+	return ids
+}
+
 func (c *Client) Probe(ctx context.Context, accountID string) (providers.AccountHealth, error) {
 	workerURL, err := c.lookup(accountID)
 	if err != nil {
