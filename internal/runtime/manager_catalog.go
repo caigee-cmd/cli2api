@@ -85,6 +85,7 @@ func (m *Manager) fetchAccountModels(ctx context.Context, item Item) {
 			return
 		}
 		m.pool.MergeModelsWithPricing(item.ID, qoder.CatalogIDsFromInfos(models), qoder.FreeCatalogIDsFromInfos(models))
+		m.pool.MergeNativeModels(item.ID, qoder.NativeCatalogIDsFromInfos(models))
 		return
 	}
 	client := qoder.WorkerClient{

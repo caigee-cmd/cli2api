@@ -38,6 +38,13 @@ type Item struct {
 	// spelling so Trae config_name case is preserved.
 	Models   []string
 	ModelsAt time.Time
+	// NativeModels maps a canonical public model ID onto the provider-native
+	// key its own catalog uses for that model. Qoder's catalog carries a
+	// distinct mapped_key ("qfmodel") behind a friendly public ID, and its
+	// gateway only routes the mapped key; sending the public ID leaves the
+	// gateway waiting without answering. A public ID absent from this map
+	// keeps its own spelling.
+	NativeModels map[string]string
 	// FreeModels are the public IDs in Models the provider prices at zero.
 	// A zero-price model spends no credits, so an account whose quota is
 	// exhausted can still serve it and must not be filtered out on quota
@@ -211,10 +218,16 @@ func itemHasModel(item Item, publicModel string) bool {
 // NativeModelID returns the provider-native catalog spelling for a public
 // model. Trae config_name is case-sensitive; routing matches on the
 // canonical form, but the upstream request must keep the original ID.
+// Qoder's catalog reports a mapped_key that differs from the public ID, and
+// its gateway routes only the mapped key, so a recorded mapping wins over the
+// catalog's own spelling.
 func NativeModelID(item Item, publicModel string) string {
 	want := routeModel(publicModel)
 	if want == "" {
 		return strings.TrimSpace(publicModel)
+	}
+	if native := strings.TrimSpace(item.NativeModels[want]); native != "" {
+		return native
 	}
 	for _, model := range item.Models {
 		if CanonicalModelID(model) == want {
@@ -1067,6 +1080,40 @@ func (p *Pool) MergeModels(id string, models []string) {
 	p.MergeModelsWithPricing(id, models, nil)
 }
 
+// MergeNativeModels records the provider-native key for each public model.
+// Only accounts whose catalog actually reports a distinct mapped key need it;
+// a nil map means "every model keeps its public spelling".
+func (p *Pool) MergeNativeModels(id string, nativeModels map[string]string) {
+	if p == nil || id == "" {
+		return
+	}
+	copied := make(map[string]string, len(nativeModels))
+	for public, native := range nativeModels {
+		key := CanonicalModelID(public)
+		value := strings.TrimSpace(native)
+		if key == "" || key == "auto" || value == "" || key == CanonicalModelID(value) {
+			continue
+		}
+		copied[key] = value
+	}
+	if len(copied) == 0 {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for i := range p.items {
+		if p.items[i].ID == id {
+			if p.items[i].NativeModels == nil {
+				p.items[i].NativeModels = make(map[string]string, len(copied))
+			}
+			for key, value := range copied {
+				p.items[i].NativeModels[key] = value
+			}
+			return
+		}
+	}
+}
+
 // MergeModelsWithPricing replaces an account's cached catalog and records which
 // of those models the provider prices at zero. A nil free list means the
 // provider reported no pricing, which is treated as "nothing known is free"
@@ -1145,6 +1192,9 @@ func (p *Pool) RemoveModel(id, model string) {
 				}
 			}
 			p.items[i].FreeModels = nextFree
+		}
+		if p.items[i].NativeModels != nil {
+			delete(p.items[i].NativeModels, want)
 		}
 		dropProvenModel(&p.items[i], want)
 		// Force the manager to refresh this account's catalog on the next
