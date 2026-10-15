@@ -38,6 +38,18 @@ type Item struct {
 	// spelling so Trae config_name case is preserved.
 	Models   []string
 	ModelsAt time.Time
+	// NativeModels maps a canonical public model ID onto the provider-native
+	// key its own catalog uses for that model. Qoder's catalog carries a
+	// distinct mapped_key ("qfmodel") behind a friendly public ID, and its
+	// gateway only routes the mapped key; sending the public ID leaves the
+	// gateway waiting without answering. A public ID absent from this map
+	// keeps its own spelling.
+	NativeModels map[string]string
+	// FreeModels are the public IDs in Models the provider prices at zero.
+	// A zero-price model spends no credits, so an account whose quota is
+	// exhausted can still serve it and must not be filtered out on quota
+	// alone. Nil means the provider reported no pricing.
+	FreeModels []string
 	// ProvenModels are public IDs this account has actually served. A
 	// later catalog refresh must not drop a model that just succeeded:
 	// WorkBuddy CLI snapshots can omit a live ID and would otherwise
@@ -206,10 +218,16 @@ func itemHasModel(item Item, publicModel string) bool {
 // NativeModelID returns the provider-native catalog spelling for a public
 // model. Trae config_name is case-sensitive; routing matches on the
 // canonical form, but the upstream request must keep the original ID.
+// Qoder's catalog reports a mapped_key that differs from the public ID, and
+// its gateway routes only the mapped key, so a recorded mapping wins over the
+// catalog's own spelling.
 func NativeModelID(item Item, publicModel string) string {
 	want := routeModel(publicModel)
 	if want == "" {
 		return strings.TrimSpace(publicModel)
+	}
+	if native := strings.TrimSpace(item.NativeModels[want]); native != "" {
+		return native
 	}
 	for _, model := range item.Models {
 		if CanonicalModelID(model) == want {
@@ -238,8 +256,26 @@ func itemReady(item Item) bool {
 	return item.Ready == nil || *item.Ready
 }
 
+// itemServesFreeModel reports whether publicModel is one this account prices at
+// zero. A zero-price model spends no credits, so an exhausted account can still
+// serve it; filtering it out on quota alone would drop the account from routes
+// that would in fact work. Models the catalog has not priced are not assumed
+// free — the price is unknown, and the account stays filtered out.
+func itemServesFreeModel(item Item, publicModel string) bool {
+	want := routeModel(publicModel)
+	if want == "" || len(item.FreeModels) == 0 {
+		return false
+	}
+	for _, model := range item.FreeModels {
+		if CanonicalModelID(model) == want {
+			return true
+		}
+	}
+	return false
+}
+
 func routeBaseMatches(item Item, q RouteQuery) bool {
-	if item.Quota != nil && item.Quota.Exceeded {
+	if item.Quota != nil && item.Quota.Exceeded && !itemServesFreeModel(item, q.PublicModel) {
 		return false
 	}
 	if !itemReady(item) {
@@ -1041,6 +1077,48 @@ func (p *Pool) SetRuntimeState(id, state string, nextRestartAt time.Time, backof
 }
 
 func (p *Pool) MergeModels(id string, models []string) {
+	p.MergeModelsWithPricing(id, models, nil)
+}
+
+// MergeNativeModels records the provider-native key for each public model.
+// Only accounts whose catalog actually reports a distinct mapped key need it;
+// a nil map means "every model keeps its public spelling".
+func (p *Pool) MergeNativeModels(id string, nativeModels map[string]string) {
+	if p == nil || id == "" {
+		return
+	}
+	copied := make(map[string]string, len(nativeModels))
+	for public, native := range nativeModels {
+		key := CanonicalModelID(public)
+		value := strings.TrimSpace(native)
+		if key == "" || key == "auto" || value == "" || key == CanonicalModelID(value) {
+			continue
+		}
+		copied[key] = value
+	}
+	if len(copied) == 0 {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for i := range p.items {
+		if p.items[i].ID == id {
+			if p.items[i].NativeModels == nil {
+				p.items[i].NativeModels = make(map[string]string, len(copied))
+			}
+			for key, value := range copied {
+				p.items[i].NativeModels[key] = value
+			}
+			return
+		}
+	}
+}
+
+// MergeModelsWithPricing replaces an account's cached catalog and records which
+// of those models the provider prices at zero. A nil free list means the
+// provider reported no pricing, which is treated as "nothing known is free"
+// rather than "everything is free".
+func (p *Pool) MergeModelsWithPricing(id string, models, freeModels []string) {
 	if p == nil || id == "" {
 		return
 	}
@@ -1058,11 +1136,26 @@ func (p *Pool) MergeModels(id string, models []string) {
 		seen[canonical] = struct{}{}
 		copied = append(copied, native)
 	}
+	free := make([]string, 0, len(freeModels))
+	freeSeen := map[string]struct{}{}
+	for _, model := range freeModels {
+		native := strings.TrimSpace(model)
+		canonical := CanonicalModelID(native)
+		if canonical == "" || canonical == "auto" || native == "" {
+			continue
+		}
+		if _, ok := freeSeen[canonical]; ok {
+			continue
+		}
+		freeSeen[canonical] = struct{}{}
+		free = append(free, native)
+	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	for i := range p.items {
 		if p.items[i].ID == id {
 			p.items[i].Models = copied
+			p.items[i].FreeModels = free
 			p.items[i].ModelsAt = time.Now()
 			return
 		}
@@ -1090,6 +1183,18 @@ func (p *Pool) RemoveModel(id, model string) {
 				}
 			}
 			p.items[i].Models = next
+		}
+		if p.items[i].FreeModels != nil {
+			nextFree := make([]string, 0, len(p.items[i].FreeModels))
+			for _, existing := range p.items[i].FreeModels {
+				if CanonicalModelID(existing) != want {
+					nextFree = append(nextFree, existing)
+				}
+			}
+			p.items[i].FreeModels = nextFree
+		}
+		if p.items[i].NativeModels != nil {
+			delete(p.items[i].NativeModels, want)
 		}
 		dropProvenModel(&p.items[i], want)
 		// Force the manager to refresh this account's catalog on the next
@@ -1286,6 +1391,21 @@ func (p *Pool) Upsert(item Item) {
 			if item.Models == nil {
 				item.Models = p.items[i].Models
 				item.ModelsAt = p.items[i].ModelsAt
+			}
+			// FreeModels is pricing metadata read from the catalog, not request
+			// state. A runtime Upsert — process registration, refresh, restart —
+			// carries no pricing, so without this carry-forward the free list is
+			// wiped and the account drops off free-model routes until the next
+			// catalog refresh repopulates it. A refresh that does carry a free
+			// list still overrides the carried-forward one.
+			if item.FreeModels == nil {
+				item.FreeModels = p.items[i].FreeModels
+			}
+			// Same reasoning for the gateway-key mapping: a runtime Upsert does
+			// not re-read the catalog, so losing it would send the public model
+			// ID upstream again.
+			if item.NativeModels == nil {
+				item.NativeModels = p.items[i].NativeModels
 			}
 			if item.ProvenModels == nil {
 				item.ProvenModels = p.items[i].ProvenModels
