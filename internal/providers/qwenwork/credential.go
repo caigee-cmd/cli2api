@@ -99,10 +99,11 @@ type Credential struct {
 
 // DecodeCredential accepts the canonical snake_case payload and the camelCase
 // account shape exported by qwenwork2api (accessToken / refreshToken /
-// expiresAt in Unix seconds).
+// expiresAt). An expiry in Unix milliseconds is normalized to seconds.
 func DecodeCredential(payload []byte) (Credential, error) {
 	var flat Credential
 	if err := json.Unmarshal(payload, &flat); err == nil && strings.TrimSpace(flat.AccessToken) != "" {
+		flat.ExpiresAt = unixSeconds(flat.ExpiresAt)
 		return flat, nil
 	}
 	var camel struct {
@@ -115,9 +116,19 @@ func DecodeCredential(payload []byte) (Credential, error) {
 		MachineID    string `json:"machineId"`
 	}
 	if err := json.Unmarshal(payload, &camel); err == nil && strings.TrimSpace(camel.AccessToken) != "" {
-		return Credential(camel), nil
+		credential := Credential(camel)
+		credential.ExpiresAt = unixSeconds(credential.ExpiresAt)
+		return credential, nil
 	}
 	return Credential{}, fmt.Errorf("qwenwork credential requires access_token")
+}
+
+// unixSeconds treats implausibly large timestamps as Unix milliseconds.
+func unixSeconds(n int64) int64 {
+	if n > 1e12 {
+		return n / 1000
+	}
+	return n
 }
 
 func (c Credential) Encode() ([]byte, error) {
@@ -128,8 +139,10 @@ func (c Credential) Ready() bool {
 	return strings.TrimSpace(c.AccessToken) != "" && strings.TrimSpace(c.UID) != ""
 }
 
-// ValidateCredential enforces the import contract: a token is required; a
-// missing uid is stored but never ready.
+// ValidateCredential enforces the import contract: an access token is
+// required. A missing refresh token is accepted (the token is used until it
+// expires); a missing uid is stored not-ready until Probe or the next refresh
+// fills it from /api/v1/userinfo.
 func ValidateCredential(payload []byte) error {
 	_, err := DecodeCredential(payload)
 	return err
@@ -166,10 +179,7 @@ func (g grant) expiry(now time.Time) int64 {
 		}
 		var n int64
 		if json.Unmarshal(g.ExpiresAt, &n) == nil && n > 0 {
-			if n > 1e12 {
-				return n / 1000
-			}
-			return n
+			return unixSeconds(n)
 		}
 	}
 	if g.ExpiresIn > 0 {

@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/providers"
@@ -35,6 +36,25 @@ type upstreamFrame struct {
 	errText   string
 	errStatus int
 	errKind   string
+	errCode   string
+}
+
+// errorOnly reports whether the frame is an error with no payload alongside.
+func (f upstreamFrame) errorOnly() bool {
+	return f.errText != "" && f.content == "" && f.reasoning == "" && len(f.tools) == 0
+}
+
+// providerError renders the frame's error for the executor.
+func (f upstreamFrame) providerError() *providers.Error {
+	kind := f.errKind
+	if kind == "" {
+		kind = accounts.KindUnavailable
+	}
+	status := f.errStatus
+	if status == 0 {
+		status = http.StatusBadGateway
+	}
+	return &providers.Error{Kind: kind, Status: status, Code: f.errCode, Message: f.errText}
 }
 
 // parseUpstreamLine decodes one SSE data payload into the inner OpenAI chunk
@@ -116,9 +136,9 @@ func walkUpstream(r io.Reader, fn func(body map[string]any, frameStatus int) err
 // object, a wrapper statusCodeValue >= 400, or a body-level 4xx code with a
 // message. Quota code 14018 and "Model is not available for this user" are
 // classified through the shared taxonomy.
-func upstreamError(body map[string]any, frameStatus int) (text string, status int, kind string) {
+func upstreamError(body map[string]any, frameStatus int) (text string, status int, kind, code string) {
 	if len(body) == 0 {
-		return "", 0, ""
+		return "", 0, "", ""
 	}
 	if raw, ok := body["error"]; ok && raw != nil {
 		encoded, _ := json.Marshal(raw)
@@ -132,13 +152,14 @@ func upstreamError(body map[string]any, frameStatus int) (text string, status in
 			text = strings.TrimSpace(string(encoded))
 		}
 		status = firstStatus(frameStatus, http.StatusBadGateway)
-		return text, status, classifiedKind(status, text, scalarCode(parsed.Code))
+		code = scalarCode(parsed.Code)
+		return text, status, classifiedKind(status, text, code), code
 	}
-	code := scalarCode(body["code"])
+	code = scalarCode(body["code"])
 	message, _ := body["message"].(string)
 	message = strings.TrimSpace(message)
 	if frameStatus < 400 && !errorCodeString(code) && code != quotaCode && !errorMarkerText(message) {
-		return "", 0, ""
+		return "", 0, "", ""
 	}
 	status = frameStatus
 	if status < 400 {
@@ -156,7 +177,7 @@ func upstreamError(body map[string]any, frameStatus int) (text string, status in
 			message += " code=" + code
 		}
 	}
-	return message, status, classifiedKind(status, message, code)
+	return message, status, classifiedKind(status, message, code), code
 }
 
 // errorCodeString reports whether a body-level code marks the frame as an
@@ -191,10 +212,11 @@ func classifiedKind(status int, message, code string) string {
 
 func frameFromBody(body map[string]any, frameStatus int) upstreamFrame {
 	var frame upstreamFrame
-	if errText, status, kind := upstreamError(body, frameStatus); errText != "" {
+	if errText, status, kind, code := upstreamError(body, frameStatus); errText != "" {
 		frame.errText = errText
 		frame.errStatus = status
 		frame.errKind = kind
+		frame.errCode = code
 	}
 	if usage, ok := body["usage"]; ok && usage != nil {
 		raw, _ := json.Marshal(usage)
@@ -272,44 +294,20 @@ func collectUpstream(r io.Reader) (upstreamFrame, error) {
 	toolCalls := map[int]*mergedToolCall{}
 	var toolOrder []int
 	err := walkUpstream(r, func(body map[string]any, frameStatus int) error {
-		if errText, status, kind := upstreamError(body, frameStatus); errText != "" {
-			frame.errText = errText
-			frame.errStatus = status
-			frame.errKind = kind
+		part := frameFromBody(body, frameStatus)
+		if part.errText != "" {
+			frame.errText, frame.errStatus, frame.errKind, frame.errCode = part.errText, part.errStatus, part.errKind, part.errCode
 		}
-		if usage, ok := body["usage"]; ok && usage != nil {
-			raw, _ := json.Marshal(usage)
-			frame.usage = raw
+		if part.usage != nil {
+			frame.usage = part.usage
 		}
-		choices, _ := body["choices"].([]any)
-		if len(choices) == 0 {
-			return nil
+		if part.finish != "" {
+			frame.finish = part.finish
 		}
-		choice, _ := choices[0].(map[string]any)
-		if choice == nil {
-			return nil
-		}
-		if finish, _ := choice["finish_reason"].(string); finish != "" {
-			frame.finish = finish
-		}
-		delta, _ := choice["delta"].(map[string]any)
-		message, _ := choice["message"].(map[string]any)
-		part := delta
-		if part == nil {
-			part = message
-		}
-		if part == nil {
-			return nil
-		}
-		if text, _ := part["content"].(string); text != "" {
-			content.WriteString(text)
-		}
-		if text, _ := part["reasoning_content"].(string); text != "" {
-			reasoning.WriteString(text)
-		}
-		if tools := part["tool_calls"]; tools != nil {
-			raw, _ := json.Marshal(tools)
-			toolOrder = mergeToolCallDeltas(raw, toolCalls, toolOrder)
+		content.WriteString(part.content)
+		reasoning.WriteString(part.reasoning)
+		if len(part.tools) > 0 {
+			toolOrder = mergeToolCallDeltas(part.tools, toolCalls, toolOrder)
 		}
 		return nil
 	})
@@ -412,15 +410,7 @@ func outcomeFromUpstreamSSE(model string, raw []byte) (providers.ChatOutcome, er
 		return providers.ChatOutcome{}, err
 	}
 	if frame.errText != "" {
-		kind := frame.errKind
-		if kind == "" {
-			kind = accounts.KindUnavailable
-		}
-		status := frame.errStatus
-		if status == 0 {
-			status = http.StatusBadGateway
-		}
-		return providers.ChatOutcome{}, &providers.Error{Kind: kind, Status: status, Message: frame.errText}
+		return providers.ChatOutcome{}, frame.providerError()
 	}
 	if frame.finish == "" && frame.content == "" && frame.reasoning == "" && len(frame.tools) == 0 {
 		return providers.ChatOutcome{}, emptyUpstreamError()
@@ -488,6 +478,26 @@ func rewriteUpstreamSSE(resp *http.Response, model string) *http.Response {
 }
 
 func writeOpenAIChunks(w io.Writer, src io.Reader, model string) error {
+	id := "chatcmpl-" + strings.ReplaceAll(newID(), "-", "")
+	created := time.Now().Unix()
+	writeChunk := func(delta map[string]any, finish any, usage json.RawMessage) error {
+		chunk := map[string]any{
+			"id": id, "object": "chat.completion.chunk", "created": created, "model": model,
+			"choices": []any{map[string]any{"index": 0, "delta": delta, "finish_reason": finish}},
+		}
+		if len(usage) > 0 {
+			var decoded any
+			if json.Unmarshal(usage, &decoded) == nil {
+				chunk["usage"] = decoded
+			}
+		}
+		payload, err := json.Marshal(chunk)
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintf(w, "data: %s\n\n", payload)
+		return err
+	}
 	var sawFinish, sawTools, sawPayload, sawError bool
 	err := walkUpstream(src, func(body map[string]any, frameStatus int) error {
 		frame := frameFromBody(body, frameStatus)
@@ -500,28 +510,18 @@ func writeOpenAIChunks(w io.Writer, src io.Reader, model string) error {
 		if len(frame.tools) > 0 {
 			sawTools = true
 		}
-		if frame.errText != "" && frame.content == "" && frame.reasoning == "" && len(frame.tools) == 0 {
-			sawError = true
-			payload, _ := json.Marshal(map[string]any{"error": map[string]any{"message": frame.errText, "type": "api_error"}})
-			_, err := fmt.Fprintf(w, "data: %s\n\n", payload)
-			return err
-		}
-		chunk := map[string]any{
-			"id": "chatcmpl-qwenwork", "object": "chat.completion.chunk", "model": model,
-			"choices": []any{map[string]any{"index": 0, "delta": deltaOf(frame), "finish_reason": emptyOrNil(frame.finish)}},
-		}
-		if len(frame.usage) > 0 {
-			var usage any
-			if json.Unmarshal(frame.usage, &usage) == nil {
-				chunk["usage"] = usage
+		if !frame.errorOnly() {
+			if err := writeChunk(deltaOf(frame), emptyOrNil(frame.finish), frame.usage); err != nil {
+				return err
 			}
 		}
-		payload, err := json.Marshal(chunk)
-		if err != nil {
-			return err
+		if frame.errText != "" {
+			// The error object follows any payload the same frame carried, so
+			// partial content is never dropped and the error is never hidden.
+			sawError = true
+			return writeErrorChunk(w, frame.providerError())
 		}
-		_, err = fmt.Fprintf(w, "data: %s\n\n", payload)
-		return err
+		return nil
 	})
 	if err != nil {
 		return err
@@ -538,23 +538,14 @@ func writeOpenAIChunks(w io.Writer, src io.Reader, model string) error {
 			if sawTools {
 				finish = "tool_calls"
 			}
-			chunk := map[string]any{
-				"id": "chatcmpl-qwenwork", "object": "chat.completion.chunk", "model": model,
-				"choices": []any{map[string]any{"index": 0, "delta": map[string]any{}, "finish_reason": finish}},
-			}
-			payload, err := json.Marshal(chunk)
-			if err != nil {
-				return err
-			}
-			if _, err := fmt.Fprintf(w, "data: %s\n\n", payload); err != nil {
+			if err := writeChunk(map[string]any{}, finish, nil); err != nil {
 				return err
 			}
 		} else if !sawError {
 			// Empty upstream stream that slipped past the pre-relay guard:
 			// surface it as an error frame so the gateway classifies and logs
 			// the failure instead of reporting a successful empty answer.
-			payload, _ := json.Marshal(map[string]any{"error": map[string]any{"message": emptyUpstreamError().Error(), "type": "api_error"}})
-			if _, err := fmt.Fprintf(w, "data: %s\n\n", payload); err != nil {
+			if err := writeErrorChunk(w, emptyUpstreamError()); err != nil {
 				return err
 			}
 		}
@@ -563,11 +554,34 @@ func writeOpenAIChunks(w io.Writer, src io.Reader, model string) error {
 	return err
 }
 
+// writeErrorChunk relays a classified error as an OpenAI error object. code,
+// kind, and status ride along so the gateway's stream classifier keeps the
+// provider verdict (quota 14018, auth, model-level) instead of re-guessing
+// from the message text.
+func writeErrorChunk(w io.Writer, providerErr *providers.Error) error {
+	code := providerErr.Code
+	if code == "" {
+		code = providerErr.Kind
+	}
+	payload, err := json.Marshal(map[string]any{"error": map[string]any{
+		"message": providerErr.Message,
+		"type":    "api_error",
+		"code":    code,
+		"kind":    providerErr.Kind,
+		"status":  providerErr.Status,
+	}})
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(w, "data: %s\n\n", payload)
+	return err
+}
+
 // emptyUpstreamError mirrors the worker path's upstream_empty classification.
 // The executor cools the account down and fails over instead of relaying a
 // spec-invalid completion (no content, no finish_reason) that strict OpenAI
 // clients reject with "Stream ended without finish_reason".
-func emptyUpstreamError() error {
+func emptyUpstreamError() *providers.Error {
 	return &providers.Error{
 		Kind:    accounts.KindUnavailable,
 		Status:  http.StatusBadGateway,
@@ -587,9 +601,18 @@ func ensureMeaningfulUpstream(resp *http.Response) (*http.Response, error) {
 		line, readErr := br.ReadString('\n')
 		if line != "" {
 			pending.WriteString(line)
-			if data, ok := strings.CutPrefix(strings.TrimSpace(line), "data:"); ok && meaningfulDataLine(strings.TrimSpace(data)) {
-				resp.Body = peekedBody{Reader: io.MultiReader(&pending, br), Closer: resp.Body}
-				return resp, nil
+			if data, ok := strings.CutPrefix(strings.TrimSpace(line), "data:"); ok {
+				if frame, meaningful := meaningfulDataLine(strings.TrimSpace(data)); meaningful {
+					if frame.errorOnly() {
+						// Nothing has reached the client yet: return the
+						// classified error so the executor cools this account
+						// (quota, auth, model) and fails over.
+						resp.Body.Close()
+						return nil, frame.providerError()
+					}
+					resp.Body = peekedBody{Reader: io.MultiReader(&pending, br), Closer: resp.Body}
+					return resp, nil
+				}
 			}
 		}
 		if readErr != nil {
@@ -618,14 +641,14 @@ type peekedBody struct {
 // any payload a relayed completion needs: content, reasoning, tool calls, a
 // terminal finish_reason, usage, or an error. Heartbeat and empty-delta
 // frames are not meaningful.
-func meaningfulDataLine(payload string) bool {
+func meaningfulDataLine(payload string) (upstreamFrame, bool) {
 	if payload == "" || payload == "[DONE]" {
-		return false
+		return upstreamFrame{}, false
 	}
 	body, frameStatus, ok := parseUpstreamLine(payload)
 	if !ok {
-		return false
+		return upstreamFrame{}, false
 	}
 	frame := frameFromBody(body, frameStatus)
-	return frame.content != "" || frame.reasoning != "" || len(frame.tools) > 0 || frame.finish != "" || frame.usage != nil || frame.errText != ""
+	return frame, frame.content != "" || frame.reasoning != "" || len(frame.tools) > 0 || frame.finish != "" || frame.usage != nil || frame.errText != ""
 }

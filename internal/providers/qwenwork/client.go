@@ -43,7 +43,7 @@ type Client struct {
 	mu          sync.Mutex
 	loginStates map[string]*loginState
 	sessions    map[string]*session
-	catalog     map[string]providers.ModelInfo
+	catalog     map[string]map[string]providers.ModelInfo
 	refresh     map[string]*refreshCall
 }
 
@@ -69,7 +69,10 @@ const (
 	catalogTimeout   = 15 * time.Second
 	loginStateTTL    = 10 * time.Minute
 	refreshMargin    = 2 * time.Minute
+	refreshTimeout   = 30 * time.Second
 	accountContextOK = "ok"
+	// maxChatBody bounds the buffered non-stream upstream body.
+	maxChatBody = 16 << 20
 )
 
 // modelListEntry is one qwork model from /algo/api/v2/model/list.
@@ -130,11 +133,7 @@ func (c *Client) globalProxy(ctx context.Context) (string, error) {
 	return strings.TrimSpace(value), nil
 }
 
-func (c *Client) effectiveProxy(ctx context.Context, accountID string) (string, error) {
-	account, err := c.store.Get(ctx, accountID)
-	if err != nil {
-		return "", err
-	}
+func (c *Client) effectiveProxy(ctx context.Context, account accounts.Account) (string, error) {
 	if value := strings.TrimSpace(account.ProxyURL); value != "" {
 		return value, nil
 	}
@@ -142,7 +141,17 @@ func (c *Client) effectiveProxy(ctx context.Context, accountID string) (string, 
 }
 
 func (c *Client) httpClient(ctx context.Context, accountID string) (*http.Client, error) {
-	rawProxy, err := c.effectiveProxy(ctx, accountID)
+	account, err := c.store.Get(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	return c.httpClientFor(ctx, account)
+}
+
+// httpClientFor builds the proxied client for an already-loaded account so
+// the chat path reads the account row once per request.
+func (c *Client) httpClientFor(ctx context.Context, account accounts.Account) (*http.Client, error) {
+	rawProxy, err := c.effectiveProxy(ctx, account)
 	if err != nil {
 		return nil, err
 	}
@@ -235,6 +244,12 @@ func (c *Client) StartLogin(ctx context.Context, accountID string) (providers.Lo
 	c.mu.Lock()
 	if c.loginStates == nil {
 		c.loginStates = map[string]*loginState{}
+	}
+	// Abandoned rounds are never polled again; drop them here.
+	for id, pending := range c.loginStates {
+		if time.Since(pending.createdAt) > loginStateTTL {
+			delete(c.loginStates, id)
+		}
 	}
 	c.loginStates[accountID] = &loginState{
 		verifier:  verifier,
@@ -345,15 +360,11 @@ func (c *Client) fetchUserInfo(ctx context.Context, accountID string, st site, a
 // refresh token is single-use). A failed refresh falls back to the stored
 // credential so a flaky refresh endpoint never blocks a possibly-valid token.
 func (c *Client) credential(ctx context.Context, accountID string) (Credential, error) {
-	_, payload, err := c.store.LoadCredentialPayload(ctx, accountID)
+	credential, err := c.loadCredential(ctx, accountID)
 	if err != nil {
 		return Credential{}, err
 	}
-	credential, err := DecodeCredential(payload)
-	if err != nil {
-		return Credential{}, err
-	}
-	if credential.ExpiresAt != 0 && time.Now().Add(refreshMargin).Unix() < credential.ExpiresAt {
+	if !credential.needsRefresh(time.Now()) {
 		return credential, nil
 	}
 	refreshed, err := c.singleFlightRefresh(ctx, accountID, credential)
@@ -363,6 +374,24 @@ func (c *Client) credential(ctx context.Context, accountID string) (Credential, 
 	return refreshed, nil
 }
 
+func (c *Client) loadCredential(ctx context.Context, accountID string) (Credential, error) {
+	_, payload, err := c.store.LoadCredentialPayload(ctx, accountID)
+	if err != nil {
+		return Credential{}, err
+	}
+	return DecodeCredential(payload)
+}
+
+func (c Credential) needsRefresh(now time.Time) bool {
+	return c.ExpiresAt == 0 || now.Add(refreshMargin).Unix() >= c.ExpiresAt
+}
+
+// singleFlightRefresh runs at most one refresh per account at a time. The
+// leader re-reads the store first: a caller that loaded the credential before
+// an earlier refresh finished still holds the consumed refresh token, and
+// replaying it would read as session-dead. The exchange runs on a detached
+// context so one cancelled request cannot fail the waiters or lose the
+// rotated pair before it is saved.
 func (c *Client) singleFlightRefresh(ctx context.Context, accountID string, credential Credential) (Credential, error) {
 	c.mu.Lock()
 	if call, ok := c.refresh[accountID]; ok {
@@ -378,7 +407,9 @@ func (c *Client) singleFlightRefresh(ctx context.Context, accountID string, cred
 	c.refresh[accountID] = call
 	c.mu.Unlock()
 
-	refreshed, err := c.Refresh(ctx, accountID, credential)
+	refreshCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), refreshTimeout)
+	refreshed, err := c.refreshIfStale(refreshCtx, accountID, credential)
+	cancel()
 	call.cred, call.err = refreshed, err
 	close(call.done)
 	c.mu.Lock()
@@ -387,23 +418,48 @@ func (c *Client) singleFlightRefresh(ctx context.Context, accountID string, cred
 	return refreshed, err
 }
 
-// resolvedCredential loads the credential and resolves the account's site.
-func (c *Client) resolvedCredential(ctx context.Context, accountID string) (Credential, site, error) {
+func (c *Client) refreshIfStale(ctx context.Context, accountID string, credential Credential) (Credential, error) {
+	stored, err := c.loadCredential(ctx, accountID)
+	if err != nil {
+		return credential, err
+	}
+	if stored.RefreshToken != credential.RefreshToken || !stored.needsRefresh(time.Now()) {
+		return stored, nil
+	}
+	return c.Refresh(ctx, accountID, stored)
+}
+
+// resolvedAccount loads the credential, the account row, and the account's
+// site in one pass.
+func (c *Client) resolvedAccount(ctx context.Context, accountID string) (Credential, accounts.Account, site, error) {
 	credential, err := c.credential(ctx, accountID)
 	if err != nil {
-		return Credential{}, site{}, err
+		return Credential{}, accounts.Account{}, site{}, err
 	}
-	st, err := c.siteFor(ctx, accountID)
+	account, err := c.store.Get(ctx, accountID)
 	if err != nil {
-		return Credential{}, site{}, err
+		return Credential{}, accounts.Account{}, site{}, err
 	}
-	return credential, st, nil
+	st, err := siteFor(account.ProviderRegion)
+	if err != nil {
+		return Credential{}, accounts.Account{}, site{}, err
+	}
+	return credential, account, st, nil
+}
+
+// resolvedCredential loads the credential and resolves the account's site.
+func (c *Client) resolvedCredential(ctx context.Context, accountID string) (Credential, site, error) {
+	credential, _, st, err := c.resolvedAccount(ctx, accountID)
+	return credential, st, err
 }
 
 // Refresh exchanges the refresh token. The endpoint rotates the refresh
 // token, so the response pair replaces the stored one. Session-dead errors
 // flip the account to login_required through Observe.
 func (c *Client) Refresh(ctx context.Context, accountID string, credential Credential) (Credential, error) {
+	if strings.TrimSpace(credential.RefreshToken) == "" {
+		return credential, fmt.Errorf("qwenwork credential has no refresh token")
+	}
 	st, err := c.siteFor(ctx, accountID)
 	if err != nil {
 		return credential, err
@@ -435,14 +491,39 @@ func (c *Client) Refresh(ctx context.Context, accountID string, credential Crede
 	credential.AccessToken = grant.accessToken()
 	credential.RefreshToken = grant.RefreshToken
 	credential.ExpiresAt = grant.expiry(time.Now())
-	encoded, err := credential.Encode()
-	if err != nil {
-		return credential, err
+	if credential.UID == "" && grant.UserID != "" {
+		credential.UID = grant.UserID
 	}
-	if err := c.store.SaveCredentialPayload(ctx, accountID, CredentialFormat, encoded); err != nil {
+	if credential.UID == "" {
+		c.fillIdentity(ctx, accountID, st, &credential)
+	}
+	if err := c.saveCredential(ctx, accountID, credential); err != nil {
 		return credential, err
 	}
 	return credential, nil
+}
+
+func (c *Client) saveCredential(ctx context.Context, accountID string, credential Credential) error {
+	encoded, err := credential.Encode()
+	if err != nil {
+		return err
+	}
+	return c.store.SaveCredentialPayload(ctx, accountID, CredentialFormat, encoded)
+}
+
+// fillIdentity completes uid and profile fields from /api/v1/userinfo. An
+// imported credential may lack the uid; it stays not-ready until this fills it.
+func (c *Client) fillIdentity(ctx context.Context, accountID string, st site, credential *Credential) {
+	uid, nickname, email := c.fetchUserInfo(ctx, accountID, st, credential.AccessToken)
+	if credential.UID == "" {
+		credential.UID = uid
+	}
+	if credential.Nickname == "" {
+		credential.Nickname = nickname
+	}
+	if credential.Email == "" {
+		credential.Email = email
+	}
 }
 
 // sessionFor caches one COSY envelope per account and rebuilds it whenever
@@ -467,7 +548,7 @@ func (c *Client) sessionFor(accountID string, credential Credential) (*session, 
 	return built, nil
 }
 
-func (c *Client) rememberCatalog(models []providers.ModelInfo) {
+func (c *Client) rememberCatalog(st site, models []providers.ModelInfo) {
 	catalog := make(map[string]providers.ModelInfo, len(models))
 	for _, model := range models {
 		catalog[model.NativeModel] = model
@@ -476,37 +557,48 @@ func (c *Client) rememberCatalog(models []providers.ModelInfo) {
 		}
 	}
 	c.mu.Lock()
-	c.catalog = catalog
+	if c.catalog == nil {
+		c.catalog = map[string]map[string]providers.ModelInfo{}
+	}
+	c.catalog[st.Gateway] = catalog
 	c.mu.Unlock()
 }
 
-// upstreamModelID resolves the request model against the remembered catalog.
-// QwenWork public and native ids are identical, so an unknown id passes
-// through unchanged; no alias is invented.
-func (c *Client) upstreamModelID(model string) string {
+// catalogModel resolves the request model against the site's remembered
+// catalog. QwenWork public and native ids are identical, so an unknown id
+// passes through unchanged with ok=false; no alias is invented.
+func (c *Client) catalogModel(st site, model string) (providers.ModelInfo, bool) {
 	model = strings.TrimSpace(model)
 	if model == "" || c == nil {
-		return model
+		return providers.ModelInfo{}, false
 	}
-	canonical := accounts.CanonicalModelID(model)
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if info, ok := c.catalog[model]; ok {
-		return info.NativeModel
+	catalog := c.catalog[st.Gateway]
+	if info, ok := catalog[model]; ok {
+		return info, true
 	}
-	if info, ok := c.catalog[canonical]; ok {
-		return info.NativeModel
+	if info, ok := catalog[accounts.CanonicalModelID(model)]; ok {
+		return info, true
 	}
-	return model
+	return providers.ModelInfo{}, false
 }
 
 // chatRequest builds the signed agent_chat_generation request.
 func (c *Client) chatRequest(ctx context.Context, accountID string, credential Credential, st site, req translate.ChatRequest) (*http.Request, string, error) {
-	modelKey := c.upstreamModelID(req.Model)
+	modelKey := strings.TrimSpace(req.Model)
+	info, known := c.catalogModel(st, modelKey)
+	if known {
+		modelKey = info.NativeModel
+	}
 	if modelKey == "" {
 		modelKey = st.DefaultModel
 	}
-	encoded, err := json.Marshal(buildChatBody(req, modelKey))
+	maxOutput := 0
+	if known {
+		maxOutput = info.Capabilities.MaxOutput
+	}
+	encoded, err := json.Marshal(buildChatBody(req, modelKey, maxOutput))
 	if err != nil {
 		return nil, "", err
 	}
@@ -528,7 +620,7 @@ func (c *Client) chatRequest(ctx context.Context, accountID string, credential C
 }
 
 func (c *Client) ChatNonStream(ctx context.Context, accountID string, req translate.ChatRequest) (providers.ChatOutcome, error) {
-	credential, st, err := c.resolvedCredential(ctx, accountID)
+	credential, account, st, err := c.resolvedAccount(ctx, accountID)
 	if err != nil {
 		return providers.ChatOutcome{}, err
 	}
@@ -536,7 +628,7 @@ func (c *Client) ChatNonStream(ctx context.Context, accountID string, req transl
 	if err != nil {
 		return providers.ChatOutcome{}, err
 	}
-	client, err := c.httpClient(ctx, accountID)
+	client, err := c.httpClientFor(ctx, account)
 	if err != nil {
 		return providers.ChatOutcome{}, err
 	}
@@ -546,18 +638,27 @@ func (c *Client) ChatNonStream(ctx context.Context, accountID string, req transl
 		return providers.ChatOutcome{}, err
 	}
 	defer resp.Body.Close()
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxChatBody+1))
 	if err != nil {
 		return providers.ChatOutcome{}, fmt.Errorf("read qwenwork stream: %w", err)
 	}
 	if resp.StatusCode >= 300 {
 		return providers.ChatOutcome{}, classifiedError(resp.StatusCode, raw)
 	}
+	if len(raw) > maxChatBody {
+		// A truncated body would aggregate into a silently partial answer.
+		return providers.ChatOutcome{}, &providers.Error{
+			Kind:    accounts.KindUnavailable,
+			Status:  http.StatusBadGateway,
+			Code:    "upstream_body_too_large",
+			Message: fmt.Sprintf("qwenwork upstream body exceeds %d bytes; use streaming", maxChatBody),
+		}
+	}
 	return outcomeFromUpstreamSSE(model, raw)
 }
 
 func (c *Client) ChatStream(ctx context.Context, accountID string, req translate.ChatRequest) (*http.Response, providers.ResolvedChat, error) {
-	credential, st, err := c.resolvedCredential(ctx, accountID)
+	credential, account, st, err := c.resolvedAccount(ctx, accountID)
 	if err != nil {
 		return nil, providers.ResolvedChat{}, err
 	}
@@ -565,7 +666,7 @@ func (c *Client) ChatStream(ctx context.Context, accountID string, req translate
 	if err != nil {
 		return nil, providers.ResolvedChat{}, err
 	}
-	client, err := c.httpClient(ctx, accountID)
+	client, err := c.httpClientFor(ctx, account)
 	if err != nil {
 		return nil, providers.ResolvedChat{}, err
 	}
@@ -632,7 +733,7 @@ func (c *Client) Models(ctx context.Context, accountID string) ([]providers.Mode
 	if len(out) == 0 {
 		return nil, fmt.Errorf("qwenwork model list returned no models")
 	}
-	c.rememberCatalog(out)
+	c.rememberCatalog(st, out)
 	return out, nil
 }
 
@@ -656,6 +757,14 @@ func (c *Client) Probe(ctx context.Context, accountID string) (providers.Account
 	credential, err := c.credential(ctx, accountID)
 	if err != nil {
 		return providers.AccountHealth{LastError: err.Error()}, nil
+	}
+	if !credential.Ready() && strings.TrimSpace(credential.AccessToken) != "" {
+		if st, siteErr := c.siteFor(ctx, accountID); siteErr == nil {
+			c.fillIdentity(ctx, accountID, st, &credential)
+			if credential.Ready() {
+				_ = c.saveCredential(ctx, accountID, credential)
+			}
+		}
 	}
 	if !credential.Ready() {
 		msg := "qwenwork credential incomplete; re-login required"

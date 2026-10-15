@@ -16,8 +16,9 @@ const (
 // buildChatBody is the plaintext agent_chat_generation document the QwenWork
 // desktop sends. System and developer turns are lifted into "system"; the
 // remaining turns go upstream unchanged, so multi-turn history is carried by
-// the caller on every request.
-func buildChatBody(req translate.ChatRequest, modelKey string) map[string]any {
+// the caller on every request. maxOutput is the catalog output limit (0 when
+// unknown); max_tokens never exceeds it.
+func buildChatBody(req translate.ChatRequest, modelKey string, maxOutput int) map[string]any {
 	var systemParts []string
 	messages := make([]map[string]any, 0, len(req.Messages))
 	lastUser := ""
@@ -56,6 +57,9 @@ func buildChatBody(req translate.ChatRequest, modelKey string) map[string]any {
 		maxTokens = n
 	} else if n, ok := rawNumber(req.MaxTokens); ok && n > 0 {
 		maxTokens = n
+	}
+	if maxOutput > 0 && maxTokens > maxOutput {
+		maxTokens = maxOutput
 	}
 	parameters := map[string]any{"max_tokens": maxTokens}
 	copyRaw(parameters, "temperature", req.Temperature)

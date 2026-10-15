@@ -9,12 +9,9 @@ import (
 func (credentialCodec) Format() string { return CredentialFormat }
 
 // PrepareImport accepts the canonical snake_case payload and the camelCase
-// account shape exported by qwenwork2api. A token pair is required; a
-// missing uid imports disabled until the first refresh fills it.
+// account shape exported by qwenwork2api. An access token is required; a
+// missing uid imports not-ready until Probe or the next refresh fills it.
 func (credentialCodec) PrepareImport(payload []byte) (providers.CredentialImport, error) {
-	if err := ValidateCredential(payload); err != nil {
-		return providers.CredentialImport{}, err
-	}
 	credential, err := DecodeCredential(payload)
 	if err != nil {
 		return providers.CredentialImport{}, err

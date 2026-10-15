@@ -68,8 +68,7 @@ func classifyKind(status int, message, code string) string {
 		return accounts.KindRateLimit
 	}
 	switch {
-	case status == http.StatusPaymentRequired || code == quotaCode ||
-		strings.Contains(lower, quotaCode) || quotaLike(lower):
+	case status == http.StatusPaymentRequired || code == quotaCode || quotaLike(lower):
 		return accounts.KindQuota
 	case status == http.StatusUnauthorized || status == http.StatusForbidden:
 		return accounts.KindAuth

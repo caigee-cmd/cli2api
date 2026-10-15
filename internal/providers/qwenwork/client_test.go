@@ -632,7 +632,7 @@ func TestChatStreamRewritesWrappedFrames(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 	text := string(body)
 	for _, want := range []string{
-		`"id":"chatcmpl-qwenwork"`, `"content":"O"`, `"content":"K"`,
+		`"id":"chatcmpl-`, `"created":`, `"content":"O"`, `"content":"K"`,
 		`"reasoning_content":"think"`, `"finish_reason":"tool_calls"`,
 		`"prompt_tokens":3`, "data: [DONE]",
 	} {
@@ -815,8 +815,13 @@ func TestModelsParsesQworkKey(t *testing.T) {
 		t.Fatalf("model=%+v", advanced)
 	}
 	// Catalog memory resolves the model for later chat requests.
-	if got := client.upstreamModelID("qwork-auto"); got != "qwork-auto" {
-		t.Fatalf("catalog rewrite=%s", got)
+	global, _ := siteFor("global")
+	if info, ok := client.catalogModel(global, "qwork-auto"); !ok || info.NativeModel != "qwork-auto" {
+		t.Fatalf("catalog lookup=%+v ok=%v", info, ok)
+	}
+	cn, _ := siteFor("cn")
+	if _, ok := client.catalogModel(cn, "qwork-auto"); ok {
+		t.Fatal("global catalog leaked into the cn site")
 	}
 }
 
@@ -1068,5 +1073,179 @@ func TestAdapterBundle(t *testing.T) {
 	}
 	if adapter.Supports("checkin") {
 		t.Fatal("qwenwork has no check-in")
+	}
+}
+
+// Regression: a caller that loaded the credential before an earlier refresh
+// finished still holds the consumed refresh token. It must pick up the stored
+// rotated pair instead of replaying the old token.
+func TestStaleCallerReusesRotatedCredential(t *testing.T) {
+	expiring := readyCredential()
+	expiring.ExpiresAt = time.Now().Unix()
+	payload, _ := expiring.Encode()
+	store := &memStore{region: "global", items: map[string][]byte{"acc1": payload}}
+	var refreshCalls int32
+	client := newTestClient(t, store, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&refreshCalls, 1)
+		_ = json.NewEncoder(w).Encode(map[string]any{"token": "at2", "refresh_token": "rt2", "expires_in": 7200})
+	}))
+	stale, _ := DecodeCredential(payload)
+	if _, err := client.singleFlightRefresh(context.Background(), "acc1", stale); err != nil {
+		t.Fatal(err)
+	}
+	second, err := client.singleFlightRefresh(context.Background(), "acc1", stale)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.AccessToken != "at2" || second.RefreshToken != "rt2" {
+		t.Fatalf("stale caller got %+v", second)
+	}
+	if got := atomic.LoadInt32(&refreshCalls); got != 1 {
+		t.Fatalf("refresh calls=%d, want 1", got)
+	}
+}
+
+// A cancelled leader must not fail the refresh: the rotated pair is saved.
+func TestRefreshSurvivesCancelledCaller(t *testing.T) {
+	expiring := readyCredential()
+	expiring.ExpiresAt = time.Now().Unix()
+	payload, _ := expiring.Encode()
+	store := &memStore{region: "global", items: map[string][]byte{"acc1": payload}}
+	ctx, cancel := context.WithCancel(context.Background())
+	client := newTestClient(t, store, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cancel()
+		time.Sleep(10 * time.Millisecond)
+		_ = json.NewEncoder(w).Encode(map[string]any{"token": "at2", "refresh_token": "rt2", "expires_in": 7200})
+	}))
+	if _, err := client.singleFlightRefresh(ctx, "acc1", expiring); err != nil {
+		t.Fatal(err)
+	}
+	saved, _ := client.loadCredential(context.Background(), "acc1")
+	if saved.RefreshToken != "rt2" {
+		t.Fatalf("rotated pair not saved: %+v", saved)
+	}
+}
+
+func TestRefreshWithoutRefreshTokenSkipsExchange(t *testing.T) {
+	credential := readyCredential()
+	credential.RefreshToken = ""
+	credential.ExpiresAt = time.Now().Unix()
+	payload, _ := credential.Encode()
+	store := &memStore{region: "global", items: map[string][]byte{"acc1": payload}}
+	client := newTestClient(t, store, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatalf("unexpected upstream call %s", r.URL.Path)
+	}))
+	got, err := client.credential(context.Background(), "acc1")
+	if err != nil || got.AccessToken != "at" {
+		t.Fatalf("credential=%+v err=%v", got, err)
+	}
+	if store.lastStatus == "login_required" {
+		t.Fatal("missing refresh token must not mark the account login_required")
+	}
+}
+
+func TestProbeFillsMissingUIDFromUserInfo(t *testing.T) {
+	credential := readyCredential()
+	credential.UID = ""
+	payload, _ := credential.Encode()
+	store := &memStore{region: "global", items: map[string][]byte{"acc1": payload}}
+	client := newTestClient(t, store, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != pathUserInfo {
+			t.Fatalf("path=%s", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": "u9", "name": "Nine", "email": "n@example.com"})
+	}))
+	health, err := client.Probe(context.Background(), "acc1")
+	if err != nil || !health.Ready || health.UID != "u9" {
+		t.Fatalf("health=%+v err=%v", health, err)
+	}
+	saved, _ := client.loadCredential(context.Background(), "acc1")
+	if saved.UID != "u9" {
+		t.Fatalf("uid not saved: %+v", saved)
+	}
+}
+
+func TestDecodeCredentialNormalizesMillisecondExpiry(t *testing.T) {
+	ms := time.Now().Add(time.Hour).UnixMilli()
+	credential, err := DecodeCredential([]byte(`{"accessToken":"at","refreshToken":"rt","expiresAt":` + jsonInt(int(ms)) + `}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if credential.ExpiresAt != ms/1000 {
+		t.Fatalf("expiresAt=%d want %d", credential.ExpiresAt, ms/1000)
+	}
+}
+
+// Regression: an error-only first frame must fail over before any byte
+// reaches the client, carrying the classified kind.
+func TestChatStreamErrorFirstFrameFailsOver(t *testing.T) {
+	cases := []struct {
+		name string
+		sse  string
+		kind string
+	}{
+		{"quota 14018", wrapChunk(`{"code":14018,"message":"quota exceeded"}`, 200), accounts.KindQuota},
+		{"model unavailable", wrapChunk(`Model is not available for this user`, 400), accounts.KindModelNotAvailable},
+		{"auth", wrapChunk(`{"code":"401","message":"token expired"}`, 200), accounts.KindAuth},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			payload, _ := readyCredential().Encode()
+			store := &memStore{region: "global", items: map[string][]byte{"acc1": payload}}
+			client := newTestClient(t, store, chatHandlerFor(t, c.sse+"data: [DONE]\n\n", nil))
+			resp, _, err := client.ChatStream(context.Background(), "acc1", translate.ChatRequest{
+				Model: "qwork-advanced", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+			})
+			if resp != nil {
+				resp.Body.Close()
+				t.Fatal("error-only stream was relayed instead of failing over")
+			}
+			providerErr, ok := err.(*providers.Error)
+			if !ok || providerErr.Kind != c.kind {
+				t.Fatalf("err=%v (%T) want kind %s", err, err, c.kind)
+			}
+		})
+	}
+}
+
+// The relayed mid-stream error object keeps code, kind, and status so the
+// gateway classifier does not re-guess from the message.
+func TestChatStreamErrorChunkCarriesClassification(t *testing.T) {
+	sse := wrapChunk(`{"choices":[{"delta":{"content":"partial"}}]}`, 200) +
+		wrapChunk(`{"code":14018,"message":"insufficient credits"}`, 200) +
+		"data: [DONE]\n\n"
+	payload, _ := readyCredential().Encode()
+	store := &memStore{region: "global", items: map[string][]byte{"acc1": payload}}
+	client := newTestClient(t, store, chatHandlerFor(t, sse, nil))
+	resp, _, err := client.ChatStream(context.Background(), "acc1", translate.ChatRequest{
+		Model: "qwork-advanced", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	text := string(body)
+	for _, want := range []string{`"code":"14018"`, `"kind":"quota"`, `"status":402`} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("error chunk missing %s:\n%s", want, text)
+		}
+	}
+}
+
+func TestChatBodyClampsMaxTokensToCatalog(t *testing.T) {
+	body := buildChatBody(translate.ChatRequest{
+		Messages:  []translate.ChatMessage{{Role: "user", Content: "hi"}},
+		MaxTokens: json.RawMessage(`100000`),
+	}, "qwork-advanced", 32768)
+	parameters, _ := body["parameters"].(map[string]any)
+	if parameters["max_tokens"] != 32768 {
+		t.Fatalf("max_tokens=%v", parameters["max_tokens"])
+	}
+}
+
+func TestClassifyQuotaCodeOnlyFromCodeField(t *testing.T) {
+	if got := Classify(500, `{"message":"request 140181 failed"}`); got.Kind != accounts.KindUnavailable {
+		t.Fatalf("kind=%s: a 14018 substring must not read as quota", got.Kind)
 	}
 }
