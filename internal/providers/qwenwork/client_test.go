@@ -980,6 +980,82 @@ func TestChatRequestSendsSystemAndMessageHistory(t *testing.T) {
 	}
 }
 
+// Regression: the first relayed chunk must carry delta.role so strict OpenAI
+// SDKs recognize the assistant turn.
+func TestChatStreamKeepsFirstDeltaRole(t *testing.T) {
+	sse := wrapChunk(`{"choices":[{"delta":{"role":"assistant","content":"O"}}]}`, 200) +
+		wrapChunk(`{"choices":[{"delta":{},"finish_reason":"stop"}]}`, 200) +
+		"data: [DONE]\n\n"
+	payload, _ := readyCredential().Encode()
+	store := &memStore{region: "global", items: map[string][]byte{"acc1": payload}}
+	client := newTestClient(t, store, chatHandlerFor(t, sse, nil))
+	resp, _, err := client.ChatStream(context.Background(), "acc1", translate.ChatRequest{
+		Model: "qwork-advanced", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	text := string(body)
+	if !strings.Contains(text, `"role":"assistant"`) {
+		t.Fatalf("first chunk missing delta.role:\n%s", text)
+	}
+}
+
+// Regression: a trailing error frame after partial content must surface the
+// classified error, not a truncated success — matching the JS reference.
+func TestChatNonStreamSurfacesTrailingErrorAfterContent(t *testing.T) {
+	sse := wrapChunk(`{"choices":[{"delta":{"content":"partial answer"}}]}`, 200) +
+		wrapChunk(`{"code":14018,"message":"insufficient quota"}`, 402) +
+		"data: [DONE]\n\n"
+	payload, _ := readyCredential().Encode()
+	store := &memStore{region: "global", items: map[string][]byte{"acc1": payload}}
+	client := newTestClient(t, store, chatHandlerFor(t, sse, nil))
+	out, err := client.ChatNonStream(context.Background(), "acc1", translate.ChatRequest{
+		Model: "qwork-advanced", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	})
+	providerErr, ok := err.(*providers.Error)
+	if !ok {
+		t.Fatalf("expected classified error, got outcome=%+v err=%v type=%T", out, err, err)
+	}
+	if providerErr.Kind != accounts.KindQuota {
+		t.Fatalf("kind=%s want=quota", providerErr.Kind)
+	}
+}
+
+// Streaming counterpart: the error chunk reaches the client and no synthetic
+// finish_reason is appended after it.
+func TestChatStreamSurfacesTrailingErrorAfterContent(t *testing.T) {
+	sse := wrapChunk(`{"choices":[{"delta":{"content":"partial answer"}}]}`, 200) +
+		wrapChunk(`{"code":14018,"message":"insufficient quota"}`, 402) +
+		"data: [DONE]\n\n"
+	payload, _ := readyCredential().Encode()
+	store := &memStore{region: "global", items: map[string][]byte{"acc1": payload}}
+	client := newTestClient(t, store, chatHandlerFor(t, sse, nil))
+	resp, _, err := client.ChatStream(context.Background(), "acc1", translate.ChatRequest{
+		Model: "qwork-advanced", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	text := string(body)
+	if !strings.Contains(text, `"content":"partial answer"`) {
+		t.Fatalf("stream missing content:\n%s", text)
+	}
+	if !strings.Contains(text, "insufficient quota") {
+		t.Fatalf("stream missing error object:\n%s", text)
+	}
+	if strings.Contains(text, `"finish_reason":"stop"`) {
+		t.Fatalf("synthetic finish_reason appended after the error chunk:\n%s", text)
+	}
+	if !strings.Contains(text, "data: [DONE]") {
+		t.Fatalf("stream missing terminal [DONE]:\n%s", text)
+	}
+}
+
 func TestAdapterBundle(t *testing.T) {
 	adapter := NewClient(&memStore{}).Adapter()
 	if adapter.ID != "qwenwork" {

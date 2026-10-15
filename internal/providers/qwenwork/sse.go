@@ -26,6 +26,7 @@ import (
 
 // upstreamFrame is one unwrapped upstream event.
 type upstreamFrame struct {
+	role      string
 	content   string
 	reasoning string
 	tools     json.RawMessage
@@ -219,6 +220,9 @@ func frameFromBody(body map[string]any, frameStatus int) upstreamFrame {
 	if part == nil {
 		return frame
 	}
+	if role, _ := part["role"].(string); role != "" {
+		frame.role = role
+	}
 	if text, _ := part["content"].(string); text != "" {
 		frame.content = text
 	}
@@ -234,6 +238,9 @@ func frameFromBody(body map[string]any, frameStatus int) upstreamFrame {
 
 func deltaOf(frame upstreamFrame) map[string]any {
 	delta := map[string]any{}
+	if frame.role != "" {
+		delta["role"] = frame.role
+	}
 	if frame.content != "" {
 		delta["content"] = frame.content
 	}
@@ -395,15 +402,16 @@ func renderToolCalls(order []int, merged map[int]*mergedToolCall) json.RawMessag
 }
 
 // outcomeFromUpstreamSSE aggregates a wrapped upstream SSE body into the
-// provider-neutral outcome. An error frame without any payload is a
-// classified provider error; a body without content, reasoning, tools, a
+// provider-neutral outcome. An error frame anywhere in the stream is the
+// upstream's verdict, so it wins over partial content — matching the JS
+// reference's collectSync. A body without content, reasoning, tools, a
 // terminal finish_reason, or an error is a silent upstream reject.
 func outcomeFromUpstreamSSE(model string, raw []byte) (providers.ChatOutcome, error) {
 	frame, err := collectUpstream(bytes.NewReader(raw))
 	if err != nil {
 		return providers.ChatOutcome{}, err
 	}
-	if frame.errText != "" && frame.content == "" && frame.reasoning == "" && len(frame.tools) == 0 {
+	if frame.errText != "" {
 		kind := frame.errKind
 		if kind == "" {
 			kind = accounts.KindUnavailable
@@ -519,11 +527,13 @@ func writeOpenAIChunks(w io.Writer, src io.Reader, model string) error {
 		return err
 	}
 	if !sawFinish {
-		if sawPayload {
+		if sawPayload && !sawError {
 			// Upstream streamed real content but was cut before the terminal
 			// finish_reason. The bytes are already on the wire, so salvage the
 			// completion with a synthesized terminal chunk instead of leaving
 			// strict OpenAI clients with "Stream ended without finish_reason".
+			// After an error chunk the error object is the terminal event, so
+			// no synthetic finish is appended.
 			finish := "stop"
 			if sawTools {
 				finish = "tool_calls"
