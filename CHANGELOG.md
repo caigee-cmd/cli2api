@@ -3,6 +3,20 @@
 Published user-facing notes for GitHub Releases and the console update page.
 Write upcoming notes as bilingual files in `changelog/unreleased/`.
 
+## 0.6.21 - 2026-10-13
+
+### English
+
+- Browser login no longer opens the authorization page by itself. The URL is shown first, with buttons to open or copy it.
+- Top-align the account card check-in row so the status and the scheduled time stay on the same line when the row wraps.
+- Honor Devin rate-limit reset times from the response body, and cool an exhausted usage quota for the whole account instead of until local midnight.
+
+### 中文
+
+- 浏览器登录不再自动打开授权页。地址先展示出来，可再选择打开或复制。
+- 账号卡片的签到行改为顶部对齐，换行时状态和计划时间不再错位。
+- 采用 Devin 响应正文里的限流重置时间，并把用尽的用量配额冷却到整个账号，而不是冷却到本地午夜。
+
 ## 0.6.20 - 2026-10-09
 
 ### English

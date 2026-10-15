@@ -4,6 +4,7 @@ import {
   ArrowClockwise,
   ArrowSquareOut,
   CalendarCheck,
+  Check,
   Copy,
   Cube,
   DotsThreeVertical,
@@ -26,6 +27,7 @@ import {
   type AccountRow,
 } from '@/lib/account'
 import { accountProviderLabel } from '@/lib/provider'
+import { copyText } from '@/lib/clipboard'
 
 export type AccountBusyKind = 'create' | 'import' | 'device' | 'pat' | 'callback' | 'rewarm' | 'refresh' | 'toggle' | 'delete' | 'export' | 'settings' | 'checkin'
 
@@ -100,6 +102,7 @@ export function AccountCard({
 }: Props) {
   const chipRef = useRef<HTMLSpanElement>(null)
   const authRef = useRef<HTMLElement>(null)
+  const [authCopied, setAuthCopied] = useState(false)
   const lastStateRef = useRef<string | null>(null)
   const [, refreshCooldowns] = useState(0)
   const state = accountState(account)
@@ -287,7 +290,6 @@ export function AccountCard({
             <p className="mt-1.5 text-xs leading-5 text-muted">{t('qoderLoginHint')}</p>
             <div className="mt-2.5 flex flex-wrap gap-2">
               <Button size="sm" isPending={busyKind === 'device'} onPress={onDeviceLogin}><ShieldCheck size={14} />{t('startBrowserLogin')}</Button>
-              {authUrl ? <Button size="sm" variant="ghost" onPress={() => window.open(authUrl, '_blank', 'noopener,noreferrer')}><ArrowSquareOut size={14} />{t('open')}</Button> : null}
             </div>
             {account.provider === 'trae' && onSubmitCallback && onCallbackChange ? (
               <div className="mt-3 space-y-2">
@@ -317,7 +319,31 @@ export function AccountCard({
           </div>
           {authUrl || note ? (
             <div className="text-xs">
-              {authUrl ? <code className="mono block break-all text-muted">{authUrl}</code> : null}
+              {authUrl ? (
+                <div>
+                  <div className="mb-1 text-[11px] font-medium text-muted">{t('authUrl')}</div>
+                  <code className="mono block break-all text-foreground">{authUrl}</code>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <Button size="sm" variant="secondary" onPress={() => window.open(authUrl, '_blank', 'noopener,noreferrer')}>
+                      <ArrowSquareOut size={14} />{t('openAuthUrl')}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onPress={() => {
+                        void copyText(authUrl).then((ok) => {
+                          if (!ok) return
+                          setAuthCopied(true)
+                          window.setTimeout(() => setAuthCopied(false), 1100)
+                        })
+                      }}
+                    >
+                      {authCopied ? <Check size={14} className="text-success" /> : <Copy size={14} />}
+                      {authCopied ? t('copied') : t('copy')}
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
               {note ? <p className="mt-1 text-muted">{note}</p> : null}
             </div>
           ) : null}

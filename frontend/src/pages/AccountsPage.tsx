@@ -212,7 +212,6 @@ export function AccountsPage() {
       const output = await startDeviceLogin(id)
       if (output.authUrl) {
         setUrlById((current) => ({ ...current, [id]: output.authUrl || '' }))
-        window.open(output.authUrl, '_blank', 'noopener,noreferrer')
       }
       for (let attempt = 0; attempt < 60; attempt++) {
         await new Promise((resolve) => window.setTimeout(resolve, 2000))
