@@ -352,6 +352,41 @@ func CatalogIDsFromInfos(models []providers.ModelInfo) []string {
 	return ids
 }
 
+// NativeCatalogIDsFromInfos maps each public model ID onto the key Qoder's
+// gateway actually routes, taken from the catalog's mapped_key. Models whose
+// native key is the public ID itself are left out: they need no mapping, and a
+// self-mapping entry would be redundant on every request.
+func NativeCatalogIDsFromInfos(models []providers.ModelInfo) map[string]string {
+	out := make(map[string]string)
+	for _, model := range models {
+		public := strings.TrimSpace(model.PublicModel)
+		native := strings.TrimSpace(model.NativeModel)
+		if public == "" || native == "" {
+			continue
+		}
+		if accounts.CanonicalModelID(public) == accounts.CanonicalModelID(native) {
+			continue
+		}
+		out[accounts.CanonicalModelID(public)] = native
+	}
+	return out
+}
+
+// FreeCatalogIDsFromInfos returns the same id spellings CatalogIDsFromInfos
+// produces, restricted to the models Qoder prices at zero. A free model spends
+// no credits, so the routing pool must know about it to keep serving it from an
+// account whose paid quota is exhausted.
+func FreeCatalogIDsFromInfos(models []providers.ModelInfo) []string {
+	var ids []string
+	for _, model := range models {
+		if !model.Free {
+			continue
+		}
+		ids = append(ids, model.PublicModel, model.NativeModel, model.DisplayName)
+	}
+	return ids
+}
+
 func (c *Client) Probe(ctx context.Context, accountID string) (providers.AccountHealth, error) {
 	workerURL, err := c.lookup(accountID)
 	if err != nil {
