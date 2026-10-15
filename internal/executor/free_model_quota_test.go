@@ -98,3 +98,67 @@ func TestRemoveModelDropsFreeModelEntry(t *testing.T) {
 		t.Fatalf("FreeModels = %v, want only the surviving entry", item.FreeModels)
 	}
 }
+
+// A runtime Upsert — process registration, refresh, restart — carries no
+// pricing, so FreeModels must survive it the same way Models does. Losing the
+// free list would drop an exhausted account off its free-model routes until the
+// next catalog refresh, and that is a route which works and costs no credits.
+func TestUpsertKeepsFreeModelsWhenPricingUnsupplied(t *testing.T) {
+	pool := NewPool(nil, nil)
+	pool.Upsert(Item{
+		ID:         "acc",
+		Provider:   "qoder",
+		Region:     "global",
+		Models:     []string{"free-one", "other"},
+		FreeModels: []string{"free-one"},
+		Quota:      &QuotaSnapshot{Exceeded: true, Total: 0},
+	})
+
+	pool.Upsert(Item{ID: "acc", Provider: "qoder", Region: "global"})
+
+	item, ok := pool.ByID("acc")
+	if !ok {
+		t.Fatal("account missing from pool")
+	}
+	if len(item.FreeModels) != 1 || CanonicalModelID(item.FreeModels[0]) != CanonicalModelID("free-one") {
+		t.Fatalf("FreeModels = %v after Upsert, want [free-one]", item.FreeModels)
+	}
+	if len(item.Models) != 2 {
+		t.Fatalf("Models = %v after Upsert, want the two cached entries", item.Models)
+	}
+	if _, ok := pool.PickRoute(RouteQuery{PublicModel: "free-one"}); !ok {
+		t.Fatal("free model: PickRoute returned no account after Upsert, want the exhausted one")
+	}
+	if _, ok := pool.PickRoute(RouteQuery{PublicModel: "other"}); ok {
+		t.Fatal("paid model: PickRoute returned the exhausted account, want none")
+	}
+}
+
+// An explicit free list still overrides the carried-forward one, so a catalog
+// refresh that reprices a model drops the stale entry instead of merging it.
+func TestUpsertReplacesFreeModelsWhenSupplied(t *testing.T) {
+	pool := NewPool(nil, nil)
+	pool.Upsert(Item{
+		ID:         "acc",
+		Provider:   "qoder",
+		Region:     "global",
+		Models:     []string{"was-free", "now-free"},
+		FreeModels: []string{"was-free"},
+	})
+
+	pool.Upsert(Item{
+		ID:         "acc",
+		Provider:   "qoder",
+		Region:     "global",
+		Models:     []string{"was-free", "now-free"},
+		FreeModels: []string{"now-free"},
+	})
+
+	item, ok := pool.ByID("acc")
+	if !ok {
+		t.Fatal("account missing from pool")
+	}
+	if len(item.FreeModels) != 1 || CanonicalModelID(item.FreeModels[0]) != CanonicalModelID("now-free") {
+		t.Fatalf("FreeModels = %v, want [now-free]", item.FreeModels)
+	}
+}

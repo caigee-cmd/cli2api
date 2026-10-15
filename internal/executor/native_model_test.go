@@ -72,3 +72,20 @@ func TestRemoveModelDropsNativeMapping(t *testing.T) {
 		t.Fatalf("free list = %v", item.FreeModels)
 	}
 }
+
+// The mapping is catalog data, so a runtime Upsert that carries no catalog must
+// not drop it. Losing the mapping sends the public model ID upstream, which is
+// exactly the failure the mapping exists to prevent.
+func TestUpsertKeepsNativeModelsWhenCatalogUnsupplied(t *testing.T) {
+	pool := NewPool(nil, nil)
+	pool.Upsert(Item{ID: "acc", Provider: "qoder", Region: "global"})
+	pool.MergeModels("acc", []string{"public-id", "gateway-key"})
+	pool.MergeNativeModels("acc", map[string]string{"public-id": "gateway-key"})
+
+	pool.Upsert(Item{ID: "acc", Provider: "qoder", Region: "global"})
+
+	item, _ := pool.ByID("acc")
+	if got := NativeModelID(item, "public-id"); got != "gateway-key" {
+		t.Fatalf("native after Upsert = %q, want gateway-key", got)
+	}
+}

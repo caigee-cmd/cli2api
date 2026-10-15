@@ -1392,6 +1392,21 @@ func (p *Pool) Upsert(item Item) {
 				item.Models = p.items[i].Models
 				item.ModelsAt = p.items[i].ModelsAt
 			}
+			// FreeModels is pricing metadata read from the catalog, not request
+			// state. A runtime Upsert — process registration, refresh, restart —
+			// carries no pricing, so without this carry-forward the free list is
+			// wiped and the account drops off free-model routes until the next
+			// catalog refresh repopulates it. A refresh that does carry a free
+			// list still overrides the carried-forward one.
+			if item.FreeModels == nil {
+				item.FreeModels = p.items[i].FreeModels
+			}
+			// Same reasoning for the gateway-key mapping: a runtime Upsert does
+			// not re-read the catalog, so losing it would send the public model
+			// ID upstream again.
+			if item.NativeModels == nil {
+				item.NativeModels = p.items[i].NativeModels
+			}
 			if item.ProvenModels == nil {
 				item.ProvenModels = p.items[i].ProvenModels
 			}
