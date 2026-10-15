@@ -264,6 +264,35 @@ var Zhipu = ProviderDescriptor{
 	DefaultRegion: "cn",
 }
 
+// QwenWork descriptor. Protocol constants stay in internal/providers/qwenwork;
+// the registry only carries control-plane metadata. QwenWork is the rebranded
+// QoderWork desktop product: global is qwenwork.ai, cn is 千问办公 qwenwork.cn.
+var QwenWork = ProviderDescriptor{
+	ID:                "qwenwork",
+	Label:             "QwenWork",
+	Runtime:           RuntimeInProcess,
+	AuthTypes:         []AuthType{AuthOAuth},
+	CredentialFormats: []string{"qwenwork-oauth-v1"},
+	Capabilities: ProviderCapabilities{
+		Chat: true, Stream: true, Tools: true, Images: true, Reasoning: true,
+		ModelCatalog: true, Usage: true, Login: true, BrowserLogin: true,
+		PATLogin: false, ImportExport: true,
+	},
+	Regions: []RegionDescriptor{
+		{
+			ID: "global", Label: "International", ChatBase: "https://gateway.qwenwork.ai",
+			BillingBase: "https://gateway.qwenwork.ai", AuthBase: "https://gateway.qwenwork.ai",
+			DefaultDomain: "qwenwork.ai",
+		},
+		{
+			ID: "cn", Label: "CN", ChatBase: "https://gateway.qwenwork.cn",
+			BillingBase: "https://gateway.qwenwork.cn", AuthBase: "https://gateway.qwenwork.cn",
+			DefaultDomain: "qwenwork.cn",
+		},
+	},
+	DefaultRegion: "global",
+}
+
 var registry = map[string]ProviderDescriptor{
 	Qoder.ID:     Qoder,
 	WorkBuddy.ID: WorkBuddy,
@@ -272,6 +301,7 @@ var registry = map[string]ProviderDescriptor{
 	Command.ID:   Command,
 	Codex.ID:     Codex,
 	Zhipu.ID:     Zhipu,
+	QwenWork.ID:  QwenWork,
 }
 
 func Get(id string) (ProviderDescriptor, bool) {
@@ -280,7 +310,7 @@ func Get(id string) (ProviderDescriptor, bool) {
 }
 
 func List() []ProviderDescriptor {
-	return []ProviderDescriptor{Qoder, WorkBuddy, Trae, Devin, Command, Codex, Zhipu}
+	return []ProviderDescriptor{Qoder, WorkBuddy, Trae, Devin, Command, Codex, Zhipu, QwenWork}
 }
 
 // Resolve validates a provider/region pair. Empty values fall back to the
