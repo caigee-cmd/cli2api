@@ -262,7 +262,7 @@ func BuildPlainChatBody(req translate.ChatRequest, now time.Time) map[string]any
 			}
 			continue
 		}
-		item := map[string]any{"role": message.Role, "content": message.Content}
+		item := map[string]any{"role": message.Role, "content": normalizeMessageContent(message)}
 		if message.Name != "" {
 			item["name"] = message.Name
 		}
@@ -351,6 +351,28 @@ func BuildPlainChatBody(req translate.ChatRequest, now time.Time) map[string]any
 			"id": newID(), "name": name, "begin_at": now.UnixMilli(), "stage": "start",
 		},
 	}
+}
+
+// normalizeMessageContent replaces a nil content on a message that carries
+// tool_calls with an empty string.
+//
+// The gateway pairs each role:"tool" message with the tool_calls of the
+// assistant turn ahead of it, and it only registers that pairing when the
+// assistant message's `content` is a string. A JSON null — what OpenAI clients
+// send for an assistant turn that is pure tool calls — leaves the call
+// unregistered, and the following role:"tool" message is then rejected with
+//
+//	messages with role "tool" must be a response to a preceeding message
+//	with "tool_calls"
+//
+// An empty string is accepted and pairs correctly. Only messages with
+// tool_calls are rewritten; every other content shape passes through
+// untouched.
+func normalizeMessageContent(message translate.ChatMessage) any {
+	if len(message.ToolCalls) > 0 && message.Content == nil {
+		return ""
+	}
+	return message.Content
 }
 
 func rawNumber(raw json.RawMessage) (int, bool) {
