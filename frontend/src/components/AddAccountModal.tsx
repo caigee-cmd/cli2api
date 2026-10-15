@@ -56,6 +56,8 @@ const labelKeys: Record<string, string> = {
   'command-global': 'accountTypeCommandGlobal',
   'codex-global': 'accountTypeCodexGlobal',
   'zhipu-cn': 'accountTypeZhipuCN',
+  'qwenwork-global': 'accountTypeQwenworkGlobal',
+  'qwenwork-cn': 'accountTypeQwenworkCN',
 }
 
 const hintKeys: Record<string, string> = {
@@ -68,6 +70,8 @@ const hintKeys: Record<string, string> = {
   'command-global': 'accountTypeCommandGlobalHint',
   'codex-global': 'accountTypeCodexGlobalHint',
   'zhipu-cn': 'accountTypeZhipuCNHint',
+  'qwenwork-global': 'accountTypeQwenworkGlobalHint',
+  'qwenwork-cn': 'accountTypeQwenworkCNHint',
 }
 
 function AccountTypeSkeleton({ ariaLabel }: { ariaLabel: string }) {
@@ -437,6 +441,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
       else if (activeOption.descriptor.id === 'trae') bundle.format = 'trae-oauth-v1'
       else if (activeOption.descriptor.id === 'devin') bundle.format = 'devin-session-v1'
       else if (activeOption.descriptor.id === 'command') bundle.format = 'command-key-v1'
+      else if (activeOption.descriptor.id === 'qwenwork') bundle.format = 'qwenwork-oauth-v1'
       else bundle.format = 'qoder-native-v1'
     }
     try {
