@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -30,6 +31,7 @@ var (
 )
 
 type memStore struct {
+	mu         sync.Mutex
 	items      map[string][]byte
 	region     string
 	observed   []string
@@ -45,6 +47,8 @@ func (s *memStore) Get(ctx context.Context, id string) (accounts.Account, error)
 	return accounts.Account{ID: id, Provider: "qwenwork", ProviderRegion: region}, nil
 }
 func (s *memStore) LoadCredentialPayload(ctx context.Context, accountID string) (string, []byte, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	payload, ok := s.items[accountID]
 	if !ok {
 		return "", nil, accounts.ErrAccountNotFound
@@ -52,6 +56,8 @@ func (s *memStore) LoadCredentialPayload(ctx context.Context, accountID string) 
 	return CredentialFormat, payload, nil
 }
 func (s *memStore) SaveCredentialPayload(ctx context.Context, accountID, format string, payload []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.items == nil {
 		s.items = map[string][]byte{}
 	}
@@ -59,6 +65,8 @@ func (s *memStore) SaveCredentialPayload(ctx context.Context, accountID, format 
 	return nil
 }
 func (s *memStore) Observe(ctx context.Context, id, remoteUID, status, lastError, lastKind string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.observed = append(s.observed, id)
 	s.lastStatus = status
 	s.lastKind = lastKind
@@ -328,6 +336,45 @@ func TestRefreshRotatesTokenPairAndSaves(t *testing.T) {
 	}
 }
 
+// Regression: QwenWork rotates refresh tokens, so concurrent near-expiry
+// callers must share one refresh round-trip. A second exchange with the same
+// (already consumed) token reads as session-dead and disables the account.
+func TestConcurrentCredentialRefreshSingleFlights(t *testing.T) {
+	expiring := readyCredential()
+	expiring.ExpiresAt = time.Now().Unix()
+	payload, _ := expiring.Encode()
+	store := &memStore{region: "global", items: map[string][]byte{"acc1": payload}}
+	var refreshCalls int32
+	client := newTestClient(t, store, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != pathDeviceRefresh {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		atomic.AddInt32(&refreshCalls, 1)
+		time.Sleep(25 * time.Millisecond) // widen the race window
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"token": "at2", "refresh_token": "rt2", "expires_in": 7200})
+	}))
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func(slot int) {
+			defer wg.Done()
+			credential, err := client.credential(context.Background(), "acc1")
+			if err != nil {
+				t.Errorf("goroutine %d: %v", slot, err)
+				return
+			}
+			if credential.AccessToken != "at2" || credential.RefreshToken != "rt2" {
+				t.Errorf("goroutine %d got stale credential %+v", slot, credential)
+			}
+		}(i)
+	}
+	wg.Wait()
+	if got := atomic.LoadInt32(&refreshCalls); got != 1 {
+		t.Fatalf("refresh calls=%d, want 1: the rotated refresh token is single-use", got)
+	}
+}
+
 func TestRefreshSessionDeadObservesLoginRequired(t *testing.T) {
 	credential := readyCredential()
 	payload, _ := credential.Encode()
@@ -341,6 +388,74 @@ func TestRefreshSessionDeadObservesLoginRequired(t *testing.T) {
 	}
 	if store.lastStatus != "login_required" || store.lastKind != accounts.KindAuth {
 		t.Fatalf("observe status=%s kind=%s", store.lastStatus, store.lastKind)
+	}
+}
+
+// Regression: the upstream fragments one tool call across many deltas; the
+// aggregate must merge them by index instead of keeping the last fragment.
+func TestChatNonStreamMergesSplitToolCallDeltas(t *testing.T) {
+	sse := wrapChunk(`{"choices":[{"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"get_time","arguments":"{\"city\":"}}]}}]}`, 200) +
+		wrapChunk(`{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"Beijing\"}"}}]}}]}`, 200) +
+		wrapChunk(`{"choices":[{"delta":{"tool_calls":[{"index":1,"id":"call_2","type":"function","function":{"name":"lookup","arguments":"{}"}}]}}]}`, 200) +
+		wrapChunk(`{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`, 200) +
+		"data: [DONE]\n\n"
+	payload, _ := readyCredential().Encode()
+	store := &memStore{region: "global", items: map[string][]byte{"acc1": payload}}
+	client := newTestClient(t, store, chatHandlerFor(t, sse, nil))
+	out, err := client.ChatNonStream(context.Background(), "acc1", translate.ChatRequest{
+		Model: "qwork-advanced", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var calls []struct {
+		ID       string `json:"id"`
+		Function struct {
+			Name      string `json:"name"`
+			Arguments string `json:"arguments"`
+		} `json:"function"`
+	}
+	if err := json.Unmarshal(out.ToolCalls, &calls); err != nil {
+		t.Fatalf("tool calls=%s err=%v", out.ToolCalls, err)
+	}
+	if len(calls) != 2 {
+		t.Fatalf("tool calls=%d want 2: %s", len(calls), out.ToolCalls)
+	}
+	if calls[0].ID != "call_1" || calls[0].Function.Name != "get_time" || calls[0].Function.Arguments != `{"city":"Beijing"}` {
+		t.Fatalf("call 0=%+v", calls[0])
+	}
+	if calls[1].ID != "call_2" || calls[1].Function.Name != "lookup" || calls[1].Function.Arguments != "{}" {
+		t.Fatalf("call 1=%+v", calls[1])
+	}
+}
+
+// Regression: quota code 14018 and the model-unavailable text must classify
+// even when the wrapper statusCodeValue is 200.
+func TestChatNonStreamClassifiesErrorMarkersInSuccessFrames(t *testing.T) {
+	tests := []struct {
+		name string
+		sse  string
+		kind string
+	}{
+		{"quota code 14018", wrapChunk(`{"code":14018,"message":"insufficient quota"}`, 200), accounts.KindQuota},
+		{"model unavailable text", wrapChunk(`Model is not available for this user`, 200), accounts.KindModelNotAvailable},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			payload, _ := readyCredential().Encode()
+			store := &memStore{region: "global", items: map[string][]byte{"acc1": payload}}
+			client := newTestClient(t, store, chatHandlerFor(t, test.sse, nil))
+			_, err := client.ChatNonStream(context.Background(), "acc1", translate.ChatRequest{
+				Model: "qwork-advanced", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+			})
+			providerErr, ok := err.(*providers.Error)
+			if !ok {
+				t.Fatalf("err=%v type=%T", err, err)
+			}
+			if providerErr.Kind != test.kind {
+				t.Fatalf("kind=%s want=%s", providerErr.Kind, test.kind)
+			}
+		})
 	}
 }
 

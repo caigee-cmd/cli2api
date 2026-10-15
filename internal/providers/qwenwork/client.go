@@ -44,6 +44,17 @@ type Client struct {
 	loginStates map[string]*loginState
 	sessions    map[string]*session
 	catalog     map[string]providers.ModelInfo
+	refresh     map[string]*refreshCall
+}
+
+// refreshCall singleflights token refresh by account. QwenWork rotates the
+// refresh token, so two concurrent exchanges with the same token would have
+// the loser's token already consumed, which reads as session-dead and
+// disables the account.
+type refreshCall struct {
+	done chan struct{}
+	cred Credential
+	err  error
 }
 
 // loginState is one pending device authorization round.
@@ -100,6 +111,7 @@ func NewClient(store Store) *Client {
 		http:        &http.Client{Timeout: 120 * time.Second},
 		loginStates: map[string]*loginState{},
 		sessions:    map[string]*session{},
+		refresh:     map[string]*refreshCall{},
 	}
 }
 
@@ -329,8 +341,9 @@ func (c *Client) fetchUserInfo(ctx context.Context, accountID string, st site, a
 }
 
 // credential loads the stored token and refreshes it when less than two
-// minutes remain. A failed refresh falls back to the stored credential so a
-// flaky refresh endpoint never blocks a possibly-valid token.
+// minutes remain. Concurrent callers share one refresh round-trip (the
+// refresh token is single-use). A failed refresh falls back to the stored
+// credential so a flaky refresh endpoint never blocks a possibly-valid token.
 func (c *Client) credential(ctx context.Context, accountID string) (Credential, error) {
 	_, payload, err := c.store.LoadCredentialPayload(ctx, accountID)
 	if err != nil {
@@ -343,11 +356,35 @@ func (c *Client) credential(ctx context.Context, accountID string) (Credential, 
 	if credential.ExpiresAt != 0 && time.Now().Add(refreshMargin).Unix() < credential.ExpiresAt {
 		return credential, nil
 	}
-	refreshed, err := c.Refresh(ctx, accountID, credential)
+	refreshed, err := c.singleFlightRefresh(ctx, accountID, credential)
 	if err != nil {
 		return credential, nil
 	}
 	return refreshed, nil
+}
+
+func (c *Client) singleFlightRefresh(ctx context.Context, accountID string, credential Credential) (Credential, error) {
+	c.mu.Lock()
+	if call, ok := c.refresh[accountID]; ok {
+		c.mu.Unlock()
+		select {
+		case <-call.done:
+			return call.cred, call.err
+		case <-ctx.Done():
+			return credential, ctx.Err()
+		}
+	}
+	call := &refreshCall{done: make(chan struct{})}
+	c.refresh[accountID] = call
+	c.mu.Unlock()
+
+	refreshed, err := c.Refresh(ctx, accountID, credential)
+	call.cred, call.err = refreshed, err
+	close(call.done)
+	c.mu.Lock()
+	delete(c.refresh, accountID)
+	c.mu.Unlock()
+	return refreshed, err
 }
 
 // resolvedCredential loads the credential and resolves the account's site.

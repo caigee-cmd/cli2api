@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -61,8 +62,8 @@ func parseUpstreamLine(data string) (body map[string]any, frameStatus int, ok bo
 					return nil, 0, false
 				}
 				body = inner
-			} else if frameStatus >= 400 {
-				// Bare text body only carries meaning as an error message.
+			} else if frameStatus >= 400 || errorMarkerText(trimmed) {
+				// Bare text body carries meaning only as an error message.
 				body = map[string]any{"message": trimmed}
 			} else {
 				return nil, 0, false
@@ -135,16 +136,19 @@ func upstreamError(body map[string]any, frameStatus int) (text string, status in
 	code := scalarCode(body["code"])
 	message, _ := body["message"].(string)
 	message = strings.TrimSpace(message)
-	if frameStatus < 400 && !errorCodeString(code) {
+	if frameStatus < 400 && !errorCodeString(code) && code != quotaCode && !errorMarkerText(message) {
 		return "", 0, ""
 	}
 	status = frameStatus
 	if status < 400 {
-		if n, err := strconv.Atoi(code); err == nil && n >= 400 {
+		if code == quotaCode {
+			status = http.StatusPaymentRequired
+		} else if n, err := strconv.Atoi(code); err == nil && n >= 400 && n < 600 {
 			status = n
+		} else {
+			status = http.StatusBadGateway
 		}
 	}
-	status = firstStatus(status, http.StatusBadGateway)
 	if message == "" {
 		message = "qwenwork upstream error"
 		if code != "" {
@@ -162,6 +166,16 @@ func errorCodeString(code string) bool {
 		return true
 	}
 	return false
+}
+
+// errorMarkerText reports whether a bare frame message is one of the known
+// error texts that can ride inside a 200-class wrapper.
+func errorMarkerText(message string) bool {
+	if message == "" {
+		return false
+	}
+	lower := strings.ToLower(message)
+	return strings.Contains(lower, "model is not available") || quotaLike(lower)
 }
 
 // classifiedKind maps an extracted frame error onto the taxonomy; an empty
@@ -243,10 +257,13 @@ func emptyOrNil(value string) any {
 }
 
 // collectUpstream folds a full wrapped SSE body into one frame for the
-// non-stream path.
+// non-stream path. Tool-call deltas are merged by index because the upstream
+// fragments one call across many chunks.
 func collectUpstream(r io.Reader) (upstreamFrame, error) {
 	var frame upstreamFrame
 	var content, reasoning strings.Builder
+	toolCalls := map[int]*mergedToolCall{}
+	var toolOrder []int
 	err := walkUpstream(r, func(body map[string]any, frameStatus int) error {
 		if errText, status, kind := upstreamError(body, frameStatus); errText != "" {
 			frame.errText = errText
@@ -285,13 +302,96 @@ func collectUpstream(r io.Reader) (upstreamFrame, error) {
 		}
 		if tools := part["tool_calls"]; tools != nil {
 			raw, _ := json.Marshal(tools)
-			frame.tools = raw
+			toolOrder = mergeToolCallDeltas(raw, toolCalls, toolOrder)
 		}
 		return nil
 	})
 	frame.content = content.String()
 	frame.reasoning = reasoning.String()
+	frame.tools = renderToolCalls(toolOrder, toolCalls)
 	return frame, err
+}
+
+// mergedToolCall accumulates one fragmented tool-call delta.
+type mergedToolCall struct {
+	index int
+	id    string
+	typ   string
+	name  strings.Builder
+	args  strings.Builder
+}
+
+// mergeToolCallDeltas folds one tool_calls delta array into the merge map and
+// returns the (possibly extended) index order.
+func mergeToolCallDeltas(raw json.RawMessage, merged map[int]*mergedToolCall, order []int) []int {
+	var calls []struct {
+		Index    *int   `json:"index"`
+		ID       string `json:"id"`
+		Type     string `json:"type"`
+		Function struct {
+			Name      string `json:"name"`
+			Arguments string `json:"arguments"`
+		} `json:"function"`
+	}
+	if json.Unmarshal(raw, &calls) != nil {
+		return order
+	}
+	for _, call := range calls {
+		index := 0
+		if call.Index != nil {
+			index = *call.Index
+		}
+		entry, ok := merged[index]
+		if !ok {
+			entry = &mergedToolCall{index: index}
+			merged[index] = entry
+			order = append(order, index)
+		}
+		if entry.id == "" {
+			entry.id = call.ID
+		}
+		if entry.typ == "" {
+			entry.typ = call.Type
+		}
+		entry.name.WriteString(call.Function.Name)
+		entry.args.WriteString(call.Function.Arguments)
+	}
+	return order
+}
+
+// renderToolCalls rebuilds the merged calls in index order. A nil result means
+// the stream carried no tool calls.
+func renderToolCalls(order []int, merged map[int]*mergedToolCall) json.RawMessage {
+	if len(order) == 0 {
+		return nil
+	}
+	sorted := append([]int(nil), order...)
+	sort.Ints(sorted)
+	out := make([]map[string]any, 0, len(sorted))
+	for _, index := range sorted {
+		entry := merged[index]
+		call := map[string]any{"index": index}
+		if entry.id != "" {
+			call["id"] = entry.id
+		}
+		if entry.typ != "" {
+			call["type"] = entry.typ
+		}
+		function := map[string]any{}
+		if entry.name.Len() > 0 {
+			function["name"] = entry.name.String()
+		}
+		if entry.args.Len() > 0 {
+			function["arguments"] = entry.args.String()
+		}
+		call["function"] = function
+		out = append(out, call)
+	}
+	encoded, err := json.Marshal(out)
+	if err != nil {
+		return nil
+	}
+	return encoded
 }
 
 // outcomeFromUpstreamSSE aggregates a wrapped upstream SSE body into the
