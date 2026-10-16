@@ -263,6 +263,9 @@ func TestProviderPrefixRecognizesCommand(t *testing.T) {
 		"zhipu/glm-5.2":                    "zhipu",
 		"command/deepseek/deepseek-v4-pro": "command",
 		"command/moonshotai/Kimi-K3":       "command",
+		// Region-qualified dash form.
+		"workbuddy-cn/glm-5.3-flash": "workbuddy",
+		"workbuddy-gl/glm-5.3-flash": "workbuddy",
 		// A bare org-namespaced Command Code id must NOT be read as a provider.
 		"deepseek/deepseek-v4-pro": "",
 		"moonshotai/Kimi-K3":       "",
@@ -271,6 +274,51 @@ func TestProviderPrefixRecognizesCommand(t *testing.T) {
 		if got := ProviderPrefix(model); got != want {
 			t.Errorf("ProviderPrefix(%q) = %q, want %q", model, got, want)
 		}
+	}
+}
+
+func TestResolveProviderFilterRegionPrefix(t *testing.T) {
+	cases := []struct {
+		model        string
+		wantProvider string
+		wantRegion   string
+		wantStripped string
+	}{
+		{"workbuddy-cn/glm-5.3-flash", "workbuddy", "cn", "glm-5.3-flash"},
+		{"workbuddy-gl/glm-5.3-flash", "workbuddy", "global", "glm-5.3-flash"},
+		{"workbuddy/glm-5.3-flash", "workbuddy", "", "glm-5.3-flash"},
+		{"qoder-cn/glm-5.2", "qoder", "cn", "glm-5.2"},
+		{"command/deepseek/deepseek-v4-pro", "command", "", "deepseek/deepseek-v4-pro"},
+	}
+	for _, tc := range cases {
+		req := translate.ChatRequest{Model: tc.model}
+		provider, region := ResolveProviderFilter(&req, false)
+		if provider != tc.wantProvider || region != tc.wantRegion || req.Model != tc.wantStripped {
+			t.Errorf("ResolveProviderFilter(%q) = (%q, %q, %q), want (%q, %q, %q)",
+				tc.model, provider, region, req.Model,
+				tc.wantProvider, tc.wantRegion, tc.wantStripped)
+		}
+	}
+}
+
+func TestPrepareStripsRegionPrefixIntoContext(t *testing.T) {
+	ex := NewChatExecutor(NewPool(nil, nil), "")
+	got, err := ex.Prepare(PrepareInput{
+		Request: translate.ChatRequest{Model: "workbuddy-cn/glm-5.3-flash", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}}},
+		Identity: auth.KeyIdentity(accounts.APIKey{
+			ID: "key_1", Name: "ci", Providers: []string{"qoder", "workbuddy"}, Enabled: true,
+		}),
+		NewRequestID: func() string { return "req_r" },
+		Now:          time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ProviderFilter != "workbuddy" || got.Request.Model != "glm-5.3-flash" || got.PublicModel != "workbuddy-cn/glm-5.3-flash" {
+		t.Fatalf("provider=%q model=%q publicModel=%q", got.ProviderFilter, got.Request.Model, got.PublicModel)
+	}
+	if r := regionFilterFromContext(got.Context); r != "cn" {
+		t.Fatalf("regionFilterFromContext = %q, want cn", r)
 	}
 }
 
