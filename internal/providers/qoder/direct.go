@@ -467,11 +467,15 @@ func applyUsage(out *providers.ChatOutcome, raw json.RawMessage) {
 		return
 	}
 	var usage struct {
-		PromptTokens     int      `json:"prompt_tokens"`
-		CompletionTokens int      `json:"completion_tokens"`
-		CacheReadTokens  *int     `json:"cache_read_tokens"`
-		CacheWriteTokens *int     `json:"cache_write_tokens"`
-		Credits          *float64 `json:"credits"`
+		PromptTokens         int      `json:"prompt_tokens"`
+		CompletionTokens     int      `json:"completion_tokens"`
+		CacheReadTokens      *int     `json:"cache_read_tokens"`
+		CacheWriteTokens     *int     `json:"cache_write_tokens"`
+		PromptCacheHitTokens *int     `json:"prompt_cache_hit_tokens"`
+		Credits              *float64 `json:"credits"`
+		PromptDetails        struct {
+			CachedTokens *int `json:"cached_tokens"`
+		} `json:"prompt_tokens_details"`
 	}
 	if json.Unmarshal(raw, &usage) != nil {
 		out.UsageSource = "estimate"
@@ -479,7 +483,14 @@ func applyUsage(out *providers.ChatOutcome, raw json.RawMessage) {
 	}
 	out.PromptTokens = usage.PromptTokens
 	out.CompletionTokens = usage.CompletionTokens
-	out.CacheReadTokens = usage.CacheReadTokens
+	cacheRead := usage.CacheReadTokens
+	if cacheRead == nil {
+		cacheRead = usage.PromptDetails.CachedTokens
+	}
+	if cacheRead == nil {
+		cacheRead = usage.PromptCacheHitTokens
+	}
+	out.CacheReadTokens = cacheRead
 	out.CacheWriteTokens = usage.CacheWriteTokens
 	out.Credits = usage.Credits
 }
@@ -618,6 +629,9 @@ func rewriteUpstreamSSE(resp *http.Response, model string) *http.Response {
 
 func writeOpenAIChunks(w io.Writer, src io.Reader, model string) error {
 	var sawFinish, sawTools, sawPayload, sawError bool
+	var lastUsage any
+	var lastChunkEmittedHadUsage bool
+
 	err := walkUpstream(src, func(body map[string]any) error {
 		frame := frameFromBody(body)
 		if frame.finish != "" {
@@ -640,11 +654,42 @@ func writeOpenAIChunks(w io.Writer, src io.Reader, model string) error {
 			"choices": []any{map[string]any{"index": 0, "delta": deltaOf(frame), "finish_reason": emptyOrNil(frame.finish)}},
 		}
 		if len(frame.usage) > 0 {
-			var usage any
-			if json.Unmarshal(frame.usage, &usage) == nil {
-				chunk["usage"] = usage
+			var rawUsage any
+			if json.Unmarshal(frame.usage, &rawUsage) == nil {
+				if usage, ok := rawUsage.(map[string]any); ok {
+					var cachedTokens any
+					if ptd, ok := usage["prompt_tokens_details"].(map[string]any); ok {
+						cachedTokens = ptd["cached_tokens"]
+					}
+					if cachedTokens == nil {
+						cachedTokens = usage["cache_read_tokens"]
+					}
+					if cachedTokens == nil {
+						cachedTokens = usage["prompt_cache_hit_tokens"]
+					}
+					if cachedTokens != nil {
+						if _, ok := usage["cache_read_tokens"]; !ok {
+							usage["cache_read_tokens"] = cachedTokens
+						}
+						if _, ok := usage["prompt_cache_hit_tokens"]; !ok {
+							usage["prompt_cache_hit_tokens"] = cachedTokens
+						}
+						if _, ok := usage["prompt_tokens_details"]; !ok {
+							usage["prompt_tokens_details"] = map[string]any{"cached_tokens": cachedTokens}
+						}
+					}
+					chunk["usage"] = usage
+					lastUsage = usage
+				} else {
+					chunk["usage"] = rawUsage
+					lastUsage = rawUsage
+				}
 			}
+		} else if frame.finish != "" && lastUsage != nil {
+			chunk["usage"] = lastUsage
 		}
+
+		lastChunkEmittedHadUsage = (chunk["usage"] != nil)
 		payload, err := json.Marshal(chunk)
 		if err != nil {
 			return err
@@ -669,6 +714,9 @@ func writeOpenAIChunks(w io.Writer, src io.Reader, model string) error {
 				"id": "chatcmpl-qoder", "object": "chat.completion.chunk", "model": model,
 				"choices": []any{map[string]any{"index": 0, "delta": map[string]any{}, "finish_reason": finish}},
 			}
+			if lastUsage != nil {
+				chunk["usage"] = lastUsage
+			}
 			payload, err := json.Marshal(chunk)
 			if err != nil {
 				return err
@@ -685,6 +733,19 @@ func writeOpenAIChunks(w io.Writer, src io.Reader, model string) error {
 			if _, err := fmt.Fprintf(w, "data: %s\n\n", payload); err != nil {
 				return err
 			}
+		}
+	} else if !lastChunkEmittedHadUsage && lastUsage != nil {
+		chunk := map[string]any{
+			"id": "chatcmpl-qoder", "object": "chat.completion.chunk", "model": model,
+			"choices": []any{},
+			"usage":   lastUsage,
+		}
+		payload, err := json.Marshal(chunk)
+		if err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(w, "data: %s\n\n", payload); err != nil {
+			return err
 		}
 	}
 	_, err = io.WriteString(w, "data: [DONE]\n\n")

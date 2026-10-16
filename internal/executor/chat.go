@@ -981,6 +981,7 @@ func (e ChatExecutor) chatInProcessNonStreamAttempt(ctx context.Context, item It
 		CompletionTokens: outcome.CompletionTokens,
 		CacheReadTokens:  outcome.CacheReadTokens,
 		CacheWriteTokens: outcome.CacheWriteTokens,
+		CachedTokens:     outcome.CacheReadTokens,
 		UsageSource:      outcome.UsageSource,
 		ConsumedCredits:  outcome.Credits,
 		AccountID:        item.ID,
@@ -1075,13 +1076,14 @@ func decodeChatResult(req translate.ChatRequest, body []byte) (ChatResult, error
 	var parsed struct {
 		Model string `json:"model"`
 		Usage struct {
-			PromptTokens     int      `json:"prompt_tokens"`
-			CompletionTokens int      `json:"completion_tokens"`
-			CacheReadTokens  *int     `json:"cache_read_tokens"`
-			CacheWriteTokens *int     `json:"cache_write_tokens"`
-			Source           string   `json:"source"`
-			Credits          *float64 `json:"credits"`
-			PromptDetails    struct {
+			PromptTokens         int      `json:"prompt_tokens"`
+			CompletionTokens     int      `json:"completion_tokens"`
+			CacheReadTokens      *int     `json:"cache_read_tokens"`
+			CacheWriteTokens     *int     `json:"cache_write_tokens"`
+			PromptCacheHitTokens *int     `json:"prompt_cache_hit_tokens"`
+			Source               string   `json:"source"`
+			Credits              *float64 `json:"credits"`
+			PromptDetails        struct {
 				CachedTokens *int `json:"cached_tokens"`
 			} `json:"prompt_tokens_details"`
 		} `json:"usage"`
@@ -1119,6 +1121,17 @@ func decodeChatResult(req translate.ChatRequest, body []byte) (ChatResult, error
 	if source == "" {
 		source = "estimate"
 	}
+	cacheRead := parsed.Usage.CacheReadTokens
+	if cacheRead == nil {
+		cacheRead = parsed.Usage.PromptDetails.CachedTokens
+	}
+	if cacheRead == nil {
+		cacheRead = parsed.Usage.PromptCacheHitTokens
+	}
+	cachedTokens := parsed.Usage.PromptDetails.CachedTokens
+	if cachedTokens == nil {
+		cachedTokens = cacheRead
+	}
 	return ChatResult{
 		Model:            model,
 		Content:          content,
@@ -1127,9 +1140,9 @@ func decodeChatResult(req translate.ChatRequest, body []byte) (ChatResult, error
 		FinishReason:     finishReason,
 		PromptTokens:     parsed.Usage.PromptTokens,
 		CompletionTokens: parsed.Usage.CompletionTokens,
-		CacheReadTokens:  parsed.Usage.CacheReadTokens,
+		CacheReadTokens:  cacheRead,
 		CacheWriteTokens: parsed.Usage.CacheWriteTokens,
-		CachedTokens:     parsed.Usage.PromptDetails.CachedTokens,
+		CachedTokens:     cachedTokens,
 		UsageSource:      source,
 		Credits:          parsed.Usage.Credits,
 	}, nil

@@ -229,6 +229,29 @@ func sanitizeSSEPayload(payload string, sentRole *bool) (string, bool) {
 		return payload, true
 	}
 	keep := chunk["usage"] != nil
+	if usageMap, ok := chunk["usage"].(map[string]any); ok {
+		var cachedTokens any
+		if ptd, ok := usageMap["prompt_tokens_details"].(map[string]any); ok {
+			cachedTokens = ptd["cached_tokens"]
+		}
+		if cachedTokens == nil {
+			cachedTokens = usageMap["cache_read_tokens"]
+		}
+		if cachedTokens == nil {
+			cachedTokens = usageMap["prompt_cache_hit_tokens"]
+		}
+		if cachedTokens != nil {
+			if _, ok := usageMap["cache_read_tokens"]; !ok {
+				usageMap["cache_read_tokens"] = cachedTokens
+			}
+			if _, ok := usageMap["prompt_cache_hit_tokens"]; !ok {
+				usageMap["prompt_cache_hit_tokens"] = cachedTokens
+			}
+			if _, ok := usageMap["prompt_tokens_details"]; !ok {
+				usageMap["prompt_tokens_details"] = map[string]any{"cached_tokens": cachedTokens}
+			}
+		}
+	}
 	if choices, ok := chunk["choices"].([]any); ok {
 		for _, raw := range choices {
 			choice, _ := raw.(map[string]any)
