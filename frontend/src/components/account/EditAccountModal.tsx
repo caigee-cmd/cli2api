@@ -1,9 +1,11 @@
-import { useState } from 'react'
-import { Alert, Button, Chip, Form, Input, Modal, NumberField } from '@heroui/react'
+import { useEffect, useState } from 'react'
+import { Alert, Button, Checkbox, Chip, Form, Input, Modal, NumberField } from '@heroui/react'
 import { X } from '@phosphor-icons/react'
 import { ProviderMark } from '@/components/ProviderMark'
 import { FormRow } from '@/components/ui/FormRow'
 import { CompactSwitch } from '@/components/ui/CompactSwitch'
+import { fetchModels } from '@/api/overview'
+import type { ModelInfo } from '@/api/types'
 import type { AccountRow } from '@/lib/account'
 import { accountProviderLabel } from '@/lib/provider'
 
@@ -16,7 +18,7 @@ type Props = {
   busy: boolean
   t: Translate
   onClose: () => void
-  onSave: (input: { name: string; max_inflight: number; priority: number; proxy_url: string; checkin_time?: string; drop_system_prompt?: boolean }) => Promise<void>
+  onSave: (input: { name: string; max_inflight: number; priority: number; proxy_url: string; checkin_time?: string; drop_system_prompt?: boolean; model_aliases: Record<string, string>; enabled_models: string[]; set_model_routing: boolean }) => Promise<void>
 }
 
 export function EditAccountModal({ account, checkinDefaultTime, checkinTimezone, busy, t, onClose, onSave }: Props) {
@@ -25,9 +27,27 @@ export function EditAccountModal({ account, checkinDefaultTime, checkinTimezone,
   const [priority, setPriority] = useState<number>(account?.priority ?? 50)
   const [proxyUrl, setProxyUrl] = useState(account?.proxy_url || '')
   const [dropSystemPrompt, setDropSystemPrompt] = useState(Boolean(account?.drop_system_prompt))
+  const [aliases, setAliases] = useState<Array<{ alias: string; model: string }>>(
+    Object.entries(account?.model_aliases || {}).map(([alias, model]) => ({ alias, model })),
+  )
+  const [aliasDraft, setAliasDraft] = useState({ alias: '', model: '' })
+  const [restrictModels, setRestrictModels] = useState(Boolean(account?.models_restricted))
+  const [enabledModels, setEnabledModels] = useState<string[]>(account?.enabled_models || [])
+  const [catalog, setCatalog] = useState<ModelInfo[]>([])
   const [inheritCheckinTime, setInheritCheckinTime] = useState(!account?.checkin_time)
   const [checkinTime, setCheckinTime] = useState<string | null>(account?.checkin_time || null)
   const [error, setError] = useState('')
+  useEffect(() => {
+    if (!account?.id) return
+    let cancelled = false
+    void fetchModels(account.id).then((data) => {
+      if (!cancelled) setCatalog(data.data || [])
+    }).catch(() => {
+      if (!cancelled) setCatalog([])
+    })
+    return () => { cancelled = true }
+  }, [account?.id])
+
   const title = t('editAccountTitle', { name: account?.name || account?.id || '' })
   const provider = account ? accountProviderLabel(account.provider, account.region, t) : ''
 
@@ -59,6 +79,9 @@ export function EditAccountModal({ account, checkinDefaultTime, checkinTimezone,
         proxy_url: proxyUrl.trim(),
         checkin_time: checkinDefaultTime !== undefined ? (inheritCheckinTime ? '' : checkinTime ?? checkinDefaultTime) : undefined,
         drop_system_prompt: account?.provider === 'workbuddy' ? dropSystemPrompt : undefined,
+        model_aliases: Object.fromEntries(aliases.filter((item) => item.alias.trim() && item.model.trim()).map((item) => [item.alias.trim(), item.model.trim()])),
+        enabled_models: restrictModels ? enabledModels : [],
+        set_model_routing: true,
       })
       onClose()
     } catch (err) {
@@ -162,6 +185,45 @@ export function EditAccountModal({ account, checkinDefaultTime, checkinTimezone,
                     />
                   </FormRow>
                 ) : null}
+                <FormRow label={t('accountModelAliases')} hint={t('accountModelAliasesHint')}>
+                  <div className="space-y-2">
+                    {aliases.map((item) => (
+                      <div key={item.alias} className="flex items-center justify-between gap-2">
+                        <span className="mono min-w-0 truncate text-sm">{item.alias} → {item.model}</span>
+                        <Button size="sm" variant="ghost" isDisabled={busy} onPress={() => setAliases((current) => current.filter((row) => row.alias !== item.alias))}>{t('modelAliasRemove')}</Button>
+                      </div>
+                    ))}
+                    <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+                      <Input aria-label={t('modelAliasName')} value={aliasDraft.alias} onChange={(event) => setAliasDraft((current) => ({ ...current, alias: event.target.value }))} placeholder={t('modelAliasPlaceholder')} disabled={busy} />
+                      <Input aria-label={t('modelAliasTarget')} value={aliasDraft.model} onChange={(event) => setAliasDraft((current) => ({ ...current, model: event.target.value }))} placeholder={t('accountModelAliasTargetPlaceholder')} disabled={busy} />
+                      <Button size="sm" variant="secondary" isDisabled={busy || !aliasDraft.alias.trim() || !aliasDraft.model.trim()} onPress={() => {
+                        setAliases((current) => [...current.filter((row) => row.alias !== aliasDraft.alias.trim()), { alias: aliasDraft.alias.trim(), model: aliasDraft.model.trim() }])
+                        setAliasDraft({ alias: '', model: '' })
+                      }}>{t('modelAliasAdd')}</Button>
+                    </div>
+                  </div>
+                </FormRow>
+                <FormRow label={t('enabledModels')} hint={t('enabledModelsHint')}>
+                  <div className="space-y-2">
+                    <CompactSwitch isSelected={restrictModels} isDisabled={busy} ariaLabel={t('enabledModels')} label={t('restrictModels')} onChange={setRestrictModels} />
+                    {restrictModels ? (
+                      <div className="max-h-40 space-y-1 overflow-auto">
+                        {catalog.map((model) => (
+                          <Checkbox
+                            key={model.id}
+                            isSelected={enabledModels.includes(model.id)}
+                            isDisabled={busy}
+                            onChange={(selected) => setEnabledModels((current) => selected ? [...current, model.id] : current.filter((id) => id !== model.id))}
+                          >
+                            <Checkbox.Control><Checkbox.Indicator /></Checkbox.Control>
+                            <Checkbox.Content><span className="mono text-sm">{model.id}</span></Checkbox.Content>
+                          </Checkbox>
+                        ))}
+                        {catalog.length === 0 ? <p className="text-xs text-muted">{t('noAccountModels')}</p> : null}
+                      </div>
+                    ) : null}
+                  </div>
+                </FormRow>
                 {checkinDefaultTime !== undefined ? (
                   <FormRow label={t('autoCheckinTime')} hint={t('checkinScheduleHint')}>
                     <div className="space-y-3">

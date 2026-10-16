@@ -584,7 +584,7 @@ func (e ChatExecutor) markClassified(id string, c Classified, model string) {
 		return
 	}
 	if c.Model == "" && c.Kind == accounts.KindRateLimit {
-		c.Model = model
+		c.Model = e.cooldownModel(id, model)
 	}
 	e.Pool.MarkClassified(id, c)
 }
@@ -596,7 +596,20 @@ func (e ChatExecutor) markOK(id, model string) {
 	if e.Pool == nil {
 		return
 	}
-	e.Pool.MarkOK(id, model)
+	e.Pool.MarkOK(id, e.cooldownModel(id, model))
+}
+
+// cooldownModel records the account's real catalog model when the client
+// used that account's alias, so the alias and the real name share one cooldown.
+func (e ChatExecutor) cooldownModel(id, model string) string {
+	if e.Pool == nil || id == "" {
+		return model
+	}
+	item, ok := e.Pool.ByID(id)
+	if !ok {
+		return model
+	}
+	return AccountModelID(item, model)
 }
 
 func (e ChatExecutor) recordAttempt(ctx context.Context, attempt accounts.RequestAttempt) {
@@ -910,6 +923,7 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 // WorkBuddy still needs a leading system slot after the strip (code 11128);
 // the adapter inserts an empty placeholder, this helper only drops caller text.
 func sanitizeForItem(item Item, req translate.ChatRequest) translate.ChatRequest {
+	req.Model = AccountModelID(item, req.Model)
 	if native := NativeModelID(item, req.Model); native != "" {
 		req.Model = native
 	}
@@ -993,7 +1007,7 @@ func (e ChatExecutor) chatInProcessStreamAttempt(ctx context.Context, item Item,
 	nativeResponses := false
 	if preferNativeResponses && native != nil && adapter.NativeResponses != nil {
 		options := providers.RequestOptions{
-			Model:            NativeModelID(item, req.Model),
+			Model:            NativeModelID(item, AccountModelID(item, req.Model)),
 			DropSystemPrompt: item.DropSystemPrompt && itemProvider(item) != "qoder",
 		}
 		resp, resolved, err = adapter.NativeResponses.ResponsesStream(ctx, item.ID, native, options)
