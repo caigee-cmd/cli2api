@@ -286,6 +286,9 @@ func (manager *Manager) RunMaintenanceLoop(stop <-chan struct{}) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 	lastKeepaliveDay := ""
+	// Seed the throttle so the first pass does not duplicate the boot-time
+	// RefreshAll: the next stale-quota sweep runs 5 minutes after startup.
+	lastStaleQuota := time.Now()
 	for {
 		if ctx.Err() != nil {
 			return
@@ -300,10 +303,89 @@ func (manager *Manager) RunMaintenanceLoop(stop <-chan struct{}) {
 			lastKeepaliveDay = day
 		}
 		manager.sampleResources()
+		if now.Sub(lastStaleQuota) >= staleQuotaInterval {
+			manager.refreshStaleQuota(ctx)
+			lastStaleQuota = now
+		}
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
 		}
+	}
+}
+
+// staleQuotaInterval bounds how often the maintenance loop re-fetches quota
+// for accounts whose cached snapshot still reports Exceeded. It targets only
+// exhausted accounts, so the interval is a recovery latency, not a poll rate
+// across the whole pool.
+const staleQuotaInterval = 5 * time.Minute
+
+// staleQuotaRefreshAfter is how old an Exceeded snapshot must be before the
+// sweep re-fetches it. A freshly fetched Exceeded=true means upstream truly
+// reports a zero balance; re-fetching it immediately would just hammer the
+// quota endpoint for no routing change.
+const staleQuotaRefreshAfter = 5 * time.Minute
+
+// quotaSnapshotStale reports whether an Exceeded snapshot is old enough to
+// warrant a refresh. A zero/empty or unparseable FetchedAt means the snapshot
+// predates timestamp tracking, so treat it as stale.
+func quotaSnapshotStale(q *QuotaSnapshot, now time.Time) bool {
+	if q == nil {
+		return false
+	}
+	fetchedAt := strings.TrimSpace(q.FetchedAt)
+	if fetchedAt == "" {
+		return true
+	}
+	parsed, err := time.Parse(time.RFC3339, fetchedAt)
+	if err != nil {
+		return true
+	}
+	return now.Sub(parsed) >= staleQuotaRefreshAfter
+}
+
+// refreshStaleQuota re-fetches quota for accounts whose cached snapshot still
+// reports Exceeded. A snapshot can go stale when upstream credits are
+// replenished out-of-band (billing reset, add-on purchase) or when a flaky
+// quota endpoint left an old Exceeded=true in place. Without this, the only
+// way to clear a stale exhausted flag is a manual console refresh, so routing
+// keeps skipping the account until an operator intervenes. Healthy accounts
+// are never touched here; only Exceeded and stale snapshots are refreshed.
+func (manager *Manager) refreshStaleQuota(ctx context.Context) {
+	if manager == nil || manager.pool == nil {
+		return
+	}
+	now := time.Now()
+	for _, item := range manager.pool.Items() {
+		if ctx.Err() != nil {
+			return
+		}
+		if item.RuntimeState == "dead" {
+			continue
+		}
+		if item.Quota == nil || !item.Quota.Exceeded {
+			continue
+		}
+		if !quotaSnapshotStale(item.Quota, now) {
+			continue
+		}
+		refreshCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		manager.refreshQuotaOnly(refreshCtx, item)
+		cancel()
+	}
+}
+
+// refreshQuotaOnly fetches quota for one account without a health probe or
+// model discovery. It resolves the in-process provider prober when present
+// (WorkBuddy/Trae/Devin) and otherwise falls back to the Qoder worker URL,
+// mirroring refreshCheckinQuota's dispatch.
+func (manager *Manager) refreshQuotaOnly(ctx context.Context, item Item) {
+	if adapter, ok := manager.providers.Get(item.Provider); ok && adapter.Prober != nil {
+		manager.fetchProviderQuota(ctx, item.ID, adapter.Prober)
+		return
+	}
+	if strings.TrimSpace(item.URL) != "" {
+		_ = manager.fetchQuota(ctx, item.ID, item.URL, true)
 	}
 }

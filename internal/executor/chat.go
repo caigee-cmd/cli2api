@@ -311,6 +311,21 @@ func (e ChatExecutor) pick(requestID, prefer, providerFilter, regionFilter, publ
 				Cooldown: 5 * time.Second, RetryAfter: 5 * time.Second, Failover: true,
 			}, nil)
 		}
+		// No eligible account is ready right now. Before blaming the model or
+		// reporting "no accounts available", check whether accounts that could
+		// serve this model are blocked only by an exhausted quota. A stale or
+		// genuinely exhausted snapshot leaves no routing hint, so without this
+		// the client sees a generic "no accounts available" instead of a quota
+		// error that explains the real cause.
+		if _, ok := e.Pool.QuotaBlockedForModel(query); ok {
+			retryAfter := NextLocalMidnightCooldown()
+			return Item{}, NewExecutionError(Classified{
+				Kind: accounts.KindQuota, Status: 429, Code: "insufficient_quota",
+				Type: "insufficient_quota", Failover: false,
+				Cooldown: retryAfter, RetryAfter: retryAfter,
+				Message: quotaBlockedMessage(publicModel),
+			}, nil)
+		}
 		if publicModel != "" && publicModel != "auto" {
 			unfiltered := query
 			unfiltered.PublicModel = ""
@@ -410,6 +425,13 @@ func logTime(value time.Time) string {
 		return ""
 	}
 	return value.UTC().Format(time.RFC3339)
+}
+
+func quotaBlockedMessage(publicModel string) string {
+	if strings.TrimSpace(publicModel) != "" {
+		return fmt.Sprintf("all accounts that can serve %s are out of quota", publicModel)
+	}
+	return "all accounts are out of quota"
 }
 
 func coolingPickError(item Item, publicModel string, retryAfter time.Duration) error {
