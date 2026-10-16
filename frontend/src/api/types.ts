@@ -148,6 +148,9 @@ export type Overview = {
     max_inflight?: number
     priority?: number
     drop_system_prompt?: boolean
+    model_aliases?: Record<string, string>
+    enabled_models?: string[]
+    models_restricted?: boolean
     workbuddy_auto_checkin?: boolean
     workbuddy_checkin_time?: string
     auto_checkin?: boolean

@@ -68,6 +68,12 @@ func (manager *Manager) checkinAccount(ctx context.Context, accountID string, al
 	if checkErr != nil {
 		result = providers.CheckinResult{Status: "error", Message: checkErr.Error()}
 	}
+	if account.Provider == "workbuddy" && result.Status == "success" {
+		// A successful WorkBuddy check-in replenishes the account's credits.
+		// Clear both account- and model-scoped cooldowns so it can route
+		// immediately; the pool observer persists the cleared state.
+		manager.pool.MarkOK(accountID, "")
+	}
 	recordCtx, stopRecording := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	recordErr := manager.store.RecordCheckin(recordCtx, accountID, result.Status, result.Message, time.Now().UTC())
 	stopRecording()

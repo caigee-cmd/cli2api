@@ -45,6 +45,9 @@ func (m *Manager) SyncAccount(ctx context.Context, before, after Account) error 
 	if before.Priority != after.Priority {
 		m.pool.SetWeight(after.ID, after.Priority)
 	}
+	if !sameModelRouting(before, after) {
+		m.pool.SetModelRouting(after.ID, after.ModelAliases, after.EnabledModels, after.ModelsRestricted)
+	}
 	if before.Enabled && !after.Enabled {
 		return m.stopAccount(after.ID)
 	}
@@ -80,6 +83,23 @@ func (m *Manager) Create(ctx context.Context, input CreateAccount) (Account, err
 		}
 	}
 	return account, nil
+}
+
+func sameModelRouting(before, after Account) bool {
+	if before.ModelsRestricted != after.ModelsRestricted || len(before.EnabledModels) != len(after.EnabledModels) || len(before.ModelAliases) != len(after.ModelAliases) {
+		return false
+	}
+	for i := range before.EnabledModels {
+		if before.EnabledModels[i] != after.EnabledModels[i] {
+			return false
+		}
+	}
+	for alias, modelID := range before.ModelAliases {
+		if after.ModelAliases[alias] != modelID {
+			return false
+		}
+	}
+	return true
 }
 
 func (m *Manager) Update(ctx context.Context, id string, input UpdateAccount) error {

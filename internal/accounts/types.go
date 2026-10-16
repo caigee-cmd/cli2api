@@ -28,6 +28,15 @@ type Account struct {
 	Priority       int    `json:"priority"`
 	// DropSystemPrompt drops caller system prompts before provider-native chat.
 	DropSystemPrompt bool `json:"drop_system_prompt"`
+	// ModelAliases maps a client-facing name to this account's real catalog
+	// model. Routing matches the alias; the request is rewritten to the real
+	// model only after this account is picked.
+	ModelAliases map[string]string `json:"model_aliases,omitempty"`
+	// EnabledModels limits which catalog models this account may serve.
+	// ModelsRestricted reports whether the operator saved a list; an empty
+	// list then serves nothing, while an unset list serves the catalog.
+	EnabledModels    []string `json:"enabled_models,omitempty"`
+	ModelsRestricted bool     `json:"models_restricted,omitempty"`
 	// WorkBuddyAutoCheckin opts into scheduled daily check-in (default off).
 	WorkBuddyAutoCheckin bool `json:"workbuddy_auto_checkin"`
 	// WorkBuddyCheckinTime is the process-local daily check-in time.
@@ -61,6 +70,9 @@ type CreateAccount struct {
 	WorkBuddyAutoCheckin *bool
 	WorkBuddyCheckinTime string
 	ProxyURL             string
+	ModelAliases         map[string]string
+	EnabledModels        []string
+	SetModelRouting      bool
 }
 
 type UpdateAccount struct {
@@ -74,6 +86,12 @@ type UpdateAccount struct {
 	WorkBuddyAutoCheckin *bool
 	WorkBuddyCheckinTime *string
 	ProxyURL             *string
+	// ModelAliases and EnabledModels replace the stored routing when
+	// SetModelRouting is true. Nil aliases clear the map; nil enabled models
+	// mean the account can serve its whole catalog.
+	ModelAliases    map[string]string
+	EnabledModels   []string
+	SetModelRouting bool
 }
 
 type NativeCredential struct {
