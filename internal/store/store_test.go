@@ -149,6 +149,40 @@ INSERT INTO model_settings (model_id, context_length, updated_at) VALUES
 	}
 }
 
+func TestAccountModelRoutingRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "qoder.db")
+	store, err := OpenStore(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	account, err := store.Create(ctx, accounts.CreateAccount{Name: "one", Provider: "qoder", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Update(ctx, account.ID, accounts.UpdateAccount{
+		SetModelRouting: true,
+		ModelAliases:    map[string]string{"Kimi K3": "kimi-k2.6"},
+		EnabledModels:   []string{"kimi-k2.6", "glm-5.2"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	store.Close()
+
+	reopened, err := OpenStore(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	got, err := reopened.Get(ctx, account.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ModelAliases["kimi-k3"] != "kimi-k2.6" || !got.ModelsRestricted || len(got.EnabledModels) != 2 {
+		t.Fatalf("routing=%+v restricted=%v enabled=%v", got.ModelAliases, got.ModelsRestricted, got.EnabledModels)
+	}
+}
+
 func TestProviderModelMaxModeIsIndependentOfQoderContext(t *testing.T) {
 	ctx := context.Background()
 	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))

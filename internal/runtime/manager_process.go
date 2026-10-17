@@ -63,6 +63,7 @@ func (m *Manager) startAccount(ctx context.Context, account Account) error {
 			ID: account.ID, Provider: descriptor.ID, Region: account.ProviderRegion,
 			Runtime: string(descriptor.Runtime), DropSystemPrompt: account.DropSystemPrompt,
 			Weight: NormalizeWeight(account.Priority), MaxInFlight: account.MaxInFlight, Quota: account.Quota,
+			ModelAliases: account.ModelAliases, EnabledModels: account.EnabledModels, ModelsRestricted: account.ModelsRestricted,
 			RuntimeState: "starting",
 		})
 		return nil
@@ -84,6 +85,7 @@ func (m *Manager) startAccount(ctx context.Context, account Account) error {
 		ID: account.ID, Provider: descriptor.ID, Region: account.ProviderRegion,
 		Runtime: string(descriptor.Runtime),
 		Weight:  NormalizeWeight(account.Priority), MaxInFlight: account.MaxInFlight, Quota: account.Quota,
+		ModelAliases: account.ModelAliases, EnabledModels: account.EnabledModels, ModelsRestricted: account.ModelsRestricted,
 		Ready: &notReady, RuntimeState: "starting",
 	})
 
@@ -113,6 +115,7 @@ func (m *Manager) startAccount(ctx context.Context, account Account) error {
 		ID: account.ID, URL: process.URL(), Provider: descriptor.ID,
 		Region: account.ProviderRegion, Runtime: string(descriptor.Runtime), Restarts: restarts,
 		Weight: NormalizeWeight(account.Priority), MaxInFlight: account.MaxInFlight, Quota: account.Quota,
+		ModelAliases: account.ModelAliases, EnabledModels: account.EnabledModels, ModelsRestricted: account.ModelsRestricted,
 		Ready: &notReady, RuntimeState: "starting",
 	})
 	go m.watchAccount(account.ID, process)

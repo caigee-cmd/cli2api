@@ -3,6 +3,24 @@
 Published user-facing notes for GitHub Releases and the console update page.
 Write upcoming notes as bilingual files in `changelog/unreleased/`.
 
+## 0.6.22 - 2026-10-16
+
+### English
+
+- Each account can map a client-facing model name to its own real model, and can limit which catalog models it serves.
+- Keep quota-exhausted accounts routable for free models. Qoder prices some catalog models at zero (`limited_time_free` tag or a zero `price_factor`), and requests for them spend no credits, but the routing pool filtered every quota-exceeded account unconditionally — leaving those accounts' free models with no account at all. The pool now records which catalog entries the provider prices at zero alongside the cached model list, and the quota filter exempts a request whose model is on that list. Pricing-unknown models are not assumed free, and the exemption is scoped per model, so exhausted accounts stay out of paid routes.
+- Send the catalog's gateway model key on Qoder chat. The model catalog publishes a friendly public ID (`qwen3.8-flash`) alongside a distinct gateway key (`qfmodel`). The worker resolved the public ID through the per-account catalog before sending, but the in-process COSY client filled `model_config.key` with whatever the caller asked for. On an account whose gateway routes only the mapped key, that request was never answered — the gateway held it open and the client waited out its own timeout with no error and no bytes in return. The pool now records the public-ID-to-gateway-key mapping from the catalog, and the chat request carries the mapped key. An account whose catalog reports no distinct key keeps its public spelling.
+- Fix Qoder chat rejecting multi-turn tool use with `400 InvalidParameter: messages with role "tool" must be a response to a preceeding message with "tool_calls"`. The upstream gateway only pairs a `role:"tool"` message with the assistant turn ahead of it when that assistant message's `content` is a string; OpenAI clients send `"content": null` for a pure tool-call turn, which left the call unregistered. The in-process client now rewrites a nil content on a tool-call turn to an empty string, which the gateway accepts. Call ids, tool results, and all other content shapes pass through untouched.
+- Clear a WorkBuddy account's cooldown immediately after a successful daily check-in so newly restored credits can be routed.
+
+### 中文
+
+- 每个账号可以把自己的真实模型映射成对外名字，也可以限制自己只接选中的目录模型。
+- 额度耗尽的账号现在仍可路由到免费模型。Qoder 目录中部分模型单价为零（`limited_time_free` 标签或 `price_factor` 为零），请求不消耗积分，但路由池原先无条件排除所有额度耗尽的账号，导致这些账号的免费模型无账号可用。路由池现在在缓存模型列表的同时记录上游报价为零的模型，额度过滤对命中该名单的请求予以豁免。未报价的模型不视为免费；豁免按请求模型限定，额度耗尽的账号依旧不会出现在付费模型的路由上。
+- Qoder 聊天请求现在发送目录里的网关模型键。模型目录同时给出一个易读的公网 ID（`qwen3.8-flash`）和一个不同的网关键（`qfmodel`）。Worker 发送前会用账号目录把公网 ID 解析一遍，但进程内 COSY 客户端此前直接把调用方传入的名字填进 `model_config.key`。在只按映射键路由的账号上，这个请求不会得到任何响应——网关把它挂着，客户端一直等到自己的超时，既没有错误也没有数据。路由池现在记录目录给出的「公网 ID → 网关键」映射，聊天请求携带映射后的键。目录未给出不同键的账号保持公网 ID 原样。
+- 修复 Qoder 多轮工具调用被上游以 `400 InvalidParameter: messages with role "tool" must be a response to a preceeding message with "tool_calls"` 拒绝的问题。上游网关只在前一条 assistant 消息的 `content` 为字符串时，才把它携带的 `tool_calls` 登记为可配对；OpenAI 客户端对纯工具调用轮次发送的正是 `"content": null`，导致调用未登记、后续 `role:"tool"` 消息被拒。进程内直连客户端现在会把工具调用轮次的 null content 改写为空字符串（网关接受该形状）；工具调用 id、工具结果与其他内容形状均原样保留。
+- WorkBuddy 每日签到成功后立即清除对应账号的冷却，让恢复的积分可以马上参与调度。
+
 ## 0.6.21 - 2026-10-13
 
 ### English

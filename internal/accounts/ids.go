@@ -1,6 +1,9 @@
 package accounts
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 const (
 	RoutingStrategyRoundRobin         = "round-robin"
@@ -47,6 +50,45 @@ func CanonicalModelID(model string) string {
 		return "auto"
 	}
 	return key
+}
+
+// NormalizeAccountRouting canonicalizes one account's alias map and enabled
+// model list. An alias points at exactly one real model on that account.
+// The enabled list is the catalog models the account may serve; empty means
+// the operator saved a list with nothing selected.
+func NormalizeAccountRouting(aliases map[string]string, enabled []string) (map[string]string, []string, error) {
+	normalizedAliases := map[string]string{}
+	for alias, modelID := range aliases {
+		key := CanonicalModelID(alias)
+		target := CanonicalModelID(modelID)
+		if key == "" || key == "auto" || target == "" || target == "auto" {
+			return nil, nil, fmt.Errorf("alias and model are required")
+		}
+		if key == target {
+			return nil, nil, fmt.Errorf("alias must differ from the real model")
+		}
+		if previous, exists := normalizedAliases[key]; exists && previous != target {
+			return nil, nil, fmt.Errorf("%s maps to more than one model", key)
+		}
+		normalizedAliases[key] = target
+	}
+	seen := map[string]struct{}{}
+	normalizedEnabled := make([]string, 0, len(enabled))
+	for _, modelID := range enabled {
+		key := CanonicalModelID(modelID)
+		if key == "" || key == "auto" {
+			continue
+		}
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		normalizedEnabled = append(normalizedEnabled, key)
+	}
+	if len(normalizedAliases) == 0 {
+		normalizedAliases = nil
+	}
+	return normalizedAliases, normalizedEnabled, nil
 }
 
 // NormalizeModelName converts display-name formats sent by external clients

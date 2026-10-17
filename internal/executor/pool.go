@@ -77,6 +77,13 @@ type Item struct {
 	// DropSystemPrompt mirrors the stored account flag so the executor can
 	// sanitize requests per account without a store lookup per chat.
 	DropSystemPrompt bool
+	// ModelAliases maps a client-facing name to this account's real catalog
+	// model. The public request stays unchanged until this account is picked.
+	ModelAliases map[string]string
+	// EnabledModels is the catalog models this account may serve when
+	// ModelsRestricted is set. An empty restricted list serves nothing.
+	EnabledModels    []string
+	ModelsRestricted bool
 	// StateVersion is a process-local monotonic stamp assigned under p.mu
 	// whenever a persistable mutation lands. The persistence observer runs
 	// after p.mu is released, so concurrent observers can enqueue snapshots
@@ -178,10 +185,46 @@ func itemCouldServeModel(item Item, publicModel string) bool {
 	if want == "" {
 		return true
 	}
+	if !itemModelAllowed(item, want) {
+		return false
+	}
+	if target := item.ModelAliases[want]; target != "" {
+		want = routeModel(target)
+	}
 	if itemHasCatalogModel(item, want) || itemHasProvenModel(item, want) {
 		return true
 	}
 	return item.Models == nil
+}
+
+// itemModelAllowed reports whether the requested public name is one this
+// account is permitted to serve. A restricted account matches either the
+// real model or an alias whose target is enabled.
+func itemModelAllowed(item Item, want string) bool {
+	if !item.ModelsRestricted {
+		return true
+	}
+	if target := item.ModelAliases[want]; target != "" {
+		want = routeModel(target)
+	}
+	for _, model := range item.EnabledModels {
+		if CanonicalModelID(model) == want {
+			return true
+		}
+	}
+	return false
+}
+
+// AccountModelID rewrites a client model to this account's real catalog
+// model when the account defines that alias. Other accounts keep the name
+// the client sent.
+func AccountModelID(item Item, publicModel string) string {
+	want := routeModel(publicModel)
+	target := strings.TrimSpace(item.ModelAliases[want])
+	if target == "" {
+		return strings.TrimSpace(publicModel)
+	}
+	return target
 }
 
 // ItemHasModel reports whether this account can serve publicModel on a live
@@ -202,6 +245,12 @@ func itemHasModel(item Item, publicModel string) bool {
 	want := routeModel(publicModel)
 	if want == "" {
 		return true
+	}
+	if !itemModelAllowed(item, want) {
+		return false
+	}
+	if target := item.ModelAliases[want]; target != "" {
+		want = routeModel(target)
 	}
 	if itemHasCatalogModel(item, want) || itemHasProvenModel(item, want) {
 		return true
@@ -748,7 +797,7 @@ func itemSaturated(item Item) bool {
 // itemModelDown applies the per-model cooldown: one model hitting a limit
 // must not take the whole account offline for other models.
 func itemModelDown(item Item, q RouteQuery, now time.Time) bool {
-	model := routeModel(q.PublicModel)
+	model := cooldownModel(item, q.PublicModel)
 	if model == "" {
 		return false
 	}
@@ -756,11 +805,15 @@ func itemModelDown(item Item, q RouteQuery, now time.Time) bool {
 	return ok && now.Before(until)
 }
 
+func cooldownModel(item Item, publicModel string) string {
+	return routeModel(AccountModelID(item, publicModel))
+}
+
 // resumeAt is the moment an item becomes usable again for this route,
 // considering both account-level and model-level cooldowns.
 func resumeAt(item Item, q RouteQuery) time.Time {
 	next := item.DownUntil
-	model := routeModel(q.PublicModel)
+	model := cooldownModel(item, q.PublicModel)
 	if model != "" {
 		if until, ok := item.ModelDownUntil[model]; ok && (next.IsZero() || until.After(next)) {
 			next = until
@@ -990,6 +1043,31 @@ func (p *Pool) MarkOK(id, model string) {
 // SetDropSystemPrompt updates only the request-sanitization flag on a live
 // item. Routing and runtime state stay untouched so the change applies to the
 // next request without disturbing cooldowns or health.
+func (p *Pool) SetModelRouting(id string, aliases map[string]string, enabled []string, restricted bool) {
+	if p == nil || id == "" {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for i := range p.items {
+		if p.items[i].ID != id {
+			continue
+		}
+		if len(aliases) == 0 {
+			p.items[i].ModelAliases = nil
+		} else {
+			p.items[i].ModelAliases = aliases
+		}
+		if len(enabled) == 0 {
+			p.items[i].EnabledModels = nil
+		} else {
+			p.items[i].EnabledModels = append([]string(nil), enabled...)
+		}
+		p.items[i].ModelsRestricted = restricted
+		return
+	}
+}
+
 func (p *Pool) SetDropSystemPrompt(id string, drop bool) {
 	if p == nil || id == "" {
 		return
@@ -1409,6 +1487,13 @@ func (p *Pool) Upsert(item Item) {
 			}
 			if item.ProvenModels == nil {
 				item.ProvenModels = p.items[i].ProvenModels
+			}
+			if item.ModelAliases == nil {
+				item.ModelAliases = p.items[i].ModelAliases
+			}
+			if item.EnabledModels == nil && !item.ModelsRestricted {
+				item.EnabledModels = p.items[i].EnabledModels
+				item.ModelsRestricted = p.items[i].ModelsRestricted
 			}
 			p.items[i] = item
 			return

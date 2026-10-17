@@ -171,6 +171,9 @@ func (s *Store) Get(ctx context.Context, id string) (accounts.Account, error) {
 	if err != nil {
 		return accounts.Account{}, fmt.Errorf("get account: %w", err)
 	}
+	if err := s.loadAccountRouting(ctx, &account); err != nil {
+		return accounts.Account{}, err
+	}
 	return account, nil
 }
 
@@ -250,7 +253,13 @@ func (s *Store) List(ctx context.Context) ([]accounts.Account, error) {
 		}
 		accounts = append(accounts, account)
 	}
-	return accounts, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := s.loadAccountRoutingList(ctx, accounts); err != nil {
+		return nil, err
+	}
+	return accounts, nil
 }
 
 func (s *Store) Update(ctx context.Context, id string, input accounts.UpdateAccount) error {
@@ -304,6 +313,14 @@ func (s *Store) Update(ctx context.Context, id string, input accounts.UpdateAcco
 			return err
 		}
 	}
+	if input.SetModelRouting {
+		aliases, enabled, err := accounts.NormalizeAccountRouting(input.ModelAliases, input.EnabledModels)
+		if err != nil {
+			return err
+		}
+		account.ModelAliases = aliases
+		account.EnabledModels = enabled
+	}
 	if input.ProxyURL != nil {
 		proxyURL := proxy.Preserve(account.ProxyURL, *input.ProxyURL)
 		if err := validateAccountProxy(account.Provider, account.ProviderRegion, proxyURL); err != nil {
@@ -324,7 +341,90 @@ func (s *Store) Update(ctx context.Context, id string, input accounts.UpdateAcco
 	if changed == 0 {
 		return accounts.ErrAccountNotFound
 	}
+	if input.SetModelRouting {
+		if err := s.saveAccountRouting(ctx, account.ID, account.ModelAliases, account.EnabledModels); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+func (s *Store) loadAccountRouting(ctx context.Context, account *accounts.Account) error {
+	if account == nil || account.ID == "" {
+		return nil
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT alias, model_id FROM account_model_aliases WHERE account_id = ?`, account.ID)
+	if err != nil {
+		return fmt.Errorf("load model aliases: %w", err)
+	}
+	defer rows.Close()
+	aliases := map[string]string{}
+	for rows.Next() {
+		var alias, modelID string
+		if err := rows.Scan(&alias, &modelID); err != nil {
+			return fmt.Errorf("scan model alias: %w", err)
+		}
+		aliases[alias] = modelID
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if len(aliases) > 0 {
+		account.ModelAliases = aliases
+	}
+	modelRows, err := s.db.QueryContext(ctx, `SELECT model_id FROM account_enabled_models WHERE account_id = ? ORDER BY model_id`, account.ID)
+	if err != nil {
+		return fmt.Errorf("load enabled models: %w", err)
+	}
+	defer modelRows.Close()
+	var enabled []string
+	for modelRows.Next() {
+		var modelID string
+		if err := modelRows.Scan(&modelID); err != nil {
+			return fmt.Errorf("scan enabled model: %w", err)
+		}
+		enabled = append(enabled, modelID)
+	}
+	if err := modelRows.Err(); err != nil {
+		return err
+	}
+	account.EnabledModels = enabled
+	account.ModelsRestricted = len(enabled) > 0
+	return nil
+}
+
+func (s *Store) loadAccountRoutingList(ctx context.Context, list []accounts.Account) error {
+	for i := range list {
+		if err := s.loadAccountRouting(ctx, &list[i]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Store) saveAccountRouting(ctx context.Context, accountID string, aliases map[string]string, enabled []string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM account_model_aliases WHERE account_id = ?`, accountID); err != nil {
+		return fmt.Errorf("clear model aliases: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM account_enabled_models WHERE account_id = ?`, accountID); err != nil {
+		return fmt.Errorf("clear enabled models: %w", err)
+	}
+	for alias, modelID := range aliases {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO account_model_aliases (account_id, alias, model_id) VALUES (?, ?, ?)`, accountID, alias, modelID); err != nil {
+			return fmt.Errorf("save model alias: %w", err)
+		}
+	}
+	for _, modelID := range enabled {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO account_enabled_models (account_id, model_id) VALUES (?, ?)`, accountID, modelID); err != nil {
+			return fmt.Errorf("save enabled model: %w", err)
+		}
+	}
+	return tx.Commit()
 }
 
 func (s *Store) WorkBuddyCheckinTimeDefault(ctx context.Context) string {

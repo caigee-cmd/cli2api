@@ -226,14 +226,26 @@ INSERT OR IGNORE INTO request_usage_details (request_id, created_at, provider, c
   FROM request_logs rl
   LEFT JOIN accounts a ON a.id = rl.account_id
   WHERE rl.credits IS NOT NULL;`},
-		{filename: "021_provider_checkin.sql", sql: `
+	{filename: "021_provider_checkin.sql", sql: `
 ALTER TABLE accounts ADD COLUMN auto_checkin INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE accounts ADD COLUMN checkin_time TEXT NOT NULL DEFAULT '';
 UPDATE accounts SET auto_checkin = workbuddy_auto_checkin, checkin_time = workbuddy_checkin_time
   WHERE provider = 'workbuddy';`},
-		{filename: "022_request_log_reasoning.sql", sql: `
+	{filename: "022_request_log_reasoning.sql", sql: `
 ALTER TABLE request_logs ADD COLUMN requested_reasoning TEXT NOT NULL DEFAULT '';
 ALTER TABLE request_logs ADD COLUMN resolved_reasoning TEXT NOT NULL DEFAULT '';`},
+	{filename: "023_account_model_routing.sql", sql: `
+CREATE TABLE IF NOT EXISTS account_model_aliases (
+  account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  alias TEXT NOT NULL,
+  model_id TEXT NOT NULL,
+  PRIMARY KEY (account_id, alias)
+);
+CREATE TABLE IF NOT EXISTS account_enabled_models (
+  account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  model_id TEXT NOT NULL,
+  PRIMARY KEY (account_id, model_id)
+	);`},
 }
 
 const schemaMigrationsDDL = `

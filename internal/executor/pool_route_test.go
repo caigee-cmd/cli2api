@@ -37,6 +37,51 @@ func TestPickRouteRespectsProviderFamilyAndCooldown(t *testing.T) {
 	}
 }
 
+func TestAccountAliasRoutesToItsOwnModel(t *testing.T) {
+	p := NewPool(nil, nil)
+	p.Upsert(Item{
+		ID: "q1", Provider: "qoder", Models: []string{"kimi-k2.6"},
+		ModelAliases: map[string]string{"kimi-k3": "kimi-k2.6"},
+	})
+	p.Upsert(Item{
+		ID: "w1", Provider: "workbuddy", Models: []string{"kimi-k2.5"},
+		ModelAliases: map[string]string{"kimi-k3": "kimi-k2.5"},
+	})
+	p.Upsert(Item{ID: "plain", Provider: "qoder", Models: []string{"glm-5.2"}})
+
+	first, ok := p.PickRoute(RouteQuery{PublicModel: "kimi-k3"})
+	if !ok || (first.ID != "q1" && first.ID != "w1") {
+		t.Fatalf("alias pick = %+v ok=%v", first, ok)
+	}
+	if got := AccountModelID(first, "kimi-k3"); got == "kimi-k3" || got == "" {
+		t.Fatalf("rewrite = %q", got)
+	}
+	if NativeModelID(first, AccountModelID(first, "kimi-k3")) == "kimi-k3" {
+		t.Fatal("native id stayed on the alias")
+	}
+	if _, ok := p.PickRoute(RouteQuery{PublicModel: "kimi-k3", Excluded: map[string]struct{}{first.ID: {}}}); !ok {
+		t.Fatal("second account with the same alias was not a candidate")
+	}
+	if _, ok := p.PickRoute(RouteQuery{PublicModel: "kimi-k3", PreferAccount: "plain"}); ok {
+		t.Fatal("account without the alias was selected")
+	}
+}
+
+func TestRestrictedAccountOnlyServesEnabledModels(t *testing.T) {
+	p := NewPool(nil, nil)
+	p.Upsert(Item{
+		ID: "limited", Provider: "qoder", Models: []string{"glm-5.2", "kimi-k2.6"},
+		EnabledModels: []string{"glm-5.2"}, ModelsRestricted: true,
+	})
+	if _, ok := p.PickRoute(RouteQuery{PublicModel: "kimi-k2.6"}); ok {
+		t.Fatal("disabled model was routed")
+	}
+	got, ok := p.PickRoute(RouteQuery{PublicModel: "glm-5.2"})
+	if !ok || got.ID != "limited" {
+		t.Fatalf("enabled model = %+v ok=%v", got, ok)
+	}
+}
+
 func TestNormalizeProviderRegionAndAllowlist(t *testing.T) {
 	if got := NormalizeProviderFamily(""); got != "qoder" {
 		t.Fatalf("empty provider = %q", got)
