@@ -2,6 +2,7 @@ import { CommandMark } from '@/components/CommandMark'
 import { CodexMark } from '@/components/CodexMark'
 import { DevinMark } from '@/components/DevinMark'
 import { QoderMark } from '@/components/QoderMark'
+import { QwenworkMark } from '@/components/QwenworkMark'
 import { TraeMark } from '@/components/TraeMark'
 import { WorkBuddyMark } from '@/components/WorkBuddyMark'
 import { ZhipuMark } from '@/components/ZhipuMark'
@@ -32,6 +33,9 @@ export function ProviderMark({ provider, size = 16, className = '' }: Props) {
   }
   if (id === 'zhipu') {
     return <ZhipuMark size={size} className={className} />
+  }
+  if (id === 'qwenwork') {
+    return <QwenworkMark size={size} className={className} />
   }
   return <QoderMark size={size} className={className} />
 }

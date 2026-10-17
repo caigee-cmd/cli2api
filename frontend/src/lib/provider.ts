@@ -23,6 +23,10 @@ export function isZhipuProvider(provider?: string) {
   return String(provider || '').toLowerCase() === 'zhipu'
 }
 
+export function isQwenworkProvider(provider?: string) {
+  return String(provider || '').toLowerCase() === 'qwenwork'
+}
+
 export function accountProviderFamilyLabel(
   provider: string | undefined,
   t: (key: string) => string,
@@ -33,6 +37,7 @@ export function accountProviderFamilyLabel(
   if (isDevinProvider(providerID)) return 'Devin'
   if (isCommandProvider(providerID)) return 'Command Code'
   if (isZhipuProvider(providerID)) return 'Zhipu GLM'
+  if (isQwenworkProvider(providerID)) return 'QwenWork'
   if (isQoderProvider(providerID)) return 'Qoder'
   return provider || t('account')
 }
@@ -58,6 +63,9 @@ export function accountProviderLabel(
   }
   if (isZhipuProvider(providerID)) {
     return t('accountTypeZhipuCN')
+  }
+  if (isQwenworkProvider(providerID)) {
+    return regionID === 'cn' ? t('accountTypeQwenworkCN') : t('accountTypeQwenworkGlobal')
   }
   if (isQoderProvider(providerID)) {
     return regionID === 'cn' ? t('accountTypeQoderCN') : t('accountTypeQoderGlobal')

@@ -26,6 +26,7 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/providers/command"
 	"github.com/caigee-cmd/cli2api/internal/providers/devin"
 	"github.com/caigee-cmd/cli2api/internal/providers/qoder"
+	"github.com/caigee-cmd/cli2api/internal/providers/qwenwork"
 	"github.com/caigee-cmd/cli2api/internal/providers/trae"
 	"github.com/caigee-cmd/cli2api/internal/providers/workbuddy"
 	"github.com/caigee-cmd/cli2api/internal/providers/zhipu"
@@ -118,6 +119,7 @@ func New(cfg config.Config) *App {
 	providerReg.Register(command.NewClient(store).Adapter())
 	providerReg.Register(codex.NewClient(store).Adapter())
 	providerReg.Register(zhipu.NewClient(store).Adapter())
+	providerReg.Register(qwenwork.NewClient(store).Adapter())
 	qoderClient := qoder.NewClient()
 	qoderClient.Bind(manager.AccountURL, manager.ProxyAPIKey)
 	qoderClient.SetDirect(qoder.NewDirect(store, func(ctx context.Context, accountID string) (string, error) {
