@@ -264,8 +264,10 @@ func TestProviderPrefixRecognizesCommand(t *testing.T) {
 		"command/deepseek/deepseek-v4-pro": "command",
 		"command/moonshotai/Kimi-K3":       "command",
 		// Region-qualified dash form.
-		"workbuddy-cn/glm-5.3-flash": "workbuddy",
-		"workbuddy-gl/glm-5.3-flash": "workbuddy",
+		"workbuddy-cn/glm-5.3-flash":   "workbuddy",
+		"workbuddy-gl/glm-5.3-flash":   "workbuddy",
+		"workbuddy-auto/glm-5.3-flash": "workbuddy",
+		"qoder-auto/glm-5.2":           "qoder",
 		// A bare org-namespaced Command Code id must NOT be read as a provider.
 		"deepseek/deepseek-v4-pro": "",
 		"moonshotai/Kimi-K3":       "",
@@ -288,6 +290,8 @@ func TestResolveProviderFilterRegionPrefix(t *testing.T) {
 		{"workbuddy-gl/glm-5.3-flash", "workbuddy", "global", "glm-5.3-flash"},
 		{"workbuddy/glm-5.3-flash", "workbuddy", "", "glm-5.3-flash"},
 		{"qoder-cn/glm-5.2", "qoder", "cn", "glm-5.2"},
+		{"qoder-auto/glm-5.2", "qoder", "", "glm-5.2"},
+		{"workbuddy-auto/glm-5.3-flash", "workbuddy", "", "glm-5.3-flash"},
 		{"command/deepseek/deepseek-v4-pro", "command", "", "deepseek/deepseek-v4-pro"},
 	}
 	for _, tc := range cases {
@@ -298,6 +302,27 @@ func TestResolveProviderFilterRegionPrefix(t *testing.T) {
 				tc.model, provider, region, req.Model,
 				tc.wantProvider, tc.wantRegion, tc.wantStripped)
 		}
+	}
+}
+
+func TestPrepareStripsAutoPrefix(t *testing.T) {
+	ex := NewChatExecutor(NewPool(nil, nil), "")
+	got, err := ex.Prepare(PrepareInput{
+		Request:      translate.ChatRequest{Model: "qoder-auto/qwen3.8-max", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}}},
+		Identity:     auth.KeyIdentity(accounts.APIKey{ID: "k", Name: "ci", Providers: []string{"qoder"}, Enabled: true}),
+		NewRequestID: func() string { return "req_a" },
+	})
+	if err != nil {
+		t.Fatalf("Prepare error: %v", err)
+	}
+	if got.ProviderFilter != "qoder" {
+		t.Errorf("ProviderFilter = %q, want qoder", got.ProviderFilter)
+	}
+	if got.Request.Model != "qwen3.8-max" {
+		t.Errorf("Request.Model = %q, want qwen3.8-max (prefix stripped)", got.Request.Model)
+	}
+	if r := regionFilterFromContext(got.Context); r != "" {
+		t.Errorf("region = %q, want empty (auto selects region in pool)", r)
 	}
 }
 

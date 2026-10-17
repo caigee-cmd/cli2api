@@ -166,13 +166,18 @@ func (e ChatExecutor) Prepare(in PrepareInput) (PreparedRequest, error) {
 var providerPrefixes = []string{"qoder/", "workbuddy/", "trae/", "devin/", "command/", "codex/", "zhipu/"}
 
 // regionDashSuffixes are the region qualifiers that may be appended to a
-// provider prefix with a dash: "workbuddy-cn/", "workbuddy-gl/".
-var regionDashSuffixes = []string{"-cn/", "-gl/"}
+// provider prefix with a dash: "workbuddy-cn/", "workbuddy-gl/",
+// "workbuddy-auto/". "-auto/" is the opt-out: it pins the provider family
+// while letting the pool pick the region (the lastRegion latch in pool.go).
+var regionDashSuffixes = []string{"-cn/", "-gl/", "-auto/"}
 
 // regionAliases maps shorthand region tags to canonical region IDs.
+// "auto" maps to "" (no region pin), which triggers the pool's automatic
+// region selection instead of a fixed region.
 var regionAliases = map[string]string{
-	"cn": "cn",
-	"gl": "global",
+	"cn":   "cn",
+	"gl":   "global",
+	"auto": "",
 }
 
 // regionTag extracts the bare region tag from a dash suffix like "-cn/".
@@ -205,9 +210,10 @@ func RejectsBareModel(model string, crossProviderPool bool) bool {
 // provider family and the canonical region ("" when no region was specified).
 //
 // Supported forms:
-//   - "workbuddy/glm-5.3-flash"    → provider=workbuddy, region=""
-//   - "workbuddy-cn/glm-5.3-flash" → provider=workbuddy, region=cn
-//   - "workbuddy-gl/glm-5.3-flash" → provider=workbuddy, region=global
+//   - "workbuddy/glm-5.3-flash"     → provider=workbuddy, region="" (no region pin; the pool picks)
+//   - "qoder-auto/glm-5.2"          → provider=qoder, region="" (explicit auto: same as the bare prefix)
+//   - "workbuddy-cn/glm-5.3-flash"  → provider=workbuddy, region=cn
+//   - "workbuddy-gl/glm-5.3-flash"  → provider=workbuddy, region=global
 //
 // The region coexists with API-key grants: routeBaseMatches enforces both
 // independently, so a prefix that conflicts with a grant yields no candidates.
