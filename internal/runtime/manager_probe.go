@@ -148,3 +148,31 @@ func (m *Manager) forceReady(accountID string) bool {
 	_, err := os.Stat(filepath.Join(m.config.DataDir, "force-ready", accountID))
 	return err == nil
 }
+
+// probeHealthOnly issues a single GET /health to a worker account with a tight
+// 2s deadline. It is the liveness probe used by the maintenance-loop watchdog:
+// unlike refreshOne, it does not fetch quota or refresh the model catalog, so a
+// 30s-loop call costs one HTTP round-trip, not a quota probe. The pool state
+// machine is left to refreshOne and the manual console refresh path; this only
+// decides whether the worker is still alive enough to route to.
+//
+// In-process accounts (WorkBuddy / Trae / Devin) have no child-process /health
+// endpoint and never need this check — their liveness is the adapter's own
+// transport, which the executor already classifies. probeHealthOnly returns
+// (true, nil) for them so the watchdog skips them.
+func (m *Manager) probeHealthOnly(ctx context.Context, item Item) (bool, error) {
+	if item.Runtime == string(providers.RuntimeInProcess) || strings.TrimSpace(item.URL) == "" {
+		return true, nil
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	client := qoder.WorkerClient{HTTP: m.httpClient}
+	health, statusCode, err := client.Health(probeCtx, item.URL)
+	if err != nil {
+		return false, err
+	}
+	if statusCode >= 300 || !health.OK {
+		return false, nil
+	}
+	return health.Ready, nil
+}

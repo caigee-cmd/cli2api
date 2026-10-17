@@ -546,9 +546,9 @@ func (c *Client) ChatStream(ctx context.Context, accountID string, req translate
 		cloned.Timeout = 0
 		httpClient = &cloned
 	}
-	resp, err := httpClient.Do(httpReq)
+	resp, err := doWithFirstByteTimeout(httpClient, httpReq)
 	if err != nil {
-		return nil, providers.ResolvedChat{}, TransportError{Err: err}
+		return nil, providers.ResolvedChat{}, err
 	}
 	return resp, resolved, nil
 }

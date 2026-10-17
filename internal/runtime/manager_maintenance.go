@@ -289,6 +289,10 @@ func (manager *Manager) RunMaintenanceLoop(stop <-chan struct{}) {
 	// Seed the throttle so the first pass does not duplicate the boot-time
 	// RefreshAll: the next stale-quota sweep runs 5 minutes after startup.
 	lastStaleQuota := time.Now()
+	// Liveness probes start one tick in so boot-time RefreshAll owns the first
+	// /health round-trip and short-lived tests with a stub worker are not probed
+	// the instant the loop starts.
+	lastLiveness := time.Now()
 	for {
 		if ctx.Err() != nil {
 			return
@@ -303,6 +307,10 @@ func (manager *Manager) RunMaintenanceLoop(stop <-chan struct{}) {
 			lastKeepaliveDay = day
 		}
 		manager.sampleResources()
+		if now.Sub(lastLiveness) >= 30*time.Second {
+			manager.probeWorkerLiveness(ctx)
+			lastLiveness = now
+		}
 		if now.Sub(lastStaleQuota) >= staleQuotaInterval {
 			manager.refreshStaleQuota(ctx)
 			lastStaleQuota = now
@@ -476,6 +484,63 @@ func (manager *Manager) pruneQuotaProbeLevels(seen map[string]struct{}) {
 	for id := range manager.quotaProbeLevels {
 		if _, ok := seen[id]; !ok {
 			delete(manager.quotaProbeLevels, id)
+		}
+	}
+}
+
+// workerLivenessThreshold is how many consecutive /health probe failures the
+// watchdog tolerates before rebooting a stuck worker. At a 30s maintenance
+// cadence that is roughly a 90s grace window: long enough to ride out a
+// transient network blip or a worker mid-rewarm, short enough that a genuinely
+// stuck process is recovered before clients notice repeated hangs.
+const workerLivenessThreshold = 3
+
+// probeWorkerLiveness is the worker-side watchdog. refreshOne and the boot-time
+// RefreshAll only run at startup and on manual console refresh, so a worker
+// that goes "alive but stuck" after boot — /health no longer responds, or its
+// goroutine is wedged — would stay routed to forever without this loop. Each
+// 30s tick issues one /health round-trip per worker account; on the
+// threshold-th consecutive failure it calls stopAccount so the existing
+// watchAccount + beginAccountRecovery path reboots the worker with backoff.
+//
+// In-process accounts are skipped by probeHealthOnly and never enter the
+// failure counter, so WorkBuddy / Trae / Devin are unaffected.
+func (manager *Manager) probeWorkerLiveness(ctx context.Context) {
+	for _, item := range manager.pool.Items() {
+		if item.RuntimeState == "dead" {
+			continue
+		}
+		ready, err := manager.probeHealthOnly(ctx, item)
+		if err == nil && ready {
+			manager.mu.Lock()
+			delete(manager.healthFailures, item.ID)
+			manager.mu.Unlock()
+			continue
+		}
+		// Skip accounts already in recovery: stopAccount removed them from
+		// processes and beginAccountRecovery owns the reboot. Touching them
+		// here would double-restart or race the recovering guard.
+		manager.mu.Lock()
+		if manager.recovering[item.ID] {
+			manager.mu.Unlock()
+			continue
+		}
+		manager.healthFailures[item.ID]++
+		fails := manager.healthFailures[item.ID]
+		manager.mu.Unlock()
+		if fails >= workerLivenessThreshold {
+			log.Printf("worker liveness: account %s failed %d consecutive health probes (%v); stopping for recovery",
+				item.ID, fails, err)
+			manager.mu.Lock()
+			delete(manager.healthFailures, item.ID)
+			manager.mu.Unlock()
+			// stopAccount kills the child process; watchAccount sees the exit
+			// via process.Done() and calls beginAccountRecovery, which owns the
+			// backoff restart. No direct recovery call here — that would race
+			// the recovering guard.
+			if perr := manager.stopAccount(item.ID); perr != nil {
+				log.Printf("worker liveness: stop %s failed: %v", item.ID, perr)
+			}
 		}
 	}
 }

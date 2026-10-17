@@ -128,7 +128,7 @@ func (d *Direct) ChatStream(ctx context.Context, accountID string, req translate
 	if err != nil {
 		return nil, providers.ResolvedChat{}, err
 	}
-	resp, err := d.http.Do(prepared.request)
+	resp, err := doWithFirstByteTimeout(d.http, prepared.request)
 	if err != nil {
 		return nil, providers.ResolvedChat{}, err
 	}

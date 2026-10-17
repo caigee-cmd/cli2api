@@ -13,6 +13,7 @@ import (
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/endpoint"
+	"github.com/caigee-cmd/cli2api/internal/providers"
 )
 
 var (
@@ -48,6 +49,40 @@ func (e TransportError) Error() string {
 }
 
 func (e TransportError) Unwrap() error { return e.Err }
+
+// firstByteTimeout caps how long a streaming chat request will wait for the
+// upstream response head (status + headers). Once the head arrives, the timer
+// is stopped and the SSE body streams under the parent context's lifetime, so
+// long thinking-model output is not cut off. A stuck upstream that never sends
+// a first byte surfaces as ErrFirstByteTimeout so the executor can fail over to
+// the next account instead of hanging forever. 30s covers slow cold-starts
+// and thinking-model first-token latency while keeping a stuck-upstream failover
+// inside one round-trip of the client's patience.
+var firstByteTimeout = 30 * time.Second
+
+// doWithFirstByteTimeout sends req with client, returning a response once the
+// response head is received. If the head does not arrive within
+// firstByteTimeout it returns an error wrapping providers.ErrFirstByteTimeout;
+// if the parent context was already cancelled it surfaces that error unchanged
+// so the executor classifies it as a client cancellation rather than a timeout.
+func doWithFirstByteTimeout(client *http.Client, req *http.Request) (*http.Response, error) {
+	parent := req.Context()
+	ttfbCtx, cancelTTFB := context.WithCancel(parent)
+	defer cancelTTFB()
+	timer := time.AfterFunc(firstByteTimeout, cancelTTFB)
+	defer timer.Stop()
+	resp, err := client.Do(req.WithContext(ttfbCtx))
+	if err == nil {
+		return resp, nil
+	}
+	// TTFB fired only when the parent context is still alive: a parent cancel
+	// (client disconnect, shutdown) must stay a plain cancel so the executor
+	// does not treat it as an upstream failure worth cooling down.
+	if parent.Err() == nil && ttfbCtx.Err() != nil && !errors.Is(parent.Err(), context.Canceled) {
+		return nil, fmt.Errorf("%w: no response head within %s", providers.ErrFirstByteTimeout, firstByteTimeout)
+	}
+	return nil, TransportError{Err: err}
+}
 
 type HTTPStatusError struct {
 	Op     string

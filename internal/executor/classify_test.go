@@ -320,3 +320,33 @@ func TestClassifyErrorUpstreamEmptyNoCooldown(t *testing.T) {
 		t.Errorf("expected generic unavailable to keep cooldown, got %v", generic.Cooldown)
 	}
 }
+
+// A streaming first-byte timeout is an upstream hang: the client request is
+// still alive, the upstream just never sent a response head. It must classify
+// as upstream_unavailable with failover so the next eligible account serves
+// the turn, plus a short cooldown to shed a stuck worker for a few seconds.
+func TestClassifyErrorFirstByteTimeoutFailsOver(t *testing.T) {
+	err := fmt.Errorf("%w: no response head within 1m0s", providers.ErrFirstByteTimeout)
+	got := ClassifyError(err)
+	if got.Kind != accounts.KindUnavailable {
+		t.Fatalf("Kind=%s, want %s", got.Kind, accounts.KindUnavailable)
+	}
+	if !got.Failover {
+		t.Fatalf("Failover=false, want true")
+	}
+	if got.Cooldown != 10*time.Second || got.RetryAfter != 10*time.Second {
+		t.Fatalf("Cooldown=%s RetryAfter=%s, want 10s", got.Cooldown, got.RetryAfter)
+	}
+	if got.Code != "first_byte_timeout" {
+		t.Fatalf("Code=%q, want first_byte_timeout", got.Code)
+	}
+}
+
+// A plain client cancel must not be reclassified as a first-byte timeout; the
+// executor skips failover and cooldown for cancellations.
+func TestClassifyErrorContextCanceledStaysCanceled(t *testing.T) {
+	got := ClassifyError(context.Canceled)
+	if got.Kind != accounts.KindCanceled || got.Failover {
+		t.Fatalf("got Kind=%s Failover=%v, want %s/false", got.Kind, got.Failover, accounts.KindCanceled)
+	}
+}
