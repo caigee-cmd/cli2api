@@ -117,6 +117,23 @@ func allowedProvidersFrom(ctx context.Context) []string {
 	return providers
 }
 
+type regionFilterKey struct{}
+
+func WithRegionFilter(ctx context.Context, region string) context.Context {
+	if strings.TrimSpace(region) == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, regionFilterKey{}, region)
+}
+
+func regionFilterFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	region, _ := ctx.Value(regionFilterKey{}).(string)
+	return region
+}
+
 func requestContextDone(ctx context.Context, err error) bool {
 	if err == nil {
 		return false
@@ -737,12 +754,19 @@ type routeLoop struct {
 func (e ChatExecutor) newRouteLoop(ctx context.Context, prefer, providerFilter string, req translate.ChatRequest) routeLoop {
 	prefer, providerFilter, regionFilter, routing := e.prepareRouting(ctx, prefer, providerFilter, req)
 	allowed := allowedProvidersFrom(ctx)
-	// A key whose grants narrow the selected family to exactly one region
-	// pre-seeds the region filter: scheduling never even considers accounts
-	// of other regions — including a pin to an out-of-grant account (the
-	// grant overrides the pinned account's region, so the pin falls back
-	// into the granted region) and every failover hop.
-	if providerFilter != "" {
+	// A model-name region prefix (e.g. "workbuddy-cn/model") sets an explicit
+	// region that overrides sticky-session and pin-derived regions. It
+	// coexists with key grants: routeBaseMatches enforces both filters
+	// independently, so a prefix that conflicts with a grant yields no
+	// candidates and a clean error.
+	if modelRegion := regionFilterFromContext(ctx); modelRegion != "" {
+		regionFilter = modelRegion
+	} else if providerFilter != "" {
+		// A key whose grants narrow the selected family to exactly one region
+		// pre-seeds the region filter: scheduling never even considers accounts
+		// of other regions — including a pin to an out-of-grant account (the
+		// grant overrides the pinned account's region, so the pin falls back
+		// into the granted region) and every failover hop.
 		if granted, narrowed := keyGrantedSingleRegion(providerFilter, allowed); narrowed {
 			regionFilter = granted
 		}
