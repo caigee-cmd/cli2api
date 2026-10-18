@@ -39,6 +39,43 @@ func (e streamError) codeString() string {
 	}
 }
 
+func normalizeTraeUsage(raw []byte) any {
+	if len(raw) == 0 {
+		return nil
+	}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return json.RawMessage(raw)
+	}
+	var cachedTokens any
+	if ptd, ok := m["prompt_tokens_details"].(map[string]any); ok {
+		cachedTokens = ptd["cached_tokens"]
+	}
+	if cachedTokens == nil {
+		cachedTokens = m["cache_read_tokens"]
+	}
+	if cachedTokens == nil {
+		cachedTokens = m["prompt_cache_hit_tokens"]
+	}
+	if cachedTokens != nil {
+		if _, ok := m["cache_read_tokens"]; !ok {
+			m["cache_read_tokens"] = cachedTokens
+		}
+		if _, ok := m["prompt_cache_hit_tokens"]; !ok {
+			m["prompt_cache_hit_tokens"] = cachedTokens
+		}
+		if _, ok := m["prompt_tokens_details"]; !ok {
+			m["prompt_tokens_details"] = map[string]any{"cached_tokens": cachedTokens}
+		}
+	}
+	if _, ok := m["total_tokens"]; !ok {
+		pt, _ := m["prompt_tokens"].(float64)
+		ct, _ := m["completion_tokens"].(float64)
+		m["total_tokens"] = int(pt + ct)
+	}
+	return m
+}
+
 // Aggregate converts a Solo SSE stream into one OpenAI chat.completion object.
 func Aggregate(reader io.Reader) (map[string]any, error) {
 	result := map[string]any{"object": "chat.completion"}
@@ -78,7 +115,7 @@ func Aggregate(reader io.Reader) (map[string]any, error) {
 			}
 			mergeSoloToolCalls(toolCalls, &order, out.ToolCalls)
 		case "token_usage":
-			usage = json.RawMessage(ev.Data)
+			usage = normalizeTraeUsage(ev.Data)
 		case "done":
 			sawDone = true
 			var done struct {
@@ -212,6 +249,7 @@ func startSoloRewrite(src io.ReadCloser, upstream io.Closer, model string) (*htt
 		id := fmt.Sprintf("chatcmpl-%d", time.Now().UnixNano())
 		created := time.Now().Unix()
 		var pendingUsage any
+		var lastUsage any
 		ended := false
 		writeChunk := func(delta map[string]any, finish string, usage any) error {
 			chunk := map[string]any{
@@ -275,7 +313,8 @@ func startSoloRewrite(src io.ReadCloser, upstream io.Closer, model string) (*htt
 				pendingUsage = nil
 				return writeChunk(delta, "", usage)
 			case "token_usage":
-				pendingUsage = json.RawMessage(ev.Data)
+				lastUsage = normalizeTraeUsage(ev.Data)
+				pendingUsage = lastUsage
 			case "done":
 				ended = true
 				var done struct {
@@ -287,6 +326,9 @@ func startSoloRewrite(src io.ReadCloser, upstream io.Closer, model string) (*htt
 					finish = "stop"
 				}
 				usage := pendingUsage
+				if usage == nil && lastUsage != nil {
+					usage = lastUsage
+				}
 				pendingUsage = nil
 				if err := writeChunk(map[string]any{}, finish, usage); err != nil {
 					return err
@@ -306,7 +348,11 @@ func startSoloRewrite(src io.ReadCloser, upstream io.Closer, model string) (*htt
 			return nil
 		})
 		if !ended {
-			_ = writeChunk(map[string]any{}, "stop", pendingUsage)
+			usage := pendingUsage
+			if usage == nil && lastUsage != nil {
+				usage = lastUsage
+			}
+			_ = writeChunk(map[string]any{}, "stop", usage)
 			_, _ = io.WriteString(pw, "data: [DONE]\n\n")
 		}
 		if err != nil {

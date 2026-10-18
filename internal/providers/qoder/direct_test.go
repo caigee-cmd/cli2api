@@ -222,3 +222,26 @@ func TestDirectChatNonStreamRejectsEmptyUpstream(t *testing.T) {
 		t.Fatalf("err = %#v", err)
 	}
 }
+
+func TestDirectChatStreamSalvagesTruncatedStreamWithCachedUsage(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: {\"body\":{\"choices\":[{\"delta\":{\"content\":\"partial\"}}],\"usage\":{\"prompt_tokens\":100,\"completion_tokens\":10,\"prompt_tokens_details\":{\"cached_tokens\":80}}}}\n\n")
+	}))
+	defer upstream.Close()
+	direct := newDirectFor(t, upstream)
+
+	resp, _, err := direct.ChatStream(context.Background(), "acc", translate.ChatRequest{Model: "auto"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	text := string(body)
+	if !strings.Contains(text, `"finish_reason":"stop"`) {
+		t.Fatalf("missing synthesized finish_reason: %s", text)
+	}
+	if !strings.Contains(text, `"cached_tokens":80`) {
+		t.Fatalf("missing cached_tokens in terminal chunk: %s", text)
+	}
+}

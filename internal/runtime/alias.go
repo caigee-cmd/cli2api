@@ -23,6 +23,7 @@ type (
 )
 
 const (
+	KindAuth                    = accounts.KindAuth
 	KindUnavailable             = accounts.KindUnavailable
 	DefaultWorkBuddyCheckinTime = accounts.DefaultWorkBuddyCheckinTime
 	backoffMaxLevel             = accounts.BackoffMaxLevel

@@ -45,10 +45,7 @@ func Classify(status int, body string) providers.ClassifiedError {
 			Status:  400,
 			Message: firstNonEmpty(safeBody, "devin rejected MCP/hosted tools in the request"),
 		}
-	case status == 401 ||
-		strings.Contains(text, "unauthenticated") ||
-		strings.Contains(text, "unauthorized") ||
-		strings.Contains(text, "session dead"):
+	case isDevinAuthError(status, text):
 		return providers.ClassifiedError{
 			Kind:    accounts.KindAuth,
 			Status:  firstNonEmptyStatus(status, 401),
@@ -215,6 +212,30 @@ func appendToolsDiag(message, toolsDiag string) string {
 		return message
 	}
 	return message + " | " + suffix
+}
+
+func isDevinAuthError(status int, text string) bool {
+	if status == 401 ||
+		strings.Contains(text, "unauthenticated") ||
+		strings.Contains(text, "unauthorized") ||
+		strings.Contains(text, "session dead") ||
+		strings.Contains(text, "token has expired") ||
+		strings.Contains(text, "token is expired") ||
+		strings.Contains(text, "token expired") ||
+		strings.Contains(text, "expired token") ||
+		strings.Contains(text, "token invalid") ||
+		strings.Contains(text, "invalid token") {
+		return true
+	}
+	// Codeium Connect-RPC and seat management return permission_denied with
+	// "an internal error occurred" when the session token is expired or invalid.
+	if strings.Contains(text, "permission_denied") && (strings.Contains(text, "internal error") || strings.Contains(text, "token")) {
+		return true
+	}
+	if status == 403 && (strings.Contains(text, "seat management error") || strings.Contains(text, "internal error")) {
+		return true
+	}
+	return false
 }
 
 func isDevinMCPConfigDenial(text string) bool {

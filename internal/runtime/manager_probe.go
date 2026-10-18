@@ -112,12 +112,22 @@ func (m *Manager) refreshInProcess(ctx context.Context, item Item) error {
 		m.resetRestartBackoff(item.ID)
 	}
 	status := "login_required"
+	kind := ""
 	if health.Ready || health.Hot {
 		status = "ready"
 	} else if health.LastError != "" {
 		status = "error"
+		if adapter.Classifier != nil {
+			classified := adapter.Classifier.Classify(0, health.LastError)
+			if classified.Kind != "" {
+				kind = classified.Kind
+			}
+			if classified.Kind == KindAuth {
+				status = "login_required"
+			}
+		}
 	}
-	if err := m.store.Observe(ctx, item.ID, health.UID, status, health.LastError, ""); err != nil {
+	if err := m.store.Observe(ctx, item.ID, health.UID, status, health.LastError, kind); err != nil {
 		return err
 	}
 	if health.Ready || health.Hot {

@@ -1872,6 +1872,7 @@ func TestOutcomeFromAggregatePreservesCacheUsage(t *testing.T) {
 	}{
 		{name: "top-level cache fields", usage: `"cache_read_tokens":12,"cache_write_tokens":3`, read: 12, write: 3},
 		{name: "cached tokens detail fallback", usage: `"prompt_tokens_details":{"cached_tokens":7},"cache_write_tokens":0`, read: 7, write: 0},
+		{name: "prompt cache hit tokens", usage: `"prompt_cache_hit_tokens":80,"cache_write_tokens":0`, read: 80, write: 0},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			aggregate, err := Aggregate(strings.NewReader(strings.Join([]string{
