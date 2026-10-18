@@ -65,7 +65,7 @@ func (m *Manager) fetchAccountModels(ctx context.Context, item Item) {
 	if m == nil || m.pool == nil || item.ID == "" {
 		return
 	}
-	if item.Runtime == string(providers.RuntimeInProcess) || strings.TrimSpace(item.URL) == "" {
+	if item.Provider != "qoder" && (item.Runtime == string(providers.RuntimeInProcess) || strings.TrimSpace(item.URL) == "") {
 		m.fetchProviderModels(ctx, item)
 		return
 	}

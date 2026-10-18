@@ -99,6 +99,10 @@ func (m *Manager) refreshInProcess(ctx context.Context, item Item) error {
 	adapter, ok := m.providers.Get(item.Provider)
 	if !ok || adapter.Prober == nil {
 		// No prober registered: leave pool state alone and never hit ""+/health.
+		// If the adapter provides a catalog, refresh models so pool routing knows them.
+		if ok && adapter.Models != nil {
+			m.fetchAccountModels(ctx, item)
+		}
 		return nil
 	}
 	health, err := adapter.Prober.Probe(ctx, item.ID)

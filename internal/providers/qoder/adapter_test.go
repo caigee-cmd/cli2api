@@ -431,3 +431,66 @@ func TestModelInfosCarriesContextWindows(t *testing.T) {
 		t.Errorf("MaxOutput = %d, want 32000", caps.MaxOutput)
 	}
 }
+
+func TestModelInfosParsesRawGatewayCatalog(t *testing.T) {
+	rawEntries := []map[string]any{
+		{
+			"key":               "qfmodel",
+			"display_name":      "Qwen3.8-Flash",
+			"enable":            true,
+			"is_reasoning":      true,
+			"is_vl":             false,
+			"is_free":           true,
+			"price_factor":      0.0,
+			"max_output_tokens": 4096.0,
+		},
+		{
+			"key":               "gmodel",
+			"display_name":      "GLM-5.3",
+			"enable":            true,
+			"is_reasoning":      true,
+			"is_vl":             true,
+			"price_factor":      0.5,
+			"max_output_tokens": 8192.0,
+		},
+		{
+			"key":          "disabled_model",
+			"display_name": "Disabled",
+			"enable":       false,
+		},
+	}
+	infos := ModelInfos(rawEntries)
+	if len(infos) != 2 {
+		t.Fatalf("len(infos) = %d, want 2 (disabled skipped)", len(infos))
+	}
+	if infos[0].PublicModel != "qwen3.8-flash" || infos[0].NativeModel != "qfmodel" {
+		t.Fatalf("infos[0] = %+v, want qwen3.8-flash / qfmodel", infos[0])
+	}
+	if !infos[0].Free || infos[0].Credits != "0" {
+		t.Fatalf("infos[0] free = %v credits = %s, want free / 0", infos[0].Free, infos[0].Credits)
+	}
+	if !infos[0].Capabilities.Reasoning {
+		t.Fatal("infos[0] reasoning = false, want true")
+	}
+	if infos[1].PublicModel != "glm-5.3" || infos[1].NativeModel != "gmodel" {
+		t.Fatalf("infos[1] = %+v, want glm-5.3 / gmodel", infos[1])
+	}
+	nativeMap := NativeCatalogIDsFromInfos(infos)
+	if nativeMap["qwen3.8-flash"] != "qfmodel" {
+		t.Fatalf("nativeMap[qwen3.8-flash] = %q, want qfmodel", nativeMap["qwen3.8-flash"])
+	}
+	if nativeMap["glm-5.3"] != "gmodel" {
+		t.Fatalf("nativeMap[glm-5.3] = %q, want gmodel", nativeMap["glm-5.3"])
+	}
+	catalogIDs := CatalogIDsFromInfos(infos)
+	foundQwen := false
+	for _, id := range catalogIDs {
+		if id == "qwen3.8-flash" {
+			foundQwen = true
+			break
+		}
+	}
+	if !foundQwen {
+		t.Fatalf("catalogIDs = %v, want qwen3.8-flash present", catalogIDs)
+	}
+}

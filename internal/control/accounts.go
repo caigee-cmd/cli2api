@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/providers"
@@ -304,19 +305,26 @@ func (a *Accounts) Admin(ctx context.Context, input AccountAdminAction) (Account
 		if storeErr != nil {
 			return AccountAdminResult{}, storeErr
 		}
-		if inProcess {
-			var payload struct {
-				PAT string `json:"pat"`
-			}
-			if err := json.Unmarshal(input.Body, &payload); err != nil {
-				return AccountAdminResult{}, operationError("invalid_request", err.Error())
-			}
-			if err := a.LoginPAT(ctx, input.AccountID, payload.PAT); err != nil {
-				return AccountAdminResult{}, err
-			}
-			return AccountAdminResult{Kind: "login_complete", LoginStatus: "ok", LoginMsg: "login complete"}, nil
+		// Qoder PAT login now stores the PAT as qoder-pat-v1 (in-process
+		// Bridge path) instead of forwarding to the worker. Legacy Qoder
+		// accounts that lack a CredentialImporter still fall through to the
+		// workerAdmin path; this mirrors the old behavior for them.
+		var payload struct {
+			PAT string `json:"pat"`
 		}
-		return a.workerAdmin(ctx, input)
+		if err := json.Unmarshal(input.Body, &payload); err != nil {
+			return AccountAdminResult{}, operationError("invalid_request", err.Error())
+		}
+		if err := a.LoginPAT(ctx, input.AccountID, payload.PAT); err != nil {
+			// Fall back to the worker path for accounts whose provider has no
+			// CredentialImporter (legacy Qoder blob accounts).
+			var opErr *OperationError
+			if errors.As(err, &opErr) {
+				return a.workerAdmin(ctx, input)
+			}
+			return AccountAdminResult{}, err
+		}
+		return AccountAdminResult{Kind: "login_complete", LoginStatus: "ok", LoginMsg: "login complete"}, nil
 	case "rewarm":
 		if inProcess {
 			return AccountAdminResult{}, operationError("not_found", "unknown account action")

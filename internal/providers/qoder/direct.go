@@ -18,12 +18,15 @@ import (
 )
 
 // Direct talks to the Qoder chat gateway from this process. It does not load
-// the CLI bundle. Login and quota stay on the per-account worker.
+// the CLI bundle. When an in-process Bridge is available (PAT-backed account),
+// it resolves credentials and fresh session tokens from the Bridge; legacy
+// accounts without a PAT fall back to the stored CLI user_blob.
 type Direct struct {
-	store  CredentialStore
-	region func(ctx context.Context, accountID string) (string, error)
-	http   *http.Client
-	now    func() time.Time
+	store    CredentialStore
+	region   func(ctx context.Context, accountID string) (string, error)
+	bridgeOf func(ctx context.Context, accountID string) (*Bridge, error)
+	http     *http.Client
+	now      func() time.Time
 	// ttfb bounds how long ChatStream waits for the upstream response head.
 	// Zero falls back to defaultFirstByteTimeout inside doWithFirstByteTimeout.
 	ttfb time.Duration
@@ -37,6 +40,13 @@ func NewDirect(store CredentialStore, region func(context.Context, string) (stri
 		now:    time.Now,
 		ttfb:   resolveFirstByteTimeout(),
 	}
+}
+
+func (d *Direct) SetBridgeResolver(fn func(ctx context.Context, accountID string) (*Bridge, error)) {
+	if d == nil {
+		return
+	}
+	d.bridgeOf = fn
 }
 
 func (d *Direct) SetHTTP(client *http.Client) {
@@ -53,29 +63,81 @@ type directPrepared struct {
 }
 
 func (d *Direct) prepare(ctx context.Context, accountID string, req translate.ChatRequest) (directPrepared, error) {
-	if d == nil || d.store == nil {
+	if d == nil {
 		return directPrepared{}, fmt.Errorf("qoder direct client is not configured")
 	}
-	credential, err := d.store.LoadCredential(ctx, accountID)
-	if err != nil {
-		return directPrepared{}, err
+	var user CLIUser
+	var session *Session
+	var region string
+	var err error
+
+	// 1. In-process Bridge path: when the account has a stored PAT, the Bridge
+	// manages the session lifecycle (fresh securityOauthToken + refreshToken)
+	// and stable machine identity.
+	if d.bridgeOf != nil {
+		if b, bridgeErr := d.bridgeOf(ctx, accountID); bridgeErr == nil {
+			if err := b.EnsureFreshSession(ctx); err != nil {
+				return directPrepared{}, fmt.Errorf("qoder ensure fresh session: %w", err)
+			}
+			ident := b.currentIdentity()
+			if ident != nil {
+				user = CLIUser{
+					Name:               ident.Name,
+					UID:                ident.UID,
+					Aid:                ident.Aid,
+					YxUID:              ident.YxUID,
+					OrganizationID:     ident.OrganizationID,
+					OrganizationName:   ident.OrganizationName,
+					UserType:           ident.UserType,
+					SecurityOauthToken: ident.SecurityOauthToken,
+					RefreshToken:       ident.RefreshToken,
+				}
+				session, err = NewSession(user)
+				if err != nil {
+					return directPrepared{}, err
+				}
+				session.MachineID = b.MachineID()
+				session.MachineToken = b.MachineToken()
+				session.MachineType = b.MachineType()
+				if b.Region != nil && b.Region.Name != "" {
+					region = b.Region.Name
+				}
+			}
+		}
 	}
-	user, err := DecryptCLIUser(credential.UserBlob, credential.MachineID)
-	if err != nil {
-		return directPrepared{}, err
-	}
-	session, err := NewSession(user)
-	if err != nil {
-		return directPrepared{}, err
-	}
-	region := "global"
-	if d.region != nil {
-		region, err = d.region(ctx, accountID)
+
+	// 2. Legacy fallback: account has no PAT, load encrypted CLI user blob.
+	if session == nil {
+		if d.store == nil {
+			return directPrepared{}, fmt.Errorf("qoder direct client is not configured")
+		}
+		credential, err := d.store.LoadCredential(ctx, accountID)
+		if err != nil {
+			return directPrepared{}, err
+		}
+		user, err = DecryptCLIUser(credential.UserBlob, credential.MachineID)
+		if err != nil {
+			return directPrepared{}, err
+		}
+		session, err = NewSession(user)
 		if err != nil {
 			return directPrepared{}, err
 		}
 	}
+
+	if region == "" {
+		region = "global"
+		if d.region != nil {
+			region, err = d.region(ctx, accountID)
+			if err != nil {
+				return directPrepared{}, err
+			}
+		}
+	}
 	plain := BuildPlainChatBody(req, d.now())
+	if user.UserType != "" {
+		plain["aliyun_user_type"] = user.UserType
+	}
 	model, _ := plain["model_config"].(map[string]any)
 	modelKey, _ := model["key"].(string)
 	body, err := json.Marshal(plain)
@@ -317,28 +379,44 @@ func BuildPlainChatBody(req translate.ChatRequest, now time.Time) map[string]any
 	if n, ok := rawNumber(req.MaxInputTokens); ok && n > 0 {
 		maxInput = n
 	}
+	prompt := latestUserPrompt(messages)
 	name := "chat"
-	if text := translate.ContentToString(messages[len(messages)-1]["content"]); strings.TrimSpace(text) != "" {
-		name = strings.TrimSpace(text)
+	if prompt != "" {
+		name = prompt
 	}
 	if len(name) > 40 {
 		name = name[:40]
 	}
 	return map[string]any{
-		"request_id":       newID(),
-		"request_set_id":   newID(),
-		"chat_record_id":   newID(),
-		"session_id":       newID(),
-		"stream":           true,
-		"chat_task":        "FREE_INPUT",
-		"chat_context":     map[string]any{"text": "", "features": map[string]any{}, "extra": map[string]any{}, "chatPrompt": "", "imageUrls": []any{}},
+		"request_id":     newID(),
+		"request_set_id": newID(),
+		"chat_record_id": newID(),
+		"session_id":     newID(),
+		"stream":         true,
+		"chat_task":      "FREE_INPUT",
+		// chat_context mirrors the reference Qoder client (and the working
+		// qoder2api): the gateway resolves the thinking channel and the routed
+		// model from chat_context.extra.modelConfig. An empty extra block makes
+		// the gateway answer without a reasoning_content stream even when the
+		// top-level model_config.is_reasoning and parameters.enable_thinking are
+		// set, so both copies must carry the model key and reasoning flag.
+		"chat_context": map[string]any{
+			"text":     map[string]any{"type": "text", "text": prompt},
+			"features": []any{},
+			"extra": map[string]any{
+				"modelConfig":     map[string]any{"key": modelKey, "is_reasoning": reasoning},
+				"originalContent": map[string]any{"type": "text", "text": prompt},
+			},
+			"chatPrompt": "",
+			"imageUrls":  nil,
+		},
 		"is_reply":         false,
 		"is_retry":         false,
-		"source":           "cli",
-		"version":          "1.0",
+		"source":           1,
+		"version":          "3",
 		"agent_id":         "agent_common",
 		"task_id":          "common",
-		"session_type":     "assistant",
+		"session_type":     "qodercli",
 		"aliyun_user_type": "",
 		"model_config": map[string]any{
 			"key": modelKey, "display_name": modelKey, "model": "", "format": "openai",
@@ -355,6 +433,22 @@ func BuildPlainChatBody(req translate.ChatRequest, now time.Time) map[string]any
 			"id": newID(), "name": name, "begin_at": now.UnixMilli(), "stage": "start",
 		},
 	}
+}
+
+// latestUserPrompt returns the most recent user message's text, which the
+// reference client duplicates into chat_context.text and
+// chat_context.extra.originalContent. Empty when no user turn carries text.
+func latestUserPrompt(messages []map[string]any) string {
+	for i := len(messages) - 1; i >= 0; i-- {
+		role, _ := messages[i]["role"].(string)
+		if role != "user" {
+			continue
+		}
+		if text := strings.TrimSpace(translate.ContentToString(messages[i]["content"])); text != "" {
+			return text
+		}
+	}
+	return ""
 }
 
 // normalizeMessageContent replaces a nil content on a message that carries
