@@ -128,6 +128,22 @@ func TestResponsesUsagePreservesCachedInputTokens(t *testing.T) {
 	}
 }
 
+func TestRelayOpenAIStreamSalvagesFinishReasonWithoutDone(t *testing.T) {
+	stream := "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\n" +
+		"data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n"
+	rec := httptest.NewRecorder()
+	stats, err := RelayOpenAIStream(rec, strings.NewReader(stream))
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if !stats.SawDone {
+		t.Fatalf("expected SawDone=true")
+	}
+	if !strings.Contains(rec.Body.String(), "data: [DONE]") {
+		t.Fatalf("expected data: [DONE] in output: %s", rec.Body.String())
+	}
+}
+
 func TestParseStreamUsageLineCacheReadFallback(t *testing.T) {
 	for _, test := range []struct {
 		name  string
@@ -137,6 +153,7 @@ func TestParseStreamUsageLineCacheReadFallback(t *testing.T) {
 		{name: "detail only", usage: `"prompt_tokens_details":{"cached_tokens":2176}`, want: ptrInt(2176)},
 		{name: "explicit zero", usage: `"prompt_tokens_details":{"cached_tokens":0}`, want: ptrInt(0)},
 		{name: "top-level wins", usage: `"cache_read_tokens":12,"prompt_tokens_details":{"cached_tokens":2176}`, want: ptrInt(12)},
+		{name: "prompt cache hit tokens", usage: `"prompt_cache_hit_tokens":80`, want: ptrInt(80)},
 		{name: "unknown stays absent", usage: `"prompt_tokens":16`, want: nil},
 	} {
 		t.Run(test.name, func(t *testing.T) {

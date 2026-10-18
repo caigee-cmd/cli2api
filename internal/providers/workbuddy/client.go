@@ -546,13 +546,14 @@ func outcomeFromAggregate(aggregate map[string]any) (providers.ChatOutcome, erro
 	var parsed struct {
 		Model string `json:"model"`
 		Usage struct {
-			PromptTokens     int      `json:"prompt_tokens"`
-			CompletionTokens int      `json:"completion_tokens"`
-			CacheReadTokens  *int     `json:"cache_read_tokens"`
-			CacheWriteTokens *int     `json:"cache_write_tokens"`
-			Source           string   `json:"source"`
-			Credit           *float64 `json:"credit"`
-			PromptDetails    struct {
+			PromptTokens         int      `json:"prompt_tokens"`
+			CompletionTokens     int      `json:"completion_tokens"`
+			CacheReadTokens      *int     `json:"cache_read_tokens"`
+			CacheWriteTokens     *int     `json:"cache_write_tokens"`
+			PromptCacheHitTokens *int     `json:"prompt_cache_hit_tokens"`
+			Source               string   `json:"source"`
+			Credit               *float64 `json:"credit"`
+			PromptDetails        struct {
 				CachedTokens *int `json:"cached_tokens"`
 			} `json:"prompt_tokens_details"`
 		} `json:"usage"`
@@ -583,6 +584,9 @@ func outcomeFromAggregate(aggregate map[string]any) (providers.ChatOutcome, erro
 	out.CacheReadTokens = parsed.Usage.CacheReadTokens
 	if out.CacheReadTokens == nil {
 		out.CacheReadTokens = parsed.Usage.PromptDetails.CachedTokens
+	}
+	if out.CacheReadTokens == nil {
+		out.CacheReadTokens = parsed.Usage.PromptCacheHitTokens
 	}
 	out.CacheWriteTokens = parsed.Usage.CacheWriteTokens
 	out.Credits = parsed.Usage.Credit
