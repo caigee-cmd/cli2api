@@ -62,18 +62,33 @@ type pendingCall struct {
 
 func (c *streamConverter) run(body io.Reader) {
 	defer c.writer.Close()
+	scanCodexSSE(body, func(event, payload string) {
+		c.handleEvent(event, payload)
+	})
+	if !c.sawTerminal {
+		c.emitDone()
+	}
+}
+
+// scanCodexSSE yields one logical event at a time. A data field split across
+// several data: lines without a blank line is joined until the JSON object
+// closes; otherwise the first fragment would be dropped and a split
+// response.completed would lose usage.
+func scanCodexSSE(body io.Reader, handle func(event, payload string)) {
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 0, 64*1024), maxSSELineSize)
 	var eventName, data strings.Builder
+	holding := false
 	flush := func() {
 		event := strings.TrimSpace(eventName.String())
 		payload := strings.TrimSpace(data.String())
 		eventName.Reset()
 		data.Reset()
+		holding = false
 		if payload == "" {
 			return
 		}
-		c.handleEvent(event, payload)
+		handle(event, payload)
 	}
 	for scanner.Scan() {
 		line := strings.TrimSuffix(scanner.Text(), "\r")
@@ -82,21 +97,77 @@ func (c *streamConverter) run(body io.Reader) {
 			continue
 		}
 		if strings.HasPrefix(line, "event:") {
+			if holding && !jsonObjectOpen(data.String()) {
+				flush()
+			}
 			if eventName.Len() > 0 {
 				eventName.WriteString(" ")
 			}
 			eventName.WriteString(strings.TrimSpace(strings.TrimPrefix(line, "event:")))
-		} else if strings.HasPrefix(line, "data:") {
-			if data.Len() > 0 {
-				data.WriteString("\n")
-			}
-			data.WriteString(strings.TrimPrefix(line, "data:"))
+			continue
+		}
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		piece := strings.TrimPrefix(line, "data:")
+		if strings.HasPrefix(piece, " ") {
+			piece = piece[1:]
+		}
+		if holding && !jsonObjectOpen(data.String()) {
+			flush()
+		}
+		if data.Len() > 0 {
+			data.WriteByte('\n')
+		}
+		data.WriteString(piece)
+		holding = true
+		if !jsonObjectOpen(data.String()) {
+			flush()
 		}
 	}
 	flush()
-	if !c.sawTerminal {
-		c.emitDone()
+}
+
+// jsonObjectOpen reports a value that started an object or array and has not
+// closed it. Strings and escapes are skipped so a brace inside text does not
+// end the event early.
+func jsonObjectOpen(payload string) bool {
+	trimmed := strings.TrimSpace(payload)
+	if trimmed == "" || trimmed == "[DONE]" || (trimmed[0] != '{' && trimmed[0] != '[') {
+		return false
 	}
+	depth := 0
+	inString := false
+	escaped := false
+	for i := 0; i < len(trimmed); i++ {
+		ch := trimmed[i]
+		if inString {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if ch == '\\' {
+				escaped = true
+				continue
+			}
+			if ch == '"' {
+				inString = false
+			}
+			continue
+		}
+		switch ch {
+		case '"':
+			inString = true
+		case '{', '[':
+			depth++
+		case '}', ']':
+			depth--
+			if depth == 0 {
+				return false
+			}
+		}
+	}
+	return depth > 0
 }
 
 func (c *streamConverter) handleEvent(event, payload string) {
@@ -332,15 +403,7 @@ func aggregate(body io.Reader, model string) (providers.ChatOutcome, error) {
 	var toolCalls []json.RawMessage
 	sawTerminal := false
 
-	scanner := bufio.NewScanner(body)
-	scanner.Buffer(make([]byte, 0, 64*1024), maxSSELineSize)
-	var eventData strings.Builder
-	flush := func() {
-		payload := strings.TrimSpace(eventData.String())
-		eventData.Reset()
-		if payload == "" {
-			return
-		}
+	scanCodexSSE(body, func(_, payload string) {
 		var obj map[string]json.RawMessage
 		if json.Unmarshal([]byte(payload), &obj) != nil {
 			return
@@ -397,24 +460,7 @@ func aggregate(body io.Reader, model string) (providers.ChatOutcome, error) {
 				sawTerminal = true
 			}
 		}
-	}
-	for scanner.Scan() {
-		line := strings.TrimSuffix(scanner.Text(), "\r")
-		if line == "" {
-			flush()
-			continue
-		}
-		if strings.HasPrefix(line, "data:") {
-			if eventData.Len() > 0 {
-				eventData.WriteString("\n")
-			}
-			eventData.WriteString(strings.TrimPrefix(line, "data:"))
-		}
-	}
-	flush()
-	if err := scanner.Err(); err != nil {
-		return outcome, err
-	}
+	})
 	if !sawTerminal {
 		return outcome, fmt.Errorf("codex stream ended without terminal event")
 	}

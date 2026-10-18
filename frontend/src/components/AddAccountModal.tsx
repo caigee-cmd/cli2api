@@ -149,6 +149,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
   const [authUrl, setAuthUrl] = useState('')
   const [authCopied, setAuthCopied] = useState(false)
   const [callbackUrl, setCallbackUrl] = useState('')
+  const [codexLoginMethod, setCodexLoginMethod] = useState<'cli' | 'chatgpt'>('cli')
   const stepBody = useRef<HTMLDivElement>(null)
   const createdId = useRef<string>('')
   const pollTimer = useRef<number | null>(null)
@@ -256,6 +257,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
     setAuthUrl('')
     setAuthCopied(false)
     setCallbackUrl('')
+    setCodexLoginMethod('cli')
     createdId.current = ''
   }
 
@@ -317,7 +319,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
       const id = await ensureAccount()
       setMessage(t('wizardStartingSession'))
       setPhase('polling')
-      const output = await startDeviceLogin(id)
+      const output = await startDeviceLogin(id, activeOption?.provider === 'codex' ? codexLoginMethod : undefined)
       if (output.authUrl) {
         setAuthUrl(output.authUrl)
       }
@@ -494,7 +496,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
   ].filter(Boolean) as Array<{ value: TabKey; label: string; icon: React.ReactNode }>
 
   const tabLead = tab === 'browser'
-    ? t('wizardBrowserLead')
+    ? t(activeOption?.provider === 'codex' ? 'wizardCodexBrowserLead' : 'wizardBrowserLead')
     : tab === 'pat'
       ? t(activeOption?.provider === 'command'
           ? 'wizardPatLeadCommand'
@@ -693,6 +695,18 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                   <div className="mt-3 flex flex-col gap-4">
                     {tab === 'browser' ? (
                       <>
+                        {activeOption?.provider === 'codex' ? (
+                          <OptionTiles
+                            ariaLabel={t('codexLoginMethod')}
+                            columns={2}
+                            value={codexLoginMethod}
+                            onChange={(next) => { if (!busy) setCodexLoginMethod(next) }}
+                            options={[
+                              { value: 'cli', label: t('codexLoginCli'), hint: t('codexLoginCliHint'), disabled: busy || Boolean(createdId.current) },
+                              { value: 'chatgpt', label: t('codexLoginChatGPT'), hint: t('codexLoginChatGPTHint'), disabled: busy || Boolean(createdId.current) },
+                            ]}
+                          />
+                        ) : null}
                         {authUrl ? (
                           <div className="rounded-lg border border-separator bg-surface-secondary px-3 py-2.5">
                             <div className="flex items-center gap-2 text-xs">

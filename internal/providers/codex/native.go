@@ -31,12 +31,20 @@ func (c *Client) ResponsesStream(ctx context.Context, accountID string, req *tra
 	if err != nil {
 		return nil, providers.ResolvedChat{}, err
 	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, ChatBase+pathResponses, bytes.NewReader(body))
+	base := ChatBase
+	if credential.UsesChatGPT() {
+		body = applyChatGPTBody(body)
+		sessionID = ""
+		base = SIWCBaseURL
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, base+pathResponses, bytes.NewReader(body))
 	if err != nil {
 		return nil, providers.ResolvedChat{}, err
 	}
 	SetChatHeaders(httpReq.Header, credential, sessionID, true)
-	applyCodexRequestHeaders(httpReq.Header, model, usesResponsesLite(model))
+	if !credential.UsesChatGPT() {
+		applyCodexRequestHeaders(httpReq.Header, model, usesResponsesLite(model))
+	}
 	client, err := c.httpClient(ctx, accountID)
 	if err != nil {
 		return nil, providers.ResolvedChat{}, err

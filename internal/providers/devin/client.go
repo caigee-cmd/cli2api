@@ -423,9 +423,10 @@ func quotaFromStatus(status *UserStatus, fetchedAt time.Time) *providers.QuotaIn
 		windows = append(windows, percentQuotaWindow("weekly", "Weekly quota", status.WeeklyQuotaRemainingPercent, status.WeeklyQuotaResetAt))
 	}
 	info := &providers.QuotaInfo{
-		Unit:      QuotaUnit,
-		FetchedAt: fetchedAt.Format(time.RFC3339),
-		Windows:   windows,
+		Unit:       QuotaUnit,
+		FetchedAt:  fetchedAt.Format(time.RFC3339),
+		Windows:    windows,
+		ProviderID: "devin",
 	}
 	if len(windows) == 0 {
 		return info
