@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -32,7 +33,8 @@ type Store interface {
 	Observe(ctx context.Context, id, remoteUID, status, lastError, lastKind string) error
 }
 
-// SecretReader is optional; missing it means no global proxy.
+// SecretReader is optional; missing it means no global proxy and the Codex
+// login method stays on the CLI OAuth path.
 type SecretReader interface {
 	GetSecret(context.Context, string) (string, bool, error)
 }
@@ -40,11 +42,18 @@ type SecretReader interface {
 type loginPending struct {
 	state        string
 	codeVerifier string
+	nonce        string
+	deviceID     string
+	method       string
 	createdAt    time.Time
 	done         bool
 	failed       bool
 	message      string
 	credential   Credential
+}
+
+func codexLoginMethodSecret(accountID string) string {
+	return "codex_login_method:" + strings.TrimSpace(accountID)
 }
 
 type Client struct {
@@ -85,6 +94,18 @@ func NewClient(store Store) *Client {
 		pendingStates: map[string]string{},
 		refresh:       map[string]*refreshCall{},
 	}
+}
+
+func (c *Client) loginMethod(ctx context.Context, accountID string) string {
+	store, ok := c.store.(SecretReader)
+	if !ok {
+		return AuthMethodCLI
+	}
+	value, found, err := store.GetSecret(ctx, codexLoginMethodSecret(accountID))
+	if err != nil || !found {
+		return AuthMethodCLI
+	}
+	return normalizeAuthMethod(value)
 }
 
 func (c *Client) globalProxy(ctx context.Context) (string, error) {
@@ -165,20 +186,23 @@ func (c *Client) StartLogin(ctx context.Context, accountID string) (providers.Lo
 	if err := c.ensureCallback(); err != nil {
 		return providers.LoginSession{}, err
 	}
+	return c.startLogin(ctx, accountID)
+}
+
+func (c *Client) startLogin(ctx context.Context, accountID string) (providers.LoginSession, error) {
+	method := c.loginMethod(ctx, accountID)
 	state := randomHex(16)
 	verifier, challenge, err := pkcePair()
 	if err != nil {
 		return providers.LoginSession{}, err
 	}
-	c.mu.Lock()
-	c.pending[accountID] = &loginPending{
+	pending := &loginPending{
 		state:        state,
 		codeVerifier: verifier,
+		method:       method,
 		createdAt:    time.Now(),
 	}
-	c.pendingStates[state] = accountID
-	c.mu.Unlock()
-
+	authURL := AuthURL
 	params := url.Values{
 		"client_id":                  {ClientID},
 		"response_type":              {"code"},
@@ -191,8 +215,30 @@ func (c *Client) StartLogin(ctx context.Context, accountID string) (providers.Lo
 		"id_token_add_organizations": {"true"},
 		"codex_cli_simplified_flow":  {"true"},
 	}
+	if method == AuthMethodChatGPT {
+		pending.nonce = randomHex(16)
+		pending.deviceID = randomUUID()
+		authURL = SIWCAuthorizeURL
+		params = url.Values{
+			"client_id":             {SIWCDynamicClient},
+			"agent_name_hint":       {SIWCAgentName},
+			"ext_agent_host_id":     {"urn:uuid:" + pending.deviceID},
+			"response_type":         {"code"},
+			"redirect_uri":          {SIWCRedirectURI},
+			"resource":              {SIWCResource},
+			"scope":                 {SIWCScope},
+			"state":                 {state},
+			"code_challenge":        {challenge},
+			"code_challenge_method": {"S256"},
+			"nonce":                 {pending.nonce},
+		}
+	}
+	c.mu.Lock()
+	c.pending[accountID] = pending
+	c.pendingStates[state] = accountID
+	c.mu.Unlock()
 	return providers.LoginSession{
-		AuthURL: AuthURL + "?" + params.Encode(),
+		AuthURL: authURL + "?" + params.Encode(),
 		State:   state,
 	}, nil
 }
@@ -270,7 +316,7 @@ func (c *Client) CompleteLogin(ctx context.Context, accountID, callbackURL strin
 	if pending != nil {
 		verifier = pending.codeVerifier
 	}
-	credential, err := c.exchangeCode(ctx, accountID, code, verifier)
+	credential, err := c.exchangeCode(ctx, accountID, code, verifier, query.Get("client_id"), pending)
 	if err != nil {
 		return err
 	}
@@ -318,7 +364,7 @@ func (c *Client) acceptCallback(ctx context.Context, rawURL string) error {
 	if pending == nil {
 		return fmt.Errorf("no pending login for state")
 	}
-	credential, err := c.exchangeCode(ctx, accountID, code, pending.codeVerifier)
+	credential, err := c.exchangeCode(ctx, accountID, code, pending.codeVerifier, query.Get("client_id"), pending)
 	if err != nil {
 		c.markPendingFailed(state, err.Error())
 		return err
@@ -360,8 +406,17 @@ func (c *Client) persistCredential(ctx context.Context, accountID string, creden
 	return nil
 }
 
-// exchangeCode swaps the authorization code for tokens at the token endpoint.
-func (c *Client) exchangeCode(ctx context.Context, accountID, code, verifier string) (Credential, error) {
+// exchangeCode swaps the authorization code for tokens. Sign in with ChatGPT
+// uses the client id the callback just issued; the CLI flow keeps the
+// registered public client.
+func (c *Client) exchangeCode(ctx context.Context, accountID, code, verifier, issuedClientID string, pending *loginPending) (Credential, error) {
+	method := AuthMethodCLI
+	deviceID := ""
+	if pending != nil {
+		method = normalizeAuthMethod(pending.method)
+		deviceID = pending.deviceID
+	}
+	tokenURL := TokenURL
 	form := url.Values{
 		"grant_type":    {"authorization_code"},
 		"client_id":     {ClientID},
@@ -369,7 +424,22 @@ func (c *Client) exchangeCode(ctx context.Context, accountID, code, verifier str
 		"redirect_uri":  {redirectURI},
 		"code_verifier": {verifier},
 	}
-	payload, status, err := c.do(ctx, accountID, http.MethodPost, TokenURL, []byte(form.Encode()), func(h http.Header) {
+	if method == AuthMethodChatGPT {
+		issuedClientID = strings.TrimSpace(issuedClientID)
+		if issuedClientID == "" {
+			return Credential{}, fmt.Errorf("chatgpt login callback missing issued client_id")
+		}
+		tokenURL = SIWCTokenURL
+		form = url.Values{
+			"grant_type":    {"authorization_code"},
+			"client_id":     {issuedClientID},
+			"code":          {code},
+			"code_verifier": {verifier},
+			"redirect_uri":  {SIWCRedirectURI},
+			"resource":      {SIWCResource},
+		}
+	}
+	payload, status, err := c.do(ctx, accountID, http.MethodPost, tokenURL, []byte(form.Encode()), func(h http.Header) {
 		h.Set("Content-Type", "application/x-www-form-urlencoded")
 		h.Set("Accept", "application/json")
 	})
@@ -379,7 +449,19 @@ func (c *Client) exchangeCode(ctx context.Context, accountID, code, verifier str
 	if status != http.StatusOK {
 		return Credential{}, fmt.Errorf("token exchange failed with status %d: %s", status, strings.TrimSpace(string(payload)))
 	}
-	return parseTokenResponse(payload)
+	credential, err := parseTokenResponse(payload)
+	if err != nil {
+		return Credential{}, err
+	}
+	credential.AuthMethod = method
+	if method == AuthMethodChatGPT {
+		if err := requireSIWCGrant(payload); err != nil {
+			return Credential{}, err
+		}
+		credential.ClientID = strings.TrimSpace(issuedClientID)
+		credential.DeviceID = deviceID
+	}
+	return credential, nil
 }
 
 // parseTokenResponse decodes the OAuth token endpoint response and pulls
@@ -408,6 +490,30 @@ func parseTokenResponse(payload []byte) (Credential, error) {
 	}
 	applyJWTIdentity(&credential, tok.IDToken)
 	return credential, nil
+}
+
+func requireSIWCGrant(payload []byte) error {
+	var token struct {
+		Scope string `json:"scope"`
+	}
+	if json.Unmarshal(payload, &token) != nil {
+		return fmt.Errorf("chatgpt token response is not json")
+	}
+	if !slices.Contains(strings.Fields(token.Scope), SIWCDirectScope) {
+		return fmt.Errorf("chatgpt login did not grant %s", SIWCDirectScope)
+	}
+	return nil
+}
+
+func randomUUID() string {
+	raw := make([]byte, 16)
+	if _, err := rand.Read(raw); err != nil {
+		return "00000000-0000-4000-8000-000000000000"
+	}
+	raw[6] = (raw[6] & 0x0f) | 0x40
+	raw[8] = (raw[8] & 0x3f) | 0x80
+	encoded := hex.EncodeToString(raw)
+	return encoded[0:8] + "-" + encoded[8:12] + "-" + encoded[12:16] + "-" + encoded[16:20] + "-" + encoded[20:32]
 }
 
 // applyJWTIdentity fills AccountID and Email from an id_token. OpenAI puts
@@ -547,13 +653,26 @@ func (c *Client) refreshTokens(ctx context.Context, accountID string, credential
 	if strings.TrimSpace(credential.RefreshToken) == "" {
 		return credential, fmt.Errorf("no refresh_token; re-login required")
 	}
+	tokenURL := TokenURL
 	form := url.Values{
 		"grant_type":    {"refresh_token"},
 		"client_id":     {ClientID},
 		"refresh_token": {credential.RefreshToken},
 		"scope":         {AuthScope},
 	}
-	payload, status, err := c.do(ctx, accountID, http.MethodPost, TokenURL, []byte(form.Encode()), func(h http.Header) {
+	if credential.UsesChatGPT() {
+		if strings.TrimSpace(credential.ClientID) == "" {
+			return credential, fmt.Errorf("chatgpt login is missing its issued client_id; sign in again")
+		}
+		tokenURL = SIWCTokenURL
+		form = url.Values{
+			"grant_type":    {"refresh_token"},
+			"client_id":     {credential.ClientID},
+			"refresh_token": {credential.RefreshToken},
+			"resource":      {SIWCResource},
+		}
+	}
+	payload, status, err := c.do(ctx, accountID, http.MethodPost, tokenURL, []byte(form.Encode()), func(h http.Header) {
 		h.Set("Content-Type", "application/x-www-form-urlencoded")
 		h.Set("Accept", "application/json")
 	})
@@ -577,6 +696,14 @@ func (c *Client) refreshTokens(ctx context.Context, accountID string, credential
 	if refreshed.Email == "" {
 		refreshed.Email = credential.Email
 	}
+	refreshed.AuthMethod = credential.AuthMethod
+	refreshed.ClientID = credential.ClientID
+	refreshed.DeviceID = credential.DeviceID
+	if credential.UsesChatGPT() {
+		if err := requireSIWCGrant(payload); err != nil {
+			return credential, err
+		}
+	}
 	return refreshed, nil
 }
 
@@ -594,19 +721,28 @@ func (c *Client) chatRequest(ctx context.Context, credential Credential, req tra
 	// session UUID; a stable account-scoped id is equivalent here because one
 	// account is one upstream identity).
 	sessionID := sessionIDFor(accountID)
-	if sessionID != "" {
+	if credential.UsesChatGPT() {
+		body = applyChatGPTBody(body)
+		sessionID = ""
+	} else if sessionID != "" {
 		var obj map[string]any
 		if json.Unmarshal(body, &obj) == nil {
 			obj["prompt_cache_key"] = sessionID
 			body, _ = json.Marshal(obj)
 		}
 	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, ChatBase+pathResponses, bytes.NewReader(body))
+	base := ChatBase
+	if credential.UsesChatGPT() {
+		base = SIWCBaseURL
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, base+pathResponses, bytes.NewReader(body))
 	if err != nil {
 		return nil, providers.ResolvedChat{}, err
 	}
 	SetChatHeaders(httpReq.Header, credential, sessionID, true)
-	applyCodexRequestHeaders(httpReq.Header, req.Model, usesResponsesLite(req.Model))
+	if !credential.UsesChatGPT() {
+		applyCodexRequestHeaders(httpReq.Header, req.Model, usesResponsesLite(req.Model))
+	}
 	return httpReq, resolved, nil
 }
 
@@ -713,6 +849,12 @@ func (c *Client) Quota(ctx context.Context, accountID string) (*providers.QuotaI
 	credential, err := c.credential(ctx, accountID)
 	if err != nil {
 		return nil, err
+	}
+	if credential.UsesChatGPT() {
+		// Sign in with ChatGPT talks to api.openai.com, not the Codex
+		// backend /wham/usage probe. Keep the last windows observed from
+		// a chat response rather than calling an endpoint that 404s.
+		return c.cachedQuota(accountID), nil
 	}
 	body, status, err := c.do(ctx, accountID, http.MethodGet, ChatBase+pathWhamUsage, nil, func(header http.Header) {
 		SetChatHeaders(header, credential, "", false)

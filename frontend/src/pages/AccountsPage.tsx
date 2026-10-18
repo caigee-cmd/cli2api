@@ -205,11 +205,11 @@ export function AccountsPage() {
     }
   }
 
-  async function onDeviceLogin(id: string) {
+  async function onDeviceLogin(id: string, loginMethod?: string) {
     setAuthPanelId(id)
     await run(id, 'device', async () => {
       setNoteById((current) => ({ ...current, [id]: t('wizardStartingSession') }))
-      const output = await startDeviceLogin(id)
+      const output = await startDeviceLogin(id, loginMethod)
       if (output.authUrl) {
         setUrlById((current) => ({ ...current, [id]: output.authUrl || '' }))
       }
@@ -494,7 +494,7 @@ export function AccountsPage() {
             callbackUrl={callbackById[account.id] || ''}
             onCallbackChange={(value) => setCallbackById((current) => ({ ...current, [account.id]: value }))}
             onSubmitCallback={() => void onCallback(account.id)}
-            onDeviceLogin={() => void onDeviceLogin(account.id)}
+            onDeviceLogin={(loginMethod) => void onDeviceLogin(account.id, loginMethod)}
             onPatLogin={() => void onPat(account.id)}
             onExport={() => void onExport(account.id)}
             onRefresh={() => void onRefreshAccount(account.id)}

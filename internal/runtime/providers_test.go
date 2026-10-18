@@ -226,6 +226,66 @@ func TestManagerRefreshPersistsQuotaWindows(t *testing.T) {
 	}
 }
 
+func TestManagerRefreshClearsRecoveredDevinQuotaCooldown(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlstore.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	account, err := store.Create(ctx, accounts.CreateAccount{
+		Name: "Devin", Provider: "devin", Region: "global", Enabled: false,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	prober := &fakeProber{
+		health: providers.AccountHealth{Ready: true, Hot: true, UID: "devin-uid"},
+		quota: &providers.QuotaInfo{
+			Used: 10, Total: 100, Remaining: 90, Percentage: 10, Unit: "percent",
+			FetchedAt: "2026-08-26T00:00:00Z", ProviderID: "devin",
+			Windows: []providers.QuotaWindow{
+				{ID: "daily", Label: "Daily quota", Used: 10, Total: 100, Remaining: 90, Percentage: 10, Unit: "percent"},
+				{ID: "weekly", Label: "Weekly quota", Used: 20, Total: 100, Remaining: 80, Percentage: 20, Unit: "percent"},
+			},
+		},
+		quotaDone: make(chan struct{}),
+	}
+	registry := providers.NewRegistry()
+	registry.Register(providers.Adapter{ID: "devin", Prober: prober})
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	manager.SetProviders(registry)
+	manager.Pool().Upsert(executor.Item{ID: account.ID, Provider: "devin", Runtime: "in_process"})
+	manager.Pool().MarkClassified(account.ID, executor.Classified{
+		Kind: accounts.KindQuota, Message: "usage quota exhausted", Cooldown: time.Hour,
+	})
+	manager.Pool().MarkClassified(account.ID, executor.Classified{
+		Kind: accounts.KindRateLimit, Model: "swe-2", Message: "capacity", Cooldown: time.Hour,
+	})
+	if err := manager.RefreshAll(ctx, false); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-prober.quotaDone:
+	case <-time.After(time.Second):
+		t.Fatal("quota refresh did not complete")
+	}
+	deadline := time.Now().Add(time.Second)
+	for {
+		item, _ := manager.Pool().ByID(account.ID)
+		if item.Quota != nil && item.DownUntil.IsZero() && item.LastKind == "" {
+			if until, ok := item.ModelDownUntil["swe-2"]; !ok || until.IsZero() {
+				t.Fatalf("model cooldown must remain: %+v", item.ModelDownUntil)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("recovered quota cooldown not cleared: %+v", item)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 func TestManagerRefreshSkipsEmptyURLWithoutProber(t *testing.T) {
 	ctx := context.Background()
 	store, err := sqlstore.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))

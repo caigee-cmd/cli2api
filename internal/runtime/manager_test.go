@@ -1768,6 +1768,9 @@ func TestSuccessfulWorkBuddyCheckinClearsAccountCooldown(t *testing.T) {
 	manager.Pool().MarkClassified(account.ID, executor.Classified{
 		Kind: accounts.KindQuota, Message: "额度已用尽", Cooldown: time.Hour,
 	})
+	manager.Pool().MarkClassified(account.ID, executor.Classified{
+		Kind: accounts.KindRateLimit, Model: "glm-5", Message: "model rate limited", Cooldown: time.Hour,
+	})
 
 	if _, err := manager.CheckinAccount(ctx, account.ID); err != nil {
 		t.Fatal(err)
@@ -1775,7 +1778,7 @@ func TestSuccessfulWorkBuddyCheckinClearsAccountCooldown(t *testing.T) {
 	manager.Flush()
 
 	item, ok := manager.Pool().ByID(account.ID)
-	if !ok || !item.DownUntil.IsZero() || item.LastError != "" || item.LastKind != "" {
+	if !ok || !item.DownUntil.IsZero() || len(item.ModelDownUntil) != 0 || item.LastError != "" || item.LastKind != "" {
 		t.Fatalf("successful WorkBuddy check-in must clear pool cooldown: %+v ok=%v", item, ok)
 	}
 	rows, err := store.LoadCooldowns(ctx)
@@ -1784,6 +1787,102 @@ func TestSuccessfulWorkBuddyCheckinClearsAccountCooldown(t *testing.T) {
 	}
 	if len(rows) != 0 {
 		t.Fatalf("successful WorkBuddy check-in must clear persisted cooldowns: %+v", rows)
+	}
+	stored, err := store.Get(ctx, account.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != "ready" || stored.CooldownUntil != nil || stored.LastError != "" || stored.LastErrorKind != "" {
+		t.Fatalf("successful WorkBuddy check-in must clear persisted account status: %+v", stored)
+	}
+}
+
+func TestAlreadyCheckedInWorkBuddyClearsCooldownWithoutPoolItem(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlstore.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	account, err := store.Create(ctx, accounts.CreateAccount{
+		Name: "wb", Provider: "workbuddy", Region: "cn", Enabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	until := time.Now().Add(time.Hour)
+	if err := store.RecordPoolState(ctx, accounts.PoolState{
+		ID: account.ID, DownUntil: until, LastError: "quota exhausted", LastErrorKind: accounts.KindQuota,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveCooldowns(ctx, account.ID, []accounts.CooldownRow{
+		{AccountID: account.ID, DownUntil: until, Kind: accounts.KindQuota},
+		{AccountID: account.ID, Model: "glm-5", DownUntil: until, Kind: accounts.KindRateLimit},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	ops := &fakeCheckinMaintainer{msg: "already checked in", err: fakeAlreadyCheckedInError{msg: "already checked in"}}
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	defer manager.Close()
+	registerCheckinMaintainer(manager, ops)
+	if _, err := manager.CheckinAccount(ctx, account.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := store.LoadCooldowns(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, err := store.Get(ctx, account.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 0 || stored.Status != "ready" || stored.CooldownUntil != nil || stored.LastError != "" || stored.LastErrorKind != "" {
+		t.Fatalf("already-checked-in account cooldown must be cleared in storage: rows=%+v account=%+v", rows, stored)
+	}
+}
+
+func TestSameDaySuccessfulWorkBuddyCheckinStillClearsCooldown(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlstore.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	account, err := store.Create(ctx, accounts.CreateAccount{
+		Name: "wb", Provider: "workbuddy", Region: "cn", Enabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RecordCheckin(ctx, account.ID, "success", "ok", time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	ops := &fakeCheckinMaintainer{msg: "must not call"}
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	defer manager.Close()
+	registerCheckinMaintainer(manager, ops)
+	manager.Pool().Upsert(executor.Item{ID: account.ID, Provider: "workbuddy", Runtime: "in_process"})
+	manager.Pool().MarkClassified(account.ID, executor.Classified{
+		Kind: accounts.KindQuota, Message: "额度已用尽", Cooldown: time.Hour,
+	})
+
+	if _, err := manager.CheckinAccount(ctx, account.ID); err != nil {
+		t.Fatal(err)
+	}
+	manager.Flush()
+	item, ok := manager.Pool().ByID(account.ID)
+	if ops.calls != 0 || !ok || !item.DownUntil.IsZero() || item.LastError != "" {
+		t.Fatalf("same-day successful WorkBuddy check-in must clear cooldown: calls=%d item=%+v ok=%v", ops.calls, item, ok)
+	}
+	rows, err := store.LoadCooldowns(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("same-day successful WorkBuddy check-in must clear persisted cooldowns: %+v", rows)
 	}
 }
 

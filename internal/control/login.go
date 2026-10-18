@@ -3,6 +3,7 @@ package control
 import (
 	"context"
 	"encoding/json"
+	"strings"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/providers"
@@ -19,6 +20,26 @@ func (a *Accounts) login(ctx context.Context, id string) (providers.LoginSession
 	}
 	return adapter.Login, nil
 }
+
+// prepareLogin records a provider-specific login choice before the browser
+// round trip. Codex is the only provider with two browser flows; an empty
+// method keeps the existing CLI OAuth path.
+func (a *Accounts) prepareLogin(ctx context.Context, account accounts.Account, method string) error {
+	method = strings.TrimSpace(method)
+	if account.Provider != "codex" || method == "" {
+		return nil
+	}
+	switch strings.ToLower(method) {
+	case "cli", "chatgpt":
+	default:
+		return operationError("invalid_request", "codex login method must be cli or chatgpt")
+	}
+	if err := a.store().SetSecret(ctx, "codex_login_method:"+account.ID, strings.ToLower(method)); err != nil {
+		return operationError("login_start_failed", err.Error())
+	}
+	return nil
+}
+
 func (a *Accounts) StartLogin(ctx context.Context, id string) (providers.LoginSession, error) {
 	login, err := a.login(ctx, id)
 	if err != nil {

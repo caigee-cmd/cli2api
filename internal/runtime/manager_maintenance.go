@@ -58,6 +58,11 @@ func (manager *Manager) checkinAccount(ctx context.Context, accountID string, al
 	stop := context.AfterFunc(manager.runCtx, cancel)
 	defer stop()
 	if CheckedInLocalDay(account.LastCheckinAt, account.LastCheckinStatus, time.Now().In(location)) {
+		if account.Provider == "workbuddy" {
+			if err := manager.clearCheckinCooldown(ctx, accountID); err != nil {
+				return account, fmt.Errorf("clear cooldown after check-in: %w", err)
+			}
+		}
 		manager.refreshCheckinQuota(ctx, accountID, adapter)
 		return manager.store.Get(ctx, accountID)
 	}
@@ -68,17 +73,16 @@ func (manager *Manager) checkinAccount(ctx context.Context, accountID string, al
 	if checkErr != nil {
 		result = providers.CheckinResult{Status: "error", Message: checkErr.Error()}
 	}
-	if account.Provider == "workbuddy" && result.Status == "success" {
-		// A successful WorkBuddy check-in replenishes the account's credits.
-		// Clear both account- and model-scoped cooldowns so it can route
-		// immediately; the pool observer persists the cleared state.
-		manager.pool.MarkOK(accountID, "")
-	}
 	recordCtx, stopRecording := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	recordErr := manager.store.RecordCheckin(recordCtx, accountID, result.Status, result.Message, time.Now().UTC())
 	stopRecording()
 	if recordErr != nil {
 		return account, errors.Join(checkErr, fmt.Errorf("save check-in result: %w", recordErr))
+	}
+	if account.Provider == "workbuddy" && (result.Status == "success" || result.Status == "already") {
+		if err := manager.clearCheckinCooldown(ctx, accountID); err != nil {
+			return account, errors.Join(checkErr, fmt.Errorf("clear cooldown after check-in: %w", err))
+		}
 	}
 	if result.Status != "skipped" {
 		manager.refreshCheckinQuota(ctx, accountID, adapter)
@@ -87,6 +91,23 @@ func (manager *Manager) checkinAccount(ctx context.Context, accountID string, al
 	defer stopReading()
 	updated, err := manager.store.Get(readCtx, accountID)
 	return updated, errors.Join(checkErr, err)
+}
+
+func (manager *Manager) clearCheckinCooldown(ctx context.Context, accountID string) error {
+	if manager.pool != nil {
+		if _, ok := manager.pool.ByID(accountID); ok {
+			manager.pool.MarkOK(accountID, "")
+			manager.Flush()
+			return nil
+		}
+	}
+
+	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if err := manager.poolState.RecordPoolState(persistCtx, accounts.PoolState{ID: accountID}); err != nil {
+		return err
+	}
+	return manager.poolState.SaveCooldowns(persistCtx, accountID, nil)
 }
 
 func (manager *Manager) refreshCheckinQuota(ctx context.Context, accountID string, adapter providers.Adapter) {

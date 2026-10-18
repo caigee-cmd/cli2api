@@ -13,6 +13,23 @@ func SetChatHeaders(h http.Header, credential Credential, sessionID string, stre
 	if credential.AccessToken != "" {
 		h.Set("Authorization", "Bearer "+credential.AccessToken)
 	}
+	if credential.UsesChatGPT() {
+		h.Set("User-Agent", SIWCAgentName+" (darwin; arm64)")
+		h.Del("Chatgpt-Account-Id")
+		h.Del("Originator")
+		h.Del("Session-Id")
+		if sessionID != "" {
+			h.Set("session_id", sessionID)
+			h.Set("X-Client-Request-Id", sessionID)
+		}
+		if streaming {
+			h.Set("Accept", "text/event-stream")
+		} else {
+			h.Set("Accept", "application/json")
+		}
+		h.Set("Connection", "Keep-Alive")
+		return
+	}
 	if credential.AccountID != "" {
 		h.Set("Chatgpt-Account-Id", credential.AccountID)
 	}

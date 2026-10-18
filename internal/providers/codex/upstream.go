@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"math/big"
 	"strconv"
 	"strings"
@@ -46,6 +47,29 @@ const (
 	codexRoutingHintHeader           = "X-Codex-Routing-Hint"
 	codexResponsesLiteHeader         = "X-OpenAI-Internal-Codex-Responses-Lite"
 )
+
+// applyChatGPTBody removes fields the Sign in with ChatGPT Responses endpoint
+// rejects, and drops an empty instructions member the caller did not set.
+func applyChatGPTBody(body []byte) []byte {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(body, &fields) != nil {
+		return body
+	}
+	for _, key := range []string{
+		"prompt_cache_key", "prompt_cache_retention", "prompt_cache_options",
+		"max_output_tokens", "max_completion_tokens", "temperature",
+	} {
+		delete(fields, key)
+	}
+	if instructions, ok := rawJSONString(fields["instructions"]); ok && strings.TrimSpace(instructions) == "" {
+		delete(fields, "instructions")
+	}
+	encoded, err := json.Marshal(fields)
+	if err != nil {
+		return body
+	}
+	return encoded
+}
 
 // normalizeCodexUpstream applies the ChatGPT Codex backend constraints that
 // CLIProxyAPI applies on every /responses call. It edits one attempt's field
@@ -588,6 +612,14 @@ func stripIncompatiblePatterns(value any) bool {
 			delete(schema, "pattern")
 			changed = true
 		}
+		for _, key := range []string{"minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum"} {
+			number, ok := schema[key].(json.Number)
+			if !ok || !numericBoundOutOfInt64(number) {
+				continue
+			}
+			delete(schema, key)
+			changed = true
+		}
 		if patternProps, ok := schema["patternProperties"].(map[string]any); ok {
 			for key, sub := range patternProps {
 				if hasUnsupportedPatternEscape(key) {
@@ -633,6 +665,18 @@ func stripIncompatiblePatterns(value any) bool {
 		}
 	}
 	return changed
+}
+
+// numericBoundOutOfInt64 reports an integer bound the Codex backend rejects
+// with HTTP 500. Floats and values inside int64 stay; only a true overflow is
+// removed.
+func numericBoundOutOfInt64(number json.Number) bool {
+	raw := strings.TrimSpace(number.String())
+	if raw == "" || strings.ContainsAny(raw, ".eE") {
+		return false
+	}
+	_, err := strconv.ParseInt(raw, 10, 64)
+	return errors.Is(err, strconv.ErrRange)
 }
 
 func hasUnsupportedPatternEscape(pattern string) bool {

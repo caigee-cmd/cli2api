@@ -172,6 +172,29 @@ func TestAccountsAdminDispatchesInProcessLoginWithoutWorkerPath(t *testing.T) {
 	_ = runtime
 }
 
+func TestAccountsAdminStoresCodexLoginMethod(t *testing.T) {
+	svc, _, store, _ := newTestServices()
+	store.accounts["acc-1"] = accounts.Account{ID: "acc-1", Provider: "codex"}
+	login := &stubLogin{session: providers.LoginSession{AuthURL: "https://auth.openai.com/api/accounts/authorize"}}
+	svc.Accounts.Providers = providers.NewRegistry()
+	svc.Accounts.Providers.Register(providers.Adapter{ID: "codex", Login: login})
+
+	result, err := svc.Accounts.Admin(context.Background(), AccountAdminAction{
+		AccountID: "acc-1", Action: "login/device", Method: "POST", LoginMethod: "chatgpt",
+	})
+	if err != nil || result.Kind != "login_start" {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	if store.secrets["codex_login_method:acc-1"] != "chatgpt" {
+		t.Fatalf("login method secret=%q", store.secrets["codex_login_method:acc-1"])
+	}
+	if _, err := svc.Accounts.Admin(context.Background(), AccountAdminAction{
+		AccountID: "acc-1", Action: "login/device", Method: "POST", LoginMethod: "web",
+	}); err == nil {
+		t.Fatal("expected invalid login method")
+	}
+}
+
 func TestAccountsAdminForwardsQoderLoginToWorker(t *testing.T) {
 	svc, runtime, store, log := newTestServices()
 	store.accounts["acc-1"] = accounts.Account{ID: "acc-1", Provider: "qoder"}

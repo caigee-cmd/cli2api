@@ -964,6 +964,44 @@ func (p *Pool) MarkClassified(id string, c Classified) {
 	}
 }
 
+// ClearAccountQuotaCooldown drops an account-wide quota cooldown without
+// touching model-scoped capacity 429s. Used when a later quota probe shows
+// remaining usage, so the account can route again before DownUntil expires.
+func (p *Pool) ClearAccountQuotaCooldown(id string) {
+	if p == nil || id == "" {
+		return
+	}
+	var changed *Item
+	p.mu.Lock()
+	for i := range p.items {
+		if p.items[i].ID != id {
+			continue
+		}
+		if p.items[i].DownUntil.IsZero() {
+			p.mu.Unlock()
+			return
+		}
+		if p.items[i].LastKind != "" && p.items[i].LastKind != KindQuota {
+			p.mu.Unlock()
+			return
+		}
+		p.items[i].DownUntil = time.Time{}
+		p.items[i].LastError = ""
+		p.items[i].LastKind = ""
+		p.items[i].BackoffLevel = 0
+		p.stateCounter++
+		p.items[i].StateVersion = p.stateCounter
+		snapshot := p.items[i].clone()
+		changed = &snapshot
+		break
+	}
+	observer := p.observer
+	p.mu.Unlock()
+	if changed != nil && observer != nil {
+		observer(*changed)
+	}
+}
+
 // MarkOK records a success. When model is non-empty, only that model's
 // cooldown and backoff ladder are cleared: a success on model-B must not
 // un-cool a still-rate-limited model-A, and a streaming 200 (headers only)

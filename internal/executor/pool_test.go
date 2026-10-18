@@ -113,6 +113,20 @@ func TestUpsertKeepsExistingQuota(t *testing.T) {
 	}
 }
 
+func TestClearAccountQuotaCooldownLeavesModelCooldown(t *testing.T) {
+	p := NewPool([]string{"http://a:3020"}, []string{"a"})
+	p.MarkClassified("a", Classified{Kind: KindQuota, Cooldown: time.Hour, Message: "usage quota exhausted"})
+	p.MarkClassified("a", Classified{Kind: KindRateLimit, Model: "swe-2", Cooldown: time.Hour, Message: "capacity"})
+	p.ClearAccountQuotaCooldown("a")
+	item, _ := p.ByID("a")
+	if !item.DownUntil.IsZero() || item.LastKind != "" {
+		t.Fatalf("account quota cooldown still set: %+v", item)
+	}
+	if until, ok := item.ModelDownUntil["swe-2"]; !ok || until.IsZero() {
+		t.Fatalf("model cooldown must remain: %+v", item.ModelDownUntil)
+	}
+}
+
 func TestMarkOKClearsCooldown(t *testing.T) {
 	p := NewPool([]string{"http://a:3020", "http://b:3020"}, []string{"a", "b"})
 	p.MarkClassified("a", Classified{Kind: KindRateLimit, Cooldown: time.Hour, Message: "429", Failover: true})
