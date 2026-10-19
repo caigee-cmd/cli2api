@@ -131,8 +131,9 @@ type Manager struct {
 	// healthFailures counts consecutive liveness probe failures per worker
 	// account. The maintenance loop's workerLiveness watchdog increments it on
 	// each failed /health probe and clears it on success; reaching
-	// workerLivenessThreshold triggers a stopAccount so watchAccount +
-	// beginAccountRecovery reboot the stuck worker. Guarded by mu.
+	// workerLivenessThreshold triggers restartStuckWorker, which removes the
+	// process from the table, stops it, then calls beginAccountRecovery to
+	// reboot the stuck worker. Guarded by mu.
 	healthFailures map[string]int
 }
 
