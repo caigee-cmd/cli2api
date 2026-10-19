@@ -37,8 +37,8 @@ func TestBridgeQuotaSnapshotSumsBuckets(t *testing.T) {
 func TestBridgeQuotaSnapshotIncludesResourcePackage(t *testing.T) {
 	b := NewBridge("pat", qauth.CN, "mid", "mtok", "mac")
 	b.account = &qauth.AccountStatus{
-		Plan:      "PLAN_TIER_PRO_TRIAL",
-		UserQuota: quotaBlock(300, 0, 300),
+		Plan:       "PLAN_TIER_PRO_TRIAL",
+		UserQuota:  quotaBlock(300, 0, 300),
 		AddOnQuota: quotaBlock(300, 0, 300),
 		OrgResourcePackage: &qauth.OrgResourcePackage{
 			Cap: 500, Used: 100, Remaining: 400, Available: true, Unit: "credits",

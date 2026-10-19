@@ -231,13 +231,13 @@ func TestRegionByName(t *testing.T) {
 
 func TestNormalizeRegion(t *testing.T) {
 	cases := map[string]string{
-		"":               "cn",
-		"cn":             "cn",
-		"CN":             "cn",
-		"global":         "global",
-		"INTL":           "global",
-		"International":  "global",
-		"unknown":        "cn",
+		"":              "cn",
+		"cn":            "cn",
+		"CN":            "cn",
+		"global":        "global",
+		"INTL":          "global",
+		"International": "global",
+		"unknown":       "cn",
 	}
 	for in, want := range cases {
 		if got := NormalizeRegion(in); got != want {
@@ -409,7 +409,6 @@ func TestExchangeJobTokenBusy(t *testing.T) {
 		t.Fatalf("busy.RetryAfter = %s, want 3s", busy.RetryAfter)
 	}
 }
-
 
 // =============================================================================
 // 6. Refresh
@@ -745,9 +744,9 @@ func TestDetectInStreamGatewayError(t *testing.T) {
 	})
 	t.Run("bare success:false gateway error", func(t *testing.T) {
 		frame, _ := json.Marshal(map[string]any{
-			"success":  false,
-			"msgCode":  500,
-			"message":  "Internal Server Error",
+			"success": false,
+			"msgCode": 500,
+			"message": "Internal Server Error",
 		})
 		e := detectInStreamGatewayError("data: " + string(frame))
 		if e == nil {
@@ -783,9 +782,9 @@ func TestDetectInStreamGatewayError(t *testing.T) {
 func newTestSession(t *testing.T) *SessionContext {
 	t.Helper()
 	return NewSession(AuthIdentity{
-		Name:   "tester",
-		UID:    "uid-test",
-		YxUID:  "yx-test",
+		Name:  "tester",
+		UID:   "uid-test",
+		YxUID: "yx-test",
 	}, "mid-test", "mtok-test", "mac-test")
 }
 
