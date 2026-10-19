@@ -347,6 +347,26 @@ func TestPrepareStripsRegionPrefixIntoContext(t *testing.T) {
 	}
 }
 
+func TestPrepareBarePrefixSetsNoRegionFilter(t *testing.T) {
+	// A bare "qoder/model" must not default to cn: no region filter reaches the
+	// route loop, so international-only pools still route.
+	ex := NewChatExecutor(NewPool(nil, nil), "")
+	got, err := ex.Prepare(PrepareInput{
+		Request:      translate.ChatRequest{Model: "qoder/qwen3.8-max", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}}},
+		Identity:     auth.KeyIdentity(accounts.APIKey{ID: "k", Name: "ci", Providers: []string{"qoder"}, Enabled: true}),
+		NewRequestID: func() string { return "req_b" },
+	})
+	if err != nil {
+		t.Fatalf("Prepare error: %v", err)
+	}
+	if got.ProviderFilter != "qoder" || got.Request.Model != "qwen3.8-max" {
+		t.Errorf("provider=%q model=%q, want qoder / qwen3.8-max", got.ProviderFilter, got.Request.Model)
+	}
+	if r := regionFilterFromContext(got.Context); r != "" {
+		t.Errorf("region = %q, want empty (bare prefix must not pin cn)", r)
+	}
+}
+
 func TestPrepareStripsCommandPrefix(t *testing.T) {
 	ex := NewChatExecutor(NewPool(nil, nil), "")
 	got, err := ex.Prepare(PrepareInput{
