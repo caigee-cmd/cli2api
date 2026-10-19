@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"strconv"
 	"strings"
 	"sync"
@@ -608,24 +609,60 @@ func (b *Bridge) RegionConfig() *qauth.RegionConfig { return b.Region }
 
 // QuotaSnapshot converts a cached AccountStatus into the cli2api store
 // shape. Returns nil when no quota has been resolved yet.
+//
+// The headline mirrors the upstream client's usage view: the plan quota,
+// add-on pack, and organization resource package are summed into one
+// aggregate (see quota.go's snapshot for the worker-path equivalent, issue
+// #229). The check-in reward lands in the add-on bucket, so a base-only
+// headline never moves after a successful check-in.
 func (b *Bridge) QuotaSnapshot() *accounts.QuotaSnapshot {
 	st := b.AccountStatus()
 	if st == nil || st.UserQuota == nil {
 		return nil
 	}
-	q := st.UserQuota
+	buckets := []*qauth.Quota{st.UserQuota, st.AddOnQuota}
+	if st.OrgResourcePackage != nil {
+		buckets = append(buckets, &qauth.Quota{
+			Total:      st.OrgResourcePackage.Cap,
+			Used:       st.OrgResourcePackage.Used,
+			Remaining:  st.OrgResourcePackage.Remaining,
+			Percentage: st.OrgResourcePackage.Percentage,
+			Unit:       st.OrgResourcePackage.Unit,
+		})
+	}
+	var used, total, remaining float64
+	unit := ""
+	for _, q := range buckets {
+		if q == nil {
+			continue
+		}
+		used += q.Used
+		total += q.Total
+		remaining += q.Remaining
+		if unit == "" && q.Unit != "" {
+			unit = q.Unit
+		}
+	}
 	snap := &accounts.QuotaSnapshot{
-		Used:       q.Used,
-		Total:      q.Total,
-		Remaining:  q.Remaining,
-		Percentage: q.Percentage,
-		Unit:       q.Unit,
+		Used:       used,
+		Total:      total,
+		Remaining:  remaining,
+		Percentage: 0,
+		Unit:       unit,
 		Exceeded:   st.IsQuotaExceeded,
 		FetchedAt:  time.Now().UTC().Format(time.RFC3339),
 		Plan:       st.Plan,
 	}
+	if total > 0 {
+		snap.Percentage = math.Min(used/total*100, 100)
+	}
 	if st.NextResetAtMs > 0 {
 		snap.ExpiresAt = st.NextResetAtMs / 1000
+	}
+	// Exceeded keeps its previous meaning: the account is out of credits unless
+	// an add-on or organization package still holds some.
+	if snap.Exceeded && remaining > 0 {
+		snap.Exceeded = false
 	}
 	if st.AddOnQuota != nil {
 		snap.HasAddOn = true
