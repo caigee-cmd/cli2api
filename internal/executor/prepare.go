@@ -85,7 +85,7 @@ func (e ChatExecutor) Prepare(in PrepareInput) (PreparedRequest, error) {
 			Message: "cross-provider model pool is disabled; use a provider-prefixed model ID such as qoder/glm-5.2",
 		}
 	}
-	providerFilter := ResolveProviderFilter(&request, in.CrossProviderPool)
+	providerFilter, modelRegion := ResolveProviderFilter(&request, in.CrossProviderPool)
 	prefer := strings.TrimSpace(in.PreferAccount)
 	providerFilter = ApplyPinnedProviderFilter(e.Pool, providerFilter, publicModel, prefer)
 	if providerFilter != "" && !in.Identity.AllowsProvider(providerFilter) {
@@ -141,6 +141,9 @@ func (e ChatExecutor) Prepare(in PrepareInput) (PreparedRequest, error) {
 	if sessionKey != "" {
 		ctx = WithSessionKey(ctx, sessionKey)
 	}
+	if modelRegion != "" {
+		ctx = WithRegionFilter(ctx, modelRegion)
+	}
 	if requestedReasoning != "" {
 		log.Printf("request reasoning request_id=%q model=%q level=%q", requestID, request.Model, requestedReasoning)
 	}
@@ -162,11 +165,37 @@ func (e ChatExecutor) Prepare(in PrepareInput) (PreparedRequest, error) {
 // already-namespaced id ("command/deepseek/…").
 var providerPrefixes = []string{"qoder/", "workbuddy/", "trae/", "devin/", "command/", "codex/", "zhipu/"}
 
+// regionDashSuffixes are the region qualifiers that may be appended to a
+// provider prefix with a dash: "workbuddy-cn/", "workbuddy-gl/",
+// "workbuddy-auto/". "-auto/" is the opt-out: it pins the provider family
+// while letting the pool pick the region (the lastRegion latch in pool.go).
+var regionDashSuffixes = []string{"-cn/", "-gl/", "-auto/"}
+
+// regionAliases maps shorthand region tags to canonical region IDs.
+// "auto" maps to "" (no region pin), which triggers the pool's automatic
+// region selection instead of a fixed region.
+var regionAliases = map[string]string{
+	"cn":   "cn",
+	"gl":   "global",
+	"auto": "",
+}
+
+// regionTag extracts the bare region tag from a dash suffix like "-cn/".
+func regionTag(suffix string) string {
+	return strings.TrimSuffix(strings.TrimPrefix(suffix, "-"), "/")
+}
+
 func ProviderPrefix(model string) string {
 	model = strings.TrimSpace(model)
 	for _, prefix := range providerPrefixes {
 		if strings.HasPrefix(model, prefix) {
 			return strings.TrimSuffix(prefix, "/")
+		}
+		base := strings.TrimSuffix(prefix, "/")
+		for _, rs := range regionDashSuffixes {
+			if strings.HasPrefix(model, base+rs) {
+				return base
+			}
 		}
 	}
 	return ""
@@ -176,19 +205,42 @@ func RejectsBareModel(model string, crossProviderPool bool) bool {
 	return strings.TrimSpace(model) != "" && !crossProviderPool && ProviderPrefix(model) == ""
 }
 
-func ResolveProviderFilter(req *translate.ChatRequest, crossProviderPool bool) string {
+// ResolveProviderFilter parses the provider prefix (and an optional region
+// qualifier) from the model id, strips both from req.Model, and returns the
+// provider family and the canonical region ("" when no region was specified).
+//
+// Supported forms:
+//   - "workbuddy/glm-5.3-flash"     → provider=workbuddy, region="" (no region pin; the pool picks)
+//   - "qoder-auto/glm-5.2"          → provider=qoder, region="" (explicit auto: same as the bare prefix)
+//   - "workbuddy-cn/glm-5.3-flash"  → provider=workbuddy, region=cn
+//   - "workbuddy-gl/glm-5.3-flash"  → provider=workbuddy, region=global
+//
+// The region coexists with API-key grants: routeBaseMatches enforces both
+// independently, so a prefix that conflicts with a grant yields no candidates.
+func ResolveProviderFilter(req *translate.ChatRequest, crossProviderPool bool) (provider, region string) {
 	model := strings.TrimSpace(req.Model)
 	if model == "" {
-		return ""
+		return "", ""
 	}
-	if prefix := ProviderPrefix(model); prefix != "" {
-		req.Model = strings.TrimPrefix(model, prefix+"/")
-		return prefix
+	for _, prefix := range providerPrefixes {
+		base := strings.TrimSuffix(prefix, "/")
+		// Region-qualified dash form: "workbuddy-cn/model"
+		for _, rs := range regionDashSuffixes {
+			if strings.HasPrefix(model, base+rs) {
+				req.Model = strings.TrimPrefix(model, base+rs)
+				return base, regionAliases[regionTag(rs)]
+			}
+		}
+		// Standard form: "workbuddy/model"
+		if strings.HasPrefix(model, prefix) {
+			req.Model = strings.TrimPrefix(model, prefix)
+			return base, ""
+		}
 	}
 	if crossProviderPool {
-		return ""
+		return "", ""
 	}
-	return "qoder"
+	return "qoder", ""
 }
 
 func ApplyPinnedProviderFilter(pool *Pool, providerFilter, publicModel, prefer string) string {
