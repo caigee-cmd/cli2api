@@ -68,7 +68,8 @@ func (s *Server) resolveProviderFilter(req *translate.ChatRequest) string {
 	if s != nil && s.App != nil {
 		poolOn = s.CrossProviderModelPool.Load()
 	}
-	return executor.ResolveProviderFilter(req, poolOn)
+	provider, _ := executor.ResolveProviderFilter(req, poolOn)
+	return provider
 }
 
 func (s *Server) applyPinnedProviderFilter(providerFilter, publicModel, prefer string) string {

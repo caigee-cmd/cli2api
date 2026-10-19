@@ -10,6 +10,7 @@ Static assets embedded by `README.md` and `README_EN.md` via relative links.
 | `readme/hero-{zh,en}.svg` | Hand-maintained SVG heroes (console dark-theme palette, Prompt C mark) | Re-sync copy with the tagline and flow text in the matching README |
 | `readme/console-window-{zh,en}.svg` | Hand-maintained console mockup (Accounts + Access) | Regenerate when console pages, account card fields, or nav items change |
 | `readme/architecture-{zh,en}.svg` | Hand-maintained architecture diagram | Regenerate when the request path or worker model changes |
+| `readme/wechat-contact.jpg` | Personal WeChat QR used in the README community section | Replace the file when the QR is rotated; do not use a 7-day group QR |
 
 ## Why this folder is hand-maintained
 

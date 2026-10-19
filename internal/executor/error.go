@@ -3,6 +3,7 @@ package executor
 import (
 	"context"
 	"errors"
+	"net/http"
 	"strings"
 	"time"
 
@@ -87,6 +88,17 @@ func ClassifyError(err error) Classified {
 	var execErr *ExecutionError
 	if errors.As(err, &execErr) && execErr != nil {
 		return execErr.Classified
+	}
+	// A streaming first-byte timeout is an upstream hang, not a client cancel:
+	// the parent request is still alive, the upstream just never answered. Cool
+	// the account briefly and fail over so the next eligible account serves the
+	// turn instead of hanging until the client gives up.
+	if errors.Is(err, providers.ErrFirstByteTimeout) {
+		return Classified{
+			Kind: accounts.KindUnavailable, Status: http.StatusBadGateway,
+			Failover: true, Cooldown: 10 * time.Second, RetryAfter: 10 * time.Second,
+			Code: "first_byte_timeout", Message: err.Error(),
+		}
 	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return Classified{

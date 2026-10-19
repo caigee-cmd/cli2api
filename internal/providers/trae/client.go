@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -47,6 +48,7 @@ type ModelMaxModeReader interface {
 }
 
 type loginPending struct {
+	accountID    string
 	machineID    string
 	deviceID     string
 	deviceKey    string
@@ -59,6 +61,12 @@ type loginPending struct {
 	failed       bool
 	message      string
 	credential   Credential
+	// redeemDone closes once a redemption attempt finishes, so a console poll
+	// or a pasted callback can wait for an exchange already in flight instead
+	// of starting a second one against the same single-use code. redeemErr
+	// carries that attempt's outcome.
+	redeemDone chan struct{}
+	redeemErr  error
 }
 
 type Client struct {
@@ -200,6 +208,7 @@ func (c *Client) StartLogin(ctx context.Context, accountID string) (providers.Lo
 		c.pendingTraces = map[string]*loginPending{}
 	}
 	entry := &loginPending{
+		accountID:    accountID,
 		machineID:    credential.MachineID,
 		deviceID:     credential.DeviceID,
 		deviceKey:    credential.DevicePrivateKey,
@@ -220,12 +229,18 @@ func (c *Client) PollLogin(ctx context.Context, accountID string) (bool, string,
 	pending := c.pending[accountID]
 	c.mu.Unlock()
 	if pending == nil {
+		// No session in flight. A pasted callback may have redeemed this login
+		// already, in which case the account is simply done; otherwise there is
+		// nothing to poll.
+		if _, payload, err := c.store.LoadCredentialPayload(ctx, accountID); err == nil {
+			if decoded, err := DecodeCredential(payload); err == nil && decoded.Ready() {
+				return true, "login complete", nil
+			}
+		}
 		return false, "", fmt.Errorf("login not started for account %s", accountID)
 	}
 	if time.Since(pending.createdAt) > loginPendingTTL {
-		c.mu.Lock()
-		delete(c.pending, accountID)
-		c.mu.Unlock()
+		c.forgetPending(accountID, pending)
 		return false, "", fmt.Errorf("login expired; start again")
 	}
 	c.mu.Lock()
@@ -242,13 +257,61 @@ func (c *Client) PollLogin(ctx context.Context, accountID string) (bool, string,
 	if !done {
 		return false, firstNonEmpty(message, "waiting for authorization"), nil
 	}
-	if err := c.finishCredential(ctx, accountID, credential, authCode, codeVerifier); err != nil {
+	if err := c.redeem(ctx, accountID, pending, credential, authCode, codeVerifier); err != nil {
 		return false, "", err
 	}
-	c.mu.Lock()
-	delete(c.pending, accountID)
-	c.mu.Unlock()
+	c.forgetPending(accountID, pending)
 	return true, "login complete", nil
+}
+
+// redeem exchanges the authorization code parked on a pending entry exactly
+// once. The loopback callback, a console poll, and a pasted callback can all
+// reach the same code within the same second, and the code is single-use, so
+// the first caller performs the exchange and the others wait for its outcome.
+// A failed attempt clears the guard: a transient upstream error must not burn
+// the operator's only chance to retry the code.
+func (c *Client) redeem(ctx context.Context, accountID string, pending *loginPending, credential Credential, authCode, codeVerifier string) error {
+	c.mu.Lock()
+	if inFlight := pending.redeemDone; inFlight != nil {
+		c.mu.Unlock()
+		select {
+		case <-inFlight:
+			c.mu.Lock()
+			err := pending.redeemErr
+			c.mu.Unlock()
+			return err
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	done := make(chan struct{})
+	pending.redeemDone = done
+	c.mu.Unlock()
+
+	err := c.finishCredential(ctx, accountID, credential, authCode, codeVerifier)
+
+	c.mu.Lock()
+	pending.redeemErr = err
+	close(done)
+	if err != nil {
+		pending.redeemDone = nil
+	}
+	c.mu.Unlock()
+	return err
+}
+
+// forgetPending drops a pending entry together with the trace index pointing at
+// it, so a redeemed or expired login leaves nothing behind for a later pasted
+// callback to match.
+func (c *Client) forgetPending(accountID string, pending *loginPending) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if current := c.pending[accountID]; current == nil || current == pending {
+		delete(c.pending, accountID)
+	}
+	if pending != nil && pending.trace != "" && c.pendingTraces[pending.trace] == pending {
+		delete(c.pendingTraces, pending.trace)
+	}
 }
 
 func (c *Client) CompleteLogin(ctx context.Context, accountID, callbackURL string) error {
@@ -279,16 +342,39 @@ func (c *Client) CompleteLogin(ctx context.Context, accountID, callbackURL strin
 	c.mu.Unlock()
 	codeVerifier := ""
 	if pending != nil {
-		if pending.done {
-			c.mu.Lock()
-			delete(c.pending, accountID)
-			c.mu.Unlock()
-			return nil
-		}
 		credential.MachineID = pending.machineID
 		credential.DeviceID = pending.deviceID
 		credential.DevicePrivateKey = pending.deviceKey
 		codeVerifier = pending.codeVerifier
+		// The loopback listener may have captured this callback already and
+		// parked the code on the pending entry, while the console's poll window
+		// expired before PollLogin could redeem it. That code is still
+		// unexchanged, so fill the gaps from the captured callback and let
+		// finishCredential redeem it. Returning early here reported success
+		// while storing no credential at all.
+		if pending.done {
+			if strings.TrimSpace(info.AuthCode) == "" {
+				info.AuthCode = pending.authCode
+			}
+			if credential.AccessToken == "" {
+				credential.AccessToken = pending.credential.AccessToken
+			}
+			if credential.RefreshToken == "" {
+				credential.RefreshToken = pending.credential.RefreshToken
+			}
+			if credential.ExpiresAt == 0 {
+				credential.ExpiresAt = pending.credential.ExpiresAt
+			}
+			if credential.UID == "" {
+				credential.UID = pending.credential.UID
+			}
+			if credential.Nickname == "" {
+				credential.Nickname = pending.credential.Nickname
+			}
+			if credential.EnterpriseID == "" {
+				credential.EnterpriseID = pending.credential.EnterpriseID
+			}
+		}
 	} else if _, payload, err := c.store.LoadCredentialPayload(ctx, accountID); err == nil {
 		if decoded, err := DecodeCredential(payload); err == nil {
 			if decoded.Ready() {
@@ -298,15 +384,16 @@ func (c *Client) CompleteLogin(ctx context.Context, accountID, callbackURL strin
 			credential.DeviceID = decoded.DeviceID
 		}
 	}
+	if pending != nil {
+		if err := c.redeem(ctx, accountID, pending, credential, info.AuthCode, codeVerifier); err != nil {
+			return err
+		}
+		c.forgetPending(accountID, pending)
+		return nil
+	}
 	if err := c.finishCredential(ctx, accountID, credential, info.AuthCode, codeVerifier); err != nil {
 		return err
 	}
-	c.mu.Lock()
-	delete(c.pending, accountID)
-	if pending != nil && pending.trace != "" {
-		delete(c.pendingTraces, pending.trace)
-	}
-	c.mu.Unlock()
 	return nil
 }
 
@@ -325,6 +412,10 @@ func (c *Client) finishCredential(ctx context.Context, accountID string, credent
 			return err
 		}
 		credential = refreshed
+	case strings.TrimSpace(credential.AccessToken) == "":
+		// Neither a code to redeem nor a token to verify. Storing this would
+		// persist an empty credential and report the login as complete.
+		return fmt.Errorf("callback carried no authorization code or token")
 	}
 	if strings.TrimSpace(credential.UID) == "" && strings.TrimSpace(credential.AccessToken) != "" {
 		info, err := c.GetUserInfo(ctx, accountID, credential)
@@ -345,6 +436,7 @@ func (c *Client) finishCredential(ctx context.Context, accountID string, credent
 		return err
 	}
 	if err := c.store.SaveCredentialPayload(ctx, accountID, CredentialFormat, payload); err != nil {
+		log.Printf("trae: SaveCredentialPayload failed account=%s: %v", accountID, err)
 		return err
 	}
 	_ = c.store.Observe(ctx, accountID, credential.UID, "ready", "", "")
@@ -373,6 +465,9 @@ func (c *Client) ensureCallback() (string, error) {
 func (c *Client) acceptCallback(ctx context.Context, rawURL string) error {
 	info, err := ParseCallback(rawURL)
 	if err != nil {
+		// Do not log the parse error verbatim: it embeds the raw callback URL,
+		// which carries the one-shot auth code and OAuth state.
+		log.Printf("trae: acceptCallback parse failed")
 		c.markPendingFailed(err.Error())
 		return err
 	}
@@ -387,20 +482,72 @@ func (c *Client) acceptCallback(ctx context.Context, rawURL string) error {
 		APIHost:      OAuthHost,
 	}
 	c.mu.Lock()
-	for _, pending := range c.pending {
-		if pending.done || pending.failed {
-			continue
+	// The listener is shared by every account, so pair the callback with the
+	// pending entry that minted its challenge. Falling back to map order would
+	// hand one account's code to another account's login when two are in flight.
+	var claimed *loginPending
+	if info.Trace != "" {
+		if traced := c.pendingTraces[info.Trace]; traced != nil && !traced.done && !traced.failed {
+			claimed = traced
 		}
-		credential.MachineID = pending.machineID
-		credential.DeviceID = pending.deviceID
-		pending.credential = credential
-		pending.authCode = info.AuthCode
-		pending.done = true
-		pending.message = "authorization received"
-		break
+	}
+	if claimed == nil {
+		for _, pending := range c.pending {
+			if pending.done || pending.failed {
+				continue
+			}
+			claimed = pending
+			break
+		}
+	}
+	if claimed != nil {
+		credential.MachineID = claimed.machineID
+		credential.DeviceID = claimed.deviceID
+		// The v3 exchange signs with the device key minted for this login; the
+		// public half goes out as DeviceInfo.DevicePublicKey. Dropping it here
+		// sent the exchange without a device proof, matching CompleteLogin's
+		// handling of the same field.
+		credential.DevicePrivateKey = claimed.deviceKey
+		claimed.credential = credential
+		claimed.authCode = info.AuthCode
+		claimed.done = true
+		claimed.message = "authorization received"
 	}
 	c.mu.Unlock()
+	if claimed == nil {
+		return nil
+	}
+	// Redeem here rather than waiting for a poller. The console's poll window is
+	// far shorter than a real browser login, so the code would otherwise sit
+	// unexchanged until the operator pasted the callback URL by hand. The
+	// request context is the loopback request's, which ends when the browser
+	// disconnects, so the exchange gets its own budget.
+	go c.redeemAsync(claimed)
 	return nil
+}
+
+// redeemAsync redeems a captured callback on the callback path. The account id
+// comes from the pending entry, which is registered under it in StartLogin.
+func (c *Client) redeemAsync(pending *loginPending) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(context.Background()), redeemTimeout)
+	defer cancel()
+	c.mu.Lock()
+	credential, authCode, codeVerifier := pending.credential, pending.authCode, pending.codeVerifier
+	accountID := pending.accountID
+	c.mu.Unlock()
+	if err := c.redeem(ctx, accountID, pending, credential, authCode, codeVerifier); err != nil {
+		// Log only the classified status/code: the full error message can embed
+		// the upstream response payload.
+		var perr *providers.Error
+		if errors.As(err, &perr) {
+			log.Printf("trae: redeemAsync failed account=%s status=%d code=%s", accountID, perr.Status, perr.Code)
+		} else {
+			log.Printf("trae: redeemAsync failed account=%s (transport error)", accountID)
+		}
+		c.markPendingFailedFor(pending, err.Error())
+		return
+	}
+	c.forgetPending(accountID, pending)
 }
 
 func (c *Client) markPendingFailed(message string) {
@@ -414,6 +561,15 @@ func (c *Client) markPendingFailed(message string) {
 		pending.message = message
 		return
 	}
+}
+
+// markPendingFailedFor records a failure against one specific entry, leaving
+// other accounts' in-flight logins untouched.
+func (c *Client) markPendingFailedFor(pending *loginPending, message string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	pending.failed = true
+	pending.message = message
 }
 
 type callbackInfo struct {
@@ -497,7 +653,10 @@ func ParseCallback(rawURL string) (callbackInfo, error) {
 			}
 		}
 	}
-	if info.RefreshToken == "" && info.AccessToken == "" && info.AuthCode == "" {
+	// A callback carrying only loginTraceID is still usable: CompleteLogin
+	// matches the trace to the pending entry and redeems the code the loopback
+	// listener parked there. Anything without a trace needs its own material.
+	if info.RefreshToken == "" && info.AccessToken == "" && info.AuthCode == "" && info.Trace == "" {
 		return callbackInfo{}, fmt.Errorf("callback missing code, refreshToken and userJwt.Token")
 	}
 	return info, nil
@@ -613,6 +772,7 @@ func (c *Client) ExchangeAuthCode(ctx context.Context, accountID string, credent
 		"DeviceModel":   "",
 		"ClientVersion": IdeVersion,
 		"DeviceBrand":   "",
+		"DeviceCPU":     "",
 		"OSInfo":        "linux",
 		"OSVersion":     "Ubuntu 24.04.4 LTS",
 	}
@@ -629,9 +789,32 @@ func (c *Client) ExchangeAuthCode(ctx context.Context, accountID string, credent
 	if err != nil {
 		return credential, err
 	}
-	payload, status, err := c.do(ctx, accountID, http.MethodPost, credential.AuthBase()+pathExchangeCode, body, SetOAuthHeaders)
-	if err != nil {
-		return credential, err
+	// The official CN client exchanges at the host product.json configures
+	// (bootConfig.account.trae.normal = https://api.trae.cn), while the callback
+	// advertises api.trae.com.cn. Try the configured host first and fall back to
+	// the callback's only when that host rejects the request as invalid — a
+	// transient upstream failure must surface instead of being masked by a
+	// second attempt.
+	hosts := []string{UgHost}
+	if base := credential.AuthBase(); base != "" && base != UgHost {
+		hosts = append(hosts, base)
+	}
+	var payload []byte
+	var status int
+	for i, host := range hosts {
+		payload, status, err = c.do(ctx, accountID, http.MethodPost, host+pathExchangeCode, body, SetOAuthHeaders)
+		if err != nil {
+			log.Printf("trae: ExchangeAuthCode request failed account=%s host=%s: %v", accountID, host, err)
+			return credential, err
+		}
+		if status < 300 {
+			break
+		}
+		// Log status and the extracted error code only — never the raw payload.
+		log.Printf("trae: ExchangeAuthCode upstream error account=%s host=%s status=%d code=%s", accountID, host, status, firstNonEmpty(extractMetadataCode(payload), extractCode(string(payload))))
+		if i == len(hosts)-1 || !isInvalidParameter(status, payload) {
+			return credential, classifiedError(status, payload)
+		}
 	}
 	if status >= 300 {
 		return credential, classifiedError(status, payload)
@@ -980,8 +1163,14 @@ func outcomeFromAggregate(aggregate map[string]any, fallbackModel string) (provi
 	var parsed struct {
 		Model string `json:"model"`
 		Usage struct {
-			PromptTokens     int `json:"prompt_tokens"`
-			CompletionTokens int `json:"completion_tokens"`
+			PromptTokens         int  `json:"prompt_tokens"`
+			CompletionTokens     int  `json:"completion_tokens"`
+			CacheReadTokens      *int `json:"cache_read_tokens"`
+			CacheWriteTokens     *int `json:"cache_write_tokens"`
+			PromptCacheHitTokens *int `json:"prompt_cache_hit_tokens"`
+			PromptDetails        struct {
+				CachedTokens *int `json:"cached_tokens"`
+			} `json:"prompt_tokens_details"`
 		} `json:"usage"`
 		Choices []struct {
 			FinishReason string `json:"finish_reason"`
@@ -1009,11 +1198,55 @@ func outcomeFromAggregate(aggregate map[string]any, fallbackModel string) (provi
 	}
 	out.PromptTokens = parsed.Usage.PromptTokens
 	out.CompletionTokens = parsed.Usage.CompletionTokens
+	cacheRead := parsed.Usage.CacheReadTokens
+	if cacheRead == nil {
+		cacheRead = parsed.Usage.PromptDetails.CachedTokens
+	}
+	if cacheRead == nil {
+		cacheRead = parsed.Usage.PromptCacheHitTokens
+	}
+	out.CacheReadTokens = cacheRead
+	out.CacheWriteTokens = parsed.Usage.CacheWriteTokens
 	return out, nil
 }
 
 func classifiedError(status int, body []byte) error {
 	return wrapClassified(Classify(status, string(body)), extractCode(string(body)))
+}
+
+// isInvalidParameter reports the upstream's "无效参数" rejection (code 10101).
+// The CN front doors disagree about which host mints a code, and that
+// rejection is what the wrong host returns, so it is the one case worth
+// retrying elsewhere. Everything else (rate limits, 5xx, auth) is real and
+// must surface.
+func isInvalidParameter(status int, body []byte) bool {
+	if status != http.StatusBadRequest {
+		return false
+	}
+	return extractMetadataCode(body) == "10101"
+}
+
+// extractMetadataCode reads the code Trae puts under
+// ResponseMetadata.Error.Code. extractCode handles the flat {"code": ...}
+// shape other endpoints use; this is the envelope the v3 exchange returns.
+func extractMetadataCode(body []byte) string {
+	var env struct {
+		ResponseMetadata struct {
+			Error struct {
+				Code any `json:"Code"`
+			} `json:"Error"`
+		} `json:"ResponseMetadata"`
+	}
+	if json.Unmarshal(body, &env) != nil {
+		return ""
+	}
+	switch v := env.ResponseMetadata.Error.Code.(type) {
+	case string:
+		return v
+	case float64:
+		return fmt.Sprintf("%.0f", v)
+	}
+	return ""
 }
 
 func wrapClassified(classified providers.ClassifiedError, code string) error {

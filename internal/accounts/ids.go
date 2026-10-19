@@ -34,10 +34,10 @@ func NormalizeProviderFamily(provider string) string {
 }
 
 // NormalizeRegion maps a stored or requested region onto the canonical
-// routing region. An empty value is global.
+// routing region. An empty value or the shorthand "gl" is global.
 func NormalizeRegion(region string) string {
 	region = strings.ToLower(strings.TrimSpace(region))
-	if region == "" {
+	if region == "" || region == "gl" {
 		return "global"
 	}
 	return region

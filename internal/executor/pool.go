@@ -327,6 +327,14 @@ func routeBaseMatches(item Item, q RouteQuery) bool {
 	if item.Quota != nil && item.Quota.Exceeded && !itemServesFreeModel(item, q.PublicModel) {
 		return false
 	}
+	return routeReadyAndScoped(item, q)
+}
+
+// routeReadyAndScoped is routeBaseMatches without the quota gate, so callers
+// can pair it with the quota check to tell "blocked only by quota" from
+// "blocked by provider/region/readiness/exclusion" without duplicating the
+// scoping conditions.
+func routeReadyAndScoped(item Item, q RouteQuery) bool {
 	if !itemReady(item) {
 		return false
 	}
@@ -346,6 +354,16 @@ func routeBaseMatches(item Item, q RouteQuery) bool {
 		return false
 	}
 	return true
+}
+
+// routeBlockedByQuota reports whether an item would match the route except
+// that its quota is exceeded. Free-model accounts are never quota-blocked:
+// they spend no credits, so an exhausted account can still serve them.
+func routeBlockedByQuota(item Item, q RouteQuery) bool {
+	if item.Quota == nil || !item.Quota.Exceeded || itemServesFreeModel(item, q.PublicModel) {
+		return false
+	}
+	return routeReadyAndScoped(item, q) && itemCouldServeModel(item, q.PublicModel)
 }
 
 func routeMatches(item Item, q RouteQuery) bool {
@@ -478,6 +496,24 @@ func (p *Pool) LenRoute(q RouteQuery) int {
 		}
 	}
 	return count
+}
+
+// QuotaBlockedForModel reports whether at least one account could serve the
+// model but is kept out of routing solely because its quota is exceeded. The
+// caller uses this to surface a quota error instead of a generic "no accounts
+// available" when every model-serving account is out of credits.
+func (p *Pool) QuotaBlockedForModel(q RouteQuery) (Item, bool) {
+	if p == nil {
+		return Item{}, false
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, item := range p.items {
+		if routeBlockedByQuota(item, q) {
+			return item, true
+		}
+	}
+	return Item{}, false
 }
 
 func (p *Pool) First() (Item, bool) {
@@ -953,6 +989,44 @@ func (p *Pool) MarkClassified(id string, c Classified) {
 		// Deep-copy the mutable reference fields before handing the snapshot
 		// to the async persistence drainer, which reads them off the pool
 		// lock. A struct copy would alias ModelDownUntil/ModelBackoff/etc.
+		snapshot := p.items[i].clone()
+		changed = &snapshot
+		break
+	}
+	observer := p.observer
+	p.mu.Unlock()
+	if changed != nil && observer != nil {
+		observer(*changed)
+	}
+}
+
+// ClearAccountQuotaCooldown drops an account-wide quota cooldown without
+// touching model-scoped capacity 429s. Used when a later quota probe shows
+// remaining usage, so the account can route again before DownUntil expires.
+func (p *Pool) ClearAccountQuotaCooldown(id string) {
+	if p == nil || id == "" {
+		return
+	}
+	var changed *Item
+	p.mu.Lock()
+	for i := range p.items {
+		if p.items[i].ID != id {
+			continue
+		}
+		if p.items[i].DownUntil.IsZero() {
+			p.mu.Unlock()
+			return
+		}
+		if p.items[i].LastKind != "" && p.items[i].LastKind != KindQuota {
+			p.mu.Unlock()
+			return
+		}
+		p.items[i].DownUntil = time.Time{}
+		p.items[i].LastError = ""
+		p.items[i].LastKind = ""
+		p.items[i].BackoffLevel = 0
+		p.stateCounter++
+		p.items[i].StateVersion = p.stateCounter
 		snapshot := p.items[i].clone()
 		changed = &snapshot
 		break

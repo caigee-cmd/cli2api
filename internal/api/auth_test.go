@@ -413,6 +413,12 @@ func TestModelsAPICachesCatalogForFiveMinutes(t *testing.T) {
 	srv.Pool.Upsert(executor.Item{ID: "wb-cn", Provider: "workbuddy", Runtime: string(providers.RuntimeInProcess)})
 	srv.Providers.Register(providers.Adapter{ID: "workbuddy", Models: catalog})
 
+	// app.New kicks off a background RefreshAll, and prober-less in-process
+	// adapters now get a one-shot model discovery pass from it. That fetch can
+	// land at any point during setup (slow CI), so wait for the counter to go
+	// quiet and assert relative deltas from whatever baseline it left.
+	baseline := quiesceCatalogHits(t, catalog)
+
 	getModels := func(path string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		req.Header.Set("Authorization", "Bearer secret")
@@ -429,25 +435,50 @@ func TestModelsAPICachesCatalogForFiveMinutes(t *testing.T) {
 	if second.Code != http.StatusOK {
 		t.Fatalf("cached /api/models = %d %s", second.Code, second.Body.String())
 	}
-	if catalog.hits.Load() != 1 {
-		t.Fatalf("cached /api/models hits = %d, want 1", catalog.hits.Load())
+	if got, want := catalog.hits.Load(), baseline+1; got != want {
+		t.Fatalf("cached /api/models hits = %d, want %d", got, want)
 	}
 
 	overview := getModels("/api/overview")
 	if overview.Code != http.StatusOK {
 		t.Fatalf("/api/overview = %d %s", overview.Code, overview.Body.String())
 	}
-	if catalog.hits.Load() != 2 {
-		t.Fatalf("overview must not use /api/models cache, hits = %d", catalog.hits.Load())
+	if got, want := catalog.hits.Load(), baseline+2; got != want {
+		t.Fatalf("overview must not use /api/models cache, hits = %d, want %d", got, want)
 	}
 
 	refreshed := getModels("/api/models?account=wb-cn&refresh=1")
 	if refreshed.Code != http.StatusOK {
 		t.Fatalf("refresh /api/models = %d %s", refreshed.Code, refreshed.Body.String())
 	}
-	if catalog.hits.Load() != 3 {
-		t.Fatalf("refresh=1 hits = %d, want 3", catalog.hits.Load())
+	if got, want := catalog.hits.Load(), baseline+3; got != want {
+		t.Fatalf("refresh=1 hits = %d, want %d", got, want)
 	}
+}
+
+// quiesceCatalogHits waits until the catalog's hit counter stays unchanged
+// across several polls (i.e. the boot-time background refresh has finished),
+// and returns the stable count to use as the baseline for hit assertions.
+func quiesceCatalogHits(t *testing.T, catalog *countingCatalog) int32 {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	last := catalog.hits.Load()
+	stable := 0
+	for time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+		cur := catalog.hits.Load()
+		if cur == last {
+			stable++
+			if stable >= 10 {
+				return cur
+			}
+			continue
+		}
+		last = cur
+		stable = 0
+	}
+	t.Fatalf("catalog hit counter never settled (last = %d)", last)
+	return last
 }
 
 func TestLegacyDiagnosticRoutesAreRemoved(t *testing.T) {

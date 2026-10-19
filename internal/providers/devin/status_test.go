@@ -95,7 +95,7 @@ func TestQuotaFromStatusKeepsDailyAndWeeklyWindows(t *testing.T) {
 	if got == nil {
 		t.Fatal("quota info is nil")
 	}
-	if got.Remaining != 33 || got.Percentage != 67 || got.Exceeded {
+	if got.Remaining != 33 || got.Percentage != 67 || got.Exceeded || got.ProviderID != "devin" {
 		t.Fatalf("tightest quota = %+v", got)
 	}
 	if len(got.Windows) != 2 {

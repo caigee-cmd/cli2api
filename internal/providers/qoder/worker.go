@@ -8,11 +8,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/endpoint"
+	"github.com/caigee-cmd/cli2api/internal/providers"
 )
 
 var (
@@ -48,6 +51,101 @@ func (e TransportError) Error() string {
 }
 
 func (e TransportError) Unwrap() error { return e.Err }
+
+// defaultFirstByteTimeout caps how long a streaming chat request will wait for
+// the upstream response head (status + headers). Once the head arrives, the
+// timer is stopped and the SSE body streams under the parent context's lifetime,
+// so long thinking-model output is not cut off. A stuck upstream that never
+// sends a first byte surfaces as ErrFirstByteTimeout so the executor can fail
+// over to the next account instead of hanging forever. 30s covers slow
+// cold-starts and thinking-model first-token latency while keeping a
+// stuck-upstream failover inside one round-trip of the client's patience.
+//
+// The effective value is resolved once at construction (see
+// resolveFirstByteTimeout) and can be tuned per deployment with
+// QODER_STREAM_TTFB_MS, mirroring the worker daemon's own knob.
+const defaultFirstByteTimeout = 30 * time.Second
+
+// resolveFirstByteTimeout reads QODER_STREAM_TTFB_MS, falling back to
+// defaultFirstByteTimeout for an absent or invalid value. The floor matches the
+// worker daemon's so the two deadlines cannot be configured to disagree wildly.
+func resolveFirstByteTimeout() time.Duration {
+	raw := strings.TrimSpace(os.Getenv("QODER_STREAM_TTFB_MS"))
+	if raw == "" {
+		return defaultFirstByteTimeout
+	}
+	ms, err := strconv.Atoi(raw)
+	if err != nil || ms <= 0 {
+		return defaultFirstByteTimeout
+	}
+	d := time.Duration(ms) * time.Millisecond
+	if d < 5*time.Second {
+		return 5 * time.Second
+	}
+	return d
+}
+
+// doWithFirstByteTimeout sends req with client, returning a response once the
+// response head is received. If the head does not arrive within timeout it
+// returns an error wrapping providers.ErrFirstByteTimeout; if the parent
+// context was already cancelled it surfaces that error unchanged so the
+// executor classifies it as a client cancellation rather than a timeout.
+//
+// The TTFB context must NOT be cancelled once the head arrives: Go's HTTP
+// client ties the response body to the request context, so cancelling would
+// kill the body mid-stream (the SSE read then fails with "context canceled"
+// after the head was already delivered). Only the error path cancels; on
+// success the deadline goroutine is stopped and the body lives under the
+// parent context, with the response body's Close as the eventual release.
+func doWithFirstByteTimeout(client *http.Client, req *http.Request, timeout time.Duration) (*http.Response, error) {
+	if timeout <= 0 {
+		timeout = defaultFirstByteTimeout
+	}
+	parent := req.Context()
+	ttfbCtx, cancelTTFB := context.WithCancel(parent)
+	timer := time.AfterFunc(timeout, cancelTTFB)
+	resp, err := client.Do(req.WithContext(ttfbCtx))
+	if err == nil {
+		// Head arrived: stop the timer but keep ttfbCtx alive so the body
+		// remains readable. Tie the cancel to Body.Close so the derived context
+		// is released exactly when the caller is done with the stream, while
+		// the parent context still governs its lifetime (client disconnect /
+		// shutdown). Cancelling here instead would kill the body mid-stream.
+		timer.Stop()
+		resp.Body = &cancelOnCloseBody{ReadCloser: resp.Body, cancel: cancelTTFB}
+		return resp, nil
+	}
+	timer.Stop()
+	// TTFB fired only when the parent context is still alive: a parent cancel
+	// (client disconnect, shutdown) must stay a plain cancel so the executor
+	// does not treat it as an upstream failure worth cooling down. Decide this
+	// before cancelTTFB below, which would otherwise make ttfbCtx.Err() non-nil
+	// regardless of the real cause.
+	timedOut := parent.Err() == nil && ttfbCtx.Err() != nil && !errors.Is(parent.Err(), context.Canceled)
+	cancelTTFB()
+	if timedOut {
+		return nil, fmt.Errorf("%w: no response head within %s", providers.ErrFirstByteTimeout, timeout)
+	}
+	return nil, TransportError{Err: err}
+}
+
+// cancelOnCloseBody releases the TTFB-derived context when the caller closes
+// the response body. The body itself is tied to that context by Go's HTTP
+// client, so cancelling earlier would truncate the stream; cancelling on Close
+// frees the timer goroutine's context exactly when the stream is finished.
+type cancelOnCloseBody struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (b *cancelOnCloseBody) Close() error {
+	err := b.ReadCloser.Close()
+	if b.cancel != nil {
+		b.cancel()
+		b.cancel = nil
+	}
+	return err
+}
 
 type HTTPStatusError struct {
 	Op     string

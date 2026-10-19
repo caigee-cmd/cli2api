@@ -3,6 +3,7 @@ package qoder
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -35,20 +36,54 @@ type Client struct {
 	loginTimeout  time.Duration
 	loginInterval time.Duration
 
+	// firstByteTimeout bounds how long the worker-path ChatStream waits for the
+	// upstream response head before failing over. Resolved from
+	// QODER_STREAM_TTFB_MS at construction; zero falls back to the default.
+	firstByteTimeout time.Duration
+
 	// direct is the in-process chat path. When set, chat does not enter the
 	// per-account Node worker. Login, catalog, and quota still use that worker.
 	direct *Direct
+
+	// patStore loads the stored PAT payload (format qoder-pat-v1) for an
+	// account. When set, the in-process Bridge is the canonical path for
+	// login/catalog/quota/checkin; the worker HTTP path becomes legacy.
+	patStore PATStore
+	// regionOf resolves an account's provider region ("cn" / "global"). When
+	// nil the bridge defaults to global (the historical Qoder default).
+	regionOf func(ctx context.Context, accountID string) (string, error)
+
+	// bridges is the per-account Bridge cache, lazily constructed from the
+	// stored PAT. A bridge is invalidated when the account's PAT or region
+	// changes (observed via the pat signature returned by patStore).
+	bridgesMu sync.Mutex
+	bridges   map[string]*cachedBridge
+}
+
+// PATStore loads and persists the Qoder PAT credential payload. It is a
+// subset of accounts.AccountStore so the SQLite store satisfies it without an
+// adapter.
+type PATStore interface {
+	LoadCredentialPayload(ctx context.Context, accountID string) (string, []byte, error)
+	SaveCredentialPayload(ctx context.Context, accountID, format string, payload []byte) error
+}
+
+type cachedBridge struct {
+	bridge *Bridge
+	patSig string // sha256 of PAT+region, to invalidate on rotate
 }
 
 func NewClient() *Client {
 	return &Client{
-		modelsHTTP:    &http.Client{Timeout: 15 * time.Second},
-		healthHTTP:    &http.Client{Timeout: 2 * time.Second},
-		quotaHTTP:     &http.Client{Timeout: 5 * time.Second},
-		adminHTTP:     &http.Client{Timeout: 120 * time.Second},
-		chatHTTP:      &http.Client{Timeout: 120 * time.Second},
-		loginTimeout:  90 * time.Second,
-		loginInterval: 200 * time.Millisecond,
+		modelsHTTP:       &http.Client{Timeout: 15 * time.Second},
+		healthHTTP:       &http.Client{Timeout: 2 * time.Second},
+		quotaHTTP:        &http.Client{Timeout: 5 * time.Second},
+		adminHTTP:        &http.Client{Timeout: 120 * time.Second},
+		chatHTTP:         &http.Client{Timeout: 120 * time.Second},
+		loginTimeout:     90 * time.Second,
+		loginInterval:    200 * time.Millisecond,
+		firstByteTimeout: resolveFirstByteTimeout(),
+		bridges:          make(map[string]*cachedBridge),
 	}
 }
 
@@ -61,6 +96,27 @@ func (c *Client) SetDirect(direct *Direct) {
 	c.mu.Lock()
 	c.direct = direct
 	c.mu.Unlock()
+	if direct != nil {
+		direct.SetBridgeResolver(c.Bridge)
+	}
+}
+
+// SetPATStore wires the in-process Bridge path. After this, Models/Quota/
+// Checkin/Login prefer the Bridge over the worker HTTP transport; the worker
+// is only a legacy fallback for accounts that still carry a qoder-native-v1
+// blob instead of a PAT.
+func (c *Client) SetPATStore(store PATStore, regionOf func(ctx context.Context, accountID string) (string, error)) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	c.patStore = store
+	c.regionOf = regionOf
+	direct := c.direct
+	c.mu.Unlock()
+	if direct != nil {
+		direct.SetBridgeResolver(c.Bridge)
+	}
 }
 
 func (c *Client) Bind(locate func(string) (string, bool), proxyAPIKey func() string) {
@@ -101,11 +157,12 @@ func (c *Client) Adapter() providers.Adapter {
 	// items must not enter refreshInProcess just because an Adapter exists.
 	// Callers that need those methods use the Client directly.
 	return providers.Adapter{
-		ID:      "qoder",
-		Login:   c,
-		Chat:    c,
-		Models:  c,
-		Checkin: c,
+		ID:         "qoder",
+		Credential: patCodec{},
+		Login:      c,
+		Chat:       c,
+		Models:     c,
+		Checkin:    c,
 	}
 }
 
@@ -152,6 +209,19 @@ func (c *Client) accountWorker(httpClient *http.Client, accountID string) Worker
 }
 
 func (c *Client) Models(ctx context.Context, accountID string) ([]providers.ModelInfo, error) {
+	// In-process path: when the account has a stored PAT, the Bridge fetches
+	// /model/list directly from the Qoder gateway. Accounts that predate the
+	// PAT model (legacy qoder-native-v1 blob) fall through to the worker.
+	if b, err := c.bridge(ctx, accountID); err == nil {
+		entries, err := b.CatalogModels(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return ModelInfos(entries), nil
+	} else if !errors.Is(err, ErrPATRequired) {
+		return nil, err
+	}
+	// Legacy fallback: account has no PAT, talk to the worker.
 	workerURL, err := c.lookup(accountID)
 	if err != nil {
 		return nil, err
@@ -233,15 +303,29 @@ func ModelInfos(entries []map[string]any) []providers.ModelInfo {
 		if entry == nil {
 			continue
 		}
+		if enable, ok := entry["enable"].(bool); ok && !enable {
+			continue
+		}
 		publicID := stringField(entry, "id")
-		native := stringField(entry, "mapped_key", "native_model")
+		native := stringField(entry, "mapped_key", "native_model", "key")
+		displayName := stringField(entry, "display_name")
+		if publicID == "" {
+			if displayName != "" {
+				publicID = accounts.CanonicalModelID(displayName)
+			} else if native != "" {
+				publicID = accounts.CanonicalModelID(native)
+			}
+		}
 		if native == "" {
 			native = publicID
+		}
+		if displayName == "" {
+			displayName = publicID
 		}
 		info := providers.ModelInfo{
 			PublicModel: publicID,
 			NativeModel: native,
-			DisplayName: stringField(entry, "display_name"),
+			DisplayName: displayName,
 			Credits:     qoderEntryCredits(entry),
 			Free:        qoderEntryFree(entry),
 			Capabilities: providers.ModelCapabilities{
@@ -426,6 +510,28 @@ func (c *Client) Quota(ctx context.Context, accountID string) (*providers.QuotaI
 }
 
 func (c *Client) QuotaSnapshot(ctx context.Context, accountID string, force bool) (*accounts.QuotaSnapshot, error) {
+	// In-process path: PAT-backed accounts resolve quota via the OpenAPI
+	// /api/v2/quota/usage endpoint (CN uses the COSY securityOauthToken
+	// directly; global uses the separately-issued OpenAPI bearer).
+	if b, err := c.bridge(ctx, accountID); err == nil {
+		// force bypasses the cached /user/status TTL so the operator's
+		// "refresh quota" action always hits the gateway.
+		if force {
+			_ = b.EnsureAccountStatus(ctx)
+		}
+		if snap := b.QuotaSnapshot(); snap != nil {
+			return snap, nil
+		}
+		// No cached snapshot yet (cold bridge): force a fresh fetch.
+		b.EnsureAccountStatus(ctx)
+		if snap := b.QuotaSnapshot(); snap != nil {
+			return snap, nil
+		}
+		return nil, fmt.Errorf("qoder quota unavailable for account %s", accountID)
+	} else if !errors.Is(err, ErrPATRequired) {
+		return nil, err
+	}
+	// Legacy fallback: account has no PAT, talk to the worker.
 	workerURL, err := c.lookup(accountID)
 	if err != nil {
 		return nil, err
@@ -537,6 +643,7 @@ func (c *Client) ChatStream(ctx context.Context, accountID string, req translate
 	}
 	c.mu.RLock()
 	httpClient := c.chatHTTP
+	firstByte := c.firstByteTimeout
 	c.mu.RUnlock()
 	if httpClient == nil {
 		httpClient = http.DefaultClient
@@ -546,9 +653,9 @@ func (c *Client) ChatStream(ctx context.Context, accountID string, req translate
 		cloned.Timeout = 0
 		httpClient = &cloned
 	}
-	resp, err := httpClient.Do(httpReq)
+	resp, err := doWithFirstByteTimeout(httpClient, httpReq, firstByte)
 	if err != nil {
-		return nil, providers.ResolvedChat{}, TransportError{Err: err}
+		return nil, providers.ResolvedChat{}, err
 	}
 	return resp, resolved, nil
 }
@@ -674,12 +781,16 @@ func decodeChatOutcome(fallbackModel string, body []byte) (providers.ChatOutcome
 	var parsed struct {
 		Model string `json:"model"`
 		Usage struct {
-			PromptTokens     int      `json:"prompt_tokens"`
-			CompletionTokens int      `json:"completion_tokens"`
-			CacheReadTokens  *int     `json:"cache_read_tokens"`
-			CacheWriteTokens *int     `json:"cache_write_tokens"`
-			Source           string   `json:"source"`
-			Credits          *float64 `json:"credits"`
+			PromptTokens         int      `json:"prompt_tokens"`
+			CompletionTokens     int      `json:"completion_tokens"`
+			CacheReadTokens      *int     `json:"cache_read_tokens"`
+			CacheWriteTokens     *int     `json:"cache_write_tokens"`
+			PromptCacheHitTokens *int     `json:"prompt_cache_hit_tokens"`
+			Source               string   `json:"source"`
+			Credits              *float64 `json:"credits"`
+			PromptDetails        struct {
+				CachedTokens *int `json:"cached_tokens"`
+			} `json:"prompt_tokens_details"`
 		} `json:"usage"`
 		Choices []struct {
 			FinishReason string `json:"finish_reason"`
@@ -693,11 +804,18 @@ func decodeChatOutcome(fallbackModel string, body []byte) (providers.ChatOutcome
 	if err := json.Unmarshal(body, &parsed); err != nil {
 		return providers.ChatOutcome{}, fmt.Errorf("decode worker response: %w", err)
 	}
+	cacheRead := parsed.Usage.CacheReadTokens
+	if cacheRead == nil {
+		cacheRead = parsed.Usage.PromptDetails.CachedTokens
+	}
+	if cacheRead == nil {
+		cacheRead = parsed.Usage.PromptCacheHitTokens
+	}
 	outcome := providers.ChatOutcome{
 		Model:            parsed.Model,
 		PromptTokens:     parsed.Usage.PromptTokens,
 		CompletionTokens: parsed.Usage.CompletionTokens,
-		CacheReadTokens:  parsed.Usage.CacheReadTokens,
+		CacheReadTokens:  cacheRead,
 		CacheWriteTokens: parsed.Usage.CacheWriteTokens,
 		UsageSource:      parsed.Usage.Source,
 		Credits:          parsed.Usage.Credits,

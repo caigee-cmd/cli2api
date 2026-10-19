@@ -93,7 +93,7 @@ func (a *CatalogSource) fetchProviderModels(refresh bool, accountID string, mode
 		if accountID != "" && item.ID != accountID {
 			continue
 		}
-		if item.Provider == "" || item.Provider == "qoder" {
+		if item.Provider == "" || (item.Provider == "qoder" && item.Worker) {
 			continue
 		}
 		adapter, ok := a.Providers.Get(item.Provider)

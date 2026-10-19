@@ -172,6 +172,29 @@ func TestAccountsAdminDispatchesInProcessLoginWithoutWorkerPath(t *testing.T) {
 	_ = runtime
 }
 
+func TestAccountsAdminStoresCodexLoginMethod(t *testing.T) {
+	svc, _, store, _ := newTestServices()
+	store.accounts["acc-1"] = accounts.Account{ID: "acc-1", Provider: "codex"}
+	login := &stubLogin{session: providers.LoginSession{AuthURL: "https://auth.openai.com/api/accounts/authorize"}}
+	svc.Accounts.Providers = providers.NewRegistry()
+	svc.Accounts.Providers.Register(providers.Adapter{ID: "codex", Login: login})
+
+	result, err := svc.Accounts.Admin(context.Background(), AccountAdminAction{
+		AccountID: "acc-1", Action: "login/device", Method: "POST", LoginMethod: "chatgpt",
+	})
+	if err != nil || result.Kind != "login_start" {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	if store.secrets["codex_login_method:acc-1"] != "chatgpt" {
+		t.Fatalf("login method secret=%q", store.secrets["codex_login_method:acc-1"])
+	}
+	if _, err := svc.Accounts.Admin(context.Background(), AccountAdminAction{
+		AccountID: "acc-1", Action: "login/device", Method: "POST", LoginMethod: "web",
+	}); err == nil {
+		t.Fatal("expected invalid login method")
+	}
+}
+
 func TestAccountsAdminForwardsQoderLoginToWorker(t *testing.T) {
 	svc, runtime, store, log := newTestServices()
 	store.accounts["acc-1"] = accounts.Account{ID: "acc-1", Provider: "qoder"}
@@ -326,5 +349,79 @@ func TestSystemPatchPersistsDisabledAccountCheckinSetting(t *testing.T) {
 	}
 	if !sys.Current(context.Background()).CheckinDisabledAccounts {
 		t.Fatal("current setting is disabled")
+	}
+}
+
+// A PAT login that fails for a real reason (invalid credential, save failure)
+// must surface that error instead of falling through to the worker path. Only
+// provider_unsupported means "this provider has no PAT importer, try the legacy
+// worker".
+func TestAccountsAdminLoginPATDoesNotSwallowRealErrors(t *testing.T) {
+	cases := []struct {
+		name    string
+		adapter providers.Adapter
+		want    string
+	}{
+		{
+			name: "invalid credential",
+			adapter: providers.Adapter{ID: "qoder", Credential: stubImporter{
+				format: "qoder-pat-v1",
+				err:    errors.New("bad token"),
+			}},
+			want: "invalid_credential",
+		},
+		{
+			name: "save failure",
+			adapter: providers.Adapter{ID: "qoder", Credential: stubImporter{
+				format: "qoder-pat-v1", payload: []byte(`{"pat":"x"}`),
+			}},
+			// store.payloadErr forces SaveCredentialPayload to fail.
+			want: "credential_save_failed",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, _, store, log := newTestServices()
+			store.accounts["acc-1"] = accounts.Account{ID: "acc-1", Provider: "qoder"}
+			if tc.name == "save failure" {
+				store.payloadErr = errors.New("disk full")
+			}
+			svc.Accounts.Providers = providers.NewRegistry()
+			svc.Accounts.Providers.Register(tc.adapter)
+
+			_, err := svc.Accounts.Admin(context.Background(), AccountAdminAction{
+				AccountID: "acc-1", Action: "login/pat", Method: "POST",
+				Body: []byte(`{"pat":"tok"}`),
+			})
+			var op *OperationError
+			if !errors.As(err, &op) || op.Code != tc.want {
+				t.Fatalf("err=%v want code %q", err, tc.want)
+			}
+			for _, name := range log.names {
+				if name == "runtime.WorkerAdmin" {
+					t.Fatalf("real PAT failure must not forward to the worker: %v", log.names)
+				}
+			}
+		})
+	}
+}
+
+// When the provider has no PAT importer, login/pat must fall back to the legacy
+// worker path (old qoder-native blob accounts).
+func TestAccountsAdminLoginPATFallsBackOnlyOnProviderUnsupported(t *testing.T) {
+	svc, runtime, store, _ := newTestServices()
+	store.accounts["acc-1"] = accounts.Account{ID: "acc-1", Provider: "qoder"}
+	svc.Accounts.Providers = providers.NewRegistry()
+	svc.Accounts.Providers.Register(providers.Adapter{ID: "qoder"}) // no Credential importer
+
+	result, err := svc.Accounts.Admin(context.Background(), AccountAdminAction{
+		AccountID: "acc-1", Action: "login/pat", Method: "POST",
+		Body: []byte(`{"pat":"tok"}`),
+	})
+	if err != nil || result.Kind != "worker" {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	if runtime.adminReq.Action != "login/pat" {
+		t.Fatalf("worker action=%q", runtime.adminReq.Action)
 	}
 }

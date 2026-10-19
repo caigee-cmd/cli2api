@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -16,7 +18,8 @@ import (
 )
 
 type testStore struct {
-	items map[string][]byte
+	items   map[string][]byte
+	secrets map[string]string
 }
 
 func (s testStore) Get(context.Context, string) (accounts.Account, error) {
@@ -38,6 +41,14 @@ func (s testStore) SaveCredentialPayload(_ context.Context, accountID, _ string,
 }
 func (testStore) Observe(context.Context, string, string, string, string, string) error {
 	return nil
+}
+
+func (s testStore) GetSecret(_ context.Context, name string) (string, bool, error) {
+	if s.secrets == nil {
+		return "", false, nil
+	}
+	value, ok := s.secrets[name]
+	return value, ok, nil
 }
 
 func credentialPayload() []byte {
@@ -159,6 +170,130 @@ func TestDecodeCredentialNestedTokenData(t *testing.T) {
 	}
 	if cred.AccessToken != "at" || cred.AccountID != "acct" || cred.ExpiresAt == 0 {
 		t.Fatalf("nested decode %+v", cred)
+	}
+	if cred.UsesChatGPT() {
+		t.Fatalf("cli nested credential reported chatgpt: %+v", cred)
+	}
+}
+
+func TestDecodeCredentialNestedSIWC(t *testing.T) {
+	payload := []byte(`{"use_siwc":true,"token_data":{"account_id":"acct","email":"e@x"},"siwc":{"access_token":"sat","refresh_token":"srt","client_id":"issued-client","device_id":"dev-1","expired":"2027-01-01T00:00:00Z"}}`)
+	cred, err := DecodeCredential(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cred.UsesChatGPT() || cred.AccessToken != "sat" || cred.ClientID != "issued-client" || cred.DeviceID != "dev-1" || !cred.Ready() {
+		t.Fatalf("siwc nested decode %+v", cred)
+	}
+}
+
+func chatgptCredentialPayload() []byte {
+	payload, _ := Credential{
+		AccessToken:  "sat",
+		RefreshToken: "srt",
+		AccountID:    "acct_123",
+		Email:        "u@example.com",
+		ExpiresAt:    time.Now().Add(time.Hour).Unix(),
+		AuthMethod:   AuthMethodChatGPT,
+		ClientID:     "issued-client",
+		DeviceID:     "dev-1",
+	}.Encode()
+	return payload
+}
+
+func TestStartLoginUsesChatGPTAuthorizeURL(t *testing.T) {
+	client := NewClient(testStore{secrets: map[string]string{codexLoginMethodSecret("a1"): "chatgpt"}})
+	session, err := client.startLogin(context.Background(), "a1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(session.AuthURL, SIWCAuthorizeURL+"?") {
+		t.Fatalf("auth url = %s", session.AuthURL)
+	}
+	parsed, err := url.Parse(session.AuthURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := parsed.Query()
+	if query.Get("client_id") != SIWCDynamicClient || query.Get("scope") != SIWCScope || query.Get("resource") != SIWCResource {
+		t.Fatalf("query = %v", query)
+	}
+}
+
+func TestChatRequestRoutesChatGPTToAPIOpenAI(t *testing.T) {
+	client := NewClient(testStore{items: map[string][]byte{"a1": chatgptCredentialPayload()}})
+	credential, err := client.credential(context.Background(), "a1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := translate.ChatRequest{Model: "gpt-5.5", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}}}
+	httpReq, _, err := client.chatRequest(context.Background(), credential, req, "a1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if httpReq.URL.String() != SIWCBaseURL+pathResponses {
+		t.Fatalf("url = %s", httpReq.URL)
+	}
+	if httpReq.Header.Get("Originator") != "" || httpReq.Header.Get("Chatgpt-Account-Id") != "" {
+		t.Fatalf("cli headers leaked: %v", httpReq.Header)
+	}
+	if httpReq.Header.Get("User-Agent") != SIWCAgentName+" (darwin; arm64)" {
+		t.Fatalf("user-agent = %q", httpReq.Header.Get("User-Agent"))
+	}
+	body, _ := io.ReadAll(httpReq.Body)
+	var obj map[string]any
+	if json.Unmarshal(body, &obj) != nil {
+		t.Fatal("body not json")
+	}
+	if _, ok := obj["prompt_cache_key"]; ok {
+		t.Fatalf("prompt_cache_key forwarded: %v", obj)
+	}
+	if _, ok := obj["instructions"]; ok {
+		t.Fatalf("empty instructions forwarded: %v", obj)
+	}
+}
+
+func TestQuotaSkipsWhamUsageForChatGPT(t *testing.T) {
+	client := NewClient(testStore{items: map[string][]byte{"a1": chatgptCredentialPayload()}})
+	cached := &providers.QuotaInfo{Remaining: 42, ProviderID: "codex"}
+	client.rememberQuota("a1", cached)
+	got, err := client.Quota(context.Background(), "a1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != cached {
+		t.Fatalf("chatgpt quota = %+v, want cached", got)
+	}
+}
+
+func TestScanCodexSSEJoinsSplitCompletedEvent(t *testing.T) {
+	sse := strings.Join([]string{
+		`event: response.output_text.delta`,
+		`data: {"type":"response.output_text.delta","delta":"hi"}`,
+		`event: response.completed`,
+		`data: {"type":"response.completed","response":{"status":"completed",`,
+		`data: "usage":{"input_tokens":10,"output_tokens":5},"output":[]}}`,
+	}, "\n")
+	outcome, err := aggregate(strings.NewReader(sse), "gpt-5.5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outcome.Content != "hi" || outcome.PromptTokens != 10 || outcome.CompletionTokens != 5 {
+		t.Fatalf("split completed lost usage: %+v", outcome)
+	}
+}
+
+func TestNormalizeToolParametersStripsInt64OverflowBounds(t *testing.T) {
+	raw := json.RawMessage(`{"type":"object","properties":{"n":{"type":"integer","minimum":0,"maximum":9223372036854775808,"exclusiveMaximum":18446744073709551615}}}`)
+	got, changed := normalizeToolParameters(raw)
+	if !changed {
+		t.Fatal("expected overflow bounds to be stripped")
+	}
+	if strings.Contains(string(got), "9223372036854775808") || strings.Contains(string(got), "exclusiveMaximum") {
+		t.Fatalf("overflow bounds remain: %s", got)
+	}
+	if !strings.Contains(string(got), `"minimum":0`) {
+		t.Fatalf("in-range bound dropped: %s", got)
 	}
 }
 

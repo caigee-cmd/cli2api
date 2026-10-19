@@ -42,7 +42,7 @@ type Props = {
   pat: string
   t: Translate
   onPatChange: (value: string) => void
-  onDeviceLogin: () => void
+  onDeviceLogin: (loginMethod?: string) => void
   onPatLogin: () => void
   callbackUrl?: string
   onCallbackChange?: (value: string) => void
@@ -287,11 +287,18 @@ export function AccountCard({
         <section ref={authRef} className="grid gap-3 border-t border-separator bg-surface-secondary/55 px-3 py-3">
           <div>
             <div className="text-xs font-medium text-muted">{t('oauthDeviceFlow')}</div>
-            <p className="mt-1.5 text-xs leading-5 text-muted">{t('qoderLoginHint')}</p>
+            <p className="mt-1.5 text-xs leading-5 text-muted">{account.provider === 'codex' ? t('wizardCodexBrowserLead') : t('qoderLoginHint')}</p>
             <div className="mt-2.5 flex flex-wrap gap-2">
-              <Button size="sm" isPending={busyKind === 'device'} onPress={onDeviceLogin}><ShieldCheck size={14} />{t('startBrowserLogin')}</Button>
+              {account.provider === 'codex' ? (
+                <>
+                  <Button size="sm" isPending={busyKind === 'device'} onPress={() => onDeviceLogin('cli')}><ShieldCheck size={14} />{t('startCodexCliLogin')}</Button>
+                  <Button size="sm" variant="secondary" isPending={busyKind === 'device'} onPress={() => onDeviceLogin('chatgpt')}><ShieldCheck size={14} />{t('startCodexChatGPTLogin')}</Button>
+                </>
+              ) : (
+                <Button size="sm" isPending={busyKind === 'device'} onPress={() => onDeviceLogin()}><ShieldCheck size={14} />{t('startBrowserLogin')}</Button>
+              )}
             </div>
-            {account.provider === 'trae' && onSubmitCallback && onCallbackChange ? (
+            {(account.provider === 'trae' || account.provider === 'codex' || account.provider === 'devin') && onSubmitCallback && onCallbackChange ? (
               <div className="mt-3 space-y-2">
                 <p className="text-[11px] leading-4 text-muted">{t('wizardCallbackLead')}</p>
                 <TextArea

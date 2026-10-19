@@ -174,6 +174,25 @@ func TestPickRouteCandidateCountShrinksAfterRegionPin(t *testing.T) {
 	}
 }
 
+func TestPickRouteBarePrefixMatchesGlobalOnlyPool(t *testing.T) {
+	// A bare "qoder/model" request carries no region pin, so a pool with only
+	// international (global) accounts must still route; only an explicit -cn/
+	// pin may exclude them.
+	p := NewPool(nil, nil)
+	p.Upsert(Item{ID: "g1", URL: "http://g1", Provider: "qoder", Region: "global", Runtime: "child_process"})
+
+	got, ok := p.PickRoute(RouteQuery{ProviderFilter: "qoder"})
+	if !ok || got.ID != "g1" {
+		t.Fatalf("bare qoder prefix must route to the global-only account, got %+v ok=%v", got, ok)
+	}
+	if n := p.LenRoute(RouteQuery{ProviderFilter: "qoder"}); n != 1 {
+		t.Fatalf("unpinned qoder candidates = %d, want 1", n)
+	}
+	if _, ok := p.PickRoute(RouteQuery{ProviderFilter: "qoder", RegionFilter: "cn"}); ok {
+		t.Fatal("an explicit -cn/ pin must not match a global-only pool")
+	}
+}
+
 func TestPickRouteHonorsAPIKeyAllowlist(t *testing.T) {
 	p := NewPool(nil, nil)
 	p.Upsert(Item{ID: "q1", URL: "http://q1", Provider: "qoder", Runtime: "child_process"})

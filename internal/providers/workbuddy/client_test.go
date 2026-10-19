@@ -1303,6 +1303,84 @@ func TestPrepareBodyKeepsEncodedCustomFunctionTools(t *testing.T) {
 	}
 }
 
+func TestPrepareBodySanitizesWAFFingerprints(t *testing.T) {
+	input := []byte(`{
+			"model": "glm-5.2",
+			"messages": [
+				{
+					"role": "system",
+					"content": "Environment:\nMain branch (you will usually use this for PRs): main\nOther context."
+				},
+				{
+					"role": "user",
+					"content": "Check git: Main branch (you will usually use this for PRs)"
+				},
+				{
+					"role": "assistant",
+					"content": [
+						{"type": "text", "text": "Result from Main branch (you will usually use this for PRs): test"}
+					],
+					"reasoning_content": "Thinking about Main branch (you will usually use this for PRs): main"
+				},
+				{
+					"role": "user",
+					"content": "Hello world untouched"
+				}
+			]
+		}`)
+	out := PrepareBody(input)
+	var body map[string]any
+	if err := json.Unmarshal(out, &body); err != nil {
+		t.Fatal(err)
+	}
+	messages, _ := body["messages"].([]any)
+	if len(messages) != 4 {
+		t.Fatalf("expected 4 messages, got %d", len(messages))
+	}
+
+	msg0, _ := messages[0].(map[string]any)
+	content0, _ := msg0["content"].(string)
+	if strings.Contains(content0, "Main branch (you will usually use this for PRs)") {
+		t.Fatalf("system message still contains fingerprint: %q", content0)
+	}
+	if !strings.Contains(content0, "Main branch (target for pull requests): main") {
+		t.Fatalf("system message missing sanitized text: %q", content0)
+	}
+
+	msg1, _ := messages[1].(map[string]any)
+	content1, _ := msg1["content"].(string)
+	if strings.Contains(content1, "Main branch (you will usually use this for PRs)") {
+		t.Fatalf("user message still contains fingerprint: %q", content1)
+	}
+	if !strings.Contains(content1, "Main branch (target for pull requests)") {
+		t.Fatalf("user message missing sanitized text: %q", content1)
+	}
+
+	msg2, _ := messages[2].(map[string]any)
+	parts, _ := msg2["content"].([]any)
+	part0, _ := parts[0].(map[string]any)
+	partText, _ := part0["text"].(string)
+	if strings.Contains(partText, "Main branch (you will usually use this for PRs)") {
+		t.Fatalf("part text still contains fingerprint: %q", partText)
+	}
+	if !strings.Contains(partText, "Main branch (target for pull requests): test") {
+		t.Fatalf("part text missing sanitized text: %q", partText)
+	}
+	reasoning, _ := msg2["reasoning_content"].(string)
+	if strings.Contains(reasoning, "Main branch (you will usually use this for PRs)") {
+		t.Fatalf("reasoning still contains fingerprint: %q", reasoning)
+	}
+	if !strings.Contains(reasoning, "Main branch (target for pull requests): main") {
+		t.Fatalf("reasoning missing sanitized text: %q", reasoning)
+	}
+
+	msg3, _ := messages[3].(map[string]any)
+	content3, _ := msg3["content"].(string)
+	if content3 != "Hello world untouched" {
+		t.Fatalf("untouched message changed: %q", content3)
+	}
+}
+
 func TestCatalogHeadersUseDesktopUAOnlyForGlobal(t *testing.T) {
 	global := http.Header{}
 	SetCatalogHeaders(global, Credential{AccessToken: "at", UID: "u1", Domain: "www.workbuddy.ai"})
@@ -1872,6 +1950,7 @@ func TestOutcomeFromAggregatePreservesCacheUsage(t *testing.T) {
 	}{
 		{name: "top-level cache fields", usage: `"cache_read_tokens":12,"cache_write_tokens":3`, read: 12, write: 3},
 		{name: "cached tokens detail fallback", usage: `"prompt_tokens_details":{"cached_tokens":7},"cache_write_tokens":0`, read: 7, write: 0},
+		{name: "prompt cache hit tokens", usage: `"prompt_cache_hit_tokens":80,"cache_write_tokens":0`, read: 80, write: 0},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			aggregate, err := Aggregate(strings.NewReader(strings.Join([]string{

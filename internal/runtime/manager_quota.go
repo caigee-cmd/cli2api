@@ -59,6 +59,40 @@ func (m *Manager) fetchProviderQuota(ctx context.Context, accountID string, prob
 		quota.Plan = strings.TrimSpace(info.Plan)
 	}
 	m.persistQuota(ctx, accountID, quota)
+	m.clearRecoveredDevinQuota(ctx, accountID, info)
+}
+
+// clearRecoveredDevinQuota drops an account-wide quota cooldown once
+// GetUserStatus shows remaining daily/weekly usage. Model-scoped capacity
+// 429s stay put; only the credential-wide window is recovered here.
+func (m *Manager) clearRecoveredDevinQuota(ctx context.Context, accountID string, info *providers.QuotaInfo) {
+	if m == nil || info == nil || info.ProviderID != "devin" || info.Exceeded || !quotaWindowsHaveRemaining(info.Windows) {
+		return
+	}
+	item, ok := m.pool.ByID(accountID)
+	if !ok || item.DownUntil.IsZero() || time.Now().After(item.DownUntil) {
+		return
+	}
+	// Probe success clears LastKind while leaving DownUntil. Recover
+	// quota cooldown unless a non-quota failure still owns the account.
+	if item.LastKind != "" && item.LastKind != accounts.KindQuota {
+		return
+	}
+	m.pool.ClearAccountQuotaCooldown(accountID)
+	m.Flush()
+	_ = ctx
+}
+
+func quotaWindowsHaveRemaining(windows []providers.QuotaWindow) bool {
+	if len(windows) == 0 {
+		return false
+	}
+	for _, window := range windows {
+		if window.Exceeded || window.Remaining <= 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func quotaPackagesFromInfo(packages []providers.QuotaPackage) []accounts.QuotaPackage {

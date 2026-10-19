@@ -208,16 +208,18 @@ func (h *Handler) HandleAccountByID(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, payload)
 		return
 	}
-	var callbackURL string
-	if action == "login/callback" {
+	var callbackURL, loginMethod string
+	if action == "login/device" || action == "login/callback" {
 		var input struct {
 			CallbackURL string `json:"callback_url"`
+			LoginMethod string `json:"login_method"`
 		}
-		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxConsoleBodyBytes)).Decode(&input); err != nil {
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxConsoleBodyBytes)).Decode(&input); err != nil && err != io.EOF {
 			writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
 			return
 		}
 		callbackURL = input.CallbackURL
+		loginMethod = input.LoginMethod
 	}
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -225,7 +227,7 @@ func (h *Handler) HandleAccountByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result, err := h.Control.Accounts.Admin(r.Context(), control.AccountAdminAction{
-		AccountID: accountID, Action: action, Method: r.Method, ContentType: r.Header.Get("Content-Type"), Body: body, CallbackURL: callbackURL,
+		AccountID: accountID, Action: action, Method: r.Method, ContentType: r.Header.Get("Content-Type"), Body: body, CallbackURL: callbackURL, LoginMethod: loginMethod,
 	})
 	if err != nil {
 		writeOperationError(w, err)

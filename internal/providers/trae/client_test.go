@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -17,6 +19,9 @@ import (
 )
 
 type memStore struct {
+	// mu guards every field below. Redemption runs on a background goroutine
+	// after the loopback callback, so the store is reached concurrently.
+	mu       sync.Mutex
 	items    map[string][]byte
 	region   string
 	settings map[string]accounts.ProviderModelSetting
@@ -30,6 +35,8 @@ type memStore struct {
 }
 
 func (s *memStore) Get(ctx context.Context, id string) (accounts.Account, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	region := s.region
 	if region == "" {
 		region = "cn"
@@ -37,6 +44,8 @@ func (s *memStore) Get(ctx context.Context, id string) (accounts.Account, error)
 	return accounts.Account{ID: id, Provider: "trae", ProviderRegion: region, ProxyURL: s.accountProxyURL}, nil
 }
 func (s *memStore) GetSecret(ctx context.Context, key string) (string, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.secretCalls++
 	if s.secretErr != nil {
 		return "", false, s.secretErr
@@ -44,6 +53,8 @@ func (s *memStore) GetSecret(ctx context.Context, key string) (string, bool, err
 	return s.secretValue, s.secretFound, nil
 }
 func (s *memStore) LoadCredentialPayload(ctx context.Context, accountID string) (string, []byte, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	payload, ok := s.items[accountID]
 	if !ok {
 		return "", nil, accounts.ErrAccountNotFound
@@ -51,6 +62,8 @@ func (s *memStore) LoadCredentialPayload(ctx context.Context, accountID string) 
 	return CredentialFormat, payload, nil
 }
 func (s *memStore) SaveCredentialPayload(ctx context.Context, accountID, format string, payload []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.items == nil {
 		s.items = map[string][]byte{}
 	}
@@ -61,6 +74,8 @@ func (s *memStore) Observe(ctx context.Context, id, remoteUID, status, lastError
 	return nil
 }
 func (s *memStore) GetProviderModelSetting(ctx context.Context, provider, modelID string) (accounts.ProviderModelSetting, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.lookups = append(s.lookups, provider+"/"+modelID)
 	if s.settings == nil {
 		return accounts.ProviderModelSetting{}, nil
@@ -209,6 +224,485 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
 
+// mustKey returns a fresh EC device private key, the shape a real login stores
+// and the code exchange signs with.
+func mustKey(t *testing.T) string {
+	t.Helper()
+	priv, _, err := generateDeviceKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return priv
+}
+
+// A callback captured by the loopback listener but never redeemed by the poll
+// loop (the console's poll window can expire first) must still be exchangeable
+// through a pasted callback URL. Reporting success without storing a credential
+// left the account permanently at "account not found".
+func TestCompleteLoginRedeemsCodeCapturedByLoopback(t *testing.T) {
+	client, store := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case pathExchangeCode:
+			_ = json.NewEncoder(w).Encode(map[string]any{"Result": map[string]any{
+				"Token": "at", "RefreshToken": "rt2", "TokenExpireAt": time.Now().Add(time.Hour).Unix(),
+			}})
+		case pathUserInfo:
+			_ = json.NewEncoder(w).Encode(map[string]any{"Result": map[string]any{
+				"UserID": "u1", "ScreenName": "Tester", "EnterpriseID": "e1",
+			}})
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	session, err := client.StartLogin(context.Background(), "acc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The browser hits the loopback listener: the callback is parked as done
+	// with the code attached, exactly as acceptCallback leaves it.
+	client.mu.Lock()
+	pending := client.pending["acc1"]
+	pending.done = true
+	pending.authCode = "ABC-123"
+	pending.credential = Credential{
+		UID: "u1", Nickname: "Tester", EnterpriseID: "e1",
+		MachineID: pending.machineID, DeviceID: pending.deviceID,
+	}
+	machine, device := pending.machineID, pending.deviceID
+	client.mu.Unlock()
+
+	// The operator pastes the callback URL afterwards; the poll loop never ran.
+	callback := "http://127.0.0.1:49519/authorize?loginTraceID=" + session.State +
+		"&authCodeInfo=%7B%22AuthCode%22%3A%22ABC-123%22%7D"
+	if err := client.CompleteLogin(context.Background(), "acc1", callback); err != nil {
+		t.Fatal(err)
+	}
+	_, payload, err := store.LoadCredentialPayload(context.Background(), "acc1")
+	if err != nil {
+		t.Fatalf("credential must be stored: %v", err)
+	}
+	credential, err := DecodeCredential(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if credential.UID != "u1" || credential.AccessToken != "at" || credential.RefreshToken != "rt2" {
+		t.Fatalf("credential=%+v", credential)
+	}
+	if credential.MachineID != machine || credential.DeviceID != device {
+		t.Fatalf("device identity must survive: got machine=%s device=%s want machine=%s device=%s",
+			credential.MachineID, credential.DeviceID, machine, device)
+	}
+	if credential.DevicePrivateKey == "" {
+		t.Fatal("device key must be stored for later code exchanges")
+	}
+}
+
+// The pasted URL may carry nothing but the trace id; the code parked by the
+// loopback listener is the only source of the authorization code.
+func TestCompleteLoginFallsBackToCapturedAuthCode(t *testing.T) {
+	client, store := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case pathExchangeCode:
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if body["AuthCode"] != "PARKED-CODE" {
+				t.Fatalf("exchange must redeem the parked code, body=%v", body)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"Result": map[string]any{
+				"Token": "at", "RefreshToken": "rt2", "TokenExpireAt": time.Now().Add(time.Hour).Unix(),
+			}})
+		case pathUserInfo:
+			_ = json.NewEncoder(w).Encode(map[string]any{"Result": map[string]any{"UserID": "u1"}})
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	session, err := client.StartLogin(context.Background(), "acc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.mu.Lock()
+	pending := client.pending["acc1"]
+	pending.done = true
+	pending.authCode = "PARKED-CODE"
+	pending.credential = Credential{MachineID: pending.machineID, DeviceID: pending.deviceID}
+	client.mu.Unlock()
+
+	callback := "http://127.0.0.1:49519/authorize?loginTraceID=" + session.State
+	if err := client.CompleteLogin(context.Background(), "acc1", callback); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.LoadCredentialPayload(context.Background(), "acc1"); err != nil {
+		t.Fatalf("credential must be stored: %v", err)
+	}
+}
+
+// A callback with no code and no token must fail loudly rather than persist an
+// empty credential the probe would then report as ready.
+func TestCompleteLoginRejectsCallbackWithoutCodeOrToken(t *testing.T) {
+	client, store := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("no upstream call without a code or token")
+	}))
+	if _, err := client.StartLogin(context.Background(), "acc1"); err != nil {
+		t.Fatal(err)
+	}
+	err := client.CompleteLogin(context.Background(), "acc1", "http://127.0.0.1:49519/authorize?isRedirect=true")
+	if err == nil {
+		t.Fatal("expected an error for a callback with neither code nor token")
+	}
+	if _, _, loadErr := store.LoadCredentialPayload(context.Background(), "acc1"); loadErr == nil {
+		t.Fatal("no credential may be stored for an empty callback")
+	}
+}
+
+// A redeemed login must not leave a trace index behind for a later callback to
+// match against a credential that was already exchanged.
+func TestPollLoginClearsTraceIndexAfterRedeem(t *testing.T) {
+	client, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case pathExchangeCode:
+			_ = json.NewEncoder(w).Encode(map[string]any{"Result": map[string]any{
+				"Token": "at", "RefreshToken": "rt2", "TokenExpireAt": time.Now().Add(time.Hour).Unix(),
+			}})
+		case pathUserInfo:
+			_ = json.NewEncoder(w).Encode(map[string]any{"Result": map[string]any{"UserID": "u1"}})
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	session, err := client.StartLogin(context.Background(), "acc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.mu.Lock()
+	pending := client.pending["acc1"]
+	pending.done = true
+	pending.authCode = "ABC-123"
+	pending.credential = Credential{MachineID: pending.machineID, DeviceID: pending.deviceID}
+	client.mu.Unlock()
+
+	if done, _, err := client.PollLogin(context.Background(), "acc1"); err != nil || !done {
+		t.Fatalf("done=%v err=%v", done, err)
+	}
+	client.mu.Lock()
+	_, stillPending := client.pending["acc1"]
+	_, stillTraced := client.pendingTraces[session.State]
+	client.mu.Unlock()
+	if stillPending || stillTraced {
+		t.Fatalf("redeemed login must clear pending (pending=%v trace=%v)", stillPending, stillTraced)
+	}
+}
+
+// After a pasted callback completes the login, a poll still in flight from the
+// browser flow must report success rather than "login not started".
+func TestPollLoginReportsReadyAfterPastedCallback(t *testing.T) {
+	client, store := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case pathExchangeCode:
+			_ = json.NewEncoder(w).Encode(map[string]any{"Result": map[string]any{
+				"Token": "at", "RefreshToken": "rt2", "TokenExpireAt": time.Now().Add(time.Hour).Unix(),
+			}})
+		case pathUserInfo:
+			_ = json.NewEncoder(w).Encode(map[string]any{"Result": map[string]any{"UserID": "u1"}})
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	session, err := client.StartLogin(context.Background(), "acc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.mu.Lock()
+	pending := client.pending["acc1"]
+	pending.done = true
+	pending.authCode = "ABC-123"
+	pending.credential = Credential{MachineID: pending.machineID, DeviceID: pending.deviceID}
+	client.mu.Unlock()
+
+	callback := "http://127.0.0.1:49519/authorize?loginTraceID=" + session.State
+	if err := client.CompleteLogin(context.Background(), "acc1", callback); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.LoadCredentialPayload(context.Background(), "acc1"); err != nil {
+		t.Fatalf("credential must be stored: %v", err)
+	}
+	done, message, err := client.PollLogin(context.Background(), "acc1")
+	if err != nil {
+		t.Fatalf("poll after paste must not fail: %v", err)
+	}
+	if !done {
+		t.Fatalf("poll after paste must report done, message=%q", message)
+	}
+}
+
+// The loopback callback must redeem the code on its own. The console's poll
+// window is much shorter than a real browser login, so waiting for a poller
+// left the code unexchanged and the account at "account not found".
+func TestAcceptCallbackRedeemsWithoutPolling(t *testing.T) {
+	var exchanges int32
+	client, store := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case pathExchangeCode:
+			atomic.AddInt32(&exchanges, 1)
+			_ = json.NewEncoder(w).Encode(map[string]any{"Result": map[string]any{
+				"Token": "at", "RefreshToken": "rt2", "TokenExpireAt": time.Now().Add(time.Hour).Unix(),
+			}})
+		case pathUserInfo:
+			_ = json.NewEncoder(w).Encode(map[string]any{"Result": map[string]any{
+				"UserID": "u1", "ScreenName": "Tester", "EnterpriseID": "e1",
+			}})
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	session, err := client.StartLogin(context.Background(), "acc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The browser lands on the loopback listener; no poll ever runs.
+	callback := "http://127.0.0.1:9/authorize?loginTraceID=" + session.State +
+		"&authCodeInfo=%7B%22AuthCode%22%3A%22ABC-123%22%7D"
+	if err := client.acceptCallback(context.Background(), callback); err != nil {
+		t.Fatal(err)
+	}
+	// The exchange runs in the background, so wait for the credential.
+	var credential Credential
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, payload, err := store.LoadCredentialPayload(context.Background(), "acc1"); err == nil {
+			if decoded, err := DecodeCredential(payload); err == nil && decoded.Ready() {
+				credential = decoded
+				break
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !credential.Ready() {
+		t.Fatal("callback must redeem the code and store a credential without any poll")
+	}
+	if credential.UID != "u1" || credential.AccessToken != "at" || credential.RefreshToken != "rt2" {
+		t.Fatalf("credential=%+v", credential)
+	}
+	if credential.DevicePrivateKey == "" {
+		t.Fatal("device key must be stored for later code exchanges")
+	}
+	if got := atomic.LoadInt32(&exchanges); got != 1 {
+		t.Fatalf("code must be exchanged exactly once, got %d", got)
+	}
+	// A poll racing the background exchange must report the same success, not
+	// "login not started".
+	done, _, err := client.PollLogin(context.Background(), "acc1")
+	if err != nil || !done {
+		t.Fatalf("poll after callback done=%v err=%v", done, err)
+	}
+}
+
+// The authorization code is single-use, so overlapping redeemers must produce
+// exactly one exchange and share its result.
+func TestRedeemExchangesCodeOnceUnderConcurrency(t *testing.T) {
+	var exchanges int32
+	release := make(chan struct{})
+	client, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case pathExchangeCode:
+			atomic.AddInt32(&exchanges, 1)
+			<-release // hold the exchange open so both callers overlap
+			_ = json.NewEncoder(w).Encode(map[string]any{"Result": map[string]any{
+				"Token": "at", "RefreshToken": "rt2", "TokenExpireAt": time.Now().Add(time.Hour).Unix(),
+			}})
+		case pathUserInfo:
+			_ = json.NewEncoder(w).Encode(map[string]any{"Result": map[string]any{"UserID": "u1"}})
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	if _, err := client.StartLogin(context.Background(), "acc1"); err != nil {
+		t.Fatal(err)
+	}
+	client.mu.Lock()
+	pending := client.pending["acc1"]
+	pending.done = true
+	pending.authCode = "ABC-123"
+	pending.credential = Credential{MachineID: pending.machineID, DeviceID: pending.deviceID}
+	credential, authCode, verifier := pending.credential, pending.authCode, pending.codeVerifier
+	client.mu.Unlock()
+
+	errs := make(chan error, 2)
+	go func() {
+		errs <- client.redeem(context.Background(), "acc1", pending, credential, authCode, verifier)
+	}()
+	// Wait for the first exchange to be in flight before starting the second.
+	deadline := time.Now().Add(5 * time.Second)
+	for atomic.LoadInt32(&exchanges) == 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	go func() {
+		errs <- client.redeem(context.Background(), "acc1", pending, credential, authCode, verifier)
+	}()
+	close(release)
+	for i := 0; i < 2; i++ {
+		if err := <-errs; err != nil {
+			t.Fatalf("concurrent redeem failed: %v", err)
+		}
+	}
+	if got := atomic.LoadInt32(&exchanges); got != 1 {
+		t.Fatalf("single-use code must be exchanged once, got %d exchanges", got)
+	}
+}
+
+// A failed exchange must not burn the guard, so the operator can retry the
+// same callback instead of restarting the whole login.
+func TestRedeemAllowsRetryAfterFailure(t *testing.T) {
+	var exchanges int32
+	client, store := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case pathExchangeCode:
+			if atomic.AddInt32(&exchanges, 1) == 1 {
+				w.WriteHeader(http.StatusBadGateway)
+				_, _ = w.Write([]byte(`{"error":"upstream blip"}`))
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"Result": map[string]any{
+				"Token": "at", "RefreshToken": "rt2", "TokenExpireAt": time.Now().Add(time.Hour).Unix(),
+			}})
+		case pathUserInfo:
+			_ = json.NewEncoder(w).Encode(map[string]any{"Result": map[string]any{"UserID": "u1"}})
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	if _, err := client.StartLogin(context.Background(), "acc1"); err != nil {
+		t.Fatal(err)
+	}
+	client.mu.Lock()
+	pending := client.pending["acc1"]
+	pending.done = true
+	pending.authCode = "ABC-123"
+	pending.credential = Credential{MachineID: pending.machineID, DeviceID: pending.deviceID}
+	credential, authCode, verifier := pending.credential, pending.authCode, pending.codeVerifier
+	client.mu.Unlock()
+
+	if err := client.redeem(context.Background(), "acc1", pending, credential, authCode, verifier); err == nil {
+		t.Fatal("first exchange must surface the upstream failure")
+	}
+	if err := client.redeem(context.Background(), "acc1", pending, credential, authCode, verifier); err != nil {
+		t.Fatalf("retry after a transient failure must succeed: %v", err)
+	}
+	if _, _, err := store.LoadCredentialPayload(context.Background(), "acc1"); err != nil {
+		t.Fatalf("credential must be stored after the retry: %v", err)
+	}
+}
+
+// The loopback listener is shared across accounts, so a callback must be paired
+// with the login whose challenge it echoes, not with whichever entry the map
+// happens to yield first.
+func TestAcceptCallbackPairsByTraceAcrossAccounts(t *testing.T) {
+	client, store := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case pathExchangeCode:
+			_ = json.NewEncoder(w).Encode(map[string]any{"Result": map[string]any{
+				"Token": "at", "RefreshToken": "rt2", "TokenExpireAt": time.Now().Add(time.Hour).Unix(),
+			}})
+		case pathUserInfo:
+			_ = json.NewEncoder(w).Encode(map[string]any{"Result": map[string]any{"UserID": "u1"}})
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	first, err := client.StartLogin(context.Background(), "acc-first")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.StartLogin(context.Background(), "acc-second"); err != nil {
+		t.Fatal(err)
+	}
+	client.mu.Lock()
+	wantMachine := client.pending["acc-first"].machineID
+	client.mu.Unlock()
+
+	// The callback echoes the first login's trace id.
+	callback := "http://127.0.0.1:9/authorize?loginTraceID=" + first.State +
+		"&authCodeInfo=%7B%22AuthCode%22%3A%22ABC-123%22%7D"
+	if err := client.acceptCallback(context.Background(), callback); err != nil {
+		t.Fatal(err)
+	}
+	var credential Credential
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, payload, err := store.LoadCredentialPayload(context.Background(), "acc-first"); err == nil {
+			if decoded, err := DecodeCredential(payload); err == nil && decoded.Ready() {
+				credential = decoded
+				break
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !credential.Ready() {
+		t.Fatal("the traced account must receive the credential")
+	}
+	if credential.MachineID != wantMachine {
+		t.Fatalf("credential machine=%s want %s", credential.MachineID, wantMachine)
+	}
+	if _, _, err := store.LoadCredentialPayload(context.Background(), "acc-second"); err == nil {
+		t.Fatal("the other account's login must stay untouched")
+	}
+}
+
+// The CN front doors disagree about which host mints a code: the official
+// client exchanges at the host product.json configures (api.trae.cn) while the
+// callback advertises api.trae.com.cn. A code minted by one must be redeemable
+// even when the other host rejects it as an invalid parameter.
+func TestExchangeAuthCodeFallsBackAcrossCNHosts(t *testing.T) {
+	var hosts []string
+	client, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hosts = append(hosts, r.Host)
+		// The first host (api.trae.cn) rejects the code; the callback's host accepts it.
+		if len(hosts) == 1 {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"ResponseMetadata":{"Error":{"Code":"10101","Message":"无效参数"}}}`))
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"Result": map[string]any{
+			"Token": "at", "RefreshToken": "rt2", "TokenExpireAt": time.Now().Add(time.Hour).Unix(),
+		}})
+	}))
+	credential := Credential{
+		MachineID: "m1", DeviceID: "1234567890123456",
+		DevicePrivateKey: mustKey(t), APIHost: "https://api.trae.com.cn", Domain: DomainCN,
+	}
+	refreshed, err := client.ExchangeAuthCode(context.Background(), "acc1", credential, "CODE-XYZ", "verifier")
+	if err != nil {
+		t.Fatalf("a code rejected by the configured host must still be tried on the callback host: %v", err)
+	}
+	if refreshed.AccessToken != "at" {
+		t.Fatalf("credential=%+v", refreshed)
+	}
+	if len(hosts) != 2 {
+		t.Fatalf("expected two host attempts, got %v", hosts)
+	}
+}
+
+// A transient upstream failure must surface, not be masked by a second host
+// attempt that happens to succeed.
+func TestExchangeAuthCodeSurfacesTransientFailure(t *testing.T) {
+	var attempts int32
+	client, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&attempts, 1)
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte(`{"error":"upstream blip"}`))
+	}))
+	credential := Credential{
+		MachineID: "m1", DeviceID: "1234567890123456",
+		DevicePrivateKey: mustKey(t), APIHost: "https://api.trae.com.cn", Domain: DomainCN,
+	}
+	if _, err := client.ExchangeAuthCode(context.Background(), "acc1", credential, "CODE-XYZ", "verifier"); err == nil {
+		t.Fatal("a 502 must surface as an error")
+	}
+	if got := atomic.LoadInt32(&attempts); got != 1 {
+		t.Fatalf("a transient failure must not be retried on another host, got %d attempts", got)
+	}
+}
+
 func TestChatNonStreamAggregatesToolsAndReasoning(t *testing.T) {
 	payload, _ := Credential{AccessToken: "at", RefreshToken: "rt", UID: "u1", Domain: DomainCN, ExpiresAt: 4102444800, MachineID: "m1", DeviceID: "d1"}.Encode()
 	store := &memStore{items: map[string][]byte{"acc1": payload}}
@@ -355,6 +849,9 @@ func TestChatStreamRewritesOpenAIChunks(t *testing.T) {
 	text := string(body)
 	if !strings.Contains(text, `"object":"chat.completion.chunk"`) || !strings.Contains(text, "data: [DONE]") {
 		t.Fatalf("stream=%s", text)
+	}
+	if !strings.Contains(text, `"finish_reason":"tool_calls"`) || !strings.Contains(text, `"prompt_tokens":3`) {
+		t.Fatalf("terminal chunk missing finish_reason or usage: %s", text)
 	}
 	if strings.Contains(text, "event: output") {
 		t.Fatalf("must rewrite solo events, got %s", text)
