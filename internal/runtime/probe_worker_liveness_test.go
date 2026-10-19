@@ -86,7 +86,7 @@ func TestProbeWorkerLivenessRestartsStuckWorker(t *testing.T) {
 		t.Fatal("starter was not invoked")
 	}
 
-	// Threshold consecutive failures must trigger stopAccount. The account's
+	// Threshold consecutive failures must trigger restartStuckWorker. The account's
 	// /health URL is not serving, so every probe fails on transport.
 	for i := 1; i <= 3; i++ {
 		manager.probeWorkerLiveness(ctx)

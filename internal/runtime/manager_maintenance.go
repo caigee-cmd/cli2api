@@ -500,8 +500,9 @@ const workerLivenessThreshold = 3
 // that goes "alive but stuck" after boot — /health no longer responds, or its
 // goroutine is wedged — would stay routed to forever without this loop. Each
 // 30s tick issues one /health round-trip per worker account; on the
-// threshold-th consecutive failure it calls stopAccount so the existing
-// watchAccount + beginAccountRecovery path reboots the worker with backoff.
+// threshold-th consecutive failure it calls restartStuckWorker, which removes
+// the process from the table, stops it, then calls beginAccountRecovery so the
+// worker is rebooted with backoff.
 //
 // In-process accounts are skipped by probeHealthOnly and never enter the
 // failure counter, so WorkBuddy / Trae / Devin are unaffected.
@@ -517,8 +518,8 @@ func (manager *Manager) probeWorkerLiveness(ctx context.Context) {
 			manager.mu.Unlock()
 			continue
 		}
-		// Skip accounts already in recovery: stopAccount removed them from
-		// processes and beginAccountRecovery owns the reboot. Touching them
+		// Skip accounts already in recovery: they are no longer in processes
+		// and beginAccountRecovery owns the reboot. Touching them
 		// here would double-restart or race the recovering guard.
 		manager.mu.Lock()
 		if manager.recovering[item.ID] {
