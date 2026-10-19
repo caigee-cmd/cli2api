@@ -9,9 +9,9 @@ Connect **Qoder (Global / CN)**, **WorkBuddy (Global / CN)**, **Trae CN Work**, 
 Deploy with Docker, manage accounts in the web console, and connect clients through compatible APIs.
 
 [![License](https://img.shields.io/github/license/caigee-cmd/cli2api)](LICENSE)
-[![LINUX DO](https://img.shields.io/badge/LINUX%20DO-community-ff6a00)](https://linux.do)
+[![Telegram](https://img.shields.io/badge/Telegram-community-26A5E4)](https://t.me/+jCjL8ou_g7Q2MzI1)
 
-<sub>[中文](README.md) · [Issues](https://github.com/caigee-cmd/cli2api/issues) · [LINUX DO](https://linux.do)</sub>
+<sub>[中文](README.md) · [Issues](https://github.com/caigee-cmd/cli2api/issues) · [Telegram](https://t.me/+jCjL8ou_g7Q2MzI1)</sub>
 
 <img src="./docs/assets/readme/hero-en.svg" width="100%" alt="CLI2API — turn your own logins into a local OpenAI-compatible API">
 
@@ -90,7 +90,11 @@ The default deployment exposes only `127.0.0.1:3010`; do not expose it directly 
 
 ## Community & Contributing
 
-Chinese-language discussion is on [LINUX DO](https://linux.do). Bugs and feature requests go to GitHub [Issues](https://github.com/caigee-cmd/cli2api/issues); documentation improvements and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
+Discussion is in the [Telegram group](https://t.me/+jCjL8ou_g7Q2MzI1). In China you can also scan the personal WeChat QR below. Bugs and feature requests go to GitHub [Issues](https://github.com/caigee-cmd/cli2api/issues); documentation improvements and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+<p align="center">
+  <img src="./docs/assets/readme/wechat-contact.jpg" width="220" alt="Personal WeChat QR code">
+</p>
 
 ## Acknowledgements
 
