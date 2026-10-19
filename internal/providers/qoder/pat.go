@@ -110,7 +110,7 @@ var ErrPATRequired = errors.New("qoder account requires PAT re-login (legacy CLI
 // the cosy-machine{Id,Token,Type} headers; deriving them from the PAT (not
 // from the uid, which is only known after bootstrap) means the same account
 // presents the same device across restarts, PAT re-exchanges, and machine
-// restarts. A random per-process identity (the qoder2api approach) would mint
+// restarts. A random per-process identity (the Qoder-2API-Go approach) would mint
 // a new device on every rebuild and risks the OpenAPI dropping the
 // claimable credit campaign as an unofficial client.
 //

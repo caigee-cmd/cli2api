@@ -12,7 +12,7 @@ import (
 // chat_context.extra.modelConfig. An empty extra block makes it answer with no
 // reasoning_content stream even when model_config.is_reasoning and
 // parameters.enable_thinking are set. These fields mirror the reference Qoder
-// client (and the working qoder2api), so guard them against regression.
+// client (and the working Qoder-2API-Go), so guard them against regression.
 func TestBuildPlainChatBodyFillsChatContextForReasoning(t *testing.T) {
 	raw := `{
 		"model":"qwen3.8-flash","max_tokens":40,"reasoning_effort":"xhigh",

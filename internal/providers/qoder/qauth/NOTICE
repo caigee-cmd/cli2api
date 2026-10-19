@@ -1,0 +1,17 @@
+This package is ported from EchoPing07/Qoder-2API-Go
+(https://github.com/EchoPing07/Qoder-2API-Go, commit
+65a5ffff122fdbc165275a631459b9801f9e097a, auth/auth.go), licensed under the
+MIT License. MIT permits redistribution under this project's MIT license with
+the copyright notice retained.
+
+Copyright (c) 2026 EchoPing
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the Software), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.

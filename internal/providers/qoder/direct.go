@@ -395,7 +395,7 @@ func BuildPlainChatBody(req translate.ChatRequest, now time.Time) map[string]any
 		"stream":         true,
 		"chat_task":      "FREE_INPUT",
 		// chat_context mirrors the reference Qoder client (and the working
-		// qoder2api): the gateway resolves the thinking channel and the routed
+		// Qoder-2API-Go): the gateway resolves the thinking channel and the routed
 		// model from chat_context.extra.modelConfig. An empty extra block makes
 		// the gateway answer without a reasoning_content stream even when the
 		// top-level model_config.is_reasoning and parameters.enable_thinking are

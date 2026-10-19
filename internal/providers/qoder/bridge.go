@@ -25,7 +25,7 @@ import (
 // live in cosy.go / direct.go.
 //
 // The session lifecycle (bootstrapSession / doRenew / EnsureFreshSession /
-// forceRefresh / quotaBearer) is ported from the qoder2api reference
+// forceRefresh / quotaBearer) is ported from EchoPing07/Qoder-2API-Go (MIT; see qauth/NOTICE) — the reference
 // (Qoder-api/bridge/session.go and bridge.go); the machine identity is derived
 // deterministically from the account uid (cli2api's cosy.go derivation) so a
 // restart does not mint a new device — important for the check-in path, which
@@ -507,7 +507,7 @@ func (b *Bridge) ForceRefresh(ctx context.Context) error {
 // CatalogModels returns the model/list entries as the []map[string]any shape
 // cli2api's ModelInfos expects, with a TTL cache and single-flight. The raw
 // response is also available via CatalogRaw for callers that need the
-// qoder2api-style ExtractCatalog form.
+// Qoder-2API-Go-style ExtractCatalog form.
 func (b *Bridge) CatalogModels(ctx context.Context) ([]map[string]any, error) {
 	if cached, ok := b.lookupCatalog(); ok {
 		return cached, nil
@@ -548,7 +548,7 @@ func (b *Bridge) CatalogModels(ctx context.Context) ([]map[string]any, error) {
 }
 
 // CatalogRaw returns the cached raw model/list response, fetching it if stale
-// or missing. Used by callers that need the qoder2api-style ExtractCatalog
+// or missing. Used by callers that need the Qoder-2API-Go-style ExtractCatalog
 // form (display_name → key map) rather than the entry array.
 func (b *Bridge) CatalogRaw(ctx context.Context) (map[string]any, error) {
 	if _, err := b.CatalogModels(ctx); err != nil {

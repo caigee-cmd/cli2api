@@ -72,7 +72,7 @@ cmd/server
 
 - Qoder Global 和 Qoder CN 是同一个 `provider=qoder`，通过 `region` 区分，不创建新的 provider family。
 - Qoder 有两条运行路径：
-  - **PAT 路径（推荐）**：账号存 `qoder-pat-v1` 凭证（Personal Access Token），由进程内 `Bridge`（[`internal/providers/qoder/bridge.go`](../internal/providers/qoder/bridge.go)）全权负责——PAT→jobToken 交换、token 刷新、`/user/status`、`/model/list`、OpenAPI 配额、COSY 签名 chat、OpenAPI 签到。不 spawn worker。`internal/providers/qoder/qauth` 包是从 qoder2api 参考项目移植的完整 cosy 协议实现（RSA + AES + 自定义 base64 + MD5 签名、jobToken 交换/刷新、SSE reader、busy/auth/gateway 错误分类）。
+  - **PAT 路径（推荐）**：账号存 `qoder-pat-v1` 凭证（Personal Access Token），由进程内 `Bridge`（[`internal/providers/qoder/bridge.go`](../internal/providers/qoder/bridge.go)）全权负责——PAT→jobToken 交换、token 刷新、`/user/status`、`/model/list`、OpenAPI 配额、COSY 签名 chat、OpenAPI 签到。不 spawn worker。`internal/providers/qoder/qauth` 包是从 EchoPing07/Qoder-2API-Go（MIT，见 qauth/NOTICE）移植的完整 cosy 协议实现（RSA + AES + 自定义 base64 + MD5 签名、jobToken 交换/刷新、SSE reader、busy/auth/gateway 错误分类）。
   - **Worker 路径（legacy fallback）**：仍带 `qoder-native-v1` CLI blob 的老账号走 per-account Node+WASM worker（`worker/src/daemon.mjs`），直到操作员用 PAT 重新登录。
 - Qoder 聊天签名有两个实现：PAT 路径用 `qauth.NewSession`，legacy worker 路径用 `internal/providers/qoder/cosy.go` 的 `Session.Sign`。两者都直连 Qoder 网关，支持中国区（`gateway.qoder.com.cn`）和全球区（`api1.qoder.sh`）双端点。
 - Qoder 的 CLI / worker 兼容性版本固定在 `worker/src/compat.mjs`，不兼容时应明确失败。仅 legacy 账号受此约束。
