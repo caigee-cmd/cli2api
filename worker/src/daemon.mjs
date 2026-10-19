@@ -11,6 +11,7 @@ import { inspectQodercliSource, NEEDLES, PINNED_QODERCLI_VERSION, readQodercliVe
 import { resolveUsage } from "./usage.mjs";
 import { classifyError } from "./errors.mjs";
 import { createQoderCheckin } from "./checkin.mjs";
+import { fetchWithTimeout, streamStallMs } from "./upstream.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 register(pathToFileURL(path.join(__dirname, "rewrite-loader.mjs")).href);
@@ -136,7 +137,6 @@ let quotaError = null;
 let encodeChain = Promise.resolve();
 let inFlight = 0;
 const maxInFlight = Math.max(1, Number(process.env.QODER_MAX_INFLIGHT || 4) || 4);
-
 
 function sealContext(ctx) {
   try {
@@ -401,11 +401,15 @@ async function prepareUpstream(reqBody) {
   if (encoded?.headers?.forEach) encoded.headers.forEach((v, k) => (headers[k] = v));
   else Object.assign(headers, encoded?.headers || {});
 
-  const upstream = await fetch(encoded.url, {
-    method: "POST",
-    headers,
-    body: encoded.body,
-  });
+  const upstream = await fetchWithTimeout(
+    encoded.url,
+    {
+      method: "POST",
+      headers,
+      body: encoded.body,
+    },
+    { stallMs: streamStallMs },
+  );
   return { plain, upstream };
 }
 

@@ -35,6 +35,11 @@ type Client struct {
 	loginTimeout  time.Duration
 	loginInterval time.Duration
 
+	// firstByteTimeout bounds how long the worker-path ChatStream waits for the
+	// upstream response head before failing over. Resolved from
+	// QODER_STREAM_TTFB_MS at construction; zero falls back to the default.
+	firstByteTimeout time.Duration
+
 	// direct is the in-process chat path. When set, chat does not enter the
 	// per-account Node worker. Login, catalog, and quota still use that worker.
 	direct *Direct
@@ -42,13 +47,14 @@ type Client struct {
 
 func NewClient() *Client {
 	return &Client{
-		modelsHTTP:    &http.Client{Timeout: 15 * time.Second},
-		healthHTTP:    &http.Client{Timeout: 2 * time.Second},
-		quotaHTTP:     &http.Client{Timeout: 5 * time.Second},
-		adminHTTP:     &http.Client{Timeout: 120 * time.Second},
-		chatHTTP:      &http.Client{Timeout: 120 * time.Second},
-		loginTimeout:  90 * time.Second,
-		loginInterval: 200 * time.Millisecond,
+		modelsHTTP:       &http.Client{Timeout: 15 * time.Second},
+		healthHTTP:       &http.Client{Timeout: 2 * time.Second},
+		quotaHTTP:        &http.Client{Timeout: 5 * time.Second},
+		adminHTTP:        &http.Client{Timeout: 120 * time.Second},
+		chatHTTP:         &http.Client{Timeout: 120 * time.Second},
+		loginTimeout:     90 * time.Second,
+		loginInterval:    200 * time.Millisecond,
+		firstByteTimeout: resolveFirstByteTimeout(),
 	}
 }
 
@@ -537,6 +543,7 @@ func (c *Client) ChatStream(ctx context.Context, accountID string, req translate
 	}
 	c.mu.RLock()
 	httpClient := c.chatHTTP
+	firstByte := c.firstByteTimeout
 	c.mu.RUnlock()
 	if httpClient == nil {
 		httpClient = http.DefaultClient
@@ -546,9 +553,9 @@ func (c *Client) ChatStream(ctx context.Context, accountID string, req translate
 		cloned.Timeout = 0
 		httpClient = &cloned
 	}
-	resp, err := httpClient.Do(httpReq)
+	resp, err := doWithFirstByteTimeout(httpClient, httpReq, firstByte)
 	if err != nil {
-		return nil, providers.ResolvedChat{}, TransportError{Err: err}
+		return nil, providers.ResolvedChat{}, err
 	}
 	return resp, resolved, nil
 }

@@ -127,6 +127,13 @@ type Manager struct {
 	// account removal can race with the sweep.
 	quotaProbeMu     sync.Mutex
 	quotaProbeLevels map[string]int
+
+	// healthFailures counts consecutive liveness probe failures per worker
+	// account. The maintenance loop's workerLiveness watchdog increments it on
+	// each failed /health probe and clears it on success; reaching
+	// workerLivenessThreshold triggers a stopAccount so watchAccount +
+	// beginAccountRecovery reboot the stuck worker. Guarded by mu.
+	healthFailures map[string]int
 }
 
 func NewManager(config ManagerConfig, store AccountStore, starter ProcessStarter) *Manager {
@@ -165,6 +172,7 @@ func NewManager(config ManagerConfig, store AccountStore, starter ProcessStarter
 		persistCloseCh:    make(chan struct{}),
 		cpuPrev:           map[int]procTime{},
 		quotaProbeLevels:  map[string]int{},
+		healthFailures:    map[string]int{},
 	}
 	manager.persistCond = sync.NewCond(&manager.persistMu)
 	manager.persistDone.Add(1)

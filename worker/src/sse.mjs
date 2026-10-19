@@ -293,6 +293,11 @@ export async function pipeNestedSseToOpenAI(upstreamRes, res, { model = "auto", 
       readResult = await reader.read();
     } catch (err) {
       const detail = err?.message || String(err);
+      // Preserve a timeout code from the fetch wrapper (first_byte_timeout /
+      // stream_total_timeout) so a mid-stream stall is reported as a retryable
+      // upstream timeout, not a generic interrupt. The message still carries
+      // the original detail for diagnostics.
+      const code = err?.code || "upstream_stream_interrupted";
       emitDiagnostic("read_error");
       console.error("[sse] upstream stream read failed", {
         model,
@@ -304,14 +309,14 @@ export async function pipeNestedSseToOpenAI(upstreamRes, res, { model = "auto", 
         error: detail,
       });
       writeStructuredStreamError(res, {
-        code: "upstream_stream_interrupted",
+        code,
         type: "api_error",
         kind: "unavailable",
         status: 502,
         failover: true,
         message: detail,
       });
-      throw new Error(`upstream_stream_interrupted: ${detail}`);
+      throw new Error(`${code}: ${detail}`);
     }
     const { value, done } = readResult;
     let chunkText;

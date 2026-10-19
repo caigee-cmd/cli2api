@@ -15,6 +15,14 @@ import (
 // implicit support.
 var ErrUnsupported = errors.New("provider capability unsupported")
 
+// ErrFirstByteTimeout is returned by streaming chat adapters when the upstream
+// did not send the response head (headers + first byte) within the TTFB
+// deadline. The executor classifies it as upstream_unavailable with failover so
+// the next eligible account is tried, instead of hanging on a stuck upstream.
+// It must not be wrapped with context.DeadlineExceeded, or the executor would
+// re-classify it as a client cancellation and skip failover.
+var ErrFirstByteTimeout = errors.New("first byte timeout")
+
 type ModelCapabilities struct {
 	ContextWindow    int `json:"context_window,omitempty"`
 	ContextWindowMax int `json:"context_window_max,omitempty"`
