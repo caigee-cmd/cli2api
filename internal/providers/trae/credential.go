@@ -65,6 +65,9 @@ const (
 const (
 	refreshLead     = 24 * time.Hour
 	loginPendingTTL = 10 * time.Minute
+	// redeemTimeout bounds the background code exchange started by the loopback
+	// callback, which outlives the browser request that delivered it.
+	redeemTimeout = 90 * time.Second
 )
 
 // Credential is the canonical storage payload shape.
