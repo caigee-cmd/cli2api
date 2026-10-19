@@ -9,15 +9,3 @@ same paths on different hosts:
 CN was observed from Qoder CN 0.3.4. Global was observed from the Qoder desktop
 client on 2026-10-07. The worker reuses the pinned AuthManager and does not copy
 Qoder's campaign UI.
-
-Known limitation (verified 2026-10-17): the paths are the same, but the two
-regions do NOT expose the daily check-in identically to the worker. CN's campaign
-service returns a claimable CLAIM_BENEFIT campaign to the worker's tokens, so
-auto check-in works for CN. Global's campaign service (openapi.qoder.sh) returns
-only a BOGO subscription promo (VIEW_DETAILS) to the worker's tokens and reserves
-the claimable daily check-in for the Qoder desktop client's own session token
-(observed `dt-sp…`-prefixed, ~34 chars). The worker's loginWithPAT yields a
-`jt-…`-prefixed token (~27 chars) and loginWithDeviceFlow yields a `dt-…`-prefixed
-token (~27 chars); neither has the scope to see/claim the Global daily check-in.
-Global accounts therefore cannot be auto-checked-in by the worker; leave their
-auto_checkin off and rely on the desktop client.

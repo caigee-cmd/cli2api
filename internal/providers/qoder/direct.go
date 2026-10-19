@@ -24,6 +24,9 @@ type Direct struct {
 	region func(ctx context.Context, accountID string) (string, error)
 	http   *http.Client
 	now    func() time.Time
+	// ttfb bounds how long ChatStream waits for the upstream response head.
+	// Zero falls back to defaultFirstByteTimeout inside doWithFirstByteTimeout.
+	ttfb time.Duration
 }
 
 func NewDirect(store CredentialStore, region func(context.Context, string) (string, error)) *Direct {
@@ -32,6 +35,7 @@ func NewDirect(store CredentialStore, region func(context.Context, string) (stri
 		region: region,
 		http:   &http.Client{},
 		now:    time.Now,
+		ttfb:   resolveFirstByteTimeout(),
 	}
 }
 
@@ -128,7 +132,7 @@ func (d *Direct) ChatStream(ctx context.Context, accountID string, req translate
 	if err != nil {
 		return nil, providers.ResolvedChat{}, err
 	}
-	resp, err := doWithFirstByteTimeout(d.http, prepared.request)
+	resp, err := doWithFirstByteTimeout(d.http, prepared.request, d.ttfb)
 	if err != nil {
 		return nil, providers.ResolvedChat{}, err
 	}

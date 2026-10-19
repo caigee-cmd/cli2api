@@ -2,6 +2,8 @@ package runtime
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strconv"
 	"testing"
@@ -46,9 +48,10 @@ func (s *livenessStarter) Start(_ context.Context, _ accounts.Account, _ string,
 }
 
 // A worker whose /health never answers (the starter URL points at an
-// unlistened port) must be stopped and handed to recovery after the liveness
+// unlistened port) must be stopped AND handed to recovery after the liveness
 // threshold of consecutive probe failures. This is the watchdog path for a
-// worker that stays "alive" as a process but stops serving.
+// worker that stays "alive" as a process but stops serving; recovery must
+// spawn a replacement process, otherwise the stuck account is permanently dead.
 func TestProbeWorkerLivenessRestartsStuckWorker(t *testing.T) {
 	ctx := context.Background()
 	dataDir := t.TempDir()
@@ -91,13 +94,24 @@ func TestProbeWorkerLivenessRestartsStuckWorker(t *testing.T) {
 	if !proc.stopped {
 		t.Fatalf("want stuck worker stopped after %d probe failures, got stopped=%v", 3, proc.stopped)
 	}
-	// The failure counter is cleared once stop is issued so recovery does not
-	// inherit a stale count.
+	// The failure counter is cleared once a restart is issued so recovery does
+	// not inherit a stale count.
 	manager.mu.Lock()
 	got := manager.healthFailures[account.ID]
 	manager.mu.Unlock()
 	if got != 0 {
 		t.Fatalf("healthFailures after stop = %d, want 0", got)
+	}
+	// Recovery must actually start a replacement process: the old bug deleted
+	// m.processes[id] before Stop(), so watchAccount saw a mismatch and returned
+	// without beginAccountRecovery, leaving the account permanently dead.
+	select {
+	case replacement := <-starter.started:
+		if replacement == proc {
+			t.Fatalf("recovery reused the stuck process instead of starting a new one")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("watchdog stopped the stuck worker but never restarted it")
 	}
 }
 
@@ -147,5 +161,53 @@ func TestProbeWorkerLivenessToleratesTransientFailures(t *testing.T) {
 	manager.mu.Unlock()
 	if got != 2 {
 		t.Fatalf("healthFailures = %d, want 2", got)
+	}
+}
+
+// A worker that answers /health with ok=true but ready=false is still alive:
+// it is starting, rewarming, or waiting for login. The liveness probe must not
+// treat that as a failure, or the watchdog would reboot a healthy-but-warming
+// account every ~90s.
+func TestProbeHealthOnlyTreatsWarmingWorkerAsAlive(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("content-type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"ready":false,"hot":false,"hasAuthManager":true}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	manager := NewManager(ManagerConfig{DataDir: t.TempDir()}, nil, nil)
+	alive, err := manager.probeHealthOnly(context.Background(), Item{
+		ID:      "warming",
+		Runtime: "child_process",
+		URL:     srv.URL,
+	})
+	if err != nil {
+		t.Fatalf("probeHealthOnly: %v", err)
+	}
+	if !alive {
+		t.Fatalf("warming worker (ok=true, ready=false) must be treated as alive")
+	}
+}
+
+// A 200 that reports ok=false is an unhealthy daemon and must count as a
+// failure so it can be rebooted.
+func TestProbeHealthOnlyTreatsUnhealthyAsDead(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("content-type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":false,"ready":false}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	manager := NewManager(ManagerConfig{DataDir: t.TempDir()}, nil, nil)
+	alive, err := manager.probeHealthOnly(context.Background(), Item{
+		ID:      "unhealthy",
+		Runtime: "child_process",
+		URL:     srv.URL,
+	})
+	if err != nil {
+		t.Fatalf("probeHealthOnly: %v", err)
+	}
+	if alive {
+		t.Fatalf("ok=false daemon must be treated as dead")
 	}
 }

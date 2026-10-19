@@ -154,7 +154,14 @@ func (m *Manager) forceReady(accountID string) bool {
 // unlike refreshOne, it does not fetch quota or refresh the model catalog, so a
 // 30s-loop call costs one HTTP round-trip, not a quota probe. The pool state
 // machine is left to refreshOne and the manual console refresh path; this only
-// decides whether the worker is still alive enough to route to.
+// decides whether the worker process is still alive enough to serve at all.
+//
+// "Alive" is deliberately loose: a transport error or a non-2xx / non-ok status
+// means the process is wedged or gone and worth rebooting, but a 200 with
+// ready=false is NOT a failure. A worker that is still starting, rewarming, or
+// waiting for login answers /health with ok=true, ready=false — killing it after
+// ~90s would loop a healthy-but-warming account. readiness stays refreshOne's
+// job; only the daemon being unreachable or unhealthy counts here.
 //
 // In-process accounts (WorkBuddy / Trae / Devin) have no child-process /health
 // endpoint and never need this check — their liveness is the adapter's own
@@ -174,5 +181,5 @@ func (m *Manager) probeHealthOnly(ctx context.Context, item Item) (bool, error) 
 	if statusCode >= 300 || !health.OK {
 		return false, nil
 	}
-	return health.Ready, nil
+	return true, nil
 }

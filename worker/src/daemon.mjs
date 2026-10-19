@@ -11,6 +11,7 @@ import { inspectQodercliSource, NEEDLES, PINNED_QODERCLI_VERSION, readQodercliVe
 import { resolveUsage } from "./usage.mjs";
 import { classifyError } from "./errors.mjs";
 import { createQoderCheckin } from "./checkin.mjs";
+import { fetchWithTimeout, streamStallMs } from "./upstream.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 register(pathToFileURL(path.join(__dirname, "rewrite-loader.mjs")).href);
@@ -136,51 +137,6 @@ let quotaError = null;
 let encodeChain = Promise.resolve();
 let inFlight = 0;
 const maxInFlight = Math.max(1, Number(process.env.QODER_MAX_INFLIGHT || 4) || 4);
-
-// First-byte and total-stream deadlines protect the worker from a stuck
-// upstream: Qoder's SSE can hang at the head (TTFB) or stall mid-stream when
-// the gateway is degraded. The TTFB timer stops as soon as the response head
-// arrives so a long thinking-model body is not cut off; the total timer keeps
-// running as a backstop for streams that stall after the first byte. The TTFB
-// default mirrors the Go-side firstByteTimeout so worker and gateway agree on
-// when a stuck head counts as a failure; both can be tuned per deployment.
-const streamTtfbMs = Math.max(5_000, Number(process.env.QODER_STREAM_TTFB_MS || 30_000) || 30_000);
-const streamTotalMs = Math.max(streamTtfbMs, Number(process.env.QODER_STREAM_TOTAL_MS || 300_000) || 300_000);
-
-// fetchWithTimeout wraps fetch with a TTFB + total deadline. The TTFB timer
-// fires only if the response head has not arrived; the total timer is the
-// hard backstop and aborts either way. On abort the rejection is rewritten so
-// callers see a stable error message instead of a bare AbortError.
-async function fetchWithTimeout(url, opts = {}, ttfbMs = streamTtfbMs, totalMs = streamTotalMs) {
-  const controller = new AbortController();
-  let headReached = false;
-  let ttfbFired = false;
-  const ttfbTimer = setTimeout(() => {
-    if (headReached) return;
-    ttfbFired = true;
-    controller.abort();
-  }, ttfbMs);
-  const totalTimer = setTimeout(() => controller.abort(), totalMs);
-  try {
-    const resp = await fetch(url, { ...opts, signal: controller.signal });
-    headReached = true;
-    clearTimeout(ttfbTimer);
-    // Keep the total timer running: it now serves as the mid-stream stall backstop.
-    return resp;
-  } catch (err) {
-    clearTimeout(ttfbTimer);
-    clearTimeout(totalTimer);
-    if (controller.signal.aborted) {
-      const reason = headReached ? "upstream stream total timeout" : "upstream first-byte timeout";
-      const waited = headReached ? totalMs : (ttfbFired ? ttfbMs : totalMs);
-      const e = new Error(`${reason} after ${waited}ms`);
-      e.code = headReached ? "stream_total_timeout" : "first_byte_timeout";
-      throw e;
-    }
-    throw err;
-  }
-}
-
 
 function sealContext(ctx) {
   try {
@@ -445,11 +401,15 @@ async function prepareUpstream(reqBody) {
   if (encoded?.headers?.forEach) encoded.headers.forEach((v, k) => (headers[k] = v));
   else Object.assign(headers, encoded?.headers || {});
 
-  const upstream = await fetchWithTimeout(encoded.url, {
-    method: "POST",
-    headers,
-    body: encoded.body,
-  });
+  const upstream = await fetchWithTimeout(
+    encoded.url,
+    {
+      method: "POST",
+      headers,
+      body: encoded.body,
+    },
+    { stallMs: streamStallMs },
+  );
   return { plain, upstream };
 }
 

@@ -529,18 +529,37 @@ func (manager *Manager) probeWorkerLiveness(ctx context.Context) {
 		fails := manager.healthFailures[item.ID]
 		manager.mu.Unlock()
 		if fails >= workerLivenessThreshold {
-			log.Printf("worker liveness: account %s failed %d consecutive health probes (%v); stopping for recovery",
+			log.Printf("worker liveness: account %s failed %d consecutive health probes (%v); restarting",
 				item.ID, fails, err)
 			manager.mu.Lock()
 			delete(manager.healthFailures, item.ID)
 			manager.mu.Unlock()
-			// stopAccount kills the child process; watchAccount sees the exit
-			// via process.Done() and calls beginAccountRecovery, which owns the
-			// backoff restart. No direct recovery call here — that would race
-			// the recovering guard.
-			if perr := manager.stopAccount(item.ID); perr != nil {
-				log.Printf("worker liveness: stop %s failed: %v", item.ID, perr)
-			}
+			manager.restartStuckWorker(item.ID, err)
 		}
 	}
+}
+
+// restartStuckWorker reboots a worker whose /health stopped answering. It must
+// not simply call stopAccount: stopAccount deletes m.processes[id] before
+// Stop(), so watchAccount later sees a process mismatch and returns without
+// calling beginAccountRecovery — the stuck worker would become a permanently
+// dead account. Instead detach the process from the table (so watchAccount
+// cannot also recover it), stop it, then hand it to beginAccountRecovery
+// directly, which owns the backoff restart.
+func (manager *Manager) restartStuckWorker(id string, probeErr error) {
+	manager.mu.Lock()
+	process := manager.processes[id]
+	delete(manager.processes, id)
+	manager.mu.Unlock()
+	manager.pool.Remove(id)
+	if process != nil {
+		if perr := process.Stop(); perr != nil {
+			log.Printf("worker liveness: stop %s failed: %v", id, perr)
+		}
+	}
+	reason := "worker liveness probe failed"
+	if probeErr != nil {
+		reason = "worker liveness probe failed: " + probeErr.Error()
+	}
+	manager.beginAccountRecovery(id, errors.New(reason))
 }
