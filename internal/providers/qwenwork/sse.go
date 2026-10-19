@@ -401,8 +401,8 @@ func renderToolCalls(order []int, merged map[int]*mergedToolCall) json.RawMessag
 
 // outcomeFromUpstreamSSE aggregates a wrapped upstream SSE body into the
 // provider-neutral outcome. An error frame anywhere in the stream is the
-// upstream's verdict, so it wins over partial content — matching the JS
-// reference's collectSync. A body without content, reasoning, tools, a
+// upstream's verdict, so it wins over partial content — matching the
+// collectSync behavior of qwenwork2api-makers (see doc.go). A body without content, reasoning, tools, a
 // terminal finish_reason, or an error is a silent upstream reject.
 func outcomeFromUpstreamSSE(model string, raw []byte) (providers.ChatOutcome, error) {
 	frame, err := collectUpstream(bytes.NewReader(raw))

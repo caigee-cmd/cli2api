@@ -1009,7 +1009,8 @@ func TestChatStreamKeepsFirstDeltaRole(t *testing.T) {
 }
 
 // Regression: a trailing error frame after partial content must surface the
-// classified error, not a truncated success — matching the JS reference.
+// classified error, not a truncated success — matching qwenwork2api-makers
+// collectSync behavior (see doc.go).
 func TestChatNonStreamSurfacesTrailingErrorAfterContent(t *testing.T) {
 	sse := wrapChunk(`{"choices":[{"delta":{"content":"partial answer"}}]}`, 200) +
 		wrapChunk(`{"code":14018,"message":"insufficient quota"}`, 402) +
