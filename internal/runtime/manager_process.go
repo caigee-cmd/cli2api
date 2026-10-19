@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -65,6 +66,28 @@ func (m *Manager) startAccount(ctx context.Context, account Account) error {
 			Weight: NormalizeWeight(account.Priority), MaxInFlight: account.MaxInFlight, Quota: account.Quota,
 			ModelAliases: account.ModelAliases, EnabledModels: account.EnabledModels, ModelsRestricted: account.ModelsRestricted,
 			RuntimeState: "starting",
+		})
+		return nil
+	}
+	// Qoder PAT-backed accounts run fully in-process (chat signing, login,
+	// catalog, quota, checkin all live in internal/providers/qoder via the
+	// qauth Bridge). Skip the per-account Node+WASM worker spawn entirely:
+	// it was the unstable, resource-heavy path this account model replaces.
+	// Accounts still carrying the legacy qoder-native-v1 CLI blob (no PAT)
+	// fall through to the worker spawn so they keep working until the
+	// operator re-logs them with a PAT.
+	if descriptor.ID == "qoder" && m.accountHasPAT(ctx, account.ID) {
+		log.Printf("[qoder-pat] account %s: in-process path (PAT stored), skipping worker spawn", account.ID)
+		if m.runCtx.Err() != nil {
+			return errManagerClosed
+		}
+		ready := true
+		m.pool.Upsert(Item{
+			ID: account.ID, Provider: descriptor.ID, Region: account.ProviderRegion,
+			Runtime: string(providers.RuntimeInProcess), DropSystemPrompt: account.DropSystemPrompt,
+			Weight: NormalizeWeight(account.Priority), MaxInFlight: account.MaxInFlight, Quota: account.Quota,
+			ModelAliases: account.ModelAliases, EnabledModels: account.EnabledModels, ModelsRestricted: account.ModelsRestricted,
+			Ready: &ready, RuntimeState: "ready",
 		})
 		return nil
 	}
@@ -294,4 +317,21 @@ func (m *Manager) stopAccount(id string) error {
 func (m *Manager) AccountURL(id string) (string, bool) {
 	item, ok := m.pool.ByID(id)
 	return item.URL, ok
+}
+
+// accountHasPAT reports whether a Qoder account has a stored
+// qoder-pat-v1 credential payload. PAT-backed accounts skip the worker spawn
+// and run fully in-process; accounts without a PAT (legacy CLI blob) keep
+// the worker path until the operator re-logs them with a PAT. A transient
+// store error is treated as "no PAT" so the worker spawns and serves as a
+// fallback, matching the legacy behaviour.
+func (m *Manager) accountHasPAT(ctx context.Context, id string) bool {
+	if m == nil || m.store == nil {
+		return false
+	}
+	format, payload, err := m.store.LoadCredentialPayload(ctx, id)
+	if err != nil {
+		return false
+	}
+	return format == "qoder-pat-v1" && len(payload) > 0
 }

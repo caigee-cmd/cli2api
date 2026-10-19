@@ -75,6 +75,9 @@ func qoderDefaultContextWindow(entry map[string]any) (int, bool) {
 	if window, ok := numberFieldValue(entry, "context_length"); ok && window > 0 {
 		return window, true
 	}
+	if window, ok := numberFieldValue(entry, "max_input_tokens"); ok && window > 0 {
+		return window, true
+	}
 	return 0, false
 }
 

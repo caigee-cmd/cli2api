@@ -127,6 +127,13 @@ func New(cfg config.Config) *App {
 		}
 		return account.ProviderRegion, nil
 	}))
+	qoderClient.SetPATStore(store, func(ctx context.Context, accountID string) (string, error) {
+		account, err := store.Get(ctx, accountID)
+		if err != nil {
+			return "", err
+		}
+		return account.ProviderRegion, nil
+	})
 	providerReg.Register(qoderClient.Adapter())
 	manager.SetProviders(providerReg)
 	manager.SetWorkBuddy(workbuddyClient)

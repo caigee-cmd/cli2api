@@ -90,7 +90,7 @@ var Qoder = ProviderDescriptor{
 	Label:             "Qoder",
 	Runtime:           RuntimeChildProcess,
 	AuthTypes:         []AuthType{AuthNone, AuthOAuth, AuthPAT, AuthNative},
-	CredentialFormats: []string{"qoder-native-v1"},
+	CredentialFormats: []string{"qoder-pat-v1", "qoder-native-v1"},
 	Capabilities: ProviderCapabilities{
 		Chat: true, Stream: true, Tools: true, Images: true, Reasoning: true,
 		ModelCatalog: true, Usage: true, Login: true, BrowserLogin: true,
