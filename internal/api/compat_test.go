@@ -229,6 +229,51 @@ func TestAnthropicMessagesNonStreamTranslatesTools(t *testing.T) {
 	}
 }
 
+func TestAnthropicMessagesAcceptsInBandSystemMessage(t *testing.T) {
+	var sent []any
+	server, closeServer := newCompatibilityServer(t, func(w http.ResponseWriter, r *http.Request) {
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		sent = payload["messages"].([]any)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"model":   "glm-5.2",
+			"choices": []any{map[string]any{"message": map[string]string{"content": "ok"}, "finish_reason": "stop"}},
+			"usage":   map[string]any{"prompt_tokens": 3, "completion_tokens": 1, "source": "upstream"},
+		})
+	})
+	defer closeServer()
+
+	// Claude Code 2.1.293+ interleaves system turns in the message list.
+	request := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{
+		"model":"qoder/glm-5.2","max_tokens":32,
+		"messages":[
+			{"role":"user","content":"hi"},
+			{"role":"system","content":[{"type":"text","text":"reminder"}]},
+			{"role":"assistant","content":"hello"},
+			{"role":"user","content":"continue"}
+		]
+	}`))
+	recorder := httptest.NewRecorder()
+	server.handleAnthropicMessages(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	roles := make([]string, 0, len(sent))
+	for _, item := range sent {
+		message := item.(map[string]any)
+		role := message["role"].(string)
+		if role == "system" && message["content"] != "reminder" {
+			t.Fatalf("system content=%v", message["content"])
+		}
+		roles = append(roles, role)
+	}
+	if strings.Join(roles, ",") != "user,system,assistant,user" {
+		t.Fatalf("upstream roles=%s", roles)
+	}
+}
+
 func TestResponsesNonStreamTranslatesInput(t *testing.T) {
 	server, closeServer := newCompatibilityServer(t, func(w http.ResponseWriter, r *http.Request) {
 		var payload map[string]any
