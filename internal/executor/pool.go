@@ -327,6 +327,14 @@ func routeBaseMatches(item Item, q RouteQuery) bool {
 	if item.Quota != nil && item.Quota.Exceeded && !itemServesFreeModel(item, q.PublicModel) {
 		return false
 	}
+	return routeReadyAndScoped(item, q)
+}
+
+// routeReadyAndScoped is routeBaseMatches without the quota gate, so callers
+// can pair it with the quota check to tell "blocked only by quota" from
+// "blocked by provider/region/readiness/exclusion" without duplicating the
+// scoping conditions.
+func routeReadyAndScoped(item Item, q RouteQuery) bool {
 	if !itemReady(item) {
 		return false
 	}
@@ -346,6 +354,16 @@ func routeBaseMatches(item Item, q RouteQuery) bool {
 		return false
 	}
 	return true
+}
+
+// routeBlockedByQuota reports whether an item would match the route except
+// that its quota is exceeded. Free-model accounts are never quota-blocked:
+// they spend no credits, so an exhausted account can still serve them.
+func routeBlockedByQuota(item Item, q RouteQuery) bool {
+	if item.Quota == nil || !item.Quota.Exceeded || itemServesFreeModel(item, q.PublicModel) {
+		return false
+	}
+	return routeReadyAndScoped(item, q) && itemCouldServeModel(item, q.PublicModel)
 }
 
 func routeMatches(item Item, q RouteQuery) bool {
@@ -478,6 +496,24 @@ func (p *Pool) LenRoute(q RouteQuery) int {
 		}
 	}
 	return count
+}
+
+// QuotaBlockedForModel reports whether at least one account could serve the
+// model but is kept out of routing solely because its quota is exceeded. The
+// caller uses this to surface a quota error instead of a generic "no accounts
+// available" when every model-serving account is out of credits.
+func (p *Pool) QuotaBlockedForModel(q RouteQuery) (Item, bool) {
+	if p == nil {
+		return Item{}, false
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, item := range p.items {
+		if routeBlockedByQuota(item, q) {
+			return item, true
+		}
+	}
+	return Item{}, false
 }
 
 func (p *Pool) First() (Item, bool) {

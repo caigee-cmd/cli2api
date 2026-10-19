@@ -286,6 +286,9 @@ func (manager *Manager) RunMaintenanceLoop(stop <-chan struct{}) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 	lastKeepaliveDay := ""
+	// Seed the throttle so the first pass does not duplicate the boot-time
+	// RefreshAll: the next stale-quota sweep runs 5 minutes after startup.
+	lastStaleQuota := time.Now()
 	for {
 		if ctx.Err() != nil {
 			return
@@ -300,10 +303,179 @@ func (manager *Manager) RunMaintenanceLoop(stop <-chan struct{}) {
 			lastKeepaliveDay = day
 		}
 		manager.sampleResources()
+		if now.Sub(lastStaleQuota) >= staleQuotaInterval {
+			manager.refreshStaleQuota(ctx)
+			lastStaleQuota = now
+		}
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+		}
+	}
+}
+
+// staleQuotaInterval is how often the maintenance loop considers exhausted
+// accounts. It is only the sweep cadence: the per-account backoff below
+// decides whether a given account is actually re-fetched on that sweep.
+const staleQuotaInterval = 5 * time.Minute
+
+// quotaProbeBackoff is the per-account wait between consecutive quota probes
+// while an account keeps reporting Exceeded, indexed by the number of
+// consecutive exhausted probes already spent. The first few probes stay at
+// 5 minutes so a transient false Exceeded or an out-of-band top-up recovers
+// quickly. A genuinely exhausted account then backs off to hours, because
+// provider balances reset on a daily cadence and polling it every 5 minutes
+// would otherwise burn hundreds of pointless quota calls a day.
+var quotaProbeBackoff = []time.Duration{
+	5 * time.Minute,  // level 0: first probe
+	5 * time.Minute,  // level 1
+	5 * time.Minute,  // level 2
+	15 * time.Minute, // level 3
+	30 * time.Minute, // level 4
+	1 * time.Hour,    // level 5
+	3 * time.Hour,    // level 6
+	6 * time.Hour,    // level 7
+	12 * time.Hour,   // level 8
+	24 * time.Hour,   // level 9+ (cap: balances reset daily)
+}
+
+// quotaProbeDelay returns the wait before the next probe at the given
+// consecutive-exhausted level, clamping out-of-range levels to the ends.
+func quotaProbeDelay(level int) time.Duration {
+	if level < 0 {
+		level = 0
+	}
+	if level >= len(quotaProbeBackoff) {
+		return quotaProbeBackoff[len(quotaProbeBackoff)-1]
+	}
+	return quotaProbeBackoff[level]
+}
+
+// quotaSnapshotStale reports whether an Exceeded snapshot is old enough to
+// warrant a refresh at the given per-account delay. A zero/empty or
+// unparseable FetchedAt means the snapshot predates timestamp tracking, so
+// treat it as stale.
+func quotaSnapshotStale(q *QuotaSnapshot, now time.Time, delay time.Duration) bool {
+	if q == nil {
+		return false
+	}
+	fetchedAt := strings.TrimSpace(q.FetchedAt)
+	if fetchedAt == "" {
+		return true
+	}
+	parsed, err := time.Parse(time.RFC3339, fetchedAt)
+	if err != nil {
+		return true
+	}
+	return now.Sub(parsed) >= delay
+}
+
+// refreshStaleQuota re-fetches quota for accounts whose cached snapshot still
+// reports Exceeded. A snapshot can go stale when upstream credits are
+// replenished out-of-band (billing reset, add-on purchase) or when a flaky
+// quota endpoint left an old Exceeded=true in place. Without this, the only
+// way to clear a stale exhausted flag is a manual console refresh, so routing
+// keeps skipping the account until an operator intervenes. Healthy accounts
+// are never touched here; only Exceeded and stale snapshots are refreshed.
+//
+// Each account carries its own consecutive-exhausted level so an account that
+// stays empty for days is probed less and less often instead of every five
+// minutes forever. The level resets as soon as a snapshot reports a non-zero
+// balance (or the account leaves the pool), so the next genuine exhaustion
+// starts the fast ladder over.
+func (manager *Manager) refreshStaleQuota(ctx context.Context) {
+	if manager == nil || manager.pool == nil {
+		return
+	}
+	now := time.Now()
+	seen := make(map[string]struct{})
+	for _, item := range manager.pool.Items() {
+		if ctx.Err() != nil {
+			return
+		}
+		seen[item.ID] = struct{}{}
+		if item.RuntimeState == "dead" {
+			continue
+		}
+		if item.Quota == nil || !item.Quota.Exceeded {
+			// Recovered (or never exhausted): the next exhaustion is a new
+			// episode and starts from the 5-minute probes again.
+			manager.resetQuotaProbeLevel(item.ID)
+			continue
+		}
+		level := manager.quotaProbeLevel(item.ID)
+		if !quotaSnapshotStale(item.Quota, now, quotaProbeDelay(level)) {
+			continue
+		}
+		before := strings.TrimSpace(item.Quota.FetchedAt)
+		refreshCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		manager.refreshQuotaOnly(refreshCtx, item)
+		cancel()
+		updated, ok := manager.pool.ByID(item.ID)
+		fetched := ok && updated.Quota != nil && strings.TrimSpace(updated.Quota.FetchedAt) != before
+		switch {
+		case !fetched:
+			// Probe failed (upstream/network). Keep the level so the next
+			// sweep retries at the same cadence instead of escalating a
+			// transient outage into an hours-long wait.
+		case updated.Quota.Exceeded:
+			manager.bumpQuotaProbeLevel(item.ID)
+		default:
+			manager.resetQuotaProbeLevel(item.ID)
+		}
+	}
+	manager.pruneQuotaProbeLevels(seen)
+}
+
+// refreshQuotaOnly fetches quota for one account without a health probe or
+// model discovery. It resolves the in-process provider prober when present
+// (WorkBuddy/Trae/Devin) and otherwise falls back to the Qoder worker URL,
+// mirroring refreshCheckinQuota's dispatch.
+func (manager *Manager) refreshQuotaOnly(ctx context.Context, item Item) {
+	if adapter, ok := manager.providers.Get(item.Provider); ok && adapter.Prober != nil {
+		manager.fetchProviderQuota(ctx, item.ID, adapter.Prober)
+		return
+	}
+	if strings.TrimSpace(item.URL) != "" {
+		_ = manager.fetchQuota(ctx, item.ID, item.URL, true)
+	}
+}
+
+// quotaProbeLevel reads the consecutive-exhausted probe level for an account.
+func (manager *Manager) quotaProbeLevel(accountID string) int {
+	manager.quotaProbeMu.Lock()
+	defer manager.quotaProbeMu.Unlock()
+	return manager.quotaProbeLevels[accountID]
+}
+
+// bumpQuotaProbeLevel advances the backoff ladder after a probe that still
+// reported Exceeded.
+func (manager *Manager) bumpQuotaProbeLevel(accountID string) {
+	manager.quotaProbeMu.Lock()
+	defer manager.quotaProbeMu.Unlock()
+	if manager.quotaProbeLevels == nil {
+		manager.quotaProbeLevels = map[string]int{}
+	}
+	manager.quotaProbeLevels[accountID]++
+}
+
+// resetQuotaProbeLevel clears the ladder once an account is no longer
+// exhausted, so the next exhaustion starts with the fast 5-minute probes.
+func (manager *Manager) resetQuotaProbeLevel(accountID string) {
+	manager.quotaProbeMu.Lock()
+	defer manager.quotaProbeMu.Unlock()
+	delete(manager.quotaProbeLevels, accountID)
+}
+
+// pruneQuotaProbeLevels drops ladder entries for accounts no longer in the
+// pool so the map stays bounded by the current account count.
+func (manager *Manager) pruneQuotaProbeLevels(seen map[string]struct{}) {
+	manager.quotaProbeMu.Lock()
+	defer manager.quotaProbeMu.Unlock()
+	for id := range manager.quotaProbeLevels {
+		if _, ok := seen[id]; !ok {
+			delete(manager.quotaProbeLevels, id)
 		}
 	}
 }

@@ -118,6 +118,15 @@ type Manager struct {
 	resources atomic.Pointer[ResourceSnapshot]
 	resMu     sync.Mutex       // serializes sampleResources
 	cpuPrev   map[int]procTime // pid -> last jiffies sample for CPU% deltas
+
+	// quotaProbeLevels tracks, per account ID, how many consecutive stale-quota
+	// sweeps have re-fetched a snapshot that still reported Exceeded. It drives
+	// the per-account backoff in refreshStaleQuota so a genuinely exhausted
+	// account is probed on a daily-ish cadence instead of every five minutes.
+	// Only mutated by the maintenance loop; guarded by quotaProbeMu because
+	// account removal can race with the sweep.
+	quotaProbeMu     sync.Mutex
+	quotaProbeLevels map[string]int
 }
 
 func NewManager(config ManagerConfig, store AccountStore, starter ProcessStarter) *Manager {
@@ -155,6 +164,7 @@ func NewManager(config ManagerConfig, store AccountStore, starter ProcessStarter
 		persistedVersions: map[string]uint64{},
 		persistCloseCh:    make(chan struct{}),
 		cpuPrev:           map[int]procTime{},
+		quotaProbeLevels:  map[string]int{},
 	}
 	manager.persistCond = sync.NewCond(&manager.persistMu)
 	manager.persistDone.Add(1)
