@@ -1,13 +1,15 @@
 // Package qauth implements Qoder gateway authentication, encryption, and HTTP
 // client. Ported from EchoPing07/Qoder-2API-Go
 // (https://github.com/EchoPing07/Qoder-2API-Go, commit
-// 65a5ffff122fdbc165275a631459b9801f9e097a, auth/auth.go), licensed under the
-// MIT License (Copyright (c) 2026 EchoPing); see the NOTICE file in this
-// directory. The ported surface: the cosy wire protocol (custom base64 + RSA
-// + AES + MD5 signing), the COSY bearer construction, the PAT→jobToken
-// exchange and refresh, /user/status, /model/list, OpenAPI quota/usage (CN +
-// global OpenAPIToken), the SSE stream reader with idle watchdog, and the
-// busy/auth/gateway error taxonomy.
+// 65a5ffff122fdbc165275a631459b9801f9e097a, auth/auth.go and auth/checkin.go),
+// licensed under the MIT License (Copyright (c) 2026 EchoPing); see the NOTICE
+// file in this directory. The ported surface: the cosy wire protocol (custom
+// base64 + RSA + AES + MD5 signing), the COSY bearer construction, the
+// PAT→jobToken exchange and refresh, /user/status, /model/list, OpenAPI
+// quota/usage (CN + global OpenAPIToken), the SSE stream reader with idle
+// watchdog, and the busy/auth/gateway error taxonomy. The daily check-in flow
+// (internal/providers/qoder/checkin.go) follows auth/checkin.go's
+// campaigns-list/claim structure.
 //
 // cli2api's existing internal/providers/qoder/cosy.go is a partial
 // reimplementation used only by the chat-signing path; this package is the

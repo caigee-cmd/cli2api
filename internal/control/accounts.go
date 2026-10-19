@@ -316,10 +316,13 @@ func (a *Accounts) Admin(ctx context.Context, input AccountAdminAction) (Account
 			return AccountAdminResult{}, operationError("invalid_request", err.Error())
 		}
 		if err := a.LoginPAT(ctx, input.AccountID, payload.PAT); err != nil {
-			// Fall back to the worker path for accounts whose provider has no
-			// CredentialImporter (legacy Qoder blob accounts).
+			// Fall back to the worker path only when the provider genuinely has
+			// no PAT importer (legacy Qoder blob accounts). Any other error —
+			// invalid_credential, credential_save_failed, a store failure — is a
+			// real login failure and must be returned as-is; forwarding it to the
+			// worker would swallow the cause and send the PAT to the daemon.
 			var opErr *OperationError
-			if errors.As(err, &opErr) {
+			if errors.As(err, &opErr) && opErr.Code == "provider_unsupported" {
 				return a.workerAdmin(ctx, input)
 			}
 			return AccountAdminResult{}, err

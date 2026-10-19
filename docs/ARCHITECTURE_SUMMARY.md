@@ -33,7 +33,7 @@ cmd/server
         ├── internal/gateway  公有 /v1 协议 HTTP 与 SSE
         ├── internal/console  操作员 /api/* HTTP
         ├── internal/control  控制面编排与目录展示缓存
-        ├── internal/runtime  账号生命周期、刷新与维护循环（PAT 账号跳过 worker spawn）
+        ├── internal/runtime  账号生命周期、Qoder worker、刷新与维护循环
         ├── internal/executor 选号、请求准备、分类、冷却与 failover
         ├── internal/store    SQLite、迁移、持久化请求记录
         ├── internal/providers provider 注册、协议客户端、adapter
@@ -47,7 +47,7 @@ cmd/server
 1. `server` 将公有 `/v1/*` 请求交给 `gateway`，将控制台 `/api/*` 请求交给 `console`。
 2. `gateway` 校验并解析 OpenAI、Anthropic 或 Responses 输入，转换为公共请求模型。
 3. `executor` 根据显式账号 pin、会话粘性和账号池选择 runtime，并执行请求准备。
-4. provider adapter 或 Qoder worker（legacy）负责上游协议、认证、HTTP/SSE 或 Connect-RPC。PAT 账号走进程内 `Bridge`，不经过 worker。
+4. provider adapter 或 Qoder worker 负责上游协议、认证、HTTP/SSE 或 Connect-RPC。
 5. `executor` 负责错误分类、冷却、重试和 failover；`gateway` 只负责公共协议响应和流式输出。
 6. 请求元数据写入日志；不要默认保存 prompt、completion、密钥或凭证内容。
 
@@ -71,11 +71,9 @@ cmd/server
 ## Provider 边界
 
 - Qoder Global 和 Qoder CN 是同一个 `provider=qoder`，通过 `region` 区分，不创建新的 provider family。
-- Qoder 有两条运行路径：
-  - **PAT 路径（推荐）**：账号存 `qoder-pat-v1` 凭证（Personal Access Token），由进程内 `Bridge`（[`internal/providers/qoder/bridge.go`](../internal/providers/qoder/bridge.go)）全权负责——PAT→jobToken 交换、token 刷新、`/user/status`、`/model/list`、OpenAPI 配额、COSY 签名 chat、OpenAPI 签到。不 spawn worker。`internal/providers/qoder/qauth` 包是从 EchoPing07/Qoder-2API-Go（MIT，见 qauth/NOTICE）移植的完整 cosy 协议实现（RSA + AES + 自定义 base64 + MD5 签名、jobToken 交换/刷新、SSE reader、busy/auth/gateway 错误分类）。
-  - **Worker 路径（legacy fallback）**：仍带 `qoder-native-v1` CLI blob 的老账号走 per-account Node+WASM worker（`worker/src/daemon.mjs`），直到操作员用 PAT 重新登录。
-- Qoder 聊天签名有两个实现：PAT 路径用 `qauth.NewSession`，legacy worker 路径用 `internal/providers/qoder/cosy.go` 的 `Session.Sign`。两者都直连 Qoder 网关，支持中国区（`gateway.qoder.com.cn`）和全球区（`api1.qoder.sh`）双端点。
-- Qoder 的 CLI / worker 兼容性版本固定在 `worker/src/compat.mjs`，不兼容时应明确失败。仅 legacy 账号受此约束。
+- Qoder 登录仍使用独立 HOME 和独立 child process，不共享 WASM context；聊天不加载 CLI bundle。不得为每个请求启动完整 CLI agent。
+- Qoder 的 CLI / worker 兼容性版本固定在 `worker/src/compat.mjs`，不兼容时应明确失败。
+- Qoder 聊天改为在 Go 进程内使用 COSY 客户端签名直连网关（[`internal/providers/qoder/cosy.go`](../internal/providers/qoder/cosy.go)）。COSY 协议版本固定在 [`COSYVersion = "1.1.32"`](cosy.go:23)，支持中国区（`gateway.qoder.com.cn`）和全球区（`api1.qoder.sh`）双端点。
 - WorkBuddy、Trae CN Work、Devin 使用进程内 adapter，不复制 Qoder worker 生命周期。
 - provider 负责上游事实映射；executor 负责是否切号、冷却多久和是否 failover。
 - Provider 能力、模型目录和 reasoning level 必须以实际 catalog 声明为准，不凭空增加模型能力。
