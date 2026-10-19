@@ -3,6 +3,48 @@
 Published user-facing notes for GitHub Releases and the console update page.
 Write upcoming notes as bilingual files in `changelog/unreleased/`.
 
+## 0.7.0 - 2026-10-19
+
+### English
+
+- Report prompt-cache token usage for Trae, Qoder, and WorkBuddy, streaming and non-streaming. Thanks [@longlixiao-ong](https://github.com/longlixiao-ong) (#293).
+- Streams that end with a `finish_reason` but no `[DONE]` no longer return a 502.
+- Qoder PAT accounts now run fully in-process (no per-account Node worker), including token refresh, model catalog, quota, and check-in. (#313)
+- Quota headline sums plan + add-on + org packs; reasoning streams again for in-process chat.
+- Upgrade: existing Qoder accounts keep the worker path until you re-login them with a PAT.
+- New QwenWork provider (`qwenwork/` prefix): browser login, chat on all three APIs with tools, live model list, and quota.
+- CN region (千问办公) is not yet verified with a real account; Global is verified.
+- Pin a region with `workbuddy-cn/…` or `workbuddy-gl/…` (also Qoder); `-auto/` picks the region automatically.
+- Bare `qoder/…`, `workbuddy/…`, and unprefixed models behave as before.
+- Accounts marked out of quota are re-checked automatically, with backoff from 5 minutes up to 24 hours.
+- When every eligible account is out of quota, requests return `429 insufficient_quota` instead of "no accounts available".
+- Point README community discussion at the Telegram group instead of LINUX DO, and add a personal WeChat QR for contact in China.
+- Trae browser login now completes on its own, even for slow SMS logins; pasting the callback URL still works as a fallback.
+- WorkBuddy strips client fingerprint phrases (e.g. from Claude Code) before sending, avoiding upstream error `11128`.
+- Qoder streams with no first byte in 30s now fail over to the next account instead of hanging (`QODER_STREAM_TTFB_MS`).
+- Worker aborts a stream only after 300s with no new chunk (`QODER_STREAM_TOTAL_MS`); long active streams are not cut.
+- Unresponsive Qoder workers are detected and restarted automatically.
+
+### 中文
+
+- Trae、Qoder、WorkBuddy 流式与非流式均返回 Prompt 缓存 token 用量。感谢 [@longlixiao-ong](https://github.com/longlixiao-ong)（#293）。
+- 上游带 `finish_reason` 结束但未发 `[DONE]` 的流不再报 502。
+- Qoder PAT 账号改为完全进程内运行（不再每账号起 Node worker），token 刷新、模型目录、额度、签到均在进程内完成。(#313)
+- 额度总览合计套餐 + 资源包 + 组织资源包；进程内对话恢复思考流输出。
+- 升级提示：老 Qoder 账号需用 PAT 重新登录才会切到进程内模式，否则继续走 worker。
+- 新增 QwenWork（千问办公）供应商（`qwenwork/` 前缀）：浏览器登录，三种 API 均可对话并支持工具调用，模型列表与额度实时获取。
+- 国内版尚未用真实账号验证；国际版已验证。
+- 可用 `workbuddy-cn/…`、`workbuddy-gl/…` 指定区域（Qoder 同理）；`-auto/` 由池自动选区域。
+- 裸前缀 `qoder/…`、`workbuddy/…` 及无前缀模型行为不变。
+- 额度耗尽的账号会自动复查，间隔从 5 分钟逐步退避到 24 小时。
+- 所有可用账号都耗尽额度时，返回 `429 insufficient_quota`，而非「无可用账户」。
+- README 的社区讨论入口改为 Telegram 群，不再指向 LINUX DO，并增加国内联系用的个人微信二维码。
+- Trae 浏览器登录现在可自动完成，短信登录较慢也不会失败；粘贴回调 URL 仍可兜底。
+- WorkBuddy 发送前自动改写客户端特征语句（如 Claude Code 注入的内容），避免上游报 `11128`。
+- Qoder 流式请求 30 秒内无首字节会切换到下一个账号，不再挂起（`QODER_STREAM_TTFB_MS`）。
+- worker 仅在连续 300 秒无新数据时中止流（`QODER_STREAM_TOTAL_MS`），持续输出的长流不会被截断。
+- 无响应的 Qoder worker 会被自动发现并重启。
+
 ## 0.6.23 - 2026-10-18
 
 ### English
