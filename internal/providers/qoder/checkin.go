@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -21,22 +20,15 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/providers/qoder/qauth"
 )
 
-// readRiskIdentity is a package-level indirection over ReadRiskIdentity so
-// tests can stub the helper lookup and never execute the real app binary.
-var readRiskIdentity = ReadRiskIdentity
-
 // checkin performs the daily credit-claim against the Qoder OpenAPI
 // campaigns endpoint, fully in-process. It replaces the worker's
 // /admin/checkin HTTP path: the Bridge supplies the bearer (securityOauthToken
 // on CN, OpenAPI token on Global; rotated via EnsureFreshSession before the
 // call and force-refreshed on a 401).
 //
-// The device fingerprint prefers the genuine desktop identity read from the
-// installed Qoder app's umid/runtime-info helper (see risk.go): the campaign
-// service only exposes the claimable daily-credit activity to the official
-// client's fingerprint and silently drops it for a PAT-derived identity. When
-// the helper is unavailable the PAT-derived identity (deriveMachineIdentity /
-// deriveMachineCode) is used as a graceful fallback.
+// The device fingerprint is derived from the PAT (deriveMachineIdentity /
+// deriveMachineCode): stable per account, and no two accounts on the same
+// host share an identity.
 //
 // Wire shape mirrors worker/src/checkin.mjs exactly:
 //   - GET  {openapi}/sash/api/v1/me/campaigns  → list of campaigns
@@ -112,22 +104,12 @@ func (b *Bridge) Checkin(ctx context.Context) (providers.CheckinResult, error) {
 		return providers.CheckinResult{Status: "skipped", Message: "签到活动未开放"}, nil
 	}
 
-	// Prefer the genuine desktop fingerprint from the installed app; fall back
-	// to the PAT-derived identity when the helper is missing. Only the
-	// machineToken/Type/Code are overridden — the machine id stays the session's
-	// derived value (mirrors qoder2api).
+	// PAT-derived identity only: stable per account and unique across accounts
+	// on the same host, so multi-account setups never share one fingerprint.
 	machineID := b.MachineID()
 	machineToken := b.MachineToken()
 	machineType := b.MachineType()
 	machineCode := deriveMachineCode(b.PAT)
-	if risk := readRiskIdentity(ctx); risk.Valid() {
-		machineToken = risk.MachineToken
-		machineType = risk.MachineType
-		machineCode = risk.MachineCode
-		log.Printf("[qoder-checkin] using genuine desktop fingerprint")
-	} else {
-		log.Printf("[qoder-checkin] desktop helper unavailable; using PAT-derived fingerprint")
-	}
 	machineOS := machineOSString()
 	machineHostname := machineHostnameString()
 
@@ -453,10 +435,10 @@ func truncateOneLine(s string) string {
 
 // deriveMachineCode is the fourth machine-identity header the OpenAPI
 // campaigns endpoint expects (Cosy-MachineCode), alongside Id/Token/Type.
-// The CLI's runtime-info binary computes it from real hardware; we derive a
-// stable value from the PAT instead, mirroring the other derived identities.
-// A partial identity (missing any of the four) causes the campaigns endpoint
-// to silently drop the claimable credit campaign, so this MUST be non-empty.
+// We derive a stable value from the PAT, mirroring the other derived
+// identities. A partial identity (missing any of the four) causes the
+// campaigns endpoint to silently drop the claimable credit campaign, so this
+// MUST be non-empty.
 func deriveMachineCode(pat string) string {
 	sum := md5.Sum([]byte("machinecode:" + pat))
 	return hex.EncodeToString(sum[:])

@@ -13,16 +13,6 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/providers/qoder/qauth"
 )
 
-// stubRiskIdentity replaces the package-level helper lookup for the duration of
-// a test so the real Qoder app binary is never executed, and returns a restore
-// func.
-func stubRiskIdentity(t *testing.T, id *RiskIdentity) {
-	t.Helper()
-	orig := readRiskIdentity
-	readRiskIdentity = func(context.Context) *RiskIdentity { return id }
-	t.Cleanup(func() { readRiskIdentity = orig })
-}
-
 // TestBridgeCheckinHappyPath stubs the OpenAPI campaigns + claim endpoints
 // and verifies the full in-process Go path: EnsureFreshSession is a no-op
 // (session pre-populated), GET /me/campaigns lists, POST /claim claims,
@@ -35,7 +25,6 @@ func TestBridgeCheckinHappyPath(t *testing.T) {
 		CheckinEndpointHook = origHook
 		checkinHTTPClient = origClient
 	})
-	stubRiskIdentity(t, nil)
 
 	var gotHeaders http.Header
 	var campaignsHits, claimHits atomic.Int32
@@ -173,7 +162,6 @@ func TestBridgeCheckinNoClaimable(t *testing.T) {
 		CheckinEndpointHook = origHook
 		checkinHTTPClient = origClient
 	})
-	stubRiskIdentity(t, nil)
 
 	cases := []struct {
 		name       string
@@ -284,52 +272,6 @@ func mustDeriveMachineIdentity(pat string) (string, string, string) {
 	return id, tok, typ
 }
 
-// TestBridgeCheckinUsesGenuineFingerprint verifies that a valid desktop
-// fingerprint overrides Cosy-MachineToken/Type/Code while the machine id stays
-// the session-derived value.
-func TestBridgeCheckinUsesGenuineFingerprint(t *testing.T) {
-	origHook := CheckinEndpointHook
-	origClient := checkinHTTPClient
-	t.Cleanup(func() {
-		CheckinEndpointHook = origHook
-		checkinHTTPClient = origClient
-	})
-	stubRiskIdentity(t, &RiskIdentity{MachineToken: "genuine-tok", MachineType: "genuine-type", MachineCode: "genuine-code"})
-
-	var gotHeaders http.Header
-	openapi := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotHeaders = r.Header.Clone()
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"campaigns": []map[string]any{{
-				"campaignId": "c1", "actionType": "CLAIM_BENEFIT", "claimStatus": "CLAIMED",
-				"benefit": map[string]any{"kind": "CREDITS", "amount": 100.0},
-			}},
-		})
-	}))
-	defer openapi.Close()
-	CheckinEndpointHook = func(*qauth.RegionConfig) *checkinRegion {
-		return &checkinRegion{base: openapi.URL, origin: "https://stub.test"}
-	}
-	checkinHTTPClient = openapi.Client()
-
-	b := newTestBridge(t, "fake-pat-secret-0123456789abcdef")
-	if _, err := b.Checkin(context.Background()); err != nil {
-		t.Fatalf("Checkin err = %v", err)
-	}
-	if got := gotHeaders.Get("Cosy-MachineToken"); got != "genuine-tok" {
-		t.Errorf("Cosy-MachineToken = %q want genuine-tok", got)
-	}
-	if got := gotHeaders.Get("Cosy-MachineType"); got != "genuine-type" {
-		t.Errorf("Cosy-MachineType = %q want genuine-type", got)
-	}
-	if got := gotHeaders.Get("Cosy-MachineCode"); got != "genuine-code" {
-		t.Errorf("Cosy-MachineCode = %q want genuine-code", got)
-	}
-	if got := gotHeaders.Get("Cosy-MachineId"); got != b.MachineID() {
-		t.Errorf("Cosy-MachineId = %q want session-derived %q", got, b.MachineID())
-	}
-}
-
 // TestBridgeCheckinGlobalUsesOpenAPIBearer verifies that a region flagged
 // NeedsOpenAPIToken authenticates the campaign call with the OpenAPI bearer
 // minted from /api/v1/jobToken/exchange, not the COSY securityOauthToken.
@@ -340,7 +282,6 @@ func TestBridgeCheckinGlobalUsesOpenAPIBearer(t *testing.T) {
 		CheckinEndpointHook = origHook
 		checkinHTTPClient = origClient
 	})
-	stubRiskIdentity(t, nil)
 
 	var campaignsAuth string
 	openapi := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
