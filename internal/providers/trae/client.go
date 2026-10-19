@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -220,7 +221,6 @@ func (c *Client) StartLogin(ctx context.Context, accountID string) (providers.Lo
 	c.pendingTraces[trace] = entry
 	c.mu.Unlock()
 	authURL := buildLoginURL(credential.MachineID, credential.DeviceID, callbackURL, trace, verifier)
-	log.Printf("trae: StartLogin account=%s callback=%s trace=%s", accountID, callbackURL, trace)
 	return providers.LoginSession{AuthURL: authURL, State: trace}, nil
 }
 
@@ -315,7 +315,6 @@ func (c *Client) forgetPending(accountID string, pending *loginPending) {
 }
 
 func (c *Client) CompleteLogin(ctx context.Context, accountID, callbackURL string) error {
-	log.Printf("trae: CompleteLogin account=%s callbackLen=%d", accountID, len(callbackURL))
 	info, err := ParseCallback(callbackURL)
 	if err != nil {
 		return err
@@ -440,7 +439,6 @@ func (c *Client) finishCredential(ctx context.Context, accountID string, credent
 		log.Printf("trae: SaveCredentialPayload failed account=%s: %v", accountID, err)
 		return err
 	}
-	log.Printf("trae: credential successfully saved account=%s uid=%s", accountID, credential.UID)
 	_ = c.store.Observe(ctx, accountID, credential.UID, "ready", "", "")
 	return nil
 }
@@ -461,15 +459,15 @@ func (c *Client) ensureCallback() (string, error) {
 	c.listener = ln
 	auth.ServeLoopback(ln, pathCallback, "Trae", c.acceptCallback)
 	addr := ln.Addr().(*net.TCPAddr)
-	log.Printf("trae: callback loopback listening on port %d", addr.Port)
 	return fmt.Sprintf("http://127.0.0.1:%d%s", addr.Port, pathCallback), nil
 }
 
 func (c *Client) acceptCallback(ctx context.Context, rawURL string) error {
-	log.Printf("trae: acceptCallback received URL (len=%d)", len(rawURL))
 	info, err := ParseCallback(rawURL)
 	if err != nil {
-		log.Printf("trae: acceptCallback parse failed: %v", err)
+		// Do not log the parse error verbatim: it embeds the raw callback URL,
+		// which carries the one-shot auth code and OAuth state.
+		log.Printf("trae: acceptCallback parse failed")
 		c.markPendingFailed(err.Error())
 		return err
 	}
@@ -537,13 +535,18 @@ func (c *Client) redeemAsync(pending *loginPending) {
 	credential, authCode, codeVerifier := pending.credential, pending.authCode, pending.codeVerifier
 	accountID := pending.accountID
 	c.mu.Unlock()
-	log.Printf("trae: redeemAsync starting account=%s authCodeLen=%d verifierLen=%d", accountID, len(authCode), len(codeVerifier))
 	if err := c.redeem(ctx, accountID, pending, credential, authCode, codeVerifier); err != nil {
-		log.Printf("trae: redeemAsync failed account=%s: %v", accountID, err)
+		// Log only the classified status/code: the full error message can embed
+		// the upstream response payload.
+		var perr *providers.Error
+		if errors.As(err, &perr) {
+			log.Printf("trae: redeemAsync failed account=%s status=%d code=%s", accountID, perr.Status, perr.Code)
+		} else {
+			log.Printf("trae: redeemAsync failed account=%s (transport error)", accountID)
+		}
 		c.markPendingFailedFor(pending, err.Error())
 		return
 	}
-	log.Printf("trae: redeemAsync succeeded account=%s", accountID)
 	c.forgetPending(accountID, pending)
 }
 
@@ -798,7 +801,6 @@ func (c *Client) ExchangeAuthCode(ctx context.Context, accountID string, credent
 	}
 	var payload []byte
 	var status int
-	var lastErr error
 	for i, host := range hosts {
 		payload, status, err = c.do(ctx, accountID, http.MethodPost, host+pathExchangeCode, body, SetOAuthHeaders)
 		if err != nil {
@@ -808,13 +810,11 @@ func (c *Client) ExchangeAuthCode(ctx context.Context, accountID string, credent
 		if status < 300 {
 			break
 		}
-		log.Printf("trae: ExchangeAuthCode upstream error account=%s host=%s status=%d payload=%s", accountID, host, status, string(payload))
+		// Log status and the extracted error code only — never the raw payload.
+		log.Printf("trae: ExchangeAuthCode upstream error account=%s host=%s status=%d code=%s", accountID, host, status, firstNonEmpty(extractMetadataCode(payload), extractCode(string(payload))))
 		if i == len(hosts)-1 || !isInvalidParameter(status, payload) {
 			return credential, classifiedError(status, payload)
 		}
-	}
-	if err != nil {
-		return credential, lastErr
 	}
 	if status >= 300 {
 		return credential, classifiedError(status, payload)
