@@ -563,3 +563,14 @@ body {
   background: var(--surface-tertiary);
   color: var(--muted);
 }
+
+/* Header toolbar: a flat hairline group instead of a floating pill. */
+@layer components {
+  .toolbar--attached {
+    gap: 0;
+    padding: 2px;
+    border-radius: calc(var(--radius) - 1px);
+    background: var(--surface);
+    box-shadow: 0 0 0 1px var(--border), var(--field-shadow);
+  }
+}

@@ -482,7 +482,7 @@ export function LogsPage() {
     <div className="space-y-6">
       <section className="flex flex-wrap items-end justify-between gap-4 border-b border-separator pb-4">
         <div>
-          <h2 data-gsap-reveal className="text-2xl font-semibold tracking-[-0.035em]">{t('navLogs')}</h2>
+          <h2 data-gsap-reveal className="text-xl font-semibold tracking-[-0.02em]">{t('navLogs')}</h2>
           <p className="mt-1 max-w-2xl text-sm leading-6 text-muted">{t('logsLead')}</p>
         </div>
         <div className="flex items-center gap-2">

@@ -68,7 +68,7 @@ function NavList({ collapsed, onNavigate }: { collapsed: boolean; onNavigate?: (
           {collapsed ? (
             <Separator className="mx-auto mb-1 w-6" />
           ) : (
-            <span className="px-3 pb-1.5 text-[10px] font-semibold tracking-[0.12em] text-muted uppercase">{group.label}</span>
+            <span className="px-3 pb-1 text-xs font-medium text-muted">{group.label}</span>
           )}
           {nav.filter((item) => item.section === group.key).map((item) => {
             const Icon = item.icon
@@ -80,12 +80,12 @@ function NavList({ collapsed, onNavigate }: { collapsed: boolean; onNavigate?: (
                 onClick={onNavigate}
                 aria-label={t(item.key)}
                 title={collapsed ? t(item.key) : undefined}
-                className={({ isActive }) => `group/navitem relative flex items-center gap-3 rounded-xl py-2.5 text-[14px] transition-colors will-change-transform ${collapsed ? 'mx-auto w-10 justify-center px-0' : 'px-3'} ${isActive ? 'bg-surface-secondary font-semibold text-foreground' : 'font-medium text-muted hover:bg-surface-secondary hover:text-foreground'}`}
+                className={({ isActive }) => `group/navitem relative flex items-center gap-2.5 rounded-lg py-1.5 text-[13px] transition-colors will-change-transform ${collapsed ? 'mx-auto w-10 justify-center px-0' : 'px-3'} ${isActive ? 'bg-default font-medium text-foreground' : 'font-normal text-muted hover:bg-default hover:text-foreground'}`}
                 onMouseDown={(event) => pressScale(event.currentTarget)}
               >
                 {({ isActive }) => (
                   <>
-                    <span className="inline-flex shrink-0" data-nav-icon><Icon size={18} weight={isActive ? 'fill' : 'regular'} /></span>
+                    <span className="inline-flex shrink-0" data-nav-icon><Icon size={16} weight={isActive ? 'fill' : 'regular'} /></span>
                     {!collapsed && <span className="truncate" data-nav-label>{t(item.key)}</span>}
                     {collapsed && <span className="pointer-events-none absolute left-full z-50 ml-2 invisible whitespace-nowrap rounded-lg bg-foreground px-2 py-1 text-xs font-medium text-background opacity-0 shadow-overlay transition-opacity duration-150 group-hover/navitem:visible group-hover/navitem:opacity-100">{t(item.key)}</span>}
                   </>

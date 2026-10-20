@@ -171,7 +171,7 @@ export function OverviewPage() {
     <div className="space-y-6">
       <section className="grid gap-4 border-b border-separator pb-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
         <div>
-          <h2 data-gsap-reveal className="text-2xl font-semibold tracking-[-0.035em]">{t('homeDisplay')}</h2>
+          <h2 data-gsap-reveal className="text-xl font-semibold tracking-[-0.02em]">{t('homeDisplay')}</h2>
           <p className="mt-1 max-w-2xl text-sm leading-6 text-muted">{t('homeLead')}</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">

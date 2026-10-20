@@ -204,7 +204,7 @@ export function AccessPage() {
     <div className="space-y-5">
       <section className="grid gap-5 border-b border-separator pb-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
         <div data-gsap-reveal>
-          <h2 className="text-2xl font-semibold tracking-[-0.035em]">{t('apiPlayground')}</h2>
+          <h2 className="text-xl font-semibold tracking-[-0.02em]">{t('apiPlayground')}</h2>
           <p className="mt-1 max-w-2xl text-sm leading-6 text-muted">{t('apiPlaygroundHint')}</p>
         </div>
         <div className="flex items-center gap-2 text-xs text-muted">

@@ -327,7 +327,7 @@ export function ProvidersPage() {
     <div className="space-y-6">
       <section className="grid gap-5 border-b border-separator pb-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
         <div data-gsap-reveal>
-          <h2 className="text-2xl font-semibold tracking-[-0.035em]">{t('availableModels')}</h2>
+          <h2 className="text-xl font-semibold tracking-[-0.02em]">{t('availableModels')}</h2>
           <p className="mt-1 text-sm text-muted">
             {models.length ? shownLabel : t('noModelsYet')}
           </p>
