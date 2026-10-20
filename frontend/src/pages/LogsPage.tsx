@@ -1,3 +1,4 @@
+import { useTabPanelSlide } from '@/hooks/useTabPanelSlide'
 import { useSkeletonSwap } from '@/hooks/useSkeletonSwap'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { getLocalTimeZone, type DateValue } from '@internationalized/date'
@@ -47,6 +48,7 @@ import { useI18n } from '@/hooks/useI18n'
 import { accountProviderLabel } from '@/lib/provider'
 
 type PageTab = 'requests' | 'runtime'
+const PAGE_TABS: readonly PageTab[] = ['requests', 'runtime']
 type RequestFilter = 'all' | 'ok' | 'incomplete' | 'error' | 'canceled'
 type RuntimeFilter = 'all' | 'info' | 'warn' | 'error'
 type StreamFilter = 'all' | 'stream' | 'sync'
@@ -190,6 +192,7 @@ export function LogsPage() {
   const [accounts, setAccounts] = useState<NonNullable<Overview['accounts']>>([])
   const [models, setModels] = useState<NonNullable<Overview['models']>>([])
   const [tab, setTab] = useState<PageTab>('requests')
+  useTabPanelSlide(tab, PAGE_TABS)
   const [loading, setLoading] = useState(true)
   const [booted, setBooted] = useState(false)
   const [error, setError] = useState('')
@@ -496,15 +499,17 @@ export function LogsPage() {
         <Tabs.ListContainer className="max-w-md">
           <Tabs.List>
             <Tab id="requests" className="gap-1.5">
+              <Tabs.Indicator />
               <Scroll size={13} />{t('logsRequests')}
             </Tab>
             <Tab id="runtime" className="gap-1.5">
+              <Tabs.Indicator />
               <TerminalWindow size={13} />{t('logsRuntime')}
             </Tab>
           </Tabs.List>
         </Tabs.ListContainer>
 
-        <Tabs.Panel id="requests" className="space-y-4 pt-5">
+        <Tabs.Panel id="requests" data-tab-panel="requests" className="space-y-4 pt-5">
           <div className="flex flex-col gap-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <FilterToggle
@@ -793,7 +798,7 @@ export function LogsPage() {
           />
         </Tabs.Panel>
 
-        <Tabs.Panel id="runtime" className="space-y-4 pt-5">
+        <Tabs.Panel id="runtime" data-tab-panel="runtime" className="space-y-4 pt-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-2">
               <SearchBar
