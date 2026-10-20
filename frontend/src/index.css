@@ -26,53 +26,92 @@
   --font-mono: "Geist Mono Variable", "SFMono-Regular", Consolas, monospace;
 }
 
-/* Softer field corners + visible borders: HeroUI inputs / textareas /
-   number-field groups / select triggers all read these vars. The stock
-   theme ships --field-border-width:0px and --field-border:transparent,
-   relying on a barely-visible shadow instead — fields look flat on both
-   light and dark surfaces, so draw a real border. */
+/* ==========================================================================
+   Studio grayscale theme (after arhamkhnz/next-shadcn-admin-dashboard).
+   Rules: zero-chroma neutrals, near-black / near-white primary, hairline
+   borders instead of heavy shadows, 10 px control radius / 14 px cards,
+   tabular numbers. Only HeroUI's own variables are redefined here, so every
+   HeroUI component picks the theme up without code changes.
+   ========================================================================== */
 :root,
 .light,
 .default,
 [data-theme="light"],
 [data-theme="default"] {
-  --field-radius: 16px;
+  --radius: 0.625rem;
+  --field-radius: 0.5rem;
+
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --surface: oklch(1 0 0);
+  --surface-foreground: var(--foreground);
+  --surface-secondary: oklch(0.985 0 0);
+  --surface-tertiary: oklch(0.97 0 0);
+  --overlay: oklch(1 0 0);
+  --overlay-foreground: var(--foreground);
+  --muted: oklch(0.556 0 0);
+  --default: oklch(0.97 0 0);
+  --default-foreground: oklch(0.205 0 0);
+  --segment: oklch(1 0 0);
+  --segment-foreground: oklch(0.145 0 0);
+  --border: oklch(0.922 0 0);
+  --separator: oklch(0.922 0 0);
+  --link: var(--foreground);
+
+  --accent: oklch(0.205 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --focus: oklch(0.708 0 0);
+  --accent-soft: oklch(0.97 0 0);
+  --accent-soft-hover: oklch(0.94 0 0);
+  --accent-soft-foreground: oklch(0.205 0 0);
+
+  --field-background: oklch(1 0 0);
   --field-border-width: 1px;
-  --field-border: oklch(80% 0.008 286.32);
-  --field-border-hover: oklch(70% 0.012 285.9);
-  --field-border-focus: oklch(62% 0.04 285.9);
+  --field-border: oklch(0.922 0 0);
+  --field-border-hover: oklch(0.85 0 0);
+  --field-border-focus: oklch(0.708 0 0);
+
+  --hairline: oklch(0.145 0 0 / 10%);
+  --surface-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --overlay-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.08), 0 2px 4px -2px rgb(0 0 0 / 0.06);
+  --field-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.04);
 }
 
 .dark,
 [data-theme="dark"] {
-  --field-radius: 16px;
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --surface: oklch(0.205 0 0);
+  --surface-foreground: var(--foreground);
+  --surface-secondary: oklch(0.175 0 0);
+  --surface-tertiary: oklch(0.269 0 0);
+  --overlay: oklch(0.205 0 0);
+  --overlay-foreground: var(--foreground);
+  --muted: oklch(0.708 0 0);
+  --default: oklch(0.269 0 0);
+  --default-foreground: oklch(0.985 0 0);
+  --segment: oklch(0.32 0 0);
+  --segment-foreground: oklch(0.985 0 0);
+  --border: oklch(1 0 0 / 10%);
+  --separator: oklch(1 0 0 / 10%);
+
+  --accent: oklch(0.922 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --focus: oklch(0.556 0 0);
+  --accent-soft: oklch(0.269 0 0);
+  --accent-soft-hover: oklch(0.31 0 0);
+  --accent-soft-foreground: oklch(0.985 0 0);
+
+  --field-background: oklch(1 0 0 / 4.5%);
   --field-border-width: 1px;
-  --field-border: oklch(38% 0.008 286.033);
-  --field-border-hover: oklch(47% 0.012 285.9);
-  --field-border-focus: oklch(58% 0.04 285.9);
-}
+  --field-border: oklch(1 0 0 / 15%);
+  --field-border-hover: oklch(1 0 0 / 22%);
+  --field-border-focus: oklch(0.556 0 0);
 
-/* Chrome accent is Charcoal Ink. Signal Cyan stays on the C tip / scan only.
-   Dark inverts the fill so an ink button does not vanish on Off-Black Night. */
-:root,
-.light,
-.default,
-[data-theme="light"],
-[data-theme="default"] {
-  --accent: #18181b;
-  --accent-foreground: #fcfcfc;
-  --focus: var(--accent);
-  --accent-soft: color-mix(in oklab, var(--accent) 28%, transparent);
-  --accent-soft-hover: color-mix(in oklab, var(--accent) 36%, transparent);
-}
-
-.dark,
-[data-theme="dark"] {
-  --accent: #fcfcfc;
-  --accent-foreground: #18181b;
-  --focus: var(--accent);
-  --accent-soft: color-mix(in oklab, var(--accent) 22%, transparent);
-  --accent-soft-hover: color-mix(in oklab, var(--accent) 30%, transparent);
+  --hairline: oklch(1 0 0 / 10%);
+  --surface-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.3);
+  --overlay-shadow: 0 8px 24px -6px rgb(0 0 0 / 0.5);
+  --field-shadow: none;
 }
 
 html,
@@ -104,15 +143,7 @@ body {
   color: var(--foreground);
 }
 
-/* HeroUI 3.2.4 Tabs.Indicator crashes (SharedElementTransition). Selected
-   tabs and pagination current-page otherwise stay unfilled / gray. Glue both
-   to accent-soft so selection matches ToggleButton / Switch / Radio. */
-.tabs__tab[data-selected="true"] {
-  background: var(--accent-soft);
-  color: var(--accent-soft-foreground);
-  box-shadow: none;
-}
-
+/* Pagination current page uses the neutral selection fill. */
 .pagination__link[data-active="true"] {
   --pagination-link-bg: var(--accent-soft);
   --pagination-link-bg-hover: var(--accent-soft-hover);
@@ -363,4 +394,172 @@ body {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* ==========================================================================
+   Studio component geometry. Kept in the components layer so per-element
+   Tailwind utilities (rounded-full, shadow-none …) still win.
+   ========================================================================== */
+@layer components {
+  /* Cards: 14 px corners, a hairline ring and an xs shadow, no border. */
+  .card {
+    border-radius: calc(var(--radius) + 4px);
+    border: 0;
+    box-shadow: 0 0 0 1px var(--hairline), var(--surface-shadow);
+  }
+
+  /* Controls: 8 px corners, compact heights (h-8 / h-7). */
+  .button,
+  .toggle-button {
+    border-radius: calc(var(--radius) - 2px);
+  }
+  .button--sm,
+  .toggle-button--sm {
+    height: 1.75rem;
+    padding-inline: 0.625rem;
+    font-size: 0.8125rem;
+  }
+  .button--icon-only.button--sm {
+    width: 1.75rem;
+    padding: 0;
+  }
+  .button--md {
+    height: 2rem;
+  }
+  .button--outline,
+  .button--secondary {
+    box-shadow: 0 0 0 1px var(--border), var(--field-shadow);
+  }
+  .button--secondary {
+    background: var(--surface);
+    color: var(--foreground);
+  }
+
+  /* Segmented groups: one muted track, items sit inside it. */
+  .toggle-button-group {
+    gap: 0;
+    padding: 2px;
+    border-radius: calc(var(--radius) - 1px);
+    background: var(--default);
+  }
+  .toggle-button-group .toggle-button,
+  .toggle-button-group--horizontal .toggle-button:first-child,
+  .toggle-button-group--horizontal .toggle-button:last-child,
+  .toggle-button-group--horizontal .toggle-button:first-child:last-child {
+    border-radius: calc(var(--radius) - 3px);
+  }
+  .toggle-button-group .toggle-button {
+    background: transparent;
+    color: var(--muted);
+  }
+  .toggle-button-group .toggle-button[data-selected="true"] {
+    color: var(--foreground);
+    background: var(--segment);
+    box-shadow: 0 0 0 1px var(--hairline), var(--surface-shadow);
+  }
+  /* FilterToggle draws the track on its wrapper and one sliding pill. */
+  .filter-toggle {
+    padding: 2px;
+    border-radius: calc(var(--radius) - 1px);
+    background: var(--default);
+  }
+  .filter-toggle .toggle-button-group {
+    padding: 0;
+    background: transparent;
+  }
+  .filter-toggle .toggle-button-group .toggle-button[data-selected="true"] {
+    background: transparent;
+    box-shadow: none;
+  }
+  .toggle-button-group__separator {
+    display: none;
+  }
+
+  /* Tabs: same segmented track, the indicator is a raised white pane. */
+  .tabs__list-container {
+    border-radius: calc(var(--radius) - 1px);
+    background: var(--default);
+  }
+  .tabs__tab {
+    height: 1.75rem;
+    border-radius: calc(var(--radius) - 3px);
+    font-size: 0.8125rem;
+  }
+  .tabs__tab[data-selected="true"] {
+    color: var(--foreground);
+  }
+  .tabs__indicator {
+    border-radius: calc(var(--radius) - 3px);
+    background: var(--segment);
+    box-shadow: 0 0 0 1px var(--hairline), var(--surface-shadow);
+  }
+
+  /* Chips: small pills, h-5. */
+  .chip {
+    border-radius: 999px;
+    padding-inline: 0.5rem;
+    font-size: 0.75rem;
+    line-height: 1.25rem;
+  }
+
+  /* Overlays: thin ring + soft shadow instead of a heavy float. */
+  .modal__dialog,
+  .popover,
+  .tooltip {
+    box-shadow: 0 0 0 1px var(--hairline), var(--overlay-shadow);
+  }
+  .modal__dialog {
+    border-radius: calc(var(--radius) + 4px);
+  }
+}
+
+/* Numbers everywhere line up. */
+.tabular,
+.mono,
+.card [class*="text-2xl"],
+.card [class*="text-3xl"] {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Filter toggle sliding pill (FilterToggle.tsx) matches the tab indicator. */
+.filter-toggle__pill {
+  border-radius: calc(var(--radius) - 3px);
+  background: var(--segment);
+  box-shadow: 0 0 0 1px var(--hairline), var(--surface-shadow);
+}
+
+/* Trend chip (metric cards): solid ink for up, soft red for down. */
+.trend-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  height: 1.25rem;
+  padding: 0 0.5rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+.trend-chip[data-tone="down"] {
+  background: color-mix(in oklab, var(--danger) 12%, transparent);
+  color: var(--danger);
+}
+.trend-chip[data-tone="flat"] {
+  background: var(--default);
+  color: var(--muted);
+}
+
+/* Icon tile used by metric cards and section headers. */
+.icon-tile {
+  display: inline-grid;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: calc(var(--radius) - 2px);
+  border: 1px solid var(--border);
+  background: var(--surface-tertiary);
+  color: var(--muted);
 }
