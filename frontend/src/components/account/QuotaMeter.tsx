@@ -1,3 +1,5 @@
+import { useRef } from 'react'
+import { useFillReveal } from '@/hooks/useFillReveal'
 import { Meter, Tooltip } from '@heroui/react'
 import type { AccountQuota, AccountQuotaWindow } from '@/api/types'
 import {
@@ -105,11 +107,13 @@ export function QuotaMeter({ quota, t, label, usedLabel, remainingLabel, addOnLa
   const ratio = quotaUsedRatio(quota)
   const tone = quotaTone(quota)
   const color = tone === 'danger' ? 'danger' : tone === 'warn' ? 'warning' : 'success'
+  const rootRef = useRef<HTMLDivElement>(null)
+  useFillReveal(rootRef)
   const valueLabel = `${usedLabel} ${used} ${unit} · ${remainingLabel} ${remaining} ${unit}${extra.length ? ` · ${extra.join(' · ')}` : ''}`
 
   if (windows.length > 0) {
     return (
-      <div className="account-quota-windows flex w-full min-w-0 flex-col gap-3">
+      <div ref={rootRef} className="account-quota-windows flex w-full min-w-0 flex-col gap-3">
         {plan ? (
           <div className="flex items-center justify-between gap-3 text-[11px]">
             <span className="text-muted">{t('quotaPlan')}</span>
@@ -132,7 +136,7 @@ export function QuotaMeter({ quota, t, label, usedLabel, remainingLabel, addOnLa
   return (
     <Tooltip>
       <Tooltip.Trigger>
-        <div className="w-full cursor-help">
+        <div ref={rootRef} className="w-full cursor-help">
           <Meter
             className="account-meter w-full"
             color={color}

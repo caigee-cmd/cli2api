@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef } from 'react'
-import gsap from 'gsap'
+import { duration, ease, gsap } from '@/lib/motion'
 import { runtimeSegments, runtimeTone, type AccountState } from '@/lib/account'
 
 type Props = {
@@ -33,12 +33,12 @@ export function RuntimeMeter({ state, stateCopy, t }: Props) {
 
       media.add('(prefers-reduced-motion: no-preference)', () => {
         gsap.set(segments, { transformOrigin: 'center bottom' })
-        gsap.to(empty, { scaleY: 0.32, autoAlpha: 0.45, duration: 0.18, ease: 'power2.out', overwrite: true })
+        gsap.to(empty, { scaleY: 0.32, autoAlpha: 0.45, duration: duration.fast, ease: ease.out, overwrite: true })
         gsap.to(filled, {
           scaleY: 1,
           autoAlpha: 1,
-          duration: 0.22,
-          ease: 'power2.out',
+          duration: duration.base,
+          ease: ease.out,
           stagger: { amount: 0.08, from: 'start' },
           overwrite: true,
         })
