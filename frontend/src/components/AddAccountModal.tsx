@@ -1,6 +1,6 @@
 import { CopyIcon } from '@/components/motion/CopyIcon'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import gsap from 'gsap'
+import { duration, ease, gsap } from '@/lib/motion'
 import { Button, Input, Modal, NumberField, Skeleton, TextArea } from '@heroui/react'
 import { ArrowSquareOut, CaretLeft, CaretRight, CheckCircle, FileCode, Key, ShieldCheck, X } from '@phosphor-icons/react'
 import { copyText } from '@/lib/clipboard'
@@ -156,6 +156,8 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
   const [callbackUrl, setCallbackUrl] = useState('')
   const [codexLoginMethod, setCodexLoginMethod] = useState<'cli' | 'chatgpt'>('cli')
   const stepBody = useRef<HTMLDivElement>(null)
+  const stepDesc = useRef<HTMLParagraphElement>(null)
+  const prevStep = useRef<Step | null>(null)
   const createdId = useRef<string>('')
   const pollTimer = useRef<number | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
@@ -279,20 +281,34 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
 
   useLayoutEffect(() => {
     const body = stepBody.current
+    if (!isOpen) prevStep.current = null
     if (!body || !isOpen) return
     const context = gsap.context(() => {
       const media = gsap.matchMedia()
       media.add('(prefers-reduced-motion: reduce)', () => {
-        gsap.set(body, { autoAlpha: 1, y: 0 })
+        gsap.set(body, { autoAlpha: 1, x: 0, y: 0 })
       })
       media.add('(prefers-reduced-motion: no-preference)', () => {
+        // Steps slide in from the side they come from (method → login enters
+        // from the right, back enters from the left); the header line rises in
+        // with them, after arc's dialog copy swap.
+        const previous = prevStep.current
+        const direction = previous && previous !== step ? (step === 'login' ? 1 : -1) : 0
         gsap.fromTo(
           body,
-          { autoAlpha: 0, y: 12 },
-          { autoAlpha: 1, y: 0, duration: 0.34, ease: 'power3.out', overwrite: true },
+          { autoAlpha: 0, x: 20 * direction, y: direction ? 0 : 12 },
+          { autoAlpha: 1, x: 0, y: 0, duration: duration.slow, ease: ease.out, overwrite: true },
         )
+        if (direction && stepDesc.current) {
+          gsap.fromTo(
+            stepDesc.current,
+            { autoAlpha: 0, y: 6 },
+            { autoAlpha: 1, y: 0, duration: duration.base, ease: ease.out, overwrite: true },
+          )
+        }
       })
     }, body)
+    prevStep.current = step
     return () => context.revert()
   }, [isOpen, step])
 
@@ -519,7 +535,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
             <Modal.Header className="relative items-center justify-center px-12 pt-5 text-center">
               <div className="min-w-0">
                 <Modal.Heading className="text-lg font-semibold tracking-[-0.01em]">{t('addAccountTitle')}</Modal.Heading>
-                <p className="mt-1 text-xs font-normal leading-5 text-muted">
+                <p ref={stepDesc} className="mt-1 text-xs font-normal leading-5 text-muted">
                   {step === 'method' ? t('addAccountDesc') : (hint || t('addAccountDesc'))}
                 </p>
               </div>
