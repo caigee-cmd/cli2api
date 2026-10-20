@@ -5,9 +5,15 @@ import { Link } from 'react-router-dom'
 import { Card, Chip } from '@heroui/react'
 import {
   ArrowUpRight,
+  ChartLineUp,
+  CheckCircle,
+  Coins,
   Cpu,
   Cube,
   Pulse,
+  Timer,
+  TrendDown,
+  TrendUp,
 } from '@phosphor-icons/react'
 import { fetchRequestStats, type RequestStats } from '@/api/logs'
 import { fetchSystemResources, type SystemResources } from '@/api/system'
@@ -141,11 +147,22 @@ export function OverviewPage() {
     }
   }, [])
 
+  // Display-only trend: second half of the selected window vs the first half,
+  // derived from the series the page already loads (no extra API call).
+  const half = Math.floor(traffic.series.length / 2)
+  const sum = (points: typeof traffic.series, key: 'requests' | 'ok') => points.reduce((total, point) => total + point[key], 0)
+  const firstHalf = traffic.series.slice(0, half)
+  const secondHalf = traffic.series.slice(half)
+  const change = (before: number, after: number) => (before > 0 ? (after - before) / before : null)
+  const requestTrend = change(sum(firstHalf, 'requests'), sum(secondHalf, 'requests'))
+  const firstRate = sum(firstHalf, 'requests') ? sum(firstHalf, 'ok') / sum(firstHalf, 'requests') : null
+  const secondRate = sum(secondHalf, 'requests') ? sum(secondHalf, 'ok') / sum(secondHalf, 'requests') : null
+  const successTrend = firstRate != null && secondRate != null ? secondRate - firstRate : null
   const metrics = [
-    { label: t('metricRequests'), value: traffic.totals.requests as number | null, kind: 'compact' as const, detail: t('statsWindowHint', { window: t(hours === 1 ? 'statsWindow1h' : hours === 168 ? 'statsWindow7d' : 'statsWindow24h') }), ok: traffic.totals.requests > 0 },
-    { label: t('metricSuccess'), value: traffic.totals.success_rate, kind: 'percent' as const, detail: `${traffic.totals.ok} ${t('logsFilterOk')} · ${traffic.totals.incomplete} ${t('logsFilterIncomplete')} · ${traffic.totals.error} ${t('logsFilterError')}`, ok: traffic.totals.requests === 0 || traffic.totals.success_rate >= 0.9 },
-    { label: t('metricLatency'), value: traffic.latency.p95_ms ?? traffic.latency.avg_ms, kind: 'ms' as const, detail: `p50 ${formatLatency(traffic.latency.p50_ms)} · avg ${formatLatency(traffic.latency.avg_ms)}`, ok: traffic.latency.p95_ms == null || traffic.latency.p95_ms < 8000 },
-    { label: t('metricTokens'), value: traffic.tokens.total, kind: 'compact' as const, detail: `${formatCompact(traffic.tokens.prompt)} / ${formatCompact(traffic.tokens.completion)}`, ok: true },
+    { label: t('metricRequests'), value: traffic.totals.requests as number | null, kind: 'compact' as const, detail: t('statsWindowHint', { window: t(hours === 1 ? 'statsWindow1h' : hours === 168 ? 'statsWindow7d' : 'statsWindow24h') }), ok: traffic.totals.requests > 0, icon: <Pulse size={15} />, trend: requestTrend },
+    { label: t('metricSuccess'), value: traffic.totals.success_rate, kind: 'percent' as const, detail: `${traffic.totals.ok} ${t('logsFilterOk')} · ${traffic.totals.incomplete} ${t('logsFilterIncomplete')} · ${traffic.totals.error} ${t('logsFilterError')}`, ok: traffic.totals.requests === 0 || traffic.totals.success_rate >= 0.9, icon: <CheckCircle size={15} />, trend: successTrend },
+    { label: t('metricLatency'), value: traffic.latency.p95_ms ?? traffic.latency.avg_ms, kind: 'ms' as const, detail: `p50 ${formatLatency(traffic.latency.p50_ms)} · avg ${formatLatency(traffic.latency.avg_ms)}`, ok: traffic.latency.p95_ms == null || traffic.latency.p95_ms < 8000, icon: <Timer size={15} />, trend: null as number | null },
+    { label: t('metricTokens'), value: traffic.tokens.total, kind: 'compact' as const, detail: `${formatCompact(traffic.tokens.prompt)} / ${formatCompact(traffic.tokens.completion)}`, ok: true, icon: <Coins size={15} />, trend: null as number | null },
   ]
 
   if (loading && !overview) return <OverviewPageSkeleton />
@@ -185,23 +202,22 @@ export function OverviewPage() {
 
       {error ? <PageAlert title={t('failedOverview', { msg: error })} /> : null}
 
-      <section data-gsap-reveal className="grid overflow-hidden rounded-3xl border border-border bg-surface sm:grid-cols-2 xl:grid-cols-4">
-        {metrics.map((metric, index) => (
-          <div
-            key={metric.label}
-            className={`min-h-32 p-5 ${index ? 'border-t border-separator sm:border-l sm:border-t-0' : ''} ${index === 2 ? 'sm:border-l-0 sm:border-t xl:border-l xl:border-t-0' : ''}`}
-          >
-            <div className="text-xs font-medium text-muted">{metric.label}</div>
-            <div className="mt-6 flex items-end justify-between gap-3">
-              <div>
-                <div className="mono text-2xl font-semibold tracking-[-0.035em]">
-                  {statsLoading ? <SkeletonBlock className="h-8 w-24" /> : metric.value == null ? '—' : <CountUp value={metric.value} kind={metric.kind} />}
-                </div>
-                <div className="mono mt-1 text-[11px] text-muted">{statsLoading ? <SkeletonBlock className="h-3 w-28" /> : metric.detail}</div>
-              </div>
-              <span className="status-dot" data-state={metric.ok ? 'ok' : 'danger'} />
+      <section data-gsap-reveal className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {metrics.map((metric) => (
+          <Card key={metric.label} className="gap-0 p-4">
+            <div className="flex items-start justify-between gap-3">
+              <span className="icon-tile">{metric.icon}</span>
+              <span className="status-dot mt-1" data-state={metric.ok ? 'ok' : 'danger'} />
             </div>
-          </div>
+            <div className="mt-3 text-sm text-muted">{metric.label}</div>
+            <div className="mt-1.5 flex flex-wrap items-center gap-2">
+              <div className="tabular text-3xl font-medium leading-none tracking-[-0.02em]">
+                {statsLoading ? <SkeletonBlock className="h-8 w-24" /> : metric.value == null ? '—' : <CountUp value={metric.value} kind={metric.kind} />}
+              </div>
+              {!statsLoading && metric.trend != null ? <TrendChip value={metric.trend} hint={t('trendHalfHint')} /> : null}
+            </div>
+            <div className="mono mt-2 truncate text-xs text-muted">{statsLoading ? <SkeletonBlock className="h-3 w-28" /> : metric.detail}</div>
+          </Card>
         ))}
       </section>
 
@@ -551,5 +567,16 @@ function RankList({
         </div>
       ))}
     </div>
+  )
+}
+
+function TrendChip({ value, hint }: { value: number; hint: string }) {
+  const tone = Math.abs(value) < 0.005 ? 'flat' : value > 0 ? 'up' : 'down'
+  const Icon = tone === 'down' ? TrendDown : tone === 'up' ? TrendUp : ChartLineUp
+  return (
+    <span className="trend-chip" data-tone={tone} title={hint}>
+      <Icon size={12} weight="bold" />
+      {value > 0 ? '+' : ''}{(value * 100).toFixed(1)}%
+    </span>
   )
 }
