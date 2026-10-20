@@ -186,15 +186,15 @@ export function AccountCard({
       data-state={state}
       className="account-card overflow-hidden p-0"
     >
-      <Card.Header className="flex-row items-start justify-between gap-2.5 px-3 pt-2.5 pb-1.5">
+      <Card.Header className="flex-row items-start justify-between gap-2.5 px-4 pt-3.5 pb-2">
         <div className="flex min-w-0 items-center gap-2.5">
-          <div className="flex size-8 shrink-0 items-center justify-center rounded-xl border border-border bg-surface-secondary">
+          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-border bg-surface-tertiary">
             <ProviderMark provider={account.provider} size={20} />
           </div>
           <div className="min-w-0">
             <div className="flex min-w-0 items-center gap-2">
               <Card.Title className="truncate text-[13px] leading-5 tracking-[-0.01em]">{account.name || account.id}</Card.Title>
-              <span className="shrink-0 rounded-md bg-surface-secondary px-1.5 py-0.5 text-[10px] text-foreground/65">{provider}</span>
+              <span className="shrink-0 rounded-full border border-border px-1.5 py-px text-[10px] text-muted">{provider}</span>
             </div>
             <Card.Description className="mono truncate text-[10px] leading-4 text-foreground/60" title={`${account.id}${account.remote_uid ? ` · UID ${account.remote_uid}` : ''}`}>
               {account.remote_uid ? `UID ${account.remote_uid}` : account.id}
@@ -245,7 +245,7 @@ export function AccountCard({
         </div>
       </Card.Header>
 
-      <Card.Content className="gap-1.5 px-3 pb-2">
+      <Card.Content className="gap-1.5 px-4 pb-3">
         <RuntimeMeter state={state} stateCopy={stateCopy} t={t} />
 
         {account.quota ? (
@@ -358,7 +358,7 @@ export function AccountCard({
       ) : null}
 
       {onCheckin ? (
-        <div className="flex items-start justify-between gap-3 border-t border-separator px-3 py-1.5 text-[11px] text-muted">
+        <div className="flex items-start justify-between gap-3 border-t border-separator px-4 py-2 text-[11px] text-muted">
           <Tooltip>
             <Tooltip.Trigger>
               <span className="flex cursor-help items-center gap-2">
@@ -381,7 +381,7 @@ export function AccountCard({
         </div>
       ) : null}
 
-      <Card.Footer className="flex flex-wrap items-center gap-1.5 border-t border-separator px-3 py-2">
+      <Card.Footer className="flex flex-wrap items-center gap-1.5 border-t border-separator bg-surface-secondary px-4 py-2">
         {onRefresh ? (
           <Tooltip>
             <Tooltip.Trigger>
