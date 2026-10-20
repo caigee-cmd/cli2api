@@ -1,3 +1,4 @@
+import { toast } from '@/lib/toast'
 import { HoldToConfirm } from '@/components/motion/HoldToConfirm'
 import { copyText } from '@/lib/clipboard'
 import { useEffect, useState } from 'react'
@@ -161,6 +162,7 @@ export function KeysPage() {
     try {
       await deleteAPIKey(target.id)
       setKeys((current) => current.filter((item) => item.id !== target.id))
+      toast({ type: 'success', title: t('toastKeyDeleted') })
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {

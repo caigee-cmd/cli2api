@@ -1,3 +1,4 @@
+import { toast } from '@/lib/toast'
 import { useTabPanelSlide } from '@/hooks/useTabPanelSlide'
 import { useSkeletonSwap } from '@/hooks/useSkeletonSwap'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -461,12 +462,15 @@ export function LogsPage() {
 
   async function onClear() {
     setBusy(true)
+    toast({ id: 'logs-clear', type: 'loading', title: t('toastClearingLogs') })
     try {
       await clearRequestLogs()
       setClearOpen(false)
       await loadRequests(false)
+      toast({ id: 'logs-clear', type: 'success', title: t('toastLogsCleared') })
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
+      toast({ id: 'logs-clear', type: 'error', title: t('toastFailed'), description: err instanceof Error ? err.message : String(err) })
     } finally {
       setBusy(false)
     }
