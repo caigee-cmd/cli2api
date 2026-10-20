@@ -1,3 +1,4 @@
+import { useSkeletonSwap } from '@/hooks/useSkeletonSwap'
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import gsap from 'gsap'
 import { Link } from 'react-router-dom'
@@ -79,6 +80,8 @@ export function OverviewPage() {
   const [statsLoading, setStatsLoading] = useState(true)
   const [accounts, setAccounts] = useState<NonNullable<Overview['accounts']>>([])
   const [accountsLoading, setAccountsLoading] = useState(true)
+  useSkeletonSwap('stats', statsLoading)
+  useSkeletonSwap('accounts', accountsLoading)
   const [modelCount, setModelCount] = useState(0)
   const [resources, setResources] = useState<SystemResources | null>(null)
 
@@ -203,7 +206,7 @@ export function OverviewPage() {
       </section>
 
       <section className="grid gap-5">
-        <Card data-gsap-reveal className="overflow-hidden p-0">
+        <Card data-gsap-reveal data-skeleton-swap="stats" className="overflow-hidden p-0">
           <div className="flex items-center justify-between gap-3 border-b border-separator px-5 py-4">
             <div>
               <h3 className="font-semibold tracking-[-0.015em]">{t('statsTraffic')}</h3>
@@ -275,7 +278,7 @@ export function OverviewPage() {
               </div>
             ))}
           </div>
-          <div className="divide-y divide-separator">
+          <div data-skeleton-swap="accounts" className="divide-y divide-separator">
             {accountsLoading ? (
               <RankListSkeleton />
             ) : accounts.length === 0 ? (
@@ -336,7 +339,7 @@ export function OverviewPage() {
       </section>
 
       <section className="grid gap-5 xl:grid-cols-2 2xl:grid-cols-3">
-        <Card data-gsap-reveal className="overflow-hidden p-0">
+        <Card data-gsap-reveal data-skeleton-swap="stats" className="overflow-hidden p-0">
           <div className="flex items-center justify-between gap-3 border-b border-separator px-5 py-4">
             <div>
               <h3 className="font-semibold tracking-[-0.015em]">{t('statsTopProviders')}</h3>
@@ -359,7 +362,7 @@ export function OverviewPage() {
             />
           )}
         </Card>
-        <Card data-gsap-reveal className="overflow-hidden p-0">
+        <Card data-gsap-reveal data-skeleton-swap="stats" className="overflow-hidden p-0">
           <div className="flex items-center justify-between gap-3 border-b border-separator px-5 py-4">
             <div>
               <h3 className="font-semibold tracking-[-0.015em]">{t('statsTopModels')}</h3>
@@ -382,7 +385,7 @@ export function OverviewPage() {
           )}
         </Card>
 
-        <Card data-gsap-reveal className="overflow-hidden p-0">
+        <Card data-gsap-reveal data-skeleton-swap="stats" className="overflow-hidden p-0">
           <div className="flex items-center justify-between gap-3 border-b border-separator px-5 py-4">
             <div>
               <h3 className="font-semibold tracking-[-0.015em]">{traffic.errors.length ? t('statsErrorMix') : t('statsTopAccounts')}</h3>

@@ -1,3 +1,4 @@
+import { useSkeletonSwap } from '@/hooks/useSkeletonSwap'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { getLocalTimeZone, type DateValue } from '@internationalized/date'
 import {
@@ -216,6 +217,8 @@ export function LogsPage() {
   const [selected, setSelected] = useState<RequestLog | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
   const [detailLoading, setDetailLoading] = useState(false)
+  useSkeletonSwap('logs', loading)
+  useSkeletonSwap('detail', detailLoading)
   const [detailError, setDetailError] = useState('')
   const detailRequestRef = useRef(0)
   const [clearOpen, setClearOpen] = useState(false)
@@ -699,7 +702,7 @@ export function LogsPage() {
             </div>
           </div>
 
-          <Card data-gsap-reveal className="overflow-hidden p-0" aria-busy={loading}>
+          <Card data-gsap-reveal data-skeleton-swap="logs" className="overflow-hidden p-0" aria-busy={loading}>
             {loading ? (
               <LogsRequestListSkeleton />
             ) : requests.length === 0 ? (
@@ -832,7 +835,7 @@ export function LogsPage() {
             </div>
           </div>
 
-          <Card data-gsap-reveal className="overflow-hidden p-0" aria-busy={loading}>
+          <Card data-gsap-reveal data-skeleton-swap="logs" className="overflow-hidden p-0" aria-busy={loading}>
             {loading ? (
               <LogsRuntimeListSkeleton />
             ) : runtime.length === 0 ? (
@@ -953,7 +956,7 @@ export function LogsPage() {
                   <X size={16} />
                 </Modal.CloseTrigger>
               </Modal.Header>
-              <Modal.Body className="space-y-4 px-5 pb-5">
+              <Modal.Body data-skeleton-swap="detail" className="space-y-4 px-5 pb-5">
                 {detailLoading ? (
                   <RequestDetailSkeleton />
                 ) : detailError ? (
