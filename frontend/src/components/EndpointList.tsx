@@ -1,7 +1,8 @@
+import { CopyIcon } from '@/components/motion/CopyIcon'
 import { copyText } from '@/lib/clipboard'
 import { useMemo, useState } from 'react'
 import { Button, Card, Chip } from '@heroui/react'
-import { ArrowSquareOut, BracketsCurly, Check, Copy, Heartbeat, ListBullets, PaperPlaneTilt } from '@phosphor-icons/react'
+import { ArrowSquareOut, BracketsCurly, Heartbeat, ListBullets, PaperPlaneTilt } from '@phosphor-icons/react'
 import type { Overview } from '@/api/types'
 import { useI18n } from '@/hooks/useI18n'
 import { absUrl } from '@/lib/url'
@@ -52,7 +53,7 @@ export function EndpointList({ access }: EndpointListProps) {
               <span className="text-[10px] font-medium text-muted">{item.method === 'BASE' ? t('endpointBaseLabel') : t('endpointAuthLabel')}</span>
               <div className="flex gap-1">
                 <Button isIconOnly size="sm" variant="ghost" aria-label={t('copy')} onPress={() => { void copyText(item.url); setCopiedEndpoint(item.name); window.setTimeout(() => setCopiedEndpoint(''), 1100) }}>
-                  {copiedEndpoint === item.name ? <Check size={14} className="text-success" /> : <Copy size={14} />}
+                  <CopyIcon copied={copiedEndpoint === item.name} />
                 </Button>
                 <Button isIconOnly size="sm" variant="ghost" aria-label={t('open')} onPress={() => window.open(item.url, '_blank', 'noopener,noreferrer')}>
                   <ArrowSquareOut size={14} />

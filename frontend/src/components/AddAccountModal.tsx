@@ -1,7 +1,8 @@
+import { CopyIcon } from '@/components/motion/CopyIcon'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import gsap from 'gsap'
 import { Button, Input, Modal, NumberField, Skeleton, TextArea } from '@heroui/react'
-import { ArrowSquareOut, CaretLeft, CaretRight, Check, CheckCircle, Copy, FileCode, Key, ShieldCheck, X } from '@phosphor-icons/react'
+import { ArrowSquareOut, CaretLeft, CaretRight, CheckCircle, FileCode, Key, ShieldCheck, X } from '@phosphor-icons/react'
 import { copyText } from '@/lib/clipboard'
 import { BrandMark } from '@/components/BrandMark'
 import { ProviderMark } from '@/components/ProviderMark'
@@ -734,7 +735,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                                   })
                                 }}
                               >
-                                {authCopied ? <Check size={14} className="text-success" /> : <Copy size={14} />}
+                                <CopyIcon copied={authCopied} />
                                 {authCopied ? t('copied') : t('copy')}
                               </Button>
                             </div>

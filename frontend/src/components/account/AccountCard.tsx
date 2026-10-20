@@ -1,10 +1,10 @@
+import { CopyIcon } from '@/components/motion/CopyIcon'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Button, Card, Chip, Dropdown, Input, Label, TextArea, TextField, Tooltip } from '@heroui/react'
 import {
   ArrowClockwise,
   ArrowSquareOut,
   CalendarCheck,
-  Check,
   Copy,
   Cube,
   DotsThreeVertical,
@@ -345,7 +345,7 @@ export function AccountCard({
                         })
                       }}
                     >
-                      {authCopied ? <Check size={14} className="text-success" /> : <Copy size={14} />}
+                      <CopyIcon copied={authCopied} />
                       {authCopied ? t('copied') : t('copy')}
                     </Button>
                   </div>
