@@ -1,0 +1,1 @@
+- Qoder 签到：上游未返回可领取活动时，不再只显示"签到活动未开放"，日志与账号卡片签到提示会带上活动数与 `actionType:claimStatus` 摘要；token 续期响应缺少 securityOauthToken / refreshToken 时保留原值，不再被清空。（#323）
