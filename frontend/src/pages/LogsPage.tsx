@@ -500,7 +500,7 @@ export function LogsPage() {
       {error ? <PageAlert title={t('failedLogs', { msg: error })} /> : null}
 
       <Tabs selectedKey={tab} onSelectionChange={(key) => setTab(String(key) as PageTab)}>
-        <Tabs.ListContainer className="max-w-md">
+        <Tabs.ListContainer className="w-fit">
           <Tabs.List>
             <Tab id="requests" className="gap-1.5">
               <Tabs.Indicator />
@@ -514,7 +514,7 @@ export function LogsPage() {
         </Tabs.ListContainer>
 
         <Tabs.Panel id="requests" data-tab-panel="requests" className="space-y-4 pt-5">
-          <div className="flex flex-col gap-3">
+          <div className="data-toolbar flex flex-col gap-2">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <FilterToggle
                 value={requestFilter}
@@ -803,7 +803,7 @@ export function LogsPage() {
         </Tabs.Panel>
 
         <Tabs.Panel id="runtime" data-tab-panel="runtime" className="space-y-4 pt-5">
-          <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="data-toolbar flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap items-center gap-2">
               <SearchBar
                 className="sm:w-72"

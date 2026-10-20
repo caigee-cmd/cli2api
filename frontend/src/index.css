@@ -574,3 +574,40 @@ body {
     box-shadow: 0 0 0 1px var(--border), var(--field-shadow);
   }
 }
+
+/* Tables (Studio data table): flat header on a muted strip, no column
+   ticks, hairline row dividers, no inner rounded card. */
+@layer components {
+  .table-root--primary {
+    padding: 0;
+    border-radius: 0;
+    background: transparent;
+  }
+  .table__header {
+    background: var(--surface-secondary);
+  }
+  .table__column {
+    padding-block: 0.5rem;
+    font-weight: 500;
+  }
+  .table__column::after {
+    content: none;
+  }
+  .table__body tr td {
+    border-radius: 0 !important;
+    border-bottom: 1px solid var(--separator);
+    background: var(--surface);
+  }
+  .table__body tr:last-child td {
+    border-bottom: 0;
+  }
+}
+
+/* Data toolbar above a table (logs): one quiet strip holding search,
+   segmented filters and selects, like Studio's table toolbar. */
+.data-toolbar {
+  padding: 0.5rem;
+  border-radius: calc(var(--radius) + 2px);
+  border: 1px solid var(--border);
+  background: var(--surface-secondary);
+}
