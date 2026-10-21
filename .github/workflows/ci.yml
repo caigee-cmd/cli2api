@@ -5,8 +5,16 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   go:
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -27,6 +35,7 @@ jobs:
         run: ./scripts/build-updater-assets.sh "$RUNNER_TEMP/updater-assets"
 
   windows-host:
+    timeout-minutes: 30
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -61,6 +70,7 @@ jobs:
           if ($Failed) { exit 1 }
 
   worker:
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -71,6 +81,7 @@ jobs:
         working-directory: worker
 
   frontend:
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -83,10 +94,14 @@ jobs:
         working-directory: frontend
       - run: npm run lint
         working-directory: frontend
-      - run: npm run build
+      - name: Build and sync embedded console assets
+        run: npm run sync
         working-directory: frontend
+      - name: Check internal/webui/static is up to date
+        run: git diff --exit-code --stat internal/webui/static && test -z "$(git status --porcelain internal/webui/static)"
 
   container:
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -108,6 +123,7 @@ jobs:
           cache-to: type=gha,mode=max
 
   secrets:
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

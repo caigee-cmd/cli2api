@@ -221,3 +221,40 @@ func TestTranslateAnthropicToolReferenceDegradesToText(t *testing.T) {
 		t.Fatalf("unnamed tool reference must still render text: %#v", chat.Messages[0].Content)
 	}
 }
+
+func TestTranslateAnthropicKeepsInBandSystemMessages(t *testing.T) {
+	chat, err := TranslateAnthropicMessages(AnthropicMessagesRequest{
+		Model:  "glm-5.2",
+		System: json.RawMessage(`"top level"`),
+		Messages: []AnthropicMessage{
+			{Role: "user", Content: json.RawMessage(`"first"`)},
+			{Role: "SYSTEM", Content: json.RawMessage(`[{"type":"text","text":"reminder"}]`)},
+			{Role: "assistant", Content: json.RawMessage(`"reply"`)},
+			{Role: "system", Content: json.RawMessage(`""`)},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(MessageRoles(chat.Messages), ","); got != "system,user,system,assistant" {
+		t.Fatalf("roles=%s", got)
+	}
+	if ContentToString(chat.Messages[2].Content) != "reminder" {
+		t.Fatalf("in-band system content=%#v", chat.Messages[2].Content)
+	}
+
+	toolBlock := AnthropicMessagesRequest{
+		Model:    "glm-5.2",
+		Messages: []AnthropicMessage{{Role: "system", Content: json.RawMessage(`[{"type":"tool_result","tool_use_id":"toolu_1","content":"x"}]`)}},
+	}
+	if _, err := TranslateAnthropicMessages(toolBlock); err == nil {
+		t.Fatal("system message carrying a tool block must be rejected")
+	}
+	unknownRole := AnthropicMessagesRequest{
+		Model:    "glm-5.2",
+		Messages: []AnthropicMessage{{Role: "employee", Content: json.RawMessage(`"x"`)}},
+	}
+	if _, err := TranslateAnthropicMessages(unknownRole); err == nil {
+		t.Fatal("unknown role must be rejected")
+	}
+}

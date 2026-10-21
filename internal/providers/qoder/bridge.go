@@ -332,9 +332,19 @@ func (b *Bridge) applyJobToken(jt map[string]any, userType string) {
 		SecurityOauthToken: securityOauth,
 		RefreshToken:       refreshToken,
 	}
-	sess := qauth.NewSession(identity, b.machineID, b.machineToken, b.machineType)
-
 	b.mu.Lock()
+	// A refresh response that omits a token must not erase the one we hold:
+	// an empty securityOauthToken would make check-in/quota fail with "token
+	// unavailable", and an empty refreshToken would break the next renewal.
+	if securityOauth == "" {
+		securityOauth = b.securityOath
+		identity.SecurityOauthToken = securityOauth
+	}
+	if refreshToken == "" {
+		refreshToken = b.refreshToken
+		identity.RefreshToken = refreshToken
+	}
+	sess := qauth.NewSession(identity, b.machineID, b.machineToken, b.machineType)
 	b.sess = sess
 	b.identity = &identity
 	b.refreshToken = refreshToken
