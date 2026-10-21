@@ -337,6 +337,9 @@ func BuildPlainChatBody(req translate.ChatRequest, now time.Time) map[string]any
 		if message.ToolCallID != "" {
 			item["tool_call_id"] = message.ToolCallID
 		}
+		if message.ReasoningContent != "" {
+			item["reasoning_content"] = message.ReasoningContent
+		}
 		if len(message.ToolCalls) > 0 {
 			item["tool_calls"] = json.RawMessage(message.ToolCalls)
 		}
