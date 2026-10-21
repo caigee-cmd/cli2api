@@ -482,7 +482,7 @@ export function LogsPage() {
     <div className="space-y-6">
       <section className="flex flex-wrap items-end justify-between gap-4 border-b border-separator pb-4">
         <div>
-          <h2 data-gsap-reveal className="text-2xl font-semibold tracking-[-0.035em]">{t('navLogs')}</h2>
+          <h2 data-gsap-reveal className="text-xl font-semibold tracking-[-0.02em]">{t('navLogs')}</h2>
           <p className="mt-1 max-w-2xl text-sm leading-6 text-muted">{t('logsLead')}</p>
         </div>
         <div className="flex items-center gap-2">
@@ -500,7 +500,7 @@ export function LogsPage() {
       {error ? <PageAlert title={t('failedLogs', { msg: error })} /> : null}
 
       <Tabs selectedKey={tab} onSelectionChange={(key) => setTab(String(key) as PageTab)}>
-        <Tabs.ListContainer className="max-w-md">
+        <Tabs.ListContainer className="w-fit">
           <Tabs.List>
             <Tab id="requests" className="gap-1.5">
               <Tabs.Indicator />
@@ -514,7 +514,7 @@ export function LogsPage() {
         </Tabs.ListContainer>
 
         <Tabs.Panel id="requests" data-tab-panel="requests" className="space-y-4 pt-5">
-          <div className="flex flex-col gap-3">
+          <div className="data-toolbar flex flex-col gap-2">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <FilterToggle
                 value={requestFilter}
@@ -803,7 +803,7 @@ export function LogsPage() {
         </Tabs.Panel>
 
         <Tabs.Panel id="runtime" data-tab-panel="runtime" className="space-y-4 pt-5">
-          <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="data-toolbar flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap items-center gap-2">
               <SearchBar
                 className="sm:w-72"

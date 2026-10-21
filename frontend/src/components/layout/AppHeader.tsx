@@ -24,7 +24,7 @@ export function AppHeader({
 
   return (
     <header className="relative z-20 shrink-0 border-b border-separator bg-background">
-      <div className="mx-auto flex w-full max-w-[1480px] items-center gap-4 px-4 py-3 sm:px-6 lg:px-8">
+      <div className="mx-auto flex w-full max-w-[1480px] items-center gap-4 px-4 py-2 sm:px-6 lg:px-8">
         <Button isIconOnly size="sm" variant="ghost" className="lg:hidden" onPress={onMenu} aria-label={t('menu')}>
           <List size={17} />
         </Button>
@@ -32,7 +32,7 @@ export function AppHeader({
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-baseline gap-3">
             <span className="status-dot translate-y-[-1px]" data-state={ready ? 'ok' : 'danger'} />
-            <h1 className="truncate text-2xl font-semibold tracking-[-0.035em]">{title}</h1>
+            <h1 className="truncate text-lg font-semibold tracking-[-0.02em]">{title}</h1>
             <p className="hidden truncate text-sm text-muted xl:block">{desc}</p>
           </div>
         </div>

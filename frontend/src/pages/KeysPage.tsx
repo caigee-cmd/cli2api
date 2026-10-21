@@ -176,7 +176,7 @@ export function KeysPage() {
     <div className="space-y-6">
       <section className="flex flex-wrap items-end justify-between gap-4 border-b border-separator pb-4">
         <div>
-          <h2 data-gsap-reveal className="text-2xl font-semibold tracking-[-0.035em]">{t('navKeys')}</h2>
+          <h2 data-gsap-reveal className="text-xl font-semibold tracking-[-0.02em]">{t('navKeys')}</h2>
           <p className="mt-1 max-w-2xl text-sm leading-6 text-muted">{t('keysLead')}</p>
         </div>
         <Button size="sm" isDisabled={!optionsReady} onPress={() => setCreateOpen(true)}>
@@ -234,7 +234,7 @@ export function KeysPage() {
                   {key.last_used_at ? t('keysLastUsed', { time: formatTime(key.last_used_at) }) : t('keysNeverUsed')}
                 </p>
               </Card.Content>
-              <Card.Footer className="gap-1.5 border-t border-separator px-3 py-2">
+              <Card.Footer className="gap-1.5 border-t border-separator bg-surface-secondary px-3 py-2">
                 <Button size="sm" variant="ghost" isDisabled={!optionsReady} onPress={() => setEditKey(key)}>{t('edit')}</Button>
                 <HoldToConfirm
                   label={t('holdToDelete')}

@@ -67,11 +67,11 @@ export function FilterToggle({
   }, [value, options])
 
   return (
-    <div ref={wrapRef} className={`relative inline-flex ${className ?? ''}`}>
+    <div ref={wrapRef} className={`filter-toggle relative inline-flex ${className ?? ''}`}>
       <span
         ref={pillRef}
         aria-hidden
-        className="pointer-events-none absolute left-0 top-0 rounded-3xl bg-[var(--accent-soft)] opacity-0"
+        className="filter-toggle__pill pointer-events-none absolute left-0 top-0 opacity-0"
       />
       <ToggleButtonGroup
         aria-label={ariaLabel}
