@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -204,7 +205,9 @@ func (b *Bridge) Checkin(ctx context.Context) (providers.CheckinResult, error) {
 	items := campaignsFrom(listRaw)
 	benefits := creditCampaigns(items)
 	if len(benefits) == 0 {
-		return providers.CheckinResult{Status: "skipped", Message: "签到活动未开放"}, nil
+		summary := campaignSummary(items)
+		log.Printf("[qoder-checkin] region=%s no credit campaigns: count=%d summary=%s", regionName(b.Region), len(items), summary)
+		return providers.CheckinResult{Status: "skipped", Message: skippedMessage("上游未返回可领取积分的签到活动", len(items), summary)}, nil
 	}
 	claimable := claimableCampaigns(benefits)
 	if len(claimable) == 0 {
@@ -213,7 +216,9 @@ func (b *Bridge) Checkin(ctx context.Context) (providers.CheckinResult, error) {
 				return providers.CheckinResult{Status: "already", Message: "今日已签到"}, nil
 			}
 		}
-		return providers.CheckinResult{Status: "skipped", Message: "签到活动未开放"}, nil
+		summary := campaignSummary(items)
+		log.Printf("[qoder-checkin] region=%s credit campaigns not claimable: count=%d summary=%s", regionName(b.Region), len(items), summary)
+		return providers.CheckinResult{Status: "skipped", Message: skippedMessage("签到活动当前不可领取", len(items), summary)}, nil
 	}
 
 	// 2) Claim each claimable campaign. A claim that returns a non-CLAIMED
@@ -509,4 +514,42 @@ func isPrintableASCII(s string) bool {
 func shortHash(s string) string {
 	sum := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(sum[:])[:8]
+}
+
+// campaignSummary renders "actionType:claimStatus" pairs (no ids or tokens) so
+// a skipped check-in carries the upstream state that caused it instead of a
+// generic "not open" message. Capped to keep the persisted message short.
+func campaignSummary(items []campaign) string {
+	if len(items) == 0 {
+		return "none"
+	}
+	const maxItems = 8
+	parts := make([]string, 0, maxItems+1)
+	for i, c := range items {
+		if i == maxItems {
+			parts = append(parts, fmt.Sprintf("+%d", len(items)-maxItems))
+			break
+		}
+		action := strings.TrimSpace(c.ActionType)
+		if action == "" {
+			action = "unknown"
+		}
+		status := strings.TrimSpace(c.ClaimStatus)
+		if status == "" {
+			status = "none"
+		}
+		parts = append(parts, action+":"+status)
+	}
+	return strings.Join(parts, ",")
+}
+
+func skippedMessage(reason string, count int, summary string) string {
+	return fmt.Sprintf("%s（活动数 %d：%s）", reason, count, summary)
+}
+
+func regionName(r *qauth.RegionConfig) string {
+	if r == nil {
+		return ""
+	}
+	return r.Name
 }
