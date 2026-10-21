@@ -88,9 +88,6 @@ func applyChatReasoning(obj map[string]any, req translate.ChatRequest, storedLev
 			return ""
 		}
 	}
-	if level == "max" {
-		level = "xhigh"
-	}
 	if usesTopLevelReasoningFields(req.Model) {
 		delete(obj, "reasoning")
 		obj["reasoning_effort"] = level

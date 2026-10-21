@@ -61,3 +61,25 @@ func TestApplyChatReasoningDeepseekUsesCatalogDefault(t *testing.T) {
 		t.Fatalf("default effort=%v", obj["reasoning_effort"])
 	}
 }
+
+// Regression for #321: a catalog that advertises "max" receives "max"
+// upstream instead of a silent downgrade to "xhigh".
+func TestApplyChatReasoningKeepsAdvertisedMax(t *testing.T) {
+	caps := providers.ModelCapabilities{
+		ReasoningOptions: []string{"low", "high", "max"},
+		ReasoningDefault: "max",
+	}
+	obj := map[string]any{}
+	if got := applyChatReasoning(obj, translate.ChatRequest{Model: "glm-5.3", ReasoningEffort: json.RawMessage(`"max"`)}, "", caps); got != "max" {
+		t.Fatalf("resolved level=%q", got)
+	}
+	reasoning, _ := obj["reasoning"].(map[string]any)
+	if reasoning["effort"] != "max" {
+		t.Fatalf("reasoning=%v", obj["reasoning"])
+	}
+	obj = map[string]any{}
+	applyChatReasoning(obj, translate.ChatRequest{Model: "deepseek-v4-pro", ReasoningEffort: json.RawMessage(`"max"`)}, "", caps)
+	if obj["reasoning_effort"] != "max" {
+		t.Fatalf("top-level reasoning_effort=%v", obj["reasoning_effort"])
+	}
+}
