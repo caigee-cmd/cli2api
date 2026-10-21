@@ -106,12 +106,23 @@ func TranslateAnthropicMessages(request AnthropicMessagesRequest) (ChatRequest, 
 	}
 	for messageIndex, message := range request.Messages {
 		role := strings.ToLower(strings.TrimSpace(message.Role))
-		if role != "user" && role != "assistant" {
-			return ChatRequest{}, fmt.Errorf("messages[%d].role must be user or assistant", messageIndex)
+		if role != "user" && role != "assistant" && role != "system" {
+			return ChatRequest{}, fmt.Errorf("messages[%d].role must be user, assistant or system", messageIndex)
 		}
 		text, toolCalls, toolResults, err := anthropicMessageParts(message.Content)
 		if err != nil {
 			return ChatRequest{}, fmt.Errorf("messages[%d]: %w", messageIndex, err)
+		}
+		// Claude Code 2.1.293+ interleaves system turns in the message list
+		// instead of keeping them in the top-level system field.
+		if role == "system" {
+			if len(toolCalls) > 0 || len(toolResults) > 0 {
+				return ChatRequest{}, fmt.Errorf("messages[%d]: tool_use and tool_result are only valid in user or assistant messages", messageIndex)
+			}
+			if contentPresent(text) {
+				chat.Messages = append(chat.Messages, ChatMessage{Role: role, Content: text})
+			}
+			continue
 		}
 		if role == "assistant" {
 			if len(toolResults) > 0 {
