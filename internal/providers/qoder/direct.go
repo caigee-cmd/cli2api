@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
@@ -749,7 +750,11 @@ func walkUpstream(r io.Reader, fn func(map[string]any) error) error {
 			continue
 		}
 		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-		if data == "" || data == "[DONE]" {
+		if data == "[DONE]" {
+			// Explicit terminator: finish without waiting for transport EOF.
+			return nil
+		}
+		if data == "" {
 			continue
 		}
 		var outer map[string]any
@@ -777,8 +782,11 @@ func walkUpstream(r io.Reader, fn func(map[string]any) error) error {
 
 func rewriteUpstreamSSE(resp *http.Response, model string) *http.Response {
 	pr, pw := io.Pipe()
+	// Both the converter goroutine and the caller may close upstream; Once
+	// keeps non-idempotent wrappers (cancelOnCloseBody) race-free.
+	closeUpstream := sync.OnceValue(resp.Body.Close)
 	go func() {
-		defer resp.Body.Close()
+		defer closeUpstream()
 		err := writeOpenAIChunks(pw, resp.Body, model)
 		_ = pw.CloseWithError(err)
 	}()
@@ -788,9 +796,24 @@ func rewriteUpstreamSSE(resp *http.Response, model string) *http.Response {
 	return &http.Response{
 		StatusCode: http.StatusOK,
 		Header:     headers,
-		Body:       io.NopCloser(pr),
+		Body:       &convertedBody{pr: pr, closeUpstream: closeUpstream},
 		Request:    resp.Request,
 	}
+}
+
+// convertedBody closes the pipe reader so a blocked converter goroutine
+// unblocks, and closes the upstream body so the connection is released even
+// when the consumer stops reading early.
+type convertedBody struct {
+	pr            *io.PipeReader
+	closeUpstream func() error
+}
+
+func (b *convertedBody) Read(p []byte) (int, error) { return b.pr.Read(p) }
+
+func (b *convertedBody) Close() error {
+	_ = b.pr.CloseWithError(io.ErrClosedPipe)
+	return b.closeUpstream()
 }
 
 func writeOpenAIChunks(w io.Writer, src io.Reader, model string) error {
