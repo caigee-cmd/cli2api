@@ -174,7 +174,24 @@ func TestBridgeCheckinNoClaimable(t *testing.T) {
 			name:       "empty campaigns",
 			resp:       map[string]any{"campaigns": []map[string]any{}},
 			wantStatus: "skipped",
-			wantMsg:    "签到活动未开放",
+			wantMsg:    "上游未返回可领取积分的签到活动（活动数 0：none）",
+		},
+		{
+			name: "only non-credit campaigns",
+			resp: map[string]any{"campaigns": []map[string]any{
+				{"campaignId": "v1", "actionType": "VIEW", "claimStatus": "CLAIMABLE"},
+			}},
+			wantStatus: "skipped",
+			wantMsg:    "上游未返回可领取积分的签到活动（活动数 1：VIEW:CLAIMABLE）",
+		},
+		{
+			name: "credit campaign not claimable",
+			resp: map[string]any{"campaigns": []map[string]any{
+				{"campaignId": "c1", "actionType": "CLAIM_BENEFIT", "claimStatus": "LOCKED"},
+				{"campaignId": "c2", "actionType": "CLAIM_BENEFIT"},
+			}},
+			wantStatus: "skipped",
+			wantMsg:    "签到活动当前不可领取（活动数 2：CLAIM_BENEFIT:LOCKED,CLAIM_BENEFIT:none）",
 		},
 		{
 			name: "all claimed",
