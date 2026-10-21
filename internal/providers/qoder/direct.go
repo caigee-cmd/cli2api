@@ -819,7 +819,18 @@ func (b *convertedBody) Close() error {
 	return b.closeUpstream()
 }
 
+// newCompletionID returns one OpenAI completion id per request. Clients that
+// merge assistant chunks by id must not see two requests share one (#292).
+func newCompletionID() string {
+	id, err := randomUUID()
+	if err != nil {
+		return fmt.Sprintf("chatcmpl-qoder-%d", time.Now().UnixNano())
+	}
+	return "chatcmpl-" + strings.ReplaceAll(id, "-", "")
+}
+
 func writeOpenAIChunks(w io.Writer, src io.Reader, model string) error {
+	completionID := newCompletionID()
 	var sawFinish, sawTools, sawPayload, sawError bool
 	var lastUsage any
 	var lastChunkEmittedHadUsage bool
@@ -841,7 +852,7 @@ func writeOpenAIChunks(w io.Writer, src io.Reader, model string) error {
 			return err
 		}
 		chunk := map[string]any{
-			"id": "chatcmpl-qoder", "object": "chat.completion.chunk", "model": model,
+			"id": completionID, "object": "chat.completion.chunk", "model": model,
 			"choices": []any{map[string]any{"index": 0, "delta": deltaOf(frame), "finish_reason": emptyOrNil(frame.finish)}},
 		}
 		if len(frame.usage) > 0 {
@@ -881,7 +892,7 @@ func writeOpenAIChunks(w io.Writer, src io.Reader, model string) error {
 				finish = "tool_calls"
 			}
 			chunk := map[string]any{
-				"id": "chatcmpl-qoder", "object": "chat.completion.chunk", "model": model,
+				"id": completionID, "object": "chat.completion.chunk", "model": model,
 				"choices": []any{map[string]any{"index": 0, "delta": map[string]any{}, "finish_reason": finish}},
 			}
 			if lastUsage != nil {
@@ -906,7 +917,7 @@ func writeOpenAIChunks(w io.Writer, src io.Reader, model string) error {
 		}
 	} else if !lastChunkEmittedHadUsage && lastUsage != nil {
 		chunk := map[string]any{
-			"id": "chatcmpl-qoder", "object": "chat.completion.chunk", "model": model,
+			"id": completionID, "object": "chat.completion.chunk", "model": model,
 			"choices": []any{},
 			"usage":   lastUsage,
 		}
