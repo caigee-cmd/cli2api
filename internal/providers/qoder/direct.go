@@ -268,14 +268,20 @@ func ensureMeaningfulUpstream(resp *http.Response, timeout time.Duration) (*http
 		timeout = defaultFirstByteTimeout
 	}
 
-	// Close the body when the deadline fires so a blocked ReadString unblocks.
+	// Close at most once: the timeout timer and the read-error path both need
+	// to finish the body, but cancelOnCloseBody.Close is not concurrency-safe.
 	// Success stops the timer before returning the live peeked body; if the
 	// closer already won the race, treat it as emptyUpstreamError rather than
 	// handing the caller a half-closed stream.
+	var closeOnce sync.Once
+	closeBody := func() {
+		closeOnce.Do(func() { _ = resp.Body.Close() })
+	}
+
 	var expired atomic.Bool
 	timer := time.AfterFunc(timeout, func() {
 		expired.Store(true)
-		_ = resp.Body.Close()
+		closeBody()
 	})
 	stopTimer := func() { _ = timer.Stop() }
 
@@ -288,7 +294,7 @@ func ensureMeaningfulUpstream(resp *http.Response, timeout time.Duration) (*http
 			if data, ok := strings.CutPrefix(strings.TrimSpace(line), "data:"); ok && meaningfulDataLine(strings.TrimSpace(data)) {
 				stopTimer()
 				if expired.Load() {
-					_ = resp.Body.Close()
+					closeBody()
 					return nil, emptyUpstreamError()
 				}
 				resp.Body = peekedBody{Reader: io.MultiReader(&pending, br), Closer: resp.Body}
@@ -297,7 +303,7 @@ func ensureMeaningfulUpstream(resp *http.Response, timeout time.Duration) (*http
 		}
 		if readErr != nil {
 			stopTimer()
-			_ = resp.Body.Close()
+			closeBody()
 			if expired.Load() {
 				return nil, emptyUpstreamError()
 			}

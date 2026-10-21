@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -613,10 +614,15 @@ func ensureMeaningfulUpstream(resp *http.Response, timeout time.Duration) (*http
 		timeout = defaultMeaningfulUpstreamTimeout
 	}
 
+	var closeOnce sync.Once
+	closeBody := func() {
+		closeOnce.Do(func() { _ = resp.Body.Close() })
+	}
+
 	var expired atomic.Bool
 	timer := time.AfterFunc(timeout, func() {
 		expired.Store(true)
-		_ = resp.Body.Close()
+		closeBody()
 	})
 	stopTimer := func() { _ = timer.Stop() }
 
@@ -630,14 +636,14 @@ func ensureMeaningfulUpstream(resp *http.Response, timeout time.Duration) (*http
 				if frame, meaningful := meaningfulDataLine(strings.TrimSpace(data)); meaningful {
 					stopTimer()
 					if expired.Load() {
-						_ = resp.Body.Close()
+						closeBody()
 						return nil, emptyUpstreamError()
 					}
 					if frame.errorOnly() {
 						// Nothing has reached the client yet: return the
 						// classified error so the executor cools this account
 						// (quota, auth, model) and fails over.
-						resp.Body.Close()
+						closeBody()
 						return nil, frame.providerError()
 					}
 					resp.Body = peekedBody{Reader: io.MultiReader(&pending, br), Closer: resp.Body}
@@ -647,7 +653,7 @@ func ensureMeaningfulUpstream(resp *http.Response, timeout time.Duration) (*http
 		}
 		if readErr != nil {
 			stopTimer()
-			_ = resp.Body.Close()
+			closeBody()
 			if expired.Load() {
 				return nil, emptyUpstreamError()
 			}
