@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
@@ -29,8 +30,9 @@ type Direct struct {
 	bridgeOf func(ctx context.Context, accountID string) (*Bridge, error)
 	http     *http.Client
 	now      func() time.Time
-	// ttfb bounds how long ChatStream waits for the upstream response head.
-	// Zero falls back to defaultFirstByteTimeout inside doWithFirstByteTimeout.
+	// ttfb bounds how long ChatStream waits for the upstream response head
+	// and, after a 200, for the first meaningful SSE data line
+	// (ensureMeaningfulUpstream). Zero falls back to defaultFirstByteTimeout.
 	ttfb time.Duration
 }
 
@@ -205,7 +207,7 @@ func (d *Direct) ChatStream(ctx context.Context, accountID string, req translate
 		resp.Body.Close()
 		return nil, providers.ResolvedChat{}, upstreamStatusError(resp.StatusCode, raw)
 	}
-	guarded, err := ensureMeaningfulUpstream(resp)
+	guarded, err := ensureMeaningfulUpstream(resp, d.ttfb)
 	if err != nil {
 		// ensureMeaningfulUpstream closes the body on failure; no client bytes
 		// have been written yet, so the executor can still fail over.
@@ -251,7 +253,32 @@ func emptyUpstreamError() error {
 // completion. Peek before the first client byte so the failure can still be
 // classified and retried on another account. On success the buffered bytes
 // are replayed ahead of the remaining body, preserving real-time streaming.
-func ensureMeaningfulUpstream(resp *http.Response) (*http.Response, error) {
+//
+// timeout bounds how long to wait for a meaningful data line after the
+// response head arrives. Zero falls back to defaultFirstByteTimeout so the
+// bound matches QODER_STREAM_TTFB_MS / Direct.ttfb. A stuck heartbeat-only
+// upstream closes the body and returns emptyUpstreamError so the executor
+// can fail over instead of hanging forever (doWithFirstByteTimeout only
+// covers headers).
+func ensureMeaningfulUpstream(resp *http.Response, timeout time.Duration) (*http.Response, error) {
+	if resp == nil || resp.Body == nil {
+		return nil, emptyUpstreamError()
+	}
+	if timeout <= 0 {
+		timeout = defaultFirstByteTimeout
+	}
+
+	// Close the body when the deadline fires so a blocked ReadString unblocks.
+	// Success stops the timer before returning the live peeked body; if the
+	// closer already won the race, treat it as emptyUpstreamError rather than
+	// handing the caller a half-closed stream.
+	var expired atomic.Bool
+	timer := time.AfterFunc(timeout, func() {
+		expired.Store(true)
+		_ = resp.Body.Close()
+	})
+	stopTimer := func() { _ = timer.Stop() }
+
 	br := bufio.NewReader(resp.Body)
 	var pending bytes.Buffer
 	for {
@@ -259,12 +286,21 @@ func ensureMeaningfulUpstream(resp *http.Response) (*http.Response, error) {
 		if line != "" {
 			pending.WriteString(line)
 			if data, ok := strings.CutPrefix(strings.TrimSpace(line), "data:"); ok && meaningfulDataLine(strings.TrimSpace(data)) {
+				stopTimer()
+				if expired.Load() {
+					_ = resp.Body.Close()
+					return nil, emptyUpstreamError()
+				}
 				resp.Body = peekedBody{Reader: io.MultiReader(&pending, br), Closer: resp.Body}
 				return resp, nil
 			}
 		}
 		if readErr != nil {
-			resp.Body.Close()
+			stopTimer()
+			_ = resp.Body.Close()
+			if expired.Load() {
+				return nil, emptyUpstreamError()
+			}
 			if errors.Is(readErr, io.EOF) {
 				return nil, emptyUpstreamError()
 			}

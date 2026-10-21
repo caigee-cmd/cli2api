@@ -680,7 +680,7 @@ func (c *Client) ChatStream(ctx context.Context, accountID string, req translate
 		resp.Body.Close()
 		return nil, providers.ResolvedChat{}, classifiedError(resp.StatusCode, raw)
 	}
-	guarded, err := ensureMeaningfulUpstream(resp)
+	guarded, err := ensureMeaningfulUpstream(resp, defaultMeaningfulUpstreamTimeout)
 	if err != nil {
 		// ensureMeaningfulUpstream closes the body on failure; no client
 		// bytes have been written yet, so the executor can still fail over.

@@ -245,3 +245,133 @@ func TestDirectChatStreamSalvagesTruncatedStreamWithCachedUsage(t *testing.T) {
 		t.Fatalf("missing cached_tokens in terminal chunk: %s", text)
 	}
 }
+
+// Heartbeat-only upstream that never becomes meaningful must time out with
+// upstream_empty so the executor can fail over. Without the bound,
+// ensureMeaningfulUpstream would hang forever after a 200 (issue #344).
+func TestDirectChatStreamTimesOutHeartbeatOnlyUpstream(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		flusher, _ := w.(http.Flusher)
+		heartbeat := "data: {\"body\":{\"choices\":[{\"delta\":{},\"finish_reason\":null}]}}\n\n"
+		for {
+			select {
+			case <-r.Context().Done():
+				return
+			default:
+				_, _ = io.WriteString(w, heartbeat)
+				if flusher != nil {
+					flusher.Flush()
+				}
+				time.Sleep(20 * time.Millisecond)
+			}
+		}
+	}))
+	defer upstream.Close()
+	direct := newDirectFor(t, upstream)
+	direct.ttfb = 80 * time.Millisecond
+
+	started := time.Now()
+	resp, _, err := direct.ChatStream(context.Background(), "acc", translate.ChatRequest{Model: "auto"})
+	elapsed := time.Since(started)
+	if err == nil {
+		resp.Body.Close()
+		t.Fatal("expected timeout error for heartbeat-only upstream")
+	}
+	var providerErr *providers.Error
+	if !errors.As(err, &providerErr) || providerErr.Code != "upstream_empty" {
+		t.Fatalf("err = %#v", err)
+	}
+	if resp != nil {
+		t.Fatalf("resp = %v, want nil", resp)
+	}
+	// Must fail within the bound (plus small slack), not hang for minutes.
+	if elapsed > 2*time.Second {
+		t.Fatalf("took %s, want bound near ttfb", elapsed)
+	}
+}
+
+// A meaningful data line that arrives within the deadline must succeed, and
+// the peeked heartbeat + content bytes must still be replayed to the client.
+func TestDirectChatStreamPreservesBytesAfterHeartbeatThenContent(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		flusher, _ := w.(http.Flusher)
+		_, _ = io.WriteString(w, "data: {\"body\":{\"choices\":[{\"delta\":{},\"finish_reason\":null}]}}\n\n")
+		if flusher != nil {
+			flusher.Flush()
+		}
+		time.Sleep(30 * time.Millisecond)
+		_, _ = io.WriteString(w, "data: {\"body\":{\"choices\":[{\"delta\":{\"content\":\"OK\"},\"finish_reason\":\"stop\"}]}}\n\n")
+		if flusher != nil {
+			flusher.Flush()
+		}
+	}))
+	defer upstream.Close()
+	direct := newDirectFor(t, upstream)
+	direct.ttfb = 500 * time.Millisecond
+
+	resp, _, err := direct.ChatStream(context.Background(), "acc", translate.ChatRequest{Model: "auto"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	text := string(body)
+	if !strings.Contains(text, `"content":"OK"`) {
+		t.Fatalf("meaningful content lost: %s", text)
+	}
+	if !strings.Contains(text, `"finish_reason":"stop"`) {
+		t.Fatalf("finish_reason lost: %s", text)
+	}
+}
+
+func TestEnsureMeaningfulUpstreamTimesOutHeartbeatOnly(t *testing.T) {
+	pr, pw := io.Pipe()
+	go func() {
+		defer pw.Close()
+		heartbeat := "data: {\"body\":{\"choices\":[{\"delta\":{},\"finish_reason\":null}]}}\n\n"
+		for i := 0; i < 100; i++ {
+			if _, err := io.WriteString(pw, heartbeat); err != nil {
+				return
+			}
+			time.Sleep(15 * time.Millisecond)
+		}
+	}()
+	resp := &http.Response{StatusCode: http.StatusOK, Body: pr}
+	started := time.Now()
+	out, err := ensureMeaningfulUpstream(resp, 60*time.Millisecond)
+	elapsed := time.Since(started)
+	if err == nil {
+		out.Body.Close()
+		t.Fatal("expected timeout")
+	}
+	var providerErr *providers.Error
+	if !errors.As(err, &providerErr) || providerErr.Code != "upstream_empty" {
+		t.Fatalf("err = %#v", err)
+	}
+	if out != nil {
+		t.Fatalf("out = %v, want nil", out)
+	}
+	if elapsed > 2*time.Second {
+		t.Fatalf("took %s", elapsed)
+	}
+}
+
+func TestEnsureMeaningfulUpstreamPreservesBufferedBytes(t *testing.T) {
+	body := "data: {\"body\":{\"choices\":[{\"delta\":{},\"finish_reason\":null}]}}\n\n" +
+		"data: {\"body\":{\"choices\":[{\"delta\":{\"content\":\"hi\"},\"finish_reason\":\"stop\"}]}}\n\n" +
+		"data: {\"body\":{\"choices\":[{\"delta\":{\"content\":\" more\"}}]}}\n\n"
+	resp := &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body))}
+	out, err := ensureMeaningfulUpstream(resp, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer out.Body.Close()
+	got, _ := io.ReadAll(out.Body)
+	if string(got) != body {
+		t.Fatalf("peeked replay mismatch:\n got %q\nwant %q", got, body)
+	}
+}
