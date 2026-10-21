@@ -10,6 +10,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/providers"
 	"github.com/caigee-cmd/cli2api/internal/providers/qoder/qauth"
 )
@@ -158,6 +159,12 @@ func (c *Client) Bridge(ctx context.Context, accountID string) (*Bridge, error) 
 	}
 	format, payload, err := store.LoadCredentialPayload(ctx, accountID)
 	if err != nil {
+		// Legacy accounts carry only the CLI blob and have no
+		// credential-payload row; report them as PAT-less so callers fall
+		// back to the worker path instead of failing with "account not found".
+		if errors.Is(err, accounts.ErrAccountNotFound) {
+			return nil, ErrPATRequired
+		}
 		return nil, err
 	}
 	pat, err := LoadPAT(format, payload)

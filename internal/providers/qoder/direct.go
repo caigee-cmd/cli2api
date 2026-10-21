@@ -9,7 +9,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
@@ -599,6 +601,7 @@ func applyUsage(out *providers.ChatOutcome, raw json.RawMessage) {
 func collectUpstream(r io.Reader) (upstreamFrame, error) {
 	var frame upstreamFrame
 	var content, reasoning strings.Builder
+	var acc toolCallAccumulator
 	err := walkUpstream(r, func(body map[string]any) error {
 		if errText, status, kind := upstreamError(body); errText != "" {
 			frame.errText = errText
@@ -635,15 +638,81 @@ func collectUpstream(r io.Reader) (upstreamFrame, error) {
 		if text, _ := part["reasoning_content"].(string); text != "" {
 			reasoning.WriteString(text)
 		}
-		if tools := part["tool_calls"]; tools != nil {
-			raw, _ := json.Marshal(tools)
-			frame.tools = raw
+		if tools, _ := part["tool_calls"].([]any); len(tools) > 0 {
+			acc.add(tools)
 		}
 		return nil
 	})
 	frame.content = content.String()
 	frame.reasoning = reasoning.String()
+	frame.tools = acc.encode()
 	return frame, err
+}
+
+// toolCallAccumulator merges streamed tool_call deltas by index: id, type
+// and function name keep their first non-empty value, arguments concatenate.
+type toolCallAccumulator struct {
+	order []int
+	calls map[int]*accumulatedToolCall
+}
+
+type accumulatedToolCall struct {
+	ID       string `json:"id,omitempty"`
+	Type     string `json:"type,omitempty"`
+	Index    int    `json:"index"`
+	Function struct {
+		Name      string `json:"name,omitempty"`
+		Arguments string `json:"arguments"`
+	} `json:"function"`
+}
+
+func (a *toolCallAccumulator) add(tools []any) {
+	if a.calls == nil {
+		a.calls = map[int]*accumulatedToolCall{}
+	}
+	for position, rawTool := range tools {
+		tool, _ := rawTool.(map[string]any)
+		if tool == nil {
+			continue
+		}
+		index := position
+		if n, ok := tool["index"].(float64); ok {
+			index = int(n)
+		}
+		call := a.calls[index]
+		if call == nil {
+			call = &accumulatedToolCall{Index: index}
+			a.calls[index] = call
+			a.order = append(a.order, index)
+		}
+		if id, _ := tool["id"].(string); id != "" && call.ID == "" {
+			call.ID = id
+		}
+		if typ, _ := tool["type"].(string); typ != "" && call.Type == "" {
+			call.Type = typ
+		}
+		if fn, _ := tool["function"].(map[string]any); fn != nil {
+			if name, _ := fn["name"].(string); name != "" && call.Function.Name == "" {
+				call.Function.Name = name
+			}
+			if args, _ := fn["arguments"].(string); args != "" {
+				call.Function.Arguments += args
+			}
+		}
+	}
+}
+
+func (a *toolCallAccumulator) encode() json.RawMessage {
+	if len(a.order) == 0 {
+		return nil
+	}
+	sort.Ints(a.order)
+	out := make([]*accumulatedToolCall, 0, len(a.order))
+	for _, index := range a.order {
+		out = append(out, a.calls[index])
+	}
+	raw, _ := json.Marshal(out)
+	return raw
 }
 
 func upstreamError(body map[string]any) (string, int, string) {
@@ -684,7 +753,11 @@ func walkUpstream(r io.Reader, fn func(map[string]any) error) error {
 			continue
 		}
 		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-		if data == "" || data == "[DONE]" {
+		if data == "[DONE]" {
+			// Explicit terminator: finish without waiting for transport EOF.
+			return nil
+		}
+		if data == "" {
 			continue
 		}
 		var outer map[string]any
@@ -712,8 +785,11 @@ func walkUpstream(r io.Reader, fn func(map[string]any) error) error {
 
 func rewriteUpstreamSSE(resp *http.Response, model string) *http.Response {
 	pr, pw := io.Pipe()
+	// Both the converter goroutine and the caller may close upstream; Once
+	// keeps non-idempotent wrappers (cancelOnCloseBody) race-free.
+	closeUpstream := sync.OnceValue(resp.Body.Close)
 	go func() {
-		defer resp.Body.Close()
+		defer closeUpstream()
 		err := writeOpenAIChunks(pw, resp.Body, model)
 		_ = pw.CloseWithError(err)
 	}()
@@ -723,9 +799,24 @@ func rewriteUpstreamSSE(resp *http.Response, model string) *http.Response {
 	return &http.Response{
 		StatusCode: http.StatusOK,
 		Header:     headers,
-		Body:       io.NopCloser(pr),
+		Body:       &convertedBody{pr: pr, closeUpstream: closeUpstream},
 		Request:    resp.Request,
 	}
+}
+
+// convertedBody closes the pipe reader so a blocked converter goroutine
+// unblocks, and closes the upstream body so the connection is released even
+// when the consumer stops reading early.
+type convertedBody struct {
+	pr            *io.PipeReader
+	closeUpstream func() error
+}
+
+func (b *convertedBody) Read(p []byte) (int, error) { return b.pr.Read(p) }
+
+func (b *convertedBody) Close() error {
+	_ = b.pr.CloseWithError(io.ErrClosedPipe)
+	return b.closeUpstream()
 }
 
 func writeOpenAIChunks(w io.Writer, src io.Reader, model string) error {
@@ -896,7 +987,7 @@ func frameFromBody(body map[string]any) upstreamFrame {
 	if text, _ := part["reasoning_content"].(string); text != "" {
 		frame.reasoning = text
 	}
-	if tools := part["tool_calls"]; tools != nil {
+	if tools, _ := part["tool_calls"].([]any); len(tools) > 0 {
 		raw, _ := json.Marshal(tools)
 		frame.tools = raw
 	}
