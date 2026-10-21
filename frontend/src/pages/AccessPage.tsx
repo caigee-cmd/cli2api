@@ -1,13 +1,12 @@
+import { CopyIcon } from '@/components/motion/CopyIcon'
 import { copyText } from '@/lib/clipboard'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Button, Card, Chip, Description, Label, ListBox, Select, Skeleton, TextArea } from '@heroui/react'
 import {
   ArrowsClockwise,
   BracketsCurly,
-  Check,
   CheckCircle,
   Clock,
-  Copy,
   PaperPlaneTilt,
   TerminalWindow,
 } from '@phosphor-icons/react'
@@ -230,7 +229,7 @@ export function AccessPage() {
               <div className="mono text-[11px] font-medium">Bearer API key</div>
             </div>
             <Button isIconOnly size="sm" variant="ghost" aria-label={t('copyBaseUrl')} onPress={() => void copy(base, 'base')}>
-              {copied === 'base' ? <Check size={15} /> : <Copy size={15} />}
+              <CopyIcon copied={copied === 'base'} size={15} />
             </Button>
             <Chip size="sm" variant="soft" color={readyAccounts.length ? 'success' : 'warning'}>
               {readyAccounts.length ? t('endpointReady') : t('degraded')}
@@ -426,7 +425,7 @@ export function AccessPage() {
             </div>
           </div>
           <Button size="sm" variant="ghost" onPress={() => void copy(curl, 'curl')}>
-            {copied === 'curl' ? <Check size={14} /> : <Copy size={14} />}
+            <CopyIcon copied={copied === 'curl'} />
             {copied === 'curl' ? t('copied') : t('copy')}
           </Button>
         </div>

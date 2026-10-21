@@ -1,3 +1,5 @@
+import { toast } from '@/lib/toast'
+import { HoldToConfirm } from '@/components/motion/HoldToConfirm'
 import { copyText } from '@/lib/clipboard'
 import { useEffect, useState } from 'react'
 import { Alert, Button, Card, Checkbox, Chip, Description, Form, Input, Label, Modal } from '@heroui/react'
@@ -7,7 +9,6 @@ import { fetchProviders, type ProviderDescriptor } from '@/api/overview'
 import { BrandMark } from '@/components/BrandMark'
 import { ProviderMark } from '@/components/ProviderMark'
 import { CompactSwitch } from '@/components/ui/CompactSwitch'
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { EmptyPanel } from '@/components/ui/EmptyPanel'
 import { FormRow } from '@/components/ui/FormRow'
 import { PageAlert } from '@/components/ui/PageAlert'
@@ -102,7 +103,6 @@ export function KeysPage() {
   const [error, setError] = useState('')
   const [createOpen, setCreateOpen] = useState(false)
   const [editKey, setEditKey] = useState<APIKeyRecord | null>(null)
-  const [deleteKey, setDeleteKey] = useState<APIKeyRecord | null>(null)
   const [revealed, setRevealed] = useState<APIKeyRecord | null>(null)
   const [copied, setCopied] = useState(false)
 
@@ -157,13 +157,12 @@ export function KeysPage() {
     }
   }
 
-  async function onDelete() {
-    if (!deleteKey) return
-    setBusyId(deleteKey.id)
+  async function onDelete(target: APIKeyRecord) {
+    setBusyId(target.id)
     try {
-      await deleteAPIKey(deleteKey.id)
-      setKeys((current) => current.filter((item) => item.id !== deleteKey.id))
-      setDeleteKey(null)
+      await deleteAPIKey(target.id)
+      setKeys((current) => current.filter((item) => item.id !== target.id))
+      toast({ type: 'success', title: t('toastKeyDeleted') })
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -237,9 +236,13 @@ export function KeysPage() {
               </Card.Content>
               <Card.Footer className="gap-1.5 border-t border-separator px-3 py-2">
                 <Button size="sm" variant="ghost" isDisabled={!optionsReady} onPress={() => setEditKey(key)}>{t('edit')}</Button>
-                <Button isIconOnly size="sm" variant="ghost" aria-label={t('delete')} onPress={() => setDeleteKey(key)}>
+                <HoldToConfirm
+                  label={t('holdToDelete')}
+                  isPending={busyId === key.id}
+                  onConfirm={() => void onDelete(key)}
+                >
                   <TrashSimple size={14} />
-                </Button>
+                </HoldToConfirm>
                 <div className="ml-auto">
                   <CompactSwitch
                     isSelected={key.enabled}
@@ -313,17 +316,6 @@ export function KeysPage() {
         </Modal.Backdrop>
       </Modal.Root>
 
-      <ConfirmDialog
-        isOpen={Boolean(deleteKey)}
-        title={t('delete')}
-        description={t('keysDeleteConfirm', { name: deleteKey?.name || '' })}
-        confirmLabel={t('delete')}
-        cancelLabel={t('cancel')}
-        closeLabel={t('close')}
-        isPending={busyId === deleteKey?.id}
-        onClose={() => setDeleteKey(null)}
-        onConfirm={() => void onDelete()}
-      />
     </div>
   )
 }

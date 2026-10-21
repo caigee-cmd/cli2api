@@ -1,3 +1,6 @@
+import { toast } from '@/lib/toast'
+import { useTabPanelSlide } from '@/hooks/useTabPanelSlide'
+import { useSkeletonSwap } from '@/hooks/useSkeletonSwap'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { getLocalTimeZone, type DateValue } from '@internationalized/date'
 import {
@@ -46,6 +49,7 @@ import { useI18n } from '@/hooks/useI18n'
 import { accountProviderLabel } from '@/lib/provider'
 
 type PageTab = 'requests' | 'runtime'
+const PAGE_TABS: readonly PageTab[] = ['requests', 'runtime']
 type RequestFilter = 'all' | 'ok' | 'incomplete' | 'error' | 'canceled'
 type RuntimeFilter = 'all' | 'info' | 'warn' | 'error'
 type StreamFilter = 'all' | 'stream' | 'sync'
@@ -189,6 +193,7 @@ export function LogsPage() {
   const [accounts, setAccounts] = useState<NonNullable<Overview['accounts']>>([])
   const [models, setModels] = useState<NonNullable<Overview['models']>>([])
   const [tab, setTab] = useState<PageTab>('requests')
+  useTabPanelSlide(tab, PAGE_TABS)
   const [loading, setLoading] = useState(true)
   const [booted, setBooted] = useState(false)
   const [error, setError] = useState('')
@@ -216,6 +221,8 @@ export function LogsPage() {
   const [selected, setSelected] = useState<RequestLog | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
   const [detailLoading, setDetailLoading] = useState(false)
+  useSkeletonSwap('logs', loading)
+  useSkeletonSwap('detail', detailLoading)
   const [detailError, setDetailError] = useState('')
   const detailRequestRef = useRef(0)
   const [clearOpen, setClearOpen] = useState(false)
@@ -455,12 +462,15 @@ export function LogsPage() {
 
   async function onClear() {
     setBusy(true)
+    toast({ id: 'logs-clear', type: 'loading', title: t('toastClearingLogs') })
     try {
       await clearRequestLogs()
       setClearOpen(false)
       await loadRequests(false)
+      toast({ id: 'logs-clear', type: 'success', title: t('toastLogsCleared') })
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
+      toast({ id: 'logs-clear', type: 'error', title: t('toastFailed'), description: err instanceof Error ? err.message : String(err) })
     } finally {
       setBusy(false)
     }
@@ -493,15 +503,17 @@ export function LogsPage() {
         <Tabs.ListContainer className="max-w-md">
           <Tabs.List>
             <Tab id="requests" className="gap-1.5">
+              <Tabs.Indicator />
               <Scroll size={13} />{t('logsRequests')}
             </Tab>
             <Tab id="runtime" className="gap-1.5">
+              <Tabs.Indicator />
               <TerminalWindow size={13} />{t('logsRuntime')}
             </Tab>
           </Tabs.List>
         </Tabs.ListContainer>
 
-        <Tabs.Panel id="requests" className="space-y-4 pt-5">
+        <Tabs.Panel id="requests" data-tab-panel="requests" className="space-y-4 pt-5">
           <div className="flex flex-col gap-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <FilterToggle
@@ -699,7 +711,7 @@ export function LogsPage() {
             </div>
           </div>
 
-          <Card data-gsap-reveal className="overflow-hidden p-0" aria-busy={loading}>
+          <Card data-gsap-reveal data-skeleton-swap="logs" className="overflow-hidden p-0" aria-busy={loading}>
             {loading ? (
               <LogsRequestListSkeleton />
             ) : requests.length === 0 ? (
@@ -790,7 +802,7 @@ export function LogsPage() {
           />
         </Tabs.Panel>
 
-        <Tabs.Panel id="runtime" className="space-y-4 pt-5">
+        <Tabs.Panel id="runtime" data-tab-panel="runtime" className="space-y-4 pt-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-2">
               <SearchBar
@@ -832,7 +844,7 @@ export function LogsPage() {
             </div>
           </div>
 
-          <Card data-gsap-reveal className="overflow-hidden p-0" aria-busy={loading}>
+          <Card data-gsap-reveal data-skeleton-swap="logs" className="overflow-hidden p-0" aria-busy={loading}>
             {loading ? (
               <LogsRuntimeListSkeleton />
             ) : runtime.length === 0 ? (
@@ -953,7 +965,7 @@ export function LogsPage() {
                   <X size={16} />
                 </Modal.CloseTrigger>
               </Modal.Header>
-              <Modal.Body className="space-y-4 px-5 pb-5">
+              <Modal.Body data-skeleton-swap="detail" className="space-y-4 px-5 pb-5">
                 {detailLoading ? (
                   <RequestDetailSkeleton />
                 ) : detailError ? (

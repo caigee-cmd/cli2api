@@ -1,3 +1,4 @@
+import { toast } from '@/lib/toast'
 import { copyText } from '@/lib/clipboard'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button } from '@heroui/react'
@@ -281,6 +282,7 @@ export function AccountsPage() {
   }
 
   async function onRefreshAccount(id: string) {
+    toast({ id: `refresh-${id}`, type: 'loading', title: t('toastRefreshingAccount') })
     setBusy({ id, kind: 'refresh' })
     setNoteById((current) => {
       const next = { ...current }
@@ -289,6 +291,10 @@ export function AccountsPage() {
     })
     try {
       await refreshAccountsInBatches([id])
+      toast({ id: `refresh-${id}`, type: 'success', title: t('toastAccountRefreshed') })
+    } catch (error) {
+      toast({ id: `refresh-${id}`, type: 'error', title: t('toastFailed'), description: error instanceof Error ? error.message : String(error) })
+      throw error
     } finally {
       setBusy(null)
     }
@@ -296,8 +302,13 @@ export function AccountsPage() {
 
   async function onRefreshCredits() {
     setQuotaRefreshing(true)
+    toast({ id: 'refresh-credits', type: 'loading', title: t('toastRefreshingCredits') })
     try {
       await refreshAccountsInBatches(accounts.map((account) => account.id))
+      toast({ id: 'refresh-credits', type: 'success', title: t('toastCreditsRefreshed') })
+    } catch (error) {
+      toast({ id: 'refresh-credits', type: 'error', title: t('toastFailed'), description: error instanceof Error ? error.message : String(error) })
+      throw error
     } finally {
       setQuotaRefreshing(false)
     }
@@ -381,7 +392,7 @@ export function AccountsPage() {
         </div>
       </section>
 
-      <AddAccountModal isOpen={addOpen} onClose={() => setAddOpen(false)} onAdded={() => void reloadAccounts(false)} />
+      <AddAccountModal isOpen={addOpen} onClose={() => setAddOpen(false)} onAdded={() => { toast({ type: 'success', title: t('toastAccountAdded') }); void reloadAccounts(false) }} />
       <AccountModelsModal key={modelsId ?? 'closed'} account={modelsAccount} t={t} onClose={() => setModelsId(null)} />
       <AccountCheckinRecordsModal key={checkinHistoryId ?? 'closed'} account={checkinHistoryAccount} t={t} onClose={() => setCheckinHistoryId(null)} />
       <EditAccountModal
@@ -411,6 +422,8 @@ export function AccountsPage() {
           void run(id, 'delete', async () => {
             await deleteAccount(id)
             await reloadAccounts(false)
+          }).then((ok) => {
+            if (ok) toast({ type: 'success', title: t('toastAccountDeleted') })
           })
         }}
       />

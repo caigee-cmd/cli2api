@@ -4,6 +4,7 @@ import { AppHeader } from './AppHeader'
 import { AppSidebar } from './AppSidebar'
 import { useGsapReveal } from '@/hooks/useGsapReveal'
 import { useI18n } from '@/hooks/useI18n'
+import { Toaster } from '@/components/motion/Toaster'
 
 const routeKey: Record<string, string> = {
   '/': 'home',
@@ -44,6 +45,7 @@ export function AppLayout() {
           </main>
         </div>
       </div>
+      <Toaster />
     </div>
   )
 }
