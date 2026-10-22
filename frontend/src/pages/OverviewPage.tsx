@@ -38,6 +38,8 @@ import { fetchAccounts, fetchModels } from '@/api/overview'
 import { formatBytes, formatCompact, formatLatency, formatPercent } from '@/lib/format'
 import { accountProviderFamilyLabel, accountProviderLabel } from '@/lib/provider'
 import { ProviderMark } from '@/components/ProviderMark'
+import { LiveStrip } from '@/components/overview/LiveStrip'
+import { useLive } from '@/hooks/useLive'
 
 type AccountRow = NonNullable<Overview['accounts']>[number]
 
@@ -145,13 +147,15 @@ export function OverviewPage() {
   const [modelCount, setModelCount] = useState(0)
   const [resources, setResources] = useState<SystemResources | null>(null)
   const [now, setNow] = useState(() => Date.now())
+  const { live, samples: liveSamples } = useLive()
+  const liveById = new Map((live?.accounts ?? []).map((item) => [item.id, item]))
 
   const proxyOk = Boolean(overview?.proxy?.ok)
   const workerOk = Boolean(overview?.worker?.ok)
   const readyAccounts = overview?.worker?.ready_count ?? 0
   const hotAccounts = overview?.worker?.hot_count ?? 0
   const coolingAccounts = overview?.worker?.cooling_count ?? 0
-  const inFlight = overview?.worker?.in_flight ?? 0
+  const inFlight = live?.in_flight ?? overview?.worker?.in_flight ?? 0
   const traffic = stats ?? EMPTY_STATS
   const affinity = overview?.routing?.session_affinity
   const affinityLookups = (affinity?.hits ?? 0) + (affinity?.misses ?? 0)
@@ -324,6 +328,8 @@ export function OverviewPage() {
 
       {error ? <PageAlert title={t('failedOverview', { msg: error })} /> : null}
 
+      <LiveStrip live={live} samples={liveSamples} t={t} />
+
       <section data-gsap-reveal className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {metrics.map((metric) => (
           <Card key={metric.label} className="gap-0 p-4">
@@ -473,6 +479,10 @@ export function OverviewPage() {
             ) : accounts.slice(0, 6).map((account) => {
               const quota = account.quota
               const tone = quotaTone(quota?.percentage, quota?.exceeded)
+              const liveRow = liveById.get(account.id)
+              const rowInFlight = liveRow?.in_flight ?? account.in_flight ?? account.inFlight ?? 0
+              const rowMax = liveRow?.max_inflight || account.max_inflight || 4
+              const rowSaturated = rowInFlight >= rowMax
               return (
                 <div key={account.id} className="flex items-center gap-3 px-5 py-3">
                   <span className="status-dot shrink-0" data-state={account.ready ? 'ok' : 'danger'} />
@@ -485,21 +495,25 @@ export function OverviewPage() {
                       {accountProviderLabel(account.provider, account.region, t)}
                       {' · '}
                       {account.hot ? t('hot') : account.ready ? t('ready') : t('degraded')}
-                      {quota ? ` · ${Math.round(quota.percentage ?? 0)}%` : ''}
+                    </div>
+                  </div>
+                  <div className="w-16 shrink-0" title={rowSaturated ? t('liveSaturated') : t('inFlight')} data-testid="account-inflight">
+                    <div className={`mono text-right text-caption tabular ${rowSaturated ? 'text-warning' : 'text-muted'}`}>{rowInFlight}/{rowMax}</div>
+                    <div className="mt-1 h-1 overflow-hidden rounded-[2px] bg-separator">
+                      <div className={`h-full ${rowSaturated ? 'bg-warning' : 'bg-foreground/50'}`} style={{ width: `${Math.min(100, (rowInFlight / rowMax) * 100)}%` }} />
                     </div>
                   </div>
                   {quota ? (
-                    <div className="w-16 shrink-0">
-                      <div className="h-1 overflow-hidden rounded-[2px] bg-separator">
+                    <div className="w-16 shrink-0" title={t('quota')}>
+                      <div className="mono text-right text-caption tabular text-muted">{Math.round(quota.percentage ?? 0)}%</div>
+                      <div className="mt-1 h-1 overflow-hidden rounded-[2px] bg-separator">
                         <div
                           className={`h-full ${tone === 'danger' ? 'bg-danger' : tone === 'warning' ? 'bg-warning' : 'bg-success'}`}
                           style={{ width: `${Math.min(100, Math.max(0, quota.percentage ?? 0))}%` }}
                         />
                       </div>
                     </div>
-                  ) : (
-                    <span className="mono text-caption text-muted">{account.in_flight ?? account.inFlight ?? 0}</span>
-                  )}
+                  ) : null}
                 </div>
               )
             })}

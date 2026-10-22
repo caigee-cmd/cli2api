@@ -12,6 +12,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc(endpoint.HealthPath, s.handleHealth)
 	s.mux.HandleFunc("/api/overview", s.withConsoleKey(s.consoleHandler().HandleOverview))
 	s.mux.HandleFunc("/api/overview/summary", s.withConsoleKey(s.consoleHandler().HandleOverviewSummary))
+	s.mux.HandleFunc("/api/live", s.withConsoleKey(s.consoleHandler().HandleLive))
 	s.mux.HandleFunc("/api/system/update", s.withConsoleKey(s.consoleHandler().HandleSystemUpdate))
 	s.mux.HandleFunc("/api/system/update/prepare", s.withConsoleKey(s.consoleHandler().HandleSystemUpdatePrepare))
 	s.mux.HandleFunc("/api/system/update/apply", s.withConsoleKey(s.consoleHandler().HandleSystemUpdateConfirm))
