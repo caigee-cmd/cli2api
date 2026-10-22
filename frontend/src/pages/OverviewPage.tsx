@@ -1,4 +1,3 @@
-import { useSkeletonExit, useSkeletonSwap } from '@/hooks/useSkeletonSwap'
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import gsap from 'gsap'
 import { Link } from 'react-router-dom'
@@ -86,8 +85,6 @@ export function OverviewPage() {
   const [statsLoading, setStatsLoading] = useState(true)
   const [accounts, setAccounts] = useState<NonNullable<Overview['accounts']>>([])
   const [accountsLoading, setAccountsLoading] = useState(true)
-  useSkeletonSwap('stats', statsLoading)
-  useSkeletonSwap('accounts', accountsLoading)
   const [modelCount, setModelCount] = useState(0)
   const [resources, setResources] = useState<SystemResources | null>(null)
 
@@ -165,11 +162,10 @@ export function OverviewPage() {
     { label: t('metricTokens'), value: traffic.tokens.total, kind: 'compact' as const, detail: `${formatCompact(traffic.tokens.prompt)} / ${formatCompact(traffic.tokens.completion)}`, ok: true, icon: <Coins size={15} />, trend: null as number | null },
   ]
 
-  const skeletonExitRef = useSkeletonExit(loading && !overview)
   if (loading && !overview) return <OverviewPageSkeleton />
 
   return (
-    <div ref={skeletonExitRef} className="space-y-6">
+    <div className="space-y-6">
       <section className="grid gap-4 pb-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
         <div>
           <h2 data-gsap-reveal className="text-title font-semibold">{t('homeDisplay')}</h2>
@@ -223,7 +219,7 @@ export function OverviewPage() {
       </section>
 
       <section className="grid gap-5">
-        <Card data-gsap-reveal data-skeleton-swap="stats" className="overflow-hidden p-0">
+        <Card data-gsap-reveal className="overflow-hidden p-0">
           <div className="flex items-center justify-between gap-3 border-b border-separator px-5 py-4">
             <div>
               <h3 className="font-semibold">{t('statsTraffic')}</h3>
@@ -295,7 +291,7 @@ export function OverviewPage() {
               </div>
             ))}
           </div>
-          <div data-skeleton-swap="accounts" className="divide-y divide-separator">
+          <div className="divide-y divide-separator">
             {accountsLoading ? (
               <RankListSkeleton />
             ) : accounts.length === 0 ? (
@@ -356,7 +352,7 @@ export function OverviewPage() {
       </section>
 
       <section className="grid gap-5 xl:grid-cols-2 2xl:grid-cols-3">
-        <Card data-gsap-reveal data-skeleton-swap="stats" className="overflow-hidden p-0">
+        <Card data-gsap-reveal className="overflow-hidden p-0">
           <div className="flex items-center justify-between gap-3 border-b border-separator px-5 py-4">
             <div>
               <h3 className="font-semibold">{t('statsTopProviders')}</h3>
@@ -379,7 +375,7 @@ export function OverviewPage() {
             />
           )}
         </Card>
-        <Card data-gsap-reveal data-skeleton-swap="stats" className="overflow-hidden p-0">
+        <Card data-gsap-reveal className="overflow-hidden p-0">
           <div className="flex items-center justify-between gap-3 border-b border-separator px-5 py-4">
             <div>
               <h3 className="font-semibold">{t('statsTopModels')}</h3>
@@ -402,7 +398,7 @@ export function OverviewPage() {
           )}
         </Card>
 
-        <Card data-gsap-reveal data-skeleton-swap="stats" className="overflow-hidden p-0">
+        <Card data-gsap-reveal className="overflow-hidden p-0">
           <div className="flex items-center justify-between gap-3 border-b border-separator px-5 py-4">
             <div>
               <h3 className="font-semibold">{traffic.errors.length ? t('statsErrorMix') : t('statsTopAccounts')}</h3>

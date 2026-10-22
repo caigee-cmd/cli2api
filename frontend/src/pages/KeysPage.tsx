@@ -1,4 +1,3 @@
-import { useSkeletonExit } from '@/hooks/useSkeletonSwap'
 import { toast } from '@/lib/toast'
 import { HoldToConfirm } from '@/components/motion/HoldToConfirm'
 import { copyText } from '@/lib/clipboard'
@@ -171,11 +170,10 @@ export function KeysPage() {
     }
   }
 
-  const skeletonExitRef = useSkeletonExit(loading && !keys.length)
   if (loading && !keys.length) return <KeysPageSkeleton />
 
   return (
-    <div ref={skeletonExitRef} className="space-y-6">
+    <div className="space-y-6">
       <section className="flex flex-wrap items-end justify-between gap-4 pb-4">
         <div>
           <h2 data-gsap-reveal className="text-title font-semibold">{t('navKeys')}</h2>

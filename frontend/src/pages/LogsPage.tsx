@@ -1,6 +1,4 @@
 import { toast } from '@/lib/toast'
-import { useTabPanelSlide } from '@/hooks/useTabPanelSlide'
-import { useSkeletonExit, useSkeletonSwap } from '@/hooks/useSkeletonSwap'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { getLocalTimeZone, type DateValue } from '@internationalized/date'
 import {
@@ -49,7 +47,6 @@ import { useI18n } from '@/hooks/useI18n'
 import { accountProviderLabel } from '@/lib/provider'
 
 type PageTab = 'requests' | 'runtime'
-const PAGE_TABS: readonly PageTab[] = ['requests', 'runtime']
 type RequestFilter = 'all' | 'ok' | 'incomplete' | 'error' | 'canceled'
 type RuntimeFilter = 'all' | 'info' | 'warn' | 'error'
 type StreamFilter = 'all' | 'stream' | 'sync'
@@ -193,7 +190,6 @@ export function LogsPage() {
   const [accounts, setAccounts] = useState<NonNullable<Overview['accounts']>>([])
   const [models, setModels] = useState<NonNullable<Overview['models']>>([])
   const [tab, setTab] = useState<PageTab>('requests')
-  useTabPanelSlide(tab, PAGE_TABS)
   const [loading, setLoading] = useState(true)
   const [booted, setBooted] = useState(false)
   const [error, setError] = useState('')
@@ -221,7 +217,6 @@ export function LogsPage() {
   const [selected, setSelected] = useState<RequestLog | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
   const [detailLoading, setDetailLoading] = useState(false)
-  useSkeletonSwap('detail', detailLoading)
   const [detailError, setDetailError] = useState('')
   const detailRequestRef = useRef(0)
   const [clearOpen, setClearOpen] = useState(false)
@@ -475,20 +470,17 @@ export function LogsPage() {
     }
   }
 
-  // Refetches (page, filter, refresh) keep the current rows on screen, dimmed,
-  // instead of swapping back to the skeleton — the skeleton crossfade is for
-  // an empty list only, so paging no longer replays the entrance animation.
+  // Refetches (page, filter, refresh) keep the current rows on screen instead
+  // of swapping back to the skeleton; the skeleton is only for an empty list.
+  // No entrance/fade animation anywhere: skeleton -> content is an instant swap.
   const listSkeleton = loading && (tab === 'requests' ? requests.length === 0 : runtime.length === 0)
-  const listStale = loading && !listSkeleton
-  useSkeletonSwap('logs', listSkeleton)
-  const skeletonExitRef = useSkeletonExit(loading && !booted)
   if (loading && !booted) return <LogsPageSkeleton />
 
   return (
-    <div ref={skeletonExitRef} className="space-y-6">
+    <div className="space-y-6">
       <section className="flex flex-wrap items-end justify-between gap-4 pb-4">
         <div>
-          <h2 data-gsap-reveal className="text-title font-semibold">{t('navLogs')}</h2>
+          <h2 className="text-title font-semibold">{t('navLogs')}</h2>
           <p className="mt-1 max-w-2xl text-body leading-6 text-muted">{t('logsLead')}</p>
         </div>
         <div className="flex items-center gap-2">
@@ -509,11 +501,11 @@ export function LogsPage() {
         <Tabs.ListContainer className="w-fit">
           <Tabs.List>
             <Tab id="requests" className="gap-1.5">
-              <Tabs.Indicator />
+              <Tabs.Indicator className="transition-none" />
               <Scroll size={13} />{t('logsRequests')}
             </Tab>
             <Tab id="runtime" className="gap-1.5">
-              <Tabs.Indicator />
+              <Tabs.Indicator className="transition-none" />
               <TerminalWindow size={13} />{t('logsRuntime')}
             </Tab>
           </Tabs.List>
@@ -717,7 +709,7 @@ export function LogsPage() {
             </div>
           </div>
 
-          <Card data-gsap-reveal data-skeleton-swap="logs" className={`overflow-hidden p-0 transition-opacity duration-200 ${listStale ? 'opacity-60' : ''}`} aria-busy={loading}>
+          <Card className="overflow-hidden p-0" aria-busy={loading}>
             {listSkeleton ? (
               <LogsRequestListSkeleton />
             ) : requests.length === 0 ? (
@@ -850,7 +842,7 @@ export function LogsPage() {
             </div>
           </div>
 
-          <Card data-gsap-reveal data-skeleton-swap="logs" className={`overflow-hidden p-0 transition-opacity duration-200 ${listStale ? 'opacity-60' : ''}`} aria-busy={loading}>
+          <Card className="overflow-hidden p-0" aria-busy={loading}>
             {listSkeleton ? (
               <LogsRuntimeListSkeleton />
             ) : runtime.length === 0 ? (
@@ -971,7 +963,7 @@ export function LogsPage() {
                   <X size={16} />
                 </Modal.CloseTrigger>
               </Modal.Header>
-              <Modal.Body data-skeleton-swap="detail" className="space-y-4 px-5 pb-5">
+              <Modal.Body className="space-y-4 px-5 pb-5">
                 {detailLoading ? (
                   <RequestDetailSkeleton />
                 ) : detailError ? (
