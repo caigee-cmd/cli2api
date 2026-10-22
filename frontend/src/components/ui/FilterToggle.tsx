@@ -4,7 +4,7 @@ import { duration, ease, gsap, motionDuration } from '@/lib/motion'
 
 export type FilterToggleOption = {
   id: string
-  label: string
+  label: ReactNode
   icon?: ReactNode
 }
 

@@ -1,8 +1,9 @@
 import { toast } from '@/lib/toast'
 import { copyText } from '@/lib/clipboard'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Button } from '@heroui/react'
+import { Button, Label, ListBox, Select } from '@heroui/react'
 import {
+  ArrowsClockwise,
   MagnifyingGlass,
   Plus,
 } from '@phosphor-icons/react'
@@ -37,7 +38,6 @@ import { fetchSystemSettings, type SystemSettings } from '@/api/system'
 import { AccountsPageSkeleton } from '@/components/ui/PageSkeletons'
 import {
   accountState,
-  isAvailable,
   type AccountRow,
 } from '@/lib/account'
 import { accountProviderFamilyLabel } from '@/lib/provider'
@@ -45,6 +45,7 @@ import { ProviderMark } from '@/components/ProviderMark'
 
 type AccountBusy = { id: string; kind: AccountBusyKind }
 type AccountFilter = 'all' | 'available' | 'attention' | 'disabled'
+const ALL_PROVIDERS = '__all__'
 
 const EMPTY_ACCOUNTS: AccountRow[] = []
 const ACCOUNT_REFRESH_BATCH_SIZE = 2
@@ -142,9 +143,16 @@ export function AccountsPage() {
     return next
   }), [enabledById, inflightById, nameById, priorityById, rows])
 
-  const availableCount = displayRows.filter(isAvailable).length
-  const attentionCount = displayRows.filter((account) => account.enabled && !isAvailable(account)).length
-  const inFlightCount = displayRows.reduce((total, account) => total + (account.in_flight ?? account.inFlight ?? 0), 0)
+  const statusCounts = useMemo(() => {
+    const counts = { all: displayRows.length, available: 0, attention: 0, disabled: 0 }
+    for (const account of displayRows) {
+      const state = accountState(account)
+      if (state === 'hot' || state === 'ready') counts.available += 1
+      else if (state === 'disabled') counts.disabled += 1
+      if (account.enabled && state !== 'hot' && state !== 'ready') counts.attention += 1
+    }
+    return counts
+  }, [displayRows])
   const providerCounts = useMemo(() => {
     const counts = new Map<string, number>()
     for (const account of displayRows) {
@@ -187,8 +195,6 @@ export function AccountsPage() {
     const start = (currentPage - 1) * pageSize
     return filteredRows.slice(start, start + pageSize)
   }, [currentPage, filteredRows, pageSize])
-  const shownFrom = filteredRows.length === 0 ? 0 : (currentPage - 1) * pageSize + 1
-  const shownTo = Math.min(filteredRows.length, currentPage * pageSize)
 
   if (accountsLoading && !hasAccounts) return <AccountsPageSkeleton />
 
@@ -365,28 +371,59 @@ export function AccountsPage() {
   return (
     <div className="space-y-4">
       {checkinError ? <PageAlert title={checkinError} /> : null}
-      <section data-gsap-reveal className="grid gap-3 pb-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-body">
-          <div className="flex items-center gap-3">
-            <span className="mono font-semibold">{rows.length}</span>
-            <span className="text-muted">{t('accountCount')}</span>
-            <span className="text-border">·</span>
-            <span className="mono font-medium text-success">{availableCount}</span>
-            <span className="text-success">{t('availableAccounts')}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-muted">{t('needsAttention')}</span>
-            <span className={`mono font-medium ${attentionCount ? 'text-danger' : ''}`}>{attentionCount}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-muted">{t('inFlight')}</span>
-            <span className="mono font-medium">{inFlightCount}</span>
-          </div>
-
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
+      <section data-gsap-reveal className="flex flex-wrap items-center gap-2">
+        {rows.length ? (
+          <>
+            <FilterToggle
+              value={filter}
+              onChange={(next) => setFilter(next as AccountFilter)}
+              ariaLabel={t('accountStatusFilter')}
+              options={[
+                { id: 'all', label: <>{t('filterAll')}<span className="mono text-muted">{statusCounts.all}</span></> },
+                { id: 'available', label: <>{t('availableAccounts')}<span className="mono text-muted">{statusCounts.available}</span></> },
+                { id: 'attention', label: <>{t('needsAttention')}<span className={`mono ${statusCounts.attention ? 'text-danger' : 'text-muted'}`}>{statusCounts.attention}</span></> },
+                { id: 'disabled', label: <>{t('disabled')}<span className="mono text-muted">{statusCounts.disabled}</span></> },
+              ]}
+            />
+            <Select
+              className="w-48"
+              aria-label={t('providerFilterAll')}
+              value={providerFilter || ALL_PROVIDERS}
+              onChange={(next) => {
+                if (typeof next === 'string') setProviderFilter(next === ALL_PROVIDERS ? '' : next)
+              }}
+            >
+              <Select.Trigger className="items-center">
+                <Select.Value className="min-w-0 truncate" />
+                <Select.Indicator />
+              </Select.Trigger>
+              <Select.Popover>
+                <ListBox>
+                  <ListBox.Item id={ALL_PROVIDERS} textValue={t('providerFilterAll')}>
+                    <Label className="flex items-center gap-2">{t('providerFilterAll')}<span className="mono text-muted">{rows.length}</span></Label>
+                    <ListBox.ItemIndicator />
+                  </ListBox.Item>
+                  {providerCounts.map(([provider, count]) => (
+                    <ListBox.Item key={provider} id={provider} textValue={accountProviderFamilyLabel(provider, t)}>
+                      <Label className="flex items-center gap-2"><ProviderMark provider={provider} size={13} />{accountProviderFamilyLabel(provider, t)}<span className="mono text-muted">{count}</span></Label>
+                      <ListBox.ItemIndicator />
+                    </ListBox.Item>
+                  ))}
+                </ListBox>
+              </Select.Popover>
+            </Select>
+            <SearchBar
+              className="w-full sm:w-60"
+              value={query}
+              onChange={setQuery}
+              placeholder={t('searchAccounts')}
+              ariaLabel={t('searchAccounts')}
+            />
+          </>
+        ) : null}
+        <div className="ml-auto flex items-center gap-2">
           <Button size="sm" variant="secondary" isPending={quotaRefreshing} onPress={() => void onRefreshCredits()}>
-            {t('refreshCredits')}
+            <ArrowsClockwise size={14} />{t('refreshCredits')}
           </Button>
           <Button size="sm" onPress={() => setAddOpen(true)}><Plus size={14} />{t('addAccount')}</Button>
         </div>
@@ -428,50 +465,6 @@ export function AccountsPage() {
         }}
       />
 
-      {rows.length ? (
-        <section data-gsap-reveal className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="w-full lg:max-w-md">
-            <SearchBar
-              className="w-full"
-              value={query}
-              onChange={setQuery}
-              placeholder={t('searchAccounts')}
-              ariaLabel={t('searchAccounts')}
-            />
-          </div>
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <FilterToggle
-              value={providerFilter}
-              onChange={setProviderFilter}
-              ariaLabel={t('providerFilterAll')}
-              options={[
-                { id: '', label: t('providerFilterAll') + ' ' + rows.length },
-                ...providerCounts.map(([provider, count]) => ({
-                  id: provider,
-                  label: accountProviderFamilyLabel(provider, t) + ' ' + count,
-                  icon: <ProviderMark provider={provider} size={13} />,
-                })),
-              ]}
-            />
-            <FilterToggle
-              value={filter}
-              onChange={(next) => setFilter(next as AccountFilter)}
-              ariaLabel={t('filterAll')}
-              options={[
-                { id: 'all', label: t('filterAll') },
-                { id: 'available', label: t('availableAccounts') },
-                { id: 'attention', label: t('needsAttention') },
-                { id: 'disabled', label: t('disabled') },
-              ]}
-            />
-            <span className="mono text-xs text-muted">
-              {filteredRows.length
-                ? t('logsShownTotal', { shown: `${shownFrom}–${shownTo}`, total: filteredRows.length })
-                : t('shownAccounts', { shown: 0, total: rows.length })}
-            </span>
-          </div>
-        </section>
-      ) : null}
 
       {!hasAccounts ? (
         <EmptyPanel
@@ -488,7 +481,7 @@ export function AccountsPage() {
           className="rounded-3xl bg-surface-secondary"
           icon={<MagnifyingGlass size={22} />}
           title={t('noAccountsMatch')}
-          action={<Button size="sm" variant="ghost" onPress={() => { setQuery(''); setFilter('all') }}>{t('clearFilters')}</Button>}
+          action={<Button size="sm" variant="ghost" onPress={() => { setQuery(''); setFilter('all'); setProviderFilter('') }}>{t('clearFilters')}</Button>}
         />
       ) : null}
 

@@ -88,7 +88,7 @@ function NavList({ collapsed, onNavigate }: { collapsed: boolean; onNavigate?: (
                   <>
                     <span className="inline-flex shrink-0" data-nav-icon><Icon size={18} weight={isActive ? 'fill' : 'regular'} /></span>
                     {!collapsed && <span className="truncate" data-nav-label>{t(item.key)}</span>}
-                    {collapsed && <span className="pointer-events-none absolute left-full z-50 ml-2 invisible whitespace-nowrap rounded-lg bg-foreground px-2 py-1 text-xs font-medium text-background opacity-0 shadow-overlay transition-opacity duration-150 group-hover/navitem:visible group-hover/navitem:opacity-100">{t(item.key)}</span>}
+                    {collapsed && <span className="pointer-events-none absolute left-full z-50 ml-2 invisible whitespace-nowrap rounded-lg bg-foreground px-2 py-1 text-caption font-medium text-background opacity-0 shadow-overlay transition-opacity duration-150 group-hover/navitem:visible group-hover/navitem:opacity-100">{t(item.key)}</span>}
                   </>
                 )}
               </NavLink>
@@ -105,7 +105,7 @@ function Brand({ compact = false }: { compact?: boolean }) {
   return (
     <div className={`flex items-center gap-3 ${compact ? 'justify-center' : 'px-2'}`}>
       <BrandMark size={34} />
-      {!compact && <div><div className="text-nav font-semibold">CLI2API</div><div className="text-xs text-muted">{t('controlPlane')}</div></div>}
+      {!compact && <div><div className="text-nav font-semibold">CLI2API</div><div className="text-caption text-muted">{t('controlPlane')}</div></div>}
     </div>
   )
 }
@@ -167,7 +167,7 @@ export function AppSidebar({ mobileOpen, onClose }: Props) {
               </div>
               <Chip size="sm" variant="soft" color={healthy ? 'success' : 'warning'}>{hotCount}/{accountCount}</Chip>
             </div>
-            <div className="mt-3 grid grid-cols-2 gap-3 pt-3 text-xs">
+            <div className="mt-3 grid grid-cols-2 gap-3 pt-3 text-caption">
               <div>
                 <div className="text-muted">Proxy</div>
                 <div className="mt-1 font-medium">{proxyOk ? 'online' : 'down'}</div>
@@ -192,7 +192,7 @@ export function AppSidebar({ mobileOpen, onClose }: Props) {
         </Tooltip>
         <Button isIconOnly size="sm" variant="ghost" className={collapsed ? '' : 'ml-auto'} onPress={toggleCollapsed} aria-label={t('toggleSidebar')}><SidebarSimple size={16} className={collapsed ? 'rotate-180' : ''} /></Button>
       </div>
-      {!collapsed && <p className="px-1 text-caption leading-5 text-muted">{t('sidebarFoot')}</p>}
+      {!collapsed && <p className="truncate px-1 text-caption leading-5 text-muted" title={t('sidebarFoot')}>{t('sidebarFoot')}</p>}
     </div>
   )
 

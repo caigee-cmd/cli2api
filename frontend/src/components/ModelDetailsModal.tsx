@@ -54,7 +54,7 @@ export function ModelDetailsModal({ model, t, onClose }: Props) {
             </Modal.Header>
             <Modal.Body className="space-y-4 px-5 pb-5">
               <section>
-                <div className="text-xs font-medium text-muted">{t('contextWindowCol')}</div>
+                <div className="text-caption font-medium text-muted">{t('contextWindowCol')}</div>
                 <div className="mt-1 text-body">{formatTokens(windowDev)}{windowMax && windowMax !== windowDev ? ` → ${formatTokens(windowMax)}` : ''}</div>
                 {model.supports_max_mode ? <p className="mt-1 text-caption leading-5 text-muted">{provider === 'qoder' ? t('qoderMaxModeHint') : t('maxModeHint')}</p> : null}
                 {!model.supports_max_mode && windowMax && windowMax !== windowDev ? <p className="mt-1 text-caption leading-5 text-muted">{t('workbuddyContextHint')}</p> : null}
@@ -66,7 +66,7 @@ export function ModelDetailsModal({ model, t, onClose }: Props) {
                   : (model.max_output_tokens ? <div className="text-caption text-muted">{t('maxOutputTokens')}: {formatTokens(model.max_output_tokens)}</div> : null)}
               </section>
               <section>
-                <div className="text-xs font-medium text-muted">{t('reasoningLevels')}</div>
+                <div className="text-caption font-medium text-muted">{t('reasoningLevels')}</div>
                 {options.length ? (
                   <>
                     <p className="mt-1 text-caption leading-5 text-muted">{t('reasoningHint')}</p>

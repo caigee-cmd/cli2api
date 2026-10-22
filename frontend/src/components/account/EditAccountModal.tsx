@@ -109,7 +109,7 @@ export function EditAccountModal({ account, checkinDefaultTime, checkinTimezone,
                         <span>{provider}</span>
                       </span>
                     </Chip>
-                    <span className="mono text-xs text-muted">{account.id}</span>
+                    <span className="mono text-caption text-muted">{account.id}</span>
                   </div>
                 ) : null}
               </div>
@@ -210,7 +210,7 @@ export function EditAccountModal({ account, checkinDefaultTime, checkinTimezone,
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="text-body font-medium text-foreground">{t('enabledModels')}</div>
-                      <p className="mt-0.5 text-xs leading-5 text-muted">{t('enabledModelsHint')}</p>
+                      <p className="mt-0.5 text-caption leading-5 text-muted">{t('enabledModelsHint')}</p>
                     </div>
                     <CompactSwitch isSelected={restrictModels} isDisabled={busy} ariaLabel={t('restrictModels')} label={restrictModels ? t('restrictModels') : t('allModels')} onChange={setRestrictModels} />
                   </div>
@@ -232,7 +232,7 @@ export function EditAccountModal({ account, checkinDefaultTime, checkinTimezone,
                   <FormRow label={t('autoCheckinTime')} hint={t('checkinScheduleHint')}>
                     <div className="space-y-3">
                       <CompactSwitch isSelected={inheritCheckinTime} isDisabled={busy} onChange={setInheritCheckinTime} ariaLabel={t('checkinInherit')} label={t('checkinInherit')} />
-                      <p className="text-xs text-muted">{t('checkinDefaultValue', { time: checkinDefaultTime })} · <span className="mono">{checkinTimezone}</span></p>
+                      <p className="text-caption text-muted">{t('checkinDefaultValue', { time: checkinDefaultTime })} · <span className="mono">{checkinTimezone}</span></p>
                       {!inheritCheckinTime ? <Input type="time" value={checkinTime ?? checkinDefaultTime} onChange={(event) => setCheckinTime(event.target.value)} aria-label={t('autoCheckinTime')} disabled={busy} required /> : null}
                     </div>
                   </FormRow>

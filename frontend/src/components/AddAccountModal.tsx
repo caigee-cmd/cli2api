@@ -535,7 +535,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
             <Modal.Header className="relative items-center justify-center px-12 pt-5 text-center">
               <div className="min-w-0">
                 <Modal.Heading className="text-section font-semibold">{t('addAccountTitle')}</Modal.Heading>
-                <p ref={stepDesc} className="mt-1 text-xs font-normal leading-5 text-muted">
+                <p ref={stepDesc} className="mt-1 text-caption font-normal leading-5 text-muted">
                   {step === 'method' ? t('addAccountDesc') : (hint || t('addAccountDesc'))}
                 </p>
               </div>
@@ -549,7 +549,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                     {typesLoading ? (
                       <AccountTypeSkeleton ariaLabel={t('accountType')} />
                     ) : !typesReady ? (
-                      <p className="rounded-lg bg-surface-secondary/45 px-3.5 py-3 text-xs leading-5 text-muted">{t('accountTypeHint')}</p>
+                      <p className="rounded-lg bg-surface-secondary/45 px-3.5 py-3 text-caption leading-5 text-muted">{t('accountTypeHint')}</p>
                     ) : (
                       <OptionTiles
                         ariaLabel={t('accountType')}
@@ -588,7 +588,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                       type="button"
                       onClick={() => setAdvancedOpen((open) => !open)}
                       aria-expanded={advancedOpen}
-                      className="inline-flex items-center gap-1 text-xs font-medium text-muted transition-colors hover:text-foreground"
+                      className="inline-flex items-center gap-1 text-caption font-medium text-muted transition-colors hover:text-foreground"
                     >
                       <CaretRight size={12} className={`transition-transform duration-200 ${advancedOpen ? 'rotate-90' : ''}`} />
                       {t('wizardAdvanced')}
@@ -640,7 +640,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                           <div className="flex items-center justify-between gap-3">
                             <div className="min-w-0">
                               <div className="text-body font-medium text-muted">{t('dropSystemPrompt')}</div>
-                              <p className="mt-0.5 text-xs leading-5 text-muted">{t('dropSystemPromptCreateHint')}</p>
+                              <p className="mt-0.5 text-caption leading-5 text-muted">{t('dropSystemPromptCreateHint')}</p>
                             </div>
                             <CompactSwitch
                               isSelected={dropSystemPrompt}
@@ -683,7 +683,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                         </>
                       ) : null}
                       {message ? (
-                        <p className="flex items-center gap-2 rounded-lg bg-surface-secondary px-3 py-2 text-xs">{isDone ? <CheckCircle size={14} className="shrink-0 text-success" /> : null}<span className={isDone ? 'font-medium text-foreground' : 'text-muted'}>{message}</span></p>
+                        <p className="flex items-center gap-2 rounded-lg bg-surface-secondary px-3 py-2 text-caption">{isDone ? <CheckCircle size={14} className="shrink-0 text-success" /> : null}<span className={isDone ? 'font-medium text-foreground' : 'text-muted'}>{message}</span></p>
                       ) : null}
                       <Button className="w-full" isPending={phase === 'busy'} onPress={() => void runZhipu()} isDisabled={isDone}>
                         {isDone ? <><CheckCircle size={15} />{t('wizardAccountReady')}</> : <><Key size={15} />{t('zhipuCreate')}</>}
@@ -712,7 +712,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                     }))}
                   />
 
-                  <p className="mt-2 min-h-5 text-xs leading-5 text-muted">{tabLead}</p>
+                  <p className="mt-2 min-h-5 text-caption leading-5 text-muted">{tabLead}</p>
 
                   <div className="mt-3 flex flex-col gap-4">
                     {tab === 'browser' ? (
@@ -731,11 +731,11 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                         ) : null}
                         {authUrl ? (
                           <div className="rounded-lg bg-surface-secondary px-3 py-2.5">
-                            <div className="flex items-center gap-2 text-xs">
+                            <div className="flex items-center gap-2 text-caption">
                               <StatusIcon phase={phase} busy={busy} tab={tab} forTab="browser" />
                               <span className="text-muted">{message || t('loginOpenMsg')}</span>
                             </div>
-                            <code className="mono mt-2 block break-all text-xs leading-5 text-foreground">{authUrl}</code>
+                            <code className="mono mt-2 block break-all text-caption leading-5 text-foreground">{authUrl}</code>
                             <div className="mt-2 flex flex-wrap gap-2">
                               <Button size="sm" variant="secondary" onPress={() => window.open(authUrl, '_blank', 'noopener,noreferrer')}>
                                 <ArrowSquareOut size={14} />{t('openAuthUrl')}
@@ -758,13 +758,13 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                           </div>
                         ) : null}
                         {message && !authUrl ? (
-                          <p className="flex items-center gap-2 rounded-lg bg-surface-secondary px-3 py-2 text-xs">{isDone ? <CheckCircle size={14} className="shrink-0 text-success" /> : null}<span className={isDone ? 'font-medium text-foreground' : 'text-muted'}>{message}</span></p>
+                          <p className="flex items-center gap-2 rounded-lg bg-surface-secondary px-3 py-2 text-caption">{isDone ? <CheckCircle size={14} className="shrink-0 text-success" /> : null}<span className={isDone ? 'font-medium text-foreground' : 'text-muted'}>{message}</span></p>
                         ) : null}
                         {showCallbackPaste ? (
                           <div className="space-y-2">
                             <p className="text-caption leading-4 text-muted">{t('wizardCallbackLead')}</p>
                             <TextArea
-                              className="h-28 w-full resize-none font-mono text-xs leading-5"
+                              className="h-28 w-full resize-none font-mono text-caption leading-5"
                               value={callbackUrl}
                               onChange={(event) => setCallbackUrl(event.target.value)}
                               placeholder={t('wizardCallbackPh')}
@@ -786,7 +786,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                           <Input type="password" value={pat} onChange={(event) => setPat(event.target.value)} placeholder={t('wizardPatPh')} aria-label={t('wizardPatPh')} disabled={busy} />
                         </FormRow>
                         {message ? (
-                          <p className="flex items-center gap-2 rounded-lg bg-surface-secondary px-3 py-2 text-xs">{isDone ? <CheckCircle size={14} className="shrink-0 text-success" /> : null}<span className={isDone ? 'font-medium text-foreground' : 'text-muted'}>{message}</span></p>
+                          <p className="flex items-center gap-2 rounded-lg bg-surface-secondary px-3 py-2 text-caption">{isDone ? <CheckCircle size={14} className="shrink-0 text-success" /> : null}<span className={isDone ? 'font-medium text-foreground' : 'text-muted'}>{message}</span></p>
                         ) : null}
                         <Button className="w-full" isPending={tabPending('pat')} onPress={() => void runPat()}>
                           {isDone ? <><CheckCircle size={15} />{t('patDone')}</> : <><Key size={15} />{t('wizardCreateAndLogin')}</>}
@@ -795,13 +795,13 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                     ) : (
                       <>
                         <div className="flex items-center justify-between gap-3">
-                          <span className="text-xs font-medium text-muted">JSON</span>
+                          <span className="text-caption font-medium text-muted">JSON</span>
                           <Button size="sm" variant="secondary" onPress={onPickFile} isDisabled={busy}><FileCode size={13} />{t('wizardChooseFile')}</Button>
                           <input ref={fileInput} type="file" accept="application/json,.json" className="hidden" onChange={onFileChange} />
                         </div>
-                        <TextArea className="min-h-32 font-mono text-xs" value={json} onChange={(event) => setJson(event.target.value)} placeholder={t('wizardImportPh')} aria-label={t('tabImport')} disabled={busy} />
+                        <TextArea className="min-h-32 font-mono text-caption" value={json} onChange={(event) => setJson(event.target.value)} placeholder={t('wizardImportPh')} aria-label={t('tabImport')} disabled={busy} />
                         {message ? (
-                          <p className="flex items-center gap-2 rounded-lg bg-surface-secondary px-3 py-2 text-xs">{isDone ? <CheckCircle size={14} className="shrink-0 text-success" /> : null}<span className={isDone ? 'font-medium text-foreground' : 'text-muted'}>{message}</span></p>
+                          <p className="flex items-center gap-2 rounded-lg bg-surface-secondary px-3 py-2 text-caption">{isDone ? <CheckCircle size={14} className="shrink-0 text-success" /> : null}<span className={isDone ? 'font-medium text-foreground' : 'text-muted'}>{message}</span></p>
                         ) : null}
                         <Button className="w-full" isPending={tabPending('import')} onPress={() => void runImport()}>
                           {isDone ? <><CheckCircle size={15} />{t('accountImported')}</> : <><FileCode size={15} />{t('importCredential')}</>}
