@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import { Drawer, Button, Chip, Separator, Tooltip } from '@heroui/react'
 import { Cube, Gauge, GearSix, Key, Lightning, Scroll, SidebarSimple, UsersThree, X } from '@phosphor-icons/react'
+import { SidebarUpdateItem } from '@/components/layout/SidebarUpdateItem'
 import { BrandMark } from '@/components/BrandMark'
 import { SkeletonBlock } from '@/components/ui/PageSkeletons'
 import { gsap } from 'gsap'
@@ -179,6 +180,7 @@ export function AppSidebar({ mobileOpen, onClose }: Props) {
           </div>
         )
       )}
+      <SidebarUpdateItem collapsed={collapsed} />
       <div className={`flex items-center gap-2 ${collapsed ? 'flex-col' : ''}`}>
         <Tooltip>
           <Tooltip.Trigger>

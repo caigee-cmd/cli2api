@@ -1,12 +1,15 @@
 import { copyText } from '@/lib/clipboard'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Button, Card, Chip, Description, Input, Label, ListBox, Modal, Select } from '@heroui/react'
+import { Button, Card, Chip, Description, Input, Label, ListBox, Modal, Select, Tab, Tabs } from '@heroui/react'
+import { useSearchParams } from 'react-router-dom'
 import {
   ArrowClockwise,
   ArrowCircleUp,
+  ArrowsSplit,
   CheckCircle,
   Copy,
   Database,
+  GearSix,
   Key,
   ShieldCheck,
   SlidersHorizontal,
@@ -30,8 +33,15 @@ const applyJobStates = new Set(['backing_up', 'running'])
 const applyAgentStates = new Set(['recreating', 'rolling_back'])
 const progressAgentStates = new Set(['queued', 'pulling', 'host_binary', 'image_ready', 'preparing', 'recreating', 'checking', 'rolling_back'])
 
+type SettingsTab = 'general' | 'routing' | 'security' | 'updates'
+const SETTINGS_TABS: readonly SettingsTab[] = ['general', 'routing', 'security', 'updates']
+
 export function SystemPage() {
   const { t } = useI18n()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tabParam = searchParams.get('tab') as SettingsTab | null
+  const tab: SettingsTab = tabParam && SETTINGS_TABS.includes(tabParam) ? tabParam : 'general'
+  const selectTab = (next: SettingsTab) => setSearchParams(next === 'general' ? {} : { tab: next }, { replace: true })
   const { setApiKey } = useApiKey()
   const [info, setInfo] = useState<SystemUpdateInfo | null>(null)
   const [consoleKey, setConsoleKey] = useState<ConsoleKeyView | null>(null)
@@ -304,7 +314,180 @@ export function SystemPage() {
 
       {error ? <PageAlert title={error} /> : null}
 
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.18fr)_minmax(360px,.82fr)]">
+      <Tabs selectedKey={tab} onSelectionChange={(key) => selectTab(String(key) as SettingsTab)}>
+        <Tabs.ListContainer className="w-fit max-w-full overflow-x-auto">
+          <Tabs.List aria-label={t('systemSettingsTitle')}>
+            <Tab id="general" className="gap-1.5">
+              <Tabs.Indicator />
+              <GearSix size={13} />{t('settingsTabGeneral')}
+            </Tab>
+            <Tab id="routing" className="gap-1.5">
+              <Tabs.Indicator />
+              <ArrowsSplit size={13} />{t('settingsTabRouting')}
+            </Tab>
+            <Tab id="security" className="gap-1.5">
+              <Tabs.Indicator />
+              <ShieldCheck size={13} />{t('settingsTabSecurity')}
+            </Tab>
+            <Tab id="updates" className="gap-1.5">
+              <Tabs.Indicator />
+              <ArrowCircleUp size={13} />{t('settingsTabUpdates')}
+            </Tab>
+          </Tabs.List>
+        </Tabs.ListContainer>
+        <Tabs.Panel id="general" className="pt-5">
+          <div className="grid gap-5 xl:grid-cols-2 items-start">
+          <Card data-gsap-reveal>
+            <div className="flex items-start gap-3">
+              <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-surface-secondary text-foreground"><SlidersHorizontal size={15} /></div>
+              <div>
+                <h3 className="font-semibold">{t('proxySettingsTitle')}</h3>
+                <p className="mt-1 text-xs leading-5 text-muted">{t('proxySettingsHint')}</p>
+              </div>
+            </div>
+            <div className="mt-4 space-y-1.5">
+              <Label className="text-body font-medium text-muted">{t('proxyUrl')}</Label>
+              <Input
+                value={proxyDraft}
+                onChange={(event) => setProxyDraft(event.target.value)}
+                onBlur={(event) => void updateProxyURL(event.target.value.trim())}
+                placeholder={t('proxyUrlPlaceholder')}
+                disabled={settingsBusy || !settings}
+              />
+              <Description className="text-xs leading-5 text-muted">{t('proxyUrlHint')}</Description>
+            </div>
+          </Card>
+          <Card data-gsap-reveal>
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-surface-secondary text-foreground"><CheckCircle size={15} /></div>
+                <div>
+                  <h3 className="font-semibold">{t('checkinDisabledAccountsTitle')}</h3>
+                  <p className="mt-1 text-xs leading-5 text-muted">{t('checkinDisabledAccountsHint')}</p>
+                </div>
+              </div>
+              <CompactSwitch
+                isSelected={settings?.checkin_disabled_accounts ?? false}
+                isDisabled={settingsBusy || !settings}
+                ariaLabel={t('checkinDisabledAccountsAriaLabel')}
+                onChange={(selected) => void updateCheckinDisabledAccounts(selected)}
+              />
+            </div>
+            <div className="mt-4 flex items-center justify-between pt-3 text-xs text-muted">
+              <span>{t('checkinDisabledAccountsStatus')}</span>
+              <span className="font-medium text-foreground">{settings?.checkin_disabled_accounts ? t('enabled') : t('disabled')}</span>
+            </div>
+          </Card>
+          <CheckinDefaults settings={settings} onSaved={setSettings} />
+          </div>
+        </Tabs.Panel>
+        <Tabs.Panel id="routing" className="pt-5">
+          <div className="grid gap-5 xl:grid-cols-2 items-start">
+          <Card data-gsap-reveal>
+            <div className="flex items-start gap-3">
+              <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-surface-secondary text-foreground"><SlidersHorizontal size={15} /></div>
+              <div>
+                <h3 className="font-semibold">{t('routingStrategyTitle')}</h3>
+                <p className="mt-1 text-xs leading-5 text-muted">{t('routingStrategyHint')}</p>
+              </div>
+            </div>
+            <div className="mt-4 pt-4">
+              <FormRow label={t('routingStrategy')}>
+                <Select
+                  fullWidth
+                  aria-label={t('routingStrategy')}
+                  value={settings?.routing_strategy || 'round-robin'}
+                  isDisabled={settingsBusy || !settings}
+                  onChange={(value) => {
+                    if (typeof value === 'string' && value) void updateRoutingStrategy(value as SystemSettings['routing_strategy'])
+                  }}
+                >
+                  <Select.Trigger className="items-center">
+                    <Select.Value className="min-w-0 truncate" />
+                    <Select.Indicator />
+                  </Select.Trigger>
+                  <Select.Popover>
+                    <ListBox>
+                      <ListBox.Item id="round-robin" textValue="round-robin"><Label>{t('routingRoundRobin')}</Label><ListBox.ItemIndicator /></ListBox.Item>
+                      <ListBox.Item id="weighted-round-robin" textValue="weighted-round-robin"><Label>{t('routingWeightedRoundRobin')}</Label><ListBox.ItemIndicator /></ListBox.Item>
+                      <ListBox.Item id="fill-first" textValue="fill-first"><Label>{t('routingFillFirst')}</Label><ListBox.ItemIndicator /></ListBox.Item>
+                    </ListBox>
+                  </Select.Popover>
+                </Select>
+              </FormRow>
+            </div>
+            <div className="mt-4 grid grid-cols-2 gap-2 pt-3 text-xs text-muted sm:grid-cols-4">
+              <div><span className="mono block text-body font-medium text-foreground">{settings?.session_affinity?.ttl_seconds ? `${Math.round(settings.session_affinity.ttl_seconds / 60)}m` : '—'}</span>{t('sessionAffinityTTL')}</div>
+              <div><span className="mono block text-body font-medium text-foreground">{settings?.session_affinity?.hits ?? 0}</span>{t('sessionAffinityHits')}</div>
+              <div><span className="mono block text-body font-medium text-foreground">{settings?.session_affinity?.misses ?? 0}</span>{t('sessionAffinityMisses')}</div>
+              <div><span className="mono block text-body font-medium text-foreground">{settings?.session_affinity?.escapes ?? 0}</span>{t('sessionAffinityEscapes')}</div>
+            </div>
+            {settings?.session_affinity?.last_escape_reason ? <Description className="mt-3 text-xs">{t('lastSessionEscape')}: {settings.session_affinity.last_escape_reason}</Description> : null}
+            {settings?.session_affinity?.last_miss_reason ? <Description className="mt-1 text-xs">{t('lastSessionMiss')}: {settings.session_affinity.last_miss_reason}</Description> : null}
+          </Card>
+          <Card data-gsap-reveal>
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-surface-secondary text-foreground"><SlidersHorizontal size={15} /></div>
+                <div>
+                  <h3 className="font-semibold">{t('crossProviderModelPoolTitle')}</h3>
+                  <p className="mt-1 text-xs leading-5 text-muted">{t('crossProviderModelPoolHint')}</p>
+                </div>
+              </div>
+              <CompactSwitch
+                isSelected={settings?.cross_provider_model_pool ?? true}
+                isDisabled={settingsBusy || !settings}
+                ariaLabel={t('crossProviderModelPoolAriaLabel')}
+                onChange={(selected) => void updateCrossProviderModelPool(selected)}
+              />
+            </div>
+            <div className="mt-4 flex items-center justify-between pt-3 text-xs text-muted">
+              <span>{t('crossProviderModelPoolStatus')}</span>
+              <span className="font-medium text-foreground">{settings?.cross_provider_model_pool ? t('enabled') : t('disabled')}</span>
+            </div>
+          </Card>
+          </div>
+        </Tabs.Panel>
+        <Tabs.Panel id="security" className="pt-5">
+          <div className="grid gap-5 xl:grid-cols-2 items-start">
+          <Card data-gsap-reveal>
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-surface-secondary text-foreground"><Key size={15} /></div>
+                <div>
+                  <h3 className="font-semibold">{t('consoleKeyTitle')}</h3>
+                  <p className="mt-1 text-xs leading-5 text-muted">{t('consoleKeyHint')}</p>
+                </div>
+              </div>
+            </div>
+            <code className="mono mt-4 block rounded-lg bg-surface-secondary px-3 py-2 text-xs text-muted">{consoleKey?.prefix || '—'}</code>
+            <p className="mt-3 text-xs leading-5 text-muted">{t('consoleKeyLead')}</p>
+            <div className="mt-4 flex justify-end">
+              <Button size="sm" variant="ghost" isPending={consoleBusy} onPress={() => setRotateOpen(true)}>{t('consoleKeyRotate')}</Button>
+            </div>
+          </Card>
+          <Card data-gsap-reveal>
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-surface-secondary text-foreground"><Database size={15} /></div>
+                <div>
+                  <h3 className="font-semibold">{t('sqliteProtection')}</h3>
+                  <p className="mt-1 text-xs leading-5 text-muted">{t('sqliteProtectionHint')}</p>
+                </div>
+              </div>
+              <ShieldCheck size={18} className="text-success" />
+            </div>
+            <div className="mono mt-4 rounded-lg bg-surface-secondary px-3 py-2 text-xs text-muted">/data</div>
+            <div className="mt-3 grid gap-2 text-xs text-muted">
+              <div className="flex items-center gap-2"><CheckCircle size={14} className="text-success" />{t('sqliteBackupBeforeUpdate')}</div>
+              <div className="flex items-center gap-2"><CheckCircle size={14} className="text-success" />{t('sqliteKeepFive')}</div>
+              <div className="flex items-center gap-2"><CheckCircle size={14} className="text-success" />{t('sqliteRollbackTogether')}</div>
+            </div>
+          </Card>
+          </div>
+        </Tabs.Panel>
+        <Tabs.Panel id="updates" className="pt-5">
+          <div className="grid gap-5">
         <Card data-gsap-reveal className="overflow-hidden p-0">
           <div className="flex items-center justify-between gap-3 border-b border-separator px-5 py-4">
             <div>
@@ -363,156 +546,9 @@ export function SystemPage() {
             />
           </div>
         </Card>
-
-        <div className="space-y-5">
-          <Card data-gsap-reveal>
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex items-start gap-3">
-                <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-surface-secondary text-foreground"><SlidersHorizontal size={15} /></div>
-                <div>
-                  <h3 className="font-semibold">{t('crossProviderModelPoolTitle')}</h3>
-                  <p className="mt-1 text-xs leading-5 text-muted">{t('crossProviderModelPoolHint')}</p>
-                </div>
-              </div>
-              <CompactSwitch
-                isSelected={settings?.cross_provider_model_pool ?? true}
-                isDisabled={settingsBusy || !settings}
-                ariaLabel={t('crossProviderModelPoolAriaLabel')}
-                onChange={(selected) => void updateCrossProviderModelPool(selected)}
-              />
-            </div>
-            <div className="mt-4 flex items-center justify-between pt-3 text-xs text-muted">
-              <span>{t('crossProviderModelPoolStatus')}</span>
-              <span className="font-medium text-foreground">{settings?.cross_provider_model_pool ? t('enabled') : t('disabled')}</span>
-            </div>
-          </Card>
-
-          <Card data-gsap-reveal>
-            <div className="flex items-start gap-3">
-              <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-surface-secondary text-foreground"><SlidersHorizontal size={15} /></div>
-              <div>
-                <h3 className="font-semibold">{t('proxySettingsTitle')}</h3>
-                <p className="mt-1 text-xs leading-5 text-muted">{t('proxySettingsHint')}</p>
-              </div>
-            </div>
-            <div className="mt-4 space-y-1.5">
-              <Label className="text-body font-medium text-muted">{t('proxyUrl')}</Label>
-              <Input
-                value={proxyDraft}
-                onChange={(event) => setProxyDraft(event.target.value)}
-                onBlur={(event) => void updateProxyURL(event.target.value.trim())}
-                placeholder={t('proxyUrlPlaceholder')}
-                disabled={settingsBusy || !settings}
-              />
-              <Description className="text-xs leading-5 text-muted">{t('proxyUrlHint')}</Description>
-            </div>
-          </Card>
-
-          <CheckinDefaults settings={settings} onSaved={setSettings} />
-
-          <Card data-gsap-reveal>
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex items-start gap-3">
-                <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-surface-secondary text-foreground"><CheckCircle size={15} /></div>
-                <div>
-                  <h3 className="font-semibold">{t('checkinDisabledAccountsTitle')}</h3>
-                  <p className="mt-1 text-xs leading-5 text-muted">{t('checkinDisabledAccountsHint')}</p>
-                </div>
-              </div>
-              <CompactSwitch
-                isSelected={settings?.checkin_disabled_accounts ?? false}
-                isDisabled={settingsBusy || !settings}
-                ariaLabel={t('checkinDisabledAccountsAriaLabel')}
-                onChange={(selected) => void updateCheckinDisabledAccounts(selected)}
-              />
-            </div>
-            <div className="mt-4 flex items-center justify-between pt-3 text-xs text-muted">
-              <span>{t('checkinDisabledAccountsStatus')}</span>
-              <span className="font-medium text-foreground">{settings?.checkin_disabled_accounts ? t('enabled') : t('disabled')}</span>
-            </div>
-          </Card>
-
-          <Card data-gsap-reveal>
-            <div className="flex items-start gap-3">
-              <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-surface-secondary text-foreground"><SlidersHorizontal size={15} /></div>
-              <div>
-                <h3 className="font-semibold">{t('routingStrategyTitle')}</h3>
-                <p className="mt-1 text-xs leading-5 text-muted">{t('routingStrategyHint')}</p>
-              </div>
-            </div>
-            <div className="mt-4 pt-4">
-              <FormRow label={t('routingStrategy')}>
-                <Select
-                  fullWidth
-                  aria-label={t('routingStrategy')}
-                  value={settings?.routing_strategy || 'round-robin'}
-                  isDisabled={settingsBusy || !settings}
-                  onChange={(value) => {
-                    if (typeof value === 'string' && value) void updateRoutingStrategy(value as SystemSettings['routing_strategy'])
-                  }}
-                >
-                  <Select.Trigger className="items-center">
-                    <Select.Value className="min-w-0 truncate" />
-                    <Select.Indicator />
-                  </Select.Trigger>
-                  <Select.Popover>
-                    <ListBox>
-                      <ListBox.Item id="round-robin" textValue="round-robin"><Label>{t('routingRoundRobin')}</Label><ListBox.ItemIndicator /></ListBox.Item>
-                      <ListBox.Item id="weighted-round-robin" textValue="weighted-round-robin"><Label>{t('routingWeightedRoundRobin')}</Label><ListBox.ItemIndicator /></ListBox.Item>
-                      <ListBox.Item id="fill-first" textValue="fill-first"><Label>{t('routingFillFirst')}</Label><ListBox.ItemIndicator /></ListBox.Item>
-                    </ListBox>
-                  </Select.Popover>
-                </Select>
-              </FormRow>
-            </div>
-            <div className="mt-4 grid grid-cols-2 gap-2 pt-3 text-xs text-muted sm:grid-cols-4">
-              <div><span className="mono block text-body font-medium text-foreground">{settings?.session_affinity?.ttl_seconds ? `${Math.round(settings.session_affinity.ttl_seconds / 60)}m` : '—'}</span>{t('sessionAffinityTTL')}</div>
-              <div><span className="mono block text-body font-medium text-foreground">{settings?.session_affinity?.hits ?? 0}</span>{t('sessionAffinityHits')}</div>
-              <div><span className="mono block text-body font-medium text-foreground">{settings?.session_affinity?.misses ?? 0}</span>{t('sessionAffinityMisses')}</div>
-              <div><span className="mono block text-body font-medium text-foreground">{settings?.session_affinity?.escapes ?? 0}</span>{t('sessionAffinityEscapes')}</div>
-            </div>
-            {settings?.session_affinity?.last_escape_reason ? <Description className="mt-3 text-xs">{t('lastSessionEscape')}: {settings.session_affinity.last_escape_reason}</Description> : null}
-            {settings?.session_affinity?.last_miss_reason ? <Description className="mt-1 text-xs">{t('lastSessionMiss')}: {settings.session_affinity.last_miss_reason}</Description> : null}
-          </Card>
-
-          <Card data-gsap-reveal>
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex items-start gap-3">
-                <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-surface-secondary text-foreground"><Database size={15} /></div>
-                <div>
-                  <h3 className="font-semibold">{t('sqliteProtection')}</h3>
-                  <p className="mt-1 text-xs leading-5 text-muted">{t('sqliteProtectionHint')}</p>
-                </div>
-              </div>
-              <ShieldCheck size={18} className="text-success" />
-            </div>
-            <div className="mono mt-4 rounded-lg bg-surface-secondary px-3 py-2 text-xs text-muted">/data</div>
-            <div className="mt-3 grid gap-2 text-xs text-muted">
-              <div className="flex items-center gap-2"><CheckCircle size={14} className="text-success" />{t('sqliteBackupBeforeUpdate')}</div>
-              <div className="flex items-center gap-2"><CheckCircle size={14} className="text-success" />{t('sqliteKeepFive')}</div>
-              <div className="flex items-center gap-2"><CheckCircle size={14} className="text-success" />{t('sqliteRollbackTogether')}</div>
-            </div>
-          </Card>
-
-          <Card data-gsap-reveal>
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex items-start gap-3">
-                <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-surface-secondary text-foreground"><Key size={15} /></div>
-                <div>
-                  <h3 className="font-semibold">{t('consoleKeyTitle')}</h3>
-                  <p className="mt-1 text-xs leading-5 text-muted">{t('consoleKeyHint')}</p>
-                </div>
-              </div>
-            </div>
-            <code className="mono mt-4 block rounded-lg bg-surface-secondary px-3 py-2 text-xs text-muted">{consoleKey?.prefix || '—'}</code>
-            <p className="mt-3 text-xs leading-5 text-muted">{t('consoleKeyLead')}</p>
-            <div className="mt-4 flex justify-end">
-              <Button size="sm" variant="ghost" isPending={consoleBusy} onPress={() => setRotateOpen(true)}>{t('consoleKeyRotate')}</Button>
-            </div>
-          </Card>
-
-        </div>
-      </div>
+          </div>
+        </Tabs.Panel>
+      </Tabs>
 
       <ConfirmDialog
         isOpen={Boolean(restoreTarget)}
