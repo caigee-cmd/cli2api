@@ -5,6 +5,7 @@ import { ProviderMark } from '@/components/ProviderMark'
 import { FormRow } from '@/components/ui/FormRow'
 import { CompactSwitch } from '@/components/ui/CompactSwitch'
 import { ModelPicker } from '@/components/account/ModelPicker'
+import { useCollapse } from '@/hooks/useCollapse'
 import { fetchModels } from '@/api/overview'
 import type { ModelInfo } from '@/api/types'
 import type { AccountRow } from '@/lib/account'
@@ -34,6 +35,7 @@ export function EditAccountModal({ account, checkinDefaultTime, checkinTimezone,
   const [aliasDraft, setAliasDraft] = useState({ alias: '', model: '' })
   const [restrictModels, setRestrictModels] = useState(Boolean(account?.models_restricted))
   const [enabledModels, setEnabledModels] = useState<string[]>(account?.enabled_models || [])
+  const { mounted: pickerMounted, outerRef: pickerOuterRef, innerRef: pickerInnerRef } = useCollapse(restrictModels)
   const [catalog, setCatalog] = useState<ModelInfo[] | null>(null)
   const [inheritCheckinTime, setInheritCheckinTime] = useState(!account?.checkin_time)
   const [checkinTime, setCheckinTime] = useState<string | null>(account?.checkin_time || null)
@@ -212,7 +214,9 @@ export function EditAccountModal({ account, checkinDefaultTime, checkinTimezone,
                     </div>
                     <CompactSwitch isSelected={restrictModels} isDisabled={busy} ariaLabel={t('restrictModels')} label={restrictModels ? t('restrictModels') : t('allModels')} onChange={setRestrictModels} />
                   </div>
-                  {restrictModels ? (
+                  {pickerMounted ? (
+                    <div ref={pickerOuterRef}>
+                    <div ref={pickerInnerRef}>
                     <ModelPicker
                       catalog={catalog ? catalog.map((model) => model.id) : null}
                       selected={enabledModels}
@@ -220,6 +224,8 @@ export function EditAccountModal({ account, checkinDefaultTime, checkinTimezone,
                       isDisabled={busy}
                       t={t}
                     />
+                    </div>
+                    </div>
                   ) : null}
                 </section>
                 {checkinDefaultTime !== undefined ? (
