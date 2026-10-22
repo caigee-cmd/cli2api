@@ -606,6 +606,18 @@ body {
   color: var(--muted);
 }
 
+/* Drill-down rows in the overview rankings: a quiet tone shift, no outline. */
+.rank-row {
+  transition: background-color 120ms ease;
+}
+.rank-row:hover {
+  background: color-mix(in oklch, var(--foreground) 3%, transparent);
+}
+.rank-row:focus-visible {
+  outline: none;
+  background: color-mix(in oklch, var(--foreground) 5%, transparent);
+}
+
 /* Icon tile used by metric cards and section headers. */
 .icon-tile {
   display: inline-grid;
@@ -681,4 +693,13 @@ h1, h2, h3 {
 .label,
 .field-label {
   font-weight: 500;
+}
+
+/* Recharts' accessibility layer focuses the chart on mousedown; the drag
+   selection already shows where you are, so no focus outline on the plot. */
+.recharts-wrapper:focus,
+.recharts-wrapper:focus-visible,
+.recharts-surface:focus,
+.recharts-surface:focus-visible {
+  outline: none;
 }

@@ -1,7 +1,7 @@
-import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import gsap from 'gsap'
-import { Link } from 'react-router-dom'
-import { Card, Chip } from '@heroui/react'
+import { Link, useNavigate } from 'react-router-dom'
+import { Button, Card, Chip, Tooltip } from '@heroui/react'
 import {
   ArrowUpRight,
   ChartLineUp,
@@ -11,6 +11,8 @@ import {
   Cube,
   Database,
   Lightning,
+  Pause,
+  Play,
   Prohibit,
   Pulse,
   Timer,
@@ -25,6 +27,7 @@ import { TrafficChartEmpty } from '@/components/overview/TrafficChartEmpty'
 
 const TrafficChart = lazy(() => import('@/components/overview/TrafficChart').then((mod) => ({ default: mod.TrafficChart })))
 import { FilterToggle } from '@/components/ui/FilterToggle'
+import { dateValueToISO, TimeRangePicker, type DateRangeValue } from '@/components/ui/TimeRangePicker'
 import { PageAlert } from '@/components/ui/PageAlert'
 import { OverviewPageSkeleton, RankListSkeleton, SkeletonBlock, TrafficChartSkeleton } from '@/components/ui/PageSkeletons'
 import { useI18n } from '@/hooks/useI18n'
@@ -35,7 +38,9 @@ import { accountProviderFamilyLabel, accountProviderLabel } from '@/lib/provider
 import { ProviderMark } from '@/components/ProviderMark'
 
 type AccountRow = NonNullable<Overview['accounts']>[number]
-type StatsWindow = 1 | 24 | 168
+type StatsWindow = '1' | '24' | '168' | '720' | 'custom'
+
+const STATS_REFRESH_MS = 30_000
 
 const EMPTY_STATS: RequestStats = {
   window: { from: '', to: '', hours: 24 },
@@ -50,6 +55,37 @@ const EMPTY_STATS: RequestStats = {
   series: [],
 }
 
+/** Stats query for a window. 30d and custom go through from/to: the backend only accepts hours=1|24|168. */
+function statsQuery(window: StatsWindow, custom: DateRangeValue | null) {
+  if (window === 'custom') {
+    const from = dateValueToISO(custom?.start)
+    const to = dateValueToISO(custom?.end, true)
+    return from && to ? { from, to } : null
+  }
+  if (window === '720') {
+    const to = new Date()
+    return { from: new Date(to.getTime() - 30 * 24 * 3600 * 1000).toISOString(), to: to.toISOString() }
+  }
+  return { hours: Number(window) }
+}
+
+/**
+ * /logs link with filters for a window. The logs picker is minute-granular and
+ * rounds the end up to :59.999, so the end is passed as the minute before its
+ * ceiling to keep the round trip exact.
+ */
+function logsHref(filters: Record<string, string | undefined>, from: string, to: string) {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(filters)) if (value) params.set(key, value)
+  const fromMs = Date.parse(from)
+  const toMs = Date.parse(to)
+  if (Number.isFinite(fromMs) && Number.isFinite(toMs)) {
+    params.set('from', new Date(Math.floor(fromMs / 60_000) * 60_000).toISOString())
+    params.set('to', new Date(Math.ceil(toMs / 60_000) * 60_000 - 60_000).toISOString())
+  }
+  return `/logs?${params}`
+}
+
 function familyLabel(provider: string | undefined, t: (key: string) => string) {
   if (!provider || provider === '(unknown)') return t('statsUnknown')
   return accountProviderFamilyLabel(provider, t)
@@ -59,6 +95,9 @@ function accountLabel(accounts: AccountRow[], id: string, unassigned: string) {
   if (!id || id === '(unassigned)') return unassigned
   return accounts.find((account) => account.id === id)?.name || id
 }
+
+// Error kinds the logs page can filter on (its error_kind select).
+const LOGS_ERROR_KINDS = new Set(['quota', 'rate_limit', 'auth', 'not_ready', 'unavailable', 'invalid_request', 'model_not_available'])
 
 function errorLabel(kind: string, t: (key: string) => string) {
   const keys: Record<string, string> = {
@@ -124,7 +163,10 @@ function quotaTone(percentage?: number, exceeded?: boolean) {
 export function OverviewPage() {
   const { lang, t } = useI18n()
   const { overview, loading, error } = useOverview()
-  const [hours, setHours] = useState<StatsWindow>(24)
+  const [statsWindow, setStatsWindow] = useState<StatsWindow>('24')
+  const [customRange, setCustomRange] = useState<DateRangeValue | null>(null)
+  const [paused, setPaused] = useState(false)
+  const navigate = useNavigate()
   const [stats, setStats] = useState<RequestStats | null>(null)
   const [statsError, setStatsError] = useState('')
   const [statsLoading, setStatsLoading] = useState(true)
@@ -167,26 +209,59 @@ export function OverviewPage() {
     return () => { cancelled = true }
   }, [])
 
-  useEffect(() => {
-    let cancelled = false
-    void fetchRequestStats({ hours })
+  const customFrom = customRange?.start?.toString() ?? ''
+  const customTo = customRange?.end?.toString() ?? ''
+  const statsRequestRef = useRef(0)
+  const loadStats = useCallback((quiet: boolean) => {
+    const query = statsQuery(statsWindow, customRange)
+    if (!query) {
+      setStatsLoading(false)
+      return
+    }
+    const version = ++statsRequestRef.current
+    void fetchRequestStats(query)
       .then((data) => {
-        if (cancelled) return
+        if (version !== statsRequestRef.current) return
         setStats(data)
         setStatsError('')
       })
       .catch((err) => {
-        if (cancelled) return
+        if (version !== statsRequestRef.current || quiet) return
         setStats(null)
         setStatsError(err instanceof Error ? err.message : String(err))
       })
       .finally(() => {
-        if (!cancelled) setStatsLoading(false)
+        if (version === statsRequestRef.current) setStatsLoading(false)
       })
-    return () => {
-      cancelled = true
+    // customRange is tracked through its string form.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statsWindow, customFrom, customTo])
+
+  useEffect(() => {
+    loadStats(false)
+    return () => { statsRequestRef.current++ }
+  }, [loadStats])
+
+  // Background refresh every 30s; skipped while paused or the tab is hidden,
+  // and caught up as soon as the tab becomes visible again.
+  useEffect(() => {
+    if (paused) return
+    let last = Date.now()
+    const tick = () => {
+      if (document.hidden) return
+      last = Date.now()
+      loadStats(true)
     }
-  }, [hours])
+    const timer = setInterval(tick, STATS_REFRESH_MS)
+    const onVisible = () => {
+      if (!document.hidden && Date.now() - last >= STATS_REFRESH_MS) tick()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [paused, loadStats])
 
   // Resource usage polls on its own 5s cadence; independent of the stats window.
   useEffect(() => {
@@ -216,7 +291,7 @@ export function OverviewPage() {
   const secondRate = sum(secondHalf, 'requests') ? sum(secondHalf, 'ok') / sum(secondHalf, 'requests') : null
   const successTrend = firstRate != null && secondRate != null ? secondRate - firstRate : null
   const metrics = [
-    { label: t('metricRequests'), value: traffic.totals.requests as number | null, kind: 'compact' as const, detail: t('statsWindowHint', { window: t(hours === 1 ? 'statsWindow1h' : hours === 168 ? 'statsWindow7d' : 'statsWindow24h') }), ok: traffic.totals.requests > 0, icon: <Pulse size={15} />, trend: requestTrend },
+    { label: t('metricRequests'), value: traffic.totals.requests as number | null, kind: 'compact' as const, detail: t('statsWindowHint', { window: t({ '1': 'statsWindow1h', '24': 'statsWindow24h', '168': 'statsWindow7d', '720': 'statsWindow30d', custom: 'statsWindowCustom' }[statsWindow]) }), ok: traffic.totals.requests > 0, icon: <Pulse size={15} />, trend: requestTrend },
     { label: t('metricSuccess'), value: traffic.totals.success_rate, kind: 'percent' as const, detail: `${traffic.totals.ok} ${t('logsFilterOk')} · ${traffic.totals.incomplete} ${t('logsFilterIncomplete')} · ${traffic.totals.error} ${t('logsFilterError')}`, ok: traffic.totals.requests === 0 || traffic.totals.success_rate >= 0.9, icon: <CheckCircle size={15} />, trend: successTrend },
     { label: t('metricLatency'), value: traffic.latency.p95_ms ?? traffic.latency.avg_ms, kind: 'ms' as const, detail: `p50 ${formatLatency(traffic.latency.p50_ms)} · avg ${formatLatency(traffic.latency.avg_ms)}`, ok: traffic.latency.p95_ms == null || traffic.latency.p95_ms < 8000, icon: <Timer size={15} />, trend: null as number | null },
     { label: t('metricTokens'), value: traffic.tokens.total, kind: 'compact' as const, detail: `${formatCompact(traffic.tokens.prompt)} / ${formatCompact(traffic.tokens.completion)}`, ok: true, icon: <Coins size={15} />, trend: null as number | null },
@@ -234,6 +309,8 @@ export function OverviewPage() {
     count: traffic.status.find((item) => item.key === key)?.count ?? traffic.totals[key] ?? 0,
   }))
 
+  const drill = (filters: Record<string, string>) => logsHref(filters, traffic.window.from, traffic.window.to)
+
   if (loading && !overview) return <OverviewPageSkeleton />
 
   return (
@@ -245,20 +322,48 @@ export function OverviewPage() {
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <FilterToggle
-            value={String(hours)}
+            value={statsWindow}
             onChange={(next) => {
-              const value = Number(next) as StatsWindow
-              if (hours === value) return
-              setStatsLoading(true)
-              setHours(value)
+              const value = next as StatsWindow
+              if (statsWindow === value) return
+              if (value !== 'custom' || customRange) setStatsLoading(true)
+              setStatsWindow(value)
             }}
             ariaLabel={t('statsTraffic')}
             options={[
               { id: '1', label: t('statsWindow1h') },
               { id: '24', label: t('statsWindow24h') },
               { id: '168', label: t('statsWindow7d') },
+              { id: '720', label: t('statsWindow30d') },
+              { id: 'custom', label: t('statsWindowCustom') },
             ]}
           />
+          {statsWindow === 'custom' ? (
+            <TimeRangePicker
+              className="w-[min(100%,24rem)]"
+              value={customRange}
+              onChange={(next) => {
+                if (next) setStatsLoading(true)
+                setCustomRange(next)
+              }}
+              ariaLabel={t('statsWindowCustom')}
+              fromLabel={t('logsTimeFrom')}
+              toLabel={t('logsTimeTo')}
+            />
+          ) : null}
+          <Tooltip delay={300}>
+            <Button
+              isIconOnly
+              size="sm"
+              variant="ghost"
+              aria-label={paused ? t('statsRefreshResume') : t('statsRefreshPause')}
+              aria-pressed={paused}
+              onPress={() => setPaused((value) => !value)}
+            >
+              {paused ? <Play size={14} /> : <Pause size={14} />}
+            </Button>
+            <Tooltip.Content>{paused ? t('statsRefreshPaused') : t('statsRefreshAuto')}</Tooltip.Content>
+          </Tooltip>
           <div className="text-left sm:text-right">
             <div className="mono text-caption text-muted">{overview?.time || '—'}</div>
             <div className="mt-1 inline-flex items-center gap-2 text-body font-medium">
@@ -331,6 +436,8 @@ export function OverviewPage() {
                   emptyLabel={t('statsEmptyTraffic')}
                   okLabel={t('logsFilterOk')}
                   errorLabel={t('logsFilterError')}
+                  selectHint={t('statsDragHint')}
+                  onSelectRange={(from, to) => navigate(logsHref({}, from, to))}
                 />
               </Suspense>
             ) : (
@@ -500,6 +607,7 @@ export function OverviewPage() {
                 key: item.key,
                 label: item.key === '(unknown)' ? t('statsUnknown') : item.key,
                 count: item.count,
+                href: item.key === '(unknown)' ? undefined : drill({ model: item.key }),
                 meta: item.latency_avg_ms != null ? formatLatency(item.latency_avg_ms) : `${item.ok}/${item.count}`,
               }))}
             />
@@ -527,6 +635,7 @@ export function OverviewPage() {
                   key: item.key,
                   label: errorLabel(item.key, t),
                   count: item.count,
+                  href: LOGS_ERROR_KINDS.has(item.key) ? drill({ error_kind: item.key }) : undefined,
                 }))}
               />
               <div className="border-t border-separator px-5 pt-3 text-caption font-medium text-muted">{t('statsTopAccounts')}</div>
@@ -536,6 +645,7 @@ export function OverviewPage() {
                   key: item.key,
                   label: accountLabel(accounts, item.key, t('statsUnassigned')),
                   count: item.count,
+                  href: !item.key || item.key === '(unassigned)' ? undefined : drill({ account: item.key }),
                   meta: `${item.ok}/${item.count}`,
                 }))}
               />
@@ -619,7 +729,7 @@ function RankList({
   empty,
   danger,
 }: {
-  items: Array<{ key: string; label: string; count: number; meta?: string; mark?: string }>
+  items: Array<{ key: string; label: string; count: number; meta?: string; mark?: string; href?: string }>
   empty: string
   danger?: boolean
 }) {
@@ -655,26 +765,35 @@ function RankList({
   }
   return (
     <div ref={rootRef} className="divide-y divide-separator">
-      {items.map((item) => (
-        <div key={item.key} className="px-5 py-3">
-          <div className="flex items-baseline justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-2">
-              {item.mark ? <ProviderMark provider={item.mark} size={14} /> : null}
-              <div className="truncate text-body font-medium">{item.label}</div>
+      {items.map((item) => {
+        const body = (
+          <>
+            <div className="flex items-baseline justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-2">
+                {item.mark ? <ProviderMark provider={item.mark} size={14} /> : null}
+                <div className="truncate text-body font-medium">{item.label}</div>
+              </div>
+              <div className="mono shrink-0 text-caption text-muted">
+                {item.meta ? `${item.count} · ${item.meta}` : item.count}
+              </div>
             </div>
-            <div className="mono shrink-0 text-caption text-muted">
-              {item.meta ? `${item.count} · ${item.meta}` : item.count}
+            <div className="mt-2 h-1 overflow-hidden rounded-[2px] bg-separator">
+              <div
+                data-rank-fill
+                className={`h-full origin-left rounded-[2px] ${danger ? 'bg-danger' : 'bg-success'}`}
+                style={{ width: `${Math.max(6, (item.count / peak) * 100)}%` }}
+              />
             </div>
-          </div>
-          <div className="mt-2 h-1 overflow-hidden rounded-[2px] bg-separator">
-            <div
-              data-rank-fill
-              className={`h-full origin-left rounded-[2px] ${danger ? 'bg-danger' : 'bg-success'}`}
-              style={{ width: `${Math.max(6, (item.count / peak) * 100)}%` }}
-            />
-          </div>
-        </div>
-      ))}
+          </>
+        )
+        return item.href ? (
+          <Link key={item.key} to={item.href} className="rank-row block px-5 py-3" title={item.label}>
+            {body}
+          </Link>
+        ) : (
+          <div key={item.key} className="px-5 py-3">{body}</div>
+        )
+      })}
     </div>
   )
 }
