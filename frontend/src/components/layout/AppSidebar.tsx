@@ -51,7 +51,7 @@ function NavList({ collapsed, onNavigate }: { collapsed: boolean; onNavigate?: (
     const activeRect = active.getBoundingClientRect()
     gsap.to(indicator, {
       x: activeRect.left - navRect.left,
-      y: activeRect.top - navRect.top + activeRect.height / 2 - 8,
+      y: activeRect.top - navRect.top + activeRect.height / 2 - 9,
       autoAlpha: 1,
       scaleY: 1,
       duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 0.28,
@@ -63,13 +63,13 @@ function NavList({ collapsed, onNavigate }: { collapsed: boolean; onNavigate?: (
 
   return (
     <nav ref={navRef} className="relative flex flex-col gap-5">
-      <span ref={indicatorRef} aria-hidden className="pointer-events-none absolute left-0 top-0 h-4 w-0.5 origin-center rounded-full bg-accent opacity-0" />
+      <span ref={indicatorRef} aria-hidden className="pointer-events-none absolute left-0 top-0 h-[18px] w-0.5 origin-center rounded-full bg-accent opacity-0" />
       {groups.map((group) => (
         <div key={group.key} className="flex flex-col gap-0.5">
           {collapsed ? (
             <Separator className="mx-auto mb-1 w-6" />
           ) : (
-            <span className="px-3 pb-1 text-xs font-medium text-muted">{group.label}</span>
+            <span className="px-3 pb-1 text-caption font-medium text-muted">{group.label}</span>
           )}
           {nav.filter((item) => item.section === group.key).map((item) => {
             const Icon = item.icon
@@ -81,12 +81,12 @@ function NavList({ collapsed, onNavigate }: { collapsed: boolean; onNavigate?: (
                 onClick={onNavigate}
                 aria-label={t(item.key)}
                 title={collapsed ? t(item.key) : undefined}
-                className={({ isActive }) => `group/navitem relative flex items-center gap-2.5 rounded-lg py-1.5 text-body transition-colors will-change-transform ${collapsed ? 'mx-auto w-10 justify-center px-0' : 'px-3'} ${isActive ? 'bg-default font-medium text-foreground' : 'font-normal text-muted hover:bg-default hover:text-foreground'}`}
+                className={({ isActive }) => `group/navitem relative flex h-9 items-center gap-3 rounded-lg text-nav transition-colors will-change-transform ${collapsed ? 'mx-auto w-10 justify-center px-0' : 'px-3'} ${isActive ? 'bg-default font-medium text-foreground' : 'font-normal text-muted hover:bg-default hover:text-foreground'}`}
                 onMouseDown={(event) => pressScale(event.currentTarget)}
               >
                 {({ isActive }) => (
                   <>
-                    <span className="inline-flex shrink-0" data-nav-icon><Icon size={16} weight={isActive ? 'fill' : 'regular'} /></span>
+                    <span className="inline-flex shrink-0" data-nav-icon><Icon size={18} weight={isActive ? 'fill' : 'regular'} /></span>
                     {!collapsed && <span className="truncate" data-nav-label>{t(item.key)}</span>}
                     {collapsed && <span className="pointer-events-none absolute left-full z-50 ml-2 invisible whitespace-nowrap rounded-lg bg-foreground px-2 py-1 text-xs font-medium text-background opacity-0 shadow-overlay transition-opacity duration-150 group-hover/navitem:visible group-hover/navitem:opacity-100">{t(item.key)}</span>}
                   </>
@@ -104,8 +104,8 @@ function Brand({ compact = false }: { compact?: boolean }) {
   const { t } = useI18n()
   return (
     <div className={`flex items-center gap-3 ${compact ? 'justify-center' : 'px-2'}`}>
-      <BrandMark size={32} />
-      {!compact && <div><div className="text-body font-semibold">CLI2API</div><div className="text-caption text-muted">{t('controlPlane')}</div></div>}
+      <BrandMark size={34} />
+      {!compact && <div><div className="text-nav font-semibold">CLI2API</div><div className="text-xs text-muted">{t('controlPlane')}</div></div>}
     </div>
   )
 }
@@ -159,9 +159,9 @@ export function AppSidebar({ mobileOpen, onClose }: Props) {
         showStatusSkeleton ? (
           <SidebarStatusSkeleton label={t('refreshing')} />
         ) : (
-          <div className="rounded-xl bg-surface shadow-surface p-3">
+          <div className="rounded-xl bg-surface shadow-surface p-3.5">
             <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2 text-body font-medium">
+              <div className="flex items-center gap-2 text-nav font-medium">
                 <span className="status-dot" data-state={healthy ? 'ok' : 'danger'} />
                 {healthy ? t('running') : t('degraded')}
               </div>
@@ -198,7 +198,7 @@ export function AppSidebar({ mobileOpen, onClose }: Props) {
 
   return (
     <>
-      <aside className={`hidden h-dvh shrink-0 flex-col bg-surface-secondary text-foreground transition-[width] duration-300 ease-out md:flex ${collapsed ? 'w-[76px] px-2.5 py-4' : 'w-[248px] px-3 py-4'}`}>
+      <aside className={`hidden h-dvh shrink-0 flex-col bg-surface-secondary text-foreground transition-[width] duration-300 ease-out md:flex ${collapsed ? 'w-[76px] px-2.5 py-4' : 'w-[240px] px-3 py-4'}`}>
         <div className={`flex h-9 shrink-0 items-center ${collapsed ? 'justify-center' : 'justify-start'}`}><Brand compact={collapsed} /></div>
         <div className="mt-5 min-h-0 flex-1 overflow-y-auto overscroll-contain"><NavList collapsed={collapsed} /></div>
         {footer}
