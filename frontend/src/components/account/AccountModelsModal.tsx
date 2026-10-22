@@ -82,7 +82,7 @@ export function AccountModelsModal({ account, t, onClose }: Props) {
             <Modal.Header className="items-start justify-between gap-4 px-5 pt-5">
               <div className="min-w-0">
                 <Modal.Heading className="text-section font-semibold">{title}</Modal.Heading>
-                <p className="mt-1 text-xs font-normal leading-5 text-muted">{t('accountModelsHint')}</p>
+                <p className="mt-1 text-caption font-normal leading-5 text-muted">{t('accountModelsHint')}</p>
                 {account ? (
                   <div className="mt-2 flex flex-wrap items-center gap-2 text-caption text-muted">
                     <ProviderMark provider={account.provider} size={14} />
@@ -147,7 +147,7 @@ export function AccountModelsModal({ account, t, onClose }: Props) {
               )}
             </Modal.Body>
             <Modal.Footer className="justify-between px-5 pb-5">
-              <span className="mono text-xs text-muted">
+              <span className="mono text-caption text-muted">
                 {loading ? t('refreshing') : t('shownTotal', { shown: models.length, total: models.length })}
               </span>
               <div className="flex items-center gap-2">

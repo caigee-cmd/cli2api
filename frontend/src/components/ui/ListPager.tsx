@@ -49,7 +49,7 @@ export function ListPager({
   return (
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex items-center gap-2">
-        <span className="text-xs text-muted">{pageSizeLabel}</span>
+        <span className="text-caption text-muted">{pageSizeLabel}</span>
         <ToggleButtonGroup
           size="sm"
           selectionMode="single"

@@ -63,7 +63,7 @@ export function AccountCheckinRecordsModal({ account, t, onClose }: Props) {
             <Modal.Header className="items-start justify-between gap-4 px-5 pt-5">
               <div className="min-w-0">
                 <Modal.Heading className="text-section font-semibold">{title}</Modal.Heading>
-                <p className="mt-1 text-xs leading-5 text-muted">{t('checkinRecordsHint')}</p>
+                <p className="mt-1 text-caption leading-5 text-muted">{t('checkinRecordsHint')}</p>
               </div>
               <Modal.CloseTrigger aria-label={t('close')} className="grid size-8 shrink-0 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-secondary hover:text-foreground">
                 <X size={16} />
@@ -78,7 +78,7 @@ export function AccountCheckinRecordsModal({ account, t, onClose }: Props) {
                   <SkeletonBlock className="h-16 w-full" />
                 </div>
               ) : records.length ? (
-                <div className="divide-y divide-separator overflow-hidden rounded-2xl bg-surface-secondary">
+                <div className="divide-y divide-separator overflow-hidden rounded-lg bg-surface-secondary">
                   {records.map((record) => {
                     const status = recordStatus(record, t)
                     return (
@@ -89,7 +89,7 @@ export function AccountCheckinRecordsModal({ account, t, onClose }: Props) {
                             <Chip size="sm" variant="soft" color={status.color}>{status.label}</Chip>
                             <span className="mono text-caption text-muted">{formatRecordTime(record.created_at)}</span>
                           </div>
-                          <p className="mt-1 break-words text-xs leading-5 text-foreground/75">{record.message || '—'}</p>
+                          <p className="mt-1 break-words text-caption leading-5 text-foreground/75">{record.message || '—'}</p>
                         </div>
                       </div>
                     )
@@ -104,7 +104,7 @@ export function AccountCheckinRecordsModal({ account, t, onClose }: Props) {
               )}
             </Modal.Body>
             <Modal.Footer className="justify-between px-5 pb-5">
-              <span className="mono text-xs text-muted">{t('checkinRecordsCount', { count: records.length })}</span>
+              <span className="mono text-caption text-muted">{t('checkinRecordsCount', { count: records.length })}</span>
               <div className="flex items-center gap-2">
                 <Button size="sm" variant="ghost" onPress={onClose}>{t('close')}</Button>
                 <Button size="sm" variant="secondary" isPending={loading} onPress={() => void load()}>

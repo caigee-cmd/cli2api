@@ -32,7 +32,7 @@ export function EndpointList({ access }: EndpointListProps) {
             <h3 className="font-semibold">{t('endpoints')}</h3>
             <Chip size="sm" variant="soft">{t('endpointCount', { count: endpoints.length - 1 })}</Chip>
           </div>
-          <p className="mt-1 text-xs leading-5 text-muted">{t('routesHint')}</p>
+          <p className="mt-1 text-caption leading-5 text-muted">{t('routesHint')}</p>
         </div>
       </div>
       <div className="grid gap-2.5 p-3 sm:grid-cols-2 sm:p-4 lg:grid-cols-3">
@@ -48,7 +48,7 @@ export function EndpointList({ access }: EndpointListProps) {
               </div>
               <Chip size="sm" variant="soft">{item.method}</Chip>
             </div>
-            <p className="mt-2 min-h-0 text-xs leading-5 text-muted">{item.hint}</p>
+            <p className="mt-2 min-h-0 text-caption leading-5 text-muted">{item.hint}</p>
             <div className="mt-2 flex items-center justify-between gap-2 pt-2">
               <span className="text-caption font-medium text-muted">{item.method === 'BASE' ? t('endpointBaseLabel') : t('endpointAuthLabel')}</span>
               <div className="flex gap-1">

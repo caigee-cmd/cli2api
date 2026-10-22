@@ -19,7 +19,7 @@ export function EmptyPanel({
       <div className="max-w-sm">
         {icon ? <div className="mb-3 flex justify-center text-muted">{icon}</div> : null}
         <EmptyState className="p-0 text-body font-medium text-foreground">{title}</EmptyState>
-        {hint ? <p className="mt-1 text-xs leading-5 text-muted">{hint}</p> : null}
+        {hint ? <p className="mt-1 text-caption leading-5 text-muted">{hint}</p> : null}
         {action ? <div className="mt-5 flex justify-center">{action}</div> : null}
       </div>
     </div>

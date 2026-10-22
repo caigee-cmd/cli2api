@@ -23,9 +23,11 @@
   --text-nav--line-height: 1.25rem;
   --text-body: 0.8125rem;
   --text-body--line-height: 1.25rem;
-  --text-xs: 0.75rem;
+  /* xs is kept as an alias of caption so HeroUI internals and older call
+     sites land on the same 12 px step instead of a third tiny size. */
+  --text-xs: var(--text-caption);
   --text-xs--line-height: 1rem;
-  --text-caption: 0.6875rem;
+  --text-caption: 0.75rem;
   --text-caption--line-height: 1rem;
 }
 
