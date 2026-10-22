@@ -1,5 +1,4 @@
 import { lazy, Suspense } from 'react'
-import { Pulse } from '@phosphor-icons/react'
 import type { LiveSnapshot } from '@/api/live'
 import type { LiveSample } from '@/hooks/useLive'
 
@@ -18,8 +17,7 @@ export function LiveStrip({ live, samples, t }: { live: LiveSnapshot | null; sam
       data-testid="live-strip"
       className="flex h-11 flex-wrap items-center gap-x-6 gap-y-1 overflow-hidden rounded-lg bg-surface-secondary px-4 text-caption text-muted"
     >
-      <span className="inline-flex items-center gap-1.5">
-        <Pulse size={12} />
+      <span className="inline-flex items-center">
         <span className="status-dot" data-state={inFlight == null ? '' : saturated ? 'warn' : inFlight > 0 ? 'ok' : ''} />
       </span>
       <span className="inline-flex items-center gap-2">

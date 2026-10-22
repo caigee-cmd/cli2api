@@ -5,17 +5,8 @@ import { Button, Card, Chip, Tooltip } from '@heroui/react'
 import {
   ArrowUpRight,
   ChartLineUp,
-  CheckCircle,
-  Coins,
-  Cpu,
-  Cube,
-  Database,
-  Lightning,
   Pause,
   Play,
-  Prohibit,
-  Pulse,
-  Timer,
   TrendDown,
   TrendUp,
 } from '@phosphor-icons/react'
@@ -265,18 +256,18 @@ export function OverviewPage() {
   const secondRate = sum(secondHalf, 'requests') ? sum(secondHalf, 'ok') / sum(secondHalf, 'requests') : null
   const successTrend = firstRate != null && secondRate != null ? secondRate - firstRate : null
   const metrics = [
-    { label: t('metricRequests'), value: traffic.totals.requests as number | null, kind: 'compact' as const, detail: t('statsWindowHint', { window: t(STATS_WINDOW_LABEL[statsWindow]) }), ok: traffic.totals.requests > 0, icon: <Pulse size={15} />, trend: requestTrend },
-    { label: t('metricSuccess'), value: traffic.totals.success_rate, kind: 'percent' as const, detail: `${traffic.totals.ok} ${t('logsFilterOk')} · ${traffic.totals.incomplete} ${t('logsFilterIncomplete')} · ${traffic.totals.error} ${t('logsFilterError')}`, ok: traffic.totals.requests === 0 || traffic.totals.success_rate >= 0.9, icon: <CheckCircle size={15} />, trend: successTrend },
-    { label: t('metricLatency'), value: traffic.latency.p95_ms ?? traffic.latency.avg_ms, kind: 'ms' as const, detail: `p50 ${formatLatency(traffic.latency.p50_ms)} · avg ${formatLatency(traffic.latency.avg_ms)}`, ok: traffic.latency.p95_ms == null || traffic.latency.p95_ms < 8000, icon: <Timer size={15} />, trend: null as number | null },
-    { label: t('metricTokens'), value: traffic.tokens.total, kind: 'compact' as const, detail: `${formatCompact(traffic.tokens.prompt)} / ${formatCompact(traffic.tokens.completion)}`, ok: true, icon: <Coins size={15} />, trend: null as number | null },
+    { label: t('metricRequests'), value: traffic.totals.requests as number | null, kind: 'compact' as const, detail: t('statsWindowHint', { window: t(STATS_WINDOW_LABEL[statsWindow]) }), ok: traffic.totals.requests > 0, trend: requestTrend },
+    { label: t('metricSuccess'), value: traffic.totals.success_rate, kind: 'percent' as const, detail: `${traffic.totals.ok} ${t('logsFilterOk')} · ${traffic.totals.incomplete} ${t('logsFilterIncomplete')} · ${traffic.totals.error} ${t('logsFilterError')}`, ok: traffic.totals.requests === 0 || traffic.totals.success_rate >= 0.9, trend: successTrend },
+    { label: t('metricLatency'), value: traffic.latency.p95_ms ?? traffic.latency.avg_ms, kind: 'ms' as const, detail: `p50 ${formatLatency(traffic.latency.p50_ms)} · avg ${formatLatency(traffic.latency.avg_ms)}`, ok: traffic.latency.p95_ms == null || traffic.latency.p95_ms < 8000, trend: null as number | null },
+    { label: t('metricTokens'), value: traffic.tokens.total, kind: 'compact' as const, detail: `${formatCompact(traffic.tokens.prompt)} / ${formatCompact(traffic.tokens.completion)}`, ok: true, trend: null as number | null },
   ]
 
   const cacheHitRate = ratio(traffic.tokens.cache_read, traffic.tokens.prompt)
   const streamingShare = ratio(traffic.totals.streaming, traffic.totals.requests)
   const secondaryMetrics = [
-    { label: t('metricCacheHit'), value: cacheHitRate, kind: 'percent' as const, detail: t('metricCacheHitDetail', { read: formatCompact(traffic.tokens.cache_read), prompt: formatCompact(traffic.tokens.prompt) }), icon: <Database size={15} /> },
-    { label: t('metricStreaming'), value: streamingShare, kind: 'percent' as const, detail: t('metricStreamingDetail', { count: traffic.totals.streaming, total: traffic.totals.requests }), icon: <Lightning size={15} /> },
-    { label: t('metricCanceled'), value: traffic.totals.canceled as number | null, kind: 'int' as const, detail: t('metricCanceledDetail', { rate: formatPercent(ratio(traffic.totals.canceled, traffic.totals.requests) ?? 0) }), icon: <Prohibit size={15} /> },
+    { label: t('metricCacheHit'), value: cacheHitRate, kind: 'percent' as const, detail: t('metricCacheHitDetail', { read: formatCompact(traffic.tokens.cache_read), prompt: formatCompact(traffic.tokens.prompt) }) },
+    { label: t('metricStreaming'), value: streamingShare, kind: 'percent' as const, detail: t('metricStreamingDetail', { count: traffic.totals.streaming, total: traffic.totals.requests }) },
+    { label: t('metricCanceled'), value: traffic.totals.canceled as number | null, kind: 'int' as const, detail: t('metricCanceledDetail', { rate: formatPercent(ratio(traffic.totals.canceled, traffic.totals.requests) ?? 0) }) },
   ]
   const statusCounts = STATUS_ORDER.map((key) => ({
     key,
@@ -333,11 +324,10 @@ export function OverviewPage() {
       <section data-gsap-reveal className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {metrics.map((metric) => (
           <Card key={metric.label} className="gap-0 p-3.5">
-            <div className="flex items-start justify-between gap-3">
-              <span className="icon-tile">{metric.icon}</span>
-              <span className="status-dot mt-1" data-state={metric.ok ? 'ok' : 'danger'} />
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-body text-muted">{metric.label}</div>
+              <span className="status-dot" data-state={metric.ok ? 'ok' : 'danger'} />
             </div>
-            <div className="mt-2 text-body text-muted">{metric.label}</div>
             <div className="mt-1.5 flex flex-wrap items-center gap-2">
               <div className="tabular text-metric font-medium leading-none">
                 {statsLoading ? <SkeletonBlock className="h-7 w-24" /> : metric.value == null ? '—' : <CountUp value={metric.value} kind={metric.kind} />}
@@ -353,7 +343,6 @@ export function OverviewPage() {
         {secondaryMetrics.map((metric) => (
           <Card key={metric.label} className="gap-0 p-3.5">
             <div className="flex items-center gap-3">
-              <span className="icon-tile shrink-0">{metric.icon}</span>
               <div className="min-w-0 flex-1">
                 <div className="text-body text-muted">{metric.label}</div>
                 <div className="mono mt-0.5 truncate text-caption text-muted">{statsLoading ? <SkeletonBlock className="h-3 w-28" /> : metric.detail}</div>
@@ -546,7 +535,6 @@ export function OverviewPage() {
               <h3 className="font-semibold">{t('statsTopProviders')}</h3>
               <p className="mt-0.5 text-caption text-muted">{t('statsTopProvidersHint')}</p>
             </div>
-            <Pulse size={15} className="text-muted" />
           </div>
           {statsLoading ? (
             <RankListSkeleton />
@@ -570,7 +558,6 @@ export function OverviewPage() {
               <h3 className="font-semibold">{t('statsTopModels')}</h3>
               <p className="mt-0.5 text-caption text-muted">{t('providerCatalog')}</p>
             </div>
-            <Cube size={15} className="text-muted" />
           </div>
           {statsLoading ? (
             <RankListSkeleton rows={4} />
@@ -594,7 +581,6 @@ export function OverviewPage() {
               <h3 className="font-semibold">{t('statsStatusMix')}</h3>
               <p className="mt-0.5 text-caption text-muted">{t('statsStatusMixHint')}</p>
             </div>
-            <Pulse size={15} className="text-muted" />
           </div>
           {statsLoading ? (
             <RankListSkeleton rows={4} />
@@ -689,8 +675,7 @@ function ResourcesCard({ resources, t }: { resources: SystemResources | null; t:
       </div>
       <div className="flex items-center justify-between border-t border-separator px-4 py-2.5 text-caption text-muted">
         <span className="mono">{server?.goroutines ?? 0} {t('resGoroutines')}</span>
-        <span className="mono inline-flex items-center gap-1">
-          <Cpu size={11} />
+        <span className="mono">
           {resources?.sampled_at ? new Date(resources.sampled_at).toLocaleTimeString() : '—'}
         </span>
       </div>

@@ -619,19 +619,6 @@ body {
 }
 
 /* Icon tile used by metric cards and section headers. */
-.icon-tile {
-  display: inline-grid;
-  place-items: center;
-  width: 1.5rem;
-  height: 1.5rem;
-  border-radius: calc(var(--radius) - 2px);
-  background: var(--surface-tertiary);
-  color: var(--muted);
-  box-shadow:
-    inset 0 1px 0 var(--tile-rim),
-    inset 0 -1px 0 var(--tile-under);
-}
-
 /* Header toolbar: a flat hairline group instead of a floating pill. */
 @layer components {
   .toolbar--attached {
