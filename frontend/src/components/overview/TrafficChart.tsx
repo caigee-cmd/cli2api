@@ -13,6 +13,7 @@ import {
 import type { RequestStatsPoint } from '@/api/logs'
 import { TrafficChartEmpty } from '@/components/overview/TrafficChartEmpty'
 import { formatCompact } from '@/lib/format'
+import { TYPE_SCALE_PX } from '@/lib/typeScale'
 
 function hourLabel(value: string, daily: boolean, lang: 'en' | 'zh') {
   const date = new Date(value)
@@ -198,7 +199,7 @@ export function TrafficChart({
               tickLine={false}
               axisLine={false}
               minTickGap={28}
-              tick={{ fill: 'var(--muted)', fontSize: 11, fontFamily: 'var(--font-mono)' }}
+              tick={{ fill: 'var(--muted)', fontSize: TYPE_SCALE_PX.caption, fontFamily: 'var(--font-mono)' }}
               tickFormatter={(value: string) => hourLabel(value, daily, lang)}
             />
             <YAxis
@@ -207,7 +208,7 @@ export function TrafficChart({
               tickLine={false}
               axisLine={false}
               allowDecimals={false}
-              tick={{ fill: 'var(--muted)', fontSize: 11, fontFamily: 'var(--font-mono)' }}
+              tick={{ fill: 'var(--muted)', fontSize: TYPE_SCALE_PX.caption, fontFamily: 'var(--font-mono)' }}
               tickFormatter={(value: number) => formatCompact(value)}
             />
             <Tooltip

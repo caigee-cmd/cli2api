@@ -86,7 +86,7 @@ export function LoginPage() {
             <h1 data-gsap-reveal className="max-w-3xl text-[clamp(2.25rem,4vw,3.6rem)] font-semibold leading-[0.98] tracking-[-0.045em] text-balance">
               {t('loginTitle')}
             </h1>
-            <p data-gsap-reveal className="mt-6 max-w-xl text-base leading-7 text-muted sm:text-lg">{t('loginLead')}</p>
+            <p data-gsap-reveal className="mt-6 max-w-xl text-section font-normal text-muted sm:text-title sm:font-normal">{t('loginLead')}</p>
 
             <p data-gsap-reveal className="mt-10 max-w-xl pt-5 text-body leading-6 text-muted">
               {t('loginHint')}

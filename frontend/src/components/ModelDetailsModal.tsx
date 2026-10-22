@@ -40,7 +40,7 @@ export function ModelDetailsModal({ model, t, onClose }: Props) {
             <Modal.Header className="items-start justify-between gap-4 px-5 pt-5">
               <div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <div className="text-base font-semibold">{model.display_name || model.id}</div>
+                  <div className="text-section">{model.display_name || model.id}</div>
                   {free ? <Chip size="sm" variant="soft" color="success">{t('modelFree')}</Chip> : null}
                 </div>
                 <div className="mono mt-1 text-caption text-muted">{model.id}</div>
