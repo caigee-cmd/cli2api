@@ -1,20 +1,14 @@
 import { toast } from '@/lib/toast'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { getLocalTimeZone, type DateValue } from '@internationalized/date'
+import { useSearchParams } from 'react-router-dom'
 import {
   Button,
   Card,
   Chip,
-  DateField,
-  DateRangePicker,
-  Label,
   Modal,
-  RangeCalendar,
   Tab,
   Table,
   Tabs,
-  TimeField,
-  type TimeValue,
 } from '@heroui/react'
 import {
   ArrowClockwise,
@@ -43,6 +37,7 @@ import { ListPager, type PageSize } from '@/components/ui/ListPager'
 import { PageAlert } from '@/components/ui/PageAlert'
 import { LogsPageSkeleton, LogsRequestListSkeleton, LogsRuntimeListSkeleton, SkeletonBlock } from '@/components/ui/PageSkeletons'
 import { SearchBar } from '@/components/ui/SearchBar'
+import { dateValueToISO, isoToDateValue, TimeRangePicker, type DateRangeValue } from '@/components/ui/TimeRangePicker'
 import { useI18n } from '@/hooks/useI18n'
 import { accountProviderLabel } from '@/lib/provider'
 
@@ -52,8 +47,6 @@ type RuntimeFilter = 'all' | 'info' | 'warn' | 'error'
 type StreamFilter = 'all' | 'stream' | 'sync'
 type TimeRange = 'all' | '1h' | '24h' | '7d' | 'custom'
 type ErrorKindFilter = 'all' | 'quota' | 'rate_limit' | 'auth' | 'not_ready' | 'unavailable' | 'invalid_request' | 'model_not_available'
-
-type DateRangeValue = { start: DateValue; end: DateValue }
 
 function statusColor(status?: string): 'success' | 'warning' | 'danger' | 'default' {
   if (status === 'ok') return 'success'
@@ -167,12 +160,58 @@ function formatCredit(value?: number | null) {
   return String(Math.round(value * 10000) / 10000)
 }
 
-function dateValueToISO(value: DateValue | null | undefined, endOfMinute = false) {
-  if (!value) return undefined
-  const date = value.toDate(getLocalTimeZone())
-  if (!Number.isFinite(date.getTime())) return undefined
-  if (endOfMinute) date.setSeconds(59, 999)
-  return date.toISOString()
+const REQUEST_FILTERS: RequestFilter[] = ['all', 'ok', 'incomplete', 'error', 'canceled']
+const ERROR_KINDS: ErrorKindFilter[] = ['all', 'quota', 'rate_limit', 'auth', 'not_ready', 'unavailable', 'invalid_request', 'model_not_available']
+const TIME_RANGES: TimeRange[] = ['all', '1h', '24h', '7d', 'custom']
+
+type UrlFilters = {
+  requestFilter: RequestFilter
+  requestId: string
+  accountFilter: string
+  modelFilter: string
+  streamFilter: StreamFilter
+  errorKind: ErrorKindFilter
+  timeRange: TimeRange
+  customRange: DateRangeValue | null
+}
+
+/** Request-log filters from the URL (?status=&account=&model=&error_kind=&stream=&id=&range=&from=&to=). */
+function parseLogsUrl(params: URLSearchParams): UrlFilters {
+  const pick = <T extends string>(value: string | null, allowed: T[], fallback: T) =>
+    (allowed as string[]).includes(value ?? '') ? (value as T) : fallback
+  const start = isoToDateValue(params.get('from'))
+  const end = isoToDateValue(params.get('to'))
+  const custom = start && end ? { start, end } : null
+  const stream = params.get('stream')
+  return {
+    requestFilter: pick(params.get('status'), REQUEST_FILTERS, 'all'),
+    requestId: params.get('id') ?? '',
+    accountFilter: params.get('account') ?? '',
+    modelFilter: params.get('model') ?? '',
+    streamFilter: stream === 'stream' || stream === 'true' ? 'stream' : stream === 'sync' || stream === 'false' ? 'sync' : 'all',
+    errorKind: pick(params.get('error_kind'), ERROR_KINDS, 'all'),
+    timeRange: custom ? 'custom' : pick(params.get('range'), TIME_RANGES, '1h'),
+    customRange: custom,
+  }
+}
+
+function buildLogsUrl(filters: UrlFilters) {
+  const params = new URLSearchParams()
+  if (filters.requestFilter !== 'all') params.set('status', filters.requestFilter)
+  if (filters.requestId) params.set('id', filters.requestId)
+  if (filters.accountFilter) params.set('account', filters.accountFilter)
+  if (filters.modelFilter) params.set('model', filters.modelFilter)
+  if (filters.streamFilter !== 'all') params.set('stream', filters.streamFilter)
+  if (filters.errorKind !== 'all') params.set('error_kind', filters.errorKind)
+  const from = filters.timeRange === 'custom' ? dateValueToISO(filters.customRange?.start) : undefined
+  const to = filters.timeRange === 'custom' ? dateValueToISO(filters.customRange?.end, true) : undefined
+  if (from && to) {
+    params.set('from', from)
+    params.set('to', to)
+  } else if (filters.timeRange !== '1h') {
+    params.set('range', filters.timeRange)
+  }
+  return params.toString()
 }
 
 function rangeFromPreset(preset: TimeRange) {
@@ -187,23 +226,25 @@ function rangeFromPreset(preset: TimeRange) {
 
 export function LogsPage() {
   const { t, lang } = useI18n()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [initialUrl] = useState(() => parseLogsUrl(new URLSearchParams(window.location.search)))
   const [accounts, setAccounts] = useState<NonNullable<Overview['accounts']>>([])
   const [models, setModels] = useState<NonNullable<Overview['models']>>([])
   const [tab, setTab] = useState<PageTab>('requests')
   const [loading, setLoading] = useState(true)
   const [booted, setBooted] = useState(false)
   const [error, setError] = useState('')
-  const [requestFilter, setRequestFilter] = useState<RequestFilter>('all')
+  const [requestFilter, setRequestFilter] = useState<RequestFilter>(initialUrl.requestFilter)
   const [runtimeFilter, setRuntimeFilter] = useState<RuntimeFilter>('all')
-  const [requestId, setRequestId] = useState('')
+  const [requestId, setRequestId] = useState(initialUrl.requestId)
   const [runtimeQuery, setRuntimeQuery] = useState('')
-  const [accountFilter, setAccountFilter] = useState('')
+  const [accountFilter, setAccountFilter] = useState(initialUrl.accountFilter)
   const [runtimeAccount, setRuntimeAccount] = useState('')
-  const [modelFilter, setModelFilter] = useState('')
-  const [streamFilter, setStreamFilter] = useState<StreamFilter>('all')
-  const [errorKind, setErrorKind] = useState<ErrorKindFilter>('all')
-  const [timeRange, setTimeRange] = useState<TimeRange>('1h')
-  const [customRange, setCustomRange] = useState<DateRangeValue | null>(null)
+  const [modelFilter, setModelFilter] = useState(initialUrl.modelFilter)
+  const [streamFilter, setStreamFilter] = useState<StreamFilter>(initialUrl.streamFilter)
+  const [errorKind, setErrorKind] = useState<ErrorKindFilter>(initialUrl.errorKind)
+  const [timeRange, setTimeRange] = useState<TimeRange>(initialUrl.timeRange)
+  const [customRange, setCustomRange] = useState<DateRangeValue | null>(initialUrl.customRange)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState<PageSize>(50)
   const [runtimePage, setRuntimePage] = useState(1)
@@ -221,6 +262,30 @@ export function LogsPage() {
   const detailRequestRef = useRef(0)
   const [clearOpen, setClearOpen] = useState(false)
   const [busy, setBusy] = useState(false)
+
+  // URL <-> filter controls. External URL changes (back/forward, drill-down
+  // links) are applied to the controls; control changes replace the URL.
+  const searchString = searchParams.toString()
+  const urlString = buildLogsUrl({ requestFilter, requestId, accountFilter, modelFilter, streamFilter, errorKind, timeRange, customRange })
+  const lastUrlRef = useRef(searchString)
+  useEffect(() => {
+    if (searchString === lastUrlRef.current) return
+    lastUrlRef.current = searchString
+    const next = parseLogsUrl(new URLSearchParams(searchString))
+    setRequestFilter(next.requestFilter)
+    setRequestId(next.requestId)
+    setAccountFilter(next.accountFilter)
+    setModelFilter(next.modelFilter)
+    setStreamFilter(next.streamFilter)
+    setErrorKind(next.errorKind)
+    setTimeRange(next.timeRange)
+    setCustomRange(next.customRange)
+  }, [searchString])
+  useEffect(() => {
+    if (urlString === lastUrlRef.current) return
+    lastUrlRef.current = urlString
+    setSearchParams(urlString, { replace: true })
+  }, [urlString, setSearchParams])
 
   useEffect(() => {
     let cancelled = false
@@ -606,105 +671,14 @@ export function LogsPage() {
                 ]}
               />
               {timeRange === 'custom' ? (
-                <DateRangePicker
+                <TimeRangePicker
                   className="w-[min(100%,42rem)]"
-                  granularity="minute"
-                  hourCycle={24}
-                  shouldForceLeadingZeros
                   value={customRange}
-                  onChange={(next) => setCustomRange(next)}
-                  aria-label={t('logsTimeRange')}
-                >
-                  {({ state }) => (
-                    <>
-                      <DateField.Group className="w-full min-w-0" variant="secondary">
-                        <DateField.Input className="min-w-0" slot="start" aria-label={t('logsTimeFrom')}>
-                          {(segment) => <DateField.Segment segment={segment} />}
-                        </DateField.Input>
-                        <DateRangePicker.RangeSeparator />
-                        <DateField.Input className="min-w-0" slot="end" aria-label={t('logsTimeTo')}>
-                          {(segment) => <DateField.Segment segment={segment} />}
-                        </DateField.Input>
-                        <DateField.Suffix>
-                          <DateRangePicker.Trigger>
-                            <DateRangePicker.TriggerIndicator />
-                          </DateRangePicker.Trigger>
-                        </DateField.Suffix>
-                      </DateField.Group>
-                      <DateRangePicker.Popover className="flex w-[20.5rem] max-w-[calc(100vw-2rem)] flex-col gap-3 p-3">
-                        <RangeCalendar aria-label={t('logsTimeRange')}>
-                          <RangeCalendar.Header>
-                            <RangeCalendar.YearPickerTrigger>
-                              <RangeCalendar.YearPickerTriggerHeading />
-                              <RangeCalendar.YearPickerTriggerIndicator />
-                            </RangeCalendar.YearPickerTrigger>
-                            <RangeCalendar.NavButton slot="previous" />
-                            <RangeCalendar.NavButton slot="next" />
-                          </RangeCalendar.Header>
-                          <RangeCalendar.Grid>
-                            <RangeCalendar.GridHeader>
-                              {(day) => (
-                                <RangeCalendar.HeaderCell>{day}</RangeCalendar.HeaderCell>
-                              )}
-                            </RangeCalendar.GridHeader>
-                            <RangeCalendar.GridBody>
-                              {(date) => <RangeCalendar.Cell date={date} />}
-                            </RangeCalendar.GridBody>
-                          </RangeCalendar.Grid>
-                          <RangeCalendar.YearPickerGrid>
-                            <RangeCalendar.YearPickerGridBody>
-                              {({ year }) => <RangeCalendar.YearPickerCell year={year} />}
-                            </RangeCalendar.YearPickerGridBody>
-                          </RangeCalendar.YearPickerGrid>
-                        </RangeCalendar>
-                        <div className="flex flex-col gap-3">
-                          <div className="flex items-center justify-between gap-3">
-                            <Label className="text-xs">{t('logsTimeFrom')}</Label>
-                            <TimeField
-                              aria-label={t('logsTimeFrom')}
-                              granularity="minute"
-                              hourCycle={24}
-                              value={state.timeRange?.start ?? null}
-                              onChange={(value) =>
-                                state.setTimeRange({
-                                  start: value as TimeValue,
-                                  end: state.timeRange?.end as TimeValue,
-                                })
-                              }
-                            >
-                              <TimeField.Group className="w-[7.5rem]" variant="secondary">
-                                <TimeField.Input>
-                                  {(segment) => <TimeField.Segment segment={segment} />}
-                                </TimeField.Input>
-                              </TimeField.Group>
-                            </TimeField>
-                          </div>
-                          <div className="flex items-center justify-between gap-3">
-                            <Label className="text-xs">{t('logsTimeTo')}</Label>
-                            <TimeField
-                              aria-label={t('logsTimeTo')}
-                              granularity="minute"
-                              hourCycle={24}
-                              value={state.timeRange?.end ?? null}
-                              onChange={(value) =>
-                                state.setTimeRange({
-                                  start: state.timeRange?.start as TimeValue,
-                                  end: value as TimeValue,
-                                })
-                              }
-                            >
-                              <TimeField.Group className="w-[7.5rem]" variant="secondary">
-                                <TimeField.Input>
-                                  {(segment) => <TimeField.Segment segment={segment} />}
-                                </TimeField.Input>
-                              </TimeField.Group>
-                            </TimeField>
-                          </div>
-                        </div>
-                      </DateRangePicker.Popover>
-                    </>
-                  )}
-                </DateRangePicker>
+                  onChange={setCustomRange}
+                  ariaLabel={t('logsTimeRange')}
+                  fromLabel={t('logsTimeFrom')}
+                  toLabel={t('logsTimeTo')}
+                />
               ) : null}
             </div>
           </div>
