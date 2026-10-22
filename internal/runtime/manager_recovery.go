@@ -32,6 +32,10 @@ func (m *Manager) beginAccountRecovery(id string, startErr error) {
 		return
 	}
 	if m.recovering[id] {
+		// A recovery goroutine is still unwinding (e.g. its startAccount just
+		// registered a process that already exited). Remember the failure so
+		// the goroutine re-enters recovery instead of dropping the crash.
+		m.recoverPending[id] = message
 		m.mu.Unlock()
 		return
 	}
@@ -51,8 +55,19 @@ func (m *Manager) beginAccountRecovery(id string, startErr error) {
 func (m *Manager) recoverAccount(id string, restarts, backoffLevel int, message string) {
 	defer func() {
 		m.mu.Lock()
-		delete(m.recovering, id)
+		hook := m.recoverUnwindHook
 		m.mu.Unlock()
+		if hook != nil {
+			hook(id)
+		}
+		m.mu.Lock()
+		delete(m.recovering, id)
+		pending, again := m.recoverPending[id]
+		delete(m.recoverPending, id)
+		m.mu.Unlock()
+		if again {
+			m.beginAccountRecovery(id, errors.New(pending))
+		}
 		m.recoverDone.Done()
 	}()
 
