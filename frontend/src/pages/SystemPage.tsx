@@ -1,5 +1,5 @@
 import { copyText } from '@/lib/clipboard'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Button, Card, Chip, Description, Input, Label, ListBox, Modal, Select, Tab, Tabs } from '@heroui/react'
 import { useSearchParams } from 'react-router-dom'
 import {
@@ -16,7 +16,7 @@ import {
   X,
 } from '@phosphor-icons/react'
 import { fetchConsoleKey, rotateConsoleKey, type ConsoleKeyView } from '@/api/keys'
-import { applyPreparedSystemUpdate, cancelSystemUpdate, fetchSystemSettings, fetchSystemUpdate, rollbackSystemUpdate, startSystemUpdate, updateSystemSettings, type StartUpdateResult, type SystemSettings, type SystemUpdateInfo } from '@/api/system'
+import { fetchSystemSettings, updateSystemSettings, type SystemSettings } from '@/api/system'
 import { useApiKey } from '@/hooks/useApiKey'
 import { PageAlert } from '@/components/ui/PageAlert'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
@@ -25,13 +25,11 @@ import { SystemPageSkeleton } from '@/components/ui/PageSkeletons'
 import { useI18n } from '@/hooks/useI18n'
 import { CompactSwitch } from '@/components/ui/CompactSwitch'
 import { CheckinDefaults } from '@/components/checkin/CheckinDefaults'
+import { UpdateControls } from '@/components/system/UpdateControls'
+import { useSystemUpdate } from '@/hooks/useSystemUpdate'
 import { VersionHistory } from '@/components/VersionHistory'
 import { buildVersionHistory } from '@/lib/versionHistory'
 
-const busyStates = new Set(['preparing', 'preparing_image', 'checking', 'backing_up', 'submitting', 'running', 'queued', 'pulling', 'host_binary', 'image_ready', 'recreating', 'rolling_back'])
-const applyJobStates = new Set(['backing_up', 'running'])
-const applyAgentStates = new Set(['recreating', 'rolling_back'])
-const progressAgentStates = new Set(['queued', 'pulling', 'host_binary', 'image_ready', 'preparing', 'recreating', 'checking', 'rolling_back'])
 
 type SettingsTab = 'general' | 'routing' | 'security' | 'updates'
 const SETTINGS_TABS: readonly SettingsTab[] = ['general', 'routing', 'security', 'updates']
@@ -43,7 +41,6 @@ export function SystemPage() {
   const tab: SettingsTab = tabParam && SETTINGS_TABS.includes(tabParam) ? tabParam : 'general'
   const selectTab = (next: SettingsTab) => setSearchParams(next === 'general' ? {} : { tab: next }, { replace: true })
   const { setApiKey } = useApiKey()
-  const [info, setInfo] = useState<SystemUpdateInfo | null>(null)
   const [consoleKey, setConsoleKey] = useState<ConsoleKeyView | null>(null)
   const [settings, setSettings] = useState<SystemSettings | null>(null)
   const [proxyDraft, setProxyDraft] = useState('')
@@ -52,39 +49,18 @@ export function SystemPage() {
   const [rotateOpen, setRotateOpen] = useState(false)
   const [rotatedSecret, setRotatedSecret] = useState('')
   const [copied, setCopied] = useState(false)
-  const [loading, setLoading] = useState(true)
-  const [checking, setChecking] = useState(false)
-  const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState('')
-  const [started, setStarted] = useState<StartUpdateResult | null>(null)
-  const [reloadIn, setReloadIn] = useState<number | null>(null)
-  const [now, setNow] = useState(() => Date.now())
-  const [initialVersion, setInitialVersion] = useState('')
   const [restoreTarget, setRestoreTarget] = useState('')
+  const update = useSystemUpdate()
+  const { info, loading, checking, submitting, error, setError, load, canRollback, rollbackTo } = update
+  const historyReleases = useMemo(
+    () => buildVersionHistory(info?.current_version || '', info?.next_version, info?.release, info?.recent_releases, info?.rollback_versions),
+    [info?.current_version, info?.next_version, info?.release, info?.recent_releases, info?.rollback_versions],
+  )
+  const rollbackTags = useMemo(() => (info?.rollback_versions || []).map((release) => release.tag_name), [info?.rollback_versions])
 
-  const load = useCallback(async (force = false, quiet = false) => {
-    if (force && !quiet) setChecking(true)
-    try {
-      const result = await fetchSystemUpdate(force)
-      setInfo(result)
-      setInitialVersion((current) => current || result.current_version || '')
-      const failed = result.update?.state === 'failed' || result.update?.state === 'rolled_back' || result.agent?.state === 'failed' || result.agent?.state === 'rolled_back'
-      if (failed) {
-        setError(result.update?.error || result.agent?.error || t('updateFailedHint'))
-      } else if (!quiet) {
-        setError('')
-      }
-    } catch (err) {
-      if (!quiet) setError(err instanceof Error ? err.message : t('updateCheckFailedHint'))
-    } finally {
-      setLoading(false)
-      if (force && !quiet) setChecking(false)
-    }
-  }, [t])
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      void load(false)
       void fetchConsoleKey().then(setConsoleKey).catch(() => undefined)
       void fetchSystemSettings().then((result) => {
         setSettings(result)
@@ -92,140 +68,8 @@ export function SystemPage() {
       }).catch((err) => setError(err instanceof Error ? err.message : String(err)))
     }, 0)
     return () => window.clearTimeout(timer)
-  }, [load])
+  }, [setError])
 
-  const agentState = info?.agent?.state || 'unavailable'
-  const preparationState = info?.update?.state || ''
-  const applying = applyJobStates.has(preparationState) || applyAgentStates.has(agentState) || Boolean(info?.update?.backup_path && busyStates.has(preparationState))
-  const readyToApply = !applying && (preparationState === 'ready_to_apply' || agentState === 'ready_to_apply')
-  const waitingForJob = Boolean(started?.job_id) && info?.update?.job_id !== started?.job_id && !readyToApply && !applying
-  const preparing = !applying && !readyToApply && (busyStates.has(preparationState) || busyStates.has(agentState) || waitingForJob)
-  const busy = preparing || applying
-  const succeeded = preparationState === 'succeeded' || agentState === 'succeeded'
-  const justUpdated = Boolean(succeeded && initialVersion && info?.current_version && info.current_version !== initialVersion)
-  if (justUpdated && reloadIn == null) setReloadIn(3)
-  const targetVersion = info?.update?.target_version || info?.agent?.target_version || ''
-  const newerThanPrepared = Boolean(readyToApply && info?.next_version && targetVersion && info.next_version !== targetVersion)
-  const startedAt = info?.update?.started_at || info?.agent?.started_at
-  const elapsed = startedAt && busy ? Math.max(0, Math.round((now - Date.parse(startedAt)) / 1000)) : 0
-  const visibleState = justUpdated
-    ? 'succeeded'
-    : readyToApply
-      ? 'ready_to_apply'
-      : busy && progressAgentStates.has(agentState)
-        ? agentState
-        : (preparationState || agentState)
-  const updateStateLabel = visibleState ? t(`updateState_${visibleState}`) : ''
-  const updateStateText = updateStateLabel.startsWith('updateState_') ? visibleState : updateStateLabel
-  useEffect(() => {
-    if (reloadIn != null || (!busy && !justUpdated)) return
-    const timer = window.setInterval(() => void load(false, true), 2000)
-    return () => window.clearInterval(timer)
-  }, [busy, justUpdated, load, reloadIn])
-
-  useEffect(() => {
-    if (!busy) return
-    const timer = window.setInterval(() => setNow(Date.now()), 1000)
-    return () => window.clearInterval(timer)
-  }, [busy])
-
-  useEffect(() => {
-    if (reloadIn == null) return
-    if (reloadIn <= 0) {
-      window.location.reload()
-      return
-    }
-    const timer = window.setTimeout(() => setReloadIn((current) => (current == null ? current : current - 1)), 1000)
-    return () => window.clearTimeout(timer)
-  }, [reloadIn])
-
-  const canPrepare = Boolean(info?.managed && info?.has_update && info?.next_version && info?.agent?.available && !readyToApply && !busy && !submitting && reloadIn == null)
-  const canApply = Boolean(readyToApply && info?.agent?.available && !applying && !submitting && reloadIn == null)
-  const canCancel = Boolean(info?.agent?.available && (preparing || readyToApply) && !applying && !submitting && reloadIn == null)
-  const canRollback = Boolean(info?.managed && info?.agent?.available && (info.rollback_versions?.length ?? 0) > 0 && !readyToApply && !busy && !submitting && reloadIn == null)
-  const historyReleases = useMemo(
-    () => buildVersionHistory(info?.current_version || '', info?.next_version, info?.release, info?.recent_releases, info?.rollback_versions),
-    [info?.current_version, info?.next_version, info?.release, info?.recent_releases, info?.rollback_versions],
-  )
-  const rollbackTags = useMemo(() => (info?.rollback_versions || []).map((release) => release.tag_name), [info?.rollback_versions])
-  const primaryLabel = reloadIn != null
-    ? t('updateReloadingIn', { seconds: reloadIn })
-    : canApply
-      ? t('applyUpdateNow')
-      : applying
-        ? t('updateInProgress')
-        : preparing || submitting
-          ? t('updatePreparingImage')
-          : t('updateNow')
-  const statusHint = reloadIn != null
-    ? t('updateReloadingHint')
-    : readyToApply
-      ? t('updateReadyTargetHint', { version: targetVersion || info?.next_version || '' })
-      : applying
-        ? t('updateApplyingHint')
-        : t('updatePreparingImageHint')
-
-  async function prepareUpdate() {
-    setSubmitting(true)
-    setStarted(null)
-    setError('')
-    try {
-      const result = await startSystemUpdate()
-      setStarted(result)
-      await load(false, true)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t('updateFailedHint'))
-      await load(false, true)
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  async function confirmUpdate() {
-    setSubmitting(true)
-    setError('')
-    try {
-      const result = await applyPreparedSystemUpdate()
-      setStarted(result)
-      await load(false, true)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t('updateFailedHint'))
-      await load(false, true)
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  async function rollbackTo(version: string) {
-    setSubmitting(true)
-    setStarted(null)
-    setError('')
-    try {
-      const result = await rollbackSystemUpdate(version)
-      setStarted(result)
-      await load(false, true)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t('updateFailedHint'))
-      await load(false, true)
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  async function cancelPreparedUpdate() {
-    setSubmitting(true)
-    setError('')
-    try {
-      await cancelSystemUpdate()
-      setStarted(null)
-      await load(true, true)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t('updateFailedHint'))
-      await load(false, true)
-    } finally {
-      setSubmitting(false)
-    }
-  }
 
   async function updateCrossProviderModelPool(enabled: boolean) {
     const previous = settings?.cross_provider_model_pool ?? true
@@ -500,41 +344,7 @@ export function SystemPage() {
           </div>
 
           <div className="px-5 py-5">
-            <div className="grid overflow-hidden rounded-lg bg-surface-secondary sm:grid-cols-[1fr_auto_1fr]">
-              <div className="p-4">
-                <div className="text-xs font-medium text-muted">{t('currentVersion')}</div>
-                <div className="mono mt-2 text-section font-semibold">{info?.current_version || '—'}</div>
-              </div>
-              <div className="hidden items-center border-x border-separator px-4 text-muted sm:flex">
-                <ArrowCircleUp size={18} />
-              </div>
-              <div className="border-t border-separator p-4 sm:border-t-0">
-                <div className="text-xs font-medium text-muted">{t('latestVersion')}</div>
-                <div className="mono mt-2 text-section font-semibold">{info?.next_version || '—'}</div>
-              </div>
-            </div>
-
-            <div className="mt-5 flex flex-wrap items-center justify-end gap-3">
-              {canCancel ? (
-                <Button size="sm" variant="ghost" isDisabled={submitting} onPress={() => void cancelPreparedUpdate()}>
-                  {readyToApply ? t('discardPreparedImage') : t('cancelUpdate')}
-                </Button>
-              ) : null}
-              <Button isDisabled={(!canPrepare && !canApply) || reloadIn != null} isPending={submitting || busy || reloadIn != null} onPress={() => void (canApply ? confirmUpdate() : prepareUpdate())}>
-                <ArrowCircleUp size={16} />
-                {primaryLabel}
-              </Button>
-            </div>
-            {!info?.agent?.available && !busy ? <p className="mt-3 text-right text-xs text-muted">{t('updateUnavailableHint')}</p> : null}
-            {info?.agent?.available && !info.agent.staged_update && !busy ? <p className="mt-3 text-right text-xs text-muted">{t('updateLegacyOneShotHint')}</p> : null}
-            {readyToApply || busy || reloadIn != null || justUpdated ? (
-              <div className={`mt-4 rounded-lg border px-3 py-3 ${readyToApply || justUpdated ? 'border-success/25 bg-success/5' : 'border-warning/25 bg-warning/5'}`} role="status" aria-live="polite">
-                {updateStateText ? <p className="text-xs font-medium text-foreground">{updateStateText}{targetVersion ? ` · ${targetVersion}` : ''}{elapsed ? ` · ${t('updateElapsed', { seconds: elapsed })}` : ''}</p> : null}
-                <p className="mt-1 text-xs leading-5 text-muted">{statusHint}</p>
-                {newerThanPrepared ? <p className="mt-1 text-xs leading-5 text-warning">{t('updateNewerReleaseHint', { latest: info?.next_version || '' })}</p> : null}
-                {info?.update?.error || info?.agent?.error ? <p className="mt-1 text-xs leading-5 text-danger">{info?.update?.error || info?.agent?.error}</p> : null}
-              </div>
-            ) : null}
+            <UpdateControls update={update} />
             <VersionHistory
               releases={historyReleases}
               currentVersion={info?.current_version || ''}
