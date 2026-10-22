@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
-import { Alert, Button, Checkbox, Chip, Form, Input, Modal, NumberField } from '@heroui/react'
+import { Alert, Button, Chip, Form, Input, Modal, NumberField } from '@heroui/react'
 import { X } from '@phosphor-icons/react'
 import { ProviderMark } from '@/components/ProviderMark'
 import { FormRow } from '@/components/ui/FormRow'
 import { CompactSwitch } from '@/components/ui/CompactSwitch'
+import { ModelPicker } from '@/components/account/ModelPicker'
 import { fetchModels } from '@/api/overview'
 import type { ModelInfo } from '@/api/types'
 import type { AccountRow } from '@/lib/account'
@@ -33,7 +34,7 @@ export function EditAccountModal({ account, checkinDefaultTime, checkinTimezone,
   const [aliasDraft, setAliasDraft] = useState({ alias: '', model: '' })
   const [restrictModels, setRestrictModels] = useState(Boolean(account?.models_restricted))
   const [enabledModels, setEnabledModels] = useState<string[]>(account?.enabled_models || [])
-  const [catalog, setCatalog] = useState<ModelInfo[]>([])
+  const [catalog, setCatalog] = useState<ModelInfo[] | null>(null)
   const [inheritCheckinTime, setInheritCheckinTime] = useState(!account?.checkin_time)
   const [checkinTime, setCheckinTime] = useState<string | null>(account?.checkin_time || null)
   const [error, setError] = useState('')
@@ -93,7 +94,7 @@ export function EditAccountModal({ account, checkinDefaultTime, checkinTimezone,
     <Modal.Root isOpen={Boolean(account)} onOpenChange={(next: boolean) => { if (!next && !busy) onClose() }}>
       <Modal.Backdrop variant="blur">
         <Modal.Container placement="center" size="lg" scroll="inside">
-          <Modal.Dialog className="sm:min-w-[32rem]">
+          <Modal.Dialog className="w-full sm:w-[42rem] sm:max-w-[calc(100vw-2rem)]">
             <Modal.Header className="items-start justify-between gap-4 px-6 pt-6">
               <div className="min-w-0">
                 <Modal.Heading className="text-section font-semibold">{title}</Modal.Heading>
@@ -185,7 +186,7 @@ export function EditAccountModal({ account, checkinDefaultTime, checkinTimezone,
                     />
                   </FormRow>
                 ) : null}
-                <FormRow label={t('accountModelAliases')} hint={t('accountModelAliasesHint')}>
+                <FormRow align="start" label={t('accountModelAliases')} hint={t('accountModelAliasesHint')}>
                   <div className="space-y-2">
                     {aliases.map((item) => (
                       <div key={item.alias} className="flex items-center justify-between gap-2">
@@ -203,27 +204,24 @@ export function EditAccountModal({ account, checkinDefaultTime, checkinTimezone,
                     </div>
                   </div>
                 </FormRow>
-                <FormRow label={t('enabledModels')} hint={t('enabledModelsHint')}>
-                  <div className="space-y-2">
-                    <CompactSwitch isSelected={restrictModels} isDisabled={busy} ariaLabel={t('enabledModels')} label={t('restrictModels')} onChange={setRestrictModels} />
-                    {restrictModels ? (
-                      <div className="max-h-40 space-y-1 overflow-auto">
-                        {catalog.map((model) => (
-                          <Checkbox
-                            key={model.id}
-                            isSelected={enabledModels.includes(model.id)}
-                            isDisabled={busy}
-                            onChange={(selected) => setEnabledModels((current) => selected ? [...current, model.id] : current.filter((id) => id !== model.id))}
-                          >
-                            <Checkbox.Control><Checkbox.Indicator /></Checkbox.Control>
-                            <Checkbox.Content><span className="mono text-body">{model.id}</span></Checkbox.Content>
-                          </Checkbox>
-                        ))}
-                        {catalog.length === 0 ? <p className="text-xs text-muted">{t('noAccountModels')}</p> : null}
-                      </div>
-                    ) : null}
+                <section className="space-y-3 pt-1">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-body font-medium text-foreground">{t('enabledModels')}</div>
+                      <p className="mt-0.5 text-xs leading-5 text-muted">{t('enabledModelsHint')}</p>
+                    </div>
+                    <CompactSwitch isSelected={restrictModels} isDisabled={busy} ariaLabel={t('restrictModels')} label={restrictModels ? t('restrictModels') : t('allModels')} onChange={setRestrictModels} />
                   </div>
-                </FormRow>
+                  {restrictModels ? (
+                    <ModelPicker
+                      catalog={catalog ? catalog.map((model) => model.id) : null}
+                      selected={enabledModels}
+                      onChange={setEnabledModels}
+                      isDisabled={busy}
+                      t={t}
+                    />
+                  ) : null}
+                </section>
                 {checkinDefaultTime !== undefined ? (
                   <FormRow label={t('autoCheckinTime')} hint={t('checkinScheduleHint')}>
                     <div className="space-y-3">
