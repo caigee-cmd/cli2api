@@ -78,11 +78,14 @@ type Manager struct {
 	restarts       map[string]int
 	restartBackoff map[string]int
 	recovering     map[string]bool
-	recoverDone    sync.WaitGroup
-	nextPort       int
-	httpClient     *http.Client
-	runCtx         context.Context
-	cancel         context.CancelFunc
+	recoverPending map[string]string
+	// recoverUnwindHook runs (tests only) as a recovery goroutine starts unwinding.
+	recoverUnwindHook func(id string)
+	recoverDone       sync.WaitGroup
+	nextPort          int
+	httpClient        *http.Client
+	runCtx            context.Context
+	cancel            context.CancelFunc
 	// The persistence path is one mutex-guarded goroutine. The dirty set
 	// is keyed by account ID and merged on enqueue: a stale snapshot (older
 	// StateVersion) that arrives after a newer one is discarded, so the final
@@ -164,6 +167,7 @@ func NewManager(config ManagerConfig, store AccountStore, starter ProcessStarter
 		restarts:          map[string]int{},
 		restartBackoff:    map[string]int{},
 		recovering:        map[string]bool{},
+		recoverPending:    map[string]string{},
 		nextPort:          config.BasePort,
 		httpClient:        &http.Client{Timeout: 2 * time.Second},
 		runCtx:            runCtx,
@@ -522,6 +526,22 @@ func (m *Manager) TestRecovering(id string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.recovering[id]
+}
+
+// TestSetRecoverUnwindHook installs a hook run when a recovery goroutine
+// starts unwinding, before it clears the recovering guard. Tests only.
+func (m *Manager) TestSetRecoverUnwindHook(hook func(id string)) {
+	m.mu.Lock()
+	m.recoverUnwindHook = hook
+	m.mu.Unlock()
+}
+
+// TestRecoverPending reports whether a failure is queued behind an active recovery.
+func (m *Manager) TestRecoverPending(id string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	_, ok := m.recoverPending[id]
+	return ok
 }
 
 func (m *Manager) TestRestartDelay(level int) time.Duration {
