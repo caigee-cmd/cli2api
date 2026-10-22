@@ -3,6 +3,30 @@
 Published user-facing notes for GitHub Releases and the console update page.
 Write upcoming notes as bilingual files in `changelog/unreleased/`.
 
+## 0.7.2 - 2026-10-22
+
+### English
+
+- **New** · Overview stats: request outcome mix (ok / incomplete / error / canceled), cache hit rate, streaming share and canceled requests; the account pool lists cooling accounts with reason, countdown and backoff level, plus the session-affinity hit rate.
+- **New** · Overview drill-down: click a model, account, provider or error kind, or drag a range on the traffic chart, to open the matching logs. Time windows add 30d and custom; stats auto-refresh every 30s and can be paused.
+- **New** · Usage page with sortable tables by model, account and provider (requests, success rate, p95, tokens, cache, credits). The traffic chart switches between requests, tokens and latency.
+- **New** · Live concurrency: an overview strip (in-flight vs. capacity, last 60s), per-account in-flight bars and a sidebar indicator.
+- **Console** · Roomier sidebar; denser overview without decorative icons; the Accounts page header is one toolbar (status, provider, search, actions).
+- **Console** · Calmer styling: one small-text size, smaller radii and shadows, neutral status boxes; pages show content without skeleton fades or entrance animations.
+- **Console** · Edit-account modal is wider; the model picker adds search, select all / clear, and flags saved models that left the catalog.
+- **API** · New `GET /api/live` for live concurrency. `/api/logs/stats` accepts `dim=model,account,provider` and `limit`, with p95, token, cache and credit totals; `/api/logs/requests` accepts `provider`. Existing calls behave as before.
+
+### 中文
+
+- **新功能** · 概览统计：请求结果构成（成功 / 未完成 / 失败 / 取消）、缓存命中率、流式占比与取消数；账号池列出冷却账号的原因、倒计时与退避等级，并显示会话亲和命中率。
+- **新功能** · 概览下钻：点击模型、账号、供应商或错误类型，或在流量图上拖选时间段，直接打开对应日志。时间窗口新增 30 天与自定义；统计每 30 秒自动刷新，可暂停。
+- **新功能** · 新增「用量」页，按模型、账号、供应商展示可排序表格（请求数、成功率、p95、Tokens、缓存、积分）；流量图可切换请求 / Tokens / 延迟。
+- **新功能** · 实时并发：概览顶部并发条（当前并发 / 总容量、近 60 秒）、每个账号的并发细条，以及侧边栏并发指示。
+- **界面** · 侧边栏更宽松；概览更紧凑，去掉装饰图标；账号页顶部合并为一行工具栏（状态、供应商、搜索、操作）。
+- **界面** · 样式更克制：小字统一字号，圆角与阴影收小，状态提示改用中性底色；页面加载后直接显示内容，不再有骨架屏淡入和入场动画。
+- **界面** · 编辑账号弹窗加宽；模型选择支持搜索、全选 / 清空，并标出已下线的模型。
+- **API** · 新增 `GET /api/live` 实时并发接口；`/api/logs/stats` 支持 `dim=model,account,provider` 与 `limit`，返回 p95、Token、缓存与积分合计；`/api/logs/requests` 支持 `provider` 筛选。原有调用行为不变。
+
 ## 0.7.1 - 2026-10-22
 
 ### English
