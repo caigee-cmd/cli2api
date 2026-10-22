@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
@@ -590,11 +592,40 @@ func emptyUpstreamError() *providers.Error {
 	}
 }
 
+// defaultMeaningfulUpstreamTimeout bounds how long ChatStream waits after a
+// 200 for a meaningful SSE data line. Matches qoder's defaultFirstByteTimeout
+// so heartbeat-only upstreams fail over instead of hanging the client.
+const defaultMeaningfulUpstreamTimeout = 30 * time.Second
+
 // ensureMeaningfulUpstream peeks the upstream SSE body before anything is
 // relayed to the client, so an empty or error-only upstream can still fail
 // over to another account. On success the buffered bytes are replayed ahead
 // of the remaining body, preserving real-time streaming.
-func ensureMeaningfulUpstream(resp *http.Response) (*http.Response, error) {
+//
+// timeout bounds the wait for a meaningful data line after the response head.
+// Zero falls back to defaultMeaningfulUpstreamTimeout. A stuck heartbeat-only
+// upstream closes the body and returns emptyUpstreamError so the executor can
+// fail over (same hang shape as qoder PAT in-process ChatStream).
+func ensureMeaningfulUpstream(resp *http.Response, timeout time.Duration) (*http.Response, error) {
+	if resp == nil || resp.Body == nil {
+		return nil, emptyUpstreamError()
+	}
+	if timeout <= 0 {
+		timeout = defaultMeaningfulUpstreamTimeout
+	}
+
+	var closeOnce sync.Once
+	closeBody := func() {
+		closeOnce.Do(func() { _ = resp.Body.Close() })
+	}
+
+	var expired atomic.Bool
+	timer := time.AfterFunc(timeout, func() {
+		expired.Store(true)
+		closeBody()
+	})
+	stopTimer := func() { _ = timer.Stop() }
+
 	br := bufio.NewReader(resp.Body)
 	var pending bytes.Buffer
 	for {
@@ -603,11 +634,16 @@ func ensureMeaningfulUpstream(resp *http.Response) (*http.Response, error) {
 			pending.WriteString(line)
 			if data, ok := strings.CutPrefix(strings.TrimSpace(line), "data:"); ok {
 				if frame, meaningful := meaningfulDataLine(strings.TrimSpace(data)); meaningful {
+					stopTimer()
+					if expired.Load() {
+						closeBody()
+						return nil, emptyUpstreamError()
+					}
 					if frame.errorOnly() {
 						// Nothing has reached the client yet: return the
 						// classified error so the executor cools this account
 						// (quota, auth, model) and fails over.
-						resp.Body.Close()
+						closeBody()
 						return nil, frame.providerError()
 					}
 					resp.Body = peekedBody{Reader: io.MultiReader(&pending, br), Closer: resp.Body}
@@ -616,7 +652,11 @@ func ensureMeaningfulUpstream(resp *http.Response) (*http.Response, error) {
 			}
 		}
 		if readErr != nil {
-			resp.Body.Close()
+			stopTimer()
+			closeBody()
+			if expired.Load() {
+				return nil, emptyUpstreamError()
+			}
 			if errors.Is(readErr, io.EOF) {
 				return nil, emptyUpstreamError()
 			}
