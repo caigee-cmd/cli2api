@@ -440,9 +440,9 @@ function KeyEditorModal({
                 </FormRow>
                 <div className="space-y-2">
                   <Label className="text-body font-medium text-muted">{t('keysProviders')}</Label>
-                  <Description className="text-xs leading-5 text-muted">{t('keysProvidersHint')}</Description>
+                  <Description className="text-caption leading-5 text-muted">{t('keysProvidersHint')}</Description>
                   {!options.length ? (
-                    <p className="rounded-lg bg-surface-secondary px-3 py-2.5 text-xs leading-5 text-muted">{t('keysProvidersNotLoaded')}</p>
+                    <p className="rounded-lg bg-surface-secondary px-3 py-2.5 text-caption leading-5 text-muted">{t('keysProvidersNotLoaded')}</p>
                   ) : (
                     <div className="grid gap-2 sm:grid-cols-2">
                       {options.map((option) => {
@@ -457,7 +457,7 @@ function KeyEditorModal({
                               <ProviderMark provider={option.provider} size={16} />
                               <span className="text-body font-medium">{accountProviderLabel(option.provider, option.region, t)}</span>
                               {allRegions ? (
-                                <span className="rounded-full bg-accent-soft px-1.5 py-0.5 text-caption font-medium text-accent">{t('keysAllRegions')}</span>
+                                <span className="rounded-md bg-surface-secondary px-1.5 py-0.5 text-caption font-medium text-muted">{t('keysAllRegions')}</span>
                               ) : null}
                             </Checkbox.Content>
                           </Checkbox>
@@ -465,7 +465,7 @@ function KeyEditorModal({
                       })}
                     </div>
                   )}
-                  <p className="text-xs text-muted">{providersLabel(selected, t)}</p>
+                  <p className="text-caption text-muted">{providersLabel(selected, t)}</p>
                 </div>
               </Modal.Body>
               <Modal.Footer className="justify-end">

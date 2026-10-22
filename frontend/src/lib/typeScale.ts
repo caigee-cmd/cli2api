@@ -6,5 +6,5 @@ export const TYPE_SCALE_PX = {
   section: 15,
   body: 13,
   xs: 12,
-  caption: 11,
+  caption: 12,
 } as const

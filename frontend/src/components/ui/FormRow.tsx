@@ -27,7 +27,7 @@ export function FormRow({ label, hint, labelWidthClass = defaultLabelWidthClass,
         <Label htmlFor={htmlFor} className={`${labelWidthClass} shrink-0 ${align === 'start' ? 'pt-2' : ''} text-body font-medium text-foreground`}>{label}</Label>
         <div className="min-w-0 flex-1 [&_[data-slot=input]]:w-full [&_[data-slot=textarea]]:w-full">{children}</div>
       </div>
-      {hint ? <p className="mt-1.5 pl-[7.75rem] text-xs leading-5 text-muted">{hint}</p> : null}
+      {hint ? <p className="mt-1.5 pl-[7.75rem] text-caption leading-5 text-muted">{hint}</p> : null}
     </div>
   )
 }

@@ -66,7 +66,7 @@ export function ModelPicker({ catalog, selected, onChange, isDisabled, t }: Prop
             <SearchField.ClearButton />
           </SearchField.Group>
         </SearchField>
-        <span className="mono shrink-0 text-xs text-muted">{t('modelPickerCount', { selected: selectedInCatalog, total })}</span>
+        <span className="mono shrink-0 text-caption text-muted">{t('modelPickerCount', { selected: selectedInCatalog, total })}</span>
         <div className="flex shrink-0 items-center gap-1">
           <Button size="sm" variant="ghost" isDisabled={isDisabled || visible.length === 0} onPress={selectAllVisible}>
             <CheckSquare size={14} />{t('modelPickerSelectAll')}
@@ -79,7 +79,7 @@ export function ModelPicker({ catalog, selected, onChange, isDisabled, t }: Prop
 
       <div className="max-h-[300px] overflow-y-auto overscroll-contain rounded-lg bg-surface-secondary p-1">
         {catalog === null ? (
-          <p className="px-2.5 py-2 text-xs text-muted">{t('refreshing')}</p>
+          <p className="px-2.5 py-2 text-caption text-muted">{t('refreshing')}</p>
         ) : null}
         {offline.map((id) => (
           <div key={`offline-${id}`} className="flex items-center gap-2.5 rounded-md px-2.5 py-1.5">
@@ -105,7 +105,7 @@ export function ModelPicker({ catalog, selected, onChange, isDisabled, t }: Prop
           </Checkbox>
         ))}
         {catalog !== null && visible.length === 0 ? (
-          <p className="px-2.5 py-2 text-xs text-muted">{total === 0 ? t('noAccountModels') : t('modelPickerNoMatch')}</p>
+          <p className="px-2.5 py-2 text-caption text-muted">{total === 0 ? t('noAccountModels') : t('modelPickerNoMatch')}</p>
         ) : null}
       </div>
     </div>

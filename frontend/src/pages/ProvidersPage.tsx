@@ -77,7 +77,7 @@ function HintLabel({ label, hint }: { label: string; hint: string }) {
         <span className="cursor-help text-caption text-muted">{label}</span>
       </Tooltip.Trigger>
       <Tooltip.Content>
-        <p className="max-w-xs text-xs leading-5">{hint}</p>
+        <p className="max-w-xs text-caption leading-5">{hint}</p>
       </Tooltip.Content>
     </Tooltip>
   )
@@ -99,7 +99,7 @@ function ModelContextControls({
   const provider = modelProvider(model)
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-3">
-      <span className="mono text-xs text-muted">
+      <span className="mono text-caption text-muted">
         {formatTokens(model.catalog_context_length || model.context_length)}
         {model.catalog_context_length_max && model.catalog_context_length_max !== (model.catalog_context_length || model.context_length)
           ? ` → ${formatTokens(model.catalog_context_length_max)}`
@@ -365,7 +365,7 @@ export function ProvidersPage() {
             <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-surface-secondary text-muted"><Cube size={16} /></div>
             <div className="min-w-0">
               <div className="text-body font-semibold">{t('providerCatalog')}</div>
-              <div className="mt-0.5 text-xs leading-5 text-muted">{t('contextConfigHint')}</div>
+              <div className="mt-0.5 text-caption leading-5 text-muted">{t('contextConfigHint')}</div>
             </div>
           </div>
           <Chip size="sm" variant="soft" className="shrink-0">{filtered.length}</Chip>
@@ -409,7 +409,7 @@ export function ProvidersPage() {
                         {model.context_custom ? t('custom') : t('defaultValue')}
                       </Chip>
                     </div>
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-caption">
                       <span className="inline-flex items-center gap-1.5">
                         <ProviderMark provider={provider} size={14} />
                         <span className="font-medium">{providerLabel}</span>
@@ -468,14 +468,14 @@ export function ProvidersPage() {
                               </div>
                             </div>
                           </Table.Cell>
-                          <Table.Cell><span className="mono text-xs font-medium">{model.id}</span></Table.Cell>
+                          <Table.Cell><span className="mono text-caption font-medium">{model.id}</span></Table.Cell>
                           <Table.Cell>
                             <div className="flex items-center gap-2">
                               <ProviderMark provider={provider} size={14} />
-                              <span className="text-xs font-medium">{providerLabel}</span>
+                              <span className="text-caption font-medium">{providerLabel}</span>
                             </div>
                           </Table.Cell>
-                          <Table.Cell><span className="mono text-xs text-muted">{model.mapped_key || model.native_model || model.id}</span></Table.Cell>
+                          <Table.Cell><span className="mono text-caption text-muted">{model.mapped_key || model.native_model || model.id}</span></Table.Cell>
                           <Table.Cell>
                             <ModelContextControls
                               model={model}

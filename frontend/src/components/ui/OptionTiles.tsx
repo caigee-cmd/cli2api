@@ -73,7 +73,7 @@ export function OptionTiles<T extends string>({
             disabled={option.disabled}
             title={option.hint}
             onClick={() => onChange(option.value)}
-            className="flex h-16 min-w-0 items-center gap-3 rounded-2xl bg-surface shadow-surface px-4 text-left transition-colors hover:bg-surface-secondary disabled:cursor-not-allowed disabled:opacity-50 data-selected:border-accent data-selected:bg-accent-soft"
+            className="flex h-16 min-w-0 items-center gap-3 rounded-xl bg-surface shadow-surface px-4 text-left transition-colors hover:bg-surface-secondary disabled:cursor-not-allowed disabled:opacity-50 data-selected:border-accent data-selected:bg-accent-soft"
           >
             {option.icon ? (
               <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-surface-secondary text-foreground [&_svg]:size-[18px]">

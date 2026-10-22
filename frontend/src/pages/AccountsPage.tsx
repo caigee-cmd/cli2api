@@ -373,8 +373,8 @@ export function AccountsPage() {
             <span className="mono font-semibold">{rows.length}</span>
             <span className="text-muted">{t('accountCount')}</span>
             <span className="text-border">·</span>
-            <span className="mono font-medium text-success">{availableCount}</span>
-            <span className="text-success">{t('availableAccounts')}</span>
+            <span className="mono font-medium">{availableCount}</span>
+            <span className="text-muted">{t('availableAccounts')}</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="text-muted">{t('needsAttention')}</span>
@@ -466,7 +466,7 @@ export function AccountsPage() {
                 { id: 'disabled', label: t('disabled') },
               ]}
             />
-            <span className="mono text-xs text-muted">
+            <span className="mono text-caption text-muted">
               {filteredRows.length
                 ? t('logsShownTotal', { shown: `${shownFrom}–${shownTo}`, total: filteredRows.length })
                 : t('shownAccounts', { shown: 0, total: rows.length })}

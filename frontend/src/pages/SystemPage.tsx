@@ -188,7 +188,7 @@ export function SystemPage() {
               <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-surface-secondary text-foreground"><SlidersHorizontal size={15} /></div>
               <div>
                 <h3 className="font-semibold">{t('proxySettingsTitle')}</h3>
-                <p className="mt-1 text-xs leading-5 text-muted">{t('proxySettingsHint')}</p>
+                <p className="mt-1 text-caption leading-5 text-muted">{t('proxySettingsHint')}</p>
               </div>
             </div>
             <div className="mt-4 space-y-1.5">
@@ -200,7 +200,7 @@ export function SystemPage() {
                 placeholder={t('proxyUrlPlaceholder')}
                 disabled={settingsBusy || !settings}
               />
-              <Description className="text-xs leading-5 text-muted">{t('proxyUrlHint')}</Description>
+              <Description className="text-caption leading-5 text-muted">{t('proxyUrlHint')}</Description>
             </div>
           </Card>
           <Card data-gsap-reveal>
@@ -209,7 +209,7 @@ export function SystemPage() {
                 <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-surface-secondary text-foreground"><CheckCircle size={15} /></div>
                 <div>
                   <h3 className="font-semibold">{t('checkinDisabledAccountsTitle')}</h3>
-                  <p className="mt-1 text-xs leading-5 text-muted">{t('checkinDisabledAccountsHint')}</p>
+                  <p className="mt-1 text-caption leading-5 text-muted">{t('checkinDisabledAccountsHint')}</p>
                 </div>
               </div>
               <CompactSwitch
@@ -219,7 +219,7 @@ export function SystemPage() {
                 onChange={(selected) => void updateCheckinDisabledAccounts(selected)}
               />
             </div>
-            <div className="mt-4 flex items-center justify-between pt-3 text-xs text-muted">
+            <div className="mt-4 flex items-center justify-between pt-3 text-caption text-muted">
               <span>{t('checkinDisabledAccountsStatus')}</span>
               <span className="font-medium text-foreground">{settings?.checkin_disabled_accounts ? t('enabled') : t('disabled')}</span>
             </div>
@@ -234,7 +234,7 @@ export function SystemPage() {
               <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-surface-secondary text-foreground"><SlidersHorizontal size={15} /></div>
               <div>
                 <h3 className="font-semibold">{t('routingStrategyTitle')}</h3>
-                <p className="mt-1 text-xs leading-5 text-muted">{t('routingStrategyHint')}</p>
+                <p className="mt-1 text-caption leading-5 text-muted">{t('routingStrategyHint')}</p>
               </div>
             </div>
             <div className="mt-4 pt-4">
@@ -262,14 +262,14 @@ export function SystemPage() {
                 </Select>
               </FormRow>
             </div>
-            <div className="mt-4 grid grid-cols-2 gap-2 pt-3 text-xs text-muted sm:grid-cols-4">
+            <div className="mt-4 grid grid-cols-2 gap-2 pt-3 text-caption text-muted sm:grid-cols-4">
               <div><span className="mono block text-body font-medium text-foreground">{settings?.session_affinity?.ttl_seconds ? `${Math.round(settings.session_affinity.ttl_seconds / 60)}m` : '—'}</span>{t('sessionAffinityTTL')}</div>
               <div><span className="mono block text-body font-medium text-foreground">{settings?.session_affinity?.hits ?? 0}</span>{t('sessionAffinityHits')}</div>
               <div><span className="mono block text-body font-medium text-foreground">{settings?.session_affinity?.misses ?? 0}</span>{t('sessionAffinityMisses')}</div>
               <div><span className="mono block text-body font-medium text-foreground">{settings?.session_affinity?.escapes ?? 0}</span>{t('sessionAffinityEscapes')}</div>
             </div>
-            {settings?.session_affinity?.last_escape_reason ? <Description className="mt-3 text-xs">{t('lastSessionEscape')}: {settings.session_affinity.last_escape_reason}</Description> : null}
-            {settings?.session_affinity?.last_miss_reason ? <Description className="mt-1 text-xs">{t('lastSessionMiss')}: {settings.session_affinity.last_miss_reason}</Description> : null}
+            {settings?.session_affinity?.last_escape_reason ? <Description className="mt-3 text-caption">{t('lastSessionEscape')}: {settings.session_affinity.last_escape_reason}</Description> : null}
+            {settings?.session_affinity?.last_miss_reason ? <Description className="mt-1 text-caption">{t('lastSessionMiss')}: {settings.session_affinity.last_miss_reason}</Description> : null}
           </Card>
           <Card data-gsap-reveal>
             <div className="flex items-start justify-between gap-4">
@@ -277,7 +277,7 @@ export function SystemPage() {
                 <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-surface-secondary text-foreground"><SlidersHorizontal size={15} /></div>
                 <div>
                   <h3 className="font-semibold">{t('crossProviderModelPoolTitle')}</h3>
-                  <p className="mt-1 text-xs leading-5 text-muted">{t('crossProviderModelPoolHint')}</p>
+                  <p className="mt-1 text-caption leading-5 text-muted">{t('crossProviderModelPoolHint')}</p>
                 </div>
               </div>
               <CompactSwitch
@@ -287,7 +287,7 @@ export function SystemPage() {
                 onChange={(selected) => void updateCrossProviderModelPool(selected)}
               />
             </div>
-            <div className="mt-4 flex items-center justify-between pt-3 text-xs text-muted">
+            <div className="mt-4 flex items-center justify-between pt-3 text-caption text-muted">
               <span>{t('crossProviderModelPoolStatus')}</span>
               <span className="font-medium text-foreground">{settings?.cross_provider_model_pool ? t('enabled') : t('disabled')}</span>
             </div>
@@ -302,12 +302,12 @@ export function SystemPage() {
                 <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-surface-secondary text-foreground"><Key size={15} /></div>
                 <div>
                   <h3 className="font-semibold">{t('consoleKeyTitle')}</h3>
-                  <p className="mt-1 text-xs leading-5 text-muted">{t('consoleKeyHint')}</p>
+                  <p className="mt-1 text-caption leading-5 text-muted">{t('consoleKeyHint')}</p>
                 </div>
               </div>
             </div>
-            <code className="mono mt-4 block rounded-lg bg-surface-secondary px-3 py-2 text-xs text-muted">{consoleKey?.prefix || '—'}</code>
-            <p className="mt-3 text-xs leading-5 text-muted">{t('consoleKeyLead')}</p>
+            <code className="mono mt-4 block rounded-lg bg-surface-secondary px-3 py-2 text-caption text-muted">{consoleKey?.prefix || '—'}</code>
+            <p className="mt-3 text-caption leading-5 text-muted">{t('consoleKeyLead')}</p>
             <div className="mt-4 flex justify-end">
               <Button size="sm" variant="ghost" isPending={consoleBusy} onPress={() => setRotateOpen(true)}>{t('consoleKeyRotate')}</Button>
             </div>
@@ -318,16 +318,16 @@ export function SystemPage() {
                 <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-surface-secondary text-foreground"><Database size={15} /></div>
                 <div>
                   <h3 className="font-semibold">{t('sqliteProtection')}</h3>
-                  <p className="mt-1 text-xs leading-5 text-muted">{t('sqliteProtectionHint')}</p>
+                  <p className="mt-1 text-caption leading-5 text-muted">{t('sqliteProtectionHint')}</p>
                 </div>
               </div>
               <ShieldCheck size={18} className="text-success" />
             </div>
-            <div className="mono mt-4 rounded-lg bg-surface-secondary px-3 py-2 text-xs text-muted">/data</div>
-            <div className="mt-3 grid gap-2 text-xs text-muted">
-              <div className="flex items-center gap-2"><CheckCircle size={14} className="text-success" />{t('sqliteBackupBeforeUpdate')}</div>
-              <div className="flex items-center gap-2"><CheckCircle size={14} className="text-success" />{t('sqliteKeepFive')}</div>
-              <div className="flex items-center gap-2"><CheckCircle size={14} className="text-success" />{t('sqliteRollbackTogether')}</div>
+            <div className="mono mt-4 rounded-lg bg-surface-secondary px-3 py-2 text-caption text-muted">/data</div>
+            <div className="mt-3 grid gap-2 text-caption text-muted">
+              <div className="flex items-center gap-2"><CheckCircle size={14} className="text-muted" />{t('sqliteBackupBeforeUpdate')}</div>
+              <div className="flex items-center gap-2"><CheckCircle size={14} className="text-muted" />{t('sqliteKeepFive')}</div>
+              <div className="flex items-center gap-2"><CheckCircle size={14} className="text-muted" />{t('sqliteRollbackTogether')}</div>
             </div>
           </Card>
           </div>
@@ -338,7 +338,7 @@ export function SystemPage() {
           <div className="flex items-center justify-between gap-3 border-b border-separator px-5 py-4">
             <div>
               <h3 className="font-semibold">{t('versionUpdate')}</h3>
-              <p className="mt-0.5 text-xs text-muted">{t('latestVersionHint')}</p>
+              <p className="mt-0.5 text-caption text-muted">{t('latestVersionHint')}</p>
             </div>
             <Chip size="sm" variant="soft" color={info?.has_update ? 'warning' : 'success'}>
               {info?.has_update ? t('updateAvailable') : t('upToDate')}
@@ -387,7 +387,7 @@ export function SystemPage() {
               <Modal.Header className="items-start justify-between gap-4">
                 <div>
                   <Modal.Heading className="text-section font-semibold">{t('consoleKeyRotate')}</Modal.Heading>
-                  <p className="mt-1 text-xs leading-5 text-muted">{t('consoleKeyRotateHint')}</p>
+                  <p className="mt-1 text-caption leading-5 text-muted">{t('consoleKeyRotateHint')}</p>
                 </div>
                 <Modal.CloseTrigger isDisabled={consoleBusy} aria-label={t('close')} className="grid size-8 place-items-center rounded-lg text-muted hover:bg-surface-secondary"><X size={16} /></Modal.CloseTrigger>
               </Modal.Header>

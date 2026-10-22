@@ -41,7 +41,7 @@ export function VersionHistory({
   return (
     <div className="mt-5">
       <div className="mb-2">
-        <p className="text-xs font-medium text-foreground">{t('versionHistory')}</p>
+        <p className="text-caption font-medium text-foreground">{t('versionHistory')}</p>
       </div>
       <Accordion className="rounded-lg bg-surface-secondary" hideSeparator defaultExpandedKeys={defaultExpanded ? [defaultExpanded] : []}>
         {releases.map((release) => {
@@ -58,7 +58,7 @@ export function VersionHistory({
                     <span className="mono text-body font-semibold">{tag}</span>
                     {isCurrent ? <Chip size="sm" variant="soft" color="success">{t('versionCurrentBadge')}</Chip> : null}
                     {isLatest ? <Chip size="sm" variant="soft" color="warning">{t('versionLatestBadge')}</Chip> : null}
-                    {published ? <span className="truncate text-xs text-muted">{published}</span> : null}
+                    {published ? <span className="truncate text-caption text-muted">{published}</span> : null}
                   </span>
                   <Accordion.Indicator />
                 </Accordion.Trigger>

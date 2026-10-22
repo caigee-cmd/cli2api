@@ -122,7 +122,7 @@ HeroUI 3.2.4 的 `Tabs.Indicator` 会因 `SharedElementTransition` 崩溃，不�
 | 页内说明 | `mt-1 max-w-2xl text-sm leading-6 text-muted` |
 | 区块标题 | `font-semibold tracking-[-0.015em]` |
 | 正文 | `text-sm leading-6` |
-| 元信息 / 标签 | `text-xs` 或 `text-[11px] text-muted` |
+| 元信息 / 标签 | `text-caption text-muted`（12 px；`text-xs` 为同值别名，不再单独使用 11 px） |
 | 侧栏分组 | `text-[10px] font-semibold tracking-[0.12em] uppercase text-muted` |
 | 等宽 | `.mono`，`font-variant-numeric: tabular-nums` |
 

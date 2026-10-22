@@ -209,22 +209,22 @@ export function AccessPage() {
           <h2 className="text-title font-semibold">{t('apiPlayground')}</h2>
           <p className="mt-1 max-w-2xl text-body leading-6 text-muted">{t('apiPlaygroundHint')}</p>
         </div>
-        <div className="flex items-center gap-2 text-xs text-muted">
+        <div className="flex items-center gap-2 text-caption text-muted">
           <span className="status-dot" data-state={readyAccounts.length ? 'ok' : undefined} />
           <span>{t('readyAccounts', { ready: readyAccounts.length, total: accounts.length })}</span>
         </div>
       </section>
 
-      <section data-gsap-reveal className="overflow-hidden rounded-2xl bg-surface shadow-surface">
+      <section data-gsap-reveal className="overflow-hidden rounded-xl bg-surface shadow-surface">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-separator px-4 py-3">
           <div className="min-w-0">
-            <div className="text-xs font-medium text-muted">{t('baseUrl')}</div>
+            <div className="text-caption font-medium text-muted">{t('baseUrl')}</div>
             <code className="mono mt-0.5 block truncate text-body font-medium text-foreground">{base}</code>
           </div>
           <div className="flex items-center gap-3">
             <div className="hidden text-right sm:block">
               <div className="text-caption font-medium text-muted">{t('protocol')}</div>
-              <div className="text-xs font-medium">HTTP / SSE</div>
+              <div className="text-caption font-medium">HTTP / SSE</div>
             </div>
             <div className="hidden text-right sm:block">
               <div className="text-caption font-medium text-muted">{t('authentication')}</div>
@@ -241,7 +241,7 @@ export function AccessPage() {
         <div className="grid grid-cols-2 sm:hidden">
           <div className="p-3">
             <div className="text-caption font-medium text-muted">{t('protocol')}</div>
-            <div className="mt-0.5 text-xs font-medium">HTTP / SSE</div>
+            <div className="mt-0.5 text-caption font-medium">HTTP / SSE</div>
           </div>
           <div className="p-3">
             <div className="text-caption font-medium text-muted">{t('authentication')}</div>
@@ -262,7 +262,7 @@ export function AccessPage() {
                 </div>
                 <div>
                   <h3 className="font-semibold">{t('requestBuilder')}</h3>
-                  <p className="mt-0.5 text-xs text-muted">POST {chatPath}</p>
+                  <p className="mt-0.5 text-caption text-muted">POST {chatPath}</p>
                 </div>
               </div>
             </div>
@@ -290,7 +290,7 @@ export function AccessPage() {
                       })),
                     ]}
                   />
-                  <p className="text-xs leading-5 text-muted">{selectedAccount ? t('fixedAccountHint') : t('autoAccountHint')}</p>
+                  <p className="text-caption leading-5 text-muted">{selectedAccount ? t('fixedAccountHint') : t('autoAccountHint')}</p>
                 </div>
 
                 <div className="space-y-2">
@@ -322,12 +322,12 @@ export function AccessPage() {
                   ) : (
                     <div className="flex flex-col gap-1">
                       <div className="text-body font-medium text-muted">{t('model')}</div>
-                      <div className="flex h-10 items-center rounded-lg bg-surface-secondary px-3 text-xs leading-5 text-muted">
+                      <div className="flex h-10 items-center rounded-lg bg-surface-secondary px-3 text-caption leading-5 text-muted">
                         {modelsError || (selectedAccount ? t('noAccountModels') : t('noModelsYet'))}
                       </div>
                     </div>
                   )}
-                  <p className="text-xs leading-5 text-muted">{selectedAccount ? t('accountModelHint') : t('modelRoutingHint')}</p>
+                  <p className="text-caption leading-5 text-muted">{selectedAccount ? t('accountModelHint') : t('modelRoutingHint')}</p>
                 </div>
               </div>
 
@@ -345,7 +345,7 @@ export function AccessPage() {
                   placeholder={t('promptPlaceholder')}
                   aria-label={t('prompt')}
                 />
-                <p className="text-xs leading-5 text-muted">{t('promptHelper')}</p>
+                <p className="text-caption leading-5 text-muted">{t('promptHelper')}</p>
               </div>
 
               {!accounts.length ? (
@@ -363,7 +363,7 @@ export function AccessPage() {
             <div className="flex min-h-16 items-center justify-between gap-4 border-b border-separator px-5 py-4 sm:px-6">
               <div>
                 <h3 className="font-semibold">{t('responseInspector')}</h3>
-                <p className="mt-0.5 text-xs text-muted">{t('responseInspectorHint')}</p>
+                <p className="mt-0.5 text-caption text-muted">{t('responseInspectorHint')}</p>
               </div>
               <div className="flex items-center gap-2">
                 {elapsedMs !== null ? (
@@ -405,11 +405,11 @@ export function AccessPage() {
                 </div>
               ) : (
                 <div>
-                  <div className="mb-4 flex items-center gap-2 text-xs font-medium text-success">
+                  <div className="mb-4 flex items-center gap-2 text-caption font-medium text-success">
                     <CheckCircle size={15} weight="fill" />
                     {t('responseReceived')}
                   </div>
-                  <pre className="mono overflow-x-auto whitespace-pre-wrap break-words text-xs leading-6 text-muted">{output}</pre>
+                  <pre className="mono overflow-x-auto whitespace-pre-wrap break-words text-caption leading-6 text-muted">{output}</pre>
                 </div>
               )}
             </div>
@@ -417,13 +417,13 @@ export function AccessPage() {
         </div>
       </Card>
 
-      <section data-gsap-reveal className="overflow-hidden rounded-3xl bg-surface shadow-surface">
+      <section data-gsap-reveal className="overflow-hidden rounded-xl bg-surface shadow-surface">
         <div className="flex items-center justify-between gap-4 border-b border-separator px-5 py-3.5">
           <div className="flex min-w-0 items-center gap-3">
             <TerminalWindow className="shrink-0 text-muted" size={16} />
             <div className="min-w-0">
               <div className="text-body font-semibold">{t('curlExample')}</div>
-              <div className="mt-0.5 truncate text-xs text-muted">{t('curlGeneratedHint')}</div>
+              <div className="mt-0.5 truncate text-caption text-muted">{t('curlGeneratedHint')}</div>
             </div>
           </div>
           <Button size="sm" variant="ghost" onPress={() => void copy(curl, 'curl')}>
@@ -431,7 +431,7 @@ export function AccessPage() {
             {copied === 'curl' ? t('copied') : t('copy')}
           </Button>
         </div>
-        <pre className="mono max-h-80 overflow-auto whitespace-pre-wrap p-5 text-xs leading-6 text-muted">{curl}</pre>
+        <pre className="mono max-h-80 overflow-auto whitespace-pre-wrap p-5 text-caption leading-6 text-muted">{curl}</pre>
       </section>
     </div>
   )

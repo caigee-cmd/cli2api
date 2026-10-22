@@ -217,7 +217,7 @@ export function OverviewPage() {
               </div>
               {!statsLoading && metric.trend != null ? <TrendChip value={metric.trend} hint={t('trendHalfHint')} /> : null}
             </div>
-            <div className="mono mt-2 truncate text-xs text-muted">{statsLoading ? <SkeletonBlock className="h-3 w-28" /> : metric.detail}</div>
+            <div className="mono mt-2 truncate text-caption text-muted">{statsLoading ? <SkeletonBlock className="h-3 w-28" /> : metric.detail}</div>
           </Card>
         ))}
       </section>
@@ -227,7 +227,7 @@ export function OverviewPage() {
           <div className="flex items-center justify-between gap-3 border-b border-separator px-5 py-4">
             <div>
               <h3 className="font-semibold">{t('statsTraffic')}</h3>
-              <p className="mt-0.5 text-xs text-muted">{t('statsTrafficHint')}</p>
+              <p className="mt-0.5 text-caption text-muted">{t('statsTrafficHint')}</p>
             </div>
             <Chip size="sm" variant="soft" color={traffic.totals.error ? 'warning' : 'success'}>
               {formatPercent(traffic.totals.success_rate)}
@@ -273,9 +273,9 @@ export function OverviewPage() {
           <div className="flex items-center justify-between gap-3 border-b border-separator px-5 py-4">
             <div>
               <h3 className="font-semibold">{t('statsPool')}</h3>
-              <p className="mt-0.5 text-xs text-muted">{t('statsPoolHint')}</p>
+              <p className="mt-0.5 text-caption text-muted">{t('statsPoolHint')}</p>
             </div>
-            <Link to="/accounts" className="inline-flex items-center gap-1 text-xs font-medium text-muted hover:text-foreground">
+            <Link to="/accounts" className="inline-flex items-center gap-1 text-caption font-medium text-muted hover:text-foreground">
               {t('navAccounts')}
               <ArrowUpRight size={12} />
             </Link>
@@ -360,7 +360,7 @@ export function OverviewPage() {
           <div className="flex items-center justify-between gap-3 border-b border-separator px-5 py-4">
             <div>
               <h3 className="font-semibold">{t('statsTopProviders')}</h3>
-              <p className="mt-0.5 text-xs text-muted">{t('statsTopProvidersHint')}</p>
+              <p className="mt-0.5 text-caption text-muted">{t('statsTopProvidersHint')}</p>
             </div>
             <Pulse size={15} className="text-muted" />
           </div>
@@ -383,7 +383,7 @@ export function OverviewPage() {
           <div className="flex items-center justify-between gap-3 border-b border-separator px-5 py-4">
             <div>
               <h3 className="font-semibold">{t('statsTopModels')}</h3>
-              <p className="mt-0.5 text-xs text-muted">{t('providerCatalog')}</p>
+              <p className="mt-0.5 text-caption text-muted">{t('providerCatalog')}</p>
             </div>
             <Cube size={15} className="text-muted" />
           </div>
@@ -406,7 +406,7 @@ export function OverviewPage() {
           <div className="flex items-center justify-between gap-3 border-b border-separator px-5 py-4">
             <div>
               <h3 className="font-semibold">{traffic.errors.length ? t('statsErrorMix') : t('statsTopAccounts')}</h3>
-              <p className="mt-0.5 text-xs text-muted">{traffic.errors.length ? t('statsErrorMixHint') : t('statsPoolHint')}</p>
+              <p className="mt-0.5 text-caption text-muted">{traffic.errors.length ? t('statsErrorMixHint') : t('statsPoolHint')}</p>
             </div>
             <Pulse size={15} className="text-muted" />
           </div>
@@ -453,7 +453,7 @@ function ResourcesCard({ resources, t }: { resources: SystemResources | null; t:
       <div className="flex items-center justify-between gap-3 border-b border-separator px-5 py-4">
         <div>
           <h3 className="font-semibold">{t('resTitle')}</h3>
-          <p className="mt-0.5 text-xs text-muted">{t('resHint')}</p>
+          <p className="mt-0.5 text-caption text-muted">{t('resHint')}</p>
         </div>
         <Chip size="sm" variant="soft" color={resources ? 'success' : 'default'}>
           {resources ? formatBytes(resources.total_rss_bytes) : '—'}

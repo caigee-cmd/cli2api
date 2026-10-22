@@ -50,14 +50,14 @@ export function SidebarUpdateItem({ collapsed, onNavigate }: { collapsed: boolea
               <Modal.Header className="items-start justify-between gap-4">
                 <div>
                   <Modal.Heading className="text-section font-semibold">{t('versionUpdate')}</Modal.Heading>
-                  <p className="mono mt-1 text-xs text-muted">{release?.tag_name || version}</p>
+                  <p className="mono mt-1 text-caption text-muted">{release?.tag_name || version}</p>
                 </div>
                 <Modal.CloseTrigger aria-label={t('close')} className="grid size-8 place-items-center rounded-lg text-muted hover:bg-surface-secondary"><X size={16} /></Modal.CloseTrigger>
               </Modal.Header>
               <Modal.Body className="space-y-4">
                 {error ? <PageAlert title={error} /> : null}
                 <UpdateControls update={update} />
-                <div className="text-xs font-medium text-muted">{t('sidebarReleaseNotes')}</div>
+                <div className="text-caption font-medium text-muted">{t('sidebarReleaseNotes')}</div>
                 <ReleaseNotes markdown={extractReleaseNotes(release?.body, lang)} emptyLabel={t('updateNoNotes')} />
               </Modal.Body>
               <Modal.Footer className="justify-end">

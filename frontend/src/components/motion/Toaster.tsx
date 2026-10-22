@@ -57,12 +57,12 @@ function Toast({ item }: { item: ToastItem }) {
     <div
       ref={ref}
       role={item.type === 'error' ? 'alert' : 'status'}
-      className="pointer-events-auto mt-2 flex w-full items-start gap-2.5 overflow-hidden rounded-2xl bg-overlay px-3.5 py-3 text-body text-foreground shadow-lg"
+      className="pointer-events-auto mt-2 flex w-full items-start gap-2.5 overflow-hidden rounded-xl bg-overlay px-3.5 py-3 text-body text-foreground shadow-overlay"
     >
       <span className="mt-0.5 inline-flex shrink-0">{icon[item.type]}</span>
       <div ref={bodyRef} className="min-w-0 flex-1">
         <div className="font-medium leading-5">{item.title}</div>
-        {item.description ? <div className="mt-0.5 break-words text-xs leading-5 text-muted">{item.description}</div> : null}
+        {item.description ? <div className="mt-0.5 break-words text-caption leading-5 text-muted">{item.description}</div> : null}
       </div>
       <button
         type="button"

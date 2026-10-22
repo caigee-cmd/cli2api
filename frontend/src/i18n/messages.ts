@@ -584,7 +584,7 @@ export const messages: Record<Lang, Dict> = {
     accountTypeDevinGlobal: 'Devin (experimental)',
     accountTypeDevinGlobalHint: 'Experimental Devin Global via browser OAuth or session token import',
     accountTypeCommandGlobal: 'Command Code',
-    accountTypeCommandGlobalHint: 'Command Code via a pasted user_… key. Speaks the CLI /alpha/generate protocol, so every plan works — including the $1 Go plan.',
+    accountTypeCommandGlobalHint: 'Command Code via a pasted user_… key. Speaks the CLI /alpha/generate protocol, so every plan works, including the $1 Go plan.',
     accountTypeCodexGlobal: 'Codex',
     accountTypeCodexGlobalHint: 'OpenAI Codex via Codex CLI OAuth, Sign in with ChatGPT, or an imported credential',
     accountTypeZhipuCN: 'Zhipu GLM',

@@ -212,7 +212,7 @@ export function AccountCard({
                   <div className="space-y-1.5">
                     <div className="font-medium">{t('partialCooling')}</div>
                     {modelCooldowns.map(([model, until]) => (
-                      <div key={model} className="flex items-center justify-between gap-4 text-xs">
+                      <div key={model} className="flex items-center justify-between gap-4 text-caption">
                         <span>{model}</span>
                         <span className="mono text-foreground/65">{cooldownLabel(until)}</span>
                       </div>
@@ -233,7 +233,7 @@ export function AccountCard({
                 <div className="space-y-1.5">
                   <div className="font-medium">{t('partialCooling')}</div>
                   {modelCooldowns.map(([model, until]) => (
-                    <div key={model} className="flex items-center justify-between gap-4 text-xs">
+                    <div key={model} className="flex items-center justify-between gap-4 text-caption">
                       <span>{model}</span>
                       <span className="mono text-foreground/65">{cooldownLabel(until)}</span>
                     </div>
@@ -265,8 +265,8 @@ export function AccountCard({
         {lastError ? (
           <Tooltip>
             <Tooltip.Trigger>
-              <div className="flex w-full cursor-help gap-2 rounded-2xl border border-danger/25 bg-danger/5 p-2 text-left text-xs leading-5 text-danger">
-                <WarningCircle size={14} className="mt-0.5 shrink-0" />
+              <div className="flex w-full cursor-help gap-2 rounded-lg bg-surface-secondary p-2 text-left text-caption leading-5 text-foreground">
+                <WarningCircle size={14} className="mt-0.5 shrink-0 text-danger" />
                 <div className="min-w-0 flex-1">
                   {errorKind ? <div className="mono mb-0.5 truncate text-caption opacity-75">{errorKind}</div> : null}
                   <p className="break-words line-clamp-3">{lastError}</p>
@@ -286,8 +286,8 @@ export function AccountCard({
       {authPanelOpen && account.enabled ? (
         <section ref={authRef} className="grid gap-3 bg-surface-secondary/55 px-3 py-3">
           <div>
-            <div className="text-xs font-medium text-muted">{t('oauthDeviceFlow')}</div>
-            <p className="mt-1.5 text-xs leading-5 text-muted">{account.provider === 'codex' ? t('wizardCodexBrowserLead') : t('qoderLoginHint')}</p>
+            <div className="text-caption font-medium text-muted">{t('oauthDeviceFlow')}</div>
+            <p className="mt-1.5 text-caption leading-5 text-muted">{account.provider === 'codex' ? t('wizardCodexBrowserLead') : t('qoderLoginHint')}</p>
             <div className="mt-2.5 flex flex-wrap gap-2">
               {account.provider === 'codex' ? (
                 <>
@@ -302,7 +302,7 @@ export function AccountCard({
               <div className="mt-3 space-y-2">
                 <p className="text-caption leading-4 text-muted">{t('wizardCallbackLead')}</p>
                 <TextArea
-                  className="h-24 w-full resize-none font-mono text-xs leading-5"
+                  className="h-24 w-full resize-none font-mono text-caption leading-5"
                   value={callbackUrl || ''}
                   onChange={(event) => onCallbackChange(event.target.value)}
                   placeholder={t('wizardCallbackPh')}
@@ -315,7 +315,7 @@ export function AccountCard({
             ) : null}
           </div>
           <div>
-            <div className="text-xs font-medium text-muted">{t('patFallback')}</div>
+            <div className="text-caption font-medium text-muted">{t('patFallback')}</div>
             <div className="mt-2.5 flex flex-col gap-2 sm:flex-row">
               <TextField className="flex-1" type="password" value={pat} onChange={onPatChange}>
                 <Label className="sr-only">{t('pat')}</Label>
@@ -325,7 +325,7 @@ export function AccountCard({
             </div>
           </div>
           {authUrl || note ? (
-            <div className="text-xs">
+            <div className="text-caption">
               {authUrl ? (
                 <div>
                   <div className="mb-1 text-caption font-medium text-muted">{t('authUrl')}</div>
