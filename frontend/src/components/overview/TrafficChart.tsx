@@ -1,10 +1,11 @@
-import { useLayoutEffect, useMemo, useRef } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import gsap from 'gsap'
 import {
   Area,
   CartesianGrid,
   ComposedChart,
   Line,
+  ReferenceArea,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -79,13 +80,22 @@ export function TrafficChart({
   emptyLabel,
   okLabel,
   errorLabel,
+  onSelectRange,
+  selectHint,
 }: {
   series: RequestStatsPoint[]
   lang: 'en' | 'zh'
   emptyLabel: string
   okLabel: string
   errorLabel: string
+  /** Called with an ISO [from, to) range after the user drag-selects buckets. */
+  onSelectRange?: (from: string, to: string) => void
+  selectHint?: string
 }) {
+  const [dragStart, setDragStart] = useState<string | null>(null)
+  const [dragEnd, setDragEnd] = useState<string | null>(null)
+  // Draw the lines in once per mount; background refreshes must not replay it.
+  const playedRef = useRef(false)
   const rootRef = useRef<HTMLDivElement>(null)
   // 修复：成功/失败折线必须各自取自己的计数。
   // 之前红色折线/面积用的是 requests（总请求数），与成功线在几乎无报错时重合，
@@ -117,6 +127,7 @@ export function TrafficChart({
     const root = rootRef.current
     if (!root || !hasTraffic) return
 
+    if (playedRef.current) return
     let played = false
     let observer: MutationObserver | null = null
     const context = gsap.context(() => {
@@ -152,6 +163,7 @@ export function TrafficChart({
 
       if (play()) {
         played = true
+        playedRef.current = true
         return
       }
 
@@ -159,6 +171,7 @@ export function TrafficChart({
         if (played) return
         if (play()) {
           played = true
+          playedRef.current = true
           observer?.disconnect()
         }
       })
@@ -171,6 +184,25 @@ export function TrafficChart({
     }
   }, [hasTraffic, signature])
 
+  const step = data.length > 1 ? Date.parse(data[1].at) - Date.parse(data[0].at) : 60 * 60 * 1000
+  const finishDrag = () => {
+    if (dragStart && dragEnd && onSelectRange) {
+      const a = Date.parse(dragStart)
+      const b = Date.parse(dragEnd)
+      if (Number.isFinite(a) && Number.isFinite(b)) {
+        const from = Math.min(a, b)
+        const to = Math.max(a, b) + step
+        onSelectRange(new Date(from).toISOString(), new Date(to).toISOString())
+      }
+    }
+    setDragStart(null)
+    setDragEnd(null)
+  }
+  const labelOf = (state: unknown) => {
+    const label = (state as { activeLabel?: string | number } | null)?.activeLabel
+    return label == null ? null : String(label)
+  }
+
   if (!series.length || !hasTraffic) {
     return <TrafficChartEmpty emptyLabel={emptyLabel} />
   }
@@ -182,6 +214,21 @@ export function TrafficChart({
           <ComposedChart
             data={data}
             margin={{ top: 8, right: 8, bottom: 0, left: 0 }}
+            style={onSelectRange ? { cursor: 'crosshair', userSelect: 'none' } : undefined}
+            onMouseDown={onSelectRange ? (state) => {
+              const label = labelOf(state)
+              if (label) {
+                setDragStart(label)
+                setDragEnd(label)
+              }
+            } : undefined}
+            onMouseMove={onSelectRange ? (state) => {
+              if (!dragStart) return
+              const label = labelOf(state)
+              if (label) setDragEnd(label)
+            } : undefined}
+            onMouseUp={onSelectRange ? finishDrag : undefined}
+            onMouseLeave={onSelectRange ? () => { setDragStart(null); setDragEnd(null) } : undefined}
           >
             <defs>
               <linearGradient id="traffic-ok" x1="0" y1="0" x2="0" y2="1">
@@ -257,6 +304,9 @@ export function TrafficChart({
               activeDot={{ r: 4, fill: 'var(--surface)', stroke: 'var(--danger)', strokeWidth: 1.5 }}
               className="traffic-error-line"
             />
+            {dragStart && dragEnd ? (
+              <ReferenceArea x1={dragStart} x2={dragEnd} fill="var(--foreground)" fillOpacity={0.06} stroke="none" ifOverflow="visible" />
+            ) : null}
           </ComposedChart>
         </ResponsiveContainer>
       </div>
@@ -265,7 +315,10 @@ export function TrafficChart({
           <span className="inline-flex items-center gap-1.5"><span className="size-1.5 rounded-full bg-success" />{okLabel}</span>
           <span className="inline-flex items-center gap-1.5"><span className="size-1.5 rounded-full bg-danger" />{errorLabel}</span>
         </div>
-        <span className="mono">{formatCompact(peak)} peak</span>
+        <span className="flex items-center gap-3">
+          {onSelectRange && selectHint ? <span>{selectHint}</span> : null}
+          <span className="mono">{formatCompact(peak)} peak</span>
+        </span>
       </div>
     </div>
   )
