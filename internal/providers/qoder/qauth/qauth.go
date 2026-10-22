@@ -466,6 +466,9 @@ type UpstreamError struct {
 }
 
 func (e *UpstreamError) Error() string {
+	if e.StatusCode == StatusClientVersionTooLow {
+		return fmt.Sprintf("gateway HTTP 430: client version too low, upgrade required: %s", e.Body)
+	}
 	return fmt.Sprintf("gateway HTTP %d: %s", e.StatusCode, e.Body)
 }
 
@@ -641,6 +644,19 @@ func busyCodeOf(raw json.RawMessage) string {
 	}
 	return ""
 }
+
+// ParseBusyEnvelope returns the queue/concurrency rejection carried by an
+// upstream error body, or nil. Only 401/403/429 envelopes are considered.
+func ParseBusyEnvelope(statusCode int, body []byte) *BusyError {
+	switch statusCode {
+	case 401, 403, 429:
+		return busyFromAuthEnvelope(statusCode, body)
+	}
+	return nil
+}
+
+// StatusClientVersionTooLow is Qoder's hard gate for outdated clients.
+const StatusClientVersionTooLow = 430
 
 // busyFromAuthEnvelope parses a 401/403 response body and returns a
 // BusyError when it is a queue/concurrency rejection rather than an auth

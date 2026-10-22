@@ -121,7 +121,72 @@ func classifiedErrorWithHeaders(status int, headers http.Header, body, toolsDiag
 	if classified.Kind == accounts.KindRateLimit || classified.Kind == accounts.KindQuota {
 		err.RetryAfter = devinRetryAfter(headers, body, time.Now())
 	}
+	if classified.Kind == accounts.KindQuota {
+		switch quotaExhaustionPeriod(body) {
+		case quotaPeriodDaily:
+			err.Code = CodeDailyQuotaExhausted
+		case quotaPeriodWeekly:
+			err.Code = CodeWeeklyQuotaExhausted
+		}
+	}
 	return err
+}
+
+// Account-wide usage windows (CLIProxyAPI b946d54e / #6690). A daily window
+// resets within a day; a weekly one can stay exhausted for days, so cooling a
+// weekly exhaustion only until local midnight just burns retries.
+const (
+	CodeDailyQuotaExhausted  = "devin_daily_quota_exhausted"
+	CodeWeeklyQuotaExhausted = "devin_weekly_quota_exhausted"
+)
+
+type quotaPeriod int
+
+const (
+	quotaPeriodNone quotaPeriod = iota
+	quotaPeriodDaily
+	quotaPeriodWeekly
+)
+
+// maxQuotaResetDelay bounds an observed reset timestamp: a weekly window plus
+// slack. Anything further out is implausible and must not pin the account.
+const maxQuotaResetDelay = 8 * 24 * time.Hour
+
+// quotaExhaustionPeriod matches Devin's explicit daily/weekly usage quota
+// exhaustion message narrowly ("quota" + "exhausted" + the period word);
+// weekly wins when both appear because it is the longer window.
+func quotaExhaustionPeriod(message string) quotaPeriod {
+	lower := strings.ToLower(message)
+	if !strings.Contains(lower, "quota") || !strings.Contains(lower, "exhausted") {
+		return quotaPeriodNone
+	}
+	if strings.Contains(lower, "weekly") {
+		return quotaPeriodWeekly
+	}
+	if strings.Contains(lower, "daily") {
+		return quotaPeriodDaily
+	}
+	return quotaPeriodNone
+}
+
+// quotaResetDelay turns the observed reset for the exhausted window into a
+// delay; 0 when unknown, past, or implausibly far out.
+func quotaResetDelay(status *UserStatus, period quotaPeriod, now time.Time) time.Duration {
+	if status == nil {
+		return 0
+	}
+	resetAt := status.DailyQuotaResetAt
+	if period == quotaPeriodWeekly {
+		resetAt = status.WeeklyQuotaResetAt
+	}
+	if resetAt.IsZero() {
+		return 0
+	}
+	delay := resetAt.Sub(now)
+	if delay <= 0 || delay > maxQuotaResetDelay {
+		return 0
+	}
+	return delay
 }
 
 // devinQuotaScoped reports an account-level quota exhaustion. A per-model rate

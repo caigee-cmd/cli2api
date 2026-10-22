@@ -4,6 +4,8 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"net/http"
+	"os"
+	"strings"
 )
 
 func setCommonHeaders(header http.Header, global bool) {
@@ -21,7 +23,7 @@ func setCommonHeaders(header http.Header, global bool) {
 
 // setCLIChannelHeaders is chat-only. Values come from CodeBuddy CLI 2.139.0
 // (craft / CLI / SaaS). CN and Global share the names; Origin/host stay split.
-func setCLIChannelHeaders(header http.Header) {
+func setCLIChannelHeaders(header http.Header, credential Credential) {
 	requestID := newCLIRequestID()
 	header.Set("X-Request-ID", requestID)
 	header.Set("X-Conversation-ID", requestID)
@@ -34,7 +36,65 @@ func setCLIChannelHeaders(header http.Header) {
 	header.Set("X-IDE-Name", productTypeCLI)
 	header.Set("X-IDE-Version", CLIVersion)
 	header.Set("X-Product-Version", CLIVersion)
-	header.Set("X-Private-Data", "false")
+	if value, ok := privateDataHeader(identityCLI, privateDataModeFromEnv(), credential); ok {
+		header.Set("X-Private-Data", value)
+	} else {
+		header.Del("X-Private-Data")
+	}
+}
+
+// Identities the X-Private-Data default depends on (workbuddy2api-hub #516).
+// cli2api's chat path only speaks the CLI channel today; the others are kept
+// so the auto table matches upstream and stays testable.
+const (
+	identityCLI       = "cli"
+	identityWorkBuddy = "workbuddy"
+	identityVSCode    = "vscode"
+)
+
+// PrivateDataEnv selects the X-Private-Data header: auto (default), true or
+// false. Explicit true/false is sent verbatim for every identity, including
+// the VSCode China edition that sends no header under auto.
+const PrivateDataEnv = "WORKBUDDY_PRIVATE_DATA"
+
+func privateDataModeFromEnv() string {
+	return normalizePrivateDataMode(os.Getenv(PrivateDataEnv))
+}
+
+func normalizePrivateDataMode(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "true", "1", "on", "yes":
+		return "true"
+	case "false", "0", "off", "no":
+		return "false"
+	default:
+		return "auto"
+	}
+}
+
+// privateDataHeader returns the X-Private-Data value and whether to send it.
+// auto mirrors the official clients: CLI sends false for personal and true
+// for enterprise accounts; the WorkBuddy desktop always sends true; VSCode
+// sends true on the global site and omits the header on the China site.
+func privateDataHeader(identity, mode string, credential Credential) (string, bool) {
+	switch mode {
+	case "true", "false":
+		return mode, true
+	}
+	switch identity {
+	case identityWorkBuddy:
+		return "true", true
+	case identityVSCode:
+		if credential.IsGlobal() {
+			return "true", true
+		}
+		return "", false
+	default:
+		if credential.EnterpriseID != "" {
+			return "true", true
+		}
+		return "false", true
+	}
 }
 
 func newCLIRequestID() string {
@@ -88,7 +148,7 @@ func SetCatalogHeaders(header http.Header, credential Credential) {
 // SetChatHeaders carries access identity but never the refresh token.
 func SetChatHeaders(header http.Header, credential Credential) {
 	setIdentityHeaders(header, credential)
-	setCLIChannelHeaders(header)
+	setCLIChannelHeaders(header, credential)
 }
 
 // SetRefreshHeaders is the only path allowed to carry X-Refresh-Token.

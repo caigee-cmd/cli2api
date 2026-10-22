@@ -17,6 +17,7 @@ import (
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/providers"
+	"github.com/caigee-cmd/cli2api/internal/providers/qoder/qauth"
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
@@ -34,6 +35,8 @@ type Direct struct {
 	// and, after a 200, for the first meaningful SSE data line
 	// (ensureMeaningfulUpstream). Zero falls back to defaultFirstByteTimeout.
 	ttfb time.Duration
+	// guard is the optional per-account traffic limiter (default off).
+	guard *trafficGuard
 }
 
 func NewDirect(store CredentialStore, region func(context.Context, string) (string, error)) *Direct {
@@ -43,6 +46,7 @@ func NewDirect(store CredentialStore, region func(context.Context, string) (stri
 		http:   &http.Client{},
 		now:    time.Now,
 		ttfb:   resolveFirstByteTimeout(),
+		guard:  newTrafficGuard(trafficGuardConfigFromEnv()),
 	}
 }
 
@@ -183,6 +187,11 @@ func (d *Direct) ChatNonStream(ctx context.Context, accountID string, req transl
 	if err != nil {
 		return providers.ChatOutcome{}, err
 	}
+	release, err := d.guard.acquire(ctx, accountID)
+	if err != nil {
+		return providers.ChatOutcome{}, err
+	}
+	defer release()
 	resp, err := d.http.Do(prepared.request)
 	if err != nil {
 		return providers.ChatOutcome{}, err
@@ -208,28 +217,63 @@ func (d *Direct) ChatStream(ctx context.Context, accountID string, req translate
 	if err != nil {
 		return nil, providers.ResolvedChat{}, err
 	}
+	release, err := d.guard.acquire(ctx, accountID)
+	if err != nil {
+		return nil, providers.ResolvedChat{}, err
+	}
 	resp, err := doWithFirstByteTimeout(d.http, prepared.request, d.ttfb)
 	if err != nil {
+		release()
 		return nil, providers.ResolvedChat{}, err
 	}
 	if resp.StatusCode >= 300 {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		resp.Body.Close()
+		release()
 		return nil, providers.ResolvedChat{}, upstreamStatusError(resp.StatusCode, raw)
 	}
+	resp.Body = releaseOnClose{ReadCloser: resp.Body, release: release}
 	guarded, err := ensureMeaningfulUpstream(resp, d.ttfb)
 	if err != nil {
 		// ensureMeaningfulUpstream closes the body on failure; no client bytes
 		// have been written yet, so the executor can still fail over.
+		release()
 		return nil, providers.ResolvedChat{}, err
 	}
 	return rewriteUpstreamSSE(guarded, prepared.model), providers.ResolvedChat{ReasoningLevel: prepared.level}, nil
 }
 
+// defaultQueueRetryAfter is used when a 10605 queue rejection carries no
+// retryAfterSeconds hint.
+const defaultQueueRetryAfter = 5 * time.Second
+
+// clientVersionTooLowMessage explains Qoder's HTTP 430 hard gate.
+const clientVersionTooLowMessage = "client version too low (HTTP 430): Qoder requires a newer client version; upgrade cli2api. This is not an account or network problem."
+
 func upstreamStatusError(status int, body []byte) error {
 	message := strings.TrimSpace(string(body))
 	if message == "" {
 		message = fmt.Sprintf("qoder upstream status %d", status)
+	}
+	// 10605 is model-level queueing, not an account fault (qoder2api-hub
+	// 6b7f65b / 67aa3ce): no cooldown, no dead mark, no failover (which would
+	// rebind the session to another account); surface Retry-After instead.
+	if busy := qauth.ParseBusyEnvelope(status, body); busy != nil {
+		retry := busy.RetryAfter
+		if retry <= 0 {
+			retry = defaultQueueRetryAfter
+		}
+		return &providers.Error{
+			Kind: accounts.KindRateLimit, Status: http.StatusTooManyRequests,
+			Code: providers.CodeUpstreamQueued, RetryAfter: retry,
+			Message: "qoder upstream queued (10605): " + busy.Message,
+		}
+	}
+	if status == qauth.StatusClientVersionTooLow {
+		return &providers.Error{
+			Kind: accounts.KindUnavailable, Status: http.StatusBadGateway,
+			Code: providers.CodeClientVersionTooLow, Message: clientVersionTooLowMessage,
+		}
 	}
 	kind := accounts.KindUnavailable
 	switch status {
