@@ -26,7 +26,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     root.classList.toggle('dark', theme === 'dark')
     root.classList.toggle('light', theme === 'light')
     root.style.colorScheme = theme
-    const themeColor = theme === 'dark' ? '#060607' : '#F5F5F5'
+    // Read the resolved --background (oklch) so the browser chrome matches the
+    // page; fall back to its sRGB equivalent if the var is unavailable.
+    const themeColor = resolveBackground() ?? (theme === 'dark' ? '#0A0A0A' : '#FAFAFA')
     document.querySelectorAll('meta[name="theme-color"]').forEach((node) => {
       node.setAttribute('content', themeColor)
     })
@@ -54,4 +56,13 @@ export function useTheme() {
   const context = useContext(ThemeContext)
   if (!context) throw new Error('useTheme must be used within ThemeProvider')
   return context
+}
+
+function resolveBackground(): string | null {
+  const probe = document.createElement('div')
+  probe.style.cssText = 'position:absolute;visibility:hidden;background:var(--background)'
+  document.body.appendChild(probe)
+  const color = getComputedStyle(probe).backgroundColor
+  probe.remove()
+  return color && color !== 'rgba(0, 0, 0, 0)' ? color : null
 }

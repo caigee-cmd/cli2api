@@ -63,7 +63,7 @@ function PlaygroundSelect({
         if (typeof next === 'string' && next) onChange(next)
       }}
     >
-      <Label className="text-sm font-medium text-muted">{label}</Label>
+      <Label className="text-body font-medium text-muted">{label}</Label>
       <Select.Trigger className="items-center">
         <Select.Value className="min-w-0 truncate">
           {({ defaultChildren, isPlaceholder }) => {
@@ -202,10 +202,10 @@ export function AccessPage() {
 
   return (
     <div className="space-y-5">
-      <section className="grid gap-5 border-b border-separator pb-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+      <section className="grid gap-5 pb-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
         <div data-gsap-reveal>
-          <h2 className="text-xl font-semibold tracking-[-0.02em]">{t('apiPlayground')}</h2>
-          <p className="mt-1 max-w-2xl text-sm leading-6 text-muted">{t('apiPlaygroundHint')}</p>
+          <h2 className="text-title font-semibold">{t('apiPlayground')}</h2>
+          <p className="mt-1 max-w-2xl text-body leading-6 text-muted">{t('apiPlaygroundHint')}</p>
         </div>
         <div className="flex items-center gap-2 text-xs text-muted">
           <span className="status-dot" data-state={readyAccounts.length ? 'ok' : undefined} />
@@ -213,20 +213,20 @@ export function AccessPage() {
         </div>
       </section>
 
-      <section data-gsap-reveal className="overflow-hidden rounded-2xl border border-border bg-surface">
+      <section data-gsap-reveal className="overflow-hidden rounded-2xl bg-surface shadow-surface">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-separator px-4 py-3">
           <div className="min-w-0">
             <div className="text-xs font-medium text-muted">{t('baseUrl')}</div>
-            <code className="mono mt-0.5 block truncate text-sm font-medium text-foreground">{base}</code>
+            <code className="mono mt-0.5 block truncate text-body font-medium text-foreground">{base}</code>
           </div>
           <div className="flex items-center gap-3">
             <div className="hidden text-right sm:block">
-              <div className="text-[10px] font-medium text-muted">{t('protocol')}</div>
+              <div className="text-caption font-medium text-muted">{t('protocol')}</div>
               <div className="text-xs font-medium">HTTP / SSE</div>
             </div>
             <div className="hidden text-right sm:block">
-              <div className="text-[10px] font-medium text-muted">{t('authentication')}</div>
-              <div className="mono text-[11px] font-medium">Bearer API key</div>
+              <div className="text-caption font-medium text-muted">{t('authentication')}</div>
+              <div className="mono text-caption font-medium">Bearer API key</div>
             </div>
             <Button isIconOnly size="sm" variant="ghost" aria-label={t('copyBaseUrl')} onPress={() => void copy(base, 'base')}>
               <CopyIcon copied={copied === 'base'} size={15} />
@@ -236,14 +236,14 @@ export function AccessPage() {
             </Chip>
           </div>
         </div>
-        <div className="grid grid-cols-2 divide-x divide-separator sm:hidden">
+        <div className="grid grid-cols-2 sm:hidden">
           <div className="p-3">
-            <div className="text-[10px] font-medium text-muted">{t('protocol')}</div>
+            <div className="text-caption font-medium text-muted">{t('protocol')}</div>
             <div className="mt-0.5 text-xs font-medium">HTTP / SSE</div>
           </div>
           <div className="p-3">
-            <div className="text-[10px] font-medium text-muted">{t('authentication')}</div>
-            <div className="mono mt-0.5 truncate text-[11px] font-medium">Bearer API key</div>
+            <div className="text-caption font-medium text-muted">{t('authentication')}</div>
+            <div className="mono mt-0.5 truncate text-caption font-medium">Bearer API key</div>
           </div>
         </div>
       </section>
@@ -259,7 +259,7 @@ export function AccessPage() {
                   <PaperPlaneTilt size={15} weight="bold" />
                 </div>
                 <div>
-                  <h3 className="font-semibold tracking-[-0.015em]">{t('requestBuilder')}</h3>
+                  <h3 className="font-semibold">{t('requestBuilder')}</h3>
                   <p className="mt-0.5 text-xs text-muted">POST {chatPath}</p>
                 </div>
               </div>
@@ -294,7 +294,7 @@ export function AccessPage() {
                 <div className="space-y-2">
                   {modelsLoading ? (
                     <div className="flex flex-col gap-1">
-                      <div className="text-sm font-medium text-muted">{t('model')}</div>
+                      <div className="text-body font-medium text-muted">{t('model')}</div>
                       <Skeleton className="h-10 rounded-lg" />
                     </div>
                   ) : models.length ? (
@@ -319,8 +319,8 @@ export function AccessPage() {
                     />
                   ) : (
                     <div className="flex flex-col gap-1">
-                      <div className="text-sm font-medium text-muted">{t('model')}</div>
-                      <div className="flex h-10 items-center rounded-lg border border-dashed border-border px-3 text-xs leading-5 text-muted">
+                      <div className="text-body font-medium text-muted">{t('model')}</div>
+                      <div className="flex h-10 items-center rounded-lg bg-surface-secondary px-3 text-xs leading-5 text-muted">
                         {modelsError || (selectedAccount ? t('noAccountModels') : t('noModelsYet'))}
                       </div>
                     </div>
@@ -331,13 +331,13 @@ export function AccessPage() {
 
               <div className="space-y-3">
                 <div className="flex items-center justify-between gap-4">
-                  <div className="text-sm font-medium text-muted">{t('prompt')}</div>
-                  <span className="mono text-[10px] text-muted">{prompt.length}</span>
+                  <div className="text-body font-medium text-muted">{t('prompt')}</div>
+                  <span className="mono text-caption text-muted">{prompt.length}</span>
                 </div>
                 <TextArea
                   fullWidth
                   rows={9}
-                  className="min-h-56 resize-y px-4 py-3 text-sm leading-6"
+                  className="min-h-56 resize-y px-4 py-3 text-body leading-6"
                   value={prompt}
                   onChange={(event) => setPrompt(event.target.value)}
                   placeholder={t('promptPlaceholder')}
@@ -360,12 +360,12 @@ export function AccessPage() {
           <div className="flex min-h-[620px] min-w-0 flex-col bg-surface-secondary/45" aria-live="polite" aria-busy={requestState === 'loading'}>
             <div className="flex min-h-16 items-center justify-between gap-4 border-b border-separator px-5 py-4 sm:px-6">
               <div>
-                <h3 className="font-semibold tracking-[-0.015em]">{t('responseInspector')}</h3>
+                <h3 className="font-semibold">{t('responseInspector')}</h3>
                 <p className="mt-0.5 text-xs text-muted">{t('responseInspectorHint')}</p>
               </div>
               <div className="flex items-center gap-2">
                 {elapsedMs !== null ? (
-                  <span className="mono flex items-center gap-1.5 text-[10px] text-muted">
+                  <span className="mono flex items-center gap-1.5 text-caption text-muted">
                     <Clock size={12} />
                     {elapsedMs} ms
                   </span>
@@ -415,12 +415,12 @@ export function AccessPage() {
         </div>
       </Card>
 
-      <section data-gsap-reveal className="overflow-hidden rounded-3xl border border-border bg-surface">
+      <section data-gsap-reveal className="overflow-hidden rounded-3xl bg-surface shadow-surface">
         <div className="flex items-center justify-between gap-4 border-b border-separator px-5 py-3.5">
           <div className="flex min-w-0 items-center gap-3">
             <TerminalWindow className="shrink-0 text-muted" size={16} />
             <div className="min-w-0">
-              <div className="text-sm font-semibold">{t('curlExample')}</div>
+              <div className="text-body font-semibold">{t('curlExample')}</div>
               <div className="mt-0.5 truncate text-xs text-muted">{t('curlGeneratedHint')}</div>
             </div>
           </div>

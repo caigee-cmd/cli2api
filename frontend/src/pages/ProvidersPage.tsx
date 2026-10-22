@@ -73,7 +73,7 @@ function HintLabel({ label, hint }: { label: string; hint: string }) {
   return (
     <Tooltip>
       <Tooltip.Trigger>
-        <span className="cursor-help text-[11px] text-muted">{label}</span>
+        <span className="cursor-help text-caption text-muted">{label}</span>
       </Tooltip.Trigger>
       <Tooltip.Content>
         <p className="max-w-xs text-xs leading-5">{hint}</p>
@@ -135,7 +135,7 @@ function ModelContextControls({
       ) : (model.reasoning_options || []).length === 1 ? (
         <HintLabel label={`${t('reasoningLevels')} ${reasoningLabel(t, model.reasoning_options![0])}`} hint={t('reasoningHint')} />
       ) : model.reasoning_type ? (
-        <span className="text-[11px] text-muted">{t('reasoningFixed', { type: model.reasoning_type })}</span>
+        <span className="text-caption text-muted">{t('reasoningFixed', { type: model.reasoning_type })}</span>
       ) : provider === 'trae' && !model.supports_max_mode ? (
         <HintLabel label={t('catalogWindow')} hint={t('catalogWindowHint')} />
       ) : null}
@@ -325,10 +325,10 @@ export function ProvidersPage() {
 
   return (
     <div className="space-y-6">
-      <section className="grid gap-5 border-b border-separator pb-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+      <section className="grid gap-5 pb-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
         <div data-gsap-reveal>
-          <h2 className="text-xl font-semibold tracking-[-0.02em]">{t('availableModels')}</h2>
-          <p className="mt-1 text-sm text-muted">
+          <h2 className="text-title font-semibold">{t('availableModels')}</h2>
+          <p className="mt-1 text-body text-muted">
             {models.length ? shownLabel : t('noModelsYet')}
           </p>
         </div>
@@ -362,7 +362,7 @@ export function ProvidersPage() {
           <div className="flex min-w-0 items-center gap-3">
             <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-surface-secondary text-muted"><Cube size={16} /></div>
             <div className="min-w-0">
-              <div className="text-sm font-semibold">{t('providerCatalog')}</div>
+              <div className="text-body font-semibold">{t('providerCatalog')}</div>
               <div className="mt-0.5 text-xs leading-5 text-muted">{t('contextConfigHint')}</div>
             </div>
           </div>
@@ -397,10 +397,10 @@ export function ProvidersPage() {
                           <div className="flex flex-wrap items-center gap-2">
                             <div className="truncate font-medium">{model.display_name || model.id}</div>
                             {free ? <Chip size="sm" variant="soft" color="success">{t('modelFree')}</Chip> : null}
-                            {credits ? <span className="mono text-[11px] text-muted">{credits}</span> : null}
+                            {credits ? <span className="mono text-caption text-muted">{credits}</span> : null}
                           </div>
-                          <div className="mono mt-0.5 truncate text-[11px] text-muted">{model.id}</div>
-                          {routedModelName(model) ? <div className="mt-0.5 text-[10px] text-muted">{t('routedTo', { model: routedModelName(model) })}</div> : null}
+                          <div className="mono mt-0.5 truncate text-caption text-muted">{model.id}</div>
+                          {routedModelName(model) ? <div className="mt-0.5 text-caption text-muted">{t('routedTo', { model: routedModelName(model) })}</div> : null}
                         </div>
                       </div>
                       <Chip size="sm" variant="soft" color={model.context_custom ? 'warning' : model.stale ? 'warning' : 'success'}>
@@ -460,9 +460,9 @@ export function ProvidersPage() {
                                 <div className="flex flex-wrap items-center gap-2">
                                   <div className="font-medium">{model.display_name || model.id}</div>
                                   {free ? <Chip size="sm" variant="soft" color="success">{t('modelFree')}</Chip> : null}
-                                  {credits ? <span className="mono text-[11px] text-muted">{credits}</span> : null}
+                                  {credits ? <span className="mono text-caption text-muted">{credits}</span> : null}
                                 </div>
-                                {routedModelName(model) ? <div className="mt-0.5 text-[10px] text-muted">{t('routedTo', { model: routedModelName(model) })}</div> : null}
+                                {routedModelName(model) ? <div className="mt-0.5 text-caption text-muted">{t('routedTo', { model: routedModelName(model) })}</div> : null}
                               </div>
                             </div>
                           </Table.Cell>

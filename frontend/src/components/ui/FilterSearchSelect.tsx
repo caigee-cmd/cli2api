@@ -121,7 +121,7 @@ export function FilterSearchSelect({
                 <ListBox.Item key={option.id} id={option.id} textValue={option.label}>
                   <Label className="block truncate">{option.label}</Label>
                   {option.id !== ALL_VALUE && option.id !== option.label ? (
-                    <span className="mono mt-0.5 block truncate text-[10px] text-muted">{option.id}</span>
+                    <span className="mono mt-0.5 block truncate text-caption text-muted">{option.id}</span>
                   ) : null}
                   <ListBox.ItemIndicator />
                 </ListBox.Item>

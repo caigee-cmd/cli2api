@@ -40,7 +40,7 @@ export function ConfirmDialog({
               <AlertDialog.CloseTrigger isDisabled={isPending} aria-label={closeLabel} />
             </AlertDialog.Header>
             <AlertDialog.Body>
-              <p className="text-sm leading-6 text-muted">{description}</p>
+              <p className="text-body leading-6 text-muted">{description}</p>
             </AlertDialog.Body>
             <AlertDialog.Footer>
               <Button size="sm" variant="ghost" isDisabled={isPending} onPress={onClose}>{cancelLabel}</Button>

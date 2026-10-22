@@ -62,7 +62,7 @@ export function AccountCheckinRecordsModal({ account, t, onClose }: Props) {
           <Modal.Dialog>
             <Modal.Header className="items-start justify-between gap-4 px-5 pt-5">
               <div className="min-w-0">
-                <Modal.Heading className="text-lg font-semibold tracking-[-0.01em]">{title}</Modal.Heading>
+                <Modal.Heading className="text-section font-semibold">{title}</Modal.Heading>
                 <p className="mt-1 text-xs leading-5 text-muted">{t('checkinRecordsHint')}</p>
               </div>
               <Modal.CloseTrigger aria-label={t('close')} className="grid size-8 shrink-0 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-secondary hover:text-foreground">
@@ -78,7 +78,7 @@ export function AccountCheckinRecordsModal({ account, t, onClose }: Props) {
                   <SkeletonBlock className="h-16 w-full" />
                 </div>
               ) : records.length ? (
-                <div className="divide-y divide-separator overflow-hidden rounded-2xl border border-separator">
+                <div className="divide-y divide-separator overflow-hidden rounded-2xl bg-surface-secondary">
                   {records.map((record) => {
                     const status = recordStatus(record, t)
                     return (
@@ -87,7 +87,7 @@ export function AccountCheckinRecordsModal({ account, t, onClose }: Props) {
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-2">
                             <Chip size="sm" variant="soft" color={status.color}>{status.label}</Chip>
-                            <span className="mono text-[11px] text-muted">{formatRecordTime(record.created_at)}</span>
+                            <span className="mono text-caption text-muted">{formatRecordTime(record.created_at)}</span>
                           </div>
                           <p className="mt-1 break-words text-xs leading-5 text-foreground/75">{record.message || '—'}</p>
                         </div>
@@ -97,7 +97,7 @@ export function AccountCheckinRecordsModal({ account, t, onClose }: Props) {
                 </div>
               ) : (
                 <EmptyPanel
-                  className="min-h-44 rounded-3xl border border-dashed border-border"
+                  className="min-h-44 rounded-3xl bg-surface-secondary"
                   title={t('checkinRecordsEmpty')}
                   hint={t('checkinRecordsHint')}
                 />

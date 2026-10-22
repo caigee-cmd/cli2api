@@ -40,11 +40,11 @@ export function ModelDetailsModal({ model, t, onClose }: Props) {
             <Modal.Header className="items-start justify-between gap-4 px-5 pt-5">
               <div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <div className="text-base font-semibold tracking-[-0.015em]">{model.display_name || model.id}</div>
+                  <div className="text-section">{model.display_name || model.id}</div>
                   {free ? <Chip size="sm" variant="soft" color="success">{t('modelFree')}</Chip> : null}
                 </div>
-                <div className="mono mt-1 text-[11px] text-muted">{model.id}</div>
-                <div className="mt-1 text-[11px] text-muted">
+                <div className="mono mt-1 text-caption text-muted">{model.id}</div>
+                <div className="mt-1 text-caption text-muted">
                   {providerLabel}{credits ? ` · ${credits}` : ''}
                 </div>
               </div>
@@ -55,21 +55,21 @@ export function ModelDetailsModal({ model, t, onClose }: Props) {
             <Modal.Body className="space-y-4 px-5 pb-5">
               <section>
                 <div className="text-xs font-medium text-muted">{t('contextWindowCol')}</div>
-                <div className="mt-1 text-sm">{formatTokens(windowDev)}{windowMax && windowMax !== windowDev ? ` → ${formatTokens(windowMax)}` : ''}</div>
-                {model.supports_max_mode ? <p className="mt-1 text-[11px] leading-5 text-muted">{provider === 'qoder' ? t('qoderMaxModeHint') : t('maxModeHint')}</p> : null}
-                {!model.supports_max_mode && windowMax && windowMax !== windowDev ? <p className="mt-1 text-[11px] leading-5 text-muted">{t('workbuddyContextHint')}</p> : null}
+                <div className="mt-1 text-body">{formatTokens(windowDev)}{windowMax && windowMax !== windowDev ? ` → ${formatTokens(windowMax)}` : ''}</div>
+                {model.supports_max_mode ? <p className="mt-1 text-caption leading-5 text-muted">{provider === 'qoder' ? t('qoderMaxModeHint') : t('maxModeHint')}</p> : null}
+                {!model.supports_max_mode && windowMax && windowMax !== windowDev ? <p className="mt-1 text-caption leading-5 text-muted">{t('workbuddyContextHint')}</p> : null}
                 {traeTier
-                  ? (traeTier.prompt_max_tokens ? <div className="mt-1 text-[11px] text-muted">{t('promptMaxTokens')}: {formatTokens(traeTier.prompt_max_tokens)}</div> : null)
-                  : (model.prompt_max_tokens ? <div className="mt-1 text-[11px] text-muted">{t('promptMaxTokens')}: {formatTokens(model.prompt_max_tokens)}</div> : null)}
+                  ? (traeTier.prompt_max_tokens ? <div className="mt-1 text-caption text-muted">{t('promptMaxTokens')}: {formatTokens(traeTier.prompt_max_tokens)}</div> : null)
+                  : (model.prompt_max_tokens ? <div className="mt-1 text-caption text-muted">{t('promptMaxTokens')}: {formatTokens(model.prompt_max_tokens)}</div> : null)}
                 {traeTier
-                  ? (traeTier.max_output_tokens ? <div className="text-[11px] text-muted">{t('maxOutputTokens')}: {formatTokens(traeTier.max_output_tokens)}</div> : null)
-                  : (model.max_output_tokens ? <div className="text-[11px] text-muted">{t('maxOutputTokens')}: {formatTokens(model.max_output_tokens)}</div> : null)}
+                  ? (traeTier.max_output_tokens ? <div className="text-caption text-muted">{t('maxOutputTokens')}: {formatTokens(traeTier.max_output_tokens)}</div> : null)
+                  : (model.max_output_tokens ? <div className="text-caption text-muted">{t('maxOutputTokens')}: {formatTokens(model.max_output_tokens)}</div> : null)}
               </section>
               <section>
                 <div className="text-xs font-medium text-muted">{t('reasoningLevels')}</div>
                 {options.length ? (
                   <>
-                    <p className="mt-1 text-[11px] leading-5 text-muted">{t('reasoningHint')}</p>
+                    <p className="mt-1 text-caption leading-5 text-muted">{t('reasoningHint')}</p>
                     <div className="mt-2 flex flex-wrap gap-1.5">
                       {options.map((level) => {
                         const key = `reasoningLevel_${level}`
@@ -83,7 +83,7 @@ export function ModelDetailsModal({ model, t, onClose }: Props) {
                     </div>
                   </>
                 ) : (
-                  <div className="mt-1 text-sm text-muted">
+                  <div className="mt-1 text-body text-muted">
                     {model.reasoning_type ? t('reasoningFixed', { type: model.reasoning_type }) : t('noReasoningLevels')}
                   </div>
                 )}

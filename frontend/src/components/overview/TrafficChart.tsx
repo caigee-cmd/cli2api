@@ -13,6 +13,7 @@ import {
 import type { RequestStatsPoint } from '@/api/logs'
 import { TrafficChartEmpty } from '@/components/overview/TrafficChartEmpty'
 import { formatCompact } from '@/lib/format'
+import { TYPE_SCALE_PX } from '@/lib/typeScale'
 
 function hourLabel(value: string, daily: boolean, lang: 'en' | 'zh') {
   const date = new Date(value)
@@ -51,7 +52,7 @@ function TrafficTooltip({
   if (!active || !payload?.[0]) return null
   const point = payload[0].payload
   return (
-    <div className="rounded-xl border border-border bg-overlay px-3 py-2 text-[11px] text-overlay-foreground shadow-overlay">
+    <div className="rounded-xl bg-overlay px-3 py-2 text-caption text-overlay-foreground shadow-overlay">
       <div className="mono text-muted">{hourLabel(point.at, daily, lang)}</div>
       <div className="mt-1.5 grid gap-1">
         <div className="flex items-center justify-between gap-6">
@@ -63,7 +64,7 @@ function TrafficTooltip({
           {/* 与红色折线同口径：未成功数（error + incomplete + canceled） */}
           <span className="mono font-medium">{point.errorCount}</span>
         </div>
-        <div className="flex items-center justify-between gap-6 border-t border-separator pt-1">
+        <div className="flex items-center justify-between gap-6 pt-1">
           <span className="text-muted">total</span>
           <span className="mono font-medium">{point.requests}</span>
         </div>
@@ -198,7 +199,7 @@ export function TrafficChart({
               tickLine={false}
               axisLine={false}
               minTickGap={28}
-              tick={{ fill: 'var(--muted)', fontSize: 10, fontFamily: 'var(--font-mono)' }}
+              tick={{ fill: 'var(--muted)', fontSize: TYPE_SCALE_PX.caption, fontFamily: 'var(--font-mono)' }}
               tickFormatter={(value: string) => hourLabel(value, daily, lang)}
             />
             <YAxis
@@ -207,7 +208,7 @@ export function TrafficChart({
               tickLine={false}
               axisLine={false}
               allowDecimals={false}
-              tick={{ fill: 'var(--muted)', fontSize: 10, fontFamily: 'var(--font-mono)' }}
+              tick={{ fill: 'var(--muted)', fontSize: TYPE_SCALE_PX.caption, fontFamily: 'var(--font-mono)' }}
               tickFormatter={(value: number) => formatCompact(value)}
             />
             <Tooltip
@@ -259,7 +260,7 @@ export function TrafficChart({
           </ComposedChart>
         </ResponsiveContainer>
       </div>
-      <div className="mt-2 flex min-h-5 items-center justify-between gap-3 text-[10px] text-muted">
+      <div className="mt-2 flex min-h-5 items-center justify-between gap-3 text-caption text-muted">
         <div className="flex items-center gap-3">
           <span className="inline-flex items-center gap-1.5"><span className="size-1.5 rounded-full bg-success" />{okLabel}</span>
           <span className="inline-flex items-center gap-1.5"><span className="size-1.5 rounded-full bg-danger" />{errorLabel}</span>

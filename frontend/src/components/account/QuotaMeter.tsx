@@ -72,7 +72,7 @@ function WindowMeter({
             aria-label={label}
             valueLabel={valueLabel}
           >
-            <Meter.Output className="flex w-full items-baseline justify-between gap-3 text-[11px]">
+            <Meter.Output className="flex w-full items-baseline justify-between gap-3 text-caption">
               <span className="min-w-0 truncate font-medium text-foreground">{label}</span>
               <span className="mono shrink-0 text-foreground/70">{usedText}</span>
             </Meter.Output>
@@ -80,7 +80,7 @@ function WindowMeter({
               <Meter.Fill />
             </Meter.Track>
           </Meter>
-          {reset ? <div className="mt-1 text-[10px] leading-4 text-muted">{reset}</div> : null}
+          {reset ? <div className="mt-1 text-caption leading-4 text-muted">{reset}</div> : null}
         </div>
       </Tooltip.Trigger>
       <Tooltip.Content>
@@ -115,7 +115,7 @@ export function QuotaMeter({ quota, t, label, usedLabel, remainingLabel, addOnLa
     return (
       <div ref={rootRef} className="account-quota-windows flex w-full min-w-0 flex-col gap-3">
         {plan ? (
-          <div className="flex items-center justify-between gap-3 text-[11px]">
+          <div className="flex items-center justify-between gap-3 text-caption">
             <span className="text-muted">{t('quotaPlan')}</span>
             <span className="font-medium text-foreground">{plan}</span>
           </div>
@@ -147,11 +147,11 @@ export function QuotaMeter({ quota, t, label, usedLabel, remainingLabel, addOnLa
             aria-label={label}
             valueLabel={valueLabel}
           >
-            <Meter.Output className="flex w-full items-baseline justify-between text-[10px]">
-              <span className="text-[13px] font-semibold leading-5 text-foreground tabular-nums">
+            <Meter.Output className="flex w-full items-baseline justify-between text-caption">
+              <span className="text-body font-semibold leading-5 text-foreground tabular-nums">
                 {quota.exceeded ? <span className="mr-1.5 text-danger">{exceededLabel}</span> : null}
                 {remaining}
-                <span className="ml-1 text-[10px] font-normal text-foreground/60">{unit}</span>
+                <span className="ml-1 text-caption font-normal text-foreground/60">{unit}</span>
               </span>
               <span className="mono text-foreground/55">{usedLabel} {used}</span>
             </Meter.Output>

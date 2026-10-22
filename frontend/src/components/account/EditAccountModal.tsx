@@ -96,8 +96,8 @@ export function EditAccountModal({ account, checkinDefaultTime, checkinTimezone,
           <Modal.Dialog className="sm:min-w-[32rem]">
             <Modal.Header className="items-start justify-between gap-4 px-6 pt-6">
               <div className="min-w-0">
-                <Modal.Heading className="text-lg font-semibold tracking-[-0.015em]">{title}</Modal.Heading>
-                <p className="mt-1.5 text-sm font-normal leading-6 text-muted">{t('editAccountHint')}</p>
+                <Modal.Heading className="text-section font-semibold">{title}</Modal.Heading>
+                <p className="mt-1.5 text-body font-normal leading-6 text-muted">{t('editAccountHint')}</p>
                 {account ? (
                   <div className="mt-3 flex flex-wrap items-center gap-2">
                     <Chip size="sm" variant="soft">
@@ -189,7 +189,7 @@ export function EditAccountModal({ account, checkinDefaultTime, checkinTimezone,
                   <div className="space-y-2">
                     {aliases.map((item) => (
                       <div key={item.alias} className="flex items-center justify-between gap-2">
-                        <span className="mono min-w-0 truncate text-sm">{item.alias} → {item.model}</span>
+                        <span className="mono min-w-0 truncate text-body">{item.alias} → {item.model}</span>
                         <Button size="sm" variant="ghost" isDisabled={busy} onPress={() => setAliases((current) => current.filter((row) => row.alias !== item.alias))}>{t('modelAliasRemove')}</Button>
                       </div>
                     ))}
@@ -216,7 +216,7 @@ export function EditAccountModal({ account, checkinDefaultTime, checkinTimezone,
                             onChange={(selected) => setEnabledModels((current) => selected ? [...current, model.id] : current.filter((id) => id !== model.id))}
                           >
                             <Checkbox.Control><Checkbox.Indicator /></Checkbox.Control>
-                            <Checkbox.Content><span className="mono text-sm">{model.id}</span></Checkbox.Content>
+                            <Checkbox.Content><span className="mono text-body">{model.id}</span></Checkbox.Content>
                           </Checkbox>
                         ))}
                         {catalog.length === 0 ? <p className="text-xs text-muted">{t('noAccountModels')}</p> : null}
