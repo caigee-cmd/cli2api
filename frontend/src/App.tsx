@@ -12,6 +12,7 @@ import { AccountsPage } from '@/pages/AccountsPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { SystemPage } from '@/pages/SystemPage'
 import { LogsPage } from '@/pages/LogsPage'
+import { UsagePage } from '@/pages/UsagePage'
 import { KeysPage } from '@/pages/KeysPage'
 
 export default function App() {
@@ -31,6 +32,7 @@ export default function App() {
                     <Route path="/access" element={<AccessPage />} />
                     <Route path="/accounts" element={<AccountsPage />} />
                     <Route path="/checkins" element={<Navigate to="/accounts" replace />} />
+                    <Route path="/usage" element={<UsagePage />} />
                     <Route path="/logs" element={<LogsPage />} />
                     <Route path="/keys" element={<KeysPage />} />
                     <Route path="/system" element={<SystemPage />} />

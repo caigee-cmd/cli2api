@@ -608,6 +608,22 @@ func TestSPAFallbackServesLogs(t *testing.T) {
 	}
 }
 
+func TestSPAFallbackServesUsage(t *testing.T) {
+	srv := New(config.Config{
+		Host:        "127.0.0.1",
+		Port:        3010,
+		ProxyAPIKey: "secret",
+		QoderHome:   t.TempDir(),
+	})
+	defer srv.Close()
+	req := httptest.NewRequest(http.MethodGet, "/usage", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /usage: got %d want 200", rec.Code)
+	}
+}
+
 func TestAccountsAPICreatesAndListsDisabledAccount(t *testing.T) {
 	dataDir := t.TempDir()
 	srv := New(config.Config{

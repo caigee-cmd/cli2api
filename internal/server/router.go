@@ -52,7 +52,7 @@ func (s *Server) routes() {
 			r.URL.Path != "/og-card.svg" &&
 			r.URL.Path != "/site.webmanifest" {
 			switch r.URL.Path {
-			case "/login", "/auth", "/providers", "/access", "/accounts", "/system", "/logs", "/keys":
+			case "/login", "/auth", "/providers", "/access", "/accounts", "/system", "/logs", "/keys", "/usage":
 			default:
 				http.NotFound(w, r)
 				return

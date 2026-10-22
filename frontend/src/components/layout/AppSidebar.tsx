@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import { Drawer, Button, Chip, Separator, Tooltip } from '@heroui/react'
-import { Cube, Gauge, GearSix, Key, Lightning, Scroll, SidebarSimple, UsersThree, X } from '@phosphor-icons/react'
+import { ChartBar, Cube, Gauge, GearSix, Key, Lightning, Scroll, SidebarSimple, UsersThree, X } from '@phosphor-icons/react'
 import { SidebarUpdateItem } from '@/components/layout/SidebarUpdateItem'
 import { BrandMark } from '@/components/BrandMark'
 import { SkeletonBlock } from '@/components/ui/PageSkeletons'
@@ -12,6 +12,7 @@ import { useOverview } from '@/hooks/useOverview'
 
 const nav = [
   { to: '/', key: 'navOverview', icon: Gauge, section: 'workspace', end: true },
+  { to: '/usage', key: 'navUsage', icon: ChartBar, section: 'workspace' },
   { to: '/accounts', key: 'navAccounts', icon: UsersThree, section: 'workspace' },
   { to: '/providers', key: 'navProviders', icon: Cube, section: 'develop' },
   { to: '/access', key: 'navAccess', icon: Lightning, section: 'develop' },

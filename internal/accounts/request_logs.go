@@ -104,12 +104,15 @@ type RequestLogFilter struct {
 	Stream    *bool
 	ErrorKind string
 	Model     string
-	ID        string
-	Query     string
-	From      *time.Time
-	To        *time.Time
-	Limit     int
-	Offset    int
+	// Provider matches the logged provider, falling back to the account's
+	// provider for rows written before provider was recorded.
+	Provider string
+	ID       string
+	Query    string
+	From     *time.Time
+	To       *time.Time
+	Limit    int
+	Offset   int
 }
 
 type RequestLogList struct {
@@ -146,6 +149,7 @@ type RequestStatsTotals struct {
 	Canceled    int     `json:"canceled"`
 	Streaming   int     `json:"streaming"`
 	SuccessRate float64 `json:"success_rate"`
+	Credits     float64 `json:"credits"`
 }
 
 type RequestStatsLatency struct {
@@ -159,6 +163,7 @@ type RequestStatsTokens struct {
 	Prompt     int64 `json:"prompt"`
 	Completion int64 `json:"completion"`
 	CacheRead  int64 `json:"cache_read"`
+	CacheWrite int64 `json:"cache_write"`
 	Total      int64 `json:"total"`
 }
 
@@ -173,6 +178,13 @@ type RequestStatsNamed struct {
 	OK           int    `json:"ok"`
 	Error        int    `json:"error"`
 	LatencyAvgMs *int   `json:"latency_avg_ms,omitempty"`
+	LatencyP95Ms *int   `json:"latency_p95_ms,omitempty"`
+	// Usage totals for the group.
+	PromptTokens     int64   `json:"prompt_tokens"`
+	CompletionTokens int64   `json:"completion_tokens"`
+	CacheReadTokens  int64   `json:"cache_read_tokens"`
+	CacheWriteTokens int64   `json:"cache_write_tokens"`
+	Credits          float64 `json:"credits"`
 }
 
 type RequestStatsPoint struct {
@@ -180,6 +192,58 @@ type RequestStatsPoint struct {
 	Requests int       `json:"requests"`
 	OK       int       `json:"ok"`
 	Error    int       `json:"error"`
+	// Per-bucket usage and latency for the traffic chart's metric switch.
+	PromptTokens     int64 `json:"prompt_tokens"`
+	CompletionTokens int64 `json:"completion_tokens"`
+	CacheReadTokens  int64 `json:"cache_read_tokens"`
+	LatencyP50Ms     *int  `json:"latency_p50_ms,omitempty"`
+	LatencyP95Ms     *int  `json:"latency_p95_ms,omitempty"`
+}
+
+// Stats grouping dimensions accepted by RequestStatsOptions.Dims.
+const (
+	RequestStatsDimModel    = "model"
+	RequestStatsDimAccount  = "account"
+	RequestStatsDimProvider = "provider"
+
+	// RequestStatsDefaultLimit is the per-dimension row cap when no limit is
+	// given (the overview rankings); RequestStatsMaxLimit bounds any request.
+	RequestStatsDefaultLimit = 6
+	RequestStatsMaxLimit     = 500
+)
+
+// RequestStatsOptions selects the window, which grouped lists to compute and
+// how many rows each may return. Empty Dims means all three dimensions.
+type RequestStatsOptions struct {
+	From  time.Time
+	To    time.Time
+	Dims  []string
+	Limit int
+}
+
+// WantsDim reports whether dim's grouped list should be computed.
+func (o RequestStatsOptions) WantsDim(dim string) bool {
+	if len(o.Dims) == 0 {
+		return true
+	}
+	for _, d := range o.Dims {
+		if d == dim {
+			return true
+		}
+	}
+	return false
+}
+
+// EffectiveLimit clamps Limit to [1, RequestStatsMaxLimit], defaulting to
+// RequestStatsDefaultLimit.
+func (o RequestStatsOptions) EffectiveLimit() int {
+	if o.Limit <= 0 {
+		return RequestStatsDefaultLimit
+	}
+	if o.Limit > RequestStatsMaxLimit {
+		return RequestStatsMaxLimit
+	}
+	return o.Limit
 }
 
 func NewRequestID() string {

@@ -150,7 +150,26 @@ func (s *Store) ListRequestLogs(ctx context.Context, filter accounts.RequestLogF
 	return accounts.RequestLogList{Items: items, Total: total, Limit: limit, Offset: offset}, nil
 }
 
+// providerKeyExpr is the effective provider of a request log row: the logged
+// provider, else the account's provider, else "(unknown)". Shared by the stats
+// grouping and the provider filter so drill-downs match the ranking keys.
+// creditExpr mirrors the request list: the logged credits, else the usage
+// detail's credit, else 0.
+const creditExpr = "COALESCE(credits, (SELECT credit FROM request_usage_details WHERE request_usage_details.request_id = request_logs.id), 0)"
+
+const providerKeyExpr = "COALESCE(NULLIF(request_logs.provider, ''), (SELECT provider FROM accounts WHERE accounts.id = request_logs.account_id), '(unknown)')"
+
+// SummarizeRequestLogs keeps the original overview contract: all three
+// grouped lists, top RequestStatsDefaultLimit rows each.
 func (s *Store) SummarizeRequestLogs(ctx context.Context, from, to time.Time) (accounts.RequestStats, error) {
+	return s.SummarizeRequestLogsWith(ctx, accounts.RequestStatsOptions{From: from, To: to})
+}
+
+// SummarizeRequestLogsWith summarizes a window with per-dimension selection
+// and row limits (the usage view asks for one dimension with a large limit).
+func (s *Store) SummarizeRequestLogsWith(ctx context.Context, opts accounts.RequestStatsOptions) (accounts.RequestStats, error) {
+	from, to := opts.From, opts.To
+	limit := opts.EffectiveLimit()
 	if from.IsZero() {
 		from = time.Now().UTC().Add(-24 * time.Hour)
 	}
@@ -191,12 +210,15 @@ SELECT
   AVG(CASE WHEN ttfb_ms IS NOT NULL THEN ttfb_ms END),
   COALESCE(SUM(COALESCE(prompt_tokens, 0)), 0),
   COALESCE(SUM(COALESCE(completion_tokens, 0)), 0),
-  COALESCE(SUM(COALESCE(cache_read_tokens, 0)), 0)
+  COALESCE(SUM(COALESCE(cache_read_tokens, 0)), 0),
+  COALESCE(SUM(COALESCE(cache_write_tokens, 0)), 0),
+  COALESCE(SUM(`+creditExpr+`), 0)
 FROM request_logs`+where, args...)
 	var avgLatency, avgTTFB sql.NullFloat64
 	if err := row.Scan(
 		&stats.Totals.Requests, &stats.Totals.OK, &stats.Totals.Incomplete, &stats.Totals.Error, &stats.Totals.Canceled, &stats.Totals.Streaming,
 		&avgLatency, &avgTTFB, &stats.Tokens.Prompt, &stats.Tokens.Completion, &stats.Tokens.CacheRead,
+		&stats.Tokens.CacheWrite, &stats.Totals.Credits,
 	); err != nil {
 		return accounts.RequestStats{}, fmt.Errorf("summarize request logs: %w", err)
 	}
@@ -229,46 +251,24 @@ GROUP BY error_kind ORDER BY COUNT(*) DESC, error_kind ASC LIMIT 8`, args...)
 		return accounts.RequestStats{}, err
 	}
 
-	modelRows, err := s.db.QueryContext(ctx, `
-SELECT COALESCE(NULLIF(requested_model, ''), '(unknown)'), COUNT(*),
-       COALESCE(SUM(CASE WHEN status = 'ok' THEN 1 ELSE 0 END), 0),
-       COALESCE(SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END), 0),
-       AVG(CASE WHEN latency_ms IS NOT NULL THEN latency_ms END)
-FROM request_logs`+where+` GROUP BY 1 ORDER BY COUNT(*) DESC, 1 ASC LIMIT 6`, args...)
-	if err != nil {
-		return accounts.RequestStats{}, fmt.Errorf("summarize request models: %w", err)
+	dims := []struct {
+		dim  string
+		expr string
+		out  *[]accounts.RequestStatsNamed
+	}{
+		{accounts.RequestStatsDimModel, "COALESCE(NULLIF(requested_model, ''), '(unknown)')", &stats.Models},
+		{accounts.RequestStatsDimAccount, "COALESCE(NULLIF(account_id, ''), '(unassigned)')", &stats.Accounts},
+		{accounts.RequestStatsDimProvider, providerKeyExpr, &stats.Providers},
 	}
-	stats.Models, err = scanNamedBuckets(modelRows)
-	if err != nil {
-		return accounts.RequestStats{}, err
-	}
-
-	accountRows, err := s.db.QueryContext(ctx, `
-SELECT COALESCE(NULLIF(account_id, ''), '(unassigned)'), COUNT(*),
-       COALESCE(SUM(CASE WHEN status = 'ok' THEN 1 ELSE 0 END), 0),
-       COALESCE(SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END), 0),
-       AVG(CASE WHEN latency_ms IS NOT NULL THEN latency_ms END)
-FROM request_logs`+where+` GROUP BY 1 ORDER BY COUNT(*) DESC, 1 ASC LIMIT 6`, args...)
-	if err != nil {
-		return accounts.RequestStats{}, fmt.Errorf("summarize request accounts: %w", err)
-	}
-	stats.Accounts, err = scanNamedBuckets(accountRows)
-	if err != nil {
-		return accounts.RequestStats{}, err
-	}
-
-	providerRows, err := s.db.QueryContext(ctx, `
-	SELECT COALESCE(NULLIF(provider, ''), (SELECT provider FROM accounts WHERE accounts.id = request_logs.account_id), '(unknown)'), COUNT(*),
-	       COALESCE(SUM(CASE WHEN status = 'ok' THEN 1 ELSE 0 END), 0),
-	       COALESCE(SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END), 0),
-	       AVG(CASE WHEN latency_ms IS NOT NULL THEN latency_ms END)
-	FROM request_logs`+where+` GROUP BY 1 ORDER BY COUNT(*) DESC, 1 ASC LIMIT 6`, args...)
-	if err != nil {
-		return accounts.RequestStats{}, fmt.Errorf("summarize request providers: %w", err)
-	}
-	stats.Providers, err = scanNamedBuckets(providerRows)
-	if err != nil {
-		return accounts.RequestStats{}, err
+	for _, d := range dims {
+		if !opts.WantsDim(d.dim) {
+			continue
+		}
+		items, err := s.namedStats(ctx, d.expr, where, args, limit)
+		if err != nil {
+			return accounts.RequestStats{}, fmt.Errorf("summarize request %ss: %w", d.dim, err)
+		}
+		*d.out = items
 	}
 
 	series, err := s.requestSeries(ctx, from, to, where, args)
@@ -277,6 +277,73 @@ FROM request_logs`+where+` GROUP BY 1 ORDER BY COUNT(*) DESC, 1 ASC LIMIT 6`, ar
 	}
 	stats.Series = series
 	return stats, nil
+}
+
+// namedStats groups the window by keyExpr: counts, average and p95 latency,
+// token, cache and credit totals, top `limit` keys by request count.
+func (s *Store) namedStats(ctx context.Context, keyExpr, where string, args []any, limit int) ([]accounts.RequestStatsNamed, error) {
+	rows, err := s.db.QueryContext(ctx, `
+SELECT `+keyExpr+`, COUNT(*),
+       COALESCE(SUM(CASE WHEN status = 'ok' THEN 1 ELSE 0 END), 0),
+       COALESCE(SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END), 0),
+       AVG(CASE WHEN latency_ms IS NOT NULL THEN latency_ms END),
+       COALESCE(SUM(COALESCE(prompt_tokens, 0)), 0),
+       COALESCE(SUM(COALESCE(completion_tokens, 0)), 0),
+       COALESCE(SUM(COALESCE(cache_read_tokens, 0)), 0),
+       COALESCE(SUM(COALESCE(cache_write_tokens, 0)), 0),
+       COALESCE(SUM(`+creditExpr+`), 0)
+FROM request_logs`+where+` GROUP BY 1 ORDER BY COUNT(*) DESC, 1 ASC LIMIT ?`, append(append([]any{}, args...), limit)...)
+	if err != nil {
+		return nil, err
+	}
+	items, err := scanNamedBuckets(rows)
+	if err != nil || len(items) == 0 {
+		return items, err
+	}
+	p95, err := s.groupedLatencyP95(ctx, keyExpr, where, args)
+	if err != nil {
+		return nil, err
+	}
+	for i := range items {
+		if value, ok := p95[items[i].Key]; ok {
+			v := value
+			items[i].LatencyP95Ms = &v
+		}
+	}
+	return items, nil
+}
+
+// groupedLatencyP95 computes nearest-rank p95 latency per key. SQLite has no
+// percentile aggregate, so latencies are streamed in key/latency order and
+// ranked in Go — one ordered pass, like the window-wide percentiles.
+func (s *Store) groupedLatencyP95(ctx context.Context, keyExpr, where string, args []any) (map[string]int, error) {
+	groups, err := s.groupedLatencies(ctx, keyExpr, where, args)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]int, len(groups))
+	for key, values := range groups {
+		out[key] = percentileNearestRank(values, 95)
+	}
+	return out, nil
+}
+
+func (s *Store) groupedLatencies(ctx context.Context, keyExpr, where string, args []any) (map[string][]int, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT `+keyExpr+`, latency_ms FROM request_logs`+whereAnd(where, "latency_ms IS NOT NULL")+` ORDER BY 1 ASC, 2 ASC`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	groups := map[string][]int{}
+	for rows.Next() {
+		var key string
+		var value int
+		if err := rows.Scan(&key, &value); err != nil {
+			return nil, err
+		}
+		groups[key] = append(groups[key], value)
+	}
+	return groups, rows.Err()
 }
 
 func (s *Store) requestLatencyPercentiles(ctx context.Context, where string, args []any) (*int, *int) {
@@ -337,7 +404,10 @@ func (s *Store) requestSeries(ctx context.Context, from, to time.Time, where str
 	rows, err := s.db.QueryContext(ctx, fmt.Sprintf(`
 SELECT %s, COUNT(*),
        COALESCE(SUM(CASE WHEN status = 'ok' THEN 1 ELSE 0 END), 0),
-       COALESCE(SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END), 0)
+       COALESCE(SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END), 0),
+       COALESCE(SUM(COALESCE(prompt_tokens, 0)), 0),
+       COALESCE(SUM(COALESCE(completion_tokens, 0)), 0),
+       COALESCE(SUM(COALESCE(cache_read_tokens, 0)), 0)
 FROM request_logs%s GROUP BY 1 ORDER BY 1 ASC`, expr, where), args...)
 	if err != nil {
 		return nil, fmt.Errorf("summarize request series: %w", err)
@@ -346,16 +416,35 @@ FROM request_logs%s GROUP BY 1 ORDER BY 1 ASC`, expr, where), args...)
 	for rows.Next() {
 		var bucket string
 		var requests, okCount, errorCount int
-		if err := rows.Scan(&bucket, &requests, &okCount, &errorCount); err != nil {
+		var prompt, completion, cacheRead int64
+		if err := rows.Scan(&bucket, &requests, &okCount, &errorCount, &prompt, &completion, &cacheRead); err != nil {
 			return nil, fmt.Errorf("scan request series: %w", err)
 		}
 		if i, exists := index[normalizeSeriesBucket(bucket, daily, quarter)]; exists {
 			points[i].Requests = requests
 			points[i].OK = okCount
 			points[i].Error = errorCount
+			points[i].PromptTokens = prompt
+			points[i].CompletionTokens = completion
+			points[i].CacheReadTokens = cacheRead
 		}
 	}
-	return points, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+
+	latencies, err := s.groupedLatencies(ctx, expr, where, args)
+	if err != nil {
+		return nil, fmt.Errorf("summarize request series latency: %w", err)
+	}
+	for bucket, values := range latencies {
+		if i, exists := index[normalizeSeriesBucket(bucket, daily, quarter)]; exists && len(values) > 0 {
+			points[i].LatencyP50Ms = roundedInt(percentileNearestRank(values, 50))
+			points[i].LatencyP95Ms = roundedInt(percentileNearestRank(values, 95))
+		}
+	}
+	return points, nil
 }
 
 func seriesKey(value time.Time, daily, quarter bool) string {
@@ -415,7 +504,8 @@ func scanNamedBuckets(rows *sql.Rows) ([]accounts.RequestStatsNamed, error) {
 	for rows.Next() {
 		var item accounts.RequestStatsNamed
 		var avg sql.NullFloat64
-		if err := rows.Scan(&item.Key, &item.Count, &item.OK, &item.Error, &avg); err != nil {
+		if err := rows.Scan(&item.Key, &item.Count, &item.OK, &item.Error, &avg,
+			&item.PromptTokens, &item.CompletionTokens, &item.CacheReadTokens, &item.CacheWriteTokens, &item.Credits); err != nil {
 			return nil, fmt.Errorf("scan named request bucket: %w", err)
 		}
 		item.LatencyAvgMs = roundedNullInt(avg)
@@ -693,6 +783,10 @@ func buildRequestLogWhere(filter accounts.RequestLogFilter) (string, []any) {
 	if model := strings.TrimSpace(filter.Model); model != "" {
 		clauses = append(clauses, "(requested_model = ? OR mapped_model = ?)")
 		args = append(args, model, model)
+	}
+	if provider := strings.TrimSpace(filter.Provider); provider != "" {
+		clauses = append(clauses, providerKeyExpr+" = ?")
+		args = append(args, provider)
 	}
 	if id := strings.TrimSpace(filter.ID); id != "" {
 		clauses = append(clauses, "id = ?")

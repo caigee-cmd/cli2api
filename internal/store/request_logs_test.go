@@ -439,3 +439,145 @@ func TestRequestLogPersistsRouting(t *testing.T) {
 		t.Fatalf("detail = %+v, err=%v", detail, err)
 	}
 }
+
+func TestSummarizeRequestLogsUsageAndSeriesMetrics(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	base := time.Date(2026, 9, 1, 10, 5, 0, 0, time.UTC)
+	ptr := func(v int) *int { return &v }
+	fptr := func(v float64) *float64 { return &v }
+	insert := func(at time.Time, model, account, provider string, latency, prompt, completion, cacheRead, cacheWrite int, credits *float64) {
+		t.Helper()
+		log := accounts.RequestLog{
+			ID: accounts.NewRequestID(), CreatedAt: at, Status: accounts.RequestStatusOK, RequestedModel: model,
+			AccountID: account, Provider: provider, AttemptCount: 1,
+			LatencyMs: ptr(latency), PromptTokens: ptr(prompt), CompletionTokens: ptr(completion),
+			CacheReadTokens: ptr(cacheRead), CacheWriteTokens: ptr(cacheWrite), Credits: credits,
+		}
+		if err := store.InsertRequestLog(ctx, log); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Hour 10: three glm calls (latency 100/200/1000) on qoder.
+	insert(base, "glm", "acc_a", "qoder", 100, 10, 1, 4, 2, fptr(0.5))
+	insert(base.Add(10*time.Minute), "glm", "acc_a", "qoder", 200, 20, 2, 6, 0, fptr(0.25))
+	insert(base.Add(20*time.Minute), "glm", "acc_b", "qoder", 1000, 30, 3, 0, 1, nil)
+	// Hour 11: one hy3 call on workbuddy.
+	insert(base.Add(time.Hour), "hy3", "acc_wb", "workbuddy", 300, 5, 5, 0, 7, fptr(2))
+
+	from := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+	to := time.Date(2026, 9, 1, 13, 0, 0, 0, time.UTC) // >2h → hourly buckets
+
+	stats, err := store.SummarizeRequestLogs(ctx, from, to)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Tokens.CacheWrite != 10 || stats.Totals.Credits != 2.75 {
+		t.Fatalf("cache_write/credits totals = %+v %+v", stats.Tokens, stats.Totals)
+	}
+	if len(stats.Series) != 3 {
+		t.Fatalf("series = %+v", stats.Series)
+	}
+	h10 := stats.Series[0]
+	if h10.PromptTokens != 60 || h10.CompletionTokens != 6 || h10.CacheReadTokens != 10 {
+		t.Fatalf("hour-10 tokens = %+v", h10)
+	}
+	if h10.LatencyP50Ms == nil || *h10.LatencyP50Ms != 200 || h10.LatencyP95Ms == nil || *h10.LatencyP95Ms != 1000 {
+		t.Fatalf("hour-10 latency = %+v / %+v", h10.LatencyP50Ms, h10.LatencyP95Ms)
+	}
+	if h11 := stats.Series[1]; h11.LatencyP95Ms == nil || *h11.LatencyP95Ms != 300 || h11.PromptTokens != 5 {
+		t.Fatalf("hour-11 = %+v", h11)
+	}
+
+	glm := stats.Models[0]
+	if glm.Key != "glm" || glm.Count != 3 || glm.PromptTokens != 60 || glm.CompletionTokens != 6 ||
+		glm.CacheReadTokens != 10 || glm.CacheWriteTokens != 3 || glm.Credits != 0.75 {
+		t.Fatalf("glm usage = %+v", glm)
+	}
+	if glm.LatencyP95Ms == nil || *glm.LatencyP95Ms != 1000 {
+		t.Fatalf("glm p95 = %+v", glm.LatencyP95Ms)
+	}
+	if len(stats.Providers) != 2 || stats.Providers[1].Key != "workbuddy" || stats.Providers[1].Credits != 2 {
+		t.Fatalf("providers = %+v", stats.Providers)
+	}
+
+	// dim selects one grouped list; limit caps its rows.
+	only, err := store.SummarizeRequestLogsWith(ctx, accounts.RequestStatsOptions{From: from, To: to, Dims: []string{accounts.RequestStatsDimAccount}, Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(only.Accounts) != 1 || only.Accounts[0].Key != "acc_a" || len(only.Models) != 0 || len(only.Providers) != 0 {
+		t.Fatalf("dim/limit = accounts %+v models %+v providers %+v", only.Accounts, only.Models, only.Providers)
+	}
+	if only.Totals.Requests != 4 {
+		t.Fatalf("dim query keeps totals, got %+v", only.Totals)
+	}
+}
+
+func TestSummarizeRequestLogsDefaultLimitIsSix(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	base := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+	for i := 0; i < 9; i++ {
+		if err := store.InsertRequestLog(ctx, accounts.RequestLog{
+			ID: accounts.NewRequestID(), CreatedAt: base.Add(time.Duration(i) * time.Minute), Status: accounts.RequestStatusOK,
+			RequestedModel: "m" + string(rune('a'+i)), AttemptCount: 1,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	from, to := base.Add(-time.Minute), base.Add(time.Hour)
+	def, err := store.SummarizeRequestLogs(ctx, from, to)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(def.Models) != accounts.RequestStatsDefaultLimit {
+		t.Fatalf("default models = %d", len(def.Models))
+	}
+	all, err := store.SummarizeRequestLogsWith(ctx, accounts.RequestStatsOptions{From: from, To: to, Dims: []string{accounts.RequestStatsDimModel}, Limit: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all.Models) != 9 {
+		t.Fatalf("limit=100 models = %d", len(all.Models))
+	}
+}
+
+func TestListRequestLogsProviderFilter(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	base := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
+	for i, provider := range []string{"qoder", "workbuddy", "workbuddy"} {
+		if err := store.InsertRequestLog(ctx, accounts.RequestLog{
+			ID: accounts.NewRequestID(), CreatedAt: base.Add(time.Duration(i) * time.Minute), Status: accounts.RequestStatusOK,
+			RequestedModel: "m", AccountID: "acc", Provider: provider, AttemptCount: 1,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	list, err := store.ListRequestLogs(ctx, accounts.RequestLogFilter{Provider: "workbuddy", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if list.Total != 2 {
+		t.Fatalf("provider filter total = %d", list.Total)
+	}
+	for _, item := range list.Items {
+		if item.Provider != "workbuddy" {
+			t.Fatalf("unexpected provider %q", item.Provider)
+		}
+	}
+}
