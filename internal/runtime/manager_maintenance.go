@@ -379,6 +379,20 @@ func quotaSnapshotStale(q *QuotaSnapshot, now time.Time, delay time.Duration) bo
 	return now.Sub(parsed) >= delay
 }
 
+// quotaNeedsRevalidation reports whether an account's quota should be
+// re-probed: its snapshot says Exceeded, or (Devin) a chat-path daily/weekly
+// quota 429 put the whole account in cooldown while the cached snapshot still
+// looks healthy. Without the second case the early release in
+// clearRecoveredDevinQuota could only happen after a manual refresh
+// (CLIProxyAPI b946d54e / #6690).
+func quotaNeedsRevalidation(item Item, now time.Time) bool {
+	if item.Quota != nil && item.Quota.Exceeded {
+		return true
+	}
+	return item.Provider == "devin" && item.LastKind == accounts.KindQuota &&
+		!item.DownUntil.IsZero() && now.Before(item.DownUntil)
+}
+
 // refreshStaleQuota re-fetches quota for accounts whose cached snapshot still
 // reports Exceeded. A snapshot can go stale when upstream credits are
 // replenished out-of-band (billing reset, add-on purchase) or when a flaky
@@ -406,17 +420,20 @@ func (manager *Manager) refreshStaleQuota(ctx context.Context) {
 		if item.RuntimeState == "dead" {
 			continue
 		}
-		if item.Quota == nil || !item.Quota.Exceeded {
+		if !quotaNeedsRevalidation(item, now) {
 			// Recovered (or never exhausted): the next exhaustion is a new
 			// episode and starts from the 5-minute probes again.
 			manager.resetQuotaProbeLevel(item.ID)
 			continue
 		}
 		level := manager.quotaProbeLevel(item.ID)
-		if !quotaSnapshotStale(item.Quota, now, quotaProbeDelay(level)) {
+		if item.Quota != nil && !quotaSnapshotStale(item.Quota, now, quotaProbeDelay(level)) {
 			continue
 		}
-		before := strings.TrimSpace(item.Quota.FetchedAt)
+		before := ""
+		if item.Quota != nil {
+			before = strings.TrimSpace(item.Quota.FetchedAt)
+		}
 		refreshCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		manager.refreshQuotaOnly(refreshCtx, item)
 		cancel()
