@@ -33,10 +33,10 @@ export function SidebarUpdateItem({ collapsed, onNavigate }: { collapsed: boolea
         onClick={() => setOpen(true)}
         aria-label={label}
         title={collapsed ? label : undefined}
-        className={`flex w-full items-center gap-2.5 rounded-lg py-1.5 text-body transition-colors hover:bg-default ${collapsed ? 'mx-auto w-10 justify-center px-0' : 'px-3'} ${hasUpdate ? 'font-medium text-accent' : 'text-muted hover:text-foreground'}`}
+        className={`flex h-9 w-full items-center gap-3 rounded-lg text-nav transition-colors hover:bg-default ${collapsed ? 'mx-auto w-10 justify-center px-0' : 'px-3'} ${hasUpdate ? 'font-medium text-accent' : 'text-muted hover:text-foreground'}`}
       >
         <span className="relative inline-flex shrink-0">
-          <Icon size={16} weight={hasUpdate ? 'fill' : 'regular'} />
+          <Icon size={18} weight={hasUpdate ? 'fill' : 'regular'} />
           {hasUpdate && collapsed ? <span className="absolute -right-0.5 -top-0.5 size-1.5 rounded-full bg-accent" /> : null}
         </span>
         {!collapsed && <span className="truncate">{label}</span>}

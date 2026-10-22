@@ -213,13 +213,13 @@ export function KeysPage() {
               <Card.Header className="flex-row items-start justify-between gap-3 px-3 pt-3 pb-2.5">
                 <div className="min-w-0">
                   <Card.Title className="truncate text-body">{key.name}</Card.Title>
-                  <Card.Description className="mono mt-1 truncate">{key.prefix}</Card.Description>
                 </div>
                 <Chip size="sm" variant="soft" color={key.enabled ? 'success' : 'default'}>
                   {key.enabled ? t('enabled') : t('disabled')}
                 </Chip>
               </Card.Header>
               <Card.Content className="space-y-2.5 px-3 pb-2.5">
+                <div className="mono w-full rounded-lg bg-surface-secondary px-3 py-2 text-body text-foreground" title={key.prefix}>{key.prefix}</div>
                 <div className="flex flex-wrap items-center gap-1.5">
                   {(key.providers.length ? key.providers : ['all']).map((entry) => (
                     <Chip key={entry} size="sm" variant="soft">
