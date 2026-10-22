@@ -1,14 +1,14 @@
-import { useEffect, useRef, useState } from 'react'
-import { NavLink, useLocation } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { NavLink } from 'react-router-dom'
 import { Drawer, Button, Chip, Separator, Tooltip } from '@heroui/react'
 import { ChartBar, Cube, Gauge, GearSix, Key, Lightning, Scroll, SidebarSimple, UsersThree, X } from '@phosphor-icons/react'
 import { SidebarUpdateItem } from '@/components/layout/SidebarUpdateItem'
 import { BrandMark } from '@/components/BrandMark'
 import { SkeletonBlock } from '@/components/ui/PageSkeletons'
-import { gsap } from 'gsap'
 import { pressScale } from '@/hooks/useGsapReveal'
 import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
+import { fetchOverviewSummary } from '@/api/overview'
 
 const nav = [
   { to: '/', key: 'navOverview', icon: Gauge, section: 'workspace', end: true },
@@ -30,47 +30,20 @@ type Props = {
 
 function NavList({ collapsed, onNavigate }: { collapsed: boolean; onNavigate?: () => void }) {
   const { t } = useI18n()
-  const location = useLocation()
-  const navRef = useRef<HTMLElement>(null)
-  const indicatorRef = useRef<HTMLSpanElement>(null)
   const groups = [
     { key: 'workspace', label: t('workspace') },
     { key: 'develop', label: t('develop') },
     { key: 'system', label: t('system') },
   ] as const
 
-  useEffect(() => {
-    const navElement = navRef.current
-    const indicator = indicatorRef.current
-    if (!navElement || !indicator) return
-    const active = navElement.querySelector<HTMLElement>('[aria-current="page"]')
-    if (!active) {
-      gsap.set(indicator, { autoAlpha: 0 })
-      return
-    }
-    const navRect = navElement.getBoundingClientRect()
-    const activeRect = active.getBoundingClientRect()
-    gsap.to(indicator, {
-      x: activeRect.left - navRect.left,
-      y: activeRect.top - navRect.top + activeRect.height / 2 - 9,
-      autoAlpha: 1,
-      scaleY: 1,
-      duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 0.28,
-      ease: 'power3.out',
-      overwrite: true,
-    })
-    return () => gsap.killTweensOf(indicator)
-  }, [collapsed, location.pathname])
-
   return (
-    <nav ref={navRef} className="relative flex flex-col gap-5">
-      <span ref={indicatorRef} aria-hidden className="pointer-events-none absolute left-0 top-0 h-[18px] w-0.5 origin-center rounded-full bg-accent opacity-0" />
+    <nav className="flex flex-col gap-6">
       {groups.map((group) => (
-        <div key={group.key} className="flex flex-col gap-0.5">
+        <div key={group.key} className="flex flex-col gap-1">
           {collapsed ? (
-            <Separator className="mx-auto mb-1 w-6" />
+            <Separator className="mx-auto mb-1.5 w-6 opacity-60" />
           ) : (
-            <span className="px-3 pb-1 text-caption font-medium text-muted">{group.label}</span>
+            <span className="px-3 pb-1.5 text-caption font-medium text-muted">{group.label}</span>
           )}
           {nav.filter((item) => item.section === group.key).map((item) => {
             const Icon = item.icon
@@ -82,12 +55,13 @@ function NavList({ collapsed, onNavigate }: { collapsed: boolean; onNavigate?: (
                 onClick={onNavigate}
                 aria-label={t(item.key)}
                 title={collapsed ? t(item.key) : undefined}
-                className={({ isActive }) => `group/navitem relative flex h-9 items-center gap-3 rounded-lg text-nav transition-colors will-change-transform ${collapsed ? 'mx-auto w-10 justify-center px-0' : 'px-3'} ${isActive ? 'bg-default font-medium text-foreground' : 'font-normal text-muted hover:bg-default hover:text-foreground'}`}
+                data-sidebar-item
+                className={({ isActive }) => `group/navitem relative flex h-10 items-center gap-3 rounded-[10px] text-nav transition-colors will-change-transform ${collapsed ? 'mx-auto w-10 justify-center px-0' : 'px-3'} ${isActive ? 'sidebar-item-active font-medium text-foreground' : 'font-normal text-muted hover:text-foreground'}`}
                 onMouseDown={(event) => pressScale(event.currentTarget)}
               >
                 {({ isActive }) => (
                   <>
-                    <span className="inline-flex shrink-0" data-nav-icon><Icon size={18} weight={isActive ? 'fill' : 'regular'} /></span>
+                    <span className="inline-flex shrink-0" data-nav-icon><Icon size={20} weight={isActive ? 'fill' : 'regular'} /></span>
                     {!collapsed && <span className="truncate" data-nav-label>{t(item.key)}</span>}
                     {collapsed && <span className="pointer-events-none absolute left-full z-50 ml-2 invisible whitespace-nowrap rounded-lg bg-foreground px-2 py-1 text-caption font-medium text-background opacity-0 shadow-overlay transition-opacity duration-150 group-hover/navitem:visible group-hover/navitem:opacity-100">{t(item.key)}</span>}
                   </>
@@ -104,9 +78,14 @@ function NavList({ collapsed, onNavigate }: { collapsed: boolean; onNavigate?: (
 function Brand({ compact = false }: { compact?: boolean }) {
   const { t } = useI18n()
   return (
-    <div className={`flex items-center gap-3 ${compact ? 'justify-center' : 'px-2'}`}>
-      <BrandMark size={34} />
-      {!compact && <div><div className="text-nav font-semibold">CLI2API</div><div className="text-caption text-muted">{t('controlPlane')}</div></div>}
+    <div className={`flex min-w-0 items-center gap-3 ${compact ? 'justify-center' : 'px-1.5'}`}>
+      <BrandMark size={36} />
+      {!compact && (
+        <div className="min-w-0 leading-tight">
+          <div className="text-section font-semibold tracking-tight">CLI2API</div>
+          <div className="mt-0.5 truncate text-caption text-muted">{t('controlPlane')}</div>
+        </div>
+      )}
     </div>
   )
 }
@@ -135,6 +114,63 @@ function SidebarStatusSkeleton({ label }: { label: string }) {
   )
 }
 
+const IN_FLIGHT_POLL_MS = 3000
+
+/**
+ * Live in-flight request count (sum of account in_flight from
+ * /api/overview/summary). Polls every 3s only while the tab is visible;
+ * the dot is muted at 0 and pulses green while requests are running.
+ */
+function InFlightIndicator({ initial, collapsed }: { initial: number; collapsed: boolean }) {
+  const { t } = useI18n()
+  const [count, setCount] = useState<number | null>(null)
+  const value = count ?? initial
+
+  useEffect(() => {
+    let cancelled = false
+    let timer: number | undefined
+    const poll = () => {
+      void fetchOverviewSummary()
+        .then((data) => { if (!cancelled) setCount(data.worker?.in_flight ?? 0) })
+        .catch(() => { /* keep last value */ })
+    }
+    const start = () => {
+      if (timer != null || document.hidden) return
+      poll()
+      timer = window.setInterval(poll, IN_FLIGHT_POLL_MS)
+    }
+    const stop = () => {
+      if (timer != null) window.clearInterval(timer)
+      timer = undefined
+    }
+    const onVisibility = () => (document.hidden ? stop() : start())
+    start()
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      cancelled = true
+      stop()
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [])
+
+  const label = t('sidebarInFlight', { count: value })
+  return (
+    <Tooltip delay={200}>
+      <Tooltip.Trigger>
+        <span
+          role="status"
+          aria-label={label}
+          className={`inline-flex h-8 items-center gap-2 rounded-lg text-caption text-muted ${collapsed ? 'w-10 justify-center' : 'px-3'}`}
+        >
+          <span className="status-dot" data-state={value > 0 ? 'ok' : undefined} />
+          <span className="mono tabular text-foreground">{value}</span>
+        </span>
+      </Tooltip.Trigger>
+      <Tooltip.Content>{label}</Tooltip.Content>
+    </Tooltip>
+  )
+}
+
 export function AppSidebar({ mobileOpen, onClose }: Props) {
   const { t } = useI18n()
   const { overview, loading } = useOverview()
@@ -154,13 +190,19 @@ export function AppSidebar({ mobileOpen, onClose }: Props) {
     })
   }
 
+  const toggle = (
+    <Button isIconOnly size="sm" variant="ghost" className="text-muted" onPress={toggleCollapsed} aria-label={t('toggleSidebar')}>
+      <SidebarSimple size={18} className={collapsed ? 'rotate-180' : ''} />
+    </Button>
+  )
+
   const footer = (
-    <div className="mt-auto shrink-0 space-y-3 pt-4">
+    <div className="mt-auto shrink-0 space-y-2 pt-6">
       {!collapsed && (
         showStatusSkeleton ? (
           <SidebarStatusSkeleton label={t('refreshing')} />
         ) : (
-          <div className="rounded-xl bg-surface shadow-surface p-3.5">
+          <div className="sidebar-status rounded-xl px-3.5 py-3">
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2 text-nav font-medium">
                 <span className="status-dot" data-state={healthy ? 'ok' : 'danger'} />
@@ -168,47 +210,51 @@ export function AppSidebar({ mobileOpen, onClose }: Props) {
               </div>
               <Chip size="sm" variant="soft" color={healthy ? 'success' : 'warning'}>{hotCount}/{accountCount}</Chip>
             </div>
-            <div className="mt-3 grid grid-cols-2 gap-3 pt-3 text-caption">
-              <div>
-                <div className="text-muted">Proxy</div>
-                <div className="mt-1 font-medium">{proxyOk ? 'online' : 'down'}</div>
-              </div>
-              <div>
-                <div className="text-muted">{t('accountCount')}</div>
-                <div className="mono mt-1 font-medium">{hotCount}/{accountCount}</div>
-              </div>
+            <div className="mt-2 flex items-center gap-1.5 text-caption text-muted">
+              <span>Proxy</span>
+              <span className="font-medium text-foreground">{proxyOk ? 'online' : 'down'}</span>
+              <span aria-hidden>·</span>
+              <span>{t('accountCount')}</span>
+              <span className="mono font-medium text-foreground">{hotCount}/{accountCount}</span>
             </div>
           </div>
         )
       )}
-      <SidebarUpdateItem collapsed={collapsed} />
-      <div className={`flex items-center gap-2 ${collapsed ? 'flex-col' : ''}`}>
+      {collapsed ? (
+        <div className="flex justify-center">
         <Tooltip>
           <Tooltip.Trigger>
-            <Button isIconOnly size="sm" variant="ghost" className={collapsed ? '' : 'hidden'} aria-label={t('runtimeSnapshot')}>
+            <Button isIconOnly size="sm" variant="ghost" aria-label={t('runtimeSnapshot')}>
               {showStatusSkeleton ? <SkeletonBlock className="size-2" /> : <span className="status-dot" data-state={healthy ? 'ok' : 'danger'} />}
             </Button>
           </Tooltip.Trigger>
           <Tooltip.Content>{showStatusSkeleton ? t('refreshing') : healthy ? t('running') : t('degraded')}</Tooltip.Content>
         </Tooltip>
-        <Button isIconOnly size="sm" variant="ghost" className={collapsed ? '' : 'ml-auto'} onPress={toggleCollapsed} aria-label={t('toggleSidebar')}><SidebarSimple size={16} className={collapsed ? 'rotate-180' : ''} /></Button>
+        </div>
+      ) : null}
+      <SidebarUpdateItem collapsed={collapsed} />
+      <div className={`flex items-center ${collapsed ? 'flex-col gap-1' : 'justify-between gap-2'}`}>
+        <InFlightIndicator initial={overview?.worker?.in_flight ?? 0} collapsed={collapsed} />
+        {!collapsed && <p className="min-w-0 truncate pr-3 text-caption text-muted" title={t('sidebarFoot')}>{t('sidebarFoot')}</p>}
       </div>
-      {!collapsed && <p className="truncate px-1 text-caption leading-5 text-muted" title={t('sidebarFoot')}>{t('sidebarFoot')}</p>}
     </div>
   )
 
   return (
     <>
-      <aside className={`hidden h-dvh shrink-0 flex-col bg-surface-secondary text-foreground transition-[width] duration-300 ease-out md:flex ${collapsed ? 'w-[76px] px-2.5 py-4' : 'w-[240px] px-3 py-4'}`}>
-        <div className={`flex h-9 shrink-0 items-center ${collapsed ? 'justify-center' : 'justify-start'}`}><Brand compact={collapsed} /></div>
-        <div className="mt-5 min-h-0 flex-1 overflow-y-auto overscroll-contain"><NavList collapsed={collapsed} /></div>
+      <aside className={`hidden h-dvh shrink-0 flex-col bg-surface-secondary text-foreground transition-[width] duration-300 ease-out md:flex ${collapsed ? 'w-[76px] px-2.5 py-5' : 'w-[260px] px-4 py-5'}`}>
+        <div className={`flex shrink-0 ${collapsed ? 'flex-col items-center gap-3' : 'h-12 items-center justify-between gap-2'}`}>
+          <Brand compact={collapsed} />
+          {toggle}
+        </div>
+        <div className={`${collapsed ? 'mt-5' : 'mt-7'} min-h-0 flex-1 overflow-y-auto overscroll-contain`}><NavList collapsed={collapsed} /></div>
         {footer}
       </aside>
       <Drawer isOpen={mobileOpen} onOpenChange={(open) => { if (!open) onClose() }}>
         <Drawer.Content placement="left">
-          <Drawer.Dialog className="w-72 bg-surface-secondary p-3 text-foreground">
-            <div className="flex items-center justify-between px-2 py-3"><Brand /><Button isIconOnly size="sm" variant="ghost" onPress={onClose} aria-label={t('close')}><X size={16} /></Button></div>
-            <Drawer.Body className="px-0"><NavList collapsed={false} onNavigate={onClose} /></Drawer.Body>
+          <Drawer.Dialog className="w-72 bg-surface-secondary px-4 py-5 text-foreground">
+            <div className="flex h-12 items-center justify-between"><Brand /><Button isIconOnly size="sm" variant="ghost" onPress={onClose} aria-label={t('close')}><X size={16} /></Button></div>
+            <Drawer.Body className="mt-5 px-0"><NavList collapsed={false} onNavigate={onClose} /></Drawer.Body>
           </Drawer.Dialog>
         </Drawer.Content>
       </Drawer>
