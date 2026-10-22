@@ -1,29 +1,12 @@
 @import "tailwindcss";
 @import "@heroui/styles";
 
-/* Geist (latin subset only, ~52 KB total) is bundled into the binary so the
-   console no longer reaches out to Google Fonts; CJK falls back to the OS. */
-@font-face {
-  font-family: "Geist Variable";
-  font-style: normal;
-  font-display: swap;
-  font-weight: 100 900;
-  src: url("@fontsource-variable/geist/files/geist-latin-wght-normal.woff2") format("woff2-variations");
-  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-}
-
-@font-face {
-  font-family: "Geist Mono Variable";
-  font-style: normal;
-  font-display: swap;
-  font-weight: 100 900;
-  src: url("@fontsource-variable/geist-mono/files/geist-mono-latin-wght-normal.woff2") format("woff2-variations");
-  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-}
-
+/* System UI fonts only: CJK and Latin come from the same OS family
+   (PingFang / Hiragino / YaHei / Segoe UI), so mixed text matches and no
+   webfont is bundled. */
 @theme {
-  --font-sans: "Geist Variable", "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "Geist Mono Variable", "SFMono-Regular", Consolas, monospace;
+  --font-sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
 
   /* Type scale. One sans family for all UI; mono only via .mono for IDs,
      keys, versions and numbers. Weights: 600 titles, 500 labels, 400 body. */
@@ -541,8 +524,7 @@ body {
 /* Numbers everywhere line up. */
 .tabular,
 .mono,
-.card [class*="text-2xl"],
-.card [class*="text-3xl"] {
+.card .text-metric {
   font-variant-numeric: tabular-nums;
 }
 

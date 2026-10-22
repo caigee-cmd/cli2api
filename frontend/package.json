@@ -11,8 +11,6 @@
     "sync": "npm run build && node ./scripts/sync-static.mjs"
   },
   "dependencies": {
-    "@fontsource-variable/geist": "^5.3.0",
-    "@fontsource-variable/geist-mono": "^5.3.0",
     "@heroui/react": "^3.2.4",
     "@heroui/styles": "^3.2.4",
     "@phosphor-icons/react": "^2.1.10",
