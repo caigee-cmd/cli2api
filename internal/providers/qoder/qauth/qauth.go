@@ -125,8 +125,8 @@ func FetchModelCatalog(ctx context.Context, sess *SessionContext, region *Region
 }
 
 // openAPIUserAgentVersion is the client version the global OpenAPI endpoints
-// expect in the User-Agent header. It mirrors the pinned CLI (1.1.32).
-const openAPIUserAgentVersion = "1.1.32"
+// expect in the User-Agent header. It mirrors the pinned CLI.
+const openAPIUserAgentVersion = CosyVersion
 
 // --- Custom Encoding (Qoder Base64 variant) ---
 
@@ -374,7 +374,7 @@ type cosyPayloadStruct struct {
 
 func BuildPayloadB64(info string) string {
 	p := cosyPayloadStruct{
-		CosyVersion: "0.1.43",
+		CosyVersion: CosyVersion,
 		IdeVersion:  "",
 		Info:        info,
 		RequestID:   uuid.New().String(),
@@ -676,13 +676,12 @@ func commonHeaders(machineID, machineToken, machineType, date, sig string) http.
 	h.Set("appcode", appCode)
 	h.Set("accept", "application/json")
 	h.Set("accept-encoding", "identity")
-	h.Set("cosy-version", "0.1.43")
+	h.Set("cosy-version", CosyVersion)
 	h.Set("cosy-clienttype", "5")
 	h.Set("date", date)
 	h.Set("signature", sig)
 	h.Set("content-type", "application/json")
 	h.Set("cosy-machineid", machineID)
-	h.Set("user-agent", "Go-http-client/2.0")
 	return h
 }
 
@@ -695,6 +694,7 @@ func postEncoded(ctx context.Context, urlStr string, obj interface{}, machineID,
 	}
 	body := Encode(plain)
 	headers := commonHeaders(machineID, machineToken, machineType, date, sig)
+	applyClientFingerprint(headers, urlStr, "", false)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", urlStr, strings.NewReader(body))
 	if err != nil {
@@ -1095,11 +1095,10 @@ func makeCommonHeaders(sess *SessionContext, date, bearer, accept string) http.H
 	h.Set("accept", accept)
 	h.Set("authorization", bearer)
 	h.Set("accept-encoding", "identity")
-	h.Set("cosy-version", "0.1.43")
+	h.Set("cosy-version", CosyVersion)
 	h.Set("cosy-machineid", sess.MachineID)
 	h.Set("cosy-machinetoken", sess.MachineToken)
 	h.Set("login-version", "v2")
-	h.Set("user-agent", "Go-http-client/2.0")
 	return h
 }
 
@@ -1142,6 +1141,7 @@ func call(ctx context.Context, sess *SessionContext, method, fullURL string, jso
 	date := strconv.FormatInt(time.Now().Unix(), 10)
 	bearer := buildBearer(sess, date, body, pathSig)
 	headers := makeCommonHeaders(sess, date, bearer, "application/json")
+	applyClientFingerprint(headers, fullURL, sess.Identity.UID, false)
 	for k, v := range extraHeaders {
 		headers.Set(k, v)
 	}
@@ -1393,6 +1393,7 @@ func OpenStreamLines(ctx context.Context, sess *SessionContext, fullURL string, 
 	date := strconv.FormatInt(time.Now().Unix(), 10)
 	bearer := buildBearer(sess, date, body, pathSig)
 	headers := makeCommonHeaders(sess, date, bearer, "text/event-stream")
+	applyClientFingerprint(headers, fullURL, sess.Identity.UID, true)
 	headers.Set("cache-control", "no-cache")
 	for k, v := range extraHeaders {
 		headers.Set(k, v)
