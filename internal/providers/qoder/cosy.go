@@ -16,11 +16,13 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/caigee-cmd/cli2api/internal/providers/qoder/qauth"
 )
 
-// COSYVersion is the CLI protocol version sent on chat. It matches the pinned
-// worker CLI, not a newer desktop SDK constant.
-const COSYVersion = "1.1.32"
+// COSYVersion is the CLI protocol version sent on chat. It is the single
+// qauth.CosyVersion constant so headers, payloads and User-Agent never drift.
+const COSYVersion = qauth.CosyVersion
 
 const cosyServerPubKeyPEM = `-----BEGIN PUBLIC KEY-----
 MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDA8iMH5c02LilrsERw9t6Pv5Nc
@@ -177,6 +179,11 @@ func (s *Session) Sign(body, rawURL string, now time.Time) (headers map[string]s
 		"Cosy-Version":      COSYVersion,
 		"Login-Version":     "v2",
 		"Accept-Encoding":   "identity",
+		// Sign is only used for inference SSE (direct chat), where qodercli
+		// also sends machine OS/hostname.
+		"User-Agent":           qauth.UserAgentForURL(rawURL),
+		"Cosy-MachineOS":       qauth.CosyMachineOS,
+		"Cosy-MachineHostname": qauth.MachineHostname(s.User.uid()),
 	}, nil
 }
 

@@ -1410,7 +1410,7 @@ func TestChatHeadersStayRegionSpecificAndIncludeCLIChannel(t *testing.T) {
 	if cn.Get("Origin") != "https://www.codebuddy.cn" || cn.Get("Referer") != "https://www.codebuddy.cn/" {
 		t.Fatalf("CN origin/referer mixed: %+v", cn)
 	}
-	if got := cn.Get("User-Agent"); got != UserAgent || !strings.Contains(got, "2.139.0") {
+	if got := cn.Get("User-Agent"); got != UserAgent || !strings.Contains(got, "2.161.0") {
 		t.Fatalf("CN UA=%q", got)
 	}
 	if cn.Get("X-Product") != "SaaS" || cn.Get("X-IDE-Type") != "CLI" || cn.Get("X-Agent-Intent") != "craft" ||

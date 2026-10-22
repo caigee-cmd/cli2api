@@ -19,17 +19,28 @@ const (
 	ChatBaseGlobal = "https://www.workbuddy.ai"
 	BillingBaseCN  = "https://www.codebuddy.cn"
 
-	// UserAgent matches official @tencent-ai/codebuddy-code 2.139.0 in the
-	// dual-token form WorkBuddy chat still accepts. Origin/Referer stay
-	// region-specific and must never mix CN with Global.
-	CLIVersion = "2.139.0"
+	// UserAgent matches official @tencent-ai/codebuddy-code in the dual-token
+	// form WorkBuddy chat still accepts. Origin/Referer stay region-specific
+	// and must never mix CN with Global. All client versions live here.
+	CLIVersion = "2.161.0"
 	UserAgent  = "CLI/" + CLIVersion + " CodeBuddy/" + CLIVersion
 
-	// DesktopUserAgent is for /v3/config only. Live A/B showed the same
-	// Global account returns the IDE dropdown (incl. deepseek-v4.1-flash)
-	// with a desktop UA, but the CLI UA returns a different model set.
-	DesktopVersion   = "5.4.2"
-	DesktopUserAgent = "WorkBuddy/" + DesktopVersion
+	// Desktop clients ship separately per edition. Their UA is three-part:
+	// app token, edition token, then the bundled CLI version.
+	DesktopVersionGlobal   = "5.8.4"
+	DesktopVersionCN       = "5.8.3"
+	DesktopUserAgentGlobal = "WorkBuddy/" + DesktopVersionGlobal + " workbuddy-ai/" + DesktopVersionGlobal + " CLI/" + CLIVersion
+	DesktopUserAgentCN     = "WorkBuddy/" + DesktopVersionCN + " WorkBuddy/" + DesktopVersionCN + " CLI/" + CLIVersion
+
+	// IDEVersion is the CodeBuddy IDE plugin release, kept with the others.
+	IDEVersion = "2.168.2"
+
+	// DesktopVersion/DesktopUserAgent are for /v3/config only (Global). Live
+	// A/B showed the same Global account returns the IDE dropdown (incl.
+	// deepseek-v4.1-flash) with a desktop UA, but the CLI UA returns a
+	// different model set.
+	DesktopVersion   = DesktopVersionGlobal
+	DesktopUserAgent = DesktopUserAgentGlobal
 
 	productTypeCLI     = "CLI"
 	agentIntentDefault = "craft"
@@ -202,4 +213,12 @@ func (c Credential) IsGlobal() bool {
 		return false
 	}
 	return strings.Contains(domain, DomainGlobal) || strings.Contains(domain, "workbuddy")
+}
+
+// DesktopUserAgentFor returns the desktop UA for the account's edition.
+func DesktopUserAgentFor(global bool) string {
+	if global {
+		return DesktopUserAgentGlobal
+	}
+	return DesktopUserAgentCN
 }

@@ -483,12 +483,7 @@ func (c *Client) ChatNonStream(ctx context.Context, accountID string, req transl
 	if err != nil {
 		return providers.ChatOutcome{}, err
 	}
-	client, err := c.httpClient(ctx, accountID)
-	if err != nil {
-		return providers.ChatOutcome{}, err
-	}
-	client.Timeout = 0
-	resp, err := client.Do(httpReq)
+	resp, err := c.sendChat(ctx, accountID, credential, req, httpReq)
 	if err != nil {
 		return providers.ChatOutcome{}, err
 	}
@@ -496,9 +491,6 @@ func (c *Client) ChatNonStream(ctx context.Context, accountID string, req transl
 	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
 	if readErr != nil {
 		return providers.ChatOutcome{}, fmt.Errorf("read workbuddy stream: %w", readErr)
-	}
-	if resp.StatusCode >= 300 {
-		return providers.ChatOutcome{}, classifiedError(resp.StatusCode, body)
 	}
 	aggregate, err := Aggregate(bytes.NewReader(body))
 	if err != nil {
@@ -521,21 +513,82 @@ func (c *Client) ChatStream(ctx context.Context, accountID string, req translate
 	if err != nil {
 		return nil, providers.ResolvedChat{}, err
 	}
-	client, err := c.httpClient(ctx, accountID)
+	resp, err := c.sendChat(ctx, accountID, credential, req, httpReq)
 	if err != nil {
 		return nil, providers.ResolvedChat{}, err
-	}
-	client.Timeout = 0
-	resp, err := client.Do(httpReq)
-	if err != nil {
-		return nil, providers.ResolvedChat{}, err
-	}
-	if resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-		resp.Body.Close()
-		return nil, providers.ResolvedChat{}, classifiedError(resp.StatusCode, body)
 	}
 	return rewriteChatStream(resp), resolved, nil
+}
+
+// sendChat performs one chat round trip and returns a 2xx response with an
+// unread body. A 401 usually means the access token expired before its JWT
+// clock said so: refresh the token once and retry on the same account. Only
+// when the refresh itself fails is the 401 surfaced as KindAuth, which lets
+// the executor fail over to another account (Refresh already marks a dead
+// session as login_required). TLS certificate verification failures are
+// deterministic configuration errors and are reported without retry.
+func (c *Client) sendChat(ctx context.Context, accountID string, credential Credential, req translate.ChatRequest, httpReq *http.Request) (*http.Response, error) {
+	client, err := c.httpClient(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	client.Timeout = 0
+	refreshed := false
+	for {
+		resp, err := client.Do(httpReq)
+		if err != nil {
+			return nil, wrapTransportError(err)
+		}
+		if resp.StatusCode < 300 {
+			return resp, nil
+		}
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusUnauthorized || refreshed || credential.RefreshToken == "" {
+			return nil, classifiedError(resp.StatusCode, body)
+		}
+		refreshed = true
+		fresh, refreshErr := c.Refresh(ctx, accountID, credential)
+		if refreshErr != nil {
+			if tlsErr := tlsVerifyError(refreshErr); tlsErr != nil {
+				return nil, tlsErr
+			}
+			out := classifiedError(resp.StatusCode, body)
+			if pe, ok := out.(*providers.Error); ok && pe.Kind == accounts.KindAuth {
+				pe.Message = "token refresh after 401 failed; re-login required"
+			}
+			return nil, out
+		}
+		credential = fresh
+		httpReq, _, err = c.chatRequest(ctx, accountID, credential, req)
+		if err != nil {
+			return nil, err
+		}
+	}
+}
+
+// tlsVerifyHint mirrors workbuddy2api-hub #441: certificate failures are a
+// local trust-store problem (corporate proxy, HTTPS-decrypting VPN), not an
+// account or transient network fault.
+const tlsVerifyHint = "TLS certificate verification failed: the upstream certificate chain is not trusted by this host (corporate proxy / HTTPS-decrypting VPN?). Install the issuing root CA into the system trust store or set SSL_CERT_FILE, then retry."
+
+func tlsVerifyError(err error) error {
+	if !providers.IsTLSVerifyError(err) {
+		return nil
+	}
+	return &providers.Error{
+		Kind:    accounts.KindUnavailable,
+		Status:  http.StatusBadGateway,
+		Code:    providers.CodeTLSVerifyFailed,
+		Message: tlsVerifyHint + " (" + err.Error() + ")",
+	}
+}
+
+func wrapTransportError(err error) error {
+	if tlsErr := tlsVerifyError(err); tlsErr != nil {
+		return tlsErr
+	}
+	return err
 }
 
 func outcomeFromAggregate(aggregate map[string]any) (providers.ChatOutcome, error) {

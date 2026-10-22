@@ -106,6 +106,15 @@ func ClassifyError(err error) Classified {
 			Code: "request_canceled", Message: err.Error(),
 		}
 	}
+	if providers.IsTLSVerifyError(err) {
+		// Certificate verification is deterministic and shared by every
+		// account: no failover, no cooldown, surface the hint as-is.
+		return Classified{
+			Kind: accounts.KindUnavailable, Status: http.StatusBadGateway,
+			Failover: false, Code: providers.CodeTLSVerifyFailed,
+			Type: "api_error", Message: err.Error(),
+		}
+	}
 	var providerErr *providers.Error
 	if !errors.As(err, &providerErr) || providerErr == nil {
 		return Classify(0, err.Error(), "", "", "")
@@ -123,6 +132,23 @@ func ClassifyError(err error) Classified {
 	}
 	if providerErr.Message != "" {
 		classified.Message = providerErr.Message
+	}
+	switch providerErr.Code {
+	case providers.CodeUpstreamQueued:
+		// Model-level queue: the account is fine and another account would
+		// queue the same way (and break session affinity). No cooldown, no
+		// failover; pass the upstream retryAfterSeconds through.
+		classified.Kind = accounts.KindRateLimit
+		classified.Status = http.StatusTooManyRequests
+		classified.Failover = false
+		classified.Cooldown = 0
+		classified.RetryAfter = providerErr.RetryAfter
+		return classified
+	case providers.CodeClientVersionTooLow:
+		classified.Failover = false
+		classified.Cooldown = 0
+		classified.RetryAfter = 0
+		return classified
 	}
 	if providerErr.Code == "upstream_empty" {
 		// A heartbeat-only upstream stream says nothing about the account's

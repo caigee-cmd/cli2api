@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/providers"
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
@@ -51,7 +52,7 @@ func (c *Client) ChatNonStream(ctx context.Context, accountID string, req transl
 		}
 		lastErr = err
 		if !denial {
-			return providers.ChatOutcome{}, err
+			return providers.ChatOutcome{}, c.withQuotaReset(ctx, client, credential, err)
 		}
 		fallback, ok := c.buildNextMCPFallback(ctx, credential, built)
 		if !ok {
@@ -89,7 +90,7 @@ func (c *Client) ChatStream(ctx context.Context, accountID string, req translate
 		}
 		lastErr = err
 		if !denial {
-			return nil, providers.ResolvedChat{}, err
+			return nil, providers.ResolvedChat{}, c.withQuotaReset(ctx, client, credential, err)
 		}
 		fallback, ok := c.buildNextMCPFallback(ctx, credential, built)
 		if !ok {
@@ -572,4 +573,40 @@ func rewriteConnectStream(upstream *http.Response, model string, originalByAlias
 		Header:     header,
 		Body:       pr,
 	}, nil
+}
+
+// quotaResetLookupTimeout bounds the GetUserStatus call made to learn when an
+// exhausted daily/weekly window resets.
+const quotaResetLookupTimeout = 5 * time.Second
+
+// withQuotaReset fills RetryAfter for a daily/weekly quota exhaustion that
+// carried no reset hint, using the matching window's reset timestamp from
+// GetUserStatus. Daily and weekly windows reset at different times; without
+// this a weekly exhaustion would be cooled only until local midnight.
+func (c *Client) withQuotaReset(ctx context.Context, client *http.Client, credential Credential, err error) error {
+	var pe *providers.Error
+	if !errors.As(err, &pe) || pe == nil || pe.Kind != accounts.KindQuota || pe.RetryAfter > 0 {
+		return err
+	}
+	period := quotaPeriodNone
+	switch pe.Code {
+	case CodeDailyQuotaExhausted:
+		period = quotaPeriodDaily
+	case CodeWeeklyQuotaExhausted:
+		period = quotaPeriodWeekly
+	default:
+		return err
+	}
+	lookupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), quotaResetLookupTimeout)
+	defer cancel()
+	statusClient := *client
+	statusClient.Timeout = quotaResetLookupTimeout
+	status, statusErr := FetchUserStatus(lookupCtx, &statusClient, firstNonEmpty(credential.BaseURL, c.serverBase), credential.SessionToken, credential.DeviceSeed)
+	if statusErr != nil {
+		return err
+	}
+	if delay := quotaResetDelay(status, period, time.Now()); delay > 0 {
+		pe.RetryAfter = delay
+	}
+	return err
 }
