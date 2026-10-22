@@ -317,19 +317,19 @@ export function SystemPage() {
       <Tabs selectedKey={tab} onSelectionChange={(key) => selectTab(String(key) as SettingsTab)}>
         <Tabs.ListContainer className="w-fit max-w-full overflow-x-auto">
           <Tabs.List aria-label={t('systemSettingsTitle')}>
-            <Tab id="general" className="gap-1.5">
+            <Tab id="general" className="gap-1.5 whitespace-nowrap">
               <Tabs.Indicator />
               <GearSix size={13} />{t('settingsTabGeneral')}
             </Tab>
-            <Tab id="routing" className="gap-1.5">
+            <Tab id="routing" className="gap-1.5 whitespace-nowrap">
               <Tabs.Indicator />
               <ArrowsSplit size={13} />{t('settingsTabRouting')}
             </Tab>
-            <Tab id="security" className="gap-1.5">
+            <Tab id="security" className="gap-1.5 whitespace-nowrap">
               <Tabs.Indicator />
               <ShieldCheck size={13} />{t('settingsTabSecurity')}
             </Tab>
-            <Tab id="updates" className="gap-1.5">
+            <Tab id="updates" className="gap-1.5 whitespace-nowrap">
               <Tabs.Indicator />
               <ArrowCircleUp size={13} />{t('settingsTabUpdates')}
             </Tab>
