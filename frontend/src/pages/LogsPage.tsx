@@ -123,11 +123,11 @@ function TokenSplit({
       {prompt != null || completion != null ? (
         <>
           <div className="mono text-xs">{prompt ?? 0} / {completion ?? 0}</div>
-          <div className="mt-0.5 text-[10px] text-muted">{inLabel} / {outLabel}</div>
+          <div className="mt-0.5 text-caption text-muted">{inLabel} / {outLabel}</div>
         </>
       ) : null}
       {creditText != null ? (
-        <div className={`mono text-[10px] text-success ${prompt != null || completion != null ? 'mt-0.5' : ''}`}>
+        <div className={`mono text-caption text-success ${prompt != null || completion != null ? 'mt-0.5' : ''}`}>
           {pointsLabel ? pointsLabel(creditText) : creditText}
         </div>
       ) : null}
@@ -480,10 +480,10 @@ export function LogsPage() {
 
   return (
     <div className="space-y-6">
-      <section className="flex flex-wrap items-end justify-between gap-4 border-b border-separator pb-4">
+      <section className="flex flex-wrap items-end justify-between gap-4 pb-4">
         <div>
-          <h2 data-gsap-reveal className="text-xl font-semibold tracking-[-0.02em]">{t('navLogs')}</h2>
-          <p className="mt-1 max-w-2xl text-sm leading-6 text-muted">{t('logsLead')}</p>
+          <h2 data-gsap-reveal className="text-title font-semibold">{t('navLogs')}</h2>
+          <p className="mt-1 max-w-2xl text-body leading-6 text-muted">{t('logsLead')}</p>
         </div>
         <div className="flex items-center gap-2">
           {tab === 'requests' ? (
@@ -532,7 +532,7 @@ export function LogsPage() {
                 {hasRequestFilters ? (
                   <Button size="sm" variant="ghost" onPress={clearRequestFilters}>{t('clearFilters')}</Button>
                 ) : null}
-                <div className="mono text-[11px] text-muted">{shownLabel}</div>
+                <div className="mono text-caption text-muted">{shownLabel}</div>
               </div>
             </div>
 
@@ -742,13 +742,13 @@ export function LogsPage() {
                           <Table.Cell>
                             <div className="py-1">
                               <div className="mono text-xs">{formatTime(item.created_at, lang)}</div>
-                              <div className="mono mt-0.5 text-[10px] text-muted">{item.id}</div>
+                              <div className="mono mt-0.5 text-caption text-muted">{item.id}</div>
                             </div>
                           </Table.Cell>
                           <Table.Cell>
-                            <div className="text-sm font-medium">{item.requested_model || '—'}</div>
+                            <div className="text-body font-medium">{item.requested_model || '—'}</div>
                             {item.mapped_model && item.mapped_model !== item.requested_model ? (
-                              <div className="mono mt-0.5 text-[10px] text-muted">{item.mapped_model}</div>
+                              <div className="mono mt-0.5 text-caption text-muted">{item.mapped_model}</div>
                             ) : null}
                           </Table.Cell>
                           <Table.Cell>
@@ -760,12 +760,12 @@ export function LogsPage() {
                           <Table.Cell>
                             <span className="text-xs">{item.account_id ? (accountNameById.get(item.account_id) || item.account_id) : '—'}</span>
                             {item.account_id && accountNameById.get(item.account_id) && accountNameById.get(item.account_id) !== item.account_id ? (
-                              <div className="mono mt-0.5 text-[10px] text-muted">{item.account_id}</div>
+                              <div className="mono mt-0.5 text-caption text-muted">{item.account_id}</div>
                             ) : null}
                           </Table.Cell>
                           <Table.Cell>
                             <Chip size="sm" variant="soft" color={statusColor(item.status)}>{item.status}</Chip>
-                            {item.error_kind ? <div className="mono mt-1 text-[10px] text-muted">{item.error_kind}</div> : null}
+                            {item.error_kind ? <div className="mono mt-1 text-caption text-muted">{item.error_kind}</div> : null}
                           </Table.Cell>
                           <Table.Cell><span className="text-xs text-muted">{item.stream ? t('logsStreamYes') : t('logsStreamNo')}</span></Table.Cell>
                           <Table.Cell><span className="mono text-xs">{formatLatency(item.latency_ms)}</span></Table.Cell>
@@ -865,13 +865,13 @@ export function LogsPage() {
                       }
                     }}
                   >
-                    <div className="mono text-[11px] text-muted">{formatTime(entry.time, lang)}</div>
+                    <div className="mono text-caption text-muted">{formatTime(entry.time, lang)}</div>
                     <div className="flex items-center gap-2 text-xs">
                       <span className="status-dot" data-state={levelDot(entry.level)} />
                       <span className="font-medium text-muted">{entry.level}</span>
                     </div>
                     <div className="min-w-0">
-                      {entry.account_id ? <div className="mono mb-1 text-[10px] text-muted">{entry.account_id}</div> : null}
+                      {entry.account_id ? <div className="mono mb-1 text-caption text-muted">{entry.account_id}</div> : null}
                       <div className="mono break-all text-xs leading-5 text-foreground">{entry.message}</div>
                     </div>
                   </div>
@@ -905,8 +905,8 @@ export function LogsPage() {
             <Modal.Dialog className="w-full max-w-4xl">
               <Modal.Header className="items-start justify-between gap-4 px-5 pt-5">
                 <div className="min-w-0">
-                  <Modal.Heading className="text-lg font-semibold tracking-[-0.01em]">{t('logsRuntimeDetailTitle')}</Modal.Heading>
-                  <p className="mono mt-1 text-[11px] text-muted">{selectedRuntime ? `#${selectedRuntime.id}` : '—'}</p>
+                  <Modal.Heading className="text-section font-semibold">{t('logsRuntimeDetailTitle')}</Modal.Heading>
+                  <p className="mono mt-1 text-caption text-muted">{selectedRuntime ? `#${selectedRuntime.id}` : '—'}</p>
                 </div>
                 <Modal.CloseTrigger aria-label={t('close')} className="grid size-8 shrink-0 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-secondary hover:text-foreground">
                   <X size={16} />
@@ -921,8 +921,8 @@ export function LogsPage() {
                     [t('logsColAccount'), selectedRuntime?.account_id || '—'],
                   ].map(([label, value]) => (
                     <div key={String(label)}>
-                      <dt className="text-[11px] text-muted">{label}</dt>
-                      <dd className="mt-1 break-all text-sm font-medium">
+                      <dt className="text-caption text-muted">{label}</dt>
+                      <dd className="mt-1 break-all text-body font-medium">
                         {label === t('logsRuntimeLevel') && selectedRuntime ? (
                           <Chip size="sm" variant="soft" color={runtimeLevelColor(selectedRuntime.level)}>
                             {selectedRuntime.level}
@@ -958,8 +958,8 @@ export function LogsPage() {
             <Modal.Dialog className="w-full max-w-4xl">
               <Modal.Header className="items-start justify-between gap-4 px-5 pt-5">
                 <div className="min-w-0">
-                  <Modal.Heading className="text-lg font-semibold tracking-[-0.01em]">{t('logsDetailTitle')}</Modal.Heading>
-                  <p className="mono mt-1 text-[11px] text-muted">{selected?.id}</p>
+                  <Modal.Heading className="text-section font-semibold">{t('logsDetailTitle')}</Modal.Heading>
+                  <p className="mono mt-1 text-caption text-muted">{selected?.id}</p>
                 </div>
                 <Modal.CloseTrigger aria-label={t('close')} className="grid size-8 shrink-0 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-secondary hover:text-foreground">
                   <X size={16} />
@@ -985,12 +985,12 @@ export function LogsPage() {
                     [t('logsRouting'), selected ? routingLabel(selected.routing) : '—'],
                   ].map(([label, value]) => (
                     <div key={String(label)}>
-                      <dt className="text-[11px] text-muted">{label}</dt>
-                      <dd className="mt-1 break-all text-sm font-medium">{value}</dd>
+                      <dt className="text-caption text-muted">{label}</dt>
+                      <dd className="mt-1 break-all text-body font-medium">{value}</dd>
                     </div>
                   ))}
                   <div>
-                    <dt className="text-[11px] text-muted">{t('logsColTokens')}</dt>
+                    <dt className="text-caption text-muted">{t('logsColTokens')}</dt>
                     <dd className="mt-1">
                       {selected ? (
                         <TokenSplit
@@ -1007,9 +1007,9 @@ export function LogsPage() {
                   <div className="rounded-lg bg-surface-secondary px-3 py-3 text-xs">
                     <div className="font-medium text-muted">{t('logsMessageShape')}</div>
                     <dl className="mt-2 grid gap-2 sm:grid-cols-2">
-                      <div><dt className="text-[10px] text-muted">{t('logsMessageCount')}</dt><dd className="mono mt-0.5">{selected.message_count}</dd></div>
-                      <div><dt className="text-[10px] text-muted">{t('logsEmptyMessageIndexes')}</dt><dd className="mono mt-0.5 break-all">{selected.empty_message_indexes?.length ? selected.empty_message_indexes.join(', ') : '—'}</dd></div>
-                      <div className="sm:col-span-2"><dt className="text-[10px] text-muted">{t('logsMessageRoles')}</dt><dd className="mono mt-0.5 break-all">{selected.message_roles?.join(' → ') || '—'}</dd></div>
+                      <div><dt className="text-caption text-muted">{t('logsMessageCount')}</dt><dd className="mono mt-0.5">{selected.message_count}</dd></div>
+                      <div><dt className="text-caption text-muted">{t('logsEmptyMessageIndexes')}</dt><dd className="mono mt-0.5 break-all">{selected.empty_message_indexes?.length ? selected.empty_message_indexes.join(', ') : '—'}</dd></div>
+                      <div className="sm:col-span-2"><dt className="text-caption text-muted">{t('logsMessageRoles')}</dt><dd className="mono mt-0.5 break-all">{selected.message_roles?.join(' → ') || '—'}</dd></div>
                     </dl>
                   </div>
                 ) : null}
@@ -1032,7 +1032,7 @@ export function LogsPage() {
                         [t('logsStreamComplete'), selected.stream_diagnostic.saw_done ? 'yes' : 'no'],
                       ].map(([label, value]) => (
                         <div key={String(label)}>
-                          <dt className="text-[10px] text-muted">{label}</dt>
+                          <dt className="text-caption text-muted">{label}</dt>
                           <dd className="mono mt-0.5 break-all">{value}</dd>
                         </div>
                       ))}
@@ -1054,7 +1054,7 @@ export function LogsPage() {
                         [t('logsColProvider'), selected.usage_detail.provider || '—'],
                       ].map(([label, value]) => (
                         <div key={String(label)}>
-                          <dt className="text-[10px] text-muted">{label}</dt>
+                          <dt className="text-caption text-muted">{label}</dt>
                           <dd className="mono mt-0.5 break-all">{value}</dd>
                         </div>
                       ))}

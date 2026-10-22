@@ -25,11 +25,11 @@ export function EndpointList({ access }: EndpointListProps) {
   ], [access, base, t])
 
   return (
-    <Card data-gsap-reveal className="overflow-hidden border-border p-0 shadow-none">
+    <Card data-gsap-reveal className="overflow-hidden p-0">
       <div className="flex items-start justify-between gap-4 border-b border-separator px-5 py-4 sm:px-6">
         <div>
           <div className="flex items-center gap-2">
-            <h3 className="font-semibold tracking-[-0.015em]">{t('endpoints')}</h3>
+            <h3 className="font-semibold">{t('endpoints')}</h3>
             <Chip size="sm" variant="soft">{t('endpointCount', { count: endpoints.length - 1 })}</Chip>
           </div>
           <p className="mt-1 text-xs leading-5 text-muted">{t('routesHint')}</p>
@@ -42,15 +42,15 @@ export function EndpointList({ access }: EndpointListProps) {
               <div className="flex min-w-0 items-center gap-2.5">
                 <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-surface text-muted">{item.icon}</span>
                 <div className="min-w-0">
-                  <div className="truncate text-sm font-semibold">{item.name}</div>
-                  <code className="mono mt-0.5 block truncate text-[11px] text-muted">{item.url}</code>
+                  <div className="truncate text-body font-semibold">{item.name}</div>
+                  <code className="mono mt-0.5 block truncate text-caption text-muted">{item.url}</code>
                 </div>
               </div>
               <Chip size="sm" variant="soft">{item.method}</Chip>
             </div>
             <p className="mt-2 min-h-0 text-xs leading-5 text-muted">{item.hint}</p>
-            <div className="mt-2 flex items-center justify-between gap-2 border-t border-separator pt-2">
-              <span className="text-[10px] font-medium text-muted">{item.method === 'BASE' ? t('endpointBaseLabel') : t('endpointAuthLabel')}</span>
+            <div className="mt-2 flex items-center justify-between gap-2 pt-2">
+              <span className="text-caption font-medium text-muted">{item.method === 'BASE' ? t('endpointBaseLabel') : t('endpointAuthLabel')}</span>
               <div className="flex gap-1">
                 <Button isIconOnly size="sm" variant="ghost" aria-label={t('copy')} onPress={() => { void copyText(item.url); setCopiedEndpoint(item.name); window.setTimeout(() => setCopiedEndpoint(''), 1100) }}>
                   <CopyIcon copied={copiedEndpoint === item.name} />

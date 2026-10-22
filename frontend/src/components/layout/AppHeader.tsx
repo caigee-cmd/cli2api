@@ -32,8 +32,8 @@ export function AppHeader({
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-baseline gap-3">
             <span className="status-dot translate-y-[-1px]" data-state={ready ? 'ok' : 'danger'} />
-            <h1 className="truncate text-lg font-semibold tracking-[-0.02em]">{title}</h1>
-            <p className="hidden truncate text-sm text-muted xl:block">{desc}</p>
+            <h1 className="truncate text-title font-semibold">{title}</h1>
+            <p className="hidden truncate text-body text-muted xl:block">{desc}</p>
           </div>
         </div>
 

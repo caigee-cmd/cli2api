@@ -365,8 +365,8 @@ export function AccountsPage() {
   return (
     <div className="space-y-4">
       {checkinError ? <PageAlert title={checkinError} /> : null}
-      <section data-gsap-reveal className="grid gap-3 border-b border-separator pb-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
+      <section data-gsap-reveal className="grid gap-3 pb-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-body">
           <div className="flex items-center gap-3">
             <span className="mono font-semibold">{rows.length}</span>
             <span className="text-muted">{t('accountCount')}</span>
@@ -475,7 +475,7 @@ export function AccountsPage() {
 
       {!hasAccounts ? (
         <EmptyPanel
-          className="rounded-3xl border border-dashed border-border"
+          className="rounded-3xl bg-surface-secondary"
           icon={<BrandMark size={28} />}
           title={t('noAccounts')}
           hint={t('accountEmptyHint')}
@@ -485,7 +485,7 @@ export function AccountsPage() {
 
       {hasAccounts && !filteredRows.length ? (
         <EmptyPanel
-          className="rounded-3xl border border-dashed border-border"
+          className="rounded-3xl bg-surface-secondary"
           icon={<MagnifyingGlass size={22} />}
           title={t('noAccountsMatch')}
           action={<Button size="sm" variant="ghost" onPress={() => { setQuery(''); setFilter('all') }}>{t('clearFilters')}</Button>}

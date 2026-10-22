@@ -79,7 +79,7 @@ function AccountTypeSkeleton({ ariaLabel }: { ariaLabel: string }) {
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2" aria-busy="true" aria-label={ariaLabel}>
       {Array.from({ length: 6 }, (_, index) => (
-        <div key={index} className="flex items-center gap-2.5 rounded-xl border border-separator px-3 py-2.5">
+        <div key={index} className="flex items-center gap-2.5 rounded-xl bg-surface-secondary px-3 py-2.5">
           <Skeleton className="size-7 shrink-0 rounded-lg" />
           <Skeleton className="h-4 w-20 rounded-lg" />
         </div>
@@ -534,7 +534,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
           <Modal.Dialog>
             <Modal.Header className="relative items-center justify-center px-12 pt-5 text-center">
               <div className="min-w-0">
-                <Modal.Heading className="text-lg font-semibold tracking-[-0.01em]">{t('addAccountTitle')}</Modal.Heading>
+                <Modal.Heading className="text-section font-semibold">{t('addAccountTitle')}</Modal.Heading>
                 <p ref={stepDesc} className="mt-1 text-xs font-normal leading-5 text-muted">
                   {step === 'method' ? t('addAccountDesc') : (hint || t('addAccountDesc'))}
                 </p>
@@ -549,7 +549,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                     {typesLoading ? (
                       <AccountTypeSkeleton ariaLabel={t('accountType')} />
                     ) : !typesReady ? (
-                      <p className="rounded-lg border border-separator bg-surface-secondary/45 px-3.5 py-3 text-xs leading-5 text-muted">{t('accountTypeHint')}</p>
+                      <p className="rounded-lg bg-surface-secondary/45 px-3.5 py-3 text-xs leading-5 text-muted">{t('accountTypeHint')}</p>
                     ) : (
                       <OptionTiles
                         ariaLabel={t('accountType')}
@@ -563,11 +563,11 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                 </>
               ) : (
                 <>
-                  <div className="flex items-center gap-3 rounded-lg border border-separator bg-surface-secondary/45 px-3 py-2.5">
+                  <div className="flex items-center gap-3 rounded-lg bg-surface-secondary/45 px-3 py-2.5">
                     <span className="shrink-0"><ProviderMark provider={activeOption?.provider} size={18} /></span>
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-medium text-foreground">{activeOption ? optionLabel(activeOption, t) : t('accountType')}</div>
-                      <div className="truncate text-[11px] text-muted">{hint}</div>
+                      <div className="truncate text-body font-medium text-foreground">{activeOption ? optionLabel(activeOption, t) : t('accountType')}</div>
+                      <div className="truncate text-caption text-muted">{hint}</div>
                     </div>
                     <Button size="sm" variant="ghost" onPress={() => setStep('method')} isDisabled={busy || Boolean(createdId.current)}>
                       <CaretLeft size={12} />{t('wizardBack')}
@@ -594,7 +594,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                       {t('wizardAdvanced')}
                     </button>
                     {advancedOpen ? (
-                      <div className="space-y-3 rounded-lg border border-separator px-3.5 py-3.5">
+                      <div className="space-y-3 rounded-lg bg-surface-secondary px-3.5 py-3.5">
                         <FormRow label={t('maxInflight')} hint={t('maxInflightHint')}>
                           <NumberField
                             value={maxInFlight}
@@ -639,7 +639,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                         {showDropSystem ? (
                           <div className="flex items-center justify-between gap-3">
                             <div className="min-w-0">
-                              <div className="text-sm font-medium text-muted">{t('dropSystemPrompt')}</div>
+                              <div className="text-body font-medium text-muted">{t('dropSystemPrompt')}</div>
                               <p className="mt-0.5 text-xs leading-5 text-muted">{t('dropSystemPromptCreateHint')}</p>
                             </div>
                             <CompactSwitch
@@ -657,7 +657,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                   {isZhipu ? (
                     <div className="mt-4 flex flex-col gap-4">
                       <div className="space-y-2">
-                        <span className="text-sm font-medium text-muted">{t('zhipuAccountMode')}</span>
+                        <span className="text-body font-medium text-muted">{t('zhipuAccountMode')}</span>
                         <OptionTiles
                           ariaLabel={t('zhipuAccountMode')}
                           columns={2}
@@ -683,7 +683,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                         </>
                       ) : null}
                       {message ? (
-                        <p className="flex items-center gap-2 rounded-lg border border-separator bg-surface-secondary px-3 py-2 text-xs">{isDone ? <CheckCircle size={14} className="shrink-0 text-success" /> : null}<span className={isDone ? 'font-medium text-foreground' : 'text-muted'}>{message}</span></p>
+                        <p className="flex items-center gap-2 rounded-lg bg-surface-secondary px-3 py-2 text-xs">{isDone ? <CheckCircle size={14} className="shrink-0 text-success" /> : null}<span className={isDone ? 'font-medium text-foreground' : 'text-muted'}>{message}</span></p>
                       ) : null}
                       <Button className="w-full" isPending={phase === 'busy'} onPress={() => void runZhipu()} isDisabled={isDone}>
                         {isDone ? <><CheckCircle size={15} />{t('wizardAccountReady')}</> : <><Key size={15} />{t('zhipuCreate')}</>}
@@ -730,7 +730,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                           />
                         ) : null}
                         {authUrl ? (
-                          <div className="rounded-lg border border-separator bg-surface-secondary px-3 py-2.5">
+                          <div className="rounded-lg bg-surface-secondary px-3 py-2.5">
                             <div className="flex items-center gap-2 text-xs">
                               <StatusIcon phase={phase} busy={busy} tab={tab} forTab="browser" />
                               <span className="text-muted">{message || t('loginOpenMsg')}</span>
@@ -758,11 +758,11 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                           </div>
                         ) : null}
                         {message && !authUrl ? (
-                          <p className="flex items-center gap-2 rounded-lg border border-separator bg-surface-secondary px-3 py-2 text-xs">{isDone ? <CheckCircle size={14} className="shrink-0 text-success" /> : null}<span className={isDone ? 'font-medium text-foreground' : 'text-muted'}>{message}</span></p>
+                          <p className="flex items-center gap-2 rounded-lg bg-surface-secondary px-3 py-2 text-xs">{isDone ? <CheckCircle size={14} className="shrink-0 text-success" /> : null}<span className={isDone ? 'font-medium text-foreground' : 'text-muted'}>{message}</span></p>
                         ) : null}
                         {showCallbackPaste ? (
                           <div className="space-y-2">
-                            <p className="text-[11px] leading-4 text-muted">{t('wizardCallbackLead')}</p>
+                            <p className="text-caption leading-4 text-muted">{t('wizardCallbackLead')}</p>
                             <TextArea
                               className="h-28 w-full resize-none font-mono text-xs leading-5"
                               value={callbackUrl}
@@ -786,7 +786,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                           <Input type="password" value={pat} onChange={(event) => setPat(event.target.value)} placeholder={t('wizardPatPh')} aria-label={t('wizardPatPh')} disabled={busy} />
                         </FormRow>
                         {message ? (
-                          <p className="flex items-center gap-2 rounded-lg border border-separator bg-surface-secondary px-3 py-2 text-xs">{isDone ? <CheckCircle size={14} className="shrink-0 text-success" /> : null}<span className={isDone ? 'font-medium text-foreground' : 'text-muted'}>{message}</span></p>
+                          <p className="flex items-center gap-2 rounded-lg bg-surface-secondary px-3 py-2 text-xs">{isDone ? <CheckCircle size={14} className="shrink-0 text-success" /> : null}<span className={isDone ? 'font-medium text-foreground' : 'text-muted'}>{message}</span></p>
                         ) : null}
                         <Button className="w-full" isPending={tabPending('pat')} onPress={() => void runPat()}>
                           {isDone ? <><CheckCircle size={15} />{t('patDone')}</> : <><Key size={15} />{t('wizardCreateAndLogin')}</>}
@@ -801,7 +801,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                         </div>
                         <TextArea className="min-h-32 font-mono text-xs" value={json} onChange={(event) => setJson(event.target.value)} placeholder={t('wizardImportPh')} aria-label={t('tabImport')} disabled={busy} />
                         {message ? (
-                          <p className="flex items-center gap-2 rounded-lg border border-separator bg-surface-secondary px-3 py-2 text-xs">{isDone ? <CheckCircle size={14} className="shrink-0 text-success" /> : null}<span className={isDone ? 'font-medium text-foreground' : 'text-muted'}>{message}</span></p>
+                          <p className="flex items-center gap-2 rounded-lg bg-surface-secondary px-3 py-2 text-xs">{isDone ? <CheckCircle size={14} className="shrink-0 text-success" /> : null}<span className={isDone ? 'font-medium text-foreground' : 'text-muted'}>{message}</span></p>
                         ) : null}
                         <Button className="w-full" isPending={tabPending('import')} onPress={() => void runImport()}>
                           {isDone ? <><CheckCircle size={15} />{t('accountImported')}</> : <><FileCode size={15} />{t('importCredential')}</>}

@@ -50,7 +50,7 @@ export function RuntimeMeter({ state, stateCopy, t }: Props) {
 
   return (
     <div ref={rootRef} className="flex items-center gap-2">
-      <div className="flex items-center gap-1.5 text-[11px] font-medium text-foreground/75">
+      <div className="flex items-center gap-1.5 text-caption font-medium text-foreground/75">
         <span className="status-dot" data-state={tone === 'muted' ? undefined : tone === 'warn' ? 'warn' : tone} />
         <span>{t('runtimeState')}</span>
       </div>
@@ -73,7 +73,7 @@ export function RuntimeMeter({ state, stateCopy, t }: Props) {
           />
         ))}
       </div>
-      <span className="mono shrink-0 text-[10px] text-foreground/65">{stateCopy}</span>
+      <span className="mono shrink-0 text-caption text-foreground/65">{stateCopy}</span>
     </div>
   )
 }

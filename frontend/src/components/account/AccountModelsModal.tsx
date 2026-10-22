@@ -81,10 +81,10 @@ export function AccountModelsModal({ account, t, onClose }: Props) {
           <Modal.Dialog>
             <Modal.Header className="items-start justify-between gap-4 px-5 pt-5">
               <div className="min-w-0">
-                <Modal.Heading className="text-lg font-semibold tracking-[-0.01em]">{title}</Modal.Heading>
+                <Modal.Heading className="text-section font-semibold">{title}</Modal.Heading>
                 <p className="mt-1 text-xs font-normal leading-5 text-muted">{t('accountModelsHint')}</p>
                 {account ? (
-                  <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-muted">
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-caption text-muted">
                     <ProviderMark provider={account.provider} size={14} />
                     <span>{provider}</span>
                     <span className="text-border">·</span>
@@ -110,7 +110,7 @@ export function AccountModelsModal({ account, t, onClose }: Props) {
                   <SkeletonBlock className="h-14 w-full" />
                 </div>
               ) : models.length ? (
-                <ul className="divide-y divide-separator overflow-hidden rounded-lg border border-separator">
+                <ul className="divide-y divide-separator overflow-hidden rounded-lg bg-surface-secondary">
                   {models.map((model) => {
                     const ownedBy = model.provider || model.owned_by || account?.provider || 'qoder'
                     const routed = routedModelName(model)
@@ -121,15 +121,15 @@ export function AccountModelsModal({ account, t, onClose }: Props) {
                         <span className="status-dot mt-1.5" data-state={model.stale ? undefined : 'ok'} />
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-2">
-                            <span className="truncate text-sm font-medium">{model.display_name || model.id}</span>
+                            <span className="truncate text-body font-medium">{model.display_name || model.id}</span>
                             {free ? <Chip size="sm" variant="soft" color="success">{t('modelFree')}</Chip> : null}
-                            {credits ? <span className="mono text-[11px] text-muted">{credits}</span> : null}
+                            {credits ? <span className="mono text-caption text-muted">{credits}</span> : null}
                             {model.stale ? <Chip size="sm" variant="soft" color="warning">{t('fallback')}</Chip> : null}
                           </div>
-                          <div className="mono mt-0.5 truncate text-[11px] text-muted">{model.id}</div>
-                          {routed ? <div className="mt-0.5 text-[11px] text-muted">{t('routedTo', { model: routed })}</div> : null}
+                          <div className="mono mt-0.5 truncate text-caption text-muted">{model.id}</div>
+                          {routed ? <div className="mt-0.5 text-caption text-muted">{t('routedTo', { model: routed })}</div> : null}
                         </div>
-                        <div className="flex shrink-0 items-center gap-1.5 pt-0.5 text-[11px] text-muted">
+                        <div className="flex shrink-0 items-center gap-1.5 pt-0.5 text-caption text-muted">
                           <ProviderMark provider={ownedBy} size={12} />
                           <span>{ownedBy}</span>
                         </div>
@@ -139,7 +139,7 @@ export function AccountModelsModal({ account, t, onClose }: Props) {
                 </ul>
               ) : (
                 <EmptyPanel
-                  className="min-h-48 rounded-3xl border border-dashed border-border"
+                  className="min-h-48 rounded-3xl bg-surface-secondary"
                   icon={<Cube size={22} />}
                   title={t('accountModelsEmpty')}
                   hint={t('noModelsYet')}

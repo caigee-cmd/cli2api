@@ -24,6 +24,24 @@
 @theme {
   --font-sans: "Geist Variable", "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "Geist Mono Variable", "SFMono-Regular", Consolas, monospace;
+
+  /* Type scale. One sans family for all UI; mono only via .mono for IDs,
+     keys, versions and numbers. Weights: 600 titles, 500 labels, 400 body. */
+  --text-metric: 1.875rem;
+  --text-metric--line-height: 2.25rem;
+  --text-metric--font-weight: 500;
+  --text-title: 1.125rem;
+  --text-title--line-height: 1.75rem;
+  --text-title--font-weight: 600;
+  --text-section: 0.9375rem;
+  --text-section--line-height: 1.375rem;
+  --text-section--font-weight: 600;
+  --text-body: 0.8125rem;
+  --text-body--line-height: 1.25rem;
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1rem;
+  --text-caption: 0.6875rem;
+  --text-caption--line-height: 1rem;
 }
 
 /* ==========================================================================
@@ -41,12 +59,12 @@
   --radius: 0.625rem;
   --field-radius: 0.5rem;
 
-  --background: oklch(1 0 0);
+  --background: oklch(0.985 0 0);
   --foreground: oklch(0.145 0 0);
   --surface: oklch(1 0 0);
   --surface-foreground: var(--foreground);
-  --surface-secondary: oklch(0.985 0 0);
-  --surface-tertiary: oklch(0.97 0 0);
+  --surface-secondary: oklch(0.975 0 0);
+  --surface-tertiary: oklch(0.96 0 0);
   --overlay: oklch(1 0 0);
   --overlay-foreground: var(--foreground);
   --muted: oklch(0.556 0 0);
@@ -291,7 +309,6 @@ body {
 }
 
 .release-notes-panel {
-  border: 1px solid var(--border);
   border-radius: var(--radius-xl);
   background: var(--surface-secondary);
   padding: 0.75rem 1rem 0.85rem;
@@ -313,7 +330,7 @@ body {
 
 .release-notes {
   color: var(--foreground);
-  font-size: 0.75rem;
+  font-size: var(--text-xs);
   line-height: 1.55;
   overflow-wrap: anywhere;
 }
@@ -322,7 +339,7 @@ body {
 .release-notes h4 {
   margin: 0 0 0.45rem;
   color: var(--muted);
-  font-size: 0.6875rem;
+  font-size: var(--text-caption);
   font-weight: 600;
   letter-spacing: 0.01em;
 }
@@ -361,7 +378,7 @@ body {
 
 .release-notes code {
   font-family: var(--font-mono);
-  font-size: 0.6875rem;
+  font-size: var(--text-caption);
   padding: 0.05rem 0.28rem;
   border-radius: var(--radius-sm);
   background: var(--surface);
@@ -381,7 +398,7 @@ body {
 .release-notes__empty {
   margin: 0;
   color: var(--muted);
-  font-size: 0.75rem;
+  font-size: var(--text-xs);
   line-height: 1.5;
 }
 
@@ -401,11 +418,17 @@ body {
    Tailwind utilities (rounded-full, shadow-none …) still win.
    ========================================================================== */
 @layer components {
-  /* Cards: 14 px corners, a hairline ring and an xs shadow, no border. */
+  /* Cards: 14 px corners, no border/ring; separated from the page by
+     surface tone + an xs shadow. */
   .card {
     border-radius: calc(var(--radius) + 4px);
     border: 0;
-    box-shadow: 0 0 0 1px var(--hairline), var(--surface-shadow);
+    box-shadow: var(--surface-shadow);
+  }
+  /* Never border-on-border: a card nested in a card is a flat tone block. */
+  .card .card {
+    box-shadow: none;
+    background: var(--surface-secondary);
   }
 
   /* Controls: 8 px corners, compact heights (h-8 / h-7). */
@@ -417,7 +440,7 @@ body {
   .toggle-button--sm {
     height: 1.75rem;
     padding-inline: 0.625rem;
-    font-size: 0.8125rem;
+    font-size: var(--text-body);
   }
   .button--icon-only.button--sm {
     width: 1.75rem;
@@ -426,9 +449,11 @@ body {
   .button--md {
     height: 2rem;
   }
-  .button--outline,
-  .button--secondary {
+  .button--outline {
     box-shadow: 0 0 0 1px var(--border), var(--field-shadow);
+  }
+  .button--secondary {
+    box-shadow: var(--surface-shadow);
   }
   .button--secondary {
     background: var(--surface);
@@ -483,7 +508,7 @@ body {
   .tabs__tab {
     height: 1.75rem;
     border-radius: calc(var(--radius) - 3px);
-    font-size: 0.8125rem;
+    font-size: var(--text-body);
   }
   .tabs__tab[data-selected="true"] {
     color: var(--foreground);
@@ -498,7 +523,7 @@ body {
   .chip {
     border-radius: 999px;
     padding-inline: 0.5rem;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     line-height: 1.25rem;
   }
 
@@ -536,7 +561,7 @@ body {
   height: 1.25rem;
   padding: 0 0.5rem;
   border-radius: 999px;
-  font-size: 0.75rem;
+  font-size: var(--text-xs);
   font-weight: 500;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -559,7 +584,6 @@ body {
   width: 1.75rem;
   height: 1.75rem;
   border-radius: calc(var(--radius) - 2px);
-  border: 1px solid var(--border);
   background: var(--surface-tertiary);
   color: var(--muted);
 }
@@ -595,7 +619,7 @@ body {
   }
   .table__body tr td {
     border-radius: 0 !important;
-    border-bottom: 1px solid var(--separator);
+    border-bottom: 1px solid color-mix(in oklab, var(--separator) 70%, transparent);
     background: var(--surface);
   }
   .table__body tr:last-child td {
@@ -608,6 +632,21 @@ body {
 .data-toolbar {
   padding: 0.5rem;
   border-radius: calc(var(--radius) + 2px);
-  border: 1px solid var(--border);
   background: var(--surface-secondary);
+}
+
+/* Unified typography defaults. */
+body {
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  font-weight: 400;
+}
+h1, h2, h3 {
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+.table__column,
+.label,
+.field-label {
+  font-weight: 500;
 }

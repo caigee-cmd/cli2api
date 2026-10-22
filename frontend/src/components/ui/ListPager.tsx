@@ -67,7 +67,7 @@ export function ListPager({
         </ToggleButtonGroup>
       </div>
       <Pagination size="sm" className="w-fit">
-        <Pagination.Summary className="mono text-[11px]">{pageLabel}</Pagination.Summary>
+        <Pagination.Summary className="mono text-caption">{pageLabel}</Pagination.Summary>
         <Pagination.Content>
           <Pagination.Item>
             <Pagination.Previous

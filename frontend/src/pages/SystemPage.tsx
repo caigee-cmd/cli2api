@@ -292,10 +292,10 @@ export function SystemPage() {
 
   return (
     <div className="space-y-6">
-      <section className="flex flex-wrap items-end justify-between gap-4 border-b border-separator pb-4">
+      <section className="flex flex-wrap items-end justify-between gap-4 pb-4">
         <div>
-          <h2 data-gsap-reveal className="text-xl font-semibold tracking-[-0.02em]">{t('systemSettingsTitle')}</h2>
-          <p className="mt-1 max-w-2xl text-sm leading-6 text-muted">{t('systemSettingsLead')}</p>
+          <h2 data-gsap-reveal className="text-title font-semibold">{t('systemSettingsTitle')}</h2>
+          <p className="mt-1 max-w-2xl text-body leading-6 text-muted">{t('systemSettingsLead')}</p>
         </div>
         <Button size="sm" variant="secondary" isPending={checking} onPress={() => void load(true)}>
           <ArrowClockwise size={15} />{t('checkUpdates')}
@@ -308,7 +308,7 @@ export function SystemPage() {
         <Card data-gsap-reveal className="overflow-hidden p-0">
           <div className="flex items-center justify-between gap-3 border-b border-separator px-5 py-4">
             <div>
-              <h3 className="font-semibold tracking-[-0.015em]">{t('versionUpdate')}</h3>
+              <h3 className="font-semibold">{t('versionUpdate')}</h3>
               <p className="mt-0.5 text-xs text-muted">{t('latestVersionHint')}</p>
             </div>
             <Chip size="sm" variant="soft" color={info?.has_update ? 'warning' : 'success'}>
@@ -317,17 +317,17 @@ export function SystemPage() {
           </div>
 
           <div className="px-5 py-5">
-            <div className="grid overflow-hidden rounded-lg border border-separator sm:grid-cols-[1fr_auto_1fr]">
+            <div className="grid overflow-hidden rounded-lg bg-surface-secondary sm:grid-cols-[1fr_auto_1fr]">
               <div className="p-4">
                 <div className="text-xs font-medium text-muted">{t('currentVersion')}</div>
-                <div className="mono mt-2 text-lg font-semibold">{info?.current_version || '—'}</div>
+                <div className="mono mt-2 text-section font-semibold">{info?.current_version || '—'}</div>
               </div>
               <div className="hidden items-center border-x border-separator px-4 text-muted sm:flex">
                 <ArrowCircleUp size={18} />
               </div>
               <div className="border-t border-separator p-4 sm:border-t-0">
                 <div className="text-xs font-medium text-muted">{t('latestVersion')}</div>
-                <div className="mono mt-2 text-lg font-semibold">{info?.next_version || '—'}</div>
+                <div className="mono mt-2 text-section font-semibold">{info?.next_version || '—'}</div>
               </div>
             </div>
 
@@ -381,7 +381,7 @@ export function SystemPage() {
                 onChange={(selected) => void updateCrossProviderModelPool(selected)}
               />
             </div>
-            <div className="mt-4 flex items-center justify-between border-t border-separator pt-3 text-xs text-muted">
+            <div className="mt-4 flex items-center justify-between pt-3 text-xs text-muted">
               <span>{t('crossProviderModelPoolStatus')}</span>
               <span className="font-medium text-foreground">{settings?.cross_provider_model_pool ? t('enabled') : t('disabled')}</span>
             </div>
@@ -396,7 +396,7 @@ export function SystemPage() {
               </div>
             </div>
             <div className="mt-4 space-y-1.5">
-              <Label className="text-sm font-medium text-muted">{t('proxyUrl')}</Label>
+              <Label className="text-body font-medium text-muted">{t('proxyUrl')}</Label>
               <Input
                 value={proxyDraft}
                 onChange={(event) => setProxyDraft(event.target.value)}
@@ -426,7 +426,7 @@ export function SystemPage() {
                 onChange={(selected) => void updateCheckinDisabledAccounts(selected)}
               />
             </div>
-            <div className="mt-4 flex items-center justify-between border-t border-separator pt-3 text-xs text-muted">
+            <div className="mt-4 flex items-center justify-between pt-3 text-xs text-muted">
               <span>{t('checkinDisabledAccountsStatus')}</span>
               <span className="font-medium text-foreground">{settings?.checkin_disabled_accounts ? t('enabled') : t('disabled')}</span>
             </div>
@@ -440,7 +440,7 @@ export function SystemPage() {
                 <p className="mt-1 text-xs leading-5 text-muted">{t('routingStrategyHint')}</p>
               </div>
             </div>
-            <div className="mt-4 border-t border-separator pt-4">
+            <div className="mt-4 pt-4">
               <FormRow label={t('routingStrategy')}>
                 <Select
                   fullWidth
@@ -465,11 +465,11 @@ export function SystemPage() {
                 </Select>
               </FormRow>
             </div>
-            <div className="mt-4 grid grid-cols-2 gap-2 border-t border-separator pt-3 text-xs text-muted sm:grid-cols-4">
-              <div><span className="mono block text-sm font-medium text-foreground">{settings?.session_affinity?.ttl_seconds ? `${Math.round(settings.session_affinity.ttl_seconds / 60)}m` : '—'}</span>{t('sessionAffinityTTL')}</div>
-              <div><span className="mono block text-sm font-medium text-foreground">{settings?.session_affinity?.hits ?? 0}</span>{t('sessionAffinityHits')}</div>
-              <div><span className="mono block text-sm font-medium text-foreground">{settings?.session_affinity?.misses ?? 0}</span>{t('sessionAffinityMisses')}</div>
-              <div><span className="mono block text-sm font-medium text-foreground">{settings?.session_affinity?.escapes ?? 0}</span>{t('sessionAffinityEscapes')}</div>
+            <div className="mt-4 grid grid-cols-2 gap-2 pt-3 text-xs text-muted sm:grid-cols-4">
+              <div><span className="mono block text-body font-medium text-foreground">{settings?.session_affinity?.ttl_seconds ? `${Math.round(settings.session_affinity.ttl_seconds / 60)}m` : '—'}</span>{t('sessionAffinityTTL')}</div>
+              <div><span className="mono block text-body font-medium text-foreground">{settings?.session_affinity?.hits ?? 0}</span>{t('sessionAffinityHits')}</div>
+              <div><span className="mono block text-body font-medium text-foreground">{settings?.session_affinity?.misses ?? 0}</span>{t('sessionAffinityMisses')}</div>
+              <div><span className="mono block text-body font-medium text-foreground">{settings?.session_affinity?.escapes ?? 0}</span>{t('sessionAffinityEscapes')}</div>
             </div>
             {settings?.session_affinity?.last_escape_reason ? <Description className="mt-3 text-xs">{t('lastSessionEscape')}: {settings.session_affinity.last_escape_reason}</Description> : null}
             {settings?.session_affinity?.last_miss_reason ? <Description className="mt-1 text-xs">{t('lastSessionMiss')}: {settings.session_affinity.last_miss_reason}</Description> : null}
@@ -538,7 +538,7 @@ export function SystemPage() {
             <Modal.Dialog>
               <Modal.Header className="items-start justify-between gap-4">
                 <div>
-                  <Modal.Heading className="text-base font-semibold">{t('consoleKeyRotate')}</Modal.Heading>
+                  <Modal.Heading className="text-section font-semibold">{t('consoleKeyRotate')}</Modal.Heading>
                   <p className="mt-1 text-xs leading-5 text-muted">{t('consoleKeyRotateHint')}</p>
                 </div>
                 <Modal.CloseTrigger isDisabled={consoleBusy} aria-label={t('close')} className="grid size-8 place-items-center rounded-lg text-muted hover:bg-surface-secondary"><X size={16} /></Modal.CloseTrigger>
@@ -568,13 +568,13 @@ export function SystemPage() {
             <Modal.Dialog>
               <Modal.Header className="items-start justify-between gap-4 px-6 pt-6">
                 <div>
-                  <Modal.Heading className="text-lg font-semibold">{t('consoleKeySecretTitle')}</Modal.Heading>
-                  <p className="mt-1.5 text-sm leading-6 text-muted">{t('consoleKeySecretHint')}</p>
+                  <Modal.Heading className="text-section font-semibold">{t('consoleKeySecretTitle')}</Modal.Heading>
+                  <p className="mt-1.5 text-body leading-6 text-muted">{t('consoleKeySecretHint')}</p>
                 </div>
                 <Modal.CloseTrigger aria-label={t('close')} className="grid size-9 place-items-center rounded-lg text-muted hover:bg-surface-secondary"><X size={18} /></Modal.CloseTrigger>
               </Modal.Header>
               <Modal.Body className="px-6 pb-2">
-                <code className="mono block break-all rounded-lg border border-separator bg-surface-secondary px-3 py-3 text-sm">{rotatedSecret}</code>
+                <code className="mono block break-all rounded-lg bg-surface-secondary px-3 py-3 text-body">{rotatedSecret}</code>
               </Modal.Body>
               <Modal.Footer className="justify-end">
                 <Button variant="ghost" onPress={() => setRotatedSecret('')}>{t('close')}</Button>
