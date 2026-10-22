@@ -3,6 +3,52 @@
 Published user-facing notes for GitHub Releases and the console update page.
 Write upcoming notes as bilingual files in `changelog/unreleased/`.
 
+## 0.7.1 - 2026-10-22
+
+### English
+
+- **New** · Qoder: optional per-account traffic guard, off by default (`QODER_TRAFFIC_GUARD=on`; `QODER_TRAFFIC_GUARD_CONCURRENCY`, `QODER_TRAFFIC_GUARD_INTERVAL_MS`).
+- **New** · WorkBuddy: `X-Private-Data` is configurable via `WORKBUDDY_PRIVATE_DATA=auto|true|false` (default `auto`).
+- **New** · Qoder requests resolve the model name / display name to the account's catalog key; unknown models return `model_not_found`.
+- **Fix** · `/v1/messages` accepts in-band `role: "system"` messages; Claude Code 2.1.293+ no longer gets 400. (#328)
+- **Fix** · Codex Responses-Lite models (e.g. GPT-5.6) send `reasoning.context: "all_turns"`, fixing upstream 400. (#341)
+- **Fix** · WorkBuddy keeps `max` reasoning effort when the catalog advertises it, instead of downgrading to `xhigh`. (#343)
+- **Fix** · Qoder streams: unique completion `id` per request, finish on `[DONE]`, release the upstream on early close, and fail over heartbeat-only upstreams (`upstream_empty`). (#339, #342, #345)
+- **Fix** · Qoder tool calls: non-streaming keeps the full call; an empty `tool_calls` array is ignored. (#338)
+- **Fix** · Qoder keeps earlier assistant `reasoning_content`; model key mappings refresh with each catalog refresh. (#340, #346)
+- **Fix** · Legacy Qoder accounts (pre-v0.7.0 CLI login, no PAT) fall back to the worker again; no more "account not found". (#337)
+- **Fix** · Qoder check-in shows why nothing was claimable; token renewal no longer clears held tokens. (#327)
+- **Fix** · A Qoder worker that crashes right after an automatic restart is now restarted again instead of staying dead.
+- **Console** · Cleaner look: fewer nested borders, one type scale with the system UI font, larger sidebar text; API key prefix on its own line. (#347, #350)
+- **Console** · Settings split into tabs (General, Routing, Security & data, Updates); the sidebar version entry opens release notes and update actions. (#347)
+- **Upstream** · Qoder: one client version (1.1.32) across headers, signature and User-Agent (`QoderWork/…` CN, `Qoder/…` intl); streams add `cosy-machineos` / `cosy-machinehostname`. (#349)
+- **Upstream** · WorkBuddy client versions: CLI 2.161.0, desktop 5.8.4 / 5.8.3 (CN), IDE 2.168.2, three-part desktop User-Agent. (#349)
+- **Upstream** · WorkBuddy: chat 401 refreshes the token once and retries; TLS verification errors are no longer retried or failed over. (#348)
+- **Upstream** · Qoder: 10605 queue errors return 429 + `Retry-After` without cooling the account; HTTP 430 shows "client version too low". (#348)
+- **Upstream** · Devin: daily vs. weekly quota told apart; cooldown follows the window reset and lifts early once usage recovers. (#348)
+
+### 中文
+
+- **新功能** · Qoder：新增可选的单账号流量守卫，默认关闭（`QODER_TRAFFIC_GUARD=on`；可调 `QODER_TRAFFIC_GUARD_CONCURRENCY`、`QODER_TRAFFIC_GUARD_INTERVAL_MS`）。
+- **新功能** · WorkBuddy：`X-Private-Data` 可通过 `WORKBUDDY_PRIVATE_DATA=auto|true|false` 配置（默认 `auto`）。
+- **新功能** · Qoder 按模型目录把模型名/显示名解析为账号网关 key，未知模型返回 `model_not_found`。
+- **修复** · `/v1/messages` 支持 `messages` 内的 `role: "system"`，Claude Code 2.1.293+ 不再报 400。（#328）
+- **修复** · Codex Responses-Lite 模型（如 GPT-5.6）发送 `reasoning.context: "all_turns"`，修复上游 400。（#341）
+- **修复** · WorkBuddy 在目录支持 `max` 时不再把推理档位降级为 `xhigh`。（#343）
+- **修复** · Qoder 流式：每请求唯一 completion `id`、收到 `[DONE]` 即结束、提前关闭时释放上游、仅心跳的上游以 `upstream_empty` 切换。（#339、#342、#345）
+- **修复** · Qoder 工具调用：非流式保留完整调用；空 `tool_calls` 数组不再视为工具调用。（#338）
+- **修复** · Qoder 保留历史 assistant 的 `reasoning_content`；模型 key 映射随目录刷新替换。（#340、#346）
+- **修复** · v0.7.0 前 CLI 登录、无 PAT 的老 Qoder 账号重新回退 worker，不再报 "account not found"。（#337）
+- **修复** · Qoder 签到无可领活动时显示原因；token 续期缺字段时保留原值。（#327）
+- **修复** · Qoder worker 在自动重启后立即再次崩溃时会继续重启，不再一直处于 dead 状态。
+- **界面** · 控制台更简洁：去掉嵌套线框、统一字号与系统字体、侧边栏加大；API 密钥前缀单独一行。（#347、#350）
+- **界面** · 系统设置分为常规 / 路由调度 / 安全与数据 / 版本更新标签页；侧边栏版本入口可查看更新日志并下载/更新。（#347）
+- **上游对齐** · Qoder：请求头、签名、User-Agent 统一客户端版本 1.1.32（国内 `QoderWork/…`、国际 `Qoder/…`）；流式补 `cosy-machineos` / `cosy-machinehostname`。（#349）
+- **上游对齐** · WorkBuddy 客户端版本：CLI 2.161.0、桌面 5.8.4 / 5.8.3（国内）、IDE 2.168.2，桌面 UA 改为三段式。（#349）
+- **上游对齐** · WorkBuddy：对话 401 先刷新 token 再重试同账号；TLS 证书错误不再重试或换号。（#348）
+- **上游对齐** · Qoder：10605 排队返回 429 + `Retry-After`，不冷却账号；HTTP 430 提示“客户端版本过低”。（#348）
+- **上游对齐** · Devin：区分日/周额度，按窗口重置时间冷却，额度恢复后提前解除。（#348）
+
 ## 0.7.0 - 2026-10-19
 
 ### English
