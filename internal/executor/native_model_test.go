@@ -89,3 +89,21 @@ func TestUpsertKeepsNativeModelsWhenCatalogUnsupplied(t *testing.T) {
 		t.Fatalf("native after Upsert = %q, want gateway-key", got)
 	}
 }
+
+// A successful refresh replaces the mapping: Qoder reuses gateway keys, so a
+// public name that left the catalog must not keep routing to its old key.
+func TestMergeNativeModelsReplacesStaleEntries(t *testing.T) {
+	pool := NewPool(nil, nil)
+	pool.Upsert(Item{ID: "acc", Provider: "qoder", Region: "global"})
+	pool.MergeNativeModels("acc", map[string]string{"qwen3.8-preview": "qmodel_preview", "qwen3.8-flash": "qfmodel"})
+	pool.MergeNativeModels("acc", map[string]string{"qwen3.8-max": "qmodel_38max", "qwen3.8-flash": "qfmodel"})
+	item, _ := pool.ByID("acc")
+	if _, ok := item.NativeModels["qwen3.8-preview"]; ok || len(item.NativeModels) != 2 || item.NativeModels["qwen3.8-max"] != "qmodel_38max" {
+		t.Fatalf("mapping = %v", item.NativeModels)
+	}
+	pool.MergeNativeModels("acc", nil)
+	item, _ = pool.ByID("acc")
+	if len(item.NativeModels) != 0 {
+		t.Fatalf("empty refresh kept mapping %v", item.NativeModels)
+	}
+}

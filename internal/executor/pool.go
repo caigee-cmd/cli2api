@@ -1232,9 +1232,12 @@ func (p *Pool) MergeModels(id string, models []string) {
 	p.MergeModelsWithPricing(id, models, nil)
 }
 
-// MergeNativeModels records the provider-native key for each public model.
-// Only accounts whose catalog actually reports a distinct mapped key need it;
-// a nil map means "every model keeps its public spelling".
+// MergeNativeModels replaces the account's provider-native key map with the
+// mapping from a successful catalog refresh. Qoder reuses gateway keys across
+// releases (qmodel_preview -> qmodel_38max), so entries absent from the fresh
+// catalog are dropped rather than kept. A nil/empty map clears the mapping
+// ("every model keeps its public spelling"). Callers must only pass the
+// result of a successful refresh.
 func (p *Pool) MergeNativeModels(id string, nativeModels map[string]string) {
 	if p == nil || id == "" {
 		return
@@ -1249,18 +1252,13 @@ func (p *Pool) MergeNativeModels(id string, nativeModels map[string]string) {
 		copied[key] = value
 	}
 	if len(copied) == 0 {
-		return
+		copied = nil
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	for i := range p.items {
 		if p.items[i].ID == id {
-			if p.items[i].NativeModels == nil {
-				p.items[i].NativeModels = make(map[string]string, len(copied))
-			}
-			for key, value := range copied {
-				p.items[i].NativeModels[key] = value
-			}
+			p.items[i].NativeModels = copied
 			return
 		}
 	}
