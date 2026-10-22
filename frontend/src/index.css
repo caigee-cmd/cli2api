@@ -80,6 +80,15 @@
   --surface-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
   --overlay-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.08), 0 2px 4px -2px rgb(0 0 0 / 0.06);
   --field-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.04);
+
+  /* Solid surface (after deeplethe/solid-glass, MIT): a line of light on
+     top, a near-invisible edge, a close contact shadow and a soft lift. */
+  --surface-rim: oklch(1 0 0 / 85%);
+  --surface-edge: oklch(0.145 0 0 / 4%);
+  --surface-contact: 0 1px 1px 0 rgb(0 0 0 / 0.035);
+  --surface-lift: 0 6px 16px -8px rgb(0 0 0 / 0.08);
+  --tile-rim: oklch(1 0 0 / 70%);
+  --tile-under: oklch(0.145 0 0 / 5%);
 }
 
 .dark,
@@ -117,6 +126,13 @@
   --surface-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.3);
   --overlay-shadow: 0 8px 24px -6px rgb(0 0 0 / 0.5);
   --field-shadow: none;
+
+  --surface-rim: oklch(1 0 0 / 6%);
+  --surface-edge: oklch(1 0 0 / 3%);
+  --surface-contact: 0 1px 1px 0 rgb(0 0 0 / 0.35);
+  --surface-lift: 0 10px 24px -10px rgb(0 0 0 / 0.55);
+  --tile-rim: oklch(1 0 0 / 7%);
+  --tile-under: oklch(0 0 0 / 25%);
 }
 
 html,
@@ -197,6 +213,29 @@ body {
 
 .status-dot[data-state="ok"] {
   background: var(--success);
+  animation: status-dot-pulse 2.4s ease-out infinite;
+}
+
+/* A soft ring that breathes out of live (ok) dots. */
+@keyframes status-dot-pulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in oklch, var(--success) 40%, transparent);
+  }
+  70%,
+  100% {
+    box-shadow: 0 0 0 5px transparent;
+  }
+}
+
+.status-dot[data-state="danger"],
+.status-dot[data-state="warn"] {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status-dot[data-state="ok"] {
+    animation: none;
+  }
 }
 
 .status-dot[data-state="warn"] {
@@ -410,7 +449,11 @@ body {
   .card {
     border-radius: calc(var(--radius) + 4px);
     border: 0;
-    box-shadow: var(--surface-shadow);
+    box-shadow:
+      inset 0 1px 0 var(--surface-rim),
+      inset 0 0 0 1px var(--surface-edge),
+      var(--surface-contact),
+      var(--surface-lift);
   }
   /* Never border-on-border: a card nested in a card is a flat tone block. */
   .card .card {
@@ -572,6 +615,9 @@ body {
   border-radius: calc(var(--radius) - 2px);
   background: var(--surface-tertiary);
   color: var(--muted);
+  box-shadow:
+    inset 0 1px 0 var(--tile-rim),
+    inset 0 -1px 0 var(--tile-under);
 }
 
 /* Header toolbar: a flat hairline group instead of a floating pill. */

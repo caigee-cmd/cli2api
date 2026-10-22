@@ -9,6 +9,9 @@ import {
   Coins,
   Cpu,
   Cube,
+  Database,
+  Lightning,
+  Prohibit,
   Pulse,
   Timer,
   TrendDown,
@@ -70,6 +73,48 @@ function errorLabel(kind: string, t: (key: string) => string) {
   return keys[kind] ? t(keys[kind]) : kind
 }
 
+const STATUS_ORDER = ['ok', 'incomplete', 'error', 'canceled'] as const
+const STATUS_TONE: Record<(typeof STATUS_ORDER)[number], string> = {
+  ok: 'bg-success',
+  incomplete: 'bg-warning',
+  error: 'bg-danger',
+  canceled: 'bg-muted',
+}
+const STATUS_LABEL: Record<(typeof STATUS_ORDER)[number], string> = {
+  ok: 'logsFilterOk',
+  incomplete: 'logsFilterIncomplete',
+  error: 'logsFilterError',
+  canceled: 'logsFilterCanceled',
+}
+
+function ratio(part: number, whole: number) {
+  return whole > 0 ? part / whole : null
+}
+
+/** Remaining time until an RFC 3339 instant, as "1h 37m" / "4m 12s" / "12s". */
+function formatRemaining(until: string | null | undefined, now: number) {
+  if (!until) return null
+  const end = Date.parse(until)
+  if (!Number.isFinite(end)) return null
+  const left = Math.max(0, Math.round((end - now) / 1000))
+  if (left <= 0) return null
+  const h = Math.floor(left / 3600)
+  const m = Math.floor((left % 3600) / 60)
+  const sec = left % 60
+  if (h) return `${h}h ${m}m`
+  if (m) return `${m}m ${String(sec).padStart(2, '0')}s`
+  return `${sec}s`
+}
+
+/** Latest future cooldown deadline of an account (runtime down_until or stored cooldown_until). */
+function coolingUntil(account: AccountRow, now: number) {
+  const candidates = [account.down_until, account.cooldown_until]
+    .filter((value): value is string => Boolean(value))
+    .filter((value) => Date.parse(value) > now)
+  if (!candidates.length) return null
+  return candidates.reduce((a, b) => (Date.parse(a) >= Date.parse(b) ? a : b))
+}
+
 function quotaTone(percentage?: number, exceeded?: boolean) {
   if (exceeded) return 'danger'
   if ((percentage ?? 0) >= 80) return 'warning'
@@ -87,6 +132,7 @@ export function OverviewPage() {
   const [accountsLoading, setAccountsLoading] = useState(true)
   const [modelCount, setModelCount] = useState(0)
   const [resources, setResources] = useState<SystemResources | null>(null)
+  const [now, setNow] = useState(() => Date.now())
 
   const proxyOk = Boolean(overview?.proxy?.ok)
   const workerOk = Boolean(overview?.worker?.ok)
@@ -95,6 +141,20 @@ export function OverviewPage() {
   const coolingAccounts = overview?.worker?.cooling_count ?? 0
   const inFlight = overview?.worker?.in_flight ?? 0
   const traffic = stats ?? EMPTY_STATS
+  const affinity = overview?.routing?.session_affinity
+  const affinityLookups = (affinity?.hits ?? 0) + (affinity?.misses ?? 0)
+  const affinityHitRate = ratio(affinity?.hits ?? 0, affinityLookups)
+  const coolingRows = accounts
+    .map((account) => ({ account, until: coolingUntil(account, now) }))
+    .filter((row): row is { account: AccountRow; until: string } => row.until != null)
+  const hasCooling = coolingRows.length > 0
+
+  // 1s clock only while something is counting down.
+  useEffect(() => {
+    if (!hasCooling) return
+    const timer = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [hasCooling])
 
   useEffect(() => {
     let cancelled = false
@@ -162,6 +222,18 @@ export function OverviewPage() {
     { label: t('metricTokens'), value: traffic.tokens.total, kind: 'compact' as const, detail: `${formatCompact(traffic.tokens.prompt)} / ${formatCompact(traffic.tokens.completion)}`, ok: true, icon: <Coins size={15} />, trend: null as number | null },
   ]
 
+  const cacheHitRate = ratio(traffic.tokens.cache_read, traffic.tokens.prompt)
+  const streamingShare = ratio(traffic.totals.streaming, traffic.totals.requests)
+  const secondaryMetrics = [
+    { label: t('metricCacheHit'), value: cacheHitRate, kind: 'percent' as const, detail: t('metricCacheHitDetail', { read: formatCompact(traffic.tokens.cache_read), prompt: formatCompact(traffic.tokens.prompt) }), icon: <Database size={15} /> },
+    { label: t('metricStreaming'), value: streamingShare, kind: 'percent' as const, detail: t('metricStreamingDetail', { count: traffic.totals.streaming, total: traffic.totals.requests }), icon: <Lightning size={15} /> },
+    { label: t('metricCanceled'), value: traffic.totals.canceled as number | null, kind: 'int' as const, detail: t('metricCanceledDetail', { rate: formatPercent(ratio(traffic.totals.canceled, traffic.totals.requests) ?? 0) }), icon: <Prohibit size={15} /> },
+  ]
+  const statusCounts = STATUS_ORDER.map((key) => ({
+    key,
+    count: traffic.status.find((item) => item.key === key)?.count ?? traffic.totals[key] ?? 0,
+  }))
+
   if (loading && !overview) return <OverviewPageSkeleton />
 
   return (
@@ -214,6 +286,23 @@ export function OverviewPage() {
               {!statsLoading && metric.trend != null ? <TrendChip value={metric.trend} hint={t('trendHalfHint')} /> : null}
             </div>
             <div className="mono mt-2 truncate text-caption text-muted">{statsLoading ? <SkeletonBlock className="h-3 w-28" /> : metric.detail}</div>
+          </Card>
+        ))}
+      </section>
+
+      <section className="grid gap-4 sm:grid-cols-3">
+        {secondaryMetrics.map((metric) => (
+          <Card key={metric.label} className="gap-0 p-4">
+            <div className="flex items-center gap-3">
+              <span className="icon-tile shrink-0">{metric.icon}</span>
+              <div className="min-w-0 flex-1">
+                <div className="text-body text-muted">{metric.label}</div>
+                <div className="mono mt-0.5 truncate text-caption text-muted">{statsLoading ? <SkeletonBlock className="h-3 w-28" /> : metric.detail}</div>
+              </div>
+              <div className="tabular shrink-0 text-section font-semibold">
+                {statsLoading ? <SkeletonBlock className="h-5 w-12" /> : metric.value == null ? '—' : <CountUp value={metric.value} kind={metric.kind} />}
+              </div>
+            </div>
           </Card>
         ))}
       </section>
@@ -276,13 +365,14 @@ export function OverviewPage() {
               <ArrowUpRight size={12} />
             </Link>
           </div>
-          <div className="grid grid-cols-3 border-b border-separator">
+          <div className="grid grid-cols-2 border-b border-separator sm:grid-cols-4">
             {[
               [t('ready'), readyAccounts, 'ok'],
               [t('hot'), hotAccounts, hotAccounts ? 'ok' : ''],
               [t('inFlight'), inFlight, inFlight ? 'ok' : ''],
-            ].map(([label, value, state]) => (
-              <div key={String(label)} className="px-4 py-3">
+              [t('statsAffinityHit'), affinityHitRate == null ? '—' : formatPercent(affinityHitRate), '', affinity ? t('statsAffinityHint', { hits: affinity.hits ?? 0, misses: affinity.misses ?? 0, bindings: affinity.bindings ?? 0 }) : ''],
+            ].map(([label, value, state, hint]) => (
+              <div key={String(label)} className="px-4 py-3" title={hint ? String(hint) : undefined}>
                 <div className="text-caption text-muted">{label}</div>
                 <div className="mt-1 flex items-center gap-2">
                   <span className="mono text-section font-semibold">{value}</span>
@@ -291,6 +381,24 @@ export function OverviewPage() {
               </div>
             ))}
           </div>
+          {!accountsLoading && coolingRows.length ? (
+            <div className="border-b border-separator px-5 py-3">
+              <div className="text-caption font-medium text-muted">{t('statsCoolingDetails')}</div>
+              <div className="mt-2 space-y-1.5">
+                {coolingRows.map(({ account, until }) => (
+                  <div key={account.id} className="flex items-center gap-2 text-caption">
+                    <span className="status-dot shrink-0" data-state="warn" />
+                    <span className="min-w-0 flex-1 truncate font-medium">{account.name || account.id}</span>
+                    <span className="mono shrink-0 text-muted">{account.last_error_kind ? errorLabel(account.last_error_kind, t) : t('statsUnknown')}</span>
+                    <span className="mono w-16 shrink-0 text-right tabular">{formatRemaining(until, now) ?? '—'}</span>
+                    <span className="mono w-12 shrink-0 text-right text-muted" title={t('statsBackoffLevel')}>
+                      {account.restart_backoff_level ? `L${account.restart_backoff_level}` : '—'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
           <div className="divide-y divide-separator">
             {accountsLoading ? (
               <RankListSkeleton />
@@ -401,33 +509,37 @@ export function OverviewPage() {
         <Card data-gsap-reveal className="overflow-hidden p-0">
           <div className="flex items-center justify-between gap-3 border-b border-separator px-5 py-4">
             <div>
-              <h3 className="font-semibold">{traffic.errors.length ? t('statsErrorMix') : t('statsTopAccounts')}</h3>
-              <p className="mt-0.5 text-caption text-muted">{traffic.errors.length ? t('statsErrorMixHint') : t('statsPoolHint')}</p>
+              <h3 className="font-semibold">{t('statsStatusMix')}</h3>
+              <p className="mt-0.5 text-caption text-muted">{t('statsStatusMixHint')}</p>
             </div>
             <Pulse size={15} className="text-muted" />
           </div>
           {statsLoading ? (
             <RankListSkeleton rows={4} />
-          ) : traffic.errors.length ? (
-            <RankList
-              empty={t('statsNoErrors')}
-              danger
-              items={traffic.errors.map((item) => ({
-                key: item.key,
-                label: errorLabel(item.key, t),
-                count: item.count,
-              }))}
-            />
           ) : (
-            <RankList
-              empty={t('statsNoAccounts')}
-              items={traffic.accounts.map((item) => ({
-                key: item.key,
-                label: accountLabel(accounts, item.key, t('statsUnassigned')),
-                count: item.count,
-                meta: `${item.ok}/${item.count}`,
-              }))}
-            />
+            <>
+              <StatusBar items={statusCounts} t={t} />
+              <div className="border-t border-separator px-5 pt-3 text-caption font-medium text-muted">{t('statsErrorMix')}</div>
+              <RankList
+                empty={t('statsNoErrors')}
+                danger
+                items={traffic.errors.map((item) => ({
+                  key: item.key,
+                  label: errorLabel(item.key, t),
+                  count: item.count,
+                }))}
+              />
+              <div className="border-t border-separator px-5 pt-3 text-caption font-medium text-muted">{t('statsTopAccounts')}</div>
+              <RankList
+                empty={t('statsNoAccounts')}
+                items={traffic.accounts.slice(0, 5).map((item) => ({
+                  key: item.key,
+                  label: accountLabel(accounts, item.key, t('statsUnassigned')),
+                  count: item.count,
+                  meta: `${item.ok}/${item.count}`,
+                }))}
+              />
+            </>
           )}
         </Card>
       </section>
@@ -575,5 +687,35 @@ function TrendChip({ value, hint }: { value: number; hint: string }) {
       <Icon size={12} weight="bold" />
       {value > 0 ? '+' : ''}{(value * 100).toFixed(1)}%
     </span>
+  )
+}
+
+function StatusBar({
+  items,
+  t,
+}: {
+  items: Array<{ key: (typeof STATUS_ORDER)[number]; count: number }>
+  t: (key: string) => string
+}) {
+  const total = items.reduce((sum, item) => sum + item.count, 0)
+  if (!total) return <div className="px-5 py-4 text-body text-muted">{t('statsEmptyTraffic')}</div>
+  return (
+    <div className="px-5 py-4">
+      <div className="flex h-2 gap-px overflow-hidden rounded-[3px] bg-separator" role="img" aria-label={items.map((item) => `${t(STATUS_LABEL[item.key])} ${item.count}`).join(', ')}>
+        {items.filter((item) => item.count > 0).map((item) => (
+          <div key={item.key} className={STATUS_TONE[item.key]} style={{ width: `${(item.count / total) * 100}%`, minWidth: 2 }} />
+        ))}
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1.5">
+        {items.map((item) => (
+          <div key={item.key} className="flex items-center gap-2 text-caption">
+            <span className={`inline-block size-2 shrink-0 rounded-[2px] ${STATUS_TONE[item.key]}`} />
+            <span className="min-w-0 flex-1 truncate text-muted">{t(STATUS_LABEL[item.key])}</span>
+            <span className="mono tabular">{item.count}</span>
+            <span className="mono w-10 text-right tabular text-muted">{formatPercent(item.count / total)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
   )
 }
