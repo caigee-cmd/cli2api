@@ -1,3 +1,4 @@
+import { useSkeletonExit } from '@/hooks/useSkeletonSwap'
 import { copyText } from '@/lib/clipboard'
 import { useEffect, useMemo, useState } from 'react'
 import { Button, Card, Chip, Description, Input, Label, ListBox, Modal, Select, Tab, Tabs } from '@heroui/react'
@@ -142,10 +143,11 @@ export function SystemPage() {
     }
   }
 
+  const skeletonExitRef = useSkeletonExit(loading && !info)
   if (loading && !info) return <SystemPageSkeleton />
 
   return (
-    <div className="space-y-6">
+    <div ref={skeletonExitRef} className="space-y-6">
       <section className="flex flex-wrap items-end justify-between gap-4 pb-4">
         <div>
           <h2 data-gsap-reveal className="text-title font-semibold">{t('systemSettingsTitle')}</h2>

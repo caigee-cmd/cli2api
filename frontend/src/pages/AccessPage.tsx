@@ -1,3 +1,4 @@
+import { useSkeletonExit } from '@/hooks/useSkeletonSwap'
 import { CopyIcon } from '@/components/motion/CopyIcon'
 import { copyText } from '@/lib/clipboard'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
@@ -167,6 +168,7 @@ export function AccessPage() {
     [chatEndpoint, payload, selectedAccount],
   )
 
+  const skeletonExitRef = useSkeletonExit(loading && !overview)
   if (loading && !overview) return <AccessPageSkeleton />
 
   async function copy(value: string, kind: 'base' | 'curl') {
@@ -201,7 +203,7 @@ export function AccessPage() {
         : t('requestIdle')
 
   return (
-    <div className="space-y-5">
+    <div ref={skeletonExitRef} className="space-y-5">
       <section className="grid gap-5 pb-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
         <div data-gsap-reveal>
           <h2 className="text-title font-semibold">{t('apiPlayground')}</h2>

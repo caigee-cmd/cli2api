@@ -1,6 +1,6 @@
 import { toast } from '@/lib/toast'
 import { useTabPanelSlide } from '@/hooks/useTabPanelSlide'
-import { useSkeletonSwap } from '@/hooks/useSkeletonSwap'
+import { useSkeletonExit, useSkeletonSwap } from '@/hooks/useSkeletonSwap'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { getLocalTimeZone, type DateValue } from '@internationalized/date'
 import {
@@ -221,7 +221,6 @@ export function LogsPage() {
   const [selected, setSelected] = useState<RequestLog | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
   const [detailLoading, setDetailLoading] = useState(false)
-  useSkeletonSwap('logs', loading)
   useSkeletonSwap('detail', detailLoading)
   const [detailError, setDetailError] = useState('')
   const detailRequestRef = useRef(0)
@@ -476,10 +475,17 @@ export function LogsPage() {
     }
   }
 
+  // Refetches (page, filter, refresh) keep the current rows on screen, dimmed,
+  // instead of swapping back to the skeleton — the skeleton crossfade is for
+  // an empty list only, so paging no longer replays the entrance animation.
+  const listSkeleton = loading && (tab === 'requests' ? requests.length === 0 : runtime.length === 0)
+  const listStale = loading && !listSkeleton
+  useSkeletonSwap('logs', listSkeleton)
+  const skeletonExitRef = useSkeletonExit(loading && !booted)
   if (loading && !booted) return <LogsPageSkeleton />
 
   return (
-    <div className="space-y-6">
+    <div ref={skeletonExitRef} className="space-y-6">
       <section className="flex flex-wrap items-end justify-between gap-4 pb-4">
         <div>
           <h2 data-gsap-reveal className="text-title font-semibold">{t('navLogs')}</h2>
@@ -711,8 +717,8 @@ export function LogsPage() {
             </div>
           </div>
 
-          <Card data-gsap-reveal data-skeleton-swap="logs" className="overflow-hidden p-0" aria-busy={loading}>
-            {loading ? (
+          <Card data-gsap-reveal data-skeleton-swap="logs" className={`overflow-hidden p-0 transition-opacity duration-200 ${listStale ? 'opacity-60' : ''}`} aria-busy={loading}>
+            {listSkeleton ? (
               <LogsRequestListSkeleton />
             ) : requests.length === 0 ? (
               <EmptyPanel
@@ -844,8 +850,8 @@ export function LogsPage() {
             </div>
           </div>
 
-          <Card data-gsap-reveal data-skeleton-swap="logs" className="overflow-hidden p-0" aria-busy={loading}>
-            {loading ? (
+          <Card data-gsap-reveal data-skeleton-swap="logs" className={`overflow-hidden p-0 transition-opacity duration-200 ${listStale ? 'opacity-60' : ''}`} aria-busy={loading}>
+            {listSkeleton ? (
               <LogsRuntimeListSkeleton />
             ) : runtime.length === 0 ? (
               <EmptyPanel icon={<TerminalWindow size={22} />} title={t('logsEmptyRuntime')} />

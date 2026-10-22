@@ -1,3 +1,4 @@
+import { useSkeletonExit } from '@/hooks/useSkeletonSwap'
 import { toast } from '@/lib/toast'
 import { copyText } from '@/lib/clipboard'
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -190,6 +191,7 @@ export function AccountsPage() {
   const shownFrom = filteredRows.length === 0 ? 0 : (currentPage - 1) * pageSize + 1
   const shownTo = Math.min(filteredRows.length, currentPage * pageSize)
 
+  const skeletonExitRef = useSkeletonExit(accountsLoading && !hasAccounts)
   if (accountsLoading && !hasAccounts) return <AccountsPageSkeleton />
 
   async function run(id: string, kind: AccountBusyKind, action: () => Promise<void>) {
@@ -363,7 +365,7 @@ export function AccountsPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div ref={skeletonExitRef} className="space-y-4">
       {checkinError ? <PageAlert title={checkinError} /> : null}
       <section data-gsap-reveal className="grid gap-3 pb-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-body">

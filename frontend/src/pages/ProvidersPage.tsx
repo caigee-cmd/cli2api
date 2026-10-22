@@ -1,3 +1,4 @@
+import { useSkeletonExit } from '@/hooks/useSkeletonSwap'
 import { useEffect, useMemo, useState } from 'react'
 import { Button, Card, Chip, Table, Tooltip } from '@heroui/react'
 import { Cube, ArrowClockwise, MagnifyingGlass, Info } from '@phosphor-icons/react'
@@ -225,6 +226,7 @@ export function ProvidersPage() {
     ? t('logsShownTotal', { shown: `${shownFrom}–${shownTo}`, total: filtered.length })
     : t('shownTotal', { shown: 0, total: models.length })
 
+  const skeletonExitRef = useSkeletonExit((loading && !overview) || modelsLoading)
   if ((loading && !overview) || modelsLoading) return <ProvidersPageSkeleton />
 
 
@@ -324,7 +326,7 @@ export function ProvidersPage() {
 
 
   return (
-    <div className="space-y-6">
+    <div ref={skeletonExitRef} className="space-y-6">
       <section className="grid gap-5 pb-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
         <div data-gsap-reveal>
           <h2 className="text-title font-semibold">{t('availableModels')}</h2>
