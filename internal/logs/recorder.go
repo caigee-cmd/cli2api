@@ -68,6 +68,8 @@ type RequestRecorder struct {
 	done         chan struct{}
 	statsCacheMu sync.Mutex
 	statsCache   map[string]statsCacheEntry
+	rateOnce     sync.Once
+	rate         *RateCounter
 }
 
 func NewRequestRecorder(store RequestPersister) *RequestRecorder {
@@ -117,12 +119,24 @@ func (r *RequestRecorder) Close() {
 }
 
 func (r *RequestRecorder) Start(log accounts.RequestLog) {
+	r.rateCounter().Add()
 	r.enqueue(func() {
 		if err := r.store.InsertRequestLog(context.Background(), log); err != nil {
 			logf("insert request log: %v", err)
 		}
 	})
 }
+
+func (r *RequestRecorder) rateCounter() *RateCounter {
+	if r == nil {
+		return nil
+	}
+	r.rateOnce.Do(func() { r.rate = NewRateCounter() })
+	return r.rate
+}
+
+// RecentRequests is the number of requests started in the last 60 seconds.
+func (r *RequestRecorder) RecentRequests() int { return r.rateCounter().Count() }
 
 func (r *RequestRecorder) Finish(log accounts.RequestLog) {
 	r.enqueue(func() {

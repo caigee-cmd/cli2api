@@ -8,7 +8,7 @@ export function RankListSkeleton({ rows = 5 }: { rows?: number }) {
   return (
     <div className="divide-y divide-separator">
       {Array.from({ length: rows }, (_, index) => (
-        <div key={index} className="space-y-2 px-5 py-3">
+        <div key={index} className="space-y-2 px-4 py-2.5">
           <div className="flex items-center justify-between gap-3">
             <SkeletonBlock className="h-4 w-28" />
             <SkeletonBlock className="h-3 w-12" />
@@ -21,7 +21,7 @@ export function RankListSkeleton({ rows = 5 }: { rows?: number }) {
 }
 
 export function TrafficChartSkeleton() {
-  return <SkeletonBlock className="h-72 w-full" />
+  return <SkeletonBlock className="h-56 w-full" />
 }
 
 export function ProvidersTableSkeleton({ rows = 6 }: { rows?: number }) {
@@ -94,7 +94,7 @@ export function OverviewPageSkeleton() {
       <section className="overflow-hidden rounded-3xl bg-surface shadow-surface p-5">
         <SkeletonBlock className="h-5 w-24" />
         <SkeletonBlock className="mt-2 h-3 w-48" />
-        <SkeletonBlock className="mt-6 h-72 w-full" />
+        <SkeletonBlock className="mt-6 h-56 w-full" />
         <div className="mt-5 grid grid-cols-4 gap-3">
           {Array.from({ length: 4 }, (_, index) => <SkeletonBlock key={index} className="h-10 w-full" />)}
         </div>
