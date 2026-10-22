@@ -192,7 +192,7 @@ export function AppSidebar({ mobileOpen, onClose }: Props) {
         </Tooltip>
         <Button isIconOnly size="sm" variant="ghost" className={collapsed ? '' : 'ml-auto'} onPress={toggleCollapsed} aria-label={t('toggleSidebar')}><SidebarSimple size={16} className={collapsed ? 'rotate-180' : ''} /></Button>
       </div>
-      {!collapsed && <p className="px-1 text-caption leading-5 text-muted">{t('sidebarFoot')}</p>}
+      {!collapsed && <p className="truncate px-1 text-caption leading-5 text-muted" title={t('sidebarFoot')}>{t('sidebarFoot')}</p>}
     </div>
   )
 
