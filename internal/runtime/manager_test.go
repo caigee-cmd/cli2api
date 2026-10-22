@@ -884,6 +884,51 @@ func TestManagerEscalatesConsecutiveRestartBackoffSeparately(t *testing.T) {
 	}
 }
 
+// A process that exits while the recovery goroutine that started it is still
+// unwinding must not be dropped by the recovering guard.
+func TestManagerRecoversCrashDuringRecoveryUnwind(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlstore.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	account, err := store.Create(ctx, accounts.CreateAccount{Name: "Unwind", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	starter := &fakeStarter{started: make(chan *fakeProcess, 3)}
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir(), RestartDelay: time.Millisecond}, store, starter)
+	defer manager.Close()
+	release := make(chan struct{})
+	var once sync.Once
+	manager.TestSetRecoverUnwindHook(func(string) { once.Do(func() { <-release }) })
+	if err := manager.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	first := <-starter.started
+	first.done <- errors.New("first crash")
+	second := <-starter.started
+	second.done <- errors.New("second crash")
+	deadline := time.Now().Add(5 * time.Second)
+	for !manager.TestRecoverPending(account.ID) {
+		if time.Now().After(deadline) {
+			close(release)
+			t.Fatal("second crash was not queued behind the unwinding recovery")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	close(release)
+	select {
+	case third := <-starter.started:
+		if third == second {
+			t.Fatal("manager reused exited process")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("crash during recovery unwind was dropped; account never restarted")
+	}
+}
+
 func TestManagerRestartDelayIsBounded(t *testing.T) {
 	manager := accountruntime.NewManager(accountruntime.ManagerConfig{RestartDelay: 2 * time.Second, RestartMaxDelay: 5 * time.Second}, nil, &fakeStarter{})
 	if got := manager.TestRestartDelay(1); got != 2*time.Second {
