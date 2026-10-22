@@ -74,12 +74,14 @@ func (d *Direct) prepare(ctx context.Context, accountID string, req translate.Ch
 	var session *Session
 	var region string
 	var err error
+	var catalogOf func(context.Context) ([]map[string]any, error)
 
 	// 1. In-process Bridge path: when the account has a stored PAT, the Bridge
 	// manages the session lifecycle (fresh securityOauthToken + refreshToken)
 	// and stable machine identity.
 	if d.bridgeOf != nil {
 		if b, bridgeErr := d.bridgeOf(ctx, accountID); bridgeErr == nil {
+			catalogOf = b.RoutingCatalog
 			if err := b.EnsureFreshSession(ctx); err != nil {
 				return directPrepared{}, fmt.Errorf("qoder ensure fresh session: %w", err)
 			}
@@ -138,7 +140,15 @@ func (d *Direct) prepare(ctx context.Context, accountID string, req translate.Ch
 			}
 		}
 	}
+	var entry map[string]any
+	if catalogOf != nil {
+		req, entry, err = resolveCatalogModel(ctx, catalogOf, req)
+		if err != nil {
+			return directPrepared{}, err
+		}
+	}
 	plain := BuildPlainChatBody(req, d.now())
+	applyCatalogEntry(plain, req, entry)
 	if user.UserType != "" {
 		plain["aliyun_user_type"] = user.UserType
 	}
