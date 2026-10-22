@@ -13,7 +13,8 @@ import {
 } from 'recharts'
 import type { RequestStatsPoint } from '@/api/logs'
 import { TrafficChartEmpty } from '@/components/overview/TrafficChartEmpty'
-import { formatCompact } from '@/lib/format'
+import { FilterToggle } from '@/components/ui/FilterToggle'
+import { formatCompact, formatLatency } from '@/lib/format'
 import { TYPE_SCALE_PX } from '@/lib/typeScale'
 
 function hourLabel(value: string, daily: boolean, lang: 'en' | 'zh') {
@@ -33,22 +34,54 @@ function niceMax(peak: number) {
   return nice * base
 }
 
-type ChartRow = RequestStatsPoint & { okCount: number; errorCount: number }
+export type TrafficMetric = 'requests' | 'tokens' | 'latency'
+
+type ChartRow = RequestStatsPoint & {
+  okCount: number
+  errorCount: number
+  inputTokens: number
+  outputTokens: number
+  cacheTokens: number
+  p50: number | null
+  p95: number | null
+}
+
+type SeriesSpec = { key: keyof ChartRow; label: string; color: string; area?: boolean; width?: number; opacity?: number }
+
+/** Derives the plotted fields for every metric from one stats point. */
+function toChartRow(point: RequestStatsPoint): ChartRow {
+  const okCount = Math.max(0, point.ok ?? (point.requests - point.error))
+  const errorCount = Math.min(Math.max(0, point.requests - okCount), Math.max(0, point.requests))
+  return {
+    ...point,
+    okCount,
+    errorCount,
+    inputTokens: point.prompt_tokens ?? 0,
+    outputTokens: point.completion_tokens ?? 0,
+    cacheTokens: point.cache_read_tokens ?? 0,
+    p50: point.latency_p50_ms ?? null,
+    p95: point.latency_p95_ms ?? null,
+  }
+}
 
 function TrafficTooltip({
   active,
   payload,
   daily,
   lang,
-  okLabel,
-  errorLabel,
+  specs,
+  format,
+  totalLabel,
+  total,
 }: {
   active?: boolean
   payload?: Array<{ payload: ChartRow }>
   daily: boolean
   lang: 'en' | 'zh'
-  okLabel: string
-  errorLabel: string
+  specs: SeriesSpec[]
+  format: (value: number | null) => string
+  totalLabel?: string
+  total?: (row: ChartRow) => number
 }) {
   if (!active || !payload?.[0]) return null
   const point = payload[0].payload
@@ -56,19 +89,18 @@ function TrafficTooltip({
     <div className="rounded-xl bg-overlay px-3 py-2 text-caption text-overlay-foreground shadow-overlay">
       <div className="mono text-muted">{hourLabel(point.at, daily, lang)}</div>
       <div className="mt-1.5 grid gap-1">
-        <div className="flex items-center justify-between gap-6">
-          <span className="inline-flex items-center gap-1.5"><span className="size-1.5 rounded-full bg-success" />{okLabel}</span>
-          <span className="mono font-medium">{point.okCount}</span>
-        </div>
-        <div className="flex items-center justify-between gap-6">
-          <span className="inline-flex items-center gap-1.5"><span className="size-1.5 rounded-full bg-danger" />{errorLabel}</span>
-          {/* 与红色折线同口径：未成功数（error + incomplete + canceled） */}
-          <span className="mono font-medium">{point.errorCount}</span>
-        </div>
-        <div className="flex items-center justify-between gap-6 pt-1">
-          <span className="text-muted">total</span>
-          <span className="mono font-medium">{point.requests}</span>
-        </div>
+        {specs.map((spec) => (
+          <div key={String(spec.key)} className="flex items-center justify-between gap-6">
+            <span className="inline-flex items-center gap-1.5"><span className="size-1.5 rounded-full" style={{ background: spec.color }} />{spec.label}</span>
+            <span className="mono font-medium">{format(point[spec.key] as number | null)}</span>
+          </div>
+        ))}
+        {total && totalLabel ? (
+          <div className="flex items-center justify-between gap-6 pt-1">
+            <span className="text-muted">{totalLabel}</span>
+            <span className="mono font-medium">{format(total(point))}</span>
+          </div>
+        ) : null}
       </div>
     </div>
   )
@@ -82,16 +114,33 @@ export function TrafficChart({
   errorLabel,
   onSelectRange,
   selectHint,
+  labels,
+  initialMetric = 'requests',
 }: {
   series: RequestStatsPoint[]
   lang: 'en' | 'zh'
   emptyLabel: string
   okLabel: string
   errorLabel: string
+  /** Labels for the metric switch and its series. */
+  labels?: {
+    requests: string
+    tokens: string
+    latency: string
+    input: string
+    output: string
+    cacheRead: string
+    p50: string
+    p95: string
+    total: string
+  }
+  /** Initial metric (the switch is internal). */
+  initialMetric?: TrafficMetric
   /** Called with an ISO [from, to) range after the user drag-selects buckets. */
   onSelectRange?: (from: string, to: string) => void
   selectHint?: string
 }) {
+  const [metric, setMetric] = useState<TrafficMetric>(initialMetric)
   const [dragStart, setDragStart] = useState<string | null>(null)
   const [dragEnd, setDragEnd] = useState<string | null>(null)
   // Draw the lines in once per mount; background refreshes must not replay it.
@@ -105,20 +154,38 @@ export function TrafficChart({
   //   不能只用后端 error 字段：canceled（客户端断开）等状态会被顶掉，
   //   导致 tooltip 出现 total 37 / 成功 1 / 失败 0、红线却贴底的缺口。
   //   与概览卡片"成功率 = ok/total"的口径保持一致，红线垫平剩余部分。
-  const data = useMemo<ChartRow[]>(() => series.map((point) => {
-    const okCount = Math.max(0, point.ok ?? (point.requests - point.error))
-    const errorCount = Math.min(Math.max(0, point.requests - okCount), Math.max(0, point.requests))
-    return {
-      ...point,
-      okCount,
-      errorCount,
-    }
-  }), [series])
+  const data = useMemo<ChartRow[]>(() => series.map(toChartRow), [series])
   const first = data[0]
   const last = data[data.length - 1]
   const span = first && last ? Date.parse(last.at) - Date.parse(first.at) : 0
   const daily = span > 48 * 60 * 60 * 1000
-  const peak = Math.max(0, ...data.map((point) => point.requests))
+  const l = labels ?? {
+    requests: 'Requests', tokens: 'Tokens', latency: 'p95 latency',
+    input: 'input', output: 'output', cacheRead: 'cache read', p50: 'p50', p95: 'p95', total: 'total',
+  }
+  const specs: SeriesSpec[] = metric === 'tokens'
+    ? [
+        { key: 'inputTokens', label: l.input, color: 'var(--foreground)', area: true, width: 1.5, opacity: 0.75 },
+        { key: 'outputTokens', label: l.output, color: 'var(--success)', area: true, width: 1.5 },
+        { key: 'cacheTokens', label: l.cacheRead, color: 'var(--muted)', width: 1.25, opacity: 0.8 },
+      ]
+    : metric === 'latency'
+      ? [
+          { key: 'p95', label: l.p95, color: 'var(--warning)', area: true, width: 1.75 },
+          { key: 'p50', label: l.p50, color: 'var(--muted)', width: 1.25, opacity: 0.85 },
+        ]
+      : [
+          { key: 'okCount', label: okLabel, color: 'var(--success)', area: true, width: 1.75 },
+          { key: 'errorCount', label: errorLabel, color: 'var(--danger)', area: true, width: 1.25, opacity: 0.7 },
+        ]
+  const format = (value: number | null) => (value == null ? '—' : metric === 'latency' ? formatLatency(value) : formatCompact(value))
+  const total = metric === 'requests'
+    ? (row: ChartRow) => row.requests
+    : metric === 'tokens'
+      ? (row: ChartRow) => row.inputTokens + row.outputTokens
+      : undefined
+  const values = data.flatMap((row) => specs.map((spec) => Number(row[spec.key] ?? 0)))
+  const peak = metric === 'requests' ? Math.max(0, ...data.map((point) => point.requests)) : Math.max(0, ...values)
   const yMax = niceMax(peak)
   const hasTraffic = data.some((point) => point.requests > 0)
   const signature = data.map((point) => `${point.at}:${point.requests}:${point.error}`).join('|')
@@ -209,6 +276,18 @@ export function TrafficChart({
 
   return (
     <div ref={rootRef} className="min-w-0">
+      <div className="mb-3 flex justify-end">
+        <FilterToggle
+          value={metric}
+          onChange={(next) => setMetric(next as TrafficMetric)}
+          ariaLabel={l.requests}
+          options={[
+            { id: 'requests', label: l.requests },
+            { id: 'tokens', label: l.tokens },
+            { id: 'latency', label: l.latency },
+          ]}
+        />
+      </div>
       <div className="h-72 w-full">
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart
@@ -231,14 +310,12 @@ export function TrafficChart({
             onMouseLeave={onSelectRange ? () => { setDragStart(null); setDragEnd(null) } : undefined}
           >
             <defs>
-              <linearGradient id="traffic-ok" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="var(--success)" stopOpacity={0.28} />
-                <stop offset="100%" stopColor="var(--success)" stopOpacity={0.02} />
-              </linearGradient>
-              <linearGradient id="traffic-error" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="var(--danger)" stopOpacity={0.22} />
-                <stop offset="100%" stopColor="var(--danger)" stopOpacity={0.02} />
-              </linearGradient>
+              {specs.filter((spec) => spec.area).map((spec) => (
+                <linearGradient key={String(spec.key)} id={`traffic-fill-${String(spec.key)}`} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={spec.color} stopOpacity={0.22} />
+                  <stop offset="100%" stopColor={spec.color} stopOpacity={0.02} />
+                </linearGradient>
+              ))}
             </defs>
             <CartesianGrid vertical={false} stroke="var(--separator)" strokeDasharray="3 6" />
             <XAxis
@@ -250,60 +327,45 @@ export function TrafficChart({
               tickFormatter={(value: string) => hourLabel(value, daily, lang)}
             />
             <YAxis
-              width={36}
+              width={metric === 'latency' ? 44 : 36}
               domain={[0, yMax]}
               tickLine={false}
               axisLine={false}
               allowDecimals={false}
               tick={{ fill: 'var(--muted)', fontSize: TYPE_SCALE_PX.caption, fontFamily: 'var(--font-mono)' }}
-              tickFormatter={(value: number) => formatCompact(value)}
+              tickFormatter={(value: number) => (metric === 'latency' ? formatLatency(value) : formatCompact(value))}
             />
             <Tooltip
               cursor={{ stroke: 'var(--border)', strokeDasharray: '3 3' }}
-              content={<TrafficTooltip daily={daily} lang={lang} okLabel={okLabel} errorLabel={errorLabel} />}
+              content={<TrafficTooltip daily={daily} lang={lang} specs={specs} format={format} totalLabel={l.total} total={total} />}
             />
-            {/* 面积：先画成功（较大，作为底层），再画失败（叠加在底部，避免被完全遮住） */}
-            <Area
-              type="monotone"
-              dataKey="okCount"
-              stroke="none"
-              fill="url(#traffic-ok)"
-              isAnimationActive={false}
-              activeDot={false}
-              dot={false}
-              className="traffic-ok-area"
-            />
-            <Area
-              type="monotone"
-              dataKey="errorCount"
-              stroke="none"
-              fill="url(#traffic-error)"
-              isAnimationActive={false}
-              activeDot={false}
-              dot={false}
-              className="traffic-error-area"
-            />
-            <Line
-              type="monotone"
-              dataKey="okCount"
-              stroke="var(--success)"
-              strokeWidth={1.75}
-              dot={false}
-              isAnimationActive={false}
-              activeDot={{ r: 4, fill: 'var(--surface)', stroke: 'var(--success)', strokeWidth: 1.5 }}
-              className="traffic-ok-line"
-            />
-            <Line
-              type="monotone"
-              dataKey="errorCount"
-              stroke="var(--danger)"
-              strokeWidth={1.25}
-              strokeOpacity={0.7}
-              dot={false}
-              isAnimationActive={false}
-              activeDot={{ r: 4, fill: 'var(--surface)', stroke: 'var(--danger)', strokeWidth: 1.5 }}
-              className="traffic-error-line"
-            />
+            {specs.filter((spec) => spec.area).map((spec) => (
+              <Area
+                key={`area-${String(spec.key)}`}
+                type="monotone"
+                dataKey={spec.key as string}
+                stroke="none"
+                fill={`url(#traffic-fill-${String(spec.key)})`}
+                isAnimationActive={false}
+                activeDot={false}
+                dot={false}
+                connectNulls
+              />
+            ))}
+            {specs.map((spec) => (
+              <Line
+                key={`line-${String(spec.key)}`}
+                type="monotone"
+                dataKey={spec.key as string}
+                stroke={spec.color}
+                strokeWidth={spec.width ?? 1.5}
+                strokeOpacity={spec.opacity ?? 1}
+                dot={false}
+                isAnimationActive={false}
+                connectNulls
+                activeDot={{ r: 4, fill: 'var(--surface)', stroke: spec.color, strokeWidth: 1.5 }}
+              />
+            ))}
             {dragStart && dragEnd ? (
               <ReferenceArea x1={dragStart} x2={dragEnd} fill="var(--foreground)" fillOpacity={0.06} stroke="none" ifOverflow="visible" />
             ) : null}
@@ -312,12 +374,13 @@ export function TrafficChart({
       </div>
       <div className="mt-2 flex min-h-5 items-center justify-between gap-3 text-caption text-muted">
         <div className="flex items-center gap-3">
-          <span className="inline-flex items-center gap-1.5"><span className="size-1.5 rounded-full bg-success" />{okLabel}</span>
-          <span className="inline-flex items-center gap-1.5"><span className="size-1.5 rounded-full bg-danger" />{errorLabel}</span>
+          {specs.map((spec) => (
+            <span key={String(spec.key)} className="inline-flex items-center gap-1.5"><span className="size-1.5 rounded-full" style={{ background: spec.color }} />{spec.label}</span>
+          ))}
         </div>
         <span className="flex items-center gap-3">
           {onSelectRange && selectHint ? <span>{selectHint}</span> : null}
-          <span className="mono">{formatCompact(peak)} peak</span>
+          <span className="mono">{format(peak)} peak</span>
         </span>
       </div>
     </div>

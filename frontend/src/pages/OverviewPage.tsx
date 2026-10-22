@@ -26,11 +26,13 @@ import { CountUp } from '@/components/overview/CountUp'
 import { TrafficChartEmpty } from '@/components/overview/TrafficChartEmpty'
 
 const TrafficChart = lazy(() => import('@/components/overview/TrafficChart').then((mod) => ({ default: mod.TrafficChart })))
-import { FilterToggle } from '@/components/ui/FilterToggle'
-import { dateValueToISO, TimeRangePicker, type DateRangeValue } from '@/components/ui/TimeRangePicker'
+import { StatsWindowControls } from '@/components/overview/StatsWindowControls'
+import { STATS_WINDOW_LABEL, statsQuery, type StatsWindow } from '@/lib/statsWindow'
+import type { DateRangeValue } from '@/components/ui/TimeRangePicker'
 import { PageAlert } from '@/components/ui/PageAlert'
 import { OverviewPageSkeleton, RankListSkeleton, SkeletonBlock, TrafficChartSkeleton } from '@/components/ui/PageSkeletons'
 import { useI18n } from '@/hooks/useI18n'
+import { logsHref } from '@/lib/logsLink'
 import { useOverview } from '@/hooks/useOverview'
 import { fetchAccounts, fetchModels } from '@/api/overview'
 import { formatBytes, formatCompact, formatLatency, formatPercent } from '@/lib/format'
@@ -38,7 +40,6 @@ import { accountProviderFamilyLabel, accountProviderLabel } from '@/lib/provider
 import { ProviderMark } from '@/components/ProviderMark'
 
 type AccountRow = NonNullable<Overview['accounts']>[number]
-type StatsWindow = '1' | '24' | '168' | '720' | 'custom'
 
 const STATS_REFRESH_MS = 30_000
 
@@ -53,37 +54,6 @@ const EMPTY_STATS: RequestStats = {
   accounts: [],
   providers: [],
   series: [],
-}
-
-/** Stats query for a window. 30d and custom go through from/to: the backend only accepts hours=1|24|168. */
-function statsQuery(window: StatsWindow, custom: DateRangeValue | null) {
-  if (window === 'custom') {
-    const from = dateValueToISO(custom?.start)
-    const to = dateValueToISO(custom?.end, true)
-    return from && to ? { from, to } : null
-  }
-  if (window === '720') {
-    const to = new Date()
-    return { from: new Date(to.getTime() - 30 * 24 * 3600 * 1000).toISOString(), to: to.toISOString() }
-  }
-  return { hours: Number(window) }
-}
-
-/**
- * /logs link with filters for a window. The logs picker is minute-granular and
- * rounds the end up to :59.999, so the end is passed as the minute before its
- * ceiling to keep the round trip exact.
- */
-function logsHref(filters: Record<string, string | undefined>, from: string, to: string) {
-  const params = new URLSearchParams()
-  for (const [key, value] of Object.entries(filters)) if (value) params.set(key, value)
-  const fromMs = Date.parse(from)
-  const toMs = Date.parse(to)
-  if (Number.isFinite(fromMs) && Number.isFinite(toMs)) {
-    params.set('from', new Date(Math.floor(fromMs / 60_000) * 60_000).toISOString())
-    params.set('to', new Date(Math.ceil(toMs / 60_000) * 60_000 - 60_000).toISOString())
-  }
-  return `/logs?${params}`
 }
 
 function familyLabel(provider: string | undefined, t: (key: string) => string) {
@@ -291,7 +261,7 @@ export function OverviewPage() {
   const secondRate = sum(secondHalf, 'requests') ? sum(secondHalf, 'ok') / sum(secondHalf, 'requests') : null
   const successTrend = firstRate != null && secondRate != null ? secondRate - firstRate : null
   const metrics = [
-    { label: t('metricRequests'), value: traffic.totals.requests as number | null, kind: 'compact' as const, detail: t('statsWindowHint', { window: t({ '1': 'statsWindow1h', '24': 'statsWindow24h', '168': 'statsWindow7d', '720': 'statsWindow30d', custom: 'statsWindowCustom' }[statsWindow]) }), ok: traffic.totals.requests > 0, icon: <Pulse size={15} />, trend: requestTrend },
+    { label: t('metricRequests'), value: traffic.totals.requests as number | null, kind: 'compact' as const, detail: t('statsWindowHint', { window: t(STATS_WINDOW_LABEL[statsWindow]) }), ok: traffic.totals.requests > 0, icon: <Pulse size={15} />, trend: requestTrend },
     { label: t('metricSuccess'), value: traffic.totals.success_rate, kind: 'percent' as const, detail: `${traffic.totals.ok} ${t('logsFilterOk')} · ${traffic.totals.incomplete} ${t('logsFilterIncomplete')} · ${traffic.totals.error} ${t('logsFilterError')}`, ok: traffic.totals.requests === 0 || traffic.totals.success_rate >= 0.9, icon: <CheckCircle size={15} />, trend: successTrend },
     { label: t('metricLatency'), value: traffic.latency.p95_ms ?? traffic.latency.avg_ms, kind: 'ms' as const, detail: `p50 ${formatLatency(traffic.latency.p50_ms)} · avg ${formatLatency(traffic.latency.avg_ms)}`, ok: traffic.latency.p95_ms == null || traffic.latency.p95_ms < 8000, icon: <Timer size={15} />, trend: null as number | null },
     { label: t('metricTokens'), value: traffic.tokens.total, kind: 'compact' as const, detail: `${formatCompact(traffic.tokens.prompt)} / ${formatCompact(traffic.tokens.completion)}`, ok: true, icon: <Coins size={15} />, trend: null as number | null },
@@ -321,36 +291,14 @@ export function OverviewPage() {
           <p className="mt-1 max-w-2xl text-body leading-6 text-muted">{t('homeLead')}</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <FilterToggle
+          <StatsWindowControls
             value={statsWindow}
-            onChange={(next) => {
-              const value = next as StatsWindow
-              if (statsWindow === value) return
-              if (value !== 'custom' || customRange) setStatsLoading(true)
-              setStatsWindow(value)
-            }}
-            ariaLabel={t('statsTraffic')}
-            options={[
-              { id: '1', label: t('statsWindow1h') },
-              { id: '24', label: t('statsWindow24h') },
-              { id: '168', label: t('statsWindow7d') },
-              { id: '720', label: t('statsWindow30d') },
-              { id: 'custom', label: t('statsWindowCustom') },
-            ]}
+            onChange={setStatsWindow}
+            custom={customRange}
+            onCustomChange={setCustomRange}
+            onBusy={() => setStatsLoading(true)}
+            t={t}
           />
-          {statsWindow === 'custom' ? (
-            <TimeRangePicker
-              className="w-[min(100%,24rem)]"
-              value={customRange}
-              onChange={(next) => {
-                if (next) setStatsLoading(true)
-                setCustomRange(next)
-              }}
-              ariaLabel={t('statsWindowCustom')}
-              fromLabel={t('logsTimeFrom')}
-              toLabel={t('logsTimeTo')}
-            />
-          ) : null}
           <Tooltip delay={300}>
             <Button
               isIconOnly
@@ -437,6 +385,17 @@ export function OverviewPage() {
                   okLabel={t('logsFilterOk')}
                   errorLabel={t('logsFilterError')}
                   selectHint={t('statsDragHint')}
+                  labels={{
+                    requests: t('chartMetricRequests'),
+                    tokens: t('chartMetricTokens'),
+                    latency: t('chartMetricLatency'),
+                    input: t('chartInput'),
+                    output: t('chartOutput'),
+                    cacheRead: t('chartCacheRead'),
+                    p50: t('statsLatencyP50'),
+                    p95: t('statsLatencyP95'),
+                    total: t('chartTotal'),
+                  }}
                   onSelectRange={(from, to) => navigate(logsHref({}, from, to))}
                 />
               </Suspense>
@@ -586,6 +545,7 @@ export function OverviewPage() {
                 count: item.count,
                 meta: `${item.ok}/${item.count}`,
                 mark: item.key === '(unknown)' ? undefined : item.key,
+                href: item.key === '(unknown)' ? undefined : drill({ provider: item.key }),
               }))}
             />
           )}

@@ -112,6 +112,7 @@ export type RequestStatsTotals = {
   canceled: number
   streaming: number
   success_rate: number
+  credits?: number
 }
 
 export type RequestStatsLatency = {
@@ -125,6 +126,7 @@ export type RequestStatsTokens = {
   prompt: number
   completion: number
   cache_read: number
+  cache_write?: number
   total: number
 }
 
@@ -139,6 +141,12 @@ export type RequestStatsNamed = {
   ok: number
   error: number
   latency_avg_ms?: number | null
+  latency_p95_ms?: number | null
+  prompt_tokens?: number
+  completion_tokens?: number
+  cache_read_tokens?: number
+  cache_write_tokens?: number
+  credits?: number
 }
 
 export type RequestStatsPoint = {
@@ -146,7 +154,14 @@ export type RequestStatsPoint = {
   requests: number
   ok: number
   error: number
+  prompt_tokens?: number
+  completion_tokens?: number
+  cache_read_tokens?: number
+  latency_p50_ms?: number | null
+  latency_p95_ms?: number | null
 }
+
+export type RequestStatsDim = 'model' | 'account' | 'provider'
 
 export type RequestStats = {
   window: RequestStatsWindow
@@ -167,6 +182,7 @@ export type RequestLogQuery = {
   stream?: boolean
   error_kind?: string
   model?: string
+  provider?: string
   id?: string
   q?: string
   from?: string
@@ -175,8 +191,15 @@ export type RequestLogQuery = {
   offset?: number
 }
 
-export function fetchRequestStats(query: { hours?: number; from?: string; to?: string } = {}) {
+/**
+ * GET /api/logs/stats. Without dim/limit the response keeps the overview
+ * contract (all three grouped lists, top 6 each). dim picks the grouped
+ * lists to compute; limit caps their rows (server max 500).
+ */
+export function fetchRequestStats(query: { hours?: number; from?: string; to?: string; dim?: RequestStatsDim[]; limit?: number } = {}) {
   const params = new URLSearchParams()
+  if (query.dim?.length) params.set('dim', query.dim.join(','))
+  if (query.limit != null) params.set('limit', String(query.limit))
   if (query.hours != null) params.set('hours', String(query.hours))
   if (query.from) params.set('from', query.from)
   if (query.to) params.set('to', query.to)
@@ -191,6 +214,7 @@ export function fetchRequestLogs(query: RequestLogQuery = {}) {
   if (query.stream != null) params.set('stream', query.stream ? '1' : '0')
   if (query.error_kind) params.set('error_kind', query.error_kind)
   if (query.model) params.set('model', query.model)
+  if (query.provider) params.set('provider', query.provider)
   if (query.id) params.set('id', query.id)
   if (query.q) params.set('q', query.q)
   if (query.from) params.set('from', query.from)

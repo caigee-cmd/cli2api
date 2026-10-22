@@ -39,7 +39,7 @@ import { LogsPageSkeleton, LogsRequestListSkeleton, LogsRuntimeListSkeleton, Ske
 import { SearchBar } from '@/components/ui/SearchBar'
 import { dateValueToISO, isoToDateValue, TimeRangePicker, type DateRangeValue } from '@/components/ui/TimeRangePicker'
 import { useI18n } from '@/hooks/useI18n'
-import { accountProviderLabel } from '@/lib/provider'
+import { accountProviderFamilyLabel, accountProviderLabel } from '@/lib/provider'
 
 type PageTab = 'requests' | 'runtime'
 type RequestFilter = 'all' | 'ok' | 'incomplete' | 'error' | 'canceled'
@@ -169,6 +169,7 @@ type UrlFilters = {
   requestId: string
   accountFilter: string
   modelFilter: string
+  providerFilter: string
   streamFilter: StreamFilter
   errorKind: ErrorKindFilter
   timeRange: TimeRange
@@ -188,6 +189,7 @@ function parseLogsUrl(params: URLSearchParams): UrlFilters {
     requestId: params.get('id') ?? '',
     accountFilter: params.get('account') ?? '',
     modelFilter: params.get('model') ?? '',
+    providerFilter: params.get('provider') ?? '',
     streamFilter: stream === 'stream' || stream === 'true' ? 'stream' : stream === 'sync' || stream === 'false' ? 'sync' : 'all',
     errorKind: pick(params.get('error_kind'), ERROR_KINDS, 'all'),
     timeRange: custom ? 'custom' : pick(params.get('range'), TIME_RANGES, '1h'),
@@ -201,6 +203,7 @@ function buildLogsUrl(filters: UrlFilters) {
   if (filters.requestId) params.set('id', filters.requestId)
   if (filters.accountFilter) params.set('account', filters.accountFilter)
   if (filters.modelFilter) params.set('model', filters.modelFilter)
+  if (filters.providerFilter) params.set('provider', filters.providerFilter)
   if (filters.streamFilter !== 'all') params.set('stream', filters.streamFilter)
   if (filters.errorKind !== 'all') params.set('error_kind', filters.errorKind)
   const from = filters.timeRange === 'custom' ? dateValueToISO(filters.customRange?.start) : undefined
@@ -241,6 +244,7 @@ export function LogsPage() {
   const [accountFilter, setAccountFilter] = useState(initialUrl.accountFilter)
   const [runtimeAccount, setRuntimeAccount] = useState('')
   const [modelFilter, setModelFilter] = useState(initialUrl.modelFilter)
+  const [providerFilter, setProviderFilter] = useState(initialUrl.providerFilter)
   const [streamFilter, setStreamFilter] = useState<StreamFilter>(initialUrl.streamFilter)
   const [errorKind, setErrorKind] = useState<ErrorKindFilter>(initialUrl.errorKind)
   const [timeRange, setTimeRange] = useState<TimeRange>(initialUrl.timeRange)
@@ -266,7 +270,7 @@ export function LogsPage() {
   // URL <-> filter controls. External URL changes (back/forward, drill-down
   // links) are applied to the controls; control changes replace the URL.
   const searchString = searchParams.toString()
-  const urlString = buildLogsUrl({ requestFilter, requestId, accountFilter, modelFilter, streamFilter, errorKind, timeRange, customRange })
+  const urlString = buildLogsUrl({ requestFilter, requestId, accountFilter, modelFilter, providerFilter, streamFilter, errorKind, timeRange, customRange })
   const lastUrlRef = useRef(searchString)
   useEffect(() => {
     if (searchString === lastUrlRef.current) return
@@ -276,6 +280,7 @@ export function LogsPage() {
     setRequestId(next.requestId)
     setAccountFilter(next.accountFilter)
     setModelFilter(next.modelFilter)
+    setProviderFilter(next.providerFilter)
     setStreamFilter(next.streamFilter)
     setErrorKind(next.errorKind)
     setTimeRange(next.timeRange)
@@ -331,6 +336,15 @@ export function LogsPage() {
     () => (accounts || []).map((account) => ({ id: account.id, label: account.name || account.id })),
     [accounts],
   )
+  const providerOptions = useMemo(() => {
+    const ids = new Set<string>()
+    for (const account of accounts || []) if (account.provider) ids.add(account.provider)
+    if (providerFilter) ids.add(providerFilter)
+    return [
+      { id: '', label: t('logsFilterProviderAll') },
+      ...[...ids].sort().map((id) => ({ id, label: accountProviderFamilyLabel(id, t) })),
+    ]
+  }, [accounts, providerFilter, t])
   const modelOptions = useMemo(() => {
     const seen = new Map<string, { id: string; label: string }>()
     for (const model of models || []) {
@@ -353,6 +367,7 @@ export function LogsPage() {
     || requestFilter !== 'all'
     || accountFilter
     || modelFilter
+    || providerFilter
     || streamFilter !== 'all'
     || errorKind !== 'all'
     || timeRange !== '1h',
@@ -363,6 +378,7 @@ export function LogsPage() {
     requestId,
     accountFilter,
     modelFilter,
+    providerFilter,
     streamFilter,
     errorKind,
     timeRange,
@@ -408,6 +424,7 @@ export function LogsPage() {
         id: requestId || undefined,
         account: accountFilter || undefined,
         model: modelFilter || undefined,
+        provider: providerFilter || undefined,
         stream: streamFilter === 'all' ? undefined : streamFilter === 'stream',
         error_kind: errorKind === 'all' ? undefined : errorKind,
         from: range.from,
@@ -426,7 +443,7 @@ export function LogsPage() {
         setBooted(true)
       }
     }
-  }, [requestFilter, requestId, accountFilter, modelFilter, streamFilter, errorKind, timeRange, customRange, currentPage, pageSize])
+  }, [requestFilter, requestId, accountFilter, modelFilter, providerFilter, streamFilter, errorKind, timeRange, customRange, currentPage, pageSize])
 
   const loadRuntime = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true)
@@ -489,6 +506,7 @@ export function LogsPage() {
     setRequestFilter('all')
     setAccountFilter('')
     setModelFilter('')
+    setProviderFilter('')
     setStreamFilter('all')
     setErrorKind('all')
     setTimeRange('1h')
@@ -617,6 +635,12 @@ export function LogsPage() {
                 allLabel={t('logsFilterModelAll')}
                 searchPlaceholder={t('logsSearchModel')}
                 emptyLabel={t('logsNoFilterOptions')}
+              />
+              <FilterSelect
+                ariaLabel={t('logsColProvider')}
+                value={providerFilter}
+                onChange={setProviderFilter}
+                options={providerOptions}
               />
               <FilterSearchSelect
                 ariaLabel={t('logsSearchRequestId')}

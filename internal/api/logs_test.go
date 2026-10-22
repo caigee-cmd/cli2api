@@ -254,3 +254,62 @@ func TestGetRequestLogExposesUsageDetail(t *testing.T) {
 		t.Fatalf("usage_detail = %+v", got.UsageDetail)
 	}
 }
+
+func TestRequestStatsDimLimitAndProviderFilter(t *testing.T) {
+	dir := t.TempDir()
+	srv := New(config.Config{
+		Host: "127.0.0.1", Port: 3010, ProxyAPIKey: "secret",
+		QoderHome: dir, DataDir: dir,
+	})
+	defer srv.Close()
+
+	ctx := context.Background()
+	base := time.Now().UTC().Add(-30 * time.Minute).Truncate(time.Second)
+	for i, row := range []struct{ model, provider string }{{"glm", "qoder"}, {"glm", "qoder"}, {"hy3", "workbuddy"}} {
+		latency := 100 * (i + 1)
+		if err := srv.Recorder.Store().InsertRequestLog(ctx, accounts.RequestLog{
+			ID: accounts.NewRequestID(), CreatedAt: base.Add(time.Duration(i) * time.Minute), Status: accounts.RequestStatusOK,
+			RequestedModel: row.model, AccountID: "acc_" + row.provider, Provider: row.provider, LatencyMs: &latency,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	get := func(path string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set("Authorization", "Bearer secret")
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s status=%d body=%s", path, rec.Code, rec.Body.String())
+		}
+		return rec
+	}
+	window := "from=" + base.Add(-time.Minute).Format(time.RFC3339) + "&to=" + base.Add(10*time.Minute).Format(time.RFC3339)
+
+	var stats accounts.RequestStats
+	if err := json.Unmarshal(get("/api/logs/stats?dim=model&limit=1&"+window).Body.Bytes(), &stats); err != nil {
+		t.Fatal(err)
+	}
+	if len(stats.Models) != 1 || stats.Models[0].Key != "glm" || len(stats.Accounts) != 0 || len(stats.Providers) != 0 {
+		t.Fatalf("dim=model&limit=1 → models %+v accounts %+v providers %+v", stats.Models, stats.Accounts, stats.Providers)
+	}
+	if stats.Models[0].LatencyP95Ms == nil || *stats.Models[0].LatencyP95Ms != 200 {
+		t.Fatalf("glm p95 = %+v", stats.Models[0].LatencyP95Ms)
+	}
+
+	// No dim/limit: unchanged overview contract (all three lists).
+	if err := json.Unmarshal(get("/api/logs/stats?"+window).Body.Bytes(), &stats); err != nil {
+		t.Fatal(err)
+	}
+	if len(stats.Models) != 2 || len(stats.Accounts) != 2 || len(stats.Providers) != 2 {
+		t.Fatalf("default lists = %+v / %+v / %+v", stats.Models, stats.Accounts, stats.Providers)
+	}
+
+	var listed accounts.RequestLogList
+	if err := json.Unmarshal(get("/api/logs/requests?provider=workbuddy").Body.Bytes(), &listed); err != nil {
+		t.Fatal(err)
+	}
+	if listed.Total != 1 || listed.Items[0].Provider != "workbuddy" {
+		t.Fatalf("provider filter = %+v", listed)
+	}
+}
