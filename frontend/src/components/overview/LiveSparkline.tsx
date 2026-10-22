@@ -6,9 +6,9 @@ export function LiveSparkline({ samples, capacity, label }: { samples: LiveSampl
   const data = samples.length ? samples : [{ at: 0, value: 0 }]
   const peak = Math.max(1, capacity, ...data.map((s) => s.value))
   return (
-    <div className="h-10 w-full" role="img" aria-label={label}>
+    <div className="h-6 w-[120px] shrink-0" role="img" aria-label={label}>
       <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={data} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
+        <AreaChart data={data} margin={{ top: 1, right: 0, bottom: 1, left: 0 }}>
           <YAxis hide domain={[0, peak]} />
           <Area
             type="monotone"

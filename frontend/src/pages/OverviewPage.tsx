@@ -288,8 +288,8 @@ export function OverviewPage() {
   if (loading && !overview) return <OverviewPageSkeleton />
 
   return (
-    <div className="space-y-6">
-      <section className="grid gap-4 pb-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+    <div className="space-y-4">
+      <section className="grid gap-3 pb-1 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
         <div>
           <h2 data-gsap-reveal className="text-title font-semibold">{t('homeDisplay')}</h2>
           <p className="mt-1 max-w-2xl text-body leading-6 text-muted">{t('homeLead')}</p>
@@ -330,17 +330,17 @@ export function OverviewPage() {
 
       <LiveStrip live={live} samples={liveSamples} t={t} />
 
-      <section data-gsap-reveal className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <section data-gsap-reveal className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {metrics.map((metric) => (
-          <Card key={metric.label} className="gap-0 p-4">
+          <Card key={metric.label} className="gap-0 p-3.5">
             <div className="flex items-start justify-between gap-3">
               <span className="icon-tile">{metric.icon}</span>
               <span className="status-dot mt-1" data-state={metric.ok ? 'ok' : 'danger'} />
             </div>
-            <div className="mt-3 text-body text-muted">{metric.label}</div>
+            <div className="mt-2 text-body text-muted">{metric.label}</div>
             <div className="mt-1.5 flex flex-wrap items-center gap-2">
               <div className="tabular text-metric font-medium leading-none">
-                {statsLoading ? <SkeletonBlock className="h-8 w-24" /> : metric.value == null ? '—' : <CountUp value={metric.value} kind={metric.kind} />}
+                {statsLoading ? <SkeletonBlock className="h-7 w-24" /> : metric.value == null ? '—' : <CountUp value={metric.value} kind={metric.kind} />}
               </div>
               {!statsLoading && metric.trend != null ? <TrendChip value={metric.trend} hint={t('trendHalfHint')} /> : null}
             </div>
@@ -349,9 +349,9 @@ export function OverviewPage() {
         ))}
       </section>
 
-      <section className="grid gap-4 sm:grid-cols-3">
+      <section className="grid gap-3 sm:grid-cols-3">
         {secondaryMetrics.map((metric) => (
-          <Card key={metric.label} className="gap-0 p-4">
+          <Card key={metric.label} className="gap-0 p-3.5">
             <div className="flex items-center gap-3">
               <span className="icon-tile shrink-0">{metric.icon}</span>
               <div className="min-w-0 flex-1">
@@ -366,9 +366,9 @@ export function OverviewPage() {
         ))}
       </section>
 
-      <section className="grid gap-5">
+      <section className="grid gap-3">
         <Card data-gsap-reveal className="overflow-hidden p-0">
-          <div className="flex items-center justify-between gap-3 border-b border-separator px-5 py-4">
+          <div className="flex items-center justify-between gap-3 border-b border-separator px-4 py-3">
             <div>
               <h3 className="font-semibold">{t('statsTraffic')}</h3>
               <p className="mt-0.5 text-caption text-muted">{t('statsTrafficHint')}</p>
@@ -377,7 +377,7 @@ export function OverviewPage() {
               {formatPercent(traffic.totals.success_rate)}
             </Chip>
           </div>
-          <div className="space-y-5 p-5">
+          <div className="space-y-4 p-4">
             {statsError ? (
               <div className="text-body text-danger">{t('failedStats', { msg: statsError })}</div>
             ) : statsLoading ? (
@@ -408,7 +408,7 @@ export function OverviewPage() {
             ) : (
               <TrafficChartEmpty emptyLabel={t('statsEmptyTraffic')} />
             )}
-            <div className="grid grid-cols-2 gap-3 pt-4 sm:grid-cols-4">
+            <div className="grid grid-cols-2 gap-3 pt-3 sm:grid-cols-4">
               {[
                 [t('statsLatencyP50'), formatLatency(traffic.latency.p50_ms)],
                 [t('statsLatencyP95'), formatLatency(traffic.latency.p95_ms)],
@@ -425,9 +425,9 @@ export function OverviewPage() {
         </Card>
       </section>
 
-      <section className="grid gap-5 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,.85fr)]">
+      <section className="grid gap-3 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,.85fr)]">
         <Card data-gsap-reveal className="overflow-hidden p-0">
-          <div className="flex items-center justify-between gap-3 border-b border-separator px-5 py-4">
+          <div className="flex items-center justify-between gap-3 border-b border-separator px-4 py-3">
             <div>
               <h3 className="font-semibold">{t('statsPool')}</h3>
               <p className="mt-0.5 text-caption text-muted">{t('statsPoolHint')}</p>
@@ -444,7 +444,7 @@ export function OverviewPage() {
               [t('inFlight'), inFlight, inFlight ? 'ok' : ''],
               [t('statsAffinityHit'), affinityHitRate == null ? '—' : formatPercent(affinityHitRate), '', affinity ? t('statsAffinityHint', { hits: affinity.hits ?? 0, misses: affinity.misses ?? 0, bindings: affinity.bindings ?? 0 }) : ''],
             ].map(([label, value, state, hint]) => (
-              <div key={String(label)} className="px-4 py-3" title={hint ? String(hint) : undefined}>
+              <div key={String(label)} className="px-4 py-2.5" title={hint ? String(hint) : undefined}>
                 <div className="text-caption text-muted">{label}</div>
                 <div className="mt-1 flex items-center gap-2">
                   <span className="mono text-section font-semibold">{value}</span>
@@ -454,7 +454,7 @@ export function OverviewPage() {
             ))}
           </div>
           {!accountsLoading && coolingRows.length ? (
-            <div className="border-b border-separator px-5 py-3">
+            <div className="border-b border-separator px-4 py-2.5">
               <div className="text-caption font-medium text-muted">{t('statsCoolingDetails')}</div>
               <div className="mt-2 space-y-1.5">
                 {coolingRows.map(({ account, until }) => (
@@ -475,7 +475,7 @@ export function OverviewPage() {
             {accountsLoading ? (
               <RankListSkeleton />
             ) : accounts.length === 0 ? (
-              <div className="px-5 py-8 text-body text-muted">{t('noAccounts')}</div>
+              <div className="px-4 py-6 text-body text-muted">{t('noAccounts')}</div>
             ) : accounts.slice(0, 6).map((account) => {
               const quota = account.quota
               const tone = quotaTone(quota?.percentage, quota?.exceeded)
@@ -484,7 +484,7 @@ export function OverviewPage() {
               const rowMax = liveRow?.max_inflight || account.max_inflight || 4
               const rowSaturated = rowInFlight >= rowMax
               return (
-                <div key={account.id} className="flex items-center gap-3 px-5 py-3">
+                <div key={account.id} className="flex items-center gap-3 px-4 py-2.5">
                   <span className="status-dot shrink-0" data-state={account.ready ? 'ok' : 'danger'} />
                   <div className="min-w-0 flex-1">
                     <div className="flex min-w-0 items-center gap-2">
@@ -497,28 +497,28 @@ export function OverviewPage() {
                       {account.hot ? t('hot') : account.ready ? t('ready') : t('degraded')}
                     </div>
                   </div>
-                  <div className="w-16 shrink-0" title={rowSaturated ? t('liveSaturated') : t('inFlight')} data-testid="account-inflight">
-                    <div className={`mono text-right text-caption tabular ${rowSaturated ? 'text-warning' : 'text-muted'}`}>{rowInFlight}/{rowMax}</div>
-                    <div className="mt-1 h-1 overflow-hidden rounded-[2px] bg-separator">
-                      <div className={`h-full ${rowSaturated ? 'bg-warning' : 'bg-foreground/50'}`} style={{ width: `${Math.min(100, (rowInFlight / rowMax) * 100)}%` }} />
-                    </div>
+                  <div className="flex shrink-0 items-center gap-1.5" title={rowSaturated ? t('liveSaturated') : t('inFlight')} data-testid="account-inflight">
+                    <span className={`mono text-caption tabular ${rowSaturated ? 'text-warning' : 'text-muted'}`}>{rowInFlight}/{rowMax}</span>
+                    <span className="inline-block h-[2px] w-10 overflow-hidden rounded-[1px] bg-separator">
+                      <span className={`block h-full ${rowSaturated ? 'bg-warning' : 'bg-foreground/50'}`} style={{ width: `${Math.min(100, (rowInFlight / rowMax) * 100)}%` }} />
+                    </span>
                   </div>
                   {quota ? (
-                    <div className="w-16 shrink-0" title={t('quota')}>
-                      <div className="mono text-right text-caption tabular text-muted">{Math.round(quota.percentage ?? 0)}%</div>
-                      <div className="mt-1 h-1 overflow-hidden rounded-[2px] bg-separator">
-                        <div
-                          className={`h-full ${tone === 'danger' ? 'bg-danger' : tone === 'warning' ? 'bg-warning' : 'bg-success'}`}
+                    <div className="flex shrink-0 items-center gap-1.5" title={t('quota')}>
+                      <span className="mono text-caption tabular text-muted">{Math.round(quota.percentage ?? 0)}%</span>
+                      <span className="inline-block h-[2px] w-10 overflow-hidden rounded-[1px] bg-separator">
+                        <span
+                          className={`block h-full ${tone === 'danger' ? 'bg-danger' : tone === 'warning' ? 'bg-warning' : 'bg-success'}`}
                           style={{ width: `${Math.min(100, Math.max(0, quota.percentage ?? 0))}%` }}
                         />
-                      </div>
+                      </span>
                     </div>
                   ) : null}
                 </div>
               )
             })}
           </div>
-          <div className="flex items-center justify-between border-t border-separator px-5 py-3 text-caption text-muted">
+          <div className="flex items-center justify-between border-t border-separator px-4 py-2.5 text-caption text-muted">
             <span>{t('metricModels')} {modelCount}</span>
             <span className="flex min-w-0 flex-wrap items-center justify-end gap-x-2 gap-y-1">
               {['qoder', 'workbuddy', 'trae'].map((provider) => {
@@ -539,9 +539,9 @@ export function OverviewPage() {
         <ResourcesCard resources={resources} t={t} />
       </section>
 
-      <section className="grid gap-5 xl:grid-cols-2 2xl:grid-cols-3">
+      <section className="grid gap-3 xl:grid-cols-2 2xl:grid-cols-3">
         <Card data-gsap-reveal className="overflow-hidden p-0">
-          <div className="flex items-center justify-between gap-3 border-b border-separator px-5 py-4">
+          <div className="flex items-center justify-between gap-3 border-b border-separator px-4 py-3">
             <div>
               <h3 className="font-semibold">{t('statsTopProviders')}</h3>
               <p className="mt-0.5 text-caption text-muted">{t('statsTopProvidersHint')}</p>
@@ -565,7 +565,7 @@ export function OverviewPage() {
           )}
         </Card>
         <Card data-gsap-reveal className="overflow-hidden p-0">
-          <div className="flex items-center justify-between gap-3 border-b border-separator px-5 py-4">
+          <div className="flex items-center justify-between gap-3 border-b border-separator px-4 py-3">
             <div>
               <h3 className="font-semibold">{t('statsTopModels')}</h3>
               <p className="mt-0.5 text-caption text-muted">{t('providerCatalog')}</p>
@@ -589,7 +589,7 @@ export function OverviewPage() {
         </Card>
 
         <Card data-gsap-reveal className="overflow-hidden p-0">
-          <div className="flex items-center justify-between gap-3 border-b border-separator px-5 py-4">
+          <div className="flex items-center justify-between gap-3 border-b border-separator px-4 py-3">
             <div>
               <h3 className="font-semibold">{t('statsStatusMix')}</h3>
               <p className="mt-0.5 text-caption text-muted">{t('statsStatusMixHint')}</p>
@@ -601,7 +601,7 @@ export function OverviewPage() {
           ) : (
             <>
               <StatusBar items={statusCounts} t={t} />
-              <div className="border-t border-separator px-5 pt-3 text-caption font-medium text-muted">{t('statsErrorMix')}</div>
+              <div className="border-t border-separator px-4 pt-2.5 text-caption font-medium text-muted">{t('statsErrorMix')}</div>
               <RankList
                 empty={t('statsNoErrors')}
                 danger
@@ -612,7 +612,7 @@ export function OverviewPage() {
                   href: LOGS_ERROR_KINDS.has(item.key) ? drill({ error_kind: item.key }) : undefined,
                 }))}
               />
-              <div className="border-t border-separator px-5 pt-3 text-caption font-medium text-muted">{t('statsTopAccounts')}</div>
+              <div className="border-t border-separator px-4 pt-2.5 text-caption font-medium text-muted">{t('statsTopAccounts')}</div>
               <RankList
                 empty={t('statsNoAccounts')}
                 items={traffic.accounts.slice(0, 5).map((item) => ({
@@ -642,7 +642,7 @@ function ResourcesCard({ resources, t }: { resources: SystemResources | null; t:
   const server = resources?.server
   return (
     <Card data-gsap-reveal className="overflow-hidden p-0">
-      <div className="flex items-center justify-between gap-3 border-b border-separator px-5 py-4">
+      <div className="flex items-center justify-between gap-3 border-b border-separator px-4 py-3">
         <div>
           <h3 className="font-semibold">{t('resTitle')}</h3>
           <p className="mt-0.5 text-caption text-muted">{t('resHint')}</p>
@@ -656,7 +656,7 @@ function ResourcesCard({ resources, t }: { resources: SystemResources | null; t:
           <RankListSkeleton rows={3} />
         ) : (
           <>
-            <div className="px-5 py-3">
+            <div className="px-4 py-2.5">
               <div className="flex items-baseline justify-between gap-3">
                 <div className="flex min-w-0 items-center gap-2">
                   <span className="status-dot shrink-0" data-state={resourcesTone(server?.rss_bytes ?? 0, server?.cpu_percent ?? 0)} />
@@ -669,9 +669,9 @@ function ResourcesCard({ resources, t }: { resources: SystemResources | null; t:
               </div>
             </div>
             {workers.length === 0 ? (
-              <div className="px-5 py-4 text-body text-muted">{t('resEmpty')}</div>
+              <div className="px-4 py-3 text-body text-muted">{t('resEmpty')}</div>
             ) : workers.map((worker) => (
-              <div key={worker.pid} className="px-5 py-3">
+              <div key={worker.pid} className="px-4 py-2.5">
                 <div className="flex items-baseline justify-between gap-3">
                   <div className="flex min-w-0 items-center gap-2">
                     <span className="status-dot shrink-0" data-state={resourcesTone(worker.rss_bytes, worker.cpu_percent)} />
@@ -687,7 +687,7 @@ function ResourcesCard({ resources, t }: { resources: SystemResources | null; t:
           </>
         )}
       </div>
-      <div className="flex items-center justify-between border-t border-separator px-5 py-3 text-caption text-muted">
+      <div className="flex items-center justify-between border-t border-separator px-4 py-2.5 text-caption text-muted">
         <span className="mono">{server?.goroutines ?? 0} {t('resGoroutines')}</span>
         <span className="mono inline-flex items-center gap-1">
           <Cpu size={11} />
@@ -735,7 +735,7 @@ function RankList({
   }, [signature])
 
   if (!items.length) {
-    return <div className="px-5 py-8 text-body text-muted">{empty}</div>
+    return <div className="px-4 py-6 text-body text-muted">{empty}</div>
   }
   return (
     <div ref={rootRef} className="divide-y divide-separator">
@@ -761,11 +761,11 @@ function RankList({
           </>
         )
         return item.href ? (
-          <Link key={item.key} to={item.href} className="rank-row block px-5 py-3" title={item.label}>
+          <Link key={item.key} to={item.href} className="rank-row block px-4 py-2.5" title={item.label}>
             {body}
           </Link>
         ) : (
-          <div key={item.key} className="px-5 py-3">{body}</div>
+          <div key={item.key} className="px-4 py-2.5">{body}</div>
         )
       })}
     </div>
@@ -791,9 +791,9 @@ function StatusBar({
   t: (key: string) => string
 }) {
   const total = items.reduce((sum, item) => sum + item.count, 0)
-  if (!total) return <div className="px-5 py-4 text-body text-muted">{t('statsEmptyTraffic')}</div>
+  if (!total) return <div className="px-4 py-3 text-body text-muted">{t('statsEmptyTraffic')}</div>
   return (
-    <div className="px-5 py-4">
+    <div className="px-4 py-3">
       <div className="flex h-2 gap-px overflow-hidden rounded-[3px] bg-separator" role="img" aria-label={items.map((item) => `${t(STATUS_LABEL[item.key])} ${item.count}`).join(', ')}>
         {items.filter((item) => item.count > 0).map((item) => (
           <div key={item.key} className={STATUS_TONE[item.key]} style={{ width: `${(item.count / total) * 100}%`, minWidth: 2 }} />
