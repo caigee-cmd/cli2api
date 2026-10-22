@@ -1,4 +1,4 @@
-import { useSkeletonSwap } from '@/hooks/useSkeletonSwap'
+import { useSkeletonExit, useSkeletonSwap } from '@/hooks/useSkeletonSwap'
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import gsap from 'gsap'
 import { Link } from 'react-router-dom'
@@ -165,10 +165,11 @@ export function OverviewPage() {
     { label: t('metricTokens'), value: traffic.tokens.total, kind: 'compact' as const, detail: `${formatCompact(traffic.tokens.prompt)} / ${formatCompact(traffic.tokens.completion)}`, ok: true, icon: <Coins size={15} />, trend: null as number | null },
   ]
 
+  const skeletonExitRef = useSkeletonExit(loading && !overview)
   if (loading && !overview) return <OverviewPageSkeleton />
 
   return (
-    <div className="space-y-6">
+    <div ref={skeletonExitRef} className="space-y-6">
       <section className="grid gap-4 pb-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
         <div>
           <h2 data-gsap-reveal className="text-title font-semibold">{t('homeDisplay')}</h2>
