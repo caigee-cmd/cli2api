@@ -104,10 +104,11 @@ func normalizeCodexUpstream(fields map[string]json.RawMessage, model string, lit
 		fields["tool_choice"] = choice
 	}
 
-	// Non-lite Codex requests require parallel_tool_calls=true whenever tools are
-	// present; the caller's value is not accepted. Lite models reject the true
-	// value, so the field is forced false. Without tools the member is omitted,
-	// except on lite where the backend still expects the explicit false.
+	// Lite models reject parallel_tool_calls=true, so the field is forced false.
+	// Non-lite with tools: preserve the caller's explicit value (including false),
+	// matching CLIProxyAPI normalizeCodexParallelToolCallsForTools; default true
+	// only when the member is absent. Without tools the member is omitted, except
+	// on lite where the backend still expects the explicit false.
 	if lite {
 		fields["parallel_tool_calls"] = json.RawMessage(`false`)
 		// The lite header also requires reasoning.context=all_turns (#300).
@@ -117,7 +118,9 @@ func normalizeCodexUpstream(fields map[string]json.RawMessage, model string, lit
 		}
 		fields["reasoning"] = reasoning
 	} else if !emptyJSONArray(fields["tools"]) {
-		fields["parallel_tool_calls"] = json.RawMessage(`true`)
+		if _, ok := fields["parallel_tool_calls"]; !ok {
+			fields["parallel_tool_calls"] = json.RawMessage(`true`)
+		}
 	} else {
 		delete(fields, "parallel_tool_calls")
 	}
