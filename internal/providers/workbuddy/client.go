@@ -522,11 +522,13 @@ func (c *Client) ChatStream(ctx context.Context, accountID string, req translate
 
 // sendChat performs one chat round trip and returns a 2xx response with an
 // unread body. A 401 usually means the access token expired before its JWT
-// clock said so: refresh the token once and retry on the same account. Only
-// when the refresh itself fails is the 401 surfaced as KindAuth, which lets
-// the executor fail over to another account (Refresh already marks a dead
-// session as login_required). TLS certificate verification failures are
-// deterministic configuration errors and are reported without retry.
+// clock said so: refresh the token once and retry on the same account. When
+// refresh itself fails, only a real KindAuth / session-dead failure is
+// surfaced as KindAuth (Refresh already Observe(login_required) there);
+// transport / 5xx / other non-auth refresh failures return KindUnavailable
+// so the pool applies short cooldown + failover without marking the account
+// login_required. TLS certificate verification failures are deterministic
+// configuration errors and are reported without retry.
 func (c *Client) sendChat(ctx context.Context, accountID string, credential Credential, req translate.ChatRequest, httpReq *http.Request) (*http.Response, error) {
 	client, err := c.httpClient(ctx, accountID)
 	if err != nil {
@@ -553,11 +555,22 @@ func (c *Client) sendChat(ctx context.Context, accountID string, credential Cred
 			if tlsErr := tlsVerifyError(refreshErr); tlsErr != nil {
 				return nil, tlsErr
 			}
-			out := classifiedError(resp.StatusCode, body)
-			if pe, ok := out.(*providers.Error); ok && pe.Kind == accounts.KindAuth {
-				pe.Message = "token refresh after 401 failed; re-login required"
+			if refreshFailureIsAuth(refreshErr) {
+				out := classifiedError(resp.StatusCode, body)
+				if pe, ok := out.(*providers.Error); ok && pe.Kind == accounts.KindAuth {
+					pe.Message = "token refresh after 401 failed; re-login required"
+				}
+				return nil, out
 			}
-			return nil, out
+			// Non-auth refresh failure (transport / 5xx / etc.): keep the
+			// account out of login_required; pool short-cools via Unavailable.
+			summary := refreshErr.Error()
+			_ = c.store.Observe(ctx, accountID, credential.UID, "error", "token refresh after 401: "+summary, accounts.KindUnavailable)
+			return nil, &providers.Error{
+				Kind:    accounts.KindUnavailable,
+				Status:  http.StatusBadGateway,
+				Message: "token refresh after 401 unavailable: " + summary,
+			}
 		}
 		credential = fresh
 		httpReq, _, err = c.chatRequest(ctx, accountID, credential, req)
@@ -571,6 +584,26 @@ func (c *Client) sendChat(ctx context.Context, accountID string, credential Cred
 // local trust-store problem (corporate proxy, HTTPS-decrypting VPN), not an
 // account or transient network fault.
 const tlsVerifyHint = "TLS certificate verification failed: the upstream certificate chain is not trusted by this host (corporate proxy / HTTPS-decrypting VPN?). Install the issuing root CA into the system trust store or set SSL_CERT_FILE, then retry."
+
+// refreshFailureIsAuth reports whether a Refresh error is a real session-dead
+// / KindAuth failure. Reuses Classify and the existing session-dead markers;
+// Refresh already Observe(login_required) on that path. Non-auth failures
+// (transport, 5xx, envelope) must not be upgraded to KindAuth in sendChat.
+func refreshFailureIsAuth(err error) bool {
+	if err == nil {
+		return false
+	}
+	var pe *providers.Error
+	if errors.As(err, &pe) && pe.Kind == accounts.KindAuth {
+		return true
+	}
+	msg := err.Error()
+	// Refresh returns "workbuddy session dead: re-login required" for Classify KindAuth.
+	if strings.Contains(strings.ToLower(msg), "session dead") {
+		return true
+	}
+	return Classify(0, msg).Kind == accounts.KindAuth
+}
 
 func tlsVerifyError(err error) error {
 	if !providers.IsTLSVerifyError(err) {

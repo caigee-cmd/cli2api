@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -70,7 +71,7 @@ func TestChat401RefreshesOnceAndRetriesSameAccount(t *testing.T) {
 
 func TestChat401RefreshFailureSurfacesAuthForFailover(t *testing.T) {
 	var chats, refreshes int32
-	client, _ := newAlignClient(t, Credential{AccessToken: "old", RefreshToken: "rt", UID: "u1", Domain: DomainCN, ExpiresAt: 4102444800},
+	client, store := newAlignClient(t, Credential{AccessToken: "old", RefreshToken: "rt", UID: "u1", Domain: DomainCN, ExpiresAt: 4102444800},
 		func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {
 			case pathProductConfig:
@@ -88,8 +89,85 @@ func TestChat401RefreshFailureSurfacesAuthForFailover(t *testing.T) {
 	if !errors.As(err, &pe) || pe.Kind != accounts.KindAuth {
 		t.Fatalf("want KindAuth after failed refresh, got %v", err)
 	}
+	if pe.Message != "token refresh after 401 failed; re-login required" {
+		t.Fatalf("auth message = %q", pe.Message)
+	}
 	if chats != 1 || refreshes != 1 {
 		t.Fatalf("chats=%d refreshes=%d; refresh must run once and not retry chat", chats, refreshes)
+	}
+	// Refresh Observe(login_required); sendChat must not Observe unavailable.
+	if store.lastStatus != "login_required" || store.lastKind != accounts.KindAuth {
+		t.Fatalf("want Refresh Observe(login_required/auth), got status=%q kind=%q", store.lastStatus, store.lastKind)
+	}
+}
+
+func TestChat401RefreshNonAuthSurfacesUnavailable(t *testing.T) {
+	var chats, refreshes int32
+	client, store := newAlignClient(t, Credential{AccessToken: "old", RefreshToken: "rt", UID: "u1", Domain: DomainCN, ExpiresAt: 4102444800},
+		func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case pathProductConfig:
+				catalogOK(w)
+			case pathTokenRefresh:
+				atomic.AddInt32(&refreshes, 1)
+				w.WriteHeader(http.StatusBadGateway)
+				_, _ = w.Write([]byte(`upstream boom`))
+			case pathChat:
+				atomic.AddInt32(&chats, 1)
+				w.WriteHeader(http.StatusUnauthorized)
+			}
+		})
+	_, _, err := client.ChatStream(context.Background(), "acc1", alignReq)
+	var pe *providers.Error
+	if !errors.As(err, &pe) || pe.Kind != accounts.KindUnavailable {
+		t.Fatalf("want KindUnavailable after non-auth refresh failure, got %v", err)
+	}
+	if strings.Contains(pe.Message, "re-login required") {
+		t.Fatalf("non-auth refresh must not surface re-login message: %q", pe.Message)
+	}
+	if !strings.Contains(pe.Message, "refresh") {
+		t.Fatalf("want refresh failure summary in message, got %q", pe.Message)
+	}
+	if chats != 1 || refreshes != 1 {
+		t.Fatalf("chats=%d refreshes=%d; refresh must run once and not retry chat", chats, refreshes)
+	}
+	if store.lastKind == accounts.KindAuth || store.lastStatus == "login_required" {
+		t.Fatalf("non-auth refresh must not Observe login_required/auth: status=%q kind=%q", store.lastStatus, store.lastKind)
+	}
+	if store.lastKind != accounts.KindUnavailable || store.lastStatus != "error" {
+		t.Fatalf("want Observe(error/unavailable) diagnostic, got status=%q kind=%q", store.lastStatus, store.lastKind)
+	}
+}
+
+func TestChat401RefreshSessionDeadBodySurfacesAuth(t *testing.T) {
+	var chats, refreshes int32
+	client, store := newAlignClient(t, Credential{AccessToken: "old", RefreshToken: "rt", UID: "u1", Domain: DomainCN, ExpiresAt: 4102444800},
+		func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case pathProductConfig:
+				catalogOK(w)
+			case pathTokenRefresh:
+				atomic.AddInt32(&refreshes, 1)
+				w.WriteHeader(http.StatusOK)
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"code": sessionDeadCode,
+					"msg":  sessionDeadText,
+				})
+			case pathChat:
+				atomic.AddInt32(&chats, 1)
+				w.WriteHeader(http.StatusUnauthorized)
+			}
+		})
+	_, _, err := client.ChatStream(context.Background(), "acc1", alignReq)
+	var pe *providers.Error
+	if !errors.As(err, &pe) || pe.Kind != accounts.KindAuth {
+		t.Fatalf("want KindAuth for session-dead refresh body, got %v", err)
+	}
+	if store.lastStatus != "login_required" || store.lastKind != accounts.KindAuth {
+		t.Fatalf("want Refresh Observe(login_required/auth), got status=%q kind=%q", store.lastStatus, store.lastKind)
+	}
+	if chats != 1 || refreshes != 1 {
+		t.Fatalf("chats=%d refreshes=%d", chats, refreshes)
 	}
 }
 
