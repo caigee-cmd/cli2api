@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
@@ -834,6 +835,46 @@ func (l routeLoop) pickFailure(err error) (int, string, string, error) {
 	return 0, "", "", err
 }
 
+// releaseCloser runs release exactly once when the body is closed, so a
+// successful stream keeps its Acquire until the caller finishes reading.
+type releaseCloser struct {
+	io.ReadCloser
+	once    sync.Once
+	release func()
+}
+
+func (c *releaseCloser) Close() error {
+	err := c.ReadCloser.Close()
+	if c.release != nil {
+		c.once.Do(c.release)
+	}
+	return err
+}
+
+func (e ChatExecutor) acquireInFlight(id string) bool {
+	if e.Pool == nil {
+		return true
+	}
+	return e.Pool.Acquire(id)
+}
+
+func (e ChatExecutor) releaseInFlight(id string) {
+	if e.Pool != nil {
+		e.Pool.Release(id)
+	}
+}
+
+// attachInFlightRelease transfers an acquired slot to the response body.
+// Close releases the pool id that was Acquired (not a rewritten account id).
+func (e ChatExecutor) attachInFlightRelease(resp *http.Response, poolID string) *http.Response {
+	if resp == nil || resp.Body == nil {
+		e.releaseInFlight(poolID)
+		return resp
+	}
+	resp.Body = &releaseCloser{ReadCloser: resp.Body, release: func() { e.releaseInFlight(poolID) }}
+	return resp
+}
+
 func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatRequest, prefer, providerFilter string) (result ChatResult, returnErr error) {
 	loop := e.newRouteLoop(ctx, prefer, providerFilter, req)
 	defer func() { result.Routing = loop.routing.Source }()
@@ -846,31 +887,44 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 			}
 			return ChatResult{}, pickErr
 		}
+		// Acquire with the pool id before any rewrite of item.ID (X-Qoder-Account).
+		poolID := item.ID
+		if !e.acquireInFlight(poolID) {
+			loop.exclude(item)
+			continue
+		}
+		release := func() { e.releaseInFlight(poolID) }
 		if isInProcessItem(item) || e.qoderDirect(item) {
 			result, classified, err := e.chatInProcessNonStreamAttempt(ctx, item, req, i)
 			if err == nil {
 				result.AttemptCount = i + 1
 				e.observeRouting(&loop.routing, result.AccountID)
 				e.bindSession(loop.routing, result.AccountID)
+				release()
 				return result, nil
 			}
 			loop.lastErr = err
 			if requestContextDone(ctx, err) {
+				release()
 				return ChatResult{AttemptCount: i + 1, AccountID: item.ID, Provider: item.Provider}, err
 			}
 			if loop.canFailover(classified) {
+				release()
 				loop.exclude(item)
 				continue
 			}
+			release()
 			return ChatResult{AttemptCount: i + 1, AccountID: item.ID, Provider: item.Provider}, err
 		}
 		payload, err := json.Marshal(buildWorkerChatPayload(req, false))
 		if err != nil {
+			release()
 			return ChatResult{}, err
 		}
 		headerAccount := loop.headerAccount(item, i)
 		httpReq, err := e.newWorkerRequest(ctx, item, payload, headerAccount)
 		if err != nil {
+			release()
 			return ChatResult{}, err
 		}
 		started := time.Now()
@@ -882,6 +936,7 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 					AttemptIndex: i, AccountID: item.ID, StartedAt: started, FinishedAt: ptrTime(time.Now().UTC()),
 					Status: accounts.AttemptStatusError, ErrorKind: accounts.KindUnavailable, ErrorMessage: err.Error(), LatencyMs: &latency,
 				})
+				release()
 				return ChatResult{AttemptCount: i + 1, AccountID: item.ID, Provider: item.Provider}, err
 			}
 			classified := Classify(0, err.Error(), "", accounts.KindUnavailable, "")
@@ -892,6 +947,7 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 				AttemptIndex: i, AccountID: item.ID, StartedAt: started, FinishedAt: ptrTime(time.Now().UTC()),
 				Status: accounts.AttemptStatusFailover, ErrorKind: classified.Kind, ErrorMessage: loop.lastErr.Error(), LatencyMs: &latency,
 			})
+			release()
 			loop.exclude(item)
 			continue
 		}
@@ -921,6 +977,7 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 					Status: status, HTTPStatus: ptrInt(resp.StatusCode), ErrorKind: classified.Kind,
 					ErrorMessage: truncateErr(msg), LatencyMs: &latency,
 				})
+				release()
 				continue
 			}
 			e.recordAttempt(ctx, accounts.RequestAttempt{
@@ -928,6 +985,7 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 				Status: status, HTTPStatus: ptrInt(resp.StatusCode), ErrorKind: classified.Kind,
 				ErrorMessage: truncateErr(msg), LatencyMs: &latency,
 			})
+			release()
 			return ChatResult{AttemptCount: i + 1, AccountID: item.ID, Provider: loop.resultProvider(item)}, loop.lastErr
 		}
 		result, err := decodeChatResult(req, body)
@@ -937,6 +995,7 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 				Status: accounts.AttemptStatusError, HTTPStatus: ptrInt(resp.StatusCode),
 				ErrorKind: accounts.KindUnavailable, ErrorMessage: truncateErr(err.Error()), LatencyMs: &latency,
 			})
+			release()
 			return ChatResult{AttemptCount: i + 1, AccountID: item.ID, Provider: loop.resultProvider(item)}, err
 		}
 		result.AccountID = item.ID
@@ -955,6 +1014,7 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 			PromptTokens: ptrInt(result.PromptTokens), CompletionTokens: ptrInt(result.CompletionTokens),
 			UsageSource: result.UsageSource,
 		})
+		release()
 		return result, nil
 	}
 	if loop.lastErr == nil {
@@ -1276,31 +1336,43 @@ func (e ChatExecutor) chatStreamProxy(ctx context.Context, req translate.ChatReq
 			}
 			return StreamResult{}, pickErr
 		}
+		poolID := item.ID
+		if !e.acquireInFlight(poolID) {
+			loop.exclude(item)
+			continue
+		}
+		release := func() { e.releaseInFlight(poolID) }
 		if isInProcessItem(item) || (e.qoderDirect(item) && !(preferNativeResponses && native != nil)) {
 			result, classified, err := e.chatInProcessStreamAttempt(ctx, item, req, native, i, preferNativeResponses)
 
 			if err == nil {
 				result.AttemptCount = i + 1
 				e.observeRouting(&loop.routing, result.AccountID)
+				result.Response = e.attachInFlightRelease(result.Response, poolID)
 				return result, nil
 			}
 			loop.lastErr = err
 			if requestContextDone(ctx, err) {
+				release()
 				return StreamResult{AttemptCount: i + 1, AccountID: item.ID, Provider: item.Provider}, err
 			}
 			if loop.canFailover(classified) {
+				release()
 				loop.exclude(item)
 				continue
 			}
+			release()
 			return StreamResult{AttemptCount: i + 1, AccountID: item.ID, Provider: item.Provider}, err
 		}
 		payload, err := json.Marshal(buildWorkerChatPayload(req, true))
 		if err != nil {
+			release()
 			return StreamResult{}, err
 		}
 		headerAccount := loop.headerAccount(item, i)
 		httpReq, err := e.newWorkerRequest(ctx, item, payload, headerAccount)
 		if err != nil {
+			release()
 			return StreamResult{}, err
 		}
 		started := time.Now()
@@ -1312,6 +1384,7 @@ func (e ChatExecutor) chatStreamProxy(ctx context.Context, req translate.ChatReq
 					AttemptIndex: i, AccountID: item.ID, StartedAt: started, FinishedAt: ptrTime(time.Now().UTC()),
 					Status: accounts.AttemptStatusError, ErrorKind: accounts.KindUnavailable, ErrorMessage: err.Error(), LatencyMs: &latency,
 				})
+				release()
 				return StreamResult{AttemptCount: i + 1, AccountID: item.ID, Provider: item.Provider}, err
 			}
 			classified := Classify(0, err.Error(), "", accounts.KindUnavailable, "")
@@ -1322,6 +1395,7 @@ func (e ChatExecutor) chatStreamProxy(ctx context.Context, req translate.ChatReq
 				AttemptIndex: i, AccountID: item.ID, StartedAt: started, FinishedAt: ptrTime(time.Now().UTC()),
 				Status: accounts.AttemptStatusFailover, ErrorKind: classified.Kind, ErrorMessage: loop.lastErr.Error(), LatencyMs: &latency,
 			})
+			release()
 			loop.exclude(item)
 			continue
 		}
@@ -1349,6 +1423,7 @@ func (e ChatExecutor) chatStreamProxy(ctx context.Context, req translate.ChatReq
 					Status: status, HTTPStatus: ptrInt(resp.StatusCode), ErrorKind: classified.Kind,
 					ErrorMessage: truncateErr(msg), LatencyMs: &latency,
 				})
+				release()
 				continue
 			}
 			e.recordAttempt(ctx, accounts.RequestAttempt{
@@ -1356,6 +1431,7 @@ func (e ChatExecutor) chatStreamProxy(ctx context.Context, req translate.ChatReq
 				Status: status, HTTPStatus: ptrInt(resp.StatusCode), ErrorKind: classified.Kind,
 				ErrorMessage: truncateErr(msg), LatencyMs: &latency,
 			})
+			release()
 			return StreamResult{AttemptCount: i + 1, AccountID: item.ID, Provider: loop.resultProvider(item)}, loop.lastErr
 		}
 		e.markOK(item.ID, req.Model)
@@ -1370,6 +1446,7 @@ func (e ChatExecutor) chatStreamProxy(ctx context.Context, req translate.ChatReq
 		if resolved != "" {
 			logResolvedReasoning(ctx, "chat_stream", item, req.Model, resolved)
 		}
+		resp = e.attachInFlightRelease(resp, poolID)
 		return StreamResult{
 			Response:       resp,
 			AccountID:      item.ID,

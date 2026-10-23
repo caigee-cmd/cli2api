@@ -340,8 +340,11 @@ func TestChatNonStreamAllSaturatedReturnsRateLimit(t *testing.T) {
 	pool := NewPool([]string{"http://127.0.0.1:1", "http://127.0.0.1:2"}, []string{"a", "b"})
 	pool.Upsert(Item{ID: "a", URL: "http://127.0.0.1:1", MaxInFlight: 1})
 	pool.Upsert(Item{ID: "b", URL: "http://127.0.0.1:2", MaxInFlight: 1})
-	pool.MergeHealth("a", true, false, 1, 0, "")
-	pool.MergeHealth("b", true, false, 1, 0, "")
+	pool.MergeHealth("a", true, false, 0, 0, "")
+	pool.MergeHealth("b", true, false, 0, 0, "")
+	if !pool.Acquire("a") || !pool.Acquire("b") {
+		t.Fatal("acquire a/b")
+	}
 	ex := NewChatExecutor(pool, "")
 	_, err := ex.ChatNonStream(context.Background(), translate.ChatRequest{
 		Model: "glm-5.3", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},

@@ -455,8 +455,13 @@ func TestManagerRefreshesHealthAndPersistsUID(t *testing.T) {
 		t.Fatalf("updated account = %+v", updated)
 	}
 	item, _ := manager.Pool().ByID(account.ID)
-	if item.Hot == nil || !*item.Hot || item.InFlight != 2 {
+	if item.Hot == nil || !*item.Hot {
 		t.Fatalf("pool health = %+v", item)
+	}
+	// InFlight is owned by the executor Acquire/Release path; probes must
+	// not overwrite it (probe payload may still report a stale worker count).
+	if item.InFlight != 0 {
+		t.Fatalf("MergeHealth must leave InFlight alone, got %d", item.InFlight)
 	}
 }
 

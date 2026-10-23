@@ -8,6 +8,8 @@ import (
 )
 
 func TestBuildLiveSnapshot(t *testing.T) {
+	// AccountView.InFlight is the pool's current counter (Acquire/Release),
+	// not a probe snapshot; /api/live just sums those live values.
 	views := []accounts.AccountView{
 		{Account: accounts.Account{ID: "a", Enabled: true, MaxInFlight: 4}, InFlight: 4},
 		{Account: accounts.Account{ID: "b", Enabled: true}, InFlight: 1}, // default 4

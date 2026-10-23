@@ -154,7 +154,10 @@ func TestSaturatedPoolKeepsFiveSecondRetryAfter(t *testing.T) {
 		ID: account.ID, Provider: "qoder", Runtime: "child_process", URL: worker.URL,
 		Models: []string{"glm-5.2"}, MaxInFlight: 1,
 	})
-	a.Pool.MergeHealth(account.ID, true, true, 1, 0, "")
+	a.Pool.MergeHealth(account.ID, true, true, 0, 0, "")
+	if !a.Pool.Acquire(account.ID) {
+		t.Fatal("acquire saturated account")
+	}
 	a.Gateway.Catalogs = nil
 	for _, path := range []string{"/v1/chat/completions", "/api/chat", "/v1/messages", "/v1/responses"} {
 		for _, stream := range []bool{false, true} {

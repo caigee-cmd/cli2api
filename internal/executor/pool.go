@@ -821,8 +821,8 @@ func inRegion(items []Item, region string) []Item {
 }
 
 // itemSaturated reports whether the account already serves its configured
-// concurrency limit. max_inflight was stored but never enforced, so a single
-// account could absorb every concurrent request during a burst.
+// concurrency limit. InFlight is owned by Acquire/Release on the request
+// path; PickRoute uses this to skip accounts already at capacity.
 func itemSaturated(item Item) bool {
 	if item.MaxInFlight <= 0 {
 		return false
@@ -1156,7 +1156,13 @@ func (p *Pool) SetDropSystemPrompt(id string, drop bool) {
 	}
 }
 
+// MergeHealth updates readiness/hotness/restarts/lastError/runtime_state from
+// a probe. It does not touch InFlight: probe snapshots are stale within
+// seconds and race Acquire/Release on the request path. The executor is the
+// source of truth for in-flight concurrency. inFlight is accepted for call
+// compatibility and ignored.
 func (p *Pool) MergeHealth(id string, ready, hot bool, inFlight, restarts int, lastError string) {
+	_ = inFlight
 	if p == nil || id == "" {
 		return
 	}
@@ -1178,7 +1184,6 @@ func (p *Pool) MergeHealth(id string, ready, hot bool, inFlight, restarts int, l
 		r, h := ready, hot
 		p.items[i].Ready = &r
 		p.items[i].Hot = &h
-		p.items[i].InFlight = inFlight
 		p.items[i].Restarts = restarts
 		p.items[i].LastError = lastError
 		p.items[i].NextRestartAt = time.Time{}
@@ -1192,6 +1197,46 @@ func (p *Pool) MergeHealth(id string, ready, hot bool, inFlight, restarts int, l
 		}
 		if lastError == "" {
 			p.items[i].LastKind = ""
+		}
+		return
+	}
+}
+
+// Acquire reserves one in-flight slot for the account. Returns false when the
+// id is unknown or MaxInFlight > 0 and the account is already at capacity.
+func (p *Pool) Acquire(id string) bool {
+	if p == nil || id == "" {
+		return false
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for i := range p.items {
+		if p.items[i].ID != id {
+			continue
+		}
+		if p.items[i].MaxInFlight > 0 && p.items[i].InFlight >= p.items[i].MaxInFlight {
+			return false
+		}
+		p.items[i].InFlight++
+		return true
+	}
+	return false
+}
+
+// Release frees one in-flight slot. Unknown ids are a no-op; the counter
+// never goes below zero.
+func (p *Pool) Release(id string) {
+	if p == nil || id == "" {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for i := range p.items {
+		if p.items[i].ID != id {
+			continue
+		}
+		if p.items[i].InFlight > 0 {
+			p.items[i].InFlight--
 		}
 		return
 	}
@@ -1535,6 +1580,10 @@ func (p *Pool) Upsert(item Item) {
 			if item.Hot == nil {
 				item.Hot = p.items[i].Hot
 			}
+			// InFlight is owned by Acquire/Release on the request path.
+			// Runtime Upserts never carry a live counter, so always keep the
+			// existing value instead of wiping concurrent requests to zero.
+			item.InFlight = p.items[i].InFlight
 			if item.Quota == nil {
 				item.Quota = p.items[i].Quota
 			}
