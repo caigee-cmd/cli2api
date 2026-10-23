@@ -366,6 +366,213 @@ func (s *Store) requestLatencyPercentiles(ctx context.Context, where string, arg
 	return roundedInt(percentileNearestRank(values, 50)), roundedInt(percentileNearestRank(values, 95))
 }
 
+// requestCreditExpr resolves the credits charged for a row. Credits are stored
+// natively on request_logs and, for older rows written before that column was
+// populated, mirrored into request_usage_details. Prefer the native column.
+const requestCreditExpr = `COALESCE(credits, (SELECT credit FROM request_usage_details WHERE request_usage_details.request_id = request_logs.id))`
+
+// requestRealmExpr resolves the region ("realm") of the account behind a row.
+// request_logs has no realm column; each account carries a provider_region
+// (global / cn). Unknown or unassigned accounts fall back to '(unknown)'.
+const requestRealmExpr = `COALESCE(NULLIF((SELECT provider_region FROM accounts WHERE accounts.id = request_logs.account_id), ''), '(unknown)')`
+
+// SummarizeRequestUsage aggregates the token / cache / latency / credit
+// breakdown the Overview usage panels need. It reuses the request_logs window
+// filter so the numbers line up with the traffic chart.
+func (s *Store) SummarizeRequestUsage(ctx context.Context, from, to time.Time) (accounts.RequestUsage, error) {
+	if from.IsZero() {
+		from = time.Now().UTC().Add(-24 * time.Hour)
+	}
+	if to.IsZero() {
+		to = time.Now().UTC()
+	}
+	from = from.UTC()
+	to = to.UTC()
+	if !to.After(from) {
+		to = from.Add(time.Hour)
+	}
+	hours := int(to.Sub(from).Round(time.Hour) / time.Hour)
+	if hours < 1 {
+		hours = 1
+	}
+
+	filter := accounts.RequestLogFilter{From: &from, To: &to}
+	where, args := buildRequestLogWhere(filter)
+	usage := accounts.RequestUsage{
+		Window:          accounts.RequestStatsWindow{From: from, To: to, Hours: hours},
+		ByAccount:       make([]accounts.RequestUsageRow, 0),
+		ByModel:         make([]accounts.RequestUsageRow, 0),
+		ByRealm:         make([]accounts.RequestUsageRow, 0),
+		CreditByAccount: make([]accounts.RequestUsageCreditRow, 0),
+		CreditByModel:   make([]accounts.RequestUsageCreditRow, 0),
+		Series:          make([]accounts.RequestStatsPoint, 0, hours),
+	}
+
+	// Totals: tokens, cache, requests/errors, latency and credit samples.
+	totalRow := s.db.QueryRowContext(ctx, `
+SELECT
+	  COUNT(*),
+	  COALESCE(SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END), 0),
+	  COALESCE(SUM(COALESCE(prompt_tokens, 0)), 0),
+	  COALESCE(SUM(COALESCE(completion_tokens, 0)), 0),
+	  COALESCE(SUM(COALESCE(cache_read_tokens, 0)), 0),
+	  AVG(CASE WHEN latency_ms IS NOT NULL THEN latency_ms END),
+	  COALESCE(SUM(`+requestCreditExpr+`), 0),
+	  COALESCE(SUM(CASE WHEN `+requestCreditExpr+` IS NOT NULL THEN 1 ELSE 0 END), 0),
+	  COALESCE(SUM(CASE WHEN `+requestCreditExpr+` IS NOT NULL THEN COALESCE(prompt_tokens, 0) + COALESCE(completion_tokens, 0) ELSE 0 END), 0)
+FROM request_logs`+where, args...)
+	var avgLatency sql.NullFloat64
+	if err := totalRow.Scan(
+		&usage.Totals.Requests, &usage.Totals.Errors,
+		&usage.Totals.PromptTokens, &usage.Totals.CompletionTokens, &usage.Totals.CacheHitTokens,
+		&avgLatency,
+		&usage.Totals.Credits, &usage.Totals.CreditSamples, &usage.Totals.CreditTokens,
+	); err != nil {
+		return accounts.RequestUsage{}, fmt.Errorf("summarize request usage: %w", err)
+	}
+	usage.Totals.TotalTokens = usage.Totals.PromptTokens + usage.Totals.CompletionTokens
+	usage.Totals.CacheMissTokens = usage.Totals.PromptTokens - usage.Totals.CacheHitTokens
+	if usage.Totals.CacheMissTokens < 0 {
+		usage.Totals.CacheMissTokens = 0
+	}
+	usage.Totals.AvgLatencyMs = roundedNullInt(avgLatency)
+	if usage.Totals.Requests > 0 {
+		usage.Totals.SuccessRate = float64(usage.Totals.Requests-usage.Totals.Errors) / float64(usage.Totals.Requests)
+	}
+	if usage.Totals.CreditSamples > 0 && usage.Totals.CreditTokens > 0 {
+		value := usage.Totals.Credits / (float64(usage.Totals.CreditTokens) / 1e6)
+		usage.Totals.CreditsPer1MTokens = &value
+	}
+
+	var err error
+	if usage.ByAccount, err = s.summarizeUsageRows(ctx, where, args,
+		`COALESCE(NULLIF(account_id, ''), '(unassigned)')`, true); err != nil {
+		return accounts.RequestUsage{}, err
+	}
+	if usage.ByModel, err = s.summarizeUsageRows(ctx, where, args,
+		`COALESCE(NULLIF(requested_model, ''), '(unknown)')`, false); err != nil {
+		return accounts.RequestUsage{}, err
+	}
+	if usage.ByRealm, err = s.summarizeUsageRows(ctx, where, args, requestRealmExpr, false); err != nil {
+		return accounts.RequestUsage{}, err
+	}
+	if usage.CreditByAccount, err = s.summarizeCreditRows(ctx, where, args,
+		`COALESCE(NULLIF(account_id, ''), '(unassigned)')`, true); err != nil {
+		return accounts.RequestUsage{}, err
+	}
+	if usage.CreditByModel, err = s.summarizeCreditRows(ctx, where, args,
+		`COALESCE(NULLIF(requested_model, ''), '(unknown)')`, false); err != nil {
+		return accounts.RequestUsage{}, err
+	}
+
+	series, err := s.requestSeries(ctx, from, to, where, args)
+	if err != nil {
+		return accounts.RequestUsage{}, err
+	}
+	usage.Series = series
+	return usage, nil
+}
+
+// summarizeUsageRows groups request_logs by an arbitrary key expression and
+// returns token/cache/request/error/latency buckets. When withRealm is set the
+// key is an account id and the row carries the account's region.
+func (s *Store) summarizeUsageRows(ctx context.Context, where string, args []any, keyExpr string, withRealm bool) ([]accounts.RequestUsageRow, error) {
+	realmSel := "''"
+	if withRealm {
+		realmSel = requestRealmExpr
+	}
+	rows, err := s.db.QueryContext(ctx, `
+SELECT `+keyExpr+` AS k,
+	  `+realmSel+` AS realm,
+	  COUNT(*),
+	  COALESCE(SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END), 0),
+	  COALESCE(SUM(COALESCE(prompt_tokens, 0)), 0),
+	  COALESCE(SUM(COALESCE(completion_tokens, 0)), 0),
+	  COALESCE(SUM(COALESCE(cache_read_tokens, 0)), 0),
+	  AVG(CASE WHEN latency_ms IS NOT NULL THEN latency_ms END)
+FROM request_logs`+where+`
+GROUP BY k ORDER BY SUM(COALESCE(prompt_tokens, 0) + COALESCE(completion_tokens, 0)) DESC, k ASC LIMIT 20`, args...)
+	if err != nil {
+		return nil, fmt.Errorf("summarize request usage rows: %w", err)
+	}
+	defer rows.Close()
+	out := make([]accounts.RequestUsageRow, 0, 20)
+	for rows.Next() {
+		var (
+			row        accounts.RequestUsageRow
+			realm      string
+			avgLatency sql.NullFloat64
+		)
+		if err := rows.Scan(&row.Key, &realm, &row.Requests, &row.Errors,
+			&row.PromptTokens, &row.CompletionTokens, &row.CacheHitTokens, &avgLatency); err != nil {
+			return nil, err
+		}
+		if withRealm {
+			row.Realm = realm
+		}
+		row.TotalTokens = row.PromptTokens + row.CompletionTokens
+		row.CacheMissTokens = row.PromptTokens - row.CacheHitTokens
+		if row.CacheMissTokens < 0 {
+			row.CacheMissTokens = 0
+		}
+		row.AvgLatencyMs = roundedNullInt(avgLatency)
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+// summarizeCreditRows groups request_logs by key and returns the credit ledger.
+// CreditSamples / CreditTokens only count rows where a credit value was
+// observed, so the 兑换率 never divides a credit total by unrelated tokens.
+func (s *Store) summarizeCreditRows(ctx context.Context, where string, args []any, keyExpr string, withRealm bool) ([]accounts.RequestUsageCreditRow, error) {
+	realmSel := "''"
+	if withRealm {
+		realmSel = requestRealmExpr
+	}
+	rows, err := s.db.QueryContext(ctx, `
+SELECT `+keyExpr+` AS k,
+	  `+realmSel+` AS realm,
+	  COUNT(*),
+	  COALESCE(SUM(CASE WHEN `+requestCreditExpr+` IS NOT NULL THEN 1 ELSE 0 END), 0),
+	  COALESCE(SUM(`+requestCreditExpr+`), 0),
+	  COALESCE(SUM(CASE WHEN `+requestCreditExpr+` IS NOT NULL THEN COALESCE(prompt_tokens, 0) + COALESCE(completion_tokens, 0) ELSE 0 END), 0),
+	  COALESCE(SUM(COALESCE(cache_read_tokens, 0)), 0),
+	  COALESCE(SUM(COALESCE(prompt_tokens, 0)), 0)
+FROM request_logs`+where+`
+GROUP BY k ORDER BY COALESCE(SUM(`+requestCreditExpr+`), 0) DESC, k ASC LIMIT 20`, args...)
+	if err != nil {
+		return nil, fmt.Errorf("summarize request usage credits: %w", err)
+	}
+	defer rows.Close()
+	out := make([]accounts.RequestUsageCreditRow, 0, 20)
+	for rows.Next() {
+		var (
+			row            accounts.RequestUsageCreditRow
+			realm          string
+			cacheHitTokens int64
+			promptTokens   int64
+		)
+		if err := rows.Scan(&row.Key, &realm, &row.Requests, &row.CreditSamples,
+			&row.Credits, &row.CreditTokens, &cacheHitTokens, &promptTokens); err != nil {
+			return nil, err
+		}
+		if withRealm {
+			row.Realm = realm
+		}
+		row.CacheHitTokens = cacheHitTokens
+		row.CacheMissTokens = promptTokens - cacheHitTokens
+		if row.CacheMissTokens < 0 {
+			row.CacheMissTokens = 0
+		}
+		if row.CreditSamples > 0 && row.CreditTokens > 0 {
+			value := row.Credits / (float64(row.CreditTokens) / 1e6)
+			row.CreditsPer1MTokens = &value
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) requestSeries(ctx context.Context, from, to time.Time, where string, args []any) ([]accounts.RequestStatsPoint, error) {
 	span := to.Sub(from)
 	daily := span > 48*time.Hour

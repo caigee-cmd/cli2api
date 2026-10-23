@@ -81,6 +81,19 @@
   --overlay-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.08), 0 2px 4px -2px rgb(0 0 0 / 0.06);
   --field-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.04);
 
+  /* Categorical series palette for data-viz that must distinguish accounts
+     (credit-expiry distribution). State colours stay --success/--warning/
+     --danger; this is a fixed, ordered identity palette, not a second brand
+     set. Order is stable so the same account keeps the same hue. */
+  --chart-1: oklch(0.62 0.17 255);
+  --chart-2: oklch(0.64 0.15 150);
+  --chart-3: oklch(0.72 0.15 70);
+  --chart-4: oklch(0.62 0.19 25);
+  --chart-5: oklch(0.60 0.17 300);
+  --chart-6: oklch(0.66 0.12 195);
+  --chart-7: oklch(0.64 0.18 340);
+  --chart-8: oklch(0.58 0.12 120);
+
   /* Solid surface (after deeplethe/solid-glass, MIT): a line of light on
      top, a near-invisible edge, a close contact shadow and a soft lift. */
   --surface-rim: oklch(1 0 0 / 85%);
@@ -126,6 +139,16 @@
   --surface-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.3);
   --overlay-shadow: 0 8px 24px -6px rgb(0 0 0 / 0.5);
   --field-shadow: none;
+
+  /* Categorical series palette — lifted lightness for the off-black surface. */
+  --chart-1: oklch(0.70 0.15 255);
+  --chart-2: oklch(0.72 0.14 150);
+  --chart-3: oklch(0.78 0.14 70);
+  --chart-4: oklch(0.70 0.17 25);
+  --chart-5: oklch(0.68 0.16 300);
+  --chart-6: oklch(0.74 0.11 195);
+  --chart-7: oklch(0.72 0.16 340);
+  --chart-8: oklch(0.66 0.12 120);
 
   --surface-rim: oklch(1 0 0 / 6%);
   --surface-edge: oklch(1 0 0 / 3%);

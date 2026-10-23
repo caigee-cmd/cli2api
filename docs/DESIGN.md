@@ -77,6 +77,8 @@ Reading this as: self-hosted ops console for operators, with HeroUI compound pri
 
 禁止出现在控制台、favicon、社交卡、README 图里：`#0485F7`、`#7C3AED`、`#A78BFA`、`#FAF7F2`、`#EDE9FE`、`#000000`、霓虹外发光。
 
+分类序列色（仅数据可视化）：概览「积分到期分布」要在一张直方图里同时区分 4 个以上账号，`--success` / `--warning` / `--danger` 是状态色，不能拿来当身份色，所以另建一组固定顺序的 `--chart-1…8`（浅色 / 深色各一套，`oklch`，在 [frontend/src/index.css](../frontend/src/index.css) 声明）。它只用于「需要区分身份」的图表色块，不是第二套品牌色板：按钮、聚焦、选中、状态点仍然走 `--accent` / `--success` / `--warning` / `--danger`，顺序固定，同一账号在同一次会话里保持同一色相。除这组序列色外，图表配色仍走语义 token，不要临时写一次性 hex。
+
 ### 选中态（必须同一套）
 
 「当前选中」在全控制台是墨色 accent-soft，不是白底、也不是青色块，更不是 HeroUI 蓝。
