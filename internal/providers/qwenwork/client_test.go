@@ -1067,13 +1067,10 @@ func TestAdapterBundle(t *testing.T) {
 	if adapter.ID != "qwenwork" {
 		t.Fatalf("id=%s", adapter.ID)
 	}
-	for _, capability := range []string{"credential", "login", "chat", "models", "classifier", "prober"} {
+	for _, capability := range []string{"credential", "login", "chat", "models", "classifier", "prober", "checkin"} {
 		if !adapter.Supports(capability) {
 			t.Fatalf("adapter missing %s", capability)
 		}
-	}
-	if adapter.Supports("checkin") {
-		t.Fatal("qwenwork has no check-in")
 	}
 }
 

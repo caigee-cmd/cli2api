@@ -24,3 +24,19 @@ func TestListIncludesEveryRegisteredDescriptor(t *testing.T) {
 		t.Fatalf("unexpected codex descriptor: %+v", codex)
 	}
 }
+
+func TestQwenWorkAdvertisesDailyCheckin(t *testing.T) {
+	for _, region := range []string{"global", "cn"} {
+		policy, ok := CheckinFor("qwenwork", region)
+		if !ok || policy == nil {
+			t.Fatalf("region %s: qwenwork check-in not advertised", region)
+		}
+		if policy.Timezone != "Asia/Shanghai" {
+			t.Fatalf("region %s: timezone=%q", region, policy.Timezone)
+		}
+	}
+	descriptor, ok := Get("qwenwork")
+	if !ok || !descriptor.SupportsCheckin() {
+		t.Fatal("qwenwork descriptor must support check-in")
+	}
+}
