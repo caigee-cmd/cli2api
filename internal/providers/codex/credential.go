@@ -60,7 +60,13 @@ const (
 )
 
 const (
-	refreshLead     = 5 * time.Minute
+	// outerRefreshLead matches CLIProxyAPI CodexOuterRefreshLead (feb6398): the
+	// nominal 10-day Codex OAuth JWT may be invalidated early upstream, so outer
+	// / CLI tokens refresh well ahead of expiry.
+	outerRefreshLead = 96 * time.Hour
+	// siwcRefreshLead matches CLIProxyAPI CodexSIWCRefreshLead / pi's
+	// DEFAULT_OAUTH_MINIMUM_VALIDITY_MS (5 minutes).
+	siwcRefreshLead = 5 * time.Minute
 	loginPendingTTL = 10 * time.Minute
 )
 
@@ -210,7 +216,6 @@ func normalizeAuthMethod(method string) string {
 	}
 }
 
-
 // UseSIWCForRequest reports whether this request should use the nested SIWC
 // partition. Codex client User-Agents always ignore use_siwc (CLIProxyAPI d946c4f).
 func (c Credential) UseSIWCForRequest(userAgent string) bool {
@@ -263,6 +268,16 @@ func ValidateCredential(payload []byte) error {
 	return nil
 }
 
+// refreshLead returns the proactive refresh window for this partition.
+// Sign in with ChatGPT keeps the short SIWC lead; outer / CLI OAuth uses the
+// conservative 96h lead (CLIProxyAPI feb6398).
+func (c Credential) refreshLead() time.Duration {
+	if c.UsesChatGPT() {
+		return siwcRefreshLead
+	}
+	return outerRefreshLead
+}
+
 func (c Credential) needsRefresh(now time.Time) bool {
 	if strings.TrimSpace(c.AccessToken) == "" {
 		return true
@@ -270,7 +285,7 @@ func (c Credential) needsRefresh(now time.Time) bool {
 	if c.ExpiresAt <= 0 {
 		return true
 	}
-	return now.Add(refreshLead).Unix() >= c.ExpiresAt
+	return now.Add(c.refreshLead()).Unix() >= c.ExpiresAt
 }
 
 func unixSeconds(value int64) int64 {
