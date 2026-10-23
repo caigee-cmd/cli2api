@@ -110,8 +110,8 @@ func TestBuildNativeBodyAppliesCodexUpstreamConstraints(t *testing.T) {
 	if _, ok := got["service_tier"]; ok {
 		t.Fatalf("unsupported service tier forwarded: %v", got["service_tier"])
 	}
-	if got["parallel_tool_calls"] != true {
-		t.Fatalf("parallel_tool_calls = %v", got["parallel_tool_calls"])
+	if got["parallel_tool_calls"] != false {
+		t.Fatalf("explicit parallel_tool_calls=false was not preserved: %v", got["parallel_tool_calls"])
 	}
 	tools, _ := json.Marshal(got["tools"])
 	if !strings.Contains(string(tools), `"type":"web_search"`) || strings.Contains(string(tools), "web_search_preview") || strings.Contains(string(tools), `\p{L}`) {

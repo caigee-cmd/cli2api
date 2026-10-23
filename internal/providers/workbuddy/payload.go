@@ -2,6 +2,7 @@ package workbuddy
 
 import (
 	"encoding/json"
+	"regexp"
 	"strings"
 
 	"github.com/caigee-cmd/cli2api/internal/translate"
@@ -337,11 +338,66 @@ var wafFingerprintReplacements = []struct {
 	},
 }
 
+// Identity-scoped 11-128 rules ported from workbuddy2api-hub (~v1.7.25–26,
+// #570/#579/#574). Applied only to system / developer / assistant; user and
+// tool content is left untouched as caller data.
+var (
+	// Start of an identity sentence through the attribution verb. The rest of
+	// the sentence (including mid-token dots like v4.1) is consumed by
+	// rewriteIdentitySentences because RE2 has no lookahead.
+	wafIdentityStartRe = regexp.MustCompile(`(?i)You are\s+` +
+		`(?:an?\s+|the\s+)?(?:[\w.-]+\s+){0,3}?` +
+		`(?:agent|assistant|model|AI|LLM)?[\s,]*` +
+		`(?:powered by|built on|built by|created by|developed by|made by|trained by)`)
+	wafIdentityReplacement = "You are a helpful AI assistant."
+
+	wafDSHGUIRe = regexp.MustCompile(`(?i)(You are interacting with the user through the ` +
+		`DeepSeek[ \t]+Harness[ \t]+Web[ \t]+GUI)` +
+		` whose URL the runtime context names\.`)
+	wafDSHGUIReplacement = `$1 whose URL is named in the runtime context.`
+
+	wafBrandRe          = regexp.MustCompile(`(?i)DeepSeek[ \t]+Harness`)
+	wafBrandReplacement = "DeepSeek"
+)
+
+// rewriteIdentitySentences replaces confirmed self-intro sentences. Sentence
+// end is a period followed by whitespace/EOS, a newline, or EOS — so dots
+// inside model ids (deepseek-v4.1-flash) stay inside the match.
+func rewriteIdentitySentences(text string) string {
+	var b strings.Builder
+	remaining := text
+	for {
+		loc := wafIdentityStartRe.FindStringIndex(remaining)
+		if loc == nil {
+			b.WriteString(remaining)
+			return b.String()
+		}
+		b.WriteString(remaining[:loc[0]])
+		rest := remaining[loc[1]:]
+		end := len(rest)
+		for i := 0; i < len(rest); i++ {
+			switch rest[i] {
+			case '\n':
+				end = i
+				goto replaced
+			case '.':
+				if i+1 == len(rest) || rest[i+1] == ' ' || rest[i+1] == '\t' || rest[i+1] == '\n' {
+					end = i + 1
+					goto replaced
+				}
+			}
+		}
+	replaced:
+		b.WriteString(wafIdentityReplacement)
+		remaining = rest[end:]
+	}
+}
+
 // sanitizeWAFKeywords rewrites known client fingerprint phrases that trigger
-// upstream WorkBuddy WAF rules (code 11128: "Illegal API invocation from an
-// unapproved channel"). For example, ZCode/Claude Code desktop environments
-// inject git status headers containing "Main branch (you will usually use this for PRs)",
-// which the upstream content filter detects and rejects.
+// upstream WorkBuddy WAF rules (code 11128 / 11-128: "Illegal API invocation
+// from an unapproved channel"). Literal Main-branch rewrites apply to every
+// role; identity / DSH GUI / brand rules follow upstream and only touch
+// system, developer, and assistant.
 func sanitizeWAFKeywords(body map[string]any) {
 	raw, ok := body["messages"]
 	if !ok {
@@ -356,24 +412,35 @@ func sanitizeWAFKeywords(body map[string]any) {
 		if !ok {
 			continue
 		}
+		role, _ := message["role"].(string)
+		identity := role == "system" || role == "developer" || role == "assistant"
 		if content, ok := message["content"].(string); ok {
-			message["content"] = sanitizeFingerprintText(content)
+			message["content"] = sanitizeFingerprintText(content, identity)
 		} else if parts, ok := message["content"].([]any); ok {
 			for _, part := range parts {
 				if partMap, ok := part.(map[string]any); ok {
 					if text, ok := partMap["text"].(string); ok {
-						partMap["text"] = sanitizeFingerprintText(text)
+						partMap["text"] = sanitizeFingerprintText(text, identity)
 					}
 				}
 			}
 		}
+		// reasoning_content is model scratch, not an identity surface.
 		if reasoning, ok := message["reasoning_content"].(string); ok {
-			message["reasoning_content"] = sanitizeFingerprintText(reasoning)
+			message["reasoning_content"] = sanitizeFingerprintText(reasoning, false)
 		}
 	}
 }
 
-func sanitizeFingerprintText(text string) string {
+func sanitizeFingerprintText(text string, identity bool) string {
+	if text == "" {
+		return text
+	}
+	if identity {
+		text = rewriteIdentitySentences(text)
+		text = wafDSHGUIRe.ReplaceAllString(text, wafDSHGUIReplacement)
+		text = wafBrandRe.ReplaceAllString(text, wafBrandReplacement)
+	}
 	for _, rule := range wafFingerprintReplacements {
 		if strings.Contains(text, rule.pattern) {
 			text = strings.ReplaceAll(text, rule.pattern, rule.replacement)

@@ -592,6 +592,7 @@ func parseJWTClaims(token string) *jwtClaims {
 // ---------------------------------------------------------------------------
 
 // credential loads and refreshes the account credential when needed.
+// The inbound User-Agent selects SIWC vs outer OAuth on dual use_siwc credentials.
 func (c *Client) credential(ctx context.Context, accountID string) (Credential, error) {
 	_, payload, err := c.store.LoadCredentialPayload(ctx, accountID)
 	if err != nil {
@@ -612,63 +613,76 @@ func (c *Client) credential(ctx context.Context, accountID string) (Credential, 
 			}
 		}
 	}
-	if !credential.needsRefresh(time.Now()) {
-		return credential, nil
+	ua := ClientUserAgentFromContext(ctx)
+	effective, err := credential.EffectiveForRequest(ua)
+	if err != nil {
+		return Credential{}, err
 	}
-	return c.refreshCredential(ctx, accountID, credential)
+	if !effective.needsRefresh(time.Now()) {
+		return effective, nil
+	}
+	refreshedStored, err := c.refreshCredential(ctx, accountID, credential, effective)
+	if err != nil {
+		return Credential{}, err
+	}
+	return refreshedStored.EffectiveForRequest(ua)
 }
 
-func (c *Client) refreshCredential(ctx context.Context, accountID string, credential Credential) (Credential, error) {
+func (c *Client) refreshCredential(ctx context.Context, accountID string, stored, effective Credential) (Credential, error) {
+	flightKey := accountID
+	if effective.refreshingOuter() {
+		flightKey = accountID + ":outer"
+	}
 	c.mu.Lock()
-	if call, ok := c.refresh[accountID]; ok {
+	if call, ok := c.refresh[flightKey]; ok {
 		c.mu.Unlock()
 		select {
 		case <-call.done:
 			return call.cred, call.err
 		case <-ctx.Done():
-			return credential, ctx.Err()
+			return stored, ctx.Err()
 		}
 	}
 	call := &refreshCall{done: make(chan struct{})}
-	c.refresh[accountID] = call
+	c.refresh[flightKey] = call
 	c.mu.Unlock()
 
-	refreshed, err := c.refreshTokens(ctx, accountID, credential)
+	refreshed, err := c.refreshTokens(ctx, accountID, stored, effective)
 	if err == nil {
 		if encoded, encErr := refreshed.Encode(); encErr == nil {
 			_ = c.store.SaveCredentialPayload(ctx, accountID, CredentialFormat, encoded)
 		}
 	} else {
-		_ = c.store.Observe(ctx, accountID, credential.AccountID, "login_required", err.Error(), accounts.KindAuth)
+		_ = c.store.Observe(ctx, accountID, stored.AccountID, "login_required", err.Error(), accounts.KindAuth)
 	}
 	call.cred, call.err = refreshed, err
 	close(call.done)
 	c.mu.Lock()
-	delete(c.refresh, accountID)
+	delete(c.refresh, flightKey)
 	c.mu.Unlock()
 	return refreshed, err
 }
 
-func (c *Client) refreshTokens(ctx context.Context, accountID string, credential Credential) (Credential, error) {
-	if strings.TrimSpace(credential.RefreshToken) == "" {
-		return credential, fmt.Errorf("no refresh_token; re-login required")
+func (c *Client) refreshTokens(ctx context.Context, accountID string, stored, effective Credential) (Credential, error) {
+	if strings.TrimSpace(effective.RefreshToken) == "" {
+		return stored, fmt.Errorf("no refresh_token; re-login required")
 	}
 	tokenURL := TokenURL
 	form := url.Values{
 		"grant_type":    {"refresh_token"},
 		"client_id":     {ClientID},
-		"refresh_token": {credential.RefreshToken},
+		"refresh_token": {effective.RefreshToken},
 		"scope":         {AuthScope},
 	}
-	if credential.UsesChatGPT() {
-		if strings.TrimSpace(credential.ClientID) == "" {
-			return credential, fmt.Errorf("chatgpt login is missing its issued client_id; sign in again")
+	if effective.UsesChatGPT() {
+		if strings.TrimSpace(effective.ClientID) == "" {
+			return stored, fmt.Errorf("chatgpt login is missing its issued client_id; sign in again")
 		}
 		tokenURL = SIWCTokenURL
 		form = url.Values{
 			"grant_type":    {"refresh_token"},
-			"client_id":     {credential.ClientID},
-			"refresh_token": {credential.RefreshToken},
+			"client_id":     {effective.ClientID},
+			"refresh_token": {effective.RefreshToken},
 			"resource":      {SIWCResource},
 		}
 	}
@@ -677,32 +691,47 @@ func (c *Client) refreshTokens(ctx context.Context, accountID string, credential
 		h.Set("Accept", "application/json")
 	})
 	if err != nil {
-		return credential, err
+		return stored, err
 	}
 	if status != http.StatusOK {
-		return credential, fmt.Errorf("token refresh failed with status %d: %s", status, strings.TrimSpace(string(payload)))
+		return stored, fmt.Errorf("token refresh failed with status %d: %s", status, strings.TrimSpace(string(payload)))
 	}
 	refreshed, err := parseTokenResponse(payload)
 	if err != nil {
-		return credential, err
+		return stored, err
 	}
-	// Preserve fields the refresh response may omit.
 	if refreshed.RefreshToken == "" {
-		refreshed.RefreshToken = credential.RefreshToken
+		refreshed.RefreshToken = effective.RefreshToken
 	}
 	if refreshed.AccountID == "" {
-		refreshed.AccountID = credential.AccountID
+		refreshed.AccountID = stored.AccountID
 	}
 	if refreshed.Email == "" {
-		refreshed.Email = credential.Email
+		refreshed.Email = stored.Email
 	}
-	refreshed.AuthMethod = credential.AuthMethod
-	refreshed.ClientID = credential.ClientID
-	refreshed.DeviceID = credential.DeviceID
-	if credential.UsesChatGPT() {
-		if err := requireSIWCGrant(payload); err != nil {
-			return credential, err
+	// Codex-client path on a dual credential: only mutate Outer; keep SIWC.
+	if effective.refreshingOuter() {
+		out := stored
+		out.Outer = &OuterPartition{
+			IDToken:      refreshed.IDToken,
+			AccessToken:  refreshed.AccessToken,
+			RefreshToken: refreshed.RefreshToken,
+			ExpiresAt:    refreshed.ExpiresAt,
+			LastRefresh:  refreshed.LastRefresh,
 		}
+		return out, nil
+	}
+	refreshed.AuthMethod = effective.AuthMethod
+	refreshed.ClientID = effective.ClientID
+	refreshed.DeviceID = effective.DeviceID
+	if effective.UsesChatGPT() {
+		if err := requireSIWCGrant(payload); err != nil {
+			return stored, err
+		}
+	}
+	if stored.UseSIWC {
+		refreshed.UseSIWC = true
+		refreshed.Outer = stored.Outer
 	}
 	return refreshed, nil
 }
