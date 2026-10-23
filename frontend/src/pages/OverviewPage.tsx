@@ -245,7 +245,8 @@ export function OverviewPage() {
   }, [loadUsage])
 
   // Background refresh every 30s; skipped while paused or the tab is hidden,
-  // and caught up as soon as the tab becomes visible again.
+  // and caught up as soon as the tab becomes visible again. Quiet so a failed
+  // refresh keeps the last good traffic + usage panels instead of blanking them.
   useEffect(() => {
     if (paused) return
     let last = Date.now()
@@ -253,6 +254,7 @@ export function OverviewPage() {
       if (document.hidden) return
       last = Date.now()
       loadStats(true)
+      loadUsage(true)
     }
     const timer = setInterval(tick, STATS_REFRESH_MS)
     const onVisible = () => {
@@ -263,7 +265,7 @@ export function OverviewPage() {
       clearInterval(timer)
       document.removeEventListener('visibilitychange', onVisible)
     }
-  }, [paused, loadStats])
+  }, [paused, loadStats, loadUsage])
 
   // Resource usage polls on its own 5s cadence; independent of the stats window.
   useEffect(() => {

@@ -259,7 +259,9 @@ type RequestUsage struct {
 	ByRealm         []RequestUsageRow       `json:"by_realm"`
 	CreditByAccount []RequestUsageCreditRow `json:"credit_by_account"`
 	CreditByModel   []RequestUsageCreditRow `json:"credit_by_model"`
-	Series          []RequestStatsPoint     `json:"series"`
+	// Series is retained for JSON compatibility but left empty; Overview
+	// traffic uses /api/logs/stats series instead.
+	Series []RequestStatsPoint `json:"series"`
 }
 
 type RequestUsageTotals struct {

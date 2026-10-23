@@ -313,3 +313,96 @@ func TestRequestStatsDimLimitAndProviderFilter(t *testing.T) {
 		t.Fatalf("provider filter = %+v", listed)
 	}
 }
+
+func TestRequestUsageEndpointCredits(t *testing.T) {
+	dir := t.TempDir()
+	srv := New(config.Config{
+		Host: "127.0.0.1", Port: 3010, ProxyAPIKey: "secret",
+		QoderHome: dir, DataDir: dir,
+	})
+	defer srv.Close()
+
+	ctx := context.Background()
+	base := time.Now().UTC().Add(-30 * time.Minute).Truncate(time.Second)
+	fptr := func(v float64) *float64 { return &v }
+	iptr := func(v int) *int { return &v }
+
+	accStore := srv.Manager.Store()
+	globalAcc, err := accStore.Create(ctx, accounts.CreateAccount{Name: "G", Provider: "qoder", Region: "global"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cnAcc, err := accStore.Create(ctx, accounts.CreateAccount{Name: "C", Provider: "workbuddy", Region: "cn"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := srv.Recorder.Store()
+
+	if err := store.InsertRequestLog(ctx, accounts.RequestLog{
+		ID: accounts.NewRequestID(), CreatedAt: base, Status: accounts.RequestStatusOK,
+		RequestedModel: "glm", AccountID: globalAcc.ID, Provider: "qoder",
+		PromptTokens: iptr(100_000), CompletionTokens: iptr(0), Credits: fptr(1.0),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	fallbackID := accounts.NewRequestID()
+	if err := store.InsertRequestLog(ctx, accounts.RequestLog{
+		ID: fallbackID, CreatedAt: base.Add(time.Minute), Status: accounts.RequestStatusOK,
+		RequestedModel: "hy3", AccountID: cnAcc.ID, Provider: "workbuddy",
+		PromptTokens: iptr(50_000), CompletionTokens: iptr(0),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.InsertRequestUsageDetail(ctx, accounts.RequestUsageDetail{
+		RequestID: fallbackID, CreatedAt: base.Add(time.Minute), Provider: "workbuddy",
+		Credit: fptr(0.5), Unit: "credits",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Dual NULL — excluded from credit samples / denominator.
+	if err := store.InsertRequestLog(ctx, accounts.RequestLog{
+		ID: accounts.NewRequestID(), CreatedAt: base.Add(2 * time.Minute), Status: accounts.RequestStatusOK,
+		RequestedModel: "hy3", AccountID: cnAcc.ID, Provider: "workbuddy",
+		PromptTokens: iptr(999_000), CompletionTokens: iptr(0),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	window := "from=" + base.Add(-time.Minute).Format(time.RFC3339) + "&to=" + base.Add(10*time.Minute).Format(time.RFC3339)
+	req := httptest.NewRequest(http.MethodGet, "/api/logs/usage?"+window, nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var usage accounts.RequestUsage
+	if err := json.Unmarshal(rec.Body.Bytes(), &usage); err != nil {
+		t.Fatal(err)
+	}
+	if usage.Totals.Credits != 1.5 || usage.Totals.CreditSamples != 2 || usage.Totals.CreditTokens != 150_000 {
+		t.Fatalf("totals = %+v", usage.Totals)
+	}
+	if usage.Totals.CreditsPer1MTokens == nil {
+		t.Fatal("expected credits_per_1m_tokens")
+	}
+	if len(usage.ByRealm) < 2 {
+		t.Fatalf("by_realm = %+v", usage.ByRealm)
+	}
+	realms := map[string]int{}
+	for _, row := range usage.ByRealm {
+		realms[row.Key] = row.Requests
+	}
+	if realms["global"] != 1 || realms["cn"] != 2 {
+		t.Fatalf("by_realm counts = %+v", realms)
+	}
+
+	// Cache hit: second call must reuse the same entry.
+	second := httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/logs/usage?"+window, nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	srv.Handler().ServeHTTP(second, req)
+	if second.Code != http.StatusOK {
+		t.Fatalf("cached status=%d body=%s", second.Code, second.Body.String())
+	}
+}

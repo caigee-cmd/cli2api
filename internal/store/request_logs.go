@@ -153,9 +153,16 @@ func (s *Store) ListRequestLogs(ctx context.Context, filter accounts.RequestLogF
 // providerKeyExpr is the effective provider of a request log row: the logged
 // provider, else the account's provider, else "(unknown)". Shared by the stats
 // grouping and the provider filter so drill-downs match the ranking keys.
-// creditExpr mirrors the request list: the logged credits, else the usage
-// detail's credit, else 0.
-const creditExpr = "COALESCE(credits, (SELECT credit FROM request_usage_details WHERE request_usage_details.request_id = request_logs.id), 0)"
+// creditExprNullable resolves credits for a row without inventing a zero:
+// native request_logs.credits, else request_usage_details.credit, else NULL.
+// NULL means "unobserved" and is how SummarizeRequestUsage excludes samples.
+// creditExprOrZero adds the trailing 0 used by SummarizeRequestLogs (#361) so
+// traffic totals never see NULL. Keep these two as one expression + wrapper —
+// do not fork the COALESCE body again.
+const creditExprNullable = `COALESCE(credits, (SELECT credit FROM request_usage_details WHERE request_usage_details.request_id = request_logs.id))`
+const creditExprOrZero = `COALESCE(` + creditExprNullable + `, 0)`
+// creditExpr is the #361 alias used by SummarizeRequestLogs / namedStats.
+const creditExpr = creditExprOrZero
 
 const providerKeyExpr = "COALESCE(NULLIF(request_logs.provider, ''), (SELECT provider FROM accounts WHERE accounts.id = request_logs.account_id), '(unknown)')"
 
@@ -366,10 +373,10 @@ func (s *Store) requestLatencyPercentiles(ctx context.Context, where string, arg
 	return roundedInt(percentileNearestRank(values, 50)), roundedInt(percentileNearestRank(values, 95))
 }
 
-// requestCreditExpr resolves the credits charged for a row. Credits are stored
-// natively on request_logs and, for older rows written before that column was
-// populated, mirrored into request_usage_details. Prefer the native column.
-const requestCreditExpr = `COALESCE(credits, (SELECT credit FROM request_usage_details WHERE request_usage_details.request_id = request_logs.id))`
+// requestCreditExpr is the nullable form used by SummarizeRequestUsage so
+// CreditSamples / CreditTokens can tell "0 credits observed" from "no reading".
+// Alias of creditExprNullable — see comment above.
+const requestCreditExpr = creditExprNullable
 
 // requestRealmExpr resolves the region ("realm") of the account behind a row.
 // request_logs has no realm column; each account carries a provider_region
@@ -465,11 +472,9 @@ FROM request_logs`+where, args...)
 		return accounts.RequestUsage{}, err
 	}
 
-	series, err := s.requestSeries(ctx, from, to, where, args)
-	if err != nil {
-		return accounts.RequestUsage{}, err
-	}
-	usage.Series = series
+	// Series stays empty: Overview traffic chart already loads /api/logs/stats
+	// series, and the usage panels never read usage.Series. Skipping the
+	// duplicate requestSeries scan keeps the endpoint cheap.
 	return usage, nil
 }
 

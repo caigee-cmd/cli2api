@@ -36,7 +36,8 @@ type AccountExpiry = {
   name: string
   color: string
   remain: number
-  soonest: number // unix sec of soonest pack with remain>0; 0 = none
+  expiredRemain: number // remain sitting on packs whose end day is already past
+  soonest: number // unix sec of soonest *future* pack with remain>0; 0 = none
   soonestRemain: number // credits expiring on the soonest *day* (all packs that day)
   daysLeft: number // whole days from today (local midnight); -1 = none
   dailyBurn: number
@@ -72,24 +73,33 @@ export function ExpiryDistribution({ accounts, t }: Props) {
       const color = colorById.get(account.id) || seriesColor(0)
       const name = account.name || account.id
 
-      // Only packages that still hold credits and carry a real expiry date.
+      // Packages that still hold credits and carry a real expiry date. Already-
+      // expired packs with remain>0 go into a dedicated "expired" bucket so they
+      // stay visible instead of looking like a future day on the histogram.
       const live = packages.filter((p) => (p.remain ?? 0) > 0 && (p.ends_at ?? 0) > 0)
 
       let soonest = 0
       let soonestDayTotal = 0 // same-account credits expiring on the soonest day
       let remain = 0
+      let expiredRemain = 0
       for (const p of live) {
         const ends = (p.ends_at as number) * 1000
         const amount = p.remain ?? 0
         remain += amount
-        if (soonest === 0 || ends < soonest) soonest = ends
-
         const dayTs = localDayStart(new Date(ends))
-        const key = dayKey(dayTs)
+        const expired = dayTs < todayStart
+        if (expired) expiredRemain += amount
+        else if (soonest === 0 || ends < soonest) soonest = ends
+
+        const key = expired ? '__expired__' : dayKey(dayTs)
         let bucket = byDay.get(key)
         if (!bucket) {
-          const d = new Date(dayTs)
-          bucket = { day: key, label: `${d.getMonth() + 1}/${d.getDate()}`, ts: dayTs, segments: [], total: 0 }
+          bucket = expired
+            ? { day: key, label: '!', ts: todayStart - DAY_MS, segments: [], total: 0 }
+            : (() => {
+                const d = new Date(dayTs)
+                return { day: key, label: `${d.getMonth() + 1}/${d.getDate()}`, ts: dayTs, segments: [], total: 0 }
+              })()
           byDay.set(key, bucket)
         }
         const existing = bucket.segments.find((s) => s.id === account.id)
@@ -117,6 +127,7 @@ export function ExpiryDistribution({ accounts, t }: Props) {
         name,
         color,
         remain,
+        expiredRemain,
         soonest: soonest ? Math.floor(soonest / 1000) : 0,
         soonestRemain: soonestDayTotal,
         daysLeft,
@@ -164,8 +175,8 @@ export function ExpiryDistribution({ accounts, t }: Props) {
             const scale = maxTotal > 0 ? (bucket.total / maxTotal) * 100 : 0
             return (
               <div key={bucket.day} className="grid grid-cols-[52px_minmax(0,1fr)_auto] items-center gap-2">
-                <span className={`mono text-caption ${isToday ? 'font-semibold text-foreground' : 'text-muted'}`}>
-                  {bucket.label}
+                <span className={`mono text-caption ${bucket.day === '__expired__' ? 'font-semibold text-danger' : isToday ? 'font-semibold text-foreground' : 'text-muted'}`}>
+                  {bucket.day === '__expired__' ? t('expiryDistExpired') : bucket.label}
                 </span>
                 <div
                   className="h-2.5 w-full rounded-full bg-surface-tertiary"
@@ -233,8 +244,12 @@ export function ExpiryDistribution({ accounts, t }: Props) {
                           </div>
                         </Table.Cell>
                         <Table.Cell>
-                          <div className={`mono text-center ${urgent ? 'font-semibold text-danger' : soon ? 'text-warning' : 'text-muted'}`}>
-                            {r.daysLeft >= 0 ? t('expiryDistDays', { n: r.daysLeft }) : '—'}
+                          <div className={`mono text-center ${r.expiredRemain > 0 && r.daysLeft < 0 ? 'font-semibold text-danger' : urgent ? 'font-semibold text-danger' : soon ? 'text-warning' : 'text-muted'}`}>
+                            {r.daysLeft >= 0
+                              ? t('expiryDistDays', { n: r.daysLeft })
+                              : r.expiredRemain > 0
+                                ? t('expiryDistExpired')
+                                : '—'}
                           </div>
                         </Table.Cell>
                         <Table.Cell>
