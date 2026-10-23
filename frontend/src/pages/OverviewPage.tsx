@@ -126,7 +126,7 @@ function quotaTone(percentage?: number, exceeded?: boolean) {
 export function OverviewPage() {
   const { lang, t } = useI18n()
   const { overview, loading, error } = useOverview()
-  const [statsWindow, setStatsWindow] = useState<StatsWindow>('24')
+  const [statsWindow, setStatsWindow] = useState<StatsWindow>('today')
   const [customRange, setCustomRange] = useState<DateRangeValue | null>(null)
   const [paused, setPaused] = useState(false)
   const navigate = useNavigate()
