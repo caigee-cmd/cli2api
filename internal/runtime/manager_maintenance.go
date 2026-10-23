@@ -137,6 +137,41 @@ func recordedToday(at string, now time.Time) bool {
 	return local.Year() == now.Year() && local.YearDay() == now.YearDay()
 }
 
+// Cross-account burst limits for scheduled check-in / WorkBuddy keepalive.
+// One 30s maintenance tick processes at most maintenancePerTickCap due
+// accounts, with maintenanceAccountGap (+ FNV jitter) between them, so a
+// large AutoCheckin fleet is spread across successive ticks instead of
+// hammering upstream in one burst.
+const (
+	keepaliveTickTimeout   = 90 * time.Second
+	maintenanceGapJitterMS = 1000
+)
+
+// Defaults are conservative; tests may override the vars to skip real sleeps.
+var (
+	maintenancePerTickCap = 2
+	maintenanceAccountGap = 2 * time.Second
+)
+
+// maintenanceAccountGapFor returns base delay plus a stable 0..(jitter-1)ms
+// offset derived from accountID (same FNV style as checkinSlot).
+func maintenanceAccountGapFor(accountID string, base time.Duration) time.Duration {
+	hash := fnv.New32a()
+	_, _ = hash.Write([]byte(accountID))
+	return base + time.Duration(hash.Sum32()%uint32(maintenanceGapJitterMS))*time.Millisecond
+}
+
+func sleepMaintenanceGap(ctx context.Context, accountID string, base time.Duration) bool {
+	timer := time.NewTimer(maintenanceAccountGapFor(accountID, base))
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
 func checkinSlot(value, accountID string, now time.Time) (time.Time, error) {
 	parsed, err := time.Parse("15:04", value)
 	if err != nil {
@@ -177,6 +212,7 @@ func (manager *Manager) runScheduledCheckins(ctx context.Context, now time.Time)
 		return
 	}
 	allowDisabled := manager.allowDisabledCheckin(ctx)
+	processed := 0
 	for _, account := range items {
 		if ctx.Err() != nil {
 			return
@@ -196,11 +232,20 @@ func (manager *Manager) runScheduledCheckins(ctx context.Context, now time.Time)
 			log.Printf("checkin settings account=%s: %v", account.ID, err)
 			continue
 		}
-		if checkinDueFor(account, configuredTime, now.In(location), allowDisabled) {
-			if _, err := manager.checkinAccount(ctx, account.ID, allowDisabled); err != nil {
-				log.Printf("checkin account=%s: %v", account.ID, err)
-			}
+		if !checkinDueFor(account, configuredTime, now.In(location), allowDisabled) {
+			continue
 		}
+		if processed >= maintenancePerTickCap {
+			// Remaining due accounts stay due; the next 30s tick picks them up.
+			return
+		}
+		if processed > 0 && !sleepMaintenanceGap(ctx, account.ID, maintenanceAccountGap) {
+			return
+		}
+		if _, err := manager.checkinAccount(ctx, account.ID, allowDisabled); err != nil {
+			log.Printf("checkin account=%s: %v", account.ID, err)
+		}
+		processed++
 	}
 }
 
@@ -251,26 +296,54 @@ func (manager *Manager) allowDisabledCheckin(ctx context.Context) bool {
 	}
 }
 
-func (manager *Manager) KeepaliveWorkBuddy(ctx context.Context, onlyOptIn bool) {
+// KeepaliveWorkBuddy refreshes WorkBuddy sessions. At most
+// maintenancePerTickCap accounts are processed per call, with
+// maintenanceAccountGap between them. done tracks account IDs already
+// refreshed for the current local day; pass the same map across successive
+// maintenance ticks. Returns true when more eligible accounts remain.
+func (manager *Manager) KeepaliveWorkBuddy(ctx context.Context, onlyOptIn bool, done map[string]struct{}) (more bool) {
 	if manager == nil || manager.workbuddy == nil {
-		return
+		return false
+	}
+	if done == nil {
+		done = map[string]struct{}{}
 	}
 	items, err := manager.store.List(ctx)
 	if err != nil {
 		log.Printf("workbuddy keepalive list: %v", err)
-		return
+		return false
 	}
+	var pending []string
 	for _, account := range items {
-		if ctx.Err() != nil {
-			return
-		}
 		if account.Provider != "workbuddy" || !account.Enabled || (onlyOptIn && !account.AutoCheckin) {
 			continue
 		}
-		if err := manager.workbuddy.Keepalive(ctx, account.ID); err != nil {
-			log.Printf("workbuddy keepalive account=%s: %v", account.ID, err)
+		if _, ok := done[account.ID]; ok {
+			continue
 		}
+		pending = append(pending, account.ID)
 	}
+	if len(pending) == 0 {
+		return false
+	}
+	batch := pending
+	if len(batch) > maintenancePerTickCap {
+		batch = batch[:maintenancePerTickCap]
+		more = true
+	}
+	for i, accountID := range batch {
+		if ctx.Err() != nil {
+			return true
+		}
+		if i > 0 && !sleepMaintenanceGap(ctx, accountID, maintenanceAccountGap) {
+			return true
+		}
+		if err := manager.workbuddy.Keepalive(ctx, accountID); err != nil {
+			log.Printf("workbuddy keepalive account=%s: %v", accountID, err)
+		}
+		done[accountID] = struct{}{}
+	}
+	return more
 }
 
 func (manager *Manager) RunMaintenanceLoop(stop <-chan struct{}) {
@@ -286,6 +359,8 @@ func (manager *Manager) RunMaintenanceLoop(stop <-chan struct{}) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 	lastKeepaliveDay := ""
+	keepaliveDone := map[string]struct{}{}
+	keepaliveProgressDay := ""
 	// Seed the throttle so the first pass does not duplicate the boot-time
 	// RefreshAll: the next stale-quota sweep runs 5 minutes after startup.
 	lastStaleQuota := time.Now()
@@ -300,11 +375,19 @@ func (manager *Manager) RunMaintenanceLoop(stop <-chan struct{}) {
 		now := time.Now()
 		manager.runScheduledCheckins(ctx, now)
 		day := now.Format("2006-01-02")
+		if day != keepaliveProgressDay {
+			keepaliveProgressDay = day
+			keepaliveDone = map[string]struct{}{}
+		}
 		if now.Hour() >= 22 && lastKeepaliveDay != day {
-			keepaliveCtx, stopKeepalive := context.WithTimeout(ctx, 2*time.Minute)
-			manager.KeepaliveWorkBuddy(keepaliveCtx, true)
+			// Cap + gap per tick; unfinished accounts continue on later ticks
+			// instead of one 2-minute burst after 22:00.
+			keepaliveCtx, stopKeepalive := context.WithTimeout(ctx, keepaliveTickTimeout)
+			more := manager.KeepaliveWorkBuddy(keepaliveCtx, true, keepaliveDone)
 			stopKeepalive()
-			lastKeepaliveDay = day
+			if !more {
+				lastKeepaliveDay = day
+			}
 		}
 		manager.sampleResources()
 		if now.Sub(lastLiveness) >= 30*time.Second {
