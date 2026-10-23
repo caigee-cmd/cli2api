@@ -246,6 +246,70 @@ func (o RequestStatsOptions) EffectiveLimit() int {
 	return o.Limit
 }
 
+// RequestUsage is the token / credit breakdown behind the Overview usage
+// panels. It aggregates request_logs (tokens, prefix-cache hits, latency,
+// credits) into per-account / per-model / per-realm rows plus two credit
+// ledgers. It is a superset of RequestStats aimed at the "usage detail" and
+// "credit deduction history" views rather than the traffic chart.
+type RequestUsage struct {
+	Window          RequestStatsWindow      `json:"window"`
+	Totals          RequestUsageTotals      `json:"totals"`
+	ByAccount       []RequestUsageRow       `json:"by_account"`
+	ByModel         []RequestUsageRow       `json:"by_model"`
+	ByRealm         []RequestUsageRow       `json:"by_realm"`
+	CreditByAccount []RequestUsageCreditRow `json:"credit_by_account"`
+	CreditByModel   []RequestUsageCreditRow `json:"credit_by_model"`
+	// Series is retained for JSON compatibility but left empty; Overview
+	// traffic uses /api/logs/stats series instead.
+	Series []RequestStatsPoint `json:"series"`
+}
+
+type RequestUsageTotals struct {
+	TotalTokens        int64    `json:"total_tokens"`
+	PromptTokens       int64    `json:"prompt_tokens"`
+	CompletionTokens   int64    `json:"completion_tokens"`
+	CacheHitTokens     int64    `json:"cache_hit_tokens"`
+	CacheMissTokens    int64    `json:"cache_miss_tokens"`
+	Requests           int      `json:"requests"`
+	Errors             int      `json:"errors"`
+	AvgLatencyMs       *int     `json:"avg_latency_ms,omitempty"`
+	AvgTokensPerSecond *float64 `json:"avg_tokens_per_second,omitempty"`
+	Credits            float64  `json:"credits"`
+	CreditTokens       int64    `json:"credit_tokens"`
+	CreditSamples      int      `json:"credit_samples"`
+	CreditsPer1MTokens *float64 `json:"credits_per_1m_tokens,omitempty"`
+	SuccessRate        float64  `json:"success_rate"`
+}
+
+type RequestUsageRow struct {
+	Key                string   `json:"key"`
+	Realm              string   `json:"realm,omitempty"`
+	Extra              string   `json:"extra,omitempty"`
+	TotalTokens        int64    `json:"total_tokens"`
+	PromptTokens       int64    `json:"prompt_tokens"`
+	CompletionTokens   int64    `json:"completion_tokens"`
+	CacheHitTokens     int64    `json:"cache_hit_tokens"`
+	CacheMissTokens    int64    `json:"cache_miss_tokens"`
+	Requests           int      `json:"requests"`
+	Errors             int      `json:"errors"`
+	AvgLatencyMs       *int     `json:"avg_latency_ms,omitempty"`
+	AvgTokensPerSecond *float64 `json:"avg_tokens_per_second,omitempty"`
+}
+
+type RequestUsageCreditRow struct {
+	Key                string   `json:"key"`
+	Nickname           string   `json:"nickname,omitempty"`
+	Realm              string   `json:"realm,omitempty"`
+	Rate               *float64 `json:"rate,omitempty"`
+	Requests           int      `json:"requests"`
+	CreditSamples      int      `json:"credit_samples"`
+	Credits            float64  `json:"credits"`
+	CreditTokens       int64    `json:"credit_tokens"`
+	CreditsPer1MTokens *float64 `json:"credits_per_1m_tokens,omitempty"`
+	CacheHitTokens     int64    `json:"cache_hit_tokens"`
+	CacheMissTokens    int64    `json:"cache_miss_tokens"`
+}
+
 func NewRequestID() string {
 	raw := make([]byte, 8)
 	if _, err := rand.Read(raw); err != nil {

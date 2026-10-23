@@ -581,3 +581,109 @@ func TestListRequestLogsProviderFilter(t *testing.T) {
 		}
 	}
 }
+
+func TestSummarizeRequestUsageCreditsAndRealms(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	globalAcc, err := store.Create(ctx, accounts.CreateAccount{Name: "Global", Provider: "qoder", Region: "global"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cnAcc, err := store.Create(ctx, accounts.CreateAccount{Name: "CN", Provider: "workbuddy", Region: "cn"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	base := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	fptr := func(v float64) *float64 { return &v }
+	iptr := func(v int) *int { return &v }
+
+	insert := func(at time.Time, accountID, model, provider string, prompt, completion int, credits *float64) string {
+		t.Helper()
+		id := accounts.NewRequestID()
+		if err := store.InsertRequestLog(ctx, accounts.RequestLog{
+			ID: id, CreatedAt: at, Status: accounts.RequestStatusOK,
+			RequestedModel: model, AccountID: accountID, Provider: provider, AttemptCount: 1,
+			PromptTokens: iptr(prompt), CompletionTokens: iptr(completion), Credits: credits,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+
+	// Native credits on request_logs.
+	insert(base, globalAcc.ID, "glm", "qoder", 100_000, 0, fptr(1.0))
+	// Detail-only fallback (credits column NULL): older rows before native column.
+	fallbackID := insert(base.Add(time.Minute), cnAcc.ID, "hy3", "workbuddy", 50_000, 0, nil)
+	if err := store.InsertRequestUsageDetail(ctx, accounts.RequestUsageDetail{
+		RequestID: fallbackID, CreatedAt: base.Add(time.Minute), Provider: "workbuddy",
+		Credit: fptr(0.5), Unit: "credits",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Explicit zero credits still counts as an observed sample (≠ unobserved).
+	insert(base.Add(2*time.Minute), globalAcc.ID, "glm", "qoder", 10_000, 0, fptr(0))
+	// Dual-NULL: no native credits and no usage_details → excluded from samples,
+	// but its tokens must NOT enter the CreditsPer1M denominator.
+	insert(base.Add(3*time.Minute), cnAcc.ID, "hy3", "workbuddy", 999_000, 0, nil)
+
+	from, to := base.Add(-time.Minute), base.Add(time.Hour)
+	usage, err := store.SummarizeRequestUsage(ctx, from, to)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 1.0 + 0.5 + 0 + (nil excluded) = 1.5; samples = 3 (native, fallback, zero).
+	if usage.Totals.Requests != 4 || usage.Totals.Credits != 1.5 || usage.Totals.CreditSamples != 3 {
+		t.Fatalf("totals = %+v", usage.Totals)
+	}
+	// CreditTokens = 100k + 50k + 10k (exclude dual-NULL 999k).
+	if usage.Totals.CreditTokens != 160_000 {
+		t.Fatalf("credit_tokens = %d, want 160000", usage.Totals.CreditTokens)
+	}
+	if usage.Totals.CreditsPer1MTokens == nil {
+		t.Fatal("expected CreditsPer1MTokens")
+	}
+	// 1.5 / (160000/1e6) = 9.375
+	wantPer1M := 1.5 / (160_000 / 1e6)
+	if diff := *usage.Totals.CreditsPer1MTokens - wantPer1M; diff > 1e-9 || diff < -1e-9 {
+		t.Fatalf("CreditsPer1M = %v, want %v", *usage.Totals.CreditsPer1MTokens, wantPer1M)
+	}
+
+	// SUM aligns with #361 creditExprOrZero (dual-NULL contributes 0 to the sum).
+	stats, err := store.SummarizeRequestLogs(ctx, from, to)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Totals.Credits != usage.Totals.Credits {
+		t.Fatalf("usage credits %v != #361 stats credits %v", usage.Totals.Credits, stats.Totals.Credits)
+	}
+
+	// by_realm follows account provider_region.
+	realms := map[string]accounts.RequestUsageRow{}
+	for _, row := range usage.ByRealm {
+		realms[row.Key] = row
+	}
+	if realms["global"].Requests != 2 || realms["cn"].Requests != 2 {
+		t.Fatalf("by_realm = %+v", usage.ByRealm)
+	}
+
+	// Credit ledger prefers native, falls back to detail, drops dual-NULL samples.
+	byAcc := map[string]accounts.RequestUsageCreditRow{}
+	for _, row := range usage.CreditByAccount {
+		byAcc[row.Key] = row
+	}
+	g := byAcc[globalAcc.ID]
+	if g.Credits != 1.0 || g.CreditSamples != 2 || g.CreditTokens != 110_000 {
+		t.Fatalf("global credit row = %+v", g)
+	}
+	c := byAcc[cnAcc.ID]
+	if c.Credits != 0.5 || c.CreditSamples != 1 || c.CreditTokens != 50_000 {
+		t.Fatalf("cn credit row = %+v", c)
+	}
+}

@@ -26,6 +26,8 @@ func (h *Handler) HandleLogs(w http.ResponseWriter, r *http.Request) {
 		h.handleRuntimeLogs(w, r)
 	case path == "stats" && r.Method == http.MethodGet:
 		h.handleRequestStats(w, r)
+	case path == "usage" && r.Method == http.MethodGet:
+		h.handleRequestUsage(w, r)
 	default:
 		writeErr(w, http.StatusNotFound, "not_found", "unknown logs endpoint")
 	}
@@ -64,6 +66,33 @@ func (h *Handler) handleRequestStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, stats)
+}
+
+func (h *Handler) handleRequestUsage(w http.ResponseWriter, r *http.Request) {
+	if h.Recorder == nil {
+		writeErr(w, http.StatusServiceUnavailable, "logs_unavailable", "request logs unavailable")
+		return
+	}
+	hours := 0
+	if raw := strings.TrimSpace(r.URL.Query().Get("hours")); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil {
+			hours = n
+		}
+	}
+	usage, err := h.Recorder.Usage(r.Context(), applogs.StatsQuery{
+		Hours: hours,
+		From:  ParseQueryTime(r.URL.Query().Get("from"), false),
+		To:    ParseQueryTime(r.URL.Query().Get("to"), true),
+	})
+	if err != nil {
+		if err.Error() == "request logs unavailable" {
+			writeErr(w, http.StatusServiceUnavailable, "logs_unavailable", err.Error())
+			return
+		}
+		writeErr(w, http.StatusInternalServerError, "usage_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, usage)
 }
 
 func (h *Handler) handleListRequestLogs(w http.ResponseWriter, r *http.Request) {

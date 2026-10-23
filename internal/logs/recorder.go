@@ -32,6 +32,7 @@ type RequestQuery interface {
 	GetRequestLog(ctx context.Context, id string) (accounts.RequestLog, error)
 	SummarizeRequestLogs(ctx context.Context, from, to time.Time) (accounts.RequestStats, error)
 	SummarizeRequestLogsWith(ctx context.Context, opts accounts.RequestStatsOptions) (accounts.RequestStats, error)
+	SummarizeRequestUsage(ctx context.Context, from, to time.Time) (accounts.RequestUsage, error)
 }
 
 // RequestStore is the union the SQLite store already implements. It keeps
@@ -43,6 +44,11 @@ type RequestStore interface {
 
 type statsCacheEntry struct {
 	stats     accounts.RequestStats
+	expiresAt time.Time
+}
+
+type usageCacheEntry struct {
+	usage     accounts.RequestUsage
 	expiresAt time.Time
 }
 
@@ -68,6 +74,8 @@ type RequestRecorder struct {
 	done         chan struct{}
 	statsCacheMu sync.Mutex
 	statsCache   map[string]statsCacheEntry
+	usageCacheMu sync.Mutex
+	usageCache   map[string]usageCacheEntry
 	rateOnce     sync.Once
 	rate         *RateCounter
 }
@@ -263,6 +271,55 @@ func (r *RequestRecorder) Stats(ctx context.Context, query StatsQuery) (accounts
 	r.statsCache[cacheKey] = statsCacheEntry{stats: stats, expiresAt: now.Add(10 * time.Second)}
 	r.statsCacheMu.Unlock()
 	return stats, nil
+}
+
+func (r *RequestRecorder) Usage(ctx context.Context, query StatsQuery) (accounts.RequestUsage, error) {
+	store := r.Store()
+	if store == nil {
+		return accounts.RequestUsage{}, fmt.Errorf("request logs unavailable")
+	}
+	now := time.Now().UTC().Truncate(10 * time.Second)
+	hours := NormalizeStatsHours(query.Hours)
+	to := query.To
+	if to == nil {
+		value := now
+		to = &value
+	}
+	from := query.From
+	if from == nil {
+		value := to.Add(-time.Duration(hours) * time.Hour)
+		from = &value
+	}
+	cacheKey := fmt.Sprintf("%d:%d", from.Unix(), to.Unix())
+	r.usageCacheMu.Lock()
+	if cached, ok := r.usageCache[cacheKey]; ok && time.Now().Before(cached.expiresAt) {
+		r.usageCacheMu.Unlock()
+		return cached.usage, nil
+	}
+	r.usageCacheMu.Unlock()
+	usage, err := store.SummarizeRequestUsage(ctx, *from, *to)
+	if err != nil {
+		return accounts.RequestUsage{}, err
+	}
+	r.usageCacheMu.Lock()
+	if r.usageCache == nil {
+		r.usageCache = make(map[string]usageCacheEntry)
+	}
+	now = time.Now()
+	for k, v := range r.usageCache {
+		if !now.Before(v.expiresAt) {
+			delete(r.usageCache, k)
+		}
+	}
+	for len(r.usageCache) >= statsCacheMaxEntries {
+		for k := range r.usageCache {
+			delete(r.usageCache, k)
+			break
+		}
+	}
+	r.usageCache[cacheKey] = usageCacheEntry{usage: usage, expiresAt: now.Add(10 * time.Second)}
+	r.usageCacheMu.Unlock()
+	return usage, nil
 }
 
 func (r *RequestRecorder) StatsCacheSize() int {
