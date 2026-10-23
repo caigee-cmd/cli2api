@@ -8,7 +8,7 @@ import { SkeletonBlock } from '@/components/ui/PageSkeletons'
 import { pressScale } from '@/hooks/useGsapReveal'
 import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
-import { fetchOverviewSummary } from '@/api/overview'
+import { fetchLive } from '@/api/live'
 
 const nav = [
   { to: '/', key: 'navOverview', icon: Gauge, section: 'workspace', end: true },
@@ -114,12 +114,12 @@ function SidebarStatusSkeleton({ label }: { label: string }) {
   )
 }
 
-const IN_FLIGHT_POLL_MS = 3000
+const IN_FLIGHT_POLL_MS = 2500
 
 /**
- * Live in-flight request count (sum of account in_flight from
- * /api/overview/summary). Polls every 3s only while the tab is visible;
- * the dot is muted at 0 and pulses green while requests are running.
+ * Live in-flight request count from /api/live (same source as the overview
+ * strip). Polls every 2.5s only while the tab is visible; the dot is muted
+ * at 0 and pulses green while requests are running.
  */
 function InFlightIndicator({ initial, collapsed }: { initial: number; collapsed: boolean }) {
   const { t } = useI18n()
@@ -130,8 +130,8 @@ function InFlightIndicator({ initial, collapsed }: { initial: number; collapsed:
     let cancelled = false
     let timer: number | undefined
     const poll = () => {
-      void fetchOverviewSummary()
-        .then((data) => { if (!cancelled) setCount(data.worker?.in_flight ?? 0) })
+      void fetchLive()
+        .then((data) => { if (!cancelled) setCount(data.in_flight ?? 0) })
         .catch(() => { /* keep last value */ })
     }
     const start = () => {

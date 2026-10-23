@@ -226,8 +226,11 @@ func TestMaxInFlightCapsConcurrency(t *testing.T) {
 	p := NewPool([]string{"http://a:3020", "http://b:3020"}, []string{"a", "b"})
 	p.Upsert(Item{ID: "a", MaxInFlight: 1})
 	p.Upsert(Item{ID: "b", MaxInFlight: 1})
-	p.MergeHealth("a", true, false, 1, 0, "")
+	p.MergeHealth("a", true, false, 0, 0, "")
 	p.MergeHealth("b", true, false, 0, 0, "")
+	if !p.Acquire("a") {
+		t.Fatal("acquire a")
+	}
 
 	// a is saturated at its limit, so traffic must move to b.
 	item, ok := p.Pick("", nil)
@@ -237,7 +240,9 @@ func TestMaxInFlightCapsConcurrency(t *testing.T) {
 	// Both saturated: MaxInFlight is the sole bottleneck, so the pool must
 	// decline to dispatch (ok=false) rather than round-trip into a worker
 	// 429. The executor maps this to a rate-limit Retry-After.
-	p.MergeHealth("b", true, false, 1, 0, "")
+	if !p.Acquire("b") {
+		t.Fatal("acquire b")
+	}
 	if _, ok := p.Pick("", nil); ok {
 		t.Fatal("fully saturated pool must decline to dispatch, not surface a candidate")
 	}
@@ -245,7 +250,13 @@ func TestMaxInFlightCapsConcurrency(t *testing.T) {
 
 func TestMaxInFlightUnsetDoesNotBlock(t *testing.T) {
 	p := NewPool([]string{"http://a:3020"}, []string{"a"})
-	p.MergeHealth("a", true, false, 999, 0, "")
+	p.MergeHealth("a", true, false, 0, 0, "")
+	// Without MaxInFlight, Acquire never caps; inflate the counter freely.
+	for i := 0; i < 999; i++ {
+		if !p.Acquire("a") {
+			t.Fatalf("acquire %d failed", i)
+		}
+	}
 	if _, ok := p.Pick("", nil); !ok {
 		t.Fatal("an unset limit must not block routing")
 	}
@@ -397,8 +408,11 @@ func TestPreferAccountEscapesSaturation(t *testing.T) {
 	p := NewPool([]string{"http://a:3020", "http://b:3020"}, []string{"a", "b"})
 	p.Upsert(Item{ID: "a", MaxInFlight: 1})
 	p.Upsert(Item{ID: "b", MaxInFlight: 1})
-	p.MergeHealth("a", true, false, 1, 0, "") // a saturated
+	p.MergeHealth("a", true, false, 0, 0, "")
 	p.MergeHealth("b", true, false, 0, 0, "")
+	if !p.Acquire("a") {
+		t.Fatal("acquire a")
+	}
 	// Pin a, which is at its concurrency cap; must fall through to b.
 	item, ok := p.PickRoute(RouteQuery{PreferAccount: "a"})
 	if !ok || item.ID != "b" {
@@ -475,14 +489,17 @@ func TestSaturatedOnlyReturnsFalseButCoolingReturnsCandidate(t *testing.T) {
 	p := NewPool([]string{"http://a:3020", "http://b:3020"}, []string{"a", "b"})
 	p.Upsert(Item{ID: "a", MaxInFlight: 1})
 	p.Upsert(Item{ID: "b", MaxInFlight: 1})
-	p.MergeHealth("a", true, false, 1, 0, "")
-	p.MergeHealth("b", true, false, 1, 0, "")
+	p.MergeHealth("a", true, false, 0, 0, "")
+	p.MergeHealth("b", true, false, 0, 0, "")
+	if !p.Acquire("a") || !p.Acquire("b") {
+		t.Fatal("acquire a/b")
+	}
 	// Pure saturation: no cooldown anywhere -> decline.
 	if _, ok := p.Pick("", nil); ok {
 		t.Fatal("fully saturated pool must decline to dispatch")
 	}
 	// Now a is cooling instead of saturated; it must be surfaced.
-	p.MergeHealth("a", true, false, 0, 0, "")
+	p.Release("a")
 	p.MarkDown("a", time.Hour, "cooling")
 	item, ok := p.Pick("", nil)
 	if !ok || item.ID != "a" {
@@ -595,5 +612,63 @@ func TestNormalizeModelNameStripsProviderPrefix(t *testing.T) {
 		if got := NormalizeModelName(input); got != want {
 			t.Fatalf("NormalizeModelName(%q) = %q, want %q", input, got, want)
 		}
+	}
+}
+
+func TestAcquireReleaseCapsAndFloors(t *testing.T) {
+	p := NewPool([]string{"http://a:3020"}, []string{"a"})
+	p.Upsert(Item{ID: "a", MaxInFlight: 2})
+	if !p.Acquire("a") || !p.Acquire("a") {
+		t.Fatal("first two acquires must succeed")
+	}
+	if p.Acquire("a") {
+		t.Fatal("third acquire must fail at MaxInFlight")
+	}
+	item, _ := p.ByID("a")
+	if item.InFlight != 2 {
+		t.Fatalf("in_flight=%d want 2", item.InFlight)
+	}
+	p.Release("a")
+	item, _ = p.ByID("a")
+	if item.InFlight != 1 {
+		t.Fatalf("after release in_flight=%d want 1", item.InFlight)
+	}
+	p.Release("a")
+	p.Release("a") // floor at zero
+	item, _ = p.ByID("a")
+	if item.InFlight != 0 {
+		t.Fatalf("over-release in_flight=%d want 0", item.InFlight)
+	}
+	if p.Acquire("missing") {
+		t.Fatal("unknown id must not acquire")
+	}
+	p.Release("missing") // no-op
+}
+
+func TestMergeHealthDoesNotOverwriteInFlight(t *testing.T) {
+	p := NewPool([]string{"http://a:3020"}, []string{"a"})
+	p.Upsert(Item{ID: "a", MaxInFlight: 4})
+	if !p.Acquire("a") || !p.Acquire("a") {
+		t.Fatal("acquire")
+	}
+	p.MergeHealth("a", true, true, 0, 3, "")
+	item, _ := p.ByID("a")
+	if item.InFlight != 2 {
+		t.Fatalf("MergeHealth must not clobber InFlight, got %d", item.InFlight)
+	}
+	if item.Hot == nil || !*item.Hot || item.Restarts != 3 {
+		t.Fatalf("health fields should update, got %+v", item)
+	}
+}
+
+func TestUpsertPreservesInFlight(t *testing.T) {
+	p := NewPool([]string{"http://a:3020"}, []string{"a"})
+	if !p.Acquire("a") {
+		t.Fatal("acquire")
+	}
+	p.Upsert(Item{ID: "a", URL: "http://a:3021", Provider: "qoder", MaxInFlight: 4})
+	item, _ := p.ByID("a")
+	if item.InFlight != 1 {
+		t.Fatalf("Upsert must keep InFlight, got %d", item.InFlight)
 	}
 }
