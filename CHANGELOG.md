@@ -3,6 +3,32 @@
 Published user-facing notes for GitHub Releases and the console update page.
 Write upcoming notes as bilingual files in `changelog/unreleased/`.
 
+## 0.7.4 - 2026-10-23
+
+### English
+
+- Non-lite Codex requests that include tools now preserve an explicit `parallel_tool_calls: false` from the caller instead of forcing `true` (aligned with CLIProxyAPI). Absent values still default to `true`.
+- Codex credentials that enable `use_siwc` now keep both the outer ChatGPT OAuth and SIWC partitions. Requests whose User-Agent identifies an official Codex client (`codex-desktop`, `Codex Desktop`, `codex-rs`, `codex_cli_rs`, `codex-tui`, `codex_exec`) ignore `use_siwc`, use the outer token, and fail closed with 401 when the outer `access_token` is missing; refresh on that path only updates the outer partition.
+- Overview now shows a credit-expiry distribution: credits grouped by the calendar day they lapse, one colour per account, plus a soonest-expiry table (numeric columns centred) with the daily burn rate needed to spend each batch before it expires (FEFO). Already-expired packages that still hold remain appear in a dedicated bucket.
+- Overview adds a usage breakdown table with token split (prompt / completion / total), prefix-cache hit rate, error count and latency, switchable between account / model / realm dimensions and sortable by total tokens, requests, errors or latency, following the selected window (1h / 24h / 7d / 30d / custom). The 30s / visibility refresh quietly reloads this panel with the traffic chart.
+- Overview adds a credit deduction history that sums upstream `usage.credit` per account and per model, with KPI tiles for credits deducted, matched tokens, average credits per 1M tokens, valid samples and cache hit rate; requests without a credit reading are excluded and nothing is back-filled, model rates come from the regional price catalog. Credit SQL shares one nullable expression with the #361 zero-coalesced form.
+- Overview time switcher gains a **Today** option (calendar day since local midnight → now), placed before 1h.
+- Overview now defaults to the Today window on load (was 24h).
+- WorkBuddy payload sanitization now rewrites DeepSeek Harness identity sentences and the DSH Web GUI paragraph (and reduces the `DeepSeek Harness` brand prose) on system / developer / assistant messages, matching upstream 11-128 channel-fingerprint fixes. User and tool messages stay untouched.
+- WorkBuddy chat no longer treats every post-401 token refresh failure as `login_required`: only real session-dead / auth refresh failures keep that path; transport and 5xx refresh errors stay `unavailable` with a short pool cooldown and a diagnostic Observe entry.
+
+### 中文
+
+- 非 lite 且带 tools 的 Codex 请求会保留调用方显式传入的 `parallel_tool_calls: false`，不再强制改成 `true`（与 CLIProxyAPI 对齐）；未传时仍默认 `true`。
+- 启用 `use_siwc` 的 Codex 凭据会同时保留 outer ChatGPT OAuth 与 SIWC 分区。入站 User-Agent 识别为官方 Codex 客户端（`codex-desktop` / `Codex Desktop` / `codex-rs` / `codex_cli_rs` / `codex-tui` / `codex_exec`）时忽略 `use_siwc`、改用 outer token；缺少 outer `access_token` 则直接 401，且该路径下的刷新只更新 outer。
+- 概览新增「积分到期分布」：按自然日聚合各账号即将失效的积分，颜色区分账号；并附最近到期提醒表（数字列居中），给出该日到期积分与到期前需要的日均消耗（FEFO）。过期但仍有余额的包单独成桶。
+- 概览新增「用量明细」：按维度展示 token 构成（Prompt / Completion / 合计）、前缀缓存命中率、失败数与延迟，可在账号 / 模型 / 域之间切换，并支持按合计 Token、请求数、失败数、平均延迟排序，跟随上方所选时间窗口（1 小时 / 24 小时 / 7 天 / 30 天 / 自定义）。30 秒 / 切回可见时与流量图一并 quiet 刷新。
+- 概览新增「积分扣除历史」：按账号与模型汇总上游 `usage.credit`，顶部 KPI 展示扣除积分、匹配 Token、平均积分 / 1M Token、有效样本与缓存命中率；未观测到积分的请求不计入、不做任何回填，模型倍率取自区域价格目录。积分 SQL 与 #361 收敛为可空 / 补零两种包装。
+- 概览页顶部时间切换新增「今天」选项（按本地零点到当前的日历日统计），排在「1小时」之前。
+- 概览页默认时间窗口改为「今天」（原为 24 小时）。
+- WorkBuddy 出站清洗对齐上游 11-128 渠道指纹修复：对 system / developer / assistant 改写 DeepSeek Harness 自我介绍句与 DSH Web GUI 描述段，并将散文中的 `DeepSeek Harness` 缩为 `DeepSeek`；user / tool 消息保持原样。
+- WorkBuddy 聊天在 401 后刷新 token 失败时不再一律标成 `login_required`：仅真实 session-dead / auth 刷新失败保留该路径；运输错误与 5xx 刷新失败保持 `unavailable`，走池短冷却，并用现有 Observe 记下可诊断原因。
+
 ## 0.7.3 - 2026-10-23
 
 ### English
