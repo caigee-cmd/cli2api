@@ -43,6 +43,7 @@ const (
 // and default model differ. Values come from the QwenWork desktop bundles
 // (intl 1.0.4, CN 1.0.5).
 type site struct {
+	Region       string
 	Gateway      string
 	ClientID     string
 	RedirectURI  string
@@ -53,6 +54,7 @@ type site struct {
 
 var sites = map[string]site{
 	"global": {
+		Region:       "global",
 		Gateway:      "https://gateway.qwenwork.ai",
 		ClientID:     "cc65e5fc-05bd-4f5d-a4e8-0df19aa3d75a",
 		RedirectURI:  "qwenwork://",
@@ -61,6 +63,7 @@ var sites = map[string]site{
 		DefaultModel: "qwork-advanced",
 	},
 	"cn": {
+		Region:       "cn",
 		Gateway:      "https://gateway.qwenwork.cn",
 		ClientID:     "e883ade2-e6e3-4d6d-adf7-f92ceff5fdcb",
 		RedirectURI:  "qwenwork-cn://",
