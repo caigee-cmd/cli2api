@@ -57,7 +57,7 @@ func credentialPayload() []byte {
 		RefreshToken: "rt",
 		AccountID:    "acct_123",
 		Email:        "u@example.com",
-		ExpiresAt:    time.Now().Add(time.Hour).Unix(),
+		ExpiresAt:    time.Now().Add(10 * 24 * time.Hour).Unix(),
 	}.Encode()
 	return payload
 }
@@ -143,7 +143,7 @@ func TestProbeRecoversMissingAccountIDFromIDToken(t *testing.T) {
 		IDToken:      idToken,
 		AccessToken:  "at",
 		RefreshToken: "rt",
-		ExpiresAt:    time.Now().Add(time.Hour).Unix(),
+		ExpiresAt:    time.Now().Add(10 * 24 * time.Hour).Unix(),
 	})
 	store := testStore{items: map[string][]byte{"acc-1": payload}}
 	health, err := NewClient(store).Probe(context.Background(), "acc-1")

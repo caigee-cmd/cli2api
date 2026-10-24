@@ -38,7 +38,7 @@ func dualSIWCCredential() Credential {
 		RefreshToken: "siwc-refresh",
 		AccountID:    "acct-1",
 		Email:        "u@example.com",
-		ExpiresAt:    time.Now().Add(time.Hour).Unix(),
+		ExpiresAt:    time.Now().Add(time.Hour).Unix(), // SIWC lead is 5m
 		AuthMethod:   AuthMethodChatGPT,
 		ClientID:     "issued-client",
 		DeviceID:     "dev-1",
@@ -46,7 +46,9 @@ func dualSIWCCredential() Credential {
 		Outer: &OuterPartition{
 			AccessToken:  "outer-token",
 			RefreshToken: "outer-refresh",
-			ExpiresAt:    time.Now().Add(time.Hour).Unix(),
+			// Outer lead is 96h; keep fixtures outside that window so HTTP tests
+			// do not hit the real token endpoint.
+			ExpiresAt: time.Now().Add(10 * 24 * time.Hour).Unix(),
 		},
 	}
 }
@@ -191,4 +193,3 @@ func TestSetChatHeadersUsesEffectiveCredential(t *testing.T) {
 		t.Fatalf("headers = %v", h)
 	}
 }
-
