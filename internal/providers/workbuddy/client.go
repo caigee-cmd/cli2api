@@ -537,7 +537,9 @@ func (c *Client) sendChat(ctx context.Context, accountID string, credential Cred
 	client.Timeout = 0
 	refreshed := false
 	for {
-		resp, err := client.Do(httpReq)
+		// Fail over when the upstream accepts but never sends a response head
+		// (see ttfb.go). Kept inside sendChat so the 401 refresh loop still runs.
+		resp, err := doWithFirstByteTimeout(client, httpReq, resolveFirstByteTimeout())
 		if err != nil {
 			return nil, wrapTransportError(err)
 		}
