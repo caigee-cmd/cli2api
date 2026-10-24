@@ -1,32 +1,27 @@
 import { CopyIcon } from '@/components/motion/CopyIcon'
 import { copyText } from '@/lib/clipboard'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Button, Card, Chip, Description, Label, ListBox, Select, Skeleton, Tab, Tabs, TextArea } from '@heroui/react'
-import {
-  ArrowsClockwise,
-  BracketsCurly,
-  ChatTeardropText,
-  CheckCircle,
-  Clock,
-  Code,
-  PaperPlaneTilt,
-  Stop,
-} from '@phosphor-icons/react'
+import { Button, Card, Chip, Description, Label, ListBox, Select, Skeleton } from '@heroui/react'
+import { ArrowsClockwise } from '@phosphor-icons/react'
 import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
 import { fetchAccounts, fetchModels, streamChat, testChat } from '@/api/overview'
 import type { ModelInfo, Overview } from '@/api/types'
+import type { StreamToolCall } from '@/api/overview'
 import { absUrl } from '@/lib/url'
 import { modelCreditsText, modelIsFree } from '@/lib/format'
-import { EmptyPanel } from '@/components/ui/EmptyPanel'
 import { PageAlert } from '@/components/ui/PageAlert'
 import { AccessPageSkeleton } from '@/components/ui/PageSkeletons'
 import { ProviderMark } from '@/components/ProviderMark'
 import { accountProviderLabel } from '@/lib/provider'
 import { EndpointList } from '@/components/EndpointList'
+import { ChatComposer } from '@/components/access/ChatComposer'
+import { ChatThread } from '@/components/access/ChatThread'
+import { RawApiPanel } from '@/components/access/RawApiPanel'
+import { buildUserContent, toApiMessages } from '@/components/access/buildMessages'
+import type { ChatAttachment, ChatToolCall, ThreadMessage } from '@/components/access/types'
 
 type RequestState = 'idle' | 'loading' | 'success' | 'error'
-type AccessTab = 'chat' | 'api'
 
 type PlaygroundOption = {
   id: string
@@ -38,6 +33,20 @@ type PlaygroundOption = {
 
 function shellQuote(value: string) {
   return `'${value.replaceAll("'", `'"'"'`)}'`
+}
+
+function newId(prefix: string) {
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function mapToolCalls(calls: StreamToolCall[], streaming: boolean): ChatToolCall[] {
+  return calls.map((call, index) => ({
+    index: typeof call.index === 'number' ? call.index : index,
+    id: call.id || `tool-${index}`,
+    name: call.function?.name || '',
+    arguments: call.function?.arguments || '',
+    status: streaming ? 'running' : 'success',
+  }))
 }
 
 function PlaygroundSelect({
@@ -102,7 +111,7 @@ function PlaygroundSelect({
 export function AccessPage() {
   const { t } = useI18n()
   const { overview, loading } = useOverview()
-  const [tab, setTab] = useState<AccessTab>('chat')
+  const [rawOpen, setRawOpen] = useState(false)
   const [poolModels, setPoolModels] = useState<ModelInfo[]>([])
   const [accounts, setAccounts] = useState<NonNullable<Overview['accounts']>>([])
   useEffect(() => {
@@ -122,10 +131,9 @@ export function AccessPage() {
   const [accountCatalog, setAccountCatalog] = useState<{ accountId: string; models: ModelInfo[]; error: string } | null>(null)
   const [prompt, setPrompt] = useState('只回复OK')
   const [chatPrompt, setChatPrompt] = useState('')
-  const [chatUser, setChatUser] = useState('')
-  const [chatReply, setChatReply] = useState('')
+  const [attachments, setAttachments] = useState<ChatAttachment[]>([])
+  const [messages, setMessages] = useState<ThreadMessage[]>([])
   const [chatState, setChatState] = useState<RequestState>('idle')
-  const [chatError, setChatError] = useState('')
   const chatAbortRef = useRef<AbortController | null>(null)
   const [output, setOutput] = useState('')
   const [requestState, setRequestState] = useState<RequestState>('idle')
@@ -212,29 +220,70 @@ export function AccessPage() {
     chatAbortRef.current = null
   }
 
+  function patchAssistant(id: string, patch: Partial<ThreadMessage> | ((prev: ThreadMessage) => Partial<ThreadMessage>)) {
+    setMessages((prev) => prev.map((message) => {
+      if (message.id !== id) return message
+      const next = typeof patch === 'function' ? patch(message) : patch
+      return { ...message, ...next }
+    }))
+  }
+
   async function onChatSend() {
     const content = chatPrompt.trim()
-    if (!content || !selectedModel || modelsLoading || chatState === 'loading') return
+    if ((!content && !attachments.length) || !selectedModel || modelsLoading || chatState === 'loading') return
     stopChat()
     const controller = new AbortController()
     chatAbortRef.current = controller
-    setChatUser(content)
-    setChatReply('')
-    setChatError('')
-    setChatState('loading')
+    const pendingAttachments = attachments
+    const userMessage: ThreadMessage = {
+      id: newId('user'),
+      role: 'user',
+      content,
+      attachments: pendingAttachments,
+      status: 'done',
+    }
+    const assistantId = newId('assistant')
+    const assistantMessage: ThreadMessage = {
+      id: assistantId,
+      role: 'assistant',
+      content: '',
+      status: 'streaming',
+    }
+    const history = messages
+    setMessages([...history, userMessage, assistantMessage])
     setChatPrompt('')
+    setAttachments([])
+    setChatState('loading')
+
+    const apiUser = {
+      role: 'user' as const,
+      content: buildUserContent(content, pendingAttachments),
+    }
+    const apiMessages = toApiMessages(history, apiUser)
+
     try {
-      await streamChat(selectedModel, content, selectedAccount || undefined, {
+      await streamChat(selectedModel, apiMessages, selectedAccount || undefined, {
         signal: controller.signal,
-        onContent: (_chunk, full) => setChatReply(full),
+        onContent: (_chunk, full) => patchAssistant(assistantId, { content: full }),
+        onReasoning: (_chunk, full) => patchAssistant(assistantId, { reasoning: full }),
+        onToolCalls: (calls) => patchAssistant(assistantId, { toolCalls: mapToolCalls(calls, true) }),
       })
+      patchAssistant(assistantId, (prev) => ({
+        status: 'done',
+        toolCalls: prev.toolCalls?.map((call) => ({ ...call, status: 'success' as const })),
+      }))
       setChatState('success')
     } catch (error) {
       if (controller.signal.aborted) {
+        patchAssistant(assistantId, (prev) => ({
+          status: 'done',
+          toolCalls: prev.toolCalls?.map((call) => ({ ...call, status: 'success' as const })),
+        }))
         setChatState('success')
         return
       }
-      setChatError(error instanceof Error ? error.message : String(error))
+      const message = error instanceof Error ? error.message : String(error)
+      patchAssistant(assistantId, { status: 'error', error: message })
       setChatState('error')
     } finally {
       if (chatAbortRef.current === controller) chatAbortRef.current = null
@@ -279,9 +328,16 @@ export function AccessPage() {
     }
   })
 
+  const canChatSend = Boolean(
+    (chatPrompt.trim() || attachments.length)
+    && selectedModel
+    && !modelsLoading
+    && accounts.length,
+  )
+
   return (
     <div className="space-y-5">
-      <section className="grid gap-5 pb-2 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+      <section className="grid gap-3 pb-1 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
         <div>
           <h2 className="text-title font-semibold">{t('apiPlayground')}</h2>
           <p className="mt-1 max-w-2xl text-body leading-6 text-muted">{t('apiPlaygroundHint')}</p>
@@ -293,20 +349,12 @@ export function AccessPage() {
       </section>
 
       <section className="overflow-hidden rounded-xl bg-surface shadow-surface">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-separator px-4 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
           <div className="min-w-0">
             <div className="text-caption font-medium text-muted">{t('baseUrl')}</div>
             <code className="mono mt-0.5 block truncate text-body font-medium text-foreground">{base}</code>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="hidden text-right sm:block">
-              <div className="text-caption font-medium text-muted">{t('protocol')}</div>
-              <div className="text-caption font-medium">HTTP / SSE</div>
-            </div>
-            <div className="hidden text-right sm:block">
-              <div className="text-caption font-medium text-muted">{t('authentication')}</div>
-              <div className="mono text-caption font-medium">Bearer API key</div>
-            </div>
+          <div className="flex items-center gap-2">
             <Button isIconOnly size="sm" variant="ghost" aria-label={t('copyBaseUrl')} onPress={() => void copy(base, 'base')}>
               <CopyIcon copied={copied === 'base'} size={15} />
             </Button>
@@ -315,261 +363,84 @@ export function AccessPage() {
             </Chip>
           </div>
         </div>
-        <div className="grid grid-cols-2 sm:hidden">
-          <div className="p-3">
-            <div className="text-caption font-medium text-muted">{t('protocol')}</div>
-            <div className="mt-0.5 text-caption font-medium">HTTP / SSE</div>
-          </div>
-          <div className="p-3">
-            <div className="text-caption font-medium text-muted">{t('authentication')}</div>
-            <div className="mono mt-0.5 truncate text-caption font-medium">Bearer API key</div>
-          </div>
-        </div>
       </section>
 
       <Card className="overflow-hidden p-0">
-        <div className="space-y-5 p-5 sm:p-6">
-          <div className="grid gap-5 sm:grid-cols-2">
-            <div className="space-y-2">
-              <PlaygroundSelect
-                label={t('account')}
-                value={selectedAccount || 'auto'}
-                onChange={(next) => setAccountId(next === 'auto' ? '' : next)}
-                options={accountOptions}
-              />
-              <p className="text-caption leading-5 text-muted">{selectedAccount ? t('fixedAccountHint') : t('autoAccountHint')}</p>
-            </div>
-            <div className="space-y-2">
-              {modelsLoading ? (
-                <div className="flex flex-col gap-1">
-                  <div className="text-body font-medium text-muted">{t('model')}</div>
-                  <Skeleton className="h-10 rounded-lg" />
-                </div>
-              ) : models.length ? (
-                <PlaygroundSelect
-                  label={t('model')}
-                  value={selectedModel}
-                  onChange={setModel}
-                  placeholder={t('model')}
-                  options={modelOptions}
-                />
-              ) : (
-                <div className="flex flex-col gap-1">
-                  <div className="text-body font-medium text-muted">{t('model')}</div>
-                  <div className="flex h-10 items-center rounded-lg bg-surface-secondary px-3 text-caption leading-5 text-muted">
-                    {modelsError || (selectedAccount ? t('noAccountModels') : t('noModelsYet'))}
-                  </div>
-                </div>
-              )}
-              <p className="text-caption leading-5 text-muted">{selectedAccount ? t('accountModelHint') : t('modelRoutingHint')}</p>
-            </div>
+        <div className="grid gap-4 p-4 sm:grid-cols-2 sm:gap-5 sm:p-5">
+          <div className="space-y-1.5">
+            <PlaygroundSelect
+              label={t('account')}
+              value={selectedAccount || 'auto'}
+              onChange={(next) => setAccountId(next === 'auto' ? '' : next)}
+              options={accountOptions}
+            />
+            <p className="text-caption leading-5 text-muted">{selectedAccount ? t('fixedAccountHint') : t('autoAccountHint')}</p>
           </div>
-
-          {!accounts.length ? (
+          <div className="space-y-1.5">
+            {modelsLoading ? (
+              <div className="flex flex-col gap-1">
+                <div className="text-body font-medium text-muted">{t('model')}</div>
+                <Skeleton className="h-10 rounded-lg" />
+              </div>
+            ) : models.length ? (
+              <PlaygroundSelect
+                label={t('model')}
+                value={selectedModel}
+                onChange={setModel}
+                placeholder={t('model')}
+                options={modelOptions}
+              />
+            ) : (
+              <div className="flex flex-col gap-1">
+                <div className="text-body font-medium text-muted">{t('model')}</div>
+                <div className="flex h-10 items-center rounded-lg bg-surface-secondary px-3 text-caption leading-5 text-muted">
+                  {modelsError || (selectedAccount ? t('noAccountModels') : t('noModelsYet'))}
+                </div>
+              </div>
+            )}
+            <p className="text-caption leading-5 text-muted">{selectedAccount ? t('accountModelHint') : t('modelRoutingHint')}</p>
+          </div>
+        </div>
+        {!accounts.length ? (
+          <div className="px-4 pb-4 sm:px-5 sm:pb-5">
             <PageAlert status="warning" title={t('noAccountsForTest')} />
-          ) : null}
+          </div>
+        ) : null}
+      </Card>
+
+      <Card className="overflow-hidden p-0">
+        <div className="flex min-h-[640px] flex-col md:min-h-[70vh]">
+          <ChatThread messages={messages} busy={chatState === 'loading'} />
+          <ChatComposer
+            value={chatPrompt}
+            onChange={setChatPrompt}
+            attachments={attachments}
+            onAttachmentsChange={setAttachments}
+            disabled={!accounts.length}
+            streaming={chatState === 'loading'}
+            canSend={canChatSend}
+            onSend={() => void onChatSend()}
+            onStop={stopChat}
+          />
         </div>
       </Card>
 
-      <Tabs selectedKey={tab} onSelectionChange={(key) => setTab(String(key) as AccessTab)}>
-        <Tabs.ListContainer className="w-fit max-w-full overflow-x-auto">
-          <Tabs.List aria-label={t('accessTabsLabel')}>
-            <Tab id="chat" className="gap-1.5 whitespace-nowrap">
-              <Tabs.Indicator className="transition-none" />
-              <ChatTeardropText size={14} />
-              {t('accessTabChat')}
-            </Tab>
-            <Tab id="api" className="gap-1.5 whitespace-nowrap">
-              <Tabs.Indicator className="transition-none" />
-              <Code size={14} />
-              {t('accessTabApi')}
-            </Tab>
-          </Tabs.List>
-        </Tabs.ListContainer>
-
-        <Tabs.Panel id="chat" className="pt-5">
-          <Card className="overflow-hidden p-0">
-            <div className="flex min-h-[520px] flex-col">
-              <div className="min-h-0 flex-1 space-y-4 p-5 sm:p-6" aria-live="polite" aria-busy={chatState === 'loading'}>
-                {chatState === 'idle' && !chatUser ? (
-                  <EmptyPanel
-                    className="min-h-72"
-                    icon={<ChatTeardropText size={21} />}
-                    title={t('chatTryEmptyTitle')}
-                    hint={t('chatTryEmptyHint')}
-                  />
-                ) : (
-                  <div className="space-y-5">
-                    {chatUser ? (
-                      <div className="space-y-1.5">
-                        <div className="text-caption font-medium text-muted">{t('chatTryUserLabel')}</div>
-                        <div className="whitespace-pre-wrap break-words text-body leading-6 text-foreground">{chatUser}</div>
-                      </div>
-                    ) : null}
-                    <div className="space-y-1.5">
-                      <div className="flex items-center gap-2 text-caption font-medium text-muted">
-                        <span>{t('chatTryAssistantLabel')}</span>
-                        {chatState === 'loading' ? <span>{t('chatTryStreaming')}</span> : null}
-                      </div>
-                      {chatState === 'error' ? (
-                        <PageAlert status="danger" title={t('requestFailed')} description={chatError} />
-                      ) : chatReply ? (
-                        <div className="whitespace-pre-wrap break-words text-body leading-6 text-foreground">{chatReply}</div>
-                      ) : chatState === 'loading' ? (
-                        <div className="space-y-3 pt-1">
-                          <Skeleton className="h-3 w-32 rounded-lg" />
-                          <Skeleton className="h-3 w-full rounded-lg" />
-                          <Skeleton className="h-3 w-[88%] rounded-lg" />
-                          <Skeleton className="h-3 w-[72%] rounded-lg" />
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div className="space-y-3 border-t border-separator p-5 sm:p-6">
-                <TextArea
-                  fullWidth
-                  rows={4}
-                  className="min-h-28 resize-y px-4 py-3 text-body leading-6"
-                  value={chatPrompt}
-                  onChange={(event) => setChatPrompt(event.target.value)}
-                  placeholder={t('promptPlaceholder')}
-                  aria-label={t('prompt')}
-                  disabled={chatState === 'loading'}
-                />
-                <p className="text-caption leading-5 text-muted">{t('chatTryHelper')}</p>
-                <div className="flex gap-2">
-                  {chatState === 'loading' ? (
-                    <Button fullWidth variant="secondary" onPress={stopChat}>
-                      <Stop size={16} />
-                      {t('chatTryStop')}
-                    </Button>
-                  ) : (
-                    <Button
-                      fullWidth
-                      isDisabled={!chatPrompt.trim() || !selectedModel || modelsLoading || !accounts.length}
-                      onPress={() => void onChatSend()}
-                    >
-                      <PaperPlaneTilt size={16} />
-                      {t('chatTrySend')}
-                    </Button>
-                  )}
-                </div>
-              </div>
-            </div>
-          </Card>
-        </Tabs.Panel>
-
-        <Tabs.Panel id="api" className="pt-5 space-y-5">
-          <p className="text-caption leading-5 text-muted">{t('nativeApiHint')}</p>
-          <Card className="overflow-hidden p-0">
-            <div className="grid xl:grid-cols-[minmax(440px,.92fr)_minmax(0,1.08fr)]">
-              <div className="border-b border-separator xl:border-r xl:border-b-0">
-                <div className="border-b border-separator px-5 py-5 sm:px-7">
-                  <h3 className="font-semibold">{t('requestBuilder')}</h3>
-                  <p className="mt-0.5 text-caption text-muted">POST {chatPath}</p>
-                </div>
-
-                <div className="space-y-6 p-5 sm:p-7">
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between gap-4">
-                      <div className="text-body font-medium text-muted">{t('prompt')}</div>
-                      <span className="mono text-caption text-muted">{prompt.length}</span>
-                    </div>
-                    <TextArea
-                      fullWidth
-                      rows={9}
-                      className="min-h-56 resize-y px-4 py-3 text-body leading-6"
-                      value={prompt}
-                      onChange={(event) => setPrompt(event.target.value)}
-                      placeholder={t('promptPlaceholder')}
-                      aria-label={t('prompt')}
-                    />
-                    <p className="text-caption leading-5 text-muted">{t('promptHelper')}</p>
-                  </div>
-
-                  <Button fullWidth isPending={requestState === 'loading'} isDisabled={!prompt.trim() || !selectedModel || modelsLoading} onPress={() => void onTest()}>
-                    <PaperPlaneTilt size={16} />
-                    {requestState === 'loading' ? t('requesting') : t('sendRequest')}
-                  </Button>
-                </div>
-              </div>
-
-              <div className="flex min-h-[520px] min-w-0 flex-col bg-surface-secondary/45" aria-live="polite" aria-busy={requestState === 'loading'}>
-                <div className="flex min-h-16 items-center justify-between gap-4 border-b border-separator px-5 py-4 sm:px-6">
-                  <div>
-                    <h3 className="font-semibold">{t('responseInspector')}</h3>
-                    <p className="mt-0.5 text-caption text-muted">{t('responseInspectorHint')}</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {elapsedMs !== null ? (
-                      <span className="mono flex items-center gap-1.5 text-caption text-muted">
-                        <Clock size={12} />
-                        {elapsedMs} ms
-                      </span>
-                    ) : null}
-                    <Chip
-                      size="sm"
-                      variant="soft"
-                      color={requestState === 'success' ? 'success' : requestState === 'error' ? 'danger' : undefined}
-                    >
-                      {responseStatus}
-                    </Chip>
-                  </div>
-                </div>
-
-                <div className="min-h-0 flex-1 p-5 sm:p-6">
-                  {requestState === 'idle' ? (
-                    <EmptyPanel
-                      className="min-h-80"
-                      icon={<BracketsCurly size={21} />}
-                      title={t('responseEmptyTitle')}
-                      hint={t('responseEmptyHint')}
-                    />
-                  ) : requestState === 'loading' ? (
-                    <div className="space-y-3 pt-1">
-                      <Skeleton className="h-3 w-32 rounded-lg" />
-                      <Skeleton className="h-3 w-full rounded-lg" />
-                      <Skeleton className="h-3 w-[88%] rounded-lg" />
-                      <Skeleton className="h-3 w-[72%] rounded-lg" />
-                      <Skeleton className="mt-7 h-3 w-[92%] rounded-lg" />
-                      <Skeleton className="h-3 w-[64%] rounded-lg" />
-                    </div>
-                  ) : requestState === 'error' ? (
-                    <div className="space-y-3">
-                      <PageAlert status="danger" title={t('requestFailed')} description={output} />
-                    </div>
-                  ) : (
-                    <div>
-                      <div className="mb-4 flex items-center gap-2 text-caption font-medium text-success">
-                        <CheckCircle size={15} weight="fill" />
-                        {t('responseReceived')}
-                      </div>
-                      <pre className="mono overflow-x-auto whitespace-pre-wrap break-words text-caption leading-6 text-muted">{output}</pre>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </Card>
-
-          <section className="overflow-hidden rounded-xl bg-surface shadow-surface">
-            <div className="flex items-center justify-between gap-4 border-b border-separator px-5 py-3.5">
-              <div className="min-w-0">
-                <div className="text-body font-semibold">{t('curlExample')}</div>
-                <div className="mt-0.5 truncate text-caption text-muted">{t('curlGeneratedHint')}</div>
-              </div>
-              <Button size="sm" variant="ghost" onPress={() => void copy(curl, 'curl')}>
-                <CopyIcon copied={copied === 'curl'} />
-                {copied === 'curl' ? t('copied') : t('copy')}
-              </Button>
-            </div>
-            <pre className="mono max-h-80 overflow-auto whitespace-pre-wrap p-5 text-caption leading-6 text-muted">{curl}</pre>
-          </section>
-        </Tabs.Panel>
-      </Tabs>
+      <RawApiPanel
+        open={rawOpen}
+        onOpenChange={setRawOpen}
+        chatPath={chatPath}
+        prompt={prompt}
+        onPromptChange={setPrompt}
+        onTest={() => void onTest()}
+        requestState={requestState}
+        elapsedMs={elapsedMs}
+        output={output}
+        responseStatus={responseStatus}
+        curl={curl}
+        copiedCurl={copied === 'curl'}
+        onCopyCurl={() => void copy(curl, 'curl')}
+        canSend={Boolean(prompt.trim() && selectedModel && !modelsLoading)}
+      />
 
       <EndpointList access={overview?.access} />
     </div>
