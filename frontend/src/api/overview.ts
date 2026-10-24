@@ -168,15 +168,85 @@ export function testChat(model: string, content: string, accountId?: string) {
   })
 }
 
+export type StreamChatContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } }
+
+export type StreamChatMessage = {
+  role: 'user' | 'assistant' | 'system' | 'tool'
+  content: string | StreamChatContentPart[]
+  name?: string
+  tool_call_id?: string
+  tool_calls?: StreamToolCall[]
+  reasoning_content?: string
+}
+
+export type StreamToolCall = {
+  index: number
+  id?: string
+  type?: string
+  function?: {
+    name?: string
+    arguments?: string
+  }
+}
+
+export type StreamChatUsage = {
+  prompt_tokens?: number
+  completion_tokens?: number
+  total_tokens?: number
+  /** Subscription credit spend when the upstream reports it. */
+  credits?: number
+  source?: string
+}
+
 export type StreamChatHandlers = {
   onContent?: (chunk: string, full: string) => void
+  onReasoning?: (chunk: string, full: string) => void
+  onToolCalls?: (toolCalls: StreamToolCall[]) => void
+  onUsage?: (usage: StreamChatUsage) => void
   signal?: AbortSignal
 }
 
-/** Single-turn streaming Chat Completions via console `/api/chat` (SSE). */
+function mergeToolCallDeltas(existing: StreamToolCall[], patches: unknown): StreamToolCall[] {
+  if (!Array.isArray(patches)) return existing
+  const next = existing.map((item) => ({
+    ...item,
+    function: item.function ? { ...item.function } : undefined,
+  }))
+  for (const patch of patches) {
+    if (!patch || typeof patch !== 'object') continue
+    const raw = patch as Record<string, unknown>
+    const index = typeof raw.index === 'number' ? raw.index : next.length
+    while (next.length <= index) {
+      next.push({ index: next.length, function: { name: '', arguments: '' } })
+    }
+    const target = next[index]
+    target.index = index
+    if (typeof raw.id === 'string' && raw.id) target.id = raw.id
+    if (typeof raw.type === 'string' && raw.type) target.type = raw.type
+    const fn = raw.function
+    if (fn && typeof fn === 'object') {
+      const fnRaw = fn as Record<string, unknown>
+      if (!target.function) target.function = { name: '', arguments: '' }
+      if (typeof fnRaw.name === 'string' && fnRaw.name) target.function.name = fnRaw.name
+      if (typeof fnRaw.arguments === 'string' && fnRaw.arguments) {
+        target.function.arguments = (target.function.arguments || '') + fnRaw.arguments
+      }
+    }
+  }
+  return next
+}
+
+function normalizeStreamMessages(content: string | StreamChatMessage[]): StreamChatMessage[] {
+  if (typeof content === 'string') return [{ role: 'user', content }]
+  return content
+}
+
+/** Streaming Chat Completions via console `/api/chat` (SSE). `content` may be a string or a messages array. */
 export async function streamChat(
   model: string,
-  content: string,
+  content: string | StreamChatMessage[],
   accountId: string | undefined,
   handlers: StreamChatHandlers = {},
 ): Promise<string> {
@@ -185,13 +255,15 @@ export async function streamChat(
   const key = readStoredApiKey().trim()
   if (key) headers.Authorization = `Bearer ${key}`
 
+  const messages = normalizeStreamMessages(content)
+
   const res = await fetch('/api/chat', {
     method: 'POST',
     headers,
     body: JSON.stringify({
       model,
       stream: true,
-      messages: [{ role: 'user', content }],
+      messages,
     }),
     signal: handlers.signal,
   })
@@ -216,6 +288,16 @@ export async function streamChat(
   const decoder = new TextDecoder()
   let buffer = ''
   let full = ''
+  let reasoning = ''
+  let toolCalls: StreamToolCall[] = []
+
+  const readUsageCredits = (raw: Record<string, unknown>): number | undefined => {
+    for (const key of ['credits', 'credit', 'consumed_credits', 'ConsumedCredits'] as const) {
+      const value = raw[key]
+      if (typeof value === 'number' && Number.isFinite(value)) return value
+    }
+    return undefined
+  }
 
   const consumeLine = (line: string) => {
     const trimmed = line.trim()
@@ -225,10 +307,33 @@ export async function streamChat(
     if (payload === '[DONE]') return true
     try {
       const json = JSON.parse(payload)
-      const delta = json?.choices?.[0]?.delta?.content
-      if (typeof delta === 'string' && delta) {
-        full += delta
-        handlers.onContent?.(delta, full)
+      const usageRaw = json?.usage
+      if (usageRaw && typeof usageRaw === 'object') {
+        const raw = usageRaw as Record<string, unknown>
+        const usage: StreamChatUsage = {
+          prompt_tokens: typeof raw.prompt_tokens === 'number' ? raw.prompt_tokens : undefined,
+          completion_tokens: typeof raw.completion_tokens === 'number' ? raw.completion_tokens : undefined,
+          total_tokens: typeof raw.total_tokens === 'number' ? raw.total_tokens : undefined,
+          credits: readUsageCredits(raw),
+          source: typeof raw.source === 'string' ? raw.source : undefined,
+        }
+        handlers.onUsage?.(usage)
+      }
+      const delta = json?.choices?.[0]?.delta
+      if (!delta || typeof delta !== 'object') return false
+      const contentDelta = delta.content
+      if (typeof contentDelta === 'string' && contentDelta) {
+        full += contentDelta
+        handlers.onContent?.(contentDelta, full)
+      }
+      const reasoningDelta = delta.reasoning_content
+      if (typeof reasoningDelta === 'string' && reasoningDelta) {
+        reasoning += reasoningDelta
+        handlers.onReasoning?.(reasoningDelta, reasoning)
+      }
+      if (delta.tool_calls) {
+        toolCalls = mergeToolCallDeltas(toolCalls, delta.tool_calls)
+        handlers.onToolCalls?.(toolCalls)
       }
     } catch {
       // ignore incomplete JSON frames
