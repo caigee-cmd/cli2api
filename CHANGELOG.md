@@ -3,6 +3,20 @@
 Published user-facing notes for GitHub Releases and the console update page.
 Write upcoming notes as bilingual files in `changelog/unreleased/`.
 
+## 0.7.9 - 2026-10-24
+
+### English
+
+- Request-log retention is configurable via `CLI2API_LOG_RETENTION_DAYS` (default 7) and `CLI2API_LOG_MAX_ROWS` (default 20000); invalid values fall back so pruning cannot be disabled by typo. Based on external contribution [#336](https://github.com/caigee-cmd/cli2api/pull/336) by [@YunMo-yanyu](https://github.com/YunMo-yanyu).
+- Extend the existing **Usage** console page with a **Cost** tab: quota consumed across providers, DeepSeek list-price equivalent cost (peak / off-peak), stacked cost-over-time chart, per-model breakdown, and the official price table. Stats tab (requests / latency / tokens / credits by model · account · provider) is unchanged. Adds `deepseek-flash` to the pricing catalog. Credits reuse the `#361` `request_usage_details` fallback so numbers match the Stats tab. Based on external contribution [#336](https://github.com/caigee-cmd/cli2api/pull/336) by [@YunMo-yanyu](https://github.com/YunMo-yanyu).
+- WorkBuddy streaming requests now fail over when the first response byte never arrives within `WORKBUDDY_STREAM_TTFB_MS` (aligned with Qoder’s first-byte timeout), without dropping the existing 401 token-refresh path. Based on external contribution [#336](https://github.com/caigee-cmd/cli2api/pull/336) by [@YunMo-yanyu](https://github.com/YunMo-yanyu).
+
+### 中文
+
+- 请求日志保留可通过 `CLI2API_LOG_RETENTION_DAYS`（默认 7 天）与 `CLI2API_LOG_MAX_ROWS`（默认 20000 行）配置；非法值回退默认，避免误配关掉清理。基于外部贡献 [#336](https://github.com/caigee-cmd/cli2api/pull/336)（[@YunMo-yanyu](https://github.com/YunMo-yanyu)）。
+- 在现有「用量」页增加 **费用** 选项卡：跨供应商订阅额度、DeepSeek 官方列表价折合费用（高峰/闲时）、费用趋势图、按模型明细与官方价格表。统计选项卡（按模型·账号·供应商的请求/延迟/token/额度）保持不变。价格目录补上 `deepseek-flash`。额度汇总沿用 #361 的 `request_usage_details` 回退，与统计页数字一致。基于外部贡献 [#336](https://github.com/caigee-cmd/cli2api/pull/336)（[@YunMo-yanyu](https://github.com/YunMo-yanyu)）。
+- WorkBuddy 流式请求在 `WORKBUDDY_STREAM_TTFB_MS` 内收不到首字节时会切换账号（对齐 Qoder 首字节超时），并保留原有 401 刷新 token 路径。基于外部贡献 [#336](https://github.com/caigee-cmd/cli2api/pull/336)（[@YunMo-yanyu](https://github.com/YunMo-yanyu)）。
+
 ## 0.7.8 - 2026-10-24
 
 ### English
