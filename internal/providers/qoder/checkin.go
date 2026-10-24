@@ -140,7 +140,7 @@ func (b *Bridge) Checkin(ctx context.Context) (providers.CheckinResult, error) {
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("User-Agent", "Qoder")
 		req.Header.Set("Cosy-ClientType", "10")
-		req.Header.Set("Cosy-Version", "0.3.4")
+		req.Header.Set("Cosy-Version", qauth.DesktopCosyVersion)
 		req.Header.Set("Cosy-MachineId", machineID)
 		req.Header.Set("Cosy-MachineToken", machineToken)
 		req.Header.Set("Cosy-MachineType", machineType)
