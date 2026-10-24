@@ -154,7 +154,7 @@ export function ExpiryDistribution({ accounts, t }: Props) {
 
   return (
     <Card className="overflow-hidden p-0" data-gsap-reveal>
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-separator px-5 py-4">
+      <div className="flex flex-col gap-3 border-b border-separator px-4 py-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:px-5">
         <div className="min-w-0">
           <h3 className="font-semibold">{t('expiryDistTitle')}</h3>
           <p className="mt-0.5 text-xs text-muted">{t('expiryDistHint')}</p>
@@ -166,18 +166,21 @@ export function ExpiryDistribution({ accounts, t }: Props) {
         ) : null}
       </div>
 
-      <div className="space-y-3 p-5">
+      <div className="space-y-4 p-4 sm:space-y-3 sm:p-5">
         {/* 按自然日聚合的到期分布：每天一根横条，整条宽度按当日总量相对最大日
             缩放（真正的直方图），条内分段 = 账号，段色区分账号。 */}
-        <div className="space-y-1.5">
+        <div className="space-y-2.5 sm:space-y-1.5">
           {shownBuckets.map((bucket) => {
             const isToday = bucket.ts === todayStart
             const scale = maxTotal > 0 ? (bucket.total / maxTotal) * 100 : 0
             return (
-              <div key={bucket.day} className="grid grid-cols-[52px_minmax(0,1fr)_auto] items-center gap-2">
-                <span className={`mono text-caption ${bucket.day === '__expired__' ? 'font-semibold text-danger' : isToday ? 'font-semibold text-foreground' : 'text-muted'}`}>
-                  {bucket.day === '__expired__' ? t('expiryDistExpired') : bucket.label}
-                </span>
+              <div key={bucket.day} className="flex flex-col gap-1.5 sm:grid sm:grid-cols-[52px_minmax(0,1fr)_auto] sm:items-center sm:gap-2">
+                <div className="flex items-baseline justify-between gap-3 sm:contents">
+                  <span className={`mono text-caption ${bucket.day === '__expired__' ? 'font-semibold text-danger' : isToday ? 'font-semibold text-foreground' : 'text-muted'}`}>
+                    {bucket.day === '__expired__' ? t('expiryDistExpired') : bucket.label}
+                  </span>
+                  <span className="mono text-caption text-foreground sm:hidden">{formatQuotaAmount(bucket.total)}</span>
+                </div>
                 <div
                   className="h-2.5 w-full rounded-full bg-surface-tertiary"
                   role="img"
@@ -194,7 +197,7 @@ export function ExpiryDistribution({ accounts, t }: Props) {
                     ))}
                   </div>
                 </div>
-                <span className="mono text-caption text-foreground">{formatQuotaAmount(bucket.total)}</span>
+                <span className="mono hidden text-caption text-foreground sm:inline">{formatQuotaAmount(bucket.total)}</span>
               </div>
             )
           })}
@@ -213,9 +216,51 @@ export function ExpiryDistribution({ accounts, t }: Props) {
         </div>
 
         {/* 到期提醒：最近一批 / 距到期 / 该日到期 / 日均需耗 */}
-        <Table aria-label={t('expiryDistTitle')}>
-          <Table.ScrollContainer>
-            <Table.Content>
+        <div className="divide-y divide-separator md:hidden">
+          {rows
+            .filter((r) => r.packs > 0)
+            .map((r) => {
+              const urgent = r.daysLeft >= 0 && r.daysLeft <= 2
+              const soon = r.daysLeft >= 0 && r.daysLeft <= 7
+              const soonestDate = r.soonest ? new Date(r.soonest * 1000) : null
+              const daysTone = r.expiredRemain > 0 && r.daysLeft < 0 ? 'font-semibold text-danger' : urgent ? 'font-semibold text-danger' : soon ? 'text-warning' : 'text-muted'
+              const daysValue = r.daysLeft >= 0
+                ? t('expiryDistDays', { n: r.daysLeft })
+                : r.expiredRemain > 0
+                  ? t('expiryDistExpired')
+                  : '—'
+              return (
+                <article key={r.id} className="space-y-3 py-3.5">
+                  <span className="inline-flex items-center gap-1.5">
+                    <i className="size-2 shrink-0 rounded-[3px]" style={{ backgroundColor: r.color }} />
+                    <span className="truncate text-body font-medium text-foreground">{r.name}</span>
+                  </span>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                    <div className="space-y-1">
+                      <div className="text-caption text-muted">{t('expiryDistColSoonest')}</div>
+                      <div className="mono text-body text-muted">{soonestDate ? `${soonestDate.getMonth() + 1}/${soonestDate.getDate()}` : '—'}</div>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-caption text-muted">{t('expiryDistColDaysLeft')}</div>
+                      <div className={`mono text-body ${daysTone}`}>{daysValue}</div>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-caption text-muted">{t('expiryDistColBatch')}</div>
+                      <div className="mono text-body text-foreground">{formatQuotaAmount(r.soonestRemain)}</div>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-caption text-muted">{t('expiryDistColDaily')}</div>
+                      <div className="mono text-body text-foreground">{r.soonest ? formatQuotaAmount(r.dailyBurn) : '—'}</div>
+                    </div>
+                  </div>
+                </article>
+              )
+            })}
+        </div>
+
+        <Table aria-label={t('expiryDistTitle')} className="hidden md:block">
+          <Table.ScrollContainer className="min-w-0 overflow-x-auto">
+            <Table.Content className="min-w-[32rem]">
               <Table.Header>
                 <Table.Column isRowHeader>{t('expiryDistColAccount')}</Table.Column>
                 <Table.Column><div className="text-center">{t('expiryDistColSoonest')}</div></Table.Column>

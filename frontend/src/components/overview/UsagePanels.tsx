@@ -161,8 +161,8 @@ export function UsageDetail({
 
   return (
     <Card data-gsap-reveal data-skeleton-swap="stats" className="overflow-hidden p-0">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-separator px-5 py-4">
-        <div>
+      <div className="flex flex-col gap-3 border-b border-separator px-5 py-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+        <div className="min-w-0">
           <h3 className="font-semibold">{t('usageDetailTitle')}</h3>
           <p className="mt-0.5 text-xs text-muted">{t('usageDetailHint')}</p>
         </div>
@@ -191,9 +191,63 @@ export function UsageDetail({
         </div>
       </div>
 
-      <Table aria-label={t('usageDetailTitle')}>
-        <Table.ScrollContainer>
-          <Table.Content>
+      {/* Mobile: stacked metric cards so label+value are not crammed into columns. */}
+      <div className="divide-y divide-separator md:hidden">
+        {loading ? (
+          Array.from({ length: 4 }).map((_, index) => (
+            <div key={`skeleton-${index}`} className="space-y-3 px-5 py-4">
+              <SkeletonBlock className="h-4 w-32" />
+              <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                {Array.from({ length: 4 }).map((__, cell) => (
+                  <div key={cell} className="space-y-1.5">
+                    <SkeletonBlock className="h-3 w-12" />
+                    <SkeletonBlock className="h-4 w-16" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))
+        ) : rows.length === 0 ? (
+          <div className="px-5 py-8 text-body text-muted">{t('usageEmpty')}</div>
+        ) : (
+          rows.map((row) => {
+            const label =
+              dim === 'account' ? accountName(accounts, row.key)
+                : dim === 'realm' ? (row.key || '—')
+                  : (row.key || '—')
+            const sub = dim === 'account' ? row.realm : ''
+            const metrics: Array<{ label: string; value: string; tone?: string }> = [
+              { label: t('usageColRequests'), value: fmtTokens(row.requests) },
+              { label: t('usageColErrors'), value: row.errors ? fmtTokens(row.errors) : '—', tone: row.errors ? 'text-warning' : 'text-muted' },
+              { label: t('usageColPrompt'), value: fmtTokens(row.prompt_tokens), tone: 'text-muted' },
+              { label: t('usageColCacheHit'), value: cacheRate(row.cache_hit_tokens, row.cache_miss_tokens) == null ? '—' : `${trimFixed(cacheRate(row.cache_hit_tokens, row.cache_miss_tokens) as number, 1)}%` },
+              { label: t('usageColCompletion'), value: fmtTokens(row.completion_tokens), tone: 'text-muted' },
+              { label: t('usageColTotal'), value: fmtTokens(row.total_tokens) },
+            ]
+            if (withPerf) metrics.push({ label: t('usageColAvgLatency'), value: fmtLatencyMs(row.avg_latency_ms), tone: 'text-muted' })
+            return (
+              <article key={row.key} className="space-y-3 px-5 py-4">
+                <div>
+                  <div className="text-body font-medium text-foreground">{label}</div>
+                  {sub ? <div className="mono mt-0.5 text-caption text-muted">{sub}</div> : null}
+                </div>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                  {metrics.map((metric) => (
+                    <div key={metric.label} className="min-w-0 space-y-1">
+                      <div className="text-caption text-muted">{metric.label}</div>
+                      <div className={`mono text-body ${metric.tone ?? 'text-foreground'}`}>{metric.value}</div>
+                    </div>
+                  ))}
+                </div>
+              </article>
+            )
+          })
+        )}
+      </div>
+
+      <Table aria-label={t('usageDetailTitle')} className="hidden md:block">
+        <Table.ScrollContainer className="min-w-0 overflow-x-auto">
+          <Table.Content className="min-w-[44rem]">
             <Table.Header>
               <Table.Column isRowHeader>
                 {dim === 'model' ? t('usageColModel') : dim === 'realm' ? t('usageColRealm') : t('usageColAccount')}
@@ -304,8 +358,8 @@ export function CreditHistory({
 
   return (
     <Card data-gsap-reveal data-skeleton-swap="stats" className="overflow-hidden p-0">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-separator px-5 py-4">
-        <div>
+      <div className="flex flex-col gap-3 border-b border-separator px-5 py-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+        <div className="min-w-0">
           <h3 className="font-semibold">{t('usageCreditTitle')}</h3>
           <p className="mt-0.5 text-xs text-muted">{t('usageCreditHint')}</p>
         </div>
@@ -320,7 +374,7 @@ export function CreditHistory({
         />
       </div>
 
-      <div className="grid grid-cols-2 gap-2.5 border-b border-separator px-5 py-4 sm:grid-cols-3 xl:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 border-b border-separator px-5 py-4 sm:grid-cols-3 sm:gap-2.5 xl:grid-cols-5">
         {loading || !totals ? (
           Array.from({ length: 5 }).map((_, index) => (
             <div key={index} className="rounded-lg bg-surface-tertiary px-3 py-2.5">
@@ -348,9 +402,59 @@ export function CreditHistory({
         )}
       </div>
 
-      <Table aria-label={t('usageCreditTitle')}>
-        <Table.ScrollContainer>
-          <Table.Content>
+      <div className="divide-y divide-separator md:hidden">
+        {loading ? (
+          Array.from({ length: 4 }).map((_, index) => (
+            <div key={`skeleton-${index}`} className="space-y-3 px-5 py-4">
+              <SkeletonBlock className="h-4 w-32" />
+              <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                {Array.from({ length: 4 }).map((__, cell) => (
+                  <div key={cell} className="space-y-1.5">
+                    <SkeletonBlock className="h-3 w-12" />
+                    <SkeletonBlock className="h-4 w-16" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))
+        ) : rows.length === 0 ? (
+          <div className="px-5 py-8 text-body text-muted">{t('usageCreditEmpty')}</div>
+        ) : (
+          rows.map((row) => {
+            const label = withRate ? (row.key || '—') : accountName(accounts, row.key)
+            const sub = !withRate && row.realm ? row.realm : ''
+            const metrics: Array<{ label: string; value: string; tone?: string }> = []
+            if (withRate) metrics.push({ label: t('usageCreditColRate'), value: fmtModelRate(row.rate ?? catalogRate(models, row.key)), tone: 'text-muted' })
+            metrics.push(
+              { label: t('usageColRequests'), value: fmtTokens(row.requests) },
+              { label: t('usageCreditColCredits'), value: fmtCredit(row.credits) },
+              { label: t('usageCreditColSampleTokens'), value: fmtTokens(row.credit_tokens), tone: 'text-muted' },
+              { label: t('usageCreditColPer1M'), value: fmtCreditRatio(row.credits_per_1m_tokens, row.credit_samples, row.credit_tokens), tone: 'text-muted' },
+              { label: t('usageColCacheHit'), value: cacheRate(row.cache_hit_tokens, row.cache_miss_tokens) == null ? '—' : `${trimFixed(cacheRate(row.cache_hit_tokens, row.cache_miss_tokens) as number, 1)}%` },
+            )
+            return (
+              <article key={row.key} className="space-y-3 px-5 py-4">
+                <div>
+                  <div className="text-body font-medium text-foreground">{label}</div>
+                  {sub ? <div className="mono mt-0.5 text-caption text-muted">{sub}</div> : null}
+                </div>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                  {metrics.map((metric) => (
+                    <div key={metric.label} className="min-w-0 space-y-1">
+                      <div className="text-caption text-muted">{metric.label}</div>
+                      <div className={`mono text-body ${metric.tone ?? 'text-foreground'}`}>{metric.value}</div>
+                    </div>
+                  ))}
+                </div>
+              </article>
+            )
+          })
+        )}
+      </div>
+
+      <Table aria-label={t('usageCreditTitle')} className="hidden md:block">
+        <Table.ScrollContainer className="min-w-0 overflow-x-auto">
+          <Table.Content className="min-w-[40rem]">
             <Table.Header>
               <Table.Column isRowHeader>{withRate ? t('usageColModel') : t('usageColAccount')}</Table.Column>
               {withRate ? <Table.Column><div className="text-right">{t('usageCreditColRate')}</div></Table.Column> : null}
