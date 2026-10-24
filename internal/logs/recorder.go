@@ -4,12 +4,46 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 )
+
+// Request-log retention. Defaults preserve the historical behaviour (7 days /
+// 20k rows); deployments that want a longer usage history can raise the
+// retention window and the row cap together.
+const (
+	defaultRetentionDays = 7
+	defaultMaxLogRows    = 20_000
+	retentionDaysEnv     = "CLI2API_LOG_RETENTION_DAYS"
+	maxLogRowsEnv        = "CLI2API_LOG_MAX_ROWS"
+)
+
+// RetentionDays is how long request logs are kept; 0 or an invalid value falls
+// back to the default.
+func RetentionDays() int {
+	if v := strings.TrimSpace(os.Getenv(retentionDaysEnv)); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return defaultRetentionDays
+}
+
+// MaxLogRows caps the retained rows independently of the age window, so a burst
+// of traffic cannot grow the SQLite file without bound.
+func MaxLogRows() int {
+	if v := strings.TrimSpace(os.Getenv(maxLogRowsEnv)); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return defaultMaxLogRows
+}
 
 // RequestPersister is the write surface the recorder actually uses.
 // Query methods stay off this interface so a later store package can
@@ -200,7 +234,8 @@ func (r *RequestRecorder) PurgeLoop(stop <-chan struct{}, every time.Duration) {
 
 func (r *RequestRecorder) purgeOnce() {
 	r.enqueue(func() {
-		if _, err := r.store.PurgeRequestLogs(context.Background(), 7*24*time.Hour, 20_000); err != nil {
+		keep := time.Duration(RetentionDays()) * 24 * time.Hour
+		if _, err := r.store.PurgeRequestLogs(context.Background(), keep, MaxLogRows()); err != nil {
 			logf("purge request logs: %v", err)
 		}
 	})
