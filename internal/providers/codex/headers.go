@@ -3,6 +3,8 @@ package codex
 import (
 	"net/http"
 	"strings"
+
+	"github.com/caigee-cmd/cli2api/internal/providers"
 )
 
 // SetChatHeaders applies the upstream headers the ChatGPT codex backend expects.
@@ -57,5 +59,19 @@ func applyCodexRequestHeaders(h http.Header, model string, lite bool) {
 	}
 	if lite {
 		h.Set(codexResponsesLiteHeader, "true")
+	}
+}
+
+// applyCodexPassthroughHeaders copies inbound turn/window headers onto the
+// upstream request (CLIProxyAPI EnsureHeader for Turn-Metadata/State/Window-Id).
+// Empty values are skipped. Do not call on the SIWC path.
+func applyCodexPassthroughHeaders(dst, src http.Header) {
+	if dst == nil || src == nil {
+		return
+	}
+	for _, name := range providers.CodexPassthroughHeaderNames {
+		if v := strings.TrimSpace(src.Get(name)); v != "" {
+			dst.Set(name, v)
+		}
 	}
 }
