@@ -1,7 +1,7 @@
 import { CopyIcon } from '@/components/motion/CopyIcon'
 import { copyText } from '@/lib/clipboard'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Button, Card, Chip, Description, Label, ListBox, Select, Skeleton } from '@heroui/react'
+import { Button, Chip } from '@heroui/react'
 import { ArrowsClockwise } from '@phosphor-icons/react'
 import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
@@ -15,21 +15,14 @@ import { AccessPageSkeleton } from '@/components/ui/PageSkeletons'
 import { ProviderMark } from '@/components/ProviderMark'
 import { accountProviderLabel } from '@/lib/provider'
 import { EndpointList } from '@/components/EndpointList'
-import { ChatComposer } from '@/components/access/ChatComposer'
+import { ChatComposer, type ComposerOption } from '@/components/access/ChatComposer'
 import { ChatThread } from '@/components/access/ChatThread'
 import { RawApiPanel } from '@/components/access/RawApiPanel'
 import { buildUserContent, toApiMessages } from '@/components/access/buildMessages'
+import { buildDemoThread } from '@/components/access/demoSeed'
 import type { ChatAttachment, ChatToolCall, ThreadMessage } from '@/components/access/types'
 
 type RequestState = 'idle' | 'loading' | 'success' | 'error'
-
-type PlaygroundOption = {
-  id: string
-  textValue: string
-  label: string
-  hint?: string
-  icon?: ReactNode
-}
 
 function shellQuote(value: string) {
   return `'${value.replaceAll("'", `'"'"'`)}'`
@@ -49,63 +42,13 @@ function mapToolCalls(calls: StreamToolCall[], streaming: boolean): ChatToolCall
   }))
 }
 
-function PlaygroundSelect({
-  label,
-  value,
-  onChange,
-  placeholder,
-  isDisabled,
-  options,
-}: {
-  label: string
-  value: string
-  onChange: (value: string) => void
-  placeholder?: string
-  isDisabled?: boolean
-  options: PlaygroundOption[]
-}) {
-  const selected = options.find((option) => option.id === value)
-  return (
-    <Select
-      fullWidth
-      value={value || null}
-      placeholder={placeholder}
-      isDisabled={isDisabled}
-      onChange={(next) => {
-        if (typeof next === 'string' && next) onChange(next)
-      }}
-    >
-      <Label className="text-body font-medium text-muted">{label}</Label>
-      <Select.Trigger className="items-center">
-        <Select.Value className="min-w-0 truncate">
-          {({ defaultChildren, isPlaceholder }) => {
-            if (isPlaceholder || !selected) return defaultChildren
-            return (
-              <span className="flex min-w-0 items-center gap-2">
-                {selected.icon ? <span className="grid size-5 shrink-0 place-items-center">{selected.icon}</span> : null}
-                <span className="truncate">{selected.label}</span>
-              </span>
-            )
-          }}
-        </Select.Value>
-        <Select.Indicator />
-      </Select.Trigger>
-      <Select.Popover className="max-h-72">
-        <ListBox>
-          {options.map((option) => (
-            <ListBox.Item key={option.id} id={option.id} textValue={option.textValue}>
-              {option.icon ? <span className="grid size-5 shrink-0 place-items-center">{option.icon}</span> : null}
-              <div className="min-w-0 flex-1">
-                <Label className="block truncate">{option.label}</Label>
-                {option.hint ? <Description className="truncate">{option.hint}</Description> : null}
-              </div>
-              <ListBox.ItemIndicator />
-            </ListBox.Item>
-          ))}
-        </ListBox>
-      </Select.Popover>
-    </Select>
-  )
+function wantsDemo() {
+  if (typeof window === 'undefined') return false
+  try {
+    return new URLSearchParams(window.location.search).get('demo') === '1'
+  } catch {
+    return false
+  }
 }
 
 export function AccessPage() {
@@ -132,7 +75,7 @@ export function AccessPage() {
   const [prompt, setPrompt] = useState('只回复OK')
   const [chatPrompt, setChatPrompt] = useState('')
   const [attachments, setAttachments] = useState<ChatAttachment[]>([])
-  const [messages, setMessages] = useState<ThreadMessage[]>([])
+  const [messages, setMessages] = useState<ThreadMessage[]>(() => (wantsDemo() ? buildDemoThread() : []))
   const [chatState, setChatState] = useState<RequestState>('idle')
   const chatAbortRef = useRef<AbortController | null>(null)
   const [output, setOutput] = useState('')
@@ -298,23 +241,23 @@ export function AccessPage() {
         ? t('requesting')
         : t('requestIdle')
 
-  const accountOptions: PlaygroundOption[] = [
+  const accountOptions: ComposerOption[] = [
     {
       id: 'auto',
       textValue: t('autoAccount'),
       label: t('autoAccount'),
-      icon: <ArrowsClockwise size={15} className="text-muted" />,
+      icon: <ArrowsClockwise size={14} className="text-muted" />,
     },
     ...accounts.map((account) => ({
       id: account.id,
       textValue: `${account.name || account.id} ${accountProviderLabel(account.provider, account.region, t)}`,
       label: account.name || account.id,
       hint: accountProviderLabel(account.provider, account.region, t),
-      icon: <ProviderMark provider={account.provider} size={16} />,
+      icon: <ProviderMark provider={account.provider} size={14} /> as ReactNode,
     })),
   ]
 
-  const modelOptions: PlaygroundOption[] = models.map((item) => {
+  const modelOptions: ComposerOption[] = models.map((item) => {
     const credits = modelCreditsText(item)
     const free = modelIsFree(item)
     const title = item.display_name || item.id
@@ -335,6 +278,11 @@ export function AccessPage() {
     && accounts.length,
   )
 
+  function loadDemo() {
+    setMessages(buildDemoThread())
+    setChatState('idle')
+  }
+
   return (
     <div className="space-y-5">
       <section className="grid gap-3 pb-1 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
@@ -348,8 +296,8 @@ export function AccessPage() {
         </div>
       </section>
 
-      <section className="overflow-hidden rounded-xl bg-surface shadow-surface">
-        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+      <section className="overflow-hidden rounded-3xl bg-surface shadow-surface">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-5">
           <div className="min-w-0">
             <div className="text-caption font-medium text-muted">{t('baseUrl')}</div>
             <code className="mono mt-0.5 block truncate text-body font-medium text-foreground">{base}</code>
@@ -365,52 +313,21 @@ export function AccessPage() {
         </div>
       </section>
 
-      <Card className="overflow-hidden p-0">
-        <div className="grid gap-4 p-4 sm:grid-cols-2 sm:gap-5 sm:p-5">
-          <div className="space-y-1.5">
-            <PlaygroundSelect
-              label={t('account')}
-              value={selectedAccount || 'auto'}
-              onChange={(next) => setAccountId(next === 'auto' ? '' : next)}
-              options={accountOptions}
-            />
-            <p className="text-caption leading-5 text-muted">{selectedAccount ? t('fixedAccountHint') : t('autoAccountHint')}</p>
-          </div>
-          <div className="space-y-1.5">
-            {modelsLoading ? (
-              <div className="flex flex-col gap-1">
-                <div className="text-body font-medium text-muted">{t('model')}</div>
-                <Skeleton className="h-10 rounded-lg" />
-              </div>
-            ) : models.length ? (
-              <PlaygroundSelect
-                label={t('model')}
-                value={selectedModel}
-                onChange={setModel}
-                placeholder={t('model')}
-                options={modelOptions}
-              />
-            ) : (
-              <div className="flex flex-col gap-1">
-                <div className="text-body font-medium text-muted">{t('model')}</div>
-                <div className="flex h-10 items-center rounded-lg bg-surface-secondary px-3 text-caption leading-5 text-muted">
-                  {modelsError || (selectedAccount ? t('noAccountModels') : t('noModelsYet'))}
-                </div>
-              </div>
-            )}
-            <p className="text-caption leading-5 text-muted">{selectedAccount ? t('accountModelHint') : t('modelRoutingHint')}</p>
-          </div>
-        </div>
-        {!accounts.length ? (
-          <div className="px-4 pb-4 sm:px-5 sm:pb-5">
-            <PageAlert status="warning" title={t('noAccountsForTest')} />
-          </div>
-        ) : null}
-      </Card>
+      {!accounts.length ? (
+        <PageAlert status="warning" title={t('noAccountsForTest')} />
+      ) : null}
 
-      <Card className="overflow-hidden p-0">
-        <div className="flex min-h-[640px] flex-col md:min-h-[70vh]">
-          <ChatThread messages={messages} busy={chatState === 'loading'} />
+      {modelsError ? (
+        <PageAlert status="warning" title={modelsError} />
+      ) : null}
+
+      <section className="overflow-hidden rounded-3xl bg-surface shadow-surface">
+        <div className="flex min-h-[640px] flex-col md:min-h-[72vh]">
+          <ChatThread
+            messages={messages}
+            busy={chatState === 'loading'}
+            onLoadDemo={loadDemo}
+          />
           <ChatComposer
             value={chatPrompt}
             onChange={setChatPrompt}
@@ -421,9 +338,16 @@ export function AccessPage() {
             canSend={canChatSend}
             onSend={() => void onChatSend()}
             onStop={stopChat}
+            accountValue={selectedAccount || 'auto'}
+            onAccountChange={(next) => setAccountId(next === 'auto' ? '' : next)}
+            accountOptions={accountOptions}
+            modelValue={selectedModel}
+            onModelChange={setModel}
+            modelOptions={modelOptions}
+            modelsLoading={modelsLoading}
           />
         </div>
-      </Card>
+      </section>
 
       <RawApiPanel
         open={rawOpen}

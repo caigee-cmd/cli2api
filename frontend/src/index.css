@@ -208,6 +208,21 @@ body {
   animation: brand-mark-scan 1.35s linear infinite;
 }
 
+/* Access chat: restrained thinking-header shimmer (opacity only). */
+@keyframes access-thinking-shimmer {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+.access-thinking-shimmer {
+  animation: access-thinking-shimmer 1.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .access-thinking-shimmer {
+    animation: none;
+    opacity: 1;
+  }
+}
+
 @keyframes brand-mark-scan {
   to {
     stroke-dashoffset: -100;

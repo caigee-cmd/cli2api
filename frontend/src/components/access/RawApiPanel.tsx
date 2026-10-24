@@ -1,7 +1,7 @@
 import { CopyIcon } from '@/components/motion/CopyIcon'
 import { EmptyPanel } from '@/components/ui/EmptyPanel'
 import { PageAlert } from '@/components/ui/PageAlert'
-import { Button, Card, Chip, Skeleton, TextArea } from '@heroui/react'
+import { Button, Chip, Skeleton, TextArea } from '@heroui/react'
 import { BracketsCurly, CheckCircle, Clock, PaperPlaneTilt } from '@phosphor-icons/react'
 import { useI18n } from '@/hooks/useI18n'
 
@@ -53,16 +53,16 @@ export function RawApiPanel({
       </div>
 
       {open ? (
-        <div className="space-y-5">
-          <Card className="overflow-hidden p-0">
+        <div className="space-y-4">
+          <div className="overflow-hidden rounded-3xl bg-surface shadow-surface">
             <div className="grid xl:grid-cols-[minmax(440px,.92fr)_minmax(0,1.08fr)]">
-              <div className="border-b border-separator xl:border-r xl:border-b-0">
-                <div className="border-b border-separator px-5 py-5 sm:px-7">
+              <div className="xl:border-r xl:border-separator">
+                <div className="px-5 py-4 sm:px-6">
                   <h3 className="font-semibold">{t('requestBuilder')}</h3>
                   <p className="mt-0.5 text-caption text-muted">POST {chatPath}</p>
                 </div>
 
-                <div className="space-y-6 p-5 sm:p-7">
+                <div className="space-y-5 px-5 pb-5 sm:px-6 sm:pb-6">
                   <div className="space-y-3">
                     <div className="flex items-center justify-between gap-4">
                       <div className="text-body font-medium text-muted">{t('prompt')}</div>
@@ -93,11 +93,11 @@ export function RawApiPanel({
               </div>
 
               <div
-                className="flex min-h-[520px] min-w-0 flex-col bg-surface-secondary/45"
+                className="flex min-h-[480px] min-w-0 flex-col bg-surface-secondary/40"
                 aria-live="polite"
                 aria-busy={requestState === 'loading'}
               >
-                <div className="flex min-h-16 items-center justify-between gap-4 border-b border-separator px-5 py-4 sm:px-6">
+                <div className="flex min-h-14 items-center justify-between gap-4 px-5 py-3.5 sm:px-6">
                   <div>
                     <h3 className="font-semibold">{t('responseInspector')}</h3>
                     <p className="mt-0.5 text-caption text-muted">{t('responseInspectorHint')}</p>
@@ -119,10 +119,10 @@ export function RawApiPanel({
                   </div>
                 </div>
 
-                <div className="min-h-0 flex-1 p-5 sm:p-6">
+                <div className="min-h-0 flex-1 px-5 pb-5 sm:px-6 sm:pb-6">
                   {requestState === 'idle' ? (
                     <EmptyPanel
-                      className="min-h-80"
+                      className="min-h-72"
                       icon={<BracketsCurly size={21} />}
                       title={t('responseEmptyTitle')}
                       hint={t('responseEmptyHint')}
@@ -154,10 +154,10 @@ export function RawApiPanel({
                 </div>
               </div>
             </div>
-          </Card>
+          </div>
 
-          <section className="overflow-hidden rounded-xl bg-surface shadow-surface">
-            <div className="flex items-center justify-between gap-4 border-b border-separator px-5 py-3.5">
+          <section className="overflow-hidden rounded-3xl bg-surface shadow-surface">
+            <div className="flex items-center justify-between gap-4 px-5 py-3.5">
               <div className="min-w-0">
                 <div className="text-body font-semibold">{t('curlExample')}</div>
                 <div className="mt-0.5 truncate text-caption text-muted">{t('curlGeneratedHint')}</div>
@@ -167,7 +167,7 @@ export function RawApiPanel({
                 {copiedCurl ? t('copied') : t('copy')}
               </Button>
             </div>
-            <pre className="mono max-h-80 overflow-auto whitespace-pre-wrap p-5 text-caption leading-6 text-muted">
+            <pre className="mono max-h-80 overflow-auto whitespace-pre-wrap px-5 pb-5 text-caption leading-6 text-muted">
               {curl}
             </pre>
           </section>

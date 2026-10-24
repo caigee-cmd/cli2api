@@ -1,7 +1,7 @@
 ### English
 
-- Access page: larger multi-turn chat with thinking / tool-call cards; Raw API moves below the conversation.
+- Access page: multi-turn chat stage with AffectUI-like composer (attach + compact account/model + round send in one pad); thinking / tool-call cards use surface hierarchy; Raw API and endpoints drop heavy borders. Dev preview via `?demo=1` or Preview sample.
 
 ### 中文
 
-- 接入页：主区放大为多轮对话，支持思考与工具卡片；原始 API 移到对话下方。
+- 接入页：多轮对话主舞台，Composer 一体卡（附件 + 紧凑账号/模型 + 圆形发送）；思考/工具卡靠表面层级、少描边；原始 API 与端点卡去硬边框。开发预览：`?demo=1` 或「预览样例」。
