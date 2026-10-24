@@ -1,1 +1,0 @@
-import{d as e,m as t}from"./index-Cp0WPGS-.js";import{L as n,t as r}from"./CartesianChart-FmTfZelu.js";var i=t(e()),a=[`axis`],o=(0,i.forwardRef)((e,t)=>i.createElement(r,{chartName:`AreaChart`,defaultTooltipEventType:`axis`,validateTooltipEventTypes:a,tooltipPayloadSearcher:n,categoricalChartProps:e,ref:t}));export{o as t};

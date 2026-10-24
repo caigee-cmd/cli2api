@@ -74,7 +74,8 @@ type ModelCost struct {
 	Priced bool `json:"priced"`
 }
 
-// CostBreakdown is the whole DeepSeek cost panel payload.
+// CostBreakdown is the Usage Cost tab payload: quota and tokens for every
+// model, plus an optional DeepSeek list-price CNY estimate for priced rows.
 type CostBreakdown struct {
 	Window   RequestStatsWindow `json:"window"`
 	Currency string             `json:"currency"`
@@ -84,12 +85,16 @@ type CostBreakdown struct {
 	Unpriced []string           `json:"unpriced,omitempty"`
 }
 
-// CostSeriesPoint is one time bucket of cost for the stacked chart.
+// CostSeriesPoint is one time bucket for the stacked chart. PerModelCredits and
+// PerModelTokens cover every model; PerModel holds DeepSeek list-price CNY for
+// priced models only (optional estimate UI).
 type CostSeriesPoint struct {
-	At       time.Time          `json:"at"`
-	PerModel map[string]float64 `json:"per_model"`
-	Tokens   int64              `json:"tokens"`
-	Credits  float64            `json:"credits"`
+	At              time.Time          `json:"at"`
+	PerModel        map[string]float64 `json:"per_model"`
+	PerModelCredits map[string]float64 `json:"per_model_credits"`
+	PerModelTokens  map[string]float64 `json:"per_model_tokens"`
+	Tokens          int64              `json:"tokens"`
+	Credits         float64            `json:"credits"`
 }
 
 // chinaLocation is UTC+8 with no DST — DeepSeek's published peak window is
@@ -268,10 +273,12 @@ func BuildCostBreakdown(rows []CostUsageRow, from, to time.Time, daily bool) Cos
 
 	// Series buckets keyed by ISO-ish string; we keep the bucket start for sort.
 	type seriesAcc struct {
-		at       time.Time
-		perModel map[string]float64
-		tokens   int64
-		credits  float64
+		at              time.Time
+		perModel        map[string]float64
+		perModelCredits map[string]float64
+		perModelTokens  map[string]float64
+		tokens          int64
+		credits         float64
 	}
 	series := map[string]*seriesAcc{}
 	seriesOrder := make([]string, 0)
@@ -327,12 +334,14 @@ func BuildCostBreakdown(rows []CostUsageRow, from, to time.Time, daily bool) Cos
 			key, at := bucketKey(row.HourStart)
 			acc := series[key]
 			if acc == nil {
-				acc = &seriesAcc{at: at, perModel: map[string]float64{}}
+				acc = &seriesAcc{at: at, perModel: map[string]float64{}, perModelCredits: map[string]float64{}, perModelTokens: map[string]float64{}}
 				series[key] = acc
 				seriesOrder = append(seriesOrder, key)
 			}
 			acc.tokens += row.Usage.Total()
 			acc.credits += row.Credits
+			acc.perModelCredits[mc.ID] += row.Credits
+			acc.perModelTokens[mc.ID] += float64(row.Usage.Total())
 			continue
 		}
 		mc := byModel[price.ID]
@@ -367,16 +376,27 @@ func BuildCostBreakdown(rows []CostUsageRow, from, to time.Time, daily bool) Cos
 		key, at := bucketKey(row.HourStart)
 		acc := series[key]
 		if acc == nil {
-			acc = &seriesAcc{at: at, perModel: map[string]float64{}}
+			acc = &seriesAcc{at: at, perModel: map[string]float64{}, perModelCredits: map[string]float64{}, perModelTokens: map[string]float64{}}
 			series[key] = acc
 			seriesOrder = append(seriesOrder, key)
 		}
 		acc.perModel[price.ID] += cost
+		acc.perModelCredits[price.ID] += row.Credits
+		acc.perModelTokens[price.ID] += float64(row.Usage.Total())
 		acc.tokens += row.Usage.Total()
 		acc.credits += row.Credits
 	}
 
-	sort.Slice(order, func(i, j int) bool { return byModel[order[i]].Cost > byModel[order[j]].Cost })
+	sort.Slice(order, func(i, j int) bool {
+		a, b := byModel[order[i]], byModel[order[j]]
+		if a.Credits != b.Credits {
+			return a.Credits > b.Credits
+		}
+		if a.TotalTokens != b.TotalTokens {
+			return a.TotalTokens > b.TotalTokens
+		}
+		return a.Cost > b.Cost
+	})
 	models := make([]ModelCost, 0, len(order))
 	for _, id := range order {
 		models = append(models, *byModel[id])
@@ -386,7 +406,14 @@ func BuildCostBreakdown(rows []CostUsageRow, from, to time.Time, daily bool) Cos
 	points := make([]CostSeriesPoint, 0, len(seriesOrder))
 	for _, key := range seriesOrder {
 		acc := series[key]
-		points = append(points, CostSeriesPoint{At: acc.at, PerModel: acc.perModel, Tokens: acc.tokens, Credits: acc.credits})
+		points = append(points, CostSeriesPoint{
+			At:              acc.at,
+			PerModel:        acc.perModel,
+			PerModelCredits: acc.perModelCredits,
+			PerModelTokens:  acc.perModelTokens,
+			Tokens:          acc.tokens,
+			Credits:         acc.credits,
+		})
 	}
 
 	sort.Strings(unpriced)
