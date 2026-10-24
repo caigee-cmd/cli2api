@@ -51,6 +51,7 @@ func (h *Handler) prepareExecution(r *http.Request, request translate.ChatReques
 		sessionHeader = r.Header.Get("X-CLI2API-Session")
 		prefer = h.requestedAccount(r)
 		ctx = executor.WithClientUserAgent(r.Context(), r.Header.Get("User-Agent"))
+		ctx = executor.WithCodexClientHeaders(ctx, r.Header)
 	}
 	var logs executor.RequestStarter
 	if h != nil && h.Logs != nil {
