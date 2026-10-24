@@ -29,7 +29,8 @@ export function FilterSelect({
 
   return (
     <Select
-      className={['w-fit', className].filter(Boolean).join(' ')}
+      // Default toolbar width; callers may pass className (e.g. w-full min-w-0) to override.
+      className={className ?? 'w-fit min-w-36'}
       aria-label={ariaLabel}
       value={selectedId}
       onChange={(next) => {
@@ -37,7 +38,7 @@ export function FilterSelect({
         onChange(next === ALL_VALUE ? '' : next)
       }}
     >
-      <Select.Trigger className="min-w-36 items-center">
+      <Select.Trigger className="min-w-0 w-full items-center">
         <Select.Value className="min-w-0 truncate">
           {({ defaultChildren, isPlaceholder }) => {
             if (isPlaceholder || !selected) return defaultChildren
