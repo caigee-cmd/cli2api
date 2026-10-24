@@ -86,46 +86,63 @@ function ModelContextControls({
   model,
   saving,
   t,
+  variant = 'table',
   onToggleTraeMax,
   onReasoningChange,
 }: {
   model: ModelInfo
   saving: boolean
   t: Translate
+  /** table: stacked inside a stable-width cell; card: mobile label-above + full-width select */
+  variant?: 'table' | 'card'
   onToggleTraeMax: (model: ModelInfo, selected: boolean) => void
   onReasoningChange: (model: ModelInfo, next: string) => void
 }) {
   const provider = modelProvider(model)
+  const isCard = variant === 'card'
+  const reasoningSelectClass = isCard ? 'w-full min-w-0' : 'w-full max-w-[7.5rem] min-w-0'
   return (
-    <div className="flex min-w-0 flex-wrap items-center gap-3">
-      <span className="mono text-caption text-muted">
-        {formatTokens(model.catalog_context_length || model.context_length)}
-        {model.catalog_context_length_max && model.catalog_context_length_max !== (model.catalog_context_length || model.context_length)
-          ? ` → ${formatTokens(model.catalog_context_length_max)}`
-          : ''}
-      </span>
-      {provider === 'workbuddy' && model.catalog_context_length_max && model.catalog_context_length_max !== (model.catalog_context_length || model.context_length) ? (
-        <HintLabel label={t('catalogWindow')} hint={t('workbuddyContextHint')} />
-      ) : null}
+    <div className={isCard ? 'flex min-w-0 flex-col gap-3' : 'flex min-w-0 flex-col gap-1.5'}>
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <span className="mono text-caption text-muted">
+          {formatTokens(model.catalog_context_length || model.context_length)}
+          {model.catalog_context_length_max && model.catalog_context_length_max !== (model.catalog_context_length || model.context_length)
+            ? ` → ${formatTokens(model.catalog_context_length_max)}`
+            : ''}
+        </span>
+        {provider === 'workbuddy' && model.catalog_context_length_max && model.catalog_context_length_max !== (model.catalog_context_length || model.context_length) ? (
+          <HintLabel label={t('catalogWindow')} hint={t('workbuddyContextHint')} />
+        ) : null}
+      </div>
       {(provider === 'trae' || provider === 'qoder') && model.supports_max_mode ? (
-        <div className="flex items-center gap-2">
-          <CompactSwitch
-            isSelected={Boolean(model.max_mode)}
-            isDisabled={saving}
-            ariaLabel={`${model.id} ${t('maxMode')}`}
-            onChange={(selected) => onToggleTraeMax(model, selected)}
-          />
-          <HintLabel
-            label={`${t('maxMode')}${model.catalog_context_length_max ? ` ${formatTokens(model.catalog_context_length_max)}` : ''}`}
-            hint={provider === 'qoder' ? t('qoderMaxModeHint') : t('maxModeHint')}
-          />
+        <div className={isCard ? 'flex flex-col gap-1.5' : 'flex items-center gap-2'}>
+          {isCard ? (
+            <HintLabel
+              label={`${t('maxMode')}${model.catalog_context_length_max ? ` ${formatTokens(model.catalog_context_length_max)}` : ''}`}
+              hint={provider === 'qoder' ? t('qoderMaxModeHint') : t('maxModeHint')}
+            />
+          ) : null}
+          <div className="flex items-center gap-2">
+            <CompactSwitch
+              isSelected={Boolean(model.max_mode)}
+              isDisabled={saving}
+              ariaLabel={`${model.id} ${t('maxMode')}`}
+              onChange={(selected) => onToggleTraeMax(model, selected)}
+            />
+            {isCard ? null : (
+              <HintLabel
+                label={`${t('maxMode')}${model.catalog_context_length_max ? ` ${formatTokens(model.catalog_context_length_max)}` : ''}`}
+                hint={provider === 'qoder' ? t('qoderMaxModeHint') : t('maxModeHint')}
+              />
+            )}
+          </div>
         </div>
       ) : null}
       {(model.reasoning_options || []).length > 1 ? (
-        <div className="flex min-w-0 items-center gap-2">
+        <div className="flex min-w-0 flex-col gap-1.5">
           <HintLabel label={t('reasoningLevels')} hint={t('reasoningHint')} />
           <FilterSelect
-            className="min-w-28"
+            className={reasoningSelectClass}
             ariaLabel={`${model.id} ${t('reasoningLevels')}`}
             value={model.reasoning_effort || model.reasoning_default || model.reasoning_options?.[0] || ''}
             onChange={(next) => { if (next) onReasoningChange(model, next) }}
@@ -418,6 +435,7 @@ export function ProvidersPage() {
                       model={model}
                       saving={saving}
                       t={t}
+                      variant="card"
                       onToggleTraeMax={(item, selected) => void onToggleTraeMax(item, selected)}
                       onReasoningChange={(item, next) => void onReasoningChange(item, next)}
                     />
@@ -479,6 +497,7 @@ export function ProvidersPage() {
                               model={model}
                               saving={saving}
                               t={t}
+                              variant="table"
                               onToggleTraeMax={(item, selected) => void onToggleTraeMax(item, selected)}
                               onReasoningChange={(item, next) => void onReasoningChange(item, next)}
                             />
