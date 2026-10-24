@@ -210,6 +210,7 @@ export function AccessPage() {
         onContent: (_chunk, full) => patchAssistant(assistantId, { content: full }),
         onReasoning: (_chunk, full) => patchAssistant(assistantId, { reasoning: full }),
         onToolCalls: (calls) => patchAssistant(assistantId, { toolCalls: mapToolCalls(calls, true) }),
+        onUsage: (usage) => patchAssistant(assistantId, { usage }),
       })
       patchAssistant(assistantId, (prev) => ({
         status: 'done',

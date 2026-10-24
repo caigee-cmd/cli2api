@@ -18,6 +18,15 @@ export type ChatToolCall = {
   status: ToolCallStatus
 }
 
+export type ThreadMessageUsage = {
+  prompt_tokens?: number
+  completion_tokens?: number
+  total_tokens?: number
+  /** Present when the upstream billed subscription credits for this turn. */
+  credits?: number
+  source?: string
+}
+
 export type ThreadMessage = {
   id: string
   role: 'user' | 'assistant'
@@ -26,6 +35,8 @@ export type ThreadMessage = {
   reasoning?: string
   reasoningOpen?: boolean
   toolCalls?: ChatToolCall[]
+  /** Per-turn usage from the stream; show credits only when set. */
+  usage?: ThreadMessageUsage
   status: 'pending' | 'streaming' | 'done' | 'error'
   error?: string
 }

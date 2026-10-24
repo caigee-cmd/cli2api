@@ -191,10 +191,20 @@ export type StreamToolCall = {
   }
 }
 
+export type StreamChatUsage = {
+  prompt_tokens?: number
+  completion_tokens?: number
+  total_tokens?: number
+  /** Subscription credit spend when the upstream reports it. */
+  credits?: number
+  source?: string
+}
+
 export type StreamChatHandlers = {
   onContent?: (chunk: string, full: string) => void
   onReasoning?: (chunk: string, full: string) => void
   onToolCalls?: (toolCalls: StreamToolCall[]) => void
+  onUsage?: (usage: StreamChatUsage) => void
   signal?: AbortSignal
 }
 
@@ -281,6 +291,14 @@ export async function streamChat(
   let reasoning = ''
   let toolCalls: StreamToolCall[] = []
 
+  const readUsageCredits = (raw: Record<string, unknown>): number | undefined => {
+    const credits = raw.credits
+    if (typeof credits === 'number' && Number.isFinite(credits)) return credits
+    const credit = raw.credit
+    if (typeof credit === 'number' && Number.isFinite(credit)) return credit
+    return undefined
+  }
+
   const consumeLine = (line: string) => {
     const trimmed = line.trim()
     if (!trimmed.startsWith('data:')) return false
@@ -289,6 +307,18 @@ export async function streamChat(
     if (payload === '[DONE]') return true
     try {
       const json = JSON.parse(payload)
+      const usageRaw = json?.usage
+      if (usageRaw && typeof usageRaw === 'object') {
+        const raw = usageRaw as Record<string, unknown>
+        const usage: StreamChatUsage = {
+          prompt_tokens: typeof raw.prompt_tokens === 'number' ? raw.prompt_tokens : undefined,
+          completion_tokens: typeof raw.completion_tokens === 'number' ? raw.completion_tokens : undefined,
+          total_tokens: typeof raw.total_tokens === 'number' ? raw.total_tokens : undefined,
+          credits: readUsageCredits(raw),
+          source: typeof raw.source === 'string' ? raw.source : undefined,
+        }
+        handlers.onUsage?.(usage)
+      }
       const delta = json?.choices?.[0]?.delta
       if (!delta || typeof delta !== 'object') return false
       const contentDelta = delta.content

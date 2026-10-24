@@ -2,6 +2,7 @@ import { PageAlert } from '@/components/ui/PageAlert'
 import { Skeleton } from '@heroui/react'
 import { FileText } from '@phosphor-icons/react'
 import { useI18n } from '@/hooks/useI18n'
+import { formatCredits } from '@/lib/format'
 import { ThinkingBlock } from './ThinkingBlock'
 import { ToolCallList } from './ToolCallCard'
 import type { ThreadMessage } from './types'
@@ -74,6 +75,11 @@ export function ChatMessageView({ message }: { message: ThreadMessage }) {
       ) : message.content ? (
         <div className="whitespace-pre-wrap break-words rounded-2xl bg-surface px-3.5 py-2.5 text-body leading-6 text-foreground shadow-surface">
           {message.content}
+        </div>
+      ) : null}
+      {message.usage && message.usage.credits != null ? (
+        <div className="text-caption text-muted">
+          {t('chatTryCreditsUsed', { amount: formatCredits(message.usage.credits) })}
         </div>
       ) : null}
     </div>

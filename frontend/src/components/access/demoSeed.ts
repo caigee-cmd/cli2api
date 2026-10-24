@@ -53,6 +53,7 @@ export function buildDemoThread(): ThreadMessage[] {
         },
       ],
       reasoningOpen: true,
+      usage: { credits: 0.75, prompt_tokens: 1840, completion_tokens: 126, source: 'upstream' },
       status: 'done',
     },
   ]
