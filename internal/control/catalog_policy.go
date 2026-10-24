@@ -58,6 +58,21 @@ func MergeModelEntryCapabilities(merged, incoming map[string]any) {
 			merged[field] = false
 		}
 	}
+	// Image input survives a merge only when every source declares it: the
+	// merged entry is one route, so a failover to a region without image
+	// support would reject the image the client already sent. A source that
+	// omits the field makes no claim and is left to the other sources, which
+	// keeps providers that never declare image support (Trae, Command, Zhipu)
+	// from appearing as an explicit "false".
+	if supported, ok := incoming["supports_images"].(bool); ok {
+		if supported {
+			if _, present := merged["supports_images"]; !present {
+				merged["supports_images"] = true
+			}
+		} else if _, present := merged["supports_images"]; present {
+			merged["supports_images"] = false
+		}
+	}
 }
 
 func modelEntryCredits(entry map[string]any) string {
@@ -97,6 +112,10 @@ func numericFieldValue(value any) (float64, bool) {
 	}
 }
 
+// ModelCapabilitiesEntry is the merge-only capability view of one provider
+// catalog entry. Unlike ProviderModelEntry it always states supports_images
+// (true or false) so MergeModelEntryCapabilities can combine regions; the
+// public entry only carries the field when the provider declares support.
 func ModelCapabilitiesEntry(model providers.ModelInfo) map[string]any {
 	entry := map[string]any{}
 	if model.Capabilities.ContextWindow > 0 {
@@ -123,6 +142,7 @@ func ModelCapabilitiesEntry(model providers.ModelInfo) map[string]any {
 	if model.Capabilities.CanDisableThinking {
 		entry["can_disable_thinking"] = true
 	}
+	entry["supports_images"] = model.Capabilities.Images
 	return entry
 }
 
@@ -183,6 +203,9 @@ func ProviderModelEntry(model providers.ModelInfo, provider string) map[string]a
 	}
 	if model.Capabilities.CanDisableThinking {
 		entry["can_disable_thinking"] = true
+	}
+	if model.Capabilities.Images {
+		entry["supports_images"] = true
 	}
 	return entry
 }

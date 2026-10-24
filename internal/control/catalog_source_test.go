@@ -64,6 +64,117 @@ func TestCatalogSourceMergeDedupsPublicIDAndUnionsRegions(t *testing.T) {
 	}
 }
 
+func TestProviderModelEntryCarriesDeclaredImageSupport(t *testing.T) {
+	vision := ProviderModelEntry(providers.ModelInfo{
+		NativeModel: "deepseek-v4.1-flash", PublicModel: "deepseek-v4.1-flash",
+		Capabilities: providers.ModelCapabilities{Images: true},
+	}, "workbuddy")
+	if vision["supports_images"] != true {
+		t.Fatalf("declared vision model should carry supports_images=true: %v", vision)
+	}
+	textOnly := ProviderModelEntry(providers.ModelInfo{
+		NativeModel: "deepseek-v3.2", PublicModel: "deepseek-v3.2",
+		Capabilities: providers.ModelCapabilities{Images: false},
+	}, "workbuddy")
+	if _, present := textOnly["supports_images"]; present {
+		t.Fatalf("undeclared image support must stay absent: %v", textOnly)
+	}
+	if mergedCaps := ModelCapabilitiesEntry(providers.ModelInfo{
+		Capabilities: providers.ModelCapabilities{Images: true},
+	}); mergedCaps["supports_images"] != true {
+		t.Fatalf("merge capabilities should carry supports_images=true: %v", mergedCaps)
+	}
+	if mergedCaps := ModelCapabilitiesEntry(providers.ModelInfo{
+		Capabilities: providers.ModelCapabilities{Images: false},
+	}); mergedCaps["supports_images"] != false {
+		t.Fatalf("merge view must state an explicit false, not omit it: %v", mergedCaps)
+	}
+}
+
+func TestCatalogSourceMergeRequiresEveryRegionToDeclareImages(t *testing.T) {
+	source := &CatalogSource{
+		Accounts: func() []CatalogAccount {
+			return []CatalogAccount{
+				{ID: "wb-cn", Provider: "workbuddy", Region: "cn"},
+				{ID: "wb-global", Provider: "workbuddy", Region: "global"},
+			}
+		},
+		Providers: providers.NewRegistry(),
+		WorkerModels: func(context.Context, string, bool) ([]map[string]any, error) {
+			return nil, nil
+		},
+	}
+	source.Providers.Register(providers.Adapter{ID: "workbuddy", Models: stubModels{byAccount: map[string][]providers.ModelInfo{
+		"wb-cn": {
+			{NativeModel: "deepseek-v4.1-flash", PublicModel: "deepseek-v4.1-flash", Capabilities: providers.ModelCapabilities{Images: true}},
+			{NativeModel: "deepseek-v4-pro", PublicModel: "deepseek-v4-pro", Capabilities: providers.ModelCapabilities{Images: true}},
+			{NativeModel: "deepseek-v3.2", PublicModel: "deepseek-v3.2"},
+		},
+		"wb-global": {
+			{NativeModel: "deepseek-v4.1-flash", PublicModel: "deepseek-v4.1-flash", Capabilities: providers.ModelCapabilities{Images: false}},
+			{NativeModel: "deepseek-v4-pro", PublicModel: "deepseek-v4-pro", Capabilities: providers.ModelCapabilities{Images: true}},
+			{NativeModel: "deepseek-v3.2", PublicModel: "deepseek-v3.2"},
+		},
+	}}})
+
+	merged, err := source.Fetch(false, "", CatalogModeMerge)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]map[string]any{}
+	for _, entry := range merged {
+		byID[entry["id"].(string)] = entry
+	}
+	if byID["deepseek-v4.1-flash"]["supports_images"] != false {
+		// One region does not declare image input, so the merged route cannot
+		// claim it: a request routed there would be rejected upstream.
+		t.Fatalf("mixed regions must merge to supports_images=false: %v", byID["deepseek-v4.1-flash"])
+	}
+	if byID["deepseek-v4-pro"]["supports_images"] != true {
+		t.Fatalf("every region declares images: %v", byID["deepseek-v4-pro"])
+	}
+	if _, present := byID["deepseek-v3.2"]["supports_images"]; present {
+		// No region declared image input, so the public entry must stay silent
+		// instead of advertising an explicit false the provider never stated.
+		t.Fatalf("undeclared model must not grow a false flag: %v", byID["deepseek-v3.2"])
+	}
+}
+
+func TestCatalogSourceQoderMirrorsVisionFlag(t *testing.T) {
+	source := &CatalogSource{
+		Accounts: func() []CatalogAccount {
+			return []CatalogAccount{{ID: "q-cn", Provider: "qoder", Region: "cn", Worker: true}}
+		},
+		Providers: providers.NewRegistry(),
+		WorkerModels: func(context.Context, string, bool) ([]map[string]any, error) {
+			return []map[string]any{
+				{"id": "vision-model", "is_vl": true},
+				{"id": "text-model", "is_vl": false},
+				{"id": "undeclared-model"},
+			}, nil
+		},
+	}
+	models, err := source.Fetch(false, "q-cn", CatalogModeMerge)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]map[string]any{}
+	for _, entry := range models {
+		byID[entry["id"].(string)] = entry
+	}
+	if byID["vision-model"]["supports_images"] != true {
+		t.Fatalf("is_vl=true must surface: %v", byID["vision-model"])
+	}
+	if byID["text-model"]["supports_images"] != false {
+		t.Fatalf("is_vl=false must surface: %v", byID["text-model"])
+	}
+	if byID["undeclared-model"]["supports_images"] != true {
+		// The Qoder adapter sends is_vl=true for every request, so a catalog
+		// entry without an explicit flag inherits that declared behavior.
+		t.Fatalf("absent is_vl must follow the adapter default: %v", byID["undeclared-model"])
+	}
+}
+
 func TestCatalogSourceUnknownAccountDoesNotFallBack(t *testing.T) {
 	source := &CatalogSource{
 		Accounts: func() []CatalogAccount {

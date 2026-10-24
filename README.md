@@ -75,7 +75,7 @@ Go 网关统一鉴权、调度和记录请求。Qoder 每个账号使用独立 N
 
 - 只连接你自己的账号，不提供账号、额度或官方 API 服务。
 - 兼容接口不等于完整复刻官方 API。Messages / Responses 为无状态适配，不保存服务端会话，也不执行上游专属工具。
-- 图片能力取决于上游和模型；WorkBuddy / Trae 不支持图片，文件输入会明确拒绝。具体范围见 [部署说明](deploy/README.md)。
+- 图片能力取决于上游和模型，网关把上游声明的图片输入逐模型透出为 `supports_images`（`/v1/models` 与 `/api/models`）。WorkBuddy 的 DeepSeek V4 / V4.1、GLM、Kimi 等模型支持图片；Trae、Command、Zhipu 未声明图片输入。具体范围见 [部署说明](deploy/README.md)。
 - 跨上游同名模型调度受系统开关、账号权限和地域约束；不是任意账号之间都能切换。
 - 上游协议变化可能影响兼容性；请求日志默认不保存提示词或回复正文。
 

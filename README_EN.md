@@ -75,7 +75,7 @@ Account cards provide WorkBuddy, QwenWork CN/Global, Qoder CN, and Qoder Global 
 
 - Bring your own accounts. CLI2API does not supply accounts, quotas, or an official API service.
 - Compatibility is not full API parity. Messages / Responses are stateless adapters, without server-side conversations or upstream-specific tool execution.
-- Image support depends on the upstream and model. WorkBuddy / Trae do not support images; file inputs are rejected. See the [deployment guide](deploy/README.md) for details.
+- Image support depends on the upstream and model. The gateway surfaces each model's declared image input as `supports_images` on `/v1/models` and `/api/models`. WorkBuddy's DeepSeek V4 / V4.1, GLM, and Kimi models accept images; Trae, Command, and Zhipu do not declare image input. See the [deployment guide](deploy/README.md) for details.
 - Cross-provider routing for shared model IDs follows system settings, key grants, and region constraints; failover is not unrestricted.
 - Upstream changes can break compatibility. Request logs do not store prompt or completion bodies by default.
 

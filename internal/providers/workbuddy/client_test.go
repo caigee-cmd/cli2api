@@ -1086,6 +1086,44 @@ func TestPrepareBodyForcesStreamAndStringToolChoice(t *testing.T) {
 	}
 }
 
+// Image parts must reach upstream unchanged. The catalog advertises
+// supports_images from the upstream product config, so the request body has to
+// keep the caller's image_url blocks on both user turns and tool results; any
+// normalization here would make the advertisement a lie.
+func TestPrepareBodyKeepsImageParts(t *testing.T) {
+	raw := `{"model":"m","messages":[` +
+		`{"role":"user","content":[{"type":"text","text":"look"},{"type":"image_url","image_url":{"url":"data:image/png;base64,AAAA"}}]},` +
+		`{"role":"assistant","content":"","tool_calls":[{"id":"call_1","type":"function","function":{"name":"read_image","arguments":"{}"}}]},` +
+		`{"role":"tool","tool_call_id":"call_1","content":[{"type":"image_url","image_url":{"url":"data:image/png;base64,BBBB"}}]}]}`
+	out := PrepareBody([]byte(raw))
+	var body map[string]any
+	if err := json.Unmarshal(out, &body); err != nil {
+		t.Fatal(err)
+	}
+	messages, _ := body["messages"].([]any)
+	images := map[string]string{}
+	for _, item := range messages {
+		message, _ := item.(map[string]any)
+		role, _ := message["role"].(string)
+		parts, _ := message["content"].([]any)
+		for _, rawPart := range parts {
+			part, _ := rawPart.(map[string]any)
+			if part["type"] != "image_url" {
+				continue
+			}
+			nested, _ := part["image_url"].(map[string]any)
+			url, _ := nested["url"].(string)
+			images[role] = url
+		}
+	}
+	if images["user"] != "data:image/png;base64,AAAA" {
+		t.Fatalf("user image dropped: %v", messages)
+	}
+	if images["tool"] != "data:image/png;base64,BBBB" {
+		t.Fatalf("tool-result image dropped: %v", messages)
+	}
+}
+
 func TestPrepareBodyInsertsNonEmptyLeadingSystem(t *testing.T) {
 	out := PrepareBody([]byte(`{"model":"m","messages":[{"role":"user","content":"hi"}]}`))
 	var body map[string]any
