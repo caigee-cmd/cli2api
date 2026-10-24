@@ -3,6 +3,22 @@
 Published user-facing notes for GitHub Releases and the console update page.
 Write upcoming notes as bilingual files in `changelog/unreleased/`.
 
+## 0.7.6 - 2026-10-24
+
+### English
+
+- Codex outer / CLI OAuth now proactively refreshes with a 96-hour lead (aligned with CLIProxyAPI `CodexOuterRefreshLead`), while Sign in with ChatGPT (SIWC) keeps the short 5-minute lead—so the nominal 10-day JWT is renewed before early upstream invalidation without changing SIWC behavior.
+- Codex model catalog adds `gpt-6.1-sol` (GPT-6.1-Sol) from the upstream client model list, with the same slim fields as other `gpt-*` entries.
+- Add QwenWork CN and Global daily check-in: account cards now expose the manual action and the off-by-default automatic switch, with per-account and provider default times shared with the existing scheduler.
+- QwenWork check-in tries the desktop client's `daily-check-in` claim API first, then falls back to today's server-granted free credits: CN reads the daily wallet balance, Global reports the gateway gap (claim route 404) instead of a fake success.
+
+### 中文
+
+- Codex outer / CLI OAuth 主动刷新提前量对齐 CLIProxyAPI 的 `CodexOuterRefreshLead`（96 小时），Sign in with ChatGPT（SIWC）仍保持 5 分钟短 lead，以便在名义 10 天 JWT 被上游提前作废前续期，且不改变 SIWC 行为。
+- Codex 模型目录新增上游客户端列表中的 `gpt-6.1-sol`（GPT-6.1-Sol），字段结构与其它 `gpt-*` 条目一致。
+- 新增 QwenWork 国内版/国际版每日签到：账号卡片提供手动签到和默认关闭的自动签到开关，沿用现有的账号级/供应商级签到时间调度。
+- QwenWork 签到先调用桌面客户端的每日签到领取接口，接口未开放时改为核对当日服务端发放的免费积分：国内版读取钱包日额度，国际版明确记录网关未开放的原因，不伪造成功。
+
 ## 0.7.5 - 2026-10-23
 
 ### English
