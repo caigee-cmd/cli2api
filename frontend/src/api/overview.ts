@@ -1,4 +1,5 @@
-import { api } from './client'
+import { api, ApiError } from './client'
+import { readStoredApiKey } from '@/hooks/useApiKey'
 import type { CheckinRecord, Overview } from './types'
 
 export function fetchOverviewSummary(keyOverride?: string) {
@@ -165,6 +166,88 @@ export function testChat(model: string, content: string, accountId?: string) {
       messages: [{ role: 'user', content }],
     }),
   })
+}
+
+export type StreamChatHandlers = {
+  onContent?: (chunk: string, full: string) => void
+  signal?: AbortSignal
+}
+
+/** Single-turn streaming Chat Completions via console `/api/chat` (SSE). */
+export async function streamChat(
+  model: string,
+  content: string,
+  accountId: string | undefined,
+  handlers: StreamChatHandlers = {},
+): Promise<string> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (accountId) headers['X-Qoder-Account'] = accountId
+  const key = readStoredApiKey().trim()
+  if (key) headers.Authorization = `Bearer ${key}`
+
+  const res = await fetch('/api/chat', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      model,
+      stream: true,
+      messages: [{ role: 'user', content }],
+    }),
+    signal: handlers.signal,
+  })
+
+  if (!res.ok) {
+    const text = await res.text()
+    let data: any
+    try {
+      data = text ? JSON.parse(text) : null
+    } catch {
+      data = text
+    }
+    const raw = typeof data === 'string' ? data : text
+    const looksHTML = /<!doctype html|<html[\s>]/i.test(raw)
+    const msg = data?.error?.message || data?.message || (looksHTML ? `${res.status} ${res.statusText}` : (raw || res.statusText))
+    throw new ApiError(msg, res.status, data?.error?.code)
+  }
+
+  const reader = res.body?.getReader()
+  if (!reader) throw new Error('No response body')
+
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let full = ''
+
+  const consumeLine = (line: string) => {
+    const trimmed = line.trim()
+    if (!trimmed.startsWith('data:')) return false
+    const payload = trimmed.slice(5).trim()
+    if (!payload) return false
+    if (payload === '[DONE]') return true
+    try {
+      const json = JSON.parse(payload)
+      const delta = json?.choices?.[0]?.delta?.content
+      if (typeof delta === 'string' && delta) {
+        full += delta
+        handlers.onContent?.(delta, full)
+      }
+    } catch {
+      // ignore incomplete JSON frames
+    }
+    return false
+  }
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() || ''
+    for (const line of lines) {
+      if (consumeLine(line)) return full
+    }
+  }
+  if (buffer.trim()) consumeLine(buffer)
+  return full
 }
 
 
