@@ -15,25 +15,27 @@ export function LiveStrip({ live, samples, t }: { live: LiveSnapshot | null; sam
   return (
     <div
       data-testid="live-strip"
-      className="flex h-11 flex-wrap items-center gap-x-6 gap-y-1 overflow-hidden rounded-lg bg-surface-secondary px-4 text-caption text-muted"
+      className="flex min-h-11 flex-wrap items-center gap-x-5 gap-y-2 overflow-hidden rounded-lg bg-surface-secondary px-4 py-2.5 text-caption text-muted sm:h-11 sm:gap-x-6 sm:gap-y-1 sm:py-0"
     >
       <span className="inline-flex items-center">
         <span className="status-dot" data-state={inFlight == null ? '' : saturated ? 'warn' : inFlight > 0 ? 'ok' : ''} />
       </span>
-      <span className="inline-flex items-center gap-2">
+      <span className="inline-flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
         {t('liveConcurrency')}
-        <span className={`mono tabular text-body font-semibold ${saturated ? 'text-warning' : 'text-foreground'}`}>
-          {inFlight ?? '—'}<span className="font-normal text-muted">/{live ? capacity : '—'}</span>
-        </span>
-        <span className="inline-block h-[3px] w-12 overflow-hidden rounded-[2px] bg-separator">
-          <span className={`block h-full ${saturated ? 'bg-warning' : 'bg-foreground/60'}`} style={{ width: `${Math.min(100, load * 100)}%` }} />
+        <span className="inline-flex items-center gap-2">
+          <span className={`mono tabular text-body font-semibold ${saturated ? 'text-warning' : 'text-foreground'}`}>
+            {inFlight ?? '—'}<span className="font-normal text-muted">/{live ? capacity : '—'}</span>
+          </span>
+          <span className="inline-block h-[3px] w-12 overflow-hidden rounded-[2px] bg-separator">
+            <span className={`block h-full ${saturated ? 'bg-warning' : 'bg-foreground/60'}`} style={{ width: `${Math.min(100, load * 100)}%` }} />
+          </span>
         </span>
       </span>
-      <span className="inline-flex items-center gap-2">
+      <span className="inline-flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
         {t('liveRpm')}
         <span className="mono tabular text-body font-semibold text-foreground">{live?.rpm ?? '—'}</span>
       </span>
-      <span className="inline-flex items-center gap-2">
+      <span className="inline-flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
         {t('liveTrace')}
         <Suspense fallback={<span className="inline-block h-6 w-[120px]" />}>
           <LiveSparkline samples={samples} capacity={capacity} label={t('liveTrace')} />

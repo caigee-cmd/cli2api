@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button, Modal } from '@heroui/react'
 import { ArrowCircleUp, Notebook, X } from '@phosphor-icons/react'
@@ -7,6 +7,7 @@ import { PageAlert } from '@/components/ui/PageAlert'
 import { useSystemUpdate } from '@/hooks/useSystemUpdate'
 import { ReleaseNotes } from '@/components/ReleaseNotes'
 import { extractReleaseNotes } from '@/lib/releaseNotes'
+import { duration, ease, gsap } from '@/lib/motion'
 import { useI18n } from '@/hooks/useI18n'
 
 /** Compact version / new-release entry pinned to the bottom-left of the sidebar. */
@@ -16,6 +17,7 @@ export function SidebarUpdateItem({ collapsed, onNavigate }: { collapsed: boolea
   const update = useSystemUpdate()
   const { info, error } = update
   const [open, setOpen] = useState(false)
+  const nudgeRef = useRef<HTMLSpanElement>(null)
 
   if (!info) return null
   const hasUpdate = Boolean(info.has_update)
@@ -36,13 +38,15 @@ export function SidebarUpdateItem({ collapsed, onNavigate }: { collapsed: boolea
         data-sidebar-item
         className={`flex h-10 w-full items-center gap-3 rounded-[10px] text-nav transition-colors ${collapsed ? 'mx-auto w-10 justify-center px-0' : 'px-3'} ${hasUpdate ? 'font-medium text-accent' : 'text-muted hover:text-foreground'}`}
       >
-        <span className="relative inline-flex shrink-0">
+        <span ref={nudgeRef} className="relative inline-flex shrink-0 will-change-transform">
           <Icon size={20} weight={hasUpdate ? 'fill' : 'regular'} />
           {hasUpdate && collapsed ? <span className="absolute -right-0.5 -top-0.5 size-1.5 rounded-full bg-accent" /> : null}
         </span>
         {!collapsed && <span className="truncate">{label}</span>}
         {!collapsed && !hasUpdate && version ? <span className="mono ml-auto text-caption">{version}</span> : null}
       </button>
+
+      {hasUpdate ? <UpdateNudge targetRef={nudgeRef} /> : null}
 
       <Modal.Root isOpen={open} onOpenChange={setOpen}>
         <Modal.Backdrop variant="blur">
@@ -73,4 +77,33 @@ export function SidebarUpdateItem({ collapsed, onNavigate }: { collapsed: boolea
       </Modal.Root>
     </>
   )
+}
+
+/** Light left-right nudge every few seconds when an update is available. */
+function UpdateNudge({ targetRef }: { targetRef: RefObject<HTMLSpanElement | null> }) {
+  useLayoutEffect(() => {
+    const el = targetRef.current
+    if (!el) return
+
+    const context = gsap.context(() => {
+      const media = gsap.matchMedia()
+      media.add('(prefers-reduced-motion: reduce)', () => {
+        gsap.set(el, { clearProps: 'transform' })
+      })
+      media.add('(prefers-reduced-motion: no-preference)', () => {
+        // Amplitude ~3px, one short cycle, then idle ~4.5s. Not a continuous jitter.
+        const shake = gsap.timeline({ repeat: -1, repeatDelay: 4.5 })
+        shake
+          .to(el, { x: 3, duration: duration.fast, ease: ease.inOut })
+          .to(el, { x: -2.5, duration: duration.fast, ease: ease.inOut })
+          .to(el, { x: 1.5, duration: duration.instant, ease: ease.inOut })
+          .to(el, { x: 0, duration: duration.fast, ease: ease.out })
+        return () => { shake.kill() }
+      })
+    }, el)
+
+    return () => context.revert()
+  }, [targetRef])
+
+  return null
 }
