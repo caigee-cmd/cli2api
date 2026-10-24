@@ -219,6 +219,16 @@ func (a *CatalogSource) fetchQoderModels(refresh bool, accountID string) []map[s
 		if _, ok := model["owned_by"]; !ok {
 			model["owned_by"] = "qoder"
 		}
+		// Qoder treats every catalog model as vision-capable: the in-process
+		// adapter always sends is_vl=true in model_config and ModelInfos reports
+		// Images for the same reason. The worker catalog sometimes carries the
+		// upstream is_vl flag, so honor an explicit answer and fall back to the
+		// adapter's declared behavior when the flag is absent.
+		if vision, ok := model["is_vl"].(bool); ok {
+			model["supports_images"] = vision
+		} else {
+			model["supports_images"] = true
+		}
 		// Internal marker consumed by fetchProviderModels; stripped from the
 		// output before it reaches any client.
 		model["_qoder_region"] = region
