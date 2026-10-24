@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -404,5 +405,69 @@ func TestRequestUsageEndpointCredits(t *testing.T) {
 	srv.Handler().ServeHTTP(second, req)
 	if second.Code != http.StatusOK {
 		t.Fatalf("cached status=%d body=%s", second.Code, second.Body.String())
+	}
+}
+
+func TestUsageCostEndpointPricesDeepSeek(t *testing.T) {
+	dir := t.TempDir()
+	srv := New(config.Config{
+		Host: "127.0.0.1", Port: 3010, ProxyAPIKey: "secret",
+		QoderHome: dir, DataDir: dir,
+	})
+	defer srv.Close()
+
+	ctx := context.Background()
+	// Keep the fixture inside retention even when the asynchronous pruner runs.
+	// Noon UTC is 20:00 Beijing and always off-peak.
+	yesterday := time.Now().UTC().Add(-24 * time.Hour)
+	at := time.Date(yesterday.Year(), yesterday.Month(), yesterday.Day(), 12, 0, 0, 0, time.UTC)
+	prompt, completion, cacheRead := 1_000_000, 1_000_000, 500_000
+	if err := srv.Recorder.Store().InsertRequestLog(ctx, accounts.RequestLog{
+		ID: accounts.NewRequestID(), CreatedAt: at, Status: accounts.RequestStatusOK,
+		RequestedModel: "deepseek-v4.1-flash", AccountID: "acc_wb", Provider: "workbuddy",
+		PromptTokens: &prompt, CompletionTokens: &completion, CacheReadTokens: &cacheRead,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	from := at.Truncate(24 * time.Hour)
+	to := from.Add(24 * time.Hour)
+	req := httptest.NewRequest(http.MethodGet, "/api/usage/cost?from="+from.Format(time.RFC3339)+"&to="+to.Format(time.RFC3339), nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var got accounts.CostBreakdown
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Totals.Requests != 1 || len(got.Models) != 1 {
+		t.Fatalf("breakdown = %+v", got.Totals)
+	}
+	// Off-peak 500k hit*0.02 + 500k miss*1 + 1M out*4 = 0.01 + 0.5 + 4 = 4.51
+	if math.Abs(got.Totals.Cost-4.51) > 1e-6 {
+		t.Fatalf("cost = %v, want 4.51", got.Totals.Cost)
+	}
+	if got.Currency != "CNY" {
+		t.Fatalf("currency = %q", got.Currency)
+	}
+}
+
+func TestUsageCostAndPricingRequireConsoleKey(t *testing.T) {
+	dir := t.TempDir()
+	srv := New(config.Config{
+		Host: "127.0.0.1", Port: 3010, ProxyAPIKey: "secret",
+		QoderHome: dir, DataDir: dir,
+	})
+	defer srv.Close()
+	for _, path := range []string{"/api/usage/cost", "/api/usage/pricing"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("%s without key status=%d, want 401", path, rec.Code)
+		}
 	}
 }
