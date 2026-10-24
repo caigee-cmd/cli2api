@@ -46,7 +46,12 @@ export type ModelCost = {
 
 export type CostSeriesPoint = {
   at: string
+  /** DeepSeek list-price CNY by model (priced models only; optional estimate). */
   per_model: Record<string, number>
+  /** Subscription credits by model — every provider. */
+  per_model_credits: Record<string, number>
+  /** Token totals by model — every provider. */
+  per_model_tokens: Record<string, number>
   tokens: number
   credits: number
 }

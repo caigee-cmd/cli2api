@@ -174,4 +174,19 @@ func TestBuildCostBreakdownReportsCreditsForUnpricedModels(t *testing.T) {
 	if len(got.Series) != 1 || got.Series[0].Credits != 8.75 {
 		t.Fatalf("series credits = %+v, want one point with 8.75", got.Series)
 	}
+	// Per-model credit series must include unpriced models so the primary
+	// chart is not DeepSeek-only.
+	if got.Series[0].PerModelCredits["glm-5.3-flash"] != 7.25 {
+		t.Fatalf("per_model_credits glm = %v, want 7.25", got.Series[0].PerModelCredits["glm-5.3-flash"])
+	}
+	if got.Series[0].PerModelCredits["deepseek-v4.1-flash"] != 1.5 {
+		t.Fatalf("per_model_credits deepseek = %v, want 1.5", got.Series[0].PerModelCredits["deepseek-v4.1-flash"])
+	}
+	if got.Series[0].PerModelTokens["glm-5.3-flash"] != 5_000_000 {
+		t.Fatalf("per_model_tokens glm = %v, want 5000000", got.Series[0].PerModelTokens["glm-5.3-flash"])
+	}
+	// Models with higher quota should sort ahead of CNY-only ordering.
+	if got.Models[0].ID != "glm-5.3-flash" {
+		t.Fatalf("first model = %q, want glm-5.3-flash (highest credits)", got.Models[0].ID)
+	}
 }
