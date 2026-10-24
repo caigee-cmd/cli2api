@@ -292,10 +292,10 @@ export async function streamChat(
   let toolCalls: StreamToolCall[] = []
 
   const readUsageCredits = (raw: Record<string, unknown>): number | undefined => {
-    const credits = raw.credits
-    if (typeof credits === 'number' && Number.isFinite(credits)) return credits
-    const credit = raw.credit
-    if (typeof credit === 'number' && Number.isFinite(credit)) return credit
+    for (const key of ['credits', 'credit', 'consumed_credits', 'ConsumedCredits'] as const) {
+      const value = raw[key]
+      if (typeof value === 'number' && Number.isFinite(value)) return value
+    }
     return undefined
   }
 

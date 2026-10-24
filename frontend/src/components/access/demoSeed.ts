@@ -52,9 +52,29 @@ export function buildDemoThread(): ThreadMessage[] {
           status: 'success',
         },
       ],
-      reasoningOpen: true,
+      reasoningOpen: false,
       usage: { credits: 0.75, prompt_tokens: 1840, completion_tokens: 126, source: 'upstream' },
       status: 'done',
+    },
+  ]
+}
+
+/** Streaming thinking pill for visual QA (`?demo=thinking`). */
+export function buildDemoThinking(): ThreadMessage[] {
+  return [
+    {
+      id: 'demo-user-thinking',
+      role: 'user',
+      content: 'Walk through the Access playground layout.',
+      status: 'done',
+    },
+    {
+      id: 'demo-assistant-thinking',
+      role: 'assistant',
+      content: '',
+      reasoning:
+        'Scan the stage chrome, then the composer controls, then draft a short reply without inventing product claims.',
+      status: 'streaming',
     },
   ]
 }

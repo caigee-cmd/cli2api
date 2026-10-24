@@ -10,7 +10,6 @@ import type { ModelInfo, Overview } from '@/api/types'
 import type { StreamToolCall } from '@/api/overview'
 import { absUrl } from '@/lib/url'
 import { modelCreditsText, modelIsFree } from '@/lib/format'
-import { PageAlert } from '@/components/ui/PageAlert'
 import { AccessPageSkeleton } from '@/components/ui/PageSkeletons'
 import { ProviderMark } from '@/components/ProviderMark'
 import { accountProviderLabel } from '@/lib/provider'
@@ -19,7 +18,7 @@ import { ChatComposer, type ComposerOption } from '@/components/access/ChatCompo
 import { ChatThread } from '@/components/access/ChatThread'
 import { RawApiPanel } from '@/components/access/RawApiPanel'
 import { buildUserContent, toApiMessages } from '@/components/access/buildMessages'
-import { buildDemoThread } from '@/components/access/demoSeed'
+import { buildDemoThinking, buildDemoThread } from '@/components/access/demoSeed'
 import type { ChatAttachment, ChatToolCall, ThreadMessage } from '@/components/access/types'
 
 type RequestState = 'idle' | 'loading' | 'success' | 'error'
@@ -42,13 +41,23 @@ function mapToolCalls(calls: StreamToolCall[], streaming: boolean): ChatToolCall
   }))
 }
 
-function wantsDemo() {
-  if (typeof window === 'undefined') return false
+function demoMode(): 'full' | 'thinking' | null {
+  if (typeof window === 'undefined') return null
   try {
-    return new URLSearchParams(window.location.search).get('demo') === '1'
+    const value = new URLSearchParams(window.location.search).get('demo')
+    if (value === '1' || value === 'full') return 'full'
+    if (value === 'thinking') return 'thinking'
+    return null
   } catch {
-    return false
+    return null
   }
+}
+
+function initialDemoMessages(): ThreadMessage[] {
+  const mode = demoMode()
+  if (mode === 'thinking') return buildDemoThinking()
+  if (mode === 'full') return buildDemoThread()
+  return []
 }
 
 export function AccessPage() {
@@ -75,7 +84,7 @@ export function AccessPage() {
   const [prompt, setPrompt] = useState('只回复OK')
   const [chatPrompt, setChatPrompt] = useState('')
   const [attachments, setAttachments] = useState<ChatAttachment[]>([])
-  const [messages, setMessages] = useState<ThreadMessage[]>(() => (wantsDemo() ? buildDemoThread() : []))
+  const [messages, setMessages] = useState<ThreadMessage[]>(() => initialDemoMessages())
   const [chatState, setChatState] = useState<RequestState>('idle')
   const chatAbortRef = useRef<AbortController | null>(null)
   const [output, setOutput] = useState('')
@@ -315,11 +324,11 @@ export function AccessPage() {
       </section>
 
       {!accounts.length ? (
-        <PageAlert status="warning" title={t('noAccountsForTest')} />
+        <p className="px-1 text-caption text-muted">{t('noAccountsForTest')}</p>
       ) : null}
 
       {modelsError ? (
-        <PageAlert status="warning" title={modelsError} />
+        <p className="px-1 text-caption text-danger">{modelsError}</p>
       ) : null}
 
       <section className="overflow-hidden rounded-3xl bg-surface shadow-surface">

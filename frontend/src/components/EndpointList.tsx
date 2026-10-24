@@ -37,7 +37,7 @@ export function EndpointList({ access }: EndpointListProps) {
       </div>
       <div className="grid gap-2 px-3 pb-3 sm:grid-cols-2 sm:px-4 sm:pb-4 lg:grid-cols-3">
         {endpoints.map((item) => (
-          <div key={item.name} className="group min-w-0 rounded-xl bg-surface-secondary/55 p-3 transition-colors hover:bg-surface-secondary">
+          <div key={item.name} className="group min-w-0 rounded-xl bg-surface-secondary/40 p-3 transition-colors hover:bg-surface-secondary/70">
             <div className="flex items-start justify-between gap-2.5">
               <div className="flex min-w-0 items-center gap-2.5">
                 <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-surface text-muted">{item.icon}</span>

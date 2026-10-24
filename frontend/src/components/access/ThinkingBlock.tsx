@@ -1,8 +1,7 @@
-import { useEffect, useState } from 'react'
-import { CaretRight } from '@phosphor-icons/react'
+import { useEffect, useRef, useState } from 'react'
+import { CaretRight, CircleNotch } from '@phosphor-icons/react'
 import { useI18n } from '@/hooks/useI18n'
-
-const PHASES = ['thinkingPhaseScan', 'thinkingPhasePlan', 'thinkingPhaseDraft'] as const
+import { prefersReducedMotion } from '@/lib/motion'
 
 export function ThinkingBlock({
   text,
@@ -14,61 +13,68 @@ export function ThinkingBlock({
   defaultOpen?: boolean
 }) {
   const { t } = useI18n()
-  const [open, setOpen] = useState(Boolean(defaultOpen ?? streaming))
-  const [phase, setPhase] = useState(0)
+  const [open, setOpen] = useState(Boolean(defaultOpen))
   const [elapsedSec, setElapsedSec] = useState(0)
+  const finalSecRef = useRef(0)
 
   useEffect(() => {
-    if (streaming) setOpen(true)
-    else setOpen(Boolean(defaultOpen))
+    // Streaming stays collapsed to one pill; only expand on explicit defaultOpen when done.
+    if (streaming) setOpen(false)
+    else if (defaultOpen != null) setOpen(Boolean(defaultOpen))
   }, [streaming, defaultOpen])
-
-  useEffect(() => {
-    if (!streaming) return
-    const id = window.setInterval(() => {
-      setPhase((prev) => (prev + 1) % PHASES.length)
-    }, 1600)
-    return () => window.clearInterval(id)
-  }, [streaming])
 
   useEffect(() => {
     if (!streaming) return
     const started = Date.now()
     setElapsedSec(0)
     const id = window.setInterval(() => {
-      setElapsedSec(Math.floor((Date.now() - started) / 1000))
+      const sec = Math.floor((Date.now() - started) / 1000)
+      setElapsedSec(sec)
+      finalSecRef.current = sec
     }, 250)
     return () => window.clearInterval(id)
   }, [streaming])
 
+  useEffect(() => {
+    if (!streaming && elapsedSec === 0 && finalSecRef.current > 0) {
+      setElapsedSec(finalSecRef.current)
+    }
+  }, [streaming, elapsedSec])
+
   if (!text && !streaming) return null
 
+  const reduceMotion = prefersReducedMotion()
+  const doneSec = streaming ? elapsedSec : (elapsedSec || finalSecRef.current)
+
   return (
-    <div className="overflow-hidden rounded-xl bg-surface-secondary">
+    <div className="overflow-hidden rounded-xl">
       <button
         type="button"
-        className="flex w-full items-center gap-2 px-3 py-2 text-left text-caption font-medium text-muted"
+        className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-surface-secondary px-2.5 py-1 text-left text-caption text-muted"
         aria-expanded={open}
         onClick={() => setOpen((prev) => !prev)}
       >
-        <CaretRight size={12} className={`shrink-0 transition-transform ${open ? 'rotate-90' : ''}`} />
         {streaming ? (
-          <span className="access-thinking-shimmer inline-flex items-center gap-2">
-            <span className="inline-flex items-center rounded-full bg-surface px-2 py-0.5 text-caption text-foreground">
-              {t(PHASES[phase])}
-            </span>
-            <span className="mono text-muted">{elapsedSec}s</span>
-          </span>
+          <>
+            <CircleNotch
+              size={12}
+              className={`shrink-0 text-muted ${reduceMotion ? '' : 'animate-spin'}`}
+            />
+            <span className={reduceMotion ? '' : 'access-thinking-shimmer'}>{t('thinkingWorking')}</span>
+            <span className="mono text-muted/80">{elapsedSec}s</span>
+          </>
         ) : (
-          <span className="inline-flex items-center gap-2">
+          <>
+            <CaretRight size={11} className={`shrink-0 transition-transform ${open ? 'rotate-90' : ''}`} />
             <span>{t('thinkingDone')}</span>
-            {text ? <span className="mono text-muted">{t('thinkingChars', { count: text.length })}</span> : null}
-          </span>
+            {doneSec > 0 ? <span className="mono text-muted/80">{t('thinkingElapsed', { n: doneSec })}</span> : null}
+            {!doneSec && text ? <span className="mono text-muted/80">{t('thinkingChars', { count: text.length })}</span> : null}
+          </>
         )}
       </button>
       {open && text ? (
-        <div className="px-3 pb-2.5 pt-0">
-          <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-surface/70 px-2.5 py-2 text-caption leading-5 text-muted">
+        <div className="mt-1.5">
+          <pre className="max-h-52 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-surface-secondary/80 px-3 py-2 text-caption leading-5 text-muted">
             {text}
           </pre>
         </div>

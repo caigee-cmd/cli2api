@@ -47,6 +47,7 @@ function CompactSelect({
   isDisabled,
   options,
   className,
+  tone = 'default',
 }: {
   ariaLabel: string
   value: string
@@ -55,8 +56,13 @@ function CompactSelect({
   isDisabled?: boolean
   options: ComposerOption[]
   className?: string
+  tone?: 'default' | 'muted'
 }) {
   const selected = options.find((option) => option.id === value)
+  const triggerTone =
+    tone === 'muted'
+      ? 'text-muted hover:text-foreground'
+      : 'text-foreground'
   return (
     <Select
       className={className ?? 'w-auto max-w-[11rem] min-w-0'}
@@ -68,27 +74,29 @@ function CompactSelect({
         if (typeof next === 'string' && next) onChange(next)
       }}
     >
-      <Select.Trigger className="h-8 min-h-8 gap-1.5 rounded-lg border-0 bg-transparent px-2 shadow-none items-center hover:bg-surface-secondary data-[focus-visible=true]:bg-surface-secondary">
+      <Select.Trigger
+        className={`h-7 min-h-7 gap-1 rounded-md border-0 bg-transparent px-1.5 shadow-none items-center hover:bg-surface data-[focus-visible=true]:bg-surface ${triggerTone}`}
+      >
         <Select.Value className="min-w-0 truncate text-caption font-medium">
           {({ defaultChildren, isPlaceholder }) => {
             if (isPlaceholder || !selected) return defaultChildren
             return (
-              <span className="flex min-w-0 items-center gap-1.5">
-                {selected.icon ? <span className="grid size-4 shrink-0 place-items-center">{selected.icon}</span> : null}
+              <span className="flex min-w-0 items-center gap-1">
+                {selected.icon ? <span className="grid size-3.5 shrink-0 place-items-center opacity-80">{selected.icon}</span> : null}
                 <span className="truncate">{selected.label}</span>
               </span>
             )
           }}
         </Select.Value>
-        <Select.Indicator className="size-3 opacity-60" />
+        <Select.Indicator className="size-2.5 opacity-50" />
       </Select.Trigger>
-      <Select.Popover className="max-h-72 min-w-44">
+      <Select.Popover placement="top end" className="max-h-72 min-w-48">
         <ListBox>
           {options.map((option) => (
-            <ListBox.Item key={option.id} id={option.id} textValue={option.textValue}>
+            <ListBox.Item key={option.id} id={option.id} textValue={option.textValue} className="gap-2">
               {option.icon ? <span className="grid size-5 shrink-0 place-items-center">{option.icon}</span> : null}
               <div className="min-w-0 flex-1">
-                <Label className="block truncate">{option.label}</Label>
+                <Label className="block truncate text-caption">{option.label}</Label>
                 {option.hint ? <span className="block truncate text-caption text-muted">{option.hint}</span> : null}
               </div>
               <ListBox.ItemIndicator />
@@ -165,8 +173,8 @@ export function ChatComposer({
   }
 
   return (
-    <div className="border-t border-separator p-3 sm:p-4">
-      <div className="overflow-hidden rounded-2xl bg-surface-secondary shadow-surface">
+    <div className="border-t border-separator/60 p-3 sm:p-4">
+      <div className="overflow-hidden rounded-2xl bg-surface-secondary/80">
         {attachments.length ? (
           <div className="flex flex-wrap gap-2 px-3 pt-3">
             {attachments.map((file) => (
@@ -175,11 +183,7 @@ export function ChatComposer({
                 className="inline-flex max-w-[14rem] items-center gap-2 rounded-xl bg-surface px-1.5 py-1.5 text-caption text-foreground"
               >
                 {file.kind === 'image' && file.dataUrl ? (
-                  <img
-                    src={file.dataUrl}
-                    alt=""
-                    className="size-8 shrink-0 rounded-lg object-cover"
-                  />
+                  <img src={file.dataUrl} alt="" className="size-8 shrink-0 rounded-lg object-cover" />
                 ) : (
                   <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-surface-secondary text-muted">
                     <FileText size={14} />
@@ -205,7 +209,7 @@ export function ChatComposer({
         <TextArea
           fullWidth
           rows={3}
-          className="min-h-24 resize-none border-0 bg-transparent px-3.5 py-3 text-body leading-6 shadow-none focus-visible:ring-0"
+          className="min-h-20 resize-none border-0 bg-transparent px-3.5 py-3 text-body leading-[1.65] shadow-none focus-visible:ring-0"
           value={value}
           onChange={(event) => onChange(event.target.value)}
           onKeyDown={onKeyDown}
@@ -214,7 +218,7 @@ export function ChatComposer({
           disabled={disabled || streaming}
         />
 
-        <div className="flex items-center gap-1.5 px-2 pb-2 pt-0.5">
+        <div className="flex items-center gap-1 px-2 pb-2 pt-0.5">
           <input
             ref={fileRef}
             type="file"
@@ -227,12 +231,12 @@ export function ChatComposer({
             isIconOnly
             size="sm"
             variant="ghost"
-            className="shrink-0"
+            className="size-7 min-w-7 shrink-0"
             aria-label={t('chatAttach')}
             isDisabled={disabled || streaming}
             onPress={() => fileRef.current?.click()}
           >
-            <Plus size={16} />
+            <Plus size={15} />
           </Button>
 
           <div className="min-w-0 flex-1" />
@@ -243,7 +247,8 @@ export function ChatComposer({
             onChange={onAccountChange}
             options={accountOptions}
             isDisabled={disabled || streaming}
-            className="w-auto max-w-[9.5rem] min-w-0"
+            tone="muted"
+            className="w-auto max-w-[8.5rem] min-w-0"
           />
           <CompactSelect
             ariaLabel={t('model')}
@@ -252,7 +257,7 @@ export function ChatComposer({
             placeholder={modelsLoading ? t('requesting') : t('model')}
             options={modelOptions}
             isDisabled={disabled || streaming || modelsLoading || !modelOptions.length}
-            className="w-auto max-w-[11rem] min-w-0"
+            className="w-auto max-w-[10.5rem] min-w-0"
           />
 
           {streaming ? (
@@ -260,22 +265,22 @@ export function ChatComposer({
               isIconOnly
               size="sm"
               variant="secondary"
-              className="size-8 shrink-0 rounded-full"
+              className="size-7 shrink-0 rounded-full"
               aria-label={t('chatTryStop')}
               onPress={onStop}
             >
-              <Stop size={14} weight="fill" />
+              <Stop size={13} weight="fill" />
             </Button>
           ) : (
             <Button
               isIconOnly
               size="sm"
-              className="size-8 shrink-0 rounded-full"
+              className="size-7 shrink-0 rounded-full transition-transform active:scale-95 disabled:active:scale-100"
               aria-label={t('chatTrySend')}
               isDisabled={!canSend || disabled}
               onPress={onSend}
             >
-              <PaperPlaneTilt size={14} weight="fill" />
+              <PaperPlaneTilt size={13} weight="fill" />
             </Button>
           )}
         </div>
