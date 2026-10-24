@@ -15,9 +15,12 @@ import { useI18n } from '@/hooks/useI18n'
 import { formatCompact, formatLatency, formatPercent } from '@/lib/format'
 import { logsHref } from '@/lib/logsLink'
 import { accountProviderFamilyLabel } from '@/lib/provider'
+import { UsageCostPanel } from '@/components/usage/UsageCostPanel'
 
 /** Rows per dimension; the server caps limit at 500. */
 const USAGE_LIMIT = 500
+
+type PageTab = 'stats' | 'cost'
 
 type UsageSortKey = 'label' | 'count' | 'success' | 'p95' | 'tokens' | 'credits' | 'cache_write'
 
@@ -82,6 +85,7 @@ function formatCredits(value: number) {
 export function UsagePage() {
   const { t } = useI18n()
   const navigate = useNavigate()
+  const [pageTab, setPageTab] = useState<PageTab>('stats')
   const [dim, setDim] = useState<RequestStatsDim>('model')
   const [statsWindow, setStatsWindow] = useState<StatsWindow>('24')
   const [customRange, setCustomRange] = useState<DateRangeValue | null>(null)
@@ -150,23 +154,17 @@ export function UsagePage() {
     { id: 'credits', label: t('usageColCredits'), numeric: true },
   ]
 
-  return (
-    <div className="space-y-6 sm:space-y-6">
-      <section className="grid gap-4 pb-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
-        <div>
-          <h2 className="text-title font-semibold">{t('usageTitle')}</h2>
-          <p className="mt-1 max-w-2xl text-body leading-6 text-muted">{t('usageLead')}</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <StatsWindowControls
-            value={statsWindow}
-            onChange={setStatsWindow}
-            custom={customRange}
-            onCustomChange={setCustomRange}
-            onBusy={() => setLoading(true)}
-            t={t}
-          />
-        </div>
+  const statsBody = (
+    <>
+      <section className="flex flex-wrap items-center justify-end gap-3 pb-1">
+        <StatsWindowControls
+          value={statsWindow}
+          onChange={setStatsWindow}
+          custom={customRange}
+          onCustomChange={setCustomRange}
+          onBusy={() => setLoading(true)}
+          t={t}
+        />
       </section>
 
       {error ? <PageAlert title={t('failedStats', { msg: error })} /> : null}
@@ -331,6 +329,39 @@ export function UsagePage() {
           </>
         )}
       </Card>
+    </>
+  )
+
+  return (
+    <div className="space-y-6 sm:space-y-6">
+      <section className="pb-1">
+        <h2 className="text-title font-semibold">{t('usageTitle')}</h2>
+        <p className="mt-1 max-w-2xl text-body leading-6 text-muted">
+          {pageTab === 'cost' ? t('usageCostLead') : t('usageLead')}
+        </p>
+      </section>
+
+      <Tabs selectedKey={pageTab} onSelectionChange={(key) => setPageTab(String(key) as PageTab)}>
+        <Tabs.ListContainer className="w-fit">
+          <Tabs.List aria-label={t('usageTitle')}>
+            <Tab id="stats" className="gap-1.5 whitespace-nowrap">
+              <Tabs.Indicator className="transition-none" />
+              {t('usageStatsTab')}
+            </Tab>
+            <Tab id="cost" className="gap-1.5 whitespace-nowrap">
+              <Tabs.Indicator className="transition-none" />
+              {t('usageCostTab')}
+            </Tab>
+          </Tabs.List>
+        </Tabs.ListContainer>
+
+        <Tabs.Panel id="stats" className="space-y-6 pt-5">
+          {statsBody}
+        </Tabs.Panel>
+        <Tabs.Panel id="cost" className="pt-5">
+          <UsageCostPanel />
+        </Tabs.Panel>
+      </Tabs>
     </div>
   )
 }

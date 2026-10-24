@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"github.com/caigee-cmd/cli2api/internal/accounts"
+	"math"
 	"path/filepath"
 	"testing"
 	"time"
@@ -685,5 +686,131 @@ func TestSummarizeRequestUsageCreditsAndRealms(t *testing.T) {
 	c := byAcc[cnAcc.ID]
 	if c.Credits != 0.5 || c.CreditSamples != 1 || c.CreditTokens != 50_000 {
 		t.Fatalf("cn credit row = %+v", c)
+	}
+}
+
+func TestSummarizeModelCostsAggregatesPricedModels(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	// Peak hour (Beijing 10:00 = UTC 02:00) and off-peak hour, same day.
+	peak := time.Date(2026, 10, 12, 2, 15, 0, 0, time.UTC)
+	off := time.Date(2026, 10, 12, 20, 15, 0, 0, time.UTC)
+	insert := func(id, model string, at time.Time, prompt, completion, cacheRead int) {
+		p, c, cr := prompt, completion, cacheRead
+		if err := store.InsertRequestLog(ctx, accounts.RequestLog{
+			ID: id, CreatedAt: at, Status: accounts.RequestStatusOK, RequestedModel: model,
+			PromptTokens: &p, CompletionTokens: &c, CacheReadTokens: &cr, UsageSource: "estimate",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	insert("req_peak1", "deepseek-v4.1-flash", peak, 1_000_000, 1_000_000, 400_000)
+	insert("req_peak2", "deepseek-v4.1-flash", peak, 500_000, 0, 500_000)
+	insert("req_off1", "workbuddy/deepseek-v4.1-flash", off, 1_000_000, 1_000_000, 0)
+	insert("req_glm", "glm-5.3-flash", peak, 10, 10, 0) // unpriced, must be excluded
+	// A failed row with NULL prompt tokens must contribute nothing.
+	if err := store.InsertRequestLog(ctx, accounts.RequestLog{
+		ID: "req_failed", CreatedAt: peak, Status: accounts.RequestStatusError, RequestedModel: "deepseek-v4.1-flash",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	from := time.Date(2026, 10, 12, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2026, 10, 13, 0, 0, 0, 0, time.UTC)
+	rows, err := store.SummarizeModelCosts(ctx, from, to)
+	if err != nil {
+		t.Fatal(err)
+	}
+	breakdown := accounts.BuildCostBreakdown(rows, from, to, true)
+	// Model rows now include unpriced models so the console can still report
+	// their tokens and quota; only the priced one carries the monetary columns.
+	if len(breakdown.Models) != 2 {
+		t.Fatalf("models = %d, want 2 (priced + unpriced glm)", len(breakdown.Models))
+	}
+	var m accounts.ModelCost
+	var unpriced accounts.ModelCost
+	for _, candidate := range breakdown.Models {
+		if candidate.Priced {
+			m = candidate
+		} else {
+			unpriced = candidate
+		}
+	}
+	if unpriced.ID != "glm-5.3-flash" {
+		t.Fatalf("unpriced id = %q, want glm-5.3-flash", unpriced.ID)
+	}
+	if unpriced.Output != 10 || unpriced.Cost != 0 {
+		t.Fatalf("unpriced output/cost = %d/%v, want 10/0", unpriced.Output, unpriced.Cost)
+	}
+	// Peak rows: hit 400k+500k=900k, miss (600k+0)=600k, output 1M.
+	// Off row: hit 0, miss 1M, output 1M.
+	if m.CacheHit != 900_000 || m.CacheMiss != 1_600_000 || m.Output != 2_000_000 {
+		t.Fatalf("tokens hit/miss/out = %d/%d/%d", m.CacheHit, m.CacheMiss, m.Output)
+	}
+	if m.Requests != 3 {
+		t.Fatalf("requests = %d, want 3", m.Requests)
+	}
+	wantPeak := (900_000*0.04 + 600_000*2 + 1_000_000*8) / 1_000_000
+	wantOff := (0*0.02 + 1_000_000*1 + 1_000_000*4) / 1_000_000
+	if math.Abs(m.CostPeak-wantPeak) > 1e-9 || math.Abs(m.CostOffPeak-wantOff) > 1e-9 {
+		t.Fatalf("peak/off = %v/%v, want %v/%v", m.CostPeak, m.CostOffPeak, wantPeak, wantOff)
+	}
+}
+
+func TestSummarizeModelCostsUsesServedModel(t *testing.T) {
+	cases := []struct {
+		name, requested, mapped, want string
+		priced                        bool
+	}{
+		{"alias to priced model", "my-model", "workbuddy/deepseek-v4.1-flash-sg", "deepseek-v4.1-flash", true},
+		{"priced alias to unpriced model", "deepseek-v4.1-flash", "glm-5.3-flash", "glm-5.3-flash", false},
+		{"old log without mapping", "deepseek-v4.1-flash", "", "deepseek-v4.1-flash", true},
+		{"blank mapping", "deepseek-v4.1-flash", "  ", "deepseek-v4.1-flash", true},
+		{"mapping without requested model", "", "deepseek-v4.1-flash", "deepseek-v4.1-flash", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer store.Close()
+			at := time.Date(2026, 10, 12, 20, 15, 0, 0, time.UTC)
+			prompt, output := 1_000_000, 1_000_000
+			credits := 2.5
+			if err := store.InsertRequestLog(ctx, accounts.RequestLog{
+				ID: "mapped-usage", CreatedAt: at, Status: accounts.RequestStatusOK,
+				RequestedModel: tc.requested, MappedModel: tc.mapped,
+				PromptTokens: &prompt, CompletionTokens: &output, Credits: &credits,
+			}); err != nil {
+				t.Fatal(err)
+			}
+			from, to := at.Add(-time.Hour), at.Add(time.Hour)
+			rows, err := store.SummarizeModelCosts(ctx, from, to)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := accounts.BuildCostBreakdown(rows, from, to, false)
+			if len(got.Models) != 1 {
+				t.Fatalf("models = %+v, want one served model", got.Models)
+			}
+			model := got.Models[0]
+			if model.ID != tc.want || model.Priced != tc.priced {
+				t.Fatalf("model = %q priced=%v, want %q priced=%v", model.ID, model.Priced, tc.want, tc.priced)
+			}
+			wantCost := 0.0
+			if tc.priced {
+				wantCost = 5.0
+			}
+			if math.Abs(model.Cost-wantCost) > 1e-9 || model.TotalTokens != 2_000_000 || model.Requests != 1 || model.Credits != credits {
+				t.Fatalf("wrong served-model usage: %+v", model)
+			}
+		})
 	}
 }
