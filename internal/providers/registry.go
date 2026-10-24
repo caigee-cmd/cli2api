@@ -267,6 +267,9 @@ var Zhipu = ProviderDescriptor{
 // QwenWork descriptor. Protocol constants stay in internal/providers/qwenwork;
 // the registry only carries control-plane metadata. QwenWork is the rebranded
 // QoderWork desktop product: global is qwenwork.ai, cn is 千问办公 qwenwork.cn.
+// Daily free credits are granted by the server at 00:00 Asia/Shanghai (CN
+// wallet copy: "每日 0 点刷新"; global pricing lists the same "daily login
+// bonus"), so both regions use that day boundary.
 var QwenWork = ProviderDescriptor{
 	ID:                "qwenwork",
 	Label:             "QwenWork",
@@ -283,11 +286,13 @@ var QwenWork = ProviderDescriptor{
 			ID: "global", Label: "International", ChatBase: "https://gateway.qwenwork.ai",
 			BillingBase: "https://gateway.qwenwork.ai", AuthBase: "https://gateway.qwenwork.ai",
 			DefaultDomain: "qwenwork.ai",
+			Checkin:       &CheckinPolicy{Timezone: "Asia/Shanghai"},
 		},
 		{
 			ID: "cn", Label: "CN", ChatBase: "https://gateway.qwenwork.cn",
 			BillingBase: "https://gateway.qwenwork.cn", AuthBase: "https://gateway.qwenwork.cn",
 			DefaultDomain: "qwenwork.cn",
+			Checkin:       &CheckinPolicy{Timezone: "Asia/Shanghai"},
 		},
 	},
 	DefaultRegion: "global",

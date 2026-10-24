@@ -8,4 +8,15 @@
 // independent Go implementation on cli2api's Provider Adapter surface, reusing
 // the COSY signing approach of internal/providers/qoder. The camelCase import
 // shape accepts that project's account export.
+//
+// Daily free credits: the desktop bundles (global 1.0.4, CN 1.4.0) call
+// GET /sash/api/v1/me/daily-check-in/status, POST .../claim, and
+// GET /sash/api/v1/me/{invitationRewards,invitationCode} for the growth card,
+// gated by the remote `operations/announcement:credits-growth-card` config.
+// Both production gateways answer 404 for every /sash path, and the config
+// client logs "no remote value" for both accounts, so the campaign is not
+// claimable today; the daily credits are granted server-side instead. CN
+// exposes the grant through /api/v1/adapter/user/wallets (daily_credits,
+// expiring at 00:00 Asia/Shanghai); the global gateway exposes only the
+// account-context quota total.
 package qwenwork
