@@ -60,6 +60,13 @@ function initialDemoMessages(): ThreadMessage[] {
   return []
 }
 
+
+const DEMO_MODEL_SEED: Array<{ id: string; display_name: string; credits?: string; free?: boolean; provider: string }> = [
+  { id: 'hy3', display_name: 'HY3', credits: '0.75 credits', provider: 'workbuddy' },
+  { id: 'glm-4.6', display_name: 'GLM-4.6', credits: '0.5 credits', provider: 'workbuddy' },
+  { id: 'free-demo', display_name: 'Free Demo', credits: '0 credits', free: true, provider: 'workbuddy' },
+]
+
 export function AccessPage() {
   const { t } = useI18n()
   const { overview, loading } = useOverview()
@@ -96,7 +103,12 @@ export function AccessPage() {
   const models = selectedAccount ? (catalogReady ? accountCatalog?.models || [] : []) : poolModels
   const modelsLoading = Boolean(selectedAccount) && !catalogReady
   const modelsError = catalogReady ? accountCatalog?.error || '' : ''
-  const selectedModel = models.some((item) => item.id === model) ? model : models[0]?.id || ''
+  const demoModelIds = demoMode() != null ? DEMO_MODEL_SEED.map((item) => item.id) : []
+  const selectedModel = models.some((item) => item.id === model)
+    ? model
+    : demoModelIds.includes(model)
+      ? model
+      : (models[0]?.id || demoModelIds[0] || '')
 
   useEffect(() => {
     if (!selectedAccount) return
@@ -251,7 +263,9 @@ export function AccessPage() {
         ? t('requesting')
         : t('requestIdle')
 
-  const accountOptions: ComposerOption[] = [
+  const previewDemo = demoMode() != null
+
+  const liveAccountOptions: ComposerOption[] = [
     {
       id: 'auto',
       textValue: t('autoAccount'),
@@ -266,8 +280,24 @@ export function AccessPage() {
       icon: <ProviderMark provider={account.provider} size={14} /> as ReactNode,
     })),
   ]
+  const accountOptions: ComposerOption[] = accounts.length || !previewDemo
+    ? liveAccountOptions
+    : [
+        {
+          id: 'auto',
+          textValue: t('autoAccount'),
+          label: t('autoAccount'),
+          icon: <ArrowsClockwise size={14} className="text-muted" />,
+        },
+        {
+          id: 'demo-wb',
+          textValue: 'wb-demo WorkBuddy',
+          label: 'wb-demo',
+          hint: 'WorkBuddy',
+        },
+      ]
 
-  const modelOptions: ComposerOption[] = models.map((item) => {
+  const liveModelOptions: ComposerOption[] = models.map((item) => {
     const credits = modelCreditsText(item)
     const free = modelIsFree(item)
     const title = item.display_name || item.id
@@ -280,12 +310,26 @@ export function AccessPage() {
       hint: [item.id, provider, badge].filter(Boolean).join(' · '),
     }
   })
+  const modelOptions: ComposerOption[] = liveModelOptions.length || !previewDemo
+    ? liveModelOptions
+    : DEMO_MODEL_SEED.map((item) => {
+        const credits = modelCreditsText(item)
+        const free = modelIsFree(item)
+        const title = item.display_name || item.id
+        const badge = free ? t('modelFree') : credits
+        return {
+          id: item.id,
+          textValue: `${title} ${item.id} ${item.provider} ${credits} ${free ? 'free' : ''}`,
+          label: badge ? `${title} ${badge}` : title,
+          hint: [item.id, item.provider, badge].filter(Boolean).join(' · '),
+        }
+      })
 
   const canChatSend = Boolean(
     (chatPrompt.trim() || attachments.length)
     && selectedModel
     && !modelsLoading
-    && accounts.length,
+    && (accounts.length || previewDemo),
   )
 
   function loadDemo() {
@@ -343,7 +387,7 @@ export function AccessPage() {
             onChange={setChatPrompt}
             attachments={attachments}
             onAttachmentsChange={setAttachments}
-            disabled={!accounts.length}
+            disabled={!accounts.length && demoMode() == null}
             streaming={chatState === 'loading'}
             canSend={canChatSend}
             onSend={() => void onChatSend()}
