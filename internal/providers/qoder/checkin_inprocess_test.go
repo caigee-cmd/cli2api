@@ -105,8 +105,8 @@ func TestBridgeCheckinHappyPath(t *testing.T) {
 	if got := gotHeaders.Get("Cosy-ClientType"); got != "10" {
 		t.Fatalf("Cosy-ClientType = %q want 10", got)
 	}
-	if got := gotHeaders.Get("Cosy-Version"); got != "0.3.4" {
-		t.Fatalf("Cosy-Version = %q want 0.3.4", got)
+	if got := gotHeaders.Get("Cosy-Version"); got != "0.4.8" {
+		t.Fatalf("Cosy-Version = %q want 0.4.8", got)
 	}
 	for _, key := range []string{"Cosy-Machineid", "Cosy-Machinetoken", "Cosy-Machinetype", "Cosy-Machinecode"} {
 		if gotHeaders.Get(key) == "" {

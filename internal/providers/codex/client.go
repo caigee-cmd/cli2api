@@ -771,6 +771,7 @@ func (c *Client) chatRequest(ctx context.Context, credential Credential, req tra
 	SetChatHeaders(httpReq.Header, credential, sessionID, true)
 	if !credential.UsesChatGPT() {
 		applyCodexRequestHeaders(httpReq.Header, req.Model, usesResponsesLite(req.Model))
+		applyCodexPassthroughHeaders(httpReq.Header, providers.CodexClientHeadersFromContext(ctx))
 	}
 	return httpReq, resolved, nil
 }

@@ -164,26 +164,30 @@ func (s *Session) Sign(body, rawURL string, now time.Time) (headers map[string]s
 	sum := md5.Sum([]byte(raw))
 	bearer := "Bearer COSY." + payload + "." + hex.EncodeToString(sum[:])
 	return map[string]string{
-		"Accept":            "text/event-stream",
-		"Authorization":     bearer,
-		"Cache-Control":     "no-cache",
-		"Content-Type":      "application/json",
-		"Cosy-ClientType":   "5",
-		"Cosy-Data-Policy":  "AGREE",
-		"Cosy-Date":         date,
-		"Cosy-Key":          s.cosyKey,
-		"Cosy-MachineId":    s.MachineID,
-		"Cosy-MachineToken": s.MachineToken,
-		"Cosy-MachineType":  s.MachineType,
-		"Cosy-User":         s.User.uid(),
-		"Cosy-Version":      COSYVersion,
-		"Login-Version":     "v2",
-		"Accept-Encoding":   "identity",
-		// Sign is only used for inference SSE (direct chat), where qodercli
-		// also sends machine OS/hostname.
-		"User-Agent":           qauth.UserAgentForURL(rawURL),
-		"Cosy-MachineOS":       qauth.CosyMachineOS,
-		"Cosy-MachineHostname": qauth.MachineHostname(s.User.uid()),
+		"Accept":                 "text/event-stream",
+		"Authorization":          bearer,
+		"Cache-Control":          "no-cache",
+		"Content-Type":           "application/json",
+		"Cosy-ClientType":        "5",
+		"Cosy-Data-Policy":       "agree",
+		"Cosy-Date":              date,
+		"Cosy-Key":               s.cosyKey,
+		"Cosy-MachineId":         s.MachineID,
+		"Cosy-MachineToken":      s.MachineToken,
+		"Cosy-MachineType":       s.MachineType,
+		"Cosy-User":              s.User.uid(),
+		"Cosy-Version":           COSYVersion,
+		"Login-Version":          "v2",
+		"Accept-Encoding":        "identity",
+		"Cosy-Business-Product":  "cli",
+		"Cosy-Business-Type":     "agent",
+		"Cosy-Scene":             "assistant",
+		"Cosy-Clientip":          qauth.CosyClientIP,
+		// Inference SSE: undici UA + machine OS always; hostname SSE-only
+		// (applyClientFingerprint mirrors this on the bearer path).
+		"User-Agent":             qauth.CosyUserAgent,
+		"Cosy-MachineOS":         qauth.CosyMachineOS,
+		"Cosy-MachineHostname":   qauth.MachineHostname(s.User.uid()),
 	}, nil
 }
 

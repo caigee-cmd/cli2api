@@ -1101,7 +1101,7 @@ func drainBody(body io.Reader) {
 
 func makeCommonHeaders(sess *SessionContext, date, bearer, accept string) http.Header {
 	h := http.Header{}
-	h.Set("cosy-data-policy", "AGREE")
+	h.Set("cosy-data-policy", "agree")
 	h.Set("content-type", "application/json")
 	h.Set("cosy-machinetype", sess.MachineType)
 	h.Set("cosy-clienttype", "5")
@@ -1115,6 +1115,7 @@ func makeCommonHeaders(sess *SessionContext, date, bearer, accept string) http.H
 	h.Set("cosy-machineid", sess.MachineID)
 	h.Set("cosy-machinetoken", sess.MachineToken)
 	h.Set("login-version", "v2")
+	applyCosyBusinessHeaders(h)
 	return h
 }
 
