@@ -3,6 +3,24 @@
 Published user-facing notes for GitHub Releases and the console update page.
 Write upcoming notes as bilingual files in `changelog/unreleased/`.
 
+## 0.7.10 - 2026-10-25
+
+### English
+
+- Access chat polish: collapsed thinking pill with spinner/shimmer, grouped tool calls, compact composer selects (menus open upward), message foot with copy + credits.
+- Access chat: catalog credits stay on the model picker; per-turn foot notes show tokens + credits only when the stream reports `usage.credits` / `consumed_credits`.
+- Access page: multi-turn chat stage with AffectUI-like composer (attach + compact account/model + round send in one pad); thinking / tool-call cards use surface hierarchy; Raw API and endpoints drop heavy borders. Dev preview via `?demo=1` or Preview sample.
+- Usage Cost tab leads with quota and tokens for every model; DeepSeek list-price CNY is optional and collapsed by default.
+- Fix WorkBuddy credential import camelCase decode; accept hub `workbuddy-accounts` export packs and import multiple accounts in one paste (partial success with success/fail summary).
+
+### 中文
+
+- 接入页对话抛光：思考默认一行 pill（spinner/shimmer）、工具分组折叠、Composer 控件更紧（菜单上弹）、气泡脚注复制 + credits。
+- 接入页对话：选型继续用目录 credits；本轮脚注仅在流式 `usage.credits` / `consumed_credits` 有值时显示 token + 消耗。
+- 接入页：多轮对话主舞台，Composer 一体卡（附件 + 紧凑账号/模型 + 圆形发送）；思考/工具卡靠表面层级、少描边；原始 API 与端点卡去硬边框。开发预览：`?demo=1` 或「预览样例」。
+- 用量「额度」页以各模型的订阅额度与 token 为主；DeepSeek 官方列表价折算改为可选，默认折叠。
+- 修好 WorkBuddy 凭证 camelCase 解码；支持 hub `workbuddy-accounts` 整包粘贴批量导入（尽量导入成功项，汇总成功/失败）。
+
 ## 0.7.9 - 2026-10-24
 
 ### English
