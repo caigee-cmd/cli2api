@@ -21,6 +21,11 @@ import {
   startDeviceLogin,
   type ProviderDescriptor,
 } from '@/api/overview'
+import {
+  normalizeWorkbuddyImportBundle,
+  summarizeWorkbuddyImportResult,
+  type WorkbuddyImportResult,
+} from '@/lib/workbuddyImport'
 
 type Props = {
   isOpen: boolean
@@ -455,26 +460,28 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
       setMessage(t('wizardBadJson'))
       return
     }
-    // Hub multi-account packages keep workbuddy-accounts. Do not rewrite them
-    // to oauth-v1 or only the first entry would import.
-    const isWorkbuddyAccounts =
-      activeOption.provider === 'workbuddy' &&
-      (bundle.format === 'workbuddy-accounts' || Array.isArray(bundle.accounts))
-    if (!bundle.format) {
-      if (isWorkbuddyAccounts) bundle.format = 'workbuddy-accounts'
-      else if (activeOption.descriptor.id === 'workbuddy') bundle.format = 'workbuddy-oauth-v1'
-      else if (activeOption.descriptor.id === 'trae') bundle.format = 'trae-oauth-v1'
-      else if (activeOption.descriptor.id === 'devin') bundle.format = 'devin-session-v1'
-      else if (activeOption.descriptor.id === 'command') bundle.format = 'command-key-v1'
-      else if (activeOption.descriptor.id === 'qwenwork') bundle.format = 'qwenwork-oauth-v1'
-      else bundle.format = 'qoder-native-v1'
-    } else if (isWorkbuddyAccounts) {
-      bundle.format = 'workbuddy-accounts'
-    }
-    try {
-      setPhase('busy')
-      const options = accountOptions()
-      const result = await importAccount({
+    const options = accountOptions()
+    let payload: Record<string, unknown>
+    if (activeOption.provider === 'workbuddy') {
+      // Shared normalize keeps hub workbuddy-accounts packs intact (same as batch import).
+      payload = normalizeWorkbuddyImportBundle(bundle, {
+        region: activeOption.region === 'global' ? 'global' : 'cn',
+        name: name.trim() || undefined,
+        enabled: true,
+        max_inflight: options.max_inflight,
+        priority: options.priority,
+        drop_system_prompt: options.drop_system_prompt,
+        proxy_url: options.proxy_url,
+      })
+    } else {
+      if (!bundle.format) {
+        if (activeOption.descriptor.id === 'trae') bundle.format = 'trae-oauth-v1'
+        else if (activeOption.descriptor.id === 'devin') bundle.format = 'devin-session-v1'
+        else if (activeOption.descriptor.id === 'command') bundle.format = 'command-key-v1'
+        else if (activeOption.descriptor.id === 'qwenwork') bundle.format = 'qwenwork-oauth-v1'
+        else bundle.format = 'qoder-native-v1'
+      }
+      payload = {
         ...bundle,
         name: name.trim() || bundle.name,
         enabled: true,
@@ -483,35 +490,14 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
         max_inflight: options.max_inflight,
         priority: options.priority,
         drop_system_prompt: options.drop_system_prompt,
-      }) as {
-        object?: string
-        succeeded?: number
-        failed?: number
-        errors?: Array<{ index?: number; name?: string; message?: string }>
-        id?: string
       }
-      const succeeded = typeof result?.succeeded === 'number'
-        ? result.succeeded
-        : (result?.id || result ? 1 : 0)
-      const failed = typeof result?.failed === 'number' ? result.failed : 0
-      const failureSummary = (result?.errors || [])
-        .slice(0, 3)
-        .map((item) => item.message || `index ${item.index}`)
-        .filter(Boolean)
-        .join('; ')
+    }
+    try {
+      setPhase('busy')
+      const result = await importAccount(payload) as WorkbuddyImportResult
+      const { failed, message } = summarizeWorkbuddyImportResult(result, t)
       setPhase('done')
-      if (failed > 0) {
-        setMessage(
-          t('accountImportPartial')
-            .replace('{ok}', String(succeeded))
-            .replace('{fail}', String(failed))
-            + (failureSummary ? ` — ${failureSummary}` : ''),
-        )
-      } else if (succeeded > 1) {
-        setMessage(t('accountImportBatch').replace('{n}', String(succeeded)))
-      } else {
-        setMessage(t('accountImported'))
-      }
+      setMessage(message)
       onAdded()
       window.setTimeout(finishAndClose, failed > 0 ? 1600 : 700)
     } catch (error) {
