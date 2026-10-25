@@ -62,12 +62,12 @@ export function BatchImportConfirmModal({
       }}
     >
       <Modal.Backdrop variant="blur" isDismissable={!isPending}>
-        <Modal.Container placement="center" size="sm">
+        <Modal.Container placement="center" size="sm" scroll="inside" className="mx-3 w-full max-w-[min(100%,24rem)] sm:mx-0">
           <Modal.Dialog>
             <Modal.Header className="items-start justify-between gap-4 px-5 pt-5">
               <div className="min-w-0">
                 <Modal.Heading className="text-section font-semibold">{t('batchImportConfirmTitle')}</Modal.Heading>
-                <p className="mt-1 text-caption leading-5 text-muted">
+                <p className="mt-1 break-all text-caption leading-5 text-muted">
                   {fileName
                     ? t('batchImportConfirmHint', { file: fileName })
                     : t('batchImportConfirmHintNoFile')}
@@ -122,13 +122,14 @@ export function BatchImportConfirmModal({
                 </ul>
               ) : null}
             </Modal.Body>
-            <Modal.Footer className="justify-end gap-2 px-5 pb-5">
-              <Button size="sm" variant="ghost" isDisabled={isPending} onPress={onClose}>
+            <Modal.Footer className="flex-col-reverse gap-2 px-5 pb-5 sm:flex-row sm:justify-end">
+              <Button size="sm" variant="ghost" className="w-full sm:w-auto" isDisabled={isPending} onPress={onClose}>
                 {supported ? t('cancel') : t('close')}
               </Button>
               {supported ? (
                 <Button
                   size="sm"
+                  className="w-full sm:w-auto"
                   isPending={isPending}
                   onPress={() => onConfirm(region)}
                 >
