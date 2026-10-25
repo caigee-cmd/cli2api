@@ -1,11 +1,12 @@
 import { toast } from '@/lib/toast'
 import { copyText } from '@/lib/clipboard'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { Button, Label, ListBox, Select } from '@heroui/react'
 import {
   ArrowsClockwise,
   MagnifyingGlass,
   Plus,
+  UploadSimple,
 } from '@phosphor-icons/react'
 import { AccountCard, type AccountBusyKind } from '@/components/account/AccountCard'
 import { AccountCheckinRecordsModal } from '@/components/account/AccountCheckinRecordsModal'
@@ -42,6 +43,12 @@ import {
 } from '@/lib/account'
 import { accountProviderFamilyLabel } from '@/lib/provider'
 import { ProviderMark } from '@/components/ProviderMark'
+import {
+  importWorkbuddyCNBundle,
+  isLikelyWorkbuddyBundle,
+  looksLikeWorkbuddyGlobalOnly,
+  summarizeWorkbuddyImportResult,
+} from '@/lib/workbuddyImport'
 
 type AccountBusy = { id: string; kind: AccountBusyKind }
 type AccountFilter = 'all' | 'available' | 'attention' | 'disabled'
@@ -60,6 +67,8 @@ export function AccountsPage() {
   const rows = accounts
   const hasAccounts = rows.length > 0
   const [addOpen, setAddOpen] = useState(false)
+  const [batchImporting, setBatchImporting] = useState(false)
+  const batchFileInput = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState<AccountBusy | null>(null)
   const [patById, setPatById] = useState<Record<string, string>>({})
   const [callbackById, setCallbackById] = useState<Record<string, string>>({})
@@ -320,6 +329,60 @@ export function AccountsPage() {
     }
   }
 
+  function onBatchImportClick() {
+    if (batchImporting) return
+    batchFileInput.current?.click()
+  }
+
+  async function onBatchImportFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    setBatchImporting(true)
+    const toastId = 'batch-import-workbuddy-cn'
+    toast({ id: toastId, type: 'loading', title: t('batchImportLoading') })
+    try {
+      const raw = await file.text()
+      let bundle: unknown
+      try {
+        bundle = JSON.parse(raw)
+      } catch {
+        toast({ id: toastId, type: 'error', title: t('wizardBadJson') })
+        return
+      }
+      if (!bundle || typeof bundle !== 'object' || Array.isArray(bundle)) {
+        toast({ id: toastId, type: 'error', title: t('wizardBadJson') })
+        return
+      }
+      const record = bundle as Record<string, unknown>
+      if (looksLikeWorkbuddyGlobalOnly(record)) {
+        toast({ id: toastId, type: 'error', title: t('batchImportCnOnly') })
+        return
+      }
+      if (!isLikelyWorkbuddyBundle(record)) {
+        toast({ id: toastId, type: 'error', title: t('batchImportNotWorkbuddy') })
+        return
+      }
+      const result = await importWorkbuddyCNBundle(record)
+      const { succeeded, failed, message } = summarizeWorkbuddyImportResult(result, t)
+      toast({
+        id: toastId,
+        type: failed > 0 && succeeded === 0 ? 'error' : failed > 0 ? 'info' : 'success',
+        title: message,
+      })
+      if (succeeded > 0) await reloadAccounts(false)
+    } catch (error) {
+      toast({
+        id: toastId,
+        type: 'error',
+        title: t('toastFailed'),
+        description: error instanceof Error ? error.message : String(error),
+      })
+    } finally {
+      setBatchImporting(false)
+    }
+  }
+
   async function onToggleAutoCheckin(id: string, selected: boolean) {
     await run(id, 'toggle', async () => {
       await updateAccount(id, { auto_checkin: selected })
@@ -425,7 +488,17 @@ export function AccountsPage() {
           <Button size="sm" variant="secondary" isPending={quotaRefreshing} onPress={() => void onRefreshCredits()}>
             <ArrowsClockwise size={14} />{t('refreshCredits')}
           </Button>
+          <Button size="sm" variant="secondary" isPending={batchImporting} onPress={onBatchImportClick}>
+            <UploadSimple size={14} />{t('batchImport')}
+          </Button>
           <Button size="sm" onPress={() => setAddOpen(true)}><Plus size={14} />{t('addAccount')}</Button>
+          <input
+            ref={batchFileInput}
+            type="file"
+            accept=".json,application/json"
+            className="hidden"
+            onChange={(event) => void onBatchImportFile(event)}
+          />
         </div>
       </section>
 
