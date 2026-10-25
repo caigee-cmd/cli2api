@@ -309,6 +309,15 @@ type CredentialImporter interface {
 	PrepareImport([]byte) (CredentialImport, error)
 }
 
+// CredentialBatchExpander unwraps a multi-account credential package into
+// one raw credential JSON per account. Importers that only accept a single
+// payload do not implement this interface. Control prepares and persists
+// each chunk independently so invalid entries can fail without blocking
+// the rest of the package.
+type CredentialBatchExpander interface {
+	SplitImport([]byte) ([][]byte, error)
+}
+
 // AdminRequest/Response carry worker protocol data, never a public HTTP writer.
 type AdminRequest struct {
 	AccountID, Action, Method, ContentType string

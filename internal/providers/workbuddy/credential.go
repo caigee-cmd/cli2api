@@ -11,6 +11,8 @@ import (
 
 const (
 	CredentialFormat = "workbuddy-oauth-v1"
+	// AccountsFormat is the multi-account export produced by workbuddy2api-hub.
+	AccountsFormat = "workbuddy-accounts"
 
 	DomainCN     = "codebuddy.cn"
 	DomainGlobal = "workbuddy.ai"
@@ -149,7 +151,7 @@ func DecodeCredential(payload []byte) (Credential, error) {
 		EnterpriseID string `json:"enterpriseId"`
 		Nickname     string `json:"nickname"`
 	}
-	if err := json.Unmarshal(payload, &camel); err != nil && camel.AccessToken != "" {
+	if err := json.Unmarshal(payload, &camel); err == nil && camel.AccessToken != "" {
 		return Credential(camel), nil
 	}
 	return Credential{}, fmt.Errorf("workbuddy credential requires access_token")

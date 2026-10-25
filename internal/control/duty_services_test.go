@@ -3,6 +3,7 @@ package control
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -16,10 +17,12 @@ import (
 )
 
 type stubImporter struct {
-	format  string
-	payload []byte
-	ready   bool
-	err     error
+	format   string
+	payload  []byte
+	ready    bool
+	err      error
+	split    [][]byte
+	splitErr error
 }
 
 func (s stubImporter) Validate([]byte) error { return nil }
@@ -33,6 +36,36 @@ func (s stubImporter) PrepareImport(raw []byte) (providers.CredentialImport, err
 		payload = raw
 	}
 	return providers.CredentialImport{Payload: payload, Ready: s.ready}, nil
+}
+func (s stubImporter) SplitImport(raw []byte) ([][]byte, error) {
+	if s.splitErr != nil {
+		return nil, s.splitErr
+	}
+	if s.split != nil {
+		return s.split, nil
+	}
+	return [][]byte{raw}, nil
+}
+
+type stubPrepareFailImporter struct {
+	format string
+	split  [][]byte
+}
+
+func (s *stubPrepareFailImporter) Validate([]byte) error { return nil }
+func (s *stubPrepareFailImporter) Format() string        { return s.format }
+func (s *stubPrepareFailImporter) SplitImport([]byte) ([][]byte, error) {
+	return s.split, nil
+}
+func (s *stubPrepareFailImporter) PrepareImport(raw []byte) (providers.CredentialImport, error) {
+	var probe struct {
+		AccessToken string `json:"access_token"`
+	}
+	_ = json.Unmarshal(raw, &probe)
+	if probe.AccessToken == "" {
+		return providers.CredentialImport{}, fmt.Errorf("workbuddy credential requires access_token")
+	}
+	return providers.CredentialImport{Payload: raw, Ready: true}, nil
 }
 
 type stubLogin struct {
@@ -82,6 +115,107 @@ func TestAccountsImportDispatchesCredentialImporter(t *testing.T) {
 		"store.Create", "store.SaveCredentialPayload", "store.Update", "store.Get", "runtime.StartAccount", "store.Get",
 	}) {
 		t.Fatalf("calls=%v", got)
+	}
+}
+
+func TestAccountsImportAcceptsWorkbuddyAccountsAlias(t *testing.T) {
+	svc, _, store, _ := newTestServices()
+	svc.Accounts.Providers = providers.NewRegistry()
+	svc.Accounts.Providers.Register(providers.Adapter{
+		ID: "workbuddy",
+		Credential: stubImporter{
+			format:  "workbuddy-oauth-v1",
+			payload: []byte(`{"access_token":"at","uid":"u1","nickname":"One"}`),
+			ready:   true,
+		},
+	})
+	account, err := svc.Accounts.Import(context.Background(), AccountImportInput{
+		Format: "workbuddy-accounts", Name: "WB", Enabled: true,
+	}, []byte(`{"format":"workbuddy-accounts","accounts":[{"uid":"u1","accessToken":"at"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if store.payloadFormats[account.ID] != "workbuddy-oauth-v1" {
+		t.Fatalf("stored format=%q", store.payloadFormats[account.ID])
+	}
+}
+
+func TestAccountsImportAllPartialSuccess(t *testing.T) {
+	svc, _, store, _ := newTestServices()
+	svc.Accounts.Providers = providers.NewRegistry()
+	svc.Accounts.Providers.Register(providers.Adapter{
+		ID: "workbuddy",
+		Credential: stubImporter{
+			format: "workbuddy-oauth-v1",
+			ready:  true,
+			split: [][]byte{
+				[]byte(`{"access_token":"at1","uid":"u1","nickname":"One"}`),
+				[]byte(`{"access_token":"at2","uid":"u2","nickname":"Two"}`),
+			},
+		},
+	})
+	result, err := svc.Accounts.ImportAll(context.Background(), AccountImportInput{
+		Format: "workbuddy-accounts", Name: "Pool", Enabled: true,
+	}, []byte(`{"format":"workbuddy-accounts"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Succeeded != 2 || result.Failed != 0 || len(result.Data) != 2 {
+		t.Fatalf("result=%+v", result)
+	}
+	if len(store.accounts) != 2 {
+		t.Fatalf("accounts=%d", len(store.accounts))
+	}
+	for _, account := range result.Data {
+		if store.payloadFormats[account.ID] != "workbuddy-oauth-v1" {
+			t.Fatalf("format for %s=%q", account.ID, store.payloadFormats[account.ID])
+		}
+	}
+}
+
+func TestAccountsImportAllSkipsBadEntries(t *testing.T) {
+	svc, _, store, _ := newTestServices()
+	svc.Accounts.Providers = providers.NewRegistry()
+	svc.Accounts.Providers.Register(providers.Adapter{
+		ID: "workbuddy",
+		Credential: &stubPrepareFailImporter{
+			format: "workbuddy-oauth-v1",
+			split: [][]byte{
+				[]byte(`{"access_token":"at1","uid":"u1","nickname":"One"}`),
+				[]byte(`{"uid":"u2"}`),
+			},
+		},
+	})
+	result, err := svc.Accounts.ImportAll(context.Background(), AccountImportInput{
+		Format: "workbuddy-accounts", Enabled: true,
+	}, []byte(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Succeeded != 1 || result.Failed != 1 || len(result.Errors) != 1 {
+		t.Fatalf("result=%+v", result)
+	}
+	if len(store.accounts) != 1 {
+		t.Fatalf("accounts=%d", len(store.accounts))
+	}
+}
+
+func TestAccountsImportAllReportsSplitError(t *testing.T) {
+	svc, _, _, _ := newTestServices()
+	svc.Accounts.Providers = providers.NewRegistry()
+	svc.Accounts.Providers.Register(providers.Adapter{
+		ID: "workbuddy",
+		Credential: stubImporter{
+			format:   "workbuddy-oauth-v1",
+			splitErr: fmt.Errorf("workbuddy-accounts package has no accounts"),
+		},
+	})
+	_, err := svc.Accounts.ImportAll(context.Background(), AccountImportInput{
+		Format: "workbuddy-accounts", Enabled: true,
+	}, []byte(`{}`))
+	var op *OperationError
+	if !errors.As(err, &op) || op.Code != "invalid_credential" {
+		t.Fatalf("err=%v", err)
 	}
 }
 

@@ -83,12 +83,22 @@ func (h *Handler) HandleAccountImport(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	account, err := h.Control.Accounts.Import(r.Context(), input, raw)
+	result, err := h.Control.Accounts.ImportAll(r.Context(), input, raw)
 	if err != nil {
 		writeOperationError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, account)
+	// Single-credential imports keep the historical account body so existing
+	// clients (and the add-account wizard) do not need a shape change.
+	if result.Succeeded == 1 && result.Failed == 0 && len(result.Data) == 1 {
+		writeJSON(w, http.StatusCreated, result.Data[0])
+		return
+	}
+	status := http.StatusCreated
+	if result.Failed > 0 {
+		status = http.StatusOK
+	}
+	writeJSON(w, status, result)
 }
 
 func (h *Handler) HandleAccountByID(w http.ResponseWriter, r *http.Request) {

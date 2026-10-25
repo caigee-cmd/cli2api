@@ -120,7 +120,7 @@ var WorkBuddy = ProviderDescriptor{
 	Label:             "WorkBuddy",
 	Runtime:           RuntimeInProcess,
 	AuthTypes:         []AuthType{AuthNone, AuthOAuth},
-	CredentialFormats: []string{"workbuddy-oauth-v1"},
+	CredentialFormats: []string{"workbuddy-oauth-v1", "workbuddy-accounts"},
 	Capabilities: ProviderCapabilities{
 		Chat: true, Stream: true, Tools: true, Images: false, Reasoning: true,
 		ModelCatalog: true, Usage: true, Login: true, BrowserLogin: true,

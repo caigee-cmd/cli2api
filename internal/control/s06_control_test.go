@@ -3,6 +3,7 @@ package control
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -31,6 +32,7 @@ type fakeStore struct {
 	contexts        map[string]int
 	providerSetting accounts.ProviderModelSetting
 	backup          accounts.Backup
+	createSeq       int
 	createErr       error
 	payloadErr      error
 	getErr          error
@@ -80,7 +82,8 @@ func (s *fakeStore) Create(_ context.Context, input accounts.CreateAccount) (acc
 	if s.createErr != nil {
 		return accounts.Account{}, s.createErr
 	}
-	account := accounts.Account{ID: "acc-1", Name: input.Name, Provider: input.Provider, ProviderRegion: input.Region, Enabled: input.Enabled}
+	s.createSeq++
+	account := accounts.Account{ID: fmt.Sprintf("acc-%d", s.createSeq), Name: input.Name, Provider: input.Provider, ProviderRegion: input.Region, Enabled: input.Enabled}
 	s.accounts[account.ID] = account
 	return account, nil
 }
