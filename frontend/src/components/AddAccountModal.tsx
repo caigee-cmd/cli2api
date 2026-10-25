@@ -455,18 +455,26 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
       setMessage(t('wizardBadJson'))
       return
     }
+    // Hub multi-account packages keep workbuddy-accounts. Do not rewrite them
+    // to oauth-v1 or only the first entry would import.
+    const isWorkbuddyAccounts =
+      activeOption.provider === 'workbuddy' &&
+      (bundle.format === 'workbuddy-accounts' || Array.isArray(bundle.accounts))
     if (!bundle.format) {
-      if (activeOption.descriptor.id === 'workbuddy') bundle.format = 'workbuddy-oauth-v1'
+      if (isWorkbuddyAccounts) bundle.format = 'workbuddy-accounts'
+      else if (activeOption.descriptor.id === 'workbuddy') bundle.format = 'workbuddy-oauth-v1'
       else if (activeOption.descriptor.id === 'trae') bundle.format = 'trae-oauth-v1'
       else if (activeOption.descriptor.id === 'devin') bundle.format = 'devin-session-v1'
       else if (activeOption.descriptor.id === 'command') bundle.format = 'command-key-v1'
       else if (activeOption.descriptor.id === 'qwenwork') bundle.format = 'qwenwork-oauth-v1'
       else bundle.format = 'qoder-native-v1'
+    } else if (isWorkbuddyAccounts) {
+      bundle.format = 'workbuddy-accounts'
     }
     try {
       setPhase('busy')
       const options = accountOptions()
-      await importAccount({
+      const result = await importAccount({
         ...bundle,
         name: name.trim() || bundle.name,
         enabled: true,
@@ -475,11 +483,37 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
         max_inflight: options.max_inflight,
         priority: options.priority,
         drop_system_prompt: options.drop_system_prompt,
-      })
+      }) as {
+        object?: string
+        succeeded?: number
+        failed?: number
+        errors?: Array<{ index?: number; name?: string; message?: string }>
+        id?: string
+      }
+      const succeeded = typeof result?.succeeded === 'number'
+        ? result.succeeded
+        : (result?.id || result ? 1 : 0)
+      const failed = typeof result?.failed === 'number' ? result.failed : 0
+      const failureSummary = (result?.errors || [])
+        .slice(0, 3)
+        .map((item) => item.message || `index ${item.index}`)
+        .filter(Boolean)
+        .join('; ')
       setPhase('done')
-      setMessage(t('accountImported'))
+      if (failed > 0) {
+        setMessage(
+          t('accountImportPartial')
+            .replace('{ok}', String(succeeded))
+            .replace('{fail}', String(failed))
+            + (failureSummary ? ` — ${failureSummary}` : ''),
+        )
+      } else if (succeeded > 1) {
+        setMessage(t('accountImportBatch').replace('{n}', String(succeeded)))
+      } else {
+        setMessage(t('accountImported'))
+      }
       onAdded()
-      window.setTimeout(finishAndClose, 700)
+      window.setTimeout(finishAndClose, failed > 0 ? 1600 : 700)
     } catch (error) {
       setPhase('idle')
       setMessage(error instanceof Error ? error.message : String(error))
