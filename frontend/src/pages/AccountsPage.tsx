@@ -1,6 +1,6 @@
 import { toast } from '@/lib/toast'
 import { copyText } from '@/lib/clipboard'
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from 'react'
 import { Button, Label, ListBox, Select } from '@heroui/react'
 import {
   ArrowsClockwise,
@@ -77,7 +77,6 @@ export function AccountsPage() {
   const [batchDetection, setBatchDetection] = useState<ImportDetectResult | null>(null)
   const [batchBundle, setBatchBundle] = useState<Record<string, unknown> | null>(null)
   const [batchFileName, setBatchFileName] = useState('')
-  const batchFileInput = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState<AccountBusy | null>(null)
   const [patById, setPatById] = useState<Record<string, string>>({})
   const [callbackById, setCallbackById] = useState<Record<string, string>>({})
@@ -338,11 +337,6 @@ export function AccountsPage() {
     }
   }
 
-  function onBatchImportClick() {
-    if (batchImporting || batchConfirmOpen) return
-    batchFileInput.current?.click()
-  }
-
   function closeBatchConfirm() {
     if (batchImporting) return
     setBatchConfirmOpen(false)
@@ -508,21 +502,34 @@ export function AccountsPage() {
             />
           </>
         ) : null}
-        <div className="ml-auto flex items-center gap-2">
+        <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:ml-auto sm:w-auto">
           <Button size="sm" variant="secondary" isPending={quotaRefreshing} onPress={() => void onRefreshCredits()}>
             <ArrowsClockwise size={14} />{t('refreshCredits')}
           </Button>
-          <Button size="sm" variant="secondary" isPending={batchImporting} onPress={onBatchImportClick}>
-            <UploadSimple size={14} />{t('batchImport')}
-          </Button>
-          <Button size="sm" onPress={() => setAddOpen(true)}><Plus size={14} />{t('addAccount')}</Button>
+          {/*
+            Mobile Safari ignores programmatic input.click() from React Aria
+            onPress when the file input is display:none. Associate a real
+            label with an sr-only input so the picker opens from a direct
+            user gesture (same detect → confirm → WorkBuddy path).
+          */}
+          <label
+            htmlFor="accounts-batch-import-file"
+            className={`button button--sm button--secondary inline-flex items-center gap-1.5 ${
+              batchImporting || batchConfirmOpen ? 'pointer-events-none opacity-60' : 'cursor-pointer'
+            }`}
+          >
+            {batchImporting ? <BrandMark size={14} loading /> : <UploadSimple size={14} />}
+            {t('batchImport')}
+          </label>
           <input
-            ref={batchFileInput}
+            id="accounts-batch-import-file"
             type="file"
-            accept=".json,application/json"
-            className="hidden"
+            accept=".json,application/json,text/json"
+            disabled={batchImporting || batchConfirmOpen}
+            className="sr-only"
             onChange={(event) => void onBatchImportFile(event)}
           />
+          <Button size="sm" onPress={() => setAddOpen(true)}><Plus size={14} />{t('addAccount')}</Button>
         </div>
       </section>
 
