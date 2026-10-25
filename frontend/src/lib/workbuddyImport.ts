@@ -1,4 +1,5 @@
 import { importAccount } from '@/api/overview'
+import type { ImportRegion } from '@/lib/accountImportDetect'
 
 export type WorkbuddyImportResult = {
   object?: string
@@ -9,59 +10,13 @@ export type WorkbuddyImportResult = {
 }
 
 export type WorkbuddyImportOptions = {
-  region: 'cn' | 'global'
+  region: ImportRegion
   name?: string
   enabled?: boolean
   max_inflight?: number
   priority?: number
   drop_system_prompt?: boolean
   proxy_url?: string
-}
-
-const CN_DOMAIN_MARKERS = ['codebuddy.cn']
-const GLOBAL_DOMAIN_MARKERS = ['workbuddy.ai', 'workbuddy.com']
-
-function collectDomains(bundle: Record<string, unknown>): string[] {
-  const out: string[] = []
-  const push = (value: unknown) => {
-    if (typeof value === 'string' && value.trim()) out.push(value.trim().toLowerCase())
-  }
-  push(bundle.domain)
-  const accounts = bundle.accounts
-  if (Array.isArray(accounts)) {
-    for (const entry of accounts) {
-      if (entry && typeof entry === 'object') push((entry as Record<string, unknown>).domain)
-    }
-  }
-  return out
-}
-
-function domainLooksCN(domain: string) {
-  return CN_DOMAIN_MARKERS.some((marker) => domain.includes(marker))
-}
-
-function domainLooksGlobal(domain: string) {
-  return GLOBAL_DOMAIN_MARKERS.some((marker) => domain.includes(marker))
-}
-
-/** True when the package clearly targets Global and has no CN domain. */
-export function looksLikeWorkbuddyGlobalOnly(bundle: Record<string, unknown>): boolean {
-  const domains = collectDomains(bundle)
-  if (domains.length === 0) return false
-  const hasCN = domains.some(domainLooksCN)
-  const hasGlobal = domains.some(domainLooksGlobal)
-  return hasGlobal && !hasCN
-}
-
-/** Loose check that the JSON is a WorkBuddy credential or hub package. */
-export function isLikelyWorkbuddyBundle(bundle: Record<string, unknown>): boolean {
-  const format = typeof bundle.format === 'string' ? bundle.format : ''
-  if (format === 'workbuddy-accounts' || format === 'workbuddy-oauth-v1') return true
-  if (Array.isArray(bundle.accounts)) return true
-  if (typeof bundle.accessToken === 'string' || typeof bundle.access_token === 'string') return true
-  if (bundle.account && typeof bundle.account === 'object') return true
-  if (bundle.auth && typeof bundle.auth === 'object') return true
-  return false
 }
 
 /**
@@ -122,11 +77,11 @@ export function summarizeWorkbuddyImportResult(
   return { succeeded, failed, message }
 }
 
-/** Fixed WorkBuddy CN import used by AccountsPage batch file picker. */
-export async function importWorkbuddyCNBundle(
+/** Import a WorkBuddy pack with the user-confirmed region (CN or Global). */
+export async function importWorkbuddyBundle(
   bundle: Record<string, unknown>,
-  options: Omit<WorkbuddyImportOptions, 'region'> = {},
+  options: WorkbuddyImportOptions,
 ): Promise<WorkbuddyImportResult> {
-  const payload = normalizeWorkbuddyImportBundle(bundle, { ...options, region: 'cn' })
+  const payload = normalizeWorkbuddyImportBundle(bundle, options)
   return importAccount(payload) as Promise<WorkbuddyImportResult>
 }

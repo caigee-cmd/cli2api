@@ -1,7 +1,7 @@
 ### English
 
-- Accounts page: batch-import WorkBuddy CN hub `workbuddy-accounts` JSON from a top-bar file picker (reuses the existing import API; Global packs are rejected for now).
+- Accounts page: batch-import WorkBuddy hub packs with auto-detect (format / provider / region) and a confirm step to choose WorkBuddy CN or Global; other providers are detected but not imported yet. Reuses the existing import API.
 
 ### 中文
 
-- 账号页顶栏支持从文件批量导入 WorkBuddy 国内版 hub `workbuddy-accounts` 包（复用现有导入接口；国际版包暂不接受）。
+- 账号页批量导入：自动识别凭证 format / 供应商 / 区，确认后可选择 WorkBuddy 国内版或国际版导入；其它供应商仅识别、暂不导入。复用现有导入接口。
