@@ -24,6 +24,7 @@ const (
 	RoutingStrategyRoundRobin         = accounts.RoutingStrategyRoundRobin
 	RoutingStrategyWeightedRoundRobin = accounts.RoutingStrategyWeightedRoundRobin
 	RoutingStrategyFillFirst          = accounts.RoutingStrategyFillFirst
+	RoutingStrategyFEFO               = accounts.RoutingStrategyFEFO
 )
 
 func NormalizeRoutingStrategy(strategy string) string {

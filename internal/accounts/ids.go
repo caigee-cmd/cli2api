@@ -9,6 +9,10 @@ const (
 	RoutingStrategyRoundRobin         = "round-robin"
 	RoutingStrategyWeightedRoundRobin = "weighted-round-robin"
 	RoutingStrategyFillFirst          = "fill-first"
+	// RoutingStrategyFEFO is the opt-in earliest-expiry-first strategy. It
+	// ranks accounts inside one provider family by the nearest credit-package
+	// expiry and leaves cross-provider rotation untouched.
+	RoutingStrategyFEFO = "fefo"
 )
 
 func NormalizeRoutingStrategy(strategy string) string {
@@ -17,6 +21,8 @@ func NormalizeRoutingStrategy(strategy string) string {
 		return RoutingStrategyFillFirst
 	case RoutingStrategyWeightedRoundRobin:
 		return RoutingStrategyWeightedRoundRobin
+	case RoutingStrategyFEFO:
+		return RoutingStrategyFEFO
 	default:
 		return RoutingStrategyRoundRobin
 	}

@@ -26,6 +26,9 @@ type Handler struct {
 	RequestedAccount  func(*http.Request) string
 	FilterModels      func(*http.Request, []map[string]any) []map[string]any
 	DecorateModels    func(*http.Request, []map[string]any) []map[string]any
+	// AfterAccountUse is an optional non-blocking quota invalidation hook. It
+	// runs after the response/stream finishes, never on receipt of SSE headers.
+	AfterAccountUse func(accountID, publicModel string)
 }
 
 func (h *Handler) requestIdentity(r *http.Request) auth.Identity {

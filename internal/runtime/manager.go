@@ -131,6 +131,21 @@ type Manager struct {
 	quotaProbeMu     sync.Mutex
 	quotaProbeLevels map[string]int
 
+	// FEFO completion refreshes coalesce per account. A completion during an
+	// in-flight fetch marks it dirty for one further fetch, not another
+	// goroutine. Guarded by mu; Close cancels and waits before the backing
+	// store is closed.
+	quotaAfterUse     map[string]bool
+	quotaAfterUseDone sync.WaitGroup
+
+	// All provider quota fetches for one account share a gate so an older,
+	// slow request cannot persist after a newer one (boot/manual/check-in,
+	// maintenance sweep, and FEFO after-use all pass through
+	// fetchProviderQuota). Guarded by quotaFetchMu; gates are reference-counted
+	// and removed when idle.
+	quotaFetchMu    sync.Mutex
+	quotaFetchGates map[string]*quotaFetchGate
+
 	// healthFailures counts consecutive liveness probe failures per worker
 	// account. The maintenance loop's workerLiveness watchdog increments it on
 	// each failed /health probe and clears it on success; reaching
@@ -485,6 +500,7 @@ func (m *Manager) Close() error {
 	m.cancel()
 	m.mu.Unlock()
 	m.recoverDone.Wait()
+	m.quotaAfterUseDone.Wait()
 	m.mu.Lock()
 	processes := make([]ManagedProcess, 0, len(m.processes))
 	for _, process := range m.processes {
