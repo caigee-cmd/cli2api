@@ -298,6 +298,31 @@ var QwenWork = ProviderDescriptor{
 	DefaultRegion: "global",
 }
 
+// Kimi descriptor. Protocol constants stay in internal/providers/kimi.
+// CN-only in-process adapter for the Kimi Code subscription: OAuth device grant
+// against auth.kimi.com, distinct from the Moonshot Open Platform API-key
+// product that lives on api.moonshot.cn.
+var Kimi = ProviderDescriptor{
+	ID:                "kimi",
+	Label:             "Kimi Code",
+	Runtime:           RuntimeInProcess,
+	AuthTypes:         []AuthType{AuthOAuth},
+	CredentialFormats: []string{"kimi-oauth-v1"},
+	Capabilities: ProviderCapabilities{
+		Chat: true, Stream: true, Tools: true, Images: true, Reasoning: true,
+		ModelCatalog: true, Usage: true, Login: true, BrowserLogin: true,
+		PATLogin: false, ImportExport: true,
+	},
+	Regions: []RegionDescriptor{
+		{
+			ID: "cn", Label: "CN", ChatBase: "https://api.kimi.com/coding/v1",
+			BillingBase: "https://www.kimi.com", AuthBase: "https://auth.kimi.com",
+			DefaultDomain: "kimi.com",
+		},
+	},
+	DefaultRegion: "cn",
+}
+
 var registry = map[string]ProviderDescriptor{
 	Qoder.ID:     Qoder,
 	WorkBuddy.ID: WorkBuddy,
@@ -307,6 +332,7 @@ var registry = map[string]ProviderDescriptor{
 	Codex.ID:     Codex,
 	Zhipu.ID:     Zhipu,
 	QwenWork.ID:  QwenWork,
+	Kimi.ID:      Kimi,
 }
 
 func Get(id string) (ProviderDescriptor, bool) {
@@ -315,7 +341,7 @@ func Get(id string) (ProviderDescriptor, bool) {
 }
 
 func List() []ProviderDescriptor {
-	return []ProviderDescriptor{Qoder, WorkBuddy, Trae, Devin, Command, Codex, Zhipu, QwenWork}
+	return []ProviderDescriptor{Qoder, WorkBuddy, Trae, Devin, Command, Codex, Zhipu, QwenWork, Kimi}
 }
 
 // Resolve validates a provider/region pair. Empty values fall back to the

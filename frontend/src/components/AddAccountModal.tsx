@@ -64,6 +64,7 @@ const labelKeys: Record<string, string> = {
   'zhipu-cn': 'accountTypeZhipuCN',
   'qwenwork-global': 'accountTypeQwenworkGlobal',
   'qwenwork-cn': 'accountTypeQwenworkCN',
+  'kimi-cn': 'accountTypeKimiCN',
 }
 
 const hintKeys: Record<string, string> = {
@@ -78,6 +79,7 @@ const hintKeys: Record<string, string> = {
   'zhipu-cn': 'accountTypeZhipuCNHint',
   'qwenwork-global': 'accountTypeQwenworkGlobalHint',
   'qwenwork-cn': 'accountTypeQwenworkCNHint',
+  'kimi-cn': 'accountTypeKimiCNHint',
 }
 
 function AccountTypeSkeleton({ ariaLabel }: { ariaLabel: string }) {
@@ -240,7 +242,11 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
     return {
       max_inflight: parsedMaxInFlight(),
       priority: parsedPriority(),
-      drop_system_prompt: showDropSystem ? dropSystemPrompt : true,
+      // WorkBuddy exposes the switch because upstream content screening rejects
+      // third-party system prompts. Kimi Code has no such screening, so a new
+      // Kimi account keeps caller system prompts. Every other provider keeps the
+      // historical drop=true default.
+      drop_system_prompt: showDropSystem ? dropSystemPrompt : activeOption?.provider !== 'kimi',
       proxy_url: proxyUrl.trim(),
     }
   }

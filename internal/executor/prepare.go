@@ -163,7 +163,7 @@ func (e ChatExecutor) Prepare(in PrepareInput) (PreparedRequest, error) {
 // "<provider>/" model id. Command Code's own model ids are org-namespaced
 // ("deepseek/…", "moonshotai/…"), so its provider prefix sits in front of an
 // already-namespaced id ("command/deepseek/…").
-var providerPrefixes = []string{"qoder/", "workbuddy/", "trae/", "devin/", "command/", "codex/", "zhipu/", "qwenwork/"}
+var providerPrefixes = []string{"qoder/", "workbuddy/", "trae/", "devin/", "command/", "codex/", "zhipu/", "qwenwork/", "kimi/"}
 
 // regionDashSuffixes are the region qualifiers that may be appended to a
 // provider prefix with a dash: "workbuddy-cn/", "workbuddy-gl/",

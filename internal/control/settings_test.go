@@ -106,6 +106,35 @@ func TestReadAndUpdateModelSetting(t *testing.T) {
 	}
 }
 
+func TestUpdateModelSettingPersistsKimiReasoningDefault(t *testing.T) {
+	svc, _, store, _ := newTestServices()
+	effort := "max"
+	setting, err := svc.Settings.UpdateModelSetting(context.Background(), "kimi", "kimi-for-coding", nil, ProviderModelSettingPatch{ReasoningEffort: &effort})
+	if err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if setting.ReasoningEffort != "max" || !setting.ContextCustom {
+		t.Fatalf("setting=%+v", setting)
+	}
+	if store.providerSetting.ReasoningEffort != "max" {
+		t.Fatalf("persisted=%+v", store.providerSetting)
+	}
+	read, err := svc.Settings.ReadModelSetting(context.Background(), "kimi", "kimi-for-coding")
+	if err != nil || read.ReasoningEffort != "max" {
+		t.Fatalf("read=%+v err=%v", read, err)
+	}
+}
+
+func TestUpdateModelSettingRejectsKimiMaxMode(t *testing.T) {
+	svc, _, _, _ := newTestServices()
+	on := true
+	_, err := svc.Settings.UpdateModelSetting(context.Background(), "kimi", "kimi-for-coding", nil, ProviderModelSettingPatch{MaxMode: &on})
+	var op *OperationError
+	if !errors.As(err, &op) || op.Code != "invalid_request" {
+		t.Fatalf("err=%v", err)
+	}
+}
+
 func TestQoderContextToggle(t *testing.T) {
 	svc, _, _, _ := newTestServices()
 	ctx := context.Background()
