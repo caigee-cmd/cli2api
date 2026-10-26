@@ -29,6 +29,19 @@ func (a *App) newGateway() *apigateway.Handler {
 		Models: func(refresh bool, accountID string) ([]map[string]any, error) {
 			return a.fetchDisplayModels(refresh, accountID, control.CatalogModeMerge)
 		},
+		CatalogStatus: func() map[string]any {
+			if a.Control == nil || a.Control.Catalog == nil {
+				return nil
+			}
+			status := a.Control.Catalog.Status()
+			// The public listing reports freshness only: a scoped API key must not
+			// read another provider's upstream error text. The console endpoint
+			// carries the details.
+			return map[string]any{
+				"synced_at": status.SyncedAt,
+				"stale":     status.Stale,
+			}
+		},
 	}
 	if a.Control != nil {
 		h.ModelContexts = a.Control.Settings

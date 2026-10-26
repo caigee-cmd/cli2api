@@ -38,6 +38,26 @@ func (h *Handler) HandleModelsAPI(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// HandleCatalogStatus reports the model-catalog sync state. GET only reads it;
+// POST forces one full reload first and answers with the state that resulted.
+// The body is 200 in both cases — a partial or failed refresh is described by
+// last_error and the per-provider rows, not by the HTTP status.
+func (h *Handler) HandleCatalogStatus(w http.ResponseWriter, r *http.Request) {
+	if h == nil || h.Control == nil || h.Control.Catalog == nil {
+		writeErr(w, http.StatusServiceUnavailable, "catalog_unavailable", "model catalog is not configured")
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		writeJSON(w, http.StatusOK, h.Control.Catalog.Status())
+	case http.MethodPost:
+		status, _ := h.Control.Catalog.Refresh()
+		writeJSON(w, http.StatusOK, status)
+	default:
+		writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "GET or POST only")
+	}
+}
+
 func (h *Handler) HandleModelSetting(w http.ResponseWriter, r *http.Request) {
 	provider, modelKey := splitModelSettingPath(r.URL.Path, r.URL.Query().Get("provider"))
 	if modelKey == "" {
