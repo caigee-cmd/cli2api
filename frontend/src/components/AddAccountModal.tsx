@@ -64,6 +64,7 @@ const labelKeys: Record<string, string> = {
   'zhipu-cn': 'accountTypeZhipuCN',
   'qwenwork-global': 'accountTypeQwenworkGlobal',
   'qwenwork-cn': 'accountTypeQwenworkCN',
+  'kimi-cn': 'accountTypeKimiCN',
 }
 
 const hintKeys: Record<string, string> = {
@@ -78,6 +79,7 @@ const hintKeys: Record<string, string> = {
   'zhipu-cn': 'accountTypeZhipuCNHint',
   'qwenwork-global': 'accountTypeQwenworkGlobalHint',
   'qwenwork-cn': 'accountTypeQwenworkCNHint',
+  'kimi-cn': 'accountTypeKimiCNHint',
 }
 
 function AccountTypeSkeleton({ ariaLabel }: { ariaLabel: string }) {
@@ -322,6 +324,9 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
     const option = providerOptions.find((item) => item.id === next)
     setAccountType(next)
     setTab(option?.provider === 'zhipu' ? 'pat' : 'browser')
+    // Kimi Code has no content screening that would need caller system prompts
+    // stripped, so a new Kimi account keeps them by default.
+    setDropSystemPrompt(option?.provider !== 'kimi')
     setMessage('')
     setStep('login')
   }
