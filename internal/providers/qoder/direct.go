@@ -19,6 +19,7 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/providers"
 	"github.com/caigee-cmd/cli2api/internal/providers/qoder/qauth"
 	"github.com/caigee-cmd/cli2api/internal/translate"
+	proxyutil "github.com/caigee-cmd/cli2api/internal/proxy"
 )
 
 // Direct talks to the Qoder chat gateway from this process. It does not load
@@ -26,10 +27,12 @@ import (
 // it resolves credentials and fresh session tokens from the Bridge; legacy
 // accounts without a PAT fall back to the stored CLI user_blob.
 type Direct struct {
-	store    CredentialStore
-	region   func(ctx context.Context, accountID string) (string, error)
-	bridgeOf func(ctx context.Context, accountID string) (*Bridge, error)
-	http     *http.Client
+	store      CredentialStore
+	region     func(ctx context.Context, accountID string) (string, error)
+	proxy      func(ctx context.Context, accountID string) (string, error)
+	transports proxyutil.TransportCache
+	bridgeOf   func(ctx context.Context, accountID string) (*Bridge, error)
+	http       *http.Client
 	now      func() time.Time
 	// ttfb bounds how long ChatStream waits for the upstream response head
 	// and, after a 200, for the first meaningful SSE data line
@@ -62,6 +65,45 @@ func (d *Direct) SetHTTP(client *http.Client) {
 		return
 	}
 	d.http = client
+}
+
+func (d *Direct) SetProxy(fn func(ctx context.Context, accountID string) (string, error)) {
+	if d == nil {
+		return
+	}
+	d.proxy = fn
+}
+
+func (d *Direct) httpClient(ctx context.Context, accountID string) (*http.Client, error) {
+	if d == nil {
+		return nil, fmt.Errorf("qoder direct client is nil")
+	}
+	base := d.http
+	if base == nil {
+		base = &http.Client{}
+	}
+	if d.proxy == nil {
+		return base, nil
+	}
+	rawProxy, err := d.proxy(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(rawProxy) == "" {
+		return base, nil
+	}
+
+	transport, err := d.transports.Get(rawProxy)
+	if err != nil {
+		return nil, fmt.Errorf("configure proxy transport: %w", err)
+	}
+	if transport == nil {
+		return base, nil
+	}
+
+	client := *base
+	client.Transport = transport
+	return &client, nil
 }
 
 type directPrepared struct {
@@ -192,7 +234,11 @@ func (d *Direct) ChatNonStream(ctx context.Context, accountID string, req transl
 		return providers.ChatOutcome{}, err
 	}
 	defer release()
-	resp, err := d.http.Do(prepared.request)
+	client, err := d.httpClient(ctx, accountID)
+	if err != nil {
+		return providers.ChatOutcome{}, err
+	}
+	resp, err := client.Do(prepared.request)
 	if err != nil {
 		return providers.ChatOutcome{}, err
 	}
@@ -221,7 +267,11 @@ func (d *Direct) ChatStream(ctx context.Context, accountID string, req translate
 	if err != nil {
 		return nil, providers.ResolvedChat{}, err
 	}
-	resp, err := doWithFirstByteTimeout(d.http, prepared.request, d.ttfb)
+	client, err := d.httpClient(ctx, accountID)
+	if err != nil {
+		return nil, providers.ResolvedChat{}, err
+	}
+	resp, err := doWithFirstByteTimeout(client, prepared.request, d.ttfb)
 	if err != nil {
 		release()
 		return nil, providers.ResolvedChat{}, err

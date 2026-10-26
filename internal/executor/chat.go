@@ -1030,8 +1030,10 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 // the adapter inserts an empty placeholder, this helper only drops caller text.
 func sanitizeForItem(item Item, req translate.ChatRequest) translate.ChatRequest {
 	req.Model = AccountModelID(item, req.Model)
-	if native := NativeModelID(item, req.Model); native != "" {
-		req.Model = native
+	if itemProvider(item) != "qoder" {
+		if native := NativeModelID(item, req.Model); native != "" {
+			req.Model = native
+		}
 	}
 	if item.DropSystemPrompt && itemProvider(item) != "qoder" {
 		return translate.DropSystemMessages(req)
