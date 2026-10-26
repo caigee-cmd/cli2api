@@ -24,6 +24,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/keys", s.withConsoleKey(s.consoleHandler().HandleAPIKeys))
 	s.mux.HandleFunc("/api/keys/", s.withConsoleKey(s.consoleHandler().HandleAPIKeyByID))
 	s.mux.HandleFunc("/api/models", s.withConsoleKey(s.consoleHandler().HandleModelsAPI))
+	s.mux.HandleFunc("/api/model-catalog", s.withConsoleKey(s.consoleHandler().HandleCatalogStatus))
 	s.mux.HandleFunc("/api/models/", s.withConsoleKey(s.consoleHandler().HandleModelSetting))
 	s.mux.HandleFunc("/api/providers", s.withConsoleKey(s.consoleHandler().HandleProviders))
 	s.mux.HandleFunc("/api/accounts", s.withConsoleKey(s.consoleHandler().HandleAccounts))

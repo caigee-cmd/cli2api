@@ -22,13 +22,22 @@ func (a *App) catalogSource() *control.CatalogSource {
 		item, ok := a.Pool.First()
 		return item.URL, ok
 	}}
-	return &control.CatalogSource{Providers: a.Providers, WorkerModels: worker.Models, Accounts: func() []control.CatalogAccount {
+	return &control.CatalogSource{Providers: a.Providers, WorkerModels: worker.Models, Health: a.catalogHealth(), Accounts: func() []control.CatalogAccount {
 		var out []control.CatalogAccount
 		for _, item := range a.Pool.Items() {
 			out = append(out, control.CatalogAccount{ID: item.ID, Provider: item.Provider, Region: item.Region, Worker: item.URL != ""})
 		}
 		return out
 	}}
+}
+
+// catalogHealth exposes the display catalog's per-provider recorder so a
+// provider-level catalog fetch lands in the same status the console serves.
+func (a *App) catalogHealth() *control.CatalogHealth {
+	if a == nil || a.Control == nil || a.Control.Catalog == nil {
+		return nil
+	}
+	return a.Control.Catalog.Health
 }
 func (a *App) FetchWorkerModelsFor(refresh bool, accountID string) ([]map[string]any, error) {
 	return a.FetchWorkerModelsForMode(refresh, accountID, control.CatalogModeMerge)

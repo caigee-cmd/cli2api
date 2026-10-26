@@ -22,6 +22,7 @@ type Handler struct {
 	Logs              executor.RequestStarter
 	CrossProviderPool *atomic.Bool
 	Models            CatalogQuery
+	CatalogStatus     func() map[string]any
 	RequestedAccount  func(*http.Request) string
 	FilterModels      func(*http.Request, []map[string]any) []map[string]any
 	DecorateModels    func(*http.Request, []map[string]any) []map[string]any
