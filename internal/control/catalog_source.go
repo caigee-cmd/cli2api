@@ -16,10 +16,32 @@ type CatalogAccount struct {
 }
 
 // CatalogSource aggregates provider catalogs through injected data sources.
+// Health is optional and records one outcome per provider request.
 type CatalogSource struct {
 	Accounts     func() []CatalogAccount
 	Providers    *providers.Registry
 	WorkerModels func(context.Context, string, bool) ([]map[string]any, error)
+	Health       *CatalogHealth
+}
+
+// recordAttempt, recordSuccess and recordFailure are no-ops when no health
+// recorder is wired, so a source built by a test needs no extra setup.
+func (a *CatalogSource) recordAttempt(provider string) {
+	if a != nil && a.Health != nil {
+		a.Health.Attempt(provider)
+	}
+}
+
+func (a *CatalogSource) recordSuccess(provider string, models int) {
+	if a != nil && a.Health != nil {
+		a.Health.Success(provider, models)
+	}
+}
+
+func (a *CatalogSource) recordFailure(provider string, err error) {
+	if a != nil && a.Health != nil {
+		a.Health.Failure(provider, err)
+	}
 }
 
 func (a *CatalogSource) byID(id string) (CatalogAccount, bool) {
@@ -49,13 +71,16 @@ func (a *CatalogSource) Fetch(refresh bool, accountID string, mode CatalogMode) 
 	// Last-resort path for a lone Qoder worker with no in-process providers
 	// and no pool URLs folded above. Stamp region the same way expand/merge
 	// would, so Providers filters never treat CN catalogs as unlabeled.
+	a.recordAttempt("qoder")
 	parsed, err := a.WorkerModels(context.Background(), accountID, refresh)
 	if err != nil {
+		a.recordFailure("qoder", err)
 		if accountID != "" {
 			return nil, err
 		}
 		return nil, nil
 	}
+	a.recordSuccess("qoder", len(parsed))
 	if len(parsed) == 0 {
 		return nil, nil
 	}
@@ -100,15 +125,18 @@ func (a *CatalogSource) fetchProviderModels(refresh bool, accountID string, mode
 		if !ok || adapter.Models == nil {
 			continue
 		}
+		a.recordAttempt(item.Provider)
 		models, err := adapter.Models.Models(context.Background(), item.ID)
 		if err != nil {
 			log.Printf("catalog fetch failed account=%s provider=%s: %v", item.ID, item.Provider, err)
+			a.recordFailure(item.Provider, err)
 			lastErr = err
 			if accountID != "" {
 				return nil, err
 			}
 			continue
 		}
+		a.recordSuccess(item.Provider, len(models))
 		sawAny = true
 		region := accounts.NormalizeRegion(item.Region)
 		for _, model := range models {
@@ -205,8 +233,14 @@ func (a *CatalogSource) fetchQoderModels(refresh bool, accountID string) []map[s
 	if item, ok := a.byID(accountID); ok {
 		region = accounts.NormalizeRegion(item.Region)
 	}
+	a.recordAttempt("qoder")
 	parsed, err := a.WorkerModels(context.Background(), accountID, refresh)
-	if err != nil || len(parsed) == 0 {
+	if err != nil {
+		a.recordFailure("qoder", err)
+		return nil
+	}
+	a.recordSuccess("qoder", len(parsed))
+	if len(parsed) == 0 {
 		return nil
 	}
 	for _, model := range parsed {
