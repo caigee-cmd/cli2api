@@ -175,10 +175,11 @@ Messages / Responses are stateless compatibility APIs, not full official API
 implementations. They do not store server-side conversations or execute
 upstream-specific tools. Image input follows the upstream model catalog:
 WorkBuddy's `supportsImages` models (DeepSeek V4 / V4.1, GLM, Kimi, and
-others), Qoder's vision models, QwenWork `is_vl` models, experimental Devin
-base64 data URLs, and Codex image modalities all pass through, and each
-model's declared capability is exposed as `supports_images` on `/v1/models`
-and `/api/models`. Trae, Command, and Zhipu do not declare image input.
+others), Qoder's vision models, QwenWork `is_vl` models, Kimi Code models that
+declare image input, experimental Devin base64 data URLs, and Codex image
+modalities all pass through, and each model's declared capability is exposed as
+`supports_images` on `/v1/models` and `/api/models`. Trae, Command, and Zhipu do
+not declare image input.
 
 ## 6. Managed updates (optional)
 
