@@ -366,7 +366,7 @@ func DecorateModelsWithContext(ctx context.Context, settings *Settings, models [
 			item["catalog_context_length"] = catalogWindow
 		}
 		switch provider {
-		case "trae", "workbuddy":
+		case "trae", "workbuddy", "kimi":
 			decorateProviderSettings(ctx, settings, item, provider, settingsKey)
 		case "qoder":
 			stored, hasStored := configured[settingsKey]

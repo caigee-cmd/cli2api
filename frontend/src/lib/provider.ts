@@ -27,6 +27,10 @@ export function isQwenworkProvider(provider?: string) {
   return String(provider || '').toLowerCase() === 'qwenwork'
 }
 
+export function isKimiProvider(provider?: string) {
+  return String(provider || '').toLowerCase() === 'kimi'
+}
+
 export function accountProviderFamilyLabel(
   provider: string | undefined,
   t: (key: string) => string,
@@ -38,6 +42,7 @@ export function accountProviderFamilyLabel(
   if (isCommandProvider(providerID)) return 'Command Code'
   if (isZhipuProvider(providerID)) return 'Zhipu GLM'
   if (isQwenworkProvider(providerID)) return 'QwenWork'
+  if (isKimiProvider(providerID)) return 'Kimi Code'
   if (isQoderProvider(providerID)) return 'Qoder'
   return provider || t('account')
 }
@@ -66,6 +71,9 @@ export function accountProviderLabel(
   }
   if (isQwenworkProvider(providerID)) {
     return regionID === 'cn' ? t('accountTypeQwenworkCN') : t('accountTypeQwenworkGlobal')
+  }
+  if (isKimiProvider(providerID)) {
+    return t('accountTypeKimiCN')
   }
   if (isQoderProvider(providerID)) {
     return regionID === 'cn' ? t('accountTypeQoderCN') : t('accountTypeQoderGlobal')

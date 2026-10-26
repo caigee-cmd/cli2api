@@ -253,7 +253,7 @@ func TestDecorateModelsWithContextAppliesTraeMaxMode(t *testing.T) {
 }
 
 func TestDecorateProviderSettingsRestoresDefaultReasoningState(test *testing.T) {
-	for _, provider := range []string{"trae", "workbuddy"} {
+	for _, provider := range []string{"trae", "workbuddy", "kimi"} {
 		test.Run(provider, func(test *testing.T) {
 			services, _, _, _ := newTestServices()
 			source := []map[string]any{{
