@@ -167,12 +167,7 @@ func TestFEFODepletedExpiredAndFreeModels(t *testing.T) {
 	dead.Quota.Exceeded = true
 	p = fefoPool(dead, live)
 	assertFEFOPick(t, p, RouteQuery{PublicModel: "free"}, "a")
-	if _, ok := p.PickRoute(RouteQuery{PublicModel: "paid"}); ok {
-		item, _ := p.PickRoute(RouteQuery{PublicModel: "paid"})
-		if item.ID == "a" {
-			t.Fatal("exceeded paid route selected the dead account")
-		}
-	}
+	assertFEFOPick(t, p, RouteQuery{PublicModel: "paid"}, "z")
 }
 
 func TestFEFOUnknownScopeMixedBucketsAndAliasesStayUnknown(t *testing.T) {
