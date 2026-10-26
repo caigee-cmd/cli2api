@@ -30,6 +30,9 @@ type fakeStore struct {
 	settings map[string]accounts.ProviderModelSetting
 	observed []string
 	saves    int
+	// saveErr makes every credential write fail, so a test can prove the
+	// caller surfaces a rotated token it could not persist.
+	saveErr error
 }
 
 func newFakeStore() *fakeStore {
@@ -97,6 +100,9 @@ func (s *fakeStore) SaveCredentialPayload(_ context.Context, accountID, format s
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.saveErr != nil {
+		return s.saveErr
+	}
 	s.creds[accountID] = append([]byte(nil), payload...)
 	s.saves++
 	return nil
@@ -215,13 +221,14 @@ func TestParseCatalogJSONCurrentShape(t *testing.T) {
 		 "supports_tool_use":true,"tools":{"dynamic_load":true}},
 		{"id":"kimi-for-coding","limit":{"context":262144,"output":32000},
 		 "reasoning":{"type":"both"},"modalities":{"input":["text"]}},
-		{"id":"plain-model","limit":{"context":131072}}
+		{"id":"plain-model","limit":{"context":131072}},
+		{"id":"no-tools","limit":{"context":131072},"supports_tool_use":false}
 	]}`)
 	models, err := ParseCatalogJSON(raw)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	if len(models) != 3 {
+	if len(models) != 4 {
 		t.Fatalf("models = %d", len(models))
 	}
 	k3 := models[0]
@@ -259,8 +266,17 @@ func TestParseCatalogJSONCurrentShape(t *testing.T) {
 	if plain.Capabilities.Reasoning || plain.Capabilities.ReasoningOptions != nil {
 		t.Fatalf("plain model reasoning = %+v", plain.Capabilities)
 	}
+	// The managed catalog omits supports_tool_use on every model it returns
+	// today (a live CN account completed real tool calls on such a model), and
+	// Kimi's own client treats the absent field as supported.
 	if !plain.Capabilities.Tools {
 		t.Fatal("supports_tool_use absent must default to true")
+	}
+
+	// An explicit declaration still wins in both directions.
+	noTools := models[3]
+	if noTools.Capabilities.Tools {
+		t.Fatal("supports_tool_use:false must not be reported as tool-capable")
 	}
 }
 

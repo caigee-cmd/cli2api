@@ -16,12 +16,19 @@
 // the official client would hold. Accounts can also paste the credential the
 // official client already wrote to <KIMI_CODE_HOME>/credentials/kimi-code.json.
 //
+// Import is supported; export is not. A Kimi Code credential is a bearer token
+// pair, so handing it back out of the console would hand out the account. The
+// descriptor still advertises ImportExport because that capability covers the
+// import side, and the console export action reports "unsupported" on purpose.
+//
 // # Tokens
 //
 // Tokens are stored in the provider credential and refreshed five minutes before
 // expiry, single-flighted per account. Kimi rotates the refresh token on every
-// refresh, so the rotated pair is persisted immediately; a rejected refresh
-// surfaces as an auth failure and asks for a new login.
+// refresh, so the rotated pair is persisted immediately and a failed write fails
+// the request: continuing with an in-memory-only token would leave the stored
+// refresh token already-invalidated. A rejected refresh surfaces as an auth
+// failure and asks for a new login.
 //
 // # Chat
 //

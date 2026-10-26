@@ -103,6 +103,13 @@ func (c *Client) PollLogin(ctx context.Context, accountID string) (bool, string,
 		message := waitingMessage(state.userCode)
 		c.setLoginMessage(accountID, message)
 		return false, message, nil
+	case devicePollSlowDown:
+		// RFC 8628 §3.5: widen the interval so the next PollLogin waits longer
+		// before it asks the token endpoint again.
+		c.backOffLogin(accountID)
+		message := waitingMessage(state.userCode)
+		c.setLoginMessage(accountID, message)
+		return false, message, nil
 	case devicePollDenied:
 		c.clearLogin(accountID)
 		return false, "", fmt.Errorf("kimi authorization was denied")
@@ -176,6 +183,22 @@ func (c *Client) setLoginMessage(accountID, message string) {
 	defer c.mu.Unlock()
 	if state := c.logins[accountID]; state != nil {
 		state.lastMessage = message
+	}
+}
+
+// backOffLogin widens the device-token poll interval after a slow_down, as
+// RFC 8628 asks. PollLogin already throttles on state.interval, so the next
+// console poll waits the new interval instead of hammering the token endpoint.
+func (c *Client) backOffLogin(accountID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	state := c.logins[accountID]
+	if state == nil {
+		return
+	}
+	state.interval += pollSlowDownStep
+	if state.interval > maxPollInterval {
+		state.interval = maxPollInterval
 	}
 }
 

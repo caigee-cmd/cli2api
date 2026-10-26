@@ -242,7 +242,11 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
     return {
       max_inflight: parsedMaxInFlight(),
       priority: parsedPriority(),
-      drop_system_prompt: showDropSystem ? dropSystemPrompt : true,
+      // WorkBuddy exposes the switch because upstream content screening rejects
+      // third-party system prompts. Kimi Code has no such screening, so a new
+      // Kimi account keeps caller system prompts. Every other provider keeps the
+      // historical drop=true default.
+      drop_system_prompt: showDropSystem ? dropSystemPrompt : activeOption?.provider !== 'kimi',
       proxy_url: proxyUrl.trim(),
     }
   }
@@ -324,9 +328,6 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
     const option = providerOptions.find((item) => item.id === next)
     setAccountType(next)
     setTab(option?.provider === 'zhipu' ? 'pat' : 'browser')
-    // Kimi Code has no content screening that would need caller system prompts
-    // stripped, so a new Kimi account keeps them by default.
-    setDropSystemPrompt(option?.provider !== 'kimi')
     setMessage('')
     setStep('login')
   }

@@ -125,8 +125,8 @@ func (c *Client) forceRefresh(ctx context.Context, accountID string) (Credential
 	if err != nil {
 		return Credential{}, err
 	}
-	if err := c.saveCredential(ctx, accountID, refreshed); err != nil {
-		return refreshed, nil
+	if err := c.persistRefreshed(ctx, accountID, refreshed); err != nil {
+		return Credential{}, err
 	}
 	return refreshed, nil
 }
@@ -146,11 +146,15 @@ func (c *Client) resolveLevel(ctx context.Context, accountID, reqModel, requeste
 			}
 		}
 	}
-	level := providers.ResolveReasoningLevel(requested, caps)
-	if level == "" || len(caps.ReasoningOptions) == 0 {
-		level = providers.ResolveReasoningLevel(c.storedReasoning(ctx, reqModel), caps)
+	level := requested
+	if level == "" {
+		level = c.storedReasoning(ctx, reqModel)
 	}
-	return level, caps
+	// Priority is the client value, then the console default, then the catalog
+	// default, and only then the clamp. ResolveReasoningLevel already fills the
+	// catalog default when both inputs are empty, so the order has to be applied
+	// before the clamp instead of after it.
+	return providers.ResolveReasoningLevel(level, caps), caps
 }
 
 // resolveModel strips the provider routing prefix a client may send.

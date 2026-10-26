@@ -234,10 +234,28 @@ func (c *Client) credential(ctx context.Context, accountID string) (Credential, 
 	if err != nil {
 		return Credential{}, err
 	}
-	if err := c.saveCredential(ctx, accountID, refreshed); err != nil {
-		return refreshed, nil
+	if err := c.persistRefreshed(ctx, accountID, refreshed); err != nil {
+		return Credential{}, err
 	}
 	return refreshed, nil
+}
+
+// persistRefreshed stores a rotated credential. Kimi invalidates the previous
+// refresh token on every rotation, so a failed write has to surface: the request
+// must fail over instead of continuing with a credential only this process
+// knows about, which would make the account unusable on its next request.
+func (c *Client) persistRefreshed(ctx context.Context, accountID string, credential Credential) error {
+	var err error
+	for attempt := 0; attempt < 2; attempt++ {
+		if err = c.saveCredential(ctx, accountID, credential); err == nil {
+			return nil
+		}
+	}
+	return &providers.Error{
+		Kind:    accounts.KindUnavailable,
+		Status:  http.StatusBadGateway,
+		Message: "kimi token refresh succeeded but the rotated credential could not be saved: " + err.Error(),
+	}
 }
 
 // accessToken is the convenience accessor for callers that only need the token.

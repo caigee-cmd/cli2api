@@ -107,10 +107,11 @@ func (c *Client) requestDeviceCode(ctx context.Context, authHost, deviceID strin
 type devicePollKind string
 
 const (
-	devicePollPending devicePollKind = "pending"
-	devicePollSuccess devicePollKind = "success"
-	devicePollExpired devicePollKind = "expired"
-	devicePollDenied  devicePollKind = "denied"
+	devicePollPending  devicePollKind = "pending"
+	devicePollSlowDown devicePollKind = "slow_down"
+	devicePollSuccess  devicePollKind = "success"
+	devicePollExpired  devicePollKind = "expired"
+	devicePollDenied   devicePollKind = "denied"
 )
 
 type devicePollResult struct {
@@ -144,12 +145,13 @@ func (c *Client) pollDeviceToken(ctx context.Context, authHost, deviceCode, devi
 		return devicePollResult{}, fmt.Errorf("kimi token polling server error (HTTP %d): %s", status, apiMessage(body, "unknown error"))
 	}
 	switch payload.Error {
-	case "authorization_pending", "slow_down":
-		message := "waiting for authorization"
-		if payload.Error == "slow_down" {
-			message = "waiting for authorization (slowed down)"
-		}
-		return devicePollResult{Kind: devicePollPending, Message: message}, nil
+	case "authorization_pending":
+		return devicePollResult{Kind: devicePollPending, Message: "waiting for authorization"}, nil
+	case "slow_down":
+		// RFC 8628 §3.5: the client must slow its polling down. The caller owns
+		// the interval, so report the distinct kind instead of folding it into
+		// pending.
+		return devicePollResult{Kind: devicePollSlowDown, Message: "waiting for authorization (slowed down)"}, nil
 	case "expired_token":
 		return devicePollResult{Kind: devicePollExpired, Message: "the device code expired"}, nil
 	case "access_denied":

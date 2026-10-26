@@ -3,6 +3,7 @@ package kimi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -31,6 +32,7 @@ type kimiServer struct {
 
 	refreshPayload tokenPayload
 	refreshStatus  int
+	refreshPolls   int
 
 	modelsBody string
 	modelsHits int
@@ -201,6 +203,7 @@ func (s *kimiServer) handleToken(w http.ResponseWriter, body []byte) {
 		json.NewEncoder(w).Encode(payload)
 	case "refresh_token":
 		s.mu.Lock()
+		s.refreshPolls++
 		status := s.refreshStatus
 		payload := s.refreshPayload
 		s.mu.Unlock()
@@ -279,6 +282,18 @@ func (s *kimiServer) chatAttempts() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return len(s.chatRequests)
+}
+
+func (s *kimiServer) refreshCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.refreshPolls
+}
+
+func (s *kimiServer) devicePollCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.tokenPolls
 }
 
 // testRig wires a client whose account credentials point at the stub.
@@ -774,5 +789,246 @@ func TestMultiAccountKeepsCredentialsAndCatalogsSeparate(t *testing.T) {
 	second, _ := rig.store.credential("acc-2")
 	if second.AccessToken != "acct-2-rotated" || second.RefreshToken != "acct-2-rt-2" {
 		t.Fatalf("account 2 persisted = %q/%q", second.AccessToken, second.RefreshToken)
+	}
+}
+
+// storedReasoningKey mirrors the key the adapter reads at chat time.
+func storedReasoningKey(model string) string {
+	return ProviderID + "|" + accounts.CanonicalModelID(model)
+}
+
+func (r *testRig) setStoredReasoning(model, effort string) {
+	r.store.mu.Lock()
+	defer r.store.mu.Unlock()
+	r.store.settings[storedReasoningKey(model)] = accounts.ProviderModelSetting{ReasoningEffort: effort}
+}
+
+func (r *testRig) loginState() *loginState {
+	r.client.mu.Lock()
+	defer r.client.mu.Unlock()
+	state := r.client.logins["acc-1"]
+	if state == nil {
+		return nil
+	}
+	copied := *state
+	return &copied
+}
+
+func (r *testRig) bypassPollThrottle() {
+	r.client.mu.Lock()
+	defer r.client.mu.Unlock()
+	if state := r.client.logins["acc-1"]; state != nil {
+		state.lastPolled = r.client.now().Add(-time.Hour)
+	}
+}
+
+// TestReasoningPriority exercises the order the console relies on: the client
+// value wins, then the saved console default, then the catalog default, and the
+// result is always clamped to the model's declared ladder.
+func TestReasoningPriority(t *testing.T) {
+	cases := []struct {
+		name      string
+		stored    string
+		requested string
+		want      string
+	}{
+		{"catalog default when nothing is saved", "", "", "high"},
+		{"saved console default beats the catalog default", "low", "", "low"},
+		{"client value beats the saved default", "low", "high", "high"},
+		{"saved default is clamped to the declared ladder", "medium", "", "high"},
+		{"client value is clamped to the declared ladder", "", "xhigh", "high"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rig := newRig(t)
+			now := time.Unix(1_700_000_000, 0)
+			rig.seedCredential(t, "acc-1", "acct-1-at", "acct-1-rt", now.Add(2*time.Hour).Unix())
+			if tc.stored != "" {
+				rig.setStoredReasoning("kimi-for-coding", tc.stored)
+			}
+			req := translate.ChatRequest{
+				Model:    "kimi-for-coding",
+				Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+			}
+			if tc.requested != "" {
+				req.ReasoningEffort = json.RawMessage(`"` + tc.requested + `"`)
+			}
+			resp, resolved, err := rig.client.ChatStream(context.Background(), "acc-1", req)
+			if err != nil {
+				t.Fatalf("chat: %v", err)
+			}
+			resp.Body.Close()
+			if resolved.ReasoningLevel != tc.want {
+				t.Fatalf("resolved level = %q, want %q", resolved.ReasoningLevel, tc.want)
+			}
+			thinking, ok := rig.server.lastChat().Body["thinking"].(map[string]any)
+			if !ok {
+				t.Fatalf("thinking = %#v", rig.server.lastChat().Body["thinking"])
+			}
+			if thinking["effort"] != tc.want {
+				t.Fatalf("sent effort = %#v, want %q", thinking["effort"], tc.want)
+			}
+		})
+	}
+}
+
+func TestRefreshPersistFailureFailsTheRequest(t *testing.T) {
+	rig := newRig(t)
+	now := time.Unix(1_700_000_000, 0)
+	rig.seedCredential(t, "acc-1", "old-at", "old-rt", now.Add(time.Minute).Unix())
+	rig.server.refreshPayload = tokenPayload{AccessToken: "new-at", RefreshToken: "new-rt"}
+	rig.store.saveErr = errors.New("disk full")
+
+	req := translate.ChatRequest{Model: "kimi-for-coding", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}}}
+	_, _, err := rig.client.ChatStream(context.Background(), "acc-1", req)
+	if err == nil {
+		t.Fatal("an unpersisted rotation must fail the request")
+	}
+	providerErr, ok := err.(*providers.Error)
+	if !ok || providerErr.Kind != accounts.KindUnavailable {
+		t.Fatalf("error = %#v", err)
+	}
+	if !strings.Contains(providerErr.Message, "could not be saved") {
+		t.Fatalf("message = %q", providerErr.Message)
+	}
+	// Nothing may be served from the unpersisted credential.
+	if attempts := rig.server.chatAttempts(); attempts != 0 {
+		t.Fatalf("chat attempts = %d, want 0", attempts)
+	}
+	stored, _ := rig.store.credential("acc-1")
+	if stored.AccessToken != "old-at" || stored.RefreshToken != "old-rt" {
+		t.Fatalf("stored credential changed to %q/%q", stored.AccessToken, stored.RefreshToken)
+	}
+}
+
+func TestForceRefreshPersistFailureSurfaces(t *testing.T) {
+	rig := newRig(t)
+	now := time.Unix(1_700_000_000, 0)
+	rig.seedCredential(t, "acc-1", "stale-at", "old-rt", now.Add(2*time.Hour).Unix())
+	rig.server.refreshPayload = tokenPayload{AccessToken: "rotated-at", RefreshToken: "rotated-rt"}
+	rig.server.unauthorizedOnce = true
+	rig.store.saveErr = errors.New("read-only filesystem")
+
+	req := translate.ChatRequest{Model: "kimi-for-coding", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}}}
+	_, _, err := rig.client.ChatStream(context.Background(), "acc-1", req)
+	if err == nil {
+		t.Fatal("an unpersisted rotation must fail the request")
+	}
+	providerErr, ok := err.(*providers.Error)
+	if !ok || providerErr.Kind != accounts.KindUnavailable {
+		t.Fatalf("error = %#v", err)
+	}
+	if got := rig.server.lastChat().Authorization; got != "Bearer stale-at" {
+		t.Fatalf("authorization = %q", got)
+	}
+}
+
+func TestConcurrentRefreshIsSingleFlight(t *testing.T) {
+	rig := newRig(t)
+	now := time.Unix(1_700_000_000, 0)
+	rig.seedCredential(t, "acc-1", "old-at", "old-rt", now.Add(time.Minute).Unix())
+	rig.server.refreshPayload = tokenPayload{
+		AccessToken:  "new-at",
+		RefreshToken: "new-rt",
+		ExpiresIn:    json.RawMessage(`7200`),
+	}
+
+	const workers = 8
+	tokens := make([]string, workers)
+	errs := make([]error, workers)
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func(index int) {
+			defer wg.Done()
+			credential, err := rig.client.credential(context.Background(), "acc-1")
+			errs[index] = err
+			tokens[index] = credential.AccessToken
+		}(i)
+	}
+	wg.Wait()
+
+	for i := 0; i < workers; i++ {
+		if errs[i] != nil {
+			t.Fatalf("worker %d: %v", i, errs[i])
+		}
+		if tokens[i] != "new-at" {
+			t.Fatalf("worker %d token = %q", i, tokens[i])
+		}
+	}
+	if refreshes := rig.server.refreshCount(); refreshes != 1 {
+		t.Fatalf("refresh calls = %d, want 1", refreshes)
+	}
+}
+
+// TestDeviceLoginSlowDownBacksOff covers RFC 8628 §3.5: slow_down widens the
+// interval, consecutive slow_downs keep widening it, and the normal completion
+// still lands.
+func TestDeviceLoginSlowDownBacksOff(t *testing.T) {
+	rig := newRig(t)
+	rig.server.pollSequence = []tokenPayload{
+		{Error: "slow_down"},
+		{Error: "slow_down"},
+		{AccessToken: "device-at", RefreshToken: "device-rt", ExpiresIn: json.RawMessage(`3600`)},
+	}
+	ctx := context.Background()
+	if _, err := rig.client.StartLogin(ctx, "acc-1"); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	if state := rig.loginState(); state == nil || state.interval != pollFloor {
+		t.Fatalf("initial interval = %v", state.interval)
+	}
+
+	done, _, err := rig.client.PollLogin(ctx, "acc-1")
+	if err != nil || done {
+		t.Fatalf("poll 1 = %v %v", done, err)
+	}
+	if got := rig.loginState().interval; got != pollFloor+pollSlowDownStep {
+		t.Fatalf("interval after first slow_down = %v", got)
+	}
+
+	// The console polls on a fixed cadence; the throttle must swallow this call
+	// instead of hitting the token endpoint again.
+	pollsBefore := rig.server.devicePollCount()
+	if _, _, err := rig.client.PollLogin(ctx, "acc-1"); err != nil {
+		t.Fatalf("throttled poll: %v", err)
+	}
+	if polls := rig.server.devicePollCount(); polls != pollsBefore {
+		t.Fatalf("throttled poll hit the token endpoint: %d -> %d", pollsBefore, polls)
+	}
+
+	rig.bypassPollThrottle()
+	if _, _, err := rig.client.PollLogin(ctx, "acc-1"); err != nil {
+		t.Fatalf("poll 2: %v", err)
+	}
+	if got := rig.loginState().interval; got != pollFloor+2*pollSlowDownStep {
+		t.Fatalf("interval after second slow_down = %v", got)
+	}
+
+	rig.bypassPollThrottle()
+	done, message, err := rig.client.PollLogin(ctx, "acc-1")
+	if err != nil {
+		t.Fatalf("poll 3: %v", err)
+	}
+	if !done {
+		t.Fatalf("poll 3 = %v %q", done, message)
+	}
+	if _, ok := rig.store.credential("acc-1"); !ok {
+		t.Fatal("credential not persisted after a slowed-down login")
+	}
+}
+
+func TestDeviceLoginPendingDoesNotWidenInterval(t *testing.T) {
+	rig := newRig(t)
+	rig.server.pollSequence = []tokenPayload{{Error: "authorization_pending"}}
+	ctx := context.Background()
+	if _, err := rig.client.StartLogin(ctx, "acc-1"); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	if _, _, err := rig.client.PollLogin(ctx, "acc-1"); err != nil {
+		t.Fatalf("poll: %v", err)
+	}
+	if got := rig.loginState().interval; got != pollFloor {
+		t.Fatalf("pending widened the interval to %v", got)
 	}
 }

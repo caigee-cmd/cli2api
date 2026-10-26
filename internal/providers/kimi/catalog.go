@@ -165,6 +165,11 @@ func toModelInfo(record catalogRecord) providers.ModelInfo {
 	}
 }
 
+// supportsTools reads the declared tool capability. The managed catalog omits
+// `supports_tool_use` on every model it currently returns — verified against a
+// live CN account whose models then completed real tool calls — and Kimi Code's
+// own client treats an absent field as supported, so absent means true. A model
+// that cannot call tools is expected to declare `supports_tool_use: false`.
 func supportsTools(record catalogRecord) bool {
 	if record.SupportsToolUse != nil {
 		return *record.SupportsToolUse

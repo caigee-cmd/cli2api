@@ -60,6 +60,9 @@ const (
 	pollFloor = 5 * time.Second
 	// pollSlowDownStep is added after the server answers slow_down (RFC 8628).
 	pollSlowDownStep = 5 * time.Second
+	// maxPollInterval caps the slow_down back-off so a device code that is
+	// still pending when the user is slow can never outlive its own window.
+	maxPollInterval = 60 * time.Second
 	// catalogTTL caps how long a discovered model list is reused.
 	catalogTTL = 10 * time.Minute
 	// metadataTimeout bounds the non-stream metadata calls (models/me/usages).
