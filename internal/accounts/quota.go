@@ -15,6 +15,11 @@ type QuotaWindow struct {
 	Exceeded   bool    `json:"exceeded,omitempty"`
 }
 
+// QuotaPackageScopeAccountFEFO marks credit packages that the provider has
+// confirmed are spendable by this account and carry a real package expiry. An
+// empty or unknown scope never participates in FEFO ranking.
+const QuotaPackageScopeAccountFEFO = "account-fefo"
+
 // QuotaPackage is one upstream credit/resource pack that carries its own
 // expiry. EndsAt is a Unix second; EndTime is the provider-native wall-clock
 // string for display.
@@ -23,12 +28,14 @@ type QuotaPackage struct {
 	Used    float64 `json:"used"`
 	Size    float64 `json:"size"`
 	Unit    string  `json:"unit,omitempty"`
+	Scope   string  `json:"scope,omitempty"`
 	EndsAt  int64   `json:"ends_at,omitempty"`
 	EndTime string  `json:"end_time,omitempty"`
 }
 
 // QuotaSnapshot is the quota state for one account.
-// A zero value means "unknown"; only Exceeded influences routing.
+// A zero value means "unknown". Exceeded gates quota routing; explicitly
+// scoped package expiry may additionally guide opt-in FEFO scheduling.
 type QuotaSnapshot struct {
 	Used       float64       `json:"used"`
 	Total      float64       `json:"total"`

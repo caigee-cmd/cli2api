@@ -20,7 +20,7 @@ Deploy with Docker, manage accounts in the web console, and connect clients thro
 ## Features
 
 - **Compatible APIs**: Chat Completions, Responses, Anthropic Messages, and model listing, with streaming and function tools.
-- **Multi-account routing**: automatic selection, session affinity, concurrency limits, cooldowns, and failover.
+- **Multi-account routing**: round-robin, weighted round-robin, fill-first, and opt-in same-provider earliest-expiry-first (FEFO), with automatic selection, session affinity, concurrency limits, cooldowns, and failover.
 - **Web console**: manage accounts, models, client keys, and proxies; view quotas and request logs.
 - **Docker operations**: persistent account data; an optional host updater lets you download, confirm, and roll back updates from the console.
 
@@ -70,6 +70,15 @@ The Go gateway handles authentication, routing, and request logging. Each Qoder 
 Accounts, models, access, and logs all live in one web console: readiness and quota are visible at a glance, and the Access page lets you copy the Base URL and run a quick check.
 
 Account cards provide WorkBuddy, QwenWork CN/Global, Qoder CN, and Qoder Global check-in actions and automatic check-in switches (off by default), with history under More → Check-in records; no separate check-in page is needed. Set each provider's default time under System → Automatic check-in, then choose inheritance or an override in Edit account. Default changes apply to inheriting accounts immediately. Existing WorkBuddy accounts retain their previous times until switched to inheritance. Inactive campaigns are skipped. Live-account check-in acceptance is still pending. QwenWork ships a check-in API in its desktop client, but production gateways do not route it (404): CN confirms the daily free credits from the wallet balance, while Global can only report the total quota and the skip reason.
+
+## Earliest-expiry-first (FEFO)
+
+Select **Earliest expiry first (FEFO)** under **System → Account routing strategy**, or send `{"routing_strategy":"fefo"}` to `PATCH /api/system/settings`. Round-robin remains the default; the existing round-robin, weighted round-robin, and fill-first behavior is unchanged.
+
+- **Rank only inside one provider.** Accounts are grouped by provider family before their nearest credit-package expiry is compared. Qoder, WorkBuddy, and other providers never compete with each other, and cross-provider selection keeps its existing rotation.
+- **Use only spendable package dates.** Depleted, expired, and undated packages are skipped. Accounts expiring on the same UTC+8 calendar day rotate fairly. Missing dates are never guessed: they form that provider's fallback cohort and participate only after every dated account is unavailable.
+- **Keep quota and failover semantics.** Exhausted, cooling, concurrency-saturated, or explicitly excluded accounts leave the candidate set and return to the ranking once they recover. Finishing a response or stream refreshes that account's quota asynchronously; a cached package expiring naturally also triggers a probe. Subscription resets, token lifetimes, and check-in rewards are never treated as package expiry.
+- **Data gaps.** Only WorkBuddy personal accounts currently return per-package `CycleEndTime` from `get-user-resource`. Qoder's `quota/usage` exposes only the subscription cycle boundary (`expiresAt`), while Trae, Devin, Command Code, and Codex expose reset windows or totals only, so their accounts remain in the unknown-date cohort under FEFO. WorkBuddy enterprise/shared identities and unconfirmed result sets capped at 100 also receive no FEFO priority. Cached quota snapshots written before this version remain undated until the boot probe or a manual refresh repopulates the package metadata.
 
 ## Limitations
 

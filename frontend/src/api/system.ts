@@ -63,7 +63,7 @@ export type SystemSettings = {
   cross_provider_model_pool: boolean
   checkin_disabled_accounts: boolean
   proxy_url: string
-  routing_strategy: 'round-robin' | 'weighted-round-robin' | 'fill-first'
+  routing_strategy: 'round-robin' | 'weighted-round-robin' | 'fill-first' | 'fefo'
   workbuddy_checkin_time: string
   checkin_times: Record<string, string>
   timezone: string

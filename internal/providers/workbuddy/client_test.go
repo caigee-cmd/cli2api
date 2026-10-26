@@ -1568,8 +1568,8 @@ func TestUserResourcePackageExpiry(t *testing.T) {
 				"Response": map[string]any{
 					"Data": map[string]any{
 						"Accounts": []map[string]any{
-							{"CycleCapacitySize": 2000, "CycleCapacityRemain": 1200, "CycleCapacityUsed": 800, "CycleEndTime": "2026-12-31 23:59:59"},
-							{"CycleCapacitySize": 500, "CycleCapacityRemain": 300, "CycleCapacityUsed": 200, "CycleEndTime": "2026-10-01 00:00:00"},
+							{"CycleCapacitySize": 2000, "CycleCapacityRemain": 1200, "CycleCapacityUsed": 800, "CycleEndTime": "2027-12-31 23:59:59"},
+							{"CycleCapacitySize": 500, "CycleCapacityRemain": 300, "CycleCapacityUsed": 200, "CycleEndTime": "2027-10-01 00:00:00"},
 							{"CycleCapacitySize": 100, "CycleCapacityRemain": 100, "CycleCapacityUsed": 0},
 						},
 					},
@@ -1588,31 +1588,133 @@ func TestUserResourcePackageExpiry(t *testing.T) {
 	if len(info.Packages) != 3 {
 		t.Fatalf("packages=%+v", info.Packages)
 	}
-	// UTC+8 2026-10-01 00:00:00 = UTC 2026-09-30 16:00:00
-	want := time.Date(2026, 9, 30, 16, 0, 0, 0, time.UTC).Unix()
+	// UTC+8 2027-10-01 00:00:00 = UTC 2027-09-30 16:00:00
+	want := time.Date(2027, 9, 30, 16, 0, 0, 0, time.UTC).Unix()
 	if info.ExpiresAt != want {
 		t.Fatalf("expires_at=%d want %d", info.ExpiresAt, want)
 	}
 	if info.ExpiringRemain != 300 {
 		t.Fatalf("expiring_remain=%v want 300", info.ExpiringRemain)
 	}
-	if info.Packages[1].EndsAt != want || info.Packages[1].EndTime != "2026-10-01 00:00:00" {
+	if info.Packages[1].EndsAt != want || info.Packages[1].EndTime != "2027-10-01 00:00:00" {
 		t.Fatalf("pkg=%+v", info.Packages[1])
+	}
+	if info.Packages[0].Scope != accounts.QuotaPackageScopeAccountFEFO {
+		t.Fatalf("personal package scope = %q", info.Packages[0].Scope)
 	}
 	if info.Packages[2].EndsAt != 0 {
 		t.Fatalf("unexpired pkg ends_at=%d want 0", info.Packages[2].EndsAt)
 	}
 }
 
-func TestSoonestExpiry(t *testing.T) {
-	expiresAt, remain := soonestExpiry([]providers.QuotaPackage{
-		{Remain: 100, EndsAt: 200},
-		{Remain: 50, EndsAt: 200},
+func TestUserResourceQueryUsesBillingTimezone(t *testing.T) {
+	// The API expects UTC+8 wall-clock bounds. A host in another zone must not
+	// shift the query window and hide a package expiring today.
+	previous := time.Local
+	time.Local = time.FixedZone("fixture-UTC-7", -7*60*60)
+	t.Cleanup(func() { time.Local = previous })
+	before := time.Now()
+	client, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload struct {
+			Begin string `json:"PackageEndTimeRangeBegin"`
+			End   string `json:"PackageEndTimeRangeEnd"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Error(err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		begin, err := time.ParseInLocation("2006-01-02 15:04:05", payload.Begin, cycleEndTimeZone)
+		if err != nil {
+			t.Error(err)
+		}
+		end, err := time.ParseInLocation("2006-01-02 15:04:05", payload.End, cycleEndTimeZone)
+		if err != nil {
+			t.Error(err)
+		}
+		if begin.Before(before.Add(-time.Minute)) || begin.After(time.Now().Add(time.Minute)) {
+			t.Errorf("query begin=%s outside current instant range; host timezone leaked", begin)
+		}
+		if end.Sub(begin) != 365*101*24*time.Hour {
+			t.Errorf("query range=%s", end.Sub(begin))
+		}
+		_, _ = w.Write([]byte(`{"code":0,"data":{"Response":{"Data":{"Accounts":[]}}}}`))
+	}))
+	if _, _, _, _, err := client.UserResource(context.Background(), "fixture-account", Credential{UID: "fixture-user", AccessToken: "fixture-token"}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSoonestExpirySkipsDepletedExpiredAndUndated(t *testing.T) {
+	now := time.Now().Unix()
+	expiresAt, remain := soonestExpiryAt([]providers.QuotaPackage{
+		{Remain: 100, EndsAt: now + 200},
+		{Remain: 50, EndsAt: now + 200},
 		{Remain: 300, EndsAt: 0},
-		{Remain: 400, EndsAt: 100},
-	})
-	if expiresAt != 100 || remain != 400 {
+		{Remain: 0, EndsAt: now + 100},
+		{Remain: 400, EndsAt: now - 100},
+		{Remain: 400, EndsAt: now + 100},
+	}, now)
+	if expiresAt != now+100 || remain != 400 {
 		t.Fatalf("expiresAt=%d remain=%v", expiresAt, remain)
+	}
+	if got, left := soonestExpiryAt([]providers.QuotaPackage{{Remain: 10, EndsAt: now - 1}}, now); got != 0 || left != 0 {
+		t.Fatalf("expired-only summary = %d/%v", got, left)
+	}
+}
+
+func TestUserResourcePackageScopeClearedForEnterpriseAndIncompletePage(t *testing.T) {
+	pack := func() map[string]any {
+		return map[string]any{
+			"CycleCapacitySize": 100, "CycleCapacityRemain": 100,
+			"CycleCapacityUsed": 0, "CycleEndTime": "2027-12-31 23:59:59",
+		}
+	}
+	for _, test := range []struct {
+		name       string
+		credential Credential
+		accounts   []map[string]any
+	}{
+		{
+			name:       "enterprise identity",
+			credential: Credential{AccessToken: "at", RefreshToken: "rt", ExpiresAt: 4102444800, Domain: DomainCN, UID: "u1", EnterpriseID: "ent-1"},
+			accounts:   []map[string]any{pack()},
+		},
+		{
+			name:       "full page",
+			credential: Credential{AccessToken: "at", RefreshToken: "rt", ExpiresAt: 4102444800, Domain: DomainCN, UID: "u1"},
+			accounts: func() []map[string]any {
+				out := make([]map[string]any, 100)
+				for i := range out {
+					out[i] = pack()
+				}
+				return out
+			}(),
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			client, store := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"code": 0,
+					"data": map[string]any{"Response": map[string]any{"Data": map[string]any{"Accounts": test.accounts}}},
+				})
+			}))
+			payload, _ := json.Marshal(test.credential)
+			_ = store.SaveCredentialPayload(context.Background(), "acc1", CredentialFormat, payload)
+			info, err := client.Quota(context.Background(), "acc1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(info.Packages) != len(test.accounts) {
+				t.Fatalf("packages=%d want %d", len(info.Packages), len(test.accounts))
+			}
+			for _, pkg := range info.Packages {
+				if pkg.Scope != "" {
+					t.Fatalf("incomplete/shared package kept FEFO scope: %+v", pkg)
+				}
+			}
+		})
 	}
 }
 

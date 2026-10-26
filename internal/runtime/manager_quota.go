@@ -27,6 +27,11 @@ func (m *Manager) fetchProviderQuota(ctx context.Context, accountID string, prob
 	if prober == nil {
 		return
 	}
+	release, ok := m.acquireQuotaFetch(ctx, accountID)
+	if !ok {
+		return
+	}
+	defer release()
 	info, err := prober.Quota(ctx, accountID)
 	if err != nil || info == nil || !quotaInfoHasWindows(info) {
 		// An empty snapshot is "not fetched yet", not a zero balance. Saving it
@@ -110,6 +115,7 @@ func quotaPackagesFromInfo(packages []providers.QuotaPackage) []accounts.QuotaPa
 			Used:    pkg.Used,
 			Size:    pkg.Size,
 			Unit:    unit,
+			Scope:   pkg.Scope,
 			EndsAt:  pkg.EndsAt,
 			EndTime: pkg.EndTime,
 		})

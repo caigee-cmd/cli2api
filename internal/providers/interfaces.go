@@ -191,10 +191,12 @@ type QuotaWindow struct {
 // QuotaPackage is one upstream credit/resource pack with its own expiry.
 // EndsAt is a Unix second; EndTime is the provider-native wall-clock string.
 type QuotaPackage struct {
-	Remain  float64
-	Used    float64
-	Size    float64
-	Unit    string
+	Remain float64
+	Used   float64
+	Size   float64
+	Unit   string
+	// Scope follows accounts.QuotaPackageScopeAccountFEFO; empty is unknown.
+	Scope   string
 	EndsAt  int64
 	EndTime string
 }
