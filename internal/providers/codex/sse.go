@@ -197,12 +197,31 @@ func (c *streamConverter) handleEvent(event, payload string) {
 			c.emitReasoning(d)
 		}
 	case "response.output_item.added", "response.output_item.done":
+		// The tool name rides on the item; the argument events that follow
+		// carry only the item id. Record it here so the announced tool_call is
+		// never sent with an empty name: a client cannot dispatch a call whose
+		// name is empty, and replaying that empty name in history makes the
+		// upstream reject the whole request.
 		var item struct {
 			Type   string `json:"type"`
-			Status string `json:"status"`
+			ID     string `json:"id"`
+			CallID string `json:"call_id"`
+			Name   string `json:"name"`
 		}
 		if json.Unmarshal(obj["item"], &item) != nil {
 			return
+		}
+		if item.Type != "function_call" && item.Type != "custom_tool_call" {
+			return
+		}
+		var outputIndex int
+		_ = json.Unmarshal(obj["output_index"], &outputIndex)
+		call := c.toolCall(outputIndex, item.ID)
+		if item.Name != "" && call.name == "" {
+			call.name = item.Name
+		}
+		if item.CallID != "" {
+			call.id = item.CallID
 		}
 	case "response.function_call_arguments.delta":
 		var delta struct {
