@@ -543,7 +543,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
           scroll="inside"
           className={step === 'method' ? 'sm:max-w-6xl' : 'sm:max-w-5xl'}
         >
-          <Modal.Dialog>
+          <Modal.Dialog className={step === 'method' ? 'w-full max-w-6xl' : 'w-full max-w-5xl'}>
             <Modal.Header className="relative items-center justify-center px-12 pt-5 text-center">
               <div className="min-w-0">
                 <Modal.Heading className="text-section font-semibold">{t('addAccountTitle')}</Modal.Heading>

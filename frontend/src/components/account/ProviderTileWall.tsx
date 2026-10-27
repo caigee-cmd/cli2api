@@ -65,7 +65,7 @@ export function ProviderTileWallSkeleton({ ariaLabel }: { ariaLabel: string }) {
             <Skeleton className="h-3 w-24 rounded-lg" />
             <Skeleton className="h-3 w-40 rounded-lg" />
           </div>
-          <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
             {Array.from({ length: section === 0 ? 5 : 6 }, (_, index) => (
               <div key={index} className="flex items-center gap-3.5 rounded-xl bg-surface-secondary px-4 py-4">
                 <Skeleton className="size-10 shrink-0 rounded-lg" />
@@ -132,7 +132,7 @@ function SectionBlock({
         <h3 className="text-[10px] font-semibold tracking-[0.12em] uppercase text-muted">{title}</h3>
         {subtitle ? <p className="text-caption leading-5 text-muted">{subtitle}</p> : null}
       </div>
-      <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
         {tiles.map((tile) => (
           <ProviderTile key={tile.id} tile={tile} disabled={disabled} onSelect={onSelect} />
         ))}
