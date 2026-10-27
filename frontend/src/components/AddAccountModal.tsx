@@ -1,7 +1,7 @@
 import { CopyIcon } from '@/components/motion/CopyIcon'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { duration, ease, gsap } from '@/lib/motion'
-import { Button, Input, Modal, NumberField, Skeleton, TextArea } from '@heroui/react'
+import { Button, Input, Modal, NumberField, TextArea } from '@heroui/react'
 import { ArrowSquareOut, CaretLeft, CaretRight, CheckCircle, FileCode, Key, ShieldCheck, X } from '@phosphor-icons/react'
 import { copyText } from '@/lib/clipboard'
 import { BrandMark } from '@/components/BrandMark'
@@ -10,6 +10,7 @@ import { CompactSwitch } from '@/components/ui/CompactSwitch'
 import { FilterToggle } from '@/components/ui/FilterToggle'
 import { FormRow } from '@/components/ui/FormRow'
 import { OptionTiles } from '@/components/ui/OptionTiles'
+import { ProviderTileWall, ProviderTileWallSkeleton } from '@/components/account/ProviderTileWall'
 import { useI18n } from '@/hooks/useI18n'
 import {
   createAccount,
@@ -80,19 +81,6 @@ const hintKeys: Record<string, string> = {
   'qwenwork-global': 'accountTypeQwenworkGlobalHint',
   'qwenwork-cn': 'accountTypeQwenworkCNHint',
   'kimi-cn': 'accountTypeKimiCNHint',
-}
-
-function AccountTypeSkeleton({ ariaLabel }: { ariaLabel: string }) {
-  return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2" aria-busy="true" aria-label={ariaLabel}>
-      {Array.from({ length: 6 }, (_, index) => (
-        <div key={index} className="flex items-center gap-2.5 rounded-xl bg-surface-secondary px-3 py-2.5">
-          <Skeleton className="size-7 shrink-0 rounded-lg" />
-          <Skeleton className="h-4 w-20 rounded-lg" />
-        </div>
-      ))}
-    </div>
-  )
 }
 
 async function loadProviderOptions(): Promise<ProviderOption[]> {
@@ -190,7 +178,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
       .then((options) => {
         if (cancelled) return
         setProviderOptions(options)
-        setAccountType(options[0]?.id || '')
+        setAccountType('')
         setTab('browser')
       })
       .finally(() => {
@@ -202,7 +190,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
   }, [isOpen])
 
   const activeOption = providerOptions.find((option) => option.id === accountType)
-  const typesReady = Boolean(activeOption) && !typesLoading
+  const typesReady = !typesLoading && providerOptions.length > 0
   const showPatTab = activeOption?.descriptor.capabilities?.pat_login !== false
   const showImportTab = activeOption?.descriptor.capabilities?.import_export !== false
   // Command Code has no browser login (a pasted user_… key is the only auth),
@@ -528,14 +516,6 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
   }
 
   const tabPending = (key: TabKey) => busy && tab === key
-  const typeOptions = providerOptions.map((option) => ({
-    value: option.id,
-    label: optionLabel(option, t),
-    hint: optionHint(option, t),
-    icon: <ProviderMark provider={option.provider} size={18} />,
-    disabled: settingsLocked,
-  }))
-
   const isZhipu = activeOption?.provider === 'zhipu'
   const methodOptions = [
     activeOption?.descriptor.capabilities?.browser_login !== false
@@ -558,7 +538,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
   return (
     <Modal.Root isOpen={isOpen} onOpenChange={(next: boolean) => { if (!next) close() }}>
       <Modal.Backdrop variant="blur" isDismissable={!busy}>
-        <Modal.Container size="lg" scroll="inside" className="sm:max-w-4xl">
+        <Modal.Container size="lg" scroll="inside" className="sm:max-w-5xl">
           <Modal.Dialog>
             <Modal.Header className="relative items-center justify-center px-12 pt-5 text-center">
               <div className="min-w-0">
@@ -575,16 +555,26 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                 <>
                   <section className="space-y-2.5">
                     {typesLoading ? (
-                      <AccountTypeSkeleton ariaLabel={t('accountType')} />
+                      <ProviderTileWallSkeleton ariaLabel={t('accountType')} />
                     ) : !typesReady ? (
                       <p className="rounded-lg bg-surface-secondary/45 px-3.5 py-3 text-caption leading-5 text-muted">{t('accountTypeHint')}</p>
                     ) : (
-                      <OptionTiles
+                      <ProviderTileWall
                         ariaLabel={t('accountType')}
-                        columns={2}
-                        value=""
-                        onChange={chooseProvider}
-                        options={typeOptions}
+                        options={providerOptions.map((option) => {
+                          const regionLabel = option.descriptor.regions.find((r) => r.id === option.region)?.label
+                            || regionLabels[option.region]
+                            || ''
+                          return {
+                            id: option.id,
+                            provider: option.provider,
+                            label: optionLabel(option, t),
+                            subtitle: regionLabel,
+                            hint: optionHint(option, t),
+                          }
+                        })}
+                        onSelect={chooseProvider}
+                        disabled={settingsLocked}
                       />
                     )}
                   </section>

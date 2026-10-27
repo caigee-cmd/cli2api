@@ -14,6 +14,7 @@ import { AccessPageSkeleton } from '@/components/ui/PageSkeletons'
 import { ProviderMark } from '@/components/ProviderMark'
 import { accountProviderLabel } from '@/lib/provider'
 import { EndpointList } from '@/components/EndpointList'
+import { CaiaiSoftLink } from '@/components/CaiaiSoftLink'
 import { ChatComposer, type ComposerOption } from '@/components/access/ChatComposer'
 import { ChatThread } from '@/components/access/ChatThread'
 import { RawApiPanel } from '@/components/access/RawApiPanel'
@@ -368,7 +369,10 @@ export function AccessPage() {
       </section>
 
       {!accounts.length ? (
-        <p className="px-1 text-caption text-muted">{t('noAccountsForTest')}</p>
+        <div className="space-y-1 px-1">
+          <p className="text-caption text-muted">{t('noAccountsForTest')}</p>
+          <CaiaiSoftLink />
+        </div>
       ) : null}
 
       {modelsError ? (
