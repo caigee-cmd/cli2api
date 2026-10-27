@@ -858,6 +858,148 @@ func TestChatStreamRewritesOpenAIChunks(t *testing.T) {
 	}
 }
 
+const soloSSEStopWithTools = "event: metadata\ndata: {\"model\":\"glm-5.2\"}\n\n" +
+	"event: output\ndata: {\"response\":\"Yes\",\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\",\"function_call\":{\"name\":\"get_time\",\"arguments\":\"{}\"}}]}\n\n" +
+	"event: token_usage\ndata: {\"prompt_tokens\":3,\"completion_tokens\":2}\n\n" +
+	"event: done\ndata: {\"finish_reason\":\"stop\"}\n\n"
+
+func TestChatNonStreamSalvagesStopFinishReasonWithToolCalls(t *testing.T) {
+	payload, _ := Credential{AccessToken: "at", RefreshToken: "rt", UID: "u1", Domain: DomainCN, ExpiresAt: 4102444800}.Encode()
+	store := &memStore{items: map[string][]byte{"acc1": payload}}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == pathModels {
+			_ = json.NewEncoder(w).Encode(map[string]any{"config_info_list": []map[string]any{{
+				"config_name": "glm-5.2", "display_config": map[string]any{"display_name": "GLM-5.2"},
+			}}})
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(soloSSEStopWithTools))
+	}))
+	defer server.Close()
+	client := NewClient(store)
+	client.http = server.Client()
+	client.http.Transport = rewriteTransport{server: server.URL, round: server.Client().Transport}
+	out, err := client.ChatNonStream(context.Background(), "acc1", translate.ChatRequest{Model: "glm-5.2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.FinishReason != "tool_calls" {
+		t.Fatalf("finish=%q", out.FinishReason)
+	}
+	if !strings.Contains(string(out.ToolCalls), "get_time") {
+		t.Fatalf("tool calls=%s", out.ToolCalls)
+	}
+}
+
+func TestChatStreamSalvagesStopFinishReasonWithToolCalls(t *testing.T) {
+	payload, _ := Credential{AccessToken: "at", RefreshToken: "rt", UID: "u1", ExpiresAt: 4102444800}.Encode()
+	store := &memStore{items: map[string][]byte{"acc1": payload}}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == pathModels {
+			_ = json.NewEncoder(w).Encode(map[string]any{"config_info_list": []map[string]any{{
+				"config_name": "glm-5.2", "display_config": map[string]any{"display_name": "GLM-5.2"},
+			}}})
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(soloSSEStopWithTools))
+	}))
+	defer server.Close()
+	client := NewClient(store)
+	client.http = server.Client()
+	client.http.Transport = rewriteTransport{server: server.URL, round: server.Client().Transport}
+	resp, _, err := client.ChatStream(context.Background(), "acc1", translate.ChatRequest{Model: "glm-5.2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), `"finish_reason":"tool_calls"`) {
+		t.Fatalf("stream=%s", body)
+	}
+	if strings.Contains(string(body), `"finish_reason":"stop"`) {
+		t.Fatalf("stop must not win over tool_calls: %s", body)
+	}
+}
+
+func TestChatStreamSalvagesToolCallsWhenDoneMissing(t *testing.T) {
+	stream := "event: metadata\ndata: {\"model\":\"glm-5.2\"}\n\n" +
+		"event: output\ndata: {\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\",\"function_call\":{\"name\":\"get_time\",\"arguments\":\"{}\"}}]}\n\n"
+	payload, _ := Credential{AccessToken: "at", RefreshToken: "rt", UID: "u1", ExpiresAt: 4102444800}.Encode()
+	store := &memStore{items: map[string][]byte{"acc1": payload}}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == pathModels {
+			_ = json.NewEncoder(w).Encode(map[string]any{"config_info_list": []map[string]any{{
+				"config_name": "glm-5.2", "display_config": map[string]any{"display_name": "GLM-5.2"},
+			}}})
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(stream))
+	}))
+	defer server.Close()
+	client := NewClient(store)
+	client.http = server.Client()
+	client.http.Transport = rewriteTransport{server: server.URL, round: server.Client().Transport}
+	resp, _, err := client.ChatStream(context.Background(), "acc1", translate.ChatRequest{Model: "glm-5.2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), `"finish_reason":"tool_calls"`) {
+		t.Fatalf("missing done after tools must salvage tool_calls: %s", body)
+	}
+}
+
+func TestChatRequestForwardsResponseFormat(t *testing.T) {
+	payload, _ := Credential{AccessToken: "at", RefreshToken: "rt", UID: "u1", Domain: DomainCN, ExpiresAt: 4102444800}.Encode()
+	store := &memStore{items: map[string][]byte{"acc1": payload}}
+	var got map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == pathModels {
+			_ = json.NewEncoder(w).Encode(map[string]any{"config_info_list": []map[string]any{{
+				"config_name": "glm-5.2", "display_config": map[string]any{"display_name": "GLM-5.2"},
+			}}})
+			return
+		}
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(soloSSE))
+	}))
+	defer server.Close()
+	client := NewClient(store)
+	client.http = server.Client()
+	client.http.Transport = rewriteTransport{server: server.URL, round: server.Client().Transport}
+	_, err := client.ChatNonStream(context.Background(), "acc1", translate.ChatRequest{
+		Model:          "glm-5.2",
+		ResponseFormat: json.RawMessage(`{"type":"json_object"}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	format, _ := got["response_format"].(map[string]any)
+	if format["type"] != "json_object" {
+		t.Fatalf("response_format=%v", got["response_format"])
+	}
+}
+
+func TestNormalizeFinishReason(t *testing.T) {
+	if got := normalizeFinishReason("stop", true); got != "tool_calls" {
+		t.Fatalf("stop+tools=%q", got)
+	}
+	if got := normalizeFinishReason("", true); got != "tool_calls" {
+		t.Fatalf("empty+tools=%q", got)
+	}
+	if got := normalizeFinishReason("length", true); got != "length" {
+		t.Fatalf("length must stay: %q", got)
+	}
+	if got := normalizeFinishReason("stop", false); got != "stop" {
+		t.Fatalf("stop without tools=%q", got)
+	}
+}
+
 func TestChatStreamFirstErrorFailsBeforeOpenAIChunks(t *testing.T) {
 	payload, _ := Credential{AccessToken: "at", RefreshToken: "rt", UID: "u1", ExpiresAt: 4102444800}.Encode()
 	store := &memStore{items: map[string][]byte{"acc1": payload}}

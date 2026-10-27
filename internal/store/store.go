@@ -96,7 +96,7 @@ func (s *Store) Create(ctx context.Context, input accounts.CreateAccount) (accou
 	maxInFlight := accounts.DefaultMaxInFlightValue(input.MaxInFlight)
 	priority := accounts.DefaultPriorityValue(input.Priority)
 	now := time.Now().UTC()
-	dropSystemPrompt := accounts.DefaultDropSystemPrompt(input.DropSystemPrompt)
+	dropSystemPrompt := accounts.DefaultDropSystemPrompt(descriptor.ID, input.DropSystemPrompt)
 	autoCheckin := accounts.DefaultWorkBuddyAutoCheckin(input.WorkBuddyAutoCheckin)
 	checkinTime, err := s.resolveWorkBuddyCheckinTime(ctx, input.WorkBuddyCheckinTime)
 	if err != nil {
