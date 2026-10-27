@@ -17,6 +17,8 @@ Deploy with Docker, manage accounts in the web console, and connect clients thro
 
 </div>
 
+> **Prefer hosted?** Try [CaiAI](https://caiaiu.com/register?aff=cli2api) — one key, multi-model API gateway (OpenAI / Anthropic compatible).
+
 ## Features
 
 - **Compatible APIs**: Chat Completions, Responses, Anthropic Messages, and model listing, with streaming and function tools.

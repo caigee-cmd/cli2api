@@ -17,6 +17,8 @@
 
 </div>
 
+> **不想自己搭？** 用托管 Gateway [CaiAI](https://caiaiu.com/register?aff=cli2api)——一 Key 多模型，OpenAI / Anthropic 兼容，按量计费。
+
 ## 功能
 
 - **兼容接口**：Chat Completions、Responses、Anthropic Messages 和模型列表，支持流式回复与函数工具调用。
