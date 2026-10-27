@@ -208,7 +208,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
   // Command Code has no browser login (a pasted user_… key is the only auth),
   // so the wizard opens on the PAT tab instead of the browser tab.
   const hasBrowserLogin = activeOption?.descriptor.capabilities?.browser_login !== false
-  const showDropSystem = activeOption?.provider === 'workbuddy'
+  const showDropSystem = activeOption?.provider === 'workbuddy' || activeOption?.provider === 'trae'
   const showCallbackPaste = activeOption?.provider === 'trae' || activeOption?.provider === 'devin' || activeOption?.provider === 'codex'
   const busy = phase === 'busy' || phase === 'polling'
   const settingsLocked = Boolean(createdId.current) || busy
@@ -243,8 +243,9 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
       max_inflight: parsedMaxInFlight(),
       priority: parsedPriority(),
       // WorkBuddy exposes the switch because upstream content screening rejects
-      // third-party system prompts. Kimi Code has no such screening, so a new
-      // Kimi account keeps caller system prompts. Every other provider keeps the
+      // third-party system prompts. Trae and Kimi keep caller system prompts:
+      // clients such as MiMo Code put JSON instructions there, and those
+      // families have no equivalent screening. Every other provider keeps the
       // historical drop=true default.
       drop_system_prompt: showDropSystem ? dropSystemPrompt : activeOption?.provider !== 'kimi',
       proxy_url: proxyUrl.trim(),
@@ -328,6 +329,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
     const option = providerOptions.find((item) => item.id === next)
     setAccountType(next)
     setTab(option?.provider === 'zhipu' ? 'pat' : 'browser')
+    setDropSystemPrompt(option?.provider !== 'trae' && option?.provider !== 'kimi')
     setMessage('')
     setStep('login')
   }
@@ -666,7 +668,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                           <div className="flex items-center justify-between gap-3">
                             <div className="min-w-0">
                               <div className="text-body font-medium text-muted">{t('dropSystemPrompt')}</div>
-                              <p className="mt-0.5 text-caption leading-5 text-muted">{t('dropSystemPromptCreateHint')}</p>
+                              <p className="mt-0.5 text-caption leading-5 text-muted">{t(activeOption?.provider === 'trae' ? 'dropSystemPromptTraeHint' : 'dropSystemPromptCreateHint')}</p>
                             </div>
                             <CompactSwitch
                               isSelected={dropSystemPrompt}
