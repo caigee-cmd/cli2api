@@ -48,6 +48,7 @@ func (a *App) newGateway() *apigateway.Handler {
 	}
 	if a.Manager != nil {
 		h.Catalogs = a.Manager
+		h.AfterAccountUse = a.Manager.RefreshFEFOQuotaAfterUse
 	}
 	if a.Recorder != nil {
 		h.Logs = a.Recorder

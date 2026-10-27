@@ -42,14 +42,14 @@ export function RawApiPanel({
 
   return (
     <section className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0">
+      <div className="min-w-0 space-y-0.5">
+        <div className="flex flex-wrap items-center gap-2.5">
           <h3 className="text-body font-semibold">{t('accessTabApi')}</h3>
-          <p className="mt-0.5 text-caption leading-5 text-muted">{t('nativeApiHint')}</p>
+          <Button size="sm" variant={open ? 'ghost' : 'secondary'} onPress={() => onOpenChange(!open)}>
+            {open ? t('rawApiHide') : t('rawApiShow')}
+          </Button>
         </div>
-        <Button size="sm" variant={open ? 'secondary' : 'ghost'} onPress={() => onOpenChange(!open)}>
-          {open ? t('rawApiHide') : t('rawApiShow')}
-        </Button>
+        <p className="text-caption leading-5 text-muted">{t('nativeApiHint')}</p>
       </div>
 
       {open ? (

@@ -3,6 +3,42 @@
 Published user-facing notes for GitHub Releases and the console update page.
 Write upcoming notes as bilingual files in `changelog/unreleased/`.
 
+## 0.7.13 - 2026-10-27
+
+### English
+
+- Access page: the Show raw API control sits beside the Native API title (not far right), and uses a secondary button when collapsed so it is easier to find.
+- The display catalog now reloads in the background every 10 minutes by default instead of only when a client asks, so a model an upstream adds appears in `/v1/models` without a manual refresh. Set `CLI2API_CATALOG_REFRESH_INTERVAL` (Go duration such as `15m`, or plain minutes) to change the interval; `0` disables the loop.
+- The last successful catalog is persisted in SQLite and restored on boot, and a failed catalog refresh now keeps serving the previous model list instead of returning an empty one.
+- `GET /v1/models` reports `catalog.synced_at` and `catalog.stale` beside `data`; upstream error text stays on the console endpoint so a scoped API key cannot read another provider's failure.
+- `GET /api/model-catalog` (console) returns the catalog sync state with per-provider last success time, last error, and model count; `POST /api/model-catalog` forces a refresh.
+- Codex streaming keeps the function name on tool calls: it is read from `response.output_item.added` instead of the argument events, which carry only the item id. Clients no longer receive a tool call whose `name` is empty, and a session that recorded one no longer has every later request rejected with `Invalid 'input[n].name': empty string`.
+- Add opt-in earliest-expiry-first (FEFO) account routing. It ranks accounts only inside the same provider family by their nearest spendable credit-package expiry, rotates accounts expiring on the same UTC+8 day, and falls back to round-robin when a provider has no package dates. Existing round-robin, weighted round-robin, fill-first, affinity, pinning, region/provider gates, cooldowns, and failover are unchanged.
+- Refresh a FEFO account's quota after each completed response or stream (coalesced per account) and re-probe accounts whose trusted packages all expired, so newly granted or spent credits change the next selection without waiting for a manual refresh.
+- Expose WorkBuddy package expiry as FEFO-eligible only for personal identities with a complete, paginated result. Enterprise/shared identities, full result pages, undated packages, and other providers' reset windows or token lifetimes never invent a priority.
+- Add the FEFO option to System → Account routing strategy and document that Qoder, Trae, Devin, Command Code, and Codex do not currently provide per-package credit expiry, so their accounts stay in the unknown-date cohort.
+- Add the China-region Kimi Code provider: sign in with the official device-code flow (or import the credential the Kimi Code client already stored), discover the subscription's real model list with its context window, thinking efforts, vision and tool support, and serve `/v1/chat/completions`, `/v1/responses` and `/v1/messages` from it.
+- Kimi Code accounts show the four subscription usage windows (5-hour, 7-day, monthly, monthly-code) in the console, refresh their access token automatically, and can be routed alongside every other provider in the account pool.
+- Kimi Code models accept a console reasoning default on the Providers page; a request that does not specify a level uses it, then the model's own default.
+- Kimi Code is import-only: import the credential the client already stored, but export is not offered, because the credential is a bearer token pair and exporting it would hand out the account.
+
+### 中文
+
+- Access 页：「展开原始 API」按钮紧挨「原生 API」标题（不再靠右），收起态使用 secondary 按钮样式，更容易发现。
+- 模型目录改为后台自动刷新，默认每 10 分钟一次，不再只在客户端请求时才拉取，上游新增的模型无需手动刷新就会出现在 `/v1/models`。刷新间隔用 `CLI2API_CATALOG_REFRESH_INTERVAL` 调整（Go duration 如 `15m`，或纯数字表示分钟），设为 `0` 关闭定时刷新。
+- 最近一次成功的模型目录会写入 SQLite 并在启动时恢复；目录刷新失败时继续使用上一次的有效列表，不再返回空列表。
+- `GET /v1/models` 在 `data` 旁边新增 `catalog.synced_at` 与 `catalog.stale`；上游错误文本只留在控制台接口，限定供应商的 API Key 读不到其他供应商的失败原因。
+- 控制台 `GET /api/model-catalog` 返回目录同步状态（每个供应商的上次成功时间、失败原因、模型数量），`POST /api/model-catalog` 立即刷新一次。
+- Codex 流式工具调用保留函数名：名字改从 `response.output_item.added` 的 item 读取，参数事件本身只带 item id。客户端不会再收到 `name` 为空的工具调用，之前记录过这种调用的会话也不会再被 `Invalid 'input[n].name': empty string` 整轮拒绝。
+- 新增可选的同供应商最早到期优先（FEFO）调度：只在同一供应商内按最近可消费积分包到期日排序，同一 UTC+8 自然日到期的账号公平轮询；供应商没有积分包日期时回退轮询。原有轮询、加权轮询、顺序填满、会话粘性、固定账号、地域/供应商限制、冷却与故障切换保持不变。
+- 每次响应或流结束后异步刷新该账号额度（按账号合并请求），并重新探测积分包已全部过期的账号，让新增或已消耗的积分立即影响下一次选择，无需手动刷新。
+- 仅 WorkBuddy 个人身份且分页结果完整的积分包参与 FEFO 优先级；企业/共享身份、满 100 条的未确认列表、无日期包，以及其他供应商的重置窗口或令牌有效期都不会被伪造成到期优先级。
+- 在「系统 → 账号调度策略」增加 FEFO 选项，并说明 Qoder、Trae、Devin、Command Code、Codex 当前不提供逐包积分到期信息，其账号保持未知日期分组。
+- 新增中国区 Kimi Code Provider：用官方设备码授权登录（也可导入 Kimi Code 客户端已保存的凭证），自动发现该订阅真实可用的模型，以及每个模型的上下文、Thinking 档位、视觉和工具支持，并通过它提供 `/v1/chat/completions`、`/v1/responses` 和 `/v1/messages`。
+- Kimi Code 账号会在控制台显示四个订阅额度窗口（5 小时、7 天、月度、月度 Code），自动刷新访问令牌，并和其他供应商一样进入账号池参与调度。
+- Kimi Code 模型可在「供应商」页设置控制台默认思考强度：请求未指定档位时先用它，再用模型自身的默认档位。
+- Kimi Code 只支持导入、不支持导出：可以导入客户端已保存的凭证，但控制台不提供导出，因为凭证是一对 bearer token，导出等于把账号交出去。
+
 ## 0.7.12 - 2026-10-25
 
 ### English

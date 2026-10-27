@@ -106,6 +106,9 @@ type RouteQuery struct {
 	// protocol (for example native Responses input the chat form cannot
 	// carry). Nil admits every item.
 	Eligible func(Item) bool
+	// fefoNow is set only by a FEFO pool. Other strategies keep the historical
+	// quota gate, even when a cached package has since expired.
+	fefoNow time.Time
 }
 
 func itemRegion(item Item) string {
@@ -324,7 +327,7 @@ func itemServesFreeModel(item Item, publicModel string) bool {
 }
 
 func routeBaseMatches(item Item, q RouteQuery) bool {
-	if item.Quota != nil && item.Quota.Exceeded && !itemServesFreeModel(item, q.PublicModel) {
+	if routeQuotaExceeded(item, q) {
 		return false
 	}
 	return routeReadyAndScoped(item, q)
@@ -360,7 +363,7 @@ func routeReadyAndScoped(item Item, q RouteQuery) bool {
 // that its quota is exceeded. Free-model accounts are never quota-blocked:
 // they spend no credits, so an exhausted account can still serve them.
 func routeBlockedByQuota(item Item, q RouteQuery) bool {
-	if item.Quota == nil || !item.Quota.Exceeded || itemServesFreeModel(item, q.PublicModel) {
+	if !routeQuotaExceeded(item, q) {
 		return false
 	}
 	return routeReadyAndScoped(item, q) && itemCouldServeModel(item, q.PublicModel)
@@ -489,6 +492,9 @@ func (p *Pool) LenRoute(q RouteQuery) int {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.routingStrategy == RoutingStrategyFEFO {
+		q.fefoNow = time.Now()
+	}
 	count := 0
 	for _, item := range p.items {
 		if routeMatches(item, q) {
@@ -508,6 +514,9 @@ func (p *Pool) QuotaBlockedForModel(q RouteQuery) (Item, bool) {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.routingStrategy == RoutingStrategyFEFO {
+		q.fefoNow = time.Now()
+	}
 	for _, item := range p.items {
 		if routeBlockedByQuota(item, q) {
 			return item, true
@@ -553,6 +562,9 @@ func (p *Pool) PickRoute(q RouteQuery) (Item, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	now := time.Now()
+	if p.routingStrategy == RoutingStrategyFEFO {
+		q.fefoNow = now
+	}
 	eligible := make([]int, 0, len(p.items))
 	for i, item := range p.items {
 		if routeMatches(item, q) {
@@ -652,6 +664,9 @@ func (p *Pool) PickRoute(q RouteQuery) (Item, bool) {
 		}
 	} else {
 		p.lastRegion[key] = itemRegion(available[0])
+	}
+	if p.routingStrategy == RoutingStrategyFEFO {
+		available = fefoCandidates(available, q.PublicModel, now)
 	}
 	if p.routingStrategy == RoutingStrategyFillFirst {
 		picked := pickFillFirst(available)
