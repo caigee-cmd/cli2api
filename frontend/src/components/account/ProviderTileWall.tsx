@@ -58,17 +58,17 @@ function matchesQuery(tile: ProviderTileOption, query: string) {
 
 export function ProviderTileWallSkeleton({ ariaLabel }: { ariaLabel: string }) {
   return (
-    <div className="space-y-6" aria-busy="true" aria-label={ariaLabel}>
+    <div className="space-y-8" aria-busy="true" aria-label={ariaLabel}>
       {Array.from({ length: 2 }, (_, section) => (
         <div key={section} className="space-y-3">
           <div className="space-y-1.5">
             <Skeleton className="h-3 w-24 rounded-lg" />
             <Skeleton className="h-3 w-40 rounded-lg" />
           </div>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {Array.from({ length: section === 0 ? 5 : 6 }, (_, index) => (
-              <div key={index} className="flex items-center gap-3 rounded-xl bg-surface-secondary px-3.5 py-3">
-                <Skeleton className="size-8 shrink-0 rounded-lg" />
+              <div key={index} className="flex items-center gap-3 rounded-xl bg-surface-secondary px-4 py-3.5">
+                <Skeleton className="size-9 shrink-0 rounded-lg" />
                 <div className="min-w-0 flex-1 space-y-1.5">
                   <Skeleton className="h-3.5 w-28 rounded-lg" />
                   <Skeleton className="h-3 w-36 rounded-lg" />
@@ -97,15 +97,15 @@ function ProviderTile({
       disabled={disabled}
       title={tile.hint || tile.subtitle || tile.label}
       onClick={() => onSelect(tile.id)}
-      className="flex min-w-0 items-center gap-3 rounded-xl bg-surface-secondary px-3.5 py-3 text-left transition-colors hover:bg-surface-tertiary disabled:cursor-not-allowed disabled:opacity-50"
+      className="flex min-w-0 items-center gap-3.5 rounded-xl bg-surface-secondary px-4 py-3.5 text-left transition-colors hover:bg-surface-tertiary disabled:cursor-not-allowed disabled:opacity-50"
     >
-      <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-surface text-foreground [&_svg]:size-[18px]">
+      <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-surface text-foreground [&_svg]:size-[18px]">
         <ProviderMark provider={tile.provider} size={18} />
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-body font-medium leading-5 text-foreground">{tile.label}</span>
+        <span className="block text-body font-medium leading-5 text-foreground line-clamp-2">{tile.label}</span>
         {tile.subtitle ? (
-          <span className="mt-0.5 block truncate text-caption leading-4 text-muted">{tile.subtitle}</span>
+          <span className="mt-0.5 block text-caption leading-4 text-muted line-clamp-2">{tile.subtitle}</span>
         ) : null}
       </span>
     </button>
@@ -132,7 +132,7 @@ function SectionBlock({
         <h3 className="text-[10px] font-semibold tracking-[0.12em] uppercase text-muted">{title}</h3>
         {subtitle ? <p className="text-caption leading-5 text-muted">{subtitle}</p> : null}
       </div>
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {tiles.map((tile) => (
           <ProviderTile key={tile.id} tile={tile} disabled={disabled} onSelect={onSelect} />
         ))}
@@ -187,7 +187,7 @@ export function ProviderTileWall({
   const visibleCount = sections.reduce((sum, section) => sum + section.tiles.length, 0)
 
   return (
-    <div className="space-y-5" role="listbox" aria-label={ariaLabel}>
+    <div className="space-y-8" role="listbox" aria-label={ariaLabel}>
       <SearchBar
         value={query}
         onChange={setQuery}
