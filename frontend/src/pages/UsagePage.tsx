@@ -6,6 +6,7 @@ import { fetchRequestStats, type RequestStats, type RequestStatsDim, type Reques
 import { fetchAccounts } from '@/api/overview'
 import type { Overview } from '@/api/types'
 import { StatsWindowControls } from '@/components/overview/StatsWindowControls'
+import { ExpiryDistribution } from '@/components/overview/ExpiryDistribution'
 import { STATS_WINDOW_LABEL, statsQuery, type StatsWindow } from '@/lib/statsWindow'
 import { ProviderMark } from '@/components/ProviderMark'
 import { PageAlert } from '@/components/ui/PageAlert'
@@ -87,7 +88,7 @@ export function UsagePage() {
   const navigate = useNavigate()
   const [pageTab, setPageTab] = useState<PageTab>('stats')
   const [dim, setDim] = useState<RequestStatsDim>('model')
-  const [statsWindow, setStatsWindow] = useState<StatsWindow>('24')
+  const [statsWindow, setStatsWindow] = useState<StatsWindow>('today')
   const [customRange, setCustomRange] = useState<DateRangeValue | null>(null)
   const [stats, setStats] = useState<RequestStats | null>(null)
   const [loading, setLoading] = useState(true)
@@ -329,6 +330,8 @@ export function UsagePage() {
           </>
         )}
       </Card>
+
+      <ExpiryDistribution accounts={accounts} t={t} />
     </>
   )
 
