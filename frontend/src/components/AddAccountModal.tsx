@@ -541,7 +541,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
         <Modal.Container
           size="lg"
           scroll="inside"
-          className={step === 'method' ? 'w-[min(1100px,94vw)] max-w-none' : 'sm:max-w-5xl'}
+          className={step === 'method' ? 'sm:max-w-6xl' : 'sm:max-w-5xl'}
         >
           <Modal.Dialog>
             <Modal.Header className="relative items-center justify-center px-12 pt-5 text-center">
@@ -553,7 +553,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
               </div>
               <Modal.CloseTrigger aria-label={t('close')} className="absolute right-4 top-4 grid size-8 shrink-0 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-secondary hover:text-foreground"><X size={16} /></Modal.CloseTrigger>
             </Modal.Header>
-            <Modal.Body className={step === 'method' ? 'px-8 pb-4 sm:px-10' : 'px-6 pb-2'}>
+            <Modal.Body className={step === 'method' ? 'px-8 pb-5 sm:px-10' : 'px-6 pb-2'}>
               <div ref={stepBody}>
               {step === 'method' ? (
                 <>
