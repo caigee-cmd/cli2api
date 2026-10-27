@@ -246,6 +246,8 @@ CREATE TABLE IF NOT EXISTS account_enabled_models (
   model_id TEXT NOT NULL,
   PRIMARY KEY (account_id, model_id)
 	);`},
+	{filename: "024_trae_keep_system_prompt.sql", sql: `
+UPDATE accounts SET drop_system_prompt = 0 WHERE provider = 'trae';`},
 }
 
 const schemaMigrationsDDL = `

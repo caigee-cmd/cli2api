@@ -392,6 +392,68 @@ func TestStoreDefaultsDropSystemPromptOn(t *testing.T) {
 	}
 }
 
+func TestStoreDefaultsTraeKeepsSystemPrompt(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	account, err := store.Create(ctx, accounts.CreateAccount{Name: "trae", Provider: "trae", Region: "cn"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if account.DropSystemPrompt {
+		t.Fatalf("new trae account must keep system prompts: %+v", account)
+	}
+	on := true
+	explicit, err := store.Create(ctx, accounts.CreateAccount{
+		Name: "trae-drop", Provider: "trae", Region: "cn", DropSystemPrompt: &on,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !explicit.DropSystemPrompt {
+		t.Fatalf("explicit trae drop must stick: %+v", explicit)
+	}
+}
+
+func TestStoreMigratesExistingTraeToKeepSystemPrompt(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "qoder.db")
+	store, err := OpenStore(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	account, err := store.Create(ctx, accounts.CreateAccount{
+		Name: "legacy-trae", Provider: "trae", Region: "cn", DropSystemPrompt: boolPtr(true),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.DB().ExecContext(ctx, `UPDATE accounts SET drop_system_prompt = 1 WHERE id = ?`, account.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.DB().ExecContext(ctx, `DELETE FROM schema_migrations WHERE filename = ?`, "024_trae_keep_system_prompt.sql"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := OpenStore(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	got, err := reopened.Get(ctx, account.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.DropSystemPrompt {
+		t.Fatalf("migration 024 must keep existing trae system prompts: %+v", got)
+	}
+}
+
 func TestStoreCreateHonorsDropSystemPromptAndInFlight(t *testing.T) {
 	ctx := context.Background()
 	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))

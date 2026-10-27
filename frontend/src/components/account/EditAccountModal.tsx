@@ -81,7 +81,7 @@ export function EditAccountModal({ account, checkinDefaultTime, checkinTimezone,
         priority,
         proxy_url: proxyUrl.trim(),
         checkin_time: checkinDefaultTime !== undefined ? (inheritCheckinTime ? '' : checkinTime ?? checkinDefaultTime) : undefined,
-        drop_system_prompt: account?.provider === 'workbuddy' ? dropSystemPrompt : undefined,
+        drop_system_prompt: account?.provider === 'workbuddy' || account?.provider === 'trae' ? dropSystemPrompt : undefined,
         model_aliases: Object.fromEntries(aliases.filter((item) => item.alias.trim() && item.model.trim()).map((item) => [item.alias.trim(), item.model.trim()])),
         enabled_models: restrictModels ? enabledModels : [],
         set_model_routing: true,
@@ -178,8 +178,8 @@ export function EditAccountModal({ account, checkinDefaultTime, checkinTimezone,
                     disabled={busy}
                   />
                 </FormRow>
-                {account?.provider === 'workbuddy' ? (
-                  <FormRow label={t('dropSystemPrompt')} hint={t('dropSystemPromptHint')}>
+                {account?.provider === 'workbuddy' || account?.provider === 'trae' ? (
+                  <FormRow label={t('dropSystemPrompt')} hint={t(account?.provider === 'trae' ? 'dropSystemPromptTraeHint' : 'dropSystemPromptHint')}>
                     <CompactSwitch
                       isSelected={dropSystemPrompt}
                       isDisabled={busy}

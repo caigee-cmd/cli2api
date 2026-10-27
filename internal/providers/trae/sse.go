@@ -162,7 +162,7 @@ func Aggregate(reader io.Reader) (map[string]any, error) {
 	result["choices"] = []map[string]any{{
 		"index":         0,
 		"message":       message,
-		"finish_reason": finishReason,
+		"finish_reason": normalizeFinishReason(finishReason, len(toolCalls) > 0),
 	}}
 	return result, nil
 }
@@ -251,6 +251,7 @@ func startSoloRewrite(src io.ReadCloser, upstream io.Closer, model string) (*htt
 		var pendingUsage any
 		var lastUsage any
 		ended := false
+		hasToolCalls := false
 		writeChunk := func(delta map[string]any, finish string, usage any) error {
 			chunk := map[string]any{
 				"id":      id,
@@ -304,6 +305,7 @@ func startSoloRewrite(src io.ReadCloser, upstream io.Closer, model string) (*htt
 				if len(out.ToolCalls) > 0 && string(out.ToolCalls) != "null" {
 					if remapped := remapToolCallsJSON(out.ToolCalls); remapped != nil {
 						delta["tool_calls"] = remapped
+						hasToolCalls = true
 					}
 				}
 				if len(delta) == 0 {
@@ -321,10 +323,7 @@ func startSoloRewrite(src io.ReadCloser, upstream io.Closer, model string) (*htt
 					FinishReason string `json:"finish_reason"`
 				}
 				_ = json.Unmarshal(ev.Data, &done)
-				finish := done.FinishReason
-				if finish == "" {
-					finish = "stop"
-				}
+				finish := normalizeFinishReason(done.FinishReason, hasToolCalls)
 				usage := pendingUsage
 				if usage == nil && lastUsage != nil {
 					usage = lastUsage
@@ -352,7 +351,7 @@ func startSoloRewrite(src io.ReadCloser, upstream io.Closer, model string) (*htt
 			if usage == nil && lastUsage != nil {
 				usage = lastUsage
 			}
-			_ = writeChunk(map[string]any{}, "stop", usage)
+			_ = writeChunk(map[string]any{}, normalizeFinishReason("stop", hasToolCalls), usage)
 			_, _ = io.WriteString(pw, "data: [DONE]\n\n")
 		}
 		if err != nil {
@@ -539,6 +538,22 @@ func mergeSoloToolCalls(merged map[int]map[string]any, order *[]int, raw json.Ra
 			}
 		}
 	}
+}
+
+// normalizeFinishReason maps Solo's finish_reason onto OpenAI's. Solo often
+// reports "stop" even after emitting tool_calls; clients such as MiMo Code
+// treat that as a final answer and abort the tool loop.
+func normalizeFinishReason(reason string, hasToolCalls bool) string {
+	switch strings.ToLower(strings.TrimSpace(reason)) {
+	case "length":
+		return "length"
+	case "tool-calls", "tool_calls", "tool_use", "tool-use":
+		return "tool_calls"
+	}
+	if hasToolCalls {
+		return "tool_calls"
+	}
+	return "stop"
 }
 
 func remapToolCallsJSON(raw json.RawMessage) []any {

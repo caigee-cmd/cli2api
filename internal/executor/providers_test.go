@@ -274,6 +274,29 @@ func TestInProcessKeepSystemPromptWhenFlagOff(t *testing.T) {
 	}
 }
 
+func TestInProcessTraeKeepsSystemPromptWhenFlagOff(t *testing.T) {
+	pool := NewPool(nil, nil)
+	pool.Upsert(Item{ID: "t1", Provider: "trae", Runtime: "in_process"})
+	registry := providers.NewRegistry()
+	fake := &systemObservingChat{}
+	registry.Register(providers.Adapter{ID: "trae", Chat: fake})
+
+	ex := NewChatExecutor(pool, "")
+	ex.Providers = registry
+	_, err := ex.ChatNonStream(context.Background(), translate.ChatRequest{
+		Model: "glm-5.2", Messages: []translate.ChatMessage{
+			{Role: "system", Content: "return JSON only"},
+			{Role: "user", Content: "hi"},
+		},
+	}, "", "trae")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fake.sawSystem) != 1 || !fake.sawSystem[0] {
+		t.Fatalf("trae must keep system prompts when the flag is off: %v", fake.sawSystem)
+	}
+}
+
 type contentRejectedChat struct {
 	calls int
 }

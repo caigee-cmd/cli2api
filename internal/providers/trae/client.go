@@ -1030,14 +1030,18 @@ func settingModelKey(model string) string {
 }
 
 func (c *Client) chatRequest(ctx context.Context, credential Credential, req translate.ChatRequest, accountID string) (*http.Request, providers.ResolvedChat, error) {
-	payload, err := json.Marshal(map[string]any{
+	body := map[string]any{
 		"model":       req.Model,
 		"messages":    req.Messages,
 		"max_tokens":  req.MaxTokens,
 		"temperature": req.Temperature,
 		"tools":       req.Tools,
 		"tool_choice": req.ToolChoice,
-	})
+	}
+	if len(req.ResponseFormat) > 0 && string(req.ResponseFormat) != "null" {
+		body["response_format"] = json.RawMessage(req.ResponseFormat)
+	}
+	payload, err := json.Marshal(body)
 	if err != nil {
 		return nil, providers.ResolvedChat{}, err
 	}
@@ -1192,9 +1196,8 @@ func outcomeFromAggregate(aggregate map[string]any, fallbackModel string) (provi
 		out.Content = parsed.Choices[0].Message.Content
 		out.Reasoning = parsed.Choices[0].Message.ReasoningContent
 		out.ToolCalls = parsed.Choices[0].Message.ToolCalls
-		if parsed.Choices[0].FinishReason != "" {
-			out.FinishReason = parsed.Choices[0].FinishReason
-		}
+		hasTools := len(out.ToolCalls) > 0 && string(out.ToolCalls) != "null"
+		out.FinishReason = normalizeFinishReason(parsed.Choices[0].FinishReason, hasTools)
 	}
 	out.PromptTokens = parsed.Usage.PromptTokens
 	out.CompletionTokens = parsed.Usage.CompletionTokens
