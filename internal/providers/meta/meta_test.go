@@ -345,3 +345,46 @@ func TestMuseAliasResolves(t *testing.T) {
 		t.Fatalf("get muse=%v ok=%v", d.ID, ok)
 	}
 }
+
+
+func TestAccountProxyOverridesGlobal(t *testing.T) {
+	store := newFakeStore()
+	store.addAccount("a1")
+	store.mu.Lock()
+	account := store.accounts["a1"]
+	account.ProxyURL = "http://account-proxy.example:8080"
+	store.accounts["a1"] = account
+	store.secrets["proxy_url"] = "http://global-proxy.example:8080"
+	store.mu.Unlock()
+
+	client := NewClient(store)
+	got, err := client.effectiveProxy(context.Background(), "a1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "http://account-proxy.example:8080" {
+		t.Fatalf("effectiveProxy=%q", got)
+	}
+
+	httpClient, err := client.httpClient(context.Background(), "a1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport, ok := httpClient.Transport.(*http.Transport)
+	if !ok || transport.Proxy == nil {
+		t.Fatalf("transport=%#v", httpClient.Transport)
+	}
+	req, _ := http.NewRequest(http.MethodGet, "https://api.meta.ai/", nil)
+	proxyURL, err := transport.Proxy(req)
+	if err != nil || proxyURL == nil || proxyURL.String() != "http://account-proxy.example:8080" {
+		t.Fatalf("proxy=%v err=%v", proxyURL, err)
+	}
+}
+
+func TestEffectiveProxyGetFailureNotSwallowed(t *testing.T) {
+	store := newFakeStore()
+	client := NewClient(store)
+	if _, err := client.effectiveProxy(context.Background(), "missing"); err == nil {
+		t.Fatal("expected account lookup error")
+	}
+}

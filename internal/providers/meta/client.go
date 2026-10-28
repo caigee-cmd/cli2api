@@ -73,23 +73,33 @@ func (c *Client) globalProxy(ctx context.Context) (string, error) {
 		return "", nil
 	}
 	value, found, err := store.GetSecret(ctx, "proxy_url")
-	if err != nil || !found {
-		return "", err
+	if err != nil {
+		return "", fmt.Errorf("load global proxy setting: %w", err)
+	}
+	if !found {
+		return "", nil
 	}
 	return strings.TrimSpace(value), nil
 }
 
+func (c *Client) effectiveProxy(ctx context.Context, accountID string) (string, error) {
+	if strings.TrimSpace(accountID) == "" {
+		return c.globalProxy(ctx)
+	}
+	account, err := c.store.Get(ctx, accountID)
+	if err != nil {
+		return "", err
+	}
+	if value := strings.TrimSpace(account.ProxyURL); value != "" {
+		return value, nil
+	}
+	return c.globalProxy(ctx)
+}
+
 func (c *Client) httpClient(ctx context.Context, accountID string) (*http.Client, error) {
-	proxyURL, err := c.globalProxy(ctx)
+	proxyURL, err := c.effectiveProxy(ctx, accountID)
 	if err != nil {
 		return nil, err
-	}
-	if accountID != "" {
-		if account, accErr := c.store.Get(ctx, accountID); accErr == nil {
-			if p := strings.TrimSpace(account.ProxyURL); p != "" {
-				proxyURL = p
-			}
-		}
 	}
 	transport, err := c.transports.Get(proxyURL)
 	if err != nil {

@@ -22,7 +22,7 @@ type loginState struct {
 
 // StartLogin opens a device-authorization round (no loopback).
 func (c *Client) StartLogin(ctx context.Context, accountID string) (providers.LoginSession, error) {
-	authorization, err := c.requestDeviceCode(ctx)
+	authorization, err := c.requestDeviceCode(ctx, accountID)
 	if err != nil {
 		return providers.LoginSession{}, err
 	}
@@ -80,7 +80,7 @@ func (c *Client) PollLogin(ctx context.Context, accountID string) (bool, string,
 	state.lastPolled = now
 	c.mu.Unlock()
 
-	result, err := c.pollDeviceToken(ctx, state.deviceCode)
+	result, err := c.pollDeviceToken(ctx, accountID, state.deviceCode)
 	if err != nil {
 		return false, "", err
 	}
@@ -106,7 +106,7 @@ func (c *Client) PollLogin(ctx context.Context, accountID string) (bool, string,
 		return false, fmt.Sprintf("the code expired; open %s and enter %s", session.AuthURL, session.State), nil
 	}
 
-	minted, err := c.mintAPIKey(ctx, result.Token.AccessToken)
+	minted, err := c.mintAPIKey(ctx, accountID, result.Token.AccessToken)
 	if err != nil {
 		return false, "", err
 	}
