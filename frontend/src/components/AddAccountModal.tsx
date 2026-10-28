@@ -590,7 +590,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                 </>
               ) : (
                 <>
-                  <div className="flex items-center gap-3 rounded-lg bg-surface-secondary/45 px-3 py-2.5">
+                  <div className="card flex flex-row items-center gap-3 rounded-xl bg-surface px-3 py-2.5">
                     <span className="shrink-0"><ProviderMark provider={activeOption?.provider} size={18} /></span>
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-body font-medium text-foreground">{activeOption ? optionLabel(activeOption, t) : t('accountType')}</div>
@@ -622,7 +622,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                       {t('wizardAdvanced')}
                     </button>
                     {advancedOpen ? (
-                      <div className="space-y-3 rounded-lg bg-surface-secondary px-3.5 py-3.5">
+                      <div className="card gap-3 rounded-xl bg-surface px-3.5 py-3.5">
                         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                           <div className="space-y-1.5">
                             <Label className="text-body font-medium text-muted">{t('maxInflight')}</Label>
@@ -761,7 +761,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                           />
                         ) : null}
                         {authUrl ? (
-                          <div className="rounded-lg bg-surface-secondary px-3 py-2.5">
+                          <div className="card rounded-xl bg-surface px-3 py-2.5">
                             <div className="flex items-center gap-2 text-caption">
                               <StatusIcon phase={phase} busy={busy} tab={tab} forTab="browser" />
                               <span className="text-muted">{message || t('loginOpenMsg')}</span>

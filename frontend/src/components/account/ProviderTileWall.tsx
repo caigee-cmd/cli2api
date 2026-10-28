@@ -65,9 +65,9 @@ export function ProviderTileWallSkeleton({ ariaLabel }: { ariaLabel: string }) {
             <Skeleton className="h-3 w-24 rounded-lg" />
             <Skeleton className="h-3 w-40 rounded-lg" />
           </div>
-          <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {Array.from({ length: section === 0 ? 5 : 6 }, (_, index) => (
-              <div key={index} className="flex items-center gap-3.5 rounded-xl bg-surface-secondary px-4 py-4">
+              <div key={index} className="card flex flex-row items-center gap-3.5 rounded-xl bg-surface px-4 py-3.5">
                 <Skeleton className="size-10 shrink-0 rounded-lg" />
                 <div className="min-w-0 flex-1 space-y-1.5">
                   <Skeleton className="h-3.5 w-28 rounded-lg" />
@@ -97,15 +97,15 @@ function ProviderTile({
       disabled={disabled}
       title={tile.hint || tile.subtitle || tile.label}
       onClick={() => onSelect(tile.id)}
-      className="flex min-w-0 items-center gap-3.5 rounded-xl bg-surface-secondary px-4 py-4 text-left transition-[transform,opacity,background-color] duration-200 ease-out hover:bg-surface-tertiary active:translate-y-px active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:translate-y-0 motion-reduce:active:scale-100 disabled:cursor-not-allowed disabled:opacity-50 disabled:active:translate-y-0 disabled:active:scale-100"
+      className="card flex min-w-0 flex-row items-center gap-3 rounded-xl bg-surface px-3.5 py-3 text-left transition-[transform,opacity,background-color] duration-200 ease-out hover:bg-surface-secondary active:translate-y-px active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:translate-y-0 motion-reduce:active:scale-100 disabled:cursor-not-allowed disabled:opacity-50 disabled:active:translate-y-0 disabled:active:scale-100"
     >
-      <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-surface text-foreground [&_svg]:size-[18px]">
+      <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-surface-secondary text-foreground [&_svg]:size-[18px]">
         <ProviderMark provider={tile.provider} size={18} />
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block text-body font-medium leading-5 text-foreground line-clamp-2">{tile.label}</span>
+        <span className="block truncate text-body font-medium leading-5 text-foreground">{tile.label}</span>
         {tile.subtitle ? (
-          <span className="mt-0.5 block text-caption leading-4 text-muted line-clamp-1">{tile.subtitle}</span>
+          <span className="mt-0.5 block truncate text-caption leading-4 text-muted">{tile.subtitle}</span>
         ) : null}
       </span>
     </button>
@@ -132,7 +132,7 @@ function SectionBlock({
         <h3 className="text-[10px] font-semibold tracking-[0.12em] uppercase text-muted">{title}</h3>
         {subtitle ? <p className="text-caption leading-5 text-muted">{subtitle}</p> : null}
       </div>
-      <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {tiles.map((tile) => (
           <ProviderTile key={tile.id} tile={tile} disabled={disabled} onSelect={onSelect} />
         ))}
