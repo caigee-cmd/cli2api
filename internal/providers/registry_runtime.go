@@ -17,7 +17,11 @@ func NewRegistry() *Registry {
 }
 
 func canonicalProviderID(id string) string {
-	return strings.ToLower(strings.TrimSpace(id))
+	id = strings.ToLower(strings.TrimSpace(id))
+	if id == "muse" {
+		return "meta"
+	}
+	return id
 }
 
 func (r *Registry) Register(adapter Adapter) {

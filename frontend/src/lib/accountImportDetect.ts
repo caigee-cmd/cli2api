@@ -28,6 +28,8 @@ const FORMAT_TO_PROVIDER: Record<string, string> = {
   'codex-oauth-v1': 'codex',
   'zhipu-key-v1': 'zhipu',
   'qwenwork-oauth-v1': 'qwenwork',
+  'meta-oauth-v1': 'meta',
+  'meta-key-v1': 'meta',
 }
 
 const CN_DOMAIN_MARKERS = ['codebuddy.cn']
@@ -114,10 +116,25 @@ function detectByShape(bundle: Record<string, unknown>): {
   if (hasTokenField(bundle) || (isPlainObject(bundle.account) && hasTokenField(bundle.account)) || isPlainObject(bundle.auth)) {
     return { format: 'workbuddy-oauth-v1', provider: 'workbuddy', confidence: 'low' }
   }
+  if (
+    typeof bundle.dca_token === 'string'
+    || typeof bundle.dcaToken === 'string'
+    || (typeof bundle.access_token === 'string' && String(bundle.access_token).startsWith('dca:'))
+    || (typeof bundle.accessToken === 'string' && String(bundle.accessToken).startsWith('dca:'))
+  ) {
+    return { format: 'meta-oauth-v1', provider: 'meta', confidence: 'medium' }
+  }
   if (typeof bundle.api_key === 'string' || typeof bundle.apiKey === 'string') {
-    // Ambiguous between zhipu / command — leave provider null unless more hints.
+    // Ambiguous between zhipu / command / meta — leave provider null unless more hints.
     if (typeof bundle.organization === 'string' || typeof bundle.project === 'string') {
       return { format: 'zhipu-key-v1', provider: 'zhipu', confidence: 'low' }
+    }
+    if (
+      typeof bundle.base_url === 'string' && String(bundle.base_url).includes('meta.ai')
+      || typeof bundle.baseUrl === 'string' && String(bundle.baseUrl).includes('meta.ai')
+      || typeof bundle.email === 'string'
+    ) {
+      return { format: 'meta-key-v1', provider: 'meta', confidence: 'low' }
     }
     return { format: 'command-key-v1', provider: 'command', confidence: 'low' }
   }

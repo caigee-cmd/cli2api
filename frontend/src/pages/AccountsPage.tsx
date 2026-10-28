@@ -16,6 +16,7 @@ import { AddAccountModal } from '@/components/AddAccountModal'
 import { BrandMark } from '@/components/BrandMark'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { EmptyPanel } from '@/components/ui/EmptyPanel'
+import { CaiaiSoftLink } from '@/components/CaiaiSoftLink'
 import { PageAlert } from '@/components/ui/PageAlert'
 import { FilterToggle } from '@/components/ui/FilterToggle'
 import { ACCOUNT_PAGE_SIZES, ListPager, type PageSize } from '@/components/ui/ListPager'
@@ -580,13 +581,18 @@ export function AccountsPage() {
 
 
       {!hasAccounts ? (
-        <EmptyPanel
-          className="rounded-3xl bg-surface-secondary"
-          icon={<BrandMark size={28} />}
-          title={t('noAccounts')}
-          hint={t('accountEmptyHint')}
-          action={<Button size="sm" onPress={() => setAddOpen(true)}><Plus size={14} />{t('addAccount')}</Button>}
-        />
+        <div className="space-y-3">
+          <EmptyPanel
+            className="rounded-3xl bg-surface-secondary"
+            icon={<BrandMark size={28} />}
+            title={t('noAccounts')}
+            hint={t('accountEmptyHint')}
+            action={<Button size="sm" onPress={() => setAddOpen(true)}><Plus size={14} />{t('addAccount')}</Button>}
+          />
+          <div className="text-center">
+            <CaiaiSoftLink />
+          </div>
+        </div>
       ) : null}
 
       {hasAccounts && !filteredRows.length ? (

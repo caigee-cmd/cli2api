@@ -176,63 +176,6 @@ export type RequestStats = {
   series: RequestStatsPoint[]
 }
 
-export type RequestUsageTotals = {
-  total_tokens: number
-  prompt_tokens: number
-  completion_tokens: number
-  cache_hit_tokens: number
-  cache_miss_tokens: number
-  requests: number
-  errors: number
-  avg_latency_ms?: number | null
-  avg_tokens_per_second?: number | null
-  credits: number
-  credit_tokens: number
-  credit_samples: number
-  credits_per_1m_tokens?: number | null
-  success_rate: number
-}
-
-export type RequestUsageRow = {
-  key: string
-  realm?: string
-  extra?: string
-  total_tokens: number
-  prompt_tokens: number
-  completion_tokens: number
-  cache_hit_tokens: number
-  cache_miss_tokens: number
-  requests: number
-  errors: number
-  avg_latency_ms?: number | null
-  avg_tokens_per_second?: number | null
-}
-
-export type RequestUsageCreditRow = {
-  key: string
-  nickname?: string
-  realm?: string
-  rate?: number | null
-  requests: number
-  credit_samples: number
-  credits: number
-  credit_tokens: number
-  credits_per_1m_tokens?: number | null
-  cache_hit_tokens: number
-  cache_miss_tokens: number
-}
-
-export type RequestUsage = {
-  window: RequestStatsWindow
-  totals: RequestUsageTotals
-  by_account: RequestUsageRow[]
-  by_model: RequestUsageRow[]
-  by_realm: RequestUsageRow[]
-  credit_by_account: RequestUsageCreditRow[]
-  credit_by_model: RequestUsageCreditRow[]
-  series: RequestStatsPoint[]
-}
-
 export type RequestLogQuery = {
   account?: string
   status?: string
@@ -262,15 +205,6 @@ export function fetchRequestStats(query: { hours?: number; from?: string; to?: s
   if (query.to) params.set('to', query.to)
   const suffix = params.toString() ? `?${params}` : ''
   return api<RequestStats>(`/api/logs/stats${suffix}`)
-}
-
-export function fetchRequestUsage(query: { hours?: number; from?: string; to?: string } = {}) {
-  const params = new URLSearchParams()
-  if (query.hours != null) params.set('hours', String(query.hours))
-  if (query.from) params.set('from', query.from)
-  if (query.to) params.set('to', query.to)
-  const suffix = params.toString() ? `?${params}` : ''
-  return api<RequestUsage>(`/api/logs/usage${suffix}`)
 }
 
 export function fetchRequestLogs(query: RequestLogQuery = {}) {

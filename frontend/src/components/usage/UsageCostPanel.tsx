@@ -12,7 +12,14 @@ import { formatCNY, formatCompact, formatCredits, formatUnitPrice } from '@/lib/
 
 const CostChart = lazy(() => import('@/components/usage/CostChart').then((mod) => ({ default: mod.CostChart })))
 
-type UsageWindow = '24' | '168' | 'all'
+type UsageWindow = 'today' | '24' | '168' | 'all'
+
+/** Local midnight as an ISO instant — the start of the "today" calendar range. */
+function todayStart() {
+  const start = new Date()
+  start.setHours(0, 0, 0, 0)
+  return start.toISOString()
+}
 
 const EMPTY_BREAKDOWN: CostBreakdown = {
   window: { from: '', to: '', hours: 24 },
@@ -35,7 +42,7 @@ function pct(part: number, whole: number) {
 
 export function UsageCostPanel() {
   const { t, lang } = useI18n()
-  const [window, setWindow] = useState<UsageWindow>('all')
+  const [window, setWindow] = useState<UsageWindow>('today')
   const [chartMetric, setChartMetric] = useState<CostChartMetric>('credits')
   const [breakdown, setBreakdown] = useState<CostBreakdown | null>(null)
   const [pricing, setPricing] = useState<PricingCatalog | null>(null)
@@ -53,9 +60,13 @@ export function UsageCostPanel() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
+      // "today" is a calendar range (local midnight -> now), matching the
+      // Stats tab and the overview page; the API defaults `to` to now.
       const query = window === 'all'
         ? {}
-        : { from: new Date(Date.now() - Number(window) * 3600 * 1000).toISOString(), to: new Date().toISOString() }
+        : window === 'today'
+          ? { from: todayStart() }
+          : { from: new Date(Date.now() - Number(window) * 3600 * 1000).toISOString(), to: new Date().toISOString() }
       const data = await fetchUsageCost(query)
       setBreakdown(data)
       setError('')
@@ -97,6 +108,7 @@ export function UsageCostPanel() {
           onChange={(next) => setWindow(next as UsageWindow)}
           ariaLabel={t('usageWindow')}
           options={[
+            { id: 'today', label: t('statsWindowToday') },
             { id: '24', label: t('usageWindow24h') },
             { id: '168', label: t('usageWindow7d') },
             { id: 'all', label: t('usageWindowTotal') },

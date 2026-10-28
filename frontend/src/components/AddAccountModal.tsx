@@ -1,15 +1,17 @@
 import { CopyIcon } from '@/components/motion/CopyIcon'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { duration, ease, gsap } from '@/lib/motion'
-import { Button, Input, Modal, NumberField, Skeleton, TextArea } from '@heroui/react'
+import { Button, Input, Modal, NumberField, TextArea } from '@heroui/react'
 import { ArrowSquareOut, CaretLeft, CaretRight, CheckCircle, FileCode, Key, ShieldCheck, X } from '@phosphor-icons/react'
 import { copyText } from '@/lib/clipboard'
 import { BrandMark } from '@/components/BrandMark'
+import { CaiaiSoftLink } from '@/components/CaiaiSoftLink'
 import { ProviderMark } from '@/components/ProviderMark'
 import { CompactSwitch } from '@/components/ui/CompactSwitch'
 import { FilterToggle } from '@/components/ui/FilterToggle'
 import { FormRow } from '@/components/ui/FormRow'
 import { OptionTiles } from '@/components/ui/OptionTiles'
+import { ProviderTileWall, ProviderTileWallSkeleton } from '@/components/account/ProviderTileWall'
 import { useI18n } from '@/hooks/useI18n'
 import {
   createAccount,
@@ -65,6 +67,7 @@ const labelKeys: Record<string, string> = {
   'qwenwork-global': 'accountTypeQwenworkGlobal',
   'qwenwork-cn': 'accountTypeQwenworkCN',
   'kimi-cn': 'accountTypeKimiCN',
+  'meta-global': 'accountTypeMetaGlobal',
 }
 
 const hintKeys: Record<string, string> = {
@@ -80,19 +83,7 @@ const hintKeys: Record<string, string> = {
   'qwenwork-global': 'accountTypeQwenworkGlobalHint',
   'qwenwork-cn': 'accountTypeQwenworkCNHint',
   'kimi-cn': 'accountTypeKimiCNHint',
-}
-
-function AccountTypeSkeleton({ ariaLabel }: { ariaLabel: string }) {
-  return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2" aria-busy="true" aria-label={ariaLabel}>
-      {Array.from({ length: 6 }, (_, index) => (
-        <div key={index} className="flex items-center gap-2.5 rounded-xl bg-surface-secondary px-3 py-2.5">
-          <Skeleton className="size-7 shrink-0 rounded-lg" />
-          <Skeleton className="h-4 w-20 rounded-lg" />
-        </div>
-      ))}
-    </div>
-  )
+  'meta-global': 'accountTypeMetaGlobalHint',
 }
 
 async function loadProviderOptions(): Promise<ProviderOption[]> {
@@ -190,7 +181,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
       .then((options) => {
         if (cancelled) return
         setProviderOptions(options)
-        setAccountType(options[0]?.id || '')
+        setAccountType('')
         setTab('browser')
       })
       .finally(() => {
@@ -202,7 +193,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
   }, [isOpen])
 
   const activeOption = providerOptions.find((option) => option.id === accountType)
-  const typesReady = Boolean(activeOption) && !typesLoading
+  const typesReady = !typesLoading && providerOptions.length > 0
   const showPatTab = activeOption?.descriptor.capabilities?.pat_login !== false
   const showImportTab = activeOption?.descriptor.capabilities?.import_export !== false
   // Command Code has no browser login (a pasted user_… key is the only auth),
@@ -528,22 +519,14 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
   }
 
   const tabPending = (key: TabKey) => busy && tab === key
-  const typeOptions = providerOptions.map((option) => ({
-    value: option.id,
-    label: optionLabel(option, t),
-    hint: optionHint(option, t),
-    icon: <ProviderMark provider={option.provider} size={18} />,
-    disabled: settingsLocked,
-  }))
-
   const isZhipu = activeOption?.provider === 'zhipu'
   const methodOptions = [
     activeOption?.descriptor.capabilities?.browser_login !== false
-      ? { value: 'browser' as const, label: t('tabBrowser'), icon: <ShieldCheck size={16} /> }
+      ? { value: 'browser' as const, label: t('tabBrowser') }
       : null,
-    showPatTab ? { value: 'pat' as const, label: t('tabPat'), icon: <Key size={16} /> } : null,
-    showImportTab ? { value: 'import' as const, label: t('tabImport'), icon: <FileCode size={16} /> } : null,
-  ].filter(Boolean) as Array<{ value: TabKey; label: string; icon: React.ReactNode }>
+    showPatTab ? { value: 'pat' as const, label: t('tabPat') } : null,
+    showImportTab ? { value: 'import' as const, label: t('tabImport') } : null,
+  ].filter(Boolean) as Array<{ value: TabKey; label: string }>
 
   const tabLead = tab === 'browser'
     ? t(activeOption?.provider === 'codex' ? 'wizardCodexBrowserLead' : 'wizardBrowserLead')
@@ -558,8 +541,12 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
   return (
     <Modal.Root isOpen={isOpen} onOpenChange={(next: boolean) => { if (!next) close() }}>
       <Modal.Backdrop variant="blur" isDismissable={!busy}>
-        <Modal.Container size="lg" scroll="inside" className="sm:max-w-4xl">
-          <Modal.Dialog>
+        <Modal.Container
+          size="lg"
+          scroll="inside"
+          className="sm:max-w-5xl"
+        >
+          <Modal.Dialog className="w-full max-w-5xl">
             <Modal.Header className="relative items-center justify-center px-12 pt-5 text-center">
               <div className="min-w-0">
                 <Modal.Heading className="text-section font-semibold">{t('addAccountTitle')}</Modal.Heading>
@@ -569,25 +556,38 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
               </div>
               <Modal.CloseTrigger aria-label={t('close')} className="absolute right-4 top-4 grid size-8 shrink-0 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-secondary hover:text-foreground"><X size={16} /></Modal.CloseTrigger>
             </Modal.Header>
-            <Modal.Body className="px-6 pb-2">
+            <Modal.Body className={step === 'method' ? 'px-8 pb-5 sm:px-10' : 'px-6 pb-2'}>
               <div ref={stepBody}>
               {step === 'method' ? (
                 <>
                   <section className="space-y-2.5">
                     {typesLoading ? (
-                      <AccountTypeSkeleton ariaLabel={t('accountType')} />
+                      <ProviderTileWallSkeleton ariaLabel={t('accountType')} />
                     ) : !typesReady ? (
                       <p className="rounded-lg bg-surface-secondary/45 px-3.5 py-3 text-caption leading-5 text-muted">{t('accountTypeHint')}</p>
                     ) : (
-                      <OptionTiles
+                      <ProviderTileWall
                         ariaLabel={t('accountType')}
-                        columns={2}
-                        value=""
-                        onChange={chooseProvider}
-                        options={typeOptions}
+                        options={providerOptions.map((option) => {
+                          const regionLabel = option.descriptor.regions.find((r) => r.id === option.region)?.label
+                            || regionLabels[option.region]
+                            || ''
+                          return {
+                            id: option.id,
+                            provider: option.provider,
+                            label: optionLabel(option, t),
+                            subtitle: regionLabel,
+                            hint: optionHint(option, t),
+                          }
+                        })}
+                        onSelect={chooseProvider}
+                        disabled={settingsLocked}
                       />
                     )}
                   </section>
+                  <div className="mt-4 text-center">
+                    <CaiaiSoftLink className="text-xs" />
+                  </div>
                 </>
               ) : (
                 <>
@@ -713,9 +713,6 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                       {message ? (
                         <p className="flex items-center gap-2 rounded-lg bg-surface-secondary px-3 py-2 text-caption">{isDone ? <CheckCircle size={14} className="shrink-0 text-success" /> : null}<span className={isDone ? 'font-medium text-foreground' : 'text-muted'}>{message}</span></p>
                       ) : null}
-                      <Button className="w-full" isPending={phase === 'busy'} onPress={() => void runZhipu()} isDisabled={isDone}>
-                        {isDone ? <><CheckCircle size={15} />{t('wizardAccountReady')}</> : <><Key size={15} />{t('zhipuCreate')}</>}
-                      </Button>
                     </div>
                   ) : null}
 
@@ -736,7 +733,6 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                     options={methodOptions.map((option) => ({
                       id: option.value,
                       label: option.label,
-                      icon: option.icon,
                     }))}
                   />
 
@@ -799,14 +795,11 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                               aria-label={t('wizardCallbackPh')}
                               disabled={isDone}
                             />
-                            <Button className="w-full" variant="secondary" isPending={phase === 'busy' && Boolean(callbackUrl.trim())} onPress={() => void runCallback()} isDisabled={isDone}>
+                            <Button size="sm" variant="secondary" isPending={phase === 'busy' && Boolean(callbackUrl.trim())} onPress={() => void runCallback()} isDisabled={isDone}>
                               {t('wizardSubmitCallback')}
                             </Button>
                           </div>
                         ) : null}
-                        <Button className="w-full" isPending={tabPending('browser')} onPress={() => void runBrowser()}>
-                          {isDone ? <><CheckCircle size={15} />{t('wizardAccountReady')}</> : <><ShieldCheck size={15} />{t('wizardStartBrowser')}</>}
-                        </Button>
                       </>
                     ) : tab === 'pat' ? (
                       <>
@@ -816,9 +809,6 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                         {message ? (
                           <p className="flex items-center gap-2 rounded-lg bg-surface-secondary px-3 py-2 text-caption">{isDone ? <CheckCircle size={14} className="shrink-0 text-success" /> : null}<span className={isDone ? 'font-medium text-foreground' : 'text-muted'}>{message}</span></p>
                         ) : null}
-                        <Button className="w-full" isPending={tabPending('pat')} onPress={() => void runPat()}>
-                          {isDone ? <><CheckCircle size={15} />{t('patDone')}</> : <><Key size={15} />{t('wizardCreateAndLogin')}</>}
-                        </Button>
                       </>
                     ) : (
                       <>
@@ -831,9 +821,6 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                         {message ? (
                           <p className="flex items-center gap-2 rounded-lg bg-surface-secondary px-3 py-2 text-caption">{isDone ? <CheckCircle size={14} className="shrink-0 text-success" /> : null}<span className={isDone ? 'font-medium text-foreground' : 'text-muted'}>{message}</span></p>
                         ) : null}
-                        <Button className="w-full" isPending={tabPending('import')} onPress={() => void runImport()}>
-                          {isDone ? <><CheckCircle size={15} />{t('accountImported')}</> : <><FileCode size={15} />{t('importCredential')}</>}
-                        </Button>
                       </>
                     )}
                   </div>
@@ -843,8 +830,28 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
               )}
               </div>
             </Modal.Body>
-            <Modal.Footer className="justify-end px-5 pb-5">
+            <Modal.Footer className="justify-end gap-2 px-5 pb-5">
               <Button variant="ghost" onPress={close} isDisabled={busy}>{t('cancel')}</Button>
+              {step === 'login' && isZhipu ? (
+                <Button isPending={phase === 'busy'} onPress={() => void runZhipu()} isDisabled={isDone}>
+                  {isDone ? <><CheckCircle size={15} />{t('wizardAccountReady')}</> : <><Key size={15} />{t('zhipuCreate')}</>}
+                </Button>
+              ) : null}
+              {step === 'login' && !isZhipu && tab === 'browser' ? (
+                <Button isPending={tabPending('browser')} onPress={() => void runBrowser()} isDisabled={isDone}>
+                  {isDone ? <><CheckCircle size={15} />{t('wizardAccountReady')}</> : <><ShieldCheck size={15} />{t('wizardStartBrowser')}</>}
+                </Button>
+              ) : null}
+              {step === 'login' && !isZhipu && tab === 'pat' ? (
+                <Button isPending={tabPending('pat')} onPress={() => void runPat()} isDisabled={isDone}>
+                  {isDone ? <><CheckCircle size={15} />{t('patDone')}</> : <><Key size={15} />{t('wizardCreateAndLogin')}</>}
+                </Button>
+              ) : null}
+              {step === 'login' && !isZhipu && tab === 'import' ? (
+                <Button isPending={tabPending('import')} onPress={() => void runImport()} isDisabled={isDone}>
+                  {isDone ? <><CheckCircle size={15} />{t('accountImported')}</> : <><FileCode size={15} />{t('importCredential')}</>}
+                </Button>
+              ) : null}
             </Modal.Footer>
           </Modal.Dialog>
         </Modal.Container>

@@ -3,6 +3,54 @@
 Published user-facing notes for GitHub Releases and the console update page.
 Write upcoming notes as bilingual files in `changelog/unreleased/`.
 
+## 0.7.16 - 2026-10-28
+
+### English
+
+- Add Account picker shows a small CaiAI hosted soft link under the provider tiles (homepage, not a fake provider card).
+- CaiAI empty-state soft link now opens the homepage (`https://caiaiu.com`) instead of the affiliate register URL.
+- Add Account picker dialog is slightly narrower (`max-w-5xl`) while keeping the 3-column tile grid.
+- Add Muse (Meta) as an experimental login-source provider (`meta`, alias `muse`): device-code OAuth against auth.meta.com, mint LLM keys at api.meta.ai, Responses chat with encrypted_content shape validation, and optional Meta Model API key paste.
+- Console Add Account picker shows a Muse (Meta) tile; model prefixes accept `meta/` (and `muse/` resolves to `meta`).
+- Muse (Meta) device-code login and API-key mint now use the account `proxy_url` when set (else global), matching chat/Responses and CPA credential→global priority.
+
+### 中文
+
+- 添加账号选择弹窗在提供商磁贴下方增加小号 CaiAI 托管软链（首页，非假提供商卡片）。
+- 空态 CaiAI 软链改为打开首页 `https://caiaiu.com`，去掉注册页 affiliate 参数。
+- 添加账号选择弹窗略收窄为 `max-w-5xl`，仍保持三列磁贴布局。
+- 新增实验性登录源 Muse (Meta)（`meta`，别名 `muse`）：走 auth.meta.com 设备码授权、在 api.meta.ai 兑换 LLM Key，聊天走 Responses，并对 encrypted_content 做形状校验透传；也可粘贴 Meta Model API Key。
+- 控制台「添加账号」出现 Muse (Meta) 磁贴；模型前缀支持 `meta/`（`muse/` 会解析到 `meta`）。
+- Muse (Meta) 设备码登录与 API Key 兑换在设置了账号 `proxy_url` 时走账号代理（否则全局），与聊天/Responses 及 CPA credential→global 优先级一致。
+
+## 0.7.15 - 2026-10-27
+
+### English
+
+- Add-account picker uses Magpie-style grouped provider tiles (Subscriptions / Experimental) for real login sources only.
+- Empty Accounts (and Access when no accounts) show a skippable CaiAI hosted soft link, not a fake provider card.
+
+### 中文
+
+- 添加账号第一步改为 Magpie 风格的分组磁贴（稳定订阅 / 实验性），仅展示真实登录源。
+- 账号列表为空时（Access 无账号时同理）显示可跳过的 CaiAI 托管软链，不做假 provider 卡片。
+
+## 0.7.14 - 2026-10-27
+
+### English
+
+- Keep Trae caller system prompts by default, forward `response_format`, and report `finish_reason=tool_calls` when Solo emits tools with `stop`, so clients such as MiMo Code do not abort mid-loop.
+- Overview no longer carries the usage breakdown and credit deduction history panels; it keeps the gateway status, traffic, account pool, resources and ranking cards.
+- The credit expiry distribution moved from Overview to Usage, where it sits under the Stats tab and follows the same time window as the tables above it.
+- Overview and Usage both default to the "Today" window; Usage also offers Today on its Quota tab, which previously started at the full retained range.
+
+### 中文
+
+- Trae 默认保留调用方系统提示词，转发 `response_format`，并在 Solo 带着工具调用却返回 `stop` 时改报 `finish_reason=tool_calls`，避免 MiMo Code 等客户端中途停掉。
+- 概览移除「用量明细」与「积分扣除历史」，只保留网关状态、流量、账号池、资源与排行卡片。
+- 「积分到期分布」从概览移到用量页，位于「统计」标签页内，并跟随上方表格的时间窗口。
+- 概览与用量页的时间查询都默认「今天」；用量页的「额度」标签页也新增「今天」，此前默认是全部留存范围。
+
 ## 0.7.13 - 2026-10-27
 
 ### English

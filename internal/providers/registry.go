@@ -323,6 +323,32 @@ var Kimi = ProviderDescriptor{
 	DefaultRegion: "cn",
 }
 
+
+// Meta descriptor. Protocol constants stay in internal/providers/meta.
+// Global-only Muse (Meta) adapter: RFC 8628 device grant against auth.meta.com,
+// minting an LLM API key at api.meta.ai/muse-code/key. Alias "muse" resolves to
+// this family at NormalizeProviderFamily / Get; it is not a second provider.
+var Meta = ProviderDescriptor{
+	ID:                "meta",
+	Label:             "Muse (Meta)",
+	Runtime:           RuntimeInProcess,
+	AuthTypes:         []AuthType{AuthOAuth, AuthPAT},
+	CredentialFormats: []string{"meta-oauth-v1", "meta-key-v1"},
+	Capabilities: ProviderCapabilities{
+		Chat: true, Stream: true, Tools: true, Images: true, Reasoning: true,
+		ModelCatalog: true, Usage: false, Login: true, BrowserLogin: true,
+		PATLogin: true, ImportExport: true,
+	},
+	Regions: []RegionDescriptor{
+		{
+			ID: "global", Label: "Global", ChatBase: "https://api.meta.ai/v1",
+			BillingBase: "https://www.meta.ai", AuthBase: "https://auth.meta.com",
+			DefaultDomain: "meta.ai",
+		},
+	},
+	DefaultRegion: "global",
+}
+
 var registry = map[string]ProviderDescriptor{
 	Qoder.ID:     Qoder,
 	WorkBuddy.ID: WorkBuddy,
@@ -333,15 +359,20 @@ var registry = map[string]ProviderDescriptor{
 	Zhipu.ID:     Zhipu,
 	QwenWork.ID:  QwenWork,
 	Kimi.ID:      Kimi,
+	Meta.ID:      Meta,
 }
 
 func Get(id string) (ProviderDescriptor, bool) {
-	d, ok := registry[strings.TrimSpace(strings.ToLower(id))]
+	key := strings.TrimSpace(strings.ToLower(id))
+	if key == "muse" {
+		key = "meta"
+	}
+	d, ok := registry[key]
 	return d, ok
 }
 
 func List() []ProviderDescriptor {
-	return []ProviderDescriptor{Qoder, WorkBuddy, Trae, Devin, Command, Codex, Zhipu, QwenWork, Kimi}
+	return []ProviderDescriptor{Qoder, WorkBuddy, Trae, Devin, Command, Codex, Zhipu, QwenWork, Kimi, Meta}
 }
 
 // Resolve validates a provider/region pair. Empty values fall back to the

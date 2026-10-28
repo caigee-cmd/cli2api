@@ -13,6 +13,10 @@
 
 <sub>[English](README_EN.md) · [问题反馈](https://github.com/caigee-cmd/cli2api/issues) · [Telegram](https://t.me/+jCjL8ou_g7Q2MzI1)</sub>
 
+<sub>Sponsors</sub>
+
+<a href="https://caiaiu.com"><picture><source media="(prefers-color-scheme: dark)" srcset="./docs/assets/sponsors/caiai-dark.svg"><img src="./docs/assets/sponsors/caiai.svg" height="36" alt="CaiAI"></picture></a>
+
 <img src="./docs/assets/readme/hero-zh.svg" width="100%" alt="CLI2API — 把你自己的登录态，变成一个本机运行的 OpenAI 兼容 API">
 
 </div>

@@ -13,6 +13,10 @@ Deploy with Docker, manage accounts in the web console, and connect clients thro
 
 <sub>[中文](README.md) · [Issues](https://github.com/caigee-cmd/cli2api/issues) · [Telegram](https://t.me/+jCjL8ou_g7Q2MzI1)</sub>
 
+<sub>Sponsors</sub>
+
+<a href="https://caiaiu.com"><picture><source media="(prefers-color-scheme: dark)" srcset="./docs/assets/sponsors/caiai-dark.svg"><img src="./docs/assets/sponsors/caiai.svg" height="36" alt="CaiAI"></picture></a>
+
 <img src="./docs/assets/readme/hero-en.svg" width="100%" alt="CLI2API — turn your own logins into a local OpenAI-compatible API">
 
 </div>

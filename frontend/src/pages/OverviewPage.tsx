@@ -10,13 +10,11 @@ import {
   TrendDown,
   TrendUp,
 } from '@phosphor-icons/react'
-import { fetchRequestStats, fetchRequestUsage, type RequestStats, type RequestUsage } from '@/api/logs'
+import { fetchRequestStats, type RequestStats } from '@/api/logs'
 import { fetchSystemResources, type SystemResources } from '@/api/system'
-import type { ModelInfo, Overview } from '@/api/types'
+import type { Overview } from '@/api/types'
 import { CountUp } from '@/components/overview/CountUp'
 import { TrafficChartEmpty } from '@/components/overview/TrafficChartEmpty'
-import { ExpiryDistribution } from '@/components/overview/ExpiryDistribution'
-import { CreditHistory, UsageDetail } from '@/components/overview/UsagePanels'
 
 const TrafficChart = lazy(() => import('@/components/overview/TrafficChart').then((mod) => ({ default: mod.TrafficChart })))
 import { StatsWindowControls } from '@/components/overview/StatsWindowControls'
@@ -135,13 +133,9 @@ export function OverviewPage() {
   const [stats, setStats] = useState<RequestStats | null>(null)
   const [statsError, setStatsError] = useState('')
   const [statsLoading, setStatsLoading] = useState(true)
-  const [usage, setUsage] = useState<RequestUsage | null>(null)
-  const [usageError, setUsageError] = useState('')
-  const [usageLoading, setUsageLoading] = useState(true)
   const [accounts, setAccounts] = useState<NonNullable<Overview['accounts']>>([])
   const [accountsLoading, setAccountsLoading] = useState(true)
   const [modelCount, setModelCount] = useState(0)
-  const [models, setModels] = useState<ModelInfo[]>([])
   const [resources, setResources] = useState<SystemResources | null>(null)
   const [now, setNow] = useState(() => Date.now())
   const { live, samples: liveSamples } = useLive()
@@ -171,12 +165,11 @@ export function OverviewPage() {
 
   useEffect(() => {
     let cancelled = false
-    void Promise.allSettled([fetchAccounts(false), fetchModels(), fetchModels(undefined, false, 'regional')])
-      .then(([accountsResult, modelsResult, regionalResult]) => {
+    void Promise.allSettled([fetchAccounts(false), fetchModels()])
+      .then(([accountsResult, modelsResult]) => {
         if (cancelled) return
         if (accountsResult.status === 'fulfilled') setAccounts(accountsResult.value.data || [])
         if (modelsResult.status === 'fulfilled') setModelCount((modelsResult.value.data || []).length)
-        if (regionalResult.status === 'fulfilled') setModels(regionalResult.value.data || [])
       })
       .finally(() => { if (!cancelled) setAccountsLoading(false) })
     return () => { cancelled = true }
@@ -215,38 +208,9 @@ export function OverviewPage() {
     return () => { statsRequestRef.current++ }
   }, [loadStats])
 
-  // Usage detail follows the same window as the traffic chart: reuse statsQuery
-  // so "today"/"custom" (explicit from/to) and hour windows stay in lockstep.
-  const usageRequestRef = useRef(0)
-  const loadUsage = useCallback((quiet: boolean) => {
-    const query = statsQuery(statsWindow, customRange) ?? {}
-    const version = ++usageRequestRef.current
-    void fetchRequestUsage(query)
-      .then((data) => {
-        if (version !== usageRequestRef.current) return
-        setUsage(data)
-        setUsageError('')
-      })
-      .catch((err) => {
-        if (version !== usageRequestRef.current || quiet) return
-        setUsage(null)
-        setUsageError(err instanceof Error ? err.message : String(err))
-      })
-      .finally(() => {
-        if (version === usageRequestRef.current) setUsageLoading(false)
-      })
-    // customRange is tracked through its string form.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statsWindow, customFrom, customTo])
-
-  useEffect(() => {
-    loadUsage(false)
-    return () => { usageRequestRef.current++ }
-  }, [loadUsage])
-
   // Background refresh every 30s; skipped while paused or the tab is hidden,
   // and caught up as soon as the tab becomes visible again. Quiet so a failed
-  // refresh keeps the last good traffic + usage panels instead of blanking them.
+  // refresh keeps the last good traffic panel instead of blanking it.
   useEffect(() => {
     if (paused) return
     let last = Date.now()
@@ -254,7 +218,6 @@ export function OverviewPage() {
       if (document.hidden) return
       last = Date.now()
       loadStats(true)
-      loadUsage(true)
     }
     const timer = setInterval(tick, STATS_REFRESH_MS)
     const onVisible = () => {
@@ -265,7 +228,7 @@ export function OverviewPage() {
       clearInterval(timer)
       document.removeEventListener('visibilitychange', onVisible)
     }
-  }, [paused, loadStats, loadUsage])
+  }, [paused, loadStats])
 
   // Resource usage polls on its own 5s cadence; independent of the stats window.
   useEffect(() => {
@@ -330,7 +293,7 @@ export function OverviewPage() {
             onChange={setStatsWindow}
             custom={customRange}
             onCustomChange={setCustomRange}
-            onBusy={() => { setStatsLoading(true); setUsageLoading(true) }}
+            onBusy={() => setStatsLoading(true)}
             t={t}
           />
           <Tooltip delay={300}>
@@ -452,13 +415,6 @@ export function OverviewPage() {
           </div>
         </Card>
       </section>
-
-      <ExpiryDistribution accounts={accounts} t={t} />
-
-      <UsageDetail usage={usage} accounts={accounts} loading={usageLoading} t={t} />
-      {usageError ? <PageAlert title={t('failedStats', { msg: usageError })} /> : null}
-
-      <CreditHistory usage={usage} accounts={accounts} models={models} loading={usageLoading} t={t} />
 
       <section className="grid gap-3 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,.85fr)]">
         <Card data-gsap-reveal className="overflow-hidden p-0">
