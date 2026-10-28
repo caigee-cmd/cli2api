@@ -3,6 +3,18 @@
 Published user-facing notes for GitHub Releases and the console update page.
 Write upcoming notes as bilingual files in `changelog/unreleased/`.
 
+## 0.7.18 - 2026-10-28
+
+### English
+
+- Bump Codex outbound cloaking User-Agent to official stable `0.165.0` (`rust-v0.165.0`). CPA pin stays at 0.154; 0.166 alpha held.
+- WorkBuddy outbound sanitize now rewrites the DSH file-reference sentence (`paths the user` → `paths that the user`) on system / developer / assistant messages, matching hub v1.9.0 / #684 so the full FILE_REFERENCE_PROMPT block no longer trips 11-128. User and tool messages stay untouched.
+
+### 中文
+
+- Codex 出站伪装 User-Agent 升至官方稳定版 `0.165.0`（`rust-v0.165.0`）。CPA pin 仍为 0.154；暂不跟 0.166 alpha。
+- WorkBuddy 出站清洗对齐 hub v1.9.0 / #684：对 system / developer / assistant 中的 DSH 文件引用句补入 `that`（`paths the user` → `paths that the user`），避免整段 FILE_REFERENCE_PROMPT 触发 11-128；user / tool 消息保持原样。
+
 ## 0.7.17 - 2026-10-28
 
 ### English
