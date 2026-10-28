@@ -602,12 +602,12 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                     </Button>
                   </div>
                   <div className="mt-4 space-y-3">
-                    <div className="space-y-1.5">
+                    <div className="flex flex-col gap-1.5">
                       <Label className="text-body font-medium text-muted">{t('accountName')}</Label>
                       <Input
+                        fullWidth
                         value={name}
                         onChange={(event) => setName(event.target.value)}
-                        placeholder={t('wizardNamePh')}
                         aria-label={t('accountName')}
                         disabled={settingsLocked}
                         autoFocus
@@ -662,9 +662,10 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                             <Description className="text-caption leading-5 text-muted">{t('priorityHint')}</Description>
                           </div>
                         </div>
-                        <div className="space-y-1.5">
+                        <div className="flex flex-col gap-1.5">
                           <Label className="text-body font-medium text-muted">{t('proxyUrl')}</Label>
                           <Input
+                            fullWidth
                             value={proxyUrl}
                             onChange={(event) => setProxyUrl(event.target.value)}
                             placeholder={t('proxyUrlPlaceholder')}
@@ -674,7 +675,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                           <Description className="text-caption leading-5 text-muted">{t('proxyUrlHint')}</Description>
                         </div>
                         {showDropSystem ? (
-                          <div className="space-y-1.5">
+                          <div className="flex flex-col gap-1.5">
                             <Label className="text-body font-medium text-muted">{t('dropSystemPrompt')}</Label>
                             <Description className="text-caption leading-5 text-muted">{t(activeOption?.provider === 'trae' ? 'dropSystemPromptTraeHint' : 'dropSystemPromptCreateHint')}</Description>
                             <CompactSwitch
