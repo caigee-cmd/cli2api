@@ -489,43 +489,42 @@ export function AccessPage() {
         </Tabs.ListContainer>
 
         <Tabs.Panel id="chat" className="pt-4">
-          <section className="access-chat-shell overflow-hidden rounded-2xl bg-surface">
-            <div className="flex min-h-[640px] md:min-h-[72vh]">
-              <ChatHistoryRail
-                collapsed={historyCollapsed}
-                onCollapsedChange={setHistoryCollapsed}
-                items={historyItems}
-                activeId={resolvedSessionId}
-                onSelect={onSelectSession}
-                onNew={onNewChat}
+          {/* Flat cohesion: hist rail + stage peers on the page — no outer shell box. */}
+          <div className="flex min-h-[640px] md:min-h-[72vh]">
+            <ChatHistoryRail
+              collapsed={historyCollapsed}
+              onCollapsedChange={setHistoryCollapsed}
+              items={historyItems}
+              activeId={resolvedSessionId}
+              onSelect={onSelectSession}
+              onNew={onNewChat}
+            />
+            <div className="access-chat-stage flex min-w-0 flex-1 flex-col">
+              <ChatThread
+                messages={messages}
+                busy={chatState === 'loading'}
+                onLoadDemo={loadDemo}
               />
-              <div className="access-chat-stage flex min-w-0 flex-1 flex-col bg-surface">
-                <ChatThread
-                  messages={messages}
-                  busy={chatState === 'loading'}
-                  onLoadDemo={loadDemo}
-                />
-                <ChatComposer
-                  value={chatPrompt}
-                  onChange={setChatPrompt}
-                  attachments={attachments}
-                  onAttachmentsChange={setAttachments}
-                  disabled={!accounts.length && demoMode() == null}
-                  streaming={chatState === 'loading'}
-                  canSend={canChatSend}
-                  onSend={() => void onChatSend()}
-                  onStop={stopChat}
-                  accountValue={selectedAccount || 'auto'}
-                  onAccountChange={(next) => setAccountId(next === 'auto' ? '' : next)}
-                  accountOptions={accountOptions}
-                  modelValue={selectedModel}
-                  onModelChange={setModel}
-                  modelOptions={modelOptions}
-                  modelsLoading={modelsLoading}
-                />
-              </div>
+              <ChatComposer
+                value={chatPrompt}
+                onChange={setChatPrompt}
+                attachments={attachments}
+                onAttachmentsChange={setAttachments}
+                disabled={!accounts.length && demoMode() == null}
+                streaming={chatState === 'loading'}
+                canSend={canChatSend}
+                onSend={() => void onChatSend()}
+                onStop={stopChat}
+                accountValue={selectedAccount || 'auto'}
+                onAccountChange={(next) => setAccountId(next === 'auto' ? '' : next)}
+                accountOptions={accountOptions}
+                modelValue={selectedModel}
+                onModelChange={setModel}
+                modelOptions={modelOptions}
+                modelsLoading={modelsLoading}
+              />
             </div>
-          </section>
+          </div>
         </Tabs.Panel>
 
         <Tabs.Panel id="raw" className="space-y-5 pt-5">

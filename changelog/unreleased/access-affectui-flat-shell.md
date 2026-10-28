@@ -1,9 +1,9 @@
 ### English
 
-- Access chat restyled toward AffectUI Flat Shell (quiet wash + hairline, recessed composer well, clearer user/assistant hierarchy) without changing the global Studio Admin grayscale theme or Raw / Add-Account flows.
-- Contrast pass: shell vs stage vs history strip vs input well use cold surface/field tokens only; composer helper shortened; Access latency foot is one hover-only compact line.
+- Access chat Flat cohesion: drop the outer mini-app shell ring; history rail is a cold wash (`surface-secondary` ~35%) + hairline peer with the stage on the page; stage stays continuous with the page; only the composer well is recessed.
+- Access Raw API uses the same-page hairline panel (not solid-glass `.card`); Overview / modal cards stay solid-glass. Hover one-line latency and cold Studio Admin tokens unchanged — no affectui npm / warm palette.
 
 ### 中文
 
-- Access 聊天页按 AffectUI Flat Shell 感觉重排（轻 wash + hairline、下沉输入井、用户/助手气泡层级更清晰）；不改全局 Studio Admin 灰度主题，也不动 Raw / 添加账号流程。
-- 对比度加强：对话框壳 / 聊天区 / 历史条 / 输入井用冷色 surface/field token 拉开；作曲区 helper 缩短；延迟脚注改为悬停才显示的一行摘要。
+- Access 聊天 Flat 内聚：去掉外层 mini-app 描边壳；历史轨用冷色 wash（`surface-secondary` ~35%）+ hairline，与舞台同级铺在页面上；舞台与页面连续；只有作曲井下沉。
+- Access Raw API 改为同页 hairline 面板（不用 solid-glass `.card`）；Overview / 弹层卡片仍用 solid-glass。悬停一行延迟与冷色 Studio Admin token 不变 — 不引入 affectui npm / 暖色盘。

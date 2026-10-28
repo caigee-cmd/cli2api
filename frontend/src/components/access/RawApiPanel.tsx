@@ -63,7 +63,7 @@ export function RawApiPanel({
     <div className="space-y-4">
       <p className="px-1 text-caption leading-5 text-muted">{t('rawFormatHint')}</p>
 
-      <div className="card overflow-hidden rounded-3xl bg-surface">
+      <div className="access-raw-panel overflow-hidden rounded-2xl">
         <div className="grid xl:grid-cols-[minmax(440px,.92fr)_minmax(0,1.08fr)]">
           <div className="xl:border-r xl:border-separator/50">
             <div className="px-5 py-4 sm:px-6">
@@ -201,7 +201,7 @@ export function RawApiPanel({
         </div>
       </div>
 
-      <section className="card overflow-hidden rounded-3xl bg-surface">
+      <section className="access-raw-panel overflow-hidden rounded-2xl">
         <div className="flex items-center justify-between gap-4 px-5 py-3.5">
           <div className="min-w-0">
             <div className="text-body font-semibold">{t('curlExample')}</div>

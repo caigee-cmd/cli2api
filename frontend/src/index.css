@@ -237,33 +237,41 @@ body {
   }
 }
 
-/* Access chat Flat Shell (AffectUI feel, cli2api cold tokens only — no cream / AI chroma).
-   Hierarchy: page background → shell (surface + hairline) → hist rail (secondary) →
-   stage (surface) → composer strip (secondary) → input well (field-background + deeper
-   hairline border). No stacked shadows for hierarchy. */
+/* Access chat Flat cohesion (AffectUI feel, cli2api cold tokens only — no cream / AI chroma).
+   Hierarchy: page continuous with stage (--surface/transparent) + hist rail (wash +
+   hairline) as peers → weakened composer strip → composer well ONLY recessed.
+   No outer mini-app shell / box-shadow ring. Raw uses .access-raw-panel hairline. */
 .access-chat-shell {
-  background: var(--surface);
-  box-shadow: 0 0 0 1px color-mix(in oklab, var(--foreground) 14%, transparent);
+  /* Kept for any leftover refs; Flat cohesion removes the inset shell framing. */
+  background: transparent;
+  box-shadow: none;
 }
 .access-chat-stage {
-  background: var(--surface);
+  background: transparent;
 }
 .access-hist-rail {
-  background: var(--surface-secondary);
-  border-color: color-mix(in oklab, var(--foreground) 12%, transparent);
+  /* caiai-like cold wash: surface-secondary at ~35% over the page */
+  background: color-mix(in oklab, var(--surface-secondary) 35%, transparent);
+  border-color: color-mix(in oklab, var(--foreground) 10%, transparent);
 }
 .access-hist-rail button[type="button"].rounded-xl {
   transition: background-color 0.2s cubic-bezier(0.2, 0.7, 0.2, 1),
     color 0.2s cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 .access-composer {
-  background: var(--surface-secondary);
-  border-top: 1px solid color-mix(in oklab, var(--foreground) 10%, transparent);
+  /* Weaken outer strip — elevation lives only in .access-composer-well */
+  background: transparent;
+  border-top: 1px solid color-mix(in oklab, var(--foreground) 8%, transparent);
 }
 .access-composer-well {
   background: var(--field-background);
   border: 1px solid color-mix(in oklab, var(--field-border) 85%, var(--foreground));
   box-shadow: none;
+}
+.access-raw-panel {
+  /* Same-page hairline panel — not .card solid-glass (Overview/modal keep .card). */
+  background: var(--surface);
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--foreground) 10%, transparent);
 }
 .access-bubble--user {
   background: var(--surface-secondary);

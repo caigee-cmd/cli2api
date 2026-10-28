@@ -92,7 +92,7 @@ export function ChatHistoryRail({
         <Button
           size="sm"
           variant="ghost"
-          className="w-full justify-start gap-1.5 bg-surface-secondary/80"
+          className="w-full justify-start gap-1.5 bg-surface/70"
           onPress={onNew}
         >
           <Plus size={13} />
@@ -113,7 +113,7 @@ export function ChatHistoryRail({
                 className={`w-full rounded-xl px-2.5 py-2 text-left text-caption leading-5 transition-colors duration-200 ease-[cubic-bezier(0.2,0.7,0.2,1)] ${
                   active
                     ? 'bg-surface text-foreground'
-                    : 'text-muted hover:bg-surface/60 hover:text-foreground'
+                    : 'text-muted hover:bg-surface/50 hover:text-foreground'
                 }`}
                 onClick={() => onSelect(item.id)}
               >
