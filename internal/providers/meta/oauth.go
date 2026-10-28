@@ -58,10 +58,10 @@ type devicePollResult struct {
 	Message string
 }
 
-func (c *Client) requestDeviceCode(ctx context.Context) (deviceAuthorization, error) {
+func (c *Client) requestDeviceCode(ctx context.Context, accountID string) (deviceAuthorization, error) {
 	form := url.Values{}
 	form.Set("client_id", ClientID)
-	status, body, err := c.postAuthForm(ctx, c.authBase()+DeviceAuthorizationPath, form)
+	status, body, err := c.postAuthForm(ctx, accountID, c.authBase()+DeviceAuthorizationPath, form)
 	if err != nil {
 		return deviceAuthorization{}, err
 	}
@@ -107,12 +107,12 @@ func (c *Client) requestDeviceCode(ctx context.Context) (deviceAuthorization, er
 	}, nil
 }
 
-func (c *Client) pollDeviceToken(ctx context.Context, deviceCode string) (devicePollResult, error) {
+func (c *Client) pollDeviceToken(ctx context.Context, accountID, deviceCode string) (devicePollResult, error) {
 	form := url.Values{}
 	form.Set("client_id", ClientID)
 	form.Set("device_code", deviceCode)
 	form.Set("grant_type", DeviceGrantType)
-	status, body, err := c.postAuthForm(ctx, c.authBase()+TokenPath, form)
+	status, body, err := c.postAuthForm(ctx, accountID, c.authBase()+TokenPath, form)
 	if err != nil {
 		return devicePollResult{}, err
 	}
@@ -144,7 +144,7 @@ func (c *Client) pollDeviceToken(ctx context.Context, deviceCode string) (device
 }
 
 // mintAPIKey exchanges a DCA token for an LLM API key (CPA MintAPIKey).
-func (c *Client) mintAPIKey(ctx context.Context, dcaToken string) (mintedKeyResponse, error) {
+func (c *Client) mintAPIKey(ctx context.Context, accountID, dcaToken string) (mintedKeyResponse, error) {
 	dcaToken = strings.TrimSpace(dcaToken)
 	if dcaToken == "" {
 		return mintedKeyResponse{}, fmt.Errorf("meta auth: missing dca token")
@@ -162,7 +162,7 @@ func (c *Client) mintAPIKey(ctx context.Context, dcaToken string) (mintedKeyResp
 	req.Header.Set("User-Agent", AuthUserAgent)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
-	client, err := c.httpClient(ctx, "")
+	client, err := c.httpClient(ctx, accountID)
 	if err != nil {
 		return mintedKeyResponse{}, err
 	}
@@ -188,7 +188,7 @@ func (c *Client) mintAPIKey(ctx context.Context, dcaToken string) (mintedKeyResp
 	return minted, nil
 }
 
-func (c *Client) postAuthForm(ctx context.Context, endpoint string, form url.Values) (int, []byte, error) {
+func (c *Client) postAuthForm(ctx context.Context, accountID, endpoint string, form url.Values) (int, []byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(form.Encode()))
 	if err != nil {
 		return 0, nil, err
@@ -196,7 +196,7 @@ func (c *Client) postAuthForm(ctx context.Context, endpoint string, form url.Val
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", AuthUserAgent)
-	client, err := c.httpClient(ctx, "")
+	client, err := c.httpClient(ctx, accountID)
 	if err != nil {
 		return 0, nil, err
 	}
