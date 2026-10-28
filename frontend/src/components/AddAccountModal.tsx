@@ -545,7 +545,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
           size="lg"
           scroll="inside"
         >
-          <Modal.Dialog className="w-full sm:w-[36rem] sm:max-w-[calc(100vw-2rem)]">
+          <Modal.Dialog className="w-full sm:w-[36rem] sm:max-w-[calc(100vw-2rem)] sm:min-h-[36rem]">
             <Modal.Header className="relative items-center justify-center px-12 pt-5 text-center">
               <div className="min-w-0">
                 <Modal.Heading className="text-section font-semibold">{t('addAccountTitle')}</Modal.Heading>
