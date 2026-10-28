@@ -22,7 +22,7 @@ export function ChatThread({
 
   return (
     <div
-      className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-5 sm:px-6 sm:py-6"
+      className="access-thread min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-5 sm:px-6 sm:py-6"
       aria-live="polite"
       aria-busy={busy}
     >

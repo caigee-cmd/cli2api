@@ -444,32 +444,22 @@ export function AccessPage() {
     }))
 
   return (
-    <div className="space-y-5">
-      <section className="grid gap-3 pb-1 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
-        <div>
-          <h2 className="text-title font-semibold">{t('apiPlayground')}</h2>
-          <p className="mt-1 max-w-2xl text-body leading-6 text-muted">{t('apiPlaygroundHint')}</p>
+    <div className="access-page space-y-4">
+      <section className="access-info-row flex flex-wrap items-center gap-x-3 gap-y-2 px-0.5 py-0.5" title={t('apiPlaygroundHint')}>
+        <h2 className="shrink-0 text-body font-semibold text-foreground">{t('apiPlayground')}</h2>
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 text-caption text-muted">
+          <span className="shrink-0">{t('baseUrl')}</span>
+          <code className="mono min-w-0 truncate font-medium text-foreground">{base}</code>
+          <Button isIconOnly size="sm" variant="ghost" className="size-6 min-w-6 shrink-0" aria-label={t('copyBaseUrl')} onPress={() => void copy(base, 'base')}>
+            <CopyIcon copied={copied === 'base'} size={13} />
+          </Button>
         </div>
         <div className="flex items-center gap-2 text-caption text-muted">
           <span className="status-dot" data-state={readyAccounts.length ? 'ok' : undefined} />
           <span>{t('readyAccounts', { ready: readyAccounts.length, total: accounts.length })}</span>
-        </div>
-      </section>
-
-      <section className="overflow-hidden rounded-3xl bg-surface shadow-surface">
-        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-5">
-          <div className="min-w-0">
-            <div className="text-caption font-medium text-muted">{t('baseUrl')}</div>
-            <code className="mono mt-0.5 block truncate text-body font-medium text-foreground">{base}</code>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button isIconOnly size="sm" variant="ghost" aria-label={t('copyBaseUrl')} onPress={() => void copy(base, 'base')}>
-              <CopyIcon copied={copied === 'base'} size={15} />
-            </Button>
-            <Chip size="sm" variant="soft" color={readyAccounts.length ? 'success' : 'warning'}>
-              {readyAccounts.length ? t('endpointReady') : t('degraded')}
-            </Chip>
-          </div>
+          <Chip size="sm" variant="soft" color={readyAccounts.length ? 'success' : 'warning'}>
+            {readyAccounts.length ? t('endpointReady') : t('degraded')}
+          </Chip>
         </div>
       </section>
 
@@ -498,8 +488,8 @@ export function AccessPage() {
           </Tabs.List>
         </Tabs.ListContainer>
 
-        <Tabs.Panel id="chat" className="pt-5">
-          <section className="card overflow-hidden rounded-3xl bg-surface">
+        <Tabs.Panel id="chat" className="pt-4">
+          <section className="access-chat-shell overflow-hidden rounded-2xl bg-surface">
             <div className="flex min-h-[640px] md:min-h-[72vh]">
               <ChatHistoryRail
                 collapsed={historyCollapsed}

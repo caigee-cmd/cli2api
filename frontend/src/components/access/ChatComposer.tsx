@@ -75,7 +75,7 @@ export function CompactSelect({
       }}
     >
       <Select.Trigger
-        className={`h-7 min-h-7 gap-1 rounded-md border-0 bg-transparent px-1.5 shadow-none items-center hover:bg-surface data-[focus-visible=true]:bg-surface ${triggerTone}`}
+        className={`h-7 min-h-7 gap-1 rounded-full border-0 bg-transparent px-2 shadow-none items-center hover:bg-surface-secondary/80 data-[focus-visible=true]:bg-surface-secondary/80 ${triggerTone}`}
       >
         <Select.Value className="min-w-0 truncate text-caption font-medium">
           {({ defaultChildren, isPlaceholder }) => {
@@ -173,14 +173,14 @@ export function ChatComposer({
   }
 
   return (
-    <div className="p-3 sm:p-4">
-      <div className="card overflow-hidden rounded-2xl bg-surface">
+    <div className="access-composer p-3 sm:p-4">
+      <div className="access-composer-well overflow-hidden rounded-2xl bg-surface-tertiary/70">
         {attachments.length ? (
           <div className="flex flex-wrap gap-2 px-3 pt-3">
             {attachments.map((file) => (
               <span
                 key={file.id}
-                className="inline-flex max-w-[14rem] items-center gap-2 rounded-xl bg-surface px-1.5 py-1.5 text-caption text-foreground"
+                className="inline-flex max-w-[14rem] items-center gap-2 rounded-xl bg-surface/80 px-1.5 py-1.5 text-caption text-foreground"
               >
                 {file.kind === 'image' && file.dataUrl ? (
                   <img src={file.dataUrl} alt="" className="size-8 shrink-0 rounded-lg object-cover" />
@@ -266,7 +266,7 @@ export function ChatComposer({
               isIconOnly
               size="sm"
               variant="secondary"
-              className={`absolute inset-0 size-7 rounded-full transition-opacity duration-150 ${streaming ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
+              className={`absolute inset-0 size-7 rounded-full transition-opacity duration-200 ease-[cubic-bezier(0.2,0.7,0.2,1)] ${streaming ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
               aria-label={t('chatTryStop')}
               onPress={onStop}
             >
@@ -275,7 +275,7 @@ export function ChatComposer({
             <Button
               isIconOnly
               size="sm"
-              className={`absolute inset-0 size-7 rounded-full transition-[opacity,transform] duration-150 active:scale-95 disabled:active:scale-100 ${streaming ? 'pointer-events-none opacity-0' : 'opacity-100'}`}
+              className={`absolute inset-0 size-7 rounded-full transition-opacity duration-200 ease-[cubic-bezier(0.2,0.7,0.2,1)] ${streaming ? 'pointer-events-none opacity-0' : 'opacity-100'}`}
               aria-label={t('chatTrySend')}
               isDisabled={!canSend || disabled || streaming}
               onPress={onSend}

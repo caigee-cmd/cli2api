@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import { Button } from '@heroui/react'
 import { CaretLeft, Plus, SidebarSimple } from '@phosphor-icons/react'
 import { useI18n } from '@/hooks/useI18n'
-import { duration, ease, gsap, prefersReducedMotion } from '@/lib/motion'
+import { duration, gsap, prefersReducedMotion } from '@/lib/motion'
 
 export type ChatHistoryItem = {
   id: string
@@ -34,14 +34,14 @@ export function ChatHistoryRail({
     if (collapsed) return
     gsap.fromTo(
       el,
-      { autoAlpha: 0, x: -8 },
-      { autoAlpha: 1, x: 0, duration: duration.fast, ease: ease.out },
+      { autoAlpha: 0 },
+      { autoAlpha: 1, duration: duration.fast, ease: 'power2.out' },
     )
   }, [collapsed])
 
   if (collapsed) {
     return (
-      <div className="flex w-10 shrink-0 flex-col items-center gap-2 border-r border-separator/70 bg-surface-secondary py-3">
+      <div className="access-hist-rail flex w-10 shrink-0 flex-col items-center gap-2 border-r border-[color:var(--hairline)] bg-surface-secondary/50 py-3">
         <Button
           isIconOnly
           size="sm"
@@ -69,7 +69,7 @@ export function ChatHistoryRail({
   return (
     <aside
       ref={railRef}
-      className="flex w-[13.5rem] shrink-0 flex-col border-r border-separator/70 bg-surface-secondary"
+      className="access-hist-rail flex w-[13.5rem] shrink-0 flex-col border-r border-[color:var(--hairline)] bg-surface-secondary/50"
       aria-label={t('chatHistoryTitle')}
     >
       <div className="flex items-center gap-1 px-2 py-2.5">
@@ -91,8 +91,8 @@ export function ChatHistoryRail({
       <div className="px-2 pb-2">
         <Button
           size="sm"
-          variant="secondary"
-          className="w-full justify-start gap-1.5"
+          variant="ghost"
+          className="w-full justify-start gap-1.5 bg-surface-secondary/80"
           onPress={onNew}
         >
           <Plus size={13} />
@@ -110,10 +110,10 @@ export function ChatHistoryRail({
               <button
                 key={item.id}
                 type="button"
-                className={`w-full rounded-lg px-2.5 py-2 text-left text-caption leading-5 transition-colors ${
+                className={`w-full rounded-xl px-2.5 py-2 text-left text-caption leading-5 transition-colors duration-200 ease-[cubic-bezier(0.2,0.7,0.2,1)] ${
                   active
-                    ? 'bg-surface text-foreground shadow-surface'
-                    : 'text-muted hover:bg-surface/70 hover:text-foreground'
+                    ? 'bg-surface text-foreground'
+                    : 'text-muted hover:bg-surface/60 hover:text-foreground'
                 }`}
                 onClick={() => onSelect(item.id)}
               >

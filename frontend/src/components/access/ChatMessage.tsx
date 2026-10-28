@@ -6,7 +6,7 @@ import { useI18n } from '@/hooks/useI18n'
 import { copyText } from '@/lib/clipboard'
 import { formatCompact, formatCredits } from '@/lib/format'
 import { LatencyStats } from '@/components/ui/LatencyStats'
-import { duration, ease, gsap, prefersReducedMotion } from '@/lib/motion'
+import { duration, gsap, prefersReducedMotion } from '@/lib/motion'
 import { ThinkingBlock } from './ThinkingBlock'
 import { ToolCallList } from './ToolCallCard'
 import type { ThreadMessage } from './types'
@@ -97,9 +97,8 @@ function useEnterFade<T extends HTMLElement>() {
     if (!el || prefersReducedMotion()) return
     gsap.from(el, {
       autoAlpha: 0,
-      y: 8,
-      duration: duration.base,
-      ease: ease.out,
+      duration: duration.fast,
+      ease: 'power2.out',
     })
   }, [])
   return ref
@@ -114,7 +113,7 @@ export function ChatMessageView({ message }: { message: ThreadMessage }) {
   if (isUser) {
     return (
       <div ref={rootRef} className="ml-auto max-w-[92%] sm:max-w-[78%]">
-        <div className="rounded-2xl rounded-br-md bg-surface-secondary/90 px-3.5 py-2.5">
+        <div className="access-bubble access-bubble--user rounded-2xl rounded-br-md px-3.5 py-2.5">
           {message.content ? (
             <div className="whitespace-pre-wrap break-words text-body leading-[1.65] text-foreground">{message.content}</div>
           ) : null}
@@ -159,17 +158,17 @@ export function ChatMessageView({ message }: { message: ThreadMessage }) {
           <Skeleton className="h-3 w-[68%] rounded-md" />
         </div>
       ) : message.content ? (
-        <div className="rounded-2xl rounded-tl-md bg-surface-secondary/50 px-3.5 py-2.5">
+        <div className="access-bubble access-bubble--assistant px-0.5 py-0.5">
           <ContentSegments text={message.content} streaming={streaming} />
         </div>
       ) : null}
       {(canCopy || showUsage || showLatency) ? (
-        <div className="space-y-1.5 px-0.5">
+        <div className="access-msg-foot space-y-1.5 px-0.5">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
             {canCopy ? (
               <button
                 type="button"
-                className="inline-flex items-center gap-1 text-caption text-muted hover:text-foreground"
+                className="inline-flex items-center gap-1 text-caption text-muted/80 opacity-70 transition-opacity hover:text-foreground hover:opacity-100"
                 onClick={() => void onCopy()}
               >
                 <CopySimple size={12} />
@@ -184,6 +183,7 @@ export function ChatMessageView({ message }: { message: ThreadMessage }) {
               ttfbMs={message.ttfb_ms}
               completionTokens={message.usage?.completion_tokens}
               stream
+              className="opacity-80"
               labels={{
                 heading: t('logsColLatency'),
                 ttft: t('logsColTTFT'),
