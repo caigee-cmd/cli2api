@@ -41,7 +41,7 @@ export function ChatHistoryRail({
 
   if (collapsed) {
     return (
-      <div className="flex w-10 shrink-0 flex-col items-center gap-2 border-r border-separator/40 py-3">
+      <div className="flex w-10 shrink-0 flex-col items-center gap-2 border-r border-separator/70 bg-surface-secondary py-3">
         <Button
           isIconOnly
           size="sm"
@@ -69,7 +69,7 @@ export function ChatHistoryRail({
   return (
     <aside
       ref={railRef}
-      className="flex w-[13.5rem] shrink-0 flex-col border-r border-separator/40 bg-surface-secondary/30"
+      className="flex w-[13.5rem] shrink-0 flex-col border-r border-separator/70 bg-surface-secondary"
       aria-label={t('chatHistoryTitle')}
     >
       <div className="flex items-center gap-1 px-2 py-2.5">

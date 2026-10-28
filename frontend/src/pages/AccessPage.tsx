@@ -5,7 +5,7 @@ import { Button, Chip, Tab, Tabs } from '@heroui/react'
 import { ArrowsClockwise } from '@phosphor-icons/react'
 import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
-import { fetchAccounts, fetchModels, streamChat, testChat } from '@/api/overview'
+import { buildRawPayload, fetchAccounts, fetchModels, streamChat, testRawApi, type RawApiFormat } from '@/api/overview'
 import type { ModelInfo, Overview } from '@/api/types'
 import type { StreamToolCall } from '@/api/overview'
 import { absUrl } from '@/lib/url'
@@ -97,6 +97,7 @@ export function AccessPage() {
   const { t } = useI18n()
   const { overview, loading } = useOverview()
   const [accessTab, setAccessTab] = useState<AccessTab>('chat')
+  const [rawFormat, setRawFormat] = useState<RawApiFormat>('chat')
   const [historyCollapsed, setHistoryCollapsed] = useState(true)
   const [sessions, setSessions] = useState<ChatSession[]>(() => [createSession(initialDemoMessages())])
   const [activeSessionId, setActiveSessionId] = useState('')
@@ -116,7 +117,14 @@ export function AccessPage() {
   }, [])
   const base = absUrl(overview?.access?.openai_base_url || '/v1')
   const chatPath = overview?.access?.chat_completions || '/v1/chat/completions'
-  const chatEndpoint = absUrl(chatPath)
+  const messagesPath = overview?.access?.messages || '/v1/messages'
+  const responsesPath = overview?.access?.responses || '/v1/responses'
+  const rawPath = rawFormat === 'messages'
+    ? messagesPath
+    : rawFormat === 'responses'
+      ? responsesPath
+      : chatPath
+  const rawEndpoint = absUrl(rawPath)
   const [model, setModel] = useState('')
   const [accountId, setAccountId] = useState('')
   const [accountCatalog, setAccountCatalog] = useState<{ accountId: string; models: ModelInfo[]; error: string } | null>(null)
@@ -170,19 +178,18 @@ export function AccessPage() {
     account.ready === true || account.hot === true || account.status === 'ready' || account.status === 'hot'
   ))
 
-  const payload = useMemo(() => ({
-    model: selectedModel,
-    stream: false,
-    messages: [{ role: 'user', content: prompt || '只回复OK' }],
-  }), [prompt, selectedModel])
+  const payload = useMemo(
+    () => buildRawPayload(rawFormat, selectedModel, prompt),
+    [prompt, rawFormat, selectedModel],
+  )
 
   const curl = useMemo(
-    () => `curl -sS ${shellQuote(chatEndpoint)} \\
+    () => `curl -sS ${shellQuote(rawEndpoint)} \\
   -H "Authorization: Bearer $CLI2API_API_KEY" \\
   -H ${shellQuote('Content-Type: application/json')}${selectedAccount ? ` \\
   -H ${shellQuote(`X-Qoder-Account: ${selectedAccount}`)}` : ''} \\
   -d ${shellQuote(JSON.stringify(payload))}`,
-    [chatEndpoint, payload, selectedAccount],
+    [payload, rawEndpoint, selectedAccount],
   )
 
   if (loading && !overview) return <AccessPageSkeleton />
@@ -199,7 +206,7 @@ export function AccessPage() {
     setElapsedMs(null)
     setOutput('')
     try {
-      const data = await testChat(payload.model, payload.messages[0].content, selectedAccount || undefined)
+      const data = await testRawApi(rawPath, payload, selectedAccount || undefined)
       setOutput(JSON.stringify(data, null, 2))
       setRequestState('success')
     } catch (error) {
@@ -468,7 +475,7 @@ export function AccessPage() {
         </Tabs.ListContainer>
 
         <Tabs.Panel id="chat" className="pt-5">
-          <section className="overflow-hidden rounded-3xl bg-surface shadow-surface">
+          <section className="card overflow-hidden rounded-3xl bg-surface">
             <div className="flex min-h-[640px] md:min-h-[72vh]">
               <ChatHistoryRail
                 collapsed={historyCollapsed}
@@ -509,7 +516,9 @@ export function AccessPage() {
 
         <Tabs.Panel id="raw" className="space-y-5 pt-5">
           <RawApiPanel
-            chatPath={chatPath}
+            format={rawFormat}
+            onFormatChange={setRawFormat}
+            requestPath={rawPath}
             prompt={prompt}
             onPromptChange={setPrompt}
             onTest={() => void onTest()}
@@ -521,6 +530,14 @@ export function AccessPage() {
             copiedCurl={copied === 'curl'}
             onCopyCurl={() => void copy(curl, 'curl')}
             canSend={Boolean(prompt.trim() && selectedModel && !modelsLoading)}
+            accountValue={selectedAccount || 'auto'}
+            onAccountChange={(next) => setAccountId(next === 'auto' ? '' : next)}
+            accountOptions={accountOptions}
+            modelValue={selectedModel}
+            onModelChange={setModel}
+            modelOptions={modelOptions}
+            modelsLoading={modelsLoading}
+            disabled={!accounts.length && demoMode() == null}
           />
           <EndpointList access={overview?.access} />
         </Tabs.Panel>

@@ -39,7 +39,7 @@ export type ComposerOption = {
   icon?: ReactNode
 }
 
-function CompactSelect({
+export function CompactSelect({
   ariaLabel,
   value,
   onChange,
@@ -174,7 +174,7 @@ export function ChatComposer({
 
   return (
     <div className="p-3 sm:p-4">
-      <div className="overflow-hidden rounded-2xl bg-surface-secondary/80">
+      <div className="card overflow-hidden rounded-2xl bg-surface">
         {attachments.length ? (
           <div className="flex flex-wrap gap-2 px-3 pt-3">
             {attachments.map((file) => (

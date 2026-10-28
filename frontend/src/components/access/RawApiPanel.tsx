@@ -1,6 +1,9 @@
 import { CopyIcon } from '@/components/motion/CopyIcon'
 import { EmptyPanel } from '@/components/ui/EmptyPanel'
+import { FilterToggle } from '@/components/ui/FilterToggle'
 import { PageAlert } from '@/components/ui/PageAlert'
+import { CompactSelect, type ComposerOption } from '@/components/access/ChatComposer'
+import type { RawApiFormat } from '@/api/overview'
 import { Button, Chip, Skeleton, TextArea } from '@heroui/react'
 import { BracketsCurly, CheckCircle, Clock, PaperPlaneTilt } from '@phosphor-icons/react'
 import { useI18n } from '@/hooks/useI18n'
@@ -8,7 +11,9 @@ import { useI18n } from '@/hooks/useI18n'
 type RequestState = 'idle' | 'loading' | 'success' | 'error'
 
 export function RawApiPanel({
-  chatPath,
+  format,
+  onFormatChange,
+  requestPath,
   prompt,
   onPromptChange,
   onTest,
@@ -20,8 +25,18 @@ export function RawApiPanel({
   copiedCurl,
   onCopyCurl,
   canSend,
+  accountValue,
+  onAccountChange,
+  accountOptions,
+  modelValue,
+  onModelChange,
+  modelOptions,
+  modelsLoading,
+  disabled,
 }: {
-  chatPath: string
+  format: RawApiFormat
+  onFormatChange: (value: RawApiFormat) => void
+  requestPath: string
   prompt: string
   onPromptChange: (value: string) => void
   onTest: () => void
@@ -33,22 +48,65 @@ export function RawApiPanel({
   copiedCurl: boolean
   onCopyCurl: () => void
   canSend: boolean
+  accountValue: string
+  onAccountChange: (value: string) => void
+  accountOptions: ComposerOption[]
+  modelValue: string
+  onModelChange: (value: string) => void
+  modelOptions: ComposerOption[]
+  modelsLoading?: boolean
+  disabled?: boolean
 }) {
   const { t } = useI18n()
 
   return (
     <div className="space-y-4">
-      <p className="px-1 text-caption leading-5 text-muted">{t('nativeApiHint')}</p>
+      <p className="px-1 text-caption leading-5 text-muted">{t('rawFormatHint')}</p>
 
-      <div className="overflow-hidden rounded-3xl bg-surface shadow-surface">
+      <div className="card overflow-hidden rounded-3xl bg-surface">
         <div className="grid xl:grid-cols-[minmax(440px,.92fr)_minmax(0,1.08fr)]">
           <div className="xl:border-r xl:border-separator/50">
             <div className="px-5 py-4 sm:px-6">
               <h3 className="font-semibold">{t('requestBuilder')}</h3>
-              <p className="mt-0.5 text-caption text-muted">POST {chatPath}</p>
+              <p className="mt-0.5 text-caption text-muted">POST {requestPath}</p>
             </div>
 
             <div className="space-y-5 px-5 pb-5 sm:px-6 sm:pb-6">
+              <div className="space-y-2">
+                <div className="text-body font-medium text-muted">{t('rawFormatLabel')}</div>
+                <FilterToggle
+                  ariaLabel={t('rawFormatLabel')}
+                  value={format}
+                  onChange={(value) => onFormatChange(value as RawApiFormat)}
+                  options={[
+                    { id: 'chat', label: t('rawFormatChat') },
+                    { id: 'messages', label: t('rawFormatMessages') },
+                    { id: 'responses', label: t('rawFormatResponses') },
+                  ]}
+                />
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <CompactSelect
+                  ariaLabel={t('account')}
+                  value={accountValue}
+                  onChange={onAccountChange}
+                  options={accountOptions}
+                  isDisabled={disabled || requestState === 'loading'}
+                  tone="muted"
+                  className="w-auto max-w-[9rem] min-w-0"
+                />
+                <CompactSelect
+                  ariaLabel={t('model')}
+                  value={modelValue}
+                  onChange={onModelChange}
+                  placeholder={modelsLoading ? t('requesting') : t('model')}
+                  options={modelOptions}
+                  isDisabled={disabled || requestState === 'loading' || modelsLoading || !modelOptions.length}
+                  className="w-auto max-w-[12rem] min-w-0"
+                />
+              </div>
+
               <div className="space-y-3">
                 <div className="flex items-center justify-between gap-4">
                   <div className="text-body font-medium text-muted">{t('prompt')}</div>
@@ -62,6 +120,7 @@ export function RawApiPanel({
                   onChange={(event) => onPromptChange(event.target.value)}
                   placeholder={t('promptPlaceholder')}
                   aria-label={t('prompt')}
+                  disabled={disabled || requestState === 'loading'}
                 />
                 <p className="text-caption leading-5 text-muted">{t('promptHelper')}</p>
               </div>
@@ -69,7 +128,7 @@ export function RawApiPanel({
               <Button
                 fullWidth
                 isPending={requestState === 'loading'}
-                isDisabled={!canSend}
+                isDisabled={!canSend || disabled}
                 onPress={onTest}
               >
                 <PaperPlaneTilt size={16} />
@@ -79,7 +138,7 @@ export function RawApiPanel({
           </div>
 
           <div
-            className="flex min-h-[480px] min-w-0 flex-col bg-surface-secondary/40"
+            className="flex min-h-[480px] min-w-0 flex-col bg-surface-secondary"
             aria-live="polite"
             aria-busy={requestState === 'loading'}
           >
@@ -142,7 +201,7 @@ export function RawApiPanel({
         </div>
       </div>
 
-      <section className="overflow-hidden rounded-3xl bg-surface shadow-surface">
+      <section className="card overflow-hidden rounded-3xl bg-surface">
         <div className="flex items-center justify-between gap-4 px-5 py-3.5">
           <div className="min-w-0">
             <div className="text-body font-semibold">{t('curlExample')}</div>

@@ -168,6 +168,41 @@ export function testChat(model: string, content: string, accountId?: string) {
   })
 }
 
+
+export type RawApiFormat = 'chat' | 'messages' | 'responses'
+
+/** Build a minimal non-streaming body for the selected public API format. */
+export function buildRawPayload(format: RawApiFormat, model: string, content: string) {
+  const text = content || '只回复OK'
+  if (format === 'responses') {
+    return { model, input: text, stream: false }
+  }
+  if (format === 'messages') {
+    return {
+      model,
+      max_tokens: 1024,
+      stream: false,
+      messages: [{ role: 'user', content: text }],
+    }
+  }
+  return {
+    model,
+    stream: false,
+    messages: [{ role: 'user', content: text }],
+  }
+}
+
+/** POST to a public /v1 route (chat completions, messages, or responses). */
+export function testRawApi(path: string, body: unknown, accountId?: string) {
+  const headers: Record<string, string> = {}
+  if (accountId) headers['X-Qoder-Account'] = accountId
+  return api(path, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+  })
+}
+
 export type StreamChatContentPart =
   | { type: 'text'; text: string }
   | { type: 'image_url'; image_url: { url: string } }
