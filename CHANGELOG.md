@@ -3,6 +3,26 @@
 Published user-facing notes for GitHub Releases and the console update page.
 Write upcoming notes as bilingual files in `changelog/unreleased/`.
 
+## 0.7.16 - 2026-10-28
+
+### English
+
+- Add Account picker shows a small CaiAI hosted soft link under the provider tiles (homepage, not a fake provider card).
+- CaiAI empty-state soft link now opens the homepage (`https://caiaiu.com`) instead of the affiliate register URL.
+- Add Account picker dialog is slightly narrower (`max-w-5xl`) while keeping the 3-column tile grid.
+- Add Muse (Meta) as an experimental login-source provider (`meta`, alias `muse`): device-code OAuth against auth.meta.com, mint LLM keys at api.meta.ai, Responses chat with encrypted_content shape validation, and optional Meta Model API key paste.
+- Console Add Account picker shows a Muse (Meta) tile; model prefixes accept `meta/` (and `muse/` resolves to `meta`).
+- Muse (Meta) device-code login and API-key mint now use the account `proxy_url` when set (else global), matching chat/Responses and CPA credential→global priority.
+
+### 中文
+
+- 添加账号选择弹窗在提供商磁贴下方增加小号 CaiAI 托管软链（首页，非假提供商卡片）。
+- 空态 CaiAI 软链改为打开首页 `https://caiaiu.com`，去掉注册页 affiliate 参数。
+- 添加账号选择弹窗略收窄为 `max-w-5xl`，仍保持三列磁贴布局。
+- 新增实验性登录源 Muse (Meta)（`meta`，别名 `muse`）：走 auth.meta.com 设备码授权、在 api.meta.ai 兑换 LLM Key，聊天走 Responses，并对 encrypted_content 做形状校验透传；也可粘贴 Meta Model API Key。
+- 控制台「添加账号」出现 Muse (Meta) 磁贴；模型前缀支持 `meta/`（`muse/` 会解析到 `meta`）。
+- Muse (Meta) 设备码登录与 API Key 兑换在设置了账号 `proxy_url` 时走账号代理（否则全局），与聊天/Responses 及 CPA credential→global 优先级一致。
+
 ## 0.7.15 - 2026-10-27
 
 ### English
