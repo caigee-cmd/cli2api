@@ -3,6 +3,22 @@
 Published user-facing notes for GitHub Releases and the console update page.
 Write upcoming notes as bilingual files in `changelog/unreleased/`.
 
+## 0.7.20 - 2026-10-28
+
+### English
+
+- Access Chat uses clearer solid-glass contrast and a stronger history-rail separator.
+- Raw API shares the Chat account/model pickers and can switch among Chat Completions, Anthropic Messages, and OpenAI Responses.
+- Logs merges Latency and TTFT into one Timing column with three rows: first token, total latency, and output tok/s.
+- Access assistant replies show the same timing block after a stream finishes (client-side tok/s from completion tokens).
+
+### 中文
+
+- Access 聊天区对比度更清晰（solid-glass），历史侧栏分隔更明显。
+- 原始 API 与聊天共用账号/模型选择，并可在 Chat Completions、Anthropic Messages、OpenAI Responses 三种格式间切换。
+- 日志页将延迟与首字耗时合并为一列「延迟」，三行展示：首字、总耗时、输出 tok/s。
+- Access 助手回复在流式结束后显示同样的延迟块（客户端用 completion tokens 估算 tok/s）。
+
 ## 0.7.19 - 2026-10-28
 
 ### English
