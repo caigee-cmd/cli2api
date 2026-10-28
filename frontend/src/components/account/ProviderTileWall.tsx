@@ -99,7 +99,7 @@ function ProviderTile({
       onClick={() => onSelect(tile.id)}
       className="card flex min-w-0 flex-row items-center gap-3 rounded-xl bg-surface px-3.5 py-3 text-left transition-[transform,opacity,background-color] duration-200 ease-out hover:bg-surface-secondary active:translate-y-px active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:translate-y-0 motion-reduce:active:scale-100 disabled:cursor-not-allowed disabled:opacity-50 disabled:active:translate-y-0 disabled:active:scale-100"
     >
-      <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-surface-secondary text-foreground [&_svg]:size-[18px]">
+      <span className="grid size-9 shrink-0 place-items-center rounded-lg text-foreground [&_svg]:size-[18px]">
         <ProviderMark provider={tile.provider} size={18} />
       </span>
       <span className="min-w-0 flex-1">
