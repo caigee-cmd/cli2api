@@ -58,7 +58,7 @@ func TestWithCodexClientHeadersFilters(t *testing.T) {
 }
 
 func TestUserAgentPinnedToOfficialStable(t *testing.T) {
-	if !strings.Contains(UserAgent, "0.164.0") {
-		t.Fatalf("UserAgent=%q want 0.164.0", UserAgent)
+	if !strings.Contains(UserAgent, "0.165.0") {
+		t.Fatalf("UserAgent=%q want 0.165.0", UserAgent)
 	}
 }
