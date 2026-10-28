@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { PageAlert } from '@/components/ui/PageAlert'
 import { Skeleton } from '@heroui/react'
 import { CopySimple, FileText } from '@phosphor-icons/react'
 import { useI18n } from '@/hooks/useI18n'
 import { copyText } from '@/lib/clipboard'
 import { formatCompact, formatCredits } from '@/lib/format'
+import { duration, ease, gsap, prefersReducedMotion } from '@/lib/motion'
 import { ThinkingBlock } from './ThinkingBlock'
 import { ToolCallList } from './ToolCallCard'
 import type { ThreadMessage } from './types'
@@ -54,14 +55,64 @@ function UsageFoot({ message }: { message: ThreadMessage }) {
   )
 }
 
+/** Split plain text into paragraph-ish segments for quiet stream fade-in. */
+function ContentSegments({
+  text,
+  streaming,
+}: {
+  text: string
+  streaming: boolean
+}) {
+  const segments = text.split(/(\n{2,})/)
+  let lastTextIdx = -1
+  for (let i = segments.length - 1; i >= 0; i -= 1) {
+    if (segments[i] && !/^\n{2,}$/.test(segments[i])) {
+      lastTextIdx = i
+      break
+    }
+  }
+
+  return (
+    <div className={`whitespace-pre-wrap break-words text-body leading-[1.65] text-foreground ${streaming ? 'access-streaming' : ''}`}>
+      {segments.map((part, index) => {
+        if (!part) return null
+        const isSep = /^\n{2,}$/.test(part)
+        if (isSep) return <span key={`s-${index}`}>{part}</span>
+        const fresh = streaming && index === lastTextIdx
+        return (
+          <span key={`p-${index}`} className={fresh ? 'access-stream-seg' : undefined}>
+            {part}
+          </span>
+        )
+      })}
+    </div>
+  )
+}
+
+function useEnterFade<T extends HTMLElement>() {
+  const ref = useRef<T>(null)
+  useEffect(() => {
+    const el = ref.current
+    if (!el || prefersReducedMotion()) return
+    gsap.from(el, {
+      autoAlpha: 0,
+      y: 8,
+      duration: duration.base,
+      ease: ease.out,
+    })
+  }, [])
+  return ref
+}
+
 export function ChatMessageView({ message }: { message: ThreadMessage }) {
   const { t } = useI18n()
   const [copied, setCopied] = useState(false)
   const isUser = message.role === 'user'
+  const rootRef = useEnterFade<HTMLDivElement>()
 
   if (isUser) {
     return (
-      <div className="ml-auto max-w-[92%] sm:max-w-[78%]">
+      <div ref={rootRef} className="ml-auto max-w-[92%] sm:max-w-[78%]">
         <div className="rounded-2xl rounded-br-md bg-surface-secondary/90 px-3.5 py-2.5">
           {message.content ? (
             <div className="whitespace-pre-wrap break-words text-body leading-[1.65] text-foreground">{message.content}</div>
@@ -74,6 +125,7 @@ export function ChatMessageView({ message }: { message: ThreadMessage }) {
 
   const showSkeleton = message.status === 'streaming' && !message.content && !message.reasoning && !message.toolCalls?.length
   const canCopy = Boolean(message.content) && message.status === 'done'
+  const streaming = message.status === 'streaming'
 
   async function onCopy() {
     if (!message.content) return
@@ -83,11 +135,11 @@ export function ChatMessageView({ message }: { message: ThreadMessage }) {
   }
 
   return (
-    <div className="max-w-[96%] space-y-2 sm:max-w-[88%]">
-      {message.reasoning || message.status === 'streaming' ? (
+    <div ref={rootRef} className="max-w-[96%] space-y-2 sm:max-w-[88%]">
+      {message.reasoning || streaming ? (
         <ThinkingBlock
           text={message.reasoning || ''}
-          streaming={message.status === 'streaming' && (!message.content || Boolean(message.reasoning))}
+          streaming={streaming && (!message.content || Boolean(message.reasoning))}
           defaultOpen={message.reasoningOpen}
         />
       ) : null}
@@ -102,8 +154,8 @@ export function ChatMessageView({ message }: { message: ThreadMessage }) {
           <Skeleton className="h-3 w-[68%] rounded-md" />
         </div>
       ) : message.content ? (
-        <div className="whitespace-pre-wrap break-words rounded-2xl rounded-tl-md bg-surface-secondary/50 px-3.5 py-2.5 text-body leading-[1.65] text-foreground">
-          {message.content}
+        <div className="rounded-2xl rounded-tl-md bg-surface-secondary/50 px-3.5 py-2.5">
+          <ContentSegments text={message.content} streaming={streaming} />
         </div>
       ) : null}
       {(canCopy || (message.usage && message.usage.credits != null)) ? (

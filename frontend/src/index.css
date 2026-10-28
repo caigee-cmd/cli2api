@@ -223,6 +223,20 @@ body {
   }
 }
 
+/* Access chat: quiet fade for newly streamed text segments. */
+@keyframes access-stream-seg {
+  from { opacity: 0.35; }
+  to { opacity: 1; }
+}
+.access-stream-seg {
+  animation: access-stream-seg 0.28s ease-out both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .access-stream-seg {
+    animation: none;
+  }
+}
+
 @keyframes brand-mark-scan {
   to {
     stroke-dashoffset: -100;

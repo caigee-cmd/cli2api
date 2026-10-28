@@ -173,7 +173,7 @@ export function ChatComposer({
   }
 
   return (
-    <div className="border-t border-separator/60 p-3 sm:p-4">
+    <div className="p-3 sm:p-4">
       <div className="overflow-hidden rounded-2xl bg-surface-secondary/80">
         {attachments.length ? (
           <div className="flex flex-wrap gap-2 px-3 pt-3">
@@ -260,29 +260,29 @@ export function ChatComposer({
             className="w-auto max-w-[10.5rem] min-w-0"
           />
 
-          {streaming ? (
+          {/* Fixed slot: send ↔ stop swap without shoving the composer row. */}
+          <div className="relative size-7 shrink-0">
             <Button
               isIconOnly
               size="sm"
               variant="secondary"
-              className="size-7 shrink-0 rounded-full"
+              className={`absolute inset-0 size-7 rounded-full transition-opacity duration-150 ${streaming ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
               aria-label={t('chatTryStop')}
               onPress={onStop}
             >
               <Stop size={13} weight="fill" />
             </Button>
-          ) : (
             <Button
               isIconOnly
               size="sm"
-              className="size-7 shrink-0 rounded-full transition-transform active:scale-95 disabled:active:scale-100"
+              className={`absolute inset-0 size-7 rounded-full transition-[opacity,transform] duration-150 active:scale-95 disabled:active:scale-100 ${streaming ? 'pointer-events-none opacity-0' : 'opacity-100'}`}
               aria-label={t('chatTrySend')}
-              isDisabled={!canSend || disabled}
+              isDisabled={!canSend || disabled || streaming}
               onPress={onSend}
             >
               <PaperPlaneTilt size={13} weight="fill" />
             </Button>
-          )}
+          </div>
         </div>
       </div>
       <p className="mt-2 px-1 text-caption leading-5 text-muted">{t('chatTryHelper')}</p>
