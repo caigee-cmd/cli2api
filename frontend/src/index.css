@@ -237,22 +237,33 @@ body {
   }
 }
 
-/* Access chat Flat Shell (AffectUI feel, cli2api tokens only — no cream palette).
-   Quiet wash + hairline; recessed composer well; soft user bubble vs flat assistant. */
+/* Access chat Flat Shell (AffectUI feel, cli2api cold tokens only — no cream / AI chroma).
+   Hierarchy: page background → shell (surface + hairline) → hist rail (secondary) →
+   stage (surface) → composer strip (secondary) → input well (field-background + deeper
+   hairline border). No stacked shadows for hierarchy. */
 .access-chat-shell {
-  box-shadow: 0 0 0 1px var(--hairline);
+  background: var(--surface);
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--foreground) 14%, transparent);
+}
+.access-chat-stage {
   background: var(--surface);
 }
 .access-hist-rail {
-  background: color-mix(in oklab, var(--surface-secondary) 55%, transparent);
+  background: var(--surface-secondary);
+  border-color: color-mix(in oklab, var(--foreground) 12%, transparent);
 }
 .access-hist-rail button[type="button"].rounded-xl {
   transition: background-color 0.2s cubic-bezier(0.2, 0.7, 0.2, 1),
     color 0.2s cubic-bezier(0.2, 0.7, 0.2, 1);
 }
+.access-composer {
+  background: var(--surface-secondary);
+  border-top: 1px solid color-mix(in oklab, var(--foreground) 10%, transparent);
+}
 .access-composer-well {
-  background: var(--surface-tertiary);
-  box-shadow: inset 0 1px 0 color-mix(in oklab, var(--foreground) 4%, transparent);
+  background: var(--field-background);
+  border: 1px solid color-mix(in oklab, var(--field-border) 85%, var(--foreground));
+  box-shadow: none;
 }
 .access-bubble--user {
   background: var(--surface-secondary);

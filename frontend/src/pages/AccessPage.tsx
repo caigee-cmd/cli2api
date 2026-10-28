@@ -499,7 +499,7 @@ export function AccessPage() {
                 onSelect={onSelectSession}
                 onNew={onNewChat}
               />
-              <div className="flex min-w-0 flex-1 flex-col">
+              <div className="access-chat-stage flex min-w-0 flex-1 flex-col bg-surface">
                 <ChatThread
                   messages={messages}
                   busy={chatState === 'loading'}

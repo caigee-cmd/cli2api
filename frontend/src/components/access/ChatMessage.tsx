@@ -139,7 +139,7 @@ export function ChatMessageView({ message }: { message: ThreadMessage }) {
   }
 
   return (
-    <div ref={rootRef} className="max-w-[96%] space-y-2 sm:max-w-[88%]">
+    <div ref={rootRef} className="group/access-msg max-w-[96%] space-y-2 sm:max-w-[88%]">
       {message.reasoning || streaming ? (
         <ThinkingBlock
           text={message.reasoning || ''}
@@ -179,13 +179,13 @@ export function ChatMessageView({ message }: { message: ThreadMessage }) {
           </div>
           {showLatency ? (
             <LatencyStats
+              variant="inline"
               latencyMs={message.latency_ms}
               ttfbMs={message.ttfb_ms}
               completionTokens={message.usage?.completion_tokens}
               stream
-              className="opacity-80"
+              className="access-latency-inline max-h-0 overflow-hidden opacity-0 transition-[opacity,max-height] duration-200 ease-[cubic-bezier(0.2,0.7,0.2,1)] group-hover/access-msg:max-h-6 group-hover/access-msg:opacity-100 focus-within:max-h-6 focus-within:opacity-100"
               labels={{
-                heading: t('logsColLatency'),
                 ttft: t('logsColTTFT'),
                 total: t('logsLatencyTotal'),
                 tps: t('logsOutputTPS'),

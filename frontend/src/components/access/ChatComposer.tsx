@@ -174,7 +174,7 @@ export function ChatComposer({
 
   return (
     <div className="access-composer p-3 sm:p-4">
-      <div className="access-composer-well overflow-hidden rounded-2xl bg-surface-tertiary/70">
+      <div className="access-composer-well overflow-hidden rounded-2xl">
         {attachments.length ? (
           <div className="flex flex-wrap gap-2 px-3 pt-3">
             {attachments.map((file) => (
@@ -285,7 +285,7 @@ export function ChatComposer({
           </div>
         </div>
       </div>
-      <p className="mt-2 px-1 text-caption leading-5 text-muted">{t('chatTryHelper')}</p>
+      <p className="mt-1.5 px-1 text-caption leading-4 text-muted/70">{t('chatTryHelper')}</p>
     </div>
   )
 }
