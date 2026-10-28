@@ -527,7 +527,7 @@ export function AccessPage() {
           </div>
         </Tabs.Panel>
 
-        <Tabs.Panel id="raw" className="space-y-5 pt-5">
+        <Tabs.Panel id="raw" className="space-y-4 pt-4">
           <RawApiPanel
             format={rawFormat}
             onFormatChange={setRawFormat}

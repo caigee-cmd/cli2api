@@ -41,12 +41,12 @@ export function ChatHistoryRail({
 
   if (collapsed) {
     return (
-      <div className="access-hist-rail flex w-10 shrink-0 flex-col items-center gap-2 border-r py-3">
+      <div className="access-hist-rail flex w-9 shrink-0 flex-col items-center gap-1.5 border-r py-2.5">
         <Button
           isIconOnly
           size="sm"
           variant="ghost"
-          className="size-7 min-w-7"
+          className="size-7 min-w-7 text-muted"
           aria-label={t('chatHistoryExpand')}
           onPress={() => onCollapsedChange(false)}
         >
@@ -56,7 +56,7 @@ export function ChatHistoryRail({
           isIconOnly
           size="sm"
           variant="ghost"
-          className="size-7 min-w-7"
+          className="size-7 min-w-7 text-muted"
           aria-label={t('chatHistoryNew')}
           onPress={onNew}
         >
@@ -69,18 +69,18 @@ export function ChatHistoryRail({
   return (
     <aside
       ref={railRef}
-      className="access-hist-rail flex w-[13.5rem] shrink-0 flex-col border-r"
+      className="access-hist-rail flex w-[13rem] shrink-0 flex-col border-r"
       aria-label={t('chatHistoryTitle')}
     >
-      <div className="flex items-center gap-1 px-2 py-2.5">
-        <div className="min-w-0 flex-1 truncate px-1 text-caption font-medium text-muted">
+      <div className="flex items-center gap-1 px-2 py-2">
+        <div className="min-w-0 flex-1 truncate px-1.5 text-caption font-medium text-muted">
           {t('chatHistoryTitle')}
         </div>
         <Button
           isIconOnly
           size="sm"
           variant="ghost"
-          className="size-7 min-w-7"
+          className="size-7 min-w-7 text-muted"
           aria-label={t('chatHistoryCollapse')}
           onPress={() => onCollapsedChange(true)}
         >
@@ -88,11 +88,11 @@ export function ChatHistoryRail({
         </Button>
       </div>
 
-      <div className="px-2 pb-2">
+      <div className="px-2 pb-1.5">
         <Button
           size="sm"
           variant="ghost"
-          className="w-full justify-start gap-1.5 bg-surface/70"
+          className="h-8 w-full justify-start gap-1.5 rounded-[10px] px-2.5 text-caption font-medium text-muted hover:text-foreground"
           onPress={onNew}
         >
           <Plus size={13} />
@@ -100,9 +100,9 @@ export function ChatHistoryRail({
         </Button>
       </div>
 
-      <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto px-1.5 pb-3">
+      <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto px-1.5 pb-2.5">
         {!items.length ? (
-          <p className="px-2 py-3 text-caption leading-5 text-muted">{t('chatHistoryEmpty')}</p>
+          <p className="px-2.5 py-6 text-center text-caption leading-5 text-muted/70">{t('chatHistoryEmpty')}</p>
         ) : (
           items.map((item) => {
             const active = item.id === activeId
@@ -110,14 +110,13 @@ export function ChatHistoryRail({
               <button
                 key={item.id}
                 type="button"
-                className={`w-full rounded-xl px-2.5 py-2 text-left text-caption leading-5 transition-colors duration-200 ease-[cubic-bezier(0.2,0.7,0.2,1)] ${
-                  active
-                    ? 'bg-surface text-foreground'
-                    : 'text-muted hover:bg-surface/50 hover:text-foreground'
+                data-active={active ? 'true' : undefined}
+                className={`access-hist-item flex h-9 w-full items-center rounded-[10px] px-2.5 text-left text-caption leading-5 ${
+                  active ? 'font-medium text-foreground' : 'font-normal text-muted'
                 }`}
                 onClick={() => onSelect(item.id)}
               >
-                <span className="line-clamp-2 font-medium">{item.title || t('chatHistoryUntitled')}</span>
+                <span className="line-clamp-1 tracking-tight">{item.title || t('chatHistoryUntitled')}</span>
               </button>
             )
           })

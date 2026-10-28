@@ -108,6 +108,8 @@ export function ChatMessageView({ message }: { message: ThreadMessage }) {
   const { t } = useI18n()
   const [copied, setCopied] = useState(false)
   const isUser = message.role === 'user'
+  // Enter fade only for user bubbles — assistant starts as skeleton/stream and
+  // must not re-fade when content replaces the skeleton (no fade-after-skeleton flash).
   const rootRef = useEnterFade<HTMLDivElement>()
 
   if (isUser) {
@@ -139,7 +141,7 @@ export function ChatMessageView({ message }: { message: ThreadMessage }) {
   }
 
   return (
-    <div ref={rootRef} className="group/access-msg max-w-[96%] space-y-2 sm:max-w-[88%]">
+    <div className="group/access-msg max-w-[96%] space-y-1.5 sm:max-w-[88%]">
       {message.reasoning || streaming ? (
         <ThinkingBlock
           text={message.reasoning || ''}
@@ -151,19 +153,19 @@ export function ChatMessageView({ message }: { message: ThreadMessage }) {
       {message.status === 'error' ? (
         <PageAlert status="danger" title={t('requestFailed')} description={message.error || ''} />
       ) : showSkeleton ? (
-        <div className="space-y-2.5 pt-0.5">
+        <div className="space-y-2 pt-0.5">
           <Skeleton className="h-3 w-28 rounded-md" />
           <Skeleton className="h-3 w-full rounded-md" />
           <Skeleton className="h-3 w-[86%] rounded-md" />
           <Skeleton className="h-3 w-[68%] rounded-md" />
         </div>
       ) : message.content ? (
-        <div className="access-bubble access-bubble--assistant px-0.5 py-0.5">
+        <div className="access-bubble access-bubble--assistant px-0.5 py-0">
           <ContentSegments text={message.content} streaming={streaming} />
         </div>
       ) : null}
       {(canCopy || showUsage || showLatency) ? (
-        <div className="access-msg-foot space-y-1.5 px-0.5">
+        <div className="access-msg-foot space-y-1 px-0.5 pt-0.5">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
             {canCopy ? (
               <button

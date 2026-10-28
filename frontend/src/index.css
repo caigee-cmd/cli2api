@@ -238,9 +238,10 @@ body {
 }
 
 /* Access chat Flat cohesion (AffectUI feel, cli2api cold tokens only — no cream / AI chroma).
-   Hierarchy: page continuous with stage (--surface/transparent) + hist rail (wash +
-   hairline) as peers → weakened composer strip → composer well ONLY recessed.
-   No outer mini-app shell / box-shadow ring. Raw uses .access-raw-panel hairline. */
+   Hierarchy: page continuous with stage + hist rail (wash + hairline) as peers →
+   quieter composer strip hairline → composer well ONLY recessed.
+   Hist items speak AppSidebar language (sidebar-hover / sidebar-active + rim).
+   Raw uses .access-raw-panel hairline. Overview/modal keep .card solid-glass. */
 .access-chat-shell {
   /* Kept for any leftover refs; Flat cohesion removes the inset shell framing. */
   background: transparent;
@@ -250,34 +251,51 @@ body {
   background: transparent;
 }
 .access-hist-rail {
-  /* caiai-like cold wash: surface-secondary at ~35% over the page */
-  background: color-mix(in oklab, var(--surface-secondary) 35%, transparent);
-  border-color: color-mix(in oklab, var(--foreground) 10%, transparent);
+  /* caiai-like cold wash: surface-secondary at ~30% over the page */
+  background: color-mix(in oklab, var(--surface-secondary) 30%, transparent);
+  border-color: color-mix(in oklab, var(--foreground) 8%, transparent);
 }
-.access-hist-rail button[type="button"].rounded-xl {
+.access-hist-item {
   transition: background-color 0.2s cubic-bezier(0.2, 0.7, 0.2, 1),
-    color 0.2s cubic-bezier(0.2, 0.7, 0.2, 1);
+    color 0.2s cubic-bezier(0.2, 0.7, 0.2, 1),
+    box-shadow 0.2s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.access-hist-item:hover:not([data-active="true"]) {
+  background: var(--sidebar-hover);
+  color: var(--foreground);
+}
+.access-hist-item[data-active="true"] {
+  background: var(--sidebar-active);
+  color: var(--foreground);
+  box-shadow: inset 0 0 0 1px var(--sidebar-active-rim), 0 1px 2px 0 rgb(0 0 0 / 0.04);
 }
 .access-composer {
-  /* Weaken outer strip — elevation lives only in .access-composer-well */
+  /* Quieter residual top hairline — elevation lives only in .access-composer-well */
   background: transparent;
-  border-top: 1px solid color-mix(in oklab, var(--foreground) 8%, transparent);
+  border-top: 1px solid color-mix(in oklab, var(--foreground) 5%, transparent);
 }
 .access-composer-well {
   background: var(--field-background);
-  border: 1px solid color-mix(in oklab, var(--field-border) 85%, var(--foreground));
+  border: 1px solid color-mix(in oklab, var(--field-border) 80%, var(--foreground));
   box-shadow: none;
 }
 .access-raw-panel {
   /* Same-page hairline panel — not .card solid-glass (Overview/modal keep .card). */
   background: var(--surface);
-  box-shadow: 0 0 0 1px color-mix(in oklab, var(--foreground) 10%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--foreground) 9%, transparent);
+}
+.access-raw-panel__inspector {
+  /* Soft wash peer with hist rail — not a heavy secondary slab */
+  background: color-mix(in oklab, var(--surface-secondary) 40%, transparent);
 }
 .access-bubble--user {
-  background: var(--surface-secondary);
+  /* Slightly stronger vs stage wash for readable contrast */
+  background: color-mix(in oklab, var(--surface-secondary) 92%, var(--foreground));
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--foreground) 4%, transparent);
   color: var(--foreground);
 }
 .access-bubble--assistant {
+  /* Flush to stage — no pill; sits with the page wash */
   background: transparent;
 }
 .access-msg-foot {

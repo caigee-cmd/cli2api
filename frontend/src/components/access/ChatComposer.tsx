@@ -173,7 +173,7 @@ export function ChatComposer({
   }
 
   return (
-    <div className="access-composer p-3 sm:p-4">
+    <div className="access-composer px-3 pb-3 pt-2.5 sm:px-4 sm:pb-3.5 sm:pt-3">
       <div className="access-composer-well overflow-hidden rounded-2xl">
         {attachments.length ? (
           <div className="flex flex-wrap gap-2 px-3 pt-3">
@@ -285,7 +285,7 @@ export function ChatComposer({
           </div>
         </div>
       </div>
-      <p className="mt-1.5 px-1 text-caption leading-4 text-muted/70">{t('chatTryHelper')}</p>
+      <p className="mt-1 px-1 text-caption leading-4 text-muted/65">{t('chatTryHelper')}</p>
     </div>
   )
 }
