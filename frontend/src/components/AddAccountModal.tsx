@@ -1,7 +1,7 @@
 import { CopyIcon } from '@/components/motion/CopyIcon'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { duration, ease, gsap } from '@/lib/motion'
-import { Button, Input, Modal, NumberField, TextArea } from '@heroui/react'
+import { Button, Description, Input, Label, Modal, NumberField, TextArea } from '@heroui/react'
 import { ArrowSquareOut, CaretLeft, CaretRight, CheckCircle, FileCode, Key, ShieldCheck, X } from '@phosphor-icons/react'
 import { copyText } from '@/lib/clipboard'
 import { BrandMark } from '@/components/BrandMark'
@@ -602,7 +602,8 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                     </Button>
                   </div>
                   <div className="mt-4 space-y-3">
-                    <FormRow label={t('accountName')}>
+                    <div className="space-y-1.5">
+                      <Label className="text-body font-medium text-muted">{t('accountName')}</Label>
                       <Input
                         value={name}
                         onChange={(event) => setName(event.target.value)}
@@ -611,7 +612,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                         disabled={settingsLocked}
                         autoFocus
                       />
-                    </FormRow>
+                    </div>
                     <button
                       type="button"
                       onClick={() => setAdvancedOpen((open) => !open)}
@@ -623,39 +624,46 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                     </button>
                     {advancedOpen ? (
                       <div className="space-y-3 rounded-lg bg-surface-secondary px-3.5 py-3.5">
-                        <FormRow label={t('maxInflight')} hint={t('maxInflightHint')}>
-                          <NumberField
-                            value={maxInFlight}
-                            onChange={(value) => setMaxInFlight(value ?? 4)}
-                            minValue={1}
-                            maxValue={32}
-                            isDisabled={settingsLocked}
-                            isRequired
-                          >
-                            <NumberField.Group>
-                              <NumberField.DecrementButton />
-                              <NumberField.Input aria-label={t('maxInflight')} />
-                              <NumberField.IncrementButton />
-                            </NumberField.Group>
-                          </NumberField>
-                        </FormRow>
-                        <FormRow label={t('priority')} hint={t('priorityHint')}>
-                          <NumberField
-                            value={priority}
-                            onChange={(value) => setPriority(value ?? 50)}
-                            minValue={1}
-                            maxValue={100}
-                            isDisabled={settingsLocked}
-                            isRequired
-                          >
-                            <NumberField.Group>
-                              <NumberField.DecrementButton />
-                              <NumberField.Input aria-label={t('priority')} />
-                              <NumberField.IncrementButton />
-                            </NumberField.Group>
-                          </NumberField>
-                        </FormRow>
-                        <FormRow label={t('proxyUrl')} hint={t('proxyUrlHint')}>
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                          <div className="space-y-1.5">
+                            <Label className="text-body font-medium text-muted">{t('maxInflight')}</Label>
+                            <NumberField
+                              value={maxInFlight}
+                              onChange={(value) => setMaxInFlight(value ?? 4)}
+                              minValue={1}
+                              maxValue={32}
+                              isDisabled={settingsLocked}
+                              isRequired
+                            >
+                              <NumberField.Group className="w-full">
+                                <NumberField.DecrementButton />
+                                <NumberField.Input aria-label={t('maxInflight')} />
+                                <NumberField.IncrementButton />
+                              </NumberField.Group>
+                            </NumberField>
+                            <Description className="text-caption leading-5 text-muted">{t('maxInflightHint')}</Description>
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label className="text-body font-medium text-muted">{t('priority')}</Label>
+                            <NumberField
+                              value={priority}
+                              onChange={(value) => setPriority(value ?? 50)}
+                              minValue={1}
+                              maxValue={100}
+                              isDisabled={settingsLocked}
+                              isRequired
+                            >
+                              <NumberField.Group className="w-full">
+                                <NumberField.DecrementButton />
+                                <NumberField.Input aria-label={t('priority')} />
+                                <NumberField.IncrementButton />
+                              </NumberField.Group>
+                            </NumberField>
+                            <Description className="text-caption leading-5 text-muted">{t('priorityHint')}</Description>
+                          </div>
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-body font-medium text-muted">{t('proxyUrl')}</Label>
                           <Input
                             value={proxyUrl}
                             onChange={(event) => setProxyUrl(event.target.value)}
@@ -663,13 +671,12 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                             aria-label={t('proxyUrl')}
                             disabled={settingsLocked}
                           />
-                        </FormRow>
+                          <Description className="text-caption leading-5 text-muted">{t('proxyUrlHint')}</Description>
+                        </div>
                         {showDropSystem ? (
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="min-w-0">
-                              <div className="text-body font-medium text-muted">{t('dropSystemPrompt')}</div>
-                              <p className="mt-0.5 text-caption leading-5 text-muted">{t(activeOption?.provider === 'trae' ? 'dropSystemPromptTraeHint' : 'dropSystemPromptCreateHint')}</p>
-                            </div>
+                          <div className="space-y-1.5">
+                            <Label className="text-body font-medium text-muted">{t('dropSystemPrompt')}</Label>
+                            <Description className="text-caption leading-5 text-muted">{t(activeOption?.provider === 'trae' ? 'dropSystemPromptTraeHint' : 'dropSystemPromptCreateHint')}</Description>
                             <CompactSwitch
                               isSelected={dropSystemPrompt}
                               isDisabled={settingsLocked}
