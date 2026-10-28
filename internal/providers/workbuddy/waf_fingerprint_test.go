@@ -95,3 +95,73 @@ func TestPrepareBodyAppliesWAFIdentityRules(t *testing.T) {
 		t.Fatalf("identity fingerprint survived: %s", out)
 	}
 }
+
+func TestSanitizeWAFDSHFilerefParagraph(t *testing.T) {
+	// Ported from workbuddy2api-hub #684 / v1.9.0 DshFileReferenceParagraphTests.
+	a := "Tokens prefixed with @ are paths the user explicitly referenced."
+	aFixed := "Tokens prefixed with @ are paths that the user explicitly referenced."
+	b := "Relative paths resolve from the workspace root; absolute paths identify files or directories on the host."
+	tail := " A trailing slash marks a directory: list it when its contents matter. " +
+		"Anything else is a file: use the read tool when its contents are needed, " +
+		"and do not claim to have inspected it before reading. " +
+		"@\"...\" quotes a path containing spaces."
+	para := a + " " + b + tail
+	paraFixed := aFixed + " " + b + tail
+
+	if got := sanitizeFingerprintText(para, true); got != paraFixed {
+		t.Fatalf("full paragraph = %q want %q", got, paraFixed)
+	}
+	if got := sanitizeFingerprintText(para, true); !strings.Contains(got, b+tail) {
+		t.Fatalf("B+tail must be preserved verbatim: %q", got)
+	}
+	if strings.Contains(sanitizeFingerprintText(para, true), " are paths the user ") {
+		t.Fatal("unsanitized A still present")
+	}
+	once := sanitizeFingerprintText(para, true)
+	if again := sanitizeFingerprintText(once, true); again != once {
+		t.Fatalf("not idempotent: %q -> %q", once, again)
+	}
+	if got := sanitizeFingerprintText(a, true); got != aFixed {
+		t.Fatalf("sentence A alone = %q want %q", got, aFixed)
+	}
+	if got := sanitizeFingerprintText(strings.ToLower(para), true); got != strings.ToLower(paraFixed) {
+		t.Fatalf("case-insensitive = %q", got)
+	}
+	embedded := "You are a coding agent.\n\n" + para + "\n\nMore rules follow."
+	wantEmbedded := "You are a coding agent.\n\n" + paraFixed + "\n\nMore rules follow."
+	if got := sanitizeFingerprintText(embedded, true); got != wantEmbedded {
+		t.Fatalf("embedded = %q", got)
+	}
+	for _, text := range []string{
+		"mail me at foo@bar.com",
+		"npm i @deepseek-ai/dsh",
+		`see C:\work\@cache for details`,
+	} {
+		if got := sanitizeFingerprintText(text, true); got != text {
+			t.Fatalf("unrelated rewritten: %q -> %q", text, got)
+		}
+	}
+
+	body := map[string]any{
+		"messages": []any{
+			map[string]any{"role": "system", "content": para},
+			map[string]any{"role": "developer", "content": para},
+			map[string]any{"role": "assistant", "content": para},
+			map[string]any{"role": "user", "content": para},
+			map[string]any{"role": "tool", "content": para},
+		},
+	}
+	sanitizeWAFKeywords(body)
+	msgs := body["messages"].([]any)
+	for i, role := range []string{"system", "developer", "assistant"} {
+		if got := msgs[i].(map[string]any)["content"]; got != paraFixed {
+			t.Fatalf("%s fileref = %q want fixed", role, got)
+		}
+	}
+	if got := msgs[3].(map[string]any)["content"]; got != para {
+		t.Fatalf("user must stay untouched: %q", got)
+	}
+	if got := msgs[4].(map[string]any)["content"]; got != para {
+		t.Fatalf("tool must stay untouched: %q", got)
+	}
+}
