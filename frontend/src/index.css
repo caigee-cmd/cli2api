@@ -238,9 +238,9 @@ body {
 }
 
 /* Access chat Flat cohesion (AffectUI feel, cli2api cold tokens only — no cream / AI chroma).
-   Hierarchy: page continuous with stage + hist rail (cold wash + quiet hairline) as peers →
-   quieter composer strip hairline → composer well / fields ONLY recessed.
-   Hist items speak AppSidebar language (sidebar-hover / sidebar-active + rim; rounded-[10px]).
+   Hierarchy: deepened hist (theme-aware secondary mixes) ↔ cleaner stage surface as peers →
+   composer strip wash → composer well / fields ONLY recessed.
+   Hist selected/hover clearer on the rail; user bubble lifts off stage.
    Raw uses .access-raw-panel hairline. Overview/modal keep .card solid-glass. */
 .access-chat-shell {
   /* Kept for any leftover refs; Flat cohesion removes the inset shell framing. */
@@ -248,13 +248,25 @@ body {
   box-shadow: none;
 }
 .access-chat-stage {
-  /* Stage stays continuous with the page — no inset shell. */
-  background: transparent;
+  /* Cleaner stage paper — surface vs deepened hist so rail contrast reads clearly. */
+  background: var(--surface);
 }
 .access-hist-rail {
-  /* Clearer cold wash vs stage: surface-secondary ~42% over the page */
-  background: color-mix(in oklab, var(--surface-secondary) 42%, transparent);
-  border-color: color-mix(in oklab, var(--foreground) 6%, transparent);
+  /* Base: AppSidebar secondary. Theme tweaks below deepen vs stage surface. */
+  background: var(--surface-secondary);
+  border-color: color-mix(in oklab, var(--foreground) 10%, transparent);
+}
+:root .access-hist-rail,
+.light .access-hist-rail,
+[data-theme="light"] .access-hist-rail,
+[data-theme="default"] .access-hist-rail {
+  /* Light: ink the secondary so hist reads clearly against white stage */
+  background: color-mix(in oklab, var(--foreground) 5.5%, var(--surface-secondary));
+}
+.dark .access-hist-rail,
+[data-theme="dark"] .access-hist-rail {
+  /* Dark: pull toward page background so hist recesses vs lighter stage surface */
+  background: color-mix(in oklab, var(--background) 62%, var(--surface-secondary));
 }
 .access-hist-item {
   transition: background-color 0.2s cubic-bezier(0.2, 0.7, 0.2, 1),
@@ -262,23 +274,25 @@ body {
     box-shadow 0.2s cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 .access-hist-item:hover:not([data-active="true"]) {
-  background: var(--sidebar-hover);
+  /* Clearer hover on deepened rail */
+  background: color-mix(in oklab, var(--foreground) 8%, transparent);
   color: var(--foreground);
 }
 .access-hist-item[data-active="true"] {
   background: var(--sidebar-active);
   color: var(--foreground);
-  box-shadow: inset 0 0 0 1px var(--sidebar-active-rim), 0 1px 2px 0 rgb(0 0 0 / 0.04);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--sidebar-active-rim) 50%, var(--foreground)),
+    0 1px 2px 0 rgb(0 0 0 / 0.07);
 }
 .access-composer {
-  /* Quiet residual top hairline — elevation lives only in .access-composer-well */
-  background: transparent;
-  border-top: 1px solid color-mix(in oklab, var(--foreground) 4%, transparent);
+  /* Strip wash on stage surface; elevation lives in .access-composer-well */
+  background: color-mix(in oklab, var(--surface-secondary) 62%, var(--surface));
+  border-top: 1px solid color-mix(in oklab, var(--foreground) 4.5%, transparent);
 }
 .access-composer-well {
-  /* Field surface reads clearly vs stage wash; cold rim only (no stacked shadow). */
+  /* Field / surface well clearly recessed vs strip; cold rim only (no stacked shadow). */
   background: var(--field-background);
-  border: 1px solid color-mix(in oklab, var(--field-border) 72%, var(--foreground));
+  border: 1px solid color-mix(in oklab, var(--field-border) 45%, var(--foreground));
   box-shadow: none;
 }
 .access-raw-panel {
@@ -287,17 +301,27 @@ body {
   box-shadow: 0 0 0 1px color-mix(in oklab, var(--foreground) 7%, transparent);
 }
 .access-raw-panel__inspector {
-  /* Soft wash peer with hist rail — not a heavy secondary slab */
-  background: color-mix(in oklab, var(--surface-secondary) 42%, transparent);
+  /* Peer hist tone — light/dark follow the same deepened secondary mixes */
+  background: var(--surface-secondary);
+}
+:root .access-raw-panel__inspector,
+.light .access-raw-panel__inspector,
+[data-theme="light"] .access-raw-panel__inspector,
+[data-theme="default"] .access-raw-panel__inspector {
+  background: color-mix(in oklab, var(--foreground) 5.5%, var(--surface-secondary));
+}
+.dark .access-raw-panel__inspector,
+[data-theme="dark"] .access-raw-panel__inspector {
+  background: color-mix(in oklab, var(--background) 62%, var(--surface-secondary));
 }
 .access-bubble--user {
-  /* Clearer cold contrast vs stage wash */
-  background: color-mix(in oklab, var(--surface-secondary) 86%, var(--foreground));
-  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--foreground) 5.5%, transparent);
+  /* Cold lift vs cleaner stage surface (readable, not charcoal) */
+  background: color-mix(in oklab, var(--surface-secondary) 80%, var(--foreground));
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--foreground) 8%, transparent);
   color: var(--foreground);
 }
 .access-bubble--assistant {
-  /* Flush to stage — no pill; sits with the page wash */
+  /* Flush to stage surface — no pill; hierarchy from user pill + stage */
   background: transparent;
 }
 .access-msg-foot {

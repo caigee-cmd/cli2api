@@ -117,7 +117,7 @@ export function RawApiPanel({
                 <TextArea
                   fullWidth
                   rows={9}
-                  className="min-h-52 resize-y rounded-xl border-0 bg-[var(--field-background)] px-3.5 py-3 text-body leading-[1.65] shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--field-border)_72%,var(--foreground))] focus-visible:ring-0"
+                  className="min-h-52 resize-y rounded-xl border-0 bg-[var(--field-background)] px-3.5 py-3 text-body leading-[1.65] shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--field-border)_45%,var(--foreground))] focus-visible:ring-0"
                   value={prompt}
                   onChange={(event) => onPromptChange(event.target.value)}
                   placeholder={t('promptPlaceholder')}
