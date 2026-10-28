@@ -3,6 +3,16 @@
 Published user-facing notes for GitHub Releases and the console update page.
 Write upcoming notes as bilingual files in `changelog/unreleased/`.
 
+## 0.7.17 - 2026-10-28
+
+### English
+
+- Add Account login step: primary actions sit in the modal footer (no full-width ink bar); method chips match the console FilterToggle (labels only).
+
+### 中文
+
+- 添加账号登录步骤：主操作改到弹窗页脚（去掉通栏墨色条）；登录方式分段与控制台 FilterToggle 一致（仅文字）。
+
 ## 0.7.16 - 2026-10-28
 
 ### English
