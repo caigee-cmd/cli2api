@@ -36,6 +36,11 @@ func NormalizeProviderFamily(provider string) string {
 	if provider == "" {
 		return "qoder"
 	}
+	// muse is a display/routing alias for the Meta Muse family; store and
+	// schedule under the canonical "meta" id only.
+	if provider == "muse" {
+		return "meta"
+	}
 	return provider
 }
 

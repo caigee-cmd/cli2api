@@ -2,6 +2,7 @@ import { CommandMark } from '@/components/CommandMark'
 import { CodexMark } from '@/components/CodexMark'
 import { DevinMark } from '@/components/DevinMark'
 import { KimiMark } from '@/components/KimiMark'
+import { MuseMark } from '@/components/MuseMark'
 import { QoderMark } from '@/components/QoderMark'
 import { QwenworkMark } from '@/components/QwenworkMark'
 import { TraeMark } from '@/components/TraeMark'
@@ -40,6 +41,9 @@ export function ProviderMark({ provider, size = 16, className = '' }: Props) {
   }
   if (id === 'kimi') {
     return <KimiMark size={size} className={className} />
+  }
+  if (id === 'meta' || id === 'muse') {
+    return <MuseMark size={size} className={className} />
   }
   return <QoderMark size={size} className={className} />
 }

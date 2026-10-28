@@ -66,6 +66,7 @@ const labelKeys: Record<string, string> = {
   'qwenwork-global': 'accountTypeQwenworkGlobal',
   'qwenwork-cn': 'accountTypeQwenworkCN',
   'kimi-cn': 'accountTypeKimiCN',
+  'meta-global': 'accountTypeMetaGlobal',
 }
 
 const hintKeys: Record<string, string> = {
@@ -81,6 +82,7 @@ const hintKeys: Record<string, string> = {
   'qwenwork-global': 'accountTypeQwenworkGlobalHint',
   'qwenwork-cn': 'accountTypeQwenworkCNHint',
   'kimi-cn': 'accountTypeKimiCNHint',
+  'meta-global': 'accountTypeMetaGlobalHint',
 }
 
 async function loadProviderOptions(): Promise<ProviderOption[]> {

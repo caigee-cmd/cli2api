@@ -31,6 +31,11 @@ export function isKimiProvider(provider?: string) {
   return String(provider || '').toLowerCase() === 'kimi'
 }
 
+export function isMetaProvider(provider?: string) {
+  const value = String(provider || '').toLowerCase()
+  return value === 'meta' || value === 'muse'
+}
+
 export function accountProviderFamilyLabel(
   provider: string | undefined,
   t: (key: string) => string,
@@ -43,6 +48,7 @@ export function accountProviderFamilyLabel(
   if (isZhipuProvider(providerID)) return 'Zhipu GLM'
   if (isQwenworkProvider(providerID)) return 'QwenWork'
   if (isKimiProvider(providerID)) return 'Kimi Code'
+  if (isMetaProvider(providerID)) return 'Muse (Meta)'
   if (isQoderProvider(providerID)) return 'Qoder'
   return provider || t('account')
 }
@@ -74,6 +80,9 @@ export function accountProviderLabel(
   }
   if (isKimiProvider(providerID)) {
     return t('accountTypeKimiCN')
+  }
+  if (isMetaProvider(providerID)) {
+    return t('accountTypeMetaGlobal')
   }
   if (isQoderProvider(providerID)) {
     return regionID === 'cn' ? t('accountTypeQoderCN') : t('accountTypeQoderGlobal')
