@@ -522,11 +522,11 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
   const isZhipu = activeOption?.provider === 'zhipu'
   const methodOptions = [
     activeOption?.descriptor.capabilities?.browser_login !== false
-      ? { value: 'browser' as const, label: t('tabBrowser'), icon: <ShieldCheck size={16} /> }
+      ? { value: 'browser' as const, label: t('tabBrowser') }
       : null,
-    showPatTab ? { value: 'pat' as const, label: t('tabPat'), icon: <Key size={16} /> } : null,
-    showImportTab ? { value: 'import' as const, label: t('tabImport'), icon: <FileCode size={16} /> } : null,
-  ].filter(Boolean) as Array<{ value: TabKey; label: string; icon: React.ReactNode }>
+    showPatTab ? { value: 'pat' as const, label: t('tabPat') } : null,
+    showImportTab ? { value: 'import' as const, label: t('tabImport') } : null,
+  ].filter(Boolean) as Array<{ value: TabKey; label: string }>
 
   const tabLead = tab === 'browser'
     ? t(activeOption?.provider === 'codex' ? 'wizardCodexBrowserLead' : 'wizardBrowserLead')
@@ -713,9 +713,6 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                       {message ? (
                         <p className="flex items-center gap-2 rounded-lg bg-surface-secondary px-3 py-2 text-caption">{isDone ? <CheckCircle size={14} className="shrink-0 text-success" /> : null}<span className={isDone ? 'font-medium text-foreground' : 'text-muted'}>{message}</span></p>
                       ) : null}
-                      <Button className="w-full" isPending={phase === 'busy'} onPress={() => void runZhipu()} isDisabled={isDone}>
-                        {isDone ? <><CheckCircle size={15} />{t('wizardAccountReady')}</> : <><Key size={15} />{t('zhipuCreate')}</>}
-                      </Button>
                     </div>
                   ) : null}
 
@@ -736,7 +733,6 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                     options={methodOptions.map((option) => ({
                       id: option.value,
                       label: option.label,
-                      icon: option.icon,
                     }))}
                   />
 
@@ -799,14 +795,11 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                               aria-label={t('wizardCallbackPh')}
                               disabled={isDone}
                             />
-                            <Button className="w-full" variant="secondary" isPending={phase === 'busy' && Boolean(callbackUrl.trim())} onPress={() => void runCallback()} isDisabled={isDone}>
+                            <Button size="sm" variant="secondary" isPending={phase === 'busy' && Boolean(callbackUrl.trim())} onPress={() => void runCallback()} isDisabled={isDone}>
                               {t('wizardSubmitCallback')}
                             </Button>
                           </div>
                         ) : null}
-                        <Button className="w-full" isPending={tabPending('browser')} onPress={() => void runBrowser()}>
-                          {isDone ? <><CheckCircle size={15} />{t('wizardAccountReady')}</> : <><ShieldCheck size={15} />{t('wizardStartBrowser')}</>}
-                        </Button>
                       </>
                     ) : tab === 'pat' ? (
                       <>
@@ -816,9 +809,6 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                         {message ? (
                           <p className="flex items-center gap-2 rounded-lg bg-surface-secondary px-3 py-2 text-caption">{isDone ? <CheckCircle size={14} className="shrink-0 text-success" /> : null}<span className={isDone ? 'font-medium text-foreground' : 'text-muted'}>{message}</span></p>
                         ) : null}
-                        <Button className="w-full" isPending={tabPending('pat')} onPress={() => void runPat()}>
-                          {isDone ? <><CheckCircle size={15} />{t('patDone')}</> : <><Key size={15} />{t('wizardCreateAndLogin')}</>}
-                        </Button>
                       </>
                     ) : (
                       <>
@@ -831,9 +821,6 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                         {message ? (
                           <p className="flex items-center gap-2 rounded-lg bg-surface-secondary px-3 py-2 text-caption">{isDone ? <CheckCircle size={14} className="shrink-0 text-success" /> : null}<span className={isDone ? 'font-medium text-foreground' : 'text-muted'}>{message}</span></p>
                         ) : null}
-                        <Button className="w-full" isPending={tabPending('import')} onPress={() => void runImport()}>
-                          {isDone ? <><CheckCircle size={15} />{t('accountImported')}</> : <><FileCode size={15} />{t('importCredential')}</>}
-                        </Button>
                       </>
                     )}
                   </div>
@@ -843,8 +830,28 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
               )}
               </div>
             </Modal.Body>
-            <Modal.Footer className="justify-end px-5 pb-5">
+            <Modal.Footer className="justify-end gap-2 px-5 pb-5">
               <Button variant="ghost" onPress={close} isDisabled={busy}>{t('cancel')}</Button>
+              {step === 'login' && isZhipu ? (
+                <Button isPending={phase === 'busy'} onPress={() => void runZhipu()} isDisabled={isDone}>
+                  {isDone ? <><CheckCircle size={15} />{t('wizardAccountReady')}</> : <><Key size={15} />{t('zhipuCreate')}</>}
+                </Button>
+              ) : null}
+              {step === 'login' && !isZhipu && tab === 'browser' ? (
+                <Button isPending={tabPending('browser')} onPress={() => void runBrowser()} isDisabled={isDone}>
+                  {isDone ? <><CheckCircle size={15} />{t('wizardAccountReady')}</> : <><ShieldCheck size={15} />{t('wizardStartBrowser')}</>}
+                </Button>
+              ) : null}
+              {step === 'login' && !isZhipu && tab === 'pat' ? (
+                <Button isPending={tabPending('pat')} onPress={() => void runPat()} isDisabled={isDone}>
+                  {isDone ? <><CheckCircle size={15} />{t('patDone')}</> : <><Key size={15} />{t('wizardCreateAndLogin')}</>}
+                </Button>
+              ) : null}
+              {step === 'login' && !isZhipu && tab === 'import' ? (
+                <Button isPending={tabPending('import')} onPress={() => void runImport()} isDisabled={isDone}>
+                  {isDone ? <><CheckCircle size={15} />{t('accountImported')}</> : <><FileCode size={15} />{t('importCredential')}</>}
+                </Button>
+              ) : null}
             </Modal.Footer>
           </Modal.Dialog>
         </Modal.Container>
