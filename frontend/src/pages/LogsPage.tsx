@@ -36,6 +36,7 @@ import { FilterToggle } from '@/components/ui/FilterToggle'
 import { ListPager, type PageSize } from '@/components/ui/ListPager'
 import { PageAlert } from '@/components/ui/PageAlert'
 import { LogsPageSkeleton, LogsRequestListSkeleton, LogsRuntimeListSkeleton, SkeletonBlock } from '@/components/ui/PageSkeletons'
+import { LatencyStats } from '@/components/ui/LatencyStats'
 import { SearchBar } from '@/components/ui/SearchBar'
 import { dateValueToISO, isoToDateValue, TimeRangePicker, type DateRangeValue } from '@/components/ui/TimeRangePicker'
 import { useI18n } from '@/hooks/useI18n'
@@ -147,12 +148,6 @@ function RequestDetailSkeleton() {
       </div>
     </div>
   )
-}
-
-function formatLatency(ms?: number | null) {
-  if (ms == null) return '—'
-  if (ms < 1000) return `${ms}ms`
-  return `${(ms / 1000).toFixed(1)}s`
 }
 
 function formatCredit(value?: number | null) {
@@ -729,7 +724,6 @@ export function LogsPage() {
                       <Table.Column>{t('logsColStatus')}</Table.Column>
                       <Table.Column>{t('logsColStream')}</Table.Column>
                       <Table.Column>{t('logsColLatency')}</Table.Column>
-                      <Table.Column>{t('logsColTTFT')}</Table.Column>
                       <Table.Column>{t('logsColTokens')}</Table.Column>
                     </Table.Header>
                     <Table.Body>
@@ -764,8 +758,19 @@ export function LogsPage() {
                             {item.error_kind ? <div className="mono mt-1 text-caption text-muted">{item.error_kind}</div> : null}
                           </Table.Cell>
                           <Table.Cell><span className="text-xs text-muted">{item.stream ? t('logsStreamYes') : t('logsStreamNo')}</span></Table.Cell>
-                          <Table.Cell><span className="mono text-xs">{formatLatency(item.latency_ms)}</span></Table.Cell>
-                          <Table.Cell><span className="mono text-xs">{formatLatency(item.ttfb_ms)}</span></Table.Cell>
+                          <Table.Cell>
+                            <LatencyStats
+                              latencyMs={item.latency_ms}
+                              ttfbMs={item.ttfb_ms}
+                              completionTokens={item.completion_tokens}
+                              stream={item.stream}
+                              labels={{
+                                ttft: t('logsColTTFT'),
+                                total: t('logsLatencyTotal'),
+                                tps: t('logsOutputTPS'),
+                              }}
+                            />
+                          </Table.Cell>
                           <Table.Cell>
                             <TokenSplit
                               log={item}
@@ -975,8 +980,6 @@ export function LogsPage() {
                     [t('logsColReasoning'), selected ? (reasoningLabel(selected) || '—') : '—'],
                     [t('logsColProvider'), selected ? providerLabel(selected) : '—'],
                     [t('logsColAccount'), selected?.account_id ? (accountNameById.get(selected.account_id) || selected.account_id) : '—'],
-                    [t('logsColLatency'), formatLatency(selected?.latency_ms)],
-                    [t('logsColTTFT'), formatLatency(selected?.ttfb_ms)],
                     [t('logsColStream'), selected?.stream ? t('logsStreamYes') : t('logsStreamNo')],
                     [t('logsRouting'), selected ? routingLabel(selected.routing) : '—'],
                   ].map(([label, value]) => (
@@ -997,6 +1000,20 @@ export function LogsPage() {
                         />
                       ) : '—'}
                     </dd>
+                  </div>
+                  <div className="sm:col-span-2">
+                    <LatencyStats
+                      latencyMs={selected?.latency_ms}
+                      ttfbMs={selected?.ttfb_ms}
+                      completionTokens={selected?.completion_tokens}
+                      stream={selected?.stream}
+                      labels={{
+                        heading: t('logsColLatency'),
+                        ttft: t('logsColTTFT'),
+                        total: t('logsLatencyTotal'),
+                        tps: t('logsOutputTPS'),
+                      }}
+                    />
                   </div>
                 </dl>
                 {selected && selected.message_count ? (

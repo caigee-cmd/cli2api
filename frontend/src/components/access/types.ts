@@ -37,6 +37,10 @@ export type ThreadMessage = {
   toolCalls?: ChatToolCall[]
   /** Per-turn usage from the stream; show credits only when set. */
   usage?: ThreadMessageUsage
+  /** Client-measured TTFT (ms) from stream start to first content/reasoning chunk. */
+  ttfb_ms?: number
+  /** Client-measured total stream duration (ms). */
+  latency_ms?: number
   status: 'pending' | 'streaming' | 'done' | 'error'
   error?: string
 }

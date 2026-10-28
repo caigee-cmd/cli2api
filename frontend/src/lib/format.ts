@@ -73,3 +73,36 @@ export function formatCredits(value: number | null | undefined) {
   if (value >= 10_000) return formatCompact(value)
   return value.toLocaleString('zh-CN', { minimumFractionDigits: value < 100 ? 2 : 0, maximumFractionDigits: 2 })
 }
+
+/** Output generation rate (tok/s). Prefer post-TTFT window on streams. */
+export function computeOutputTokensPerSecond(opts: {
+  completionTokens?: number | null
+  latencyMs?: number | null
+  ttfbMs?: number | null
+  stream?: boolean | null
+}): number | null {
+  const completion = opts.completionTokens
+  const latency = opts.latencyMs
+  const ttfb = opts.ttfbMs
+  if (completion == null || !Number.isFinite(completion) || completion <= 0) return null
+  if (latency == null || !Number.isFinite(latency) || latency <= 0) return null
+
+  const preferGeneration =
+    opts.stream === true &&
+    ttfb != null &&
+    Number.isFinite(ttfb) &&
+    ttfb >= 0 &&
+    latency - ttfb > 0
+
+  const seconds = preferGeneration ? (latency - (ttfb as number)) / 1000 : latency / 1000
+  if (!(seconds > 0)) return null
+  const rate = completion / seconds
+  return Number.isFinite(rate) && rate > 0 ? rate : null
+}
+
+/** e.g. `39.7 tok/s`, integer when large; missing → `—`. */
+export function formatTokensPerSecond(rate: number | null | undefined) {
+  if (rate == null || !Number.isFinite(rate) || rate <= 0) return '—'
+  const text = rate >= 100 ? String(Math.round(rate)) : Number(rate.toFixed(1)).toString()
+  return `${text} tok/s`
+}

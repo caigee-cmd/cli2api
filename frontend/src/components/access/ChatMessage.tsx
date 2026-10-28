@@ -5,6 +5,7 @@ import { CopySimple, FileText } from '@phosphor-icons/react'
 import { useI18n } from '@/hooks/useI18n'
 import { copyText } from '@/lib/clipboard'
 import { formatCompact, formatCredits } from '@/lib/format'
+import { LatencyStats } from '@/components/ui/LatencyStats'
 import { duration, ease, gsap, prefersReducedMotion } from '@/lib/motion'
 import { ThinkingBlock } from './ThinkingBlock'
 import { ToolCallList } from './ToolCallCard'
@@ -126,6 +127,10 @@ export function ChatMessageView({ message }: { message: ThreadMessage }) {
   const showSkeleton = message.status === 'streaming' && !message.content && !message.reasoning && !message.toolCalls?.length
   const canCopy = Boolean(message.content) && message.status === 'done'
   const streaming = message.status === 'streaming'
+  const showUsage = Boolean(message.usage && message.usage.credits != null)
+  const showLatency =
+    message.status === 'done' &&
+    (message.latency_ms != null || message.ttfb_ms != null || typeof message.usage?.completion_tokens === 'number')
 
   async function onCopy() {
     if (!message.content) return
@@ -158,19 +163,35 @@ export function ChatMessageView({ message }: { message: ThreadMessage }) {
           <ContentSegments text={message.content} streaming={streaming} />
         </div>
       ) : null}
-      {(canCopy || (message.usage && message.usage.credits != null)) ? (
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-0.5">
-          {canCopy ? (
-            <button
-              type="button"
-              className="inline-flex items-center gap-1 text-caption text-muted hover:text-foreground"
-              onClick={() => void onCopy()}
-            >
-              <CopySimple size={12} />
-              {copied ? t('copied') : t('copy')}
-            </button>
+      {(canCopy || showUsage || showLatency) ? (
+        <div className="space-y-1.5 px-0.5">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            {canCopy ? (
+              <button
+                type="button"
+                className="inline-flex items-center gap-1 text-caption text-muted hover:text-foreground"
+                onClick={() => void onCopy()}
+              >
+                <CopySimple size={12} />
+                {copied ? t('copied') : t('copy')}
+              </button>
+            ) : null}
+            <UsageFoot message={message} />
+          </div>
+          {showLatency ? (
+            <LatencyStats
+              latencyMs={message.latency_ms}
+              ttfbMs={message.ttfb_ms}
+              completionTokens={message.usage?.completion_tokens}
+              stream
+              labels={{
+                heading: t('logsColLatency'),
+                ttft: t('logsColTTFT'),
+                total: t('logsLatencyTotal'),
+                tps: t('logsOutputTPS'),
+              }}
+            />
           ) : null}
-          <UsageFoot message={message} />
         </div>
       ) : null}
     </div>
