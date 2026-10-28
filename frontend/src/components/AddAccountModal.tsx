@@ -5,6 +5,7 @@ import { Button, Input, Modal, NumberField, TextArea } from '@heroui/react'
 import { ArrowSquareOut, CaretLeft, CaretRight, CheckCircle, FileCode, Key, ShieldCheck, X } from '@phosphor-icons/react'
 import { copyText } from '@/lib/clipboard'
 import { BrandMark } from '@/components/BrandMark'
+import { CaiaiSoftLink } from '@/components/CaiaiSoftLink'
 import { ProviderMark } from '@/components/ProviderMark'
 import { CompactSwitch } from '@/components/ui/CompactSwitch'
 import { FilterToggle } from '@/components/ui/FilterToggle'
@@ -582,6 +583,9 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                       />
                     )}
                   </section>
+                  <div className="mt-4 text-center">
+                    <CaiaiSoftLink className="text-xs" />
+                  </div>
                 </>
               ) : (
                 <>
