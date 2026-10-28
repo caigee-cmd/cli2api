@@ -75,7 +75,7 @@ export function CompactSelect({
       }}
     >
       <Select.Trigger
-        className={`h-7 min-h-7 gap-1 rounded-full border-0 bg-transparent px-2 shadow-none items-center hover:bg-surface-secondary/80 data-[focus-visible=true]:bg-surface-secondary/80 ${triggerTone}`}
+        className={`h-8 min-h-8 gap-1 rounded-[10px] border-0 bg-transparent px-2.5 shadow-none items-center hover:bg-surface-secondary/80 data-[focus-visible=true]:bg-surface-secondary/80 ${triggerTone}`}
       >
         <Select.Value className="min-w-0 truncate text-caption font-medium">
           {({ defaultChildren, isPlaceholder }) => {
@@ -218,7 +218,7 @@ export function ChatComposer({
           disabled={disabled || streaming}
         />
 
-        <div className="flex items-center gap-1 px-2 pb-2 pt-0.5">
+        <div className="flex items-center gap-0.5 px-2 pb-2 pt-0.5">
           <input
             ref={fileRef}
             type="file"
@@ -231,7 +231,7 @@ export function ChatComposer({
             isIconOnly
             size="sm"
             variant="ghost"
-            className="size-7 min-w-7 shrink-0"
+            className="size-8 min-w-8 shrink-0 rounded-[10px]"
             aria-label={t('chatAttach')}
             isDisabled={disabled || streaming}
             onPress={() => fileRef.current?.click()}
@@ -261,26 +261,26 @@ export function ChatComposer({
           />
 
           {/* Fixed slot: send ↔ stop swap without shoving the composer row. */}
-          <div className="relative size-7 shrink-0">
+          <div className="relative size-8 shrink-0">
             <Button
               isIconOnly
               size="sm"
               variant="secondary"
-              className={`absolute inset-0 size-7 rounded-full transition-opacity duration-200 ease-[cubic-bezier(0.2,0.7,0.2,1)] ${streaming ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
+              className={`absolute inset-0 size-8 rounded-[10px] transition-opacity duration-200 ease-[cubic-bezier(0.2,0.7,0.2,1)] ${streaming ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
               aria-label={t('chatTryStop')}
               onPress={onStop}
             >
-              <Stop size={13} weight="fill" />
+              <Stop size={14} weight="fill" />
             </Button>
             <Button
               isIconOnly
               size="sm"
-              className={`absolute inset-0 size-7 rounded-full transition-opacity duration-200 ease-[cubic-bezier(0.2,0.7,0.2,1)] ${streaming ? 'pointer-events-none opacity-0' : 'opacity-100'}`}
+              className={`absolute inset-0 size-8 rounded-[10px] transition-opacity duration-200 ease-[cubic-bezier(0.2,0.7,0.2,1)] ${streaming ? 'pointer-events-none opacity-0' : 'opacity-100'}`}
               aria-label={t('chatTrySend')}
               isDisabled={!canSend || disabled || streaming}
               onPress={onSend}
             >
-              <PaperPlaneTilt size={13} weight="fill" />
+              <PaperPlaneTilt size={14} weight="fill" />
             </Button>
           </div>
         </div>

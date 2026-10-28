@@ -41,12 +41,12 @@ export function ChatHistoryRail({
 
   if (collapsed) {
     return (
-      <div className="access-hist-rail flex w-9 shrink-0 flex-col items-center gap-1.5 border-r py-2.5">
+      <div className="access-hist-rail flex w-9 shrink-0 flex-col items-center gap-1 border-r py-2">
         <Button
           isIconOnly
           size="sm"
           variant="ghost"
-          className="size-7 min-w-7 text-muted"
+          className="size-8 min-w-8 rounded-[10px] text-muted"
           aria-label={t('chatHistoryExpand')}
           onPress={() => onCollapsedChange(false)}
         >
@@ -56,7 +56,7 @@ export function ChatHistoryRail({
           isIconOnly
           size="sm"
           variant="ghost"
-          className="size-7 min-w-7 text-muted"
+          className="size-8 min-w-8 rounded-[10px] text-muted"
           aria-label={t('chatHistoryNew')}
           onPress={onNew}
         >
@@ -80,7 +80,7 @@ export function ChatHistoryRail({
           isIconOnly
           size="sm"
           variant="ghost"
-          className="size-7 min-w-7 text-muted"
+          className="size-8 min-w-8 rounded-[10px] text-muted"
           aria-label={t('chatHistoryCollapse')}
           onPress={() => onCollapsedChange(true)}
         >
@@ -92,7 +92,7 @@ export function ChatHistoryRail({
         <Button
           size="sm"
           variant="ghost"
-          className="h-8 w-full justify-start gap-1.5 rounded-[10px] px-2.5 text-caption font-medium text-muted hover:text-foreground"
+          className="h-8 w-full justify-start gap-1.5 rounded-[10px] px-2.5 text-caption font-medium text-muted hover:bg-[var(--sidebar-hover)] hover:text-foreground"
           onPress={onNew}
         >
           <Plus size={13} />
@@ -111,7 +111,7 @@ export function ChatHistoryRail({
                 key={item.id}
                 type="button"
                 data-active={active ? 'true' : undefined}
-                className={`access-hist-item flex h-9 w-full items-center rounded-[10px] px-2.5 text-left text-caption leading-5 ${
+                className={`access-hist-item flex h-8 w-full items-center rounded-[10px] px-2.5 text-left text-caption leading-5 ${
                   active ? 'font-medium text-foreground' : 'font-normal text-muted'
                 }`}
                 onClick={() => onSelect(item.id)}

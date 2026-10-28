@@ -170,7 +170,7 @@ export function ChatMessageView({ message }: { message: ThreadMessage }) {
             {canCopy ? (
               <button
                 type="button"
-                className="inline-flex items-center gap-1 text-caption text-muted/80 opacity-70 transition-opacity hover:text-foreground hover:opacity-100"
+                className="inline-flex h-5 items-center gap-1 text-caption text-muted/80 opacity-70 transition-opacity hover:text-foreground hover:opacity-100"
                 onClick={() => void onCopy()}
               >
                 <CopySimple size={12} />
@@ -186,7 +186,7 @@ export function ChatMessageView({ message }: { message: ThreadMessage }) {
               ttfbMs={message.ttfb_ms}
               completionTokens={message.usage?.completion_tokens}
               stream
-              className="access-latency-inline max-h-0 overflow-hidden opacity-0 transition-[opacity,max-height] duration-200 ease-[cubic-bezier(0.2,0.7,0.2,1)] group-hover/access-msg:max-h-6 group-hover/access-msg:opacity-100 focus-within:max-h-6 focus-within:opacity-100"
+              className="access-latency-inline max-h-0 overflow-hidden opacity-0 transition-[opacity,max-height] duration-200 ease-[cubic-bezier(0.2,0.7,0.2,1)] group-hover/access-msg:max-h-5 group-hover/access-msg:opacity-100 focus-within:max-h-5 focus-within:opacity-100"
               labels={{
                 ttft: t('logsColTTFT'),
                 total: t('logsLatencyTotal'),

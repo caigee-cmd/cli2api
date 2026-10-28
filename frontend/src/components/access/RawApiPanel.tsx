@@ -65,7 +65,7 @@ export function RawApiPanel({
 
       <div className="access-raw-panel overflow-hidden rounded-2xl">
         <div className="grid xl:grid-cols-[minmax(420px,.92fr)_minmax(0,1.08fr)]">
-          <div className="xl:border-r xl:border-separator/40">
+          <div className="xl:border-r xl:border-[color-mix(in_oklab,var(--foreground)_6%,transparent)]">
             <div className="px-4 py-3.5 sm:px-5">
               <h3 className="text-body font-semibold">{t('requestBuilder')}</h3>
               <p className="mt-0.5 text-caption text-muted">POST {requestPath}</p>
@@ -75,6 +75,7 @@ export function RawApiPanel({
               <div className="space-y-2">
                 <div className="text-caption font-medium text-muted">{t('rawFormatLabel')}</div>
                 <FilterToggle
+                  className="access-format-chips"
                   ariaLabel={t('rawFormatLabel')}
                   value={format}
                   onChange={(value) => onFormatChange(value as RawApiFormat)}
@@ -116,7 +117,7 @@ export function RawApiPanel({
                 <TextArea
                   fullWidth
                   rows={9}
-                  className="min-h-52 resize-y rounded-xl border-0 bg-[var(--field-background)] px-3.5 py-3 text-body leading-[1.65] shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--field-border)_80%,var(--foreground))] focus-visible:ring-0"
+                  className="min-h-52 resize-y rounded-xl border-0 bg-[var(--field-background)] px-3.5 py-3 text-body leading-[1.65] shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--field-border)_72%,var(--foreground))] focus-visible:ring-0"
                   value={prompt}
                   onChange={(event) => onPromptChange(event.target.value)}
                   placeholder={t('promptPlaceholder')}

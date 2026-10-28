@@ -39,7 +39,7 @@ export function ChatThread({
             onLoadDemo ? (
               <button
                 type="button"
-                className="rounded-[10px] px-3 py-1.5 text-caption font-medium text-muted transition-colors hover:bg-[var(--sidebar-hover)] hover:text-foreground"
+                className="inline-flex h-8 items-center rounded-[10px] px-2.5 text-caption font-medium text-muted transition-colors hover:bg-[var(--sidebar-hover)] hover:text-foreground"
                 onClick={onLoadDemo}
               >
                 {t('chatDemoLoad')}
