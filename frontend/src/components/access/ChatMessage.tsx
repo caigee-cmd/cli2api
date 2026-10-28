@@ -6,7 +6,7 @@ import { useI18n } from '@/hooks/useI18n'
 import { copyText } from '@/lib/clipboard'
 import { formatCompact, formatCredits } from '@/lib/format'
 import { LatencyStats } from '@/components/ui/LatencyStats'
-import { duration, ease, gsap, prefersReducedMotion } from '@/lib/motion'
+import { duration, gsap, prefersReducedMotion } from '@/lib/motion'
 import { ThinkingBlock } from './ThinkingBlock'
 import { ToolCallList } from './ToolCallCard'
 import type { ThreadMessage } from './types'
@@ -97,9 +97,8 @@ function useEnterFade<T extends HTMLElement>() {
     if (!el || prefersReducedMotion()) return
     gsap.from(el, {
       autoAlpha: 0,
-      y: 8,
-      duration: duration.base,
-      ease: ease.out,
+      duration: duration.fast,
+      ease: 'power2.out',
     })
   }, [])
   return ref
@@ -109,12 +108,14 @@ export function ChatMessageView({ message }: { message: ThreadMessage }) {
   const { t } = useI18n()
   const [copied, setCopied] = useState(false)
   const isUser = message.role === 'user'
+  // Enter fade only for user bubbles — assistant starts as skeleton/stream and
+  // must not re-fade when content replaces the skeleton (no fade-after-skeleton flash).
   const rootRef = useEnterFade<HTMLDivElement>()
 
   if (isUser) {
     return (
       <div ref={rootRef} className="ml-auto max-w-[92%] sm:max-w-[78%]">
-        <div className="rounded-2xl rounded-br-md bg-surface-secondary/90 px-3.5 py-2.5">
+        <div className="access-bubble access-bubble--user rounded-2xl rounded-br-md px-3.5 py-2.5">
           {message.content ? (
             <div className="whitespace-pre-wrap break-words text-body leading-[1.65] text-foreground">{message.content}</div>
           ) : null}
@@ -140,7 +141,7 @@ export function ChatMessageView({ message }: { message: ThreadMessage }) {
   }
 
   return (
-    <div ref={rootRef} className="max-w-[96%] space-y-2 sm:max-w-[88%]">
+    <div className="group/access-msg max-w-[96%] space-y-1.5 sm:max-w-[88%]">
       {message.reasoning || streaming ? (
         <ThinkingBlock
           text={message.reasoning || ''}
@@ -152,24 +153,24 @@ export function ChatMessageView({ message }: { message: ThreadMessage }) {
       {message.status === 'error' ? (
         <PageAlert status="danger" title={t('requestFailed')} description={message.error || ''} />
       ) : showSkeleton ? (
-        <div className="space-y-2.5 pt-0.5">
+        <div className="space-y-2 pt-0.5">
           <Skeleton className="h-3 w-28 rounded-md" />
           <Skeleton className="h-3 w-full rounded-md" />
           <Skeleton className="h-3 w-[86%] rounded-md" />
           <Skeleton className="h-3 w-[68%] rounded-md" />
         </div>
       ) : message.content ? (
-        <div className="rounded-2xl rounded-tl-md bg-surface-secondary/50 px-3.5 py-2.5">
+        <div className="access-bubble access-bubble--assistant px-0.5 py-0">
           <ContentSegments text={message.content} streaming={streaming} />
         </div>
       ) : null}
       {(canCopy || showUsage || showLatency) ? (
-        <div className="space-y-1.5 px-0.5">
+        <div className="access-msg-foot space-y-1 px-0.5 pt-0.5">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
             {canCopy ? (
               <button
                 type="button"
-                className="inline-flex items-center gap-1 text-caption text-muted hover:text-foreground"
+                className="inline-flex h-5 items-center gap-1 text-caption text-muted/80 opacity-70 transition-opacity hover:text-foreground hover:opacity-100"
                 onClick={() => void onCopy()}
               >
                 <CopySimple size={12} />
@@ -180,12 +181,13 @@ export function ChatMessageView({ message }: { message: ThreadMessage }) {
           </div>
           {showLatency ? (
             <LatencyStats
+              variant="inline"
               latencyMs={message.latency_ms}
               ttfbMs={message.ttfb_ms}
               completionTokens={message.usage?.completion_tokens}
               stream
+              className="access-latency-inline max-h-0 overflow-hidden opacity-0 transition-[opacity,max-height] duration-200 ease-[cubic-bezier(0.2,0.7,0.2,1)] group-hover/access-msg:max-h-5 group-hover/access-msg:opacity-100 focus-within:max-h-5 focus-within:opacity-100"
               labels={{
-                heading: t('logsColLatency'),
                 ttft: t('logsColTTFT'),
                 total: t('logsLatencyTotal'),
                 tps: t('logsOutputTPS'),

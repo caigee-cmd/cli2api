@@ -5,7 +5,7 @@ import { PageAlert } from '@/components/ui/PageAlert'
 import { CompactSelect, type ComposerOption } from '@/components/access/ChatComposer'
 import type { RawApiFormat } from '@/api/overview'
 import { Button, Chip, Skeleton, TextArea } from '@heroui/react'
-import { BracketsCurly, CheckCircle, Clock, PaperPlaneTilt } from '@phosphor-icons/react'
+import { CheckCircle, Clock, PaperPlaneTilt } from '@phosphor-icons/react'
 import { useI18n } from '@/hooks/useI18n'
 
 type RequestState = 'idle' | 'loading' | 'success' | 'error'
@@ -63,18 +63,19 @@ export function RawApiPanel({
     <div className="space-y-4">
       <p className="px-1 text-caption leading-5 text-muted">{t('rawFormatHint')}</p>
 
-      <div className="card overflow-hidden rounded-3xl bg-surface">
-        <div className="grid xl:grid-cols-[minmax(440px,.92fr)_minmax(0,1.08fr)]">
-          <div className="xl:border-r xl:border-separator/50">
-            <div className="px-5 py-4 sm:px-6">
-              <h3 className="font-semibold">{t('requestBuilder')}</h3>
+      <div className="access-raw-panel overflow-hidden rounded-2xl">
+        <div className="grid xl:grid-cols-[minmax(420px,.92fr)_minmax(0,1.08fr)]">
+          <div className="xl:border-r xl:border-[color-mix(in_oklab,var(--foreground)_6%,transparent)]">
+            <div className="px-4 py-3.5 sm:px-5">
+              <h3 className="text-body font-semibold">{t('requestBuilder')}</h3>
               <p className="mt-0.5 text-caption text-muted">POST {requestPath}</p>
             </div>
 
-            <div className="space-y-5 px-5 pb-5 sm:px-6 sm:pb-6">
+            <div className="space-y-4 px-4 pb-4 sm:px-5 sm:pb-5">
               <div className="space-y-2">
-                <div className="text-body font-medium text-muted">{t('rawFormatLabel')}</div>
+                <div className="text-caption font-medium text-muted">{t('rawFormatLabel')}</div>
                 <FilterToggle
+                  className="access-format-chips"
                   ariaLabel={t('rawFormatLabel')}
                   value={format}
                   onChange={(value) => onFormatChange(value as RawApiFormat)}
@@ -86,7 +87,8 @@ export function RawApiPanel({
                 />
               </div>
 
-              <div className="flex flex-wrap items-center gap-2">
+              {/* Same CompactSelect sizing / tone as Chat composer chips */}
+              <div className="flex flex-wrap items-center gap-1">
                 <CompactSelect
                   ariaLabel={t('account')}
                   value={accountValue}
@@ -94,7 +96,7 @@ export function RawApiPanel({
                   options={accountOptions}
                   isDisabled={disabled || requestState === 'loading'}
                   tone="muted"
-                  className="w-auto max-w-[9rem] min-w-0"
+                  className="w-auto max-w-[8.5rem] min-w-0"
                 />
                 <CompactSelect
                   ariaLabel={t('model')}
@@ -103,26 +105,26 @@ export function RawApiPanel({
                   placeholder={modelsLoading ? t('requesting') : t('model')}
                   options={modelOptions}
                   isDisabled={disabled || requestState === 'loading' || modelsLoading || !modelOptions.length}
-                  className="w-auto max-w-[12rem] min-w-0"
+                  className="w-auto max-w-[10.5rem] min-w-0"
                 />
               </div>
 
-              <div className="space-y-3">
+              <div className="space-y-2.5">
                 <div className="flex items-center justify-between gap-4">
-                  <div className="text-body font-medium text-muted">{t('prompt')}</div>
+                  <div className="text-caption font-medium text-muted">{t('prompt')}</div>
                   <span className="mono text-caption text-muted">{prompt.length}</span>
                 </div>
                 <TextArea
                   fullWidth
                   rows={9}
-                  className="min-h-56 resize-y px-4 py-3 text-body leading-6"
+                  className="min-h-52 resize-y rounded-xl border-0 bg-[var(--field-background)] px-3.5 py-3 text-body leading-[1.65] shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--field-border)_78%,var(--foreground))] focus-visible:ring-0"
                   value={prompt}
                   onChange={(event) => onPromptChange(event.target.value)}
                   placeholder={t('promptPlaceholder')}
                   aria-label={t('prompt')}
                   disabled={disabled || requestState === 'loading'}
                 />
-                <p className="text-caption leading-5 text-muted">{t('promptHelper')}</p>
+                <p className="text-caption leading-5 text-muted/70">{t('promptHelper')}</p>
               </div>
 
               <Button
@@ -131,20 +133,20 @@ export function RawApiPanel({
                 isDisabled={!canSend || disabled}
                 onPress={onTest}
               >
-                <PaperPlaneTilt size={16} />
+                <PaperPlaneTilt size={15} />
                 {requestState === 'loading' ? t('requesting') : t('sendRequest')}
               </Button>
             </div>
           </div>
 
           <div
-            className="flex min-h-[480px] min-w-0 flex-col bg-surface-secondary"
+            className="access-raw-panel__inspector flex min-h-[440px] min-w-0 flex-col"
             aria-live="polite"
             aria-busy={requestState === 'loading'}
           >
-            <div className="flex min-h-14 items-center justify-between gap-4 px-5 py-3.5 sm:px-6">
+            <div className="flex min-h-12 items-center justify-between gap-4 px-4 py-3 sm:px-5">
               <div>
-                <h3 className="font-semibold">{t('responseInspector')}</h3>
+                <h3 className="text-body font-semibold">{t('responseInspector')}</h3>
                 <p className="mt-0.5 text-caption text-muted">{t('responseInspectorHint')}</p>
               </div>
               <div className="flex items-center gap-2">
@@ -164,11 +166,10 @@ export function RawApiPanel({
               </div>
             </div>
 
-            <div className="min-h-0 flex-1 px-5 pb-5 sm:px-6 sm:pb-6">
+            <div className="min-h-0 flex-1 px-4 pb-4 sm:px-5 sm:pb-5">
               {requestState === 'idle' ? (
                 <EmptyPanel
-                  className="min-h-72"
-                  icon={<BracketsCurly size={21} />}
+                  className="min-h-64"
                   title={t('responseEmptyTitle')}
                   hint={t('responseEmptyHint')}
                 />
@@ -187,8 +188,8 @@ export function RawApiPanel({
                 </div>
               ) : (
                 <div>
-                  <div className="mb-4 flex items-center gap-2 text-caption font-medium text-success">
-                    <CheckCircle size={15} weight="fill" />
+                  <div className="mb-3 flex items-center gap-2 text-caption font-medium text-success">
+                    <CheckCircle size={14} weight="fill" />
                     {t('responseReceived')}
                   </div>
                   <pre className="mono overflow-x-auto whitespace-pre-wrap break-words text-caption leading-6 text-muted">
@@ -201,8 +202,8 @@ export function RawApiPanel({
         </div>
       </div>
 
-      <section className="card overflow-hidden rounded-3xl bg-surface">
-        <div className="flex items-center justify-between gap-4 px-5 py-3.5">
+      <section className="access-raw-panel overflow-hidden rounded-2xl">
+        <div className="flex items-center justify-between gap-4 px-4 py-3 sm:px-5">
           <div className="min-w-0">
             <div className="text-body font-semibold">{t('curlExample')}</div>
             <div className="mt-0.5 truncate text-caption text-muted">{t('curlGeneratedHint')}</div>
@@ -212,7 +213,7 @@ export function RawApiPanel({
             {copiedCurl ? t('copied') : t('copy')}
           </Button>
         </div>
-        <pre className="mono max-h-80 overflow-auto whitespace-pre-wrap px-5 pb-5 text-caption leading-6 text-muted">
+        <pre className="mono max-h-72 overflow-auto whitespace-pre-wrap px-4 pb-4 text-caption leading-6 text-muted sm:px-5 sm:pb-5">
           {curl}
         </pre>
       </section>

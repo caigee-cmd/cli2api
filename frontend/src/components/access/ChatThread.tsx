@@ -20,22 +20,26 @@ export function ChatThread({
     bottomRef.current?.scrollIntoView({ block: 'end' })
   }, [messages, busy])
 
+  const empty = !messages.length
+
   return (
     <div
-      className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-5 sm:px-6 sm:py-6"
+      className={`access-thread min-h-0 flex-1 overflow-y-auto px-4 sm:px-6 ${
+        empty ? 'py-5 sm:py-6' : 'pb-2 pt-4 sm:pb-2.5 sm:pt-5'
+      }`}
       aria-live="polite"
       aria-busy={busy}
     >
-      {!messages.length ? (
+      {empty ? (
         <EmptyPanel
-          className="min-h-64"
+          className="min-h-56"
           title={t('chatTryEmptyTitle')}
           hint={t('chatTryEmptyHint')}
           action={
             onLoadDemo ? (
               <button
                 type="button"
-                className="rounded-lg bg-surface-secondary px-3 py-1.5 text-caption font-medium text-foreground hover:bg-surface-tertiary"
+                className="inline-flex h-8 items-center rounded-[10px] px-2.5 text-caption font-medium text-muted transition-colors hover:bg-[var(--sidebar-hover)] hover:text-foreground"
                 onClick={onLoadDemo}
               >
                 {t('chatDemoLoad')}
@@ -44,7 +48,7 @@ export function ChatThread({
           }
         />
       ) : (
-        <div className="space-y-5">
+        <div className="space-y-4">
           {messages.map((message) => (
             <ChatMessageView key={message.id} message={message} />
           ))}

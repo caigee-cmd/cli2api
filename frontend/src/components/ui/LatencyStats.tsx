@@ -16,11 +16,13 @@ export type LatencyStatsProps = {
   stream?: boolean | null
   labels: LatencyStatsLabels
   className?: string
+  /** block = three-row Logs layout; inline = one compact Access line. */
+  variant?: 'block' | 'inline'
 }
 
 /**
- * Three-row latency block: TTFT / total / output TPS.
- * Grayscale Studio Admin tokens — muted labels, mono values, soft left rule.
+ * Latency: TTFT / total / output TPS.
+ * Grayscale Studio Admin tokens — muted labels, mono values.
  */
 export function LatencyStats({
   latencyMs,
@@ -29,6 +31,7 @@ export function LatencyStats({
   stream,
   labels,
   className = '',
+  variant = 'block',
 }: LatencyStatsProps) {
   const tps = formatTokensPerSecond(
     computeOutputTokensPerSecond({
@@ -38,9 +41,24 @@ export function LatencyStats({
       stream,
     }),
   )
+  const ttft = formatLatency(ttfbMs)
+  const total = formatLatency(latencyMs)
+
+  if (variant === 'inline') {
+    return (
+      <div className={`mono text-caption leading-4 text-muted ${className}`.trim()}>
+        <span>{labels.ttft} {ttft}</span>
+        <span className="mx-1.5 text-separator">·</span>
+        <span>{labels.total} {total}</span>
+        <span className="mx-1.5 text-separator">·</span>
+        <span>{tps}</span>
+      </div>
+    )
+  }
+
   const rows: Array<[string, string]> = [
-    [labels.ttft, formatLatency(ttfbMs)],
-    [labels.total, formatLatency(latencyMs)],
+    [labels.ttft, ttft],
+    [labels.total, total],
     [labels.tps, tps],
   ]
 
