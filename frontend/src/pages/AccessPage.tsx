@@ -279,16 +279,39 @@ export function AccessPage() {
     }
     const apiMessages = toApiMessages(history, apiUser)
 
+    const startedAt = performance.now()
+    let firstTokenAt: number | null = null
+    const markFirstToken = () => {
+      if (firstTokenAt == null) firstTokenAt = performance.now()
+    }
+    const timingPatch = (): Pick<ThreadMessage, 'ttfb_ms' | 'latency_ms'> => {
+      const endedAt = performance.now()
+      return {
+        latency_ms: Math.max(0, Math.round(endedAt - startedAt)),
+        ttfb_ms: firstTokenAt != null ? Math.max(0, Math.round(firstTokenAt - startedAt)) : undefined,
+      }
+    }
+
     try {
       await streamChat(selectedModel, apiMessages, selectedAccount || undefined, {
         signal: controller.signal,
-        onContent: (_chunk, full) => patchAssistant(assistantId, { content: full }),
-        onReasoning: (_chunk, full) => patchAssistant(assistantId, { reasoning: full }),
-        onToolCalls: (calls) => patchAssistant(assistantId, { toolCalls: mapToolCalls(calls, true) }),
+        onContent: (_chunk, full) => {
+          if (_chunk) markFirstToken()
+          patchAssistant(assistantId, { content: full })
+        },
+        onReasoning: (_chunk, full) => {
+          if (_chunk) markFirstToken()
+          patchAssistant(assistantId, { reasoning: full })
+        },
+        onToolCalls: (calls) => {
+          markFirstToken()
+          patchAssistant(assistantId, { toolCalls: mapToolCalls(calls, true) })
+        },
         onUsage: (usage) => patchAssistant(assistantId, { usage }),
       })
       patchAssistant(assistantId, (prev) => ({
         status: 'done',
+        ...timingPatch(),
         toolCalls: prev.toolCalls?.map((call) => ({ ...call, status: 'success' as const })),
       }))
       setChatState('success')
@@ -296,13 +319,14 @@ export function AccessPage() {
       if (controller.signal.aborted) {
         patchAssistant(assistantId, (prev) => ({
           status: 'done',
+          ...timingPatch(),
           toolCalls: prev.toolCalls?.map((call) => ({ ...call, status: 'success' as const })),
         }))
         setChatState('success')
         return
       }
       const message = error instanceof Error ? error.message : String(error)
-      patchAssistant(assistantId, { status: 'error', error: message })
+      patchAssistant(assistantId, { status: 'error', error: message, ...timingPatch() })
       setChatState('error')
     } finally {
       if (chatAbortRef.current === controller) chatAbortRef.current = null
