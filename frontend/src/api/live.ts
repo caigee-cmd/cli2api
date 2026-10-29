@@ -15,6 +15,15 @@ export type LiveWorker = {
   progress: number
   /** RFC3339 when the pool slot went busy (InFlight 0→1); omitted when idle. */
   started_at?: string
+  /** Account last_error_kind — fallback for busy→idle fail routing. */
+  last_error_kind?: string
+}
+
+/** Terminal request finish drained this /api/live poll (Done vs Failed fly-out). */
+export type LiveCompletion = {
+  account_id: string
+  /** ok | error | incomplete | canceled */
+  status: string
 }
 
 /** Active cooldown window from AccountView.DownUntil / model_cooldowns. */
@@ -51,6 +60,8 @@ export type LiveSnapshot = {
   /** Stage-3: map onto MockRateLimitWindow (remaining_ms; depth bands stay client-side). */
   rate_limits: LiveRateLimit[]
   sticky: LiveSticky
+  /** Terminal finishes since last poll — InflightLiveCard routes fly-outs. */
+  recent_completions?: LiveCompletion[]
 }
 
 export function fetchLive() {

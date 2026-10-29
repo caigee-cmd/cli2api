@@ -104,6 +104,15 @@ type StatsQuery struct {
 	APIKeyID string
 }
 
+// RecentCompletion is a terminal request finish noticed since the last
+// DrainRecentCompletions call. /api/live drains these so Overview can route
+// busy→idle fly-outs to Done vs Failed without inventing a parallel stream.
+type RecentCompletion struct {
+	AccountID string
+	Status    string
+	At        time.Time
+}
+
 type RequestRecorder struct {
 	store        RequestPersister
 	queue        chan func()
@@ -116,6 +125,8 @@ type RequestRecorder struct {
 	usageCache   map[string]usageCacheEntry
 	rateOnce     sync.Once
 	rate         *RateCounter
+	recentMu     sync.Mutex
+	recent       []RecentCompletion
 }
 
 func NewRequestRecorder(store RequestPersister) *RequestRecorder {
@@ -185,11 +196,55 @@ func (r *RequestRecorder) rateCounter() *RateCounter {
 func (r *RequestRecorder) RecentRequests() int { return r.rateCounter().Count() }
 
 func (r *RequestRecorder) Finish(log accounts.RequestLog) {
+	r.noteCompletion(log)
 	r.enqueue(func() {
 		if err := r.store.UpdateRequestLog(context.Background(), log); err != nil {
 			logf("update request log: %v", err)
 		}
 	})
+}
+
+func terminalRequestStatus(status string) bool {
+	switch strings.TrimSpace(status) {
+	case accounts.RequestStatusOK, accounts.RequestStatusError,
+		accounts.RequestStatusIncomplete, accounts.RequestStatusCanceled:
+		return true
+	default:
+		return false
+	}
+}
+
+func (r *RequestRecorder) noteCompletion(log accounts.RequestLog) {
+	if r == nil || !terminalRequestStatus(log.Status) {
+		return
+	}
+	acc := strings.TrimSpace(log.AccountID)
+	if acc == "" {
+		return
+	}
+	r.recentMu.Lock()
+	defer r.recentMu.Unlock()
+	r.recent = append(r.recent, RecentCompletion{
+		AccountID: acc,
+		Status:    strings.TrimSpace(log.Status),
+		At:        time.Now(),
+	})
+	const capN = 64
+	if len(r.recent) > capN {
+		r.recent = append([]RecentCompletion(nil), r.recent[len(r.recent)-capN:]...)
+	}
+}
+
+// DrainRecentCompletions returns and clears finishes recorded since the last drain.
+func (r *RequestRecorder) DrainRecentCompletions() []RecentCompletion {
+	if r == nil {
+		return nil
+	}
+	r.recentMu.Lock()
+	defer r.recentMu.Unlock()
+	out := r.recent
+	r.recent = nil
+	return out
 }
 
 func (r *RequestRecorder) Attempt(attempt accounts.RequestAttempt) {

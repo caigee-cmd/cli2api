@@ -971,9 +971,23 @@ export function InflightLiveCard({
       }
 
       if (still && still.status === 'running') continue
-      const okBump = snap.totals.done > prev.totals.done
-      const failBump = snap.totals.failed > prev.totals.failed
-      const tone: 'ok' | 'danger' = failBump && !okBump ? 'danger' : 'ok'
+      // Prefer per-job completion (mock tick + live recent_completions /
+      // last_error_kind). Totals bump is a last-resort fallback only — live
+      // keeps totals at 0, so without completions every busy→idle looked Done.
+      const comp = snap.completions?.find((c) => c.id === id)
+      let tone: 'ok' | 'danger'
+      if (comp) {
+        tone = comp.ok ? 'ok' : 'danger'
+      } else if (still?.status === 'failed') {
+        tone = 'danger'
+      } else if (still?.status === 'done') {
+        tone = 'ok'
+      } else {
+        const okBump = snap.totals.done > prev.totals.done
+        const failBump = snap.totals.failed > prev.totals.failed
+        // fail-only bump → Failed; otherwise Done (ambiguous same-tick needs completions).
+        tone = failBump && !okBump ? 'danger' : 'ok'
+      }
       const beat = root.querySelector<HTMLElement>(
         tone === 'ok' ? '[data-outcome="ok"]' : '[data-outcome="danger"]',
       )
@@ -1110,11 +1124,10 @@ export function InflightLiveCard({
         @keyframes inflight-shimmer{0%{transform:translateX(-130%)}100%{transform:translateX(230%)}}
         @keyframes inflight-queue-shimmer{0%{transform:translateX(-140%);opacity:.4}50%{opacity:.9}100%{transform:translateX(240%);opacity:.4}}
         @keyframes inflight-glow{from{opacity:.45}to{opacity:1}}
-                @media (prefers-reduced-motion: reduce){
+        @media (prefers-reduced-motion: reduce){
           [class*="animate-[inflight-shimmer_"],
           [class*="animate-[inflight-queue-shimmer_"],
           [class*="animate-[inflight-glow_"]{animation:none!important}
-        }
         }
       `}</style>
 

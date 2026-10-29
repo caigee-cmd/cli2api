@@ -65,6 +65,14 @@ export type MockRateLimitWindow = {
   until: number
 }
 
+/** One job that just landed on Done or Failed this tick (GSAP fly-out routing). */
+export type MockCompletion = {
+  id: string
+  name: string
+  kind: MockJobKind
+  ok: boolean
+}
+
 export type MockInflightSnapshot = {
   jobs: MockInflightJob[]
   workers: MockAccountSlot[]
@@ -78,6 +86,12 @@ export type MockInflightSnapshot = {
   throughputPerMin: number
   waitP95Ms: number
   generatedAt: number
+  /**
+   * Ephemeral per-tick terminal outcomes for GSAP Done/Failed routing.
+   * Not cloned across ticks unless the producer sets them again; live totals
+   * stay zero so priorIsLive keeps working.
+   */
+  completions?: MockCompletion[]
 }
 
 /** Stable demo seed — deterministic for first paint / screenshots. */
@@ -136,6 +150,8 @@ export function cloneMockInflight(snap: MockInflightSnapshot = MOCK_INFLIGHT): M
     rateLimits: snap.rateLimits.map((r) => ({ ...r })),
     depthSeries: [...snap.depthSeries],
     totals: { ...snap.totals },
+    // Completions are ephemeral — never inherit a prior tick's fly-out list.
+    completions: undefined,
   }
 }
 
@@ -220,6 +236,17 @@ export function tickMockInflight(prev: MockInflightSnapshot, dtMs: number): Mock
     job.progress = 1
     next.totals.failed += 1
   }
+
+  // Per-job outcomes for GSAP (retry back to queue is not a sink landing).
+  const completions: MockCompletion[] = []
+  for (const f of finished) {
+    const job = jobById.get(f.jobId)
+    if (!job) continue
+    if (job.status === 'done' || job.status === 'failed') {
+      completions.push({ id: job.id, name: job.name, kind: job.kind, ok: job.status === 'done' })
+    }
+  }
+  next.completions = completions.length > 0 ? completions : undefined
 
   // Drop terminal jobs from the active list (keep queue + running only).
   next.jobs = next.jobs.filter((j) => j.status === 'queued' || j.status === 'running')
@@ -323,6 +350,13 @@ export type LiveWorkerLike = {
   rate_limited: boolean
   /** RFC3339 from pool InFlightSince when available. */
   started_at?: string
+  /** Fallback fail signal when recent_completions missed the finish. */
+  last_error_kind?: string
+}
+
+export type LiveCompletionLike = {
+  account_id: string
+  status: string
 }
 
 export type LiveRateLimitLike = {
@@ -346,6 +380,7 @@ export type LiveProjectionInput = {
   workers: LiveWorkerLike[]
   rate_limits: LiveRateLimitLike[]
   sticky: LiveStickyLike
+  recent_completions?: LiveCompletionLike[]
 }
 
 /**
@@ -428,6 +463,40 @@ export function applyLiveProjection(
   series.push(Math.max(0, live.in_flight))
   while (series.length < n) series.unshift(0)
 
+  // Match busy→idle jobs to drained request finishes (or last_error_kind).
+  const pendingByAccount = new Map<string, boolean[]>()
+  for (const c of live.recent_completions ?? []) {
+    const acc = (c.account_id || '').trim()
+    if (!acc) continue
+    const ok = (c.status || '').trim() === 'ok'
+    const list = pendingByAccount.get(acc) ?? []
+    list.push(ok)
+    pendingByAccount.set(acc, list)
+  }
+  const stillIds = new Set(jobs.map((j) => j.id))
+  const completions: MockCompletion[] = []
+  for (const prev of base.jobs) {
+    if (prev.status !== 'running') continue
+    if (stillIds.has(prev.id)) continue
+    const acc = (prev.accountId || prev.id.replace(/^live-/, '')).trim()
+    const queue = pendingByAccount.get(acc)
+    let ok = true
+    if (queue && queue.length > 0) {
+      ok = queue.shift()!
+    } else {
+      const lw = live.workers.find((w) => w.id === acc)
+      if (lw?.last_error_kind && lw.last_error_kind.trim() !== '') {
+        ok = false
+      }
+    }
+    completions.push({
+      id: prev.id,
+      name: prev.name,
+      kind: prev.kind,
+      ok,
+    })
+  }
+
   return {
     generatedAt: now,
     backpressure: base.backpressure,
@@ -439,6 +508,7 @@ export function applyLiveProjection(
     rateLimits,
     jobs,
     depthSeries: series.slice(-n),
+    completions: completions.length > 0 ? completions : undefined,
   }
 }
 

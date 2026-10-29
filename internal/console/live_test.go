@@ -89,3 +89,30 @@ func TestBuildLiveSnapshotEmpty(t *testing.T) {
 		t.Fatalf("empty lengths: %+v", got)
 	}
 }
+
+func TestBuildLiveSnapshotLastErrorKind(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0).UTC()
+	views := []accounts.AccountView{
+		{
+			Account: accounts.Account{
+				ID: "err1", Name: "fail-slot", Provider: "qoder", Enabled: true,
+				LastErrorKind: accounts.KindUnavailable,
+			},
+			InFlight: 0,
+		},
+		{
+			Account: accounts.Account{
+				ID: "ok1", Name: "ok-slot", Provider: "qoder", Enabled: true,
+			},
+			InFlight: 1,
+			InFlightSince: now.Add(-2 * time.Second).Format(time.RFC3339),
+		},
+	}
+	got := buildLiveSnapshot(views, 0, executor.SessionAffinityStats{}, now)
+	if got.Workers[0].LastErrorKind != accounts.KindUnavailable {
+		t.Fatalf("worker[0].LastErrorKind = %q", got.Workers[0].LastErrorKind)
+	}
+	if got.Workers[1].LastErrorKind != "" {
+		t.Fatalf("busy-ok worker must omit last_error_kind, got %q", got.Workers[1].LastErrorKind)
+	}
+}

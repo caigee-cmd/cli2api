@@ -107,4 +107,124 @@ run('idle live does not bleed mock totals', () => {
   assert.equal(snap.waitP95Ms, 0)
 })
 
+
+run('applyLiveProjection routes fail via recent_completions', () => {
+  const busy = applyLiveProjection(cloneMockInflight(MOCK_INFLIGHT), {
+    in_flight: 1,
+    rpm: 0,
+    workers: [
+      {
+        id: 'acc-1',
+        name: 'wb-a1',
+        provider: 'workbuddy',
+        busy: true,
+        progress: 0.5,
+        rate_limited: false,
+      },
+    ],
+    rate_limits: [],
+    sticky: { bindings: 0, hits: 0, misses: 0, capacity: 64, ttl_seconds: 600 },
+  })
+  assert.equal(busy.jobs.length, 1)
+  const idleFail = applyLiveProjection(busy, {
+    in_flight: 0,
+    rpm: 1,
+    workers: [
+      {
+        id: 'acc-1',
+        name: 'wb-a1',
+        provider: 'workbuddy',
+        busy: false,
+        progress: 0,
+        rate_limited: false,
+        last_error_kind: 'unavailable',
+      },
+    ],
+    rate_limits: [],
+    sticky: { bindings: 0, hits: 0, misses: 0, capacity: 64, ttl_seconds: 600 },
+    recent_completions: [{ account_id: 'acc-1', status: 'error' }],
+  })
+  assert.equal(idleFail.jobs.length, 0)
+  assert.equal(idleFail.totals.done, 0)
+  assert.equal(idleFail.totals.failed, 0)
+  assert.ok(idleFail.completions && idleFail.completions.length === 1)
+  assert.equal(idleFail.completions[0].ok, false)
+  assert.equal(idleFail.completions[0].id, 'live-acc-1')
+})
+
+run('applyLiveProjection last_error_kind fallback without completions', () => {
+  const busy = applyLiveProjection(cloneMockInflight(MOCK_INFLIGHT), {
+    in_flight: 1,
+    rpm: 0,
+    workers: [
+      {
+        id: 'acc-9',
+        name: 'x',
+        provider: 'qoder',
+        busy: true,
+        progress: 0.2,
+        rate_limited: false,
+      },
+    ],
+    rate_limits: [],
+    sticky: { bindings: 0, hits: 0, misses: 0, capacity: 64, ttl_seconds: 600 },
+  })
+  const idle = applyLiveProjection(busy, {
+    in_flight: 0,
+    rpm: 0,
+    workers: [
+      {
+        id: 'acc-9',
+        name: 'x',
+        provider: 'qoder',
+        busy: false,
+        progress: 0,
+        rate_limited: false,
+        last_error_kind: 'auth',
+      },
+    ],
+    rate_limits: [],
+    sticky: { bindings: 0, hits: 0, misses: 0, capacity: 64, ttl_seconds: 600 },
+  })
+  assert.ok(idle.completions && idle.completions.length === 1)
+  assert.equal(idle.completions[0].ok, false)
+})
+
+run('applyLiveProjection success completion flies ok', () => {
+  const busy = applyLiveProjection(cloneMockInflight(MOCK_INFLIGHT), {
+    in_flight: 1,
+    rpm: 0,
+    workers: [
+      {
+        id: 'acc-ok',
+        name: 'ok',
+        provider: 'qoder',
+        busy: true,
+        progress: 0.9,
+        rate_limited: false,
+      },
+    ],
+    rate_limits: [],
+    sticky: { bindings: 0, hits: 0, misses: 0, capacity: 64, ttl_seconds: 600 },
+  })
+  const idle = applyLiveProjection(busy, {
+    in_flight: 0,
+    rpm: 2,
+    workers: [
+      {
+        id: 'acc-ok',
+        name: 'ok',
+        provider: 'qoder',
+        busy: false,
+        progress: 0,
+        rate_limited: false,
+      },
+    ],
+    rate_limits: [],
+    sticky: { bindings: 0, hits: 0, misses: 0, capacity: 64, ttl_seconds: 600 },
+    recent_completions: [{ account_id: 'acc-ok', status: 'ok' }],
+  })
+  assert.ok(idle.completions && idle.completions[0].ok === true)
+})
+
 console.log('all mockInflight tests passed')
