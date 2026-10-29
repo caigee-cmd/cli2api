@@ -34,14 +34,49 @@ func (c *Client) fetchModels(ctx context.Context, accountID string) ([]providers
 	}
 	merged := map[string]modelRecord{}
 	benefit := map[string]bool{}
+	benefitRecords, benefitErr := c.fetchBenefitModels(ctx, accountID, credential)
+	benefitOK := benefitErr == nil
+	benefitIDs := map[string]bool{}
+	if stats, statsErr := c.fetchStatistics(ctx, accountID, credential); statsErr == nil {
+		for _, model := range stats.Models {
+			if isLimitedBenefit(model.Desc) {
+				benefitIDs[strings.ToLower(model.ID)] = true
+				if model.Name != "" {
+					benefitIDs[strings.ToLower(model.Name)] = true
+				}
+			}
+		}
+	}
 	if records, fetchErr := c.fetchAgentModels(ctx, accountID, credential); fetchErr == nil {
-		mergeRecords(merged, records)
+		for _, record := range records {
+			if record.Benefit || benefitIDs[strings.ToLower(record.ID)] || isLimitedBenefit(record.Description) {
+				record.Benefit = true
+			}
+			if record.Benefit && !benefitOK {
+				continue
+			}
+			mergeRecords(merged, []modelRecord{record})
+			if record.Benefit {
+				benefit[strings.ToLower(record.ID)] = true
+			}
+		}
 	}
 	if records, fetchErr := c.fetchBuiltinModels(ctx, accountID, credential); fetchErr == nil {
-		mergeRecords(merged, records)
-	}
-	if records, fetchErr := c.fetchBenefitModels(ctx, accountID, credential); fetchErr == nil {
 		for _, record := range records {
+			if record.Benefit || benefitIDs[strings.ToLower(record.ID)] || isLimitedBenefit(record.Description) {
+				record.Benefit = true
+			}
+			if record.Benefit && !benefitOK {
+				continue
+			}
+			mergeRecords(merged, []modelRecord{record})
+			if record.Benefit {
+				benefit[strings.ToLower(record.ID)] = true
+			}
+		}
+	}
+	if benefitOK {
+		for _, record := range benefitRecords {
 			record.Benefit = true
 			benefit[strings.ToLower(record.ID)] = true
 			mergeRecords(merged, []modelRecord{record})
@@ -66,6 +101,10 @@ func (c *Client) fetchModels(ctx context.Context, accountID string) ([]providers
 		models = append(models, toModelInfo(record))
 	}
 	return models, benefit, nil
+}
+
+func isLimitedBenefit(description string) bool {
+	return strings.Contains(description, "限时体验")
 }
 
 func mergeRecords(target map[string]modelRecord, records []modelRecord) {
@@ -124,14 +163,14 @@ func toModelInfo(record modelRecord) providers.ModelInfo {
 // Models implements providers.ModelCatalogProvider.
 func (c *Client) Models(ctx context.Context, accountID string) ([]providers.ModelInfo, error) {
 	if models, _, ok := c.cachedCatalog(accountID); ok {
-		return models, nil
+		return cloneModels(c.filterAvailable(accountID, models)), nil
 	}
 	models, benefit, err := c.fetchModels(ctx, accountID)
 	if err != nil {
 		return nil, err
 	}
 	c.rememberCatalog(accountID, models, benefit)
-	return cloneModels(models), nil
+	return cloneModels(c.filterAvailable(accountID, models)), nil
 }
 
 func (c *Client) cachedCatalog(accountID string) ([]providers.ModelInfo, map[string]bool, bool) {
@@ -245,6 +284,7 @@ func (c *Client) fetchAgentModels(ctx context.Context, accountID string, credent
 		out = append(out, modelRecord{
 			ID: id, Name: id, Description: model.Params.ModelDesc,
 			ContextWindow: model.Params.ContextWindow, MaxTokens: model.Params.MaxTokens,
+			Benefit: isLimitedBenefit(model.Params.ModelDesc),
 		})
 	}
 	return out, nil
@@ -332,6 +372,7 @@ func (c *Client) fetchBuiltinModels(ctx context.Context, accountID string, crede
 		records = append(records, modelRecord{
 			ID: id, Name: id, Description: model.ModelDesc,
 			ContextWindow: model.ContextWindow, MaxTokens: model.MaxTokens,
+			Benefit: isLimitedBenefit(model.ModelDesc),
 		})
 	}
 	return records, nil
@@ -410,6 +451,7 @@ func (c *Client) claimBenefit(ctx context.Context, accountID string, credential 
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Agent-Type", "PromptCenter")
 	req.Header.Set("X-Language", Language)
 	signRequest(req, body, credential.Sign())
 	client, err := c.httpClient(ctx, accountID)
@@ -424,6 +466,16 @@ func (c *Client) claimBenefit(ctx context.Context, accountID string, credential 
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode >= 400 {
 		return newProviderError(resp.StatusCode, string(raw))
+	}
+	var envelope struct {
+		ErrorCode string `json:"error_code"`
+		ErrorMsg  string `json:"error_msg"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return fmt.Errorf("parse codearts benefit claim: %w", err)
+	}
+	if envelope.ErrorCode != "" && envelope.ErrorCode != "0000" {
+		return fmt.Errorf("codearts benefit claim error %s: %s", envelope.ErrorCode, envelope.ErrorMsg)
 	}
 	return nil
 }

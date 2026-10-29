@@ -24,6 +24,9 @@ func (c *Client) ChatStream(ctx context.Context, accountID string, req translate
 	}
 	reader, err := preflightWithTimeout(upstream)
 	if err != nil {
+		if providerErr, ok := err.(*providers.Error); ok && providerErr.Kind == accounts.KindModelNotAvailable {
+			c.markModelUnusable(accountID, req.Model)
+		}
 		return nil, providers.ResolvedChat{}, err
 	}
 	pr, pw := io.Pipe()
@@ -32,6 +35,9 @@ func (c *Client) ChatStream(ctx context.Context, accountID string, req translate
 		defer upstream.Body.Close()
 		defer pw.Close()
 		if err := streamCapture(pw, reader, model); err != nil {
+			if providerErr, ok := err.(*providers.Error); ok && providerErr.Kind == accounts.KindModelNotAvailable {
+				c.markModelUnusable(accountID, model)
+			}
 			_ = pw.CloseWithError(err)
 		}
 	}()
@@ -54,6 +60,9 @@ func (c *Client) ChatNonStream(ctx context.Context, accountID string, req transl
 	defer upstream.Body.Close()
 	completion, err := aggregateRaw(upstream.Body)
 	if err != nil {
+		if providerErr, ok := err.(*providers.Error); ok && providerErr.Kind == accounts.KindModelNotAvailable {
+			c.markModelUnusable(accountID, req.Model)
+		}
 		return providers.ChatOutcome{}, err
 	}
 	outcome := providers.ChatOutcome{
@@ -128,6 +137,7 @@ func (c *Client) doChat(ctx context.Context, accountID string, req translate.Cha
 		payload, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		resp.Body.Close()
 		if Classify(resp.StatusCode, string(payload)).Kind == accounts.KindModelNotAvailable {
+			c.markModelUnusable(accountID, model)
 			return nil, "", newProviderError(resp.StatusCode, string(payload))
 		}
 		refreshed, refreshErr := c.forceRefresh(ctx, accountID)
@@ -142,8 +152,12 @@ func (c *Client) doChat(ctx context.Context, accountID string, req translate.Cha
 	if resp.StatusCode >= 300 {
 		payload, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		resp.Body.Close()
+		if modelUnavailableBody(string(payload)) {
+			c.markModelUnusable(accountID, model)
+		}
 		return nil, "", newProviderError(resp.StatusCode, string(payload))
 	}
+	c.markModelUsable(accountID, model)
 	return resp, level, nil
 }
 

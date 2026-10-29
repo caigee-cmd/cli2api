@@ -31,6 +31,14 @@ type statistics struct {
 	Plan      string
 	PlanName  string
 	Meters    []quotaMeter
+	Models    []statisticsModel
+}
+
+type statisticsModel struct {
+	ID     string
+	Name   string
+	Desc   string
+	Enable bool
 }
 
 func (s statistics) empty() bool { return len(s.Meters) == 0 }
@@ -56,7 +64,12 @@ func (m quotaMeter) total() float64 {
 	if m.CreditTotal > 0 {
 		return m.CreditTotal
 	}
-	return float64(m.Allowance)
+	// package_token_amount=1 is the upstream's placeholder when the trial
+	// account has no chat-token package; it is a counter, not a 1-token quota.
+	if m.Allowance > 1 {
+		return float64(m.Allowance)
+	}
+	return 0
 }
 
 func (m quotaMeter) remaining() float64 {
@@ -66,21 +79,20 @@ func (m quotaMeter) remaining() float64 {
 		}
 		return m.CreditTotal - m.CreditUsed
 	}
-	if m.Allowance > 0 {
+	if m.Allowance > 1 {
 		return float64(m.Allowance - m.UsedTokens)
 	}
 	return 0
 }
 
 func (m quotaMeter) percentage() float64 {
+	if m.total() <= 0 {
+		return 0
+	}
 	if m.HasPercent {
 		return m.Percent
 	}
-	total := m.total()
-	if total <= 0 {
-		return 0
-	}
-	return m.used() / total * 100
+	return m.used() / m.total() * 100
 }
 
 // Quota reads the package meters. The activity/benefit balance is intentionally
@@ -183,6 +195,12 @@ func parseStatistics(raw []byte) (statistics, error) {
 			PackageNameEN string `json:"package_name_en"`
 			PackageNameCN string `json:"package_name_cn"`
 		} `json:"package"`
+		ModelMetrics []struct {
+			ModelID   string `json:"model_id"`
+			ModelName string `json:"model_name"`
+			ModelDesc string `json:"model_desc"`
+			Enable    bool   `json:"enable"`
+		} `json:"model_metrics"`
 	}
 	if err := json.Unmarshal(raw, &parsed); err != nil {
 		return statistics{}, fmt.Errorf("parse codearts statistics: %w", err)
@@ -191,6 +209,16 @@ func parseStatistics(raw []byte) (statistics, error) {
 	if parsed.Package != nil {
 		out.Plan = strings.TrimSpace(parsed.Package.SpecCode)
 		out.PlanName = firstNonEmpty(parsed.Package.PackageNameEN, parsed.Package.PackageNameCN)
+	}
+	for _, model := range parsed.ModelMetrics {
+		id := strings.TrimSpace(firstNonEmpty(model.ModelID, model.ModelName))
+		if id == "" {
+			continue
+		}
+		out.Models = append(out.Models, statisticsModel{
+			ID: id, Name: strings.TrimSpace(model.ModelName),
+			Desc: strings.TrimSpace(model.ModelDesc), Enable: model.Enable,
+		})
 	}
 	for _, metric := range parsed.Metrics {
 		name := strings.TrimSpace(metric.Name)
@@ -213,8 +241,9 @@ func parseStatistics(raw []byte) (statistics, error) {
 		if meter.Label == "" {
 			meter.Label = name
 		}
-		if meter.UsedTokens == 0 && meter.Allowance == 0 &&
-			meter.CreditTotal == 0 && meter.CreditUsed == 0 && meter.CreditRemain == 0 && !meter.HasPercent {
+		if meter.UsedTokens == 0 && meter.Allowance <= 1 &&
+			meter.CreditTotal == 0 && meter.CreditUsed == 0 && meter.CreditRemain == 0 {
+			// A zero-credit row or the placeholder 1-token counter is noise.
 			continue
 		}
 		out.Meters = append(out.Meters, meter)

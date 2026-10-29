@@ -51,9 +51,12 @@ type Client struct {
 	benefitBase string
 
 	mu       sync.Mutex
+	availMu  sync.Mutex
 	catalogs map[string]catalogCache
 	locks    map[string]*sync.Mutex
 	logins   map[string]*loginState
+	// availability is a learned per-account model verdict from real traffic.
+	availability map[string]modelAvailability
 }
 
 func NewClient(store Store) *Client {
@@ -70,14 +73,15 @@ func NewClient(store Store) *Client {
 				return http.ErrUseLastResponse
 			},
 		},
-		baseURL:     CNBaseURL,
-		stsHost:     CNSTSHost,
-		portalHost:  CNPortalHost,
-		benefitBase: BenefitHost,
-		catalogs:    map[string]catalogCache{},
-		locks:       map[string]*sync.Mutex{},
-		logins:      map[string]*loginState{},
-		nowFn:       time.Now,
+		baseURL:      CNBaseURL,
+		stsHost:      CNSTSHost,
+		portalHost:   CNPortalHost,
+		benefitBase:  BenefitHost,
+		catalogs:     map[string]catalogCache{},
+		locks:        map[string]*sync.Mutex{},
+		logins:       map[string]*loginState{},
+		availability: map[string]modelAvailability{},
+		nowFn:        time.Now,
 	}
 }
 

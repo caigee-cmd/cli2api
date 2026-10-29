@@ -252,6 +252,9 @@ func aggregateRaw(reader io.Reader) (*rawCompletion, error) {
 		}
 	}
 	if streamErr != nil {
+		if embedded, ok := streamErr.(*upstreamError); ok {
+			return nil, newProviderError(http.StatusBadGateway, embedded.Error())
+		}
 		return nil, streamErr
 	}
 	return &rawCompletion{
@@ -305,9 +308,9 @@ func streamCapture(writer io.Writer, reader io.Reader, model string) error {
 		_, err := io.WriteString(writer, "data: [DONE]\n\n")
 		return err
 	}
-	writeError := func(message string) error {
+	writeError := func(code, message string) error {
 		raw, _ := json.Marshal(map[string]any{"error": map[string]any{
-			"message": message, "type": "upstream_error", "code": "CODEARTS_STREAM_ERROR",
+			"message": message, "type": "upstream_error", "code": code,
 		}})
 		_, err := io.WriteString(writer, "event: error\ndata: "+string(raw)+"\n\n")
 		return err
@@ -341,13 +344,14 @@ func streamCapture(writer io.Writer, reader io.Reader, model string) error {
 			var upErr error
 			applyEvent(content, reasoning, &finish, &upErr, event, data)
 			if upErr != nil {
-				if err := writeError(upErr.Error()); err != nil {
+				classified := newProviderError(http.StatusBadGateway, upErr.Error())
+				if err := writeError(classified.Kind, classified.Message); err != nil {
 					streamErr = err
 					break
 				}
 				_ = writeDONE()
 				sawDone = true
-				streamErr = upErr
+				streamErr = classified
 				break
 			}
 			delta := map[string]any{}
