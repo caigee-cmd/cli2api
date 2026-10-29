@@ -4,6 +4,15 @@ import { Card } from '@heroui/react'
 import { ArrowUpRight, Check, X } from '@phosphor-icons/react'
 import CustomEase from 'gsap/CustomEase'
 import {
+  Area,
+  AreaChart,
+  ReferenceArea,
+  ReferenceLine,
+  ResponsiveContainer,
+  XAxis,
+  YAxis,
+} from 'recharts'
+import {
   getMockInflightSnapshot,
   summarizeMockInflight,
   type MockAccountSlot,
@@ -76,64 +85,71 @@ function DepthChart({
   label: string
 }) {
   const peak = Math.max(backpressure, ...series, 1)
-  const w = 320
-  const h = 44
-  const step = series.length > 1 ? w / (series.length - 1) : w
-  const points = series.map((v, i) => {
-    const x = i * step
-    const y = h - (v / peak) * (h - 6) - 3
-    return [x, y] as const
-  })
-  const line = points.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ')
-  const area = `0,${h} ${line} ${w},${h}`
-  const guideY = h - (backpressure / peak) * (h - 6) - 3
+  const data = useMemo(
+    () => series.map((v, i) => ({ i, v, bp: backpressure })),
+    [series, backpressure],
+  )
+  const bandRows = useMemo(
+    () =>
+      bands.map((band, idx) => {
+        const n = Math.max(1, series.length - 1)
+        return {
+          key: idx,
+          x1: band.from * n,
+          x2: Math.max(band.from * n + 0.35, band.until * n),
+        }
+      }),
+    [bands, series.length],
+  )
 
   return (
-    <svg
-      viewBox={`0 0 ${w} ${h}`}
-      className="h-11 w-full"
-      role="img"
-      aria-label={label}
-      preserveAspectRatio="none"
-    >
-      {bands.map((band, i) => {
-        const x = band.from * w
-        const width = Math.max(3, (band.until - band.from) * w)
-        return (
-          <rect
-            key={i}
-            x={x}
-            y={0}
-            width={width}
-            height={h}
-            fill="var(--il-warn, var(--warning))"
-            opacity={0.12}
+    <div className="h-11 w-full" role="img" aria-label={label} data-depth-chart>
+      <ResponsiveContainer width="100%" height="100%">
+        <AreaChart data={data} margin={{ top: 4, right: 2, bottom: 2, left: 2 }}>
+          <YAxis hide domain={[0, peak]} />
+          <XAxis hide dataKey="i" type="number" domain={[0, Math.max(0, series.length - 1)]} />
+          {bandRows.map((b) => (
+            <ReferenceArea
+              key={b.key}
+              x1={b.x1}
+              x2={b.x2}
+              y1={0}
+              y2={peak}
+              fill="var(--il-warn, var(--warning))"
+              fillOpacity={0.14}
+              ifOverflow="extendDomain"
+            />
+          ))}
+          <ReferenceLine
+            y={backpressure}
+            stroke="var(--il-faint, var(--foreground))"
+            strokeOpacity={0.35}
+            strokeDasharray="3 3"
+            ifOverflow="extendDomain"
           />
-        )
-      })}
-      <line
-        x1={0}
-        x2={w}
-        y1={guideY}
-        y2={guideY}
-        stroke="var(--il-faint, var(--foreground))"
-        strokeOpacity={0.35}
-        strokeDasharray="3 3"
-        strokeWidth={1}
-        vectorEffect="non-scaling-stroke"
-      />
-      <polygon points={area} fill="var(--il-depth-fill, var(--chart-1))" opacity="1" />
-      <polyline
-        points={line}
-        fill="none"
-        stroke="var(--il-depth, var(--chart-1))"
-        strokeOpacity={0.92}
-        strokeWidth="1.75"
-        strokeLinejoin="round"
-        strokeLinecap="round"
-        vectorEffect="non-scaling-stroke"
-      />
-    </svg>
+          <defs>
+            <linearGradient id="il-depth-fill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="var(--il-depth, var(--chart-1))" stopOpacity={0.28} />
+              <stop offset="100%" stopColor="var(--il-depth, var(--chart-1))" stopOpacity={0.04} />
+            </linearGradient>
+          </defs>
+          <Area
+            type="monotone"
+            dataKey="v"
+            stroke="var(--il-depth, var(--chart-1))"
+            strokeOpacity={0.95}
+            strokeWidth={1.85}
+            fill="url(#il-depth-fill)"
+            fillOpacity={1}
+            isAnimationActive={!prefersReducedMotion()}
+            animationDuration={Math.round(motionDuration(0.56) * 1000)}
+            animationEasing="ease-out"
+            dot={false}
+            activeDot={false}
+          />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
   )
 }
 
@@ -200,7 +216,6 @@ function SlotBar({
           style={{
             width: '100%',
             clipPath: `inset(0 ${100 - pct}% 0 0 round 999px)`,
-            willChange: 'clip-path',
           }}
         >
           {slot.busy && !frozen ? (
@@ -275,6 +290,7 @@ export function InflightLiveCard({
             duration: motionDuration(0.52),
             ease: queueEase,
             stagger: 0.045,
+            force3D: true,
           },
         )
       }
@@ -303,6 +319,7 @@ export function InflightLiveCard({
             ease: queueEase,
             stagger: 0.05,
             delay: motionDuration(0.06),
+            force3D: true,
           },
         )
       }
@@ -372,13 +389,28 @@ export function InflightLiveCard({
       if (depth.length) {
         gsap.fromTo(
           depth,
-          { opacity: 0, y: 4 },
+          { opacity: 0, y: 6 },
           {
             opacity: 1,
             y: 0,
             duration: motionDuration(duration.base),
-            ease: ease.out,
+            ease: queueEase,
             delay: motionDuration(0.35),
+            force3D: true,
+          },
+        )
+      }
+      const depthPaths = root.querySelectorAll<SVGPathElement>('[data-depth-chart] .recharts-area-curve, [data-depth-chart] .recharts-area-area')
+      if (depthPaths.length) {
+        gsap.fromTo(
+          depthPaths,
+          { opacity: 0 },
+          {
+            opacity: 1,
+            duration: motionDuration(0.56),
+            ease: queueEase,
+            delay: motionDuration(0.4),
+            stagger: 0.04,
           },
         )
       }
@@ -396,29 +428,36 @@ export function InflightLiveCard({
     >
       <style>{`
         [data-testid="inflight-live-card"]{
-          /* Public AffectUI demo hierarchy → project tokens (color-mix only; no Pro dump). */
-          --il-well: color-mix(in oklab, var(--foreground) 4%, var(--surface));
-          --il-chip: color-mix(in oklab, var(--foreground) 8%, var(--surface));
-          --il-line: color-mix(in oklab, var(--foreground) 13%, transparent);
-          --il-line-soft: color-mix(in oklab, var(--foreground) 8%, transparent);
-          --il-track: color-mix(in oklab, var(--foreground) 14%, transparent);
-          --il-run: color-mix(in oklab, var(--foreground) 84%, transparent);
-          --il-run-edge: var(--foreground);
-          --il-run-glow: color-mix(in oklab, var(--foreground) 52%, transparent);
+          /* Public AffectUI hierarchy → project tokens.
+             Wells lean warm (chart-3 / warning hint) so nested surfaces
+             read richer than cold gray — still technical, not muddy. */
+          --il-well: color-mix(in oklab, var(--chart-3) 12%, var(--surface));
+          --il-chip: color-mix(in oklab, var(--chart-3) 15%, color-mix(in oklab, var(--foreground) 2%, var(--surface)));
+          --il-line: color-mix(in oklab, var(--foreground) 10%, color-mix(in oklab, var(--chart-3) 14%, transparent));
+          --il-line-soft: color-mix(in oklab, var(--chart-3) 16%, color-mix(in oklab, var(--foreground) 4%, transparent));
+          --il-track: color-mix(in oklab, var(--foreground) 8%, color-mix(in oklab, var(--chart-3) 11%, transparent));
+          --il-run: color-mix(in oklab, var(--foreground) 78%, var(--chart-1));
+          --il-run-edge: color-mix(in oklab, var(--foreground) 70%, var(--chart-1));
+          --il-run-glow: color-mix(in oklab, var(--chart-1) 42%, transparent);
           --il-warn: var(--warning);
           --il-warn-fg: var(--warning);
-          --il-warn-bg: color-mix(in oklab, var(--warning) 13%, var(--surface));
-          --il-warn-edge: color-mix(in oklab, var(--warning) 52%, transparent);
-          --il-warn-hatch: color-mix(in oklab, var(--warning) 24%, transparent);
-          --il-ok-bg: color-mix(in oklab, var(--success) 13%, var(--surface));
-          --il-ok-edge: color-mix(in oklab, var(--success) 48%, transparent);
+          --il-warn-bg: color-mix(in oklab, var(--warning) 16%, var(--surface));
+          --il-warn-edge: color-mix(in oklab, var(--warning) 55%, transparent);
+          --il-warn-hatch: color-mix(in oklab, var(--warning) 28%, transparent);
+          --il-ok-bg: color-mix(in oklab, var(--success) 14%, var(--surface));
+          --il-ok-edge: color-mix(in oklab, var(--success) 50%, transparent);
           --il-ok-fg: var(--success);
-          --il-err-bg: color-mix(in oklab, var(--danger) 13%, var(--surface));
-          --il-err-edge: color-mix(in oklab, var(--danger) 48%, transparent);
+          --il-err-bg: color-mix(in oklab, var(--danger) 14%, var(--surface));
+          --il-err-edge: color-mix(in oklab, var(--danger) 50%, transparent);
           --il-err-fg: var(--danger);
           --il-depth: var(--chart-1);
-          --il-depth-fill: color-mix(in oklab, var(--chart-1) 16%, transparent);
-          --il-faint: color-mix(in oklab, var(--foreground) 45%, transparent);
+          --il-depth-fill: color-mix(in oklab, var(--chart-1) 20%, transparent);
+          --il-faint: color-mix(in oklab, var(--foreground) 42%, transparent);
+          --il-card-wash: color-mix(in oklab, var(--chart-3) 6%, var(--surface));
+          background: var(--il-card-wash) !important;
+        }
+        [data-testid="inflight-live-card"] > a {
+          background: transparent;
         }
         @keyframes inflight-shimmer{0%{transform:translateX(-130%)}100%{transform:translateX(230%)}}
         @keyframes inflight-glow{from{opacity:.45}to{opacity:1}}
