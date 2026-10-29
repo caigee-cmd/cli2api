@@ -428,17 +428,18 @@ export function InflightLiveCard({
     >
       <style>{`
         [data-testid="inflight-live-card"]{
-          /* Public AffectUI hierarchy → project tokens.
-             Wells lean warm (chart-3 / warning hint) so nested surfaces
-             read richer than cold gray — still technical, not muddy. */
-          --il-well: color-mix(in oklab, var(--chart-3) 12%, var(--surface));
-          --il-chip: color-mix(in oklab, var(--chart-3) 15%, color-mix(in oklab, var(--foreground) 2%, var(--surface)));
-          --il-line: color-mix(in oklab, var(--foreground) 10%, color-mix(in oklab, var(--chart-3) 14%, transparent));
-          --il-line-soft: color-mix(in oklab, var(--chart-3) 16%, color-mix(in oklab, var(--foreground) 4%, transparent));
-          --il-track: color-mix(in oklab, var(--foreground) 8%, color-mix(in oklab, var(--chart-3) 11%, transparent));
-          --il-run: color-mix(in oklab, var(--foreground) 78%, var(--chart-1));
-          --il-run-edge: color-mix(in oklab, var(--foreground) 70%, var(--chart-1));
-          --il-run-glow: color-mix(in oklab, var(--chart-1) 42%, transparent);
+          /* Public AffectUI hierarchy → project tokens (color-mix only).
+             Card/well/chip stay cooler surface mixes — chart-3 (orange) is
+             categorical series only; amber (--warning) is reserved for
+             rate-limit / cooldown accents. Depth curve uses chart-1. */
+          --il-well: color-mix(in oklab, var(--foreground) 4%, var(--surface));
+          --il-chip: color-mix(in oklab, var(--foreground) 8%, var(--surface));
+          --il-line: color-mix(in oklab, var(--foreground) 13%, transparent);
+          --il-line-soft: color-mix(in oklab, var(--foreground) 8%, transparent);
+          --il-track: color-mix(in oklab, var(--foreground) 14%, transparent);
+          --il-run: color-mix(in oklab, var(--foreground) 84%, transparent);
+          --il-run-edge: var(--foreground);
+          --il-run-glow: color-mix(in oklab, var(--foreground) 52%, transparent);
           --il-warn: var(--warning);
           --il-warn-fg: var(--warning);
           --il-warn-bg: color-mix(in oklab, var(--warning) 16%, var(--surface));
@@ -453,11 +454,6 @@ export function InflightLiveCard({
           --il-depth: var(--chart-1);
           --il-depth-fill: color-mix(in oklab, var(--chart-1) 20%, transparent);
           --il-faint: color-mix(in oklab, var(--foreground) 42%, transparent);
-          --il-card-wash: color-mix(in oklab, var(--chart-3) 6%, var(--surface));
-          background: var(--il-card-wash) !important;
-        }
-        [data-testid="inflight-live-card"] > a {
-          background: transparent;
         }
         @keyframes inflight-shimmer{0%{transform:translateX(-130%)}100%{transform:translateX(230%)}}
         @keyframes inflight-glow{from{opacity:.45}to{opacity:1}}
