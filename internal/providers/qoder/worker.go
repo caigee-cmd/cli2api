@@ -57,14 +57,14 @@ func (e TransportError) Unwrap() error { return e.Err }
 // timer is stopped and the SSE body streams under the parent context's lifetime,
 // so long thinking-model output is not cut off. A stuck upstream that never
 // sends a first byte surfaces as ErrFirstByteTimeout so the executor can fail
-// over to the next account instead of hanging forever. 30s covers slow
+// over to the next account instead of hanging forever. 60s covers slow
 // cold-starts and thinking-model first-token latency while keeping a
 // stuck-upstream failover inside one round-trip of the client's patience.
 //
 // The effective value is resolved once at construction (see
 // resolveFirstByteTimeout) and can be tuned per deployment with
 // QODER_STREAM_TTFB_MS, mirroring the worker daemon's own knob.
-const defaultFirstByteTimeout = 30 * time.Second
+const defaultFirstByteTimeout = 60 * time.Second
 
 // resolveFirstByteTimeout reads QODER_STREAM_TTFB_MS, falling back to
 // defaultFirstByteTimeout for an absent or invalid value. The floor matches the
