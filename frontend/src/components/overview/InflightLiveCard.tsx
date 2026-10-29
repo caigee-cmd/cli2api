@@ -25,6 +25,7 @@ import {
   type MockJobKind,
 } from '@/lib/mockInflight'
 import { CountUp } from '@/components/overview/CountUp'
+import { ProviderMark } from '@/components/ProviderMark'
 import { duration, ease, gsap, motionDuration, prefersReducedMotion } from '@/lib/motion'
 
 gsap.registerPlugin(CustomEase)
@@ -249,12 +250,22 @@ function SlotBar({
         />
       ) : null}
       <span
-        className={`relative z-[1] mono w-[3.6rem] shrink-0 truncate text-[11px] leading-none ${
-          running || frozen ? 'font-medium text-foreground/85' : 'text-muted'
+        className={`relative z-[1] flex min-w-0 w-[4.75rem] shrink-0 items-center gap-1.5 ${
+          running || frozen ? 'text-foreground/85' : 'text-muted opacity-55'
         }`}
-        title={slot.name}
+        title={`${slot.name} · ${slot.provider}`}
       >
-        {slot.name}
+        {/* ProviderMark blends with slot solid-glass — no contrasting wash (same as Overview accounts / supplier tiles). */}
+        <span className={`grid size-3.5 shrink-0 place-items-center ${running || frozen ? '' : 'opacity-70'}`} aria-hidden>
+          <ProviderMark provider={slot.provider} size={14} />
+        </span>
+        <span
+          className={`mono min-w-0 truncate text-[11px] leading-none ${
+            running || frozen ? 'font-medium' : ''
+          }`}
+        >
+          {slot.name}
+        </span>
       </span>
       {/* Job pill — AffectUI worker row: kind wash + indeterminate bar + elapsed */}
       <span
@@ -1259,18 +1270,18 @@ export function InflightLiveCard({
               </div>
             </div>
 
-            <div className="flex gap-2 lg:w-[5.25rem] lg:flex-col">
+            <div className="flex gap-2 lg:w-[3.75rem] lg:flex-col">
               <Outcome
                 label={t('inflightDone')}
                 value={snap.totals.done}
                 tone="ok"
-                icon={<Check size={12} weight="bold" aria-hidden />}
+                icon={<Check size={14} weight="bold" aria-hidden />}
               />
               <Outcome
                 label={t('inflightFailed')}
                 value={snap.totals.failed}
                 tone="danger"
-                icon={<X size={12} weight="bold" aria-hidden />}
+                icon={<X size={14} weight="bold" aria-hidden />}
               />
             </div>
           </div>
@@ -1347,31 +1358,33 @@ function Outcome({
   return (
     <div
       data-outcome={tone}
-      className={`flex min-w-[4.5rem] flex-1 flex-col justify-center rounded-xl px-2.5 py-2.5 ${
+      role="group"
+      aria-label={`${label}: ${value}`}
+      title={`${label}: ${value}`}
+      className={`flex min-w-[3.25rem] flex-1 flex-col items-center justify-center gap-1 rounded-xl px-2 py-2.5 ${
         ok
           ? 'bg-[var(--il-ok-bg)] shadow-[inset_0_0_0_1px_var(--il-ok-edge)]'
           : 'bg-[var(--il-err-bg)] shadow-[inset_0_0_0_1px_var(--il-err-edge)]'
       }`}
     >
-      <div className="flex items-center gap-1.5 text-caption text-muted">
-        <span
-          className={`inline-flex size-[1.125rem] items-center justify-center rounded-[5px] ${
-            ok
-              ? 'bg-[color-mix(in_oklab,var(--success)_18%,var(--surface))] text-[var(--il-ok-fg)] shadow-[inset_0_0_0_1px_var(--il-ok-edge)]'
-              : 'bg-[color-mix(in_oklab,var(--danger)_18%,var(--surface))] text-[var(--il-err-fg)] shadow-[inset_0_0_0_1px_var(--il-err-edge)]'
-          }`}
-        >
-          {icon}
-        </span>
-        {label}
-      </div>
+      <span
+        className={`inline-flex size-6 items-center justify-center rounded-lg ${
+          ok
+            ? 'bg-[color-mix(in_oklab,var(--success)_18%,var(--surface))] text-[var(--il-ok-fg)] shadow-[inset_0_0_0_1px_var(--il-ok-edge)]'
+            : 'bg-[color-mix(in_oklab,var(--danger)_18%,var(--surface))] text-[var(--il-err-fg)] shadow-[inset_0_0_0_1px_var(--il-err-edge)]'
+        }`}
+        aria-hidden
+      >
+        {icon}
+      </span>
       <div
-        className={`mono mt-0.5 text-section font-semibold tabular ${
+        className={`mono text-section font-semibold tabular leading-none ${
           ok ? 'text-[var(--il-ok-fg)]' : 'text-[var(--il-err-fg)]'
         }`}
       >
         <CountUp value={value} kind="int" duration={560} />
       </div>
+      <span className="sr-only">{label}</span>
     </div>
   )
 }
