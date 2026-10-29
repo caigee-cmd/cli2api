@@ -39,6 +39,9 @@ type LiveWorker struct {
 	// StartedAt is RFC3339 wall-clock when the pool slot went busy
 	// (InFlight 0→1). Empty when idle. UI shows real elapsed from this.
 	StartedAt string `json:"started_at,omitempty"`
+	// LastErrorKind is AccountView.LastErrorKind — fallback when a busy→idle
+	// transition has no matching recent_completions entry yet.
+	LastErrorKind string `json:"last_error_kind,omitempty"`
 }
 
 // LiveRateLimit is one active account-wide or model-scoped cooldown window,
@@ -56,15 +59,23 @@ type LiveRateLimit struct {
 
 // LiveSnapshot is the cheap payload behind /api/live, polled every few
 // seconds by the overview live strip and (Stage-3) the inflight card.
+// LiveCompletion is one terminal request finish drained from the request
+// recorder for this /api/live poll (busy→idle Done vs Failed routing).
+type LiveCompletion struct {
+	AccountID string `json:"account_id"`
+	Status    string `json:"status"`
+}
+
 type LiveSnapshot struct {
-	Time       string                        `json:"time"`
-	InFlight   int                           `json:"in_flight"`
-	Capacity   int                           `json:"capacity"`
-	RPM        int                           `json:"rpm"`
-	Accounts   []LiveAccount                 `json:"accounts"`
-	Workers    []LiveWorker                  `json:"workers"`
-	RateLimits []LiveRateLimit               `json:"rate_limits"`
-	Sticky     executor.SessionAffinityStats `json:"sticky"`
+	Time               string                        `json:"time"`
+	InFlight           int                           `json:"in_flight"`
+	Capacity           int                           `json:"capacity"`
+	RPM                int                           `json:"rpm"`
+	Accounts           []LiveAccount                 `json:"accounts"`
+	Workers            []LiveWorker                  `json:"workers"`
+	RateLimits         []LiveRateLimit               `json:"rate_limits"`
+	Sticky             executor.SessionAffinityStats `json:"sticky"`
+	RecentCompletions  []LiveCompletion              `json:"recent_completions,omitempty"`
 }
 
 // buildLiveSnapshot sums in-flight over all accounts and capacity (the
@@ -137,6 +148,7 @@ func buildLiveSnapshot(views []accounts.AccountView, rpm int, sticky executor.Se
 			Busy: v.InFlight > 0, InFlight: v.InFlight, MaxInFlight: maxInFlight,
 			Enabled: v.Enabled, RateLimited: accountLimited || modelLimited,
 			Progress: progress, StartedAt: strings.TrimSpace(v.InFlightSince),
+			LastErrorKind: strings.TrimSpace(v.LastErrorKind),
 		})
 	}
 	sort.SliceStable(out.RateLimits, func(i, j int) bool {
@@ -185,5 +197,14 @@ func (h *Handler) HandleLive(w http.ResponseWriter, r *http.Request) {
 	if h.Recorder != nil {
 		rpm = h.Recorder.RecentRequests()
 	}
-	writeJSON(w, http.StatusOK, buildLiveSnapshot(views, rpm, h.stickyStats(), time.Now()))
+	snap := buildLiveSnapshot(views, rpm, h.stickyStats(), time.Now())
+	if h.Recorder != nil {
+		for _, c := range h.Recorder.DrainRecentCompletions() {
+			snap.RecentCompletions = append(snap.RecentCompletions, LiveCompletion{
+				AccountID: c.AccountID,
+				Status:    c.Status,
+			})
+		}
+	}
+	writeJSON(w, http.StatusOK, snap)
 }
