@@ -363,9 +363,10 @@ export function InflightLiveCard({
   const rateActive = snap.rateLimits[0]
   const waitAmber = summary.waiting >= snap.backpressure
 
-  // External snapshot (tests) wins. Otherwise: live projection when expanded +
-  // live has signal; mock fallback only for empty demo / missing live.
-  useEffect(() => {
+  // External snapshot (tests) wins. Otherwise: when expanded, project /api/live
+  // (even idle — no mock totals/throughput/p95/depth bleed). Mock tick only if
+  // live is null. useLayoutEffect so the first expanded paint is already clean.
+  useLayoutEffect(() => {
     if (controlled) {
       setLiveSnap(cloneMockInflight(snapshot!))
       setUseMockFallback(false)
@@ -376,20 +377,20 @@ export function InflightLiveCard({
       setUseMockFallback(false)
       return
     }
-    if (live) {
-      // Real /api/live — project even when idle/empty. Mock only if live is null.
+    if (live !== null) {
       setUseMockFallback(false)
       setSticky(live.sticky)
       setLiveSnap((prev) => applyLiveProjection(prev, live))
       return
     }
-    // Live not available (offline / empty demo without parent poll) → mock loop.
+    // live === null → Stage-1 mock loop only (offline / no parent poll).
     setSticky(null)
     setUseMockFallback(true)
   }, [controlled, snapshot, expanded, live])
 
+  // Mock raf loop — gated on useMockFallback (live === null only).
   useEffect(() => {
-    if (controlled || !expanded || !useMockFallback) return
+    if (controlled || !expanded || !useMockFallback || live !== null) return
     if (prefersReducedMotion()) return
     let raf = 0
     let last = performance.now()
@@ -408,7 +409,7 @@ export function InflightLiveCard({
       alive = false
       cancelAnimationFrame(raf)
     }
-  }, [controlled, expanded, useMockFallback])
+  }, [controlled, expanded, useMockFallback, live])
 
   useEffect(() => {
     if (!expanded) enteredRef.current = false
