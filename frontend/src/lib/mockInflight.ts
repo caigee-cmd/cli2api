@@ -49,6 +49,12 @@ export type MockSlotCell = {
   /** Wall-clock when this request entered the slot (Bind). */
   startedAtMs: number
   elapsedMs: number
+  /**
+   * Still on the selecting wait rail (display dwell) — keep cell DOM for the
+   * queue→slot fly target, but InflightLiveCard must not show occupied chrome
+   * (model + elapsed) until the inbound fly lands.
+   */
+  pendingInbound?: boolean
 }
 
 export type MockAccountSlot = {
@@ -502,7 +508,9 @@ export type LiveProjectionInput = {
  * samples only — mock seed/tick series are discarded on first projection.
  * Per-cell elapsed comes from occupancy `started_at` (Bind / BoundAt); falls
  * back to worker InFlightSince / prior cell stamp. Progress is occupancy only —
- * UI uses per-cell model + elapsed, not %.
+ * UI uses per-cell model + elapsed, not %. Cells still on the selecting rail
+ * (dwell) set `pendingInbound` so the slot can exist as a fly target without
+ * showing occupied chrome until the inbound animation lands.
  */
 export function applyLiveProjection(
   base: MockInflightSnapshot,
@@ -622,6 +630,8 @@ export function applyLiveProjection(
         name,
         startedAtMs,
         elapsedMs: Math.max(0, now - startedAtMs),
+        // Dwell-bound: still on wait rail — reserve the cell, gate chrome until land.
+        pendingInbound: queueIds.has(id),
       })
     }
 

@@ -43,6 +43,27 @@ const QUEUE_PILL_MAX = 3
 /** AffectUI: show a short worker rail (busy first), not every account. */
 const WORKER_VISIBLE_MAX = 4
 
+/**
+ * Inflight choreography timings (display-only — Acquire/Bind never delayed):
+ *   selectingMinDwell     1600ms  recorder: wait-rail visibility after Start
+ *   LIVE_POLL_EXPANDED_MS  400ms  catch several dwell frames while expanded
+ *   QUEUE_TO_SLOT_FLY_S    0.88s  GSAP MotionPath slide into the cell
+ *   land hold+fade         ~0.30s ghost settle after onLand
+ * Pipeline: 选号 pill → (dwell) → fly into cell → onLand reveals model/elapsed
+ * → run → Done/Failed fly-out. Occupied cell chrome stays gated until land
+ * (or NO_FLY_REVEAL_MS if the fly is skipped — no from-rect). Dwell 1.6s already
+ * covers one fly + one expanded poll for rail visibility; the flash fix is the
+ * land gate, not a longer Acquire delay.
+ * Wait rail: when one pill flies out, remaining slide up (QUEUE_VACANCY_FLIP_S).
+ * Mid-FLIP another selecting can still fly — vacancy FLIP is interrupt-safe and
+ * onUpdate keeps wait rectCache fresh for the next fromRect.
+ */
+const QUEUE_TO_SLOT_FLY_S = 0.88
+/** Wait-rail vacancy / reorder FLIP — remaining pills slide up into the gap. */
+const QUEUE_VACANCY_FLIP_S = 0.56
+/** Reveal occupied chrome when queue→slot fly cannot run (missing rects). */
+const NO_FLY_REVEAL_MS = 140
+
 type T = (key: string, vars?: Record<string, string | number>) => string
 
 function formatElapsed(ms: number) {
@@ -208,14 +229,19 @@ function SlotBar({
   jobById,
   clockMs,
   idleLabel,
+  landedCellIds,
 }: {
   slot: MockAccountSlot
   jobById: Map<string, MockInflightJob>
   clockMs: number
   idleLabel: string
+  /** Cell ids whose inbound fly has landed (or no-fly grace / auto-land). */
+  landedCellIds: ReadonlySet<string>
 }) {
   // In-progress only: no rate-limit / cooldown amber. Per-cell model + elapsed
   // (not one timer for the whole account) when concurrency > 1.
+  // Occupied chrome waits for land — pendingInbound (dwell) or mid-fly gate —
+  // so the slot never looks full while the selecting pill is still flying in.
   const concurrency = clampSlotConcurrency(slot.concurrency ?? 1)
   const occupiedRaw =
     slot.inFlight != null
@@ -226,7 +252,9 @@ function SlotBar({
   const occupied = Math.min(concurrency, occupiedRaw)
   const running = occupied > 0
   const occCells = (slot.cells ?? []).slice(0, occupied)
-  const titleBits = occCells.map((c) => `${c.name} ${formatElapsed(Math.max(0, clockMs - c.startedAtMs))}`)
+  const titleBits = occCells
+    .filter((c) => !c.pendingInbound && landedCellIds.has(c.id))
+    .map((c) => `${c.name} ${formatElapsed(Math.max(0, clockMs - c.startedAtMs))}`)
   const title = `${slot.name} · ${occupied}/${concurrency}${titleBits.length ? ` · ${titleBits.join(', ')}` : ''}`
   return (
     <div
@@ -262,26 +290,28 @@ function SlotBar({
       >
         {Array.from({ length: concurrency }, (_, i) => {
           const cell = occCells[i]
-          const filled = Boolean(cell)
-          const job = cell ? jobById.get(cell.id) : undefined
-          const elapsed = cell
-            ? Math.max(0, clockMs - cell.startedAtMs)
-            : 0
+          const reserved = Boolean(cell)
+          // Keep data-cell-id / data-slot-fill for fly targeting while chrome is gated.
+          const showChrome =
+            reserved && !cell!.pendingInbound && landedCellIds.has(cell!.id)
+          const job = showChrome ? jobById.get(cell!.id) : undefined
+          const elapsed = showChrome ? Math.max(0, clockMs - cell!.startedAtMs) : 0
           const model = cell?.name || idleLabel
           return (
             <div
               key={cell?.id ?? `empty-${i}`}
               data-slot-cell=""
-              data-slot-fill={filled ? '' : undefined}
+              data-slot-fill={reserved ? '' : undefined}
               data-cell-id={cell?.id ?? ''}
               data-cell-index={i}
+              data-cell-pending={reserved && !showChrome ? '' : undefined}
               className={`relative flex min-w-0 flex-1 flex-col justify-center overflow-hidden rounded-md px-1 ${
-                filled
+                showChrome
                   ? 'bg-[var(--il-busy-fill)] text-foreground/90'
                   : 'bg-[var(--il-track)] opacity-55'
               }`}
             >
-              {filled ? (
+              {showChrome ? (
                 <>
                   <span
                     aria-hidden
@@ -350,6 +380,41 @@ export function InflightLiveCard({
   const [sticky, setSticky] = useState<LiveSticky | null>(null)
   /** Wall clock for live startedAtMs elapsed (mock uses tickMockInflight elapsedMs). */
   const [clockMs, setClockMs] = useState(() => Date.now())
+  /**
+   * Display-only land gate: occupied chrome (model + elapsed) shows only after
+   * the queue→slot fly lands (or no-fly grace / auto-land for cells that never
+   * flew). Survives clock re-renders that would wipe a GSAP opacity hide.
+   */
+  const [landedCellIds, setLandedCellIds] = useState<ReadonlySet<string>>(() => new Set())
+  const revealTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>())
+  const markCellLanded = (id: string) => {
+    const tid = (id || '').trim()
+    if (!tid) return
+    const pending = revealTimersRef.current.get(tid)
+    if (pending) {
+      clearTimeout(pending)
+      revealTimersRef.current.delete(tid)
+    }
+    setLandedCellIds((prev) => {
+      if (prev.has(tid)) return prev
+      const next = new Set(prev)
+      next.add(tid)
+      return next
+    })
+  }
+  const scheduleCellReveal = (id: string) => {
+    const tid = (id || '').trim()
+    if (!tid) return
+    const prev = revealTimersRef.current.get(tid)
+    if (prev) clearTimeout(prev)
+    revealTimersRef.current.set(
+      tid,
+      setTimeout(() => {
+        revealTimersRef.current.delete(tid)
+        markCellLanded(tid)
+      }, NO_FLY_REVEAL_MS),
+    )
+  }
   const snap = controlled ? snapshot! : liveSnap
   const summary = useMemo(() => summarizeMockInflight(snap), [snap])
   const rootRef = useRef<HTMLDivElement>(null)
@@ -473,6 +538,20 @@ export function InflightLiveCard({
   useEffect(() => {
     if (!expanded) enteredRef.current = false
   }, [expanded])
+
+  // Drop land-gate + grace timers when the card collapses or unmounts.
+  useEffect(() => {
+    if (expanded) return
+    for (const t of revealTimersRef.current.values()) clearTimeout(t)
+    revealTimersRef.current.clear()
+    setLandedCellIds(new Set())
+  }, [expanded])
+  useEffect(() => {
+    return () => {
+      for (const t of revealTimersRef.current.values()) clearTimeout(t)
+      revealTimersRef.current.clear()
+    }
+  }, [])
 
   /** Entrance once — public ui-agq-drop / slot / grow timings. */
   useLayoutEffect(() => {
@@ -641,14 +720,71 @@ export function InflightLiveCard({
         },
       }
     }
+    /** Auto-land stable cells; leave queue→slot handoffs gated until fly/grace. */
+    const syncLandGate = (mode: 'all' | 'stable') => {
+      const prevQueued = new Set(
+        prev.jobs.filter((j) => j.status === 'queued').map((j) => j.id),
+      )
+      setLandedCellIds((prevLanded) => {
+        const liveIds = new Set<string>()
+        const next = new Set<string>()
+        for (const w of snap.workers) {
+          for (const c of w.cells ?? []) {
+            const id = c.id
+            liveIds.add(id)
+            if (c.pendingInbound) continue
+            if (prevLanded.has(id)) {
+              next.add(id)
+              continue
+            }
+            if (mode === 'all') {
+              next.add(id)
+              continue
+            }
+            const stillQueued = snap.jobs.some(
+              (j) => j.id === id && j.status === 'queued',
+            )
+            if (stillQueued) continue
+            // Just left the wait rail — flyQueueToSlot / grace will markLanded.
+            if (prevQueued.has(id)) continue
+            next.add(id)
+          }
+        }
+        let same = next.size === prevLanded.size
+        if (same) {
+          for (const id of next) {
+            if (!prevLanded.has(id)) {
+              same = false
+              break
+            }
+          }
+        }
+        // Also detect pruned ids
+        if (same) {
+          for (const id of prevLanded) {
+            if (!liveIds.has(id)) {
+              same = false
+              break
+            }
+          }
+        }
+        return same ? prevLanded : next
+      })
+    }
+
     if (!root || prefersReducedMotion() || !enteredRef.current) {
       refreshCache()
+      // No motion / pre-entrance: show chrome immediately (still display-only).
+      syncLandGate('all')
       return
     }
     if (prev === snap) {
       refreshCache()
+      syncLandGate('stable')
       return
     }
+
+    syncLandGate('stable')
 
     const prevJobs = new Map(prev.jobs.map((j) => [j.id, j]))
     const nextJobs = new Map(snap.jobs.map((j) => [j.id, j]))
@@ -677,7 +813,11 @@ export function InflightLiveCard({
     ) => {
       const a = from instanceof HTMLElement ? from.getBoundingClientRect() : from
       const b = to instanceof HTMLElement ? to.getBoundingClientRect() : to
-      if (!a || !b || a.width < 2 || b.width < 2) return
+      // Missing rects: still invoke onLand so land-gate / grace can reveal chrome.
+      if (!a || !b || a.width < 2 || b.width < 2) {
+        onLand?.()
+        return
+      }
 
       // Opaque solid-glass pill clone (AffectUI: full job pill flies into slot,
       // not a faint label). Stay readable mid-flight; trail is separate afterimages.
@@ -744,7 +884,7 @@ export function InflightLiveCard({
       const endLeft = a.left + (targetLeft - a.left) * settle
       const endTop = a.top + (targetTop - a.top) * settle
       // Queue→slot: longer horizontal slide so it reads as 滑过去槽里.
-      const flyDur = motionDuration(intoSlot ? 0.88 : 0.72)
+      const flyDur = motionDuration(intoSlot ? QUEUE_TO_SLOT_FLY_S : 0.72)
       const holdDur = motionDuration(intoSlot ? 0.12 : 0.16)
       const fadeDur = motionDuration(intoSlot ? 0.18 : 0.14)
       const startDelay = motionDuration(Math.max(0, delaySec))
@@ -980,28 +1120,29 @@ export function InflightLiveCard({
         cellEl?.getBoundingClientRect() ??
         toEl?.getBoundingClientRect() ??
         cache.slot[workerId]
-      const prevWorker = prev.workers.find((w) => w.id === workerId)
-      const prevCellIds = new Set((prevWorker?.cells ?? []).map((c) => c.id))
-      const isNewCell = !prevCellIds.has(id)
       const landCell = cellEl
-      // Hide the landing cell chrome until the ghost arrives (new cell only).
-      if (isNewCell && landCell) {
-        gsap.set(landCell, { opacity: 0, scale: 0.72, transformOrigin: 'left center' })
+      const canFly =
+        Boolean(fromRect && toRect && fromRect.width >= 2 && toRect.width >= 2)
+      // React land-gate keeps chrome empty until onLand (GSAP opacity alone is
+      // wiped by the ~150ms elapsed clock re-render). No from-rect → short grace.
+      if (!canFly) {
+        scheduleCellReveal(id)
+        return
       }
       flyGhost(fromRect, toRect, label, kind, 'run', null, () => {
+        markCellLanded(id)
         if (!toEl) return
         gsap.fromTo(
           toEl,
           { filter: 'brightness(1.28)' },
           { filter: 'brightness(1)', duration: motionDuration(0.48), ease: ease.soft },
         )
-        if (isNewCell && landCell) {
-          gsap.to(landCell, {
-            opacity: 1,
-            scale: 1,
-            duration: motionDuration(0.48),
-            ease: slideEase,
-          })
+        if (landCell) {
+          gsap.fromTo(
+            landCell,
+            { scale: 0.92, transformOrigin: 'left center' },
+            { scale: 1, duration: motionDuration(0.48), ease: slideEase },
+          )
         }
       })
     }
@@ -1029,41 +1170,79 @@ export function InflightLiveCard({
       flyQueueToSlot(id, before.name, before.kind, workerId)
     }
 
-    // Queue vacancy FLIP — remaining pills/dots close the gap after fly-out (560ms).
-    if (flewFromQueue.size) {
-      const waitEls = root.querySelectorAll<HTMLElement>('[data-wait-pill][data-wait-id]')
-      waitEls.forEach((el) => {
-        const id = el.dataset.waitId
-        if (!id || flewFromQueue.has(id)) return
-        const first = cache.wait[id]
-        if (!first) return
-        const last = el.getBoundingClientRect()
-        const dx = first.left - last.left
-        const dy = first.top - last.top
-        if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return
-        gsap.fromTo(
-          el,
-          { x: dx, y: dy },
-          { x: 0, y: 0, duration: motionDuration(0.56), ease: queueEase, force3D: true },
-        )
-      })
-      // Overflow dots that promote into pill slots also FLIP from token rects.
-      const tokens = root.querySelectorAll<HTMLElement>('[data-wait-token][data-wait-id]')
-      tokens.forEach((el) => {
-        const id = el.dataset.waitId
-        if (!id) return
-        const first = cache.wait[id]
-        if (!first) return
-        const last = el.getBoundingClientRect()
-        const dx = first.left - last.left
-        const dy = first.top - last.top
-        if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return
-        gsap.fromTo(
-          el,
-          { x: dx, y: dy, scale: 1.15 },
-          { x: 0, y: 0, scale: 1, duration: motionDuration(0.56), ease: queueEase },
-        )
-      })
+    // Left the wait rail but no fly was scheduled (unknown bind target) — grace reveal.
+    for (const [id, before] of prevJobs) {
+      if (before.status !== 'queued') continue
+      if (nextJobs.has(id)) continue
+      if (flewFromQueue.has(id)) continue
+      // Still present as a cell somewhere?
+      const hasCell = snap.workers.some((w) => (w.cells ?? []).some((c) => c.id === id))
+      if (hasCell) scheduleCellReveal(id)
+    }
+
+    // Queue vacancy FLIP (t244u) — remaining wait pills/dots slide up into the gap
+    // when any selecting item leaves (fly or not). Interrupt-safe: kill prior FLIP,
+    // measure visual→layout so a mid-FLIP pill can still fly out next tick without
+    // fighting transforms. onUpdate keeps rectCache.wait fresh for that fromRect.
+    {
+      const leftQueue = new Set<string>()
+      for (const [id, before] of prevJobs) {
+        if (before.status !== 'queued') continue
+        const still = nextJobs.get(id)
+        if (still && still.status === 'queued') continue
+        leftQueue.add(id)
+      }
+      if (leftQueue.size) {
+        const flipDur = motionDuration(QUEUE_VACANCY_FLIP_S)
+        const trackWaitRect = (el: HTMLElement) => {
+          const id = el.dataset.waitId
+          if (!id) return
+          rectCache.current.wait[id] = el.getBoundingClientRect()
+        }
+        const flipWaitEl = (el: HTMLElement, opts?: { promote?: boolean }) => {
+          const id = el.dataset.waitId
+          if (!id || leftQueue.has(id)) return
+          // Visual includes any in-flight FLIP transform.
+          const visual = el.getBoundingClientRect()
+          gsap.killTweensOf(el)
+          gsap.set(el, { x: 0, y: 0, scale: 1 })
+          const layout = el.getBoundingClientRect()
+          const dx = visual.left - layout.left
+          const dy = visual.top - layout.top
+          if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) {
+            trackWaitRect(el)
+            return
+          }
+          gsap.fromTo(
+            el,
+            {
+              x: dx,
+              y: dy,
+              ...(opts?.promote ? { scale: 1.15 } : {}),
+            },
+            {
+              x: 0,
+              y: 0,
+              scale: 1,
+              duration: flipDur,
+              ease: queueEase,
+              force3D: true,
+              onUpdate: () => trackWaitRect(el),
+              onComplete: () => {
+                gsap.set(el, { clearProps: 'transform' })
+                trackWaitRect(el)
+              },
+            },
+          )
+        }
+        root
+          .querySelectorAll<HTMLElement>('[data-wait-pill][data-wait-id]')
+          .forEach((el) => flipWaitEl(el))
+        // Overflow dots (and dots promoting toward pill slots) close the gap too.
+        root
+          .querySelectorAll<HTMLElement>('[data-wait-token][data-wait-id]')
+          .forEach((el) => flipWaitEl(el, { promote: true }))
+      }
     }
 
     // t240u: each concurrency cell flies out on its own. Drive exits from
@@ -1203,19 +1382,37 @@ export function InflightLiveCard({
         prevQueued.length === nextQueued.length &&
         prevQueued.some((id, i) => id !== nextQueued[i])
       if (orderChanged) {
+        const flipDur = motionDuration(QUEUE_VACANCY_FLIP_S)
         for (const id of nextQueued) {
           const el = root.querySelector<HTMLElement>(`[data-wait-id="${CSS.escape(id)}"]`)
           if (!el) continue
-          const first = cache.wait[id]
-          if (!first) continue
-          const last = el.getBoundingClientRect()
-          const dx = first.left - last.left
-          const dy = first.top - last.top
-          if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) continue
+          const visual = el.getBoundingClientRect()
+          gsap.killTweensOf(el)
+          gsap.set(el, { x: 0, y: 0 })
+          const layout = el.getBoundingClientRect()
+          const dx = visual.left - layout.left
+          const dy = visual.top - layout.top
+          if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) {
+            rectCache.current.wait[id] = layout
+            continue
+          }
           gsap.fromTo(
             el,
             { x: dx, y: dy },
-            { x: 0, y: 0, duration: motionDuration(0.56), ease: queueEase, force3D: true },
+            {
+              x: 0,
+              y: 0,
+              duration: flipDur,
+              ease: queueEase,
+              force3D: true,
+              onUpdate: () => {
+                rectCache.current.wait[id] = el.getBoundingClientRect()
+              },
+              onComplete: () => {
+                gsap.set(el, { clearProps: 'transform' })
+                rectCache.current.wait[id] = el.getBoundingClientRect()
+              },
+            },
           )
         }
       }
@@ -1535,6 +1732,7 @@ export function InflightLiveCard({
                     jobById={jobById}
                     clockMs={clockMs}
                     idleLabel={t('inflightSlotIdle')}
+                    landedCellIds={landedCellIds}
                   />
                 ))}
               </div>

@@ -308,8 +308,6 @@ run('applyLiveProjection maps max_inflight / in_flight to slot cells', () => {
   assert.equal(idle?.busy, false)
 })
 
-console.log('all mockInflight tests passed')
-
 run('applyLiveProjection maps queue onto queued MockJobStatus', () => {
   const started = new Date(Date.now() - 5_000).toISOString()
   const snap = applyLiveProjection(getMockInflightSnapshot(), {
@@ -456,6 +454,34 @@ run('applyLiveProjection occupancy dwell stays on queue not double-running', () 
   assert.equal(w?.cells?.length, 1)
   assert.equal(w?.cells?.[0].id, 'req-dwell')
   assert.equal(w?.cells?.[0].name, 'sonnet')
+  // Dwell-bound cell is a fly target but chrome stays gated until land.
+  assert.equal(w?.cells?.[0].pendingInbound, true)
+})
+
+run('applyLiveProjection occupancy without queue is not pendingInbound', () => {
+  const snap = applyLiveProjection(getMockInflightSnapshot(), {
+    in_flight: 1,
+    rpm: 1,
+    workers: [
+      {
+        id: 'acc-p',
+        name: 'wb-p',
+        provider: 'workbuddy',
+        busy: true,
+        progress: 0.5,
+        rate_limited: false,
+        max_inflight: 2,
+        in_flight: 1,
+      },
+    ],
+    rate_limits: [],
+    sticky: { bindings: 0, hits: 0, misses: 0, capacity: 64, ttl_seconds: 600 },
+    occupancy: [{ id: 'req-run', name: 'opus', status: 'started', account_id: 'acc-p' }],
+  })
+  const w = snap.workers.find((x) => x.id === 'acc-p')
+  assert.equal(w?.cells?.[0].id, 'req-run')
+  assert.equal(w?.cells?.[0].pendingInbound, false)
+  assert.equal(snap.jobs.filter((j) => j.status === 'running').length, 1)
 })
 
 run('applyLiveProjection request_id completion matches that cell', () => {
@@ -533,3 +559,4 @@ run('tickMockInflight finishes one cell without clearing siblings', () => {
   assert.ok(terminal.length === 1 || retried)
 })
 
+console.log('all mockInflight tests passed')
