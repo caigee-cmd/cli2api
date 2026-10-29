@@ -230,12 +230,13 @@ function SlotBar({
       data-slot
       data-slot-id={slot.id}
       data-slot-job={slot.jobId ?? ''}
-      data-il-glass={frozen ? undefined : ''}
       data-slot-busy={running ? '' : undefined}
       className={`relative flex min-w-0 items-center gap-2.5 overflow-hidden rounded-xl px-2.5 py-2 ${
         frozen
-          ? 'bg-[var(--il-warn-bg)] shadow-[inset_0_0_0_1px_var(--il-warn-edge)]'
-          : ''
+          ? 'bg-[var(--il-warn-bg)] shadow-[var(--il-hair-warn)]'
+          : running
+            ? 'bg-[var(--il-busy-bg)]'
+            : 'bg-[var(--il-item-bg)]'
       }`}
       title={`${slot.name} · ${label}`}
     >
@@ -255,7 +256,7 @@ function SlotBar({
         }`}
         title={`${slot.name} · ${slot.provider}`}
       >
-        {/* ProviderMark blends with slot solid-glass — no contrasting wash (same as Overview accounts / supplier tiles). */}
+        {/* ProviderMark blends with slot wash — no contrasting wash (same as Overview accounts / supplier tiles). */}
         <span className={`grid size-3.5 shrink-0 place-items-center ${running || frozen ? '' : 'opacity-70'}`} aria-hidden>
           <ProviderMark provider={slot.provider} size={14} />
         </span>
@@ -272,10 +273,10 @@ function SlotBar({
         data-slot-job-pill=""
         className={`relative z-[1] inline-flex max-w-[40%] shrink-0 items-center gap-1 truncate rounded-lg px-2 py-0.5 text-[11px] leading-none ${
           frozen
-            ? 'bg-[color-mix(in_oklab,var(--warning)_16%,var(--surface))] font-medium text-[var(--il-warn-fg)] shadow-[inset_0_0_0_1px_var(--il-warn-edge)]'
+            ? 'bg-[color-mix(in_oklab,var(--warning)_14%,var(--surface))] font-medium text-[var(--il-warn-fg)]'
             : job
-              ? `${kindPill(job.kind)} shadow-[inset_0_0_0_1px_var(--il-line-soft)]`
-              : 'bg-[color-mix(in_oklab,var(--foreground)_4%,var(--surface))] text-muted shadow-[inset_0_0_0_1px_var(--il-line-soft)]'
+              ? kindPill(job.kind)
+              : 'bg-[color-mix(in_oklab,var(--foreground)_4%,var(--surface))] text-muted'
         }`}
       >
         {job ? (
@@ -1078,48 +1079,42 @@ export function InflightLiveCard({
       <style>{`
         [data-testid="inflight-live-card"]{
           /* Public AffectUI hierarchy → project tokens.
-             Queue pills + account slots reuse solid-glass (top-edge rim +
-             edge + contact shadow) like Overview cards / modals / supplier
-             tiles — not frosted glass, not gray wells. chart-3 stays out of
-             surfaces; amber (--warning) only for rate-limit / cooldown.
-             Depth curve uses chart-1. */
+             Outer Card keeps solid-glass; nested queue/slots/outcomes use
+             wash + at most one soft hairline (no stacked inset rings).
+             chart-3 stays out of surfaces; amber (--warning) only for
+             rate-limit / cooldown. Depth curve uses chart-1. */
+          /* Nested items: wash + at most one soft hairline — never stacked solid-glass
+             frames inside the outer .card (Access / overview nested-card rule). */
           --il-well: var(--surface);
           --il-chip: var(--surface);
-          --il-line: var(--surface-edge);
-          --il-line-soft: var(--surface-edge);
-          --il-glass:
-            inset 0 1px 0 var(--surface-rim),
-            inset 0 0 0 1px var(--surface-edge),
-            var(--surface-contact);
+          --il-item-bg: color-mix(in oklab, var(--surface-secondary) 38%, var(--surface));
+          --il-hair: inset 0 0 0 1px color-mix(in oklab, var(--foreground) 5.5%, transparent);
+          --il-hair-busy: inset 0 0 0 1px color-mix(in oklab, var(--chart-1) 22%, transparent);
+          --il-hair-warn: inset 0 0 0 1px color-mix(in oklab, var(--warning) 28%, transparent);
+          --il-hair-ok: inset 0 0 0 1px color-mix(in oklab, var(--success) 28%, transparent);
+          --il-hair-err: inset 0 0 0 1px color-mix(in oklab, var(--danger) 28%, transparent);
           --il-track: color-mix(in oklab, var(--foreground) 8%, var(--surface-secondary));
+          --il-busy-bg: color-mix(in oklab, var(--chart-1) 10%, var(--surface));
           --il-busy-fill: color-mix(in oklab, var(--chart-1) 42%, var(--il-track));
-          --il-busy-edge: color-mix(in oklab, var(--chart-1) 40%, transparent);
+          --il-busy-glow: 0 0 18px color-mix(in oklab, var(--chart-1) 18%, transparent);
           --il-run: color-mix(in oklab, var(--foreground) 84%, transparent);
-          --il-run-edge: var(--foreground);
-          --il-run-glow: color-mix(in oklab, var(--foreground) 52%, transparent);
           --il-warn: var(--warning);
           --il-warn-fg: var(--warning);
           /* Amber only for rate-limit/cooldown — light wash, not saturated orange panel */
           --il-warn-bg: color-mix(in oklab, var(--warning) 11%, var(--surface));
-          --il-warn-edge: color-mix(in oklab, var(--warning) 42%, transparent);
           --il-warn-hatch: color-mix(in oklab, var(--warning) 22%, transparent);
           /* AffectUI-ish mint / coral, still project success/danger */
-          --il-ok-bg: color-mix(in oklab, var(--success) 20%, var(--surface));
-          --il-ok-edge: color-mix(in oklab, var(--success) 48%, transparent);
+          --il-ok-bg: color-mix(in oklab, var(--success) 18%, var(--surface));
           --il-ok-fg: var(--success);
-          --il-err-bg: color-mix(in oklab, var(--danger) 18%, var(--surface));
-          --il-err-edge: color-mix(in oklab, var(--danger) 48%, transparent);
+          --il-err-bg: color-mix(in oklab, var(--danger) 16%, var(--surface));
           --il-err-fg: var(--danger);
           --il-depth: var(--chart-1);
           --il-depth-fill: color-mix(in oklab, var(--chart-1) 20%, transparent);
           --il-faint: color-mix(in oklab, var(--foreground) 42%, transparent);
         }
-        [data-testid="inflight-live-card"] [data-il-glass]{
-          background: var(--surface);
-          box-shadow: var(--il-glass);
-        }
-        [data-testid="inflight-live-card"] [data-il-glass][data-slot-busy]{
-          box-shadow: var(--il-glass), inset 0 0 0 1px var(--il-busy-edge), 0 0 18px color-mix(in oklab, var(--chart-1) 18%, transparent);
+        /* Busy slot: cool wash + soft glow (+ one quiet hairline) — no stacked glass rings */
+        [data-testid="inflight-live-card"] [data-slot-busy]{
+          box-shadow: var(--il-hair-busy), var(--il-busy-glow);
         }
         @keyframes inflight-shimmer{0%{transform:translateX(-130%)}100%{transform:translateX(230%)}}
         @keyframes inflight-queue-shimmer{0%{transform:translateX(-140%);opacity:.4}50%{opacity:.9}100%{transform:translateX(240%);opacity:.4}}
@@ -1149,10 +1144,9 @@ export function InflightLiveCard({
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="font-semibold">{t('inflightTitle')}</h3>
               <span
-                data-il-glass={rateActive && expanded ? undefined : ''}
                 className={`mono inline-flex items-center gap-1 rounded-[3px] px-1.5 py-0.5 text-caption ${
                   rateActive && expanded
-                    ? 'bg-[var(--il-warn-bg)] font-medium text-[var(--il-warn-fg)] shadow-[inset_0_0_0_1px_var(--il-warn-edge)]'
+                    ? 'bg-[var(--il-warn-bg)] font-medium text-[var(--il-warn-fg)] shadow-[var(--il-hair-warn)]'
                     : 'text-muted'
                 }`}
               >
@@ -1227,8 +1221,7 @@ export function InflightLiveCard({
                     data-wait-pill
                     data-wait-id={job.id}
                     data-priority={job.priority ?? 'normal'}
-                    data-il-glass=""
-                    className="relative flex items-center justify-between gap-2 overflow-hidden rounded-xl px-2.5 py-2"
+                    className={`relative flex items-center justify-between gap-2 overflow-hidden rounded-xl px-2.5 py-2 shadow-[var(--il-hair)] ${kindPill(job.kind)}`}
                   >
                     <span
                       aria-hidden
@@ -1260,7 +1253,7 @@ export function InflightLiveCard({
                         data-wait-id={job.id}
                         data-priority={job.priority ?? 'normal'}
                         className={`size-2 rounded-[2px] ${kindDot(job.kind)} ${
-                          job.priority === 'high' ? 'ring-1 ring-foreground/35' : ''
+                          job.priority === 'high' ? 'ring-1 ring-foreground/20' : ''
                         }`}
                         title={job.name}
                       />
@@ -1316,7 +1309,7 @@ export function InflightLiveCard({
               <span className="text-caption uppercase tracking-wide text-muted">{t('inflightDepth')}</span>
               <span className="mono text-caption tabular text-muted">{depthLabel}</span>
             </div>
-            <div data-il-glass="" className="rounded-lg px-1.5 pt-1.5 pb-1">
+            <div className="rounded-lg bg-[var(--il-item-bg)] px-1.5 pt-1.5 pb-1">
               <DepthChart
                 series={snap.depthSeries}
                 bands={snap.rateLimits.map((r) => ({ from: r.from, until: r.until }))}
@@ -1388,15 +1381,13 @@ function Outcome({
       title={`${label}: ${value}`}
       className={`flex min-w-[3.25rem] flex-1 flex-col items-center justify-center gap-1 rounded-xl px-2 py-2.5 ${
         ok
-          ? 'bg-[var(--il-ok-bg)] shadow-[inset_0_0_0_1px_var(--il-ok-edge)]'
-          : 'bg-[var(--il-err-bg)] shadow-[inset_0_0_0_1px_var(--il-err-edge)]'
+          ? 'bg-[var(--il-ok-bg)] shadow-[var(--il-hair-ok)]'
+          : 'bg-[var(--il-err-bg)] shadow-[var(--il-hair-err)]'
       }`}
     >
       <span
-        className={`inline-flex size-6 items-center justify-center rounded-lg ${
-          ok
-            ? 'bg-[color-mix(in_oklab,var(--success)_18%,var(--surface))] text-[var(--il-ok-fg)] shadow-[inset_0_0_0_1px_var(--il-ok-edge)]'
-            : 'bg-[color-mix(in_oklab,var(--danger)_18%,var(--surface))] text-[var(--il-err-fg)] shadow-[inset_0_0_0_1px_var(--il-err-edge)]'
+        className={`inline-flex size-6 items-center justify-center ${
+          ok ? 'text-[var(--il-ok-fg)]' : 'text-[var(--il-err-fg)]'
         }`}
         aria-hidden
       >
