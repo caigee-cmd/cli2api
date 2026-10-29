@@ -338,7 +338,7 @@ func (c *Client) fetchBuiltinModels(ctx context.Context, accountID string, crede
 			continue
 		}
 		records = append(records, modelRecord{
-			ID: id, Name: id, Description: model.ModelDesc,
+			ID: id, Name: firstNonEmpty(model.ModelName, id), Description: model.ModelDesc,
 			ContextWindow: model.ContextWindow, MaxTokens: model.MaxTokens,
 		})
 	}
@@ -349,9 +349,10 @@ func (c *Client) fetchBuiltinModels(ctx context.Context, accountID string, crede
 // official client opening the model menu, claims the benefit idempotently.
 func (c *Client) fetchBenefitModels(ctx context.Context, accountID string, credential Credential) ([]modelRecord, error) {
 	if err := c.claimBenefit(ctx, accountID, credential); err != nil {
-		// A claim failure must not hide the rest of the catalog; a later chat
-		// will surface benefit-not-found as model_not_available.
-		_ = err
+		// Match the official client: do not load benefit models when claim
+		// failed. The same model may still be callable over the credit path,
+		// and fetchModels keeps the agent/builtin records for that case.
+		return nil, err
 	}
 	requestCtx, cancel := context.WithTimeout(ctx, metadataTimeout)
 	defer cancel()
@@ -401,7 +402,7 @@ func (c *Client) fetchBenefitModels(ctx context.Context, accountID string, crede
 			continue
 		}
 		records = append(records, modelRecord{
-			ID: id, Name: id, Description: model.ModelDesc,
+			ID: id, Name: firstNonEmpty(model.ModelName, id), Description: model.ModelDesc,
 			ContextWindow: model.ContextWindow, MaxTokens: model.MaxTokens, Benefit: true,
 		})
 	}
