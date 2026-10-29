@@ -104,7 +104,7 @@ func (h *Handler) handleListRequestLogs(w http.ResponseWriter, r *http.Request) 
 	}
 	filter := accounts.RequestLogFilter{
 		AccountID: r.URL.Query().Get("account"),
-		APIKeyID:  r.URL.Query().Get("api_key"),
+		APIKeyID:  strings.TrimSpace(r.URL.Query().Get("api_key")),
 		Status:    r.URL.Query().Get("status"),
 		ErrorKind: r.URL.Query().Get("error_kind"),
 		Model:     r.URL.Query().Get("model"),
