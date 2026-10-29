@@ -672,6 +672,8 @@ export function InflightLiveCard({
       tone: 'run' | 'ok' | 'danger' | 'retry',
       beatEl?: HTMLElement | null,
       onLand?: () => void,
+      /** Stagger when several concurrency cells exit on the same tick (t240u). */
+      delaySec = 0,
     ) => {
       const a = from instanceof HTMLElement ? from.getBoundingClientRect() : from
       const b = to instanceof HTMLElement ? to.getBoundingClientRect() : to
@@ -745,6 +747,7 @@ export function InflightLiveCard({
       const flyDur = motionDuration(intoSlot ? 0.88 : 0.72)
       const holdDur = motionDuration(intoSlot ? 0.12 : 0.16)
       const fadeDur = motionDuration(intoSlot ? 0.18 : 0.14)
+      const startDelay = motionDuration(Math.max(0, delaySec))
 
       const makePill = (opts: { opacity: number; asTrail?: boolean }) => {
         const el = document.createElement('div')
@@ -836,7 +839,7 @@ export function InflightLiveCard({
             scaleX: 1.18 + i * 0.08,
             opacity: 0,
             duration: flyDur,
-            delay: motionDuration(0.05 + i * 0.05),
+            delay: startDelay + motionDuration(0.05 + i * 0.05),
             ease: slideEase,
             force3D: true,
             onComplete: () => tr.remove(),
@@ -851,7 +854,7 @@ export function InflightLiveCard({
               : { scaleX: 1.28 + i * 0.1 }),
             opacity: 0,
             duration: flyDur,
-            delay: motionDuration(0.04 + i * 0.045),
+            delay: startDelay + motionDuration(0.04 + i * 0.045),
             ease: queueEase,
             force3D: true,
             onComplete: () => tr.remove(),
@@ -877,6 +880,7 @@ export function InflightLiveCard({
             scale: flyScale,
             opacity: 1,
             duration: flyDur,
+            delay: startDelay,
             ease: slideEase,
             force3D: true,
           }
@@ -887,6 +891,7 @@ export function InflightLiveCard({
             scale: flyScale,
             opacity: 1,
             duration: flyDur,
+            delay: startDelay,
             ease: queueEase,
             force3D: true,
           }
@@ -1061,55 +1066,113 @@ export function InflightLiveCard({
       })
     }
 
-    // Worker → retry queue (same id back to queued) OR DONE/FAILED.
+    // t240u: each concurrency cell flies out on its own. Drive exits from
+    // prev.cells (not one shared account animation). Same-tick multi-cell
+    // finishes stagger slightly so three flights read as three.
+    {
+      const nextCellIds = new Set<string>()
+      for (const w of snap.workers) {
+        for (const c of w.cells ?? []) nextCellIds.add(c.id)
+      }
+      type CellExit = {
+        id: string
+        name: string
+        kind: MockJobKind
+        workerId: string
+        cellIndex: number
+      }
+      const exits: CellExit[] = []
+      const seenExit = new Set<string>()
+      for (const w of prev.workers) {
+        const cells = w.cells ?? []
+        cells.forEach((c, cellIndex) => {
+          if (nextCellIds.has(c.id) || seenExit.has(c.id)) return
+          const still = nextJobs.get(c.id)
+          if (still?.status === 'queued' || still?.status === 'running') return
+          seenExit.add(c.id)
+          const job = prevJobs.get(c.id)
+          exits.push({
+            id: c.id,
+            name: c.name || job?.name || w.name,
+            kind: job?.kind ?? 'chat',
+            workerId: w.id,
+            cellIndex,
+          })
+        })
+      }
+      // Legacy single-slot jobs that never got a cells[] entry.
+      for (const [id, before] of prevJobs) {
+        if (before.status !== 'running') continue
+        if (seenExit.has(id) || nextCellIds.has(id)) continue
+        const still = nextJobs.get(id)
+        if (still?.status === 'queued' || still?.status === 'running') continue
+        seenExit.add(id)
+        exits.push({
+          id,
+          name: before.name,
+          kind: before.kind,
+          workerId: prevWorkerOf.get(id) ?? '',
+          cellIndex: 0,
+        })
+      }
+
+      const byWorker = new Map<string, CellExit[]>()
+      for (const e of exits) {
+        const list = byWorker.get(e.workerId) ?? []
+        list.push(e)
+        byWorker.set(e.workerId, list)
+      }
+      for (const list of byWorker.values()) {
+        list.sort((a, b) => a.cellIndex - b.cellIndex)
+        list.forEach((e, i) => {
+          const fromRect =
+            cache.slot[`cell:${e.id}`] ??
+            (e.workerId ? cache.slot[e.workerId] : undefined)
+          const still = nextJobs.get(e.id)
+          const comp = snap.completions?.find((c) => c.id === e.id)
+          let tone: 'ok' | 'danger'
+          if (comp) {
+            tone = comp.ok ? 'ok' : 'danger'
+          } else if (still?.status === 'failed') {
+            tone = 'danger'
+          } else if (still?.status === 'done') {
+            tone = 'ok'
+          } else {
+            const okBump = snap.totals.done > prev.totals.done
+            const failBump = snap.totals.failed > prev.totals.failed
+            tone = failBump && !okBump ? 'danger' : 'ok'
+          }
+          const beat = root.querySelector<HTMLElement>(
+            tone === 'ok' ? '[data-outcome="ok"]' : '[data-outcome="danger"]',
+          )
+          const toRect = beat?.getBoundingClientRect() ?? cache.outcome[tone]
+          flyGhost(fromRect, toRect, e.name, e.kind, tone, beat, undefined, i * 0.1)
+        })
+      }
+    }
+
+    // Retry: running → queued (AffectUI: retry slides back). One flight per id.
     for (const [id, before] of prevJobs) {
       if (before.status !== 'running') continue
       const still = nextJobs.get(id)
+      if (!still || still.status !== 'queued') continue
       const workerId = prevWorkerOf.get(id)
       const fromRect =
         cache.slot[`cell:${id}`] ??
         (workerId ? cache.slot[workerId] : undefined)
-
-      // Retry: running → queued (AffectUI: retry slides back).
-      if (still && still.status === 'queued') {
-        const toEl =
-          root.querySelector<HTMLElement>(`[data-wait-id="${CSS.escape(id)}"]`) ??
-          root.querySelector<HTMLElement>('[data-queue-col]')
-        const toRect = toEl?.getBoundingClientRect()
-        flyGhost(fromRect, toRect, before.name, before.kind, 'retry', null, () => {
-          const pill = root.querySelector<HTMLElement>(`[data-wait-id="${CSS.escape(id)}"]`)
-          if (!pill) return
-          gsap.fromTo(
-            pill,
-            { opacity: 0.4, scale: 0.85 },
-            { opacity: 1, scale: 1, duration: motionDuration(0.42), ease: queueEase },
-          )
-        })
-        continue
-      }
-
-      if (still && still.status === 'running') continue
-      // Prefer per-job completion (mock tick + live recent_completions /
-      // last_error_kind). Totals bump is a last-resort fallback only.
-      const comp = snap.completions?.find((c) => c.id === id)
-      let tone: 'ok' | 'danger'
-      if (comp) {
-        tone = comp.ok ? 'ok' : 'danger'
-      } else if (still?.status === 'failed') {
-        tone = 'danger'
-      } else if (still?.status === 'done') {
-        tone = 'ok'
-      } else {
-        const okBump = snap.totals.done > prev.totals.done
-        const failBump = snap.totals.failed > prev.totals.failed
-        // fail-only bump → Failed; otherwise Done (ambiguous same-tick needs completions).
-        tone = failBump && !okBump ? 'danger' : 'ok'
-      }
-      const beat = root.querySelector<HTMLElement>(
-        tone === 'ok' ? '[data-outcome="ok"]' : '[data-outcome="danger"]',
-      )
-      const toRect = beat?.getBoundingClientRect() ?? cache.outcome[tone]
-      flyGhost(fromRect, toRect, before.name, before.kind, tone, beat)
+      const toEl =
+        root.querySelector<HTMLElement>(`[data-wait-id="${CSS.escape(id)}"]`) ??
+        root.querySelector<HTMLElement>('[data-queue-col]')
+      const toRect = toEl?.getBoundingClientRect()
+      flyGhost(fromRect, toRect, before.name, before.kind, 'retry', null, () => {
+        const pill = root.querySelector<HTMLElement>(`[data-wait-id="${CSS.escape(id)}"]`)
+        if (!pill) return
+        gsap.fromTo(
+          pill,
+          { opacity: 0.4, scale: 0.85 },
+          { opacity: 1, scale: 1, duration: motionDuration(0.42), ease: queueEase },
+        )
+      })
     }
 
     // New wait pills drop in (AffectUI: new jobs drop at the back).
@@ -1178,7 +1241,8 @@ export function InflightLiveCard({
       }
     }
 
-    // Worker rail FLIP — busy→available reorder slides rows (not teleport).
+    // t241u: worker rail FLIP — busy rises / idle drops with 避让上顶 yield.
+    // Rising row leads; yielding rows lag slightly so it reads as drag-up.
     {
       const orderOf = (workers: typeof snap.workers) => {
         const busy = workers.filter((w) => w.busy)
@@ -1199,7 +1263,9 @@ export function InflightLiveCard({
         prevOrder.length !== nextOrder.length ||
         prevOrder.some((id, i) => id !== nextOrder[i])
       if (orderChanged) {
-        for (const id of nextOrder) {
+        const prevIdx = new Map(prevOrder.map((id, i) => [id, i]))
+        for (let ni = 0; ni < nextOrder.length; ni++) {
+          const id = nextOrder[ni]
           const el = root.querySelector<HTMLElement>(`[data-slot-id="${CSS.escape(id)}"]`)
           const first = cache.slot[id]
           if (!el || !first) continue
@@ -1207,10 +1273,54 @@ export function InflightLiveCard({
           const dx = first.left - last.left
           const dy = first.top - last.top
           if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) continue
+          const pi = prevIdx.get(id)
+          const rising = pi != null && ni < pi
+          const falling = pi != null && ni > pi
+          // Drag-up: riser starts immediately + slight scale; yielders lag.
+          const delay = motionDuration(rising ? 0 : falling ? 0.07 : 0.04)
+          const dur = motionDuration(rising ? 0.72 : 0.64)
+          gsap.killTweensOf(el)
           gsap.fromTo(
             el,
-            { x: dx, y: dy },
-            { x: 0, y: 0, duration: motionDuration(0.56), ease: slideEase, force3D: true },
+            {
+              x: dx,
+              y: dy,
+              scale: rising ? 1.035 : 1,
+              zIndex: rising ? 6 : falling ? 2 : 3,
+            },
+            {
+              x: 0,
+              y: 0,
+              scale: 1,
+              zIndex: 1,
+              duration: dur,
+              delay,
+              ease: queueEase,
+              force3D: true,
+              onComplete: () => {
+                gsap.set(el, { clearProps: 'transform,zIndex' })
+              },
+            },
+          )
+        }
+        // Newly visible at the bottom: slide up into place (cooling dropped off).
+        for (const id of nextOrder) {
+          if (prevIdx.has(id)) continue
+          const el = root.querySelector<HTMLElement>(`[data-slot-id="${CSS.escape(id)}"]`)
+          if (!el) continue
+          gsap.killTweensOf(el)
+          gsap.fromTo(
+            el,
+            { opacity: 0.35, y: 14, scale: 0.96 },
+            {
+              opacity: 1,
+              y: 0,
+              scale: 1,
+              duration: motionDuration(0.56),
+              delay: motionDuration(0.08),
+              ease: queueEase,
+              onComplete: () => gsap.set(el, { clearProps: 'transform' }),
+            },
           )
         }
       }
