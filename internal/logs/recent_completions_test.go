@@ -2,6 +2,7 @@ package logs
 
 import (
 	"testing"
+	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 )
@@ -34,9 +35,11 @@ func TestSelectingRequestsFIFOAndBind(t *testing.T) {
 	r := NewRequestRecorder(persistOnly{})
 	defer r.Close()
 
-	r.Start(accounts.RequestLog{ID: "r1", RequestedModel: "m1", Status: accounts.RequestStatusStarted})
-	r.Start(accounts.RequestLog{ID: "r2", RequestedModel: "m2", Status: accounts.RequestStatusStarted})
-	r.Start(accounts.RequestLog{ID: "r3", RequestedModel: "m3", Status: accounts.RequestStatusStarted})
+	// Started well past selectingMinDwell so Bind drops from projection immediately.
+	past := time.Now().UTC().Add(-(selectingMinDwell + time.Second))
+	r.Start(accounts.RequestLog{ID: "r1", RequestedModel: "m1", Status: accounts.RequestStatusStarted, CreatedAt: past})
+	r.Start(accounts.RequestLog{ID: "r2", RequestedModel: "m2", Status: accounts.RequestStatusStarted, CreatedAt: past.Add(time.Millisecond)})
+	r.Start(accounts.RequestLog{ID: "r3", RequestedModel: "m3", Status: accounts.RequestStatusStarted, CreatedAt: past.Add(2 * time.Millisecond)})
 
 	got := r.SelectingRequests()
 	if len(got) != 3 {
@@ -78,5 +81,40 @@ func TestSelectingRequestsFIFOAndBind(t *testing.T) {
 	}
 	if ids["r1"] || !ids["r2"] || !ids["r3"] {
 		t.Fatalf("terminal ok must clear r1, got %+v", got)
+	}
+}
+
+func TestSelectingMinDwellDisplayOnly(t *testing.T) {
+	r := NewRequestRecorder(persistOnly{})
+	defer r.Close()
+
+	now := time.Now().UTC()
+	r.Start(accounts.RequestLog{
+		ID: "fresh", RequestedModel: "m", Status: accounts.RequestStatusStarted, CreatedAt: now,
+	})
+	r.BindAccount("fresh", "acc-x")
+	got := r.SelectingRequests()
+	if len(got) != 1 || got[0].ID != "fresh" || got[0].AccountID != "" {
+		t.Fatalf("bound but within dwell must still project as selecting, got %+v", got)
+	}
+
+	old := now.Add(-(selectingMinDwell + time.Millisecond))
+	r.Start(accounts.RequestLog{
+		ID: "aged", RequestedModel: "m", Status: accounts.RequestStatusStarted, CreatedAt: old,
+	})
+	r.BindAccount("aged", "acc-y")
+	got = r.SelectingRequests()
+	ids := map[string]bool{}
+	for _, o := range got {
+		ids[o.ID] = true
+		if o.AccountID != "" {
+			t.Fatalf("projection must clear AccountID, got %+v", o)
+		}
+	}
+	if !ids["fresh"] {
+		t.Fatalf("fresh still in dwell missing: %+v", got)
+	}
+	if ids["aged"] {
+		t.Fatalf("aged past dwell must leave selecting projection: %+v", got)
 	}
 }

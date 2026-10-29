@@ -120,7 +120,8 @@ type RecentCompletion struct {
 // RequestStatusStarted from Prepare/Logs.Start until a terminal Finish.
 // AccountID empty ⇒ still selecting (pre-Acquire); set by BindAccount on
 // Pool.Acquire; cleared by UnbindAccount on Release; entry removed on
-// terminal Finish.
+// terminal Finish. SelectingRequests may still project a bound request as
+// selecting until selectingMinDwell after StartedAt (display-only).
 type OpenRequest struct {
 	ID             string
 	RequestedModel string
@@ -271,6 +272,11 @@ func (r *RequestRecorder) DrainRecentCompletions() []RecentCompletion {
 
 const openRequestCap = 512
 
+// selectingMinDwell keeps a request in the /api/live selecting (queue)
+// projection for at least this long after Start, even after BindAccount.
+// Display-only: BindAccount / Acquire / pickNext are not delayed.
+const selectingMinDwell = 500 * time.Millisecond
+
 func (r *RequestRecorder) noteOpen(log accounts.RequestLog) {
 	if r == nil {
 		return
@@ -357,20 +363,32 @@ func (r *RequestRecorder) clearOpen(requestID string) {
 	delete(r.open, requestID)
 }
 
-// SelectingRequests returns open requests still in 选号 (started, no account
-// bind). FIFO by StartedAt for the InflightLiveCard waiting queue.
+// SelectingRequests returns open requests still in 选号 for the InflightLiveCard
+// waiting queue (FIFO by StartedAt). Real binds still clear AccountID on the
+// open map immediately; this projection also keeps recently-bound requests
+// until selectingMinDwell after StartedAt so the UI can see the wait rail.
+// Does not block Pool.Acquire / pickNext.
 func (r *RequestRecorder) SelectingRequests() []OpenRequest {
 	if r == nil {
 		return nil
 	}
 	r.openMu.Lock()
 	defer r.openMu.Unlock()
+	now := time.Now().UTC()
 	out := make([]OpenRequest, 0, len(r.open))
 	for _, o := range r.open {
-		if o == nil || strings.TrimSpace(o.AccountID) != "" {
+		if o == nil {
 			continue
 		}
-		out = append(out, *o)
+		cp := *o
+		if strings.TrimSpace(cp.AccountID) != "" {
+			if !now.Before(cp.StartedAt.Add(selectingMinDwell)) {
+				continue
+			}
+			// Project as still selecting for display only.
+			cp.AccountID = ""
+		}
+		out = append(out, cp)
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		if !out[i].StartedAt.Equal(out[j].StartedAt) {
