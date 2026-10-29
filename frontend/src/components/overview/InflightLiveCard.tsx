@@ -43,8 +43,10 @@ type T = (key: string, vars?: Record<string, string | number>) => string
 
 function formatRemain(ms: number) {
   const sec = Math.max(0, Math.round(ms / 1000))
-  const m = Math.floor(sec / 60)
+  const h = Math.floor(sec / 3600)
+  const m = Math.floor((sec % 3600) / 60)
   const s = sec % 60
+  if (h) return `${h}h ${m}m`
   if (m) return `${m}m ${String(s).padStart(2, '0')}s`
   return `${s}s`
 }
@@ -401,13 +403,14 @@ export function InflightLiveCard({
   const waiting = snap.jobs.filter((j) => j.status === 'queued')
   const queuePills = waiting.slice(0, QUEUE_PILL_MAX)
   const queueOverflow = waiting.slice(QUEUE_PILL_MAX)
-  // AffectUI: short worker rail — busy / rate-limited first, cap at N (not every account).
+  // AffectUI: short worker rail — busy → available → cooldown, cap at N.
   const visibleWorkers = useMemo(() => {
-    const preferred = snap.workers.filter((w) => w.busy || w.rateLimited)
-    const rest = snap.workers.filter((w) => !w.busy && !w.rateLimited)
+    const busy = snap.workers.filter((w) => w.busy)
+    const available = snap.workers.filter((w) => !w.busy && !w.rateLimited)
+    const cooling = snap.workers.filter((w) => !w.busy && w.rateLimited)
     const out: typeof snap.workers = []
     const seen = new Set<string>()
-    for (const w of [...preferred, ...rest]) {
+    for (const w of [...busy, ...available, ...cooling]) {
       if (seen.has(w.id)) continue
       seen.add(w.id)
       out.push(w)

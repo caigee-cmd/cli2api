@@ -26,6 +26,19 @@ export type LiveCompletion = {
   status: string
 }
 
+/**
+ * Selecting (选号) request for the InflightLiveCard waiting rail.
+ * status reuses request_logs RequestStatus* (typically started) — not a new machine.
+ */
+export type LiveJob = {
+  id: string
+  name: string
+  /** RequestStatus* from recorder (started while selecting). */
+  status: string
+  /** RFC3339 Prepare/Start time. */
+  started_at?: string
+}
+
 /** Active cooldown window from AccountView.DownUntil / model_cooldowns. */
 export type LiveRateLimit = {
   id: string
@@ -62,6 +75,8 @@ export type LiveSnapshot = {
   sticky: LiveSticky
   /** Terminal finishes since last poll — InflightLiveCard routes fly-outs. */
   recent_completions?: LiveCompletion[]
+  /** Prepare→Acquire 选号 (RequestStatusStarted, no pool bind). */
+  queue?: LiveJob[]
 }
 
 export function fetchLive() {

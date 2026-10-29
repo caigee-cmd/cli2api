@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -113,6 +114,21 @@ type RecentCompletion struct {
 	At        time.Time
 }
 
+// OpenRequest is an in-memory handle for /api/live waiting-queue projection.
+// Same telemetry plane as RecentCompletion (RequestRecorder), not a second
+// control plane. Status reuses accounts.RequestStatus* only — typically
+// RequestStatusStarted from Prepare/Logs.Start until a terminal Finish.
+// AccountID empty ⇒ still selecting (pre-Acquire); set by BindAccount on
+// Pool.Acquire; cleared by UnbindAccount on Release; entry removed on
+// terminal Finish.
+type OpenRequest struct {
+	ID             string
+	RequestedModel string
+	AccountID      string
+	Status         string
+	StartedAt      time.Time
+}
+
 type RequestRecorder struct {
 	store        RequestPersister
 	queue        chan func()
@@ -127,6 +143,8 @@ type RequestRecorder struct {
 	rate         *RateCounter
 	recentMu     sync.Mutex
 	recent       []RecentCompletion
+	openMu       sync.Mutex
+	open         map[string]*OpenRequest
 }
 
 func NewRequestRecorder(store RequestPersister) *RequestRecorder {
@@ -177,6 +195,7 @@ func (r *RequestRecorder) Close() {
 
 func (r *RequestRecorder) Start(log accounts.RequestLog) {
 	r.rateCounter().Add()
+	r.noteOpen(log)
 	r.enqueue(func() {
 		if err := r.store.InsertRequestLog(context.Background(), log); err != nil {
 			logf("insert request log: %v", err)
@@ -197,6 +216,9 @@ func (r *RequestRecorder) RecentRequests() int { return r.rateCounter().Count() 
 
 func (r *RequestRecorder) Finish(log accounts.RequestLog) {
 	r.noteCompletion(log)
+	if terminalRequestStatus(log.Status) {
+		r.clearOpen(log.ID)
+	}
 	r.enqueue(func() {
 		if err := r.store.UpdateRequestLog(context.Background(), log); err != nil {
 			logf("update request log: %v", err)
@@ -245,6 +267,147 @@ func (r *RequestRecorder) DrainRecentCompletions() []RecentCompletion {
 	out := r.recent
 	r.recent = nil
 	return out
+}
+
+const openRequestCap = 512
+
+func (r *RequestRecorder) noteOpen(log accounts.RequestLog) {
+	if r == nil {
+		return
+	}
+	id := strings.TrimSpace(log.ID)
+	if id == "" {
+		return
+	}
+	started := log.CreatedAt
+	if started.IsZero() {
+		started = time.Now().UTC()
+	} else {
+		started = started.UTC()
+	}
+	status := strings.TrimSpace(log.Status)
+	if status == "" {
+		status = accounts.RequestStatusStarted
+	}
+	r.openMu.Lock()
+	defer r.openMu.Unlock()
+	if r.open == nil {
+		r.open = make(map[string]*OpenRequest)
+	}
+	r.open[id] = &OpenRequest{
+		ID:             id,
+		RequestedModel: strings.TrimSpace(log.RequestedModel),
+		AccountID:      strings.TrimSpace(log.AccountID),
+		Status:         status,
+		StartedAt:      started,
+	}
+	r.trimOpenLocked()
+}
+
+// BindAccount records Pool.Acquire onto an open request (选号 → running slot).
+// No-op when the request was never Start-registered.
+func (r *RequestRecorder) BindAccount(requestID, accountID string) {
+	if r == nil {
+		return
+	}
+	requestID = strings.TrimSpace(requestID)
+	accountID = strings.TrimSpace(accountID)
+	if requestID == "" || accountID == "" {
+		return
+	}
+	r.openMu.Lock()
+	defer r.openMu.Unlock()
+	if o, ok := r.open[requestID]; ok {
+		o.AccountID = accountID
+	}
+}
+
+// UnbindAccount clears the pool bind on Release (failover returns to 选号;
+// terminal Finish still deletes via clearOpen).
+func (r *RequestRecorder) UnbindAccount(requestID, accountID string) {
+	if r == nil {
+		return
+	}
+	requestID = strings.TrimSpace(requestID)
+	accountID = strings.TrimSpace(accountID)
+	if requestID == "" {
+		return
+	}
+	r.openMu.Lock()
+	defer r.openMu.Unlock()
+	o, ok := r.open[requestID]
+	if !ok {
+		return
+	}
+	if accountID == "" || o.AccountID == "" || o.AccountID == accountID {
+		o.AccountID = ""
+	}
+}
+
+func (r *RequestRecorder) clearOpen(requestID string) {
+	if r == nil {
+		return
+	}
+	requestID = strings.TrimSpace(requestID)
+	if requestID == "" {
+		return
+	}
+	r.openMu.Lock()
+	defer r.openMu.Unlock()
+	delete(r.open, requestID)
+}
+
+// SelectingRequests returns open requests still in 选号 (started, no account
+// bind). FIFO by StartedAt for the InflightLiveCard waiting queue.
+func (r *RequestRecorder) SelectingRequests() []OpenRequest {
+	if r == nil {
+		return nil
+	}
+	r.openMu.Lock()
+	defer r.openMu.Unlock()
+	out := make([]OpenRequest, 0, len(r.open))
+	for _, o := range r.open {
+		if o == nil || strings.TrimSpace(o.AccountID) != "" {
+			continue
+		}
+		out = append(out, *o)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if !out[i].StartedAt.Equal(out[j].StartedAt) {
+			return out[i].StartedAt.Before(out[j].StartedAt)
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out
+}
+
+func (r *RequestRecorder) trimOpenLocked() {
+	if len(r.open) <= openRequestCap {
+		return
+	}
+	// Prefer dropping unbound selecting entries first, then oldest overall.
+	type ranked struct {
+		id      string
+		started time.Time
+		bound   bool
+	}
+	all := make([]ranked, 0, len(r.open))
+	for id, o := range r.open {
+		all = append(all, ranked{id: id, started: o.StartedAt, bound: strings.TrimSpace(o.AccountID) != ""})
+	}
+	sort.SliceStable(all, func(i, j int) bool {
+		if all[i].bound != all[j].bound {
+			return !all[i].bound && all[j].bound // unbound first
+		}
+		if !all[i].started.Equal(all[j].started) {
+			return all[i].started.Before(all[j].started)
+		}
+		return all[i].id < all[j].id
+	})
+	for len(r.open) > openRequestCap && len(all) > 0 {
+		delete(r.open, all[0].id)
+		all = all[1:]
+	}
 }
 
 func (r *RequestRecorder) Attempt(attempt accounts.RequestAttempt) {

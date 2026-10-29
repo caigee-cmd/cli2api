@@ -6,9 +6,9 @@
  *   rateLimits≈ cooldown / provider rate-limit windows
  *   depth     ≈ recent waiting + concurrency approx
  *   totals    ≈ recent request_logs Done/Failed (mock until Phase 2)
- * Stage-3 swaps workers/rateLimits/sticky onto /api/live (LiveWorker,
- * LiveRateLimit, LiveSticky); keep jobs/depth mock-only until request-level
- * inflight lands. Do not invent a parallel /api/inflight*.
+ * Stage-3 swaps workers/rateLimits/sticky/queue onto /api/live (LiveWorker,
+ * LiveRateLimit, LiveSticky, LiveJob); depth stays client-rolled. Do not invent
+ * a parallel /api/inflight*.
  *
  * Live loop (`tickMockInflight`) mirrors public AffectUI Motion prose:
  * progress fill, queue→worker handoff, DONE/FAILED stack, depth scroll —
@@ -409,6 +409,14 @@ export type LiveStickyLike = {
   escapes?: number
 }
 
+export type LiveQueueJobLike = {
+  id: string
+  name: string
+  /** RequestStatus* — UI maps selecting onto MockJobStatus queued. */
+  status: string
+  started_at?: string
+}
+
 export type LiveProjectionInput = {
   in_flight: number
   rpm: number
@@ -416,6 +424,8 @@ export type LiveProjectionInput = {
   rate_limits: LiveRateLimitLike[]
   sticky: LiveStickyLike
   recent_completions?: LiveCompletionLike[]
+  /** Selecting requests (started, unbound) from /api/live queue. */
+  queue?: LiveQueueJobLike[]
 }
 
 /**
@@ -471,7 +481,7 @@ export function applyLiveProjection(
     }
   })
 
-  const jobs: MockInflightJob[] = workers
+  const runningJobs: MockInflightJob[] = workers
     .filter((w) => w.busy && w.jobId)
     .map((w) => {
       const id = w.jobId!
@@ -500,6 +510,37 @@ export function applyLiveProjection(
         elapsedMs: Math.max(0, now - startedAtMs),
       }
     })
+
+  // Selecting queue: RequestStatusStarted (etc.) → UI MockJobStatus queued.
+  // Do not invent parallel statuses — only map existing request_logs values.
+  const queuedJobs: MockInflightJob[] = (live.queue ?? []).map((q) => {
+    const id = (q.id || '').trim()
+    const prev = prevById.get(id)
+    let startedAtMs: number | undefined
+    const raw = q.started_at?.trim()
+    if (raw) {
+      const parsed = Date.parse(raw)
+      if (!Number.isNaN(parsed)) startedAtMs = parsed
+    }
+    if (startedAtMs == null && prev?.startedAtMs != null) {
+      startedAtMs = prev.startedAtMs
+    }
+    if (startedAtMs == null) {
+      startedAtMs = now
+    }
+    const name = (q.name || '').trim() || id
+    return {
+      id,
+      name,
+      kind: 'chat' as const,
+      status: 'queued' as const,
+      progress: 0,
+      startedAtMs,
+      elapsedMs: Math.max(0, now - startedAtMs),
+    }
+  })
+
+  const jobs: MockInflightJob[] = [...runningJobs, ...queuedJobs]
 
   // Continue rolling depth only after a prior live projection (cleared p95 +
   // zero totals). Mock seed/tick always leaves waitP95Ms > 0 — start zeros.
@@ -565,6 +606,7 @@ export function liveHasSignal(live: LiveProjectionInput): boolean {
     live.workers.length > 0 ||
     live.rate_limits.length > 0 ||
     live.in_flight > 0 ||
+    (live.queue?.length ?? 0) > 0 ||
     (live.sticky?.bindings ?? 0) > 0
   )
 }
