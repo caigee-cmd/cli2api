@@ -210,6 +210,32 @@ export function getMockInflightSnapshot(): MockInflightSnapshot {
   return cloneMockInflight()
 }
 
+/** Calm empty board when live is unavailable and mock 示意 is off. */
+export function getIdleInflightSnapshot(): MockInflightSnapshot {
+  const n = Math.max(1, MOCK_INFLIGHT.depthSeries.length)
+  return {
+    generatedAt: Date.now(),
+    backpressure: MOCK_INFLIGHT.backpressure,
+    throughputPerMin: 0,
+    waitP95Ms: 0,
+    totals: { done: 0, failed: 0 },
+    workers: [],
+    jobs: [],
+    rateLimits: [],
+    depthSeries: Array.from({ length: n }, () => 0),
+  }
+}
+
+export function isIdleInflightSnapshot(snap: MockInflightSnapshot): boolean {
+  return (
+    snap.jobs.length === 0 &&
+    snap.workers.length === 0 &&
+    snap.throughputPerMin === 0 &&
+    (snap.totals?.done ?? 0) === 0 &&
+    (snap.totals?.failed ?? 0) === 0
+  )
+}
+
 /**
  * Advance the Stage-1 mock one frame. Mirrors public AffectUI loop:
  * progress fills (frozen under rate-limit), completed jobs → Done/Failed,
