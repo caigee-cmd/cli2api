@@ -57,18 +57,22 @@
 // benefit; the adapter claims the benefit idempotently while discovering the
 // catalog, mirroring the official client opening its model menu.
 //
-// The discovered list is not the same as the callable list: CodeArts' agent
-// and builtin catalogs include models the account cannot use. Two separate
-// causes were confirmed live. First, a model's display name is not its wire
-// id; the agent detail carries model_parameters.model_id (for example
-// glm-5.2-sft-harmony) and model_name (GLM-5.2-ArkTS-SPARK), and sending the
-// display name returns 002002009. The adapter keeps model_id as NativeModel
-// and model_name only as DisplayName. Second, limited-benefit models answer
-// 4004.200 "benefit not found" until the account's benefit record exists; the
-// adapter hides them when benefit discovery/claim fails. For other models the
-// first 002002009/4004.200 answer still marks that model unusable for the
-// account for 30 minutes and /v1/models stops advertising it. The account
-// itself stays ready; this is an entitlement failure, not auth.
+// The discovered list is not the same as the display list: CodeArts' agent
+// and builtin catalogs are keyed by model_parameters.model_id, while
+// model_name is only the label. Sending the display name (for example
+// GLM-5.2-ArkTS-SPARK instead of glm-5.2-sft-harmony) returns 002002009. The
+// adapter keeps model_id as NativeModel and model_name only as DisplayName.
+//
+// Benefits are a separate routing path. A model advertised by a successful
+// benefit gateway/config is marked and sent with maas_type: benefit. A
+// credit-only trial account has no benefit group: claim/config answer 4000
+// invalid channel/group not found, and adding maas_type: benefit to the same
+// model returns 4004.200 benefit not found. Crucially, the same model works
+// over the credit path without that header. Therefore benefit discovery is
+// additive and a failed claim/config never hides agent/builtin models. Only a
+// real 002002009/4004.200 chat answer marks that model unusable for 30 minutes
+// and removes it from /v1/models; the account stays ready because this is an
+// entitlement failure, not auth.
 //
 // The catalog endpoint's values are capped for output: the upstream rejects
 // max_tokens above 65536 even when the catalog advertises more, so the public

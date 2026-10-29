@@ -34,49 +34,17 @@ func (c *Client) fetchModels(ctx context.Context, accountID string) ([]providers
 	}
 	merged := map[string]modelRecord{}
 	benefit := map[string]bool{}
-	benefitRecords, benefitErr := c.fetchBenefitModels(ctx, accountID, credential)
-	benefitOK := benefitErr == nil
-	benefitIDs := map[string]bool{}
-	if stats, statsErr := c.fetchStatistics(ctx, accountID, credential); statsErr == nil {
-		for _, model := range stats.Models {
-			if isLimitedBenefit(model.Desc) {
-				benefitIDs[strings.ToLower(model.ID)] = true
-				if model.Name != "" {
-					benefitIDs[strings.ToLower(model.Name)] = true
-				}
-			}
-		}
-	}
 	if records, fetchErr := c.fetchAgentModels(ctx, accountID, credential); fetchErr == nil {
-		for _, record := range records {
-			if record.Benefit || benefitIDs[strings.ToLower(record.ID)] || isLimitedBenefit(record.Description) {
-				record.Benefit = true
-			}
-			if record.Benefit && !benefitOK {
-				continue
-			}
-			mergeRecords(merged, []modelRecord{record})
-			if record.Benefit {
-				benefit[strings.ToLower(record.ID)] = true
-			}
-		}
+		mergeRecords(merged, records)
 	}
 	if records, fetchErr := c.fetchBuiltinModels(ctx, accountID, credential); fetchErr == nil {
-		for _, record := range records {
-			if record.Benefit || benefitIDs[strings.ToLower(record.ID)] || isLimitedBenefit(record.Description) {
-				record.Benefit = true
-			}
-			if record.Benefit && !benefitOK {
-				continue
-			}
-			mergeRecords(merged, []modelRecord{record})
-			if record.Benefit {
-				benefit[strings.ToLower(record.ID)] = true
-			}
-		}
+		mergeRecords(merged, records)
 	}
-	if benefitOK {
-		for _, record := range benefitRecords {
+	// Benefit discovery is additive. A failed claim/config (the normal state
+	// for credit-only trial accounts) must not hide agent models: the same
+	// model works over the credit path without maas_type: benefit.
+	if records, fetchErr := c.fetchBenefitModels(ctx, accountID, credential); fetchErr == nil {
+		for _, record := range records {
 			record.Benefit = true
 			benefit[strings.ToLower(record.ID)] = true
 			mergeRecords(merged, []modelRecord{record})
@@ -101,10 +69,6 @@ func (c *Client) fetchModels(ctx context.Context, accountID string) ([]providers
 		models = append(models, toModelInfo(record))
 	}
 	return models, benefit, nil
-}
-
-func isLimitedBenefit(description string) bool {
-	return strings.Contains(description, "限时体验")
 }
 
 func mergeRecords(target map[string]modelRecord, records []modelRecord) {
@@ -289,7 +253,6 @@ func (c *Client) fetchAgentModels(ctx context.Context, accountID string, credent
 		out = append(out, modelRecord{
 			ID: id, Name: firstNonEmpty(model.ModelName, id), Description: model.Params.ModelDesc,
 			ContextWindow: model.Params.ContextWindow, MaxTokens: model.Params.MaxTokens,
-			Benefit: isLimitedBenefit(model.Params.ModelDesc),
 		})
 	}
 	return out, nil
@@ -377,7 +340,6 @@ func (c *Client) fetchBuiltinModels(ctx context.Context, accountID string, crede
 		records = append(records, modelRecord{
 			ID: id, Name: id, Description: model.ModelDesc,
 			ContextWindow: model.ContextWindow, MaxTokens: model.MaxTokens,
-			Benefit: isLimitedBenefit(model.ModelDesc),
 		})
 	}
 	return records, nil
