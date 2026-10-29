@@ -72,26 +72,26 @@ function jobElapsedMs(job: MockInflightJob | undefined, clockMs: number): number
 function kindDot(kind: MockJobKind): string {
   switch (kind) {
     case 'chat':
-      return 'bg-[var(--chart-1)]'
+      return 'bg-[color-mix(in_oklab,var(--chart-1)_88%,var(--surface))]'
     case 'embed':
-      return 'bg-[var(--chart-6)]'
+      return 'bg-[color-mix(in_oklab,var(--chart-6)_88%,var(--surface))]'
     case 'tools':
-      return 'bg-foreground/45'
+      return 'bg-[color-mix(in_oklab,var(--chart-5)_78%,var(--surface))]'
     default:
-      return 'bg-foreground/25'
+      return 'bg-foreground/30'
   }
 }
 
 function kindPill(kind: MockJobKind): string {
   switch (kind) {
     case 'chat':
-      return 'bg-[color-mix(in_oklab,var(--chart-1)_14%,var(--surface))] text-foreground/90'
+      return 'bg-[color-mix(in_oklab,var(--chart-1)_20%,var(--surface))] text-foreground/92'
     case 'embed':
-      return 'bg-[color-mix(in_oklab,var(--chart-6)_14%,var(--surface))] text-foreground/90'
+      return 'bg-[color-mix(in_oklab,var(--chart-6)_20%,var(--surface))] text-foreground/92'
     case 'tools':
-      return 'bg-foreground/[0.06] text-foreground/85'
+      return 'bg-[color-mix(in_oklab,var(--chart-5)_16%,var(--surface))] text-foreground/88'
     default:
-      return 'bg-surface-tertiary text-foreground/80'
+      return 'bg-[color-mix(in_oklab,var(--foreground)_5%,var(--surface))] text-foreground/80'
   }
 }
 
@@ -230,7 +230,8 @@ function SlotBar({
       data-slot-id={slot.id}
       data-slot-job={slot.jobId ?? ''}
       data-il-glass={frozen ? undefined : ''}
-      className={`relative flex min-w-0 items-center gap-2 overflow-hidden rounded-lg px-2 py-1.5 ${
+      data-slot-busy={running ? '' : undefined}
+      className={`relative flex min-w-0 items-center gap-2.5 overflow-hidden rounded-xl px-2.5 py-2 ${
         frozen
           ? 'bg-[var(--il-warn-bg)] shadow-[inset_0_0_0_1px_var(--il-warn-edge)]'
           : ''
@@ -240,25 +241,30 @@ function SlotBar({
       {frozen ? (
         <span
           aria-hidden
-          className="pointer-events-none absolute inset-0 opacity-[0.22]"
+          className="pointer-events-none absolute inset-0 opacity-[0.16]"
           style={{
             backgroundImage:
               'repeating-linear-gradient(-45deg, transparent, transparent 5px, var(--il-warn-hatch) 5px, var(--il-warn-hatch) 6px)',
           }}
         />
       ) : null}
-      <span className="relative z-[1] mono w-[3.4rem] shrink-0 truncate text-[10px] leading-none text-muted" title={slot.name}>
+      <span
+        className={`relative z-[1] mono w-[3.6rem] shrink-0 truncate text-[11px] leading-none ${
+          running || frozen ? 'font-medium text-foreground/85' : 'text-muted'
+        }`}
+        title={slot.name}
+      >
         {slot.name}
       </span>
       {/* Job pill — AffectUI worker row: kind wash + indeterminate bar + elapsed */}
       <span
         data-slot-job-pill=""
-        className={`relative z-[1] inline-flex max-w-[38%] shrink-0 items-center gap-1 truncate rounded-md px-1.5 py-0.5 text-[11px] leading-none ${
+        className={`relative z-[1] inline-flex max-w-[40%] shrink-0 items-center gap-1 truncate rounded-lg px-2 py-0.5 text-[11px] leading-none ${
           frozen
-            ? 'bg-[color-mix(in_oklab,var(--warning)_18%,var(--surface))] font-medium text-[var(--il-warn-fg)] shadow-[inset_0_0_0_1px_var(--il-warn-edge)]'
+            ? 'bg-[color-mix(in_oklab,var(--warning)_16%,var(--surface))] font-medium text-[var(--il-warn-fg)] shadow-[inset_0_0_0_1px_var(--il-warn-edge)]'
             : job
               ? `${kindPill(job.kind)} shadow-[inset_0_0_0_1px_var(--il-line-soft)]`
-              : 'bg-background/45 text-muted'
+              : 'bg-[color-mix(in_oklab,var(--foreground)_4%,var(--surface))] text-muted shadow-[inset_0_0_0_1px_var(--il-line-soft)]'
         }`}
       >
         {job ? (
@@ -266,14 +272,14 @@ function SlotBar({
         ) : null}
         <span className="truncate">{label}</span>
       </span>
-      <div className="relative z-[1] h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-[var(--il-track)]">
+      <div className="relative z-[1] h-2.5 min-w-0 flex-1 overflow-hidden rounded-full bg-[var(--il-track)]">
         <div
           data-slot-fill
           className={`relative h-full transition-[clip-path] duration-[260ms] ease-linear ${
             frozen
               ? 'bg-[var(--il-warn)]'
               : running
-                ? 'bg-[color-mix(in_oklab,var(--foreground)_22%,var(--il-track))]'
+                ? 'bg-[var(--il-busy-fill)]'
                 : 'bg-transparent'
           }`}
           style={{
@@ -283,26 +289,26 @@ function SlotBar({
         >
           {running ? (
             <>
-              {/* Indeterminate 流光 — full track, no completion % */}
+              {/* Indeterminate 流光 — full track, no completion %; cool wash not muddy gray */}
               <span
                 aria-hidden
-                className="pointer-events-none absolute inset-y-0 w-1/2 bg-gradient-to-r from-transparent via-[color-mix(in_oklab,var(--surface)_72%,transparent)] to-transparent motion-safe:animate-[inflight-shimmer_1.5s_linear_infinite]"
+                className="pointer-events-none absolute inset-y-0 w-[55%] bg-gradient-to-r from-transparent via-[color-mix(in_oklab,var(--surface)_78%,transparent)] to-transparent motion-safe:animate-[inflight-shimmer_1.5s_linear_infinite]"
               />
               <span
                 aria-hidden
-                className="pointer-events-none absolute inset-y-0 w-1/3 bg-gradient-to-r from-transparent via-[color-mix(in_oklab,var(--foreground)_28%,transparent)] to-transparent motion-safe:animate-[inflight-shimmer_2.2s_linear_infinite]"
+                className="pointer-events-none absolute inset-y-0 w-[36%] bg-gradient-to-r from-transparent via-[color-mix(in_oklab,var(--chart-1)_32%,transparent)] to-transparent motion-safe:animate-[inflight-shimmer_2.2s_linear_infinite]"
                 style={{ animationDelay: '-0.7s' }}
               />
               <span
                 aria-hidden
-                className="pointer-events-none absolute inset-y-0 w-[28%] bg-gradient-to-r from-transparent via-[color-mix(in_oklab,var(--foreground)_18%,transparent)] to-transparent motion-safe:animate-[inflight-shimmer_1.8s_linear_infinite]"
+                className="pointer-events-none absolute inset-y-0 w-[26%] bg-gradient-to-r from-transparent via-[color-mix(in_oklab,var(--foreground)_16%,transparent)] to-transparent motion-safe:animate-[inflight-shimmer_1.8s_linear_infinite]"
                 style={{ animationDelay: '-1.1s' }}
               />
             </>
           ) : null}
         </div>
       </div>
-      <span className="relative z-[1] mono w-[3.4rem] shrink-0 text-right text-[10px] leading-none tabular text-muted">
+      <span className="relative z-[1] mono w-[3.6rem] shrink-0 text-right text-[11px] leading-none tabular text-muted">
         {frozen ? (
           <span className="font-medium text-[var(--il-warn-fg)]">{pausedLabel}</span>
         ) : job ? (
@@ -661,15 +667,15 @@ export function InflightLiveCard({
       // not a faint label). Stay readable mid-flight; trail is separate afterimages.
       const kindWash =
         kind === 'chat'
-          ? 'color-mix(in oklab, var(--chart-1) 14%, var(--surface))'
+          ? 'color-mix(in oklab, var(--chart-1) 20%, var(--surface))'
           : kind === 'embed'
-            ? 'color-mix(in oklab, var(--chart-6) 14%, var(--surface))'
+            ? 'color-mix(in oklab, var(--chart-6) 20%, var(--surface))'
             : kind === 'tools'
-              ? 'color-mix(in oklab, var(--foreground) 6%, var(--surface))'
+              ? 'color-mix(in oklab, var(--chart-5) 16%, var(--surface))'
               : 'var(--surface)'
       const bg =
         tone === 'ok'
-          ? 'color-mix(in oklab, var(--success) 18%, var(--surface))'
+          ? 'color-mix(in oklab, var(--success) 20%, var(--surface))'
           : tone === 'danger'
             ? 'color-mix(in oklab, var(--danger) 18%, var(--surface))'
             : tone === 'retry'
@@ -685,10 +691,12 @@ export function InflightLiveCard({
               : 'var(--foreground)'
       const dotColor =
         kind === 'chat'
-          ? 'var(--chart-1)'
+          ? 'color-mix(in oklab, var(--chart-1) 88%, var(--surface))'
           : kind === 'embed'
-            ? 'var(--chart-6)'
-            : 'color-mix(in oklab, var(--foreground) 45%, transparent)'
+            ? 'color-mix(in oklab, var(--chart-6) 88%, var(--surface))'
+            : kind === 'tools'
+              ? 'color-mix(in oklab, var(--chart-5) 78%, var(--surface))'
+              : 'color-mix(in oklab, var(--foreground) 45%, transparent)'
       const glassShadow =
         'inset 0 1px 0 var(--surface-rim), inset 0 0 0 1px var(--surface-edge), var(--surface-contact), 0 8px 24px color-mix(in oklab, var(--foreground) 14%, transparent)'
 
@@ -1046,20 +1054,24 @@ export function InflightLiveCard({
             inset 0 1px 0 var(--surface-rim),
             inset 0 0 0 1px var(--surface-edge),
             var(--surface-contact);
-          --il-track: color-mix(in oklab, var(--foreground) 10%, var(--surface-secondary));
+          --il-track: color-mix(in oklab, var(--foreground) 8%, var(--surface-secondary));
+          --il-busy-fill: color-mix(in oklab, var(--chart-1) 28%, var(--il-track));
+          --il-busy-edge: color-mix(in oklab, var(--chart-1) 22%, transparent);
           --il-run: color-mix(in oklab, var(--foreground) 84%, transparent);
           --il-run-edge: var(--foreground);
           --il-run-glow: color-mix(in oklab, var(--foreground) 52%, transparent);
           --il-warn: var(--warning);
           --il-warn-fg: var(--warning);
-          --il-warn-bg: color-mix(in oklab, var(--warning) 16%, var(--surface));
-          --il-warn-edge: color-mix(in oklab, var(--warning) 55%, transparent);
-          --il-warn-hatch: color-mix(in oklab, var(--warning) 28%, transparent);
-          --il-ok-bg: color-mix(in oklab, var(--success) 14%, var(--surface));
-          --il-ok-edge: color-mix(in oklab, var(--success) 50%, transparent);
+          /* Amber only for rate-limit/cooldown — light wash, not saturated orange panel */
+          --il-warn-bg: color-mix(in oklab, var(--warning) 11%, var(--surface));
+          --il-warn-edge: color-mix(in oklab, var(--warning) 42%, transparent);
+          --il-warn-hatch: color-mix(in oklab, var(--warning) 22%, transparent);
+          /* AffectUI-ish mint / coral, still project success/danger */
+          --il-ok-bg: color-mix(in oklab, var(--success) 20%, var(--surface));
+          --il-ok-edge: color-mix(in oklab, var(--success) 48%, transparent);
           --il-ok-fg: var(--success);
-          --il-err-bg: color-mix(in oklab, var(--danger) 14%, var(--surface));
-          --il-err-edge: color-mix(in oklab, var(--danger) 50%, transparent);
+          --il-err-bg: color-mix(in oklab, var(--danger) 18%, var(--surface));
+          --il-err-edge: color-mix(in oklab, var(--danger) 48%, transparent);
           --il-err-fg: var(--danger);
           --il-depth: var(--chart-1);
           --il-depth-fill: color-mix(in oklab, var(--chart-1) 20%, transparent);
@@ -1068,6 +1080,9 @@ export function InflightLiveCard({
         [data-testid="inflight-live-card"] [data-il-glass]{
           background: var(--surface);
           box-shadow: var(--il-glass);
+        }
+        [data-testid="inflight-live-card"] [data-il-glass][data-slot-busy]{
+          box-shadow: var(--il-glass), inset 0 0 0 1px var(--il-busy-edge);
         }
         @keyframes inflight-shimmer{0%{transform:translateX(-130%)}100%{transform:translateX(230%)}}
         @keyframes inflight-queue-shimmer{0%{transform:translateX(-140%);opacity:.35}50%{opacity:.7}100%{transform:translateX(240%);opacity:.35}}
@@ -1169,7 +1184,7 @@ export function InflightLiveCard({
                   {summary.waiting}
                 </span>
               </div>
-              <div className="space-y-1">
+              <div className="space-y-1.5">
                 {queuePills.map((job) => (
                   <div
                     key={job.id}
@@ -1177,13 +1192,13 @@ export function InflightLiveCard({
                     data-wait-id={job.id}
                     data-priority={job.priority ?? 'normal'}
                     data-il-glass=""
-                    className="relative flex items-center justify-between gap-2 overflow-hidden rounded-lg px-2 py-1.5"
+                    className="relative flex items-center justify-between gap-2 overflow-hidden rounded-xl px-2.5 py-2"
                   >
                     <span
                       aria-hidden
-                      className="pointer-events-none absolute inset-y-0 w-2/5 bg-gradient-to-r from-transparent via-[color-mix(in_oklab,var(--foreground)_10%,transparent)] to-transparent motion-safe:animate-[inflight-queue-shimmer_2.8s_linear_infinite]"
+                      className="pointer-events-none absolute inset-y-0 w-2/5 bg-gradient-to-r from-transparent via-[color-mix(in_oklab,var(--chart-1)_12%,transparent)] to-transparent motion-safe:animate-[inflight-queue-shimmer_2.8s_linear_infinite]"
                     />
-                    <span className="relative z-[1] flex min-w-0 items-center gap-1.5 truncate text-[11px] text-foreground/90">
+                    <span className="relative z-[1] flex min-w-0 items-center gap-1.5 truncate text-[11px] font-medium text-foreground/92">
                       <span className={`size-1.5 shrink-0 rounded-[2px] ${kindDot(job.kind)}`} aria-hidden />
                       <span className="truncate">
                         {job.name}
@@ -1230,7 +1245,7 @@ export function InflightLiveCard({
                 </span>
               </div>
               {/* Vertical worker rail — growing bars, AffectUI layout */}
-              <div className="flex flex-col gap-1.5">
+              <div className="flex flex-col gap-2">
                 {visibleWorkers.map((slot) => (
                   <SlotBar
                     key={slot.id}
@@ -1332,7 +1347,7 @@ function Outcome({
   return (
     <div
       data-outcome={tone}
-      className={`flex min-w-[4.5rem] flex-1 flex-col justify-center rounded-lg px-2.5 py-2 ${
+      className={`flex min-w-[4.5rem] flex-1 flex-col justify-center rounded-xl px-2.5 py-2.5 ${
         ok
           ? 'bg-[var(--il-ok-bg)] shadow-[inset_0_0_0_1px_var(--il-ok-edge)]'
           : 'bg-[var(--il-err-bg)] shadow-[inset_0_0_0_1px_var(--il-err-edge)]'
