@@ -227,4 +227,57 @@ run('applyLiveProjection success completion flies ok', () => {
   assert.ok(idle.completions && idle.completions[0].ok === true)
 })
 
+
+run('applyLiveProjection maps max_inflight / in_flight to slot cells', () => {
+  const snap = applyLiveProjection(getMockInflightSnapshot(), {
+    in_flight: 3,
+    rpm: 1,
+    workers: [
+      {
+        id: 'acc-4',
+        name: 'wb-x',
+        provider: 'workbuddy',
+        busy: true,
+        progress: 0.5,
+        rate_limited: false,
+        max_inflight: 4,
+        in_flight: 3,
+      },
+      {
+        id: 'acc-1',
+        name: 'solo',
+        provider: 'qoder',
+        busy: true,
+        progress: 0.2,
+        rate_limited: false,
+        max_inflight: 1,
+        in_flight: 1,
+      },
+      {
+        id: 'acc-idle',
+        name: 'idle',
+        provider: 'trae',
+        busy: false,
+        progress: 0,
+        rate_limited: false,
+        max_inflight: 4,
+        in_flight: 0,
+      },
+    ],
+    rate_limits: [],
+    sticky: { bindings: 0, hits: 0, misses: 0, capacity: 64, ttl_seconds: 600 },
+  })
+  const multi = snap.workers.find((w) => w.id === 'acc-4')
+  assert.equal(multi?.concurrency, 4)
+  assert.equal(multi?.inFlight, 3)
+  assert.equal(multi?.busy, true)
+  const solo = snap.workers.find((w) => w.id === 'acc-1')
+  assert.equal(solo?.concurrency, 1)
+  assert.equal(solo?.inFlight, 1)
+  const idle = snap.workers.find((w) => w.id === 'acc-idle')
+  assert.equal(idle?.concurrency, 4)
+  assert.equal(idle?.inFlight, 0)
+  assert.equal(idle?.busy, false)
+})
+
 console.log('all mockInflight tests passed')

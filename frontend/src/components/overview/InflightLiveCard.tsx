@@ -15,6 +15,7 @@ import {
 } from 'recharts'
 import {
   applyLiveProjection,
+  clampSlotConcurrency,
   cloneMockInflight,
   getMockInflightSnapshot,
   summarizeMockInflight,
@@ -220,17 +221,26 @@ function SlotBar({
   pausedLabel: string
 }) {
   const frozen = Boolean(slot.rateLimited)
-  const running = Boolean(slot.busy && !frozen)
-  // Busy: full-track indeterminate shimmer (no fake %). Idle: empty. Frozen: soft amber fill.
-  const pct = frozen ? 100 : running ? 100 : 0
+  const concurrency = clampSlotConcurrency(slot.concurrency ?? 1)
+  const occupiedRaw =
+    slot.inFlight != null
+      ? Math.max(0, Math.floor(slot.inFlight))
+      : slot.busy
+        ? 1
+        : 0
+  const occupied = Math.min(concurrency, occupiedRaw)
+  const running = Boolean(occupied > 0 && !frozen)
   const label = job?.name ?? (frozen ? pausedLabel : idleLabel)
   const elapsed = jobElapsedMs(job, clockMs)
+  const cells = Array.from({ length: concurrency }, (_, i) => i < occupied)
   return (
     <div
       data-slot
       data-slot-id={slot.id}
       data-slot-job={slot.jobId ?? ''}
       data-slot-busy={running ? '' : undefined}
+      data-slot-concurrency={concurrency}
+      data-slot-inflight={occupied}
       className={`relative flex min-w-0 items-center gap-2.5 overflow-hidden rounded-xl px-2.5 py-2 ${
         frozen
           ? 'bg-[var(--il-warn-bg)] shadow-[var(--il-hair-warn)]'
@@ -238,7 +248,7 @@ function SlotBar({
             ? 'bg-[var(--il-busy-bg)]'
             : 'bg-[var(--il-item-bg)]'
       }`}
-      title={`${slot.name} · ${label}`}
+      title={`${slot.name} · ${label} · ${occupied}/${concurrency}`}
     >
       {frozen ? (
         <span
@@ -268,7 +278,7 @@ function SlotBar({
           {slot.name}
         </span>
       </span>
-      {/* Job pill — AffectUI worker row: kind wash + indeterminate bar + elapsed */}
+      {/* Job pill — AffectUI worker row: kind wash + concurrency segments + elapsed */}
       <span
         data-slot-job-pill=""
         className={`relative z-[1] inline-flex max-w-[40%] shrink-0 items-center gap-1 truncate rounded-lg px-2 py-0.5 text-[11px] leading-none ${
@@ -284,46 +294,50 @@ function SlotBar({
         ) : null}
         <span className="truncate">{label}</span>
       </span>
-      <div className="relative z-[1] h-2.5 min-w-0 flex-1 overflow-hidden rounded-full bg-[var(--il-track)]">
-        <div
-          data-slot-fill
-          className={`relative h-full transition-[clip-path] duration-[260ms] ease-linear ${
-            frozen
-              ? 'bg-[var(--il-warn)]'
-              : running
-                ? 'bg-[var(--il-busy-fill)]'
-                : 'bg-transparent'
-          }`}
-          style={{
-            width: '100%',
-            clipPath: `inset(0 ${100 - pct}% 0 0 round 999px)`,
-          }}
-        >
-          {running ? (
-            <>
-              {/* Indeterminate 流光 — brighter cool highlight + chart-1 band (project tokens) */}
-              <span
-                aria-hidden
-                className="pointer-events-none absolute inset-y-0 w-[62%] bg-gradient-to-r from-transparent via-[color-mix(in_oklab,var(--surface)_92%,transparent)] to-transparent motion-safe:animate-[inflight-shimmer_1.35s_linear_infinite]"
-              />
-              <span
-                aria-hidden
-                className="pointer-events-none absolute inset-y-0 w-[42%] bg-gradient-to-r from-transparent via-[color-mix(in_oklab,var(--chart-1)_58%,transparent)] to-transparent motion-safe:animate-[inflight-shimmer_1.9s_linear_infinite]"
-                style={{ animationDelay: '-0.55s' }}
-              />
-              <span
-                aria-hidden
-                className="pointer-events-none absolute inset-y-0 w-[28%] bg-gradient-to-r from-transparent via-[color-mix(in_oklab,var(--chart-1)_34%,var(--foreground))] to-transparent opacity-70 motion-safe:animate-[inflight-shimmer_1.55s_linear_infinite]"
-                style={{ animationDelay: '-1.05s' }}
-              />
-            </>
-          ) : null}
-        </div>
+      {/* N equal cells = account concurrency; occupied cells wash + shimmer. */}
+      <div
+        className="relative z-[1] flex h-2.5 min-w-0 flex-1 gap-px"
+        role="img"
+        aria-label={`${occupied}/${concurrency}`}
+      >
+        {cells.map((filled, i) => (
+          <div
+            key={i}
+            data-slot-cell=""
+            data-slot-fill={filled ? '' : undefined}
+            className={`relative min-w-0 flex-1 overflow-hidden rounded-[2px] ${
+              frozen && filled
+                ? 'bg-[var(--il-warn)]'
+                : filled
+                  ? 'bg-[var(--il-busy-fill)]'
+                  : 'bg-[var(--il-track)] opacity-55'
+            }`}
+          >
+            {running && filled ? (
+              <>
+                <span
+                  aria-hidden
+                  className="pointer-events-none absolute inset-y-0 w-[62%] bg-gradient-to-r from-transparent via-[color-mix(in_oklab,var(--surface)_92%,transparent)] to-transparent motion-safe:animate-[inflight-shimmer_1.35s_linear_infinite]"
+                />
+                <span
+                  aria-hidden
+                  className="pointer-events-none absolute inset-y-0 w-[42%] bg-gradient-to-r from-transparent via-[color-mix(in_oklab,var(--chart-1)_58%,transparent)] to-transparent motion-safe:animate-[inflight-shimmer_1.9s_linear_infinite]"
+                  style={{ animationDelay: '-0.55s' }}
+                />
+                <span
+                  aria-hidden
+                  className="pointer-events-none absolute inset-y-0 w-[28%] bg-gradient-to-r from-transparent via-[color-mix(in_oklab,var(--chart-1)_34%,var(--foreground))] to-transparent opacity-70 motion-safe:animate-[inflight-shimmer_1.55s_linear_infinite]"
+                  style={{ animationDelay: '-1.05s' }}
+                />
+              </>
+            ) : null}
+          </div>
+        ))}
       </div>
       <span className="relative z-[1] mono w-[3.6rem] shrink-0 text-right text-[11px] leading-none tabular text-muted">
         {frozen ? (
           <span className="font-medium text-[var(--il-warn-fg)]">{pausedLabel}</span>
-        ) : job ? (
+        ) : job || occupied > 0 ? (
           formatElapsed(elapsed)
         ) : (
           <span className="text-muted/45">—</span>
@@ -541,15 +555,16 @@ export function InflightLiveCard({
       }
       if (fills.length) {
         fills.forEach((el, i) => {
-          const end = el.style.clipPath || 'inset(0 0% 0 0)'
           gsap.fromTo(
             el,
-            { clipPath: 'inset(0 100% 0 0 round 999px)' },
+            { opacity: 0, scaleX: 0.35 },
             {
-              clipPath: end,
+              opacity: 1,
+              scaleX: 1,
               duration: motionDuration(0.56),
               ease: queueEase,
-              delay: motionDuration(0.18 + i * 0.04),
+              delay: motionDuration(0.18 + i * 0.03),
+              transformOrigin: 'left center',
             },
           )
         })
@@ -879,11 +894,11 @@ export function InflightLiveCard({
       const toRect = toEl?.getBoundingClientRect() ?? cache.slot[workerId]
       // Hide occupy chrome until land (AffectUI receive/occupy on land).
       const landPill = toEl?.querySelector<HTMLElement>('[data-slot-job-pill]') ?? null
-      const landFill = toEl?.querySelector<HTMLElement>('[data-slot-fill]') ?? null
-      // Land into full-track indeterminate bar (no fake % clip).
-      const endClip = 'inset(0 0% 0 0 round 999px)'
+      const landFills = toEl
+        ? Array.from(toEl.querySelectorAll<HTMLElement>('[data-slot-fill]'))
+        : []
       if (landPill) gsap.set(landPill, { opacity: 0, scale: 0.85 })
-      if (landFill) gsap.set(landFill, { clipPath: 'inset(0 100% 0 0 round 999px)' })
+      landFills.forEach((el) => gsap.set(el, { opacity: 0, scaleX: 0.35, transformOrigin: 'left center' }))
       flyGhost(fromRect, toRect, job.name, job.kind, 'run', null, () => {
         if (!toEl) return
         gsap.fromTo(
@@ -899,13 +914,15 @@ export function InflightLiveCard({
             ease: queueEase,
           })
         }
-        if (landFill) {
-          gsap.to(landFill, {
-            clipPath: endClip,
+        landFills.forEach((el, i) => {
+          gsap.to(el, {
+            opacity: 1,
+            scaleX: 1,
             duration: motionDuration(0.56),
             ease: queueEase,
+            delay: motionDuration(i * 0.03),
           })
-        }
+        })
       })
     }
 
@@ -1198,7 +1215,7 @@ export function InflightLiveCard({
             />
             <Metric
               label={t('inflightRunning')}
-              value={summary.running}
+              value={summary.occupiedSlots}
               suffix={`/${summary.workerSlots}`}
             />
             <Metric label={t('inflightThroughput')} value={snap.throughputPerMin} suffix="/min" />
@@ -1270,7 +1287,7 @@ export function InflightLiveCard({
               <div className="mb-1.5 flex items-baseline justify-between gap-2">
                 <span className="text-caption uppercase tracking-wide text-muted">{t('inflightSlots')}</span>
                 <span className="mono text-[10px] tabular text-muted">
-                  {summary.busyWorkers}/{summary.workerSlots}
+                  {summary.occupiedSlots}/{summary.workerSlots}
                 </span>
               </div>
               {/* Vertical worker rail — growing bars, AffectUI layout */}

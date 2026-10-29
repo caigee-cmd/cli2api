@@ -53,6 +53,13 @@ export type MockAccountSlot = {
   jobId?: string
   /** Slot paused by an active cooldown / rate-limit. */
   rateLimited?: boolean
+  /**
+   * Account max concurrency (max_inflight). Slot bar divides into this many
+   * equal cells. Clamp in UI (min 1).
+   */
+  concurrency?: number
+  /** Current occupied concurrency cells (in_flight). */
+  inFlight?: number
 }
 
 export type MockRateLimitWindow = {
@@ -102,12 +109,12 @@ export const MOCK_INFLIGHT: MockInflightSnapshot = {
   waitP95Ms: 2800,
   totals: { done: 186, failed: 4 },
   workers: [
-    { id: 'acc-wb-a1', name: 'wb-a1', provider: 'workbuddy', busy: true, progress: 0.72, jobId: 'j1' },
-    { id: 'acc-wb-a2', name: 'wb-a2', provider: 'workbuddy', busy: true, progress: 0.41, jobId: 'j2', rateLimited: true },
-    { id: 'acc-qd-b1', name: 'qd-b1', provider: 'qoder', busy: true, progress: 0.88, jobId: 'j3' },
-    { id: 'acc-qd-b2', name: 'qd-b2', provider: 'qoder', busy: false, progress: 0 },
-    { id: 'acc-trae-c1', name: 'trae-c1', provider: 'trae', busy: true, progress: 0.23, jobId: 'j4' },
-    { id: 'acc-codex-d1', name: 'codex-d1', provider: 'codex', busy: false, progress: 0, rateLimited: true },
+    { id: 'acc-wb-a1', name: 'wb-a1', provider: 'workbuddy', busy: true, progress: 0.72, jobId: 'j1', concurrency: 4, inFlight: 3 },
+    { id: 'acc-wb-a2', name: 'wb-a2', provider: 'workbuddy', busy: true, progress: 0.41, jobId: 'j2', rateLimited: true, concurrency: 2, inFlight: 1 },
+    { id: 'acc-qd-b1', name: 'qd-b1', provider: 'qoder', busy: true, progress: 0.88, jobId: 'j3', concurrency: 1, inFlight: 1 },
+    { id: 'acc-qd-b2', name: 'qd-b2', provider: 'qoder', busy: false, progress: 0, concurrency: 4, inFlight: 0 },
+    { id: 'acc-trae-c1', name: 'trae-c1', provider: 'trae', busy: true, progress: 0.23, jobId: 'j4', concurrency: 3, inFlight: 2 },
+    { id: 'acc-codex-d1', name: 'codex-d1', provider: 'codex', busy: false, progress: 0, rateLimited: true, concurrency: 2, inFlight: 0 },
   ],
   jobs: [
     { id: 'j1', name: 'chat · sonnet', kind: 'chat', status: 'running', accountId: 'acc-wb-a1', progress: 0.72, elapsedMs: 11_200, sticky: true },
@@ -214,6 +221,7 @@ export function tickMockInflight(prev: MockInflightSnapshot, dtMs: number): Mock
     w.busy = false
     w.progress = 0
     w.jobId = undefined
+    w.inFlight = 0
     job.accountId = undefined
     if (f.ok) {
       job.status = 'done'
@@ -269,6 +277,8 @@ export function tickMockInflight(prev: MockInflightSnapshot, dtMs: number): Mock
     w.busy = true
     w.progress = 0.04
     w.jobId = job.id
+    const cap = clampSlotConcurrency(w.concurrency ?? 1)
+    w.inFlight = Math.min(cap, Math.max(1, w.inFlight ?? 1))
   }
 
   // Soft enqueue so the waiting rail doesn’t drain dry.
@@ -316,16 +326,37 @@ export function tickMockInflight(prev: MockInflightSnapshot, dtMs: number): Mock
   return next
 }
 
+/** Clamp account concurrency for slot-bar cells (UI + summary). */
+export function clampSlotConcurrency(n: number | undefined): number {
+  if (n == null || !Number.isFinite(n)) return 1
+  return Math.max(1, Math.min(16, Math.floor(n)))
+}
+
 export function summarizeMockInflight(snap: MockInflightSnapshot) {
   const running = snap.jobs.filter((j) => j.status === 'running').length
   const waiting = snap.jobs.filter((j) => j.status === 'queued').length
   const busyWorkers = snap.workers.filter((w) => w.busy).length
+  // Capacity / occupancy from per-account concurrency (max_inflight / in_flight).
+  let workerSlots = 0
+  let occupiedSlots = 0
+  for (const w of snap.workers) {
+    const cap = clampSlotConcurrency(w.concurrency ?? 1)
+    workerSlots += cap
+    const occ =
+      w.inFlight != null
+        ? Math.max(0, Math.min(cap, Math.floor(w.inFlight)))
+        : w.busy
+          ? 1
+          : 0
+    occupiedSlots += occ
+  }
   const depthNow = snap.depthSeries[snap.depthSeries.length - 1] ?? waiting
   return {
     running,
     waiting,
     busyWorkers,
-    workerSlots: snap.workers.length,
+    occupiedSlots,
+    workerSlots,
     rateLimitActive: snap.rateLimits.length,
     depthNow,
   }
@@ -348,6 +379,10 @@ export type LiveWorkerLike = {
   busy: boolean
   progress: number
   rate_limited: boolean
+  /** Account max concurrency — drives slot-bar cell count. */
+  max_inflight?: number
+  /** Occupied concurrency cells on this account. */
+  in_flight?: number
   /** RFC3339 from pool InFlightSince when available. */
   started_at?: string
   /** Fallback fail signal when recent_completions missed the finish. */
@@ -400,16 +435,28 @@ export function applyLiveProjection(
   const now = Date.now()
   const prevById = new Map(base.jobs.map((j) => [j.id, j]))
 
-  const workers: MockAccountSlot[] = live.workers.map((w) => ({
-    id: w.id,
-    name: w.name,
-    provider: w.provider,
-    busy: w.busy,
-    // Keep a soft internal value for mock-compat; busy UI ignores % fill.
-    progress: w.busy ? Math.max(0.04, Math.min(1, w.progress || 0)) : 0,
-    rateLimited: w.rate_limited,
-    jobId: w.busy ? `live-${w.id}` : undefined,
-  }))
+  const workers: MockAccountSlot[] = live.workers.map((w) => {
+    const concurrency = clampSlotConcurrency(w.max_inflight ?? 4)
+    const rawIn =
+      w.in_flight != null && Number.isFinite(w.in_flight)
+        ? Math.max(0, Math.floor(w.in_flight))
+        : w.busy
+          ? 1
+          : 0
+    const inFlight = Math.min(concurrency, rawIn)
+    return {
+      id: w.id,
+      name: w.name,
+      provider: w.provider,
+      busy: w.busy || inFlight > 0,
+      // Keep a soft internal value for mock-compat; busy UI ignores % fill.
+      progress: w.busy || inFlight > 0 ? Math.max(0.04, Math.min(1, w.progress || 0)) : 0,
+      rateLimited: w.rate_limited,
+      jobId: w.busy || inFlight > 0 ? `live-${w.id}` : undefined,
+      concurrency,
+      inFlight,
+    }
+  })
 
   const n = Math.max(1, MOCK_INFLIGHT.depthSeries.length)
   const rateLimits: MockRateLimitWindow[] = live.rate_limits.map((r, i) => {
