@@ -66,8 +66,8 @@ type RequestQuery interface {
 	GetRequestLog(ctx context.Context, id string) (accounts.RequestLog, error)
 	SummarizeRequestLogs(ctx context.Context, from, to time.Time) (accounts.RequestStats, error)
 	SummarizeRequestLogsWith(ctx context.Context, opts accounts.RequestStatsOptions) (accounts.RequestStats, error)
-	SummarizeRequestUsage(ctx context.Context, from, to time.Time) (accounts.RequestUsage, error)
-	SummarizeModelCosts(ctx context.Context, from, to time.Time) ([]accounts.CostUsageRow, error)
+	SummarizeRequestUsage(ctx context.Context, from, to time.Time, apiKeyID string) (accounts.RequestUsage, error)
+	SummarizeModelCosts(ctx context.Context, from, to time.Time, apiKeyID string) ([]accounts.CostUsageRow, error)
 }
 
 // RequestStore is the union the SQLite store already implements. It keeps
@@ -99,6 +99,9 @@ type StatsQuery struct {
 	// empty means all. Limit caps each list (0 = overview default).
 	Dims  []string
 	Limit int
+	// APIKeyID narrows the whole aggregate to one console API key; empty means
+	// every key. It is part of the stats/usage cache key.
+	APIKeyID string
 }
 
 type RequestRecorder struct {
@@ -274,8 +277,8 @@ func (r *RequestRecorder) Stats(ctx context.Context, query StatsQuery) (accounts
 		value := to.Add(-time.Duration(hours) * time.Hour)
 		from = &value
 	}
-	opts := accounts.RequestStatsOptions{From: *from, To: *to, Dims: query.Dims, Limit: query.Limit}
-	cacheKey := fmt.Sprintf("%d:%d:%s:%d", from.Unix(), to.Unix(), strings.Join(query.Dims, ","), opts.EffectiveLimit())
+	opts := accounts.RequestStatsOptions{From: *from, To: *to, Dims: query.Dims, Limit: query.Limit, APIKeyID: strings.TrimSpace(query.APIKeyID)}
+	cacheKey := fmt.Sprintf("%d:%d:%s:%d:%s", from.Unix(), to.Unix(), strings.Join(query.Dims, ","), opts.EffectiveLimit(), opts.APIKeyID)
 	r.statsCacheMu.Lock()
 	if cached, ok := r.statsCache[cacheKey]; ok && time.Now().Before(cached.expiresAt) {
 		r.statsCacheMu.Unlock()
@@ -314,6 +317,7 @@ func (r *RequestRecorder) Usage(ctx context.Context, query StatsQuery) (accounts
 	if store == nil {
 		return accounts.RequestUsage{}, fmt.Errorf("request logs unavailable")
 	}
+	apiKeyID := strings.TrimSpace(query.APIKeyID)
 	now := time.Now().UTC().Truncate(10 * time.Second)
 	hours := NormalizeStatsHours(query.Hours)
 	to := query.To
@@ -326,14 +330,14 @@ func (r *RequestRecorder) Usage(ctx context.Context, query StatsQuery) (accounts
 		value := to.Add(-time.Duration(hours) * time.Hour)
 		from = &value
 	}
-	cacheKey := fmt.Sprintf("%d:%d", from.Unix(), to.Unix())
+	cacheKey := fmt.Sprintf("%d:%d:%s", from.Unix(), to.Unix(), apiKeyID)
 	r.usageCacheMu.Lock()
 	if cached, ok := r.usageCache[cacheKey]; ok && time.Now().Before(cached.expiresAt) {
 		r.usageCacheMu.Unlock()
 		return cached.usage, nil
 	}
 	r.usageCacheMu.Unlock()
-	usage, err := store.SummarizeRequestUsage(ctx, *from, *to)
+	usage, err := store.SummarizeRequestUsage(ctx, *from, *to, apiKeyID)
 	if err != nil {
 		return accounts.RequestUsage{}, err
 	}
@@ -367,16 +371,16 @@ func (r *RequestRecorder) StatsCacheSize() int {
 	return len(r.statsCache)
 }
 
-
 // CostBreakdown prices usage in the window against official list prices where
 // available, and always reports consumed quota. Live (uncached): the panel is
-// opened on demand and the hourly aggregate is cheap.
-func (r *RequestRecorder) CostBreakdown(ctx context.Context, from, to time.Time) (accounts.CostBreakdown, error) {
+// opened on demand and the hourly aggregate is cheap. apiKeyID narrows the
+// window to one console key ("" = every key).
+func (r *RequestRecorder) CostBreakdown(ctx context.Context, from, to time.Time, apiKeyID string) (accounts.CostBreakdown, error) {
 	store := r.Store()
 	if store == nil {
 		return accounts.CostBreakdown{}, fmt.Errorf("request logs unavailable")
 	}
-	rows, err := store.SummarizeModelCosts(ctx, from, to)
+	rows, err := store.SummarizeModelCosts(ctx, from, to, strings.TrimSpace(apiKeyID))
 	if err != nil {
 		return accounts.CostBreakdown{}, err
 	}

@@ -35,6 +35,7 @@ type RequestLog struct {
 	RequestedReasoning  string                   `json:"requested_reasoning,omitempty"`
 	ResolvedReasoning   string                   `json:"resolved_reasoning,omitempty"`
 	AccountID           string                   `json:"account_id,omitempty"`
+	APIKeyID            string                   `json:"api_key_id,omitempty"` // console API key id; "" for console-key traffic and legacy rows
 	Provider            string                   `json:"provider,omitempty"`
 	Routing             string                   `json:"routing,omitempty"`
 	PromptTokens        *int                     `json:"prompt_tokens,omitempty"`
@@ -100,6 +101,8 @@ type RequestAttempt struct {
 
 type RequestLogFilter struct {
 	AccountID string
+	// APIKeyID narrows the window to requests issued by one console API key.
+	APIKeyID  string
 	Status    string
 	Stream    *bool
 	ErrorKind string
@@ -214,11 +217,14 @@ const (
 
 // RequestStatsOptions selects the window, which grouped lists to compute and
 // how many rows each may return. Empty Dims means all three dimensions.
+// APIKeyID narrows every aggregate to one console API key, so the usage view
+// can report a single key's traffic; empty means all keys.
 type RequestStatsOptions struct {
-	From  time.Time
-	To    time.Time
-	Dims  []string
-	Limit int
+	From     time.Time
+	To       time.Time
+	Dims     []string
+	Limit    int
+	APIKeyID string
 }
 
 // WantsDim reports whether dim's grouped list should be computed.

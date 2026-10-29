@@ -248,6 +248,9 @@ CREATE TABLE IF NOT EXISTS account_enabled_models (
 	);`},
 	{filename: "024_trae_keep_system_prompt.sql", sql: `
 UPDATE accounts SET drop_system_prompt = 0 WHERE provider = 'trae';`},
+	{filename: "025_request_log_api_key.sql", sql: `
+ALTER TABLE request_logs ADD COLUMN api_key_id TEXT NOT NULL DEFAULT '';
+CREATE INDEX IF NOT EXISTS request_logs_api_key_id ON request_logs(api_key_id);`},
 }
 
 const schemaMigrationsDDL = `
