@@ -13,6 +13,8 @@ export type LiveWorker = {
   enabled: boolean
   rate_limited: boolean
   progress: number
+  /** RFC3339 when the pool slot went busy (InFlight 0→1); omitted when idle. */
+  started_at?: string
 }
 
 /** Active cooldown window from AccountView.DownUntil / model_cooldowns. */

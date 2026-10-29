@@ -1,0 +1,110 @@
+import assert from 'node:assert/strict'
+import {
+  applyLiveProjection,
+  cloneMockInflight,
+  getMockInflightSnapshot,
+  MOCK_INFLIGHT,
+} from '../src/lib/mockInflight.ts'
+
+function run(name: string, fn: () => void) {
+  try {
+    fn()
+    console.log(`ok  ${name}`)
+  } catch (error) {
+    console.error(`FAIL ${name}`)
+    throw error
+  }
+}
+
+run('applyLiveProjection uses started_at for elapsed', () => {
+  const started = new Date(Date.now() - 12_400).toISOString()
+  const snap = applyLiveProjection(getMockInflightSnapshot(), {
+    in_flight: 1,
+    rpm: 3,
+    workers: [
+      {
+        id: 'acc-1',
+        name: 'wb-a1',
+        provider: 'workbuddy',
+        busy: true,
+        progress: 0.5,
+        rate_limited: false,
+        started_at: started,
+      },
+      {
+        id: 'acc-2',
+        name: 'idle',
+        provider: 'qoder',
+        busy: false,
+        progress: 0,
+        rate_limited: false,
+      },
+    ],
+    rate_limits: [],
+    sticky: { bindings: 0, hits: 0, misses: 0, capacity: 64, ttl_seconds: 600 },
+  })
+  assert.equal(snap.jobs.length, 1)
+  assert.equal(snap.totals.done, 0)
+  assert.equal(snap.waitP95Ms, 0)
+  const job = snap.jobs[0]
+  assert.ok(job.startedAtMs != null)
+  assert.ok(job.elapsedMs >= 12_000 && job.elapsedMs < 20_000, `elapsed=${job.elapsedMs}`)
+  const idle = snap.workers.find((w) => w.id === 'acc-2')
+  assert.equal(idle?.busy, false)
+  assert.equal(idle?.progress, 0)
+  assert.equal(idle?.jobId, undefined)
+})
+
+run('applyLiveProjection keeps startedAtMs across polls without started_at', () => {
+  const first = applyLiveProjection(cloneMockInflight(MOCK_INFLIGHT), {
+    in_flight: 1,
+    rpm: 0,
+    workers: [
+      {
+        id: 'acc-1',
+        name: 'wb-a1',
+        provider: 'workbuddy',
+        busy: true,
+        progress: 0.2,
+        rate_limited: false,
+      },
+    ],
+    rate_limits: [],
+    sticky: { bindings: 0, hits: 0, misses: 0, capacity: 64, ttl_seconds: 600 },
+  })
+  const stamped = first.jobs[0].startedAtMs
+  assert.ok(stamped != null)
+  const second = applyLiveProjection(first, {
+    in_flight: 1,
+    rpm: 0,
+    workers: [
+      {
+        id: 'acc-1',
+        name: 'wb-a1',
+        provider: 'workbuddy',
+        busy: true,
+        progress: 0.2,
+        rate_limited: false,
+      },
+    ],
+    rate_limits: [],
+    sticky: { bindings: 0, hits: 0, misses: 0, capacity: 64, ttl_seconds: 600 },
+  })
+  assert.equal(second.jobs[0].startedAtMs, stamped)
+})
+
+run('idle live does not bleed mock totals', () => {
+  const snap = applyLiveProjection(getMockInflightSnapshot(), {
+    in_flight: 0,
+    rpm: 0,
+    workers: [],
+    rate_limits: [],
+    sticky: { bindings: 0, hits: 0, misses: 0, capacity: 64, ttl_seconds: 600 },
+  })
+  assert.equal(snap.totals.done, 0)
+  assert.equal(snap.totals.failed, 0)
+  assert.equal(snap.throughputPerMin, 0)
+  assert.equal(snap.waitP95Ms, 0)
+})
+
+console.log('all mockInflight tests passed')

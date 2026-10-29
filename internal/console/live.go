@@ -32,9 +32,13 @@ type LiveWorker struct {
 	MaxInFlight int     `json:"max_inflight"`
 	Enabled     bool    `json:"enabled"`
 	RateLimited bool    `json:"rate_limited"`
-	// Progress is in_flight/max_inflight when the slot is busy; Stage-3 may
-	// replace it with per-request progress without changing the field name.
+	// Progress is a legacy occupancy ratio (in_flight/max_inflight). The
+	// Overview card no longer treats it as % toward completion — busy slots
+	// use an indeterminate shimmer; keep the field for API compat.
 	Progress float64 `json:"progress"`
+	// StartedAt is RFC3339 wall-clock when the pool slot went busy
+	// (InFlight 0→1). Empty when idle. UI shows real elapsed from this.
+	StartedAt string `json:"started_at,omitempty"`
 }
 
 // LiveRateLimit is one active account-wide or model-scoped cooldown window,
@@ -132,7 +136,7 @@ func buildLiveSnapshot(views []accounts.AccountView, rpm int, sticky executor.Se
 			ID: v.ID, Name: name, Provider: v.Provider,
 			Busy: v.InFlight > 0, InFlight: v.InFlight, MaxInFlight: maxInFlight,
 			Enabled: v.Enabled, RateLimited: accountLimited || modelLimited,
-			Progress: progress,
+			Progress: progress, StartedAt: strings.TrimSpace(v.InFlightSince),
 		})
 	}
 	sort.SliceStable(out.RateLimits, func(i, j int) bool {

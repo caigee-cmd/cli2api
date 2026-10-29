@@ -120,6 +120,8 @@ type AccountView struct {
 	Ready               bool              `json:"ready"`
 	Hot                 bool              `json:"hot"`
 	InFlight            int               `json:"in_flight"`
+	// InFlightSince is RFC3339 when the pool slot went busy (0→1); empty when idle.
+	InFlightSince       string            `json:"in_flight_since,omitempty"`
 	Restarts            int               `json:"restarts"`
 	RuntimeState        string            `json:"runtime_state,omitempty"`
 	NextRestartAt       string            `json:"next_restart_at,omitempty"`

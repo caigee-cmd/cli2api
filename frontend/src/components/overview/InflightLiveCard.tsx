@@ -49,8 +49,20 @@ function formatRemain(ms: number) {
 
 function formatElapsed(ms: number) {
   const sec = Math.max(0, ms / 1000)
+  if (sec >= 60) {
+    const m = Math.floor(sec / 60)
+    const s = Math.floor(sec % 60)
+    return `${m}m ${String(s).padStart(2, '0')}s`
+  }
   if (sec >= 10) return `${sec.toFixed(0)}s`
   return `${sec.toFixed(1)}s`
+}
+
+/** Busy-slot elapsed: prefer wall-clock startedAtMs + live clock; else mock elapsedMs. */
+function jobElapsedMs(job: MockInflightJob | undefined, clockMs: number): number {
+  if (!job) return 0
+  if (job.startedAtMs != null) return Math.max(0, clockMs - job.startedAtMs)
+  return Math.max(0, job.elapsedMs)
 }
 
 /**
@@ -196,17 +208,22 @@ function DepthChart({
 function SlotBar({
   slot,
   job,
+  clockMs,
   idleLabel,
   pausedLabel,
 }: {
   slot: MockAccountSlot
   job?: MockInflightJob
+  clockMs: number
   idleLabel: string
   pausedLabel: string
 }) {
   const frozen = Boolean(slot.rateLimited)
-  const pct = Math.max(slot.busy || frozen ? 8 : 0, Math.round(slot.progress * 100))
+  const running = Boolean(slot.busy && !frozen)
+  // Busy: full-track indeterminate shimmer (no fake %). Idle: empty. Frozen: soft amber fill.
+  const pct = frozen ? 100 : running ? 100 : 0
   const label = job?.name ?? (frozen ? pausedLabel : idleLabel)
+  const elapsed = jobElapsedMs(job, clockMs)
   return (
     <div
       data-slot
@@ -233,7 +250,7 @@ function SlotBar({
       <span className="relative z-[1] mono w-[3.4rem] shrink-0 truncate text-[10px] leading-none text-muted" title={slot.name}>
         {slot.name}
       </span>
-      {/* Job pill — AffectUI worker row: kind wash + growing bar + elapsed */}
+      {/* Job pill — AffectUI worker row: kind wash + indeterminate bar + elapsed */}
       <span
         data-slot-job-pill=""
         className={`relative z-[1] inline-flex max-w-[38%] shrink-0 items-center gap-1 truncate rounded-md px-1.5 py-0.5 text-[11px] leading-none ${
@@ -253,16 +270,20 @@ function SlotBar({
         <div
           data-slot-fill
           className={`relative h-full transition-[clip-path] duration-[260ms] ease-linear ${
-            frozen ? 'bg-[var(--il-warn)]' : slot.busy ? 'bg-[var(--il-run)]' : 'bg-transparent'
+            frozen
+              ? 'bg-[var(--il-warn)]'
+              : running
+                ? 'bg-[color-mix(in_oklab,var(--foreground)_22%,var(--il-track))]'
+                : 'bg-transparent'
           }`}
           style={{
             width: '100%',
             clipPath: `inset(0 ${100 - pct}% 0 0 round 999px)`,
           }}
         >
-          {slot.busy && !frozen ? (
+          {running ? (
             <>
-              {/* Stronger running 流光 — AffectUI sheen 1500ms + glow 1100ms */}
+              {/* Indeterminate 流光 — full track, no completion % */}
               <span
                 aria-hidden
                 className="pointer-events-none absolute inset-y-0 w-1/2 bg-gradient-to-r from-transparent via-[color-mix(in_oklab,var(--surface)_72%,transparent)] to-transparent motion-safe:animate-[inflight-shimmer_1.5s_linear_infinite]"
@@ -274,18 +295,18 @@ function SlotBar({
               />
               <span
                 aria-hidden
-                className="pointer-events-none absolute inset-y-0 right-0 w-[3px] bg-[var(--il-run-edge)] motion-safe:animate-[inflight-glow_1.1s_ease-in-out_infinite_alternate]"
-                style={{ boxShadow: '0 0 10px 2px var(--il-run-glow)' }}
+                className="pointer-events-none absolute inset-y-0 w-[28%] bg-gradient-to-r from-transparent via-[color-mix(in_oklab,var(--foreground)_18%,transparent)] to-transparent motion-safe:animate-[inflight-shimmer_1.8s_linear_infinite]"
+                style={{ animationDelay: '-1.1s' }}
               />
             </>
           ) : null}
         </div>
       </div>
-      <span className="relative z-[1] mono w-[2.6rem] shrink-0 text-right text-[10px] leading-none tabular text-muted">
+      <span className="relative z-[1] mono w-[3.4rem] shrink-0 text-right text-[10px] leading-none tabular text-muted">
         {frozen ? (
           <span className="font-medium text-[var(--il-warn-fg)]">{pausedLabel}</span>
         ) : job ? (
-          formatElapsed(job.elapsedMs)
+          formatElapsed(elapsed)
         ) : (
           <span className="text-muted/45">—</span>
         )}
@@ -331,6 +352,8 @@ export function InflightLiveCard({
   )
   const [useMockFallback, setUseMockFallback] = useState(false)
   const [sticky, setSticky] = useState<LiveSticky | null>(null)
+  /** Wall clock for live startedAtMs elapsed (mock uses tickMockInflight elapsedMs). */
+  const [clockMs, setClockMs] = useState(() => Date.now())
   const snap = controlled ? snapshot! : liveSnap
   const summary = useMemo(() => summarizeMockInflight(snap), [snap])
   const rootRef = useRef<HTMLDivElement>(null)
@@ -380,6 +403,7 @@ export function InflightLiveCard({
     if (live !== null) {
       setUseMockFallback(false)
       setSticky(live.sticky)
+      setClockMs(Date.now())
       setLiveSnap((prev) => applyLiveProjection(prev, live))
       return
     }
@@ -410,6 +434,32 @@ export function InflightLiveCard({
       cancelAnimationFrame(raf)
     }
   }, [controlled, expanded, useMockFallback, live])
+
+  // Elapsed tick (~150ms): wall-clock since started_at so busy slots don't stick at 0.0s between /api/live polls.
+  useEffect(() => {
+    if (!expanded) return
+    if (prefersReducedMotion()) {
+      setClockMs(Date.now())
+      return
+    }
+    let raf = 0
+    let last = 0
+    let alive = true
+    const step = (now: number) => {
+      if (!alive) return
+      if (!document.hidden && now - last >= 150) {
+        last = now
+        setClockMs(Date.now())
+      }
+      raf = requestAnimationFrame(step)
+    }
+    setClockMs(Date.now())
+    raf = requestAnimationFrame(step)
+    return () => {
+      alive = false
+      cancelAnimationFrame(raf)
+    }
+  }, [expanded])
 
   useEffect(() => {
     if (!expanded) enteredRef.current = false
@@ -798,7 +848,8 @@ export function InflightLiveCard({
       // Hide occupy chrome until land (AffectUI receive/occupy on land).
       const landPill = toEl?.querySelector<HTMLElement>('[data-slot-job-pill]') ?? null
       const landFill = toEl?.querySelector<HTMLElement>('[data-slot-fill]') ?? null
-      const endClip = landFill?.style.clipPath || 'inset(0 96% 0 0 round 999px)'
+      // Land into full-track indeterminate bar (no fake % clip).
+      const endClip = 'inset(0 0% 0 0 round 999px)'
       if (landPill) gsap.set(landPill, { opacity: 0, scale: 0.85 })
       if (landFill) gsap.set(landFill, { clipPath: 'inset(0 100% 0 0 round 999px)' })
       flyGhost(fromRect, toRect, job.name, job.kind, 'run', null, () => {
@@ -1144,7 +1195,9 @@ export function InflightLiveCard({
                         ) : null}
                       </span>
                     </span>
-                    <span className="relative z-[1] mono shrink-0 text-[10px] text-muted">{formatElapsed(job.elapsedMs)}</span>
+                    <span className="relative z-[1] mono shrink-0 text-[10px] text-muted">
+                      {formatElapsed(jobElapsedMs(job, clockMs))}
+                    </span>
                   </div>
                 ))}
                 {queueOverflow.length ? (
@@ -1183,6 +1236,7 @@ export function InflightLiveCard({
                     key={slot.id}
                     slot={slot}
                     job={slot.jobId ? jobById.get(slot.jobId) : undefined}
+                    clockMs={clockMs}
                     idleLabel={t('inflightSlotIdle')}
                     pausedLabel={t('inflightSlotPaused')}
                   />
