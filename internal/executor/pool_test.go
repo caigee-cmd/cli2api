@@ -628,16 +628,26 @@ func TestAcquireReleaseCapsAndFloors(t *testing.T) {
 	if item.InFlight != 2 {
 		t.Fatalf("in_flight=%d want 2", item.InFlight)
 	}
+	if item.InFlightSince.IsZero() {
+		t.Fatal("InFlightSince must be set while busy")
+	}
+	since := item.InFlightSince
 	p.Release("a")
 	item, _ = p.ByID("a")
 	if item.InFlight != 1 {
 		t.Fatalf("after release in_flight=%d want 1", item.InFlight)
+	}
+	if !item.InFlightSince.Equal(since) {
+		t.Fatal("InFlightSince must stay on the first 0→1 while still busy")
 	}
 	p.Release("a")
 	p.Release("a") // floor at zero
 	item, _ = p.ByID("a")
 	if item.InFlight != 0 {
 		t.Fatalf("over-release in_flight=%d want 0", item.InFlight)
+	}
+	if !item.InFlightSince.IsZero() {
+		t.Fatal("InFlightSince must clear when idle")
 	}
 	if p.Acquire("missing") {
 		t.Fatal("unknown id must not acquire")
