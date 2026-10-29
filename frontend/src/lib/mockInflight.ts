@@ -301,3 +301,114 @@ export function summarizeMockInflight(snap: MockInflightSnapshot) {
     depthNow,
   }
 }
+
+/** Optional sticky projection from /api/live (Stage-3 wire). */
+export type MockStickyStats = {
+  bindings: number
+  hits: number
+  misses: number
+  capacity: number
+  ttlSeconds: number
+  escapes?: number
+}
+
+export type LiveWorkerLike = {
+  id: string
+  name: string
+  provider: string
+  busy: boolean
+  progress: number
+  rate_limited: boolean
+}
+
+export type LiveRateLimitLike = {
+  id: string
+  label: string
+  remaining_ms: number
+}
+
+export type LiveStickyLike = {
+  bindings: number
+  hits: number
+  misses: number
+  capacity: number
+  ttl_seconds: number
+  escapes?: number
+}
+
+export type LiveProjectionInput = {
+  in_flight: number
+  rpm: number
+  workers: LiveWorkerLike[]
+  rate_limits: LiveRateLimitLike[]
+  sticky: LiveStickyLike
+}
+
+/**
+ * Merge /api/live workers + rate_limits (+ sticky meta) onto a mock snapshot.
+ * Jobs/depth stay local: busy workers become synthetic running jobs; depth
+ * appends in_flight. Used when the Overview card is expanded.
+ */
+export function applyLiveProjection(
+  base: MockInflightSnapshot,
+  live: LiveProjectionInput,
+): MockInflightSnapshot {
+  const workers: MockAccountSlot[] = live.workers.map((w) => ({
+    id: w.id,
+    name: w.name,
+    provider: w.provider,
+    busy: w.busy,
+    progress: w.busy ? Math.max(0.04, Math.min(1, w.progress || 0)) : 0,
+    rateLimited: w.rate_limited,
+    jobId: w.busy ? `live-${w.id}` : undefined,
+  }))
+
+  const n = Math.max(1, base.depthSeries.length)
+  const rateLimits: MockRateLimitWindow[] = live.rate_limits.map((r, i) => {
+    const span = 0.14
+    const from = Math.min(0.86, ((i * 0.22) % 0.86))
+    return {
+      id: r.id,
+      label: r.label,
+      remainingMs: Math.max(0, r.remaining_ms),
+      from,
+      until: Math.min(1, from + span),
+    }
+  })
+
+  const jobs: MockInflightJob[] = workers
+    .filter((w) => w.busy && w.jobId)
+    .map((w) => ({
+      id: w.jobId!,
+      name: w.name,
+      kind: 'chat' as const,
+      status: 'running' as const,
+      accountId: w.id,
+      progress: w.progress,
+      elapsedMs: 0,
+    }))
+
+  const series = base.depthSeries.slice(1)
+  series.push(Math.max(0, live.in_flight))
+  while (series.length < n) series.unshift(series[0] ?? 0)
+
+  return {
+    ...base,
+    workers,
+    rateLimits,
+    jobs,
+    depthSeries: series.slice(-n),
+    throughputPerMin: live.rpm > 0 ? live.rpm : base.throughputPerMin,
+    generatedAt: Date.now(),
+  }
+}
+
+/** True when live has something to show (slots or cooldowns or concurrency). */
+export function liveHasSignal(live: LiveProjectionInput): boolean {
+  return (
+    live.workers.length > 0 ||
+    live.rate_limits.length > 0 ||
+    live.in_flight > 0 ||
+    (live.sticky?.bindings ?? 0) > 0
+  )
+}
