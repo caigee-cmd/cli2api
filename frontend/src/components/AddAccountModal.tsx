@@ -67,6 +67,7 @@ const labelKeys: Record<string, string> = {
   'qwenwork-global': 'accountTypeQwenworkGlobal',
   'qwenwork-cn': 'accountTypeQwenworkCN',
   'kimi-cn': 'accountTypeKimiCN',
+  'codearts-cn-north-4': 'accountTypeCodeArtsCN',
   'meta-global': 'accountTypeMetaGlobal',
 }
 
@@ -83,6 +84,7 @@ const hintKeys: Record<string, string> = {
   'qwenwork-global': 'accountTypeQwenworkGlobalHint',
   'qwenwork-cn': 'accountTypeQwenworkCNHint',
   'kimi-cn': 'accountTypeKimiCNHint',
+  'codearts-cn-north-4': 'accountTypeCodeArtsCNHint',
   'meta-global': 'accountTypeMetaGlobalHint',
 }
 
@@ -200,7 +202,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
   // so the wizard opens on the PAT tab instead of the browser tab.
   const hasBrowserLogin = activeOption?.descriptor.capabilities?.browser_login !== false
   const showDropSystem = activeOption?.provider === 'workbuddy' || activeOption?.provider === 'trae'
-  const showCallbackPaste = activeOption?.provider === 'trae' || activeOption?.provider === 'devin' || activeOption?.provider === 'codex'
+  const showCallbackPaste = activeOption?.provider === 'trae' || activeOption?.provider === 'devin' || activeOption?.provider === 'codex' || activeOption?.provider === 'codearts'
   const busy = phase === 'busy' || phase === 'polling'
   const settingsLocked = Boolean(createdId.current) || busy
   const isDone = phase === 'done'
@@ -234,11 +236,11 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
       max_inflight: parsedMaxInFlight(),
       priority: parsedPriority(),
       // WorkBuddy exposes the switch because upstream content screening rejects
-      // third-party system prompts. Trae and Kimi keep caller system prompts:
-      // clients such as MiMo Code put JSON instructions there, and those
-      // families have no equivalent screening. Every other provider keeps the
-      // historical drop=true default.
-      drop_system_prompt: showDropSystem ? dropSystemPrompt : activeOption?.provider !== 'kimi',
+      // third-party system prompts. Trae, Kimi and CodeArts keep caller system
+      // prompts: clients such as MiMo Code put JSON instructions there, and
+      // those families have no equivalent screening. Every other provider keeps
+      // the historical drop=true default.
+      drop_system_prompt: showDropSystem ? dropSystemPrompt : activeOption?.provider !== 'kimi' && activeOption?.provider !== 'codearts',
       proxy_url: proxyUrl.trim(),
     }
   }
@@ -320,7 +322,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
     const option = providerOptions.find((item) => item.id === next)
     setAccountType(next)
     setTab(option?.provider === 'zhipu' ? 'pat' : 'browser')
-    setDropSystemPrompt(option?.provider !== 'trae' && option?.provider !== 'kimi')
+    setDropSystemPrompt(option?.provider !== 'trae' && option?.provider !== 'kimi' && option?.provider !== 'codearts')
     setMessage('')
     setStep('login')
   }

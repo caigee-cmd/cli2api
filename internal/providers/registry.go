@@ -323,6 +323,34 @@ var Kimi = ProviderDescriptor{
 	DefaultRegion: "cn",
 }
 
+// CodeArts descriptor. Protocol constants stay in internal/providers/codearts.
+// CN-only in-process adapter for Huawei Cloud CodeArts Agent (码道): OAuth PKCE
+// against the CodeArts portal mints a short-lived STS trio, and chat goes
+// directly to the snap-access OpenAI-compatible gateway. The AK/SK in the
+// credential are the STS material, not the account-level IAM keys.
+var CodeArts = ProviderDescriptor{
+	ID:                "codearts",
+	Label:             "CodeArts",
+	Runtime:           RuntimeInProcess,
+	AuthTypes:         []AuthType{AuthOAuth},
+	CredentialFormats: []string{"codearts-oauth-v1"},
+	Capabilities: ProviderCapabilities{
+		Chat: true, Stream: true, Tools: true, Images: false, Reasoning: true,
+		ModelCatalog: true, Usage: true, Login: true, BrowserLogin: true,
+		PATLogin: false, ImportExport: true,
+	},
+	Regions: []RegionDescriptor{
+		{
+			ID: "cn-north-4", Label: "CN",
+			ChatBase:      "https://snap-access.cn-north-4.myhuaweicloud.com",
+			BillingBase:   "https://snap-access.cn-north-4.myhuaweicloud.com",
+			AuthBase:      "https://codearts.huaweicloud.com",
+			DefaultDomain: "huaweicloud.com",
+			Checkin:       &CheckinPolicy{Timezone: "Asia/Shanghai"},
+		},
+	},
+	DefaultRegion: "cn-north-4",
+}
 
 // Meta descriptor. Protocol constants stay in internal/providers/meta.
 // Global-only Muse (Meta) adapter: RFC 8628 device grant against auth.meta.com,
@@ -359,6 +387,7 @@ var registry = map[string]ProviderDescriptor{
 	Zhipu.ID:     Zhipu,
 	QwenWork.ID:  QwenWork,
 	Kimi.ID:      Kimi,
+	CodeArts.ID:  CodeArts,
 	Meta.ID:      Meta,
 }
 
@@ -372,7 +401,7 @@ func Get(id string) (ProviderDescriptor, bool) {
 }
 
 func List() []ProviderDescriptor {
-	return []ProviderDescriptor{Qoder, WorkBuddy, Trae, Devin, Command, Codex, Zhipu, QwenWork, Kimi, Meta}
+	return []ProviderDescriptor{Qoder, WorkBuddy, Trae, Devin, Command, Codex, Zhipu, QwenWork, Kimi, CodeArts, Meta}
 }
 
 // Resolve validates a provider/region pair. Empty values fall back to the
