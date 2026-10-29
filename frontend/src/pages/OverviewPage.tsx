@@ -30,6 +30,7 @@ import { formatBytes, formatCompact, formatLatency, formatPercent } from '@/lib/
 import { accountProviderFamilyLabel, accountProviderLabel } from '@/lib/provider'
 import { ProviderMark } from '@/components/ProviderMark'
 import { LiveStrip } from '@/components/overview/LiveStrip'
+import { InflightLiveCard } from '@/components/overview/InflightLiveCard'
 import { useLive } from '@/hooks/useLive'
 
 type AccountRow = NonNullable<Overview['accounts']>[number]
@@ -322,6 +323,8 @@ export function OverviewPage() {
       {error ? <PageAlert title={t('failedOverview', { msg: error })} /> : null}
 
       <LiveStrip live={live} samples={liveSamples} t={t} />
+
+      <InflightLiveCard t={t} />
 
       <section data-gsap-reveal className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {metrics.map((metric) => (
