@@ -370,6 +370,79 @@ func TestImporterAndClassifier(t *testing.T) {
 	}
 }
 
+func TestQuotaPlaceholderTokenMeterIsNotExceeded(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != statisticsPath {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = io.WriteString(w, `{"end_date":"2026-11-30","package":{"package_name_en":"Trial"},"metrics":[{"name":"usageTokenChatMessages","show":true,"usage_token_num":193,"package_token_amount":1,"value":0},{"name":"usageTotalPackageCredit","show":true,"package_credit_amount":4500,"package_credit_used":0.27,"package_credit_remain":4499.73,"value":0}]}`)
+	}))
+	defer server.Close()
+	client, _ := newTestClient(t, server)
+	quota, err := client.Quota(context.Background(), "acct-1")
+	if err != nil {
+		t.Fatalf("Quota: %v", err)
+	}
+	if quota.Total != 4500 || quota.Remaining != 4499.73 {
+		t.Fatalf("top-level quota = %+v", quota)
+	}
+	for _, window := range quota.Windows {
+		if window.ID == "usageTokenChatMessages" {
+			if window.Total != 0 || window.Exceeded {
+				t.Fatalf("placeholder token meter = %+v", window)
+			}
+		}
+	}
+}
+
+func TestModelsFiltersLearnedUnavailable(t *testing.T) {
+	credential, _ := testCredential().Encode()
+	client := NewClient(&memoryStore{payload: credential})
+	client.rememberCatalog("acct-1", []providers.ModelInfo{
+		{NativeModel: "good", PublicModel: "good"},
+		{NativeModel: "bad", PublicModel: "bad"},
+	}, nil)
+	client.markModelUnusable("acct-1", "bad")
+	models, err := client.Models(context.Background(), "acct-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 1 || models[0].NativeModel != "good" {
+		t.Fatalf("filtered models = %+v", models)
+	}
+}
+
+func TestBenefitModelsHiddenWhenBenefitUnavailable(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case agentListPath:
+			_, _ = io.WriteString(w, `{"agents":[{"agent_id":"agent-1","agent_name":"CodeAgent","is_primary_agent":true,"show_in_ide":true,"alias":{"alias_zh_cn":"智能体"}}]}`)
+		case agentDetailPath:
+			_, _ = io.WriteString(w, `{"gpts":{"models":[{"model_name":"Normal","model_parameters":{"context_window":1000,"max_tokens":100}},{"model_name":"Trial","model_parameters":{"context_window":1000,"max_tokens":100,"model_desc":"限时体验"}}]}}`)
+		case modelBuiltinPath:
+			_, _ = io.WriteString(w, `{"builtinModels":[]}`)
+		case benefitClaim:
+			_, _ = io.WriteString(w, `{"error_code":"4000","error_msg":"invalid channel, group not found"}`)
+		case benefitConfig:
+			_, _ = io.WriteString(w, `{"error_code":"4000","error_msg":"invalid channel"}`)
+		case statisticsPath:
+			_, _ = io.WriteString(w, `{"metrics":[],"model_metrics":[{"model_id":"Trial","model_name":"Trial","model_desc":"限时体验","enable":true}]}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	client, _ := newTestClient(t, server)
+	models, err := client.Models(context.Background(), "acct-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 1 || models[0].NativeModel != "Normal" {
+		t.Fatalf("models = %+v", models)
+	}
+}
+
 func TestAdapterSurface(t *testing.T) {
 	credential, _ := testCredential().Encode()
 	store := &memoryStore{payload: credential}
