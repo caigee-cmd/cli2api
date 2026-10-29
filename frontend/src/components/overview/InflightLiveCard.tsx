@@ -560,9 +560,17 @@ export function InflightLiveCard({
       const a = from instanceof HTMLElement ? from.getBoundingClientRect() : from
       const b = to instanceof HTMLElement ? to.getBoundingClientRect() : to
       if (!a || !b || a.width < 2 || b.width < 2) return
-      const ghost = document.createElement('div')
-      ghost.setAttribute('aria-hidden', 'true')
-      ghost.textContent = label
+
+      // Opaque solid-glass pill clone (AffectUI: full job pill flies into slot,
+      // not a faint label). Stay readable mid-flight; trail is separate afterimages.
+      const kindWash =
+        kind === 'chat'
+          ? 'color-mix(in oklab, var(--chart-1) 14%, var(--surface))'
+          : kind === 'embed'
+            ? 'color-mix(in oklab, var(--chart-6) 14%, var(--surface))'
+            : kind === 'tools'
+              ? 'color-mix(in oklab, var(--foreground) 6%, var(--surface))'
+              : 'var(--surface)'
       const bg =
         tone === 'ok'
           ? 'color-mix(in oklab, var(--success) 18%, var(--surface))'
@@ -570,7 +578,7 @@ export function InflightLiveCard({
             ? 'color-mix(in oklab, var(--danger) 18%, var(--surface))'
             : tone === 'retry'
               ? 'color-mix(in oklab, var(--warning) 14%, var(--surface))'
-              : 'var(--surface)'
+              : kindWash
       const fg =
         tone === 'ok'
           ? 'var(--success)'
@@ -579,57 +587,124 @@ export function InflightLiveCard({
             : tone === 'retry'
               ? 'var(--warning)'
               : 'var(--foreground)'
-      Object.assign(ghost.style, {
-        position: 'fixed',
-        left: `${a.left}px`,
-        top: `${a.top}px`,
-        width: `${Math.max(a.width, 72)}px`,
-        height: `${Math.max(a.height, 22)}px`,
-        zIndex: '80',
-        pointerEvents: 'none',
-        display: 'flex',
-        alignItems: 'center',
-        padding: '0 8px',
-        borderRadius: '8px',
-        fontSize: '11px',
-        fontWeight: '500',
-        color: fg,
-        background: bg,
-        boxShadow:
-          'inset 0 1px 0 var(--surface-rim), inset 0 0 0 1px var(--surface-edge), var(--surface-contact)',
-        whiteSpace: 'nowrap',
-        overflow: 'hidden',
-        textOverflow: 'ellipsis',
-      } as CSSStyleDeclaration)
-      // kind dot
-      const dot = document.createElement('span')
-      Object.assign(dot.style, {
-        width: '6px',
-        height: '6px',
-        borderRadius: '2px',
-        marginRight: '6px',
-        flexShrink: '0',
-        background:
-          kind === 'chat'
-            ? 'var(--chart-1)'
-            : kind === 'embed'
-              ? 'var(--chart-6)'
-              : 'color-mix(in oklab, var(--foreground) 45%, transparent)',
+      const dotColor =
+        kind === 'chat'
+          ? 'var(--chart-1)'
+          : kind === 'embed'
+            ? 'var(--chart-6)'
+            : 'color-mix(in oklab, var(--foreground) 45%, transparent)'
+      const glassShadow =
+        'inset 0 1px 0 var(--surface-rim), inset 0 0 0 1px var(--surface-edge), var(--surface-contact), 0 8px 24px color-mix(in oklab, var(--foreground) 14%, transparent)'
+
+      const w = Math.max(a.width, 88)
+      const h = Math.max(a.height, 26)
+      const endLeft = b.left + Math.max(0, (b.width - w * 0.92) / 2)
+      const endTop = b.top + Math.max(0, (b.height - h) / 2)
+      // Slightly longer than layout 560ms so the horizontal path reads clearly.
+      const flyDur = motionDuration(0.72)
+      const holdDur = motionDuration(0.16)
+      const fadeDur = motionDuration(0.14)
+
+      const makePill = (opts: { opacity: number; asTrail?: boolean }) => {
+        const el = document.createElement('div')
+        el.setAttribute('aria-hidden', 'true')
+        Object.assign(el.style, {
+          position: 'fixed',
+          left: `${a.left}px`,
+          top: `${a.top}px`,
+          width: `${w}px`,
+          height: `${h}px`,
+          zIndex: opts.asTrail ? '78' : '80',
+          pointerEvents: 'none',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '6px',
+          padding: '0 8px',
+          borderRadius: '8px',
+          fontSize: '11px',
+          fontWeight: '500',
+          lineHeight: '1',
+          color: fg,
+          background: bg,
+          boxShadow: glassShadow,
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          opacity: String(opts.opacity),
+          willChange: 'transform, left, top, opacity',
+          // Stretch residual slightly so the trail reads as motion, not a second pill.
+          transform: opts.asTrail ? 'scaleX(1.08)' : 'none',
+          filter: opts.asTrail
+            ? 'blur(0.35px)'
+            : 'none',
+        } as CSSStyleDeclaration)
+        const dot = document.createElement('span')
+        Object.assign(dot.style, {
+          width: '6px',
+          height: '6px',
+          borderRadius: '2px',
+          flexShrink: '0',
+          background: dotColor,
+        })
+        const text = document.createElement('span')
+        text.textContent = label
+        Object.assign(text.style, {
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          minWidth: '0',
+          flex: '1',
+        })
+        el.append(dot, text)
+        document.body.appendChild(el)
+        return el
+      }
+
+      const ghost = makePill({ opacity: 1 })
+      // 3 residual afterimages — stagger behind the lead pill (AffectUI trail).
+      const trails = [0.55, 0.32, 0.16].map((op, i) => {
+        const t = makePill({ opacity: op, asTrail: true })
+        gsap.to(t, {
+          left: endLeft,
+          top: endTop,
+          width: w * 0.92,
+          scaleX: 1.2 + i * 0.08,
+          opacity: 0,
+          duration: flyDur,
+          delay: motionDuration(0.045 + i * 0.04),
+          ease: queueEase,
+          force3D: true,
+          onComplete: () => t.remove(),
+        })
+        return t
       })
-      ghost.prepend(dot)
-      document.body.appendChild(ghost)
+      void trails
+
       gsap.to(ghost, {
-        left: b.left + Math.max(0, (b.width - a.width) / 2),
-        top: b.top + Math.max(0, (b.height - a.height) / 2),
-        scale: tone === 'run' || tone === 'retry' ? 0.92 : 0.85,
-        opacity: 0.15,
-        duration: motionDuration(0.56),
+        left: endLeft,
+        top: endTop,
+        width: w * 0.92,
+        scale: tone === 'run' || tone === 'retry' ? 0.96 : 0.88,
+        // Keep the lead pill opaque for the whole flight — only fade after a short land hold.
+        opacity: 1,
+        duration: flyDur,
         ease: queueEase,
+        force3D: true,
         onComplete: () => {
-          ghost.remove()
+          // Land first so the real slot/queue pill can occupy while the
+          // opaque ghost still holds, then fade the clone out.
           onLand?.()
+          gsap.to(ghost, {
+            opacity: 0,
+            scale: tone === 'run' || tone === 'retry' ? 0.9 : 0.82,
+            duration: fadeDur,
+            delay: holdDur,
+            ease: 'power1.out',
+            onComplete: () => ghost.remove(),
+          })
         },
       })
+
       const beat = beatEl
       if (beat && (tone === 'ok' || tone === 'danger')) {
         gsap.fromTo(
@@ -640,7 +715,7 @@ export function InflightLiveCard({
             scale: 1,
             duration: motionDuration(0.42),
             ease: ease.soft,
-            delay: motionDuration(0.28),
+            delay: motionDuration(0.36),
           },
         )
       }
@@ -654,7 +729,7 @@ export function InflightLiveCard({
             yoyo: true,
             repeat: 5,
             ease: 'power1.inOut',
-            delay: motionDuration(0.3),
+            delay: motionDuration(0.36),
             onComplete: () => gsap.set(beat, { x: 0 }),
           },
         )
