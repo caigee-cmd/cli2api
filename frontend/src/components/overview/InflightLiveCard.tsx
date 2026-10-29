@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { Card } from '@heroui/react'
-import { ArrowUpRight, Check, X } from '@phosphor-icons/react'
+import { ArrowUpRight, CaretRight, Check, X } from '@phosphor-icons/react'
+import type { LiveSnapshot, LiveSticky } from '@/api/live'
 import CustomEase from 'gsap/CustomEase'
 import {
   Area,
@@ -13,6 +14,7 @@ import {
   YAxis,
 } from 'recharts'
 import {
+  applyLiveProjection,
   cloneMockInflight,
   getMockInflightSnapshot,
   summarizeMockInflight,
@@ -294,23 +296,41 @@ function SlotBar({
 
 /**
  * Overview summary: Agent Queue feel over cli2api pool/inflight/cooldown concepts.
- * Read-only mock (Phase 1). Motion timings + color hierarchy from public
- * AffectUI Agent Queue demo CSS vars (mapped to project tokens via color-mix;
- * see docs/assets/overview-inflight-mock/affectui-public-motion-notes.md) —
- * not Pro source. Link targets `/live` later — no Pause/Cancel/stepper.
+ * Default collapsed — no /api/live consume and no mock loop until expanded
+ * (toggle or LiveStrip「当前并发」). When open, project live workers /
+ * rate_limits / sticky; mock tick only as empty-demo fallback.
+ * Motion timings from public AffectUI Agent Queue demo (mapped to project
+ * tokens). Link targets `/live` later — no Pause/Cancel/stepper.
  */
 export function InflightLiveCard({
   t,
   snapshot,
+  live = null,
+  expanded: expandedProp,
+  onExpandedChange,
+  defaultExpanded = false,
 }: {
   t: T
   snapshot?: MockInflightSnapshot
+  /** Parent /api/live snapshot — only passed while expanded so the card does not drive fetches. */
+  live?: LiveSnapshot | null
+  expanded?: boolean
+  onExpandedChange?: (open: boolean) => void
+  defaultExpanded?: boolean
 }) {
   const controlled = snapshot !== undefined
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(defaultExpanded)
+  const expanded = expandedProp ?? uncontrolledOpen
+  const setExpanded = (open: boolean) => {
+    onExpandedChange?.(open)
+    if (expandedProp === undefined) setUncontrolledOpen(open)
+  }
+
   const [liveSnap, setLiveSnap] = useState<MockInflightSnapshot>(() =>
     cloneMockInflight(snapshot ?? getMockInflightSnapshot()),
   )
-  // External snapshot (tests / Stage-3) wins; otherwise Stage-1 live mock loop.
+  const [useMockFallback, setUseMockFallback] = useState(false)
+  const [sticky, setSticky] = useState<LiveSticky | null>(null)
   const snap = controlled ? snapshot! : liveSnap
   const summary = useMemo(() => summarizeMockInflight(snap), [snap])
   const rootRef = useRef<HTMLDivElement>(null)
@@ -343,11 +363,33 @@ export function InflightLiveCard({
   const rateActive = snap.rateLimits[0]
   const waitAmber = summary.waiting >= snap.backpressure
 
+  // External snapshot (tests) wins. Otherwise: live projection when expanded +
+  // live has signal; mock fallback only for empty demo / missing live.
   useEffect(() => {
     if (controlled) {
       setLiveSnap(cloneMockInflight(snapshot!))
+      setUseMockFallback(false)
+      setSticky(null)
       return
     }
+    if (!expanded) {
+      setUseMockFallback(false)
+      return
+    }
+    if (live) {
+      // Real /api/live — project even when idle/empty. Mock only if live is null.
+      setUseMockFallback(false)
+      setSticky(live.sticky)
+      setLiveSnap((prev) => applyLiveProjection(prev, live))
+      return
+    }
+    // Live not available (offline / empty demo without parent poll) → mock loop.
+    setSticky(null)
+    setUseMockFallback(true)
+  }, [controlled, snapshot, expanded, live])
+
+  useEffect(() => {
+    if (controlled || !expanded || !useMockFallback) return
     if (prefersReducedMotion()) return
     let raf = 0
     let last = performance.now()
@@ -355,7 +397,6 @@ export function InflightLiveCard({
     const step = (now: number) => {
       if (!alive) return
       const dt = now - last
-      // ~public progress transition cadence (260ms); skip when tab hidden.
       if (!document.hidden && dt >= 260) {
         last = now
         setLiveSnap((prev) => tickMockInflight(prev, dt))
@@ -367,7 +408,11 @@ export function InflightLiveCard({
       alive = false
       cancelAnimationFrame(raf)
     }
-  }, [controlled, snapshot])
+  }, [controlled, expanded, useMockFallback])
+
+  useEffect(() => {
+    if (!expanded) enteredRef.current = false
+  }, [expanded])
 
   /** Entrance once — public ui-agq-drop / slot / grow timings. */
   useLayoutEffect(() => {
@@ -501,8 +546,8 @@ export function InflightLiveCard({
       }
     }, root)
     return () => ctx.revert()
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- entrance once
-  }, [])
+    // Re-run when body mounts (default collapsed).
+  }, [expanded])
 
   /** Live handoffs: queue→worker fly, worker→DONE/FAILED fly (AffectUI prose). */
   useLayoutEffect(() => {
@@ -920,13 +965,16 @@ export function InflightLiveCard({
     }
 
     refreshCache()
-  }, [snap])
+  }, [snap, expanded])
 
   const depthLabel = t('inflightDepthHint', { n: summary.depthNow })
+  const liveBadge = !useMockFallback && Boolean(live)
+  const stickyBindings = sticky?.bindings ?? 0
 
   return (
     <Card
       data-testid="inflight-live-card"
+      data-expanded={expanded ? 'true' : 'false'}
       data-gsap-reveal
       className="group overflow-hidden p-0 transition-[box-shadow] duration-200"
     >
@@ -979,38 +1027,72 @@ export function InflightLiveCard({
           .motion-safe\\:animate-\\[inflight-glow_1\\.1s_ease-in-out_infinite\\]{animation:none!important}
         }
       `}</style>
-      <Link
-        to="/live"
-        className="block outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-        aria-label={t('inflightCardAria')}
-      >
-        <div ref={rootRef}>
-          <div className="flex items-start justify-between gap-3 border-b border-separator px-4 py-3">
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <h3 className="font-semibold">{t('inflightTitle')}</h3>
-                <span
-                  data-il-glass={rateActive ? undefined : ''}
-                  className={`mono inline-flex items-center gap-1 rounded-[3px] px-1.5 py-0.5 text-caption ${
-                    rateActive
-                      ? 'bg-[var(--il-warn-bg)] font-medium text-[var(--il-warn-fg)] shadow-[inset_0_0_0_1px_var(--il-warn-edge)]'
-                      : 'text-muted'
-                  }`}
-                >
-                  <span className="status-dot" data-state={rateActive ? 'warn' : 'ok'} />
-                  {rateActive
-                    ? t('inflightRatePill', { remain: formatRemain(rateActive.remainingMs) })
-                    : t('inflightMockBadge')}
-                </span>
-              </div>
-              <p className="mt-0.5 text-caption text-muted">{t('inflightHint')}</p>
-            </div>
-            <span className="inline-flex shrink-0 items-center gap-1 text-caption text-muted transition-colors group-hover:text-foreground">
-              {t('inflightOpen')}
-              <ArrowUpRight size={14} aria-hidden />
-            </span>
-          </div>
 
+      <div className="flex items-start justify-between gap-3 border-b border-separator px-4 py-3">
+        <button
+          type="button"
+          data-testid="inflight-live-toggle"
+          aria-expanded={expanded}
+          aria-controls="inflight-live-body"
+          onClick={() => setExpanded(!expanded)}
+          className="flex min-w-0 flex-1 items-start gap-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+        >
+          <CaretRight
+            size={14}
+            aria-hidden
+            className={`mt-1 shrink-0 text-muted transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
+          />
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="font-semibold">{t('inflightTitle')}</h3>
+              <span
+                data-il-glass={rateActive && expanded ? undefined : ''}
+                className={`mono inline-flex items-center gap-1 rounded-[3px] px-1.5 py-0.5 text-caption ${
+                  rateActive && expanded
+                    ? 'bg-[var(--il-warn-bg)] font-medium text-[var(--il-warn-fg)] shadow-[inset_0_0_0_1px_var(--il-warn-edge)]'
+                    : 'text-muted'
+                }`}
+              >
+                <span className="status-dot" data-state={rateActive && expanded ? 'warn' : liveBadge ? 'ok' : ''} />
+                {expanded && rateActive
+                  ? t('inflightRatePill', { remain: formatRemain(rateActive.remainingMs) })
+                  : liveBadge
+                    ? t('inflightLiveBadge')
+                    : t('inflightMockBadge')}
+              </span>
+              {expanded && stickyBindings > 0 ? (
+                <span className="mono text-caption text-muted">
+                  {t('inflightStickyBindings', { n: stickyBindings })}
+                </span>
+              ) : null}
+            </div>
+            <p className="mt-0.5 text-caption text-muted">{t('inflightHint')}</p>
+          </div>
+        </button>
+        {expanded ? (
+          <Link
+            to="/live"
+            className="inline-flex shrink-0 items-center gap-1 text-caption text-muted transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+            aria-label={t('inflightCardAria')}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {t('inflightOpen')}
+            <ArrowUpRight size={14} aria-hidden />
+          </Link>
+        ) : (
+          <button
+            type="button"
+            className="inline-flex shrink-0 items-center gap-1 text-caption text-muted transition-colors hover:text-foreground"
+            onClick={() => setExpanded(true)}
+          >
+            {t('inflightExpand')}
+            <CaretRight size={14} aria-hidden />
+          </button>
+        )}
+      </div>
+
+      {expanded ? (
+        <div id="inflight-live-body" ref={rootRef}>
           <div className="grid grid-cols-2 gap-3 border-b border-separator px-4 py-3 sm:grid-cols-4">
             <Metric
               label={t('inflightWaiting')}
@@ -1145,8 +1227,9 @@ export function InflightLiveCard({
               </div>
             ) : null}
           </div>
+
         </div>
-      </Link>
+      ) : null}
     </Card>
   )
 }

@@ -140,6 +140,7 @@ export function OverviewPage() {
   const [resources, setResources] = useState<SystemResources | null>(null)
   const [now, setNow] = useState(() => Date.now())
   const { live, samples: liveSamples } = useLive()
+  const [inflightOpen, setInflightOpen] = useState(false)
   const liveById = new Map((live?.accounts ?? []).map((item) => [item.id, item]))
 
   const proxyOk = Boolean(overview?.proxy?.ok)
@@ -322,9 +323,9 @@ export function OverviewPage() {
 
       {error ? <PageAlert title={t('failedOverview', { msg: error })} /> : null}
 
-      <LiveStrip live={live} samples={liveSamples} t={t} />
+      <LiveStrip live={live} samples={liveSamples} t={t} onConcurrencyClick={() => setInflightOpen(true)} />
 
-      <InflightLiveCard t={t} />
+      <InflightLiveCard t={t} expanded={inflightOpen} onExpandedChange={setInflightOpen} live={inflightOpen ? live : null} />
 
       <section data-gsap-reveal className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {metrics.map((metric) => (

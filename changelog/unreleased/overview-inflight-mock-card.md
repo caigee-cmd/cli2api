@@ -14,3 +14,7 @@
 
 - Motion gaps filled (GSAP only): queue vacancy FLIP after fly-out 560ms; worker receive/occupy on land; priority glide-past (mock `priority`); CountUp on metrics/Done·Failed; depth chart continuous glide + eased Y peak; retry slides back to queue when mock emits. AffectUI overflow: first 3 queue pills + kind-colored overflow dots (slide up on shrink); workers rail shows ≤4 busy/rate-limited slots. solid-glass kept; no chart-3 orange wash.
 - 动效缺口补齐（仅 GSAP）：飞出后队列合缝 FLIP；落槽占用；高优插队滑过；指标 CountUp；深度图连续滑移；失败可重试滑回队列。溢出：队列仅前 3 条 pill + 色点堆；槽位最多 4 条 busy/限流。solid-glass 不变，无橙色洗底。
+
+- Stage-3 wire: Overview「实时进行中」**默认收起**，不消费 live 投影；点 LiveStrip「当前并发」或卡片 toggle 才展开。展开后把 `/api/live` 的 `workers` / `rate_limits` / `sticky` 映射到槽位与限流色带；mock 活环仅在 live 不可用时作空演示兜底。jobs 级明细仍示意，待请求级 API。
+- Stage-3: InflightLiveCard **collapsed by default** (no live consume until expand from concurrency strip or toggle). Open → project `/api/live` workers/rate_limits/sticky; mock tick only if live missing. Request-level jobs still demo until a real inflight API.
+
