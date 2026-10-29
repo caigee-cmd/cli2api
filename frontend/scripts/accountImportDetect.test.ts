@@ -106,4 +106,64 @@ run('unknown format field still shape-detects', () => {
   assert.ok(result.warnings.includes('unknown_format'))
 })
 
+run('exportType WorkBuddy-accounts alias → workbuddy-accounts', () => {
+  const result = detectImportBundle({
+    exportType: 'WorkBuddy-accounts',
+    version: 1,
+    count: 1,
+    accounts: [
+      {
+        account: { uid: 'u-syn', nickname: 'Syn', phoneNumber: '13800000000', type: 'personal' },
+        auth: {
+          accessToken: 'syn-access-token',
+          refreshToken: 'syn-refresh-token',
+          tokenType: 'Bearer',
+          expiresIn: 2592000,
+          expiresAt: 1795766725050,
+          domain: 'www.workbuddy.cn',
+          scope: 'openid',
+        },
+      },
+    ],
+  })
+  assert.equal(result.provider, 'workbuddy')
+  assert.equal(result.format, 'workbuddy-accounts')
+  assert.equal(result.region, 'cn')
+  assert.equal(result.regionAmbiguous, false)
+  assert.equal(result.batchImportSupported, true)
+  assert.equal(result.confidence, 'high')
+})
+
+run('nested account/auth entry without format still detects', () => {
+  const result = detectImportBundle({
+    accounts: [
+      {
+        account: { uid: 'u2' },
+        auth: { accessToken: 'a', domain: 'www.workbuddy.cn' },
+      },
+    ],
+  })
+  assert.equal(result.provider, 'workbuddy')
+  assert.equal(result.format, 'workbuddy-accounts')
+  assert.equal(result.region, 'cn')
+  assert.equal(result.regionAmbiguous, false)
+  assert.equal(result.batchImportSupported, true)
+})
+
+run('workbuddy.cn is CN; workbuddy.ai stays global', () => {
+  const cn = detectImportBundle({
+    format: 'workbuddy-accounts',
+    accounts: [{ accessToken: 'a', domain: 'www.workbuddy.cn' }],
+  })
+  assert.equal(cn.region, 'cn')
+  assert.equal(cn.regionAmbiguous, false)
+
+  const global = detectImportBundle({
+    format: 'workbuddy-accounts',
+    accounts: [{ accessToken: 'a', domain: 'www.workbuddy.ai' }],
+  })
+  assert.equal(global.region, 'global')
+  assert.equal(global.regionAmbiguous, false)
+})
+
 console.log('all detect tests passed')
