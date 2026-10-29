@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { Card } from '@heroui/react'
 import { ArrowUpRight, Check, X } from '@phosphor-icons/react'
@@ -13,8 +13,10 @@ import {
   YAxis,
 } from 'recharts'
 import {
+  cloneMockInflight,
   getMockInflightSnapshot,
   summarizeMockInflight,
+  tickMockInflight,
   type MockAccountSlot,
   type MockInflightJob,
   type MockInflightSnapshot,
@@ -170,12 +172,13 @@ function SlotBar({
   return (
     <div
       data-slot
+      data-slot-id={slot.id}
+      data-slot-job={slot.jobId ?? ''}
+      data-il-glass={frozen ? undefined : ''}
       className={`relative flex min-w-0 items-center gap-2 overflow-hidden rounded-lg px-2 py-1.5 ${
         frozen
           ? 'bg-[var(--il-warn-bg)] shadow-[inset_0_0_0_1px_var(--il-warn-edge)]'
-          : slot.busy
-            ? 'bg-[var(--il-chip)] shadow-[inset_0_0_0_1px_var(--il-line)]'
-            : 'bg-[var(--il-well)] shadow-[inset_0_0_0_1px_var(--il-line-soft)]'
+          : ''
       }`}
       title={`${slot.name} · ${label}`}
     >
@@ -210,7 +213,7 @@ function SlotBar({
       <div className="relative z-[1] h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-[var(--il-track)]">
         <div
           data-slot-fill
-          className={`relative h-full ${
+          className={`relative h-full transition-[clip-path] duration-[260ms] ease-linear ${
             frozen ? 'bg-[var(--il-warn)]' : slot.busy ? 'bg-[var(--il-run)]' : 'bg-transparent'
           }`}
           style={{
@@ -220,14 +223,20 @@ function SlotBar({
         >
           {slot.busy && !frozen ? (
             <>
+              {/* Stronger running 流光 — AffectUI sheen 1500ms + glow 1100ms */}
               <span
                 aria-hidden
-                className="pointer-events-none absolute inset-y-0 w-2/5 bg-gradient-to-r from-transparent via-[color-mix(in_oklab,var(--surface)_55%,transparent)] to-transparent motion-safe:animate-[inflight-shimmer_1.5s_linear_infinite]"
+                className="pointer-events-none absolute inset-y-0 w-1/2 bg-gradient-to-r from-transparent via-[color-mix(in_oklab,var(--surface)_72%,transparent)] to-transparent motion-safe:animate-[inflight-shimmer_1.5s_linear_infinite]"
+              />
+              <span
+                aria-hidden
+                className="pointer-events-none absolute inset-y-0 w-1/3 bg-gradient-to-r from-transparent via-[color-mix(in_oklab,var(--foreground)_28%,transparent)] to-transparent motion-safe:animate-[inflight-shimmer_2.2s_linear_infinite]"
+                style={{ animationDelay: '-0.7s' }}
               />
               <span
                 aria-hidden
                 className="pointer-events-none absolute inset-y-0 right-0 w-[3px] bg-[var(--il-run-edge)] motion-safe:animate-[inflight-glow_1.1s_ease-in-out_infinite_alternate]"
-                style={{ boxShadow: '0 0 8px 1px var(--il-run-glow)' }}
+                style={{ boxShadow: '0 0 10px 2px var(--il-run-glow)' }}
               />
             </>
           ) : null}
@@ -260,23 +269,63 @@ export function InflightLiveCard({
   t: T
   snapshot?: MockInflightSnapshot
 }) {
-  const snap = snapshot ?? getMockInflightSnapshot()
+  const controlled = snapshot !== undefined
+  const [liveSnap, setLiveSnap] = useState<MockInflightSnapshot>(() =>
+    cloneMockInflight(snapshot ?? getMockInflightSnapshot()),
+  )
+  // External snapshot (tests / Stage-3) wins; otherwise Stage-1 live mock loop.
+  const snap = controlled ? snapshot! : liveSnap
   const summary = useMemo(() => summarizeMockInflight(snap), [snap])
   const rootRef = useRef<HTMLDivElement>(null)
+  const enteredRef = useRef(false)
+  const prevRef = useRef<MockInflightSnapshot>(snap)
+  /** Last painted rects — handoff flies read these after the source unmounts. */
+  const rectCache = useRef<{
+    wait: Record<string, DOMRect>
+    slot: Record<string, DOMRect>
+    outcome: { ok?: DOMRect; danger?: DOMRect }
+  }>({ wait: {}, slot: {}, outcome: {} })
   const jobById = useMemo(() => new Map(snap.jobs.map((j) => [j.id, j])), [snap.jobs])
   const waiting = snap.jobs.filter((j) => j.status === 'queued')
   const rateActive = snap.rateLimits[0]
   const waitAmber = summary.waiting >= snap.backpressure
 
+  useEffect(() => {
+    if (controlled) {
+      setLiveSnap(cloneMockInflight(snapshot!))
+      return
+    }
+    if (prefersReducedMotion()) return
+    let raf = 0
+    let last = performance.now()
+    let alive = true
+    const step = (now: number) => {
+      if (!alive) return
+      const dt = now - last
+      // ~public progress transition cadence (260ms); skip when tab hidden.
+      if (!document.hidden && dt >= 260) {
+        last = now
+        setLiveSnap((prev) => tickMockInflight(prev, dt))
+      }
+      raf = requestAnimationFrame(step)
+    }
+    raf = requestAnimationFrame(step)
+    return () => {
+      alive = false
+      cancelAnimationFrame(raf)
+    }
+  }, [controlled, snapshot])
+
+  /** Entrance once — public ui-agq-drop / slot / grow timings. */
   useLayoutEffect(() => {
     const root = rootRef.current
-    if (!root || prefersReducedMotion()) return
+    if (!root || prefersReducedMotion() || enteredRef.current) return
+    enteredRef.current = true
     const ctx = gsap.context(() => {
       const pills = root.querySelectorAll<HTMLElement>('[data-wait-pill]')
       const tokens = root.querySelectorAll<HTMLElement>('[data-wait-token]')
       const slots = root.querySelectorAll<HTMLElement>('[data-slot]')
       const fills = root.querySelectorAll<HTMLElement>('[data-slot-fill]')
-      const outcomes = root.querySelectorAll<HTMLElement>('[data-outcome]')
       const depth = root.querySelectorAll<HTMLElement>('[data-depth]')
 
       if (pills.length) {
@@ -372,7 +421,7 @@ export function InflightLiveCard({
                   x: 3,
                   duration: motionDuration(0.07),
                   yoyo: true,
-                  repeat: 5, // ~420ms total — public ui-agq-shake
+                  repeat: 5,
                   ease: 'power1.inOut',
                   onComplete: () => {
                     gsap.set(failEl, { x: 0 })
@@ -382,9 +431,6 @@ export function InflightLiveCard({
             },
           },
         )
-      }
-      if (outcomes.length === 0) {
-        /* no-op — outcomes animated above */
       }
       if (depth.length) {
         gsap.fromTo(
@@ -400,22 +446,225 @@ export function InflightLiveCard({
           },
         )
       }
-      const depthPaths = root.querySelectorAll<SVGPathElement>('[data-depth-chart] .recharts-area-curve, [data-depth-chart] .recharts-area-area')
-      if (depthPaths.length) {
+    }, root)
+    return () => ctx.revert()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- entrance once
+  }, [])
+
+  /** Live handoffs: queue→worker fly, worker→DONE/FAILED fly (AffectUI prose). */
+  useLayoutEffect(() => {
+    const root = rootRef.current
+    const prev = prevRef.current
+    prevRef.current = snap
+    const refreshCache = () => {
+      if (!root) return
+      const wait: Record<string, DOMRect> = {}
+      root.querySelectorAll<HTMLElement>('[data-wait-id]').forEach((el) => {
+        const id = el.getAttribute('data-wait-id')
+        if (id) wait[id] = el.getBoundingClientRect()
+      })
+      const slotR: Record<string, DOMRect> = {}
+      root.querySelectorAll<HTMLElement>('[data-slot-id]').forEach((el) => {
+        const id = el.getAttribute('data-slot-id')
+        if (id) slotR[id] = el.getBoundingClientRect()
+      })
+      rectCache.current = {
+        wait,
+        slot: slotR,
+        outcome: {
+          ok: root.querySelector<HTMLElement>('[data-outcome="ok"]')?.getBoundingClientRect(),
+          danger: root.querySelector<HTMLElement>('[data-outcome="danger"]')?.getBoundingClientRect(),
+        },
+      }
+    }
+    if (!root || prefersReducedMotion() || !enteredRef.current) {
+      refreshCache()
+      return
+    }
+    if (prev === snap) {
+      refreshCache()
+      return
+    }
+
+    const prevJobs = new Map(prev.jobs.map((j) => [j.id, j]))
+    const nextJobs = new Map(snap.jobs.map((j) => [j.id, j]))
+    const prevWorkerOf = new Map(
+      prev.workers.filter((w) => w.jobId).map((w) => [w.jobId!, w.id]),
+    )
+    const nextWorkerOf = new Map(
+      snap.workers.filter((w) => w.jobId).map((w) => [w.jobId!, w.id]),
+    )
+
+    const flyGhost = (
+      from: DOMRect | HTMLElement | null | undefined,
+      to: DOMRect | HTMLElement | null | undefined,
+      label: string,
+      kind: MockJobKind,
+      tone: 'run' | 'ok' | 'danger',
+      beatEl?: HTMLElement | null,
+    ) => {
+      const a = from instanceof HTMLElement ? from.getBoundingClientRect() : from
+      const b = to instanceof HTMLElement ? to.getBoundingClientRect() : to
+      if (!a || !b || a.width < 2 || b.width < 2) return
+      const ghost = document.createElement('div')
+      ghost.setAttribute('aria-hidden', 'true')
+      ghost.textContent = label
+      const bg =
+        tone === 'ok'
+          ? 'color-mix(in oklab, var(--success) 18%, var(--surface))'
+          : tone === 'danger'
+            ? 'color-mix(in oklab, var(--danger) 18%, var(--surface))'
+            : 'var(--surface)'
+      const fg =
+        tone === 'ok'
+          ? 'var(--success)'
+          : tone === 'danger'
+            ? 'var(--danger)'
+            : 'var(--foreground)'
+      Object.assign(ghost.style, {
+        position: 'fixed',
+        left: `${a.left}px`,
+        top: `${a.top}px`,
+        width: `${Math.max(a.width, 72)}px`,
+        height: `${Math.max(a.height, 22)}px`,
+        zIndex: '80',
+        pointerEvents: 'none',
+        display: 'flex',
+        alignItems: 'center',
+        padding: '0 8px',
+        borderRadius: '8px',
+        fontSize: '11px',
+        fontWeight: '500',
+        color: fg,
+        background: bg,
+        boxShadow:
+          'inset 0 1px 0 var(--surface-rim), inset 0 0 0 1px var(--surface-edge), var(--surface-contact)',
+        whiteSpace: 'nowrap',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+      } as CSSStyleDeclaration)
+      // kind dot
+      const dot = document.createElement('span')
+      Object.assign(dot.style, {
+        width: '6px',
+        height: '6px',
+        borderRadius: '2px',
+        marginRight: '6px',
+        flexShrink: '0',
+        background:
+          kind === 'chat'
+            ? 'var(--chart-1)'
+            : kind === 'embed'
+              ? 'var(--chart-6)'
+              : 'color-mix(in oklab, var(--foreground) 45%, transparent)',
+      })
+      ghost.prepend(dot)
+      document.body.appendChild(ghost)
+      gsap.to(ghost, {
+        left: b.left + Math.max(0, (b.width - a.width) / 2),
+        top: b.top + Math.max(0, (b.height - a.height) / 2),
+        scale: tone === 'run' ? 0.92 : 0.85,
+        opacity: 0.15,
+        duration: motionDuration(0.56),
+        ease: queueEase,
+        onComplete: () => ghost.remove(),
+      })
+      const beat = beatEl
+      if (beat && (tone === 'ok' || tone === 'danger')) {
         gsap.fromTo(
-          depthPaths,
-          { opacity: 0 },
+          beat,
+          { filter: 'brightness(1.55)', scale: 1.04 },
           {
-            opacity: 1,
-            duration: motionDuration(0.56),
-            ease: queueEase,
-            delay: motionDuration(0.4),
-            stagger: 0.04,
+            filter: 'brightness(1)',
+            scale: 1,
+            duration: motionDuration(0.42),
+            ease: ease.soft,
+            delay: motionDuration(0.28),
           },
         )
       }
-    }, root)
-    return () => ctx.revert()
+      if (beat && tone === 'danger') {
+        gsap.fromTo(
+          beat,
+          { x: -3 },
+          {
+            x: 3,
+            duration: motionDuration(0.07),
+            yoyo: true,
+            repeat: 5,
+            ease: 'power1.inOut',
+            delay: motionDuration(0.3),
+            onComplete: () => gsap.set(beat, { x: 0 }),
+          },
+        )
+      }
+    }
+
+    const cache = rectCache.current
+
+    // Queue → worker: was queued, now running on a slot.
+    for (const [id, job] of nextJobs) {
+      const before = prevJobs.get(id)
+      if (!before || before.status !== 'queued' || job.status !== 'running') continue
+      const workerId = nextWorkerOf.get(id)
+      if (!workerId) continue
+      const fromRect = cache.wait[id]
+      const toEl = root.querySelector<HTMLElement>(`[data-slot-id="${CSS.escape(workerId)}"]`)
+      const toRect = toEl?.getBoundingClientRect() ?? cache.slot[workerId]
+      flyGhost(fromRect, toRect, job.name, job.kind, 'run')
+      if (toEl) {
+        const fill = toEl.querySelector<HTMLElement>('[data-slot-fill]')
+        if (fill) {
+          gsap.fromTo(
+            fill,
+            { clipPath: 'inset(0 100% 0 0 round 999px)' },
+            {
+              clipPath: fill.style.clipPath || 'inset(0 96% 0 0 round 999px)',
+              duration: motionDuration(0.56),
+              ease: queueEase,
+            },
+          )
+        }
+      }
+    }
+
+    // Worker → DONE/FAILED: was running, removed by tick (terminal jobs dropped).
+    for (const [id, before] of prevJobs) {
+      if (before.status !== 'running') continue
+      const still = nextJobs.get(id)
+      if (still && still.status === 'running') continue
+      const workerId = prevWorkerOf.get(id)
+      const fromRect = workerId ? cache.slot[workerId] : undefined
+      const okBump = snap.totals.done > prev.totals.done
+      const failBump = snap.totals.failed > prev.totals.failed
+      const tone: 'ok' | 'danger' = failBump && !okBump ? 'danger' : 'ok'
+      const beat = root.querySelector<HTMLElement>(
+        tone === 'ok' ? '[data-outcome="ok"]' : '[data-outcome="danger"]',
+      )
+      const toRect = beat?.getBoundingClientRect() ?? cache.outcome[tone]
+      flyGhost(fromRect, toRect, before.name, before.kind, tone, beat)
+    }
+
+    // New wait pills drop in (AffectUI: new jobs drop at the back).
+    for (const [id, job] of nextJobs) {
+      if (job.status !== 'queued') continue
+      if (prevJobs.has(id)) continue
+      const el = root.querySelector<HTMLElement>(`[data-wait-id="${CSS.escape(id)}"]`)
+      if (!el) continue
+      gsap.fromTo(
+        el,
+        { opacity: 0, y: -10, scale: 0.6 },
+        {
+          opacity: 1,
+          y: 0,
+          scale: 1,
+          duration: motionDuration(0.52),
+          ease: queueEase,
+        },
+      )
+    }
+
+    refreshCache()
   }, [snap])
 
   const depthLabel = t('inflightDepthHint', { n: summary.depthNow })
@@ -428,15 +677,21 @@ export function InflightLiveCard({
     >
       <style>{`
         [data-testid="inflight-live-card"]{
-          /* Public AffectUI hierarchy → project tokens (color-mix only).
-             Card/well/chip stay cooler surface mixes — chart-3 (orange) is
-             categorical series only; amber (--warning) is reserved for
-             rate-limit / cooldown accents. Depth curve uses chart-1. */
-          --il-well: color-mix(in oklab, var(--foreground) 4%, var(--surface));
-          --il-chip: color-mix(in oklab, var(--foreground) 8%, var(--surface));
-          --il-line: color-mix(in oklab, var(--foreground) 13%, transparent);
-          --il-line-soft: color-mix(in oklab, var(--foreground) 8%, transparent);
-          --il-track: color-mix(in oklab, var(--foreground) 14%, transparent);
+          /* Public AffectUI hierarchy → project tokens.
+             Queue pills + account slots reuse solid-glass (top-edge rim +
+             edge + contact shadow) like Overview cards / modals / supplier
+             tiles — not frosted glass, not gray wells. chart-3 stays out of
+             surfaces; amber (--warning) only for rate-limit / cooldown.
+             Depth curve uses chart-1. */
+          --il-well: var(--surface);
+          --il-chip: var(--surface);
+          --il-line: var(--surface-edge);
+          --il-line-soft: var(--surface-edge);
+          --il-glass:
+            inset 0 1px 0 var(--surface-rim),
+            inset 0 0 0 1px var(--surface-edge),
+            var(--surface-contact);
+          --il-track: color-mix(in oklab, var(--foreground) 10%, var(--surface-secondary));
           --il-run: color-mix(in oklab, var(--foreground) 84%, transparent);
           --il-run-edge: var(--foreground);
           --il-run-glow: color-mix(in oklab, var(--foreground) 52%, transparent);
@@ -455,10 +710,17 @@ export function InflightLiveCard({
           --il-depth-fill: color-mix(in oklab, var(--chart-1) 20%, transparent);
           --il-faint: color-mix(in oklab, var(--foreground) 42%, transparent);
         }
+        [data-testid="inflight-live-card"] [data-il-glass]{
+          background: var(--surface);
+          box-shadow: var(--il-glass);
+        }
         @keyframes inflight-shimmer{0%{transform:translateX(-130%)}100%{transform:translateX(230%)}}
+        @keyframes inflight-queue-shimmer{0%{transform:translateX(-140%);opacity:.35}50%{opacity:.7}100%{transform:translateX(240%);opacity:.35}}
         @keyframes inflight-glow{from{opacity:.45}to{opacity:1}}
         @media (prefers-reduced-motion: reduce){
           .motion-safe\\:animate-\\[inflight-shimmer_1\\.5s_linear_infinite\\],
+          .motion-safe\:animate-\[inflight-shimmer_2\.2s_linear_infinite\],
+          .motion-safe\:animate-\[inflight-queue-shimmer_2\.8s_linear_infinite\],
           .motion-safe\\:animate-\\[inflight-glow_1\\.1s_ease-in-out_infinite\\]{animation:none!important}
         }
       `}</style>
@@ -473,10 +735,11 @@ export function InflightLiveCard({
               <div className="flex flex-wrap items-center gap-2">
                 <h3 className="font-semibold">{t('inflightTitle')}</h3>
                 <span
+                  data-il-glass={rateActive ? undefined : ''}
                   className={`mono inline-flex items-center gap-1 rounded-[3px] px-1.5 py-0.5 text-caption ${
                     rateActive
                       ? 'bg-[var(--il-warn-bg)] font-medium text-[var(--il-warn-fg)] shadow-[inset_0_0_0_1px_var(--il-warn-edge)]'
-                      : 'bg-[var(--il-chip)] text-muted shadow-[inset_0_0_0_1px_var(--il-line-soft)]'
+                      : 'text-muted'
                   }`}
                 >
                   <span className="status-dot" data-state={rateActive ? 'warn' : 'ok'} />
@@ -509,7 +772,7 @@ export function InflightLiveCard({
 
           {/* Waiting → account-slot bars → Done/Failed  (AffectUI Agent Queue flow) */}
           <div className="grid gap-3 border-b border-separator px-4 py-3 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.55fr)_auto]">
-            <div className="min-w-0">
+            <div className="min-w-0" data-queue-col>
               <div className="mb-1.5 flex items-baseline justify-between gap-2">
                 <span className="text-caption uppercase tracking-wide text-muted">{t('inflightQueue')}</span>
                 <span className={`mono text-[10px] tabular ${waitAmber ? 'text-[var(--il-warn-fg)]' : 'text-muted'}`}>
@@ -521,9 +784,15 @@ export function InflightLiveCard({
                   <div
                     key={job.id}
                     data-wait-pill
-                    className="flex items-center justify-between gap-2 rounded-lg bg-[var(--il-chip)] px-2 py-1.5 shadow-[inset_0_0_0_1px_var(--il-line-soft)]"
+                    data-wait-id={job.id}
+                    data-il-glass=""
+                    className="relative flex items-center justify-between gap-2 overflow-hidden rounded-lg px-2 py-1.5"
                   >
-                    <span className="flex min-w-0 items-center gap-1.5 truncate text-[11px] text-foreground/90">
+                    <span
+                      aria-hidden
+                      className="pointer-events-none absolute inset-y-0 w-2/5 bg-gradient-to-r from-transparent via-[color-mix(in_oklab,var(--foreground)_10%,transparent)] to-transparent motion-safe:animate-[inflight-queue-shimmer_2.8s_linear_infinite]"
+                    />
+                    <span className="relative z-[1] flex min-w-0 items-center gap-1.5 truncate text-[11px] text-foreground/90">
                       <span className={`size-1.5 shrink-0 rounded-[2px] ${kindDot(job.kind)}`} aria-hidden />
                       <span className="truncate">
                         {job.name}
@@ -532,7 +801,7 @@ export function InflightLiveCard({
                         ) : null}
                       </span>
                     </span>
-                    <span className="mono shrink-0 text-[10px] text-muted">{formatElapsed(job.elapsedMs)}</span>
+                    <span className="relative z-[1] mono shrink-0 text-[10px] text-muted">{formatElapsed(job.elapsedMs)}</span>
                   </div>
                 ))}
                 {waiting.length > 3 ? (
@@ -624,7 +893,7 @@ export function InflightLiveCard({
               <span className="text-caption uppercase tracking-wide text-muted">{t('inflightDepth')}</span>
               <span className="mono text-caption tabular text-muted">{depthLabel}</span>
             </div>
-            <div className="rounded-lg bg-[var(--il-well)] px-1.5 pt-1.5 pb-1 shadow-[inset_0_0_0_1px_var(--il-line-soft)]">
+            <div data-il-glass="" className="rounded-lg px-1.5 pt-1.5 pb-1">
               <DepthChart
                 series={snap.depthSeries}
                 bands={snap.rateLimits.map((r) => ({ from: r.from, until: r.until }))}
