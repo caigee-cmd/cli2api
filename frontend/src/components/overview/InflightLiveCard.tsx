@@ -36,20 +36,10 @@ const queueEase =
 
 /** AffectUI overflow: first N queue pills; rest as kind-colored dots. */
 const QUEUE_PILL_MAX = 3
-/** AffectUI: show a short worker rail (busy/rate-limited first), not every account. */
+/** AffectUI: show a short worker rail (busy first), not every account. */
 const WORKER_VISIBLE_MAX = 4
 
 type T = (key: string, vars?: Record<string, string | number>) => string
-
-function formatRemain(ms: number) {
-  const sec = Math.max(0, Math.round(ms / 1000))
-  const h = Math.floor(sec / 3600)
-  const m = Math.floor((sec % 3600) / 60)
-  const s = sec % 60
-  if (h) return `${h}h ${m}m`
-  if (m) return `${m}m ${String(s).padStart(2, '0')}s`
-  return `${s}s`
-}
 
 function formatElapsed(ms: number) {
   const sec = Math.max(0, ms / 1000)
@@ -214,15 +204,13 @@ function SlotBar({
   job,
   clockMs,
   idleLabel,
-  pausedLabel,
 }: {
   slot: MockAccountSlot
   job?: MockInflightJob
   clockMs: number
   idleLabel: string
-  pausedLabel: string
 }) {
-  const frozen = Boolean(slot.rateLimited)
+  // In-progress only: no rate-limit / cooldown amber or remaining-time annotations.
   const concurrency = clampSlotConcurrency(slot.concurrency ?? 1)
   const occupiedRaw =
     slot.inFlight != null
@@ -231,8 +219,8 @@ function SlotBar({
         ? 1
         : 0
   const occupied = Math.min(concurrency, occupiedRaw)
-  const running = Boolean(occupied > 0 && !frozen)
-  const label = job?.name ?? (frozen ? pausedLabel : idleLabel)
+  const running = occupied > 0
+  const label = job?.name ?? idleLabel
   const elapsed = jobElapsedMs(job, clockMs)
   const cells = Array.from({ length: concurrency }, (_, i) => i < occupied)
   return (
@@ -244,37 +232,23 @@ function SlotBar({
       data-slot-concurrency={concurrency}
       data-slot-inflight={occupied}
       className={`relative flex min-w-0 items-center gap-2.5 overflow-hidden rounded-xl px-2.5 py-2 ${
-        frozen
-          ? 'bg-[var(--il-warn-bg)] shadow-[var(--il-hair-warn)]'
-          : running
-            ? 'bg-[var(--il-busy-bg)]'
-            : 'bg-[var(--il-item-bg)]'
+        running ? 'bg-[var(--il-busy-bg)]' : 'bg-[var(--il-item-bg)]'
       }`}
       title={`${slot.name} · ${label} · ${occupied}/${concurrency}`}
     >
-      {frozen ? (
-        <span
-          aria-hidden
-          className="pointer-events-none absolute inset-0 opacity-[0.16]"
-          style={{
-            backgroundImage:
-              'repeating-linear-gradient(-45deg, transparent, transparent 5px, var(--il-warn-hatch) 5px, var(--il-warn-hatch) 6px)',
-          }}
-        />
-      ) : null}
       <span
         className={`relative z-[1] flex min-w-0 w-[4.75rem] shrink-0 items-center gap-1.5 ${
-          running || frozen ? 'text-foreground/85' : 'text-muted opacity-55'
+          running ? 'text-foreground/85' : 'text-muted opacity-55'
         }`}
         title={`${slot.name} · ${slot.provider}`}
       >
         {/* ProviderMark blends with slot wash — no contrasting wash (same as Overview accounts / supplier tiles). */}
-        <span className={`grid size-3.5 shrink-0 place-items-center ${running || frozen ? '' : 'opacity-70'}`} aria-hidden>
+        <span className={`grid size-3.5 shrink-0 place-items-center ${running ? '' : 'opacity-70'}`} aria-hidden>
           <ProviderMark provider={slot.provider} size={14} />
         </span>
         <span
           className={`mono min-w-0 truncate text-[11px] leading-none ${
-            running || frozen ? 'font-medium' : ''
+            running ? 'font-medium' : ''
           }`}
         >
           {slot.name}
@@ -284,11 +258,9 @@ function SlotBar({
       <span
         data-slot-job-pill=""
         className={`relative z-[1] inline-flex max-w-[40%] shrink-0 items-center gap-1 truncate rounded-lg px-2 py-0.5 text-[11px] leading-none ${
-          frozen
-            ? 'bg-[color-mix(in_oklab,var(--warning)_14%,var(--surface))] font-medium text-[var(--il-warn-fg)]'
-            : job
-              ? kindPill(job.kind)
-              : 'bg-[color-mix(in_oklab,var(--foreground)_4%,var(--surface))] text-muted'
+          job
+            ? kindPill(job.kind)
+            : 'bg-[color-mix(in_oklab,var(--foreground)_4%,var(--surface))] text-muted'
         }`}
       >
         {job ? (
@@ -308,11 +280,9 @@ function SlotBar({
             data-slot-cell=""
             data-slot-fill={filled ? '' : undefined}
             className={`relative min-w-0 flex-1 overflow-hidden rounded-[2px] ${
-              frozen && filled
-                ? 'bg-[var(--il-warn)]'
-                : filled
-                  ? 'bg-[var(--il-busy-fill)]'
-                  : 'bg-[var(--il-track)] opacity-55'
+              filled
+                ? 'bg-[var(--il-busy-fill)]'
+                : 'bg-[var(--il-track)] opacity-55'
             }`}
           >
             {running && filled ? (
@@ -337,9 +307,7 @@ function SlotBar({
         ))}
       </div>
       <span className="relative z-[1] mono w-[3.6rem] shrink-0 text-right text-[11px] leading-none tabular text-muted">
-        {frozen ? (
-          <span className="font-medium text-[var(--il-warn-fg)]">{pausedLabel}</span>
-        ) : job || occupied > 0 ? (
+        {job || occupied > 0 ? (
           formatElapsed(elapsed)
         ) : (
           <span className="text-muted/45">—</span>
@@ -350,10 +318,11 @@ function SlotBar({
 }
 
 /**
- * Overview summary: Agent Queue feel over cli2api pool/inflight/cooldown concepts.
+ * Overview summary: Agent Queue feel over cli2api pool/inflight concepts.
  * Default collapsed — no /api/live consume and no mock loop until expanded
  * (toggle or LiveStrip「当前并发」). When open, project live workers /
- * rate_limits / sticky; mock tick only as empty-demo fallback.
+ * sticky (in-progress only — no rate-limit remaining chips/bands); mock tick
+ * only as empty-demo fallback. Session Done/Failed reset on each expand.
  * Motion timings from public AffectUI Agent Queue demo (mapped to project
  * tokens). Link targets `/live` later — no Pause/Cancel/stepper.
  */
@@ -403,14 +372,14 @@ export function InflightLiveCard({
   const waiting = snap.jobs.filter((j) => j.status === 'queued')
   const queuePills = waiting.slice(0, QUEUE_PILL_MAX)
   const queueOverflow = waiting.slice(QUEUE_PILL_MAX)
-  // AffectUI: short worker rail — busy → available → cooldown, cap at N.
+  // AffectUI: short worker rail — busy → available (in-progress), cap at N.
+  // No cooldown bucket / remaining-time annotations on this card.
   const visibleWorkers = useMemo(() => {
     const busy = snap.workers.filter((w) => w.busy)
-    const available = snap.workers.filter((w) => !w.busy && !w.rateLimited)
-    const cooling = snap.workers.filter((w) => !w.busy && w.rateLimited)
+    const available = snap.workers.filter((w) => !w.busy)
     const out: typeof snap.workers = []
     const seen = new Set<string>()
-    for (const w of [...busy, ...available, ...cooling]) {
+    for (const w of [...busy, ...available]) {
       if (seen.has(w.id)) continue
       seen.add(w.id)
       out.push(w)
@@ -418,33 +387,45 @@ export function InflightLiveCard({
     }
     return out
   }, [snap.workers])
-  const rateActive = snap.rateLimits[0]
   const waitAmber = summary.waiting >= snap.backpressure
 
+  // Session Done/Failed counters start at 0 each expand (not historical DB).
+  const viewingSessionRef = useRef(false)
+
   // External snapshot (tests) wins. Otherwise: when expanded, project /api/live
-  // (even idle — no mock totals/throughput/p95/depth bleed). Mock tick only if
+  // (even idle — no mock throughput/p95/depth bleed). Mock tick only if
   // live is null. useLayoutEffect so the first expanded paint is already clean.
   useLayoutEffect(() => {
     if (controlled) {
       setLiveSnap(cloneMockInflight(snapshot!))
       setUseMockFallback(false)
       setSticky(null)
+      viewingSessionRef.current = false
       return
     }
     if (!expanded) {
       setUseMockFallback(false)
+      viewingSessionRef.current = false
       return
     }
     if (live !== null) {
       setUseMockFallback(false)
       setSticky(live.sticky)
       setClockMs(Date.now())
-      setLiveSnap((prev) => applyLiveProjection(prev, live))
+      setLiveSnap((prev) => {
+        // New viewing session → force first projection (totals 0, depth reset).
+        const base = !viewingSessionRef.current
+          ? { ...cloneMockInflight(prev), waitP95Ms: 1, totals: { done: 0, failed: 0 } }
+          : prev
+        viewingSessionRef.current = true
+        return applyLiveProjection(base, live)
+      })
       return
     }
     // live === null → Stage-1 mock loop only (offline / no parent poll).
     setSticky(null)
     setUseMockFallback(true)
+    viewingSessionRef.current = false
   }, [controlled, snapshot, expanded, live])
 
   // Mock raf loop — gated on useMockFallback (live === null only).
@@ -854,7 +835,8 @@ export function InflightLiveCard({
         ease: queueEase,
         force3D: true,
         onComplete: () => {
-          // Immediate on fly settle: light Done/Failed hairline pulse (no delay).
+          // Settle: hairline flash, then playful left-right wiggle + scale
+          // (stuffed-into the Done/Failed pill). Keep shrink fly above.
           const beat = beatEl
           if (beat && (tone === 'ok' || tone === 'danger')) {
             const base =
@@ -863,22 +845,35 @@ export function InflightLiveCard({
                 : 'inset 0 0 0 1px color-mix(in oklab, var(--danger) 28%, transparent)'
             const lit =
               tone === 'ok'
-                ? 'inset 0 0 0 1.5px color-mix(in oklab, var(--success) 52%, transparent), 0 0 8px color-mix(in oklab, var(--success) 16%, transparent)'
-                : 'inset 0 0 0 1.5px color-mix(in oklab, var(--danger) 52%, transparent), 0 0 8px color-mix(in oklab, var(--danger) 16%, transparent)'
-            gsap.fromTo(
+                ? 'inset 0 0 0 1.5px color-mix(in oklab, var(--success) 52%, transparent), 0 0 10px color-mix(in oklab, var(--success) 20%, transparent)'
+                : 'inset 0 0 0 1.5px color-mix(in oklab, var(--danger) 52%, transparent), 0 0 10px color-mix(in oklab, var(--danger) 20%, transparent)'
+            gsap.set(beat, { transformOrigin: 'center center' })
+            const land = gsap.timeline({
+              onComplete: () => {
+                gsap.set(beat, { clearProps: 'boxShadow,transform,x,scale' })
+              },
+            })
+            land.fromTo(
               beat,
               { boxShadow: base },
               {
                 boxShadow: lit,
-                duration: motionDuration(0.22),
+                duration: motionDuration(0.16),
                 ease: 'power1.inOut',
                 yoyo: true,
-                repeat: 3, // ~2 soft pulses
-                onComplete: () => {
-                  gsap.set(beat, { clearProps: 'boxShadow' })
-                },
+                repeat: 1,
               },
             )
+            land.to(beat, {
+              keyframes: [
+                { x: 2.8, scale: 1.07, duration: motionDuration(0.07) },
+                { x: -3.2, scale: 0.93, duration: motionDuration(0.09) },
+                { x: 2.2, scale: 1.05, duration: motionDuration(0.08) },
+                { x: -1.2, scale: 0.98, duration: motionDuration(0.07) },
+                { x: 0, scale: 1, duration: motionDuration(0.1) },
+              ],
+              ease: 'power1.inOut',
+            })
           }
           // Slot/queue land chrome, then fade the opaque ghost after a short hold.
           onLand?.()
@@ -1005,8 +1000,7 @@ export function InflightLiveCard({
 
       if (still && still.status === 'running') continue
       // Prefer per-job completion (mock tick + live recent_completions /
-      // last_error_kind). Totals bump is a last-resort fallback only — live
-      // keeps totals at 0, so without completions every busy→idle looked Done.
+      // last_error_kind). Totals bump is a last-resort fallback only.
       const comp = snap.completions?.find((c) => c.id === id)
       let tone: 'ok' | 'danger'
       if (comp) {
@@ -1113,8 +1107,7 @@ export function InflightLiveCard({
           /* Public AffectUI hierarchy → project tokens.
              Outer Card keeps solid-glass; nested queue/slots/outcomes use
              wash + at most one soft hairline (no stacked inset rings).
-             chart-3 stays out of surfaces; amber (--warning) only for
-             rate-limit / cooldown. Depth curve uses chart-1. */
+             chart-3 stays out of surfaces. Depth curve uses chart-1. */
           /* Nested items: wash + at most one soft hairline — never stacked solid-glass
              frames inside the outer .card (Access / overview nested-card rule). */
           --il-well: var(--surface);
@@ -1135,10 +1128,10 @@ export function InflightLiveCard({
           /* Amber only for rate-limit/cooldown — light wash, not saturated orange panel */
           --il-warn-bg: color-mix(in oklab, var(--warning) 11%, var(--surface));
           --il-warn-hatch: color-mix(in oklab, var(--warning) 22%, transparent);
-          /* AffectUI-ish mint / coral, still project success/danger */
-          --il-ok-bg: color-mix(in oklab, var(--success) 18%, var(--surface));
+          /* AffectUI-ish mint / coral outcome sinks — a touch richer wash */
+          --il-ok-bg: color-mix(in oklab, var(--success) 22%, var(--surface));
           --il-ok-fg: var(--success);
-          --il-err-bg: color-mix(in oklab, var(--danger) 16%, var(--surface));
+          --il-err-bg: color-mix(in oklab, var(--danger) 20%, var(--surface));
           --il-err-fg: var(--danger);
           --il-depth: var(--chart-1);
           --il-depth-fill: color-mix(in oklab, var(--chart-1) 20%, transparent);
@@ -1175,19 +1168,9 @@ export function InflightLiveCard({
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="font-semibold">{t('inflightTitle')}</h3>
-              <span
-                className={`mono inline-flex items-center gap-1 rounded-[3px] px-1.5 py-0.5 text-caption ${
-                  rateActive && expanded
-                    ? 'bg-[var(--il-warn-bg)] font-medium text-[var(--il-warn-fg)] shadow-[var(--il-hair-warn)]'
-                    : 'text-muted'
-                }`}
-              >
-                <span className="status-dot" data-state={rateActive && expanded ? 'warn' : liveBadge ? 'ok' : ''} />
-                {expanded && rateActive
-                  ? t('inflightRatePill', { remain: formatRemain(rateActive.remainingMs) })
-                  : liveBadge
-                    ? t('inflightLiveBadge')
-                    : t('inflightMockBadge')}
+              <span className="mono inline-flex items-center gap-1 rounded-[3px] px-1.5 py-0.5 text-caption text-muted">
+                <span className="status-dot" data-state={liveBadge ? 'ok' : ''} />
+                {liveBadge ? t('inflightLiveBadge') : t('inflightMockBadge')}
               </span>
               {expanded && stickyBindings > 0 ? (
                 <span className="mono text-caption text-muted">
@@ -1226,7 +1209,7 @@ export function InflightLiveCard({
             <Metric
               label={t('inflightWaiting')}
               value={summary.waiting}
-              warn={waitAmber || Boolean(rateActive)}
+              warn={waitAmber}
             />
             <Metric
               label={t('inflightRunning')}
@@ -1314,24 +1297,23 @@ export function InflightLiveCard({
                     job={slot.jobId ? jobById.get(slot.jobId) : undefined}
                     clockMs={clockMs}
                     idleLabel={t('inflightSlotIdle')}
-                    pausedLabel={t('inflightSlotPaused')}
                   />
                 ))}
               </div>
             </div>
 
-            <div className="flex gap-2 lg:w-[3.75rem] lg:flex-col">
+            <div className="flex gap-2 sm:gap-2.5 lg:w-[4.5rem] lg:flex-col lg:gap-2.5">
               <Outcome
                 label={t('inflightDone')}
                 value={snap.totals.done}
                 tone="ok"
-                icon={<Check size={14} weight="bold" aria-hidden />}
+                icon={<Check size={15} weight="bold" aria-hidden />}
               />
               <Outcome
                 label={t('inflightFailed')}
                 value={snap.totals.failed}
                 tone="danger"
-                icon={<X size={14} weight="bold" aria-hidden />}
+                icon={<X size={15} weight="bold" aria-hidden />}
               />
             </div>
           </div>
@@ -1344,19 +1326,11 @@ export function InflightLiveCard({
             <div className="rounded-lg bg-[var(--il-item-bg)] px-1.5 pt-1.5 pb-1">
               <DepthChart
                 series={snap.depthSeries}
-                bands={snap.rateLimits.map((r) => ({ from: r.from, until: r.until }))}
+                bands={[]}
                 backpressure={snap.backpressure}
                 label={depthLabel}
               />
             </div>
-            {rateActive ? (
-              <div className="mono mt-1.5 text-[10px] font-medium text-[var(--il-warn-fg)]">
-                {t('inflightRateBand', {
-                  label: rateActive.label,
-                  remain: formatRemain(rateActive.remainingMs),
-                })}
-              </div>
-            ) : null}
           </div>
 
         </div>
@@ -1411,28 +1385,36 @@ function Outcome({
       role="group"
       aria-label={`${label}: ${value}`}
       title={`${label}: ${value}`}
-      className={`flex min-w-[3.25rem] flex-1 flex-col items-center justify-center gap-1 rounded-xl px-2 py-2.5 ${
+      className={`flex min-w-[3.6rem] flex-1 flex-col items-center justify-center gap-1.5 rounded-2xl px-2.5 py-3 ${
         ok
-          ? 'bg-[var(--il-ok-bg)] shadow-[var(--il-hair-ok)]'
-          : 'bg-[var(--il-err-bg)] shadow-[var(--il-hair-err)]'
+          ? 'bg-[var(--il-ok-bg)] shadow-[var(--il-hair-ok),0_6px_16px_color-mix(in_oklab,var(--success)_10%,transparent)]'
+          : 'bg-[var(--il-err-bg)] shadow-[var(--il-hair-err),0_6px_16px_color-mix(in_oklab,var(--danger)_10%,transparent)]'
       }`}
     >
       <span
-        className={`inline-flex size-6 items-center justify-center ${
-          ok ? 'text-[var(--il-ok-fg)]' : 'text-[var(--il-err-fg)]'
+        className={`inline-flex size-7 items-center justify-center rounded-full ${
+          ok
+            ? 'bg-[color-mix(in_oklab,var(--success)_18%,transparent)] text-[var(--il-ok-fg)]'
+            : 'bg-[color-mix(in_oklab,var(--danger)_18%,transparent)] text-[var(--il-err-fg)]'
         }`}
         aria-hidden
       >
         {icon}
       </span>
       <div
-        className={`mono text-section font-semibold tabular leading-none ${
+        className={`mono text-[1.15rem] font-semibold tabular leading-none tracking-tight ${
           ok ? 'text-[var(--il-ok-fg)]' : 'text-[var(--il-err-fg)]'
         }`}
       >
         <CountUp value={value} kind="int" duration={560} />
       </div>
-      <span className="sr-only">{label}</span>
+      <span
+        className={`text-[10px] font-medium uppercase tracking-[0.08em] ${
+          ok ? 'text-[color-mix(in_oklab,var(--success)_72%,var(--muted))]' : 'text-[color-mix(in_oklab,var(--danger)_72%,var(--muted))]'
+        }`}
+      >
+        {label}
+      </span>
     </div>
   )
 }
