@@ -58,13 +58,17 @@
 // catalog, mirroring the official client opening its model menu.
 //
 // The discovered list is not the same as the callable list: CodeArts' agent
-// and builtin catalogs include models the account cannot use, e.g.
-// InferHub.002002009.404 "model is not registered" and InferHub.4004.200
-// "benefit not found" for trial accounts without a benefit group. The adapter
-// hides a limited-benefit model when benefit discovery/claim fails, and learns
-// from real chat traffic: the first 002002009/4004.200 answer marks that model
-// unusable for the account for 30 minutes and /v1/models stops advertising it.
-// The account itself stays ready; this is an entitlement failure, not auth.
+// and builtin catalogs include models the account cannot use. Two separate
+// causes were confirmed live. First, a model's display name is not its wire
+// id; the agent detail carries model_parameters.model_id (for example
+// glm-5.2-sft-harmony) and model_name (GLM-5.2-ArkTS-SPARK), and sending the
+// display name returns 002002009. The adapter keeps model_id as NativeModel
+// and model_name only as DisplayName. Second, limited-benefit models answer
+// 4004.200 "benefit not found" until the account's benefit record exists; the
+// adapter hides them when benefit discovery/claim fails. For other models the
+// first 002002009/4004.200 answer still marks that model unusable for the
+// account for 30 minutes and /v1/models stops advertising it. The account
+// itself stays ready; this is an entitlement failure, not auth.
 //
 // The catalog endpoint's values are capped for output: the upstream rejects
 // max_tokens above 65536 even when the catalog advertises more, so the public

@@ -277,12 +277,17 @@ func (c *Client) fetchAgentModels(ctx context.Context, accountID string, credent
 	}
 	out := make([]modelRecord, 0, len(detail.Gpts.Models))
 	for _, model := range detail.Gpts.Models {
-		id := firstNonEmpty(model.ModelName, model.ModelID, model.ModelAlias, model.Params.ModelID)
+		// The chat endpoint registers the lowercase model_id, not the display
+		// name. The official client keys its provider catalog by model_id and
+		// uses model_name only as the label; using model_name here makes
+		// display names such as GLM-5.2-ArkTS-SPARK fail with 002002009 while
+		// the real id (glm-5.2-sft-harmony) is callable.
+		id := firstNonEmpty(model.Params.ModelID, model.ModelID, model.ModelAlias, model.ModelName)
 		if id == "" {
 			continue
 		}
 		out = append(out, modelRecord{
-			ID: id, Name: id, Description: model.Params.ModelDesc,
+			ID: id, Name: firstNonEmpty(model.ModelName, id), Description: model.Params.ModelDesc,
 			ContextWindow: model.Params.ContextWindow, MaxTokens: model.Params.MaxTokens,
 			Benefit: isLimitedBenefit(model.Params.ModelDesc),
 		})

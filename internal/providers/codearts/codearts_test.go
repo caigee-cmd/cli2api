@@ -419,7 +419,7 @@ func TestBenefitModelsHiddenWhenBenefitUnavailable(t *testing.T) {
 		case agentListPath:
 			_, _ = io.WriteString(w, `{"agents":[{"agent_id":"agent-1","agent_name":"CodeAgent","is_primary_agent":true,"show_in_ide":true,"alias":{"alias_zh_cn":"智能体"}}]}`)
 		case agentDetailPath:
-			_, _ = io.WriteString(w, `{"gpts":{"models":[{"model_name":"Normal","model_parameters":{"context_window":1000,"max_tokens":100}},{"model_name":"Trial","model_parameters":{"context_window":1000,"max_tokens":100,"model_desc":"限时体验"}}]}}`)
+			_, _ = io.WriteString(w, `{"gpts":{"models":[{"model_name":"Normal","model_id":"normal-id","model_parameters":{"model_id":"normal-id","context_window":1000,"max_tokens":100}},{"model_name":"Trial","model_id":"trial-id","model_parameters":{"model_id":"trial-id","context_window":1000,"max_tokens":100,"model_desc":"限时体验"}}]}}`)
 		case modelBuiltinPath:
 			_, _ = io.WriteString(w, `{"builtinModels":[]}`)
 		case benefitClaim:
@@ -438,7 +438,7 @@ func TestBenefitModelsHiddenWhenBenefitUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(models) != 1 || models[0].NativeModel != "Normal" {
+	if len(models) != 1 || models[0].NativeModel != "normal-id" || models[0].DisplayName != "Normal" {
 		t.Fatalf("models = %+v", models)
 	}
 }
