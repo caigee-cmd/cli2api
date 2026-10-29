@@ -811,15 +811,27 @@ export function InflightLiveCard({
         return el
       }
 
+      // Slot→slot / retry: mild shrink. Slot→Done/Failed: shrink hard toward the
+      // outcome control so the flying pill does not stay slot-sized and ugly.
+      const toOutcome = tone === 'ok' || tone === 'danger'
+      const endW = toOutcome ? w * 0.55 : w * 0.92
+      const flyScale = tone === 'run' || tone === 'retry' ? 0.96 : 0.42
+      const fadeScale = tone === 'run' || tone === 'retry' ? 0.9 : 0.28
+
       const ghost = makePill({ opacity: 1 })
+      gsap.set(ghost, { transformOrigin: 'center center' })
       // 3 residual afterimages — stagger behind the lead pill (AffectUI trail).
       const trails = [0.72, 0.46, 0.26].map((op, i) => {
         const t = makePill({ opacity: op, asTrail: true })
+        gsap.set(t, { transformOrigin: 'center center' })
         gsap.to(t, {
           left: endLeft,
           top: endTop,
-          width: w * 0.92,
-          scaleX: 1.28 + i * 0.1,
+          width: endW,
+          // Outcome trail shrinks with the lead; run trail keeps a motion stretch.
+          ...(toOutcome
+            ? { scale: flyScale * (0.92 - i * 0.08) }
+            : { scaleX: 1.28 + i * 0.1 }),
           opacity: 0,
           duration: flyDur,
           delay: motionDuration(0.04 + i * 0.045),
@@ -834,8 +846,8 @@ export function InflightLiveCard({
       gsap.to(ghost, {
         left: endLeft,
         top: endTop,
-        width: w * 0.92,
-        scale: tone === 'run' || tone === 'retry' ? 0.96 : 0.88,
+        width: endW,
+        scale: flyScale,
         // Keep the lead pill opaque for the whole flight — only fade after a short land hold.
         opacity: 1,
         duration: flyDur,
@@ -872,7 +884,7 @@ export function InflightLiveCard({
           onLand?.()
           gsap.to(ghost, {
             opacity: 0,
-            scale: tone === 'run' || tone === 'retry' ? 0.9 : 0.82,
+            scale: fadeScale,
             duration: fadeDur,
             delay: holdDur,
             ease: 'power1.out',
