@@ -34,17 +34,33 @@ function formatElapsed(ms: number) {
   return `${sec.toFixed(1)}s`
 }
 
-/** Cold kind chips — identity via opacity / chart hue, not a second brand palette. */
-function kindTone(kind: MockJobKind): string {
+/**
+ * Kind identity from public AffectUI demo hierarchy (llm/tool/agent washes),
+ * remapped to project chart / foreground tokens — never a second brand palette.
+ */
+function kindDot(kind: MockJobKind): string {
   switch (kind) {
     case 'chat':
-      return 'bg-[var(--chart-1)]/55'
+      return 'bg-[var(--chart-1)]'
     case 'embed':
-      return 'bg-[var(--chart-6)]/55'
+      return 'bg-[var(--chart-6)]'
     case 'tools':
-      return 'bg-foreground/35'
+      return 'bg-foreground/45'
     default:
-      return 'bg-foreground/20'
+      return 'bg-foreground/25'
+  }
+}
+
+function kindPill(kind: MockJobKind): string {
+  switch (kind) {
+    case 'chat':
+      return 'bg-[color-mix(in_oklab,var(--chart-1)_14%,var(--surface))] text-foreground/90'
+    case 'embed':
+      return 'bg-[color-mix(in_oklab,var(--chart-6)_14%,var(--surface))] text-foreground/90'
+    case 'tools':
+      return 'bg-foreground/[0.06] text-foreground/85'
+    default:
+      return 'bg-surface-tertiary text-foreground/80'
   }
 }
 
@@ -90,8 +106,8 @@ function DepthChart({
             y={0}
             width={width}
             height={h}
-            fill="var(--warning)"
-            opacity={0.18}
+            fill="var(--il-warn, var(--warning))"
+            opacity={0.12}
           />
         )
       })}
@@ -100,19 +116,19 @@ function DepthChart({
         x2={w}
         y1={guideY}
         y2={guideY}
-        stroke="var(--foreground)"
-        strokeOpacity={0.22}
+        stroke="var(--il-faint, var(--foreground))"
+        strokeOpacity={0.35}
         strokeDasharray="3 3"
         strokeWidth={1}
         vectorEffect="non-scaling-stroke"
       />
-      <polygon points={area} fill="var(--foreground)" opacity="0.08" />
+      <polygon points={area} fill="var(--il-depth-fill, var(--chart-1))" opacity="1" />
       <polyline
         points={line}
         fill="none"
-        stroke="var(--foreground)"
-        strokeOpacity={0.7}
-        strokeWidth="1.5"
+        stroke="var(--il-depth, var(--chart-1))"
+        strokeOpacity={0.92}
+        strokeWidth="1.75"
         strokeLinejoin="round"
         strokeLinecap="round"
         vectorEffect="non-scaling-stroke"
@@ -140,40 +156,47 @@ function SlotBar({
       data-slot
       className={`relative flex min-w-0 items-center gap-2 overflow-hidden rounded-lg px-2 py-1.5 ${
         frozen
-          ? 'bg-warning/10 ring-1 ring-inset ring-warning/35'
-          : 'bg-surface-secondary'
+          ? 'bg-[var(--il-warn-bg)] shadow-[inset_0_0_0_1px_var(--il-warn-edge)]'
+          : slot.busy
+            ? 'bg-[var(--il-chip)] shadow-[inset_0_0_0_1px_var(--il-line)]'
+            : 'bg-[var(--il-well)] shadow-[inset_0_0_0_1px_var(--il-line-soft)]'
       }`}
       title={`${slot.name} · ${label}`}
     >
       {frozen ? (
         <span
           aria-hidden
-          className="pointer-events-none absolute inset-0 opacity-[0.35]"
+          className="pointer-events-none absolute inset-0 opacity-[0.22]"
           style={{
             backgroundImage:
-              'repeating-linear-gradient(-45deg, transparent, transparent 4px, color-mix(in oklab, var(--warning) 28%, transparent) 4px, color-mix(in oklab, var(--warning) 28%, transparent) 5px)',
+              'repeating-linear-gradient(-45deg, transparent, transparent 5px, var(--il-warn-hatch) 5px, var(--il-warn-hatch) 6px)',
           }}
         />
       ) : null}
-      {/* Job pill — AffectUI worker row: pill + growing bar + elapsed */}
+      <span className="relative z-[1] mono w-[3.4rem] shrink-0 truncate text-[10px] leading-none text-muted" title={slot.name}>
+        {slot.name}
+      </span>
+      {/* Job pill — AffectUI worker row: kind wash + growing bar + elapsed */}
       <span
-        className={`relative z-[1] inline-flex max-w-[42%] shrink-0 items-center gap-1 truncate rounded-md px-1.5 py-0.5 text-[11px] leading-none ${
+        className={`relative z-[1] inline-flex max-w-[38%] shrink-0 items-center gap-1 truncate rounded-md px-1.5 py-0.5 text-[11px] leading-none ${
           frozen
-            ? 'bg-warning/20 text-warning'
+            ? 'bg-[color-mix(in_oklab,var(--warning)_18%,var(--surface))] font-medium text-[var(--il-warn-fg)] shadow-[inset_0_0_0_1px_var(--il-warn-edge)]'
             : job
-              ? 'bg-background/70 text-foreground/85'
-              : 'bg-background/40 text-muted'
+              ? `${kindPill(job.kind)} shadow-[inset_0_0_0_1px_var(--il-line-soft)]`
+              : 'bg-background/45 text-muted'
         }`}
       >
         {job ? (
-          <span className={`size-1.5 shrink-0 rounded-[2px] ${kindTone(job.kind)}`} aria-hidden />
+          <span className={`size-1.5 shrink-0 rounded-[2px] ${kindDot(job.kind)}`} aria-hidden />
         ) : null}
         <span className="truncate">{label}</span>
       </span>
-      <div className="relative z-[1] h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-separator/80">
+      <div className="relative z-[1] h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-[var(--il-track)]">
         <div
           data-slot-fill
-          className={`relative h-full ${frozen ? 'bg-warning/80' : slot.busy ? 'bg-foreground/55' : 'bg-transparent'}`}
+          className={`relative h-full ${
+            frozen ? 'bg-[var(--il-warn)]' : slot.busy ? 'bg-[var(--il-run)]' : 'bg-transparent'
+          }`}
           style={{
             width: '100%',
             clipPath: `inset(0 ${100 - pct}% 0 0 round 999px)`,
@@ -184,12 +207,12 @@ function SlotBar({
             <>
               <span
                 aria-hidden
-                className="pointer-events-none absolute inset-y-0 w-2/5 bg-gradient-to-r from-transparent via-foreground/45 to-transparent motion-safe:animate-[inflight-shimmer_1.5s_linear_infinite]"
+                className="pointer-events-none absolute inset-y-0 w-2/5 bg-gradient-to-r from-transparent via-[color-mix(in_oklab,var(--surface)_55%,transparent)] to-transparent motion-safe:animate-[inflight-shimmer_1.5s_linear_infinite]"
               />
               <span
                 aria-hidden
-                className="pointer-events-none absolute inset-y-0 right-0 w-[3px] bg-foreground/85 motion-safe:animate-[inflight-glow_1.1s_ease-in-out_infinite_alternate]"
-                style={{ boxShadow: '0 0 7px 1px color-mix(in oklab, var(--foreground) 50%, transparent)' }}
+                className="pointer-events-none absolute inset-y-0 right-0 w-[3px] bg-[var(--il-run-edge)] motion-safe:animate-[inflight-glow_1.1s_ease-in-out_infinite_alternate]"
+                style={{ boxShadow: '0 0 8px 1px var(--il-run-glow)' }}
               />
             </>
           ) : null}
@@ -197,11 +220,11 @@ function SlotBar({
       </div>
       <span className="relative z-[1] mono w-[2.6rem] shrink-0 text-right text-[10px] leading-none tabular text-muted">
         {frozen ? (
-          <span className="text-warning">{pausedLabel}</span>
+          <span className="font-medium text-[var(--il-warn-fg)]">{pausedLabel}</span>
         ) : job ? (
           formatElapsed(job.elapsedMs)
         ) : (
-          <span className="text-muted/50">—</span>
+          <span className="text-muted/45">—</span>
         )}
       </span>
     </div>
@@ -210,8 +233,9 @@ function SlotBar({
 
 /**
  * Overview summary: Agent Queue feel over cli2api pool/inflight/cooldown concepts.
- * Read-only mock (Phase 1). Motion timings from public AffectUI demo CSS
- * (see docs/assets/overview-inflight-mock/affectui-public-motion-notes.md) —
+ * Read-only mock (Phase 1). Motion timings + color hierarchy from public
+ * AffectUI Agent Queue demo CSS vars (mapped to project tokens via color-mix;
+ * see docs/assets/overview-inflight-mock/affectui-public-motion-notes.md) —
  * not Pro source. Link targets `/live` later — no Pause/Cancel/stepper.
  */
 export function InflightLiveCard({
@@ -371,6 +395,31 @@ export function InflightLiveCard({
       className="group overflow-hidden p-0 transition-[box-shadow] duration-200"
     >
       <style>{`
+        [data-testid="inflight-live-card"]{
+          /* Public AffectUI demo hierarchy → project tokens (color-mix only; no Pro dump). */
+          --il-well: color-mix(in oklab, var(--foreground) 4%, var(--surface));
+          --il-chip: color-mix(in oklab, var(--foreground) 8%, var(--surface));
+          --il-line: color-mix(in oklab, var(--foreground) 13%, transparent);
+          --il-line-soft: color-mix(in oklab, var(--foreground) 8%, transparent);
+          --il-track: color-mix(in oklab, var(--foreground) 14%, transparent);
+          --il-run: color-mix(in oklab, var(--foreground) 84%, transparent);
+          --il-run-edge: var(--foreground);
+          --il-run-glow: color-mix(in oklab, var(--foreground) 52%, transparent);
+          --il-warn: var(--warning);
+          --il-warn-fg: var(--warning);
+          --il-warn-bg: color-mix(in oklab, var(--warning) 13%, var(--surface));
+          --il-warn-edge: color-mix(in oklab, var(--warning) 52%, transparent);
+          --il-warn-hatch: color-mix(in oklab, var(--warning) 24%, transparent);
+          --il-ok-bg: color-mix(in oklab, var(--success) 13%, var(--surface));
+          --il-ok-edge: color-mix(in oklab, var(--success) 48%, transparent);
+          --il-ok-fg: var(--success);
+          --il-err-bg: color-mix(in oklab, var(--danger) 13%, var(--surface));
+          --il-err-edge: color-mix(in oklab, var(--danger) 48%, transparent);
+          --il-err-fg: var(--danger);
+          --il-depth: var(--chart-1);
+          --il-depth-fill: color-mix(in oklab, var(--chart-1) 16%, transparent);
+          --il-faint: color-mix(in oklab, var(--foreground) 45%, transparent);
+        }
         @keyframes inflight-shimmer{0%{transform:translateX(-130%)}100%{transform:translateX(230%)}}
         @keyframes inflight-glow{from{opacity:.45}to{opacity:1}}
         @media (prefers-reduced-motion: reduce){
@@ -391,8 +440,8 @@ export function InflightLiveCard({
                 <span
                   className={`mono inline-flex items-center gap-1 rounded-[3px] px-1.5 py-0.5 text-caption ${
                     rateActive
-                      ? 'bg-warning/15 text-warning'
-                      : 'bg-surface-secondary text-muted'
+                      ? 'bg-[var(--il-warn-bg)] font-medium text-[var(--il-warn-fg)] shadow-[inset_0_0_0_1px_var(--il-warn-edge)]'
+                      : 'bg-[var(--il-chip)] text-muted shadow-[inset_0_0_0_1px_var(--il-line-soft)]'
                   }`}
                 >
                   <span className="status-dot" data-state={rateActive ? 'warn' : 'ok'} />
@@ -428,7 +477,7 @@ export function InflightLiveCard({
             <div className="min-w-0">
               <div className="mb-1.5 flex items-baseline justify-between gap-2">
                 <span className="text-caption uppercase tracking-wide text-muted">{t('inflightQueue')}</span>
-                <span className={`mono text-[10px] tabular ${waitAmber ? 'text-warning' : 'text-muted'}`}>
+                <span className={`mono text-[10px] tabular ${waitAmber ? 'text-[var(--il-warn-fg)]' : 'text-muted'}`}>
                   {summary.waiting}
                 </span>
               </div>
@@ -437,10 +486,10 @@ export function InflightLiveCard({
                   <div
                     key={job.id}
                     data-wait-pill
-                    className="flex items-center justify-between gap-2 rounded-lg bg-surface-secondary px-2 py-1.5"
+                    className="flex items-center justify-between gap-2 rounded-lg bg-[var(--il-chip)] px-2 py-1.5 shadow-[inset_0_0_0_1px_var(--il-line-soft)]"
                   >
-                    <span className="flex min-w-0 items-center gap-1.5 truncate text-[11px] text-foreground/85">
-                      <span className={`size-1.5 shrink-0 rounded-[2px] ${kindTone(job.kind)}`} aria-hidden />
+                    <span className="flex min-w-0 items-center gap-1.5 truncate text-[11px] text-foreground/90">
+                      <span className={`size-1.5 shrink-0 rounded-[2px] ${kindDot(job.kind)}`} aria-hidden />
                       <span className="truncate">
                         {job.name}
                         {job.sticky ? (
@@ -458,7 +507,7 @@ export function InflightLiveCard({
                         key={job.id}
                         data-wait-token
                         data-wait-pill
-                        className={`size-2 rounded-[2px] ${kindTone(job.kind)}`}
+                        className={`size-2 rounded-[2px] ${kindDot(job.kind)}`}
                         title={job.name}
                       />
                     ))}
@@ -467,7 +516,7 @@ export function InflightLiveCard({
                       <span
                         key={`tok-${i}`}
                         data-wait-token
-                        className="size-2 rounded-[2px] bg-foreground/15"
+                        className="size-2 rounded-[2px] bg-foreground/18"
                         aria-hidden
                       />
                     ))}
@@ -479,7 +528,7 @@ export function InflightLiveCard({
                       <span
                         key={`tok-${job.id}`}
                         data-wait-token
-                        className={`size-2 rounded-[2px] ${kindTone(job.kind)}`}
+                        className={`size-2 rounded-[2px] ${kindDot(job.kind)}`}
                         title={job.name}
                       />
                     ))}
@@ -487,7 +536,7 @@ export function InflightLiveCard({
                       <span
                         key={`pad-${i}`}
                         data-wait-token
-                        className="size-2 rounded-[2px] bg-foreground/12"
+                        className="size-2 rounded-[2px] bg-foreground/16"
                         aria-hidden
                       />
                     ))}
@@ -540,7 +589,7 @@ export function InflightLiveCard({
               <span className="text-caption uppercase tracking-wide text-muted">{t('inflightDepth')}</span>
               <span className="mono text-caption tabular text-muted">{depthLabel}</span>
             </div>
-            <div className="rounded-lg bg-surface-secondary/60 px-1.5 pt-1.5 pb-1">
+            <div className="rounded-lg bg-[var(--il-well)] px-1.5 pt-1.5 pb-1 shadow-[inset_0_0_0_1px_var(--il-line-soft)]">
               <DepthChart
                 series={snap.depthSeries}
                 bands={snap.rateLimits.map((r) => ({ from: r.from, until: r.until }))}
@@ -549,7 +598,7 @@ export function InflightLiveCard({
               />
             </div>
             {rateActive ? (
-              <div className="mono mt-1.5 text-[10px] text-warning">
+              <div className="mono mt-1.5 text-[10px] font-medium text-[var(--il-warn-fg)]">
                 {t('inflightRateBand', {
                   label: rateActive.label,
                   remain: formatRemain(rateActive.remainingMs),
@@ -567,7 +616,7 @@ function Metric({ label, value, warn }: { label: string; value: string; warn?: b
   return (
     <div className="min-w-0">
       <div className="text-caption uppercase tracking-wide text-muted">{label}</div>
-      <div className={`mono mt-1 text-section font-semibold tabular ${warn ? 'text-warning' : ''}`}>{value}</div>
+      <div className={`mono mt-1 text-section font-semibold tabular ${warn ? 'text-[var(--il-warn-fg)]' : 'text-foreground'}`}>{value}</div>
     </div>
   )
 }
@@ -583,18 +632,33 @@ function Outcome({
   tone: 'ok' | 'danger'
   icon: ReactNode
 }) {
+  const ok = tone === 'ok'
   return (
     <div
       data-outcome={tone}
       className={`flex min-w-[4.5rem] flex-1 flex-col justify-center rounded-lg px-2.5 py-2 ${
-        tone === 'ok' ? 'bg-success/10' : 'bg-danger/10'
+        ok
+          ? 'bg-[var(--il-ok-bg)] shadow-[inset_0_0_0_1px_var(--il-ok-edge)]'
+          : 'bg-[var(--il-err-bg)] shadow-[inset_0_0_0_1px_var(--il-err-edge)]'
       }`}
     >
-      <div className="flex items-center gap-1 text-caption text-muted">
-        <span className={tone === 'ok' ? 'text-success' : 'text-danger'}>{icon}</span>
+      <div className="flex items-center gap-1.5 text-caption text-muted">
+        <span
+          className={`inline-flex size-[1.125rem] items-center justify-center rounded-[5px] ${
+            ok
+              ? 'bg-[color-mix(in_oklab,var(--success)_18%,var(--surface))] text-[var(--il-ok-fg)] shadow-[inset_0_0_0_1px_var(--il-ok-edge)]'
+              : 'bg-[color-mix(in_oklab,var(--danger)_18%,var(--surface))] text-[var(--il-err-fg)] shadow-[inset_0_0_0_1px_var(--il-err-edge)]'
+          }`}
+        >
+          {icon}
+        </span>
         {label}
       </div>
-      <div className={`mono mt-0.5 text-section font-semibold tabular ${tone === 'ok' ? 'text-success' : 'text-danger'}`}>
+      <div
+        className={`mono mt-0.5 text-section font-semibold tabular ${
+          ok ? 'text-[var(--il-ok-fg)]' : 'text-[var(--il-err-fg)]'
+        }`}
+      >
         {value}
       </div>
     </div>
