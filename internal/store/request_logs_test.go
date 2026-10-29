@@ -634,7 +634,7 @@ func TestSummarizeRequestUsageCreditsAndRealms(t *testing.T) {
 	insert(base.Add(3*time.Minute), cnAcc.ID, "hy3", "workbuddy", 999_000, 0, nil)
 
 	from, to := base.Add(-time.Minute), base.Add(time.Hour)
-	usage, err := store.SummarizeRequestUsage(ctx, from, to)
+	usage, err := store.SummarizeRequestUsage(ctx, from, to, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -722,7 +722,7 @@ func TestSummarizeModelCostsAggregatesPricedModels(t *testing.T) {
 
 	from := time.Date(2026, 10, 12, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2026, 10, 13, 0, 0, 0, 0, time.UTC)
-	rows, err := store.SummarizeModelCosts(ctx, from, to)
+	rows, err := store.SummarizeModelCosts(ctx, from, to, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -792,7 +792,7 @@ func TestSummarizeModelCostsUsesServedModel(t *testing.T) {
 				t.Fatal(err)
 			}
 			from, to := at.Add(-time.Hour), at.Add(time.Hour)
-			rows, err := store.SummarizeModelCosts(ctx, from, to)
+			rows, err := store.SummarizeModelCosts(ctx, from, to, "")
 			if err != nil {
 				t.Fatal(err)
 			}

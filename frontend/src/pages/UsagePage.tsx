@@ -9,10 +9,12 @@ import { StatsWindowControls } from '@/components/overview/StatsWindowControls'
 import { ExpiryDistribution } from '@/components/overview/ExpiryDistribution'
 import { STATS_WINDOW_LABEL, statsQuery, type StatsWindow } from '@/lib/statsWindow'
 import { ProviderMark } from '@/components/ProviderMark'
+import { FilterSearchSelect } from '@/components/ui/FilterSearchSelect'
 import { PageAlert } from '@/components/ui/PageAlert'
 import { SkeletonBlock } from '@/components/ui/PageSkeletons'
 import type { DateRangeValue } from '@/components/ui/TimeRangePicker'
 import { useI18n } from '@/hooks/useI18n'
+import { useApiKeyOptions } from '@/hooks/useApiKeyOptions'
 import { formatCompact, formatLatency, formatPercent } from '@/lib/format'
 import { logsHref } from '@/lib/logsLink'
 import { accountProviderFamilyLabel } from '@/lib/provider'
@@ -96,6 +98,8 @@ export function UsagePage() {
   const [accounts, setAccounts] = useState<NonNullable<Overview['accounts']>>([])
   const [sortKey, setSortKey] = useState<UsageSortKey>('count')
   const [sortDirection, setSortDirection] = useState<TableSortDirection>('descending')
+  const [apiKeyFilter, setApiKeyFilter] = useState('')
+  const { options: apiKeyOptions } = useApiKeyOptions()
   const requestRef = useRef(0)
 
   useEffect(() => {
@@ -113,7 +117,7 @@ export function UsagePage() {
       return
     }
     const version = ++requestRef.current
-    void fetchRequestStats({ ...query, dim: [dim], limit: USAGE_LIMIT })
+    void fetchRequestStats({ ...query, dim: [dim], limit: USAGE_LIMIT, api_key: apiKeyFilter || undefined })
       .then((data) => {
         if (version !== requestRef.current) return
         setStats(data)
@@ -127,7 +131,7 @@ export function UsagePage() {
       .finally(() => { if (version === requestRef.current) setLoading(false) })
     // customRange is tracked through its string form.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dim, statsWindow, customFrom, customTo])
+  }, [dim, statsWindow, customFrom, customTo, apiKeyFilter])
 
   const rows = useMemo(() => {
     const names = new Map(accounts.map((account) => [account.id, account.name || account.id]))
@@ -337,11 +341,22 @@ export function UsagePage() {
 
   return (
     <div className="space-y-6 sm:space-y-6">
-      <section className="pb-1">
-        <h2 className="text-title font-semibold">{t('usageTitle')}</h2>
-        <p className="mt-1 max-w-2xl text-body leading-6 text-muted">
-          {pageTab === 'cost' ? t('usageCostLead') : t('usageLead')}
-        </p>
+      <section className="flex flex-wrap items-end justify-between gap-3 pb-1">
+        <div>
+          <h2 className="text-title font-semibold">{t('usageTitle')}</h2>
+          <p className="mt-1 max-w-2xl text-body leading-6 text-muted">
+            {pageTab === 'cost' ? t('usageCostLead') : t('usageLead')}
+          </p>
+        </div>
+        <FilterSearchSelect
+          ariaLabel={t('logsColApiKey')}
+          value={apiKeyFilter}
+          onChange={(next) => { setLoading(true); setApiKeyFilter(next) }}
+          options={apiKeyOptions}
+          allLabel={t('logsFilterApiKeyAll')}
+          searchPlaceholder={t('logsSearchApiKey')}
+          emptyLabel={t('logsNoFilterOptions')}
+        />
       </section>
 
       <Tabs selectedKey={pageTab} onSelectionChange={(key) => setPageTab(String(key) as PageTab)}>
@@ -362,7 +377,7 @@ export function UsagePage() {
           {statsBody}
         </Tabs.Panel>
         <Tabs.Panel id="cost" className="pt-5">
-          <UsageCostPanel />
+          <UsageCostPanel apiKeyFilter={apiKeyFilter} />
         </Tabs.Panel>
       </Tabs>
     </div>

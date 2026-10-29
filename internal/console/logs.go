@@ -51,11 +51,12 @@ func (h *Handler) handleRequestStats(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	stats, err := h.Recorder.Stats(r.Context(), applogs.StatsQuery{
-		Hours: hours,
-		From:  ParseQueryTime(r.URL.Query().Get("from"), false),
-		To:    ParseQueryTime(r.URL.Query().Get("to"), true),
-		Dims:  ParseStatsDims(r.URL.Query().Get("dim")),
-		Limit: limit,
+		Hours:    hours,
+		From:     ParseQueryTime(r.URL.Query().Get("from"), false),
+		To:       ParseQueryTime(r.URL.Query().Get("to"), true),
+		Dims:     ParseStatsDims(r.URL.Query().Get("dim")),
+		Limit:    limit,
+		APIKeyID: strings.TrimSpace(r.URL.Query().Get("api_key")),
 	})
 	if err != nil {
 		if err.Error() == "request logs unavailable" {
@@ -80,9 +81,10 @@ func (h *Handler) handleRequestUsage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	usage, err := h.Recorder.Usage(r.Context(), applogs.StatsQuery{
-		Hours: hours,
-		From:  ParseQueryTime(r.URL.Query().Get("from"), false),
-		To:    ParseQueryTime(r.URL.Query().Get("to"), true),
+		Hours:    hours,
+		From:     ParseQueryTime(r.URL.Query().Get("from"), false),
+		To:       ParseQueryTime(r.URL.Query().Get("to"), true),
+		APIKeyID: strings.TrimSpace(r.URL.Query().Get("api_key")),
 	})
 	if err != nil {
 		if err.Error() == "request logs unavailable" {
@@ -102,6 +104,7 @@ func (h *Handler) handleListRequestLogs(w http.ResponseWriter, r *http.Request) 
 	}
 	filter := accounts.RequestLogFilter{
 		AccountID: r.URL.Query().Get("account"),
+		APIKeyID:  r.URL.Query().Get("api_key"),
 		Status:    r.URL.Query().Get("status"),
 		ErrorKind: r.URL.Query().Get("error_kind"),
 		Model:     r.URL.Query().Get("model"),
