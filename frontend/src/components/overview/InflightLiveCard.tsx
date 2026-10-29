@@ -73,26 +73,26 @@ function jobElapsedMs(job: MockInflightJob | undefined, clockMs: number): number
 function kindDot(kind: MockJobKind): string {
   switch (kind) {
     case 'chat':
-      return 'bg-[color-mix(in_oklab,var(--chart-1)_88%,var(--surface))]'
+      return 'bg-[var(--chart-1)]'
     case 'embed':
-      return 'bg-[color-mix(in_oklab,var(--chart-6)_88%,var(--surface))]'
+      return 'bg-[var(--chart-6)]'
     case 'tools':
-      return 'bg-[color-mix(in_oklab,var(--chart-5)_78%,var(--surface))]'
+      return 'bg-[color-mix(in_oklab,var(--chart-5)_92%,var(--surface))]'
     default:
-      return 'bg-foreground/30'
+      return 'bg-foreground/40'
   }
 }
 
 function kindPill(kind: MockJobKind): string {
   switch (kind) {
     case 'chat':
-      return 'bg-[color-mix(in_oklab,var(--chart-1)_20%,var(--surface))] text-foreground/92'
+      return 'bg-[color-mix(in_oklab,var(--chart-1)_30%,var(--surface))] text-foreground/94'
     case 'embed':
-      return 'bg-[color-mix(in_oklab,var(--chart-6)_20%,var(--surface))] text-foreground/92'
+      return 'bg-[color-mix(in_oklab,var(--chart-6)_30%,var(--surface))] text-foreground/94'
     case 'tools':
-      return 'bg-[color-mix(in_oklab,var(--chart-5)_16%,var(--surface))] text-foreground/88'
+      return 'bg-[color-mix(in_oklab,var(--chart-5)_24%,var(--surface))] text-foreground/90'
     default:
-      return 'bg-[color-mix(in_oklab,var(--foreground)_5%,var(--surface))] text-foreground/80'
+      return 'bg-[color-mix(in_oklab,var(--foreground)_6%,var(--surface))] text-foreground/80'
   }
 }
 
@@ -300,20 +300,20 @@ function SlotBar({
         >
           {running ? (
             <>
-              {/* Indeterminate 流光 — full track, no completion %; cool wash not muddy gray */}
+              {/* Indeterminate 流光 — brighter cool highlight + chart-1 band (project tokens) */}
               <span
                 aria-hidden
-                className="pointer-events-none absolute inset-y-0 w-[55%] bg-gradient-to-r from-transparent via-[color-mix(in_oklab,var(--surface)_78%,transparent)] to-transparent motion-safe:animate-[inflight-shimmer_1.5s_linear_infinite]"
+                className="pointer-events-none absolute inset-y-0 w-[62%] bg-gradient-to-r from-transparent via-[color-mix(in_oklab,var(--surface)_92%,transparent)] to-transparent motion-safe:animate-[inflight-shimmer_1.35s_linear_infinite]"
               />
               <span
                 aria-hidden
-                className="pointer-events-none absolute inset-y-0 w-[36%] bg-gradient-to-r from-transparent via-[color-mix(in_oklab,var(--chart-1)_32%,transparent)] to-transparent motion-safe:animate-[inflight-shimmer_2.2s_linear_infinite]"
-                style={{ animationDelay: '-0.7s' }}
+                className="pointer-events-none absolute inset-y-0 w-[42%] bg-gradient-to-r from-transparent via-[color-mix(in_oklab,var(--chart-1)_58%,transparent)] to-transparent motion-safe:animate-[inflight-shimmer_1.9s_linear_infinite]"
+                style={{ animationDelay: '-0.55s' }}
               />
               <span
                 aria-hidden
-                className="pointer-events-none absolute inset-y-0 w-[26%] bg-gradient-to-r from-transparent via-[color-mix(in_oklab,var(--foreground)_16%,transparent)] to-transparent motion-safe:animate-[inflight-shimmer_1.8s_linear_infinite]"
-                style={{ animationDelay: '-1.1s' }}
+                className="pointer-events-none absolute inset-y-0 w-[28%] bg-gradient-to-r from-transparent via-[color-mix(in_oklab,var(--chart-1)_34%,var(--foreground))] to-transparent opacity-70 motion-safe:animate-[inflight-shimmer_1.55s_linear_infinite]"
+                style={{ animationDelay: '-1.05s' }}
               />
             </>
           ) : null}
@@ -676,21 +676,29 @@ export function InflightLiveCard({
 
       // Opaque solid-glass pill clone (AffectUI: full job pill flies into slot,
       // not a faint label). Stay readable mid-flight; trail is separate afterimages.
+      const kindToken =
+        kind === 'chat'
+          ? 'var(--chart-1)'
+          : kind === 'embed'
+            ? 'var(--chart-6)'
+            : kind === 'tools'
+              ? 'var(--chart-5)'
+              : 'var(--foreground)'
       const kindWash =
         kind === 'chat'
-          ? 'color-mix(in oklab, var(--chart-1) 20%, var(--surface))'
+          ? 'color-mix(in oklab, var(--chart-1) 32%, var(--surface))'
           : kind === 'embed'
-            ? 'color-mix(in oklab, var(--chart-6) 20%, var(--surface))'
+            ? 'color-mix(in oklab, var(--chart-6) 32%, var(--surface))'
             : kind === 'tools'
-              ? 'color-mix(in oklab, var(--chart-5) 16%, var(--surface))'
+              ? 'color-mix(in oklab, var(--chart-5) 26%, var(--surface))'
               : 'var(--surface)'
       const bg =
         tone === 'ok'
-          ? 'color-mix(in oklab, var(--success) 20%, var(--surface))'
+          ? 'color-mix(in oklab, var(--success) 24%, var(--surface))'
           : tone === 'danger'
-            ? 'color-mix(in oklab, var(--danger) 18%, var(--surface))'
+            ? 'color-mix(in oklab, var(--danger) 22%, var(--surface))'
             : tone === 'retry'
-              ? 'color-mix(in oklab, var(--warning) 14%, var(--surface))'
+              ? 'color-mix(in oklab, var(--warning) 16%, var(--surface))'
               : kindWash
       const fg =
         tone === 'ok'
@@ -700,16 +708,20 @@ export function InflightLiveCard({
             : tone === 'retry'
               ? 'var(--warning)'
               : 'var(--foreground)'
-      const dotColor =
-        kind === 'chat'
-          ? 'color-mix(in oklab, var(--chart-1) 88%, var(--surface))'
-          : kind === 'embed'
-            ? 'color-mix(in oklab, var(--chart-6) 88%, var(--surface))'
-            : kind === 'tools'
-              ? 'color-mix(in oklab, var(--chart-5) 78%, var(--surface))'
-              : 'color-mix(in oklab, var(--foreground) 45%, transparent)'
+      const glowToken =
+        tone === 'ok'
+          ? 'var(--success)'
+          : tone === 'danger'
+            ? 'var(--danger)'
+            : tone === 'retry'
+              ? 'var(--warning)'
+              : kindToken
+      const dotColor = kindToken
+      // Opaque lead + kind-tinted outer glow so the trail reads as light, not faint ghosts.
       const glassShadow =
-        'inset 0 1px 0 var(--surface-rim), inset 0 0 0 1px var(--surface-edge), var(--surface-contact), 0 8px 24px color-mix(in oklab, var(--foreground) 14%, transparent)'
+        `inset 0 1px 0 var(--surface-rim), inset 0 0 0 1px var(--surface-edge), var(--surface-contact), 0 0 0 1px color-mix(in oklab, ${glowToken} 28%, transparent), 0 6px 18px color-mix(in oklab, ${glowToken} 36%, transparent), 0 12px 32px color-mix(in oklab, var(--foreground) 16%, transparent)`
+      const trailShadow =
+        `inset 0 1px 0 var(--surface-rim), 0 0 14px color-mix(in oklab, ${glowToken} 48%, transparent), 0 0 28px color-mix(in oklab, ${glowToken} 28%, transparent)`
 
       const w = Math.max(a.width, 88)
       const h = Math.max(a.height, 26)
@@ -741,16 +753,16 @@ export function InflightLiveCard({
           lineHeight: '1',
           color: fg,
           background: bg,
-          boxShadow: glassShadow,
+          boxShadow: opts.asTrail ? trailShadow : glassShadow,
           whiteSpace: 'nowrap',
           overflow: 'hidden',
           textOverflow: 'ellipsis',
           opacity: String(opts.opacity),
-          willChange: 'transform, left, top, opacity',
+          willChange: 'transform, left, top, opacity, filter',
           // Stretch residual slightly so the trail reads as motion, not a second pill.
-          transform: opts.asTrail ? 'scaleX(1.08)' : 'none',
+          transform: opts.asTrail ? 'scaleX(1.12)' : 'none',
           filter: opts.asTrail
-            ? 'blur(0.35px)'
+            ? 'blur(0.9px) brightness(1.18) saturate(1.25)'
             : 'none',
         } as CSSStyleDeclaration)
         const dot = document.createElement('span')
@@ -777,16 +789,16 @@ export function InflightLiveCard({
 
       const ghost = makePill({ opacity: 1 })
       // 3 residual afterimages — stagger behind the lead pill (AffectUI trail).
-      const trails = [0.55, 0.32, 0.16].map((op, i) => {
+      const trails = [0.72, 0.46, 0.26].map((op, i) => {
         const t = makePill({ opacity: op, asTrail: true })
         gsap.to(t, {
           left: endLeft,
           top: endTop,
           width: w * 0.92,
-          scaleX: 1.2 + i * 0.08,
+          scaleX: 1.28 + i * 0.1,
           opacity: 0,
           duration: flyDur,
-          delay: motionDuration(0.045 + i * 0.04),
+          delay: motionDuration(0.04 + i * 0.045),
           ease: queueEase,
           force3D: true,
           onComplete: () => t.remove(),
@@ -1066,8 +1078,8 @@ export function InflightLiveCard({
             inset 0 0 0 1px var(--surface-edge),
             var(--surface-contact);
           --il-track: color-mix(in oklab, var(--foreground) 8%, var(--surface-secondary));
-          --il-busy-fill: color-mix(in oklab, var(--chart-1) 28%, var(--il-track));
-          --il-busy-edge: color-mix(in oklab, var(--chart-1) 22%, transparent);
+          --il-busy-fill: color-mix(in oklab, var(--chart-1) 42%, var(--il-track));
+          --il-busy-edge: color-mix(in oklab, var(--chart-1) 40%, transparent);
           --il-run: color-mix(in oklab, var(--foreground) 84%, transparent);
           --il-run-edge: var(--foreground);
           --il-run-glow: color-mix(in oklab, var(--foreground) 52%, transparent);
@@ -1093,16 +1105,16 @@ export function InflightLiveCard({
           box-shadow: var(--il-glass);
         }
         [data-testid="inflight-live-card"] [data-il-glass][data-slot-busy]{
-          box-shadow: var(--il-glass), inset 0 0 0 1px var(--il-busy-edge);
+          box-shadow: var(--il-glass), inset 0 0 0 1px var(--il-busy-edge), 0 0 18px color-mix(in oklab, var(--chart-1) 18%, transparent);
         }
         @keyframes inflight-shimmer{0%{transform:translateX(-130%)}100%{transform:translateX(230%)}}
-        @keyframes inflight-queue-shimmer{0%{transform:translateX(-140%);opacity:.35}50%{opacity:.7}100%{transform:translateX(240%);opacity:.35}}
+        @keyframes inflight-queue-shimmer{0%{transform:translateX(-140%);opacity:.4}50%{opacity:.9}100%{transform:translateX(240%);opacity:.4}}
         @keyframes inflight-glow{from{opacity:.45}to{opacity:1}}
-        @media (prefers-reduced-motion: reduce){
-          .motion-safe\\:animate-\\[inflight-shimmer_1\\.5s_linear_infinite\\],
-          .motion-safe\:animate-\[inflight-shimmer_2\.2s_linear_infinite\],
-          .motion-safe\:animate-\[inflight-queue-shimmer_2\.8s_linear_infinite\],
-          .motion-safe\\:animate-\\[inflight-glow_1\\.1s_ease-in-out_infinite\\]{animation:none!important}
+                @media (prefers-reduced-motion: reduce){
+          [class*="animate-[inflight-shimmer_"],
+          [class*="animate-[inflight-queue-shimmer_"],
+          [class*="animate-[inflight-glow_"]{animation:none!important}
+        }
         }
       `}</style>
 
@@ -1207,7 +1219,7 @@ export function InflightLiveCard({
                   >
                     <span
                       aria-hidden
-                      className="pointer-events-none absolute inset-y-0 w-2/5 bg-gradient-to-r from-transparent via-[color-mix(in_oklab,var(--chart-1)_12%,transparent)] to-transparent motion-safe:animate-[inflight-queue-shimmer_2.8s_linear_infinite]"
+                      className="pointer-events-none absolute inset-y-0 w-2/5 bg-gradient-to-r from-transparent via-[color-mix(in_oklab,var(--chart-1)_28%,transparent)] to-transparent motion-safe:animate-[inflight-queue-shimmer_2.8s_linear_infinite]"
                     />
                     <span className="relative z-[1] flex min-w-0 items-center gap-1.5 truncate text-[11px] font-medium text-foreground/92">
                       <span className={`size-1.5 shrink-0 rounded-[2px] ${kindDot(job.kind)}`} aria-hidden />
