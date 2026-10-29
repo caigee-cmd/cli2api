@@ -39,7 +39,7 @@ export type ComposerOption = {
   icon?: ReactNode
 }
 
-function CompactSelect({
+export function CompactSelect({
   ariaLabel,
   value,
   onChange,
@@ -75,7 +75,7 @@ function CompactSelect({
       }}
     >
       <Select.Trigger
-        className={`h-7 min-h-7 gap-1 rounded-md border-0 bg-transparent px-1.5 shadow-none items-center hover:bg-surface data-[focus-visible=true]:bg-surface ${triggerTone}`}
+        className={`h-8 min-h-8 gap-1 rounded-[10px] border-0 bg-transparent px-2.5 shadow-none items-center hover:bg-surface-secondary/80 data-[focus-visible=true]:bg-surface-secondary/80 ${triggerTone}`}
       >
         <Select.Value className="min-w-0 truncate text-caption font-medium">
           {({ defaultChildren, isPlaceholder }) => {
@@ -173,14 +173,14 @@ export function ChatComposer({
   }
 
   return (
-    <div className="border-t border-separator/60 p-3 sm:p-4">
-      <div className="overflow-hidden rounded-2xl bg-surface-secondary/80">
+    <div className="access-composer px-3 pb-3 pt-2.5 sm:px-4 sm:pb-3.5 sm:pt-3">
+      <div className="access-composer-well overflow-hidden rounded-2xl">
         {attachments.length ? (
           <div className="flex flex-wrap gap-2 px-3 pt-3">
             {attachments.map((file) => (
               <span
                 key={file.id}
-                className="inline-flex max-w-[14rem] items-center gap-2 rounded-xl bg-surface px-1.5 py-1.5 text-caption text-foreground"
+                className="inline-flex max-w-[14rem] items-center gap-2 rounded-xl bg-surface/80 px-1.5 py-1.5 text-caption text-foreground"
               >
                 {file.kind === 'image' && file.dataUrl ? (
                   <img src={file.dataUrl} alt="" className="size-8 shrink-0 rounded-lg object-cover" />
@@ -218,7 +218,7 @@ export function ChatComposer({
           disabled={disabled || streaming}
         />
 
-        <div className="flex items-center gap-1 px-2 pb-2 pt-0.5">
+        <div className="flex items-center gap-0.5 px-2 pb-2 pt-0.5">
           <input
             ref={fileRef}
             type="file"
@@ -231,7 +231,7 @@ export function ChatComposer({
             isIconOnly
             size="sm"
             variant="ghost"
-            className="size-7 min-w-7 shrink-0"
+            className="size-8 min-w-8 shrink-0 rounded-[10px]"
             aria-label={t('chatAttach')}
             isDisabled={disabled || streaming}
             onPress={() => fileRef.current?.click()}
@@ -260,32 +260,32 @@ export function ChatComposer({
             className="w-auto max-w-[10.5rem] min-w-0"
           />
 
-          {streaming ? (
+          {/* Fixed slot: send ↔ stop swap without shoving the composer row. */}
+          <div className="relative size-8 shrink-0">
             <Button
               isIconOnly
               size="sm"
               variant="secondary"
-              className="size-7 shrink-0 rounded-full"
+              className={`absolute inset-0 size-8 rounded-[10px] transition-opacity duration-200 ease-[cubic-bezier(0.2,0.7,0.2,1)] ${streaming ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
               aria-label={t('chatTryStop')}
               onPress={onStop}
             >
-              <Stop size={13} weight="fill" />
+              <Stop size={14} weight="fill" />
             </Button>
-          ) : (
             <Button
               isIconOnly
               size="sm"
-              className="size-7 shrink-0 rounded-full transition-transform active:scale-95 disabled:active:scale-100"
+              className={`absolute inset-0 size-8 rounded-[10px] transition-opacity duration-200 ease-[cubic-bezier(0.2,0.7,0.2,1)] ${streaming ? 'pointer-events-none opacity-0' : 'opacity-100'}`}
               aria-label={t('chatTrySend')}
-              isDisabled={!canSend || disabled}
+              isDisabled={!canSend || disabled || streaming}
               onPress={onSend}
             >
-              <PaperPlaneTilt size={13} weight="fill" />
+              <PaperPlaneTilt size={14} weight="fill" />
             </Button>
-          )}
+          </div>
         </div>
       </div>
-      <p className="mt-2 px-1 text-caption leading-5 text-muted">{t('chatTryHelper')}</p>
+      <p className="mt-1 px-1 text-caption leading-4 text-muted/65">{t('chatTryHelper')}</p>
     </div>
   )
 }

@@ -54,6 +54,8 @@ export function buildDemoThread(): ThreadMessage[] {
       ],
       reasoningOpen: false,
       usage: { credits: 0.75, prompt_tokens: 1840, completion_tokens: 126, source: 'upstream' },
+      ttfb_ms: 380,
+      latency_ms: 2140,
       status: 'done',
     },
   ]

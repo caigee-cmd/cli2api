@@ -1,11 +1,11 @@
 import { CopyIcon } from '@/components/motion/CopyIcon'
 import { copyText } from '@/lib/clipboard'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Button, Chip } from '@heroui/react'
+import { Button, Chip, Tab, Tabs } from '@heroui/react'
 import { ArrowsClockwise } from '@phosphor-icons/react'
 import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
-import { fetchAccounts, fetchModels, streamChat, testChat } from '@/api/overview'
+import { buildRawPayload, fetchAccounts, fetchModels, streamChat, testRawApi, type RawApiFormat } from '@/api/overview'
 import type { ModelInfo, Overview } from '@/api/types'
 import type { StreamToolCall } from '@/api/overview'
 import { absUrl } from '@/lib/url'
@@ -16,6 +16,7 @@ import { accountProviderLabel } from '@/lib/provider'
 import { EndpointList } from '@/components/EndpointList'
 import { CaiaiSoftLink } from '@/components/CaiaiSoftLink'
 import { ChatComposer, type ComposerOption } from '@/components/access/ChatComposer'
+import { ChatHistoryRail, type ChatHistoryItem } from '@/components/access/ChatHistoryRail'
 import { ChatThread } from '@/components/access/ChatThread'
 import { RawApiPanel } from '@/components/access/RawApiPanel'
 import { buildUserContent, toApiMessages } from '@/components/access/buildMessages'
@@ -23,6 +24,14 @@ import { buildDemoThinking, buildDemoThread } from '@/components/access/demoSeed
 import type { ChatAttachment, ChatToolCall, ThreadMessage } from '@/components/access/types'
 
 type RequestState = 'idle' | 'loading' | 'success' | 'error'
+type AccessTab = 'chat' | 'raw'
+
+type ChatSession = {
+  id: string
+  title: string
+  messages: ThreadMessage[]
+  updatedAt: number
+}
 
 function shellQuote(value: string) {
   return `'${value.replaceAll("'", `'"'"'`)}'`
@@ -61,6 +70,22 @@ function initialDemoMessages(): ThreadMessage[] {
   return []
 }
 
+function titleFromMessages(messages: ThreadMessage[]) {
+  const firstUser = messages.find((message) => message.role === 'user' && message.content.trim())
+  if (!firstUser) return ''
+  const text = firstUser.content.trim().replace(/\s+/g, ' ')
+  return text.length > 36 ? `${text.slice(0, 36)}…` : text
+}
+
+function createSession(messages: ThreadMessage[] = []): ChatSession {
+  const id = newId('session')
+  return {
+    id,
+    title: titleFromMessages(messages),
+    messages,
+    updatedAt: Date.now(),
+  }
+}
 
 const DEMO_MODEL_SEED: Array<{ id: string; display_name: string; credits?: string; free?: boolean; provider: string }> = [
   { id: 'hy3', display_name: 'HY3', credits: '0.75 credits', provider: 'workbuddy' },
@@ -71,7 +96,14 @@ const DEMO_MODEL_SEED: Array<{ id: string; display_name: string; credits?: strin
 export function AccessPage() {
   const { t } = useI18n()
   const { overview, loading } = useOverview()
-  const [rawOpen, setRawOpen] = useState(false)
+  const [accessTab, setAccessTab] = useState<AccessTab>('chat')
+  const [rawFormat, setRawFormat] = useState<RawApiFormat>('chat')
+  const [historyCollapsed, setHistoryCollapsed] = useState(true)
+  const [sessions, setSessions] = useState<ChatSession[]>(() => [createSession(initialDemoMessages())])
+  const [activeSessionId, setActiveSessionId] = useState('')
+  const resolvedSessionId = activeSessionId || sessions[0]?.id || ''
+  const activeSession = sessions.find((session) => session.id === resolvedSessionId) || sessions[0]
+  const messages = activeSession?.messages || []
   const [poolModels, setPoolModels] = useState<ModelInfo[]>([])
   const [accounts, setAccounts] = useState<NonNullable<Overview['accounts']>>([])
   useEffect(() => {
@@ -85,14 +117,20 @@ export function AccessPage() {
   }, [])
   const base = absUrl(overview?.access?.openai_base_url || '/v1')
   const chatPath = overview?.access?.chat_completions || '/v1/chat/completions'
-  const chatEndpoint = absUrl(chatPath)
+  const messagesPath = overview?.access?.messages || '/v1/messages'
+  const responsesPath = overview?.access?.responses || '/v1/responses'
+  const rawPath = rawFormat === 'messages'
+    ? messagesPath
+    : rawFormat === 'responses'
+      ? responsesPath
+      : chatPath
+  const rawEndpoint = absUrl(rawPath)
   const [model, setModel] = useState('')
   const [accountId, setAccountId] = useState('')
   const [accountCatalog, setAccountCatalog] = useState<{ accountId: string; models: ModelInfo[]; error: string } | null>(null)
   const [prompt, setPrompt] = useState('只回复OK')
   const [chatPrompt, setChatPrompt] = useState('')
   const [attachments, setAttachments] = useState<ChatAttachment[]>([])
-  const [messages, setMessages] = useState<ThreadMessage[]>(() => initialDemoMessages())
   const [chatState, setChatState] = useState<RequestState>('idle')
   const chatAbortRef = useRef<AbortController | null>(null)
   const [output, setOutput] = useState('')
@@ -140,19 +178,18 @@ export function AccessPage() {
     account.ready === true || account.hot === true || account.status === 'ready' || account.status === 'hot'
   ))
 
-  const payload = useMemo(() => ({
-    model: selectedModel,
-    stream: false,
-    messages: [{ role: 'user', content: prompt || '只回复OK' }],
-  }), [prompt, selectedModel])
+  const payload = useMemo(
+    () => buildRawPayload(rawFormat, selectedModel, prompt),
+    [prompt, rawFormat, selectedModel],
+  )
 
   const curl = useMemo(
-    () => `curl -sS ${shellQuote(chatEndpoint)} \\
+    () => `curl -sS ${shellQuote(rawEndpoint)} \\
   -H "Authorization: Bearer $CLI2API_API_KEY" \\
   -H ${shellQuote('Content-Type: application/json')}${selectedAccount ? ` \\
   -H ${shellQuote(`X-Qoder-Account: ${selectedAccount}`)}` : ''} \\
   -d ${shellQuote(JSON.stringify(payload))}`,
-    [chatEndpoint, payload, selectedAccount],
+    [payload, rawEndpoint, selectedAccount],
   )
 
   if (loading && !overview) return <AccessPageSkeleton />
@@ -169,7 +206,7 @@ export function AccessPage() {
     setElapsedMs(null)
     setOutput('')
     try {
-      const data = await testChat(payload.model, payload.messages[0].content, selectedAccount || undefined)
+      const data = await testRawApi(rawPath, payload, selectedAccount || undefined)
       setOutput(JSON.stringify(data, null, 2))
       setRequestState('success')
     } catch (error) {
@@ -185,8 +222,24 @@ export function AccessPage() {
     chatAbortRef.current = null
   }
 
+  function updateActiveMessages(
+    next: ThreadMessage[] | ((prev: ThreadMessage[]) => ThreadMessage[]),
+  ) {
+    const targetId = resolvedSessionId
+    setSessions((prev) => prev.map((session) => {
+      if (session.id !== targetId) return session
+      const messagesNext = typeof next === 'function' ? next(session.messages) : next
+      return {
+        ...session,
+        messages: messagesNext,
+        title: titleFromMessages(messagesNext) || session.title,
+        updatedAt: Date.now(),
+      }
+    }))
+  }
+
   function patchAssistant(id: string, patch: Partial<ThreadMessage> | ((prev: ThreadMessage) => Partial<ThreadMessage>)) {
-    setMessages((prev) => prev.map((message) => {
+    updateActiveMessages((prev) => prev.map((message) => {
       if (message.id !== id) return message
       const next = typeof patch === 'function' ? patch(message) : patch
       return { ...message, ...next }
@@ -215,7 +268,7 @@ export function AccessPage() {
       status: 'streaming',
     }
     const history = messages
-    setMessages([...history, userMessage, assistantMessage])
+    updateActiveMessages([...history, userMessage, assistantMessage])
     setChatPrompt('')
     setAttachments([])
     setChatState('loading')
@@ -226,16 +279,39 @@ export function AccessPage() {
     }
     const apiMessages = toApiMessages(history, apiUser)
 
+    const startedAt = performance.now()
+    let firstTokenAt: number | null = null
+    const markFirstToken = () => {
+      if (firstTokenAt == null) firstTokenAt = performance.now()
+    }
+    const timingPatch = (): Pick<ThreadMessage, 'ttfb_ms' | 'latency_ms'> => {
+      const endedAt = performance.now()
+      return {
+        latency_ms: Math.max(0, Math.round(endedAt - startedAt)),
+        ttfb_ms: firstTokenAt != null ? Math.max(0, Math.round(firstTokenAt - startedAt)) : undefined,
+      }
+    }
+
     try {
       await streamChat(selectedModel, apiMessages, selectedAccount || undefined, {
         signal: controller.signal,
-        onContent: (_chunk, full) => patchAssistant(assistantId, { content: full }),
-        onReasoning: (_chunk, full) => patchAssistant(assistantId, { reasoning: full }),
-        onToolCalls: (calls) => patchAssistant(assistantId, { toolCalls: mapToolCalls(calls, true) }),
+        onContent: (_chunk, full) => {
+          if (_chunk) markFirstToken()
+          patchAssistant(assistantId, { content: full })
+        },
+        onReasoning: (_chunk, full) => {
+          if (_chunk) markFirstToken()
+          patchAssistant(assistantId, { reasoning: full })
+        },
+        onToolCalls: (calls) => {
+          markFirstToken()
+          patchAssistant(assistantId, { toolCalls: mapToolCalls(calls, true) })
+        },
         onUsage: (usage) => patchAssistant(assistantId, { usage }),
       })
       patchAssistant(assistantId, (prev) => ({
         status: 'done',
+        ...timingPatch(),
         toolCalls: prev.toolCalls?.map((call) => ({ ...call, status: 'success' as const })),
       }))
       setChatState('success')
@@ -243,13 +319,14 @@ export function AccessPage() {
       if (controller.signal.aborted) {
         patchAssistant(assistantId, (prev) => ({
           status: 'done',
+          ...timingPatch(),
           toolCalls: prev.toolCalls?.map((call) => ({ ...call, status: 'success' as const })),
         }))
         setChatState('success')
         return
       }
       const message = error instanceof Error ? error.message : String(error)
-      patchAssistant(assistantId, { status: 'error', error: message })
+      patchAssistant(assistantId, { status: 'error', error: message, ...timingPatch() })
       setChatState('error')
     } finally {
       if (chatAbortRef.current === controller) chatAbortRef.current = null
@@ -334,37 +411,55 @@ export function AccessPage() {
   )
 
   function loadDemo() {
-    setMessages(buildDemoThread())
+    updateActiveMessages(buildDemoThread())
     setChatState('idle')
   }
 
+  function onNewChat() {
+    stopChat()
+    setChatState('idle')
+    setChatPrompt('')
+    setAttachments([])
+    const session = createSession([])
+    setSessions((prev) => [session, ...prev])
+    setActiveSessionId(session.id)
+  }
+
+  function onSelectSession(id: string) {
+    if (id === resolvedSessionId) return
+    stopChat()
+    setChatState('idle')
+    setChatPrompt('')
+    setAttachments([])
+    setActiveSessionId(id)
+  }
+
+  const historyItems: ChatHistoryItem[] = sessions
+    .slice()
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .map((session) => ({
+      id: session.id,
+      title: session.title || t('chatHistoryUntitled'),
+      updatedAt: session.updatedAt,
+    }))
+
   return (
-    <div className="space-y-5">
-      <section className="grid gap-3 pb-1 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
-        <div>
-          <h2 className="text-title font-semibold">{t('apiPlayground')}</h2>
-          <p className="mt-1 max-w-2xl text-body leading-6 text-muted">{t('apiPlaygroundHint')}</p>
+    <div className="access-page space-y-4">
+      <section className="access-info-row flex flex-wrap items-center gap-x-3 gap-y-2 px-0.5 py-0.5" title={t('apiPlaygroundHint')}>
+        <h2 className="shrink-0 text-body font-semibold text-foreground">{t('apiPlayground')}</h2>
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 text-caption text-muted">
+          <span className="shrink-0">{t('baseUrl')}</span>
+          <code className="mono min-w-0 truncate font-medium text-foreground">{base}</code>
+          <Button isIconOnly size="sm" variant="ghost" className="size-6 min-w-6 shrink-0" aria-label={t('copyBaseUrl')} onPress={() => void copy(base, 'base')}>
+            <CopyIcon copied={copied === 'base'} size={13} />
+          </Button>
         </div>
         <div className="flex items-center gap-2 text-caption text-muted">
           <span className="status-dot" data-state={readyAccounts.length ? 'ok' : undefined} />
           <span>{t('readyAccounts', { ready: readyAccounts.length, total: accounts.length })}</span>
-        </div>
-      </section>
-
-      <section className="overflow-hidden rounded-3xl bg-surface shadow-surface">
-        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-5">
-          <div className="min-w-0">
-            <div className="text-caption font-medium text-muted">{t('baseUrl')}</div>
-            <code className="mono mt-0.5 block truncate text-body font-medium text-foreground">{base}</code>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button isIconOnly size="sm" variant="ghost" aria-label={t('copyBaseUrl')} onPress={() => void copy(base, 'base')}>
-              <CopyIcon copied={copied === 'base'} size={15} />
-            </Button>
-            <Chip size="sm" variant="soft" color={readyAccounts.length ? 'success' : 'warning'}>
-              {readyAccounts.length ? t('endpointReady') : t('degraded')}
-            </Chip>
-          </div>
+          <Chip size="sm" variant="soft" color={readyAccounts.length ? 'success' : 'warning'}>
+            {readyAccounts.length ? t('endpointReady') : t('degraded')}
+          </Chip>
         </div>
       </section>
 
@@ -379,23 +474,75 @@ export function AccessPage() {
         <p className="px-1 text-caption text-danger">{modelsError}</p>
       ) : null}
 
-      <section className="overflow-hidden rounded-3xl bg-surface shadow-surface">
-        <div className="flex min-h-[640px] flex-col md:min-h-[72vh]">
-          <ChatThread
-            messages={messages}
-            busy={chatState === 'loading'}
-            onLoadDemo={loadDemo}
-          />
-          <ChatComposer
-            value={chatPrompt}
-            onChange={setChatPrompt}
-            attachments={attachments}
-            onAttachmentsChange={setAttachments}
-            disabled={!accounts.length && demoMode() == null}
-            streaming={chatState === 'loading'}
-            canSend={canChatSend}
-            onSend={() => void onChatSend()}
-            onStop={stopChat}
+      <Tabs selectedKey={accessTab} onSelectionChange={(key) => setAccessTab(String(key) as AccessTab)}>
+        <Tabs.ListContainer className="w-fit">
+          <Tabs.List aria-label={t('accessTabsLabel')}>
+            <Tab id="chat" className="gap-1.5 whitespace-nowrap">
+              <Tabs.Indicator className="transition-none" />
+              {t('accessTabChat')}
+            </Tab>
+            <Tab id="raw" className="gap-1.5 whitespace-nowrap">
+              <Tabs.Indicator className="transition-none" />
+              {t('accessTabApi')}
+            </Tab>
+          </Tabs.List>
+        </Tabs.ListContainer>
+
+        <Tabs.Panel id="chat" className="pt-4">
+          {/* Flat cohesion: hist rail + stage peers on the page — no outer shell box. */}
+          <div className="flex min-h-[640px] md:min-h-[72vh]">
+            <ChatHistoryRail
+              collapsed={historyCollapsed}
+              onCollapsedChange={setHistoryCollapsed}
+              items={historyItems}
+              activeId={resolvedSessionId}
+              onSelect={onSelectSession}
+              onNew={onNewChat}
+            />
+            <div className="access-chat-stage flex min-w-0 flex-1 flex-col">
+              <ChatThread
+                messages={messages}
+                busy={chatState === 'loading'}
+                onLoadDemo={loadDemo}
+              />
+              <ChatComposer
+                value={chatPrompt}
+                onChange={setChatPrompt}
+                attachments={attachments}
+                onAttachmentsChange={setAttachments}
+                disabled={!accounts.length && demoMode() == null}
+                streaming={chatState === 'loading'}
+                canSend={canChatSend}
+                onSend={() => void onChatSend()}
+                onStop={stopChat}
+                accountValue={selectedAccount || 'auto'}
+                onAccountChange={(next) => setAccountId(next === 'auto' ? '' : next)}
+                accountOptions={accountOptions}
+                modelValue={selectedModel}
+                onModelChange={setModel}
+                modelOptions={modelOptions}
+                modelsLoading={modelsLoading}
+              />
+            </div>
+          </div>
+        </Tabs.Panel>
+
+        <Tabs.Panel id="raw" className="space-y-4 pt-4">
+          <RawApiPanel
+            format={rawFormat}
+            onFormatChange={setRawFormat}
+            requestPath={rawPath}
+            prompt={prompt}
+            onPromptChange={setPrompt}
+            onTest={() => void onTest()}
+            requestState={requestState}
+            elapsedMs={elapsedMs}
+            output={output}
+            responseStatus={responseStatus}
+            curl={curl}
+            copiedCurl={copied === 'curl'}
+            onCopyCurl={() => void copy(curl, 'curl')}
+            canSend={Boolean(prompt.trim() && selectedModel && !modelsLoading)}
             accountValue={selectedAccount || 'auto'}
             onAccountChange={(next) => setAccountId(next === 'auto' ? '' : next)}
             accountOptions={accountOptions}
@@ -403,28 +550,11 @@ export function AccessPage() {
             onModelChange={setModel}
             modelOptions={modelOptions}
             modelsLoading={modelsLoading}
+            disabled={!accounts.length && demoMode() == null}
           />
-        </div>
-      </section>
-
-      <RawApiPanel
-        open={rawOpen}
-        onOpenChange={setRawOpen}
-        chatPath={chatPath}
-        prompt={prompt}
-        onPromptChange={setPrompt}
-        onTest={() => void onTest()}
-        requestState={requestState}
-        elapsedMs={elapsedMs}
-        output={output}
-        responseStatus={responseStatus}
-        curl={curl}
-        copiedCurl={copied === 'curl'}
-        onCopyCurl={() => void copy(curl, 'curl')}
-        canSend={Boolean(prompt.trim() && selectedModel && !modelsLoading)}
-      />
-
-      <EndpointList access={overview?.access} />
+          <EndpointList access={overview?.access} />
+        </Tabs.Panel>
+      </Tabs>
     </div>
   )
 }

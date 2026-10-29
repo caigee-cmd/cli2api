@@ -53,7 +53,7 @@ const (
 	pathWhamUsage = "/wham/usage"
 
 	// Cloaking: upstream gates on the official codex CLI UA/originator.
-	UserAgent  = "codex-tui/0.164.0 (Mac OS 26.5.2; arm64) iTerm.app/3.6.11 (codex-tui; 0.164.0)"
+	UserAgent  = "codex-tui/0.165.0 (Mac OS 26.5.2; arm64) iTerm.app/3.6.11 (codex-tui; 0.165.0)"
 	Originator = "codex-tui"
 
 	QuotaUnit = "rate_limit_window"

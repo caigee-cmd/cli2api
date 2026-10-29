@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { CaretRight, CircleNotch } from '@phosphor-icons/react'
 import { useI18n } from '@/hooks/useI18n'
-import { prefersReducedMotion } from '@/lib/motion'
+import { duration, ease, gsap, prefersReducedMotion } from '@/lib/motion'
 
 export function ThinkingBlock({
   text,
@@ -16,6 +16,8 @@ export function ThinkingBlock({
   const [open, setOpen] = useState(Boolean(defaultOpen))
   const [elapsedSec, setElapsedSec] = useState(0)
   const finalSecRef = useRef(0)
+  const bodyWrapRef = useRef<HTMLDivElement>(null)
+  const bodyInnerRef = useRef<HTMLPreElement>(null)
 
   useEffect(() => {
     // Streaming stays collapsed to one pill; only expand on explicit defaultOpen when done.
@@ -41,6 +43,50 @@ export function ThinkingBlock({
     }
   }, [streaming, elapsedSec])
 
+  useEffect(() => {
+    const wrap = bodyWrapRef.current
+    const inner = bodyInnerRef.current
+    if (!wrap) return
+
+    const reduce = prefersReducedMotion()
+    if (!open || !text) {
+      if (reduce) {
+        wrap.style.height = '0px'
+        wrap.style.opacity = '0'
+        return
+      }
+      gsap.to(wrap, {
+        height: 0,
+        opacity: 0,
+        duration: duration.fast,
+        ease: ease.inOut,
+        overwrite: true,
+      })
+      return
+    }
+
+    const target = inner?.scrollHeight ?? 0
+    if (reduce) {
+      wrap.style.height = 'auto'
+      wrap.style.opacity = '1'
+      return
+    }
+    gsap.fromTo(
+      wrap,
+      { height: 0, opacity: 0 },
+      {
+        height: target,
+        opacity: 1,
+        duration: duration.base,
+        ease: ease.out,
+        overwrite: true,
+        onComplete: () => {
+          wrap.style.height = 'auto'
+        },
+      },
+    )
+  }, [open, text])
+
   if (!text && !streaming) return null
 
   const reduceMotion = prefersReducedMotion()
@@ -65,20 +111,23 @@ export function ThinkingBlock({
           </>
         ) : (
           <>
-            <CaretRight size={11} className={`shrink-0 transition-transform ${open ? 'rotate-90' : ''}`} />
+            <CaretRight size={11} className={`shrink-0 transition-transform duration-200 ease-out ${open ? 'rotate-90' : ''}`} />
             <span>{t('thinkingDone')}</span>
             {doneSec > 0 ? <span className="mono text-muted/80">{t('thinkingElapsed', { n: doneSec })}</span> : null}
             {!doneSec && text ? <span className="mono text-muted/80">{t('thinkingChars', { count: text.length })}</span> : null}
           </>
         )}
       </button>
-      {open && text ? (
-        <div className="mt-1.5">
-          <pre className="max-h-52 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-surface-secondary/80 px-3 py-2 text-caption leading-5 text-muted">
+      <div ref={bodyWrapRef} className="overflow-hidden" style={{ height: 0, opacity: 0 }}>
+        {text ? (
+          <pre
+            ref={bodyInnerRef}
+            className="mt-1.5 max-h-52 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-surface-secondary/80 px-3 py-2 text-caption leading-5 text-muted"
+          >
             {text}
           </pre>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
     </div>
   )
 }

@@ -3,6 +3,62 @@
 Published user-facing notes for GitHub Releases and the console update page.
 Write upcoming notes as bilingual files in `changelog/unreleased/`.
 
+## 0.7.20 - 2026-10-28
+
+### English
+
+- Access Chat uses clearer solid-glass contrast and a stronger history-rail separator.
+- Raw API shares the Chat account/model pickers and can switch among Chat Completions, Anthropic Messages, and OpenAI Responses.
+- Logs merges Latency and TTFT into one Timing column with three rows: first token, total latency, and output tok/s.
+- Access assistant replies show the same timing block after a stream finishes (client-side tok/s from completion tokens).
+
+### 中文
+
+- Access 聊天区对比度更清晰（solid-glass），历史侧栏分隔更明显。
+- 原始 API 与聊天共用账号/模型选择，并可在 Chat Completions、Anthropic Messages、OpenAI Responses 三种格式间切换。
+- 日志页将延迟与首字耗时合并为一列「延迟」，三行展示：首字、总耗时、输出 tok/s。
+- Access 助手回复在流式结束后显示同样的延迟块（客户端用 completion tokens 估算 tok/s）。
+
+## 0.7.19 - 2026-10-28
+
+### English
+
+- Access page uses top-level Chat | Raw API tabs (no raw-API drawer).
+- Chat feels like a playground: collapsible thinking, light tool blocks, stream segment fade-in, composer model/account bottom-right, and a collapsible in-page history rail.
+- Add Account wizard stacks name and advanced fields (label above full-width controls); max concurrency and priority share a compact two-column row.
+- Modal and provider tiles use solid-glass card tokens; picker is a 2-column tile grid with single-line truncated labels, and provider icons blend into the tile surface.
+- Add Account dialog width is `36rem` with a shared `sm:min-h-[36rem]` so the picker and form steps stay similarly tall (body scrolls inside when content overflows).
+
+### 中文
+
+- Access 页改为顶层「聊天 | 原始 API」标签（去掉原始 API 抽屉）。
+- 聊天侧具备 playground 手感：可折叠思考、轻量工具块、流式段落淡入、作曲区右下模型/账号，以及可折叠的页内历史侧栏。
+- 添加账号向导改为标签在上、控件通栏堆叠；最大并发与优先级并排两列。
+- 弹窗与提供商磁贴沿用 solid-glass 卡片质感；选择步为两列磁贴、单行截断标签，图标融入磁贴底色。
+- 添加账号弹窗宽度 `36rem`，并设共用 `sm:min-h-[36rem]`，使选择步与表单步高度接近（内容超出时在弹窗体内滚动）。
+
+## 0.7.18 - 2026-10-28
+
+### English
+
+- Bump Codex outbound cloaking User-Agent to official stable `0.165.0` (`rust-v0.165.0`). CPA pin stays at 0.154; 0.166 alpha held.
+- WorkBuddy outbound sanitize now rewrites the DSH file-reference sentence (`paths the user` → `paths that the user`) on system / developer / assistant messages, matching hub v1.9.0 / #684 so the full FILE_REFERENCE_PROMPT block no longer trips 11-128. User and tool messages stay untouched.
+
+### 中文
+
+- Codex 出站伪装 User-Agent 升至官方稳定版 `0.165.0`（`rust-v0.165.0`）。CPA pin 仍为 0.154；暂不跟 0.166 alpha。
+- WorkBuddy 出站清洗对齐 hub v1.9.0 / #684：对 system / developer / assistant 中的 DSH 文件引用句补入 `that`（`paths the user` → `paths that the user`），避免整段 FILE_REFERENCE_PROMPT 触发 11-128；user / tool 消息保持原样。
+
+## 0.7.17 - 2026-10-28
+
+### English
+
+- Add Account login step: primary actions sit in the modal footer (no full-width ink bar); method chips match the console FilterToggle (labels only).
+
+### 中文
+
+- 添加账号登录步骤：主操作改到弹窗页脚（去掉通栏墨色条）；登录方式分段与控制台 FilterToggle 一致（仅文字）。
+
 ## 0.7.16 - 2026-10-28
 
 ### English

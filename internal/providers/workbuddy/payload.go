@@ -356,6 +356,16 @@ var (
 		` whose URL the runtime context names\.`)
 	wafDSHGUIReplacement = `$1 whose URL is named in the runtime context.`
 
+	// DSH file-reference paragraph (hub #684 / v1.9.0): official
+	// @deepseek-ai/dsh-file-reference injects FILE_REFERENCE_PROMPT; the
+	// full five-sentence block trips 11-128. Minimal fix inserts one word
+	// in sentence A (`paths the user` -> `paths that the user`). No
+	// negative lookahead needed under RE2: after rewrite, "paths " is
+	// followed by "that ", so the pattern no longer matches (idempotent).
+	wafDSHFilerefRe = regexp.MustCompile(`(?i)(Tokens prefixed with @ are paths )` +
+		`(the user explicitly referenced\.)`)
+	wafDSHFilerefReplacement = `${1}that $2`
+
 	wafBrandRe          = regexp.MustCompile(`(?i)DeepSeek[ \t]+Harness`)
 	wafBrandReplacement = "DeepSeek"
 )
@@ -396,7 +406,7 @@ func rewriteIdentitySentences(text string) string {
 // sanitizeWAFKeywords rewrites known client fingerprint phrases that trigger
 // upstream WorkBuddy WAF rules (code 11128 / 11-128: "Illegal API invocation
 // from an unapproved channel"). Literal Main-branch rewrites apply to every
-// role; identity / DSH GUI / brand rules follow upstream and only touch
+// role; identity / DSH GUI / fileref / brand rules follow upstream and only touch
 // system, developer, and assistant.
 func sanitizeWAFKeywords(body map[string]any) {
 	raw, ok := body["messages"]
@@ -439,6 +449,7 @@ func sanitizeFingerprintText(text string, identity bool) string {
 	if identity {
 		text = rewriteIdentitySentences(text)
 		text = wafDSHGUIRe.ReplaceAllString(text, wafDSHGUIReplacement)
+		text = wafDSHFilerefRe.ReplaceAllString(text, wafDSHFilerefReplacement)
 		text = wafBrandRe.ReplaceAllString(text, wafBrandReplacement)
 	}
 	for _, rule := range wafFingerprintReplacements {
