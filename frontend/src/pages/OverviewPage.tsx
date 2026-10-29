@@ -32,7 +32,7 @@ import { accountProviderFamilyLabel, accountProviderLabel } from '@/lib/provider
 import { ProviderMark } from '@/components/ProviderMark'
 import { LiveStrip } from '@/components/overview/LiveStrip'
 import { InflightLiveCard } from '@/components/overview/InflightLiveCard'
-import { useLive } from '@/hooks/useLive'
+import { LIVE_POLL_EXPANDED_MS, LIVE_POLL_MS, useLive } from '@/hooks/useLive'
 
 type AccountRow = NonNullable<Overview['accounts']>[number]
 
@@ -140,9 +140,11 @@ export function OverviewPage() {
   const [modelCount, setModelCount] = useState(0)
   const [resources, setResources] = useState<SystemResources | null>(null)
   const [now, setNow] = useState(() => Date.now())
-  const { live, samples: liveSamples } = useLive()
   const [inflightOpen, setInflightOpen] = useState(false)
   const [coolingOpen, setCoolingOpen] = useState(false)
+  const { live, samples: liveSamples } = useLive({
+    intervalMs: inflightOpen ? LIVE_POLL_EXPANDED_MS : LIVE_POLL_MS,
+  })
   const liveById = new Map((live?.accounts ?? []).map((item) => [item.id, item]))
 
   const proxyOk = Boolean(overview?.proxy?.ok)

@@ -21,22 +21,26 @@ export type LiveWorker = {
 
 /** Terminal request finish drained this /api/live poll (Done vs Failed fly-out). */
 export type LiveCompletion = {
+  /** Open request id — per-cell Done/Failed fly-out. */
+  request_id?: string
   account_id: string
   /** ok | error | incomplete | canceled */
   status: string
 }
 
 /**
- * Selecting (选号) request for the InflightLiveCard waiting rail.
- * status reuses request_logs RequestStatus* (typically started) — not a new machine.
+ * Selecting (选号) or bound occupancy request for InflightLiveCard.
+ * status reuses request_logs RequestStatus* — not a new machine.
  */
 export type LiveJob = {
   id: string
   name: string
-  /** RequestStatus* from recorder (started while selecting). */
+  /** RequestStatus* from recorder (started while selecting / bound). */
   status: string
-  /** RFC3339 Prepare/Start time. */
+  /** RFC3339: queue = Prepare/Start; occupancy = Bind (slot entry). */
   started_at?: string
+  /** Queue: dwell fly target. Occupancy: always set (cell owner). */
+  account_id?: string
 }
 
 /** Active cooldown window from AccountView.DownUntil / model_cooldowns. */
@@ -75,8 +79,10 @@ export type LiveSnapshot = {
   sticky: LiveSticky
   /** Terminal finishes since last poll — InflightLiveCard routes fly-outs. */
   recent_completions?: LiveCompletion[]
-  /** Prepare→Acquire 选号 (RequestStatusStarted, no pool bind). */
+  /** Prepare→Acquire 选号 (RequestStatusStarted / dwell). */
   queue?: LiveJob[]
+  /** Bound open requests — one per concurrency cell (model + per-cell started_at). */
+  occupancy?: LiveJob[]
 }
 
 export function fetchLive() {

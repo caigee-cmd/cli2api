@@ -84,6 +84,12 @@ func TestBuildLiveSnapshot(t *testing.T) {
 	if len(got.Queue) != 0 {
 		t.Fatalf("queue = %+v", got.Queue)
 	}
+	if got.Occupancy == nil {
+		t.Fatalf("occupancy must be non-nil empty slice")
+	}
+	if len(got.Occupancy) != 0 {
+		t.Fatalf("occupancy = %+v", got.Occupancy)
+	}
 }
 
 func TestBuildLiveSnapshotEmpty(t *testing.T) {
