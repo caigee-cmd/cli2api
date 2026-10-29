@@ -933,6 +933,12 @@ func TestIsGlobalRecognizesWorkBuddyDomains(t *testing.T) {
 	if (Credential{Domain: "codebuddy.cn"}).IsGlobal() {
 		t.Fatal("codebuddy.cn should stay CN")
 	}
+	if (Credential{Domain: "www.workbuddy.cn"}).IsGlobal() {
+		t.Fatal("www.workbuddy.cn should stay CN")
+	}
+	if (Credential{Domain: "workbuddy.cn"}).IsGlobal() {
+		t.Fatal("workbuddy.cn should stay CN")
+	}
 	if (Credential{}).IsGlobal() {
 		t.Fatal("empty domain should not be global")
 	}
