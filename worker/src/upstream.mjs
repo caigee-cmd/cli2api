@@ -10,7 +10,7 @@
 // whole window is aborted. The TTFB default mirrors the Go-side first-byte
 // deadline so worker and gateway agree on when a stuck head counts as a
 // failure; both are tunable per deployment.
-export const streamTtfbMs = Math.max(5_000, Number(process.env.QODER_STREAM_TTFB_MS || 30_000) || 30_000);
+export const streamTtfbMs = Math.max(5_000, Number(process.env.QODER_STREAM_TTFB_MS || 60_000) || 60_000);
 export const streamStallMs = Math.max(streamTtfbMs, Number(process.env.QODER_STREAM_TOTAL_MS || 300_000) || 300_000);
 
 // fetchWithTimeout wraps fetch with a TTFB deadline on the response head and
