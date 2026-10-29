@@ -18,8 +18,9 @@ func TestBuildLiveSnapshot(t *testing.T) {
 
 	views := []accounts.AccountView{
 		{
-			Account:  accounts.Account{ID: "a", Name: "wb-a1", Provider: "workbuddy", Enabled: true, MaxInFlight: 4},
-			InFlight: 4,
+			Account:        accounts.Account{ID: "a", Name: "wb-a1", Provider: "workbuddy", Enabled: true, MaxInFlight: 4},
+			InFlight:       4,
+			InFlightSince:  now.Add(-12 * time.Second).Format(time.RFC3339),
 		},
 		{
 			Account:         accounts.Account{ID: "b", Name: "wb-a2", Provider: "workbuddy", Enabled: true},
@@ -47,6 +48,12 @@ func TestBuildLiveSnapshot(t *testing.T) {
 	w0 := got.Workers[0]
 	if !w0.Busy || w0.RateLimited || w0.Progress != 1 || w0.Name != "wb-a1" || w0.Provider != "workbuddy" {
 		t.Fatalf("worker[0] = %+v", w0)
+	}
+	if w0.StartedAt == "" || w0.StartedAt != now.Add(-12*time.Second).Format(time.RFC3339) {
+		t.Fatalf("worker[0].StartedAt = %q", w0.StartedAt)
+	}
+	if got.Workers[2].StartedAt != "" {
+		t.Fatalf("idle worker must omit started_at, got %q", got.Workers[2].StartedAt)
 	}
 	w1 := got.Workers[1]
 	if !w1.Busy || !w1.RateLimited || w1.Progress != 0.25 {

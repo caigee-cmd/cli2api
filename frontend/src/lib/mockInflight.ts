@@ -31,6 +31,8 @@ export type MockInflightJob = {
   progress: number
   /** Elapsed wait or run, ms. */
   elapsedMs: number
+  /** Wall-clock start (epoch ms) for live/mock elapsed ticking. */
+  startedAtMs?: number
   /** Sticky session hint (affinity hit). */
   sticky?: boolean
   /** AffectUI priority — high lands at back then glides past. */
@@ -46,7 +48,7 @@ export type MockAccountSlot = {
   provider: string
   /** Busy with an upstream call. */
   busy: boolean
-  /** 0–1 progress while busy; amber-frozen while rate-limited. */
+  /** Internal mock completion driver (0–1). Busy UI uses indeterminate shimmer, not this %. */
   progress: number
   jobId?: string
   /** Slot paused by an active cooldown / rate-limit. */
@@ -319,6 +321,8 @@ export type LiveWorkerLike = {
   busy: boolean
   progress: number
   rate_limited: boolean
+  /** RFC3339 from pool InFlightSince when available. */
+  started_at?: string
 }
 
 export type LiveRateLimitLike = {
@@ -350,16 +354,23 @@ export type LiveProjectionInput = {
  * mock totals / throughput / p95 / depth: zeros unless the API supplies a value
  * (`rpm` → throughput; no done/failed/p95 fields yet). depthSeries rolls prior
  * *live* samples only — mock seed/tick series are discarded on first projection.
+ * Elapsed comes from worker `started_at` (pool InFlightSince); if missing,
+ * keep the prior live job's startedAtMs or stamp Date.now() on first sight.
+ * Progress is occupancy only — UI uses indeterminate shimmer, not %.
  */
 export function applyLiveProjection(
   base: MockInflightSnapshot,
   live: LiveProjectionInput,
 ): MockInflightSnapshot {
+  const now = Date.now()
+  const prevById = new Map(base.jobs.map((j) => [j.id, j]))
+
   const workers: MockAccountSlot[] = live.workers.map((w) => ({
     id: w.id,
     name: w.name,
     provider: w.provider,
     busy: w.busy,
+    // Keep a soft internal value for mock-compat; busy UI ignores % fill.
     progress: w.busy ? Math.max(0.04, Math.min(1, w.progress || 0)) : 0,
     rateLimited: w.rate_limited,
     jobId: w.busy ? `live-${w.id}` : undefined,
@@ -380,15 +391,33 @@ export function applyLiveProjection(
 
   const jobs: MockInflightJob[] = workers
     .filter((w) => w.busy && w.jobId)
-    .map((w) => ({
-      id: w.jobId!,
-      name: w.name,
-      kind: 'chat' as const,
-      status: 'running' as const,
-      accountId: w.id,
-      progress: w.progress,
-      elapsedMs: 0,
-    }))
+    .map((w) => {
+      const id = w.jobId!
+      const prev = prevById.get(id)
+      const liveWorker = live.workers.find((lw) => lw.id === w.id)
+      let startedAtMs: number | undefined
+      const raw = liveWorker?.started_at?.trim()
+      if (raw) {
+        const parsed = Date.parse(raw)
+        if (!Number.isNaN(parsed)) startedAtMs = parsed
+      }
+      if (startedAtMs == null && prev?.startedAtMs != null) {
+        startedAtMs = prev.startedAtMs
+      }
+      if (startedAtMs == null) {
+        startedAtMs = now
+      }
+      return {
+        id,
+        name: w.name,
+        kind: 'chat' as const,
+        status: 'running' as const,
+        accountId: w.id,
+        progress: w.progress,
+        startedAtMs,
+        elapsedMs: Math.max(0, now - startedAtMs),
+      }
+    })
 
   // Continue rolling depth only after a prior live projection (cleared p95 +
   // zero totals). Mock seed/tick always leaves waitP95Ms > 0 — start zeros.
@@ -400,7 +429,7 @@ export function applyLiveProjection(
   while (series.length < n) series.unshift(0)
 
   return {
-    generatedAt: Date.now(),
+    generatedAt: now,
     backpressure: base.backpressure,
     // API: rpm only. No done/failed/p95 yet → zeros (do not spread mock base).
     throughputPerMin: Math.max(0, live.rpm),
