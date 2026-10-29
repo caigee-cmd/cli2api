@@ -5,7 +5,7 @@
  *   workers   ≈ account slots currently (or recently) hitting upstream
  *   rateLimits≈ cooldown / provider rate-limit windows
  *   depth     ≈ recent waiting + concurrency approx
- *   totals    ≈ recent request_logs Done/Failed (mock until Phase 2)
+ *   totals    ≈ session Done/Failed while viewing (mock tick; live bumps)
  * Stage-3 swaps workers/rateLimits/sticky/queue onto /api/live (LiveWorker,
  * LiveRateLimit, LiveSticky, LiveJob); depth stays client-rolled. Do not invent
  * a parallel /api/inflight*.
@@ -95,8 +95,9 @@ export type MockInflightSnapshot = {
   generatedAt: number
   /**
    * Ephemeral per-tick terminal outcomes for GSAP Done/Failed routing.
-   * Not cloned across ticks unless the producer sets them again; live totals
-   * stay zero so priorIsLive keeps working.
+   * Not cloned across ticks unless the producer sets them again.
+   * Live `totals` are session counters (since expand/mount), bumped from
+   * completions — not historical DB totals. priorIsLive uses waitP95Ms === 0.
    */
   completions?: MockCompletion[]
 }
@@ -431,9 +432,11 @@ export type LiveProjectionInput = {
 /**
  * Merge /api/live workers + rate_limits (+ sticky meta) onto a snapshot.
  * Busy workers → synthetic running jobs. When `live` is provided, never inherit
- * mock totals / throughput / p95 / depth: zeros unless the API supplies a value
- * (`rpm` → throughput; no done/failed/p95 fields yet). depthSeries rolls prior
- * *live* samples only — mock seed/tick series are discarded on first projection.
+ * mock throughput / p95 / depth: zeros unless the API supplies a value
+ * (`rpm` → throughput; no p95 fields yet). Session `totals` carry across live
+ * polls and bump from recent_completions / inferred completions (reset when
+ * the card starts a new viewing session). depthSeries rolls prior *live*
+ * samples only — mock seed/tick series are discarded on first projection.
  * Elapsed comes from worker `started_at` (pool InFlightSince); if missing,
  * keep the prior live job's startedAtMs or stamp Date.now() on first sight.
  * Progress is occupancy only — UI uses indeterminate shimmer, not %.
@@ -542,9 +545,10 @@ export function applyLiveProjection(
 
   const jobs: MockInflightJob[] = [...runningJobs, ...queuedJobs]
 
-  // Continue rolling depth only after a prior live projection (cleared p95 +
-  // zero totals). Mock seed/tick always leaves waitP95Ms > 0 — start zeros.
-  const priorIsLive = base.waitP95Ms === 0 && base.totals.done === 0 && base.totals.failed === 0
+  // Continue rolling depth only after a prior live projection (cleared p95).
+  // Mock seed/tick always leaves waitP95Ms > 0 — start zeros. Session totals
+  // may be > 0 while viewing live; do not key priorIsLive on them.
+  const priorIsLive = base.waitP95Ms === 0
   const series = priorIsLive
     ? base.depthSeries.slice(1)
     : Array.from({ length: Math.max(0, n - 1) }, () => 0)
@@ -585,13 +589,35 @@ export function applyLiveProjection(
     })
   }
 
+  // Session Done/Failed while viewing live — not historical DB totals.
+  // First live projection (from mock / new expand) starts at 0 and does not
+  // count mock jobs vanishing as completions. Later polls carry + bump.
+  let done = 0
+  let failed = 0
+  if (priorIsLive) {
+    done = base.totals.done
+    failed = base.totals.failed
+    const recents = live.recent_completions ?? []
+    if (recents.length > 0) {
+      for (const c of recents) {
+        if ((c.status || '').trim() === 'ok') done += 1
+        else failed += 1
+      }
+    } else {
+      for (const c of completions) {
+        if (c.ok) done += 1
+        else failed += 1
+      }
+    }
+  }
+
   return {
     generatedAt: now,
     backpressure: base.backpressure,
-    // API: rpm only. No done/failed/p95 yet → zeros (do not spread mock base).
+    // API: rpm only. No p95 yet → 0 (do not spread mock base).
     throughputPerMin: Math.max(0, live.rpm),
     waitP95Ms: 0,
-    totals: { done: 0, failed: 0 },
+    totals: { done, failed },
     workers,
     rateLimits,
     jobs,

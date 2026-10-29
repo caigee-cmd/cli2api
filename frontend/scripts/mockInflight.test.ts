@@ -147,7 +147,7 @@ run('applyLiveProjection routes fail via recent_completions', () => {
   })
   assert.equal(idleFail.jobs.length, 0)
   assert.equal(idleFail.totals.done, 0)
-  assert.equal(idleFail.totals.failed, 0)
+  assert.equal(idleFail.totals.failed, 1)
   assert.ok(idleFail.completions && idleFail.completions.length === 1)
   assert.equal(idleFail.completions[0].ok, false)
   assert.equal(idleFail.completions[0].id, 'live-acc-1')
@@ -189,6 +189,8 @@ run('applyLiveProjection last_error_kind fallback without completions', () => {
   })
   assert.ok(idle.completions && idle.completions.length === 1)
   assert.equal(idle.completions[0].ok, false)
+  assert.equal(idle.totals.failed, 1)
+  assert.equal(idle.totals.done, 0)
 })
 
 run('applyLiveProjection success completion flies ok', () => {
@@ -226,6 +228,30 @@ run('applyLiveProjection success completion flies ok', () => {
     recent_completions: [{ account_id: 'acc-ok', status: 'ok' }],
   })
   assert.ok(idle.completions && idle.completions[0].ok === true)
+  assert.equal(idle.totals.done, 1)
+  assert.equal(idle.totals.failed, 0)
+  const again = applyLiveProjection(idle, {
+    in_flight: 0,
+    rpm: 3,
+    workers: [
+      {
+        id: 'acc-ok',
+        name: 'ok',
+        provider: 'qoder',
+        busy: false,
+        progress: 0,
+        rate_limited: false,
+      },
+    ],
+    rate_limits: [],
+    sticky: { bindings: 0, hits: 0, misses: 0, capacity: 64, ttl_seconds: 600 },
+    recent_completions: [
+      { account_id: 'acc-ok', status: 'ok' },
+      { account_id: 'acc-ok', status: 'error' },
+    ],
+  })
+  assert.equal(again.totals.done, 2)
+  assert.equal(again.totals.failed, 1)
 })
 
 
