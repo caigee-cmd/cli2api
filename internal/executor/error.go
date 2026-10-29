@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -106,6 +107,20 @@ func ClassifyError(err error) Classified {
 			Code: "request_canceled", Message: err.Error(),
 		}
 	}
+	if isTransportFailure(err) {
+		// The request never reached the upstream: a dial, TLS handshake, or
+		// reset failure says nothing about this account's credential, quota,
+		// or rate limit. Cooling it with the generic unavailable default (15s)
+		// just parks a healthy account, and in a single-account route one
+		// handshake timeout turns into "all accounts are cooling down" for
+		// every request that follows. Surface the transport failure and let
+		// the client retry; the account stays routable.
+		return Classified{
+			Kind: accounts.KindUnavailable, Status: http.StatusBadGateway,
+			Failover: false, Code: "upstream_unreachable", Type: "api_error",
+			Message: err.Error(),
+		}
+	}
 	if providers.IsTLSVerifyError(err) {
 		// Certificate verification is deterministic and shared by every
 		// account: no failover, no cooldown, surface the hint as-is.
@@ -178,4 +193,14 @@ func ClassifyError(err error) Classified {
 	}
 	classified.RetryAfter = classified.Cooldown
 	return classified
+}
+
+// isTransportFailure reports whether err is a connection-level failure (dial,
+// TLS handshake, reset) rather than an answer from the upstream. http.Client
+// reports every such failure as *url.Error; a response that arrived comes back
+// with no error at all, so an upstream 502 whose body merely quotes
+// "TLS handshake timeout" is not mistaken for one.
+func isTransportFailure(err error) bool {
+	var urlErr *url.Error
+	return errors.As(err, &urlErr)
 }
