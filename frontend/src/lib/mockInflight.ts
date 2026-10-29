@@ -416,6 +416,8 @@ export type LiveQueueJobLike = {
   /** RequestStatus* — UI maps selecting onto MockJobStatus queued. */
   status: string
   started_at?: string
+  /** Bind target while dwell still projects onto the waiting rail. */
+  account_id?: string
 }
 
 export type LiveProjectionInput = {
@@ -484,6 +486,13 @@ export function applyLiveProjection(
     }
   })
 
+  const dwellNameByAccount = new Map<string, string>()
+  for (const q of live.queue ?? []) {
+    const acc = (q.account_id || '').trim()
+    const label = (q.name || '').trim()
+    if (acc && label && !dwellNameByAccount.has(acc)) dwellNameByAccount.set(acc, label)
+  }
+
   const runningJobs: MockInflightJob[] = workers
     .filter((w) => w.busy && w.jobId)
     .map((w) => {
@@ -504,7 +513,7 @@ export function applyLiveProjection(
       }
       return {
         id,
-        name: w.name,
+        name: dwellNameByAccount.get(w.id) ?? w.name,
         kind: 'chat' as const,
         status: 'running' as const,
         accountId: w.id,
@@ -532,11 +541,13 @@ export function applyLiveProjection(
       startedAtMs = now
     }
     const name = (q.name || '').trim() || id
+    const accountId = (q.account_id || '').trim() || undefined
     return {
       id,
       name,
       kind: 'chat' as const,
       status: 'queued' as const,
+      accountId,
       progress: 0,
       startedAtMs,
       elapsedMs: Math.max(0, now - startedAtMs),

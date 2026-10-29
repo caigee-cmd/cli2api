@@ -891,32 +891,43 @@ export function InflightLiveCard({
 
     const cache = rectCache.current
 
-    // Queue → worker: was queued, now running on a slot.
+    // Queue → worker handoff.
+    // Mock keeps the same job id (queued→running). Live /api/live uses request
+    // ids on the wait rail and synthetic live-${accountId} on slots, so we also
+    // fly when a queued job leaves and we know its bind target (accountId from
+    // selectingMinDwell) — or a single newly-busy slot heuristic.
     const flewFromQueue = new Set<string>()
-    for (const [id, job] of nextJobs) {
-      const before = prevJobs.get(id)
-      if (!before || before.status !== 'queued' || job.status !== 'running') continue
-      const workerId = nextWorkerOf.get(id)
-      if (!workerId) continue
+    const flyQueueToSlot = (
+      id: string,
+      label: string,
+      kind: MockJobKind,
+      workerId: string,
+    ) => {
+      if (!workerId || flewFromQueue.has(id)) return
       flewFromQueue.add(id)
       const fromRect = cache.wait[id]
       const toEl = root.querySelector<HTMLElement>(`[data-slot-id="${CSS.escape(workerId)}"]`)
       const toRect = toEl?.getBoundingClientRect() ?? cache.slot[workerId]
-      // Hide occupy chrome until land (AffectUI receive/occupy on land).
+      const wasBusy = Boolean(prev.workers.find((w) => w.id === workerId)?.busy)
       const landPill = toEl?.querySelector<HTMLElement>('[data-slot-job-pill]') ?? null
       const landFills = toEl
         ? Array.from(toEl.querySelectorAll<HTMLElement>('[data-slot-fill]'))
         : []
-      if (landPill) gsap.set(landPill, { opacity: 0, scale: 0.85 })
-      landFills.forEach((el) => gsap.set(el, { opacity: 0, scaleX: 0.35, transformOrigin: 'left center' }))
-      flyGhost(fromRect, toRect, job.name, job.kind, 'run', null, () => {
+      // Only hide occupy chrome when the slot was idle — dwell already shows busy.
+      if (!wasBusy) {
+        if (landPill) gsap.set(landPill, { opacity: 0, scale: 0.85 })
+        landFills.forEach((el) =>
+          gsap.set(el, { opacity: 0, scaleX: 0.35, transformOrigin: 'left center' }),
+        )
+      }
+      flyGhost(fromRect, toRect, label, kind, 'run', null, () => {
         if (!toEl) return
         gsap.fromTo(
           toEl,
           { filter: 'brightness(1.35)' },
           { filter: 'brightness(1)', duration: motionDuration(0.42), ease: ease.soft },
         )
-        if (landPill) {
+        if (!wasBusy && landPill) {
           gsap.to(landPill, {
             opacity: 1,
             scale: 1,
@@ -924,16 +935,41 @@ export function InflightLiveCard({
             ease: queueEase,
           })
         }
-        landFills.forEach((el, i) => {
-          gsap.to(el, {
-            opacity: 1,
-            scaleX: 1,
-            duration: motionDuration(0.56),
-            ease: queueEase,
-            delay: motionDuration(i * 0.03),
+        if (!wasBusy) {
+          landFills.forEach((el, i) => {
+            gsap.to(el, {
+              opacity: 1,
+              scaleX: 1,
+              duration: motionDuration(0.56),
+              ease: queueEase,
+              delay: motionDuration(i * 0.03),
+            })
           })
-        })
+        }
       })
+    }
+
+    for (const [id, job] of nextJobs) {
+      const before = prevJobs.get(id)
+      if (!before || before.status !== 'queued' || job.status !== 'running') continue
+      const workerId = nextWorkerOf.get(id) || job.accountId || before.accountId
+      if (!workerId) continue
+      flyQueueToSlot(id, job.name, job.kind, workerId)
+    }
+
+    const newlyBusy = snap.workers.filter(
+      (w) => w.busy && !prev.workers.some((p) => p.id === w.id && p.busy),
+    )
+    for (const [id, before] of prevJobs) {
+      if (before.status !== 'queued') continue
+      if (nextJobs.has(id)) continue
+      let workerId = (before.accountId || '').trim()
+      if (!workerId && newlyBusy.length === 1) workerId = newlyBusy[0].id
+      if (!workerId) continue
+      // Prefer a visible busy slot; skip if target never appears.
+      const target = snap.workers.find((w) => w.id === workerId)
+      if (target && !target.busy && newlyBusy.every((w) => w.id !== workerId)) continue
+      flyQueueToSlot(id, before.name, before.kind, workerId)
     }
 
     // Queue vacancy FLIP — remaining pills/dots close the gap after fly-out (560ms).

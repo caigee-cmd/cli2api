@@ -94,8 +94,8 @@ func TestSelectingMinDwellDisplayOnly(t *testing.T) {
 	})
 	r.BindAccount("fresh", "acc-x")
 	got := r.SelectingRequests()
-	if len(got) != 1 || got[0].ID != "fresh" || got[0].AccountID != "" {
-		t.Fatalf("bound but within dwell must still project as selecting, got %+v", got)
+	if len(got) != 1 || got[0].ID != "fresh" || got[0].AccountID != "acc-x" {
+		t.Fatalf("bound but within dwell must still project as selecting with AccountID, got %+v", got)
 	}
 
 	old := now.Add(-(selectingMinDwell + time.Millisecond))
@@ -107,14 +107,14 @@ func TestSelectingMinDwellDisplayOnly(t *testing.T) {
 	ids := map[string]bool{}
 	for _, o := range got {
 		ids[o.ID] = true
-		if o.AccountID != "" {
-			t.Fatalf("projection must clear AccountID, got %+v", o)
-		}
 	}
 	if !ids["fresh"] {
 		t.Fatalf("fresh still in dwell missing: %+v", got)
 	}
 	if ids["aged"] {
 		t.Fatalf("aged past dwell must leave selecting projection: %+v", got)
+	}
+	if got[0].AccountID != "acc-x" {
+		t.Fatalf("fresh must keep bind target for fly handoff, got %+v", got[0])
 	}
 }

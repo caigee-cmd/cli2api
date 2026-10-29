@@ -121,7 +121,8 @@ type RecentCompletion struct {
 // AccountID empty ⇒ still selecting (pre-Acquire); set by BindAccount on
 // Pool.Acquire; cleared by UnbindAccount on Release; entry removed on
 // terminal Finish. SelectingRequests may still project a bound request as
-// selecting until selectingMinDwell after StartedAt (display-only).
+// selecting until selectingMinDwell after StartedAt (display-only), keeping
+// AccountID so the UI can hand off queue→slot.
 type OpenRequest struct {
 	ID             string
 	RequestedModel string
@@ -275,7 +276,9 @@ const openRequestCap = 512
 // selectingMinDwell keeps a request in the /api/live selecting (queue)
 // projection for at least this long after Start, even after BindAccount.
 // Display-only: BindAccount / Acquire / pickNext are not delayed.
-const selectingMinDwell = 500 * time.Millisecond
+// ~1.6s so Overview's expanded ~400ms /api/live poll can catch several frames
+// (collapsed poll is 2.5s and would miss a 500ms window).
+const selectingMinDwell = 1600 * time.Millisecond
 
 func (r *RequestRecorder) noteOpen(log accounts.RequestLog) {
 	if r == nil {
@@ -364,9 +367,10 @@ func (r *RequestRecorder) clearOpen(requestID string) {
 }
 
 // SelectingRequests returns open requests still in 选号 for the InflightLiveCard
-// waiting queue (FIFO by StartedAt). Real binds still clear AccountID on the
+// waiting queue (FIFO by StartedAt). Real binds still set AccountID on the
 // open map immediately; this projection also keeps recently-bound requests
 // until selectingMinDwell after StartedAt so the UI can see the wait rail.
+// Bound-within-dwell entries keep AccountID so the card can fly queue→slot.
 // Does not block Pool.Acquire / pickNext.
 func (r *RequestRecorder) SelectingRequests() []OpenRequest {
 	if r == nil {
@@ -385,8 +389,7 @@ func (r *RequestRecorder) SelectingRequests() []OpenRequest {
 			if !now.Before(cp.StartedAt.Add(selectingMinDwell)) {
 				continue
 			}
-			// Project as still selecting for display only.
-			cp.AccountID = ""
+			// Still selecting for display; keep AccountID for queue→slot handoff.
 		}
 		out = append(out, cp)
 	}

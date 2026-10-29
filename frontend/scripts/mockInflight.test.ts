@@ -341,6 +341,35 @@ run('applyLiveProjection maps queue onto queued MockJobStatus', () => {
   assert.equal(queued[1].id, 'req-2')
 })
 
+run('applyLiveProjection keeps queue accountId for slot handoff', () => {
+  const snap = applyLiveProjection(getMockInflightSnapshot(), {
+    in_flight: 1,
+    rpm: 1,
+    workers: [
+      {
+        id: 'acc-x',
+        name: 'wb-x',
+        provider: 'workbuddy',
+        busy: true,
+        progress: 0.5,
+        rate_limited: false,
+      },
+    ],
+    rate_limits: [],
+    sticky: { bindings: 0, hits: 0, misses: 0, capacity: 64, ttl_seconds: 600 },
+    queue: [
+      { id: 'req-dwell', name: 'gpt · dwell', status: 'started', account_id: 'acc-x' },
+    ],
+  })
+  const queued = snap.jobs.filter((j) => j.status === 'queued')
+  assert.equal(queued.length, 1)
+  assert.equal(queued[0].id, 'req-dwell')
+  assert.equal(queued[0].accountId, 'acc-x')
+  const running = snap.jobs.filter((j) => j.status === 'running')
+  assert.equal(running.length, 1)
+  assert.equal(running[0].name, 'gpt · dwell')
+})
+
 run('liveHasSignal true when only queue present', () => {
   assert.equal(
     liveHasSignal({

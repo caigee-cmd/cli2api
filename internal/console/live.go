@@ -74,6 +74,9 @@ type LiveJob struct {
 	Name      string `json:"name"`
 	Status    string `json:"status"`
 	StartedAt string `json:"started_at,omitempty"`
+	// AccountID set when Bind already happened but selectingMinDwell still
+	// projects the job on the waiting rail (queue→slot fly target).
+	AccountID string `json:"account_id,omitempty"`
 }
 
 type LiveSnapshot struct {
@@ -232,6 +235,7 @@ func (h *Handler) HandleLive(w http.ResponseWriter, r *http.Request) {
 				Name:      name,
 				Status:    status,
 				StartedAt: q.StartedAt.UTC().Format(time.RFC3339),
+				AccountID: strings.TrimSpace(q.AccountID),
 			})
 		}
 	}

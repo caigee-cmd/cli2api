@@ -37,6 +37,8 @@ export type LiveJob = {
   status: string
   /** RFC3339 Prepare/Start time. */
   started_at?: string
+  /** Set during selectingMinDwell after Bind — queue→slot fly target. */
+  account_id?: string
 }
 
 /** Active cooldown window from AccountView.DownUntil / model_cooldowns. */
