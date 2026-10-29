@@ -413,7 +413,7 @@ func TestModelsFiltersLearnedUnavailable(t *testing.T) {
 	}
 }
 
-func TestBenefitModelsHiddenWhenBenefitUnavailable(t *testing.T) {
+func TestCreditModelsRemainWhenBenefitUnavailable(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case agentListPath:
@@ -438,8 +438,13 @@ func TestBenefitModelsHiddenWhenBenefitUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(models) != 1 || models[0].NativeModel != "normal-id" || models[0].DisplayName != "Normal" {
+	if len(models) != 2 {
 		t.Fatalf("models = %+v", models)
+	}
+	for _, model := range models {
+		if model.NativeModel == "trial-id" && model.DisplayName != "Trial" {
+			t.Fatalf("trial display = %+v", model)
+		}
 	}
 }
 

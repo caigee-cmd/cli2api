@@ -31,14 +31,6 @@ type statistics struct {
 	Plan      string
 	PlanName  string
 	Meters    []quotaMeter
-	Models    []statisticsModel
-}
-
-type statisticsModel struct {
-	ID     string
-	Name   string
-	Desc   string
-	Enable bool
 }
 
 func (s statistics) empty() bool { return len(s.Meters) == 0 }
@@ -195,12 +187,6 @@ func parseStatistics(raw []byte) (statistics, error) {
 			PackageNameEN string `json:"package_name_en"`
 			PackageNameCN string `json:"package_name_cn"`
 		} `json:"package"`
-		ModelMetrics []struct {
-			ModelID   string `json:"model_id"`
-			ModelName string `json:"model_name"`
-			ModelDesc string `json:"model_desc"`
-			Enable    bool   `json:"enable"`
-		} `json:"model_metrics"`
 	}
 	if err := json.Unmarshal(raw, &parsed); err != nil {
 		return statistics{}, fmt.Errorf("parse codearts statistics: %w", err)
@@ -209,16 +195,6 @@ func parseStatistics(raw []byte) (statistics, error) {
 	if parsed.Package != nil {
 		out.Plan = strings.TrimSpace(parsed.Package.SpecCode)
 		out.PlanName = firstNonEmpty(parsed.Package.PackageNameEN, parsed.Package.PackageNameCN)
-	}
-	for _, model := range parsed.ModelMetrics {
-		id := strings.TrimSpace(firstNonEmpty(model.ModelID, model.ModelName))
-		if id == "" {
-			continue
-		}
-		out.Models = append(out.Models, statisticsModel{
-			ID: id, Name: strings.TrimSpace(model.ModelName),
-			Desc: strings.TrimSpace(model.ModelDesc), Enable: model.Enable,
-		})
 	}
 	for _, metric := range parsed.Metrics {
 		name := strings.TrimSpace(metric.Name)
