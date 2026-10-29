@@ -652,12 +652,17 @@ export function InflightLiveCard({
 
     const prevJobs = new Map(prev.jobs.map((j) => [j.id, j]))
     const nextJobs = new Map(snap.jobs.map((j) => [j.id, j]))
-    const prevWorkerOf = new Map(
-      prev.workers.filter((w) => w.jobId).map((w) => [w.jobId!, w.id]),
-    )
-    const nextWorkerOf = new Map(
-      snap.workers.filter((w) => w.jobId).map((w) => [w.jobId!, w.id]),
-    )
+    // Map every concurrency cell → account (not only the legacy primary jobId).
+    const prevWorkerOf = new Map<string, string>()
+    for (const w of prev.workers) {
+      if (w.jobId) prevWorkerOf.set(w.jobId, w.id)
+      for (const c of w.cells ?? []) prevWorkerOf.set(c.id, w.id)
+    }
+    const nextWorkerOf = new Map<string, string>()
+    for (const w of snap.workers) {
+      if (w.jobId) nextWorkerOf.set(w.jobId, w.id)
+      for (const c of w.cells ?? []) nextWorkerOf.set(c.id, w.id)
+    }
 
     const flyGhost = (
       from: DOMRect | HTMLElement | null | undefined,
@@ -1173,6 +1178,44 @@ export function InflightLiveCard({
       }
     }
 
+    // Worker rail FLIP — busy→available reorder slides rows (not teleport).
+    {
+      const orderOf = (workers: typeof snap.workers) => {
+        const busy = workers.filter((w) => w.busy)
+        const available = workers.filter((w) => !w.busy)
+        const out: string[] = []
+        const seen = new Set<string>()
+        for (const w of [...busy, ...available]) {
+          if (seen.has(w.id)) continue
+          seen.add(w.id)
+          out.push(w.id)
+          if (out.length >= WORKER_VISIBLE_MAX) break
+        }
+        return out
+      }
+      const prevOrder = orderOf(prev.workers)
+      const nextOrder = orderOf(snap.workers)
+      const orderChanged =
+        prevOrder.length !== nextOrder.length ||
+        prevOrder.some((id, i) => id !== nextOrder[i])
+      if (orderChanged) {
+        for (const id of nextOrder) {
+          const el = root.querySelector<HTMLElement>(`[data-slot-id="${CSS.escape(id)}"]`)
+          const first = cache.slot[id]
+          if (!el || !first) continue
+          const last = el.getBoundingClientRect()
+          const dx = first.left - last.left
+          const dy = first.top - last.top
+          if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) continue
+          gsap.fromTo(
+            el,
+            { x: dx, y: dy },
+            { x: 0, y: 0, duration: motionDuration(0.56), ease: slideEase, force3D: true },
+          )
+        }
+      }
+    }
+
     refreshCache()
   }, [snap, expanded])
 
@@ -1374,7 +1417,7 @@ export function InflightLiveCard({
                 </span>
               </div>
               {/* Vertical worker rail — growing bars, AffectUI layout */}
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-2" data-worker-rail>
                 {visibleWorkers.map((slot) => (
                   <SlotBar
                     key={slot.id}

@@ -5,6 +5,7 @@ import {
   getMockInflightSnapshot,
   liveHasSignal,
   MOCK_INFLIGHT,
+  tickMockInflight,
 } from '../src/lib/mockInflight.ts'
 
 function run(name: string, fn: () => void) {
@@ -456,3 +457,79 @@ run('applyLiveProjection occupancy dwell stays on queue not double-running', () 
   assert.equal(w?.cells?.[0].id, 'req-dwell')
   assert.equal(w?.cells?.[0].name, 'sonnet')
 })
+
+run('applyLiveProjection request_id completion matches that cell', () => {
+  const busy = applyLiveProjection(cloneMockInflight(MOCK_INFLIGHT), {
+    in_flight: 2,
+    rpm: 1,
+    workers: [
+      {
+        id: 'acc-x',
+        name: 'wb-x',
+        provider: 'workbuddy',
+        busy: true,
+        progress: 0.5,
+        rate_limited: false,
+        max_inflight: 4,
+        in_flight: 2,
+      },
+    ],
+    rate_limits: [],
+    sticky: { bindings: 0, hits: 0, misses: 0, capacity: 64, ttl_seconds: 600 },
+    occupancy: [
+      { id: 'req-keep', name: 'keep', status: 'started', account_id: 'acc-x' },
+      { id: 'req-gone', name: 'gone', status: 'started', account_id: 'acc-x' },
+    ],
+  })
+  assert.equal(busy.jobs.filter((j) => j.status === 'running').length, 2)
+  const after = applyLiveProjection(busy, {
+    in_flight: 1,
+    rpm: 1,
+    workers: [
+      {
+        id: 'acc-x',
+        name: 'wb-x',
+        provider: 'workbuddy',
+        busy: true,
+        progress: 0.5,
+        rate_limited: false,
+        max_inflight: 4,
+        in_flight: 1,
+      },
+    ],
+    rate_limits: [],
+    sticky: { bindings: 0, hits: 0, misses: 0, capacity: 64, ttl_seconds: 600 },
+    occupancy: [{ id: 'req-keep', name: 'keep', status: 'started', account_id: 'acc-x' }],
+    recent_completions: [{ request_id: 'req-gone', account_id: 'acc-x', status: 'error' }],
+  })
+  assert.equal(after.jobs.filter((j) => j.status === 'running').length, 1)
+  assert.equal(after.jobs.find((j) => j.status === 'running')?.id, 'req-keep')
+  assert.ok(after.completions?.some((c) => c.id === 'req-gone' && c.ok === false))
+  assert.equal(after.workers.find((w) => w.id === 'acc-x')?.cells?.length, 1)
+})
+
+run('tickMockInflight finishes one cell without clearing siblings', () => {
+  const base = cloneMockInflight(MOCK_INFLIGHT)
+  const w = base.workers.find((x) => x.id === 'acc-wb-a1')
+  assert.ok(w && (w.cells?.length ?? 0) >= 2)
+  const siblingIds = (w!.cells ?? []).map((c) => c.id).filter((id) => id !== 'j1')
+  assert.ok(siblingIds.length >= 1)
+  // Force first cell to completion threshold; leave siblings mid-flight.
+  for (const j of base.jobs) {
+    if (j.id === 'j1') j.progress = 0.999
+    else if (j.accountId === 'acc-wb-a1') j.progress = 0.4
+  }
+  const next = tickMockInflight(base, 300)
+  const w2 = next.workers.find((x) => x.id === 'acc-wb-a1')
+  assert.ok(w2)
+  // Finished cell is gone (may refill from queue, so length can stay the same).
+  assert.ok(!(w2!.cells ?? []).some((c) => c.id === 'j1'))
+  // At least one prior sibling still occupies a cell — account not wiped.
+  assert.ok(siblingIds.some((id) => (w2!.cells ?? []).some((c) => c.id === id)))
+  assert.ok((w2!.inFlight ?? 0) >= 1)
+  // One completion (or retry) for j1 only — not a bulk clear of all cells.
+  const terminal = next.completions?.filter((c) => c.id === 'j1') ?? []
+  const retried = next.jobs.some((j) => j.id === 'j1' && j.status === 'queued')
+  assert.ok(terminal.length === 1 || retried)
+})
+

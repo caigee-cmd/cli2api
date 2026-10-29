@@ -227,48 +227,54 @@ export function tickMockInflight(prev: MockInflightSnapshot, dtMs: number): Mock
 
   const jobById = new Map(next.jobs.map((j) => [j.id, j]))
 
-  // Progress + elapsed on busy non-frozen slots (per-cell timers too).
+  // Per-cell elapsed + independent progress (rate-limit freezes the account).
   for (const w of next.workers) {
     if (w.cells?.length) {
       for (const c of w.cells) c.elapsedMs += dt
     }
-    if (!w.busy || !w.jobId) continue
-    const job = jobById.get(w.jobId)
-    if (!job || job.status !== 'running') continue
-    job.elapsedMs += dt
-    // Keep sibling cell jobs' elapsed in sync with cells when present.
+    if (w.rateLimited) continue
+    let maxP = 0
     for (const c of w.cells ?? []) {
-      const cj = jobById.get(c.id)
-      if (cj && cj.status === 'running' && cj.id !== job.id) cj.elapsedMs = c.elapsedMs
+      const job = jobById.get(c.id)
+      if (!job || job.status !== 'running') continue
+      job.elapsedMs = c.elapsedMs
+      // ~8–14s per cell from current progress, paced by dt + cell id.
+      const speed = 0.045 + (c.id.charCodeAt(c.id.length - 1) % 5) * 0.008
+      job.progress = Math.min(1, job.progress + speed * (dt / 1000))
+      maxP = Math.max(maxP, job.progress)
     }
-    if (w.rateLimited) {
-      // Amber freeze — no progress (AffectUI: bars stop + amber).
-      continue
+    if ((w.cells?.length ?? 0) > 0) {
+      w.progress = maxP
+      w.busy = true
+      w.jobId = w.cells![0].id
+      w.inFlight = w.cells!.length
     }
-    // ~8–14s to complete from current progress, paced by dt.
-    const speed = 0.045 + (w.id.charCodeAt(w.id.length - 1) % 5) * 0.008
-    w.progress = Math.min(1, w.progress + speed * (dt / 1000))
-    job.progress = w.progress
   }
 
-  // Complete / fail when progress hits 1.
+  // Finish ONE ready cell per worker per tick so each concurrency cell gets
+  // its own Done/Failed fly-out (do not clear the whole account at once).
   const finished: Array<{ jobId: string; workerId: string; ok: boolean }> = []
   for (const w of next.workers) {
-    if (!w.busy || !w.jobId || w.rateLimited) continue
-    if (w.progress < 0.995) continue
-    // ~12% fail flash (AffectUI shake path); rest → Done.
-    const ok = (w.jobId.charCodeAt(1) + Math.floor(next.generatedAt / 1000)) % 9 !== 0
-    finished.push({ jobId: w.jobId, workerId: w.id, ok })
+    if (w.rateLimited || !(w.cells?.length)) continue
+    const ready = w.cells.find((c) => {
+      const j = jobById.get(c.id)
+      return Boolean(j && j.status === 'running' && j.progress >= 0.995)
+    })
+    if (!ready) continue
+    const ok = (ready.id.charCodeAt(1) + Math.floor(next.generatedAt / 1000)) % 9 !== 0
+    finished.push({ jobId: ready.id, workerId: w.id, ok })
   }
   for (const f of finished) {
     const job = jobById.get(f.jobId)
     const w = next.workers.find((x) => x.id === f.workerId)
     if (!job || !w) continue
-    w.busy = false
-    w.progress = 0
-    w.jobId = undefined
-    w.inFlight = 0
-    w.cells = []
+    w.cells = (w.cells ?? []).filter((c) => c.id !== f.jobId)
+    w.inFlight = w.cells.length
+    w.jobId = w.cells[0]?.id
+    w.busy = w.cells.length > 0
+    w.progress = w.busy
+      ? Math.max(0.04, ...w.cells.map((c) => jobById.get(c.id)?.progress ?? 0.04))
+      : 0
     job.accountId = undefined
     if (f.ok) {
       job.status = 'done'
@@ -311,23 +317,26 @@ export function tickMockInflight(prev: MockInflightSnapshot, dtMs: number): Mock
     if (j.status === 'queued') j.elapsedMs += dt
   }
 
-  // Free slots pull front of queue (queue → worker handoff).
+  // Free concurrency cells pull front of queue (partially busy accounts included).
   const queue = next.jobs.filter((j) => j.status === 'queued')
   for (const w of next.workers) {
-    if (w.busy || w.rateLimited) continue
-    const job = queue.shift()
-    if (!job) break
-    job.status = 'running'
-    job.accountId = w.id
-    job.progress = 0.04
-    job.elapsedMs = 0
-    w.busy = true
-    w.progress = 0.04
-    w.jobId = job.id
+    if (w.rateLimited) continue
     const cap = clampSlotConcurrency(w.concurrency ?? 1)
-    w.inFlight = Math.min(cap, Math.max(1, (w.inFlight ?? 0) + 1))
-    const cell = { id: job.id, name: job.name, startedAtMs: Date.now(), elapsedMs: 0 }
-    w.cells = [...(w.cells ?? []).filter((c) => c.id !== job.id), cell].slice(0, cap)
+    w.cells = w.cells ?? []
+    while (w.cells.length < cap) {
+      const job = queue.shift()
+      if (!job) break
+      job.status = 'running'
+      job.accountId = w.id
+      job.progress = 0.04
+      job.elapsedMs = 0
+      const cell = { id: job.id, name: job.name, startedAtMs: Date.now(), elapsedMs: 0 }
+      w.cells = [...w.cells.filter((c) => c.id !== job.id), cell].slice(0, cap)
+      w.busy = true
+      w.progress = Math.max(w.progress, 0.04)
+      w.jobId = w.cells[0]?.id
+      w.inFlight = w.cells.length
+    }
   }
 
   // Soft enqueue so the waiting rail doesn’t drain dry.
@@ -439,6 +448,8 @@ export type LiveWorkerLike = {
 }
 
 export type LiveCompletionLike = {
+  /** Open request id — match per-cell Done/Failed when present. */
+  request_id?: string
   account_id: string
   status: string
 }
@@ -677,12 +688,16 @@ export function applyLiveProjection(
   series.push(Math.max(0, live.in_flight))
   while (series.length < n) series.unshift(0)
 
-  // Match busy→idle jobs to drained request finishes (or last_error_kind).
+  // Match busy→idle jobs to drained finishes: request_id first (per-cell),
+  // then account FIFO, then last_error_kind.
+  const pendingByRequest = new Map<string, boolean>()
   const pendingByAccount = new Map<string, boolean[]>()
   for (const c of live.recent_completions ?? []) {
+    const ok = (c.status || '').trim() === 'ok'
+    const rid = (c.request_id || '').trim()
+    if (rid) pendingByRequest.set(rid, ok)
     const acc = (c.account_id || '').trim()
     if (!acc) continue
-    const ok = (c.status || '').trim() === 'ok'
     const list = pendingByAccount.get(acc) ?? []
     list.push(ok)
     pendingByAccount.set(acc, list)
@@ -693,14 +708,19 @@ export function applyLiveProjection(
     if (prev.status !== 'running') continue
     if (stillIds.has(prev.id)) continue
     const acc = (prev.accountId || prev.id.replace(/^live-/, '')).trim()
-    const queue = pendingByAccount.get(acc)
     let ok = true
-    if (queue && queue.length > 0) {
-      ok = queue.shift()!
+    if (pendingByRequest.has(prev.id)) {
+      ok = pendingByRequest.get(prev.id)!
+      pendingByRequest.delete(prev.id)
     } else {
-      const lw = live.workers.find((w) => w.id === acc)
-      if (lw?.last_error_kind && lw.last_error_kind.trim() !== '') {
-        ok = false
+      const queue = pendingByAccount.get(acc)
+      if (queue && queue.length > 0) {
+        ok = queue.shift()!
+      } else {
+        const lw = live.workers.find((w) => w.id === acc)
+        if (lw?.last_error_kind && lw.last_error_kind.trim() !== '') {
+          ok = false
+        }
       }
     }
     completions.push({
