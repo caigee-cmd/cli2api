@@ -741,8 +741,13 @@ export function InflightLiveCard({
 
       const w = Math.max(a.width, 88)
       const h = Math.max(a.height, 26)
-      const endLeft = b.left + Math.max(0, (b.width - w * 0.92) / 2)
-      const endTop = b.top + Math.max(0, (b.height - h) / 2)
+      // Beat center of the target (slot / Done / Failed).
+      const targetLeft = b.left + Math.max(0, (b.width - w * 0.92) / 2)
+      const targetTop = b.top + Math.max(0, (b.height - h) / 2)
+      // Outcome fly: settle slightly short of the button — don't dive into the control.
+      const settle = tone === 'ok' || tone === 'danger' ? 0.86 : 1
+      const endLeft = a.left + (targetLeft - a.left) * settle
+      const endTop = a.top + (targetTop - a.top) * settle
       // Slightly longer than layout 560ms so the horizontal path reads clearly.
       const flyDur = motionDuration(0.72)
       const holdDur = motionDuration(0.16)
@@ -834,8 +839,33 @@ export function InflightLiveCard({
         ease: queueEase,
         force3D: true,
         onComplete: () => {
-          // Land first so the real slot/queue pill can occupy while the
-          // opaque ghost still holds, then fade the clone out.
+          // Immediate on fly settle: light Done/Failed hairline pulse (no delay).
+          const beat = beatEl
+          if (beat && (tone === 'ok' || tone === 'danger')) {
+            const base =
+              tone === 'ok'
+                ? 'inset 0 0 0 1px color-mix(in oklab, var(--success) 28%, transparent)'
+                : 'inset 0 0 0 1px color-mix(in oklab, var(--danger) 28%, transparent)'
+            const lit =
+              tone === 'ok'
+                ? 'inset 0 0 0 1.5px color-mix(in oklab, var(--success) 52%, transparent), 0 0 8px color-mix(in oklab, var(--success) 16%, transparent)'
+                : 'inset 0 0 0 1.5px color-mix(in oklab, var(--danger) 52%, transparent), 0 0 8px color-mix(in oklab, var(--danger) 16%, transparent)'
+            gsap.fromTo(
+              beat,
+              { boxShadow: base },
+              {
+                boxShadow: lit,
+                duration: motionDuration(0.22),
+                ease: 'power1.inOut',
+                yoyo: true,
+                repeat: 3, // ~2 soft pulses
+                onComplete: () => {
+                  gsap.set(beat, { clearProps: 'boxShadow' })
+                },
+              },
+            )
+          }
+          // Slot/queue land chrome, then fade the opaque ghost after a short hold.
           onLand?.()
           gsap.to(ghost, {
             opacity: 0,
@@ -847,36 +877,6 @@ export function InflightLiveCard({
           })
         },
       })
-
-      const beat = beatEl
-      if (beat && (tone === 'ok' || tone === 'danger')) {
-        gsap.fromTo(
-          beat,
-          { filter: 'brightness(1.55)', scale: 1.04 },
-          {
-            filter: 'brightness(1)',
-            scale: 1,
-            duration: motionDuration(0.42),
-            ease: ease.soft,
-            delay: motionDuration(0.36),
-          },
-        )
-      }
-      if (beat && tone === 'danger') {
-        gsap.fromTo(
-          beat,
-          { x: -3 },
-          {
-            x: 3,
-            duration: motionDuration(0.07),
-            yoyo: true,
-            repeat: 5,
-            ease: 'power1.inOut',
-            delay: motionDuration(0.36),
-            onComplete: () => gsap.set(beat, { x: 0 }),
-          },
-        )
-      }
     }
 
     const cache = rectCache.current
