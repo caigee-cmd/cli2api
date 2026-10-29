@@ -18,3 +18,5 @@
 - Stage-3 wire: Overview「实时进行中」**默认收起**，不消费 live 投影；点 LiveStrip「当前并发」或卡片 toggle 才展开。展开后把 `/api/live` 的 `workers` / `rate_limits` / `sticky` 映射到槽位与限流色带；mock 活环仅在 live 不可用时作空演示兜底。jobs 级明细仍示意，待请求级 API。
 - Stage-3: InflightLiveCard **collapsed by default** (no live consume until expand from concurrency strip or toggle). Open → project `/api/live` workers/rate_limits/sticky; mock tick only if live missing. Request-level jobs still demo until a real inflight API.
 
+- Fix: real `/api/live` projection no longer spreads mock totals/throughput/p95/depth — idle live shows zeros; depthSeries from live samples only; mock tick only when live is null.
+- 修复：真实 `/api/live` 投影不再带入 mock 的完成/失败/吞吐/P95/深度；空闲 live 显示 0；深度仅用真实采样；仅 live 为 null 时跑 mock 活环。

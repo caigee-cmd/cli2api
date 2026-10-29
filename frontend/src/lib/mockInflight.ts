@@ -345,9 +345,11 @@ export type LiveProjectionInput = {
 }
 
 /**
- * Merge /api/live workers + rate_limits (+ sticky meta) onto a mock snapshot.
- * Jobs/depth stay local: busy workers become synthetic running jobs; depth
- * appends in_flight. Used when the Overview card is expanded.
+ * Merge /api/live workers + rate_limits (+ sticky meta) onto a snapshot.
+ * Busy workers → synthetic running jobs. When `live` is provided, never inherit
+ * mock totals / throughput / p95 / depth: zeros unless the API supplies a value
+ * (`rpm` → throughput; no done/failed/p95 fields yet). depthSeries rolls prior
+ * *live* samples only — mock seed/tick series are discarded on first projection.
  */
 export function applyLiveProjection(
   base: MockInflightSnapshot,
@@ -363,7 +365,7 @@ export function applyLiveProjection(
     jobId: w.busy ? `live-${w.id}` : undefined,
   }))
 
-  const n = Math.max(1, base.depthSeries.length)
+  const n = Math.max(1, MOCK_INFLIGHT.depthSeries.length)
   const rateLimits: MockRateLimitWindow[] = live.rate_limits.map((r, i) => {
     const span = 0.14
     const from = Math.min(0.86, ((i * 0.22) % 0.86))
@@ -388,18 +390,26 @@ export function applyLiveProjection(
       elapsedMs: 0,
     }))
 
-  const series = base.depthSeries.slice(1)
+  // Continue rolling depth only after a prior live projection (cleared p95 +
+  // zero totals). Mock seed/tick always leaves waitP95Ms > 0 — start zeros.
+  const priorIsLive = base.waitP95Ms === 0 && base.totals.done === 0 && base.totals.failed === 0
+  const series = priorIsLive
+    ? base.depthSeries.slice(1)
+    : Array.from({ length: Math.max(0, n - 1) }, () => 0)
   series.push(Math.max(0, live.in_flight))
-  while (series.length < n) series.unshift(series[0] ?? 0)
+  while (series.length < n) series.unshift(0)
 
   return {
-    ...base,
+    generatedAt: Date.now(),
+    backpressure: base.backpressure,
+    // API: rpm only. No done/failed/p95 yet → zeros (do not spread mock base).
+    throughputPerMin: Math.max(0, live.rpm),
+    waitP95Ms: 0,
+    totals: { done: 0, failed: 0 },
     workers,
     rateLimits,
     jobs,
     depthSeries: series.slice(-n),
-    throughputPerMin: live.rpm > 0 ? live.rpm : base.throughputPerMin,
-    generatedAt: Date.now(),
   }
 }
 
