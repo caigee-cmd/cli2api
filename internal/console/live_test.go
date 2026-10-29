@@ -78,6 +78,12 @@ func TestBuildLiveSnapshot(t *testing.T) {
 	if got.RateLimits[0].Label != "wb-a2" || got.RateLimits[1].Label != "wb-a2 · glm-5" {
 		t.Fatalf("labels = %q / %q", got.RateLimits[0].Label, got.RateLimits[1].Label)
 	}
+	if got.Queue == nil {
+		t.Fatalf("queue must be non-nil empty slice")
+	}
+	if len(got.Queue) != 0 {
+		t.Fatalf("queue = %+v", got.Queue)
+	}
 }
 
 func TestBuildLiveSnapshotEmpty(t *testing.T) {
