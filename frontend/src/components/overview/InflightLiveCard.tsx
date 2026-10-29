@@ -1488,18 +1488,12 @@ export function InflightLiveCard({
         [data-testid="inflight-live-card"]{
           /* Public AffectUI hierarchy → project tokens.
              Outer Card keeps solid-glass; nested queue/slots/outcomes use
-             wash + at most one soft hairline (no stacked inset rings).
+             color wash + spacing (no section rules / stacked inset rings).
              chart-3 stays out of surfaces. Depth curve uses chart-1. */
-          /* Nested items: wash + at most one soft hairline — never stacked solid-glass
-             frames inside the outer .card (Access / overview nested-card rule). */
+          /* Nested items: color wash + spacing — avoid section rules / stacked frames. */
           --il-well: var(--surface);
           --il-chip: var(--surface);
           --il-item-bg: color-mix(in oklab, var(--surface-secondary) 38%, var(--surface));
-          --il-hair: inset 0 0 0 1px color-mix(in oklab, var(--foreground) 5.5%, transparent);
-          --il-hair-busy: inset 0 0 0 1px color-mix(in oklab, var(--chart-1) 22%, transparent);
-          --il-hair-warn: inset 0 0 0 1px color-mix(in oklab, var(--warning) 28%, transparent);
-          --il-hair-ok: inset 0 0 0 1px color-mix(in oklab, var(--success) 28%, transparent);
-          --il-hair-err: inset 0 0 0 1px color-mix(in oklab, var(--danger) 28%, transparent);
           --il-track: color-mix(in oklab, var(--foreground) 8%, var(--surface-secondary));
           --il-busy-bg: color-mix(in oklab, var(--chart-1) 10%, var(--surface));
           --il-busy-fill: color-mix(in oklab, var(--chart-1) 42%, var(--il-track));
@@ -1519,9 +1513,9 @@ export function InflightLiveCard({
           --il-depth-fill: color-mix(in oklab, var(--chart-1) 20%, transparent);
           --il-faint: color-mix(in oklab, var(--foreground) 42%, transparent);
         }
-        /* Busy slot: cool wash + soft glow (+ one quiet hairline) — no stacked glass rings */
+        /* Busy slot: cool wash + soft glow — no stacked glass rings */
         [data-testid="inflight-live-card"] [data-slot-busy]{
-          box-shadow: var(--il-hair-busy), var(--il-busy-glow);
+          box-shadow: var(--il-busy-glow);
         }
         @keyframes inflight-shimmer{0%{transform:translateX(-130%)}100%{transform:translateX(230%)}}
         @keyframes inflight-queue-shimmer{0%{transform:translateX(-140%);opacity:.4}50%{opacity:.9}100%{transform:translateX(240%);opacity:.4}}
@@ -1533,7 +1527,7 @@ export function InflightLiveCard({
         }
       `}</style>
 
-      <div className="flex items-start justify-between gap-3 border-b border-separator px-4 py-3">
+      <div className="flex items-start justify-between gap-3 px-4 py-3">
         <button
           type="button"
           data-testid="inflight-live-toggle"
@@ -1608,7 +1602,7 @@ export function InflightLiveCard({
 
       {expanded ? (
         <div id="inflight-live-body" ref={rootRef}>
-          <div className="grid grid-cols-2 gap-3 border-b border-separator px-4 py-3 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 px-4 pb-1 pt-0 sm:grid-cols-4">
             <Metric
               label={t('inflightWaiting')}
               value={summary.waiting}
@@ -1624,7 +1618,7 @@ export function InflightLiveCard({
           </div>
 
           {/* Waiting → account-slot bars → Done/Failed  (AffectUI Agent Queue flow) */}
-          <div className="grid gap-3 border-b border-separator px-4 py-3 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.55fr)_auto]">
+          <div className="grid gap-3 px-4 py-3 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.55fr)_auto]">
             <div className="min-w-0" data-queue-col>
               <div className="mb-1.5 flex items-baseline justify-between gap-2">
                 <span className="text-caption uppercase tracking-wide text-muted">{t('inflightQueue')}</span>
@@ -1639,7 +1633,7 @@ export function InflightLiveCard({
                     data-wait-pill
                     data-wait-id={job.id}
                     data-priority={job.priority ?? 'normal'}
-                    className={`relative flex items-center justify-between gap-2 overflow-hidden rounded-xl px-2.5 py-2 shadow-[var(--il-hair)] ${kindPill(job.kind)}`}
+                    className={`relative flex items-center justify-between gap-2 overflow-hidden rounded-xl px-2.5 py-2 ${kindPill(job.kind)}`}
                   >
                     <span
                       aria-hidden
@@ -1791,8 +1785,8 @@ function Outcome({
       title={`${label}: ${value}`}
       className={`flex min-w-[3.6rem] flex-1 flex-col items-center justify-center gap-1.5 rounded-2xl px-2.5 py-3 ${
         ok
-          ? 'bg-[var(--il-ok-bg)] shadow-[var(--il-hair-ok),0_6px_16px_color-mix(in_oklab,var(--success)_10%,transparent)]'
-          : 'bg-[var(--il-err-bg)] shadow-[var(--il-hair-err),0_6px_16px_color-mix(in_oklab,var(--danger)_10%,transparent)]'
+          ? 'bg-[var(--il-ok-bg)] shadow-[0_6px_16px_color-mix(in_oklab,var(--success)_10%,transparent)]'
+          : 'bg-[var(--il-err-bg)] shadow-[0_6px_16px_color-mix(in_oklab,var(--danger)_10%,transparent)]'
       }`}
     >
       <span
