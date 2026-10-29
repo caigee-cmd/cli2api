@@ -62,20 +62,23 @@ type LiveRateLimit struct {
 // LiveCompletion is one terminal request finish drained from the request
 // recorder for this /api/live poll (busy→idle Done vs Failed routing).
 type LiveCompletion struct {
+	// RequestID identifies the finished open request so InflightLiveCard can
+	// fly that concurrency cell to Done/Failed independently (not whole account).
+	RequestID string `json:"request_id,omitempty"`
 	AccountID string `json:"account_id"`
 	Status    string `json:"status"`
 }
 
-// LiveJob is one selecting (选号) request for the InflightLiveCard waiting
-// queue. Status reuses accounts.RequestStatus* (started) — not a new state
-// machine. Running occupancy stays on Workers via Pool InFlight.
+// LiveJob is one selecting (选号) or bound occupancy request for the
+// InflightLiveCard. Status reuses accounts.RequestStatus* — not a new state
+// machine. Queue uses unbound/dwell selecting; Occupancy uses BoundRequests
+// (per-cell model + started_at). Workers still carry Pool InFlight counts.
 type LiveJob struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
 	Status    string `json:"status"`
 	StartedAt string `json:"started_at,omitempty"`
-	// AccountID set when Bind already happened but selectingMinDwell still
-	// projects the job on the waiting rail (queue→slot fly target).
+	// AccountID: dwell fly target on Queue; always set on Occupancy.
 	AccountID string `json:"account_id,omitempty"`
 }
 
@@ -89,8 +92,11 @@ type LiveSnapshot struct {
 	RateLimits        []LiveRateLimit               `json:"rate_limits"`
 	Sticky            executor.SessionAffinityStats `json:"sticky"`
 	RecentCompletions []LiveCompletion              `json:"recent_completions,omitempty"`
-	// Queue is Prepare→Acquire 选号 (RequestStatusStarted, no pool bind).
+	// Queue is Prepare→Acquire 选号 (RequestStatusStarted / dwell).
 	Queue []LiveJob `json:"queue,omitempty"`
+	// Occupancy is bound open requests (one per concurrency cell) with model
+	// name and per-request started_at (Bind time) for InflightLiveCard.
+	Occupancy []LiveJob `json:"occupancy,omitempty"`
 }
 
 // buildLiveSnapshot sums in-flight over all accounts and capacity (the
@@ -105,6 +111,7 @@ func buildLiveSnapshot(views []accounts.AccountView, rpm int, sticky executor.Se
 		Workers:    make([]LiveWorker, 0, len(views)),
 		RateLimits: make([]LiveRateLimit, 0),
 		Queue:      make([]LiveJob, 0),
+		Occupancy:  make([]LiveJob, 0),
 		Sticky:     sticky,
 	}
 	for _, v := range views {
@@ -217,6 +224,7 @@ func (h *Handler) HandleLive(w http.ResponseWriter, r *http.Request) {
 	if h.Recorder != nil {
 		for _, c := range h.Recorder.DrainRecentCompletions() {
 			snap.RecentCompletions = append(snap.RecentCompletions, LiveCompletion{
+				RequestID: c.RequestID,
 				AccountID: c.AccountID,
 				Status:    c.Status,
 			})
@@ -236,6 +244,27 @@ func (h *Handler) HandleLive(w http.ResponseWriter, r *http.Request) {
 				Status:    status,
 				StartedAt: q.StartedAt.UTC().Format(time.RFC3339),
 				AccountID: strings.TrimSpace(q.AccountID),
+			})
+		}
+		for _, b := range h.Recorder.BoundRequests() {
+			name := strings.TrimSpace(b.RequestedModel)
+			if name == "" {
+				name = b.ID
+			}
+			status := strings.TrimSpace(b.Status)
+			if status == "" {
+				status = accounts.RequestStatusStarted
+			}
+			started := b.BoundAt
+			if started.IsZero() {
+				started = b.StartedAt
+			}
+			snap.Occupancy = append(snap.Occupancy, LiveJob{
+				ID:        b.ID,
+				Name:      name,
+				Status:    status,
+				StartedAt: started.UTC().Format(time.RFC3339),
+				AccountID: strings.TrimSpace(b.AccountID),
 			})
 		}
 	}

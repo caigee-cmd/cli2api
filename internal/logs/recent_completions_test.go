@@ -118,3 +118,46 @@ func TestSelectingMinDwellDisplayOnly(t *testing.T) {
 		t.Fatalf("fresh must keep bind target for fly handoff, got %+v", got[0])
 	}
 }
+
+func TestBoundRequestsPerAccountElapsed(t *testing.T) {
+	r := NewRequestRecorder(persistOnly{})
+	defer r.Close()
+
+	past := time.Now().UTC().Add(-(selectingMinDwell + time.Second))
+	r.Start(accounts.RequestLog{ID: "a1", RequestedModel: "sonnet", Status: accounts.RequestStatusStarted, CreatedAt: past})
+	r.Start(accounts.RequestLog{ID: "a2", RequestedModel: "gpt", Status: accounts.RequestStatusStarted, CreatedAt: past.Add(time.Millisecond)})
+	r.Start(accounts.RequestLog{ID: "q1", RequestedModel: "wait", Status: accounts.RequestStatusStarted, CreatedAt: past.Add(2 * time.Millisecond)})
+
+	if got := r.BoundRequests(); len(got) != 0 {
+		t.Fatalf("unbound must be empty, got %+v", got)
+	}
+
+	r.BindAccount("a2", "acc-x")
+	time.Sleep(2 * time.Millisecond)
+	r.BindAccount("a1", "acc-x")
+	got := r.BoundRequests()
+	if len(got) != 2 {
+		t.Fatalf("want 2 bound, got %+v", got)
+	}
+	// FIFO by BoundAt: a2 bound first.
+	if got[0].ID != "a2" || got[1].ID != "a1" {
+		t.Fatalf("bound order = %+v", got)
+	}
+	if got[0].AccountID != "acc-x" || got[0].RequestedModel != "gpt" {
+		t.Fatalf("got[0]=%+v", got[0])
+	}
+	if got[0].BoundAt.IsZero() || got[1].BoundAt.IsZero() {
+		t.Fatalf("bound must stamp BoundAt: %+v", got)
+	}
+
+	r.UnbindAccount("a2", "acc-x")
+	got = r.BoundRequests()
+	if len(got) != 1 || got[0].ID != "a1" {
+		t.Fatalf("after unbind a2 = %+v", got)
+	}
+	if !got[0].BoundAt.IsZero() {
+		// a1 still bound — BoundAt must remain
+	} else {
+		t.Fatalf("remaining bound a1 lost BoundAt")
+	}
+}

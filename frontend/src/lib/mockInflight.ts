@@ -41,6 +41,16 @@ export type MockInflightJob = {
   attempt?: number
 }
 
+/** One occupied concurrency cell on an account slot bar. */
+export type MockSlotCell = {
+  id: string
+  /** Requested model / short label. */
+  name: string
+  /** Wall-clock when this request entered the slot (Bind). */
+  startedAtMs: number
+  elapsedMs: number
+}
+
 export type MockAccountSlot = {
   id: string
   /** Account display name. */
@@ -60,6 +70,8 @@ export type MockAccountSlot = {
   concurrency?: number
   /** Current occupied concurrency cells (in_flight). */
   inFlight?: number
+  /** Per-cell model + elapsed (length ≤ inFlight). */
+  cells?: MockSlotCell[]
 }
 
 export type MockRateLimitWindow = {
@@ -110,18 +122,40 @@ export const MOCK_INFLIGHT: MockInflightSnapshot = {
   waitP95Ms: 2800,
   totals: { done: 186, failed: 4 },
   workers: [
-    { id: 'acc-wb-a1', name: 'wb-a1', provider: 'workbuddy', busy: true, progress: 0.72, jobId: 'j1', concurrency: 4, inFlight: 3 },
-    { id: 'acc-wb-a2', name: 'wb-a2', provider: 'workbuddy', busy: true, progress: 0.41, jobId: 'j2', rateLimited: true, concurrency: 2, inFlight: 1 },
-    { id: 'acc-qd-b1', name: 'qd-b1', provider: 'qoder', busy: true, progress: 0.88, jobId: 'j3', concurrency: 1, inFlight: 1 },
-    { id: 'acc-qd-b2', name: 'qd-b2', provider: 'qoder', busy: false, progress: 0, concurrency: 4, inFlight: 0 },
-    { id: 'acc-trae-c1', name: 'trae-c1', provider: 'trae', busy: true, progress: 0.23, jobId: 'j4', concurrency: 3, inFlight: 2 },
-    { id: 'acc-codex-d1', name: 'codex-d1', provider: 'codex', busy: false, progress: 0, rateLimited: true, concurrency: 2, inFlight: 0 },
+    {
+      id: 'acc-wb-a1', name: 'wb-a1', provider: 'workbuddy', busy: true, progress: 0.72, jobId: 'j1', concurrency: 4, inFlight: 3,
+      cells: [
+        { id: 'j1', name: 'chat · sonnet', startedAtMs: 0, elapsedMs: 11_200 },
+        { id: 'j1b', name: 'chat · opus', startedAtMs: 0, elapsedMs: 8400 },
+        { id: 'j1c', name: 'embed · idx', startedAtMs: 0, elapsedMs: 4100 },
+      ],
+    },
+    {
+      id: 'acc-wb-a2', name: 'wb-a2', provider: 'workbuddy', busy: true, progress: 0.41, jobId: 'j2', rateLimited: true, concurrency: 2, inFlight: 1,
+      cells: [{ id: 'j2', name: 'embed · batch', startedAtMs: 0, elapsedMs: 9400 }],
+    },
+    {
+      id: 'acc-qd-b1', name: 'qd-b1', provider: 'qoder', busy: true, progress: 0.88, jobId: 'j3', concurrency: 1, inFlight: 1,
+      cells: [{ id: 'j3', name: 'chat · gpt', startedAtMs: 0, elapsedMs: 6200 }],
+    },
+    { id: 'acc-qd-b2', name: 'qd-b2', provider: 'qoder', busy: false, progress: 0, concurrency: 4, inFlight: 0, cells: [] },
+    {
+      id: 'acc-trae-c1', name: 'trae-c1', provider: 'trae', busy: true, progress: 0.23, jobId: 'j4', concurrency: 3, inFlight: 2,
+      cells: [
+        { id: 'j4', name: 'tools · patch', startedAtMs: 0, elapsedMs: 3100 },
+        { id: 'j4b', name: 'chat · flash', startedAtMs: 0, elapsedMs: 1800 },
+      ],
+    },
+    { id: 'acc-codex-d1', name: 'codex-d1', provider: 'codex', busy: false, progress: 0, rateLimited: true, concurrency: 2, inFlight: 0, cells: [] },
   ],
   jobs: [
     { id: 'j1', name: 'chat · sonnet', kind: 'chat', status: 'running', accountId: 'acc-wb-a1', progress: 0.72, elapsedMs: 11_200, sticky: true },
+    { id: 'j1b', name: 'chat · opus', kind: 'chat', status: 'running', accountId: 'acc-wb-a1', progress: 0.55, elapsedMs: 8400 },
+    { id: 'j1c', name: 'embed · idx', kind: 'embed', status: 'running', accountId: 'acc-wb-a1', progress: 0.3, elapsedMs: 4100 },
     { id: 'j2', name: 'embed · batch', kind: 'embed', status: 'running', accountId: 'acc-wb-a2', progress: 0.41, elapsedMs: 9400 },
     { id: 'j3', name: 'chat · gpt', kind: 'chat', status: 'running', accountId: 'acc-qd-b1', progress: 0.88, elapsedMs: 6200 },
     { id: 'j4', name: 'tools · patch', kind: 'tools', status: 'running', accountId: 'acc-trae-c1', progress: 0.23, elapsedMs: 3100 },
+    { id: 'j4b', name: 'chat · flash', kind: 'chat', status: 'running', accountId: 'acc-trae-c1', progress: 0.15, elapsedMs: 1800 },
     { id: 'j5', name: 'chat · wait', kind: 'chat', status: 'queued', progress: 0, elapsedMs: 7200 },
     { id: 'j6', name: 'retry · cool', kind: 'chat', status: 'queued', progress: 0, elapsedMs: 5100 },
     { id: 'j7', name: 'chat · sticky', kind: 'chat', status: 'queued', progress: 0, elapsedMs: 2800, sticky: true, priority: 'high' },
@@ -153,7 +187,10 @@ let seq = 100
 export function cloneMockInflight(snap: MockInflightSnapshot = MOCK_INFLIGHT): MockInflightSnapshot {
   return {
     ...snap,
-    workers: snap.workers.map((w) => ({ ...w })),
+    workers: snap.workers.map((w) => ({
+      ...w,
+      cells: w.cells?.map((c) => ({ ...c })),
+    })),
     jobs: snap.jobs.map((j) => ({ ...j })),
     rateLimits: snap.rateLimits.map((r) => ({ ...r })),
     depthSeries: [...snap.depthSeries],
@@ -190,12 +227,20 @@ export function tickMockInflight(prev: MockInflightSnapshot, dtMs: number): Mock
 
   const jobById = new Map(next.jobs.map((j) => [j.id, j]))
 
-  // Progress + elapsed on busy non-frozen slots.
+  // Progress + elapsed on busy non-frozen slots (per-cell timers too).
   for (const w of next.workers) {
+    if (w.cells?.length) {
+      for (const c of w.cells) c.elapsedMs += dt
+    }
     if (!w.busy || !w.jobId) continue
     const job = jobById.get(w.jobId)
     if (!job || job.status !== 'running') continue
     job.elapsedMs += dt
+    // Keep sibling cell jobs' elapsed in sync with cells when present.
+    for (const c of w.cells ?? []) {
+      const cj = jobById.get(c.id)
+      if (cj && cj.status === 'running' && cj.id !== job.id) cj.elapsedMs = c.elapsedMs
+    }
     if (w.rateLimited) {
       // Amber freeze — no progress (AffectUI: bars stop + amber).
       continue
@@ -223,6 +268,7 @@ export function tickMockInflight(prev: MockInflightSnapshot, dtMs: number): Mock
     w.progress = 0
     w.jobId = undefined
     w.inFlight = 0
+    w.cells = []
     job.accountId = undefined
     if (f.ok) {
       job.status = 'done'
@@ -279,7 +325,9 @@ export function tickMockInflight(prev: MockInflightSnapshot, dtMs: number): Mock
     w.progress = 0.04
     w.jobId = job.id
     const cap = clampSlotConcurrency(w.concurrency ?? 1)
-    w.inFlight = Math.min(cap, Math.max(1, w.inFlight ?? 1))
+    w.inFlight = Math.min(cap, Math.max(1, (w.inFlight ?? 0) + 1))
+    const cell = { id: job.id, name: job.name, startedAtMs: Date.now(), elapsedMs: 0 }
+    w.cells = [...(w.cells ?? []).filter((c) => c.id !== job.id), cell].slice(0, cap)
   }
 
   // Soft enqueue so the waiting rail doesn’t drain dry.
@@ -429,6 +477,8 @@ export type LiveProjectionInput = {
   recent_completions?: LiveCompletionLike[]
   /** Selecting requests (started, unbound) from /api/live queue. */
   queue?: LiveQueueJobLike[]
+  /** Bound open requests — per concurrency cell (model + Bind started_at). */
+  occupancy?: LiveQueueJobLike[]
 }
 
 /**
@@ -439,9 +489,9 @@ export type LiveProjectionInput = {
  * polls and bump from recent_completions / inferred completions (reset when
  * the card starts a new viewing session). depthSeries rolls prior *live*
  * samples only — mock seed/tick series are discarded on first projection.
- * Elapsed comes from worker `started_at` (pool InFlightSince); if missing,
- * keep the prior live job's startedAtMs or stamp Date.now() on first sight.
- * Progress is occupancy only — UI uses indeterminate shimmer, not %.
+ * Per-cell elapsed comes from occupancy `started_at` (Bind / BoundAt); falls
+ * back to worker InFlightSince / prior cell stamp. Progress is occupancy only —
+ * UI uses per-cell model + elapsed, not %.
  */
 export function applyLiveProjection(
   base: MockInflightSnapshot,
@@ -449,29 +499,6 @@ export function applyLiveProjection(
 ): MockInflightSnapshot {
   const now = Date.now()
   const prevById = new Map(base.jobs.map((j) => [j.id, j]))
-
-  const workers: MockAccountSlot[] = live.workers.map((w) => {
-    const concurrency = clampSlotConcurrency(w.max_inflight ?? 4)
-    const rawIn =
-      w.in_flight != null && Number.isFinite(w.in_flight)
-        ? Math.max(0, Math.floor(w.in_flight))
-        : w.busy
-          ? 1
-          : 0
-    const inFlight = Math.min(concurrency, rawIn)
-    return {
-      id: w.id,
-      name: w.name,
-      provider: w.provider,
-      busy: w.busy || inFlight > 0,
-      // Keep a soft internal value for mock-compat; busy UI ignores % fill.
-      progress: w.busy || inFlight > 0 ? Math.max(0.04, Math.min(1, w.progress || 0)) : 0,
-      rateLimited: w.rate_limited,
-      jobId: w.busy || inFlight > 0 ? `live-${w.id}` : undefined,
-      concurrency,
-      inFlight,
-    }
-  })
 
   const n = Math.max(1, MOCK_INFLIGHT.depthSeries.length)
   const rateLimits: MockRateLimitWindow[] = live.rate_limits.map((r, i) => {
@@ -486,45 +513,7 @@ export function applyLiveProjection(
     }
   })
 
-  const dwellNameByAccount = new Map<string, string>()
-  for (const q of live.queue ?? []) {
-    const acc = (q.account_id || '').trim()
-    const label = (q.name || '').trim()
-    if (acc && label && !dwellNameByAccount.has(acc)) dwellNameByAccount.set(acc, label)
-  }
-
-  const runningJobs: MockInflightJob[] = workers
-    .filter((w) => w.busy && w.jobId)
-    .map((w) => {
-      const id = w.jobId!
-      const prev = prevById.get(id)
-      const liveWorker = live.workers.find((lw) => lw.id === w.id)
-      let startedAtMs: number | undefined
-      const raw = liveWorker?.started_at?.trim()
-      if (raw) {
-        const parsed = Date.parse(raw)
-        if (!Number.isNaN(parsed)) startedAtMs = parsed
-      }
-      if (startedAtMs == null && prev?.startedAtMs != null) {
-        startedAtMs = prev.startedAtMs
-      }
-      if (startedAtMs == null) {
-        startedAtMs = now
-      }
-      return {
-        id,
-        name: dwellNameByAccount.get(w.id) ?? w.name,
-        kind: 'chat' as const,
-        status: 'running' as const,
-        accountId: w.id,
-        progress: w.progress,
-        startedAtMs,
-        elapsedMs: Math.max(0, now - startedAtMs),
-      }
-    })
-
-  // Selecting queue: RequestStatusStarted (etc.) → UI MockJobStatus queued.
-  // Do not invent parallel statuses — only map existing request_logs values.
+  // Selecting queue first — ids still on wait rail (incl. dwell-bound).
   const queuedJobs: MockInflightJob[] = (live.queue ?? []).map((q) => {
     const id = (q.id || '').trim()
     const prev = prevById.get(id)
@@ -553,6 +542,128 @@ export function applyLiveProjection(
       elapsedMs: Math.max(0, now - startedAtMs),
     }
   })
+  const queueIds = new Set(queuedJobs.map((j) => j.id))
+
+  const dwellNameByAccount = new Map<string, string>()
+  for (const q of queuedJobs) {
+    const acc = (q.accountId || '').trim()
+    if (acc && q.name && !dwellNameByAccount.has(acc)) dwellNameByAccount.set(acc, q.name)
+  }
+
+  // Occupancy grouped by account (FIFO from API BoundRequests).
+  const occByAccount = new Map<string, LiveQueueJobLike[]>()
+  for (const o of live.occupancy ?? []) {
+    const acc = (o.account_id || '').trim()
+    const id = (o.id || '').trim()
+    if (!acc || !id) continue
+    const list = occByAccount.get(acc) ?? []
+    list.push(o)
+    occByAccount.set(acc, list)
+  }
+
+  const prevCellsByAccount = new Map<string, MockSlotCell[]>()
+  for (const w of base.workers) {
+    if (w.cells?.length) prevCellsByAccount.set(w.id, w.cells)
+  }
+
+  const parseStarted = (
+    raw: string | undefined,
+    prevMs: number | undefined,
+    fallback: number,
+  ): number => {
+    const t = raw?.trim()
+    if (t) {
+      const parsed = Date.parse(t)
+      if (!Number.isNaN(parsed)) return parsed
+    }
+    if (prevMs != null) return prevMs
+    return fallback
+  }
+
+  const workers: MockAccountSlot[] = live.workers.map((w) => {
+    const concurrency = clampSlotConcurrency(w.max_inflight ?? 4)
+    const rawIn =
+      w.in_flight != null && Number.isFinite(w.in_flight)
+        ? Math.max(0, Math.floor(w.in_flight))
+        : w.busy
+          ? 1
+          : 0
+    const inFlight = Math.min(concurrency, rawIn)
+    const prevCells = prevCellsByAccount.get(w.id) ?? []
+    const prevByCellId = new Map(prevCells.map((c) => [c.id, c]))
+    const occ = occByAccount.get(w.id) ?? []
+    const cells: MockSlotCell[] = []
+
+    for (const o of occ) {
+      if (cells.length >= inFlight) break
+      const id = (o.id || '').trim()
+      if (!id) continue
+      const prevCell = prevByCellId.get(id)
+      const prevJob = prevById.get(id)
+      const startedAtMs = parseStarted(
+        o.started_at,
+        prevCell?.startedAtMs ?? prevJob?.startedAtMs,
+        now,
+      )
+      const name = (o.name || '').trim() || id
+      cells.push({
+        id,
+        name,
+        startedAtMs,
+        elapsedMs: Math.max(0, now - startedAtMs),
+      })
+    }
+
+    // Pool says more occupied than recorder — pad anonymous cells (account started_at).
+    const liveWorker = live.workers.find((lw) => lw.id === w.id)
+    const accountStarted = parseStarted(liveWorker?.started_at, undefined, now)
+    while (cells.length < inFlight) {
+      const idx = cells.length
+      // First synthetic cell keeps legacy `live-${accountId}` id for fly-out routing.
+      const synthId = idx === 0 ? `live-${w.id}` : `live-${w.id}-${idx}`
+      const prevCell = prevByCellId.get(synthId) ?? prevCells[idx]
+      const startedAtMs = prevCell?.startedAtMs ?? accountStarted
+      cells.push({
+        id: synthId,
+        name: dwellNameByAccount.get(w.id) ?? w.name,
+        startedAtMs,
+        elapsedMs: Math.max(0, now - startedAtMs),
+      })
+    }
+
+    const busy = w.busy || inFlight > 0
+    return {
+      id: w.id,
+      name: w.name,
+      provider: w.provider,
+      busy,
+      progress: busy ? Math.max(0.04, Math.min(1, w.progress || 0)) : 0,
+      rateLimited: w.rate_limited,
+      jobId: cells[0]?.id,
+      concurrency,
+      inFlight,
+      cells,
+    }
+  })
+
+  // Running jobs = occupancy cells not still on the wait rail (dwell).
+  const runningJobs: MockInflightJob[] = []
+  for (const w of workers) {
+    for (const c of w.cells ?? []) {
+      if (queueIds.has(c.id)) continue // still selecting for display
+      const prev = prevById.get(c.id)
+      runningJobs.push({
+        id: c.id,
+        name: c.name,
+        kind: (prev?.kind as MockJobKind | undefined) ?? 'chat',
+        status: 'running',
+        accountId: w.id,
+        progress: w.progress,
+        startedAtMs: c.startedAtMs,
+        elapsedMs: c.elapsedMs,
+      })
+    }
+  }
 
   const jobs: MockInflightJob[] = [...runningJobs, ...queuedJobs]
 
@@ -644,6 +755,7 @@ export function liveHasSignal(live: LiveProjectionInput): boolean {
     live.rate_limits.length > 0 ||
     live.in_flight > 0 ||
     (live.queue?.length ?? 0) > 0 ||
+    (live.occupancy?.length ?? 0) > 0 ||
     (live.sticky?.bindings ?? 0) > 0
   )
 }

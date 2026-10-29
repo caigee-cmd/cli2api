@@ -109,6 +109,7 @@ type StatsQuery struct {
 // DrainRecentCompletions call. /api/live drains these so Overview can route
 // busy→idle fly-outs to Done vs Failed without inventing a parallel stream.
 type RecentCompletion struct {
+	RequestID string
 	AccountID string
 	Status    string
 	At        time.Time
@@ -129,6 +130,9 @@ type OpenRequest struct {
 	AccountID      string
 	Status         string
 	StartedAt      time.Time
+	// BoundAt is when BindAccount attached the pool slot (elapsed-in-cell).
+	// Zero while unbound; cleared on UnbindAccount.
+	BoundAt time.Time
 }
 
 type RequestRecorder struct {
@@ -249,6 +253,7 @@ func (r *RequestRecorder) noteCompletion(log accounts.RequestLog) {
 	r.recentMu.Lock()
 	defer r.recentMu.Unlock()
 	r.recent = append(r.recent, RecentCompletion{
+		RequestID: strings.TrimSpace(log.ID),
 		AccountID: acc,
 		Status:    strings.TrimSpace(log.Status),
 		At:        time.Now(),
@@ -328,6 +333,9 @@ func (r *RequestRecorder) BindAccount(requestID, accountID string) {
 	defer r.openMu.Unlock()
 	if o, ok := r.open[requestID]; ok {
 		o.AccountID = accountID
+		if o.BoundAt.IsZero() {
+			o.BoundAt = time.Now().UTC()
+		}
 	}
 }
 
@@ -350,6 +358,7 @@ func (r *RequestRecorder) UnbindAccount(requestID, accountID string) {
 	}
 	if accountID == "" || o.AccountID == "" || o.AccountID == accountID {
 		o.AccountID = ""
+		o.BoundAt = time.Time{}
 	}
 }
 
@@ -394,6 +403,43 @@ func (r *RequestRecorder) SelectingRequests() []OpenRequest {
 		out = append(out, cp)
 	}
 	sort.SliceStable(out, func(i, j int) bool {
+		if !out[i].StartedAt.Equal(out[j].StartedAt) {
+			return out[i].StartedAt.Before(out[j].StartedAt)
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out
+}
+
+// BoundRequests returns open requests currently attached to a pool account
+// (post-Acquire), FIFO by BoundAt then StartedAt. Used by /api/live occupancy
+// so InflightLiveCard can show per-concurrency-cell model + elapsed — not one
+// timer for the whole account. Includes dwell-bound entries (still on the
+// selecting rail) so the target cell exists for queue→slot fly-in.
+func (r *RequestRecorder) BoundRequests() []OpenRequest {
+	if r == nil {
+		return nil
+	}
+	r.openMu.Lock()
+	defer r.openMu.Unlock()
+	out := make([]OpenRequest, 0, len(r.open))
+	for _, o := range r.open {
+		if o == nil || strings.TrimSpace(o.AccountID) == "" {
+			continue
+		}
+		out = append(out, *o)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		bi, bj := out[i].BoundAt, out[j].BoundAt
+		if bi.IsZero() {
+			bi = out[i].StartedAt
+		}
+		if bj.IsZero() {
+			bj = out[j].StartedAt
+		}
+		if !bi.Equal(bj) {
+			return bi.Before(bj)
+		}
 		if !out[i].StartedAt.Equal(out[j].StartedAt) {
 			return out[i].StartedAt.Before(out[j].StartedAt)
 		}

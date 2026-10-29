@@ -383,3 +383,76 @@ run('liveHasSignal true when only queue present', () => {
     true,
   )
 })
+
+run('applyLiveProjection occupancy maps per-cell model and started_at', () => {
+  const t0 = new Date(Date.now() - 8_000).toISOString()
+  const t1 = new Date(Date.now() - 3_000).toISOString()
+  const snap = applyLiveProjection(getMockInflightSnapshot(), {
+    in_flight: 2,
+    rpm: 1,
+    workers: [
+      {
+        id: 'acc-m',
+        name: 'wb-m',
+        provider: 'workbuddy',
+        busy: true,
+        progress: 0.5,
+        rate_limited: false,
+        max_inflight: 4,
+        in_flight: 2,
+      },
+    ],
+    rate_limits: [],
+    sticky: { bindings: 0, hits: 0, misses: 0, capacity: 64, ttl_seconds: 600 },
+    occupancy: [
+      { id: 'req-a', name: 'claude-sonnet', status: 'started', started_at: t0, account_id: 'acc-m' },
+      { id: 'req-b', name: 'gpt-4.1', status: 'started', started_at: t1, account_id: 'acc-m' },
+    ],
+  })
+  const w = snap.workers.find((x) => x.id === 'acc-m')
+  assert.ok(w)
+  assert.equal(w.cells?.length, 2)
+  assert.equal(w.cells?.[0].id, 'req-a')
+  assert.equal(w.cells?.[0].name, 'claude-sonnet')
+  assert.equal(w.cells?.[1].id, 'req-b')
+  assert.equal(w.cells?.[1].name, 'gpt-4.1')
+  assert.ok((w.cells?.[0].elapsedMs ?? 0) >= 7_000)
+  assert.ok((w.cells?.[1].elapsedMs ?? 0) >= 2_000)
+  assert.ok((w.cells?.[0].elapsedMs ?? 0) > (w.cells?.[1].elapsedMs ?? 0))
+  const running = snap.jobs.filter((j) => j.status === 'running')
+  assert.equal(running.length, 2)
+  assert.equal(running[0].id, 'req-a')
+  assert.equal(running[1].name, 'gpt-4.1')
+})
+
+run('applyLiveProjection occupancy dwell stays on queue not double-running', () => {
+  const snap = applyLiveProjection(getMockInflightSnapshot(), {
+    in_flight: 1,
+    rpm: 1,
+    workers: [
+      {
+        id: 'acc-d',
+        name: 'wb-d',
+        provider: 'workbuddy',
+        busy: true,
+        progress: 0.4,
+        rate_limited: false,
+        max_inflight: 2,
+        in_flight: 1,
+      },
+    ],
+    rate_limits: [],
+    sticky: { bindings: 0, hits: 0, misses: 0, capacity: 64, ttl_seconds: 600 },
+    queue: [{ id: 'req-dwell', name: 'sonnet', status: 'started', account_id: 'acc-d' }],
+    occupancy: [{ id: 'req-dwell', name: 'sonnet', status: 'started', account_id: 'acc-d' }],
+  })
+  const queued = snap.jobs.filter((j) => j.status === 'queued')
+  const running = snap.jobs.filter((j) => j.status === 'running')
+  assert.equal(queued.length, 1)
+  assert.equal(queued[0].id, 'req-dwell')
+  assert.equal(running.length, 0)
+  const w = snap.workers.find((x) => x.id === 'acc-d')
+  assert.equal(w?.cells?.length, 1)
+  assert.equal(w?.cells?.[0].id, 'req-dwell')
+  assert.equal(w?.cells?.[0].name, 'sonnet')
+})
