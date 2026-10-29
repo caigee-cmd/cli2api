@@ -109,6 +109,7 @@ type StatsQuery struct {
 // DrainRecentCompletions call. /api/live drains these so Overview can route
 // busy→idle fly-outs to Done vs Failed without inventing a parallel stream.
 type RecentCompletion struct {
+	RequestID string
 	AccountID string
 	Status    string
 	At        time.Time
@@ -121,13 +122,17 @@ type RecentCompletion struct {
 // AccountID empty ⇒ still selecting (pre-Acquire); set by BindAccount on
 // Pool.Acquire; cleared by UnbindAccount on Release; entry removed on
 // terminal Finish. SelectingRequests may still project a bound request as
-// selecting until selectingMinDwell after StartedAt (display-only).
+// selecting until selectingMinDwell after StartedAt (display-only), keeping
+// AccountID so the UI can hand off queue→slot.
 type OpenRequest struct {
 	ID             string
 	RequestedModel string
 	AccountID      string
 	Status         string
 	StartedAt      time.Time
+	// BoundAt is when BindAccount attached the pool slot (elapsed-in-cell).
+	// Zero while unbound; cleared on UnbindAccount.
+	BoundAt time.Time
 }
 
 type RequestRecorder struct {
@@ -248,6 +253,7 @@ func (r *RequestRecorder) noteCompletion(log accounts.RequestLog) {
 	r.recentMu.Lock()
 	defer r.recentMu.Unlock()
 	r.recent = append(r.recent, RecentCompletion{
+		RequestID: strings.TrimSpace(log.ID),
 		AccountID: acc,
 		Status:    strings.TrimSpace(log.Status),
 		At:        time.Now(),
@@ -275,7 +281,9 @@ const openRequestCap = 512
 // selectingMinDwell keeps a request in the /api/live selecting (queue)
 // projection for at least this long after Start, even after BindAccount.
 // Display-only: BindAccount / Acquire / pickNext are not delayed.
-const selectingMinDwell = 500 * time.Millisecond
+// ~1.6s so Overview's expanded ~400ms /api/live poll can catch several frames
+// (collapsed poll is 2.5s and would miss a 500ms window).
+const selectingMinDwell = 1600 * time.Millisecond
 
 func (r *RequestRecorder) noteOpen(log accounts.RequestLog) {
 	if r == nil {
@@ -325,6 +333,9 @@ func (r *RequestRecorder) BindAccount(requestID, accountID string) {
 	defer r.openMu.Unlock()
 	if o, ok := r.open[requestID]; ok {
 		o.AccountID = accountID
+		if o.BoundAt.IsZero() {
+			o.BoundAt = time.Now().UTC()
+		}
 	}
 }
 
@@ -347,6 +358,7 @@ func (r *RequestRecorder) UnbindAccount(requestID, accountID string) {
 	}
 	if accountID == "" || o.AccountID == "" || o.AccountID == accountID {
 		o.AccountID = ""
+		o.BoundAt = time.Time{}
 	}
 }
 
@@ -364,9 +376,10 @@ func (r *RequestRecorder) clearOpen(requestID string) {
 }
 
 // SelectingRequests returns open requests still in 选号 for the InflightLiveCard
-// waiting queue (FIFO by StartedAt). Real binds still clear AccountID on the
+// waiting queue (FIFO by StartedAt). Real binds still set AccountID on the
 // open map immediately; this projection also keeps recently-bound requests
 // until selectingMinDwell after StartedAt so the UI can see the wait rail.
+// Bound-within-dwell entries keep AccountID so the card can fly queue→slot.
 // Does not block Pool.Acquire / pickNext.
 func (r *RequestRecorder) SelectingRequests() []OpenRequest {
 	if r == nil {
@@ -385,12 +398,48 @@ func (r *RequestRecorder) SelectingRequests() []OpenRequest {
 			if !now.Before(cp.StartedAt.Add(selectingMinDwell)) {
 				continue
 			}
-			// Project as still selecting for display only.
-			cp.AccountID = ""
+			// Still selecting for display; keep AccountID for queue→slot handoff.
 		}
 		out = append(out, cp)
 	}
 	sort.SliceStable(out, func(i, j int) bool {
+		if !out[i].StartedAt.Equal(out[j].StartedAt) {
+			return out[i].StartedAt.Before(out[j].StartedAt)
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out
+}
+
+// BoundRequests returns open requests currently attached to a pool account
+// (post-Acquire), FIFO by BoundAt then StartedAt. Used by /api/live occupancy
+// so InflightLiveCard can show per-concurrency-cell model + elapsed — not one
+// timer for the whole account. Includes dwell-bound entries (still on the
+// selecting rail) so the target cell exists for queue→slot fly-in.
+func (r *RequestRecorder) BoundRequests() []OpenRequest {
+	if r == nil {
+		return nil
+	}
+	r.openMu.Lock()
+	defer r.openMu.Unlock()
+	out := make([]OpenRequest, 0, len(r.open))
+	for _, o := range r.open {
+		if o == nil || strings.TrimSpace(o.AccountID) == "" {
+			continue
+		}
+		out = append(out, *o)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		bi, bj := out[i].BoundAt, out[j].BoundAt
+		if bi.IsZero() {
+			bi = out[i].StartedAt
+		}
+		if bj.IsZero() {
+			bj = out[j].StartedAt
+		}
+		if !bi.Equal(bj) {
+			return bi.Before(bj)
+		}
 		if !out[i].StartedAt.Equal(out[j].StartedAt) {
 			return out[i].StartedAt.Before(out[j].StartedAt)
 		}
