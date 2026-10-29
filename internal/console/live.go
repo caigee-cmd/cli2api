@@ -66,16 +66,28 @@ type LiveCompletion struct {
 	Status    string `json:"status"`
 }
 
+// LiveJob is one selecting (选号) request for the InflightLiveCard waiting
+// queue. Status reuses accounts.RequestStatus* (started) — not a new state
+// machine. Running occupancy stays on Workers via Pool InFlight.
+type LiveJob struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Status    string `json:"status"`
+	StartedAt string `json:"started_at,omitempty"`
+}
+
 type LiveSnapshot struct {
-	Time               string                        `json:"time"`
-	InFlight           int                           `json:"in_flight"`
-	Capacity           int                           `json:"capacity"`
-	RPM                int                           `json:"rpm"`
-	Accounts           []LiveAccount                 `json:"accounts"`
-	Workers            []LiveWorker                  `json:"workers"`
-	RateLimits         []LiveRateLimit               `json:"rate_limits"`
-	Sticky             executor.SessionAffinityStats `json:"sticky"`
-	RecentCompletions  []LiveCompletion              `json:"recent_completions,omitempty"`
+	Time              string                        `json:"time"`
+	InFlight          int                           `json:"in_flight"`
+	Capacity          int                           `json:"capacity"`
+	RPM               int                           `json:"rpm"`
+	Accounts          []LiveAccount                 `json:"accounts"`
+	Workers           []LiveWorker                  `json:"workers"`
+	RateLimits        []LiveRateLimit               `json:"rate_limits"`
+	Sticky            executor.SessionAffinityStats `json:"sticky"`
+	RecentCompletions []LiveCompletion              `json:"recent_completions,omitempty"`
+	// Queue is Prepare→Acquire 选号 (RequestStatusStarted, no pool bind).
+	Queue []LiveJob `json:"queue,omitempty"`
 }
 
 // buildLiveSnapshot sums in-flight over all accounts and capacity (the
@@ -89,6 +101,7 @@ func buildLiveSnapshot(views []accounts.AccountView, rpm int, sticky executor.Se
 		Accounts:   make([]LiveAccount, 0, len(views)),
 		Workers:    make([]LiveWorker, 0, len(views)),
 		RateLimits: make([]LiveRateLimit, 0),
+		Queue:      make([]LiveJob, 0),
 		Sticky:     sticky,
 	}
 	for _, v := range views {
@@ -203,6 +216,22 @@ func (h *Handler) HandleLive(w http.ResponseWriter, r *http.Request) {
 			snap.RecentCompletions = append(snap.RecentCompletions, LiveCompletion{
 				AccountID: c.AccountID,
 				Status:    c.Status,
+			})
+		}
+		for _, q := range h.Recorder.SelectingRequests() {
+			name := strings.TrimSpace(q.RequestedModel)
+			if name == "" {
+				name = q.ID
+			}
+			status := strings.TrimSpace(q.Status)
+			if status == "" {
+				status = accounts.RequestStatusStarted
+			}
+			snap.Queue = append(snap.Queue, LiveJob{
+				ID:        q.ID,
+				Name:      name,
+				Status:    status,
+				StartedAt: q.StartedAt.UTC().Format(time.RFC3339),
 			})
 		}
 	}

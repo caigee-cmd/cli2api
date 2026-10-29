@@ -3,6 +3,7 @@ import {
   applyLiveProjection,
   cloneMockInflight,
   getMockInflightSnapshot,
+  liveHasSignal,
   MOCK_INFLIGHT,
 } from '../src/lib/mockInflight.ts'
 
@@ -281,3 +282,49 @@ run('applyLiveProjection maps max_inflight / in_flight to slot cells', () => {
 })
 
 console.log('all mockInflight tests passed')
+
+run('applyLiveProjection maps queue onto queued MockJobStatus', () => {
+  const started = new Date(Date.now() - 5_000).toISOString()
+  const snap = applyLiveProjection(getMockInflightSnapshot(), {
+    in_flight: 1,
+    rpm: 2,
+    workers: [
+      {
+        id: 'acc-1',
+        name: 'wb-a1',
+        provider: 'workbuddy',
+        busy: true,
+        progress: 0.4,
+        rate_limited: false,
+      },
+    ],
+    rate_limits: [],
+    sticky: { bindings: 0, hits: 0, misses: 0, capacity: 64, ttl_seconds: 600 },
+    queue: [
+      { id: 'req-1', name: 'chat · wait', status: 'started', started_at: started },
+      { id: 'req-2', name: 'embed · docs', status: 'started' },
+    ],
+  })
+  const queued = snap.jobs.filter((j) => j.status === 'queued')
+  const running = snap.jobs.filter((j) => j.status === 'running')
+  assert.equal(running.length, 1)
+  assert.equal(queued.length, 2)
+  assert.equal(queued[0].id, 'req-1')
+  assert.equal(queued[0].name, 'chat · wait')
+  assert.ok(queued[0].elapsedMs >= 4_000 && queued[0].elapsedMs < 15_000)
+  assert.equal(queued[1].id, 'req-2')
+})
+
+run('liveHasSignal true when only queue present', () => {
+  assert.equal(
+    liveHasSignal({
+      in_flight: 0,
+      rpm: 0,
+      workers: [],
+      rate_limits: [],
+      sticky: { bindings: 0, hits: 0, misses: 0, capacity: 0, ttl_seconds: 0 },
+      queue: [{ id: 'r1', name: 'm', status: 'started' }],
+    }),
+    true,
+  )
+})
