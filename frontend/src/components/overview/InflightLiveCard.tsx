@@ -18,7 +18,9 @@ import {
   applyLiveProjection,
   clampSlotConcurrency,
   cloneMockInflight,
+  getIdleInflightSnapshot,
   getMockInflightSnapshot,
+  isIdleInflightSnapshot,
   summarizeMockInflight,
   tickMockInflight,
   type MockAccountSlot,
@@ -28,7 +30,26 @@ import {
 } from '@/lib/mockInflight'
 import { CountUp } from '@/components/overview/CountUp'
 import { ProviderMark } from '@/components/ProviderMark'
-import { duration, ease, gsap, motionDuration, prefersReducedMotion } from '@/lib/motion'
+import { CompactSwitch } from '@/components/ui/CompactSwitch'
+import { ease, gsap, motionDuration, prefersReducedMotion } from '@/lib/motion'
+
+const MOCK_DEMO_STORAGE_KEY = 'cli2api_inflight_mock_demo'
+
+function readMockDemoPref(): boolean {
+  try {
+    return localStorage.getItem(MOCK_DEMO_STORAGE_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+function writeMockDemoPref(on: boolean) {
+  try {
+    localStorage.setItem(MOCK_DEMO_STORAGE_KEY, on ? '1' : '0')
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
 
 gsap.registerPlugin(CustomEase, MotionPathPlugin)
 const queueEase =
@@ -345,7 +366,7 @@ function SlotBar({
  * Default collapsed — no /api/live consume and no mock loop until expanded
  * (toggle or LiveStrip「当前并发」). When open, project live workers /
  * sticky (in-progress only — no rate-limit remaining chips/bands); mock tick
- * only as empty-demo fallback. Session Done/Failed reset on each expand.
+ * only when 示意/demo is on (default off). Session Done/Failed reset on each expand.
  * Motion timings from public AffectUI Agent Queue demo (mapped to project
  * tokens). Link targets `/live` later — no Pause/Cancel/stepper.
  */
@@ -373,8 +394,13 @@ export function InflightLiveCard({
     if (expandedProp === undefined) setUncontrolledOpen(open)
   }
 
+  const [mockDemoEnabled, setMockDemoEnabled] = useState(() => readMockDemoPref())
+  const setMockDemo = (on: boolean) => {
+    setMockDemoEnabled(on)
+    writeMockDemoPref(on)
+  }
   const [liveSnap, setLiveSnap] = useState<MockInflightSnapshot>(() =>
-    cloneMockInflight(snapshot ?? getMockInflightSnapshot()),
+    cloneMockInflight(snapshot ?? getIdleInflightSnapshot()),
   )
   const [useMockFallback, setUseMockFallback] = useState(false)
   const [sticky, setSticky] = useState<LiveSticky | null>(null)
@@ -452,7 +478,8 @@ export function InflightLiveCard({
 
   // External snapshot (tests) wins. Otherwise: when expanded, project /api/live
   // (even idle — no mock throughput/p95/depth bleed). Mock tick only if
-  // live is null. useLayoutEffect so the first expanded paint is already clean.
+  // live is null AND 示意/demo is on (default off → calm idle zeros).
+  // useLayoutEffect so the first expanded paint is already clean.
   useLayoutEffect(() => {
     if (controlled) {
       setLiveSnap(cloneMockInflight(snapshot!))
@@ -470,6 +497,9 @@ export function InflightLiveCard({
       setUseMockFallback(false)
       setSticky(live.sticky)
       setClockMs(Date.now())
+      // First live projection this expand: keep enteredRef false so soft
+      // bootstrap syncLandGate('all') and never treats hydrate as flies.
+      if (!viewingSessionRef.current) enteredRef.current = false
       setLiveSnap((prev) => {
         // New viewing session → force first projection (totals 0, depth reset).
         const base = !viewingSessionRef.current
@@ -480,15 +510,26 @@ export function InflightLiveCard({
       })
       return
     }
-    // live === null → Stage-1 mock loop only (offline / no parent poll).
+    // live === null → optional Stage-1 mock (示意) or calm idle board.
     setSticky(null)
-    setUseMockFallback(true)
     viewingSessionRef.current = false
-  }, [controlled, snapshot, expanded, live])
+    enteredRef.current = false
+    if (mockDemoEnabled) {
+      setUseMockFallback(true)
+      setLiveSnap((prev) =>
+        isIdleInflightSnapshot(prev)
+          ? cloneMockInflight(getMockInflightSnapshot())
+          : prev,
+      )
+    } else {
+      setUseMockFallback(false)
+      setLiveSnap(cloneMockInflight(getIdleInflightSnapshot()))
+    }
+  }, [controlled, snapshot, expanded, live, mockDemoEnabled])
 
-  // Mock raf loop — gated on useMockFallback (live === null only).
+  // Mock raf loop — gated on useMockFallback + 示意 on (live === null only).
   useEffect(() => {
-    if (controlled || !expanded || !useMockFallback || live !== null) return
+    if (controlled || !expanded || !useMockFallback || !mockDemoEnabled || live !== null) return
     if (prefersReducedMotion()) return
     let raf = 0
     let last = performance.now()
@@ -507,7 +548,7 @@ export function InflightLiveCard({
       alive = false
       cancelAnimationFrame(raf)
     }
-  }, [controlled, expanded, useMockFallback, live])
+  }, [controlled, expanded, useMockFallback, mockDemoEnabled, live])
 
   // Elapsed tick (~150ms): wall-clock since started_at so busy slots don't stick at 0.0s between /api/live polls.
   useEffect(() => {
@@ -553,141 +594,14 @@ export function InflightLiveCard({
     }
   }, [])
 
-  /** Entrance once — public ui-agq-drop / slot / grow timings. */
-  useLayoutEffect(() => {
-    const root = rootRef.current
-    if (!root || prefersReducedMotion() || enteredRef.current) return
-    enteredRef.current = true
-    const ctx = gsap.context(() => {
-      const pills = root.querySelectorAll<HTMLElement>('[data-wait-pill]')
-      const tokens = root.querySelectorAll<HTMLElement>('[data-wait-token]')
-      const slots = root.querySelectorAll<HTMLElement>('[data-slot]')
-      const fills = root.querySelectorAll<HTMLElement>('[data-slot-fill]')
-      const depth = root.querySelectorAll<HTMLElement>('[data-depth]')
-
-      if (pills.length) {
-        gsap.fromTo(
-          pills,
-          { opacity: 0, y: -10, scale: 0.6 },
-          {
-            opacity: 1,
-            y: 0,
-            scale: 1,
-            duration: motionDuration(0.52),
-            ease: queueEase,
-            stagger: 0.045,
-            force3D: true,
-          },
-        )
-      }
-      if (tokens.length) {
-        gsap.fromTo(
-          tokens,
-          { opacity: 0, scale: 0.6 },
-          {
-            opacity: 1,
-            scale: 1,
-            duration: motionDuration(0.42),
-            ease: ease.soft,
-            stagger: 0.02,
-            delay: motionDuration(0.18),
-          },
-        )
-      }
-      if (slots.length) {
-        gsap.fromTo(
-          slots,
-          { opacity: 0, x: -8 },
-          {
-            opacity: 1,
-            x: 0,
-            duration: motionDuration(0.42),
-            ease: queueEase,
-            stagger: 0.05,
-            delay: motionDuration(0.06),
-            force3D: true,
-          },
-        )
-      }
-      if (fills.length) {
-        fills.forEach((el, i) => {
-          gsap.fromTo(
-            el,
-            { opacity: 0, scaleX: 0.35 },
-            {
-              opacity: 1,
-              scaleX: 1,
-              duration: motionDuration(0.56),
-              ease: queueEase,
-              delay: motionDuration(0.18 + i * 0.03),
-              transformOrigin: 'left center',
-            },
-          )
-        })
-      }
-      const doneEl = root.querySelector<HTMLElement>('[data-outcome="ok"]')
-      const failEl = root.querySelector<HTMLElement>('[data-outcome="danger"]')
-      if (doneEl) {
-        gsap.fromTo(
-          doneEl,
-          { opacity: 0, y: 8, scale: 0.92, filter: 'brightness(1.6)' },
-          {
-            opacity: 1,
-            y: 0,
-            scale: 1,
-            filter: 'brightness(1)',
-            duration: motionDuration(0.48),
-            ease: ease.soft,
-            delay: motionDuration(0.42),
-          },
-        )
-      }
-      if (failEl) {
-        gsap.fromTo(
-          failEl,
-          { opacity: 0, x: 0 },
-          {
-            opacity: 1,
-            duration: motionDuration(0.28),
-            delay: motionDuration(0.5),
-            onComplete: () => {
-              if (prefersReducedMotion()) return
-              gsap.fromTo(
-                failEl,
-                { x: -3 },
-                {
-                  x: 3,
-                  duration: motionDuration(0.07),
-                  yoyo: true,
-                  repeat: 5,
-                  ease: 'power1.inOut',
-                  onComplete: () => {
-                    gsap.set(failEl, { x: 0 })
-                  },
-                },
-              )
-            },
-          },
-        )
-      }
-      if (depth.length) {
-        gsap.fromTo(
-          depth,
-          { opacity: 0, y: 6 },
-          {
-            opacity: 1,
-            y: 0,
-            duration: motionDuration(duration.base),
-            ease: queueEase,
-            delay: motionDuration(0.35),
-            force3D: true,
-          },
-        )
-      }
-    }, root)
-    return () => ctx.revert()
-    // Re-run when body mounts (default collapsed).
-  }, [expanded])
+  /**
+   * Soft first expand (and re-expand): no per-pill/slot stagger.
+   * Body stays opacity 0 until controlled / first live projection / mock
+   * fallback is painted; then a short opacity (+ mild y) fade. enteredRef
+   * stays false through that bootstrap paint so the handoff effect below
+   * syncLandGate('all') and never treats hydrate as a fly storm.
+   */
+  // Soft fade is armed from the handoff effect's pre-enter branch.
 
   /** Live handoffs: queue→worker fly, worker→DONE/FAILED fly (AffectUI prose). */
   useLayoutEffect(() => {
@@ -776,6 +690,38 @@ export function InflightLiveCard({
       refreshCache()
       // No motion / pre-entrance: show chrome immediately (still display-only).
       syncLandGate('all')
+      // Soft first-expand: wait for bootstrap snap, then opacity fade once.
+      // Arm enteredRef only AFTER this sync so hydrate/bootstrap never flies.
+      if (
+        expanded &&
+        root &&
+        !enteredRef.current &&
+        !prefersReducedMotion()
+      ) {
+        const bootstrapped =
+          controlled ||
+          viewingSessionRef.current ||
+          (live === null && mockDemoEnabled && useMockFallback) ||
+          (live === null && !mockDemoEnabled && isIdleInflightSnapshot(snap))
+        if (!bootstrapped) {
+          gsap.set(root, { opacity: 0 })
+        } else {
+          enteredRef.current = true
+          gsap.killTweensOf(root)
+          gsap.fromTo(
+            root,
+            { opacity: 0, y: 6 },
+            {
+              opacity: 1,
+              y: 0,
+              duration: motionDuration(0.22),
+              ease: ease.out,
+              clearProps: 'opacity,transform',
+              force3D: true,
+            },
+          )
+        }
+      }
       return
     }
     if (prev === snap) {
@@ -1524,10 +1470,11 @@ export function InflightLiveCard({
     }
 
     refreshCache()
-  }, [snap, expanded])
+  }, [snap, expanded, controlled, useMockFallback, mockDemoEnabled, live])
 
   const depthLabel = t('inflightDepthHint', { n: summary.depthNow })
   const liveBadge = !useMockFallback && Boolean(live)
+  const mockBadge = useMockFallback && mockDemoEnabled && !live
   const stickyBindings = sticky?.bindings ?? 0
 
   return (
@@ -1541,18 +1488,12 @@ export function InflightLiveCard({
         [data-testid="inflight-live-card"]{
           /* Public AffectUI hierarchy → project tokens.
              Outer Card keeps solid-glass; nested queue/slots/outcomes use
-             wash + at most one soft hairline (no stacked inset rings).
+             color wash + spacing (no section rules / stacked inset rings).
              chart-3 stays out of surfaces. Depth curve uses chart-1. */
-          /* Nested items: wash + at most one soft hairline — never stacked solid-glass
-             frames inside the outer .card (Access / overview nested-card rule). */
+          /* Nested items: color wash + spacing — avoid section rules / stacked frames. */
           --il-well: var(--surface);
           --il-chip: var(--surface);
           --il-item-bg: color-mix(in oklab, var(--surface-secondary) 38%, var(--surface));
-          --il-hair: inset 0 0 0 1px color-mix(in oklab, var(--foreground) 5.5%, transparent);
-          --il-hair-busy: inset 0 0 0 1px color-mix(in oklab, var(--chart-1) 22%, transparent);
-          --il-hair-warn: inset 0 0 0 1px color-mix(in oklab, var(--warning) 28%, transparent);
-          --il-hair-ok: inset 0 0 0 1px color-mix(in oklab, var(--success) 28%, transparent);
-          --il-hair-err: inset 0 0 0 1px color-mix(in oklab, var(--danger) 28%, transparent);
           --il-track: color-mix(in oklab, var(--foreground) 8%, var(--surface-secondary));
           --il-busy-bg: color-mix(in oklab, var(--chart-1) 10%, var(--surface));
           --il-busy-fill: color-mix(in oklab, var(--chart-1) 42%, var(--il-track));
@@ -1572,9 +1513,9 @@ export function InflightLiveCard({
           --il-depth-fill: color-mix(in oklab, var(--chart-1) 20%, transparent);
           --il-faint: color-mix(in oklab, var(--foreground) 42%, transparent);
         }
-        /* Busy slot: cool wash + soft glow (+ one quiet hairline) — no stacked glass rings */
+        /* Busy slot: cool wash + soft glow — no stacked glass rings */
         [data-testid="inflight-live-card"] [data-slot-busy]{
-          box-shadow: var(--il-hair-busy), var(--il-busy-glow);
+          box-shadow: var(--il-busy-glow);
         }
         @keyframes inflight-shimmer{0%{transform:translateX(-130%)}100%{transform:translateX(230%)}}
         @keyframes inflight-queue-shimmer{0%{transform:translateX(-140%);opacity:.4}50%{opacity:.9}100%{transform:translateX(240%);opacity:.4}}
@@ -1586,7 +1527,7 @@ export function InflightLiveCard({
         }
       `}</style>
 
-      <div className="flex items-start justify-between gap-3 border-b border-separator px-4 py-3">
+      <div className="flex items-start justify-between gap-3 px-4 py-3">
         <button
           type="button"
           data-testid="inflight-live-toggle"
@@ -1605,7 +1546,11 @@ export function InflightLiveCard({
               <h3 className="font-semibold">{t('inflightTitle')}</h3>
               <span className="mono inline-flex items-center gap-1 rounded-[3px] px-1.5 py-0.5 text-caption text-muted">
                 <span className="status-dot" data-state={liveBadge ? 'ok' : ''} />
-                {liveBadge ? t('inflightLiveBadge') : t('inflightMockBadge')}
+                {liveBadge
+                  ? t('inflightLiveBadge')
+                  : mockBadge
+                    ? t('inflightMockBadge')
+                    : t('inflightIdleBadge')}
               </span>
               {expanded && stickyBindings > 0 ? (
                 <span className="mono text-caption text-muted">
@@ -1616,31 +1561,48 @@ export function InflightLiveCard({
             <p className="mt-0.5 text-caption text-muted">{t('inflightHint')}</p>
           </div>
         </button>
-        {expanded ? (
-          <Link
-            to="/live"
-            className="inline-flex shrink-0 items-center gap-1 text-caption text-muted transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
-            aria-label={t('inflightCardAria')}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {t('inflightOpen')}
-            <ArrowUpRight size={14} aria-hidden />
-          </Link>
-        ) : (
-          <button
-            type="button"
-            className="inline-flex shrink-0 items-center gap-1 text-caption text-muted transition-colors hover:text-foreground"
-            onClick={() => setExpanded(true)}
-          >
-            {t('inflightExpand')}
-            <CaretRight size={14} aria-hidden />
-          </button>
-        )}
+        <div className="flex shrink-0 flex-col items-end gap-2">
+          {expanded ? (
+            <Link
+              to="/live"
+              className="inline-flex shrink-0 items-center gap-1 text-caption text-muted transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+              aria-label={t('inflightCardAria')}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {t('inflightOpen')}
+              <ArrowUpRight size={14} aria-hidden />
+            </Link>
+          ) : (
+            <button
+              type="button"
+              className="inline-flex shrink-0 items-center gap-1 text-caption text-muted transition-colors hover:text-foreground"
+              onClick={() => setExpanded(true)}
+            >
+              {t('inflightExpand')}
+              <CaretRight size={14} aria-hidden />
+            </button>
+          )}
+          {expanded && !controlled ? (
+            <div
+              className="flex items-center gap-1.5"
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => e.stopPropagation()}
+            >
+              <CompactSwitch
+                size="sm"
+                isSelected={mockDemoEnabled}
+                ariaLabel={t('inflightMockToggleAria')}
+                label={t('inflightMockToggle')}
+                onChange={setMockDemo}
+              />
+            </div>
+          ) : null}
+        </div>
       </div>
 
       {expanded ? (
         <div id="inflight-live-body" ref={rootRef}>
-          <div className="grid grid-cols-2 gap-3 border-b border-separator px-4 py-3 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 px-4 pb-1 pt-0 sm:grid-cols-4">
             <Metric
               label={t('inflightWaiting')}
               value={summary.waiting}
@@ -1656,7 +1618,7 @@ export function InflightLiveCard({
           </div>
 
           {/* Waiting → account-slot bars → Done/Failed  (AffectUI Agent Queue flow) */}
-          <div className="grid gap-3 border-b border-separator px-4 py-3 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.55fr)_auto]">
+          <div className="grid gap-3 px-4 py-3 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.55fr)_auto]">
             <div className="min-w-0" data-queue-col>
               <div className="mb-1.5 flex items-baseline justify-between gap-2">
                 <span className="text-caption uppercase tracking-wide text-muted">{t('inflightQueue')}</span>
@@ -1671,7 +1633,7 @@ export function InflightLiveCard({
                     data-wait-pill
                     data-wait-id={job.id}
                     data-priority={job.priority ?? 'normal'}
-                    className={`relative flex items-center justify-between gap-2 overflow-hidden rounded-xl px-2.5 py-2 shadow-[var(--il-hair)] ${kindPill(job.kind)}`}
+                    className={`relative flex items-center justify-between gap-2 overflow-hidden rounded-xl px-2.5 py-2 ${kindPill(job.kind)}`}
                   >
                     <span
                       aria-hidden
@@ -1823,8 +1785,8 @@ function Outcome({
       title={`${label}: ${value}`}
       className={`flex min-w-[3.6rem] flex-1 flex-col items-center justify-center gap-1.5 rounded-2xl px-2.5 py-3 ${
         ok
-          ? 'bg-[var(--il-ok-bg)] shadow-[var(--il-hair-ok),0_6px_16px_color-mix(in_oklab,var(--success)_10%,transparent)]'
-          : 'bg-[var(--il-err-bg)] shadow-[var(--il-hair-err),0_6px_16px_color-mix(in_oklab,var(--danger)_10%,transparent)]'
+          ? 'bg-[var(--il-ok-bg)] shadow-[0_6px_16px_color-mix(in_oklab,var(--success)_10%,transparent)]'
+          : 'bg-[var(--il-err-bg)] shadow-[0_6px_16px_color-mix(in_oklab,var(--danger)_10%,transparent)]'
       }`}
     >
       <span

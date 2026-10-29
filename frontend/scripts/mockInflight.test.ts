@@ -2,7 +2,9 @@ import assert from 'node:assert/strict'
 import {
   applyLiveProjection,
   cloneMockInflight,
+  getIdleInflightSnapshot,
   getMockInflightSnapshot,
+  isIdleInflightSnapshot,
   liveHasSignal,
   MOCK_INFLIGHT,
   tickMockInflight,
@@ -560,3 +562,15 @@ run('tickMockInflight finishes one cell without clearing siblings', () => {
 })
 
 console.log('all mockInflight tests passed')
+
+run('idle snapshot is empty calm board', () => {
+  const idle = getIdleInflightSnapshot()
+  assert.equal(idle.jobs.length, 0)
+  assert.equal(idle.workers.length, 0)
+  assert.equal(idle.throughputPerMin, 0)
+  assert.equal(idle.waitP95Ms, 0)
+  assert.equal(idle.totals.done, 0)
+  assert.equal(idle.totals.failed, 0)
+  assert.ok(isIdleInflightSnapshot(idle))
+  assert.equal(isIdleInflightSnapshot(getMockInflightSnapshot()), false)
+})
