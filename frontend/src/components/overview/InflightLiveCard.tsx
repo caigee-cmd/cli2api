@@ -22,12 +22,18 @@ import {
   type MockInflightSnapshot,
   type MockJobKind,
 } from '@/lib/mockInflight'
+import { CountUp } from '@/components/overview/CountUp'
 import { duration, ease, gsap, motionDuration, prefersReducedMotion } from '@/lib/motion'
 
 gsap.registerPlugin(CustomEase)
 const queueEase =
   CustomEase.get('inflightQueue') ||
   CustomEase.create('inflightQueue', '0.22, 1, 0.36, 1')
+
+/** AffectUI overflow: first N queue pills; rest as kind-colored dots. */
+const QUEUE_PILL_MAX = 3
+/** AffectUI: show a short worker rail (busy/rate-limited first), not every account. */
+const WORKER_VISIBLE_MAX = 4
 
 type T = (key: string, vars?: Record<string, string | number>) => string
 
@@ -86,7 +92,36 @@ function DepthChart({
   backpressure: number
   label: string
 }) {
-  const peak = Math.max(backpressure, ...series, 1)
+  // Continuous glide: keep a stable x domain (0..n-1) while values scroll;
+  // ease Y peak so scale changes don’t jump. Tick cadence ~260ms → linear ~560ms morph.
+  const rawPeak = Math.max(backpressure, ...series, 1)
+  const peakRef = useRef(rawPeak)
+  const [peak, setPeak] = useState(rawPeak)
+  useEffect(() => {
+    if (prefersReducedMotion()) {
+      peakRef.current = rawPeak
+      setPeak(rawPeak)
+      return
+    }
+    const from = peakRef.current
+    const to = rawPeak
+    if (Math.abs(to - from) < 0.01) return
+    let raf = 0
+    const t0 = performance.now()
+    const dur = motionDuration(0.56) * 1000
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - t0) / dur)
+      // queue ease approx: 1 - (1-t)^3
+      const e = 1 - Math.pow(1 - t, 3)
+      const v = from + (to - from) * e
+      peakRef.current = v
+      setPeak(v)
+      if (t < 1) raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [rawPeak])
+
   const data = useMemo(
     () => series.map((v, i) => ({ i, v, bp: backpressure })),
     [series, backpressure],
@@ -103,12 +138,13 @@ function DepthChart({
       }),
     [bands, series.length],
   )
+  const yMax = Math.max(peak, backpressure, 1)
 
   return (
-    <div className="h-11 w-full" role="img" aria-label={label} data-depth-chart>
+    <div className="h-11 w-full overflow-hidden" role="img" aria-label={label} data-depth-chart>
       <ResponsiveContainer width="100%" height="100%">
         <AreaChart data={data} margin={{ top: 4, right: 2, bottom: 2, left: 2 }}>
-          <YAxis hide domain={[0, peak]} />
+          <YAxis hide domain={[0, yMax]} allowDataOverflow />
           <XAxis hide dataKey="i" type="number" domain={[0, Math.max(0, series.length - 1)]} />
           {bandRows.map((b) => (
             <ReferenceArea
@@ -116,7 +152,7 @@ function DepthChart({
               x1={b.x1}
               x2={b.x2}
               y1={0}
-              y2={peak}
+              y2={yMax}
               fill="var(--il-warn, var(--warning))"
               fillOpacity={0.14}
               ifOverflow="extendDomain"
@@ -145,7 +181,7 @@ function DepthChart({
             fillOpacity={1}
             isAnimationActive={!prefersReducedMotion()}
             animationDuration={Math.round(motionDuration(0.56) * 1000)}
-            animationEasing="ease-out"
+            animationEasing="linear"
             dot={false}
             activeDot={false}
           />
@@ -197,6 +233,7 @@ function SlotBar({
       </span>
       {/* Job pill — AffectUI worker row: kind wash + growing bar + elapsed */}
       <span
+        data-slot-job-pill=""
         className={`relative z-[1] inline-flex max-w-[38%] shrink-0 items-center gap-1 truncate rounded-md px-1.5 py-0.5 text-[11px] leading-none ${
           frozen
             ? 'bg-[color-mix(in_oklab,var(--warning)_18%,var(--surface))] font-medium text-[var(--il-warn-fg)] shadow-[inset_0_0_0_1px_var(--il-warn-edge)]'
@@ -287,6 +324,22 @@ export function InflightLiveCard({
   }>({ wait: {}, slot: {}, outcome: {} })
   const jobById = useMemo(() => new Map(snap.jobs.map((j) => [j.id, j])), [snap.jobs])
   const waiting = snap.jobs.filter((j) => j.status === 'queued')
+  const queuePills = waiting.slice(0, QUEUE_PILL_MAX)
+  const queueOverflow = waiting.slice(QUEUE_PILL_MAX)
+  // AffectUI: short worker rail — busy / rate-limited first, cap at N (not every account).
+  const visibleWorkers = useMemo(() => {
+    const preferred = snap.workers.filter((w) => w.busy || w.rateLimited)
+    const rest = snap.workers.filter((w) => !w.busy && !w.rateLimited)
+    const out: typeof snap.workers = []
+    const seen = new Set<string>()
+    for (const w of [...preferred, ...rest]) {
+      if (seen.has(w.id)) continue
+      seen.add(w.id)
+      out.push(w)
+      if (out.length >= WORKER_VISIBLE_MAX) break
+    }
+    return out
+  }, [snap.workers])
   const rateActive = snap.rateLimits[0]
   const waitAmber = summary.waiting >= snap.backpressure
 
@@ -500,8 +553,9 @@ export function InflightLiveCard({
       to: DOMRect | HTMLElement | null | undefined,
       label: string,
       kind: MockJobKind,
-      tone: 'run' | 'ok' | 'danger',
+      tone: 'run' | 'ok' | 'danger' | 'retry',
       beatEl?: HTMLElement | null,
+      onLand?: () => void,
     ) => {
       const a = from instanceof HTMLElement ? from.getBoundingClientRect() : from
       const b = to instanceof HTMLElement ? to.getBoundingClientRect() : to
@@ -514,13 +568,17 @@ export function InflightLiveCard({
           ? 'color-mix(in oklab, var(--success) 18%, var(--surface))'
           : tone === 'danger'
             ? 'color-mix(in oklab, var(--danger) 18%, var(--surface))'
-            : 'var(--surface)'
+            : tone === 'retry'
+              ? 'color-mix(in oklab, var(--warning) 14%, var(--surface))'
+              : 'var(--surface)'
       const fg =
         tone === 'ok'
           ? 'var(--success)'
           : tone === 'danger'
             ? 'var(--danger)'
-            : 'var(--foreground)'
+            : tone === 'retry'
+              ? 'var(--warning)'
+              : 'var(--foreground)'
       Object.assign(ghost.style, {
         position: 'fixed',
         left: `${a.left}px`,
@@ -563,11 +621,14 @@ export function InflightLiveCard({
       gsap.to(ghost, {
         left: b.left + Math.max(0, (b.width - a.width) / 2),
         top: b.top + Math.max(0, (b.height - a.height) / 2),
-        scale: tone === 'run' ? 0.92 : 0.85,
+        scale: tone === 'run' || tone === 'retry' ? 0.92 : 0.85,
         opacity: 0.15,
         duration: motionDuration(0.56),
         ease: queueEase,
-        onComplete: () => ghost.remove(),
+        onComplete: () => {
+          ghost.remove()
+          onLand?.()
+        },
       })
       const beat = beatEl
       if (beat && (tone === 'ok' || tone === 'danger')) {
@@ -603,38 +664,110 @@ export function InflightLiveCard({
     const cache = rectCache.current
 
     // Queue → worker: was queued, now running on a slot.
+    const flewFromQueue = new Set<string>()
     for (const [id, job] of nextJobs) {
       const before = prevJobs.get(id)
       if (!before || before.status !== 'queued' || job.status !== 'running') continue
       const workerId = nextWorkerOf.get(id)
       if (!workerId) continue
+      flewFromQueue.add(id)
       const fromRect = cache.wait[id]
       const toEl = root.querySelector<HTMLElement>(`[data-slot-id="${CSS.escape(workerId)}"]`)
       const toRect = toEl?.getBoundingClientRect() ?? cache.slot[workerId]
-      flyGhost(fromRect, toRect, job.name, job.kind, 'run')
-      if (toEl) {
-        const fill = toEl.querySelector<HTMLElement>('[data-slot-fill]')
-        if (fill) {
-          gsap.fromTo(
-            fill,
-            { clipPath: 'inset(0 100% 0 0 round 999px)' },
-            {
-              clipPath: fill.style.clipPath || 'inset(0 96% 0 0 round 999px)',
-              duration: motionDuration(0.56),
-              ease: queueEase,
-            },
-          )
+      // Hide occupy chrome until land (AffectUI receive/occupy on land).
+      const landPill = toEl?.querySelector<HTMLElement>('[data-slot-job-pill]') ?? null
+      const landFill = toEl?.querySelector<HTMLElement>('[data-slot-fill]') ?? null
+      const endClip = landFill?.style.clipPath || 'inset(0 96% 0 0 round 999px)'
+      if (landPill) gsap.set(landPill, { opacity: 0, scale: 0.85 })
+      if (landFill) gsap.set(landFill, { clipPath: 'inset(0 100% 0 0 round 999px)' })
+      flyGhost(fromRect, toRect, job.name, job.kind, 'run', null, () => {
+        if (!toEl) return
+        gsap.fromTo(
+          toEl,
+          { filter: 'brightness(1.35)' },
+          { filter: 'brightness(1)', duration: motionDuration(0.42), ease: ease.soft },
+        )
+        if (landPill) {
+          gsap.to(landPill, {
+            opacity: 1,
+            scale: 1,
+            duration: motionDuration(0.42),
+            ease: queueEase,
+          })
         }
-      }
+        if (landFill) {
+          gsap.to(landFill, {
+            clipPath: endClip,
+            duration: motionDuration(0.56),
+            ease: queueEase,
+          })
+        }
+      })
     }
 
-    // Worker → DONE/FAILED: was running, removed by tick (terminal jobs dropped).
+    // Queue vacancy FLIP — remaining pills/dots close the gap after fly-out (560ms).
+    if (flewFromQueue.size) {
+      const waitEls = root.querySelectorAll<HTMLElement>('[data-wait-pill][data-wait-id]')
+      waitEls.forEach((el) => {
+        const id = el.dataset.waitId
+        if (!id || flewFromQueue.has(id)) return
+        const first = cache.wait[id]
+        if (!first) return
+        const last = el.getBoundingClientRect()
+        const dx = first.left - last.left
+        const dy = first.top - last.top
+        if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return
+        gsap.fromTo(
+          el,
+          { x: dx, y: dy },
+          { x: 0, y: 0, duration: motionDuration(0.56), ease: queueEase, force3D: true },
+        )
+      })
+      // Overflow dots that promote into pill slots also FLIP from token rects.
+      const tokens = root.querySelectorAll<HTMLElement>('[data-wait-token][data-wait-id]')
+      tokens.forEach((el) => {
+        const id = el.dataset.waitId
+        if (!id) return
+        const first = cache.wait[id]
+        if (!first) return
+        const last = el.getBoundingClientRect()
+        const dx = first.left - last.left
+        const dy = first.top - last.top
+        if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return
+        gsap.fromTo(
+          el,
+          { x: dx, y: dy, scale: 1.15 },
+          { x: 0, y: 0, scale: 1, duration: motionDuration(0.56), ease: queueEase },
+        )
+      })
+    }
+
+    // Worker → retry queue (same id back to queued) OR DONE/FAILED.
     for (const [id, before] of prevJobs) {
       if (before.status !== 'running') continue
       const still = nextJobs.get(id)
-      if (still && still.status === 'running') continue
       const workerId = prevWorkerOf.get(id)
       const fromRect = workerId ? cache.slot[workerId] : undefined
+
+      // Retry: running → queued (AffectUI: retry slides back).
+      if (still && still.status === 'queued') {
+        const toEl =
+          root.querySelector<HTMLElement>(`[data-wait-id="${CSS.escape(id)}"]`) ??
+          root.querySelector<HTMLElement>('[data-queue-col]')
+        const toRect = toEl?.getBoundingClientRect()
+        flyGhost(fromRect, toRect, before.name, before.kind, 'retry', null, () => {
+          const pill = root.querySelector<HTMLElement>(`[data-wait-id="${CSS.escape(id)}"]`)
+          if (!pill) return
+          gsap.fromTo(
+            pill,
+            { opacity: 0.4, scale: 0.85 },
+            { opacity: 1, scale: 1, duration: motionDuration(0.42), ease: queueEase },
+          )
+        })
+        continue
+      }
+
+      if (still && still.status === 'running') continue
       const okBump = snap.totals.done > prev.totals.done
       const failBump = snap.totals.failed > prev.totals.failed
       const tone: 'ok' | 'danger' = failBump && !okBump ? 'danger' : 'ok'
@@ -646,6 +779,7 @@ export function InflightLiveCard({
     }
 
     // New wait pills drop in (AffectUI: new jobs drop at the back).
+    // High-priority later glides past via queue-order FLIP below.
     for (const [id, job] of nextJobs) {
       if (job.status !== 'queued') continue
       if (prevJobs.has(id)) continue
@@ -662,6 +796,52 @@ export function InflightLiveCard({
           ease: queueEase,
         },
       )
+    }
+
+    // Priority glide-past + general queue reorder FLIP (high moved toward front).
+    {
+      const prevQueued = prev.jobs.filter((j) => j.status === 'queued').map((j) => j.id)
+      const nextQueued = snap.jobs.filter((j) => j.status === 'queued').map((j) => j.id)
+      const orderChanged =
+        prevQueued.length === nextQueued.length &&
+        prevQueued.some((id, i) => id !== nextQueued[i])
+      if (orderChanged) {
+        for (const id of nextQueued) {
+          const el = root.querySelector<HTMLElement>(`[data-wait-id="${CSS.escape(id)}"]`)
+          if (!el) continue
+          const first = cache.wait[id]
+          if (!first) continue
+          const last = el.getBoundingClientRect()
+          const dx = first.left - last.left
+          const dy = first.top - last.top
+          if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) continue
+          gsap.fromTo(
+            el,
+            { x: dx, y: dy },
+            { x: 0, y: 0, duration: motionDuration(0.56), ease: queueEase, force3D: true },
+          )
+        }
+      }
+    }
+
+    // Dot → pill promotion when overflow slides up into the visible N.
+    {
+      const prevQueued = prev.jobs.filter((j) => j.status === 'queued').map((j) => j.id)
+      const nextQueued = snap.jobs.filter((j) => j.status === 'queued').map((j) => j.id)
+      for (let i = 0; i < Math.min(QUEUE_PILL_MAX, nextQueued.length); i++) {
+        const id = nextQueued[i]
+        const prevIdx = prevQueued.indexOf(id)
+        if (prevIdx < QUEUE_PILL_MAX) continue // already was a pill (or new)
+        if (prevIdx < 0) continue
+        const el = root.querySelector<HTMLElement>(`[data-wait-id="${CSS.escape(id)}"]`)
+        if (!el || el.dataset.waitToken) continue
+        // Was a dot, now a pill — slide-up expand.
+        gsap.fromTo(
+          el,
+          { opacity: 0.5, y: 12, scale: 0.7 },
+          { opacity: 1, y: 0, scale: 1, duration: motionDuration(0.52), ease: queueEase },
+        )
+      }
     }
 
     refreshCache()
@@ -759,15 +939,16 @@ export function InflightLiveCard({
           <div className="grid grid-cols-2 gap-3 border-b border-separator px-4 py-3 sm:grid-cols-4">
             <Metric
               label={t('inflightWaiting')}
-              value={String(summary.waiting)}
+              value={summary.waiting}
               warn={waitAmber || Boolean(rateActive)}
             />
             <Metric
               label={t('inflightRunning')}
-              value={`${summary.running}/${summary.workerSlots}`}
+              value={summary.running}
+              suffix={`/${summary.workerSlots}`}
             />
-            <Metric label={t('inflightThroughput')} value={`${snap.throughputPerMin}/min`} />
-            <Metric label={t('inflightWaitP95')} value={formatElapsed(snap.waitP95Ms)} />
+            <Metric label={t('inflightThroughput')} value={snap.throughputPerMin} suffix="/min" />
+            <Metric label={t('inflightWaitP95')} value={snap.waitP95Ms} kind="ms" />
           </div>
 
           {/* Waiting → account-slot bars → Done/Failed  (AffectUI Agent Queue flow) */}
@@ -780,11 +961,12 @@ export function InflightLiveCard({
                 </span>
               </div>
               <div className="space-y-1">
-                {waiting.slice(0, 3).map((job) => (
+                {queuePills.map((job) => (
                   <div
                     key={job.id}
                     data-wait-pill
                     data-wait-id={job.id}
+                    data-priority={job.priority ?? 'normal'}
                     data-il-glass=""
                     className="relative flex items-center justify-between gap-2 overflow-hidden rounded-lg px-2 py-1.5"
                   >
@@ -796,6 +978,9 @@ export function InflightLiveCard({
                       <span className={`size-1.5 shrink-0 rounded-[2px] ${kindDot(job.kind)}`} aria-hidden />
                       <span className="truncate">
                         {job.name}
+                        {job.priority === 'high' ? (
+                          <span className="mono ml-1 text-[10px] text-muted">↑</span>
+                        ) : null}
                         {job.sticky ? (
                           <span className="mono ml-1 text-[10px] text-muted">{t('inflightSticky')}</span>
                         ) : null}
@@ -804,50 +989,25 @@ export function InflightLiveCard({
                     <span className="relative z-[1] mono shrink-0 text-[10px] text-muted">{formatElapsed(job.elapsedMs)}</span>
                   </div>
                 ))}
-                {waiting.length > 3 ? (
-                  <div className="flex flex-wrap items-center gap-1 pt-1">
-                    {waiting.slice(3).map((job) => (
+                {queueOverflow.length ? (
+                  <div className="flex flex-wrap items-center gap-1 pt-1" data-queue-overflow>
+                    {queueOverflow.map((job) => (
                       <span
                         key={job.id}
                         data-wait-token
-                        data-wait-pill
-                        className={`size-2 rounded-[2px] ${kindDot(job.kind)}`}
+                        data-wait-id={job.id}
+                        data-priority={job.priority ?? 'normal'}
+                        className={`size-2 rounded-[2px] ${kindDot(job.kind)} ${
+                          job.priority === 'high' ? 'ring-1 ring-foreground/35' : ''
+                        }`}
                         title={job.name}
                       />
                     ))}
-                    {/* depth tokens — backlog feel */}
-                    {Array.from({ length: Math.min(10, Math.max(0, summary.waiting * 2)) }).map((_, i) => (
-                      <span
-                        key={`tok-${i}`}
-                        data-wait-token
-                        className="size-2 rounded-[2px] bg-foreground/18"
-                        aria-hidden
-                      />
-                    ))}
-                    <span className="mono text-[10px] text-muted">+{waiting.length - 3}</span>
+                    <span className="mono text-[10px] text-muted">+{queueOverflow.length}</span>
                   </div>
-                ) : waiting.length ? (
-                  <div className="flex flex-wrap gap-1 pt-1">
-                    {waiting.map((job) => (
-                      <span
-                        key={`tok-${job.id}`}
-                        data-wait-token
-                        className={`size-2 rounded-[2px] ${kindDot(job.kind)}`}
-                        title={job.name}
-                      />
-                    ))}
-                    {Array.from({ length: 6 }).map((_, i) => (
-                      <span
-                        key={`pad-${i}`}
-                        data-wait-token
-                        className="size-2 rounded-[2px] bg-foreground/16"
-                        aria-hidden
-                      />
-                    ))}
-                  </div>
-                ) : (
+                ) : queuePills.length === 0 ? (
                   <div className="text-caption text-muted">{t('inflightQueueEmpty')}</div>
-                )}
+                ) : null}
               </div>
             </div>
 
@@ -860,7 +1020,7 @@ export function InflightLiveCard({
               </div>
               {/* Vertical worker rail — growing bars, AffectUI layout */}
               <div className="flex flex-col gap-1.5">
-                {snap.workers.map((slot) => (
+                {visibleWorkers.map((slot) => (
                   <SlotBar
                     key={slot.id}
                     slot={slot}
@@ -916,11 +1076,30 @@ export function InflightLiveCard({
   )
 }
 
-function Metric({ label, value, warn }: { label: string; value: string; warn?: boolean }) {
+function Metric({
+  label,
+  value,
+  suffix,
+  kind = 'int',
+  warn,
+}: {
+  label: string
+  value: number
+  suffix?: string
+  kind?: 'int' | 'ms'
+  warn?: boolean
+}) {
   return (
     <div className="min-w-0">
       <div className="text-caption uppercase tracking-wide text-muted">{label}</div>
-      <div className={`mono mt-1 text-section font-semibold tabular ${warn ? 'text-[var(--il-warn-fg)]' : 'text-foreground'}`}>{value}</div>
+      <div
+        className={`mono mt-1 flex items-baseline gap-0.5 text-section font-semibold tabular ${
+          warn ? 'text-[var(--il-warn-fg)]' : 'text-foreground'
+        }`}
+      >
+        <CountUp value={value} kind={kind} duration={560} />
+        {suffix ? <span className="text-[0.92em] opacity-80">{suffix}</span> : null}
+      </div>
     </div>
   )
 }
@@ -963,7 +1142,7 @@ function Outcome({
           ok ? 'text-[var(--il-ok-fg)]' : 'text-[var(--il-err-fg)]'
         }`}
       >
-        {value}
+        <CountUp value={value} kind="int" duration={560} />
       </div>
     </div>
   )

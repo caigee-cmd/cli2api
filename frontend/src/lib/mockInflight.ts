@@ -18,6 +18,8 @@
 export type MockJobKind = 'chat' | 'embed' | 'tools' | 'other'
 export type MockJobStatus = 'queued' | 'running' | 'done' | 'failed'
 
+export type MockJobPriority = 'high' | 'normal' | 'low'
+
 export type MockInflightJob = {
   id: string
   /** Short label — model / route style. */
@@ -31,6 +33,10 @@ export type MockInflightJob = {
   elapsedMs: number
   /** Sticky session hint (affinity hit). */
   sticky?: boolean
+  /** AffectUI priority — high lands at back then glides past. */
+  priority?: MockJobPriority
+  /** Retry attempt count when failed job slides back to queue. */
+  attempt?: number
 }
 
 export type MockAccountSlot = {
@@ -94,8 +100,12 @@ export const MOCK_INFLIGHT: MockInflightSnapshot = {
     { id: 'j4', name: 'tools · patch', kind: 'tools', status: 'running', accountId: 'acc-trae-c1', progress: 0.23, elapsedMs: 3100 },
     { id: 'j5', name: 'chat · wait', kind: 'chat', status: 'queued', progress: 0, elapsedMs: 7200 },
     { id: 'j6', name: 'retry · cool', kind: 'chat', status: 'queued', progress: 0, elapsedMs: 5100 },
-    { id: 'j7', name: 'chat · sticky', kind: 'chat', status: 'queued', progress: 0, elapsedMs: 2800, sticky: true },
+    { id: 'j7', name: 'chat · sticky', kind: 'chat', status: 'queued', progress: 0, elapsedMs: 2800, sticky: true, priority: 'high' },
     { id: 'j8', name: 'embed · docs', kind: 'embed', status: 'queued', progress: 0, elapsedMs: 1400 },
+    { id: 'j9', name: 'tools · apply', kind: 'tools', status: 'queued', progress: 0, elapsedMs: 900 },
+    { id: 'j10', name: 'chat · flash', kind: 'chat', status: 'queued', progress: 0, elapsedMs: 600 },
+    { id: 'j11', name: 'embed · idx', kind: 'embed', status: 'queued', progress: 0, elapsedMs: 400 },
+    { id: 'j12', name: 'chat · opus', kind: 'chat', status: 'queued', progress: 0, elapsedMs: 200, priority: 'high' },
   ],
   rateLimits: [
     { id: 'rl1', label: 'wb-a2 限流', remainingMs: 97_000, from: 0.55, until: 0.72 },
@@ -183,14 +193,30 @@ export function tickMockInflight(prev: MockInflightSnapshot, dtMs: number): Mock
     const job = jobById.get(f.jobId)
     const w = next.workers.find((x) => x.id === f.workerId)
     if (!job || !w) continue
-    job.status = f.ok ? 'done' : 'failed'
-    job.progress = 1
-    job.accountId = undefined
     w.busy = false
     w.progress = 0
     w.jobId = undefined
-    if (f.ok) next.totals.done += 1
-    else next.totals.failed += 1
+    job.accountId = undefined
+    if (f.ok) {
+      job.status = 'done'
+      job.progress = 1
+      next.totals.done += 1
+      continue
+    }
+    // AffectUI: failed shakes — or retry slides back to queue (same id).
+    const attempt = (job.attempt ?? 1) + 1
+    const canRetry = attempt <= 3 && (f.jobId.charCodeAt(0) + Math.floor(next.generatedAt / 900)) % 2 === 0
+    if (canRetry) {
+      job.status = 'queued'
+      job.progress = 0
+      job.elapsedMs = 80
+      job.attempt = attempt
+      job.priority = 'high'
+      continue
+    }
+    job.status = 'failed'
+    job.progress = 1
+    next.totals.failed += 1
   }
 
   // Drop terminal jobs from the active list (keep queue + running only).
@@ -218,9 +244,11 @@ export function tickMockInflight(prev: MockInflightSnapshot, dtMs: number): Mock
 
   // Soft enqueue so the waiting rail doesn’t drain dry.
   const waiting = next.jobs.filter((j) => j.status === 'queued').length
-  if (waiting < 3 && next.generatedAt % 3200 < dt) {
+  if (waiting < 6 && next.generatedAt % 2800 < dt) {
     const pick = SEED_NAMES[seq % SEED_NAMES.length]
     seq += 1
+    // Every ~4th job is high priority (lands at back, then glides past).
+    const priority = seq % 4 === 0 ? 'high' as const : 'normal' as const
     next.jobs.push({
       id: `j${seq}`,
       name: pick.name,
@@ -229,7 +257,19 @@ export function tickMockInflight(prev: MockInflightSnapshot, dtMs: number): Mock
       progress: 0,
       elapsedMs: 200 + (seq % 7) * 400,
       sticky: pick.sticky,
+      priority,
     })
+  }
+
+  // High-priority: after a brief back-of-queue land (~400ms), glide past to front.
+  {
+    const running = next.jobs.filter((j) => j.status === 'running')
+    const queued = next.jobs.filter((j) => j.status === 'queued')
+    const promote = queued.filter((j) => j.priority === 'high' && j.elapsedMs >= 400)
+    const rest = queued.filter((j) => !(j.priority === 'high' && j.elapsedMs >= 400))
+    // Stable: already-promoted highs keep relative order at front; new promotes append after them.
+    const highs = promote
+    next.jobs = [...running, ...highs, ...rest]
   }
 
   // Depth chart scrolls: shift left, append current waiting+busy approx.
