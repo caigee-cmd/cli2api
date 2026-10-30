@@ -4,7 +4,7 @@
 
 **Turn your own logins into a local OpenAI-compatible API**
 
-Connect **Qoder (Global / CN)**, **WorkBuddy (Global / CN)**, **Trae CN Work**, and experimental **Devin** and **Command Code** accounts.
+Connect **Qoder (Global / CN)**, **WorkBuddy (Global / CN)**, **Trae CN Work**, and experimental **Devin**, **Command Code**, and **Huawei Cloud CodeArts (码道)** accounts.
 
 Deploy with Docker, manage accounts in the web console, and connect clients through compatible APIs.
 
@@ -26,9 +26,10 @@ Deploy with Docker, manage accounts in the web console, and connect clients thro
 - **Compatible APIs**: Chat Completions, Responses, Anthropic Messages, and model listing, with streaming and function tools.
 - **Multi-account routing**: round-robin, weighted round-robin, fill-first, and opt-in same-provider earliest-expiry-first (FEFO), with automatic selection, session affinity, concurrency limits, cooldowns, and failover.
 - **Web console**: manage accounts, models, client keys, and proxies; view quotas and request logs.
+- **Huawei Cloud CodeArts (experimental)**: OAuth PKCE sign-in followed by direct OpenAI-compatible calls to snap-access, with streaming, tools, image input for catalog-declared vision models, catalog-declared reasoning levels, and package-credit / token meters.
 - **Docker operations**: persistent account data; an optional host updater lets you download, confirm, and roll back updates from the console.
 
-Qoder CN, WorkBuddy, and Trae adapters are implemented, but live-account acceptance is still pending. Devin and Command Code are experimental, not production-ready. Live upgrade and rollback acceptance is also pending. The Kimi Code CN adapter has single-account end-to-end acceptance: device-code sign-in, model discovery, chat/streaming/tools/vision on all three APIs, and quota readout; multi-account behavior is covered by automated tests only.
+Qoder CN, WorkBuddy, and Trae adapters are implemented, but live-account acceptance is still pending. Devin, Command Code, and Huawei Cloud CodeArts are experimental, not production-ready. Live upgrade and rollback acceptance is also pending. The Kimi Code CN adapter has single-account end-to-end acceptance: device-code sign-in, model discovery, chat/streaming/tools/vision on all three APIs, and quota readout; multi-account behavior is covered by automated tests only. CodeArts has single-account end-to-end acceptance: OAuth sign-in, model discovery with unusable-model removal, non-streaming and streaming Chat Completions / Anthropic Messages / Responses, tool calls, reasoning passthrough, package-credit readout, and check-in; two-account failover and session affinity have also been verified live, while quota-exhaustion failover is still pending.
 
 ## Quick start
 
@@ -63,7 +64,7 @@ Get a model ID from **Access** or `/v1/models`. Routing is automatic and prefers
   <img src="./docs/assets/readme/architecture-en.svg" width="100%" alt="CLI2API architecture: OpenAI clients are routed by the Go control plane to one isolated runtime per account, then to the provider upstream">
 </p>
 
-The Go gateway handles authentication, routing, and request logging. Each Qoder account has its own Node process and HOME; WorkBuddy, Trae, Devin, and Command Code use Go in-process adapters. No full CLI is started per request.
+The Go gateway handles authentication, routing, and request logging. Each Qoder account has its own Node process and HOME; WorkBuddy, Trae, Devin, Command Code, and CodeArts use Go in-process adapters. No full CLI is started per request.
 
 ## Console
 
@@ -82,13 +83,13 @@ Select **Earliest expiry first (FEFO)** under **System → Account routing strat
 - **Rank only inside one provider.** Accounts are grouped by provider family before their nearest credit-package expiry is compared. Qoder, WorkBuddy, and other providers never compete with each other, and cross-provider selection keeps its existing rotation.
 - **Use only spendable package dates.** Depleted, expired, and undated packages are skipped. Accounts expiring on the same UTC+8 calendar day rotate fairly. Missing dates are never guessed: they form that provider's fallback cohort and participate only after every dated account is unavailable.
 - **Keep quota and failover semantics.** Exhausted, cooling, concurrency-saturated, or explicitly excluded accounts leave the candidate set and return to the ranking once they recover. Finishing a response or stream refreshes that account's quota asynchronously; a cached package expiring naturally also triggers a probe. Subscription resets, token lifetimes, and check-in rewards are never treated as package expiry.
-- **Data gaps.** Only WorkBuddy personal accounts currently return per-package `CycleEndTime` from `get-user-resource`. Qoder's `quota/usage` exposes only the subscription cycle boundary (`expiresAt`), while Trae, Devin, Command Code, and Codex expose reset windows or totals only, so their accounts remain in the unknown-date cohort under FEFO. WorkBuddy enterprise/shared identities and unconfirmed result sets capped at 100 also receive no FEFO priority. Cached quota snapshots written before this version remain undated until the boot probe or a manual refresh repopulates the package metadata.
+- **Data gaps.** Only WorkBuddy personal accounts currently return per-package `CycleEndTime` from `get-user-resource`. Qoder's `quota/usage` exposes only the subscription cycle boundary (`expiresAt`), while Trae, Devin, Command Code, and Codex expose reset windows or totals only, so their accounts remain in the unknown-date cohort under FEFO. CodeArts reports package credits and token meters but no per-package expiry, so it is treated as unknown rather than given a fabricated date. WorkBuddy enterprise/shared identities and unconfirmed result sets capped at 100 also receive no FEFO priority. Cached quota snapshots written before this version remain undated until the boot probe or a manual refresh repopulates the package metadata.
 
 ## Limitations
 
 - Bring your own accounts. CLI2API does not supply accounts, quotas, or an official API service.
 - Compatibility is not full API parity. Messages / Responses are stateless adapters, without server-side conversations or upstream-specific tool execution.
-- Image support depends on the upstream and model. The gateway surfaces each model's declared image input as `supports_images` on `/v1/models` and `/api/models`. WorkBuddy's DeepSeek V4 / V4.1, GLM, and Kimi models accept images; Trae, Command, and Zhipu do not declare image input. See the [deployment guide](deploy/README.md) for details.
+- Image support depends on the upstream and model. The gateway surfaces each model's declared image input as `supports_images` on `/v1/models` and `/api/models`. WorkBuddy's DeepSeek V4 / V4.1, GLM, and Kimi models accept images; CodeArts's Qwen3-VL-235B and Kimi K2.6 VL accept images, while its other models are text-only; Trae, Command, and Zhipu do not declare image input. See the [deployment guide](deploy/README.md) for details.
 - Cross-provider routing for shared model IDs follows system settings, key grants, and region constraints; failover is not unrestricted.
 - Upstream changes can break compatibility. Request logs do not store prompt or completion bodies by default.
 

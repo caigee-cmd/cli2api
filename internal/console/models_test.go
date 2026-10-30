@@ -29,3 +29,24 @@ func TestModelSettingResponseKimiCarriesReasoningOnly(t *testing.T) {
 		t.Fatal("kimi has no max-mode switch to report")
 	}
 }
+
+func TestModelSettingResponseCodeArtsCarriesReasoningOnly(t *testing.T) {
+	response := modelSettingResponse(control.ModelSetting{
+		Provider:        "codearts",
+		Model:           "glm-5.2",
+		ReasoningEffort: "max",
+		ContextCustom:   true,
+	})
+	if response["reasoning_effort"] != "max" {
+		t.Fatalf("reasoning_effort = %#v", response["reasoning_effort"])
+	}
+	if response["context_custom"] != true {
+		t.Fatalf("context_custom = %#v", response["context_custom"])
+	}
+	if response["provider"] != "codearts" || response["model"] != "glm-5.2" {
+		t.Fatalf("identity = %#v", response)
+	}
+	if _, ok := response["max_mode"]; ok {
+		t.Fatal("codearts has no max-mode switch to report")
+	}
+}
