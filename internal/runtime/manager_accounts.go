@@ -174,6 +174,9 @@ func (m *Manager) AccountView(ctx context.Context, id string) (AccountView, erro
 		view.Ready = item.Ready == nil || *item.Ready
 		view.Hot = item.Hot != nil && *item.Hot
 		view.InFlight = item.InFlight
+		if !item.InFlightSince.IsZero() {
+			view.InFlightSince = item.InFlightSince.UTC().Format(time.RFC3339)
+		}
 		view.Restarts = item.Restarts
 		view.RuntimeState = item.RuntimeState
 		view.RestartBackoffLevel = item.RestartBackoffLevel
@@ -209,6 +212,9 @@ func (m *Manager) Accounts(ctx context.Context) ([]AccountView, error) {
 			view.Ready = item.Ready == nil || *item.Ready
 			view.Hot = item.Hot != nil && *item.Hot
 			view.InFlight = item.InFlight
+			if !item.InFlightSince.IsZero() {
+				view.InFlightSince = item.InFlightSince.UTC().Format(time.RFC3339)
+			}
 			view.Restarts = item.Restarts
 			view.RuntimeState = item.RuntimeState
 			view.RestartBackoffLevel = item.RestartBackoffLevel

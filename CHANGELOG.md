@@ -3,6 +3,82 @@
 Published user-facing notes for GitHub Releases and the console update page.
 Write upcoming notes as bilingual files in `changelog/unreleased/`.
 
+## 0.7.25 - 2026-10-29
+
+### English
+
+- 1. Overview InflightLiveCard first expand (and re-expand) uses a short body fade instead of staggering every wait pill / slot / fill / outcome — waits for the first live projection (or idle/mock board) so hydrate never fires a handoff storm; later live deltas keep queue→slot / Done·Failed / FLIP motion.
+- 2. Mock「示意」demo is off by default when `/api/live` is unavailable (calm idle zeros, no raf). A header switch turns it back on; preference persists in `localStorage`.
+- 3. InflightLiveCard drops internal horizontal section rules and most hairline frames; hierarchy uses color wash + spacing instead.
+
+### 中文
+
+- 1. Overview「实时进行中」首次展开（及收起再开）改为短促整体淡入，不再对每个排队 pill / 槽位 / 填充 / 完成失败做 stagger；等首帧 live 投影（或空闲/示意板）就绪后再淡入，避免把 hydrate 当成一串交接飞入；之后的 live 增量仍保留排队→槽位 / 完成·失败 / FLIP。
+- 2. 无 `/api/live` 时默认关闭 mock「示意」（空闲零值、无 raf）。卡片标题旁开关可再打开；偏好写入 `localStorage`。
+- 3. 「实时进行中」去掉分区横线与多余描边，改靠色块与间距区分层次。
+
+## 0.7.24 - 2026-10-29
+
+### English
+
+- 1. Overview InflightLiveCard selecting (选号) wait rail is visible again: expanded `/api/live` polls at 400ms, 1.6s display dwell (Acquire still immediate), and queue→slot fly-in uses GSAP MotionPath into the bound concurrency cell; cell model/elapsed stays hidden until the fly lands (or a short grace if skipped).
+- 2. `/api/live` adds `occupancy` from BoundRequests: each in-flight request maps to its own concurrency cell (model + Bind elapsed). Finishing cells fly to Done/Failed from their own rect (`recent_completions.request_id`), staggered when several finish together — not one shared account animation.
+- 3. Worker rail and wait rail use GSAP FLIP for yield/reorder: busy rises with a drag-up feel; remaining wait pills slide up into vacated gaps without fighting the next queue→slot fly.
+- 4. Overview Account pool collapses cooling accounts into a summary chip (`N cooling`); details expand on click with a quiet secondary wash. Ready workers stay primary in the list.
+
+### 中文
+
+- 1. Overview「实时进行中」选号/排队重新可见：展开后 `/api/live` 400ms 轮询、选号展示约 1.6s（Acquire 不拖延）；排队→槽位用 GSAP 弧线滑入 Bind 并发格，模型/计秒等飞入落地后再显示（飞不起来则短 grace）。
+- 2. `/api/live` 增加 `occupancy`（BoundRequests）：每个在途请求占一个并发格（各格模型与 Bind 秒数）；结束时各格从自身飞向完成/失败（`recent_completions.request_id`），同帧多格会错开——不是整账号共用一个飞出动画。
+- 3. Worker 轨与等待轨用 GSAP FLIP 避让上顶：busy 上浮、空闲下沉；选号 pill 飞走后剩余排队上滑补位，不和下一次飞入打架。
+- 4. Overview「账号池」将冷却账号收成摘要 chip（「N 冷却」），点击后以安静次级底展开明细；列表优先展示就绪 worker。
+
+## 0.7.23 - 2026-10-29
+
+### English
+
+- 1. Overview InflightLiveCard slot→Done/Failed fly-out now scales down toward the outcome control (shrink in flight) instead of staying near full slot size; after the hairline flash the Done/Failed pill does a short left-right wiggle + scale (stuffed-in feel).
+- 2. Overview InflightLiveCard waiting rail keeps a selecting (选号) request visible on `/api/live` `queue` for at least 500ms after Start even after Bind — display-only; Acquire / pickNext are not delayed.
+- 3. Overview InflightLiveCard Done/Failed are session counters while the card is expanded (bumped from live completions), not historical totals; rate-limit remaining chips, depth band labels, and cooldown pause styling are removed so the card stays in-progress only. Outcome sinks use a clearer icon chip + label.
+
+### 中文
+
+- 1. Overview「实时进行中」槽位→完成/失败飞出动画改为飞行中缩小落向结局按钮；落地描边闪一下后，完成/失败块再左右轻晃并缩放一点，像被塞进去。
+- 2. Overview「实时进行中」等待队列在 Start 后至少保留 500ms 选号投影（即使已 Bind），仅影响 `/api/live` `queue` 展示，不拖延 Acquire / pickNext。
+- 3. Overview「实时进行中」完成/失败改为展开会话内计数（随 live 完成事件累加），不是历史总量；去掉顶部限流剩余、深度图限流色带标签与冷却暂停样式，卡片只展示进行中；结局块图标与标签更清晰。
+
+## 0.7.22 - 2026-10-29
+
+### English
+
+- 1. Overview InflightLiveCard waiting rail now shows real selecting (选号) requests from `/api/live` `queue` (Prepare → pool Acquire), reusing existing `request_logs` statuses (`started` / `streaming` / terminal) instead of a parallel inflight API.
+- 2. Worker rail order is busy → available → cooldown, and rate-limit remaining time formats with hours when the window is long enough (`Nh Nm`).
+
+### 中文
+
+- 1. Overview「实时进行中」等待队列改为读取 `/api/live` 的 `queue`（Prepare → 选号 → Acquire），复用现有 `request_logs` 状态（`started` / `streaming` / 终态），不另开 `/api/inflight*`。
+- 2. 账号槽排序为忙碌 → 空闲 → 冷却，限流剩余时间在足够长时按小时显示（`Nh Nm`）。
+
+## 0.7.21 - 2026-10-29
+
+### English
+
+- 1. Overview adds a collapsible「Live now」card: expand from the concurrency strip to see live account slots (ProviderMark, concurrency cells, real elapsed + shimmer), queue→slot / Done·Failed fly-outs, and amber rate-limit bands from `/api/live` (`workers` / `rate_limits` / `sticky`). Idle live shows zeros; mock demo only when live is unavailable.
+- 2. Accounts batch import accepts official WorkBuddy client export packs (`exportType: WorkBuddy-accounts`, nested `{account, auth}`); `workbuddy.cn` maps to the CN region like `codebuddy.cn`.
+- 3. Logs and Usage can filter by API key: request logs record which named console key issued each call, and `GET /api/logs/requests|stats|usage` plus `GET /api/usage/cost` accept `api_key=<key id>` (console-key traffic stays unattributed).
+- 4. Access chat Flat polish: softer history-rail wash, stage continuous with the page, quieter sidebar selected/hover, softer user bubble and composer — Overview / modal solid-glass untouched.
+- 5. Connection-level failures (dial, TLS handshake, reset) no longer cool the account or fail over: the client gets the transport error and the account stays routable (avoids single-account「all accounts are cooling down」loops).
+- 6. Qoder and WorkBuddy stream first-byte default is now 60s (`QODER_STREAM_TTFB_MS` / `WORKBUDDY_STREAM_TTFB_MS`, was 30s) so thinking-model cold starts get longer before failover; set either env to keep the old deadline.
+
+### 中文
+
+- 1. Overview 新增可折叠「实时进行中」卡：从并发条展开后，按 `/api/live` 投影展示账号槽（ProviderMark、并发格、真实耗时与流光）、队列→槽位 / 完成·失败飞出，以及琥珀限流色带。空闲 live 显示 0；仅 live 不可用时跑 mock 演示。
+- 2. 账号批量导入支持 WorkBuddy 官方客户端导出包（`exportType: WorkBuddy-accounts`、嵌套 `{account, auth}`），并将 `workbuddy.cn` 识别为国内区（与 `codebuddy.cn` 一致）。
+- 3. 日志页与用量页支持按 API 密钥筛选：请求日志记录具名控制台密钥；`GET /api/logs/requests|stats|usage` 与 `GET /api/usage/cost` 接受 `api_key=<密钥 id>`（控制台密钥流量不计名）。
+- 4. Access 聊天 Flat 回拨：历史轨柔和冷洗、舞台与页面连续、侧栏选中/悬停更安静、用户气泡与作曲区软化——Overview / 弹层 solid-glass 不动。
+- 5. 连接层失败（拨号、TLS 握手、连接重置）不再给账号记冷却、也不再换号：客户端直接收到链路错误，账号保持可路由（避免单账号「所有账号都在冷却」死循环）。
+- 6. Qoder / WorkBuddy 流式首字节默认时限改为 60 秒（`QODER_STREAM_TTFB_MS` / `WORKBUDDY_STREAM_TTFB_MS`，原 30 秒），思考模型冷启动可多等一会再切号；设对应环境变量可恢复旧时限。
+
 ## 0.7.20 - 2026-10-28
 
 ### English

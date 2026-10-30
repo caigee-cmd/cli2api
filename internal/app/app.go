@@ -178,6 +178,8 @@ func New(cfg config.Config) *App {
 	chatExecutor.MaxAttempts = cfg.MaxRetryAccounts
 	chatExecutor.Providers = providerReg
 	chatExecutor.OnAttempt = recorder.Attempt
+	chatExecutor.OnInFlightAcquire = recorder.BindAccount
+	chatExecutor.OnInFlightRelease = recorder.UnbindAccount
 	a := &App{
 		Cfg:       cfg,
 		Auth:      auth.NewVerifier(proxyAPIKey, store),

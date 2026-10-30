@@ -140,3 +140,112 @@ func TestDecodeCredentialNestedAndSnakeStillWork(t *testing.T) {
 		t.Fatalf("snake=%+v err=%v", credential, err)
 	}
 }
+
+
+func TestSplitImportClientExportTypePack(t *testing.T) {
+	payload := []byte(`{
+		"exportType":"WorkBuddy-accounts",
+		"version":1,
+		"exportedAt":"2026-10-29T00:00:00Z",
+		"count":2,
+		"accounts":[
+			{
+				"account":{"uid":"u-syn-1","nickname":"SynOne","phoneNumber":"13800000001","type":"personal"},
+				"auth":{
+					"accessToken":"syn-access-1",
+					"refreshToken":"syn-refresh-1",
+					"tokenType":"Bearer",
+					"expiresIn":2592000,
+					"expiresAt":1795766725050,
+					"domain":"www.workbuddy.cn",
+					"scope":"openid"
+				}
+			},
+			{
+				"account":{"uid":"u-syn-2","nickname":"SynTwo","type":"personal"},
+				"auth":{
+					"accessToken":"syn-access-2",
+					"refreshToken":"syn-refresh-2",
+					"expiresAt":1795766725050,
+					"domain":"www.workbuddy.cn"
+				}
+			}
+		]
+	}`)
+	chunks, err := SplitImport(payload)
+	if err != nil {
+		t.Fatalf("SplitImport: %v", err)
+	}
+	if len(chunks) != 2 {
+		t.Fatalf("len=%d", len(chunks))
+	}
+	items, err := ExpandImport(payload)
+	if err != nil {
+		t.Fatalf("ExpandImport: %v", err)
+	}
+	if len(items) != 2 || !items[0].Ready || !items[1].Ready {
+		t.Fatalf("items=%+v", items)
+	}
+	first, err := DecodeCredential(items[0].Payload)
+	if err != nil || first.UID != "u-syn-1" || first.AccessToken != "syn-access-1" || first.Domain != "www.workbuddy.cn" {
+		t.Fatalf("first=%+v err=%v", first, err)
+	}
+	if first.IsGlobal() {
+		t.Fatal("www.workbuddy.cn must be CN")
+	}
+}
+
+func TestSplitImportEmptyFormatWithAccounts(t *testing.T) {
+	payload := []byte(`{
+		"accounts":[
+			{"uid":"u1","accessToken":"at1","refreshToken":"rt1","domain":"codebuddy.cn"}
+		]
+	}`)
+	chunks, err := SplitImport(payload)
+	if err != nil {
+		t.Fatalf("SplitImport: %v", err)
+	}
+	if len(chunks) != 1 {
+		t.Fatalf("len=%d", len(chunks))
+	}
+}
+
+func TestSplitImportFormatCaseAlias(t *testing.T) {
+	payload := []byte(`{
+		"format":"WorkBuddy-accounts",
+		"accounts":[
+			{"uid":"u1","accessToken":"at1","domain":"www.workbuddy.cn"}
+		]
+	}`)
+	chunks, err := SplitImport(payload)
+	if err != nil {
+		t.Fatalf("SplitImport: %v", err)
+	}
+	if len(chunks) != 1 {
+		t.Fatalf("len=%d", len(chunks))
+	}
+}
+
+func TestIsGlobalWorkbuddyCN(t *testing.T) {
+	cases := []struct {
+		domain  string
+		global  bool
+	}{
+		{"www.workbuddy.cn", false},
+		{"workbuddy.cn", false},
+		{"https://www.workbuddy.cn", false},
+		{"www.codebuddy.cn", false},
+		{"codebuddy.cn", false},
+		{"www.workbuddy.ai", true},
+		{"workbuddy.ai", true},
+		{"www.workbuddy.com", true},
+		{"workbuddy.com", true},
+		{"", false},
+	}
+	for _, tc := range cases {
+		got := (Credential{Domain: tc.domain}).IsGlobal()
+		if got != tc.global {
+			t.Fatalf("domain=%q IsGlobal=%v want %v", tc.domain, got, tc.global)
+		}
+	}
+}

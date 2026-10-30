@@ -134,7 +134,7 @@ console; environment variables cannot replace it.
 | `QODER_MAX_RETRY_ACCOUNTS` | `4` | Maximum accounts attempted for one request (1-64) |
 | `QODER_SSE_DIAGNOSTIC_MODELS` | empty | Comma-separated Qoder model IDs for redacted SSE diagnostics in Runtime Logs; `*` enables all |
 | `QODER_WORKER_BASE_PORT` | `32100` | Internal child-runtime port range |
-| `QODER_STREAM_TTFB_MS` | `30000` | Qoder stream first-byte deadline in ms (response head + first meaningful SSE data line after 200), Go side and worker; min `5000`; timeout fails over to the next account |
+| `QODER_STREAM_TTFB_MS` | `60000` | Qoder stream first-byte deadline in ms (response head + first meaningful SSE data line after 200), Go side and worker; min `5000`; timeout fails over to the next account |
 | `QODER_STREAM_TOTAL_MS` | `300000` | Qoder worker mid-stream stall timeout in ms: aborts only after this long with no new chunk (resets per chunk, not a wall-clock cap); never below the TTFB value |
 | `QODER_SIGNATURE_SECRET` | built-in | Override the COSY request-signing secret for in-process Qoder; leave unset unless upstream rotates it |
 | `QODER_PROXY_URL` | empty | Initial global outbound proxy: `http(s)://`, `direct`, or `none`; saved console settings take precedence |

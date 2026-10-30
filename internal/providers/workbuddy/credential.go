@@ -211,10 +211,14 @@ func (c Credential) IsGlobal() bool {
 	if domain == "" {
 		return false
 	}
-	if strings.Contains(domain, DomainCN) {
+	// CN editions: codebuddy.cn and workbuddy.cn (and subdomains).
+	// Check before the generic "workbuddy" substring so www.workbuddy.cn
+	// is not misclassified as Global.
+	if strings.Contains(domain, DomainCN) || strings.Contains(domain, "workbuddy.cn") {
 		return false
 	}
-	return strings.Contains(domain, DomainGlobal) || strings.Contains(domain, "workbuddy")
+	return strings.Contains(domain, DomainGlobal) || strings.Contains(domain, "workbuddy.com") ||
+		strings.Contains(domain, "workbuddy")
 }
 
 // DesktopUserAgentFor returns the desktop UA for the account's edition.

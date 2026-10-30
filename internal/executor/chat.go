@@ -33,6 +33,10 @@ type ChatExecutor struct {
 	OnAttempt       AttemptHook
 	MaxAttempts     int
 	SessionAffinity *SessionAffinity
+	// OnInFlightAcquire/Release mirror Pool.Acquire/Release onto RequestRecorder
+	// open-request tracking (same plane as recent_completions). Optional.
+	OnInFlightAcquire func(requestID, accountID string)
+	OnInFlightRelease func(requestID, accountID string)
 }
 
 type ChatResult struct {
@@ -851,27 +855,39 @@ func (c *releaseCloser) Close() error {
 	return err
 }
 
-func (e ChatExecutor) acquireInFlight(id string) bool {
+func (e ChatExecutor) acquireInFlight(requestID, id string) bool {
 	if e.Pool == nil {
+		if e.OnInFlightAcquire != nil && requestID != "" && id != "" {
+			e.OnInFlightAcquire(requestID, id)
+		}
 		return true
 	}
-	return e.Pool.Acquire(id)
+	if !e.Pool.Acquire(id) {
+		return false
+	}
+	if e.OnInFlightAcquire != nil && requestID != "" {
+		e.OnInFlightAcquire(requestID, id)
+	}
+	return true
 }
 
-func (e ChatExecutor) releaseInFlight(id string) {
+func (e ChatExecutor) releaseInFlight(requestID, id string) {
 	if e.Pool != nil {
 		e.Pool.Release(id)
+	}
+	if e.OnInFlightRelease != nil && requestID != "" {
+		e.OnInFlightRelease(requestID, id)
 	}
 }
 
 // attachInFlightRelease transfers an acquired slot to the response body.
 // Close releases the pool id that was Acquired (not a rewritten account id).
-func (e ChatExecutor) attachInFlightRelease(resp *http.Response, poolID string) *http.Response {
+func (e ChatExecutor) attachInFlightRelease(resp *http.Response, requestID, poolID string) *http.Response {
 	if resp == nil || resp.Body == nil {
-		e.releaseInFlight(poolID)
+		e.releaseInFlight(requestID, poolID)
 		return resp
 	}
-	resp.Body = &releaseCloser{ReadCloser: resp.Body, release: func() { e.releaseInFlight(poolID) }}
+	resp.Body = &releaseCloser{ReadCloser: resp.Body, release: func() { e.releaseInFlight(requestID, poolID) }}
 	return resp
 }
 
@@ -889,11 +905,11 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 		}
 		// Acquire with the pool id before any rewrite of item.ID (X-Qoder-Account).
 		poolID := item.ID
-		if !e.acquireInFlight(poolID) {
+		if !e.acquireInFlight(loop.requestID, poolID) {
 			loop.exclude(item)
 			continue
 		}
-		release := func() { e.releaseInFlight(poolID) }
+		release := func() { e.releaseInFlight(loop.requestID, poolID) }
 		if isInProcessItem(item) || e.qoderDirect(item) {
 			result, classified, err := e.chatInProcessNonStreamAttempt(ctx, item, req, i)
 			if err == nil {
@@ -1339,18 +1355,18 @@ func (e ChatExecutor) chatStreamProxy(ctx context.Context, req translate.ChatReq
 			return StreamResult{}, pickErr
 		}
 		poolID := item.ID
-		if !e.acquireInFlight(poolID) {
+		if !e.acquireInFlight(loop.requestID, poolID) {
 			loop.exclude(item)
 			continue
 		}
-		release := func() { e.releaseInFlight(poolID) }
+		release := func() { e.releaseInFlight(loop.requestID, poolID) }
 		if isInProcessItem(item) || (e.qoderDirect(item) && !(preferNativeResponses && native != nil)) {
 			result, classified, err := e.chatInProcessStreamAttempt(ctx, item, req, native, i, preferNativeResponses)
 
 			if err == nil {
 				result.AttemptCount = i + 1
 				e.observeRouting(&loop.routing, result.AccountID)
-				result.Response = e.attachInFlightRelease(result.Response, poolID)
+				result.Response = e.attachInFlightRelease(result.Response, loop.requestID, poolID)
 				return result, nil
 			}
 			loop.lastErr = err
@@ -1448,7 +1464,7 @@ func (e ChatExecutor) chatStreamProxy(ctx context.Context, req translate.ChatReq
 		if resolved != "" {
 			logResolvedReasoning(ctx, "chat_stream", item, req.Model, resolved)
 		}
-		resp = e.attachInFlightRelease(resp, poolID)
+		resp = e.attachInFlightRelease(resp, loop.requestID, poolID)
 		return StreamResult{
 			Response:       resp,
 			AccountID:      item.ID,

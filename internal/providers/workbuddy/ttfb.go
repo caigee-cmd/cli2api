@@ -21,7 +21,7 @@ import (
 // relay waits until the client gives up, the turn is spent, and a retry lands on
 // the same account. Qoder already fails over on this (QODER_STREAM_TTFB_MS); this
 // is the WorkBuddy counterpart.
-const defaultFirstByteTimeout = 30 * time.Second
+const defaultFirstByteTimeout = 60 * time.Second
 
 // workbuddyStreamTTFBEnv overrides the first-byte deadline.
 const workbuddyStreamTTFBEnv = "WORKBUDDY_STREAM_TTFB_MS"
