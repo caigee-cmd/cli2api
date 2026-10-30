@@ -335,7 +335,7 @@ var CodeArts = ProviderDescriptor{
 	AuthTypes:         []AuthType{AuthOAuth},
 	CredentialFormats: []string{"codearts-oauth-v1"},
 	Capabilities: ProviderCapabilities{
-		Chat: true, Stream: true, Tools: true, Images: false, Reasoning: true,
+		Chat: true, Stream: true, Tools: true, Images: true, Reasoning: true,
 		ModelCatalog: true, Usage: true, Login: true, BrowserLogin: true,
 		PATLogin: false, ImportExport: true,
 	},

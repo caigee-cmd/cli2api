@@ -26,7 +26,7 @@
 - **兼容接口**：Chat Completions、Responses、Anthropic Messages 和模型列表，支持流式回复与函数工具调用。
 - **多账号调度**：轮询、加权轮询、顺序填满，以及可选的同供应商最早到期优先（FEFO）；保留自动选号、会话粘性、并发限制、冷却与故障切换。
 - **统一控制台**：管理账号、模型、客户端密钥、代理设置，查看额度和请求日志。
-- **华为云码道（实验性）**：OAuth PKCE 登录后直连 snap-access 的 OpenAI 兼容接口，支持流式与工具调用，并读取套餐积分 / token 计量。
+- **华为云码道（实验性）**：OAuth PKCE 登录后直连 snap-access 的 OpenAI 兼容接口，支持流式、工具调用和目录声明视觉模型的图片输入，并读取套餐积分 / token 计量。
 - **Docker 运维**：持久化账号数据；可选安装宿主机更新器，在控制台下载更新、确认升级和回滚。
 
 Qoder 国内版、WorkBuddy、Trae 的适配代码已实现，真账号验收仍未完成；Devin、Command Code 与华为云码道 CodeArts 为实验性接入，不承诺生产可用。托管更新的真实升级 / 回滚验收也尚未完成。Kimi Code（中国区）已完成单账号端到端验收：设备码登录、模型发现、三种接口的对话 / 流式 / 工具调用 / 视觉，以及额度读取；多账号行为只有自动化测试覆盖。码道 CodeArts 已完成单账号端到端验收：OAuth 登录、模型发现与不可用模型剔除、Chat Completions / Anthropic Messages / Responses 的非流式与流式、工具调用、reasoning 透传、套餐额度读取和签到；双账号失败切换与会话粘性也已实测，额度耗尽切换仍待验收。
@@ -89,7 +89,7 @@ Go 网关统一鉴权、调度和记录请求。Qoder 每个账号使用独立 N
 
 - 只连接你自己的账号，不提供账号、额度或官方 API 服务。
 - 兼容接口不等于完整复刻官方 API。Messages / Responses 为无状态适配，不保存服务端会话，也不执行上游专属工具。
-- 图片能力取决于上游和模型，网关把上游声明的图片输入逐模型透出为 `supports_images`（`/v1/models` 与 `/api/models`）。WorkBuddy 的 DeepSeek V4 / V4.1、GLM、Kimi 等模型支持图片；Trae、Command、Zhipu 与码道 CodeArts 未声明图片输入。具体范围见 [部署说明](deploy/README.md)。
+- 图片能力取决于上游和模型，网关把上游声明的图片输入逐模型透出为 `supports_images`（`/v1/models` 与 `/api/models`）。WorkBuddy 的 DeepSeek V4 / V4.1、GLM、Kimi 等模型支持图片；码道的 Qwen3-VL-235B 与 Kimi K2.6 VL 支持图片，其余码道模型按文本处理；Trae、Command、Zhipu 未声明图片输入。具体范围见 [部署说明](deploy/README.md)。
 - 跨上游同名模型调度受系统开关、账号权限和地域约束；不是任意账号之间都能切换。
 - 上游协议变化可能影响兼容性；请求日志默认不保存提示词或回复正文。
 

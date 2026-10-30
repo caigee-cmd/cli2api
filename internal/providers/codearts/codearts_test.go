@@ -160,6 +160,128 @@ func TestChatNonStreamAndToolMapping(t *testing.T) {
 	}
 }
 
+func TestChatForwardsImagePartsForVisionModel(t *testing.T) {
+	var gotBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != chatPath {
+			http.NotFound(w, r)
+			return
+		}
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &gotBody)
+		w.Header().Set("Content-Type", "text/event-stream")
+		writeSSE(t, w, map[string]any{"choices": []any{map[string]any{"index": 0, "delta": map[string]any{"content": "seen"}}}})
+		_, _ = io.WriteString(w, "data: [DONE]\n\n")
+	}))
+	defer server.Close()
+	client, _ := newTestClient(t, server)
+	client.rememberCatalog("acct-1", []providers.ModelInfo{{
+		NativeModel: "vision-model", PublicModel: "vision-model",
+		Capabilities: providers.ModelCapabilities{Images: true},
+	}}, nil)
+
+	_, err := client.ChatNonStream(context.Background(), "acct-1", translate.ChatRequest{
+		Model: "vision-model",
+		Messages: []translate.ChatMessage{{
+			Role: "user",
+			Content: []any{
+				map[string]any{"type": "text", "text": "describe"},
+				map[string]any{"type": "image_url", "image_url": map[string]any{"url": "data:image/png;base64,AAAA"}},
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("ChatNonStream: %v", err)
+	}
+	messages, _ := gotBody["messages"].([]any)
+	if len(messages) == 0 {
+		t.Fatalf("messages = %#v", gotBody["messages"])
+	}
+	first, _ := messages[0].(map[string]any)
+	parts, ok := first["content"].([]any)
+	if !ok || len(parts) != 2 {
+		t.Fatalf("image content parts = %#v", first["content"])
+	}
+	image, _ := parts[1].(map[string]any)
+	imageValue, _ := image["image_url"].(map[string]any)
+	if image["type"] != "image_url" || imageValue["url"] != "data:image/png;base64,AAAA" {
+		t.Fatalf("image part = %#v", image)
+	}
+}
+
+func TestChatRejectsImageForTextModel(t *testing.T) {
+	client, _ := newTestClient(t, httptest.NewServer(http.NotFoundHandler()))
+	client.rememberCatalog("acct-1", []providers.ModelInfo{{
+		NativeModel: "text-model", PublicModel: "text-model",
+		Capabilities: providers.ModelCapabilities{Images: false},
+	}}, nil)
+	_, err := client.ChatNonStream(context.Background(), "acct-1", translate.ChatRequest{
+		Model: "text-model",
+		Messages: []translate.ChatMessage{{
+			Role: "user",
+			Content: []any{map[string]any{
+				"type": "image_url", "image_url": map[string]any{"url": "data:image/png;base64,AAAA"},
+			}},
+		}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "does not support image input") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestModelsAdvertiseImageSupport(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case modelBuiltinPath:
+			_, _ = io.WriteString(w, `{"builtinModels":[{"model_id":"vision-model","supports_images":true,"context_window":1000,"max_tokens":100},{"model_id":"text-model","supports_images":false,"context_window":1000,"max_tokens":100}]}`)
+		case agentListPath, agentDetailPath:
+			http.NotFound(w, r)
+		case benefitClaim:
+			_, _ = io.WriteString(w, `{"error_code":"0000"}`)
+		case benefitConfig:
+			_, _ = io.WriteString(w, `{"error_code":"0000","result":{"models":[]}}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	client, _ := newTestClient(t, server)
+	models, err := client.Models(context.Background(), "acct-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]providers.ModelInfo{}
+	for _, model := range models {
+		byID[model.NativeModel] = model
+	}
+	if !byID["vision-model"].Capabilities.Images {
+		t.Fatalf("vision model images = %+v", byID["vision-model"].Capabilities)
+	}
+	if byID["text-model"].Capabilities.Images {
+		t.Fatalf("text model images = %+v", byID["text-model"].Capabilities)
+	}
+}
+
+func TestImageURLFromPartVariants(t *testing.T) {
+	cases := []struct {
+		name  string
+		block map[string]any
+		want  string
+	}{
+		{"object", map[string]any{"type": "image_url", "image_url": map[string]any{"url": "https://example.com/a.png"}}, "https://example.com/a.png"},
+		{"string map", map[string]any{"type": "image_url", "image_url": map[string]string{"url": "https://example.com/b.png"}}, "https://example.com/b.png"},
+		{"string", map[string]any{"type": "image_url", "image_url": "https://example.com/c.png"}, "https://example.com/c.png"},
+		{"anthropic source", map[string]any{"type": "image", "source": map[string]any{"data": "AAAA", "media_type": "image/png"}}, "data:image/png;base64,AAAA"},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			if got := imageURLFromPart(test.block); got != test.want {
+				t.Fatalf("url = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
 func TestChatStreamEmitsDeltasAndDone(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != chatPath {
