@@ -33,6 +33,7 @@ type memoryStore struct {
 	mu      sync.Mutex
 	payload []byte
 	account accounts.Account
+	setting accounts.ProviderModelSetting
 	saved   []byte
 }
 
@@ -56,6 +57,12 @@ func (s *memoryStore) SaveCredentialPayload(_ context.Context, _ string, _ strin
 
 func (s *memoryStore) Observe(context.Context, string, string, string, string, string) error {
 	return nil
+}
+
+func (s *memoryStore) GetProviderModelSetting(context.Context, string, string) (accounts.ProviderModelSetting, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.setting, nil
 }
 
 func testCredential() Credential {
@@ -260,6 +267,91 @@ func TestModelsAdvertiseImageSupport(t *testing.T) {
 	if byID["text-model"].Capabilities.Images {
 		t.Fatalf("text model images = %+v", byID["text-model"].Capabilities)
 	}
+}
+
+func TestModelsDeclareThinkingVariantLevels(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case modelBuiltinPath:
+			_, _ = io.WriteString(w, `{"builtinModels":[{"model_id":"GLM-5.2","context_window":202752,"max_tokens":65536}]}`)
+		case agentListPath, agentDetailPath:
+			http.NotFound(w, r)
+		case benefitClaim:
+			_, _ = io.WriteString(w, `{"error_code":"0000"}`)
+		case benefitConfig:
+			_, _ = io.WriteString(w, `{"error_code":"0000","result":{"models":[]}}`)
+		case thinkingVariants:
+			_, _ = io.WriteString(w, `{"data":{"variants":{"GLM-5.2":{"strengths":["high","max"]}}}}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	client, _ := newTestClient(t, server)
+	models, err := client.Models(context.Background(), "acct-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 1 {
+		t.Fatalf("models = %+v", models)
+	}
+	options := models[0].Capabilities.ReasoningOptions
+	if len(options) != 2 || options[0] != "high" || options[1] != "max" {
+		t.Fatalf("reasoning options = %+v", options)
+	}
+	if models[0].Capabilities.ReasoningDefault != "high" {
+		t.Fatalf("reasoning default = %q", models[0].Capabilities.ReasoningDefault)
+	}
+}
+
+func TestResolveMaxReasoningHonorsRequestedLevel(t *testing.T) {
+	client := NewClient(&memoryStore{payload: mustTestCredential(t)})
+	client.rememberCatalog("acct-1", []providers.ModelInfo{{
+		NativeModel: "GLM-5.2", PublicModel: "GLM-5.2",
+		Capabilities: providers.ModelCapabilities{
+			ReasoningOptions: []string{"high", "max"}, ReasoningDefault: "high",
+		},
+	}}, nil)
+	level, caps := client.resolveLevel(context.Background(), "acct-1", "GLM-5.2", "max")
+	if level != "max" {
+		t.Fatalf("resolved level = %q", level)
+	}
+	body, err := buildChatBody(translate.ChatRequest{
+		Model: "GLM-5.2", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	}, "GLM-5.2", level, caps.Images, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body["reasoning_effort"] != "max" {
+		t.Fatalf("body reasoning_effort = %#v", body["reasoning_effort"])
+	}
+}
+
+func TestResolveStoredMaxReasoningHonorsConsoleSetting(t *testing.T) {
+	store := &memoryStore{
+		payload: mustTestCredential(t),
+		setting: accounts.ProviderModelSetting{ReasoningEffort: "max"},
+	}
+	client := NewClient(store)
+	client.rememberCatalog("acct-1", []providers.ModelInfo{{
+		NativeModel: "GLM-5.2", PublicModel: "GLM-5.2",
+		Capabilities: providers.ModelCapabilities{
+			ReasoningOptions: []string{"high", "max"}, ReasoningDefault: "high",
+		},
+	}}, nil)
+	level, _ := client.resolveLevel(context.Background(), "acct-1", "GLM-5.2", "")
+	if level != "max" {
+		t.Fatalf("stored max resolved to %q", level)
+	}
+}
+
+func mustTestCredential(t *testing.T) []byte {
+	t.Helper()
+	payload, err := testCredential().Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return payload
 }
 
 func TestImageURLFromPartVariants(t *testing.T) {
