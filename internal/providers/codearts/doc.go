@@ -52,10 +52,12 @@
 // the limited-benefit gateway config. Each record declares its exact model id
 // plus context/output limits; those declarations are the only capability
 // source. The adapter declares tools because the chat endpoint natively
-// accepts them, and does not declare image input because the request mapper
-// sends text only. Benefits models are marked and routed with maas_type:
-// benefit; the adapter claims the benefit idempotently while discovering the
-// catalog, mirroring the official client opening its model menu.
+// accepts them, and forwards image_url content parts for models whose catalog
+// entry advertises supports_images. A text-only model rejects image input with
+// a 400 instead of silently dropping it. Benefits models are marked and routed
+// with maas_type: benefit; the adapter claims the benefit idempotently while
+// discovering the catalog, mirroring the official client opening its model
+// menu.
 //
 // The discovered list is not the same as the display list: CodeArts' agent
 // and builtin catalogs are keyed by model_parameters.model_id, while

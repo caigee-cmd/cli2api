@@ -22,6 +22,7 @@ type modelRecord struct {
 	Description   string
 	ContextWindow int64
 	MaxTokens     int64
+	Images        bool
 	Benefit       bool
 }
 
@@ -91,6 +92,7 @@ func mergeRecords(target map[string]modelRecord, records []modelRecord) {
 			if current.Description == "" {
 				current.Description = record.Description
 			}
+			current.Images = current.Images || record.Images
 			current.Benefit = current.Benefit || record.Benefit
 			target[key] = current
 			continue
@@ -115,6 +117,7 @@ func toModelInfo(record modelRecord) providers.ModelInfo {
 		MaxOutput:        int(maxOutput),
 		Tools:            true,
 		Reasoning:        true,
+		Images:           record.Images,
 	}
 	return providers.ModelInfo{
 		NativeModel:  record.ID,
@@ -224,14 +227,16 @@ func (c *Client) fetchAgentModels(ctx context.Context, accountID string, credent
 	var detail struct {
 		Gpts struct {
 			Models []struct {
-				ModelAlias string `json:"model_alias"`
-				ModelName  string `json:"model_name"`
-				ModelID    string `json:"model_id"`
-				Params     struct {
-					ContextWindow int64  `json:"context_window"`
-					MaxTokens     int64  `json:"max_tokens"`
-					ModelID       string `json:"model_id"`
-					ModelDesc     string `json:"model_desc"`
+				ModelAlias     string `json:"model_alias"`
+				ModelName      string `json:"model_name"`
+				ModelID        string `json:"model_id"`
+				SupportsImages bool   `json:"supports_images"`
+				Params         struct {
+					ContextWindow  int64  `json:"context_window"`
+					MaxTokens      int64  `json:"max_tokens"`
+					ModelID        string `json:"model_id"`
+					ModelDesc      string `json:"model_desc"`
+					SupportsImages bool   `json:"supports_images"`
 				} `json:"model_parameters"`
 			} `json:"models"`
 		} `json:"gpts"`
@@ -253,6 +258,7 @@ func (c *Client) fetchAgentModels(ctx context.Context, accountID string, credent
 		out = append(out, modelRecord{
 			ID: id, Name: firstNonEmpty(model.ModelName, id), Description: model.Params.ModelDesc,
 			ContextWindow: model.Params.ContextWindow, MaxTokens: model.Params.MaxTokens,
+			Images: model.SupportsImages || model.Params.SupportsImages,
 		})
 	}
 	return out, nil
@@ -321,11 +327,12 @@ func (c *Client) fetchBuiltinModels(ctx context.Context, accountID string, crede
 	}
 	var out struct {
 		BuiltinModels []struct {
-			ModelID       string `json:"model_id"`
-			ModelName     string `json:"model_name"`
-			ModelDesc     string `json:"model_desc"`
-			ContextWindow int64  `json:"context_window"`
-			MaxTokens     int64  `json:"max_tokens"`
+			ModelID        string `json:"model_id"`
+			ModelName      string `json:"model_name"`
+			ModelDesc      string `json:"model_desc"`
+			ContextWindow  int64  `json:"context_window"`
+			MaxTokens      int64  `json:"max_tokens"`
+			SupportsImages bool   `json:"supports_images"`
 		} `json:"builtinModels"`
 	}
 	if err := json.Unmarshal(raw, &out); err != nil {
@@ -340,6 +347,7 @@ func (c *Client) fetchBuiltinModels(ctx context.Context, accountID string, crede
 		records = append(records, modelRecord{
 			ID: id, Name: firstNonEmpty(model.ModelName, id), Description: model.ModelDesc,
 			ContextWindow: model.ContextWindow, MaxTokens: model.MaxTokens,
+			Images: model.SupportsImages,
 		})
 	}
 	return records, nil
@@ -381,11 +389,12 @@ func (c *Client) fetchBenefitModels(ctx context.Context, accountID string, crede
 		ErrorCode string `json:"error_code"`
 		Result    struct {
 			Models []struct {
-				ModelID       string `json:"model_id"`
-				ModelName     string `json:"model_name"`
-				ModelDesc     string `json:"model_desc"`
-				ContextWindow int64  `json:"context_window"`
-				MaxTokens     int64  `json:"max_tokens"`
+				ModelID        string `json:"model_id"`
+				ModelName      string `json:"model_name"`
+				ModelDesc      string `json:"model_desc"`
+				ContextWindow  int64  `json:"context_window"`
+				MaxTokens      int64  `json:"max_tokens"`
+				SupportsImages bool   `json:"supports_images"`
 			} `json:"models"`
 		} `json:"result"`
 	}
@@ -403,7 +412,8 @@ func (c *Client) fetchBenefitModels(ctx context.Context, accountID string, crede
 		}
 		records = append(records, modelRecord{
 			ID: id, Name: firstNonEmpty(model.ModelName, id), Description: model.ModelDesc,
-			ContextWindow: model.ContextWindow, MaxTokens: model.MaxTokens, Benefit: true,
+			ContextWindow: model.ContextWindow, MaxTokens: model.MaxTokens,
+			Images: model.SupportsImages, Benefit: true,
 		})
 	}
 	return records, nil

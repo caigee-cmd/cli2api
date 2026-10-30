@@ -16,12 +16,15 @@ import (
 // buildChatBody maps the internal request to the native CodeArts
 // chat-completions shape. The upstream accepts the OpenAI wire format, with two
 // deviations: tool_choice must be a string, and max_tokens is the only cap.
-func buildChatBody(req translate.ChatRequest, model, level string, benefit bool) (map[string]any, error) {
+func buildChatBody(req translate.ChatRequest, model, level string, allowImages, benefit bool) (map[string]any, error) {
 	tools, choice, err := nativeTools(req.Tools, req.ToolChoice)
 	if err != nil {
 		return nil, err
 	}
-	messages := upstreamMessages(req.Messages)
+	messages, err := upstreamMessages(req.Messages, model, allowImages)
+	if err != nil {
+		return nil, err
+	}
 	if len(messages) == 0 {
 		return nil, fmt.Errorf("codearts request has no messages")
 	}
@@ -81,7 +84,9 @@ func chatIDFor(messages []translate.ChatMessage) string {
 }
 
 // upstreamMessages maps roles and content, dropping incomplete tool pairs.
-func upstreamMessages(messages []translate.ChatMessage) []map[string]any {
+// Image parts are forwarded as OpenAI image_url parts for vision models; a
+// text-only model rejects them with a 400 instead of silently dropping them.
+func upstreamMessages(messages []translate.ChatMessage, model string, allowImages bool) ([]map[string]any, error) {
 	keepCalls, keepResults := pairedToolMessages(messages)
 	out := make([]map[string]any, 0, len(messages))
 	for index, message := range messages {
@@ -91,8 +96,11 @@ func upstreamMessages(messages []translate.ChatMessage) []map[string]any {
 		}
 		switch role {
 		case "system", "user":
-			content := translate.ContentToString(message.Content)
-			if strings.TrimSpace(content) == "" {
+			content, err := upstreamContent(message.Content, model, allowImages)
+			if err != nil {
+				return nil, err
+			}
+			if content == nil {
 				continue
 			}
 			out = append(out, map[string]any{"role": role, "content": content})
@@ -125,7 +133,111 @@ func upstreamMessages(messages []translate.ChatMessage) []map[string]any {
 			out = append(out, wire)
 		}
 	}
-	return out
+	return out, nil
+}
+
+// upstreamContent keeps the OpenAI content-part shape when an image is
+// present. A plain text message stays a string so text-only requests are
+// byte-for-byte unchanged.
+func upstreamContent(content any, model string, allowImages bool) (any, error) {
+	text := translate.ContentToString(content)
+	items, isParts := content.([]any)
+	if !isParts {
+		if strings.TrimSpace(text) == "" {
+			return nil, nil
+		}
+		return text, nil
+	}
+	parts := make([]any, 0, len(items))
+	for _, item := range items {
+		block, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		kind := strings.ToLower(strings.TrimSpace(stringValue(block["type"])))
+		if kind == "" && block["text"] != nil {
+			kind = "text"
+		}
+		switch kind {
+		case "text", "input_text":
+			if value, ok := block["text"].(string); ok && value != "" {
+				parts = append(parts, map[string]any{"type": "text", "text": value})
+			}
+		case "image_url", "input_image", "image":
+			if !allowImages {
+				return nil, &providers.Error{
+					Kind:    accounts.KindInvalidRequest,
+					Status:  400,
+					Message: fmt.Sprintf("codearts model %q does not support image input", model),
+				}
+			}
+			url := imageURLFromPart(block)
+			if url == "" {
+				return nil, &providers.Error{
+					Kind:    accounts.KindInvalidRequest,
+					Status:  400,
+					Message: "codearts image part is missing a URL",
+				}
+			}
+			parts = append(parts, map[string]any{
+				"type": "image_url", "image_url": map[string]any{"url": url},
+			})
+		}
+	}
+	if len(parts) == 0 {
+		if strings.TrimSpace(text) == "" {
+			return nil, nil
+		}
+		return text, nil
+	}
+	if len(parts) == 1 {
+		if textPart, ok := parts[0].(map[string]any); ok && textPart["type"] == "text" {
+			if value, ok := textPart["text"].(string); ok {
+				return value, nil
+			}
+		}
+	}
+	return parts, nil
+}
+
+func imageURLFromPart(block map[string]any) string {
+	for _, key := range []string{"image_url", "image"} {
+		if value, ok := block[key]; ok {
+			if url := imageURLValue(value); url != "" {
+				return url
+			}
+		}
+	}
+	if source, ok := block["source"].(map[string]any); ok {
+		if data := stringValue(source["data"]); data != "" {
+			mime := stringValue(source["media_type"])
+			if mime == "" {
+				mime = "image/png"
+			}
+			return "data:" + mime + ";base64," + data
+		}
+	}
+	return stringValue(block["url"])
+}
+
+func imageURLValue(value any) string {
+	switch typed := value.(type) {
+	case string:
+		return strings.TrimSpace(typed)
+	case map[string]any:
+		return stringValue(typed["url"])
+	case map[string]string:
+		return strings.TrimSpace(typed["url"])
+	default:
+		return ""
+	}
+}
+
+func stringValue(value any) string {
+	if text, ok := value.(string); ok {
+		return strings.TrimSpace(text)
+	}
+	return ""
 }
 
 // pairedToolMessages keeps an assistant tool_calls block only when every call
