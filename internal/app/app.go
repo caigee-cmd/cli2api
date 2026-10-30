@@ -128,13 +128,31 @@ func New(cfg config.Config) *App {
 	providerReg.Register(meta.NewClient(store).Adapter())
 	qoderClient := qoder.NewClient()
 	qoderClient.Bind(manager.AccountURL, manager.ProxyAPIKey)
-	qoderClient.SetDirect(qoder.NewDirect(store, func(ctx context.Context, accountID string) (string, error) {
+	qoderDirect := qoder.NewDirect(store, func(ctx context.Context, accountID string) (string, error) {
 		account, err := store.Get(ctx, accountID)
 		if err != nil {
 			return "", err
 		}
 		return account.ProviderRegion, nil
-	}))
+	})
+	qoderDirect.SetProxy(func(ctx context.Context, accountID string) (string, error) {
+		account, err := store.Get(ctx, accountID)
+		if err != nil {
+			return "", err
+		}
+		if value := strings.TrimSpace(account.ProxyURL); value != "" {
+			return value, nil
+		}
+		value, found, err := store.GetSecret(ctx, "proxy_url")
+		if err != nil {
+			return "", err
+		}
+		if found {
+			return strings.TrimSpace(value), nil
+		}
+		return "", nil
+	})
+	qoderClient.SetDirect(qoderDirect)
 	qoderClient.SetPATStore(store, func(ctx context.Context, accountID string) (string, error) {
 		account, err := store.Get(ctx, accountID)
 		if err != nil {
@@ -145,7 +163,10 @@ func New(cfg config.Config) *App {
 	providerReg.Register(qoderClient.Adapter())
 	manager.SetProviders(providerReg)
 	manager.SetWorkBuddy(workbuddyClient)
-	go manager.RefreshAll(context.Background(), false)
+	go func() {
+		time.Sleep(3 * time.Second)
+		_ = manager.RefreshAll(context.Background(), false)
+	}()
 	recorder := applogs.NewRequestRecorder(store)
 	stopLogs := make(chan struct{})
 	go recorder.PurgeLoop(stopLogs, time.Hour)

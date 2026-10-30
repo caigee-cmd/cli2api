@@ -185,5 +185,16 @@ func (m *Manager) probeHealthOnly(ctx context.Context, item Item) (bool, error) 
 	if statusCode >= 300 || !health.OK {
 		return false, nil
 	}
+	if health.Ready || health.Hot {
+		if m.pool != nil && (item.Ready == nil || !*item.Ready) {
+			m.pool.MergeHealth(item.ID, true, health.Hot, health.InFlight, item.Restarts, health.LastError)
+			if m.store != nil {
+				_ = m.store.Observe(ctx, item.ID, health.UID, "ready", health.LastError, "")
+			}
+		}
+		if m.pool != nil && len(item.Models) == 0 {
+			go m.fetchAccountModels(context.Background(), item)
+		}
+	}
 	return true, nil
 }
