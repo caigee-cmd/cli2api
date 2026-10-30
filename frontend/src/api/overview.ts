@@ -132,7 +132,7 @@ export function updateProviderMaxMode(provider: string, modelKey: string, maxMod
   })
 }
 
-export function updateProviderReasoning(provider: 'trae' | 'workbuddy' | 'kimi', modelKey: string, reasoningEffort: string) {
+export function updateProviderReasoning(provider: 'trae' | 'workbuddy' | 'kimi' | 'codearts', modelKey: string, reasoningEffort: string) {
   return api<{
     model: string
     provider: string

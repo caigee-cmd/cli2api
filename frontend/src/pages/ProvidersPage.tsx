@@ -299,9 +299,9 @@ export function ProvidersPage() {
 
   async function onReasoningChange(model: ModelInfo, effort: string) {
     const provider = modelProvider(model)
-    // Providers with a settable reasoning default: Trae, WorkBuddy, and Kimi
-    // Code. Anything else has no console-saved level to write.
-    if (provider !== 'trae' && provider !== 'workbuddy' && provider !== 'kimi') return
+    // Providers with a settable reasoning default: Trae, WorkBuddy, Kimi
+    // Code, and CodeArts. Anything else has no console-saved level to write.
+    if (provider !== 'trae' && provider !== 'workbuddy' && provider !== 'kimi' && provider !== 'codearts') return
     const key = modelSettingsKey(model)
     setSavingKey(key)
     setMessage('')

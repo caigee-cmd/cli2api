@@ -21,6 +21,9 @@ func TestDefaultAccountPolicyValues(t *testing.T) {
 	if DefaultDropSystemPrompt("kimi", nil) {
 		t.Fatal("kimi must keep caller system prompts by default")
 	}
+	if DefaultDropSystemPrompt("codearts", nil) {
+		t.Fatal("codearts must keep caller system prompts by default")
+	}
 	off := false
 	if DefaultDropSystemPrompt("workbuddy", &off) {
 		t.Fatal("explicit drop system prompt false must stick")
