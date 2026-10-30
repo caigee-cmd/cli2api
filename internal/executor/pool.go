@@ -24,6 +24,10 @@ type Item struct {
 	Ready     *bool
 	Hot       *bool
 	InFlight  int
+	// InFlightSince is when the slot last went from idle to busy
+	// (InFlight 0→1). Cleared when InFlight returns to 0. Read-only
+	// console projection for /api/live elapsed; no new SM.
+	InFlightSince time.Time
 	// MaxInFlight caps concurrent requests routed to this account. Zero
 	// means unknown and does not block routing.
 	MaxInFlight         int
@@ -1232,6 +1236,9 @@ func (p *Pool) Acquire(id string) bool {
 		if p.items[i].MaxInFlight > 0 && p.items[i].InFlight >= p.items[i].MaxInFlight {
 			return false
 		}
+		if p.items[i].InFlight == 0 {
+			p.items[i].InFlightSince = time.Now()
+		}
 		p.items[i].InFlight++
 		return true
 	}
@@ -1252,6 +1259,9 @@ func (p *Pool) Release(id string) {
 		}
 		if p.items[i].InFlight > 0 {
 			p.items[i].InFlight--
+			if p.items[i].InFlight == 0 {
+				p.items[i].InFlightSince = time.Time{}
+			}
 		}
 		return
 	}
@@ -1460,6 +1470,7 @@ func (p *Pool) Snapshot() []map[string]any {
 			"ready":                 ready,
 			"hot":                   hot,
 			"in_flight":             item.InFlight,
+			"in_flight_since":       pastTime(item.InFlightSince),
 			"restarts":              item.Restarts,
 			"runtime_state":         item.RuntimeState,
 			"next_restart_at":       nullableTime(item.NextRestartAt, now),
@@ -1517,6 +1528,15 @@ func (item Item) clone() Item {
 
 func nullableTime(t time.Time, now time.Time) any {
 	if t.IsZero() || !now.Before(t) {
+		return nil
+	}
+	return t.UTC().Format(time.RFC3339)
+}
+
+// pastTime formats a historical timestamp (e.g. InFlightSince). Unlike
+// nullableTime it does not require the instant to be in the future.
+func pastTime(t time.Time) any {
+	if t.IsZero() {
 		return nil
 	}
 	return t.UTC().Format(time.RFC3339)

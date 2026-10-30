@@ -52,6 +52,8 @@ export type RequestLog = {
   requested_reasoning?: string
   resolved_reasoning?: string
   account_id?: string
+  /** Console API key that issued the request; empty for console-key traffic. */
+  api_key_id?: string
   provider?: string
   routing?: string
   prompt_tokens?: number | null
@@ -178,6 +180,7 @@ export type RequestStats = {
 
 export type RequestLogQuery = {
   account?: string
+  api_key?: string
   status?: string
   stream?: boolean
   error_kind?: string
@@ -194,15 +197,17 @@ export type RequestLogQuery = {
 /**
  * GET /api/logs/stats. Without dim/limit the response keeps the overview
  * contract (all three grouped lists, top 6 each). dim picks the grouped
- * lists to compute; limit caps their rows (server max 500).
+ * lists to compute; limit caps their rows (server max 500). api_key narrows
+ * every aggregate to one console API key.
  */
-export function fetchRequestStats(query: { hours?: number; from?: string; to?: string; dim?: RequestStatsDim[]; limit?: number } = {}) {
+export function fetchRequestStats(query: { hours?: number; from?: string; to?: string; dim?: RequestStatsDim[]; limit?: number; api_key?: string } = {}) {
   const params = new URLSearchParams()
   if (query.dim?.length) params.set('dim', query.dim.join(','))
   if (query.limit != null) params.set('limit', String(query.limit))
   if (query.hours != null) params.set('hours', String(query.hours))
   if (query.from) params.set('from', query.from)
   if (query.to) params.set('to', query.to)
+  if (query.api_key) params.set('api_key', query.api_key)
   const suffix = params.toString() ? `?${params}` : ''
   return api<RequestStats>(`/api/logs/stats${suffix}`)
 }
@@ -210,6 +215,7 @@ export function fetchRequestStats(query: { hours?: number; from?: string; to?: s
 export function fetchRequestLogs(query: RequestLogQuery = {}) {
   const params = new URLSearchParams()
   if (query.account) params.set('account', query.account)
+  if (query.api_key) params.set('api_key', query.api_key)
   if (query.status) params.set('status', query.status)
   if (query.stream != null) params.set('stream', query.stream ? '1' : '0')
   if (query.error_kind) params.set('error_kind', query.error_kind)

@@ -48,31 +48,60 @@ func ExpandImport(payload []byte) ([]providers.CredentialImport, error) {
 	return out, nil
 }
 
+// normalizeAccountsFormat maps format / exportType aliases onto AccountsFormat
+// (case-insensitive). Values that do not alias stay unchanged.
+func normalizeAccountsFormat(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return ""
+	}
+	if strings.EqualFold(trimmed, AccountsFormat) {
+		return AccountsFormat
+	}
+	return trimmed
+}
+
 // SplitImport returns one raw credential JSON per imported account.
+// Accepts hub packs with format "workbuddy-accounts", official client packs
+// with exportType "WorkBuddy-accounts" (any casing), or a bare accounts[]
+// array with an empty format field.
 func SplitImport(payload []byte) ([][]byte, error) {
 	trimmed := strings.TrimSpace(string(payload))
 	if trimmed == "" {
 		return nil, fmt.Errorf("workbuddy credential requires access_token")
 	}
 	var envelope struct {
-		Format   string            `json:"format"`
-		Accounts []json.RawMessage `json:"accounts"`
+		Format     string            `json:"format"`
+		ExportType string            `json:"exportType"`
+		Accounts   []json.RawMessage `json:"accounts"`
 	}
-	if err := json.Unmarshal(payload, &envelope); err == nil &&
-		(envelope.Format == AccountsFormat || len(envelope.Accounts) > 0) {
-		if envelope.Format != "" && envelope.Format != AccountsFormat {
-			return nil, fmt.Errorf("unsupported workbuddy package format %q", envelope.Format)
-		}
-		if len(envelope.Accounts) == 0 {
-			return nil, fmt.Errorf("workbuddy-accounts package has no accounts")
-		}
-		out := make([][]byte, 0, len(envelope.Accounts))
-		for _, raw := range envelope.Accounts {
-			out = append(out, append([]byte(nil), raw...))
-		}
-		return out, nil
+	if err := json.Unmarshal(payload, &envelope); err != nil {
+		return [][]byte{append([]byte(nil), payload...)}, nil
 	}
-	return [][]byte{append([]byte(nil), payload...)}, nil
+
+	normalizedFormat := normalizeAccountsFormat(envelope.Format)
+	normalizedExport := normalizeAccountsFormat(envelope.ExportType)
+	isAccountsHint := normalizedFormat == AccountsFormat || normalizedExport == AccountsFormat
+
+	if !isAccountsHint && len(envelope.Accounts) == 0 {
+		return [][]byte{append([]byte(nil), payload...)}, nil
+	}
+
+	// Explicit non-accounts format field still rejects even when accounts[] is present.
+	// exportType-only packs (including casing aliases) are accepted; empty format +
+	// accounts[] is accepted.
+	if envelope.Format != "" && normalizedFormat != AccountsFormat {
+		return nil, fmt.Errorf("unsupported workbuddy package format %q", envelope.Format)
+	}
+
+	if len(envelope.Accounts) == 0 {
+		return nil, fmt.Errorf("workbuddy-accounts package has no accounts")
+	}
+	out := make([][]byte, 0, len(envelope.Accounts))
+	for _, raw := range envelope.Accounts {
+		out = append(out, append([]byte(nil), raw...))
+	}
+	return out, nil
 }
 
 func prepareOne(payload []byte) (providers.CredentialImport, error) {

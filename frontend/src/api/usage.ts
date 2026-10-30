@@ -69,10 +69,11 @@ export function fetchUsagePricing() {
   return api<PricingCatalog>('/api/usage/pricing')
 }
 
-export function fetchUsageCost(query: { from?: string; to?: string } = {}) {
+export function fetchUsageCost(query: { from?: string; to?: string; api_key?: string } = {}) {
   const params = new URLSearchParams()
   if (query.from) params.set('from', query.from)
   if (query.to) params.set('to', query.to)
+  if (query.api_key) params.set('api_key', query.api_key)
   const suffix = params.toString() ? `?${params}` : ''
   return api<CostBreakdown>(`/api/usage/cost${suffix}`)
 }

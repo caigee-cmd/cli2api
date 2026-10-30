@@ -41,6 +41,17 @@ type RequestStarter interface {
 	Start(entry accounts.RequestLog)
 }
 
+// IdentityAPIKeyID is the console API key id that should be attributed to a
+// request, or "" when the caller is not using a named key. Console-key traffic
+// stays unattributed so the usage/logs key filter can still show it as one
+// bucket.
+func IdentityAPIKeyID(identity auth.Identity) string {
+	if identity.Kind != auth.KindKey {
+		return ""
+	}
+	return strings.TrimSpace(identity.KeyID)
+}
+
 type PrepareInput struct {
 	Context           context.Context
 	Request           translate.ChatRequest
@@ -128,6 +139,7 @@ func (e ChatExecutor) Prepare(in PrepareInput) (PreparedRequest, error) {
 			Status:              accounts.RequestStatusStarted,
 			RequestedModel:      firstNonEmpty(publicModel, request.Model),
 			RequestedReasoning:  requestedReasoning,
+			APIKeyID:            IdentityAPIKeyID(in.Identity),
 			MessageCount:        len(request.Messages),
 			EmptyMessageIndexes: translate.EmptyMessageIndexes(request.Messages),
 			MessageRoles:        translate.MessageRoles(request.Messages),
