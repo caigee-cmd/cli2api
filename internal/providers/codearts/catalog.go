@@ -205,7 +205,7 @@ func mergeRecords(target map[string]modelRecord, records []modelRecord) {
 
 // toModelInfo declares only what the upstream catalog publishes. Tools are a
 // provider-level capability (the chat endpoint accepts them natively); images
-// are not declared because the request mapper is text-only.
+// and reasoning levels are forwarded only when the catalog advertises them.
 func toModelInfo(record modelRecord) providers.ModelInfo {
 	maxOutput := record.MaxTokens
 	if maxOutput > 65536 {
