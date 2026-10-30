@@ -40,7 +40,7 @@ function pct(part: number, whole: number) {
   return `${value >= 10 ? value.toFixed(0) : value.toFixed(1)}%`
 }
 
-export function UsageCostPanel() {
+export function UsageCostPanel({ apiKeyFilter = '' }: { apiKeyFilter?: string }) {
   const { t, lang } = useI18n()
   const [window, setWindow] = useState<UsageWindow>('today')
   const [chartMetric, setChartMetric] = useState<CostChartMetric>('credits')
@@ -67,7 +67,7 @@ export function UsageCostPanel() {
         : window === 'today'
           ? { from: todayStart() }
           : { from: new Date(Date.now() - Number(window) * 3600 * 1000).toISOString(), to: new Date().toISOString() }
-      const data = await fetchUsageCost(query)
+      const data = await fetchUsageCost({ ...query, api_key: apiKeyFilter || undefined })
       setBreakdown(data)
       setError('')
     } catch (err) {
@@ -76,7 +76,7 @@ export function UsageCostPanel() {
     } finally {
       setLoading(false)
     }
-  }, [window])
+  }, [window, apiKeyFilter])
 
   useEffect(() => { void load() }, [load])
 

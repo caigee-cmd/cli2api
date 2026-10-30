@@ -72,7 +72,7 @@ func (h *Handler) handleUsageCost(w http.ResponseWriter, r *http.Request) {
 		start := to.Add(-24 * time.Hour)
 		from = &start
 	}
-	breakdown, err := h.Recorder.CostBreakdown(r.Context(), *from, *to)
+	breakdown, err := h.Recorder.CostBreakdown(r.Context(), *from, *to, r.URL.Query().Get("api_key"))
 	if err != nil {
 		if err.Error() == "request logs unavailable" {
 			writeErr(w, http.StatusServiceUnavailable, "logs_unavailable", err.Error())

@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { Button, Card, Chip, Tooltip } from '@heroui/react'
 import {
   ArrowUpRight,
+  CaretRight,
   ChartLineUp,
   Pause,
   Play,
@@ -30,7 +31,8 @@ import { formatBytes, formatCompact, formatLatency, formatPercent } from '@/lib/
 import { accountProviderFamilyLabel, accountProviderLabel } from '@/lib/provider'
 import { ProviderMark } from '@/components/ProviderMark'
 import { LiveStrip } from '@/components/overview/LiveStrip'
-import { useLive } from '@/hooks/useLive'
+import { InflightLiveCard } from '@/components/overview/InflightLiveCard'
+import { LIVE_POLL_EXPANDED_MS, LIVE_POLL_MS, useLive } from '@/hooks/useLive'
 
 type AccountRow = NonNullable<Overview['accounts']>[number]
 
@@ -138,14 +140,17 @@ export function OverviewPage() {
   const [modelCount, setModelCount] = useState(0)
   const [resources, setResources] = useState<SystemResources | null>(null)
   const [now, setNow] = useState(() => Date.now())
-  const { live, samples: liveSamples } = useLive()
+  const [inflightOpen, setInflightOpen] = useState(false)
+  const [coolingOpen, setCoolingOpen] = useState(false)
+  const { live, samples: liveSamples } = useLive({
+    intervalMs: inflightOpen ? LIVE_POLL_EXPANDED_MS : LIVE_POLL_MS,
+  })
   const liveById = new Map((live?.accounts ?? []).map((item) => [item.id, item]))
 
   const proxyOk = Boolean(overview?.proxy?.ok)
   const workerOk = Boolean(overview?.worker?.ok)
   const readyAccounts = overview?.worker?.ready_count ?? 0
   const hotAccounts = overview?.worker?.hot_count ?? 0
-  const coolingAccounts = overview?.worker?.cooling_count ?? 0
   const inFlight = live?.in_flight ?? overview?.worker?.in_flight ?? 0
   const traffic = stats ?? EMPTY_STATS
   const affinity = overview?.routing?.session_affinity
@@ -155,6 +160,12 @@ export function OverviewPage() {
     .map((account) => ({ account, until: coolingUntil(account, now) }))
     .filter((row): row is { account: AccountRow; until: string } => row.until != null)
   const hasCooling = coolingRows.length > 0
+  const coolingIds = new Set(coolingRows.map((row) => row.account.id))
+  // Ready workers first; cooling accounts stay behind the summary chip.
+  const poolAccounts = [
+    ...accounts.filter((account) => account.ready && !coolingIds.has(account.id)),
+    ...accounts.filter((account) => !account.ready && !coolingIds.has(account.id)),
+  ].slice(0, 6)
 
   // 1s clock only while something is counting down.
   useEffect(() => {
@@ -321,7 +332,9 @@ export function OverviewPage() {
 
       {error ? <PageAlert title={t('failedOverview', { msg: error })} /> : null}
 
-      <LiveStrip live={live} samples={liveSamples} t={t} />
+      <LiveStrip live={live} samples={liveSamples} t={t} onConcurrencyClick={() => setInflightOpen(true)} />
+
+      <InflightLiveCard t={t} expanded={inflightOpen} onExpandedChange={setInflightOpen} live={inflightOpen ? live : null} />
 
       <section data-gsap-reveal className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {metrics.map((metric) => (
@@ -423,10 +436,25 @@ export function OverviewPage() {
               <h3 className="font-semibold">{t('statsPool')}</h3>
               <p className="mt-0.5 text-caption text-muted">{t('statsPoolHint')}</p>
             </div>
-            <Link to="/accounts" className="inline-flex items-center gap-1 text-caption font-medium text-muted hover:text-foreground">
-              {t('navAccounts')}
-              <ArrowUpRight size={12} />
-            </Link>
+            <div className="flex shrink-0 items-center gap-2">
+              {!accountsLoading && coolingRows.length ? (
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 rounded-2xl bg-surface-secondary px-2 py-0.5 text-caption text-muted transition-colors hover:text-foreground"
+                  aria-expanded={coolingOpen}
+                  aria-label={t('statsCoolingChip', { count: coolingRows.length })}
+                  onClick={() => setCoolingOpen((open) => !open)}
+                >
+                  <span className="status-dot shrink-0" data-state="warn" />
+                  <span className="mono tabular">{t('statsCoolingChip', { count: coolingRows.length })}</span>
+                  <CaretRight size={10} className={`transition-transform duration-200 ${coolingOpen ? 'rotate-90' : ''}`} aria-hidden />
+                </button>
+              ) : null}
+              <Link to="/accounts" className="inline-flex items-center gap-1 text-caption font-medium text-muted hover:text-foreground">
+                {t('navAccounts')}
+                <ArrowUpRight size={12} />
+              </Link>
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-y-1 border-b border-separator sm:grid-cols-4 sm:gap-y-0">
             {[
@@ -444,23 +472,18 @@ export function OverviewPage() {
               </div>
             ))}
           </div>
-          {!accountsLoading && coolingRows.length ? (
-            <div className="border-b border-separator px-4 py-2.5">
-              <div className="text-caption font-medium text-muted">{t('statsCoolingDetails')}</div>
-              <div className="mt-2 space-y-1.5">
+          {coolingOpen && coolingRows.length ? (
+            <div className="border-b border-separator bg-surface-secondary/50 px-4 py-2">
+              <div className="text-caption text-muted">{t('statsCoolingDetails')}</div>
+              <div className="mt-1.5 space-y-1">
                 {coolingRows.map(({ account, until }) => (
-                  <div key={account.id} className="flex flex-col gap-1.5 text-caption sm:flex-row sm:items-center sm:gap-2">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <span className="status-dot shrink-0" data-state="warn" />
-                      <span className="min-w-0 flex-1 truncate font-medium">{account.name || account.id}</span>
-                    </div>
-                    <div className="flex items-center justify-between gap-3 pl-4 sm:contents sm:pl-0">
-                      <span className="mono shrink-0 text-muted">{account.last_error_kind ? errorLabel(account.last_error_kind, t) : t('statsUnknown')}</span>
-                      <span className="mono shrink-0 tabular sm:w-16 sm:text-right">{formatRemaining(until, now) ?? '—'}</span>
-                      <span className="mono shrink-0 text-muted sm:w-12 sm:text-right" title={t('statsBackoffLevel')}>
-                        {account.restart_backoff_level ? `L${account.restart_backoff_level}` : '—'}
-                      </span>
-                    </div>
+                  <div key={account.id} className="flex min-w-0 items-center gap-2 text-caption">
+                    <span className="min-w-0 flex-1 truncate text-foreground/80">{account.name || account.id}</span>
+                    <span className="mono shrink-0 text-muted">{account.last_error_kind ? errorLabel(account.last_error_kind, t) : t('statsUnknown')}</span>
+                    <span className="mono shrink-0 tabular text-muted sm:w-16 sm:text-right">{formatRemaining(until, now) ?? '—'}</span>
+                    <span className="mono hidden shrink-0 text-muted sm:inline sm:w-10 sm:text-right" title={t('statsBackoffLevel')}>
+                      {account.restart_backoff_level ? `L${account.restart_backoff_level}` : '—'}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -471,7 +494,9 @@ export function OverviewPage() {
               <RankListSkeleton />
             ) : accounts.length === 0 ? (
               <div className="px-4 py-6 text-body text-muted">{t('noAccounts')}</div>
-            ) : accounts.slice(0, 6).map((account) => {
+            ) : poolAccounts.length === 0 ? (
+              <div className="px-4 py-6 text-body text-muted">{t('statsPoolReadyEmpty')}</div>
+            ) : poolAccounts.map((account) => {
               const quota = account.quota
               const tone = quotaTone(quota?.percentage, quota?.exceeded)
               const liveRow = liveById.get(account.id)
@@ -532,7 +557,7 @@ export function OverviewPage() {
                   </span>
                 )
               })}
-              <span>{coolingAccounts ? `${coolingAccounts} ${t('statsCooling')}` : `${accounts.length} ${t('accountCount')}`}</span>
+              <span>{accounts.length} {t('accountCount')}</span>
             </span>
           </div>
         </Card>
