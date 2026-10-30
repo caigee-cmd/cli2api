@@ -116,7 +116,7 @@ func (s *Settings) ReadModelSetting(ctx context.Context, provider, modelID strin
 	provider = strings.ToLower(strings.TrimSpace(provider))
 	out := ModelSetting{Provider: provider, Model: modelID}
 	switch provider {
-	case "trae", "workbuddy", "kimi":
+	case "trae", "workbuddy", "kimi", "codearts":
 		setting, err := s.GetProviderModelSetting(ctx, provider, modelID)
 		if err != nil {
 			return ModelSetting{}, operationError("model_setting_failed", err.Error())
@@ -164,7 +164,7 @@ func (s *Settings) UpdateModelSetting(ctx context.Context, provider, modelID str
 	modelID = ModelContextKey(modelID)
 	provider = strings.ToLower(strings.TrimSpace(provider))
 	switch provider {
-	case "trae", "workbuddy", "kimi":
+	case "trae", "workbuddy", "kimi", "codearts":
 		setting, err := s.UpdateProviderModelSetting(ctx, provider, modelID, patch)
 		if err != nil {
 			return ModelSetting{}, err
@@ -213,6 +213,10 @@ func (s *Settings) UpdateProviderModelSetting(ctx context.Context, provider, mod
 	// Kimi Code sells a single context tier; only reasoning effort is settable.
 	if provider == "kimi" && patch.MaxMode != nil {
 		return accounts.ProviderModelSetting{}, operationError("invalid_request", "kimi has no max-mode switch")
+	}
+	// CodeArts exposes reasoning strengths, not a max-context toggle.
+	if provider == "codearts" && patch.MaxMode != nil {
+		return accounts.ProviderModelSetting{}, operationError("invalid_request", "codearts has no max-mode switch")
 	}
 	setting, err := s.GetProviderModelSetting(ctx, provider, modelID)
 	if err != nil {

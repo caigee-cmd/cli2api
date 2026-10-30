@@ -30,6 +30,7 @@ const (
 	currentUserPath    = "/snap-manager/v1/current/user"
 	statisticsPath     = "/snap-manager/v1/statistics/plugin"
 	modelBuiltinPath   = "/v1/model/builtin"
+	thinkingVariants   = "/v1/model/thinking-variants"
 	agentListPath      = "/v1/agent-center/agents/useragents"
 	agentDetailPath    = "/v1/agent-center/agents/detail"
 	creditDeliveryPath = "/v1/ops/delivery"
