@@ -250,20 +250,14 @@ func (c *Client) resolveLevel(ctx context.Context, accountID, model, requested s
 }
 
 func (c *Client) modelCapabilities(accountID, model string) providers.ModelCapabilities {
-	caps := providers.ModelCapabilities{}
 	if models, _, ok := c.cachedCatalog(accountID); ok {
 		for _, info := range models {
 			if strings.EqualFold(info.NativeModel, model) || strings.EqualFold(info.PublicModel, model) {
-				caps = info.Capabilities
-				break
+				return info.Capabilities
 			}
 		}
 	}
-	if strings.EqualFold(model, "deepseek-v4.1-flash-1017") {
-		caps.ReasoningOptions = []string{"none", "low", "high", "max"}
-		caps.ReasoningDefault = "high"
-	}
-	return caps
+	return providers.ModelCapabilities{}
 }
 
 func requestedLevel(req translate.ChatRequest) string {
