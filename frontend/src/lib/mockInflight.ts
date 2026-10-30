@@ -129,63 +129,64 @@ export const MOCK_INFLIGHT: MockInflightSnapshot = {
   totals: { done: 186, failed: 4 },
   workers: [
     {
-      id: 'acc-wb-a1', name: 'wb-a1', provider: 'workbuddy', busy: true, progress: 0.72, jobId: 'j1', concurrency: 4, inFlight: 3,
+      id: 'acc-wb-a1', name: 'WorkBuddy', provider: 'workbuddy', busy: true, progress: 0.72, jobId: 'j1', concurrency: 4, inFlight: 3,
       cells: [
-        { id: 'j1', name: 'chat · sonnet', startedAtMs: 0, elapsedMs: 11_200 },
-        { id: 'j1b', name: 'chat · opus', startedAtMs: 0, elapsedMs: 8400 },
-        { id: 'j1c', name: 'embed · idx', startedAtMs: 0, elapsedMs: 4100 },
+        { id: 'j1', name: 'glm-5.2', startedAtMs: 0, elapsedMs: 11_200 },
+        { id: 'j1b', name: 'kimi-k2.7-code', startedAtMs: 0, elapsedMs: 8400 },
+        { id: 'j1c', name: 'qwen3-embedding', startedAtMs: 0, elapsedMs: 4100 },
       ],
     },
     {
-      id: 'acc-wb-a2', name: 'wb-a2', provider: 'workbuddy', busy: true, progress: 0.41, jobId: 'j2', rateLimited: true, concurrency: 2, inFlight: 1,
-      cells: [{ id: 'j2', name: 'embed · batch', startedAtMs: 0, elapsedMs: 9400 }],
+      id: 'acc-wb-a2', name: 'Zhipu', provider: 'zhipu', busy: true, progress: 0.41, jobId: 'j2', rateLimited: true, concurrency: 2, inFlight: 1,
+      cells: [{ id: 'j2', name: 'deepseek-v4-pro', startedAtMs: 0, elapsedMs: 9400 }],
     },
     {
-      id: 'acc-qd-b1', name: 'qd-b1', provider: 'qoder', busy: true, progress: 0.88, jobId: 'j3', concurrency: 1, inFlight: 1,
-      cells: [{ id: 'j3', name: 'chat · gpt', startedAtMs: 0, elapsedMs: 6200 }],
+      id: 'acc-qd-b1', name: 'Qoder', provider: 'qoder', busy: true, progress: 0.88, jobId: 'j3', concurrency: 1, inFlight: 1,
+      cells: [{ id: 'j3', name: 'glm-5.3', startedAtMs: 0, elapsedMs: 6200 }],
     },
-    { id: 'acc-qd-b2', name: 'qd-b2', provider: 'qoder', busy: false, progress: 0, concurrency: 4, inFlight: 0, cells: [] },
+    { id: 'acc-qd-b2', name: 'Kimi', provider: 'kimi', busy: false, progress: 0, concurrency: 4, inFlight: 0, cells: [] },
     {
-      id: 'acc-trae-c1', name: 'trae-c1', provider: 'trae', busy: true, progress: 0.23, jobId: 'j4', concurrency: 3, inFlight: 2,
+      id: 'acc-trae-c1', name: 'Trae', provider: 'trae', busy: true, progress: 0.23, jobId: 'j4', concurrency: 3, inFlight: 2,
       cells: [
-        { id: 'j4', name: 'tools · patch', startedAtMs: 0, elapsedMs: 3100 },
-        { id: 'j4b', name: 'chat · flash', startedAtMs: 0, elapsedMs: 1800 },
+        { id: 'j4', name: 'qwen3-coder', startedAtMs: 0, elapsedMs: 3100 },
+        { id: 'j4b', name: 'glm-5.3-flash', startedAtMs: 0, elapsedMs: 1800 },
       ],
     },
-    { id: 'acc-codex-d1', name: 'codex-d1', provider: 'codex', busy: false, progress: 0, rateLimited: true, concurrency: 2, inFlight: 0, cells: [] },
+    { id: 'acc-codex-d1', name: 'Codex', provider: 'codex', busy: false, progress: 0, rateLimited: true, concurrency: 2, inFlight: 0, cells: [] },
   ],
   jobs: [
-    { id: 'j1', name: 'chat · sonnet', kind: 'chat', status: 'running', accountId: 'acc-wb-a1', progress: 0.72, elapsedMs: 11_200, sticky: true },
-    { id: 'j1b', name: 'chat · opus', kind: 'chat', status: 'running', accountId: 'acc-wb-a1', progress: 0.55, elapsedMs: 8400 },
-    { id: 'j1c', name: 'embed · idx', kind: 'embed', status: 'running', accountId: 'acc-wb-a1', progress: 0.3, elapsedMs: 4100 },
-    { id: 'j2', name: 'embed · batch', kind: 'embed', status: 'running', accountId: 'acc-wb-a2', progress: 0.41, elapsedMs: 9400 },
-    { id: 'j3', name: 'chat · gpt', kind: 'chat', status: 'running', accountId: 'acc-qd-b1', progress: 0.88, elapsedMs: 6200 },
-    { id: 'j4', name: 'tools · patch', kind: 'tools', status: 'running', accountId: 'acc-trae-c1', progress: 0.23, elapsedMs: 3100 },
-    { id: 'j4b', name: 'chat · flash', kind: 'chat', status: 'running', accountId: 'acc-trae-c1', progress: 0.15, elapsedMs: 1800 },
-    { id: 'j5', name: 'chat · wait', kind: 'chat', status: 'queued', progress: 0, elapsedMs: 7200 },
-    { id: 'j6', name: 'retry · cool', kind: 'chat', status: 'queued', progress: 0, elapsedMs: 5100 },
-    { id: 'j7', name: 'chat · sticky', kind: 'chat', status: 'queued', progress: 0, elapsedMs: 2800, sticky: true, priority: 'high' },
-    { id: 'j8', name: 'embed · docs', kind: 'embed', status: 'queued', progress: 0, elapsedMs: 1400 },
-    { id: 'j9', name: 'tools · apply', kind: 'tools', status: 'queued', progress: 0, elapsedMs: 900 },
-    { id: 'j10', name: 'chat · flash', kind: 'chat', status: 'queued', progress: 0, elapsedMs: 600 },
-    { id: 'j11', name: 'embed · idx', kind: 'embed', status: 'queued', progress: 0, elapsedMs: 400 },
-    { id: 'j12', name: 'chat · opus', kind: 'chat', status: 'queued', progress: 0, elapsedMs: 200, priority: 'high' },
+    { id: 'j1', name: 'glm-5.2', kind: 'chat', status: 'running', accountId: 'acc-wb-a1', progress: 0.72, elapsedMs: 11_200, sticky: true },
+    { id: 'j1b', name: 'kimi-k2.7-code', kind: 'chat', status: 'running', accountId: 'acc-wb-a1', progress: 0.55, elapsedMs: 8400 },
+    { id: 'j1c', name: 'qwen3-embedding', kind: 'embed', status: 'running', accountId: 'acc-wb-a1', progress: 0.3, elapsedMs: 4100 },
+    { id: 'j2', name: 'deepseek-v4-pro', kind: 'embed', status: 'running', accountId: 'acc-wb-a2', progress: 0.41, elapsedMs: 9400 },
+    { id: 'j3', name: 'glm-5.3', kind: 'chat', status: 'running', accountId: 'acc-qd-b1', progress: 0.88, elapsedMs: 6200 },
+    { id: 'j4', name: 'qwen3-coder', kind: 'tools', status: 'running', accountId: 'acc-trae-c1', progress: 0.23, elapsedMs: 3100 },
+    { id: 'j4b', name: 'glm-5.3-flash', kind: 'chat', status: 'running', accountId: 'acc-trae-c1', progress: 0.15, elapsedMs: 1800 },
+    { id: 'j5', name: 'deepseek-v4.1-flash', kind: 'chat', status: 'queued', progress: 0, elapsedMs: 7200 },
+    { id: 'j6', name: 'glm-5.2', kind: 'chat', status: 'queued', progress: 0, elapsedMs: 5100 },
+    { id: 'j7', name: 'kimi-k2.7-code', kind: 'chat', status: 'queued', progress: 0, elapsedMs: 2800, sticky: true, priority: 'high' },
+    { id: 'j8', name: 'qwen3-embedding', kind: 'embed', status: 'queued', progress: 0, elapsedMs: 1400 },
+    { id: 'j9', name: 'qwen3-coder', kind: 'tools', status: 'queued', progress: 0, elapsedMs: 900 },
+    { id: 'j10', name: 'glm-5.3-flash', kind: 'chat', status: 'queued', progress: 0, elapsedMs: 600 },
+    { id: 'j11', name: 'deepseek-v4-pro', kind: 'embed', status: 'queued', progress: 0, elapsedMs: 400 },
+    { id: 'j12', name: 'glm-5.3', kind: 'chat', status: 'queued', progress: 0, elapsedMs: 200, priority: 'high' },
   ],
   rateLimits: [
-    { id: 'rl1', label: 'wb-a2 限流', remainingMs: 97_000, from: 0.55, until: 0.72 },
-    { id: 'rl2', label: 'codex-d1 冷却', remainingMs: 41_000, from: 0.82, until: 1 },
+    { id: 'rl1', label: 'Zhipu 限流', remainingMs: 97_000, from: 0.55, until: 0.72 },
+    { id: 'rl2', label: 'Codex 冷却', remainingMs: 41_000, from: 0.82, until: 1 },
   ],
   // Soft hump under rate-limit, then partial drain.
   depthSeries: [1, 1, 2, 2, 3, 4, 5, 6, 7, 6, 5, 4, 3, 4, 5, 6, 5, 4, 3, 3, 2, 3, 4, 3],
 }
 
 const SEED_NAMES: Array<{ name: string; kind: MockJobKind; sticky?: boolean }> = [
-  { name: 'chat · opus', kind: 'chat' },
-  { name: 'embed · idx', kind: 'embed' },
-  { name: 'tools · apply', kind: 'tools' },
-  { name: 'chat · flash', kind: 'chat', sticky: true },
-  { name: 'chat · wait', kind: 'chat' },
-  { name: 'embed · docs', kind: 'embed' },
+  { name: 'glm-5.3', kind: 'chat' },
+  { name: 'qwen3-embedding', kind: 'embed' },
+  { name: 'qwen3-coder', kind: 'tools' },
+  { name: 'glm-5.3-flash', kind: 'chat', sticky: true },
+  { name: 'deepseek-v4.1-flash', kind: 'chat' },
+  { name: 'deepseek-v4-pro', kind: 'embed' },
+  { name: 'kimi-k2.7-code', kind: 'chat' },
 ]
 
 let seq = 100
@@ -253,8 +254,8 @@ export function tickMockInflight(prev: MockInflightSnapshot, dtMs: number): Mock
     .filter((r) => r.remainingMs > 0)
   // Keep rateLimited flag in sync with remaining windows (seed label → slot).
   for (const w of next.workers) {
-    if (w.id === 'acc-wb-a2') w.rateLimited = next.rateLimits.some((r) => r.label.includes('wb-a2'))
-    else if (w.id === 'acc-codex-d1') w.rateLimited = next.rateLimits.some((r) => r.label.includes('codex-d1'))
+    if (w.id === 'acc-wb-a2') w.rateLimited = next.rateLimits.some((r) => r.label.includes('Zhipu'))
+    else if (w.id === 'acc-codex-d1') w.rateLimited = next.rateLimits.some((r) => r.label.includes('Codex'))
   }
 
   const jobById = new Map(next.jobs.map((j) => [j.id, j]))
@@ -371,9 +372,10 @@ export function tickMockInflight(prev: MockInflightSnapshot, dtMs: number): Mock
     }
   }
 
-  // Soft enqueue so the waiting rail doesn’t drain dry.
+  // Soft enqueue so the waiting rail doesn’t drain dry. Keep enough
+  // queued jobs that the rail shows several timed pills, not just dots.
   const waiting = next.jobs.filter((j) => j.status === 'queued').length
-  if (waiting < 6 && next.generatedAt % 2800 < dt) {
+  if (waiting < 10 && next.generatedAt % 1600 < dt) {
     const pick = SEED_NAMES[seq % SEED_NAMES.length]
     seq += 1
     // Every ~4th job is high priority (lands at back, then glides past).

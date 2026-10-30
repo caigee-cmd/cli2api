@@ -264,6 +264,9 @@ export function AccessPage() {
     const assistantMessage: ThreadMessage = {
       id: assistantId,
       role: 'assistant',
+      provider: accounts.find((account) => account.id === selectedAccount)?.provider
+        || models.find((item) => item.id === selectedModel)?.provider
+        || '',
       content: '',
       status: 'streaming',
     }

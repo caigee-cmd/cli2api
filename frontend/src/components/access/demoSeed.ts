@@ -32,6 +32,7 @@ export function buildDemoThread(): ThreadMessage[] {
     {
       id: 'demo-assistant-1',
       role: 'assistant',
+      provider: 'workbuddy',
       content:
         'The screenshot shows the Access playground. I looked up the chat completions route and drafted a short summary below.',
       reasoning:
@@ -73,6 +74,7 @@ export function buildDemoThinking(): ThreadMessage[] {
     {
       id: 'demo-assistant-thinking',
       role: 'assistant',
+      provider: 'workbuddy',
       content: '',
       reasoning:
         'Scan the stage chrome, then the composer controls, then draft a short reply without inventing product claims.',

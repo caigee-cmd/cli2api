@@ -3,6 +3,7 @@ import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { Button, Card, InputGroup, Label, TextField, Toolbar, Tooltip } from '@heroui/react'
 import { ArrowRight, Eye, EyeSlash, Globe, Moon, Sun } from '@phosphor-icons/react'
 import { BrandMark } from '@/components/BrandMark'
+import { InflightLiveCard } from '@/components/overview/InflightLiveCard'
 import { PageAlert } from '@/components/ui/PageAlert'
 import { useI18n } from '@/hooks/useI18n'
 import { useApiKey } from '@/hooks/useApiKey'
@@ -51,8 +52,8 @@ export function LoginPage() {
   return (
     <div className="relative min-h-dvh overflow-hidden bg-background text-foreground">
       <div className="absolute inset-x-0 top-0 h-px bg-border" />
-      <main ref={pageRef} className="relative z-10 mx-auto grid min-h-dvh w-full max-w-[1480px] lg:grid-cols-[minmax(0,1fr)_minmax(480px,45%)]">
-        <section className="flex min-h-[52vh] flex-col border-separator px-5 py-6 sm:px-10 sm:py-8 lg:min-h-dvh lg:border-r lg:px-14 lg:py-10 xl:px-20">
+      <main ref={pageRef} className="relative z-10 mx-auto grid min-h-dvh w-full max-w-[1480px] lg:grid-cols-[minmax(0,1fr)_minmax(380px,30rem)]">
+        <section className="flex min-h-[52vh] flex-col px-5 py-6 sm:px-8 sm:py-8 lg:min-h-dvh lg:px-8 lg:py-10 xl:px-10">
           <header className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               <BrandMark size={36} />
@@ -81,16 +82,8 @@ export function LoginPage() {
             </Toolbar>
           </header>
 
-          <div className="my-auto max-w-3xl py-16 lg:py-24">
-            <p data-gsap-reveal className="mb-5 mono text-caption text-muted">:3010</p>
-            <h1 data-gsap-reveal className="max-w-3xl text-[clamp(2.25rem,4vw,3.6rem)] font-semibold leading-[0.98] tracking-[-0.045em] text-balance">
-              {t('loginTitle')}
-            </h1>
-            <p data-gsap-reveal className="mt-6 max-w-xl text-section font-normal text-muted sm:text-title sm:font-normal">{t('loginLead')}</p>
-
-            <p data-gsap-reveal className="mt-10 max-w-xl pt-5 text-body leading-6 text-muted">
-              {t('loginHint')}
-            </p>
+          <div className="my-auto w-full py-8 lg:py-10">
+            <InflightLiveCard t={t} defaultExpanded forceMockDemo bare live={null} mockPace={0.45} />
           </div>
 
           <footer className="hidden items-center justify-between text-caption text-muted lg:flex">
@@ -99,10 +92,10 @@ export function LoginPage() {
           </footer>
         </section>
 
-        <section className="flex items-center px-5 py-10 sm:px-10 lg:px-12 xl:px-16">
-          <Card data-gsap-reveal className="w-full p-0">
+        <section className="flex items-center px-5 py-10 sm:px-8 lg:px-8 xl:px-10">
+          <Card data-gsap-reveal variant="transparent" className="w-full bg-transparent p-0 shadow-none">
             <form onSubmit={(event) => void onSubmit(event)}>
-              <Card.Header className="border-b border-separator px-6 py-6 sm:px-8">
+              <Card.Header className="px-2 py-6 sm:px-4">
                 <div className="flex min-w-0 items-center gap-3">
                   <BrandMark size={28} loading={busy} />
                   <div>
