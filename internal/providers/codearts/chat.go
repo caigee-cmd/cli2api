@@ -254,9 +254,14 @@ func (c *Client) modelCapabilities(accountID, model string) providers.ModelCapab
 	if models, _, ok := c.cachedCatalog(accountID); ok {
 		for _, info := range models {
 			if strings.EqualFold(info.NativeModel, model) || strings.EqualFold(info.PublicModel, model) {
-				return info.Capabilities
+				caps = info.Capabilities
+				break
 			}
 		}
+	}
+	if strings.EqualFold(model, "deepseek-v4.1-flash-1017") {
+		caps.ReasoningOptions = []string{"none", "low", "high", "max"}
+		caps.ReasoningDefault = "high"
 	}
 	return caps
 }

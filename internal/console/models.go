@@ -103,9 +103,9 @@ func modelSettingResponse(setting control.ModelSetting) map[string]any {
 			"max_mode": setting.MaxMode, "reasoning_effort": setting.ReasoningEffort,
 			"context_custom": setting.ContextCustom,
 		}
-	case "kimi":
-		// Kimi Code has no max-mode tier, so only the reasoning default is
-		// part of its setting payload.
+	case "kimi", "codearts":
+		// Kimi Code and CodeArts have no max-mode tier, so only the reasoning
+		// default is part of their setting payload.
 		return map[string]any{
 			"model": setting.Model, "provider": setting.Provider,
 			"reasoning_effort": setting.ReasoningEffort,

@@ -263,6 +263,7 @@ func TestProviderPrefixRecognizesCommand(t *testing.T) {
 		"zhipu/glm-5.2":                    "zhipu",
 		"command/deepseek/deepseek-v4-pro": "command",
 		"command/moonshotai/Kimi-K3":       "command",
+		"codearts/GLM-5.2":                 "codearts",
 		// Region-qualified dash form.
 		"workbuddy-cn/glm-5.3-flash":   "workbuddy",
 		"workbuddy-gl/glm-5.3-flash":   "workbuddy",
@@ -293,6 +294,7 @@ func TestResolveProviderFilterRegionPrefix(t *testing.T) {
 		{"qoder-auto/glm-5.2", "qoder", "", "glm-5.2"},
 		{"workbuddy-auto/glm-5.3-flash", "workbuddy", "", "glm-5.3-flash"},
 		{"command/deepseek/deepseek-v4-pro", "command", "", "deepseek/deepseek-v4-pro"},
+		{"codearts/GLM-5.2", "codearts", "", "GLM-5.2"},
 	}
 	for _, tc := range cases {
 		req := translate.ChatRequest{Model: tc.model}
