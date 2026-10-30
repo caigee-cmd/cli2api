@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { Card } from '@heroui/react'
-import { ArrowUpRight, CaretRight, Check, X } from '@phosphor-icons/react'
+import { ArrowUpRight, CaretRight, ChatCircle, Check, Cube, Wrench, X } from '@phosphor-icons/react'
 import type { LiveSnapshot, LiveSticky } from '@/api/live'
 import CustomEase from 'gsap/CustomEase'
 import { MotionPathPlugin } from 'gsap/MotionPathPlugin'
@@ -60,7 +60,7 @@ const slideEase =
   CustomEase.create('inflightSlide', '0.16, 1, 0.3, 1')
 
 /** AffectUI overflow: first N queue pills; rest as kind-colored dots. */
-const QUEUE_PILL_MAX = 3
+const QUEUE_PILL_MAX = 6
 /** AffectUI: show a short worker rail (busy first), not every account. */
 const WORKER_VISIBLE_MAX = 4
 
@@ -112,26 +112,46 @@ function jobElapsedMs(job: MockInflightJob | undefined, clockMs: number): number
 function kindDot(kind: MockJobKind): string {
   switch (kind) {
     case 'chat':
-      return 'bg-[var(--chart-1)]'
+      return 'bg-[color-mix(in_oklab,var(--chart-1)_55%,var(--surface))]'
     case 'embed':
-      return 'bg-[var(--chart-6)]'
+      return 'bg-[color-mix(in_oklab,var(--chart-6)_55%,var(--surface))]'
     case 'tools':
-      return 'bg-[color-mix(in_oklab,var(--chart-5)_92%,var(--surface))]'
+      return 'bg-[color-mix(in_oklab,var(--chart-5)_50%,var(--surface))]'
     default:
-      return 'bg-foreground/40'
+      return 'bg-foreground/25'
   }
+}
+
+function kindIcon(kind: MockJobKind) {
+  const glyph = kind === 'embed'
+    ? <Cube size={15} />
+    : kind === 'tools'
+      ? <Wrench size={15} />
+      : <ChatCircle size={15} />
+  const wash = kind === 'embed'
+    ? 'bg-[color-mix(in_oklab,var(--chart-6)_16%,var(--surface))] text-[color-mix(in_oklab,var(--chart-6)_70%,var(--foreground))]'
+    : kind === 'tools'
+      ? 'bg-[color-mix(in_oklab,var(--chart-5)_14%,var(--surface))] text-[color-mix(in_oklab,var(--chart-5)_68%,var(--foreground))]'
+      : kind === 'chat'
+        ? 'bg-[color-mix(in_oklab,var(--chart-1)_16%,var(--surface))] text-[color-mix(in_oklab,var(--chart-1)_70%,var(--foreground))]'
+        : 'bg-surface-secondary text-muted'
+  return (
+    <span className={`grid size-7 shrink-0 place-items-center rounded-lg ${wash}`} aria-hidden>
+      {glyph}
+    </span>
+  )
 }
 
 function kindPill(kind: MockJobKind): string {
   switch (kind) {
     case 'chat':
-      return 'bg-[color-mix(in_oklab,var(--chart-1)_30%,var(--surface))] text-foreground/94'
+      return 'border border-[color-mix(in_oklab,var(--chart-1)_16%,transparent)] bg-[color-mix(in_oklab,var(--chart-1)_8%,var(--surface))] text-foreground/75'
     case 'embed':
-      return 'bg-[color-mix(in_oklab,var(--chart-6)_30%,var(--surface))] text-foreground/94'
+      return 'border border-[color-mix(in_oklab,var(--chart-6)_16%,transparent)] bg-[color-mix(in_oklab,var(--chart-6)_8%,var(--surface))] text-foreground/75'
     case 'tools':
-      return 'bg-[color-mix(in_oklab,var(--chart-5)_24%,var(--surface))] text-foreground/90'
+      return 'border border-[color-mix(in_oklab,var(--chart-5)_14%,transparent)] bg-[color-mix(in_oklab,var(--chart-5)_7%,var(--surface))] text-foreground/72'
     default:
-      return 'bg-[color-mix(in_oklab,var(--foreground)_6%,var(--surface))] text-foreground/80'
+      return 'border border-foreground/8 bg-[color-mix(in_oklab,var(--foreground)_3%,var(--surface))] text-foreground/68'
   }
 }
 
@@ -286,20 +306,20 @@ function SlotBar({
       data-slot-concurrency={concurrency}
       data-slot-inflight={occupied}
       className={`relative flex min-w-0 items-center gap-2 overflow-hidden rounded-xl px-2.5 py-2 ${
-        running ? 'bg-[var(--il-busy-bg)]' : 'bg-[var(--il-item-bg)]'
+        running ? 'border border-foreground/12 bg-[var(--il-busy-bg)]' : 'border border-foreground/8 bg-[var(--il-item-bg)]'
       }`}
       title={title}
     >
       <span
-        className={`relative z-[1] flex min-w-0 w-[4.5rem] shrink-0 items-center gap-1.5 ${
+        className={`relative z-[1] flex min-w-0 w-[5.5rem] shrink-0 items-center gap-1.5 ${
           running ? 'text-foreground/85' : 'text-muted opacity-55'
         }`}
         title={`${slot.name} · ${slot.provider}`}
       >
-        <span className={`grid size-3.5 shrink-0 place-items-center ${running ? '' : 'opacity-70'}`} aria-hidden>
-          <ProviderMark provider={slot.provider} size={14} />
+        <span className={`grid size-5 shrink-0 place-items-center ${running ? '' : 'opacity-70'}`} aria-hidden>
+          <ProviderMark provider={slot.provider} size={18} />
         </span>
-        <span className={`mono min-w-0 truncate text-[11px] leading-none ${running ? 'font-medium' : ''}`}>
+        <span className={`mono min-w-0 truncate text-caption leading-none ${running ? 'font-medium' : ''}`}>
           {slot.name}
         </span>
       </span>
@@ -328,7 +348,7 @@ function SlotBar({
               data-cell-pending={reserved && !showChrome ? '' : undefined}
               className={`relative flex min-w-0 flex-1 flex-col justify-center overflow-hidden rounded-md px-1 ${
                 showChrome
-                  ? 'bg-[var(--il-busy-fill)] text-foreground/90'
+                  ? 'border border-foreground/14 bg-[var(--il-busy-fill)] text-foreground/85'
                   : 'bg-[var(--il-track)] opacity-55'
               }`}
             >
@@ -336,12 +356,10 @@ function SlotBar({
                 <>
                   <span
                     aria-hidden
-                    className="pointer-events-none absolute inset-y-0 w-[62%] bg-gradient-to-r from-transparent via-[color-mix(in_oklab,var(--surface)_88%,transparent)] to-transparent motion-safe:animate-[inflight-shimmer_1.35s_linear_infinite]"
+                    className="pointer-events-none absolute inset-y-0 w-[62%] bg-gradient-to-r from-transparent via-[color-mix(in_oklab,var(--foreground)_9%,transparent)] to-transparent motion-safe:animate-[inflight-shimmer_1.35s_linear_infinite]"
                   />
-                  <span className="relative z-[1] flex min-w-0 items-center gap-0.5 truncate text-[10px] font-medium leading-tight">
-                    {job ? (
-                      <span className={`size-1 shrink-0 rounded-[1px] ${kindDot(job.kind)}`} aria-hidden />
-                    ) : null}
+                  <span className="relative z-[1] flex min-w-0 items-center gap-1 truncate text-caption font-medium leading-tight">
+                    {job ? <span className={`size-1.5 shrink-0 rounded-[2px] ${kindDot(job.kind)}`} aria-hidden /> : null}
                     <span className="truncate" data-slot-job-pill="">
                       {model}
                     </span>
@@ -377,6 +395,9 @@ export function InflightLiveCard({
   expanded: expandedProp,
   onExpandedChange,
   defaultExpanded = false,
+  forceMockDemo = false,
+  mockPace = 1,
+  bare = false,
 }: {
   t: T
   snapshot?: MockInflightSnapshot
@@ -385,6 +406,12 @@ export function InflightLiveCard({
   expanded?: boolean
   onExpandedChange?: (open: boolean) => void
   defaultExpanded?: boolean
+  /** Login showcase: play the mock loop without reading or writing the overview demo preference. */
+  forceMockDemo?: boolean
+  /** Scale mock time. Login uses a slower pace; overview stays at 1. */
+  mockPace?: number
+  /** Login showcase: animation only — no title, chrome, demo switch, or view-all link. */
+  bare?: boolean
 }) {
   const controlled = snapshot !== undefined
   const [uncontrolledOpen, setUncontrolledOpen] = useState(defaultExpanded)
@@ -394,10 +421,10 @@ export function InflightLiveCard({
     if (expandedProp === undefined) setUncontrolledOpen(open)
   }
 
-  const [mockDemoEnabled, setMockDemoEnabled] = useState(() => readMockDemoPref())
+  const [mockDemoEnabled, setMockDemoEnabled] = useState(() => forceMockDemo || readMockDemoPref())
   const setMockDemo = (on: boolean) => {
     setMockDemoEnabled(on)
-    writeMockDemoPref(on)
+    if (!forceMockDemo) writeMockDemoPref(on)
   }
   const [liveSnap, setLiveSnap] = useState<MockInflightSnapshot>(() =>
     cloneMockInflight(snapshot ?? getIdleInflightSnapshot()),
@@ -539,7 +566,8 @@ export function InflightLiveCard({
       const dt = now - last
       if (!document.hidden && dt >= 260) {
         last = now
-        setLiveSnap((prev) => tickMockInflight(prev, dt))
+        const pace = Number.isFinite(mockPace) ? Math.min(1, Math.max(0.2, mockPace ?? 1)) : 1
+        setLiveSnap((prev) => tickMockInflight(prev, dt * pace))
       }
       raf = requestAnimationFrame(step)
     }
@@ -548,7 +576,7 @@ export function InflightLiveCard({
       alive = false
       cancelAnimationFrame(raf)
     }
-  }, [controlled, expanded, useMockFallback, mockDemoEnabled, live])
+  }, [controlled, expanded, useMockFallback, mockDemoEnabled, live, mockPace])
 
   // Elapsed tick (~150ms): wall-clock since started_at so busy slots don't stick at 0.0s between /api/live polls.
   useEffect(() => {
@@ -1482,7 +1510,8 @@ export function InflightLiveCard({
       data-testid="inflight-live-card"
       data-expanded={expanded ? 'true' : 'false'}
       data-gsap-reveal
-      className="group overflow-hidden p-0 transition-[box-shadow] duration-200"
+      variant={bare ? 'transparent' : undefined}
+      className={`group overflow-hidden p-0 ${bare ? 'bg-transparent shadow-none' : 'transition-[box-shadow] duration-200'}`}
     >
       <style>{`
         [data-testid="inflight-live-card"]{
@@ -1495,9 +1524,9 @@ export function InflightLiveCard({
           --il-chip: var(--surface);
           --il-item-bg: color-mix(in oklab, var(--surface-secondary) 38%, var(--surface));
           --il-track: color-mix(in oklab, var(--foreground) 8%, var(--surface-secondary));
-          --il-busy-bg: color-mix(in oklab, var(--chart-1) 10%, var(--surface));
-          --il-busy-fill: color-mix(in oklab, var(--chart-1) 42%, var(--il-track));
-          --il-busy-glow: 0 0 18px color-mix(in oklab, var(--chart-1) 18%, transparent);
+          --il-busy-bg: color-mix(in oklab, var(--chart-1) 7%, var(--surface));
+          --il-busy-fill: color-mix(in oklab, var(--chart-1) 9%, var(--surface));
+          --il-busy-glow: none;
           --il-run: color-mix(in oklab, var(--foreground) 84%, transparent);
           --il-warn: var(--warning);
           --il-warn-fg: var(--warning);
@@ -1505,9 +1534,9 @@ export function InflightLiveCard({
           --il-warn-bg: color-mix(in oklab, var(--warning) 11%, var(--surface));
           --il-warn-hatch: color-mix(in oklab, var(--warning) 22%, transparent);
           /* AffectUI-ish mint / coral outcome sinks — a touch richer wash */
-          --il-ok-bg: color-mix(in oklab, var(--success) 22%, var(--surface));
-          --il-ok-fg: var(--success);
-          --il-err-bg: color-mix(in oklab, var(--danger) 20%, var(--surface));
+          --il-ok-bg: color-mix(in oklab, var(--success) 8%, var(--surface));
+          --il-ok-fg: color-mix(in oklab, var(--success) 78%, var(--foreground));
+          --il-err-bg: color-mix(in oklab, var(--danger) 7%, var(--surface));
           --il-err-fg: var(--danger);
           --il-depth: var(--chart-1);
           --il-depth-fill: color-mix(in oklab, var(--chart-1) 20%, transparent);
@@ -1527,7 +1556,7 @@ export function InflightLiveCard({
         }
       `}</style>
 
-      <div className="flex items-start justify-between gap-3 px-4 py-3">
+      {bare ? null : <div className="flex items-start justify-between gap-3 px-4 py-3">
         <button
           type="button"
           data-testid="inflight-live-toggle"
@@ -1598,7 +1627,7 @@ export function InflightLiveCard({
             </div>
           ) : null}
         </div>
-      </div>
+      </div>}
 
       {expanded ? (
         <div id="inflight-live-body" ref={rootRef}>
@@ -1618,7 +1647,7 @@ export function InflightLiveCard({
           </div>
 
           {/* Waiting → account-slot bars → Done/Failed  (AffectUI Agent Queue flow) */}
-          <div className="grid gap-3 px-4 py-3 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.55fr)_auto]">
+          <div className="grid gap-3 px-4 py-3 lg:grid-cols-[minmax(11rem,0.7fr)_minmax(0,2.1fr)_auto]">
             <div className="min-w-0" data-queue-col>
               <div className="mb-1.5 flex items-baseline justify-between gap-2">
                 <span className="text-caption uppercase tracking-wide text-muted">{t('inflightQueue')}</span>
@@ -1637,10 +1666,10 @@ export function InflightLiveCard({
                   >
                     <span
                       aria-hidden
-                      className="pointer-events-none absolute inset-y-0 w-2/5 bg-gradient-to-r from-transparent via-[color-mix(in_oklab,var(--chart-1)_28%,transparent)] to-transparent motion-safe:animate-[inflight-queue-shimmer_2.8s_linear_infinite]"
+                      className="pointer-events-none absolute inset-y-0 w-2/5 bg-gradient-to-r from-transparent via-[color-mix(in_oklab,var(--foreground)_8%,transparent)] to-transparent motion-safe:animate-[inflight-queue-shimmer_2.8s_linear_infinite]"
                     />
-                    <span className="relative z-[1] flex min-w-0 items-center gap-1.5 truncate text-[11px] font-medium text-foreground/92">
-                      <span className={`size-1.5 shrink-0 rounded-[2px] ${kindDot(job.kind)}`} aria-hidden />
+                    <span className="relative z-[1] flex min-w-0 items-center gap-2.5 truncate text-caption font-medium text-foreground/78">
+                      {kindIcon(job.kind)}
                       <span className="truncate">
                         {job.name}
                         {job.priority === 'high' ? (
@@ -1651,7 +1680,7 @@ export function InflightLiveCard({
                         ) : null}
                       </span>
                     </span>
-                    <span className="relative z-[1] mono shrink-0 text-[10px] text-muted">
+                    <span className="relative z-[1] mono shrink-0 text-caption text-muted">
                       {formatElapsed(jobElapsedMs(job, clockMs))}
                     </span>
                   </div>
@@ -1700,18 +1729,18 @@ export function InflightLiveCard({
               </div>
             </div>
 
-            <div className="flex gap-2 sm:gap-2.5 lg:w-[4.5rem] lg:flex-col lg:gap-2.5">
+            <div className="flex gap-2 sm:gap-2.5 lg:w-[6.75rem] lg:flex-col lg:gap-2.5">
               <Outcome
                 label={t('inflightDone')}
                 value={snap.totals.done}
                 tone="ok"
-                icon={<Check size={15} weight="bold" aria-hidden />}
+                icon={<Check size={22} aria-hidden />}
               />
               <Outcome
                 label={t('inflightFailed')}
                 value={snap.totals.failed}
                 tone="danger"
-                icon={<X size={15} weight="bold" aria-hidden />}
+                icon={<X size={22} aria-hidden />}
               />
             </div>
           </div>
@@ -1783,32 +1812,32 @@ function Outcome({
       role="group"
       aria-label={`${label}: ${value}`}
       title={`${label}: ${value}`}
-      className={`flex min-w-[3.6rem] flex-1 flex-col items-center justify-center gap-1.5 rounded-2xl px-2.5 py-3 ${
+      className={`flex min-h-28 min-w-[3.6rem] flex-1 flex-col items-center justify-center gap-2 rounded-2xl border px-3 py-4 ${
         ok
-          ? 'bg-[var(--il-ok-bg)] shadow-[0_6px_16px_color-mix(in_oklab,var(--success)_10%,transparent)]'
-          : 'bg-[var(--il-err-bg)] shadow-[0_6px_16px_color-mix(in_oklab,var(--danger)_10%,transparent)]'
+          ? 'border-[color-mix(in_oklab,var(--success)_14%,transparent)] bg-[var(--il-ok-bg)]'
+          : 'border-[color-mix(in_oklab,var(--danger)_12%,transparent)] bg-[var(--il-err-bg)]'
       }`}
     >
       <span
-        className={`inline-flex size-7 items-center justify-center rounded-full ${
+        className={`inline-flex size-12 items-center justify-center rounded-2xl ${
           ok
-            ? 'bg-[color-mix(in_oklab,var(--success)_18%,transparent)] text-[var(--il-ok-fg)]'
-            : 'bg-[color-mix(in_oklab,var(--danger)_18%,transparent)] text-[var(--il-err-fg)]'
+            ? 'bg-[color-mix(in_oklab,var(--success)_14%,var(--surface))] text-[var(--il-ok-fg)]'
+            : 'bg-[color-mix(in_oklab,var(--danger)_12%,var(--surface))] text-[var(--il-err-fg)]'
         }`}
         aria-hidden
       >
         {icon}
       </span>
       <div
-        className={`mono text-[1.15rem] font-semibold tabular leading-none tracking-tight ${
+        className={`mono text-[1.7rem] font-semibold tabular leading-none tracking-tight ${
           ok ? 'text-[var(--il-ok-fg)]' : 'text-[var(--il-err-fg)]'
         }`}
       >
         <CountUp value={value} kind="int" duration={560} />
       </div>
       <span
-        className={`text-[10px] font-medium uppercase tracking-[0.08em] ${
-          ok ? 'text-[color-mix(in_oklab,var(--success)_72%,var(--muted))]' : 'text-[color-mix(in_oklab,var(--danger)_72%,var(--muted))]'
+        className={`text-caption font-medium ${
+          ok ? 'text-[color-mix(in_oklab,var(--success)_55%,var(--muted))]' : 'text-[color-mix(in_oklab,var(--danger)_55%,var(--muted))]'
         }`}
       >
         {label}

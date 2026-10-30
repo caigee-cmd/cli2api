@@ -30,6 +30,8 @@ export type ThreadMessageUsage = {
 export type ThreadMessage = {
   id: string
   role: 'user' | 'assistant'
+  /** Account provider that produced an assistant turn. Drives the existing brand mark. */
+  provider?: string
   content: string
   attachments?: ChatAttachment[]
   reasoning?: string

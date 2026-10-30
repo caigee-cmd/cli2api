@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { PageAlert } from '@/components/ui/PageAlert'
-import { Skeleton } from '@heroui/react'
-import { CopySimple, FileText } from '@phosphor-icons/react'
+import { Button, Skeleton } from '@heroui/react'
+import { FileText } from '@phosphor-icons/react'
+import { CopyIcon } from '@/components/motion/CopyIcon'
+import { ProviderMark } from '@/components/ProviderMark'
 import { useI18n } from '@/hooks/useI18n'
 import { copyText } from '@/lib/clipboard'
 import { formatCompact, formatCredits } from '@/lib/format'
@@ -142,6 +144,11 @@ export function ChatMessageView({ message }: { message: ThreadMessage }) {
 
   return (
     <div className="group/access-msg max-w-[96%] space-y-1.5 sm:max-w-[88%]">
+      <div className="flex items-center gap-1.5 px-0.5">
+        <span className="grid size-5 shrink-0 place-items-center rounded-lg border border-border bg-surface-secondary">
+          <ProviderMark provider={message.provider} size={13} />
+        </span>
+      </div>
       {message.reasoning || streaming ? (
         <ThinkingBlock
           text={message.reasoning || ''}
@@ -168,14 +175,15 @@ export function ChatMessageView({ message }: { message: ThreadMessage }) {
         <div className="access-msg-foot space-y-1 px-0.5 pt-0.5">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
             {canCopy ? (
-              <button
-                type="button"
-                className="inline-flex h-5 items-center gap-1 text-caption text-muted/80 opacity-70 transition-opacity hover:text-foreground hover:opacity-100"
-                onClick={() => void onCopy()}
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-5 min-h-5 gap-1 px-1.5 text-caption text-muted/80"
+                onPress={() => void onCopy()}
               >
-                <CopySimple size={12} />
+                <CopyIcon copied={copied} size={12} />
                 {copied ? t('copied') : t('copy')}
-              </button>
+              </Button>
             ) : null}
             <UsageFoot message={message} />
           </div>

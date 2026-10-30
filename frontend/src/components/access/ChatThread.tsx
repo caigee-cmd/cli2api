@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { ChatCircleDots } from '@phosphor-icons/react'
 import { EmptyPanel } from '@/components/ui/EmptyPanel'
 import { useI18n } from '@/hooks/useI18n'
 import { ChatMessageView } from './ChatMessage'
@@ -33,6 +34,7 @@ export function ChatThread({
       {empty ? (
         <EmptyPanel
           className="min-h-56"
+          icon={<ChatCircleDots size={22} />}
           title={t('chatTryEmptyTitle')}
           hint={t('chatTryEmptyHint')}
           action={
