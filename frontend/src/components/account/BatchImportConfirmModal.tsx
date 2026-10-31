@@ -62,9 +62,9 @@ export function BatchImportConfirmModal({
       }}
     >
       <Modal.Backdrop variant="blur" isDismissable={!isPending}>
-        <Modal.Container placement="center" size="sm" scroll="inside" className="mx-3 w-full max-w-[min(100%,24rem)] sm:mx-0">
+        <Modal.Container placement="center" size="md" scroll="inside" className="mx-3 w-full max-w-[min(100%,32rem)] sm:mx-0">
           <Modal.Dialog>
-            <Modal.Header className="items-start justify-between gap-4 px-5 pt-5">
+            <Modal.Header className="items-start justify-between gap-4 px-6 pt-6">
               <div className="min-w-0">
                 <Modal.Heading className="text-section font-semibold">{t('batchImportConfirmTitle')}</Modal.Heading>
                 <p className="mt-1 break-all text-caption leading-5 text-muted">
@@ -81,7 +81,7 @@ export function BatchImportConfirmModal({
                 <X size={16} />
               </Modal.CloseTrigger>
             </Modal.Header>
-            <Modal.Body className="space-y-4 px-5 pb-2">
+            <Modal.Body className="space-y-4 px-6 pb-2">
               <div className="rounded-xl bg-surface-secondary px-3.5 py-3">
                 <div className="flex items-center gap-2.5">
                   {provider ? <ProviderMark provider={provider} size={18} /> : null}
@@ -122,7 +122,7 @@ export function BatchImportConfirmModal({
                 </ul>
               ) : null}
             </Modal.Body>
-            <Modal.Footer className="flex-col-reverse gap-2 px-5 pb-5 sm:flex-row sm:justify-end">
+            <Modal.Footer className="flex-col-reverse gap-2 px-6 pb-6 sm:flex-row sm:justify-end">
               <Button size="sm" variant="ghost" className="w-full sm:w-auto" isDisabled={isPending} onPress={onClose}>
                 {supported ? t('cancel') : t('close')}
               </Button>
