@@ -122,3 +122,31 @@ func TestCatalogIncludesGPT61Sol(t *testing.T) {
 		}
 	}
 }
+
+func TestCatalogIncludesGPT61Terra(t *testing.T) {
+	entry, ok := lookupModel("gpt-6.1-terra")
+	if !ok {
+		t.Fatal("gpt-6.1-terra missing from Codex models.json")
+	}
+	if entry.DisplayName != "GPT-6.1 Terra" {
+		t.Fatalf("display_name = %q", entry.DisplayName)
+	}
+	if entry.ContextWindow != 272000 || entry.MaxContextWindow != 872000 {
+		t.Fatalf("context windows = %d/%d", entry.ContextWindow, entry.MaxContextWindow)
+	}
+	if entry.DefaultReasoning != "low" {
+		t.Fatalf("default_reasoning_level = %q, want low", entry.DefaultReasoning)
+	}
+	if !entry.UseResponsesLite || !entry.SupportedInAPI || !entry.PreferWebsockets {
+		t.Fatalf("flags lite=%v api=%v ws=%v", entry.UseResponsesLite, entry.SupportedInAPI, entry.PreferWebsockets)
+	}
+	wantLevels := []string{"low", "medium", "high", "xhigh", "max", "ultra"}
+	if len(entry.ReasoningLevels) != len(wantLevels) {
+		t.Fatalf("reasoning levels = %v, want %v", entry.ReasoningLevels, wantLevels)
+	}
+	for i, level := range wantLevels {
+		if entry.ReasoningLevels[i] != level {
+			t.Fatalf("reasoning levels = %v, want %v", entry.ReasoningLevels, wantLevels)
+		}
+	}
+}
