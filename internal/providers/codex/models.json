@@ -23,6 +23,28 @@
       "supported_in_api": true
     },
     {
+      "slug": "gpt-6.1-terra",
+      "display_name": "GPT-6.1 Terra",
+      "context_window": 272000,
+      "max_context_window": 872000,
+      "default_reasoning_level": "low",
+      "supported_reasoning_levels": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+        "ultra"
+      ],
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "prefer_websockets": true,
+      "use_responses_lite": true,
+      "supported_in_api": true
+    },
+    {
       "slug": "gpt-6-astra",
       "display_name": "GPT-6-Astra",
       "context_window": 272000,
