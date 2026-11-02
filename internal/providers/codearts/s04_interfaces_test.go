@@ -27,13 +27,13 @@ func (requiredStore) Observe(context.Context, string, string, string, string, st
 func TestS04InterfaceContract(t *testing.T) {
 	client := NewClient(requiredStore{})
 	var _ providers.CredentialCodec = credentialCodec{}
+	var _ providers.CredentialImporter = credentialCodec{}
 	var _ providers.LoginSessionProvider = client
 	var _ providers.LoginCompleter = client
 	var _ providers.ProviderChat = client
 	var _ providers.ModelCatalogProvider = client
 	var _ providers.AccountProber = client
 	var _ providers.ErrorClassifier = classifier{}
-	var _ providers.CredentialImporter = importer{}
 	var _ providers.ImportExporter = importer{}
 	var _ providers.AccountCheckiner = client
 
@@ -45,6 +45,35 @@ func TestS04InterfaceContract(t *testing.T) {
 		if !adapter.Supports(capability) {
 			t.Fatalf("adapter missing capability %q", capability)
 		}
+	}
+	// control.Accounts.Import reads the importer off Adapter.Credential, not
+	// Adapter.ImportExport: wiring PrepareImport on the wrong slot makes every
+	// console credential import answer unsupported_format.
+	if _, ok := adapter.Credential.(providers.CredentialImporter); !ok {
+		t.Fatal("Adapter.Credential must implement providers.CredentialImporter")
+	}
+}
+
+func TestCredentialCodecServesConsoleImport(t *testing.T) {
+	encoded, err := testCredential().Encode()
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	// The console sends the format it reads from the registry and expects a
+	// ready payload back, so both halves are part of the import contract.
+	codec, ok := any(credentialCodec{}).(providers.CredentialImporter)
+	if !ok {
+		t.Fatal("credentialCodec must implement providers.CredentialImporter")
+	}
+	if got := codec.Format(); got != CredentialFormat {
+		t.Fatalf("format = %q, want %q", got, CredentialFormat)
+	}
+	prepared, err := codec.PrepareImport(encoded)
+	if err != nil {
+		t.Fatalf("prepare import: %v", err)
+	}
+	if !prepared.Ready || len(prepared.Payload) == 0 {
+		t.Fatalf("prepared = %+v", prepared)
 	}
 }
 

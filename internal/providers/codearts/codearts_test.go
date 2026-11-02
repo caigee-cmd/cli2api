@@ -672,7 +672,7 @@ func TestAdapterSurface(t *testing.T) {
 			t.Fatalf("adapter missing %s", capability)
 		}
 	}
-	var _ providers.CredentialImporter = importer{}
+	var _ providers.CredentialImporter = credentialCodec{}
 	var _ providers.ModelCatalogProvider = client
 	var _ providers.ProviderChat = client
 	var _ providers.AccountProber = client
