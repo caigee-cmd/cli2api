@@ -6,14 +6,15 @@ import (
 	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
+	applogs "github.com/caigee-cmd/cli2api/internal/logs"
 )
 
-// exportWindowHours is the widest range the cost panel can ask for. Matches the
-// default request-log retention (7 days). When CLI2API_LOG_RETENTION_DAYS lands
-// (separate PR), wire this through logs.RetentionDays() so a raised ceiling
-// still reports the full retained window.
+// exportWindowHours is the widest range the cost panel can ask for. It follows
+// the request-log retention window: pricing a range the pruner already dropped
+// would silently under-report cost, and hard-coding 7 days made a raised
+// CLI2API_LOG_RETENTION_DAYS invisible to the panel.
 func exportWindowHours() int {
-	return 24 * 7
+	return 24 * applogs.RetentionDays()
 }
 
 func (h *Handler) HandleUsage(w http.ResponseWriter, r *http.Request) {
