@@ -935,12 +935,37 @@ FROM request_attempts WHERE request_id = ? ORDER BY attempt_index ASC, started_a
 }
 
 func (s *Store) ClearRequestLogs(ctx context.Context) (int64, error) {
-	result, err := s.db.ExecContext(ctx, `DELETE FROM request_logs`)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("begin clear request logs: %w", err)
+	}
+	defer tx.Rollback()
+	for _, table := range requestLogChildTables {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM `+table); err != nil {
+			return 0, fmt.Errorf("clear %s: %w", table, err)
+		}
+	}
+	result, err := tx.ExecContext(ctx, `DELETE FROM request_logs`)
 	if err != nil {
 		return 0, fmt.Errorf("clear request logs: %w", err)
 	}
 	changed, _ := result.RowsAffected()
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("commit clear request logs: %w", err)
+	}
 	return changed, nil
+}
+
+// requestLogChildTables are the tables that hang off request_logs with an
+// ON DELETE CASCADE. The cascades are declared in the schema, but relying on
+// them alone is fragile: foreign_keys is a per-connection PRAGMA and any
+// connection that opens without it leaves orphans behind (see sqliteDSN).
+// Purge therefore deletes the children explicitly inside the same transaction
+// so retention never depends on connection state.
+var requestLogChildTables = []string{
+	"request_attempts",
+	"request_usage_details",
+	"request_stream_diagnostics",
 }
 
 func (s *Store) PurgeRequestLogs(ctx context.Context, olderThan time.Duration, maxRows int) (int64, error) {
@@ -951,29 +976,53 @@ func (s *Store) PurgeRequestLogs(ctx context.Context, olderThan time.Duration, m
 		maxRows = 20_000
 	}
 	cutoff := formatTime(time.Now().UTC().Add(-olderThan))
-	result, err := s.db.ExecContext(ctx, `DELETE FROM request_logs WHERE created_at < ?`, cutoff)
+
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return 0, fmt.Errorf("purge old request logs: %w", err)
+		return 0, fmt.Errorf("begin request log purge: %w", err)
 	}
-	deleted, _ := result.RowsAffected()
+	defer tx.Rollback()
+
+	deleted, err := purgeRequestLogsWhere(ctx, tx, "created_at < ?", cutoff)
+	if err != nil {
+		return deleted, fmt.Errorf("purge old request logs: %w", err)
+	}
 
 	var total int
-	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM request_logs`).Scan(&total); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM request_logs`).Scan(&total); err != nil {
 		return deleted, fmt.Errorf("count request logs for cap: %w", err)
 	}
-	if total <= maxRows {
-		return deleted, nil
-	}
-	overflow := total - maxRows
-	result, err = s.db.ExecContext(ctx, `
-DELETE FROM request_logs WHERE id IN (
+	if total > maxRows {
+		overflow := total - maxRows
+		extra, err := purgeRequestLogsWhere(ctx, tx, `id IN (
   SELECT id FROM request_logs ORDER BY created_at ASC, id ASC LIMIT ?
 )`, overflow)
-	if err != nil {
-		return deleted, fmt.Errorf("purge excess request logs: %w", err)
+		if err != nil {
+			return deleted, fmt.Errorf("purge excess request logs: %w", err)
+		}
+		deleted += extra
 	}
-	extra, _ := result.RowsAffected()
-	return deleted + extra, nil
+	if err := tx.Commit(); err != nil {
+		return deleted, fmt.Errorf("commit request log purge: %w", err)
+	}
+	return deleted, nil
+}
+
+// purgeRequestLogsWhere deletes the matching request_logs rows and every child
+// row that points at them. The caller owns the transaction.
+func purgeRequestLogsWhere(ctx context.Context, tx *sql.Tx, where string, args ...any) (int64, error) {
+	for _, table := range requestLogChildTables {
+		if _, err := tx.ExecContext(ctx,
+			`DELETE FROM `+table+` WHERE request_id IN (SELECT id FROM request_logs WHERE `+where+`)`, args...); err != nil {
+			return 0, fmt.Errorf("purge %s: %w", table, err)
+		}
+	}
+	result, err := tx.ExecContext(ctx, `DELETE FROM request_logs WHERE `+where, args...)
+	if err != nil {
+		return 0, err
+	}
+	deleted, _ := result.RowsAffected()
+	return deleted, nil
 }
 
 func buildRequestLogWhere(filter accounts.RequestLogFilter) (string, []any) {

@@ -161,6 +161,82 @@ func TestRequestLogsInsertListGetAndPurge(t *testing.T) {
 	}
 }
 
+func TestPurgeRequestLogsDropsChildRowsWithoutCascade(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	// Force the pool to drop its connection: database/sql reopens lazily, and a
+	// reopened connection is exactly the state in which foreign_keys used to be
+	// OFF and the ON DELETE CASCADE clauses stopped firing.
+	store.DB().SetMaxIdleConns(0)
+	store.DB().ExecContext(ctx, `PRAGMA foreign_keys = OFF`)
+
+	now := time.Now().UTC()
+	oldID := accounts.NewRequestID()
+	if err := store.InsertRequestLog(ctx, accounts.RequestLog{
+		ID: oldID, CreatedAt: now.Add(-10 * 24 * time.Hour), Status: accounts.RequestStatusOK, RequestedModel: "old",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.InsertRequestAttempt(ctx, accounts.RequestAttempt{
+		ID: accounts.NewAttemptID(), RequestID: oldID, AttemptIndex: 0, AccountID: "acc_old",
+		StartedAt: now, Status: accounts.AttemptStatusOK,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	credit := 1.5
+	if err := store.InsertRequestUsageDetail(ctx, accounts.RequestUsageDetail{
+		RequestID: oldID, CreatedAt: now, Provider: "qoder", Credit: &credit, Unit: "credits",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.InsertRequestStreamDiagnostic(ctx, accounts.RequestStreamDiagnostic{
+		RequestID: oldID, CreatedAt: now, SSEEventCount: 2,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := store.PurgeRequestLogs(ctx, 7*24*time.Hour, 20_000); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, table := range requestLogChildTables {
+		var left int
+		if err := store.DB().QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM `+table+` WHERE request_id = ?`, oldID).Scan(&left); err != nil {
+			t.Fatal(err)
+		}
+		if left != 0 {
+			t.Fatalf("%s kept %d orphan rows for purged request %s", table, left, oldID)
+		}
+	}
+}
+
+// TestForeignKeyPragmaSurvivesConnectionRecycle pins the DSN fix: a connection
+// database/sql opens after dropping the original one must still enforce the
+// declared cascades.
+func TestForeignKeyPragmaSurvivesConnectionRecycle(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	store.DB().SetMaxIdleConns(0)
+	var enabled int
+	if err := store.DB().QueryRowContext(ctx, `PRAGMA foreign_keys`).Scan(&enabled); err != nil {
+		t.Fatal(err)
+	}
+	if enabled != 1 {
+		t.Fatalf("foreign_keys = %d on a recycled connection, want 1", enabled)
+	}
+}
+
 func TestUsageDetailBackfillUsesProviderThenAccountFallback(t *testing.T) {
 	ctx := context.Background()
 	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))

@@ -23,6 +23,23 @@ type Store struct {
 	db *sql.DB
 }
 
+// sqliteDSN turns a database path into the driver DSN.
+//
+// PRAGMA foreign_keys is a per-connection setting, not a property of the file.
+// Running it once through db.Exec only configured whichever connection that
+// Exec happened to take; every later connection database/sql opened (after an
+// idle recycle or a connection-level error) started with foreign_keys=OFF, so
+// the ON DELETE CASCADE clauses on request_attempts, request_usage_details and
+// request_stream_diagnostics silently stopped firing. Carrying the pragma in
+// the DSN makes the driver apply it at open time on every connection.
+func sqliteDSN(path string) string {
+	if strings.Contains(path, "?") {
+		// Already a hand-built DSN; leave it alone rather than corrupting it.
+		return path
+	}
+	return path + "?_foreign_keys=on"
+}
+
 func OpenStore(path string) (*Store, error) {
 	if strings.TrimSpace(path) == "" {
 		return nil, fmt.Errorf("sqlite path required")
@@ -30,12 +47,17 @@ func OpenStore(path string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, fmt.Errorf("create sqlite directory: %w", err)
 	}
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite", sqliteDSN(path))
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
 	db.SetMaxOpenConns(1)
-	if _, err := db.Exec("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;"); err != nil {
+	// busy_timeout is a per-connection setting too, but it is re-applied below
+	// because a freshly opened pool connection has not run sqliteDSN's pragmas
+	// yet when this Exec lands on it. foreign_keys must NOT be relied on here:
+	// it only ever covered the one connection this Exec happened to take, so
+	// the pragma that actually matters lives in the DSN.
+	if _, err := db.Exec("PRAGMA busy_timeout = 5000;"); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("configure sqlite: %w", err)
 	}
