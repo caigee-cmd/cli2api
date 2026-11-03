@@ -118,3 +118,21 @@ func hmacHex(key, msg string) string {
 	_, _ = mac.Write([]byte(msg))
 	return hex.EncodeToString(mac.Sum(nil))
 }
+
+// otSessionID returns the account-stable OpenThrottle session id used by the
+// Huawei gateway to count concurrent sessions. Same seed as WorkBuddy tip
+// 28527f4 / hub #723: sha256("codearts-ot-session:"+userID) hex, first 32.
+func otSessionID(userID string) string {
+	sum := sha256.Sum256([]byte("codearts-ot-session:" + userID))
+	return hex.EncodeToString(sum[:16])
+}
+
+// applyOTSessionHeaders sets x-ot-session-id / user-session-id (account-stable)
+// and a fresh x-ot-trace-id. Call only AFTER signRequest so these names never
+// enter SignedHeaders (gateway rejects a signature that lists them).
+func applyOTSessionHeaders(header http.Header, userID string) {
+	session := otSessionID(userID)
+	header.Set("x-ot-session-id", session)
+	header.Set("user-session-id", session)
+	header.Set("x-ot-trace-id", randomHex(16))
+}
