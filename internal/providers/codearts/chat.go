@@ -181,6 +181,8 @@ func (c *Client) sendChat(ctx context.Context, accountID string, credential Cred
 		req.Header.Set(HeaderMaasType, MaasBenefit)
 	}
 	signRequest(req, body, credential.Sign())
+	// Tip headers after sign so they stay out of SignedHeaders (hub #723 / tip 28527f4).
+	applyOTSessionHeaders(req.Header, credential.UserID)
 	if id, ok := payloadChatID(body); ok && id != "" {
 		req.Header.Set("Chat-Id", id)
 		req.Header.Set("Session-Id", id)
