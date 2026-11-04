@@ -21,6 +21,16 @@ Deploy with Docker, manage accounts in the web console, and connect clients thro
 
 </div>
 
+## Sponsors
+
+CLI2API is self-hosted and uses accounts you already have. If you would rather not run it yourself, the sponsor below offers a hosted gateway.
+
+| Sponsor | What it is | Who it is for | Link |
+| --- | --- | --- | --- |
+| [CaiAI](https://caiaiu.com) | A prepaid OpenAI-compatible API gateway. One key covers clients such as Claude Code, Codex, OpenCode, Cherry Studio, and TRAE, routes models including GPT, Grok, GLM, and Kimi, and includes usage, key limits, and billing. | Teams that want model access without bringing their own logins | [caiaiu.com](https://caiaiu.com) |
+
+CLI2API manages your own accounts on a local gateway. CaiAI manages hosted keys, routing, and billing.
+
 ## Features
 
 - **Compatible APIs**: Chat Completions, Responses, Anthropic Messages, and model listing, with streaming and function tools.

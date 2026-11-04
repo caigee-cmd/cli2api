@@ -21,6 +21,16 @@
 
 </div>
 
+## 赞助
+
+CLI2API 自托管、自带账号。不想自己部署时，可以用赞助商的托管 Gateway。
+
+| 赞助商 | 是什么 | 适合谁 | 入口 |
+| --- | --- | --- | --- |
+| [CaiAI](https://caiaiu.com) | 预付费的 OpenAI 兼容 API Gateway。一把密钥覆盖 Claude Code、Codex、OpenCode、Cherry Studio、TRAE 等客户端，路由 GPT、Grok、GLM、Kimi 等模型，并提供用量、密钥限额与账单。 | 想直接调用模型、不自备登录态的团队 | [caiaiu.com](https://caiaiu.com) |
+
+和 CLI2API 的差别：这里管的是你自己的账号和本机网关；CaiAI 管的是托管密钥、路由和计费。
+
 ## 功能
 
 - **兼容接口**：Chat Completions、Responses、Anthropic Messages 和模型列表，支持流式回复与函数工具调用。
