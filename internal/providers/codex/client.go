@@ -881,26 +881,38 @@ func (c *Client) Quota(ctx context.Context, accountID string) (*providers.QuotaI
 		return nil, err
 	}
 	if credential.UsesChatGPT() {
-		// Sign in with ChatGPT talks to api.openai.com, not the Codex
-		// backend /wham/usage probe. Keep the last windows observed from
-		// a chat response rather than calling an endpoint that 404s.
+		// Sign in with ChatGPT tokens address api.openai.com and the
+		// backend-api probe rejects them. Keep the last windows observed
+		// from a chat response instead.
 		return c.cachedQuota(accountID), nil
 	}
-	body, status, err := c.do(ctx, accountID, http.MethodGet, ChatBase+pathWhamUsage, nil, func(header http.Header) {
+	body, status, err := c.do(ctx, accountID, http.MethodGet, UsageBase+pathWhamUsage, nil, func(header http.Header) {
 		SetChatHeaders(header, credential, "", false)
 	})
 	if err != nil {
-		return c.cachedQuota(accountID), nil
+		return c.quotaFallback(accountID, err)
 	}
-	if status < 300 {
-		if info := quotaFromUsage(body); info != nil {
-			c.rememberQuota(accountID, info)
-			return info, nil
-		}
+	if status >= 300 {
+		return c.quotaFallback(accountID, fmt.Errorf("codex usage probe: http %d", status))
+	}
+	if info := quotaFromUsage(body); info != nil {
+		c.rememberQuota(accountID, info)
+		return info, nil
 	}
 	// A probe that did not carry windows is not a zero balance. Keep the last
 	// windows observed from a chat response rather than saving an empty snapshot.
-	return c.cachedQuota(accountID), nil
+	return c.quotaFallback(accountID, fmt.Errorf("codex usage probe returned no rate-limit windows"))
+}
+
+// quotaFallback returns the last windows observed from a chat response when the
+// probe fails, and reports the probe failure when nothing is cached. Swallowing
+// the error instead leaves a stale exhausted snapshot in place: the account
+// stays quota-blocked, so no chat runs to refresh its headers, forever.
+func (c *Client) quotaFallback(accountID string, probeErr error) (*providers.QuotaInfo, error) {
+	if cached := c.cachedQuota(accountID); cached != nil {
+		return cached, nil
+	}
+	return nil, probeErr
 }
 
 func (c *Client) rememberQuota(accountID string, info *providers.QuotaInfo) {
