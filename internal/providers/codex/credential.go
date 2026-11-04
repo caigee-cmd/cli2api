@@ -47,6 +47,11 @@ const (
 
 	ChatBase      = "https://chatgpt.com/backend-api/codex"
 	pathResponses = "/responses"
+	// UsageBase is the backend-api root that serves the account usage probe.
+	// The probe is not under ChatBase: /backend-api/codex/wham/usage answers
+	// with the Cloudflare 403 interstitial, while /backend-api/wham/usage
+	// returns the rate_limit windows as JSON.
+	UsageBase = "https://chatgpt.com/backend-api"
 	// pathWhamUsage is the account usage probe. It returns the same rate_limits
 	// object the websocket codex.rate_limits event carries, without spending a
 	// chat turn. CLIProxyAPI reads those fields from response headers instead.

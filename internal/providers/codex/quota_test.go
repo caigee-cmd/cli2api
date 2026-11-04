@@ -1,9 +1,87 @@
 package codex
 
 import (
+	"context"
+	"io"
 	"net/http"
+	"strings"
 	"testing"
 )
+
+// roundTripFunc serves Quota's probe request from a test closure without a
+// network round-trip; the client keeps its real base URLs, so the test also
+// pins the endpoint the probe calls.
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func quotaProbeClient(t *testing.T, transport roundTripFunc) *Client {
+	t.Helper()
+	client := NewClient(testStore{items: map[string][]byte{"a1": credentialPayload()}})
+	client.http.Transport = transport
+	return client
+}
+
+func TestQuotaProbesBackendApiUsage(t *testing.T) {
+	var gotURL, gotAuth, gotOriginator string
+	client := quotaProbeClient(t, func(r *http.Request) (*http.Response, error) {
+		gotURL = r.URL.String()
+		gotAuth = r.Header.Get("Authorization")
+		gotOriginator = r.Header.Get("Originator")
+		body := `{"plan_type":"plus","rate_limit":{
+			"primary_window":{"used_percent":0,"limit_window_seconds":18000,"reset_after_seconds":900},
+			"secondary_window":{"used_percent":54,"limit_window_seconds":604800,"reset_after_seconds":2263}}}`
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: http.Header{}}, nil
+	})
+	info, err := client.Quota(context.Background(), "a1")
+	if err != nil {
+		t.Fatalf("quota: %v", err)
+	}
+	// The probe lives on the backend-api root, not under the /codex chat
+	// prefix: the /codex path answers with the Cloudflare 403 interstitial.
+	if gotURL != "https://chatgpt.com/backend-api/wham/usage" {
+		t.Fatalf("probe url = %q", gotURL)
+	}
+	if strings.Contains(gotURL, "/codex/") {
+		t.Fatalf("probe url must not use the chat prefix: %q", gotURL)
+	}
+	if gotAuth != "Bearer at" || gotOriginator != Originator {
+		t.Fatalf("probe headers auth=%q originator=%q", gotAuth, gotOriginator)
+	}
+	if info == nil || len(info.Windows) != 2 || info.Percentage != 54 || info.Exceeded {
+		t.Fatalf("quota info = %+v", info)
+	}
+}
+
+func TestQuotaReportsProbeFailureWithoutCachedWindows(t *testing.T) {
+	client := quotaProbeClient(t, func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusForbidden, Body: io.NopCloser(strings.NewReader("blocked")), Header: http.Header{}}, nil
+	})
+	info, err := client.Quota(context.Background(), "a1")
+	if info != nil || err == nil {
+		t.Fatalf("expected probe failure, got info=%+v err=%v", info, err)
+	}
+	if !strings.Contains(err.Error(), "403") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestQuotaKeepsObservedWindowsWhenProbeFails(t *testing.T) {
+	client := quotaProbeClient(t, func(*http.Request) (*http.Response, error) {
+		return nil, io.ErrUnexpectedEOF
+	})
+	header := http.Header{}
+	header.Set("X-Codex-Primary-Used-Percent", "12")
+	header.Set("X-Codex-Primary-Reset-After-Seconds", "600")
+	client.observeQuotaHeaders("a1", header)
+	info, err := client.Quota(context.Background(), "a1")
+	if err != nil {
+		t.Fatalf("quota: %v", err)
+	}
+	if info == nil || len(info.Windows) != 1 || info.Windows[0].Percentage != 12 {
+		t.Fatalf("cached windows lost: %+v", info)
+	}
+}
 
 func TestQuotaFromUsageReadsCurrentWindows(t *testing.T) {
 	body := []byte(`{
