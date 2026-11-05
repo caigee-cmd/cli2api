@@ -67,6 +67,12 @@ func TestParseCatalogModelsKeepsVisibleWindowsAndHidesInternal(t *testing.T) {
 	if len(ds.Capabilities.ReasoningOptions) != 4 || ds.Capabilities.ReasoningDefault != "medium" {
 		t.Fatalf("reasoning=%+v", ds.Capabilities)
 	}
+	if ds.Capabilities.Images {
+		t.Fatalf("DeepSeek-V4-Pro-Official must not declare Images: %+v", ds.Capabilities)
+	}
+	if models[0].Capabilities.Images {
+		t.Fatalf("glm-5.2 is not in the measured vision table: %+v", models[0].Capabilities)
+	}
 }
 
 func TestParseReasoningOptionsRejectsIncompleteConfig(t *testing.T) {
@@ -110,6 +116,9 @@ func TestParseCatalogModelsUsesLiveMaxAndContactReasoning(t *testing.T) {
 	glm := models[0]
 	if !glm.Capabilities.MaxMode || len(glm.Capabilities.ReasoningOptions) != 3 || glm.Capabilities.ReasoningDefault != "high" {
 		t.Fatalf("glm live caps=%+v", glm.Capabilities)
+	}
+	if glm.Capabilities.Images {
+		t.Fatalf("glm-5.3 was unmeasured; Images must stay false: %+v", glm.Capabilities)
 	}
 	kimi := models[1]
 	if kimi.Capabilities.MaxMode || kimi.Capabilities.ReasoningType != "enabled" {
@@ -250,6 +259,9 @@ func TestCatalogCapturesMaxTier(t *testing.T) {
 	if caps.ContextWindowMax != 1000000 || !caps.MaxMode {
 		t.Fatalf("window/maxmode=%+v", caps)
 	}
+	if !caps.Images {
+		t.Fatalf("glm-5.3-flash must declare Images: %+v", caps)
+	}
 }
 
 // A shared model carries different tiers per scene: the merge must keep the
@@ -276,5 +288,63 @@ func TestMergePrefersMaxCapableEntry(t *testing.T) {
 	}
 	if merged[0].Credits != "x0.78 credits" {
 		t.Fatalf("credits backfill failed: %q", merged[0].Credits)
+	}
+}
+
+// Measured Trae vision table from #465: 16 models declare Images, DeepSeek-V4-
+// Pro-Official stays false, and the two rate-limited unknowns stay unmarked.
+func TestCatalogDeclaresMeasuredImageCapabilities(t *testing.T) {
+	wantTrue := []string{
+		"Doubao-Seed-2.1-Turbo", "Doubao-Seed-2.1-Pro", "Doubao-Seed-Evolving", "Doubao-Seed-Code",
+		"glm-5.3-flash", "glm-5.3-flashx", "deepseek-v4.1-flash",
+		"kimi-k3", "kimi-k2.6",
+		"mimo-v2.6-flash", "mimo-v2.6-pro",
+		"minimax-m3", "minimax-m3.1-flash",
+		"step-5-preview", "qwen3.8-flash", "qwen3.8-max",
+	}
+	wantFalse := []string{
+		"DeepSeek-V4-Pro-Official",
+		"glm-5.3",
+		"kimi-k3.1-pro",
+	}
+	if len(visionCapableModels) != len(wantTrue) {
+		t.Fatalf("visionCapableModels size=%d want %d", len(visionCapableModels), len(wantTrue))
+	}
+	for _, id := range wantTrue {
+		if !modelSupportsImages(id) {
+			t.Fatalf("%s should support images", id)
+		}
+	}
+	for _, id := range wantFalse {
+		if modelSupportsImages(id) {
+			t.Fatalf("%s must not be marked vision-capable", id)
+		}
+	}
+
+	entries := make([]map[string]any, 0, len(wantTrue)+len(wantFalse))
+	for _, id := range append(append([]string{}, wantTrue...), wantFalse...) {
+		entries = append(entries, map[string]any{
+			"config_name":    id,
+			"display_config": map[string]any{"display_name": id},
+		})
+	}
+	payload, _ := json.Marshal(map[string]any{"config_info_list": entries})
+	models, err := parseCatalogModels(payload, PrimaryScene)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]providers.ModelInfo{}
+	for _, m := range models {
+		byID[m.NativeModel] = m
+	}
+	for _, id := range wantTrue {
+		if !byID[id].Capabilities.Images {
+			t.Fatalf("%s catalog Images=false", id)
+		}
+	}
+	for _, id := range wantFalse {
+		if byID[id].Capabilities.Images {
+			t.Fatalf("%s catalog Images=true", id)
+		}
 	}
 }
