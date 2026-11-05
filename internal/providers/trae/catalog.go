@@ -26,6 +26,32 @@ var displayNameOverrides = map[string]string{
 	"deepseek-v4.1-flash": "DeepSeek-V4.1-Flash",
 }
 
+// visionCapableModels is the static Trae vision table measured in #465.
+// Keys are canonicalCatalogID values. Models in this set get
+// Capabilities.Images=true (aligned with how Codex sets Images from its
+// input_modalities table). Absent models stay false: DeepSeek-V4-Pro-Official
+// rejects image_url parts; glm-5.3 and kimi-k3.1-pro were rate-limited during
+// measurement and stay unmarked until verified. Do not flip the whole catalog
+// to true.
+var visionCapableModels = map[string]struct{}{
+	"doubao-seed-2.1-turbo": {},
+	"doubao-seed-2.1-pro":   {},
+	"doubao-seed-evolving":  {},
+	"doubao-seed-code":      {},
+	"glm-5.3-flash":         {},
+	"glm-5.3-flashx":        {},
+	"deepseek-v4.1-flash":   {},
+	"kimi-k3":               {},
+	"kimi-k2.6":             {},
+	"mimo-v2.6-flash":       {},
+	"mimo-v2.6-pro":         {},
+	"minimax-m3":            {},
+	"minimax-m3.1-flash":    {},
+	"step-5-preview":        {},
+	"qwen3.8-flash":         {},
+	"qwen3.8-max":           {},
+}
+
 type catalogConfig struct {
 	ConfigName          string `json:"config_name"`
 	IsInvisibleToUser   bool   `json:"is_invisible_to_user"`
@@ -61,6 +87,11 @@ type reasoningEffortConfig struct {
 // regardless of upstream casing.
 func canonicalCatalogID(id string) string {
 	return accounts.CanonicalModelID(id)
+}
+
+func modelSupportsImages(id string) bool {
+	_, ok := visionCapableModels[canonicalCatalogID(id)]
+	return ok
 }
 
 func parseCatalogModels(payload []byte, scene string) ([]providers.ModelInfo, error) {
@@ -237,6 +268,7 @@ func catalogModel(item catalogConfig, scene string) (providers.ModelInfo, bool) 
 			MaxOutputMax:       maxOutMax,
 			MaxMode:            maxMode,
 			Tools:              true,
+			Images:             modelSupportsImages(id),
 			Reasoning:          reasoning,
 			ReasoningOptions:   options,
 			ReasoningDefault:   defaultLevel,
