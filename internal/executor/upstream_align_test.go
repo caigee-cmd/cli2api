@@ -36,3 +36,14 @@ func TestClassifyErrorTLSVerifyNoFailover(t *testing.T) {
 		t.Fatalf("transient errors must still fail over: %+v", c)
 	}
 }
+
+func TestClassifyErrorImageConversionTimeoutNoFailover(t *testing.T) {
+	c := ClassifyError(&providers.Error{
+		Kind: accounts.KindUnavailable, Status: 502,
+		Code: providers.CodeUpstreamImageConversionTimeout,
+		Message: "Image conversion timeout",
+	})
+	if c.Failover || c.Cooldown != 0 || c.Code != providers.CodeUpstreamImageConversionTimeout {
+		t.Fatalf("classified=%+v", c)
+	}
+}

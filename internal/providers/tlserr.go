@@ -54,3 +54,7 @@ const CodeUpstreamQueued = "upstream_queued"
 // CodeClientVersionTooLow marks an upstream "upgrade required" hard gate
 // (Qoder HTTP 430). Every account shares it, so it is never retried.
 const CodeClientVersionTooLow = "client_version_too_low"
+
+// CodeUpstreamImageConversionTimeout marks a provider image-conversion TTL
+// (Qoder hub v1.8.0). Same-account bounded retry only; no account rotation.
+const CodeUpstreamImageConversionTimeout = "upstream_image_conversion_timeout"
