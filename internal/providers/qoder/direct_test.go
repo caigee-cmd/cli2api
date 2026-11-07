@@ -167,6 +167,37 @@ func TestDirectChatStreamReplaysPeekedFrames(t *testing.T) {
 	}
 }
 
+// A black-holed upstream (connection accepted, no response head, no FIN/RST)
+// must not hang the buffered path until the kernel TCP retransmission timeout
+// (~170s observed in production): ChatNonStream applies the same first-byte
+// deadline as the streaming path, so the executor can fail over in bounded
+// time instead of waiting out the TCP stack.
+func TestDirectChatNonStreamFirstByteTimeout(t *testing.T) {
+	// The handler drains the request body before parking, so the server arms
+	// its background read and notices the client abort — a handler that never
+	// reads the body cannot observe the disconnect and would wedge Server.Close.
+	// The 2s fallback keeps the harness bounded either way.
+	hung := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		select {
+		case <-r.Context().Done():
+		case <-time.After(2 * time.Second):
+		}
+	}))
+	defer hung.Close()
+	direct := newDirectFor(t, hung)
+	direct.ttfb = 50 * time.Millisecond
+
+	started := time.Now()
+	_, err := direct.ChatNonStream(context.Background(), "acc", translate.ChatRequest{Model: "auto"})
+	if !errors.Is(err, providers.ErrFirstByteTimeout) {
+		t.Fatalf("want ErrFirstByteTimeout, got %v", err)
+	}
+	if elapsed := time.Since(started); elapsed > 5*time.Second {
+		t.Fatalf("elapsed = %s, the first-byte deadline did not bound the call", elapsed)
+	}
+}
+
 func TestDirectChatStreamSalvagesTruncatedStream(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
