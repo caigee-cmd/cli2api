@@ -209,7 +209,12 @@ func (d *Direct) chatNonStreamOnce(ctx context.Context, accountID string, req tr
 		return providers.ChatOutcome{}, err
 	}
 	defer release()
-	resp, err := d.http.Do(prepared.request)
+	// The upstream always answers as SSE even for buffered callers, so the
+	// response head arrives fast in the healthy case. Without this deadline a
+	// black-holed gateway connection (accepted, never answered, no FIN/RST)
+	// hangs until the kernel TCP retransmission timeout (~170s observed) and
+	// the executor never gets a chance to fail over.
+	resp, err := doWithFirstByteTimeout(d.http, prepared.request, d.ttfb)
 	if err != nil {
 		return providers.ChatOutcome{}, err
 	}
