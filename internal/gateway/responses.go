@@ -20,7 +20,13 @@ func (h *Handler) HandleResponses(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "POST only")
 		return
 	}
-	body, err := io.ReadAll(io.LimitReader(r.Body, translate.MaxNativeRequestBytes+1))
+	bodyReader := decodeRequestBody(w, r, translate.MaxNativeRequestBytes, translate.MaxNativeRequestBytes)
+	defer bodyReader.Close()
+	if bodyReader.err != nil {
+		writeRequestBodyError(w, bodyReader.err)
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(bodyReader, translate.MaxNativeRequestBytes+1))
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
