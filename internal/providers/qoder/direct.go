@@ -209,7 +209,12 @@ func (d *Direct) chatNonStreamOnce(ctx context.Context, accountID string, req tr
 		return providers.ChatOutcome{}, err
 	}
 	defer release()
-	resp, err := d.http.Do(prepared.request)
+	// The upstream always answers as SSE even for buffered callers, so the
+	// response head arrives fast in the healthy case. Without this deadline a
+	// black-holed gateway connection (accepted, never answered, no FIN/RST)
+	// hangs until the kernel TCP retransmission timeout (~170s observed) and
+	// the executor never gets a chance to fail over.
+	resp, err := doWithFirstByteTimeout(d.http, prepared.request, d.ttfb)
 	if err != nil {
 		return providers.ChatOutcome{}, err
 	}
@@ -467,6 +472,9 @@ func BuildPlainChatBody(req translate.ChatRequest, now time.Time) map[string]any
 			continue
 		}
 		item := map[string]any{"role": message.Role, "content": normalizeMessageContent(message)}
+		if parts := upstreamContents(message.Role, message.Content); parts != nil {
+			item["contents"] = parts
+		}
 		if message.Name != "" {
 			item["name"] = message.Name
 		}
@@ -486,8 +494,13 @@ func BuildPlainChatBody(req translate.ChatRequest, now time.Time) map[string]any
 		messages = append([]map[string]any{{"role": "system", "content": systemText}}, messages...)
 	}
 	if len(messages) == 0 {
-		messages = []map[string]any{{"role": "user", "content": "ping"}}
+		messages = []map[string]any{{
+			"role":     "user",
+			"content":  "ping",
+			"contents": upstreamContents("user", "ping"),
+		}}
 	}
+	ensureCacheMarker(messages)
 	modelKey := strings.TrimSpace(req.Model)
 	if modelKey == "" {
 		modelKey = "auto"
@@ -612,6 +625,109 @@ func normalizeMessageContent(message translate.ChatMessage) any {
 		return ""
 	}
 	return message.Content
+}
+
+// upstreamContents mirrors a message's content into the `contents` part array
+// the official client sends alongside `content`. Prompt-cache markers ride on
+// these parts, so a message without a contents array can never carry one.
+// Shape follows the reference converter: text-ish parts become {type,text},
+// image parts become {type,image_url}, anything else is dropped.
+func upstreamContents(role string, content any) []any {
+	if role == "tool" {
+		return nil
+	}
+	switch value := content.(type) {
+	case string:
+		if value == "" {
+			return nil
+		}
+		return []any{map[string]any{"type": "text", "text": value}}
+	case []any:
+		parts := make([]any, 0, len(value))
+		for _, raw := range value {
+			if part, ok := upstreamContentPart(raw); ok {
+				parts = append(parts, part)
+			}
+		}
+		if len(parts) == 0 {
+			return nil
+		}
+		return parts
+	}
+	return nil
+}
+
+func upstreamContentPart(raw any) (map[string]any, bool) {
+	switch part := raw.(type) {
+	case string:
+		return map[string]any{"type": "text", "text": part}, true
+	case map[string]any:
+		switch partType, _ := part["type"].(string); partType {
+		case "text", "input_text", "output_text":
+			text, _ := part["text"].(string)
+			if text == "" {
+				text, _ = part["content"].(string)
+			}
+			return map[string]any{"type": "text", "text": text}, true
+		case "image_url":
+			switch image := part["image_url"].(type) {
+			case string:
+				if image == "" {
+					return nil, false
+				}
+				return map[string]any{"type": "image_url", "image_url": map[string]any{"url": image}}, true
+			case map[string]any:
+				if url, _ := image["url"].(string); url != "" {
+					return map[string]any{"type": "image_url", "image_url": image}, true
+				}
+			}
+		}
+	}
+	return nil, false
+}
+
+// ensureCacheMarker applies the official client's prompt-cache contract: the
+// request carries exactly one ephemeral cache_control marker, on the last
+// cacheable part of the last non-tool message. The gateway discounts prefix
+// tokens only when the request carries the marker — without one the CN
+// gateway bills the whole context at uncached rates on every call, even when
+// the prefix repeats turn over turn.
+func ensureCacheMarker(messages []map[string]any) {
+	for _, message := range messages {
+		for _, part := range contentParts(message) {
+			if _, marked := part["cache_control"]; marked {
+				return
+			}
+		}
+	}
+	for i := len(messages) - 1; i >= 0; i-- {
+		message := messages[i]
+		if role, _ := message["role"].(string); role == "tool" {
+			continue
+		}
+		parts := contentParts(message)
+		for j := len(parts) - 1; j >= 0; j-- {
+			switch partType, _ := parts[j]["type"].(string); partType {
+			case "text", "image_url":
+				parts[j]["cache_control"] = map[string]any{"type": "ephemeral"}
+				return
+			}
+		}
+	}
+}
+
+func contentParts(message map[string]any) []map[string]any {
+	raw, ok := message["contents"].([]any)
+	if !ok {
+		return nil
+	}
+	parts := make([]map[string]any, 0, len(raw))
+	for _, item := range raw {
+		if part, ok := item.(map[string]any); ok {
+			parts = append(parts, part)
+		}
+	}
+	return parts
 }
 
 func rawNumber(raw json.RawMessage) (int, bool) {
@@ -739,7 +855,9 @@ func applyUsage(out *providers.ChatOutcome, raw json.RawMessage) {
 
 func collectUpstream(r io.Reader, names ...map[string]struct{}) (upstreamFrame, error) {
 	var allowed map[string]struct{}
-	if len(names)>0 { allowed=names[0] }
+	if len(names) > 0 {
+		allowed = names[0]
+	}
 	var frame upstreamFrame
 	var content, reasoning strings.Builder
 	var acc toolCallAccumulator
@@ -935,7 +1053,6 @@ func walkUpstream(r io.Reader, fn func(map[string]any) error) error {
 	}
 	return scanner.Err()
 }
-
 
 // peekUpstreamErrorDetail inspects the already-peeked SSE head for an
 // error-only envelope (used to catch image conversion timeouts before any
