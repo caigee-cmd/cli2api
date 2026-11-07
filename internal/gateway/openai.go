@@ -56,29 +56,57 @@ func (h *Handler) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 	ctx := execution.Context
 	w.Header().Set("X-Request-Id", requestID)
 
+	setStreamHeaders := func() {
+		w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.Header().Set("X-Accel-Buffering", "no")
+	}
+
 	if req.Stream {
+		// Start heartbeating before blocking on the upstream head. A long prompt
+		// can take longer to upload than a proxy's response budget; silence in
+		// that window is what turns a slow turn into an aborted connection.
+		heartbeat := newStreamHeartbeat(w)
+		heartbeat.Arm(setStreamHeaders)
+
 		upstream, err := h.Executor.ChatStreamProxy(ctx, req, prefer, providerFilter)
 		if err != nil {
+			if heartbeat.Abandon() {
+				// The headers are already on the wire, so the only channel left
+				// is an in-stream error event. Report it the same way a
+				// mid-stream failure is reported.
+				h.finishRequestLog(requestID, started, req, publicModel, upstream.AccountID, firstNonEmpty(upstream.Provider, providerFilter), upstream.Routing, accounts.RequestStatusError, upstream.TTFBMs, nil, err, upstream.AttemptCount, upstream.ReasoningLevel)
+				writeStructuredStreamError(w, err)
+				return
+			}
 			h.finishRequestLog(requestID, started, req, publicModel, upstream.AccountID, firstNonEmpty(upstream.Provider, providerFilter), upstream.Routing, accounts.RequestStatusError, upstream.TTFBMs, nil, err, upstream.AttemptCount, upstream.ReasoningLevel)
 			WriteClassifiedErr(w, err)
 			return
 		}
+		committed := heartbeat.Adopt()
 		defer upstream.Response.Body.Close()
 		h.finishRequestLog(requestID, started, req, publicModel, upstream.AccountID, firstNonEmpty(upstream.Provider, providerFilter), upstream.Routing, accounts.RequestStatusStreaming, upstream.TTFBMs, nil, nil, upstream.AttemptCount, upstream.ReasoningLevel)
-		w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
-		w.Header().Set("Cache-Control", "no-cache")
-		w.Header().Set("Connection", "keep-alive")
-		if upstream.AccountID != "" {
-			w.Header().Set("X-Qoder-Account", upstream.AccountID)
-			w.Header().Set("X-CLI2API-Account", upstream.AccountID)
-		}
-		if provider := firstNonEmpty(upstream.Provider, providerFilter); provider != "" {
-			w.Header().Set("X-CLI2API-Provider", provider)
-		}
-		w.Header().Set("X-Accel-Buffering", "no")
-		w.WriteHeader(http.StatusOK)
-		if flusher, ok := w.(http.Flusher); ok {
-			flusher.Flush()
+		if committed {
+			// Headers already sent by the heartbeat; only decorate what a
+			// committed response can still carry.
+			if upstream.AccountID != "" {
+				w.Header().Set("X-Qoder-Account", upstream.AccountID)
+				w.Header().Set("X-CLI2API-Account", upstream.AccountID)
+			}
+		} else {
+			setStreamHeaders()
+			if upstream.AccountID != "" {
+				w.Header().Set("X-Qoder-Account", upstream.AccountID)
+				w.Header().Set("X-CLI2API-Account", upstream.AccountID)
+			}
+			if provider := firstNonEmpty(upstream.Provider, providerFilter); provider != "" {
+				w.Header().Set("X-CLI2API-Provider", provider)
+			}
+			w.WriteHeader(http.StatusOK)
+			if flusher, ok := w.(http.Flusher); ok {
+				flusher.Flush()
+			}
 		}
 		stats, relayErr := RelayOpenAIStream(w, upstream.Response.Body)
 		status := streamLogStatus(relayErr, stats.SawDone, r.Context().Err() != nil)
