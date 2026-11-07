@@ -68,6 +68,7 @@ type directPrepared struct {
 	request *http.Request
 	model   string
 	level   string
+	allowed map[string]struct{}
 }
 
 func (d *Direct) prepare(ctx context.Context, accountID string, req translate.ChatRequest) (directPrepared, error) {
@@ -179,10 +180,26 @@ func (d *Direct) prepare(ctx context.Context, accountID string, req translate.Ch
 		httpReq.Header.Set("X-Model-Key", modelKey)
 		httpReq.Header.Set("X-Model-Source", "system")
 	}
-	return directPrepared{request: httpReq, model: modelKey, level: resolvedReasoningLevel(req)}, nil
+	return directPrepared{allowed: allowedToolNames(req.Tools), request: httpReq, model: modelKey, level: resolvedReasoningLevel(req)}, nil
 }
 
 func (d *Direct) ChatNonStream(ctx context.Context, accountID string, req translate.ChatRequest) (providers.ChatOutcome, error) {
+	var last error
+	for attempt := 0; attempt < 2; attempt++ {
+		outcome, err := d.chatNonStreamOnce(ctx, accountID, req)
+		if err == nil {
+			return outcome, nil
+		}
+		last = err
+		if !isImageConversionTimeoutErr(err) || attempt == 1 {
+			return providers.ChatOutcome{}, err
+		}
+		// hub cdd95ef: one same-account bounded retry; no rotation/cooldown.
+	}
+	return providers.ChatOutcome{}, last
+}
+
+func (d *Direct) chatNonStreamOnce(ctx context.Context, accountID string, req translate.ChatRequest) (providers.ChatOutcome, error) {
 	prepared, err := d.prepare(ctx, accountID, req)
 	if err != nil {
 		return providers.ChatOutcome{}, err
@@ -204,7 +221,7 @@ func (d *Direct) ChatNonStream(ctx context.Context, accountID string, req transl
 	if resp.StatusCode >= 300 {
 		return providers.ChatOutcome{}, upstreamStatusError(resp.StatusCode, raw)
 	}
-	outcome, err := outcomeFromUpstreamSSE(prepared.model, raw)
+	outcome, err := outcomeFromUpstreamSSE(prepared.model, raw, prepared.allowed)
 	if err != nil {
 		return providers.ChatOutcome{}, err
 	}
@@ -213,6 +230,21 @@ func (d *Direct) ChatNonStream(ctx context.Context, accountID string, req transl
 }
 
 func (d *Direct) ChatStream(ctx context.Context, accountID string, req translate.ChatRequest) (*http.Response, providers.ResolvedChat, error) {
+	var last error
+	for attempt := 0; attempt < 2; attempt++ {
+		resp, resolved, err := d.chatStreamOnce(ctx, accountID, req)
+		if err == nil {
+			return resp, resolved, nil
+		}
+		last = err
+		if !isImageConversionTimeoutErr(err) || attempt == 1 {
+			return nil, providers.ResolvedChat{}, err
+		}
+	}
+	return nil, providers.ResolvedChat{}, last
+}
+
+func (d *Direct) chatStreamOnce(ctx context.Context, accountID string, req translate.ChatRequest) (*http.Response, providers.ResolvedChat, error) {
 	prepared, err := d.prepare(ctx, accountID, req)
 	if err != nil {
 		return nil, providers.ResolvedChat{}, err
@@ -240,7 +272,12 @@ func (d *Direct) ChatStream(ctx context.Context, accountID string, req translate
 		release()
 		return nil, providers.ResolvedChat{}, err
 	}
-	return rewriteUpstreamSSE(guarded, prepared.model), providers.ResolvedChat{ReasoningLevel: prepared.level}, nil
+	if detail := peekUpstreamErrorDetail(guarded); isImageConversionTimeoutMessage(detail) {
+		_ = guarded.Body.Close()
+		release()
+		return nil, providers.ResolvedChat{}, imageConversionTimeoutError(detail)
+	}
+	return rewriteUpstreamSSE(guarded, prepared.model, prepared.allowed), providers.ResolvedChat{ReasoningLevel: prepared.level}, nil
 }
 
 // defaultQueueRetryAfter is used when a 10605 queue rejection carries no
@@ -274,6 +311,9 @@ func upstreamStatusError(status int, body []byte) error {
 			Kind: accounts.KindUnavailable, Status: http.StatusBadGateway,
 			Code: providers.CodeClientVersionTooLow, Message: clientVersionTooLowMessage,
 		}
+	}
+	if isImageConversionTimeoutMessage(message) {
+		return imageConversionTimeoutError(message)
 	}
 	kind := accounts.KindUnavailable
 	switch status {
@@ -618,12 +658,15 @@ type upstreamFrame struct {
 	errKind   string
 }
 
-func outcomeFromUpstreamSSE(model string, raw []byte) (providers.ChatOutcome, error) {
-	frame, err := collectUpstream(bytes.NewReader(raw))
+func outcomeFromUpstreamSSE(model string, raw []byte, names ...map[string]struct{}) (providers.ChatOutcome, error) {
+	frame, err := collectUpstream(bytes.NewReader(raw), names...)
 	if err != nil {
 		return providers.ChatOutcome{}, err
 	}
 	if frame.errText != "" && frame.content == "" && frame.reasoning == "" && len(frame.tools) == 0 {
+		if isImageConversionTimeoutMessage(frame.errText) {
+			return providers.ChatOutcome{}, imageConversionTimeoutError(frame.errText)
+		}
 		kind := frame.errKind
 		if kind == "" {
 			kind = accounts.KindUnavailable
@@ -694,7 +737,9 @@ func applyUsage(out *providers.ChatOutcome, raw json.RawMessage) {
 	out.Credits = usage.Credits
 }
 
-func collectUpstream(r io.Reader) (upstreamFrame, error) {
+func collectUpstream(r io.Reader, names ...map[string]struct{}) (upstreamFrame, error) {
+	var allowed map[string]struct{}
+	if len(names)>0 { allowed=names[0] }
 	var frame upstreamFrame
 	var content, reasoning strings.Builder
 	var acc toolCallAccumulator
@@ -742,6 +787,18 @@ func collectUpstream(r io.Reader) (upstreamFrame, error) {
 	frame.content = content.String()
 	frame.reasoning = reasoning.String()
 	frame.tools = acc.encode()
+	if len(frame.tools) == 0 && frame.content != "" {
+		if clean, tools, ok := recoverToolTagsFromContent(frame.content, nil, allowed); ok {
+			frame.content = clean
+			frame.tools = tools
+			if frame.finish == "" || frame.finish == "stop" {
+				frame.finish = "tool_calls"
+			}
+		}
+	}
+	if len(frame.tools) > 0 {
+		frame.tools = repairToolCallArgumentsJSON(frame.tools)
+	}
 	return frame, err
 }
 
@@ -808,7 +865,7 @@ func (a *toolCallAccumulator) encode() json.RawMessage {
 		out = append(out, a.calls[index])
 	}
 	raw, _ := json.Marshal(out)
-	return raw
+	return repairToolCallArgumentsJSON(raw)
 }
 
 func upstreamError(body map[string]any) (string, int, string) {
@@ -879,14 +936,65 @@ func walkUpstream(r io.Reader, fn func(map[string]any) error) error {
 	return scanner.Err()
 }
 
-func rewriteUpstreamSSE(resp *http.Response, model string) *http.Response {
+
+// peekUpstreamErrorDetail inspects the already-peeked SSE head for an
+// error-only envelope (used to catch image conversion timeouts before any
+// client bytes are written so Direct can retry the same account once).
+func peekUpstreamErrorDetail(resp *http.Response) string {
+	if resp == nil || resp.Body == nil {
+		return ""
+	}
+	br := bufio.NewReader(resp.Body)
+	var pending bytes.Buffer
+	for {
+		line, err := br.ReadString('\n')
+		if line != "" {
+			pending.WriteString(line)
+			trimmed := strings.TrimSpace(line)
+			if data, ok := strings.CutPrefix(trimmed, "data:"); ok {
+				payload := strings.TrimSpace(data)
+				if meaningfulDataLine(payload) {
+					var outer map[string]any
+					if json.Unmarshal([]byte(payload), &outer) == nil {
+						body := outer
+						if nested, ok := outer["body"]; ok {
+							switch typed := nested.(type) {
+							case string:
+								var inner map[string]any
+								if json.Unmarshal([]byte(typed), &inner) == nil {
+									body = inner
+								}
+							case map[string]any:
+								body = typed
+							}
+						}
+						frame := frameFromBody(body)
+						resp.Body = peekedBody{Reader: io.MultiReader(&pending, br), Closer: resp.Body}
+						if frame.errText != "" && frame.content == "" && frame.reasoning == "" && len(frame.tools) == 0 {
+							return frame.errText
+						}
+						return ""
+					}
+					resp.Body = peekedBody{Reader: io.MultiReader(&pending, br), Closer: resp.Body}
+					return ""
+				}
+			}
+		}
+		if err != nil {
+			resp.Body = peekedBody{Reader: io.MultiReader(&pending, br), Closer: resp.Body}
+			return ""
+		}
+	}
+}
+
+func rewriteUpstreamSSE(resp *http.Response, model string, names ...map[string]struct{}) *http.Response {
 	pr, pw := io.Pipe()
 	// Both the converter goroutine and the caller may close upstream; Once
 	// keeps non-idempotent wrappers (cancelOnCloseBody) race-free.
 	closeUpstream := sync.OnceValue(resp.Body.Close)
 	go func() {
 		defer closeUpstream()
-		err := writeOpenAIChunks(pw, resp.Body, model)
+		err := writeOpenAIChunks(pw, recoverToolTagStream(resp.Body, names...), model)
 		_ = pw.CloseWithError(err)
 	}()
 	headers := resp.Header.Clone()

@@ -164,6 +164,13 @@ func ClassifyError(err error) Classified {
 		classified.Cooldown = 0
 		classified.RetryAfter = 0
 		return classified
+	case providers.CodeUpstreamImageConversionTimeout:
+		// Same-account retry already happened inside the Qoder Direct client.
+		// Do not rotate or cool the account for a provider image conversion TTL.
+		classified.Failover = false
+		classified.Cooldown = 0
+		classified.RetryAfter = 0
+		return classified
 	}
 	if providerErr.Code == "upstream_empty" {
 		// A heartbeat-only upstream stream says nothing about the account's
