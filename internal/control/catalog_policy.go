@@ -229,6 +229,57 @@ func FilterModelsForIdentity(identity auth.Identity, models []map[string]any) []
 	return filtered
 }
 
+// PrefixModelEntries rewrites bare model ids to provider-prefixed ids
+// ("glm-5.2" -> "qoder/glm-5.2"). The gateway accepts bare ids only while the
+// cross-provider pool is on; with it off, RejectsBareModel refuses them, so
+// model lists must match what the gateway accepts or every client that picks a
+// model from the list (console access page, /v1/models consumers) gets a 400.
+// Entries already carrying a prefix, and the pooled qoder view (empty provider,
+// owned_by=qoder), pass through unchanged. Region-qualified entries use the
+// dash form so a specific region stays pinned ("workbuddy-cn/glm-5.3").
+func PrefixModelEntries(models []map[string]any) []map[string]any {
+	if len(models) == 0 {
+		return models
+	}
+	out := make([]map[string]any, 0, len(models))
+	for _, model := range models {
+		id, _ := model["id"].(string)
+		id = strings.TrimSpace(id)
+		provider, _ := model["provider"].(string)
+		if provider == "" {
+			provider, _ = model["owned_by"].(string)
+		}
+		if id == "" || provider == "" || strings.Contains(id, "/") {
+			out = append(out, model)
+			continue
+		}
+		regions := EntryModelRegions(model)
+		prefix := provider
+		if len(regions) == 1 {
+			switch regions[0] {
+			case "cn":
+				prefix += "-cn"
+			case "global":
+				prefix += "-gl"
+			}
+		}
+		entry := CloneModelEntry(model)
+		entry["id"] = prefix + "/" + id
+		out = append(out, entry)
+	}
+	return out
+}
+
+// CloneModelEntry copies a catalog entry so rewriting its id never mutates the
+// shared catalog cache.
+func CloneModelEntry(model map[string]any) map[string]any {
+	out := make(map[string]any, len(model))
+	for key, value := range model {
+		out[key] = value
+	}
+	return out
+}
+
 func identityAllowsAnyModelRegion(identity auth.Identity, model map[string]any) bool {
 	regions := EntryModelRegions(model)
 	if len(regions) == 0 {
