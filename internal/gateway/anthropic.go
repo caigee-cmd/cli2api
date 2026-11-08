@@ -18,7 +18,13 @@ func (h *Handler) HandleAnthropicMessages(w http.ResponseWriter, r *http.Request
 		return
 	}
 	var source translate.AnthropicMessagesRequest
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxChatRequestBytes)).Decode(&source); err != nil {
+	body := decodeRequestBody(w, r, maxChatRequestBytes, maxChatRequestBytes)
+	defer body.Close()
+	if body.err != nil {
+		writeRequestBodyError(w, body.err)
+		return
+	}
+	if err := json.NewDecoder(body).Decode(&source); err != nil {
 		writeAnthropicError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
 	}
