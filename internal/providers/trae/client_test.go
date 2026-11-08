@@ -130,7 +130,7 @@ func TestDecodeCredentialNestedAndFlat(t *testing.T) {
 func TestLoginCallbackStoresDeviceAndToken(t *testing.T) {
 	client, store := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case pathExchange:
+		case pathExchangeCode:
 			_ = json.NewEncoder(w).Encode(map[string]any{"Result": map[string]any{
 				"Token": "at", "RefreshToken": "rt2", "TokenExpireAt": time.Now().Add(time.Hour).Unix(),
 			}})
@@ -174,7 +174,7 @@ func TestLoginCallbackStoresDeviceAndToken(t *testing.T) {
 func TestCompleteLoginAcceptsPastedCallbackURL(t *testing.T) {
 	client, store := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case pathExchange:
+		case pathExchangeCode:
 			_ = json.NewEncoder(w).Encode(map[string]any{"Result": map[string]any{
 				"Token": "at", "RefreshToken": "rt2", "TokenExpireAt": time.Now().Add(time.Hour).Unix(),
 			}})
