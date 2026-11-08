@@ -3,6 +3,42 @@
 Published user-facing notes for GitHub Releases and the console update page.
 Write upcoming notes as bilingual files in `changelog/unreleased/`.
 
+## 0.7.28 - 2026-11-08
+
+### English
+
+- With the cross-provider model pool disabled, the model list endpoints (`/api/models` and `/v1/models`) now serve provider-prefixed model IDs, matching what the gateway accepts; previously the lists still showed bare IDs that every request using them would get rejected with `provider_prefix_required`, breaking the console access page and OpenAI-compatible clients.
+- Fix Codex quota refresh: the usage probe now calls the backend-api `/wham/usage` endpoint instead of the chat-prefixed `/codex/wham/usage` path, which answers with the Cloudflare 403 interstitial. An account whose last snapshot says "exhausted" refreshes its windows again instead of staying quota-blocked on stale numbers, and a probe failure with no cached windows is reported instead of silently ignored.
+- `POST /v1/chat/completions`, `/v1/messages` and `/v1/responses` accept `Content-Encoding: gzip` request bodies (`x-gzip` is accepted as its legacy alias). A long conversation compresses roughly 100-300x, which matters when the caller reaches the gateway through a proxy with a fixed response budget: uploading a multi-megabyte body can consume that budget before the origin starts working, and no server-side streaming can recover a request whose body never arrived. Decompressed size is bounded independently of the compressed size so a small gzip body cannot expand without limit. Requests without the header are read exactly as before, and an encoding the gateway cannot decode answers 415 with the encoding named instead of a JSON syntax error.
+- Add the upstream prompt-cache marker (ephemeral `cache_control`) to Qoder chat requests, so repeated context prefixes hit the gateway's prompt cache. Qoder CN accounts previously paid uncached rates for the full context on every call.
+- Bound the buffered (non-stream) Qoder chat path with the same upstream first-byte deadline as streaming: a black-holed gateway connection now fails over within the configured TTFB window instead of hanging until the kernel TCP timeout.
+- Qoder recovers fake-XML `<tool_call>…</tool_call>` content echoes into structured `tool_calls` (hub #140 / e6e7622), including stream hold, and repairs mangled tool-argument JSON before fail-closed (hub 70ba58b args path only).
+- Qoder treats provider `Image conversion timeout` as a same-account, one-shot retry without cooling or rotating the account (hub v1.8.0 / cdd95ef); after the bounded retry the executor still does not fail over.
+- Request-log retention no longer deletes the only copy of the usage history. `request_logs` is both the per-request detail log and the table every aggregate reads (Usage page, Cost panel, traffic chart), so the old single age-based `DELETE` erased the totals for a day at the same moment it erased that day's detail — and there is no rollup table to reconstruct them. Retention is now two stages: past `CLI2API_LOG_RETENTION_DAYS` a row keeps every column the aggregates touch (status, stream, model, account, API key, provider, tokens, cache, credits, latency, TTFB, `error_kind`) and loses only what the detail drill-down reads (child rows, error text, message roles, reasoning, routing, `finished_at`); past `CLI2API_LOG_TOTALS_RETENTION_DAYS` (default 730) the row is deleted. The Usage and Cost numbers therefore stay exact rather than approximated, and the file still stops growing because the child tables were ~90% of its bytes.
+- `CLI2API_LOG_MAX_ROWS` now counts only rows that still carry detail. Totals-only rows are not subject to it, so raising the retention window is no longer silently undone by the row cap deleting the oldest rows first.
+- The Usage **Cost** panel window follows `CLI2API_LOG_TOTALS_RETENTION_DAYS` instead of the detail window, so a raised retention is actually visible there.
+- `GET /api/logs/requests` and `/api/logs/requests/<id>` gain `detail_expired`, so a console can tell "this request has no attempts recorded" apart from "this request's detail was cleared by retention".
+- Streaming chat now heartbeats while it waits for the upstream response head: after `CLI2API_STREAM_HEARTBEAT_AFTER_MS` (default 20s) the gateway commits SSE headers and emits `: keepalive` comment frames every `CLI2API_STREAM_HEARTBEAT_INTERVAL_MS` (default 10s) until the real stream starts. A reverse proxy with a fixed response budget (Cloudflare's 120s Proxy Read Timeout, which is Enterprise-only to raise) no longer aborts a healthy turn whose prompt is slow to upload or whose prefill runs long. Fast failures keep returning their real HTTP status, because the headers are only committed once the attempt proves slow; a failure after that point is reported as an in-stream error event instead.
+- Trae model catalog now declares `Capabilities.Images` from the measured vision table (#465): 16 vision-capable models expose `supports_images`, while `DeepSeek-V4-Pro-Official` and the two unverified models stay unmarked.
+- Trae CN check-in no longer fails with 9074 on accounts added through the login flow: freshly generated device ids are 15 digits, the shape the claim gate accepts; 16-digit ids are refused with the misleading "too many users" message while the read-only status endpoint accepts any value.
+
+### 中文
+
+- 关闭跨 Provider 模型池后，模型列表接口（`/api/models` 与 `/v1/models`）现在返回带 Provider 前缀的模型 ID，与网关校验保持一致；此前列表仍是裸 ID，按列表选择的请求都会被 `provider_prefix_required` 拒绝，导致控制台接入与调试页面及 OpenAI 兼容客户端不可用。
+- 修复 Codex 额度刷新：用量探测改走 backend-api 的 `/wham/usage`，不再请求聊天前缀下的 `/codex/wham/usage`（那里返回的是 Cloudflare 403 拦截页）。上次快照显示「额度耗尽」的账号现在会重新拉取窗口数据，不再一直卡在过期数字上；探测失败且没有缓存窗口时会如实报错，而不是静默忽略。
+- `POST /v1/chat/completions`、`/v1/messages` 与 `/v1/responses` 支持 `Content-Encoding: gzip` 请求体（`x-gzip` 作为旧别名一并接受）。长对话压缩比约 100-300 倍，这在客户端经由带固定响应预算的反向代理访问网关时很关键：上传几 MB 的请求体就可能耗尽该预算，而这部分时间服务端再怎么流式输出也救不回来。解压后的大小独立于压缩后大小单独限流，避免小体积 gzip 体无限膨胀。不带该头的请求读取方式完全不变；网关无法解码的编码返回 415 并指明编码名，而不是抛一个 JSON 语法错误。
+- Qoder 聊天请求现在会携带上游提示缓存标记（ephemeral `cache_control`），重复的上下文前缀将命中网关提示缓存。此前 Qoder CN 账号每次调用都按未缓存全价计费整个上下文。
+- 非流式 Qoder 聊天路径现在与流式路径共用上游首字节超时：网关连接被静默黑洞时，会在配置的 TTFB 窗口内切换账号，而不是挂到内核 TCP 超时。
+- Qoder 将伪 XML `<tool_call>…</tool_call>` 正文回声还原为结构化 `tool_calls`（对齐 hub #140 / e6e7622，含流式暂存），并在 fail-closed 前尽量修复损坏的工具参数 JSON（只跟 hub 70ba58b 的坏参数修复，不含首字 504 换号）。
+- Qoder 对上游 `Image conversion timeout` 在同账号做一次有界重试，不冷却、不换号（对齐 hub v1.8.0 / cdd95ef）；有界重试用尽后执行层仍不因此 fail over。
+- 请求日志保留不再删掉用量历史的唯一副本。`request_logs` 既是逐请求明细，也是所有聚合查询（用量页、费用面板、流量图）读取的表，原来的单段按龄 `DELETE` 在删掉某天明细的同时把那天的汇总一起抹掉，而库里没有任何汇总表可以重建。现在保留分两段：超过 `CLI2API_LOG_RETENTION_DAYS` 的行保留全部聚合列（状态、stream、模型、账号、API key、渠道、tokens、缓存、积分、延迟、TTFB、`error_kind`），只清掉明细视图才读的内容（子表行、错误文本、消息角色、推理等级、routing、`finished_at`）；超过 `CLI2API_LOG_TOTALS_RETENTION_DAYS`（默认 730 天）才删除整行。因此用量与费用数字保持精确而非近似，文件也不会无限增长——原先子表占了约九成体积。
+- `CLI2API_LOG_MAX_ROWS` 现在只统计仍带明细的行。只剩汇总的行不计入，所以调大保留期不会再被行数上限按「最老的先删」悄悄抵消。
+- 用量页「费用」选项卡的时间范围改为跟随 `CLI2API_LOG_TOTALS_RETENTION_DAYS`，而不是明细保留期，调大保留期后该面板才真正看得到更早的历史。
+- `GET /api/logs/requests` 与 `/api/logs/requests/<id>` 新增 `detail_expired` 字段，控制台可以区分「这次请求本来就没记录 attempt」和「这次请求的明细已被保留策略清理」。
+- 流式对话在等待上游响应头期间开始发心跳：超过 `CLI2API_STREAM_HEARTBEAT_AFTER_MS`（默认 20s）后先提交 SSE 响应头，并按 `CLI2API_STREAM_HEARTBEAT_INTERVAL_MS`（默认 10s）持续发送 `: keepalive` 注释帧，直到真实流开始。这样带固定响应预算的反向代理（Cloudflare 的 120s Proxy Read Timeout，非 Enterprise 不可调）就不会因为上传慢或 prefill 久而掐断一个正常请求。快速失败仍然返回真实 HTTP 状态码——只有确认这次尝试确实慢的时候才提前提交响应头；提交之后的失败改为流内 error 事件。
+- Trae 模型目录按实测识图表（#465）声明 `Capabilities.Images`：16 个可看图模型会暴露 `supports_images`，`DeepSeek-V4-Pro-Official` 与两个未验证模型保持未标记。
+- Trae CN 签到不再对登录流程添加的账号报 9074：新生成的设备号为 15 位，即领取接口放行的形态；16 位号会被「当前参与用户太多」这一误导性文案拒绝，而只读的状态接口对设备号不校验。
+
 ## 0.7.27 - 2026-11-03
 
 ### English
