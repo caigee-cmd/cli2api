@@ -251,6 +251,9 @@ UPDATE accounts SET drop_system_prompt = 0 WHERE provider = 'trae';`},
 	{filename: "025_request_log_api_key.sql", sql: `
 ALTER TABLE request_logs ADD COLUMN api_key_id TEXT NOT NULL DEFAULT '';
 CREATE INDEX IF NOT EXISTS request_logs_api_key_id ON request_logs(api_key_id);`},
+	{filename: "026_request_log_detail_expiry.sql", sql: `
+ALTER TABLE request_logs ADD COLUMN detail_expired INTEGER NOT NULL DEFAULT 0;
+CREATE INDEX IF NOT EXISTS request_logs_detail_expired ON request_logs(detail_expired, created_at);`},
 }
 
 const schemaMigrationsDDL = `

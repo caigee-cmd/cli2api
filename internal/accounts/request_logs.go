@@ -50,6 +50,11 @@ type RequestLog struct {
 	ErrorCode           string                   `json:"error_code,omitempty"`
 	ErrorMessage        string                   `json:"error_message,omitempty"`
 	AttemptCount        int                      `json:"attempt_count"`
+	// DetailExpired marks a log whose detail rows and detail-only columns were
+	// cleared by retention. The aggregate columns (tokens, credits, latency,
+	// status, model) are still present, so usage totals stay exact; only the
+	// per-request drill-down is gone.
+	DetailExpired       bool                     `json:"detail_expired,omitempty"`
 	MessageCount        int                      `json:"message_count,omitempty"`
 	EmptyMessageIndexes []int                    `json:"empty_message_indexes,omitempty"`
 	MessageRoles        []string                 `json:"message_roles,omitempty"`
