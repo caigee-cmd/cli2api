@@ -697,6 +697,14 @@ func (c *Client) ExchangeToken(ctx context.Context, accountID string, credential
 	if strings.TrimSpace(credential.RefreshToken) == "" {
 		return credential, fmt.Errorf("no refreshToken")
 	}
+	// The legacy /cloudide exchange returns a JWT without a device binding.
+	// Status queries still work with it, but check-in claims are refused with
+	// 9074. Renew on the same device-bound path as the official IDE, preserving
+	// the legacy exchange as a compatibility fallback for old credentials.
+	refreshed, boundErr := c.exchangeDeviceBound(ctx, accountID, credential)
+	if boundErr == nil {
+		return refreshed, nil
+	}
 	body, err := json.Marshal(map[string]any{
 		"ClientID":     c.refreshClientID(credential),
 		"RefreshToken": credential.RefreshToken,
@@ -713,6 +721,79 @@ func (c *Client) ExchangeToken(ctx context.Context, accountID string, credential
 	if status >= 300 {
 		return credential, classifiedError(status, payload)
 	}
+	return decodeExchangeCredential(credential, payload)
+}
+
+// exchangeDeviceBound renews at the official IDE endpoint with DeviceInfo and
+// DeviceProof. The proof covers method, path, client, refresh token, timestamp
+// and nonce, one per line. This path normally does not rotate RefreshToken.
+func (c *Client) exchangeDeviceBound(ctx context.Context, accountID string, credential Credential) (Credential, error) {
+	credential = EnsureDevice(EnsureDeviceKey(credential))
+	pubKey := devicePublicKeyPEM(credential.DevicePrivateKey)
+	if pubKey == "" {
+		return credential, fmt.Errorf("device-bound refresh: invalid device key")
+	}
+	clientID := c.refreshClientID(credential)
+	platformCode, ideVersion := "IDE_PC", IdeVersion
+	if clientID == LegacyClientID {
+		platformCode, ideVersion = "SOLO_PC", "0.1.64"
+	}
+	timestamp, nonce := time.Now().Unix(), randomHex(16)
+	signature, err := signDeviceProof(credential.DevicePrivateKey,
+		deviceProofPayload(pathExchangeCode, clientID, credential.RefreshToken, timestamp, nonce))
+	if err != nil {
+		return credential, err
+	}
+	body, err := json.Marshal(map[string]any{
+		"ClientID":     clientID,
+		"ClientSecret": "",
+		"RefreshToken": credential.RefreshToken,
+		"DeviceInfo": map[string]any{
+			"DeviceID":        credential.DeviceID,
+			"MachineID":       credential.MachineID,
+			"PlatformCode":    platformCode,
+			"DeviceType":      DeviceType,
+			"DeviceName":      "",
+			"DeviceModel":     "",
+			"ClientVersion":   ideVersion,
+			"DevicePublicKey": pubKey,
+			"DeviceBrand":     DeviceBrand,
+			"DeviceCPU":       DeviceCPU,
+			"OSInfo":          DeviceOSInfo,
+			"OSVersion":       DeviceOSBuild,
+		},
+		"DeviceProof": map[string]any{
+			"Signature": signature,
+			"Timestamp": timestamp,
+			"Nonce":     nonce,
+		},
+		"IDEVersion": ideVersion,
+	})
+	if err != nil {
+		return credential, err
+	}
+	payload, status, err := c.do(ctx, accountID, http.MethodPost, UgHost+pathExchangeCode, body, func(h http.Header) {
+		SetOAuthHeaders(h)
+		if credential.AccessToken != "" {
+			h.Set("Authorization", "Cloud-IDE-JWT "+credential.AccessToken)
+		}
+	})
+	if err != nil {
+		log.Printf("trae: bound exchange failed account=%s: %v", accountID, err)
+		return credential, err
+	}
+	if status >= 300 {
+		// Log the verdict, never the payload: it carries token material.
+		log.Printf("trae: bound exchange rejected account=%s status=%d code=%s", accountID, status, firstNonEmpty(extractMetadataCode(payload), extractCode(string(payload))))
+		return credential, classifiedError(status, payload)
+	}
+	log.Printf("trae: bound exchange accepted account=%s", accountID)
+	return decodeExchangeCredential(credential, payload)
+}
+
+// decodeExchangeCredential applies the common Result envelope returned by both
+// refresh and authorization-code exchanges to a copy of the credential.
+func decodeExchangeCredential(credential Credential, payload []byte) (Credential, error) {
 	var env struct {
 		Result struct {
 			Token               string `json:"Token"`
@@ -762,29 +843,13 @@ func (c *Client) ExchangeAuthCode(ctx context.Context, accountID string, credent
 	if strings.TrimSpace(authCode) == "" {
 		return credential, fmt.Errorf("no auth code")
 	}
-	pubKey := devicePublicKeyPEM(credential.DevicePrivateKey)
-	deviceInfo := map[string]any{
-		"DeviceID":      credential.DeviceID,
-		"MachineID":     credential.MachineID,
-		"PlatformCode":  "IDE_PC",
-		"DeviceType":    "PC",
-		"DeviceName":    "cli2api",
-		"DeviceModel":   "",
-		"ClientVersion": IdeVersion,
-		"DeviceBrand":   "",
-		"DeviceCPU":     "",
-		"OSInfo":        "linux",
-		"OSVersion":     "Ubuntu 24.04.4 LTS",
-	}
-	if pubKey != "" {
-		deviceInfo["DevicePublicKey"] = pubKey
-	}
+	devInfo := deviceInfo(credential, "IDE_PC", IdeVersion)
 	body, err := json.Marshal(map[string]any{
 		"ClientID":     ClientID,
 		"AuthCode":     authCode,
 		"CodeVerifier": codeVerifier,
 		"IDEVersion":   IdeVersion,
-		"DeviceInfo":   deviceInfo,
+		"DeviceInfo":   devInfo,
 	})
 	if err != nil {
 		return credential, err
@@ -819,32 +884,9 @@ func (c *Client) ExchangeAuthCode(ctx context.Context, accountID string, credent
 	if status >= 300 {
 		return credential, classifiedError(status, payload)
 	}
-	var env struct {
-		Result struct {
-			Token               string `json:"Token"`
-			TokenExpireAt       int64  `json:"TokenExpireAt"`
-			TokenExpireDuration int64  `json:"TokenExpireDuration"`
-			RefreshToken        string `json:"RefreshToken"`
-			RefreshExpireAt     int64  `json:"RefreshExpireAt"`
-		} `json:"Result"`
-	}
-	if err := json.Unmarshal(payload, &env); err != nil {
-		return credential, fmt.Errorf("code exchange parse: %w", err)
-	}
-	if strings.TrimSpace(env.Result.Token) == "" {
-		return credential, fmt.Errorf("code_exchange_failed: no token in response")
-	}
-	credential.AccessToken = env.Result.Token
-	if env.Result.RefreshToken != "" {
-		credential.RefreshToken = env.Result.RefreshToken
-	}
-	if env.Result.TokenExpireAt != 0 {
-		credential.ExpiresAt = unixSeconds(env.Result.TokenExpireAt)
-	} else if env.Result.TokenExpireDuration > 0 {
-		credential.ExpiresAt = time.Now().Add(time.Duration(env.Result.TokenExpireDuration) * time.Second).Unix()
-	}
-	if env.Result.RefreshExpireAt != 0 {
-		credential.RefreshExpiresAt = unixSeconds(env.Result.RefreshExpireAt)
+	credential, err = decodeExchangeCredential(credential, payload)
+	if err != nil {
+		return credential, fmt.Errorf("code_exchange_failed: %w", err)
 	}
 	return credential, nil
 }
@@ -909,6 +951,11 @@ func (c *Client) credential(ctx context.Context, accountID string) (Credential, 
 	if !credential.needsRefresh(now) {
 		return credential, nil
 	}
+	return c.refreshCredential(ctx, accountID, credential)
+}
+
+// refreshCredential renews the access token and persists the result.
+func (c *Client) refreshCredential(ctx context.Context, accountID string, credential Credential) (Credential, error) {
 	refreshed, err := c.ExchangeToken(ctx, accountID, credential)
 	if err != nil {
 		_ = c.store.Observe(ctx, accountID, credential.UID, "login_required", err.Error(), accounts.KindAuth)
@@ -1520,7 +1567,7 @@ func int64FromAny(value any) int64 {
 }
 
 func (c *Client) CheckinStatus(ctx context.Context, accountID string, credential Credential) ([]byte, error) {
-	body, status, err := c.do(ctx, accountID, http.MethodPost, credential.BillingBase()+pathCheckinStatus, []byte("{}"),
+	body, status, err := c.do(ctx, accountID, http.MethodPost, credential.BillingBase()+pathCheckinStatus, checkinReqSourceBody(credential),
 		func(h http.Header) { SetUgHeaders(h, credential) })
 	if err != nil {
 		return nil, err
@@ -1532,7 +1579,7 @@ func (c *Client) CheckinStatus(ctx context.Context, accountID string, credential
 }
 
 func (c *Client) CheckinClaim(ctx context.Context, accountID string, credential Credential) ([]byte, error) {
-	body, status, err := c.do(ctx, accountID, http.MethodPost, credential.BillingBase()+pathCheckinClaim, []byte("{}"),
+	body, status, err := c.do(ctx, accountID, http.MethodPost, credential.BillingBase()+pathCheckinClaim, checkinReqSourceBody(credential),
 		func(h http.Header) { SetUgHeaders(h, credential) })
 	if err != nil {
 		return nil, err
@@ -1541,6 +1588,14 @@ func (c *Client) CheckinClaim(ctx context.Context, accountID string, credential 
 		return nil, classifiedError(status, body)
 	}
 	return body, nil
+}
+
+// checkinReqSourceBody is the claim/status request body. The TRAE-lineage
+// body (req_source 1) is the contract both official CN clients send; the
+// claim gate turned out to be on the device-id shape (15 digits pass, 16
+// digits get 9074), not on req_source, so the body stays fixed here.
+func checkinReqSourceBody(credential Credential) []byte {
+	return []byte(`{"req_source":1}`)
 }
 
 func (c *Client) Adapter() providers.Adapter {

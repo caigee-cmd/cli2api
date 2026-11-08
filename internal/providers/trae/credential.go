@@ -50,6 +50,16 @@ const (
 	// refresh keeps working.
 	LegacyClientID = "en1oxy7wnw8j9n"
 
+	// Device fingerprint reported to the device-registration endpoints. It must
+	// stay identical across login, renewal and check-in: the server binds the
+	// device on the first DeviceInfo it sees and rejects a renewal whose
+	// fingerprint drifted (20403/20405), so a value that changes per call would
+	// make the account unusable until it logs in again.
+	DeviceType    = "PC"
+	DeviceCPU     = "AMD"
+	DeviceOSInfo  = "Windows"
+	DeviceOSBuild = "10.0.26100"
+
 	pathChat          = "/api/agent/v3/llm_utils_chat"
 	pathModels        = "/api/ide/v1/get_detail_param"
 	pathExchange      = "/cloudide/api/v3/trae/oauth/ExchangeToken"
@@ -233,19 +243,22 @@ func randomHex(n int) string {
 	return hex.EncodeToString(raw)
 }
 
-// randomNumericDeviceID returns a 16-digit decimal id, the shape Trae's own
-// IDE client sends as device_id. A bare 32-char hex id is rejected by the UG
-// check-in backend (code 9074); a <=16-digit numeric id is accepted.
+// randomNumericDeviceID returns a 15-digit decimal id. The check-in claim
+// backend gates on the id's shape: 15-digit ids pass, 16-digit ids are refused
+// with 9074 "当前参与用户太多" (verified on two fresh accounts on 2026-11-08,
+// both unclaimed at the time), while the read-only status endpoint accepts any
+// value. Existing 16-digit ids are kept as-is so renewal keeps pairing with
+// the identity the account was created with.
 func randomNumericDeviceID() string {
 	var buf [8]byte
 	if _, err := rand.Read(buf[:]); err != nil {
-		return fmt.Sprintf("%016d", time.Now().UnixNano()%1e16)
+		return fmt.Sprintf("%015d", time.Now().UnixNano()%1e15)
 	}
 	n := uint64(0)
 	for _, b := range buf {
 		n = n<<8 | uint64(b)
 	}
-	return fmt.Sprintf("%016d", n%1e16)
+	return fmt.Sprintf("%015d", n%1e15)
 }
 
 func EnsureDevice(credential Credential) Credential {

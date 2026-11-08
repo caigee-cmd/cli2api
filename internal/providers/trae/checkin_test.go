@@ -20,6 +20,9 @@ func seedCheckinCredential(t *testing.T, store *memStore) {
 		ExpiresAt:    4102444800,
 		Domain:       DomainCN,
 		UID:          "u1",
+		// A 15-digit id is what new logins mint and the only shape the claim
+		// gate accepts; the body stays the TRAE contract.
+		DeviceID: "906505019893990",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -40,8 +43,9 @@ func TestCheckinClaimFlow(t *testing.T) {
 			t.Fatalf("authorization=%q", auth)
 		}
 		body, _ := io.ReadAll(r.Body)
-		if strings.TrimSpace(string(body)) != "{}" {
-			t.Fatalf("body=%q", body)
+		want := checkinReqSourceBody(Credential{DeviceID: "9065050198939901"})
+		if strings.TrimSpace(string(body)) != string(want) {
+			t.Fatalf("body=%q; want %q (16-digit id pairs with the SOLO body)", body, want)
 		}
 		paths = append(paths, r.URL.Path)
 		w.Header().Set("Content-Type", "application/json")
