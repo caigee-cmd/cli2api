@@ -14,14 +14,31 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 )
 
-// Request-log retention. Defaults preserve the historical behaviour (7 days /
-// 20k rows); deployments that want a longer usage history can raise the
-// retention window and the row cap together.
+// Request-log retention runs in two stages, because a single age-based DELETE
+// destroys the only copy of the usage history: request_logs is not just the
+// detail log, it is also the table every aggregate reads (usage page, cost
+// panel, traffic chart). Dropping a row at 7 days therefore erases the totals
+// for that day too, and no rollup table exists to reconstruct them.
+//
+// Stage one keeps the row and clears the bulky detail: the child tables are
+// deleted and the columns only the log-detail view needs are blanked. Every
+// aggregate column (status, tokens, credits, latency, model, account, key,
+// provider) survives, so the usage numbers stay exact rather than
+// approximated, and the hourly purge keeps the file from growing forever.
+//
+// Stage two deletes the row once it is older than the (much longer) totals
+// window, which is what CLI2API_LOG_TOTALS_RETENTION_DAYS governs.
 const (
 	defaultRetentionDays = 7
 	defaultMaxLogRows    = 20_000
-	retentionDaysEnv     = "CLI2API_LOG_RETENTION_DAYS"
-	maxLogRowsEnv        = "CLI2API_LOG_MAX_ROWS"
+	// defaultTotalsRetentionDays is the fallback for the stage-two window. It
+	// is deliberately far longer than the detail window: the aggregates are
+	// cheap to keep (no child rows, ~200 bytes a row) and impossible to
+	// recover once deleted.
+	defaultTotalsRetentionDays = 730
+	retentionDaysEnv           = "CLI2API_LOG_RETENTION_DAYS"
+	maxLogRowsEnv              = "CLI2API_LOG_MAX_ROWS"
+	totalsRetentionDaysEnv     = "CLI2API_LOG_TOTALS_RETENTION_DAYS"
 )
 
 // RetentionDays is how long request logs are kept; 0 or an invalid value falls
@@ -35,8 +52,10 @@ func RetentionDays() int {
 	return defaultRetentionDays
 }
 
-// MaxLogRows caps the retained rows independently of the age window, so a burst
-// of traffic cannot grow the SQLite file without bound.
+// MaxLogRows caps how many rows still carry detail, independently of the age
+// window, so a burst of traffic cannot grow the SQLite file without bound.
+// Totals-only rows are not counted: they are a couple hundred bytes each and
+// their count is already bounded by TotalsRetentionDays.
 func MaxLogRows() int {
 	if v := strings.TrimSpace(os.Getenv(maxLogRowsEnv)); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
@@ -44,6 +63,22 @@ func MaxLogRows() int {
 		}
 	}
 	return defaultMaxLogRows
+}
+
+// TotalsRetentionDays is how long the aggregate-only rows survive after their
+// detail has been cleared. It must be at least RetentionDays; a smaller value
+// falls back so a misconfiguration cannot delete totals before their detail.
+func TotalsRetentionDays() int {
+	days := defaultTotalsRetentionDays
+	if v := strings.TrimSpace(os.Getenv(totalsRetentionDaysEnv)); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			days = n
+		}
+	}
+	if detail := RetentionDays(); days < detail {
+		return detail
+	}
+	return days
 }
 
 // RequestPersister is the write surface the recorder actually uses.
@@ -56,6 +91,10 @@ type RequestPersister interface {
 	InsertRequestStreamDiagnostic(ctx context.Context, diagnostic accounts.RequestStreamDiagnostic) error
 	InsertRequestUsageDetail(ctx context.Context, detail accounts.RequestUsageDetail) error
 	PurgeRequestLogs(ctx context.Context, olderThan time.Duration, maxRows int) (int64, error)
+	// ExpireRequestLogDetail clears the child rows and the detail-only columns
+	// of logs older than the detail window, keeping every column the usage
+	// aggregates read. Returns how many logs were reduced to totals.
+	ExpireRequestLogDetail(ctx context.Context, olderThan time.Duration) (int64, error)
 }
 
 // RequestQuery is the console/HTTP read surface. The recorder never
@@ -523,8 +562,20 @@ func (r *RequestRecorder) PurgeLoop(stop <-chan struct{}, every time.Duration) {
 
 func (r *RequestRecorder) purgeOnce() {
 	r.enqueue(func() {
-		keep := time.Duration(RetentionDays()) * 24 * time.Hour
-		if _, err := r.store.PurgeRequestLogs(context.Background(), keep, MaxLogRows()); err != nil {
+		ctx := context.Background()
+		// Stage one: drop the detail, keep the totals. Doing this before the
+		// delete means a crash between the two stages leaves totals behind
+		// rather than losing them.
+		if expired, err := r.store.ExpireRequestLogDetail(ctx, time.Duration(RetentionDays())*24*time.Hour); err != nil {
+			logf("expire request log detail: %v", err)
+		} else if expired > 0 {
+			logf("expired detail of %d request logs (totals kept)", expired)
+		}
+		// Stage two: delete rows past the totals window, and enforce the row
+		// caps. A row whose detail is already gone counts against the totals
+		// cap, not the detail cap, so the caps do not fight each other.
+		keep := time.Duration(TotalsRetentionDays()) * 24 * time.Hour
+		if _, err := r.store.PurgeRequestLogs(ctx, keep, MaxLogRows()); err != nil {
 			logf("purge request logs: %v", err)
 		}
 	})

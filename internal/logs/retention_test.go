@@ -42,3 +42,32 @@ func TestMaxLogRowsDefaultsAndOverride(t *testing.T) {
 		}
 	}
 }
+
+func TestTotalsRetentionDaysDefaultsAndOverride(t *testing.T) {
+	t.Setenv(retentionDaysEnv, "")
+	t.Setenv(totalsRetentionDaysEnv, "")
+	if got := TotalsRetentionDays(); got != defaultTotalsRetentionDays {
+		t.Fatalf("default totals retention = %d, want %d", got, defaultTotalsRetentionDays)
+	}
+
+	t.Setenv(totalsRetentionDaysEnv, "365")
+	if got := TotalsRetentionDays(); got != 365 {
+		t.Fatalf("override totals retention = %d, want 365", got)
+	}
+
+	// The totals window can never be shorter than the detail window: deleting
+	// totals before their detail would lose data the detail view still shows.
+	t.Setenv(retentionDaysEnv, "90")
+	t.Setenv(totalsRetentionDaysEnv, "30")
+	if got := TotalsRetentionDays(); got != 90 {
+		t.Fatalf("totals retention below detail = %d, want detail window 90", got)
+	}
+
+	for _, bad := range []string{"0", "-5", "abc"} {
+		t.Setenv(retentionDaysEnv, "")
+		t.Setenv(totalsRetentionDaysEnv, bad)
+		if got := TotalsRetentionDays(); got != defaultTotalsRetentionDays {
+			t.Fatalf("totals retention for %q = %d, want default %d", bad, got, defaultTotalsRetentionDays)
+		}
+	}
+}
