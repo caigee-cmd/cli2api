@@ -24,7 +24,13 @@ func (h *Handler) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	var req translate.ChatRequest
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxChatRequestBytes)).Decode(&req); err != nil {
+	body := decodeRequestBody(w, r, maxChatRequestBytes, maxChatRequestBytes)
+	defer body.Close()
+	if body.err != nil {
+		writeRequestBodyError(w, body.err)
+		return
+	}
+	if err := json.NewDecoder(body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
