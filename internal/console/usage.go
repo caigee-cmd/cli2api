@@ -10,11 +10,11 @@ import (
 )
 
 // exportWindowHours is the widest range the cost panel can ask for. It follows
-// the request-log retention window: pricing a range the pruner already dropped
-// would silently under-report cost, and hard-coding 7 days made a raised
-// CLI2API_LOG_RETENTION_DAYS invisible to the panel.
+// the totals retention window, not the detail window: retention keeps the
+// aggregate columns for far longer than the per-request detail, so clamping the
+// panel to the detail window would hide history that is still in the database.
 func exportWindowHours() int {
-	return 24 * applogs.RetentionDays()
+	return 24 * applogs.TotalsRetentionDays()
 }
 
 func (h *Handler) HandleUsage(w http.ResponseWriter, r *http.Request) {

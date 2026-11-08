@@ -128,7 +128,7 @@ func (s *Store) ListRequestLogs(ctx context.Context, filter accounts.RequestLogF
 			       COALESCE(NULLIF(provider, ''), (SELECT provider FROM accounts WHERE accounts.id = request_logs.account_id), ''), routing,
 			       prompt_tokens, completion_tokens, cache_read_tokens, cache_write_tokens, usage_source,
 			       COALESCE(credits, (SELECT credit FROM request_usage_details WHERE request_usage_details.request_id = request_logs.id)),
-			       latency_ms, ttfb_ms, error_kind, error_code, error_message, attempt_count, message_count, empty_message_indexes, message_roles
+			       latency_ms, ttfb_ms, error_kind, error_code, error_message, attempt_count, detail_expired, message_count, empty_message_indexes, message_roles
 			FROM request_logs` + where + ` ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`
 	args = append(args, limit, offset)
 	rows, err := s.db.QueryContext(ctx, query, args...)
@@ -771,7 +771,7 @@ func (s *Store) GetRequestLog(ctx context.Context, id string) (accounts.RequestL
 			       COALESCE(NULLIF(provider, ''), (SELECT provider FROM accounts WHERE accounts.id = request_logs.account_id), ''), routing,
 			       prompt_tokens, completion_tokens, cache_read_tokens, cache_write_tokens, usage_source,
 			       COALESCE(credits, (SELECT credit FROM request_usage_details WHERE request_usage_details.request_id = request_logs.id)),
-			       latency_ms, ttfb_ms, error_kind, error_code, error_message, attempt_count, message_count, empty_message_indexes, message_roles
+			       latency_ms, ttfb_ms, error_kind, error_code, error_message, attempt_count, detail_expired, message_count, empty_message_indexes, message_roles
 			FROM request_logs WHERE id = ?`, strings.TrimSpace(id))
 	log, err := scanRequestLog(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -968,6 +968,67 @@ var requestLogChildTables = []string{
 	"request_stream_diagnostics",
 }
 
+// ExpireRequestLogDetail reduces logs older than olderThan to totals: the child
+// rows are deleted and the columns that only the log-detail view reads are
+// blanked. Everything the usage aggregates touch — status, stream, model,
+// account, key, provider, tokens, cache, credits, latency, ttfb, error_kind —
+// is preserved, so the totals for that hour stay exact.
+//
+// This is the stage that actually bounds the file: on a live deployment the
+// child tables were 90% of the bytes, while every text column of request_logs
+// together was under 3 MB per 19k rows.
+//
+// Runs in one transaction so a crash cannot leave a log marked expired with its
+// children still present (or vice versa).
+func (s *Store) ExpireRequestLogDetail(ctx context.Context, olderThan time.Duration) (int64, error) {
+	if olderThan <= 0 {
+		olderThan = 7 * 24 * time.Hour
+	}
+	cutoff := formatTime(time.Now().UTC().Add(-olderThan))
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("begin request log detail expiry: %w", err)
+	}
+	defer tx.Rollback()
+
+	for _, table := range requestLogChildTables {
+		if _, err := tx.ExecContext(ctx,
+			`DELETE FROM `+table+` WHERE request_id IN (
+  SELECT id FROM request_logs WHERE detail_expired = 0 AND created_at < ?
+)`, cutoff); err != nil {
+			return 0, fmt.Errorf("expire %s detail: %w", table, err)
+		}
+	}
+
+	// Blank the detail-only columns. Everything the aggregates read stays:
+	// created_at, status, stream, requested_model, mapped_model, account_id,
+	// api_key_id, provider, prompt_tokens, completion_tokens, cache_read_tokens,
+	// cache_write_tokens, credits, latency_ms, ttfb_ms, error_kind, attempt_count.
+	// Keep error_kind so the error breakdown still works after expiry; the
+	// human-readable error message is what goes.
+	result, err := tx.ExecContext(ctx, `
+UPDATE request_logs SET
+  detail_expired = 1,
+  error_code = '',
+  error_message = '',
+  message_roles = '',
+  empty_message_indexes = '',
+  requested_reasoning = '',
+  resolved_reasoning = '',
+  routing = '',
+  finished_at = NULL
+WHERE detail_expired = 0 AND created_at < ?`, cutoff)
+	if err != nil {
+		return 0, fmt.Errorf("blank request log detail: %w", err)
+	}
+	expired, _ := result.RowsAffected()
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("commit request log detail expiry: %w", err)
+	}
+	return expired, nil
+}
+
 func (s *Store) PurgeRequestLogs(ctx context.Context, olderThan time.Duration, maxRows int) (int64, error) {
 	if olderThan <= 0 {
 		olderThan = 7 * 24 * time.Hour
@@ -989,13 +1050,13 @@ func (s *Store) PurgeRequestLogs(ctx context.Context, olderThan time.Duration, m
 	}
 
 	var total int
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM request_logs`).Scan(&total); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM request_logs WHERE detail_expired = 0`).Scan(&total); err != nil {
 		return deleted, fmt.Errorf("count request logs for cap: %w", err)
 	}
 	if total > maxRows {
 		overflow := total - maxRows
 		extra, err := purgeRequestLogsWhere(ctx, tx, `id IN (
-  SELECT id FROM request_logs ORDER BY created_at ASC, id ASC LIMIT ?
+  SELECT id FROM request_logs WHERE detail_expired = 0 ORDER BY created_at ASC, id ASC LIMIT ?
 )`, overflow)
 		if err != nil {
 			return deleted, fmt.Errorf("purge excess request logs: %w", err)
@@ -1127,15 +1188,17 @@ func scanRequestLog(row rowScanner) (accounts.RequestLog, error) {
 		latency, ttfb              sql.NullInt64
 		emptyIndexes, messageRoles sql.NullString
 		created                    string
+		detailExpired              int
 	)
 	err := row.Scan(
 		&log.ID, &created, &finished, &stream, &log.Status, &log.RequestedModel, &log.MappedModel, &log.RequestedReasoning, &log.ResolvedReasoning, &accountID, &log.APIKeyID, &log.Provider, &log.Routing,
 		&prompt, &completion, &cacheRead, &cacheWrite, &log.UsageSource, &credits,
-		&latency, &ttfb, &log.ErrorKind, &log.ErrorCode, &log.ErrorMessage, &log.AttemptCount, &log.MessageCount, &emptyIndexes, &messageRoles,
+		&latency, &ttfb, &log.ErrorKind, &log.ErrorCode, &log.ErrorMessage, &log.AttemptCount, &detailExpired, &log.MessageCount, &emptyIndexes, &messageRoles,
 	)
 	if err != nil {
 		return accounts.RequestLog{}, err
 	}
+	log.DetailExpired = detailExpired != 0
 	log.CreatedAt = parseTime(created)
 	log.Stream = stream != 0
 	if finished.Valid && finished.String != "" {

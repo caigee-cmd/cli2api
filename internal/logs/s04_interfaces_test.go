@@ -28,6 +28,9 @@ func (persistOnly) InsertRequestUsageDetail(context.Context, accounts.RequestUsa
 func (persistOnly) PurgeRequestLogs(context.Context, time.Duration, int) (int64, error) {
 	return 0, nil
 }
+func (persistOnly) ExpireRequestLogDetail(context.Context, time.Duration) (int64, error) {
+	return 0, nil
+}
 
 func TestRequestRecorderStoreRequiresQuerySurface(t *testing.T) {
 	recorder := NewRequestRecorder(persistOnly{})

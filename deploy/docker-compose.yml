@@ -21,6 +21,10 @@ services:
       # usage/cost panel needs a longer history (~0.7 KB/row; ~150 MB at 90d @ 1.5k rows/day).
       CLI2API_LOG_RETENTION_DAYS: "${CLI2API_LOG_RETENTION_DAYS:-7}"
       CLI2API_LOG_MAX_ROWS: "${CLI2API_LOG_MAX_ROWS:-20000}"
+      # Totals (tokens, credits, latency, model, account, key) outlive the
+      # per-request detail by default: the aggregates are ~200 bytes a row and
+      # cannot be reconstructed once deleted.
+      CLI2API_LOG_TOTALS_RETENTION_DAYS: "${CLI2API_LOG_TOTALS_RETENTION_DAYS:-730}"
     volumes:
       - qoder-data:/data
       - "${CLI2API_UPDATER_SOCKET_DIR:-/tmp/cli2api-updater}:/run/cli2api-updater:ro"
