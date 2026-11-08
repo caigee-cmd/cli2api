@@ -1,6 +1,10 @@
 package gateway
 
-import "net/http"
+import (
+	"net/http"
+
+	"github.com/caigee-cmd/cli2api/internal/control"
+)
 
 func (h *Handler) HandleModels(w http.ResponseWriter, r *http.Request) {
 	var models []map[string]any
@@ -15,6 +19,11 @@ func (h *Handler) HandleModels(w http.ResponseWriter, r *http.Request) {
 	}
 	if h != nil && h.DecorateModels != nil {
 		models = h.DecorateModels(r, models)
+	}
+	if h.crossProviderPoolOn() == false {
+		// The gateway refuses bare ids with the pool off; serve prefixed ids so
+		// OpenAI-compatible clients see exactly what the gateway accepts.
+		models = control.PrefixModelEntries(models)
 	}
 	body := map[string]any{
 		"object": "list",

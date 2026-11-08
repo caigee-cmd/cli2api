@@ -32,9 +32,15 @@ func (h *Handler) HandleModelsAPI(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusServiceUnavailable, "catalog_failed", err.Error())
 		return
 	}
+	data := h.decorateModels(r.Context(), h.filterModels(r, models))
+	if !h.crossProviderPoolOn() {
+		// The gateway refuses bare ids with the pool off; serve prefixed ids so
+		// every client that picks from this list produces a request it accepts.
+		data = control.PrefixModelEntries(data)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"object": "list",
-		"data":   h.decorateModels(r.Context(), h.filterModels(r, models)),
+		"data":   data,
 	})
 }
 
