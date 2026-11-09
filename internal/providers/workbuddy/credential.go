@@ -29,10 +29,12 @@ const (
 
 	// Desktop clients ship separately per edition. Their UA is three-part:
 	// app token, edition token, then the bundled CLI version.
-	DesktopVersionGlobal   = "5.8.4"
-	DesktopVersionCN       = "5.8.3"
-	DesktopUserAgentGlobal = "WorkBuddy/" + DesktopVersionGlobal + " workbuddy-ai/" + DesktopVersionGlobal + " CLI/" + CLIVersion
-	DesktopUserAgentCN     = "WorkBuddy/" + DesktopVersionCN + " WorkBuddy/" + DesktopVersionCN + " CLI/" + CLIVersion
+	// International desktop embeds its own CLI (not the official CLI chat UA).
+	DesktopVersionGlobal    = "5.9.4"
+	DesktopCLIVersionGlobal = "2.165.0"
+	DesktopVersionCN        = "5.8.3"
+	DesktopUserAgentGlobal  = "WorkBuddy/" + DesktopVersionGlobal + " workbuddy-ai/" + DesktopVersionGlobal + " CLI/" + DesktopCLIVersionGlobal
+	DesktopUserAgentCN      = "WorkBuddy/" + DesktopVersionCN + " WorkBuddy/" + DesktopVersionCN + " CLI/" + CLIVersion
 
 	// IDEVersion is the CodeBuddy IDE plugin release, kept with the others.
 	IDEVersion = "2.168.2"
