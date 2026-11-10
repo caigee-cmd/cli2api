@@ -368,6 +368,18 @@ var (
 
 	wafBrandRe          = regexp.MustCompile(`(?i)DeepSeek[ \t]+Harness`)
 	wafBrandReplacement = "DeepSeek"
+
+	// Claude Code 2.1.37+ injects a billing attribution header as the first
+	// system text block (hub #855 / v2.0.8). Upstream treats both spellings
+	// as reserved keywords and answers 400 / 11128 if they appear as-is.
+	// The full name is not a substring match of the "hdr" abbreviation
+	// (`...-hdr` then sees `er:`), so both spellings are listed explicitly.
+	// Line deletion also removes trailing parameters such as `cch=` that
+	// do not start with the `cc_` prefix used by the leftover-KV cleaner.
+	wafBillingHdrLineRe = regexp.MustCompile(`(?im)^[ \t]*x-anthropic-billing-(?:header|hdr)[ \t]*:[^\r\n]*(?:\r?\n|$)`)
+	wafBillingHdrRe     = regexp.MustCompile(`(?i)x-anthropic-billing-(?:header|hdr)\s*:\s*[^;\r\n]*(?:;\s*)?`)
+	wafBillingHdrBareRe = regexp.MustCompile(`(?i)x-anthropic-billing-(?:header|hdr)`)
+	wafBillingHdrKVRe   = regexp.MustCompile(`(?i)\bcc_[a-z0-9_]+=[^;\r\n]*;?\s*`)
 )
 
 // rewriteIdentitySentences replaces confirmed self-intro sentences. Sentence
@@ -405,9 +417,12 @@ func rewriteIdentitySentences(text string) string {
 
 // sanitizeWAFKeywords rewrites known client fingerprint phrases that trigger
 // upstream WorkBuddy WAF rules (code 11128 / 11-128: "Illegal API invocation
-// from an unapproved channel"). Literal Main-branch rewrites apply to every
-// role; identity / DSH GUI / fileref / brand rules follow upstream and only touch
-// system, developer, and assistant.
+// from an unapproved channel"). Literal Main-branch rewrites and Claude Code
+// billing attribution headers apply to every role; identity / DSH GUI /
+// fileref / brand rules follow upstream and only touch system, developer,
+// and assistant. A message that becomes empty after sanitization is dropped
+// (empty content is code 11151); ensureLeadingSystem then restores a
+// non-empty leading system prompt if needed.
 func sanitizeWAFKeywords(body map[string]any) {
 	raw, ok := body["messages"]
 	if !ok {
@@ -427,19 +442,33 @@ func sanitizeWAFKeywords(body map[string]any) {
 		if content, ok := message["content"].(string); ok {
 			message["content"] = sanitizeFingerprintText(content, identity)
 		} else if parts, ok := message["content"].([]any); ok {
+			keptParts := make([]any, 0, len(parts))
 			for _, part := range parts {
-				if partMap, ok := part.(map[string]any); ok {
-					if text, ok := partMap["text"].(string); ok {
-						partMap["text"] = sanitizeFingerprintText(text, identity)
+				partMap, ok := part.(map[string]any)
+				if !ok {
+					keptParts = append(keptParts, part)
+					continue
+				}
+				if text, ok := partMap["text"].(string); ok {
+					cleaned := sanitizeFingerprintText(text, identity)
+					partMap["text"] = cleaned
+					if strings.TrimSpace(text) != "" && strings.TrimSpace(cleaned) == "" {
+						if typ, _ := partMap["type"].(string); typ == "text" || typ == "" {
+							continue
+						}
 					}
 				}
+				keptParts = append(keptParts, part)
 			}
+			message["content"] = keptParts
 		}
 		// reasoning_content is model scratch, not an identity surface.
 		if reasoning, ok := message["reasoning_content"].(string); ok {
 			message["reasoning_content"] = sanitizeFingerprintText(reasoning, false)
 		}
 	}
+	normalizeEmptyMessageContent(body)
+	ensureLeadingSystem(body)
 }
 
 func sanitizeFingerprintText(text string, identity bool) string {
@@ -457,5 +486,31 @@ func sanitizeFingerprintText(text string, identity bool) string {
 			text = strings.ReplaceAll(text, rule.pattern, rule.replacement)
 		}
 	}
-	return text
+	return sanitizeBillingHeaders(text)
+}
+
+// containsBillingHeader reports either official spelling. The abbreviated
+// "hdr" form is not a substring of "header", so both needles are required.
+func containsBillingHeader(text string) bool {
+	low := strings.ToLower(text)
+	return strings.Contains(low, "x-anthropic-billing-header") ||
+		strings.Contains(low, "x-anthropic-billing-hdr")
+}
+
+func sanitizeBillingHeaders(text string) string {
+	if !containsBillingHeader(text) {
+		return text
+	}
+	text = wafBillingHdrLineRe.ReplaceAllString(text, "")
+	text = wafBillingHdrRe.ReplaceAllString(text, "")
+	if strings.Contains(strings.ToLower(text), "cc_") {
+		for {
+			next := wafBillingHdrKVRe.ReplaceAllString(text, "")
+			if next == text {
+				break
+			}
+			text = next
+		}
+	}
+	return wafBillingHdrBareRe.ReplaceAllString(text, "anthropic-header")
 }
