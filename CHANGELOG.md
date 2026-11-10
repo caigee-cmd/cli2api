@@ -3,6 +3,18 @@
 Published user-facing notes for GitHub Releases and the console update page.
 Write upcoming notes as bilingual files in `changelog/unreleased/`.
 
+## 0.7.29 - 2026-11-10
+
+### English
+
+- Expired account cooldowns no longer keep showing as cooling in the console: the account view derives the status from the cooldown deadline and clears the stale last error.
+- WorkBuddy international desktop identity bumps to WorkBuddy/5.9.4 workbuddy-ai/5.9.4 CLI/2.165.0 (hub v2.0.6). The official CLI chat User-Agent stays on CLI/2.161.0; domestic desktop stays 5.8.3 / CLI 2.161.0.
+
+### 中文
+
+- 账号冷却到期后不再一直显示“冷却中”：控制台现在按冷却截止时间判断状态，并清掉上一次的错误文案。
+- WorkBuddy 国际版桌面身份对齐到 WorkBuddy/5.9.4 workbuddy-ai/5.9.4 CLI/2.165.0（hub v2.0.6）。官方 CLI 对话 User-Agent 仍为 CLI/2.161.0；国内桌面维持 5.8.3 / CLI 2.161.0。
+
 ## 0.7.28 - 2026-11-08
 
 ### English
