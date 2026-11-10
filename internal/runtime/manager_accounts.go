@@ -197,6 +197,7 @@ func (m *Manager) AccountView(ctx context.Context, id string) (AccountView, erro
 			view.LastErrorKind = item.LastKind
 		}
 	}
+	reconcileExpiredCooldown(&view, time.Now())
 	return view, nil
 }
 
@@ -233,9 +234,33 @@ func (m *Manager) Accounts(ctx context.Context) ([]AccountView, error) {
 				view.LastErrorKind = item.LastKind
 			}
 		}
+		reconcileExpiredCooldown(&view, time.Now())
 		views = append(views, view)
 	}
 	return views, nil
+}
+
+// reconcileExpiredCooldown keeps the console projection honest when a
+// persisted "cooling" status outlives its deadline. The status column is only
+// rewritten when pool state changes; a cooldown that simply expires leaves the
+// cached status and its last error behind. The deadline (and any live pool
+// cooldown) is authoritative, so derive the displayed status at read time.
+func reconcileExpiredCooldown(view *AccountView, now time.Time) {
+	if view == nil || view.Status != "cooling" {
+		return
+	}
+	if view.CooldownUntil != nil && now.Before(*view.CooldownUntil) {
+		return
+	}
+	if view.DownUntil != "" {
+		if until, err := time.Parse(time.RFC3339, view.DownUntil); err == nil && now.Before(until) {
+			return
+		}
+	}
+	view.Status = "ready"
+	view.CooldownUntil = nil
+	view.LastError = ""
+	view.LastErrorKind = ""
 }
 
 func activeModelCooldowns(cooldowns map[string]time.Time) map[string]string {
