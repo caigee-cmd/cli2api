@@ -449,7 +449,7 @@ export function checkinAccount(accountId: string) {
   })
 }
 
-export function fetchCheckinRecords(accountId: string) {
+	export function fetchCheckinRecords(accountId: string) {
   return api<{ object?: string; data?: CheckinRecord[] }>(`/api/accounts/${encodeURIComponent(accountId)}/checkins`)
 }
 
