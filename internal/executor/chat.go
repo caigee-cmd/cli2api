@@ -141,10 +141,14 @@ func regionFilterFromContext(ctx context.Context) string {
 }
 
 func requestContextDone(ctx context.Context, err error) bool {
-	if err == nil {
+	if ctx == nil || ctx.Err() == nil || err == nil {
 		return false
 	}
-	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || (ctx != nil && ctx.Err() != nil)
+	// The caller's request has to be finished, and the error has to be that
+	// context's own sentinel. errors.Is would also match an upstream that
+	// wrapped context.Canceled into its own failure; that is an upstream
+	// problem and must still fail over.
+	return err == context.Canceled || err == context.DeadlineExceeded || errors.Is(err, ctx.Err())
 }
 
 const (
@@ -602,9 +606,11 @@ type replayReadCloser struct {
 // Blank lines and comments (: keep-alive) are skipped; the bytes read while
 // probing are replayed so the relay sees the stream from the first byte.
 // The returned Classified is only meaningful when err != nil. A read that
-// fails because the request was canceled returns that context error, so the
-// caller can report KindCanceled instead of treating the account as healthy.
-func probeStreamBody(body io.ReadCloser) (io.ReadCloser, Classified, error) {
+// fails because the caller's request was canceled returns that context error,
+// so the caller can report KindCanceled instead of treating the account as
+// healthy. A body that merely wraps a context error while the request is still
+// alive is an upstream failure and fails over.
+func probeStreamBody(ctx context.Context, body io.ReadCloser) (io.ReadCloser, Classified, error) {
 	if body == nil {
 		return nil, Classify(0, errEmptyStream.Error(), "", accounts.KindUnavailable, ""), errEmptyStream
 	}
@@ -635,11 +641,12 @@ func probeStreamBody(body io.ReadCloser) (io.ReadCloser, Classified, error) {
 		}
 		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				// The read failed because the request was canceled, not because
-				// the account is unhealthy. Return the context error so the
-				// caller reports KindCanceled and leaves cooldown state alone.
-				body.Close()
-				return nil, Classified{}, err
+				// A context error is not an account failure. Hand back what was
+				// already read and let the relay decide: a canceled request is
+				// reported as a cancellation, and a body that wrapped
+				// context.Canceled while the request is still alive replays
+				// through the relay, which fails over without a pre-stream 502.
+				return &replayReadCloser{Reader: io.MultiReader(&consumed, reader), Closer: body}, Classified{}, nil
 			}
 			body.Close()
 			if errors.Is(err, io.EOF) {
@@ -1256,7 +1263,7 @@ func (e ChatExecutor) chatInProcessStreamAttempt(ctx context.Context, item Item,
 		})
 		return StreamResult{AccountID: item.ID, Provider: item.Provider}, classified, NewExecutionError(classified, err)
 	}
-	probed, probeClassified, probeErr := probeStreamBody(resp.Body)
+	probed, probeClassified, probeErr := probeStreamBody(ctx, resp.Body)
 	if probeErr != nil {
 		finished := time.Now().UTC()
 		latency := int(finished.Sub(started).Milliseconds())
@@ -1566,7 +1573,7 @@ func (e ChatExecutor) chatStreamProxy(ctx context.Context, req translate.ChatReq
 			release()
 			return StreamResult{AttemptCount: i + 1, AccountID: item.ID, Provider: loop.resultProvider(item)}, loop.lastErr
 		}
-		probed, probeClassified, probeErr := probeStreamBody(resp.Body)
+		probed, probeClassified, probeErr := probeStreamBody(ctx, resp.Body)
 		if probeErr != nil {
 			if requestContextDone(ctx, probeErr) {
 				// The client went away before the first event. Record the
