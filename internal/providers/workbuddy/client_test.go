@@ -1087,8 +1087,16 @@ func TestPrepareBodyForcesStreamAndStringToolChoice(t *testing.T) {
 	if err := json.Unmarshal(out, &body); err != nil {
 		t.Fatal(err)
 	}
-	if body["stream"] != true || body["tool_choice"] != "get_time" {
+	if body["stream"] != true || body["tool_choice"] != "get_time" || body["cache_retention"] != "long" {
 		t.Fatalf("body=%v", body)
+	}
+	kept := PrepareBody([]byte(`{"model":"m","cache_retention":"short"}`))
+	var explicit map[string]any
+	if err := json.Unmarshal(kept, &explicit); err != nil {
+		t.Fatal(err)
+	}
+	if explicit["cache_retention"] != "short" {
+		t.Fatalf("explicit cache_retention overwritten: %v", explicit["cache_retention"])
 	}
 }
 
@@ -1431,7 +1439,7 @@ func TestCatalogHeadersUseDesktopUAOnlyForGlobal(t *testing.T) {
 	if global.Get("User-Agent") != DesktopUserAgent {
 		t.Fatalf("global catalog UA=%q", global.Get("User-Agent"))
 	}
-	if global.Get("X-IDE-Type") != "" || global.Get("X-Agent-Intent") != "" || global.Get("X-Request-ID") != "" {
+	if global.Get("X-IDE-Type") != "" || global.Get("X-Agent-Intent") != "" || global.Get("X-Request-ID") != "" || global.Get("X-Stainless-Lang") != "" {
 		t.Fatalf("catalog must not carry chat CLI channel headers: %+v", global)
 	}
 	if global.Get("X-Product") != "SaaS" || global.Get("Authorization") != "Bearer at" {
@@ -1454,12 +1462,25 @@ func TestChatHeadersStayRegionSpecificAndIncludeCLIChannel(t *testing.T) {
 	if cn.Get("Origin") != "https://www.codebuddy.cn" || cn.Get("Referer") != "https://www.codebuddy.cn/" {
 		t.Fatalf("CN origin/referer mixed: %+v", cn)
 	}
-	if got := cn.Get("User-Agent"); got != UserAgent || !strings.Contains(got, "2.161.0") {
+	if got := cn.Get("User-Agent"); got != UserAgent || !strings.Contains(got, CLIVersion) {
 		t.Fatalf("CN UA=%q", got)
 	}
-	if cn.Get("X-Product") != "SaaS" || cn.Get("X-IDE-Type") != "CLI" || cn.Get("X-Agent-Intent") != "craft" ||
-		cn.Get("X-Agent-Type") != "main" || cn.Get("X-Private-Data") != "false" || cn.Get("X-Request-ID") == "" {
+	if cn.Get("X-Product") != "SaaS" || cn.Get("X-IDE-Type") != "CLI" || cn.Get("X-IDE-Version") != CLIVersion ||
+		cn.Get("X-Agent-Intent") != "craft" || cn.Get("X-Agent-Purpose") != "conversation" ||
+		cn.Get("X-Agent-Runtime") != "other" || cn.Get("X-Agent-Type") != "main" ||
+		cn.Get("X-Private-Data") != "false" || cn.Get("X-Request-ID") == "" {
 		t.Fatalf("CN missing CLI channel headers: %+v", cn)
+	}
+	if cn.Get("X-Product-Version") != "" || cn.Get("X-Session-ID") != "" {
+		t.Fatalf("CLI chat must not carry the old product/session headers: %+v", cn)
+	}
+	if cn.Get("X-Stainless-Lang") != "js" || cn.Get("X-Stainless-Package-Version") != CLIStainlessPackageVersion ||
+		cn.Get("X-Stainless-Runtime") != "node" || cn.Get("X-Stainless-Runtime-Version") != CLIStainlessRuntimeVersion ||
+		cn.Get("X-Stainless-Timeout") != "1200" {
+		t.Fatalf("CN missing CLI SDK fingerprint: %+v", cn)
+	}
+	if cn.Get("X-Request-ID") == cn.Get("X-Conversation-ID") || cn.Get("X-Root-Request-ID") != cn.Get("X-Conversation-Request-ID") {
+		t.Fatalf("CLI request ids must split message and turn: %+v", cn)
 	}
 	if cn.Get("X-Refresh-Token") != "" || cn.Get("X-API-Key") != "" {
 		t.Fatal("chat must not carry refresh token or API key")
