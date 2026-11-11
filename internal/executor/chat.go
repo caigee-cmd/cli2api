@@ -141,10 +141,14 @@ func regionFilterFromContext(ctx context.Context) string {
 }
 
 func requestContextDone(ctx context.Context, err error) bool {
-	if err == nil {
+	if ctx == nil || ctx.Err() == nil || err == nil {
 		return false
 	}
-	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || (ctx != nil && ctx.Err() != nil)
+	// The caller's request has to be finished, and the error has to be that
+	// context's own sentinel. errors.Is would also match an upstream that
+	// wrapped context.Canceled into its own failure; that is an upstream
+	// problem and must still fail over.
+	return err == context.Canceled || err == context.DeadlineExceeded || errors.Is(err, ctx.Err())
 }
 
 const (
@@ -467,7 +471,8 @@ func coolingPickError(item Item, publicModel string, retryAfter time.Duration) e
 		kind = accounts.KindQuota
 		code = "insufficient_quota"
 		typ = "insufficient_quota"
-		failover = false
+		// The pool is already out of accounts, so this response is terminal
+		// even though a single account's quota error would fail over.
 		if strings.TrimSpace(publicModel) != "" {
 			message = fmt.Sprintf("all accounts that can serve %s are on quota cooldown", publicModel)
 		} else {
@@ -574,16 +579,11 @@ func (e ChatExecutor) ObserveStreamFailure(accountID string, err error, model st
 		e.handleModelAvailabilityFailure("", "stream_body", accountID, model, classified)
 		return
 	}
-	if classified.Kind == accounts.KindQuota {
-		// Quota is classified with Failover=false because the account is not
-		// at fault on a normal request path. Here the response already went
-		// out with 200, so there is no other account to fail over to; without
-		// an explicit cooldown the next request would pick this account again
-		// and fail the same way. Force the cooldown.
-		classified.Failover = true
-		if classified.Cooldown <= 0 {
-			classified.Cooldown = NextLocalMidnightCooldown()
-		}
+	if classified.Kind == accounts.KindQuota && classified.Cooldown <= 0 {
+		// The response already went out with 200, so there is no other account
+		// to fail over to. Still cool this one down, or the next request picks
+		// it again and fails the same way.
+		classified.Cooldown = NextLocalMidnightCooldown()
 	}
 	e.markClassified(accountID, classified, model)
 }
@@ -605,8 +605,12 @@ type replayReadCloser struct {
 // an error before the first event can still fail over to another account.
 // Blank lines and comments (: keep-alive) are skipped; the bytes read while
 // probing are replayed so the relay sees the stream from the first byte.
-// The returned Classified is only meaningful when err != nil.
-func probeStreamBody(body io.ReadCloser) (io.ReadCloser, Classified, error) {
+// The returned Classified is only meaningful when err != nil. A read that
+// fails because the caller's request was canceled returns that context error,
+// so the caller can report KindCanceled instead of treating the account as
+// healthy. A body that merely wraps a context error while the request is still
+// alive is an upstream failure and fails over.
+func probeStreamBody(ctx context.Context, body io.ReadCloser) (io.ReadCloser, Classified, error) {
 	if body == nil {
 		return nil, Classify(0, errEmptyStream.Error(), "", accounts.KindUnavailable, ""), errEmptyStream
 	}
@@ -637,9 +641,11 @@ func probeStreamBody(body io.ReadCloser) (io.ReadCloser, Classified, error) {
 		}
 		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				// The read failed because the request was canceled, not because
-				// the account is unhealthy. Hand the stream back so the relay
-				// reports a cancellation instead of a pre-stream error response.
+				// A context error is not an account failure. Hand back what was
+				// already read and let the relay decide: a canceled request is
+				// reported as a cancellation, and a body that wrapped
+				// context.Canceled while the request is still alive replays
+				// through the relay, which fails over without a pre-stream 502.
 				return &replayReadCloser{Reader: io.MultiReader(&consumed, reader), Closer: body}, Classified{}, nil
 			}
 			body.Close()
@@ -1257,12 +1263,15 @@ func (e ChatExecutor) chatInProcessStreamAttempt(ctx context.Context, item Item,
 		})
 		return StreamResult{AccountID: item.ID, Provider: item.Provider}, classified, NewExecutionError(classified, err)
 	}
-	probed, probeClassified, probeErr := probeStreamBody(resp.Body)
+	probed, probeClassified, probeErr := probeStreamBody(ctx, resp.Body)
 	if probeErr != nil {
 		finished := time.Now().UTC()
 		latency := int(finished.Sub(started).Milliseconds())
 		if requestContextDone(ctx, probeErr) {
-			return StreamResult{AccountID: item.ID, Provider: item.Provider}, Classified{Kind: accounts.KindUnavailable, Message: probeErr.Error()}, probeErr
+			// The client went away before the first event. Report the
+			// cancellation and leave the account's cooldown untouched.
+			classified := ClassifyError(probeErr)
+			return StreamResult{AccountID: item.ID, Provider: item.Provider}, classified, NewExecutionError(classified, probeErr)
 		}
 		classified := probeClassified
 		if classified.Kind == "" {
@@ -1564,16 +1573,19 @@ func (e ChatExecutor) chatStreamProxy(ctx context.Context, req translate.ChatReq
 			release()
 			return StreamResult{AttemptCount: i + 1, AccountID: item.ID, Provider: loop.resultProvider(item)}, loop.lastErr
 		}
-		probed, probeClassified, probeErr := probeStreamBody(resp.Body)
+		probed, probeClassified, probeErr := probeStreamBody(ctx, resp.Body)
 		if probeErr != nil {
 			if requestContextDone(ctx, probeErr) {
+				// The client went away before the first event. Record the
+				// cancellation without cooling the account or failing over.
+				classified := ClassifyError(probeErr)
 				latency := int(time.Since(started).Milliseconds())
 				e.recordAttempt(ctx, accounts.RequestAttempt{
 					AttemptIndex: i, AccountID: item.ID, StartedAt: started, FinishedAt: ptrTime(time.Now().UTC()),
-					Status: accounts.AttemptStatusError, ErrorKind: accounts.KindUnavailable, ErrorMessage: probeErr.Error(), LatencyMs: &latency,
+					Status: accounts.AttemptStatusError, ErrorKind: classified.Kind, ErrorMessage: probeErr.Error(), LatencyMs: &latency,
 				})
 				release()
-				return StreamResult{AttemptCount: i + 1, AccountID: item.ID, Provider: item.Provider}, probeErr
+				return StreamResult{AttemptCount: i + 1, AccountID: item.ID, Provider: item.Provider}, NewExecutionError(classified, probeErr)
 			}
 			classified := probeClassified
 			if classified.Kind == "" {
