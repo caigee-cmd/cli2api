@@ -198,6 +198,37 @@ func TestDecodeRequestBodyAcceptsExactInflatedLimit(t *testing.T) {
 	}
 }
 
+// The cap is measured in decompressed bytes, and a body that fills it exactly
+// must still come back whole when the reader is fed one small buffer at a time.
+// A peek that consumes the final byte and then discards it would pass the
+// one-shot read above and fail here.
+func TestDecodeRequestBodyAcceptsExactInflatedLimitInChunks(t *testing.T) {
+	payload := append([]byte(`{"k":"`), append(bytes.Repeat([]byte("a"), 800), []byte(`"}`)...)...)
+	compressed := gzipBody(t, payload)
+
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(compressed))
+	req.Header.Set("Content-Encoding", "gzip")
+	recorder := httptest.NewRecorder()
+
+	body := decodeRequestBody(recorder, req, int64(len(compressed)), int64(len(payload)))
+	defer body.Close()
+	got := make([]byte, 0, len(payload))
+	buf := make([]byte, 64)
+	for {
+		n, err := body.Read(buf)
+		got = append(got, buf[:n]...)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("read: %v", err)
+		}
+	}
+	if !bytes.Equal(got, payload) {
+		t.Fatalf("body len = %d, want %d", len(got), len(payload))
+	}
+}
+
 // identity is the explicit "not compressed" spelling and must behave like no
 // header at all.
 func TestDecodeRequestBodyIdentityIsTransparent(t *testing.T) {
