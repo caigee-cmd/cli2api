@@ -209,3 +209,29 @@ func TestHeartbeatRecordsClientWriteError(t *testing.T) {
 }
 
 var errWriteClosed = &StreamRelayWriteError{err: http.ErrHandlerTimeout}
+
+// Identity headers registered in setHeaders must already be on the writer when
+// the timer commits, because WriteHeader is the last chance to send them.
+func TestHeartbeatCommitsAccountProviderHeaders(t *testing.T) {
+	w := newRecordingWriter()
+	h := newStreamHeartbeatWith(w, 40*time.Millisecond, 20*time.Millisecond)
+	h.Arm(func() {
+		w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+		w.Header().Set("X-Qoder-Account", "acct-1")
+		w.Header().Set("X-CLI2API-Account", "acct-1")
+		w.Header().Set("X-CLI2API-Provider", "qoder")
+	})
+	time.Sleep(120 * time.Millisecond)
+	if !h.Adopt() {
+		t.Fatal("expected the headers to be committed")
+	}
+	if got := w.header.Get("X-CLI2API-Account"); got != "acct-1" {
+		t.Fatalf("X-CLI2API-Account = %q, want acct-1", got)
+	}
+	if got := w.header.Get("X-Qoder-Account"); got != "acct-1" {
+		t.Fatalf("X-Qoder-Account = %q, want acct-1", got)
+	}
+	if got := w.header.Get("X-CLI2API-Provider"); got != "qoder" {
+		t.Fatalf("X-CLI2API-Provider = %q, want qoder", got)
+	}
+}

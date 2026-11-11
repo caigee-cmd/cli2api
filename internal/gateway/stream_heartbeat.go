@@ -18,9 +18,9 @@ import (
 //
 //   - Edge proxies with a fixed response budget abort the connection when the
 //     origin has not produced a complete response in time. Cloudflare's 120s
-//     Proxy Read Timeout is not configurable outside Enterprise, and a long
-//     prompt is itself slow to upload, so the wait before the first frame can
-//     exceed the whole budget while the upstream is working normally.
+//     Proxy Read Timeout is not configurable outside Enterprise, so waiting
+//     for the upstream response head (or a long prefill) can exceed the whole
+//     budget while the upstream is working normally.
 //   - Clients time out an idle connection for the same reason.
 //
 // Committing the SSE headers early and emitting comment frames (`: keepalive`)
