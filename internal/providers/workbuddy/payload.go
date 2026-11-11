@@ -19,6 +19,7 @@ func PrepareBody(src []byte) []byte {
 		return src
 	}
 	body["stream"] = true
+	ensureCacheRetention(body)
 	normalizeToolChoice(body)
 	normalizeTools(body)
 	dropEmptyTools(body)
@@ -31,6 +32,18 @@ func PrepareBody(src []byte) []byte {
 		return src
 	}
 	return out
+}
+
+// ensureCacheRetention matches the official CLI: a chat body without
+// cache_retention gets "long". An explicit caller value is kept.
+func ensureCacheRetention(body map[string]any) {
+	raw, ok := body["cache_retention"]
+	if ok {
+		if value, isString := raw.(string); isString && strings.TrimSpace(value) != "" {
+			return
+		}
+	}
+	body["cache_retention"] = "long"
 }
 
 func normalizeTools(body map[string]any) {
