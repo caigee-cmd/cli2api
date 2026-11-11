@@ -6,6 +6,7 @@ services:
     image: "${CLI2API_IMAGE:-ghcr.io/caigee-cmd/cli2api:latest}"
     container_name: qoder-api-proxy
     environment:
+      TZ: "${TZ:-Asia/Shanghai}"
       HOST: "0.0.0.0"
       PORT: "3010"
       QODER_DATA_DIR: "/data"
@@ -31,7 +32,14 @@ services:
     tmpfs:
       - /run/cli2api:mode=0700
     ports:
-      - "127.0.0.1:3010:3010"
+      # Public entry is the Cloudflare tunnel, so the default stays loopback-only.
+      # Set CLI2API_BIND_ADDR=0.0.0.0 only when LAN clients must reach it directly.
+      - "${CLI2API_BIND_ADDR:-127.0.0.1}:3010:3010"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3010/health"]
       interval: 10s

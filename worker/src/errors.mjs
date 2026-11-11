@@ -156,7 +156,9 @@ export function classifyError(input = {}) {
   if (kind === KIND_RATE_LIMIT && QUOTA_RE.test(searchable)) kind = KIND_QUOTA;
 
   const defaults = {
-    [KIND_QUOTA]: { status: 429, failover: false, cooldownSec: 0, code: "insufficient_quota", type: "insufficient_quota" },
+    // Quota is per account: another account in the pool can still serve the
+    // request, so let the executor fail over after cooling this one down.
+    [KIND_QUOTA]: { status: 429, failover: true, cooldownSec: 0, code: "insufficient_quota", type: "insufficient_quota" },
     [KIND_RATE_LIMIT]: { status: 429, failover: true, cooldownSec: 60, code: "rate_limit", type: "api_error" },
     [KIND_AUTH]: { status: statusHint === 401 ? 401 : 403, failover: true, cooldownSec: 30, code: "unauthorized", type: "api_error" },
     [KIND_NOT_READY]: { status: 503, failover: true, cooldownSec: 10, code: "not_ready", type: "api_error" },
