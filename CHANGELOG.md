@@ -3,6 +3,28 @@
 Published user-facing notes for GitHub Releases and the console update page.
 Write upcoming notes as bilingual files in `changelog/unreleased/`.
 
+## 0.7.30 - 2026-11-11
+
+### English
+
+- Behavior: an account that runs out of quota is cooled down until the next local midnight and the request moves to another account. The response stays `insufficient_quota` only when every account that can serve the model is exhausted, and it then says `all accounts that can serve <model> are on quota cooldown`.
+- Behavior: WorkBuddy chat now identifies as CodeBuddy CLI 2.168.2. Requests send that version, the official CLI's OpenAI SDK fingerprint, and `cache_retention: long` when the caller did not set one. `X-Session-ID` and `X-Product-Version` are no longer sent; `X-Root-Request-ID`, `X-Agent-Purpose`, and `X-Agent-Runtime` are. The international desktop catalog identity moves to 5.9.4 (bundled CLI 2.165.0); the CN desktop identity is unchanged.
+- Console: accounts can be checked in together from one control. Enabled accounts that support check-in are included; accounts already checked in today are skipped, and one failure does not stop the rest. Accounts are checked one at a time with a pause between them. A cooldown whose deadline has passed is shown as ready instead of staying on cooling.
+- Fix: Qoder daily check-in no longer stops after the first claim. Campaign requests no longer send the derived machine-identity headers that hide the daily credit campaign, an empty campaign list is retried, and a same-person already-claimed response counts as checked in today instead of a failure.
+- Fix: a gzip request body that inflates past the decompressed size limit is rejected with `request body too large` (413) instead of being silently truncated into a JSON syntax error. Body-decoding failures on `POST /v1/messages` keep the Anthropic error envelope. A streaming heartbeat that commits its SSE headers early still sends `X-CLI2API-Account`, `X-Qoder-Account`, and `X-CLI2API-Provider`, and a client disconnect during that wait is recorded as canceled rather than a normal stream open.
+- Fix: a client disconnect while the gateway is still waiting for the first upstream event is reported as a cancellation. It no longer counts as a successful response or clears the account's cooldown. An upstream 200 whose stream closes before the first event fails over to another account instead of being recorded as a success.
+- Fix: WorkBuddy request-body sanitization strips Claude Code billing attribution headers (`x-anthropic-billing-header` and `x-anthropic-billing-hdr`). Those reserved keys used to go upstream as-is and were rejected with 400 / 11128. A system message that is only that header is dropped, and a leading system prompt is restored when needed so the empty text does not trigger 400 / 11151.
+
+### 中文
+
+- 行为变化：单个账号额度耗尽时会冷却到本地时间次日零点，请求改由其他账号承接。只有当所有能服务该模型的账号都耗尽时，响应才保持 `insufficient_quota`，文案为「all accounts that can serve <model> are on quota cooldown」。
+- 行为变化：WorkBuddy 对话身份对齐到 CodeBuddy CLI 2.168.2。请求现在发送该版本号、官方 CLI 的 OpenAI SDK 指纹，并在调用方未指定时补上 `cache_retention: long`。不再发送 `X-Session-ID` 与 `X-Product-Version`，改为发送 `X-Root-Request-ID`、`X-Agent-Purpose` 与 `X-Agent-Runtime`。国际版桌面目录身份升到 5.9.4（内置 CLI 2.165.0），CN 桌面身份不变。
+- 控制台：账号页可以一键签到。已启用且支持签到的账号会一起处理；今天已经签到的会跳过，单个失败不会中断其余账号。账号逐个签到，两次之间留有间隔。冷却截止时间已过的账号显示为就绪，不再一直停在冷却中。
+- 修复：Qoder 每日签到不再只在第一次成功。活动请求不再发送会把每日积分活动隐藏掉的派生机器身份头；活动列表为空时会重试；同一身份今天已经领过时记为今日已签到，不再当成失败。
+- 修复：gzip 请求体解压超过上限时直接拒绝并返回「request body too large」（413），不再静默截断后被当成 JSON 语法错误。`POST /v1/messages` 的请求体解码失败保持 Anthropic 错误格式。流式心跳在提前提交 SSE 响应头时仍会带上 `X-CLI2API-Account`、`X-Qoder-Account` 与 `X-CLI2API-Provider`；客户端在这段等待中断开时记为取消，不再记成一次正常开流。
+- 修复：网关还在等上游第一个事件时客户端断开，现在记为取消，不再算作成功响应，也不会清掉该账号已有的冷却。上游回了 200 但在第一个事件前就关闭的流会换到其他账号，不再记成一次成功。
+- 修复：WorkBuddy 请求体清洗会去掉 Claude Code 的计费归因头（`x-anthropic-billing-header` 与 `x-anthropic-billing-hdr`）。这两个保留键原先会原样出站，上游直接回 400 / 11128。若整条 system 消息只剩该头，会丢弃该消息，并在需要时补回一条 leading system，避免空文本触发 400 / 11151。
+
 ## 0.7.29 - 2026-11-10
 
 ### English
