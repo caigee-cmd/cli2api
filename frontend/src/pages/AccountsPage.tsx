@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from 'rea
 import { Button, Label, ListBox, Select } from '@heroui/react'
 import {
   ArrowsClockwise,
+  CalendarCheck,
   MagnifyingGlass,
   Plus,
   UploadSimple,
@@ -98,6 +99,7 @@ export function AccountsPage() {
   const [inflightById, setInflightById] = useState<Record<string, number>>({})
   const [priorityById, setPriorityById] = useState<Record<string, number>>({})
   const [quotaRefreshing, setQuotaRefreshing] = useState(false)
+  const [checkinAllRunning, setCheckinAllRunning] = useState(false)
   const reloadAccounts = useCallback(async (refresh = false) => {
     try {
       const response = await fetchAccounts(refresh)
@@ -409,6 +411,62 @@ export function AccountsPage() {
     })
   }
 
+	  function alreadyCheckedInToday(account: AccountRow) {
+	    const status = account.last_checkin_status
+	    if ((status !== 'success' && status !== 'already') || !account.last_checkin_at) return false
+	    const recorded = new Date(account.last_checkin_at)
+	    if (Number.isNaN(recorded.getTime())) return false
+	    const timezone = checkinTimezoneFor(account)
+	    const dayOf = (value: Date) => new Intl.DateTimeFormat('en-CA', {
+	      timeZone: timezone || undefined,
+	      year: 'numeric',
+	      month: '2-digit',
+	      day: '2-digit',
+	    }).format(value)
+	    return dayOf(recorded) === dayOf(new Date())
+	  }
+
+	  async function onCheckinAll() {
+	    const eligible = displayRows.filter((account) => account.enabled && checkinPolicyFor(account))
+	    const pending = eligible.filter((account) => !alreadyCheckedInToday(account))
+	    if (eligible.length === 0) {
+	      toast({ id: 'checkin-all', type: 'info', title: t('checkinAllEmpty') })
+	      return
+	    }
+	    setCheckinAllRunning(true)
+	    const summary = { checked: 0, skipped: eligible.length - pending.length, failed: 0 }
+	    try {
+	      for (let index = 0; index < pending.length; index += 1) {
+	        // One account at a time, with a pause before every account after the
+	        // first, so a manual pass cannot burst every upstream call at once.
+	        // Accounts already checked in today never reach here.
+	        if (index > 0) {
+	          await new Promise((resolve) => setTimeout(resolve, 4000))
+	        }
+	        toast({
+	          id: 'checkin-all',
+	          type: 'loading',
+	        title: t('toastCheckingInAll', { done: index, total: pending.length }),
+	        })
+	        try {
+	          await checkinAccount(pending[index].id)
+	          summary.checked += 1
+	        } catch {
+	          summary.failed += 1
+	        }
+	      }
+      const values = { checked: summary.checked, skipped: summary.skipped, failed: summary.failed }
+      toast({
+        id: 'checkin-all',
+        type: summary.failed ? 'error' : 'success',
+        title: t(summary.failed ? 'toastCheckedInAllFailed' : 'toastCheckedInAll', values),
+      })
+    } finally {
+      setCheckinAllRunning(false)
+      await reloadAccounts(false).catch(() => undefined)
+    }
+  }
+
   async function onCheckin(id: string) {
     await run(id, 'checkin', async () => {
       try {
@@ -504,7 +562,10 @@ export function AccountsPage() {
           </>
         ) : null}
         <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:ml-auto sm:w-auto">
-          <Button size="sm" variant="secondary" isPending={quotaRefreshing} onPress={() => void onRefreshCredits()}>
+          <Button size="sm" variant="secondary" isPending={checkinAllRunning} isDisabled={quotaRefreshing} onPress={() => void onCheckinAll()}>
+            <CalendarCheck size={14} />{t('checkinAll')}
+          </Button>
+          <Button size="sm" variant="secondary" isPending={quotaRefreshing} isDisabled={checkinAllRunning} onPress={() => void onRefreshCredits()}>
             <ArrowsClockwise size={14} />{t('refreshCredits')}
           </Button>
           {/*

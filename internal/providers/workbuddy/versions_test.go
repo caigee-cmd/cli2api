@@ -6,11 +6,14 @@ import (
 )
 
 func TestClientVersionsAndDesktopUserAgents(t *testing.T) {
-	if CLIVersion != "2.161.0" || IDEVersion != "2.168.2" {
+	if CLIVersion != "2.168.2" || IDEVersion != "2.168.2" {
 		t.Fatalf("CLI=%q IDE=%q", CLIVersion, IDEVersion)
 	}
-	if UserAgent != "CLI/2.161.0 CodeBuddy/2.161.0" {
+	if UserAgent != "CLI/2.168.2 CodeBuddy/2.168.2" {
 		t.Fatalf("CLI UA=%q", UserAgent)
+	}
+	if CLIStainlessPackageVersion != "6.25.0" || CLIStainlessRuntimeVersion != "v22.21.1" {
+		t.Fatalf("SDK fingerprint package=%q runtime=%q", CLIStainlessPackageVersion, CLIStainlessRuntimeVersion)
 	}
 	if DesktopVersionGlobal != "5.9.4" || DesktopCLIVersionGlobal != "2.165.0" {
 		t.Fatalf("global desktop=%q cli=%q", DesktopVersionGlobal, DesktopCLIVersionGlobal)
