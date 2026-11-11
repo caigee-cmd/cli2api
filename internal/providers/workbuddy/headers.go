@@ -21,21 +21,25 @@ func setCommonHeaders(header http.Header, global bool) {
 	header.Set("User-Agent", UserAgent)
 }
 
-// setCLIChannelHeaders is chat-only. Values come from CodeBuddy CLI 2.139.0
-// (craft / CLI / SaaS). CN and Global share the names; Origin/host stay split.
+// setCLIChannelHeaders is chat-only. Values come from the official
+// CodeBuddy CLI (craft / CLI / SaaS, plus the OpenAI Node SDK fingerprint
+// that package sends). CN and Global share the names; Origin/host stay split.
 func setCLIChannelHeaders(header http.Header, credential Credential) {
 	requestID := newCLIRequestID()
-	header.Set("X-Request-ID", requestID)
+	messageID := newCLIRequestID()
+	header.Set("X-Request-ID", messageID)
 	header.Set("X-Conversation-ID", requestID)
-	header.Set("X-Session-ID", requestID)
 	header.Set("X-Conversation-Request-ID", requestID)
-	header.Set("X-Conversation-Message-ID", requestID)
+	header.Set("X-Root-Request-ID", requestID)
+	header.Set("X-Conversation-Message-ID", messageID)
 	header.Set("X-Agent-Type", agentTypeMain)
 	header.Set("X-Agent-Intent", agentIntentDefault)
+	header.Set("X-Agent-Purpose", agentPurposeConversation)
+	header.Set("X-Agent-Runtime", agentRuntimeOther)
 	header.Set("X-IDE-Type", productTypeCLI)
 	header.Set("X-IDE-Name", productTypeCLI)
 	header.Set("X-IDE-Version", CLIVersion)
-	header.Set("X-Product-Version", CLIVersion)
+	setCLIStainlessHeaders(header)
 	if value, ok := privateDataHeader(identityCLI, privateDataModeFromEnv(), credential); ok {
 		header.Set("X-Private-Data", value)
 	} else {
@@ -95,6 +99,19 @@ func privateDataHeader(identity, mode string, credential Credential) (string, bo
 		}
 		return "false", true
 	}
+}
+
+// setCLIStainlessHeaders adds the OpenAI Node SDK fingerprint the official
+// CLI attaches to chat. Names are lowercase, matching the SDK's wire form.
+func setCLIStainlessHeaders(header http.Header) {
+	header.Set("X-Stainless-Lang", CLIStainlessLang)
+	header.Set("X-Stainless-Package-Version", CLIStainlessPackageVersion)
+	header.Set("X-Stainless-OS", CLIStainlessOS)
+	header.Set("X-Stainless-Arch", CLIStainlessArch)
+	header.Set("X-Stainless-Runtime", CLIStainlessRuntime)
+	header.Set("X-Stainless-Runtime-Version", CLIStainlessRuntimeVersion)
+	header.Set("X-Stainless-Retry-Count", CLIStainlessRetryCount)
+	header.Set("X-Stainless-Timeout", CLIStainlessTimeout)
 }
 
 func newCLIRequestID() string {
