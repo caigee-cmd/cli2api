@@ -24,17 +24,36 @@ const (
 	// UserAgent matches official @tencent-ai/codebuddy-code in the dual-token
 	// form WorkBuddy chat still accepts. Origin/Referer stay region-specific
 	// and must never mix CN with Global. All client versions live here.
-	CLIVersion = "2.161.0"
+	// CLIVersion is the unpacked @tencent-ai/codebuddy-code package version
+	// (hub identity audit, 2.168.2). Chat sends it as both UA segments and
+	// X-IDE-Version.
+	CLIVersion = "2.168.2"
 	UserAgent  = "CLI/" + CLIVersion + " CodeBuddy/" + CLIVersion
 
+	// OpenAI Node SDK fingerprint the official CLI attaches to chat.
+	// Values are the SDK 6.25.0 defaults shipped with that CLI package.
+	// The host OS and architecture stay fixed: a gateway must not leak
+	// its own platform into the upstream fingerprint.
+	CLIStainlessLang           = "js"
+	CLIStainlessPackageVersion = "6.25.0"
+	CLIStainlessOS             = "MacOS"
+	CLIStainlessArch           = "arm64"
+	CLIStainlessRuntime        = "node"
+	CLIStainlessRuntimeVersion = "v22.21.1"
+	CLIStainlessRetryCount     = "0"
+	CLIStainlessTimeout        = "1200"
+
 	// Desktop clients ship separately per edition. Their UA is three-part:
-	// app token, edition token, then the bundled CLI version.
-	// International desktop embeds its own CLI (not the official CLI chat UA).
+	// app token, edition token, then the CLI bundled inside that desktop
+	// build. Those bundled CLIs are not CLIVersion. International desktop
+	// 5.9.4 embeds 2.165.0; the CN desktop build was not re-verified and
+	// stays on its previous bundled CLI.
 	DesktopVersionGlobal    = "5.9.4"
 	DesktopCLIVersionGlobal = "2.165.0"
 	DesktopVersionCN        = "5.8.3"
+	DesktopCLIVersionCN     = "2.161.0"
 	DesktopUserAgentGlobal  = "WorkBuddy/" + DesktopVersionGlobal + " workbuddy-ai/" + DesktopVersionGlobal + " CLI/" + DesktopCLIVersionGlobal
-	DesktopUserAgentCN      = "WorkBuddy/" + DesktopVersionCN + " WorkBuddy/" + DesktopVersionCN + " CLI/" + CLIVersion
+	DesktopUserAgentCN      = "WorkBuddy/" + DesktopVersionCN + " WorkBuddy/" + DesktopVersionCN + " CLI/" + DesktopCLIVersionCN
 
 	// IDEVersion is the CodeBuddy IDE plugin release, kept with the others.
 	IDEVersion = "2.168.2"
@@ -46,9 +65,11 @@ const (
 	DesktopVersion   = DesktopVersionGlobal
 	DesktopUserAgent = DesktopUserAgentGlobal
 
-	productTypeCLI     = "CLI"
-	agentIntentDefault = "craft"
-	agentTypeMain      = "main"
+	productTypeCLI           = "CLI"
+	agentIntentDefault       = "craft"
+	agentPurposeConversation = "conversation"
+	agentRuntimeOther        = "other"
+	agentTypeMain            = "main"
 
 	pathAuthState    = "/v2/plugin/auth/state"
 	pathAuthToken    = "/v2/plugin/auth/token"
