@@ -39,6 +39,11 @@ import (
 // decode. Callers turn it into a 415.
 var ErrUnsupportedContentEncoding = errors.New("unsupported content encoding")
 
+// ErrInflatedBodyTooLarge is returned when a decompressed body exceeds the
+// inflated limit. Unlike io.LimitReader, this is a hard reject: the caller
+// must not continue with a truncated body.
+var ErrInflatedBodyTooLarge = errors.New("decompressed request body too large")
+
 // decodeRequestBody returns a reader for the request body with any supported
 // Content-Encoding removed.
 //
@@ -61,13 +66,55 @@ func decodeRequestBody(w http.ResponseWriter, r *http.Request, wireLimit, inflat
 			return requestBodyReader{err: fmt.Errorf("invalid gzip body: %w", err), raw: body}
 		}
 		return requestBodyReader{
-			Reader: io.LimitReader(gz, inflatedLimit),
+			Reader: &inflatedLimitReader{r: gz, n: inflatedLimit},
 			gz:     gz,
 			raw:    body,
 		}
 	default:
 		return requestBodyReader{err: fmt.Errorf("%w: %s", ErrUnsupportedContentEncoding, encoding), raw: body}
 	}
+}
+
+// inflatedLimitReader bounds decompressed reads the way http.MaxBytesReader
+// bounds the wire: reading past the limit returns a distinct error instead of
+// a silent EOF, so the JSON decoder cannot treat a truncated object as a
+// syntax typo or, worse, succeed on a prefix that happens to be valid JSON.
+type inflatedLimitReader struct {
+	r io.Reader
+	n int64
+}
+
+func (r *inflatedLimitReader) Read(p []byte) (int, error) {
+	if r.n < 0 {
+		return 0, ErrInflatedBodyTooLarge
+	}
+	if r.n == 0 {
+		return r.rejectIfMore()
+	}
+	if int64(len(p)) > r.n {
+		p = p[:r.n]
+	}
+	n, err := r.r.Read(p)
+	r.n -= int64(n)
+	if r.n == 0 && err == nil {
+		if _, peekErr := r.rejectIfMore(); peekErr != nil {
+			return n, peekErr
+		}
+	}
+	return n, err
+}
+
+func (r *inflatedLimitReader) rejectIfMore() (int, error) {
+	var buf [1]byte
+	n, err := r.r.Read(buf[:])
+	if n > 0 {
+		r.n = -1
+		return 0, ErrInflatedBodyTooLarge
+	}
+	if err == nil {
+		return 0, nil
+	}
+	return 0, err
 }
 
 // requestBodyReader is the decoded body plus the handles needed to release it
@@ -109,14 +156,39 @@ func requestBodyCompressed(r *http.Request) bool {
 	}
 }
 
-// writeRequestBodyError turns a body-decoding failure into the right status.
-// An encoding the gateway cannot decode is a client contract problem (415), not
-// a malformed request; everything else is the existing 400 path so callers keep
-// the message they had before.
-func writeRequestBodyError(w http.ResponseWriter, err error) {
-	if errors.Is(err, ErrUnsupportedContentEncoding) {
-		writeErr(w, http.StatusUnsupportedMediaType, "unsupported_content_encoding", err.Error())
-		return
+func isRequestBodyTooLarge(err error) bool {
+	if err == nil {
+		return false
 	}
-	writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
+	if errors.Is(err, ErrInflatedBodyTooLarge) {
+		return true
+	}
+	var maxBytes *http.MaxBytesError
+	return errors.As(err, &maxBytes)
+}
+
+// writeRequestBodyError turns a body-decoding failure into the OpenAI error
+// shape. An encoding the gateway cannot decode is a client contract problem
+// (415), not a malformed request; an over-limit body is 413; everything else
+// is the existing 400 path so callers keep the message they had before.
+func writeRequestBodyError(w http.ResponseWriter, err error) {
+	status, code, msg := classifyRequestBodyError(err)
+	writeErr(w, status, code, msg)
+}
+
+// writeAnthropicRequestBodyError is the /v1/messages counterpart: same status
+// and message, but the Anthropic error envelope this endpoint already uses.
+func writeAnthropicRequestBodyError(w http.ResponseWriter, err error) {
+	status, _, msg := classifyRequestBodyError(err)
+	writeAnthropicError(w, status, "invalid_request_error", msg)
+}
+
+func classifyRequestBodyError(err error) (status int, code, msg string) {
+	if errors.Is(err, ErrUnsupportedContentEncoding) {
+		return http.StatusUnsupportedMediaType, "unsupported_content_encoding", err.Error()
+	}
+	if isRequestBodyTooLarge(err) {
+		return http.StatusRequestEntityTooLarge, "invalid_request", "request body too large"
+	}
+	return http.StatusBadRequest, "invalid_request", err.Error()
 }

@@ -31,6 +31,10 @@ func (h *Handler) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if err := json.NewDecoder(body).Decode(&req); err != nil {
+		if isRequestBodyTooLarge(err) {
+			writeRequestBodyError(w, err)
+			return
+		}
 		writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
@@ -56,17 +60,37 @@ func (h *Handler) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 	ctx := execution.Context
 	w.Header().Set("X-Request-Id", requestID)
 
-	setStreamHeaders := func() {
-		w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
-		w.Header().Set("Cache-Control", "no-cache")
-		w.Header().Set("Connection", "keep-alive")
-		w.Header().Set("X-Accel-Buffering", "no")
-	}
-
 	if req.Stream {
-		// Start heartbeating before blocking on the upstream head. A long prompt
-		// can take longer to upload than a proxy's response budget; silence in
-		// that window is what turns a slow turn into an aborted connection.
+		applyStreamIdentityHeaders := func(accountID, provider string) {
+			if accountID != "" {
+				w.Header().Set("X-Qoder-Account", accountID)
+				w.Header().Set("X-CLI2API-Account", accountID)
+			}
+			if provider != "" {
+				w.Header().Set("X-CLI2API-Provider", provider)
+			}
+		}
+
+		// The heartbeat may commit SSE headers while ChatStreamProxy is still
+		// waiting for the upstream head. Account/provider are known as soon as
+		// the executor picks a route, so the timer reads them from this hint
+		// and includes them in the first flush.
+		routeHint := &executor.StreamRouteHint{}
+		ctx = executor.WithStreamRouteHint(ctx, routeHint)
+
+		setStreamHeaders := func() {
+			w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+			w.Header().Set("Cache-Control", "no-cache")
+			w.Header().Set("Connection", "keep-alive")
+			w.Header().Set("X-Accel-Buffering", "no")
+			accountID, provider := routeHint.Get()
+			applyStreamIdentityHeaders(accountID, firstNonEmpty(provider, providerFilter))
+		}
+
+		// Start heartbeating before blocking on the upstream head. Silence
+		// while waiting for that head (or a long prefill) is what turns a
+		// healthy turn into an aborted connection; the request body has
+		// already been read by this point.
 		heartbeat := newStreamHeartbeat(w)
 		heartbeat.Arm(setStreamHeaders)
 
@@ -76,8 +100,15 @@ func (h *Handler) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 				// The headers are already on the wire, so the only channel left
 				// is an in-stream error event. Report it the same way a
 				// mid-stream failure is reported.
-				h.finishRequestLog(requestID, started, req, publicModel, upstream.AccountID, firstNonEmpty(upstream.Provider, providerFilter), upstream.Routing, accounts.RequestStatusError, upstream.TTFBMs, nil, err, upstream.AttemptCount, upstream.ReasoningLevel)
-				writeStructuredStreamError(w, err)
+				status := accounts.RequestStatusError
+				if heartbeat.clientGone() != nil || r.Context().Err() != nil {
+					status = accounts.RequestStatusCanceled
+					err = context.Canceled
+				}
+				h.finishRequestLog(requestID, started, req, publicModel, upstream.AccountID, firstNonEmpty(upstream.Provider, providerFilter), upstream.Routing, status, upstream.TTFBMs, nil, err, upstream.AttemptCount, upstream.ReasoningLevel)
+				if status != accounts.RequestStatusCanceled {
+					writeStructuredStreamError(w, err)
+				}
 				return
 			}
 			h.finishRequestLog(requestID, started, req, publicModel, upstream.AccountID, firstNonEmpty(upstream.Provider, providerFilter), upstream.Routing, accounts.RequestStatusError, upstream.TTFBMs, nil, err, upstream.AttemptCount, upstream.ReasoningLevel)
@@ -86,23 +117,17 @@ func (h *Handler) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 		}
 		committed := heartbeat.Adopt()
 		defer upstream.Response.Body.Close()
+		if heartbeat.clientGone() != nil || r.Context().Err() != nil {
+			// The client left during the heartbeat wait. Do not record this
+			// as a normal stream open; the headers may already be on the
+			// wire, but no upstream tokens were relayed.
+			h.finishRequestLog(requestID, started, req, publicModel, upstream.AccountID, firstNonEmpty(upstream.Provider, providerFilter), upstream.Routing, accounts.RequestStatusCanceled, upstream.TTFBMs, nil, context.Canceled, upstream.AttemptCount, upstream.ReasoningLevel)
+			return
+		}
 		h.finishRequestLog(requestID, started, req, publicModel, upstream.AccountID, firstNonEmpty(upstream.Provider, providerFilter), upstream.Routing, accounts.RequestStatusStreaming, upstream.TTFBMs, nil, nil, upstream.AttemptCount, upstream.ReasoningLevel)
-		if committed {
-			// Headers already sent by the heartbeat; only decorate what a
-			// committed response can still carry.
-			if upstream.AccountID != "" {
-				w.Header().Set("X-Qoder-Account", upstream.AccountID)
-				w.Header().Set("X-CLI2API-Account", upstream.AccountID)
-			}
-		} else {
+		if !committed {
 			setStreamHeaders()
-			if upstream.AccountID != "" {
-				w.Header().Set("X-Qoder-Account", upstream.AccountID)
-				w.Header().Set("X-CLI2API-Account", upstream.AccountID)
-			}
-			if provider := firstNonEmpty(upstream.Provider, providerFilter); provider != "" {
-				w.Header().Set("X-CLI2API-Provider", provider)
-			}
+			applyStreamIdentityHeaders(upstream.AccountID, firstNonEmpty(upstream.Provider, providerFilter))
 			w.WriteHeader(http.StatusOK)
 			if flusher, ok := w.(http.Flusher); ok {
 				flusher.Flush()

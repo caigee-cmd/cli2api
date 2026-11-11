@@ -28,6 +28,10 @@ func (h *Handler) HandleResponses(w http.ResponseWriter, r *http.Request) {
 	}
 	body, err := io.ReadAll(io.LimitReader(bodyReader, translate.MaxNativeRequestBytes+1))
 	if err != nil {
+		if isRequestBodyTooLarge(err) {
+			writeRequestBodyError(w, err)
+			return
+		}
 		writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
