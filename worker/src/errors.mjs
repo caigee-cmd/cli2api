@@ -93,6 +93,15 @@ function retryHintFromValue(value, parsePrimitive = false) {
   return 0;
 }
 
+// secondsUntilLocalMidnight is the worker-side match for the executor's
+// NextLocalMidnightCooldown: a quota miss parks the account until the next
+// local midnight instead of letting the following request pick it again.
+export function secondsUntilLocalMidnight(now = new Date()) {
+  const next = new Date(now);
+  next.setHours(24, 0, 0, 0);
+  return Math.max(1, Math.ceil((next.getTime() - now.getTime()) / 1000));
+}
+
 export function parseRetryAfter(raw, fallbackSec = 0) {
   const parsed = parseRetryAfterValue(raw);
   if (parsed > 0) return Math.min(MAX_RETRY_AFTER_SEC, Math.ceil(parsed));
@@ -157,8 +166,9 @@ export function classifyError(input = {}) {
 
   const defaults = {
     // Quota is per account: another account in the pool can still serve the
-    // request, so let the executor fail over after cooling this one down.
-    [KIND_QUOTA]: { status: 429, failover: true, cooldownSec: 0, code: "insufficient_quota", type: "insufficient_quota" },
+    // request, so let the executor fail over after cooling this one down
+    // until the next local midnight.
+    [KIND_QUOTA]: { status: 429, failover: true, cooldownSec: secondsUntilLocalMidnight(), code: "insufficient_quota", type: "insufficient_quota" },
     [KIND_RATE_LIMIT]: { status: 429, failover: true, cooldownSec: 60, code: "rate_limit", type: "api_error" },
     [KIND_AUTH]: { status: statusHint === 401 ? 401 : 403, failover: true, cooldownSec: 30, code: "unauthorized", type: "api_error" },
     [KIND_NOT_READY]: { status: 503, failover: true, cooldownSec: 10, code: "not_ready", type: "api_error" },
@@ -175,6 +185,14 @@ export function classifyError(input = {}) {
   let retryAfterSec = parseRetryAfter(retryRaw, retryHintFromValue(payload) || conf.cooldownSec);
   if (kind === KIND_RATE_LIMIT && retryAfterSec > 0 && retryAfterSec < MIN_RATE_LIMIT_COOLDOWN_SEC) {
     retryAfterSec = MIN_RATE_LIMIT_COOLDOWN_SEC;
+  }
+  // parseRetryAfter caps every hint at 10 minutes, which would turn a quota
+  // miss into a short cooldown and put the same account back in rotation.
+  // Quota waits until the next local midnight unless the upstream names an
+  // earlier reset.
+  if (kind === KIND_QUOTA) {
+    const hinted = retryHintFromValue(payload);
+    retryAfterSec = hinted > 0 ? Math.ceil(hinted) : secondsUntilLocalMidnight();
   }
   return {
     kind,

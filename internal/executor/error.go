@@ -193,7 +193,7 @@ func ClassifyError(err error) Classified {
 		}
 	case accounts.KindQuota:
 		// A parsed upstream reset replaces the local-midnight fallback.
-		// Quota stays account-wide and does not fail over mid-request.
+		// Quota stays account-wide; Classify already marks it for failover.
 		if providerErr.RetryAfter > 0 {
 			classified.Cooldown = providerErr.RetryAfter
 		}
