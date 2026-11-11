@@ -98,9 +98,13 @@ func TestBridgeCheckinHappyPath(t *testing.T) {
 		t.Fatalf("claim POST hits = %d want 2 (all CLAIMABLE CLAIM_BENEFIT)", claimHits.Load())
 	}
 
-	// Header parity with worker/src/checkin.mjs.
+	// Desktop identity only. A derived cosy-machine* set hides the daily
+	// credit campaign, so none of those headers may be sent.
 	if got := gotHeaders.Get("Authorization"); !strings.HasPrefix(got, "Bearer ") {
 		t.Fatalf("Authorization = %q want Bearer <token>", got)
+	}
+	if got := gotHeaders.Get("User-Agent"); got != "Qoder" {
+		t.Fatalf("User-Agent = %q want Qoder", got)
 	}
 	if got := gotHeaders.Get("Cosy-ClientType"); got != "10" {
 		t.Fatalf("Cosy-ClientType = %q want 10", got)
@@ -108,16 +112,13 @@ func TestBridgeCheckinHappyPath(t *testing.T) {
 	if got := gotHeaders.Get("Cosy-Version"); got != "0.4.8" {
 		t.Fatalf("Cosy-Version = %q want 0.4.8", got)
 	}
-	for _, key := range []string{"Cosy-Machineid", "Cosy-Machinetoken", "Cosy-Machinetype", "Cosy-Machinecode"} {
-		if gotHeaders.Get(key) == "" {
-			t.Fatalf("%s header must be non-empty (a partial identity drops the credit campaign)", key)
+	for _, key := range []string{
+		"Cosy-Machineid", "Cosy-Machinetoken", "Cosy-Machinetype", "Cosy-Machinecode",
+		"Cosy-Machineos", "Cosy-Machinehostname", "Origin", "Referer",
+	} {
+		if got := gotHeaders.Get(key); got != "" {
+			t.Fatalf("%s = %q, derived machine/browser headers must be omitted", key, got)
 		}
-	}
-	if got := gotHeaders.Get("Origin"); got != "https://stub.test" {
-		t.Fatalf("Origin = %q want https://stub.test", got)
-	}
-	if got := gotHeaders.Get("Referer"); !strings.HasPrefix(got, openapi.URL+"/growth-page/activity-iframe") {
-		t.Fatalf("Referer = %q want growth-page/activity-iframe", got)
 	}
 }
 
@@ -235,6 +236,75 @@ func TestBridgeCheckinNoClaimable(t *testing.T) {
 			}
 		})
 	}
+
+	// A list that is empty once and then returns the daily campaign must
+	// claim it. One empty snapshot used to end the day.
+	t.Run("empty list retries then claims", func(t *testing.T) {
+		origWaits := checkinListRetryWaits
+		checkinListRetryWaits = []time.Duration{0, time.Millisecond, time.Millisecond}
+		t.Cleanup(func() { checkinListRetryWaits = origWaits })
+		var gets atomic.Int32
+		openapi := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodGet {
+				if gets.Add(1) == 1 {
+					_ = json.NewEncoder(w).Encode(map[string]any{"campaigns": []any{}})
+					return
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{"campaigns": []map[string]any{{
+					"campaignId": "daily", "actionType": "CLAIM_BENEFIT", "claimStatus": "CLAIMABLE",
+					"benefit": map[string]any{"kind": "CREDITS", "amount": 100.0},
+				}}})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"status": "CLAIMED"})
+		}))
+		defer openapi.Close()
+		CheckinEndpointHook = func(*qauth.RegionConfig) *checkinRegion {
+			return &checkinRegion{base: openapi.URL, origin: "https://stub.test"}
+		}
+		checkinHTTPClient = openapi.Client()
+		b := newTestBridge(t, "fake-pat-secret-0123456789abcdef")
+		result, err := b.Checkin(context.Background())
+		if err != nil {
+			t.Fatalf("Checkin err = %v", err)
+		}
+		if result.Status != "success" || result.RewardCredits != 100 {
+			t.Fatalf("result = %+v want success +100", result)
+		}
+		if gets.Load() != 2 {
+			t.Fatalf("campaign GETs = %d want 2", gets.Load())
+		}
+	})
+
+	// Person-level dedupe is "already", including when the code is nested
+	// under data. It must not be reported as a failed check-in.
+	t.Run("same person already claimed", func(t *testing.T) {
+		openapi := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodGet {
+				_ = json.NewEncoder(w).Encode(map[string]any{"campaigns": []map[string]any{{
+					"campaignId": "daily", "actionType": "CLAIM_BENEFIT", "claimStatus": "CLAIMABLE",
+					"benefit": map[string]any{"kind": "CREDITS", "amount": 100.0},
+				}}})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
+				"status": "BLOCKED", "failureCode": "SAME_PERSON_ALREADY_CLAIMED",
+			}})
+		}))
+		defer openapi.Close()
+		CheckinEndpointHook = func(*qauth.RegionConfig) *checkinRegion {
+			return &checkinRegion{base: openapi.URL, origin: "https://stub.test"}
+		}
+		checkinHTTPClient = openapi.Client()
+		b := newTestBridge(t, "fake-pat-secret-0123456789abcdef")
+		result, err := b.Checkin(context.Background())
+		if err != nil {
+			t.Fatalf("Checkin err = %v", err)
+		}
+		if result.Status != "already" {
+			t.Fatalf("status = %q want already", result.Status)
+		}
+	})
 
 	// 404 path: campaigns endpoint returns 404 → "skipped".
 	t.Run("404 activity not open", func(t *testing.T) {
