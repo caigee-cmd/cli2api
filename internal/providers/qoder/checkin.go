@@ -2,9 +2,6 @@ package qoder
 
 import (
 	"context"
-	"crypto/md5"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,8 +9,6 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"os"
-	"runtime"
 	"strings"
 	"time"
 
@@ -27,17 +22,22 @@ import (
 // on CN, OpenAPI token on Global; rotated via EnsureFreshSession before the
 // call and force-refreshed on a 401).
 //
-// The device fingerprint is derived from the PAT (deriveMachineIdentity /
-// deriveMachineCode): stable per account, and no two accounts on the same
-// host share an identity.
+// Campaign requests send the desktop identity headers the activity endpoint
+// requires (User-Agent, Cosy-ClientType, Cosy-Version) and omit the derived
+// cosy-machine* set. A full derived set is treated as a non-official client
+// and the daily credit campaign is filtered out of an otherwise successful
+// list, which is what made a later check-in look like "no campaign".
 //
-// Wire shape mirrors worker/src/checkin.mjs exactly:
+// Wire shape:
 //   - GET  {openapi}/sash/api/v1/me/campaigns  → list of campaigns
 //   - POST {openapi}/sash/api/v1/me/campaigns/{id}/claim  → claim one
 //
 // A campaign is claimable when actionType == "CLAIM_BENEFIT" and
 // claimStatus == "CLAIMABLE"; an already-CLAIMED campaign reports
-// "今日已签到".
+// "今日已签到". An empty or non-claimable list is retried, because the
+// endpoint intermittently returns no daily campaign. SAME_PERSON_ALREADY_CLAIMED
+// means this machine identity already collected today and is reported as
+// already checked in, not as a failure.
 func (c *Client) Checkin(ctx context.Context, accountID string) (providers.CheckinResult, error) {
 	b, err := c.bridge(ctx, accountID)
 	if err != nil {
@@ -105,15 +105,6 @@ func (b *Bridge) Checkin(ctx context.Context) (providers.CheckinResult, error) {
 		return providers.CheckinResult{Status: "skipped", Message: "签到活动未开放"}, nil
 	}
 
-	// PAT-derived identity only: stable per account and unique across accounts
-	// on the same host, so multi-account setups never share one fingerprint.
-	machineID := b.MachineID()
-	machineToken := b.MachineToken()
-	machineType := b.MachineType()
-	machineCode := deriveMachineCode(b.PAT)
-	machineOS := machineOSString()
-	machineHostname := machineHostnameString()
-
 	// The campaign endpoint's bearer differs by region: CN accepts the COSY
 	// securityOauthToken; Global rejects it (401) and needs a separately-issued
 	// OpenAPI bearer. quotaBearer returns the right one and caches the global
@@ -137,22 +128,14 @@ func (b *Bridge) Checkin(ctx context.Context) (providers.CheckinResult, error) {
 		}
 		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Set("Accept", "application/json")
-		req.Header.Set("Content-Type", "application/json")
+		if method != http.MethodGet {
+			req.Header.Set("Content-Type", "application/json")
+		}
 		req.Header.Set("User-Agent", "Qoder")
 		req.Header.Set("Cosy-ClientType", "10")
 		req.Header.Set("Cosy-Version", qauth.DesktopCosyVersion)
-		req.Header.Set("Cosy-MachineId", machineID)
-		req.Header.Set("Cosy-MachineToken", machineToken)
-		req.Header.Set("Cosy-MachineType", machineType)
-		req.Header.Set("Cosy-MachineCode", machineCode)
-		if machineOS != "" {
-			req.Header.Set("Cosy-MachineOS", machineOS)
-		}
-		if machineHostname != "" {
-			req.Header.Set("Cosy-MachineHostname", machineHostname)
-		}
-		req.Header.Set("Origin", endpoint.origin)
-		req.Header.Set("Referer", endpoint.base+"/growth-page/activity-iframe")
+		// Derived machine headers are deliberately absent. See the comment
+		// on Client.Checkin: a full derived set hides the daily campaign.
 		// redirect: manual — the campaigns endpoint 302s to a login page when
 		// the token is rejected, and we want to see the 302 rather than follow it.
 		resp, err := checkinHTTPClient.Do(req)
@@ -191,18 +174,33 @@ func (b *Bridge) Checkin(ctx context.Context) (providers.CheckinResult, error) {
 		return parsed, resp.StatusCode, nil
 	}
 
-	// 1) List campaigns.
-	listRaw, _, err := doRequest(checkinCampaignsPath, http.MethodGet, false)
-	if err != nil {
-		// 404 means the credit campaign is not open today; surface as skipped
-		// rather than an error so the scheduler logs a clean "already/none".
-		var statusErr interface{ StatusCode() int }
-		if errors.As(err, &statusErr) && statusErr.StatusCode() == http.StatusNotFound {
-			return providers.CheckinResult{Status: "skipped", Message: "签到活动未开放"}, nil
+	// 1) List campaigns. A successful response with nothing claimable is
+	// retried: the endpoint intermittently omits the daily campaign, and
+	// treating that single snapshot as final dropped the day's check-in.
+	var items []campaign
+	for attempt, wait := range checkinListRetryWaits {
+		listRaw, _, err := doRequest(checkinCampaignsPath, http.MethodGet, false)
+		if err != nil {
+			// 404 means the credit campaign is not open today; surface as skipped
+			// rather than an error so the scheduler logs a clean "already/none".
+			var statusErr interface{ StatusCode() int }
+			if errors.As(err, &statusErr) && statusErr.StatusCode() == http.StatusNotFound {
+				return providers.CheckinResult{Status: "skipped", Message: "签到活动未开放"}, nil
+			}
+			return providers.CheckinResult{}, err
 		}
-		return providers.CheckinResult{}, err
+		items = campaignsFrom(listRaw)
+		if !campaignListNeedsRetry(items) || attempt == len(checkinListRetryWaits)-1 {
+			break
+		}
+		timer := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return providers.CheckinResult{}, ctx.Err()
+		case <-timer.C:
+		}
 	}
-	items := campaignsFrom(listRaw)
 	benefits := creditCampaigns(items)
 	if len(benefits) == 0 {
 		summary := campaignSummary(items)
@@ -231,6 +229,13 @@ func (b *Bridge) Checkin(ctx context.Context) (providers.CheckinResult, error) {
 	for _, campaign := range claimable {
 		path := fmt.Sprintf("%s/%s/claim", checkinCampaignsPath, url.PathEscape(campaign.CampaignID))
 		claimRaw, _, err := doRequest(path, http.MethodPost, false)
+		if failure, blocked := claimFailure(claimRaw); blocked {
+			// Upstream dedupes by person (machine identity), not by account.
+			// A single-account pool hits this too, after the official client
+			// or another account on the same machine already collected.
+			log.Printf("[qoder-checkin] region=%s person already claimed: code=%s", regionName(b.Region), failure)
+			return providers.CheckinResult{Status: "already", Message: "今日已签到（同一身份已领取）"}, nil
+		}
 		if err != nil {
 			// Re-list to see if the claim actually succeeded despite the error.
 			relist, _, relistErr := doRequest(checkinCampaignsPath, http.MethodGet, true)
@@ -292,6 +297,12 @@ var checkinHTTPClient = &http.Client{
 }
 
 const checkinCampaignsPath = "/sash/api/v1/me/campaigns"
+
+// checkinListRetryWaits is the backoff before each extra campaign listing.
+// The first attempt waits nothing; an empty or non-claimable list waits
+// 800ms and then 2s. A list that already has something claimable stops.
+// Tests replace the slice; production values match the observed jitter.
+var checkinListRetryWaits = []time.Duration{0, 800 * time.Millisecond, 2 * time.Second}
 
 type checkinRegion struct {
 	base   string
@@ -381,6 +392,21 @@ func creditCampaigns(items []campaign) []campaign {
 	return out
 }
 
+// campaignListNeedsRetry reports whether a successful listing should be
+// fetched again. An empty list, or a list with no CLAIMABLE credit campaign,
+// is the intermittent shape that used to end the day's check-in.
+func campaignListNeedsRetry(items []campaign) bool {
+	if len(items) == 0 {
+		return true
+	}
+	for _, c := range creditCampaigns(items) {
+		if c.ClaimStatus == "CLAIMABLE" {
+			return false
+		}
+	}
+	return true
+}
+
 func claimableCampaigns(items []campaign) []campaign {
 	out := make([]campaign, 0, len(items))
 	for _, c := range items {
@@ -398,6 +424,35 @@ func claimStatusOf(items []campaign, id string) string {
 		}
 	}
 	return ""
+}
+
+// claimFailure reads the upstream person-level dedupe. SAME_PERSON_ALREADY_CLAIMED
+// (or status BLOCKED carrying that code) means this identity already collected
+// today; it is not an account or credential failure.
+func claimFailure(raw map[string]any) (string, bool) {
+	if raw == nil {
+		return "", false
+	}
+	body := raw
+	if data, ok := raw["data"].(map[string]any); ok {
+		if _, present := data["status"]; present || stringFieldOf(data, "failureCode") != "" {
+			body = data
+		}
+	}
+	status := strings.ToUpper(strings.TrimSpace(unwrapClaimStatus(raw)))
+	code := strings.ToUpper(strings.TrimSpace(stringFieldOf(body, "failureCode")))
+	if code == "SAME_PERSON_ALREADY_CLAIMED" || (status == "BLOCKED" && code != "") {
+		if code == "" {
+			code = status
+		}
+		return code, true
+	}
+	return "", false
+}
+
+func stringFieldOf(raw map[string]any, key string) string {
+	value, _ := raw[key].(string)
+	return value
 }
 
 func unwrapClaimStatus(raw map[string]any) string {
@@ -436,84 +491,6 @@ func truncateOneLine(s string) string {
 		s = s[:200] + "…"
 	}
 	return s
-}
-
-// deriveMachineCode is the fourth machine-identity header the OpenAPI
-// campaigns endpoint expects (Cosy-MachineCode), alongside Id/Token/Type.
-// We derive a stable value from the PAT, mirroring the other derived
-// identities. A partial identity (missing any of the four) causes the
-// campaigns endpoint to silently drop the claimable credit campaign, so this
-// MUST be non-empty.
-func deriveMachineCode(pat string) string {
-	sum := md5.Sum([]byte("machinecode:" + pat))
-	return hex.EncodeToString(sum[:])
-}
-
-// machineOSString mirrors checkin.mjs's machineOS(): "<arch>_<platform>" in
-// the format the desktop client sends (e.g. "aarch64_darwin").
-func machineOSString() string {
-	arch := "x86_64"
-	switch runtime.GOARCH {
-	case "arm64":
-		arch = "aarch64"
-	case "amd64":
-		arch = "x86_64"
-	}
-	return arch + "_" + runtime.GOOS
-}
-
-// machineHostnameString mirrors checkin.mjs's machineHostname(): the host
-// name if printable ASCII (≤96 bytes), otherwise a sha256-prefixed sanitized
-// form. Empty when neither form is producible.
-func machineHostnameString() string {
-	name, err := os.Hostname()
-	if err != nil || strings.TrimSpace(name) == "" {
-		return ""
-	}
-	trimmed := strings.TrimSpace(name)
-	if len([]byte(trimmed)) > 96 {
-		return ""
-	}
-	if isPrintableASCII(trimmed) {
-		return trimmed
-	}
-	// Fall back to a sanitized form for non-ASCII hostnames (CJK laptops).
-	safe := strings.Map(func(r rune) rune {
-		if r < 0x21 || r > 0x7e {
-			return '-'
-		}
-		return r
-	}, trimmed)
-	safe = strings.ReplaceAll(safe, "--", "-")
-	safe = strings.Trim(safe, "-")
-	if len(safe) > 87 {
-		safe = safe[:87]
-	}
-	if safe == "" {
-		return ""
-	}
-	digest := shortHash(trimmed)
-	out := safe + "-" + digest
-	out = strings.TrimRight(out, "-")
-	if !isPrintableASCII(out) {
-		return ""
-	}
-	return out
-}
-
-func isPrintableASCII(s string) bool {
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if c < 0x21 || c > 0x7e {
-			return false
-		}
-	}
-	return len(s) > 0
-}
-
-func shortHash(s string) string {
-	sum := sha256.Sum256([]byte(s))
-	return hex.EncodeToString(sum[:])[:8]
 }
 
 // campaignSummary renders "actionType:claimStatus" pairs (no ids or tokens) so
