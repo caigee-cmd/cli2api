@@ -21,10 +21,14 @@ func (h *Handler) HandleAnthropicMessages(w http.ResponseWriter, r *http.Request
 	body := decodeRequestBody(w, r, maxChatRequestBytes, maxChatRequestBytes)
 	defer body.Close()
 	if body.err != nil {
-		writeRequestBodyError(w, body.err)
+		writeAnthropicRequestBodyError(w, body.err)
 		return
 	}
 	if err := json.NewDecoder(body).Decode(&source); err != nil {
+		if isRequestBodyTooLarge(err) {
+			writeAnthropicRequestBodyError(w, err)
+			return
+		}
 		writeAnthropicError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
 	}
