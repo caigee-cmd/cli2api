@@ -548,6 +548,48 @@ func TestChatStreamProxyFailsOverStructuredErrorFirstEvent(t *testing.T) {
 	}
 }
 
+// A client that disconnects while the probe is still waiting for the first
+// event must be reported as a cancellation. Recording it as a success would
+// mark the account healthy and invite the next request onto the same stream.
+func TestChatStreamProxyProbeCancelDoesNotMarkAccountHealthy(t *testing.T) {
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		<-release
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+
+	pool := NewPool([]string{srv.URL}, []string{"a"})
+	ex := NewChatExecutor(pool, "")
+	ex.HTTPClient = srv.Client()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		// Headers are out, so the executor is blocked inside the probe.
+		time.Sleep(200 * time.Millisecond)
+		cancel()
+		close(release)
+	}()
+	_, err := ex.ChatStreamProxy(ctx, translate.ChatRequest{
+		Model:    "minimax-m3",
+		Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	}, "a", "")
+	var execErr *ExecutionError
+	if !errors.As(err, &execErr) || execErr.Classified.Kind != accounts.KindCanceled || execErr.Classified.Status != 499 {
+		t.Fatalf("err=%v", err)
+	}
+	item, _ := pool.ByID("a")
+	if !item.DownUntil.IsZero() || item.LastKind != "" {
+		t.Fatalf("cancellation must not cool or relabel the account: %+v", item)
+	}
+}
+
 // A provider can answer 200 and then fail inside the SSE body. The executor's
 // attempt loop already returned, so this is the only hook that can mark the
 // account down for the next request.
