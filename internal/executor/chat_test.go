@@ -576,13 +576,19 @@ func TestChatStreamProxyProbeCancelDoesNotMarkAccountHealthy(t *testing.T) {
 		cancel()
 		close(release)
 	}()
-	_, err := ex.ChatStreamProxy(ctx, translate.ChatRequest{
+	stream, err := ex.ChatStreamProxy(ctx, translate.ChatRequest{
 		Model:    "minimax-m3",
 		Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
 	}, "a", "")
-	var execErr *ExecutionError
-	if !errors.As(err, &execErr) || execErr.Classified.Kind != accounts.KindCanceled || execErr.Classified.Status != 499 {
-		t.Fatalf("err=%v", err)
+	if err != nil {
+		t.Fatalf("probe must hand a canceled request back to the relay, err=%v", err)
+	}
+	defer stream.Response.Body.Close()
+	// The body ends because the request was canceled. The transport may report
+	// that as the context error or as a closed connection; either way it must
+	// not come back as a completed stream.
+	if _, err := io.ReadAll(stream.Response.Body); err == nil {
+		t.Fatal("canceled probe returned a completed stream")
 	}
 	item, _ := pool.ByID("a")
 	if !item.DownUntil.IsZero() || item.LastKind != "" {
