@@ -120,7 +120,9 @@ func (h *Handler) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 		if heartbeat.clientGone() != nil || r.Context().Err() != nil {
 			// The client left during the heartbeat wait. Do not record this
 			// as a normal stream open; the headers may already be on the
-			// wire, but no upstream tokens were relayed.
+			// wire, but no upstream tokens were relayed. CommitSession stays
+			// uncalled: it binds only a stream that finished without a client
+			// error, and this one ended because the client left.
 			h.finishRequestLog(requestID, started, req, publicModel, upstream.AccountID, firstNonEmpty(upstream.Provider, providerFilter), upstream.Routing, accounts.RequestStatusCanceled, upstream.TTFBMs, nil, context.Canceled, upstream.AttemptCount, upstream.ReasoningLevel)
 			return
 		}
