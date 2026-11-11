@@ -12,6 +12,8 @@ ARG APP_VERSION=dev
 ARG APP_COMMIT=unknown
 ARG TARGETOS
 ARG TARGETARCH
+ARG GOPROXY=https://proxy.golang.org,direct
+ENV GOPROXY=${GOPROXY}
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download

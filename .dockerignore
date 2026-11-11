@@ -8,6 +8,7 @@ internal/webui/static
 *.sqlite
 *.sqlite3
 *.log
+*.tar
 capture-raw
 docs/PRIVATE_DEPLOYMENT.md
 docs/private

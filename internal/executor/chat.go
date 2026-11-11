@@ -1,6 +1,7 @@
 package executor
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -587,6 +588,96 @@ func (e ChatExecutor) ObserveStreamFailure(accountID string, err error, model st
 	e.markClassified(accountID, classified, model)
 }
 
+// errEmptyStream means the upstream answered 200 and then closed the body
+// before sending a single SSE line. Historically quota-exhausted accounts did
+// this and the executor recorded it as a success.
+var errEmptyStream = errors.New("upstream answered 200 but the stream was empty before the first event")
+
+// replayReadCloser replays the bytes consumed by the probe and then continues
+// reading from the live upstream body.
+type replayReadCloser struct {
+	io.Reader
+	io.Closer
+}
+
+// probeStreamBody waits for the first event of an upstream stream. Nothing has
+// been sent to the client yet at this point, so a stream that dies or reports
+// an error before the first event can still fail over to another account.
+// Blank lines and comments (: keep-alive) are skipped; the bytes read while
+// probing are replayed so the relay sees the stream from the first byte.
+// The returned Classified is only meaningful when err != nil.
+func probeStreamBody(body io.ReadCloser) (io.ReadCloser, Classified, error) {
+	if body == nil {
+		return nil, Classify(0, errEmptyStream.Error(), "", accounts.KindUnavailable, ""), errEmptyStream
+	}
+	reader := bufio.NewReaderSize(body, 64*1024)
+	var consumed bytes.Buffer
+	eventName := ""
+	for {
+		line, err := reader.ReadString('\n')
+		if line != "" {
+			consumed.WriteString(line)
+			text := strings.TrimSpace(strings.TrimRight(line, "\r\n"))
+			switch {
+			case text == "", strings.HasPrefix(text, ":"):
+				// Frame separator or keep-alive comment: keep waiting.
+			case strings.HasPrefix(text, "event:"):
+				eventName = strings.TrimSpace(strings.TrimPrefix(text, "event:"))
+			case strings.HasPrefix(text, "data:"):
+				data := strings.TrimSpace(strings.TrimPrefix(text, "data:"))
+				if classified, failed := probeFrameFailure(eventName, data); failed {
+					body.Close()
+					return nil, classified, fmt.Errorf("upstream stream failed before the first event: %s", classified.Message)
+				}
+				return &replayReadCloser{Reader: io.MultiReader(&consumed, reader), Closer: body}, Classified{}, nil
+			default:
+				// Non-SSE payload: let the relay surface it unchanged.
+				return &replayReadCloser{Reader: io.MultiReader(&consumed, reader), Closer: body}, Classified{}, nil
+			}
+		}
+		if err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				// The read failed because the request was canceled, not because
+				// the account is unhealthy. Hand the stream back so the relay
+				// reports a cancellation instead of a pre-stream error response.
+				return &replayReadCloser{Reader: io.MultiReader(&consumed, reader), Closer: body}, Classified{}, nil
+			}
+			body.Close()
+			if errors.Is(err, io.EOF) {
+				return nil, Classify(0, errEmptyStream.Error(), "", accounts.KindUnavailable, ""), errEmptyStream
+			}
+			return nil, Classify(0, err.Error(), "", accounts.KindUnavailable, ""), err
+		}
+	}
+}
+
+// probeFrameFailure recognizes an SSE error frame, such as the structured
+// "event: error" the worker emits when the upstream dies before streaming any
+// token. Content frames (the ones carrying choices) are not failures.
+func probeFrameFailure(eventName, data string) (Classified, bool) {
+	if data == "" {
+		return Classified{}, false
+	}
+	var payload map[string]any
+	if json.Unmarshal([]byte(data), &payload) != nil {
+		return Classified{}, false
+	}
+	if _, ok := payload["choices"]; ok {
+		return Classified{}, false
+	}
+	status := 0
+	if value, ok := payload["status"].(float64); ok {
+		status = int(value)
+	}
+	if _, ok := payload["error"]; ok {
+		return Classify(status, data, "", "", ""), true
+	}
+	if strings.EqualFold(eventName, "error") {
+		return Classify(status, data, "", "", ""), true
+	}
+	return Classified{}, false
+}
+
 func (e ChatExecutor) handleModelAvailabilityFailure(requestID, source, accountID, model string, classified Classified) {
 	if e.Pool == nil || accountID == "" {
 		return
@@ -1166,6 +1257,29 @@ func (e ChatExecutor) chatInProcessStreamAttempt(ctx context.Context, item Item,
 		})
 		return StreamResult{AccountID: item.ID, Provider: item.Provider}, classified, NewExecutionError(classified, err)
 	}
+	probed, probeClassified, probeErr := probeStreamBody(resp.Body)
+	if probeErr != nil {
+		finished := time.Now().UTC()
+		latency := int(finished.Sub(started).Milliseconds())
+		if requestContextDone(ctx, probeErr) {
+			return StreamResult{AccountID: item.ID, Provider: item.Provider}, Classified{Kind: accounts.KindUnavailable, Message: probeErr.Error()}, probeErr
+		}
+		classified := probeClassified
+		if classified.Kind == "" {
+			classified = Classify(0, probeErr.Error(), "", accounts.KindUnavailable, "")
+		}
+		e.markClassified(item.ID, classified, req.Model)
+		status := accounts.AttemptStatusError
+		if classified.Failover {
+			status = accounts.AttemptStatusFailover
+		}
+		e.recordAttempt(ctx, accounts.RequestAttempt{
+			AttemptIndex: attemptIndex, AccountID: item.ID, StartedAt: started, FinishedAt: &finished,
+			Status: status, ErrorKind: classified.Kind, ErrorMessage: truncateErr(probeErr.Error()), LatencyMs: &latency,
+		})
+		return StreamResult{AccountID: item.ID, Provider: item.Provider}, classified, NewExecutionError(classified, probeErr)
+	}
+	resp.Body = probed
 	e.markOK(item.ID, req.Model)
 	ttfb := int(time.Since(started).Milliseconds())
 	headerAt := time.Now().UTC()
@@ -1450,6 +1564,46 @@ func (e ChatExecutor) chatStreamProxy(ctx context.Context, req translate.ChatReq
 			release()
 			return StreamResult{AttemptCount: i + 1, AccountID: item.ID, Provider: loop.resultProvider(item)}, loop.lastErr
 		}
+		probed, probeClassified, probeErr := probeStreamBody(resp.Body)
+		if probeErr != nil {
+			if requestContextDone(ctx, probeErr) {
+				latency := int(time.Since(started).Milliseconds())
+				e.recordAttempt(ctx, accounts.RequestAttempt{
+					AttemptIndex: i, AccountID: item.ID, StartedAt: started, FinishedAt: ptrTime(time.Now().UTC()),
+					Status: accounts.AttemptStatusError, ErrorKind: accounts.KindUnavailable, ErrorMessage: probeErr.Error(), LatencyMs: &latency,
+				})
+				release()
+				return StreamResult{AttemptCount: i + 1, AccountID: item.ID, Provider: item.Provider}, probeErr
+			}
+			classified := probeClassified
+			if classified.Kind == "" {
+				classified = Classify(0, probeErr.Error(), "", accounts.KindUnavailable, "")
+			}
+			loop.lastErr = NewExecutionError(classified, fmt.Errorf("worker %s stream failed before the first event: %w", item.ID, probeErr))
+			e.markClassified(item.ID, classified, req.Model)
+			finished := time.Now().UTC()
+			latency := int(finished.Sub(started).Milliseconds())
+			status := accounts.AttemptStatusError
+			if loop.canFailover(classified) {
+				status = accounts.AttemptStatusFailover
+				e.recordAttempt(ctx, accounts.RequestAttempt{
+					AttemptIndex: i, AccountID: item.ID, StartedAt: started, FinishedAt: &finished,
+					Status: status, HTTPStatus: ptrInt(resp.StatusCode), ErrorKind: classified.Kind,
+					ErrorMessage: truncateErr(probeErr.Error()), LatencyMs: &latency,
+				})
+				loop.exclude(item)
+				release()
+				continue
+			}
+			e.recordAttempt(ctx, accounts.RequestAttempt{
+				AttemptIndex: i, AccountID: item.ID, StartedAt: started, FinishedAt: &finished,
+				Status: status, HTTPStatus: ptrInt(resp.StatusCode), ErrorKind: classified.Kind,
+				ErrorMessage: truncateErr(probeErr.Error()), LatencyMs: &latency,
+			})
+			release()
+			return StreamResult{AttemptCount: i + 1, AccountID: item.ID, Provider: loop.resultProvider(item)}, loop.lastErr
+		}
+		resp.Body = probed
 		e.markOK(item.ID, req.Model)
 		ttfb := int(time.Since(startedAll).Milliseconds())
 		headerAt := time.Now().UTC()
