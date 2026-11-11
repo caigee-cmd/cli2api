@@ -33,16 +33,16 @@ func TestNextLocalMidnightCooldown(t *testing.T) {
 	}
 }
 
-func TestClassifyHardQuotaDoesNotFailover(t *testing.T) {
+func TestClassifyHardQuotaFailovers(t *testing.T) {
 	got := Classify(429, `{"error":{"code":"insufficient_quota","message":"account quota exhausted"}}`, "", "", "")
-	if got.Kind != KindQuota || got.Failover || got.Status != 429 || got.Cooldown <= 0 || got.Cooldown > 24*time.Hour {
+	if got.Kind != KindQuota || !got.Failover || got.Status != 429 || got.Cooldown <= 0 || got.Cooldown > 24*time.Hour {
 		t.Fatalf("got %#v", got)
 	}
 }
 
 func TestClassifyCodeBuddyQuotaExhausted(t *testing.T) {
 	got := Classify(400, `{"error":{"data":{"code":14018,"msg":"额度已用尽，请购买加量包"}}}`, "", "", "")
-	if got.Kind != KindQuota || got.Failover || got.Status != 429 || got.Cooldown <= 0 || got.Cooldown > 24*time.Hour {
+	if got.Kind != KindQuota || !got.Failover || got.Status != 429 || got.Cooldown <= 0 || got.Cooldown > 24*time.Hour {
 		t.Fatalf("got %+v", got)
 	}
 }
@@ -86,8 +86,8 @@ func TestClassifyErrorHonorsProviderQuotaReset(t *testing.T) {
 	got := ClassifyError(&providers.Error{
 		Kind: KindQuota, Status: 429, Message: "usage quota exhausted", RetryAfter: 13 * time.Minute,
 	})
-	if got.Kind != KindQuota || got.Failover || got.Cooldown != 13*time.Minute || got.RetryAfter != 13*time.Minute {
-		t.Fatalf("quota reset hint must replace local midnight without failing over, got %+v", got)
+	if got.Kind != KindQuota || !got.Failover || got.Cooldown != 13*time.Minute || got.RetryAfter != 13*time.Minute {
+		t.Fatalf("quota reset hint must replace local midnight and still fail over, got %+v", got)
 	}
 	if got.Model != "" {
 		t.Fatalf("quota cooldown must stay account-wide, got model %q", got.Model)
@@ -98,7 +98,7 @@ func TestClassifyErrorIgnoresProviderFailoverAndAuthCooldown(t *testing.T) {
 	got := ClassifyError(&providers.Error{
 		Kind: KindQuota, Status: 429, Message: "plan exhausted",
 	})
-	if got.Kind != KindQuota || got.Failover || got.Cooldown <= 0 || got.Cooldown > 24*time.Hour {
+	if got.Kind != KindQuota || !got.Failover || got.Cooldown <= 0 || got.Cooldown > 24*time.Hour {
 		t.Fatalf("quota without a reset hint must use local midnight, got %+v", got)
 	}
 
@@ -143,7 +143,7 @@ func TestClassifyModelCatalogUnavailablePreservesDistinctCode(t *testing.T) {
 
 func TestClassifyTraePlanLimitIsQuota(t *testing.T) {
 	got := Classify(0, `{"code":1005,"message":""}`, "", "", "")
-	if got.Kind != KindQuota || got.Failover || got.Status != 429 {
+	if got.Kind != KindQuota || !got.Failover || got.Status != 429 {
 		t.Fatalf("got %+v", got)
 	}
 }
@@ -217,7 +217,7 @@ func TestStreamReadErrorClassifiesProviderOnce(test *testing.T) {
 		test.Fatalf("original error chain was lost: %v", got)
 	}
 	want := executionErr.Classified
-	if want.Kind != KindQuota || want.Status != 429 || want.Failover || want.Cooldown <= 0 {
+	if want.Kind != KindQuota || want.Status != 429 || !want.Failover || want.Cooldown <= 0 {
 		test.Fatalf("classification=%+v", want)
 	}
 	original.Kind = KindAuth
