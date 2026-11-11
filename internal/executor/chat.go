@@ -1475,6 +1475,7 @@ func (e ChatExecutor) chatStreamProxy(ctx context.Context, req translate.ChatReq
 			}
 			return StreamResult{}, pickErr
 		}
+		noteStreamRoute(ctx, item.ID, loop.resultProvider(item))
 		poolID := item.ID
 		if !e.acquireInFlight(loop.requestID, poolID) {
 			loop.exclude(item)
@@ -1540,6 +1541,7 @@ func (e ChatExecutor) chatStreamProxy(ctx context.Context, req translate.ChatReq
 		}
 		if account := resp.Header.Get("X-Qoder-Account"); account != "" {
 			item.ID = account
+			noteStreamRoute(ctx, item.ID, loop.resultProvider(item))
 		}
 		if resp.StatusCode >= 300 {
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, maxWorkerResponseBytes))

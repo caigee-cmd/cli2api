@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -126,7 +127,9 @@ func TestChatCompletionsRejectsCorruptGzip(t *testing.T) {
 }
 
 // The inflated size is bounded independently of the compressed size, so a small
-// gzip body cannot expand into an unbounded read.
+// gzip body cannot expand into an unbounded read. Crossing the limit must
+// error rather than silently truncate: a prefix that happens to be valid JSON
+// must not be accepted as the full body.
 func TestDecodeRequestBodyBoundsInflatedSize(t *testing.T) {
 	// 8 MiB of zeros compresses to a few KB; ask for a 4 KiB inflated limit.
 	big := bytes.Repeat([]byte("a"), 8<<20)
@@ -142,11 +145,87 @@ func TestDecodeRequestBodyBoundsInflatedSize(t *testing.T) {
 		t.Fatalf("decodeRequestBody: %v", body.err)
 	}
 	got, err := io.ReadAll(body)
-	if err != nil {
-		t.Fatalf("read: %v", err)
+	if !errors.Is(err, ErrInflatedBodyTooLarge) {
+		t.Fatalf("read error = %v, want ErrInflatedBodyTooLarge", err)
 	}
 	if len(got) > 4096 {
 		t.Fatalf("inflated read = %d bytes, want <= 4096", len(got))
+	}
+}
+
+// A JSON object that is still incomplete at the inflated cap must surface as
+// "body too large", not as a syntax error from a silent EOF at the cut.
+func TestDecodeRequestBodyRejectsIncompleteJSONAtLimit(t *testing.T) {
+	payload := append([]byte(`{"model":"qoder/mock","stream":false,"messages":[{"role":"user","content":"`),
+		append(bytes.Repeat([]byte("a"), 64<<10), []byte(`"}]}`)...)...)
+	compressed := gzipBody(t, payload)
+	limit := int64(1024)
+
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(compressed))
+	req.Header.Set("Content-Encoding", "gzip")
+	recorder := httptest.NewRecorder()
+
+	body := decodeRequestBody(recorder, req, int64(len(compressed)), limit)
+	defer body.Close()
+	if body.err != nil {
+		t.Fatalf("decodeRequestBody: %v", body.err)
+	}
+	var decoded map[string]any
+	err := json.NewDecoder(body).Decode(&decoded)
+	if !isRequestBodyTooLarge(err) {
+		t.Fatalf("json decode error = %v (%T), want ErrInflatedBodyTooLarge (LimitReader would have surfaced a syntax error)", err, err)
+	}
+}
+
+// An inflated body that lands exactly on the limit is fine: the cap is not
+// exclusive of a body that fits.
+func TestDecodeRequestBodyAcceptsExactInflatedLimit(t *testing.T) {
+	payload := []byte(`{"ok":true}`)
+	compressed := gzipBody(t, payload)
+
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(compressed))
+	req.Header.Set("Content-Encoding", "gzip")
+	recorder := httptest.NewRecorder()
+
+	body := decodeRequestBody(recorder, req, int64(len(compressed)), int64(len(payload)))
+	defer body.Close()
+	got, err := io.ReadAll(body)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if !bytes.Equal(got, payload) {
+		t.Fatalf("body = %q, want %q", got, payload)
+	}
+}
+
+// The cap is measured in decompressed bytes, and a body that fills it exactly
+// must still come back whole when the reader is fed one small buffer at a time.
+// A peek that consumes the final byte and then discards it would pass the
+// one-shot read above and fail here.
+func TestDecodeRequestBodyAcceptsExactInflatedLimitInChunks(t *testing.T) {
+	payload := append([]byte(`{"k":"`), append(bytes.Repeat([]byte("a"), 800), []byte(`"}`)...)...)
+	compressed := gzipBody(t, payload)
+
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(compressed))
+	req.Header.Set("Content-Encoding", "gzip")
+	recorder := httptest.NewRecorder()
+
+	body := decodeRequestBody(recorder, req, int64(len(compressed)), int64(len(payload)))
+	defer body.Close()
+	got := make([]byte, 0, len(payload))
+	buf := make([]byte, 64)
+	for {
+		n, err := body.Read(buf)
+		got = append(got, buf[:n]...)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("read: %v", err)
+		}
+	}
+	if !bytes.Equal(got, payload) {
+		t.Fatalf("body len = %d, want %d", len(got), len(payload))
 	}
 }
 
@@ -187,6 +266,68 @@ func TestDecodeRequestBodyAcceptsXGzip(t *testing.T) {
 	}
 	if !bytes.Equal(got, payload) {
 		t.Fatalf("body = %q, want %q", got, payload)
+	}
+}
+
+// /v1/messages decode failures must keep the Anthropic error envelope, not
+// the OpenAI shape writeRequestBodyError would otherwise emit.
+func TestAnthropicMessagesDecodeErrorUsesAnthropicShape(t *testing.T) {
+	h, closeAll := newBodyTestHandler(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("upstream must not be called")
+	})
+	defer closeAll()
+
+	for _, tc := range []struct {
+		name    string
+		body    *bytes.Reader
+		enc     string
+		status  int
+		contain string
+	}{
+		{
+			name:    "unknown encoding",
+			body:    bytes.NewReader([]byte(`{"model":"qoder/mock","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}`)),
+			enc:     "zstd",
+			status:  http.StatusUnsupportedMediaType,
+			contain: "zstd",
+		},
+		{
+			name:    "corrupt gzip",
+			body:    bytes.NewReader([]byte("this is definitely not gzip")),
+			enc:     "gzip",
+			status:  http.StatusBadRequest,
+			contain: "gzip",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/v1/messages", tc.body)
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Content-Encoding", tc.enc)
+			recorder := httptest.NewRecorder()
+			h.ServeHTTP(recorder, req)
+
+			if recorder.Code != tc.status {
+				t.Fatalf("status = %d, want %d; body = %s", recorder.Code, tc.status, recorder.Body.String())
+			}
+			var payload map[string]any
+			if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+				t.Fatalf("response is not JSON: %v", err)
+			}
+			if payload["type"] != "error" {
+				t.Fatalf("shape = %s, want Anthropic {type:error,...}", recorder.Body.String())
+			}
+			errObj, _ := payload["error"].(map[string]any)
+			if errObj == nil {
+				t.Fatalf("missing error object: %s", recorder.Body.String())
+			}
+			if _, hasCode := errObj["code"]; hasCode {
+				t.Fatalf("OpenAI error shape leaked a code field: %s", recorder.Body.String())
+			}
+			msg, _ := errObj["message"].(string)
+			if !strings.Contains(msg, tc.contain) {
+				t.Fatalf("message %q does not contain %q", msg, tc.contain)
+			}
+		})
 	}
 }
 
