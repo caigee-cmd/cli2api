@@ -12,12 +12,12 @@ test("prompt token limit is request-level and does not cool accounts", () => {
   assert.equal(got.cooldownSec, 0);
 });
 
-test("hard quota is 429 and failovers", () => {
+test("hard quota is 429, failovers, and cools until local midnight", () => {
   const got = classifyError({ message: "insufficient_quota: account quota exhausted" });
   assert.equal(got.kind, "quota");
   assert.equal(got.status, 429);
   assert.equal(got.failover, true);
-  assert.equal(got.cooldownSec, 0);
+  assert.ok(got.cooldownSec > 0 && got.cooldownSec <= 24 * 60 * 60);
 });
 
 test("generic 429 rate limit failovers with cooldown", () => {
