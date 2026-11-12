@@ -57,12 +57,27 @@ func quotaFromCredits(balance credits, fetchedAt time.Time) *providers.QuotaInfo
 		Remaining:  remaining,
 		Percentage: percentage,
 		Unit:       QuotaUnit,
-		Exceeded:   remaining <= 0,
+		Exceeded:   windowsExhausted(windows),
 		FetchedAt:  fetchedAt.Format(time.RFC3339),
 		ProviderID: "command",
 		Windows:    windows,
 	}
 	return info
+}
+
+// windowsExhausted reports whether every real window is spent. The headline
+// meter follows the first window, but one spent window must not block the
+// account while a wider window still has credits.
+func windowsExhausted(windows []providers.QuotaWindow) bool {
+	if len(windows) == 0 {
+		return false
+	}
+	for _, window := range windows {
+		if window.Remaining > 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // rollingWindow converts a windowLimits entry into a QuotaWindow. used/cap are

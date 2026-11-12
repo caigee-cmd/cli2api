@@ -858,9 +858,11 @@ func (c *Client) Quota(ctx context.Context, accountID string) (*providers.QuotaI
 	if err != nil {
 		return nil, err
 	}
-	// Remain/used/total all come straight from the upstream billing meter.
-	// No fallback synthesis: if the upstream response has no sized pack, we
-	// report what it returned (often 0) instead of deriving a fake total.
+	// Remain/used/total come from the billing packs. A pack that reports a
+	// size but no used count fills used from size-remain, and an account
+	// TotalDosage larger than the pack sum raises the total. An empty pack
+	// list stays zero: inventing a total there would mark the account
+	// exceeded and pull it out of paid routing.
 	percentage := 0.0
 	if total > 0 {
 		percentage = (float64(used) / float64(total)) * 100
@@ -1179,16 +1181,30 @@ func packageRemainUsed(pkg resourcePackage) (remain, used, size int64) {
 }
 
 // aggregateUserResource reduces the upstream pack list into the account-wide
-// remain/used/size. Everything must come straight from the upstream pack
-// fields: no synthesized total and no reverse-derived usage. If the upstream
-// response carries no sized pack (empty or unscoped page), we report zero
-// rather than inventing a total from the account-level TotalDosage.
-func aggregateUserResource(packages []resourcePackage, _ int64) (remain, used, size int64) {
+// remain/used/size. A sized pack with no used count fills used from
+// size-remain. When the account-level TotalDosage is larger than the pack
+// sum, it raises the total and the used count follows. An empty pack list
+// stays zero: a total with nothing behind it would mark the account exceeded.
+func aggregateUserResource(packages []resourcePackage, totalDosage int64) (remain, used, size int64) {
 	for _, pkg := range packages {
 		r, u, s := packageRemainUsed(pkg)
 		remain += r
 		used += u
 		size += s
+	}
+	if size <= 0 {
+		// No sized pack came back. Raising the total from TotalDosage alone
+		// would persist a zero balance and pull the account out of paid routing.
+		return 0, 0, 0
+	}
+	if derived := size - remain; derived > used {
+		used = derived
+	}
+	if totalDosage > size {
+		size = totalDosage
+		if derived := size - remain; derived > used {
+			used = derived
+		}
 	}
 	return remain, used, size
 }
