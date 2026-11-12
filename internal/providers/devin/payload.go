@@ -507,52 +507,6 @@ func scrubMCPToolCallsFromPrompts(prompts []Prompt, originalByAlias map[string]s
 	return out
 }
 
-// Core local Codex tools that remain useful after MCP tools are stripped.
-// Keep this list tight: these are the ones needed for reading/running locally.
-var coreLocalToolOrder = []string{
-	"exec_command",
-	"write_stdin",
-	"view_image",
-	"request_user_input",
-}
-
-var coreLocalToolSchemas = map[string]struct {
-	description string
-	parameters  string
-}{
-	"exec_command": {
-		description: "Runs a command and returns its output.",
-		parameters:  `{"type":"object","properties":{"cmd":{"type":"string"},"workdir":{"type":"string"},"timeout_ms":{"type":"number"}},"required":["cmd"]}`,
-	},
-	"write_stdin": {
-		description: "Writes characters to a running command session.",
-		parameters:  `{"type":"object","properties":{"chars":{"type":"string"},"session_id":{"type":"string"}},"required":["chars"]}`,
-	},
-	"view_image": {
-		description: "Views a local image file.",
-		parameters:  `{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}`,
-	},
-	"request_user_input": {
-		description: "Asks the user a question.",
-		parameters:  `{"type":"object","properties":{"question":{"type":"string"}},"required":["question"]}`,
-	},
-}
-
-// coreLocalTools returns the always-available core local tools with sanitized
-// descriptions/schemas that do not carry Codex MCP wording.
-func coreLocalTools() []Tool {
-	out := make([]Tool, 0, len(coreLocalToolOrder))
-	for _, name := range coreLocalToolOrder {
-		schema := coreLocalToolSchemas[name]
-		out = append(out, Tool{
-			Name:        name,
-			Description: schema.description,
-			Parameters:  json.RawMessage(schema.parameters),
-		})
-	}
-	return out
-}
-
 func restoreToolName(name string, originalByAlias map[string]string) string {
 	name = strings.TrimSpace(name)
 	if name == "" || len(originalByAlias) == 0 {

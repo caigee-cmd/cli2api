@@ -1203,7 +1203,7 @@ func TestChatStreamFallsBackAfterImmediateMCPTrailer(t *testing.T) {
 	}
 }
 
-func TestChatStreamKeepsCoreToolsAfterStripStillDenied(t *testing.T) {
+func TestChatStreamKeepsDeclaredToolsAfterStripStillDenied(t *testing.T) {
 	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != PathGetChatMessage {
@@ -1234,16 +1234,16 @@ func TestChatStreamKeepsCoreToolsAfterStripStillDenied(t *testing.T) {
 			return
 		default:
 			if !bytes.Contains(body, []byte("exec_command")) {
-				t.Errorf("core_tools fallback missing exec_command")
+				t.Errorf("final fallback missing exec_command")
 			}
-			if !bytes.Contains(body, []byte("write_stdin")) || !bytes.Contains(body, []byte("view_image")) || !bytes.Contains(body, []byte("request_user_input")) {
-				t.Errorf("core_tools fallback missing one of the core tools")
+			if !bytes.Contains(body, []byte("write_stdin")) || bytes.Contains(body, []byte("view_image")) || bytes.Contains(body, []byte("request_user_input")) {
+				t.Errorf("fallback did not preserve declared tools")
 			}
-			if bytes.Contains(body, []byte("MCP configuration")) || bytes.Contains(body, []byte("mcp_server")) {
-				t.Errorf("core_tools fallback still carries MCP wording")
+			if bytes.Contains(body, []byte("MCP configuration")) {
+				t.Errorf("final fallback still carries MCP wording")
 			}
-			if bytes.Contains(body, []byte("get_goal")) || bytes.Contains(body, []byte("multi_agent_v1__")) {
-				t.Errorf("core_tools fallback kept non-core tools")
+			if !bytes.Contains(body, []byte("get_goal")) || bytes.Contains(body, []byte("multi_agent_v1__")) {
+				t.Errorf("final fallback retained MCP tools")
 			}
 			buf.Write(WrapConnectEnvelope([]byte("\x1a\x02OK")))
 			buf.Write(WrapConnectEnvelopeWithFlag(ConnectFlagEndStream, []byte(`{}`)))
@@ -1287,25 +1287,6 @@ func TestChatStreamKeepsCoreToolsAfterStripStillDenied(t *testing.T) {
 	}
 	if calls.Load() != 3 {
 		t.Fatalf("calls=%d want 3", calls.Load())
-	}
-}
-
-func TestCoreLocalToolsUsesMinimalSchemas(t *testing.T) {
-	got := coreLocalTools()
-	want := []string{"exec_command", "write_stdin", "view_image", "request_user_input"}
-	if len(got) != len(want) {
-		t.Fatalf("tools=%+v want %d", got, len(want))
-	}
-	for i, tool := range got {
-		if tool.Name != want[i] {
-			t.Fatalf("tool[%d]=%q want %q", i, tool.Name, want[i])
-		}
-		if strings.Contains(strings.ToLower(tool.Description), "tool") || strings.Contains(strings.ToLower(string(tool.Parameters)), "tool") {
-			t.Fatalf("unsanitized schema: %+v", tool)
-		}
-		if !json.Valid(tool.Parameters) {
-			t.Fatalf("invalid schema: %s", tool.Parameters)
-		}
 	}
 }
 
@@ -1370,4 +1351,28 @@ func countMCPSemanticTools(tools []Tool, originalByAlias map[string]string) int 
 		}
 	}
 	return count
+}
+
+func TestMCPFallbackDoesNotInventClientTools(t *testing.T) {
+	client := NewClient(newMemStore())
+	schema := json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"}},"required":["command"]}`)
+	built := chatRequestBuild{fallbackStage: 1, payload: ChatPayload{Tools: []Tool{{Name: "Bash", Description: "Run a command", Parameters: schema}, {Name: "Read", Description: "Read a file", Parameters: json.RawMessage(`{"type":"object"}`)}}}}
+	next, ok := client.buildNextMCPFallback(context.Background(), Credential{SessionToken: "token", DeviceSeed: "seed", BaseURL: "https://example.com"}, built)
+	if !ok {
+		t.Fatal("fallback failed")
+	}
+	if len(next.payload.Tools) != 2 || next.payload.Tools[0].Name != "Bash" || next.payload.Tools[1].Name != "Read" {
+		t.Fatalf("invented or removed tools: %+v", next.payload.Tools)
+	}
+	if !bytes.Equal(next.payload.Tools[0].Parameters, schema) {
+		t.Fatalf("schema changed: %s", next.payload.Tools[0].Parameters)
+	}
+}
+
+func TestMCPFallbackDoesNotAddToolsWhenNoneRemain(t *testing.T) {
+	client := NewClient(newMemStore())
+	built := chatRequestBuild{fallbackStage: 1, payload: ChatPayload{}}
+	if _, ok := client.buildNextMCPFallback(context.Background(), Credential{}, built); ok {
+		t.Fatal("fallback must not invent tools for an empty list")
+	}
 }
