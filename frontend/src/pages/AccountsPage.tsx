@@ -83,6 +83,7 @@ export function AccountsPage() {
   const [patById, setPatById] = useState<Record<string, string>>({})
   const [callbackById, setCallbackById] = useState<Record<string, string>>({})
   const [noteById, setNoteById] = useState<Record<string, string>>({})
+  const [checkinFeedbackById, setCheckinFeedbackById] = useState<Record<string, import('@/components/account/AccountCard').CheckinFeedback | null>>({})
   const [urlById, setUrlById] = useState<Record<string, string>>({})
   const [confirmId, setConfirmId] = useState<string | null>(null)
   const [modelsId, setModelsId] = useState<string | null>(null)
@@ -141,6 +142,18 @@ export function AccountsPage() {
     })
     return () => { active = false }
   }, [])
+  // Each time the page mounts (navigated into), re-pull the real upstream
+  // quota and last check-in status so cards show the freshest state.
+  useEffect(() => {
+    let active = true
+    void reloadAccounts(false)
+      .then((next) => {
+        if (!active) return
+        return refreshAccountsInBatches((next || []).map((account) => account.id))
+      })
+      .catch(() => undefined)
+    return () => { active = false }
+  }, [reloadAccounts, refreshAccountsInBatches])
 
   function checkinPolicyFor(account: AccountRow) {
     return providers.find((provider) => provider.id === account.provider)?.regions.find((region) => region.id === account.region)?.checkin
@@ -469,11 +482,29 @@ export function AccountsPage() {
 
   async function onCheckin(id: string) {
     await run(id, 'checkin', async () => {
+      let result: { last_checkin_status?: string; last_checkin_msg?: string } | undefined
       try {
-        await checkinAccount(id)
-      } finally {
-        await reloadAccounts(false)
+        result = await checkinAccount(id)
+      } catch (error) {
+        setCheckinFeedbackById((current) => ({
+          ...current,
+          [id]: { kind: 'error', message: error instanceof Error ? error.message : String(error) },
+        }))
+        await reloadAccounts(false).catch(() => undefined)
+        await refreshAccountsInBatches([id]).catch(() => undefined)
+        return
       }
+      const status = result?.last_checkin_status
+      const message = result?.last_checkin_msg
+      const kind = status === 'already' ? 'already' : status === 'error' ? 'error' : 'success'
+      setCheckinFeedbackById((current) => ({
+        ...current,
+        [id]: { kind, message: kind === 'error' ? message || t('checkinRecordFailed') : message },
+      }))
+      await reloadAccounts(false).catch(() => undefined)
+      // Pull the real upstream quota/credits once more so the card reflects
+      // the check-in grant (do not rely on the check-in response alone).
+      await refreshAccountsInBatches([id]).catch(() => undefined)
     })
   }
 
@@ -689,6 +720,7 @@ export function AccountsPage() {
             checkinDefaultTime={settings?.checkin_times[account.provider || '']}
             onToggleAutoCheckin={checkinPolicyFor(account) ? (selected) => void onToggleAutoCheckin(account.id, selected) : undefined}
             onCheckin={checkinPolicyFor(account) ? () => void onCheckin(account.id) : undefined}
+            checkinFeedback={checkinFeedbackById[account.id] ?? null}
             onViewCheckins={checkinPolicyFor(account) ? () => setCheckinHistoryId(account.id) : undefined}
             onEdit={() => setEditId(account.id)}
             onToggleAuthPanel={() => setAuthPanelId((current) => current === account.id ? null : account.id)}

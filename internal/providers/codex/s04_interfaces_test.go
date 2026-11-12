@@ -260,12 +260,14 @@ func TestQuotaSkipsWhamUsageForChatGPT(t *testing.T) {
 	client := NewClient(testStore{items: map[string][]byte{"a1": chatgptCredentialPayload()}})
 	cached := &providers.QuotaInfo{Remaining: 42, ProviderID: "codex"}
 	client.rememberQuota("a1", cached)
+	// ChatGPT login does not expose a real upstream quota, so it must return
+	// none rather than reusing a cached (stale) value.
 	got, err := client.Quota(context.Background(), "a1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != cached {
-		t.Fatalf("chatgpt quota = %+v, want cached", got)
+	if got != nil {
+		t.Fatalf("chatgpt quota = %+v, want nil (no real upstream quota)", got)
 	}
 }
 
