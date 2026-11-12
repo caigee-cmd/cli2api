@@ -882,9 +882,8 @@ func (c *Client) Quota(ctx context.Context, accountID string) (*providers.QuotaI
 	}
 	if credential.UsesChatGPT() {
 		// Sign in with ChatGPT tokens address api.openai.com and the
-		// backend-api probe rejects them. ChatGPT login does not expose a
-		// real upstream quota here, so report none rather than reusing a
-		// cached (stale) value.
+		// backend-api probe rejects them. There is no live quota to read,
+		// so return nothing rather than replaying a stale cached window.
 		return nil, nil
 	}
 	body, status, err := c.do(ctx, accountID, http.MethodGet, UsageBase+pathWhamUsage, nil, func(header http.Header) {
@@ -905,10 +904,13 @@ func (c *Client) Quota(ctx context.Context, accountID string) (*providers.QuotaI
 	return c.quotaFallback(accountID, fmt.Errorf("codex usage probe returned no rate-limit windows"))
 }
 
-// quotaFallback reports the live probe failure instead of masking it with a
-// cached snapshot. Only real upstream data is shown, so a failed probe must not
-// be replaced by a possibly-stale cached value.
+// quotaFallback keeps the last windows a chat response reported when the
+// live probe fails. Dropping them would blank the card on one failed read.
+// A probe that never succeeded still returns the error.
 func (c *Client) quotaFallback(accountID string, probeErr error) (*providers.QuotaInfo, error) {
+	if cached := c.cachedQuota(accountID); cached != nil {
+		return cached, nil
+	}
 	return nil, probeErr
 }
 

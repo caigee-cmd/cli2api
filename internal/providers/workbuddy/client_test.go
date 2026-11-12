@@ -1577,6 +1577,21 @@ func TestUserResourceAggregation(t *testing.T) {
 	}
 }
 
+func TestAggregateUserResourceRaisesTotalFromDosage(t *testing.T) {
+	remain, used, size := aggregateUserResource([]resourcePackage{{
+		CapacitySize: 100, CapacityRemain: 40, CapacityUsed: 0,
+	}}, 250)
+	if remain != 40 || size != 250 || used != 210 {
+		t.Fatalf("remain=%d used=%d size=%d", remain, used, size)
+	}
+	// Nothing behind an empty pack list: do not invent a total that would
+	// mark the account exceeded.
+	remain, used, size = aggregateUserResource(nil, 250)
+	if remain != 0 || used != 0 || size != 0 {
+		t.Fatalf("empty packs remain=%d used=%d size=%d", remain, used, size)
+	}
+}
+
 func TestAggregateUserResourceNegativeClamped(t *testing.T) {
 	remain, used, size := aggregateUserResource([]resourcePackage{{
 		CycleCapacitySize: 100, CycleCapacityRemain: -50, CycleCapacityUsed: 0,

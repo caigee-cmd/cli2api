@@ -66,7 +66,7 @@ func TestQuotaReportsProbeFailureWithoutCachedWindows(t *testing.T) {
 	}
 }
 
-func TestQuotaProbeFailureSurfacesErrorNotCachedWindows(t *testing.T) {
+func TestQuotaProbeFailureKeepsCachedWindows(t *testing.T) {
 	client := quotaProbeClient(t, func(*http.Request) (*http.Response, error) {
 		return nil, io.ErrUnexpectedEOF
 	})
@@ -74,11 +74,14 @@ func TestQuotaProbeFailureSurfacesErrorNotCachedWindows(t *testing.T) {
 	header.Set("X-Codex-Primary-Used-Percent", "12")
 	header.Set("X-Codex-Primary-Reset-After-Seconds", "600")
 	client.observeQuotaHeaders("a1", header)
-	// A failed live probe must surface the error rather than reusing a cached
-	// (stale) window, so only real upstream data is shown.
+	// One failed probe must not blank the card. The last windows a chat
+	// response reported stay until a probe succeeds.
 	info, err := client.Quota(context.Background(), "a1")
-	if info != nil || err == nil {
-		t.Fatalf("expected probe failure, got info=%+v err=%v", info, err)
+	if err != nil {
+		t.Fatalf("quota: %v", err)
+	}
+	if info == nil || len(info.Windows) != 1 || info.Windows[0].Percentage != 12 {
+		t.Fatalf("cached windows dropped: %+v", info)
 	}
 }
 
