@@ -1100,6 +1100,36 @@ func TestPrepareBodyForcesStreamAndStringToolChoice(t *testing.T) {
 	}
 }
 
+func TestPrepareBodyKeepsToolsWhenChoiceIsNone(t *testing.T) {
+	raw := `{"model":"m","tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}],"tool_choice":"none","functions":[{"name":"legacy"}]}`
+	var body map[string]any
+	if err := json.Unmarshal(PrepareBody([]byte(raw)), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["tool_choice"] != "none" {
+		t.Fatalf("tool_choice=%v want none", body["tool_choice"])
+	}
+	tools, _ := body["tools"].([]any)
+	if len(tools) != 1 {
+		t.Fatalf("tools dropped on tool_choice=none: %v", body["tools"])
+	}
+	functions, _ := body["functions"].([]any)
+	if len(functions) != 1 {
+		t.Fatalf("functions dropped on tool_choice=none: %v", body["functions"])
+	}
+
+	objectChoice := `{"model":"m","tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}],"tool_choice":{"type":"none"}}`
+	if err := json.Unmarshal(PrepareBody([]byte(objectChoice)), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["tool_choice"] != "none" {
+		t.Fatalf("object none collapsed to %v", body["tool_choice"])
+	}
+	if tools, _ := body["tools"].([]any); len(tools) != 1 {
+		t.Fatalf("tools dropped for object none: %v", body["tools"])
+	}
+}
+
 // Image parts must reach upstream unchanged. The catalog advertises
 // supports_images from the upstream product config, so the request body has to
 // keep the caller's image_url blocks on both user turns and tool results; any

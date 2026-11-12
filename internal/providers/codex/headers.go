@@ -1,6 +1,7 @@
 package codex
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -8,7 +9,7 @@ import (
 )
 
 // SetChatHeaders applies the upstream headers the ChatGPT codex backend expects.
-// Cloaking (codex-tui UA + Originator) is required: the upstream rejects generic
+// Cloaking (codex_cli_rs UA + Originator) is required: the upstream rejects generic
 // clients with Cloudflare 1010 otherwise.
 func SetChatHeaders(h http.Header, credential Credential, sessionID string, streaming bool) {
 	h.Set("Content-Type", "application/json")
@@ -52,13 +53,40 @@ func SetChatHeaders(h http.Header, credential Credential, sessionID string, stre
 // backend reads alongside the body: the routing hint names the resolved model,
 // and responses-lite models must be marked or the backend serves the wrong
 // protocol variant.
-func applyCodexRequestHeaders(h http.Header, model string, lite bool) {
+func applyCodexRequestHeaders(h http.Header, model string, lite bool, body []byte) {
 	model = strings.TrimSpace(model)
 	if model != "" {
-		h.Set(codexRoutingHintHeader, "model="+model)
+		hint := "model=" + model
+		if tier := codexServiceTier(body); tier != "" {
+			hint += ";tier=" + tier
+		}
+		h.Set(codexRoutingHintHeader, hint)
 	}
 	if lite {
 		h.Set(codexResponsesLiteHeader, "true")
+	}
+}
+
+// codexServiceTier reads the tier normalizeServiceTier left on the body.
+// Only priority and ultrafast survive that pass, so anything else is omitted
+// rather than forwarded on the routing hint.
+func codexServiceTier(body []byte) string {
+	if len(body) == 0 {
+		return ""
+	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(body, &fields) != nil {
+		return ""
+	}
+	tier, ok := rawJSONString(fields["service_tier"])
+	if !ok {
+		return ""
+	}
+	switch strings.ToLower(strings.TrimSpace(tier)) {
+	case "priority", "ultrafast":
+		return strings.ToLower(strings.TrimSpace(tier))
+	default:
+		return ""
 	}
 }
 

@@ -261,7 +261,7 @@ export function createQoderCheckin({ region, getAuthManager, fetchImpl = (...arg
             "Content-Type": "application/json",
             "User-Agent": "Qoder",
             "Cosy-ClientType": "10",
-            "Cosy-Version": "0.3.4",
+            "Cosy-Version": "0.4.8",
             ...machineHeadersValue,
             Origin: endpoint.origin,
             Referer: `${endpoint.base}/growth-page/activity-iframe`,

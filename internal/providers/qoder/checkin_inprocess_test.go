@@ -58,8 +58,12 @@ func TestBridgeCheckinHappyPath(t *testing.T) {
 			})
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/claim"):
 			claimHits.Add(1)
+			status := "CLAIMED"
+			if strings.Contains(r.URL.Path, "sticker-pack") {
+				status = "GRANTED"
+			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"data": map[string]any{"status": "CLAIMED"},
+				"data": map[string]any{"status": status},
 			})
 		default:
 			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
@@ -123,6 +127,8 @@ func TestBridgeCheckinHappyPath(t *testing.T) {
 }
 
 // TestBridgeCheckinAlreadyClaimed verifies the CLAIMED → "already" path.
+// Kept as a skipped placeholder: a CLAIMED credit grant is re-claimed and
+// classified by the server, covered by TestBridgeCheckinReclaimsClaimedGrant.
 func TestBridgeCheckinAlreadyClaimed(t *testing.T) {
 	origHook := CheckinEndpointHook
 	origClient := checkinHTTPClient
@@ -154,7 +160,8 @@ func TestBridgeCheckinAlreadyClaimed(t *testing.T) {
 // TestBridgeCheckinNoClaimable covers three response shapes that all yield a
 // non-success terminal state without a POST /claim:
 //   - empty campaigns list → "skipped"
-//   - all-CLAIMED credit campaigns → "already"
+//   - CLAIMED credit grants outside the current window → "skipped"
+//     (an in-window grant is re-claimed; see TestBridgeCheckinReclaimsClaimedGrant)
 //   - 404 on the GET → "skipped" (activity not open today)
 func TestBridgeCheckinNoClaimable(t *testing.T) {
 	origHook := CheckinEndpointHook
@@ -195,17 +202,18 @@ func TestBridgeCheckinNoClaimable(t *testing.T) {
 			wantMsg:    "签到活动当前不可领取（活动数 2：CLAIM_BENEFIT:LOCKED,CLAIM_BENEFIT:none）",
 		},
 		{
-			name: "all claimed",
+			name: "claimed grants outside the window",
 			resp: map[string]any{
 				"campaigns": []map[string]any{
 					{"campaignId": "c1", "actionType": "CLAIM_BENEFIT", "claimStatus": "CLAIMED",
-						"benefit": map[string]any{"kind": "CREDITS", "amount": 50.0}},
+						"benefit": map[string]any{"kind": "CREDITS", "amount": 50.0},
+						"startAt": 1.0, "endAt": 2.0},
 					{"campaignId": "c2", "actionType": "CLAIM_BENEFIT", "claimStatus": "CLAIMED",
 						"benefit": map[string]any{"kind": "CREDITS", "amount": 100.0}},
 				},
 			},
-			wantStatus: "already",
-			wantMsg:    "今日已签到",
+			wantStatus: "skipped",
+			wantMsg:    "签到活动当前不可领取（活动数 2：CLAIM_BENEFIT:CLAIMED,CLAIM_BENEFIT:CLAIMED）",
 		},
 	}
 	for _, tc := range cases {
@@ -359,6 +367,118 @@ func mustDeriveMachineIdentity(pat string) (string, string, string) {
 	return id, tok, typ
 }
 
+// TestBridgeCheckinReclaimsClaimedGrant covers a CLAIMED credit grant whose
+// window still contains now. The list status is not trusted: the claim is
+// re-issued and classified by replayed.
+func TestBridgeCheckinReclaimsClaimedGrant(t *testing.T) {
+	origHook := CheckinEndpointHook
+	origClient := checkinHTTPClient
+	t.Cleanup(func() {
+		CheckinEndpointHook = origHook
+		checkinHTTPClient = origClient
+	})
+	now := time.Now().Unix()
+	window := map[string]any{"startAt": float64(now - 3600), "endAt": float64(now + 3600)}
+
+	t.Run("replayed is already", func(t *testing.T) {
+		var claimed atomic.Int32
+		openapi := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch {
+			case r.Method == http.MethodGet:
+				_ = json.NewEncoder(w).Encode(map[string]any{"campaigns": []map[string]any{{
+					"campaignId": "daily-batch", "actionType": "CLAIM_BENEFIT", "claimStatus": "CLAIMED",
+					"benefit": map[string]any{"kind": "CREDITS", "amount": 100.0},
+					"startAt": window["startAt"],
+					"endAt":   window["endAt"],
+				}}})
+			case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/daily-batch/claim"):
+				claimed.Add(1)
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"data": map[string]any{"status": "CLAIMED", "replayed": true},
+				})
+			default:
+				t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+				http.NotFound(w, r)
+			}
+		}))
+		defer openapi.Close()
+		CheckinEndpointHook = func(*qauth.RegionConfig) *checkinRegion {
+			return &checkinRegion{base: openapi.URL, origin: "https://stub.test"}
+		}
+		checkinHTTPClient = openapi.Client()
+
+		result, err := newTestBridge(t, "fake-pat-secret-0123456789abcdef").Checkin(context.Background())
+		if err != nil {
+			t.Fatalf("Checkin err = %v", err)
+		}
+		if result.Status != "already" || result.RewardCredits != 0 {
+			t.Fatalf("result = %+v want already with no reward", result)
+		}
+		if claimed.Load() != 1 {
+			t.Fatalf("re-claim hits = %d want 1", claimed.Load())
+		}
+	})
+
+	t.Run("fresh claim is success", func(t *testing.T) {
+		openapi := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch {
+			case r.Method == http.MethodGet:
+				_ = json.NewEncoder(w).Encode(map[string]any{"campaigns": []map[string]any{{
+					"campaignId": "daily-batch", "actionType": "CLAIM_BENEFIT", "claimStatus": "CLAIMED",
+					"benefit": map[string]any{"kind": "CREDITS", "amount": 100.0},
+					"startAt": window["startAt"],
+					"endAt":   window["endAt"],
+				}}})
+			case r.Method == http.MethodPost:
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"status": "CLAIMED", "replayed": false,
+				})
+			default:
+				http.NotFound(w, r)
+			}
+		}))
+		defer openapi.Close()
+		CheckinEndpointHook = func(*qauth.RegionConfig) *checkinRegion {
+			return &checkinRegion{base: openapi.URL, origin: "https://stub.test"}
+		}
+		checkinHTTPClient = openapi.Client()
+
+		result, err := newTestBridge(t, "fake-pat-secret-0123456789abcdef").Checkin(context.Background())
+		if err != nil {
+			t.Fatalf("Checkin err = %v", err)
+		}
+		if result.Status != "success" || result.RewardCredits != 100 {
+			t.Fatalf("result = %+v want success +100", result)
+		}
+	})
+
+	t.Run("failed re-claim stays an error", func(t *testing.T) {
+		openapi := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodPost {
+				w.WriteHeader(http.StatusConflict)
+				_, _ = w.Write([]byte(`{"code":"CAMPAIGN_NOT_ACTIVE"}`))
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"campaigns": []map[string]any{{
+				"campaignId": "daily-batch", "actionType": "CLAIM_BENEFIT", "claimStatus": "CLAIMED",
+				"benefit": map[string]any{"kind": "CREDITS", "amount": 100.0},
+				"startAt": window["startAt"],
+				"endAt":   window["endAt"],
+			}}})
+		}))
+		defer openapi.Close()
+		CheckinEndpointHook = func(*qauth.RegionConfig) *checkinRegion {
+			return &checkinRegion{base: openapi.URL, origin: "https://stub.test"}
+		}
+		checkinHTTPClient = openapi.Client()
+
+		_, err := newTestBridge(t, "fake-pat-secret-0123456789abcdef").Checkin(context.Background())
+		if err == nil {
+			t.Fatal("Checkin err = nil, want the failed re-claim surfaced")
+		}
+	})
+}
+
 // TestBridgeCheckinGlobalUsesOpenAPIBearer verifies that a region flagged
 // NeedsOpenAPIToken authenticates the campaign call with the OpenAPI bearer
 // minted from /api/v1/jobToken/exchange, not the COSY securityOauthToken.
@@ -382,8 +502,7 @@ func TestBridgeCheckinGlobalUsesOpenAPIBearer(t *testing.T) {
 			campaignsAuth = r.Header.Get("Authorization")
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"campaigns": []map[string]any{{
-					"campaignId": "c1", "actionType": "CLAIM_BENEFIT", "claimStatus": "CLAIMED",
-					"benefit": map[string]any{"kind": "CREDITS", "amount": 100.0},
+					"campaignId": "c1", "actionType": "CLAIM_BENEFIT", "claimStatus": "LOCKED",
 				}},
 			})
 		default:
