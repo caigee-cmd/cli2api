@@ -292,6 +292,27 @@ func TestQuotaCredits(t *testing.T) {
 	if _, ok := byID["monthlyLimit"]; ok {
 		t.Error("monthly window must not be synthesized from a local plan table")
 	}
+	// The 5-hour window still has credits, so the account stays routable.
+	if info.Exceeded {
+		t.Error("account exceeded while a window still has credits")
+	}
+}
+
+func TestQuotaSpentNarrowWindowDoesNotBlock(t *testing.T) {
+	body := `{"credits":{"monthlyCredits":9.5,"planId":"individual-go"},` +
+		`"windowLimits":{"fiveHour":{"used":10,"cap":10,"resetAt":1893456000000},"weekly":{"used":20,"cap":70,"resetAt":1893456000000}}}`
+	srv := newCreditsServer(t, http.StatusOK, body)
+	client, _ := newTestClient(t, srv)
+	info, err := client.Quota(t.Context(), "acc-1")
+	if err != nil {
+		t.Fatalf("Quota: %v", err)
+	}
+	if info.Exceeded {
+		t.Fatalf("spent 5-hour window blocked an account whose weekly window still has credits: %+v", info)
+	}
+	if info.Total != 10 || info.Remaining != 0 {
+		t.Fatalf("headline should still follow the 5-hour window: %+v", info)
+	}
 }
 
 func TestQuotaUnknownPlan(t *testing.T) {
