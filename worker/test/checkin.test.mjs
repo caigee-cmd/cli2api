@@ -69,7 +69,7 @@ test("CN check-in lists campaigns then claims the CLAIM_BENEFIT campaign", async
   assert.equal(calls[1].init.headers.Origin, "https://qoder.com.cn");
   assert.equal(calls[1].init.headers["User-Agent"], "Qoder");
   assert.equal(calls[1].init.headers["Cosy-ClientType"], "10");
-  assert.equal(calls[1].init.headers["Cosy-Version"], "0.3.4");
+  assert.equal(calls[1].init.headers["Cosy-Version"], "0.4.8");
   assert.equal(calls[1].init.headers["Cosy-MachineId"], undefined);
   assert.equal(calls[1].init.headers["Cosy-MachineToken"], undefined);
   assert.equal(calls[1].init.headers.Referer, "https://openapi.qoder.com.cn/growth-page/activity-iframe");
@@ -180,7 +180,7 @@ test("global check-in uses the international campaign host", async () => {
   assert.equal(calls[1].init.method, "POST");
   assert.equal(calls[1].init.headers.Origin, "https://qoder.sh");
   assert.equal(calls[1].init.headers.Referer, "https://openapi.qoder.sh/growth-page/activity-iframe");
-  assert.equal(calls[1].init.headers["Cosy-Version"], "0.3.4");
+  assert.equal(calls[1].init.headers["Cosy-Version"], "0.4.8");
 });
 
 test("unsupported regions never touch auth or the network", async () => {

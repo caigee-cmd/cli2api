@@ -274,6 +274,10 @@ func ensureLeadingSystem(body map[string]any) {
 	body["messages"] = append([]any{placeholder}, list...)
 }
 
+// normalizeToolChoice folds object choices into the string form upstream
+// accepts. "none" stays "none" and the tool list stays: dropping the tools
+// makes agents emit a fake tool payload, which the client then replays, so
+// a long session grows a loop of identical calls instead of finishing.
 func normalizeToolChoice(body map[string]any) {
 	raw, ok := body["tool_choice"]
 	if !ok {
@@ -282,9 +286,7 @@ func normalizeToolChoice(body map[string]any) {
 	switch value := raw.(type) {
 	case string:
 		if value == "none" {
-			delete(body, "tool_choice")
-			delete(body, "tools")
-			delete(body, "functions")
+			body["tool_choice"] = "none"
 			return
 		}
 		return
@@ -292,9 +294,7 @@ func normalizeToolChoice(body map[string]any) {
 		kind, _ := value["type"].(string)
 		switch kind {
 		case "none":
-			delete(body, "tool_choice")
-			delete(body, "tools")
-			delete(body, "functions")
+			body["tool_choice"] = "none"
 		case "auto", "required":
 			body["tool_choice"] = kind
 		case "function":

@@ -43,7 +43,7 @@ func (c *Client) ResponsesStream(ctx context.Context, accountID string, req *tra
 	}
 	SetChatHeaders(httpReq.Header, credential, sessionID, true)
 	if !credential.UsesChatGPT() {
-		applyCodexRequestHeaders(httpReq.Header, model, usesResponsesLite(model))
+		applyCodexRequestHeaders(httpReq.Header, model, usesResponsesLite(model), body)
 		applyCodexPassthroughHeaders(httpReq.Header, providers.CodexClientHeadersFromContext(ctx))
 	}
 	client, err := c.httpClient(ctx, accountID)
