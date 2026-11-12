@@ -25,7 +25,7 @@ type chatRequestBuild struct {
 	// fallbackStage:
 	// 0=initial
 	// 1=strip MCP-looking tools
-	// 2=keep only core local tools with minimal schemas (final)
+	// 2=keep declared tools with minimal descriptions (final)
 	fallbackStage int
 }
 
@@ -131,7 +131,7 @@ func (c *Client) chatStreamOnce(client *http.Client, built chatRequestBuild) (*h
 	}
 	// MCP configuration denials often arrive as an end-stream trailer on HTTP
 	// 200 before any content. Peek while we still have a fallback left
-	// (through core_tools). Do not drop all tools.
+	// (through the final fallback). Do not drop all tools.
 	if built.fallbackStage < 2 {
 		peeked, denialErr, perr := peekConnectStreamMCPDenial(resp.Body, built.toolsDiag)
 		if perr != nil {
@@ -173,15 +173,19 @@ func (c *Client) buildNextMCPFallback(ctx context.Context, credential Credential
 		return next, true
 	case 1:
 		before := len(built.payload.Tools)
-		// Final fallback: always keep the core local tools with minimal
-		// schemas. Never drop all tools — that leaves the model unable to read
-		// or run commands.
+		// Keep only client-declared tools and their schemas; never invent tools.
+		if len(built.payload.Tools) == 0 {
+			return chatRequestBuild{}, false
+		}
 		payload := built.payload
-		payload.Tools = coreLocalTools()
+		payload.Tools = append([]Tool(nil), built.payload.Tools...)
+		for i := range payload.Tools {
+			payload.Tools[i].Description = ""
+		}
 		payload.Prompts = scrubMCPToolCallsFromPrompts(payload.Prompts, payload.OriginalByAlias)
 		payload.System = scrubMCPText(payload.System)
-		payload.ToolsDiag = appendFallbackDiag(built.toolsDiag, "fallback=core_tools", payload.Tools)
-		logMCPFallback("core_tools", before, payload.Tools, payload.ToolsDiag)
+		payload.ToolsDiag = appendFallbackDiag(built.toolsDiag, "fallback=declared_tools", payload.Tools)
+		logMCPFallback("declared_tools", before, payload.Tools, payload.ToolsDiag)
 		next, err := c.buildChatHTTPRequestFromPayload(ctx, credential, payload, 2)
 		if err != nil {
 			return chatRequestBuild{}, false
