@@ -9,10 +9,10 @@ import (
 )
 
 // Quota reports Command Code usage. /alpha/billing/credits returns the credit
-// balance, the plan id, and the rolling 5-hour/weekly windows
-// (root-level `windowLimits`); the monthly window is derived from the plan's
-// credit allowance minus the remaining monthly credits. Command Code does not
-// expose a monthly reset time here, so the monthly window carries no resetAt.
+// balance and the rolling 5-hour/weekly windows (root-level `windowLimits`).
+// The headline meter and every window use only those upstream values — no
+// local plan table and no synthesized total. Command Code does not expose a
+// monthly window here, so we do not invent one.
 //
 // A failure returns a nil snapshot so the console card shows "unknown" rather
 // than a wrong number.
@@ -33,36 +33,34 @@ func (c *Client) Quota(ctx context.Context, accountID string) (*providers.QuotaI
 }
 
 func quotaFromCredits(balance credits, fetchedAt time.Time) *providers.QuotaInfo {
-	windows := make([]providers.QuotaWindow, 0, 3)
+	windows := make([]providers.QuotaWindow, 0, 2)
 	if window := rollingWindow("fiveHour", "5-Hour Limit", balance.FiveHour); window != nil {
 		windows = append(windows, *window)
 	}
 	if window := rollingWindow("weeklyLimit", "Weekly Limit", balance.Weekly); window != nil {
 		windows = append(windows, *window)
 	}
-	if window := monthlyWindow(balance); window != nil {
-		windows = append(windows, *window)
-	}
 
-	totalRemaining := balance.total()
+	// Headline meter follows the first real upstream window we have. No local
+	// plan table and no reverse-derived usage: if the upstream returned nothing,
+	// the card shows 0/0 rather than a fabricated number.
+	var used, total, remaining, percentage float64
+	if len(windows) > 0 {
+		used = windows[0].Used
+		total = windows[0].Total
+		remaining = windows[0].Remaining
+		percentage = windows[0].Percentage
+	}
 	info := &providers.QuotaInfo{
-		Used:       0,
-		Total:      0,
-		Remaining:  totalRemaining,
-		Percentage: 0,
+		Used:       used,
+		Total:      total,
+		Remaining:  remaining,
+		Percentage: percentage,
 		Unit:       QuotaUnit,
-		Exceeded:   totalRemaining <= 0,
+		Exceeded:   remaining <= 0,
 		FetchedAt:  fetchedAt.Format(time.RFC3339),
 		ProviderID: "command",
 		Windows:    windows,
-	}
-	// The card's headline meter follows the monthly plan window when the plan is
-	// known, matching the CLI's own usage percentage.
-	if monthly := monthlyWindow(balance); monthly != nil {
-		info.Used = monthly.Used
-		info.Total = monthly.Total
-		info.Remaining = monthly.Remaining
-		info.Percentage = monthly.Percentage
 	}
 	return info
 }
@@ -87,27 +85,6 @@ func rollingWindow(id, label string, limit *windowLimit) *providers.QuotaWindow 
 		ResetAt:    msToRFC3339(limit.ResetAt),
 	}
 	return window
-}
-
-// monthlyWindow derives the monthly allowance window from the plan's total
-// credits and the remaining monthly credits. It is nil when the plan is unknown.
-func monthlyWindow(balance credits) *providers.QuotaWindow {
-	total, ok := planTotalCredits(balance.PlanID)
-	if !ok || total <= 0 {
-		return nil
-	}
-	remaining := math.Max(0, math.Min(balance.Monthly, total))
-	used := math.Max(0, total-remaining)
-	return &providers.QuotaWindow{
-		ID:         "monthlyLimit",
-		Label:      "Monthly Limit",
-		Used:       used,
-		Total:      total,
-		Remaining:  remaining,
-		Percentage: math.Min(100, used/total*100),
-		Unit:       QuotaUnit,
-		Exceeded:   remaining <= 0,
-	}
 }
 
 func msToRFC3339(ms int64) string {

@@ -443,10 +443,10 @@ export function createAccount(
 }
 
 export function checkinAccount(accountId: string) {
-  return api(`/api/accounts/${encodeURIComponent(accountId)}/checkin`, {
-    method: 'POST',
-    body: '{}',
-  })
+  return api<{ last_checkin_status?: string; last_checkin_msg?: string; last_checkin_at?: string }>(
+    `/api/accounts/${encodeURIComponent(accountId)}/checkin`,
+    { method: 'POST', body: '{}' },
+  )
 }
 
 	export function fetchCheckinRecords(accountId: string) {

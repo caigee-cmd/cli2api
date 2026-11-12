@@ -5,6 +5,7 @@ import {
   ArrowClockwise,
   ArrowSquareOut,
   CalendarCheck,
+  CheckCircle,
   Copy,
   Cube,
   DotsThreeVertical,
@@ -14,6 +15,7 @@ import {
   ShieldCheck,
   TrashSimple,
   WarningCircle,
+  XCircle,
 } from '@phosphor-icons/react'
 import gsap from 'gsap'
 import { ProviderMark } from '@/components/ProviderMark'
@@ -32,6 +34,14 @@ import { copyText } from '@/lib/clipboard'
 export type AccountBusyKind = 'create' | 'import' | 'device' | 'pat' | 'callback' | 'rewarm' | 'refresh' | 'toggle' | 'delete' | 'export' | 'settings' | 'checkin'
 
 type Translate = (key: string, vars?: Record<string, string | number>) => string
+
+// Transient check-in feedback pushed from the page after a manual check-in.
+// `kind` selects the glyph/colour; `message` is the raw upstream error text
+// (only present for failures) and may be truncated in the UI with a copy button.
+export type CheckinFeedback = {
+  kind: 'success' | 'already' | 'error'
+  message?: string
+}
 
 type Props = {
   account: AccountRow
@@ -55,6 +65,7 @@ type Props = {
   onToggleAutoCheckin?: (selected: boolean) => void
   onCheckin?: () => void
   onViewCheckins?: () => void
+  checkinFeedback?: CheckinFeedback | null
   onEdit: () => void
   onToggleAuthPanel: () => void
   onViewModels: () => void
@@ -96,6 +107,7 @@ export function AccountCard({
   onToggleAutoCheckin,
   onCheckin,
   onViewCheckins,
+  checkinFeedback = null,
   onEdit,
   onToggleAuthPanel,
   onViewModels,
@@ -115,6 +127,26 @@ export function AccountCard({
     const timer = window.setInterval(() => refreshCooldowns((value) => value + 1), 1000)
     return () => window.clearInterval(timer)
   }, [cooldown, restartIn, modelCooldowns.length])
+
+  // Transient check-in feedback: a green check / yellow circle / red cross row
+  // that the page pushes after a manual check-in. It shows for three seconds
+  // and then disappears, regardless of whether the check-in succeeded.
+  const [feedback, setFeedback] = useState<CheckinFeedback | null>(null)
+  const [feedbackCopied, setFeedbackCopied] = useState(false)
+  const feedbackTimer = useRef<number | null>(null)
+  useEffect(() => {
+    if (!checkinFeedback) {
+      setFeedback(null)
+      return
+    }
+    setFeedback(checkinFeedback)
+    setFeedbackCopied(false)
+    if (feedbackTimer.current) window.clearTimeout(feedbackTimer.current)
+    feedbackTimer.current = window.setTimeout(() => setFeedback(null), 3000)
+    return () => {
+      if (feedbackTimer.current) window.clearTimeout(feedbackTimer.current)
+    }
+  }, [checkinFeedback])
   const stateCopy = stateCopyFor(state, state === 'dead' ? restartIn : cooldown, t)
   const stateColor = state === 'hot' || state === 'ready'
     ? 'success'
@@ -280,6 +312,50 @@ export function AccountCard({
               </div>
             </Tooltip.Content>
           </Tooltip>
+        ) : null}
+
+        {feedback ? (
+          <div className="flex w-full items-start gap-2 rounded-lg bg-surface-secondary p-2 text-caption leading-5">
+            {feedback.kind === 'success' ? (
+              <CheckCircle size={14} weight="fill" className="mt-0.5 shrink-0 text-success" />
+            ) : feedback.kind === 'already' ? (
+              <WarningCircle size={14} weight="fill" className="mt-0.5 shrink-0 text-warning" />
+            ) : (
+              <XCircle size={14} weight="fill" className="mt-0.5 shrink-0 text-danger" />
+            )}
+            <div className="min-w-0 flex-1">
+              {feedback.kind === 'success' ? (
+                <span className="font-medium text-success">{t('checkinRecordSuccess')}</span>
+              ) : feedback.kind === 'already' ? (
+                <span className="font-medium text-warning">{t('checkinRecordAlready')}</span>
+              ) : (
+                <span className="font-medium text-danger">{t('checkinRecordFailed')}</span>
+              )}
+              {feedback.message ? (
+                <div className="mt-0.5">
+                  <p className="break-words line-clamp-2 text-foreground/80">{feedback.message}</p>
+                  <div className="mt-1 flex items-center gap-2">
+                    <span className="text-caption text-muted">{t('checkinTruncated')}</span>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-6 min-w-0 gap-1 px-1.5 text-caption"
+                      onPress={() => {
+                        void copyText(feedback.message || '').then((ok) => {
+                          if (!ok) return
+                          setFeedbackCopied(true)
+                          window.setTimeout(() => setFeedbackCopied(false), 1100)
+                        })
+                      }}
+                    >
+                      <CopyIcon copied={feedbackCopied} size={13} />
+                      {feedbackCopied ? t('copied') : t('checkinCopyError')}
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </div>
         ) : null}
       </Card.Content>
 
