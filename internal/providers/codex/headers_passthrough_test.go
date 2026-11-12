@@ -2,7 +2,6 @@ package codex
 
 import (
 	"net/http"
-	"strings"
 	"testing"
 
 	"github.com/caigee-cmd/cli2api/internal/providers"
@@ -57,8 +56,31 @@ func TestWithCodexClientHeadersFilters(t *testing.T) {
 	}
 }
 
+func TestRoutingHintCarriesAcceptedTier(t *testing.T) {
+	h := http.Header{}
+	applyCodexRequestHeaders(h, "gpt-5.1-codex", false, []byte(`{"service_tier":"priority"}`))
+	if got := h.Get("X-Codex-Routing-Hint"); got != "model=gpt-5.1-codex;tier=priority" {
+		t.Fatalf("priority hint=%q", got)
+	}
+
+	h = http.Header{}
+	applyCodexRequestHeaders(h, "gpt-5.1-codex", false, []byte(`{"service_tier":"default"}`))
+	if got := h.Get("X-Codex-Routing-Hint"); got != "model=gpt-5.1-codex" {
+		t.Fatalf("rejected tier leaked: %q", got)
+	}
+
+	h = http.Header{}
+	applyCodexRequestHeaders(h, "gpt-5.1-codex", true, nil)
+	if got := h.Get("X-Codex-Routing-Hint"); got != "model=gpt-5.1-codex" {
+		t.Fatalf("missing tier hint=%q", got)
+	}
+	if h.Get("X-OpenAI-Internal-Codex-Responses-Lite") != "true" {
+		t.Fatal("lite header missing")
+	}
+}
+
 func TestUserAgentPinnedToOfficialStable(t *testing.T) {
-	if !strings.Contains(UserAgent, "0.166.0") {
-		t.Fatalf("UserAgent=%q want 0.166.0", UserAgent)
+	if UserAgent != "codex_cli_rs/0.167.2 (Mac OS 26.5.2; arm64) iTerm.app/3.6.11" || Originator != "codex_cli_rs" {
+		t.Fatalf("UserAgent=%q Originator=%q", UserAgent, Originator)
 	}
 }

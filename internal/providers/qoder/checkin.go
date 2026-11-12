@@ -33,11 +33,15 @@ import (
 //   - POST {openapi}/sash/api/v1/me/campaigns/{id}/claim  → claim one
 //
 // A campaign is claimable when actionType == "CLAIM_BENEFIT" and
-// claimStatus == "CLAIMABLE"; an already-CLAIMED campaign reports
-// "今日已签到". An empty or non-claimable list is retried, because the
-// endpoint intermittently returns no daily campaign. SAME_PERSON_ALREADY_CLAIMED
-// means this machine identity already collected today and is reported as
-// already checked in, not as a failure.
+// claimStatus == "CLAIMABLE". An empty or non-claimable list is retried,
+// because the endpoint intermittently returns no daily campaign.
+// SAME_PERSON_ALREADY_CLAIMED means this machine identity already collected
+// today and is reported as already checked in, not as a failure.
+// A CLAIMED credit grant inside its window is not treated as today's claim:
+// the campaign id is reused across a multi-day batch, so the list stays
+// CLAIMED after the first day. That grant is claimed again and the server
+// decides — replayed means already claimed, a fresh CLAIMED means the list
+// was stale and this call collected today's credits.
 func (c *Client) Checkin(ctx context.Context, accountID string) (providers.CheckinResult, error) {
 	b, err := c.bridge(ctx, accountID)
 	if err != nil {
@@ -114,7 +118,7 @@ func (b *Bridge) Checkin(ctx context.Context) (providers.CheckinResult, error) {
 		bearer = b.CurrentSecurityOauth()
 	}
 
-	var doRequest func(path, method string, refreshed bool) (map[string]any, int, error)
+	var doRequest checkinRequester
 	doRequest = func(path, method string, refreshed bool) (map[string]any, int, error) {
 		token := bearer
 		if token == "" {
@@ -209,10 +213,16 @@ func (b *Bridge) Checkin(ctx context.Context) (providers.CheckinResult, error) {
 	}
 	claimable := claimableCampaigns(benefits)
 	if len(claimable) == 0 {
-		for _, c := range benefits {
-			if c.ClaimStatus == "CLAIMED" {
-				return providers.CheckinResult{Status: "already", Message: "今日已签到"}, nil
+		// A CLAIMED row inside its window is a candidate, not proof that
+		// today's grant was collected. Re-issue the claim and let the
+		// server say whether it is a replay or a fresh credit.
+		if grant, ok := claimedCreditGrant(benefits, time.Now()); ok {
+			result, reclaimErr := b.reclaimClaimedGrant(doRequest, grant)
+			if reclaimErr != nil {
+				log.Printf("[qoder-checkin] region=%s claimed grant %s re-claim failed: %v", regionName(b.Region), grant.CampaignID, reclaimErr)
+				return providers.CheckinResult{}, reclaimErr
 			}
+			return result, nil
 		}
 		summary := campaignSummary(items)
 		log.Printf("[qoder-checkin] region=%s credit campaigns not claimable: count=%d summary=%s", regionName(b.Region), len(items), summary)
@@ -242,20 +252,20 @@ func (b *Bridge) Checkin(ctx context.Context) (providers.CheckinResult, error) {
 			if relistErr != nil {
 				return providers.CheckinResult{}, err
 			}
-			if status := claimStatusOf(campaignsFrom(relist), campaign.CampaignID); status == "CLAIMED" {
+			if status := claimStatusOf(campaignsFrom(relist), campaign.CampaignID); claimConfirmed(status) {
 				recovered++
 			} else {
 				return providers.CheckinResult{}, err
 			}
 		} else {
 			status := unwrapClaimStatus(claimRaw)
-			if status != "CLAIMED" {
+			if !claimConfirmed(status) {
 				// Fall back to re-listing; the claim may have been recorded server-side.
 				relist, _, relistErr := doRequest(checkinCampaignsPath, http.MethodGet, true)
 				if relistErr != nil {
 					return providers.CheckinResult{}, fmt.Errorf("qoder check-in: claim unconfirmed")
 				}
-				if status := claimStatusOf(campaignsFrom(relist), campaign.CampaignID); status == "CLAIMED" {
+				if status := claimStatusOf(campaignsFrom(relist), campaign.CampaignID); claimConfirmed(status) {
 					recovered++
 				} else {
 					return providers.CheckinResult{}, fmt.Errorf("qoder check-in: claim unconfirmed")
@@ -284,6 +294,39 @@ func (b *Bridge) Checkin(ctx context.Context) (providers.CheckinResult, error) {
 	}
 	return out, nil
 }
+
+// reclaimClaimedGrant re-issues POST /claim for a grant the list already
+// marks CLAIMED. The claim is idempotent: replayed=true confirms the
+// current period was collected (already); CLAIMED without replayed means
+// the listed grant was stale and this call collected it (success). Anything
+// else fails so the scheduler retries instead of recording a false already.
+func (b *Bridge) reclaimClaimedGrant(doRequest checkinRequester, grant campaign) (providers.CheckinResult, error) {
+	path := fmt.Sprintf("%s/%s/claim", checkinCampaignsPath, url.PathEscape(grant.CampaignID))
+	claimRaw, status, err := doRequest(path, http.MethodPost, false)
+	if err != nil {
+		return providers.CheckinResult{}, err
+	}
+	if replayed, claimStatus, ok := claimVerdict(claimRaw); ok {
+		if replayed {
+			return providers.CheckinResult{Status: "already", Message: "今日已签到（幂等回放）"}, nil
+		}
+		if claimConfirmed(claimStatus) {
+			log.Printf("[qoder-checkin] region=%s listed CLAIMED grant %s collected on re-claim (stale list)", regionName(b.Region), grant.CampaignID)
+			out := providers.CheckinResult{Status: "success", Message: "签到成功"}
+			if amount, has := rewardFrom(grant); has {
+				out.Message = fmt.Sprintf("签到成功 +%g 积分", amount)
+				out.RewardCredits = amount
+			}
+			return out, nil
+		}
+	}
+	if status >= 200 && status < 300 {
+		return providers.CheckinResult{}, fmt.Errorf("qoder check-in: claim unconfirmed")
+	}
+	return providers.CheckinResult{}, fmt.Errorf("qoder check-in: claim failed (HTTP %d)", status)
+}
+
+type checkinRequester func(path, method string, refreshed bool) (map[string]any, int, error)
 
 // checkinHTTPClient is dedicated to OpenAPI calls so a slow campaigns
 // endpoint does not pin a chat-stream transport. It is unexported so tests
@@ -345,13 +388,32 @@ func (e *checkinHTTPError) StatusCode() int { return e.Code }
 
 // campaign is a single entry in the /me/campaigns response.
 type campaign struct {
-	CampaignID  string `json:"campaignId"`
-	ActionType  string `json:"actionType"`
-	ClaimStatus string `json:"claimStatus"`
+	CampaignID  string  `json:"campaignId"`
+	ActionType  string  `json:"actionType"`
+	ClaimStatus string  `json:"claimStatus"`
+	StartAt     float64 `json:"startAt"`
+	EndAt       float64 `json:"endAt"`
 	Benefit     struct {
 		Kind   string  `json:"kind"`
 		Amount float64 `json:"amount"`
 	} `json:"benefit"`
+}
+
+// claimedCreditGrant returns the first CLAIMED credit grant whose window
+// contains now. A missing window does not match: expired grants stay in the
+// list unconditionally, and treating one as today's claim skips the real one.
+func claimedCreditGrant(items []campaign, now time.Time) (campaign, bool) {
+	nowSec := float64(now.Unix())
+	for _, c := range items {
+		if !strings.EqualFold(c.ClaimStatus, "CLAIMED") || !strings.EqualFold(c.Benefit.Kind, "CREDITS") {
+			continue
+		}
+		if c.StartAt == 0 || c.EndAt == 0 || nowSec < c.StartAt || nowSec > c.EndAt {
+			continue
+		}
+		return c, true
+	}
+	return campaign{}, false
 }
 
 func campaignsFrom(raw map[string]any) []campaign {
@@ -407,6 +469,18 @@ func campaignListNeedsRetry(items []campaign) bool {
 	return true
 }
 
+// claimConfirmed is a grant the campaigns endpoint counts as collected.
+// CLAIMED is the list status; GRANTED and SUCCESS are the same outcome on
+// the claim response.
+func claimConfirmed(status string) bool {
+	switch strings.ToUpper(strings.TrimSpace(status)) {
+	case "CLAIMED", "GRANTED", "SUCCESS":
+		return true
+	default:
+		return false
+	}
+}
+
 func claimableCampaigns(items []campaign) []campaign {
 	out := make([]campaign, 0, len(items))
 	for _, c := range items {
@@ -456,18 +530,41 @@ func stringFieldOf(raw map[string]any, key string) string {
 }
 
 func unwrapClaimStatus(raw map[string]any) string {
+	status, _ := claimVerdictFields(raw)
+	return status
+}
+
+// claimVerdict reports whether the claim body is a replay of an earlier claim
+// and the status it carried. replayed and status are read from the top level
+// or from data, matching both response shapes the endpoint has returned.
+func claimVerdict(raw map[string]any) (replayed bool, status string, ok bool) {
 	if raw == nil {
-		return ""
+		return false, "", false
 	}
-	if s, ok := raw["status"].(string); ok {
-		return s
-	}
+	status, replayed = claimVerdictFields(raw)
+	return replayed, status, status != "" || replayed
+}
+
+func claimVerdictFields(raw map[string]any) (status string, replayed bool) {
+	status, replayed = verdictFrom(raw)
 	if data, ok := raw["data"].(map[string]any); ok {
-		if s, ok := data["status"].(string); ok {
-			return s
+		nestedStatus, nestedReplay := verdictFrom(data)
+		if status == "" {
+			status = nestedStatus
 		}
+		replayed = replayed || nestedReplay
 	}
-	return ""
+	return status, replayed
+}
+
+func verdictFrom(raw map[string]any) (status string, replayed bool) {
+	if s, ok := raw["status"].(string); ok {
+		status = s
+	}
+	if v, ok := raw["replayed"].(bool); ok {
+		replayed = v
+	}
+	return status, replayed
 }
 
 func rewardFrom(c campaign) (float64, bool) {
