@@ -12,6 +12,7 @@ import (
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/providers"
+	"github.com/caigee-cmd/cli2api/internal/providers/qoder"
 )
 
 func (manager *Manager) CheckinAccount(ctx context.Context, accountID string) (Account, error) {
@@ -114,11 +115,43 @@ func (manager *Manager) refreshCheckinQuota(ctx context.Context, accountID strin
 	if ctx.Err() != nil {
 		return
 	}
+	account, err := manager.store.Get(ctx, accountID)
+	if err != nil {
+		return
+	}
+	// Qoder's registered adapter omits a Prober, so the generic branch would
+	// refresh the worker quota and miss the OpenAPI add-on grant a check-in
+	// just claimed. Refresh the real upstream OpenAPI quota in-process instead.
+	if account.Provider == "qoder" {
+		if registered, ok := manager.providers.Get(account.Provider); ok {
+			if q, ok := registered.Chat.(*qoder.Client); ok {
+				manager.refreshQoderQuota(ctx, accountID, q)
+				return
+			}
+		}
+	}
 	if adapter.Prober != nil {
 		manager.fetchProviderQuota(ctx, accountID, adapter.Prober)
 	} else if workerURL, found := manager.AccountURL(accountID); found {
 		manager.fetchQuota(ctx, accountID, workerURL, true)
 	}
+}
+
+// refreshQoderQuota pulls the real upstream OpenAPI quota (which includes the
+// daily check-in add-on grant) and persists it. It never synthesizes a number.
+func (manager *Manager) refreshQoderQuota(ctx context.Context, accountID string, client *qoder.Client) {
+	release, ok := manager.acquireQuotaFetch(ctx, accountID)
+	if !ok {
+		return
+	}
+	defer release()
+	snapshot, err := client.QuotaSnapshot(ctx, accountID, true)
+	if err != nil || snapshot == nil {
+		return
+	}
+	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	manager.persistQuota(persistCtx, accountID, snapshot)
 }
 
 func CheckedInLocalDay(at, status string, now time.Time) bool {
