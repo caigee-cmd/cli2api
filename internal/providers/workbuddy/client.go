@@ -858,12 +858,9 @@ func (c *Client) Quota(ctx context.Context, accountID string) (*providers.QuotaI
 	if err != nil {
 		return nil, err
 	}
-	if total <= 0 && remain > 0 {
-		total = remain
-	}
-	if used <= 0 && total > remain {
-		used = total - remain
-	}
+	// Remain/used/total all come straight from the upstream billing meter.
+	// No fallback synthesis: if the upstream response has no sized pack, we
+	// report what it returned (often 0) instead of deriving a fake total.
 	percentage := 0.0
 	if total > 0 {
 		percentage = (float64(used) / float64(total)) * 100
@@ -1181,23 +1178,17 @@ func packageRemainUsed(pkg resourcePackage) (remain, used, size int64) {
 	return remain, used, size
 }
 
-func aggregateUserResource(packages []resourcePackage, totalDosage int64) (remain, used, size int64) {
+// aggregateUserResource reduces the upstream pack list into the account-wide
+// remain/used/size. Everything must come straight from the upstream pack
+// fields: no synthesized total and no reverse-derived usage. If the upstream
+// response carries no sized pack (empty or unscoped page), we report zero
+// rather than inventing a total from the account-level TotalDosage.
+func aggregateUserResource(packages []resourcePackage, _ int64) (remain, used, size int64) {
 	for _, pkg := range packages {
 		r, u, s := packageRemainUsed(pkg)
 		remain += r
 		used += u
 		size += s
-	}
-	if size > 0 {
-		if derived := size - remain; derived > used {
-			used = derived
-		}
-	}
-	if totalDosage > size {
-		size = totalDosage
-		if derived := size - remain; derived > used {
-			used = derived
-		}
 	}
 	return remain, used, size
 }

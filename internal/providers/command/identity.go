@@ -55,6 +55,9 @@ type windowLimit struct {
 }
 
 // credits is the GET /alpha/billing/credits balance plus the rolling windows.
+// Only the upstream windowLimits feed the console meter; the account-level
+// monthly/purchased/free balance is intentionally not used to synthesize a
+// total, so the headline number is never a locally-derived guess.
 type credits struct {
 	Monthly   float64
 	Purchased float64
@@ -62,41 +65,6 @@ type credits struct {
 	PlanID    string
 	FiveHour  *windowLimit
 	Weekly    *windowLimit
-}
-
-func (cr credits) total() float64 { return cr.Monthly + cr.Purchased + cr.Free }
-
-// planMonthlyCredits maps a planId to its monthly credit allowance, mirroring
-// the CLI's own plan table. The 5-hour/weekly caps arrive in windowLimits; the
-// monthly window has to be derived from this allowance minus the remaining
-// monthly credits. Unknown plans leave the monthly window unset rather than
-// guessing a total.
-var planMonthlyCredits = map[string]float64{
-	"individual-go":       10,
-	"individual-goat":     70,
-	"individual-pro":      30,
-	"individual-pro-v1":   80,
-	"individual-provider": 15,
-	"individual-max":      150,
-	"individual-ultra":    300,
-	"teams-pro":           40,
-}
-
-func planTotalCredits(planID string) (float64, bool) {
-	norm := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(planID), "_", "-"))
-	if norm == "" {
-		return 0, false
-	}
-	best := ""
-	for key := range planMonthlyCredits {
-		if strings.HasPrefix(norm, key) && len(key) > len(best) {
-			best = key
-		}
-	}
-	if best == "" {
-		return 0, false
-	}
-	return planMonthlyCredits[best], true
 }
 
 // fetchCredits reads the account credit balance and rolling windows. Callers
