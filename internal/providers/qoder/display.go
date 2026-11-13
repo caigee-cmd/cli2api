@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"time"
 )
 
@@ -66,9 +67,15 @@ func ApplyModelContext(entry map[string]any) {
 }
 
 // qoderDefaultContextWindow is the window the model runs at unless the operator
-// picks another: Qoder's `default_context_window`, else the legacy
-// `context_length` (the worker's max_input_tokens).
+// picks another. PAT-backed accounts read the gateway's `/model/list` directly,
+// where the selectable windows live in a nested `context_config` object
+// (`{"200K":{"token_count":200000,"is_default":true},"400K":{...},"1M":{...}}`).
+// The worker path (legacy CLI blobs) instead forwards flattened
+// `default_context_window` / `context_length`, so both shapes are accepted.
 func qoderDefaultContextWindow(entry map[string]any) (int, bool) {
+	if window, _, ok := qoderContextConfigWindows(entry); ok {
+		return window, true
+	}
 	if window, ok := numberFieldValue(entry, "default_context_window"); ok && window > 0 {
 		return window, true
 	}
@@ -84,6 +91,9 @@ func qoderDefaultContextWindow(entry map[string]any) (int, bool) {
 // qoderLargestContextWindow is the largest selectable window, when Qoder
 // advertises more than the default.
 func qoderLargestContextWindow(entry map[string]any) (int, bool) {
+	if _, windows, ok := qoderContextConfigWindows(entry); ok {
+		return windows[len(windows)-1], true
+	}
 	windows, ok := intSliceField(entry, "available_context_windows")
 	if !ok {
 		return 0, false
@@ -98,6 +108,52 @@ func qoderLargestContextWindow(entry map[string]any) (int, bool) {
 		return 0, false
 	}
 	return largest, true
+}
+
+// qoderContextConfigWindows reads the gateway's nested context metadata for
+// PAT-backed accounts: /model/list reports the selectable windows as
+// `context_config` ({"200K":{"token_count":200000,"is_default":true},...}).
+// Returns the default window and every selectable window sorted ascending. The
+// official client marks the default with `is_default` and falls back to the
+// smallest selectable window, which is what this mirrors when nothing is
+// marked.
+func qoderContextConfigWindows(entry map[string]any) (int, []int, bool) {
+	raw, exists := entry["context_config"]
+	if !exists {
+		return 0, nil, false
+	}
+	config, ok := raw.(map[string]any)
+	if !ok || len(config) == 0 {
+		return 0, nil, false
+	}
+	seen := make(map[int]bool, len(config))
+	windows := make([]int, 0, len(config))
+	defaultWindow := 0
+	for _, value := range config {
+		tier, ok := value.(map[string]any)
+		if !ok {
+			continue
+		}
+		window, ok := numberFieldValue(tier, "token_count")
+		if !ok || window <= 0 {
+			continue
+		}
+		if !seen[window] {
+			seen[window] = true
+			windows = append(windows, window)
+		}
+		if isDefault, _ := tier["is_default"].(bool); isDefault && defaultWindow == 0 {
+			defaultWindow = window
+		}
+	}
+	if len(windows) == 0 {
+		return 0, nil, false
+	}
+	sort.Ints(windows)
+	if defaultWindow == 0 {
+		defaultWindow = windows[0]
+	}
+	return defaultWindow, windows, true
 }
 
 // ApplyModelPricing writes the display catalog's credits/free keys onto a raw

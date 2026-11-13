@@ -133,6 +133,7 @@ test("forwards Qoder reasoning and context parameters", () => {
   assert.equal(body.parameters.enable_thinking, true);
   assert.equal(body.parameters.reasoning_budget_tokens, 16384);
   assert.equal(body.parameters.context_length, 500000);
+  assert.equal(body.parameters.contextWindow, 500000);
 });
 
 test("does not inject thinking controls into ordinary requests", () => {
