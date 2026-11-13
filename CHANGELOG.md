@@ -3,6 +3,18 @@
 Published user-facing notes for GitHub Releases and the console update page.
 Write upcoming notes as bilingual files in `changelog/unreleased/`.
 
+## 0.7.32 - 2026-11-13
+
+### English
+
+- Console: Check in all shows its progress as soon as you click it, and says so when every account is already checked in today.
+- Fix: WorkBuddy keeps one upstream conversation id for the turns of a chat, so a repeated prefix can hit the prompt cache instead of being billed again on every turn.
+
+### 中文
+
+- 控制台：一键签到点击后立即显示进度，今天已全部签到时也会给出提示。
+- 修复：WorkBuddy 在一段对话的各轮里复用同一个上游会话 id，重复的前缀可以命中提示词缓存，而不是每轮都按未缓存重新计费。
+
 ## 0.7.31 - 2026-11-12
 
 ### English
