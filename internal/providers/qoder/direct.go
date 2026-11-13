@@ -518,6 +518,11 @@ func BuildPlainChatBody(req translate.ChatRequest, now time.Time) map[string]any
 	copyRaw(parameters, "response_format", req.ResponseFormat)
 	copyRaw(parameters, "reasoning_effort", req.ReasoningEffort)
 	copyRaw(parameters, "reasoning_budget_tokens", req.ReasoningBudgetTokens)
+	// Qoder's official client forwards the selected window as
+	// `parameters.contextWindow`. `context_length` stays alongside it because
+	// the worker path already emitted that field; both carry the same value so
+	// whichever one the gateway reads selects the same window.
+	copyRaw(parameters, "contextWindow", req.ContextLength)
 	copyRaw(parameters, "context_length", req.ContextLength)
 	copyRaw(parameters, "max_input_tokens", req.MaxInputTokens)
 	copyRaw(parameters, "tool_choice", req.ToolChoice)
