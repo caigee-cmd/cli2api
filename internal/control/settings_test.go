@@ -169,3 +169,40 @@ func TestQoderContextToggle(t *testing.T) {
 		t.Fatalf("cleared=%+v err=%v", got, err)
 	}
 }
+
+func TestQoderContextToggleUsesCatalogTierAndKeepsStoredWindow(t *testing.T) {
+	svc, _, _, _ := newTestServices()
+	ctx := context.Background()
+	catalog := NewCatalog(func(bool, string, CatalogMode) ([]map[string]any, error) {
+		return []map[string]any{{
+			"id": "qwen3.8-max", "provider": "qoder",
+			"catalog_context_length": 200000, "catalog_context_length_max": 1000000,
+		}}, nil
+	})
+	svc.Settings.BindCatalog(catalog)
+
+	read, err := svc.Settings.ReadModelSetting(ctx, "qoder", "qwen3.8-max")
+	if err != nil || read.ContextLength != 200000 || read.MaxMode {
+		t.Fatalf("default=%+v err=%v", read, err)
+	}
+
+	on := true
+	got, err := svc.Settings.UpdateModelSetting(ctx, "qoder", "qwen3.8-max", nil, ProviderModelSettingPatch{MaxMode: &on})
+	if err != nil || got.ContextLength != 1000000 || !got.MaxMode {
+		t.Fatalf("toggle on=%+v err=%v", got, err)
+	}
+
+	// An empty catalog has no larger tier. Toggling on must not delete the
+	// stored window; it can only mean the catalog is still loading.
+	svc.Settings.BindCatalog(NewCatalog(func(bool, string, CatalogMode) ([]map[string]any, error) {
+		return nil, nil
+	}))
+	got, err = svc.Settings.UpdateModelSetting(ctx, "qoder", "qwen3.8-max", nil, ProviderModelSettingPatch{MaxMode: &on})
+	if err != nil || got.ContextLength != 1000000 {
+		t.Fatalf("toggle without tier=%+v err=%v", got, err)
+	}
+	stored, ok, err := svc.Settings.GetModelContext(ctx, "qwen3.8-max")
+	if err != nil || !ok || stored != 1000000 {
+		t.Fatalf("stored=%d ok=%v err=%v, want the window preserved", stored, ok, err)
+	}
+}
