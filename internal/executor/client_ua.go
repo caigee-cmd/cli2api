@@ -27,3 +27,9 @@ func WithCodexClientHeaders(ctx context.Context, h http.Header) context.Context 
 func CodexClientHeadersFromContext(ctx context.Context) http.Header {
 	return providers.CodexClientHeadersFromContext(ctx)
 }
+
+// WithConversation records the resolved session key for providers that keep an
+// upstream conversation id stable across turns.
+func WithConversation(ctx context.Context, key string) context.Context {
+	return providers.WithConversation(ctx, key)
+}

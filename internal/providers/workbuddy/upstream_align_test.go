@@ -224,13 +224,13 @@ func TestPrivateDataHeaderModes(t *testing.T) {
 func TestChatHeadersHonorPrivateDataEnv(t *testing.T) {
 	t.Setenv(PrivateDataEnv, "true")
 	h := http.Header{}
-	SetChatHeaders(h, Credential{Domain: DomainCN})
+	SetChatHeaders(h, Credential{Domain: DomainCN}, "")
 	if h.Get("X-Private-Data") != "true" {
 		t.Fatalf("X-Private-Data=%q", h.Get("X-Private-Data"))
 	}
 	t.Setenv(PrivateDataEnv, "")
 	h = http.Header{}
-	SetChatHeaders(h, Credential{Domain: DomainCN})
+	SetChatHeaders(h, Credential{Domain: DomainCN}, "")
 	if h.Get("X-Private-Data") != "false" {
 		t.Fatalf("auto personal CLI should stay false, got %q", h.Get("X-Private-Data"))
 	}

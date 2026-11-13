@@ -470,7 +470,7 @@ func (c *Client) chatRequest(ctx context.Context, accountID string, credential C
 	if err != nil {
 		return nil, providers.ResolvedChat{}, err
 	}
-	SetChatHeaders(httpReq.Header, credential)
+	SetChatHeaders(httpReq.Header, credential, providers.ConversationFromContext(ctx))
 	return httpReq, resolved, nil
 }
 
