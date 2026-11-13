@@ -152,6 +152,7 @@ func (e ChatExecutor) Prepare(in PrepareInput) (PreparedRequest, error) {
 	}
 	if sessionKey != "" {
 		ctx = WithSessionKey(ctx, sessionKey)
+		ctx = WithConversation(ctx, sessionKey)
 	}
 	if modelRegion != "" {
 		ctx = WithRegionFilter(ctx, modelRegion)
