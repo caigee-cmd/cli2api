@@ -599,7 +599,7 @@ export function buildPlainChatBody({
     ...(normalizedEffort !== undefined ? { reasoning_effort: normalizedEffort } : {}),
     ...(effectiveThinking !== undefined ? { enable_thinking: effectiveThinking } : {}),
     ...(reasoningBudgetTokens !== undefined ? { reasoning_budget_tokens: reasoningBudgetTokens } : {}),
-    ...(contextLength !== undefined ? { context_length: contextLength } : {}),
+    ...(contextLength !== undefined ? { contextWindow: contextLength, context_length: contextLength } : {}),
     ...(toolChoice !== undefined ? { tool_choice: toolChoice } : {}),
     ...(temperature !== undefined ? { temperature } : {}),
     ...(topP !== undefined ? { top_p: topP } : {}),

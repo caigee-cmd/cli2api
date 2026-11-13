@@ -494,3 +494,76 @@ func TestModelInfosParsesRawGatewayCatalog(t *testing.T) {
 		t.Fatalf("catalogIDs = %v, want qwen3.8-flash present", catalogIDs)
 	}
 }
+
+// gatewayContextConfig mirrors the PAT gateway's /model/list context metadata:
+// a label-keyed object with token_count and one marked default.
+func gatewayContextConfig() map[string]any {
+	return map[string]any{
+		"200K": map[string]any{"token_count": 200000.0, "is_default": true},
+		"400K": map[string]any{"token_count": 400000.0},
+		"1M":   map[string]any{"token_count": 1000000.0},
+	}
+}
+
+func TestApplyModelContextReadsContextConfig(t *testing.T) {
+	entry := map[string]any{
+		"id":               "qwen3.8-max",
+		"max_input_tokens": 180000.0,
+		"context_config":   gatewayContextConfig(),
+	}
+	ApplyModelContext(entry)
+	if entry["catalog_context_length"] != 200000 {
+		t.Errorf("catalog_context_length = %v, want the marked default 200000", entry["catalog_context_length"])
+	}
+	if entry["catalog_context_length_max"] != 1000000 {
+		t.Errorf("catalog_context_length_max = %v, want the largest window 1000000", entry["catalog_context_length_max"])
+	}
+
+	// No default marker: the official client falls back to the smallest window.
+	unmarked := map[string]any{
+		"id": "kimi-k3.1-pro",
+		"context_config": map[string]any{
+			"1M":   map[string]any{"token_count": 1000000.0},
+			"200K": map[string]any{"token_count": 200000.0},
+		},
+	}
+	ApplyModelContext(unmarked)
+	if unmarked["catalog_context_length"] != 200000 {
+		t.Errorf("unmarked default = %v, want 200000", unmarked["catalog_context_length"])
+	}
+}
+
+func TestModelInfosCarriesContextConfigWindows(t *testing.T) {
+	models := ModelInfos([]map[string]any{
+		{
+			"key": "qmodel_38max", "display_name": "Qwen3.8-Max",
+			"max_input_tokens": 180000.0, "context_config": gatewayContextConfig(),
+		},
+	})
+	if len(models) != 1 {
+		t.Fatalf("models = %+v", models)
+	}
+	caps := models[0].Capabilities
+	if caps.ContextWindow != 200000 {
+		t.Errorf("ContextWindow = %d, want 200000", caps.ContextWindow)
+	}
+	if caps.ContextWindowMax != 1000000 {
+		t.Errorf("ContextWindowMax = %d, want 1000000", caps.ContextWindowMax)
+	}
+}
+
+func TestBuildPlainChatBodySendsContextWindow(t *testing.T) {
+	body := BuildPlainChatBody(translate.ChatRequest{
+		Model:         "qmodel_38max",
+		Messages:      []translate.ChatMessage{{Role: "user", Content: "hi"}},
+		ContextLength: json.RawMessage("400000"),
+	}, time.Now())
+	params, _ := body["parameters"].(map[string]any)
+	if got := string(params["contextWindow"].(json.RawMessage)); got != "400000" {
+		t.Errorf("parameters.contextWindow = %q, want 400000", got)
+	}
+	// The worker path still reads context_length, so both must carry the value.
+	if got := string(params["context_length"].(json.RawMessage)); got != "400000" {
+		t.Errorf("parameters.context_length = %q, want 400000", got)
+	}
+}
