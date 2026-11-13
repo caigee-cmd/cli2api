@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import { Drawer, Button, Chip, Separator, Tooltip } from '@heroui/react'
 import { ChartBar, Cube, Gauge, GearSix, Key, Lightning, Scroll, SidebarSimple, UsersThree, X } from '@phosphor-icons/react'
@@ -8,7 +8,6 @@ import { SkeletonBlock } from '@/components/ui/PageSkeletons'
 import { pressScale } from '@/hooks/useGsapReveal'
 import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
-import { fetchLive } from '@/api/live'
 
 const nav = [
   { to: '/', key: 'navOverview', icon: Gauge, section: 'workspace', end: true },
@@ -114,44 +113,14 @@ function SidebarStatusSkeleton({ label }: { label: string }) {
   )
 }
 
-const IN_FLIGHT_POLL_MS = 2500
-
 /**
- * Live in-flight request count from /api/live (same source as the overview
- * strip). Polls every 2.5s only while the tab is visible; the dot is muted
- * at 0 and pulses green while requests are running.
+ * In-flight count shown in the sidebar. The number comes from the overview
+ * summary, which loads with the shell. Polling /api/live here would hit it on
+ * every page, including ones that never render the live strip.
  */
 function InFlightIndicator({ initial, collapsed }: { initial: number; collapsed: boolean }) {
   const { t } = useI18n()
-  const [count, setCount] = useState<number | null>(null)
-  const value = count ?? initial
-
-  useEffect(() => {
-    let cancelled = false
-    let timer: number | undefined
-    const poll = () => {
-      void fetchLive()
-        .then((data) => { if (!cancelled) setCount(data.in_flight ?? 0) })
-        .catch(() => { /* keep last value */ })
-    }
-    const start = () => {
-      if (timer != null || document.hidden) return
-      poll()
-      timer = window.setInterval(poll, IN_FLIGHT_POLL_MS)
-    }
-    const stop = () => {
-      if (timer != null) window.clearInterval(timer)
-      timer = undefined
-    }
-    const onVisibility = () => (document.hidden ? stop() : start())
-    start()
-    document.addEventListener('visibilitychange', onVisibility)
-    return () => {
-      cancelled = true
-      stop()
-      document.removeEventListener('visibilitychange', onVisibility)
-    }
-  }, [])
+  const value = initial
 
   const label = t('sidebarInFlight', { count: value })
   return (
