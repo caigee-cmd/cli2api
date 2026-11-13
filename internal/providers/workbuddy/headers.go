@@ -2,10 +2,12 @@ package workbuddy
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"net/http"
 	"os"
 	"strings"
+	"time"
 )
 
 func setCommonHeaders(header http.Header, global bool) {
@@ -24,13 +26,21 @@ func setCommonHeaders(header http.Header, global bool) {
 // setCLIChannelHeaders is chat-only. Values come from the official
 // CodeBuddy CLI (craft / CLI / SaaS, plus the OpenAI Node SDK fingerprint
 // that package sends). CN and Global share the names; Origin/host stay split.
-func setCLIChannelHeaders(header http.Header, credential Credential) {
-	requestID := newCLIRequestID()
-	messageID := newCLIRequestID()
+//
+// The official CLI keeps X-Conversation-ID for the life of a session
+// (its session.id) and mints X-Request-ID fresh per request, equal to
+// X-Conversation-Message-ID. A new conversation id on every call turns one
+// chat into thousands of one-shot sessions. With a session key we derive the
+// conversation id from the account and that key, so the turns of one chat
+// share it and two accounts never share it. Without a key the id stays
+// per-request, matching the official client when it has no session.
+func setCLIChannelHeaders(header http.Header, credential Credential, conversation string) {
+	conversationID := conversationIDFor(credential.UID, conversation)
+	messageID := newCLIMessageID()
 	header.Set("X-Request-ID", messageID)
-	header.Set("X-Conversation-ID", requestID)
-	header.Set("X-Conversation-Request-ID", requestID)
-	header.Set("X-Root-Request-ID", requestID)
+	header.Set("X-Conversation-ID", conversationID)
+	header.Set("X-Conversation-Request-ID", conversationID)
+	header.Set("X-Root-Request-ID", conversationID)
 	header.Set("X-Conversation-Message-ID", messageID)
 	header.Set("X-Agent-Type", agentTypeMain)
 	header.Set("X-Agent-Intent", agentIntentDefault)
@@ -114,12 +124,52 @@ func setCLIStainlessHeaders(header http.Header) {
 	header.Set("X-Stainless-Timeout", CLIStainlessTimeout)
 }
 
-func newCLIRequestID() string {
+// conversationIDFor derives the dashed UUID the official CLI reuses as
+// X-Conversation-ID for one account and one session. An empty session has no
+// stable id, so the caller falls back to a fresh one.
+func conversationIDFor(uid, session string) string {
+	session = strings.TrimSpace(session)
+	if session == "" {
+		return newCLIConversationID()
+	}
+	sum := sha256.Sum256([]byte(strings.TrimSpace(uid) + "|" + session))
+	raw := sum[:16]
+	raw[6] = (raw[6] & 0x0f) | 0x40
+	raw[8] = (raw[8] & 0x3f) | 0x80
+	encoded := hex.EncodeToString(raw)
+	return encoded[0:8] + "-" + encoded[8:12] + "-" + encoded[12:16] + "-" + encoded[16:20] + "-" + encoded[20:32]
+}
+
+// newCLIConversationID is a dashed UUIDv7, the shape captured on the official
+// client's conversation id.
+func newCLIConversationID() string {
+	raw := newUUIDv7()
+	encoded := hex.EncodeToString(raw[:])
+	return encoded[0:8] + "-" + encoded[8:12] + "-" + encoded[12:16] + "-" + encoded[16:20] + "-" + encoded[20:32]
+}
+
+// newCLIMessageID is 32 hex without dashes, the shape captured for
+// X-Request-ID and X-Conversation-Message-ID.
+func newCLIMessageID() string {
+	raw := newUUIDv7()
+	return hex.EncodeToString(raw[:])
+}
+
+func newUUIDv7() [16]byte {
 	var raw [16]byte
 	if _, err := rand.Read(raw[:]); err != nil {
-		return "cli2api"
+		return raw
 	}
-	return hex.EncodeToString(raw[:])
+	ms := uint64(time.Now().UnixMilli())
+	raw[0] = byte(ms >> 40)
+	raw[1] = byte(ms >> 32)
+	raw[2] = byte(ms >> 24)
+	raw[3] = byte(ms >> 16)
+	raw[4] = byte(ms >> 8)
+	raw[5] = byte(ms)
+	raw[6] = (raw[6] & 0x0f) | 0x70
+	raw[8] = (raw[8] & 0x3f) | 0x80
+	return raw
 }
 
 func setIdentityHeaders(header http.Header, credential Credential) {
@@ -163,9 +213,11 @@ func SetCatalogHeaders(header http.Header, credential Credential) {
 }
 
 // SetChatHeaders carries access identity but never the refresh token.
-func SetChatHeaders(header http.Header, credential Credential) {
+// conversation is the gateway session key; empty keeps a fresh conversation
+// id, since the official client does the same when it has no session.
+func SetChatHeaders(header http.Header, credential Credential, conversation string) {
 	setIdentityHeaders(header, credential)
-	setCLIChannelHeaders(header, credential)
+	setCLIChannelHeaders(header, credential, conversation)
 }
 
 // SetRefreshHeaders is the only path allowed to carry X-Refresh-Token.

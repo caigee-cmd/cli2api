@@ -2,6 +2,7 @@ package workbuddy
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1486,9 +1487,52 @@ func TestCatalogHeadersUseDesktopUAOnlyForGlobal(t *testing.T) {
 	}
 }
 
+func TestChatHeadersReuseConversationIDForOneSession(t *testing.T) {
+	first := http.Header{}
+	SetChatHeaders(first, Credential{UID: "u1", Domain: "www.codebuddy.cn"}, "session-a")
+	second := http.Header{}
+	SetChatHeaders(second, Credential{UID: "u1", Domain: "www.codebuddy.cn"}, "session-a")
+	if first.Get("X-Conversation-ID") != second.Get("X-Conversation-ID") {
+		t.Fatalf("one session must reuse its conversation id: %s vs %s",
+			first.Get("X-Conversation-ID"), second.Get("X-Conversation-ID"))
+	}
+	if first.Get("X-Conversation-Request-ID") != first.Get("X-Conversation-ID") ||
+		first.Get("X-Root-Request-ID") != first.Get("X-Conversation-ID") {
+		t.Fatalf("turn ids must follow the conversation id: %+v", first)
+	}
+	if first.Get("X-Request-ID") == second.Get("X-Request-ID") {
+		t.Fatal("message id must be fresh per request")
+	}
+	otherAccount := http.Header{}
+	SetChatHeaders(otherAccount, Credential{UID: "u2", Domain: "www.codebuddy.cn"}, "session-a")
+	if otherAccount.Get("X-Conversation-ID") == first.Get("X-Conversation-ID") {
+		t.Fatal("two accounts must not share a conversation id")
+	}
+	otherSession := http.Header{}
+	SetChatHeaders(otherSession, Credential{UID: "u1", Domain: "www.codebuddy.cn"}, "session-b")
+	if otherSession.Get("X-Conversation-ID") == first.Get("X-Conversation-ID") {
+		t.Fatal("two sessions must not share a conversation id")
+	}
+	fresh := http.Header{}
+	again := http.Header{}
+	SetChatHeaders(fresh, Credential{UID: "u1", Domain: "www.codebuddy.cn"}, "")
+	SetChatHeaders(again, Credential{UID: "u1", Domain: "www.codebuddy.cn"}, "")
+	if fresh.Get("X-Conversation-ID") == again.Get("X-Conversation-ID") {
+		t.Fatal("a request without a session must get a new conversation id")
+	}
+}
+
+func dashedUUID(value string) bool {
+	if len(value) != 36 || strings.Count(value, "-") != 4 {
+		return false
+	}
+	_, err := hex.DecodeString(strings.ReplaceAll(value, "-", ""))
+	return err == nil
+}
+
 func TestChatHeadersStayRegionSpecificAndIncludeCLIChannel(t *testing.T) {
 	cn := http.Header{}
-	SetChatHeaders(cn, Credential{AccessToken: "at", UID: "u1", Domain: "www.codebuddy.cn"})
+	SetChatHeaders(cn, Credential{AccessToken: "at", UID: "u1", Domain: "www.codebuddy.cn"}, "")
 	if cn.Get("Origin") != "https://www.codebuddy.cn" || cn.Get("Referer") != "https://www.codebuddy.cn/" {
 		t.Fatalf("CN origin/referer mixed: %+v", cn)
 	}
@@ -1512,6 +1556,12 @@ func TestChatHeadersStayRegionSpecificAndIncludeCLIChannel(t *testing.T) {
 	if cn.Get("X-Request-ID") == cn.Get("X-Conversation-ID") || cn.Get("X-Root-Request-ID") != cn.Get("X-Conversation-Request-ID") {
 		t.Fatalf("CLI request ids must split message and turn: %+v", cn)
 	}
+	if cn.Get("X-Request-ID") != cn.Get("X-Conversation-Message-ID") {
+		t.Fatalf("message id must equal the request id: %+v", cn)
+	}
+	if !dashedUUID(cn.Get("X-Conversation-ID")) || dashedUUID(cn.Get("X-Request-ID")) {
+		t.Fatalf("conversation id must be dashed and the message id bare hex: %+v", cn)
+	}
 	if cn.Get("X-Refresh-Token") != "" || cn.Get("X-API-Key") != "" {
 		t.Fatal("chat must not carry refresh token or API key")
 	}
@@ -1520,7 +1570,7 @@ func TestChatHeadersStayRegionSpecificAndIncludeCLIChannel(t *testing.T) {
 	}
 
 	global := http.Header{}
-	SetChatHeaders(global, Credential{AccessToken: "at", UID: "u2", Domain: "www.workbuddy.ai"})
+	SetChatHeaders(global, Credential{AccessToken: "at", UID: "u2", Domain: "www.workbuddy.ai"}, "")
 	if global.Get("Origin") != "https://www.workbuddy.ai" || global.Get("Referer") != "https://www.workbuddy.ai/" {
 		t.Fatalf("Global origin/referer mixed: %+v", global)
 	}
