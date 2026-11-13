@@ -439,46 +439,60 @@ export function AccountsPage() {
 	    return dayOf(recorded) === dayOf(new Date())
 	  }
 
-	  async function onCheckinAll() {
-	    const eligible = displayRows.filter((account) => account.enabled && checkinPolicyFor(account))
-	    const pending = eligible.filter((account) => !alreadyCheckedInToday(account))
-	    if (eligible.length === 0) {
-	      toast({ id: 'checkin-all', type: 'info', title: t('checkinAllEmpty') })
-	      return
-	    }
-	    setCheckinAllRunning(true)
-	    const summary = { checked: 0, skipped: eligible.length - pending.length, failed: 0 }
-	    try {
-	      for (let index = 0; index < pending.length; index += 1) {
-	        // One account at a time, with a pause before every account after the
-	        // first, so a manual pass cannot burst every upstream call at once.
-	        // Accounts already checked in today never reach here.
-	        if (index > 0) {
-	          await new Promise((resolve) => setTimeout(resolve, 4000))
-	        }
-	        toast({
-	          id: 'checkin-all',
-	          type: 'loading',
-	        title: t('toastCheckingInAll', { done: index, total: pending.length }),
-	        })
-	        try {
-	          await checkinAccount(pending[index].id)
-	          summary.checked += 1
-	        } catch {
-	          summary.failed += 1
-	        }
-	      }
-      const values = { checked: summary.checked, skipped: summary.skipped, failed: summary.failed }
-      toast({
-        id: 'checkin-all',
-        type: summary.failed ? 'error' : 'success',
-        title: t(summary.failed ? 'toastCheckedInAllFailed' : 'toastCheckedInAll', values),
-      })
-    } finally {
-      setCheckinAllRunning(false)
-      await reloadAccounts(false).catch(() => undefined)
-    }
-  }
+	async function onCheckinAll() {
+		const eligible = displayRows.filter((account) => account.enabled && checkinPolicyFor(account))
+		const pending = eligible.filter((account) => !alreadyCheckedInToday(account))
+		if (eligible.length === 0) {
+			toast({ id: 'checkin-all', type: 'info', title: t('checkinAllEmpty') })
+			return
+		}
+		if (pending.length === 0) {
+			toast({ id: 'checkin-all', type: 'success', title: t('checkinAllDone', { count: eligible.length }) })
+			return
+		}
+		// Show the progress before the first account responds. With many
+		// accounts the first result can take a while, and the toast would
+		// otherwise appear only after it.
+		toast({
+			id: 'checkin-all',
+			type: 'loading',
+			title: t('toastCheckingInAll', { done: 0, total: pending.length }),
+		})
+		setCheckinAllRunning(true)
+		const summary = { checked: 0, skipped: eligible.length - pending.length, failed: 0 }
+		try {
+			for (let index = 0; index < pending.length; index += 1) {
+				// One account at a time, with a pause before every account after the
+				// first, so a manual pass cannot burst every upstream call at once.
+				// Accounts already checked in today never reach here.
+				if (index > 0) {
+					await new Promise((resolve) => setTimeout(resolve, 4000))
+				}
+				try {
+					await checkinAccount(pending[index].id)
+					summary.checked += 1
+				} catch {
+					summary.failed += 1
+				}
+				if (index < pending.length - 1) {
+					toast({
+						id: 'checkin-all',
+						type: 'loading',
+						title: t('toastCheckingInAll', { done: index + 1, total: pending.length }),
+					})
+				}
+			}
+			const values = { checked: summary.checked, skipped: summary.skipped, failed: summary.failed }
+			toast({
+				id: 'checkin-all',
+				type: summary.failed ? 'error' : 'success',
+				title: t(summary.failed ? 'toastCheckedInAllFailed' : 'toastCheckedInAll', values),
+			})
+		} finally {
+			setCheckinAllRunning(false)
+			await reloadAccounts(false).catch(() => undefined)
+		}
+	}
 
   async function onCheckin(id: string) {
     await run(id, 'checkin', async () => {
