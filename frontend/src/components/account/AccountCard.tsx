@@ -40,7 +40,7 @@ type Translate = (key: string, vars?: Record<string, string | number>) => string
 // `kind` selects the glyph/colour; `message` is the raw upstream error text
 // (only present for failures) and may be truncated in the UI with a copy button.
 export type CheckinFeedback = {
-  kind: 'success' | 'already' | 'error'
+  kind: 'success' | 'already' | 'skipped' | 'error'
   message?: string
 }
 
@@ -321,16 +321,18 @@ export function AccountCard({
           <div className="flex w-full items-start gap-2 rounded-lg bg-surface-secondary p-2 text-caption leading-5">
             {feedback.kind === 'success' ? (
               <CheckCircle size={14} weight="fill" className="mt-0.5 shrink-0 text-success" />
-            ) : feedback.kind === 'already' ? (
-              <WarningCircle size={14} weight="fill" className="mt-0.5 shrink-0 text-warning" />
-            ) : (
+            ) : feedback.kind === 'error' ? (
               <XCircle size={14} weight="fill" className="mt-0.5 shrink-0 text-danger" />
+            ) : (
+              <WarningCircle size={14} weight="fill" className="mt-0.5 shrink-0 text-warning" />
             )}
             <div className="min-w-0 flex-1">
               {feedback.kind === 'success' ? (
                 <span className="font-medium text-success">{t('checkinRecordSuccess')}</span>
               ) : feedback.kind === 'already' ? (
                 <span className="font-medium text-warning">{t('checkinRecordAlready')}</span>
+              ) : feedback.kind === 'skipped' ? (
+                <span className="font-medium text-warning">{t('checkinRecordSkipped')}</span>
               ) : (
                 <span className="font-medium text-danger">{t('checkinRecordFailed')}</span>
               )}
