@@ -80,7 +80,7 @@ func TestRoutingHintCarriesAcceptedTier(t *testing.T) {
 }
 
 func TestUserAgentPinnedToOfficialStable(t *testing.T) {
-	if UserAgent != "codex_cli_rs/0.167.2 (Mac OS 26.5.2; arm64) iTerm.app/3.6.11" || Originator != "codex_cli_rs" {
+	if UserAgent != "codex_cli_rs/0.169.0 (Mac OS 26.5.2; arm64) iTerm.app/3.6.11" || Originator != "codex_cli_rs" {
 		t.Fatalf("UserAgent=%q Originator=%q", UserAgent, Originator)
 	}
 }
