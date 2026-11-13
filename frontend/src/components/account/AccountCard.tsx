@@ -13,6 +13,7 @@ import {
   ListBullets,
   PencilSimple,
   ShieldCheck,
+  Timer,
   TrashSimple,
   WarningCircle,
   XCircle,
@@ -39,7 +40,7 @@ type Translate = (key: string, vars?: Record<string, string | number>) => string
 // `kind` selects the glyph/colour; `message` is the raw upstream error text
 // (only present for failures) and may be truncated in the UI with a copy button.
 export type CheckinFeedback = {
-  kind: 'success' | 'already' | 'error'
+  kind: 'success' | 'already' | 'skipped' | 'error'
   message?: string
 }
 
@@ -115,6 +116,7 @@ export function AccountCard({
   const chipRef = useRef<HTMLSpanElement>(null)
   const authRef = useRef<HTMLElement>(null)
   const [authCopied, setAuthCopied] = useState(false)
+  const [cooldownsOpen, setCooldownsOpen] = useState(false)
   const lastStateRef = useRef<string | null>(null)
   const [, refreshCooldowns] = useState(0)
   const state = accountState(account)
@@ -131,18 +133,19 @@ export function AccountCard({
   // Transient check-in feedback: a green check / yellow circle / red cross row
   // that the page pushes after a manual check-in. It shows for three seconds
   // and then disappears, regardless of whether the check-in succeeded.
-  const [feedback, setFeedback] = useState<CheckinFeedback | null>(null)
-  const [feedbackCopied, setFeedbackCopied] = useState(false)
+  // The page creates a fresh object per check-in, so reference equality is
+  // enough to know which notice has been dismissed. Both the visible notice
+  // and the copied flag are derived during render; only the timer callback
+  // and user events update state (never a synchronous setState in an effect).
+  const [dismissed, setDismissed] = useState<CheckinFeedback | null>(null)
+  const [copiedKey, setCopiedKey] = useState<CheckinFeedback | null>(null)
   const feedbackTimer = useRef<number | null>(null)
+  const feedback: CheckinFeedback | null = checkinFeedback && checkinFeedback !== dismissed ? checkinFeedback : null
+  const feedbackCopied = Boolean(feedback) && copiedKey === feedback
   useEffect(() => {
-    if (!checkinFeedback) {
-      setFeedback(null)
-      return
-    }
-    setFeedback(checkinFeedback)
-    setFeedbackCopied(false)
+    if (!checkinFeedback) return
     if (feedbackTimer.current) window.clearTimeout(feedbackTimer.current)
-    feedbackTimer.current = window.setTimeout(() => setFeedback(null), 3000)
+    feedbackTimer.current = window.setTimeout(() => setDismissed(checkinFeedback), 3000)
     return () => {
       if (feedbackTimer.current) window.clearTimeout(feedbackTimer.current)
     }
@@ -318,16 +321,18 @@ export function AccountCard({
           <div className="flex w-full items-start gap-2 rounded-lg bg-surface-secondary p-2 text-caption leading-5">
             {feedback.kind === 'success' ? (
               <CheckCircle size={14} weight="fill" className="mt-0.5 shrink-0 text-success" />
-            ) : feedback.kind === 'already' ? (
-              <WarningCircle size={14} weight="fill" className="mt-0.5 shrink-0 text-warning" />
-            ) : (
+            ) : feedback.kind === 'error' ? (
               <XCircle size={14} weight="fill" className="mt-0.5 shrink-0 text-danger" />
+            ) : (
+              <WarningCircle size={14} weight="fill" className="mt-0.5 shrink-0 text-warning" />
             )}
             <div className="min-w-0 flex-1">
               {feedback.kind === 'success' ? (
                 <span className="font-medium text-success">{t('checkinRecordSuccess')}</span>
               ) : feedback.kind === 'already' ? (
                 <span className="font-medium text-warning">{t('checkinRecordAlready')}</span>
+              ) : feedback.kind === 'skipped' ? (
+                <span className="font-medium text-warning">{t('checkinRecordSkipped')}</span>
               ) : (
                 <span className="font-medium text-danger">{t('checkinRecordFailed')}</span>
               )}
@@ -342,9 +347,9 @@ export function AccountCard({
                       className="h-6 min-w-0 gap-1 px-1.5 text-caption"
                       onPress={() => {
                         void copyText(feedback.message || '').then((ok) => {
-                          if (!ok) return
-                          setFeedbackCopied(true)
-                          window.setTimeout(() => setFeedbackCopied(false), 1100)
+                          if (!ok || !feedback) return
+                          setCopiedKey(feedback)
+                          window.setTimeout(() => setCopiedKey(null), 1100)
                         })
                       }}
                     >
@@ -502,6 +507,14 @@ export function AccountCard({
             <Tooltip.Content>{t('checkinNow')}</Tooltip.Content>
           </Tooltip>
         ) : null}
+        <Tooltip>
+          <Tooltip.Trigger>
+            <Button isIconOnly size="sm" variant={cooldownsOpen ? 'secondary' : 'ghost'} onPress={() => setCooldownsOpen((open) => !open)} aria-label={t('modelCooldowns')}>
+              <Timer size={15} className={modelCooldowns.length ? 'text-warning' : undefined} />
+            </Button>
+          </Tooltip.Trigger>
+          <Tooltip.Content>{t('modelCooldowns')}{modelCooldowns.length ? ` · ${modelCooldowns.length}` : ''}</Tooltip.Content>
+        </Tooltip>
         <Dropdown>
           <Dropdown.Trigger>
             <Button isIconOnly size="sm" variant="secondary" aria-label={t('more')}>
@@ -533,6 +546,27 @@ export function AccountCard({
           />
         </div>
       </Card.Footer>
+
+      {cooldownsOpen ? (
+        <section className="border-t border-separator bg-surface-secondary/55 px-4 py-2.5">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <span className="text-caption font-medium text-muted">{t('modelCooldownsTitle')}</span>
+            <span className="mono text-caption text-muted">{modelCooldowns.length}</span>
+          </div>
+          {modelCooldowns.length ? (
+            <div className="space-y-1">
+              {modelCooldowns.map(([model, until]) => (
+                <div key={model} className="flex items-center justify-between gap-3 rounded-lg bg-surface px-2 py-1.5 text-caption">
+                  <span className="mono min-w-0 truncate" title={model}>{model}</span>
+                  <span className="mono shrink-0 text-warning">{cooldownLabel(until)}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-caption text-muted">{t('modelCooldownsEmpty')}</p>
+          )}
+        </section>
+      ) : null}
     </Card>
   )
 }

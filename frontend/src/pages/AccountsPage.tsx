@@ -9,7 +9,7 @@ import {
   Plus,
   UploadSimple,
 } from '@phosphor-icons/react'
-import { AccountCard, type AccountBusyKind } from '@/components/account/AccountCard'
+import { AccountCard, type AccountBusyKind, type CheckinFeedback } from '@/components/account/AccountCard'
 import { AccountCheckinRecordsModal } from '@/components/account/AccountCheckinRecordsModal'
 import { AccountModelsModal } from '@/components/account/AccountModelsModal'
 import { EditAccountModal } from '@/components/account/EditAccountModal'
@@ -83,7 +83,7 @@ export function AccountsPage() {
   const [patById, setPatById] = useState<Record<string, string>>({})
   const [callbackById, setCallbackById] = useState<Record<string, string>>({})
   const [noteById, setNoteById] = useState<Record<string, string>>({})
-  const [checkinFeedbackById, setCheckinFeedbackById] = useState<Record<string, import('@/components/account/AccountCard').CheckinFeedback | null>>({})
+  const [checkinFeedbackById, setCheckinFeedbackById] = useState<Record<string, CheckinFeedback>>({})
   const [urlById, setUrlById] = useState<Record<string, string>>({})
   const [confirmId, setConfirmId] = useState<string | null>(null)
   const [modelsId, setModelsId] = useState<string | null>(null)
@@ -491,10 +491,22 @@ export function AccountsPage() {
           await new Promise((resolve) => setTimeout(resolve, 4000))
         }
         try {
-          await checkinAccount(pending[index].id)
-          summary.checked += 1
-        } catch {
+          const result = await checkinAccount(pending[index].id)
+          const status = result?.last_checkin_status
+          const message = result?.last_checkin_msg
+          const kind = status === 'already' ? 'already' : status === 'skipped' ? 'skipped' : status === 'error' ? 'error' : 'success'
+          if (kind === 'error' || kind === 'skipped') summary.failed += 1
+          else summary.checked += 1
+          setCheckinFeedbackById((current) => ({
+            ...current,
+            [pending[index].id]: { kind, message: kind === 'error' ? message || t('checkinRecordFailed') : message },
+          }))
+        } catch (error) {
           summary.failed += 1
+          setCheckinFeedbackById((current) => ({
+            ...current,
+            [pending[index].id]: { kind: 'error', message: error instanceof Error ? error.message : String(error) },
+          }))
         }
         if (index < pending.length - 1) {
           toast({
@@ -532,7 +544,7 @@ export function AccountsPage() {
       }
       const status = result?.last_checkin_status
       const message = result?.last_checkin_msg
-      const kind = status === 'already' ? 'already' : status === 'error' ? 'error' : 'success'
+      const kind = status === 'already' ? 'already' : status === 'skipped' ? 'skipped' : status === 'error' ? 'error' : 'success'
       setCheckinFeedbackById((current) => ({
         ...current,
         [id]: { kind, message: kind === 'error' ? message || t('checkinRecordFailed') : message },
