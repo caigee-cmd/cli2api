@@ -187,6 +187,12 @@ func (s *Settings) UpdateModelSetting(ctx context.Context, provider, modelID str
 		case patch.MaxMode != nil && *patch.MaxMode:
 			length = s.MaxContextLength(modelID)
 		}
+		// Toggling on while the catalog has no larger tier must not erase a
+		// stored window: the catalog may still be loading, and writing zero deletes
+		// the operator's choice instead of applying a Max tier.
+		if patch.MaxMode != nil && *patch.MaxMode && length == 0 {
+			return s.ReadModelSetting(ctx, provider, modelID)
+		}
 		if err := s.SetModelContext(ctx, modelID, length); err != nil {
 			return ModelSetting{}, operationError("model_setting_failed", err.Error())
 		}
