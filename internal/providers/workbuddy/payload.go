@@ -437,6 +437,10 @@ func rewriteIdentitySentences(text string) string {
 // (empty content is code 11151); ensureLeadingSystem then restores a
 // non-empty leading system prompt if needed.
 func sanitizeWAFKeywords(body map[string]any) {
+	if !bodyMayNeedWAFRewrite(body) {
+		return
+	}
+
 	raw, ok := body["messages"]
 	if !ok {
 		return
@@ -526,4 +530,66 @@ func sanitizeBillingHeaders(text string) string {
 		}
 	}
 	return wafBillingHdrBareRe.ReplaceAllString(text, "anthropic-header")
+}
+
+
+// bodyMayNeedWAFRewrite is a cheap prefilter. Most requests have none of the
+// client fingerprints the WAF rules rewrite; running a dozen regexes over a
+// multi-hundred-kilobyte history on every turn is pure CPU and, worse, can
+// change the cached prefix between otherwise identical turns.
+func bodyMayNeedWAFRewrite(body map[string]any) bool {
+	raw, ok := body["messages"]
+	if !ok {
+		return false
+	}
+	list, ok := raw.([]any)
+	if !ok {
+		return false
+	}
+	for _, item := range list {
+		message, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		for _, key := range []string{"content", "reasoning_content"} {
+			if textMayNeedWAFRewrite(message[key]) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func textMayNeedWAFRewrite(value any) bool {
+	switch typed := value.(type) {
+	case string:
+		return wafTextMayNeedRewrite(typed)
+	case []any:
+		for _, part := range typed {
+			object, ok := part.(map[string]any)
+			if !ok {
+				continue
+			}
+			if text, ok := object["text"].(string); ok && wafTextMayNeedRewrite(text) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func wafTextMayNeedRewrite(text string) bool {
+	if text == "" {
+		return false
+	}
+	lower := strings.ToLower(text)
+	for _, needle := range []string{
+		"main branch", "powered by", "built on", "built by", "created by", "developed by", "made by", "trained by",
+		"deepseek", "x-anthropic-billing", "cc_", "tokens prefixed with @",
+	} {
+		if strings.Contains(lower, needle) {
+			return true
+		}
+	}
+	return false
 }

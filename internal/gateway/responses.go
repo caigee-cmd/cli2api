@@ -39,6 +39,9 @@ func (h *Handler) HandleResponses(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusRequestEntityTooLarge, "invalid_request", "request body too large")
 		return
 	}
+	if id := conversationIDFromRequest(r, body); id != "" {
+		r = r.WithContext(WithConversationID(r.Context(), id))
+	}
 	native, err := translate.ParseNativeResponses(body)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())

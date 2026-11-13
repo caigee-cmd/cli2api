@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"log"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -59,6 +60,7 @@ type PrepareInput struct {
 	Identity          auth.Identity
 	PreferAccount     string
 	SessionHeader     string
+	ConversationID    string
 	CrossProviderPool bool
 	Now               time.Time
 	NewRequestID      func() string
@@ -146,9 +148,17 @@ func (e ChatExecutor) Prepare(in PrepareInput) (PreparedRequest, error) {
 		})
 	}
 	ctx := WithAllowedProviders(WithRequestID(in.Context, requestID), in.Identity.AllowedProviders)
-	sessionKey := SessionKeyFor(in.SessionHeader, in.Identity, request)
+	sessionKey := sessionKeyFor(in.SessionHeader, in.ConversationID, in.Identity, request)
 	if sessionKey == "" && in.NativeRequest != nil {
 		sessionKey = NativeSessionKeyFor(in.NativeRequest, in.Identity)
+	}
+	// No caller-supplied conversation: hub-style sharding keeps one
+	// (key, model, system, tools) tuple on a small account set. The content
+	// seed still runs when sharding is disabled (default).
+	if strings.TrimSpace(in.SessionHeader) == "" && strings.TrimSpace(in.ConversationID) == "" {
+		if shard := ShardFallbackKey(in.Identity, request); shard != "" {
+			sessionKey = shard
+		}
 	}
 	if sessionKey != "" {
 		ctx = WithSessionKey(ctx, sessionKey)
@@ -159,6 +169,18 @@ func (e ChatExecutor) Prepare(in PrepareInput) (PreparedRequest, error) {
 	}
 	if requestedReasoning != "" {
 		log.Printf("request reasoning request_id=%q model=%q level=%q", requestID, request.Model, requestedReasoning)
+	}
+	if sessionKey != "" && sessionAffinityDebugOn() {
+		source := "content-seed"
+		if strings.TrimSpace(in.SessionHeader) != "" {
+			source = "header"
+		} else if strings.TrimSpace(in.ConversationID) != "" {
+			source = "conversation"
+		} else if MessageStatShards() > 0 {
+			source = "shard"
+		}
+		log.Printf("session affinity request_id=%q source=%q key=%q model=%q tools=%t msgs=%d",
+			requestID, source, shortSessionKey(sessionKey), request.Model, len(request.Tools) > 0, len(request.Messages))
 	}
 	return PreparedRequest{
 		Context:        ctx,
@@ -312,22 +334,7 @@ func NativeSessionKeyFor(req *translate.NativeResponsesRequest, identity auth.Id
 }
 
 func SessionKeyFor(header string, identity auth.Identity, req translate.ChatRequest) string {
-	raw := strings.TrimSpace(header)
-	kind := "content"
-	if raw != "" {
-		kind = "header"
-	} else {
-		raw = translate.ContentSessionSeed(req)
-	}
-	if raw == "" {
-		return ""
-	}
-	namespace := "console"
-	if identity.Kind == auth.KindKey && identity.KeyID != "" {
-		namespace = "key:" + identity.KeyID
-	}
-	sum := sha256.Sum256([]byte(namespace + "\x00" + kind + "\x00" + raw))
-	return hex.EncodeToString(sum[:])
+	return sessionKeyFor(header, "", identity, req)
 }
 
 // RequestedReasoningLevel surfaces the reasoning level the client asked for,
@@ -370,4 +377,15 @@ func RequestedReasoningLevel(req translate.ChatRequest) string {
 		return "none"
 	}
 	return ""
+}
+
+// sessionAffinityDebugOn mirrors qoder2api-hub's QD_AFFINITY_DEBUG: routing
+// diagnostics are opt-in so normal request paths stay quiet.
+func sessionAffinityDebugOn() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("CLI2API_AFFINITY_DEBUG"))) {
+	case "1", "true", "on", "yes":
+		return true
+	default:
+		return false
+	}
 }

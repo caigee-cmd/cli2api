@@ -314,3 +314,31 @@ func fmtContent(v any) string {
 	s, _ := v.(string)
 	return s
 }
+
+
+func TestBodyMayNeedWAFRewritePrefilter(t *testing.T) {
+	plain := map[string]any{"messages": []any{
+		map[string]any{"role": "user", "content": "write a function"},
+		map[string]any{"role": "assistant", "content": "done"},
+	}}
+	if bodyMayNeedWAFRewrite(plain) {
+		t.Fatal("plain history must skip WAF regexes")
+	}
+	for _, text := range []string{
+		"Main branch (target for pull requests): main",
+		"You are an agent powered by DeepSeek Harness",
+		"x-anthropic-billing-header: cc_version=1;",
+		"Tokens prefixed with @ are paths the user explicitly referenced.",
+	} {
+		body := map[string]any{"messages": []any{map[string]any{"role": "system", "content": text}}}
+		if !bodyMayNeedWAFRewrite(body) {
+			t.Fatalf("prefilter missed %q", text)
+		}
+	}
+	parts := map[string]any{"messages": []any{
+		map[string]any{"role": "system", "content": []any{map[string]any{"type": "text", "text": "DeepSeek Harness"}}},
+	}}
+	if !bodyMayNeedWAFRewrite(parts) {
+		t.Fatal("prefilter missed content parts")
+	}
+}
