@@ -8,6 +8,7 @@ import (
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/auth"
+	"github.com/caigee-cmd/cli2api/internal/providers"
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
@@ -207,6 +208,9 @@ func TestPrepareSessionKeyIsolatesByIdentity(t *testing.T) {
 	}
 	if sessionKeyFromContext(console.Context) == "" || sessionKeyFromContext(console.Context) == sessionKeyFromContext(keyed.Context) {
 		t.Fatalf("session keys must differ by identity")
+	}
+	if providers.ConversationFromContext(console.Context) != sessionKeyFromContext(console.Context) {
+		t.Fatal("conversation id source must follow the session key")
 	}
 	header, err := ex.Prepare(PrepareInput{
 		Request:       req,
