@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
+	"os"
+	"strings"
 	"net/http"
 	"time"
 
@@ -30,13 +33,21 @@ func (h *Handler) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 		writeRequestBodyError(w, body.err)
 		return
 	}
-	if err := json.NewDecoder(body).Decode(&req); err != nil {
-		if isRequestBodyTooLarge(err) {
-			writeRequestBodyError(w, err)
+	rawBody, readErr := readConversationBody(body, maxChatRequestBytes)
+	if readErr != nil {
+		if isRequestBodyTooLarge(readErr) {
+			writeRequestBodyError(w, readErr)
 			return
 		}
+		writeErr(w, http.StatusBadRequest, "invalid_request", readErr.Error())
+		return
+	}
+	if err := json.Unmarshal(rawBody, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
+	}
+	if id := conversationIDFromRequest(r, rawBody); id != "" {
+		r = r.WithContext(WithConversationID(r.Context(), id))
 	}
 	if len(req.Messages) == 0 {
 		writeErr(w, http.StatusBadRequest, "invalid_request", "messages required")
@@ -282,6 +293,7 @@ func (h *Handler) finishRequestLog(requestID string, started time.Time, req tran
 		entry.ErrorMessage = classified.Message
 	}
 	h.Recorder.Finish(entry)
+	logCacheDiagnostics(entry, routing)
 	if stats != nil && entry.Credits != nil {
 		h.Recorder.UsageDetail(accounts.RequestUsageDetail{
 			RequestID: requestID,
@@ -344,3 +356,57 @@ func (h *Handler) recordStreamDiagnostic(requestID string, response *http.Respon
 }
 
 func ptrInt(value int) *int { return &value }
+
+
+// logCacheDiagnostics mirrors qoder2api-hub's split between route-level session
+// affinity and real upstream prompt-cache token hits. A bound session can still
+// miss the cache; without both numbers an operator cannot tell which one broke.
+// Opt-in so high-throughput gateways do not pay for per-request logging.
+func logCacheDiagnostics(entry accounts.RequestLog, routing string) {
+	if !affinityDebugOn() || entry.Status == accounts.RequestStatusStreaming {
+		return
+	}
+	prompt, cache := 0, 0
+	if entry.PromptTokens != nil {
+		prompt = *entry.PromptTokens
+	}
+	if entry.CacheReadTokens != nil {
+		cache = *entry.CacheReadTokens
+	}
+	hit := 0.0
+	if prompt > 0 {
+		hit = float64(cache) * 100 / float64(prompt)
+	}
+	log.Printf("cache diagnostics request_id=%q model=%q account=%q routing=%q affinity=%q prompt=%d cache_read=%d hit=%.1f%% ttfb_ms=%v status=%q",
+		entry.ID, entry.RequestedModel, entry.AccountID, routing, affinityLabel(routing), prompt, cache, hit,
+		optionalInt(entry.TTFBMs), entry.Status)
+}
+
+func affinityLabel(routing string) string {
+	switch routing {
+	case "sticky":
+		return "memory-prefix"
+	case "sticky_escape":
+		return "escape"
+	case "pin":
+		return "pinned"
+	default:
+		return "random"
+	}
+}
+
+func optionalInt(value *int) any {
+	if value == nil {
+		return "n/a"
+	}
+	return *value
+}
+
+func affinityDebugOn() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("CLI2API_AFFINITY_DEBUG"))) {
+	case "1", "true", "on", "yes":
+		return true
+	default:
+		return false
+	}
+}

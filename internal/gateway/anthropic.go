@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
@@ -24,13 +26,34 @@ func (h *Handler) HandleAnthropicMessages(w http.ResponseWriter, r *http.Request
 		writeAnthropicRequestBodyError(w, body.err)
 		return
 	}
-	if err := json.NewDecoder(body).Decode(&source); err != nil {
-		if isRequestBodyTooLarge(err) {
-			writeAnthropicRequestBodyError(w, err)
+	rawBody, readErr := readConversationBody(body, maxChatRequestBytes)
+	if readErr != nil {
+		if isRequestBodyTooLarge(readErr) {
+			writeAnthropicRequestBodyError(w, readErr)
 			return
 		}
+		writeAnthropicError(w, http.StatusBadRequest, "invalid_request_error", readErr.Error())
+		return
+	}
+	rectified := rawBody
+	var rectify translate.RectifyResult
+	if thinkingRectifierOn() {
+		var rectifyErr error
+		rectified, rectify, rectifyErr = translate.RectifyAnthropicRequest(rawBody)
+		if rectifyErr != nil {
+			writeAnthropicError(w, http.StatusBadRequest, "invalid_request_error", rectifyErr.Error())
+			return
+		}
+		if rectify.Applied {
+			w.Header().Set("X-CLI2API-Rectified", rectifySummary(rectify))
+		}
+	}
+	if err := json.Unmarshal(rectified, &source); err != nil {
 		writeAnthropicError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
+	}
+	if id := conversationIDFromRequest(r, rawBody); id != "" {
+		r = r.WithContext(WithConversationID(r.Context(), id))
 	}
 	request, err := translate.TranslateAnthropicMessages(source)
 	if err != nil {
@@ -172,4 +195,37 @@ func anthropicStopReason(finishReason string, toolCalls []proxyToolCall) string 
 		return "max_tokens"
 	}
 	return "end_turn"
+}
+
+
+// rectifySummary is a bounded, non-sensitive diagnostic header. It never
+// includes message content or signatures.
+func rectifySummary(result translate.RectifyResult) string {
+	parts := make([]string, 0, 4)
+	if result.RemovedThinkingBlocks > 0 {
+		parts = append(parts, fmt.Sprintf("thinking=%d", result.RemovedThinkingBlocks))
+	}
+	if result.RemovedRedactedThinkingBlocks > 0 {
+		parts = append(parts, fmt.Sprintf("redacted=%d", result.RemovedRedactedThinkingBlocks))
+	}
+	if result.RemovedSignatureFields > 0 {
+		parts = append(parts, fmt.Sprintf("signature=%d", result.RemovedSignatureFields))
+	}
+	if result.RemovedTopLevelThinking {
+		parts = append(parts, "top-level=1")
+	}
+	return strings.Join(parts, ",")
+}
+
+
+// thinkingRectifierOn mirrors cc-switch's configurable rectifier. Default on:
+// OpenAI-compatible upstreams have no signature validation, so historical
+// Anthropic thinking signatures are always invalid there.
+func thinkingRectifierOn() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("CLI2API_THINKING_RECTIFIER"))) {
+	case "0", "false", "off", "no":
+		return false
+	default:
+		return true
+	}
 }

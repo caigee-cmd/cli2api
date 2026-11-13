@@ -240,3 +240,17 @@ Keep a separate database backup before upgrading.
 Keep `deploy/.env` private: Docker Desktop mode stores an updater token there.
 Do not remove `qoder-data` or run `docker compose down -v` unless you intend to
 delete the accounts and credentials.
+
+
+## Cache affinity and message rectification
+
+These switches follow the reference 2api gateways and are off by default except
+the Anthropic thinking rectifier, which is on because OpenAI-compatible
+upstreams do not validate Anthropic thinking signatures.
+
+| Variable | Default | Description |
+|---|---|---|
+| `CLI2API_MSGSTAT_SHARDS` | `0` | Bound one-shot `/v1/messages` calls to N account buckets per (API key, model, system prefix, tools). Mirrors `WB_MSGSTAT_SHARDS`; `0` keeps the historical content-seed routing. |
+| `CLI2API_AFFINITY_DEBUG` | `0` | Log session-affinity source and cache-token diagnostics per request. |
+| `CLI2API_THINKING_RECTIFIER` | `on` | Set `off` to replay historical Anthropic thinking blocks unchanged. |
+| `X-CLI2API-Session` / `X-Conversation-Id` / `X-Session-Id` / `X-Thread-Id` | — | Explicit conversation id. Body `conversation_id` / `conversationId` / `session_id` / `metadata.*` aliases are also recognised so client turns stay on one account and keep the upstream prompt cache warm. |
