@@ -4,26 +4,22 @@
 
 **Turn your own logins into a local OpenAI-compatible API**
 
-Connect **Qoder (Global / CN)**, **WorkBuddy (Global / CN)**, **Trae CN Work**, and experimental **Devin**, **Command Code**, and **Huawei Cloud CodeArts (码道)** accounts.
-
-Deploy with Docker, manage accounts in the web console, and connect clients through compatible APIs.
-
 [![License](https://img.shields.io/github/license/caigee-cmd/cli2api)](LICENSE)
 [![Telegram](https://img.shields.io/badge/Telegram-community-26A5E4)](https://t.me/+jCjL8ou_g7Q2MzI1)
 
 <sub>[中文](README.md) · [Issues](https://github.com/caigee-cmd/cli2api/issues) · [Telegram](https://t.me/+jCjL8ou_g7Q2MzI1)</sub>
 
-<sub>Sponsors</sub>
-
-<a href="https://caiaiu.com"><picture><source media="(prefers-color-scheme: dark)" srcset="./docs/assets/sponsors/caiai-dark.svg"><img src="./docs/assets/sponsors/caiai.svg" height="36" alt="CaiAI"></picture></a>
-
-<img src="./docs/assets/readme/hero-en.svg" width="100%" alt="CLI2API — turn your own logins into a local OpenAI-compatible API">
+<img src="./docs/assets/readme/hero-en.svg" width="100%" alt="CLI2API: Qoder, WorkBuddy, and Trae logins converge on one local /v1">
 
 </div>
 
 ## Sponsors
 
-CLI2API is self-hosted and uses accounts you already have. If you would rather not run it yourself, the sponsor below offers a hosted gateway.
+CLI2API is self-hosted and uses accounts you already have. If you would rather not run it, the sponsor offers a hosted gateway.
+
+<p>
+<a href="https://caiaiu.com"><picture><source media="(prefers-color-scheme: dark)" srcset="./docs/assets/sponsors/caiai-dark.svg"><img src="./docs/assets/sponsors/caiai.svg" height="44" alt="CaiAI"></picture></a>
+</p>
 
 | Sponsor | What it is | Who it is for | Link |
 | --- | --- | --- | --- |
@@ -31,17 +27,7 @@ CLI2API is self-hosted and uses accounts you already have. If you would rather n
 
 CLI2API manages your own accounts on a local gateway. CaiAI manages hosted keys, routing, and billing.
 
-## Features
-
-- **Compatible APIs**: Chat Completions, Responses, Anthropic Messages, and model listing, with streaming and function tools.
-- **Multi-account routing**: round-robin, weighted round-robin, fill-first, and opt-in same-provider earliest-expiry-first (FEFO), with automatic selection, session affinity, concurrency limits, cooldowns, and failover.
-- **Web console**: manage accounts, models, client keys, and proxies; view quotas and request logs.
-- **Huawei Cloud CodeArts (experimental)**: OAuth PKCE sign-in followed by direct OpenAI-compatible calls to snap-access, with streaming, tools, image input for catalog-declared vision models, catalog-declared reasoning levels, and package-credit / token meters.
-- **Docker operations**: persistent account data; an optional host updater lets you download, confirm, and roll back updates from the console.
-
-Qoder CN, WorkBuddy, and Trae adapters are implemented, but live-account acceptance is still pending. Devin, Command Code, and Huawei Cloud CodeArts are experimental, not production-ready. Live upgrade and rollback acceptance is also pending. The Kimi Code CN adapter has single-account end-to-end acceptance: device-code sign-in, model discovery, chat/streaming/tools/vision on all three APIs, and quota readout; multi-account behavior is covered by automated tests only. CodeArts has single-account end-to-end acceptance: OAuth sign-in, model discovery with unusable-model removal, non-streaming and streaming Chat Completions / Anthropic Messages / Responses, tool calls, reasoning passthrough, package-credit readout, and check-in; two-account failover and session affinity have also been verified live, while quota-exhaustion failover is still pending.
-
-## Quick start
+## Running in three minutes
 
 You need Docker and an upstream account you control. Use Docker Desktop on macOS / Windows; Windows must use Linux containers.
 
@@ -51,30 +37,35 @@ cd cli2api
 ./scripts/start.sh        # Windows: scripts\start.ps1
 ```
 
-1. Save the **administrator key** printed in the first-start logs.
-2. Open `http://127.0.0.1:3010`, sign in with that key, and add an account in **Accounts**.
-3. Create a client key in **API keys**, then choose a model and test it in **Access**.
+1. Save the **administrator key** printed on first start.
+2. Open `http://127.0.0.1:3010`, sign in, and add an account under **Accounts**.
+3. Create a client key under **API keys**, then pick a model and test it under **Access**.
 
-Docker Compose is the supported install and managed-update path; source runs are for development. See the [deployment guide](deploy/README.md).
-
-## Connect a client
-
-In an OpenAI-compatible client, enter:
+Point any OpenAI-compatible client at:
 
 ```text
 Base URL: http://127.0.0.1:3010/v1
-API Key:  <a client key created in API keys>
+API Key:  <the client key you just created>
 ```
 
-Get a model ID from **Access** or `/v1/models`. Routing is automatic and prefers the same account for later turns. Account pinning, session headers, and curl / PowerShell examples are in the [deployment guide](deploy/README.md).
+Model IDs come from **Access** or `/v1/models`. Routing is automatic and prefers the same account for later turns. Environment variables, account pinning, and managed updates are in the [deployment guide](deploy/README.md).
 
-## How it works
+## What it does
+
+Connect **Qoder (Global / CN)**, **WorkBuddy (Global / CN)**, and **Trae CN Work**. **Devin**, **Command Code**, and **Huawei Cloud CodeArts (码道)** are experimental and not a production promise.
 
 <p align="center">
   <img src="./docs/assets/readme/architecture-en.svg" width="100%" alt="CLI2API architecture: OpenAI clients are routed by the Go control plane to one isolated runtime per account, then to the provider upstream">
 </p>
 
-The Go gateway handles authentication, routing, and request logging. Each Qoder account has its own Node process and HOME; WorkBuddy, Trae, Devin, Command Code, and CodeArts use Go in-process adapters. No full CLI is started per request.
+The Go gateway handles authentication, routing, and request logging. Each Qoder account has its own Node process and HOME. Other providers use in-process adapters, so no full CLI starts per request.
+
+- **Three APIs**: Chat Completions, Responses, and Anthropic Messages, plus model listing. Streaming and function tools included.
+- **Many accounts**: round-robin, weighted round-robin, fill-first, and opt-in same-provider earliest-expiry-first (FEFO). Automatic selection, session affinity, concurrency limits, cooldowns, and failover stay on.
+- **One console**: accounts, models, client keys, proxies, quotas, and request logs.
+- **Docker**: account data persists. An optional host updater downloads, confirms, and rolls back from the console.
+
+Qoder CN, WorkBuddy, and Trae are implemented; live-account acceptance is still pending. Kimi Code CN and CodeArts have single-account end-to-end acceptance. CodeArts quota-exhaustion failover, and live upgrade / rollback, are still pending.
 
 ## Console
 
@@ -82,39 +73,29 @@ The Go gateway handles authentication, routing, and request logging. Each Qoder 
   <img src="./docs/assets/readme/console-window-en.svg" width="100%" alt="CLI2API console Accounts page: each account shows its login method, ready state, and quota, with an Access panel offering the Base URL and a quick check">
 </p>
 
-Accounts, models, access, and logs all live in one web console: readiness and quota are visible at a glance, and the Access page lets you copy the Base URL and run a quick check.
+Readiness and quota sit on the account card. Access copies the Base URL and runs a quick check. WorkBuddy, QwenWork, and Qoder can check in from the card; automatic check-in is off by default, and its schedule lives under System → Automatic check-in. Live-account check-in acceptance is still pending.
 
-Account cards provide WorkBuddy, QwenWork CN/Global, Qoder CN, and Qoder Global check-in actions and automatic check-in switches (off by default), with history under More → Check-in records; no separate check-in page is needed. Set each provider's default time under System → Automatic check-in, then choose inheritance or an override in Edit account. Default changes apply to inheriting accounts immediately. Existing WorkBuddy accounts retain their previous times until switched to inheritance. Inactive campaigns are skipped. Live-account check-in acceptance is still pending. QwenWork ships a check-in API in its desktop client, but production gateways do not route it (404): CN confirms the daily free credits from the wallet balance, while Global can only report the total quota and the skip reason.
+## Earliest expiry first
 
-## Earliest-expiry-first (FEFO)
+Choose **Earliest expiry first (FEFO)** under **System → Account routing strategy**, or send `{"routing_strategy":"fefo"}` to `PATCH /api/system/settings`. Round-robin stays the default.
 
-Select **Earliest expiry first (FEFO)** under **System → Account routing strategy**, or send `{"routing_strategy":"fefo"}` to `PATCH /api/system/settings`. Round-robin remains the default; the existing round-robin, weighted round-robin, and fill-first behavior is unchanged.
-
-- **Rank only inside one provider.** Accounts are grouped by provider family before their nearest credit-package expiry is compared. Qoder, WorkBuddy, and other providers never compete with each other, and cross-provider selection keeps its existing rotation.
-- **Use only spendable package dates.** Depleted, expired, and undated packages are skipped. Accounts expiring on the same UTC+8 calendar day rotate fairly. Missing dates are never guessed: they form that provider's fallback cohort and participate only after every dated account is unavailable.
-- **Keep quota and failover semantics.** Exhausted, cooling, concurrency-saturated, or explicitly excluded accounts leave the candidate set and return to the ranking once they recover. Finishing a response or stream refreshes that account's quota asynchronously; a cached package expiring naturally also triggers a probe. Subscription resets, token lifetimes, and check-in rewards are never treated as package expiry.
-- **Data gaps.** Only WorkBuddy personal accounts currently return per-package `CycleEndTime` from `get-user-resource`. Qoder's `quota/usage` exposes only the subscription cycle boundary (`expiresAt`), while Trae, Devin, Command Code, and Codex expose reset windows or totals only, so their accounts remain in the unknown-date cohort under FEFO. CodeArts reports package credits and token meters but no per-package expiry, so it is treated as unknown rather than given a fabricated date. WorkBuddy enterprise/shared identities and unconfirmed result sets capped at 100 also receive no FEFO priority. Cached quota snapshots written before this version remain undated until the boot probe or a manual refresh repopulates the package metadata.
+Accounts are ranked only inside one provider, by the nearest credit package that can still be spent. Missing dates are never guessed, and those accounts join only after every dated account is unavailable. Exhausted, cooling, and concurrency-saturated accounts still drop out first. Only WorkBuddy personal accounts currently expose a per-package expiry.
 
 ## Limitations
 
-- Bring your own accounts. CLI2API does not supply accounts, quotas, or an official API service.
-- Compatibility is not full API parity. Messages / Responses are stateless adapters, without server-side conversations or upstream-specific tool execution.
-- Image support depends on the upstream and model. The gateway surfaces each model's declared image input as `supports_images` on `/v1/models` and `/api/models`. WorkBuddy's DeepSeek V4 / V4.1, GLM, and Kimi models accept images; CodeArts's Qwen3-VL-235B and Kimi K2.6 VL accept images, while its other models are text-only; Trae, Command, and Zhipu do not declare image input. See the [deployment guide](deploy/README.md) for details.
-- Cross-provider routing for shared model IDs follows system settings, key grants, and region constraints; failover is not unrestricted.
-- Upstream changes can break compatibility. Request logs do not store prompt or completion bodies by default.
-
-## Documentation
-
-- [Deployment and operations: setup steps, environment variables, endpoints, managed updates](deploy/README.md)
-- [Changelog](CHANGELOG.md)
+- Bring your own accounts. CLI2API does not supply accounts, quotas, or an official API.
+- Compatibility is not full parity. Messages / Responses keep no server-side conversation and run no upstream-specific tools.
+- Images depend on the upstream and the model, exposed as `supports_images`. See the [deployment guide](deploy/README.md).
+- Routing one model ID across upstreams follows system settings, key grants, and region.
+- An upstream protocol change can break compatibility. Request logs omit prompt and completion bodies by default.
 
 ## Security
 
-The default deployment exposes only `127.0.0.1:3010`; do not expose it directly to the public internet. Administrator keys manage the console; client keys only access `/v1/*`. Protect keys, credential exports, and database backups. Report security issues privately as described in [SECURITY.md](SECURITY.md).
+The default listen address is `127.0.0.1:3010`. Do not expose it directly to the public internet. Administrator keys run the console; client keys only reach `/v1/*`. Keep keys, credential exports, and database backups to yourself. Report security issues privately, as [SECURITY.md](SECURITY.md) describes.
 
-## Community & Contributing
+## Community & contributing
 
-Discussion is in the [Telegram group](https://t.me/+jCjL8ou_g7Q2MzI1). In China you can also scan the personal WeChat QR below. Bugs and feature requests go to GitHub [Issues](https://github.com/caigee-cmd/cli2api/issues); documentation improvements and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
+Discussion is in the [Telegram group](https://t.me/+jCjL8ou_g7Q2MzI1). In China you can also scan the personal WeChat QR below. Bugs and feature requests go to GitHub [Issues](https://github.com/caigee-cmd/cli2api/issues). Docs and code: [CONTRIBUTING.md](CONTRIBUTING.md). History: [CHANGELOG.md](CHANGELOG.md).
 
 <p align="center">
   <img src="./docs/assets/readme/wechat-contact.jpg" width="220" alt="Personal WeChat QR code">
