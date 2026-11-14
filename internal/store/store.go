@@ -752,6 +752,24 @@ ON CONFLICT(account_id) DO UPDATE SET format=excluded.format, payload=excluded.p
 	return nil
 }
 
+// SetCredentialAuthType records the credential kind (e.g. "pat" / "oauth")
+// without touching the stored blob. SaveCredentialPayload writes a PAT but
+// historically left auth_type at its create-time default, so a PAT account
+// showed as "none" on the card (hiding export, blanking the type filter). Login
+// calls this after a successful PAT import to keep the account metadata honest.
+func (s *Store) SetCredentialAuthType(ctx context.Context, accountID, authType string) error {
+	result, err := s.db.ExecContext(ctx, `UPDATE accounts SET auth_type = ?, updated_at = ? WHERE id = ?`,
+		strings.TrimSpace(authType), formatTime(time.Now().UTC()), strings.TrimSpace(accountID))
+	if err != nil {
+		return fmt.Errorf("update credential type: %w", err)
+	}
+	changed, _ := result.RowsAffected()
+	if changed == 0 {
+		return accounts.ErrAccountNotFound
+	}
+	return nil
+}
+
 func (s *Store) LoadCredentialPayload(ctx context.Context, accountID string) (string, []byte, error) {
 	var format string
 	var payload []byte

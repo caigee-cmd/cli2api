@@ -226,6 +226,21 @@ type QuotaInfo struct {
 	ExpiresAt      int64
 	ExpiringRemain float64
 	Packages       []QuotaPackage
+	// AddOn / ResourcePackage carry the Qoder credit-bucket breakdown so the
+	// persisted snapshot keeps the same detail the browser/worker path shows.
+	// They are only populated by providers that report these buckets (Qoder).
+	HasAddOn                 bool
+	AddOnUsed                float64
+	AddOnTotal               float64
+	AddOnRemaining           float64
+	AddOnUnit                string
+	AddOnAvailable           *bool
+	HasResourcePackage       bool
+	ResourcePackageUsed      float64
+	ResourcePackageTotal     float64
+	ResourcePackageRemaining float64
+	ResourcePackageUnit      string
+	ResourcePackageAvailable *bool
 }
 
 // AccountProber refreshes provider-native readiness and optional display quota.

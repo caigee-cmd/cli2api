@@ -3,6 +3,7 @@ package runtime_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/executor"
 	accountruntime "github.com/caigee-cmd/cli2api/internal/runtime"
@@ -65,6 +66,7 @@ type fakeProber struct {
 	quotaN    int
 	quotaDone chan struct{}
 	err       error
+	quotaErr  error
 }
 
 func (f *fakeProber) Probe(ctx context.Context, accountID string) (providers.AccountHealth, error) {
@@ -77,7 +79,7 @@ func (f *fakeProber) Quota(ctx context.Context, accountID string) (*providers.Qu
 	if f.quotaDone != nil {
 		close(f.quotaDone)
 	}
-	return f.quota, nil
+	return f.quota, f.quotaErr
 }
 
 func TestManagerRefreshUsesInProcessProber(t *testing.T) {
@@ -163,6 +165,90 @@ func TestManagerRefreshUsesInProcessProber(t *testing.T) {
 	}
 }
 
+// A manual single-account refresh with quota=1 (forceQuota) must fetch quota
+// synchronously and persist it before returning, so the console row it replaces
+// carries the freshly-read number; the background list path stays async.
+func TestManagerRefreshAccountForceQuotaIsSynchronous(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlstore.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	account, err := store.Create(ctx, accounts.CreateAccount{
+		Name: "WB", Provider: "workbuddy", Region: "cn", Enabled: false,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	prober := &fakeProber{
+		health: providers.AccountHealth{Ready: true, Hot: true, UID: "wb-uid"},
+		quota: &providers.QuotaInfo{
+			Used: 5, Total: 100, Remaining: 95, Percentage: 5, Unit: "credits",
+			FetchedAt: "2026-08-26T00:00:00Z",
+		},
+	}
+	registry := providers.NewRegistry()
+	registry.Register(providers.Adapter{ID: "workbuddy", Prober: prober})
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	manager.SetProviders(registry)
+	manager.Pool().Upsert(executor.Item{ID: account.ID, Provider: "workbuddy", Runtime: "in_process"})
+
+	if err := manager.RefreshAccount(ctx, account.ID, true); err != nil {
+		t.Fatalf("refresh err = %v", err)
+	}
+	// No polling: the row must already carry the quota when RefreshAccount returns.
+	item, _ := manager.Pool().ByID(account.ID)
+	if item.Quota == nil || item.Quota.Remaining != 95 {
+		t.Fatalf("quota not persisted synchronously: %+v", item.Quota)
+	}
+	stored, err := store.Get(ctx, account.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Quota == nil || stored.Quota.Remaining != 95 {
+		t.Fatalf("store quota not persisted synchronously: %+v", stored.Quota)
+	}
+}
+
+// A failed forced quota refresh must surface as a QuotaRefreshError so the
+// console can report "could not refresh" instead of silently leaving a stale
+// number.
+func TestManagerRefreshAccountForceQuotaSurfacesError(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlstore.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	account, err := store.Create(ctx, accounts.CreateAccount{
+		Name: "WB", Provider: "workbuddy", Region: "cn", Enabled: false,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	prober := &fakeProber{
+		health:   providers.AccountHealth{Ready: true, Hot: true, UID: "wb-uid"},
+		quotaErr: errors.New("quota endpoint down"),
+	}
+	registry := providers.NewRegistry()
+	registry.Register(providers.Adapter{ID: "workbuddy", Prober: prober})
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	manager.SetProviders(registry)
+	manager.Pool().Upsert(executor.Item{ID: account.ID, Provider: "workbuddy", Runtime: "in_process"})
+
+	err = manager.RefreshAccount(ctx, account.ID, true)
+	var qerr *accountruntime.QuotaRefreshError
+	if !errors.As(err, &qerr) {
+		t.Fatalf("err = %v, want QuotaRefreshError", err)
+	}
+	// Readiness is unaffected by a quota outage.
+	item, _ := manager.Pool().ByID(account.ID)
+	if item.Ready == nil || !*item.Ready {
+		t.Fatalf("quota failure flipped readiness: %+v", item)
+	}
+}
+
 func TestManagerRefreshPersistsQuotaWindows(t *testing.T) {
 	ctx := context.Background()
 	store, err := sqlstore.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
@@ -223,6 +309,46 @@ func TestManagerRefreshPersistsQuotaWindows(t *testing.T) {
 	}
 	if updated.Quota.Windows[0].ResetAt != "2026-08-26T16:00:00Z" || updated.Quota.Windows[1].Percentage != 67 {
 		t.Fatalf("store quota = %+v", updated.Quota)
+	}
+}
+
+// A Qoder-style QuotaInfo breakdown must survive the generic quota path so the
+// persisted snapshot keeps its add-on / resource-package detail lines.
+func TestManagerRefreshPersistsQoderBreakdown(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlstore.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	account, err := store.Create(ctx, accounts.CreateAccount{Name: "Q", Provider: "qoder", Region: "cn", Enabled: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	addrTrue := true
+	prober := &fakeProber{
+		health: providers.AccountHealth{Ready: true, Hot: true, UID: "q-uid"},
+		quota: &providers.QuotaInfo{
+			Used: 400, Total: 3400, Remaining: 1499, Percentage: 11.8, Unit: "credits",
+			FetchedAt: "2026-11-14T00:00:00Z", ProviderID: "qoder", Plan: "PLAN_TIER_FREE",
+			HasAddOn: true, AddOnUsed: 1501, AddOnTotal: 3000, AddOnRemaining: 1499, AddOnUnit: "credits", AddOnAvailable: &addrTrue,
+		},
+	}
+	registry := providers.NewRegistry()
+	registry.Register(providers.Adapter{ID: "qoder", Prober: prober})
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	manager.SetProviders(registry)
+	manager.Pool().Upsert(executor.Item{ID: account.ID, Provider: "qoder", Runtime: "in_process"})
+
+	if err := manager.RefreshAccount(ctx, account.ID, true); err != nil {
+		t.Fatalf("refresh err = %v", err)
+	}
+	stored, err := store.Get(ctx, account.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Quota == nil || !stored.Quota.HasAddOn || stored.Quota.AddOnRemaining != 1499 || stored.Quota.AddOnAvailable == nil || !*stored.Quota.AddOnAvailable {
+		t.Fatalf("qoder breakdown lost through generic path: %+v", stored.Quota)
 	}
 }
 
@@ -364,29 +490,58 @@ func TestManagerRefreshUsesQoderAdapterCatalog(t *testing.T) {
 	}
 }
 
-func TestQoderAdapterRegistrationDoesNotProbeEmptyURL(t *testing.T) {
+func TestQoderAdapterProberSkipsWorkerURLAccounts(t *testing.T) {
 	ctx := context.Background()
 	store, err := sqlstore.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	account, err := store.Create(ctx, accounts.CreateAccount{Name: "EmptyQoder", Enabled: false})
+	// Worker/legacy account: no PAT payload. Even with the Prober registered,
+	// refreshOne must take the worker /health branch (URL is non-empty) and not
+	// call Prober.Probe, which would otherwise hit the Bridge fallback.
+	account, err := store.Create(ctx, accounts.CreateAccount{Name: "LegacyQoder", Provider: "qoder", Enabled: false})
 	if err != nil {
 		t.Fatal(err)
 	}
+	var probeHits int
+	worker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/health":
+			probeHits++
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "ready": true, "hot": true, "uid": "legacy-uid"})
+		case "/admin/quota":
+			_ = json.NewEncoder(w).Encode(map[string]any{"quota": map[string]any{
+				"isQuotaExceeded": false, "fetchedAt": "now",
+				"userQuota": map[string]any{"total": 100.0, "used": 10.0, "remaining": 90.0, "unit": "credits"},
+			}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer worker.Close()
 	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
 	client := qoder.NewClient()
 	client.Bind(manager.AccountURL, manager.ProxyAPIKey)
 	registry := providers.NewRegistry()
 	registry.Register(client.Adapter())
 	manager.SetProviders(registry)
-	manager.Pool().Upsert(executor.Item{ID: account.ID, Provider: "qoder", Runtime: "child_process"})
-	if err := manager.RefreshAll(ctx, false); err != nil {
-		t.Fatalf("empty-URL qoder with Adapter must stay a no-op, got %v", err)
+	manager.Pool().Upsert(executor.Item{ID: account.ID, URL: worker.URL, Provider: "qoder", Runtime: "child_process"})
+	if err := manager.RefreshAccount(ctx, account.ID, true); err != nil {
+		t.Fatalf("worker-URL qoder refresh failed: %v", err)
 	}
 	item, _ := manager.Pool().ByID(account.ID)
-	if item.Ready != nil || item.LastError != "" || item.Models != nil {
-		t.Fatalf("pool should be untouched, got %+v", item)
+	if item.Quota == nil || item.Quota.Remaining != 90 {
+		t.Fatalf("worker quota not persisted through worker branch: %+v", item.Quota)
+	}
+	stored, err := store.Get(ctx, account.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.RemoteUID != "legacy-uid" {
+		t.Fatalf("worker uid not observed: %q", stored.RemoteUID)
+	}
+	if probeHits == 0 {
+		t.Fatal("worker branch was not exercised: /health never hit")
 	}
 }

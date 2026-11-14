@@ -14,13 +14,14 @@ import (
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/providers"
+	"github.com/caigee-cmd/cli2api/internal/providers/qoder/qauth"
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
-// Client wraps S08 worker transport behind providers.Adapter slots.
-// It still talks to a child-process worker URL; it is not an in-process
-// cloud client. Callers must keep using the child-process path for
-// probe/quota/login/chat until those slices are accepted.
+// Client wraps S08 worker transport behind providers.Adapter slots. PAT-backed
+// accounts run fully in-process through the qauth Bridge (chat, login, catalog,
+// quota, check-in); the child-process worker remains only as a legacy fallback
+// for accounts that still carry the old qoder-native-v1 CLI blob.
 type Client struct {
 	mu sync.RWMutex
 
@@ -153,9 +154,6 @@ func (c *Client) SetLoginWait(timeout, interval time.Duration) {
 }
 
 func (c *Client) Adapter() providers.Adapter {
-	// Probe/Quota stay off the registered bundle in S09: empty-URL Qoder
-	// items must not enter refreshInProcess just because an Adapter exists.
-	// Callers that need those methods use the Client directly.
 	return providers.Adapter{
 		ID:         "qoder",
 		Credential: patCodec{},
@@ -163,6 +161,14 @@ func (c *Client) Adapter() providers.Adapter {
 		Chat:       c,
 		Models:     c,
 		Checkin:    c,
+		// Prober covers PAT-backed in-process accounts (no worker URL): Probe
+		// bootstraps/renews the Bridge session and Quota pulls the OpenAPI
+		// usage, so the console's status and "refresh credits" match the
+		// browser/worker path instead of showing a value that never moves.
+		// For legacy worker accounts Probe/Quota transparently fall back to the
+		// per-account worker URL, and refreshOne keeps using the worker /health
+		// branch because those items carry a non-empty URL.
+		Prober: c,
 	}
 }
 
@@ -472,9 +478,23 @@ func FreeCatalogIDsFromInfos(models []providers.ModelInfo) []string {
 }
 
 func (c *Client) Probe(ctx context.Context, accountID string) (providers.AccountHealth, error) {
+	// PAT-backed accounts run fully in-process and have no worker URL: probe the
+	// Bridge session directly so the console reflects real readiness/identity.
+	// Legacy accounts (no PAT payload) fall through to the worker /health probe.
+	if b, err := c.bridge(ctx, accountID); err == nil {
+		if err := b.EnsureFreshSession(ctx); err != nil {
+			return providers.AccountHealth{}, err
+		}
+		return providers.AccountHealth{Ready: true, Hot: true, UID: b.UID()}, nil
+	} else if !errors.Is(err, ErrPATRequired) {
+		return providers.AccountHealth{}, err
+	}
 	workerURL, err := c.lookup(accountID)
 	if err != nil {
-		return providers.AccountHealth{}, err
+		// Legacy account with no PAT and no live worker (e.g. mid-start): report
+		// not-ready without an error so it shows like a starting worker instead
+		// of a hard failure.
+		return providers.AccountHealth{}, nil
 	}
 	c.mu.RLock()
 	httpClient := c.healthHTTP
@@ -493,19 +513,44 @@ func (c *Client) Probe(ctx context.Context, accountID string) (providers.Account
 	}, nil
 }
 
+// IsAuthError reports whether an error is a Qoder gateway authentication
+// rejection (HTTP 401/403). The runtime uses it to show "login required"
+// instead of a generic error when a PAT session can no longer authenticate.
+func IsAuthError(err error) bool {
+	var authErr *qauth.AuthError
+	return errors.As(err, &authErr)
+}
+
 func (c *Client) Quota(ctx context.Context, accountID string) (*providers.QuotaInfo, error) {
-	snapshot, err := c.QuotaSnapshot(ctx, accountID, false)
+	// The AccountProber surface refreshes on every call so background and
+	// manual probes both hit the gateway; a cached snapshot would leave the
+	// card showing a number that never moves.
+	snapshot, err := c.QuotaSnapshot(ctx, accountID, true)
 	if err != nil || snapshot == nil {
 		return nil, err
 	}
 	return &providers.QuotaInfo{
-		Used:       snapshot.Used,
-		Total:      snapshot.Total,
-		Remaining:  snapshot.Remaining,
-		Percentage: snapshot.Percentage,
-		Unit:       snapshot.Unit,
-		Exceeded:   snapshot.Exceeded,
-		FetchedAt:  snapshot.FetchedAt,
+		Used:                     snapshot.Used,
+		Total:                    snapshot.Total,
+		Remaining:                snapshot.Remaining,
+		Percentage:               snapshot.Percentage,
+		Unit:                     snapshot.Unit,
+		Exceeded:                 snapshot.Exceeded,
+		FetchedAt:                snapshot.FetchedAt,
+		ProviderID:               "qoder",
+		Plan:                     snapshot.Plan,
+		HasAddOn:                 snapshot.HasAddOn,
+		AddOnUsed:                snapshot.AddOnUsed,
+		AddOnTotal:               snapshot.AddOnTotal,
+		AddOnRemaining:           snapshot.AddOnRemaining,
+		AddOnUnit:                snapshot.AddOnUnit,
+		AddOnAvailable:           snapshot.AddOnAvailable,
+		HasResourcePackage:       snapshot.HasResourcePackage,
+		ResourcePackageUsed:      snapshot.ResourcePackageUsed,
+		ResourcePackageTotal:     snapshot.ResourcePackageTotal,
+		ResourcePackageRemaining: snapshot.ResourcePackageRemaining,
+		ResourcePackageUnit:      snapshot.ResourcePackageUnit,
+		ResourcePackageAvailable: snapshot.ResourcePackageAvailable,
 	}, nil
 }
 
@@ -514,16 +559,20 @@ func (c *Client) QuotaSnapshot(ctx context.Context, accountID string, force bool
 	// /api/v2/quota/usage endpoint (CN uses the COSY securityOauthToken
 	// directly; global uses the separately-issued OpenAPI bearer).
 	if b, err := c.bridge(ctx, accountID); err == nil {
-		// force bypasses the cached /user/status TTL so the operator's
-		// "refresh quota" action always hits the gateway.
+		// force re-pulls /user/status + quota/usage so the operator's "refresh
+		// credits" action always hits the gateway. A failure surfaces as an
+		// error (the console then shows it) instead of silently returning a
+		// stale cached number stamped "now".
 		if force {
-			_ = b.EnsureAccountStatus(ctx)
+			if _, rerr := b.RefreshAccountStatus(ctx); rerr != nil {
+				return nil, rerr
+			}
+		} else if b.AccountStatus() == nil {
+			// Cold bridge with no cached snapshot: the first read must fetch.
+			if _, rerr := b.RefreshAccountStatus(ctx); rerr != nil {
+				return nil, rerr
+			}
 		}
-		if snap := b.QuotaSnapshot(); snap != nil {
-			return snap, nil
-		}
-		// No cached snapshot yet (cold bridge): force a fresh fetch.
-		b.EnsureAccountStatus(ctx)
 		if snap := b.QuotaSnapshot(); snap != nil {
 			return snap, nil
 		}

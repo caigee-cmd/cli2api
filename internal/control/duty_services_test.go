@@ -540,6 +540,54 @@ func TestAccountsAdminLoginPATDoesNotSwallowRealErrors(t *testing.T) {
 	}
 }
 
+// A successful PAT login must record the credential type so the card shows
+// "pat" (which also enables export and the type filter), not the create-time
+// default "none".
+func TestAccountsLoginPATRecordsAuthType(t *testing.T) {
+	svc, runtime, store, _ := newTestServices()
+	store.accounts["acc-1"] = accounts.Account{ID: "acc-1", Provider: "qoder"}
+	svc.Accounts.Providers = providers.NewRegistry()
+	svc.Accounts.Providers.Register(providers.Adapter{ID: "qoder", Credential: stubImporter{
+		format: "qoder-pat-v1", payload: []byte("a-valid-pat-value-123456"), ready: true,
+	}})
+	result, err := svc.Accounts.Admin(context.Background(), AccountAdminAction{
+		AccountID: "acc-1", Action: "login/pat", Method: "POST",
+		Body: []byte(`{"pat":"a-valid-pat-value-123456"}`),
+	})
+	if err != nil {
+		t.Fatalf("login/pat err = %v", err)
+	}
+	if result.Kind != "login_complete" {
+		t.Fatalf("kind = %q", result.Kind)
+	}
+	if got := store.accounts["acc-1"].AuthType; got != "pat" {
+		t.Fatalf("auth_type = %q, want pat", got)
+	}
+	if store.payloadFormats["acc-1"] != "qoder-pat-v1" {
+		t.Fatalf("payload format = %q", store.payloadFormats["acc-1"])
+	}
+	if len(runtime.started) != 1 || runtime.started[0] != "acc-1" {
+		t.Fatalf("account not started after PAT login: %+v", runtime.started)
+	}
+}
+
+// Exporting a PAT-backed Qoder account must return the portable credential
+// payload, not fail trying to read the (absent) legacy CLI blob.
+func TestAccountsExportQoderPATUsesPayload(t *testing.T) {
+	svc, _, store, _ := newTestServices()
+	store.accounts["acc-1"] = accounts.Account{ID: "acc-1", Provider: "qoder", AuthType: "pat"}
+	store.payloads["acc-1"] = []byte("a-valid-pat-value-123456")
+	store.payloadFormats["acc-1"] = "qoder-pat-v1"
+
+	exported, err := svc.Accounts.Export(context.Background(), "acc-1")
+	if err != nil {
+		t.Fatalf("export err = %v", err)
+	}
+	if exported.Format != "qoder-pat-v1" || string(exported.Credential) != "a-valid-pat-value-123456" {
+		t.Fatalf("export = %+v", exported)
+	}
+}
+
 // When the provider has no PAT importer, login/pat must fall back to the legacy
 // worker path (old qoder-native blob accounts).
 func TestAccountsAdminLoginPATFallsBackOnlyOnProviderUnsupported(t *testing.T) {
