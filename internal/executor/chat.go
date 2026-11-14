@@ -303,6 +303,42 @@ func NewChatExecutor(pool *Pool, workerKey string) ChatExecutor {
 	}
 }
 
+// capacityError reports the pick result for a route whose accounts all sit
+// at their concurrency cap. Cooldown and quota results are not this error:
+// those stay pinned so failover does not change for a provider that is
+// waiting rather than full.
+func capacityError(err error) bool {
+	var execution *ExecutionError
+	if !errors.As(err, &execution) {
+		return false
+	}
+	return execution.Classified.Code == "rate_limit" && execution.Classified.Message == "all accounts at capacity"
+}
+
+// providerHasCapacity reports whether any provider other than the pinned one
+// can take this model right now. The caller's own provider filter is a
+// constraint, so saturation inside it is not a reason to leave.
+func (e ChatExecutor) providerHasCapacity(pinnedProvider, pinnedRegion, publicModel string, allowed []string, eligible func(Item) bool) bool {
+	if e.Pool == nil || pinnedProvider == "" {
+		return false
+	}
+	query := e.routeQuery("", "", "", publicModel, allowed, nil, func(item Item) bool {
+		if itemProvider(item) == pinnedProvider && (pinnedRegion == "" || accounts.NormalizeRegion(item.Region) == pinnedRegion) {
+			return false
+		}
+		// A cooling account is not a free slot. HasCapacity also rejects one,
+		// but only after routeMatches, and a model-scoped cooldown would
+		// otherwise look like capacity and make a full provider leave for an
+		// account the next pick cannot dispatch.
+		now := time.Now()
+		if itemDown(item, now) || itemModelDown(item, RouteQuery{PublicModel: publicModel}, now) {
+			return false
+		}
+		return eligible == nil || eligible(item)
+	})
+	return e.Pool.HasCapacity(query)
+}
+
 func (e ChatExecutor) routeQuery(prefer, providerFilter, regionFilter, publicModel string, allowed []string, excluded map[string]struct{}, eligible func(Item) bool) RouteQuery {
 	return RouteQuery{
 		PublicModel:      publicModel,
@@ -897,7 +933,26 @@ func (e ChatExecutor) newRouteLoop(ctx context.Context, prefer, providerFilter s
 func (l *routeLoop) pickNext(e ChatExecutor, publicModel string) (Item, int, error) {
 	item, err := e.pick(l.requestID, l.prefer, l.providerFilter, l.regionFilter, publicModel, l.allowed, l.excluded, l.eligible)
 	if err != nil {
-		return Item{}, l.index, err
+		// Sticky routing pins the bound provider and region before this pick.
+		// A capacity check made before the pick races the slot: another request
+		// can fill the last one in between, and the pin then turns a full
+		// provider into rate_limit while another provider still has room.
+		// Drop the pin only after the pick itself reports saturation, and only
+		// when this request did not ask for that provider.
+		if l.routing.Source == routingSticky && l.index == 0 && l.pinned == "" && capacityError(err) && e.providerHasCapacity(l.providerFilter, l.regionFilter, publicModel, l.allowed, l.eligible) {
+			if e.SessionAffinity != nil {
+				e.SessionAffinity.RecordEscape("concurrency_saturated")
+			}
+			l.routing.Source = routingPool
+			l.prefer = ""
+			l.providerFilter = ""
+			l.regionFilter = ""
+			l.attempts = e.attemptsFor(l.providerFilter, l.regionFilter, publicModel, l.allowed, l.eligible)
+			item, err = e.pick(l.requestID, l.prefer, l.providerFilter, l.regionFilter, publicModel, l.allowed, l.excluded, l.eligible)
+		}
+		if err != nil {
+			return Item{}, l.index, err
+		}
 	}
 	attemptIndex := l.index
 	e.observeRouting(&l.routing, item.ID)
