@@ -145,6 +145,14 @@ func (s *fakeStore) SaveCredentialPayload(_ context.Context, accountID, format s
 	s.payloadFormats[accountID] = format
 	return nil
 }
+func (s *fakeStore) SetCredentialAuthType(_ context.Context, accountID, authType string) error {
+	s.log.add("store.SetCredentialAuthType")
+	if account, ok := s.accounts[accountID]; ok {
+		account.AuthType = authType
+		s.accounts[accountID] = account
+	}
+	return nil
+}
 func (s *fakeStore) LoadCredentialPayload(_ context.Context, accountID string) (string, []byte, error) {
 	s.log.add("store.LoadCredentialPayload")
 	return s.payloadFormats[accountID], s.payloads[accountID], nil

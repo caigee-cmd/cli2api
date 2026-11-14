@@ -12,16 +12,19 @@ import (
 	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/providers"
+	"github.com/caigee-cmd/cli2api/internal/providers/qoder/qauth"
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
-func TestAdapterDoesNotRegisterProber(t *testing.T) {
+func TestAdapterRegistersProberForInProcessQuota(t *testing.T) {
 	adapter := NewClient().Adapter()
 	if adapter.ID != "qoder" {
 		t.Fatalf("id = %q", adapter.ID)
 	}
-	if adapter.Prober != nil {
-		t.Fatal("S09 Adapter must omit Prober so empty-URL Qoder stays off refreshInProcess")
+	// PAT-backed accounts have no worker URL; the registered Prober is what lets
+	// the runtime refresh their readiness and quota (status/credits that move).
+	if adapter.Prober == nil {
+		t.Fatal("Qoder Adapter must register a Prober so in-process PAT accounts refresh status/quota")
 	}
 	if adapter.Models == nil || adapter.Login == nil || adapter.Chat == nil {
 		t.Fatal("expected Models, Login, and Chat wrappers")
@@ -120,6 +123,55 @@ func TestAdapterQuotaSnapshotPreservesAddOn(t *testing.T) {
 	}
 	if got.Exceeded {
 		t.Fatal("add-on remaining must keep Exceeded false")
+	}
+}
+
+// The PAT adapter Prober must report the bridge session as ready with the
+// gateway uid, so the runtime can mark the in-process account "ready" and record
+// remote_uid — matching what the worker /health probe yields for browser login.
+func TestAdapterProbeReportsInProcessSession(t *testing.T) {
+	client := NewClient()
+	client.SetPATStore(patFixtureStore{format: PATCredentialFormat, payload: []byte("a-valid-pat-value-123456")}, func(context.Context, string) (string, error) {
+		return "cn", nil
+	})
+	// Inject an already-bootstrapped bridge so no network call is needed.
+	b := NewBridge("a-valid-pat-value-123456", qauth.CN, "mid", "mtok", "mac")
+	identity := qauth.AuthIdentity{Aid: "qoder-aid-9", UID: "qoder-aid-9", SecurityOauthToken: "sot"}
+	b.identity = &identity
+	b.sess = qauth.NewSession(identity, "mid", "mtok", "mac")
+	b.securityOath = "sot"
+	b.bootstrapped.Store(true)
+	b.expireTimeMs = time.Now().Add(24 * time.Hour).UnixMilli()
+	b.refreshedMs = time.Now().UnixMilli()
+	client.bridgesMu.Lock()
+	client.bridges = map[string]*cachedBridge{"acc-1": {bridge: b, patSig: patSignature("a-valid-pat-value-123456", "cn")}}
+	client.bridgesMu.Unlock()
+
+	health, err := client.Probe(context.Background(), "acc-1")
+	if err != nil {
+		t.Fatalf("Probe err = %v", err)
+	}
+	if !health.Ready || !health.Hot || health.UID != "qoder-aid-9" {
+		t.Fatalf("health = %+v", health)
+	}
+}
+
+// A forced quota refresh whose OpenAPI call fails must return an error (the
+// console reports it) rather than a stale cached snapshot stamped fresh.
+func TestAdapterQuotaForceSurfacesRefreshError(t *testing.T) {
+	client := NewClient()
+	client.SetPATStore(patFixtureStore{format: PATCredentialFormat, payload: []byte("a-valid-pat-value-123456")}, func(context.Context, string) (string, error) {
+		return "cn", nil
+	})
+	b := NewBridge("a-valid-pat-value-123456", qauth.CN, "mid", "mtok", "mac")
+	// No session bootstrapped and no reachable gateway: EnsureFreshSession fails.
+	b.bootstrapped.Store(false)
+	client.bridgesMu.Lock()
+	client.bridges = map[string]*cachedBridge{"acc-1": {bridge: b, patSig: patSignature("a-valid-pat-value-123456", "cn")}}
+	client.bridgesMu.Unlock()
+
+	if _, err := client.QuotaSnapshot(context.Background(), "acc-1", true); err == nil {
+		t.Fatal("forced quota refresh with an unreachable gateway must return an error")
 	}
 }
 
