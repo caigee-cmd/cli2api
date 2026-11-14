@@ -1,38 +1,39 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="420" viewBox="0 0 1200 420" role="img" aria-labelledby="hero-title hero-desc" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif">
-  <title id="hero-title">CLI2API — 把你自己的登录态，变成一个本机 OpenAI 兼容 API</title>
-  <desc id="hero-desc">深色卡片。左侧是项目名和一句话价值。右侧三条登录态汇成一个白色的 /v1。</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="640" viewBox="0 0 1200 640" role="img" aria-labelledby="t d" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif">
+  <title id="t">CLI2API — 把你自己的登录态，变成一个本机 OpenAI 兼容 API</title>
+  <desc id="d">一张请求：客户端只看到 localhost:3010/v1，网关把它送到 Qoder、WorkBuddy、Trae 其中一台你自己的账号上。</desc>
+  <rect width="1200" height="640" rx="28" fill="#060607"/>
 
-  <rect width="1200" height="420" rx="26" fill="#060607"/>
+  <text x="64" y="92" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="20" letter-spacing="3" fill="#22D3EE">YOUR ACCOUNTS → ONE LOCAL API</text>
+  <text x="64" y="176" font-size="84" font-weight="700" letter-spacing="-2.5" fill="#FCFCFC">CLI2API</text>
+  <text x="64" y="232" font-size="28" fill="#A1A1AA">你的登录态，变成一个本机 /v1。</text>
 
-  <text x="56" y="96" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="20" letter-spacing="2.4" fill="#22D3EE">YOUR ACCOUNTS → ONE ENDPOINT</text>
-  <text x="56" y="188" font-size="72" font-weight="700" letter-spacing="-2" fill="#FCFCFC">CLI2API</text>
-  <text x="56" y="248" font-size="28" fill="#A1A1AA">你的登录态。</text>
-  <text x="56" y="290" font-size="28" fill="#A1A1AA">一个本机 /v1。</text>
-
-  <g font-size="18" fill="#FCFCFC">
-    <rect x="56" y="332" width="112" height="40" rx="20" fill="#18181B" stroke="#3F3F46"/>
-    <text x="112" y="357" text-anchor="middle">Docker</text>
-    <rect x="180" y="332" width="150" height="40" rx="20" fill="#18181B" stroke="#3F3F46"/>
-    <text x="255" y="357" text-anchor="middle">OpenAI 兼容</text>
-    <rect x="342" y="332" width="84" height="40" rx="20" fill="#18181B" stroke="#3F3F46"/>
-    <text x="384" y="357" text-anchor="middle">MIT</text>
+  <g font-family="ui-monospace, Menlo, Consolas, monospace" font-size="20">
+    <rect x="64" y="292" width="520" height="248" rx="18" fill="#18181B"/>
+    <text x="92" y="336" fill="#71717A">POST /v1/chat/completions</text>
+    <text x="92" y="384" fill="#A1A1AA">model</text>
+    <text x="250" y="384" fill="#FCFCFC">qwen3-coder</text>
+    <text x="92" y="424" fill="#A1A1AA">stream</text>
+    <text x="250" y="424" fill="#FCFCFC">true</text>
+    <text x="92" y="464" fill="#A1A1AA">tools</text>
+    <text x="250" y="464" fill="#FCFCFC">function</text>
+    <text x="92" y="504" fill="#22D3EE">host</text>
+    <text x="250" y="504" fill="#22D3EE">127.0.0.1:3010</text>
   </g>
 
-  <g font-size="22" font-weight="600" fill="#FCFCFC">
-    <rect x="620" y="64" width="196" height="56" rx="14" fill="#18181B" stroke="#3F3F46"/>
-    <text x="718" y="99" text-anchor="middle">Qoder</text>
-    <rect x="620" y="182" width="196" height="56" rx="14" fill="#18181B" stroke="#3F3F46"/>
-    <text x="718" y="217" text-anchor="middle">WorkBuddy</text>
-    <rect x="620" y="300" width="196" height="56" rx="14" fill="#18181B" stroke="#3F3F46"/>
-    <text x="718" y="335" text-anchor="middle">Trae</text>
+  <g font-size="22" font-weight="600">
+    <rect x="680" y="292" width="456" height="64" rx="16" fill="#18181B"/>
+    <circle cx="716" cy="324" r="6" fill="#22D3EE"/>
+    <text x="744" y="331" fill="#FCFCFC">Qoder</text>
+    <text x="1096" y="331" text-anchor="end" font-size="18" font-weight="500" fill="#71717A">国际 / 国内</text>
+
+    <rect x="680" y="376" width="456" height="64" rx="16" fill="#18181B"/>
+    <circle cx="716" cy="408" r="6" fill="#71717A"/>
+    <text x="744" y="415" fill="#FCFCFC">WorkBuddy</text>
+    <text x="1096" y="415" text-anchor="end" font-size="18" font-weight="500" fill="#71717A">国际 / 国内</text>
+
+    <rect x="680" y="460" width="456" height="64" rx="16" fill="#18181B"/>
+    <circle cx="716" cy="492" r="6" fill="#71717A"/>
+    <text x="744" y="499" fill="#FCFCFC">Trae</text>
+    <text x="1096" y="499" text-anchor="end" font-size="18" font-weight="500" fill="#71717A">国内 Work</text>
   </g>
-
-  <path d="M816 92 C 940 92, 940 210, 1004 210" fill="none" stroke="#3F3F46" stroke-width="2"/>
-  <path d="M816 210 L 1004 210" fill="none" stroke="#3F3F46" stroke-width="2"/>
-  <path d="M816 328 C 940 328, 940 210, 1004 210" fill="none" stroke="#3F3F46" stroke-width="2"/>
-  <circle cx="940" cy="210" r="5" fill="#22D3EE"/>
-
-  <rect x="1004" y="166" width="140" height="88" rx="16" fill="#FCFCFC"/>
-  <text x="1074" y="206" text-anchor="middle" font-size="28" font-weight="700" fill="#060607">/v1</text>
-  <text x="1074" y="232" text-anchor="middle" font-size="18" fill="#52525B">本机网关</text>
 </svg>
