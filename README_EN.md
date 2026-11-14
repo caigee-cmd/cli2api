@@ -9,7 +9,7 @@
 
 <sub>[中文](README.md) · [Issues](https://github.com/caigee-cmd/cli2api/issues) · [Telegram](https://t.me/+jCjL8ou_g7Q2MzI1)</sub>
 
-<img src="./docs/assets/readme/hero-en.svg" width="100%" alt="CLI2API: Qoder, WorkBuddy, and Trae logins converge on one local /v1">
+<img src="./docs/assets/readme/hero-en.svg" width="100%" alt="CLI2API: the client only sees 127.0.0.1:3010, and a Qoder, WorkBuddy, or Trae login answers">
 
 </div>
 
@@ -27,7 +27,9 @@ CLI2API is self-hosted and uses accounts you already have. If you would rather n
 
 CLI2API manages your own accounts on a local gateway. CaiAI manages hosted keys, routing, and billing.
 
-## Running in three minutes
+<p>
+<img src="./docs/assets/readme/section-start-en.svg" width="100%" alt="01 Running in three minutes">
+</p>
 
 You need Docker and an upstream account you control. Use Docker Desktop on macOS / Windows; Windows must use Linux containers.
 
@@ -50,13 +52,15 @@ API Key:  <the client key you just created>
 
 Model IDs come from **Access** or `/v1/models`. Routing is automatic and prefers the same account for later turns. Environment variables, account pinning, and managed updates are in the [deployment guide](deploy/README.md).
 
-## What it does
+<p>
+<img src="./docs/assets/readme/section-what-en.svg" width="100%" alt="02 One request, end to end">
+</p>
+
+<p>
+<img src="./docs/assets/readme/request-en.svg" width="100%" alt="A client sends the request to local port 3010, the gateway picks an account you own, then calls the upstream">
+</p>
 
 Connect **Qoder (Global / CN)**, **WorkBuddy (Global / CN)**, and **Trae CN Work**. **Devin**, **Command Code**, and **Huawei Cloud CodeArts (码道)** are experimental and not a production promise.
-
-<p align="center">
-  <img src="./docs/assets/readme/architecture-en.svg" width="100%" alt="CLI2API architecture: OpenAI clients are routed by the Go control plane to one isolated runtime per account, then to the provider upstream">
-</p>
 
 The Go gateway handles authentication, routing, and request logging. Each Qoder account has its own Node process and HOME. Other providers use in-process adapters, so no full CLI starts per request.
 
@@ -81,7 +85,9 @@ Choose **Earliest expiry first (FEFO)** under **System → Account routing strat
 
 Accounts are ranked only inside one provider, by the nearest credit package that can still be spent. Missing dates are never guessed, and those accounts join only after every dated account is unavailable. Exhausted, cooling, and concurrency-saturated accounts still drop out first. Only WorkBuddy personal accounts currently expose a per-package expiry.
 
-## Limitations
+<p>
+<img src="./docs/assets/readme/section-limits-en.svg" width="100%" alt="03 What it will not do">
+</p>
 
 - Bring your own accounts. CLI2API does not supply accounts, quotas, or an official API.
 - Compatibility is not full parity. Messages / Responses keep no server-side conversation and run no upstream-specific tools.
