@@ -38,6 +38,39 @@ func (m *Manager) fetchProviderQuota(ctx context.Context, accountID string, prob
 		// makes the account card render 0/0 and hides a later real reading.
 		return
 	}
+	m.persistQuota(ctx, accountID, quotaSnapshotFromInfo(info))
+	m.clearRecoveredDevinQuota(ctx, accountID, info)
+}
+
+// fetchProviderQuotaErr is fetchProviderQuota but surfaces a quota-probe
+// failure (and an empty/unknown snapshot) so a manual "refresh credits" can
+// report that the number could not be refreshed. A quota outage still never
+// flips readiness in persistQuota.
+func (m *Manager) fetchProviderQuotaErr(ctx context.Context, accountID string, prober providers.AccountProber) error {
+	if prober == nil {
+		return nil
+	}
+	release, ok := m.acquireQuotaFetch(ctx, accountID)
+	if !ok {
+		return &QuotaRefreshError{Err: ctx.Err()}
+	}
+	defer release()
+	info, err := prober.Quota(ctx, accountID)
+	if err != nil {
+		return &QuotaRefreshError{Err: fmt.Errorf("fetch quota account=%s: %w", accountID, err)}
+	}
+	if info == nil || !quotaInfoHasWindows(info) {
+		return &QuotaRefreshError{Err: fmt.Errorf("fetch quota account=%s: empty response", accountID)}
+	}
+	m.persistQuota(ctx, accountID, quotaSnapshotFromInfo(info))
+	m.clearRecoveredDevinQuota(ctx, accountID, info)
+	return nil
+}
+
+// quotaSnapshotFromInfo maps a provider QuotaInfo onto the persisted snapshot,
+// keeping provider-specific fields (WorkBuddy expiry/packages, Codex plan) from
+// leaking onto other providers.
+func quotaSnapshotFromInfo(info *providers.QuotaInfo) *QuotaSnapshot {
 	unit := info.Unit
 	if unit == "" {
 		unit = "credits"
@@ -52,6 +85,23 @@ func (m *Manager) fetchProviderQuota(ctx context.Context, accountID string, prob
 		FetchedAt:  info.FetchedAt,
 		Windows:    quotaWindowsFromInfo(info.Windows),
 	}
+	// Qoder reports a plan/add-on/organization-package breakdown that the
+	// browser/worker path persists; carry it through so a token account's card
+	// shows the same detail lines instead of collapsing to a single headline.
+	if info.ProviderID == "qoder" {
+		quota.HasAddOn = info.HasAddOn
+		quota.AddOnUsed = info.AddOnUsed
+		quota.AddOnTotal = info.AddOnTotal
+		quota.AddOnRemaining = info.AddOnRemaining
+		quota.AddOnUnit = info.AddOnUnit
+		quota.AddOnAvailable = info.AddOnAvailable
+		quota.HasResourcePackage = info.HasResourcePackage
+		quota.ResourcePackageUsed = info.ResourcePackageUsed
+		quota.ResourcePackageTotal = info.ResourcePackageTotal
+		quota.ResourcePackageRemaining = info.ResourcePackageRemaining
+		quota.ResourcePackageUnit = info.ResourcePackageUnit
+		quota.ResourcePackageAvailable = info.ResourcePackageAvailable
+	}
 	// Package-expiry detail is currently only produced by WorkBuddy's
 	// get-user-resource packs; keep other providers from leaking a stale or
 	// fabricated expiry into the snapshot.
@@ -63,8 +113,7 @@ func (m *Manager) fetchProviderQuota(ctx context.Context, accountID string, prob
 	if info.ProviderID == "codex" {
 		quota.Plan = strings.TrimSpace(info.Plan)
 	}
-	m.persistQuota(ctx, accountID, quota)
-	m.clearRecoveredDevinQuota(ctx, accountID, info)
+	return quota
 }
 
 // clearRecoveredDevinQuota drops an account-wide quota cooldown once

@@ -218,11 +218,20 @@ func (a *Accounts) Export(ctx context.Context, id string) (AccountExport, error)
 	if err != nil {
 		return AccountExport{}, err
 	}
-	if account.Provider != "" && account.Provider != "qoder" {
+	// PAT-backed Qoder accounts (qoder-pat-v1) store a portable credential
+	// payload, not the legacy CLI blob; export them by payload so the bundle can
+	// be re-imported. Other providers and legacy Qoder (qoder-native-v1) keep
+	// their existing branches.
+	if account.Provider != "qoder" {
 		format, payload, err := a.LoadCredentialPayload(ctx, id)
 		if err != nil {
 			return AccountExport{}, err
 		}
+		return AccountExport{
+			Format: format, Name: account.Name, Provider: account.Provider, Region: account.ProviderRegion, Credential: payload,
+		}, nil
+	}
+	if format, payload, err := a.LoadCredentialPayload(ctx, id); err == nil && format == "qoder-pat-v1" && len(payload) > 0 {
 		return AccountExport{
 			Format: format, Name: account.Name, Provider: account.Provider, Region: account.ProviderRegion, Credential: payload,
 		}, nil
