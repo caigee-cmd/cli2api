@@ -19,6 +19,19 @@ func (legacyPATStore) SaveCredentialPayload(context.Context, string, string, []b
 	return nil
 }
 
+// patFixtureStore returns a fixed credential payload for the adapter probe tests.
+type patFixtureStore struct {
+	format  string
+	payload []byte
+}
+
+func (s patFixtureStore) LoadCredentialPayload(context.Context, string) (string, []byte, error) {
+	return s.format, s.payload, nil
+}
+func (patFixtureStore) SaveCredentialPayload(context.Context, string, string, []byte) error {
+	return nil
+}
+
 // A legacy account (CLI blob only, no credential-payload row) must surface
 // ErrPATRequired so Models/Quota/Checkin fall back to the Node worker.
 func TestBridgeLegacyAccountWithoutPayloadReturnsErrPATRequired(t *testing.T) {

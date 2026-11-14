@@ -50,7 +50,7 @@ func (m *Manager) refreshOne(ctx context.Context, item Item, forceQuota bool) er
 		return nil
 	}
 	if item.Runtime == string(providers.RuntimeInProcess) || strings.TrimSpace(item.URL) == "" {
-		return m.refreshInProcess(ctx, item)
+		return m.refreshInProcess(ctx, item, forceQuota)
 	}
 	client := qoder.WorkerClient{HTTP: m.httpClient}
 	health, statusCode, err := client.Health(ctx, item.URL)
@@ -95,7 +95,7 @@ func (m *Manager) refreshOne(ctx context.Context, item Item, forceQuota bool) er
 	return nil
 }
 
-func (m *Manager) refreshInProcess(ctx context.Context, item Item) error {
+func (m *Manager) refreshInProcess(ctx context.Context, item Item, forceQuota bool) error {
 	adapter, ok := m.providers.Get(item.Provider)
 	if !ok || adapter.Prober == nil {
 		// No prober registered: leave pool state alone and never hit ""+/health.
@@ -108,7 +108,14 @@ func (m *Manager) refreshInProcess(ctx context.Context, item Item) error {
 	health, err := adapter.Prober.Probe(ctx, item.ID)
 	if err != nil {
 		m.pool.MergeHealth(item.ID, false, false, 0, item.Restarts, err.Error())
-		_ = m.store.Observe(ctx, item.ID, "", "error", err.Error(), KindUnavailable)
+		// A Qoder gateway 401/403 means the PAT is no longer valid, not a
+		// transient outage: mark the account login_required so the card shows
+		// "re-login" instead of a generic error.
+		status, kind := "error", KindUnavailable
+		if qoder.IsAuthError(err) {
+			status, kind = "login_required", KindAuth
+		}
+		_ = m.store.Observe(ctx, item.ID, "", status, err.Error(), kind)
 		return fmt.Errorf("probe account %s: %w", item.ID, err)
 	}
 	m.pool.MergeHealth(item.ID, health.Ready, health.Hot, health.InFlight, item.Restarts, health.LastError)
@@ -134,13 +141,27 @@ func (m *Manager) refreshInProcess(ctx context.Context, item Item) error {
 	if err := m.store.Observe(ctx, item.ID, health.UID, status, health.LastError, kind); err != nil {
 		return err
 	}
-	if health.Ready || health.Hot {
+	if !health.Ready && !health.Hot {
+		return nil
+	}
+	m.fetchAccountModels(ctx, item)
+	// Quota is fetched after readiness so an upstream quota outage never flips
+	// Ready. A manual "refresh credits" (forceQuota) must hit upstream and
+	// complete before returning, so the console row it replaces carries the
+	// fresh number; the background/manual-list path stays async to keep latency
+	// off the list endpoint.
+	if forceQuota {
+		quotaCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		defer cancel()
+		if qerr := m.fetchProviderQuotaErr(quotaCtx, item.ID, adapter.Prober); qerr != nil {
+			return qerr
+		}
+	} else {
 		go func(accountID string, prober providers.AccountProber) {
 			quotaCtx, cancel := context.WithTimeout(m.runCtx, 5*time.Second)
 			defer cancel()
 			m.fetchProviderQuota(quotaCtx, accountID, prober)
 		}(item.ID, adapter.Prober)
-		m.fetchAccountModels(ctx, item)
 	}
 	return nil
 }

@@ -2,6 +2,7 @@ package qoder
 
 import (
 	"testing"
+	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/providers/qoder/qauth"
 )
@@ -86,5 +87,48 @@ func TestBridgeQuotaSnapshotNilAddOnKeepsDetailFields(t *testing.T) {
 	}
 	if snap.HasAddOn || snap.HasResourcePackage {
 		t.Fatalf("absent buckets must not be fabricated: %+v", snap)
+	}
+	// No successful quota fetch has happened, so FetchedAt must be empty rather
+	// than a fabricated "now" that hides a stale balance.
+	if snap.FetchedAt != "" {
+		t.Fatalf("FetchedAt = %q, want empty before any upstream fetch", snap.FetchedAt)
+	}
+}
+
+// A snapshot served from cache must keep the real last-fetch time rather than
+// restamping every read as "now", which made a stale balance look fresh.
+func TestBridgeQuotaSnapshotFetchedAtIsRealTime(t *testing.T) {
+	b := NewBridge("pat", qauth.CN, "mid", "mtok", "mac")
+	b.account = &qauth.AccountStatus{UserQuota: quotaBlock(100, 10, 90)}
+	// Simulate a successful fetch that happened a while ago.
+	past := time.Now().Add(-45 * time.Minute).UTC().Truncate(time.Second)
+	b.quotaFetchedAt = past
+	snap := b.QuotaSnapshot()
+	if snap == nil {
+		t.Fatal("QuotaSnapshot = nil")
+	}
+	if snap.FetchedAt != past.Format(time.RFC3339) {
+		t.Fatalf("FetchedAt = %q, want the real fetch time %q", snap.FetchedAt, past.Format(time.RFC3339))
+	}
+}
+
+// An unavailable org package must not inflate the headline (worker-path parity).
+func TestBridgeQuotaSnapshotSkipsUnavailableResourcePackage(t *testing.T) {
+	b := NewBridge("pat", qauth.CN, "mid", "mtok", "mac")
+	b.account = &qauth.AccountStatus{
+		UserQuota: quotaBlock(300, 100, 200),
+		OrgResourcePackage: &qauth.OrgResourcePackage{
+			Cap: 500, Used: 0, Remaining: 500, Available: false, Unit: "credits",
+		},
+	}
+	snap := b.QuotaSnapshot()
+	if snap == nil {
+		t.Fatal("QuotaSnapshot = nil")
+	}
+	if snap.Remaining != 200 || snap.Total != 300 {
+		t.Fatalf("headline = %v/%v, want 200/300 (unavailable package excluded)", snap.Remaining, snap.Total)
+	}
+	if !snap.HasResourcePackage || snap.ResourcePackageAvailable == nil || *snap.ResourcePackageAvailable {
+		t.Fatalf("resource package detail must report unavailable: %+v", snap)
 	}
 }

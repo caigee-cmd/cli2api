@@ -78,6 +78,11 @@ type Bridge struct {
 	accountMu sync.Mutex
 	account   *qauth.AccountStatus
 	accountTs int64 // unix seconds
+	// quotaFetchedAt is the wall-clock instant the cached quota buckets were
+	// last pulled from upstream. It only advances on a successful OpenAPI
+	// fetch, so a snapshot served from cache after a failed refresh keeps its
+	// true (older) timestamp instead of masquerading as freshly read.
+	quotaFetchedAt time.Time
 
 	// openAPIMu guards the OpenAPI bearer cache (global region only).
 	openAPIMu      sync.Mutex
@@ -232,9 +237,27 @@ func (b *Bridge) fetchAccountStatus(ctx context.Context, userID string) (*qauth.
 // Failures preserve the last known snapshot so a temporary account-service
 // outage never breaks the caller's accounting loop.
 func (b *Bridge) EnsureAccountStatus(ctx context.Context) *qauth.AccountStatus {
+	st, err := b.refreshAccountStatus(ctx)
+	if err != nil {
+		log.Printf("[qoder-bridge] WARN account status refresh failed: %v", err)
+	}
+	return st
+}
+
+// RefreshAccountStatus is EnsureAccountStatus but returns the failure so the
+// runtime probe can tell "quota genuinely refreshed" apart from "served a
+// cached snapshot after an upstream error". On error it still returns the last
+// known snapshot (identity may have advanced), matching auth.NilIsBestEffort.
+func (b *Bridge) RefreshAccountStatus(ctx context.Context) (*qauth.AccountStatus, error) {
+	return b.refreshAccountStatus(ctx)
+}
+
+// refreshAccountStatus pulls /user/status (identity, 1h TTL) and the
+// authoritative OpenAPI quota/usage cycle. It advances quotaFetchedAt only when
+// the quota fetch succeeds, so a cached snapshot keeps its true timestamp.
+func (b *Bridge) refreshAccountStatus(ctx context.Context) (*qauth.AccountStatus, error) {
 	if err := b.EnsureFreshSession(ctx); err != nil {
-		log.Printf("[qoder-bridge] WARN account status unavailable (session: %v)", err)
-		return b.AccountStatus()
+		return b.AccountStatus(), err
 	}
 	userID := ""
 	if ident := b.currentIdentity(); ident != nil {
@@ -249,12 +272,12 @@ func (b *Bridge) EnsureAccountStatus(ctx context.Context) *qauth.AccountStatus {
 	bearer, err := b.quotaBearer(ctx)
 	if err != nil {
 		log.Printf("[qoder-bridge] WARN quota/usage token unavailable: %v", err)
-		return st
+		return st, err
 	}
 	quota, err := qauth.FetchQuotaUsage(ctx, bearer, b.Region)
 	if err != nil {
 		log.Printf("[qoder-bridge] WARN quota/usage refresh failed: %v", err)
-		return st
+		return st, err
 	}
 	if st == nil {
 		st = &qauth.AccountStatus{}
@@ -278,8 +301,9 @@ func (b *Bridge) EnsureAccountStatus(ctx context.Context) *qauth.AccountStatus {
 
 	b.accountMu.Lock()
 	b.account = cloneAccountStatus(st)
+	b.quotaFetchedAt = time.Now()
 	b.accountMu.Unlock()
-	return cloneAccountStatus(st)
+	return cloneAccountStatus(st), nil
 }
 
 // AccountStatus returns the cached subscription state, or nil when it has
@@ -644,6 +668,17 @@ func (b *Bridge) CurrentSecurityOauth() string { return b.currentSecurityOauth()
 // Region returns the bridge's region config.
 func (b *Bridge) RegionConfig() *qauth.RegionConfig { return b.Region }
 
+// UID returns the gateway user id (aid) once a session has been bootstrapped,
+// or "" before the first jobToken exchange. The runtime probe records it as the
+// account's remote_uid so a PAT login shows the same identity a browser login
+// syncs from the worker /health endpoint.
+func (b *Bridge) UID() string {
+	if ident := b.currentIdentity(); ident != nil {
+		return ident.Aid
+	}
+	return ""
+}
+
 // QuotaSnapshot converts a cached AccountStatus into the cli2api store
 // shape. Returns nil when no quota has been resolved yet.
 //
@@ -657,15 +692,28 @@ func (b *Bridge) QuotaSnapshot() *accounts.QuotaSnapshot {
 	if st == nil || st.UserQuota == nil {
 		return nil
 	}
-	buckets := []*qauth.Quota{st.UserQuota, st.AddOnQuota}
+	// Mirror the worker-path quota.go aggregation: only buckets the upstream
+	// did not flag unavailable participate in the headline, so an org resource
+	// package the member may not spend never inflates the balance. The add-on
+	// Quota carries no availability flag (quota.go treats a nil flag as
+	// available), so it always participates; only the org package can be
+	// unavailable.
+	buckets := []*qauth.Quota{st.UserQuota}
+	if st.AddOnQuota != nil {
+		buckets = append(buckets, st.AddOnQuota)
+	}
+	resourceAvailable := false
 	if st.OrgResourcePackage != nil {
-		buckets = append(buckets, &qauth.Quota{
-			Total:      st.OrgResourcePackage.Cap,
-			Used:       st.OrgResourcePackage.Used,
-			Remaining:  st.OrgResourcePackage.Remaining,
-			Percentage: st.OrgResourcePackage.Percentage,
-			Unit:       st.OrgResourcePackage.Unit,
-		})
+		resourceAvailable = st.OrgResourcePackage.Available
+		if resourceAvailable {
+			buckets = append(buckets, &qauth.Quota{
+				Total:      st.OrgResourcePackage.Cap,
+				Used:       st.OrgResourcePackage.Used,
+				Remaining:  st.OrgResourcePackage.Remaining,
+				Percentage: st.OrgResourcePackage.Percentage,
+				Unit:       st.OrgResourcePackage.Unit,
+			})
+		}
 	}
 	var used, total, remaining float64
 	unit := ""
@@ -680,6 +728,7 @@ func (b *Bridge) QuotaSnapshot() *accounts.QuotaSnapshot {
 			unit = q.Unit
 		}
 	}
+	fetchedAt := b.quotaFetchedAtString()
 	snap := &accounts.QuotaSnapshot{
 		Used:       used,
 		Total:      total,
@@ -687,7 +736,7 @@ func (b *Bridge) QuotaSnapshot() *accounts.QuotaSnapshot {
 		Percentage: 0,
 		Unit:       unit,
 		Exceeded:   st.IsQuotaExceeded,
-		FetchedAt:  time.Now().UTC().Format(time.RFC3339),
+		FetchedAt:  fetchedAt,
 		Plan:       st.Plan,
 	}
 	if total > 0 {
@@ -697,8 +746,12 @@ func (b *Bridge) QuotaSnapshot() *accounts.QuotaSnapshot {
 		snap.ExpiresAt = st.NextResetAtMs / 1000
 	}
 	// Exceeded keeps its previous meaning: the account is out of credits unless
-	// an add-on or organization package still holds some.
-	if snap.Exceeded && remaining > 0 {
+	// a spendable add-on or organization package still holds some.
+	hasSpendable := st.AddOnQuota != nil && st.AddOnQuota.Remaining > 0
+	if st.OrgResourcePackage != nil && resourceAvailable && st.OrgResourcePackage.Remaining > 0 {
+		hasSpendable = true
+	}
+	if snap.Exceeded && hasSpendable {
 		snap.Exceeded = false
 	}
 	if st.AddOnQuota != nil {
@@ -707,6 +760,8 @@ func (b *Bridge) QuotaSnapshot() *accounts.QuotaSnapshot {
 		snap.AddOnTotal = st.AddOnQuota.Total
 		snap.AddOnRemaining = st.AddOnQuota.Remaining
 		snap.AddOnUnit = st.AddOnQuota.Unit
+		avail := true
+		snap.AddOnAvailable = &avail
 	}
 	if st.OrgResourcePackage != nil {
 		snap.HasResourcePackage = true
@@ -714,10 +769,22 @@ func (b *Bridge) QuotaSnapshot() *accounts.QuotaSnapshot {
 		snap.ResourcePackageTotal = st.OrgResourcePackage.Cap
 		snap.ResourcePackageRemaining = st.OrgResourcePackage.Remaining
 		snap.ResourcePackageUnit = st.OrgResourcePackage.Unit
-		avail := st.OrgResourcePackage.Available
+		avail := resourceAvailable
 		snap.ResourcePackageAvailable = &avail
 	}
 	return snap
+}
+
+// quotaFetchedAtString reports when the cached quota buckets were last pulled
+// from upstream. An empty value means no successful quota fetch has happened
+// yet, which callers treat as "unknown" rather than a fabricated "now".
+func (b *Bridge) quotaFetchedAtString() string {
+	b.accountMu.Lock()
+	defer b.accountMu.Unlock()
+	if b.quotaFetchedAt.IsZero() {
+		return ""
+	}
+	return b.quotaFetchedAt.UTC().Format(time.RFC3339)
 }
 
 // fmtResetTime renders an epoch-millis reset instant for logs, or "unknown".

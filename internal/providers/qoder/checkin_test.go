@@ -44,8 +44,8 @@ func TestCheckinWorkerTransport(t *testing.T) {
 			if fixture.want != "" && (err != nil || result.Status != fixture.want) {
 				t.Fatalf("result=%+v err=%v", result, err)
 			}
-			if client.Adapter().Checkin == nil || client.Adapter().Prober != nil {
-				t.Fatal("checkin must not register a Qoder prober")
+			if client.Adapter().Checkin == nil {
+				t.Fatal("checkin must be registered on the Qoder adapter")
 			}
 		})
 	}

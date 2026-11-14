@@ -119,9 +119,10 @@ func (manager *Manager) refreshCheckinQuota(ctx context.Context, accountID strin
 	if err != nil {
 		return
 	}
-	// Qoder's registered adapter omits a Prober, so the generic branch would
-	// refresh the worker quota and miss the OpenAPI add-on grant a check-in
-	// just claimed. Refresh the real upstream OpenAPI quota in-process instead.
+	// Qoder check-in lands its reward in the OpenAPI add-on bucket. Refresh the
+	// real upstream OpenAPI quota in-process explicitly (the same force path the
+	// adapter Prober uses) so the grant shows up even if the generic probe ever
+	// changes shape.
 	if account.Provider == "qoder" {
 		if registered, ok := manager.providers.Get(account.Provider); ok {
 			if q, ok := registered.Chat.(*qoder.Client); ok {
@@ -140,11 +141,9 @@ func (manager *Manager) refreshCheckinQuota(ctx context.Context, accountID strin
 // refreshQoderQuota pulls the real upstream OpenAPI quota (which includes the
 // daily check-in add-on grant) and persists it. It never synthesizes a number.
 func (manager *Manager) refreshQoderQuota(ctx context.Context, accountID string, client *qoder.Client) {
-	release, ok := manager.acquireQuotaFetch(ctx, accountID)
-	if !ok {
-		return
-	}
-	defer release()
+	// quotaSnapshot already refreshes upstream itself; do not take the shared
+	// quota-fetch gate here, or a concurrent fetchProviderQuotaErr (manual
+	// refresh) would deadlock until this returns.
 	snapshot, err := client.QuotaSnapshot(ctx, accountID, true)
 	if err != nil || snapshot == nil {
 		return
