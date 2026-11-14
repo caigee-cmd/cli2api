@@ -9,7 +9,7 @@
 
 <sub>[English](README_EN.md) · [问题反馈](https://github.com/caigee-cmd/cli2api/issues) · [Telegram](https://t.me/+jCjL8ou_g7Q2MzI1)</sub>
 
-<img src="./docs/assets/readme/hero-zh.svg" width="100%" alt="CLI2API：Qoder、WorkBuddy、Trae 的登录态汇入同一个本机 /v1">
+<img src="./docs/assets/readme/hero-zh.svg" width="100%" alt="CLI2API：客户端只看到 127.0.0.1:3010，请求由 Qoder、WorkBuddy 或 Trae 的登录态完成">
 
 </div>
 
@@ -27,7 +27,9 @@ CLI2API 自托管、自带账号。不想自己部署时，用赞助商的托管
 
 这里管的是你自己的账号和本机网关。CaiAI 管的是托管密钥、路由和计费。
 
-## 三分钟跑起来
+<p>
+<img src="./docs/assets/readme/section-start-zh.svg" width="100%" alt="01 三分钟跑起来">
+</p>
 
 需要 Docker，和一个你自己控制的上游账号。macOS / Windows 用 Docker Desktop；Windows 需使用 Linux containers。
 
@@ -50,13 +52,15 @@ API Key:  <刚才创建的客户端密钥>
 
 模型 ID 从 **Access** 或 `/v1/models` 获取。默认自动选号，同一对话优先复用原账号。环境变量、固定账号、托管更新见 [部署说明](deploy/README.md)。
 
-## 它做什么
+<p>
+<img src="./docs/assets/readme/section-what-zh.svg" width="100%" alt="02 一次请求怎么走">
+</p>
+
+<p>
+<img src="./docs/assets/readme/request-zh.svg" width="100%" alt="客户端把请求发到本机 3010，网关选一个你自己的账号，再直连上游">
+</p>
 
 接入 **Qoder（国际版 / 国内版）**、**WorkBuddy（国际版 / 国内版）**、**Trae 国内版 Work**。**Devin**、**Command Code**、**华为云码道 CodeArts** 是实验性接入，不承诺生产可用。
-
-<p align="center">
-  <img src="./docs/assets/readme/architecture-zh.svg" width="100%" alt="CLI2API 架构：OpenAI 客户端经 Go 控制面路由到每账号独立运行时，再连接各 provider 上游">
-</p>
 
 Go 网关统一鉴权、调度和记录请求。Qoder 每个账号一个独立 Node 进程和 HOME；其余供应商走进程内适配器，不为每次请求启动完整 CLI。
 
@@ -81,7 +85,9 @@ Qoder 国内版、WorkBuddy、Trae 已实现，真账号验收未完成。Kimi C
 
 只在同一供应商内，按最近一笔还能用的积分包到期日排序。没有到期日的账号不猜测，只在有日期的账号都不可用时才上场。额度耗尽、冷却、并发占满的账号照旧先退出。目前只有 WorkBuddy 个人账号有逐包到期日。
 
-## 使用限制
+<p>
+<img src="./docs/assets/readme/section-limits-zh.svg" width="100%" alt="03 它不做什么">
+</p>
 
 - 只连接你自己的账号。这里不提供账号、额度或官方 API。
 - 兼容不等于完整复刻。Messages / Responses 不保存服务端会话，也不执行上游专属工具。
