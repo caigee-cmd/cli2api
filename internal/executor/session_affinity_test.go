@@ -2,6 +2,7 @@ package executor
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -335,6 +336,101 @@ func TestChatNonStreamSessionAffinityRateLimitEscapesSameRegion(t *testing.T) {
 	}, "", "")
 	if err != nil || result.AccountID != "b" || result.Routing != routingStickyEscape || result.AttemptCount != 2 {
 		t.Fatalf("result = %+v, err=%v", result, err)
+	}
+}
+
+func TestChatNonStreamSessionAffinityEscapesSaturatedProvider(t *testing.T) {
+	server := func(id string) *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = io.WriteString(w, `{"model":"glm-5.2","choices":[{"message":{"content":"`+id+`"},"finish_reason":"stop"}],"usage":{"source":"upstream"}}`)
+		}))
+	}
+	trae := server("trae")
+	defer trae.Close()
+	other := server("qoder")
+	defer other.Close()
+
+	pool := NewPool(nil, nil)
+	pool.Upsert(Item{ID: "trae", URL: trae.URL, Provider: "trae", Region: "cn", Runtime: "child_process", MaxInFlight: 1})
+	pool.Upsert(Item{ID: "qoder", URL: other.URL, Provider: "qoder", Region: "global", Runtime: "child_process"})
+	if !pool.Acquire("trae") {
+		t.Fatal("acquire trae slot")
+	}
+	executor := NewChatExecutor(pool, "")
+	executor.SessionAffinity.Bind("session-full", "trae")
+
+	result, err := executor.ChatNonStream(WithSessionKey(context.Background(), "session-full"), translate.ChatRequest{
+		Model: "glm-5.2", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	}, "", "")
+	if err != nil || result.AccountID != "qoder" || result.Routing != routingPool {
+		t.Fatalf("result = %+v, err=%v", result, err)
+	}
+	if reason := executor.SessionAffinity.Stats().LastEscapeReason; reason != "concurrency_saturated" {
+		t.Fatalf("escape reason = %q, want concurrency_saturated", reason)
+	}
+	// A completed request rebinds to the account that actually served it, so
+	// the next turn follows the account that had room.
+	if bound, ok := executor.SessionAffinity.Get("session-full"); !ok || bound != "qoder" {
+		t.Fatalf("binding = %q, %v", bound, ok)
+	}
+}
+
+func TestChatNonStreamSessionAffinityStaysWhenEveryProviderIsFull(t *testing.T) {
+	pool := NewPool(nil, nil)
+	pool.Upsert(Item{ID: "trae", URL: "http://127.0.0.1:1", Provider: "trae", Region: "cn", Runtime: "child_process", MaxInFlight: 1})
+	pool.Upsert(Item{ID: "qoder", URL: "http://127.0.0.1:2", Provider: "qoder", Region: "global", Runtime: "child_process", MaxInFlight: 1})
+	if !pool.Acquire("trae") || !pool.Acquire("qoder") {
+		t.Fatal("acquire both slots")
+	}
+	executor := NewChatExecutor(pool, "")
+	executor.SessionAffinity.Bind("session-all-full", "trae")
+
+	_, err := executor.ChatNonStream(WithSessionKey(context.Background(), "session-all-full"), translate.ChatRequest{
+		Model: "glm-5.2", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	}, "", "")
+	var execution *ExecutionError
+	if !errors.As(err, &execution) || execution.Classified.Code != "rate_limit" || execution.Classified.Message != "all accounts at capacity" {
+		t.Fatalf("err = %v, want capacity rate_limit", err)
+	}
+	if reason := executor.SessionAffinity.Stats().LastEscapeReason; reason != "" {
+		t.Fatalf("escape reason = %q, want none", reason)
+	}
+	if bound, ok := executor.SessionAffinity.Get("session-all-full"); !ok || bound != "trae" {
+		t.Fatalf("binding = %q, %v", bound, ok)
+	}
+}
+
+func TestChatNonStreamSessionAffinityKeepsStickyWhileProviderHasCapacity(t *testing.T) {
+	server := func(id string) *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = io.WriteString(w, `{"model":"glm-5.2","choices":[{"message":{"content":"`+id+`"},"finish_reason":"stop"}],"usage":{"source":"upstream"}}`)
+		}))
+	}
+	bound := server("bound")
+	defer bound.Close()
+	sibling := server("sibling")
+	defer sibling.Close()
+	other := server("qoder")
+	defer other.Close()
+
+	pool := NewPool(nil, nil)
+	pool.Upsert(Item{ID: "bound", URL: bound.URL, Provider: "trae", Region: "cn", Runtime: "child_process", MaxInFlight: 1})
+	pool.Upsert(Item{ID: "sibling", URL: sibling.URL, Provider: "trae", Region: "cn", Runtime: "child_process", MaxInFlight: 1})
+	pool.Upsert(Item{ID: "qoder", URL: other.URL, Provider: "qoder", Region: "global", Runtime: "child_process"})
+	if !pool.Acquire("bound") {
+		t.Fatal("acquire bound slot")
+	}
+	executor := NewChatExecutor(pool, "")
+	executor.SessionAffinity.Bind("session-sibling", "bound")
+
+	result, err := executor.ChatNonStream(WithSessionKey(context.Background(), "session-sibling"), translate.ChatRequest{
+		Model: "glm-5.2", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	}, "", "")
+	if err != nil || result.AccountID != "sibling" || result.Routing != routingStickyEscape {
+		t.Fatalf("result = %+v, err=%v", result, err)
+	}
+	if boundID, ok := executor.SessionAffinity.Get("session-sibling"); !ok || boundID != "sibling" {
+		t.Fatalf("rebound = %q, %v", boundID, ok)
 	}
 }
 

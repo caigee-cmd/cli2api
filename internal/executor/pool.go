@@ -508,6 +508,28 @@ func (p *Pool) LenRoute(q RouteQuery) int {
 	return count
 }
 
+// HasCapacity reports whether the route has an account that can take a
+// request right now: ready, not cooling, and under its concurrency cap.
+// A route whose only accounts are concurrency-saturated returns false so
+// session affinity can leave a full provider instead of failing the request.
+func (p *Pool) HasCapacity(q RouteQuery) bool {
+	if p == nil {
+		return false
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	now := time.Now()
+	if p.routingStrategy == RoutingStrategyFEFO {
+		q.fefoNow = now
+	}
+	for _, item := range p.items {
+		if routeMatches(item, q) && !itemDown(item, now) && !itemModelDown(item, q, now) && !itemSaturated(item) {
+			return true
+		}
+	}
+	return false
+}
+
 // QuotaBlockedForModel reports whether at least one account could serve the
 // model but is kept out of routing solely because its quota is exceeded. The
 // caller uses this to surface a quota error instead of a generic "no accounts
