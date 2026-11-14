@@ -222,7 +222,9 @@ func (m *Manager) Accounts(ctx context.Context) ([]AccountView, error) {
 			if !item.NextRestartAt.IsZero() && time.Now().Before(item.NextRestartAt) {
 				view.NextRestartAt = item.NextRestartAt.UTC().Format(time.RFC3339)
 			}
-			view.Quota = item.Quota
+			if item.Quota != nil {
+				view.Quota = item.Quota
+			}
 			view.ModelCooldowns = activeModelCooldowns(item.ModelDownUntil)
 			if !item.DownUntil.IsZero() && time.Now().Before(item.DownUntil) {
 				view.DownUntil = item.DownUntil.UTC().Format(time.RFC3339)
