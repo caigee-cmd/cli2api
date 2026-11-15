@@ -460,6 +460,12 @@ func (c *Client) chatRequest(ctx context.Context, accountID string, credential C
 		"tools":       req.Tools,
 		"tool_choice": req.ToolChoice,
 	}
+	// The re-built body used to drop the caller's `thinking` object entirely.
+	// Keep it so applyChatReasoning (and PrepareBody, which preserves unknown
+	// keys) can relay an explicit disabled-thinking request upstream.
+	if len(req.Thinking) > 0 {
+		body["thinking"] = json.RawMessage(req.Thinking)
+	}
 	resolved := providers.ResolvedChat{ReasoningLevel: applyChatReasoning(body, req, storedLevel, caps)}
 	payload, err := json.Marshal(body)
 	if err != nil {
