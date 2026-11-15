@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -153,6 +155,12 @@ func (d *Direct) prepare(ctx context.Context, accountID string, req translate.Ch
 		}
 	}
 	plain := BuildPlainChatBody(req, d.now())
+	// The gateway discounts a repeated prefix only inside one session. A fresh
+	// session_id on every call splits one chat into one-shot sessions, so pin it
+	// to the account and the gateway session. request_id stays per call.
+	if sessionID := sessionIDFor(accountID, user.uid(), providers.ConversationFromContext(ctx)); sessionID != "" {
+		plain["session_id"] = sessionID
+	}
 	applyCatalogEntry(plain, req, entry)
 	if user.UserType != "" {
 		plain["aliyun_user_type"] = user.UserType
@@ -766,6 +774,29 @@ func newID() string {
 		return "00000000-0000-4000-8000-000000000000"
 	}
 	return id
+}
+
+// sessionIDFor derives the session_id the official client reuses for one
+// account and one chat. The gateway keys its prompt cache on that id, so a
+// new one on every request bills the repeated prefix at the uncached rate.
+// An empty session has no stable id and returns empty, leaving the per-request
+// id BuildPlainChatBody minted. The uid namespaces the id so two accounts
+// never share a session even when their session keys collide.
+func sessionIDFor(accountID, uid, session string) string {
+	session = strings.TrimSpace(session)
+	if session == "" {
+		return ""
+	}
+	owner := strings.TrimSpace(uid)
+	if owner == "" {
+		owner = strings.TrimSpace(accountID)
+	}
+	sum := sha256.Sum256([]byte("qoder-session|" + owner + "|" + session))
+	raw := sum[:16]
+	raw[6] = (raw[6] & 0x0f) | 0x40
+	raw[8] = (raw[8] & 0x3f) | 0x80
+	encoded := hex.EncodeToString(raw)
+	return encoded[0:8] + "-" + encoded[8:12] + "-" + encoded[12:16] + "-" + encoded[16:20] + "-" + encoded[20:32]
 }
 
 type upstreamFrame struct {
