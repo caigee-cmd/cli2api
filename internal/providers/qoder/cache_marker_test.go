@@ -33,6 +33,49 @@ func decodePlainMessages(t *testing.T, body map[string]any) []plainMessage {
 	return msgs
 }
 
+func TestSessionIDReusedForOneAccountAndChat(t *testing.T) {
+	first := sessionIDFor("acc-1", "uid-1", "session-a")
+	second := sessionIDFor("acc-1", "uid-1", "session-a")
+	if first != second {
+		t.Fatalf("one account and chat must reuse its session id: %s vs %s", first, second)
+	}
+	if !dashedUUID(first) {
+		t.Fatalf("session id must be a dashed uuid: %q", first)
+	}
+	if sessionIDFor("acc-2", "uid-2", "session-a") == first {
+		t.Fatal("two accounts must not share a session id")
+	}
+	if sessionIDFor("acc-1", "uid-1", "session-b") == first {
+		t.Fatal("two chats must not share a session id")
+	}
+	// The uid namespaces the id; the local account id is only the fallback.
+	if sessionIDFor("acc-9", "uid-1", "session-a") != first {
+		t.Fatal("the same upstream user must keep its session id")
+	}
+	if sessionIDFor("acc-1", "", "session-a") == first {
+		t.Fatal("a missing uid must not collide with a known user's session")
+	}
+	if sessionIDFor("acc-1", "uid-1", "") != "" || sessionIDFor("acc-1", "uid-1", "  ") != "" {
+		t.Fatal("a request without a session must keep the per-request id")
+	}
+}
+
+func dashedUUID(value string) bool {
+	if len(value) != 36 || value[8] != '-' || value[13] != '-' || value[18] != '-' || value[23] != '-' {
+		return false
+	}
+	for i, r := range value {
+		switch i {
+		case 8, 13, 18, 23:
+			continue
+		}
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
 func countMarkers(msgs []plainMessage) int {
 	marked := 0
 	for _, msg := range msgs {
