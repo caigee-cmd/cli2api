@@ -50,23 +50,26 @@ func keyedFixture(t *testing.T, server *Server, store *sqlstore.Store) accounts.
 }
 
 // waitForAttributedLogs blocks until both fixture requests have landed so the
-// filters below are not racing the asynchronous recorder.
+// filters below are not racing the asynchronous recorder. It waits for both
+// the keyed row and the console row: checking only the keyed filter lets the
+// later `all.Total == 2` assertion race the recorder's second (console) write,
+// which made this test flaky under CI ("total = 1, want 2").
 func waitForAttributedLogs(t *testing.T, store *sqlstore.Store, keyID string) {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
-	var last accounts.RequestLogList
+	var lastKeyed, lastAll accounts.RequestLogList
 	for time.Now().Before(deadline) {
-		list, err := store.ListRequestLogs(context.Background(), accounts.RequestLogFilter{APIKeyID: keyID, Limit: 10})
-		if err == nil && list.Total == 1 && list.Items[0].APIKeyID == keyID {
-			return
-		}
-		if err == nil {
-			last = list
+		keyed, keyErr := store.ListRequestLogs(context.Background(), accounts.RequestLogFilter{APIKeyID: keyID, Limit: 10})
+		all, allErr := store.ListRequestLogs(context.Background(), accounts.RequestLogFilter{Limit: 10})
+		if keyErr == nil && allErr == nil {
+			lastKeyed, lastAll = keyed, all
+			if all.Total >= 2 && keyed.Total == 1 && len(keyed.Items) > 0 && keyed.Items[0].APIKeyID == keyID {
+				return
+			}
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	all, _ := store.ListRequestLogs(context.Background(), accounts.RequestLogFilter{Limit: 10})
-	t.Fatalf("keyed request never got attributed to the API key: filtered=%+v all=%+v", last, all)
+	t.Fatalf("fixture logs never fully landed: keyed=%+v all=%+v", lastKeyed, lastAll)
 }
 
 func TestAPIKeyAttributionAndFilters(t *testing.T) {

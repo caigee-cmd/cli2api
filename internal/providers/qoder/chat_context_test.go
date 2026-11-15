@@ -55,6 +55,10 @@ func TestBuildPlainChatBodyFillsChatContextForReasoning(t *testing.T) {
 		Parameters struct {
 			EnableThinking bool `json:"enable_thinking"`
 		} `json:"parameters"`
+		Business struct {
+			Version  string `json:"version"`
+			ModelKey string `json:"model_key"`
+		} `json:"business"`
 	}
 	encoded, _ := json.Marshal(plain)
 	if err := json.Unmarshal(encoded, &body); err != nil {
@@ -92,6 +96,9 @@ func TestBuildPlainChatBodyFillsChatContextForReasoning(t *testing.T) {
 	}
 	if !body.Parameters.EnableThinking {
 		t.Fatal("parameters.enable_thinking = false, want true")
+	}
+	if body.Business.ModelKey != "qwen3.8-flash" || body.Business.Version != COSYVersion {
+		t.Fatalf("business = %+v, want model_key and version %s", body.Business, COSYVersion)
 	}
 }
 

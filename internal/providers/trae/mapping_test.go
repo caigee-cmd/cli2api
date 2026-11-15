@@ -45,7 +45,7 @@ func TestApplySoloChatFieldsMapsOpenAIAndStripsQoderKeys(t *testing.T) {
 	caps := providers.ModelCapabilities{
 		MaxMode: true, ReasoningOptions: []string{"low", "medium", "high", "xhigh"}, ReasoningDefault: "medium",
 	}
-	applySoloChatFields(obj, req, true, "", caps)
+	applySoloChatFields(obj, req, true, "", caps, "", "")
 	if obj["is_max_mode"] != 1 {
 		t.Fatalf("is_max_mode=%v", obj["is_max_mode"])
 	}
@@ -61,7 +61,7 @@ func TestApplySoloChatFieldsMapsOpenAIAndStripsQoderKeys(t *testing.T) {
 
 func TestApplySoloChatFieldsOmitsMaxWhenUnsupported(t *testing.T) {
 	obj := map[string]any{}
-	applySoloChatFields(obj, translate.ChatRequest{}, true, "", providers.ModelCapabilities{})
+	applySoloChatFields(obj, translate.ChatRequest{}, true, "", providers.ModelCapabilities{}, "", "")
 	if _, ok := obj["is_max_mode"]; ok {
 		t.Fatal("unsupported max mode should not be sent")
 	}
@@ -70,12 +70,55 @@ func TestApplySoloChatFieldsOmitsMaxWhenUnsupported(t *testing.T) {
 func TestApplySoloChatFieldsUsesStoredLevelWhenRequestOmitsEffort(t *testing.T) {
 	obj := map[string]any{}
 	caps := providers.ModelCapabilities{ReasoningOptions: []string{"low", "high", "xhigh"}, ReasoningDefault: "high"}
-	applySoloChatFields(obj, translate.ChatRequest{}, false, "xhigh", caps)
+	applySoloChatFields(obj, translate.ChatRequest{}, false, "xhigh", caps, "", "")
 	if obj["reasoning_effort_level"] != "xhigh" {
 		t.Fatalf("stored level=%v", obj["reasoning_effort_level"])
 	}
-	applySoloChatFields(obj, translate.ChatRequest{}, false, "", caps)
+	applySoloChatFields(obj, translate.ChatRequest{}, false, "", caps, "", "")
 	if obj["reasoning_effort_level"] != "high" {
 		t.Fatalf("catalog default=%v", obj["reasoning_effort_level"])
+	}
+}
+
+func TestConversationIDReusedForOneAccountAndSession(t *testing.T) {
+	first := conversationIDFor("u1", "session-a")
+	second := conversationIDFor("u1", "session-a")
+	if first != second {
+		t.Fatalf("one account and session must reuse its id: %s vs %s", first, second)
+	}
+	if len(first) != 32 {
+		t.Fatalf("conversation id must be 32 hex, got %q", first)
+	}
+	if conversationIDFor("u2", "session-a") == first {
+		t.Fatal("two accounts must not share a conversation id")
+	}
+	if conversationIDFor("u1", "session-b") == first {
+		t.Fatal("two sessions must not share a conversation id")
+	}
+	fresh := conversationIDFor("u1", "")
+	again := conversationIDFor("u1", "  ")
+	if fresh == again {
+		t.Fatal("a request without a session must get a new conversation id")
+	}
+}
+
+func TestApplySoloChatFieldsPinsConversationToSession(t *testing.T) {
+	obj := map[string]any{}
+	applySoloChatFields(obj, translate.ChatRequest{}, false, "", providers.ModelCapabilities{}, "u1", "session-a")
+	again := map[string]any{}
+	applySoloChatFields(again, translate.ChatRequest{}, false, "", providers.ModelCapabilities{}, "u1", "session-a")
+	if obj["conversation_id"] == "" || obj["conversation_id"] != obj["session_id"] {
+		t.Fatalf("conversation and session must be one id: %v", obj)
+	}
+	if obj["conversation_id"] != again["conversation_id"] {
+		t.Fatal("the same chat must keep its conversation id")
+	}
+	if obj["user_id"] != "u1" {
+		t.Fatalf("user_id=%v", obj["user_id"])
+	}
+	other := map[string]any{}
+	applySoloChatFields(other, translate.ChatRequest{}, false, "", providers.ModelCapabilities{}, "u1", "session-b")
+	if other["conversation_id"] == obj["conversation_id"] {
+		t.Fatal("a different session must not reuse the conversation id")
 	}
 }

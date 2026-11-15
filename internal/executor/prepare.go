@@ -281,14 +281,16 @@ func ApplyModelContextDefaults(ctx context.Context, store ModelContextStore, req
 	if providerFilter != "" && providerFilter != "qoder" {
 		return nil
 	}
+	// Qoder chat must not carry a window switch in `parameters`: the gateway
+	// rejects `contextWindow`/`context_length` there with a context-length error.
+	// The selected window is forwarded as `model_config.max_input_tokens`
+	// instead, which the Qoder chat body already accepts (so 1M is honoured),
+	// so only that field is populated here.
 	contextLength, ok, err := store.GetModelContext(ctx, modelContextKey(req.Model))
 	if err != nil || !ok {
 		return err
 	}
 	value := json.RawMessage(strconv.Itoa(contextLength))
-	if len(req.ContextLength) == 0 {
-		req.ContextLength = append(json.RawMessage(nil), value...)
-	}
 	if len(req.MaxInputTokens) == 0 {
 		req.MaxInputTokens = append(json.RawMessage(nil), value...)
 	}
