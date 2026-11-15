@@ -537,8 +537,8 @@ func BuildPlainChatBody(req translate.ChatRequest, now time.Time) map[string]any
 		parameters["parallel_tool_calls"] = *req.ParallelToolCalls
 	}
 	level := resolvedReasoningLevel(req)
-	reasoning := level != "" && level != "none"
-	if level != "" {
+	reasoning := level != "" && level != "none" && !providers.RequestsDisabledThinking(req)
+	if level != "" || providers.RequestsDisabledThinking(req) {
 		parameters["enable_thinking"] = reasoning
 	}
 	maxInput := 180000
