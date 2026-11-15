@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -767,14 +768,153 @@ func newID() string {
 }
 
 type upstreamFrame struct {
-	content   string
-	reasoning string
-	tools     json.RawMessage
-	finish    string
-	usage     json.RawMessage
-	errText   string
-	errStatus int
-	errKind   string
+	content    string
+	reasoning  string
+	tools      json.RawMessage
+	finish     string
+	usage      json.RawMessage
+	errText    string
+	errStatus  int
+	errKind    string
+	busyCode   string
+	retryAfter time.Duration
+}
+
+// busyFromSSEBody detects Qoder's model-level queue/admission rejection
+// (business code 10605) carried inside an HTTP 200 SSE data frame. The gateway
+// wraps the busy envelope in a "code":"403", "message":"<nested JSON>" shape
+// that has no "error" key, so upstreamError() alone cannot see it — without
+// this the stream looks empty and is misreported as upstream_empty (context
+// overflow / silent reject). Recognizing it here lets the executor surface a
+// 429 with the upstream retry hint instead of cooling and failing over the
+// account for a model-level queue that is not an account fault.
+func busyFromSSEBody(body map[string]any) *providers.Error {
+	if len(body) == 0 {
+		return nil
+	}
+	// Fast path: the frame already exposes the busy code at the top level.
+	// Fall back to searching the nested "message" JSON string, which is how
+	// the observed 200+SSE frame is shaped.
+	if busyCode := codeString(body["code"]); busyCode == qauth.QoderBusyCode {
+		return busyErrorFromMessage(messageString(body), time.Duration(0))
+	}
+	if message := messageString(body); message != "" {
+		return busyErrorFromMessage(message, time.Duration(0))
+	}
+	return nil
+}
+
+// codeString normalizes a JSON code that may be a string or an integer.
+func codeString(raw any) string {
+	switch v := raw.(type) {
+	case string:
+		return v
+	case float64:
+		if v == float64(int64(v)) {
+			return strconv.FormatInt(int64(v), 10)
+		}
+	}
+	return ""
+}
+
+func messageString(body map[string]any) string {
+	message, _ := body["message"].(string)
+	return strings.TrimSpace(message)
+}
+
+// busyErrorFromMessage walks a (possibly doubly nested) JSON message looking
+// for the 10605 busy code, and extracts retryAfterSeconds wherever it appears.
+func busyErrorFromMessage(message string, fallbackRetry time.Duration) *providers.Error {
+	for depth := 0; depth < 4 && message != ""; depth++ {
+		trimmed := strings.TrimSpace(message)
+		if !strings.HasPrefix(trimmed, "{") {
+			break
+		}
+		var obj map[string]any
+		if json.Unmarshal([]byte(trimmed), &obj) != nil {
+			break
+		}
+		if codeString(obj["code"]) == qauth.QoderBusyCode {
+			subCode, _ := obj["subCode"].(string)
+			if subCode == "" {
+				subCode, _ = obj["sub_code"].(string)
+			}
+			retry := retryAfterFromBusyObject(obj)
+			if retry <= 0 {
+				retry = fallbackRetry
+			}
+			if retry <= 0 {
+				retry = defaultQueueRetryAfter
+			}
+			detail := messageString(obj)
+			if detail == "" {
+				detail = subCode
+			}
+			return &providers.Error{
+				Kind:       accounts.KindRateLimit,
+				Status:     http.StatusTooManyRequests,
+				Code:       providers.CodeUpstreamQueued,
+				RetryAfter: retry,
+				Message:    "qoder upstream queued (10605): " + truncateBusyDetail(detail),
+			}
+		}
+		// Descend into the nested message string for the next layer.
+		message = messageString(obj)
+	}
+	return nil
+}
+
+// retryAfterFromBusyObject finds retryAfterSeconds in obj or in its nested
+// "message" JSON string.
+func retryAfterFromBusyObject(obj map[string]any) time.Duration {
+	if raw, ok := obj["retryAfterSeconds"]; ok {
+		switch v := raw.(type) {
+		case float64:
+			if v > 0 {
+				return time.Duration(v) * time.Second
+			}
+		case string:
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				return time.Duration(n) * time.Second
+			}
+		}
+	}
+	if nested := messageString(obj); nested != "" {
+		var inner map[string]any
+		if json.Unmarshal([]byte(nested), &inner) == nil {
+			if raw, ok := inner["retryAfterSeconds"]; ok {
+				switch v := raw.(type) {
+				case float64:
+					if v > 0 {
+						return time.Duration(v) * time.Second
+					}
+				case string:
+					if n, err := strconv.Atoi(v); err == nil && n > 0 {
+						return time.Duration(n) * time.Second
+					}
+				}
+			}
+		}
+	}
+	return 0
+}
+
+func busyErrorToFrame(frame *upstreamFrame, busy *providers.Error) {
+	frame.busyCode = busy.Code
+	frame.retryAfter = busy.RetryAfter
+	frame.errText = busy.Message
+	frame.errStatus = busy.Status
+	frame.errKind = busy.Kind
+}
+
+// truncateBusyDetail caps the upstream-provided busy detail echoed to clients.
+func truncateBusyDetail(s string) string {
+	const maxRunes = 512
+	r := []rune(s)
+	if len(r) <= maxRunes {
+		return s
+	}
+	return string(r[:maxRunes]) + "…"
 }
 
 func outcomeFromUpstreamSSE(model string, raw []byte, names ...map[string]struct{}) (providers.ChatOutcome, error) {
@@ -794,7 +934,10 @@ func outcomeFromUpstreamSSE(model string, raw []byte, names ...map[string]struct
 		if status == 0 {
 			status = http.StatusBadGateway
 		}
-		return providers.ChatOutcome{}, &providers.Error{Kind: kind, Status: status, Message: frame.errText}
+		return providers.ChatOutcome{}, &providers.Error{
+			Kind: kind, Status: status, Message: frame.errText,
+			Code: frame.busyCode, RetryAfter: frame.retryAfter,
+		}
 	}
 	// Guard against the same empty-stream failure mode as the streaming path:
 	// an upstream body without content, reasoning, tool calls, a terminal
@@ -865,7 +1008,9 @@ func collectUpstream(r io.Reader, names ...map[string]struct{}) (upstreamFrame, 
 	var content, reasoning strings.Builder
 	var acc toolCallAccumulator
 	err := walkUpstream(r, func(body map[string]any) error {
-		if errText, status, kind := upstreamError(body); errText != "" {
+		if busy := busyFromSSEBody(body); busy != nil {
+			busyErrorToFrame(&frame, busy)
+		} else if errText, status, kind := upstreamError(body); errText != "" {
 			frame.errText = errText
 			frame.errStatus = status
 			frame.errKind = kind
@@ -1171,7 +1316,22 @@ func writeOpenAIChunks(w io.Writer, src io.Reader, model string) error {
 		}
 		if frame.errText != "" && frame.content == "" && frame.reasoning == "" && len(frame.tools) == 0 {
 			sawError = true
-			payload, _ := json.Marshal(map[string]any{"error": map[string]any{"message": frame.errText, "type": "api_error"}})
+			errPayload := map[string]any{"message": frame.errText, "type": "api_error", "code": frame.busyCode}
+			if frame.busyCode != "" {
+				// Preserve the model-level queue semantics across the relay so
+				// the gateway classifies it as 429 upstream_queued instead of a
+				// generic 502 (or the upstream_empty misreport).
+				errPayload["status"] = frame.errStatus
+				errPayload["kind"] = frame.errKind
+				if frame.retryAfter > 0 {
+					seconds := int((frame.retryAfter + time.Second - 1) / time.Second)
+					if seconds < 1 {
+						seconds = 1
+					}
+					errPayload["retry_after"] = seconds
+				}
+			}
+			payload, _ := json.Marshal(map[string]any{"error": errPayload})
 			_, err := fmt.Fprintf(w, "data: %s\n\n", payload)
 			return err
 		}
@@ -1287,7 +1447,9 @@ func normalizePromptCacheUsage(usage map[string]any) {
 
 func frameFromBody(body map[string]any) upstreamFrame {
 	var frame upstreamFrame
-	if errText, status, kind := upstreamError(body); errText != "" {
+	if busy := busyFromSSEBody(body); busy != nil {
+		busyErrorToFrame(&frame, busy)
+	} else if errText, status, kind := upstreamError(body); errText != "" {
 		frame.errText = errText
 		frame.errStatus = status
 		frame.errKind = kind
