@@ -67,6 +67,18 @@ func applyChatReasoning(obj map[string]any, req translate.ChatRequest, storedLev
 	if obj == nil {
 		return ""
 	}
+	// An explicit thinking:{"type":"disabled"} is an off switch, not a
+	// reasoning level. Reasoning levels stay catalog-driven and are clamped to
+	// what the model advertises (AGENTS.md), so "none" cannot be forced via
+	// that path. Clear every effort field and keep the canonical disabled
+	// thinking marker: the WorkBuddy CLI channel (same copilot upstream as
+	// workbuddy2api-panel) honors this shape to suppress reasoning tokens.
+	// resolvedReasoningLevel is reported as "none" for the request log.
+	if providers.RequestsDisabledThinking(req) {
+		clearChatReasoning(obj)
+		obj["thinking"] = providers.DisabledThinkingField()
+		return "none"
+	}
 	level := requestedReasoningLevel(req)
 	if level == "" {
 		level = storedLevel
