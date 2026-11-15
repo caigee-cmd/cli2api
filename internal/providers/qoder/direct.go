@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -153,6 +155,12 @@ func (d *Direct) prepare(ctx context.Context, accountID string, req translate.Ch
 		}
 	}
 	plain := BuildPlainChatBody(req, d.now())
+	// The gateway discounts a repeated prefix only inside one session. A fresh
+	// session_id on every call splits one chat into one-shot sessions, so pin it
+	// to the account and the gateway session. request_id stays per call.
+	if sessionID := sessionIDFor(accountID, user.uid(), providers.ConversationFromContext(ctx)); sessionID != "" {
+		plain["session_id"] = sessionID
+	}
 	applyCatalogEntry(plain, req, entry)
 	if user.UserType != "" {
 		plain["aliyun_user_type"] = user.UserType
@@ -450,7 +458,7 @@ func meaningfulDataLine(payload string) bool {
 			body = typed
 		}
 	}
-	frame := frameFromBody(body)
+	frame := frameFromBody(body, nil)
 	return frame.content != "" || frame.reasoning != "" || len(frame.tools) > 0 || frame.finish != "" || frame.usage != nil || frame.errText != ""
 }
 
@@ -589,7 +597,11 @@ func BuildPlainChatBody(req translate.ChatRequest, now time.Time) map[string]any
 		"parameters":   parameters,
 		"business": map[string]any{
 			"product": "cli", "version": COSYVersion, "type": "agent",
-			"id": newID(), "name": name, "begin_at": now.UnixMilli(), "stage": "start",
+			// model_key is what the gateway attributes the charge to. Without
+			// it, models that have no model_config fallback (kmodel_latest and
+			// later) are billed as auto. qodercli 1.1.81 always sends it.
+			"model_key": modelKey,
+			"id":        newID(), "name": name, "begin_at": now.UnixMilli(), "stage": "start",
 		},
 	}
 }
@@ -768,6 +780,29 @@ func newID() string {
 	return id
 }
 
+// sessionIDFor derives the session_id the official client reuses for one
+// account and one chat. The gateway keys its prompt cache on that id, so a
+// new one on every request bills the repeated prefix at the uncached rate.
+// An empty session has no stable id and returns empty, leaving the per-request
+// id BuildPlainChatBody minted. The uid namespaces the id so two accounts
+// never share a session even when their session keys collide.
+func sessionIDFor(accountID, uid, session string) string {
+	session = strings.TrimSpace(session)
+	if session == "" {
+		return ""
+	}
+	owner := strings.TrimSpace(uid)
+	if owner == "" {
+		owner = strings.TrimSpace(accountID)
+	}
+	sum := sha256.Sum256([]byte("qoder-session|" + owner + "|" + session))
+	raw := sum[:16]
+	raw[6] = (raw[6] & 0x0f) | 0x40
+	raw[8] = (raw[8] & 0x3f) | 0x80
+	encoded := hex.EncodeToString(raw)
+	return encoded[0:8] + "-" + encoded[8:12] + "-" + encoded[12:16] + "-" + encoded[16:20] + "-" + encoded[20:32]
+}
+
 type upstreamFrame struct {
 	content   string
 	reasoning string
@@ -925,11 +960,17 @@ func collectUpstream(r io.Reader, names ...map[string]struct{}) (upstreamFrame, 
 	return frame, err
 }
 
-// toolCallAccumulator merges streamed tool_call deltas by index: id, type
-// and function name keep their first non-empty value, arguments concatenate.
+// toolCallAccumulator merges streamed tool_call deltas. A call is one slot:
+// id, type and function name keep their first non-empty value, arguments
+// concatenate. Identity is the id when the frame carries one, and the index
+// only when it does not. The upstream reuses index 0 for a new call; a
+// different id still opens a new slot, and a fragment that repeats an id
+// appends to that call even when its index points somewhere else.
 type toolCallAccumulator struct {
 	order []int
 	calls map[int]*accumulatedToolCall
+	byID  map[string]int
+	next  int
 }
 
 type accumulatedToolCall struct {
@@ -945,24 +986,40 @@ type accumulatedToolCall struct {
 func (a *toolCallAccumulator) add(tools []any) {
 	if a.calls == nil {
 		a.calls = map[int]*accumulatedToolCall{}
+		a.byID = map[string]int{}
 	}
 	for position, rawTool := range tools {
 		tool, _ := rawTool.(map[string]any)
 		if tool == nil {
 			continue
 		}
-		index := position
-		if n, ok := tool["index"].(float64); ok {
-			index = int(n)
+		id, _ := tool["id"].(string)
+		index, hasIndex := toolIndex(tool, position)
+		var call *accumulatedToolCall
+		if id != "" {
+			if slot, ok := a.byID[id]; ok {
+				index = slot
+				call = a.calls[slot]
+			}
+		} else if hasIndex {
+			call = a.calls[index]
 		}
-		call := a.calls[index]
 		if call == nil {
+			if _, taken := a.calls[index]; taken || !hasIndex {
+				index = a.next
+			}
 			call = &accumulatedToolCall{Index: index}
 			a.calls[index] = call
 			a.order = append(a.order, index)
 		}
-		if id, _ := tool["id"].(string); id != "" && call.ID == "" {
+		if index >= a.next {
+			a.next = index + 1
+		}
+		if id != "" && call.ID == "" {
 			call.ID = id
+		}
+		if call.ID != "" {
+			a.byID[call.ID] = call.Index
 		}
 		if typ, _ := tool["type"].(string); typ != "" && call.Type == "" {
 			call.Type = typ
@@ -975,7 +1032,18 @@ func (a *toolCallAccumulator) add(tools []any) {
 				call.Function.Arguments += args
 			}
 		}
+		tool["index"] = float64(call.Index)
 	}
+}
+
+// toolIndex reads a non-negative integer index. A missing or malformed index
+// falls back to the call's position inside the frame.
+func toolIndex(tool map[string]any, position int) (int, bool) {
+	n, ok := tool["index"].(float64)
+	if !ok || n < 0 || n != float64(int(n)) {
+		return position, false
+	}
+	return int(n), true
 }
 
 func (a *toolCallAccumulator) encode() json.RawMessage {
@@ -1090,7 +1158,7 @@ func peekUpstreamErrorDetail(resp *http.Response) string {
 								body = typed
 							}
 						}
-						frame := frameFromBody(body)
+						frame := frameFromBody(body, nil)
 						resp.Body = peekedBody{Reader: io.MultiReader(&pending, br), Closer: resp.Body}
 						if frame.errText != "" && frame.content == "" && frame.reasoning == "" && len(frame.tools) == 0 {
 							return frame.errText
@@ -1160,8 +1228,11 @@ func writeOpenAIChunks(w io.Writer, src io.Reader, model string) error {
 	var sawFinish, sawTools, sawPayload, sawError bool
 	var lastUsage any
 	var lastChunkEmittedHadUsage bool
+	// One accumulator for the whole stream: a reused index on a later frame
+	// must keep the slot assigned on the earlier frame.
+	var toolSlots toolCallAccumulator
 	err := walkUpstream(src, func(body map[string]any) error {
-		frame := frameFromBody(body)
+		frame := frameFromBody(body, &toolSlots)
 		if frame.finish != "" {
 			sawFinish = true
 		}
@@ -1287,7 +1358,7 @@ func normalizePromptCacheUsage(usage map[string]any) {
 	}
 }
 
-func frameFromBody(body map[string]any) upstreamFrame {
+func frameFromBody(body map[string]any, toolSlots *toolCallAccumulator) upstreamFrame {
 	var frame upstreamFrame
 	if errText, status, kind := upstreamError(body); errText != "" {
 		frame.errText = errText
@@ -1325,6 +1396,12 @@ func frameFromBody(body map[string]any) upstreamFrame {
 		frame.reasoning = text
 	}
 	if tools, _ := part["tool_calls"].([]any); len(tools) > 0 {
+		// Renumber before the chunk leaves, sharing slots with every
+		// earlier frame of this stream. A client that merges by index
+		// then keeps parallel calls apart when the upstream reused 0.
+		if toolSlots != nil {
+			toolSlots.add(tools)
+		}
 		raw, _ := json.Marshal(tools)
 		frame.tools = raw
 	}

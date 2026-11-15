@@ -10,16 +10,19 @@ import (
 
 // CosyVersion is the single client/protocol version cli2api presents to
 // Qoder: the cosy-version header, the bearer payload's cosyVersion, the chat
-// body version and the OpenAPI User-Agent all derive from it. It mirrors the
-// pinned qodercli build (1.1.75; hub PR #75 / v1.7.3).
-const CosyVersion = "1.1.75"
+// body's business.version and the OpenAPI User-Agent all derive from it.
+// 1.1.81 is the first qodercli that writes catalog-v7 and puts model_key on
+// the business block the gateway attributes billing to. The published CLI is
+// newer (1.1.89 as of 2026-11-13); this stays on the protocol floor rather
+// than tracking every patch, and the desktop check-in version stays separate.
+const CosyVersion = "1.1.81"
 
 // DesktopCosyVersion is the Cosy-Version the official desktop app sends on
 // campaign / check-in requests (hub desktop 0.4.8). Distinct from CosyVersion
 // (CLI / reasoning).
 const DesktopCosyVersion = "0.4.8"
 
-// CosyUserAgent is the User-Agent official qodercli 1.1.75 leaves unset so the
+// CosyUserAgent is the User-Agent official qodercli leaves unset so the
 // bundled undici fetch supplies its default ("undici").
 const CosyUserAgent = "undici"
 
@@ -32,7 +35,7 @@ const CosyMachineOS = "x86_64_linux"
 const CosyClientIP = "169.254.198.161"
 
 // applyCosyBusinessHeaders adds the business / scene / client-ip headers
-// qodercli 1.1.75 sends on every COSY request.
+// qodercli sends on every COSY request.
 func applyCosyBusinessHeaders(h http.Header) {
 	h.Set("cosy-business-product", "cli")
 	h.Set("cosy-business-type", "agent")
@@ -41,8 +44,8 @@ func applyCosyBusinessHeaders(h http.Header) {
 }
 
 // UserAgent returns the COSY reasoning User-Agent. Official qodercli does not
-// set UA itself; undici supplies "undici". Edition no longer splits the UA
-// (hub PR #75). Region is accepted for call-site compatibility.
+// set UA itself; undici supplies "undici". Edition no longer splits the UA.
+// Region is accepted for call-site compatibility.
 func UserAgent(region *RegionConfig) string {
 	_ = region
 	return CosyUserAgent
@@ -77,8 +80,8 @@ func MachineHostname(uid string) string {
 }
 
 // applyClientFingerprint sets the undici User-Agent, always sends
-// cosy-machineos (qodercli 1.1.75), and on inference SSE requests only also
-// sends cosy-machinehostname.
+// cosy-machineos, and on inference SSE requests only also sends
+// cosy-machinehostname.
 func applyClientFingerprint(h http.Header, rawURL, uid string, inferSSE bool) {
 	_ = rawURL
 	h.Set("user-agent", CosyUserAgent)
