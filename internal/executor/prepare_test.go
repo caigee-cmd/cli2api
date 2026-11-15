@@ -9,6 +9,7 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/auth"
 	"github.com/caigee-cmd/cli2api/internal/providers"
+	qoder "github.com/caigee-cmd/cli2api/internal/providers/qoder"
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
@@ -387,5 +388,51 @@ func TestPrepareStripsCommandPrefix(t *testing.T) {
 	}
 	if got.ProviderFilter != "command" || got.Request.Model != "deepseek/deepseek-v4-pro" {
 		t.Fatalf("filter=%q model=%q, want command / deepseek/deepseek-v4-pro", got.ProviderFilter, got.Request.Model)
+	}
+}
+
+// TestPrepareQoder1MToggleFlowsToUpstreamBody proves the full chain is useful:
+// Prepare (qoder model + a 1M model-context entry, exactly what the /providers
+// "1M context window" toggle stores) must populate req.MaxInputTokens, and
+// BuildPlainChatBody — invoked by Direct.chatStreamOnce with the same request —
+// must place that window in model_config.max_input_tokens while never emitting
+// parameters.contextWindow/context_length (which Qoder rejects with a
+// context-length error). This is the end-to-end check that the fix actually
+// produces a valid upstream request, not just a unit-passing body.
+func TestPrepareQoder1MToggleFlowsToUpstreamBody(t *testing.T) {
+	ex := NewChatExecutor(NewPool(nil, nil), "")
+	contexts := &stubContexts{value: 1000000, ok: true} // 1M toggle stored window
+	got, err := ex.Prepare(PrepareInput{
+		Request: translate.ChatRequest{
+			Model: "qoder/glm-5.2", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+		},
+		ModelContexts: contexts,
+		Now:           time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got.Request.MaxInputTokens) != "1000000" {
+		t.Fatalf("Prepare must populate MaxInputTokens for qoder: %s", got.Request.MaxInputTokens)
+	}
+	if len(got.Request.ContextLength) != 0 {
+		t.Fatalf("Prepare must not set ContextLength for qoder: %s", got.Request.ContextLength)
+	}
+
+	// Replicate Direct.chatStreamOnce's body construction with the prepared request.
+	body := qoder.BuildPlainChatBody(got.Request, time.Date(2026, 9, 18, 12, 0, 1, 0, time.UTC))
+	params, _ := body["parameters"].(map[string]any)
+	if _, ok := params["contextWindow"]; ok {
+		t.Error("parameters.contextWindow must be absent in the upstream body")
+	}
+	if _, ok := params["context_length"]; ok {
+		t.Error("parameters.context_length must be absent in the upstream body")
+	}
+	if _, ok := params["max_input_tokens"]; ok {
+		t.Error("parameters.max_input_tokens must be absent in the upstream body")
+	}
+	modelCfg, _ := body["model_config"].(map[string]any)
+	if got, ok := modelCfg["max_input_tokens"].(int); !ok || got != 1000000 {
+		t.Errorf("model_config.max_input_tokens = %v, want 1000000 (1M must reach upstream)", modelCfg["max_input_tokens"])
 	}
 }
