@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/caigee-cmd/cli2api/internal/providers"
 )
 
 const maxRetryAfter = 10 * time.Minute
@@ -211,6 +213,17 @@ func Classify(status int, body, retryAfter, kindHint, failoverHint string) Class
 		out.Type = "insufficient_quota"
 	case KindRateLimit:
 		out.Status = 429
+		if code == providers.CodeUpstreamQueued {
+			// Model-level upstream queue (Qoder 10605): the account is healthy
+			// and every account would queue the same way, so do not cool it or
+			// fail over (which would also break session affinity). Relay the
+			// upstream retry hint so the client backs off. This mirrors the
+			// ClassifyError(*providers.Error) path for the buffered chat path.
+			out.Failover = false
+			out.Cooldown = 0
+			out.RetryAfter = ParseRetryAfterHint(body, retryAfter, 0)
+			break
+		}
 		out.Failover = true
 		out.Cooldown = ParseRetryAfterHint(body, retryAfter, 60*time.Second)
 		if out.Cooldown > 0 && out.Cooldown < minRateLimitCooldown {
@@ -275,7 +288,9 @@ func Classify(status int, body, retryAfter, kindHint, failoverHint string) Class
 	} else if failoverHint == "1" {
 		out.Failover = true
 	}
-	out.RetryAfter = out.Cooldown
+	if code != providers.CodeUpstreamQueued {
+		out.RetryAfter = out.Cooldown
+	}
 	if out.Message == "" {
 		out.Message = out.Code
 	}
