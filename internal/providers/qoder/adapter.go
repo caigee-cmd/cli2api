@@ -729,6 +729,12 @@ func (c *Client) newChatRequest(ctx context.Context, accountID string, req trans
 // the worker. Qoder does not clamp; the worker applies its own model policy,
 // so this is the normalized client value (or stored default) only.
 func resolvedReasoningLevel(req translate.ChatRequest) string {
+	// A nested thinking:{"type":"disabled"} is an explicit off switch. Qoder
+	// does not clamp levels, but reporting "none" keeps the request log and the
+	// outbound enable_thinking / is_reasoning flags consistent.
+	if providers.RequestsDisabledThinking(req) {
+		return "none"
+	}
 	if len(req.ReasoningEffort) > 0 {
 		var value any
 		if json.Unmarshal(req.ReasoningEffort, &value) == nil {
@@ -807,6 +813,12 @@ func BuildChatPayload(req translate.ChatRequest, stream bool) map[string]any {
 	}
 	if len(req.ReasoningEffort) > 0 {
 		payload["reasoning_effort"] = json.RawMessage(req.ReasoningEffort)
+	}
+	// Mirror the direct COSY path: an explicit disabled thinking object must
+	// reach the worker as a concrete off switch, not just an opaque field.
+	if providers.RequestsDisabledThinking(req) {
+		payload["enable_thinking"] = false
+		payload["thinking"] = json.RawMessage(req.Thinking)
 	}
 	if len(req.ReasoningBudgetTokens) > 0 {
 		payload["reasoning_budget_tokens"] = json.RawMessage(req.ReasoningBudgetTokens)
