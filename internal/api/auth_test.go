@@ -194,7 +194,7 @@ func TestCanonicalModelIDNormalizesWithoutAliases(t *testing.T) {
 	}
 }
 
-func TestModelContextSettingsApplyToChatDefaults(t *testing.T) {
+func TestModelContextSettingsApplyMaxInputTokensToQoderChat(t *testing.T) {
 	srv := New(config.Config{
 		Host: "127.0.0.1", Port: 3010, ProxyAPIKey: "secret",
 		QoderHome: t.TempDir(), DataDir: t.TempDir(),
@@ -207,8 +207,11 @@ func TestModelContextSettingsApplyToChatDefaults(t *testing.T) {
 	if err := srv.applyModelContextDefaults(context.Background(), &req, "qoder"); err != nil {
 		t.Fatal(err)
 	}
-	if string(req.ContextLength) != "500000" || string(req.MaxInputTokens) != "500000" {
-		t.Fatalf("context=%s max_input=%s", req.ContextLength, req.MaxInputTokens)
+	if len(req.ContextLength) != 0 {
+		t.Fatalf("qoder chat must not carry a parameters window override: context=%s", req.ContextLength)
+	}
+	if string(req.MaxInputTokens) != "500000" {
+		t.Fatalf("window must go to MaxInputTokens: %s", req.MaxInputTokens)
 	}
 
 	explicit := translate.ChatRequest{
@@ -809,6 +812,52 @@ func TestNamedAPIKeyModelsListOnlyIncludesAllowedProviders(t *testing.T) {
 	}
 	if !bytes.Contains(consoleRec.Body.Bytes(), []byte(`"workbuddy"`)) {
 		t.Fatalf("console key must still list workbuddy models: %s", consoleRec.Body.String())
+	}
+}
+
+func TestNamedAPIKeyModelsListHidesModelsNoAccountEnables(t *testing.T) {
+	srv := New(config.Config{
+		Host: "127.0.0.1", Port: 3010, ProxyAPIKey: "secret",
+		QoderHome: t.TempDir(), DataDir: t.TempDir(),
+	})
+	defer srv.Close()
+	created, err := srv.Control.Keys.Create(context.Background(), accounts.CreateAPIKey{
+		Name: "ci", Providers: []string{"qoder"}, Enabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.Providers.Register(providers.Adapter{ID: "qoder", Models: &countingCatalog{models: []providers.ModelInfo{
+		{NativeModel: "glm-5.2", PublicModel: "glm-5.2"},
+		{NativeModel: "kimi-k2.6", PublicModel: "kimi-k2.6"},
+	}}})
+	srv.Pool.Upsert(executor.Item{
+		ID: "q1", Provider: "qoder", Region: "global", Runtime: string(providers.RuntimeInProcess),
+		ModelsRestricted: true, EnabledModels: []string{"glm-5.2"},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	req.Header.Set("Authorization", "Bearer "+created.Secret)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /v1/models = %d %s", rec.Code, rec.Body.String())
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"glm-5.2"`)) || bytes.Contains(rec.Body.Bytes(), []byte(`kimi-k2.6`)) {
+		t.Fatalf("restricted account leaked a disabled model: %s", rec.Body.String())
+	}
+
+	// A second unrestricted account of the same provider restores the name,
+	// because the key can still reach it.
+	srv.Pool.Upsert(executor.Item{
+		ID: "q2", Provider: "qoder", Region: "global", Runtime: string(providers.RuntimeInProcess),
+	})
+	req = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	req.Header.Set("Authorization", "Bearer "+created.Secret)
+	rec = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !bytes.Contains(rec.Body.Bytes(), []byte(`kimi-k2.6`)) {
+		t.Fatalf("unrestricted sibling should keep the model listed: %d %s", rec.Code, rec.Body.String())
 	}
 }
 

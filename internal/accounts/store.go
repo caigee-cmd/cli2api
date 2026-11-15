@@ -39,6 +39,9 @@ type AccountStore interface {
 	SaveCredential(ctx context.Context, accountID, authType string, credential NativeCredential) error
 	LoadCredential(ctx context.Context, accountID string) (NativeCredential, error)
 	SaveCredentialPayload(ctx context.Context, accountID, format string, payload []byte) error
+	// SetCredentialAuthType records the credential kind ("pat"/"oauth") on the
+	// account without rewriting the blob, so a PAT login shows the right type.
+	SetCredentialAuthType(ctx context.Context, accountID, authType string) error
 	LoadCredentialPayload(ctx context.Context, accountID string) (string, []byte, error)
 	Observe(ctx context.Context, id, remoteUID, status, lastError, lastKind string) error
 	SaveQuota(ctx context.Context, id string, quota *QuotaSnapshot) error
