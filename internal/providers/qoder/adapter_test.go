@@ -604,18 +604,27 @@ func TestModelInfosCarriesContextConfigWindows(t *testing.T) {
 	}
 }
 
-func TestBuildPlainChatBodySendsContextWindow(t *testing.T) {
+func TestBuildPlainChatBodyOmitsContextWindowSwitch(t *testing.T) {
 	body := BuildPlainChatBody(translate.ChatRequest{
-		Model:         "qmodel_38max",
-		Messages:      []translate.ChatMessage{{Role: "user", Content: "hi"}},
-		ContextLength: json.RawMessage("400000"),
+		Model:          "qmodel_38max",
+		Messages:       []translate.ChatMessage{{Role: "user", Content: "hi"}},
+		ContextLength:  json.RawMessage("400000"),
+		MaxInputTokens: json.RawMessage("400000"),
 	}, time.Now())
 	params, _ := body["parameters"].(map[string]any)
-	if got := string(params["contextWindow"].(json.RawMessage)); got != "400000" {
-		t.Errorf("parameters.contextWindow = %q, want 400000", got)
+	// Qoder's in-process chat must not send a context-window switch in parameters.
+	if raw, ok := params["contextWindow"]; ok {
+		t.Errorf("parameters.contextWindow must be absent, got %v", raw)
 	}
-	// The worker path still reads context_length, so both must carry the value.
-	if got := string(params["context_length"].(json.RawMessage)); got != "400000" {
-		t.Errorf("parameters.context_length = %q, want 400000", got)
+	if raw, ok := params["context_length"]; ok {
+		t.Errorf("parameters.context_length must be absent, got %v", raw)
+	}
+	if raw, ok := params["max_input_tokens"]; ok {
+		t.Errorf("parameters.max_input_tokens must be absent, got %v", raw)
+	}
+	// The selected window is carried by model_config.max_input_tokens instead.
+	modelCfg, _ := body["model_config"].(map[string]any)
+	if got, ok := modelCfg["max_input_tokens"].(int); !ok || got != 400000 {
+		t.Errorf("model_config.max_input_tokens = %v, want 400000", modelCfg["max_input_tokens"])
 	}
 }
