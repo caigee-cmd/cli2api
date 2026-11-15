@@ -87,7 +87,7 @@ func TestPrepareDeniesUngrantedProvider(t *testing.T) {
 	}
 }
 
-func TestPrepareAppliesQoderContextAndStartsLog(t *testing.T) {
+func TestPrepareQoderWindowGoesToMaxInputTokens(t *testing.T) {
 	ex := NewChatExecutor(NewPool(nil, nil), "")
 	contexts := &stubContexts{value: 500000, ok: true}
 	catalogs := &stubCatalogs{}
@@ -109,8 +109,11 @@ func TestPrepareAppliesQoderContextAndStartsLog(t *testing.T) {
 	if contexts.got != "glm-5.2" {
 		t.Fatalf("context key=%s", contexts.got)
 	}
-	if string(got.Request.ContextLength) != "500000" || string(got.Request.MaxInputTokens) != "500000" {
-		t.Fatalf("defaults=%s %s", got.Request.ContextLength, got.Request.MaxInputTokens)
+	if len(got.Request.ContextLength) != 0 {
+		t.Fatalf("qoder chat must not carry a parameters window override: %s", got.Request.ContextLength)
+	}
+	if string(got.Request.MaxInputTokens) != "500000" {
+		t.Fatalf("window must go to MaxInputTokens: %s", got.Request.MaxInputTokens)
 	}
 	if catalogs.calls != 1 {
 		t.Fatalf("catalog calls=%d", catalogs.calls)
