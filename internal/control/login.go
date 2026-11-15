@@ -107,6 +107,11 @@ func (a *Accounts) LoginPAT(ctx context.Context, id, token string) error {
 	if err := a.store().SaveCredentialPayload(ctx, id, importer.Format(), prepared.Payload); err != nil {
 		return operationError("credential_save_failed", err.Error())
 	}
+	// Record the credential kind so the card shows the right type (and enables
+	// export/filtering) instead of the create-time default "none".
+	if err := a.store().SetCredentialAuthType(ctx, id, "pat"); err != nil {
+		return operationError("credential_save_failed", err.Error())
+	}
 	enabled := true
 	if err := a.store().Update(ctx, id, accounts.UpdateAccount{Enabled: &enabled}); err != nil {
 		return err

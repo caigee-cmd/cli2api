@@ -82,7 +82,7 @@ func rewriteToolTagFrames(w io.Writer, src io.Reader, allowed map[string]struct{
 	}
 
 	err := walkUpstream(src, func(body map[string]any) error {
-		frame := frameFromBody(body)
+		frame := frameFromBody(body, nil)
 		// Pass errors / usage / structured tools / reasoning through; only
 		// content is subject to tool-tag hold.
 		if frame.errText != "" && frame.content == "" && frame.reasoning == "" && len(frame.tools) == 0 {
@@ -210,5 +210,5 @@ func rewriteToolTagFrames(w io.Writer, src io.Reader, allowed map[string]struct{
 	if !finished {
 		// writeOpenAIChunks salvages missing finish; nothing else to emit.
 	}
-return nil
+	return nil
 }

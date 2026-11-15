@@ -218,6 +218,53 @@ func TestCatalogSourceQoderFallbackStampsRegion(t *testing.T) {
 	}
 }
 
+func TestFilterModelsByAccountAllowDropsModelsNoGrantedAccountServes(t *testing.T) {
+	models := []map[string]any{
+		{"id": "glm-5.2", "provider": "qoder", "regions": []string{"global"}},
+		{"id": "kimi-k2.6", "provider": "qoder", "regions": []string{"global"}},
+		{"id": "qoder/deepseek-v4", "provider": "qoder", "regions": []string{"cn"}},
+		{"id": "trae-only", "provider": "trae", "regions": []string{"cn"}},
+	}
+	pool := []AccountModelAllow{
+		{Provider: "qoder", Region: "global", ModelsRestricted: true, EnabledModels: []string{"glm-5.2"}},
+		{Provider: "qoder", Region: "cn", ModelsRestricted: true, EnabledModels: []string{"glm-5.2"}},
+		{Provider: "trae", Region: "cn"},
+	}
+	key := auth.Identity{Kind: auth.KindKey, AllowedProviders: []string{"qoder"}}
+	filtered := FilterModelsByAccountAllow(models, key, pool)
+	if len(filtered) != 1 || filtered[0]["id"] != "glm-5.2" {
+		t.Fatalf("qoder key filtered=%v", filtered)
+	}
+
+	// An alias stays visible only when its target is one this account may serve.
+	aliased := []AccountModelAllow{{
+		Provider: "qoder", Region: "global", ModelsRestricted: true,
+		EnabledModels: []string{"glm-5.2"}, Aliases: map[string]string{"my-glm": "glm-5.2", "my-kimi": "kimi-k2.6"},
+	}}
+	withAlias := append(models, map[string]any{"id": "my-glm", "provider": "qoder", "regions": []string{"global"}})
+	withAlias = append(withAlias, map[string]any{"id": "my-kimi", "provider": "qoder", "regions": []string{"global"}})
+	filtered = FilterModelsByAccountAllow(withAlias, key, aliased)
+	got := map[string]bool{}
+	for _, model := range filtered {
+		id, _ := model["id"].(string)
+		got[id] = true
+	}
+	if !got["glm-5.2"] || !got["my-glm"] || got["my-kimi"] || got["kimi-k2.6"] {
+		t.Fatalf("alias filtered=%v", got)
+	}
+
+	// One unrestricted account of the same provider keeps the whole catalog,
+	// and an empty pool (tests, pool not yet reported) changes nothing.
+	open := []AccountModelAllow{{Provider: "qoder", Region: "global"}}
+	// The CN-only entry stays hidden: this account does not cover that region.
+	if n := len(FilterModelsByAccountAllow(models, key, open)); n != 2 {
+		t.Fatalf("unrestricted qoder account hid models: %d", n)
+	}
+	if n := len(FilterModelsByAccountAllow(models, key, nil)); n != len(models) {
+		t.Fatalf("empty pool filtered %d of %d", n, len(models))
+	}
+}
+
 func TestFilterModelsForIdentityDropsDisallowedProviderAndRegion(t *testing.T) {
 	models := []map[string]any{
 		{"id": "glm-5.2", "provider": "qoder", "regions": []string{"cn"}},

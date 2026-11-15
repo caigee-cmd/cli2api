@@ -210,6 +210,130 @@ func ProviderModelEntry(model providers.ModelInfo, provider string) map[string]a
 	return entry
 }
 
+// AccountModelAllow is one account's contribution to the public model list.
+// A restricted account contributes only EnabledModels; an unrestricted one
+// contributes every model of its provider and region. Enabled IDs are the
+// canonical form stored by NormalizeAccountRouting.
+type AccountModelAllow struct {
+	Provider         string
+	Region           string
+	ModelsRestricted bool
+	EnabledModels    []string
+	// Aliases maps a client-facing canonical name onto the canonical catalog
+	// model this account rewrites it to. The public list keeps an alias only
+	// when some granted account both defines it and may serve its target.
+	Aliases map[string]string
+}
+
+// ModelServedByAccounts reports whether at least one account the caller can
+// reach will accept this catalog entry. Provider and region grants are applied
+// here too, so a key scoped to one family never keeps another family's name
+// just because that other account left its list unrestricted.
+//
+// An empty account list keeps the catalog unchanged: tests and a pool that has
+// not reported routing yet must not blank /v1/models. A model stays listed when
+// any granted account can serve it — either because that account is
+// unrestricted, or because the model (or an alias that rewrites to it) is in
+// its enabled set. Region-qualified entries ("workbuddy-cn/…") only consult
+// accounts of that region; a merged entry stays when any of its regions has a
+// serving account.
+func ModelServedByAccounts(entry map[string]any, identity auth.Identity, pool []AccountModelAllow) bool {
+	if len(pool) == 0 {
+		return true
+	}
+	provider, _ := entry["provider"].(string)
+	if provider == "" {
+		provider, _ = entry["owned_by"].(string)
+	}
+	provider = accounts.NormalizeProviderFamily(provider)
+	if strings.TrimSpace(provider) == "" {
+		return true
+	}
+	if !identity.AllowsProvider(provider) {
+		return false
+	}
+	regions := EntryModelRegions(entry)
+	id, _ := entry["id"].(string)
+	modelKey := modelAllowKey(id)
+	if modelKey == "" {
+		return true
+	}
+	for _, account := range pool {
+		if accounts.NormalizeProviderFamily(account.Provider) != provider {
+			continue
+		}
+		if !identity.AllowsProviderRegion(provider, account.Region) {
+			continue
+		}
+		if !accountServesRegion(account.Region, regions) {
+			continue
+		}
+		if accountServesModel(account, modelKey) {
+			return true
+		}
+	}
+	return false
+}
+
+// FilterModelsByAccountAllow drops catalog entries no granted account will
+// serve. See ModelServedByAccounts for the empty-pool and mixed-account rules.
+func FilterModelsByAccountAllow(models []map[string]any, identity auth.Identity, pool []AccountModelAllow) []map[string]any {
+	if len(pool) == 0 || len(models) == 0 {
+		return models
+	}
+	filtered := make([]map[string]any, 0, len(models))
+	for _, model := range models {
+		if !ModelServedByAccounts(model, identity, pool) {
+			continue
+		}
+		filtered = append(filtered, model)
+	}
+	return filtered
+}
+
+func accountServesRegion(accountRegion string, entryRegions []string) bool {
+	if len(entryRegions) == 0 {
+		return true
+	}
+	accountRegion = accounts.NormalizeRegion(accountRegion)
+	for _, region := range entryRegions {
+		if accounts.NormalizeRegion(region) == accountRegion {
+			return true
+		}
+	}
+	return false
+}
+
+func accountServesModel(account AccountModelAllow, modelKey string) bool {
+	if !account.ModelsRestricted {
+		return true
+	}
+	if target := account.Aliases[modelKey]; target != "" {
+		modelKey = target
+	}
+	for _, enabled := range account.EnabledModels {
+		if enabled == modelKey {
+			return true
+		}
+	}
+	return false
+}
+
+// modelAllowKey folds a catalog id the same way routing folds a request, and
+// strips a provider prefix ("qoder/glm-5.2", "workbuddy-cn/glm-5.2") so a
+// prefixed public list matches the bare ids stored on the account.
+func modelAllowKey(id string) string {
+	id = strings.TrimSpace(id)
+	if slash := strings.LastIndex(id, "/"); slash >= 0 {
+		id = id[slash+1:]
+	}
+	key := accounts.CanonicalModelID(id)
+	if key == "" || key == "auto" {
+		return ""
+	}
+	return key
+}
+
 // FilterModelsForIdentity applies grants after loading the shared catalog.
 func FilterModelsForIdentity(identity auth.Identity, models []map[string]any) []map[string]any {
 	if len(identity.AllowedProviders) == 0 {
