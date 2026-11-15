@@ -1126,7 +1126,7 @@ func (c *Client) chatRequest(ctx context.Context, credential Credential, req tra
 		if maxMode && !caps.MaxMode {
 			log.Printf("trae model %q: max mode requested but catalog says unsupported; sending default context window", req.Model)
 		}
-		applySoloChatFields(obj, req, maxMode, storedLevel, caps)
+		applySoloChatFields(obj, req, maxMode, storedLevel, caps, credential.UID, providers.ConversationFromContext(ctx))
 		resolved.ReasoningLevel = resolvedReasoningLevel(req, storedLevel, caps)
 		if encoded, err := json.Marshal(obj); err == nil {
 			rewritten = encoded
