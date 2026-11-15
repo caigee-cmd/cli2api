@@ -58,10 +58,10 @@ const (
 	pathWhamUsage = "/wham/usage"
 
 	// Cloaking: upstream gates on the official Codex CLI UA/originator.
-	// rust-v0.167.2 (stable) defaults the originator to codex_cli_rs and
+	// rust-v0.169.0 (stable) defaults the originator to codex_cli_rs and
 	// builds the UA as "{originator}/{version} ({os} {os_version}; {arch}) {terminal}".
 	// Alpha releases stay off this pin.
-	UserAgent  = "codex_cli_rs/0.167.2 (Mac OS 26.5.2; arm64) iTerm.app/3.6.11"
+	UserAgent  = "codex_cli_rs/0.169.0 (Mac OS 26.5.2; arm64) iTerm.app/3.6.11"
 	Originator = "codex_cli_rs"
 
 	QuotaUnit = "rate_limit_window"
