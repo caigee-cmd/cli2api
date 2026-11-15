@@ -518,13 +518,11 @@ func BuildPlainChatBody(req translate.ChatRequest, now time.Time) map[string]any
 	copyRaw(parameters, "response_format", req.ResponseFormat)
 	copyRaw(parameters, "reasoning_effort", req.ReasoningEffort)
 	copyRaw(parameters, "reasoning_budget_tokens", req.ReasoningBudgetTokens)
-	// Qoder's official client forwards the selected window as
-	// `parameters.contextWindow`. `context_length` stays alongside it because
-	// the worker path already emitted that field; both carry the same value so
-	// whichever one the gateway reads selects the same window.
-	copyRaw(parameters, "contextWindow", req.ContextLength)
-	copyRaw(parameters, "context_length", req.ContextLength)
-	copyRaw(parameters, "max_input_tokens", req.MaxInputTokens)
+	// Qoder's in-process chat client must not send a context-window switch in
+	// `parameters`: the gateway rejects `contextWindow`/`context_length` there
+	// with a context-length error. The selected window is carried by
+	// `model_config.max_input_tokens` instead (already set above from
+	// req.MaxInputTokens), so no window field is added to `parameters`.
 	copyRaw(parameters, "tool_choice", req.ToolChoice)
 	if req.ParallelToolCalls != nil {
 		parameters["parallel_tool_calls"] = *req.ParallelToolCalls
