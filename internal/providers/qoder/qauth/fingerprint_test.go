@@ -23,8 +23,8 @@ func TestUserAgentIsUndici(t *testing.T) {
 	if openAPIUserAgentVersion != CosyVersion {
 		t.Fatal("OpenAPI UA version must follow CosyVersion")
 	}
-	if CosyVersion != "1.1.75" {
-		t.Fatalf("CosyVersion=%q want 1.1.75", CosyVersion)
+	if CosyVersion != "1.1.81" {
+		t.Fatalf("CosyVersion=%q want 1.1.81", CosyVersion)
 	}
 	if DesktopCosyVersion != "0.4.8" {
 		t.Fatalf("DesktopCosyVersion=%q want 0.4.8", DesktopCosyVersion)
@@ -71,7 +71,7 @@ func TestBearerHeadersFingerprint(t *testing.T) {
 			got.Get("Cosy-Business-Product"), got.Get("Cosy-Business-Type"),
 			got.Get("Cosy-Scene"), got.Get("Cosy-Clientip"))
 	}
-	// qodercli 1.1.75: machineos on all COSY requests; hostname SSE-only.
+	// machineos on all COSY requests; hostname SSE-only.
 	if got.Get("Cosy-MachineOS") != CosyMachineOS {
 		t.Fatalf("json Cosy-MachineOS=%q want %q", got.Get("Cosy-MachineOS"), CosyMachineOS)
 	}
