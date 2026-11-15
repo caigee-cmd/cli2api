@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="168" viewBox="0 0 1200 168" role="img" aria-labelledby="t d">
+  <title id="t">02 One request, end to end</title>
+  <desc id="d">Section 02. One request, from the client to an account you own.</desc>
+  <rect width="1200" height="168" rx="28" fill="#F5F5F5"/>
+  <text x="56" y="78" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="22" letter-spacing="4" fill="#71717A">02</text>
+  <text x="56" y="128" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" font-size="48" font-weight="650" letter-spacing="-1" fill="#18181B">One request, end to end</text>
+</svg>
