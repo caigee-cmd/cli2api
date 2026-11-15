@@ -4,46 +4,34 @@
 
 **把你自己的登录态，变成一个本机 OpenAI 兼容 API**
 
-接入 **Qoder（国际版 / 国内版）**、**WorkBuddy（国际版 / 国内版）**、**Trae 国内版 Work**，以及实验性的 **Devin**、**Command Code** 和 **华为云码道 CodeArts**。
-
-用 Docker 部署，在 Web 控制台管理账号，再通过兼容 API 接入客户端。
-
 [![License](https://img.shields.io/github/license/caigee-cmd/cli2api)](LICENSE)
 [![Telegram](https://img.shields.io/badge/Telegram-community-26A5E4)](https://t.me/+jCjL8ou_g7Q2MzI1)
 
 <sub>[English](README_EN.md) · [问题反馈](https://github.com/caigee-cmd/cli2api/issues) · [Telegram](https://t.me/+jCjL8ou_g7Q2MzI1)</sub>
 
-<sub>Sponsors</sub>
-
-<a href="https://caiaiu.com"><picture><source media="(prefers-color-scheme: dark)" srcset="./docs/assets/sponsors/caiai-dark.svg"><img src="./docs/assets/sponsors/caiai.svg" height="36" alt="CaiAI"></picture></a>
-
-<img src="./docs/assets/readme/hero-zh.svg" width="100%" alt="CLI2API — 把你自己的登录态，变成一个本机运行的 OpenAI 兼容 API">
+<img src="./docs/assets/readme/hero-zh.svg" width="100%" alt="CLI2API：客户端只看到 127.0.0.1:3010，请求由 Qoder、WorkBuddy 或 Trae 的登录态完成">
 
 </div>
 
 ## 赞助
 
-CLI2API 自托管、自带账号。不想自己部署时，可以用赞助商的托管 Gateway。
+CLI2API 自托管、自带账号。不想自己部署时，用赞助商的托管 Gateway。
+
+<p>
+<a href="https://caiaiu.com"><picture><source media="(prefers-color-scheme: dark)" srcset="./docs/assets/sponsors/caiai-dark.svg"><img src="./docs/assets/sponsors/caiai.svg" height="44" alt="CaiAI"></picture></a>
+</p>
 
 | 赞助商 | 是什么 | 适合谁 | 入口 |
 | --- | --- | --- | --- |
 | [CaiAI](https://caiaiu.com) | 预付费的 OpenAI 兼容 API Gateway。一把密钥覆盖 Claude Code、Codex、OpenCode、Cherry Studio、TRAE 等客户端，路由 GPT、Grok、GLM、Kimi 等模型，并提供用量、密钥限额与账单。 | 想直接调用模型、不自备登录态的团队 | [caiaiu.com](https://caiaiu.com) |
 
-和 CLI2API 的差别：这里管的是你自己的账号和本机网关；CaiAI 管的是托管密钥、路由和计费。
+这里管的是你自己的账号和本机网关。CaiAI 管的是托管密钥、路由和计费。
 
-## 功能
+<p>
+<img src="./docs/assets/readme/section-start-zh.svg" width="100%" alt="01 三分钟跑起来">
+</p>
 
-- **兼容接口**：Chat Completions、Responses、Anthropic Messages 和模型列表，支持流式回复与函数工具调用。
-- **多账号调度**：轮询、加权轮询、顺序填满，以及可选的同供应商最早到期优先（FEFO）；保留自动选号、会话粘性、并发限制、冷却与故障切换。
-- **统一控制台**：管理账号、模型、客户端密钥、代理设置，查看额度和请求日志。
-- **华为云码道（实验性）**：OAuth PKCE 登录后直连 snap-access 的 OpenAI 兼容接口，支持流式、工具调用、按目录声明向视觉模型转发图片、按目录声明的 reasoning 档位，并读取套餐积分 / token 计量。
-- **Docker 运维**：持久化账号数据；可选安装宿主机更新器，在控制台下载更新、确认升级和回滚。
-
-Qoder 国内版、WorkBuddy、Trae 的适配代码已实现，真账号验收仍未完成；Devin、Command Code 与华为云码道 CodeArts 为实验性接入，不承诺生产可用。托管更新的真实升级 / 回滚验收也尚未完成。Kimi Code（中国区）已完成单账号端到端验收：设备码登录、模型发现、三种接口的对话 / 流式 / 工具调用 / 视觉，以及额度读取；多账号行为只有自动化测试覆盖。码道 CodeArts 已完成单账号端到端验收：OAuth 登录、模型发现与不可用模型剔除、Chat Completions / Anthropic Messages / Responses 的非流式与流式、工具调用、reasoning 透传、套餐额度读取和签到；双账号失败切换与会话粘性也已实测，额度耗尽切换仍待验收。
-
-## 快速开始
-
-需要 Docker 和一个你自己控制的上游账号。macOS / Windows 使用 Docker Desktop；Windows 需使用 Linux containers。
+需要 Docker，和一个你自己控制的上游账号。macOS / Windows 用 Docker Desktop；Windows 需使用 Linux containers。
 
 ```bash
 git clone https://github.com/caigee-cmd/cli2api.git
@@ -51,30 +39,37 @@ cd cli2api
 ./scripts/start.sh        # Windows 用 scripts\start.ps1
 ```
 
-1. 保存首次启动日志中打印的**管理员密钥**。
-2. 打开 `http://127.0.0.1:3010`，用管理员密钥登录，在 **Accounts** 添加账号。
-3. 在 **API keys** 创建客户端密钥，在 **Access** 选择模型并测试。
+1. 保存首次启动日志里的**管理员密钥**。
+2. 打开 `http://127.0.0.1:3010`，用它登录，在 **Accounts** 添加账号。
+3. 在 **API keys** 创建客户端密钥，到 **Access** 选一个模型并测试。
 
-Docker Compose 是支持的安装与托管更新路径；源码运行用于开发。详细步骤见 [部署说明](deploy/README.md)。
-
-## 接入客户端
-
-在支持 OpenAI 兼容 API 的客户端中填写：
+然后在任意 OpenAI 兼容客户端里填：
 
 ```text
 Base URL: http://127.0.0.1:3010/v1
-API Key:  <在 API keys 页面创建的客户端密钥>
+API Key:  <刚才创建的客户端密钥>
 ```
 
-模型 ID 从 **Access** 页面或 `/v1/models` 获取。默认自动选择账号，同一对话优先复用原账号。固定账号、自定义会话标识及 curl / PowerShell 示例见 [部署说明](deploy/README.md)。
+模型 ID 从 **Access** 或 `/v1/models` 获取。默认自动选号，同一对话优先复用原账号。环境变量、固定账号、托管更新见 [部署说明](deploy/README.md)。
 
-## 工作方式
-
-<p align="center">
-  <img src="./docs/assets/readme/architecture-zh.svg" width="100%" alt="CLI2API 架构：OpenAI 客户端经 Go 控制面路由到每账号独立运行时，再连接各 provider 上游">
+<p>
+<img src="./docs/assets/readme/section-what-zh.svg" width="100%" alt="02 一次请求怎么走">
 </p>
 
-Go 网关统一鉴权、调度和记录请求。Qoder 每个账号使用独立 Node 进程与 HOME；WorkBuddy、Trae、Devin、Command Code 使用 Go 进程内适配器，不为每次请求启动完整 CLI；码道 CodeArts 也走进程内适配器，直连华为云 snap-access 的 OpenAI 兼容网关，不拉起码道 CLI 或 IDE。
+<p>
+<img src="./docs/assets/readme/request-zh.svg" width="100%" alt="客户端把请求发到本机 3010，网关选一个你自己的账号，再直连上游">
+</p>
+
+接入 **Qoder（国际版 / 国内版）**、**WorkBuddy（国际版 / 国内版）**、**Trae 国内版 Work**。**Devin**、**Command Code**、**华为云码道 CodeArts** 是实验性接入，不承诺生产可用。
+
+Go 网关统一鉴权、调度和记录请求。Qoder 每个账号一个独立 Node 进程和 HOME；其余供应商走进程内适配器，不为每次请求启动完整 CLI。
+
+- **三种接口**：Chat Completions、Responses、Anthropic Messages，加上模型列表。支持流式和函数工具调用。
+- **多账号**：轮询、加权轮询、顺序填满，以及可选的同供应商最早到期优先（FEFO）。自动选号、会话粘性、并发限制、冷却和故障切换都在。
+- **一个控制台**：账号、模型、客户端密钥、代理、额度和请求日志。
+- **Docker**：账号数据持久化。可选的宿主机更新器可以在控制台里下载、确认和回滚。
+
+Qoder 国内版、WorkBuddy、Trae 已实现，真账号验收未完成。Kimi Code（中国区）和码道已完成单账号端到端验收；码道的额度耗尽切换，以及托管更新的真实升级 / 回滚，仍待验收。
 
 ## 控制台
 
@@ -82,39 +77,31 @@ Go 网关统一鉴权、调度和记录请求。Qoder 每个账号使用独立 N
   <img src="./docs/assets/readme/console-window-zh.svg" width="100%" alt="CLI2API 控制台 Accounts 页：每个账号显示登录方式、就绪状态与额度，右侧 Access 面板提供 Base URL 与快速验证">
 </p>
 
-账号、模型、接入和日志都在同一个 Web 控制台里管理：就绪状态和额度一目了然，Access 页可以直接复制 Base URL 并做一次快速验证。
+就绪状态和额度在账号卡片上。Access 页可以复制 Base URL，并做一次快速验证。WorkBuddy、QwenWork、Qoder 可以在卡片上签到；自动签到默认关闭，时间在「系统 → 自动签到」。真实账号签到验收仍待完成。
 
-在「账号」卡片直接操作 WorkBuddy、QwenWork 国内版/国际版与 Qoder 国内版、国际版的签到、自动签到开关（默认关闭），并从「更多 → 签到记录」查看历史，不另设签到中心。在「系统 → 自动签到」配置各供应商默认时间，「编辑账号」可选择跟随默认或自定义；修改默认时间会立即影响未覆盖的账号。已有 WorkBuddy 账号保留原时间，可在编辑账号时切回跟随默认。活动关闭时只记录跳过；真实账号签到验收仍待完成。QwenWork 的签到接口在客户端里存在，但生产网关尚未开放（404）：国内版按钱包日额度核对当日免费积分，国际版只能核对总额度并记录跳过原因。
+## 最早到期优先
 
-## 最早到期优先（FEFO）
+在「系统 → 账号调度策略」里选「最早到期优先」，或提交 `{"routing_strategy":"fefo"}` 到 `PATCH /api/system/settings`。默认仍是轮询。
 
-在「系统 → 账号调度策略」选择「最早到期优先（FEFO）」，或向 `PATCH /api/system/settings` 提交 `{"routing_strategy":"fefo"}`。默认仍是轮询，原有轮询、加权轮询和顺序填满行为不变。
+只在同一供应商内，按最近一笔还能用的积分包到期日排序。没有到期日的账号不猜测，只在有日期的账号都不可用时才上场。额度耗尽、冷却、并发占满的账号照旧先退出。目前只有 WorkBuddy 个人账号有逐包到期日。
 
-- **只在同一供应商内排序**：先按供应商分组，再比较本组账号最近的积分包到期日；Qoder、WorkBuddy 等互不影响，跨供应商仍按原有轮询选择。
-- **只认实际可消费的积分包到期**：跳过余额为零、已过期或到期未知的包；同一 UTC+8 自然日到期的账号公平轮询。未知到期不猜测，作为该供应商的兜底候选，只有已知到期账号都不可用时才参与。
-- **额度与故障切换照旧**：额度耗尽、限流冷却、并发占满或被显式排除的账号先退出候选，恢复后自动回到排序。响应或流结束后异步刷新该账号额度并重新排序；缓存中的包自然过期也会触发额度探测。不会把订阅重置、令牌有效期或签到奖励当成积分包到期。
-- **数据缺口**：目前只有 WorkBuddy 个人账号的 `get-user-resource` 返回逐包 `CycleEndTime`。Qoder 的 `quota/usage` 只有订阅月度边界（`expiresAt`），Trae、Devin、Command Code、Codex 也只有重置窗口或总额度，因此这些供应商的账号在 FEFO 下按未知日期处理。码道 CodeArts 的统计接口提供套餐积分与 token 计量，但不提供逐包到期日，同样按未知日期兜底，不伪造到期。WorkBuddy 企业/共享身份，以及结果达到 100 条的未确认列表，也不会获得 FEFO 优先级。升级后尚未刷新额度的旧缓存同样按未知日期处理，启动探测或手动刷新后才会带上包元数据。
+<p>
+<img src="./docs/assets/readme/section-limits-zh.svg" width="100%" alt="03 它不做什么">
+</p>
 
-## 使用限制
-
-- 只连接你自己的账号，不提供账号、额度或官方 API 服务。
-- 兼容接口不等于完整复刻官方 API。Messages / Responses 为无状态适配，不保存服务端会话，也不执行上游专属工具。
-- 图片能力取决于上游和模型，网关把上游声明的图片输入逐模型透出为 `supports_images`（`/v1/models` 与 `/api/models`）。WorkBuddy 的 DeepSeek V4 / V4.1、GLM、Kimi 等模型支持图片；码道的 Qwen3-VL-235B 与 Kimi K2.6 VL 支持图片，其余码道模型按文本处理；Trae、Command、Zhipu 未声明图片输入。具体范围见 [部署说明](deploy/README.md)。
-- 跨上游同名模型调度受系统开关、账号权限和地域约束；不是任意账号之间都能切换。
-- 上游协议变化可能影响兼容性；请求日志默认不保存提示词或回复正文。
-
-## 文档
-
-- [部署与运维：启动步骤、环境变量、接口、托管更新](deploy/README.md)
-- [变更记录](CHANGELOG.md)
+- 只连接你自己的账号。这里不提供账号、额度或官方 API。
+- 兼容不等于完整复刻。Messages / Responses 不保存服务端会话，也不执行上游专属工具。
+- 图片取决于上游和模型，以 `supports_images` 为准。范围见 [部署说明](deploy/README.md)。
+- 同名模型跨上游调度，受系统开关、账号权限和地域约束。
+- 上游协议一变，兼容性就可能变。请求日志默认不存提示词和回复正文。
 
 ## 安全
 
-默认只向本机开放 `127.0.0.1:3010`，不要直接暴露到公网。管理员密钥可操作控制台；客户端密钥仅用于 `/v1/*`。请妥善保管密钥、账号导出文件和数据库备份，发现问题按 [SECURITY.md](SECURITY.md) 私下报告。
+默认只监听 `127.0.0.1:3010`，不要直接暴露到公网。管理员密钥管控制台，客户端密钥只用于 `/v1/*`。密钥、账号导出和数据库备份请自己保管。安全问题按 [SECURITY.md](SECURITY.md) 私下报告。
 
 ## 社区与贡献
 
-讨论请加入 [Telegram 群](https://t.me/+jCjL8ou_g7Q2MzI1)。国内也可扫下方个人微信二维码联系。缺陷和功能请求请走 GitHub [Issue](https://github.com/caigee-cmd/cli2api/issues)；文档改进与 Pull Request 见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+讨论在 [Telegram 群](https://t.me/+jCjL8ou_g7Q2MzI1)。国内也可以扫下面的个人微信。缺陷和功能请求走 GitHub [Issue](https://github.com/caigee-cmd/cli2api/issues)，文档和代码见 [CONTRIBUTING.md](CONTRIBUTING.md)。变更记录在 [CHANGELOG.md](CHANGELOG.md)。
 
 <p align="center">
   <img src="./docs/assets/readme/wechat-contact.jpg" width="220" alt="个人微信二维码">
