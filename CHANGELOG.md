@@ -3,6 +3,68 @@
 Published user-facing notes for GitHub Releases and the console update page.
 Write upcoming notes as bilingual files in `changelog/unreleased/`.
 
+## 0.7.34 - 2026-11-16
+
+### English
+
+- `CLI2API_MSGSTAT_SHARDS` no longer replaces content-seed session affinity. It only pins a request that has no conversation id and no user message, so distinct chats that share a system prefix stay on their own accounts.
+- `CLI2API_AFFINITY_DEBUG` now logs upstream prompt and cache-token hits for `/v1/messages` and `/v1/responses` as well as `/v1/chat/completions`.
+- WorkBuddy WAF fingerprint detection now scans structured message content, including raw JSON and nested objects, so a fingerprint outside a plain string is still rewritten.
+- Client API keys can now cap how many `/v1` chats they run at once. Set it when creating or editing a key; 0 means no limit. A request past the cap returns HTTP 429. Existing keys stay unlimited.
+- Recognise client conversation ids from headers and body metadata aliases (`X-Conversation-Id`, `X-Session-Id`, `X-Thread-Id`, `conversation_id`, `conversationId`, `metadata.*`, ...), so chat turns stay on one account and keep the upstream prompt cache warm instead of rotating through the pool.
+- Add opt-in `CLI2API_MSGSTAT_SHARDS` to bound one-shot Messages calls to a small, stable set of accounts per (API key, model, system prefix, tools), matching `WB_MSGSTAT_SHARDS` in workbuddy2api-hub.
+- Add opt-in `CLI2API_AFFINITY_DEBUG` diagnostics that separate route-level session affinity from real upstream cache-token hits, including prompt/cache tokens and hit rate.
+- Rectify historical Anthropic `thinking` / `redacted_thinking` blocks and stale signatures on `/v1/messages` (cc-switch-style minimal cleanup) so OpenAI-compatible upstreams no longer receive invalid signed blocks. Disable with `CLI2API_THINKING_RECTIFIER=off`.
+- Skip WAF fingerprint regexes for request bodies with no known trigger, avoiding unnecessary per-request CPU work on large histories and keeping cached prefixes stable.
+- A check-in that the upstream marks as skipped (the activity is closed, not started, or already ended) now shows "Activity unavailable" on the account card instead of a green success. A one-click "check in all" run counts those accounts as failed in the summary.
+- Codex requests present the official stable CLI identity, `codex_cli_rs/0.169.0`.
+- Honor the OpenAI-compatible `thinking:{"type":"disabled"}` off switch on WorkBuddy and Qoder chat requests, so extraction calls no longer emit reasoning tokens on WorkBuddy.
+- Reasoning effort levels remain catalog-driven; disabling thinking is a separate switch and does not change level clamping.
+- Trae is intentionally unchanged: its upstream catalog advertises no `none` reasoning option for reasoning models, and every known disable signal still produces reasoning tokens.
+- `/v1/models` now hides a model once every account the API key can reach has left it out of its selected models. A model stays listed while any reachable account still serves it.
+- Add a model-cooldown button to every account card. It opens an inline list of models currently in cooldown with a live remaining-time countdown, and shows an empty state when nothing is cooling down.
+
+- Show per-account check-in feedback after a one-click "check in all" run, not only after a single-account check-in. Each card reports success, already checked in, or the raw upstream error with a copy button.
+
+- Remove `baseUrl` and `ignoreDeprecations` from the frontend TypeScript config so the console type-checks under both the workspace TypeScript 6.0 and the globally installed 5.9.
+- Qoder token (PAT) accounts now refresh their status and credits like browser-login accounts. The in-process account had no online probe, so "Refresh credits", opening the Accounts page, and the background sweep never re-read the upstream quota and the card showed a number that never moved. It now probes the live session and pulls `/api/v2/quota/usage` synchronously on a manual refresh (surfacing the error instead of a stale number), and the cached snapshot keeps its real fetch time instead of restamping "now". Quota buckets now follow the same rules as the browser path (an unusable organization package no longer inflates the balance). Token accounts also record their credential type (`pat`) and gateway uid, so the UID and export entry appear as they do for a browser login.
+- Restore the Qoder context-window control for PAT / token sign-in. Accounts added with a token read `/model/list` in-process, where the selectable windows live in a nested `context_config` object (`200K` / `400K` / `1M`, one tier marked default). The parser only knew the worker's flattened `default_context_window` / `available_context_windows` keys, so every token account lost the "default → larger" switch and the console could not change its context size. The adapter now reads `context_config` too, so token and browser sessions show the same window and switch. Chat requests also send the official `parameters.contextWindow` field alongside the existing `context_length`.
+- Qoder upstream model-level queue rejections (business code 10605 / `RESOURCE_LIMIT`) are now reported as `429 rate_limited` with the upstream `retry_after` hint instead of the misleading `upstream_empty` ("context overflow / silent reject"). The gateway detects the queued rejection inside an HTTP 200 SSE frame, keeps the account healthy (no cooldown, no failover) because the queue applies to every account, and relays the retry hint on both streaming and buffered chat so clients back off correctly.
+- A session bound to a provider whose accounts are all at their concurrency limit now schedules on another provider that still has a free slot, instead of returning rate limit.
+- Trae and Qoder chats now reuse one upstream session across the turns of a conversation, so a repeated prefix can hit the prompt cache instead of being billed in full on every turn. A request with no session still gets a fresh id.
+- Qoder chat now presents client version 1.1.81 and names the model on the request the upstream uses for billing, so a model is no longer charged as auto.
+- Qoder parallel tool calls stay separate when the upstream repeats the same index. Split arguments of one call still join back together.
+
+### 中文
+
+- `CLI2API_MSGSTAT_SHARDS` 不再覆盖内容指纹会话粘性。它只钉住没有会话 ID、也没有用户消息的请求，共用同一段 system 前缀的不同对话仍各自留在自己的账号上。
+- `CLI2API_AFFINITY_DEBUG` 现在也会为 `/v1/messages` 和 `/v1/responses` 记录上游 prompt 与缓存 token 命中，不再只覆盖 `/v1/chat/completions`。
+- WorkBuddy WAF 指纹检测现在会扫描结构化消息内容，包括原始 JSON 和嵌套对象，纯字符串之外的指纹也会被改写。
+- 客户端 API 密钥现在可以限制同时进行的 `/v1` 对话数。创建或编辑密钥时设置，0 表示不限制。超出上限的请求返回 HTTP 429。已有密钥保持不限制。
+- 支持从请求头和 body 元数据别名识别会话 ID（`X-Conversation-Id`、`X-Session-Id`、`X-Thread-Id`、`conversation_id`、`conversationId`、`metadata.*` 等），让同一对话固定在同一账号上，避免轮转导致上游 prompt 缓存失效。
+- 新增可选 `CLI2API_MSGSTAT_SHARDS`，按（API Key、模型、system 前缀、tools）把单发 Messages 请求收敛到少量固定账号，对齐 workbuddy2api-hub 的 `WB_MSGSTAT_SHARDS`。
+- 新增可选 `CLI2API_AFFINITY_DEBUG` 诊断日志，把「路由级会话亲和」与「上游真实缓存 token 命中」分开记录，包含 prompt/cache tokens 与命中率。
+- `/v1/messages` 入站按 cc-switch 思路最小清理历史 `thinking` / `redacted_thinking` 块和失效签名，避免把无效签名转发给 OpenAI 兼容上游；可用 `CLI2API_THINKING_RECTIFIER=off` 关闭。
+- 对不含任何已知指纹的请求体跳过 WAF 正则清洗，减少长历史请求的 CPU 开销，并避免清洗改动缓存前缀。
+- 上游返回跳过的签到（活动未开放、未开始或已结束）现在在账号卡片上显示「活动未开放」，不再显示绿色成功。一键签到的汇总也会把这些账号计入失败。
+- Codex 请求使用官方稳定版 CLI 身份 `codex_cli_rs/0.169.0`。
+- WorkBuddy 与 Qoder 的聊天请求现在支持 OpenAI 兼容的 `thinking:{"type":"disabled"}` 关闭思考开关，WorkBuddy 抽取类请求不再产生思考内容。
+- 推理强度仍由模型 catalog 决定；关闭思考是独立开关，不改变强度档位的钳制规则。
+- Trae 有意不改动：其上游 catalog 对推理模型不提供 `none` 档，实测所有已知关闭信号仍会产生思考内容。
+- `/v1/models` 会在 API key 能用到的每个账号都没把它选进可用模型时，不再列出这个模型。只要还有一个可用账号能接，它就继续显示。
+- 每个账号卡片新增「模型冷却」按钮，点开可在卡片内查看当前处于冷却中的模型及实时剩余时间；没有模型冷却时显示空状态。
+
+- 一键签到后每个账号卡片也会显示签到反馈（成功 / 已签到 / 失败并展示上游原始错误及复制按钮），此前只有单账号签到才有反馈。
+
+- 移除前端 TypeScript 配置中的 `baseUrl` 与 `ignoreDeprecations`，让工作区 TypeScript 6.0 和全局 5.9 都能通过类型检查。
+- Qoder token（PAT）账号现在会像浏览器登录账号一样刷新状态和积分。进程内账号原本没有任何在线探测，导致「刷新积分」、进入账号页以及后台巡检都不会重新拉取上游额度，卡片上的数字一直不变。现在会探测实时会话，并在手动刷新时同步拉取 `/api/v2/quota/usage`（失败时返回错误而不是保留旧数字），缓存快照也会保留真实的抓取时间而不再每次都写成「当前时间」。额度分桶的合并规则也与浏览器登录路径保持一致（不可用的组织资源包不再虚增余额）。token 账号还会记录凭据类型（`pat`）和网关 uid，因此 UID 与导出入口会和浏览器登录一致。
+- 修复 token（PAT）登录的 Qoder 账号无法调整上下文窗口。token 账号在进程内直接读取 `/model/list`，可选窗口放在嵌套的 `context_config` 里（`200K` / `400K` / `1M`，其中一档标记为默认），而解析器只认识 worker 展平后的 `default_context_window` / `available_context_windows`，因此每个 token 账号都丢了「默认档 → 更大档」开关，控制台无法修改上下文。适配层现在同时读取 `context_config`，token 登录与浏览器登录显示一致的窗口和开关。聊天请求也会在原有 `context_length` 之外补发官方客户端使用的 `parameters.contextWindow`。
+- Qoder 上游的模型级排队拒绝（业务码 10605 / `RESOURCE_LIMIT`）现在会正确报告为 `429 rate_limited` 并透传上游的 `retry_after` 提示，而不再误报成 `upstream_empty`（"上下文溢出 / 静默拒绝"）。网关会从 HTTP 200 的 SSE 帧中识别这种排队拒绝；由于队列对所有账号一视同仁，网关不会因此冷却或切换账号，并在流式与缓冲式聊天中都保留重试提示，让客户端正确退避。
+- 会话绑定的提供商账号并发已满时，请求会改派到仍有空闲槽位的其他提供商，而不再直接返回速率限制。
+- Trae 和 Qoder 的同一段对话现在会复用同一个上游会话，重复的前缀可以命中提示缓存，而不再是每一轮都按全价计费。没有会话的请求仍会使用新的 id。
+- Qoder 对话现在以 1.1.81 的客户端版本出站，并在上游用来记账的字段里带上模型名，模型不再被记成 auto。
+- Qoder 的并行工具调用在上游重复同一个序号时仍会分开。同一次调用拆开的参数仍会拼回去。
+
 ## 0.7.33 - 2026-11-13
 
 ### English
