@@ -75,6 +75,7 @@ func (h *Handler) prepareExecution(r *http.Request, request translate.ChatReques
 
 		PreferAccount:     prefer,
 		SessionHeader:     sessionHeader,
+		ConversationID:    ConversationIDFromContext(ctx),
 		CrossProviderPool: h.crossProviderPoolOn(),
 		ModelContexts:     modelContexts,
 		Catalogs:          catalogs,

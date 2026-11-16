@@ -270,12 +270,12 @@ func TestStoreCreatesNamedAPIKeys(t *testing.T) {
 
 	created, err := store.InsertAPIKey(ctx, accounts.StoredAPIKey{
 		Name: "CI", Prefix: accounts.APIKeyPrefix(secret), KeyHash: accounts.HashAPIKey(secret),
-		Providers: []string{"qoder"}, Enabled: true,
+		Providers: []string{"qoder"}, Enabled: true, MaxInFlight: 3,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if created.Secret != "" || created.ID == "" || created.Prefix == "" {
+	if created.Secret != "" || created.ID == "" || created.Prefix == "" || created.MaxInFlight != 3 {
 		t.Fatalf("created key leaked secret fields: %+v", created)
 	}
 	listed, err := store.ListAPIKeys(ctx)
@@ -291,11 +291,12 @@ func TestStoreCreatesNamedAPIKeys(t *testing.T) {
 	}
 	updated, err := store.SaveAPIKey(ctx, accounts.StoredAPIKey{
 		ID: created.ID, Name: "CI prod", Prefix: created.Prefix, Providers: []string{"qoder", "trae"}, Enabled: false,
+		MaxInFlight: 6,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updated.Name != "CI prod" || updated.Enabled || len(updated.Providers) != 2 || updated.Secret != "" {
+	if updated.Name != "CI prod" || updated.Enabled || len(updated.Providers) != 2 || updated.Secret != "" || updated.MaxInFlight != 6 {
 		t.Fatalf("updated = %+v", updated)
 	}
 	if err := store.DeleteAPIKey(ctx, created.ID); err != nil {

@@ -18,6 +18,9 @@ type Identity struct {
 	KeyID            string
 	Name             string
 	AllowedProviders []string
+	// MaxInFlight caps concurrent /v1 chat requests for a named key. Zero
+	// means unlimited. Console traffic is never capped.
+	MaxInFlight int
 }
 
 func (i Identity) Console() bool {
@@ -65,5 +68,6 @@ func KeyIdentity(key accounts.APIKey) Identity {
 		KeyID:            key.ID,
 		Name:             key.Name,
 		AllowedProviders: append([]string{}, key.Providers...),
+		MaxInFlight:      key.MaxInFlight,
 	}
 }

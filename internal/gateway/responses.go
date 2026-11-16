@@ -39,6 +39,9 @@ func (h *Handler) HandleResponses(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusRequestEntityTooLarge, "invalid_request", "request body too large")
 		return
 	}
+	if id := conversationIDFromRequest(r, body); id != "" {
+		r = r.WithContext(WithConversationID(r.Context(), id))
+	}
 	native, err := translate.ParseNativeResponses(body)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
@@ -58,6 +61,12 @@ func (h *Handler) HandleResponses(w http.ResponseWriter, r *http.Request) {
 		writeCompatibilityOpenAIError(w, err)
 		return
 	}
+	releaseKey, ok := h.reserveKeySlot(r)
+	if !ok {
+		writeKeyConcurrencyLimited(w)
+		return
+	}
+	defer releaseKey()
 	execution.ResponseToolNames = translated.ToolNames
 	if len(execution.ResponseToolNames) == 0 && execution.NativeRequest != nil {
 		execution.ResponseToolNames = translate.ResponseToolNames(execution.NativeRequest.Body())

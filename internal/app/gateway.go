@@ -53,6 +53,7 @@ func (a *App) newGateway() *apigateway.Handler {
 	if a.Recorder != nil {
 		h.Logs = a.Recorder
 	}
+	h.KeyLimits = &apigateway.KeyInFlight{}
 	return h
 }
 
