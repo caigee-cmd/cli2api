@@ -1,6 +1,7 @@
 package workbuddy
 
 import (
+	"bytes"
 	"encoding/json"
 	"regexp"
 	"strings"
@@ -532,7 +533,6 @@ func sanitizeBillingHeaders(text string) string {
 	return wafBillingHdrBareRe.ReplaceAllString(text, "anthropic-header")
 }
 
-
 // bodyMayNeedWAFRewrite is a cheap prefilter. Most requests have none of the
 // client fingerprints the WAF rules rewrite; running a dozen regexes over a
 // multi-hundred-kilobyte history on every turn is pure CPU and, worse, can
@@ -564,18 +564,47 @@ func textMayNeedWAFRewrite(value any) bool {
 	switch typed := value.(type) {
 	case string:
 		return wafTextMayNeedRewrite(typed)
+	case []byte:
+		return textMayNeedWAFRewrite(jsonRawOrString(typed))
+	case json.RawMessage:
+		return textMayNeedWAFRewrite(jsonRawOrString(typed))
 	case []any:
 		for _, part := range typed {
-			object, ok := part.(map[string]any)
-			if !ok {
-				continue
+			if textMayNeedWAFRewrite(part) {
+				return true
 			}
-			if text, ok := object["text"].(string); ok && wafTextMayNeedRewrite(text) {
+		}
+	case map[string]any:
+		for _, nested := range typed {
+			if textMayNeedWAFRewrite(nested) {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+// jsonRawOrString unwraps a JSON string, array, or object so a RawMessage
+// content field is scanned the same way a decoded one is. Anything else is
+// scanned as text, which still catches a fingerprint sitting in opaque JSON.
+func jsonRawOrString(raw []byte) any {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return ""
+	}
+	switch trimmed[0] {
+	case '"':
+		var text string
+		if json.Unmarshal(trimmed, &text) == nil {
+			return text
+		}
+	case '[', '{':
+		var decoded any
+		if json.Unmarshal(trimmed, &decoded) == nil {
+			return decoded
+		}
+	}
+	return string(trimmed)
 }
 
 func wafTextMayNeedRewrite(text string) bool {
