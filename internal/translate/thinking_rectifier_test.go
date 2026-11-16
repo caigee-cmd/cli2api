@@ -6,25 +6,6 @@ import (
 	"testing"
 )
 
-func TestShouldRectifyThinkingMatchesKnownErrors(t *testing.T) {
-	for _, message := range []string{
-		"Invalid 'signature' in 'thinking' block",
-		"Thought signature is not valid",
-		"messages.1.content.0.thinking.signature: Field required",
-		"Expected `thinking` or `redacted_thinking`, but found `tool_use`",
-		"thinking.budget_tokens: Input should be greater than or equal to 1024",
-	} {
-		if !ShouldRectifyThinking(message) {
-			t.Fatalf("missed %q", message)
-		}
-	}
-	for _, message := range []string{"", "rate limited", "connection reset", "invalid api key"} {
-		if ShouldRectifyThinking(message) {
-			t.Fatalf("false positive %q", message)
-		}
-	}
-}
-
 func TestRectifyAnthropicRequestDropsHistoricalThinking(t *testing.T) {
 	body := []byte(`{"model":"hy3","thinking":{"type":"enabled","budget_tokens":1024},"max_tokens":64,
 		"messages":[

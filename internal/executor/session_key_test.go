@@ -69,7 +69,6 @@ func TestPrepareUsesConversationID(t *testing.T) {
 	}
 }
 
-
 func TestMessageStatShardsEnvAndFallback(t *testing.T) {
 	if MessageStatShards() != 0 {
 		t.Fatal("sharding must be off by default")
@@ -94,12 +93,27 @@ func TestMessageStatShardsEnvAndFallback(t *testing.T) {
 		t.Fatalf("shard fallback broke across turns: %q %q", a, b)
 	}
 	ex := NewChatExecutor(NewPool(nil, nil), "")
+	// A request with a user message already has a content seed. Sharding must
+	// not replace it, or distinct chats that share a system prefix collapse.
 	prepared, err := ex.Prepare(PrepareInput{Request: req, Identity: auth.ConsoleIdentity(), CrossProviderPool: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sessionKeyFromContext(prepared.Context) != a {
-		t.Fatal("Prepare did not use shard fallback")
+	contentKey := sessionKeyFor("", "", auth.ConsoleIdentity(), req)
+	if got := sessionKeyFromContext(prepared.Context); got != contentKey || got == a {
+		t.Fatalf("shard replaced content seed: got %q seed %q shard %q", got, contentKey, a)
+	}
+	// No user anchor and no conversation id: the shard key is the only affinity.
+	anchorless := translate.ChatRequest{Model: "hy4free", Messages: []translate.ChatMessage{
+		{Role: "system", Content: "stable"},
+	}}
+	fallback, err := ex.Prepare(PrepareInput{Request: anchorless, Identity: auth.ConsoleIdentity(), CrossProviderPool: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantShard := ShardFallbackKey(auth.ConsoleIdentity(), anchorless)
+	if got := sessionKeyFromContext(fallback.Context); got == "" || got != wantShard {
+		t.Fatalf("anchorless request did not use shard: got %q want %q", got, wantShard)
 	}
 	t.Setenv("CLI2API_MSGSTAT_SHARDS", "bad")
 	if MessageStatShards() != 0 {
