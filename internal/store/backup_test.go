@@ -103,6 +103,7 @@ func TestPublishedMigrationsKeepOrderedFilenameAndSQLDigest(t *testing.T) {
 		{"024_trae_keep_system_prompt.sql", "69c46ca8a4d4d820b75e77e975831efa1477e3a3efe84e31feb2a298c0875a3d"},
 		{"025_request_log_api_key.sql", "1b02ba3388fc88de4263419e1b1a8fd97839e67587f2cdf1c0ec7560bd2386f1"},
 		{"026_request_log_detail_expiry.sql", "1467d6c863355f451c2268ef6062cd27fa4870141230697ed778996ca6a16a95"},
+		{"027_api_key_max_inflight.sql", "f5e5f592718579aa077c2f6cbd89e73a7da78e6ec0f009c183168acef43e2242"},
 	}
 	if len(sqliteMigrations) != len(want) {
 		t.Fatalf("migration count = %d, want %d", len(sqliteMigrations), len(want))

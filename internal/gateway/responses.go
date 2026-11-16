@@ -58,6 +58,12 @@ func (h *Handler) HandleResponses(w http.ResponseWriter, r *http.Request) {
 		writeCompatibilityOpenAIError(w, err)
 		return
 	}
+	releaseKey, ok := h.reserveKeySlot(r)
+	if !ok {
+		writeKeyConcurrencyLimited(w)
+		return
+	}
+	defer releaseKey()
 	execution.ResponseToolNames = translated.ToolNames
 	if len(execution.ResponseToolNames) == 0 && execution.NativeRequest != nil {
 		execution.ResponseToolNames = translate.ResponseToolNames(execution.NativeRequest.Body())

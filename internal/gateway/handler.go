@@ -29,6 +29,9 @@ type Handler struct {
 	// AfterAccountUse is an optional non-blocking quota invalidation hook. It
 	// runs after the response/stream finishes, never on receipt of SSE headers.
 	AfterAccountUse func(accountID, publicModel string)
+	// KeyLimits caps concurrent chat requests per named API key. Nil means
+	// unlimited, which tests and the console chat path rely on.
+	KeyLimits *KeyInFlight
 }
 
 func (h *Handler) requestIdentity(r *http.Request) auth.Identity {

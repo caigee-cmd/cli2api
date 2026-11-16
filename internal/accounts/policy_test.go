@@ -35,6 +35,15 @@ func TestDefaultAccountPolicyValues(t *testing.T) {
 	if DefaultWorkBuddyAutoCheckin(nil) {
 		t.Fatal("auto check-in defaults off")
 	}
+	if NormalizeAPIKeyMaxInFlight(0) != 0 || NormalizeAPIKeyMaxInFlight(-3) != 0 || NormalizeAPIKeyMaxInFlight(8) != 8 {
+		t.Fatal("api key concurrency treats non-positive values as unlimited")
+	}
+	if err := ValidateAPIKeyMaxInFlight(MaxAPIKeyInFlight); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateAPIKeyMaxInFlight(MaxAPIKeyInFlight + 1); err == nil {
+		t.Fatal("api key concurrency above the cap must be rejected")
+	}
 }
 
 func TestResolveWorkBuddyCheckinTimeInheritsDefault(t *testing.T) {
