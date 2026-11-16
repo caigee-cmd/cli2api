@@ -65,6 +65,12 @@ func (h *Handler) HandleAnthropicMessages(w http.ResponseWriter, r *http.Request
 		writeAnthropicCompatibilityError(w, err)
 		return
 	}
+	releaseKey, ok := h.reserveKeySlot(r)
+	if !ok {
+		writeAnthropicKeyConcurrencyLimited(w)
+		return
+	}
+	defer releaseKey()
 	w.Header().Set("X-Request-Id", execution.RequestID)
 	if execution.Request.Stream {
 		h.handleAnthropicMessagesStream(w, r, execution)
