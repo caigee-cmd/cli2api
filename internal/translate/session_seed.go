@@ -260,3 +260,30 @@ func compactSessionJSON(raw json.RawMessage) string {
 	}
 	return compact.String()
 }
+
+
+// PrefixSessionSeed is the cache-affine part of ContentSessionSeed: model,
+// tools and the leading system/developer prefix only. It deliberately excludes
+// the first user message so workbuddy2api-hub-style sharding does not scatter
+// one (key, model, system, tools) tuple across the whole account pool.
+func PrefixSessionSeed(req ChatRequest) string {
+	parts := []string{
+		strings.ToLower(strings.TrimSpace(req.Model)),
+		compactSessionJSON(req.Tools),
+	}
+	for _, message := range req.Messages {
+		role := strings.ToLower(strings.TrimSpace(message.Role))
+		if role != "system" && role != "developer" {
+			break
+		}
+		for _, part := range sessionContentParts(message.Content) {
+			parts = append(parts, role, part.Type, part.Text, part.Image)
+		}
+	}
+	raw, err := json.Marshal(parts)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
+}
