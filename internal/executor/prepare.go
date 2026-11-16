@@ -152,10 +152,12 @@ func (e ChatExecutor) Prepare(in PrepareInput) (PreparedRequest, error) {
 	if sessionKey == "" && in.NativeRequest != nil {
 		sessionKey = NativeSessionKeyFor(in.NativeRequest, in.Identity)
 	}
-	// No caller-supplied conversation: hub-style sharding keeps one
-	// (key, model, system, tools) tuple on a small account set. The content
-	// seed still runs when sharding is disabled (default).
-	if strings.TrimSpace(in.SessionHeader) == "" && strings.TrimSpace(in.ConversationID) == "" {
+	// Sharding is a fallback for requests that have no conversation id and
+	// no content seed (a one-shot with no user anchor). It must not replace
+	// ContentSessionSeed: that fingerprint already pins one chat to one
+	// account, and the shard key drops the first user message, so different
+	// chats that share a system prefix would collapse onto one bucket.
+	if sessionKey == "" {
 		if shard := ShardFallbackKey(in.Identity, request); shard != "" {
 			sessionKey = shard
 		}
@@ -176,7 +178,7 @@ func (e ChatExecutor) Prepare(in PrepareInput) (PreparedRequest, error) {
 			source = "header"
 		} else if strings.TrimSpace(in.ConversationID) != "" {
 			source = "conversation"
-		} else if MessageStatShards() > 0 {
+		} else if sessionKeyFor("", "", in.Identity, request) == "" && MessageStatShards() > 0 {
 			source = "shard"
 		}
 		log.Printf("session affinity request_id=%q source=%q key=%q model=%q tools=%t msgs=%d",

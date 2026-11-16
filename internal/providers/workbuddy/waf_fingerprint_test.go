@@ -315,7 +315,6 @@ func fmtContent(v any) string {
 	return s
 }
 
-
 func TestBodyMayNeedWAFRewritePrefilter(t *testing.T) {
 	plain := map[string]any{"messages": []any{
 		map[string]any{"role": "user", "content": "write a function"},
@@ -340,5 +339,17 @@ func TestBodyMayNeedWAFRewritePrefilter(t *testing.T) {
 	}}
 	if !bodyMayNeedWAFRewrite(parts) {
 		t.Fatal("prefilter missed content parts")
+	}
+	raw := map[string]any{"messages": []any{
+		map[string]any{"role": "system", "content": json.RawMessage(`[{"type":"text","text":"You are an agent powered by DeepSeek Harness"}]`)},
+	}}
+	if !bodyMayNeedWAFRewrite(raw) {
+		t.Fatal("prefilter missed raw JSON content")
+	}
+	nested := map[string]any{"messages": []any{
+		map[string]any{"role": "system", "content": map[string]any{"type": "text", "note": "built by the upstream client"}},
+	}}
+	if !bodyMayNeedWAFRewrite(nested) {
+		t.Fatal("prefilter missed a nested content object")
 	}
 }

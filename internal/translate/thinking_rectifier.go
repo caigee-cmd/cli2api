@@ -3,50 +3,17 @@ package translate
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
 )
 
 // RectifyResult mirrors cc-switch's thinking rectifier counters. The gateway
 // only ever removes fields that OpenAI-compatible upstreams cannot validate;
 // it never invents signatures or rewrites model output.
 type RectifyResult struct {
-	Applied                         bool `json:"applied"`
-	RemovedThinkingBlocks           int  `json:"removed_thinking_blocks,omitempty"`
-	RemovedRedactedThinkingBlocks   int  `json:"removed_redacted_thinking_blocks,omitempty"`
-	RemovedSignatureFields          int  `json:"removed_signature_fields,omitempty"`
-	RemovedTopLevelThinking         bool `json:"removed_top_level_thinking,omitempty"`
-}
-
-// ShouldRectifyThinking mirrors cc-switch's error-triggered detection. It is
-// deliberately narrow: only upstream errors that name an invalid/missing
-// thinking signature or a malformed thinking block sequence qualify.
-func ShouldRectifyThinking(message string) bool {
-	lower := strings.ToLower(strings.TrimSpace(message))
-	if lower == "" {
-		return false
-	}
-	if strings.Contains(lower, "invalid") && strings.Contains(lower, "signature") && strings.Contains(lower, "thinking") {
-		return true
-	}
-	if strings.Contains(lower, "thought signature") && (strings.Contains(lower, "not valid") || strings.Contains(lower, "invalid")) {
-		return true
-	}
-	if strings.Contains(lower, "must start with a thinking block") {
-		return true
-	}
-	if strings.Contains(lower, "expected") && (strings.Contains(lower, "thinking") || strings.Contains(lower, "redacted_thinking")) && strings.Contains(lower, "tool_use") {
-		return true
-	}
-	if strings.Contains(lower, "signature") && (strings.Contains(lower, "field required") || strings.Contains(lower, "extra inputs are not permitted")) {
-		return true
-	}
-	if (strings.Contains(lower, "thinking") || strings.Contains(lower, "redacted_thinking")) && strings.Contains(lower, "cannot be modified") {
-		return true
-	}
-	if strings.Contains(lower, "budget_tokens") && strings.Contains(lower, "thinking") && (strings.Contains(lower, "1024") || strings.Contains(lower, "input should be")) {
-		return true
-	}
-	return false
+	Applied                       bool `json:"applied"`
+	RemovedThinkingBlocks         int  `json:"removed_thinking_blocks,omitempty"`
+	RemovedRedactedThinkingBlocks int  `json:"removed_redacted_thinking_blocks,omitempty"`
+	RemovedSignatureFields        int  `json:"removed_signature_fields,omitempty"`
+	RemovedTopLevelThinking       bool `json:"removed_top_level_thinking,omitempty"`
 }
 
 // RectifyAnthropicRequest applies the minimal cc-switch cleanup to a decoded
