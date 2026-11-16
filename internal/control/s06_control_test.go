@@ -223,7 +223,7 @@ func (s *fakeStore) InsertAPIKey(_ context.Context, key accounts.StoredAPIKey) (
 	if s.createErr != nil {
 		return accounts.APIKey{}, s.createErr
 	}
-	out := accounts.APIKey{ID: "key-1", Name: key.Name, Prefix: key.Prefix, Providers: key.Providers, Enabled: key.Enabled}
+	out := accounts.APIKey{ID: "key-1", Name: key.Name, Prefix: key.Prefix, Providers: key.Providers, Enabled: key.Enabled, MaxInFlight: key.MaxInFlight}
 	if out.Providers == nil {
 		out.Providers = []string{}
 	}
@@ -267,6 +267,7 @@ func (s *fakeStore) SaveAPIKey(_ context.Context, key accounts.StoredAPIKey) (ac
 	current.Name = key.Name
 	current.Providers = key.Providers
 	current.Enabled = key.Enabled
+	current.MaxInFlight = key.MaxInFlight
 	s.keys[key.ID] = current
 	return current, nil
 }

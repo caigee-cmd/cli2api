@@ -6,11 +6,20 @@ export type APIKeyRecord = {
   prefix: string
   providers: string[]
   enabled: boolean
+  /** 0 means unlimited. */
+  max_inflight: number
   last_used_at?: string
   created_at: string
   updated_at: string
   secret?: string
   secret_once?: boolean
+}
+
+export type APIKeyInput = {
+  name: string
+  providers: string[]
+  enabled?: boolean
+  max_inflight: number
 }
 
 export type ConsoleKeyView = {
@@ -24,14 +33,14 @@ export function fetchAPIKeys() {
   return api<{ object: string; data: APIKeyRecord[] }>('/api/keys')
 }
 
-export function createAPIKey(input: { name: string; providers: string[]; enabled?: boolean }) {
+export function createAPIKey(input: APIKeyInput) {
   return api<APIKeyRecord>('/api/keys', {
     method: 'POST',
     body: JSON.stringify(input),
   })
 }
 
-export function updateAPIKey(id: string, input: { name?: string; providers?: string[]; enabled?: boolean }) {
+export function updateAPIKey(id: string, input: Partial<APIKeyInput>) {
   return api<APIKeyRecord>(`/api/keys/${encodeURIComponent(id)}`, {
     method: 'PATCH',
     body: JSON.stringify(input),
