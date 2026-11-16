@@ -12,39 +12,43 @@ import (
 )
 
 type APIKey struct {
-	ID         string     `json:"id"`
-	Name       string     `json:"name"`
-	Prefix     string     `json:"prefix"`
-	Providers  []string   `json:"providers"`
-	Enabled    bool       `json:"enabled"`
-	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
-	CreatedAt  time.Time  `json:"created_at"`
-	UpdatedAt  time.Time  `json:"updated_at"`
-	Secret     string     `json:"secret,omitempty"`
-	SecretOnce bool       `json:"secret_once,omitempty"`
+	ID          string     `json:"id"`
+	Name        string     `json:"name"`
+	Prefix      string     `json:"prefix"`
+	Providers   []string   `json:"providers"`
+	Enabled     bool       `json:"enabled"`
+	MaxInFlight int        `json:"max_inflight"`
+	LastUsedAt  *time.Time `json:"last_used_at,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+	Secret      string     `json:"secret,omitempty"`
+	SecretOnce  bool       `json:"secret_once,omitempty"`
 }
 
 type CreateAPIKey struct {
-	Name      string
-	Providers []string
-	Enabled   bool
+	Name        string
+	Providers   []string
+	Enabled     bool
+	MaxInFlight int
 }
 
 type UpdateAPIKey struct {
-	Name      string
-	Providers []string
-	Enabled   *bool
+	Name        string
+	Providers   []string
+	Enabled     *bool
+	MaxInFlight *int
 }
 
 type StoredAPIKey struct {
-	ID        string
-	Name      string
-	Prefix    string
-	KeyHash   string
-	Providers []string
-	Enabled   bool
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID          string
+	Name        string
+	Prefix      string
+	KeyHash     string
+	Providers   []string
+	Enabled     bool
+	MaxInFlight int
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 func PrepareCreateAPIKey(input CreateAPIKey) (CreateAPIKey, error) {
@@ -56,7 +60,11 @@ func PrepareCreateAPIKey(input CreateAPIKey) (CreateAPIKey, error) {
 	if err != nil {
 		return CreateAPIKey{}, err
 	}
-	return CreateAPIKey{Name: name, Providers: providers, Enabled: input.Enabled}, nil
+	maxInFlight := NormalizeAPIKeyMaxInFlight(input.MaxInFlight)
+	if err := ValidateAPIKeyMaxInFlight(maxInFlight); err != nil {
+		return CreateAPIKey{}, err
+	}
+	return CreateAPIKey{Name: name, Providers: providers, Enabled: input.Enabled, MaxInFlight: maxInFlight}, nil
 }
 
 func ApplyAPIKeyUpdate(current APIKey, input UpdateAPIKey) (APIKey, error) {
@@ -72,6 +80,13 @@ func ApplyAPIKeyUpdate(current APIKey, input UpdateAPIKey) (APIKey, error) {
 	}
 	if input.Enabled != nil {
 		current.Enabled = *input.Enabled
+	}
+	if input.MaxInFlight != nil {
+		maxInFlight := NormalizeAPIKeyMaxInFlight(*input.MaxInFlight)
+		if err := ValidateAPIKeyMaxInFlight(maxInFlight); err != nil {
+			return APIKey{}, err
+		}
+		current.MaxInFlight = maxInFlight
 	}
 	return current, nil
 }

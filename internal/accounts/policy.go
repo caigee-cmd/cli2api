@@ -11,6 +11,9 @@ import (
 const (
 	DefaultMaxInFlight = 4
 	DefaultPriority    = 50
+	// MaxAPIKeyInFlight is the largest concurrency cap a client key may store.
+	// Zero means unlimited, matching keys created before the cap existed.
+	MaxAPIKeyInFlight = 256
 )
 
 func DefaultMaxInFlightValue(value int) int {
@@ -18,6 +21,23 @@ func DefaultMaxInFlightValue(value int) int {
 		return DefaultMaxInFlight
 	}
 	return value
+}
+
+// NormalizeAPIKeyMaxInFlight clamps a client-key concurrency cap. Zero and
+// negatives mean unlimited. Values above MaxAPIKeyInFlight are not guessed
+// down; the caller must reject them.
+func NormalizeAPIKeyMaxInFlight(value int) int {
+	if value <= 0 {
+		return 0
+	}
+	return value
+}
+
+func ValidateAPIKeyMaxInFlight(value int) error {
+	if value < 0 || value > MaxAPIKeyInFlight {
+		return fmt.Errorf("max_inflight must be an integer from 0 to %d", MaxAPIKeyInFlight)
+	}
+	return nil
 }
 
 func DefaultPriorityValue(value int) int {
