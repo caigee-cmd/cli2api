@@ -2,9 +2,9 @@ import { toast } from '@/lib/toast'
 import { HoldToConfirm } from '@/components/motion/HoldToConfirm'
 import { copyText } from '@/lib/clipboard'
 import { useEffect, useState } from 'react'
-import { Alert, Button, Card, Checkbox, Chip, Description, Form, Input, Label, Modal } from '@heroui/react'
+import { Alert, Button, Card, Checkbox, Chip, Description, Form, Input, Label, Modal, NumberField } from '@heroui/react'
 import { Copy, Key, Plus, TrashSimple, X } from '@phosphor-icons/react'
-import { createAPIKey, deleteAPIKey, fetchAPIKeys, updateAPIKey, type APIKeyRecord } from '@/api/keys'
+import { createAPIKey, deleteAPIKey, fetchAPIKeys, updateAPIKey, type APIKeyInput, type APIKeyRecord } from '@/api/keys'
 import { fetchProviders, type ProviderDescriptor } from '@/api/overview'
 import { BrandMark } from '@/components/BrandMark'
 import { ProviderMark } from '@/components/ProviderMark'
@@ -231,6 +231,8 @@ export function KeysPage() {
                   ))}
                 </div>
                 <p className="text-caption leading-5 text-muted">
+                  {key.max_inflight > 0 ? t('keysMaxInflightValue', { count: key.max_inflight }) : t('keysMaxInflightUnlimited')}
+                  {' · '}
                   {key.last_used_at ? t('keysLastUsed', { time: formatTime(key.last_used_at) }) : t('keysNeverUsed')}
                 </p>
               </Card.Content>
@@ -337,9 +339,10 @@ function KeyEditorModal({
   options: ProviderRegionOption[]
   t: (key: string, vars?: Record<string, string | number>) => string
   onClose: () => void
-  onSave: (input: { name: string; providers: string[]; enabled?: boolean }) => Promise<void>
+  onSave: (input: APIKeyInput) => Promise<void>
 }) {
   const [name, setName] = useState(initial?.name || '')
+  const [maxInFlight, setMaxInFlight] = useState(initial?.max_inflight || 0)
   // Region-scoped checkbox values. Legacy bare grants ("workbuddy") are
   // expanded to all of that family's region checkboxes on open and tracked
   // in allRegionsFamilies (badge display). While providersUntouched stays
@@ -357,6 +360,7 @@ function KeyEditorModal({
   useEffect(() => {
     if (!isOpen) return
     setName(initial?.name || '')
+    setMaxInFlight(initial?.max_inflight || 0)
     setSelected(expandLegacyGrants(initial?.providers || [], options))
     const bare = new Set(
       (initial?.providers || []).filter((entry) => !entry.includes(':')).map((entry) => entry.toLowerCase()),
@@ -391,6 +395,10 @@ function KeyEditorModal({
       setError(t('keysNameRequired'))
       return
     }
+    if (!Number.isInteger(maxInFlight) || maxInFlight < 0 || maxInFlight > 256) {
+      setError(t('keysMaxInflightInvalid'))
+      return
+    }
     // Fail closed: with the provider options not loaded the region list is
     // unknown, and submitting it would turn a restricted key into
     // "allow everything". Block the save instead.
@@ -405,7 +413,7 @@ function KeyEditorModal({
       // (legacy bare entries included); any toggle converts to the explicit
       // region list the user sees checked.
       const providers = providersUntouched ? (initial?.providers || []) : selected
-      await onSave({ name: trimmed, providers })
+      await onSave({ name: trimmed, providers, max_inflight: maxInFlight })
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -435,6 +443,21 @@ function KeyEditorModal({
                 ) : null}
                 <FormRow label={t('keysName')}>
                   <Input value={name} onChange={(event) => setName(event.target.value)} placeholder={t('keysNamePh')} aria-label={t('keysName')} />
+                </FormRow>
+                <FormRow label={t('keysMaxInflight')} hint={t('keysMaxInflightHint')}>
+                  <NumberField
+                    value={maxInFlight}
+                    onChange={(value) => setMaxInFlight(value ?? 0)}
+                    minValue={0}
+                    maxValue={256}
+                    isDisabled={busy}
+                  >
+                    <NumberField.Group>
+                      <NumberField.DecrementButton />
+                      <NumberField.Input aria-label={t('keysMaxInflight')} />
+                      <NumberField.IncrementButton />
+                    </NumberField.Group>
+                  </NumberField>
                 </FormRow>
                 <div className="space-y-2">
                   <Label className="text-body font-medium text-muted">{t('keysProviders')}</Label>

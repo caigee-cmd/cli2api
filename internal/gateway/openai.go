@@ -51,6 +51,12 @@ func (h *Handler) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 		writeChatHTTPError(w, err)
 		return
 	}
+	releaseKey, ok := h.reserveKeySlot(r)
+	if !ok {
+		writeKeyConcurrencyLimited(w)
+		return
+	}
+	defer releaseKey()
 	req = execution.Request
 	publicModel := execution.PublicModel
 	prefer := execution.Prefer

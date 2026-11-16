@@ -254,6 +254,8 @@ CREATE INDEX IF NOT EXISTS request_logs_api_key_id ON request_logs(api_key_id);`
 	{filename: "026_request_log_detail_expiry.sql", sql: `
 ALTER TABLE request_logs ADD COLUMN detail_expired INTEGER NOT NULL DEFAULT 0;
 CREATE INDEX IF NOT EXISTS request_logs_detail_expired ON request_logs(detail_expired, created_at);`},
+	{filename: "027_api_key_max_inflight.sql", sql: `
+ALTER TABLE api_keys ADD COLUMN max_inflight INTEGER NOT NULL DEFAULT 0;`},
 }
 
 const schemaMigrationsDDL = `
