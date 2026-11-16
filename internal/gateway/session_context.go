@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -103,6 +104,16 @@ func cleanID(value string) string {
 // readConversationBody consumes a request body reader and returns the bytes so
 // handlers can both decode JSON and derive the conversation id. It is only used
 // for the request body, never the upstream response stream.
+//
+// Decoding goes through json.Decoder, not json.Unmarshal, so a truncated body
+// such as "{" reports "unexpected EOF" — the same error json.Decoder.Decode
+// produced before the body was buffered for conversation-id extraction.
 func readConversationBody(reader io.Reader, limit int64) ([]byte, error) {
-	return io.ReadAll(io.LimitReader(reader, limit))
+	var buf bytes.Buffer
+	dec := json.NewDecoder(io.TeeReader(io.LimitReader(reader, limit), &buf))
+	var raw json.RawMessage
+	if err := dec.Decode(&raw); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
