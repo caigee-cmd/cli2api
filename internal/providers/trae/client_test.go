@@ -1336,6 +1336,35 @@ func TestPrepareBodyExpandsNamespaceTools(t *testing.T) {
 	}
 }
 
+func TestPrepareBodyHardensStringifiedToolSchema(t *testing.T) {
+	out := PrepareBody([]byte(`{"model":"glm-5.3","messages":[{"role":"user","content":"hi"}],"tools":[
+			{"type":"function","function":{"name":"bounded","parameters":"{\"type\":\"object\",\"additionalProperties\":\"false\",\"properties\":{\"n\":{\"type\":\"integer\",\"minimum\":\"1\"}}}"}}
+		]}`), PrimaryScene)
+	var body map[string]any
+	if err := json.Unmarshal(out, &body); err != nil {
+		t.Fatal(err)
+	}
+	tools, _ := body["tools"].([]any)
+	tool, _ := tools[0].(map[string]any)
+	fn, _ := tool["function"].(map[string]any)
+	raw, ok := fn["parameters"].(string)
+	if !ok {
+		t.Fatalf("parameters=%v", fn["parameters"])
+	}
+	var params map[string]any
+	if err := json.Unmarshal([]byte(raw), &params); err != nil {
+		t.Fatal(err)
+	}
+	if params["additionalProperties"] != false {
+		t.Fatalf("additionalProperties=%#v", params["additionalProperties"])
+	}
+	props, _ := params["properties"].(map[string]any)
+	n, _ := props["n"].(map[string]any)
+	if n["minimum"] != float64(1) {
+		t.Fatalf("minimum=%#v", n["minimum"])
+	}
+}
+
 func TestProbeReadyWithCredential(t *testing.T) {
 	client, store := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatalf("probe should not hit network when credential is fresh: %s", r.URL.Path)

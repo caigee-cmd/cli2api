@@ -3,6 +3,7 @@ package translate
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -162,6 +163,7 @@ func NormalizeOpenAITools(raw json.RawMessage) (json.RawMessage, error) {
 		if len(parameters) == 0 || string(parameters) == "null" {
 			parameters = json.RawMessage(defaultToolParameters)
 		}
+		parameters = hardenToolSchema(parameters)
 		out = append(out, map[string]any{
 			"type": "function",
 			"function": map[string]any{
@@ -276,6 +278,214 @@ func qualifyNamespaceToolName(namespace, name string) string {
 		return name
 	}
 	return strings.TrimRight(namespace, "_") + "__" + strings.TrimLeft(name, "_")
+}
+
+// schemaNumericKeywords and schemaBooleanKeywords are the constraint fields
+// WorkBuddy's Go validator rejects with code 11129 when a client sends them
+// as strings ("minimum": "1", "uniqueItems": "true"). Compliant values pass
+// through; unparseable numbers and nulls are dropped.
+var (
+	schemaNumericKeywords = map[string]struct{}{
+		"minimum": {}, "maximum": {}, "exclusiveMinimum": {}, "exclusiveMaximum": {},
+		"multipleOf": {}, "minLength": {}, "maxLength": {}, "minItems": {},
+		"maxItems": {}, "minProperties": {}, "maxProperties": {},
+	}
+	schemaBooleanKeywords = map[string]struct{}{
+		"uniqueItems": {}, "deprecated": {}, "readOnly": {}, "writeOnly": {},
+	}
+	schemaStringKeywords = map[string]struct{}{
+		"description": {}, "title": {}, "format": {}, "pattern": {},
+	}
+)
+
+// HardenToolSchema coerces those keywords recursively and is idempotent: a
+// schema that is already valid is unchanged. A schema that is not an object
+// is returned as-is. Providers that stringify parameters before this step
+// still call it on the raw schema text.
+func HardenToolSchema(raw json.RawMessage) json.RawMessage {
+	return hardenToolSchema(raw)
+}
+
+func hardenToolSchema(raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 || string(raw) == "null" {
+		return raw
+	}
+	var node any
+	if err := json.Unmarshal(raw, &node); err != nil {
+		return raw
+	}
+	hardened, ok := hardenSchemaNode(node).(map[string]any)
+	if !ok {
+		return raw
+	}
+	out, err := json.Marshal(hardened)
+	if err != nil {
+		return raw
+	}
+	return out
+}
+
+func hardenSchemaNode(node any) any {
+	obj, ok := node.(map[string]any)
+	if !ok {
+		return node
+	}
+	for key, value := range obj {
+		switch key {
+		case "properties", "$defs", "definitions", "patternProperties":
+			if nested, isMap := value.(map[string]any); isMap {
+				for name, child := range nested {
+					nested[name] = hardenSchemaNode(child)
+				}
+				obj[key] = nested
+			}
+		case "anyOf", "oneOf", "allOf", "prefixItems":
+			if list, isList := value.([]any); isList {
+				for i, child := range list {
+					list[i] = hardenSchemaNode(child)
+				}
+				obj[key] = list
+			}
+		default:
+			next, keep := hardenSchemaKeyword(key, value)
+			if !keep {
+				delete(obj, key)
+				continue
+			}
+			obj[key] = next
+		}
+	}
+	return obj
+}
+
+// hardenSchemaKeyword returns keep=false when the keyword cannot be made
+// valid and must be removed. default:null stays: dropping it changes meaning.
+func hardenSchemaKeyword(key string, value any) (any, bool) {
+	if _, numeric := schemaNumericKeywords[key]; numeric {
+		if number, ok := coerceSchemaNumber(value); ok {
+			return number, true
+		}
+		if _, isString := value.(string); isString || value == nil {
+			return nil, false
+		}
+		return value, true
+	}
+	if key == "additionalProperties" {
+		switch typed := value.(type) {
+		case string:
+			if boolean, ok := coerceSchemaBool(typed); ok {
+				return boolean, true
+			}
+			return nil, false
+		case map[string]any:
+			return hardenSchemaNode(typed), true
+		case nil:
+			return nil, false
+		default:
+			return value, true
+		}
+	}
+	if _, boolean := schemaBooleanKeywords[key]; boolean {
+		if coerced, ok := coerceSchemaBool(value); ok {
+			return coerced, true
+		}
+		if _, isString := value.(string); isString || value == nil {
+			return nil, false
+		}
+		return value, true
+	}
+	if _, textual := schemaStringKeywords[key]; textual {
+		text, ok := stringifySchemaValue(value)
+		return text, ok
+	}
+	switch key {
+	case "enum", "examples", "required":
+		if _, isList := value.([]any); !isList {
+			return nil, false
+		}
+		return value, true
+	case "items", "additionalItems", "contains", "propertyNames",
+		"unevaluatedItems", "unevaluatedProperties", "if", "then", "else", "not":
+		if value == nil {
+			return nil, false
+		}
+		if child, isMap := value.(map[string]any); isMap {
+			return hardenSchemaNode(child), true
+		}
+		return value, true
+	default:
+		if value == nil && key != "default" {
+			return nil, false
+		}
+		if child, isMap := value.(map[string]any); isMap {
+			return hardenSchemaNode(child), true
+		}
+		return value, true
+	}
+}
+
+func coerceSchemaNumber(value any) (any, bool) {
+	switch typed := value.(type) {
+	case float64:
+		return typed, true
+	case json.Number:
+		return parseSchemaNumber(typed.String())
+	case string:
+		return parseSchemaNumber(strings.TrimSpace(typed))
+	default:
+		return nil, false
+	}
+}
+
+func parseSchemaNumber(text string) (any, bool) {
+	if text == "" {
+		return nil, false
+	}
+	number, err := strconv.ParseFloat(text, 64)
+	if err != nil {
+		return nil, false
+	}
+	if number == float64(int64(number)) && !strings.ContainsAny(text, ".eE") {
+		return int64(number), true
+	}
+	return number, true
+}
+
+func coerceSchemaBool(value any) (bool, bool) {
+	switch typed := value.(type) {
+	case bool:
+		return typed, true
+	case string:
+		switch strings.ToLower(strings.TrimSpace(typed)) {
+		case "true":
+			return true, true
+		case "false":
+			return false, true
+		}
+	}
+	return false, false
+}
+
+func stringifySchemaValue(value any) (any, bool) {
+	switch typed := value.(type) {
+	case nil:
+		return nil, false
+	case string:
+		return typed, true
+	case float64:
+		if typed == float64(int64(typed)) {
+			return strconv.FormatInt(int64(typed), 10), true
+		}
+		return strconv.FormatFloat(typed, 'f', -1, 64), true
+	case bool:
+		return strconv.FormatBool(typed), true
+	default:
+		encoded, err := json.Marshal(typed)
+		if err != nil {
+			return nil, false
+		}
+		return string(encoded), true
+	}
 }
 
 func firstNonEmptyTrimmed(values ...string) string {
