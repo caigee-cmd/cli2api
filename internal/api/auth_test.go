@@ -960,15 +960,17 @@ func TestAccountRefreshRouteRejectsGET(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// A disabled account has no pool item, so refresh fails closed instead of
-	// silently reporting a stale view.
+	// A disabled account is kept out of the routing pool, but refresh still
+	// probes its provider adapter directly so the operator can inspect a
+	// disabled account's status/quota. It must succeed (200) instead of
+	// failing closed with the old "not running" error.
 	req = httptest.NewRequest(http.MethodPost, "/api/accounts/"+created.ID+"/refresh", nil)
 	req.Header.Set("Authorization", "Bearer secret")
 	req.Header.Set("Content-Type", "application/json")
 	rec = httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, req)
-	if rec.Code != http.StatusBadGateway {
-		t.Fatalf("refresh disabled account: got %d want 502 (%s)", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("refresh disabled account: got %d want 200 (%s)", rec.Code, rec.Body.String())
 	}
 
 	req = httptest.NewRequest(http.MethodGet, "/api/accounts/"+created.ID+"/refresh", nil)
