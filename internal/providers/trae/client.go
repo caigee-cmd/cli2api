@@ -1342,7 +1342,15 @@ func Classify(status int, body string) providers.ClassifiedError {
 	case code == "1001" || status == 401 || strings.Contains(text, "unauthorized"):
 		return providers.ClassifiedError{Kind: accounts.KindAuth, Status: 401, Message: firstNonEmpty(strings.TrimSpace(body), "session dead; re-login required")}
 	case code == "1005" || (strings.Contains(text, "1005") && strings.Contains(text, "plan")):
-		return providers.ClassifiedError{Kind: accounts.KindQuota, Status: 429, Message: firstNonEmpty(strings.TrimSpace(body), "plan limit")}
+		// 1005 with a plan message can mean this account has not unlocked the
+		// requested model. Treat it as a per-account model miss: the executor
+		// evicts the model from this account and fails over instead of cooling
+		// every model on the account until local midnight.
+		return providers.ClassifiedError{
+			Kind:    accounts.KindModelNotAvailable,
+			Status:  400,
+			Message: firstNonEmpty(strings.TrimSpace(body), "model not available for this plan"),
+		}
 	case code == "4008":
 		return providers.ClassifiedError{Kind: accounts.KindQuota, Status: 429, Message: firstNonEmpty(strings.TrimSpace(body), "solo credits exhausted")}
 	case code == "4001":

@@ -579,6 +579,12 @@ func TestImporterAndClassifier(t *testing.T) {
 	if got := Classify(429, `InferHub.4001.429 TPM limit`); got.Kind != accounts.KindRateLimit {
 		t.Fatalf("rate kind = %q", got.Kind)
 	}
+	if got := newProviderError(429, `request is in queue`); got.Code != providers.CodeUpstreamQueued {
+		t.Fatalf("queue should be upstream_queued: %+v", got)
+	}
+	if got := newProviderError(429, `InferHub.4001.429 TPM limit`); got.Code == providers.CodeUpstreamQueued {
+		t.Fatalf("TPM limit must not be upstream_queued: %+v", got)
+	}
 	if got := Classify(400, `InferHub.001001005 request param is invalid`); got.Kind != accounts.KindInvalidRequest {
 		t.Fatalf("param kind = %q", got.Kind)
 	}

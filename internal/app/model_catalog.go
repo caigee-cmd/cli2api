@@ -1,9 +1,11 @@
 package app
 
 import (
+	"net/http"
+
 	"github.com/caigee-cmd/cli2api/internal/control"
 	"github.com/caigee-cmd/cli2api/internal/endpoint"
-	"net/http"
+	"github.com/caigee-cmd/cli2api/internal/executor"
 )
 
 func (a *App) RequestedAccount(r *http.Request) string { return endpoint.RequestedAccount(r) }
@@ -28,11 +30,12 @@ func (a *App) accountModelAllows() []control.AccountModelAllow {
 	out := make([]control.AccountModelAllow, 0, len(items))
 	for _, item := range items {
 		out = append(out, control.AccountModelAllow{
-			Provider:         item.Provider,
-			Region:           item.Region,
-			ModelsRestricted: item.ModelsRestricted,
-			EnabledModels:    item.EnabledModels,
-			Aliases:          item.ModelAliases,
+			Provider:          item.Provider,
+			Region:            item.Region,
+			ModelsRestricted:  item.ModelsRestricted,
+			EnabledModels:     item.EnabledModels,
+			Aliases:           item.ModelAliases,
+			UnavailableModels: executor.UnavailableModelList(item),
 		})
 	}
 	return out

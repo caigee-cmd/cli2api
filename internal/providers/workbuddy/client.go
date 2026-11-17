@@ -768,7 +768,10 @@ func Classify(status int, body string) providers.ClassifiedError {
 	case status == 429 || strings.Contains(text, "soft_rate"):
 		return providers.ClassifiedError{Kind: accounts.KindRateLimit, Status: 429, Message: strings.TrimSpace(body)}
 	case status == 404:
-		return providers.ClassifiedError{Kind: accounts.KindUnavailable, Status: 404, Message: strings.TrimSpace(body)}
+		// A model 404 means this account does not serve the requested model.
+		// Treat it as model-level: evict it from this account's routing catalog
+		// instead of cooling/failing over the whole account.
+		return providers.ClassifiedError{Kind: accounts.KindModelNotAvailable, Status: 404, Message: strings.TrimSpace(body)}
 	case status == 400 || accounts.IsPromptLimitText(body) || accounts.IsInvalidRequestText(body) || isMissingSystemPrompt(body) || isBrokenToolSequence(body):
 		// Request-level rejection (content screening, malformed fields,
 		// missing leading system message): retrying on another account

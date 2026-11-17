@@ -4,6 +4,12 @@ const RATE_RE = /too many requests|rate.?limit|response code=429|resource_exhaus
 const AUTH_RE = /null pointer|FORBIDDEN|Duplicate request|\b401\b|\b403\b|unauthorized|auth|credential|refresh.?token|access.?token/i;
 const NOT_READY_RE = /hot context not ready|auth manager not captured|not ready|loginWithDeviceFlow unavailable|loginWithPAT unavailable|worker may not be warm/i;
 const MODEL_RE = /model_not_available|model_catalog_unavailable|is not available for this qoder account/i;
+// Qoder reports model-level admission control / queue rejections as business
+// code 10605 (subCode RESOURCE_LIMIT). It is not an auth failure, not a quota
+// miss, and not an account fault: the executor must relay Retry-After without
+// cooling or failing over the account (see providers.CodeUpstreamQueued).
+const UPSTREAM_QUEUE_CODE = "10605";
+const UPSTREAM_QUEUE_MARKERS = /model_queued|RESOURCE_LIMIT|"isQueued"\s*:\s*true/i;
 
 export const KIND_QUOTA = "quota";
 export const KIND_RATE_LIMIT = "rate_limit";
@@ -126,6 +132,55 @@ function errorPayload(input = {}) {
   return parsed && typeof parsed === "object" ? parsed : {};
 }
 
+// isUpstreamQueue detects Qoder's 10605 model-level admission control. The
+// code can be the top-level payload code or buried in a doubly-nested
+// "message" JSON string, so check both the parsed code and the raw searchable
+// text. We deliberately require an explicit queue signal (code 10605 or a
+// queue marker): other providers may reuse numeric codes for unrelated errors.
+function isUpstreamQueue(payload, payloadCode, searchable, retryHint) {
+  // The top-level code may be "403" with 10605 nested inside a JSON message
+  // string, so detect the code from the whole searchable text as well.
+  const codeHit = payloadCode === UPSTREAM_QUEUE_CODE || new RegExp(`\\b${UPSTREAM_QUEUE_CODE}\\b`).test(String(payloadCode || "")) || searchable.includes(UPSTREAM_QUEUE_CODE);
+  return codeHit && UPSTREAM_QUEUE_MARKERS.test(searchable);
+}
+
+// queueRetryHint finds retryAfterSeconds in the (doubly) nested Qoder busy
+// envelope. retryHintFromValue does not recognize the "retryAfterSeconds" key,
+// so walk nested JSON message strings explicitly.
+function queueRetryHint(value) {
+  if (typeof value === "string") {
+    const parsed = parseJSON(value);
+    return parsed ? queueRetryHint(parsed) : 0;
+  }
+  if (!value || typeof value !== "object") return 0;
+  for (const [key, raw] of Object.entries(value)) {
+    if (key === "retryAfterSeconds" || key === "retry_after_seconds") {
+      const parsed = parseRetryAfterValue(raw);
+      if (parsed > 0) return parsed;
+    }
+  }
+  for (const raw of Object.values(value)) {
+    const parsed = queueRetryHint(raw);
+    if (parsed > 0) return parsed;
+  }
+  return 0;
+}
+
+function upstreamQueueResult(payload) {
+  const hinted = queueRetryHint(payload) || retryHintFromValue(payload);
+  const retryAfterSec = parseRetryAfter(hinted, 5);
+  return {
+    kind: KIND_RATE_LIMIT,
+    status: 429,
+    failover: false,
+    cooldownSec: retryAfterSec,
+    retryAfterSec,
+    code: "upstream_queued",
+    type: "api_error",
+    message: "upstream model queued (10605)",
+  };
+}
+
 export function classifyError(input = {}) {
   const payload = errorPayload(input);
   const message = String(
@@ -143,8 +198,13 @@ export function classifyError(input = {}) {
   let kind = kindHint;
   if (PROMPT_LIMIT_RE.test(searchable)) {
     kind = KIND_INVALID_REQUEST;
+  } else if (isUpstreamQueue(payload, payloadCode, searchable)) {
+    // Model-level queue/admission control (Qoder 10605): keep the account
+    // healthy, do not fail over, and relay the upstream Retry-After. This must
+    // win over the generic rate/auth branches, which would cool/failover.
+    return upstreamQueueResult(payload);
   } else if (!kind) {
-    if (QUOTA_RE.test(searchable) || ["insufficient_quota", "1005", "4008", "14018"].includes(payloadCode)) {
+    if (QUOTA_RE.test(searchable) || ["insufficient_quota", "4008", "14018"].includes(payloadCode)) {
       kind = KIND_QUOTA;
     } else if (MODEL_RE.test(searchable) || payloadCode === "model_not_available" || payloadCode === "model_catalog_unavailable") {
       kind = KIND_MODEL_NOT_AVAILABLE;

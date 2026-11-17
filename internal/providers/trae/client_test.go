@@ -1022,7 +1022,7 @@ func TestChatStreamFirstErrorFailsBeforeOpenAIChunks(t *testing.T) {
 		resp.Body.Close()
 	}
 	var classified *providers.Error
-	if err == nil || !errors.As(err, &classified) || classified.Kind != accounts.KindQuota {
+	if err == nil || !errors.As(err, &classified) || classified.Kind != accounts.KindModelNotAvailable {
 		t.Fatalf("err=%v classified=%+v", err, classified)
 	}
 }
@@ -1234,7 +1234,8 @@ func TestErrorMappingAndCooldown(t *testing.T) {
 		code   string
 	}{
 		{401, `{"code":1001}`, "auth", "1001"},
-		{200, `{"code":1005,"message":"plan"}`, "quota", "1005"},
+		{200, `{"code":1005,"message":"plan"}`, "model_not_available", "1005"},
+		{200, `{"code":1005,"message":""}`, "model_not_available", "1005"},
 		{200, `{"code":4008}`, "quota", "4008"},
 		{200, `{"code":4001}`, "invalid_request", "4001"},
 		{429, `{"code":"insufficient_quota","message":"token-limit"}`, "invalid_request", "insufficient_quota"},

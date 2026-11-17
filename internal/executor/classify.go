@@ -379,7 +379,13 @@ func stringifyJSONCode(v any) string {
 }
 
 func quotaLike(lower, code, typ string) bool {
-	if code == "insufficient_quota" || typ == "insufficient_quota" || code == "1005" || code == "4008" || code == "14018" {
+	// Bare business codes are not enough to classify an account-level quota
+	// miss: code 1005 in particular is Trae's model-plan entitlement error and
+	// must stay model_not_available when no provider hint is present. Only
+	// unambiguous quota codes and explicit quota text count here. Providers
+	// with genuine quota codes (4008/14018) still get them via their own
+	// classifiers or the explicit text below.
+	if code == "insufficient_quota" || typ == "insufficient_quota" || code == "4008" || code == "14018" {
 		return true
 	}
 	return strings.Contains(lower, "insufficient_quota") ||

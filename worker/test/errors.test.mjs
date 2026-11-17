@@ -108,3 +108,22 @@ test("recognizes nested CodeBuddy quota code", () => {
   assert.equal(got.code, "14018");
   assert.equal(got.failover, true);
 });
+
+test("Qoder 10605 model queue is upstream_queued: no failover, no cooldown, relay retry", () => {
+  const inner = JSON.stringify({ isQueued: true, retryAfterSeconds: 60, subCode: "RESOURCE_LIMIT" });
+  const middle = JSON.stringify({ code: "10605", message: inner, subCode: "RESOURCE_LIMIT" });
+  const got = classifyError({
+    status: 403,
+    body: JSON.stringify({ error: { code: "403", message: middle } }),
+  });
+  assert.equal(got.kind, "rate_limit");
+  assert.equal(got.code, "upstream_queued");
+  assert.equal(got.status, 429);
+  assert.equal(got.failover, false);
+  assert.equal(got.retryAfterSec, 60);
+});
+
+test("bare 1005 is no longer hard-coded to quota", () => {
+  const got = classifyError({ body: JSON.stringify({ error: { code: "1005", message: "model not unlocked" } }) });
+  assert.notEqual(got.kind, "quota");
+});

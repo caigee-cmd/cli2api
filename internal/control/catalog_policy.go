@@ -223,6 +223,10 @@ type AccountModelAllow struct {
 	// model this account rewrites it to. The public list keeps an alias only
 	// when some granted account both defines it and may serve its target.
 	Aliases map[string]string
+	// UnavailableModels are public IDs the upstream explicitly rejected for
+	// this account (for example a plan-locked model). Such an account no
+	// longer contributes the model to the public list.
+	UnavailableModels []string
 }
 
 // ModelServedByAccounts reports whether at least one account the caller can
@@ -305,11 +309,16 @@ func accountServesRegion(accountRegion string, entryRegions []string) bool {
 }
 
 func accountServesModel(account AccountModelAllow, modelKey string) bool {
-	if !account.ModelsRestricted {
-		return true
-	}
 	if target := account.Aliases[modelKey]; target != "" {
 		modelKey = target
+	}
+	for _, unavailable := range account.UnavailableModels {
+		if modelAllowKey(unavailable) == modelKey {
+			return false
+		}
+	}
+	if !account.ModelsRestricted {
+		return true
 	}
 	for _, enabled := range account.EnabledModels {
 		if enabled == modelKey {

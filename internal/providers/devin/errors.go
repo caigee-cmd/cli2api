@@ -79,7 +79,9 @@ func Classify(status int, body string) providers.ClassifiedError {
 			Message: safeBody,
 		}
 	case status == 404:
-		return providers.ClassifiedError{Kind: accounts.KindUnavailable, Status: 404, Message: safeBody}
+		// A model 404 is model-level: evict from this account's catalog instead
+		// of cooling/failing over the whole account.
+		return providers.ClassifiedError{Kind: accounts.KindModelNotAvailable, Status: 404, Message: safeBody}
 	case status == 499 || strings.Contains(text, `"code":"canceled"`) || strings.Contains(text, "canceled"):
 		return providers.ClassifiedError{Kind: accounts.KindCanceled, Status: 499, Message: safeBody}
 	case status >= 500 || status == 0:
@@ -190,15 +192,27 @@ func quotaResetDelay(status *UserStatus, period quotaPeriod, now time.Time) time
 }
 
 // devinQuotaScoped reports an account-level quota exhaustion. A per-model rate
-// limit stays model-scoped so the rest of the account keeps serving.
+// limit (notably resource_exhausted) stays model-scoped so the rest of the
+// account keeps serving: it often mentions credits/ACU but is a model-level
+// resource-pool signal, not the account's usage quota window.
 func devinQuotaScoped(text string) bool {
+	// An explicit daily/weekly usage-quota exhaustion is always account-level,
+	// even when wrapped in a resource_exhausted envelope.
+	if quotaExhaustionPeriod(text) != quotaPeriodNone {
+		return true
+	}
 	if strings.Contains(text, "usage quota") {
 		return true
+	}
+	// A bare resource_exhausted (model resource pool) is model-level even when
+	// it mentions credits/ACU — the rest of the account keeps serving.
+	if strings.Contains(text, "resource_exhausted") {
+		return false
 	}
 	if strings.Contains(text, "quota") || strings.Contains(text, "credit") || strings.Contains(text, "acu") {
 		return true
 	}
-	return strings.Contains(text, "exhausted") && !strings.Contains(text, "resource_exhausted")
+	return strings.Contains(text, "exhausted")
 }
 
 // devinRetryAfter prefers Retry-After, then the reset hint embedded in the

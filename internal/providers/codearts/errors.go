@@ -57,7 +57,15 @@ var rateLimitMarkers = []string{
 	"concurrent session",
 	"并发会话",
 	"tpm",
+}
+
+// queueMarkers are server-side admission/queue rejections. Unlike a rate
+// limit they are not an account fault: the account is healthy and must not be
+// cooled or failed over, and any upstream Retry-After should be relayed.
+var queueMarkers = []string{
 	"queue",
+	"queued",
+	"排队",
 }
 
 // Classify maps CodeArts error bodies onto the executor taxonomy. A model the
@@ -76,6 +84,10 @@ func Classify(status int, body string) providers.ClassifiedError {
 		strings.Contains(lower, "apig.0301") || strings.Contains(lower, "x-auth-token") ||
 		strings.Contains(lower, "token expired") || strings.Contains(lower, "invalid token"):
 		return providers.ClassifiedError{Kind: accounts.KindAuth, Status: http.StatusUnauthorized, Message: message}
+	case containsAny(lower, queueMarkers):
+		// Server-side queue: keep the account healthy. newProviderError adds
+		// CodeUpstreamQueued so the executor does not cool/fail over.
+		return providers.ClassifiedError{Kind: accounts.KindRateLimit, Status: http.StatusTooManyRequests, Message: message}
 	case containsAny(lower, rateLimitMarkers) || status == http.StatusTooManyRequests:
 		return providers.ClassifiedError{Kind: accounts.KindRateLimit, Status: http.StatusTooManyRequests, Message: message}
 	case containsAny(lower, invalidRequestMarkers) || status == http.StatusBadRequest || status == http.StatusUnprocessableEntity:
@@ -118,7 +130,12 @@ func newProviderError(status int, body string) *providers.Error {
 	if message == "" {
 		message = "codearts upstream error"
 	}
-	return &providers.Error{Kind: kind, Status: code, Message: message}
+	out := &providers.Error{Kind: kind, Status: code, Message: message}
+	if kind == accounts.KindRateLimit && containsAny(strings.ToLower(redactSecrets(body)), queueMarkers) {
+		// Model-level upstream queue: no cooldown, no failover, relay retry.
+		out.Code = providers.CodeUpstreamQueued
+	}
+	return out
 }
 
 type classifier struct{}

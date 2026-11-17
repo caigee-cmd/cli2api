@@ -59,6 +59,10 @@ type Item struct {
 	// WorkBuddy CLI snapshots can omit a live ID and would otherwise
 	// leave only quota-cooled empty-catalog accounts on that route.
 	ProvenModels []string
+	// UnavailableModels are public IDs the upstream explicitly reported as
+	// unavailable for this account (for example a Trae model that requires a
+	// paid plan). A fresh catalog that still lists the ID must not resurrect it.
+	UnavailableModels map[string]struct{}
 	// ModelDownUntil is per-model cooldown. One model hitting a limit must
 	// not take the whole account offline for other models.
 	ModelDownUntil map[string]time.Time
@@ -1097,6 +1101,12 @@ func (p *Pool) MarkOK(id, model string) {
 		}
 		scoped := routeModel(model)
 		if scoped != "" {
+			// A real success is stronger evidence than an earlier unavailable
+			// report. Let a future catalog refresh bring the model back.
+			delete(p.items[i].UnavailableModels, scoped)
+			if len(p.items[i].UnavailableModels) == 0 {
+				p.items[i].UnavailableModels = nil
+			}
 			wasCooling := false
 			if until, ok := p.items[i].ModelDownUntil[scoped]; ok && time.Now().Before(until) {
 				wasCooling = true
@@ -1141,6 +1151,7 @@ func (p *Pool) MarkOK(id, model string) {
 			p.items[i].ModelDownUntil = nil
 			p.items[i].ModelBackoff = nil
 			p.items[i].ModelLastKind = nil
+			p.items[i].UnavailableModels = nil
 		}
 		p.stateCounter++
 		p.items[i].StateVersion = p.stateCounter
@@ -1364,6 +1375,15 @@ func (p *Pool) MergeModelsWithPricing(id string, models, freeModels []string) {
 	if p == nil || id == "" {
 		return
 	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	var unavailable map[string]struct{}
+	for i := range p.items {
+		if p.items[i].ID == id {
+			unavailable = p.items[i].UnavailableModels
+			break
+		}
+	}
 	copied := make([]string, 0, len(models))
 	seen := map[string]struct{}{}
 	for _, model := range models {
@@ -1373,6 +1393,9 @@ func (p *Pool) MergeModelsWithPricing(id string, models, freeModels []string) {
 			continue
 		}
 		if _, ok := seen[canonical]; ok {
+			continue
+		}
+		if _, blocked := unavailable[canonical]; blocked {
 			continue
 		}
 		seen[canonical] = struct{}{}
@@ -1392,8 +1415,6 @@ func (p *Pool) MergeModelsWithPricing(id string, models, freeModels []string) {
 		freeSeen[canonical] = struct{}{}
 		free = append(free, native)
 	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
 	for i := range p.items {
 		if p.items[i].ID == id {
 			p.items[i].Models = copied
@@ -1438,6 +1459,10 @@ func (p *Pool) RemoveModel(id, model string) {
 		if p.items[i].NativeModels != nil {
 			delete(p.items[i].NativeModels, want)
 		}
+		if p.items[i].UnavailableModels == nil {
+			p.items[i].UnavailableModels = map[string]struct{}{}
+		}
+		p.items[i].UnavailableModels[want] = struct{}{}
 		dropProvenModel(&p.items[i], want)
 		// Force the manager to refresh this account's catalog on the next
 		// request instead of trusting the now-mutated snapshot for the TTL.
@@ -1541,12 +1566,35 @@ func (item Item) clone() Item {
 	if item.ProvenModels != nil {
 		out.ProvenModels = append([]string(nil), item.ProvenModels...)
 	}
+	if item.UnavailableModels != nil {
+		out.UnavailableModels = make(map[string]struct{}, len(item.UnavailableModels))
+		for model := range item.UnavailableModels {
+			out.UnavailableModels[model] = struct{}{}
+		}
+	}
 	if item.Quota != nil {
 		q := *item.Quota
 		out.Quota = &q
 	}
 	return out
 }
+
+func unavailableModelList(item Item) []string {
+	if len(item.UnavailableModels) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(item.UnavailableModels))
+	for model := range item.UnavailableModels {
+		out = append(out, model)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// UnavailableModelList returns the process-local unavailable-model IDs for an
+// account snapshot. Runtime hints are not persisted; callers that only have a
+// hand-built Item contribute an empty list.
+func UnavailableModelList(item Item) []string { return unavailableModelList(item) }
 
 func nullableTime(t time.Time, now time.Time) any {
 	if t.IsZero() || !now.Before(t) {
@@ -1665,6 +1713,9 @@ func (p *Pool) Upsert(item Item) {
 			}
 			if item.ProvenModels == nil {
 				item.ProvenModels = p.items[i].ProvenModels
+			}
+			if item.UnavailableModels == nil {
+				item.UnavailableModels = p.items[i].UnavailableModels
 			}
 			if item.ModelAliases == nil {
 				item.ModelAliases = p.items[i].ModelAliases

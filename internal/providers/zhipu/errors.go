@@ -17,6 +17,21 @@ func redactSecrets(text string) string {
 	return bearerPattern.ReplaceAllString(text, "Bearer [redacted]")
 }
 
+// modelEntitlementText lists wordings meaning the plan does not include the
+// requested model. These are model-level, not auth and not quota: the shared
+// catalog can advertise a model this account cannot actually use.
+var modelEntitlementText = []string{
+	"does not have access to",
+	"not available for your plan",
+	"upgrade your plan",
+	"upgrade to higher-tier",
+	"upgrade to a higher",
+	"model is not included",
+	"not included in your plan",
+	"无权限使用该模型",
+	"套餐不包含",
+}
+
 // Classify maps Zhipu HTTP errors onto the executor taxonomy. 401/403 cool
 // the account as auth. 429 is a rate limit. 402 and an explicit balance or
 // quota message are quota. Other 4xx are the request, not the account.
@@ -24,6 +39,12 @@ func Classify(status int, body string) providers.ClassifiedError {
 	safe := redactSecrets(strings.TrimSpace(body))
 	text := strings.ToLower(safe)
 	switch {
+	case containsAnyText(text, modelEntitlementText):
+		return providers.ClassifiedError{
+			Kind:    accounts.KindModelNotAvailable,
+			Status:  firstStatus(status, 404),
+			Message: safe,
+		}
 	case status == 401 || status == 403 ||
 		strings.Contains(text, "invalid api key") ||
 		strings.Contains(text, "unauthorized") ||
@@ -40,11 +61,13 @@ func Classify(status int, body string) providers.ClassifiedError {
 			Message: firstNonEmpty(safe, "zhipu rate limited"),
 		}
 	case status == 402 ||
-		strings.Contains(text, "insufficient") ||
-		strings.Contains(text, "balance") ||
-		strings.Contains(text, "quota") ||
-		strings.Contains(text, "余额") ||
-		strings.Contains(text, "额度"):
+		strings.Contains(text, "insufficient quota") ||
+		strings.Contains(text, "insufficient balance") ||
+		strings.Contains(text, "quota exceeded") ||
+		strings.Contains(text, "quota exhausted") ||
+		strings.Contains(text, "余额不足") ||
+		strings.Contains(text, "额度已用尽") ||
+		strings.Contains(text, "额度不足"):
 		return providers.ClassifiedError{
 			Kind:    accounts.KindQuota,
 			Status:  firstStatus(status, 402),
@@ -83,4 +106,13 @@ func firstStatus(status, fallback int) int {
 		return status
 	}
 	return fallback
+}
+
+func containsAnyText(text string, markers []string) bool {
+	for _, marker := range markers {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+	return false
 }

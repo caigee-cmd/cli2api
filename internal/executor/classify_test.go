@@ -141,10 +141,19 @@ func TestClassifyModelCatalogUnavailablePreservesDistinctCode(t *testing.T) {
 	}
 }
 
-func TestClassifyTraePlanLimitIsQuota(t *testing.T) {
+func TestClassifyBarePlanCodeIsNotQuota(t *testing.T) {
+	// A bare business code 1005 must not be treated as an account-level quota
+	// miss: Trae uses it for model-plan entitlement, and providers now signal
+	// model availability explicitly. Without an explicit quota hint it is not
+	// safe to cool/failover the whole account.
 	got := Classify(0, `{"code":1005,"message":""}`, "", "", "")
-	if got.Kind != KindQuota || !got.Failover || got.Status != 429 {
-		t.Fatalf("got %+v", got)
+	if got.Kind == KindQuota {
+		t.Fatalf("bare 1005 must not be quota, got %+v", got)
+	}
+	// Explicit quota text still wins regardless of code.
+	quota := Classify(0, `{"code":1005,"message":"insufficient_quota"}`, "", "", "")
+	if quota.Kind != KindQuota {
+		t.Fatalf("explicit quota text must be quota, got %+v", quota)
 	}
 }
 

@@ -995,7 +995,7 @@ func TestErrorMapping(t *testing.T) {
 		{402, `{"code":402}`, "quota"},
 		{429, "too many requests", "rate_limit"},
 		{401, `{"code":12153,"msg":"Offline user session not found"}`, "auth"},
-		{404, "", "unavailable"},
+		{404, "", "model_not_available"},
 		{500, "boom", "unavailable"},
 		{400, `{"code":11101,"msg":"bad request"}`, "invalid_request"},
 		{200, `{"code":11128,"msg":"first message is not system prompt"}`, "invalid_request"},

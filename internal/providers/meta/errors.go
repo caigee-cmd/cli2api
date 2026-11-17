@@ -19,6 +19,20 @@ func redactSecrets(text string) string {
 	return bearerPattern.ReplaceAllString(text, "Bearer [redacted]")
 }
 
+// modelEntitlementText lists wordings that mean the account's plan does not
+// include the requested model (not a dead session and not a quota miss). The
+// /models catalog is not plan-scoped, so such a model can be offered then
+// rejected with an auth-shaped error; cooling the whole account would be wrong.
+var modelEntitlementText = []string{
+	"does not have access to",
+	"not available for your plan",
+	"upgrade your plan",
+	"upgrade to higher-tier",
+	"upgrade to a higher",
+	"model is not included",
+	"not included in your plan",
+}
+
 // Classify maps Meta HTTP errors onto the executor taxonomy.
 // Subscription quota / 429+resets_at → KindQuota; plain 429 → KindRateLimit.
 func Classify(status int, body string) providers.ClassifiedError {
@@ -28,6 +42,12 @@ func Classify(status int, body string) providers.ClassifiedError {
 	combined := strings.ToLower(code + " " + message + " " + text)
 
 	switch {
+	case containsAnyText(combined, modelEntitlementText):
+		return providers.ClassifiedError{
+			Kind:    accounts.KindModelNotAvailable,
+			Status:  firstStatus(status, 404),
+			Message: safe,
+		}
 	case status == 401 || status == 403 ||
 		strings.Contains(combined, "invalid api key") ||
 		strings.Contains(combined, "unauthorized") ||
@@ -102,4 +122,13 @@ func firstStatus(status, fallback int) int {
 		return status
 	}
 	return fallback
+}
+
+func containsAnyText(text string, markers []string) bool {
+	for _, marker := range markers {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+	return false
 }

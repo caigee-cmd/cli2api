@@ -731,8 +731,8 @@ func TestClassifyAuthForbiddenQuotaTrailer(t *testing.T) {
 		t.Fatalf("401 classify=%+v", got)
 	}
 	got = Classify(429, `{"error":{"code":"resource_exhausted","message":"quota acu exhausted"}}`)
-	if got.Kind != accounts.KindQuota {
-		t.Fatalf("quota trailer classify=%+v", got)
+	if got.Kind != accounts.KindRateLimit {
+		t.Fatalf("resource_exhausted is model-level rate_limit, classify=%+v", got)
 	}
 	status, err := ParseTrailerError([]byte(`{"error":{"code":"resource_exhausted","message":"acu exhausted"}}`))
 	if err == nil || status != 429 {

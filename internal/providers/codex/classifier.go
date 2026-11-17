@@ -9,6 +9,19 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/providers"
 )
 
+// modelEntitlementText lists wordings meaning the plan does not include the
+// requested model. Such errors are auth-shaped but are model-level: do not
+// cool or fail over the whole account over one unentitled model.
+var modelEntitlementText = []string{
+	"does not have access to",
+	"not available for your plan",
+	"upgrade your plan",
+	"upgrade to higher-tier",
+	"upgrade to a higher",
+	"model is not included",
+	"not included in your plan",
+}
+
 // Classify maps codex upstream errors onto the internal taxonomy. The ChatGPT
 // backend returns OpenAI-style error JSON plus Cloudflare HTML on edge blocks.
 func Classify(status int, body string) providers.ClassifiedError {
@@ -19,6 +32,8 @@ func Classify(status int, body string) providers.ClassifiedError {
 	}
 	code, message := parseErrorBody(body)
 	switch {
+	case containsAnyText(text, modelEntitlementText):
+		return providers.ClassifiedError{Kind: accounts.KindModelNotAvailable, Status: 404, Message: firstNonEmpty(message, strings.TrimSpace(body))}
 	case status == 401 || code == "invalid_api_key" || strings.Contains(text, "unauthorized"):
 		return providers.ClassifiedError{Kind: accounts.KindAuth, Status: 401, Message: firstNonEmpty(message, "session dead; re-login required")}
 	case code == "insufficient_quota" || strings.Contains(text, "quota") && status == 429:
@@ -33,6 +48,15 @@ func Classify(status int, body string) providers.ClassifiedError {
 		return providers.ClassifiedError{Kind: accounts.KindUnavailable, Status: status, Message: firstNonEmpty(message, strings.TrimSpace(body))}
 	}
 	return providers.ClassifiedError{}
+}
+
+func containsAnyText(text string, markers []string) bool {
+	for _, marker := range markers {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 // parseErrorBody reads {"error":{"code","message"}} plus the flat

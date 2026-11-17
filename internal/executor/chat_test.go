@@ -391,6 +391,107 @@ func TestChatNonStreamSuccessScopedByModelLeavesOtherModelCooled(t *testing.T) {
 	}
 }
 
+type lockedModelChat struct{}
+
+func (lockedModelChat) ChatNonStream(ctx context.Context, accountID string, req translate.ChatRequest) (providers.ChatOutcome, error) {
+	if accountID == "locked" {
+		return providers.ChatOutcome{}, &providers.Error{
+			Kind:    accounts.KindModelNotAvailable,
+			Status:  http.StatusBadRequest,
+			Code:    "1005",
+			Message: "model not available for this plan",
+		}
+	}
+	return providers.ChatOutcome{Model: req.Model, Content: "OK", FinishReason: "stop"}, nil
+}
+
+func (lockedModelChat) ChatStream(ctx context.Context, accountID string, req translate.ChatRequest) (*http.Response, providers.ResolvedChat, error) {
+	return nil, providers.ResolvedChat{}, providers.ErrUnsupported
+}
+
+func TestTraeLockedModelFailsOverWithoutCooldown(t *testing.T) {
+	pool := NewPool(nil, nil)
+	pool.Upsert(Item{ID: "locked", Provider: "trae", Region: "cn", Runtime: string(providers.RuntimeInProcess)})
+	pool.Upsert(Item{ID: "unlocked", Provider: "trae", Region: "cn", Runtime: string(providers.RuntimeInProcess)})
+	pool.MergeModels("locked", []string{"locked-model"})
+	pool.MergeModels("unlocked", []string{"locked-model"})
+
+	registry := providers.NewRegistry()
+	registry.Register(providers.Adapter{ID: "trae", Chat: lockedModelChat{}})
+	ex := NewChatExecutor(pool, "")
+	ex.Providers = registry
+
+	got, err := ex.ChatNonStream(context.Background(), translate.ChatRequest{
+		Model:    "locked-model",
+		Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	}, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.AccountID != "unlocked" || got.Content != "OK" {
+		t.Fatalf("got %+v", got)
+	}
+	for _, id := range []string{"locked", "unlocked"} {
+		item, _ := pool.ByID(id)
+		if !item.DownUntil.IsZero() {
+			t.Fatalf("%s must not be account-cooled for a locked model: %+v", id, item)
+		}
+	}
+	lockedItem, _ := pool.ByID("locked")
+	if len(lockedItem.Models) != 0 {
+		t.Fatalf("locked model must be evicted from the locked account: %v", lockedItem.Models)
+	}
+	unlockedItem, _ := pool.ByID("unlocked")
+	if len(unlockedItem.Models) != 1 || unlockedItem.Models[0] != "locked-model" {
+		t.Fatalf("unlocked account catalog must survive: %v", unlockedItem.Models)
+	}
+
+	// A background catalog refresh still sees the model upstream. It must not
+	// resurrect the model on the account that reported it unavailable.
+	pool.MergeModels("locked", []string{"locked-model"})
+	lockedItem, _ = pool.ByID("locked")
+	if len(lockedItem.Models) != 0 {
+		t.Fatalf("catalog refresh must not re-add unavailable model: %v", lockedItem.Models)
+	}
+
+	// A later real success clears the tombstone so a plan upgrade can restore
+	// the model on the next refresh.
+	ex.markOK("locked", "locked-model")
+	gotItem, _ := pool.ByID("locked")
+	if len(gotItem.UnavailableModels) != 0 {
+		t.Fatalf("success must clear unavailable tombstone: %v", gotItem.UnavailableModels)
+	}
+	pool.MergeModels("locked", []string{"locked-model"})
+	gotItem, _ = pool.ByID("locked")
+	if len(gotItem.Models) != 1 || gotItem.Models[0] != "locked-model" {
+		t.Fatalf("refreshed model must return after success: %v", gotItem.Models)
+	}
+}
+
+func TestTraeLockedModelOnSingleAccountFailsAsModelUnavailable(t *testing.T) {
+	pool := NewPool(nil, nil)
+	pool.Upsert(Item{ID: "locked", Provider: "trae", Region: "cn", Runtime: string(providers.RuntimeInProcess)})
+	pool.MergeModels("locked", []string{"locked-model"})
+
+	registry := providers.NewRegistry()
+	registry.Register(providers.Adapter{ID: "trae", Chat: lockedModelChat{}})
+	ex := NewChatExecutor(pool, "")
+	ex.Providers = registry
+
+	_, err := ex.ChatNonStream(context.Background(), translate.ChatRequest{
+		Model:    "locked-model",
+		Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	}, "", "")
+	var execErr *ExecutionError
+	if err == nil || !errors.As(err, &execErr) || execErr.Classified.Kind != accounts.KindModelNotAvailable {
+		t.Fatalf("err=%v", err)
+	}
+	item, _ := pool.ByID("locked")
+	if !item.DownUntil.IsZero() {
+		t.Fatalf("locked model must not cool the account: %+v", item)
+	}
+}
+
 func TestChatNonStreamCancellationDoesNotFailoverOrCooldown(t *testing.T) {
 	var hits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
