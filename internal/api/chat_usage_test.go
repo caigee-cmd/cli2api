@@ -25,7 +25,7 @@ func closedStreamPipe(err error) *io.PipeReader {
 	return reader
 }
 
-func TestWriteClassifiedErrKeepsTraeQuotaKind(t *testing.T) {
+func TestWriteClassifiedErrKeepsExplicitQuotaKind(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	writeClassifiedErr(recorder, &providers.Error{
 		Kind:    accounts.KindQuota,
@@ -38,8 +38,11 @@ func TestWriteClassifiedErrKeepsTraeQuotaKind(t *testing.T) {
 	if recorder.Header().Get("X-Qoder-Error-Kind") != accounts.KindQuota {
 		t.Fatalf("kind=%s", recorder.Header().Get("X-Qoder-Error-Kind"))
 	}
-	if classifyAPIError(errors.New(`{"code":1005,"message":""}`)).Kind != accounts.KindQuota {
-		t.Fatal("numeric 1005 body should classify as quota")
+	// An explicit provider Error kind is preserved by writeClassifiedErr above.
+	// But a bare 1005 without a provider kind hint must NOT be reclassified as
+	// account quota: Trae uses 1005 for model-plan entitlement.
+	if got := classifyAPIError(errors.New(`{"code":1005,"message":""}`)).Kind; got == accounts.KindQuota {
+		t.Fatalf("bare numeric 1005 must not classify as quota, got %s", got)
 	}
 }
 
