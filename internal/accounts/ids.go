@@ -13,6 +13,11 @@ const (
 	// ranks accounts inside one provider family by the nearest credit-package
 	// expiry and leaves cross-provider rotation untouched.
 	RoutingStrategyFEFO = "fefo"
+	// Quota-aware strategies rank accounts by remaining quota ratio. They are
+	// conservative across providers: remaining/total is preferred, and the
+	// used percentage is converted to a remaining ratio when no total exists.
+	RoutingStrategyLeastQuotaFirst = "least-quota-first"
+	RoutingStrategyMostQuotaFirst  = "most-quota-first"
 )
 
 func NormalizeRoutingStrategy(strategy string) string {
@@ -23,6 +28,10 @@ func NormalizeRoutingStrategy(strategy string) string {
 		return RoutingStrategyWeightedRoundRobin
 	case RoutingStrategyFEFO:
 		return RoutingStrategyFEFO
+	case RoutingStrategyLeastQuotaFirst:
+		return RoutingStrategyLeastQuotaFirst
+	case RoutingStrategyMostQuotaFirst:
+		return RoutingStrategyMostQuotaFirst
 	default:
 		return RoutingStrategyRoundRobin
 	}

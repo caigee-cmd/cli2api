@@ -13,10 +13,12 @@ import (
 type AggregationStrategy string
 
 const (
-	AggregationPriority    AggregationStrategy = "priority"
-	AggregationRoundRobin  AggregationStrategy = "round-robin"
-	AggregationFillFirst   AggregationStrategy = "fill-first"
-	AggregationFEFOStrategy AggregationStrategy = "fefo"
+	AggregationPriority        AggregationStrategy = "priority"
+	AggregationRoundRobin      AggregationStrategy = "round-robin"
+	AggregationFillFirst       AggregationStrategy = "fill-first"
+	AggregationFEFOStrategy    AggregationStrategy = "fefo"
+	AggregationLeastQuotaFirst AggregationStrategy = RoutingStrategyLeastQuotaFirst
+	AggregationMostQuotaFirst  AggregationStrategy = RoutingStrategyMostQuotaFirst
 )
 
 const (
@@ -81,6 +83,10 @@ func NormalizeAggregationStrategy(value string) AggregationStrategy {
 		return AggregationFEFOStrategy
 	case AggregationPriority:
 		return AggregationPriority
+	case AggregationLeastQuotaFirst:
+		return AggregationLeastQuotaFirst
+	case AggregationMostQuotaFirst:
+		return AggregationMostQuotaFirst
 	default:
 		return AggregationRoundRobin
 	}
