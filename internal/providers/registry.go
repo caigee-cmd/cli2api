@@ -361,11 +361,11 @@ var Kiro = ProviderDescriptor{
 	Runtime:           RuntimeInProcess,
 	AuthTypes:         []AuthType{AuthOAuth, AuthPAT},
 	CredentialFormats: []string{"kiro-oauth-v1"},
-	Capabilities: ProviderCapabilities{
-		Chat: true, Stream: true, Tools: true, Images: true, Reasoning: true,
-		ModelCatalog: true, Usage: false, Login: false, BrowserLogin: false,
-		PATLogin: true, ImportExport: true,
-	},
+		Capabilities: ProviderCapabilities{
+			Chat: true, Stream: true, Tools: true, Images: true, Reasoning: true,
+			ModelCatalog: true, Usage: false, Login: true, BrowserLogin: true,
+			PATLogin: true, ImportExport: true,
+		},
 	Regions: []RegionDescriptor{
 		{
 			ID: "us-east-1", Label: "US East",

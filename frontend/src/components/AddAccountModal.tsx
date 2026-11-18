@@ -159,6 +159,8 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
   const [authCopied, setAuthCopied] = useState(false)
   const [callbackUrl, setCallbackUrl] = useState('')
   const [codexLoginMethod, setCodexLoginMethod] = useState<'cli' | 'chatgpt'>('cli')
+  const [kiroLoginMethod, setKiroLoginMethod] = useState<'builder_id' | 'idc' | 'sso' | 'microsoft'>('builder_id')
+  const [kiroStartURL, setKiroStartURL] = useState('')
   const stepBody = useRef<HTMLDivElement>(null)
   const stepDesc = useRef<HTMLParagraphElement>(null)
   const prevStep = useRef<Step | null>(null)
@@ -350,7 +352,12 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
       const id = await ensureAccount()
       setMessage(t('wizardStartingSession'))
       setPhase('polling')
-      const output = await startDeviceLogin(id, activeOption?.provider === 'codex' ? codexLoginMethod : undefined)
+      const loginMethod = activeOption?.provider === 'codex'
+        ? codexLoginMethod
+        : activeOption?.provider === 'kiro'
+          ? kiroLoginMethod
+          : undefined
+      const output = await startDeviceLogin(id, loginMethod, kiroLoginMethod === 'idc' ? kiroStartURL.trim() : undefined)
       if (output.authUrl) {
         setAuthUrl(output.authUrl)
       }
@@ -765,6 +772,27 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                               { value: 'chatgpt', label: t('codexLoginChatGPT'), hint: t('codexLoginChatGPTHint'), disabled: busy || Boolean(createdId.current) },
                             ]}
                           />
+                        ) : null}
+                        {activeOption?.provider === 'kiro' ? (
+                          <>
+                            <OptionTiles
+                              ariaLabel={t('kiroLoginMethod')}
+                              columns={2}
+                              value={kiroLoginMethod}
+                              onChange={(next) => { if (!busy) setKiroLoginMethod(next) }}
+                              options={[
+                                { value: 'builder_id', label: t('kiroLoginBuilder'), hint: t('kiroLoginBuilderHint'), disabled: busy || Boolean(createdId.current) },
+                                { value: 'idc', label: t('kiroLoginIDC'), hint: t('kiroLoginIDCHint'), disabled: busy || Boolean(createdId.current) },
+                                { value: 'sso', label: t('kiroLoginSSO'), hint: t('kiroLoginSSOHint'), disabled: busy || Boolean(createdId.current) },
+                                { value: 'microsoft', label: t('kiroLoginMicrosoft'), hint: t('kiroLoginMicrosoftHint'), disabled: busy || Boolean(createdId.current) },
+                              ]}
+                            />
+                            {kiroLoginMethod === 'idc' ? (
+                              <FormRow label={t('kiroIDCStartURL')}>
+                                <Input value={kiroStartURL} onChange={(event) => setKiroStartURL(event.target.value)} placeholder={t('kiroIDCStartURLPh')} aria-label={t('kiroIDCStartURL')} disabled={busy} />
+                              </FormRow>
+                            ) : null}
+                          </>
                         ) : null}
                         {authUrl ? (
                           <div className="card rounded-xl bg-surface px-3 py-2.5">

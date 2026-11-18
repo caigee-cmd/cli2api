@@ -24,6 +24,10 @@ type Store interface {
 	LoadCredentialPayload(ctx context.Context, accountID string) (string, []byte, error)
 	SaveCredentialPayload(ctx context.Context, accountID, format string, payload []byte) error
 	Observe(ctx context.Context, id, remoteUID, status, lastError, lastKind string) error
+	// SetCredentialAuthType records whether the stored credential came from a
+	// browser sign-in or a pasted key. A store that does not implement it still
+	// keeps the credential; the account card falls back to its default label.
+	SetCredentialAuthType(ctx context.Context, accountID, authType string) error
 }
 
 // SecretReader is optional. Missing it means no global proxy.
@@ -39,6 +43,7 @@ type Client struct {
 
 	mu     sync.Mutex
 	models []providers.ModelInfo
+	logins map[string]*loginState
 }
 
 func NewClient(store Store) *Client {
@@ -49,6 +54,7 @@ func (c *Client) Adapter() providers.Adapter {
 	return providers.Adapter{
 		ID:           "kiro",
 		Credential:   credentialCodec{},
+		Login:        c,
 		Chat:         c,
 		Models:       c,
 		Classifier:   classifier{},
