@@ -375,11 +375,18 @@ export function AccountCard({
                   <Button size="sm" isPending={busyKind === 'device'} onPress={() => onDeviceLogin('cli')}><ShieldCheck size={14} />{t('startCodexCliLogin')}</Button>
                   <Button size="sm" variant="secondary" isPending={busyKind === 'device'} onPress={() => onDeviceLogin('chatgpt')}><ShieldCheck size={14} />{t('startCodexChatGPTLogin')}</Button>
                 </>
+              ) : account.provider === 'kiro' ? (
+                <>
+                  <Button size="sm" isPending={busyKind === 'device'} onPress={() => onDeviceLogin('builder_id')}><ShieldCheck size={14} />{t('kiroLoginBuilder')}</Button>
+                  <Button size="sm" variant="secondary" isPending={busyKind === 'device'} onPress={() => onDeviceLogin('idc')}><ShieldCheck size={14} />{t('kiroLoginIDC')}</Button>
+                  <Button size="sm" variant="secondary" isPending={busyKind === 'device'} onPress={() => onDeviceLogin('microsoft')}><ShieldCheck size={14} />{t('kiroLoginMicrosoft')}</Button>
+                  <Button size="sm" variant="secondary" isPending={busyKind === 'device'} onPress={() => onDeviceLogin('sso')}><ShieldCheck size={14} />{t('kiroLoginSSO')}</Button>
+                </>
               ) : (
                 <Button size="sm" isPending={busyKind === 'device'} onPress={() => onDeviceLogin()}><ShieldCheck size={14} />{t('startBrowserLogin')}</Button>
               )}
             </div>
-            {(account.provider === 'trae' || account.provider === 'codex' || account.provider === 'devin') && onSubmitCallback && onCallbackChange ? (
+            {(account.provider === 'trae' || account.provider === 'codex' || account.provider === 'devin' || account.provider === 'kiro') && onSubmitCallback && onCallbackChange ? (
               <div className="mt-3 space-y-2">
                 <p className="text-caption leading-4 text-muted">{t('wizardCallbackLead')}</p>
                 <TextArea

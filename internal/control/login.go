@@ -3,6 +3,8 @@ package control
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
@@ -22,20 +24,62 @@ func (a *Accounts) login(ctx context.Context, id string) (providers.LoginSession
 }
 
 // prepareLogin records a provider-specific login choice before the browser
-// round trip. Codex is the only provider with two browser flows; an empty
-// method keeps the existing CLI OAuth path.
-func (a *Accounts) prepareLogin(ctx context.Context, account accounts.Account, method string) error {
+// round trip. Codex picks between its CLI and ChatGPT flows; Kiro picks which
+// of its sign-in flows to run. An empty method keeps the provider's default.
+func (a *Accounts) prepareLogin(ctx context.Context, account accounts.Account, method, startURL string) error {
 	method = strings.TrimSpace(method)
-	if account.Provider != "codex" || method == "" {
+	if method == "" {
 		return nil
 	}
-	switch strings.ToLower(method) {
-	case "cli", "chatgpt":
+	var secret, accepted string
+	switch account.Provider {
+	case "codex":
+		secret = "codex_login_method:"
+		accepted = "cli or chatgpt"
+		switch strings.ToLower(method) {
+		case "cli", "chatgpt":
+		default:
+			return operationError("invalid_request", "codex login method must be "+accepted)
+		}
+	case "kiro":
+		secret = "kiro_login_method:"
+		accepted = "builder_id, idc, sso or microsoft"
+		switch strings.ToLower(method) {
+		case "builder_id", "idc", "sso", "microsoft":
+		default:
+			return operationError("invalid_request", "kiro login method must be "+accepted)
+		}
 	default:
-		return operationError("invalid_request", "codex login method must be cli or chatgpt")
+		return nil
 	}
-	if err := a.store().SetSecret(ctx, "codex_login_method:"+account.ID, strings.ToLower(method)); err != nil {
+	if err := a.store().SetSecret(ctx, secret+account.ID, strings.ToLower(method)); err != nil {
 		return operationError("login_start_failed", err.Error())
+	}
+	// Identity Center has no well-known portal, so the operator names it.
+	// The URL is checked here because it is later sent the refresh token's
+	// client secret during registration.
+	if account.Provider == "kiro" && strings.EqualFold(method, "idc") {
+		if err := validateIDCStartURL(startURL); err != nil {
+			return operationError("invalid_request", err.Error())
+		}
+		if err := a.store().SetSecret(ctx, "kiro_idc_start_url:"+account.ID, strings.TrimSpace(startURL)); err != nil {
+			return operationError("login_start_failed", err.Error())
+		}
+	}
+	return nil
+}
+
+// validateIDCStartURL accepts only an https AWS access portal address. The
+// start URL becomes the OIDC issuer, so a arbitrary host would receive the
+// client registration.
+func validateIDCStartURL(raw string) error {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || parsed.Scheme != "https" || parsed.User != nil || parsed.RawQuery != "" {
+		return fmt.Errorf("identity center start url must be an https url")
+	}
+	host := strings.ToLower(parsed.Hostname())
+	if !strings.HasSuffix(host, ".awsapps.com") || !strings.HasPrefix(parsed.EscapedPath(), "/start") {
+		return fmt.Errorf("identity center start url must be an awsapps.com portal")
 	}
 	return nil
 }
