@@ -1,6 +1,11 @@
 package kiro
 
-import "crypto/rand"
+import (
+	"crypto/rand"
+	"strings"
+
+	"github.com/google/uuid"
+)
 
 // legacyPayload is generateAssistantResponse. API keys post it as AWS JSON 1.0
 // to the CLI runtime; IDE accounts post it to the Amazon Q and CodeWhisperer
@@ -8,9 +13,11 @@ import "crypto/rand"
 // continuation in the user text, which is what that API requires.
 type legacyPayload struct {
 	ConversationState struct {
-		ChatTriggerType string `json:"chatTriggerType"`
-		ConversationID  string `json:"conversationId"`
-		CurrentMessage  struct {
+		AgentContinuationID string `json:"agentContinuationId,omitempty"`
+		AgentTaskType       string `json:"agentTaskType,omitempty"`
+		ChatTriggerType     string `json:"chatTriggerType"`
+		ConversationID      string `json:"conversationId"`
+		CurrentMessage      struct {
 			UserInputMessage legacyUser `json:"userInputMessage"`
 		} `json:"currentMessage"`
 		History []legacyHistory `json:"history,omitempty"`
@@ -81,7 +88,9 @@ type legacyEndpoint struct {
 func (c conversation) legacyBody(origin string, apiKey bool) legacyPayload {
 	var body legacyPayload
 	body.ConversationState.ChatTriggerType = "MANUAL"
-	body.ConversationState.ConversationID = newConversationID()
+	body.ConversationState.AgentTaskType = AgentMode
+	body.ConversationState.AgentContinuationID = uuid.NewString()
+	body.ConversationState.ConversationID = conversationID(c.Model, c.System, c.Anchor)
 	if !apiKey {
 		body.ProfileArn = c.ProfileArn
 	}
@@ -200,8 +209,34 @@ func joinLines(parts []string) string {
 	return out
 }
 
-// newConversationID is a random id the legacy body always carries. Kiro does
-// not use it to resume a conversation; history in the body does that.
+// conversationID is stable for one conversation: the model, the system text and
+// the first thing the user wrote. A turn that opens with a stand-in instead of
+// user text gets a fresh id, since nothing there identifies the conversation.
+// CreateResponse carries it as metadata; the legacy body carries it as
+// conversationId. Kiro does not resume from it — history in the body does that.
+func conversationID(model, system, anchor string) string {
+	anchor = strings.TrimSpace(anchor)
+	if syntheticAnchor(anchor) {
+		return newConversationID()
+	}
+	seed := strings.Join([]string{strings.TrimSpace(model), strings.TrimSpace(system), anchor}, "\n")
+	return uuid.NewSHA1(uuid.NameSpaceURL, []byte(seed)).String()
+}
+
+func syntheticAnchor(anchor string) bool {
+	if anchor == "" {
+		return true
+	}
+	switch strings.ToLower(strings.Join(strings.Fields(anchor), " ")) {
+	case ".", "begin conversation", "please analyze the attached image.", strings.ToLower(toolHistoryFallback):
+		return true
+	default:
+		return false
+	}
+}
+
+// newConversationID is a random id. Kiro does not use it to resume a
+// conversation; history in the body does that.
 func newConversationID() string {
 	var buf [16]byte
 	_, _ = rand.Read(buf[:])

@@ -40,6 +40,8 @@ const (
 	// maxToolNameLen is the longest tool name Kiro accepts. Longer client
 	// names are shortened and mapped back on the way out.
 	maxToolNameLen = 64
+	// maxToolDescLen is the longest tool description Kiro accepts.
+	maxToolDescLen = 10237
 
 	webSearchClientName   = "web_search"
 	webSearchUpstreamName = "webSearch"
@@ -65,7 +67,36 @@ const (
 	socialRefreshURL = "https://prod.us-east-1.auth.desktop.kiro.dev/refreshToken"
 	restAPIBase      = "https://codewhisperer.us-east-1.amazonaws.com"
 	modelAPIBase     = "https://q.us-east-1.amazonaws.com"
+
+	// builderIDStartURL is the issuer every Builder ID client registers with.
+	builderIDStartURL = "https://view.awsapps.com/start"
+	// ssoPortalBase is where an imported SSO bearer is exchanged for a device
+	// session. It only exists in us-east-1.
+	ssoPortalBase = "https://portal.sso.us-east-1.amazonaws.com"
+
+	// microsoftSignInURL opens Kiro's own sign-in page, which redirects back
+	// with the enterprise IdP descriptor. The port and paths are part of the
+	// redirect Kiro registered, so they cannot move.
+	microsoftSignInURL    = "https://app.kiro.dev/signin"
+	microsoftLoopbackBase = "http://localhost:3128"
+	microsoftPortalPath   = "/signin/callback"
+	microsoftOAuthPath    = "/oauth/callback"
+
+	// idcCallbackPath is the loopback path an Identity Center login redirects
+	// to. The port is chosen per login; only the path is fixed.
+	idcCallbackPath = "/oauth/callback"
+
+	loginTTL = 10 * time.Minute
 )
+
+// kiroOIDCScopes are the scopes every Kiro OIDC client registers.
+var kiroOIDCScopes = []string{
+	"codewhisperer:completions",
+	"codewhisperer:analysis",
+	"codewhisperer:conversations",
+	"codewhisperer:transformations",
+	"codewhisperer:taskassist",
+}
 
 // serviceRegions are the data planes Kiro actually serves. Other AWS region
 // codes name hosts that do not resolve.
