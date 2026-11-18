@@ -44,6 +44,11 @@ type AccountStore interface {
 	SetCredentialAuthType(ctx context.Context, accountID, authType string) error
 	LoadCredentialPayload(ctx context.Context, accountID string) (string, []byte, error)
 	Observe(ctx context.Context, id, remoteUID, status, lastError, lastKind string) error
+	// ObserveHealth updates the probe-derived fields (remote_uid, last_error,
+	// last_error_kind) without touching the account status. It is used for
+	// disabled accounts that have no pool item, where a probe must not promote
+	// the account out of disabled.
+	ObserveHealth(ctx context.Context, id, remoteUID, lastError, lastKind string) error
 	SaveQuota(ctx context.Context, id string, quota *QuotaSnapshot) error
 	RecordCheckin(ctx context.Context, id, status, msg string, at time.Time) error
 	ListCheckinRecords(ctx context.Context, accountID string, limit int) ([]CheckinRecord, error)

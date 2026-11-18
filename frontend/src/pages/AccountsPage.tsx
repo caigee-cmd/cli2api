@@ -114,7 +114,13 @@ export function AccountsPage() {
 
   const refreshAccountsInBatches = useCallback(async (ids: string[], forceQuota = true) => {
     const accountIds = [...new Set(ids)]
-    if (!accountIds.length) return
+    if (!accountIds.length) return { total: 0, failed: 0, errors: [] as string[] }
+    const total = accountIds.length
+    // Aggregate failures per account instead of mutating a shared object inside
+    // the concurrent Promise.all workers: those interleaved `failed += 1`
+    // updates race each other and lose counts, so a batch where several
+    // accounts failed could under-report how many really did.
+    const failures = new Map<string, string>()
     for (let start = 0; start < accountIds.length; start += ACCOUNT_REFRESH_BATCH_SIZE) {
       const batch = accountIds.slice(start, start + ACCOUNT_REFRESH_BATCH_SIZE)
       await Promise.all(batch.map(async (id) => {
@@ -122,10 +128,15 @@ export function AccountsPage() {
           const refreshed = await refreshAccount(id, { quota: forceQuota })
           setAccounts((current) => current.map((account) => account.id === id ? refreshed : account))
         } catch (error) {
-          setNoteById((current) => ({ ...current, [id]: error instanceof Error ? error.message : String(error) }))
+          // Surface the failure to the caller instead of swallowing it: a
+          // batch where every account failed must not report success.
+          const message = error instanceof Error ? error.message : String(error)
+          failures.set(id, message)
+          setNoteById((current) => ({ ...current, [id]: message }))
         }
       }))
     }
+    return { total, failed: failures.size, errors: [...failures.values()] }
   }, [])
 
   useEffect(() => {
@@ -337,11 +348,17 @@ export function AccountsPage() {
       return next
     })
     try {
-      await refreshAccountsInBatches([id])
+      const result = await refreshAccountsInBatches([id])
+      if (result.failed > 0) {
+        toast({
+          id: `refresh-${id}`,
+          type: 'error',
+          title: t('toastFailed'),
+          description: result.errors[0] || t('toastFailed'),
+        })
+        return
+      }
       toast({ id: `refresh-${id}`, type: 'success', title: t('toastAccountRefreshed') })
-    } catch (error) {
-      toast({ id: `refresh-${id}`, type: 'error', title: t('toastFailed'), description: error instanceof Error ? error.message : String(error) })
-      throw error
     } finally {
       setBusy(null)
     }
@@ -351,11 +368,22 @@ export function AccountsPage() {
     setQuotaRefreshing(true)
     toast({ id: 'refresh-credits', type: 'loading', title: t('toastRefreshingCredits') })
     try {
-      await refreshAccountsInBatches(accounts.map((account) => account.id))
+      const result = await refreshAccountsInBatches(accounts.map((account) => account.id))
+      if (result.failed > 0) {
+        // Report a partial failure honestly: some accounts refreshed fine, so
+        // name how many failed instead of implying the whole batch did.
+        const partial = result.failed < result.total
+        toast({
+          id: 'refresh-credits',
+          type: partial ? 'info' : 'error',
+          title: partial
+            ? t('toastCreditsPartiallyRefreshed', { failed: result.failed, total: result.total })
+            : t('toastFailed'),
+          description: result.errors[0] || t('toastFailed'),
+        })
+        return
+      }
       toast({ id: 'refresh-credits', type: 'success', title: t('toastCreditsRefreshed') })
-    } catch (error) {
-      toast({ id: 'refresh-credits', type: 'error', title: t('toastFailed'), description: error instanceof Error ? error.message : String(error) })
-      throw error
     } finally {
       setQuotaRefreshing(false)
     }

@@ -249,6 +249,150 @@ func TestManagerRefreshAccountForceQuotaSurfacesError(t *testing.T) {
 	}
 }
 
+// A disabled account is kept out of the routing pool, but a manual refresh must
+// still probe its provider adapter and persist the fresh quota snapshot without
+// adding it back into routing.
+func TestManagerRefreshDisabledAccountPersistsQuotaWithoutRouting(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlstore.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	account, err := store.Create(ctx, accounts.CreateAccount{
+		Name: "WB-off", Provider: "workbuddy", Region: "cn", Enabled: false,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	prober := &fakeProber{
+		health: providers.AccountHealth{Ready: true, Hot: true, UID: "wb-uid"},
+		quota: &providers.QuotaInfo{
+			Used: 5, Total: 100, Remaining: 95, Percentage: 5, Unit: "credits",
+			FetchedAt: "2026-08-26T00:00:00Z",
+		},
+	}
+	registry := providers.NewRegistry()
+	registry.Register(providers.Adapter{ID: "workbuddy", Prober: prober})
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	manager.SetProviders(registry)
+	// Deliberately no pool upsert: a disabled account has no routing item.
+
+	if err := manager.RefreshAccount(ctx, account.ID, true); err != nil {
+		t.Fatalf("refresh disabled account: %v", err)
+	}
+	if _, ok := manager.Pool().ByID(account.ID); ok {
+		t.Fatalf("disabled account was added back into the routing pool")
+	}
+	stored, err := store.Get(ctx, account.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Quota == nil || stored.Quota.Remaining != 95 {
+		t.Fatalf("store quota = %+v", stored.Quota)
+	}
+	// A successful probe of a disabled account must not promote it out of
+	// disabled: it stays out of routing, so its status must not become ready.
+	if stored.Status == "ready" || stored.Status == "login_required" || stored.Status == "error" {
+		t.Fatalf("store status = %q, want a non-routable status (disabled account must stay disabled)", stored.Status)
+	}
+}
+
+// A disabled account whose provider has no in-process prober (e.g. a legacy
+// Qoder worker account) cannot be refreshed until it is enabled and a worker
+// spawns. Return a typed error the console can surface instead of a generic
+// "not running" failure.
+func TestManagerRefreshDisabledAccountWithoutProberFailsTyped(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlstore.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	account, err := store.Create(ctx, accounts.CreateAccount{Name: "Q-off", Provider: "qoder", Enabled: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	manager.SetProviders(providers.NewRegistry())
+
+	err = manager.RefreshAccount(ctx, account.ID, true)
+	var detached *accountruntime.DetachedRefreshError
+	if !errors.As(err, &detached) {
+		t.Fatalf("err = %v, want DetachedRefreshError", err)
+	}
+}
+
+// A disabled account whose provider probe returns not-ready WITHOUT an error
+// (a legacy Qoder worker account with no PAT and no live worker) must still
+// surface DetachedRefreshError so the console tells the operator to enable it
+// first. Otherwise refreshDetached would report a silent success while nothing
+// was actually refreshed.
+func TestManagerRefreshDisabledAccountNotReadyWithoutErrorFailsTyped(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlstore.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	account, err := store.Create(ctx, accounts.CreateAccount{Name: "Q-legacy", Provider: "qoder", Enabled: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Probe yields the zero AccountHealth (not ready, no LastError) that Qoder
+	// returns for a legacy account with no PAT and no running worker.
+	registry := providers.NewRegistry()
+	registry.Register(providers.Adapter{ID: "qoder", Prober: &fakeProber{}})
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	manager.SetProviders(registry)
+
+	err = manager.RefreshAccount(ctx, account.ID, true)
+	var detached *accountruntime.DetachedRefreshError
+	if !errors.As(err, &detached) {
+		t.Fatalf("err = %v, want DetachedRefreshError", err)
+	}
+	stored, err := store.Get(ctx, account.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status == "ready" || stored.Status == "login_required" {
+		t.Fatalf("store status = %q, must not promote a disabled account", stored.Status)
+	}
+}
+
+// A probe error on a disabled account must persist the error detail for display
+// but must not flip the account to error/login_required status.
+func TestManagerRefreshDisabledAccountProbeErrorKeepsStatus(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlstore.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	account, err := store.Create(ctx, accounts.CreateAccount{Name: "Q-err", Provider: "workbuddy", Region: "cn", Enabled: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry := providers.NewRegistry()
+	registry.Register(providers.Adapter{ID: "workbuddy", Prober: &fakeProber{err: errors.New("upstream down")}})
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	manager.SetProviders(registry)
+
+	if err := manager.RefreshAccount(ctx, account.ID, true); err == nil {
+		t.Fatal("expected probe error to be returned")
+	}
+	stored, err := store.Get(ctx, account.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status == "error" || stored.Status == "login_required" {
+		t.Fatalf("store status = %q, must not promote a disabled account on probe error", stored.Status)
+	}
+	if stored.LastError == "" {
+		t.Fatal("probe error was not persisted for display")
+	}
+}
+
 func TestManagerRefreshPersistsQuotaWindows(t *testing.T) {
 	ctx := context.Background()
 	store, err := sqlstore.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
