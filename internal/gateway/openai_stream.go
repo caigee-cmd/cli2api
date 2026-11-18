@@ -432,6 +432,15 @@ func jsonHasArray(raw json.RawMessage) bool {
 	return len(parts) > 0
 }
 
+func firstInt(values ...*int) *int {
+	for _, value := range values {
+		if value != nil {
+			return value
+		}
+	}
+	return nil
+}
+
 func ParseStreamUsageLine(line string) (StreamRelayStats, bool) {
 	payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 	if payload == "" || payload == "[DONE]" {
@@ -440,17 +449,24 @@ func ParseStreamUsageLine(line string) (StreamRelayStats, bool) {
 	var parsed struct {
 		Model string `json:"model"`
 		Usage *struct {
-			PromptTokens         *int     `json:"prompt_tokens"`
-			CompletionTokens     *int     `json:"completion_tokens"`
-			CacheReadTokens      *int     `json:"cache_read_tokens"`
-			CacheWriteTokens     *int     `json:"cache_write_tokens"`
-			PromptCacheHitTokens *int     `json:"prompt_cache_hit_tokens"`
-			Source               string   `json:"source"`
-			Credits              *float64 `json:"credits"`
-			Credit               *float64 `json:"credit"`
-			PromptDetails        struct {
+			PromptTokens             *int     `json:"prompt_tokens"`
+			CompletionTokens         *int     `json:"completion_tokens"`
+			CacheReadTokens          *int     `json:"cache_read_tokens"`
+			CacheReadInputTokens     *int     `json:"cache_read_input_tokens"`
+			CachedTokens             *int     `json:"cached_tokens"`
+			CachedContentTokenCount  *int     `json:"cached_content_token_count"`
+			CacheWriteTokens         *int     `json:"cache_write_tokens"`
+			CacheCreationInputTokens *int     `json:"cache_creation_input_tokens"`
+			PromptCacheHitTokens     *int     `json:"prompt_cache_hit_tokens"`
+			Source                   string   `json:"source"`
+			Credits                  *float64 `json:"credits"`
+			Credit                   *float64 `json:"credit"`
+			PromptDetails            struct {
 				CachedTokens *int `json:"cached_tokens"`
 			} `json:"prompt_tokens_details"`
+			InputDetails struct {
+				CachedTokens *int `json:"cached_tokens"`
+			} `json:"input_tokens_details"`
 		} `json:"usage"`
 	}
 	if err := json.Unmarshal([]byte(payload), &parsed); err != nil || parsed.Usage == nil {
@@ -460,22 +476,22 @@ func ParseStreamUsageLine(line string) (StreamRelayStats, bool) {
 	if credits == nil {
 		credits = parsed.Usage.Credit
 	}
-	cacheRead := parsed.Usage.CacheReadTokens
-	if cacheRead == nil {
-		cacheRead = parsed.Usage.PromptDetails.CachedTokens
-	}
-	if cacheRead == nil {
-		cacheRead = parsed.Usage.PromptCacheHitTokens
-	}
-	cachedTokens := parsed.Usage.PromptDetails.CachedTokens
-	if cachedTokens == nil {
-		cachedTokens = cacheRead
-	}
+	cacheRead := firstInt(
+		parsed.Usage.CacheReadTokens,
+		parsed.Usage.CacheReadInputTokens,
+		parsed.Usage.PromptDetails.CachedTokens,
+		parsed.Usage.InputDetails.CachedTokens,
+		parsed.Usage.PromptCacheHitTokens,
+		parsed.Usage.CachedTokens,
+		parsed.Usage.CachedContentTokenCount,
+	)
+	cacheWrite := firstInt(parsed.Usage.CacheWriteTokens, parsed.Usage.CacheCreationInputTokens)
+	cachedTokens := firstInt(parsed.Usage.PromptDetails.CachedTokens, parsed.Usage.InputDetails.CachedTokens, cacheRead)
 	return StreamRelayStats{
 		PromptTokens:     parsed.Usage.PromptTokens,
 		CompletionTokens: parsed.Usage.CompletionTokens,
 		CacheReadTokens:  cacheRead,
-		CacheWriteTokens: parsed.Usage.CacheWriteTokens,
+		CacheWriteTokens: cacheWrite,
 		CachedTokens:     cachedTokens,
 		UsageSource:      firstNonEmpty(parsed.Usage.Source, "estimate"),
 		Credits:          credits,

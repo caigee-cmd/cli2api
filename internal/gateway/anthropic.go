@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
@@ -88,7 +88,7 @@ func (h *Handler) HandleAnthropicMessages(w http.ResponseWriter, r *http.Request
 		CachedTokens: result.CachedTokens, UsageSource: result.UsageSource, Credits: result.Credits,
 		ConsumedCredits: result.ConsumedCredits, Model: result.Model,
 	}, nil, result.AttemptCount, result.ReasoningLevel)
-	writeJSON(w, http.StatusOK, anthropicMessageResponse(execution.RequestID, firstNonEmpty(result.Model, execution.PublicModel), result.Content, result.Reasoning, decodeOpenAIToolCalls(result.ToolCalls), result.FinishReason, result.PromptTokens, result.CompletionTokens))
+	writeJSON(w, http.StatusOK, anthropicMessageResponse(execution.RequestID, firstNonEmpty(result.Model, execution.PublicModel), result.Content, result.Reasoning, decodeOpenAIToolCalls(result.ToolCalls), result.FinishReason, result.PromptTokens, result.CompletionTokens, result.CacheReadTokens, result.CacheWriteTokens))
 }
 
 func (h *Handler) handleAnthropicMessagesStream(w http.ResponseWriter, r *http.Request, execution Execution) {
@@ -168,7 +168,7 @@ func anthropicErrorType(kind string) string {
 	}
 }
 
-func anthropicMessageResponse(requestID, model, content, reasoning string, toolCalls []proxyToolCall, finishReason string, promptTokens, completionTokens int) map[string]any {
+func anthropicMessageResponse(requestID, model, content, reasoning string, toolCalls []proxyToolCall, finishReason string, promptTokens, completionTokens int, cacheReadTokens, cacheWriteTokens *int) map[string]any {
 	blocks := make([]any, 0, 2+len(toolCalls))
 	if reasoning != "" {
 		blocks = append(blocks, map[string]any{"type": "thinking", "thinking": reasoning})
@@ -186,10 +186,20 @@ func anthropicMessageResponse(requestID, model, content, reasoning string, toolC
 	if len(blocks) == 0 {
 		blocks = append(blocks, map[string]any{"type": "text", "text": ""})
 	}
+	usage := map[string]any{
+		"input_tokens":  promptTokens,
+		"output_tokens": completionTokens,
+	}
+	if cacheReadTokens != nil {
+		usage["cache_read_input_tokens"] = *cacheReadTokens
+	}
+	if cacheWriteTokens != nil {
+		usage["cache_creation_input_tokens"] = *cacheWriteTokens
+	}
 	return map[string]any{
 		"id": "msg_" + requestID, "type": "message", "role": "assistant", "model": model,
 		"content": blocks, "stop_reason": anthropicStopReason(finishReason, toolCalls), "stop_sequence": nil,
-		"usage": map[string]int{"input_tokens": promptTokens, "output_tokens": completionTokens},
+		"usage": usage,
 	}
 }
 
@@ -202,7 +212,6 @@ func anthropicStopReason(finishReason string, toolCalls []proxyToolCall) string 
 	}
 	return "end_turn"
 }
-
 
 // rectifySummary is a bounded, non-sensitive diagnostic header. It never
 // includes message content or signatures.
@@ -222,7 +231,6 @@ func rectifySummary(result translate.RectifyResult) string {
 	}
 	return strings.Join(parts, ",")
 }
-
 
 // thinkingRectifierOn mirrors cc-switch's configurable rectifier. Default on:
 // OpenAI-compatible upstreams have no signature validation, so historical
