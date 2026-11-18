@@ -120,10 +120,28 @@ func applyCatalogEntry(plain map[string]any, req translate.ChatRequest, entry ma
 	if v, ok := entry["is_vl"].(bool); ok {
 		cfg["is_vl"] = v
 	}
-	if n, ok := rawNumber(req.MaxInputTokens); !ok || n <= 0 {
-		if n, ok := numberFieldValue(entry, "max_input_tokens"); ok && n > 0 {
-			cfg["max_input_tokens"] = n
+	// Context windows are forced to each model's own largest declared window.
+	// The per-account routing catalog is authoritative here, so it wins over
+	// any stored/executor-supplied window. When the entry advertises selectable
+	// tiers, use the largest; otherwise keep its declared max_input_tokens.
+	// Never invent a larger value than the model declares.
+	maxInput := 0
+	if n, ok := numberFieldValue(entry, "catalog_context_length_max"); ok && n > maxInput {
+		maxInput = n
+	}
+	if n, ok := numberFieldValue(entry, "max_input_tokens"); ok && n > maxInput {
+		maxInput = n
+	}
+	if n, ok := numberFieldValue(entry, "catalog_context_length"); ok && n > maxInput {
+		maxInput = n
+	}
+	if maxInput <= 0 {
+		if n, ok := rawNumber(req.MaxInputTokens); ok && n > 0 {
+			maxInput = n
 		}
+	}
+	if maxInput > 0 {
+		cfg["max_input_tokens"] = maxInput
 	}
 	if resolvedReasoningLevel(req) == "" {
 		if v, ok := entry["is_reasoning"].(bool); ok {

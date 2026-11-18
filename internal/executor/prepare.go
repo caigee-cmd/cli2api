@@ -34,6 +34,15 @@ type ModelContextStore interface {
 	GetModelContext(ctx context.Context, modelID string) (int, bool, error)
 }
 
+// MaxContextStore is an optional capability of ModelContextStore. When bound,
+// ApplyModelContextDefaults uses the model's declared largest window instead
+// of the operator's stored window: every request runs at the model's maximum
+// (1M where the catalog advertises 1M). ForceMaxContextLength returns the
+// window the model should always use, or 0 when the model is unknown.
+type MaxContextStore interface {
+	ForceMaxContextLength(modelID string) int
+}
+
 type CatalogPreparer interface {
 	EnsureModelCatalogs(ctx context.Context, force bool)
 }
@@ -369,9 +378,23 @@ func ApplyModelContextDefaults(ctx context.Context, store ModelContextStore, req
 	// The selected window is forwarded as `model_config.max_input_tokens`
 	// instead, which the Qoder chat body already accepts (so 1M is honoured),
 	// so only that field is populated here.
+	// Context windows are now forced to each model's declared maximum: when the
+	// catalog advertises a larger tier, hardcode it regardless of the stored
+	// toggle; models without a larger tier keep their catalog default.
 	contextLength, ok, err := store.GetModelContext(ctx, modelContextKey(req.Model))
-	if err != nil || !ok {
+	if err != nil {
 		return err
+	}
+	if !ok {
+		contextLength = 0
+	}
+	if maxStore, ok := store.(MaxContextStore); ok {
+		if forced := maxStore.ForceMaxContextLength(req.Model); forced > 0 {
+			contextLength = forced
+		}
+	}
+	if contextLength <= 0 {
+		return nil
 	}
 	value := json.RawMessage(strconv.Itoa(contextLength))
 	if len(req.MaxInputTokens) == 0 {

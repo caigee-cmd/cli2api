@@ -125,21 +125,6 @@ func reasoningValues(entry map[string]any, keys ...string) []string {
 	return nil
 }
 
-func mergeDisplayReasoningOptions(existing, full []string) []string {
-	seen := map[string]struct{}{}
-	for _, value := range existing {
-		seen[strings.ToLower(value)] = struct{}{}
-	}
-	for _, value := range full {
-		if _, ok := seen[strings.ToLower(value)]; ok {
-			continue
-		}
-		seen[strings.ToLower(value)] = struct{}{}
-		existing = append(existing, value)
-	}
-	return existing
-}
-
 func mergeReasoningOptionSet(merged, incoming map[string]any, key string) {
 	values := reasoningValues(merged, key)
 	seen := map[string]struct{}{}
@@ -216,10 +201,11 @@ func ModelCapabilitiesEntry(model providers.ModelInfo) map[string]any {
 	if len(model.Capabilities.ReasoningOptionValues) > 0 {
 		entry["reasoning_option_values"] = model.Capabilities.ReasoningOptionValues
 	}
+	// Display exactly the reasoning levels this model declares. A reasoning
+	// model does not automatically accept every gateway vocabulary entry;
+	// merging GatewayReasoningOptions here would advertise xhigh/max for
+	// models whose catalog only allows low/high.
 	reasoningOptions := providers.UniqueReasoningOptions(model.Capabilities.ReasoningOptions)
-	if model.Capabilities.Reasoning {
-		reasoningOptions = mergeDisplayReasoningOptions(reasoningOptions, providers.GatewayReasoningOptions())
-	}
 	if len(reasoningOptions) > 0 {
 		entry["reasoning_options"] = reasoningOptions
 	}
@@ -279,10 +265,11 @@ func ProviderModelEntry(model providers.ModelInfo, provider string) map[string]a
 	if hasMaxTier(model.Capabilities) {
 		entry["supports_max_mode"] = true
 	}
+	// Display exactly the reasoning levels this model declares. A reasoning
+	// model does not automatically accept every gateway vocabulary entry;
+	// merging GatewayReasoningOptions here would advertise xhigh/max for
+	// models whose catalog only allows low/high.
 	reasoningOptions := providers.UniqueReasoningOptions(model.Capabilities.ReasoningOptions)
-	if model.Capabilities.Reasoning {
-		reasoningOptions = mergeDisplayReasoningOptions(reasoningOptions, providers.GatewayReasoningOptions())
-	}
 	if len(reasoningOptions) > 0 {
 		entry["reasoning_options"] = reasoningOptions
 	}
