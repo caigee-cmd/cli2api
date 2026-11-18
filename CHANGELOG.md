@@ -3,6 +3,24 @@
 Published user-facing notes for GitHub Releases and the console update page.
 Write upcoming notes as bilingual files in `changelog/unreleased/`.
 
+## 0.7.35 - 2026-11-18
+
+### English
+
+- A disabled account's refresh button now re-reads its live status and quota instead of failing with `account is not running`, and refreshing never puts the account back into request routing.
+- A refresh that fails now shows an error toast with the reason; the account card and "Refresh credits" no longer report success for a failed refresh.
+- Add an experimental Kiro provider. Sign in with a Builder ID device code, an Identity Center portal, a one-time SSO bearer, or Microsoft enterprise SSO, or paste an existing credential or a ksk_ key. Account credits come from Kiro usage, including an enabled overage allowance, and chat follows the account's CreateResponse or legacy path, including tools, images, and tool_choice. Unpaired tool history is narrated, leaked tool markup is recovered, and web_search is sent as Kiro's webSearch.
+- Fixed cache visibility for Trae/SOLO CN across Responses, Chat Completions, and Messages by recognizing additional upstream cache-token fields and emitting protocol-correct usage fields.
+- WorkBuddy tool schemas no longer fail upstream with code 11129 when a client sends numeric or boolean constraints as strings. Unparseable values are dropped; a schema that is already valid is left unchanged. Trae applies the same correction before its parameters are sent as text.
+
+### 中文
+
+- 停用账号的刷新按钮现在会重新读取实时状态和额度，不再报 `account is not running`，并且刷新不会把账号重新放进请求调度。
+- 刷新失败时会弹出带原因的错误提示；账号卡片和「刷新积分」不会再在刷新失败时显示成功。
+- 新增实验性的 Kiro 供应商。可用 Builder ID 设备码、Identity Center 门户、一次性 SSO bearer 或 Microsoft 企业 SSO 登录，也可以粘贴已有凭证或 ksk_ 密钥。账号额度读取 Kiro 用量，包含已开启的超额额度。聊天按账号走 CreateResponse 或旧接口，并带上工具、图片和 tool_choice。不成对的工具历史会改写成叙述，正文里泄漏的工具标记会还原成调用，web_search 会按 Kiro 的 webSearch 发送。
+- 修复 Trae/SOLO 国内版在 Responses、Chat Completions 和 Messages 协议中的缓存可见性：识别更多上游缓存 token 字段，并按各协议正确输出 usage 字段。
+- WorkBuddy 的工具 schema 不再因为客户端把数字或布尔约束写成字符串而被上游以 code 11129 拒绝。无法解析的值会被去掉；本来就合法的 schema 保持不变。Trae 在把 parameters 转成文本发出之前做同样的纠正。
+
 ## 0.7.34 - 2026-11-16
 
 ### English
