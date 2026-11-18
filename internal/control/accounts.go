@@ -247,13 +247,14 @@ func (a *Accounts) Export(ctx context.Context, id string) (AccountExport, error)
 }
 
 type AccountAdminAction struct {
-	AccountID   string
-	Action      string
-	Method      string
-	ContentType string
-	Body        []byte
-	CallbackURL string
-	LoginMethod string
+	AccountID     string
+	Action        string
+	Method        string
+	ContentType   string
+	Body          []byte
+	CallbackURL   string
+	LoginMethod   string
+	LoginStartURL string
 }
 
 type AccountAdminResult struct {
@@ -279,7 +280,7 @@ func (a *Accounts) Admin(ctx context.Context, input AccountAdminAction) (Account
 		return AccountAdminResult{Kind: input.Action}, nil
 	case "login/device":
 		if inProcess {
-			if err := a.prepareLogin(ctx, account, input.LoginMethod); err != nil {
+			if err := a.prepareLogin(ctx, account, input.LoginMethod, input.LoginStartURL); err != nil {
 				return AccountAdminResult{}, err
 			}
 			session, err := a.StartLogin(ctx, input.AccountID)

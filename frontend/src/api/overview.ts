@@ -12,10 +12,11 @@ export function fetchAccounts(refresh = false) {
   )
 }
 
-export function startDeviceLogin(accountId?: string, loginMethod?: string) {
+export function startDeviceLogin(accountId?: string, loginMethod?: string, startURL?: string) {
   if (!accountId) throw new Error('account id required')
   const body: Record<string, string> = {}
   if (loginMethod) body.login_method = loginMethod
+  if (startURL) body.start_url = startURL
   return api<{ authUrl?: string; status?: string; message?: string }>(`/api/accounts/${encodeURIComponent(accountId)}/login/device`, {
     method: 'POST',
     body: JSON.stringify(body),
