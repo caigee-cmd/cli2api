@@ -76,7 +76,7 @@ func New(cfg config.Config) *App {
 		panic(err)
 	}
 	if initialized {
-		log.Printf("[security] initialized API key and stored it in SQLite: %s", proxyAPIKey)
+		log.Printf("[security] initialized a new admin API key and stored it in SQLite (fingerprint %s)", apiKeyFingerprint(proxyAPIKey))
 	}
 	proxyURL, err := EnsureProxyURL(context.Background(), store, cfg.ProxyURL)
 	if err != nil {
