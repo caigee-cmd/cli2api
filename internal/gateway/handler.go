@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"net/http"
 	"sync/atomic"
 
@@ -19,6 +20,7 @@ type Handler struct {
 	Recorder          *applogs.RequestRecorder
 	ModelContexts     executor.ModelContextStore
 	Catalogs          executor.CatalogPreparer
+	Aggregations      executor.AggregationResolver
 	Logs              executor.RequestStarter
 	CrossProviderPool *atomic.Bool
 	Models            CatalogQuery
@@ -26,6 +28,9 @@ type Handler struct {
 	RequestedAccount  func(*http.Request) string
 	FilterModels      func(*http.Request, []map[string]any) []map[string]any
 	DecorateModels    func(*http.Request, []map[string]any) []map[string]any
+	// MergeAggregationModels folds logical aggregation models into /v1/models.
+	// Injected by app so gateway does not import control/store.
+	MergeAggregationModels func(context.Context, []map[string]any) []map[string]any
 	// AfterAccountUse is an optional non-blocking quota invalidation hook. It
 	// runs after the response/stream finishes, never on receipt of SSE headers.
 	AfterAccountUse func(accountID, publicModel string)

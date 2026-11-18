@@ -118,7 +118,8 @@ func ParseCatalogJSON(raw []byte) ([]providers.ModelInfo, map[string][]string, e
 		}
 		if entry.Thinking != nil && len(entry.Thinking.Levels) > 0 {
 			caps.Reasoning = true
-			caps.ReasoningOptions = append([]string(nil), entry.Thinking.Levels...)
+			caps.ReasoningOptions = providers.UniqueReasoningOptions(entry.Thinking.Levels)
+			caps.ReasoningOptionValues = providers.UniqueReasoningOptionValues(entry.Thinking.Levels)
 			levels[id] = append([]string(nil), entry.Thinking.Levels...)
 		}
 		caps.Tools = true
