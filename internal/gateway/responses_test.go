@@ -154,6 +154,9 @@ func TestParseStreamUsageLineCacheReadFallback(t *testing.T) {
 		{name: "explicit zero", usage: `"prompt_tokens_details":{"cached_tokens":0}`, want: ptrInt(0)},
 		{name: "top-level wins", usage: `"cache_read_tokens":12,"prompt_tokens_details":{"cached_tokens":2176}`, want: ptrInt(12)},
 		{name: "prompt cache hit tokens", usage: `"prompt_cache_hit_tokens":80`, want: ptrInt(80)},
+		{name: "cache read input tokens", usage: `"cache_read_input_tokens":64`, want: ptrInt(64)},
+		{name: "input tokens details", usage: `"input_tokens_details":{"cached_tokens":32}`, want: ptrInt(32)},
+		{name: "cached content token count", usage: `"cached_content_token_count":16`, want: ptrInt(16)},
 		{name: "unknown stays absent", usage: `"prompt_tokens":16`, want: nil},
 	} {
 		t.Run(test.name, func(t *testing.T) {

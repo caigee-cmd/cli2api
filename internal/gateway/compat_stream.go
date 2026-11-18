@@ -383,7 +383,14 @@ func RelayAnthropicStream(writer io.Writer, body io.Reader, requestID, model str
 		}
 	}
 	calls := output.calls()
-	if err := writeSSEEvent(writer, "message_delta", map[string]any{"type": "message_delta", "delta": map[string]any{"stop_reason": anthropicStopReason(output.finishReason, calls), "stop_sequence": nil}, "usage": map[string]int{"output_tokens": derefInt(stats.CompletionTokens)}}); err != nil {
+	deltaUsage := map[string]any{"output_tokens": derefInt(stats.CompletionTokens)}
+	if stats.CacheReadTokens != nil {
+		deltaUsage["cache_read_input_tokens"] = *stats.CacheReadTokens
+	}
+	if stats.CacheWriteTokens != nil {
+		deltaUsage["cache_creation_input_tokens"] = *stats.CacheWriteTokens
+	}
+	if err := writeSSEEvent(writer, "message_delta", map[string]any{"type": "message_delta", "delta": map[string]any{"stop_reason": anthropicStopReason(output.finishReason, calls), "stop_sequence": nil}, "usage": deltaUsage}); err != nil {
 		return stats, err
 	}
 	if err := writeSSEEvent(writer, "message_stop", map[string]string{"type": "message_stop"}); err != nil {
