@@ -62,7 +62,7 @@ API Key:  <刚才创建的客户端密钥>
 
 接入 **Qoder（国际版 / 国内版）**、**WorkBuddy（国际版 / 国内版）**、**Trae 国内版 Work**。**Devin**、**Command Code**、**华为云码道 CodeArts** 是实验性接入，不承诺生产可用。
 
-Go 网关统一鉴权、调度和记录请求。Qoder 每个账号一个独立 Node 进程和 HOME；其余供应商走进程内适配器，不为每次请求启动完整 CLI。
+Go 网关统一鉴权、调度和记录请求。已存 PAT 的 Qoder 账号在进程内直连；仍使用旧 CLI 凭证的 Qoder 账号保留每账号一个 Node 进程和 HOME。其余供应商走进程内适配器，不为每次请求启动完整 CLI。
 
 - **三种接口**：Chat Completions、Responses、Anthropic Messages，加上模型列表。支持流式和函数工具调用。
 - **多账号**：轮询、加权轮询、顺序填满，以及可选的同供应商最早到期优先（FEFO）。自动选号、会话粘性、并发限制、冷却和故障切换都在。

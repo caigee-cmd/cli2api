@@ -62,7 +62,7 @@ Model IDs come from **Access** or `/v1/models`. Routing is automatic and prefers
 
 Connect **Qoder (Global / CN)**, **WorkBuddy (Global / CN)**, and **Trae CN Work**. **Devin**, **Command Code**, and **Huawei Cloud CodeArts (码道)** are experimental and not a production promise.
 
-The Go gateway handles authentication, routing, and request logging. Each Qoder account has its own Node process and HOME. Other providers use in-process adapters, so no full CLI starts per request.
+The Go gateway handles authentication, routing, and request logging. PAT-backed Qoder accounts talk to the upstream in-process. Qoder accounts that still use the legacy CLI credential keep one Node process and HOME each. Other providers use in-process adapters, so no full CLI starts per request.
 
 - **Three APIs**: Chat Completions, Responses, and Anthropic Messages, plus model listing. Streaming and function tools included.
 - **Many accounts**: round-robin, weighted round-robin, fill-first, and opt-in same-provider earliest-expiry-first (FEFO). Automatic selection, session affinity, concurrency limits, cooldowns, and failover stay on.
