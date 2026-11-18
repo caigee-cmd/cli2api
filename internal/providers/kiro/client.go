@@ -15,6 +15,7 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/providers"
 	proxyutil "github.com/caigee-cmd/cli2api/internal/proxy"
 	"github.com/caigee-cmd/cli2api/internal/translate"
+	"github.com/google/uuid"
 )
 
 // Store is the persistence surface. The adapter never imports internal/store.
@@ -397,6 +398,7 @@ func applyLegacyHeaders(req *http.Request, cred Credential, endpoint legacyEndpo
 		req.Header.Set("x-amzn-codewhisperer-optout", "true")
 	}
 	req.Header.Set("Amz-Sdk-Request", fmt.Sprintf("attempt=%d; max=%d", attempt, legacyAttempts))
+	req.Header.Set("Amz-Sdk-Invocation-Id", uuid.New().String())
 	if host != "" {
 		req.Host = host
 	}

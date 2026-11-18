@@ -213,8 +213,8 @@ func applyRuntimeHeaders(req *http.Request, cred Credential, host string) {
 }
 
 func sdkUserAgent(cred Credential, apiName, sdkVersion, mode string) string {
-	agent := fmt.Sprintf("aws-sdk-js/%s ua/2.1 os/darwin lang/js md/nodejs#22 api/%s#%s %s KiroIDE-%s",
-		sdkVersion, apiName, sdkVersion, mode, currentIDEVersion())
+	agent := fmt.Sprintf("aws-sdk-js/%s ua/2.1 os/%s lang/js md/nodejs#%s api/%s#%s %s KiroIDE-%s",
+		sdkVersion, systemFingerprint(), nodeVersion, apiName, sdkVersion, mode, currentIDEVersion())
 	if cred.MachineID != "" {
 		agent += "-" + cred.MachineID
 	}

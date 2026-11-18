@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"os/exec"
+	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -25,25 +28,88 @@ func currentIDEVersion() string {
 	return value
 }
 
-var versionOnce sync.Once
-var lastVersionRecheck atomic.Int64
+var (
+	lastVersionRecheck atomic.Int64
+	lastVersionRefresh atomic.Int64
+)
 
-// ensureIDEVersion starts one background read of the stable feed. Chat does
-// not wait for it; the fallback version is used until the feed answers.
+// ensureIDEVersion starts one background read of the stable feed, then one
+// more per day. Chat does not wait for it; the fallback version is used until
+// the feed answers with a build at least as new as the fallback.
 func ensureIDEVersion(client *http.Client) {
-	versionOnce.Do(func() {
-		go refreshIDEVersion(client)
-	})
+	now := time.Now().UnixNano()
+	last := lastVersionRefresh.Load()
+	if last != 0 && now-last < int64(versionRefreshEvery) {
+		return
+	}
+	if !lastVersionRefresh.CompareAndSwap(last, now) {
+		return
+	}
+	go refreshIDEVersion(client)
 }
 
 func refreshIDEVersion(client *http.Client) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	version, err := fetchIDEVersion(ctx, client)
-	if err != nil || version == "" {
+	if err != nil || !newerIDEVersion(version, IDEVersion) {
+		return
+	}
+	current, _ := ideVersion.Load().(string)
+	if current != "" && !newerIDEVersion(version, current) {
 		return
 	}
 	ideVersion.Store(version)
+}
+
+// newerIDEVersion reports whether a is a dotted numeric version above b.
+// A version that does not parse is never newer, so a bad feed cannot move
+// the advertised build backwards.
+func newerIDEVersion(a, b string) bool {
+	pa, ok := parseIDEVersion(a)
+	if !ok {
+		return false
+	}
+	pb, ok := parseIDEVersion(b)
+	if !ok {
+		return true
+	}
+	n := len(pa)
+	if len(pb) > n {
+		n = len(pb)
+	}
+	for i := 0; i < n; i++ {
+		var x, y int
+		if i < len(pa) {
+			x = pa[i]
+		}
+		if i < len(pb) {
+			y = pb[i]
+		}
+		if x != y {
+			return x > y
+		}
+	}
+	return false
+}
+
+func parseIDEVersion(v string) ([]int, bool) {
+	parts := strings.Split(strings.TrimSpace(v), ".")
+	if len(parts) < 2 || len(parts) > 4 {
+		return nil, false
+	}
+	nums := make([]int, len(parts))
+	for i, part := range parts {
+		if part == "" || len(part) > 5 {
+			return nil, false
+		}
+		n, err := strconv.Atoi(part)
+		if err != nil || n < 0 || strconv.Itoa(n) != part {
+			return nil, false
+		}
+		nums[i] = n
+	}
+	return nums, true
 }
 
 func fetchIDEVersion(ctx context.Context, client *http.Client) (string, error) {
@@ -88,3 +154,72 @@ type statusError int
 func (s statusError) Error() string { return http.StatusText(int(s)) }
 
 func errStatus(code int) error { return statusError(code) }
+
+// systemFingerprint is the os/<name>#<release> the IDE puts in the SDK user
+// agent. The release is the host's; a host that will not say uses the fallback
+// the Kiro client uses for that OS.
+func systemFingerprint() string {
+	name := runtime.GOOS
+	switch name {
+	case "windows":
+		name = "win32"
+	case "darwin", "linux":
+	default:
+		name = "linux"
+	}
+	release := hostRelease()
+	if release == "" {
+		switch runtime.GOOS {
+		case "windows":
+			release = "10.0.22631"
+		case "darwin":
+			release = "24.6.0"
+		default:
+			release = "6.6.87"
+		}
+	}
+	return name + "#" + release
+}
+
+var (
+	hostReleaseOnce  sync.Once
+	hostReleaseValue string
+)
+
+// hostRelease is the OS release the IDE names after os/<name>#. A host that
+// will not say returns empty and the caller uses the per-OS fallback. The
+// read happens once; the release does not change while the process runs.
+func hostRelease() string {
+	hostReleaseOnce.Do(func() { hostReleaseValue = readHostRelease() })
+	return hostReleaseValue
+}
+
+func readHostRelease() string {
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.CommandContext(ctx, "uname", "-r")
+	case "linux":
+		cmd = exec.CommandContext(ctx, "uname", "-r")
+	case "windows":
+		cmd = exec.CommandContext(ctx, "cmd", "/c", "ver")
+	default:
+		return ""
+	}
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	release := strings.TrimSpace(string(out))
+	if runtime.GOOS == "windows" {
+		if fields := strings.Fields(release); len(fields) > 0 {
+			release = strings.Trim(fields[len(fields)-1], "[]")
+		}
+	}
+	if strings.ContainsAny(release, " \t\r\n") || release == "" {
+		return ""
+	}
+	return release
+}
