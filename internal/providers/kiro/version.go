@@ -5,11 +5,9 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"os/exec"
 	"runtime"
 	"strconv"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -156,70 +154,15 @@ func (s statusError) Error() string { return http.StatusText(int(s)) }
 func errStatus(code int) error { return statusError(code) }
 
 // systemFingerprint is the os/<name>#<release> the IDE puts in the SDK user
-// agent. The release is the host's; a host that will not say uses the fallback
-// the Kiro client uses for that OS.
+// agent. The release is the one the Kiro client advertises for that OS, not
+// the host's: a newer kernel release is not a version the upstream has shipped.
 func systemFingerprint() string {
-	name := runtime.GOOS
-	switch name {
-	case "windows":
-		name = "win32"
-	case "darwin", "linux":
-	default:
-		name = "linux"
-	}
-	release := hostRelease()
-	if release == "" {
-		switch runtime.GOOS {
-		case "windows":
-			release = "10.0.22631"
-		case "darwin":
-			release = "24.6.0"
-		default:
-			release = "6.6.87"
-		}
-	}
-	return name + "#" + release
-}
-
-var (
-	hostReleaseOnce  sync.Once
-	hostReleaseValue string
-)
-
-// hostRelease is the OS release the IDE names after os/<name>#. A host that
-// will not say returns empty and the caller uses the per-OS fallback. The
-// read happens once; the release does not change while the process runs.
-func hostRelease() string {
-	hostReleaseOnce.Do(func() { hostReleaseValue = readHostRelease() })
-	return hostReleaseValue
-}
-
-func readHostRelease() string {
-	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-	defer cancel()
-	var cmd *exec.Cmd
 	switch runtime.GOOS {
-	case "darwin":
-		cmd = exec.CommandContext(ctx, "uname", "-r")
-	case "linux":
-		cmd = exec.CommandContext(ctx, "uname", "-r")
 	case "windows":
-		cmd = exec.CommandContext(ctx, "cmd", "/c", "ver")
+		return "win32#10.0.22631"
+	case "darwin":
+		return "darwin#24.6.0"
 	default:
-		return ""
+		return "linux#6.6.87"
 	}
-	out, err := cmd.Output()
-	if err != nil {
-		return ""
-	}
-	release := strings.TrimSpace(string(out))
-	if runtime.GOOS == "windows" {
-		if fields := strings.Fields(release); len(fields) > 0 {
-			release = strings.Trim(fields[len(fields)-1], "[]")
-		}
-	}
-	if strings.ContainsAny(release, " \t\r\n") || release == "" {
-		return ""
-	}
-	return release
 }

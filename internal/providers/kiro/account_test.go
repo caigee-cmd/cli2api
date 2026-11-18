@@ -147,6 +147,91 @@ func TestProfileArnRegionBeatsOIDCRegion(t *testing.T) {
 	}
 }
 
+func TestRefreshDispatchesByAuthMethod(t *testing.T) {
+	var got []string
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		raw, _ := io.ReadAll(r.Body)
+		got = append(got, r.URL.String()+" "+string(raw))
+		body := `{"accessToken":"new-access","refreshToken":"new-refresh","expiresIn":3600}`
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+	})}
+
+	social, err := refresh(context.Background(), client, Credential{AuthMethod: "social", RefreshToken: "social-refresh"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got[0], socialRefreshURL) || !strings.Contains(got[0], `"refreshToken":"social-refresh"`) {
+		t.Fatalf("social request = %s", got[0])
+	}
+	if social.AccessToken != "new-access" || social.ExpiresAt == 0 {
+		t.Fatalf("social = %+v", social)
+	}
+
+	if _, err := refresh(context.Background(), client, Credential{
+		AuthMethod: "builder_id", Region: "us-east-1", RefreshToken: "oidc-refresh",
+		ClientID: "client", ClientSecret: "secret",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got[1], "https://oidc.us-east-1.amazonaws.com/token") || !strings.Contains(got[1], `"grantType":"refresh_token"`) {
+		t.Fatalf("oidc request = %s", got[1])
+	}
+
+	if _, err := refresh(context.Background(), client, Credential{AuthMethod: "builder_id", RefreshToken: "only-refresh"}); err == nil || !strings.Contains(err.Error(), "client id") {
+		t.Fatalf("builder id without a client was accepted: %v", err)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestExternalRefreshRejectsOtherHosts(t *testing.T) {
+	cred := Credential{
+		AuthMethod: "external_idp", ClientID: "11111111-1111-1111-1111-111111111111",
+		RefreshToken: "refresh", Scopes: "offline_access api://11111111-1111-1111-1111-111111111111/codewhisperer:completions",
+		TokenEndpoint: "https://evil.example.com/token",
+	}
+	if _, err := refreshExternal(context.Background(), http.DefaultClient, cred); err == nil {
+		t.Fatal("a non-microsoft token endpoint was accepted")
+	}
+	cred.TokenEndpoint = "https://login.microsoftonline.com/22222222-2222-2222-2222-222222222222/oauth2/v2.0/token"
+	cred.IssuerURL = "https://login.microsoftonline.com/33333333-3333-3333-3333-333333333333/v2.0"
+	if _, err := refreshExternal(context.Background(), http.DefaultClient, cred); err == nil || !strings.Contains(err.Error(), "tenant") {
+		t.Fatalf("mismatched tenant was accepted: %v", err)
+	}
+}
+
+func TestConversationIDStaysStableAcrossTurns(t *testing.T) {
+	first := translate.ChatRequest{Messages: []translate.ChatMessage{
+		{Role: "system", Content: "be brief"},
+		{Role: "user", Content: "read it"},
+	}}
+	second := translate.ChatRequest{Messages: []translate.ChatMessage{
+		{Role: "system", Content: "be brief"},
+		{Role: "user", Content: "read it"},
+		{Role: "assistant", Content: "done"},
+		{Role: "user", Content: "thanks"},
+	}}
+	a, err := buildConversation(first, Credential{}, "claude-sonnet-4.5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := buildConversation(second, Credential{}, "claude-sonnet-4.5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.responsesBody(false).Metadata["kiro:conversation_id"] != b.responsesBody(false).Metadata["kiro:conversation_id"] {
+		t.Fatal("conversation id changed between turns")
+	}
+	if a.responsesBody(false).Metadata["kiro:agent_continuation_id"] == "" {
+		t.Fatal("continuation id missing")
+	}
+	if a.legacyBody(Origin, false).ConversationState.ConversationID != conversationID(a.Model, a.System, a.Anchor) {
+		t.Fatal("legacy body carries a different conversation id")
+	}
+}
+
 func TestToolChoiceAndImageRideTheUserTurn(t *testing.T) {
 	req := translate.ChatRequest{
 		Messages: []translate.ChatMessage{{Role: "user", Content: []any{
@@ -261,6 +346,7 @@ func (m *memStore) SaveCredentialPayload(_ context.Context, _, _ string, payload
 func (m *memStore) Observe(context.Context, string, string, string, string, string) error {
 	return nil
 }
+func (m *memStore) SetCredentialAuthType(context.Context, string, string) error { return nil }
 
 func mustCred(t *testing.T, cred Credential) []byte {
 	t.Helper()

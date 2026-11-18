@@ -24,8 +24,10 @@ func TestSDKUserAgentMatchesKiroIDE(t *testing.T) {
 	if strings.Contains(ua, "os/darwin ") || strings.Contains(ua, "nodejs#22 ") {
 		t.Fatalf("user agent still uses the short fingerprint: %s", ua)
 	}
-	if !strings.Contains(systemFingerprint(), "#") {
-		t.Fatalf("system fingerprint %q has no release", systemFingerprint())
+	switch systemFingerprint() {
+	case "darwin#24.6.0", "linux#6.6.87", "win32#10.0.22631":
+	default:
+		t.Fatalf("system fingerprint %q is not one the Kiro client advertises", systemFingerprint())
 	}
 }
 

@@ -201,8 +201,8 @@ func TestRequestReplaysToolHistory(t *testing.T) {
 	if built.Input[2]["output"] != "file contents" {
 		t.Fatalf("tool output = %#v", built.Input[2])
 	}
-	if len(built.Tools) != 1 || built.Tools[0].Name != "Read" {
-		t.Fatalf("tools = %#v", built.Tools)
+	if len(built.Tools) != 1 || built.Tools[0].Name != "read" || conv.Tools[0].ClientName != "Read" {
+		t.Fatalf("tools = %#v", conv.Tools)
 	}
 }
 
@@ -232,6 +232,41 @@ func TestUnpairedToolHistoryIsNarrated(t *testing.T) {
 	encoded, _ := json.Marshal(body.Input)
 	if !strings.Contains(string(encoded), "now write a summary") {
 		t.Fatalf("input = %s", encoded)
+	}
+}
+
+func TestSnakeCaseToolNameIsCamelCased(t *testing.T) {
+	req := translate.ChatRequest{
+		Messages: []translate.ChatMessage{{Role: "user", Content: "go"}},
+		Tools:    json.RawMessage(`[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]`),
+	}
+	conv, err := buildConversation(req, Credential{}, "claude-sonnet-4.5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(conv.Tools) != 1 || conv.Tools[0].Name != "readFile" || conv.Tools[0].ClientName != "read_file" {
+		t.Fatalf("tool = %#v", conv.Tools)
+	}
+	if conv.clientNames()["readFile"] != "read_file" {
+		t.Fatalf("names = %#v", conv.clientNames())
+	}
+}
+
+func TestEmptyToolSchemaBecomesObject(t *testing.T) {
+	req := translate.ChatRequest{
+		Messages: []translate.ChatMessage{{Role: "user", Content: "go"}},
+		Tools:    json.RawMessage(`[{"type":"function","function":{"name":"Read"}}]`),
+	}
+	conv, err := buildConversation(req, Credential{}, "claude-sonnet-4.5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	params, _ := conv.Tools[0].Parameters.(map[string]any)
+	if params["type"] != "object" {
+		t.Fatalf("parameters = %#v", conv.Tools[0].Parameters)
+	}
+	if conv.Tools[0].Description != "Tool: read" {
+		t.Fatalf("description = %q", conv.Tools[0].Description)
 	}
 }
 

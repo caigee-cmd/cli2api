@@ -7,6 +7,7 @@ import (
 
 	"github.com/caigee-cmd/cli2api/internal/providers"
 	"github.com/caigee-cmd/cli2api/internal/translate"
+	"github.com/google/uuid"
 )
 
 // conversation is the IDE payload both chat paths share. CreateResponse
@@ -15,6 +16,7 @@ import (
 type conversation struct {
 	Model      string
 	System     string
+	Anchor     string
 	History    []historyTurn
 	Current    userTurn
 	Tools      []toolSpec
@@ -137,6 +139,7 @@ func buildConversation(req translate.ChatRequest, cred Credential, model string)
 		case "system", "developer":
 			if text := messageText(message.Content); text != "" {
 				system = append(system, text)
+				out.System = strings.TrimSpace(out.System + "\n\n" + text)
 			}
 		case "user":
 			turn := userTurn{Text: messageText(message.Content), Results: pending}
@@ -175,6 +178,7 @@ func buildConversation(req translate.ChatRequest, cred Credential, model string)
 	}
 	out.Current = *out.History[len(out.History)-1].User
 	out.History = out.History[:len(out.History)-1]
+	out.Anchor = conversationAnchor(req.Messages)
 	tools, err := toolsFrom(req.Tools)
 	if err != nil {
 		return conversation{}, err
@@ -197,6 +201,21 @@ func buildConversation(req translate.ChatRequest, cred Credential, model string)
 		out.Current.Text = strings.TrimSpace(out.Current.Text + "\n\n" + directive)
 	}
 	return out, nil
+}
+
+// conversationAnchor is the first thing the user wrote. Tool results are their
+// own messages, so a turn that only returns a result does not count. The same
+// opening keeps the same conversation id on later turns.
+func conversationAnchor(messages []translate.ChatMessage) string {
+	for _, message := range messages {
+		if message.Role != "user" {
+			continue
+		}
+		if text := messageText(message.Content); text != "" {
+			return text
+		}
+	}
+	return ""
 }
 
 func assistantTurnFrom(message translate.ChatMessage) *assistantTurn {
@@ -229,7 +248,11 @@ func assistantTurnFrom(message translate.ChatMessage) *assistantTurn {
 func (c conversation) responsesBody(includeReasoning bool) responsesRequest {
 	body := responsesRequest{
 		Model: c.Model, Stream: true, Origin: Origin, ProfileArn: c.ProfileArn,
-		Metadata:  map[string]string{"kiro:agent_mode": AgentMode},
+		Metadata: map[string]string{
+			"kiro:agent_mode":            AgentMode,
+			"kiro:conversation_id":       conversationID(c.Model, c.System, c.Anchor),
+			"kiro:agent_continuation_id": uuid.NewString(),
+		},
 		Reasoning: reasoningField(c.Level),
 	}
 	for _, item := range c.History {
@@ -369,17 +392,15 @@ func toolsFrom(raw json.RawMessage) ([]toolSpec, error) {
 			continue
 		}
 		upstream := uniqueToolName(kiroToolName(name), used)
-		item := toolSpec{Name: upstream, Description: tool.Function.Description}
+		item := toolSpec{Name: upstream, Description: toolDescription(tool.Function.Description, upstream)}
 		if upstream != name {
 			item.ClientName = name
 		}
-		if len(tool.Function.Parameters) > 0 && string(tool.Function.Parameters) != "null" {
-			var params any
-			if err := json.Unmarshal(tool.Function.Parameters, &params); err != nil {
-				return nil, err
-			}
-			item.Parameters = params
+		params, err := toolParameters(tool.Function.Parameters)
+		if err != nil {
+			return nil, err
 		}
+		item.Parameters = params
 		out = append(out, item)
 	}
 	return out, nil
@@ -400,30 +421,49 @@ func webSearchSchema() map[string]any {
 	}
 }
 
-// kiroToolName keeps a name Kiro already accepts and rewrites the ones it
-// rejects: namespaced mcp__ names, snake case, and anything past 64 characters.
+// kiroToolName rewrites every name into the camel case Kiro accepts, then
+// shortens whatever is still past 64 characters. A name that needs no change
+// comes back as it was, so the client name is only kept when it differs.
 func kiroToolName(name string) string {
 	if name == "" {
 		return "tool"
 	}
-	if acceptableToolName(name) {
-		return name
-	}
 	return shortenToolName(sanitizeToolName(name))
 }
 
-func acceptableToolName(name string) bool {
-	if len(name) > maxToolNameLen || strings.Contains(name, "__") {
-		return false
+// toolDescription fills an empty description and cuts one Kiro would reject
+// for length. The cut keeps the opening, which is the part that says what
+// the tool does.
+func toolDescription(desc, name string) string {
+	desc = strings.TrimSpace(desc)
+	if desc == "" {
+		return "Tool: " + name
 	}
-	for _, r := range name {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '_', r == '-':
-		default:
-			return false
-		}
+	if len(desc) > maxToolDescLen {
+		return desc[:maxToolDescLen] + "..."
 	}
-	return true
+	return desc
+}
+
+// toolParameters decodes the client's schema and makes sure Kiro receives an
+// object. A missing schema, or one that is not an object, becomes an empty
+// object rather than a schema Kiro refuses.
+func toolParameters(raw json.RawMessage) (any, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return map[string]any{"type": "object"}, nil
+	}
+	var params any
+	if err := json.Unmarshal(raw, &params); err != nil {
+		return nil, err
+	}
+	obj, ok := params.(map[string]any)
+	if !ok {
+		return map[string]any{"type": "object"}, nil
+	}
+	if _, ok := obj["type"]; !ok {
+		obj["type"] = "object"
+	}
+	return obj, nil
 }
 
 // sanitizeToolName turns a namespaced or snake-case tool name into the camel
