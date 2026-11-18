@@ -80,24 +80,55 @@ func UniqueReasoningOptions(values []string) []string {
 	return options
 }
 
+// ResolveReasoningLevel clamps a client/console requested level to what the
+// model's catalog actually declares. Exact matches always win. When the
+// requested level is a high tier the model does not declare, degrade through
+// the nearest lower tiers (like LiteLLM's max->xhigh->high chain) instead of
+// jumping to an arbitrary first/default value. This avoids both inventing a
+// level and silently downgrading "max" to "low" when "high" is available.
+// Unknown or lower-tier values keep the older default/first fallback.
 func ResolveReasoningLevel(level string, caps ModelCapabilities) string {
 	if len(caps.ReasoningOptions) == 0 {
 		return ""
 	}
 	normalized := NormalizeReasoningLevel(level)
 	if normalized != "" {
-		for _, option := range caps.ReasoningOptions {
-			if option == normalized {
-				return normalized
+		if containsReasoningOption(caps.ReasoningOptions, normalized) {
+			return normalized
+		}
+		for _, candidate := range reasoningDegradationChain(normalized) {
+			if containsReasoningOption(caps.ReasoningOptions, candidate) {
+				return candidate
 			}
 		}
 	}
 	if fallback := NormalizeReasoningLevel(caps.ReasoningDefault); fallback != "" {
-		for _, option := range caps.ReasoningOptions {
-			if option == fallback {
-				return fallback
-			}
+		if containsReasoningOption(caps.ReasoningOptions, fallback) {
+			return fallback
 		}
 	}
 	return caps.ReasoningOptions[0]
+}
+
+func containsReasoningOption(options []string, level string) bool {
+	for _, option := range options {
+		if NormalizeReasoningLevel(option) == level {
+			return true
+		}
+	}
+	return false
+}
+
+// reasoningDegradationChain returns lower tiers ordered from nearest to
+// farthest. Only high tiers need explicit degradation; lower/unknown values
+// fall through to the model default in ResolveReasoningLevel.
+func reasoningDegradationChain(level string) []string {
+	switch level {
+	case "max":
+		return []string{"xhigh", "high", "medium", "low", "none"}
+	case "xhigh":
+		return []string{"high", "medium", "low", "none"}
+	default:
+		return nil
+	}
 }

@@ -3,11 +3,10 @@ import { Button, Card, Chip, Table, Tooltip } from '@heroui/react'
 import { Cube, ArrowClockwise, MagnifyingGlass, Info, Lightning } from '@phosphor-icons/react'
 import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
-import { checkModels, fetchModelsCached, fetchProviders, refreshModels, updateProviderMaxMode, type ModelProbeResponse, type ModelProbeResult, type ProviderDescriptor } from '@/api/overview'
+import { checkModels, fetchModelsCached, fetchProviders, refreshModels, type ModelProbeResponse, type ModelProbeResult, type ProviderDescriptor } from '@/api/overview'
 import type { Overview } from '@/api/types'
 import { ProviderMark } from '@/components/ProviderMark'
-import { ModelDetailsModal, formatTokens } from '@/components/ModelDetailsModal'
-import { CompactSwitch } from '@/components/ui/CompactSwitch'
+import { ModelDetailsModal } from '@/components/ModelDetailsModal'
 import { EmptyPanel } from '@/components/ui/EmptyPanel'
 import { FilterSelect } from '@/components/ui/FilterSelect'
 import { ListPager, type PageSize } from '@/components/ui/ListPager'
@@ -36,10 +35,6 @@ function providerRegionOptions(descriptors: ProviderDescriptor[]): ProviderRegio
   return options
 }
 
-function modelSettingsKey(model: ModelInfo) {
-  return model.settings_key || model.id
-}
-
 function modelProvider(model: ModelInfo) {
   // Account family wins over upstream owned_by (which may be a model vendor).
   return String(model.provider || model.owned_by || 'qoder').trim().toLowerCase()
@@ -62,54 +57,6 @@ function routedModelName(model: ModelInfo) {
 }
 
 type Translate = (key: string, vars?: Record<string, string | number>) => string
-
-function ModelContextControls({
-  model,
-  saving,
-  t,
-  variant = 'table',
-  onToggleTraeMax,
-}: {
-  model: ModelInfo
-  saving: boolean
-  t: Translate
-  /** table: stacked inside a stable-width cell; card: mobile label-above */
-  variant?: 'table' | 'card'
-  onToggleTraeMax: (model: ModelInfo, selected: boolean) => void
-}) {
-  const provider = modelProvider(model)
-  const isCard = variant === 'card'
-  const defaultWindow = model.catalog_context_length || model.context_length
-  const maxWindow = model.catalog_context_length_max
-  const hasMaxWindow = Boolean(maxWindow && maxWindow !== defaultWindow)
-  const reasoningOptions = model.reasoning_options || []
-  const canToggleMax = (provider === 'trae' || provider === 'qoder') && model.supports_max_mode
-  const reasoningText = reasoningOptions.length
-    ? reasoningOptions.join(' / ')
-    : model.reasoning_type
-      ? t('reasoningFixed', { type: model.reasoning_type })
-      : '—'
-  return (
-    <div className={isCard ? 'flex min-w-0 flex-col gap-2' : 'flex min-w-0 flex-col gap-1'}>
-      <div className="flex min-w-0 items-center gap-2">
-        <span className="mono text-caption font-medium">
-          {formatTokens(defaultWindow)}{hasMaxWindow ? ` → ${formatTokens(maxWindow)}` : ''}
-        </span>
-        {canToggleMax ? (
-          <CompactSwitch
-            isSelected={Boolean(model.max_mode)}
-            isDisabled={saving}
-            ariaLabel={`${model.id} ${t('maxMode')}`}
-            onChange={(selected) => onToggleTraeMax(model, selected)}
-          />
-        ) : null}
-      </div>
-      <div className="min-w-0 truncate text-caption text-muted" title={reasoningText}>
-        {reasoningText}
-      </div>
-    </div>
-  )
-}
 
 function ModelActions({
   model,
@@ -136,7 +83,6 @@ export function ProvidersPage() {
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState<PageSize>(50)
   const [busy, setBusy] = useState(false)
-  const [savingKey, setSavingKey] = useState('')
   const [message, setMessage] = useState('')
   const [messageError, setMessageError] = useState(false)
   const [detailModel, setDetailModel] = useState<ModelInfo | null>(null)
@@ -197,28 +143,6 @@ export function ProvidersPage() {
 
   if ((loading && !overview) || modelsLoading) return <ProvidersPageSkeleton />
 
-
-  function updateTraeInOverview(model: ModelInfo, maxMode: boolean) {
-    const key = modelSettingsKey(model)
-    const provider = modelProvider(model)
-    const nextModels = models.map((item) => {
-      if (modelSettingsKey(item) !== key || modelProvider(item) !== provider) return item
-      const effort = item.reasoning_effort || item.reasoning_default || ''
-      const itemDev = item.catalog_context_length || item.default_context_length || item.context_length || 0
-      const itemMax = item.catalog_context_length_max || 0
-      return {
-        ...item,
-        max_mode: maxMode,
-        // Only the toggle and its window change here. The prompt/output ceilings
-        // stay at their catalog defaults; the views pick the Max tier from
-        // *_max at render time, so turning max mode off restores the default.
-        context_length: maxMode && itemMax ? itemMax : itemDev,
-        default_context_length: itemDev,
-        context_custom: provider === 'qoder' ? maxMode : maxMode || Boolean(effort && effort !== item.reasoning_default),
-      }
-    })
-    setModels(nextModels)
-  }
 
   async function onRefresh() {
     setBusy(true)
@@ -282,30 +206,6 @@ export function ProvidersPage() {
       setChecking(false)
     }
   }
-
-  async function onToggleTraeMax(model: ModelInfo, maxMode: boolean) {
-    if (!model.supports_max_mode) {
-      setMessageError(true)
-      setMessage(t('contextMaxUnavailable'))
-      return
-    }
-    const key = modelSettingsKey(model)
-    const provider = modelProvider(model)
-    setSavingKey(key)
-    setMessage('')
-    setMessageError(false)
-    try {
-      await updateProviderMaxMode(provider, key, maxMode, model.catalog_context_length_max)
-      updateTraeInOverview(model, maxMode)
-      setMessage(maxMode ? t('contextMaxOn', { model: model.id }) : t('contextMaxOff', { model: model.id }))
-    } catch (error) {
-      setMessageError(true)
-      setMessage(error instanceof Error ? error.message : String(error))
-    } finally {
-      setSavingKey('')
-    }
-  }
-
 
   return (
     <div className="space-y-6">
@@ -472,8 +372,6 @@ export function ProvidersPage() {
           <>
             <div className="divide-y divide-separator lg:hidden">
               {paged.map((model) => {
-                const key = modelSettingsKey(model)
-                const saving = savingKey === key
                 const provider = modelProvider(model)
                 const region = modelRegion(model)
                 const providerLabel = accountProviderLabel(provider, region || undefined, t)
@@ -503,13 +401,6 @@ export function ProvidersPage() {
                       </span>
                       <span className="mono break-all text-muted">{model.mapped_key || model.native_model || model.id}</span>
                     </div>
-                    <ModelContextControls
-                      model={model}
-                      saving={saving}
-                      t={t}
-                      variant="card"
-                      onToggleTraeMax={(item, selected) => void onToggleTraeMax(item, selected)}
-                    />
                     <ModelActions
                       model={model}
                       t={t}
@@ -527,14 +418,11 @@ export function ProvidersPage() {
                     <Table.Column>{t('requestIdCol')}</Table.Column>
                     <Table.Column>{t('providerCol')}</Table.Column>
                     <Table.Column>{t('qoderKeyCol')}</Table.Column>
-                    <Table.Column>{t('modelDefaultsCol')}</Table.Column>
                     <Table.Column>{t('stateCol')}</Table.Column>
                     <Table.Column>{t('modelDetailsCol')}</Table.Column>
                   </Table.Header>
                   <Table.Body>
                     {paged.map((model) => {
-                      const key = modelSettingsKey(model)
-                      const saving = savingKey === key
                       const provider = modelProvider(model)
                       const region = modelRegion(model)
                       const providerLabel = accountProviderLabel(provider, region || undefined, t)
@@ -563,15 +451,6 @@ export function ProvidersPage() {
                             </div>
                           </Table.Cell>
                           <Table.Cell><span className="mono text-caption text-muted">{model.mapped_key || model.native_model || model.id}</span></Table.Cell>
-                          <Table.Cell>
-                            <ModelContextControls
-                              model={model}
-                              saving={saving}
-                              t={t}
-                              variant="table"
-                              onToggleTraeMax={(item, selected) => void onToggleTraeMax(item, selected)}
-                            />
-                          </Table.Cell>
                           <Table.Cell>{modelCheckChip(model)}</Table.Cell>
                           <Table.Cell>
                             <ModelActions

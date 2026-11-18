@@ -19,6 +19,27 @@ func resolveTestCatalog() []map[string]any {
 	}
 }
 
+func TestApplyCatalogEntryForcesLargestDeclaredWindow(t *testing.T) {
+	plain := map[string]any{"model_config": map[string]any{"max_input_tokens": 200000}}
+	req := translate.ChatRequest{MaxInputTokens: []byte("200000")}
+	entry := map[string]any{
+		"catalog_context_length":     200000,
+		"catalog_context_length_max": 1000000,
+	}
+	applyCatalogEntry(plain, req, entry)
+	cfg := plain["model_config"].(map[string]any)
+	if cfg["max_input_tokens"] != 1000000 {
+		t.Fatalf("forced window=%v, want 1000000", cfg["max_input_tokens"])
+	}
+
+	// A model with no larger declared tier keeps its own declared window.
+	flash := map[string]any{"model_config": map[string]any{}}
+	applyCatalogEntry(flash, req, map[string]any{"catalog_context_length": 1000000})
+	if got := flash["model_config"].(map[string]any)["max_input_tokens"]; got != 1000000 {
+		t.Fatalf("model-declared window=%v, want 1000000", got)
+	}
+}
+
 func bridgeWithFetch(calls *int32) *Bridge {
 	b := &Bridge{}
 	b.catalogFetch = func(context.Context) ([]map[string]any, error) {
