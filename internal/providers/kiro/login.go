@@ -99,7 +99,7 @@ func (c *Client) StartLogin(ctx context.Context, accountID string) (providers.Lo
 	case loginSSO:
 		session, err = c.startSSO(state)
 	case loginMicrosoft:
-		session, err = c.startMicrosoft(state)
+		session, err = c.startMicrosoft(accountID, state)
 	default:
 		err = fmt.Errorf("unknown kiro login method %q", method)
 	}
@@ -173,7 +173,7 @@ func (c *Client) startSSO(state *loginState) (providers.LoginSession, error) {
 	return providers.LoginSession{AuthURL: ssoPortalBase, State: "sso"}, nil
 }
 
-func (c *Client) startMicrosoft(state *loginState) (providers.LoginSession, error) {
+func (c *Client) startMicrosoft(accountID string, state *loginState) (providers.LoginSession, error) {
 	oauthState, err := randomState()
 	if err != nil {
 		return providers.LoginSession{}, err
@@ -191,7 +191,7 @@ func (c *Client) startMicrosoft(state *loginState) (providers.LoginSession, erro
 	}
 	state.listener = listener
 	go serveMicrosoftLoopback(listener, func(callbackCtx context.Context, rawURL string) error {
-		return c.completeMicrosoft(callbackCtx, "", state, rawURL)
+		return c.completeMicrosoft(callbackCtx, accountID, state, rawURL)
 	})
 	return providers.LoginSession{AuthURL: microsoftSignIn(oauthState, challenge), State: oauthState}, nil
 }
