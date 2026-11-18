@@ -161,6 +161,101 @@ func TestNormalizeOpenAIToolsExpandsNamespaceAndDropsHostedShells(t *testing.T) 
 	}
 }
 
+func TestNormalizeOpenAIToolsHardensSchemaKeywords(t *testing.T) {
+	raw := json.RawMessage(`[{
+		"type":"function",
+		"function":{
+			"name":"bounded",
+			"description":"ok",
+			"parameters":{
+				"type":"object",
+				"additionalProperties":"false",
+				"default":null,
+				"properties":{
+					"n":{"type":"integer","minimum":"1","maximum":"10","exclusiveMinimum":"0","multipleOf":"2"},
+					"g":{"type":"number","minimum":"1.5"},
+					"bad":{"type":"integer","minimum":"abc","maxLength":null},
+					"flag":{"type":"array","uniqueItems":"true","deprecated":"false"},
+					"named":{"type":"string","enum":"x","examples":null,"description":5,"title":null,"format":1},
+					"kept":{"type":"string","examples":["x"],"enum":["a","b"]},
+					"nested":{"anyOf":[{"type":"integer","minimum":"3"}]}
+				}
+			}
+		}
+	}]`)
+	got, err := NormalizeOpenAITools(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := NormalizeOpenAITools(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(again) {
+		t.Fatalf("schema harden is not idempotent:\n%s\n%s", got, again)
+	}
+	var tools []struct {
+		Function struct {
+			Parameters json.RawMessage `json:"parameters"`
+		} `json:"function"`
+	}
+	if err := json.Unmarshal(got, &tools); err != nil {
+		t.Fatal(err)
+	}
+	var params map[string]any
+	if err := json.Unmarshal(tools[0].Function.Parameters, &params); err != nil {
+		t.Fatal(err)
+	}
+	if params["additionalProperties"] != false {
+		t.Fatalf("additionalProperties=%#v", params["additionalProperties"])
+	}
+	if _, ok := params["default"]; !ok || params["default"] != nil {
+		t.Fatalf("default=%#v want null kept", params["default"])
+	}
+	props := params["properties"].(map[string]any)
+	n := props["n"].(map[string]any)
+	for key, want := range map[string]float64{"minimum": 1, "maximum": 10, "exclusiveMinimum": 0, "multipleOf": 2} {
+		if n[key] != want {
+			t.Fatalf("%s=%#v want %v", key, n[key], want)
+		}
+	}
+	if props["g"].(map[string]any)["minimum"] != 1.5 {
+		t.Fatalf("fractional minimum=%#v", props["g"])
+	}
+	bad := props["bad"].(map[string]any)
+	if _, ok := bad["minimum"]; ok {
+		t.Fatalf("unparseable minimum kept: %#v", bad)
+	}
+	if _, ok := bad["maxLength"]; ok {
+		t.Fatalf("null maxLength kept: %#v", bad)
+	}
+	flag := props["flag"].(map[string]any)
+	if flag["uniqueItems"] != true || flag["deprecated"] != false {
+		t.Fatalf("booleans=%#v", flag)
+	}
+	named := props["named"].(map[string]any)
+	if _, ok := named["enum"]; ok {
+		t.Fatalf("non-list enum kept: %#v", named)
+	}
+	if _, ok := named["examples"]; ok {
+		t.Fatalf("null examples kept: %#v", named)
+	}
+	if _, ok := named["title"]; ok {
+		t.Fatalf("null title kept: %#v", named)
+	}
+	if named["description"] != "5" || named["format"] != "1" {
+		t.Fatalf("string keywords=%#v", named)
+	}
+	kept := props["kept"].(map[string]any)
+	if examples, _ := kept["examples"].([]any); len(examples) != 1 || examples[0] != "x" {
+		t.Fatalf("examples=%#v", kept["examples"])
+	}
+	nested := props["nested"].(map[string]any)["anyOf"].([]any)[0].(map[string]any)
+	if nested["minimum"] != float64(3) {
+		t.Fatalf("nested minimum=%#v", nested)
+	}
+}
+
 func TestNormalizeOpenAIToolsExpandsNamespacedCustomTools(t *testing.T) {
 	got, err := NormalizeOpenAITools(json.RawMessage(`[
 		{"type":"namespace","name":"functions","tools":[
