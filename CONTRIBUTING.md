@@ -59,8 +59,7 @@ series bump.
 ## Rules
 
 - Keep the Go layers: auth / endpoint / executor / translate, plus store / control / runtime / gateway / console / server / app. `internal/api` is a test-only facade over `app.New`; do not add business there.
-- Keep one isolated runtime per enabled account: Qoder uses one HOME and Node daemon;
-  in-process providers use their adapter and must not spawn a child daemon
+- PAT-backed Qoder accounts stay in-process. Legacy `qoder-native-v1` accounts keep one HOME and one Node daemon; do not share that WASM context. Other providers use their in-process adapter and must not spawn a child daemon
 - Keep qodercli compatibility checks in `worker/src/compat.mjs`
 - Preserve the proven WASM encode and HTTP/SSE request path
 - Use HeroUI for console components
