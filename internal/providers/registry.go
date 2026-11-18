@@ -352,6 +352,35 @@ var CodeArts = ProviderDescriptor{
 	DefaultRegion: "cn-north-4",
 }
 
+// Kiro descriptor. Protocol constants stay in internal/providers/kiro.
+// In-process adapter for a personal Kiro login. Chat goes to CreateResponse
+// on runtime.{region}.kiro.dev. The two regions are the data planes the IDE uses.
+var Kiro = ProviderDescriptor{
+	ID:                "kiro",
+	Label:             "Kiro",
+	Runtime:           RuntimeInProcess,
+	AuthTypes:         []AuthType{AuthOAuth, AuthPAT},
+	CredentialFormats: []string{"kiro-oauth-v1"},
+	Capabilities: ProviderCapabilities{
+		Chat: true, Stream: true, Tools: true, Images: true, Reasoning: true,
+		ModelCatalog: true, Usage: false, Login: false, BrowserLogin: false,
+		PATLogin: true, ImportExport: true,
+	},
+	Regions: []RegionDescriptor{
+		{
+			ID: "us-east-1", Label: "US East",
+			ChatBase: "https://runtime.us-east-1.kiro.dev", BillingBase: "https://q.us-east-1.amazonaws.com",
+			AuthBase: "https://oidc.us-east-1.amazonaws.com", DefaultDomain: "kiro.dev",
+		},
+		{
+			ID: "eu-central-1", Label: "EU Central",
+			ChatBase: "https://runtime.eu-central-1.kiro.dev", BillingBase: "https://q.eu-central-1.amazonaws.com",
+			AuthBase: "https://oidc.eu-central-1.amazonaws.com", DefaultDomain: "kiro.dev",
+		},
+	},
+	DefaultRegion: "us-east-1",
+}
+
 // Meta descriptor. Protocol constants stay in internal/providers/meta.
 // Global-only Muse (Meta) adapter: RFC 8628 device grant against auth.meta.com,
 // minting an LLM API key at api.meta.ai/muse-code/key. Alias "muse" resolves to
@@ -388,6 +417,7 @@ var registry = map[string]ProviderDescriptor{
 	QwenWork.ID:  QwenWork,
 	Kimi.ID:      Kimi,
 	CodeArts.ID:  CodeArts,
+	Kiro.ID:      Kiro,
 	Meta.ID:      Meta,
 }
 
@@ -401,7 +431,7 @@ func Get(id string) (ProviderDescriptor, bool) {
 }
 
 func List() []ProviderDescriptor {
-	return []ProviderDescriptor{Qoder, WorkBuddy, Trae, Devin, Command, Codex, Zhipu, QwenWork, Kimi, CodeArts, Meta}
+	return []ProviderDescriptor{Qoder, WorkBuddy, Trae, Devin, Command, Codex, Zhipu, QwenWork, Kimi, CodeArts, Kiro, Meta}
 }
 
 // Resolve validates a provider/region pair. Empty values fall back to the

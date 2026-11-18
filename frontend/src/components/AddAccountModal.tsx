@@ -68,6 +68,8 @@ const labelKeys: Record<string, string> = {
   'qwenwork-cn': 'accountTypeQwenworkCN',
   'kimi-cn': 'accountTypeKimiCN',
   'codearts-cn-north-4': 'accountTypeCodeArtsCN',
+  'kiro-us-east-1': 'accountTypeKiroUS',
+  'kiro-eu-central-1': 'accountTypeKiroEU',
   'meta-global': 'accountTypeMetaGlobal',
 }
 
@@ -85,6 +87,8 @@ const hintKeys: Record<string, string> = {
   'qwenwork-cn': 'accountTypeQwenworkCNHint',
   'kimi-cn': 'accountTypeKimiCNHint',
   'codearts-cn-north-4': 'accountTypeCodeArtsCNHint',
+  'kiro-us-east-1': 'accountTypeKiroUSHint',
+  'kiro-eu-central-1': 'accountTypeKiroEUHint',
   'meta-global': 'accountTypeMetaGlobalHint',
 }
 
