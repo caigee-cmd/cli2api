@@ -3,6 +3,10 @@ mapping in eventstream.go and responses_stream.go follow the corresponding
 logic in github.com/tanu360/kiro-reverse-api (a continuation of
 github.com/Quorinex/Kiro-Go), licensed under the MIT License.
 
+The console marks in frontend/src/assets/kiro-mark-light.webp and
+kiro-mark-dark.webp are that project's ui/public/icon-light.webp and
+icon.webp.
+
 Copyright (c) 2026 Quorinex
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
