@@ -163,9 +163,14 @@ func normalizeTools(obj map[string]any) {
 			continue
 		}
 		if params, ok := fn["parameters"]; ok {
-			if paramsMap, isMap := params.(map[string]any); isMap {
-				if s, err := json.Marshal(paramsMap); err == nil {
+			switch typed := params.(type) {
+			case map[string]any:
+				if s, err := json.Marshal(typed); err == nil {
 					fn["parameters"] = string(s)
+				}
+			case string:
+				if hardened := translate.HardenToolSchema(json.RawMessage(typed)); len(hardened) > 0 {
+					fn["parameters"] = string(hardened)
 				}
 			}
 		}
