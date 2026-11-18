@@ -39,10 +39,12 @@ func (m *Manager) RefreshAccount(ctx context.Context, id string, forceQuota bool
 	return m.refreshDetached(ctx, account, forceQuota)
 }
 
-// DetachedRefreshError reports that a disabled account cannot be refreshed
-// because its provider has no in-process prober (for example a legacy Qoder
-// worker account that predates the PAT model). Such an account must be enabled
-// first so a worker can be spawned before its status/quota can be read.
+// DetachedRefreshError reports that a disabled account cannot be refreshed. It
+// is returned when the provider has no in-process prober at all, or when the
+// probe reports not-ready without an error (for example a legacy Qoder worker
+// account that predates the PAT model and has no live worker). Such an account
+// must be enabled first so a worker can be spawned before its status/quota can
+// be read.
 type DetachedRefreshError struct{ Provider string }
 
 func (e *DetachedRefreshError) Error() string {
@@ -56,6 +58,11 @@ func (e *DetachedRefreshError) Error() string {
 // refreshDetached refreshes one account that has no pool item (a disabled
 // account). It probes the provider adapter directly and persists health/quota
 // to the store, but never adds the account back into the routing pool.
+//
+// The probe must never change the account's status: a disabled account stays
+// disabled even when its provider answers ready, because it is still absent
+// from the routing pool. Only the health detail and quota are refreshed so the
+// operator can inspect a disabled account's live credits.
 func (m *Manager) refreshDetached(ctx context.Context, account Account, forceQuota bool) error {
 	if m.providers == nil {
 		return &DetachedRefreshError{Provider: account.Provider}
@@ -66,39 +73,41 @@ func (m *Manager) refreshDetached(ctx context.Context, account Account, forceQuo
 	}
 	health, err := adapter.Prober.Probe(ctx, account.ID)
 	if err != nil {
-		status, kind := "error", KindUnavailable
+		// Persist the probe error for display, but never promote the disabled
+		// account to error/login_required: a transient outage or a dead
+		// credential on an account the operator deliberately disabled must not
+		// make the card look like a routable account that needs attention.
+		kind := KindUnavailable
 		if qoder.IsAuthError(err) {
-			// A gateway 401/403 means the credential is dead, not a transient
-			// outage: mark it login_required so the card shows "re-login".
-			status, kind = "login_required", KindAuth
+			kind = KindAuth
 		}
-		_ = m.store.Observe(ctx, account.ID, "", status, err.Error(), kind)
+		_ = m.store.ObserveHealth(ctx, account.ID, "", err.Error(), kind)
 		return fmt.Errorf("probe account %s: %w", account.ID, err)
 	}
-	status, kind := "login_required", ""
-	if health.Ready || health.Hot {
-		status = "ready"
-	} else if health.LastError != "" {
-		status = "error"
-		if adapter.Classifier != nil {
-			classified := adapter.Classifier.Classify(0, health.LastError)
-			if classified.Kind != "" {
-				kind = classified.Kind
-			}
-			if classified.Kind == KindAuth {
-				status = "login_required"
-			}
+	kind := ""
+	if health.LastError != "" && adapter.Classifier != nil {
+		if classified := adapter.Classifier.Classify(0, health.LastError); classified.Kind != "" {
+			kind = classified.Kind
 		}
 	}
-	if err := m.store.Observe(ctx, account.ID, health.UID, status, health.LastError, kind); err != nil {
+	if err := m.store.ObserveHealth(ctx, account.ID, health.UID, health.LastError, kind); err != nil {
 		return err
 	}
 	if !health.Ready && !health.Hot {
+		// A provider that reports not-ready without an error (for example a
+		// legacy Qoder worker account with no PAT and no live worker) gives us
+		// nothing to refresh: there is no in-process prober to spawn the
+		// missing worker while the account is disabled. Surface the typed error
+		// so the console tells the operator to enable the account first instead
+		// of silently reporting a successful refresh.
+		if health.LastError == "" {
+			return &DetachedRefreshError{Provider: account.Provider}
+		}
 		return nil
 	}
 	// Quota is fetched after readiness so an upstream quota outage never flips
-	// Ready. A manual "refresh credits" (forceQuota) must complete before
-	// returning so the console row carries the fresh number.
+	// routing state. A manual "refresh credits" (forceQuota) must complete
+	// before returning so the console row carries the fresh number.
 	if forceQuota {
 		quotaCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 		defer cancel()

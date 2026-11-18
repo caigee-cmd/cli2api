@@ -813,6 +813,30 @@ WHERE id = ?`, string(payload), status, formatTime(time.Now().UTC()), id)
 	}
 	return nil
 }
+// ObserveHealth updates the probe-derived fields (remote_uid, last_error,
+// last_error_kind) but leaves the account's status column untouched. It is used
+// by the detached refresh path for a disabled account: probing must not promote
+// a deliberately disabled account to ready/login_required/error, and there is no
+// pool item to carry that state anyway. A status left over from when the account
+// was active is reset to "offline" so a stale "ready" cannot contradict the
+// disabled flag on the card.
+func (s *Store) ObserveHealth(ctx context.Context, id, remoteUID, lastError, lastKind string) error {
+	result, err := s.db.ExecContext(ctx, `
+UPDATE accounts SET remote_uid = ?, status = CASE
+  WHEN status IN ('ready', 'error', 'login_required', 'cooling') THEN 'offline'
+  ELSE status
+END, last_error = ?, last_error_kind = ?, updated_at = ?
+WHERE id = ?`, remoteUID, lastError, lastKind, formatTime(time.Now().UTC()), id)
+	if err != nil {
+		return fmt.Errorf("observe account health: %w", err)
+	}
+	changed, _ := result.RowsAffected()
+	if changed == 0 {
+		return accounts.ErrAccountNotFound
+	}
+	return nil
+}
+
 func (s *Store) Observe(ctx context.Context, id, remoteUID, status, lastError, lastKind string) error {
 	result, err := s.db.ExecContext(ctx, `
 UPDATE accounts SET remote_uid = ?, status = CASE

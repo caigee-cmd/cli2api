@@ -160,6 +160,7 @@ func (s *fakeStore) LoadCredentialPayload(_ context.Context, accountID string) (
 func (s *fakeStore) Observe(context.Context, string, string, string, string, string) error {
 	return nil
 }
+func (s *fakeStore) ObserveHealth(context.Context, string, string, string, string) error { return nil }
 func (s *fakeStore) SaveQuota(context.Context, string, *accounts.QuotaSnapshot) error { return nil }
 func (s *fakeStore) RecordCheckin(context.Context, string, string, string, time.Time) error {
 	return nil

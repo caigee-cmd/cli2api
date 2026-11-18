@@ -114,8 +114,13 @@ export function AccountsPage() {
 
   const refreshAccountsInBatches = useCallback(async (ids: string[], forceQuota = true) => {
     const accountIds = [...new Set(ids)]
-    const result = { total: accountIds.length, failed: 0, errors: [] as string[] }
-    if (!accountIds.length) return result
+    if (!accountIds.length) return { total: 0, failed: 0, errors: [] as string[] }
+    const total = accountIds.length
+    // Aggregate failures per account instead of mutating a shared object inside
+    // the concurrent Promise.all workers: those interleaved `failed += 1`
+    // updates race each other and lose counts, so a batch where several
+    // accounts failed could under-report how many really did.
+    const failures = new Map<string, string>()
     for (let start = 0; start < accountIds.length; start += ACCOUNT_REFRESH_BATCH_SIZE) {
       const batch = accountIds.slice(start, start + ACCOUNT_REFRESH_BATCH_SIZE)
       await Promise.all(batch.map(async (id) => {
@@ -126,13 +131,12 @@ export function AccountsPage() {
           // Surface the failure to the caller instead of swallowing it: a
           // batch where every account failed must not report success.
           const message = error instanceof Error ? error.message : String(error)
-          result.failed += 1
-          result.errors.push(message)
+          failures.set(id, message)
           setNoteById((current) => ({ ...current, [id]: message }))
         }
       }))
     }
-    return result
+    return { total, failed: failures.size, errors: [...failures.values()] }
   }, [])
 
   useEffect(() => {
@@ -366,10 +370,15 @@ export function AccountsPage() {
     try {
       const result = await refreshAccountsInBatches(accounts.map((account) => account.id))
       if (result.failed > 0) {
+        // Report a partial failure honestly: some accounts refreshed fine, so
+        // name how many failed instead of implying the whole batch did.
+        const partial = result.failed < result.total
         toast({
           id: 'refresh-credits',
-          type: 'error',
-          title: t('toastFailed'),
+          type: partial ? 'info' : 'error',
+          title: partial
+            ? t('toastCreditsPartiallyRefreshed', { failed: result.failed, total: result.total })
+            : t('toastFailed'),
           description: result.errors[0] || t('toastFailed'),
         })
         return

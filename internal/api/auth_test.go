@@ -962,15 +962,27 @@ func TestAccountRefreshRouteRejectsGET(t *testing.T) {
 
 	// A disabled account is kept out of the routing pool, but refresh still
 	// probes its provider adapter directly so the operator can inspect a
-	// disabled account's status/quota. It must succeed (200) instead of
-	// failing closed with the old "not running" error.
+	// disabled account's status/quota. A default account has no in-process
+	// prober, so the refresh must fail closed with the typed "enable it first"
+	// error (502) instead of the old generic "not running" failure. It must NOT
+	// report success, and it must not promote the account out of disabled.
 	req = httptest.NewRequest(http.MethodPost, "/api/accounts/"+created.ID+"/refresh", nil)
 	req.Header.Set("Authorization", "Bearer secret")
 	req.Header.Set("Content-Type", "application/json")
 	rec = httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("refresh disabled account: got %d want 200 (%s)", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("refresh disabled account: got %d want 502 (%s)", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "enable it first") {
+		t.Fatalf("refresh disabled account body = %s, want DetachedRefreshError", rec.Body.String())
+	}
+	stored, err := srv.Manager.Store().Get(context.Background(), created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Enabled || stored.Status == "ready" || stored.Status == "login_required" {
+		t.Fatalf("disabled account changed after failed refresh: enabled=%v status=%q", stored.Enabled, stored.Status)
 	}
 
 	req = httptest.NewRequest(http.MethodGet, "/api/accounts/"+created.ID+"/refresh", nil)
