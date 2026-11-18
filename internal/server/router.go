@@ -23,7 +23,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/system/console-key", s.withConsoleKey(s.consoleHandler().HandleConsoleKey))
 	s.mux.HandleFunc("/api/keys", s.withConsoleKey(s.consoleHandler().HandleAPIKeys))
 	s.mux.HandleFunc("/api/keys/", s.withConsoleKey(s.consoleHandler().HandleAPIKeyByID))
+	s.mux.HandleFunc("/api/aggregations", s.withConsoleKey(s.consoleHandler().HandleAggregations))
+	s.mux.HandleFunc("/api/aggregations/", s.withConsoleKey(s.consoleHandler().HandleAggregationByID))
 	s.mux.HandleFunc("/api/models", s.withConsoleKey(s.consoleHandler().HandleModelsAPI))
+	s.mux.HandleFunc("/api/models/check", s.withConsoleKey(s.consoleHandler().HandleModelProbe))
 	s.mux.HandleFunc("/api/model-catalog", s.withConsoleKey(s.consoleHandler().HandleCatalogStatus))
 	s.mux.HandleFunc("/api/models/", s.withConsoleKey(s.consoleHandler().HandleModelSetting))
 	s.mux.HandleFunc("/api/providers", s.withConsoleKey(s.consoleHandler().HandleProviders))
@@ -56,7 +59,7 @@ func (s *Server) routes() {
 			r.URL.Path != "/og-card.svg" &&
 			r.URL.Path != "/site.webmanifest" {
 			switch r.URL.Path {
-			case "/login", "/auth", "/providers", "/access", "/accounts", "/system", "/logs", "/keys", "/usage":
+			case "/login", "/auth", "/providers", "/model-pool", "/access", "/accounts", "/system", "/logs", "/keys", "/usage":
 			default:
 				http.NotFound(w, r)
 				return

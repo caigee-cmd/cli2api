@@ -11,11 +11,11 @@ export default defineConfig({
     },
   },
   server: {
-    port: 5179,
+    port: 5180,
     proxy: {
-      '/api': 'http://127.0.0.1:3010',
-      '/v1': 'http://127.0.0.1:3010',
-      '/health': 'http://127.0.0.1:3010',
+      '/api': 'http://127.0.0.1:4010',
+      '/v1': 'http://127.0.0.1:4010',
+      '/health': 'http://127.0.0.1:4010',
     },
   },
   build: {
