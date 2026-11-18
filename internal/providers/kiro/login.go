@@ -190,28 +190,14 @@ func (c *Client) startMicrosoft(accountID string, state *loginState) (providers.
 		return providers.LoginSession{AuthURL: microsoftSignIn(oauthState, challenge), State: oauthState}, nil
 	}
 	state.listener = listener
-	go serveMicrosoftLoopback(listener, func(callbackCtx context.Context, rawURL string) error {
+	serveMicrosoft := func(callbackCtx context.Context, rawURL string) error {
 		return c.completeMicrosoft(callbackCtx, accountID, state, rawURL)
+	}
+	auth.ServeLoopbackRoutes(listener, []auth.LoopbackRoute{
+		{Path: microsoftPortalPath, Title: "Kiro", Callback: serveMicrosoft},
+		{Path: microsoftOAuthPath, Title: "Kiro", Callback: serveMicrosoft},
 	})
 	return providers.LoginSession{AuthURL: microsoftSignIn(oauthState, challenge), State: oauthState}, nil
-}
-
-// serveMicrosoftLoopback accepts both redirects Kiro sends to localhost:3128.
-// The first lands on the sign-in callback, the second on the OAuth callback.
-func serveMicrosoftLoopback(ln net.Listener, callback func(context.Context, string) error) {
-	mux := http.NewServeMux()
-	handle := func(w http.ResponseWriter, r *http.Request) {
-		if err := callback(r.Context(), "http://localhost:3128"+r.URL.RequestURI()); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = fmt.Fprint(w, "<!doctype html><meta charset=utf-8><title>Kiro login</title><p>Login complete. You can close this tab.</p>")
-	}
-	mux.HandleFunc(microsoftPortalPath, handle)
-	mux.HandleFunc(microsoftOAuthPath, handle)
-	server := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
-	go func() { _ = server.Serve(ln) }()
 }
 
 // idcStartURL reads the Identity Center portal address the operator stored for
