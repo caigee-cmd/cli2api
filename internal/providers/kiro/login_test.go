@@ -52,14 +52,16 @@ type loginStore struct {
 	account accounts.Account
 	secrets map[string]string
 	saved   []byte
+	savedID string
 }
 
 func (s *loginStore) Get(context.Context, string) (accounts.Account, error) { return s.account, nil }
 func (s *loginStore) LoadCredentialPayload(context.Context, string) (string, []byte, error) {
 	return "", nil, accounts.ErrAccountNotFound
 }
-func (s *loginStore) SaveCredentialPayload(_ context.Context, _, _ string, payload []byte) error {
+func (s *loginStore) SaveCredentialPayload(_ context.Context, accountID, _ string, payload []byte) error {
 	s.saved = payload
+	s.savedID = accountID
 	return nil
 }
 func (s *loginStore) Observe(context.Context, string, string, string, string, string) error {
@@ -161,5 +163,53 @@ func TestMicrosoftLoginAdvancesToProvider(t *testing.T) {
 	}
 	if !strings.Contains(message, "login.microsoftonline.com") || !strings.Contains(message, "code_challenge") {
 		t.Fatalf("poll = %q", message)
+	}
+}
+
+// The browser redirects to localhost on its own, so the listener must know
+// which account the login belongs to. An empty id would store the credential
+// against no account and the token exchange would have no proxy to use.
+func TestMicrosoftRedirectCarriesTheAccount(t *testing.T) {
+	tenant := "11111111-1111-1111-1111-111111111111"
+	issuer := "https://login.microsoftonline.com/" + tenant + "/v2.0"
+	transport := &scriptTransport{steps: []scriptStep{
+		{match: "/.well-known/openid-configuration", body: fmt.Sprintf(
+			`{"issuer":%q,"authorization_endpoint":"https://login.microsoftonline.com/%s/oauth2/v2.0/authorize","token_endpoint":"https://login.microsoftonline.com/%s/oauth2/v2.0/token"}`,
+			issuer, tenant, tenant)},
+		{match: "/oauth2/v2.0/token", body: `{"access_token":"access","refresh_token":"refresh","expires_in":3600}`},
+	}}
+	store := &loginStore{
+		account: accounts.Account{ID: "acc", ProviderRegion: "us-east-1"},
+		secrets: map[string]string{loginMethodName + "acc": loginMicrosoft},
+	}
+	client := &Client{store: store, http: &http.Client{Transport: transport}}
+	state := &loginState{method: loginMicrosoft, region: "us-east-1", completed: make(chan struct{})}
+	if _, err := client.startMicrosoft("acc", state); err != nil {
+		t.Fatal(err)
+	}
+	if state.listener == nil {
+		t.Skip("localhost:3128 is in use, so the redirect falls back to pasting")
+	}
+	defer state.listener.Close()
+
+	portal := fmt.Sprintf(
+		"http://localhost:3128/signin/callback?login_option=external_idp&issuer_url=%s&client_id=%s&scopes=%s",
+		issuer, tenant, "offline_access%20api://"+tenant+"/codewhisperer:completions")
+	if err := client.completeMicrosoft(context.Background(), "acc", state, portal); err != nil {
+		t.Fatal(err)
+	}
+	callback := "http://localhost:3128/oauth/callback?code=auth-code&state=" + state.provider.State
+	if err := client.completeMicrosoft(context.Background(), "acc", state, callback); err != nil {
+		t.Fatal(err)
+	}
+	if store.savedID != "acc" {
+		t.Fatalf("credential stored for %q", store.savedID)
+	}
+	cred, err := DecodeCredential(store.saved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cred.AuthMethod != "external_idp" || cred.RefreshToken != "refresh" {
+		t.Fatalf("saved = %+v", cred)
 	}
 }
