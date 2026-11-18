@@ -53,4 +53,4 @@ export function deleteAggregation(id: string) {
   return api(`/api/aggregations/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
 
-export const AGGREGATION_STRATEGIES = ['priority', 'round-robin', 'fill-first', 'fefo'] as const
+export const AGGREGATION_STRATEGIES = ['priority', 'round-robin', 'fill-first', 'fefo', 'least-quota-first', 'most-quota-first'] as const

@@ -469,6 +469,22 @@ func providerFilterKey(q RouteQuery) string {
 	return "*"
 }
 
+// effectiveRoutingStrategy resolves the strategy actually used for one query.
+// Model pools may override the global pool strategy; every route helper must
+// agree with PickRoute or retry counts and quota gates diverge from selection.
+func (p *Pool) effectiveRoutingStrategy(q RouteQuery) string {
+	strategy := p.routingStrategy
+	if q.StrategyOverride != "" {
+		raw := strings.ToLower(strings.TrimSpace(q.StrategyOverride))
+		if raw == AggregationStrategyPriority {
+			strategy = AggregationStrategyPriority
+		} else {
+			strategy = NormalizeRoutingStrategy(q.StrategyOverride)
+		}
+	}
+	return strategy
+}
+
 func NewPool(urls []string, ids []string) *Pool {
 	items := make([]Item, 0, len(urls))
 	for i, url := range urls {
@@ -532,7 +548,7 @@ func (p *Pool) LenRoute(q RouteQuery) int {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.routingStrategy == RoutingStrategyFEFO {
+	if p.effectiveRoutingStrategy(q) == RoutingStrategyFEFO {
 		q.fefoNow = time.Now()
 	}
 	count := 0
@@ -555,7 +571,7 @@ func (p *Pool) HasCapacity(q RouteQuery) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	now := time.Now()
-	if p.routingStrategy == RoutingStrategyFEFO {
+	if p.effectiveRoutingStrategy(q) == RoutingStrategyFEFO {
 		q.fefoNow = now
 	}
 	for _, item := range p.items {
@@ -576,7 +592,7 @@ func (p *Pool) QuotaBlockedForModel(q RouteQuery) (Item, bool) {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.routingStrategy == RoutingStrategyFEFO {
+	if p.effectiveRoutingStrategy(q) == RoutingStrategyFEFO {
 		q.fefoNow = time.Now()
 	}
 	for _, item := range p.items {
@@ -624,10 +640,7 @@ func (p *Pool) PickRoute(q RouteQuery) (Item, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	now := time.Now()
-	strategy := p.routingStrategy
-	if q.StrategyOverride != "" {
-		strategy = q.StrategyOverride
-	}
+	strategy := p.effectiveRoutingStrategy(q)
 	if strategy == RoutingStrategyFEFO {
 		q.fefoNow = now
 	}
@@ -722,7 +735,7 @@ func (p *Pool) PickRoute(q RouteQuery) (Item, bool) {
 	// pick the region with the most candidates and remember it — starting at
 	// the alphabetically first account would otherwise let one small region
 	// capture the route.
-	if q.RegionFilter == "" {
+	if q.RegionFilter == "" && !isQuotaRoutingStrategy(strategy) {
 		if previous, ok := p.lastRegion[key]; ok {
 			// The latch is a hint, not a commitment: the pool can change
 			// underneath it. Keep the remembered region only while it still
@@ -752,6 +765,12 @@ func (p *Pool) PickRoute(q RouteQuery) (Item, bool) {
 	// failure the route loop excludes it and the next retry takes the next one.
 	if strategy == AggregationStrategyPriority {
 		picked := available[0]
+		p.lastPicked[key] = picked.ID
+		p.lastRegion[key] = itemRegion(picked)
+		return picked, true
+	}
+	if strategy == RoutingStrategyLeastQuotaFirst || strategy == RoutingStrategyMostQuotaFirst {
+		picked := pickQuotaStrategy(available, strategy == RoutingStrategyMostQuotaFirst)
 		p.lastPicked[key] = picked.ID
 		p.lastRegion[key] = itemRegion(picked)
 		return picked, true
@@ -792,6 +811,51 @@ func pickFillFirstWithWeight(available []Item, q RouteQuery) Item {
 		if routeItemWeight(item, q) > routeItemWeight(picked, q) ||
 			(routeItemWeight(item, q) == routeItemWeight(picked, q) && item.ID < picked.ID) {
 			picked = item
+		}
+	}
+	return picked
+}
+
+func isQuotaRoutingStrategy(strategy string) bool {
+	return strategy == RoutingStrategyLeastQuotaFirst || strategy == RoutingStrategyMostQuotaFirst
+}
+
+// quotaRemainingRatio returns the account's remaining quota as 0..1. Quota
+// units differ across providers, so absolute Remaining values are not
+// comparable; remaining/total is used when available, otherwise the used
+// Percentage is converted to a remaining ratio. Unknown quota sorts last.
+func quotaRemainingRatio(item Item) (float64, bool) {
+	q := item.Quota
+	if q == nil || q.Exceeded {
+		return 0, false
+	}
+	if q.Total > 0 {
+		ratio := q.Remaining / q.Total
+		if ratio < 0 {
+			ratio = 0
+		} else if ratio > 1 {
+			ratio = 1
+		}
+		return ratio, true
+	}
+	if q.Percentage >= 0 && q.Percentage <= 100 {
+		return (100 - q.Percentage) / 100, true
+	}
+	return 0, false
+}
+
+func pickQuotaStrategy(available []Item, most bool) Item {
+	picked := available[0]
+	pickedRatio, pickedKnown := quotaRemainingRatio(picked)
+	for _, item := range available[1:] {
+		ratio, known := quotaRemainingRatio(item)
+		switch {
+		case known && !pickedKnown:
+			picked, pickedRatio, pickedKnown = item, ratio, true
+		case !known && pickedKnown:
+			continue
+		case known == pickedKnown && ((most && ratio > pickedRatio) || (!most && ratio < pickedRatio) || (ratio == pickedRatio && item.ID < picked.ID)):
+			picked, pickedRatio, pickedKnown = item, ratio, known
 		}
 	}
 	return picked

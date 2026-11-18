@@ -264,7 +264,7 @@ function AggregationEditorModal({
 }) {
   const [id, setId] = useState('')
   const [name, setName] = useState('')
-  const [strategy, setStrategy] = useState<string>('round-robin')
+  const [strategy, setStrategy] = useState<string>('priority')
   const [allowFallbacks, setAllowFallbacks] = useState(true)
   const [maxAttempts, setMaxAttempts] = useState(3)
   const [members, setMembers] = useState<MemberDraft[]>([])
