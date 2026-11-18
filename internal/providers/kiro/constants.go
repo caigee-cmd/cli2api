@@ -14,9 +14,14 @@ const (
 	AgentMode = "vibe"
 
 	// IDEVersion is the fallback advertised until the stable update feed answers.
-	// Kiro's version gate rejects older builds with FEATURE_NOT_SUPPORTED.
-	IDEVersion   = "0.12.0"
+	// Kiro's version gate rejects older builds with FEATURE_NOT_SUPPORTED, so the
+	// fallback stays near the current stable release. A fetched build older than
+	// this is ignored.
+	IDEVersion   = "1.4.178"
 	AgentVersion = "0.66.102-hotfix.1"
+
+	// nodeVersion is the Node runtime the IDE names in the AWS SDK user agent.
+	nodeVersion = "22.22.0"
 
 	// StreamingSDKVersion is the aws-sdk-js build the IDE names on the legacy host.
 	StreamingSDKVersion = "1.0.34"
