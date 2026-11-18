@@ -48,14 +48,21 @@ func normalizeTraeUsage(raw []byte) any {
 		return json.RawMessage(raw)
 	}
 	var cachedTokens any
-	if ptd, ok := m["prompt_tokens_details"].(map[string]any); ok {
-		cachedTokens = ptd["cached_tokens"]
+	for _, key := range []string{"cache_read_tokens", "cache_read_input_tokens", "prompt_cache_hit_tokens", "cached_tokens", "cached_content_token_count"} {
+		if value, ok := m[key]; ok && value != nil {
+			cachedTokens = value
+			break
+		}
 	}
 	if cachedTokens == nil {
-		cachedTokens = m["cache_read_tokens"]
-	}
-	if cachedTokens == nil {
-		cachedTokens = m["prompt_cache_hit_tokens"]
+		for _, holder := range []string{"prompt_tokens_details", "input_tokens_details"} {
+			if details, ok := m[holder].(map[string]any); ok {
+				if value, ok := details["cached_tokens"]; ok && value != nil {
+					cachedTokens = value
+					break
+				}
+			}
+		}
 	}
 	if cachedTokens != nil {
 		if _, ok := m["cache_read_tokens"]; !ok {
@@ -66,6 +73,18 @@ func normalizeTraeUsage(raw []byte) any {
 		}
 		if _, ok := m["prompt_tokens_details"]; !ok {
 			m["prompt_tokens_details"] = map[string]any{"cached_tokens": cachedTokens}
+		}
+	}
+	var cacheWriteTokens any
+	for _, key := range []string{"cache_write_tokens", "cache_creation_input_tokens", "cache_creation_tokens"} {
+		if value, ok := m[key]; ok && value != nil {
+			cacheWriteTokens = value
+			break
+		}
+	}
+	if cacheWriteTokens != nil {
+		if _, ok := m["cache_write_tokens"]; !ok {
+			m["cache_write_tokens"] = cacheWriteTokens
 		}
 	}
 	if _, ok := m["total_tokens"]; !ok {
