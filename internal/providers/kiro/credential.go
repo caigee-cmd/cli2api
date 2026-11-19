@@ -120,10 +120,10 @@ func DecodeCredential(payload []byte) (Credential, error) {
 	if cred.TokenEndpoint != "" && cred.AuthMethod == "" {
 		cred.AuthMethod = "external_idp"
 	}
-	if cred.AuthMethod == "" && cred.RefreshToken != "" {
+	if cred.AuthMethod == "" && (cred.RefreshToken != "" || cred.AccessToken != "") {
 		if cred.ClientID != "" && cred.ClientSecret != "" {
 			cred.AuthMethod = "builder_id"
-		} else {
+		} else if socialProvider(cred.Provider) || cred.RefreshToken != "" {
 			cred.AuthMethod = "social"
 		}
 	}
@@ -167,6 +167,15 @@ var regionPattern = regexp.MustCompile(`^[a-z]{2}(?:-[a-z0-9]+)+-[0-9]+$`)
 
 // regionStated reports whether the JSON named a region. An empty field is not a
 // statement, so a ksk_|region suffix may fill it. "global" and a real region are.
+func socialProvider(provider string) bool {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "github", "google", "social":
+		return true
+	default:
+		return false
+	}
+}
+
 func regionStated(region string) bool {
 	return strings.TrimSpace(region) != ""
 }
@@ -236,6 +245,23 @@ func (c Credential) importName() string {
 func splitCredentialImport(payload []byte) ([][]byte, error) {
 	var wrapped struct {
 		Accounts []json.RawMessage `json:"accounts"`
+	}
+	trimmed := bytes.TrimSpace(payload)
+	if len(trimmed) > 0 && trimmed[0] == '[' {
+		var list []json.RawMessage
+		if json.Unmarshal(trimmed, &list) == nil && len(list) > 0 {
+			out := make([][]byte, 0, len(list))
+			for _, entry := range list {
+				item := bytes.TrimSpace(entry)
+				if len(item) == 0 || string(item) == "null" {
+					continue
+				}
+				out = append(out, append([]byte(nil), item...))
+			}
+			if len(out) > 0 {
+				return out, nil
+			}
+		}
 	}
 	if json.Unmarshal(payload, &wrapped) != nil || len(wrapped.Accounts) == 0 || !packageLooksLikeKiro(payload) {
 		return [][]byte{payload}, nil
@@ -309,7 +335,7 @@ func payloadLooksLikeKiro(payload []byte) bool {
 		return true
 	}
 	provider := strings.ToLower(strings.TrimSpace(raw.Provider))
-	if provider == "builderid" || provider == "kiro" || provider == "apikey" {
+	if provider == "builderid" || provider == "kiro" || provider == "apikey" || socialProvider(provider) {
 		return true
 	}
 	for _, value := range []string{raw.KiroAPIKey, raw.APIKey, raw.APIKeyAlt, raw.AccessToken, raw.AccessAlt} {
