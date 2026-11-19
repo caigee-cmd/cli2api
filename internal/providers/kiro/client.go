@@ -68,7 +68,22 @@ type credentialCodec struct{}
 func (credentialCodec) Validate(payload []byte) error { return ValidateCredential(payload) }
 func (credentialCodec) Format() string                { return CredentialFormat }
 
+func (credentialCodec) SplitImport(payload []byte) ([][]byte, error) {
+	return splitCredentialImport(payload)
+}
+
 func (credentialCodec) PrepareImport(payload []byte) (providers.CredentialImport, error) {
+	chunks, err := splitCredentialImport(payload)
+	if err != nil {
+		return providers.CredentialImport{}, err
+	}
+	if len(chunks) != 1 {
+		return providers.CredentialImport{}, fmt.Errorf("kiro credential package has %d accounts", len(chunks))
+	}
+	return prepareCredentialImport(chunks[0])
+}
+
+func prepareCredentialImport(payload []byte) (providers.CredentialImport, error) {
 	if err := ValidateCredential(payload); err != nil {
 		return providers.CredentialImport{}, err
 	}
@@ -80,7 +95,11 @@ func (credentialCodec) PrepareImport(payload []byte) (providers.CredentialImport
 	if err != nil {
 		return providers.CredentialImport{}, err
 	}
-	return providers.CredentialImport{Payload: encoded, Ready: cred.Ready()}, nil
+	return providers.CredentialImport{
+		Payload: encoded, Ready: cred.Ready(),
+		Region: cred.importRegion(credentialStatesRegion(payload)),
+		Name:   cred.importName(),
+	}, nil
 }
 
 type classifier struct{}
