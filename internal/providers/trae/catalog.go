@@ -94,6 +94,25 @@ func modelSupportsImages(id string) bool {
 	return ok
 }
 
+// overlayReasoningOptions applies a small, provider-local capability overlay.
+// The Trae CN catalog underreports some DeepSeek V4.x tiers: DeepSeek's own
+// scale includes `max`, while upstream only declares low/high/xhigh. We add
+// that one known tier for DeepSeek V4.x only; every other model keeps exactly
+// what its catalog declared. This follows CC Switch's model-specific preset
+// idea without turning it into a global capability union.
+func overlayReasoningOptions(id string, options []string) []string {
+	key := canonicalCatalogID(id)
+	if !strings.HasPrefix(key, "deepseek-v4") {
+		return options
+	}
+	for _, option := range options {
+		if option == "max" {
+			return options
+		}
+	}
+	return append(options, "max")
+}
+
 func parseCatalogModels(payload []byte, scene string) ([]providers.ModelInfo, error) {
 	var env struct {
 		ConfigInfoList []catalogConfig `json:"config_info_list"`
@@ -253,6 +272,7 @@ func catalogModel(item catalogConfig, scene string) (providers.ModelInfo, bool) 
 	if len(options) == 0 && reasoning {
 		options, defaultLevel = []string{"low", "high", "xhigh"}, "high"
 	}
+	options = overlayReasoningOptions(id, options)
 	return providers.ModelInfo{
 		NativeModel: id,
 		PublicModel: id,

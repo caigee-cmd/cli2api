@@ -64,14 +64,35 @@ func TestParseCatalogModelsKeepsVisibleWindowsAndHidesInternal(t *testing.T) {
 	if ds.NativeModel != "DeepSeek-V4-Pro-Official" || !ds.Capabilities.MaxMode || ds.Capabilities.ContextWindowMax != 1000000 {
 		t.Fatalf("deepseek=%+v", ds.Capabilities)
 	}
-	if len(ds.Capabilities.ReasoningOptions) != 4 || ds.Capabilities.ReasoningDefault != "medium" {
+	if len(ds.Capabilities.ReasoningOptions) != 5 || ds.Capabilities.ReasoningDefault != "medium" {
 		t.Fatalf("reasoning=%+v", ds.Capabilities)
+	}
+	hasMax := false
+	for _, option := range ds.Capabilities.ReasoningOptions {
+		if option == "max" {
+			hasMax = true
+		}
+	}
+	if !hasMax {
+		t.Fatalf("deepseek v4 pro must include the deepseek max tier: %+v", ds.Capabilities.ReasoningOptions)
 	}
 	if ds.Capabilities.Images {
 		t.Fatalf("DeepSeek-V4-Pro-Official must not declare Images: %+v", ds.Capabilities)
 	}
 	if models[0].Capabilities.Images {
 		t.Fatalf("glm-5.2 is not in the measured vision table: %+v", models[0].Capabilities)
+	}
+}
+
+func TestOverlayReasoningOptionsOnlyTouchesDeepSeekV4(t *testing.T) {
+	if got := overlayReasoningOptions("DeepSeek-V4-Pro-Official", []string{"low", "high", "xhigh"}); len(got) != 4 || got[3] != "max" {
+		t.Fatalf("deepseek overlay=%v", got)
+	}
+	if got := overlayReasoningOptions("DeepSeek-V4-Pro-Official", []string{"low", "high", "max"}); len(got) != 3 {
+		t.Fatalf("duplicate overlay=%v", got)
+	}
+	if got := overlayReasoningOptions("glm-5.2", []string{"low", "high"}); len(got) != 2 {
+		t.Fatalf("non-deepseek overlay=%v", got)
 	}
 }
 
