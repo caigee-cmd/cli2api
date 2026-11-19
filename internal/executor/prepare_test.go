@@ -25,6 +25,13 @@ func (s *stubContexts) GetModelContext(_ context.Context, modelID string) (int, 
 	return s.value, s.ok, s.err
 }
 
+type forcedContexts struct {
+	*stubContexts
+	forced int
+}
+
+func (s *forcedContexts) ForceMaxContextLength(string) int { return s.forced }
+
 type stubCatalogs struct {
 	calls int
 }
@@ -156,6 +163,26 @@ func TestPrepareNativeResponsesKeepsCompatSeedAndReasoning(t *testing.T) {
 	}
 	if len(logs.entries) != 1 || logs.entries[0].RequestedReasoning != "high" {
 		t.Fatalf("native reasoning log=%+v", logs.entries)
+	}
+}
+
+func TestPrepareForcesQoderDeclaredMaxWindow(t *testing.T) {
+	ex := NewChatExecutor(NewPool(nil, nil), "")
+	contexts := &forcedContexts{stubContexts: &stubContexts{value: 200000, ok: true}, forced: 1000000}
+	got, err := ex.Prepare(PrepareInput{
+		Request: translate.ChatRequest{
+			Model: "qoder/glm-5.2", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+		},
+		ModelContexts: contexts,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got.Request.MaxInputTokens) != "1000000" {
+		t.Fatalf("stored window must be overridden by declared max: %s", got.Request.MaxInputTokens)
+	}
+	if len(got.Request.ContextLength) != 0 {
+		t.Fatalf("qoder chat must not carry a parameters window override: %s", got.Request.ContextLength)
 	}
 }
 

@@ -41,8 +41,9 @@ type ModelSettingReader interface {
 	GetProviderModelSetting(context.Context, string, string) (accounts.ProviderModelSetting, error)
 }
 
-// ModelMaxModeReader is the Trae-only fallback used when ModelSettingReader
-// is absent. Do not fold it into Store; test fakes without it must still skip.
+// ModelMaxModeReader remains as a compatibility interface for store test
+// assertions. Chat always forces a declared Max tier and no longer consults
+// this legacy toggle reader.
 type ModelMaxModeReader interface {
 	GetProviderModelMaxMode(context.Context, string, string) (bool, error)
 }
@@ -1096,36 +1097,24 @@ func (c *Client) chatRequest(ctx context.Context, credential Credential, req tra
 	resolved := providers.ResolvedChat{}
 	var obj map[string]any
 	if err := json.Unmarshal(rewritten, &obj); err == nil {
-		maxMode := false
 		storedLevel := ""
-		if req.IsMaxMode != nil {
-			maxMode = *req.IsMaxMode
-		}
-		caps := c.capsFor(req.Model)
 		if setter, ok := c.store.(ModelSettingReader); ok {
 			if stored, err := setter.GetProviderModelSetting(ctx, "trae", settingModelKey(req.Model)); err == nil {
-				if req.IsMaxMode == nil {
-					maxMode = stored.MaxMode
-				}
 				storedLevel = stored.ReasoningEffort
 			}
-		} else if req.IsMaxMode == nil {
-			if maxSetter, ok := c.store.(ModelMaxModeReader); ok {
-				if stored, err := maxSetter.GetProviderModelMaxMode(ctx, "trae", settingModelKey(req.Model)); err == nil {
-					maxMode = stored
-				}
-			}
 		}
+		caps := c.capsFor(req.Model)
 		// Caps may be empty because the catalog has not been fetched (fresh
-		// process, first request) or the model is unknown. Only the unknown
-		// case is unrecoverable; refresh once before deciding.
+		// process, first request) or the model is unknown. Refresh once before
+		// deciding whether the model declares a larger window.
 		if len(caps.ReasoningOptions) == 0 && !caps.MaxMode && accountID != "" {
 			_, _ = c.Models(ctx, accountID)
 			caps = c.capsFor(req.Model)
 		}
-		if maxMode && !caps.MaxMode {
-			log.Printf("trae model %q: max mode requested but catalog says unsupported; sending default context window", req.Model)
-		}
+		// Every model that declares a Max tier always runs at that tier. Stored
+		// toggles and explicit client switches no longer opt out of the larger
+		// context window; models without a declared tier stay at their default.
+		maxMode := caps.MaxMode
 		applySoloChatFields(obj, req, maxMode, storedLevel, caps, credential.UID, providers.ConversationFromContext(ctx))
 		resolved.ReasoningLevel = resolvedReasoningLevel(req, storedLevel, caps)
 		if encoded, err := json.Marshal(obj); err == nil {

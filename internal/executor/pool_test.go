@@ -3,6 +3,8 @@ package executor
 import (
 	"testing"
 	"time"
+
+	"github.com/caigee-cmd/cli2api/internal/accounts"
 )
 
 func TestRoundRobinSkipsDownAccounts(t *testing.T) {
@@ -306,6 +308,76 @@ func TestFillFirstUsesHighestPriorityUntilUnavailable(t *testing.T) {
 	item, ok := p.Pick("", nil)
 	if !ok || item.ID != "low" {
 		t.Fatalf("fill-first fallback = %+v, ok=%v", item, ok)
+	}
+}
+
+func TestQuotaStrategiesRankByRemainingRatio(t *testing.T) {
+	newPool := func(strategy string) *Pool {
+		p := NewPool(nil, nil)
+		p.SetRoutingStrategy(strategy)
+		p.Upsert(Item{ID: "unknown", Quota: nil})
+		p.Upsert(Item{ID: "mid", Quota: &QuotaSnapshot{Remaining: 50, Total: 100}})
+		p.Upsert(Item{ID: "low", Quota: &QuotaSnapshot{Remaining: 10, Total: 100}})
+		p.Upsert(Item{ID: "high", Quota: &QuotaSnapshot{Percentage: 10}})
+		return p
+	}
+
+	p := newPool(RoutingStrategyLeastQuotaFirst)
+	if item, ok := p.Pick("", nil); !ok || item.ID != "low" {
+		t.Fatalf("least quota first = %+v, ok=%v", item, ok)
+	}
+	excluded := map[string]struct{}{"low": {}}
+	if item, ok := p.Pick("", excluded); !ok || item.ID != "mid" {
+		t.Fatalf("least quota fallback = %+v, ok=%v", item, ok)
+	}
+
+	p = newPool(RoutingStrategyMostQuotaFirst)
+	if item, ok := p.Pick("", nil); !ok || item.ID != "high" {
+		t.Fatalf("most quota first = %+v, ok=%v", item, ok)
+	}
+	excluded = map[string]struct{}{"high": {}}
+	if item, ok := p.Pick("", excluded); !ok || item.ID != "mid" {
+		t.Fatalf("most quota fallback = %+v, ok=%v", item, ok)
+	}
+
+	p = newPool(RoutingStrategyMostQuotaFirst)
+	if item, ok := p.Pick("", map[string]struct{}{"high": {}, "mid": {}}); !ok || item.ID != "low" {
+		t.Fatalf("unknown quota must sort after known: %+v, ok=%v", item, ok)
+	}
+}
+
+func TestModelPoolQuotaStrategyOverride(t *testing.T) {
+	p := NewPool(nil, nil)
+	p.Upsert(Item{ID: "low", Quota: &QuotaSnapshot{Remaining: 1, Total: 100}})
+	p.Upsert(Item{ID: "high", Quota: &QuotaSnapshot{Remaining: 99, Total: 100}})
+	item, ok := p.PickRoute(RouteQuery{StrategyOverride: string(accounts.AggregationLeastQuotaFirst)})
+	if !ok || item.ID != "low" {
+		t.Fatalf("aggregation least quota override = %+v, ok=%v", item, ok)
+	}
+}
+
+func TestFEFOStrategyOverrideAppliesToCandidates(t *testing.T) {
+	p := NewPool(nil, nil)
+	p.Upsert(Item{
+		ID: "expired",
+		Quota: &QuotaSnapshot{
+			Packages: []accounts.QuotaPackage{{
+				Scope:  accounts.QuotaPackageScopeAccountFEFO,
+				Unit:   "credits",
+				Remain: 10,
+				EndsAt: time.Now().Add(-time.Hour).Unix(),
+			}},
+		},
+	})
+	q := RouteQuery{PublicModel: "paid", StrategyOverride: RoutingStrategyFEFO}
+	if n := p.LenRoute(q); n != 0 {
+		t.Fatalf("FEFO override must exclude depleted package from candidate count, got %d", n)
+	}
+	if p.HasCapacity(q) {
+		t.Fatal("FEFO override must exclude depleted package from capacity")
+	}
+	if item, ok := p.PickRoute(q); ok {
+		t.Fatalf("FEFO override must exclude depleted package from selection, got %+v", item)
 	}
 }
 

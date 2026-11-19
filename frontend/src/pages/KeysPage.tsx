@@ -3,7 +3,7 @@ import { HoldToConfirm } from '@/components/motion/HoldToConfirm'
 import { copyText } from '@/lib/clipboard'
 import { useEffect, useState } from 'react'
 import { Alert, Button, Card, Checkbox, Chip, Description, Form, Input, Label, Modal, NumberField } from '@heroui/react'
-import { Copy, Key, Plus, TrashSimple, X } from '@phosphor-icons/react'
+import { ArrowsSplit, Copy, Key, Plus, TrashSimple, X } from '@phosphor-icons/react'
 import { createAPIKey, deleteAPIKey, fetchAPIKeys, updateAPIKey, type APIKeyInput, type APIKeyRecord } from '@/api/keys'
 import { fetchProviders, type ProviderDescriptor } from '@/api/overview'
 import { BrandMark } from '@/components/BrandMark'
@@ -13,6 +13,7 @@ import { EmptyPanel } from '@/components/ui/EmptyPanel'
 import { FormRow } from '@/components/ui/FormRow'
 import { PageAlert } from '@/components/ui/PageAlert'
 import { KeysPageSkeleton, SkeletonBlock } from '@/components/ui/PageSkeletons'
+import { useCrossProviderPool } from '@/hooks/useCrossProviderPool'
 import { useI18n } from '@/hooks/useI18n'
 import { accountProviderFamilyLabel, accountProviderLabel } from '@/lib/provider'
 
@@ -43,6 +44,7 @@ function grantLabel(entry: string, t: (key: string) => string) {
   const separator = entry.indexOf(':')
   const provider = separator === -1 ? entry : entry.slice(0, separator)
   const region = separator === -1 ? '' : entry.slice(separator + 1)
+  if (provider === 'aggregation') return t('modelPoolTitle')
   if (!region) return accountProviderFamilyLabel(provider, t)
   return accountProviderLabel(provider, region, t)
 }
@@ -89,6 +91,7 @@ function formatTime(value?: string) {
 
 export function KeysPage() {
   const { t } = useI18n()
+  const { enabled: poolEnabled } = useCrossProviderPool()
   const [options, setOptions] = useState<ProviderRegionOption[]>([])
   // The key editor cannot safely submit until the provider descriptor options
   // are loaded: an empty region list would otherwise submit providers=[] —
@@ -221,14 +224,21 @@ export function KeysPage() {
               <Card.Content className="space-y-2.5 px-3 pb-2.5">
                 <div className="mono w-full rounded-lg bg-surface-secondary px-3 py-2 text-body text-foreground" title={key.prefix}>{key.prefix}</div>
                 <div className="flex flex-wrap items-center gap-1.5">
-                  {(key.providers.length ? key.providers : ['all']).map((entry) => (
+                  {poolEnabled && key.providers.includes('aggregation') ? (
+                    <Chip size="sm" variant="soft" color="accent">
+                      <span className="flex items-center gap-1.5"><ArrowsSplit size={12} />{t('keysAggregationMode')}</span>
+                    </Chip>
+                  ) : (() => {
+                    const grants = poolEnabled ? key.providers : key.providers.filter((entry) => entry !== 'aggregation')
+                    return (grants.length ? grants : ['all']).map((entry) => (
                     <Chip key={entry} size="sm" variant="soft">
                       <span className="flex items-center gap-1.5">
                         {entry !== 'all' ? <ProviderMark provider={grantProvider(entry)} size={12} /> : <Key size={12} />}
                         <span>{entry === 'all' ? t('keysAllProviders') : grantLabel(entry, t)}</span>
                       </span>
                     </Chip>
-                  ))}
+                    ))
+                  })()}
                 </div>
                 <p className="text-caption leading-5 text-muted">
                   {key.max_inflight > 0 ? t('keysMaxInflightValue', { count: key.max_inflight }) : t('keysMaxInflightUnlimited')}
@@ -264,6 +274,7 @@ export function KeysPage() {
         title={t('keysCreateTitle')}
         hint={t('keysCreateHint')}
         options={options}
+        poolEnabled={poolEnabled}
         t={t}
         onClose={() => setCreateOpen(false)}
         onSave={async (input) => {
@@ -279,6 +290,7 @@ export function KeysPage() {
         hint={t('keysEditHint')}
         initial={editKey}
         options={options}
+        poolEnabled={poolEnabled}
         t={t}
         onClose={() => setEditKey(null)}
         onSave={async (input) => {
@@ -328,6 +340,7 @@ function KeyEditorModal({
   hint,
   initial,
   options,
+  poolEnabled,
   t,
   onClose,
   onSave,
@@ -337,12 +350,16 @@ function KeyEditorModal({
   hint: string
   initial?: APIKeyRecord | null
   options: ProviderRegionOption[]
+  poolEnabled: boolean
   t: (key: string, vars?: Record<string, string | number>) => string
   onClose: () => void
   onSave: (input: APIKeyInput) => Promise<void>
 }) {
   const [name, setName] = useState(initial?.name || '')
   const [maxInFlight, setMaxInFlight] = useState(initial?.max_inflight || 0)
+  // Per-key aggregation mode. ON stores the sentinel `aggregation` grant and
+  // greys out the provider cards; OFF keeps the normal provider selection.
+  const [aggregationMode, setAggregationMode] = useState(false)
   // Region-scoped checkbox values. Legacy bare grants ("workbuddy") are
   // expanded to all of that family's region checkboxes on open and tracked
   // in allRegionsFamilies (badge display). While providersUntouched stays
@@ -361,14 +378,20 @@ function KeyEditorModal({
     if (!isOpen) return
     setName(initial?.name || '')
     setMaxInFlight(initial?.max_inflight || 0)
-    setSelected(expandLegacyGrants(initial?.providers || [], options))
+    const storedAgg = Boolean(initial?.providers?.includes('aggregation'))
+    // The per-key toggle is only meaningful while the global pool is on. When
+    // it is off, never preserve or submit the hidden sentinel grant.
+    const isAgg = poolEnabled && storedAgg
+    setAggregationMode(isAgg)
+    const grants = storedAgg && !poolEnabled ? [] : (initial?.providers || [])
+    setSelected(expandLegacyGrants(isAgg ? [] : grants, options))
     const bare = new Set(
-      (initial?.providers || []).filter((entry) => !entry.includes(':')).map((entry) => entry.toLowerCase()),
+      (isAgg ? [] : grants).filter((entry) => !entry.includes(':')).map((entry) => entry.toLowerCase()),
     )
     setAllRegionsFamilies(bare)
     setProvidersUntouched(true)
     setError('')
-  }, [initial, isOpen, options])
+  }, [initial, isOpen, options, poolEnabled])
 
   function toggle(id: string) {
     const option = options.find((item) => item.value === id)
@@ -402,17 +425,21 @@ function KeyEditorModal({
     // Fail closed: with the provider options not loaded the region list is
     // unknown, and submitting it would turn a restricted key into
     // "allow everything". Block the save instead.
-    if (!options.length) {
+    if (!aggregationMode && !options.length) {
       setError(t('keysProvidersNotLoaded'))
       return
     }
     setBusy(true)
     setError('')
     try {
-      // Untouched provider selection keeps the stored grants verbatim
-      // (legacy bare entries included); any toggle converts to the explicit
-      // region list the user sees checked.
-      const providers = providersUntouched ? (initial?.providers || []) : selected
+      // Aggregation mode stores only the sentinel grant; provider cards are
+      // ignored. Otherwise keep stored grants verbatim until the user toggles.
+      const storedAgg = Boolean(initial?.providers?.includes('aggregation'))
+      const providers = !poolEnabled && storedAgg
+        ? [] // aggregation sentinel is inactive; clear it to normal allow-all
+        : poolEnabled && aggregationMode
+          ? ['aggregation']
+          : (providersUntouched ? (initial?.providers || []) : selected)
       await onSave({ name: trimmed, providers, max_inflight: maxInFlight })
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -459,7 +486,26 @@ function KeyEditorModal({
                     </NumberField.Group>
                   </NumberField>
                 </FormRow>
-                <div className="space-y-2">
+                {poolEnabled ? (
+                  <div className={`rounded-xl bg-surface-secondary p-3.5 transition-opacity ${busy ? 'opacity-70' : ''}`}>
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex items-start gap-3">
+                        <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-surface text-foreground"><ArrowsSplit size={15} /></div>
+                        <div>
+                          <p className="text-body font-semibold text-foreground">{t('keysAggregationMode')}</p>
+                          <Description className="mt-1 text-caption leading-5 text-muted">{t('keysAggregationModeHint')}</Description>
+                        </div>
+                      </div>
+                      <CompactSwitch
+                        isSelected={aggregationMode}
+                        ariaLabel={t('keysAggregationMode')}
+                        isDisabled={busy}
+                        onChange={(selected) => setAggregationMode(selected)}
+                      />
+                    </div>
+                  </div>
+                ) : null}
+                <div className={`space-y-2 ${aggregationMode ? 'opacity-50' : ''}`}>
                   <Label className="text-body font-medium text-muted">{t('keysProviders')}</Label>
                   <Description className="text-caption leading-5 text-muted">{t('keysProvidersHint')}</Description>
                   {!options.length ? (
@@ -470,13 +516,13 @@ function KeyEditorModal({
                         const checked = selected.includes(option.value)
                         const allRegions = allRegionsFamilies.has(option.provider)
                         return (
-                          <Checkbox key={option.value} isSelected={checked} onChange={() => toggle(option.value)} className="rounded-xl bg-surface-secondary px-3 py-2.5 data-selected:border-accent data-selected:bg-accent-soft">
+                          <Checkbox key={option.value} isSelected={checked} isDisabled={aggregationMode} onChange={() => toggle(option.value)} className="rounded-xl bg-surface-secondary px-3 py-2.5 data-selected:border-accent data-selected:bg-accent-soft">
                             <Checkbox.Content className="flex items-center gap-2.5">
                               <Checkbox.Control>
                                 <Checkbox.Indicator />
                               </Checkbox.Control>
                               <ProviderMark provider={option.provider} size={16} />
-                              <span className="text-body font-medium">{accountProviderLabel(option.provider, option.region, t)}</span>
+                              <span className="text-body font-medium">{option.provider === 'aggregation' ? t('modelPoolTitle') : accountProviderLabel(option.provider, option.region, t)}</span>
                               {allRegions ? (
                                 <span className="rounded-md bg-surface-secondary px-1.5 py-0.5 text-caption font-medium text-muted">{t('keysAllRegions')}</span>
                               ) : null}
@@ -486,12 +532,12 @@ function KeyEditorModal({
                       })}
                     </div>
                   )}
-                  <p className="text-caption text-muted">{providersLabel(selected, t)}</p>
+                  <p className="text-caption text-muted">{aggregationMode ? t('keysAggregationMode') : providersLabel(selected, t)}</p>
                 </div>
               </Modal.Body>
               <Modal.Footer className="justify-end">
                 <Button variant="ghost" isDisabled={busy} onPress={onClose}>{t('cancel')}</Button>
-                <Button type="submit" isPending={busy} isDisabled={!options.length}>{initial ? t('save') : t('create')}</Button>
+                <Button type="submit" isPending={busy} isDisabled={!aggregationMode && !options.length}>{initial ? t('save') : t('create')}</Button>
               </Modal.Footer>
             </Form>
           </Modal.Dialog>

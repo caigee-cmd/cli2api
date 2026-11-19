@@ -110,9 +110,34 @@ type RouteQuery struct {
 	// protocol (for example native Responses input the chat form cannot
 	// carry). Nil admits every item.
 	Eligible func(Item) bool
+	// ModelResolver, when set, maps an item to the concrete model it should
+	// serve for this request (used by aggregated/virtual model IDs). It MUST be
+	// a pure read-only function over an immutable per-request snapshot: no Pool
+	// calls, no facade/DB/network access, no shared state writes. It is invoked
+	// while Pool.mu is held, so keeping it side-effect free avoids deadlocks and
+	// lock-order inversions. Nil preserves the historical PublicModel behavior.
+	ModelResolver func(Item) string
+	// Aggregation routing overrides. When set, these steer a virtual model's
+	// per-model strategy instead of the global pool strategy. All are pure
+	// read-only functions over the immutable per-request plan.
+	StrategyOverride string
+	PriorityResolver func(Item) int
+	WeightResolver   func(Item) int
 	// fefoNow is set only by a FEFO pool. Other strategies keep the historical
 	// quota gate, even when a cached package has since expired.
 	fefoNow time.Time
+}
+
+// effectiveModel returns the concrete model to match/cooldown for an item.
+// Without a resolver this is exactly PublicModel, so all existing routes are
+// byte-for-byte equivalent.
+func effectiveModel(item Item, q RouteQuery) string {
+	if q.ModelResolver != nil {
+		if resolved := q.ModelResolver(item); resolved != "" {
+			return resolved
+		}
+	}
+	return q.PublicModel
 }
 
 func itemRegion(item Item) string {
@@ -308,6 +333,17 @@ func itemWeight(item Item) int {
 	return NormalizeWeight(item.Weight)
 }
 
+// routeItemWeight prefers an aggregation member's configured weight over the
+// account weight when this is an aggregated route. Member weights are already
+// normalized by accounts.PrepareCreateAggregation (1..1_000_000), so they are
+// used as-is; only account weights go through NormalizeWeight (1..100).
+func routeItemWeight(item Item, q RouteQuery) int {
+	if q.WeightResolver != nil {
+		return q.WeightResolver(item)
+	}
+	return itemWeight(item)
+}
+
 func itemReady(item Item) bool {
 	return item.Ready == nil || *item.Ready
 }
@@ -370,15 +406,15 @@ func routeBlockedByQuota(item Item, q RouteQuery) bool {
 	if !routeQuotaExceeded(item, q) {
 		return false
 	}
-	return routeReadyAndScoped(item, q) && itemCouldServeModel(item, q.PublicModel)
+	return routeReadyAndScoped(item, q) && itemCouldServeModel(item, effectiveModel(item, q))
 }
 
 func routeMatches(item Item, q RouteQuery) bool {
-	return routeBaseMatches(item, q) && itemHasModel(item, q.PublicModel)
+	return routeBaseMatches(item, q) && itemHasModel(item, effectiveModel(item, q))
 }
 
 func routeHintMatches(item Item, q RouteQuery) bool {
-	return routeBaseMatches(item, q) && itemCouldServeModel(item, q.PublicModel)
+	return routeBaseMatches(item, q) && itemCouldServeModel(item, effectiveModel(item, q))
 }
 
 type Pool struct {
@@ -431,6 +467,22 @@ func providerFilterKey(q RouteQuery) string {
 		return strings.ToLower(strings.TrimSpace(q.ProviderFilter))
 	}
 	return "*"
+}
+
+// effectiveRoutingStrategy resolves the strategy actually used for one query.
+// Model pools may override the global pool strategy; every route helper must
+// agree with PickRoute or retry counts and quota gates diverge from selection.
+func (p *Pool) effectiveRoutingStrategy(q RouteQuery) string {
+	strategy := p.routingStrategy
+	if q.StrategyOverride != "" {
+		raw := strings.ToLower(strings.TrimSpace(q.StrategyOverride))
+		if raw == AggregationStrategyPriority {
+			strategy = AggregationStrategyPriority
+		} else {
+			strategy = NormalizeRoutingStrategy(q.StrategyOverride)
+		}
+	}
+	return strategy
 }
 
 func NewPool(urls []string, ids []string) *Pool {
@@ -496,7 +548,7 @@ func (p *Pool) LenRoute(q RouteQuery) int {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.routingStrategy == RoutingStrategyFEFO {
+	if p.effectiveRoutingStrategy(q) == RoutingStrategyFEFO {
 		q.fefoNow = time.Now()
 	}
 	count := 0
@@ -519,7 +571,7 @@ func (p *Pool) HasCapacity(q RouteQuery) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	now := time.Now()
-	if p.routingStrategy == RoutingStrategyFEFO {
+	if p.effectiveRoutingStrategy(q) == RoutingStrategyFEFO {
 		q.fefoNow = now
 	}
 	for _, item := range p.items {
@@ -540,7 +592,7 @@ func (p *Pool) QuotaBlockedForModel(q RouteQuery) (Item, bool) {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.routingStrategy == RoutingStrategyFEFO {
+	if p.effectiveRoutingStrategy(q) == RoutingStrategyFEFO {
 		q.fefoNow = time.Now()
 	}
 	for _, item := range p.items {
@@ -588,7 +640,8 @@ func (p *Pool) PickRoute(q RouteQuery) (Item, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	now := time.Now()
-	if p.routingStrategy == RoutingStrategyFEFO {
+	strategy := p.effectiveRoutingStrategy(q)
+	if strategy == RoutingStrategyFEFO {
 		q.fefoNow = now
 	}
 	eligible := make([]int, 0, len(p.items))
@@ -609,7 +662,7 @@ func (p *Pool) PickRoute(q RouteQuery) (Item, bool) {
 		}
 		if pinned != nil {
 			if _, skip := q.Excluded[pinned.ID]; !skip {
-				if routeModel(q.PublicModel) != "" && !itemCouldServeModel(*pinned, q.PublicModel) {
+				if routeModel(q.PublicModel) != "" && !itemCouldServeModel(*pinned, effectiveModel(*pinned, q)) {
 					return Item{}, false
 				}
 				if routeMatches(*pinned, q) && !itemDown(*pinned, now) &&
@@ -657,7 +710,21 @@ func (p *Pool) PickRoute(q RouteQuery) (Item, bool) {
 		}
 		return best, found
 	}
-	sort.Slice(available, func(i, j int) bool { return available[i].ID < available[j].ID })
+	// Priority strategy: order candidates by the aggregation member's
+	// configured priority (lower first), then ID for a stable tie-break. The
+	// existing failover loop excludes the picked account on error, which
+	// naturally falls through to the next priority.
+	if strategy == AggregationStrategyPriority && q.PriorityResolver != nil {
+		sort.SliceStable(available, func(i, j int) bool {
+			pi, pj := q.PriorityResolver(available[i]), q.PriorityResolver(available[j])
+			if pi != pj {
+				return pi < pj
+			}
+			return available[i].ID < available[j].ID
+		})
+	} else {
+		sort.Slice(available, func(i, j int) bool { return available[i].ID < available[j].ID })
+	}
 	key := rotationKey(q)
 	p.ensureRotationKey(key)
 	// When the caller has not pinned a region, keep serving the region this
@@ -668,7 +735,7 @@ func (p *Pool) PickRoute(q RouteQuery) (Item, bool) {
 	// pick the region with the most candidates and remember it — starting at
 	// the alphabetically first account would otherwise let one small region
 	// capture the route.
-	if q.RegionFilter == "" {
+	if q.RegionFilter == "" && !isQuotaRoutingStrategy(strategy) {
 		if previous, ok := p.lastRegion[key]; ok {
 			// The latch is a hint, not a commitment: the pool can change
 			// underneath it. Keep the remembered region only while it still
@@ -691,17 +758,31 @@ func (p *Pool) PickRoute(q RouteQuery) (Item, bool) {
 	} else {
 		p.lastRegion[key] = itemRegion(available[0])
 	}
-	if p.routingStrategy == RoutingStrategyFEFO {
-		available = fefoCandidates(available, q.PublicModel, now)
+	if strategy == RoutingStrategyFEFO {
+		available = fefoCandidates(available, q.PublicModel, now, q.ModelResolver)
 	}
-	if p.routingStrategy == RoutingStrategyFillFirst {
-		picked := pickFillFirst(available)
+	// Priority order always uses the highest-priority available member; on
+	// failure the route loop excludes it and the next retry takes the next one.
+	if strategy == AggregationStrategyPriority {
+		picked := available[0]
 		p.lastPicked[key] = picked.ID
 		p.lastRegion[key] = itemRegion(picked)
 		return picked, true
 	}
-	if p.routingStrategy == RoutingStrategyWeightedRoundRobin {
-		weighted, ok := p.pickWeighted(available, key)
+	if strategy == RoutingStrategyLeastQuotaFirst || strategy == RoutingStrategyMostQuotaFirst {
+		picked := pickQuotaStrategy(available, strategy == RoutingStrategyMostQuotaFirst)
+		p.lastPicked[key] = picked.ID
+		p.lastRegion[key] = itemRegion(picked)
+		return picked, true
+	}
+	if strategy == RoutingStrategyFillFirst {
+		picked := pickFillFirstWithWeight(available, q)
+		p.lastPicked[key] = picked.ID
+		p.lastRegion[key] = itemRegion(picked)
+		return picked, true
+	}
+	if strategy == RoutingStrategyWeightedRoundRobin {
+		weighted, ok := p.pickWeighted(available, key, q)
 		if !ok {
 			picked := available[successorIndex(available, p.lastPicked[key])]
 			p.lastPicked[key] = picked.ID
@@ -721,11 +802,60 @@ func (p *Pool) PickRoute(q RouteQuery) (Item, bool) {
 }
 
 func pickFillFirst(available []Item) Item {
+	return pickFillFirstWithWeight(available, RouteQuery{})
+}
+
+func pickFillFirstWithWeight(available []Item, q RouteQuery) Item {
 	picked := available[0]
 	for _, item := range available[1:] {
-		if itemWeight(item) > itemWeight(picked) ||
-			(itemWeight(item) == itemWeight(picked) && item.ID < picked.ID) {
+		if routeItemWeight(item, q) > routeItemWeight(picked, q) ||
+			(routeItemWeight(item, q) == routeItemWeight(picked, q) && item.ID < picked.ID) {
 			picked = item
+		}
+	}
+	return picked
+}
+
+func isQuotaRoutingStrategy(strategy string) bool {
+	return strategy == RoutingStrategyLeastQuotaFirst || strategy == RoutingStrategyMostQuotaFirst
+}
+
+// quotaRemainingRatio returns the account's remaining quota as 0..1. Quota
+// units differ across providers, so absolute Remaining values are not
+// comparable; remaining/total is used when available, otherwise the used
+// Percentage is converted to a remaining ratio. Unknown quota sorts last.
+func quotaRemainingRatio(item Item) (float64, bool) {
+	q := item.Quota
+	if q == nil || q.Exceeded {
+		return 0, false
+	}
+	if q.Total > 0 {
+		ratio := q.Remaining / q.Total
+		if ratio < 0 {
+			ratio = 0
+		} else if ratio > 1 {
+			ratio = 1
+		}
+		return ratio, true
+	}
+	if q.Percentage >= 0 && q.Percentage <= 100 {
+		return (100 - q.Percentage) / 100, true
+	}
+	return 0, false
+}
+
+func pickQuotaStrategy(available []Item, most bool) Item {
+	picked := available[0]
+	pickedRatio, pickedKnown := quotaRemainingRatio(picked)
+	for _, item := range available[1:] {
+		ratio, known := quotaRemainingRatio(item)
+		switch {
+		case known && !pickedKnown:
+			picked, pickedRatio, pickedKnown = item, ratio, true
+		case !known && pickedKnown:
+			continue
+		case known == pickedKnown && ((most && ratio > pickedRatio) || (!most && ratio < pickedRatio) || (ratio == pickedRatio && item.ID < picked.ID)):
+			picked, pickedRatio, pickedKnown = item, ratio, known
 		}
 	}
 	return picked
@@ -736,12 +866,12 @@ func pickFillFirst(available []Item) Item {
 // leaves plain round-robin in charge: with a uniform pool the two are
 // equivalent, and the ID cursor is what keeps rotation stable across a
 // changing candidate set.
-func (p *Pool) pickWeighted(available []Item, key string) (Item, bool) {
+func (p *Pool) pickWeighted(available []Item, key string, q RouteQuery) (Item, bool) {
 	total := int64(0)
 	uniform := true
-	first := itemWeight(available[0])
+	first := routeItemWeight(available[0], q)
 	for _, item := range available {
-		weight := int64(itemWeight(item))
+		weight := int64(routeItemWeight(item, q))
 		total += weight
 		if weight != int64(first) {
 			uniform = false
@@ -762,7 +892,7 @@ func (p *Pool) pickWeighted(available []Item, key string) (Item, bool) {
 	best := -1
 	var bestCurrent int64
 	for i := range available {
-		current := p.weightCounter[key][available[i].ID] + int64(itemWeight(available[i]))
+		current := p.weightCounter[key][available[i].ID] + int64(routeItemWeight(available[i], q))
 		p.weightCounter[key][available[i].ID] = current
 		if best < 0 || current > bestCurrent {
 			best = i
@@ -874,7 +1004,7 @@ func itemSaturated(item Item) bool {
 // itemModelDown applies the per-model cooldown: one model hitting a limit
 // must not take the whole account offline for other models.
 func itemModelDown(item Item, q RouteQuery, now time.Time) bool {
-	model := cooldownModel(item, q.PublicModel)
+	model := cooldownModel(item, effectiveModel(item, q))
 	if model == "" {
 		return false
 	}
@@ -890,7 +1020,7 @@ func cooldownModel(item Item, publicModel string) string {
 // considering both account-level and model-level cooldowns.
 func resumeAt(item Item, q RouteQuery) time.Time {
 	next := item.DownUntil
-	model := cooldownModel(item, q.PublicModel)
+	model := cooldownModel(item, effectiveModel(item, q))
 	if model != "" {
 		if until, ok := item.ModelDownUntil[model]; ok && (next.IsZero() || until.After(next)) {
 			next = until
@@ -915,11 +1045,15 @@ func (p *Pool) CooldownScope(item Item, publicModel string) string {
 // RetryAfter reports how long the selected item remains unavailable for a route.
 // PickRoute may return a cooling item as a retry hint; callers must check this
 // value before dispatching the request.
-func (p *Pool) RetryAfter(item Item, publicModel string) time.Duration {
+func (p *Pool) RetryAfter(item Item, publicModel string, resolver ...func(Item) string) time.Duration {
 	if p == nil {
 		return 0
 	}
-	until := resumeAt(item, RouteQuery{PublicModel: publicModel})
+	q := RouteQuery{PublicModel: publicModel}
+	if len(resolver) > 0 && resolver[0] != nil {
+		q.ModelResolver = resolver[0]
+	}
+	until := resumeAt(item, q)
 	if until.IsZero() {
 		return 0
 	}
@@ -1719,6 +1853,34 @@ func (p *Pool) Items() []Item {
 	items := make([]Item, len(p.items))
 	for i := range p.items {
 		items[i] = p.items[i].clone()
+	}
+	return items
+}
+
+// RoutableItems returns a snapshot of accounts that can currently serve the
+// route. Unlike PickRoute it never touches rotation cursors, region latches,
+// or weight counters, so diagnostic probes cannot skew live scheduling.
+func (p *Pool) RoutableItems(q RouteQuery) []Item {
+	if p == nil {
+		return nil
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	// Probe/default probe routes have no FEFO batch; keep the gate consistent
+	// with the caller while never mutating scheduler state.
+	if p.routingStrategy == RoutingStrategyFEFO && q.fefoNow.IsZero() {
+		q.fefoNow = time.Now()
+	}
+	now := time.Now()
+	items := make([]Item, 0, len(p.items))
+	for _, item := range p.items {
+		if !routeMatches(item, q) {
+			continue
+		}
+		if itemDown(item, now) || itemModelDown(item, q, now) || itemSaturated(item) {
+			continue
+		}
+		items = append(items, item.clone())
 	}
 	return items
 }

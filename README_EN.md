@@ -65,7 +65,7 @@ Connect **Qoder (Global / CN)**, **WorkBuddy (Global / CN)**, and **Trae CN Work
 The Go gateway handles authentication, routing, and request logging. PAT-backed Qoder accounts talk to the upstream in-process. Qoder accounts that still use the legacy CLI credential keep one Node process and HOME each. Other providers use in-process adapters, so no full CLI starts per request.
 
 - **Three APIs**: Chat Completions, Responses, and Anthropic Messages, plus model listing. Streaming and function tools included.
-- **Many accounts**: round-robin, weighted round-robin, fill-first, and opt-in same-provider earliest-expiry-first (FEFO). Automatic selection, session affinity, concurrency limits, cooldowns, and failover stay on.
+- **Many accounts**: round-robin, weighted round-robin, fill-first, least/most remaining quota first, and opt-in same-provider earliest-expiry-first (FEFO). Automatic selection, session affinity, concurrency limits, cooldowns, and failover stay on.
 - **One console**: accounts, models, client keys, proxies, quotas, and request logs.
 - **Docker**: account data persists. An optional host updater downloads, confirms, and rolls back from the console.
 
@@ -84,6 +84,12 @@ Readiness and quota sit on the account card. Access copies the Base URL and runs
 Choose **Earliest expiry first (FEFO)** under **System → Account routing strategy**, or send `{"routing_strategy":"fefo"}` to `PATCH /api/system/settings`. Round-robin stays the default.
 
 Accounts are ranked only inside one provider, by the nearest credit package that can still be spent. Missing dates are never guessed, and those accounts join only after every dated account is unavailable. Exhausted, cooling, and concurrency-saturated accounts still drop out first. Only WorkBuddy personal accounts currently expose a per-package expiry.
+
+## Remaining quota first
+
+Choose **Least remaining quota first** or **Most remaining quota first** under **System → Account routing strategy**, or send `{"routing_strategy":"least-quota-first"}` / `{"routing_strategy":"most-quota-first"}` to `PATCH /api/system/settings`. Aggregation model pools support the same strategy names.
+
+Accounts are ranked by remaining quota ratio: `remaining / total` is preferred, and `100 - percentage` is used when no total exists. Raw remaining values are not comparable across providers with different units, so only ratios are used; accounts with unknown quota sort last.
 
 <p>
 <img src="./docs/assets/readme/section-limits-en.svg" width="100%" alt="03 What it will not do">

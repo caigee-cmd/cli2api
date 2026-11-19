@@ -14,6 +14,7 @@ import { SystemPage } from '@/pages/SystemPage'
 import { LogsPage } from '@/pages/LogsPage'
 import { UsagePage } from '@/pages/UsagePage'
 import { KeysPage } from '@/pages/KeysPage'
+import { ModelPoolPage } from '@/pages/ModelPoolPage'
 
 export default function App() {
   return (
@@ -29,6 +30,7 @@ export default function App() {
                     <Route path="/" element={<OverviewPage />} />
                     <Route path="/auth" element={<Navigate to="/accounts" replace />} />
                     <Route path="/providers" element={<ProvidersPage />} />
+                    <Route path="/model-pool" element={<ModelPoolPage />} />
                     <Route path="/access" element={<AccessPage />} />
                     <Route path="/accounts" element={<AccountsPage />} />
                     <Route path="/checkins" element={<Navigate to="/accounts" replace />} />

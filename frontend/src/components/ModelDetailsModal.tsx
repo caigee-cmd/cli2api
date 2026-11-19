@@ -1,7 +1,8 @@
 import { Chip, Modal } from '@heroui/react'
 import { X } from '@phosphor-icons/react'
+import type { ReactNode } from 'react'
 import type { ModelInfo } from '@/api/types'
-import { modelCreditsText, modelIsFree } from '@/lib/format'
+import { modelIsFree } from '@/lib/format'
 import { accountProviderLabel, tieredTraeCaps } from '@/lib/provider'
 
 type Translate = (key: string, vars?: Record<string, string | number>) => string
@@ -19,71 +20,76 @@ function formatTokens(value?: number) {
   return String(value)
 }
 
+function DetailRow({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="flex items-start justify-between gap-4 py-1.5">
+      <span className="text-caption text-muted">{label}</span>
+      <span className="min-w-0 text-right text-caption font-medium">{value}</span>
+    </div>
+  )
+}
+
 export function ModelDetailsModal({ model, t, onClose }: Props) {
   if (!model) return null
+  // Show exactly the resolved, catalog-declared levels the gateway accepts.
+  // Do not invent missing tiers from a global vocabulary.
   const options = model.reasoning_options || []
-  const windowDev = model.catalog_context_length || model.default_context_length || model.context_length
+  const windowDev = model.catalog_context_length || model.default_context_length || model.context_length || 0
   const windowMax = model.catalog_context_length_max
-  const credits = modelCreditsText(model)
+  // Requests always use the model's own largest declared window, so the
+  // details view shows that single effective value rather than a toggle.
+  const effectiveWindow = windowMax && windowMax > windowDev ? windowMax : windowDev
   const free = modelIsFree(model)
   const provider = String(model.provider || model.owned_by || 'qoder').trim().toLowerCase()
   const region = String(model.region || model.regions?.[0] || '').trim().toLowerCase()
   const providerLabel = accountProviderLabel(provider, region || undefined, t)
-  // Resolve the tier shown for the current max-mode toggle so the ceilings match
-  // the selected window instead of lingering on the Max tier after a toggle-off.
   const traeTier = provider === 'trae' ? tieredTraeCaps(model) : undefined
+  const imageText = model.supports_images === true
+    ? t('imageInputDeclared')
+    : model.supports_images === false
+      ? t('imageInputUnsupported')
+      : t('imageInputNotDeclared')
+  const promptMax = traeTier?.prompt_max_tokens || model.prompt_max_tokens
+  const outputMax = traeTier?.max_output_tokens || model.max_output_tokens
   return (
     <Modal.Root isOpen onOpenChange={(next: boolean) => { if (!next) onClose() }}>
       <Modal.Backdrop variant="blur">
         <Modal.Container size="md" scroll="inside">
           <Modal.Dialog>
             <Modal.Header className="items-start justify-between gap-4 px-5 pt-5">
-              <div>
+              <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <div className="text-section">{model.display_name || model.id}</div>
+                  <div className="truncate text-section">{model.display_name || model.id}</div>
                   {free ? <Chip size="sm" variant="soft" color="success">{t('modelFree')}</Chip> : null}
                 </div>
-                <div className="mono mt-1 text-caption text-muted">{model.id}</div>
-                <div className="mt-1 text-caption text-muted">
-                  {providerLabel}{credits ? ` · ${credits}` : ''}
-                </div>
+                <div className="mono mt-1 truncate text-caption text-muted">{model.id}</div>
               </div>
-              <Modal.CloseTrigger aria-label={t('close')} className="grid size-8 place-items-center rounded-lg text-muted hover:bg-surface-secondary">
+              <Modal.CloseTrigger aria-label={t('close')} className="grid size-8 shrink-0 place-items-center rounded-lg text-muted hover:bg-surface-secondary">
                 <X size={16} />
               </Modal.CloseTrigger>
             </Modal.Header>
-            <Modal.Body className="space-y-4 px-5 pb-5">
-              <section>
-                <div className="text-caption font-medium text-muted">{t('contextWindowCol')}</div>
-                <div className="mt-1 text-body">{formatTokens(windowDev)}{windowMax && windowMax !== windowDev ? ` → ${formatTokens(windowMax)}` : ''}</div>
-                {model.supports_max_mode ? <p className="mt-1 text-caption leading-5 text-muted">{provider === 'qoder' ? t('qoderMaxModeHint') : t('maxModeHint')}</p> : null}
-                {!model.supports_max_mode && windowMax && windowMax !== windowDev ? <p className="mt-1 text-caption leading-5 text-muted">{t('workbuddyContextHint')}</p> : null}
-                {traeTier
-                  ? (traeTier.prompt_max_tokens ? <div className="mt-1 text-caption text-muted">{t('promptMaxTokens')}: {formatTokens(traeTier.prompt_max_tokens)}</div> : null)
-                  : (model.prompt_max_tokens ? <div className="mt-1 text-caption text-muted">{t('promptMaxTokens')}: {formatTokens(model.prompt_max_tokens)}</div> : null)}
-                {traeTier
-                  ? (traeTier.max_output_tokens ? <div className="text-caption text-muted">{t('maxOutputTokens')}: {formatTokens(traeTier.max_output_tokens)}</div> : null)
-                  : (model.max_output_tokens ? <div className="text-caption text-muted">{t('maxOutputTokens')}: {formatTokens(model.max_output_tokens)}</div> : null)}
+            <Modal.Body className="space-y-3 px-5 pb-5">
+              <section className="divide-y divide-separator rounded-lg border border-separator px-3 py-1">
+                <DetailRow label={t('providerCol')} value={providerLabel} />
+
+                <DetailRow label={t('contextWindowCol')} value={<span className="mono">{formatTokens(effectiveWindow)}</span>} />
+                {promptMax ? <DetailRow label={t('promptMaxTokens')} value={<span className="mono">{formatTokens(promptMax)}</span>} /> : null}
+                {outputMax ? <DetailRow label={t('maxOutputTokens')} value={<span className="mono">{formatTokens(outputMax)}</span>} /> : null}
+                <DetailRow label={t('imageInput')} value={imageText} />
               </section>
+
               <section>
-                <div className="text-caption font-medium text-muted">{t('reasoningLevels')}</div>
+                <div className="mb-1 text-caption font-medium text-muted">{t('reasoningLevels')}</div>
                 {options.length ? (
-                  <>
-                    <p className="mt-1 text-caption leading-5 text-muted">{t('reasoningHint')}</p>
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      {options.map((level) => {
-                        const key = `reasoningLevel_${level}`
-                        const label = t(key)
-                        return (
-                          <Chip key={level} size="sm" variant="soft" color={level === (model.reasoning_effort || model.reasoning_default) ? 'success' : 'default'}>
-                            {label === key ? level : label}{level === model.reasoning_default ? ` · ${t('defaultValue')}` : ''}{level === model.reasoning_effort && level !== model.reasoning_default ? ` · ${t('custom')}` : ''}
-                          </Chip>
-                        )
-                      })}
-                    </div>
-                  </>
+                  <div className="flex flex-wrap gap-1.5">
+                    {options.map((level) => (
+                      <Chip key={level} size="sm" variant="soft" color="default">
+                        <span className="mono">{level}</span>
+                      </Chip>
+                    ))}
+                  </div>
                 ) : (
-                  <div className="mt-1 text-body text-muted">
+                  <div className="text-caption text-muted">
                     {model.reasoning_type ? t('reasoningFixed', { type: model.reasoning_type }) : t('noReasoningLevels')}
                   </div>
                 )}
