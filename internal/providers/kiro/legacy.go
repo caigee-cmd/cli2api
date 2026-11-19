@@ -159,8 +159,12 @@ func toolsContext(tools []toolSpec, results []toolResult) *legacyCtx {
 		ctx.Tools = append(ctx.Tools, item)
 	}
 	for _, result := range results {
+		status := "success"
+		if result.IsError {
+			status = "error"
+		}
 		ctx.ToolResults = append(ctx.ToolResults, legacyResult{
-			ToolUseID: result.ID, Status: "success", Content: []map[string]string{{"text": result.Output}},
+			ToolUseID: result.ID, Status: status, Content: []map[string]string{{"text": result.Output}},
 		})
 	}
 	return ctx
