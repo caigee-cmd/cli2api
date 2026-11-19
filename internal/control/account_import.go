@@ -115,9 +115,16 @@ func (a *Accounts) ImportAll(ctx context.Context, input AccountImportInput, raw 
 				continue
 			}
 			name := importAccountName(input.Name, prepared.Payload, i, len(chunks))
+			if name == "" {
+				name = strings.TrimSpace(prepared.Name)
+			}
+			region := strings.TrimSpace(input.Region)
+			if stated := strings.TrimSpace(prepared.Region); stated != "" {
+				region = stated
+			}
 			account, err := a.ImportCredentialPayload(ctx, accounts.CreateAccount{
 				AutoCheckin: input.AutoCheckin, CheckinTime: input.CheckinTime,
-				Name: name, Provider: descriptor.ID, Region: input.Region,
+				Name: name, Provider: descriptor.ID, Region: region,
 				MaxInFlight: input.MaxInFlight, Priority: input.Priority, DropSystemPrompt: input.DropSystemPrompt,
 				WorkBuddyAutoCheckin: input.WorkBuddyAutoCheckin, WorkBuddyCheckinTime: input.WorkBuddyCheckinTime, ProxyURL: input.ProxyURL,
 			}, storeFormat, prepared.Payload, prepared.Ready && input.Enabled)

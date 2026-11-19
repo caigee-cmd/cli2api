@@ -1,6 +1,6 @@
-/** Detect credential / hub package shape for Accounts page batch import. */
+/** Detect credential / hub package shape for account JSON import. */
 
-export type ImportRegion = 'cn' | 'global'
+export type ImportRegion = 'cn' | 'global' | 'us-east-1' | 'eu-central-1'
 
 export type ImportDetectConfidence = 'high' | 'medium' | 'low'
 
@@ -14,7 +14,7 @@ export type ImportDetectResult = {
   regionAmbiguous: boolean
   confidence: ImportDetectConfidence
   warnings: string[]
-  /** This PR only imports WorkBuddy; others stay detected for future use. */
+  /** WorkBuddy packs and Kiro credentials can be imported from the accounts page. */
   batchImportSupported: boolean
 }
 
@@ -30,13 +30,20 @@ const FORMAT_TO_PROVIDER: Record<string, string> = {
   'qwenwork-oauth-v1': 'qwenwork',
   'meta-oauth-v1': 'meta',
   'meta-key-v1': 'meta',
+  'kiro-oauth-v1': 'kiro',
 }
 
 const CN_DOMAIN_MARKERS = ['codebuddy.cn', 'workbuddy.cn']
 const GLOBAL_DOMAIN_MARKERS = ['workbuddy.ai', 'workbuddy.com']
+const KIRO_REGIONS = new Set(['us-east-1', 'eu-central-1'])
+const PROFILE_REGION = /arn:aws:codewhisperer:([a-z0-9-]+):/
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function text(value: unknown) {
+  return typeof value === 'string' ? value.trim() : ''
 }
 
 /** Normalize format / exportType aliases (e.g. WorkBuddy-accounts → workbuddy-accounts). */
@@ -129,11 +136,63 @@ function detectWorkbuddyRegion(bundle: Record<string, unknown>): {
   return { region: 'cn', ambiguous: true, warning: 'region_unknown' }
 }
 
+/** Region a Kiro credential names, or null when the operator must pick one. */
+export function kiroRegionOf(bundle: Record<string, unknown>): ImportRegion | null {
+  const stated = text(bundle.region).toLowerCase()
+  if (KIRO_REGIONS.has(stated)) return stated as ImportRegion
+  if (stated === 'eu' || stated === 'europe') return 'eu-central-1'
+  const profile = text(bundle.profileArn) || text(bundle.profile_arn)
+  const matched = PROFILE_REGION.exec(profile)
+  if (matched && KIRO_REGIONS.has(matched[1])) return matched[1] as ImportRegion
+  for (const key of ['kiroApiKey', 'apiKey', 'api_key', 'accessToken', 'access_token']) {
+    const value = text(bundle[key])
+    const split = value.split('|')
+    if (value.startsWith('ksk_') && split.length === 2 && KIRO_REGIONS.has(split[1].trim().toLowerCase())) {
+      return split[1].trim().toLowerCase() as ImportRegion
+    }
+  }
+  return null
+}
+
+/** True when the object is a Kiro credential, not merely some other token JSON. */
+export function looksLikeKiro(bundle: Record<string, unknown>) {
+  if (readFormatHint(bundle) === 'kiro-oauth-v1') return true
+  if (kiroRegionOf(bundle)) return true
+  const auth = (text(bundle.authMethod) || text(bundle.auth_method)).toLowerCase()
+  if (['builder_id', 'builderid', 'external_idp', 'idc', 'social'].includes(auth)) return true
+  const provider = text(bundle.provider).toLowerCase()
+  if (provider === 'builderid' || provider === 'kiro' || provider === 'apikey') return true
+  for (const key of ['kiroApiKey', 'apiKey', 'api_key', 'accessToken', 'access_token']) {
+    if (text(bundle[key]).startsWith('ksk_')) return true
+  }
+  const clientID = text(bundle.clientId) || text(bundle.client_id)
+  const clientSecret = text(bundle.clientSecret) || text(bundle.client_secret)
+  const refresh = text(bundle.refreshToken) || text(bundle.refresh_token)
+  const start = text(bundle.startUrl) || text(bundle.start_url)
+  if (clientID && clientSecret && refresh) return true
+  if (start.includes('awsapps.com') && refresh) return true
+  const profile = text(bundle.profileArn) || text(bundle.profile_arn)
+  if (profile.includes('codewhisperer') && (refresh || text(bundle.accessToken) || text(bundle.access_token))) return true
+  const tokenEndpoint = text(bundle.tokenEndpoint) || text(bundle.token_endpoint)
+  const issuer = text(bundle.issuerUrl) || text(bundle.issuer_url)
+  if ((tokenEndpoint.includes('microsoftonline') || issuer.includes('microsoftonline')) && refresh) return true
+  return false
+}
+
+/** Upstream exports sometimes wrap one credential, or many, under accounts[]. */
+function kiroEntries(bundle: Record<string, unknown>): Record<string, unknown>[] {
+  if (!Array.isArray(bundle.accounts)) return []
+  return bundle.accounts.filter((entry): entry is Record<string, unknown> => isPlainObject(entry) && looksLikeKiro(entry))
+}
+
 function detectByShape(bundle: Record<string, unknown>): {
   format: string | null
   provider: string | null
   confidence: ImportDetectConfidence
 } {
+  if (looksLikeKiro(bundle) || kiroEntries(bundle).length > 0) {
+    return { format: 'kiro-oauth-v1', provider: 'kiro', confidence: 'medium' }
+  }
   if (Array.isArray(bundle.accounts) && bundle.accounts.some(looksLikeWorkbuddyAccountsEntry)) {
     return { format: 'workbuddy-accounts', provider: 'workbuddy', confidence: 'medium' }
   }
@@ -174,6 +233,15 @@ function detectByShape(bundle: Record<string, unknown>): {
   return { format: null, provider: null, confidence: 'low' }
 }
 
+function kiroPackRegion(bundle: Record<string, unknown>): { region: ImportRegion | null; ambiguous: boolean } {
+  const entries = kiroEntries(bundle)
+  const subjects = entries.length > 0 ? entries : [bundle]
+  const regions = new Set(subjects.map(kiroRegionOf).filter((region): region is ImportRegion => region != null))
+  if (regions.size === 1) return { region: [...regions][0], ambiguous: false }
+  if (regions.size > 1) return { region: null, ambiguous: true }
+  return { region: null, ambiguous: true }
+}
+
 /**
  * Inspect a parsed JSON object and return provider/format/region hints.
  * Pure: no I/O. Callers toast on parse failure before invoking this.
@@ -212,6 +280,13 @@ export function detectImportBundle(raw: unknown): ImportDetectResult {
     }
   }
 
+  // A Kiro credential wrapped as {accounts:[...]} must not fall through to WorkBuddy.
+  if (provider !== 'kiro' && (looksLikeKiro(raw) || kiroEntries(raw).length > 0)) {
+    provider = 'kiro'
+    format = 'kiro-oauth-v1'
+    confidence = formatHint === 'kiro-oauth-v1' ? 'high' : 'medium'
+  }
+
   // Hub packs with accounts[] should stay on workbuddy-accounts even if format was oauth-v1.
   if (provider === 'workbuddy' && Array.isArray(raw.accounts)) {
     format = 'workbuddy-accounts'
@@ -225,8 +300,14 @@ export function detectImportBundle(raw: unknown): ImportDetectResult {
     regionAmbiguous = wb.ambiguous
     if (wb.warning) warnings.push(wb.warning)
   }
+  if (provider === 'kiro') {
+    const kiro = kiroPackRegion(raw)
+    region = kiro.region
+    regionAmbiguous = kiro.ambiguous
+    if (regionAmbiguous) warnings.push(kiroEntries(raw).length > 1 ? 'region_mixed' : 'region_unknown')
+  }
 
-  const batchImportSupported = provider === 'workbuddy'
+  const batchImportSupported = provider === 'workbuddy' || provider === 'kiro'
 
   return {
     format,
