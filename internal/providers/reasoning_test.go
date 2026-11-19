@@ -20,6 +20,27 @@ func TestResolveReasoningLevelKeepsDeclaredMax(t *testing.T) {
 	if got := ResolveReasoningLevel("max", caps); got != "max" {
 		t.Fatalf("max clamp=%q, want max", got)
 	}
+	if got := ResolveReasoningLevel("ultra", caps); got != "max" {
+		t.Fatalf("ultra clamp=%q, want max", got)
+	}
+}
+
+func TestReasoningLevelFromThinkingBudget(t *testing.T) {
+	for budget, want := range map[int]string{
+		0:     "",
+		512:   "low",
+		2048:  "low",
+		2049:  "medium",
+		8192:  "medium",
+		8193:  "high",
+		16384: "high",
+		16385: "max",
+		24576: "max",
+	} {
+		if got := ReasoningLevelFromThinkingBudget(budget); got != want {
+			t.Fatalf("budget %d => %q, want %q", budget, got, want)
+		}
+	}
 }
 
 func TestResolveReasoningLevelKeepsOlderFallbackForUnknownAndLowerTiers(t *testing.T) {
