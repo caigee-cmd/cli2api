@@ -25,6 +25,7 @@ import { QuotaMeter } from '@/components/account/QuotaMeter'
 import { RuntimeMeter } from '@/components/account/RuntimeMeter'
 import {
   accountState,
+  checkedInToday,
   cooldownLabel,
   modelCooldownEntries,
   type AccountRow,
@@ -63,6 +64,7 @@ type Props = {
   onDelete: () => void
   onToggle: (selected: boolean) => void
   checkinDefaultTime?: string
+  checkinTimezone?: string
   onToggleAutoCheckin?: (selected: boolean) => void
   onCheckin?: () => void
   onViewCheckins?: () => void
@@ -105,6 +107,7 @@ export function AccountCard({
   onDelete,
   onToggle,
   checkinDefaultTime,
+  checkinTimezone,
   onToggleAutoCheckin,
   onCheckin,
   onViewCheckins,
@@ -165,6 +168,7 @@ export function AccountCard({
   const provider = accountProviderLabel(account.provider, account.region, t)
   const checkinStatus = account.last_checkin_status
   const checkinLabel = checkinStatus === 'success' ? 'checkinRecordSuccess' : checkinStatus === 'already' ? 'checkinRecordAlready' : checkinStatus === 'skipped' ? 'checkinRecordSkipped' : checkinStatus === 'error' ? 'checkinRecordFailed' : 'lastCheckinNone'
+  const checkedInCurrentDay = checkedInToday(account, checkinTimezone)
 
   useLayoutEffect(() => {
     const chip = chipRef.current
@@ -449,9 +453,15 @@ export function AccountCard({
         <div className="flex items-start justify-between gap-3 border-t border-separator px-4 py-2 text-caption text-muted">
           <Tooltip>
             <Tooltip.Trigger>
-              <span className="flex cursor-help items-center gap-2">
+              <span className="flex cursor-help flex-wrap items-center gap-2">
                 <span className="font-medium">{t('lastCheckin')}</span>
                 <span className={checkinStatus === 'error' ? 'text-danger' : ''}>{t(checkinLabel)}</span>
+                {!checkedInCurrentDay ? (
+                  <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-warning/15 px-1.5 py-px text-caption font-medium text-warning">
+                    <span className="size-1.5 rounded-full bg-warning" aria-hidden />
+                    {t('checkinPending')}
+                  </span>
+                ) : null}
               </span>
             </Tooltip.Trigger>
             <Tooltip.Content>{account.last_checkin_at ? new Date(account.last_checkin_at).toLocaleString() : t('lastCheckinNone')}{account.last_checkin_msg ? ` · ${account.last_checkin_msg}` : ''}</Tooltip.Content>
