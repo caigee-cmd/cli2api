@@ -276,6 +276,28 @@ func TestPreparePreservesExplicitContext(t *testing.T) {
 	}
 }
 
+func TestRequestedReasoningLevelFromThinkingBudget(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{name: "enabled low budget", raw: `{"type":"enabled","budget_tokens":2048}`, want: "low"},
+		{name: "enabled high budget", raw: `{"type":"enabled","budget_tokens":16384}`, want: "high"},
+		{name: "missing budget", raw: `{"type":"enabled"}`, want: ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got := RequestedReasoningLevel(translate.ChatRequest{Thinking: json.RawMessage(test.raw)})
+			if got != test.want {
+				t.Fatalf("level=%q, want %q", got, test.want)
+			}
+		})
+	}
+	if got := RequestedReasoningLevel(translate.ChatRequest{ReasoningEffort: json.RawMessage(`"ultra"`)}); got != "max" {
+		t.Fatalf("ultra=%q, want max", got)
+	}
+}
+
 func asPrepareError(err error, out **PrepareError) bool {
 	if err == nil {
 		return false
