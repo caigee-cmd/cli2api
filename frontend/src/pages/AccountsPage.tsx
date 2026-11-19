@@ -41,6 +41,7 @@ import { fetchSystemSettings, type SystemSettings } from '@/api/system'
 import { AccountsPageSkeleton } from '@/components/ui/PageSkeletons'
 import {
   accountState,
+  checkedInToday,
   type AccountRow,
 } from '@/lib/account'
 import { accountProviderFamilyLabel } from '@/lib/provider'
@@ -461,18 +462,7 @@ export function AccountsPage() {
   }
 
     function alreadyCheckedInToday(account: AccountRow) {
-      const status = account.last_checkin_status
-      if ((status !== 'success' && status !== 'already') || !account.last_checkin_at) return false
-      const recorded = new Date(account.last_checkin_at)
-      if (Number.isNaN(recorded.getTime())) return false
-      const timezone = checkinTimezoneFor(account)
-      const dayOf = (value: Date) => new Intl.DateTimeFormat('en-CA', {
-        timeZone: timezone || undefined,
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-      }).format(value)
-      return dayOf(recorded) === dayOf(new Date())
+      return checkedInToday(account, checkinTimezoneFor(account))
     }
 
   async function onCheckinAll() {
@@ -794,6 +784,7 @@ export function AccountsPage() {
             onDelete={() => setConfirmId(account.id)}
             onToggle={(selected) => void onToggle(account.id, selected)}
             checkinDefaultTime={settings?.checkin_times[account.provider || '']}
+            checkinTimezone={checkinTimezoneFor(account)}
             onToggleAutoCheckin={checkinPolicyFor(account) ? (selected) => void onToggleAutoCheckin(account.id, selected) : undefined}
             onCheckin={checkinPolicyFor(account) ? () => void onCheckin(account.id) : undefined}
             checkinFeedback={checkinFeedbackById[account.id] ?? null}
