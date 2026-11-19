@@ -101,12 +101,15 @@ func TestTranslateAnthropicToolResultLiftsImages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(chat.Messages) != 3 || chat.Messages[1].Role != "tool" || chat.Messages[2].Role != "user" {
+	if chat.Protocol != "anthropic_messages" {
+		t.Fatalf("protocol = %q", chat.Protocol)
+	}
+	if len(chat.Messages) != 2 || chat.Messages[1].Role != "tool" {
 		t.Fatalf("messages=%#v", chat.Messages)
 	}
-	parts, ok := chat.Messages[2].Content.([]any)
-	if !ok || len(parts) != 1 {
-		t.Fatalf("image content=%#v", chat.Messages[2].Content)
+	parts := chat.Messages[1].ToolResultImages
+	if len(parts) != 1 {
+		t.Fatalf("tool result images=%#v", parts)
 	}
 	image, ok := parts[0].(map[string]any)
 	if !ok || image["type"] != "image_url" {

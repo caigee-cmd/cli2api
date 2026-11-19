@@ -30,6 +30,10 @@ const (
 	ResponsesAttempts = 3
 	legacyAttempts    = 2
 
+	// maxModelPages bounds a broken upstream cursor without silently returning
+	// a partial catalog. Kiro normally needs one or two pages.
+	maxModelPages = 100
+
 	// RefreshSkewSeconds refreshes an access token this long before expiry.
 	RefreshSkewSeconds = 120
 
