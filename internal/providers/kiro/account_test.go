@@ -66,6 +66,36 @@ func TestQuotaReadsCreditBreakdown(t *testing.T) {
 	}
 }
 
+func TestListModelsFollowsEscapedNextToken(t *testing.T) {
+	var pages []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		pages = append(pages, r.URL.RawQuery)
+		if r.URL.Query().Get("nextToken") == "" {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"models":    []map[string]any{{"modelId": "claude-sonnet-4.5"}},
+				"nextToken": "page+2/more",
+			})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"models": []map[string]any{{"modelId": "claude-opus-4.8"}, {"modelId": "auto"}},
+		})
+	}))
+	defer server.Close()
+	client := &Client{http: server.Client()}
+	defer setTestHosts(server.URL)()
+	models, err := client.listModels(context.Background(), server.Client(), Credential{AuthMethod: "social"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 3 || models[2].NativeModel != "auto" {
+		t.Fatalf("models = %+v", models)
+	}
+	if len(pages) != 2 || !strings.Contains(pages[1], "nextToken=page%2B2%2Fmore") {
+		t.Fatalf("pages = %#v", pages)
+	}
+}
+
 func TestQuotaOverageKeepsAccountSelectable(t *testing.T) {
 	usage := usageLimits{
 		OverageConfiguration: &struct {

@@ -90,11 +90,14 @@ const codexPlanLabels: Record<string, string> = {
   go: 'Go',
   plus: 'Plus',
   pro: 'Pro',
+  pro_plus: 'Pro+',
+  proplus: 'Pro+',
   prolite: 'Pro Lite',
   promax: 'Pro Max',
   team: 'Team',
   business: 'Business',
   enterprise: 'Enterprise',
+  power: 'Power',
   edu: 'Edu',
   edu_plus: 'Edu Plus',
   edu_pro: 'Edu Pro',
@@ -106,7 +109,11 @@ const codexPlanLabels: Record<string, string> = {
 export function codexPlanLabel(plan: string | undefined) {
   const raw = plan?.trim().toLowerCase() ?? ''
   if (!raw || raw === 'unknown' || raw === 'guest') return ''
-  return codexPlanLabels[raw] ?? raw.replace(/[_-]+/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase())
+  return codexPlanLabels[raw] ?? raw
+    .replace(/[_-]+/g, ' ')
+    .replace(/\bplus\b/gi, '+')
+    .replace(/\s+\+/g, '+')
+    .replace(/\b\w/g, (char) => char.toUpperCase())
 }
 
 export function quotaWindowLabel(window: AccountQuotaWindow, t: (key: string) => string) {

@@ -17,7 +17,7 @@ const (
 	// Kiro's version gate rejects older builds with FEATURE_NOT_SUPPORTED, so the
 	// fallback stays near the current stable release. A fetched build older than
 	// this is ignored.
-	IDEVersion   = "1.4.178"
+	IDEVersion   = "1.4.236"
 	AgentVersion = "0.66.102-hotfix.1"
 
 	// nodeVersion is the Node runtime the IDE names in the AWS SDK user agent.
