@@ -644,7 +644,7 @@ func RelayResponsesStream(writer io.Writer, body io.Reader, requestID, model str
 	response := responsesResponse(
 		requestID, model, content, output.reasoning.String(), calls,
 		derefInt(stats.PromptTokens), derefInt(stats.CompletionTokens), output.finishReason,
-		stats.CacheReadTokens, stats.CachedTokens,
+		stats.CacheReadTokens, stats.CacheWriteTokens, stats.CachedTokens,
 	)
 	if err := eventWriter.write(terminal.event, map[string]any{"type": terminal.event, "response": response}); err != nil {
 		return stats, err
