@@ -18,6 +18,9 @@ func TestAnthropicMessageResponseIncludesCacheUsage(t *testing.T) {
 	if usage["cache_creation_input_tokens"] != 12 {
 		t.Fatalf("cache_creation_input_tokens = %v", usage["cache_creation_input_tokens"])
 	}
+	if usage["input_tokens"] != 24 {
+		t.Fatalf("input_tokens = %v, want fresh input 24", usage["input_tokens"])
+	}
 }
 
 func TestRelayAnthropicStreamIncludesCacheUsageInMessageDelta(t *testing.T) {
