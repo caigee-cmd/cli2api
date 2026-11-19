@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/caigee-cmd/cli2api/internal/providers"
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
@@ -648,30 +649,19 @@ func extractReasoning(msg translate.ChatMessage) string {
 }
 
 func extractEffort(req translate.ChatRequest) (string, int) {
-	effort := ""
-	if len(req.ReasoningEffort) > 0 {
-		var s string
-		if json.Unmarshal(req.ReasoningEffort, &s) == nil {
-			effort = s
-		}
+	intent := providers.ParseReasoningIntent(req)
+	level := intent.Level
+	if intent.Disabled {
+		level = "none"
 	}
-	if effort == "" && len(req.Thinking) > 0 {
-		var obj map[string]any
-		if json.Unmarshal(req.Thinking, &obj) == nil {
-			effort = asString(obj["type"])
-			if effort == "" {
-				effort = asString(obj["effort"])
-			}
-		}
-	}
-	budget := 0
-	if len(req.ReasoningBudgetTokens) > 0 {
+	budget := intent.Budget
+	if budget == 0 && len(req.ReasoningBudgetTokens) > 0 {
 		var n int
 		if json.Unmarshal(req.ReasoningBudgetTokens, &n) == nil {
 			budget = n
 		}
 	}
-	return effort, budget
+	return level, budget
 }
 
 func parseMaxTokens(req translate.ChatRequest) int {

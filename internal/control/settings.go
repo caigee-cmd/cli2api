@@ -54,6 +54,34 @@ func (s *Settings) MaxContextLength(modelID string) int {
 	return maxWindow
 }
 
+// ForceMaxContextLength returns the model's own largest declared context
+// window. Qoder chat sends this value as model_config.max_input_tokens, so
+// requests with no explicit client window always run at the model's maximum
+// (1M when declared) regardless of the operator's stored window. The cached
+// merged catalog is checked first so a chat request never triggers a blocking
+// catalog fetch; only the forced maximum is used, never a larger invented one.
+func (s *Settings) ForceMaxContextLength(modelID string) int {
+	if s == nil || s.catalog == nil {
+		return 0
+	}
+	key := ModelContextKey(modelID)
+	for _, model := range s.catalog.Peek("", CatalogModeMerge) {
+		id, _ := model["id"].(string)
+		if ModelContextKey(id) != key {
+			continue
+		}
+		maxWindow, _ := catalogInt(model["catalog_context_length_max"])
+		if maxWindow <= 0 {
+			maxWindow, _ = catalogInt(model["catalog_context_length"])
+		}
+		if maxWindow <= 0 {
+			maxWindow = s.DefaultContextLength(modelID)
+		}
+		return maxWindow
+	}
+	return 0
+}
+
 func (s *Settings) GetSecret(ctx context.Context, name string) (string, bool, error) {
 	return s.store.GetSecret(ctx, name)
 }

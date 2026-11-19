@@ -339,8 +339,8 @@ func (e ChatExecutor) providerHasCapacity(pinnedProvider, pinnedRegion, publicMo
 	return e.Pool.HasCapacity(query)
 }
 
-func (e ChatExecutor) routeQuery(prefer, providerFilter, regionFilter, publicModel string, allowed []string, excluded map[string]struct{}, eligible func(Item) bool) RouteQuery {
-	return RouteQuery{
+func (e ChatExecutor) routeQuery(prefer, providerFilter, regionFilter, publicModel string, allowed []string, excluded map[string]struct{}, eligible func(Item) bool, plan ...*AggregatePlan) RouteQuery {
+	q := RouteQuery{
 		PublicModel:      publicModel,
 		PreferAccount:    prefer,
 		ProviderFilter:   providerFilter,
@@ -349,13 +349,23 @@ func (e ChatExecutor) routeQuery(prefer, providerFilter, regionFilter, publicMod
 		Excluded:         excluded,
 		Eligible:         eligible,
 	}
+	if len(plan) > 0 && plan[0] != nil {
+		p := plan[0]
+		q.ModelResolver = p.resolver()
+		q.StrategyOverride = string(p.Strategy)
+		if p.Strategy == accounts.AggregationPriority {
+			q.PriorityResolver = p.priorityResolver()
+		}
+		q.WeightResolver = p.weightResolver()
+	}
+	return q
 }
 
-func (e ChatExecutor) pick(requestID, prefer, providerFilter, regionFilter, publicModel string, allowed []string, excluded map[string]struct{}, eligible func(Item) bool) (Item, error) {
-	query := e.routeQuery(prefer, providerFilter, regionFilter, publicModel, allowed, excluded, eligible)
+func (e ChatExecutor) pick(requestID, prefer, providerFilter, regionFilter, publicModel string, allowed []string, excluded map[string]struct{}, eligible func(Item) bool, plan *AggregatePlan) (Item, error) {
+	query := e.routeQuery(prefer, providerFilter, regionFilter, publicModel, allowed, excluded, eligible, plan)
 	if e.Pool != nil {
 		if item, ok := e.Pool.PickRoute(query); ok {
-			if retryAfter := e.Pool.RetryAfter(item, publicModel); retryAfter > 0 {
+			if retryAfter := e.Pool.RetryAfter(item, publicModel, query.ModelResolver); retryAfter > 0 {
 				return Item{}, coolingPickError(item, publicModel, retryAfter)
 			}
 			return item, nil
@@ -525,10 +535,10 @@ func coolingPickError(item Item, publicModel string, retryAfter time.Duration) e
 	}, nil)
 }
 
-func (e ChatExecutor) attemptsFor(providerFilter, regionFilter, publicModel string, allowed []string, eligible ...func(Item) bool) int {
-	var predicate func(Item) bool
-	if len(eligible) > 0 {
-		predicate = eligible[0]
+func (e ChatExecutor) attemptsFor(providerFilter, regionFilter, publicModel string, allowed []string, predicate func(Item) bool, resolver ...func(Item) string) int {
+	var resolve func(Item) string
+	if len(resolver) > 0 {
+		resolve = resolver[0]
 	}
 	maxAttempts := e.MaxAttempts
 	if maxAttempts <= 0 {
@@ -538,7 +548,9 @@ func (e ChatExecutor) attemptsFor(providerFilter, regionFilter, publicModel stri
 		maxAttempts = 64
 	}
 	if e.Pool != nil {
-		if n := e.Pool.LenRoute(e.routeQuery("", providerFilter, regionFilter, publicModel, allowed, nil, predicate)); n > 0 {
+		query := e.routeQuery("", providerFilter, regionFilter, publicModel, allowed, nil, predicate)
+		query.ModelResolver = resolve
+		if n := e.Pool.LenRoute(query); n > 0 {
 			if n > maxAttempts {
 				return maxAttempts
 			}
@@ -887,11 +899,46 @@ type routeLoop struct {
 	index          int
 	// eligible narrows candidates to one protocol capability; nil admits all.
 	eligible func(Item) bool
+	// resolver maps an item to its concrete aggregated model. Nil for normal
+	// (non-aggregated) requests. Pure and read-only; safe under Pool.mu.
+	resolver func(Item) string
+	// plan is the immutable per-request aggregate plan; nil for normal routes.
+	// It carries the per-model strategy/weights used by Pool.PickRoute.
+	plan *AggregatePlan
 }
 
 func (e ChatExecutor) newRouteLoop(ctx context.Context, prefer, providerFilter string, req translate.ChatRequest) routeLoop {
+	requestedProviderFilter := providerFilter
 	prefer, providerFilter, regionFilter, routing := e.prepareRouting(ctx, prefer, providerFilter, req)
 	allowed := allowedProvidersFrom(ctx)
+	// Capture the aggregate resolver once from the immutable per-request plan.
+	// If a plan exists, the public model is virtual and must not be pinned by a
+	// provider prefix; the plan's members already carry provider/region.
+	var resolver func(Item) string
+	var aggPlan *AggregatePlan
+	if plan := aggregatePlanFrom(ctx); plan != nil {
+		aggPlan = plan
+		resolver = plan.resolver()
+		prefer, providerFilter, regionFilter = "", "", ""
+		routing = routingPlan{Source: routingPool, SessionKey: routing.SessionKey, PublicModel: req.Model}
+	}
+	// Deterministic scheduling strategies must see every eligible account.
+	// Sticky routing pre-seeds prefer/provider/region from the last successful
+	// account; leaving that in place makes fill-first, FEFO, quota ordering, and
+	// aggregation priority appear to ignore their strategy. Explicit client pin
+	// (routingPin) is preserved; only implicit sticky state is dropped.
+	strategy := ""
+	if aggPlan != nil {
+		strategy = string(aggPlan.Strategy)
+	} else if e.Pool != nil {
+		strategy = e.Pool.RoutingStrategy()
+	}
+	if routing.Source == routingSticky && !sessionAffinityHonorsStrategy(strategy) {
+		prefer = ""
+		providerFilter = requestedProviderFilter
+		regionFilter = regionFilterFromContext(ctx)
+		routing = routingPlan{Source: routingPool, SessionKey: routing.SessionKey, PublicModel: req.Model}
+	}
 	// A model-name region prefix (e.g. "workbuddy-cn/model") sets an explicit
 	// region that overrides sticky-session and pin-derived regions. It
 	// coexists with key grants: routeBaseMatches enforces both filters
@@ -914,6 +961,30 @@ func (e ChatExecutor) newRouteLoop(ctx context.Context, prefer, providerFilter s
 			regionFilter = pinRegion("", pinnedItem.Region)
 		}
 	}
+	// Per-model failover settings win over the executor global attempt budget.
+	// AllowFallbacks=false means the single best account only; MaxAttempts caps
+	// how many distinct accounts/members may be tried for one logical model.
+	//
+	// Keep aggregated routes at the same single candidate scan as normal routes:
+	// attemptsFor already does that scan, so a plan must not call attemptsFor and
+	// then LenRoute again. Only count candidates here when failover is possible.
+	var attempts int
+	if aggPlan != nil {
+		attempts = aggPlan.MaxAttempts
+		if attempts <= 0 {
+			attempts = 1
+		}
+		if !aggPlan.AllowFallbacks {
+			attempts = 1
+		} else if e.Pool != nil {
+			query := e.routeQuery("", providerFilter, regionFilter, req.Model, allowed, nil, nil, aggPlan)
+			if n := e.Pool.LenRoute(query); n > 0 && n < attempts {
+				attempts = n
+			}
+		}
+	} else {
+		attempts = e.attemptsFor(providerFilter, regionFilter, req.Model, allowed, nil)
+	}
 	loop := routeLoop{
 		requestID:      RequestIDFromContext(ctx),
 		prefer:         prefer,
@@ -922,7 +993,9 @@ func (e ChatExecutor) newRouteLoop(ctx context.Context, prefer, providerFilter s
 		routing:        routing,
 		excluded:       map[string]struct{}{},
 		allowed:        allowed,
-		attempts:       e.attemptsFor(providerFilter, regionFilter, req.Model, allowed, nil),
+		resolver:       resolver,
+		plan:           aggPlan,
+		attempts:       attempts,
 	}
 	if routing.Source == routingPin {
 		loop.pinned = prefer
@@ -931,7 +1004,7 @@ func (e ChatExecutor) newRouteLoop(ctx context.Context, prefer, providerFilter s
 }
 
 func (l *routeLoop) pickNext(e ChatExecutor, publicModel string) (Item, int, error) {
-	item, err := e.pick(l.requestID, l.prefer, l.providerFilter, l.regionFilter, publicModel, l.allowed, l.excluded, l.eligible)
+	item, err := e.pick(l.requestID, l.prefer, l.providerFilter, l.regionFilter, publicModel, l.allowed, l.excluded, l.eligible, l.plan)
 	if err != nil {
 		// Sticky routing pins the bound provider and region before this pick.
 		// A capacity check made before the pick races the slot: another request
@@ -947,8 +1020,8 @@ func (l *routeLoop) pickNext(e ChatExecutor, publicModel string) (Item, int, err
 			l.prefer = ""
 			l.providerFilter = ""
 			l.regionFilter = ""
-			l.attempts = e.attemptsFor(l.providerFilter, l.regionFilter, publicModel, l.allowed, l.eligible)
-			item, err = e.pick(l.requestID, l.prefer, l.providerFilter, l.regionFilter, publicModel, l.allowed, l.excluded, l.eligible)
+			l.attempts = e.attemptsFor(l.providerFilter, l.regionFilter, publicModel, l.allowed, l.eligible, l.resolver)
+			item, err = e.pick(l.requestID, l.prefer, l.providerFilter, l.regionFilter, publicModel, l.allowed, l.excluded, l.eligible, l.plan)
 		}
 		if err != nil {
 			return Item{}, l.index, err
@@ -959,10 +1032,31 @@ func (l *routeLoop) pickNext(e ChatExecutor, publicModel string) (Item, int, err
 	l.prefer = ""
 	if l.regionFilter == "" {
 		l.regionFilter = pinRegion(l.regionFilter, item.Region)
-		l.attempts = e.attemptsFor(l.providerFilter, l.regionFilter, publicModel, l.allowed, l.eligible)
+		l.attempts = e.attemptsFor(l.providerFilter, l.regionFilter, publicModel, l.allowed, l.eligible, l.resolver)
 	}
 	l.index++
 	return item, attemptIndex, nil
+}
+
+// attemptModel returns the concrete model used for this item. It is the
+// resolved real model for aggregated requests, otherwise the public model.
+// Cooldowns must be recorded against this value so different providers/models
+// behind one virtual ID do not share a cooldown.
+func (l routeLoop) attemptModel(item Item, req translate.ChatRequest) string {
+	if l.resolver != nil {
+		if model := l.resolver(item); model != "" {
+			return model
+		}
+	}
+	return req.Model
+}
+
+// dispatchRequest returns the request for this attempt with an aggregated
+// virtual model resolved to the concrete model chosen for this item. It only
+// touches the local copy of the request; the shared Item is never modified.
+func (l routeLoop) dispatchRequest(item Item, req translate.ChatRequest) translate.ChatRequest {
+	req.Model = l.attemptModel(item, req)
+	return req
 }
 
 func (l routeLoop) canFailover(classified Classified) bool {
@@ -1063,7 +1157,7 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 		}
 		release := func() { e.releaseInFlight(loop.requestID, poolID) }
 		if isInProcessItem(item) || e.qoderDirect(item) {
-			result, classified, err := e.chatInProcessNonStreamAttempt(ctx, item, req, i)
+			result, classified, err := e.chatInProcessNonStreamAttempt(ctx, item, loop.dispatchRequest(item, req), i)
 			if err == nil {
 				result.AttemptCount = i + 1
 				e.observeRouting(&loop.routing, result.AccountID)
@@ -1084,7 +1178,7 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 			release()
 			return ChatResult{AttemptCount: i + 1, AccountID: item.ID, Provider: item.Provider}, err
 		}
-		payload, err := json.Marshal(buildWorkerChatPayload(req, false))
+		payload, err := json.Marshal(buildWorkerChatPayload(loop.dispatchRequest(item, req), false))
 		if err != nil {
 			release()
 			return ChatResult{}, err
@@ -1109,7 +1203,7 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 			}
 			classified := Classify(0, err.Error(), "", accounts.KindUnavailable, "")
 			loop.lastErr = NewExecutionError(classified, fmt.Errorf("worker %s request failed: %w", item.ID, err))
-			e.markClassified(item.ID, classified, req.Model)
+			e.markClassified(item.ID, classified, loop.attemptModel(item, req))
 			latency := int(time.Since(started).Milliseconds())
 			e.recordAttempt(ctx, accounts.RequestAttempt{
 				AttemptIndex: i, AccountID: item.ID, StartedAt: started, FinishedAt: ptrTime(time.Now().UTC()),
@@ -1133,9 +1227,9 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 			classified := classifyWorkerErr(resp, msg)
 			loop.lastErr = NewExecutionError(classified, nil)
 			if classified.Kind == accounts.KindModelNotAvailable {
-				e.handleModelAvailabilityFailure(RequestIDFromContext(ctx), "worker_non_stream", item.ID, req.Model, classified)
+				e.handleModelAvailabilityFailure(RequestIDFromContext(ctx), "worker_non_stream", item.ID, loop.attemptModel(item, req), classified)
 			}
-			e.markClassified(item.ID, classified, req.Model)
+			e.markClassified(item.ID, classified, loop.attemptModel(item, req))
 			status := accounts.AttemptStatusError
 			if loop.canFailover(classified) {
 				status = accounts.AttemptStatusFailover
@@ -1175,7 +1269,7 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 		}
 		e.observeRouting(&loop.routing, item.ID)
 		e.bindSession(loop.routing, item.ID)
-		e.markOK(item.ID, req.Model)
+		e.markOK(item.ID, loop.attemptModel(item, req))
 		e.recordAttempt(ctx, accounts.RequestAttempt{
 			AttemptIndex: i, AccountID: item.ID, StartedAt: started, FinishedAt: &finished,
 			Status: accounts.AttemptStatusOK, HTTPStatus: ptrInt(resp.StatusCode), LatencyMs: &latency,
@@ -1372,20 +1466,37 @@ func firstNonEmpty(vals ...string) string {
 	return ""
 }
 
+func firstIntPtr(vals ...*int) *int {
+	for _, v := range vals {
+		if v != nil {
+			return v
+		}
+	}
+	return nil
+}
+
 func decodeChatResult(req translate.ChatRequest, body []byte) (ChatResult, error) {
 	var parsed struct {
 		Model string `json:"model"`
 		Usage struct {
-			PromptTokens         int      `json:"prompt_tokens"`
-			CompletionTokens     int      `json:"completion_tokens"`
-			CacheReadTokens      *int     `json:"cache_read_tokens"`
-			CacheWriteTokens     *int     `json:"cache_write_tokens"`
-			PromptCacheHitTokens *int     `json:"prompt_cache_hit_tokens"`
-			Source               string   `json:"source"`
-			Credits              *float64 `json:"credits"`
-			PromptDetails        struct {
+			PromptTokens             int      `json:"prompt_tokens"`
+			CompletionTokens         int      `json:"completion_tokens"`
+			CacheReadTokens          *int     `json:"cache_read_tokens"`
+			CacheReadInputTokens     *int     `json:"cache_read_input_tokens"`
+			CachedTokens             *int     `json:"cached_tokens"`
+			CachedContentTokenCount  *int     `json:"cached_content_token_count"`
+			CacheWriteTokens         *int     `json:"cache_write_tokens"`
+			CacheCreationInputTokens *int     `json:"cache_creation_input_tokens"`
+			PromptCacheHitTokens     *int     `json:"prompt_cache_hit_tokens"`
+			Source                   string   `json:"source"`
+			Credits                  *float64 `json:"credits"`
+			PromptDetails            struct {
 				CachedTokens *int `json:"cached_tokens"`
 			} `json:"prompt_tokens_details"`
+			InputDetails struct {
+				CachedTokens     *int `json:"cached_tokens"`
+				CacheWriteTokens *int `json:"cache_write_tokens"`
+			} `json:"input_tokens_details"`
 		} `json:"usage"`
 		Choices []struct {
 			FinishReason string `json:"finish_reason"`
@@ -1421,17 +1532,21 @@ func decodeChatResult(req translate.ChatRequest, body []byte) (ChatResult, error
 	if source == "" {
 		source = "estimate"
 	}
-	cacheRead := parsed.Usage.CacheReadTokens
-	if cacheRead == nil {
-		cacheRead = parsed.Usage.PromptDetails.CachedTokens
-	}
-	if cacheRead == nil {
-		cacheRead = parsed.Usage.PromptCacheHitTokens
-	}
-	cachedTokens := parsed.Usage.PromptDetails.CachedTokens
-	if cachedTokens == nil {
-		cachedTokens = cacheRead
-	}
+	cacheRead := firstIntPtr(
+		parsed.Usage.CacheReadTokens,
+		parsed.Usage.CacheReadInputTokens,
+		parsed.Usage.PromptDetails.CachedTokens,
+		parsed.Usage.InputDetails.CachedTokens,
+		parsed.Usage.PromptCacheHitTokens,
+		parsed.Usage.CachedTokens,
+		parsed.Usage.CachedContentTokenCount,
+	)
+	cacheWrite := firstIntPtr(
+		parsed.Usage.CacheWriteTokens,
+		parsed.Usage.CacheCreationInputTokens,
+		parsed.Usage.InputDetails.CacheWriteTokens,
+	)
+	cachedTokens := firstIntPtr(parsed.Usage.PromptDetails.CachedTokens, parsed.Usage.InputDetails.CachedTokens, cacheRead)
 	return ChatResult{
 		Model:            model,
 		Content:          content,
@@ -1441,7 +1556,7 @@ func decodeChatResult(req translate.ChatRequest, body []byte) (ChatResult, error
 		PromptTokens:     parsed.Usage.PromptTokens,
 		CompletionTokens: parsed.Usage.CompletionTokens,
 		CacheReadTokens:  cacheRead,
-		CacheWriteTokens: parsed.Usage.CacheWriteTokens,
+		CacheWriteTokens: cacheWrite,
 		CachedTokens:     cachedTokens,
 		UsageSource:      source,
 		Credits:          parsed.Usage.Credits,
@@ -1517,7 +1632,7 @@ func (e ChatExecutor) chatStreamProxy(ctx context.Context, req translate.ChatReq
 			adapter, ok := e.Providers.Get(itemProvider(item))
 			return ok && adapter.NativeResponses != nil
 		}
-		loop.attempts = e.attemptsFor(loop.providerFilter, loop.regionFilter, req.Model, loop.allowed, loop.eligible)
+		loop.attempts = e.attemptsFor(loop.providerFilter, loop.regionFilter, req.Model, loop.allowed, loop.eligible, loop.resolver)
 	}
 	defer func() { result.Routing = loop.routing.Source }()
 	startedAll := time.Now()
@@ -1538,7 +1653,7 @@ func (e ChatExecutor) chatStreamProxy(ctx context.Context, req translate.ChatReq
 		}
 		release := func() { e.releaseInFlight(loop.requestID, poolID) }
 		if isInProcessItem(item) || (e.qoderDirect(item) && !(preferNativeResponses && native != nil)) {
-			result, classified, err := e.chatInProcessStreamAttempt(ctx, item, req, native, i, preferNativeResponses)
+			result, classified, err := e.chatInProcessStreamAttempt(ctx, item, loop.dispatchRequest(item, req), native, i, preferNativeResponses)
 
 			if err == nil {
 				result.AttemptCount = i + 1
@@ -1559,7 +1674,7 @@ func (e ChatExecutor) chatStreamProxy(ctx context.Context, req translate.ChatReq
 			release()
 			return StreamResult{AttemptCount: i + 1, AccountID: item.ID, Provider: item.Provider}, err
 		}
-		payload, err := json.Marshal(buildWorkerChatPayload(req, true))
+		payload, err := json.Marshal(buildWorkerChatPayload(loop.dispatchRequest(item, req), true))
 		if err != nil {
 			release()
 			return StreamResult{}, err
@@ -1584,7 +1699,7 @@ func (e ChatExecutor) chatStreamProxy(ctx context.Context, req translate.ChatReq
 			}
 			classified := Classify(0, err.Error(), "", accounts.KindUnavailable, "")
 			loop.lastErr = NewExecutionError(classified, fmt.Errorf("worker %s stream request failed: %w", item.ID, err))
-			e.markClassified(item.ID, classified, req.Model)
+			e.markClassified(item.ID, classified, loop.attemptModel(item, req))
 			latency := int(time.Since(started).Milliseconds())
 			e.recordAttempt(ctx, accounts.RequestAttempt{
 				AttemptIndex: i, AccountID: item.ID, StartedAt: started, FinishedAt: ptrTime(time.Now().UTC()),
@@ -1605,9 +1720,9 @@ func (e ChatExecutor) chatStreamProxy(ctx context.Context, req translate.ChatReq
 			classified := classifyWorkerErr(resp, msg)
 			loop.lastErr = NewExecutionError(classified, nil)
 			if classified.Kind == accounts.KindModelNotAvailable {
-				e.handleModelAvailabilityFailure(RequestIDFromContext(ctx), "worker_stream", item.ID, req.Model, classified)
+				e.handleModelAvailabilityFailure(RequestIDFromContext(ctx), "worker_stream", item.ID, loop.attemptModel(item, req), classified)
 			}
-			e.markClassified(item.ID, classified, req.Model)
+			e.markClassified(item.ID, classified, loop.attemptModel(item, req))
 			finished := time.Now().UTC()
 			latency := int(finished.Sub(started).Milliseconds())
 			status := accounts.AttemptStatusError
@@ -1649,7 +1764,7 @@ func (e ChatExecutor) chatStreamProxy(ctx context.Context, req translate.ChatReq
 				classified = Classify(0, probeErr.Error(), "", accounts.KindUnavailable, "")
 			}
 			loop.lastErr = NewExecutionError(classified, fmt.Errorf("worker %s stream failed before the first event: %w", item.ID, probeErr))
-			e.markClassified(item.ID, classified, req.Model)
+			e.markClassified(item.ID, classified, loop.attemptModel(item, req))
 			finished := time.Now().UTC()
 			latency := int(finished.Sub(started).Milliseconds())
 			status := accounts.AttemptStatusError
@@ -1673,7 +1788,7 @@ func (e ChatExecutor) chatStreamProxy(ctx context.Context, req translate.ChatReq
 			return StreamResult{AttemptCount: i + 1, AccountID: item.ID, Provider: loop.resultProvider(item)}, loop.lastErr
 		}
 		resp.Body = probed
-		e.markOK(item.ID, req.Model)
+		e.markOK(item.ID, loop.attemptModel(item, req))
 		ttfb := int(time.Since(startedAll).Milliseconds())
 		headerAt := time.Now().UTC()
 		e.recordAttempt(ctx, accounts.RequestAttempt{

@@ -1,7 +1,6 @@
 package workbuddy
 
 import (
-	"encoding/json"
 	"strings"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
@@ -23,44 +22,7 @@ var officialTopLevelReasoningModels = map[string]struct{}{
 }
 
 func requestedReasoningLevel(req translate.ChatRequest) string {
-	if len(req.ReasoningEffort) > 0 {
-		var value any
-		if json.Unmarshal(req.ReasoningEffort, &value) == nil {
-			switch typed := value.(type) {
-			case string:
-				if level := providers.NormalizeReasoningLevel(typed); level != "" {
-					return level
-				}
-			case map[string]any:
-				for _, key := range []string{"effort", "level", "type"} {
-					if text, ok := typed[key].(string); ok {
-						if level := providers.NormalizeReasoningLevel(text); level != "" {
-							return level
-						}
-					}
-				}
-			}
-		}
-	}
-	if req.EnableThinking != nil {
-		if *req.EnableThinking {
-			return "medium"
-		}
-		return "none"
-	}
-	if req.EnableReasoning != nil {
-		if *req.EnableReasoning {
-			return "medium"
-		}
-		return "none"
-	}
-	if req.IsReasoning != nil {
-		if *req.IsReasoning {
-			return "medium"
-		}
-		return "none"
-	}
-	return ""
+	return providers.ParseReasoningIntent(req).Level
 }
 
 func applyChatReasoning(obj map[string]any, req translate.ChatRequest, storedLevel string, caps providers.ModelCapabilities) string {
@@ -100,7 +62,7 @@ func applyChatReasoning(obj map[string]any, req translate.ChatRequest, storedLev
 			return ""
 		}
 	}
-	if usesTopLevelReasoningFields(req.Model) {
+	if workbuddyReasoningWire(req.Model) == providers.ReasoningWireFlatEffort || caps.ReasoningWire == providers.ReasoningWireFlatEffort {
 		delete(obj, "reasoning")
 		obj["reasoning_effort"] = level
 		obj["reasoning_summary"] = "auto"
@@ -121,11 +83,13 @@ func clearChatReasoning(obj map[string]any) {
 	delete(obj, "verbosity")
 }
 
-func usesTopLevelReasoningFields(model string) bool {
+func workbuddyReasoningWire(model string) providers.ReasoningWire {
 	key := accounts.CanonicalModelID(model)
 	if i := strings.LastIndex(key, "/"); i >= 0 {
 		key = key[i+1:]
 	}
-	_, ok := officialTopLevelReasoningModels[key]
-	return ok
+	if _, ok := officialTopLevelReasoningModels[key]; ok {
+		return providers.ReasoningWireFlatEffort
+	}
+	return providers.ReasoningWireNested
 }

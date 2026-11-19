@@ -25,6 +25,13 @@ func (s *stubContexts) GetModelContext(_ context.Context, modelID string) (int, 
 	return s.value, s.ok, s.err
 }
 
+type forcedContexts struct {
+	*stubContexts
+	forced int
+}
+
+func (s *forcedContexts) ForceMaxContextLength(string) int { return s.forced }
+
 type stubCatalogs struct {
 	calls int
 }
@@ -159,6 +166,26 @@ func TestPrepareNativeResponsesKeepsCompatSeedAndReasoning(t *testing.T) {
 	}
 }
 
+func TestPrepareForcesQoderDeclaredMaxWindow(t *testing.T) {
+	ex := NewChatExecutor(NewPool(nil, nil), "")
+	contexts := &forcedContexts{stubContexts: &stubContexts{value: 200000, ok: true}, forced: 1000000}
+	got, err := ex.Prepare(PrepareInput{
+		Request: translate.ChatRequest{
+			Model: "qoder/glm-5.2", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+		},
+		ModelContexts: contexts,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got.Request.MaxInputTokens) != "1000000" {
+		t.Fatalf("stored window must be overridden by declared max: %s", got.Request.MaxInputTokens)
+	}
+	if len(got.Request.ContextLength) != 0 {
+		t.Fatalf("qoder chat must not carry a parameters window override: %s", got.Request.ContextLength)
+	}
+}
+
 func TestPrepareSkipsNonQoderContextDefaults(t *testing.T) {
 	ex := NewChatExecutor(NewPool(nil, nil), "")
 	contexts := &stubContexts{value: 500000, ok: true}
@@ -246,6 +273,42 @@ func TestPreparePreservesExplicitContext(t *testing.T) {
 	}
 	if string(got.Request.ContextLength) != "222" || string(got.Request.MaxInputTokens) != "333" {
 		t.Fatalf("explicit values overwritten: %s %s", got.Request.ContextLength, got.Request.MaxInputTokens)
+	}
+}
+
+func TestResolveProviderFilterCoversAllRegisteredProviderPrefixes(t *testing.T) {
+	for _, prefix := range []string{
+		"qoder", "workbuddy", "trae", "devin", "command", "codex",
+		"zhipu", "qwenwork", "kimi", "codearts", "kiro", "meta", "muse",
+	} {
+		req := translate.ChatRequest{Model: prefix + "/demo-model"}
+		provider, region := ResolveProviderFilter(&req, false)
+		want := accounts.NormalizeProviderFamily(prefix)
+		if provider != want || req.Model != "demo-model" || region != "" {
+			t.Fatalf("%s prefix => provider=%q model=%q region=%q", prefix, provider, req.Model, region)
+		}
+	}
+}
+
+func TestRequestedReasoningLevelFromThinkingBudget(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{name: "enabled low budget", raw: `{"type":"enabled","budget_tokens":2048}`, want: "low"},
+		{name: "enabled high budget", raw: `{"type":"enabled","budget_tokens":16384}`, want: "high"},
+		{name: "missing budget", raw: `{"type":"enabled"}`, want: ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got := RequestedReasoningLevel(translate.ChatRequest{Thinking: json.RawMessage(test.raw)})
+			if got != test.want {
+				t.Fatalf("level=%q, want %q", got, test.want)
+			}
+		})
+	}
+	if got := RequestedReasoningLevel(translate.ChatRequest{ReasoningEffort: json.RawMessage(`"ultra"`)}); got != "max" {
+		t.Fatalf("ultra=%q, want max", got)
 	}
 }
 

@@ -383,7 +383,14 @@ func RelayAnthropicStream(writer io.Writer, body io.Reader, requestID, model str
 		}
 	}
 	calls := output.calls()
-	deltaUsage := map[string]any{"output_tokens": derefInt(stats.CompletionTokens)}
+	freshInput := derefInt(stats.PromptTokens)
+	if stats.CacheReadTokens != nil {
+		freshInput = saturatingSubInt(freshInput, *stats.CacheReadTokens)
+	}
+	if stats.CacheWriteTokens != nil {
+		freshInput = saturatingSubInt(freshInput, *stats.CacheWriteTokens)
+	}
+	deltaUsage := map[string]any{"input_tokens": freshInput, "output_tokens": derefInt(stats.CompletionTokens)}
 	if stats.CacheReadTokens != nil {
 		deltaUsage["cache_read_input_tokens"] = *stats.CacheReadTokens
 	}
@@ -644,7 +651,7 @@ func RelayResponsesStream(writer io.Writer, body io.Reader, requestID, model str
 	response := responsesResponse(
 		requestID, model, content, output.reasoning.String(), calls,
 		derefInt(stats.PromptTokens), derefInt(stats.CompletionTokens), output.finishReason,
-		stats.CacheReadTokens, stats.CachedTokens,
+		stats.CacheReadTokens, stats.CacheWriteTokens, stats.CachedTokens, stats.ReasoningTokens,
 	)
 	if err := eventWriter.write(terminal.event, map[string]any{"type": terminal.event, "response": response}); err != nil {
 		return stats, err

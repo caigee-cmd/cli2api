@@ -18,6 +18,9 @@ func TestAnthropicMessageResponseIncludesCacheUsage(t *testing.T) {
 	if usage["cache_creation_input_tokens"] != 12 {
 		t.Fatalf("cache_creation_input_tokens = %v", usage["cache_creation_input_tokens"])
 	}
+	if usage["input_tokens"] != 24 {
+		t.Fatalf("input_tokens = %v, want fresh input 24", usage["input_tokens"])
+	}
 }
 
 func TestRelayAnthropicStreamIncludesCacheUsageInMessageDelta(t *testing.T) {
@@ -35,5 +38,23 @@ func TestRelayAnthropicStreamIncludesCacheUsageInMessageDelta(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), `"cache_creation_input_tokens":12`) {
 		t.Fatalf("missing cache_creation_input_tokens in stream: %s", out.String())
+	}
+	if !strings.Contains(out.String(), `"input_tokens":24`) {
+		t.Fatalf("missing fresh input_tokens in stream: %s", out.String())
+	}
+}
+
+func TestShouldRectifyAnthropicRequest(t *testing.T) {
+	for _, model := range []string{"codex/gpt-5", "kiro/claude", "meta/llama", "muse/llama"} {
+		raw := []byte(`{"model":"` + model + `"}`)
+		if shouldRectifyAnthropicRequest(raw) {
+			t.Fatalf("%s must preserve encrypted reasoning envelopes", model)
+		}
+	}
+	for _, model := range []string{"glm-5.2", "qoder/glm-5.2", ""} {
+		raw := []byte(`{"model":"` + model + `"}`)
+		if !shouldRectifyAnthropicRequest(raw) {
+			t.Fatalf("%s should use the legacy rectifier", model)
+		}
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
@@ -117,7 +118,7 @@ func (h *Handler) HandleResponses(w http.ResponseWriter, r *http.Request) {
 	response := responsesResponse(
 		execution.RequestID, firstNonEmpty(result.Model, execution.PublicModel), result.Content, result.Reasoning,
 		decodeOpenAIToolCalls(result.ToolCalls), result.PromptTokens, result.CompletionTokens, result.FinishReason,
-		result.CacheReadTokens, result.CachedTokens,
+		result.CacheReadTokens, result.CacheWriteTokens, result.CachedTokens, nil,
 	)
 	translate.RestoreResponseToolNames(response, execution.ResponseToolNames)
 	writeJSON(w, http.StatusOK, response)
@@ -214,7 +215,8 @@ type responsesTerminal struct {
 }
 
 func responsesTerminalForFinishReason(finishReason string) responsesTerminal {
-	if finishReason == "length" {
+	switch strings.ToLower(strings.TrimSpace(finishReason)) {
+	case "length", "max_tokens", "max_output_tokens":
 		return responsesTerminal{
 			status: "incomplete",
 			event:  "response.incomplete",
@@ -222,8 +224,25 @@ func responsesTerminalForFinishReason(finishReason string) responsesTerminal {
 				"reason": "max_output_tokens",
 			},
 		}
+	case "refusal", "content_filter":
+		return responsesTerminal{
+			status: "incomplete",
+			event:  "response.incomplete",
+			incompleteDetails: map[string]any{
+				"reason": "content_filter",
+			},
+		}
+	case "model_context_window_exceeded", "context_window_exceeded":
+		return responsesTerminal{
+			status: "incomplete",
+			event:  "response.incomplete",
+			incompleteDetails: map[string]any{
+				"reason": "model_context_window_exceeded",
+			},
+		}
+	default:
+		return responsesTerminal{status: "completed", event: "response.completed"}
 	}
-	return responsesTerminal{status: "completed", event: "response.completed"}
 }
 
 func responsesRequestStatus(finishReason string) string {
@@ -238,13 +257,13 @@ func responsesResponse(
 	toolCalls []proxyToolCall,
 	promptTokens, completionTokens int,
 	finishReason string,
-	cacheReadTokens, cachedTokens *int,
+	cacheReadTokens, cacheWriteTokens, cachedTokens, reasoningTokens *int,
 ) map[string]any {
 	terminal := responsesTerminalForFinishReason(finishReason)
 	response := map[string]any{
 		"id": "resp_" + requestID, "object": "response", "created_at": time.Now().Unix(), "status": terminal.status, "model": model,
 		"output": responsesOutputItems(requestID, content, reasoning, toolCalls),
-		"usage":  responsesUsage(promptTokens, completionTokens, cacheReadTokens, cachedTokens),
+		"usage":  responsesUsage(promptTokens, completionTokens, cacheReadTokens, cacheWriteTokens, cachedTokens, reasoningTokens),
 	}
 	if terminal.incompleteDetails != nil {
 		response["incomplete_details"] = terminal.incompleteDetails
@@ -276,13 +295,23 @@ func responseFunctionCallItem(requestID string, callIndex int, call proxyToolCal
 	}
 }
 
-func responsesUsage(promptTokens, completionTokens int, cacheReadTokens, cachedTokens *int) map[string]any {
+func responsesUsage(promptTokens, completionTokens int, cacheReadTokens, cacheWriteTokens, cachedTokens, reasoningTokens *int) map[string]any {
 	usage := map[string]any{"input_tokens": promptTokens, "output_tokens": completionTokens, "total_tokens": promptTokens + completionTokens}
 	if cacheReadTokens == nil {
 		cacheReadTokens = cachedTokens
 	}
+	details := map[string]any{}
 	if cacheReadTokens != nil {
-		usage["input_tokens_details"] = map[string]any{"cached_tokens": *cacheReadTokens}
+		details["cached_tokens"] = *cacheReadTokens
+	}
+	if cacheWriteTokens != nil {
+		details["cache_write_tokens"] = *cacheWriteTokens
+	}
+	if len(details) > 0 {
+		usage["input_tokens_details"] = details
+	}
+	if reasoningTokens != nil {
+		usage["output_tokens_details"] = map[string]any{"reasoning_tokens": *reasoningTokens}
 	}
 	return usage
 }

@@ -170,6 +170,29 @@ func TestQoderContextToggle(t *testing.T) {
 	}
 }
 
+func TestForceMaxContextLengthUsesCachedCatalogTier(t *testing.T) {
+	svc, _, _, _ := newTestServices()
+	catalog := NewCatalog(func(bool, string, CatalogMode) ([]map[string]any, error) {
+		return []map[string]any{
+			{"id": "glm-5.2", "catalog_context_length": 200000, "catalog_context_length_max": 1000000},
+			{"id": "glm-5.3-flash", "catalog_context_length": 1000000},
+		}, nil
+	})
+	svc.Settings.BindCatalog(catalog)
+	if _, err := catalog.Get(false, "", CatalogModeMerge); err != nil {
+		t.Fatal(err)
+	}
+	if got := svc.Settings.ForceMaxContextLength("glm-5.2"); got != 1000000 {
+		t.Fatalf("glm-5.2 forced=%d, want 1000000", got)
+	}
+	if got := svc.Settings.ForceMaxContextLength("glm-5.3-flash"); got != 1000000 {
+		t.Fatalf("glm-5.3-flash forced=%d, want its declared 1000000", got)
+	}
+	if got := svc.Settings.ForceMaxContextLength("unknown"); got != 0 {
+		t.Fatalf("unknown forced=%d, want 0", got)
+	}
+}
+
 func TestQoderContextToggleUsesCatalogTierAndKeepsStoredWindow(t *testing.T) {
 	svc, _, _, _ := newTestServices()
 	ctx := context.Background()

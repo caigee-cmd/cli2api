@@ -58,6 +58,9 @@ func (c *Client) doChat(ctx context.Context, accountID string, req translate.Cha
 		return nil, providers.ResolvedChat{}, newProviderError(400, "zhipu model is required")
 	}
 	level, _ := c.resolveLevel(ctx, accountID, model, requestedLevel(req))
+	if providers.RequestsDisabledThinking(req) {
+		level = "none"
+	}
 	payload, err := buildChatBody(req, model, level)
 	if err != nil {
 		return nil, providers.ResolvedChat{}, err
@@ -92,26 +95,11 @@ func resolveModel(model string) string {
 }
 
 func requestedLevel(req translate.ChatRequest) string {
-	if len(req.ReasoningEffort) == 0 {
-		return ""
+	intent := providers.ParseReasoningIntent(req)
+	if intent.Disabled {
+		return "none"
 	}
-	var value any
-	if json.Unmarshal(req.ReasoningEffort, &value) != nil {
-		return ""
-	}
-	switch typed := value.(type) {
-	case string:
-		return providers.NormalizeReasoningLevel(typed)
-	case map[string]any:
-		for _, key := range []string{"effort", "level", "type"} {
-			if text, ok := typed[key].(string); ok {
-				if level := providers.NormalizeReasoningLevel(text); level != "" {
-					return level
-				}
-			}
-		}
-	}
-	return ""
+	return intent.Level
 }
 
 type sseAggregate struct {

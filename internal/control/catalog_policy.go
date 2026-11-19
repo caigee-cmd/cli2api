@@ -46,6 +46,7 @@ func EntryModelRegions(entry map[string]any) []string {
 // MergeModelEntryCapabilities folds a later source entry into the merged one
 // conservatively: numeric fields take the minimum and boolean fields are ANDed.
 func MergeModelEntryCapabilities(merged, incoming map[string]any) {
+	mergeReasoningOptions(merged, incoming)
 	for _, field := range modelsNumericCapFields {
 		mergedValue, ok1 := numericFieldValue(merged[field])
 		incomingValue, ok2 := numericFieldValue(incoming[field])
@@ -99,6 +100,61 @@ func MergeModelEntryPricing(merged, incoming map[string]any) {
 	}
 }
 
+func reasoningValues(entry map[string]any, keys ...string) []string {
+	if len(keys) == 0 {
+		keys = []string{"reasoning_option_values", "reasoning_options"}
+	}
+	for _, key := range keys {
+		switch typed := entry[key].(type) {
+		case []string:
+			if values := providers.UniqueReasoningOptionValues(typed); len(values) > 0 {
+				return values
+			}
+		case []any:
+			raw := make([]string, 0, len(typed))
+			for _, item := range typed {
+				if value, ok := item.(string); ok {
+					raw = append(raw, value)
+				}
+			}
+			if values := providers.UniqueReasoningOptionValues(raw); len(values) > 0 {
+				return values
+			}
+		}
+	}
+	return nil
+}
+
+func mergeReasoningOptionSet(merged, incoming map[string]any, key string) {
+	values := reasoningValues(merged, key)
+	seen := map[string]struct{}{}
+	for _, value := range values {
+		seen[strings.ToLower(value)] = struct{}{}
+	}
+	for _, value := range reasoningValues(incoming, key) {
+		if _, ok := seen[strings.ToLower(value)]; ok {
+			continue
+		}
+		seen[strings.ToLower(value)] = struct{}{}
+		values = append(values, value)
+	}
+	if len(values) > 0 {
+		merged[key] = values
+	}
+}
+
+func mergeReasoningOptions(merged, incoming map[string]any) {
+	mergeReasoningOptionSet(merged, incoming, "reasoning_options")
+	mergeReasoningOptionSet(merged, incoming, "reasoning_option_values")
+	for _, key := range []string{"reasoning_default", "reasoning_type"} {
+		if _, ok := merged[key]; !ok {
+			if value, ok := incoming[key]; ok && value != "" {
+				merged[key] = value
+			}
+		}
+	}
+}
+
 func numericFieldValue(value any) (float64, bool) {
 	switch typed := value.(type) {
 	case int:
@@ -141,6 +197,23 @@ func ModelCapabilitiesEntry(model providers.ModelInfo) map[string]any {
 	}
 	if model.Capabilities.CanDisableThinking {
 		entry["can_disable_thinking"] = true
+	}
+	if len(model.Capabilities.ReasoningOptionValues) > 0 {
+		entry["reasoning_option_values"] = model.Capabilities.ReasoningOptionValues
+	}
+	// Display exactly the reasoning levels this model declares. A reasoning
+	// model does not automatically accept every gateway vocabulary entry;
+	// merging GatewayReasoningOptions here would advertise xhigh/max for
+	// models whose catalog only allows low/high.
+	reasoningOptions := providers.UniqueReasoningOptions(model.Capabilities.ReasoningOptions)
+	if len(reasoningOptions) > 0 {
+		entry["reasoning_options"] = reasoningOptions
+	}
+	if model.Capabilities.ReasoningDefault != "" {
+		entry["reasoning_default"] = model.Capabilities.ReasoningDefault
+	}
+	if model.Capabilities.ReasoningType != "" {
+		entry["reasoning_type"] = model.Capabilities.ReasoningType
 	}
 	entry["supports_images"] = model.Capabilities.Images
 	return entry
@@ -192,8 +265,16 @@ func ProviderModelEntry(model providers.ModelInfo, provider string) map[string]a
 	if hasMaxTier(model.Capabilities) {
 		entry["supports_max_mode"] = true
 	}
-	if len(model.Capabilities.ReasoningOptions) > 0 {
-		entry["reasoning_options"] = model.Capabilities.ReasoningOptions
+	// Display exactly the reasoning levels this model declares. A reasoning
+	// model does not automatically accept every gateway vocabulary entry;
+	// merging GatewayReasoningOptions here would advertise xhigh/max for
+	// models whose catalog only allows low/high.
+	reasoningOptions := providers.UniqueReasoningOptions(model.Capabilities.ReasoningOptions)
+	if len(reasoningOptions) > 0 {
+		entry["reasoning_options"] = reasoningOptions
+	}
+	if len(model.Capabilities.ReasoningOptionValues) > 0 {
+		entry["reasoning_option_values"] = model.Capabilities.ReasoningOptionValues
 	}
 	if model.Capabilities.ReasoningDefault != "" {
 		entry["reasoning_default"] = model.Capabilities.ReasoningDefault

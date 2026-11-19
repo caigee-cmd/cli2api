@@ -27,7 +27,10 @@ func effectiveCreditModel(item Item, publicModel string) string {
 // trustworthy package set with no live positive balance as exhausted, because
 // an expired package can leave Exceeded false until the next quota refresh.
 func routeQuotaExceeded(item Item, q RouteQuery) bool {
-	model := q.PublicModel
+	// An aggregated virtual ID must not be used to decide free/paid or to look
+	// up credit pricing: each member may resolve to a different real model
+	// with a different price. Resolve first so FEFO gates the concrete model.
+	model := effectiveModel(item, q)
 	if !q.fefoNow.IsZero() {
 		model = effectiveCreditModel(item, model)
 	}
@@ -38,8 +41,11 @@ func routeQuotaExceeded(item Item, q RouteQuery) bool {
 		return true
 	}
 	if !q.fefoNow.IsZero() {
-		_, depleted := fefoExpiry(item, q.PublicModel, q.fefoNow)
-		return depleted
+		if model == "" {
+			return false
+		}
+		_, depleted, tracked := fefoQuotaState(item, q.fefoNow)
+		return tracked && depleted
 	}
 	return false
 }
@@ -111,14 +117,22 @@ func fefoCreditDay(expiry int64) int64 {
 // A provider with no usable dates keeps all of its accounts; inside a provider
 // that has dated accounts, unknown-date accounts are fallback candidates that
 // rejoin as soon as no dated account is available.
-func fefoCandidates(available []Item, publicModel string, now time.Time) []Item {
+func fefoCandidates(available []Item, publicModel string, now time.Time, resolver func(Item) string) []Item {
 	if len(available) < 2 {
 		return available
+	}
+	resolved := func(item Item) string {
+		if resolver != nil {
+			if model := resolver(item); model != "" {
+				return model
+			}
+		}
+		return publicModel
 	}
 	minDay := make(map[string]int64, 4)
 	known := make(map[string]bool, 4)
 	for _, item := range available {
-		expiry, _ := fefoExpiry(item, publicModel, now)
+		expiry, _ := fefoExpiry(item, resolved(item), now)
 		if expiry <= 0 {
 			continue
 		}
@@ -139,7 +153,7 @@ func fefoCandidates(available []Item, publicModel string, now time.Time) []Item 
 			out = append(out, item)
 			continue
 		}
-		expiry, _ := fefoExpiry(item, publicModel, now)
+		expiry, _ := fefoExpiry(item, resolved(item), now)
 		if expiry <= 0 || fefoCreditDay(expiry) != minDay[family] {
 			continue
 		}

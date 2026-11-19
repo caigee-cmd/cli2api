@@ -173,6 +173,12 @@ func (c *Catalog) snapshot(accountID string, mode CatalogMode) []map[string]any 
 	return CloneModelList(entry.Models)
 }
 
+// Peek returns a cache-only snapshot for one catalog view. It never starts a
+// refresh or fetch, so diagnostic callers can avoid mutating catalog state.
+func (c *Catalog) Peek(accountID string, mode CatalogMode) []map[string]any {
+	return c.snapshot(accountID, mode)
+}
+
 // Get returns the display catalog for one view. A failed fetch never discards a
 // catalog that already served: the last successful list is returned and the
 // failure is reported through Status instead.
