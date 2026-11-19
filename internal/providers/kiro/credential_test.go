@@ -97,6 +97,31 @@ func TestSplitImportLeavesWorkBuddyPackAlone(t *testing.T) {
 	}
 }
 
+func TestDecodeGitHubSocialArray(t *testing.T) {
+	raw := []byte(`[{"email":"dev@icloud.com","accessToken":"access","refreshToken":"refresh","provider":"Github"}]`)
+	chunks, err := splitCredentialImport(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(chunks) != 1 {
+		t.Fatalf("chunks = %d", len(chunks))
+	}
+	prepared, err := prepareCredentialImport(chunks[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	cred, err := DecodeCredential(prepared.Payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cred.AuthMethod != "social" || cred.Provider != "Github" || cred.RefreshToken != "refresh" || cred.Email != "dev@icloud.com" {
+		t.Fatalf("cred = %+v", cred)
+	}
+	if prepared.Name != "dev@icloud.com" {
+		t.Fatalf("name = %s", prepared.Name)
+	}
+}
+
 func TestDecodeOmitsRegionWhenJSONDoesNotStateOne(t *testing.T) {
 	raw := []byte(`{"accessToken":"access","refreshToken":"refresh","clientId":"c","clientSecret":"s"}`)
 	cred, err := DecodeCredential(raw)

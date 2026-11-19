@@ -216,6 +216,17 @@ run('kiro accounts[] pack is not detected as workbuddy', () => {
   assert.equal(result.batchImportSupported, true)
 })
 
+run('a github social array is kiro', () => {
+  const result = detectImportBundle({
+    accounts: [{ email: 'dev@icloud.com', accessToken: 'a', refreshToken: 'r', provider: 'Github' }],
+  })
+  assert.equal(result.provider, 'kiro')
+  assert.equal(result.format, 'kiro-oauth-v1')
+  assert.equal(result.batchImportSupported, true)
+  const parsed = parseImportBundleText('[{"accessToken":"a","refreshToken":"r","provider":"Github"}]')
+  assert.equal(detectImportBundle(parsed).provider, 'kiro')
+})
+
 run('a bare refresh token is not mistaken for kiro', () => {
   const result = detectImportBundle({ refreshToken: 'refresh' })
   assert.notEqual(result.provider, 'kiro')

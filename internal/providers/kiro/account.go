@@ -7,6 +7,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -342,7 +343,7 @@ func (c *Client) listModels(ctx context.Context, client *http.Client, cred Crede
 	for page := 0; page < 20; page++ {
 		endpoint := base
 		if next != "" {
-			endpoint += "&nextToken=" + next
+			endpoint += "&nextToken=" + url.QueryEscape(next)
 		}
 		body, err := c.getJSON(ctx, client, cred, endpoint)
 		if err != nil {

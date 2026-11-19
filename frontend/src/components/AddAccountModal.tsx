@@ -464,6 +464,13 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
       setMessage(t('wizardBadJson'))
       return
     }
+    if (Array.isArray(bundle)) {
+      if (!bundle.every((entry) => entry && typeof entry === 'object' && !Array.isArray(entry))) {
+        setMessage(t('wizardBadJson'))
+        return
+      }
+      bundle = { accounts: bundle }
+    }
     if (!bundle || typeof bundle !== 'object') {
       setMessage(t('wizardBadJson'))
       return
@@ -481,13 +488,19 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
       const email = typeof bundle.email === 'string' ? bundle.email.trim() : ''
       const nickname = typeof bundle.nickname === 'string' ? bundle.nickname.trim() : ''
       const detectedRegion = kiroRegionOf(bundle)
+      // provider on a Kiro credential is the IdP (Github, BuilderId), not the
+      // account family. Keep it inside the credential instead of overwriting it.
+      const { provider: credentialProvider, accounts: wrapped, ...rest } = bundle
+      const accounts = Array.isArray(wrapped)
+        ? wrapped
+        : [{ ...rest, ...(credentialProvider ? { provider: credentialProvider } : {}) }]
       payload = {
-        ...bundle,
         format: 'kiro-oauth-v1',
         provider: 'kiro',
         region: detectedRegion || (activeOption.provider === 'kiro' ? activeOption.region : 'us-east-1'),
-        name: name.trim() || nickname || email || bundle.name,
+        name: name.trim() || nickname || email || undefined,
         enabled: true,
+        accounts,
         max_inflight: options.max_inflight,
         priority: options.priority,
         drop_system_prompt: options.drop_system_prompt,

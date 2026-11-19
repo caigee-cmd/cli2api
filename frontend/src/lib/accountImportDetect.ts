@@ -161,7 +161,7 @@ export function looksLikeKiro(bundle: Record<string, unknown>) {
   const auth = (text(bundle.authMethod) || text(bundle.auth_method)).toLowerCase()
   if (['builder_id', 'builderid', 'external_idp', 'idc', 'social'].includes(auth)) return true
   const provider = text(bundle.provider).toLowerCase()
-  if (provider === 'builderid' || provider === 'kiro' || provider === 'apikey') return true
+  if (['builderid', 'kiro', 'apikey', 'github', 'google', 'social'].includes(provider)) return true
   for (const key of ['kiroApiKey', 'apiKey', 'api_key', 'accessToken', 'access_token']) {
     if (text(bundle[key]).startsWith('ksk_')) return true
   }
@@ -326,6 +326,11 @@ export function parseImportBundleText(text: string): Record<string, unknown> {
     parsed = JSON.parse(text)
   } catch {
     throw new Error('bad_json')
+  }
+  // A bare credential list is the same shape as {accounts:[...]}.
+  if (Array.isArray(parsed)) {
+    if (parsed.length === 0 || !parsed.every(isPlainObject)) throw new Error('bad_json')
+    return { accounts: parsed }
   }
   if (!isPlainObject(parsed)) throw new Error('bad_json')
   return parsed
