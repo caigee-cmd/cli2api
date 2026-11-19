@@ -320,6 +320,12 @@ func (a Adapter) Supports(capability string) bool {
 type CredentialImport struct {
 	Payload []byte
 	Ready   bool
+	// Region overrides the operator's region when the credential itself names a
+	// data plane. Empty keeps the region from the import request.
+	Region string
+	// Name is a display label read from the credential (email, nickname). Empty
+	// keeps the name from the import request.
+	Name string
 }
 type CredentialImporter interface {
 	Format() string

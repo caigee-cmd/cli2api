@@ -31,6 +31,7 @@ import {
   fetchProviders,
   completeLoginCallback,
   fetchLoginStatus,
+  importAccount,
   loginWithPat,
   refreshAccount,
   startDeviceLogin,
@@ -48,6 +49,8 @@ import { ProviderMark } from '@/components/ProviderMark'
 import { BatchImportConfirmModal } from '@/components/account/BatchImportConfirmModal'
 import {
   detectImportBundle,
+  kiroRegionOf,
+  looksLikeKiro,
   parseImportBundleText,
   type ImportDetectResult,
   type ImportRegion,
@@ -55,7 +58,43 @@ import {
 import {
   importWorkbuddyBundle,
   summarizeWorkbuddyImportResult,
+  type WorkbuddyImportResult,
 } from '@/lib/workbuddyImport'
+
+function kiroImportEntries(bundle: Record<string, unknown>): Record<string, unknown>[] {
+  if (!Array.isArray(bundle.accounts)) return [bundle]
+  const entries = bundle.accounts.filter((entry): entry is Record<string, unknown> => (
+    Boolean(entry) && typeof entry === 'object' && !Array.isArray(entry) && looksLikeKiro(entry as Record<string, unknown>)
+  ))
+  return entries.length > 0 ? entries : [bundle]
+}
+
+function normalizeKiroImportBundle(bundle: Record<string, unknown>, region: ImportRegion) {
+  const entries = kiroImportEntries(bundle)
+  if (entries.length === 1 && entries[0] === bundle) {
+    const email = typeof bundle.email === 'string' ? bundle.email.trim() : ''
+    const nickname = typeof bundle.nickname === 'string' ? bundle.nickname.trim() : ''
+    return {
+      ...bundle,
+      format: 'kiro-oauth-v1',
+      provider: 'kiro',
+      region: kiroRegionOf(bundle) || region,
+      enabled: true,
+      name: nickname || email || undefined,
+    }
+  }
+  return {
+    format: 'kiro-oauth-v1',
+    provider: 'kiro',
+    region,
+    enabled: true,
+    accounts: entries.map((entry) => ({
+      ...entry,
+      format: 'kiro-oauth-v1',
+      region: kiroRegionOf(entry) || region,
+    })),
+  }
+}
 
 type AccountBusy = { id: string; kind: AccountBusyKind }
 type AccountFilter = 'all' | 'available' | 'attention' | 'disabled'
@@ -429,7 +468,9 @@ export function AccountsPage() {
     const toastId = 'batch-import-accounts'
     toast({ id: toastId, type: 'loading', title: t('batchImportLoading') })
     try {
-      const result = await importWorkbuddyBundle(batchBundle, { region })
+      const result = batchDetection.provider === 'kiro'
+        ? await importAccount(normalizeKiroImportBundle(batchBundle, region)) as WorkbuddyImportResult
+        : await importWorkbuddyBundle(batchBundle, { region })
       const { succeeded, failed, message } = summarizeWorkbuddyImportResult(result, t)
       toast({
         id: toastId,
