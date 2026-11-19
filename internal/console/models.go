@@ -2,7 +2,9 @@ package console
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/caigee-cmd/cli2api/internal/control"
@@ -21,6 +23,11 @@ func splitModelSettingPath(raw, queryProvider string) (provider, modelKey string
 	return provider, control.ModelContextKey(raw)
 }
 
+const (
+	modelPageDefaultSize = 50
+	modelPageMaxSize     = 100
+)
+
 func (h *Handler) HandleModelsAPI(w http.ResponseWriter, r *http.Request) {
 	refresh := r.URL.Query().Get("refresh") == "1"
 	mode := control.CatalogModeMerge
@@ -38,10 +45,57 @@ func (h *Handler) HandleModelsAPI(w http.ResponseWriter, r *http.Request) {
 		// every client that picks from this list produces a request it accepts.
 		data = control.PrefixModelEntries(data)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"object": "list",
-		"data":   data,
-	})
+	page, pageSize, paged, err := parseModelPagination(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	body := map[string]any{"object": "list", "data": data}
+	if paged {
+		total := len(data)
+		totalPages := (total + pageSize - 1) / pageSize
+		if totalPages == 0 {
+			totalPages = 1
+		}
+		if page > totalPages {
+			page = totalPages
+		}
+		start := (page - 1) * pageSize
+		if start > total {
+			start = total
+		}
+		end := start + pageSize
+		if end > total {
+			end = total
+		}
+		body["data"] = data[start:end]
+		body["pagination"] = map[string]any{
+			"page": page, "page_size": pageSize, "total": total,
+			"total_pages": totalPages, "has_next": page < totalPages,
+		}
+	}
+	writeJSON(w, http.StatusOK, body)
+}
+
+func parseModelPagination(r *http.Request) (page, pageSize int, paged bool, err error) {
+	pageRaw, sizeRaw := strings.TrimSpace(r.URL.Query().Get("page")), strings.TrimSpace(r.URL.Query().Get("page_size"))
+	if pageRaw == "" && sizeRaw == "" {
+		return 1, modelPageDefaultSize, false, nil
+	}
+	page, pageSize, paged = 1, modelPageDefaultSize, true
+	if pageRaw != "" {
+		page, err = strconv.Atoi(pageRaw)
+		if err != nil || page < 1 {
+			return 0, 0, false, fmt.Errorf("page must be a positive integer")
+		}
+	}
+	if sizeRaw != "" {
+		pageSize, err = strconv.Atoi(sizeRaw)
+		if err != nil || pageSize < 1 || pageSize > modelPageMaxSize {
+			return 0, 0, false, fmt.Errorf("page_size must be between 1 and %d", modelPageMaxSize)
+		}
+	}
+	return page, pageSize, paged, nil
 }
 
 // HandleCatalogStatus reports the model-catalog sync state. GET only reads it;

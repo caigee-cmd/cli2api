@@ -43,6 +43,16 @@ func codeWhispererBase(cred Credential) string {
 
 func modelBase(cred Credential) string { return restBase(cred) }
 
+func profileBase(region string) string {
+	hostMu.RLock()
+	override := restOverride
+	hostMu.RUnlock()
+	if override != "" {
+		return override
+	}
+	return trimRightSlash(regionalizeURL(restAPIBase, normalizeRegion(region)))
+}
+
 func trimRightSlash(value string) string {
 	for len(value) > 0 && value[len(value)-1] == '/' {
 		value = value[:len(value)-1]

@@ -14,17 +14,18 @@ import (
 // rewrites it as Responses input items; generateAssistantResponse sends it
 // as conversationState.
 type conversation struct {
-	Model      string
-	System     string
-	Anchor     string
-	History    []historyTurn
-	Current    userTurn
-	Tools      []toolSpec
-	ProfileArn string
-	Level      string
-	ToolChoice string
-	ToolName   string
-	Declared   map[string]struct{}
+	Model           string
+	System          string
+	Anchor          string
+	History         []historyTurn
+	Current         userTurn
+	Tools           []toolSpec
+	ProfileArn      string
+	Level           string
+	ToolChoice      string
+	ToolName        string
+	DisableParallel bool
+	Declared        map[string]struct{}
 }
 
 type historyTurn struct {
@@ -58,8 +59,10 @@ type toolCall struct {
 }
 
 type toolResult struct {
-	ID     string
-	Output string
+	ID      string
+	Output  string
+	Images  []imagePart
+	IsError bool
 }
 
 type toolSpec struct {
@@ -143,8 +146,13 @@ func buildConversation(req translate.ChatRequest, cred Credential, model string)
 			}
 		case "user":
 			turn := userTurn{Text: messageText(message.Content), Results: pending}
+			for _, result := range pending {
+				turn.Images = append(turn.Images, result.Images...)
+			}
 			pending = nil
-			turn.Images, turn.Documents = messageMedia(message.Content)
+			images, documents := messageMedia(message.Content)
+			turn.Images = append(turn.Images, images...)
+			turn.Documents = documents
 			if len(system) > 0 {
 				turn.Text = strings.TrimSpace(strings.Join(system, "\n\n") + "\n\n" + turn.Text)
 				system = nil
@@ -157,7 +165,14 @@ func buildConversation(req translate.ChatRequest, cred Credential, model string)
 			if id == "" {
 				continue
 			}
-			pending = append(pending, toolResult{ID: id, Output: messageText(message.Content)})
+			output := messageText(message.Content)
+			images, _ := messageMedia(message.ToolResultImages)
+			if strings.TrimSpace(output) == "" && len(images) > 0 {
+				output = "[Tool returned an image; the image is attached to this message.]"
+			}
+			pending = append(pending, toolResult{
+				ID: id, Output: output, Images: images, IsError: message.ToolResultIsError,
+			})
 		}
 	}
 	if len(pending) > 0 || len(out.History) == 0 || out.History[len(out.History)-1].User == nil {
@@ -166,7 +181,11 @@ func buildConversation(req translate.ChatRequest, cred Credential, model string)
 			text = strings.Join(system, "\n\n")
 			system = nil
 		}
-		out.History = append(out.History, historyTurn{User: &userTurn{Text: text, Results: pending}})
+		turn := &userTurn{Text: text, Results: pending}
+		for _, result := range pending {
+			turn.Images = append(turn.Images, result.Images...)
+		}
+		out.History = append(out.History, historyTurn{User: turn})
 	}
 	if len(system) > 0 {
 		head := out.History[0].User
@@ -190,6 +209,7 @@ func buildConversation(req translate.ChatRequest, cred Credential, model string)
 		return conversation{}, err
 	}
 	out.Tools = tools
+	out.DisableParallel = req.ParallelToolCalls != nil && !*req.ParallelToolCalls
 	for _, tool := range tools {
 		out.Declared[tool.Name] = struct{}{}
 		if tool.ClientName != "" {
@@ -197,7 +217,7 @@ func buildConversation(req translate.ChatRequest, cred Credential, model string)
 		}
 	}
 	attachToolHistory(&out)
-	if directive := toolChoiceDirective(choice, name, tools); directive != "" {
+	if directive := toolChoiceDirective(choice, name, tools, out.DisableParallel); directive != "" {
 		out.Current.Text = strings.TrimSpace(out.Current.Text + "\n\n" + directive)
 	}
 	return out, nil
@@ -304,8 +324,21 @@ func (t historyTurn) responses(includeReasoning bool) []map[string]any {
 func (u userTurn) responses() []map[string]any {
 	var items []map[string]any
 	for _, result := range u.Results {
+		output := any(result.Output)
+		if len(result.Images) > 0 {
+			parts := make([]map[string]any, 0, len(result.Images)+1)
+			if strings.TrimSpace(result.Output) != "" {
+				parts = append(parts, map[string]any{"type": "input_text", "text": result.Output})
+			}
+			for _, image := range result.Images {
+				parts = append(parts, map[string]any{
+					"type": "input_image", "image_url": "data:image/" + image.Format + ";base64," + image.Bytes,
+				})
+			}
+			output = parts
+		}
 		items = append(items, map[string]any{
-			"type": "function_call_output", "call_id": result.ID, "output": result.Output,
+			"type": "function_call_output", "call_id": result.ID, "output": output,
 		})
 	}
 	var parts []map[string]any
@@ -408,7 +441,7 @@ func toolsFrom(raw json.RawMessage) ([]toolSpec, error) {
 
 func isHostedWebSearch(kind string) bool {
 	kind = strings.ToLower(strings.TrimSpace(kind))
-	return kind == "web_search" || kind == "web_search_preview" || strings.HasPrefix(kind, "web_search_preview_")
+	return kind == "web_search" || strings.HasPrefix(kind, "web_search_")
 }
 
 func webSearchSchema() map[string]any {
@@ -460,10 +493,36 @@ func toolParameters(raw json.RawMessage) (any, error) {
 	if !ok {
 		return map[string]any{"type": "object"}, nil
 	}
+	cleanToolSchema(obj)
 	if _, ok := obj["type"]; !ok {
 		obj["type"] = "object"
 	}
 	return obj, nil
+}
+
+// cleanToolSchema mirrors Kiro's accepted JSON-schema subset without changing
+// the caller's semantics: composition keywords stay intact, while unsupported
+// additionalProperties and empty/invalid required declarations are removed.
+func cleanToolSchema(schema map[string]any) {
+	delete(schema, "additionalProperties")
+	if required, ok := schema["required"]; ok {
+		values, valid := required.([]any)
+		if !valid || len(values) == 0 {
+			delete(schema, "required")
+		}
+	}
+	for _, value := range schema {
+		switch child := value.(type) {
+		case map[string]any:
+			cleanToolSchema(child)
+		case []any:
+			for _, item := range child {
+				if nested, ok := item.(map[string]any); ok {
+					cleanToolSchema(nested)
+				}
+			}
+		}
+	}
 }
 
 // sanitizeToolName turns a namespaced or snake-case tool name into the camel
@@ -570,8 +629,11 @@ func messageMedia(content any) ([]imagePart, []documentPart) {
 
 func imageFrom(block map[string]any) (imagePart, bool) {
 	raw := firstString(block, "image_url", "url")
-	if nested, ok := block["image_url"].(map[string]any); ok {
+	switch nested := block["image_url"].(type) {
+	case map[string]any:
 		raw = firstString(nested, "url")
+	case map[string]string:
+		raw = nested["url"]
 	}
 	format, bytes, ok := dataURL(raw, "image/")
 	if !ok {
@@ -708,19 +770,20 @@ func validateToolChoice(kind, name string, tools []toolSpec) error {
 
 // toolChoiceDirective tells the model a tool call is mandatory. Kiro has no
 // tool_choice field, so the requirement rides in the user turn.
-func toolChoiceDirective(kind, name string, tools []toolSpec) string {
+func toolChoiceDirective(kind, name string, tools []toolSpec, disableParallel bool) string {
+	directive := ""
 	switch kind {
 	case "any":
-		if len(tools) == 0 {
-			return ""
+		if len(tools) > 0 {
+			directive = "The client requires a tool call on this turn. Call at least one available tool."
 		}
-		return "The client requires a tool call on this turn. Call at least one available tool."
 	case "tool":
-		if name == "" {
-			return ""
+		if name != "" {
+			directive = "The client requires the tool \"" + name + "\" on this turn. Call that tool."
 		}
-		return "The client requires the tool \"" + name + "\" on this turn. Call that tool."
-	default:
-		return ""
 	}
+	if disableParallel && len(tools) > 0 {
+		directive = strings.TrimSpace(directive + " The client allows at most one tool call on this turn.")
+	}
+	return directive
 }

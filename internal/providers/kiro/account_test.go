@@ -18,6 +18,16 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
+func TestKiroRejectsNonAnthropicProtocol(t *testing.T) {
+	client := &Client{}
+	for _, protocol := range []string{"", "openai_chat", "openai_responses"} {
+		_, _, err := client.ChatStream(context.Background(), "", translate.ChatRequest{Protocol: protocol, Model: "claude-sonnet-4.5"})
+		if err == nil || !strings.Contains(err.Error(), "only the Anthropic Messages API") {
+			t.Fatalf("protocol %q err = %v", protocol, err)
+		}
+	}
+}
+
 func TestQuotaReadsCreditBreakdown(t *testing.T) {
 	var gotProfile string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -71,6 +81,9 @@ func TestListModelsFollowsEscapedNextToken(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		pages = append(pages, r.URL.RawQuery)
 		if r.URL.Query().Get("nextToken") == "" {
+			if r.URL.Query().Get("maxResults") != "50" || r.URL.Query().Get("origin") != "AI_EDITOR" {
+				t.Fatalf("query = %s", r.URL.RawQuery)
+			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"models":    []map[string]any{{"modelId": "claude-sonnet-4.5"}},
 				"nextToken": "page+2/more",
@@ -93,6 +106,140 @@ func TestListModelsFollowsEscapedNextToken(t *testing.T) {
 	}
 	if len(pages) != 2 || !strings.Contains(pages[1], "nextToken=page%2B2%2Fmore") {
 		t.Fatalf("pages = %#v", pages)
+	}
+}
+
+func TestListModelsCollectsMoreThanTwentyModels(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("nextToken") == "" {
+			models := make([]map[string]any, 0, 20)
+			for i := 0; i < 20; i++ {
+				models = append(models, map[string]any{"modelId": fmt.Sprintf("model-%02d", i)})
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"models": models, "nextToken": "page-2"})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"models": []map[string]any{{"modelId": "model-20"}, {"modelId": "model-21"}, {"modelId": "model-20"}},
+		})
+	}))
+	defer server.Close()
+	defer setTestHosts(server.URL)()
+	client := &Client{http: server.Client()}
+	models, err := client.listModels(context.Background(), server.Client(), Credential{AuthMethod: "social"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 22 || models[21].NativeModel != "model-21" {
+		t.Fatalf("models = %+v", models)
+	}
+}
+
+func TestListModelsRejectsRepeatedNextToken(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"models":    []map[string]any{{"modelId": "model"}},
+			"nextToken": "same-token",
+		})
+	}))
+	defer server.Close()
+	defer setTestHosts(server.URL)()
+	client := &Client{http: server.Client()}
+	if _, err := client.listModels(context.Background(), server.Client(), Credential{AuthMethod: "social"}); err == nil || !strings.Contains(err.Error(), "repeated next token") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestWithAdvertisedModelsAddsDocumentedKiroIDs(t *testing.T) {
+	models := withAdvertisedModels([]providers.ModelInfo{{NativeModel: "auto", PublicModel: "auto"}})
+	byID := make(map[string]providers.ModelInfo, len(models))
+	for _, model := range models {
+		byID[model.PublicModel] = model
+	}
+	for _, id := range []string{"claude-sonnet-4.6", "gpt-5.6-sol", "gpt-5.6-terra"} {
+		model, ok := byID[id]
+		if !ok {
+			t.Fatalf("missing documented model %q in %+v", id, models)
+		}
+		if !model.Capabilities.Reasoning || len(model.Capabilities.ReasoningOptions) == 0 {
+			t.Fatalf("capabilities for %s = %+v", id, model.Capabilities)
+		}
+	}
+	if len(models) != 4 {
+		t.Fatalf("models = %+v", models)
+	}
+}
+
+func TestEnsureProfileArnDiscoversPagesAndPersistsProfile(t *testing.T) {
+	var calls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/ListAvailableProfiles" {
+			t.Fatalf("request = %s %s", r.Method, r.URL.Path)
+		}
+		calls++
+		if calls == 1 {
+			_, _ = io.WriteString(w, `{"profiles":[{"arn":"arn:aws:codewhisperer:us-east-1:123456789012:profile/one"}],"nextToken":"next"}`)
+			return
+		}
+		_, _ = io.WriteString(w, `{"profiles":[{"arn":"arn:aws:codewhisperer:us-east-1:123456789012:profile/two"}]}`)
+	}))
+	defer server.Close()
+	store := &memStore{payload: mustCred(t, Credential{AuthMethod: "social", AccessToken: "access", RefreshToken: "refresh"})}
+	client := &Client{http: server.Client(), store: store}
+	defer setTestHosts(server.URL)()
+	cred, err := DecodeCredential(store.payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cred, err = client.ensureProfileArn(context.Background(), "acct", server.Client(), cred)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 {
+		t.Fatalf("calls = %d, want 2", calls)
+	}
+	if cred.ProfileArn != "arn:aws:codewhisperer:us-east-1:123456789012:profile/one" {
+		t.Fatalf("profile = %q", cred.ProfileArn)
+	}
+	stored, err := DecodeCredential(store.payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.ProfileArn != cred.ProfileArn {
+		t.Fatalf("stored profile = %q", stored.ProfileArn)
+	}
+}
+
+func TestExternalHeadersUseKiroGoTokenTypeCasing(t *testing.T) {
+	req, err := http.NewRequest(http.MethodGet, "https://example.com", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("tokentype", "stale")
+	applyRuntimeHeaders(req, Credential{AuthMethod: "external_idp", AccessToken: "access"}, "example.com")
+	if req.Header.Get("TokenType") != "EXTERNAL_IDP" {
+		t.Fatalf("TokenType = %q headers = %#v", req.Header.Get("TokenType"), req.Header)
+	}
+	if len(req.Header.Values("TokenType")) != 1 {
+		t.Fatalf("duplicate token type headers = %#v", req.Header)
+	}
+}
+
+func TestListModelsReturnsOnlyUpstreamCatalogEntries(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"models": []map[string]any{{"modelId": "claude-sonnet-4.5", "modelName": "Sonnet 4.5"}},
+		})
+	}))
+	defer server.Close()
+	defer setTestHosts(server.URL)()
+	client := &Client{http: server.Client()}
+	models, err := client.listModels(context.Background(), server.Client(), Credential{AccessToken: "access", AuthMethod: "builder_id"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 1 || models[0].PublicModel != "claude-sonnet-4.5" {
+		t.Fatalf("models = %+v", models)
 	}
 }
 
@@ -346,7 +493,7 @@ func TestLegacyFallbackRetriesOnRateLimitFlag(t *testing.T) {
 	client := &Client{store: &memStore{payload: mustCred(t, Credential{AccessToken: "access", AuthMethod: "idc", ProfileArn: "arn:aws:codewhisperer:us-east-1:123456789012:profile/abc"})}, http: server.Client()}
 	defer setTestHosts(server.URL)()
 	featureFlags.Delete("acct")
-	resp, _, err := client.ChatStream(context.Background(), "acct", translate.ChatRequest{Model: "claude-sonnet-4.5", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}}})
+	resp, _, err := client.ChatStream(context.Background(), "acct", translate.ChatRequest{Protocol: "anthropic_messages", Model: "claude-sonnet-4.5", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
