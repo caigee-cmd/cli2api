@@ -198,12 +198,21 @@ func (c *Client) Models(ctx context.Context, accountID string) ([]providers.Mode
 	}
 	client, err := c.httpClient(ctx, accountID)
 	if err != nil {
+		if cached := c.cachedModels(); len(cached) > 0 {
+			return cached, nil
+		}
 		return c.cachedOrDefault(), nil
 	}
 	ensureIDEVersion(client)
 	models, err := c.listModels(ctx, client, cred)
 	if err != nil || len(models) == 0 {
-		return c.cachedOrDefault(), nil
+		// A failed live list must not be replaced by the short fallback. The
+		// caller keeps the previous catalog; an empty result stays unknown
+		// instead of advertising four models the account may not have.
+		if cached := c.cachedModels(); len(cached) > 0 {
+			return cached, nil
+		}
+		return nil, err
 	}
 	c.mu.Lock()
 	c.models = models
@@ -211,11 +220,18 @@ func (c *Client) Models(ctx context.Context, accountID string) ([]providers.Mode
 	return models, nil
 }
 
-func (c *Client) cachedOrDefault() []providers.ModelInfo {
+func (c *Client) cachedModels() []providers.ModelInfo {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if len(c.models) > 0 {
-		return c.models
+	if len(c.models) == 0 {
+		return nil
+	}
+	return append([]providers.ModelInfo(nil), c.models...)
+}
+
+func (c *Client) cachedOrDefault() []providers.ModelInfo {
+	if cached := c.cachedModels(); len(cached) > 0 {
+		return cached
 	}
 	return defaultModels()
 }
@@ -547,7 +563,11 @@ func collectOutcome(body io.Reader, level string) (providers.ChatOutcome, error)
 }
 
 func defaultModels() []providers.ModelInfo {
-	names := []string{"claude-sonnet-4.5", "claude-sonnet-4", "claude-haiku-4.5", "claude-opus-4.5"}
+	names := []string{
+		"claude-sonnet-4.5", "claude-sonnet-4", "claude-haiku-4.5",
+		"claude-opus-4.5", "claude-opus-4.6", "claude-opus-4.7", "claude-opus-4.8",
+		"claude-opus-5", "auto",
+	}
 	models := make([]providers.ModelInfo, 0, len(names))
 	for _, name := range names {
 		models = append(models, providers.ModelInfo{
