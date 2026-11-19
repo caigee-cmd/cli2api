@@ -256,6 +256,10 @@ ALTER TABLE request_logs ADD COLUMN detail_expired INTEGER NOT NULL DEFAULT 0;
 CREATE INDEX IF NOT EXISTS request_logs_detail_expired ON request_logs(detail_expired, created_at);`},
 	{filename: "027_api_key_max_inflight.sql", sql: `
 ALTER TABLE api_keys ADD COLUMN max_inflight INTEGER NOT NULL DEFAULT 0;`},
+	{filename: "028_account_credit_floor.sql", sql: `
+ALTER TABLE accounts ADD COLUMN credit_floor REAL;`},
+	{filename: "029_account_percent_floor.sql", sql: `
+ALTER TABLE accounts ADD COLUMN percent_floor REAL;`},
 }
 
 const schemaMigrationsDDL = `

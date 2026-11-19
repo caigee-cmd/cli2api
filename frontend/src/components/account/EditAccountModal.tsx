@@ -20,13 +20,17 @@ type Props = {
   busy: boolean
   t: Translate
   onClose: () => void
-  onSave: (input: { name: string; max_inflight: number; priority: number; proxy_url: string; checkin_time?: string; drop_system_prompt?: boolean; model_aliases: Record<string, string>; enabled_models: string[]; set_model_routing: boolean }) => Promise<void>
+  onSave: (input: { name: string; max_inflight: number; priority: number; credit_floor: number | null; percent_floor: number | null; proxy_url: string; checkin_time?: string; drop_system_prompt?: boolean; model_aliases: Record<string, string>; enabled_models: string[]; set_model_routing: boolean }) => Promise<void>
 }
 
 export function EditAccountModal({ account, checkinDefaultTime, checkinTimezone, busy, t, onClose, onSave }: Props) {
   const [name, setName] = useState(account?.name || '')
   const [maxInFlight, setMaxInFlight] = useState<number>(account?.max_inflight ?? 4)
   const [priority, setPriority] = useState<number>(account?.priority ?? 50)
+  const [creditFloorMode, setCreditFloorMode] = useState<'inherit' | 'custom'>(account?.credit_floor == null ? 'inherit' : 'custom')
+  const [creditFloor, setCreditFloor] = useState<number>(account?.credit_floor ?? 0)
+  const [percentFloorMode, setPercentFloorMode] = useState<'inherit' | 'custom'>(account?.percent_floor == null ? 'inherit' : 'custom')
+  const [percentFloor, setPercentFloor] = useState<number>(account?.percent_floor ?? 0)
   const [proxyUrl, setProxyUrl] = useState(account?.proxy_url || '')
   const [dropSystemPrompt, setDropSystemPrompt] = useState(Boolean(account?.drop_system_prompt))
   const [aliases, setAliases] = useState<Array<{ alias: string; model: string }>>(
@@ -69,6 +73,14 @@ export function EditAccountModal({ account, checkinDefaultTime, checkinTimezone,
       setError(t('priorityInvalid'))
       return
     }
+    if (creditFloorMode === 'custom' && (!Number.isFinite(creditFloor) || creditFloor < 0)) {
+      setError(t('creditFloorInvalid'))
+      return
+    }
+    if (percentFloorMode === 'custom' && (!Number.isFinite(percentFloor) || percentFloor < 0 || percentFloor > 100)) {
+      setError(t('percentFloorInvalid'))
+      return
+    }
     if (checkinDefaultTime !== undefined && !inheritCheckinTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(checkinTime ?? checkinDefaultTime)) {
       setError(t('checkinTimeInvalid'))
       return
@@ -79,6 +91,8 @@ export function EditAccountModal({ account, checkinDefaultTime, checkinTimezone,
         name: trimmed,
         max_inflight: maxInFlight,
         priority,
+        credit_floor: creditFloorMode === 'custom' ? creditFloor : null,
+        percent_floor: percentFloorMode === 'custom' ? percentFloor : null,
         proxy_url: proxyUrl.trim(),
         checkin_time: checkinDefaultTime !== undefined ? (inheritCheckinTime ? '' : checkinTime ?? checkinDefaultTime) : undefined,
         drop_system_prompt: account?.provider === 'workbuddy' || account?.provider === 'trae' ? dropSystemPrompt : undefined,
@@ -168,6 +182,65 @@ export function EditAccountModal({ account, checkinDefaultTime, checkinTimezone,
                       <NumberField.IncrementButton />
                     </NumberField.Group>
                   </NumberField>
+                </FormRow>
+                <FormRow label={t('creditFloor')} hint={t('creditFloorHint')} align="start">
+                  <div className="space-y-2">
+                    <CompactSwitch
+                      isSelected={creditFloorMode === 'custom'}
+                      isDisabled={busy}
+                      ariaLabel={t('creditFloorCustom')}
+                      label={t('creditFloorCustom')}
+                      onChange={(selected) => setCreditFloorMode(selected ? 'custom' : 'inherit')}
+                    />
+                    {creditFloorMode === 'custom' ? (
+                      <NumberField
+                        value={creditFloor}
+                        onChange={(value) => setCreditFloor(value ?? 0)}
+                        minValue={0}
+                        step={1}
+                        isDisabled={busy}
+                        isRequired
+                      >
+                        <NumberField.Group>
+                          <NumberField.DecrementButton />
+                          <NumberField.Input aria-label={t('creditFloor')} />
+                          <NumberField.IncrementButton />
+                        </NumberField.Group>
+                      </NumberField>
+                    ) : (
+                      <p className="text-caption text-muted">{t('creditFloorInheritHint')}</p>
+                    )}
+                  </div>
+                </FormRow>
+                <FormRow label={t('percentFloor')} hint={t('percentFloorHint')} align="start">
+                  <div className="space-y-2">
+                    <CompactSwitch
+                      isSelected={percentFloorMode === 'custom'}
+                      isDisabled={busy}
+                      ariaLabel={t('percentFloorCustom')}
+                      label={t('percentFloorCustom')}
+                      onChange={(selected) => setPercentFloorMode(selected ? 'custom' : 'inherit')}
+                    />
+                    {percentFloorMode === 'custom' ? (
+                      <NumberField
+                        value={percentFloor}
+                        onChange={(value) => setPercentFloor(value ?? 0)}
+                        minValue={0}
+                        maxValue={100}
+                        step={1}
+                        isDisabled={busy}
+                        isRequired
+                      >
+                        <NumberField.Group>
+                          <NumberField.DecrementButton />
+                          <NumberField.Input aria-label={t('percentFloor')} />
+                          <NumberField.IncrementButton />
+                        </NumberField.Group>
+                      </NumberField>
+                    ) : (
+                      <p className="text-caption text-muted">{t('percentFloorInheritHint')}</p>
+                    )}
+                  </div>
                 </FormRow>
                 <FormRow label={t('proxyUrl')} hint={t('proxyUrlHint')}>
                   <Input

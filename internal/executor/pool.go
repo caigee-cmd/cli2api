@@ -36,6 +36,14 @@ type Item struct {
 	NextRestartAt       time.Time
 	RestartBackoffLevel int
 	Quota               *QuotaSnapshot
+	// CreditFloor is this account's per-account credit floor override. Nil
+	// means "not set" and defers to the pool's default floor; a non-nil
+	// value (including 0, which disables the floor for this account) wins.
+	CreditFloor *float64
+	// PercentFloor is this account's per-account percent-quota floor override.
+	// Nil defers to the pool's default percent floor; a non-nil value (including
+	// 0, which disables the floor for this account) wins.
+	PercentFloor *float64
 	// Models is the last successful per-account catalog snapshot. A nil
 	// slice means unknown (fail open); a non-nil slice, including empty,
 	// is used to filter PublicModel. Entries keep the provider-native
@@ -113,6 +121,10 @@ type RouteQuery struct {
 	// fefoNow is set only by a FEFO pool. Other strategies keep the historical
 	// quota gate, even when a cached package has since expired.
 	fefoNow time.Time
+	// creditFloorDefault is the global floor, filled in by PickRoute from the
+	// pool. An account's Item.CreditFloor override wins when non-nil.
+	creditFloorDefault  float64
+	percentFloorDefault float64
 }
 
 func itemRegion(item Item) string {
@@ -403,6 +415,10 @@ type Pool struct {
 	// lastPicked and then by account ID. Only used when weights differ.
 	weightCounter   map[string]map[string]int64
 	routingStrategy string
+	// defaultCreditFloor is the global credit floor applied to accounts that
+	// have no per-account override. Zero disables the floor. Guarded by mu.
+	defaultCreditFloor  float64
+	defaultPercentFloor float64
 	// stateCounter is the monotonic source for Item.StateVersion. Bumped
 	// under p.mu on every persistable mutation, so the version stamped onto
 	// a snapshot reflects its true production order even though the observer
@@ -446,7 +462,59 @@ func NewPool(urls []string, ids []string) *Pool {
 			ID: id, URL: url, Provider: "qoder", Runtime: "child_process",
 		})
 	}
-	return &Pool{items: items, routingStrategy: RoutingStrategyRoundRobin}
+	return &Pool{items: items, routingStrategy: RoutingStrategyRoundRobin, defaultCreditFloor: 0, defaultPercentFloor: 0}
+}
+
+// SetDefaultCreditFloor sets the global floor applied to accounts without a
+// per-account override. Zero disables the floor.
+func (p *Pool) SetDefaultCreditFloor(floor float64) {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	p.defaultCreditFloor = floor
+	p.mu.Unlock()
+}
+
+// SetDefaultPercentFloor sets the global floor for percent-denominated quota.
+// Zero disables the percent floor.
+func (p *Pool) SetDefaultPercentFloor(floor float64) {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	p.defaultPercentFloor = floor
+	p.mu.Unlock()
+}
+
+// SetCreditFloor sets one account's per-account credit-floor override.
+func (p *Pool) SetCreditFloor(id string, floor *float64) {
+	if p == nil || id == "" {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for i := range p.items {
+		if p.items[i].ID == id {
+			p.items[i].CreditFloor = floor
+			return
+		}
+	}
+}
+
+// SetPercentFloor sets one account's per-account percent-floor override.
+func (p *Pool) SetPercentFloor(id string, floor *float64) {
+	if p == nil || id == "" {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for i := range p.items {
+		if p.items[i].ID == id {
+			p.items[i].PercentFloor = floor
+			return
+		}
+	}
 }
 
 func (p *Pool) SetRoutingStrategy(strategy string) {
@@ -499,6 +567,8 @@ func (p *Pool) LenRoute(q RouteQuery) int {
 	if p.routingStrategy == RoutingStrategyFEFO {
 		q.fefoNow = time.Now()
 	}
+	q.creditFloorDefault = p.defaultCreditFloor
+	q.percentFloorDefault = p.defaultPercentFloor
 	count := 0
 	for _, item := range p.items {
 		if routeMatches(item, q) {
@@ -522,6 +592,8 @@ func (p *Pool) HasCapacity(q RouteQuery) bool {
 	if p.routingStrategy == RoutingStrategyFEFO {
 		q.fefoNow = now
 	}
+	q.creditFloorDefault = p.defaultCreditFloor
+	q.percentFloorDefault = p.defaultPercentFloor
 	for _, item := range p.items {
 		if routeMatches(item, q) && !itemDown(item, now) && !itemModelDown(item, q, now) && !itemSaturated(item) {
 			return true
@@ -543,6 +615,8 @@ func (p *Pool) QuotaBlockedForModel(q RouteQuery) (Item, bool) {
 	if p.routingStrategy == RoutingStrategyFEFO {
 		q.fefoNow = time.Now()
 	}
+	q.creditFloorDefault = p.defaultCreditFloor
+	q.percentFloorDefault = p.defaultPercentFloor
 	for _, item := range p.items {
 		if routeBlockedByQuota(item, q) {
 			return item, true
@@ -591,6 +665,8 @@ func (p *Pool) PickRoute(q RouteQuery) (Item, bool) {
 	if p.routingStrategy == RoutingStrategyFEFO {
 		q.fefoNow = now
 	}
+	q.creditFloorDefault = p.defaultCreditFloor
+	q.percentFloorDefault = p.defaultPercentFloor
 	eligible := make([]int, 0, len(p.items))
 	for i, item := range p.items {
 		if routeMatches(item, q) {

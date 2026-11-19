@@ -45,6 +45,12 @@ func (m *Manager) SyncAccount(ctx context.Context, before, after Account) error 
 	if before.Priority != after.Priority {
 		m.pool.SetWeight(after.ID, after.Priority)
 	}
+	if !sameFloorValue(before.CreditFloor, after.CreditFloor) {
+		m.pool.SetCreditFloor(after.ID, after.CreditFloor)
+	}
+	if !samePercentFloor(before.PercentFloor, after.PercentFloor) {
+		m.pool.SetPercentFloor(after.ID, after.PercentFloor)
+	}
 	if !sameModelRouting(before, after) {
 		m.pool.SetModelRouting(after.ID, after.ModelAliases, after.EnabledModels, after.ModelsRestricted)
 	}
@@ -83,6 +89,23 @@ func (m *Manager) Create(ctx context.Context, input CreateAccount) (Account, err
 		}
 	}
 	return account, nil
+}
+
+// sameFloorValue compares two optional floor overrides; nil means "inherit",
+// so nil and an explicit 0 are different values.
+func sameFloorValue(a, b *float64) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
+
+// samePercentFloor compares two optional percent-floor overrides.
+func samePercentFloor(a, b *float64) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
 }
 
 func sameModelRouting(before, after Account) bool {
@@ -131,7 +154,7 @@ func (m *Manager) Import(ctx context.Context, input ImportAccount) (Account, err
 	account, err := m.store.Create(ctx, CreateAccount{
 		AutoCheckin: input.AutoCheckin, CheckinTime: input.CheckinTime,
 		Name: input.Name, Provider: input.Provider, Region: input.Region, Enabled: false,
-		MaxInFlight: input.MaxInFlight, Priority: input.Priority, DropSystemPrompt: input.DropSystemPrompt,
+		MaxInFlight: input.MaxInFlight, Priority: input.Priority, CreditFloor: input.CreditFloor, PercentFloor: input.PercentFloor, DropSystemPrompt: input.DropSystemPrompt,
 		WorkBuddyAutoCheckin: input.WorkBuddyAutoCheckin,
 		WorkBuddyCheckinTime: input.WorkBuddyCheckinTime, ProxyURL: input.ProxyURL,
 	})
