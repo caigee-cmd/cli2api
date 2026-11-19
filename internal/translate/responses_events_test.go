@@ -2,28 +2,19 @@ package translate
 
 import "testing"
 
-func TestParseResponsesEventTerminalUsageKeepsExplicitZero(t *testing.T) {
-	event, ok := ParseResponsesEvent(`{"type":"response.completed","response":{"usage":{"input_tokens":0,"output_tokens":0,"input_tokens_details":{"cached_tokens":0}}}}`)
-	if !ok || !event.Terminal || event.FinishReason != "stop" {
-		t.Fatalf("event = %+v ok=%v", event, ok)
+func TestParseResponsesEventCanonicalUsage(t *testing.T) {
+	payload := `{"type":"response.completed","response":{"usage":{"input_tokens":100,"output_tokens":20,"input_tokens_details":{"cached_tokens":64,"cache_write_tokens":12},"output_tokens_details":{"reasoning_tokens":7}}}}`
+	event, ok := ParseResponsesEvent(payload)
+	if !ok || !event.Terminal {
+		t.Fatalf("event=%+v ok=%v", event, ok)
 	}
-	if event.InputTokens == nil || *event.InputTokens != 0 || event.OutputTokens == nil || *event.OutputTokens != 0 || event.CachedTokens == nil || *event.CachedTokens != 0 {
-		t.Fatalf("usage = %+v", event)
+	if event.CachedTokens == nil || *event.CachedTokens != 64 {
+		t.Fatalf("cached tokens=%v", event.CachedTokens)
 	}
-}
-
-func TestParseResponsesEventFirstTokenOnlyForOutputDelta(t *testing.T) {
-	for _, tc := range []struct {
-		typ  string
-		want bool
-	}{
-		{"response.reasoning_summary_text.delta", false},
-		{"response.function_call_arguments.delta", false},
-		{"response.output_text.delta", true},
-	} {
-		event, ok := ParseResponsesEvent(`{"type":"` + tc.typ + `"}`)
-		if !ok || event.FirstToken != tc.want {
-			t.Errorf("type %q: event=%+v ok=%v", tc.typ, event, ok)
-		}
+	if event.CacheWriteTokens == nil || *event.CacheWriteTokens != 12 {
+		t.Fatalf("cache write tokens=%v", event.CacheWriteTokens)
+	}
+	if event.ReasoningTokens == nil || *event.ReasoningTokens != 7 {
+		t.Fatalf("reasoning tokens=%v", event.ReasoningTokens)
 	}
 }

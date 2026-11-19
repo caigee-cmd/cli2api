@@ -34,6 +34,7 @@ type StreamRelayStats struct {
 	CacheReadTokens  *int
 	CacheWriteTokens *int
 	CachedTokens     *int
+	ReasoningTokens  *int
 	UsageSource      string
 	Credits          *float64
 	ConsumedCredits  *float64
@@ -465,8 +466,12 @@ func ParseStreamUsageLine(line string) (StreamRelayStats, bool) {
 				CachedTokens *int `json:"cached_tokens"`
 			} `json:"prompt_tokens_details"`
 			InputDetails struct {
-				CachedTokens *int `json:"cached_tokens"`
+				CachedTokens     *int `json:"cached_tokens"`
+				CacheWriteTokens *int `json:"cache_write_tokens"`
 			} `json:"input_tokens_details"`
+			OutputDetails struct {
+				ReasoningTokens *int `json:"reasoning_tokens"`
+			} `json:"output_tokens_details"`
 		} `json:"usage"`
 	}
 	if err := json.Unmarshal([]byte(payload), &parsed); err != nil || parsed.Usage == nil {
@@ -485,15 +490,20 @@ func ParseStreamUsageLine(line string) (StreamRelayStats, bool) {
 		parsed.Usage.CachedTokens,
 		parsed.Usage.CachedContentTokenCount,
 	)
-	cacheWrite := firstInt(parsed.Usage.CacheWriteTokens, parsed.Usage.CacheCreationInputTokens)
+	cacheWrite := firstInt(parsed.Usage.CacheWriteTokens, parsed.Usage.CacheCreationInputTokens, parsed.Usage.InputDetails.CacheWriteTokens)
 	cachedTokens := firstInt(parsed.Usage.PromptDetails.CachedTokens, parsed.Usage.InputDetails.CachedTokens, cacheRead)
+	source := firstNonEmpty(parsed.Usage.Source, "upstream")
+	if parsed.Usage.PromptTokens == nil && parsed.Usage.CompletionTokens == nil && cacheRead == nil && cacheWrite == nil && parsed.Usage.OutputDetails.ReasoningTokens == nil {
+		source = "estimate"
+	}
 	return StreamRelayStats{
 		PromptTokens:     parsed.Usage.PromptTokens,
 		CompletionTokens: parsed.Usage.CompletionTokens,
 		CacheReadTokens:  cacheRead,
 		CacheWriteTokens: cacheWrite,
 		CachedTokens:     cachedTokens,
-		UsageSource:      firstNonEmpty(parsed.Usage.Source, "estimate"),
+		ReasoningTokens:  parsed.Usage.OutputDetails.ReasoningTokens,
+		UsageSource:      source,
 		Credits:          credits,
 		Model:            parsed.Model,
 	}, true
