@@ -3,6 +3,20 @@
 Published user-facing notes for GitHub Releases and the console update page.
 Write upcoming notes as bilingual files in `changelog/unreleased/`.
 
+## 0.7.37 - 2026-11-19
+
+### English
+
+- Kiro model refresh waits for the current stable IDE version before listing models, so an older advertised build no longer hides models.
+- A Kiro account shows its plan (Pro, Pro+, Power) on the quota row after credits refresh.
+- The Kiro model list follows the full upstream catalog instead of falling back to four models when a page fails.
+
+### 中文
+
+- Kiro 刷新模型时会先用当前稳定版 IDE 版本再拉取，旧版本号不再把模型藏起来。
+- Kiro 账号在刷新额度后，会在额度行显示会员类型（Pro、Pro+、Power）。
+- Kiro 的模型列表会跟完上游目录，某一页失败时不再退回只有四个模型。
+
 ## 0.7.36 - 2026-11-19
 
 ### English
