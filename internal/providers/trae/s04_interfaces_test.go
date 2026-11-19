@@ -32,16 +32,6 @@ func (requiredStore) Observe(context.Context, string, string, string, string, st
 	return nil
 }
 
-type maxModeOnlyStore struct {
-	requiredStore
-	lookups []string
-}
-
-func (s *maxModeOnlyStore) GetProviderModelMaxMode(_ context.Context, provider, modelID string) (bool, error) {
-	s.lookups = append(s.lookups, provider+"/"+modelID)
-	return true, nil
-}
-
 func TestMissingSecretReaderSkipsGlobalProxy(t *testing.T) {
 	client := NewClient(requiredStore{})
 	got, err := client.globalProxy(context.Background())
@@ -53,9 +43,9 @@ func TestMissingSecretReaderSkipsGlobalProxy(t *testing.T) {
 	}
 }
 
-func TestMissingModelSettingReaderFallsBackToMaxMode(t *testing.T) {
+func TestDeclaredMaxTierDoesNotOverrideClientRequest(t *testing.T) {
 	payload, _ := Credential{AccessToken: "at", RefreshToken: "rt", UID: "u1", Domain: DomainCN, ExpiresAt: 4102444800}.Encode()
-	store := &maxModeOnlyStore{requiredStore: requiredStore{items: map[string][]byte{"acc1": payload}}}
+	store := requiredStore{items: map[string][]byte{"acc1": payload}}
 	var got map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == pathModels {
@@ -77,15 +67,14 @@ func TestMissingModelSettingReaderFallsBackToMaxMode(t *testing.T) {
 	client.http = server.Client()
 	client.http.Transport = rewriteTransport{server: server.URL, round: server.Client().Transport}
 
+	off := false
 	if _, err := client.ChatNonStream(context.Background(), "acc1", translate.ChatRequest{
-		Model: "DeepSeek-V4-Pro-Official",
+		Model:     "DeepSeek-V4-Pro-Official",
+		IsMaxMode: &off,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if got["is_max_mode"] != float64(1) {
-		t.Fatalf("legacy max-mode fallback not applied: %v", got)
-	}
-	if len(store.lookups) == 0 || store.lookups[0] != "trae/deepseek-v4-pro-official" {
-		t.Fatalf("lookup key mismatch: %v", store.lookups)
+	if _, ok := got["is_max_mode"]; ok {
+		t.Fatalf("cli2api must not choose max mode: %v", got)
 	}
 }

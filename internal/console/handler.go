@@ -34,7 +34,10 @@ type Handler struct {
 	DecorateModels     func(context.Context, []map[string]any) []map[string]any
 	FetchWorkerModels  func(refresh bool) []map[string]any
 	FetchDisplayModels func(refresh bool, accountID string, mode appsvc.CatalogMode) ([]map[string]any, error)
-	ConsoleKey         func() string
+	// PeekDisplayModels is cache-only: it never starts a catalog fetch. Used by
+	// diagnostic endpoints that must not trigger background refresh work.
+	PeekDisplayModels func(accountID string, mode appsvc.CatalogMode) []map[string]any
+	ConsoleKey        func() string
 	// Resources returns the latest server+worker process usage snapshot. app
 	// wires it to the runtime manager so console stays runtime-free.
 	Resources func() *SystemResources
@@ -82,6 +85,13 @@ func (h *Handler) fetchDisplayModels(refresh bool, accountID string, mode appsvc
 		return h.FetchDisplayModels(refresh, accountID, mode)
 	}
 	return nil, nil
+}
+
+func (h *Handler) peekDisplayModels(accountID string, mode appsvc.CatalogMode) []map[string]any {
+	if h != nil && h.PeekDisplayModels != nil {
+		return h.PeekDisplayModels(accountID, mode)
+	}
+	return nil
 }
 
 func (h *Handler) cfgPort() int {

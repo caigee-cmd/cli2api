@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"log"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -30,12 +29,22 @@ func (e *PrepareError) Error() string {
 	return e.Message
 }
 
+// ModelContextStore is retained as a compatibility surface for console model
+// settings. Request preparation never uses it to stipulate a context window:
+// context is client-owned and catalog maxima are display-only metadata.
 type ModelContextStore interface {
 	GetModelContext(ctx context.Context, modelID string) (int, bool, error)
 }
 
 type CatalogPreparer interface {
 	EnsureModelCatalogs(ctx context.Context, force bool)
+}
+
+// AggregationResolver resolves a logical model ID to a read-only snapshot of
+// its provider/model members. Implemented by control.Aggregations and injected
+// by the gateway. The executor never imports control directly.
+type AggregationResolver interface {
+	Resolve(ctx context.Context, id string, allowedProviders map[string]bool) (accounts.Aggregation, error)
 }
 
 type RequestStarter interface {
@@ -66,6 +75,7 @@ type PrepareInput struct {
 	NewRequestID      func() string
 	ModelContexts     ModelContextStore
 	Catalogs          CatalogPreparer
+	Aggregations      AggregationResolver
 	Logs              RequestStarter
 }
 
@@ -98,6 +108,18 @@ func (e ChatExecutor) Prepare(in PrepareInput) (PreparedRequest, error) {
 			Message: "cross-provider model pool is disabled; use a provider-prefixed model ID such as qoder/glm-5.2",
 		}
 	}
+
+	// Resolve a logical aggregation model into an immutable per-request plan.
+	// This happens once, before any Pool lock, and the plan is carried in the
+	// context so routing uses a stable snapshot (no DB/facade access under lock,
+	// no cross-request mutable state).
+	var aggregatePlan *AggregatePlan
+	if in.Aggregations != nil && in.CrossProviderPool && ProviderPrefix(publicModel) == "" {
+		if plan, ok := e.resolveAggregation(in.Context, in.Aggregations, publicModel, in.Identity.AllowedProviders); ok {
+			aggregatePlan = plan
+		}
+	}
+
 	providerFilter, modelRegion := ResolveProviderFilter(&request, in.CrossProviderPool)
 	prefer := strings.TrimSpace(in.PreferAccount)
 	providerFilter = ApplyPinnedProviderFilter(e.Pool, providerFilter, publicModel, prefer)
@@ -108,11 +130,7 @@ func (e ChatExecutor) Prepare(in PrepareInput) (PreparedRequest, error) {
 			Message: "This API key cannot use provider " + providerFilter,
 		}
 	}
-	if in.NativeRequest == nil {
-		if err := ApplyModelContextDefaults(in.Context, in.ModelContexts, &request, providerFilter); err != nil {
-			return PreparedRequest{}, &PrepareError{Status: 500, Code: "model_setting_failed", Message: err.Error()}
-		}
-	}
+	// Context windows are client-owned. Do not apply stored/catalog defaults here.
 	if in.Catalogs != nil {
 		in.Catalogs.EnsureModelCatalogs(in.Context, false)
 	}
@@ -147,7 +165,13 @@ func (e ChatExecutor) Prepare(in PrepareInput) (PreparedRequest, error) {
 			MessageRoles:        translate.MessageRoles(request.Messages),
 		})
 	}
-	ctx := WithAllowedProviders(WithRequestID(in.Context, requestID), in.Identity.AllowedProviders)
+	effectiveAllow := in.Identity.AllowedProviders
+	if aggregatePlan != nil && accounts.IsAggregationOnly(in.Identity.AllowedProviders) {
+		// The sentinel grant must not filter real member accounts at the pool
+		// layer; membership is already constrained by the resolved plan.
+		effectiveAllow = nil
+	}
+	ctx := WithAllowedProviders(WithRequestID(in.Context, requestID), effectiveAllow)
 	sessionKey := sessionKeyFor(in.SessionHeader, in.ConversationID, in.Identity, request)
 	if sessionKey == "" && in.NativeRequest != nil {
 		sessionKey = NativeSessionKeyFor(in.NativeRequest, in.Identity)
@@ -172,6 +196,9 @@ func (e ChatExecutor) Prepare(in PrepareInput) (PreparedRequest, error) {
 	if requestedReasoning != "" {
 		log.Printf("request reasoning request_id=%q model=%q level=%q", requestID, request.Model, requestedReasoning)
 	}
+	if aggregatePlan != nil {
+		ctx = WithAggregatePlan(ctx, aggregatePlan)
+	}
 	if sessionKey != "" && sessionAffinityDebugOn() {
 		source := "content-seed"
 		if strings.TrimSpace(in.SessionHeader) != "" {
@@ -194,6 +221,36 @@ func (e ChatExecutor) Prepare(in PrepareInput) (PreparedRequest, error) {
 		ProviderFilter: providerFilter,
 		Prefer:         prefer,
 	}, nil
+}
+
+// resolveAggregation attempts to resolve a bare public model ID as a logical
+// aggregation model. It returns false for ordinary models so the normal route
+// path is unchanged. Provider grants are reduced to a family set used to
+// filter members; an empty allowlist means "all providers allowed" (nil map).
+func (e ChatExecutor) resolveAggregation(ctx context.Context, resolver AggregationResolver, model string, grants []string) (*AggregatePlan, bool) {
+	allowed := map[string]bool(nil)
+	// An aggregation-only key must not filter members by its own sentinel
+	// grant (that would drop every real provider). nil means "no member
+	// filtering"; the pool-level allowlist is cleared for these requests too.
+	if accounts.IsAggregationOnly(grants) {
+		allowed = nil
+	} else if len(grants) > 0 {
+		allowed = make(map[string]bool, len(grants))
+		for _, entry := range grants {
+			// ParseProviderGrant already lowercases and trims; do not pre-fold
+			// here so malformed entries keep their strict fail-closed behavior.
+			grant, err := accounts.ParseProviderGrant(entry)
+			if err != nil || grant.Provider == accounts.AggregationProvider {
+				continue
+			}
+			allowed[grant.Provider] = true
+		}
+	}
+	agg, err := resolver.Resolve(ctx, model, allowed)
+	if err != nil || len(agg.Members) == 0 {
+		return nil, false
+	}
+	return NewAggregatePlan(agg), true
 }
 
 // providerPrefixes are the provider segments a client may pin with a leading
@@ -298,31 +355,12 @@ func ApplyPinnedProviderFilter(pool *Pool, providerFilter, publicModel, prefer s
 	return pinned
 }
 
-func ApplyModelContextDefaults(ctx context.Context, store ModelContextStore, req *translate.ChatRequest, providerFilter string) error {
-	if store == nil || req == nil || strings.TrimSpace(req.Model) == "" {
-		return nil
-	}
-	if providerFilter != "" && providerFilter != "qoder" {
-		return nil
-	}
-	// Qoder chat must not carry a window switch in `parameters`: the gateway
-	// rejects `contextWindow`/`context_length` there with a context-length error.
-	// The selected window is forwarded as `model_config.max_input_tokens`
-	// instead, which the Qoder chat body already accepts (so 1M is honoured),
-	// so only that field is populated here.
-	contextLength, ok, err := store.GetModelContext(ctx, modelContextKey(req.Model))
-	if err != nil || !ok {
-		return err
-	}
-	value := json.RawMessage(strconv.Itoa(contextLength))
-	if len(req.MaxInputTokens) == 0 {
-		req.MaxInputTokens = append(json.RawMessage(nil), value...)
-	}
+// ApplyModelContextDefaults is retained for compat callers but intentionally
+// does not modify the request. cli2api never stipulates a context window: a
+// window reaches upstream only when the client supplied one, while catalog
+// maxima remain display-only metadata.
+func ApplyModelContextDefaults(_ context.Context, _ ModelContextStore, _ *translate.ChatRequest, _ string) error {
 	return nil
-}
-
-func modelContextKey(model string) string {
-	return accounts.CanonicalModelID(model)
 }
 
 func NativeSessionKeyFor(req *translate.NativeResponsesRequest, identity auth.Identity) string {

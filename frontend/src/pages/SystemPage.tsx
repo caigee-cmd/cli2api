@@ -18,6 +18,7 @@ import {
 import { fetchConsoleKey, rotateConsoleKey, type ConsoleKeyView } from '@/api/keys'
 import { fetchSystemSettings, updateSystemSettings, type SystemSettings } from '@/api/system'
 import { useApiKey } from '@/hooks/useApiKey'
+import { useOverview } from '@/hooks/useOverview'
 import { PageAlert } from '@/components/ui/PageAlert'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { FormRow } from '@/components/ui/FormRow'
@@ -41,6 +42,7 @@ export function SystemPage() {
   const tab: SettingsTab = tabParam && SETTINGS_TABS.includes(tabParam) ? tabParam : 'general'
   const selectTab = (next: SettingsTab) => setSearchParams(next === 'general' ? {} : { tab: next }, { replace: true })
   const { setApiKey } = useApiKey()
+  const { refresh: refreshOverview } = useOverview()
   const [consoleKey, setConsoleKey] = useState<ConsoleKeyView | null>(null)
   const [settings, setSettings] = useState<SystemSettings | null>(null)
   const [proxyDraft, setProxyDraft] = useState('')
@@ -78,6 +80,9 @@ export function SystemPage() {
     setError('')
     try {
       setSettings(await updateSystemSettings({ cross_provider_model_pool: enabled }))
+      // The sidebar entry and the route guard read this flag from the overview
+      // summary; refresh it so toggling the switch takes effect immediately.
+      void refreshOverview(undefined, { silent: true }).catch(() => undefined)
     } catch (err) {
       setSettings((current) => current ? { ...current, cross_provider_model_pool: previous } : current)
       setError(err instanceof Error ? err.message : String(err))

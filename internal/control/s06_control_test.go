@@ -289,6 +289,26 @@ func (s *fakeStore) TouchAPIKey(_ context.Context, id string) error {
 	return nil
 }
 
+func (s *fakeStore) InsertAggregation(_ context.Context, agg accounts.Aggregation) (accounts.Aggregation, error) {
+	return agg, nil
+}
+
+func (s *fakeStore) SaveAggregation(_ context.Context, agg accounts.Aggregation) (accounts.Aggregation, error) {
+	return agg, nil
+}
+
+func (s *fakeStore) ListAggregations(_ context.Context) ([]accounts.Aggregation, error) {
+	return []accounts.Aggregation{}, nil
+}
+
+func (s *fakeStore) GetAggregation(_ context.Context, id string) (accounts.Aggregation, error) {
+	return accounts.Aggregation{}, accounts.ErrAggregationNotFound
+}
+
+func (s *fakeStore) DeleteAggregation(_ context.Context, _ string) error {
+	return nil
+}
+
 type fakeRuntime struct {
 	log         *callLog
 	store       *fakeStore

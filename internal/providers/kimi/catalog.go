@@ -147,6 +147,7 @@ func toModelInfo(record catalogRecord) providers.ModelInfo {
 
 	if options := providers.UniqueReasoningOptions(efforts); len(options) > 0 {
 		caps.ReasoningOptions = options
+		caps.ReasoningOptionValues = providers.UniqueReasoningOptionValues(efforts)
 		caps.ReasoningType = "effort"
 		caps.ReasoningDefault = resolveDefaultEffort(defaultEffort, options)
 		caps.Reasoning = true

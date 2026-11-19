@@ -313,8 +313,9 @@ func TestBuildBodyReasoningClamp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// gpt-5.5 declares low/medium/high/xhigh; "max" clamps to the default.
-	if resolved.ReasoningLevel != "medium" {
+	// gpt-5.5 declares low/medium/high/xhigh; "max" degrades to the nearest
+	// declared tier, xhigh, instead of falling back to the default.
+	if resolved.ReasoningLevel != "xhigh" {
 		t.Fatalf("reasoning level %q", resolved.ReasoningLevel)
 	}
 	var obj map[string]any
@@ -332,7 +333,7 @@ func TestBuildBodyReasoningClamp(t *testing.T) {
 		t.Fatalf("include %v", obj["include"])
 	}
 	reasoning, _ := obj["reasoning"].(map[string]any)
-	if reasoning["effort"] != "medium" {
+	if reasoning["effort"] != "xhigh" {
 		t.Fatalf("reasoning %v", obj["reasoning"])
 	}
 }

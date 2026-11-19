@@ -25,7 +25,7 @@ func TestNormalizeReasoningLevelAliases(t *testing.T) {
 
 func TestClampReasoningLevelDropsUnknownAndFallsBack(t *testing.T) {
 	caps := providers.ModelCapabilities{ReasoningOptions: []string{"low", "medium"}, ReasoningDefault: "low"}
-	if got := clampReasoningLevel("xhigh", caps); got != "low" {
+	if got := clampReasoningLevel("xhigh", caps); got != "medium" {
 		t.Fatalf("clamp=%q", got)
 	}
 	if got := clampReasoningLevel("high", providers.ModelCapabilities{}); got != "" {
