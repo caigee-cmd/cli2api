@@ -103,7 +103,7 @@ export function QuotaMeter({ quota, t, label, usedLabel, remainingLabel, addOnLa
   const remaining = `${formatQuotaAmount(quota.remaining)}`
   const extra = extraQuotaLines(quota, remainingLabel, addOnLabel, resourcePackageLabel, t, provider)
   const windows = quotaWindows(quota)
-  const plan = provider === 'codex' ? codexPlanLabel(quota.plan) : ''
+  const plan = provider === 'codex' || provider === 'kiro' ? codexPlanLabel(quota.plan) : ''
   const ratio = quotaUsedRatio(quota)
   const tone = quotaTone(quota)
   const color = tone === 'danger' ? 'danger' : tone === 'warn' ? 'warning' : 'success'

@@ -198,24 +198,44 @@ func (c *Client) Models(ctx context.Context, accountID string) ([]providers.Mode
 	}
 	client, err := c.httpClient(ctx, accountID)
 	if err != nil {
+		if cached := c.cachedModels(); len(cached) > 0 {
+			return cached, nil
+		}
 		return c.cachedOrDefault(), nil
 	}
 	ensureIDEVersion(client)
+	// The model list is gated on the advertised IDE build. Wait for one feed
+	// read so the first catalog is not taken with the fallback version.
+	refreshIDEVersion(client)
 	models, err := c.listModels(ctx, client, cred)
 	if err != nil || len(models) == 0 {
-		return c.cachedOrDefault(), nil
+		// A failed live list must not be replaced by the short fallback. The
+		// caller keeps the previous catalog; an empty result stays unknown
+		// instead of advertising a handful of models the account may not have.
+		if cached := c.cachedModels(); len(cached) > 0 {
+			return cached, nil
+		}
+		return nil, err
 	}
+	models = withAdvertisedModels(models)
 	c.mu.Lock()
 	c.models = models
 	c.mu.Unlock()
 	return models, nil
 }
 
-func (c *Client) cachedOrDefault() []providers.ModelInfo {
+func (c *Client) cachedModels() []providers.ModelInfo {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if len(c.models) > 0 {
-		return c.models
+	if len(c.models) == 0 {
+		return nil
+	}
+	return append([]providers.ModelInfo(nil), c.models...)
+}
+
+func (c *Client) cachedOrDefault() []providers.ModelInfo {
+	if cached := c.cachedModels(); len(cached) > 0 {
+		return cached
 	}
 	return defaultModels()
 }
@@ -546,8 +566,37 @@ func collectOutcome(body io.Reader, level string) (providers.ChatOutcome, error)
 	return outcome, nil
 }
 
+// withAdvertisedModels keeps every model ListAvailableModels returned and adds
+// the older client names upstream accepts on top. A name the live list already
+// has is not duplicated.
+func withAdvertisedModels(live []providers.ModelInfo) []providers.ModelInfo {
+	seen := make(map[string]struct{}, len(live))
+	for _, model := range live {
+		seen[strings.ToLower(model.PublicModel)] = struct{}{}
+	}
+	out := append([]providers.ModelInfo(nil), live...)
+	for _, model := range defaultModels() {
+		if _, ok := seen[strings.ToLower(model.PublicModel)]; ok {
+			continue
+		}
+		out = append(out, model)
+	}
+	return out
+}
+
 func defaultModels() []providers.ModelInfo {
-	names := []string{"claude-sonnet-4.5", "claude-sonnet-4", "claude-haiku-4.5", "claude-opus-4.5"}
+	// Shown only before the first successful ListAvailableModels. The live list
+	// replaces this. Names match what Kiro currently serves plus the aliases
+	// upstream exposes for older client model ids.
+	names := []string{
+		"auto",
+		"claude-sonnet-5", "claude-sonnet-4.5", "claude-sonnet-4",
+		"claude-haiku-4.5",
+		"claude-opus-5", "claude-opus-4.8", "claude-opus-4.7", "claude-opus-4.6", "claude-opus-4.5",
+		"claude-3-5-sonnet", "claude-3-sonnet", "claude-3-opus", "claude-3-haiku",
+		"claude-sonnet-4-20250514",
+		"deepseek-3.2",
+	}
 	models := make([]providers.ModelInfo, 0, len(names))
 	for _, name := range names {
 		models = append(models, providers.ModelInfo{

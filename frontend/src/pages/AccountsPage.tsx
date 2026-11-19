@@ -72,26 +72,17 @@ function kiroImportEntries(bundle: Record<string, unknown>): Record<string, unkn
 
 function normalizeKiroImportBundle(bundle: Record<string, unknown>, region: ImportRegion) {
   const entries = kiroImportEntries(bundle)
-  if (entries.length === 1 && entries[0] === bundle) {
-    const email = typeof bundle.email === 'string' ? bundle.email.trim() : ''
-    const nickname = typeof bundle.nickname === 'string' ? bundle.nickname.trim() : ''
-    return {
-      ...bundle,
-      format: 'kiro-oauth-v1',
-      provider: 'kiro',
-      region: kiroRegionOf(bundle) || region,
-      enabled: true,
-      name: nickname || email || undefined,
-    }
-  }
+  const named = entries.find((entry) => typeof entry.nickname === 'string' || typeof entry.email === 'string')
+  const nickname = typeof named?.nickname === 'string' ? named.nickname.trim() : ''
+  const email = typeof named?.email === 'string' ? named.email.trim() : ''
   return {
     format: 'kiro-oauth-v1',
     provider: 'kiro',
-    region,
+    region: kiroRegionOf(entries[0] || bundle) || region,
     enabled: true,
+    name: entries.length === 1 ? (nickname || email || undefined) : undefined,
     accounts: entries.map((entry) => ({
       ...entry,
-      format: 'kiro-oauth-v1',
       region: kiroRegionOf(entry) || region,
     })),
   }

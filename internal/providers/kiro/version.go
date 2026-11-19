@@ -35,18 +35,19 @@ var (
 // more per day. Chat does not wait for it; the fallback version is used until
 // the feed answers with a build at least as new as the fallback.
 func ensureIDEVersion(client *http.Client) {
+	go refreshIDEVersion(client)
+}
+
+func refreshIDEVersion(client *http.Client) {
 	now := time.Now().UnixNano()
 	last := lastVersionRefresh.Load()
-	if last != 0 && now-last < int64(versionRefreshEvery) {
+	fresh := last != 0 && now-last < int64(versionRefreshEvery)
+	if fresh && currentIDEVersion() != IDEVersion {
 		return
 	}
 	if !lastVersionRefresh.CompareAndSwap(last, now) {
 		return
 	}
-	go refreshIDEVersion(client)
-}
-
-func refreshIDEVersion(client *http.Client) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	version, err := fetchIDEVersion(ctx, client)
