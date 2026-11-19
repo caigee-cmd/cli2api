@@ -3,6 +3,20 @@
 Published user-facing notes for GitHub Releases and the console update page.
 Write upcoming notes as bilingual files in `changelog/unreleased/`.
 
+## 0.7.38 - 2026-11-19
+
+### English
+
+- Align Kiro's Anthropic Messages tool flow with native `tool_result`, parallel-call, profile discovery, and current IDE fingerprint behavior; unsupported Anthropic server-search tools now fail clearly instead of being misreported as client tools.
+- Kiro now keeps following the upstream model cursor, deduplicates pages, and adds the documented Sonnet 4.6 and GPT 5.6 Sol/Terra model IDs when a short upstream page omits them.
+- The console model API and per-account model view support optional pagination while keeping the complete-list response compatible with existing clients.
+
+### 中文
+
+- 对齐 Kiro 的 Anthropic Messages 工具链，支持原生 `tool_result`、并行调用、profile 发现和当前 IDE 指纹；暂不支持的 Anthropic 服务端搜索工具会明确报错，不再伪装成客户端工具。
+- Kiro 现在会继续跟随上游模型游标并去重；上游单页过短时，会补充文档中明确的 Sonnet 4.6、GPT 5.6 Sol 和 GPT 5.6 Terra 模型 ID。
+- 控制台模型 API 和账号模型视图支持可选分页，同时保留旧客户端使用的完整列表响应。
+
 ## 0.7.37 - 2026-11-19
 
 ### English
