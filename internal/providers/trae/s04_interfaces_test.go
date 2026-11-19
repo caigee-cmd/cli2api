@@ -43,7 +43,7 @@ func TestMissingSecretReaderSkipsGlobalProxy(t *testing.T) {
 	}
 }
 
-func TestModelMaxTierAlwaysOn(t *testing.T) {
+func TestDeclaredMaxTierDoesNotOverrideClientRequest(t *testing.T) {
 	payload, _ := Credential{AccessToken: "at", RefreshToken: "rt", UID: "u1", Domain: DomainCN, ExpiresAt: 4102444800}.Encode()
 	store := requiredStore{items: map[string][]byte{"acc1": payload}}
 	var got map[string]any
@@ -67,12 +67,14 @@ func TestModelMaxTierAlwaysOn(t *testing.T) {
 	client.http = server.Client()
 	client.http.Transport = rewriteTransport{server: server.URL, round: server.Client().Transport}
 
+	off := false
 	if _, err := client.ChatNonStream(context.Background(), "acc1", translate.ChatRequest{
-		Model: "DeepSeek-V4-Pro-Official",
+		Model:     "DeepSeek-V4-Pro-Official",
+		IsMaxMode: &off,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if got["is_max_mode"] != float64(1) {
-		t.Fatalf("declared max tier not forced on: %v", got)
+	if _, ok := got["is_max_mode"]; ok {
+		t.Fatalf("cli2api must not choose max mode: %v", got)
 	}
 }
