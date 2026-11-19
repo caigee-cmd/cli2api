@@ -20,6 +20,10 @@ func (h *Handler) HandleModels(w http.ResponseWriter, r *http.Request) {
 	if h != nil && h.DecorateModels != nil {
 		models = h.DecorateModels(r, models)
 	}
+	if h.crossProviderPoolOn() && h.MergeAggregationModels != nil {
+		ctx := r.Context()
+		models = h.MergeAggregationModels(ctx, models)
+	}
 	if h.crossProviderPoolOn() == false {
 		// The gateway refuses bare ids with the pool off; serve prefixed ids so
 		// OpenAI-compatible clients see exactly what the gateway accepts.

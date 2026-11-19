@@ -73,10 +73,12 @@ export type ModelInfo = {
   max_output_tokens_max?: number
   prompt_max_tokens_max?: number
   reasoning_options?: string[]
+  reasoning_option_values?: string[]
   reasoning_default?: string
   reasoning_effort?: string
   reasoning_type?: string
   can_disable_thinking?: boolean
+  supports_images?: boolean
 }
 
 export type CheckinRecord = {

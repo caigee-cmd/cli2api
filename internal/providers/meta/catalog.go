@@ -21,14 +21,15 @@ func modelWonder(id, display string) providers.ModelInfo {
 		PublicModel: id,
 		DisplayName: display,
 		Capabilities: providers.ModelCapabilities{
-			ContextWindow:      1007997,
-			MaxOutput:          128000,
-			Tools:              true,
-			Images:             true,
-			Reasoning:          true,
-			ReasoningOptions:   []string{"minimal", "low", "medium", "high", "xhigh", "max"},
-			ReasoningDefault:   "high",
-			CanDisableThinking: true,
+			ContextWindow:         1007997,
+			MaxOutput:             128000,
+			Tools:                 true,
+			Images:                true,
+			Reasoning:             true,
+			ReasoningOptions:      []string{"minimal", "low", "medium", "high", "xhigh", "max"},
+			ReasoningOptionValues: []string{"minimal", "low", "medium", "high", "xhigh", "max"},
+			ReasoningDefault:      "high",
+			CanDisableThinking:    true,
 		},
 	}
 }
@@ -51,14 +52,15 @@ func modelSpark(id, display string, levels []string, images bool) providers.Mode
 		PublicModel: id,
 		DisplayName: display,
 		Capabilities: providers.ModelCapabilities{
-			ContextWindow:      1048576,
-			MaxOutput:          65536,
-			Tools:              true,
-			Images:             images,
-			Reasoning:          true,
-			ReasoningOptions:   append([]string(nil), levels...),
-			ReasoningDefault:   def,
-			CanDisableThinking: true,
+			ContextWindow:         1048576,
+			MaxOutput:             65536,
+			Tools:                 true,
+			Images:                images,
+			Reasoning:             true,
+			ReasoningOptions:      append([]string(nil), levels...),
+			ReasoningOptionValues: append([]string(nil), levels...),
+			ReasoningDefault:      def,
+			CanDisableThinking:    true,
 		},
 	}
 }
@@ -76,11 +78,13 @@ func capsFor(model string) providers.ModelCapabilities {
 		}
 	}
 	// Unknown model: allow common Muse reasoning levels so clamp still works.
+	levels := []string{"minimal", "low", "medium", "high", "xhigh", "max"}
 	return providers.ModelCapabilities{
-		Reasoning:        true,
-		ReasoningOptions: []string{"minimal", "low", "medium", "high", "xhigh", "max"},
-		ReasoningDefault: "high",
-		Tools:            true,
-		Images:           true,
+		Reasoning:             true,
+		ReasoningOptions:      levels,
+		ReasoningOptionValues: levels,
+		ReasoningDefault:      "high",
+		Tools:                 true,
+		Images:                true,
 	}
 }

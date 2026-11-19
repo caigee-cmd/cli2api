@@ -1,19 +1,21 @@
 import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import { Drawer, Button, Chip, Separator, Tooltip } from '@heroui/react'
-import { ChartBar, Cube, Gauge, GearSix, Key, Lightning, Scroll, SidebarSimple, UsersThree, X } from '@phosphor-icons/react'
+import { ArrowsSplit, ChartBar, Cube, Gauge, GearSix, Key, Lightning, Scroll, SidebarSimple, UsersThree, X } from '@phosphor-icons/react'
 import { SidebarUpdateItem } from '@/components/layout/SidebarUpdateItem'
 import { BrandMark } from '@/components/BrandMark'
 import { SkeletonBlock } from '@/components/ui/PageSkeletons'
 import { pressScale } from '@/hooks/useGsapReveal'
 import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
+import { useCrossProviderPool } from '@/hooks/useCrossProviderPool'
 
 const nav = [
   { to: '/', key: 'navOverview', icon: Gauge, section: 'workspace', end: true },
   { to: '/usage', key: 'navUsage', icon: ChartBar, section: 'workspace' },
   { to: '/accounts', key: 'navAccounts', icon: UsersThree, section: 'workspace' },
   { to: '/providers', key: 'navProviders', icon: Cube, section: 'develop' },
+  { to: '/model-pool', key: 'navModelPool', icon: ArrowsSplit, section: 'develop', requiresPool: true },
   { to: '/access', key: 'navAccess', icon: Lightning, section: 'develop' },
   { to: '/logs', key: 'navLogs', icon: Scroll, section: 'system' },
   { to: '/keys', key: 'navKeys', icon: Key, section: 'system' },
@@ -29,11 +31,19 @@ type Props = {
 
 function NavList({ collapsed, onNavigate }: { collapsed: boolean; onNavigate?: () => void }) {
   const { t } = useI18n()
+  const { enabled: poolEnabled, loading: poolLoading } = useCrossProviderPool()
   const groups = [
     { key: 'workspace', label: t('workspace') },
     { key: 'develop', label: t('develop') },
     { key: 'system', label: t('system') },
   ] as const
+
+  const visibleNav = nav.filter((item) => {
+    if (!('requiresPool' in item) || !item.requiresPool) return true
+    // Keep the pool entry hidden until the flag is known, then show it only
+    // when the cross-provider pool is enabled.
+    return !poolLoading && poolEnabled
+  })
 
   return (
     <nav className="flex flex-col gap-6">
@@ -44,7 +54,7 @@ function NavList({ collapsed, onNavigate }: { collapsed: boolean; onNavigate?: (
           ) : (
             <span className="px-3 pb-1.5 text-caption font-medium text-muted">{group.label}</span>
           )}
-          {nav.filter((item) => item.section === group.key).map((item) => {
+          {visibleNav.filter((item) => item.section === group.key).map((item) => {
             const Icon = item.icon
             return (
               <NavLink

@@ -15,6 +15,11 @@ import (
 // ProviderAllowed / ProviderRegionAllowed plus NormalizeAPIKeyProviders own
 // the runtime/write paths. Moving this file to auth would create
 // accounts → auth while auth already imports accounts.
+// AggregationProvider is a sentinel grant for keys that may only call logical
+// aggregation models. It is not a real upstream provider and is never
+// registered in the providers catalog.
+const AggregationProvider = "aggregation"
+
 type ProviderGrant struct {
 	Provider string
 	Region   string
@@ -63,6 +68,11 @@ func ParseProviderGrant(entry string) (ProviderGrant, error) {
 	if strings.ContainsAny(family, " \t") || strings.ContainsAny(region, " \t") {
 		return ProviderGrant{}, fmt.Errorf("provider grant %q must not contain inner whitespace", raw)
 	}
+	// Sentinel grant: accepted only as a bare entry with no region. It grants
+	// access to logical aggregation models, never to a real upstream provider.
+	if family == AggregationProvider && region == "" {
+		return ProviderGrant{Provider: AggregationProvider}, nil
+	}
 	descriptor, ok := providers.Get(family)
 	if !ok {
 		return ProviderGrant{}, fmt.Errorf("unknown provider %q", family)
@@ -102,6 +112,23 @@ func parseProviderGrantsLenient(entries []string) []ProviderGrant {
 // entries. An empty allowlist allows everything. A bare family entry
 // ("workbuddy") covers every region of that family; a region-scoped entry
 // only covers accounts whose region matches. Malformed entries never match.
+// IsAggregationOnly reports whether an allowlist consists solely of the
+// sentinel aggregation grant. Such a key may call logical aggregation models
+// but no real provider. Mixing it with real grants is intentionally ignored
+// here (the key then behaves as a normal provider-scoped key).
+func IsAggregationOnly(allowed []string) bool {
+	if len(allowed) == 0 {
+		return false
+	}
+	for _, entry := range allowed {
+		grant, err := ParseProviderGrant(strings.TrimSpace(entry))
+		if err != nil || grant.Provider != AggregationProvider {
+			return false
+		}
+	}
+	return true
+}
+
 func GrantsAllowed(provider, region string, allowed []string) bool {
 	if len(allowed) == 0 {
 		return true
