@@ -194,7 +194,7 @@ func TestCanonicalModelIDNormalizesWithoutAliases(t *testing.T) {
 	}
 }
 
-func TestModelContextSettingsApplyMaxInputTokensToQoderChat(t *testing.T) {
+func TestModelContextSettingsDoNotChooseQoderWindow(t *testing.T) {
 	srv := New(config.Config{
 		Host: "127.0.0.1", Port: 3010, ProxyAPIKey: "secret",
 		QoderHome: t.TempDir(), DataDir: t.TempDir(),
@@ -207,11 +207,8 @@ func TestModelContextSettingsApplyMaxInputTokensToQoderChat(t *testing.T) {
 	if err := srv.applyModelContextDefaults(context.Background(), &req, "qoder"); err != nil {
 		t.Fatal(err)
 	}
-	if len(req.ContextLength) != 0 {
-		t.Fatalf("qoder chat must not carry a parameters window override: context=%s", req.ContextLength)
-	}
-	if string(req.MaxInputTokens) != "500000" {
-		t.Fatalf("window must go to MaxInputTokens: %s", req.MaxInputTokens)
+	if len(req.ContextLength) != 0 || len(req.MaxInputTokens) != 0 {
+		t.Fatalf("stored context must not be injected: context=%s max_input=%s", req.ContextLength, req.MaxInputTokens)
 	}
 
 	explicit := translate.ChatRequest{

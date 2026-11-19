@@ -4,10 +4,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"log"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -30,17 +28,11 @@ func (e *PrepareError) Error() string {
 	return e.Message
 }
 
+// ModelContextStore is retained as a compatibility surface for console model
+// settings. Request preparation never uses it to stipulate a context window:
+// context is client-owned and catalog maxima are display-only metadata.
 type ModelContextStore interface {
 	GetModelContext(ctx context.Context, modelID string) (int, bool, error)
-}
-
-// MaxContextStore is an optional capability of ModelContextStore. When bound,
-// ApplyModelContextDefaults uses the model's declared largest window instead
-// of the operator's stored window: every request runs at the model's maximum
-// (1M where the catalog advertises 1M). ForceMaxContextLength returns the
-// window the model should always use, or 0 when the model is unknown.
-type MaxContextStore interface {
-	ForceMaxContextLength(modelID string) int
 }
 
 type CatalogPreparer interface {
@@ -137,11 +129,7 @@ func (e ChatExecutor) Prepare(in PrepareInput) (PreparedRequest, error) {
 			Message: "This API key cannot use provider " + providerFilter,
 		}
 	}
-	if in.NativeRequest == nil {
-		if err := ApplyModelContextDefaults(in.Context, in.ModelContexts, &request, providerFilter); err != nil {
-			return PreparedRequest{}, &PrepareError{Status: 500, Code: "model_setting_failed", Message: err.Error()}
-		}
-	}
+	// Context windows are client-owned. Do not apply stored/catalog defaults here.
 	if in.Catalogs != nil {
 		in.Catalogs.EnsureModelCatalogs(in.Context, false)
 	}
@@ -366,45 +354,12 @@ func ApplyPinnedProviderFilter(pool *Pool, providerFilter, publicModel, prefer s
 	return pinned
 }
 
-func ApplyModelContextDefaults(ctx context.Context, store ModelContextStore, req *translate.ChatRequest, providerFilter string) error {
-	if store == nil || req == nil || strings.TrimSpace(req.Model) == "" {
-		return nil
-	}
-	if providerFilter != "" && providerFilter != "qoder" {
-		return nil
-	}
-	// Qoder chat must not carry a window switch in `parameters`: the gateway
-	// rejects `contextWindow`/`context_length` there with a context-length error.
-	// The selected window is forwarded as `model_config.max_input_tokens`
-	// instead, which the Qoder chat body already accepts (so 1M is honoured),
-	// so only that field is populated here.
-	// Context windows are now forced to each model's declared maximum: when the
-	// catalog advertises a larger tier, hardcode it regardless of the stored
-	// toggle; models without a larger tier keep their catalog default.
-	contextLength, ok, err := store.GetModelContext(ctx, modelContextKey(req.Model))
-	if err != nil {
-		return err
-	}
-	if !ok {
-		contextLength = 0
-	}
-	if maxStore, ok := store.(MaxContextStore); ok {
-		if forced := maxStore.ForceMaxContextLength(req.Model); forced > 0 {
-			contextLength = forced
-		}
-	}
-	if contextLength <= 0 {
-		return nil
-	}
-	value := json.RawMessage(strconv.Itoa(contextLength))
-	if len(req.MaxInputTokens) == 0 {
-		req.MaxInputTokens = append(json.RawMessage(nil), value...)
-	}
+// ApplyModelContextDefaults is retained for compat callers but intentionally
+// does not modify the request. cli2api never stipulates a context window: a
+// window reaches upstream only when the client supplied one, while catalog
+// maxima remain display-only metadata.
+func ApplyModelContextDefaults(_ context.Context, _ ModelContextStore, _ *translate.ChatRequest, _ string) error {
 	return nil
-}
-
-func modelContextKey(model string) string {
-	return accounts.CanonicalModelID(model)
 }
 
 func NativeSessionKeyFor(req *translate.NativeResponsesRequest, identity auth.Identity) string {

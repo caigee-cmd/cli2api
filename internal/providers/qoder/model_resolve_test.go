@@ -19,24 +19,29 @@ func resolveTestCatalog() []map[string]any {
 	}
 }
 
-func TestApplyCatalogEntryForcesLargestDeclaredWindow(t *testing.T) {
-	plain := map[string]any{"model_config": map[string]any{"max_input_tokens": 200000}}
-	req := translate.ChatRequest{MaxInputTokens: []byte("200000")}
+func TestApplyCatalogEntryKeepsClientWindow(t *testing.T) {
 	entry := map[string]any{
 		"catalog_context_length":     200000,
 		"catalog_context_length_max": 1000000,
-	}
-	applyCatalogEntry(plain, req, entry)
-	cfg := plain["model_config"].(map[string]any)
-	if cfg["max_input_tokens"] != 1000000 {
-		t.Fatalf("forced window=%v, want 1000000", cfg["max_input_tokens"])
+		"max_input_tokens":           200000,
 	}
 
-	// A model with no larger declared tier keeps its own declared window.
-	flash := map[string]any{"model_config": map[string]any{}}
-	applyCatalogEntry(flash, req, map[string]any{"catalog_context_length": 1000000})
-	if got := flash["model_config"].(map[string]any)["max_input_tokens"]; got != 1000000 {
-		t.Fatalf("model-declared window=%v, want 1000000", got)
+	// The client window is already carried in the body by BuildPlainChatBody;
+	// applyCatalogEntry must not replace it with a catalog value.
+	clientReq := translate.ChatRequest{Model: "qmodel_38max", MaxInputTokens: []byte("200000")}
+	plain := BuildPlainChatBody(clientReq, time.Unix(1700000000, 0))
+	applyCatalogEntry(plain, clientReq, entry)
+	cfg := plain["model_config"].(map[string]any)
+	if cfg["max_input_tokens"] != 200000 {
+		t.Fatalf("client window=%v, want 200000 (catalog max is display-only)", cfg["max_input_tokens"])
+	}
+
+	clientReq = translate.ChatRequest{Model: "qmodel_38max", MaxInputTokens: []byte("400000")}
+	plain = BuildPlainChatBody(clientReq, time.Unix(1700000000, 0))
+	applyCatalogEntry(plain, clientReq, entry)
+	cfg = plain["model_config"].(map[string]any)
+	if cfg["max_input_tokens"] != 400000 {
+		t.Fatalf("client window=%v, want 400000", cfg["max_input_tokens"])
 	}
 }
 
@@ -114,8 +119,11 @@ func TestApplyCatalogEntryFillsModelConfig(t *testing.T) {
 	plain := BuildPlainChatBody(req, time.Unix(1700000000, 0))
 	applyCatalogEntry(plain, req, resolveTestCatalog()[1])
 	cfg := plain["model_config"].(map[string]any)
-	if cfg["key"] != "qmodel_38max" || cfg["display_name"] != "Qwen3.8-Max" || cfg["is_vl"] != false || cfg["max_input_tokens"] != 256000 || cfg["is_reasoning"] != true {
+	if cfg["key"] != "qmodel_38max" || cfg["display_name"] != "Qwen3.8-Max" || cfg["is_vl"] != false || cfg["is_reasoning"] != true {
 		t.Fatalf("model_config = %v", cfg)
+	}
+	if _, ok := cfg["max_input_tokens"]; ok {
+		t.Fatalf("catalog must not stipulate a context window: %v", cfg["max_input_tokens"])
 	}
 	none := translate.ChatRequest{Model: "qmodel_38max", ReasoningEffort: []byte(`"none"`)}
 	plain = BuildPlainChatBody(none, time.Unix(1700000000, 0))
