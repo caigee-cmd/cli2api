@@ -36,9 +36,9 @@ export function ModelDetailsModal({ model, t, onClose }: Props) {
   const options = model.reasoning_options || []
   const windowDev = model.catalog_context_length || model.default_context_length || model.context_length || 0
   const windowMax = model.catalog_context_length_max
-  // Display-only: show the model's largest catalog-declared window. Chat
-  // requests still carry only the context window supplied by the client.
-  const displayWindow = windowMax && windowMax > windowDev ? windowMax : windowDev
+  // Requests always use the model's own largest declared window, so the
+  // details view shows that single effective value rather than a toggle.
+  const effectiveWindow = windowMax && windowMax > windowDev ? windowMax : windowDev
   const free = modelIsFree(model)
   const provider = String(model.provider || model.owned_by || 'qoder').trim().toLowerCase()
   const region = String(model.region || model.regions?.[0] || '').trim().toLowerCase()
@@ -72,7 +72,7 @@ export function ModelDetailsModal({ model, t, onClose }: Props) {
               <section className="divide-y divide-separator rounded-lg border border-separator px-3 py-1">
                 <DetailRow label={t('providerCol')} value={providerLabel} />
 
-                <DetailRow label={t('contextWindowCol')} value={<span className="mono">{formatTokens(displayWindow)}</span>} />
+                <DetailRow label={t('contextWindowCol')} value={<span className="mono">{formatTokens(effectiveWindow)}</span>} />
                 {promptMax ? <DetailRow label={t('promptMaxTokens')} value={<span className="mono">{formatTokens(promptMax)}</span>} /> : null}
                 {outputMax ? <DetailRow label={t('maxOutputTokens')} value={<span className="mono">{formatTokens(outputMax)}</span>} /> : null}
                 <DetailRow label={t('imageInput')} value={imageText} />

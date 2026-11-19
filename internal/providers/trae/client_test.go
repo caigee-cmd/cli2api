@@ -1103,9 +1103,10 @@ func TestChatRequestMapsOpenAIReasoningAndMaxMode(t *testing.T) {
 	}
 }
 
-// Regression: a client-supplied max flag is passed through by canonicalModelID
-// lookup without cli2api choosing a max tier on its own.
-func TestChatRequestDoesNotUseStoredMaxMode(t *testing.T) {
+// Regression: settings saved by the console are keyed by canonicalModelID
+// (lowercase, _ and space folded to -). The chat-time lookup must use the
+// same form, otherwise max_mode never reaches the upstream payload.
+func TestChatRequestFindsStoredMaxModeByCanonicalKey(t *testing.T) {
 	payload, _ := Credential{AccessToken: "at", RefreshToken: "rt", UID: "u1", Domain: DomainCN, ExpiresAt: 4102444800}.Encode()
 	store := &memStore{
 		items: map[string][]byte{"acc1": payload},
@@ -1137,18 +1138,22 @@ func TestChatRequestDoesNotUseStoredMaxMode(t *testing.T) {
 	client.http = server.Client()
 	client.http.Transport = rewriteTransport{server: server.URL, round: server.Client().Transport}
 
-	// No IsMaxMode in the request: cli2api must not infer one from the stored
-	// setting or catalog.
+	// No IsMaxMode in the request and no warm catalog: the stored setting
+	// must still turn on max mode, and the cold-catalog refresh must run so
+	// caps say the model supports it.
 	if _, err := client.ChatNonStream(context.Background(), "acc1", translate.ChatRequest{
 		Model: "DeepSeek-V4-Pro-Official",
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := got["is_max_mode"]; ok {
-		t.Fatalf("stored max mode must not be applied: %v", got)
+	if got["is_max_mode"] != float64(1) {
+		t.Fatalf("stored max mode not applied: %v", got)
+	}
+	if len(store.lookups) == 0 || store.lookups[0] != "trae/deepseek-v4-pro-official" {
+		t.Fatalf("lookup key mismatch: %v", store.lookups)
 	}
 	if !modelsServed {
-		t.Fatal("cold catalog should still be refreshed for reasoning caps")
+		t.Fatal("cold catalog should be refreshed before deciding max mode")
 	}
 }
 

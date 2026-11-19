@@ -541,16 +541,9 @@ func BuildPlainChatBody(req translate.ChatRequest, now time.Time) map[string]any
 	if level != "" || providers.RequestsDisabledThinking(req) {
 		parameters["enable_thinking"] = reasoning
 	}
-	// Context windows are client-only. cli2api never picks a window for a
-	// model: when the caller sends no window, omit it so the upstream applies
-	// its own model default.
-	modelConfig := map[string]any{
-		"key": modelKey, "display_name": modelKey, "model": "", "format": "openai",
-		"is_vl": true, "is_reasoning": reasoning, "api_key": "", "url": "",
-		"source": "system",
-	}
+	maxInput := 180000
 	if n, ok := rawNumber(req.MaxInputTokens); ok && n > 0 {
-		modelConfig["max_input_tokens"] = n
+		maxInput = n
 	}
 	prompt := latestUserPrompt(messages)
 	name := "chat"
@@ -591,12 +584,16 @@ func BuildPlainChatBody(req translate.ChatRequest, now time.Time) map[string]any
 		"task_id":          "common",
 		"session_type":     "qodercli",
 		"aliyun_user_type": "",
-		"model_config":     modelConfig,
-		"custom_model":     nil,
-		"system":           systemText,
-		"messages":         messages,
-		"tools":            rawOrEmpty(req.Tools),
-		"parameters":       parameters,
+		"model_config": map[string]any{
+			"key": modelKey, "display_name": modelKey, "model": "", "format": "openai",
+			"is_vl": true, "is_reasoning": reasoning, "api_key": "", "url": "",
+			"source": "system", "max_input_tokens": maxInput,
+		},
+		"custom_model": nil,
+		"system":       systemText,
+		"messages":     messages,
+		"tools":        rawOrEmpty(req.Tools),
+		"parameters":   parameters,
 		"business": map[string]any{
 			"product": "cli", "version": COSYVersion, "type": "agent",
 			// model_key is what the gateway attributes the charge to. Without

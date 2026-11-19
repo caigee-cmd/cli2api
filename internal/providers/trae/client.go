@@ -35,14 +35,15 @@ type SecretReader interface {
 	GetSecret(context.Context, string) (string, bool, error)
 }
 
-// ModelSettingReader is optional. It is used for stored reasoning effort only;
-// context windows and max-mode are client-owned and never inferred from store.
+// ModelSettingReader is optional. Missing it falls through to the legacy
+// max-mode-only assertion when the request did not set IsMaxMode.
 type ModelSettingReader interface {
 	GetProviderModelSetting(context.Context, string, string) (accounts.ProviderModelSetting, error)
 }
 
 // ModelMaxModeReader remains as a compatibility interface for store test
-// assertions. Chat never stipulates a max tier from a stored setting.
+// assertions. Chat always forces a declared Max tier and no longer consults
+// this legacy toggle reader.
 type ModelMaxModeReader interface {
 	GetProviderModelMaxMode(context.Context, string, string) (bool, error)
 }
@@ -1096,10 +1097,6 @@ func (c *Client) chatRequest(ctx context.Context, credential Credential, req tra
 	resolved := providers.ResolvedChat{}
 	var obj map[string]any
 	if err := json.Unmarshal(rewritten, &obj); err == nil {
-		maxMode := false
-		if req.IsMaxMode != nil {
-			maxMode = *req.IsMaxMode
-		}
 		storedLevel := ""
 		if setter, ok := c.store.(ModelSettingReader); ok {
 			if stored, err := setter.GetProviderModelSetting(ctx, "trae", settingModelKey(req.Model)); err == nil {
@@ -1114,8 +1111,10 @@ func (c *Client) chatRequest(ctx context.Context, credential Credential, req tra
 			_, _ = c.Models(ctx, accountID)
 			caps = c.capsFor(req.Model)
 		}
-		// Max mode is client-owned. Do not turn it on from the provider catalog
-		// or a stored console toggle; only forward an explicit client request.
+		// Every model that declares a Max tier always runs at that tier. Stored
+		// toggles and explicit client switches no longer opt out of the larger
+		// context window; models without a declared tier stay at their default.
+		maxMode := caps.MaxMode
 		applySoloChatFields(obj, req, maxMode, storedLevel, caps, credential.UID, providers.ConversationFromContext(ctx))
 		resolved.ReasoningLevel = resolvedReasoningLevel(req, storedLevel, caps)
 		if encoded, err := json.Marshal(obj); err == nil {

@@ -145,14 +145,14 @@ test("does not inject thinking controls into ordinary requests", () => {
   assert.equal("reasoning_effort" in body.parameters, false);
 });
 
-test("does not choose a context window from the Qoder catalog", () => {
+test("uses the Qoder catalog input limit for MiniMax-M3", () => {
   const body = buildPlainChatBody({
     messages: [{ role: "user", content: "hi" }],
     model: "MiniMax-M3",
     modelConfig: { key: "mmodel", max_input_tokens: 1000000 },
     reasoningEffort: "medium",
   });
-  assert.equal("max_input_tokens" in body.model_config, false);
+  assert.equal(body.model_config.max_input_tokens, 1000000);
   assert.equal(body.parameters.enable_thinking, true);
 });
 
@@ -357,6 +357,6 @@ test("uses a dynamic catalog route without static aliases", () => {
   assert.equal(body.model_config.key, "catalog-glm-key");
   assert.equal(body.model_config.display_name, "GLM-5.3");
   assert.equal(body.model_config.source, "catalog");
-  assert.equal("max_input_tokens" in body.model_config, false);
+  assert.equal(body.model_config.max_input_tokens, 240000);
   assert.equal(body.model_config.is_reasoning, true);
 });

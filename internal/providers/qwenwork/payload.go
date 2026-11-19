@@ -8,7 +8,10 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
-const defaultMaxTokens = 32000
+const (
+	defaultMaxTokens      = 32000
+	defaultMaxInputTokens = 180000
+)
 
 // buildChatBody is the plaintext agent_chat_generation document the QwenWork
 // desktop sends. System and developer turns are lifted into "system"; the
@@ -98,7 +101,7 @@ func buildChatBody(req translate.ChatRequest, modelKey string, maxOutput int) ma
 		"model_config": map[string]any{
 			"key": modelKey, "display_name": modelKey, "model": "", "format": "openai",
 			"is_vl": true, "is_reasoning": false, "api_key": "", "url": "",
-			"source": "system",
+			"source": "system", "max_input_tokens": defaultMaxInputTokens,
 		},
 		"system":     systemText,
 		"messages":   messages,
