@@ -908,6 +908,7 @@ type routeLoop struct {
 }
 
 func (e ChatExecutor) newRouteLoop(ctx context.Context, prefer, providerFilter string, req translate.ChatRequest) routeLoop {
+	requestedProviderFilter := providerFilter
 	prefer, providerFilter, regionFilter, routing := e.prepareRouting(ctx, prefer, providerFilter, req)
 	allowed := allowedProvidersFrom(ctx)
 	// Capture the aggregate resolver once from the immutable per-request plan.
@@ -919,6 +920,23 @@ func (e ChatExecutor) newRouteLoop(ctx context.Context, prefer, providerFilter s
 		aggPlan = plan
 		resolver = plan.resolver()
 		prefer, providerFilter, regionFilter = "", "", ""
+		routing = routingPlan{Source: routingPool, SessionKey: routing.SessionKey, PublicModel: req.Model}
+	}
+	// Deterministic scheduling strategies must see every eligible account.
+	// Sticky routing pre-seeds prefer/provider/region from the last successful
+	// account; leaving that in place makes fill-first, FEFO, quota ordering, and
+	// aggregation priority appear to ignore their strategy. Explicit client pin
+	// (routingPin) is preserved; only implicit sticky state is dropped.
+	strategy := ""
+	if aggPlan != nil {
+		strategy = string(aggPlan.Strategy)
+	} else if e.Pool != nil {
+		strategy = e.Pool.RoutingStrategy()
+	}
+	if routing.Source == routingSticky && !sessionAffinityHonorsStrategy(strategy) {
+		prefer = ""
+		providerFilter = requestedProviderFilter
+		regionFilter = regionFilterFromContext(ctx)
 		routing = routingPlan{Source: routingPool, SessionKey: routing.SessionKey, PublicModel: req.Model}
 	}
 	// A model-name region prefix (e.g. "workbuddy-cn/model") sets an explicit
@@ -1448,20 +1466,37 @@ func firstNonEmpty(vals ...string) string {
 	return ""
 }
 
+func firstIntPtr(vals ...*int) *int {
+	for _, v := range vals {
+		if v != nil {
+			return v
+		}
+	}
+	return nil
+}
+
 func decodeChatResult(req translate.ChatRequest, body []byte) (ChatResult, error) {
 	var parsed struct {
 		Model string `json:"model"`
 		Usage struct {
-			PromptTokens         int      `json:"prompt_tokens"`
-			CompletionTokens     int      `json:"completion_tokens"`
-			CacheReadTokens      *int     `json:"cache_read_tokens"`
-			CacheWriteTokens     *int     `json:"cache_write_tokens"`
-			PromptCacheHitTokens *int     `json:"prompt_cache_hit_tokens"`
-			Source               string   `json:"source"`
-			Credits              *float64 `json:"credits"`
-			PromptDetails        struct {
+			PromptTokens             int      `json:"prompt_tokens"`
+			CompletionTokens         int      `json:"completion_tokens"`
+			CacheReadTokens          *int     `json:"cache_read_tokens"`
+			CacheReadInputTokens     *int     `json:"cache_read_input_tokens"`
+			CachedTokens             *int     `json:"cached_tokens"`
+			CachedContentTokenCount  *int     `json:"cached_content_token_count"`
+			CacheWriteTokens         *int     `json:"cache_write_tokens"`
+			CacheCreationInputTokens *int     `json:"cache_creation_input_tokens"`
+			PromptCacheHitTokens     *int     `json:"prompt_cache_hit_tokens"`
+			Source                   string   `json:"source"`
+			Credits                  *float64 `json:"credits"`
+			PromptDetails            struct {
 				CachedTokens *int `json:"cached_tokens"`
 			} `json:"prompt_tokens_details"`
+			InputDetails struct {
+				CachedTokens     *int `json:"cached_tokens"`
+				CacheWriteTokens *int `json:"cache_write_tokens"`
+			} `json:"input_tokens_details"`
 		} `json:"usage"`
 		Choices []struct {
 			FinishReason string `json:"finish_reason"`
@@ -1497,17 +1532,21 @@ func decodeChatResult(req translate.ChatRequest, body []byte) (ChatResult, error
 	if source == "" {
 		source = "estimate"
 	}
-	cacheRead := parsed.Usage.CacheReadTokens
-	if cacheRead == nil {
-		cacheRead = parsed.Usage.PromptDetails.CachedTokens
-	}
-	if cacheRead == nil {
-		cacheRead = parsed.Usage.PromptCacheHitTokens
-	}
-	cachedTokens := parsed.Usage.PromptDetails.CachedTokens
-	if cachedTokens == nil {
-		cachedTokens = cacheRead
-	}
+	cacheRead := firstIntPtr(
+		parsed.Usage.CacheReadTokens,
+		parsed.Usage.CacheReadInputTokens,
+		parsed.Usage.PromptDetails.CachedTokens,
+		parsed.Usage.InputDetails.CachedTokens,
+		parsed.Usage.PromptCacheHitTokens,
+		parsed.Usage.CachedTokens,
+		parsed.Usage.CachedContentTokenCount,
+	)
+	cacheWrite := firstIntPtr(
+		parsed.Usage.CacheWriteTokens,
+		parsed.Usage.CacheCreationInputTokens,
+		parsed.Usage.InputDetails.CacheWriteTokens,
+	)
+	cachedTokens := firstIntPtr(parsed.Usage.PromptDetails.CachedTokens, parsed.Usage.InputDetails.CachedTokens, cacheRead)
 	return ChatResult{
 		Model:            model,
 		Content:          content,
@@ -1517,7 +1556,7 @@ func decodeChatResult(req translate.ChatRequest, body []byte) (ChatResult, error
 		PromptTokens:     parsed.Usage.PromptTokens,
 		CompletionTokens: parsed.Usage.CompletionTokens,
 		CacheReadTokens:  cacheRead,
-		CacheWriteTokens: parsed.Usage.CacheWriteTokens,
+		CacheWriteTokens: cacheWrite,
 		CachedTokens:     cachedTokens,
 		UsageSource:      source,
 		Credits:          parsed.Usage.Credits,

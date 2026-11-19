@@ -735,7 +735,7 @@ func (p *Pool) PickRoute(q RouteQuery) (Item, bool) {
 	// pick the region with the most candidates and remember it — starting at
 	// the alphabetically first account would otherwise let one small region
 	// capture the route.
-	if q.RegionFilter == "" && !isQuotaRoutingStrategy(strategy) {
+	if q.RegionFilter == "" && sessionAffinityHonorsStrategy(strategy) {
 		if previous, ok := p.lastRegion[key]; ok {
 			// The latch is a hint, not a commitment: the pool can change
 			// underneath it. Keep the remembered region only while it still
@@ -818,6 +818,24 @@ func pickFillFirstWithWeight(available []Item, q RouteQuery) Item {
 
 func isQuotaRoutingStrategy(strategy string) bool {
 	return strategy == RoutingStrategyLeastQuotaFirst || strategy == RoutingStrategyMostQuotaFirst
+}
+
+// sessionAffinityHonorsStrategy reports whether sticky routing and the region
+// latch may run before the pool strategy. Only fair rotation strategies should
+// be narrowed by prior state: deterministic strategies such as fill-first,
+// FEFO, quota ordering, and aggregation priority must rank every eligible
+// account on every request, otherwise an old sticky/pinned region silently
+// overrides the configured strategy.
+func sessionAffinityHonorsStrategy(strategy string) bool {
+	if strings.EqualFold(strings.TrimSpace(strategy), AggregationStrategyPriority) {
+		return false
+	}
+	switch NormalizeRoutingStrategy(strategy) {
+	case RoutingStrategyRoundRobin, RoutingStrategyWeightedRoundRobin:
+		return true
+	default:
+		return false
+	}
 }
 
 // quotaRemainingRatio returns the account's remaining quota as 0..1. Quota
