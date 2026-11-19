@@ -32,16 +32,24 @@ export function BatchImportConfirmModal({
   onClose,
   onConfirm,
 }: Props) {
-  const [region, setRegion] = useState<ImportRegion>('cn')
-
-  useEffect(() => {
-    if (!detection) return
-    if (detection.region === 'cn' || detection.region === 'global') {
-      setRegion(detection.region)
-    } else {
-      setRegion('cn')
-    }
-  }, [detection])
+  const regionOptions: ImportRegion[] = detection?.provider === 'kiro'
+    ? ['us-east-1', 'eu-central-1']
+    : ['cn', 'global']
+  const [region, setRegion] = useState<ImportRegion>(
+    detection?.region && regionOptions.includes(detection.region) ? detection.region : regionOptions[0],
+  )
+	
+	  useEffect(() => {
+	    if (!detection) return
+	    const choices: ImportRegion[] = detection.provider === 'kiro'
+	      ? ['us-east-1', 'eu-central-1']
+	      : ['cn', 'global']
+	    if (detection.region && choices.includes(detection.region)) {
+	      setRegion(detection.region)
+	    } else {
+	      setRegion(choices[0])
+	    }
+	  }, [detection])
 
   const supported = Boolean(detection?.batchImportSupported)
   const provider = detection?.provider
@@ -94,21 +102,28 @@ export function BatchImportConfirmModal({
 
               {supported ? (
                 <div className="space-y-2">
-                  <div className="text-body font-medium text-muted">{t('batchImportRegion')}</div>
-                  <FilterToggle
-                    value={region}
-                    onChange={(next) => {
-                      if (next === 'cn' || next === 'global') setRegion(next)
-                    }}
-                    ariaLabel={t('batchImportRegion')}
-                    options={[
-                      { id: 'cn', label: t('accountTypeWorkBuddyCN') },
-                      { id: 'global', label: t('accountTypeWorkBuddyGlobal') },
-                    ]}
-                  />
-                  {detection?.regionAmbiguous ? (
-                    <p className="text-caption leading-5 text-muted">{t('batchImportRegionPickHint')}</p>
-                  ) : null}
+	                  <div className="text-body font-medium text-muted">{t(provider === 'kiro' ? 'batchImportKiroRegion' : 'batchImportRegion')}</div>
+	                  <FilterToggle
+	                    value={region}
+	                    onChange={(next) => {
+	                      if (regionOptions.includes(next as ImportRegion)) setRegion(next as ImportRegion)
+	                    }}
+	                    ariaLabel={t(provider === 'kiro' ? 'batchImportKiroRegion' : 'batchImportRegion')}
+	                    options={provider === 'kiro'
+	                      ? [
+	                        { id: 'us-east-1', label: t('accountTypeKiroUS') },
+	                        { id: 'eu-central-1', label: t('accountTypeKiroEU') },
+	                      ]
+	                      : [
+	                        { id: 'cn', label: t('accountTypeWorkBuddyCN') },
+	                        { id: 'global', label: t('accountTypeWorkBuddyGlobal') },
+	                      ]}
+	                  />
+	                  {detection?.regionAmbiguous ? (
+	                    <p className="text-caption leading-5 text-muted">
+	                      {t(provider === 'kiro' ? 'batchImportKiroRegionPickHint' : 'batchImportRegionPickHint')}
+	                    </p>
+	                  ) : null}
                 </div>
               ) : (
                 <p className="text-body leading-6 text-muted">{t('batchImportProviderUnsupported')}</p>

@@ -150,6 +150,77 @@ run('nested account/auth entry without format still detects', () => {
   assert.equal(result.batchImportSupported, true)
 })
 
+run('kiro builder id json is recognized with its region', () => {
+  const result = detectImportBundle({
+    authMethod: 'builder_id',
+    region: 'eu-central-1',
+    accessToken: 'access',
+    refreshToken: 'refresh',
+    clientId: 'client',
+    clientSecret: 'secret',
+    email: 'dev@example.com',
+  })
+  assert.equal(result.provider, 'kiro')
+  assert.equal(result.format, 'kiro-oauth-v1')
+  assert.equal(result.region, 'eu-central-1')
+  assert.equal(result.regionAmbiguous, false)
+  assert.equal(result.batchImportSupported, true)
+})
+
+run('kiro profile arn region beats a missing region field', () => {
+  const result = detectImportBundle({
+    refreshToken: 'refresh',
+    clientId: 'client',
+    clientSecret: 'secret',
+    profileArn: 'arn:aws:codewhisperer:eu-central-1:123456789012:profile/abc',
+  })
+  assert.equal(result.provider, 'kiro')
+  assert.equal(result.region, 'eu-central-1')
+  assert.equal(result.regionAmbiguous, false)
+})
+
+run('kiro api key suffix sets the region', () => {
+  const result = detectImportBundle({
+    kiroApiKey: 'ksk_test|eu-central-1',
+  })
+  assert.equal(result.provider, 'kiro')
+  assert.equal(result.format, 'kiro-oauth-v1')
+  assert.equal(result.region, 'eu-central-1')
+})
+
+run('kiro json without a region asks the operator', () => {
+  const result = detectImportBundle({
+    accessToken: 'access',
+    refreshToken: 'refresh',
+    clientId: 'client',
+    clientSecret: 'secret',
+  })
+  assert.equal(result.provider, 'kiro')
+  assert.equal(result.region, null)
+  assert.equal(result.regionAmbiguous, true)
+  assert.ok(result.warnings.includes('region_unknown'))
+})
+
+run('kiro accounts[] pack is not detected as workbuddy', () => {
+  const result = detectImportBundle({
+    accounts: [
+      { authMethod: 'builder_id', region: 'us-east-1', refreshToken: 'a', clientId: 'c', clientSecret: 's' },
+      { authMethod: 'idc', region: 'eu-central-1', refreshToken: 'b', clientId: 'c', clientSecret: 's', email: 'eu@example.com' },
+    ],
+  })
+  assert.equal(result.provider, 'kiro')
+  assert.equal(result.format, 'kiro-oauth-v1')
+  assert.equal(result.region, null)
+  assert.equal(result.regionAmbiguous, true)
+  assert.ok(result.warnings.includes('region_mixed'))
+  assert.equal(result.batchImportSupported, true)
+})
+
+run('a bare refresh token is not mistaken for kiro', () => {
+  const result = detectImportBundle({ refreshToken: 'refresh' })
+  assert.notEqual(result.provider, 'kiro')
+})
+
 run('workbuddy.cn is CN; workbuddy.ai stays global', () => {
   const cn = detectImportBundle({
     format: 'workbuddy-accounts',
