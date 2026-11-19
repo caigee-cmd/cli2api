@@ -200,15 +200,26 @@ func applyRuntimeHeaders(req *http.Request, cred Credential, host string) {
 	if token := cred.bearer(); token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
-	if kind := cred.tokenType(); kind != "" {
-		req.Header.Set("tokentype", kind)
-	}
+	applyTokenType(req, cred)
 	req.Header.Set("User-Agent", sdkUserAgent(cred, "codewhispererruntime", RuntimeSDKVersion, "m/N,E"))
 	req.Header.Set("x-amz-user-agent", amzUserAgent(cred, RuntimeSDKVersion))
 	req.Header.Set("x-amzn-codewhisperer-optout", "true")
 	req.Header.Set("Accept", "application/json")
 	if host != "" {
 		req.Host = host
+	}
+}
+
+func applyTokenType(req *http.Request, cred Credential) {
+	// Header names are case-insensitive on the wire, but deleting both spellings
+	// prevents callers from leaving duplicate canonicalized entries behind.
+	req.Header.Del("TokenType")
+	req.Header.Del("tokentype")
+	switch {
+	case cred.isAPIKey():
+		req.Header.Set("tokentype", "API_KEY")
+	case cred.isExternal():
+		req.Header.Set("TokenType", "EXTERNAL_IDP")
 	}
 }
 
@@ -233,9 +244,7 @@ func applyResponsesHeaders(req *http.Request, cred Credential, attempt int) {
 	if token := cred.bearer(); token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
-	if cred.isExternal() {
-		req.Header.Set("tokentype", "EXTERNAL_IDP")
-	}
+	applyTokenType(req, cred)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("User-Agent", responsesUserAgent(cred))

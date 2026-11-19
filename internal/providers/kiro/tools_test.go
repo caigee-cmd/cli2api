@@ -299,6 +299,79 @@ func TestToolChoiceNamesUndeclaredTool(t *testing.T) {
 	}
 }
 
+func TestAnthropicServerWebSearchIsMarkedForProvider(t *testing.T) {
+	translated, err := translate.TranslateAnthropicMessages(translate.AnthropicMessagesRequest{
+		Model:    "kiro/auto",
+		Messages: []translate.AnthropicMessage{{Role: "user", Content: json.RawMessage(`"latest news"`)}},
+		Tools:    json.RawMessage(`[{"type":"web_search_20250305","name":"web_search","max_uses":3}]`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(translated.AnthropicServerTools) != 1 || translated.AnthropicServerTools[0] != "web_search_20250305" {
+		t.Fatalf("server tools = %#v", translated.AnthropicServerTools)
+	}
+}
+
+func TestAnthropicErrorToolResultAndImagePlaceholder(t *testing.T) {
+	translated, err := translate.TranslateAnthropicMessages(translate.AnthropicMessagesRequest{
+		Model: "kiro/auto",
+		Messages: []translate.AnthropicMessage{
+			{Role: "assistant", Content: json.RawMessage(`[{"type":"tool_use","id":"toolu_1","name":"inspect","input":{}}]`)},
+			{Role: "user", Content: json.RawMessage(`[{"type":"tool_result","tool_use_id":"toolu_1","is_error":true,"content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"AAAA"}}]}]`)},
+		},
+		Tools: json.RawMessage(`[{"name":"inspect","input_schema":{"type":"object"}}]`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	conv, err := buildConversation(translated, Credential{}, "auto")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(conv.Current.Results) != 1 || !conv.Current.Results[0].IsError || !strings.Contains(conv.Current.Results[0].Output, "image") {
+		t.Fatalf("results = %#v", conv.Current.Results)
+	}
+	legacy := conv.legacyBody(Origin, false)
+	ctx := legacy.ConversationState.CurrentMessage.UserInputMessage.UserInputMessageContext
+	if ctx == nil || len(ctx.ToolResults) != 1 || ctx.ToolResults[0].Status != "error" {
+		t.Fatalf("legacy tool results = %#v", ctx)
+	}
+	if len(conv.Current.Images) != 1 || conv.Current.Images[0].Format != "png" {
+		t.Fatalf("tool result image = %#v", conv.Current.Images)
+	}
+}
+
+func TestAnthropicDisablesParallelToolsAndCleansSchema(t *testing.T) {
+	translated, err := translate.TranslateAnthropicMessages(translate.AnthropicMessagesRequest{
+		Model:      "kiro/auto",
+		Messages:   []translate.AnthropicMessage{{Role: "user", Content: json.RawMessage(`"go"`)}},
+		ToolChoice: json.RawMessage(`{"type":"any","disable_parallel_tool_use":true}`),
+		Tools:      json.RawMessage(`[{"name":"read_file","input_schema":{"type":"object","additionalProperties":false,"required":[],"properties":{"path":{"type":"string","additionalProperties":false}}}}]`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	conv, err := buildConversation(translated, Credential{}, "auto")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !conv.DisableParallel || !strings.Contains(conv.Current.Text, "at most one tool call") {
+		t.Fatalf("directive = %q", conv.Current.Text)
+	}
+	params := conv.Tools[0].Parameters.(map[string]any)
+	if _, ok := params["additionalProperties"]; ok {
+		t.Fatalf("top-level additionalProperties survived: %#v", params)
+	}
+	if _, ok := params["required"]; ok {
+		t.Fatalf("empty required survived: %#v", params)
+	}
+	path := params["properties"].(map[string]any)["path"].(map[string]any)
+	if _, ok := path["additionalProperties"]; ok {
+		t.Fatalf("nested additionalProperties survived: %#v", path)
+	}
+}
+
 func TestMarkupRescueBecomesToolCall(t *testing.T) {
 	filter := armMarkupFilter([]toolSpec{{Name: "Read", Parameters: map[string]any{
 		"type": "object", "properties": map[string]any{"path": map[string]any{"type": "string"}},

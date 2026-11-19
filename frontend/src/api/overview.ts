@@ -44,7 +44,23 @@ export function loginWithPat(pat: string, accountId?: string) {
   })
 }
 
-type ModelsResponse = { data?: Overview['models'] }
+export type ModelPagination = {
+  page: number
+  page_size: number
+  total: number
+  total_pages: number
+  has_next: boolean
+}
+
+export type ModelsResponse = {
+  data?: Overview['models']
+  pagination?: ModelPagination
+}
+
+type ModelFetchOptions = {
+  page?: number
+  pageSize?: number
+}
 
 type ModelsMemoryEntry = {
   data: ModelsResponse
@@ -59,11 +75,13 @@ function modelsMemoryKey(accountId?: string, view?: 'regional') {
   return `${accountId || '*'}@${view || 'merged'}`
 }
 
-export function fetchModels(accountId?: string, refresh = false, view?: 'regional') {
+export function fetchModels(accountId?: string, refresh = false, view?: 'regional', options?: ModelFetchOptions) {
   const q = new URLSearchParams()
   if (refresh) q.set('refresh', '1')
   if (accountId) q.set('account', accountId)
   if (view) q.set('view', view)
+  if (options?.page != null) q.set('page', String(options.page))
+  if (options?.pageSize != null) q.set('page_size', String(options.pageSize))
   const query = q.toString()
   return api<ModelsResponse>(`/api/models${query ? `?${query}` : ''}`)
 }
@@ -88,11 +106,13 @@ export function fetchModelsCached(accountId?: string, view?: 'regional') {
   return pending
 }
 
-export function refreshModels(accountId?: string, view?: 'regional') {
+export function refreshModels(accountId?: string, view?: 'regional', options?: ModelFetchOptions) {
   const key = modelsMemoryKey(accountId, view)
   modelsMemoryCache.delete(key)
-  return fetchModels(accountId, true, view).then((data) => {
-    modelsMemoryCache.set(key, { data, at: Date.now() })
+  return fetchModels(accountId, true, view, options).then((data) => {
+    if (!options?.page && !options?.pageSize) {
+      modelsMemoryCache.set(key, { data, at: Date.now() })
+    }
     return data
   })
 }

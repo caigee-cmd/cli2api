@@ -80,10 +80,12 @@ type compatibilityToolResult struct {
 	CallID  string
 	Content string
 	Images  []any
+	IsError bool
 }
 
 func TranslateAnthropicMessages(request AnthropicMessagesRequest) (ChatRequest, error) {
 	chat := ChatRequest{
+		Protocol:    "anthropic_messages",
 		Model:       strings.TrimSpace(request.Model),
 		Stream:      request.Stream,
 		MaxTokens:   request.MaxTokens,
@@ -143,20 +145,21 @@ func TranslateAnthropicMessages(request AnthropicMessagesRequest) (ChatRequest, 
 			if toolResult.CallID == "" {
 				return ChatRequest{}, fmt.Errorf("messages[%d]: tool_result requires tool_use_id", messageIndex)
 			}
-			chat.Messages = append(chat.Messages, ChatMessage{Role: "tool", ToolCallID: toolResult.CallID, Content: toolResult.Content})
-			if len(toolResult.Images) > 0 {
-				chat.Messages = append(chat.Messages, ChatMessage{Role: "user", Content: toolResult.Images})
-			}
+			chat.Messages = append(chat.Messages, ChatMessage{
+				Role: "tool", ToolCallID: toolResult.CallID, Content: toolResult.Content,
+				ToolResultIsError: toolResult.IsError, ToolResultImages: toolResult.Images,
+			})
 		}
 	}
 	if len(chat.Messages) == 0 {
 		return ChatRequest{}, fmt.Errorf("messages required")
 	}
-	tools, err := translateAnthropicTools(request.Tools)
+	tools, serverTools, err := translateAnthropicTools(request.Tools)
 	if err != nil {
 		return ChatRequest{}, err
 	}
 	chat.Tools = tools
+	chat.AnthropicServerTools = serverTools
 	toolChoice, err := translateAnthropicToolChoice(request.ToolChoice)
 	if err != nil {
 		return ChatRequest{}, err
@@ -302,7 +305,14 @@ func anthropicMessageParts(raw json.RawMessage) (any, []compatibilityToolCall, [
 			if err != nil {
 				return "", nil, nil, fmt.Errorf("content[%d].content: %w", partIndex, err)
 			}
-			toolResults = append(toolResults, compatibilityToolResult{CallID: rawMapString(block, "tool_use_id"), Content: content, Images: images})
+			if strings.TrimSpace(content) == "" && len(images) > 0 {
+				content = "[Tool returned an image; the image is attached to this message.]"
+			}
+			var isError bool
+			_ = json.Unmarshal(block["is_error"], &isError)
+			toolResults = append(toolResults, compatibilityToolResult{
+				CallID: rawMapString(block, "tool_use_id"), Content: content, Images: images, IsError: isError,
+			})
 		case "image":
 			image, err := anthropicImagePart(block)
 			if err != nil {
@@ -380,19 +390,27 @@ func anthropicImagePart(block map[string]json.RawMessage) (map[string]any, error
 	return map[string]any{"type": "image_url", "image_url": map[string]string{"url": imageURL}}, nil
 }
 
-func translateAnthropicTools(raw json.RawMessage) (json.RawMessage, error) {
+func translateAnthropicTools(raw json.RawMessage) (json.RawMessage, []string, error) {
 	if emptyJSON(raw) {
-		return nil, nil
+		return nil, nil, nil
 	}
 	var source []map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &source); err != nil {
-		return nil, fmt.Errorf("tools must be an array")
+		return nil, nil, fmt.Errorf("tools must be an array")
 	}
 	tools := make([]map[string]any, 0, len(source))
+	serverTools := make([]string, 0)
 	for toolIndex, tool := range source {
+		kind := strings.ToLower(strings.TrimSpace(rawMapString(tool, "type")))
+		if strings.HasPrefix(kind, "web_search_") {
+			// Preserve the ordinary function representation for providers that have
+			// their own hosted-search handling; Kiro rejects it explicitly using the
+			// side-channel marker below instead of pretending it executed a search.
+			serverTools = append(serverTools, kind)
+		}
 		name := rawMapString(tool, "name")
 		if name == "" {
-			return nil, fmt.Errorf("tools[%d].name required", toolIndex)
+			return nil, nil, fmt.Errorf("tools[%d].name required", toolIndex)
 		}
 		parameters := rawMapJSON(tool, "input_schema")
 		if len(parameters) == 0 {
@@ -405,7 +423,8 @@ func translateAnthropicTools(raw json.RawMessage) (json.RawMessage, error) {
 			},
 		})
 	}
-	return json.Marshal(tools)
+	encoded, err := json.Marshal(tools)
+	return encoded, serverTools, err
 }
 
 func translateAnthropicToolChoice(raw json.RawMessage) (json.RawMessage, error) {
@@ -748,7 +767,8 @@ func anthropicParallelToolCalls(raw json.RawMessage) *bool {
 	}
 	var disabled bool
 	if json.Unmarshal(source["disable_parallel_tool_use"], &disabled) == nil && disabled {
-		return &disabled
+		enabled := false
+		return &enabled
 	}
 	return nil
 }

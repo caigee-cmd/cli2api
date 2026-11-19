@@ -42,7 +42,7 @@ type Client struct {
 	transports proxyutil.TransportCache
 
 	mu     sync.Mutex
-	models []providers.ModelInfo
+	models map[string][]providers.ModelInfo
 	logins map[string]*loginState
 }
 
@@ -194,50 +194,51 @@ func (c *Client) Probe(ctx context.Context, accountID string) (providers.Account
 func (c *Client) Models(ctx context.Context, accountID string) ([]providers.ModelInfo, error) {
 	cred, err := c.credential(ctx, accountID)
 	if err != nil {
-		return c.cachedOrDefault(), nil
-	}
-	client, err := c.httpClient(ctx, accountID)
-	if err != nil {
-		if cached := c.cachedModels(); len(cached) > 0 {
-			return cached, nil
-		}
-		return c.cachedOrDefault(), nil
-	}
-	ensureIDEVersion(client)
-	// The model list is gated on the advertised IDE build. Wait for one feed
-	// read so the first catalog is not taken with the fallback version.
-	refreshIDEVersion(client)
-	models, err := c.listModels(ctx, client, cred)
-	if err != nil || len(models) == 0 {
-		// A failed live list must not be replaced by the short fallback. The
-		// caller keeps the previous catalog; an empty result stays unknown
-		// instead of advertising a handful of models the account may not have.
-		if cached := c.cachedModels(); len(cached) > 0 {
+		if cached := c.cachedModels(accountID); len(cached) > 0 {
 			return cached, nil
 		}
 		return nil, err
 	}
-	models = withAdvertisedModels(models)
+	client, err := c.httpClient(ctx, accountID)
+	if err != nil {
+		if cached := c.cachedModels(accountID); len(cached) > 0 {
+			return cached, nil
+		}
+		return nil, err
+	}
+	// Profile resolution and model listing are both version-gated REST calls.
+	_ = waitForIDEVersion(ctx, client)
+	cred, err = c.ensureProfileArn(ctx, accountID, client, cred)
+	if err != nil {
+		return nil, err
+	}
+	models, err := c.listModels(ctx, client, cred)
+	if err != nil {
+		if cached := c.cachedModels(accountID); len(cached) > 0 {
+			return cached, nil
+		}
+		return nil, err
+	}
+	if len(models) == 0 {
+		return nil, fmt.Errorf("kiro model list is empty")
+	}
 	c.mu.Lock()
-	c.models = models
+	if c.models == nil {
+		c.models = make(map[string][]providers.ModelInfo)
+	}
+	c.models[accountID] = append([]providers.ModelInfo(nil), models...)
 	c.mu.Unlock()
 	return models, nil
 }
 
-func (c *Client) cachedModels() []providers.ModelInfo {
+func (c *Client) cachedModels(accountID string) []providers.ModelInfo {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if len(c.models) == 0 {
+	models := c.models[accountID]
+	if len(models) == 0 {
 		return nil
 	}
-	return append([]providers.ModelInfo(nil), c.models...)
-}
-
-func (c *Client) cachedOrDefault() []providers.ModelInfo {
-	if cached := c.cachedModels(); len(cached) > 0 {
-		return cached
-	}
-	return defaultModels()
+	return append([]providers.ModelInfo(nil), models...)
 }
 
 func (c *Client) ChatNonStream(ctx context.Context, accountID string, req translate.ChatRequest) (providers.ChatOutcome, error) {
@@ -250,6 +251,12 @@ func (c *Client) ChatNonStream(ctx context.Context, accountID string, req transl
 }
 
 func (c *Client) ChatStream(ctx context.Context, accountID string, req translate.ChatRequest) (*http.Response, providers.ResolvedChat, error) {
+	if req.Protocol != "anthropic_messages" {
+		return nil, providers.ResolvedChat{}, fmt.Errorf("kiro supports only the Anthropic Messages API")
+	}
+	if len(req.AnthropicServerTools) > 0 {
+		return nil, providers.ResolvedChat{}, fmt.Errorf("kiro does not support Anthropic server tools: %s", strings.Join(req.AnthropicServerTools, ", "))
+	}
 	model := resolveModel(req.Model)
 	if model == "" {
 		return nil, providers.ResolvedChat{}, fmt.Errorf("kiro model required")
@@ -258,15 +265,20 @@ func (c *Client) ChatStream(ctx context.Context, accountID string, req translate
 	if err != nil {
 		return nil, providers.ResolvedChat{}, err
 	}
-	payload, err := buildConversation(req, cred, model)
-	if err != nil {
-		return nil, providers.ResolvedChat{}, err
-	}
 	client, err := c.httpClient(ctx, accountID)
 	if err != nil {
 		return nil, providers.ResolvedChat{}, err
 	}
-	ensureIDEVersion(client)
+	// Resolve the current stable fingerprint before any gated REST call.
+	_ = waitForIDEVersion(ctx, client)
+	cred, err = c.ensureProfileArn(ctx, accountID, client, cred)
+	if err != nil {
+		return nil, providers.ResolvedChat{}, err
+	}
+	payload, err := buildConversation(req, cred, model)
+	if err != nil {
+		return nil, providers.ResolvedChat{}, err
+	}
 	resolved := providers.ResolvedChat{ReasoningLevel: payload.Level}
 	if c.useResponses(ctx, accountID, cred) {
 		body, err := c.postResponses(ctx, client, cred, payload)
@@ -425,9 +437,7 @@ func applyLegacyHeaders(req *http.Request, cred Credential, endpoint legacyEndpo
 	if token := cred.bearer(); token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
-	if kind := cred.tokenType(); kind != "" {
-		req.Header.Set("tokentype", kind)
-	}
+	applyTokenType(req, cred)
 	req.Header.Set("Accept", "*/*")
 	req.Header.Set("User-Agent", sdkUserAgent(cred, "codewhispererstreaming", StreamingSDKVersion, "m/E"))
 	req.Header.Set("x-amz-user-agent", amzUserAgent(cred, StreamingSDKVersion))
@@ -566,46 +576,42 @@ func collectOutcome(body io.Reader, level string) (providers.ChatOutcome, error)
 	return outcome, nil
 }
 
-// withAdvertisedModels keeps every model ListAvailableModels returned and adds
-// the older client names upstream accepts on top. A name the live list already
-// has is not duplicated.
+// withAdvertisedModels supplements a short upstream catalog with model IDs
+// documented by Kiro's own effort configuration. It never replaces live rows;
+// an account-specific response remains the source of truth for capabilities.
 func withAdvertisedModels(live []providers.ModelInfo) []providers.ModelInfo {
 	seen := make(map[string]struct{}, len(live))
 	for _, model := range live {
-		seen[strings.ToLower(model.PublicModel)] = struct{}{}
+		key := strings.ToLower(strings.TrimSpace(model.PublicModel))
+		if key != "" {
+			seen[key] = struct{}{}
+		}
 	}
 	out := append([]providers.ModelInfo(nil), live...)
-	for _, model := range defaultModels() {
-		if _, ok := seen[strings.ToLower(model.PublicModel)]; ok {
+	for _, model := range documentedModels() {
+		key := strings.ToLower(model.PublicModel)
+		if _, ok := seen[key]; ok {
 			continue
 		}
+		seen[key] = struct{}{}
 		out = append(out, model)
 	}
 	return out
 }
 
-func defaultModels() []providers.ModelInfo {
-	// Shown only before the first successful ListAvailableModels. The live list
-	// replaces this. Names match what Kiro currently serves plus the aliases
-	// upstream exposes for older client model ids.
-	names := []string{
-		"auto",
-		"claude-sonnet-5", "claude-sonnet-4.5", "claude-sonnet-4",
-		"claude-haiku-4.5",
-		"claude-opus-5", "claude-opus-4.8", "claude-opus-4.7", "claude-opus-4.6", "claude-opus-4.5",
-		"claude-3-5-sonnet", "claude-3-sonnet", "claude-3-opus", "claude-3-haiku",
-		"claude-sonnet-4-20250514",
-		"deepseek-3.2",
+func documentedModels() []providers.ModelInfo {
+	return []providers.ModelInfo{
+		documentedModel("claude-sonnet-4.6", "Claude Sonnet 4.6", []string{"low", "medium", "high", "max"}, "high"),
+		documentedModel("gpt-5.6-sol", "GPT 5.6 Sol", []string{"none", "low", "medium", "high", "xhigh", "max"}, "high"),
+		documentedModel("gpt-5.6-terra", "GPT 5.6 Terra", []string{"none", "low", "medium", "high", "xhigh", "max"}, "high"),
 	}
-	models := make([]providers.ModelInfo, 0, len(names))
-	for _, name := range names {
-		models = append(models, providers.ModelInfo{
-			NativeModel: name, PublicModel: name, DisplayName: name,
-			Capabilities: providers.ModelCapabilities{
-				Tools: true, Images: true, Reasoning: true,
-				ReasoningOptions: []string{"low", "medium", "high"}, ReasoningDefault: "medium",
-			},
-		})
+}
+
+func documentedModel(id, display string, reasoning []string, defaultReasoning string) providers.ModelInfo {
+	return providers.ModelInfo{
+		NativeModel: id, PublicModel: id, DisplayName: display,
+		Capabilities: providers.ModelCapabilities{
+			Reasoning: true, ReasoningOptions: reasoning, ReasoningDefault: defaultReasoning,
+		},
 	}
-	return models
 }

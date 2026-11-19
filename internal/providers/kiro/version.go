@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -26,39 +27,62 @@ func currentIDEVersion() string {
 	return value
 }
 
-var (
-	lastVersionRecheck atomic.Int64
-	lastVersionRefresh atomic.Int64
-)
+var lastVersionRecheck atomic.Int64
 
-// ensureIDEVersion starts one background read of the stable feed, then one
-// more per day. Chat does not wait for it; the fallback version is used until
-// the feed answers with a build at least as new as the fallback.
-func ensureIDEVersion(client *http.Client) {
-	go refreshIDEVersion(client)
+type versionCall struct {
+	done chan struct{}
+	err  error
+}
+
+var versionRefresh = struct {
+	sync.Mutex
+	at   time.Time
+	ttl  time.Duration
+	call *versionCall
+}{}
+
+func waitForIDEVersion(ctx context.Context, client *http.Client) error {
+	versionRefresh.Lock()
+	if !versionRefresh.at.IsZero() && time.Since(versionRefresh.at) < versionRefresh.ttl {
+		versionRefresh.Unlock()
+		return nil
+	}
+	if call := versionRefresh.call; call != nil {
+		versionRefresh.Unlock()
+		select {
+		case <-call.done:
+			return call.err
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	call := &versionCall{done: make(chan struct{})}
+	versionRefresh.call = call
+	versionRefresh.Unlock()
+
+	fetchCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	version, err := fetchIDEVersion(fetchCtx, client)
+	cancel()
+	if err == nil && newerIDEVersion(version, currentIDEVersion()) {
+		ideVersion.Store(version)
+	}
+
+	versionRefresh.Lock()
+	call.err = err
+	versionRefresh.at = time.Now()
+	if err == nil {
+		versionRefresh.ttl = versionRefreshEvery
+	} else {
+		versionRefresh.ttl = time.Minute
+	}
+	versionRefresh.call = nil
+	close(call.done)
+	versionRefresh.Unlock()
+	return err
 }
 
 func refreshIDEVersion(client *http.Client) {
-	now := time.Now().UnixNano()
-	last := lastVersionRefresh.Load()
-	fresh := last != 0 && now-last < int64(versionRefreshEvery)
-	if fresh && currentIDEVersion() != IDEVersion {
-		return
-	}
-	if !lastVersionRefresh.CompareAndSwap(last, now) {
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-	version, err := fetchIDEVersion(ctx, client)
-	if err != nil || !newerIDEVersion(version, IDEVersion) {
-		return
-	}
-	current, _ := ideVersion.Load().(string)
-	if current != "" && !newerIDEVersion(version, current) {
-		return
-	}
-	ideVersion.Store(version)
+	_ = waitForIDEVersion(context.Background(), client)
 }
 
 // newerIDEVersion reports whether a is a dotted numeric version above b.
@@ -145,6 +169,10 @@ func noteVersionGate(client *http.Client, body string) {
 	if now-last < int64(versionRecheckGap) || !lastVersionRecheck.CompareAndSwap(last, now) {
 		return
 	}
+	versionRefresh.Lock()
+	versionRefresh.at = time.Time{}
+	versionRefresh.ttl = 0
+	versionRefresh.Unlock()
 	go refreshIDEVersion(client)
 }
 

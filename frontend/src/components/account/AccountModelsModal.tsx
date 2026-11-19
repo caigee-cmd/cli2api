@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Button, Chip, Modal } from '@heroui/react'
 import { ArrowClockwise, Cube, X } from '@phosphor-icons/react'
 import { fetchModels, refreshModels } from '@/api/overview'
 import type { ModelInfo } from '@/api/types'
 import { ProviderMark } from '@/components/ProviderMark'
 import { EmptyPanel } from '@/components/ui/EmptyPanel'
+import { ListPager, type PageSize } from '@/components/ui/ListPager'
 import { SkeletonBlock } from '@/components/ui/PageSkeletons'
 import { PageAlert } from '@/components/ui/PageAlert'
 import type { AccountRow } from '@/lib/account'
@@ -29,50 +30,57 @@ export function AccountModelsModal({ account, t, onClose }: Props) {
   const [loading, setLoading] = useState(Boolean(account?.id))
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState<PageSize>(20)
+  const [total, setTotal] = useState(0)
+  const [pageCount, setPageCount] = useState(1)
+  const requestID = useRef(0)
   const accountId = account?.id || ''
   const title = t('accountModelsTitle', { name: account?.name || account?.id || '' })
   const provider = account ? accountProviderLabel(account.provider, account.region, t) : ''
 
-  async function load(refresh = false) {
+  async function load(requestedPage = 1, requestedPageSize = pageSize, refresh = false) {
     if (!accountId) return
+    const currentRequest = ++requestID.current
     if (refresh) setRefreshing(true)
-    else {
-      setLoading(true)
-      setModels([])
-    }
+    else setLoading(true)
     setError('')
     try {
-      const data = await (refresh ? refreshModels(accountId) : fetchModels(accountId))
-      setModels(data.data || [])
+      const data = await (refresh
+        ? refreshModels(accountId, undefined, { page: requestedPage, pageSize: requestedPageSize })
+        : fetchModels(accountId, false, undefined, { page: requestedPage, pageSize: requestedPageSize }))
+      const all = data.data || []
+      const pagination = data.pagination
+      const nextTotal = pagination?.total ?? all.length
+      const nextPageCount = pagination?.total_pages ?? Math.max(1, Math.ceil(nextTotal / requestedPageSize))
+      const nextPage = Math.min(Math.max(1, pagination?.page ?? requestedPage), nextPageCount)
+      if (currentRequest !== requestID.current) return
+      setModels(pagination ? all : all.slice((nextPage - 1) * requestedPageSize, nextPage * requestedPageSize))
+      setTotal(nextTotal)
+      setPageCount(nextPageCount)
+      setPage(nextPage)
     } catch (err) {
+      if (currentRequest !== requestID.current) return
       setModels([])
+      setTotal(0)
+      setPageCount(1)
       setError(err instanceof Error ? err.message : String(err))
     } finally {
-      setLoading(false)
-      setRefreshing(false)
+      if (currentRequest === requestID.current) {
+        setLoading(false)
+        setRefreshing(false)
+      }
     }
   }
 
   useEffect(() => {
     if (!accountId) return
-    let cancelled = false
-    void fetchModels(accountId)
-      .then((data) => {
-        if (cancelled) return
-        setModels(data.data || [])
-        setError('')
-        setLoading(false)
-      })
-      .catch((err) => {
-        if (cancelled) return
-        setModels([])
-        setError(err instanceof Error ? err.message : String(err))
-        setLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
+    setPage(1)
+    void load(1, pageSize)
   }, [accountId])
+
+  const shownFrom = total === 0 ? 0 : (page - 1) * pageSize + 1
+  const shownTo = total === 0 ? 0 : Math.min(total, shownFrom + models.length - 1)
 
   return (
     <Modal.Root isOpen={Boolean(account)} onOpenChange={(next: boolean) => { if (!next) onClose() }}>
@@ -146,17 +154,37 @@ export function AccountModelsModal({ account, t, onClose }: Props) {
                 />
               )}
             </Modal.Body>
-            <Modal.Footer className="justify-between px-5 pb-5">
-              <span className="mono text-caption text-muted">
-                {loading ? t('refreshing') : t('shownTotal', { shown: models.length, total: models.length })}
-              </span>
-              <div className="flex items-center gap-2">
-                <Button size="sm" variant="ghost" onPress={onClose}>{t('close')}</Button>
-                <Button size="sm" variant="secondary" isPending={refreshing} onPress={() => void load(true)}>
-                  <ArrowClockwise size={14} />
-                  {refreshing ? t('refreshing') : t('refresh')}
-                </Button>
+            <Modal.Footer className="flex-col items-stretch gap-3 px-5 pb-5">
+              <div className="flex items-center justify-between gap-3">
+                <span className="mono text-caption text-muted">
+                  {loading ? t('refreshing') : t('shownTotal', { shown: total ? `${shownFrom}–${shownTo}` : 0, total })}
+                </span>
+                <div className="flex items-center gap-2">
+                  <Button size="sm" variant="ghost" onPress={onClose}>{t('close')}</Button>
+                  <Button size="sm" variant="secondary" isPending={refreshing} onPress={() => void load(1, pageSize, true)}>
+                    <ArrowClockwise size={14} />
+                    {refreshing ? t('refreshing') : t('refresh')}
+                  </Button>
+                </div>
               </div>
+              {total > 0 ? (
+                <ListPager
+                  total={total}
+                  page={page}
+                  pageCount={pageCount}
+                  pageSize={pageSize}
+                  loading={loading || refreshing}
+                  pageSizeLabel={t('logsPageSize')}
+                  pageLabel={t('logsPage', { page, pages: pageCount })}
+                  prevLabel={t('logsPrevPage')}
+                  nextLabel={t('logsNextPage')}
+                  onPage={(nextPage) => void load(nextPage, pageSize)}
+                  onPageSize={(nextSize) => {
+                    setPageSize(nextSize)
+                    void load(1, nextSize)
+                  }}
+                />
+              ) : null}
             </Modal.Footer>
           </Modal.Dialog>
         </Modal.Container>

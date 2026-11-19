@@ -1,8 +1,10 @@
 package kiro
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -95,6 +97,192 @@ type bonusInfo struct {
 	Status       string      `json:"status"`
 }
 
+const (
+	maxProfilePages       = 20
+	maxProfileResponse    = 1 << 20
+	maxProfileError       = 64 << 10
+	profileRetryAttempts  = 3
+	profileRetryBaseDelay = 200 * time.Millisecond
+)
+
+// ensureProfileArn resolves the profile used by REST/model requests. Kiro's
+// social and IDC exports often omit it even though ListAvailableProfiles can
+// return one for the same bearer.
+func (c *Client) ensureProfileArn(ctx context.Context, accountID string, client *http.Client, cred Credential) (Credential, error) {
+	if cred.isAPIKey() || cred.isBuilderID() {
+		return cred, nil
+	}
+	if strings.TrimSpace(cred.ProfileArn) != "" {
+		canonical, _, ok := parseProfileArn(cred.ProfileArn)
+		if !ok {
+			return cred, fmt.Errorf("kiro credential contains an invalid profile arn")
+		}
+		if canonical == cred.ProfileArn {
+			return cred, nil
+		}
+		cred.ProfileArn = canonical
+		encoded, err := cred.Encode()
+		if err != nil {
+			return cred, err
+		}
+		if err := c.store.SaveCredentialPayload(ctx, accountID, CredentialFormat, encoded); err != nil {
+			return cred, err
+		}
+		return cred, nil
+	}
+	profiles, err := c.listProfilesAcrossRegions(ctx, client, cred)
+	if err != nil {
+		return cred, err
+	}
+	if len(profiles) == 0 {
+		return cred, nil
+	}
+	canonical, _, ok := parseProfileArn(profiles[0])
+	if !ok {
+		return cred, fmt.Errorf("kiro profile response contained an invalid arn")
+	}
+	cred.ProfileArn = canonical
+	encoded, err := cred.Encode()
+	if err != nil {
+		return cred, err
+	}
+	if err := c.store.SaveCredentialPayload(ctx, accountID, CredentialFormat, encoded); err != nil {
+		return cred, err
+	}
+	return cred, nil
+}
+
+func profileRegions(cred Credential) []string {
+	seen := map[string]bool{}
+	regions := make([]string, 0, 2)
+	add := func(region string) {
+		region = strings.ToLower(strings.TrimSpace(region))
+		if !profileRegionPattern.MatchString(region) || seen[region] {
+			return
+		}
+		seen[region] = true
+		regions = append(regions, region)
+	}
+	add(regionFromProfile(cred.ProfileArn))
+	add(DefaultRegion)
+	add("eu-central-1")
+	return regions
+}
+
+func (c *Client) listProfilesAcrossRegions(ctx context.Context, client *http.Client, cred Credential) ([]string, error) {
+	var errs []string
+	seen := map[string]bool{}
+	var profiles []string
+	for _, region := range profileRegions(cred) {
+		items, err := c.listProfilesInRegion(ctx, client, cred, region)
+		if err != nil {
+			errs = append(errs, region+": "+err.Error())
+			continue
+		}
+		for _, item := range items {
+			if !seen[item] {
+				seen[item] = true
+				profiles = append(profiles, item)
+			}
+		}
+		if len(profiles) > 0 {
+			return profiles, nil
+		}
+	}
+	if len(errs) > 0 {
+		return nil, fmt.Errorf("kiro profile lookup failed: %s", strings.Join(errs, "; "))
+	}
+	return nil, nil
+}
+
+func (c *Client) listProfilesInRegion(ctx context.Context, client *http.Client, cred Credential, region string) ([]string, error) {
+	endpoint := profileBase(region) + "/ListAvailableProfiles"
+	var profiles []string
+	next := ""
+	for page := 0; page < maxProfilePages; page++ {
+		body := map[string]any{"maxResults": 50}
+		if next != "" {
+			body["nextToken"] = next
+		}
+		encoded, _ := json.Marshal(body)
+		var raw []byte
+		var err error
+		for attempt := 0; attempt < profileRetryAttempts; attempt++ {
+			raw, err = c.postProfilePage(ctx, client, cred, endpoint, encoded)
+			if err == nil {
+				break
+			}
+			if ctx.Err() != nil || attempt == profileRetryAttempts-1 || !retryProfileError(err) {
+				return nil, err
+			}
+			select {
+			case <-time.After(profileRetryBaseDelay * time.Duration(1<<attempt)):
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+		var parsed struct {
+			Profiles []struct {
+				ARN string `json:"arn"`
+			} `json:"profiles"`
+			NextToken string `json:"nextToken"`
+		}
+		if err := json.Unmarshal(raw, &parsed); err != nil {
+			return nil, err
+		}
+		for _, profile := range parsed.Profiles {
+			canonical, _, ok := parseProfileArn(profile.ARN)
+			if ok {
+				profiles = append(profiles, canonical)
+			}
+		}
+		next = strings.TrimSpace(parsed.NextToken)
+		if next == "" {
+			return profiles, nil
+		}
+	}
+	return nil, fmt.Errorf("kiro profile pagination exceeded %d pages", maxProfilePages)
+}
+
+func retryProfileError(err error) bool {
+	var providerErr *providers.Error
+	if !errors.As(err, &providerErr) {
+		return true
+	}
+	return providerErr.Status == http.StatusTooManyRequests || providerErr.Status >= 500
+}
+
+func (c *Client) postProfilePage(ctx context.Context, client *http.Client, cred Credential, endpoint string, body []byte) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	applyRuntimeHeaders(req, cred, req.URL.Host)
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	limit := int64(maxProfileResponse)
+	if resp.StatusCode != http.StatusOK {
+		limit = maxProfileError
+	}
+	raw, readErr := io.ReadAll(io.LimitReader(resp.Body, limit+1))
+	if readErr != nil {
+		return nil, readErr
+	}
+	if int64(len(raw)) > limit {
+		return nil, fmt.Errorf("profile response exceeds %d bytes", limit)
+	}
+	if resp.StatusCode != http.StatusOK {
+		noteVersionGate(client, string(raw))
+		return nil, newProviderError(resp.StatusCode, string(raw))
+	}
+	return raw, nil
+}
+
 func (c *Client) fetchUsage(ctx context.Context, client *http.Client, cred Credential) (usageLimits, error) {
 	endpoint := codeWhispererBase(cred) + "/getUsageLimits?origin=AI_EDITOR&resourceType=AGENTIC_REQUEST&isEmailRequired=true"
 	endpoint = withProfileQuery(endpoint, cred.requestProfileArn())
@@ -137,7 +325,11 @@ func (c *Client) Quota(ctx context.Context, accountID string) (*providers.QuotaI
 	if err != nil {
 		return nil, err
 	}
-	ensureIDEVersion(client)
+	cred, err = c.ensureProfileArn(ctx, accountID, client, cred)
+	if err != nil {
+		return nil, err
+	}
+	_ = waitForIDEVersion(ctx, client)
 	usage, err := c.fetchUsage(ctx, client, cred)
 	if err != nil {
 		return nil, err
@@ -335,12 +527,19 @@ type upstreamModel struct {
 	} `json:"tokenLimits"`
 }
 
+type listModelsPage struct {
+	Models    []upstreamModel `json:"models"`
+	NextToken string          `json:"nextToken"`
+}
+
 func (c *Client) listModels(ctx context.Context, client *http.Client, cred Credential) ([]providers.ModelInfo, error) {
 	base := modelBase(cred) + "/ListAvailableModels?origin=AI_EDITOR&maxResults=50"
 	base = withProfileQuery(base, cred.requestProfileArn())
 	var models []providers.ModelInfo
+	seenModels := map[string]struct{}{}
+	seenTokens := map[string]struct{}{}
 	next := ""
-	for page := 0; page < 20; page++ {
+	for page := 0; page < maxModelPages; page++ {
 		endpoint := base
 		if next != "" {
 			endpoint += "&nextToken=" + url.QueryEscape(next)
@@ -349,22 +548,32 @@ func (c *Client) listModels(ctx context.Context, client *http.Client, cred Crede
 		if err != nil {
 			return nil, err
 		}
-		var parsed struct {
-			Models    []upstreamModel `json:"models"`
-			NextToken string          `json:"nextToken"`
-		}
+		var parsed listModelsPage
 		if err := json.Unmarshal(body, &parsed); err != nil {
 			return nil, err
 		}
 		for _, model := range parsed.Models {
-			if strings.TrimSpace(model.ModelID) == "" {
+			modelID := strings.TrimSpace(model.ModelID)
+			if modelID == "" {
 				continue
 			}
+			key := strings.ToLower(modelID)
+			if _, duplicate := seenModels[key]; duplicate {
+				continue
+			}
+			seenModels[key] = struct{}{}
 			models = append(models, modelInfo(model))
 		}
 		next = strings.TrimSpace(parsed.NextToken)
 		if next == "" {
 			break
+		}
+		if _, repeated := seenTokens[next]; repeated {
+			return nil, fmt.Errorf("kiro model pagination repeated next token")
+		}
+		seenTokens[next] = struct{}{}
+		if page == maxModelPages-1 {
+			return nil, fmt.Errorf("kiro model pagination exceeded %d pages", maxModelPages)
 		}
 	}
 	if len(models) == 0 {
