@@ -41,7 +41,7 @@ type ModelSettingReader interface {
 	GetProviderModelSetting(context.Context, string, string) (accounts.ProviderModelSetting, error)
 }
 
-// ModelMaxModeReader remains as a compatibility interface for store/test
+// ModelMaxModeReader remains as a compatibility interface for store test
 // assertions. Chat always forces a declared Max tier and no longer consults
 // this legacy toggle reader.
 type ModelMaxModeReader interface {
