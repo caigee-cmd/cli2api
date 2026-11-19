@@ -40,6 +40,25 @@ export function isAvailable(account: AccountRow) {
   return state === 'hot' || state === 'ready'
 }
 
+// checkedInToday mirrors the backend's CheckedInLocalDay: a check-in only
+// counts for today when it succeeded (or was already done) and landed on the
+// account's local calendar day. The timezone is the provider check-in policy
+// zone (undefined falls back to the browser zone). Used by the account card
+// badge and the batch "check in all" skip logic.
+export function checkedInToday(account: AccountRow, timezone?: string) {
+  const status = account.last_checkin_status
+  if ((status !== 'success' && status !== 'already') || !account.last_checkin_at) return false
+  const recorded = new Date(account.last_checkin_at)
+  if (Number.isNaN(recorded.getTime())) return false
+  const dayOf = (value: Date) => new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone || undefined,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(value)
+  return dayOf(recorded) === dayOf(new Date())
+}
+
 export function runtimeSegments(state: AccountState) {
   if (state === 'hot') return 12
   if (state === 'ready') return 9
