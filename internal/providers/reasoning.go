@@ -141,6 +141,14 @@ func containsReasoningOption(options []string, level string) bool {
 	return false
 }
 
+// ReasoningOptionIncludes reports whether a normalized level is declared in
+// the capability set. Adapters use it for explicit off switches: when a model
+// does not declare "none", an off request must be omitted rather than clamped
+// back to a thinking level.
+func ReasoningOptionIncludes(options []string, level string) bool {
+	return containsReasoningOption(options, NormalizeReasoningLevel(level))
+}
+
 // reasoningDegradationChain returns lower tiers ordered from nearest to
 // farthest. Only high tiers need explicit degradation; lower/unknown values
 // fall through to the model default in ResolveReasoningLevel.

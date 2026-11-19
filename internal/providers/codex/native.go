@@ -67,12 +67,7 @@ func (c *Client) ResponsesStream(ctx context.Context, accountID string, req *tra
 // reasoningCaps is the catalog capability set used for the reasoning clamp;
 // shared by the chat and native builders so both clamp identically.
 func reasoningCaps(model string) providers.ModelCapabilities {
-	caps := capsFor(model)
-	if len(caps.ReasoningOptions) == 0 {
-		caps.Reasoning = true
-		caps.ReasoningOptions = []string{"low", "medium", "high"}
-	}
-	return caps
+	return capsFor(model)
 }
 
 // buildNativeBody derives one attempt's upstream body from the client's

@@ -60,3 +60,37 @@ func TestDisabledThinkingField(t *testing.T) {
 		t.Fatalf("DisabledThinkingField()=%v", got)
 	}
 }
+
+func TestParseReasoningIntent(t *testing.T) {
+	cases := []struct {
+		name     string
+		req      translate.ChatRequest
+		level    string
+		disabled bool
+		budget   int
+	}{
+		{name: "effort string", req: translate.ChatRequest{ReasoningEffort: json.RawMessage(`"high"`)}, level: "high"},
+		{name: "effort object", req: translate.ChatRequest{ReasoningEffort: json.RawMessage(`{"effort":"xhigh"}`)}, level: "xhigh"},
+		{name: "thinking budget", req: translate.ChatRequest{Thinking: json.RawMessage(`{"type":"enabled","budget_tokens":16384}`)}, level: "high", budget: 16384},
+		{name: "disabled thinking", req: translate.ChatRequest{Thinking: json.RawMessage(`{"type":"disabled"}`)}, level: "none", disabled: true},
+		{name: "boolean on", req: translate.ChatRequest{EnableThinking: boolPtr(true)}, level: "medium"},
+		{name: "boolean off", req: translate.ChatRequest{EnableThinking: boolPtr(false)}, level: "none"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ParseReasoningIntent(tc.req)
+			if got.Level != tc.level || got.Disabled != tc.disabled || got.Budget != tc.budget {
+				t.Fatalf("intent=%+v want level=%q disabled=%v budget=%d", got, tc.level, tc.disabled, tc.budget)
+			}
+		})
+	}
+}
+
+func TestReasoningOptionIncludes(t *testing.T) {
+	if !ReasoningOptionIncludes([]string{"low", "high"}, "HIGH") {
+		t.Fatal("high must be found")
+	}
+	if ReasoningOptionIncludes([]string{"low", "high"}, "none") {
+		t.Fatal("none must stay absent")
+	}
+}
