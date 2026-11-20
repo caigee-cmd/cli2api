@@ -106,6 +106,12 @@ func TestCheckinSchedulerRetriesSkippedCampaignAtRetryWindow(t *testing.T) {
 	}
 	location, _ := time.LoadLocation("Asia/Shanghai")
 	now := time.Now().In(location)
+	// Pin the first attempt to the morning so the 21:00 retry window still
+	// applies no matter what time of day the test runs.
+	morning := time.Date(now.Year(), now.Month(), now.Day(), 10, 0, 0, 0, location)
+	if err := manager.store.RecordCheckin(context.Background(), account.ID, "skipped", "activity disabled", morning.UTC()); err != nil {
+		t.Fatal(err)
+	}
 	manager.runScheduledCheckins(context.Background(), time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 0, 0, location))
 	if calls.Load() != 2 {
 		t.Fatalf("skipped campaign should retry at the retry window, calls=%d", calls.Load())
