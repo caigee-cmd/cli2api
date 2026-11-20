@@ -102,7 +102,14 @@ func (s *fakeStore) Get(_ context.Context, id string) (accounts.Account, error) 
 	}
 	return account, nil
 }
-func (s *fakeStore) List(context.Context) ([]accounts.Account, error) { return nil, nil }
+func (s *fakeStore) List(context.Context) ([]accounts.Account, error) {
+	s.log.add("store.List")
+	out := make([]accounts.Account, 0, len(s.accounts))
+	for _, account := range s.accounts {
+		out = append(out, account)
+	}
+	return out, nil
+}
 func (s *fakeStore) Update(_ context.Context, id string, input accounts.UpdateAccount) error {
 	s.log.add("store.Update")
 	if s.updateErr != nil {

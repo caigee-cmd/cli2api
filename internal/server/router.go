@@ -29,6 +29,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/providers", s.withConsoleKey(s.consoleHandler().HandleProviders))
 	s.mux.HandleFunc("/api/accounts", s.withConsoleKey(s.consoleHandler().HandleAccounts))
 	s.mux.HandleFunc("/api/accounts/import", s.withConsoleKey(s.consoleHandler().HandleAccountImport))
+	s.mux.HandleFunc("/api/accounts/export", s.withConsoleKey(s.consoleHandler().HandleAccountBundleExport))
+	s.mux.HandleFunc("/api/accounts/import/bundle", s.withConsoleKey(s.consoleHandler().HandleAccountBundleImport))
 	s.mux.HandleFunc("/api/accounts/", s.withConsoleKey(s.consoleHandler().HandleAccountByID))
 	s.mux.HandleFunc("/api/logs", s.withConsoleKey(s.consoleHandler().HandleLogs))
 	s.mux.HandleFunc("/api/logs/", s.withConsoleKey(s.consoleHandler().HandleLogs))
