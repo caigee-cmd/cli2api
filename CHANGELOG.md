@@ -3,6 +3,32 @@
 Published user-facing notes for GitHub Releases and the console update page.
 Write upcoming notes as bilingual files in `changelog/unreleased/`.
 
+## 0.7.39 - 2026-11-20
+
+### English
+
+- CodeArts vision requests now inline remote image URLs as base64 data URLs before the call, so clients that send signed object-storage links (for example a Qoder or WorkBuddy custom endpoint) no longer fail with `InferHub.ModelArts.81001.400 unsupported image url`. Downloaded images are cached briefly so replayed turns are not re-fetched.
+- Add a configurable credit floor (`CLI2API_CREDIT_FLOOR`, default `0` = disabled) so accounts below the threshold are skipped for paid models while remaining eligible for free models.
+- Allow a per-account `credit_floor` override in the account card (save an explicit `0` to disable the floor for that account; leave the override off to inherit the global floor) and through the management API.
+- Only enforce the credit floor against quota snapshots reported in `credits`.
+- Add an independent percent floor (`CLI2API_PERCENT_FLOOR`, default `0` = disabled, per-account `percent_floor`) for accounts whose quota is reported as a remaining percentage (Devin, Kimi, Zhipu). The two floors never compare across units; entitlement-pack and rate-limit-window accounts keep their existing scheduling behaviour.
+- Reject invalid or negative floor values at startup instead of silently disabling the gate.
+- Refresh imported Kiro OAuth credentials that omit an expiry when a refresh token is available. Use the profile lookup page size accepted by Kiro so account usage and model discovery can proceed with the renewed credential.
+- Qoder check-in sends the activity page `Origin` / `Referer` headers alongside the desktop identity. The in-process PAT path had dropped them, which could make upstream return no daily credit campaign even when the activity was open.
+- Global check-in retries the campaign list with the desktop COSY token when the OpenAPI bearer authenticates but exposes no claimable campaign.
+
+### 中文
+
+- 码道视觉请求现在会在调用前把远程图片 URL 内联为 base64 data URL，发送签名对象存储链接的客户端（如 Qoder / WorkBuddy 自定义端点）不再报 `InferHub.ModelArts.81001.400 unsupported image url`。已下载的图片会短暂缓存，重放的历史轮次不会重复下载。
+- 新增可配置积分下限（`CLI2API_CREDIT_FLOOR`，默认 `0` 表示关闭）：积分低于阈值的账号不再调度计费模型，但仍可调度免费模型。
+- 账号卡片与管理 API 支持按账号设置 `credit_floor`（填 0 表示显式关闭该账号保底；关闭覆盖则继承全局阈值）。
+- 积分阈值只对以 `credits` 为单位上报的余额生效。
+- 新增独立的百分比保底（`CLI2API_PERCENT_FLOOR`，默认 `0` 关闭；按账号 `percent_floor`），适用于以剩余百分比上报余额的账号（Devin、Kimi、智谱）；两种单位分别判断、互不做数值换算，权益包与速率窗口账号维持原有调度行为。
+- 启动时会拒绝非法或负值配置，避免阈值校验被静默关闭。
+- 导入的 Kiro OAuth 凭证缺少有效期但带有刷新令牌时，先换取新的访问令牌。按 Kiro 接受的分页大小查找 profile，以便后续读取会员额度和模型目录。
+- Qoder 签到重新发送活动页需要的 `Origin` / `Referer` 头。进程内 PAT 路径之前漏掉这两个头，可能导致上游在活动开放时也不返回每日积分活动。
+- 国际版在 OpenAPI token 能鉴权但拿不到可领活动时，会再用桌面 COSY token 重试活动列表。
+
 ## 0.7.38 - 2026-11-19
 
 ### English
