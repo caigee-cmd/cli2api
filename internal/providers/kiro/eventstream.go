@@ -32,8 +32,13 @@ type streamCallbacks struct {
 	OnText     func(text string, thinking bool)
 	OnToolUse  func(tool toolUse)
 	OnComplete func(inputTokens, outputTokens int)
-	OnCredits  func(credits float64)
-	OnError    func(err error)
+	// OnCredits receives the running credit total. CreateResponse states it
+	// once; generateAssistantResponse sends one meteringEvent per charge.
+	OnCredits func(credits float64)
+	// OnContextUsage receives the share of the model's input window the
+	// request filled, in percent. Kiro sends it instead of input tokens.
+	OnContextUsage func(percentage float64)
+	OnError        func(err error)
 }
 
 func eventStreamSource(body io.Reader) eventSource {
@@ -278,6 +283,8 @@ func consumeEvents(source eventSource, cb *streamCallbacks) error {
 	}
 	pending := &pendingTools{}
 	var inputTokens, outputTokens int
+	var metered float64
+	stated := false
 	for {
 		next, err := source()
 		if err == io.EOF {
@@ -291,10 +298,25 @@ func consumeEvents(source eventSource, cb *streamCallbacks) error {
 			event = map[string]any{}
 		}
 		inputTokens, outputTokens = updateTokens(event, inputTokens, outputTokens)
-		if credits, ok := numberAny(event["credits"]); ok && cb.OnCredits != nil {
-			cb.OnCredits(credits)
+		if credits, ok := numberAny(event["credits"]); ok {
+			stated = true
+			if cb.OnCredits != nil {
+				cb.OnCredits(credits)
+			}
+		}
+		if pct, ok := numberAny(event["contextUsagePercentage"]); ok && cb.OnContextUsage != nil {
+			cb.OnContextUsage(pct)
 		}
 		switch next.Type {
+		case "meteringEvent":
+			// usage is the credits this charge cost. A stated total wins so
+			// the two sources are never added together.
+			if used, ok := numberAny(event["usage"]); ok && !stated {
+				metered += used
+				if cb.OnCredits != nil {
+					cb.OnCredits(metered)
+				}
+			}
 		case "assistantResponseEvent":
 			if text := firstString(event, "content"); text != "" && cb.OnText != nil {
 				cb.OnText(text, false)

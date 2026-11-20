@@ -72,6 +72,34 @@ func (h *Handler) HandleAccounts(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (h *Handler) HandleCheckinAll(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "POST only")
+		return
+	}
+	var input struct {
+		Force           bool  `json:"force"`
+		IncludeDisabled *bool `json:"include_disabled"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxConsoleBodyBytes)).Decode(&input); err != nil && err != io.EOF {
+		writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	includeDisabled := false
+	if h.System != nil {
+		includeDisabled = h.System.Current(r.Context()).CheckinDisabledAccounts
+	}
+	if input.IncludeDisabled != nil {
+		includeDisabled = *input.IncludeDisabled
+	}
+	results, err := h.Control.Accounts.CheckinAll(r.Context(), input.Force, includeDisabled)
+	if err != nil {
+		writeOperationError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"object": "list", "data": results})
+}
+
 func (h *Handler) HandleAccountImport(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "POST only")
@@ -96,6 +124,46 @@ func (h *Handler) HandleAccountImport(w http.ResponseWriter, r *http.Request) {
 	// clients (and the add-account wizard) do not need a shape change.
 	if result.Succeeded == 1 && result.Failed == 0 && len(result.Data) == 1 {
 		writeJSON(w, http.StatusCreated, result.Data[0])
+		return
+	}
+	status := http.StatusCreated
+	if result.Failed > 0 {
+		status = http.StatusOK
+	}
+	writeJSON(w, status, result)
+}
+
+func (h *Handler) HandleAccountBundleExport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "GET only")
+		return
+	}
+	bundle, err := h.Control.Accounts.ExportBundle(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "account_export_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, bundle)
+}
+
+func (h *Handler) HandleAccountBundleImport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "POST only")
+		return
+	}
+	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxConsoleBodyBytes))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	var bundle control.AccountBundle
+	if err = json.Unmarshal(raw, &bundle); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	result, err := h.Control.Accounts.ImportBundle(r.Context(), bundle)
+	if err != nil {
+		writeOperationError(w, err)
 		return
 	}
 	status := http.StatusCreated

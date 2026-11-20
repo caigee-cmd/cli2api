@@ -5,6 +5,7 @@ import { Button, Label, ListBox, Select } from '@heroui/react'
 import {
   ArrowsClockwise,
   CalendarCheck,
+  DownloadSimple,
   MagnifyingGlass,
   Plus,
   UploadSimple,
@@ -25,8 +26,11 @@ import { SearchBar } from '@/components/ui/SearchBar'
 import { useI18n } from '@/hooks/useI18n'
 import {
   checkinAccount,
+  checkinAll,
   deleteAccount,
   exportAccount,
+  exportAccountBundle,
+  importAccountBundle,
   fetchAccounts,
   fetchProviders,
   completeLoginCallback,
@@ -42,7 +46,6 @@ import { fetchSystemSettings, type SystemSettings } from '@/api/system'
 import { AccountsPageSkeleton } from '@/components/ui/PageSkeletons'
 import {
   accountState,
-  checkedInToday,
   type AccountRow,
 } from '@/lib/account'
 import { accountProviderFamilyLabel } from '@/lib/provider'
@@ -61,6 +64,9 @@ import {
   summarizeWorkbuddyImportResult,
   type WorkbuddyImportResult,
 } from '@/lib/workbuddyImport'
+import { downloadAccountBundle, parseAccountBundleText } from '@/lib/accountBundle'
+import { AccountBundleImportModal } from '@/components/account/AccountBundleImportModal'
+import type { AccountBundle } from '@/api/overview'
 
 function kiroImportEntries(bundle: Record<string, unknown>): Record<string, unknown>[] {
   if (!Array.isArray(bundle.accounts)) return [bundle]
@@ -106,6 +112,11 @@ export function AccountsPage() {
   const hasAccounts = rows.length > 0
   const [addOpen, setAddOpen] = useState(false)
   const [batchImporting, setBatchImporting] = useState(false)
+  const [bundleExporting, setBundleExporting] = useState(false)
+  const [bundleImporting, setBundleImporting] = useState(false)
+  const [bundleConfirmOpen, setBundleConfirmOpen] = useState(false)
+  const [bundleImportData, setBundleImportData] = useState<AccountBundle | null>(null)
+  const [bundleImportFileName, setBundleImportFileName] = useState('')
   const [batchConfirmOpen, setBatchConfirmOpen] = useState(false)
   const [batchDetection, setBatchDetection] = useState<ImportDetectResult | null>(null)
   const [batchBundle, setBatchBundle] = useState<Record<string, unknown> | null>(null)
@@ -357,6 +368,96 @@ export function AccountsPage() {
     })
   }
 
+  async function onExportAll() {
+    if (bundleExporting) return
+    setBundleExporting(true)
+    const toastId = 'accounts-export-all'
+    toast({ id: toastId, type: 'loading', title: t('toastAccountsExporting') })
+    try {
+      const bundle = await exportAccountBundle()
+      downloadAccountBundle(bundle)
+      toast({
+        id: toastId,
+        type: 'success',
+        title: t('toastAccountsExported', { n: bundle.count ?? bundle.accounts.length }),
+        description: t('bundleExportHint'),
+      })
+    } catch (error) {
+      toast({
+        id: toastId,
+        type: 'error',
+        title: t('toastFailed'),
+        description: error instanceof Error ? error.message : String(error),
+      })
+    } finally {
+      setBundleExporting(false)
+    }
+  }
+
+  function closeBundleConfirm() {
+    if (bundleImporting) return
+    setBundleConfirmOpen(false)
+    setBundleImportData(null)
+    setBundleImportFileName('')
+  }
+
+  async function onBundleImportFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    try {
+      const raw = await file.text()
+      const bundle = parseAccountBundleText(raw)
+      setBundleImportData(bundle)
+      setBundleImportFileName(file.name)
+      setBundleConfirmOpen(true)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      toast({
+        type: 'error',
+        title: message === 'bad_json' ? t('wizardBadJson') : t('bundleImportUnrecognized'),
+      })
+    }
+  }
+
+  async function onBundleImportConfirm() {
+    if (!bundleImportData || bundleImporting) return
+    setBundleImporting(true)
+    const toastId = 'bundle-import-accounts'
+    toast({ id: toastId, type: 'loading', title: t('bundleImportLoading') })
+    try {
+      const result = await importAccountBundle(bundleImportData)
+      const succeeded = result.succeeded ?? 0
+      const failed = result.failed ?? 0
+      const failureSummary = (result.errors || [])
+        .slice(0, 3)
+        .map((item) => item.message || `index ${item.index}`)
+        .filter(Boolean)
+        .join('; ')
+      toast({
+        id: toastId,
+        type: failed > 0 && succeeded === 0 ? 'error' : failed > 0 ? 'info' : 'success',
+        title: failed > 0
+          ? t('accountImportPartial').replace('{ok}', String(succeeded)).replace('{fail}', String(failed))
+          : t('accountImportBatch').replace('{n}', String(succeeded)),
+        description: failureSummary || undefined,
+      })
+      setBundleConfirmOpen(false)
+      setBundleImportData(null)
+      setBundleImportFileName('')
+      if (succeeded > 0) await reloadAccounts(false)
+    } catch (error) {
+      toast({
+        id: toastId,
+        type: 'error',
+        title: t('toastFailed'),
+        description: error instanceof Error ? error.message : String(error),
+      })
+    } finally {
+      setBundleImporting(false)
+    }
+  }
+
   async function onToggle(id: string, selected: boolean) {
     setEnabledById((current) => ({ ...current, [id]: selected }))
     await run(id, 'toggle', async () => {
@@ -493,84 +594,46 @@ export function AccountsPage() {
     })
   }
 
-    function alreadyCheckedInToday(account: AccountRow) {
-      return checkedInToday(account, checkinTimezoneFor(account))
-    }
-
   async function onCheckinAll() {
-    let eligible: AccountRow[]
-    let pending: AccountRow[]
-    try {
-      eligible = displayRows.filter((account) => account.enabled && checkinPolicyFor(account))
-      pending = eligible.filter((account) => !alreadyCheckedInToday(account))
-    } catch (error) {
-      // A bad check-in timezone must not swallow the click. The button
-      // otherwise stays idle and the page shows nothing.
-      toast({
-        id: 'checkin-all',
-        type: 'error',
-        title: t('toastFailed'),
-        description: error instanceof Error ? error.message : String(error),
-      })
-      return
-    }
-    if (eligible.length === 0) {
-      toast({ id: 'checkin-all', type: 'info', title: t('checkinAllEmpty') })
-      return
-    }
-    if (pending.length === 0) {
-      toast({ id: 'checkin-all', type: 'success', title: t('checkinAllDone', { count: eligible.length }) })
-      return
-    }
-    // Show the progress before the first account responds. With many
-    // accounts the first result can take a while, and the toast would
-    // otherwise appear only after it.
+    setCheckinAllRunning(true)
     toast({
       id: 'checkin-all',
       type: 'loading',
-      title: t('toastCheckingInAll', { done: 0, total: pending.length }),
+      title: t('toastCheckingInAll', { done: 0, total: rows.length }),
     })
-    setCheckinAllRunning(true)
-    const summary = { checked: 0, skipped: eligible.length - pending.length, failed: 0 }
     try {
-      for (let index = 0; index < pending.length; index += 1) {
-        // One account at a time, with a pause before every account after the
-        // first, so a manual pass cannot burst every upstream call at once.
-        // Accounts already checked in today never reach here.
-        if (index > 0) {
-          await new Promise((resolve) => setTimeout(resolve, 4000))
-        }
-        try {
-          const result = await checkinAccount(pending[index].id)
-          const status = result?.last_checkin_status
-          const message = result?.last_checkin_msg
-          const kind = status === 'already' ? 'already' : status === 'skipped' ? 'skipped' : status === 'error' ? 'error' : 'success'
-          if (kind === 'error' || kind === 'skipped') summary.failed += 1
-          else summary.checked += 1
-          setCheckinFeedbackById((current) => ({
-            ...current,
-            [pending[index].id]: { kind, message: kind === 'error' ? message || t('checkinRecordFailed') : message },
-          }))
-        } catch (error) {
-          summary.failed += 1
-          setCheckinFeedbackById((current) => ({
-            ...current,
-            [pending[index].id]: { kind: 'error', message: error instanceof Error ? error.message : String(error) },
-          }))
-        }
-        if (index < pending.length - 1) {
-          toast({
-            id: 'checkin-all',
-            type: 'loading',
-            title: t('toastCheckingInAll', { done: index + 1, total: pending.length }),
-          })
+      const response = await checkinAll()
+      const results = response.data || []
+      if (results.length === 0) {
+        toast({ id: 'checkin-all', type: 'info', title: t('checkinAllEmpty') })
+        return
+      }
+      const summary = { checked: 0, skipped: 0, failed: 0 }
+      const feedback: Record<string, { kind: 'already' | 'skipped' | 'error' | 'success'; message?: string }> = {}
+      for (const result of results) {
+        const raw = String(result.status || '').toLowerCase()
+        const kind = raw === 'already' || raw === 'skipped' || raw === 'error' ? raw : 'success'
+        if (kind === 'error') summary.failed += 1
+        else if (kind === 'skipped' || kind === 'already') summary.skipped += 1
+        else summary.checked += 1
+        feedback[result.account_id] = {
+          kind,
+          message: kind === 'error' ? result.message || t('checkinRecordFailed') : result.message,
         }
       }
+      setCheckinFeedbackById((current) => ({ ...current, ...feedback }))
       const values = { checked: summary.checked, skipped: summary.skipped, failed: summary.failed }
       toast({
         id: 'checkin-all',
         type: summary.failed ? 'error' : 'success',
         title: t(summary.failed ? 'toastCheckedInAllFailed' : 'toastCheckedInAll', values),
+      })
+    } catch (error) {
+      toast({
+        id: 'checkin-all',
+        type: 'error',
+        title: t('toastFailed'),
+        description: error instanceof Error ? error.message : String(error),
       })
     } finally {
       setCheckinAllRunning(false)
@@ -691,6 +754,30 @@ export function AccountsPage() {
           </>
         ) : null}
         <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:ml-auto sm:w-auto">
+          <Button size="sm" variant="secondary" isPending={bundleExporting} isDisabled={batchImporting || batchConfirmOpen || bundleImporting || bundleConfirmOpen} onPress={() => void onExportAll()}>
+            <DownloadSimple size={14} />{t('exportAll')}
+          </Button>
+          {/*
+            Separate file picker for full account migration bundles. Kept
+            distinct from the credential "batch import" below on purpose.
+          */}
+          <label
+            htmlFor="accounts-bundle-import-file"
+            className={`button button--sm button--secondary inline-flex items-center gap-1.5 ${
+              bundleImporting || bundleConfirmOpen || batchImporting || batchConfirmOpen || bundleExporting ? 'pointer-events-none opacity-60' : 'cursor-pointer'
+            }`}
+          >
+            {bundleImporting ? <BrandMark size={14} loading /> : <DownloadSimple size={14} />}
+            {t('importAll')}
+          </label>
+          <input
+            id="accounts-bundle-import-file"
+            type="file"
+            accept=".json,application/json,text/json"
+            disabled={bundleImporting || bundleConfirmOpen || batchImporting || batchConfirmOpen || bundleExporting}
+            className="sr-only"
+            onChange={(event) => void onBundleImportFile(event)}
+          />
           <Button size="sm" variant="secondary" isPending={checkinAllRunning} isDisabled={quotaRefreshing} onPress={() => void onCheckinAll()}>
             <CalendarCheck size={14} />{t('checkinAll')}
           </Button>
@@ -706,7 +793,7 @@ export function AccountsPage() {
           <label
             htmlFor="accounts-batch-import-file"
             className={`button button--sm button--secondary inline-flex items-center gap-1.5 ${
-              batchImporting || batchConfirmOpen ? 'pointer-events-none opacity-60' : 'cursor-pointer'
+              batchImporting || batchConfirmOpen || bundleImporting || bundleConfirmOpen || bundleExporting ? 'pointer-events-none opacity-60' : 'cursor-pointer'
             }`}
           >
             {batchImporting ? <BrandMark size={14} loading /> : <UploadSimple size={14} />}
@@ -716,7 +803,7 @@ export function AccountsPage() {
             id="accounts-batch-import-file"
             type="file"
             accept=".json,application/json,text/json"
-            disabled={batchImporting || batchConfirmOpen}
+            disabled={batchImporting || batchConfirmOpen || bundleImporting || bundleConfirmOpen || bundleExporting}
             className="sr-only"
             onChange={(event) => void onBatchImportFile(event)}
           />
@@ -725,6 +812,15 @@ export function AccountsPage() {
       </section>
 
       <AddAccountModal isOpen={addOpen} onClose={() => setAddOpen(false)} onAdded={() => { toast({ type: 'success', title: t('toastAccountAdded') }); void reloadAccounts(false) }} />
+      <AccountBundleImportModal
+        isOpen={bundleConfirmOpen}
+        bundle={bundleImportData}
+        fileName={bundleImportFileName}
+        isPending={bundleImporting}
+        t={t}
+        onClose={closeBundleConfirm}
+        onConfirm={() => { void onBundleImportConfirm() }}
+      />
       <BatchImportConfirmModal
         isOpen={batchConfirmOpen}
         detection={batchDetection}
