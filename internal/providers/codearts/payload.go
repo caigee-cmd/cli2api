@@ -16,7 +16,7 @@ import (
 // buildChatBody maps the internal request to the native CodeArts
 // chat-completions shape. The upstream accepts the OpenAI wire format, with two
 // deviations: tool_choice must be a string, and max_tokens is the only cap.
-func buildChatBody(req translate.ChatRequest, model, level string, allowImages, benefit bool) (map[string]any, error) {
+func buildChatBody(req translate.ChatRequest, model, level string, allowImages bool) (map[string]any, error) {
 	tools, choice, err := nativeTools(req.Tools, req.ToolChoice)
 	if err != nil {
 		return nil, err
@@ -61,7 +61,6 @@ func buildChatBody(req translate.ChatRequest, model, level string, allowImages, 
 			body["tool_choice"] = choice
 		}
 	}
-	_ = benefit // benefit routing is a header, not a body field
 	return body, nil
 }
 

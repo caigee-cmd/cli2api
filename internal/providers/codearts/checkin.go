@@ -55,10 +55,10 @@ func (c *Client) Checkin(ctx context.Context, accountID string) (providers.Check
 	total := 0.0
 	allOK := true
 	for _, campaign := range campaigns {
-		if campaign.ID != 1 && campaign.ID != 4 {
-			continue
-		}
-		if campaign.BenefitUnit != "" && campaign.BenefitUnit != "CREDIT" {
+		// The server marks the activities an account may actually claim. Only
+		// time-triggered credit rewards are automatic: student verification and
+		// invite campaigns are never claimed on the user's behalf.
+		if !campaign.Claimable || campaign.BenefitUnit != "" && campaign.BenefitUnit != "CREDIT" {
 			continue
 		}
 		claim := c.claimCampaign(ctx, accountID, credential, campaign)
@@ -115,11 +115,6 @@ func (c *Client) claimCampaign(ctx context.Context, accountID string, credential
 	case "CLAIMED":
 		// Already delivered; only the confirm step may be missing.
 	case "ELIGIBLE":
-		if !campaign.Claimable {
-			claim.OK = false
-			claim.Message = "not claimable yet"
-			return claim
-		}
 		if _, err := c.creditRequest(ctx, accountID, credential, http.MethodPost, creditClaimPath, map[string]any{
 			"campaignId": campaign.ID, "channel": creditChannel,
 			"idempotentKey": fmt.Sprintf("claim_%d_%d", campaign.ID, now.UnixMilli()),
@@ -141,15 +136,14 @@ func (c *Client) claimCampaign(ctx context.Context, accountID string, credential
 		claim.Message = "unknown campaign status: " + campaign.Status
 		return claim
 	}
-	if _, err := c.creditRequest(ctx, accountID, credential, http.MethodPost, creditConfirmPath, map[string]any{"campaignId": campaign.ID}); err != nil {
-		claim.OK = false
-		claim.Message = "claimed but confirmation failed: " + err.Error()
-		return claim
-	}
+	// The current ops API has no confirm step: a successful claim is final.
+	// Older builds polled /v1/ops/confirm, which now just returns 404 and made
+	// successful daily check-ins look like failures.
 	claim.Status = "CONFIRMED"
-	claim.Message = "confirmed"
 	if claim.Credits > 0 {
 		claim.Message = fmt.Sprintf("claimed %g credits", claim.Credits)
+	} else {
+		claim.Message = "claimed"
 	}
 	return claim
 }
