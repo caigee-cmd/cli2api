@@ -37,6 +37,7 @@ import { ListPager, type PageSize } from '@/components/ui/ListPager'
 import { PageAlert } from '@/components/ui/PageAlert'
 import { LogsPageSkeleton, LogsRequestListSkeleton, LogsRuntimeListSkeleton, SkeletonBlock } from '@/components/ui/PageSkeletons'
 import { LatencyStats } from '@/components/ui/LatencyStats'
+import { computeOutputTokensPerSecond, formatBytes, formatLatency, formatTokensPerSecond } from '@/lib/format'
 import { SearchBar } from '@/components/ui/SearchBar'
 import { dateValueToISO, isoToDateValue, TimeRangePicker, type DateRangeValue } from '@/components/ui/TimeRangePicker'
 import { useI18n } from '@/hooks/useI18n'
@@ -130,23 +131,56 @@ function TokenSplit({
 function RequestDetailSkeleton() {
   return (
     <div className="space-y-5" aria-busy="true" aria-live="polite">
-      <div className="grid gap-4 sm:grid-cols-2">
-        {Array.from({ length: 8 }, (_, index) => (
-          <div key={index} className="space-y-2">
-            <SkeletonBlock className="h-3 w-20" />
-            <SkeletonBlock className="h-5 w-36 max-w-full" />
-          </div>
-        ))}
+      <div className="space-y-4 rounded-lg bg-surface-secondary px-4 py-4">
+        <div className="flex items-center gap-2">
+          <SkeletonBlock className="h-5 w-14" />
+          <SkeletonBlock className="h-5 w-48 max-w-full" />
+        </div>
+        <div className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3">
+          {Array.from({ length: 6 }, (_, index) => (
+            <div key={index} className="space-y-1.5">
+              <SkeletonBlock className="h-3 w-16" />
+              <SkeletonBlock className="h-4 w-20" />
+            </div>
+          ))}
+        </div>
       </div>
-      <div className="space-y-3 rounded-lg bg-surface-secondary px-3 py-3">
-        <SkeletonBlock className="h-3 w-24" />
-        <SkeletonBlock className="h-4 w-full" />
-        <SkeletonBlock className="h-4 w-4/5" />
-      </div>
-      <div className="space-y-3">
+      <div className="space-y-2">
         <SkeletonBlock className="h-3 w-20" />
-        <SkeletonBlock className="h-16 w-full" />
+        <div className="grid gap-x-4 gap-y-3 sm:grid-cols-3">
+          {Array.from({ length: 6 }, (_, index) => (
+            <div key={index} className="space-y-1.5">
+              <SkeletonBlock className="h-3 w-16" />
+              <SkeletonBlock className="h-4 w-28 max-w-full" />
+            </div>
+          ))}
+        </div>
       </div>
+      <div className="space-y-2">
+        <SkeletonBlock className="h-3 w-20" />
+        <SkeletonBlock className="h-14 w-full" />
+      </div>
+    </div>
+  )
+}
+
+function DetailSection({ title, aside, children }: { title: string; aside?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <section className="space-y-2">
+      <div className="flex items-baseline justify-between gap-3">
+        <h3 className="text-xs font-medium text-muted">{title}</h3>
+        {aside}
+      </div>
+      {children}
+    </section>
+  )
+}
+
+function DetailField({ label, value, mono = false, wide = false }: { label: string; value: React.ReactNode; mono?: boolean; wide?: boolean }) {
+  return (
+    <div className={`min-w-0 ${wide ? 'col-span-full' : ''}`}>
+      <dt className="text-caption text-muted">{label}</dt>
+      <dd className={`mt-0.5 break-all text-body ${mono ? 'mono' : 'font-medium'}`}>{value}</dd>
     </div>
   )
 }
@@ -998,138 +1032,143 @@ export function LogsPage() {
                   <X size={16} />
                 </Modal.CloseTrigger>
               </Modal.Header>
-              <Modal.Body className="space-y-4 px-5 pb-5">
+              <Modal.Body className="space-y-5 px-5 pb-5">
                 {detailLoading ? (
                   <RequestDetailSkeleton />
                 ) : detailError ? (
                   <PageAlert title={t('requestFailed')} description={detailError} />
-                ) : (
+                ) : selected ? (
                   <>
-                    <dl className="grid gap-3 sm:grid-cols-2">
-                  {[
-                    [t('logsColStatus'), selected?.status || '—'],
-                    [t('logsColModel'), selected?.requested_model || '—'],
-                    [t('logsColReasoning'), selected ? (reasoningLabel(selected) || '—') : '—'],
-                    [t('logsColProvider'), selected ? providerLabel(selected) : '—'],
-                    [t('logsColAccount'), selected?.account_id ? (accountNameById.get(selected.account_id) || selected.account_id) : '—'],
-                    [t('logsColApiKey'), selected ? apiKeyLabel(selected) : '—'],
-                    [t('logsColStream'), selected?.stream ? t('logsStreamYes') : t('logsStreamNo')],
-                    [t('logsRouting'), selected ? routingLabel(selected.routing) : '—'],
-                  ].map(([label, value]) => (
-                    <div key={String(label)}>
-                      <dt className="text-caption text-muted">{label}</dt>
-                      <dd className="mt-1 break-all text-body font-medium">{value}</dd>
-                    </div>
-                  ))}
-                  <div>
-                    <dt className="text-caption text-muted">{t('logsColTokens')}</dt>
-                    <dd className="mt-1">
-                      {selected ? (
-                        <TokenSplit
-                          log={selected}
-                          inLabel={t('logsTokensIn')}
-                          outLabel={t('logsTokensOut')}
-                          pointsLabel={(value) => t('logsTokensPoints', { value })}
-                        />
-                      ) : '—'}
-                    </dd>
-                  </div>
-                  <div className="sm:col-span-2">
-                    <LatencyStats
-                      latencyMs={selected?.latency_ms}
-                      ttfbMs={selected?.ttfb_ms}
-                      completionTokens={selected?.completion_tokens}
-                      stream={selected?.stream}
-                      labels={{
-                        heading: t('logsColLatency'),
-                        ttft: t('logsColTTFT'),
-                        total: t('logsLatencyTotal'),
-                        tps: t('logsOutputTPS'),
-                      }}
-                    />
-                  </div>
-                </dl>
-                {selected && selected.message_count ? (
-                  <div className="rounded-lg bg-surface-secondary px-3 py-3 text-xs">
-                    <div className="font-medium text-muted">{t('logsMessageShape')}</div>
-                    <dl className="mt-2 grid gap-2 sm:grid-cols-2">
-                      <div><dt className="text-caption text-muted">{t('logsMessageCount')}</dt><dd className="mono mt-0.5">{selected.message_count}</dd></div>
-                      <div><dt className="text-caption text-muted">{t('logsEmptyMessageIndexes')}</dt><dd className="mono mt-0.5 break-all">{selected.empty_message_indexes?.length ? selected.empty_message_indexes.join(', ') : '—'}</dd></div>
-                      <div className="sm:col-span-2"><dt className="text-caption text-muted">{t('logsMessageRoles')}</dt><dd className="mono mt-0.5 break-all">{selected.message_roles?.join(' → ') || '—'}</dd></div>
-                    </dl>
-                  </div>
-                ) : null}
-                {selected?.error_message ? (
-                  <div className="rounded-lg bg-surface-secondary px-3 py-2 text-xs leading-5 text-muted">
-                    {selected.error_kind ? <span className="mono mr-2 text-muted">{selected.error_kind}</span> : null}
-                    {selected.error_message}
-                  </div>
-                ) : null}
-                {selected?.stream_diagnostic ? (
-                  <div className="rounded-lg bg-surface-secondary px-3 py-3 text-xs">
-                    <div className="font-medium text-muted">{t('logsStreamDiagnostics')}</div>
-                    <dl className="mt-2 grid gap-2 sm:grid-cols-2">
-                      {[
-                        [t('logsCancellationSource'), selected.stream_diagnostic.cancellation_source || '—'],
-                        [t('logsUpstreamStatus'), selected.stream_diagnostic.upstream_status ?? '—'],
-                        [t('logsSSEEvents'), selected.stream_diagnostic.sse_event_count],
-                        [t('logsBytesRead'), selected.stream_diagnostic.bytes_read],
-                        [t('logsLastEvent'), selected.stream_diagnostic.last_event || '—'],
-                        [t('logsStreamComplete'), selected.stream_diagnostic.saw_done ? 'yes' : 'no'],
-                      ].map(([label, value]) => (
-                        <div key={String(label)}>
-                          <dt className="text-caption text-muted">{label}</dt>
-                          <dd className="mono mt-0.5 break-all">{value}</dd>
-                        </div>
-                      ))}
-                    </dl>
-                    {selected.stream_diagnostic.context_err || selected.stream_diagnostic.relay_error ? (
-                      <div className="mt-2 space-y-1 break-all text-muted">
-                        {selected.stream_diagnostic.context_err ? <div>context: {selected.stream_diagnostic.context_err}</div> : null}
-                        {selected.stream_diagnostic.relay_error ? <div>relay: {selected.stream_diagnostic.relay_error}</div> : null}
-                      </div>
+                    {selected.error_message ? (
+                      <PageAlert title={selected.error_kind || t('requestFailed')} description={selected.error_message} />
                     ) : null}
-                  </div>
-                ) : null}
-                {selected?.usage_detail ? (
-                  <div className="rounded-lg bg-surface-secondary px-3 py-3 text-xs">
-                    <div className="font-medium text-muted">{t('logsUsageDetail')}</div>
-                    <dl className="mt-2 grid gap-2 sm:grid-cols-2">
-                      {[
-                        [t('logsCreditConsumed'), `${formatCredit(selected.usage_detail.credit)} ${selected.usage_detail.unit || 'credits'}`],
-                        [t('logsColProvider'), selected.usage_detail.provider || '—'],
-                      ].map(([label, value]) => (
-                        <div key={String(label)}>
-                          <dt className="text-caption text-muted">{label}</dt>
-                          <dd className="mono mt-0.5 break-all">{value}</dd>
-                        </div>
-                      ))}
-                    </dl>
-                  </div>
-                ) : null}
-                <div>
-                  <div className="text-xs font-medium text-muted">{t('logsAttempts')}</div>
-                  {selected?.attempts?.length ? (
-                    <div className="mt-2 divide-y divide-separator overflow-hidden rounded-lg bg-surface-secondary">
-                      {selected.attempts.map((attempt) => (
-                        <div key={attempt.id} className="grid gap-1 px-3 py-2.5 text-xs sm:grid-cols-[48px_minmax(0,1fr)_auto]">
-                          <div className="mono text-muted">#{attempt.attempt_index}</div>
-                          <div>
-                            <div className="font-medium">{attempt.account_id || '—'}</div>
-                            <div className="mt-0.5 text-muted">{attempt.error_message || attempt.status}</div>
-                          </div>
-                          <Chip size="sm" variant="soft" color={statusColor(attempt.status === 'failover' ? 'canceled' : attempt.status)}>
-                            {attempt.status}
-                          </Chip>
-                        </div>
-                      ))}
+
+                    <div className="space-y-4 rounded-lg bg-surface-secondary px-4 py-4">
+                      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                        <Chip size="sm" variant="soft" color={statusColor(selected.status)}>{selected.status || '—'}</Chip>
+                        <span className="mono min-w-0 break-all text-body font-medium">{selected.requested_model || '—'}</span>
+                        {selected.mapped_model && selected.mapped_model !== selected.requested_model ? (
+                          <span className="mono break-all text-caption text-muted">→ {selected.mapped_model}</span>
+                        ) : null}
+                        {reasoningLabel(selected) ? (
+                          <span className="mono text-caption text-muted">· {reasoningLabel(selected)}</span>
+                        ) : null}
+                        <span className="mono ml-auto text-caption text-muted">{formatTime(selected.created_at, lang)}</span>
+                      </div>
+                      <dl className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3">
+                        <DetailField
+                          mono
+                          label={`${t('logsColTokens')} · ${t('logsTokensIn')} / ${t('logsTokensOut')}`}
+                          value={selected.prompt_tokens == null && selected.completion_tokens == null
+                            ? '—'
+                            : `${selected.prompt_tokens ?? 0} / ${selected.completion_tokens ?? 0}`}
+                        />
+                        {(selected.credits ?? selected.usage_detail?.credit) != null ? (
+                          <DetailField
+                            mono
+                            label={t('logsCreditConsumed')}
+                            value={`${formatCredit(selected.credits ?? selected.usage_detail?.credit)}${selected.usage_detail?.unit ? ` ${selected.usage_detail.unit}` : ''}`}
+                          />
+                        ) : null}
+                        <DetailField mono label={t('logsColTTFT')} value={formatLatency(selected.ttfb_ms)} />
+                        <DetailField mono label={t('logsLatencyTotal')} value={formatLatency(selected.latency_ms)} />
+                        <DetailField
+                          mono
+                          label={t('logsOutputTPS')}
+                          value={formatTokensPerSecond(computeOutputTokensPerSecond({
+                            completionTokens: selected.completion_tokens,
+                            latencyMs: selected.latency_ms,
+                            ttfbMs: selected.ttfb_ms,
+                            stream: selected.stream,
+                          }))}
+                        />
+                      </dl>
                     </div>
-                  ) : (
-                    <p className="mt-2 text-xs text-muted">{t('logsNoAttempts')}</p>
-                  )}
-                </div>
+
+                    <DetailSection title={t('logsSectionCall')}>
+                      <dl className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3">
+                        <DetailField label={t('logsColProvider')} value={providerLabel(selected)} />
+                        <DetailField label={t('logsColAccount')} value={selected.account_id ? (accountNameById.get(selected.account_id) || selected.account_id) : '—'} />
+                        <DetailField label={t('logsColApiKey')} value={apiKeyLabel(selected)} />
+                        <DetailField label={t('logsColStream')} value={selected.stream ? t('logsStreamYes') : t('logsStreamNo')} />
+                        <DetailField label={t('logsRouting')} value={routingLabel(selected.routing)} />
+                      </dl>
+                    </DetailSection>
+
+                    <DetailSection
+                      title={t('logsAttempts')}
+                      aside={selected.attempts?.length ? <span className="mono text-caption text-muted">{selected.attempts.length}</span> : null}
+                    >
+                      {selected.attempts?.length ? (
+                        <div className="divide-y divide-separator overflow-hidden rounded-lg bg-surface-secondary">
+                          {selected.attempts.map((attempt) => (
+                            <div key={attempt.id} className="grid grid-cols-[32px_minmax(0,1fr)_auto] items-start gap-x-3 px-3 py-2.5">
+                              <div className="mono pt-0.5 text-caption text-muted">#{attempt.attempt_index}</div>
+                              <div className="min-w-0">
+                                <div className="truncate text-body font-medium">
+                                  {attempt.account_id ? (accountNameById.get(attempt.account_id) || attempt.account_id) : '—'}
+                                </div>
+                                {attempt.error_message ? (
+                                  <div className="mt-0.5 break-all text-caption text-muted">
+                                    {attempt.error_kind ? <span className="mono mr-1.5">{attempt.error_kind}</span> : null}
+                                    {attempt.error_message}
+                                  </div>
+                                ) : null}
+                              </div>
+                              <div className="flex items-center gap-2">
+                                {attempt.latency_ms != null ? (
+                                  <span className="mono text-caption text-muted">{formatLatency(attempt.latency_ms)}</span>
+                                ) : null}
+                                <Chip size="sm" variant="soft" color={statusColor(attempt.status === 'failover' ? 'canceled' : attempt.status)}>
+                                  {attempt.status}
+                                </Chip>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-caption text-muted">{t('logsNoAttempts')}</p>
+                      )}
+                    </DetailSection>
+
+                    {selected.message_count || selected.stream_diagnostic ? (
+                      <DetailSection title={t('logsSectionDiagnostics')}>
+                        <div className="space-y-4 rounded-lg bg-surface-secondary px-4 py-3">
+                          {selected.message_count ? (
+                            <div className="space-y-2">
+                              <div className="text-caption font-medium text-muted">{t('logsMessageShape')}</div>
+                              <dl className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3">
+                                <DetailField mono label={t('logsMessageCount')} value={selected.message_count} />
+                                <DetailField mono label={t('logsEmptyMessageIndexes')} value={selected.empty_message_indexes?.length ? selected.empty_message_indexes.join(', ') : '—'} />
+                                <DetailField mono wide label={t('logsMessageRoles')} value={selected.message_roles?.join(' → ') || '—'} />
+                              </dl>
+                            </div>
+                          ) : null}
+                          {selected.message_count && selected.stream_diagnostic ? <div className="border-t border-separator" /> : null}
+                          {selected.stream_diagnostic ? (
+                            <div className="space-y-2">
+                              <div className="text-caption font-medium text-muted">{t('logsStreamDiagnostics')}</div>
+                              <dl className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3">
+                                <DetailField mono label={t('logsUpstreamStatus')} value={selected.stream_diagnostic.upstream_status ?? '—'} />
+                                <DetailField mono label={t('logsStreamComplete')} value={selected.stream_diagnostic.saw_done ? t('yes') : t('no')} />
+                                <DetailField mono label={t('logsCancellationSource')} value={selected.stream_diagnostic.cancellation_source || '—'} />
+                                <DetailField mono label={t('logsSSEEvents')} value={selected.stream_diagnostic.sse_event_count} />
+                                <DetailField mono label={t('logsBytesRead')} value={formatBytes(selected.stream_diagnostic.bytes_read)} />
+                                <DetailField mono label={t('logsLastEvent')} value={selected.stream_diagnostic.last_event || '—'} />
+                                {selected.stream_diagnostic.context_err ? (
+                                  <DetailField mono wide label="context" value={selected.stream_diagnostic.context_err} />
+                                ) : null}
+                                {selected.stream_diagnostic.relay_error ? (
+                                  <DetailField mono wide label="relay" value={selected.stream_diagnostic.relay_error} />
+                                ) : null}
+                              </dl>
+                            </div>
+                          ) : null}
+                        </div>
+                      </DetailSection>
+                    ) : null}
                   </>
-                )}
+                ) : null}
               </Modal.Body>
             </Modal.Dialog>
           </Modal.Container>
