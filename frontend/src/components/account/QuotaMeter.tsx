@@ -149,11 +149,11 @@ export function QuotaMeter({ quota, t, label, usedLabel, remainingLabel, addOnLa
           >
             <Meter.Output className="flex w-full items-baseline justify-between text-caption">
               <span className="text-body font-semibold leading-5 text-foreground tabular-nums">
-                {quota.exceeded ? <span className="mr-1.5 text-danger">{exceededLabel}</span> : null}
+                {quota.exceeded ? <span className="mr-1.5 text-danger">{exceededLabel}</span> : <span className="mr-1.5 text-caption font-normal text-muted">{remainingLabel}</span>}
                 {remaining}
                 <span className="ml-1 text-caption font-normal text-foreground/60">{unit}</span>
               </span>
-              <span className="mono text-foreground/55">{usedLabel} {used}</span>
+              <span className="mono text-foreground/55">{used} · {Math.round(ratio * 100)}%</span>
             </Meter.Output>
             <Meter.Track>
               <Meter.Fill />

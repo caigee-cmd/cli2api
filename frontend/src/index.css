@@ -474,6 +474,11 @@ body {
   background: var(--muted);
 }
 
+/* Healthy accounts: the strip steps back so the quota bar leads. */
+.runtime-meter[data-quiet="true"] .runtime-meter__seg[data-tone="ok"] {
+  background: color-mix(in oklch, var(--success) 38%, var(--separator));
+}
+
 .release-notes-panel {
   border-radius: var(--radius-xl);
   background: var(--surface-secondary);

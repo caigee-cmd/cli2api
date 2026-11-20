@@ -48,14 +48,14 @@ export function RuntimeMeter({ state, stateCopy, t }: Props) {
     return () => context.revert()
   }, [count, state])
 
+  // The state Chip in the card header already names the state, so the strip
+  // carries no label of its own. A healthy account renders it at low contrast;
+  // warning and danger tones stay at full colour so problems stand out.
   return (
-    <div ref={rootRef} className="flex items-center gap-2">
-      <div className="flex items-center gap-1.5 text-caption font-medium text-foreground/75">
-        <span className="status-dot" data-state={tone === 'muted' ? undefined : tone === 'warn' ? 'warn' : tone} />
-        <span>{t('runtimeState')}</span>
-      </div>
+    <div ref={rootRef} className="flex items-center">
       <div
         className="runtime-meter min-w-[80px] flex-1"
+        data-quiet={tone === 'ok' ? 'true' : undefined}
         role="meter"
         aria-label={t('runtimeState')}
         aria-valuemin={0}
@@ -73,7 +73,6 @@ export function RuntimeMeter({ state, stateCopy, t }: Props) {
           />
         ))}
       </div>
-      <span className="mono shrink-0 text-caption text-foreground/65">{stateCopy}</span>
     </div>
   )
 }
