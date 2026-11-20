@@ -168,7 +168,7 @@ func (s *fakeStore) Observe(context.Context, string, string, string, string, str
 	return nil
 }
 func (s *fakeStore) ObserveHealth(context.Context, string, string, string, string) error { return nil }
-func (s *fakeStore) SaveQuota(context.Context, string, *accounts.QuotaSnapshot) error { return nil }
+func (s *fakeStore) SaveQuota(context.Context, string, *accounts.QuotaSnapshot) error    { return nil }
 func (s *fakeStore) RecordCheckin(context.Context, string, string, string, time.Time) error {
 	return nil
 }
@@ -372,6 +372,13 @@ func (r *fakeRuntime) CheckinAccount(_ context.Context, id string) (accounts.Acc
 		r.checkedIn = r.store.accounts[id]
 	}
 	return r.checkedIn, nil
+}
+func (r *fakeRuntime) CheckinAll(context.Context, bool, bool) ([]accounts.CheckinAllResult, error) {
+	r.log.add("runtime.CheckinAll")
+	if r.checkinErr != nil {
+		return nil, r.checkinErr
+	}
+	return []accounts.CheckinAllResult{{AccountID: r.checkedIn.ID, Status: "success"}}, nil
 }
 func (r *fakeRuntime) ReloadProxyURL(_ context.Context, value string) error {
 	r.log.add("runtime.ReloadProxyURL")

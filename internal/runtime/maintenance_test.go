@@ -16,18 +16,20 @@ func TestCheckinSchedule(t *testing.T) {
 		t.Fatal("did not catch up after scheduled time")
 	}
 	account.LastCheckinAt = base.Add(2 * time.Hour).Format(time.RFC3339)
-	for _, status := range []string{"success", "already", "skipped"} {
+	for _, status := range []string{"success", "already"} {
 		account.LastCheckinStatus = status
 		if checkinDue(account, "09:00", base.Add(14*time.Hour)) {
 			t.Fatalf("repeated terminal status %s", status)
 		}
 	}
-	account.LastCheckinStatus = "error"
-	if checkinDue(account, "09:00", base.Add(3*time.Hour)) {
-		t.Fatal("retried a failure before evening slot")
-	}
-	if !checkinDue(account, "09:00", base.Add(14*time.Hour)) {
-		t.Fatal("did not retry morning failure")
+	for _, status := range []string{"skipped", "error"} {
+		account.LastCheckinStatus = status
+		if checkinDue(account, "09:00", base.Add(3*time.Hour)) {
+			t.Fatalf("retried %s before evening slot", status)
+		}
+		if !checkinDue(account, "09:00", base.Add(14*time.Hour)) {
+			t.Fatalf("did not retry morning %s", status)
+		}
 	}
 	account.LastCheckinAt = base.Add(14 * time.Hour).Format(time.RFC3339)
 	if checkinDue(account, "09:00", base.Add(15*time.Hour)) {

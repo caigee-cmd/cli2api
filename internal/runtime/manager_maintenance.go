@@ -16,10 +16,62 @@ import (
 )
 
 func (manager *Manager) CheckinAccount(ctx context.Context, accountID string) (Account, error) {
-	return manager.checkinAccount(ctx, accountID, false)
+	return manager.checkinAccount(ctx, accountID, false, false)
 }
 
-func (manager *Manager) checkinAccount(ctx context.Context, accountID string, allowDisabled bool) (Account, error) {
+// CheckinAll runs a manual all-account pass on the server. It selects from the
+// full store instead of the browser's current page/filter, honors the system
+// "check in disabled accounts" setting, and reports every account outcome.
+func (manager *Manager) CheckinAll(ctx context.Context, force, includeDisabled bool) ([]accounts.CheckinAllResult, error) {
+	if manager == nil {
+		return nil, fmt.Errorf("account manager unavailable")
+	}
+	items, err := manager.store.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	results := make([]accounts.CheckinAllResult, 0, len(items))
+	processed := 0
+	for _, item := range items {
+		if ctx.Err() != nil {
+			return results, ctx.Err()
+		}
+		if !includeDisabled && !item.Enabled {
+			continue
+		}
+		if _, supported := providers.CheckinFor(item.Provider, item.ProviderRegion); !supported {
+			continue
+		}
+		if adapter, registered := manager.providers.Get(item.Provider); !registered || adapter.Checkin == nil {
+			continue
+		}
+		if processed > 0 && !sleepMaintenanceGap(ctx, item.ID, maintenanceAccountGap) {
+			return results, ctx.Err()
+		}
+		updated, checkErr := manager.checkinAccount(ctx, item.ID, includeDisabled, force)
+		result := accounts.CheckinAllResult{
+			AccountID: item.ID,
+			Provider:  item.Provider,
+			Region:    item.ProviderRegion,
+			Status:    updated.LastCheckinStatus,
+			Message:   updated.LastCheckinMsg,
+		}
+		if result.Status == "" {
+			result.Status = "success"
+		}
+		if checkErr != nil {
+			result.Status = "error"
+			if result.Message == "" {
+				result.Message = checkErr.Error()
+			}
+		}
+		results = append(results, result)
+		processed++
+	}
+	return results, nil
+}
+
+func (manager *Manager) checkinAccount(ctx context.Context, accountID string, allowDisabled, force bool) (Account, error) {
 	if manager == nil {
 		return Account{}, fmt.Errorf("account manager unavailable")
 	}
@@ -58,7 +110,7 @@ func (manager *Manager) checkinAccount(ctx context.Context, accountID string, al
 	defer cancel()
 	stop := context.AfterFunc(manager.runCtx, cancel)
 	defer stop()
-	if CheckedInLocalDay(account.LastCheckinAt, account.LastCheckinStatus, time.Now().In(location)) {
+	if !force && CheckedInLocalDay(account.LastCheckinAt, account.LastCheckinStatus, time.Now().In(location)) {
 		if account.Provider == "workbuddy" {
 			if err := manager.clearCheckinCooldown(ctx, accountID); err != nil {
 				return account, fmt.Errorf("clear cooldown after check-in: %w", err)
@@ -222,7 +274,8 @@ func checkinDueFor(account Account, configuredTime string, now time.Time, allowD
 	if (!account.Enabled && !allowDisabled) || !account.AutoCheckin {
 		return false
 	}
-	if recordedToday(account.LastCheckinAt, now) && account.LastCheckinStatus != "error" {
+	if recordedToday(account.LastCheckinAt, now) &&
+		(account.LastCheckinStatus == "success" || account.LastCheckinStatus == "already") {
 		return false
 	}
 	due, err := checkinSlot(configuredTime, account.ID, now)
@@ -274,7 +327,7 @@ func (manager *Manager) runScheduledCheckins(ctx context.Context, now time.Time)
 		if processed > 0 && !sleepMaintenanceGap(ctx, account.ID, maintenanceAccountGap) {
 			return
 		}
-		if _, err := manager.checkinAccount(ctx, account.ID, allowDisabled); err != nil {
+		if _, err := manager.checkinAccount(ctx, account.ID, allowDisabled, false); err != nil {
 			log.Printf("checkin account=%s: %v", account.ID, err)
 		}
 		processed++
@@ -309,7 +362,7 @@ func (manager *Manager) checkinOptedIn(ctx context.Context, now time.Time, sched
 				continue
 			}
 		}
-		if _, err := manager.checkinAccount(ctx, account.ID, allowDisabled); err != nil {
+		if _, err := manager.checkinAccount(ctx, account.ID, allowDisabled, false); err != nil {
 			log.Printf("checkin account=%s: %v", account.ID, err)
 		}
 	}

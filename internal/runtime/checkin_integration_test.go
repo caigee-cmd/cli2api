@@ -95,7 +95,7 @@ func TestCheckinCanceledAttemptIsPersistedWithoutChatCooldown(t *testing.T) {
 	}
 }
 
-func TestCheckinSchedulerSkipsDisabledCampaignButManualCanRecheck(t *testing.T) {
+func TestCheckinSchedulerRetriesSkippedCampaignAtRetryWindow(t *testing.T) {
 	var calls atomic.Int64
 	manager, account := newCheckinManager(t, checkinFunc(func(context.Context, string) (providers.CheckinResult, error) {
 		calls.Add(1)
@@ -107,13 +107,13 @@ func TestCheckinSchedulerSkipsDisabledCampaignButManualCanRecheck(t *testing.T) 
 	location, _ := time.LoadLocation("Asia/Shanghai")
 	now := time.Now().In(location)
 	manager.runScheduledCheckins(context.Background(), time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 0, 0, location))
-	if calls.Load() != 1 {
-		t.Fatal("disabled campaign ran repeatedly")
+	if calls.Load() != 2 {
+		t.Fatalf("skipped campaign should retry at the retry window, calls=%d", calls.Load())
 	}
 	if _, err := manager.CheckinAccount(context.Background(), account.ID); err != nil {
 		t.Fatal(err)
 	}
-	if calls.Load() != 2 {
+	if calls.Load() != 3 {
 		t.Fatal("manual recheck must remain available")
 	}
 }

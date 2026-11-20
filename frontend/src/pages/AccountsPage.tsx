@@ -26,6 +26,7 @@ import { SearchBar } from '@/components/ui/SearchBar'
 import { useI18n } from '@/hooks/useI18n'
 import {
   checkinAccount,
+  checkinAll,
   deleteAccount,
   exportAccount,
   exportAccountBundle,
@@ -45,7 +46,6 @@ import { fetchSystemSettings, type SystemSettings } from '@/api/system'
 import { AccountsPageSkeleton } from '@/components/ui/PageSkeletons'
 import {
   accountState,
-  checkedInToday,
   type AccountRow,
 } from '@/lib/account'
 import { accountProviderFamilyLabel } from '@/lib/provider'
@@ -594,84 +594,46 @@ export function AccountsPage() {
     })
   }
 
-    function alreadyCheckedInToday(account: AccountRow) {
-      return checkedInToday(account, checkinTimezoneFor(account))
-    }
-
   async function onCheckinAll() {
-    let eligible: AccountRow[]
-    let pending: AccountRow[]
-    try {
-      eligible = displayRows.filter((account) => account.enabled && checkinPolicyFor(account))
-      pending = eligible.filter((account) => !alreadyCheckedInToday(account))
-    } catch (error) {
-      // A bad check-in timezone must not swallow the click. The button
-      // otherwise stays idle and the page shows nothing.
-      toast({
-        id: 'checkin-all',
-        type: 'error',
-        title: t('toastFailed'),
-        description: error instanceof Error ? error.message : String(error),
-      })
-      return
-    }
-    if (eligible.length === 0) {
-      toast({ id: 'checkin-all', type: 'info', title: t('checkinAllEmpty') })
-      return
-    }
-    if (pending.length === 0) {
-      toast({ id: 'checkin-all', type: 'success', title: t('checkinAllDone', { count: eligible.length }) })
-      return
-    }
-    // Show the progress before the first account responds. With many
-    // accounts the first result can take a while, and the toast would
-    // otherwise appear only after it.
+    setCheckinAllRunning(true)
     toast({
       id: 'checkin-all',
       type: 'loading',
-      title: t('toastCheckingInAll', { done: 0, total: pending.length }),
+      title: t('toastCheckingInAll', { done: 0, total: rows.length }),
     })
-    setCheckinAllRunning(true)
-    const summary = { checked: 0, skipped: eligible.length - pending.length, failed: 0 }
     try {
-      for (let index = 0; index < pending.length; index += 1) {
-        // One account at a time, with a pause before every account after the
-        // first, so a manual pass cannot burst every upstream call at once.
-        // Accounts already checked in today never reach here.
-        if (index > 0) {
-          await new Promise((resolve) => setTimeout(resolve, 4000))
-        }
-        try {
-          const result = await checkinAccount(pending[index].id)
-          const status = result?.last_checkin_status
-          const message = result?.last_checkin_msg
-          const kind = status === 'already' ? 'already' : status === 'skipped' ? 'skipped' : status === 'error' ? 'error' : 'success'
-          if (kind === 'error' || kind === 'skipped') summary.failed += 1
-          else summary.checked += 1
-          setCheckinFeedbackById((current) => ({
-            ...current,
-            [pending[index].id]: { kind, message: kind === 'error' ? message || t('checkinRecordFailed') : message },
-          }))
-        } catch (error) {
-          summary.failed += 1
-          setCheckinFeedbackById((current) => ({
-            ...current,
-            [pending[index].id]: { kind: 'error', message: error instanceof Error ? error.message : String(error) },
-          }))
-        }
-        if (index < pending.length - 1) {
-          toast({
-            id: 'checkin-all',
-            type: 'loading',
-            title: t('toastCheckingInAll', { done: index + 1, total: pending.length }),
-          })
+      const response = await checkinAll()
+      const results = response.data || []
+      if (results.length === 0) {
+        toast({ id: 'checkin-all', type: 'info', title: t('checkinAllEmpty') })
+        return
+      }
+      const summary = { checked: 0, skipped: 0, failed: 0 }
+      const feedback: Record<string, { kind: 'already' | 'skipped' | 'error' | 'success'; message?: string }> = {}
+      for (const result of results) {
+        const raw = String(result.status || '').toLowerCase()
+        const kind = raw === 'already' || raw === 'skipped' || raw === 'error' ? raw : 'success'
+        if (kind === 'error') summary.failed += 1
+        else if (kind === 'skipped' || kind === 'already') summary.skipped += 1
+        else summary.checked += 1
+        feedback[result.account_id] = {
+          kind,
+          message: kind === 'error' ? result.message || t('checkinRecordFailed') : result.message,
         }
       }
+      setCheckinFeedbackById((current) => ({ ...current, ...feedback }))
       const values = { checked: summary.checked, skipped: summary.skipped, failed: summary.failed }
       toast({
         id: 'checkin-all',
         type: summary.failed ? 'error' : 'success',
         title: t(summary.failed ? 'toastCheckedInAllFailed' : 'toastCheckedInAll', values),
+      })
+    } catch (error) {
+      toast({
+        id: 'checkin-all',
+        type: 'error',
+        title: t('toastFailed'),
+        description: error instanceof Error ? error.message : String(error),
       })
     } finally {
       setCheckinAllRunning(false)
