@@ -22,6 +22,7 @@ type Runtime interface {
 	RefreshAccount(ctx context.Context, id string, forceQuota bool) error
 	RefreshAll(ctx context.Context, forceQuota bool) error
 	CheckinAccount(ctx context.Context, accountID string) (accounts.Account, error)
+	CheckinAll(ctx context.Context, force, includeDisabled bool) ([]accounts.CheckinAllResult, error)
 	ReloadProxyURL(ctx context.Context, value string) error
 	ReplaceProxyAPIKey(ctx context.Context, key string) error
 	WorkerAdmin(ctx context.Context, input providers.AdminRequest) (providers.AdminResponse, error)
@@ -185,6 +186,14 @@ func (a *Accounts) Checkin(ctx context.Context, id string) (accounts.Account, er
 		return accounts.Account{}, operationError("provider_unsupported", "check-in is not available for this provider and region")
 	}
 	return a.runtime.CheckinAccount(ctx, id)
+}
+
+func (a *Accounts) CheckinAll(ctx context.Context, force, includeDisabled bool) ([]accounts.CheckinAllResult, error) {
+	results, err := a.runtime.CheckinAll(ctx, force, includeDisabled)
+	if err != nil {
+		return nil, operationError("checkin_all_failed", err.Error())
+	}
+	return results, nil
 }
 
 func (a *Accounts) LoadCredentialPayload(ctx context.Context, id string) (string, []byte, error) {

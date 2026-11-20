@@ -67,6 +67,14 @@ type Account struct {
 	UpdatedAt         time.Time      `json:"updated_at"`
 }
 
+type CheckinAllResult struct {
+	AccountID string `json:"account_id"`
+	Provider  string `json:"provider"`
+	Region    string `json:"region"`
+	Status    string `json:"status"`
+	Message   string `json:"message,omitempty"`
+}
+
 type CreateAccount struct {
 	AutoCheckin          *bool
 	CheckinTime          string

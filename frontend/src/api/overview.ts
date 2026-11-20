@@ -470,6 +470,21 @@ export function checkinAccount(accountId: string) {
   )
 }
 
+export type CheckinAllResult = {
+  account_id: string
+  provider: string
+  region: string
+  status: string
+  message?: string
+}
+
+export function checkinAll(input?: { force?: boolean; include_disabled?: boolean }) {
+  return api<{ object?: string; data?: CheckinAllResult[] }>('/api/accounts/checkin-all', {
+    method: 'POST',
+    body: JSON.stringify(input || {}),
+  })
+}
+
 	export function fetchCheckinRecords(accountId: string) {
   return api<{ object?: string; data?: CheckinRecord[] }>(`/api/accounts/${encodeURIComponent(accountId)}/checkins`)
 }
