@@ -496,6 +496,45 @@ func TestManagerRefreshPersistsQoderBreakdown(t *testing.T) {
 	}
 }
 
+// The Kiro subscription tier must survive the generic quota path so the
+// account card can show it.
+func TestManagerRefreshPersistsKiroPlan(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlstore.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	account, err := store.Create(ctx, accounts.CreateAccount{Name: "K", Provider: "kiro", Region: "us-east-1", Enabled: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	prober := &fakeProber{
+		health: providers.AccountHealth{Ready: true, Hot: true, UID: "k-uid"},
+		quota: &providers.QuotaInfo{
+			Used: 552.37, Total: 907, Remaining: 354.63, Percentage: 60.9, Unit: "credits",
+			FetchedAt: "2026-11-20T00:00:00Z", ProviderID: "kiro", Plan: "PRO_PLUS",
+			Windows: []providers.QuotaWindow{{ID: "credits", Label: "Credits", Used: 552.37, Total: 907, Remaining: 354.63, Percentage: 60.9, Unit: "credits"}},
+		},
+	}
+	registry := providers.NewRegistry()
+	registry.Register(providers.Adapter{ID: "kiro", Prober: prober})
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	manager.SetProviders(registry)
+	manager.Pool().Upsert(executor.Item{ID: account.ID, Provider: "kiro", Runtime: "in_process"})
+
+	if err := manager.RefreshAccount(ctx, account.ID, true); err != nil {
+		t.Fatalf("refresh err = %v", err)
+	}
+	stored, err := store.Get(ctx, account.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Quota == nil || stored.Quota.Plan != "PRO_PLUS" {
+		t.Fatalf("kiro plan lost through generic path: %+v", stored.Quota)
+	}
+}
+
 func TestManagerRefreshClearsRecoveredDevinQuotaCooldown(t *testing.T) {
 	ctx := context.Background()
 	store, err := sqlstore.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))

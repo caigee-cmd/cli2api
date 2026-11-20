@@ -291,6 +291,29 @@ func TestQuotaOverageExhaustedBlocksAccount(t *testing.T) {
 	}
 }
 
+// Kiro labels the CREDIT breakdown's unit INVOCATIONS; the card must still
+// say credits, and the subscription tier must come through.
+func TestQuotaCreditBreakdownIsCredits(t *testing.T) {
+	usage := usageLimits{
+		SubscriptionInfo: &struct {
+			SubscriptionName  string `json:"subscriptionName"`
+			SubscriptionTitle string `json:"subscriptionTitle"`
+			SubscriptionType  string `json:"subscriptionType"`
+			OverageCapability string `json:"overageCapability"`
+		}{SubscriptionTitle: "KIRO PRO+"},
+		UsageBreakdownList: []usageBreakdown{{
+			ResourceType: "CREDIT", CurrentUsage: 552.37, UsageLimit: 907, Unit: "INVOCATIONS",
+		}},
+	}
+	quota := quotaFromUsage(usage, time.Now().UTC())
+	if quota.Unit != "credits" || len(quota.Windows) == 0 || quota.Windows[0].Unit != "credits" {
+		t.Fatalf("unit = %q windows = %+v", quota.Unit, quota.Windows)
+	}
+	if quota.Plan != "PRO_PLUS" {
+		t.Fatalf("plan = %q, want PRO_PLUS", quota.Plan)
+	}
+}
+
 func TestBuilderIDProfileIsRequestScoped(t *testing.T) {
 	cred := Credential{AuthMethod: "builder_id", Region: "us-east-1", AccessToken: "access"}
 	if cred.requestProfileArn() != builderIDProfileArn {
