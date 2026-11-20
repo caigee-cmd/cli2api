@@ -3,6 +3,42 @@
 Published user-facing notes for GitHub Releases and the console update page.
 Write upcoming notes as bilingual files in `changelog/unreleased/`.
 
+## 0.7.40 - 2026-11-20
+
+### English
+
+- Added full account export/import on the Accounts page. Export all providers' accounts and their settings to one JSON file, copy it to another computer, and import it there to restore them.
+- The export file includes stored sign-in credentials; keep it private.
+- One-click check-in now runs on the server across every eligible account, regardless of the current browser filter/page or per-account timezone parsing. It honors the system setting for disabled accounts, reports `success`, `already`, `skipped`, and `error` separately, and no longer treats upstream `skipped` as a failure.
+- Scheduled check-in now retries `skipped` attempts in the existing 21:00 retry window instead of treating them as completed for the whole day.
+- Huawei Cloud CodeArts (码道) now uses the credit-only model catalog: the retired free-benefit gateway is no longer queried and `maas_type: benefit` is never sent. Unknown model ids are rejected locally before a billable chat request, and daily check-in claims only campaigns the server marks eligible. The remote-image inlining behaviour is preserved.
+- Add a Doubao Work (豆包工作) provider (`doubaowork`) that turns a Doubao Work subscription into OpenAI-compatible models on the gateway, with per-account model catalogs, quota, and read-only check-in status.
+- Add accounts by pasting a web-session Cookie from a logged-in doubao.com session; the server validates it on import. The gateway runs headless, so there is no browser or desktop-client auto-login.
+- Chat encodes full history, tool definitions, and structured-output requirements into a single upstream request and streams the reply back as OpenAI deltas; tool-call replies tolerate fenced, extended, and truncated JSON.
+- Doubao Work images are not supported on this route (the upload endpoint needs a client-side signature), so image parts are rejected with a clear message rather than silently dropped.
+- Check-in status is read-only: it shows whether you checked in today and the streak, but never issues a claim request, because a failed claim consumes that day's reward with no way to recover.
+- Risk-control/verification errors are treated as request errors so the gateway does not switch accounts or cool the account on them.
+- Kiro requests now record token usage and credits. Kiro does not send token counts, so input tokens are derived from its context-usage percentage and output tokens are estimated from the reply (logged as `estimate`). Credits come from Kiro's metering events.
+- Added a MiniMax Code provider (`minimaxcode/`) with official OAuth device-code sign-in (PKCE S256), CN and global regions, the 10-style work-mode model catalog with a static fallback, streaming/non-streaming chat through the Anthropic Messages gateway, tool calling, and status-only quota display. Route with the `minimaxcode/` model prefix.
+- Replaced placeholder provider icons with each product's official mark in the account picker: CodeArts (Huawei), Command Code, Devin, Kimi, Muse (Meta), QwenWork and Trae.
+
+### 中文
+
+- 账号页新增全量导出/导入：可把所有供应商的账号及配置导出为一个 JSON 文件，复制到另一台电脑后导入即可恢复。
+- 导出文件包含登录凭证，请妥善保管。
+- 一键签到改为服务端遍历所有符合条件的账号执行，不再受浏览器当前筛选、分页或本地时区判断影响。它会遵循“签到包含停用账号”的系统设置，并分别统计 `success`、`already`、`skipped`、`error`，不再把上游返回的 `skipped` 误判为失败。
+- 自动签到不再把 `skipped` 当成当天已完成；这类尝试会在现有的 21:00 重试窗口中再试一次。
+- 华为云码道改为仅使用积分模型目录：不再查询已下线的免费权益网关，也不再发送 `maas_type: benefit` 头。未知模型 ID 会在发送计费请求前本地拒绝，每日签到只领取服务端标记可领的活动。远程图片内联行为保持不变。
+- 新增豆包工作（Doubao Work）供应商 `doubaowork`，把豆包工作订阅变成网关上一组 OpenAI 兼容模型，支持按账号的模型目录、额度与只读签到状态。
+- 通过粘贴已登录 doubao.com 网页会话的 Cookie 添加账号，服务端在导入时校验。网关跑在无头环境，没有浏览器或客户端自动登录。
+- 对话会把完整历史、工具定义和结构化输出要求编码成单条上游请求，并把回复转成 OpenAI 增量流；工具调用回复容忍 Markdown 围栏、前后解释文字和截断 JSON。
+- 该路径暂不支持豆包工作图片（上传入口需要前端生成的签名），图片会以明确提示拒绝，而不是被静默丢弃。
+- 签到状态只读：显示今天是否已签、连续天数，但绝不发领取请求——领取失败会消耗当天额度且无法补救。
+- 风控/验证码错误按请求错误处理，网关不会因此切换账号或冷却账号。
+- Kiro 请求现在会记录 token 用量和积分。Kiro 上游不返回 token 数，因此输入 token 由上下文占用百分比换算，输出 token 按回复内容估算（来源记为 `estimate`）。积分取自 Kiro 的计费事件。
+- 新增 MiniMax Code 供应商（`minimaxcode/`）：使用官方 OAuth 设备码登录（PKCE S256），支持国内/国际站点、工作模式模型目录（含静态兜底）、通过 Anthropic Messages 网关的流式/非流式对话、工具调用和状态额度展示，可用 `minimaxcode/` 模型前缀指定路由。
+- 将账号选择器中的占位图标替换为各产品的官方标识：CodeArts（华为）、Command Code、Devin、Kimi、Muse (Meta)、QwenWork 和 Trae。
+
 ## 0.7.39 - 2026-11-20
 
 ### English
