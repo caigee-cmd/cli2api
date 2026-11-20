@@ -98,6 +98,16 @@ func newTestClient(t *testing.T, server *httptest.Server) (*Client, *memoryStore
 	return client, store
 }
 
+func TestCanonicalModelRejectsUnknownModel(t *testing.T) {
+	models := []providers.ModelInfo{{NativeModel: "GLM-5.2", PublicModel: "GLM-5.2"}}
+	if got, ok := canonicalModel(models, "glm-5.2"); !ok || got != "GLM-5.2" {
+		t.Fatalf("canonicalModel = %q, %v", got, ok)
+	}
+	if _, ok := canonicalModel(models, "not-a-model"); ok {
+		t.Fatal("unknown model accepted")
+	}
+}
+
 func TestValidateCredential(t *testing.T) {
 	valid, _ := testCredential().Encode()
 	if err := ValidateCredential(valid); err != nil {
@@ -318,7 +328,7 @@ func TestResolveMaxReasoningHonorsRequestedLevel(t *testing.T) {
 	}
 	body, err := buildChatBody(translate.ChatRequest{
 		Model: "GLM-5.2", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
-	}, "GLM-5.2", level, caps.Images, false)
+	}, "GLM-5.2", level, caps.Images)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -416,10 +426,6 @@ func TestModelsAndQuota(t *testing.T) {
 			_, _ = io.WriteString(w, `{"builtinModels":[{"model_id":"GLM-5.2","model_name":"GLM-5.2","context_window":200000,"max_tokens":131072}]}`)
 		case "/v1/agent-center/agents/useragents":
 			http.NotFound(w, r)
-		case "/api/v1/benefit/claim":
-			_, _ = io.WriteString(w, `{"error_code":"0000"}`)
-		case "/api/v1/gateway/config":
-			_, _ = io.WriteString(w, `{"error_code":"0000","result":{"models":[{"model_id":"glm-5.3-flash","context_window":1048576,"max_tokens":393216}]}}`)
 		case statisticsPath:
 			_, _ = io.WriteString(w, `{"end_date":"2026-12-31","package":{"spec_code":"free","package_name_en":"Free"},"metrics":[{"name":"usageTotalPackageCredit","show":true,"package_credit_amount":500,"package_credit_used":100,"package_credit_remain":400,"value":20},{"name":"usageTokenChatMessages","show":true,"usage_token_num":1000,"package_token_amount":10000,"value":10}]}`)
 		default:
@@ -433,7 +439,7 @@ func TestModelsAndQuota(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Models: %v", err)
 	}
-	if len(models) != 2 {
+	if len(models) != 1 {
 		t.Fatalf("models = %+v", models)
 	}
 	found := false
@@ -447,9 +453,6 @@ func TestModelsAndQuota(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("GLM-5.2 missing")
-	}
-	if !client.isBenefitModel("acct-1", "glm-5.3-flash") {
-		t.Fatal("benefit model not marked")
 	}
 	quota, err := client.Quota(context.Background(), "acct-1")
 	if err != nil {

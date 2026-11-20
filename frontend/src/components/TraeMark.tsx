@@ -1,16 +1,20 @@
+import traeMark from '@/assets/trae-mark.png'
+
 type Props = {
   size?: number
   className?: string
 }
 
+// Trae brand mark: official trae.ai favicon.
 export function TraeMark({ size = 16, className = '' }: Props) {
   return (
-    <span
-      className={`inline-flex shrink-0 items-center justify-center rounded-[22%] bg-[#1a1a1a] text-white ${className}`.trim()}
-      style={{ width: size, height: size, fontSize: Math.max(9, Math.round(size * 0.55)), fontWeight: 650, lineHeight: 1 }}
-      aria-hidden="true"
-    >
-      T
-    </span>
+    <img
+      src={traeMark}
+      alt=""
+      width={size}
+      height={size}
+      className={`block shrink-0 rounded-[22%] ${className}`.trim()}
+      draggable={false}
+    />
   )
 }
