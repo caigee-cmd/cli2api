@@ -5,6 +5,7 @@ import { Button, Label, ListBox, Select } from '@heroui/react'
 import {
   ArrowsClockwise,
   CalendarCheck,
+  DownloadSimple,
   MagnifyingGlass,
   Plus,
   UploadSimple,
@@ -27,6 +28,8 @@ import {
   checkinAccount,
   deleteAccount,
   exportAccount,
+  exportAccountBundle,
+  importAccountBundle,
   fetchAccounts,
   fetchProviders,
   completeLoginCallback,
@@ -61,6 +64,9 @@ import {
   summarizeWorkbuddyImportResult,
   type WorkbuddyImportResult,
 } from '@/lib/workbuddyImport'
+import { downloadAccountBundle, parseAccountBundleText } from '@/lib/accountBundle'
+import { AccountBundleImportModal } from '@/components/account/AccountBundleImportModal'
+import type { AccountBundle } from '@/api/overview'
 
 function kiroImportEntries(bundle: Record<string, unknown>): Record<string, unknown>[] {
   if (!Array.isArray(bundle.accounts)) return [bundle]
@@ -106,6 +112,11 @@ export function AccountsPage() {
   const hasAccounts = rows.length > 0
   const [addOpen, setAddOpen] = useState(false)
   const [batchImporting, setBatchImporting] = useState(false)
+  const [bundleExporting, setBundleExporting] = useState(false)
+  const [bundleImporting, setBundleImporting] = useState(false)
+  const [bundleConfirmOpen, setBundleConfirmOpen] = useState(false)
+  const [bundleImportData, setBundleImportData] = useState<AccountBundle | null>(null)
+  const [bundleImportFileName, setBundleImportFileName] = useState('')
   const [batchConfirmOpen, setBatchConfirmOpen] = useState(false)
   const [batchDetection, setBatchDetection] = useState<ImportDetectResult | null>(null)
   const [batchBundle, setBatchBundle] = useState<Record<string, unknown> | null>(null)
@@ -355,6 +366,96 @@ export function AccountsPage() {
       await copyText(JSON.stringify(bundle, null, 2))
       setNoteById((current) => ({ ...current, [id]: t('credentialCopied') }))
     })
+  }
+
+  async function onExportAll() {
+    if (bundleExporting) return
+    setBundleExporting(true)
+    const toastId = 'accounts-export-all'
+    toast({ id: toastId, type: 'loading', title: t('toastAccountsExporting') })
+    try {
+      const bundle = await exportAccountBundle()
+      downloadAccountBundle(bundle)
+      toast({
+        id: toastId,
+        type: 'success',
+        title: t('toastAccountsExported', { n: bundle.count ?? bundle.accounts.length }),
+        description: t('bundleExportHint'),
+      })
+    } catch (error) {
+      toast({
+        id: toastId,
+        type: 'error',
+        title: t('toastFailed'),
+        description: error instanceof Error ? error.message : String(error),
+      })
+    } finally {
+      setBundleExporting(false)
+    }
+  }
+
+  function closeBundleConfirm() {
+    if (bundleImporting) return
+    setBundleConfirmOpen(false)
+    setBundleImportData(null)
+    setBundleImportFileName('')
+  }
+
+  async function onBundleImportFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    try {
+      const raw = await file.text()
+      const bundle = parseAccountBundleText(raw)
+      setBundleImportData(bundle)
+      setBundleImportFileName(file.name)
+      setBundleConfirmOpen(true)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      toast({
+        type: 'error',
+        title: message === 'bad_json' ? t('wizardBadJson') : t('bundleImportUnrecognized'),
+      })
+    }
+  }
+
+  async function onBundleImportConfirm() {
+    if (!bundleImportData || bundleImporting) return
+    setBundleImporting(true)
+    const toastId = 'bundle-import-accounts'
+    toast({ id: toastId, type: 'loading', title: t('bundleImportLoading') })
+    try {
+      const result = await importAccountBundle(bundleImportData)
+      const succeeded = result.succeeded ?? 0
+      const failed = result.failed ?? 0
+      const failureSummary = (result.errors || [])
+        .slice(0, 3)
+        .map((item) => item.message || `index ${item.index}`)
+        .filter(Boolean)
+        .join('; ')
+      toast({
+        id: toastId,
+        type: failed > 0 && succeeded === 0 ? 'error' : failed > 0 ? 'info' : 'success',
+        title: failed > 0
+          ? t('accountImportPartial').replace('{ok}', String(succeeded)).replace('{fail}', String(failed))
+          : t('accountImportBatch').replace('{n}', String(succeeded)),
+        description: failureSummary || undefined,
+      })
+      setBundleConfirmOpen(false)
+      setBundleImportData(null)
+      setBundleImportFileName('')
+      if (succeeded > 0) await reloadAccounts(false)
+    } catch (error) {
+      toast({
+        id: toastId,
+        type: 'error',
+        title: t('toastFailed'),
+        description: error instanceof Error ? error.message : String(error),
+      })
+    } finally {
+      setBundleImporting(false)
+    }
   }
 
   async function onToggle(id: string, selected: boolean) {
@@ -691,6 +792,30 @@ export function AccountsPage() {
           </>
         ) : null}
         <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:ml-auto sm:w-auto">
+          <Button size="sm" variant="secondary" isPending={bundleExporting} isDisabled={batchImporting || batchConfirmOpen || bundleImporting || bundleConfirmOpen} onPress={() => void onExportAll()}>
+            <DownloadSimple size={14} />{t('exportAll')}
+          </Button>
+          {/*
+            Separate file picker for full account migration bundles. Kept
+            distinct from the credential "batch import" below on purpose.
+          */}
+          <label
+            htmlFor="accounts-bundle-import-file"
+            className={`button button--sm button--secondary inline-flex items-center gap-1.5 ${
+              bundleImporting || bundleConfirmOpen || batchImporting || batchConfirmOpen || bundleExporting ? 'pointer-events-none opacity-60' : 'cursor-pointer'
+            }`}
+          >
+            {bundleImporting ? <BrandMark size={14} loading /> : <DownloadSimple size={14} />}
+            {t('importAll')}
+          </label>
+          <input
+            id="accounts-bundle-import-file"
+            type="file"
+            accept=".json,application/json,text/json"
+            disabled={bundleImporting || bundleConfirmOpen || batchImporting || batchConfirmOpen || bundleExporting}
+            className="sr-only"
+            onChange={(event) => void onBundleImportFile(event)}
+          />
           <Button size="sm" variant="secondary" isPending={checkinAllRunning} isDisabled={quotaRefreshing} onPress={() => void onCheckinAll()}>
             <CalendarCheck size={14} />{t('checkinAll')}
           </Button>
@@ -706,7 +831,7 @@ export function AccountsPage() {
           <label
             htmlFor="accounts-batch-import-file"
             className={`button button--sm button--secondary inline-flex items-center gap-1.5 ${
-              batchImporting || batchConfirmOpen ? 'pointer-events-none opacity-60' : 'cursor-pointer'
+              batchImporting || batchConfirmOpen || bundleImporting || bundleConfirmOpen || bundleExporting ? 'pointer-events-none opacity-60' : 'cursor-pointer'
             }`}
           >
             {batchImporting ? <BrandMark size={14} loading /> : <UploadSimple size={14} />}
@@ -716,7 +841,7 @@ export function AccountsPage() {
             id="accounts-batch-import-file"
             type="file"
             accept=".json,application/json,text/json"
-            disabled={batchImporting || batchConfirmOpen}
+            disabled={batchImporting || batchConfirmOpen || bundleImporting || bundleConfirmOpen || bundleExporting}
             className="sr-only"
             onChange={(event) => void onBatchImportFile(event)}
           />
@@ -725,6 +850,15 @@ export function AccountsPage() {
       </section>
 
       <AddAccountModal isOpen={addOpen} onClose={() => setAddOpen(false)} onAdded={() => { toast({ type: 'success', title: t('toastAccountAdded') }); void reloadAccounts(false) }} />
+      <AccountBundleImportModal
+        isOpen={bundleConfirmOpen}
+        bundle={bundleImportData}
+        fileName={bundleImportFileName}
+        isPending={bundleImporting}
+        t={t}
+        onClose={closeBundleConfirm}
+        onConfirm={() => { void onBundleImportConfirm() }}
+      />
       <BatchImportConfirmModal
         isOpen={batchConfirmOpen}
         detection={batchDetection}
