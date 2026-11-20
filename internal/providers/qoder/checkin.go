@@ -22,11 +22,12 @@ import (
 // on CN, OpenAPI token on Global; rotated via EnsureFreshSession before the
 // call and force-refreshed on a 401).
 //
-// Campaign requests send the desktop identity headers the activity endpoint
-// requires (User-Agent, Cosy-ClientType, Cosy-Version) and omit the derived
-// cosy-machine* set. A full derived set is treated as a non-official client
-// and the daily credit campaign is filtered out of an otherwise successful
-// list, which is what made a later check-in look like "no campaign".
+// Campaign requests send the desktop identity and activity-page headers the
+// endpoint expects (User-Agent, Cosy-ClientType, Cosy-Version, Origin, Referer)
+// and omit the derived cosy-machine* set. A full derived set is treated as a
+// non-official client and the daily credit campaign is filtered out of an
+// otherwise successful list, which is what made a later check-in look like
+// "no campaign". Origin/Referer mirror the official activity iframe.
 //
 // Wire shape:
 //   - GET  {openapi}/sash/api/v1/me/campaigns  → list of campaigns
@@ -138,8 +139,11 @@ func (b *Bridge) Checkin(ctx context.Context) (providers.CheckinResult, error) {
 		req.Header.Set("User-Agent", "Qoder")
 		req.Header.Set("Cosy-ClientType", "10")
 		req.Header.Set("Cosy-Version", qauth.DesktopCosyVersion)
-		// Derived machine headers are deliberately absent. See the comment
-		// on Client.Checkin: a full derived set hides the daily campaign.
+		// The campaign endpoint serves the desktop activity iframe. Keep its
+		// browser origin/referer, while omitting derived machine headers that
+		// make upstream classify the request as non-official.
+		req.Header.Set("Origin", endpoint.origin)
+		req.Header.Set("Referer", endpoint.base+"/growth-page/activity-iframe")
 		// redirect: manual — the campaigns endpoint 302s to a login page when
 		// the token is rejected, and we want to see the 302 rather than follow it.
 		resp, err := checkinHTTPClient.Do(req)
@@ -181,9 +185,32 @@ func (b *Bridge) Checkin(ctx context.Context) (providers.CheckinResult, error) {
 	// 1) List campaigns. A successful response with nothing claimable is
 	// retried: the endpoint intermittently omits the daily campaign, and
 	// treating that single snapshot as final dropped the day's check-in.
+	// Global quota calls need a separate OpenAPI bearer, but the activity
+	// endpoint has also accepted the desktop COSY token. If the OpenAPI token
+	// authenticates yet returns no claimable credit campaign, retry the list
+	// once with the COSY token before declaring the activity closed.
+	cosyFallback := ""
+	if b.Region != nil && b.Region.NeedsOpenAPIToken {
+		cosyFallback = b.CurrentSecurityOauth()
+	}
+	campaignListFrom := func(raw map[string]any, err error) []campaign {
+		if err != nil {
+			return nil
+		}
+		return campaignsFrom(raw)
+	}
+
 	var items []campaign
 	for attempt, wait := range checkinListRetryWaits {
 		listRaw, _, err := doRequest(checkinCampaignsPath, http.MethodGet, false)
+		items = campaignListFrom(listRaw, err)
+		if err == nil && cosyFallback != "" && bearer != cosyFallback &&
+			!hasClaimableCreditCampaign(items) && attempt == 0 {
+			bearer = cosyFallback
+			cosyFallback = ""
+			listRaw, _, err = doRequest(checkinCampaignsPath, http.MethodGet, false)
+			items = campaignListFrom(listRaw, err)
+		}
 		if err != nil {
 			// 404 means the credit campaign is not open today; surface as skipped
 			// rather than an error so the scheduler logs a clean "already/none".
@@ -452,6 +479,15 @@ func creditCampaigns(items []campaign) []campaign {
 		}
 	}
 	return out
+}
+
+func hasClaimableCreditCampaign(items []campaign) bool {
+	for _, c := range creditCampaigns(items) {
+		if c.ClaimStatus == "CLAIMABLE" {
+			return true
+		}
+	}
+	return false
 }
 
 // campaignListNeedsRetry reports whether a successful listing should be

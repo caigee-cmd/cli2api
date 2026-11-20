@@ -102,8 +102,8 @@ func TestBridgeCheckinHappyPath(t *testing.T) {
 		t.Fatalf("claim POST hits = %d want 2 (all CLAIMABLE CLAIM_BENEFIT)", claimHits.Load())
 	}
 
-	// Desktop identity only. A derived cosy-machine* set hides the daily
-	// credit campaign, so none of those headers may be sent.
+	// Desktop identity + activity-page headers. A derived cosy-machine* set
+	// hides the daily credit campaign, so none of those headers may be sent.
 	if got := gotHeaders.Get("Authorization"); !strings.HasPrefix(got, "Bearer ") {
 		t.Fatalf("Authorization = %q want Bearer <token>", got)
 	}
@@ -116,12 +116,18 @@ func TestBridgeCheckinHappyPath(t *testing.T) {
 	if got := gotHeaders.Get("Cosy-Version"); got != "0.4.8" {
 		t.Fatalf("Cosy-Version = %q want 0.4.8", got)
 	}
+	if got := gotHeaders.Get("Origin"); got != "https://stub.test" {
+		t.Fatalf("Origin = %q want activity page origin", got)
+	}
+	if got := gotHeaders.Get("Referer"); got != openapi.URL+"/growth-page/activity-iframe" {
+		t.Fatalf("Referer = %q want activity iframe referer", got)
+	}
 	for _, key := range []string{
 		"Cosy-Machineid", "Cosy-Machinetoken", "Cosy-Machinetype", "Cosy-Machinecode",
-		"Cosy-Machineos", "Cosy-Machinehostname", "Origin", "Referer",
+		"Cosy-Machineos", "Cosy-Machinehostname",
 	} {
 		if got := gotHeaders.Get(key); got != "" {
-			t.Fatalf("%s = %q, derived machine/browser headers must be omitted", key, got)
+			t.Fatalf("%s = %q, derived machine headers must be omitted", key, got)
 		}
 	}
 }
@@ -490,7 +496,7 @@ func TestBridgeCheckinGlobalUsesOpenAPIBearer(t *testing.T) {
 		checkinHTTPClient = origClient
 	})
 
-	var campaignsAuth string
+	var campaignsAuth, campaignsOrigin, campaignsReferer string
 	openapi := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/api/v1/jobToken/exchange":
@@ -500,11 +506,82 @@ func TestBridgeCheckinGlobalUsesOpenAPIBearer(t *testing.T) {
 			})
 		case r.URL.Path == "/sash/api/v1/me/campaigns":
 			campaignsAuth = r.Header.Get("Authorization")
+			campaignsOrigin = r.Header.Get("Origin")
+			campaignsReferer = r.Header.Get("Referer")
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"campaigns": []map[string]any{{
 					"campaignId": "c1", "actionType": "CLAIM_BENEFIT", "claimStatus": "LOCKED",
 				}},
 			})
+		default:
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer openapi.Close()
+	CheckinEndpointHook = func(*qauth.RegionConfig) *checkinRegion {
+		return &checkinRegion{base: openapi.URL, origin: "https://stub.test"}
+	}
+	checkinHTTPClient = openapi.Client()
+
+	mid, mtok, mtyp := mustDeriveMachineIdentity("fake-pat-secret-0123456789abcdef")
+	region := &qauth.RegionConfig{Name: "global", OpenAPIBase: openapi.URL, NeedsOpenAPIToken: true}
+	b := NewBridge("fake-pat-secret-0123456789abcdef", region, mid, mtok, mtyp)
+	fakeJT := map[string]any{
+		"id": "test-uid-12345", "name": "tester",
+		"securityOauthToken": "", "refreshToken": "rt",
+		"expireTime": float64(time.Now().Add(24 * time.Hour).UnixMilli()),
+	}
+	b.applyJobToken(fakeJT, "personal_standard")
+	b.bootstrapped.Store(true)
+
+	if _, err := b.Checkin(context.Background()); err != nil {
+		t.Fatalf("Checkin err = %v", err)
+	}
+	if campaignsAuth != "Bearer openapi-token-xyz" {
+		t.Fatalf("campaign Authorization = %q want the OpenAPI bearer", campaignsAuth)
+	}
+	if campaignsOrigin != "https://stub.test" {
+		t.Fatalf("campaign Origin = %q want activity page origin", campaignsOrigin)
+	}
+	if campaignsReferer != openapi.URL+"/growth-page/activity-iframe" {
+		t.Fatalf("campaign Referer = %q want activity iframe referer", campaignsReferer)
+	}
+}
+
+// TestBridgeCheckinGlobalFallsBackToCOSYForCampaigns covers the compatibility
+// case where the OpenAPI bearer authenticates but does not expose the daily
+// credit campaign, while the desktop COSY token still does.
+func TestBridgeCheckinGlobalFallsBackToCOSYForCampaigns(t *testing.T) {
+	origHook := CheckinEndpointHook
+	origClient := checkinHTTPClient
+	t.Cleanup(func() {
+		CheckinEndpointHook = origHook
+		checkinHTTPClient = origClient
+	})
+
+	var campaignAuth []string
+	openapi := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/v1/jobToken/exchange":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"token": "openapi-token-xyz", "refresh_token": "openapi-rt",
+				"expires_at": "2099-01-01T00:00:00Z",
+			})
+		case r.Method == http.MethodGet && r.URL.Path == "/sash/api/v1/me/campaigns":
+			campaignAuth = append(campaignAuth, r.Header.Get("Authorization"))
+			if len(campaignAuth) == 1 {
+				_ = json.NewEncoder(w).Encode(map[string]any{"campaigns": []map[string]any{{
+					"campaignId": "c1", "actionType": "CLAIM_BENEFIT", "claimStatus": "LOCKED",
+				}}})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"campaigns": []map[string]any{{
+				"campaignId": "c1", "actionType": "CLAIM_BENEFIT", "claimStatus": "CLAIMABLE",
+				"benefit": map[string]any{"kind": "CREDITS", "amount": 100.0},
+			}}})
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/claim"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"status": "CLAIMED"}})
 		default:
 			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
 			http.NotFound(w, r)
@@ -527,10 +604,14 @@ func TestBridgeCheckinGlobalUsesOpenAPIBearer(t *testing.T) {
 	b.applyJobToken(fakeJT, "personal_standard")
 	b.bootstrapped.Store(true)
 
-	if _, err := b.Checkin(context.Background()); err != nil {
+	result, err := b.Checkin(context.Background())
+	if err != nil {
 		t.Fatalf("Checkin err = %v", err)
 	}
-	if campaignsAuth != "Bearer openapi-token-xyz" {
-		t.Fatalf("campaign Authorization = %q want the OpenAPI bearer", campaignsAuth)
+	if result.Status != "success" || result.RewardCredits != 100 {
+		t.Fatalf("result = %+v want success +100", result)
+	}
+	if len(campaignAuth) < 2 || campaignAuth[0] != "Bearer openapi-token-xyz" || campaignAuth[1] != "Bearer cosy-sot" {
+		t.Fatalf("campaign auth sequence = %v", campaignAuth)
 	}
 }
