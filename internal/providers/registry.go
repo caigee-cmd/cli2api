@@ -361,11 +361,11 @@ var Kiro = ProviderDescriptor{
 	Runtime:           RuntimeInProcess,
 	AuthTypes:         []AuthType{AuthOAuth, AuthPAT},
 	CredentialFormats: []string{"kiro-oauth-v1"},
-		Capabilities: ProviderCapabilities{
-			Chat: true, Stream: true, Tools: true, Images: true, Reasoning: true,
-			ModelCatalog: true, Usage: false, Login: true, BrowserLogin: true,
-			PATLogin: true, ImportExport: true,
-		},
+	Capabilities: ProviderCapabilities{
+		Chat: true, Stream: true, Tools: true, Images: true, Reasoning: true,
+		ModelCatalog: true, Usage: false, Login: true, BrowserLogin: true,
+		PATLogin: true, ImportExport: true,
+	},
 	Regions: []RegionDescriptor{
 		{
 			ID: "us-east-1", Label: "US East",
@@ -406,19 +406,47 @@ var Meta = ProviderDescriptor{
 	DefaultRegion: "global",
 }
 
+// DoubaoWork descriptor. Protocol constants stay in internal/providers/doubaowork;
+// the registry only carries control-plane metadata. CN-only in-process adapter
+// for the Doubao Work (豆包工作) desktop subscription. Auth is a pasted web
+// session Cookie: the server runs headless, so there is no browser or client
+// login round, only an operator-pasted credential validated on import.
+var DoubaoWork = ProviderDescriptor{
+	ID:                "doubaowork",
+	Label:             "Doubao Work",
+	Runtime:           RuntimeInProcess,
+	AuthTypes:         []AuthType{AuthPAT},
+	CredentialFormats: []string{"doubaowork-cookie-v1"},
+	Capabilities: ProviderCapabilities{
+		Chat: true, Stream: true, Tools: true, Images: false, Reasoning: true,
+		ModelCatalog: true, Usage: true, Login: false, BrowserLogin: false,
+		PATLogin: true, ImportExport: true,
+	},
+	Regions: []RegionDescriptor{
+		{
+			ID: "cn", Label: "CN", ChatBase: "https://www.doubao.com",
+			BillingBase: "https://www.doubao.com", AuthBase: "https://www.doubao.com",
+			DefaultDomain: "doubao.com",
+			Checkin:       &CheckinPolicy{Timezone: "Asia/Shanghai"},
+		},
+	},
+	DefaultRegion: "cn",
+}
+
 var registry = map[string]ProviderDescriptor{
-	Qoder.ID:     Qoder,
-	WorkBuddy.ID: WorkBuddy,
-	Trae.ID:      Trae,
-	Devin.ID:     Devin,
-	Command.ID:   Command,
-	Codex.ID:     Codex,
-	Zhipu.ID:     Zhipu,
-	QwenWork.ID:  QwenWork,
-	Kimi.ID:      Kimi,
-	CodeArts.ID:  CodeArts,
-	Kiro.ID:      Kiro,
-	Meta.ID:      Meta,
+	Qoder.ID:      Qoder,
+	WorkBuddy.ID:  WorkBuddy,
+	Trae.ID:       Trae,
+	Devin.ID:      Devin,
+	Command.ID:    Command,
+	Codex.ID:      Codex,
+	Zhipu.ID:      Zhipu,
+	QwenWork.ID:   QwenWork,
+	Kimi.ID:       Kimi,
+	CodeArts.ID:   CodeArts,
+	Kiro.ID:       Kiro,
+	Meta.ID:       Meta,
+	DoubaoWork.ID: DoubaoWork,
 }
 
 func Get(id string) (ProviderDescriptor, bool) {
@@ -431,7 +459,7 @@ func Get(id string) (ProviderDescriptor, bool) {
 }
 
 func List() []ProviderDescriptor {
-	return []ProviderDescriptor{Qoder, WorkBuddy, Trae, Devin, Command, Codex, Zhipu, QwenWork, Kimi, CodeArts, Kiro, Meta}
+	return []ProviderDescriptor{Qoder, WorkBuddy, Trae, Devin, Command, Codex, Zhipu, QwenWork, Kimi, CodeArts, Kiro, Meta, DoubaoWork}
 }
 
 // Resolve validates a provider/region pair. Empty values fall back to the
