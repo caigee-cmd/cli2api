@@ -71,6 +71,7 @@ func TestManagementRoutesRequireAPIKey(t *testing.T) {
 		"/api/models",
 		"/api/chat",
 		"/api/accounts",
+		"/api/accounts/checkin-all",
 		"/api/logs/requests",
 		"/api/logs/runtime",
 		"/api/system/update",
