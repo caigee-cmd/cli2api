@@ -27,29 +27,25 @@ type modelRecord struct {
 	Reasoning     []string
 }
 
-// fetchModels merges the three official sources for one account. A source that
-// fails is skipped; only an empty merge is an error.
+// fetchModels reads the account's currently billable models. Since 2026-10
+// CodeArts has a single credit channel: /v1/model/builtin is authoritative.
+// Agent-center records are kept only as a fallback for accounts where the
+// builtin endpoint is temporarily unavailable. The retired benefit gateway is
+// never queried and never advertised.
 func (c *Client) fetchModels(ctx context.Context, accountID string) ([]providers.ModelInfo, map[string]bool, error) {
 	credential, err := c.credential(ctx, accountID)
 	if err != nil {
 		return nil, nil, err
 	}
 	merged := map[string]modelRecord{}
-	benefit := map[string]bool{}
-	if records, fetchErr := c.fetchAgentModels(ctx, accountID, credential); fetchErr == nil {
+	builtinOK := false
+	if records, fetchErr := c.fetchBuiltinModels(ctx, accountID, credential); fetchErr == nil && len(records) > 0 {
 		mergeRecords(merged, records)
+		builtinOK = true
 	}
-	if records, fetchErr := c.fetchBuiltinModels(ctx, accountID, credential); fetchErr == nil {
-		mergeRecords(merged, records)
-	}
-	// Benefit discovery is additive. A failed claim/config (the normal state
-	// for credit-only trial accounts) must not hide agent models: the same
-	// model works over the credit path without maas_type: benefit.
-	if records, fetchErr := c.fetchBenefitModels(ctx, accountID, credential); fetchErr == nil {
-		for _, record := range records {
-			record.Benefit = true
-			benefit[strings.ToLower(record.ID)] = true
-			mergeRecords(merged, []modelRecord{record})
+	if !builtinOK {
+		if records, fetchErr := c.fetchAgentModels(ctx, accountID, credential); fetchErr == nil {
+			mergeRecords(merged, records)
 		}
 	}
 	if len(merged) == 0 {
@@ -81,7 +77,9 @@ func (c *Client) fetchModels(ctx context.Context, accountID string) ([]providers
 	for _, record := range records {
 		models = append(models, toModelInfo(record))
 	}
-	return models, benefit, nil
+	// The retired benefit channel is always empty; the map is kept in the
+	// catalog signature for the existing cache/tests but never populated.
+	return models, map[string]bool{}, nil
 }
 
 // fetchThinkingVariants asks the PromptCenter endpoint for the reasoning
@@ -297,31 +295,33 @@ func cloneBoolMap(in map[string]bool) map[string]bool {
 }
 
 // canonicalModel returns the exact catalog spelling for a client-supplied id.
-func (c *Client) canonicalModel(accountID, model string) string {
+// A non-empty catalog is authoritative: every real call bills credits, so a
+// guessed model name must fail instead of silently charging for a different
+// model or hitting a dead channel.
+func canonicalModel(models []providers.ModelInfo, model string) (string, bool) {
 	want := strings.ToLower(strings.TrimSpace(model))
 	if want == "" {
-		return ""
-	}
-	models, _, ok := c.cachedCatalog(accountID)
-	if !ok {
-		return model
+		return "", false
 	}
 	for _, info := range models {
 		if strings.ToLower(info.NativeModel) == want || strings.ToLower(info.PublicModel) == want {
-			return info.NativeModel
+			return info.NativeModel, true
 		}
 	}
-	return model
+	return "", false
 }
 
-// isBenefitModel reports whether the account's catalog routes this model
-// through the limited-benefit gateway.
-func (c *Client) isBenefitModel(accountID, model string) bool {
-	_, benefit, ok := c.cachedCatalog(accountID)
+// displayModel is used only for response labels. It never changes the model id
+// sent upstream; doChat performs the strict routing validation.
+func (c *Client) displayModel(accountID, model string) string {
+	models, _, ok := c.cachedCatalog(accountID)
 	if !ok {
-		return false
+		return strings.TrimSpace(strings.TrimPrefix(model, "codearts/"))
 	}
-	return benefit[strings.ToLower(strings.TrimSpace(model))]
+	if canonical, found := canonicalModel(models, model); found {
+		return canonical
+	}
+	return strings.TrimSpace(strings.TrimPrefix(model, "codearts/"))
 }
 
 // fetchAgentModels reads the CodeAgent detail's gpts.models.
@@ -463,111 +463,6 @@ func (c *Client) fetchBuiltinModels(ctx context.Context, accountID string, crede
 		})
 	}
 	return records, nil
-}
-
-// fetchBenefitModels reads the limited-benefit gateway config and, matching the
-// official client opening the model menu, claims the benefit idempotently.
-func (c *Client) fetchBenefitModels(ctx context.Context, accountID string, credential Credential) ([]modelRecord, error) {
-	if err := c.claimBenefit(ctx, accountID, credential); err != nil {
-		// Match the official client: do not load benefit models when claim
-		// failed. The same model may still be callable over the credit path,
-		// and fetchModels keeps the agent/builtin records for that case.
-		return nil, err
-	}
-	requestCtx, cancel := context.WithTimeout(ctx, metadataTimeout)
-	defer cancel()
-	req, err := http.NewRequestWithContext(requestCtx, http.MethodGet, c.benefitBase+benefitConfig, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("X-Language", Language)
-	signRequest(req, nil, credential.Sign())
-	client, err := c.httpClient(ctx, accountID)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
-	if resp.StatusCode >= 400 {
-		return nil, newProviderError(resp.StatusCode, string(raw))
-	}
-	var out struct {
-		ErrorCode string `json:"error_code"`
-		Result    struct {
-			Models []struct {
-				ModelID        string `json:"model_id"`
-				ModelName      string `json:"model_name"`
-				ModelDesc      string `json:"model_desc"`
-				ContextWindow  int64  `json:"context_window"`
-				MaxTokens      int64  `json:"max_tokens"`
-				SupportsImages bool   `json:"supports_images"`
-			} `json:"models"`
-		} `json:"result"`
-	}
-	if err := json.Unmarshal(raw, &out); err != nil {
-		return nil, fmt.Errorf("parse codearts benefit config: %w", err)
-	}
-	if out.ErrorCode != "" && out.ErrorCode != "0000" {
-		return nil, fmt.Errorf("codearts benefit config error %s", out.ErrorCode)
-	}
-	records := make([]modelRecord, 0, len(out.Result.Models))
-	for _, model := range out.Result.Models {
-		id := firstNonEmpty(model.ModelID, model.ModelName)
-		if id == "" {
-			continue
-		}
-		records = append(records, modelRecord{
-			ID: id, Name: firstNonEmpty(model.ModelName, id), Description: model.ModelDesc,
-			ContextWindow: model.ContextWindow, MaxTokens: model.MaxTokens,
-			Images: model.SupportsImages, Benefit: true,
-		})
-	}
-	return records, nil
-}
-
-func (c *Client) claimBenefit(ctx context.Context, accountID string, credential Credential) error {
-	body := []byte("{}")
-	requestCtx, cancel := context.WithTimeout(ctx, metadataTimeout)
-	defer cancel()
-	req, err := http.NewRequestWithContext(requestCtx, http.MethodPost, c.benefitBase+benefitClaim, bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Agent-Type", "PromptCenter")
-	req.Header.Set("X-Language", Language)
-	signRequest(req, body, credential.Sign())
-	client, err := c.httpClient(ctx, accountID)
-	if err != nil {
-		return err
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if resp.StatusCode >= 400 {
-		return newProviderError(resp.StatusCode, string(raw))
-	}
-	var envelope struct {
-		ErrorCode string `json:"error_code"`
-		ErrorMsg  string `json:"error_msg"`
-	}
-	if err := json.Unmarshal(raw, &envelope); err != nil {
-		return fmt.Errorf("parse codearts benefit claim: %w", err)
-	}
-	if envelope.ErrorCode != "" && envelope.ErrorCode != "0000" {
-		return fmt.Errorf("codearts benefit claim error %s: %s", envelope.ErrorCode, envelope.ErrorMsg)
-	}
-	return nil
 }
 
 // signedGet sends a signed GET and returns the body.
