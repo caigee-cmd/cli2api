@@ -155,10 +155,12 @@ func (c Credential) expired() bool {
 }
 
 func (c Credential) needsRefresh() bool {
-	if c.AuthMethod == "api_key" || strings.TrimSpace(c.RefreshToken) == "" {
+	if c.isAPIKey() || strings.TrimSpace(c.RefreshToken) == "" {
 		return false
 	}
-	return strings.TrimSpace(c.AccessToken) == "" || c.expired()
+	// Some OAuth exports omit expiry. Exchange the refresh token once to
+	// establish a known lifetime before using the imported access token.
+	return strings.TrimSpace(c.AccessToken) == "" || c.ExpiresAt <= 0 || c.expired()
 }
 
 func (c Credential) bearer() string { return strings.TrimSpace(c.AccessToken) }

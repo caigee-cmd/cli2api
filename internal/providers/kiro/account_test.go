@@ -176,6 +176,13 @@ func TestEnsureProfileArnDiscoversPagesAndPersistsProfile(t *testing.T) {
 		if r.Method != http.MethodPost || r.URL.Path != "/ListAvailableProfiles" {
 			t.Fatalf("request = %s %s", r.Method, r.URL.Path)
 		}
+		var requestBody map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
+			t.Fatal(err)
+		}
+		if requestBody["maxResults"] != float64(10) {
+			t.Fatalf("maxResults = %#v", requestBody["maxResults"])
+		}
 		calls++
 		if calls == 1 {
 			_, _ = io.WriteString(w, `{"profiles":[{"arn":"arn:aws:codewhisperer:us-east-1:123456789012:profile/one"}],"nextToken":"next"}`)
@@ -321,6 +328,73 @@ func TestProfileArnRegionBeatsOIDCRegion(t *testing.T) {
 	got := regionalizeURL("https://codewhisperer.us-east-1.amazonaws.com/getUsageLimits", cred.dataPlaneRegion())
 	if !strings.Contains(got, "q.eu-central-1.amazonaws.com") {
 		t.Fatalf("url = %s", got)
+	}
+}
+
+func TestImportedSocialCredentialRefreshesBeforeQuotaAndModels(t *testing.T) {
+	const profile = "arn:aws:codewhisperer:us-east-1:123456789012:profile/example"
+	store := &memStore{payload: []byte(`{"provider":"Github","accessToken":"old-access","refreshToken":"old-refresh"}`)}
+	var refreshes, lookups int
+	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		var body string
+		switch r.URL.String() {
+		case socialRefreshURL:
+			refreshes++
+			var request struct {
+				RefreshToken string `json:"refreshToken"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil || request.RefreshToken != "old-refresh" {
+				t.Fatal("refresh did not use the imported refresh token")
+			}
+			body = `{"accessToken":"new-access","refreshToken":"new-refresh","expiresIn":3600}`
+		case kiroMetadataURL:
+			body = fmt.Sprintf(`{"currentRelease":%q}`, IDEVersion)
+		default:
+			if r.Header.Get("Authorization") != "Bearer new-access" {
+				t.Fatalf("%s did not use the refreshed access token", r.URL.Path)
+			}
+			if r.URL.Path != "/ListAvailableProfiles" && r.URL.Query().Get("profileArn") != profile {
+				t.Fatalf("%s did not use the discovered profile", r.URL.Path)
+			}
+			switch r.URL.Path {
+			case "/ListAvailableProfiles":
+				lookups++
+				body = fmt.Sprintf(`{"profiles":[{"arn":%q}]}`, profile)
+			case "/getUsageLimits":
+				body = `{"subscriptionInfo":{"subscriptionTitle":"KIRO PRO"}}`
+			case "/ListAvailableModels":
+				body = `{"models":[{"modelId":"auto"}]}`
+			default:
+				t.Fatalf("unexpected path %s", r.URL.Path)
+			}
+		}
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+	})}
+	client := &Client{store: store, http: httpClient}
+	ctx := context.Background()
+	quota, err := client.Quota(ctx, t.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if quota.Plan != "PRO" {
+		t.Fatalf("plan = %q, want PRO", quota.Plan)
+	}
+	models, err := client.Models(ctx, t.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 1 || models[0].NativeModel != "auto" {
+		t.Fatalf("models = %+v", models)
+	}
+	if refreshes != 1 || lookups != 1 {
+		t.Fatalf("refreshes = %d, profile lookups = %d, want one each", refreshes, lookups)
+	}
+	stored, err := DecodeCredential(store.payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.RefreshToken != "new-refresh" || stored.ExpiresAt <= time.Now().Unix() || stored.ProfileArn != profile {
+		t.Fatal("refreshed credential, expiry, or profile was not saved")
 	}
 }
 
