@@ -119,6 +119,7 @@ export function AccountCard({
   const chipRef = useRef<HTMLSpanElement>(null)
   const authRef = useRef<HTMLElement>(null)
   const [authCopied, setAuthCopied] = useState(false)
+  const [idCopied, setIdCopied] = useState(false)
   const [cooldownsOpen, setCooldownsOpen] = useState(false)
   const lastStateRef = useRef<string | null>(null)
   const [, refreshCooldowns] = useState(0)
@@ -166,6 +167,12 @@ export function AccountCard({
   const lastError = account.last_error || account.lastError
   const errorKind = account.last_error_kind || account.kind
   const provider = accountProviderLabel(account.provider, account.region, t)
+  // The provider mark already names the family, so the header tag only carries
+  // the region. The full provider label stays in the mark and tag tooltips.
+  const region = String(account.region || '').toLowerCase()
+  const regionLabel = region === 'cn' ? t('regionCN') : region === 'global' ? t('regionGlobal') : ''
+  const identity = account.remote_uid || account.id
+  const shortIdentity = identity.length > 12 ? identity.slice(0, 8) : identity
   const checkinStatus = account.last_checkin_status
   const checkinLabel = checkinStatus === 'success' ? 'checkinRecordSuccess' : checkinStatus === 'already' ? 'checkinRecordAlready' : checkinStatus === 'skipped' ? 'checkinRecordSkipped' : checkinStatus === 'error' ? 'checkinRecordFailed' : 'lastCheckinNone'
   const checkedInCurrentDay = checkedInToday(account, checkinTimezone)
@@ -227,17 +234,35 @@ export function AccountCard({
     >
       <Card.Header className="flex-row items-start justify-between gap-2.5 px-4 pt-3.5 pb-2">
         <div className="flex min-w-0 items-center gap-2.5">
-          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-surface-tertiary">
+          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-surface-tertiary" title={provider}>
             <ProviderMark provider={account.provider} size={20} />
           </div>
           <div className="min-w-0">
             <div className="flex min-w-0 items-center gap-2">
               <Card.Title className="truncate text-body leading-5">{account.name || account.id}</Card.Title>
-              <span className="shrink-0 rounded-full bg-surface-secondary px-1.5 py-px text-caption text-muted">{provider}</span>
+              {regionLabel ? <span className="shrink-0 rounded-full bg-surface-secondary px-1.5 py-px text-caption text-muted" title={provider}>{regionLabel}</span> : null}
             </div>
-            <Card.Description className="mono truncate text-caption leading-4 text-foreground/60" title={`${account.id}${account.remote_uid ? ` · UID ${account.remote_uid}` : ''}`}>
-              {account.remote_uid ? `UID ${account.remote_uid}` : account.id}
-            </Card.Description>
+            <div className="flex min-w-0 items-center gap-1">
+              <Card.Description className="mono truncate text-caption leading-4 text-foreground/60" title={`${account.id}${account.remote_uid ? ` · UID ${account.remote_uid}` : ''}`}>
+                {shortIdentity}
+              </Card.Description>
+              <Button
+                isIconOnly
+                size="sm"
+                variant="ghost"
+                className="size-5 min-w-0 shrink-0 text-muted"
+                aria-label={idCopied ? t('copied') : t('copy')}
+                onPress={() => {
+                  void copyText(identity).then((ok) => {
+                    if (!ok) return
+                    setIdCopied(true)
+                    window.setTimeout(() => setIdCopied(false), 1100)
+                  })
+                }}
+              >
+                <CopyIcon copied={idCopied} size={12} />
+              </Button>
+            </div>
           </div>
         </div>
         <div className="flex max-w-[48%] shrink-0 flex-wrap justify-end gap-1.5">
@@ -467,11 +492,11 @@ export function AccountCard({
       ) : null}
 
       {onCheckin ? (
-        <div className="flex items-start justify-between gap-2 border-t border-separator px-4 py-2 text-caption text-muted">
+        <div className="mt-auto flex items-center justify-between gap-2 px-4 pb-2.5 text-caption text-muted">
           <Tooltip>
             <Tooltip.Trigger>
-              <span className="flex cursor-help flex-wrap items-center gap-2">
-                <span className="font-medium">{t('lastCheckin')}</span>
+              <span className="flex min-w-0 cursor-help flex-wrap items-center gap-1.5">
+                <span className="font-medium text-foreground/75">{t('checkinStatus')}</span>
                 <span className={checkinStatus === 'error' ? 'text-danger' : ''}>{t(checkinLabel)}</span>
                 {!checkedInCurrentDay ? (
                   <span className="whitespace-nowrap rounded-full bg-warning/15 px-1.5 py-px font-medium text-warning">
@@ -485,7 +510,7 @@ export function AccountCard({
           <Tooltip>
             <Tooltip.Trigger>
               <span className="flex shrink-0 cursor-help items-center gap-1.5 whitespace-nowrap">
-                <span className="font-medium">{t('autoCheckin')}</span>
+                <span>{t('checkinDaily')}</span>
                 <span className="mono text-caption text-foreground/55">{account.checkin_time || checkinDefaultTime}</span>
                 <CompactSwitch isSelected={Boolean(account.auto_checkin)} isDisabled={Boolean(busyKind)} ariaLabel={t('autoCheckin')} onChange={(selected) => onToggleAutoCheckin?.(selected)} />
               </span>
@@ -495,11 +520,11 @@ export function AccountCard({
         </div>
       ) : null}
 
-      <Card.Footer className="flex flex-wrap items-center gap-1 bg-surface-secondary px-2 py-2">
+      <Card.Footer className={`flex flex-nowrap items-center gap-1 bg-surface-secondary px-2 py-2${onCheckin ? '' : ' mt-auto'}`}>
         {onRefresh ? (
           <Tooltip>
             <Tooltip.Trigger>
-              <Button isIconOnly size="sm" variant="secondary" isPending={busyKind === 'refresh'} onPress={onRefresh} aria-label={t('refreshAccount')}>
+              <Button isIconOnly size="sm" variant="ghost" isPending={busyKind === 'refresh'} onPress={onRefresh} aria-label={t('refreshAccount')}>
                 <ArrowClockwise size={15} />
               </Button>
             </Tooltip.Trigger>
@@ -516,60 +541,46 @@ export function AccountCard({
         </Tooltip>
         <Tooltip>
           <Tooltip.Trigger>
-            <Button isIconOnly size="sm" variant="ghost" onPress={onViewModels} aria-label={t('accountModels')}>
-              <Cube size={15} />
-            </Button>
-          </Tooltip.Trigger>
-          <Tooltip.Content>{t('accountModels')}</Tooltip.Content>
-        </Tooltip>
-        <Tooltip>
-          <Tooltip.Trigger>
             <Button isIconOnly size="sm" variant="ghost" onPress={onEdit} aria-label={t('editAccount')}>
               <PencilSimple size={15} />
             </Button>
           </Tooltip.Trigger>
           <Tooltip.Content>{t('editAccount')}</Tooltip.Content>
         </Tooltip>
-        {onCheckin ? (
-          <Tooltip>
-            <Tooltip.Trigger>
-              <Button isIconOnly size="sm" variant="ghost" isDisabled={!account.enabled || Boolean(busyKind)} isPending={busyKind === 'checkin'} onPress={onCheckin} aria-label={t('checkinNow')}>
-                <CalendarCheck size={15} />
-              </Button>
-            </Tooltip.Trigger>
-            <Tooltip.Content>{t('checkinNow')}</Tooltip.Content>
-          </Tooltip>
-        ) : null}
-        <Tooltip>
-          <Tooltip.Trigger>
-            <Button isIconOnly size="sm" variant={cooldownsOpen ? 'secondary' : 'ghost'} onPress={() => setCooldownsOpen((open) => !open)} aria-label={t('modelCooldowns')}>
-              <Timer size={15} className={modelCooldowns.length ? 'text-warning' : undefined} />
-            </Button>
-          </Tooltip.Trigger>
-          <Tooltip.Content>{t('modelCooldowns')}{modelCooldowns.length ? ` · ${modelCooldowns.length}` : ''}</Tooltip.Content>
-        </Tooltip>
         <Dropdown>
           <Dropdown.Trigger>
-            <Button isIconOnly size="sm" variant="secondary" aria-label={t('more')}>
+            <Button isIconOnly size="sm" variant={cooldownsOpen ? 'secondary' : 'ghost'} isPending={busyKind === 'checkin'} aria-label={t('more')} className="relative">
               <DotsThreeVertical size={16} />
+              {modelCooldowns.length ? <span className="absolute top-1 right-1 size-1.5 rounded-full bg-warning" aria-hidden /> : null}
             </Button>
           </Dropdown.Trigger>
-          <Dropdown.Popover placement="bottom end">
+          <Dropdown.Popover placement="bottom start">
             <Dropdown.Menu
               aria-label={t('more')}
+              disabledKeys={!account.enabled || Boolean(busyKind) ? ['checkin'] : []}
               onAction={(key) => {
-                if (key === 'export') onExport()
+                if (key === 'models') onViewModels()
+                if (key === 'cooldowns') setCooldownsOpen((open) => !open)
+                if (key === 'checkin') onCheckin?.()
                 if (key === 'checkin-records') onViewCheckins?.()
+                if (key === 'export') onExport()
                 if (key === 'delete') onDelete()
               }}
             >
-              {account.auth_type !== 'none' ? <Dropdown.Item id="export" textValue={t('export')}><Copy size={15} />{t('export')}</Dropdown.Item> : null}
+              <Dropdown.Item id="models" textValue={t('accountModels')}><Cube size={15} />{t('accountModels')}</Dropdown.Item>
+              <Dropdown.Item id="cooldowns" textValue={t('modelCooldowns')}>
+                <Timer size={15} className={modelCooldowns.length ? 'text-warning' : undefined} />
+                {t('modelCooldowns')}
+                {modelCooldowns.length ? <span className="mono ml-auto text-caption text-warning">{modelCooldowns.length}</span> : null}
+              </Dropdown.Item>
+              {onCheckin ? <Dropdown.Item id="checkin" textValue={t('checkinNow')}><CalendarCheck size={15} />{t('checkinNow')}</Dropdown.Item> : null}
               {onViewCheckins ? <Dropdown.Item id="checkin-records" textValue={t('checkinRecords')}><ListBullets size={15} />{t('checkinRecords')}</Dropdown.Item> : null}
+              {account.auth_type !== 'none' ? <Dropdown.Item id="export" textValue={t('export')}><Copy size={15} />{t('export')}</Dropdown.Item> : null}
               <Dropdown.Item id="delete" textValue={t('delete')} className="text-danger"><TrashSimple size={15} />{t('delete')}</Dropdown.Item>
             </Dropdown.Menu>
           </Dropdown.Popover>
         </Dropdown>
-        <div className="ml-auto flex shrink-0 flex-nowrap items-center gap-3 whitespace-nowrap">
+        <div className="ml-auto flex shrink-0 flex-nowrap items-center whitespace-nowrap">
           <CompactSwitch
             isSelected={Boolean(account.enabled)}
             isDisabled={busyKind === 'toggle'}
