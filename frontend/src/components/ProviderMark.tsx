@@ -5,6 +5,7 @@ import { DevinMark } from '@/components/DevinMark'
 import { DoubaoworkMark } from '@/components/DoubaoworkMark'
 import { KiroMark } from '@/components/KiroMark'
 import { KimiMark } from '@/components/KimiMark'
+import { MiniMaxCodeMark } from '@/components/MiniMaxCodeMark'
 import { MuseMark } from '@/components/MuseMark'
 import { QoderMark } from '@/components/QoderMark'
 import { QwenworkMark } from '@/components/QwenworkMark'
@@ -56,6 +57,9 @@ export function ProviderMark({ provider, size = 16, className = '' }: Props) {
   }
   if (id === 'doubaowork') {
     return <DoubaoworkMark size={size} className={className} />
+  }
+  if (id === 'minimaxcode') {
+    return <MiniMaxCodeMark size={size} className={className} />
   }
   return <QoderMark size={size} className={className} />
 }

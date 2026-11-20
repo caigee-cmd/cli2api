@@ -433,20 +433,50 @@ var DoubaoWork = ProviderDescriptor{
 	DefaultRegion: "cn",
 }
 
+// MiniMaxCode is the MiniMax Code subscription product, reached through its
+// OAuth device flow and Anthropic-compatible agent gateway. It is distinct
+// from the MiniMax Open Platform API-key gateway.
+var MiniMaxCode = ProviderDescriptor{
+	ID:                "minimaxcode",
+	Label:             "MiniMax Code",
+	Runtime:           RuntimeInProcess,
+	AuthTypes:         []AuthType{AuthOAuth},
+	CredentialFormats: []string{"minimaxcode-oauth-v1"},
+	Capabilities: ProviderCapabilities{
+		Chat: true, Stream: true, Tools: true, Images: true, Reasoning: false,
+		ModelCatalog: true, Usage: true, Login: true, BrowserLogin: true,
+		PATLogin: false, ImportExport: true,
+	},
+	Regions: []RegionDescriptor{
+		{
+			ID: "cn", Label: "CN", ChatBase: "https://agent.minimax.cn",
+			BillingBase: "https://agent.minimax.cn", AuthBase: "https://account.minimax.cn",
+			DefaultDomain: "minimax.cn",
+		},
+		{
+			ID: "global", Label: "Global", ChatBase: "https://agent.minimax.io",
+			BillingBase: "https://agent.minimax.io", AuthBase: "https://account.minimax.io",
+			DefaultDomain: "minimax.io",
+		},
+	},
+	DefaultRegion: "cn",
+}
+
 var registry = map[string]ProviderDescriptor{
-	Qoder.ID:      Qoder,
-	WorkBuddy.ID:  WorkBuddy,
-	Trae.ID:       Trae,
-	Devin.ID:      Devin,
-	Command.ID:    Command,
-	Codex.ID:      Codex,
-	Zhipu.ID:      Zhipu,
-	QwenWork.ID:   QwenWork,
-	Kimi.ID:       Kimi,
-	CodeArts.ID:   CodeArts,
-	Kiro.ID:       Kiro,
-	Meta.ID:       Meta,
-	DoubaoWork.ID: DoubaoWork,
+	Qoder.ID:       Qoder,
+	WorkBuddy.ID:   WorkBuddy,
+	Trae.ID:        Trae,
+	Devin.ID:       Devin,
+	Command.ID:     Command,
+	Codex.ID:       Codex,
+	Zhipu.ID:       Zhipu,
+	QwenWork.ID:    QwenWork,
+	Kimi.ID:        Kimi,
+	CodeArts.ID:    CodeArts,
+	Kiro.ID:        Kiro,
+	Meta.ID:        Meta,
+	DoubaoWork.ID:  DoubaoWork,
+	MiniMaxCode.ID: MiniMaxCode,
 }
 
 func Get(id string) (ProviderDescriptor, bool) {
@@ -459,7 +489,7 @@ func Get(id string) (ProviderDescriptor, bool) {
 }
 
 func List() []ProviderDescriptor {
-	return []ProviderDescriptor{Qoder, WorkBuddy, Trae, Devin, Command, Codex, Zhipu, QwenWork, Kimi, CodeArts, Kiro, Meta, DoubaoWork}
+	return []ProviderDescriptor{Qoder, WorkBuddy, Trae, Devin, Command, Codex, Zhipu, QwenWork, Kimi, CodeArts, Kiro, Meta, DoubaoWork, MiniMaxCode}
 }
 
 // Resolve validates a provider/region pair. Empty values fall back to the
