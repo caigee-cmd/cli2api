@@ -13,7 +13,7 @@ import (
 func splitModelSettingPath(raw, queryProvider string) (provider, modelKey string) {
 	raw = strings.TrimPrefix(raw, "/api/models/")
 	provider = strings.ToLower(strings.TrimSpace(queryProvider))
-	for _, prefix := range []string{"trae/", "workbuddy/", "qoder/", "devin/", "command/", "codex/", "zhipu/", "qwenwork/", "kimi/", "codearts/", "kiro/"} {
+	for _, prefix := range []string{"trae/", "workbuddy/", "qoder/", "devin/", "command/", "codex/", "zhipu/", "qwenwork/", "kimi/", "codearts/", "kiro/", "minimaxcode/"} {
 		if strings.HasPrefix(strings.ToLower(raw), prefix) {
 			provider = strings.TrimSuffix(prefix, "/")
 			raw = raw[len(prefix):]

@@ -73,6 +73,8 @@ const labelKeys: Record<string, string> = {
   'kiro-us-east-1': 'accountTypeKiroUS',
   'kiro-eu-central-1': 'accountTypeKiroEU',
   'meta-global': 'accountTypeMetaGlobal',
+  'minimaxcode-cn': 'accountTypeMiniMaxCodeCN',
+  'minimaxcode-global': 'accountTypeMiniMaxCodeGlobal',
 }
 
 const hintKeys: Record<string, string> = {
@@ -93,6 +95,8 @@ const hintKeys: Record<string, string> = {
   'kiro-us-east-1': 'accountTypeKiroUSHint',
   'kiro-eu-central-1': 'accountTypeKiroEUHint',
   'meta-global': 'accountTypeMetaGlobalHint',
+  'minimaxcode-cn': 'accountTypeMiniMaxCodeCNHint',
+  'minimaxcode-global': 'accountTypeMiniMaxCodeGlobalHint',
 }
 
 async function loadProviderOptions(): Promise<ProviderOption[]> {
