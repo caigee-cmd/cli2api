@@ -147,6 +147,8 @@ export type Overview = {
     enabled?: boolean
     max_inflight?: number
     priority?: number
+    credit_floor?: number | null
+    percent_floor?: number | null
     drop_system_prompt?: boolean
     model_aliases?: Record<string, string>
     enabled_models?: string[]

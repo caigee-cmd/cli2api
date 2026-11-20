@@ -115,6 +115,8 @@ func New(cfg config.Config) *App {
 	}
 	pool := manager.Pool()
 	pool.SetRoutingStrategy(routingStrategy)
+	pool.SetDefaultCreditFloor(cfg.CreditFloor)
+	pool.SetDefaultPercentFloor(cfg.PercentFloor)
 	providerReg := providers.NewRegistry()
 	workbuddyClient := workbuddy.NewClient(store)
 	providerReg.Register(workbuddyClient.Adapter())

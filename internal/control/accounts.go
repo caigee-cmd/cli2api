@@ -102,7 +102,7 @@ func (a *Accounts) ImportNative(ctx context.Context, input accounts.ImportAccoun
 	account, err := a.store().Create(ctx, accounts.CreateAccount{
 		AutoCheckin: input.AutoCheckin, CheckinTime: input.CheckinTime,
 		Name: input.Name, Provider: input.Provider, Region: input.Region, Enabled: false,
-		MaxInFlight: input.MaxInFlight, Priority: input.Priority, DropSystemPrompt: input.DropSystemPrompt,
+		MaxInFlight: input.MaxInFlight, Priority: input.Priority, CreditFloor: input.CreditFloor, PercentFloor: input.PercentFloor, DropSystemPrompt: input.DropSystemPrompt,
 		WorkBuddyAutoCheckin: input.WorkBuddyAutoCheckin, WorkBuddyCheckinTime: input.WorkBuddyCheckinTime, ProxyURL: input.ProxyURL,
 	})
 	if err != nil {
