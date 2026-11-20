@@ -35,6 +35,10 @@ export function isCodeArtsProvider(provider?: string) {
   return String(provider || '').toLowerCase() === 'codearts'
 }
 
+export function isDoubaoworkProvider(provider?: string) {
+  return String(provider || '').toLowerCase() === 'doubaowork'
+}
+
 export function isMetaProvider(provider?: string) {
   const value = String(provider || '').toLowerCase()
   return value === 'meta' || value === 'muse'
@@ -53,6 +57,7 @@ export function accountProviderFamilyLabel(
   if (isQwenworkProvider(providerID)) return 'QwenWork'
   if (isKimiProvider(providerID)) return 'Kimi Code'
   if (isCodeArtsProvider(providerID)) return 'CodeArts'
+  if (isDoubaoworkProvider(providerID)) return 'Doubao Work'
   if (isMetaProvider(providerID)) return 'Muse (Meta)'
   if (isQoderProvider(providerID)) return 'Qoder'
   return provider || t('account')
@@ -88,6 +93,9 @@ export function accountProviderLabel(
   }
   if (isCodeArtsProvider(providerID)) {
     return t('accountTypeCodeArtsCN')
+  }
+  if (isDoubaoworkProvider(providerID)) {
+    return t('accountTypeDoubaoworkCN')
   }
   if (isMetaProvider(providerID)) {
     return t('accountTypeMetaGlobal')

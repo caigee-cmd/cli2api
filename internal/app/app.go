@@ -26,6 +26,7 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/providers/codex"
 	"github.com/caigee-cmd/cli2api/internal/providers/command"
 	"github.com/caigee-cmd/cli2api/internal/providers/devin"
+	"github.com/caigee-cmd/cli2api/internal/providers/doubaowork"
 	"github.com/caigee-cmd/cli2api/internal/providers/kimi"
 	"github.com/caigee-cmd/cli2api/internal/providers/kiro"
 	"github.com/caigee-cmd/cli2api/internal/providers/meta"
@@ -130,6 +131,7 @@ func New(cfg config.Config) *App {
 	providerReg.Register(codearts.NewClient(store).Adapter())
 	providerReg.Register(kiro.NewClient(store).Adapter())
 	providerReg.Register(meta.NewClient(store).Adapter())
+	providerReg.Register(doubaowork.NewClient(store).Adapter())
 	qoderClient := qoder.NewClient()
 	qoderClient.Bind(manager.AccountURL, manager.ProxyAPIKey)
 	qoderClient.SetDirect(qoder.NewDirect(store, func(ctx context.Context, accountID string) (string, error) {

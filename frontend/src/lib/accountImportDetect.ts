@@ -31,6 +31,7 @@ const FORMAT_TO_PROVIDER: Record<string, string> = {
   'meta-oauth-v1': 'meta',
   'meta-key-v1': 'meta',
   'kiro-oauth-v1': 'kiro',
+  'doubaowork-cookie-v1': 'doubaowork',
 }
 
 const CN_DOMAIN_MARKERS = ['codebuddy.cn', 'workbuddy.cn']
