@@ -55,6 +55,8 @@ type Client struct {
 	catalogs map[string]catalogCache
 	locks    map[string]*sync.Mutex
 	logins   map[string]*loginState
+	// images caches remote attachments already inlined to data: URLs.
+	images *imageCache
 	// availability is a learned per-account model verdict from real traffic.
 	availability map[string]modelAvailability
 }
@@ -80,6 +82,7 @@ func NewClient(store Store) *Client {
 		catalogs:     map[string]catalogCache{},
 		locks:        map[string]*sync.Mutex{},
 		logins:       map[string]*loginState{},
+		images:       newImageCache(),
 		availability: map[string]modelAvailability{},
 		nowFn:        time.Now,
 	}

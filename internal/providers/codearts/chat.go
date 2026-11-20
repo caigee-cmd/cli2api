@@ -120,6 +120,9 @@ func (c *Client) doChat(ctx context.Context, accountID string, req translate.Cha
 		}
 	}
 	model = c.canonicalModel(accountID, model)
+	if err := c.inlineMessageImages(ctx, accountID, req.Messages); err != nil {
+		return nil, "", err
+	}
 	level, caps := c.resolveLevel(ctx, accountID, model, requestedLevel(req))
 	body, err := buildChatBody(req, model, level, caps.Images, c.isBenefitModel(accountID, model))
 	if err != nil {
