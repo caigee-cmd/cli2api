@@ -344,18 +344,6 @@ func consumeEvents(source eventSource, cb *streamCallbacks) error {
 	return nil
 }
 
-func updateTokens(event map[string]any, input, output int) (int, int) {
-	if usage, ok := event["usage"].(map[string]any); ok {
-		if n, ok := numberField(usage, "inputTokens", "input_tokens"); ok {
-			input = n
-		}
-		if n, ok := numberField(usage, "outputTokens", "output_tokens"); ok {
-			output = n
-		}
-	}
-	return input, output
-}
-
 func numberField(m map[string]any, keys ...string) (int, bool) {
 	for _, key := range keys {
 		switch value := m[key].(type) {

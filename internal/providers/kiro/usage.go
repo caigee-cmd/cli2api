@@ -46,29 +46,6 @@ func inputFromContext(model string, percentage float64) int {
 	return int(math.Round(percentage / 100 * float64(contextWindow(model))))
 }
 
-// tokenCounter estimates tokens for streamed text: CJK runes count about one
-// token each, other text about four characters per token. It is a usage
-// magnitude for the request log, not a billing figure.
-type tokenCounter struct {
-	cjk, other int
-}
-
-func (c *tokenCounter) add(text string) {
-	for _, r := range text {
-		if (r >= 0x3040 && r <= 0x30ff) || (r >= 0x3400 && r <= 0x9fff) ||
-			(r >= 0xac00 && r <= 0xd7af) || (r >= 0xf900 && r <= 0xfaff) ||
-			(r >= 0xff00 && r <= 0xffef) {
-			c.cjk++
-		} else {
-			c.other++
-		}
-	}
-}
-
-func (c *tokenCounter) total() int {
-	return c.cjk + (c.other+3)/4
-}
-
 // resolveUsage fills in tokens Kiro did not send. Counts the upstream stated
 // are kept. A missing input count comes from the context percentage and a
 // missing output count from the produced text; either one marks the source
@@ -87,13 +64,20 @@ func resolveUsage(model string, input, output int, contextPct float64, produced 
 }
 
 // streamUsage is the usage object on the final OpenAI chunk. It is empty only
-// when Kiro sent nothing at all to count.
-func streamUsage(model string, input, output int, contextPct float64, produced int, credits float64, sawCredits bool) map[string]any {
+// when Kiro sent nothing at all to count. prompt_tokens keeps OpenAI meaning:
+// it includes the cache read and creation shares estimated in cache.
+func streamUsage(model string, input, output int, contextPct float64, produced int, credits float64, sawCredits bool, cache *promptCacheUsage) map[string]any {
 	input, output, estimated := resolveUsage(model, input, output, contextPct, produced)
 	if input <= 0 && output <= 0 && !sawCredits {
 		return map[string]any{}
 	}
 	usage := map[string]any{"prompt_tokens": input, "completion_tokens": output, "total_tokens": input + output}
+	if cache != nil && input > 0 {
+		read, write := cache.scaled(input)
+		usage["cache_read_tokens"] = read
+		usage["cache_write_tokens"] = write
+		usage["prompt_tokens_details"] = map[string]any{"cached_tokens": read}
+	}
 	if sawCredits {
 		usage["credits"] = credits
 	}

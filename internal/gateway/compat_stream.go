@@ -383,13 +383,9 @@ func RelayAnthropicStream(writer io.Writer, body io.Reader, requestID, model str
 		}
 	}
 	calls := output.calls()
-	deltaUsage := map[string]any{"output_tokens": derefInt(stats.CompletionTokens)}
-	if stats.CacheReadTokens != nil {
-		deltaUsage["cache_read_input_tokens"] = *stats.CacheReadTokens
-	}
-	if stats.CacheWriteTokens != nil {
-		deltaUsage["cache_creation_input_tokens"] = *stats.CacheWriteTokens
-	}
+	// message_start goes out before any usage is known, so the final counts,
+	// input included, ride on message_delta.
+	deltaUsage := anthropicUsage(derefInt(stats.PromptTokens), derefInt(stats.CompletionTokens), stats.CacheReadTokens, stats.CacheWriteTokens)
 	if err := writeSSEEvent(writer, "message_delta", map[string]any{"type": "message_delta", "delta": map[string]any{"stop_reason": anthropicStopReason(output.finishReason, calls), "stop_sequence": nil}, "usage": deltaUsage}); err != nil {
 		return stats, err
 	}
