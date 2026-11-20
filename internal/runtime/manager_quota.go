@@ -110,7 +110,8 @@ func quotaSnapshotFromInfo(info *providers.QuotaInfo) *QuotaSnapshot {
 		quota.ExpiringRemain = info.ExpiringRemain
 		quota.Packages = quotaPackagesFromInfo(info.Packages)
 	}
-	if info.ProviderID == "codex" {
+	// Codex and Kiro report a subscription tier the account card shows.
+	if info.ProviderID == "codex" || info.ProviderID == "kiro" {
 		quota.Plan = strings.TrimSpace(info.Plan)
 	}
 	return quota
