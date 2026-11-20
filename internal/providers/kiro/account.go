@@ -200,7 +200,9 @@ func (c *Client) listProfilesInRegion(ctx context.Context, client *http.Client, 
 	var profiles []string
 	next := ""
 	for page := 0; page < maxProfilePages; page++ {
-		body := map[string]any{"maxResults": 50}
+		// ListAvailableProfiles currently rejects values above 10, even though the
+		// model endpoint accepts 50. Keep this request at the service limit.
+		body := map[string]any{"maxResults": 10}
 		if next != "" {
 			body["nextToken"] = next
 		}
