@@ -14,12 +14,12 @@ import (
 // relay opens a tool_use block on the first chunk that carries a name and then
 // treats every later arguments fragment as input_json_delta. Sending the name
 // before the JSON is finished would leave the client with a partial object.
-func writeOpenAIStream(body io.ReadCloser, model string, names map[string]string, filter *markupFilter) *http.Response {
+func writeOpenAIStream(body io.ReadCloser, model string, names map[string]string, filter *markupFilter, cache *cacheTurn) *http.Response {
 	pr, pw := io.Pipe()
 	go func() {
 		defer body.Close()
 		defer pw.Close()
-		writeConsumed(pw, model, responsesSSESource(body), names, filter)
+		writeConsumed(pw, model, responsesSSESource(body), names, filter, cache)
 	}()
 	return &http.Response{
 		StatusCode: http.StatusOK,
@@ -30,8 +30,9 @@ func writeOpenAIStream(body io.ReadCloser, model string, names map[string]string
 
 // writeConsumed turns one event source into OpenAI chat chunks. Tool calls are
 // announced only after the upstream emits a complete call. names maps a Kiro
-// tool name back to the name the client declared.
-func writeConsumed(w io.Writer, model string, source eventSource, names map[string]string, filter *markupFilter) {
+// tool name back to the name the client declared. cache, when set, adds the
+// local prompt-cache estimate and is stored only after a clean stream.
+func writeConsumed(w io.Writer, model string, source eventSource, names map[string]string, filter *markupFilter, cache *cacheTurn) {
 	index := 0
 	var inputTokens, outputTokens int
 	var credits, contextPct float64
@@ -90,7 +91,10 @@ func writeConsumed(w io.Writer, model string, source eventSource, names map[stri
 		payload, _ := json.Marshal(map[string]any{"error": map[string]any{"message": err.Error(), "type": "upstream_error"}})
 		fmt.Fprintf(w, "data: %s\n\n", payload)
 	}
-	usage := streamUsage(model, inputTokens, outputTokens, contextPct, produced.total(), credits, sawCredits)
+	usage := streamUsage(model, inputTokens, outputTokens, contextPct, produced.total(), credits, sawCredits, cache.estimate())
+	if err == nil {
+		cache.commit()
+	}
 	done := map[string]any{
 		"id": "chatcmpl-kiro", "object": "chat.completion.chunk", "created": time.Now().Unix(), "model": model,
 		"choices": []map[string]any{{"index": 0, "delta": map[string]any{}, "finish_reason": finish}},

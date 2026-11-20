@@ -44,10 +44,14 @@ type Client struct {
 	mu     sync.Mutex
 	models map[string][]providers.ModelInfo
 	logins map[string]*loginState
+
+	// cache estimates prompt-cache reads and writes Kiro does not report.
+	// A nil cache (tests build Client directly) estimates nothing.
+	cache *promptCache
 }
 
 func NewClient(store Store) *Client {
-	return &Client{store: store, http: &http.Client{}}
+	return &Client{store: store, http: &http.Client{}, cache: newPromptCache()}
 }
 
 func (c *Client) Adapter() providers.Adapter {
@@ -280,21 +284,22 @@ func (c *Client) ChatStream(ctx context.Context, accountID string, req translate
 		return nil, providers.ResolvedChat{}, err
 	}
 	resolved := providers.ResolvedChat{ReasoningLevel: payload.Level}
+	cache := c.cache.begin(accountID, payload)
 	if c.useResponses(ctx, accountID, cred) {
 		body, err := c.postResponses(ctx, client, cred, payload)
 		if err != nil {
 			return nil, providers.ResolvedChat{}, err
 		}
-		return writeOpenAIStream(body, model, payload.clientNames(), armMarkupFilter(payload.Tools)), resolved, nil
+		return writeOpenAIStream(body, model, payload.clientNames(), armMarkupFilter(payload.Tools), cache), resolved, nil
 	}
 	body, kind, err := c.postLegacy(ctx, client, accountID, cred, payload)
 	if err != nil {
 		return nil, providers.ResolvedChat{}, err
 	}
 	if kind == streamResponses {
-		return writeOpenAIStream(body, model, payload.clientNames(), armMarkupFilter(payload.Tools)), resolved, nil
+		return writeOpenAIStream(body, model, payload.clientNames(), armMarkupFilter(payload.Tools), cache), resolved, nil
 	}
-	return writeEventStream(body, model, payload.clientNames(), armMarkupFilter(payload.Tools)), resolved, nil
+	return writeEventStream(body, model, payload.clientNames(), armMarkupFilter(payload.Tools), cache), resolved, nil
 }
 
 func (c *Client) postResponses(ctx context.Context, client *http.Client, cred Credential, payload conversation) (io.ReadCloser, error) {
@@ -461,12 +466,12 @@ func applyLegacyHeaders(req *http.Request, cred Credential, endpoint legacyEndpo
 
 // writeEventStream reads a generateAssistantResponse body and writes the same
 // OpenAI chunks CreateResponse produces.
-func writeEventStream(body io.ReadCloser, model string, names map[string]string, filter *markupFilter) *http.Response {
+func writeEventStream(body io.ReadCloser, model string, names map[string]string, filter *markupFilter, cache *cacheTurn) *http.Response {
 	pr, pw := io.Pipe()
 	go func() {
 		defer body.Close()
 		defer pw.Close()
-		writeConsumed(pw, model, eventStreamSource(body), names, filter)
+		writeConsumed(pw, model, eventStreamSource(body), names, filter, cache)
 	}()
 	return &http.Response{
 		StatusCode: http.StatusOK,
@@ -485,6 +490,7 @@ func collectOutcome(body io.Reader, level string) (providers.ChatOutcome, error)
 	var calls []call
 	finish := "stop"
 	var prompt, completion int
+	var cacheRead, cacheWrite *int
 	var credits float64
 	sawCredits := false
 	source := ""
@@ -516,6 +522,8 @@ func collectOutcome(body io.Reader, level string) (providers.ChatOutcome, error)
 			Usage struct {
 				PromptTokens     int      `json:"prompt_tokens"`
 				CompletionTokens int      `json:"completion_tokens"`
+				CacheReadTokens  *int     `json:"cache_read_tokens"`
+				CacheWriteTokens *int     `json:"cache_write_tokens"`
 				Credits          *float64 `json:"credits"`
 				Source           string   `json:"source"`
 			} `json:"usage"`
@@ -532,6 +540,7 @@ func collectOutcome(body io.Reader, level string) (providers.ChatOutcome, error)
 		if chunk.Usage.PromptTokens > 0 || chunk.Usage.CompletionTokens > 0 || chunk.Usage.Credits != nil {
 			prompt, completion = chunk.Usage.PromptTokens, chunk.Usage.CompletionTokens
 			source = chunk.Usage.Source
+			cacheRead, cacheWrite = chunk.Usage.CacheReadTokens, chunk.Usage.CacheWriteTokens
 			if chunk.Usage.Credits != nil {
 				credits, sawCredits = *chunk.Usage.Credits, true
 			}
@@ -555,7 +564,7 @@ func collectOutcome(body io.Reader, level string) (providers.ChatOutcome, error)
 	outcome := providers.ChatOutcome{
 		Content: content.String(), Reasoning: reasoning.String(), FinishReason: finish,
 		PromptTokens: prompt, CompletionTokens: completion, ReasoningLevel: level,
-		UsageSource: source,
+		UsageSource: source, CacheReadTokens: cacheRead, CacheWriteTokens: cacheWrite,
 	}
 	if sawCredits {
 		value := credits
