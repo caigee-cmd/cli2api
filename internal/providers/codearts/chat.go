@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -30,7 +31,7 @@ func (c *Client) ChatStream(ctx context.Context, accountID string, req translate
 		return nil, providers.ResolvedChat{}, err
 	}
 	pr, pw := io.Pipe()
-	model := c.canonicalModel(accountID, req.Model)
+	model := c.displayModel(accountID, req.Model)
 	go func() {
 		defer upstream.Body.Close()
 		defer pw.Close()
@@ -66,7 +67,7 @@ func (c *Client) ChatNonStream(ctx context.Context, accountID string, req transl
 		return providers.ChatOutcome{}, err
 	}
 	outcome := providers.ChatOutcome{
-		Model:          c.canonicalModel(accountID, req.Model),
+		Model:          c.displayModel(accountID, req.Model),
 		Content:        completion.Content,
 		Reasoning:      completion.Reasoning,
 		FinishReason:   completion.Finish,
@@ -104,11 +105,13 @@ func (c *Client) doChat(ctx context.Context, accountID string, req translate.Cha
 	if err != nil {
 		return nil, "", err
 	}
-	if _, _, ok := c.cachedCatalog(accountID); !ok {
-		// The benefit header and exact model spelling depend on the account
-		// catalog. A failed discovery is not fatal: chat still carries the
-		// client's model id and the upstream will answer with a clear error.
+	models, _, catalogOK := c.cachedCatalog(accountID)
+	if !catalogOK {
+		// The exact model spelling depends on the account catalog. A failed
+		// discovery is not fatal: chat still carries the client's model id and
+		// the upstream will answer with a clear error.
 		_, _ = c.Models(ctx, accountID)
+		models, _, catalogOK = c.cachedCatalog(accountID)
 	}
 	model := strings.TrimSpace(req.Model)
 	model = strings.TrimPrefix(model, "codearts/")
@@ -119,12 +122,26 @@ func (c *Client) doChat(ctx context.Context, accountID string, req translate.Cha
 			Message: "codearts model is required",
 		}
 	}
-	model = c.canonicalModel(accountID, model)
+	if catalogOK && len(models) > 0 {
+		canonical, found := canonicalModel(models, model)
+		if !found {
+			return nil, "", &providers.Error{
+				Kind:    accounts.KindModelNotAvailable,
+				Status:  http.StatusNotFound,
+				Message: fmt.Sprintf("codearts model %q is not available for this account", model),
+			}
+		}
+		model = canonical
+	} else {
+		model = strings.TrimSpace(model)
+	}
+	// Inline remote image URLs as data URLs before the billable call, matching
+	// the official client (kept from upstream #548).
 	if err := c.inlineMessageImages(ctx, accountID, req.Messages); err != nil {
 		return nil, "", err
 	}
 	level, caps := c.resolveLevel(ctx, accountID, model, requestedLevel(req))
-	body, err := buildChatBody(req, model, level, caps.Images, c.isBenefitModel(accountID, model))
+	body, err := buildChatBody(req, model, level, caps.Images)
 	if err != nil {
 		return nil, "", err
 	}
@@ -132,7 +149,7 @@ func (c *Client) doChat(ctx context.Context, accountID string, req translate.Cha
 	if err != nil {
 		return nil, "", err
 	}
-	resp, err := c.sendChat(ctx, accountID, credential, raw, model, c.isBenefitModel(accountID, model))
+	resp, err := c.sendChat(ctx, accountID, credential, raw, model)
 	if err != nil {
 		return nil, "", err
 	}
@@ -147,7 +164,7 @@ func (c *Client) doChat(ctx context.Context, accountID string, req translate.Cha
 		if refreshErr != nil {
 			return nil, "", refreshErr
 		}
-		resp, err = c.sendChat(ctx, accountID, refreshed, raw, model, c.isBenefitModel(accountID, model))
+		resp, err = c.sendChat(ctx, accountID, refreshed, raw, model)
 		if err != nil {
 			return nil, "", err
 		}
@@ -165,7 +182,7 @@ func (c *Client) doChat(ctx context.Context, accountID string, req translate.Cha
 }
 
 // sendChat performs the signed request and enforces the TTFB deadline.
-func (c *Client) sendChat(ctx context.Context, accountID string, credential Credential, body []byte, model string, benefit bool) (*http.Response, error) {
+func (c *Client) sendChat(ctx context.Context, accountID string, credential Credential, body []byte, model string) (*http.Response, error) {
 	base := c.apiBase(credential)
 	requestCtx, cancel := context.WithCancel(ctx)
 	req, err := http.NewRequestWithContext(requestCtx, http.MethodPost, base+chatPath, bytes.NewReader(body))
@@ -180,9 +197,8 @@ func (c *Client) sendChat(ctx context.Context, accountID string, credential Cred
 	req.Header.Set("X-Language", Language)
 	req.Header.Set("app-id", AppID)
 	req.Header.Set("is_confidential", "false")
-	if benefit {
-		req.Header.Set(HeaderMaasType, MaasBenefit)
-	}
+	// CodeArts removed the limited free benefit channel in 2026-10. Every
+	// model now bills through the credit path, so never send maas_type.
 	signRequest(req, body, credential.Sign())
 	// Tip headers after sign so they stay out of SignedHeaders (hub #723 / tip 28527f4).
 	applyOTSessionHeaders(req.Header, credential.UserID)
