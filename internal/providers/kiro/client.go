@@ -487,6 +487,7 @@ func collectOutcome(body io.Reader, level string) (providers.ChatOutcome, error)
 	var prompt, completion int
 	var credits float64
 	sawCredits := false
+	source := ""
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		data, ok := strings.CutPrefix(line, "data:")
@@ -530,6 +531,7 @@ func collectOutcome(body io.Reader, level string) (providers.ChatOutcome, error)
 		}
 		if chunk.Usage.PromptTokens > 0 || chunk.Usage.CompletionTokens > 0 || chunk.Usage.Credits != nil {
 			prompt, completion = chunk.Usage.PromptTokens, chunk.Usage.CompletionTokens
+			source = chunk.Usage.Source
 			if chunk.Usage.Credits != nil {
 				credits, sawCredits = *chunk.Usage.Credits, true
 			}
@@ -553,11 +555,11 @@ func collectOutcome(body io.Reader, level string) (providers.ChatOutcome, error)
 	outcome := providers.ChatOutcome{
 		Content: content.String(), Reasoning: reasoning.String(), FinishReason: finish,
 		PromptTokens: prompt, CompletionTokens: completion, ReasoningLevel: level,
+		UsageSource: source,
 	}
 	if sawCredits {
 		value := credits
 		outcome.Credits = &value
-		outcome.UsageSource = "provider"
 	}
 	if len(calls) > 0 {
 		raw := make([]map[string]any, 0, len(calls))

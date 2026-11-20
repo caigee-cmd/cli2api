@@ -34,11 +34,13 @@ func writeOpenAIStream(body io.ReadCloser, model string, names map[string]string
 func writeConsumed(w io.Writer, model string, source eventSource, names map[string]string, filter *markupFilter) {
 	index := 0
 	var inputTokens, outputTokens int
-	var credits float64
+	var credits, contextPct float64
 	sawCredits := false
+	var produced tokenCounter
 	finish := "stop"
 	err := consumeEvents(source, &streamCallbacks{
 		OnText: func(text string, thinking bool) {
+			produced.add(text)
 			field := "content"
 			if thinking {
 				field = "reasoning_content"
@@ -58,6 +60,8 @@ func writeConsumed(w io.Writer, model string, source eventSource, names map[stri
 				tool.Name = client
 			}
 			arguments, _ := json.Marshal(tool.Input)
+			produced.add(tool.Name)
+			produced.add(string(arguments))
 			writeChunk(w, model, map[string]any{}, []map[string]any{toolChunk(index, tool.ID, tool.Name, string(arguments))}, "")
 			index++
 		},
@@ -65,6 +69,7 @@ func writeConsumed(w io.Writer, model string, source eventSource, names map[stri
 		OnCredits: func(value float64) {
 			credits, sawCredits = value, true
 		},
+		OnContextUsage: func(pct float64) { contextPct = pct },
 	})
 	if tail := filter.flush(); tail != "" && err == nil {
 		writeChunk(w, model, map[string]any{"content": tail}, nil, "")
@@ -85,14 +90,7 @@ func writeConsumed(w io.Writer, model string, source eventSource, names map[stri
 		payload, _ := json.Marshal(map[string]any{"error": map[string]any{"message": err.Error(), "type": "upstream_error"}})
 		fmt.Fprintf(w, "data: %s\n\n", payload)
 	}
-	usage := map[string]any{}
-	if inputTokens > 0 || outputTokens > 0 || sawCredits {
-		usage = map[string]any{"prompt_tokens": inputTokens, "completion_tokens": outputTokens, "total_tokens": inputTokens + outputTokens}
-		if sawCredits {
-			usage["credits"] = credits
-			usage["source"] = "provider"
-		}
-	}
+	usage := streamUsage(model, inputTokens, outputTokens, contextPct, produced.total(), credits, sawCredits)
 	done := map[string]any{
 		"id": "chatcmpl-kiro", "object": "chat.completion.chunk", "created": time.Now().Unix(), "model": model,
 		"choices": []map[string]any{{"index": 0, "delta": map[string]any{}, "finish_reason": finish}},
