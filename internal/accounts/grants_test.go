@@ -15,6 +15,8 @@ func TestParseProviderGrant(t *testing.T) {
 		"qoder:global":     {Provider: "qoder", Region: "global"},
 		"trae:cn":          {Provider: "trae", Region: "cn"},
 		"WorkBuddy:CN":     {Provider: "workbuddy", Region: "cn"},
+		"doubaowork":       {Provider: "doubaowork", Region: ""},
+		"doubaowork:cn":    {Provider: "doubaowork", Region: "cn"},
 	}
 	for input, want := range valid {
 		got, err := ParseProviderGrant(input)

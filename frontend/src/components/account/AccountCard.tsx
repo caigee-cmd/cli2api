@@ -370,6 +370,21 @@ export function AccountCard({
 
       {authPanelOpen && account.enabled ? (
         <section ref={authRef} className="grid gap-3 bg-surface-secondary/55 px-3 py-3">
+          {account.provider === 'doubaowork' ? (
+            <div>
+              <div className="text-caption font-medium text-muted">{t('doubaoCookieLabel')}</div>
+              <p className="mt-1.5 text-caption leading-5 text-muted">{t('doubaoCookieLead')}</p>
+              <div className="mt-2.5 flex flex-col gap-2 sm:flex-row">
+                <TextField className="flex-1" type="password" value={pat} onChange={onPatChange}>
+                  <Label className="sr-only">{t('doubaoCookieLabel')}</Label>
+                  <Input placeholder={t('doubaoCookiePh')} aria-label={t('doubaoCookieLabel')} />
+                </TextField>
+                <Button size="sm" variant="secondary" isPending={busyKind === 'pat'} onPress={onPatLogin}><Key size={14} />{t('doubaoSaveCookie')}</Button>
+              </div>
+              {note ? <p className="mt-1 text-caption text-muted">{note}</p> : null}
+            </div>
+          ) : (
+          <>
           <div>
             <div className="text-caption font-medium text-muted">{t('oauthDeviceFlow')}</div>
             <p className="mt-1.5 text-caption leading-5 text-muted">{account.provider === 'codex' ? t('wizardCodexBrowserLead') : t('qoderLoginHint')}</p>
@@ -446,19 +461,20 @@ export function AccountCard({
               {note ? <p className="mt-1 text-muted">{note}</p> : null}
             </div>
           ) : null}
+          </>
+          )}
         </section>
       ) : null}
 
       {onCheckin ? (
-        <div className="flex items-start justify-between gap-3 border-t border-separator px-4 py-2 text-caption text-muted">
+        <div className="flex items-start justify-between gap-2 border-t border-separator px-4 py-2 text-caption text-muted">
           <Tooltip>
             <Tooltip.Trigger>
               <span className="flex cursor-help flex-wrap items-center gap-2">
                 <span className="font-medium">{t('lastCheckin')}</span>
                 <span className={checkinStatus === 'error' ? 'text-danger' : ''}>{t(checkinLabel)}</span>
                 {!checkedInCurrentDay ? (
-                  <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-warning/15 px-1.5 py-px text-caption font-medium text-warning">
-                    <span className="size-1.5 rounded-full bg-warning" aria-hidden />
+                  <span className="whitespace-nowrap rounded-full bg-warning/15 px-1.5 py-px font-medium text-warning">
                     {t('checkinPending')}
                   </span>
                 ) : null}
@@ -468,7 +484,7 @@ export function AccountCard({
           </Tooltip>
           <Tooltip>
             <Tooltip.Trigger>
-              <span className="flex cursor-help items-center gap-1.5">
+              <span className="flex shrink-0 cursor-help items-center gap-1.5 whitespace-nowrap">
                 <span className="font-medium">{t('autoCheckin')}</span>
                 <span className="mono text-caption text-foreground/55">{account.checkin_time || checkinDefaultTime}</span>
                 <CompactSwitch isSelected={Boolean(account.auto_checkin)} isDisabled={Boolean(busyKind)} ariaLabel={t('autoCheckin')} onChange={(selected) => onToggleAutoCheckin?.(selected)} />
@@ -479,7 +495,7 @@ export function AccountCard({
         </div>
       ) : null}
 
-      <Card.Footer className="flex flex-wrap items-center gap-1.5 bg-surface-secondary px-4 py-2">
+      <Card.Footer className="flex flex-wrap items-center gap-1 bg-surface-secondary px-2 py-2">
         {onRefresh ? (
           <Tooltip>
             <Tooltip.Trigger>
