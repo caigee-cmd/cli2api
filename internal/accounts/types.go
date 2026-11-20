@@ -26,6 +26,16 @@ type Account struct {
 	Enabled        bool   `json:"enabled"`
 	MaxInFlight    int    `json:"max_inflight"`
 	Priority       int    `json:"priority"`
+	// CreditFloor is the per-account credit floor override. Nil means "not
+	// set" and defers to the global CLI2API_CREDIT_FLOOR; a non-nil value
+	// (including 0, which disables the floor for this account) overrides it.
+	// No omitempty: an explicit 0 must survive API responses so a caller can
+	// distinguish "disable this account's floor" from "inherit the global floor".
+	CreditFloor *float64 `json:"credit_floor"`
+	// PercentFloor is the per-account floor for percent-denominated quota.
+	// Nil defers to the global CLI2API_PERCENT_FLOOR; a non-nil value (including
+	// 0, which disables the percent floor for this account) overrides it.
+	PercentFloor *float64 `json:"percent_floor"`
 	// DropSystemPrompt drops caller system prompts before provider-native chat.
 	DropSystemPrompt bool `json:"drop_system_prompt"`
 	// ModelAliases maps a client-facing name to this account's real catalog
@@ -66,6 +76,8 @@ type CreateAccount struct {
 	Enabled              bool
 	MaxInFlight          int
 	Priority             int
+	CreditFloor          *float64
+	PercentFloor         *float64
 	DropSystemPrompt     *bool
 	WorkBuddyAutoCheckin *bool
 	WorkBuddyCheckinTime string
@@ -76,12 +88,22 @@ type CreateAccount struct {
 }
 
 type UpdateAccount struct {
-	AutoCheckin          *bool
-	CheckinTime          *string
-	Name                 string
-	Enabled              *bool
-	MaxInFlight          *int
-	Priority             *int
+	AutoCheckin *bool
+	CheckinTime *string
+	Name        string
+	Enabled     *bool
+	MaxInFlight *int
+	Priority    *int
+	// CreditFloor overrides the global floor when non-nil. A nil pointer
+	// leaves the stored value unchanged on PATCH; a non-nil value (including
+	// 0, which disables the floor for this account) is stored as the override.
+	CreditFloor  *float64
+	PercentFloor *float64
+	// SetCreditFloor/SetPercentFloor let a caller explicitly clear an override
+	// (store NULL) while leaving PATCH fields absent untouched. Without these,
+	// a JSON null would be indistinguishable from an omitted field in *float64.
+	SetCreditFloor       bool
+	SetPercentFloor      bool
 	DropSystemPrompt     *bool
 	WorkBuddyAutoCheckin *bool
 	WorkBuddyCheckinTime *string
@@ -108,6 +130,8 @@ type ImportAccount struct {
 	Enabled              bool
 	MaxInFlight          int
 	Priority             int
+	CreditFloor          *float64
+	PercentFloor         *float64
 	DropSystemPrompt     *bool
 	WorkBuddyAutoCheckin *bool
 	WorkBuddyCheckinTime string
@@ -117,9 +141,9 @@ type ImportAccount struct {
 
 type AccountView struct {
 	Account
-	Ready               bool              `json:"ready"`
-	Hot                 bool              `json:"hot"`
-	InFlight            int               `json:"in_flight"`
+	Ready    bool `json:"ready"`
+	Hot      bool `json:"hot"`
+	InFlight int  `json:"in_flight"`
 	// InFlightSince is RFC3339 when the pool slot went busy (0→1); empty when idle.
 	InFlightSince       string            `json:"in_flight_since,omitempty"`
 	Restarts            int               `json:"restarts"`

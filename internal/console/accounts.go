@@ -30,18 +30,20 @@ func (h *Handler) HandleAccounts(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"object": "list", "data": items})
 	case http.MethodPost:
 		var input struct {
-			Name                 string `json:"name"`
-			Provider             string `json:"provider"`
-			Region               string `json:"region"`
-			Enabled              bool   `json:"enabled"`
-			MaxInFlight          int    `json:"max_inflight"`
-			Priority             int    `json:"priority"`
-			DropSystemPrompt     *bool  `json:"drop_system_prompt"`
-			WorkBuddyAutoCheckin *bool  `json:"workbuddy_auto_checkin"`
-			WorkBuddyCheckinTime string `json:"workbuddy_checkin_time"`
-			AutoCheckin          *bool  `json:"auto_checkin"`
-			CheckinTime          string `json:"checkin_time"`
-			ProxyURL             string `json:"proxy_url"`
+			Name                 string   `json:"name"`
+			Provider             string   `json:"provider"`
+			Region               string   `json:"region"`
+			Enabled              bool     `json:"enabled"`
+			MaxInFlight          int      `json:"max_inflight"`
+			Priority             int      `json:"priority"`
+			CreditFloor          *float64 `json:"credit_floor,omitempty"`
+			PercentFloor         *float64 `json:"percent_floor,omitempty"`
+			DropSystemPrompt     *bool    `json:"drop_system_prompt"`
+			WorkBuddyAutoCheckin *bool    `json:"workbuddy_auto_checkin"`
+			WorkBuddyCheckinTime string   `json:"workbuddy_checkin_time"`
+			AutoCheckin          *bool    `json:"auto_checkin"`
+			CheckinTime          string   `json:"checkin_time"`
+			ProxyURL             string   `json:"proxy_url"`
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxConsoleBodyBytes)).Decode(&input); err != nil {
 			writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
@@ -55,6 +57,8 @@ func (h *Handler) HandleAccounts(w http.ResponseWriter, r *http.Request) {
 			AutoCheckin: input.AutoCheckin, CheckinTime: input.CheckinTime,
 			Name: input.Name, Provider: input.Provider, Region: input.Region,
 			Enabled: input.Enabled, MaxInFlight: input.MaxInFlight, Priority: input.Priority,
+			CreditFloor:      input.CreditFloor,
+			PercentFloor:     input.PercentFloor,
 			DropSystemPrompt: input.DropSystemPrompt, WorkBuddyAutoCheckin: input.WorkBuddyAutoCheckin,
 			WorkBuddyCheckinTime: input.WorkBuddyCheckinTime, ProxyURL: input.ProxyURL,
 		})
@@ -120,11 +124,18 @@ func (h *Handler) HandleAccountByID(w http.ResponseWriter, r *http.Request) {
 			}
 			writeJSON(w, http.StatusOK, account)
 		case http.MethodPatch:
+			var raw json.RawMessage
+			if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxConsoleBodyBytes)).Decode(&raw); err != nil {
+				writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
+				return
+			}
 			var input struct {
 				Name                 string            `json:"name"`
 				Enabled              *bool             `json:"enabled"`
 				MaxInFlight          *int              `json:"max_inflight"`
 				Priority             *int              `json:"priority"`
+				CreditFloor          *float64          `json:"credit_floor"`
+				PercentFloor         *float64          `json:"percent_floor"`
 				DropSystemPrompt     *bool             `json:"drop_system_prompt"`
 				WorkBuddyAutoCheckin *bool             `json:"workbuddy_auto_checkin"`
 				WorkBuddyCheckinTime *string           `json:"workbuddy_checkin_time"`
@@ -135,13 +146,17 @@ func (h *Handler) HandleAccountByID(w http.ResponseWriter, r *http.Request) {
 				EnabledModels        []string          `json:"enabled_models"`
 				SetModelRouting      bool              `json:"set_model_routing"`
 			}
-			if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxConsoleBodyBytes)).Decode(&input); err != nil {
+			if err := json.Unmarshal(raw, &input); err != nil {
 				writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
 				return
 			}
 			account, err := h.Control.Accounts.Update(r.Context(), accountID, accounts.UpdateAccount{
 				AutoCheckin: input.AutoCheckin, CheckinTime: input.CheckinTime,
 				Name: input.Name, Enabled: input.Enabled, MaxInFlight: input.MaxInFlight, Priority: input.Priority,
+				CreditFloor:      input.CreditFloor,
+				PercentFloor:     input.PercentFloor,
+				SetCreditFloor:   hasJSONField(raw, "credit_floor"),
+				SetPercentFloor:  hasJSONField(raw, "percent_floor"),
 				DropSystemPrompt: input.DropSystemPrompt, WorkBuddyAutoCheckin: input.WorkBuddyAutoCheckin,
 				WorkBuddyCheckinTime: input.WorkBuddyCheckinTime, ProxyURL: input.ProxyURL,
 				ModelAliases: input.ModelAliases, EnabledModels: input.EnabledModels, SetModelRouting: input.SetModelRouting,
@@ -277,4 +292,16 @@ func (h *Handler) HandleAccountByID(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeErr(w, http.StatusNotFound, "not_found", "unknown account action")
 	}
+}
+
+// hasJSONField reports whether a JSON object contains a key, including when
+// its value is null. It lets floor overrides distinguish "inherit" (null or
+// absent) from an explicit numeric value without changing PATCH semantics.
+func hasJSONField(raw json.RawMessage, key string) bool {
+	var obj map[string]json.RawMessage
+	if json.Unmarshal(raw, &obj) != nil {
+		return false
+	}
+	_, ok := obj[key]
+	return ok
 }

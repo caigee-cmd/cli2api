@@ -39,7 +39,38 @@ func routeQuotaExceeded(item Item, q RouteQuery) bool {
 	}
 	if !q.fefoNow.IsZero() {
 		_, depleted := fefoExpiry(item, q.PublicModel, q.fefoNow)
-		return depleted
+		if depleted {
+			return true
+		}
+	}
+	// Unit-aware floor: block paid models once the account's remaining amount
+	// is at or below the effective floor for its quota unit. A nil quota
+	// (never sampled) is not blocked — there is no trustworthy value to compare.
+	// WorkBuddy/Qoder/Command report "credits" (CLI2API_CREDIT_FLOOR), while
+	// Devin/Kimi/Zhipu report "percent" (CLI2API_PERCENT_FLOOR). The two floors
+	// are never compared across units: a numeric 100 in one never silently
+	// gates the other. Trae entitlement packs and Codex rate-limit windows keep
+	// their existing scheduling behaviour. Floor <= 0 disables that unit's
+	// gate. Free models were already exempted above and never reach this point.
+	if item.Quota == nil {
+		return false
+	}
+	var floor float64
+	var applies bool
+	switch item.Quota.Unit {
+	case "credits":
+		floor, applies = q.creditFloorDefault, true
+		if item.CreditFloor != nil {
+			floor = *item.CreditFloor
+		}
+	case "percent":
+		floor, applies = q.percentFloorDefault, true
+		if item.PercentFloor != nil {
+			floor = *item.PercentFloor
+		}
+	}
+	if applies && floor > 0 && !(item.Quota.Remaining > floor) {
+		return true
 	}
 	return false
 }

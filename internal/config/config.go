@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -33,9 +34,24 @@ type Config struct {
 	UpdateAgentToken       string
 	UpdateGitHubToken      string
 	CatalogRefreshInterval time.Duration
+	// CreditFloor is the global default credit floor. Zero disables the gate;
+	// per-account credit_floor overrides it when set.
+	CreditFloor float64
+	// PercentFloor is the global default floor for percent-denominated quota
+	// snapshots (remaining percent). Zero disables the percent gate; a
+	// per-account percent_floor overrides it when set.
+	PercentFloor float64
 }
 
 func Load() (Config, error) {
+	creditFloor, err := parseFloorEnv("CLI2API_CREDIT_FLOOR", os.Getenv("CLI2API_CREDIT_FLOOR"))
+	if err != nil {
+		return Config{}, err
+	}
+	percentFloor, err := parseFloorEnv("CLI2API_PERCENT_FLOOR", os.Getenv("CLI2API_PERCENT_FLOOR"))
+	if err != nil {
+		return Config{}, err
+	}
 	port := 3010
 	if v := strings.TrimSpace(os.Getenv("PORT")); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
@@ -97,7 +113,27 @@ func Load() (Config, error) {
 		UpdateAgentToken:       strings.TrimSpace(os.Getenv("UPDATE_AGENT_TOKEN")),
 		UpdateGitHubToken:      strings.TrimSpace(os.Getenv("UPDATE_GITHUB_TOKEN")),
 		CatalogRefreshInterval: catalogRefreshInterval(os.Getenv("CLI2API_CATALOG_REFRESH_INTERVAL")),
+		CreditFloor:            creditFloor,
+		PercentFloor:           percentFloor,
 	}, nil
+}
+
+// parseFloorEnv parses a unit-specific floor environment variable. Unset means
+// 0 (disabled). Negative or non-numeric values fail closed so a typo cannot
+// silently turn the gate off or admit a wrong threshold.
+func parseFloorEnv(name, raw string) (float64, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return 0, nil
+	}
+	floor, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be a number, got %q", name, value)
+	}
+	if floor < 0 {
+		return 0, fmt.Errorf("%s must be >= 0, got %v", name, floor)
+	}
+	return floor, nil
 }
 
 // catalogRefreshInterval parses CLI2API_CATALOG_REFRESH_INTERVAL: a Go duration

@@ -42,6 +42,24 @@ func TestLoadLocalUpdaterEndpoint(t *testing.T) {
 	}
 }
 
+func TestLoadPercentFloor(t *testing.T) {
+	t.Setenv("CLI2API_PERCENT_FLOOR", "15")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.PercentFloor != 15 {
+		t.Fatalf("percent floor = %v, want 15", cfg.PercentFloor)
+	}
+}
+
+func TestLoadRejectsNegativePercentFloor(t *testing.T) {
+	t.Setenv("CLI2API_PERCENT_FLOOR", "-1")
+	if _, err := Load(); err == nil {
+		t.Fatal("negative percent floor must fail closed")
+	}
+}
+
 func TestLoadRetryAccountBudget(t *testing.T) {
 	t.Setenv("QODER_MAX_RETRY_ACCOUNTS", "99")
 	cfg, err := Load()
