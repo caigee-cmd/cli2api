@@ -489,3 +489,52 @@ export function importAccount(bundle: Record<string, unknown>) {
 export function exportAccount(accountId: string) {
   return api<Record<string, unknown>>(`/api/accounts/${encodeURIComponent(accountId)}/export`)
 }
+
+export type AccountBundle = {
+  format: string
+  version: number
+  exported_at: string
+  count: number
+  accounts: AccountBundleEntry[]
+}
+
+export type AccountBundleEntry = {
+  name: string
+  provider: string
+  region: string
+  auth_type?: string
+  enabled: boolean
+  max_inflight: number
+  priority: number
+  drop_system_prompt?: boolean
+  model_aliases?: Record<string, string>
+  enabled_models?: string[]
+  models_restricted?: boolean
+  auto_checkin?: boolean
+  checkin_time?: string
+  workbuddy_auto_checkin?: boolean
+  workbuddy_checkin_time?: string
+  proxy_url?: string
+  credential?: {
+    format: string
+    credential?: unknown
+    user_blob?: string
+    machine_id?: string
+  }
+}
+
+export type AccountImportResult = {
+  object?: string
+  succeeded?: number
+  failed?: number
+  data?: unknown[]
+  errors?: Array<{ index?: number; name?: string; message?: string }>
+}
+
+export function exportAccountBundle() {
+  return api<AccountBundle>('/api/accounts/export')
+}
+
+export function importAccountBundle(bundle: AccountBundle) {
+  return api<AccountImportResult>('/api/accounts/import/bundle', { method: 'POST', body: JSON.stringify(bundle) })
+}
