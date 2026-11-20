@@ -33,7 +33,7 @@ func finalUsage(t *testing.T, raw string) map[string]any {
 
 func TestLegacyStreamReportsEstimatedTokensAndCredits(t *testing.T) {
 	var out strings.Builder
-	writeConsumed(&out, "claude-sonnet-4.6", sliceSource(capturedLegacyStream()), nil, nil)
+	writeConsumed(&out, "claude-sonnet-4.6", sliceSource(capturedLegacyStream()), nil, nil, nil)
 	usage := finalUsage(t, out.String())
 
 	// 0.4109% of the 1M window Claude 4.6 uses.
@@ -53,7 +53,7 @@ func TestLegacyStreamReportsEstimatedTokensAndCredits(t *testing.T) {
 
 func TestLegacyNonStreamKeepsUsage(t *testing.T) {
 	var out strings.Builder
-	writeConsumed(&out, "claude-sonnet-4.6", sliceSource(capturedLegacyStream()), nil, nil)
+	writeConsumed(&out, "claude-sonnet-4.6", sliceSource(capturedLegacyStream()), nil, nil, nil)
 	outcome, err := collectOutcome(strings.NewReader(out.String()), "medium")
 	if err != nil {
 		t.Fatal(err)
@@ -106,7 +106,7 @@ func TestStatedTokensWin(t *testing.T) {
 		}},
 	}
 	var out strings.Builder
-	writeConsumed(&out, "claude-sonnet-4.5", sliceSource(frames), nil, nil)
+	writeConsumed(&out, "claude-sonnet-4.5", sliceSource(frames), nil, nil, nil)
 	usage := finalUsage(t, out.String())
 	if usage["prompt_tokens"] != float64(11) || usage["completion_tokens"] != float64(7) || usage["source"] != "provider" {
 		t.Fatalf("usage = %v", usage)
@@ -133,7 +133,7 @@ func TestContextWindow(t *testing.T) {
 
 func TestNoUsageWhenNothingToCount(t *testing.T) {
 	var out strings.Builder
-	writeConsumed(&out, "claude-sonnet-4.6", sliceSource(nil), nil, nil)
+	writeConsumed(&out, "claude-sonnet-4.6", sliceSource(nil), nil, nil, nil)
 	if strings.Contains(out.String(), `"usage"`) {
 		t.Fatalf("unexpected usage:\n%s", out.String())
 	}

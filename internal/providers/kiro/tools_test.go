@@ -51,7 +51,7 @@ func TestCreateResponseToolStreamMatchesAnthropicMessages(t *testing.T) {
 		"response": map[string]any{"usage": map[string]any{"input_tokens": 11, "output_tokens": 7}},
 	}))
 
-	resp := writeOpenAIStream(io.NopCloser(strings.NewReader(raw.String())), "claude-sonnet-4.5", nil, nil)
+	resp := writeOpenAIStream(io.NopCloser(strings.NewReader(raw.String())), "claude-sonnet-4.5", nil, nil, nil)
 	defer resp.Body.Close()
 	openai, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -123,7 +123,7 @@ func TestIncompleteToolCallIsNotEmitted(t *testing.T) {
 	raw.WriteString(sseLine(t, map[string]any{"type": "response.output_item.done", "item": map[string]any{"type": "function_call", "id": "fc_bad", "status": "incomplete"}}))
 	raw.WriteString(sseLine(t, map[string]any{"type": "response.completed"}))
 
-	resp := writeOpenAIStream(io.NopCloser(strings.NewReader(raw.String())), "claude-sonnet-4.5", nil, nil)
+	resp := writeOpenAIStream(io.NopCloser(strings.NewReader(raw.String())), "claude-sonnet-4.5", nil, nil, nil)
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 	if strings.Contains(string(body), "Write") || strings.Contains(string(body), "call_bad") {
@@ -380,7 +380,7 @@ func TestMarkupRescueBecomesToolCall(t *testing.T) {
 	raw.WriteString(sseLine(t, map[string]any{"type": "response.output_text.delta", "delta": "calling "}))
 	raw.WriteString(sseLine(t, map[string]any{"type": "response.output_text.delta", "delta": `<function_calls><invoke name="Read"><parameter name="path">/tmp/a</parameter></invoke></function_calls>`}))
 	raw.WriteString(sseLine(t, map[string]any{"type": "response.completed", "response": map[string]any{"usage": map[string]any{"input_tokens": 1, "output_tokens": 1}}}))
-	resp := writeOpenAIStream(io.NopCloser(strings.NewReader(raw.String())), "claude-sonnet-4.5", nil, filter)
+	resp := writeOpenAIStream(io.NopCloser(strings.NewReader(raw.String())), "claude-sonnet-4.5", nil, filter, nil)
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {

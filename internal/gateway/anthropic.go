@@ -186,16 +186,7 @@ func anthropicMessageResponse(requestID, model, content, reasoning string, toolC
 	if len(blocks) == 0 {
 		blocks = append(blocks, map[string]any{"type": "text", "text": ""})
 	}
-	usage := map[string]any{
-		"input_tokens":  promptTokens,
-		"output_tokens": completionTokens,
-	}
-	if cacheReadTokens != nil {
-		usage["cache_read_input_tokens"] = *cacheReadTokens
-	}
-	if cacheWriteTokens != nil {
-		usage["cache_creation_input_tokens"] = *cacheWriteTokens
-	}
+	usage := anthropicUsage(promptTokens, completionTokens, cacheReadTokens, cacheWriteTokens)
 	return map[string]any{
 		"id": "msg_" + requestID, "type": "message", "role": "assistant", "model": model,
 		"content": blocks, "stop_reason": anthropicStopReason(finishReason, toolCalls), "stop_sequence": nil,
