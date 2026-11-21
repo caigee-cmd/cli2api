@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { memo, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import gsap from 'gsap'
 import {
   Area,
@@ -106,7 +106,7 @@ function TrafficTooltip({
   )
 }
 
-export function TrafficChart({
+export const TrafficChart = memo(function TrafficChart({
   series,
   lang,
   emptyLabel,
@@ -385,4 +385,4 @@ export function TrafficChart({
       </div>
     </div>
   )
-}
+})

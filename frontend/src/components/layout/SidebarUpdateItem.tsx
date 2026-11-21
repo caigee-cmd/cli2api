@@ -1,21 +1,18 @@
-import { useLayoutEffect, useRef, useState, type RefObject } from 'react'
+import { Suspense, lazy, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Button, Modal } from '@heroui/react'
-import { ArrowCircleUp, Notebook, X } from '@phosphor-icons/react'
-import { UpdateControls } from '@/components/system/UpdateControls'
-import { PageAlert } from '@/components/ui/PageAlert'
+import { ArrowCircleUp, Notebook } from '@phosphor-icons/react'
 import { useSystemUpdate } from '@/hooks/useSystemUpdate'
-import { ReleaseNotes } from '@/components/ReleaseNotes'
-import { extractReleaseNotes } from '@/lib/releaseNotes'
 import { duration, ease, gsap } from '@/lib/motion'
 import { useI18n } from '@/hooks/useI18n'
+
+const SidebarUpdateDialog = lazy(() => import('@/components/layout/SidebarUpdateDialog').then((module) => ({ default: module.SidebarUpdateDialog })))
 
 /** Compact version / new-release entry pinned to the bottom-left of the sidebar. */
 export function SidebarUpdateItem({ collapsed, onNavigate }: { collapsed: boolean; onNavigate?: () => void }) {
   const { t, lang } = useI18n()
   const navigate = useNavigate()
   const update = useSystemUpdate()
-  const { info, error } = update
+  const { info } = update
   const [open, setOpen] = useState(false)
   const nudgeRef = useRef<HTMLSpanElement>(null)
 
@@ -48,33 +45,30 @@ export function SidebarUpdateItem({ collapsed, onNavigate }: { collapsed: boolea
 
       {hasUpdate ? <UpdateNudge targetRef={nudgeRef} /> : null}
 
-      <Modal.Root isOpen={open} onOpenChange={setOpen}>
-        <Modal.Backdrop variant="blur">
-          <Modal.Container placement="center" size="lg" scroll="inside">
-            <Modal.Dialog>
-              <Modal.Header className="items-start justify-between gap-4">
-                <div>
-                  <Modal.Heading className="text-section font-semibold">{t('versionUpdate')}</Modal.Heading>
-                  <p className="mono mt-1 text-caption text-muted">{release?.tag_name || version}</p>
-                </div>
-                <Modal.CloseTrigger aria-label={t('close')} className="grid size-8 place-items-center rounded-lg text-muted hover:bg-surface-secondary"><X size={16} /></Modal.CloseTrigger>
-              </Modal.Header>
-              <Modal.Body className="space-y-4">
-                {error ? <PageAlert title={error} /> : null}
-                <UpdateControls update={update} />
-                <div className="text-caption font-medium text-muted">{t('sidebarReleaseNotes')}</div>
-                <ReleaseNotes markdown={extractReleaseNotes(release?.body, lang)} emptyLabel={t('updateNoNotes')} />
-              </Modal.Body>
-              <Modal.Footer className="justify-end">
-                <Button variant="ghost" className="mr-auto" onPress={() => { setOpen(false); onNavigate?.(); navigate('/system?tab=updates') }}>
-                  {t('sidebarGoToUpdate')}
-                </Button>
-                <Button variant="secondary" onPress={() => setOpen(false)}>{t('close')}</Button>
-              </Modal.Footer>
-            </Modal.Dialog>
-          </Modal.Container>
-        </Modal.Backdrop>
-      </Modal.Root>
+      {open ? (
+        <Suspense fallback={null}>
+          <SidebarUpdateDialog
+            open={open}
+            update={update}
+            release={release}
+            version={version}
+            lang={lang}
+            labels={{
+              versionUpdate: t('versionUpdate'),
+              close: t('close'),
+              releaseNotes: t('sidebarReleaseNotes'),
+              emptyNotes: t('updateNoNotes'),
+              goToUpdate: t('sidebarGoToUpdate'),
+            }}
+            onClose={() => setOpen(false)}
+            onGoToUpdate={() => {
+              setOpen(false)
+              onNavigate?.()
+              navigate('/system?tab=updates')
+            }}
+          />
+        </Suspense>
+      ) : null}
     </>
   )
 }

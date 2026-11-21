@@ -1,19 +1,23 @@
+import { Suspense, lazy } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { AppLayout } from '@/components/layout/AppLayout'
 import { RequireAuth } from '@/components/RequireAuth'
+import { RouteFallback } from '@/components/ui/RouteFallback'
 import { ApiKeyProvider } from '@/hooks/useApiKey'
 import { I18nProvider } from '@/hooks/useI18n'
 import { OverviewProvider } from '@/hooks/useOverview'
 import { ThemeProvider } from '@/hooks/useTheme'
-import { OverviewPage } from '@/pages/OverviewPage'
-import { ProvidersPage } from '@/pages/ProvidersPage'
-import { AccessPage } from '@/pages/AccessPage'
-import { AccountsPage } from '@/pages/AccountsPage'
-import { LoginPage } from '@/pages/LoginPage'
-import { SystemPage } from '@/pages/SystemPage'
-import { LogsPage } from '@/pages/LogsPage'
-import { UsagePage } from '@/pages/UsagePage'
-import { KeysPage } from '@/pages/KeysPage'
+
+const LoginPage = lazy(() => import('@/pages/LoginPage').then((module) => ({ default: module.LoginPage })))
+
+const OverviewPage = lazy(() => import('@/pages/OverviewPage').then((module) => ({ default: module.OverviewPage })))
+const ProvidersPage = lazy(() => import('@/pages/ProvidersPage').then((module) => ({ default: module.ProvidersPage })))
+const AccessPage = lazy(() => import('@/pages/AccessPage').then((module) => ({ default: module.AccessPage })))
+const AccountsPage = lazy(() => import('@/pages/AccountsPage').then((module) => ({ default: module.AccountsPage })))
+const SystemPage = lazy(() => import('@/pages/SystemPage').then((module) => ({ default: module.SystemPage })))
+const LogsPage = lazy(() => import('@/pages/LogsPage').then((module) => ({ default: module.LogsPage })))
+const UsagePage = lazy(() => import('@/pages/UsagePage').then((module) => ({ default: module.UsagePage })))
+const KeysPage = lazy(() => import('@/pages/KeysPage').then((module) => ({ default: module.KeysPage })))
 
 export default function App() {
   return (
@@ -22,24 +26,26 @@ export default function App() {
         <ApiKeyProvider>
           <OverviewProvider>
             <BrowserRouter>
-              <Routes>
-                <Route path="/login" element={<LoginPage />} />
-                <Route element={<RequireAuth />}>
-                  <Route element={<AppLayout />}>
-                    <Route path="/" element={<OverviewPage />} />
-                    <Route path="/auth" element={<Navigate to="/accounts" replace />} />
-                    <Route path="/providers" element={<ProvidersPage />} />
-                    <Route path="/access" element={<AccessPage />} />
-                    <Route path="/accounts" element={<AccountsPage />} />
-                    <Route path="/checkins" element={<Navigate to="/accounts" replace />} />
-                    <Route path="/usage" element={<UsagePage />} />
-                    <Route path="/logs" element={<LogsPage />} />
-                    <Route path="/keys" element={<KeysPage />} />
-                    <Route path="/system" element={<SystemPage />} />
-                    <Route path="*" element={<Navigate to="/" replace />} />
+              <Suspense fallback={<RouteFallback />}>
+                <Routes>
+                  <Route path="/login" element={<LoginPage />} />
+                  <Route element={<RequireAuth />}>
+                    <Route element={<AppLayout />}>
+                      <Route path="/" element={<OverviewPage />} />
+                      <Route path="/auth" element={<Navigate to="/accounts" replace />} />
+                      <Route path="/providers" element={<ProvidersPage />} />
+                      <Route path="/access" element={<AccessPage />} />
+                      <Route path="/accounts" element={<AccountsPage />} />
+                      <Route path="/checkins" element={<Navigate to="/accounts" replace />} />
+                      <Route path="/usage" element={<UsagePage />} />
+                      <Route path="/logs" element={<LogsPage />} />
+                      <Route path="/keys" element={<KeysPage />} />
+                      <Route path="/system" element={<SystemPage />} />
+                      <Route path="*" element={<Navigate to="/" replace />} />
+                    </Route>
                   </Route>
-                </Route>
-              </Routes>
+                </Routes>
+              </Suspense>
             </BrowserRouter>
           </OverviewProvider>
         </ApiKeyProvider>
