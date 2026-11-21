@@ -17,9 +17,10 @@ import (
 )
 
 type memoryStore struct {
-	mu      sync.Mutex
-	payload []byte
-	account accounts.Account
+	mu         sync.Mutex
+	payload    []byte
+	account    accounts.Account
+	observedID string
 }
 
 func (s *memoryStore) Get(context.Context, string) (accounts.Account, error) { return s.account, nil }
@@ -34,7 +35,10 @@ func (s *memoryStore) SaveCredentialPayload(_ context.Context, _, _ string, payl
 	s.payload = append([]byte(nil), payload...)
 	return nil
 }
-func (s *memoryStore) Observe(context.Context, string, string, string, string, string) error {
+func (s *memoryStore) Observe(_ context.Context, _ string, remoteID, _, _, _ string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.observedID = remoteID
 	return nil
 }
 
@@ -202,3 +206,232 @@ func TestModelsFallback(t *testing.T) {
 }
 
 var _ = fmt.Sprintf
+
+func newCheckinTestClient(t *testing.T, agentBase, userID string) (*Client, *memoryStore) {
+	t.Helper()
+	store := &memoryStore{account: accounts.Account{Enabled: true, RemoteUID: userID}}
+	credential := Credential{
+		Format:      CredentialFormat,
+		AccessToken: "tok",
+		Site:        "cn",
+		AccountBase: agentBase,
+		AgentBase:   agentBase,
+		Region:      "cn",
+		UserID:      userID,
+		ExpiresAt:   time.Now().Add(time.Hour).Unix(),
+	}
+	payload, err := credential.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.payload = payload
+	client := NewClient(store)
+	client.http = &http.Client{}
+	acceptTestEndpoint = true
+	return client, store
+}
+
+func TestCheckinAlreadyToday(t *testing.T) {
+	claimCalled := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == signinClaimPath {
+			claimCalled = true
+			http.Error(w, "claim must not run when today is already signed", http.StatusTeapot)
+			return
+		}
+		if r.URL.Path != signinStatusPath {
+			http.NotFound(w, r)
+			return
+		}
+		if r.Header.Get("Authorization") != "Bearer tok" {
+			t.Error("missing bearer token")
+		}
+		if r.Header.Get("yy") == "" || len(r.Header.Get("x-signature")) != 32 || r.Header.Get("x-timestamp") == "" {
+			t.Error("missing gateway signature headers")
+		}
+		if r.URL.Query().Get("user_id") != "u-1" || r.URL.Query().Get("device_platform") != "web" || r.URL.Query().Get("is_desktop") != "1" {
+			t.Errorf("unexpected query: %s", r.URL.RawQuery)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"base_resp":{"status_code":0},"data":{"scene":2,"days":[
+			{"day_no":1,"points":100,"status":3,"is_today":false},
+			{"day_no":2,"points":200,"status":3,"is_today":false},
+			{"day_no":3,"points":400,"status":3,"is_today":true},
+			{"day_no":4,"points":500,"status":1,"is_today":false},
+			{"day_no":5,"points":500,"status":1,"is_today":false},
+			{"day_no":6,"points":500,"status":1,"is_today":false},
+			{"day_no":7,"points":500,"status":1,"is_today":false}]}}`)
+	}))
+	defer server.Close()
+	client, _ := newCheckinTestClient(t, server.URL, "u-1")
+	result, err := client.Checkin(context.Background(), "acct-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "already" || result.RewardCredits != 400 {
+		t.Fatalf("result = %+v", result)
+	}
+	if !strings.Contains(result.Message, "连签 3 天") {
+		t.Fatalf("message = %q", result.Message)
+	}
+	if claimCalled {
+		t.Fatal("claim endpoint must not run for an already signed day")
+	}
+}
+
+func TestCheckinClaimsToday(t *testing.T) {
+	claimBody := ""
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case signinStatusPath:
+			_, _ = io.WriteString(w, `{"base_resp":{"status_code":0},"data":{"scene":2,"days":[
+				{"day_no":1,"points":100,"status":3,"is_today":false},
+				{"day_no":2,"points":200,"status":3,"is_today":false},
+				{"day_no":3,"points":400,"status":2,"is_today":true},
+				{"day_no":4,"points":500,"status":1,"is_today":false},
+				{"day_no":5,"points":500,"status":1,"is_today":false},
+				{"day_no":6,"points":500,"status":1,"is_today":false},
+				{"day_no":7,"points":500,"status":1,"is_today":false}]}}`)
+		case signinClaimPath:
+			if r.Method != http.MethodPost {
+				t.Errorf("claim method = %s", r.Method)
+			}
+			raw, _ := io.ReadAll(r.Body)
+			claimBody = string(raw)
+			if len(r.Header.Get("x-signature")) != 32 {
+				t.Error("claim missing signature")
+			}
+			_, _ = io.WriteString(w, `{"base_resp":{"status_code":0},"data":{"claim_id":"c-1","claim_result":1,"day_no":3,"points":400,"expire_at_ms":1795858082691}}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	client, _ := newCheckinTestClient(t, server.URL, "u-1")
+	result, err := client.Checkin(context.Background(), "acct-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "success" || result.RewardCredits != 400 {
+		t.Fatalf("result = %+v", result)
+	}
+	if claimBody != "{}" {
+		t.Fatalf("claim body = %q", claimBody)
+	}
+}
+
+func TestCheckinSkipsWhenDisabled(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != signinStatusPath {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"base_resp":{"status_code":0},"data":{"scene":2,"days":[
+			{"day_no":1,"points":100,"status":3,"is_today":false},
+			{"day_no":2,"points":200,"status":3,"is_today":false},
+			{"day_no":3,"points":400,"status":4,"is_today":true},
+			{"day_no":4,"points":500,"status":1,"is_today":false},
+			{"day_no":5,"points":500,"status":1,"is_today":false},
+			{"day_no":6,"points":500,"status":1,"is_today":false},
+			{"day_no":7,"points":500,"status":1,"is_today":false}]}}`)
+	}))
+	defer server.Close()
+	client, _ := newCheckinTestClient(t, server.URL, "u-1")
+	result, err := client.Checkin(context.Background(), "acct-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "skipped" || !strings.Contains(result.Message, "未开放") {
+		t.Fatalf("result = %+v", result)
+	}
+}
+
+func TestCheckinResolvesUserIDFromIdentity(t *testing.T) {
+	statusUserID := ""
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case userInfoPath:
+			if r.URL.Query().Get("user_id") != "0" {
+				t.Errorf("identity user_id = %q", r.URL.Query().Get("user_id"))
+			}
+			_, _ = io.WriteString(w, `{"base_resp":{"status_code":0},"data":{"userInfo":{"realUserID":"u-9"}}}`)
+		case signinStatusPath:
+			statusUserID = r.URL.Query().Get("user_id")
+			_, _ = io.WriteString(w, `{"base_resp":{"status_code":0},"data":{"scene":2,"days":[
+				{"day_no":3,"points":400,"status":3,"is_today":true}]}}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	client, store := newCheckinTestClient(t, server.URL, "")
+	result, err := client.Checkin(context.Background(), "acct-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "already" {
+		t.Fatalf("result = %+v", result)
+	}
+	if statusUserID != "u-9" {
+		t.Fatalf("status user_id = %q", statusUserID)
+	}
+	if store.observedID != "u-9" {
+		t.Fatalf("observed id = %q", store.observedID)
+	}
+}
+
+func TestCheckinRefreshesUnauthorizedToken(t *testing.T) {
+	statusCalls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case signinStatusPath:
+			statusCalls++
+			if statusCalls == 1 {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			if r.Header.Get("Authorization") != "Bearer new-token" {
+				t.Errorf("retry authorization = %q", r.Header.Get("Authorization"))
+			}
+			_, _ = io.WriteString(w, `{"base_resp":{"status_code":0},"data":{"scene":2,"days":[
+				{"day_no":3,"points":400,"status":3,"is_today":true}]}}`)
+		case tokenPath:
+			_, _ = io.WriteString(w, `{"access_token":"new-token","refresh_token":"new-refresh","expires_in":3600}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	client, _ := newCheckinTestClient(t, server.URL, "u-1")
+	result, err := client.Checkin(context.Background(), "acct-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "already" || statusCalls != 2 {
+		t.Fatalf("result = %+v, status calls = %d", result, statusCalls)
+	}
+}
+
+func TestEncodeURIComponentMatchesJavaScript(t *testing.T) {
+	cases := map[string]string{
+		"/minimax-cloud/api/v1/signin/status?device_platform=web&user_id=u-1&lang=zh": "%2Fminimax-cloud%2Fapi%2Fv1%2Fsignin%2Fstatus%3Fdevice_platform%3Dweb%26user_id%3Du-1%26lang%3Dzh",
+		"a b!~*'()":   "a%20b!~*'()",
+		"timezone=+8": "timezone%3D%2B8",
+	}
+	for input, want := range cases {
+		if got := encodeURIComponent(input); got != want {
+			t.Errorf("encodeURIComponent(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
+func TestAdapterExposesCheckin(t *testing.T) {
+	client, _ := newCheckinTestClient(t, "https://agent.minimax.cn", "u-1")
+	if client.Adapter().Checkin == nil {
+		t.Fatal("minimaxcode adapter must expose Checkin")
+	}
+}

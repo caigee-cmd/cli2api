@@ -66,3 +66,19 @@ func TestQwenWorkAdvertisesDailyCheckin(t *testing.T) {
 		t.Fatal("qwenwork descriptor must support check-in")
 	}
 }
+
+func TestMiniMaxCodeAdvertisesDailyCheckin(t *testing.T) {
+	for _, region := range []string{"cn", "global"} {
+		policy, ok := CheckinFor("minimaxcode", region)
+		if !ok || policy == nil {
+			t.Fatalf("region %s: minimaxcode check-in not advertised", region)
+		}
+		if policy.Timezone != "Asia/Shanghai" {
+			t.Fatalf("region %s: timezone=%q", region, policy.Timezone)
+		}
+	}
+	descriptor, ok := Get("minimaxcode")
+	if !ok || !descriptor.SupportsCheckin() {
+		t.Fatal("minimaxcode descriptor must support check-in")
+	}
+}
