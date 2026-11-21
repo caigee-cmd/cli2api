@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -210,14 +211,14 @@ func TestRuntimeSpecSelectsCNCLIAndConfigDir(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if global.CLIPath != "/opt/qodercli.js" || global.Site != "global" || global.ConfigDir != "/run/acc-g/.qoder" || global.ConfigEnv != "QODER_CONFIG_DIR" {
+	if global.CLIPath != "/opt/qodercli.js" || global.Site != "global" || global.ConfigDir != filepath.Join("/run/acc-g", ".qoder") || global.ConfigEnv != "QODER_CONFIG_DIR" {
 		t.Fatalf("global spec = %+v", global)
 	}
 	cn, err := RuntimeSpec("/opt/qodercli.js", "/opt/qoderclicn.js", "cn", "/run/acc-c")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cn.CLIPath != "/opt/qoderclicn.js" || cn.Site != "cn" || cn.ConfigDir != "/run/acc-c/.qoder-cn" || cn.ConfigEnv != "QODERCN_CONFIG_DIR" {
+	if cn.CLIPath != "/opt/qoderclicn.js" || cn.Site != "cn" || cn.ConfigDir != filepath.Join("/run/acc-c", ".qoder-cn") || cn.ConfigEnv != "QODERCN_CONFIG_DIR" {
 		t.Fatalf("cn spec = %+v", cn)
 	}
 	if _, err := RuntimeSpec("/opt/qodercli.js", "", "cn", "/run/acc-c"); err == nil {
@@ -242,7 +243,7 @@ func TestStarterEnvSetsRegionAndProxy(t *testing.T) {
 			values[key] = value
 		}
 	}
-	if values["QODER_SITE"] != "global" || values["QODER_HOME"] != "/tmp/home/.qoder" || values["QODERCLI_JS"] != "/usr/lib/qodercli.js" {
+	if values["QODER_SITE"] != "global" || values["QODER_HOME"] != filepath.Join("/tmp/home", ".qoder") || values["QODERCLI_JS"] != "/usr/lib/qodercli.js" {
 		t.Fatalf("env = %+v", values)
 	}
 	if values["PROXY_API_KEY"] != "k" || values["WORKER_PORT"] != "32100" {
@@ -267,7 +268,7 @@ func TestStarterEnvSetsRegionAndProxy(t *testing.T) {
 			cnValues[key] = value
 		}
 	}
-	if cnValues["QODER_SITE"] != "cn" || cnValues["QODERCN_CONFIG_DIR"] != "/tmp/cn/.qoder-cn" || cnValues["QODERCLI_JS"] != "/usr/lib/qoderclicn.js" {
+	if cnValues["QODER_SITE"] != "cn" || cnValues["QODERCN_CONFIG_DIR"] != filepath.Join("/tmp/cn", ".qoder-cn") || cnValues["QODERCLI_JS"] != "/usr/lib/qoderclicn.js" {
 		t.Fatalf("cn env = %+v", cnValues)
 	}
 }
