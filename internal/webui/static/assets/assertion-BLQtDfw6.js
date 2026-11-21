@@ -1,0 +1,1 @@
+var e=e=>e?`true`:void 0;export{e as t};

@@ -22,5 +22,12 @@ export default defineConfig({
     outDir: 'dist',
     emptyOutDir: true,
     assetsDir: 'assets',
+    rolldownOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules') && id.includes('/gsap/')) return 'gsap'
+        },
+      },
+    },
   },
 })

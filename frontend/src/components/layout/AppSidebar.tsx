@@ -1,10 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { NavLink } from 'react-router-dom'
-import { Drawer, Button, Chip, Separator, Tooltip } from '@heroui/react'
 import { ChartBar, Cube, Gauge, GearSix, Key, Lightning, Scroll, SidebarSimple, UsersThree, X } from '@phosphor-icons/react'
 import { SidebarUpdateItem } from '@/components/layout/SidebarUpdateItem'
 import { BrandMark } from '@/components/BrandMark'
-import { SkeletonBlock } from '@/components/ui/PageSkeletons'
+import { SkeletonBlock } from '@/components/ui/SkeletonBlock'
+import { ShellChip, ShellIconButton, ShellSeparator, ShellTooltip } from '@/components/ui/ShellControls'
 import { pressScale } from '@/hooks/useGsapReveal'
 import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
@@ -40,7 +40,7 @@ function NavList({ collapsed, onNavigate }: { collapsed: boolean; onNavigate?: (
       {groups.map((group) => (
         <div key={group.key} className="flex flex-col gap-1">
           {collapsed ? (
-            <Separator className="mx-auto mb-1.5 w-6 opacity-60" />
+            <ShellSeparator className="mx-auto mb-1.5 w-6 opacity-60" />
           ) : (
             <span className="px-3 pb-1.5 text-caption font-medium text-muted">{group.label}</span>
           )}
@@ -124,19 +124,16 @@ function InFlightIndicator({ initial, collapsed }: { initial: number; collapsed:
 
   const label = t('sidebarInFlight', { count: value })
   return (
-    <Tooltip delay={200}>
-      <Tooltip.Trigger>
-        <span
-          role="status"
-          aria-label={label}
-          className={`inline-flex h-8 items-center gap-2 rounded-lg text-caption text-muted ${collapsed ? 'w-10 justify-center' : 'px-3'}`}
-        >
-          <span className="status-dot" data-state={value > 0 ? 'ok' : undefined} />
-          <span className="mono tabular text-foreground">{value}</span>
-        </span>
-      </Tooltip.Trigger>
-      <Tooltip.Content>{label}</Tooltip.Content>
-    </Tooltip>
+    <ShellTooltip label={label} side="top">
+      <span
+        role="status"
+        aria-label={label}
+        className={`inline-flex h-8 items-center gap-2 rounded-lg text-caption text-muted ${collapsed ? 'w-10 justify-center' : 'px-3'}`}
+      >
+        <span className="status-dot" data-state={value > 0 ? 'ok' : undefined} />
+        <span className="mono tabular text-foreground">{value}</span>
+      </span>
+    </ShellTooltip>
   )
 }
 
@@ -159,10 +156,34 @@ export function AppSidebar({ mobileOpen, onClose }: Props) {
     })
   }
 
+  useEffect(() => {
+    if (!mobileOpen) return
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [mobileOpen, onClose])
+
+  useEffect(() => {
+    if (!mobileOpen) return
+    const media = window.matchMedia('(min-width: 1024px)')
+    const onChange = () => {
+      if (media.matches) onClose()
+    }
+    media.addEventListener('change', onChange)
+    return () => media.removeEventListener('change', onChange)
+  }, [mobileOpen, onClose])
+
   const toggle = (
-    <Button isIconOnly size="sm" variant="ghost" className="text-muted" onPress={toggleCollapsed} aria-label={t('toggleSidebar')}>
+    <ShellIconButton label={t('toggleSidebar')} onClick={toggleCollapsed}>
       <SidebarSimple size={18} className={collapsed ? 'rotate-180' : ''} />
-    </Button>
+    </ShellIconButton>
   )
 
   const footer = (
@@ -177,7 +198,7 @@ export function AppSidebar({ mobileOpen, onClose }: Props) {
                 <span className="status-dot" data-state={healthy ? 'ok' : 'danger'} />
                 {healthy ? t('running') : t('degraded')}
               </div>
-              <Chip size="sm" variant="soft" color={healthy ? 'success' : 'warning'}>{hotCount}/{accountCount}</Chip>
+              <ShellChip tone={healthy ? 'success' : 'warning'}>{hotCount}/{accountCount}</ShellChip>
             </div>
             <div className="mt-2 flex items-center gap-1.5 text-caption text-muted">
               <span>Proxy</span>
@@ -191,14 +212,11 @@ export function AppSidebar({ mobileOpen, onClose }: Props) {
       )}
       {collapsed ? (
         <div className="flex justify-center">
-        <Tooltip>
-          <Tooltip.Trigger>
-            <Button isIconOnly size="sm" variant="ghost" aria-label={t('runtimeSnapshot')}>
-              {showStatusSkeleton ? <SkeletonBlock className="size-2" /> : <span className="status-dot" data-state={healthy ? 'ok' : 'danger'} />}
-            </Button>
-          </Tooltip.Trigger>
-          <Tooltip.Content>{showStatusSkeleton ? t('refreshing') : healthy ? t('running') : t('degraded')}</Tooltip.Content>
-        </Tooltip>
+        <ShellTooltip label={showStatusSkeleton ? t('refreshing') : healthy ? t('running') : t('degraded')} side="top">
+          <ShellIconButton label={showStatusSkeleton ? t('refreshing') : healthy ? t('running') : t('degraded')}>
+            {showStatusSkeleton ? <SkeletonBlock className="size-2" /> : <span className="status-dot" data-state={healthy ? 'ok' : 'danger'} />}
+          </ShellIconButton>
+        </ShellTooltip>
         </div>
       ) : null}
       <SidebarUpdateItem collapsed={collapsed} />
@@ -219,14 +237,27 @@ export function AppSidebar({ mobileOpen, onClose }: Props) {
         <div className={`${collapsed ? 'mt-5' : 'mt-7'} min-h-0 flex-1 overflow-y-auto overscroll-contain`}><NavList collapsed={collapsed} /></div>
         {footer}
       </aside>
-      <Drawer isOpen={mobileOpen} onOpenChange={(open) => { if (!open) onClose() }}>
-        <Drawer.Content placement="left">
-          <Drawer.Dialog className="w-72 bg-surface-secondary px-4 py-5 text-foreground">
-            <div className="flex h-12 items-center justify-between"><Brand /><Button isIconOnly size="sm" variant="ghost" onPress={onClose} aria-label={t('close')}><X size={16} /></Button></div>
-            <Drawer.Body className="mt-5 px-0"><NavList collapsed={false} onNavigate={onClose} /></Drawer.Body>
-          </Drawer.Dialog>
-        </Drawer.Content>
-      </Drawer>
+      {mobileOpen ? (
+        <div className="fixed inset-0 z-50 lg:hidden">
+          <div className="absolute inset-0 bg-black/35 backdrop-blur-[2px]" onClick={onClose} aria-hidden="true" />
+          <aside
+            role="dialog"
+            aria-modal="true"
+            aria-label={t('menu')}
+            className="absolute left-0 top-0 flex h-dvh w-72 flex-col bg-surface-secondary px-4 py-5 text-foreground shadow-overlay"
+          >
+            <div className="flex h-12 items-center justify-between">
+              <Brand />
+              <ShellIconButton label={t('close')} onClick={onClose}>
+                <X size={16} />
+              </ShellIconButton>
+            </div>
+            <div className="mt-5 min-h-0 flex-1 overflow-y-auto overscroll-contain">
+              <NavList collapsed={false} onNavigate={onClose} />
+            </div>
+          </aside>
+        </div>
+      ) : null}
     </>
   )
 }

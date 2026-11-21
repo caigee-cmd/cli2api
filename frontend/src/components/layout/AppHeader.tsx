@@ -1,5 +1,5 @@
 import { ArrowClockwise, Globe, List, Moon, SignOut, Sun } from '@phosphor-icons/react'
-import { Button, Toolbar, Tooltip } from '@heroui/react'
+import { ShellIconButton, ShellTooltip } from '@/components/ui/ShellControls'
 import { useNavigate } from 'react-router-dom'
 import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
@@ -25,9 +25,9 @@ export function AppHeader({
   return (
     <header className="relative z-20 shrink-0 border-b border-separator bg-background">
       <div className="mx-auto flex w-full max-w-[1480px] items-center gap-4 px-4 py-2 sm:px-6 lg:px-8">
-        <Button isIconOnly size="sm" variant="ghost" className="lg:hidden" onPress={onMenu} aria-label={t('menu')}>
+        <ShellIconButton label={t('menu')} className="lg:hidden" onClick={onMenu}>
           <List size={17} />
-        </Button>
+        </ShellIconButton>
 
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-baseline gap-3">
@@ -37,49 +37,34 @@ export function AppHeader({
           </div>
         </div>
 
-        <Toolbar isAttached>
-          <Tooltip>
-            <Tooltip.Trigger>
-              <Button isIconOnly size="sm" variant="ghost" isPending={loading} onPress={() => void refresh().catch(() => undefined)} aria-label={t('refresh')}>
-                <ArrowClockwise size={15} />
-              </Button>
-            </Tooltip.Trigger>
-            <Tooltip.Content>{t('refresh')}</Tooltip.Content>
-          </Tooltip>
-          <Tooltip>
-            <Tooltip.Trigger>
-              <Button isIconOnly size="sm" variant="ghost" onPress={() => setLang(lang === 'zh' ? 'en' : 'zh')} aria-label={lang === 'zh' ? 'English' : '中文'}>
-                <Globe size={15} />
-              </Button>
-            </Tooltip.Trigger>
-            <Tooltip.Content>{lang === 'zh' ? 'English' : '中文'}</Tooltip.Content>
-          </Tooltip>
-          <Tooltip>
-            <Tooltip.Trigger>
-              <Button isIconOnly size="sm" variant="ghost" onPress={toggleTheme} aria-label={theme === 'dark' ? 'Light mode' : 'Dark mode'}>
-                {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
-              </Button>
-            </Tooltip.Trigger>
-            <Tooltip.Content>{theme === 'dark' ? 'Light mode' : 'Dark mode'}</Tooltip.Content>
-          </Tooltip>
-          <Tooltip>
-            <Tooltip.Trigger>
-              <Button
-                isIconOnly
-                size="sm"
-                variant="ghost"
-                onPress={() => {
-                  signOut()
-                  navigate('/login', { replace: true })
-                }}
-                aria-label={t('signOut')}
-              >
-                <SignOut size={15} />
-              </Button>
-            </Tooltip.Trigger>
-            <Tooltip.Content>{t('signOut')}</Tooltip.Content>
-          </Tooltip>
-        </Toolbar>
+        <div className="flex items-center gap-1">
+          <ShellTooltip label={t('refresh')}>
+            <ShellIconButton label={t('refresh')} pending={loading} onClick={() => void refresh().catch(() => undefined)}>
+              <ArrowClockwise size={15} />
+            </ShellIconButton>
+          </ShellTooltip>
+          <ShellTooltip label={lang === 'zh' ? 'English' : '中文'}>
+            <ShellIconButton label={lang === 'zh' ? 'English' : '中文'} onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')}>
+              <Globe size={15} />
+            </ShellIconButton>
+          </ShellTooltip>
+          <ShellTooltip label={theme === 'dark' ? 'Light mode' : 'Dark mode'}>
+            <ShellIconButton label={theme === 'dark' ? 'Light mode' : 'Dark mode'} onClick={toggleTheme}>
+              {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
+            </ShellIconButton>
+          </ShellTooltip>
+          <ShellTooltip label={t('signOut')}>
+            <ShellIconButton
+              label={t('signOut')}
+              onClick={() => {
+                signOut()
+                navigate('/login', { replace: true })
+              }}
+            >
+              <SignOut size={15} />
+            </ShellIconButton>
+          </ShellTooltip>
+        </div>
       </div>
     </header>
   )
