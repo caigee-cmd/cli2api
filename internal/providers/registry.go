@@ -452,11 +452,13 @@ var MiniMaxCode = ProviderDescriptor{
 			ID: "cn", Label: "CN", ChatBase: "https://agent.minimax.cn",
 			BillingBase: "https://agent.minimax.cn", AuthBase: "https://account.minimax.cn",
 			DefaultDomain: "minimax.cn",
+			Checkin:       &CheckinPolicy{Timezone: "Asia/Shanghai"},
 		},
 		{
 			ID: "global", Label: "Global", ChatBase: "https://agent.minimax.io",
 			BillingBase: "https://agent.minimax.io", AuthBase: "https://account.minimax.io",
 			DefaultDomain: "minimax.io",
+			Checkin:       &CheckinPolicy{Timezone: "Asia/Shanghai"},
 		},
 	},
 	DefaultRegion: "cn",
