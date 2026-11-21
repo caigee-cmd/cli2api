@@ -364,14 +364,14 @@ func TestQoderRuntimeSpecSelectsCNCLIAndConfigDir(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if globalPath != "/opt/qodercli.js" || globalSite != "global" || globalDir != "/run/acc-g/.qoder" || globalEnv != "QODER_CONFIG_DIR" {
+	if globalPath != "/opt/qodercli.js" || globalSite != "global" || globalDir != filepath.Join("/run/acc-g", ".qoder") || globalEnv != "QODER_CONFIG_DIR" {
 		t.Fatalf("global spec path=%s site=%s dir=%s env=%s", globalPath, globalSite, globalDir, globalEnv)
 	}
 	cnPath, cnSite, cnDir, cnEnv, err := accountruntime.QoderRuntimeSpec(cfg, accounts.Account{ProviderRegion: "cn"}, "/run/acc-c")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cnPath != "/opt/qoderclicn.js" || cnSite != "cn" || cnDir != "/run/acc-c/.qoder-cn" || cnEnv != "QODERCN_CONFIG_DIR" {
+	if cnPath != "/opt/qoderclicn.js" || cnSite != "cn" || cnDir != filepath.Join("/run/acc-c", ".qoder-cn") || cnEnv != "QODERCN_CONFIG_DIR" {
 		t.Fatalf("cn spec path=%s site=%s dir=%s env=%s", cnPath, cnSite, cnDir, cnEnv)
 	}
 	if _, _, _, _, err := accountruntime.QoderRuntimeSpec(accountruntime.ManagerConfig{QoderCLIPath: "/opt/qodercli.js"}, accounts.Account{ProviderRegion: "cn"}, "/run/acc-c"); err == nil {
