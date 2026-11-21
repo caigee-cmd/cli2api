@@ -342,6 +342,9 @@ func TestRepeatedFailuresBackOff(t *testing.T) {
 	p.MarkClassified("a", Classified{Kind: KindRateLimit, Cooldown: base, Failover: true})
 	first, _ := p.ByID("a")
 
+	// Windows timers can resolve coarser than the two consecutive calls; let
+	// the clock advance so the extended deadline is observable.
+	time.Sleep(10 * time.Millisecond)
 	p.MarkClassified("a", Classified{Kind: KindRateLimit, Cooldown: base, Failover: true})
 	second, _ := p.ByID("a")
 	if !second.DownUntil.After(first.DownUntil) {
@@ -452,7 +455,10 @@ func TestBackoffResetsOnKindChange(t *testing.T) {
 	p.MarkClassified("a", Classified{Kind: KindRateLimit, Cooldown: base, Failover: true})
 	first, _ := p.ByID("a")
 	// Different kind with the same base cooldown: ladder restarts, so the
-	// cooldown must not exceed (and should equal) the base.
+	// cooldown must not exceed (and should equal) the base. Wait for the
+	// clock to advance so Windows' coarser timer cannot return the same
+	// instant for both calls.
+	time.Sleep(10 * time.Millisecond)
 	p.MarkClassified("a", Classified{Kind: KindAuth, Cooldown: base, Failover: true})
 	second, _ := p.ByID("a")
 	if !second.DownUntil.After(first.DownUntil) {

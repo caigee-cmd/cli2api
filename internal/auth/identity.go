@@ -21,6 +21,9 @@ type Identity struct {
 	// MaxInFlight caps concurrent /v1 chat requests for a named key. Zero
 	// means unlimited. Console traffic is never capped.
 	MaxInFlight int
+	// ModelAggregation makes the key's model list provider-neutral: only
+	// public account aliases are exposed, one entry per alias.
+	ModelAggregation bool
 }
 
 func (i Identity) Console() bool {
@@ -69,5 +72,6 @@ func KeyIdentity(key accounts.APIKey) Identity {
 		Name:             key.Name,
 		AllowedProviders: append([]string{}, key.Providers...),
 		MaxInFlight:      key.MaxInFlight,
+		ModelAggregation: key.ModelAggregation,
 	}
 }

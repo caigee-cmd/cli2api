@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { Suspense, useCallback, useState } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 import { AppHeader } from './AppHeader'
 import { AppSidebar } from './AppSidebar'
+import { RouteFallback } from '@/components/ui/RouteFallback'
 import { useI18n } from '@/hooks/useI18n'
 import { Toaster } from '@/components/motion/Toaster'
 
@@ -19,6 +20,7 @@ const routeKey: Record<string, string> = {
 
 export function AppLayout() {
   const [mobileOpen, setMobileOpen] = useState(false)
+  const closeMobile = useCallback(() => setMobileOpen(false), [])
   const location = useLocation()
   const { page } = useI18n()
   const key = routeKey[location.pathname] || 'home'
@@ -27,7 +29,7 @@ export function AppLayout() {
   return (
     <div className="relative flex h-dvh overflow-hidden bg-background text-foreground">
       <div className="relative z-10 flex min-h-0 min-w-0 flex-1">
-        <AppSidebar mobileOpen={mobileOpen} onClose={() => setMobileOpen(false)} />
+        <AppSidebar mobileOpen={mobileOpen} onClose={closeMobile} />
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <AppHeader
             title={copy.title}
@@ -36,9 +38,11 @@ export function AppLayout() {
           />
           <main className="min-h-0 flex-1 overflow-y-auto">
             <div className="mx-auto w-full max-w-[1480px] px-4 pb-12 pt-5 sm:px-6 lg:px-8 lg:pb-16 lg:pt-6">
-              <div key={location.pathname}>
-                <Outlet />
-              </div>
+              <Suspense fallback={<RouteFallback />}>
+                <div key={location.pathname}>
+                  <Outlet />
+                </div>
+              </Suspense>
             </div>
           </main>
         </div>

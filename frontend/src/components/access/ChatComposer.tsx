@@ -2,6 +2,7 @@ import { useRef, type KeyboardEvent, type ReactNode } from 'react'
 import { Button, Label, ListBox, Select, TextArea } from '@heroui/react'
 import { FileText, PaperPlaneTilt, Plus, Stop, X } from '@phosphor-icons/react'
 import { useI18n } from '@/hooks/useI18n'
+import { toast } from '@/lib/toast'
 import type { ChatAttachment } from './types'
 import { IMAGE_ATTACHMENT_MIMES, TEXT_ATTACHMENT_EXTS, attachmentExt } from './types'
 
@@ -161,7 +162,7 @@ export function ChatComposer({
     }
     if (accepted.length) onAttachmentsChange([...attachments, ...accepted])
     if (rejected.length) {
-      window.alert(t('chatAttachUnsupported', { names: rejected.join(', ') }))
+      toast({ type: 'error', title: t('chatAttachUnsupported', { names: rejected.join(', ') }) })
     }
     if (fileRef.current) fileRef.current.value = ''
   }

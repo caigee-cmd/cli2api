@@ -40,14 +40,15 @@ func (k *Keys) Create(ctx context.Context, input accounts.CreateAPIKey) (account
 	}
 	now := time.Now().UTC()
 	stored, err := k.store.InsertAPIKey(ctx, accounts.StoredAPIKey{
-		Name:        prepared.Name,
-		Prefix:      accounts.APIKeyPrefix(secret),
-		KeyHash:     accounts.HashAPIKey(secret),
-		Providers:   prepared.Providers,
-		Enabled:     prepared.Enabled,
-		MaxInFlight: prepared.MaxInFlight,
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		Name:             prepared.Name,
+		Prefix:           accounts.APIKeyPrefix(secret),
+		KeyHash:          accounts.HashAPIKey(secret),
+		Providers:        prepared.Providers,
+		Enabled:          prepared.Enabled,
+		MaxInFlight:      prepared.MaxInFlight,
+		ModelAggregation: prepared.ModelAggregation,
+		CreatedAt:        now,
+		UpdatedAt:        now,
 	})
 	if err != nil {
 		return accounts.APIKey{}, err
@@ -71,13 +72,14 @@ func (k *Keys) Update(ctx context.Context, id string, input accounts.UpdateAPIKe
 		return accounts.APIKey{}, err
 	}
 	return k.store.SaveAPIKey(ctx, accounts.StoredAPIKey{
-		ID:          merged.ID,
-		Name:        merged.Name,
-		Prefix:      merged.Prefix,
-		Providers:   merged.Providers,
-		Enabled:     merged.Enabled,
-		MaxInFlight: merged.MaxInFlight,
-		UpdatedAt:   time.Now().UTC(),
+		ID:               merged.ID,
+		Name:             merged.Name,
+		Prefix:           merged.Prefix,
+		Providers:        merged.Providers,
+		Enabled:          merged.Enabled,
+		MaxInFlight:      merged.MaxInFlight,
+		ModelAggregation: merged.ModelAggregation,
+		UpdatedAt:        time.Now().UTC(),
 	})
 }
 

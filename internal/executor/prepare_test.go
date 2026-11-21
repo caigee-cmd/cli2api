@@ -74,6 +74,51 @@ func TestPrepareStripsPrefixAndChecksGrants(t *testing.T) {
 	}
 }
 
+func TestPrepareAggregationKeyOnlyAcceptsItsAliases(t *testing.T) {
+	pool := NewPool(nil, nil)
+	pool.Upsert(Item{
+		ID: "q1", Provider: "qoder", Models: []string{"kimi-k2.6"},
+		ModelAliases: map[string]string{"kimi-k3": "kimi-k2.6"},
+	})
+	ex := NewChatExecutor(pool, "")
+	identity := auth.KeyIdentity(accounts.APIKey{
+		ID: "key_agg", Name: "agg", Providers: []string{"qoder"}, Enabled: true, ModelAggregation: true,
+	})
+	request := translate.ChatRequest{Model: "kimi-k3", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}}}
+	got, err := ex.Prepare(PrepareInput{
+		Request: request, Identity: identity, ModelAggregation: true,
+		NewRequestID: func() string { return "req_agg" },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Request.Model != "kimi-k3" || got.PublicModel != "kimi-k3" || got.ProviderFilter != "" {
+		t.Fatalf("aggregation prepare=%+v", got)
+	}
+
+	for _, model := range []string{"glm-5.2", "qoder/kimi-k3"} {
+		_, err := ex.Prepare(PrepareInput{
+			Request:          translate.ChatRequest{Model: model, Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}}},
+			Identity:         identity,
+			ModelAggregation: true,
+		})
+		var prepared *PrepareError
+		if err == nil || !asPrepareError(err, &prepared) || prepared.Code != "model_not_aggregated" {
+			t.Fatalf("model=%s err=%v", model, err)
+		}
+	}
+
+	// An alias defined only on an ungranted provider is not reachable.
+	identity.AllowedProviders = []string{"workbuddy"}
+	if _, err := ex.Prepare(PrepareInput{
+		Request:          translate.ChatRequest{Model: "kimi-k3", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}}},
+		Identity:         identity,
+		ModelAggregation: true,
+	}); err == nil {
+		t.Fatal("ungranted provider alias was accepted")
+	}
+}
+
 func TestPrepareDeniesUngrantedProvider(t *testing.T) {
 	ex := NewChatExecutor(NewPool(nil, nil), "")
 	_, err := ex.Prepare(PrepareInput{
