@@ -1,5 +1,6 @@
 import { CopyIcon } from '@/components/motion/CopyIcon'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useSharedClock } from '@/hooks/useSharedClock'
 import { Button, Card, Chip, Dropdown, Input, Label, TextArea, TextField, Tooltip } from '@heroui/react'
 import {
   ArrowClockwise,
@@ -122,17 +123,11 @@ export function AccountCard({
   const [idCopied, setIdCopied] = useState(false)
   const [cooldownsOpen, setCooldownsOpen] = useState(false)
   const lastStateRef = useRef<string | null>(null)
-  const [, refreshCooldowns] = useState(0)
   const state = accountState(account)
   const cooldown = cooldownLabel(account.down_until || account.cooldown_until)
   const restartIn = cooldownLabel(account.next_restart_at)
   const modelCooldowns = modelCooldownEntries(account)
-
-  useEffect(() => {
-    if (!cooldown && !restartIn && modelCooldowns.length === 0) return
-    const timer = window.setInterval(() => refreshCooldowns((value) => value + 1), 1000)
-    return () => window.clearInterval(timer)
-  }, [cooldown, restartIn, modelCooldowns.length])
+  useSharedClock(Boolean(cooldown || restartIn || modelCooldowns.length))
 
   // Transient check-in feedback: a green check / yellow circle / red cross row
   // that the page pushes after a manual check-in. It shows for three seconds

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import gsap from 'gsap'
 import { Link, useNavigate } from 'react-router-dom'
 import { Button, Card, Chip, Tooltip } from '@heroui/react'
@@ -37,6 +37,9 @@ import { LIVE_POLL_EXPANDED_MS, LIVE_POLL_MS, useLive } from '@/hooks/useLive'
 type AccountRow = NonNullable<Overview['accounts']>[number]
 
 const STATS_REFRESH_MS = 30_000
+// The backend republishes its process snapshot on the 30s maintenance tick;
+// polling faster only repeats the same sample and re-renders the whole page.
+const RESOURCE_REFRESH_MS = 30_000
 
 const EMPTY_STATS: RequestStats = {
   window: { from: '', to: '', hours: 24 },
@@ -153,6 +156,18 @@ export function OverviewPage() {
   const hotAccounts = overview?.worker?.hot_count ?? 0
   const inFlight = live?.in_flight ?? overview?.worker?.in_flight ?? 0
   const traffic = stats ?? EMPTY_STATS
+  const chartLabels = useMemo(() => ({
+    requests: t('chartMetricRequests'),
+    tokens: t('chartMetricTokens'),
+    latency: t('chartMetricLatency'),
+    input: t('chartInput'),
+    output: t('chartOutput'),
+    cacheRead: t('chartCacheRead'),
+    p50: t('statsLatencyP50'),
+    p95: t('statsLatencyP95'),
+    total: t('chartTotal'),
+  }), [t])
+  const selectChartRange = useCallback((from: string, to: string) => navigate(logsHref({}, from, to)), [navigate])
   const affinity = overview?.routing?.session_affinity
   const affinityLookups = (affinity?.hits ?? 0) + (affinity?.misses ?? 0)
   const affinityHitRate = ratio(affinity?.hits ?? 0, affinityLookups)
@@ -241,19 +256,28 @@ export function OverviewPage() {
     }
   }, [paused, loadStats])
 
-  // Resource usage polls on its own 5s cadence; independent of the stats window.
+  // Resource usage follows the backend's 30s snapshot cadence, not a tighter
+  // UI timer. Skipped while hidden and caught up on visibility.
   useEffect(() => {
     let cancelled = false
+    let last = Date.now()
     const tick = () => {
+      if (document.hidden) return
+      last = Date.now()
       void fetchSystemResources()
         .then((data) => { if (!cancelled) setResources(data) })
         .catch(() => { /* keep last good sample */ })
     }
     tick()
-    const timer = setInterval(tick, 5000)
+    const timer = setInterval(tick, RESOURCE_REFRESH_MS)
+    const onVisible = () => {
+      if (!document.hidden && Date.now() - last >= RESOURCE_REFRESH_MS) tick()
+    }
+    document.addEventListener('visibilitychange', onVisible)
     return () => {
       cancelled = true
       clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisible)
     }
   }, [])
 
@@ -395,18 +419,8 @@ export function OverviewPage() {
                   okLabel={t('logsFilterOk')}
                   errorLabel={t('logsFilterError')}
                   selectHint={t('statsDragHint')}
-                  labels={{
-                    requests: t('chartMetricRequests'),
-                    tokens: t('chartMetricTokens'),
-                    latency: t('chartMetricLatency'),
-                    input: t('chartInput'),
-                    output: t('chartOutput'),
-                    cacheRead: t('chartCacheRead'),
-                    p50: t('statsLatencyP50'),
-                    p95: t('statsLatencyP95'),
-                    total: t('chartTotal'),
-                  }}
-                  onSelectRange={(from, to) => navigate(logsHref({}, from, to))}
+                  labels={chartLabels}
+                  onSelectRange={selectChartRange}
                 />
               </Suspense>
             ) : (
