@@ -329,24 +329,11 @@ func parseTemperature(req translate.ChatRequest) *float64 {
 }
 
 func parseReasoningEffort(req translate.ChatRequest) string {
-	effort := ""
-	if len(req.ReasoningEffort) > 0 {
-		var s string
-		if json.Unmarshal(req.ReasoningEffort, &s) == nil {
-			effort = s
-		}
-	}
-	if effort == "" && len(req.Thinking) > 0 {
-		var obj map[string]any
-		if json.Unmarshal(req.Thinking, &obj) == nil {
-			effort = firstNonEmpty(asString(obj["type"]), asString(obj["effort"]))
-		}
-	}
-	normalized := providers.NormalizeReasoningLevel(effort)
-	if normalized == "none" {
+	intent := providers.ParseReasoningIntent(req)
+	if intent.Disabled || intent.Level == "none" {
 		return ""
 	}
-	return normalized
+	return intent.Level
 }
 
 func asString(v any) string {

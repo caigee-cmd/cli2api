@@ -68,14 +68,14 @@ func buildBody(req translate.ChatRequest, caps providers.ModelCapabilities) ([]b
 // resolveReasoning maps the client value through the shared clamp: catalog
 // options win, unknown/empty falls back to the model default.
 func resolveReasoning(req translate.ChatRequest, caps providers.ModelCapabilities) string {
-	requested := ""
-	if len(req.ReasoningEffort) > 0 {
-		var s string
-		if json.Unmarshal(req.ReasoningEffort, &s) == nil {
-			requested = s
+	intent := providers.ParseReasoningIntent(req)
+	if intent.Disabled {
+		if providers.ReasoningOptionIncludes(caps.ReasoningOptions, "none") {
+			return "none"
 		}
+		return ""
 	}
-	return providers.ResolveReasoningLevel(requested, caps)
+	return providers.ResolveReasoningLevel(intent.Level, caps)
 }
 
 // buildInput converts chat messages into Responses input items.
