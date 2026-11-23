@@ -3,6 +3,7 @@ package codearts
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -679,4 +680,30 @@ func TestAdapterSurface(t *testing.T) {
 	var _ providers.ModelCatalogProvider = client
 	var _ providers.ProviderChat = client
 	var _ providers.AccountProber = client
+}
+
+// Issue #562: an embedded InferHub *.400 business error (image content
+// rejected) is a request problem, not an outage. It must not fail over across
+// every account and cool them down.
+func TestClassifyEmbeddedBadRequestCodeIsInvalidRequest(t *testing.T) {
+	body := `{"text":"[DONE]","error_code":"InferHub.ModelArts.81001.400","error_msg":"the content of image_url.url field is unsafe"}`
+	if got := Classify(http.StatusBadGateway, body); got.Kind != accounts.KindInvalidRequest || got.Status != http.StatusBadRequest {
+		t.Fatalf("embedded 400 = %+v", got)
+	}
+	wrapped := (&upstreamError{Code: "InferHub.ModelArts.81001.400", Msg: "the content of image_url.url field is unsafe"}).Error()
+	if got := Classify(http.StatusBadGateway, wrapped); got.Kind != accounts.KindInvalidRequest {
+		t.Fatalf("wrapped embedded 400 = %+v", got)
+	}
+	if got := Classify(http.StatusBadGateway, `{"error_code":"InferHub.002002009.404","error_msg":"model is not registered"}`); got.Kind != accounts.KindModelNotAvailable {
+		t.Fatalf("embedded 404 = %+v", got)
+	}
+}
+
+func TestPreflightSSEEmbeddedImageRejectionIsInvalidRequest(t *testing.T) {
+	frame := "data:{\"text\":\"[DONE]\",\"error_code\":\"InferHub.ModelArts.81001.400\",\"error_msg\":\"the content of image_url.url field is unsafe\"}\n"
+	_, err := preflightSSE(io.NopCloser(strings.NewReader(frame)))
+	var providerErr *providers.Error
+	if !errors.As(err, &providerErr) || providerErr.Kind != accounts.KindInvalidRequest || providerErr.Status != http.StatusBadRequest {
+		t.Fatalf("preflight err = %#v", err)
+	}
 }
