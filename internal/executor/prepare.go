@@ -62,11 +62,14 @@ type PrepareInput struct {
 	SessionHeader     string
 	ConversationID    string
 	CrossProviderPool bool
-	Now               time.Time
-	NewRequestID      func() string
-	ModelContexts     ModelContextStore
-	Catalogs          CatalogPreparer
-	Logs              RequestStarter
+	// ModelAggregation lets a key call bare aggregate aliases even when the
+	// cross-provider pool setting is off. Only account-defined aliases qualify.
+	ModelAggregation bool
+	Now              time.Time
+	NewRequestID     func() string
+	ModelContexts    ModelContextStore
+	Catalogs         CatalogPreparer
+	Logs             RequestStarter
 }
 
 type PreparedRequest struct {
@@ -91,14 +94,25 @@ func (e ChatExecutor) Prepare(in PrepareInput) (PreparedRequest, error) {
 		request.Model = publicModel
 		request.Stream = in.NativeRequest.Stream()
 	}
-	if RejectsBareModel(publicModel, in.CrossProviderPool) {
+	if in.ModelAggregation {
+		// An aggregation key's contract is stricter than the shared pool: it may
+		// only call the provider-neutral aliases its own accounts define. A real
+		// catalog id or a provider-prefixed id would leak the split view back.
+		if strings.Contains(strings.TrimSpace(publicModel), "/") || !e.servesAggregationAlias(publicModel, in.Identity) {
+			return PreparedRequest{}, &PrepareError{
+				Status:  400,
+				Code:    "model_not_aggregated",
+				Message: "this API key only accepts its aggregated model names; call /v1/models for the list",
+			}
+		}
+	} else if RejectsBareModel(publicModel, in.CrossProviderPool) {
 		return PreparedRequest{}, &PrepareError{
 			Status:  400,
 			Code:    "provider_prefix_required",
 			Message: "cross-provider model pool is disabled; use a provider-prefixed model ID such as qoder/glm-5.2",
 		}
 	}
-	providerFilter, modelRegion := ResolveProviderFilter(&request, in.CrossProviderPool)
+	providerFilter, modelRegion := ResolveProviderFilter(&request, in.CrossProviderPool || in.ModelAggregation)
 	prefer := strings.TrimSpace(in.PreferAccount)
 	providerFilter = ApplyPinnedProviderFilter(e.Pool, providerFilter, publicModel, prefer)
 	if providerFilter != "" && !in.Identity.AllowsProvider(providerFilter) {
@@ -240,6 +254,31 @@ func ProviderPrefix(model string) string {
 
 func RejectsBareModel(model string, crossProviderPool bool) bool {
 	return strings.TrimSpace(model) != "" && !crossProviderPool && ProviderPrefix(model) == ""
+}
+
+// servesAggregationAlias reports whether a granted account defines this public
+// alias and can actually serve its target. The model list uses the same
+// account view, so an aggregation key cannot call a name it cannot see.
+func (e ChatExecutor) servesAggregationAlias(model string, identity auth.Identity) bool {
+	if e.Pool == nil {
+		return false
+	}
+	want := routeModel(model)
+	if want == "" || want == "auto" {
+		return false
+	}
+	for _, item := range e.Pool.Items() {
+		if !identity.AllowsProvider(item.Provider) || !identity.AllowsProviderRegion(item.Provider, item.Region) {
+			continue
+		}
+		if strings.TrimSpace(item.ModelAliases[want]) == "" {
+			continue
+		}
+		if itemHasModel(item, want) {
+			return true
+		}
+	}
+	return false
 }
 
 // ResolveProviderFilter parses the provider prefix (and an optional region

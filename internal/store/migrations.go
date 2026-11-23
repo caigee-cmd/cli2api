@@ -260,6 +260,8 @@ ALTER TABLE api_keys ADD COLUMN max_inflight INTEGER NOT NULL DEFAULT 0;`},
 ALTER TABLE accounts ADD COLUMN credit_floor REAL;`},
 	{filename: "029_account_percent_floor.sql", sql: `
 ALTER TABLE accounts ADD COLUMN percent_floor REAL;`},
+	{filename: "030_api_key_model_aggregation.sql", sql: `
+ALTER TABLE api_keys ADD COLUMN model_aggregation INTEGER NOT NULL DEFAULT 0;`},
 }
 
 const schemaMigrationsDDL = `
