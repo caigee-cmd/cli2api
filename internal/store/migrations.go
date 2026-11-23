@@ -283,6 +283,8 @@ CREATE TABLE IF NOT EXISTS aggregation_members (
   weight INTEGER NOT NULL DEFAULT 100
 );
 CREATE INDEX IF NOT EXISTS aggregation_members_agg ON aggregation_members(agg_id);`},
+	{filename: "032_aggregation_member_account.sql", sql: `
+ALTER TABLE aggregation_members ADD COLUMN account_id TEXT NOT NULL DEFAULT '';`},
 }
 
 const schemaMigrationsDDL = `

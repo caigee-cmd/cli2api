@@ -65,7 +65,7 @@ func TestAggregateFillFirstUsesMemberWeight(t *testing.T) {
 			{Provider: "qoder", Model: "model-a", Priority: 1, Weight: 100},
 		},
 	})
-	p.items[1].Weight = 1 // workbuddy account weight tiny
+	p.items[1].Weight = 1   // workbuddy account weight tiny
 	p.items[0].Weight = 200 // qoder account weight large
 	for i := 0; i < 6; i++ {
 		item, ok := p.PickRoute(aggRouteQuery(plan))
@@ -144,5 +144,48 @@ func TestAggregateFailoverStaysInFirstRegion(t *testing.T) {
 	_, _, err = loop.pickNext(e, "my-model")
 	if err == nil {
 		t.Fatal("failover crossed region: second pick succeeded on a different region")
+	}
+}
+
+func TestAggregateMemberAccountPin(t *testing.T) {
+	p := NewPool(nil, nil)
+	p.Upsert(Item{ID: "q1", Provider: "qoder", Region: "global", Models: []string{"model-a"}})
+	p.Upsert(Item{ID: "q2", Provider: "qoder", Region: "global", Models: []string{"model-a"}})
+	plan := NewAggregatePlan(accounts.Aggregation{
+		ID: "my-model", Strategy: accounts.AggregationPriority, MaxAttempts: 2,
+		Members: []accounts.AggregationMember{
+			{Provider: "qoder", Model: "model-a", AccountID: "q2", Priority: 0, Weight: 100},
+		},
+	})
+	q1, _ := p.ByID("q1")
+	q2, _ := p.ByID("q2")
+	if _, ok := plan.matchMember(q1); ok {
+		t.Fatal("q1 must not satisfy a member pinned to q2")
+	}
+	if member, ok := plan.matchMember(q2); !ok || member.AccountID != "q2" {
+		t.Fatalf("q2 member = %+v ok=%v", member, ok)
+	}
+	for i := 0; i < 5; i++ {
+		item, ok := p.PickRoute(aggRouteQuery(plan))
+		if !ok || item.ID != "q2" {
+			t.Fatalf("pinned member pick %d = %+v ok=%v", i, item, ok)
+		}
+	}
+}
+
+func TestAggregatePinnedMemberWinsOverWildcard(t *testing.T) {
+	p := NewPool(nil, nil)
+	p.Upsert(Item{ID: "q1", Provider: "qoder", Region: "global", Models: []string{"model-a"}})
+	plan := NewAggregatePlan(accounts.Aggregation{
+		ID: "my-model", Strategy: accounts.AggregationPriority, MaxAttempts: 2,
+		Members: []accounts.AggregationMember{
+			{Provider: "qoder", Model: "model-a", Priority: 0, Weight: 100},
+			{Provider: "qoder", Model: "model-a", AccountID: "q1", Priority: 1, Weight: 400},
+		},
+	})
+	q1, _ := p.ByID("q1")
+	member, ok := plan.matchMember(q1)
+	if !ok || member.AccountID != "q1" || member.Priority != 1 || member.Weight != 400 {
+		t.Fatalf("pinned member = %+v ok=%v, want account-specific priority/weight", member, ok)
 	}
 }
