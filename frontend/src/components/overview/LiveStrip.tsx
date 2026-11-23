@@ -1,8 +1,6 @@
-import { lazy, Suspense } from 'react'
 import type { LiveSnapshot } from '@/api/live'
 import type { LiveSample } from '@/hooks/useLive'
-
-const LiveSparkline = lazy(() => import('@/components/overview/LiveSparkline').then((mod) => ({ default: mod.LiveSparkline })))
+import { LiveSparkline } from '@/components/overview/LiveSparkline'
 
 type T = (key: string, vars?: Record<string, string | number>) => string
 
@@ -49,7 +47,7 @@ export function LiveStrip({
           type="button"
           data-testid="live-strip-concurrency"
           onClick={onConcurrencyClick}
-          className="inline-flex flex-col gap-1 rounded-md text-left outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-focus sm:flex-row sm:items-center sm:gap-2"
+          className="inline-flex flex-col gap-1 rounded-lg text-left outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-focus sm:flex-row sm:items-center sm:gap-2"
           aria-label={t('inflightExpandFromConcurrency')}
         >
           {concurrencyInner}
@@ -65,9 +63,7 @@ export function LiveStrip({
       </span>
       <span className="inline-flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
         {t('liveTrace')}
-        <Suspense fallback={<span className="inline-block h-6 w-[120px]" />}>
-          <LiveSparkline samples={samples} capacity={capacity} label={t('liveTrace')} />
-        </Suspense>
+        <LiveSparkline samples={samples} capacity={capacity} label={t('liveTrace')} />
       </span>
     </div>
   )

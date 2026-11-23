@@ -580,6 +580,7 @@ func TestCooldownsSurviveReopen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer store.Close()
 	account, err := store.Create(ctx, accounts.CreateAccount{Name: "Work", Enabled: true, MaxInFlight: 4})
 	if err != nil {
 		t.Fatal(err)
@@ -599,6 +600,7 @@ func TestCooldownsSurviveReopen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer reopened.Close()
 	loaded, err := reopened.LoadCooldowns(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -631,6 +633,7 @@ func TestSaveCooldownsReplacesStaleRows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer store.Close()
 	account, err := store.Create(ctx, accounts.CreateAccount{Name: "Work", Enabled: true})
 	if err != nil {
 		t.Fatal(err)
@@ -662,6 +665,7 @@ func TestLoadCooldownsPrunesExpired(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer store.Close()
 	account, err := store.Create(ctx, accounts.CreateAccount{Name: "Work", Enabled: true})
 	if err != nil {
 		t.Fatal(err)
