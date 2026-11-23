@@ -24,8 +24,8 @@ import {
   type AggregationMember,
   type AggregationRecord,
 } from '@/api/modelPools'
-import { fetchModels, fetchProviders, type ProviderDescriptor } from '@/api/overview'
-import type { ModelInfo } from '@/api/types'
+import { fetchAccounts, fetchModels, fetchProviders, type ProviderDescriptor } from '@/api/overview'
+import type { ModelInfo, Overview } from '@/api/types'
 import { ProviderMark } from '@/components/ProviderMark'
 import { CompactSwitch } from '@/components/ui/CompactSwitch'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
@@ -40,11 +40,22 @@ import { toast } from '@/lib/toast'
 import { accountProviderLabel } from '@/lib/provider'
 
 type TFunc = (key: string, vars?: Record<string, string | number>) => string
+type AccountRow = NonNullable<Overview['accounts']>[number]
 
 type MemberDraft = AggregationMember & { key: string }
 
 function newMemberDraft(): MemberDraft {
-  return { key: `${Date.now()}-${Math.random()}`, provider: '', region: '', model: '', priority: 0, weight: 100 }
+  return { key: `${Date.now()}-${Math.random()}`, provider: '', region: '', model: '', account_id: '', priority: 0, weight: 100 }
+}
+
+function accountOptions(accounts: AccountRow[], provider: string): FilterSelectOption[] {
+  return accounts
+    .filter((account) => !provider || account.provider === provider)
+    .map((account) => ({
+      id: account.id,
+      label: `${account.name || account.id}${account.region ? ` · ${account.region}` : ''}`,
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label))
 }
 
 function providerOptions(descriptors: ProviderDescriptor[]): FilterSelectOption[] {
@@ -84,6 +95,7 @@ export function ModelPoolPage() {
   const [aggregations, setAggregations] = useState<AggregationRecord[]>([])
   const [descriptors, setDescriptors] = useState<ProviderDescriptor[]>([])
   const [models, setModels] = useState<ModelInfo[]>([])
+  const [accounts, setAccounts] = useState<AccountRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [createOpen, setCreateOpen] = useState(false)
@@ -94,14 +106,16 @@ export function ModelPoolPage() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [aggResult, providerResult, modelResult] = await Promise.all([
+      const [aggResult, providerResult, modelResult, accountResult] = await Promise.all([
         fetchAggregations(),
         fetchProviders(),
         fetchModels(),
+        fetchAccounts(),
       ])
       setAggregations(aggResult.data || [])
       setDescriptors(providerResult.data || [])
       setModels(modelResult.data || [])
+      setAccounts(accountResult.data || [])
       setError('')
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -217,6 +231,7 @@ export function ModelPoolPage() {
           initial={editTarget}
           descriptors={descriptors}
           models={models}
+          accounts={accounts}
           t={t}
           onClose={() => { setCreateOpen(false); setEditTarget(null) }}
           onSave={async (input) => {
@@ -250,6 +265,7 @@ function AggregationEditorModal({
   initial,
   descriptors,
   models,
+  accounts,
   t,
   onClose,
   onSave,
@@ -258,13 +274,14 @@ function AggregationEditorModal({
   initial: AggregationRecord | null
   descriptors: ProviderDescriptor[]
   models: ModelInfo[]
+  accounts: AccountRow[]
   t: TFunc
   onClose: () => void
   onSave: (input: AggregationInput) => Promise<void>
 }) {
   const [id, setId] = useState('')
   const [name, setName] = useState('')
-  const [strategy, setStrategy] = useState<string>('round-robin')
+  const [strategy, setStrategy] = useState<string>('priority')
   const [allowFallbacks, setAllowFallbacks] = useState(true)
   const [maxAttempts, setMaxAttempts] = useState(3)
   const [members, setMembers] = useState<MemberDraft[]>([])
@@ -327,6 +344,7 @@ function AggregationEditorModal({
           provider: m.provider,
           region: m.region || '',
           model: m.model,
+          account_id: m.account_id || '',
           priority: i,
           weight: m.weight || 100,
         })),
@@ -410,11 +428,29 @@ function AggregationEditorModal({
                             <div className="grid gap-2 sm:grid-cols-2">
                               <div className="space-y-1">
                                 <Label className="text-caption text-muted">{t('modelPoolProvider')}</Label>
-                                <FilterSelect value={member.provider} onChange={(v) => updateMember(member.key, { provider: v, region: '', model: '' })} ariaLabel={t('modelPoolProvider')} options={providerSelectOptions} className="w-full" />
+                                <FilterSelect value={member.provider} onChange={(v) => updateMember(member.key, { provider: v, region: '', model: '', account_id: '' })} ariaLabel={t('modelPoolProvider')} options={providerSelectOptions} className="w-full" />
                               </div>
                               <div className="space-y-1">
                                 <Label className="text-caption text-muted">{t('modelPoolRegion')}</Label>
                                 <FilterSelect value={member.region || ''} onChange={(v) => updateMember(member.key, { region: v })} ariaLabel={t('modelPoolRegion')} options={[{ id: '', label: t('modelPoolAnyRegion') }, ...regions]} className="w-full" />
+                              </div>
+                              <div className="space-y-1 sm:col-span-2">
+                                <Label className="text-caption text-muted">{t('modelPoolAccount')}</Label>
+                                <FilterSelect
+                                  value={member.account_id || ''}
+                                  onChange={(v) => {
+                                    const picked = accounts.find((account) => account.id === v)
+                                    updateMember(member.key, {
+                                      account_id: v,
+                                      provider: picked?.provider || member.provider,
+                                      region: picked?.region || member.region,
+                                    })
+                                  }}
+                                  ariaLabel={t('modelPoolAccount')}
+                                  options={[{ id: '', label: t('modelPoolAnyAccount') }, ...accountOptions(accounts, member.provider)]}
+                                  className="w-full"
+                                />
+                                <p className="text-caption leading-5 text-muted">{t('modelPoolAccountHint')}</p>
                               </div>
                               <div className="space-y-1 sm:col-span-2">
                                 <Label className="text-caption text-muted">{t('modelPoolModel')}</Label>

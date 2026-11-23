@@ -168,8 +168,8 @@ func (s *Store) saveAggregationMembersTx(ctx context.Context, tx *sql.Tx, id str
 	}
 	for _, member := range members {
 		if _, err := tx.ExecContext(ctx, `
-INSERT INTO aggregation_members (agg_id, provider, region, model, priority, weight)
-VALUES (?, ?, ?, ?, ?, ?)`, id, member.Provider, member.Region, member.Model, member.Priority, member.Weight); err != nil {
+INSERT INTO aggregation_members (agg_id, provider, region, model, account_id, priority, weight)
+VALUES (?, ?, ?, ?, ?, ?, ?)`, id, member.Provider, member.Region, member.Model, member.AccountID, member.Priority, member.Weight); err != nil {
 			return fmt.Errorf("save aggregation member: %w", err)
 		}
 	}
@@ -178,7 +178,7 @@ VALUES (?, ?, ?, ?, ?, ?)`, id, member.Provider, member.Region, member.Model, me
 
 func (s *Store) listAggregationMembers(ctx context.Context, id string) ([]accounts.AggregationMember, error) {
 	rows, err := s.db.QueryContext(ctx, `
-SELECT id, provider, region, model, priority, weight
+SELECT id, provider, region, model, account_id, priority, weight
 FROM aggregation_members WHERE agg_id = ? ORDER BY priority ASC, id ASC`, strings.TrimSpace(id))
 	if err != nil {
 		return nil, fmt.Errorf("list aggregation members: %w", err)
@@ -187,7 +187,7 @@ FROM aggregation_members WHERE agg_id = ? ORDER BY priority ASC, id ASC`, string
 	members := []accounts.AggregationMember{}
 	for rows.Next() {
 		var member accounts.AggregationMember
-		if err := rows.Scan(&member.ID, &member.Provider, &member.Region, &member.Model, &member.Priority, &member.Weight); err != nil {
+		if err := rows.Scan(&member.ID, &member.Provider, &member.Region, &member.Model, &member.AccountID, &member.Priority, &member.Weight); err != nil {
 			return nil, err
 		}
 		members = append(members, member)
@@ -203,6 +203,7 @@ func scanAggregation(row rowScanner) (accounts.Aggregation, error) {
 		return accounts.Aggregation{}, err
 	}
 	agg.Enabled = enabled != 0
+	agg.Strategy = accounts.NormalizeAggregationStrategy(string(agg.Strategy))
 	agg.AllowFallbacks = allowFallbacks != 0
 	agg.CreatedAt = parseTime(created.String)
 	agg.UpdatedAt = parseTime(updated.String)

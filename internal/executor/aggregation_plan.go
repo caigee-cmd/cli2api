@@ -77,15 +77,67 @@ func (p *AggregatePlan) matchMember(item Item) (accounts.AggregationMember, bool
 	}
 	candidates := p.byProvider[strings.ToLower(strings.TrimSpace(itemProvider(item)))]
 	region := NormalizeRegion(itemRegion(item))
+	var wildcard *accounts.AggregationMember
 	for _, member := range candidates {
+		if member.AccountID != "" && member.AccountID != item.ID {
+			continue
+		}
 		if member.Region != "" && NormalizeRegion(member.Region) != region {
 			continue
 		}
-		if itemHasModel(item, member.Model) {
+		if !itemHasModel(item, member.Model) {
+			continue
+		}
+		// A deployment pinned to this exact account is more specific than a
+		// legacy provider-wide member with the same model. It must supply the
+		// plan's priority/weight for this account even when the wildcard member
+		// sorts first.
+		if member.AccountID == item.ID {
 			return member, true
 		}
+		if wildcard == nil {
+			copy := member
+			wildcard = &copy
+		}
+	}
+	if wildcard != nil {
+		return *wildcard, true
 	}
 	return accounts.AggregationMember{}, false
+}
+
+// CanServeAccount reports whether this account can serve at least one member
+// of the logical model. Sticky routing uses it because the public model is a
+// virtual ID that is intentionally absent from every account catalog.
+func (p *AggregatePlan) CanServeAccount(item Item) bool {
+	_, ok := p.matchMember(item)
+	return ok
+}
+
+// Priority returns the configured priority of the member this account serves.
+func (p *AggregatePlan) Priority(item Item) (int, bool) {
+	member, ok := p.matchMember(item)
+	if !ok {
+		return 0, false
+	}
+	return member.Priority, true
+}
+
+// PriorityTierCount counts distinct configured priority tiers. It is used to
+// give each tier its own retry budget instead of spending the whole budget on
+// sibling accounts of the first provider.
+func (p *AggregatePlan) PriorityTierCount() int {
+	if p == nil {
+		return 1
+	}
+	seen := make(map[int]struct{}, len(p.Members))
+	for _, member := range p.Members {
+		seen[member.Priority] = struct{}{}
+	}
+	if len(seen) == 0 {
+		return 1
+	}
+	return len(seen)
 }
 
 func (p *AggregatePlan) resolver() func(Item) string {

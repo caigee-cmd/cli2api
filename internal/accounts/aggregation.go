@@ -13,9 +13,9 @@ import (
 type AggregationStrategy string
 
 const (
-	AggregationPriority    AggregationStrategy = "priority"
-	AggregationRoundRobin  AggregationStrategy = "round-robin"
-	AggregationFillFirst   AggregationStrategy = "fill-first"
+	AggregationPriority     AggregationStrategy = "priority"
+	AggregationRoundRobin   AggregationStrategy = "round-robin"
+	AggregationFillFirst    AggregationStrategy = "fill-first"
 	AggregationFEFOStrategy AggregationStrategy = "fefo"
 )
 
@@ -25,16 +25,17 @@ const (
 )
 
 // AggregationMember binds one real model behind a logical model ID.
-// Provider/region/model together identify a concrete upstream model; the
-// same model name across providers (same-name aggregation) is just a special
-// case where every member carries the same Model value.
+// Provider/region/model together identify a concrete upstream model. When
+// AccountID is set, the member is a deployment pinned to that account; empty
+// AccountID keeps the legacy provider-wide pool behavior.
 type AggregationMember struct {
-	ID       int64  `json:"id,omitempty"`
-	Provider string `json:"provider"`
-	Region   string `json:"region,omitempty"`
-	Model    string `json:"model"`
-	Priority int    `json:"priority"`
-	Weight   int    `json:"weight"`
+	ID        int64  `json:"id,omitempty"`
+	Provider  string `json:"provider"`
+	Region    string `json:"region,omitempty"`
+	Model     string `json:"model"`
+	AccountID string `json:"account_id,omitempty"`
+	Priority  int    `json:"priority"`
+	Weight    int    `json:"weight"`
 }
 
 type Aggregation struct {
@@ -99,8 +100,12 @@ func normalizeAggregationMembers(members []AggregationMember) ([]AggregationMemb
 		provider := strings.ToLower(strings.TrimSpace(member.Provider))
 		region := strings.ToLower(strings.TrimSpace(member.Region))
 		model := strings.TrimSpace(member.Model)
+		accountID := strings.TrimSpace(member.AccountID)
 		if provider == "" || model == "" {
 			return nil, fmt.Errorf("aggregation member requires provider and model")
+		}
+		if len(accountID) > 256 {
+			return nil, fmt.Errorf("aggregation member account id is too long")
 		}
 		weight := member.Weight
 		if weight <= 0 {
@@ -116,9 +121,10 @@ func normalizeAggregationMembers(members []AggregationMember) ([]AggregationMemb
 		member.Provider = provider
 		member.Region = region
 		member.Model = model
+		member.AccountID = accountID
 		member.Weight = weight
 		member.Priority = priority
-		key := provider + "|" + region + "|" + CanonicalModelID(model)
+		key := provider + "|" + region + "|" + CanonicalModelID(model) + "|" + accountID
 		if _, ok := seen[key]; ok {
 			continue
 		}

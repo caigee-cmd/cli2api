@@ -10,18 +10,19 @@ import (
 )
 
 type aggregationMemberInput struct {
-	Provider string `json:"provider"`
-	Region   string `json:"region"`
-	Model    string `json:"model"`
-	Priority int    `json:"priority"`
-	Weight   int    `json:"weight"`
+	Provider  string `json:"provider"`
+	Region    string `json:"region"`
+	Model     string `json:"model"`
+	AccountID string `json:"account_id"`
+	Priority  int    `json:"priority"`
+	Weight    int    `json:"weight"`
 }
 
 func decodeAggregationMembers(input []aggregationMemberInput) []accounts.AggregationMember {
 	members := make([]accounts.AggregationMember, 0, len(input))
 	for _, m := range input {
 		members = append(members, accounts.AggregationMember{
-			Provider: m.Provider, Region: m.Region, Model: m.Model,
+			Provider: m.Provider, Region: m.Region, Model: m.Model, AccountID: m.AccountID,
 			Priority: m.Priority, Weight: m.Weight,
 		})
 	}
@@ -49,12 +50,12 @@ func (h *Handler) HandleAggregations(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"object": "list", "data": list})
 	case http.MethodPost:
 		var input struct {
-			ID             string                  `json:"id"`
-			Name           string                  `json:"name"`
-			Enabled        *bool                   `json:"enabled"`
-			Strategy       string                  `json:"strategy"`
-			AllowFallbacks *bool                   `json:"allow_fallbacks"`
-			MaxAttempts    int                     `json:"max_attempts"`
+			ID             string                   `json:"id"`
+			Name           string                   `json:"name"`
+			Enabled        *bool                    `json:"enabled"`
+			Strategy       string                   `json:"strategy"`
+			AllowFallbacks *bool                    `json:"allow_fallbacks"`
+			MaxAttempts    int                      `json:"max_attempts"`
 			Members        []aggregationMemberInput `json:"members"`
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxConsoleBodyBytes)).Decode(&input); err != nil {
@@ -104,11 +105,11 @@ func (h *Handler) HandleAggregationByID(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusOK, agg)
 	case http.MethodPatch:
 		var input struct {
-			Name           *string                  `json:"name"`
-			Enabled        *bool                    `json:"enabled"`
-			Strategy       *string                  `json:"strategy"`
-			AllowFallbacks *bool                    `json:"allow_fallbacks"`
-			MaxAttempts    *int                     `json:"max_attempts"`
+			Name           *string                   `json:"name"`
+			Enabled        *bool                     `json:"enabled"`
+			Strategy       *string                   `json:"strategy"`
+			AllowFallbacks *bool                     `json:"allow_fallbacks"`
+			MaxAttempts    *int                      `json:"max_attempts"`
 			Members        *[]aggregationMemberInput `json:"members"`
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxConsoleBodyBytes)).Decode(&input); err != nil {
