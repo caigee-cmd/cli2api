@@ -1,1 +1,0 @@
-import{o as e,r as t}from"./jsx-runtime-DbPMZkE_.js";import{a as n}from"./PageAlert-BPYnzn-V.js";var r=e(t(),1),i=(0,r.createContext)(!1),a=e=>{let t=(0,r.use)(i),a=(0,r.use)(n);return!t||a?.slots?.[e]!=null};export{a as n,i as t};

@@ -201,33 +201,6 @@ body {
   background: color-mix(in oklab, var(--foreground) 10%, var(--surface));
 }
 
-/* Route fallbacks use a tiny CSS skeleton instead of HeroUI's Skeleton so the
-   entry bundle does not pull the component library just for a placeholder. */
-.ui-skeleton {
-  position: relative;
-  overflow: hidden;
-  background: color-mix(in oklab, var(--foreground) 10%, var(--surface));
-}
-.ui-skeleton::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  transform: translateX(-100%);
-  background: linear-gradient(
-    90deg,
-    transparent,
-    color-mix(in oklab, var(--foreground) 6%, transparent),
-    transparent
-  );
-  animation: ui-skeleton-shimmer 1.6s ease-in-out infinite;
-}
-@keyframes ui-skeleton-shimmer {
-  100% { transform: translateX(100%); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .ui-skeleton::after { animation: none; }
-}
-
 /* Brand loading: cyan scan along the same C rail as the static mark.
    stroke-dashoffset is the path-length equivalent of a Meter width tween. */
 .brand-mark--loading .brand-mark__scan {

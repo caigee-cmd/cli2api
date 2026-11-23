@@ -1,6 +1,8 @@
-import { SkeletonBlock } from './SkeletonBlock'
+import { Skeleton } from '@heroui/react'
 
-export { SkeletonBlock } from './SkeletonBlock'
+export function SkeletonBlock({ className }: { className: string }) {
+  return <Skeleton className={`rounded-lg ${className}`} />
+}
 
 export function RankListSkeleton({ rows = 5 }: { rows?: number }) {
   return (
