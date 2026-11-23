@@ -433,6 +433,46 @@ func TestAPIKeyRegionScopedGrantNeverCrossesRegions(t *testing.T) {
 	if msg := err.Error(); msg != "no workbuddy/cn accounts available" {
 		t.Fatalf("error = %q, want the granted-region message", msg)
 	}
+	// The routing miss is a local capacity problem, not an origin failure: it
+	// must reach the client as 429 with a named code, never as the generic 502
+	// the gateway falls back to for unclassified errors.
+	if classified := ClassifyError(err); classified.Status != http.StatusTooManyRequests || classified.Code != "no_accounts" {
+		t.Fatalf("classified = %+v, want status 429 code no_accounts", classified)
+	}
+}
+
+// A key whose grant matches no account at all must fail with a client-visible
+// 429 rather than the unclassified 502 the gateway synthesizes. The 502 is what
+// made an account-routing problem look like a Cloudflare origin outage.
+func TestNoRoutableAccountsClassifiedAs429(t *testing.T) {
+	pool := NewPool(nil, nil)
+	registry := providers.NewRegistry()
+	ex := NewChatExecutor(pool, "")
+	ex.Providers = registry
+
+	ctx := WithAllowedProviders(context.Background(), []string{"workbuddy:cn"})
+	_, err := ex.ChatNonStream(ctx, translate.ChatRequest{
+		Model: "glm-5.2", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	}, "", "")
+	if err == nil {
+		t.Fatal("empty pool must fail")
+	}
+	if msg := err.Error(); msg != "no accounts available for this api key" {
+		t.Fatalf("error = %q, want the routing message", msg)
+	}
+	classified := ClassifyError(err)
+	if classified.Status != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want 429", classified.Status)
+	}
+	if classified.Code != "no_accounts" {
+		t.Fatalf("code = %q, want no_accounts", classified.Code)
+	}
+	if classified.Kind != accounts.KindUnavailable {
+		t.Fatalf("kind = %q, want %q", classified.Kind, accounts.KindUnavailable)
+	}
+	if classified.RetryAfter <= 0 {
+		t.Fatalf("retry-after = %v, want a positive hint", classified.RetryAfter)
+	}
 }
 
 func TestAPIKeyRegionScopedFailoverStaysInsideGrant(t *testing.T) {

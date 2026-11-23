@@ -399,24 +399,49 @@ func (e ChatExecutor) pick(requestID, prefer, providerFilter, regionFilter, publ
 		}
 	}
 	if len(allowed) > 0 && providerFilter != "" && !accounts.ProviderAllowed(providerFilter, allowed) {
-		return Item{}, fmt.Errorf("api key cannot use provider %s", providerFilter)
+		return Item{}, NewExecutionError(Classified{
+			Kind: accounts.KindAuth, Status: http.StatusForbidden, Code: "provider_not_allowed",
+			Type: "permission_error", Failover: false,
+			Message: fmt.Sprintf("api key cannot use provider %s", providerFilter),
+		}, nil)
 	}
 	if providerFilter != "" && regionFilter != "" {
-		return Item{}, fmt.Errorf("no %s/%s accounts available", providerFilter, regionFilter)
+		return Item{}, noAccountsError(fmt.Sprintf("no %s/%s accounts available", providerFilter, regionFilter))
 	}
 	if providerFilter != "" {
 		// A key whose grant list narrows this family to a single region
 		// should fail with that region in the message, even when the
 		// request itself did not pin one.
 		if regionFilter, narrowed := keyGrantedSingleRegion(providerFilter, allowed); narrowed {
-			return Item{}, fmt.Errorf("no %s/%s accounts available", providerFilter, regionFilter)
+			return Item{}, noAccountsError(fmt.Sprintf("no %s/%s accounts available", providerFilter, regionFilter))
 		}
-		return Item{}, fmt.Errorf("no %s accounts available", providerFilter)
+		return Item{}, noAccountsError(fmt.Sprintf("no %s accounts available", providerFilter))
 	}
 	if len(allowed) > 0 {
-		return Item{}, fmt.Errorf("no accounts available for this api key")
+		return Item{}, noAccountsError("no accounts available for this api key")
 	}
-	return Item{}, fmt.Errorf("no worker accounts configured")
+	return Item{}, NewExecutionError(Classified{
+		Kind: accounts.KindUnavailable, Status: http.StatusServiceUnavailable,
+		Code: "no_accounts_configured", Type: "api_error", Failover: false,
+		Message: "no worker accounts configured",
+	}, nil)
+}
+
+// noAccountsError reports that routing found no account able to serve this
+// key/model. It must be a classified error: a bare error reaches the gateway as
+// an unclassified failure, which renders it as 502 "upstream_error". That reads
+// as an origin outage to every client and to any proxy in front of the gateway
+// (Cloudflare replaced it with its own "Bad gateway" page), while the real
+// cause is local routing — no enabled account matches the key's provider grant
+// or the requested model. 429 plus Retry-After keeps the cause visible and
+// tells the client how soon a retry is worth trying.
+func noAccountsError(message string) error {
+	cooldown := 30 * time.Second
+	return NewExecutionError(Classified{
+		Kind: accounts.KindUnavailable, Status: http.StatusTooManyRequests,
+		Code: "no_accounts", Type: "api_error", Message: message,
+		Cooldown: cooldown, RetryAfter: cooldown, Failover: false,
+	}, nil)
 }
 
 func (e ChatExecutor) logModelRouteMiss(requestID string, query RouteQuery) {
