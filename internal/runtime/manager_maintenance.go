@@ -758,6 +758,23 @@ const workerReconcileInterval = 2 * time.Minute
 // the right place to notice that the worker came up: a successful /health means
 // the process is listening, and refreshOne is what promotes the pool item and
 // the stored status back to ready.
+//
+// A reconcile is a full refresh, not a cheap probe: once the worker reports
+// ready, refreshOne also runs fetchQuota and fetchAccountModels concurrently.
+// That catalog refresh is the point — without it routing never learns which
+// models the recovered account serves — so the extra upstream calls are
+// accepted, and the per-account throttle above caps them at one round each per
+// interval. While a worker stays unready (for example waiting for login),
+// refreshOne persists login_required, or error when the worker reports a
+// LastError, on every reconcile; the status is rewritten with the same value
+// each time. refreshStaleQuota does not double-fetch in the same tick: it only
+// touches accounts whose cached quota says Exceeded and refreshOne fetches
+// quota only after the worker turns ready. A console Refresh goes through
+// RefreshAccount → refreshOne directly and is not gated by this throttle, so an
+// operator refresh can overlap one watchdog refresh; both then issue the same
+// probe, which the pool and quota gates tolerate, and the overlap (one extra
+// /health plus one extra quota/catalog fetch) only happens on an explicit
+// operator action.
 func (manager *Manager) reconcileUnreadyWorker(ctx context.Context, item Item) {
 	if item.Runtime == string(providers.RuntimeInProcess) || strings.TrimSpace(item.URL) == "" {
 		return
