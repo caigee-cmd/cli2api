@@ -1,4 +1,4 @@
-import { SkeletonBlock } from '@/components/ui/SkeletonBlock'
+import { SkeletonBlock } from '@/components/ui/PageSkeletons'
 
 /** Route-level fallback shown while a page chunk is fetched. */
 export function RouteFallback() {
