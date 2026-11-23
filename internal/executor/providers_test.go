@@ -433,6 +433,66 @@ func TestAPIKeyRegionScopedGrantNeverCrossesRegions(t *testing.T) {
 	if msg := err.Error(); msg != "no workbuddy/cn accounts available" {
 		t.Fatalf("error = %q, want the granted-region message", msg)
 	}
+	// The routing miss is a local availability problem, not an origin failure:
+	// it must reach the client as 503 with a named code, never as the generic
+	// 502 the gateway falls back to for unclassified errors.
+	if classified := ClassifyError(err); classified.Status != http.StatusServiceUnavailable || classified.Code != "no_accounts" {
+		t.Fatalf("classified = %+v, want status 503 code no_accounts", classified)
+	}
+}
+
+// A key whose grant matches no account at all must fail with a client-visible
+// 503 rather than the unclassified 502 the gateway synthesizes. The 502 is what
+// made an account-routing problem look like a Cloudflare origin outage, and a
+// 429 would make SDKs auto-retry a condition only the watchdog can heal.
+func TestNoRoutableAccountsClassifiedAs503(t *testing.T) {
+	pool := NewPool(nil, nil)
+	registry := providers.NewRegistry()
+	ex := NewChatExecutor(pool, "")
+	ex.Providers = registry
+
+	ctx := WithAllowedProviders(context.Background(), []string{"workbuddy:cn"})
+	_, err := ex.ChatNonStream(ctx, translate.ChatRequest{
+		Model: "glm-5.2", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	}, "", "")
+	if err == nil {
+		t.Fatal("empty pool must fail")
+	}
+	if msg := err.Error(); msg != "no accounts available for this api key" {
+		t.Fatalf("error = %q, want the routing message", msg)
+	}
+	classified := ClassifyError(err)
+	if classified.Status != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", classified.Status)
+	}
+	if classified.Code != "no_accounts" {
+		t.Fatalf("code = %q, want no_accounts", classified.Code)
+	}
+	if classified.Kind != accounts.KindUnavailable {
+		t.Fatalf("kind = %q, want %q", classified.Kind, accounts.KindUnavailable)
+	}
+	if classified.RetryAfter != noAccountsRetryAfter {
+		t.Fatalf("retry-after = %v, want %v (the watchdog reconcile interval)", classified.RetryAfter, noAccountsRetryAfter)
+	}
+}
+
+// The provider filter can still name a family the key is not granted after
+// Prepare has run (the filter is derived per attempt), so pick keeps its own
+// provider_not_allowed fallback. Pin that classification: 403
+// permission_error, never the generic 502.
+func TestPickProviderNotAllowedFallback(t *testing.T) {
+	ex := NewChatExecutor(NewPool(nil, nil), "")
+	_, err := ex.pick("req", "", "trae", "", "glm-5.2", []string{"workbuddy:cn"}, nil, nil)
+	if err == nil {
+		t.Fatal("an ungranted provider filter must fail even with an empty pool")
+	}
+	classified := ClassifyError(err)
+	if classified.Status != http.StatusForbidden || classified.Code != "provider_not_allowed" {
+		t.Fatalf("classified = %+v, want status 403 code provider_not_allowed", classified)
+	}
+	if classified.Kind != accounts.KindAuth || classified.Type != "permission_error" {
+		t.Fatalf("classified = %+v, want kind %q type permission_error", classified, accounts.KindAuth)
+	}
 }
 
 func TestAPIKeyRegionScopedFailoverStaysInsideGrant(t *testing.T) {
