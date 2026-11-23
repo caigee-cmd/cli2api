@@ -1,6 +1,6 @@
 # AGENTS
 
-Go + Node gateway for personal Qoder, WorkBuddy, Trae CN Work, and experimental Devin and Command Code accounts, with OpenAI / Anthropic-compatible endpoints.
+Go + Node gateway for personal accounts, with OpenAI / Anthropic-compatible endpoints. Stable providers are Qoder, WorkBuddy, and Trae CN Work; every other registered provider is experimental. The provider set is whatever `internal/providers/registry.go` registers, so do not treat any list in these docs as exhaustive.
 
 ## Docs
 
@@ -52,7 +52,7 @@ live-account acceptance, and release status separate.
 - Console UI: React + Tailwind v4 + **HeroUI only** for components
 - Follow `docs/DESIGN.md` (taste v1 adapted for this console)
 - Keep iterating Qoder login, usage, and account routing. Keep scheduling focused on personal-account routing rather than commercial gateway features
-- PAT-backed Qoder accounts do not use a per-HOME Node worker. Legacy `qoder-native-v1` accounts still do; do not share that WASM context across accounts. Qoder chat is an in-process COSY client and must not import the CLI bundle per request or per account. WorkBuddy / Trae / Devin / CodeArts use in-process adapters, not one child process per account
+- PAT-backed Qoder accounts do not use a per-HOME Node worker. Legacy `qoder-native-v1` accounts still do; do not share that WASM context across accounts. Qoder chat is an in-process COSY client and must not import the CLI bundle per request or per account. Every non-Qoder provider uses an in-process adapter, not one child process per account
 - Schema changes go in a new numbered SQLite migration entry in `internal/store/migrations.go`. Never rewrite shipped SQL
 
 ## Don't

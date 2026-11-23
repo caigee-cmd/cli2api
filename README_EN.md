@@ -60,7 +60,7 @@ Model IDs come from **Access** or `/v1/models`. Routing is automatic and prefers
 <img src="./docs/assets/readme/request-en.svg" width="100%" alt="A client sends the request to local port 3010, the gateway picks an account you own, then calls the upstream">
 </p>
 
-Connect **Qoder (Global / CN)**, **WorkBuddy (Global / CN)**, and **Trae CN Work**. **Devin**, **Command Code**, and **Huawei Cloud CodeArts (码道)** are experimental and not a production promise.
+Stable support covers **Qoder (Global / CN)**, **WorkBuddy (Global / CN)**, and **Trae CN Work**. Every other provider is experimental and not a production promise: Devin, Command Code, Codex, Zhipu GLM, QwenWork (Global / CN), Kimi Code (CN), Huawei Cloud CodeArts (码道), Kiro, Muse (Meta), Doubao Work, and MiniMax Code (Global / CN).
 
 The Go gateway handles authentication, routing, and request logging. PAT-backed Qoder accounts talk to the upstream in-process. Qoder accounts that still use the legacy CLI credential keep one Node process and HOME each. Other providers use in-process adapters, so no full CLI starts per request.
 
@@ -69,7 +69,7 @@ The Go gateway handles authentication, routing, and request logging. PAT-backed 
 - **One console**: accounts, models, client keys, proxies, quotas, and request logs.
 - **Docker**: account data persists. An optional host updater downloads, confirms, and rolls back from the console.
 
-Qoder CN, WorkBuddy, and Trae are implemented; live-account acceptance is still pending. Kimi Code CN and CodeArts have single-account end-to-end acceptance. CodeArts quota-exhaustion failover, and live upgrade / rollback, are still pending.
+Qoder CN, WorkBuddy, and Trae are implemented; live-account acceptance is still pending. Kimi Code CN and CodeArts have single-account end-to-end acceptance. CodeArts quota-exhaustion failover, and live upgrade / rollback, are still pending. Experimental providers are not promised individually; their state is whatever the code currently does.
 
 ## Console
 
@@ -77,7 +77,7 @@ Qoder CN, WorkBuddy, and Trae are implemented; live-account acceptance is still 
   <img src="./docs/assets/readme/console-window-en.svg" width="100%" alt="CLI2API console Accounts page: each account shows its login method, ready state, and quota, with an Access panel offering the Base URL and a quick check">
 </p>
 
-Readiness and quota sit on the account card. Access copies the Base URL and runs a quick check. WorkBuddy, QwenWork, Qoder, and MiniMax Code can check in from the card; automatic check-in is off by default, and its schedule lives under System → Automatic check-in. Live-account check-in acceptance is still pending.
+Readiness and quota sit on the account card. Access copies the Base URL and runs a quick check. Check-in is declared per provider; today that is WorkBuddy, QwenWork, Qoder, Trae, MiniMax Code, CodeArts, and Doubao Work, each with a manual check-in on the card. Automatic check-in is enabled per account and off by default, with the default time per provider under System → Automatic check-in. Live-account check-in acceptance is still pending.
 
 ## Earliest expiry first
 
@@ -91,8 +91,8 @@ Accounts are ranked only inside one provider, by the nearest credit package that
 
 - Bring your own accounts. CLI2API does not supply accounts, quotas, or an official API.
 - Compatibility is not full parity. Messages / Responses keep no server-side conversation and run no upstream-specific tools.
-- Images depend on the upstream and the model, exposed as `supports_images`. See the [deployment guide](deploy/README.md).
-- Routing one model ID across upstreams follows system settings, key grants, and region.
+- Images depend on the upstream and the model, exposed as `supports_images`. What each provider currently supports is in the [deployment guide](deploy/README.md).
+- One model ID routes across upstreams by default, and a system setting turns that off. Key grants and region constraints still apply.
 - An upstream protocol change can break compatibility. Request logs omit prompt and completion bodies by default.
 
 ## Security

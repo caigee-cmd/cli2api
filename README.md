@@ -60,7 +60,7 @@ API Key:  <刚才创建的客户端密钥>
 <img src="./docs/assets/readme/request-zh.svg" width="100%" alt="客户端把请求发到本机 3010，网关选一个你自己的账号，再直连上游">
 </p>
 
-接入 **Qoder（国际版 / 国内版）**、**WorkBuddy（国际版 / 国内版）**、**Trae 国内版 Work**。**Devin**、**Command Code**、**华为云码道 CodeArts** 是实验性接入，不承诺生产可用。
+稳定接入 **Qoder（国际版 / 国内版）**、**WorkBuddy（国际版 / 国内版）**、**Trae 国内版 Work**。其余供应商都是实验性接入，不承诺生产可用：Devin、Command Code、Codex、Zhipu GLM、QwenWork（国际版 / 国内版）、Kimi Code（中国区）、华为云码道 CodeArts、Kiro、Muse (Meta)、Doubao Work、MiniMax Code（国际版 / 国内版）。
 
 Go 网关统一鉴权、调度和记录请求。已存 PAT 的 Qoder 账号在进程内直连；仍使用旧 CLI 凭证的 Qoder 账号保留每账号一个 Node 进程和 HOME。其余供应商走进程内适配器，不为每次请求启动完整 CLI。
 
@@ -69,7 +69,7 @@ Go 网关统一鉴权、调度和记录请求。已存 PAT 的 Qoder 账号在�
 - **一个控制台**：账号、模型、客户端密钥、代理、额度和请求日志。
 - **Docker**：账号数据持久化。可选的宿主机更新器可以在控制台里下载、确认和回滚。
 
-Qoder 国内版、WorkBuddy、Trae 已实现，真账号验收未完成。Kimi Code（中国区）和码道已完成单账号端到端验收；码道的额度耗尽切换，以及托管更新的真实升级 / 回滚，仍待验收。
+Qoder 国内版、WorkBuddy、Trae 已实现，真账号验收未完成。Kimi Code（中国区）和码道已完成单账号端到端验收；码道的额度耗尽切换，以及托管更新的真实升级 / 回滚，仍待验收。实验性供应商的实现进度以代码为准，不在这里逐个承诺。
 
 ## 控制台
 
@@ -77,7 +77,7 @@ Qoder 国内版、WorkBuddy、Trae 已实现，真账号验收未完成。Kimi C
   <img src="./docs/assets/readme/console-window-zh.svg" width="100%" alt="CLI2API 控制台 Accounts 页：每个账号显示登录方式、就绪状态与额度，右侧 Access 面板提供 Base URL 与快速验证">
 </p>
 
-就绪状态和额度在账号卡片上。Access 页可以复制 Base URL，并做一次快速验证。WorkBuddy、QwenWork、Qoder、MiniMax Code 可以在卡片上签到；自动签到默认关闭，时间在「系统 → 自动签到」。真实账号签到验收仍待完成。
+就绪状态和额度在账号卡片上。Access 页可以复制 Base URL，并做一次快速验证。哪些供应商能签到由各供应商自己声明，目前是 WorkBuddy、QwenWork、Qoder、Trae、MiniMax Code、码道和 Doubao Work，在卡片上手动签到。自动签到按账号单独开启、默认关闭，时间在「系统 → 自动签到」里按供应商设默认值。真实账号签到验收仍待完成。
 
 ## 最早到期优先
 
@@ -91,8 +91,8 @@ Qoder 国内版、WorkBuddy、Trae 已实现，真账号验收未完成。Kimi C
 
 - 只连接你自己的账号。这里不提供账号、额度或官方 API。
 - 兼容不等于完整复刻。Messages / Responses 不保存服务端会话，也不执行上游专属工具。
-- 图片取决于上游和模型，以 `supports_images` 为准。范围见 [部署说明](deploy/README.md)。
-- 同名模型跨上游调度，受系统开关、账号权限和地域约束。
+- 图片取决于上游和模型，以 `supports_images` 为准。当前各供应商的范围见 [部署说明](deploy/README.md)。
+- 同名模型默认跨上游调度，可用系统开关关闭；账号权限、密钥授权和地域约束照旧生效。
 - 上游协议一变，兼容性就可能变。请求日志默认不存提示词和回复正文。
 
 ## 安全

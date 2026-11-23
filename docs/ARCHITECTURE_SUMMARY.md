@@ -6,7 +6,7 @@ status: canonical
 read-when: 需要快速理解后端分层、请求路径、运行时和 provider 扩展边界时
 summary: 面向贡献者和 AI 的精简架构摘要；详细协议、里程碑和本地运维资料不在本文维护。
 related: [AGENTS.md, CONTRIBUTING.md, docs/DESIGN.md, docs/REFACTORING.md, docs/NATIVE_PROTOCOL_REQUESTS.md]
-last-updated: 2026-10-29
+last-updated: 2026-11-23
 ---
 
 # CLI2API 架构摘要
@@ -20,7 +20,8 @@ CLI2API 是一个面向个人部署的 Go + Node 网关：
 
 - 对外提供 OpenAI Chat Completions、Anthropic Messages、OpenAI Responses 和 Models 兼容接口。
 - 管理多个上游账号，并按 provider、region、model、pin、会话粘性和冷却状态选号。
-- 已存 PAT 的 Qoder 账号（`qoder-pat-v1`）登录、目录、配额、签到和聊天都在 Go 进程内完成，不为该账号启动 Node worker。仍携带旧 `qoder-native-v1` CLI blob 的账号保留每账号一个 Node child process，直到操作者用 PAT 重新登录。WorkBuddy、Trae CN Work、Devin 和 CodeArts 使用 Go 进程内 adapter；CodeArts 直连华为云 snap-access 的 OpenAI 兼容网关，不启动 CLI。
+- 已存 PAT 的 Qoder 账号（`qoder-pat-v1`）登录、目录、配额、签到和聊天都在 Go 进程内完成，不为该账号启动 Node worker。仍携带旧 `qoder-native-v1` CLI blob 的账号保留每账号一个 Node child process，直到操作者用 PAT 重新登录。其余所有 provider 使用 Go 进程内 adapter，不启动 CLI。
+- 稳定接入是 Qoder、WorkBuddy、Trae CN Work，与控制台账号选择器的分组一致；其余已注册 provider 都是实验性的，不承诺生产可用。provider 清单以 `internal/providers/registry.go` 为准，不要把本文或 README 里的枚举当作完整列表。
 - 控制台负责账号、密钥、设置、目录、日志、登录、导入和更新操作。
 - 这是个人网关，不实现计费、Redis 槽位、多租户商业网关或公开暴露的管理端口。
 
@@ -73,9 +74,9 @@ cmd/server
 - Qoder Global 和 Qoder CN 是同一个 `provider=qoder`，通过 `region` 区分，不创建新的 provider family。
 - 已存 PAT 的 Qoder 账号不启动 child process。旧 `qoder-native-v1` 账号仍使用独立 HOME 和独立 child process，不共享 WASM context；聊天不加载 CLI bundle。不得为每个请求启动完整 CLI agent。
 - Qoder 的 CLI / worker 兼容性版本固定在 `worker/src/compat.mjs`，不兼容时应明确失败。
-- Qoder 聊天改为在 Go 进程内使用 COSY 客户端签名直连网关（[`internal/providers/qoder/cosy.go`](../internal/providers/qoder/cosy.go)）。COSY 协议版本固定在 [`COSYVersion = "1.1.32"`](cosy.go:23)，支持中国区（`gateway.qoder.com.cn`）和全球区（`api1.qoder.sh`）双端点。
-- WorkBuddy、Trae CN Work、Devin 使用进程内 adapter，不复制 Qoder worker 生命周期。
-- CodeArts 使用进程内 adapter：OAuth PKCE 只用于换取短期 STS 凭据，聊天直连 `snap-access.cn-north-4.myhuaweicloud.com` 的 OpenAI 兼容端点；不得改为每请求启动码道 CLI。
+- Qoder 聊天在 Go 进程内使用 COSY 客户端签名直连网关（[`internal/providers/qoder/cosy.go`](../internal/providers/qoder/cosy.go)）。协议版本只有一个来源：`cosy.go` 的 `COSYVersion` 取自 [`qauth.CosyVersion`](../internal/providers/qoder/qauth/fingerprint.go)，改版本只改那里。支持中国区（`gateway.qoder.com.cn`）和全球区（`api1.qoder.sh`）双端点。
+- 所有非 Qoder provider 使用进程内 adapter，不复制 Qoder worker 生命周期，也不得改为每请求启动上游 CLI。
+- CodeArts 的 OAuth PKCE 只用于换取短期 STS 凭据，聊天直连 `snap-access.cn-north-4.myhuaweicloud.com` 的 OpenAI 兼容端点。
 - provider 负责上游事实映射；executor 负责是否切号、冷却多久和是否 failover。
 - Provider 能力、模型目录和 reasoning level 必须以实际 catalog 声明为准，不凭空增加模型能力。
 
@@ -87,10 +88,10 @@ cmd/server
 - 管理接口必须认证；默认只绑定本机，不要直接暴露 host 端口到公网。
 - 不提交 `.env`、auth blob、token、raw capture、主机 IP、私有部署 runbook。
 
-## 待实施的原生协议请求设计
+## 原生协议请求
 
-三个公共入口与上游协议的对应关系、双路径分派及 Responses 原生请求的演进方案，见 [原生协议请求架构与渐进改造方案](NATIVE_PROTOCOL_REQUESTS.md)。
-该文档状态为 `proposed`：保留 `ChatRequest` 兼容路径，通过显式请求封装和可选原生能力避免同协议往返转换；不是当前实现或已发布能力声明。
+三个公共入口与上游协议的对应关系、双路径分派，见 [原生协议请求的现状与后续](NATIVE_PROTOCOL_REQUESTS.md)。
+该文档状态为 `current`，描述的是已落地的行为：`/v1/responses` 在候选账号的 adapter 实现 `NativeResponsesStreamer` 时保留原文走原生路径，目前只有 Codex 实现了该接口；`/v1/chat/completions` 和 `/v1/messages` 仍先译成 `ChatRequest`。不要把它读成待实施设计。
 
 ## 修改前检查
 
