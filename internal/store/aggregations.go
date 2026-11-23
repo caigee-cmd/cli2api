@@ -203,6 +203,7 @@ func scanAggregation(row rowScanner) (accounts.Aggregation, error) {
 		return accounts.Aggregation{}, err
 	}
 	agg.Enabled = enabled != 0
+	agg.Strategy = accounts.NormalizeAggregationStrategy(string(agg.Strategy))
 	agg.AllowFallbacks = allowFallbacks != 0
 	agg.CreatedAt = parseTime(created.String)
 	agg.UpdatedAt = parseTime(updated.String)

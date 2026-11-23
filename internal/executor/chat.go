@@ -1012,7 +1012,11 @@ func (l *routeLoop) pickNext(e ChatExecutor, publicModel string) (Item, int, err
 	attemptIndex := l.index
 	e.observeRouting(&l.routing, item.ID)
 	l.prefer = ""
-	if l.regionFilter == "" {
+	// Aggregated routes already carry their own provider/region per member and
+	// their attempt budget comes from the plan. Pinning the first picked member's
+	// region here would strand cross-region members, and recomputing attempts
+	// would overwrite plan.MaxAttempts.
+	if l.plan == nil && l.regionFilter == "" {
 		l.regionFilter = pinRegion(l.regionFilter, item.Region)
 		l.attempts = e.attemptsFor(l.providerFilter, l.regionFilter, publicModel, l.allowed, l.eligible, l.resolver)
 	}

@@ -65,7 +65,7 @@ func TestAggregateFillFirstUsesMemberWeight(t *testing.T) {
 			{Provider: "qoder", Model: "model-a", Priority: 1, Weight: 100},
 		},
 	})
-	p.items[1].Weight = 1 // workbuddy account weight tiny
+	p.items[1].Weight = 1   // workbuddy account weight tiny
 	p.items[0].Weight = 200 // qoder account weight large
 	for i := 0; i < 6; i++ {
 		item, ok := p.PickRoute(aggRouteQuery(plan))
@@ -99,11 +99,12 @@ func TestAggregateRoundRobinRotates(t *testing.T) {
 	}
 }
 
-// TestAggregateFailoverStaysInFirstRegion guards the cross-region invariant:
-// once an aggregated route picks its first member, every failover attempt for
-// that request must stay in the same region. Without the lock, a priority
-// member in cn falling through could fail over to a global member.
-func TestAggregateFailoverStaysInFirstRegion(t *testing.T) {
+// TestAggregateFailoverCrossesMemberRegions guards the cross-provider
+// invariant: aggregated members carry their own provider/region, so the route
+// loop must NOT pin the first member's region. A cn member falling through must
+// be able to reach a global member, and plan.MaxAttempts must survive the first
+// pick instead of being recomputed from the pinned region.
+func TestAggregateFailoverCrossesMemberRegions(t *testing.T) {
 	p := NewPool(
 		[]string{"http://qoder-cn:3020", "http://wb-global:3020"},
 		[]string{"qoder", "workbuddy"},
@@ -134,15 +135,24 @@ func TestAggregateFailoverStaysInFirstRegion(t *testing.T) {
 	if got := NormalizeRegion(first.Region); got != "cn" {
 		t.Fatalf("first pick region=%q, want cn", got)
 	}
-	if got := NormalizeRegion(loop.regionFilter); got != "cn" {
-		t.Fatalf("regionFilter after first pick=%q, want cn (must lock before failover)", got)
+	if loop.regionFilter != "" {
+		t.Fatalf("aggregated loop must not pin a region, got %q", loop.regionFilter)
+	}
+	if loop.attempts != 2 {
+		t.Fatalf("attempts after first pick=%d, want 2 (plan.MaxAttempts capped by candidates)", loop.attempts)
 	}
 
-	// A second attempt must be confined to cn. There is no second cn member,
-	// so excluding the first must yield no candidate instead of a global one.
+	// A second attempt must be allowed to cross the member region. Excluding the
+	// cn member leaves the global workbuddy member as the next candidate.
 	loop.excluded[first.ID] = struct{}{}
-	_, _, err = loop.pickNext(e, "my-model")
-	if err == nil {
-		t.Fatal("failover crossed region: second pick succeeded on a different region")
+	second, _, err := loop.pickNext(e, "my-model")
+	if err != nil {
+		t.Fatalf("failover should reach the global member: %v", err)
+	}
+	if got := NormalizeRegion(second.Region); got != "global" {
+		t.Fatalf("failover region=%q, want global", got)
+	}
+	if loop.attempts != 2 {
+		t.Fatalf("attempts after failover=%d, want 2 (plan.MaxAttempts must not be overwritten)", loop.attempts)
 	}
 }
