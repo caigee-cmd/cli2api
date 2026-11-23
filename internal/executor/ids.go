@@ -25,6 +25,9 @@ const (
 	RoutingStrategyWeightedRoundRobin = accounts.RoutingStrategyWeightedRoundRobin
 	RoutingStrategyFillFirst          = accounts.RoutingStrategyFillFirst
 	RoutingStrategyFEFO               = accounts.RoutingStrategyFEFO
+	// AggregationStrategyPriority is a per-model strategy that walks members
+	// in configured priority order. It is only meaningful for aggregated routes.
+	AggregationStrategyPriority = string(accounts.AggregationPriority)
 )
 
 func NormalizeRoutingStrategy(strategy string) string {

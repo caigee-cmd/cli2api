@@ -52,7 +52,8 @@ func (a *App) newConsole() *appconsole.Handler {
 		FetchDisplayModels: func(refresh bool, accountID string, mode control.CatalogMode) ([]map[string]any, error) {
 			return a.fetchDisplayModels(refresh, accountID, mode)
 		},
-		ConsoleKey: a.Auth.ConsoleKey,
+		PeekDisplayModels: a.peekDisplayModels,
+		ConsoleKey:        a.Auth.ConsoleKey,
 		DecorateModels: func(ctx context.Context, models []map[string]any) []map[string]any {
 			return a.decorateModelsWithContext(ctx, models)
 		},

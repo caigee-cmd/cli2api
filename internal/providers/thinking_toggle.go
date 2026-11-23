@@ -56,3 +56,11 @@ func RequestsDisabledThinking(req translate.ChatRequest) bool {
 func DisabledThinkingField() map[string]any {
 	return map[string]any{"type": DisabledThinkingType}
 }
+
+// DisabledThinkingFieldJSON returns the canonical disabled-thinking marker as
+// JSON for a provider-neutral request. It is used for diagnostic probes that
+// must avoid reasoner token spend.
+func DisabledThinkingFieldJSON() json.RawMessage {
+	raw, _ := json.Marshal(DisabledThinkingField())
+	return raw
+}

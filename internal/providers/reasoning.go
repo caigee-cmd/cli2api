@@ -33,6 +33,36 @@ func NormalizeReasoningLevel(raw string) string {
 	return ""
 }
 
+// UniqueReasoningOptionValues keeps the upstream spelling of each reasoning
+// level. Request/routing code uses NormalizeReasoningLevel instead; the console
+// uses this list so it can display values such as off, minimal, or ultra
+// exactly as the provider declared them.
+func UniqueReasoningOptionValues(values []string) []string {
+	seen := map[string]struct{}{}
+	var options []string
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		key := strings.ToLower(value)
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
+		options = append(options, value)
+	}
+	return options
+}
+
+// GatewayReasoningOptions returns the complete reasoning level vocabulary this
+// gateway accepts from clients. Whether a level is actually forwarded is still
+// decided by each provider's per-model catalog capabilities; models without a
+// declared reasoning list keep their upstream default behavior.
+func GatewayReasoningOptions() []string {
+	return []string{"none", "low", "medium", "high", "xhigh", "max"}
+}
+
 func UniqueReasoningOptions(values []string) []string {
 	seen := map[string]struct{}{}
 	var options []string

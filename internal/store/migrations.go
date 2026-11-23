@@ -260,6 +260,27 @@ ALTER TABLE api_keys ADD COLUMN max_inflight INTEGER NOT NULL DEFAULT 0;`},
 ALTER TABLE accounts ADD COLUMN credit_floor REAL;`},
 	{filename: "029_account_percent_floor.sql", sql: `
 ALTER TABLE accounts ADD COLUMN percent_floor REAL;`},
+	{filename: "031_aggregations.sql", sql: `
+CREATE TABLE IF NOT EXISTS aggregation_models (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  strategy TEXT NOT NULL DEFAULT 'priority',
+  allow_fallbacks INTEGER NOT NULL DEFAULT 1,
+  max_attempts INTEGER NOT NULL DEFAULT 3,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS aggregation_members (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  agg_id TEXT NOT NULL REFERENCES aggregation_models(id) ON DELETE CASCADE,
+  provider TEXT NOT NULL,
+  region TEXT NOT NULL DEFAULT '',
+  model TEXT NOT NULL,
+  priority INTEGER NOT NULL DEFAULT 0,
+  weight INTEGER NOT NULL DEFAULT 100
+);
+CREATE INDEX IF NOT EXISTS aggregation_members_agg ON aggregation_members(agg_id);`},
 }
 
 const schemaMigrationsDDL = `
