@@ -18,6 +18,49 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
+func TestDecodeChatResultPreservesPromptCacheUsage(t *testing.T) {
+	result, err := decodeChatResult(translate.ChatRequest{Model: "minimax-m3"}, []byte(`{
+		"model":"minimax-m3",
+		"choices":[{"message":{"content":"OK"},"finish_reason":"stop"}],
+		"usage":{
+			"prompt_tokens":100,
+			"completion_tokens":20,
+			"cache_read_tokens":64,
+			"cache_write_tokens":12,
+			"prompt_tokens_details":{"cached_tokens":64},
+			"source":"upstream"
+		}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.CacheReadTokens == nil || *result.CacheReadTokens != 64 ||
+		result.CacheWriteTokens == nil || *result.CacheWriteTokens != 12 ||
+		result.CachedTokens == nil || *result.CachedTokens != 64 {
+		t.Fatalf("cache usage = read:%v write:%v cached:%v", result.CacheReadTokens, result.CacheWriteTokens, result.CachedTokens)
+	}
+}
+
+func TestDecodeChatResultFallsBackToPromptCacheHitTokens(t *testing.T) {
+	result, err := decodeChatResult(translate.ChatRequest{Model: "deepseek-v4.1"}, []byte(`{
+			"model":"deepseek-v4.1",
+			"choices":[{"message":{"content":"OK"},"finish_reason":"stop"}],
+			"usage":{
+				"prompt_tokens":100,
+				"completion_tokens":20,
+				"prompt_cache_hit_tokens":80,
+				"source":"upstream"
+			}
+		}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.CacheReadTokens == nil || *result.CacheReadTokens != 80 ||
+		result.CachedTokens == nil || *result.CachedTokens != 80 {
+		t.Fatalf("cache usage = read:%v cached:%v", result.CacheReadTokens, result.CachedTokens)
+	}
+}
+
 func TestChatNonStreamFailoversRateLimit(t *testing.T) {
 	var hitsA atomic.Int32
 	a := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
