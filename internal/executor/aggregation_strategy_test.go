@@ -19,6 +19,75 @@ func aggRouteQuery(plan *AggregatePlan) RouteQuery {
 	}
 }
 
+// A member with AccountID is a deployment pinned to that account rather than
+// the whole provider pool. Sibling accounts keep serving legacy members but
+// cannot satisfy this member.
+func TestAggregateMemberAccountPin(t *testing.T) {
+	p := NewPool(nil, nil)
+	p.Upsert(Item{ID: "q1", Provider: "qoder", Region: "global", Models: []string{"model-a"}})
+	p.Upsert(Item{ID: "q2", Provider: "qoder", Region: "global", Models: []string{"model-a"}})
+	plan := NewAggregatePlan(accounts.Aggregation{
+		ID: "my-model", Strategy: accounts.AggregationPriority, MaxAttempts: 2,
+		Members: []accounts.AggregationMember{
+			{Provider: "qoder", Model: "model-a", AccountID: "q2", Priority: 0, Weight: 100},
+		},
+	})
+	q1, _ := p.ByID("q1")
+	q2, _ := p.ByID("q2")
+	if _, ok := plan.matchMember(q1); ok {
+		t.Fatal("q1 must not satisfy a member pinned to q2")
+	}
+	if member, ok := plan.matchMember(q2); !ok || member.AccountID != "q2" {
+		t.Fatalf("q2 member = %+v ok=%v", member, ok)
+	}
+	for i := 0; i < 5; i++ {
+		item, ok := p.PickRoute(aggRouteQuery(plan))
+		if !ok || item.ID != "q2" {
+			t.Fatalf("pinned member pick %d = %+v ok=%v", i, item, ok)
+		}
+	}
+}
+
+// An account with an empty catalog must not be admitted to an aggregate route
+// by the generic unknown-catalog fail-open when its region does not match the
+// plan member. The resolver is authoritative for virtual model IDs.
+func TestAggregateExcludesUnknownCatalogOutsideMemberRegion(t *testing.T) {
+	p := NewPool(nil, nil)
+	p.Upsert(Item{ID: "q-global", Provider: "qoder", Region: "global", Models: []string{"model-a"}})
+	p.Upsert(Item{ID: "q-cn", Provider: "qoder", Region: "cn"}) // catalog not fetched
+	plan := NewAggregatePlan(accounts.Aggregation{
+		ID: "my-model", Strategy: accounts.AggregationRoundRobin, MaxAttempts: 2,
+		Members: []accounts.AggregationMember{
+			{Provider: "qoder", Region: "global", Model: "model-a", Priority: 0, Weight: 100},
+		},
+	})
+	for i := 0; i < 10; i++ {
+		item, ok := p.PickRoute(aggRouteQuery(plan))
+		if !ok || item.ID != "q-global" {
+			t.Fatalf("aggregate pick %d = %+v ok=%v, want q-global", i, item, ok)
+		}
+	}
+}
+
+// An account-specific deployment is more specific than a provider-wide
+// wildcard member for the same model, even when the wildcard sorts first.
+func TestAggregatePinnedMemberWinsOverWildcard(t *testing.T) {
+	p := NewPool(nil, nil)
+	p.Upsert(Item{ID: "q1", Provider: "qoder", Region: "global", Models: []string{"model-a"}})
+	plan := NewAggregatePlan(accounts.Aggregation{
+		ID: "my-model", Strategy: accounts.AggregationPriority, MaxAttempts: 2,
+		Members: []accounts.AggregationMember{
+			{Provider: "qoder", Model: "model-a", Priority: 0, Weight: 100},
+			{Provider: "qoder", Model: "model-a", AccountID: "q1", Priority: 1, Weight: 400},
+		},
+	})
+	q1, _ := p.ByID("q1")
+	member, ok := plan.matchMember(q1)
+	if !ok || member.AccountID != "q1" || member.Priority != 1 || member.Weight != 400 {
+		t.Fatalf("pinned member = %+v ok=%v, want account-specific priority/weight", member, ok)
+	}
+}
+
 func TestAggregatePriorityAlwaysPicksHighestPriority(t *testing.T) {
 	p := aggTestPool()
 	plan := NewAggregatePlan(accounts.Aggregation{
@@ -99,11 +168,43 @@ func TestAggregateRoundRobinRotates(t *testing.T) {
 	}
 }
 
-// TestAggregateFailoverStaysInFirstRegion guards the cross-region invariant:
-// once an aggregated route picks its first member, every failover attempt for
-// that request must stay in the same region. Without the lock, a priority
-// member in cn falling through could fail over to a global member.
-func TestAggregateFailoverStaysInFirstRegion(t *testing.T) {
+// A cross-provider aggregate route must not inherit the pool's region latch:
+// its members are already provider/region-qualified, and latching one region
+// would route every request to that region's provider only.
+func TestAggregateRoundRobinDoesNotLatchRegion(t *testing.T) {
+	p := NewPool(nil, nil)
+	p.Upsert(Item{ID: "q1", Provider: "qoder", Region: "global", Models: []string{"shared"}})
+	p.Upsert(Item{ID: "q2", Provider: "qoder", Region: "global", Models: []string{"shared"}})
+	p.Upsert(Item{ID: "w1", Provider: "workbuddy", Region: "cn", Models: []string{"shared"}})
+	p.Upsert(Item{ID: "w2", Provider: "workbuddy", Region: "cn", Models: []string{"shared"}})
+
+	plan := NewAggregatePlan(accounts.Aggregation{
+		ID: "my-model", Strategy: accounts.AggregationRoundRobin, MaxAttempts: 4,
+		Members: []accounts.AggregationMember{
+			{Provider: "qoder", Model: "shared", Priority: 0, Weight: 100},
+			{Provider: "workbuddy", Model: "shared", Priority: 0, Weight: 100},
+		},
+	})
+	q := aggRouteQuery(plan)
+	counts := map[string]int{}
+	for i := 0; i < 20; i++ {
+		item, ok := p.PickRoute(q)
+		if !ok {
+			t.Fatal("no aggregate route")
+		}
+		counts[item.Provider]++
+	}
+	if counts["qoder"] == 0 || counts["workbuddy"] == 0 {
+		t.Fatalf("aggregate route latched one provider: %v", counts)
+	}
+}
+
+// TestAggregateFailoverCrossesMemberRegions guards the cross-provider
+// invariant: aggregated members carry their own provider/region, so the route
+// loop must NOT pin the first member's region. A cn member falling through must
+// be able to reach a global member, and plan.MaxAttempts must survive the first
+// pick instead of being recomputed from the pinned region.
+func TestAggregateFailoverCrossesMemberRegions(t *testing.T) {
 	p := NewPool(
 		[]string{"http://qoder-cn:3020", "http://wb-global:3020"},
 		[]string{"qoder", "workbuddy"},
@@ -134,58 +235,24 @@ func TestAggregateFailoverStaysInFirstRegion(t *testing.T) {
 	if got := NormalizeRegion(first.Region); got != "cn" {
 		t.Fatalf("first pick region=%q, want cn", got)
 	}
-	if got := NormalizeRegion(loop.regionFilter); got != "cn" {
-		t.Fatalf("regionFilter after first pick=%q, want cn (must lock before failover)", got)
+	if loop.regionFilter != "" {
+		t.Fatalf("aggregated loop must not pin a region, got %q", loop.regionFilter)
+	}
+	if loop.attempts != 2 {
+		t.Fatalf("attempts after first pick=%d, want 2 (plan.MaxAttempts capped by candidates)", loop.attempts)
 	}
 
-	// A second attempt must be confined to cn. There is no second cn member,
-	// so excluding the first must yield no candidate instead of a global one.
+	// A second attempt must be allowed to cross the member region. Excluding the
+	// cn member leaves the global workbuddy member as the next candidate.
 	loop.excluded[first.ID] = struct{}{}
-	_, _, err = loop.pickNext(e, "my-model")
-	if err == nil {
-		t.Fatal("failover crossed region: second pick succeeded on a different region")
+	second, _, err := loop.pickNext(e, "my-model")
+	if err != nil {
+		t.Fatalf("failover should reach the global member: %v", err)
 	}
-}
-
-func TestAggregateMemberAccountPin(t *testing.T) {
-	p := NewPool(nil, nil)
-	p.Upsert(Item{ID: "q1", Provider: "qoder", Region: "global", Models: []string{"model-a"}})
-	p.Upsert(Item{ID: "q2", Provider: "qoder", Region: "global", Models: []string{"model-a"}})
-	plan := NewAggregatePlan(accounts.Aggregation{
-		ID: "my-model", Strategy: accounts.AggregationPriority, MaxAttempts: 2,
-		Members: []accounts.AggregationMember{
-			{Provider: "qoder", Model: "model-a", AccountID: "q2", Priority: 0, Weight: 100},
-		},
-	})
-	q1, _ := p.ByID("q1")
-	q2, _ := p.ByID("q2")
-	if _, ok := plan.matchMember(q1); ok {
-		t.Fatal("q1 must not satisfy a member pinned to q2")
+	if got := NormalizeRegion(second.Region); got != "global" {
+		t.Fatalf("failover region=%q, want global", got)
 	}
-	if member, ok := plan.matchMember(q2); !ok || member.AccountID != "q2" {
-		t.Fatalf("q2 member = %+v ok=%v", member, ok)
-	}
-	for i := 0; i < 5; i++ {
-		item, ok := p.PickRoute(aggRouteQuery(plan))
-		if !ok || item.ID != "q2" {
-			t.Fatalf("pinned member pick %d = %+v ok=%v", i, item, ok)
-		}
-	}
-}
-
-func TestAggregatePinnedMemberWinsOverWildcard(t *testing.T) {
-	p := NewPool(nil, nil)
-	p.Upsert(Item{ID: "q1", Provider: "qoder", Region: "global", Models: []string{"model-a"}})
-	plan := NewAggregatePlan(accounts.Aggregation{
-		ID: "my-model", Strategy: accounts.AggregationPriority, MaxAttempts: 2,
-		Members: []accounts.AggregationMember{
-			{Provider: "qoder", Model: "model-a", Priority: 0, Weight: 100},
-			{Provider: "qoder", Model: "model-a", AccountID: "q1", Priority: 1, Weight: 400},
-		},
-	})
-	q1, _ := p.ByID("q1")
-	member, ok := plan.matchMember(q1)
-	if !ok || member.AccountID != "q1" || member.Priority != 1 || member.Weight != 400 {
-		t.Fatalf("pinned member = %+v ok=%v, want account-specific priority/weight", member, ok)
+	if loop.attempts != 2 {
+		t.Fatalf("attempts after failover=%d, want 2 (plan.MaxAttempts must not be overwritten)", loop.attempts)
 	}
 }

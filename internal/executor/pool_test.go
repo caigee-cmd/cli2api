@@ -776,10 +776,30 @@ func TestQuotaRemainingRatioTreatsZeroSnapshotAsUnknown(t *testing.T) {
 func TestPickQuotaStrategySortsUnknownQuotaLast(t *testing.T) {
 	unknown := Item{ID: "unknown", Quota: &accounts.QuotaSnapshot{}}
 	known := Item{ID: "known", Quota: &accounts.QuotaSnapshot{Total: 10, Remaining: 5}}
-	if picked := pickQuotaStrategy([]Item{unknown, known}, true); picked.ID != "known" {
+	if picked := pickQuotaStrategy([]Item{unknown, known}, true, ""); picked.ID != "known" {
 		t.Fatalf("most-quota-first picked %q, want known (unknown quota sorts last)", picked.ID)
 	}
-	if picked := pickQuotaStrategy([]Item{unknown, known}, false); picked.ID != "known" {
+	if picked := pickQuotaStrategy([]Item{unknown, known}, false, ""); picked.ID != "known" {
 		t.Fatalf("least-quota-first picked %q, want known (unknown quota sorts last)", picked.ID)
+	}
+}
+
+// Equal or unknown quotas must still rotate; otherwise least-quota-first pins
+// the route to the lowest ID and an exhausted account is retried forever.
+func TestPickQuotaStrategyRotatesTies(t *testing.T) {
+	p := NewPool(nil, nil)
+	p.Upsert(Item{ID: "a1", Provider: "qoder", Models: []string{"shared"}})
+	p.Upsert(Item{ID: "a2", Provider: "qoder", Models: []string{"shared"}})
+	p.SetRoutingStrategy(RoutingStrategyLeastQuotaFirst)
+	counts := map[string]int{}
+	for i := 0; i < 10; i++ {
+		item, ok := p.PickRoute(RouteQuery{PublicModel: "shared"})
+		if !ok {
+			t.Fatal("no route")
+		}
+		counts[item.ID]++
+	}
+	if counts["a1"] == 0 || counts["a2"] == 0 {
+		t.Fatalf("quota strategy pinned one account: %v", counts)
 	}
 }

@@ -933,6 +933,14 @@ type routeLoop struct {
 	attempts       int
 	pinned         string
 	index          int
+	// regionPinned records that this request chose its region implicitly from
+	// the first picked account. A failure releases that pin so failover can
+	// cross regions.
+	regionPinned bool
+	// tierAttempts/tierBudget apply only to priority aggregation. Each tier
+	// gets its own budget so sibling accounts cannot exhaust every retry.
+	tierAttempts map[int]int
+	tierBudget   int
 	// eligible narrows candidates to one protocol capability; nil admits all.
 	eligible func(Item) bool
 	// resolver maps an item to its concrete aggregated model. Nil for normal
@@ -987,6 +995,7 @@ func (e ChatExecutor) newRouteLoop(ctx context.Context, prefer, providerFilter s
 	// attemptsFor already does that scan, so a plan must not call attemptsFor and
 	// then LenRoute again. Only count candidates here when failover is possible.
 	var attempts int
+	var tierBudget int
 	if aggPlan != nil {
 		attempts = aggPlan.MaxAttempts
 		if attempts <= 0 {
@@ -994,6 +1003,18 @@ func (e ChatExecutor) newRouteLoop(ctx context.Context, prefer, providerFilter s
 		}
 		if !aggPlan.AllowFallbacks {
 			attempts = 1
+		} else if aggPlan.Strategy == accounts.AggregationPriority {
+			// Ordered fallback: each priority tier gets its own retry budget.
+			// A global budget could be consumed by sibling accounts of the
+			// first provider before a lower-priority provider is reached.
+			tierBudget = attempts
+			attempts *= aggPlan.PriorityTierCount()
+			if e.Pool != nil {
+				query := e.routeQuery("", providerFilter, regionFilter, req.Model, allowed, nil, nil, aggPlan)
+				if n := e.Pool.LenRoute(query); n > 0 && n < attempts {
+					attempts = n
+				}
+			}
 		} else if e.Pool != nil {
 			query := e.routeQuery("", providerFilter, regionFilter, req.Model, allowed, nil, nil, aggPlan)
 			if n := e.Pool.LenRoute(query); n > 0 && n < attempts {
@@ -1014,6 +1035,10 @@ func (e ChatExecutor) newRouteLoop(ctx context.Context, prefer, providerFilter s
 		resolver:       resolver,
 		plan:           aggPlan,
 		attempts:       attempts,
+	}
+	if tierBudget > 0 {
+		loop.tierAttempts = make(map[int]int)
+		loop.tierBudget = tierBudget
 	}
 	if routing.Source == routingPin {
 		loop.pinned = prefer
@@ -1038,6 +1063,7 @@ func (l *routeLoop) pickNext(e ChatExecutor, publicModel string) (Item, int, err
 			l.prefer = ""
 			l.providerFilter = ""
 			l.regionFilter = ""
+			l.regionPinned = false
 			l.attempts = e.attemptsFor(l.providerFilter, l.regionFilter, publicModel, l.allowed, l.eligible, l.resolver)
 			item, err = e.pick(l.requestID, l.prefer, l.providerFilter, l.regionFilter, publicModel, l.allowed, l.excluded, l.eligible, l.plan)
 		}
@@ -1048,9 +1074,14 @@ func (l *routeLoop) pickNext(e ChatExecutor, publicModel string) (Item, int, err
 	attemptIndex := l.index
 	e.observeRouting(&l.routing, item.ID)
 	l.prefer = ""
-	if l.regionFilter == "" {
+	// Pin the first pick's region so a mixed-region pool does not flip regions
+	// while rotating within one request. The attempt budget was computed over
+	// every eligible candidate before this pick and must not shrink here;
+	// shrinking it to the pinned region's account count can leave a failed
+	// request with no failover hop. A failure releases the pin in exclude.
+	if l.plan == nil && l.regionFilter == "" {
 		l.regionFilter = pinRegion(l.regionFilter, item.Region)
-		l.attempts = e.attemptsFor(l.providerFilter, l.regionFilter, publicModel, l.allowed, l.eligible, l.resolver)
+		l.regionPinned = true
 	}
 	l.index++
 	return item, attemptIndex, nil
@@ -1083,6 +1114,43 @@ func (l routeLoop) canFailover(classified Classified) bool {
 
 func (l *routeLoop) exclude(item Item) {
 	l.excluded[item.ID] = struct{}{}
+	// A cross-provider route (no explicit provider filter) must be able to
+	// leave the region its first pick happened to choose; otherwise a bare
+	// model shared by several providers stays pinned to one supplier.
+	//
+	// A provider-scoped route keeps its region pin: Qoder global and CN are
+	// isolated upstreams. Aggregated routes never pin here.
+	if l.regionPinned && l.providerFilter == "" {
+		l.regionFilter = ""
+		l.regionPinned = false
+	}
+}
+
+func (l *routeLoop) failover(e ChatExecutor, item Item) {
+	l.exclude(item)
+	l.noteTierFailure(e, item)
+}
+
+// noteTierFailure gives each priority tier its own retry budget. Once the
+// budget is consumed, the remaining accounts in that tier are excluded so the
+// next pick can reach a lower-priority provider.
+func (l *routeLoop) noteTierFailure(e ChatExecutor, item Item) {
+	if l.plan == nil || l.plan.Strategy != accounts.AggregationPriority || l.tierAttempts == nil || e.Pool == nil {
+		return
+	}
+	tier, ok := l.plan.Priority(item)
+	if !ok {
+		return
+	}
+	l.tierAttempts[tier]++
+	if l.tierAttempts[tier] < l.tierBudget {
+		return
+	}
+	for _, candidate := range e.Pool.Items() {
+		if candidateTier, ok := l.plan.Priority(candidate); ok && candidateTier == tier {
+			l.excluded[candidate.ID] = struct{}{}
+		}
+	}
 }
 
 func (l routeLoop) headerAccount(item Item, attemptIndex int) string {
@@ -1190,13 +1258,13 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 			}
 			if loop.canFailover(classified) {
 				release()
-				loop.exclude(item)
+				loop.failover(e, item)
 				continue
 			}
 			release()
 			return ChatResult{AttemptCount: i + 1, AccountID: item.ID, Provider: item.Provider}, err
 		}
-		payload, err := json.Marshal(buildWorkerChatPayload(loop.dispatchRequest(item, req), false))
+		payload, err := json.Marshal(buildWorkerChatPayload(sanitizeForItem(item, loop.dispatchRequest(item, req)), false))
 		if err != nil {
 			release()
 			return ChatResult{}, err
@@ -1228,7 +1296,7 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 				Status: accounts.AttemptStatusFailover, ErrorKind: classified.Kind, ErrorMessage: loop.lastErr.Error(), LatencyMs: &latency,
 			})
 			release()
-			loop.exclude(item)
+			loop.failover(e, item)
 			continue
 		}
 		// Non-stream worker responses are buffered whole; cap them so a
@@ -1251,7 +1319,7 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 			status := accounts.AttemptStatusError
 			if loop.canFailover(classified) {
 				status = accounts.AttemptStatusFailover
-				loop.exclude(item)
+				loop.failover(e, item)
 				e.recordAttempt(ctx, accounts.RequestAttempt{
 					AttemptIndex: i, AccountID: item.ID, StartedAt: started, FinishedAt: &finished,
 					Status: status, HTTPStatus: ptrInt(resp.StatusCode), ErrorKind: classified.Kind,
@@ -1616,7 +1684,11 @@ func (e ChatExecutor) HasNativeResponsesRoute(ctx context.Context, req translate
 		adapter, ok := e.Providers.Get(itemProvider(item))
 		return ok && adapter.NativeResponses != nil
 	}
-	return e.Pool != nil && e.Pool.LenRoute(e.routeQuery(prefer, providerFilter, loop.regionFilter, req.Model, loop.allowed, nil, loop.eligible)) > 0
+	if e.Pool == nil {
+		return false
+	}
+	query := e.routeQuery(loop.prefer, loop.providerFilter, loop.regionFilter, req.Model, loop.allowed, nil, loop.eligible, loop.plan)
+	return e.Pool.LenRoute(query) > 0
 }
 
 func (e ChatExecutor) chatStreamProxy(ctx context.Context, req translate.ChatRequest, native *translate.NativeResponsesRequest, prefer, providerFilter string, preferNativeResponses bool) (result StreamResult, returnErr error) {
@@ -1665,13 +1737,13 @@ func (e ChatExecutor) chatStreamProxy(ctx context.Context, req translate.ChatReq
 			}
 			if loop.canFailover(classified) {
 				release()
-				loop.exclude(item)
+				loop.failover(e, item)
 				continue
 			}
 			release()
 			return StreamResult{AttemptCount: i + 1, AccountID: item.ID, Provider: item.Provider}, err
 		}
-		payload, err := json.Marshal(buildWorkerChatPayload(loop.dispatchRequest(item, req), true))
+		payload, err := json.Marshal(buildWorkerChatPayload(sanitizeForItem(item, loop.dispatchRequest(item, req)), true))
 		if err != nil {
 			release()
 			return StreamResult{}, err
@@ -1703,7 +1775,7 @@ func (e ChatExecutor) chatStreamProxy(ctx context.Context, req translate.ChatReq
 				Status: accounts.AttemptStatusFailover, ErrorKind: classified.Kind, ErrorMessage: loop.lastErr.Error(), LatencyMs: &latency,
 			})
 			release()
-			loop.exclude(item)
+			loop.failover(e, item)
 			continue
 		}
 		if account := resp.Header.Get("X-Qoder-Account"); account != "" {
@@ -1725,7 +1797,7 @@ func (e ChatExecutor) chatStreamProxy(ctx context.Context, req translate.ChatReq
 			status := accounts.AttemptStatusError
 			if loop.canFailover(classified) {
 				status = accounts.AttemptStatusFailover
-				loop.exclude(item)
+				loop.failover(e, item)
 				e.recordAttempt(ctx, accounts.RequestAttempt{
 					AttemptIndex: i, AccountID: item.ID, StartedAt: started, FinishedAt: &finished,
 					Status: status, HTTPStatus: ptrInt(resp.StatusCode), ErrorKind: classified.Kind,
@@ -1772,7 +1844,7 @@ func (e ChatExecutor) chatStreamProxy(ctx context.Context, req translate.ChatReq
 					Status: status, HTTPStatus: ptrInt(resp.StatusCode), ErrorKind: classified.Kind,
 					ErrorMessage: truncateErr(probeErr.Error()), LatencyMs: &latency,
 				})
-				loop.exclude(item)
+				loop.failover(e, item)
 				release()
 				continue
 			}

@@ -3,6 +3,9 @@ package executor
 import (
 	"testing"
 	"time"
+
+	"github.com/caigee-cmd/cli2api/internal/accounts"
+	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
 func TestPickRouteRespectsProviderFamilyAndCooldown(t *testing.T) {
@@ -64,6 +67,189 @@ func TestAccountAliasRoutesToItsOwnModel(t *testing.T) {
 	}
 	if _, ok := p.PickRoute(RouteQuery{PublicModel: "kimi-k3", PreferAccount: "plain"}); ok {
 		t.Fatal("account without the alias was selected")
+	}
+}
+
+// The same client-facing alias can resolve to a different real model per
+// provider. A bare cross-provider route must rotate across those providers;
+// the region latch is only for a single-provider regional pool.
+func TestAccountAliasCrossProviderDoesNotLatchRegion(t *testing.T) {
+	p := NewPool(nil, nil)
+	p.Upsert(Item{
+		ID: "q1", Provider: "qoder", Region: "global",
+		Models:       []string{"glm-5.2-native"},
+		ModelAliases: map[string]string{"glm-5.2": "glm-5.2-native"},
+	})
+	p.Upsert(Item{
+		ID: "w1", Provider: "workbuddy", Region: "cn",
+		Models:       []string{"glm-5.2-intl"},
+		ModelAliases: map[string]string{"glm-5.2": "glm-5.2-intl"},
+	})
+	counts := map[string]int{}
+	for i := 0; i < 10; i++ {
+		item, ok := p.PickRoute(RouteQuery{PublicModel: "glm-5.2"})
+		if !ok {
+			t.Fatal("no alias route")
+		}
+		counts[item.Provider]++
+	}
+	if counts["qoder"] == 0 || counts["workbuddy"] == 0 {
+		t.Fatalf("alias route latched one provider: %v", counts)
+	}
+}
+
+// A bare model served by several provider families is one route, not a
+// single-provider regional pool. Round-robin must reach every provider even
+// though the accounts sit in different regions.
+func TestCrossProviderRoundRobinDoesNotLatchRegion(t *testing.T) {
+	p := NewPool(nil, nil)
+	p.Upsert(Item{ID: "q1", Provider: "qoder", Region: "global", Models: []string{"shared"}})
+	p.Upsert(Item{ID: "q2", Provider: "qoder", Region: "global", Models: []string{"shared"}})
+	p.Upsert(Item{ID: "w1", Provider: "workbuddy", Region: "cn", Models: []string{"shared"}})
+	p.Upsert(Item{ID: "w2", Provider: "workbuddy", Region: "cn", Models: []string{"shared"}})
+	counts := map[string]int{}
+	for i := 0; i < 10; i++ {
+		item, ok := p.PickRoute(RouteQuery{PublicModel: "shared"})
+		if !ok {
+			t.Fatal("no cross-provider route")
+		}
+		counts[itemProvider(item)]++
+	}
+	if counts["qoder"] == 0 || counts["workbuddy"] == 0 {
+		t.Fatalf("round-robin latched one provider: %v", counts)
+	}
+}
+
+// Aliases are one-way: the key is the client-facing request name and the
+// value is the real model on this account. Mapping A to B means "a request
+// for A is served by real model B"; it does not rename A, and a request for
+// B still reaches the account's real B (or another account that really has B).
+func TestAccountAliasDirectionIsPublicToReal(t *testing.T) {
+	p := NewPool(nil, nil)
+	p.Upsert(Item{
+		ID: "a1", Provider: "qoder",
+		Models:       []string{"model-a", "model-b"},
+		ModelAliases: map[string]string{"model-a": "model-b"},
+	})
+
+	item, ok := p.PickRoute(RouteQuery{PublicModel: "model-a"})
+	if !ok || item.ID != "a1" {
+		t.Fatalf("alias A pick = %+v ok=%v", item, ok)
+	}
+	if got := AccountModelID(item, "model-a"); got != "model-b" {
+		t.Fatalf("alias A rewrite = %q want model-b", got)
+	}
+
+	item, ok = p.PickRoute(RouteQuery{PublicModel: "model-b"})
+	if !ok || item.ID != "a1" {
+		t.Fatalf("real B pick = %+v ok=%v", item, ok)
+	}
+	if got := AccountModelID(item, "model-b"); got != "model-b" {
+		t.Fatalf("real B rewrite = %q want model-b (alias must not apply in reverse)", got)
+	}
+}
+
+// To expose real model A under the client-facing name B, the alias must be
+// B -> A. That is also the direction cross-provider aggregation relies on:
+// one public name, a different real model per provider.
+func TestAccountAliasCrossProviderAggregationUsesPublicToReal(t *testing.T) {
+	p := NewPool(nil, nil)
+	p.Upsert(Item{
+		ID: "q1", Provider: "qoder", Region: "global",
+		Models:       []string{"model-a"},
+		ModelAliases: map[string]string{"model-b": "model-a"},
+	})
+	p.Upsert(Item{
+		ID: "w1", Provider: "workbuddy", Region: "cn",
+		Models: []string{"model-b"},
+	})
+
+	counts := map[string]int{}
+	for i := 0; i < 10; i++ {
+		item, ok := p.PickRoute(RouteQuery{PublicModel: "model-b"})
+		if !ok {
+			t.Fatal("no cross-provider aggregation route")
+		}
+		counts[item.ID]++
+	}
+	if counts["q1"] == 0 || counts["w1"] == 0 {
+		t.Fatalf("public model-b did not aggregate both providers: %v", counts)
+	}
+
+	q1, _ := p.ByID("q1")
+	w1, _ := p.ByID("w1")
+	if got := AccountModelID(q1, "model-b"); got != "model-a" {
+		t.Fatalf("q1 rewrite = %q want model-a", got)
+	}
+	if got := AccountModelID(w1, "model-b"); got != "model-b" {
+		t.Fatalf("w1 rewrite = %q want model-b", got)
+	}
+}
+
+// The inverse configuration (A -> B) cannot put real A behind a request for
+// B. B only reaches accounts that really serve B; this is the footgun the
+// operator sees as "requesting B returns B, not A".
+func TestAccountAliasInverseDirectionDoesNotAggregate(t *testing.T) {
+	p := NewPool(nil, nil)
+	p.Upsert(Item{
+		ID: "q1", Provider: "qoder", Region: "global",
+		Models:       []string{"model-a"},
+		ModelAliases: map[string]string{"model-a": "model-b"},
+	})
+	p.Upsert(Item{
+		ID: "w1", Provider: "workbuddy", Region: "cn",
+		Models: []string{"model-b"},
+	})
+
+	counts := map[string]int{}
+	for i := 0; i < 10; i++ {
+		item, ok := p.PickRoute(RouteQuery{PublicModel: "model-b"})
+		if !ok {
+			t.Fatal("real model-b route missing")
+		}
+		counts[item.ID]++
+	}
+	if counts["q1"] != 0 || counts["w1"] != 10 {
+		t.Fatalf("inverse alias unexpectedly reached q1: %v", counts)
+	}
+}
+
+// A logical aggregation member is a public model name. Per-account aliases
+// must still rewrite it after the member is picked, so one logical model can
+// bind qoder's real model-a and workbuddy's real model-b.
+func TestAggregateMemberHonorsAccountAliasAfterPick(t *testing.T) {
+	plan := aggPlan(
+		accounts.AggregationMember{Provider: "qoder", Model: "model-b", Priority: 0},
+		accounts.AggregationMember{Provider: "workbuddy", Model: "model-b", Priority: 1},
+	)
+	loop := routeLoop{resolver: plan.resolver()}
+	q1 := Item{
+		ID: "q1", Provider: "qoder", Models: []string{"model-a"},
+		ModelAliases: map[string]string{"model-b": "model-a"},
+	}
+	w1 := Item{
+		ID: "w1", Provider: "workbuddy", Models: []string{"model-b"},
+	}
+
+	if member, ok := plan.matchMember(q1); !ok || member.Model != "model-b" {
+		t.Fatalf("q1 aggregate member = %+v ok=%v, want model-b", member, ok)
+	}
+	if member, ok := plan.matchMember(w1); !ok || member.Model != "model-b" {
+		t.Fatalf("w1 aggregate member = %+v ok=%v, want model-b", member, ok)
+	}
+
+	for _, tc := range []struct {
+		item Item
+		want string
+	}{
+		{q1, "model-a"},
+		{w1, "model-b"},
+	} {
+		req := translate.ChatRequest{Model: "logical-model-b"}
+		got := sanitizeForItem(tc.item, loop.dispatchRequest(tc.item, req))
+		if got.Model != tc.want {
+			t.Fatalf("%s aggregate model = %q want %q", tc.item.ID, got.Model, tc.want)
+		}
 	}
 }
 
