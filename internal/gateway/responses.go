@@ -118,7 +118,7 @@ func (h *Handler) HandleResponses(w http.ResponseWriter, r *http.Request) {
 	response := responsesResponse(
 		execution.RequestID, firstNonEmpty(result.Model, execution.PublicModel), result.Content, result.Reasoning,
 		decodeOpenAIToolCalls(result.ToolCalls), result.PromptTokens, result.CompletionTokens, result.FinishReason,
-		result.CacheReadTokens, result.CacheWriteTokens, result.CachedTokens,
+		result.CacheReadTokens, result.CacheWriteTokens, result.CachedTokens, nil,
 	)
 	translate.RestoreResponseToolNames(response, execution.ResponseToolNames)
 	writeJSON(w, http.StatusOK, response)
@@ -257,13 +257,13 @@ func responsesResponse(
 	toolCalls []proxyToolCall,
 	promptTokens, completionTokens int,
 	finishReason string,
-	cacheReadTokens, cacheWriteTokens, cachedTokens *int,
+	cacheReadTokens, cacheWriteTokens, cachedTokens, reasoningTokens *int,
 ) map[string]any {
 	terminal := responsesTerminalForFinishReason(finishReason)
 	response := map[string]any{
 		"id": "resp_" + requestID, "object": "response", "created_at": time.Now().Unix(), "status": terminal.status, "model": model,
 		"output": responsesOutputItems(requestID, content, reasoning, toolCalls),
-		"usage":  responsesUsage(promptTokens, completionTokens, cacheReadTokens, cacheWriteTokens, cachedTokens),
+		"usage":  responsesUsage(promptTokens, completionTokens, cacheReadTokens, cacheWriteTokens, cachedTokens, reasoningTokens),
 	}
 	if terminal.incompleteDetails != nil {
 		response["incomplete_details"] = terminal.incompleteDetails
@@ -295,7 +295,7 @@ func responseFunctionCallItem(requestID string, callIndex int, call proxyToolCal
 	}
 }
 
-func responsesUsage(promptTokens, completionTokens int, cacheReadTokens, cacheWriteTokens, cachedTokens *int) map[string]any {
+func responsesUsage(promptTokens, completionTokens int, cacheReadTokens, cacheWriteTokens, cachedTokens, reasoningTokens *int) map[string]any {
 	usage := map[string]any{"input_tokens": promptTokens, "output_tokens": completionTokens, "total_tokens": promptTokens + completionTokens}
 	if cacheReadTokens == nil {
 		cacheReadTokens = cachedTokens
@@ -309,6 +309,9 @@ func responsesUsage(promptTokens, completionTokens int, cacheReadTokens, cacheWr
 	}
 	if len(details) > 0 {
 		usage["input_tokens_details"] = details
+	}
+	if reasoningTokens != nil {
+		usage["output_tokens_details"] = map[string]any{"reasoning_tokens": *reasoningTokens}
 	}
 	return usage
 }
