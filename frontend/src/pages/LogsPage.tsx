@@ -529,7 +529,7 @@ export function LogsPage() {
 
   useEffect(() => {
     if (tab !== 'runtime' || currentRuntimePage !== 1) return
-    const timer = window.setInterval(() => void loadRuntime(true), 3000)
+    const timer = window.setInterval(() => { if (!document.hidden) void loadRuntime(true) }, 3000)
     return () => window.clearInterval(timer)
   }, [tab, currentRuntimePage, loadRuntime])
 

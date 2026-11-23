@@ -8,6 +8,7 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -47,7 +48,9 @@ func TestStoreBackupCreatesConsistentSQLiteSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o600 {
+	// Windows reports synthesized permission bits instead of Unix modes; the
+	// 0600 contract is enforced by os.Chmod on Unix hosts.
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Fatalf("backup mode = %o, want 600", info.Mode().Perm())
 	}
 
