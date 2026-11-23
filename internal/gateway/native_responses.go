@@ -60,7 +60,11 @@ func RelayNativeResponsesStream(writer io.Writer, body io.Reader, names map[stri
 		stats.FinishReason = event.FinishReason
 		stats.PromptTokens = event.InputTokens
 		stats.CompletionTokens = event.OutputTokens
+		stats.CacheReadTokens = event.CachedTokens
 		stats.CachedTokens = event.CachedTokens
+		stats.CacheWriteTokens = event.CacheWriteTokens
+		stats.ReasoningTokens = event.ReasoningTokens
+		stats.UsageSource = "upstream"
 		if event.FinishReason == "error" {
 			return executor.ClassifyUpstreamBody(0, payload)
 		}

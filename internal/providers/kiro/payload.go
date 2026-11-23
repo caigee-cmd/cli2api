@@ -684,20 +684,11 @@ func mediaSubtype(media string) string {
 }
 
 func reasoningLevel(req translate.ChatRequest) string {
-	if len(req.ReasoningEffort) > 0 {
-		var raw string
-		if json.Unmarshal(req.ReasoningEffort, &raw) == nil {
-			if level := providers.NormalizeReasoningLevel(raw); level != "" && level != "none" {
-				return level
-			}
-		}
+	intent := providers.ParseReasoningIntent(req)
+	if intent.Disabled || intent.Level == "none" {
+		return ""
 	}
-	for _, flag := range []*bool{req.IsReasoning, req.EnableThinking, req.EnableReasoning} {
-		if flag != nil && *flag {
-			return "medium"
-		}
-	}
-	return ""
+	return intent.Level
 }
 
 func reasoningField(level string) map[string]string {

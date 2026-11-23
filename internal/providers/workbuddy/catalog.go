@@ -76,6 +76,7 @@ func catalogModel(model catalogModelEntry) providers.ModelInfo {
 			ReasoningOptions:      options,
 			ReasoningOptionValues: providers.UniqueReasoningOptionValues(model.Reasoning.SupportedEfforts),
 			ReasoningDefault:      defaultLevel,
+			ReasoningWire:         workbuddyReasoningWire(model.ID),
 			CanDisableThinking:    canDisable,
 		},
 	}
