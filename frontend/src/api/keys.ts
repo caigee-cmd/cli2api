@@ -8,6 +8,8 @@ export type APIKeyRecord = {
   enabled: boolean
   /** 0 means unlimited. */
   max_inflight: number
+  /** When true, /v1/models exposes only provider-neutral account aliases. */
+  model_aggregation: boolean
   last_used_at?: string
   created_at: string
   updated_at: string
@@ -20,6 +22,7 @@ export type APIKeyInput = {
   providers: string[]
   enabled?: boolean
   max_inflight: number
+  model_aggregation?: boolean
 }
 
 export type ConsoleKeyView = {
