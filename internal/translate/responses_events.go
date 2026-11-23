@@ -19,9 +19,11 @@ type ResponsesEvent struct {
 	// event, verbatim.
 	Response json.RawMessage
 	// Usage is present only when the terminal event reported it.
-	InputTokens  *int
-	OutputTokens *int
-	CachedTokens *int
+	InputTokens      *int
+	OutputTokens     *int
+	CachedTokens     *int
+	CacheWriteTokens *int
+	ReasoningTokens  *int
 	// FirstToken marks an output delta (first-token timing).
 	FirstToken bool
 }
@@ -63,8 +65,12 @@ func ParseResponsesEvent(data string) (ResponsesEvent, bool) {
 			InputTokens        *int `json:"input_tokens"`
 			OutputTokens       *int `json:"output_tokens"`
 			InputTokensDetails *struct {
-				CachedTokens *int `json:"cached_tokens"`
+				CachedTokens     *int `json:"cached_tokens"`
+				CacheWriteTokens *int `json:"cache_write_tokens"`
 			} `json:"input_tokens_details"`
+			OutputTokensDetails *struct {
+				ReasoningTokens *int `json:"reasoning_tokens"`
+			} `json:"output_tokens_details"`
 		} `json:"usage"`
 	}
 	if json.Unmarshal(envelope.Response, &body) == nil && body.Usage != nil {
@@ -72,6 +78,10 @@ func ParseResponsesEvent(data string) (ResponsesEvent, bool) {
 		event.OutputTokens = body.Usage.OutputTokens
 		if body.Usage.InputTokensDetails != nil {
 			event.CachedTokens = body.Usage.InputTokensDetails.CachedTokens
+			event.CacheWriteTokens = body.Usage.InputTokensDetails.CacheWriteTokens
+		}
+		if body.Usage.OutputTokensDetails != nil {
+			event.ReasoningTokens = body.Usage.OutputTokensDetails.ReasoningTokens
 		}
 	}
 	return event, true

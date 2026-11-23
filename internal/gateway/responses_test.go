@@ -49,7 +49,7 @@ func TestStreamLogStatusKeepsCompletedDisconnectSuccessful(t *testing.T) {
 }
 
 func TestResponsesResponseMapsLengthToIncomplete(t *testing.T) {
-	response := responsesResponse("req", "model", "", "reasoning", nil, 10, 32, "length", nil, nil, nil)
+	response := responsesResponse("req", "model", "", "reasoning", nil, 10, 32, "length", nil, nil, nil, nil)
 	if response["status"] != "incomplete" {
 		t.Fatalf("status=%v", response["status"])
 	}
@@ -101,24 +101,24 @@ func TestResponsesUsagePreservesCachedInputTokens(t *testing.T) {
 	read := 64
 	cached := 48
 
-	withoutCache := responsesUsage(100, 20, nil, nil, nil)
+	withoutCache := responsesUsage(100, 20, nil, nil, nil, nil)
 	if _, ok := withoutCache["input_tokens_details"]; ok {
 		t.Fatalf("missing cache usage must not be fabricated: %#v", withoutCache)
 	}
 
-	withZero := responsesUsage(100, 20, &zero, nil, nil)
+	withZero := responsesUsage(100, 20, &zero, nil, nil, nil)
 	zeroDetails := withZero["input_tokens_details"].(map[string]any)
 	if zeroDetails["cached_tokens"] != 0 {
 		t.Fatalf("explicit zero cache usage was lost: %#v", withZero)
 	}
 
-	withFallback := responsesUsage(100, 20, nil, nil, &cached)
+	withFallback := responsesUsage(100, 20, nil, nil, &cached, nil)
 	fallbackDetails := withFallback["input_tokens_details"].(map[string]any)
 	if fallbackDetails["cached_tokens"] != 48 {
 		t.Fatalf("cached token fallback mismatch: %#v", withFallback)
 	}
 
-	withTopLevel := responsesUsage(100, 20, &read, nil, &cached)
+	withTopLevel := responsesUsage(100, 20, &read, nil, &cached, nil)
 	topLevelDetails := withTopLevel["input_tokens_details"].(map[string]any)
 	if topLevelDetails["cached_tokens"] != 64 {
 		t.Fatalf("cache_read_tokens must win: %#v", withTopLevel)
@@ -128,10 +128,15 @@ func TestResponsesUsagePreservesCachedInputTokens(t *testing.T) {
 	}
 
 	write := 12
-	withWrite := responsesUsage(100, 20, &read, &write, nil)
+	reasoning := 7
+	withWrite := responsesUsage(100, 20, &read, &write, nil, &reasoning)
 	writeDetails := withWrite["input_tokens_details"].(map[string]any)
 	if writeDetails["cache_write_tokens"] != 12 || writeDetails["cached_tokens"] != 64 {
 		t.Fatalf("cache write details mismatch: %#v", writeDetails)
+	}
+	outputDetails := withWrite["output_tokens_details"].(map[string]any)
+	if outputDetails["reasoning_tokens"] != 7 {
+		t.Fatalf("reasoning tokens mismatch: %#v", outputDetails)
 	}
 }
 
