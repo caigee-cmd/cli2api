@@ -482,7 +482,7 @@ func TestNoRoutableAccountsClassifiedAs503(t *testing.T) {
 // permission_error, never the generic 502.
 func TestPickProviderNotAllowedFallback(t *testing.T) {
 	ex := NewChatExecutor(NewPool(nil, nil), "")
-	_, err := ex.pick("req", "", "trae", "", "glm-5.2", []string{"workbuddy:cn"}, nil, nil)
+	_, err := ex.pick("req", "", "trae", "", "glm-5.2", []string{"workbuddy:cn"}, nil, nil, nil)
 	if err == nil {
 		t.Fatal("an ungranted provider filter must fail even with an empty pool")
 	}
