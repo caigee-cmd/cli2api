@@ -24,6 +24,7 @@ func PrepareBody(src []byte) []byte {
 	normalizeToolChoice(body)
 	normalizeTools(body)
 	dropEmptyTools(body)
+	mergeAdjacentToolCalls(body)
 	repairToolSequence(body)
 	normalizeEmptyMessageContent(body)
 	ensureLeadingSystem(body)
@@ -137,6 +138,121 @@ func messageRole(message map[string]any) string {
 func stringField(message map[string]any, key string) string {
 	value, _ := message[key].(string)
 	return strings.TrimSpace(value)
+}
+
+// mergeAdjacentToolCalls folds back-to-back assistant tool_calls into one
+// message before incomplete rounds are dropped. A Codex replay can split one
+// parallel batch into a reasoning part and a commentary part; left split, the
+// first batch's results follow the second declaration and WorkBuddy rejects
+// the turn with code 11148. Text on either message is kept.
+func mergeAdjacentToolCalls(body map[string]any) {
+	raw, ok := body["messages"]
+	if !ok {
+		return
+	}
+	list, ok := raw.([]any)
+	if !ok || len(list) < 2 {
+		return
+	}
+	merged := make([]any, 0, len(list))
+	for _, item := range list {
+		message, ok := item.(map[string]any)
+		if !ok || messageRole(message) != "assistant" || !hasToolCalls(message) {
+			merged = append(merged, item)
+			continue
+		}
+		if len(merged) == 0 {
+			merged = append(merged, message)
+			continue
+		}
+		prev, ok := merged[len(merged)-1].(map[string]any)
+		if !ok || messageRole(prev) != "assistant" || !hasToolCalls(prev) {
+			merged = append(merged, message)
+			continue
+		}
+		prevCalls, _ := prev["tool_calls"].([]any)
+		calls, _ := message["tool_calls"].([]any)
+		if len(prevCalls) == 0 || len(calls) == 0 {
+			merged = append(merged, message)
+			continue
+		}
+		combined := make([]any, 0, len(prevCalls)+len(calls))
+		combined = append(combined, prevCalls...)
+		combined = append(combined, calls...)
+		prev["tool_calls"] = combined
+		if content, ok := mergeAssistantContent(prev["content"], message["content"]); ok {
+			prev["content"] = content
+		} else {
+			delete(prev, "content")
+		}
+		mergeReasoningContent(prev, message)
+	}
+	body["messages"] = merged
+}
+
+func mergeAssistantContent(prev, next any) (any, bool) {
+	if contentEmpty(next) {
+		if contentEmpty(prev) {
+			return nil, false
+		}
+		return prev, true
+	}
+	if contentEmpty(prev) {
+		return next, true
+	}
+	prevText, prevString := prev.(string)
+	nextText, nextString := next.(string)
+	if prevString && nextString {
+		return prevText + "\n" + nextText, true
+	}
+	prevParts, prevList := prev.([]any)
+	nextParts, nextList := next.([]any)
+	if prevList && nextList {
+		combined := make([]any, 0, len(prevParts)+len(nextParts))
+		combined = append(combined, prevParts...)
+		combined = append(combined, nextParts...)
+		return combined, true
+	}
+	if prevString && nextList {
+		combined := make([]any, 0, 1+len(nextParts))
+		combined = append(combined, map[string]any{"type": "text", "text": prevText})
+		combined = append(combined, nextParts...)
+		return combined, true
+	}
+	if prevList && nextString {
+		combined := make([]any, 0, len(prevParts)+1)
+		combined = append(combined, prevParts...)
+		combined = append(combined, map[string]any{"type": "text", "text": nextText})
+		return combined, true
+	}
+	return nil, false
+}
+
+func contentEmpty(value any) bool {
+	if value == nil {
+		return true
+	}
+	if text, ok := value.(string); ok {
+		return text == ""
+	}
+	parts, ok := value.([]any)
+	return ok && len(parts) == 0
+}
+
+func mergeReasoningContent(dst, src map[string]any) {
+	extra := strings.TrimSpace(stringField(src, "reasoning_content"))
+	if extra == "" {
+		return
+	}
+	current := strings.TrimSpace(stringField(dst, "reasoning_content"))
+	if current == "" {
+		dst["reasoning_content"] = extra
+		return
+	}
+	if current == extra {
+		return
+	}
+	dst["reasoning_content"] = current + "\n" + extra
 }
 
 // repairToolSequence preserves complete tool rounds byte-for-byte at the
