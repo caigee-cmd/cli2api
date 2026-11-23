@@ -263,6 +263,20 @@ func TestPreparePreservesExplicitContext(t *testing.T) {
 	}
 }
 
+func TestResolveProviderFilterCoversAllRegisteredProviderPrefixes(t *testing.T) {
+	for _, prefix := range []string{
+		"qoder", "workbuddy", "trae", "devin", "command", "codex",
+		"zhipu", "qwenwork", "kimi", "codearts", "kiro", "meta", "muse",
+	} {
+		req := translate.ChatRequest{Model: prefix + "/demo-model"}
+		provider, region := ResolveProviderFilter(&req, false)
+		want := accounts.NormalizeProviderFamily(prefix)
+		if provider != want || req.Model != "demo-model" || region != "" {
+			t.Fatalf("%s prefix => provider=%q model=%q region=%q", prefix, provider, req.Model, region)
+		}
+	}
+}
+
 func TestRequestedReasoningLevelFromThinkingBudget(t *testing.T) {
 	for _, test := range []struct {
 		name string
