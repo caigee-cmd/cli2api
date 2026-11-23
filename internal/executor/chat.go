@@ -394,29 +394,65 @@ func (e ChatExecutor) pick(requestID, prefer, providerFilter, regionFilter, publ
 			unfiltered.PublicModel = ""
 			if e.Pool.LenRoute(unfiltered) > 0 {
 				e.logModelRouteMiss(requestID, query)
-				return Item{}, fmt.Errorf("model_not_available: %s is not available for the selected accounts", publicModel)
+				return Item{}, NewExecutionError(Classified{
+					Kind: accounts.KindModelNotAvailable, Status: http.StatusBadRequest,
+					Code: "model_not_available", Type: "invalid_request_error", Failover: false,
+					Message: fmt.Sprintf("model_not_available: %s is not available for the selected accounts", publicModel),
+				}, nil)
 			}
 		}
 	}
 	if len(allowed) > 0 && providerFilter != "" && !accounts.ProviderAllowed(providerFilter, allowed) {
-		return Item{}, fmt.Errorf("api key cannot use provider %s", providerFilter)
+		return Item{}, NewExecutionError(Classified{
+			Kind: accounts.KindAuth, Status: http.StatusForbidden, Code: "provider_not_allowed",
+			Type: "permission_error", Failover: false,
+			Message: fmt.Sprintf("api key cannot use provider %s", providerFilter),
+		}, nil)
 	}
 	if providerFilter != "" && regionFilter != "" {
-		return Item{}, fmt.Errorf("no %s/%s accounts available", providerFilter, regionFilter)
+		return Item{}, noAccountsError(fmt.Sprintf("no %s/%s accounts available", providerFilter, regionFilter))
 	}
 	if providerFilter != "" {
 		// A key whose grant list narrows this family to a single region
 		// should fail with that region in the message, even when the
 		// request itself did not pin one.
 		if regionFilter, narrowed := keyGrantedSingleRegion(providerFilter, allowed); narrowed {
-			return Item{}, fmt.Errorf("no %s/%s accounts available", providerFilter, regionFilter)
+			return Item{}, noAccountsError(fmt.Sprintf("no %s/%s accounts available", providerFilter, regionFilter))
 		}
-		return Item{}, fmt.Errorf("no %s accounts available", providerFilter)
+		return Item{}, noAccountsError(fmt.Sprintf("no %s accounts available", providerFilter))
 	}
 	if len(allowed) > 0 {
-		return Item{}, fmt.Errorf("no accounts available for this api key")
+		return Item{}, noAccountsError("no accounts available for this api key")
 	}
-	return Item{}, fmt.Errorf("no worker accounts configured")
+	return Item{}, NewExecutionError(Classified{
+		Kind: accounts.KindUnavailable, Status: http.StatusServiceUnavailable,
+		Code: "no_accounts_configured", Type: "api_error", Failover: false,
+		Message: "no worker accounts configured",
+	}, nil)
+}
+
+// noAccountsRetryAfter mirrors runtime's workerReconcileInterval: the liveness
+// watchdog re-probes an unready worker at most once per this interval, so a
+// retry before then cannot observe a recovery and would just repeat the miss.
+const noAccountsRetryAfter = 2 * time.Minute
+
+// noAccountsError reports that routing found no account able to serve this
+// key/model. It must be a classified error: a bare error reaches the gateway as
+// an unclassified failure, which renders it as 502 "upstream_error". That reads
+// as an origin outage to every client and to any proxy in front of the gateway
+// (Cloudflare replaced it with its own "Bad gateway" page), while the real
+// cause is local routing — no enabled account matches the key's provider grant
+// or the requested model. 503 matches KindUnavailable; 429 is reserved for
+// rate/credit limits in this taxonomy, and SDKs auto-retry it on a fixed
+// schedule even though every such retry fails until the account is restored.
+// The Retry-After hint lines up with the watchdog's per-account re-probe
+// cadence, which is when a self-healing miss can actually clear.
+func noAccountsError(message string) error {
+	return NewExecutionError(Classified{
+		Kind: accounts.KindUnavailable, Status: http.StatusServiceUnavailable,
+		Code: "no_accounts", Type: "api_error", Message: message,
+		Cooldown: noAccountsRetryAfter, RetryAfter: noAccountsRetryAfter, Failover: false,
+	}, nil)
 }
 
 func (e ChatExecutor) logModelRouteMiss(requestID string, query RouteQuery) {

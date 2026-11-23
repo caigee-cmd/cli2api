@@ -153,6 +153,13 @@ type Manager struct {
 	// process from the table, stops it, then calls beginAccountRecovery to
 	// reboot the stuck worker. Guarded by mu.
 	healthFailures map[string]int
+
+	// reconcileAt remembers, per worker account, when the liveness watchdog last
+	// re-ran the full account refresh for a worker that answers /health but is
+	// still absent from routing (see reconcileUnreadyWorker). It keeps a worker
+	// that stays legitimately unready — waiting for login, for example — from
+	// being re-probed on every 30s tick. Guarded by mu.
+	reconcileAt map[string]time.Time
 }
 
 func NewManager(config ManagerConfig, store AccountStore, starter ProcessStarter) *Manager {
@@ -193,6 +200,7 @@ func NewManager(config ManagerConfig, store AccountStore, starter ProcessStarter
 		cpuPrev:           map[int]procTime{},
 		quotaProbeLevels:  map[string]int{},
 		healthFailures:    map[string]int{},
+		reconcileAt:       map[string]time.Time{},
 	}
 	manager.persistCond = sync.NewCond(&manager.persistMu)
 	manager.persistDone.Add(1)

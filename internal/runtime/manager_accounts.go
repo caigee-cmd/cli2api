@@ -28,6 +28,10 @@ func (m *Manager) RemoveAccount(id string) error {
 	m.mu.Lock()
 	delete(m.restarts, id)
 	delete(m.restartBackoff, id)
+	// Watchdog state must not outlive the account: a deleted worker never gets
+	// another probe to clear these, so the maps would grow with every removal.
+	delete(m.healthFailures, id)
+	delete(m.reconcileAt, id)
 	m.mu.Unlock()
 	runtimeDir := filepath.Join(m.config.DataDir, "runtime", id)
 	if err := os.RemoveAll(runtimeDir); err != nil {
