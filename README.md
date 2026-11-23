@@ -65,7 +65,7 @@ API Key:  <刚才创建的客户端密钥>
 Go 网关统一鉴权、调度和记录请求。已存 PAT 的 Qoder 账号在进程内直连；仍使用旧 CLI 凭证的 Qoder 账号保留每账号一个 Node 进程和 HOME。其余供应商走进程内适配器，不为每次请求启动完整 CLI。
 
 - **三种接口**：Chat Completions、Responses、Anthropic Messages，加上模型列表。支持流式和函数工具调用。
-- **多账号**：轮询、加权轮询、顺序填满，以及可选的同供应商最早到期优先（FEFO）。自动选号、会话粘性、并发限制、冷却和故障切换都在。
+- **多账号**：轮询、加权轮询、顺序填满、剩余额度最少/最多优先，以及可选的同供应商最早到期优先（FEFO）。自动选号、会话粘性、并发限制、冷却和故障切换都在。
 - **一个控制台**：账号、模型、客户端密钥、代理、额度和请求日志。
 - **Docker**：账号数据持久化。可选的宿主机更新器可以在控制台里下载、确认和回滚。
 
@@ -84,6 +84,12 @@ Qoder 国内版、WorkBuddy、Trae 已实现，真账号验收未完成。Kimi C
 在「系统 → 账号调度策略」里选「最早到期优先」，或提交 `{"routing_strategy":"fefo"}` 到 `PATCH /api/system/settings`。默认仍是轮询。
 
 只在同一供应商内，按最近一笔还能用的积分包到期日排序。没有到期日的账号不猜测，只在有日期的账号都不可用时才上场。额度耗尽、冷却、并发占满的账号照旧先退出。目前只有 WorkBuddy 个人账号有逐包到期日。
+
+## 剩余额度优先
+
+在「系统 → 账号调度策略」里选「剩余额度最少优先」或「剩余额度最多优先」，也可以提交 `{"routing_strategy":"least-quota-first"}` / `{"routing_strategy":"most-quota-first"}` 到 `PATCH /api/system/settings`。模型池也支持同名策略。
+
+按剩余额度百分比排序：优先使用 `remaining / total`；没有 `total` 时用 `100 - percentage`。不同供应商的额度单位不能直接比较，所以这里只用比例；额度未知的账号排在最后。
 
 <p>
 <img src="./docs/assets/readme/section-limits-zh.svg" width="100%" alt="03 它不做什么">

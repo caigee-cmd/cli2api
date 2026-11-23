@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Button, Card, Chip, Table, Tooltip } from '@heroui/react'
-import { Cube, ArrowClockwise, MagnifyingGlass, Info } from '@phosphor-icons/react'
+import { Cube, ArrowClockwise, MagnifyingGlass, Info, Lightning } from '@phosphor-icons/react'
 import { useI18n } from '@/hooks/useI18n'
 import { useOverview } from '@/hooks/useOverview'
-import { fetchModelsCached, fetchProviders, refreshModels, updateProviderMaxMode, updateProviderReasoning, type ProviderDescriptor } from '@/api/overview'
+import { checkModels, fetchModelsCached, fetchProviders, refreshModels, updateProviderMaxMode, type ModelProbeResponse, type ModelProbeResult, type ProviderDescriptor } from '@/api/overview'
 import type { Overview } from '@/api/types'
 import { ProviderMark } from '@/components/ProviderMark'
 import { ModelDetailsModal, formatTokens } from '@/components/ModelDetailsModal'
@@ -61,26 +61,7 @@ function routedModelName(model: ModelInfo) {
   return routeName && routeName !== (model.display_name || model.id) ? routeName : ''
 }
 
-function reasoningLabel(t: (key: string, vars?: Record<string, string | number>) => string, level: string) {
-  const key = `reasoningLevel_${level}`
-  const label = t(key)
-  return label === key ? level : label
-}
-
 type Translate = (key: string, vars?: Record<string, string | number>) => string
-
-function HintLabel({ label, hint }: { label: string; hint: string }) {
-  return (
-    <Tooltip>
-      <Tooltip.Trigger>
-        <span className="cursor-help text-caption text-muted">{label}</span>
-      </Tooltip.Trigger>
-      <Tooltip.Content>
-        <p className="max-w-xs text-caption leading-5">{hint}</p>
-      </Tooltip.Content>
-    </Tooltip>
-  )
-}
 
 function ModelContextControls({
   model,
@@ -88,74 +69,44 @@ function ModelContextControls({
   t,
   variant = 'table',
   onToggleTraeMax,
-  onReasoningChange,
 }: {
   model: ModelInfo
   saving: boolean
   t: Translate
-  /** table: stacked inside a stable-width cell; card: mobile label-above + full-width select */
+  /** table: stacked inside a stable-width cell; card: mobile label-above */
   variant?: 'table' | 'card'
   onToggleTraeMax: (model: ModelInfo, selected: boolean) => void
-  onReasoningChange: (model: ModelInfo, next: string) => void
 }) {
   const provider = modelProvider(model)
   const isCard = variant === 'card'
-  const reasoningSelectClass = isCard ? 'w-full min-w-0' : 'w-full max-w-[7.5rem] min-w-0'
+  const defaultWindow = model.catalog_context_length || model.context_length
+  const maxWindow = model.catalog_context_length_max
+  const hasMaxWindow = Boolean(maxWindow && maxWindow !== defaultWindow)
+  const reasoningOptions = model.reasoning_options || []
+  const canToggleMax = (provider === 'trae' || provider === 'qoder') && model.supports_max_mode
+  const reasoningText = reasoningOptions.length
+    ? reasoningOptions.join(' / ')
+    : model.reasoning_type
+      ? t('reasoningFixed', { type: model.reasoning_type })
+      : '—'
   return (
-    <div className={isCard ? 'flex min-w-0 flex-col gap-3' : 'flex min-w-0 flex-col gap-1.5'}>
-      <div className="flex min-w-0 flex-wrap items-center gap-2">
-        <span className="mono text-caption text-muted">
-          {formatTokens(model.catalog_context_length || model.context_length)}
-          {model.catalog_context_length_max && model.catalog_context_length_max !== (model.catalog_context_length || model.context_length)
-            ? ` → ${formatTokens(model.catalog_context_length_max)}`
-            : ''}
+    <div className={isCard ? 'flex min-w-0 flex-col gap-2' : 'flex min-w-0 flex-col gap-1'}>
+      <div className="flex min-w-0 items-center gap-2">
+        <span className="mono text-caption font-medium">
+          {formatTokens(defaultWindow)}{hasMaxWindow ? ` → ${formatTokens(maxWindow)}` : ''}
         </span>
-        {provider === 'workbuddy' && model.catalog_context_length_max && model.catalog_context_length_max !== (model.catalog_context_length || model.context_length) ? (
-          <HintLabel label={t('catalogWindow')} hint={t('workbuddyContextHint')} />
+        {canToggleMax ? (
+          <CompactSwitch
+            isSelected={Boolean(model.max_mode)}
+            isDisabled={saving}
+            ariaLabel={`${model.id} ${t('maxMode')}`}
+            onChange={(selected) => onToggleTraeMax(model, selected)}
+          />
         ) : null}
       </div>
-      {(provider === 'trae' || provider === 'qoder') && model.supports_max_mode ? (
-        <div className={isCard ? 'flex flex-col gap-1.5' : 'flex items-center gap-2'}>
-          {isCard ? (
-            <HintLabel
-              label={`${t('maxMode')}${model.catalog_context_length_max ? ` ${formatTokens(model.catalog_context_length_max)}` : ''}`}
-              hint={provider === 'qoder' ? t('qoderMaxModeHint') : t('maxModeHint')}
-            />
-          ) : null}
-          <div className="flex items-center gap-2">
-            <CompactSwitch
-              isSelected={Boolean(model.max_mode)}
-              isDisabled={saving}
-              ariaLabel={`${model.id} ${t('maxMode')}`}
-              onChange={(selected) => onToggleTraeMax(model, selected)}
-            />
-            {isCard ? null : (
-              <HintLabel
-                label={`${t('maxMode')}${model.catalog_context_length_max ? ` ${formatTokens(model.catalog_context_length_max)}` : ''}`}
-                hint={provider === 'qoder' ? t('qoderMaxModeHint') : t('maxModeHint')}
-              />
-            )}
-          </div>
-        </div>
-      ) : null}
-      {(model.reasoning_options || []).length > 1 ? (
-        <div className="flex min-w-0 flex-col gap-1.5">
-          <HintLabel label={t('reasoningLevels')} hint={t('reasoningHint')} />
-          <FilterSelect
-            className={reasoningSelectClass}
-            ariaLabel={`${model.id} ${t('reasoningLevels')}`}
-            value={model.reasoning_effort || model.reasoning_default || model.reasoning_options?.[0] || ''}
-            onChange={(next) => { if (next) onReasoningChange(model, next) }}
-            options={(model.reasoning_options || []).map((level) => ({ id: level, label: reasoningLabel(t, level) }))}
-          />
-        </div>
-      ) : (model.reasoning_options || []).length === 1 ? (
-        <HintLabel label={`${t('reasoningLevels')} ${reasoningLabel(t, model.reasoning_options![0])}`} hint={t('reasoningHint')} />
-      ) : model.reasoning_type ? (
-        <span className="text-caption text-muted">{t('reasoningFixed', { type: model.reasoning_type })}</span>
-      ) : provider === 'trae' && !model.supports_max_mode ? (
-        <HintLabel label={t('catalogWindow')} hint={t('catalogWindowHint')} />
-      ) : null}
+      <div className="min-w-0 truncate text-caption text-muted" title={reasoningText}>
+        {reasoningText}
+      </div>
     </div>
   )
 }
@@ -191,6 +142,8 @@ export function ProvidersPage() {
   const [detailModel, setDetailModel] = useState<ModelInfo | null>(null)
   const [models, setModels] = useState<ModelInfo[]>([])
   const [modelsLoading, setModelsLoading] = useState(true)
+  const [checking, setChecking] = useState(false)
+  const [probeResult, setProbeResult] = useState<ModelProbeResponse | null>(null)
   useEffect(() => {
     let cancelled = false
     void fetchModelsCached(undefined, 'regional')
@@ -267,20 +220,6 @@ export function ProvidersPage() {
     setModels(nextModels)
   }
 
-  function updateReasoningInOverview(model: ModelInfo, effort: string) {
-    const key = modelSettingsKey(model)
-    const provider = modelProvider(model)
-    const nextModels = models.map((item) => {
-      if (modelSettingsKey(item) !== key || modelProvider(item) !== provider) return item
-      return {
-        ...item,
-        reasoning_effort: effort,
-        context_custom: Boolean(item.max_mode) || Boolean(effort && effort !== item.reasoning_default),
-      }
-    })
-    setModels(nextModels)
-  }
-
   async function onRefresh() {
     setBusy(true)
     setMessage('')
@@ -297,24 +236,50 @@ export function ProvidersPage() {
   }
 
 
-  async function onReasoningChange(model: ModelInfo, effort: string) {
-    const provider = modelProvider(model)
-    // Providers with a settable reasoning default: Trae, WorkBuddy, Kimi
-    // Code, and CodeArts. Anything else has no console-saved level to write.
-    if (provider !== 'trae' && provider !== 'workbuddy' && provider !== 'kimi' && provider !== 'codearts') return
-    const key = modelSettingsKey(model)
-    setSavingKey(key)
+  function modelCheckResult(model: ModelInfo): ModelProbeResult | undefined {
+    return probeResult?.results.find((result) => result.model === model.id)
+  }
+
+  function modelCheckChip(model: ModelInfo) {
+    const checked = modelCheckResult(model)
+    if (!checked) {
+      return <Chip size="sm" variant="soft" color="default">{t('checkNotRun')}</Chip>
+    }
+    const accounts = checked.accounts || []
+    const passed = accounts.length ? accounts.filter((account) => account.ok).length : (checked.ok ? 1 : 0)
+    const total = accounts.length || checked.attempt_count || (checked.ok ? 1 : 0)
+    return (
+      <Chip size="sm" variant="soft" color={checked.ok ? 'success' : 'danger'}>
+        {checked.ok ? t('checkResultOK') : t('checkResultFailed')}
+        {total ? ` · ${t('checkPassedAccounts', { passed, total })}` : ''}
+      </Chip>
+    )
+  }
+
+  async function onCheckAllModels() {
+    if (!models.length) {
+      setMessage(t('checkModelsEmpty'))
+      setMessageError(false)
+      return
+    }
+    setChecking(true)
+    setProbeResult(null)
     setMessage('')
     setMessageError(false)
     try {
-      await updateProviderReasoning(provider, key, effort)
-      updateReasoningInOverview(model, effort)
-      setMessage(t('reasoningSaved', { model: model.id, level: reasoningLabel(t, effort) }))
+      const result = await checkModels(models.map((model) => model.id))
+      setProbeResult(result)
+      setMessage(t('checkModelsSummary', {
+        passed: result.summary.passed,
+        failed: result.summary.failed,
+        total: result.summary.total,
+        elapsed: result.elapsed_ms,
+      }))
     } catch (error) {
       setMessageError(true)
       setMessage(error instanceof Error ? error.message : String(error))
     } finally {
-      setSavingKey('')
+      setChecking(false)
     }
   }
 
@@ -366,15 +331,122 @@ export function ProvidersPage() {
                 })),
               ]}
             />
-            <Button size="sm" variant="secondary" isPending={busy} onPress={() => void onRefresh()}>
+            <Button size="sm" variant="secondary" isPending={busy || checking} onPress={() => void onRefresh()}>
               <ArrowClockwise size={14} />
               {busy ? t('refreshing') : t('refresh')}
             </Button>
+            <Tooltip>
+              <Tooltip.Trigger>
+                <Button size="sm" variant="secondary" isPending={checking} isDisabled={busy || models.length === 0} onPress={() => void onCheckAllModels()}>
+                  <Lightning size={14} />
+                  {checking ? t('checkingModels') : t('checkAllModels')}
+                </Button>
+              </Tooltip.Trigger>
+              <Tooltip.Content><p className="max-w-xs text-caption leading-5">{t('checkModelsHint')}</p></Tooltip.Content>
+            </Tooltip>
           </div>
         </div>
       </section>
 
       {message ? <PageAlert status={messageError ? 'danger' : 'success'} title={message} /> : null}
+
+      {probeResult ? (
+        <Card data-gsap-reveal className="overflow-hidden p-0">
+          <div className="flex items-start justify-between gap-4 border-b border-separator px-4 py-4 sm:items-center sm:px-5">
+            <div className="min-w-0">
+              <div className="text-body font-semibold">{t('checkAllModels')}</div>
+              <div className="mt-0.5 text-caption leading-5 text-muted">
+                {t('checkModelsSummary', {
+                  passed: probeResult.summary.passed,
+                  failed: probeResult.summary.failed,
+                  total: probeResult.summary.total,
+                  elapsed: probeResult.elapsed_ms,
+                })}
+              </div>
+            </div>
+            <Chip size="sm" variant="soft" color={probeResult.summary.failed ? 'warning' : 'success'} className="shrink-0">
+              {probeResult.summary.passed}/{probeResult.summary.total}
+            </Chip>
+          </div>
+          <Table className="hidden min-w-0 lg:block">
+            <Table.ScrollContainer className="max-h-[24rem] min-w-0 overflow-auto">
+              <Table.Content aria-label={t('checkAllModels')} className="min-w-[52rem]">
+                <Table.Header>
+                  <Table.Column isRowHeader>{t('modelCol')}</Table.Column>
+                  <Table.Column>{t('stateCol')}</Table.Column>
+                  <Table.Column>{t('account')}</Table.Column>
+                  <Table.Column>{t('providerCol')}</Table.Column>
+                  <Table.Column>{t('logsColLatency')}</Table.Column>
+                  <Table.Column>{t('checkAccountResults')}</Table.Column>
+                  <Table.Column>{t('response')}</Table.Column>
+                </Table.Header>
+                <Table.Body>
+                  {probeResult.results.map((result) => (
+                    <Table.Row key={result.model}>
+                      <Table.Cell><span className="mono text-caption font-medium">{result.model}</span></Table.Cell>
+                      <Table.Cell>
+                        <Chip size="sm" variant="soft" color={result.ok ? 'success' : result.code === 'no_models' || result.message === 'model required' ? 'warning' : 'danger'}>
+                          {result.ok
+                            ? t('checkResultOK')
+                            : result.code === 'no_models' || result.message === 'model required'
+                              ? t('checkResultSkipped')
+                              : t('checkResultFailed')}
+                        </Chip>
+                      </Table.Cell>
+                      <Table.Cell><span className="mono text-caption text-muted">{result.account_id || '—'}</span></Table.Cell>
+                      <Table.Cell><span className="text-caption">{result.provider || '—'}</span></Table.Cell>
+                      <Table.Cell><span className="mono text-caption text-muted">{result.latency_ms}ms</span></Table.Cell>
+                      <Table.Cell>
+                        <div className="space-y-1">
+                          {(result.accounts || []).length ? result.accounts!.map((account) => (
+                            <div key={`${result.model}:${account.account_id}`} className="text-caption leading-4">
+                              <span className="mono font-medium">{account.account_id}</span>
+                              <span className={account.ok ? 'text-success' : 'text-danger'}>
+                                {' '}{account.ok ? t('checkResultOK') : t('checkResultFailed')}
+                              </span>
+                              <span className="text-muted"> · {account.latency_ms}ms</span>
+                              {account.message ? <span className="block break-all text-muted">{account.message}</span> : null}
+                            </div>
+                          )) : <span className="text-caption text-muted">—</span>}
+                        </div>
+                      </Table.Cell>
+                      <Table.Cell><span className="break-all text-caption text-muted">{result.message || (result.ok ? t('checkResultOK') : '')}</span></Table.Cell>
+                    </Table.Row>
+                  ))}
+                </Table.Body>
+              </Table.Content>
+            </Table.ScrollContainer>
+          </Table>
+          <div className="divide-y divide-separator lg:hidden">
+            {probeResult.results.map((result) => (
+              <div key={result.model} className="space-y-1 px-4 py-3">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="mono min-w-0 truncate text-caption font-medium">{result.model}</span>
+                  <Chip size="sm" variant="soft" color={result.ok ? 'success' : 'danger'}>
+                    {result.ok ? t('checkResultOK') : t('checkResultFailed')}
+                  </Chip>
+                </div>
+                <div className="text-caption text-muted">{result.account_id || result.provider || '—'} · {result.latency_ms}ms</div>
+                {(result.accounts || []).length ? (
+                  <div className="space-y-0.5">
+                    {result.accounts!.map((account) => (
+                      <div key={`${result.model}:${account.account_id}`} className="text-caption leading-4">
+                        <span className="mono font-medium">{account.account_id}</span>
+                        <span className={account.ok ? 'text-success' : 'text-danger'}>
+                          {' '}{account.ok ? t('checkResultOK') : t('checkResultFailed')}
+                        </span>
+                        <span className="text-muted"> · {account.latency_ms}ms</span>
+                        {account.message ? <span className="block break-all text-muted">{account.message}</span> : null}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+                {result.message ? <div className="break-all text-caption text-muted">{result.message}</div> : null}
+              </div>
+            ))}
+          </div>
+        </Card>
+      ) : null}
 
       <Card data-gsap-reveal className="overflow-hidden p-0">
         <div className="flex items-start justify-between gap-4 border-b border-separator px-4 py-4 sm:items-center sm:px-5">
@@ -422,9 +494,7 @@ export function ProvidersPage() {
                           {routedModelName(model) ? <div className="mt-0.5 text-caption text-muted">{t('routedTo', { model: routedModelName(model) })}</div> : null}
                         </div>
                       </div>
-                      <Chip size="sm" variant="soft" color={model.context_custom ? 'warning' : model.stale ? 'warning' : 'success'}>
-                        {model.context_custom ? t('custom') : t('defaultValue')}
-                      </Chip>
+                      {modelCheckChip(model)}
                     </div>
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-caption">
                       <span className="inline-flex items-center gap-1.5">
@@ -439,7 +509,6 @@ export function ProvidersPage() {
                       t={t}
                       variant="card"
                       onToggleTraeMax={(item, selected) => void onToggleTraeMax(item, selected)}
-                      onReasoningChange={(item, next) => void onReasoningChange(item, next)}
                     />
                     <ModelActions
                       model={model}
@@ -460,7 +529,7 @@ export function ProvidersPage() {
                     <Table.Column>{t('qoderKeyCol')}</Table.Column>
                     <Table.Column>{t('modelDefaultsCol')}</Table.Column>
                     <Table.Column>{t('stateCol')}</Table.Column>
-                    <Table.Column>{t('actions')}</Table.Column>
+                    <Table.Column>{t('modelDetailsCol')}</Table.Column>
                   </Table.Header>
                   <Table.Body>
                     {paged.map((model) => {
@@ -501,14 +570,9 @@ export function ProvidersPage() {
                               t={t}
                               variant="table"
                               onToggleTraeMax={(item, selected) => void onToggleTraeMax(item, selected)}
-                              onReasoningChange={(item, next) => void onReasoningChange(item, next)}
                             />
                           </Table.Cell>
-                          <Table.Cell>
-                            <Chip size="sm" variant="soft" color={model.context_custom ? 'warning' : model.stale ? 'warning' : 'success'}>
-                              {model.context_custom ? t('custom') : t('defaultValue')}
-                            </Chip>
-                          </Table.Cell>
+                          <Table.Cell>{modelCheckChip(model)}</Table.Cell>
                           <Table.Cell>
                             <ModelActions
                               model={model}
@@ -528,7 +592,7 @@ export function ProvidersPage() {
       </Card>
 
       <ModelDetailsModal
-        model={detailModel ? models.find((m) => modelSettingsKey(m) === modelSettingsKey(detailModel)) || detailModel : null}
+        model={detailModel ? models.find((m) => modelRowKey(m) === modelRowKey(detailModel)) || detailModel : null}
         t={t}
         onClose={() => setDetailModel(null)}
       />
