@@ -10,6 +10,7 @@ import (
 var ErrAccountNotFound = errors.New("account not found")
 var ErrSecretNotFound = errors.New("secret not found")
 var ErrAPIKeyNotFound = errors.New("api key not found")
+var ErrAggregationNotFound = errors.New("aggregation not found")
 
 const (
 	DefaultWorkBuddyCheckinTime = "09:00"

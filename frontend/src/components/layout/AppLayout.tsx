@@ -10,6 +10,7 @@ const routeKey: Record<string, string> = {
   '/': 'home',
   '/auth': 'auth',
   '/providers': 'providers',
+  '/model-pool': 'modelPool',
   '/access': 'access',
   '/accounts': 'accounts',
   '/usage': 'usage',
