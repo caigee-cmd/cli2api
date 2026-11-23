@@ -712,6 +712,7 @@ func (manager *Manager) probeWorkerLiveness(ctx context.Context) {
 			manager.mu.Lock()
 			delete(manager.healthFailures, item.ID)
 			manager.mu.Unlock()
+			manager.reconcileUnreadyWorker(ctx, item)
 			continue
 		}
 		// Skip accounts already in recovery: they are no longer in processes
@@ -733,6 +734,69 @@ func (manager *Manager) probeWorkerLiveness(ctx context.Context) {
 			manager.mu.Unlock()
 			manager.restartStuckWorker(item.ID, err)
 		}
+	}
+}
+
+// workerReconcileInterval throttles the "alive but not routable" re-probe. It
+// only has to be long enough that a worker waiting for login is not re-probed
+// on every liveness tick, and short enough that a worker which just finished
+// starting is promoted on the next tick or two.
+const workerReconcileInterval = 2 * time.Minute
+
+// reconcileUnreadyWorker re-runs the full account refresh for a worker that
+// answers /health but is still absent from routing.
+//
+// The boot-time RefreshAll starts as soon as the manager does, before a freshly
+// spawned worker has bound its port. That first probe fails on transport,
+// refreshOne persists status=error, and nothing re-probes afterwards: the
+// account, and every model only it could serve, stays unrouteable (clients see
+// "no accounts available for this api key") until an operator clicks Refresh in
+// the console. A recovery restart has the same shape — startAccount leaves the
+// item unready and no refresh follows it.
+//
+// probeWorkerLiveness is the only loop still talking to such a worker, so it is
+// the right place to notice that the worker came up: a successful /health means
+// the process is listening, and refreshOne is what promotes the pool item and
+// the stored status back to ready.
+//
+// A reconcile is a full refresh, not a cheap probe: once the worker reports
+// ready, refreshOne also runs fetchQuota and fetchAccountModels concurrently.
+// That catalog refresh is the point — without it routing never learns which
+// models the recovered account serves — so the extra upstream calls are
+// accepted, and the per-account throttle above caps them at one round each per
+// interval. While a worker stays unready (for example waiting for login),
+// refreshOne persists login_required, or error when the worker reports a
+// LastError, on every reconcile; the status is rewritten with the same value
+// each time. refreshStaleQuota does not double-fetch in the same tick: it only
+// touches accounts whose cached quota says Exceeded and refreshOne fetches
+// quota only after the worker turns ready. A console Refresh goes through
+// RefreshAccount → refreshOne directly and is not gated by this throttle, so an
+// operator refresh can overlap one watchdog refresh; both then issue the same
+// probe, which the pool and quota gates tolerate, and the overlap (one extra
+// /health plus one extra quota/catalog fetch) only happens on an explicit
+// operator action.
+func (manager *Manager) reconcileUnreadyWorker(ctx context.Context, item Item) {
+	if item.Runtime == string(providers.RuntimeInProcess) || strings.TrimSpace(item.URL) == "" {
+		return
+	}
+	if item.RuntimeState == "dead" || item.RuntimeState == "ready" {
+		return
+	}
+	manager.mu.Lock()
+	last, seen := manager.reconcileAt[item.ID]
+	if seen && time.Since(last) < workerReconcileInterval {
+		manager.mu.Unlock()
+		return
+	}
+	manager.reconcileAt[item.ID] = time.Now()
+	manager.mu.Unlock()
+
+	if err := manager.refreshOne(ctx, item, false); err != nil {
+		log.Printf("worker reconcile: account %s is still not routable: %v", item.ID, err)
+		return
+	}
+	if refreshed, ok := manager.pool.ByID(item.ID); ok && refreshed.RuntimeState == "ready" {
+		log.Printf("worker reconcile: account %s came up after an unready start; routing restored", item.ID)
 	}
 }
 
