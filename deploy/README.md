@@ -48,19 +48,43 @@ access to `/v1/*` and can be restricted by provider and region.
 
 Use **Accounts** to add an account with its supported login method:
 
-| Provider | Region | Login / import |
-|----------|--------|----------------|
-| Qoder | Global / CN | Browser OAuth, PAT, `qoder-native-v1` |
-| WorkBuddy | Global / CN | Browser OAuth, `workbuddy-oauth-v1` |
-| Trae Work | CN | Browser OAuth, `trae-oauth-v1` |
-| Devin (experimental) | Global | Browser OAuth, `devin-session-v1` |
+| Provider | Region | Login / import | Status |
+|----------|--------|----------------|--------|
+| Qoder | Global / CN | Browser OAuth, PAT, `qoder-native-v1` | Stable |
+| WorkBuddy | Global / CN | Browser OAuth, `workbuddy-oauth-v1` | Stable |
+| Trae Work | CN | Browser OAuth, `trae-oauth-v1` | Stable |
+| Devin | Global | Browser OAuth, `devin-session-v1` | Experimental |
+| Command Code | Global | API key, `command-key-v1` | Experimental |
+| Codex | Global | Browser OAuth, `codex-oauth-v1` | Experimental |
+| Zhipu GLM | CN | API key, `zhipu-key-v1` | Experimental |
+| QwenWork | Global / CN | Browser OAuth, `qwenwork-oauth-v1` | Experimental |
+| Kimi Code | CN | Browser OAuth, `kimi-oauth-v1` | Experimental |
+| CodeArts | CN | Browser OAuth, `codearts-oauth-v1` | Experimental |
+| Kiro | US East / EU Central | Browser OAuth, API key, `kiro-oauth-v1` | Experimental |
+| Muse (Meta) | Global | Browser OAuth, API key, `meta-oauth-v1` / `meta-key-v1` | Experimental |
+| Doubao Work | CN | Cookie import, `doubaowork-cookie-v1` | Experimental |
+| MiniMax Code | Global / CN | Browser OAuth, `minimaxcode-oauth-v1` | Experimental |
 
-Qoder CN, WorkBuddy, and Trae still need live-account acceptance; Devin is not
-claimed production-ready. Qoder uses one isolated Node worker per account.
-Other providers use Go in-process adapters. All durable credentials stay in SQLite.
+The Status column matches the console's account picker: Qoder, WorkBuddy, and
+Trae are the stable logins, and everything else is an experimental adapter that
+is not a production promise. The authoritative list is the descriptor registry
+in `internal/providers/registry.go`.
 
-WorkBuddy daily check-in and token keepalive are per-account opt-in and disabled
-by default. Enable them only if you want those automatic account operations.
+Qoder CN, WorkBuddy, and Trae are implemented; live-account acceptance is still
+pending. Kimi Code CN and CodeArts have single-account end-to-end acceptance;
+CodeArts quota-exhaustion failover is still pending. A PAT-backed Qoder account
+runs in-process. A Qoder account that still carries the legacy `qoder-native-v1`
+credential keeps one isolated Node worker and HOME until you sign it in again
+with a PAT. Every other provider uses a Go in-process adapter. All durable
+credentials stay in SQLite.
+
+Check-in is declared per provider and per region. Providers that declare it
+today are WorkBuddy, QwenWork, Qoder, Trae, MiniMax Code, CodeArts, and Doubao
+Work, and each offers a manual check-in on the account card. Automatic check-in
+is opt-in per account and disabled by default; the default time for each
+provider is set under **System → Automatic check-in**, and an account can
+override it. WorkBuddy also has a per-account token keepalive, disabled by
+default. Enable either only if you want those automatic account operations.
 
 ## 3. Connect a client
 
@@ -118,8 +142,9 @@ Key grants, region constraints, model support, and account readiness still apply
 
 Most settings are in the console: **System** for the global proxy, **Accounts**
 for per-account proxy and concurrency, and **API keys** for client access.
-Global and Qoder proxies accept HTTP(S) only; WorkBuddy / Trae / Devin account
-proxies also accept SOCKS5. Use `direct` or `none` to bypass proxy inheritance.
+Global and Qoder proxies accept HTTP(S) only; every in-process provider's
+account proxy also accepts SOCKS5. Use `direct` or `none` to bypass proxy
+inheritance.
 
 The administrator key is generated once and stored in SQLite. Rotate it in the
 console; environment variables cannot replace it.
