@@ -459,6 +459,12 @@ func RequestedReasoningLevel(req translate.ChatRequest) string {
 			}
 		}
 	}
+	// Anthropic clients may send a thinking budget instead of an effort name.
+	// Normalize it to the same neutral vocabulary so catalog clamping and
+	// provider adapters see one consistent level.
+	if level := reasoningLevelFromThinkingField(req.Thinking); level != "" {
+		return level
+	}
 	if req.EnableThinking != nil {
 		if *req.EnableThinking {
 			return "medium"
@@ -478,6 +484,38 @@ func RequestedReasoningLevel(req translate.ChatRequest) string {
 		return "none"
 	}
 	return ""
+}
+
+func reasoningLevelFromThinkingField(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var value map[string]any
+	if json.Unmarshal(raw, &value) != nil {
+		return ""
+	}
+	budget, ok := intField(value["budget_tokens"])
+	if !ok || budget <= 0 {
+		return ""
+	}
+	return providers.ReasoningLevelFromThinkingBudget(budget)
+}
+
+func intField(value any) (int, bool) {
+	switch typed := value.(type) {
+	case float64:
+		return int(typed), true
+	case json.Number:
+		n, err := typed.Int64()
+		return int(n), err == nil
+	case int:
+		return typed, true
+	case string:
+		n, err := strconv.Atoi(strings.TrimSpace(typed))
+		return n, err == nil
+	default:
+		return 0, false
+	}
 }
 
 // sessionAffinityDebugOn mirrors qoder2api-hub's QD_AFFINITY_DEBUG: routing
