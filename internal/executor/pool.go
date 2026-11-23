@@ -418,15 +418,43 @@ func routeBlockedByQuota(item Item, q RouteQuery) bool {
 	if !routeQuotaExceeded(item, q) {
 		return false
 	}
-	return routeReadyAndScoped(item, q) && itemCouldServeModel(item, effectiveModel(item, q))
+	resolved, ok := routeResolvedModel(item, q)
+	if !ok {
+		return false
+	}
+	return routeReadyAndScoped(item, q) && itemCouldServeModel(item, resolved)
+}
+
+// routeResolvedModel returns the concrete model this item serves for the
+// route. For an aggregate route the resolver is authoritative: an item that
+// belongs to no plan member must not fall back to the virtual public model.
+// Otherwise an empty-catalog account in another region could be admitted by
+// the generic unknown-catalog fail-open and dispatched with the virtual ID.
+func routeResolvedModel(item Item, q RouteQuery) (string, bool) {
+	if q.ModelResolver == nil {
+		return q.PublicModel, true
+	}
+	resolved := q.ModelResolver(item)
+	if routeModel(resolved) == "" {
+		return "", false
+	}
+	return resolved, true
 }
 
 func routeMatches(item Item, q RouteQuery) bool {
-	return routeBaseMatches(item, q) && itemHasModel(item, effectiveModel(item, q))
+	if !routeBaseMatches(item, q) {
+		return false
+	}
+	resolved, ok := routeResolvedModel(item, q)
+	return ok && itemHasModel(item, resolved)
 }
 
 func routeHintMatches(item Item, q RouteQuery) bool {
-	return routeBaseMatches(item, q) && itemCouldServeModel(item, effectiveModel(item, q))
+	if !routeBaseMatches(item, q) {
+		return false
+	}
+	resolved, ok := routeResolvedModel(item, q)
+	return ok && itemCouldServeModel(item, resolved)
 }
 
 type Pool struct {
@@ -811,7 +839,13 @@ func (p *Pool) PickRoute(q RouteQuery) (Item, bool) {
 	// pick the region with the most candidates and remember it — starting at
 	// the alphabetically first account would otherwise let one small region
 	// capture the route.
-	if q.RegionFilter == "" && !isQuotaRoutingStrategy(strategy) {
+	//
+	// Region affinity is only meaningful for a single-provider route. A
+	// cross-provider route (a bare model shared by several provider families,
+	// or an aggregated model whose members carry their own provider/region)
+	// must rank every member; latching one region would silently pin the whole
+	// route to that region's provider and strand the other members.
+	if q.RegionFilter == "" && q.ModelResolver == nil && !crossProviderCandidates(available) && !isQuotaRoutingStrategy(strategy) {
 		if previous, ok := p.lastRegion[key]; ok {
 			// The latch is a hint, not a commitment: the pool can change
 			// underneath it. Keep the remembered region only while it still
@@ -846,7 +880,7 @@ func (p *Pool) PickRoute(q RouteQuery) (Item, bool) {
 		return picked, true
 	}
 	if strategy == RoutingStrategyLeastQuotaFirst || strategy == RoutingStrategyMostQuotaFirst {
-		picked := pickQuotaStrategy(available, strategy == RoutingStrategyMostQuotaFirst)
+		picked := pickQuotaStrategy(available, strategy == RoutingStrategyMostQuotaFirst, p.lastPicked[key])
 		p.lastPicked[key] = picked.ID
 		p.lastRegion[key] = itemRegion(picked)
 		return picked, true
@@ -923,21 +957,46 @@ func quotaRemainingRatio(item Item) (float64, bool) {
 	return 0, false
 }
 
-func pickQuotaStrategy(available []Item, most bool) Item {
-	picked := available[0]
-	pickedRatio, pickedKnown := quotaRemainingRatio(picked)
-	for _, item := range available[1:] {
+func pickQuotaStrategy(available []Item, most bool, lastID string) Item {
+	best := make([]Item, 0, len(available))
+	var bestRatio float64
+	var bestKnown bool
+	started := false
+	for _, item := range available {
 		ratio, known := quotaRemainingRatio(item)
-		switch {
-		case known && !pickedKnown:
-			picked, pickedRatio, pickedKnown = item, ratio, true
-		case !known && pickedKnown:
+		if !started {
+			best = append(best, item)
+			bestRatio, bestKnown, started = ratio, known, true
 			continue
-		case known == pickedKnown && ((most && ratio > pickedRatio) || (!most && ratio < pickedRatio) || (ratio == pickedRatio && item.ID < picked.ID)):
-			picked, pickedRatio, pickedKnown = item, ratio, known
+		}
+		better := false
+		switch {
+		case known && !bestKnown:
+			better = true
+		case !known && bestKnown:
+			better = false
+		case known == bestKnown:
+			if most {
+				better = ratio > bestRatio
+			} else {
+				better = ratio < bestRatio
+			}
+		}
+		switch {
+		case better:
+			best = best[:0]
+			best = append(best, item)
+			bestRatio, bestKnown = ratio, known
+		case known == bestKnown && ratio == bestRatio:
+			best = append(best, item)
 		}
 	}
-	return picked
+	// A quota strategy ranks by remaining quota first, but equal (or unknown)
+	// quotas must still rotate. Falling back to the lowest ID there pins the
+	// route to one account forever and makes a full account look unavailable
+	// until its quota snapshot catches up.
+	sort.Slice(best, func(i, j int) bool { return best[i].ID < best[j].ID })
+	return best[successorIndex(best, lastID)]
 }
 
 // pickWeighted runs smooth weighted round-robin when candidates have differing
@@ -1038,6 +1097,22 @@ func largestRegionCount(items []Item) int {
 // p.mu held.
 func regionLatchStale(latchedCount int, available []Item) bool {
 	return latchedCount*2 < largestRegionCount(available)
+}
+
+// crossProviderCandidates reports whether the candidate set spans more than
+// one provider family. A cross-provider route is a shared model route, not a
+// regional pool, so it must not latch onto one region.
+func crossProviderCandidates(items []Item) bool {
+	if len(items) < 2 {
+		return false
+	}
+	first := itemProvider(items[0])
+	for _, item := range items[1:] {
+		if itemProvider(item) != first {
+			return true
+		}
+	}
+	return false
 }
 
 // largestRegion returns the region with the most candidates, breaking ties by

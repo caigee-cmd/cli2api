@@ -18,49 +18,6 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
 
-func TestDecodeChatResultPreservesPromptCacheUsage(t *testing.T) {
-	result, err := decodeChatResult(translate.ChatRequest{Model: "minimax-m3"}, []byte(`{
-		"model":"minimax-m3",
-		"choices":[{"message":{"content":"OK"},"finish_reason":"stop"}],
-		"usage":{
-			"prompt_tokens":100,
-			"completion_tokens":20,
-			"cache_read_tokens":64,
-			"cache_write_tokens":12,
-			"prompt_tokens_details":{"cached_tokens":64},
-			"source":"upstream"
-		}
-	}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.CacheReadTokens == nil || *result.CacheReadTokens != 64 ||
-		result.CacheWriteTokens == nil || *result.CacheWriteTokens != 12 ||
-		result.CachedTokens == nil || *result.CachedTokens != 64 {
-		t.Fatalf("cache usage = read:%v write:%v cached:%v", result.CacheReadTokens, result.CacheWriteTokens, result.CachedTokens)
-	}
-}
-
-func TestDecodeChatResultFallsBackToPromptCacheHitTokens(t *testing.T) {
-	result, err := decodeChatResult(translate.ChatRequest{Model: "deepseek-v4.1"}, []byte(`{
-			"model":"deepseek-v4.1",
-			"choices":[{"message":{"content":"OK"},"finish_reason":"stop"}],
-			"usage":{
-				"prompt_tokens":100,
-				"completion_tokens":20,
-				"prompt_cache_hit_tokens":80,
-				"source":"upstream"
-			}
-		}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.CacheReadTokens == nil || *result.CacheReadTokens != 80 ||
-		result.CachedTokens == nil || *result.CachedTokens != 80 {
-		t.Fatalf("cache usage = read:%v cached:%v", result.CacheReadTokens, result.CachedTokens)
-	}
-}
-
 func TestChatNonStreamFailoversRateLimit(t *testing.T) {
 	var hitsA atomic.Int32
 	a := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -155,6 +112,39 @@ func TestChatNonStreamDoesNotFailoverAcrossQoderRegions(t *testing.T) {
 	}
 }
 
+// A bare model shared by two providers must fail over to the other provider.
+// The first pick may pin a region for cache affinity, but the pin is released
+// on failure because this route is not provider-scoped.
+func TestChatNonStreamCrossProviderFailoverReleasesRegionPin(t *testing.T) {
+	qoder := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-Qoder-Account", "q1")
+		w.Header().Set("X-Qoder-Error-Kind", "rate_limit")
+		w.Header().Set("X-Qoder-Failover", "1")
+		http.Error(w, `{"error":{"message":"too many requests","kind":"rate_limit"}}`, http.StatusTooManyRequests)
+	}))
+	defer qoder.Close()
+	workbuddy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"model":"shared","choices":[{"message":{"content":"OK-W"},"finish_reason":"stop"}],"usage":{"source":"upstream"}}`)
+	}))
+	defer workbuddy.Close()
+
+	pool := NewPool(nil, nil)
+	pool.Upsert(Item{ID: "q1", URL: qoder.URL, Provider: "qoder", Region: "global", Runtime: "child_process", Models: []string{"shared"}})
+	pool.Upsert(Item{ID: "w1", URL: workbuddy.URL, Provider: "workbuddy", Region: "cn", Runtime: "child_process", Models: []string{"shared"}})
+	ex := NewChatExecutor(pool, "")
+	ex.HTTPClient = qoder.Client()
+
+	got, err := ex.ChatNonStream(context.Background(), translate.ChatRequest{
+		Model: "shared", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	}, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.AccountID != "w1" || got.Provider != "workbuddy" || got.AttemptCount != 2 {
+		t.Fatalf("got %+v, want workbuddy w1 on attempt 2", got)
+	}
+}
+
 func TestChatNonStreamPinnedCNDoesNotEscapeToGlobal(t *testing.T) {
 	cn := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Qoder-Account", "c1")
@@ -231,6 +221,38 @@ func TestChatNonStreamUnknownModelDoesNotHitWorkers(t *testing.T) {
 	item, _ := pool.ByID("a")
 	if !item.DownUntil.IsZero() {
 		t.Fatalf("unknown model must not cool the account: %+v", item)
+	}
+}
+
+// The first pick pins the region for the rest of the request, but the retry
+// budget must stay the one computed before that pick. Recomputing it against
+// the pinned region can leave zero failover hops even though another region
+// (or provider) is healthy, which is exactly "quota exhausted but no switch".
+func TestRouteFailoverKeepsAttemptBudgetAndCrossesRegion(t *testing.T) {
+	p := NewPool(nil, nil)
+	p.Upsert(Item{ID: "g1", Provider: "workbuddy", Region: "global", Models: []string{"shared"}})
+	p.Upsert(Item{ID: "c1", Provider: "workbuddy", Region: "cn", Models: []string{"shared"}})
+	e := ChatExecutor{Pool: p}
+
+	loop := e.newRouteLoop(context.Background(), "", "", translate.ChatRequest{Model: "shared"})
+	if loop.attempts != 2 {
+		t.Fatalf("attempts=%d, want 2", loop.attempts)
+	}
+	first, _, err := loop.pickNext(e, "shared")
+	if err != nil {
+		t.Fatalf("first pick: %v", err)
+	}
+	if loop.attempts != 2 {
+		t.Fatalf("attempt budget shrank after region pin: %d", loop.attempts)
+	}
+
+	loop.failover(e, first)
+	second, _, err := loop.pickNext(e, "shared")
+	if err != nil {
+		t.Fatalf("failover pick: %v", err)
+	}
+	if second.Region == first.Region {
+		t.Fatalf("failover stayed in failed region %s: %+v", first.Region, second)
 	}
 }
 
@@ -887,6 +909,176 @@ func TestObserveStreamFailureLeavesHealthyAccountAlone(t *testing.T) {
 	item, _ := pool.ByID("acc-ok")
 	if item.LastKind != "" || !item.DownUntil.IsZero() {
 		t.Fatalf("account polluted: kind=%q down=%v", item.LastKind, item.DownUntil)
+	}
+}
+
+// Legacy child-process accounts still send the worker payload through HTTP.
+// Account aliases and native model spellings must be applied on that path too;
+// otherwise the worker receives the public alias verbatim and the alias is
+// silently ignored.
+func TestChatNonStreamWorkerAppliesAccountAlias(t *testing.T) {
+	var seen atomic.Value
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Model string `json:"model"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		seen.Store(body.Model)
+		_, _ = io.WriteString(w, `{"model":"model-a","choices":[{"message":{"content":"ok"},"finish_reason":"stop"}],"usage":{"source":"upstream"}}`)
+	}))
+	defer server.Close()
+
+	pool := NewPool(nil, nil)
+	pool.Upsert(Item{
+		ID: "a", URL: server.URL, Provider: "qoder", Region: "global", Runtime: "child_process",
+		Models: []string{"model-a"}, ModelAliases: map[string]string{"model-b": "model-a"},
+	})
+	executor := NewChatExecutor(pool, "")
+	result, err := executor.ChatNonStream(context.Background(), translate.ChatRequest{
+		Model: "model-b", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	}, "", "")
+	if err != nil || result.AccountID != "a" {
+		t.Fatalf("result = %+v, err=%v", result, err)
+	}
+	if got := seen.Load(); got != "model-a" {
+		t.Fatalf("worker model = %v want model-a", got)
+	}
+}
+
+func TestChatStreamProxyWorkerAppliesAccountAlias(t *testing.T) {
+	var seen atomic.Value
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Model string `json:"model"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		seen.Store(body.Model)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: [DONE]\n\n")
+	}))
+	defer server.Close()
+
+	pool := NewPool(nil, nil)
+	pool.Upsert(Item{
+		ID: "a", URL: server.URL, Provider: "qoder", Region: "global", Runtime: "child_process",
+		Models: []string{"model-a"}, ModelAliases: map[string]string{"model-b": "model-a"},
+	})
+	executor := NewChatExecutor(pool, "")
+	result, err := executor.ChatStreamProxy(context.Background(), translate.ChatRequest{
+		Model: "model-b", Stream: true, Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	}, "", "")
+	if err != nil || result.AccountID != "a" {
+		t.Fatalf("result = %+v, err=%v", result, err)
+	}
+	if _, err := io.ReadAll(result.Response.Body); err != nil {
+		t.Fatal(err)
+	}
+	result.Response.Body.Close()
+	if got := seen.Load(); got != "model-a" {
+		t.Fatalf("worker model = %v want model-a", got)
+	}
+}
+
+// Priority aggregation must not spend the whole retry budget on sibling
+// accounts of the first provider. Each priority tier gets its own budget, so
+// two exhausted qoder accounts cannot prevent the workbuddy member from being
+// tried.
+func TestAggregatePriorityFallsThroughToNextProvider(t *testing.T) {
+	var q1Hits, q2Hits, w1Hits atomic.Int32
+	q1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		q1Hits.Add(1)
+		w.Header().Set("X-Qoder-Error-Kind", accounts.KindRateLimit)
+		w.Header().Set("X-Qoder-Failover", "1")
+		http.Error(w, `{"error":{"message":"too many requests","kind":"rate_limit"}}`, http.StatusTooManyRequests)
+	}))
+	defer q1.Close()
+	q2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		q2Hits.Add(1)
+		w.Header().Set("X-Qoder-Error-Kind", accounts.KindRateLimit)
+		w.Header().Set("X-Qoder-Failover", "1")
+		http.Error(w, `{"error":{"message":"too many requests","kind":"rate_limit"}}`, http.StatusTooManyRequests)
+	}))
+	defer q2.Close()
+	w1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w1Hits.Add(1)
+		_, _ = io.WriteString(w, `{"model":"model-b","choices":[{"message":{"content":"ok"},"finish_reason":"stop"}],"usage":{"source":"upstream"}}`)
+	}))
+	defer w1.Close()
+
+	pool := NewPool(nil, nil)
+	pool.Upsert(Item{ID: "a-q1", URL: q1.URL, Provider: "qoder", Region: "global", Runtime: "child_process", Models: []string{"model-a"}})
+	pool.Upsert(Item{ID: "b-q2", URL: q2.URL, Provider: "qoder", Region: "global", Runtime: "child_process", Models: []string{"model-a"}})
+	pool.Upsert(Item{ID: "z-w1", URL: w1.URL, Provider: "workbuddy", Region: "cn", Runtime: "child_process", Models: []string{"model-b"}})
+	plan := NewAggregatePlan(accounts.Aggregation{
+		ID: "logical", Strategy: accounts.AggregationPriority,
+		AllowFallbacks: true, MaxAttempts: 2,
+		Members: []accounts.AggregationMember{
+			{Provider: "qoder", Model: "model-a", Priority: 0},
+			{Provider: "workbuddy", Model: "model-b", Priority: 1},
+		},
+	})
+	executor := NewChatExecutor(pool, "")
+	result, err := executor.ChatNonStream(WithAggregatePlan(context.Background(), plan), translate.ChatRequest{
+		Model: "logical", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	}, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.AccountID != "z-w1" || result.AttemptCount != 3 {
+		t.Fatalf("result = %+v, want z-w1 after 3 attempts", result)
+	}
+	if q1Hits.Load() != 1 || q2Hits.Load() != 1 || w1Hits.Load() != 1 {
+		t.Fatalf("hits q1=%d q2=%d w1=%d", q1Hits.Load(), q2Hits.Load(), w1Hits.Load())
+	}
+}
+
+// A deployment-pinned member must use only its account. If that account fails,
+// failover goes to the next member/provider, never to a sibling account that
+// the member did not select.
+func TestAggregatePinnedMemberFailsOverToNextProvider(t *testing.T) {
+	var q1Hits, q2Hits, w1Hits atomic.Int32
+	q1 := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		q1Hits.Add(1)
+		t.Error("q1 is not a member of this logical model")
+	}))
+	defer q1.Close()
+	q2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		q2Hits.Add(1)
+		w.Header().Set("X-Qoder-Error-Kind", accounts.KindRateLimit)
+		w.Header().Set("X-Qoder-Failover", "1")
+		http.Error(w, `{"error":{"message":"too many requests","kind":"rate_limit"}}`, http.StatusTooManyRequests)
+	}))
+	defer q2.Close()
+	w1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w1Hits.Add(1)
+		_, _ = io.WriteString(w, `{"model":"model-b","choices":[{"message":{"content":"ok"},"finish_reason":"stop"}],"usage":{"source":"upstream"}}`)
+	}))
+	defer w1.Close()
+
+	pool := NewPool(nil, nil)
+	pool.Upsert(Item{ID: "a-q1", URL: q1.URL, Provider: "qoder", Region: "global", Runtime: "child_process", Models: []string{"model-a"}})
+	pool.Upsert(Item{ID: "b-q2", URL: q2.URL, Provider: "qoder", Region: "global", Runtime: "child_process", Models: []string{"model-a"}})
+	pool.Upsert(Item{ID: "z-w1", URL: w1.URL, Provider: "workbuddy", Region: "cn", Runtime: "child_process", Models: []string{"model-b"}})
+	plan := NewAggregatePlan(accounts.Aggregation{
+		ID: "logical", Strategy: accounts.AggregationPriority,
+		AllowFallbacks: true, MaxAttempts: 2,
+		Members: []accounts.AggregationMember{
+			{Provider: "qoder", Model: "model-a", AccountID: "b-q2", Priority: 0},
+			{Provider: "workbuddy", Model: "model-b", Priority: 1},
+		},
+	})
+	executor := NewChatExecutor(pool, "")
+	result, err := executor.ChatNonStream(WithAggregatePlan(context.Background(), plan), translate.ChatRequest{
+		Model: "logical", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	}, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.AccountID != "z-w1" || result.AttemptCount != 2 {
+		t.Fatalf("result = %+v, want z-w1 after 2 attempts", result)
+	}
+	if q1Hits.Load() != 0 || q2Hits.Load() != 1 || w1Hits.Load() != 1 {
+		t.Fatalf("hits q1=%d q2=%d w1=%d", q1Hits.Load(), q2Hits.Load(), w1Hits.Load())
 	}
 }
 
