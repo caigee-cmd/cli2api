@@ -40,6 +40,9 @@ func (h *Handler) HandleModelsAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data := h.decorateModels(r.Context(), h.filterModels(r, models))
+	if h.crossProviderPoolOn() && h.Control != nil {
+		data = control.MergeAggregationModels(r.Context(), h.Control.Aggregations, data)
+	}
 	if !h.crossProviderPoolOn() {
 		// The gateway refuses bare ids with the pool off; serve prefixed ids so
 		// every client that picks from this list produces a request it accepts.

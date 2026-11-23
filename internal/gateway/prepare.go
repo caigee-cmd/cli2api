@@ -67,6 +67,10 @@ func (h *Handler) prepareExecution(r *http.Request, request translate.ChatReques
 	if h != nil {
 		catalogs = h.Catalogs
 	}
+	var aggregations executor.AggregationResolver
+	if h != nil {
+		aggregations = h.Aggregations
+	}
 	got, err := h.Executor.Prepare(executor.PrepareInput{
 		Context:       ctx,
 		Request:       request,
@@ -80,6 +84,7 @@ func (h *Handler) prepareExecution(r *http.Request, request translate.ChatReques
 		ModelAggregation:  identity.ModelAggregation,
 		ModelContexts:     modelContexts,
 		Catalogs:          catalogs,
+		Aggregations:      aggregations,
 		Logs:              logs,
 	})
 	if err != nil {

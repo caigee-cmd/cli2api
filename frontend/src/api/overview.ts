@@ -175,6 +175,46 @@ export function refreshAccount(accountId: string, options?: { quota?: boolean })
   })
 }
 
+export type ModelProbeAccountResult = {
+  account_id: string
+  provider?: string
+  region?: string
+  ok: boolean
+  status?: number
+  code?: string
+  kind?: string
+  message?: string
+  latency_ms: number
+}
+
+export type ModelProbeResult = {
+  model: string
+  ok: boolean
+  account_id?: string
+  provider?: string
+  status?: number
+  code?: string
+  kind?: string
+  message?: string
+  latency_ms: number
+  attempt_count?: number
+  accounts?: ModelProbeAccountResult[]
+}
+
+export type ModelProbeResponse = {
+  results: ModelProbeResult[]
+  summary: { total: number; passed: number; failed: number; skipped: number }
+  elapsed_ms: number
+}
+
+/** Send one minimal token request per model to verify real availability. */
+export function checkModels(models?: string[]) {
+  return api<ModelProbeResponse>('/api/models/check', {
+    method: 'POST',
+    body: JSON.stringify(models?.length ? { models } : {}),
+  })
+}
+
 export function testChat(model: string, content: string, accountId?: string) {
   const headers: Record<string, string> = {}
   if (accountId) headers['X-Qoder-Account'] = accountId
