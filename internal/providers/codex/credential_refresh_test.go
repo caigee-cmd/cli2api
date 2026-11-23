@@ -123,6 +123,44 @@ func TestCatalogIncludesGPT61Sol(t *testing.T) {
 	}
 }
 
+func TestCatalogIncludesGPT62Models(t *testing.T) {
+	cases := []struct {
+		slug        string
+		displayName string
+		context     int
+	}{
+		{slug: "gpt-6.2-sol", displayName: "GPT-6.2-Sol", context: 500000},
+		{slug: "gpt-6.2-astra", displayName: "GPT-6.2-Astra", context: 272000},
+	}
+	wantLevels := []string{"low", "medium", "high", "xhigh", "max", "ultra"}
+	for _, tc := range cases {
+		entry, ok := lookupModel(tc.slug)
+		if !ok {
+			t.Fatalf("%s missing from Codex models.json", tc.slug)
+		}
+		if entry.DisplayName != tc.displayName {
+			t.Fatalf("%s display_name = %q", tc.slug, entry.DisplayName)
+		}
+		if entry.ContextWindow != tc.context || entry.MaxContextWindow != 872000 {
+			t.Fatalf("%s context windows = %d/%d", tc.slug, entry.ContextWindow, entry.MaxContextWindow)
+		}
+		if entry.DefaultReasoning != "low" {
+			t.Fatalf("%s default_reasoning_level = %q, want low", tc.slug, entry.DefaultReasoning)
+		}
+		if !entry.UseResponsesLite || !entry.SupportedInAPI || !entry.PreferWebsockets {
+			t.Fatalf("%s flags lite=%v api=%v ws=%v", tc.slug, entry.UseResponsesLite, entry.SupportedInAPI, entry.PreferWebsockets)
+		}
+		if len(entry.ReasoningLevels) != len(wantLevels) {
+			t.Fatalf("%s reasoning levels = %v, want %v", tc.slug, entry.ReasoningLevels, wantLevels)
+		}
+		for i, level := range wantLevels {
+			if entry.ReasoningLevels[i] != level {
+				t.Fatalf("%s reasoning levels = %v, want %v", tc.slug, entry.ReasoningLevels, wantLevels)
+			}
+		}
+	}
+}
+
 func TestCatalogIncludesGPT61Terra(t *testing.T) {
 	entry, ok := lookupModel("gpt-6.1-terra")
 	if !ok {
