@@ -23,6 +23,18 @@ var ErrUnsupported = errors.New("provider capability unsupported")
 // re-classify it as a client cancellation and skip failover.
 var ErrFirstByteTimeout = errors.New("first byte timeout")
 
+// ReasoningWire describes the provider's outbound field shape for a resolved
+// reasoning level. It is provider-local capability metadata; gateway code and
+// routing decisions must not depend on it.
+type ReasoningWire string
+
+const (
+	ReasoningWireUnspecified ReasoningWire = ""
+	ReasoningWireNested      ReasoningWire = "nested_effort"
+	ReasoningWireFlatEffort  ReasoningWire = "flat_effort"
+	ReasoningWireThinking    ReasoningWire = "thinking"
+)
+
 type ModelCapabilities struct {
 	ContextWindow    int `json:"context_window,omitempty"`
 	ContextWindowMax int `json:"context_window_max,omitempty"`
@@ -40,10 +52,11 @@ type ModelCapabilities struct {
 	ReasoningOptions   []string `json:"reasoning_options,omitempty"`
 	// ReasoningOptionValues keeps the exact upstream spelling for display.
 	// ReasoningOptions remains normalized for request clamping and routing.
-	ReasoningOptionValues []string `json:"reasoning_option_values,omitempty"`
-	ReasoningDefault      string   `json:"reasoning_default,omitempty"`
-	ReasoningType         string   `json:"reasoning_type,omitempty"`
-	CanDisableThinking    bool     `json:"can_disable_thinking,omitempty"`
+	ReasoningOptionValues []string      `json:"reasoning_option_values,omitempty"`
+	ReasoningDefault      string        `json:"reasoning_default,omitempty"`
+	ReasoningType         string        `json:"reasoning_type,omitempty"`
+	ReasoningWire         ReasoningWire `json:"reasoning_wire,omitempty"`
+	CanDisableThinking    bool          `json:"can_disable_thinking,omitempty"`
 }
 
 type ModelInfo struct {

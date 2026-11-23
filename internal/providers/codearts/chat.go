@@ -141,6 +141,9 @@ func (c *Client) doChat(ctx context.Context, accountID string, req translate.Cha
 		return nil, "", err
 	}
 	level, caps := c.resolveLevel(ctx, accountID, model, requestedLevel(req))
+	if providers.RequestsDisabledThinking(req) {
+		level = "none"
+	}
 	body, err := buildChatBody(req, model, level, caps.Images)
 	if err != nil {
 		return nil, "", err
@@ -282,24 +285,11 @@ func (c *Client) modelCapabilities(accountID, model string) providers.ModelCapab
 }
 
 func requestedLevel(req translate.ChatRequest) string {
-	if len(req.ReasoningEffort) == 0 {
-		return ""
+	intent := providers.ParseReasoningIntent(req)
+	if intent.Disabled {
+		return "none"
 	}
-	var value any
-	if json.Unmarshal(req.ReasoningEffort, &value) != nil {
-		return ""
-	}
-	switch typed := value.(type) {
-	case string:
-		return providers.NormalizeReasoningLevel(typed)
-	case map[string]any:
-		for _, key := range []string{"effort", "level", "type"} {
-			if text, ok := typed[key].(string); ok {
-				return providers.NormalizeReasoningLevel(text)
-			}
-		}
-	}
-	return ""
+	return intent.Level
 }
 
 // ModelSettingReader is optional. Missing it means the console reasoning
