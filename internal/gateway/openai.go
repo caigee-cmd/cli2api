@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"net/http"
 	"os"
 	"strings"
-	"net/http"
 	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
@@ -171,7 +171,7 @@ func (h *Handler) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 		}
 		h.finishRequestLog(requestID, started, req, publicModel, upstream.AccountID, firstNonEmpty(upstream.Provider, providerFilter), upstream.Routing, status, ttfb, &stats, logErr, upstream.AttemptCount, upstream.ReasoningLevel)
 		if relayErr == nil {
-			h.Executor.CommitSession(ctx, req, upstream.Routing, upstream.AccountID)
+			h.Executor.CommitSession(ctx, req, upstream.Routing, firstNonEmpty(upstream.PoolAccountID, upstream.AccountID))
 		}
 		if relayErr != nil {
 			// The upstream answered 200 and failed inside the stream, so the
@@ -182,7 +182,7 @@ func (h *Handler) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 			// PickRoute uses; publicModel may still carry "qoder/" and would
 			// write a cooldown that routing never hits.
 			if r.Context().Err() == nil && !errors.Is(relayErr, context.Canceled) && !errors.Is(relayErr, context.DeadlineExceeded) && !IsStreamClientDisconnect(relayErr) {
-				h.Executor.ObserveStreamFailure(upstream.AccountID, relayErr, req.Model)
+				h.Executor.ObserveStreamFailure(firstNonEmpty(upstream.PoolAccountID, upstream.AccountID), relayErr, req.Model)
 			}
 			panic(http.ErrAbortHandler)
 		}
@@ -362,7 +362,6 @@ func (h *Handler) recordStreamDiagnostic(requestID string, response *http.Respon
 }
 
 func ptrInt(value int) *int { return &value }
-
 
 // logCacheDiagnostics mirrors qoder2api-hub's split between route-level session
 // affinity and real upstream prompt-cache token hits. A bound session can still

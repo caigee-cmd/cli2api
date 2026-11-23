@@ -2,10 +2,12 @@ package executor
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -47,6 +49,41 @@ func TestSessionAffinityStatsTrackRoutingEvents(t *testing.T) {
 	}
 	if stats.LastEscapeReason != "rate_limit" || stats.LastMissReason != "not_found" || stats.TTLSeconds != 60 {
 		t.Fatalf("escape stats = %+v", stats)
+	}
+}
+
+// Cache affinity is account/session scoped, not a global region latch. A
+// bound conversation must stay on its account even when the route spans
+// providers and ordinary round-robin would pick another one first.
+func TestSessionAffinityKeepsConversationAcrossProviders(t *testing.T) {
+	var otherHits atomic.Int32
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		otherHits.Add(1)
+		_, _ = io.WriteString(w, `{"model":"shared","choices":[{"message":{"content":"other"},"finish_reason":"stop"}],"usage":{"source":"upstream"}}`)
+	}))
+	defer other.Close()
+	bound := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"model":"shared","choices":[{"message":{"content":"bound"},"finish_reason":"stop"}],"usage":{"source":"upstream"}}`)
+	}))
+	defer bound.Close()
+
+	pool := NewPool(nil, nil)
+	// "a-other" sorts first, so unscoped round-robin would hit it.
+	pool.Upsert(Item{ID: "a-other", URL: other.URL, Provider: "workbuddy", Region: "cn", Runtime: "child_process", Models: []string{"shared"}})
+	pool.Upsert(Item{ID: "z-bound", URL: bound.URL, Provider: "qoder", Region: "global", Runtime: "child_process", Models: []string{"shared"}})
+	ex := NewChatExecutor(pool, "")
+	ex.SessionAffinity.Bind("cache-session", "z-bound")
+
+	for i := 0; i < 2; i++ {
+		got, err := ex.ChatNonStream(WithSessionKey(context.Background(), "cache-session"), translate.ChatRequest{
+			Model: "shared", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+		}, "", "")
+		if err != nil || got.AccountID != "z-bound" || got.Routing != routingSticky {
+			t.Fatalf("turn %d = %+v, err=%v", i, got, err)
+		}
+	}
+	if otherHits.Load() != 0 {
+		t.Fatalf("other provider received %d requests despite cache binding", otherHits.Load())
 	}
 }
 
@@ -146,6 +183,133 @@ func TestChatNonStreamSessionAffinityEscapesWithinBoundRegion(t *testing.T) {
 	}
 }
 
+// A logical aggregation model is a virtual public ID. Its bound account must
+// still be validated against the plan's members, and the binding must survive
+// newRouteLoop; otherwise every request falls back to pool routing and prompt
+// cache affinity is lost across turns.
+func TestAggregateSessionAffinityKeepsBoundAccount(t *testing.T) {
+	var q1Hits, w1Hits atomic.Int32
+	q1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Model string `json:"model"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body.Model != "model-a" {
+			t.Errorf("q1 upstream model = %q want model-a", body.Model)
+		}
+		q1Hits.Add(1)
+		_, _ = io.WriteString(w, `{"model":"model-a","choices":[{"message":{"content":"q1"},"finish_reason":"stop"}],"usage":{"source":"upstream"}}`)
+	}))
+	defer q1.Close()
+	w1 := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		w1Hits.Add(1)
+		t.Error("workbuddy must not be called while the session is bound to qoder")
+	}))
+	defer w1.Close()
+
+	pool := NewPool(nil, nil)
+	pool.Upsert(Item{
+		ID: "a-qoder", URL: q1.URL, Provider: "qoder", Region: "global", Runtime: "child_process",
+		Models: []string{"model-a"}, ModelAliases: map[string]string{"model-b": "model-a"},
+	})
+	pool.Upsert(Item{
+		ID: "z-workbuddy", URL: w1.URL, Provider: "workbuddy", Region: "cn", Runtime: "child_process",
+		Models: []string{"model-b"},
+	})
+	plan := NewAggregatePlan(accounts.Aggregation{
+		ID: "logical-model-b", Strategy: accounts.AggregationRoundRobin,
+		AllowFallbacks: true, MaxAttempts: 2,
+		Members: []accounts.AggregationMember{
+			{Provider: "qoder", Model: "model-b", Priority: 0},
+			{Provider: "workbuddy", Model: "model-b", Priority: 1},
+		},
+	})
+	executor := NewChatExecutor(pool, "")
+	executor.SessionAffinity.Bind("agg-session", "a-qoder")
+	ctx := WithAggregatePlan(WithSessionKey(context.Background(), "agg-session"), plan)
+	req := translate.ChatRequest{Model: "logical-model-b", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}}}
+
+	for i := 0; i < 2; i++ {
+		result, err := executor.ChatNonStream(ctx, req, "", "")
+		if err != nil || result.AccountID != "a-qoder" || result.Routing != routingSticky {
+			t.Fatalf("turn %d = %+v, err=%v", i, result, err)
+		}
+	}
+	if q1Hits.Load() != 2 || w1Hits.Load() != 0 {
+		t.Fatalf("hits q1=%d w1=%d, want q1=2 w1=0", q1Hits.Load(), w1Hits.Load())
+	}
+}
+
+// A hard failure on the bound aggregate member must cross the provider
+// boundary, invalidate the stale binding, and rebind to the account that
+// actually served the retry. The next turn then sticks to it for cache reuse.
+func TestAggregateSessionAffinityFailoverRebindsAcrossProviders(t *testing.T) {
+	var q1Hits, w1Hits atomic.Int32
+	q1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Model string `json:"model"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body.Model != "model-a" {
+			t.Errorf("q1 upstream model = %q want model-a", body.Model)
+		}
+		q1Hits.Add(1)
+		w.Header().Set("X-Qoder-Error-Kind", accounts.KindRateLimit)
+		w.Header().Set("X-Qoder-Failover", "1")
+		http.Error(w, `{"error":{"message":"too many requests","kind":"rate_limit"}}`, http.StatusTooManyRequests)
+	}))
+	defer q1.Close()
+	w1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Model string `json:"model"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body.Model != "model-b" {
+			t.Errorf("w1 upstream model = %q want model-b", body.Model)
+		}
+		w1Hits.Add(1)
+		_, _ = io.WriteString(w, `{"model":"model-b","choices":[{"message":{"content":"w1"},"finish_reason":"stop"}],"usage":{"source":"upstream"}}`)
+	}))
+	defer w1.Close()
+
+	pool := NewPool(nil, nil)
+	pool.Upsert(Item{
+		ID: "a-qoder", URL: q1.URL, Provider: "qoder", Region: "global", Runtime: "child_process",
+		Models: []string{"model-a"}, ModelAliases: map[string]string{"model-b": "model-a"},
+	})
+	pool.Upsert(Item{
+		ID: "z-workbuddy", URL: w1.URL, Provider: "workbuddy", Region: "cn", Runtime: "child_process",
+		Models: []string{"model-b"},
+	})
+	plan := NewAggregatePlan(accounts.Aggregation{
+		ID: "logical-model-b", Strategy: accounts.AggregationRoundRobin,
+		AllowFallbacks: true, MaxAttempts: 2,
+		Members: []accounts.AggregationMember{
+			{Provider: "qoder", Model: "model-b", Priority: 0},
+			{Provider: "workbuddy", Model: "model-b", Priority: 1},
+		},
+	})
+	executor := NewChatExecutor(pool, "")
+	executor.SessionAffinity.Bind("agg-failover", "a-qoder")
+	ctx := WithAggregatePlan(WithSessionKey(context.Background(), "agg-failover"), plan)
+	req := translate.ChatRequest{Model: "logical-model-b", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}}}
+
+	first, err := executor.ChatNonStream(ctx, req, "", "")
+	if err != nil || first.AccountID != "z-workbuddy" || first.Routing != routingStickyEscape || first.AttemptCount != 2 {
+		t.Fatalf("first = %+v, err=%v", first, err)
+	}
+	if bound, ok := executor.SessionAffinity.Get("agg-failover"); !ok || bound != "z-workbuddy" {
+		t.Fatalf("rebound = %q, ok=%v", bound, ok)
+	}
+	second, err := executor.ChatNonStream(ctx, req, "", "")
+	if err != nil || second.AccountID != "z-workbuddy" || second.Routing != routingSticky {
+		t.Fatalf("second = %+v, err=%v", second, err)
+	}
+	if q1Hits.Load() != 1 || w1Hits.Load() != 2 {
+		t.Fatalf("hits q1=%d w1=%d, want q1=1 w1=2", q1Hits.Load(), w1Hits.Load())
+	}
+}
+
 func TestChatStreamProxySessionAffinity(t *testing.T) {
 	server := func() *httptest.Server {
 		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -179,6 +343,75 @@ func TestChatStreamProxySessionAffinity(t *testing.T) {
 		t.Fatalf("second = %+v, err=%v", second, err)
 	}
 	second.Response.Body.Close()
+}
+
+// The worker can echo a per-account label that differs from the pool ID. The
+// session binding must still use the pool routing key, or the next request's
+// Pool.ByID lookup fails and cache affinity silently disappears.
+func TestSessionBindingUsesPoolIDWhenWorkerRewritesAccountLabel(t *testing.T) {
+	var hits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.Header().Set("X-Qoder-Account", "worker-label")
+		_, _ = io.WriteString(w, `{"model":"shared","choices":[{"message":{"content":"ok"},"finish_reason":"stop"}],"usage":{"source":"upstream"}}`)
+	}))
+	defer server.Close()
+
+	pool := NewPool(nil, nil)
+	pool.Upsert(Item{ID: "pool-a", URL: server.URL, Provider: "qoder", Region: "global", Runtime: "child_process", Models: []string{"shared"}})
+	executor := NewChatExecutor(pool, "")
+	ctx := WithSessionKey(context.Background(), "label-rewrite")
+	req := translate.ChatRequest{Model: "shared", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}}}
+
+	first, err := executor.ChatNonStream(ctx, req, "", "")
+	if err != nil || first.AccountID != "worker-label" {
+		t.Fatalf("first = %+v, err=%v", first, err)
+	}
+	if bound, ok := executor.SessionAffinity.Get("label-rewrite"); !ok || bound != "pool-a" {
+		t.Fatalf("binding = %q ok=%v, want pool-a", bound, ok)
+	}
+	second, err := executor.ChatNonStream(ctx, req, "", "")
+	if err != nil || second.Routing != routingSticky || second.AccountID != "worker-label" {
+		t.Fatalf("second = %+v, err=%v", second, err)
+	}
+	if hits.Load() != 2 {
+		t.Fatalf("worker hits = %d, want 2", hits.Load())
+	}
+}
+
+// A stream must become sticky as soon as the upstream accepts it, before the
+// body finishes. Otherwise a second turn started during the stream can select
+// another account and lose the prompt cache.
+func TestAggregateStreamBindsBeforeBodyEnds(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\n")
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		_, _ = io.WriteString(w, "data: [DONE]\n\n")
+	}))
+	defer server.Close()
+
+	pool := NewPool(nil, nil)
+	pool.Upsert(Item{ID: "a-q1", URL: server.URL, Provider: "qoder", Region: "global", Runtime: "child_process", Models: []string{"model-a"}})
+	plan := NewAggregatePlan(accounts.Aggregation{
+		ID: "logical", Strategy: accounts.AggregationPriority, AllowFallbacks: true, MaxAttempts: 2,
+		Members: []accounts.AggregationMember{{Provider: "qoder", Model: "model-a", AccountID: "a-q1", Priority: 0}},
+	})
+	executor := NewChatExecutor(pool, "")
+	ctx := WithAggregatePlan(WithSessionKey(context.Background(), "stream-agg"), plan)
+	result, err := executor.ChatStreamProxy(ctx, translate.ChatRequest{
+		Model: "logical", Stream: true, Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	}, "", "")
+	if err != nil || result.AccountID != "a-q1" {
+		t.Fatalf("result = %+v, err=%v", result, err)
+	}
+	if bound, ok := executor.SessionAffinity.Get("stream-agg"); !ok || bound != "a-q1" {
+		t.Fatalf("binding before body read = %q ok=%v", bound, ok)
+	}
+	_, _ = io.Copy(io.Discard, result.Response.Body)
+	result.Response.Body.Close()
 }
 
 func TestChatNonStreamContentSessionAffinityWithoutExplicitKey(t *testing.T) {
