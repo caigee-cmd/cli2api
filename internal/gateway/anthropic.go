@@ -194,6 +194,16 @@ func anthropicMessageResponse(requestID, model, content, reasoning string, toolC
 	}
 }
 
+func saturatingSubInt(value, subtract int) int {
+	if subtract <= 0 {
+		return value
+	}
+	if value <= subtract {
+		return 0
+	}
+	return value - subtract
+}
+
 func anthropicStopReason(finishReason string, toolCalls []proxyToolCall) string {
 	if len(toolCalls) > 0 || finishReason == "tool_calls" {
 		return "tool_use"
