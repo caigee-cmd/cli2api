@@ -39,6 +39,11 @@ var invalidRequestMarkers = []string{
 	"request param is invalid",
 	"invalid request",
 	"tool_choice",
+	// InferHub.ModelArts.81001.400 "the content of image_url.url field is
+	// unsafe": the upstream rejected the image itself. Retrying the same
+	// request on another account cannot succeed (issue #562).
+	"field is unsafe",
+	"content is unsafe",
 }
 
 var quotaMarkers = []string{
@@ -78,7 +83,7 @@ func Classify(status int, body string) providers.ClassifiedError {
 		return providers.ClassifiedError{Kind: accounts.KindAuth, Status: http.StatusUnauthorized, Message: message}
 	case containsAny(lower, rateLimitMarkers) || status == http.StatusTooManyRequests:
 		return providers.ClassifiedError{Kind: accounts.KindRateLimit, Status: http.StatusTooManyRequests, Message: message}
-	case containsAny(lower, invalidRequestMarkers) || status == http.StatusBadRequest || status == http.StatusUnprocessableEntity:
+	case containsAny(lower, invalidRequestMarkers) || status == http.StatusBadRequest || status == http.StatusUnprocessableEntity || embeddedStatus(lower) == http.StatusBadRequest:
 		return providers.ClassifiedError{Kind: accounts.KindInvalidRequest, Status: http.StatusBadRequest, Message: message}
 	case status == http.StatusNotFound:
 		return providers.ClassifiedError{Kind: accounts.KindModelNotAvailable, Status: http.StatusNotFound, Message: message}
@@ -100,6 +105,26 @@ func containsAny(text string, markers []string) bool {
 		}
 	}
 	return false
+}
+
+// embeddedStatus is the trailing HTTP status an InferHub business code carries
+// inside an HTTP 200 SSE frame, e.g. InferHub.ModelArts.81001.400. Zero when
+// the body has no such code.
+var embeddedStatusPattern = regexp.MustCompile(`(?i)inferhub(?:\.[a-z0-9]+)*\.(\d{3})\b`)
+
+func embeddedStatus(body string) int {
+	match := embeddedStatusPattern.FindStringSubmatch(body)
+	if match == nil {
+		return 0
+	}
+	status := 0
+	for _, digit := range match[1] {
+		status = status*10 + int(digit-'0')
+	}
+	if status < 400 || status > 599 {
+		return 0
+	}
+	return status
 }
 
 // newProviderError turns an HTTP status/body into the provider error the
