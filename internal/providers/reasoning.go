@@ -18,6 +18,7 @@ var reasoningLevels = map[string]string{
 	"extra-high": "xhigh",
 	"extrahigh":  "xhigh",
 	"max":        "max",
+	"ultra":      "max",
 }
 
 func NormalizeReasoningLevel(raw string) string {
@@ -37,6 +38,27 @@ func NormalizeReasoningLevel(raw string) string {
 // level. Request/routing code uses NormalizeReasoningLevel instead; the console
 // uses this list so it can display values such as off, minimal, or ultra
 // exactly as the provider declared them.
+// ReasoningLevelFromThinkingBudget maps an Anthropic-style thinking budget to
+// the gateway's neutral reasoning vocabulary. CC Switch uses the same tier
+// boundaries when translating Codex effort into Anthropic thinking budgets:
+// 2048 / 8192 / 16384 / 24576 for low / medium / high / max(ultra).
+// We use the lower bound of each tier as the cut-off so a budget sent by that
+// converter round-trips back to the same neutral level.
+func ReasoningLevelFromThinkingBudget(budget int) string {
+	switch {
+	case budget <= 0:
+		return ""
+	case budget <= 2048:
+		return "low"
+	case budget <= 8192:
+		return "medium"
+	case budget <= 16384:
+		return "high"
+	default:
+		return "max"
+	}
+}
+
 func UniqueReasoningOptionValues(values []string) []string {
 	seen := map[string]struct{}{}
 	var options []string
