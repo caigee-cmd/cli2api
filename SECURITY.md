@@ -4,7 +4,7 @@ Intended for personal / self-hosted use of **your own** upstream accounts.
 
 ## Do not
 
-- Expose `:3010` or worker / updater ports directly to the public internet
+- Expose `:3010` directly to the public internet. The optional host updater does not listen on a port; it takes commands over a local Unix socket (`updater.sock`, see `deploy/README.md`), so keep that socket's directory private too
 - Give client applications the administrator key when a scoped client key is enough
 - Share one login across many users commercially
 - Share tokens, cookies, credential exports, SQLite databases, backups, or raw captures
