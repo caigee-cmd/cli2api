@@ -4,7 +4,6 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"strings"
 
 	"github.com/caigee-cmd/cli2api/internal/providers"
@@ -16,44 +15,7 @@ func normalizeReasoningLevel(raw string) string {
 }
 
 func requestedReasoningLevel(req translate.ChatRequest) string {
-	if len(req.ReasoningEffort) > 0 {
-		var value any
-		if json.Unmarshal(req.ReasoningEffort, &value) == nil {
-			switch typed := value.(type) {
-			case string:
-				if level := normalizeReasoningLevel(typed); level != "" {
-					return level
-				}
-			case map[string]any:
-				for _, key := range []string{"effort", "level", "type"} {
-					if text, ok := typed[key].(string); ok {
-						if level := normalizeReasoningLevel(text); level != "" {
-							return level
-						}
-					}
-				}
-			}
-		}
-	}
-	if req.EnableThinking != nil {
-		if *req.EnableThinking {
-			return "medium"
-		}
-		return "none"
-	}
-	if req.EnableReasoning != nil {
-		if *req.EnableReasoning {
-			return "medium"
-		}
-		return "none"
-	}
-	if req.IsReasoning != nil {
-		if *req.IsReasoning {
-			return "medium"
-		}
-		return "none"
-	}
-	return ""
+	return providers.ParseReasoningIntent(req).Level
 }
 
 func clampReasoningLevel(level string, caps providers.ModelCapabilities) string {
@@ -75,12 +37,17 @@ func applySoloChatFields(obj map[string]any, req translate.ChatRequest, maxMode 
 	} else {
 		delete(obj, "is_max_mode")
 	}
-	level := requestedReasoningLevel(req)
-	if level == "" {
-		level = storedLevel
+	level := ""
+	if providers.RequestsDisabledThinking(req) {
+		level = "none"
+	} else {
+		level = requestedReasoningLevel(req)
+		if level == "" {
+			level = storedLevel
+		}
+		level = clampReasoningLevel(level, caps)
 	}
-	level = clampReasoningLevel(level, caps)
-	if level == "" {
+	if level == "" || level == "none" {
 		delete(obj, "reasoning_effort_level")
 	} else {
 		obj["reasoning_effort_level"] = level
@@ -123,6 +90,9 @@ func newConversationID() string {
 // resolvedReasoningLevel returns the clamped reasoning level actually sent
 // upstream for the given request, or empty when no level is included.
 func resolvedReasoningLevel(req translate.ChatRequest, storedLevel string, caps providers.ModelCapabilities) string {
+	if providers.RequestsDisabledThinking(req) {
+		return "none"
+	}
 	level := requestedReasoningLevel(req)
 	if level == "" {
 		level = storedLevel

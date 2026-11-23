@@ -272,7 +272,7 @@ func (e ChatExecutor) resolveAggregation(ctx context.Context, resolver Aggregati
 // "<provider>/" model id. Command Code's own model ids are org-namespaced
 // ("deepseek/…", "moonshotai/…"), so its provider prefix sits in front of an
 // already-namespaced id ("command/deepseek/…").
-var providerPrefixes = []string{"qoder/", "workbuddy/", "trae/", "devin/", "command/", "codex/", "zhipu/", "qwenwork/", "kimi/", "codearts/", "kiro/", "doubaowork/", "minimaxcode/"}
+var providerPrefixes = []string{"qoder/", "workbuddy/", "trae/", "devin/", "command/", "codex/", "zhipu/", "qwenwork/", "kimi/", "codearts/", "kiro/", "meta/", "muse/", "doubaowork/", "minimaxcode/"}
 
 // regionDashSuffixes are the region qualifiers that may be appended to a
 // provider prefix with a dash: "workbuddy-cn/", "workbuddy-gl/",
@@ -362,13 +362,13 @@ func ResolveProviderFilter(req *translate.ChatRequest, crossProviderPool bool) (
 		for _, rs := range regionDashSuffixes {
 			if strings.HasPrefix(model, base+rs) {
 				req.Model = strings.TrimPrefix(model, base+rs)
-				return base, regionAliases[regionTag(rs)]
+				return accounts.NormalizeProviderFamily(base), regionAliases[regionTag(rs)]
 			}
 		}
 		// Standard form: "workbuddy/model"
 		if strings.HasPrefix(model, prefix) {
 			req.Model = strings.TrimPrefix(model, prefix)
-			return base, ""
+			return accounts.NormalizeProviderFamily(base), ""
 		}
 	}
 	if crossProviderPool {
@@ -442,42 +442,7 @@ func SessionKeyFor(header string, identity auth.Identity, req translate.ChatRequ
 // normalized to the provider-neutral vocabulary. Empty when the request did
 // not specify one.
 func RequestedReasoningLevel(req translate.ChatRequest) string {
-	if len(req.ReasoningEffort) > 0 {
-		var value any
-		if json.Unmarshal(req.ReasoningEffort, &value) == nil {
-			switch typed := value.(type) {
-			case string:
-				return providers.NormalizeReasoningLevel(typed)
-			case map[string]any:
-				for _, key := range []string{"effort", "level", "type"} {
-					if text, ok := typed[key].(string); ok {
-						if level := providers.NormalizeReasoningLevel(text); level != "" {
-							return level
-						}
-					}
-				}
-			}
-		}
-	}
-	if req.EnableThinking != nil {
-		if *req.EnableThinking {
-			return "medium"
-		}
-		return "none"
-	}
-	if req.EnableReasoning != nil {
-		if *req.EnableReasoning {
-			return "medium"
-		}
-		return "none"
-	}
-	if req.IsReasoning != nil {
-		if *req.IsReasoning {
-			return "medium"
-		}
-		return "none"
-	}
-	return ""
+	return providers.ParseReasoningIntent(req).Level
 }
 
 // sessionAffinityDebugOn mirrors qoder2api-hub's QD_AFFINITY_DEBUG: routing

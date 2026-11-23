@@ -732,45 +732,7 @@ func resolvedReasoningLevel(req translate.ChatRequest) string {
 	// A nested thinking:{"type":"disabled"} is an explicit off switch. Qoder
 	// does not clamp levels, but reporting "none" keeps the request log and the
 	// outbound enable_thinking / is_reasoning flags consistent.
-	if providers.RequestsDisabledThinking(req) {
-		return "none"
-	}
-	if len(req.ReasoningEffort) > 0 {
-		var value any
-		if json.Unmarshal(req.ReasoningEffort, &value) == nil {
-			switch typed := value.(type) {
-			case string:
-				return providers.NormalizeReasoningLevel(typed)
-			case map[string]any:
-				for _, key := range []string{"effort", "level", "type"} {
-					if text, ok := typed[key].(string); ok {
-						if level := providers.NormalizeReasoningLevel(text); level != "" {
-							return level
-						}
-					}
-				}
-			}
-		}
-	}
-	if req.EnableThinking != nil {
-		if *req.EnableThinking {
-			return "medium"
-		}
-		return "none"
-	}
-	if req.EnableReasoning != nil {
-		if *req.EnableReasoning {
-			return "medium"
-		}
-		return "none"
-	}
-	if req.IsReasoning != nil {
-		if *req.IsReasoning {
-			return "medium"
-		}
-		return "none"
-	}
-	return ""
+	return providers.ParseReasoningIntent(req).Level
 }
 
 func BuildChatPayload(req translate.ChatRequest, stream bool) map[string]any {

@@ -18,6 +18,7 @@ var reasoningLevels = map[string]string{
 	"extra-high": "xhigh",
 	"extrahigh":  "xhigh",
 	"max":        "max",
+	"ultra":      "max",
 }
 
 func NormalizeReasoningLevel(raw string) string {
@@ -37,6 +38,27 @@ func NormalizeReasoningLevel(raw string) string {
 // level. Request/routing code uses NormalizeReasoningLevel instead; the console
 // uses this list so it can display values such as off, minimal, or ultra
 // exactly as the provider declared them.
+// ReasoningLevelFromThinkingBudget maps an Anthropic-style thinking budget to
+// the gateway's neutral reasoning vocabulary. CC Switch uses the same tier
+// boundaries when translating Codex effort into Anthropic thinking budgets:
+// 2048 / 8192 / 16384 / 24576 for low / medium / high / max(ultra).
+// We use the lower bound of each tier as the cut-off so a budget sent by that
+// converter round-trips back to the same neutral level.
+func ReasoningLevelFromThinkingBudget(budget int) string {
+	switch {
+	case budget <= 0:
+		return ""
+	case budget <= 2048:
+		return "low"
+	case budget <= 8192:
+		return "medium"
+	case budget <= 16384:
+		return "high"
+	default:
+		return "max"
+	}
+}
+
 func UniqueReasoningOptionValues(values []string) []string {
 	seen := map[string]struct{}{}
 	var options []string
@@ -91,6 +113,13 @@ func ResolveReasoningLevel(level string, caps ModelCapabilities) string {
 				return normalized
 			}
 		}
+		if chain := reasoningDegradationChain(normalized); chain != nil {
+			for _, candidate := range chain {
+				if containsReasoningOption(caps.ReasoningOptions, candidate) {
+					return candidate
+				}
+			}
+		}
 	}
 	if fallback := NormalizeReasoningLevel(caps.ReasoningDefault); fallback != "" {
 		for _, option := range caps.ReasoningOptions {
@@ -100,4 +129,35 @@ func ResolveReasoningLevel(level string, caps ModelCapabilities) string {
 		}
 	}
 	return caps.ReasoningOptions[0]
+}
+
+func containsReasoningOption(options []string, level string) bool {
+	for _, option := range options {
+		if NormalizeReasoningLevel(option) == level {
+			return true
+		}
+	}
+	return false
+}
+
+// ReasoningOptionIncludes reports whether a normalized level is declared in
+// the capability set. Adapters use it for explicit off switches: when a model
+// does not declare "none", an off request must be omitted rather than clamped
+// back to a thinking level.
+func ReasoningOptionIncludes(options []string, level string) bool {
+	return containsReasoningOption(options, NormalizeReasoningLevel(level))
+}
+
+// reasoningDegradationChain returns lower tiers ordered from nearest to
+// farthest. Only high tiers need explicit degradation; lower/unknown values
+// fall through to the model default in ResolveReasoningLevel.
+func reasoningDegradationChain(level string) []string {
+	switch level {
+	case "max":
+		return []string{"xhigh", "high", "medium", "low", "none"}
+	case "xhigh":
+		return []string{"high", "medium", "low", "none"}
+	default:
+		return nil
+	}
 }

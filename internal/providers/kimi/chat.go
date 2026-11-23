@@ -166,26 +166,11 @@ func resolveModel(model string) string {
 }
 
 func requestedLevel(req translate.ChatRequest) string {
-	if len(req.ReasoningEffort) == 0 {
-		return ""
+	intent := providers.ParseReasoningIntent(req)
+	if intent.Disabled {
+		return "none"
 	}
-	var value any
-	if json.Unmarshal(req.ReasoningEffort, &value) != nil {
-		return ""
-	}
-	switch typed := value.(type) {
-	case string:
-		return providers.NormalizeReasoningLevel(typed)
-	case map[string]any:
-		for _, key := range []string{"effort", "level", "type"} {
-			if text, ok := typed[key].(string); ok {
-				if level := providers.NormalizeReasoningLevel(text); level != "" {
-					return level
-				}
-			}
-		}
-	}
-	return ""
+	return intent.Level
 }
 
 type sseAggregate struct {
