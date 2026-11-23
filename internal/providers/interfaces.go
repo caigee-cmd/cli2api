@@ -38,9 +38,12 @@ type ModelCapabilities struct {
 	Images             bool     `json:"images"`
 	Reasoning          bool     `json:"reasoning"`
 	ReasoningOptions   []string `json:"reasoning_options,omitempty"`
-	ReasoningDefault   string   `json:"reasoning_default,omitempty"`
-	ReasoningType      string   `json:"reasoning_type,omitempty"`
-	CanDisableThinking bool     `json:"can_disable_thinking,omitempty"`
+	// ReasoningOptionValues keeps the exact upstream spelling for display.
+	// ReasoningOptions remains normalized for request clamping and routing.
+	ReasoningOptionValues []string `json:"reasoning_option_values,omitempty"`
+	ReasoningDefault      string   `json:"reasoning_default,omitempty"`
+	ReasoningType         string   `json:"reasoning_type,omitempty"`
+	CanDisableThinking    bool     `json:"can_disable_thinking,omitempty"`
 }
 
 type ModelInfo struct {

@@ -24,7 +24,7 @@ type modelRecord struct {
 	MaxTokens     int64
 	Images        bool
 	Benefit       bool
-	Reasoning     []string
+	Reasoning     []string // upstream spelling; normalized only when building internal caps
 }
 
 // fetchModels reads the account's currently billable models. Since 2026-10
@@ -135,7 +135,7 @@ func (c *Client) fetchThinkingVariants(ctx context.Context, accountID string, cr
 	}
 	variants := make(map[string][]string, len(out.Variants))
 	for model, value := range out.Variants {
-		options := normalizeReasoningOptions(value.Strengths)
+		options := providers.UniqueReasoningOptionValues(value.Strengths)
 		if len(options) > 0 {
 			variants[strings.ToLower(strings.TrimSpace(model))] = options
 		}
@@ -221,6 +221,7 @@ func toModelInfo(record modelRecord) providers.ModelInfo {
 	}
 	if options := normalizeReasoningOptions(record.Reasoning); len(options) > 0 {
 		caps.ReasoningOptions = options
+		caps.ReasoningOptionValues = providers.UniqueReasoningOptionValues(record.Reasoning)
 		caps.ReasoningDefault = defaultReasoningOption(options)
 		for _, option := range options {
 			if option == "none" {

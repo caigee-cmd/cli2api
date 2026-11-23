@@ -58,14 +58,15 @@ func entryModelInfo(entry catalogEntry) providers.ModelInfo {
 	}
 	options := providers.UniqueReasoningOptions(entry.ReasoningLevels)
 	caps := providers.ModelCapabilities{
-		ContextWindow:    entry.ContextWindow,
-		ContextWindowMax: entry.MaxContextWindow,
-		Tools:            true,
-		Images:           images,
-		Reasoning:        len(options) > 0,
-		ReasoningOptions: options,
-		ReasoningDefault: providers.NormalizeReasoningLevel(entry.DefaultReasoning),
-		ReasoningType:    "effort",
+		ContextWindow:         entry.ContextWindow,
+		ContextWindowMax:      entry.MaxContextWindow,
+		Tools:                 true,
+		Images:                images,
+		Reasoning:             len(options) > 0,
+		ReasoningOptions:      options,
+		ReasoningOptionValues: providers.UniqueReasoningOptionValues(entry.ReasoningLevels),
+		ReasoningDefault:      providers.NormalizeReasoningLevel(entry.DefaultReasoning),
+		ReasoningType:         "effort",
 	}
 	return providers.ModelInfo{
 		NativeModel:  entry.Slug,

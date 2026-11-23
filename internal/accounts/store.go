@@ -68,4 +68,9 @@ type AccountStore interface {
 	LookupAPIKey(ctx context.Context, secret string) (APIKey, bool, error)
 	DeleteAPIKey(ctx context.Context, id string) error
 	TouchAPIKey(ctx context.Context, id string) error
+	InsertAggregation(ctx context.Context, agg Aggregation) (Aggregation, error)
+	SaveAggregation(ctx context.Context, agg Aggregation) (Aggregation, error)
+	ListAggregations(ctx context.Context) ([]Aggregation, error)
+	GetAggregation(ctx context.Context, id string) (Aggregation, error)
+	DeleteAggregation(ctx context.Context, id string) error
 }
