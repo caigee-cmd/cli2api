@@ -28,10 +28,11 @@ func (h *Handler) HandleAPIKeys(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"object": "list", "data": keys})
 	case http.MethodPost:
 		var input struct {
-			Name        string   `json:"name"`
-			Providers   []string `json:"providers"`
-			Enabled     *bool    `json:"enabled"`
-			MaxInFlight int      `json:"max_inflight"`
+			Name             string   `json:"name"`
+			Providers        []string `json:"providers"`
+			Enabled          *bool    `json:"enabled"`
+			MaxInFlight      int      `json:"max_inflight"`
+			ModelAggregation bool     `json:"model_aggregation"`
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxConsoleBodyBytes)).Decode(&input); err != nil {
 			writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
@@ -42,7 +43,8 @@ func (h *Handler) HandleAPIKeys(w http.ResponseWriter, r *http.Request) {
 			enabled = *input.Enabled
 		}
 		key, err := h.Control.Keys.Create(r.Context(), accounts.CreateAPIKey{
-			Name: input.Name, Providers: input.Providers, Enabled: enabled, MaxInFlight: input.MaxInFlight,
+			Name: input.Name, Providers: input.Providers, Enabled: enabled,
+			MaxInFlight: input.MaxInFlight, ModelAggregation: input.ModelAggregation,
 		})
 		if err != nil {
 			writeErr(w, http.StatusBadRequest, "api_key_create_failed", err.Error())
@@ -74,17 +76,19 @@ func (h *Handler) HandleAPIKeyByID(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, key)
 	case http.MethodPatch:
 		var input struct {
-			Name        string   `json:"name"`
-			Providers   []string `json:"providers"`
-			Enabled     *bool    `json:"enabled"`
-			MaxInFlight *int     `json:"max_inflight"`
+			Name             string   `json:"name"`
+			Providers        []string `json:"providers"`
+			Enabled          *bool    `json:"enabled"`
+			MaxInFlight      *int     `json:"max_inflight"`
+			ModelAggregation *bool    `json:"model_aggregation"`
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxConsoleBodyBytes)).Decode(&input); err != nil {
 			writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
 			return
 		}
 		key, err := h.Control.Keys.Update(r.Context(), id, accounts.UpdateAPIKey{
-			Name: input.Name, Providers: input.Providers, Enabled: input.Enabled, MaxInFlight: input.MaxInFlight,
+			Name: input.Name, Providers: input.Providers, Enabled: input.Enabled,
+			MaxInFlight: input.MaxInFlight, ModelAggregation: input.ModelAggregation,
 		})
 		if errors.Is(err, accounts.ErrAPIKeyNotFound) {
 			writeErr(w, http.StatusNotFound, "api_key_not_found", err.Error())
