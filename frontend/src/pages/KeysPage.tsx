@@ -229,6 +229,9 @@ export function KeysPage() {
                       </span>
                     </Chip>
                   ))}
+                  {key.model_aggregation ? (
+                    <Chip size="sm" variant="soft">{t('keysModelAggregationBadge')}</Chip>
+                  ) : null}
                 </div>
                 <p className="text-caption leading-5 text-muted">
                   {key.max_inflight > 0 ? t('keysMaxInflightValue', { count: key.max_inflight }) : t('keysMaxInflightUnlimited')}
@@ -343,6 +346,7 @@ function KeyEditorModal({
 }) {
   const [name, setName] = useState(initial?.name || '')
   const [maxInFlight, setMaxInFlight] = useState(initial?.max_inflight || 0)
+  const [modelAggregation, setModelAggregation] = useState(initial?.model_aggregation || false)
   // Region-scoped checkbox values. Legacy bare grants ("workbuddy") are
   // expanded to all of that family's region checkboxes on open and tracked
   // in allRegionsFamilies (badge display). While providersUntouched stays
@@ -361,6 +365,7 @@ function KeyEditorModal({
     if (!isOpen) return
     setName(initial?.name || '')
     setMaxInFlight(initial?.max_inflight || 0)
+    setModelAggregation(Boolean(initial?.model_aggregation))
     setSelected(expandLegacyGrants(initial?.providers || [], options))
     const bare = new Set(
       (initial?.providers || []).filter((entry) => !entry.includes(':')).map((entry) => entry.toLowerCase()),
@@ -413,7 +418,7 @@ function KeyEditorModal({
       // (legacy bare entries included); any toggle converts to the explicit
       // region list the user sees checked.
       const providers = providersUntouched ? (initial?.providers || []) : selected
-      await onSave({ name: trimmed, providers, max_inflight: maxInFlight })
+      await onSave({ name: trimmed, providers, max_inflight: maxInFlight, model_aggregation: modelAggregation })
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -426,7 +431,7 @@ function KeyEditorModal({
       <Modal.Backdrop variant="blur">
         <Modal.Container placement="center" size="lg" scroll="inside">
           <Modal.Dialog className="sm:min-w-[32rem]">
-            <Form onSubmit={submit}>
+            <Form className="flex min-h-0 flex-1 flex-col" onSubmit={submit}>
               <Modal.Header className="items-start justify-between gap-4 px-6 pt-6">
                 <div>
                   <Modal.Heading className="text-section font-semibold">{title}</Modal.Heading>
@@ -459,6 +464,14 @@ function KeyEditorModal({
                     </NumberField.Group>
                   </NumberField>
                 </FormRow>
+                <FormRow label={t('keysModelAggregation')} hint={t('keysModelAggregationHint')}>
+                  <CompactSwitch
+                    isSelected={modelAggregation}
+                    isDisabled={busy}
+                    ariaLabel={t('keysModelAggregation')}
+                    onChange={setModelAggregation}
+                  />
+                </FormRow>
                 <div className="space-y-2">
                   <Label className="text-body font-medium text-muted">{t('keysProviders')}</Label>
                   <Description className="text-caption leading-5 text-muted">{t('keysProvidersHint')}</Description>
@@ -478,7 +491,7 @@ function KeyEditorModal({
                               <ProviderMark provider={option.provider} size={16} />
                               <span className="text-body font-medium">{accountProviderLabel(option.provider, option.region, t)}</span>
                               {allRegions ? (
-                                <span className="rounded-md bg-surface-secondary px-1.5 py-0.5 text-caption font-medium text-muted">{t('keysAllRegions')}</span>
+                                <span className="rounded-lg bg-surface-secondary px-1.5 py-0.5 text-caption font-medium text-muted">{t('keysAllRegions')}</span>
                               ) : null}
                             </Checkbox.Content>
                           </Checkbox>

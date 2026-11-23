@@ -886,7 +886,7 @@ func TestAPIKeysCRUDAndConsoleKeyPrefix(t *testing.T) {
 		t.Fatalf("console key: %d %s", rec.Code, rec.Body.String())
 	}
 
-	body := bytes.NewBufferString(`{"name":"CI","providers":["qoder"]}`)
+	body := bytes.NewBufferString(`{"name":"CI","providers":["qoder"],"model_aggregation":true}`)
 	req = httptest.NewRequest(http.MethodPost, "/api/keys", body)
 	req.Header.Set("Authorization", "Bearer secret")
 	req.Header.Set("Content-Type", "application/json")
@@ -899,7 +899,10 @@ func TestAPIKeysCRUDAndConsoleKeyPrefix(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
 		t.Fatal(err)
 	}
-	req = httptest.NewRequest(http.MethodPatch, "/api/keys/"+created.ID, bytes.NewBufferString(`{"name":"CI bot"}`))
+	if !created.ModelAggregation {
+		t.Fatalf("created key did not keep aggregation: %+v", created)
+	}
+	req = httptest.NewRequest(http.MethodPatch, "/api/keys/"+created.ID, bytes.NewBufferString(`{"name":"CI bot","model_aggregation":false}`))
 	req.Header.Set("Authorization", "Bearer secret")
 	req.Header.Set("Content-Type", "application/json")
 	rec = httptest.NewRecorder()

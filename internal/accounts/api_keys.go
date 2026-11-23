@@ -12,43 +12,50 @@ import (
 )
 
 type APIKey struct {
-	ID          string     `json:"id"`
-	Name        string     `json:"name"`
-	Prefix      string     `json:"prefix"`
-	Providers   []string   `json:"providers"`
-	Enabled     bool       `json:"enabled"`
-	MaxInFlight int        `json:"max_inflight"`
-	LastUsedAt  *time.Time `json:"last_used_at,omitempty"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
-	Secret      string     `json:"secret,omitempty"`
-	SecretOnce  bool       `json:"secret_once,omitempty"`
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Prefix      string   `json:"prefix"`
+	Providers   []string `json:"providers"`
+	Enabled     bool     `json:"enabled"`
+	MaxInFlight int      `json:"max_inflight"`
+	// ModelAggregation makes /v1/models return only the public aliases the
+	// key's granted accounts define, merged into one provider-neutral name.
+	// Routing still runs through the account pool.
+	ModelAggregation bool       `json:"model_aggregation"`
+	LastUsedAt       *time.Time `json:"last_used_at,omitempty"`
+	CreatedAt        time.Time  `json:"created_at"`
+	UpdatedAt        time.Time  `json:"updated_at"`
+	Secret           string     `json:"secret,omitempty"`
+	SecretOnce       bool       `json:"secret_once,omitempty"`
 }
 
 type CreateAPIKey struct {
-	Name        string
-	Providers   []string
-	Enabled     bool
-	MaxInFlight int
+	Name             string
+	Providers        []string
+	Enabled          bool
+	MaxInFlight      int
+	ModelAggregation bool
 }
 
 type UpdateAPIKey struct {
-	Name        string
-	Providers   []string
-	Enabled     *bool
-	MaxInFlight *int
+	Name             string
+	Providers        []string
+	Enabled          *bool
+	MaxInFlight      *int
+	ModelAggregation *bool
 }
 
 type StoredAPIKey struct {
-	ID          string
-	Name        string
-	Prefix      string
-	KeyHash     string
-	Providers   []string
-	Enabled     bool
-	MaxInFlight int
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID               string
+	Name             string
+	Prefix           string
+	KeyHash          string
+	Providers        []string
+	Enabled          bool
+	MaxInFlight      int
+	ModelAggregation bool
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }
 
 func PrepareCreateAPIKey(input CreateAPIKey) (CreateAPIKey, error) {
@@ -64,7 +71,10 @@ func PrepareCreateAPIKey(input CreateAPIKey) (CreateAPIKey, error) {
 	if err := ValidateAPIKeyMaxInFlight(maxInFlight); err != nil {
 		return CreateAPIKey{}, err
 	}
-	return CreateAPIKey{Name: name, Providers: providers, Enabled: input.Enabled, MaxInFlight: maxInFlight}, nil
+	return CreateAPIKey{
+		Name: name, Providers: providers, Enabled: input.Enabled,
+		MaxInFlight: maxInFlight, ModelAggregation: input.ModelAggregation,
+	}, nil
 }
 
 func ApplyAPIKeyUpdate(current APIKey, input UpdateAPIKey) (APIKey, error) {
@@ -87,6 +97,9 @@ func ApplyAPIKeyUpdate(current APIKey, input UpdateAPIKey) (APIKey, error) {
 			return APIKey{}, err
 		}
 		current.MaxInFlight = maxInFlight
+	}
+	if input.ModelAggregation != nil {
+		current.ModelAggregation = *input.ModelAggregation
 	}
 	return current, nil
 }
