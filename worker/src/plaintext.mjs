@@ -577,8 +577,8 @@ export function buildPlainChatBody({
       : enableReasoning
         ? true
         : undefined;
-  const defaultMaxInputTokens = Number(routedModel?.max_input_tokens) || base.model_config?.max_input_tokens || 180000;
-
+  // Context windows are client-only. Catalog/modelConfig limits are display
+  // metadata; when the caller sends no window, let the upstream pick its own.
   const modelConfig = {
     ...(base.model_config || {}),
     key: mappedModel,
@@ -590,7 +590,7 @@ export function buildPlainChatBody({
     api_key: "",
     url: "",
     source: routedModel?.source || base.model_config?.source || "system",
-    max_input_tokens: maxInputTokens ?? defaultMaxInputTokens,
+    ...(maxInputTokens !== undefined ? { max_input_tokens: maxInputTokens } : {}),
   };
 
   const parameters = {

@@ -120,11 +120,9 @@ func applyCatalogEntry(plain map[string]any, req translate.ChatRequest, entry ma
 	if v, ok := entry["is_vl"].(bool); ok {
 		cfg["is_vl"] = v
 	}
-	if n, ok := rawNumber(req.MaxInputTokens); !ok || n <= 0 {
-		if n, ok := numberFieldValue(entry, "max_input_tokens"); ok && n > 0 {
-			cfg["max_input_tokens"] = n
-		}
-	}
+	// Context windows are client-only. The catalog is used for display metadata
+	// and model key resolution, never to stipulate a request window. A window
+	// supplied by the client is already carried in the body by BuildPlainChatBody.
 	if resolvedReasoningLevel(req) == "" {
 		if v, ok := entry["is_reasoning"].(bool); ok {
 			cfg["is_reasoning"] = v

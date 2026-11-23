@@ -48,7 +48,7 @@ func TestBuildNativeBodyPreservesFieldsAndAppliesAccountPolicy(t *testing.T) {
 			t.Errorf("rejected field %q was forwarded", field)
 		}
 	}
-	if resolved.ReasoningLevel != "low" {
+	if resolved.ReasoningLevel != "high" {
 		t.Fatalf("reasoning level = %q", resolved.ReasoningLevel)
 	}
 	input := string(got["input"])

@@ -88,7 +88,7 @@ func TestPrepareDeniesUngrantedProvider(t *testing.T) {
 	}
 }
 
-func TestPrepareQoderWindowGoesToMaxInputTokens(t *testing.T) {
+func TestPrepareDoesNotChooseQoderWindow(t *testing.T) {
 	ex := NewChatExecutor(NewPool(nil, nil), "")
 	contexts := &stubContexts{value: 500000, ok: true}
 	catalogs := &stubCatalogs{}
@@ -107,14 +107,11 @@ func TestPrepareQoderWindowGoesToMaxInputTokens(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if contexts.got != "glm-5.2" {
-		t.Fatalf("context key=%s", contexts.got)
+	if contexts.got != "" {
+		t.Fatalf("stored context must not be read during Prepare: %s", contexts.got)
 	}
-	if len(got.Request.ContextLength) != 0 {
-		t.Fatalf("qoder chat must not carry a parameters window override: %s", got.Request.ContextLength)
-	}
-	if string(got.Request.MaxInputTokens) != "500000" {
-		t.Fatalf("window must go to MaxInputTokens: %s", got.Request.MaxInputTokens)
+	if len(got.Request.ContextLength) != 0 || len(got.Request.MaxInputTokens) != 0 {
+		t.Fatalf("cli2api must not choose a context window: context=%s max_input=%s", got.Request.ContextLength, got.Request.MaxInputTokens)
 	}
 	if catalogs.calls != 1 {
 		t.Fatalf("catalog calls=%d", catalogs.calls)
@@ -156,6 +153,23 @@ func TestPrepareNativeResponsesKeepsCompatSeedAndReasoning(t *testing.T) {
 	}
 	if len(logs.entries) != 1 || logs.entries[0].RequestedReasoning != "high" {
 		t.Fatalf("native reasoning log=%+v", logs.entries)
+	}
+}
+
+func TestPrepareDoesNotForceQoderDeclaredMaxWindow(t *testing.T) {
+	ex := NewChatExecutor(NewPool(nil, nil), "")
+	contexts := &stubContexts{value: 200000, ok: true}
+	got, err := ex.Prepare(PrepareInput{
+		Request: translate.ChatRequest{
+			Model: "qoder/glm-5.2", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+		},
+		ModelContexts: contexts,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Request.ContextLength) != 0 || len(got.Request.MaxInputTokens) != 0 {
+		t.Fatalf("cli2api must not choose a context window: context=%s max_input=%s", got.Request.ContextLength, got.Request.MaxInputTokens)
 	}
 }
 
@@ -394,20 +408,16 @@ func TestPrepareStripsCommandPrefix(t *testing.T) {
 	}
 }
 
-// TestPrepareQoder1MToggleFlowsToUpstreamBody proves the full chain is useful:
-// Prepare (qoder model + a 1M model-context entry, exactly what the /providers
-// "1M context window" toggle stores) must populate req.MaxInputTokens, and
-// BuildPlainChatBody — invoked by Direct.chatStreamOnce with the same request —
-// must place that window in model_config.max_input_tokens while never emitting
-// parameters.contextWindow/context_length (which Qoder rejects with a
-// context-length error). This is the end-to-end check that the fix actually
-// produces a valid upstream request, not just a unit-passing body.
-func TestPrepareQoder1MToggleFlowsToUpstreamBody(t *testing.T) {
+// TestPrepareClientWindowFlowsToUpstreamBody proves that a client-supplied
+// context window is passed through, while cli2api itself does not choose one.
+func TestPrepareClientWindowFlowsToUpstreamBody(t *testing.T) {
 	ex := NewChatExecutor(NewPool(nil, nil), "")
-	contexts := &stubContexts{value: 1000000, ok: true} // 1M toggle stored window
+	contexts := &stubContexts{value: 1000000, ok: true} // stored value must be ignored
 	got, err := ex.Prepare(PrepareInput{
 		Request: translate.ChatRequest{
-			Model: "qoder/glm-5.2", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+			Model:          "qoder/glm-5.2",
+			Messages:       []translate.ChatMessage{{Role: "user", Content: "hi"}},
+			MaxInputTokens: json.RawMessage("400000"),
 		},
 		ModelContexts: contexts,
 		Now:           time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC),
@@ -415,14 +425,16 @@ func TestPrepareQoder1MToggleFlowsToUpstreamBody(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(got.Request.MaxInputTokens) != "1000000" {
-		t.Fatalf("Prepare must populate MaxInputTokens for qoder: %s", got.Request.MaxInputTokens)
+	if contexts.got != "" {
+		t.Fatalf("stored context must not be read during Prepare: %s", contexts.got)
+	}
+	if string(got.Request.MaxInputTokens) != "400000" {
+		t.Fatalf("client window must pass through: %s", got.Request.MaxInputTokens)
 	}
 	if len(got.Request.ContextLength) != 0 {
 		t.Fatalf("Prepare must not set ContextLength for qoder: %s", got.Request.ContextLength)
 	}
 
-	// Replicate Direct.chatStreamOnce's body construction with the prepared request.
 	body := qoder.BuildPlainChatBody(got.Request, time.Date(2026, 9, 18, 12, 0, 1, 0, time.UTC))
 	params, _ := body["parameters"].(map[string]any)
 	if _, ok := params["contextWindow"]; ok {
@@ -435,7 +447,7 @@ func TestPrepareQoder1MToggleFlowsToUpstreamBody(t *testing.T) {
 		t.Error("parameters.max_input_tokens must be absent in the upstream body")
 	}
 	modelCfg, _ := body["model_config"].(map[string]any)
-	if got, ok := modelCfg["max_input_tokens"].(int); !ok || got != 1000000 {
-		t.Errorf("model_config.max_input_tokens = %v, want 1000000 (1M must reach upstream)", modelCfg["max_input_tokens"])
+	if got, ok := modelCfg["max_input_tokens"].(int); !ok || got != 400000 {
+		t.Errorf("model_config.max_input_tokens = %v, want 400000", modelCfg["max_input_tokens"])
 	}
 }

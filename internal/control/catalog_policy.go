@@ -201,6 +201,10 @@ func ModelCapabilitiesEntry(model providers.ModelInfo) map[string]any {
 	if len(model.Capabilities.ReasoningOptionValues) > 0 {
 		entry["reasoning_option_values"] = model.Capabilities.ReasoningOptionValues
 	}
+	// Display exactly the reasoning levels this model declares. A reasoning
+	// model does not automatically accept every gateway vocabulary entry;
+	// merging GatewayReasoningOptions here would advertise xhigh/max for
+	// models whose catalog only allows low/high.
 	reasoningOptions := providers.UniqueReasoningOptions(model.Capabilities.ReasoningOptions)
 	if len(reasoningOptions) > 0 {
 		entry["reasoning_options"] = reasoningOptions
@@ -261,6 +265,10 @@ func ProviderModelEntry(model providers.ModelInfo, provider string) map[string]a
 	if hasMaxTier(model.Capabilities) {
 		entry["supports_max_mode"] = true
 	}
+	// Display exactly the reasoning levels this model declares. A reasoning
+	// model does not automatically accept every gateway vocabulary entry;
+	// merging GatewayReasoningOptions here would advertise xhigh/max for
+	// models whose catalog only allows low/high.
 	reasoningOptions := providers.UniqueReasoningOptions(model.Capabilities.ReasoningOptions)
 	if len(reasoningOptions) > 0 {
 		entry["reasoning_options"] = reasoningOptions
