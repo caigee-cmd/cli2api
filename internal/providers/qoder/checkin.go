@@ -266,12 +266,18 @@ func (b *Bridge) Checkin(ctx context.Context) (providers.CheckinResult, error) {
 	for _, campaign := range claimable {
 		path := fmt.Sprintf("%s/%s/claim", checkinCampaignsPath, url.PathEscape(campaign.CampaignID))
 		claimRaw, _, err := doRequest(path, http.MethodPost, false)
-		if failure, blocked := claimFailure(claimRaw); blocked {
-			// Upstream dedupes by person (machine identity), not by account.
-			// A single-account pool hits this too, after the official client
-			// or another account on the same machine already collected.
-			log.Printf("[qoder-checkin] region=%s person already claimed: code=%s", regionName(b.Region), failure)
-			return providers.CheckinResult{Status: "already", Message: "今日已签到（同一身份已领取）"}, nil
+		if result, classified := classifyClaimResult(claimRaw); classified {
+			if result.Status == "already" {
+				log.Printf("[qoder-checkin] region=%s already claimed: %s", regionName(b.Region), result.Message)
+			}
+			return result, nil
+		}
+		if denied, ok := claimDenied(claimRaw); ok {
+			// A risk block or a closed campaign is not "already checked in".
+			// Returning an error keeps the account eligible for a later retry
+			// instead of stamping today's check-in as collected.
+			log.Printf("[qoder-checkin] region=%s claim denied: %s", regionName(b.Region), denied)
+			return providers.CheckinResult{}, fmt.Errorf("qoder check-in: upstream denied claim (%s)", denied)
 		}
 		if err != nil {
 			// Re-list to see if the claim actually succeeded despite the error.
@@ -332,6 +338,12 @@ func (b *Bridge) reclaimClaimedGrant(doRequest checkinRequester, grant campaign)
 	claimRaw, status, err := doRequest(path, http.MethodPost, false)
 	if err != nil {
 		return providers.CheckinResult{}, err
+	}
+	if result, classified := classifyClaimResult(claimRaw); classified {
+		return result, nil
+	}
+	if denied, ok := claimDenied(claimRaw); ok {
+		return providers.CheckinResult{}, fmt.Errorf("qoder check-in: upstream denied claim (%s)", denied)
 	}
 	if replayed, claimStatus, ok := claimVerdict(claimRaw); ok {
 		if replayed {
@@ -536,28 +548,53 @@ func claimStatusOf(items []campaign, id string) string {
 	return ""
 }
 
-// claimFailure reads the upstream person-level dedupe. SAME_PERSON_ALREADY_CLAIMED
-// (or status BLOCKED carrying that code) means this identity already collected
-// today; it is not an account or credential failure.
-func claimFailure(raw map[string]any) (string, bool) {
+// classifyClaimResult reports an explicit "already collected" verdict.
+// Only ALREADY_CLAIMED, REPLAYED, SAME_PERSON_ALREADY_CLAIMED, and
+// replayed=true count. A bare BLOCKED status does not: risk and closed
+// campaigns use that status too.
+func classifyClaimResult(raw map[string]any) (providers.CheckinResult, bool) {
+	code, replayed := claimOutcome(raw)
+	switch code {
+	case "SAME_PERSON_ALREADY_CLAIMED":
+		return providers.CheckinResult{Status: "already", Message: "今日已签到（同一身份已领取）"}, true
+	case "ALREADY_CLAIMED", "REPLAYED":
+		return providers.CheckinResult{Status: "already", Message: "今日已签到（幂等回放）"}, true
+	}
+	if replayed {
+		return providers.CheckinResult{Status: "already", Message: "今日已签到（幂等回放）"}, true
+	}
+	return providers.CheckinResult{}, false
+}
+
+// claimDenied is an upstream refusal that must not be recorded as a
+// successful or already-completed check-in. The code is failureCode, or
+// errorCode when the claim body uses that field.
+func claimDenied(raw map[string]any) (string, bool) {
+	code, _ := claimOutcome(raw)
+	switch code {
+	case "", "SAME_PERSON_ALREADY_CLAIMED", "ALREADY_CLAIMED", "REPLAYED":
+		return "", false
+	default:
+		return code, true
+	}
+}
+
+func claimOutcome(raw map[string]any) (code string, replayed bool) {
 	if raw == nil {
 		return "", false
 	}
 	body := raw
 	if data, ok := raw["data"].(map[string]any); ok {
-		if _, present := data["status"]; present || stringFieldOf(data, "failureCode") != "" {
+		if _, present := data["status"]; present || stringFieldOf(data, "failureCode") != "" || stringFieldOf(data, "errorCode") != "" {
 			body = data
 		}
 	}
-	status := strings.ToUpper(strings.TrimSpace(unwrapClaimStatus(raw)))
-	code := strings.ToUpper(strings.TrimSpace(stringFieldOf(body, "failureCode")))
-	if code == "SAME_PERSON_ALREADY_CLAIMED" || (status == "BLOCKED" && code != "") {
-		if code == "" {
-			code = status
-		}
-		return code, true
+	code = strings.ToUpper(strings.TrimSpace(stringFieldOf(body, "failureCode")))
+	if code == "" {
+		code = strings.ToUpper(strings.TrimSpace(stringFieldOf(body, "errorCode")))
 	}
-	return "", false
+	replayed, _, _ = claimVerdict(raw)
+	return code, replayed
 }
 
 func stringFieldOf(raw map[string]any, key string) string {

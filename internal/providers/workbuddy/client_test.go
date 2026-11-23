@@ -1303,6 +1303,56 @@ func TestPrepareBodyRepairsInterruptedToolSequence(t *testing.T) {
 	}
 }
 
+func TestPrepareBodyMergesAdjacentToolCallBatches(t *testing.T) {
+	out := PrepareBody([]byte(`{"model":"m","messages":[
+			{"role":"user","content":"look this up"},
+			{"role":"assistant","content":"checking","reasoning_content":"plan","tool_calls":[{"id":"call_abc","type":"function","function":{"name":"search","arguments":"{}"}}]},
+			{"role":"assistant","content":[{"type":"text","text":"and reading"}],"reasoning_content":"next","tool_calls":[{"id":"call_def","type":"function","function":{"name":"read","arguments":"{}"}}]},
+			{"role":"tool","tool_call_id":"call_abc","content":"one"},
+			{"role":"tool","tool_call_id":"call_def","content":"two"},
+			{"role":"user","content":"thanks"}
+		]}`))
+	var body map[string]any
+	if err := json.Unmarshal(out, &body); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(messageRoles(body), ",") != "system,user,assistant,tool,tool,user" {
+		t.Fatalf("adjacent tool batches not merged: %v", body["messages"])
+	}
+	var assistant map[string]any
+	for _, item := range body["messages"].([]any) {
+		message, _ := item.(map[string]any)
+		if messageRole(message) == "assistant" {
+			assistant = message
+		}
+	}
+	calls, _ := assistant["tool_calls"].([]any)
+	if len(calls) != 2 {
+		t.Fatalf("tool_calls=%v", assistant["tool_calls"])
+	}
+	parts, _ := assistant["content"].([]any)
+	if len(parts) != 2 {
+		t.Fatalf("content=%v", assistant["content"])
+	}
+	if stringField(assistant, "reasoning_content") != "plan\nnext" {
+		t.Fatalf("reasoning=%v", assistant["reasoning_content"])
+	}
+
+	separated := PrepareBody([]byte(`{"model":"m","messages":[
+			{"role":"user","content":"first"},
+			{"role":"assistant","content":"","tool_calls":[{"id":"call_abc","type":"function","function":{"name":"search","arguments":"{}"}}]},
+			{"role":"tool","tool_call_id":"call_abc","content":"one"},
+			{"role":"assistant","content":"then","tool_calls":[{"id":"call_def","type":"function","function":{"name":"read","arguments":"{}"}}]},
+			{"role":"tool","tool_call_id":"call_def","content":"two"}
+		]}`))
+	if err := json.Unmarshal(separated, &body); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(messageRoles(body), ",") != "system,user,assistant,tool,assistant,tool" {
+		t.Fatalf("separate rounds should stay separate: %v", body["messages"])
+	}
+}
+
 func messageRoles(body map[string]any) []string {
 	messages, _ := body["messages"].([]any)
 	roles := make([]string, 0, len(messages))

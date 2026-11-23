@@ -320,6 +320,60 @@ func TestBridgeCheckinNoClaimable(t *testing.T) {
 		}
 	})
 
+	// A blocked claim is not proof the reward was collected. Risk and
+	// closed-campaign codes used to be stored as "already", which stopped
+	// the day's retry.
+	t.Run("blocked denial is not already", func(t *testing.T) {
+		openapi := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodGet {
+				_ = json.NewEncoder(w).Encode(map[string]any{"campaigns": []map[string]any{{
+					"campaignId": "daily", "actionType": "CLAIM_BENEFIT", "claimStatus": "CLAIMABLE",
+					"benefit": map[string]any{"kind": "CREDITS", "amount": 100.0},
+				}}})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
+				"status": "BLOCKED", "failureCode": "RISK_BLOCKED",
+			}})
+		}))
+		defer openapi.Close()
+		CheckinEndpointHook = func(*qauth.RegionConfig) *checkinRegion {
+			return &checkinRegion{base: openapi.URL, origin: "https://stub.test"}
+		}
+		checkinHTTPClient = openapi.Client()
+		_, err := newTestBridge(t, "fake-pat-secret-0123456789abcdef").Checkin(context.Background())
+		if err == nil || !strings.Contains(err.Error(), "RISK_BLOCKED") {
+			t.Fatalf("err = %v want upstream denial", err)
+		}
+	})
+
+	t.Run("explicit replay is already", func(t *testing.T) {
+		openapi := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodGet {
+				_ = json.NewEncoder(w).Encode(map[string]any{"campaigns": []map[string]any{{
+					"campaignId": "daily", "actionType": "CLAIM_BENEFIT", "claimStatus": "CLAIMABLE",
+					"benefit": map[string]any{"kind": "CREDITS", "amount": 100.0},
+				}}})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
+				"status": "BLOCKED", "failureCode": "ALREADY_CLAIMED",
+			}})
+		}))
+		defer openapi.Close()
+		CheckinEndpointHook = func(*qauth.RegionConfig) *checkinRegion {
+			return &checkinRegion{base: openapi.URL, origin: "https://stub.test"}
+		}
+		checkinHTTPClient = openapi.Client()
+		result, err := newTestBridge(t, "fake-pat-secret-0123456789abcdef").Checkin(context.Background())
+		if err != nil {
+			t.Fatalf("Checkin err = %v", err)
+		}
+		if result.Status != "already" || result.RewardCredits != 0 {
+			t.Fatalf("result = %+v want already", result)
+		}
+	})
+
 	// 404 path: campaigns endpoint returns 404 → "skipped".
 	t.Run("404 activity not open", func(t *testing.T) {
 		openapi := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
