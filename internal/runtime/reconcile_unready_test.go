@@ -147,3 +147,28 @@ func TestReconcileUnreadyWorkerThrottlesRepeatProbes(t *testing.T) {
 		t.Fatalf("second reconcile re-probed the worker inside the window: /health hits %d -> %d", first, got)
 	}
 }
+
+// A removed account never gets another probe that could clear its watchdog
+// entries, so RemoveAccount must drop them; otherwise both maps grow with every
+// account deletion.
+func TestRemoveAccountDropsWatchdogState(t *testing.T) {
+	manager, _, account, _ := workerFixture(t, `{"ok":true,"ready":true}`, new(int32))
+
+	manager.mu.Lock()
+	manager.healthFailures[account.ID] = 2
+	manager.reconcileAt[account.ID] = time.Now()
+	manager.mu.Unlock()
+
+	if err := manager.RemoveAccount(account.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	if _, ok := manager.healthFailures[account.ID]; ok {
+		t.Fatal("healthFailures kept an entry for a removed account")
+	}
+	if _, ok := manager.reconcileAt[account.ID]; ok {
+		t.Fatal("reconcileAt kept an entry for a removed account")
+	}
+}
