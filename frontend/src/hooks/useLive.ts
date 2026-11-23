@@ -7,8 +7,10 @@ export const LIVE_SAMPLES = Math.round(60_000 / LIVE_POLL_MS)
 
 export type LiveSample = { at: number; value: number }
 
-/** Faster poll while InflightLiveCard is expanded — selecting dwell is ~1.6s. */
-export const LIVE_POLL_EXPANDED_MS = 400
+/** Faster poll while InflightLiveCard is expanded. 800ms still gives two
+ *  samples across the ~1.6s select-dwell window without paying for 150
+ *  account-list reads per minute. */
+export const LIVE_POLL_EXPANDED_MS = 800
 
 /**
  * Polls /api/live while the document is visible. Keeps the last good snapshot

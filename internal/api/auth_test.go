@@ -63,6 +63,7 @@ func TestManagementRoutesRequireAPIKey(t *testing.T) {
 		ProxyAPIKey: "secret",
 		QoderHome:   t.TempDir(),
 	})
+	defer srv.Close()
 	h := srv.Handler()
 
 	for _, path := range []string{
@@ -492,6 +493,7 @@ func TestLegacyDiagnosticRoutesAreRemoved(t *testing.T) {
 		ProxyAPIKey: "secret",
 		QoderHome:   t.TempDir(),
 	})
+	defer srv.Close()
 
 	for _, target := range []struct {
 		method string
@@ -521,6 +523,7 @@ func TestSPAFallbackServesIndexForClientRoutes(t *testing.T) {
 		ProxyAPIKey: "secret",
 		QoderHome:   t.TempDir(),
 	})
+	defer srv.Close()
 	req := httptest.NewRequest(http.MethodGet, "/auth", nil)
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, req)
@@ -543,6 +546,7 @@ func TestOverviewWithAPIKeyDoesNotLeakWorkerProxyFailureAs200Auth(t *testing.T) 
 		ProxyAPIKey: "secret",
 		QoderHome:   t.TempDir(),
 	})
+	defer srv.Close()
 	req := httptest.NewRequest(http.MethodGet, "/api/overview", nil)
 	req.Header.Set("Authorization", "Bearer secret")
 	rec := httptest.NewRecorder()
@@ -573,6 +577,7 @@ func TestSPAFallbackServesAccounts(t *testing.T) {
 		ProxyAPIKey: "secret",
 		QoderHome:   t.TempDir(),
 	})
+	defer srv.Close()
 	req := httptest.NewRequest(http.MethodGet, "/accounts", nil)
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, req)
@@ -588,6 +593,7 @@ func TestSPAFallbackServesLogin(t *testing.T) {
 		ProxyAPIKey: "secret",
 		QoderHome:   t.TempDir(),
 	})
+	defer srv.Close()
 	req := httptest.NewRequest(http.MethodGet, "/login", nil)
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, req)
@@ -637,6 +643,7 @@ func TestAccountsAPICreatesAndListsDisabledAccount(t *testing.T) {
 		QoderHome:   t.TempDir(),
 		DataDir:     dataDir,
 	})
+	defer srv.Close()
 	body := bytes.NewBufferString(`{"name":"Work","enabled":false,"max_inflight":5,"drop_system_prompt":false}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/accounts", body)
 	req.Header.Set("Authorization", "Bearer secret")
@@ -678,6 +685,7 @@ func TestAccountsAPIImportsNativeCredential(t *testing.T) {
 		QoderHome:   t.TempDir(),
 		DataDir:     t.TempDir(),
 	})
+	defer srv.Close()
 	body := bytes.NewBufferString(`{"format":"qoder-native-v1","name":"Imported","enabled":false,"user_blob":"Y2lwaGVy","machine_id":"machine-1"}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/accounts/import", body)
 	req.Header.Set("Authorization", "Bearer secret")
@@ -700,6 +708,7 @@ func TestAccountsAPIUpdatesExportsAndDeletesAccount(t *testing.T) {
 		QoderHome:   t.TempDir(),
 		DataDir:     t.TempDir(),
 	})
+	defer srv.Close()
 	importBody := bytes.NewBufferString(`{"format":"qoder-native-v1","name":"Imported","enabled":false,"user_blob":"Y2lwaGVy","machine_id":"machine-1"}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/accounts/import", importBody)
 	req.Header.Set("Authorization", "Bearer secret")
@@ -877,7 +886,7 @@ func TestAPIKeysCRUDAndConsoleKeyPrefix(t *testing.T) {
 		t.Fatalf("console key: %d %s", rec.Code, rec.Body.String())
 	}
 
-	body := bytes.NewBufferString(`{"name":"CI","providers":["qoder"]}`)
+	body := bytes.NewBufferString(`{"name":"CI","providers":["qoder"],"model_aggregation":true}`)
 	req = httptest.NewRequest(http.MethodPost, "/api/keys", body)
 	req.Header.Set("Authorization", "Bearer secret")
 	req.Header.Set("Content-Type", "application/json")
@@ -890,7 +899,10 @@ func TestAPIKeysCRUDAndConsoleKeyPrefix(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
 		t.Fatal(err)
 	}
-	req = httptest.NewRequest(http.MethodPatch, "/api/keys/"+created.ID, bytes.NewBufferString(`{"name":"CI bot"}`))
+	if !created.ModelAggregation {
+		t.Fatalf("created key did not keep aggregation: %+v", created)
+	}
+	req = httptest.NewRequest(http.MethodPatch, "/api/keys/"+created.ID, bytes.NewBufferString(`{"name":"CI bot","model_aggregation":false}`))
 	req.Header.Set("Authorization", "Bearer secret")
 	req.Header.Set("Content-Type", "application/json")
 	rec = httptest.NewRecorder()

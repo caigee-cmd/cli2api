@@ -126,7 +126,7 @@ func TestSystemUpdateBacksUpSQLiteBeforeSubmittingNextVersion(t *testing.T) {
 	if request.CurrentVersion != "v0.2.1" || request.TargetVersion != "v0.2.2" {
 		t.Fatalf("request = %+v", request)
 	}
-	if filepath.Dir(request.BackupPath) != "/data/backups" {
+	if filepath.Dir(request.BackupPath) != filepath.Join("/data", "backups") {
 		t.Fatalf("backup path = %q", request.BackupPath)
 	}
 	backupPath := filepath.Join(dataDir, "backups", filepath.Base(request.BackupPath))

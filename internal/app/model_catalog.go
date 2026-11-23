@@ -9,8 +9,16 @@ import (
 func (a *App) RequestedAccount(r *http.Request) string { return endpoint.RequestedAccount(r) }
 func (a *App) filterModelsForIdentity(r *http.Request, models []map[string]any) []map[string]any {
 	identity := a.requestIdentity(r)
-	models = control.FilterModelsByAccountAllow(models, identity, a.accountModelAllows())
-	return control.FilterModelsForIdentity(identity, models)
+	allow := a.accountModelAllows()
+	// Aggregation keys build their list from account aliases directly, so the
+	// per-provider alias expansion would only be discarded work.
+	if !identity.ModelAggregation {
+		models = control.ExpandModelAliases(models, allow)
+	}
+	models = control.FilterModelsByAccountAllow(models, identity, allow)
+	models = control.FilterModelsForIdentity(identity, models)
+	models = control.AggregateModelEntries(models, identity, allow)
+	return models
 }
 
 // accountModelAllows is the routing allowlist the public model list consults.

@@ -275,6 +275,165 @@ func ModelServedByAccounts(entry map[string]any, identity auth.Identity, pool []
 	return false
 }
 
+// ExpandModelAliases appends one public entry for every account alias whose
+// target is present in the current catalog. Routing already rewrites an alias
+// per account; without this entry a client only discovers the alias by
+// guessing its name. Existing ids win, so an alias never shadows a real model.
+func ExpandModelAliases(models []map[string]any, pool []AccountModelAllow) []map[string]any {
+	if len(models) == 0 || len(pool) == 0 {
+		return models
+	}
+	byTarget := make(map[string]map[string]any, len(models)*2)
+	existing := make(map[string]bool, len(models))
+	for _, model := range models {
+		id, _ := model["id"].(string)
+		key := modelAllowKey(id)
+		if key == "" {
+			continue
+		}
+		existing[key] = true
+		provider := modelEntryProvider(model)
+		if provider != "" {
+			byTarget[provider+"@"+key] = model
+		}
+		if _, ok := byTarget["@"+key]; !ok {
+			byTarget["@"+key] = model
+		}
+	}
+	extra := make([]map[string]any, 0)
+	seen := make(map[string]bool)
+	for _, account := range pool {
+		provider := accounts.NormalizeProviderFamily(account.Provider)
+		if provider == "" {
+			continue
+		}
+		for alias, target := range account.Aliases {
+			aliasKey := accounts.CanonicalModelID(alias)
+			targetKey := accounts.CanonicalModelID(target)
+			if aliasKey == "" || aliasKey == "auto" || targetKey == "" || aliasKey == targetKey {
+				continue
+			}
+			if existing[aliasKey] {
+				continue
+			}
+			if !accountServesModel(account, targetKey) {
+				continue
+			}
+			base := byTarget[provider+"@"+targetKey]
+			if base == nil {
+				base = byTarget["@"+targetKey]
+			}
+			if base == nil || !accountServesRegion(account.Region, EntryModelRegions(base)) {
+				continue
+			}
+			dedupeKey := provider + "@" + aliasKey
+			if seen[dedupeKey] {
+				continue
+			}
+			seen[dedupeKey] = true
+			entry := CloneModelEntry(base)
+			entry["id"] = aliasKey
+			entry["display_name"] = aliasKey
+			entry["alias_of"] = targetKey
+			extra = append(extra, entry)
+		}
+	}
+	if len(extra) == 0 {
+		return models
+	}
+	out := make([]map[string]any, 0, len(models)+len(extra))
+	out = append(out, models...)
+	out = append(out, extra...)
+	return out
+}
+
+// AggregateModelEntries is the model-list view for a key that enabled
+// cross-provider aggregation. It walks the accounts the key may reach, keeps
+// their public aliases, and folds same-name aliases from different providers
+// into one provider-neutral entry. Routing is untouched: the gateway still
+// resolves the alias through the account pool, so the response never claims a
+// provider.
+func AggregateModelEntries(models []map[string]any, identity auth.Identity, pool []AccountModelAllow) []map[string]any {
+	if !identity.ModelAggregation {
+		return models
+	}
+	byTarget := make(map[string][]map[string]any, len(models))
+	realIDs := make(map[string]bool, len(models))
+	for _, model := range models {
+		id, _ := model["id"].(string)
+		key := modelAllowKey(id)
+		if key == "" {
+			continue
+		}
+		byTarget[key] = append(byTarget[key], model)
+		if aliasOf, _ := model["alias_of"].(string); strings.TrimSpace(aliasOf) == "" {
+			realIDs[key] = true
+		}
+	}
+	seen := make(map[string]bool, len(models))
+	out := make([]map[string]any, 0, len(models))
+	for _, account := range pool {
+		provider := accounts.NormalizeProviderFamily(account.Provider)
+		if !identity.AllowsProvider(provider) || !identity.AllowsProviderRegion(provider, account.Region) {
+			continue
+		}
+		for alias, target := range account.Aliases {
+			aliasKey := accounts.CanonicalModelID(alias)
+			targetKey := accounts.CanonicalModelID(target)
+			if aliasKey == "" || aliasKey == "auto" || targetKey == "" || aliasKey == targetKey {
+				continue
+			}
+			if realIDs[aliasKey] || seen[aliasKey] || !accountServesModel(account, targetKey) {
+				continue
+			}
+			base := aliasBaseEntry(byTarget[targetKey], provider, account.Region)
+			if base == nil {
+				continue
+			}
+			seen[aliasKey] = true
+			entry := CloneModelEntry(base)
+			entry["id"] = aliasKey
+			entry["display_name"] = aliasKey
+			entry["owned_by"] = "aggregate"
+			// alias_of and provider metadata describe how one account serves
+			// the name; an aggregate key must not see either.
+			for _, field := range []string{
+				"alias_of", "provider", "native_model", "region", "regions", "credits", "free",
+			} {
+				delete(entry, field)
+			}
+			out = append(out, entry)
+		}
+	}
+	return out
+}
+
+// aliasBaseEntry picks the catalog entry an account actually serves for the
+// alias target, preferring the same provider. A target id can exist in several
+// regions, and blindly taking the first entry would drop a valid alias whose
+// account lives in another region.
+func aliasBaseEntry(candidates []map[string]any, provider, region string) map[string]any {
+	for _, candidate := range candidates {
+		if modelEntryProvider(candidate) == provider && accountServesRegion(region, EntryModelRegions(candidate)) {
+			return candidate
+		}
+	}
+	for _, candidate := range candidates {
+		if accountServesRegion(region, EntryModelRegions(candidate)) {
+			return candidate
+		}
+	}
+	return nil
+}
+
+func modelEntryProvider(model map[string]any) string {
+	provider, _ := model["provider"].(string)
+	if strings.TrimSpace(provider) == "" {
+		provider, _ = model["owned_by"].(string)
+	}
+	return accounts.NormalizeProviderFamily(provider)
+}
+
 // FilterModelsByAccountAllow drops catalog entries no granted account will
 // serve. See ModelServedByAccounts for the empty-pool and mixed-account rules.
 func FilterModelsByAccountAllow(models []map[string]any, identity auth.Identity, pool []AccountModelAllow) []map[string]any {
