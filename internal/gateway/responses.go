@@ -169,7 +169,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 	}
 	h.finishCompatibility(execution, upstream.AccountID, upstream.Provider, upstream.Routing, status, ttfb, &stats, logErr, upstream.AttemptCount, upstream.ReasoningLevel)
 	if relayErr == nil {
-		h.Executor.CommitSession(execution.Context, execution.Request, upstream.Routing, upstream.AccountID)
+		h.Executor.CommitSession(execution.Context, execution.Request, upstream.Routing, firstNonEmpty(upstream.PoolAccountID, upstream.AccountID))
 		return
 	}
 	// A native failure event was already relayed as the stream's terminal

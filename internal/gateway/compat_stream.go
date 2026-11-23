@@ -19,7 +19,7 @@ import (
 
 func (h *Handler) observeCompatibilityStreamFailure(r *http.Request, execution Execution, upstream executor.StreamResult, relayErr error) {
 	if r.Context().Err() == nil && !errors.Is(relayErr, context.Canceled) && !errors.Is(relayErr, context.DeadlineExceeded) && !IsStreamClientDisconnect(relayErr) {
-		h.Executor.ObserveStreamFailure(upstream.AccountID, relayErr, execution.Request.Model)
+		h.Executor.ObserveStreamFailure(firstNonEmpty(upstream.PoolAccountID, upstream.AccountID), relayErr, execution.Request.Model)
 	}
 }
 
