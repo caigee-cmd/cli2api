@@ -1,8 +1,10 @@
 # Contributing
 
-CLI2API keeps the Qoder execution path stable while supporting provider-specific
-adapters for Qoder, WorkBuddy, Trae, and experimental Devin and Command Code. Keep new provider work behind the shared
-account, routing, and protocol contracts. Read [AGENTS.md](AGENTS.md) for hard rules, [docs/ARCHITECTURE_SUMMARY.md](docs/ARCHITECTURE_SUMMARY.md) for the public backend map, and [docs/REFACTORING.md](docs/REFACTORING.md) for accepted package boundaries. Preserve existing uncommitted work;
+CLI2API keeps the Qoder execution path stable while adding provider-specific
+adapters behind the shared account, routing, and protocol contracts. Qoder,
+WorkBuddy, and Trae are the stable providers; every other registered provider is
+experimental, and the current set lives in `internal/providers/registry.go`
+rather than in this document. Read [AGENTS.md](AGENTS.md) for hard rules, [docs/ARCHITECTURE_SUMMARY.md](docs/ARCHITECTURE_SUMMARY.md) for the public backend map, and [docs/REFACTORING.md](docs/REFACTORING.md) for accepted package boundaries. Preserve existing uncommitted work;
 before feature work, fetch and merge the latest `origin/main` into your branch.
 
 ## Setup
@@ -59,7 +61,7 @@ series bump.
 ## Rules
 
 - Keep the Go layers: auth / endpoint / executor / translate, plus store / control / runtime / gateway / console / server / app. `internal/api` is a test-only facade over `app.New`; do not add business there.
-- PAT-backed Qoder accounts stay in-process. Legacy `qoder-native-v1` accounts keep one HOME and one Node daemon; do not share that WASM context. Other providers use their in-process adapter and must not spawn a child daemon
+- PAT-backed Qoder accounts stay in-process. Legacy `qoder-native-v1` accounts keep one HOME and one Node daemon; do not share that WASM context. Every non-Qoder provider uses its in-process adapter and must not spawn a child daemon
 - Keep qodercli compatibility checks in `worker/src/compat.mjs`
 - Preserve the proven WASM encode and HTTP/SSE request path
 - Use HeroUI for console components
