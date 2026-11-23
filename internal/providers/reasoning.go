@@ -113,6 +113,13 @@ func ResolveReasoningLevel(level string, caps ModelCapabilities) string {
 				return normalized
 			}
 		}
+		if chain := reasoningDegradationChain(normalized); chain != nil {
+			for _, candidate := range chain {
+				if containsReasoningOption(caps.ReasoningOptions, candidate) {
+					return candidate
+				}
+			}
+		}
 	}
 	if fallback := NormalizeReasoningLevel(caps.ReasoningDefault); fallback != "" {
 		for _, option := range caps.ReasoningOptions {
