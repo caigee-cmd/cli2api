@@ -26,8 +26,17 @@ type AggregationStore interface {
 	DeleteAggregation(ctx context.Context, id string) error
 }
 
+// AggregationMemberValidator checks that every configured member is a model
+// the selected provider policy currently allows. The provider policy is the
+// single source of truth, so this validation must run on writes instead of
+// trusting the console's cached model list.
+type AggregationMemberValidator interface {
+	ValidateAggregationMembers(ctx context.Context, members []accounts.AggregationMember) error
+}
+
 type Aggregations struct {
-	store AggregationStore
+	store     AggregationStore
+	validator AggregationMemberValidator
 	// mu serializes console write operations. This gateway runs as a single
 	// process, so a facade mutex is enough to keep Update's read-modify-write
 	// from losing a concurrent PATCH without a schema/version migration.
@@ -40,11 +49,15 @@ type Aggregations struct {
 
 type aggregationSnapshot map[string]accounts.Aggregation
 
-func NewAggregations(store AggregationStore) *Aggregations {
+func NewAggregations(store AggregationStore, validators ...AggregationMemberValidator) *Aggregations {
 	if store == nil {
 		return nil
 	}
-	return &Aggregations{store: store}
+	a := &Aggregations{store: store}
+	if len(validators) > 0 {
+		a.validator = validators[0]
+	}
+	return a
 }
 
 func (a *Aggregations) List(ctx context.Context) ([]accounts.Aggregation, error) {
@@ -68,6 +81,9 @@ func (a *Aggregations) Create(ctx context.Context, input accounts.CreateAggregat
 	prepared, err := accounts.PrepareCreateAggregation(input)
 	if err != nil {
 		return accounts.Aggregation{}, operationError("invalid_request", err.Error())
+	}
+	if err := a.validateMembers(ctx, prepared.Members); err != nil {
+		return accounts.Aggregation{}, err
 	}
 	now := time.Now().UTC()
 	created, err := a.store.InsertAggregation(ctx, accounts.Aggregation{
@@ -102,6 +118,11 @@ func (a *Aggregations) Update(ctx context.Context, id string, input accounts.Upd
 	if err != nil {
 		return accounts.Aggregation{}, operationError("invalid_request", err.Error())
 	}
+	if input.Members != nil {
+		if err := a.validateMembers(ctx, merged.Members); err != nil {
+			return accounts.Aggregation{}, err
+		}
+	}
 	merged.UpdatedAt = time.Now().UTC()
 	updated, err := a.store.SaveAggregation(ctx, merged)
 	if err != nil {
@@ -125,6 +146,18 @@ func (a *Aggregations) Delete(ctx context.Context, id string) error {
 		a.invalidateResolveCache()
 	}
 	return err
+}
+
+// validateMembers treats a provider-policy rejection as an invalid request so
+// console writes surface a 400 instead of silently persisting a dead member.
+func (a *Aggregations) validateMembers(ctx context.Context, members []accounts.AggregationMember) error {
+	if a.validator == nil {
+		return nil
+	}
+	if err := a.validator.ValidateAggregationMembers(ctx, members); err != nil {
+		return operationError("invalid_request", err.Error())
+	}
+	return nil
 }
 
 // invalidateResolveCache must be called with a.mu held by writers.

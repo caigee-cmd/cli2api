@@ -17,18 +17,18 @@ const (
 	DomainCN     = "codebuddy.cn"
 	DomainGlobal = "workbuddy.ai"
 
-	ChatBaseCN     = "https://copilot.tencent.com"
+	ChatBaseCN     = "https://www.workbuddy.cn"
 	ChatBaseGlobal = "https://www.workbuddy.ai"
-	BillingBaseCN  = "https://www.codebuddy.cn"
+	BillingBaseCN  = "https://www.workbuddy.cn"
 
-	// UserAgent matches official @tencent-ai/codebuddy-code in the dual-token
-	// form WorkBuddy chat still accepts. Origin/Referer stay region-specific
+	// UserAgent is the CN CLI/chat UA the current desktop sends: app token,
+	// edition token, then the bundled CLI. Origin/Referer stay region-specific
 	// and must never mix CN with Global. All client versions live here.
 	// CLIVersion is the unpacked @tencent-ai/codebuddy-code package version
-	// (hub identity audit, 2.168.2). Chat sends it as both UA segments and
-	// X-IDE-Version.
-	CLIVersion = "2.168.2"
-	UserAgent  = "CLI/" + CLIVersion + " CodeBuddy/" + CLIVersion
+	// bundled in desktop 5.11.3 / 5.11.4 (2.176.0). The desktop app version,
+	// not the bundled CLI version, is the UA/version segment.
+	CLIVersion = "2.176.0"
+	UserAgent  = "WorkBuddy/" + DesktopVersionCN + " WorkBuddy/" + DesktopVersionCN + " CLI/" + DesktopCLIVersionCN
 
 	// OpenAI Node SDK fingerprint the official CLI attaches to chat.
 	// Values are the SDK 6.25.0 defaults shipped with that CLI package.
@@ -45,18 +45,20 @@ const (
 
 	// Desktop clients ship separately per edition. Their UA is three-part:
 	// app token, edition token, then the CLI bundled inside that desktop
-	// build. Those bundled CLIs are not CLIVersion. International desktop
-	// 5.9.4 embeds 2.165.0; the CN desktop build was not re-verified and
-	// stays on its previous bundled CLI.
-	DesktopVersionGlobal    = "5.9.4"
-	DesktopCLIVersionGlobal = "2.165.0"
-	DesktopVersionCN        = "5.8.3"
-	DesktopCLIVersionCN     = "2.161.0"
+	// build. The current official builds are CN 5.11.3 and Global 5.11.4;
+	// both bundle CLI 2.176.0.
+	DesktopVersionGlobal    = "5.11.4"
+	DesktopCLIVersionGlobal = "2.176.0"
+	DesktopVersionCN        = "5.11.3"
+	DesktopCLIVersionCN     = "2.176.0"
 	DesktopUserAgentGlobal  = "WorkBuddy/" + DesktopVersionGlobal + " workbuddy-ai/" + DesktopVersionGlobal + " CLI/" + DesktopCLIVersionGlobal
-	DesktopUserAgentCN      = "WorkBuddy/" + DesktopVersionCN + " WorkBuddy/" + DesktopVersionCN + " CLI/" + DesktopCLIVersionCN
+	DesktopUserAgentCN      = UserAgent
+	// DaemonUserAgentGlobal is the background-service UA: the global edition's
+	// applicationName is used for both app segments. CN equals UserAgent.
+	DaemonUserAgentGlobal = "workbuddy-ai/" + DesktopVersionGlobal + " workbuddy-ai/" + DesktopVersionGlobal + " CLI/" + DesktopCLIVersionGlobal
 
 	// IDEVersion is the CodeBuddy IDE plugin release, kept with the others.
-	IDEVersion = "2.168.2"
+	IDEVersion = "2.176.0"
 
 	// DesktopVersion/DesktopUserAgent are for /v3/config only (Global). Live
 	// A/B showed the same Global account returns the IDE dropdown (incl.
@@ -68,7 +70,7 @@ const (
 	productTypeCLI           = "CLI"
 	agentIntentDefault       = "craft"
 	agentPurposeConversation = "conversation"
-	agentRuntimeOther        = "other"
+	agentRuntimeOther        = "local-agent"
 	agentTypeMain            = "main"
 
 	pathAuthState    = "/v2/plugin/auth/state"
@@ -85,6 +87,7 @@ const (
 	pathModelsGlobal  = "/v2/enterprises/personal/models"
 	pathProductConfig = "/v3/config"
 	pathUserResource  = "/v2/billing/meter/get-user-resource"
+	pathCheckinStatus = "/v2/billing/meter/checkin-activity-status"
 	pathDailyCheckin  = "/v2/billing/meter/daily-checkin"
 
 	sessionDeadCode         = 12153
@@ -244,10 +247,27 @@ func (c Credential) IsGlobal() bool {
 		strings.Contains(domain, "workbuddy")
 }
 
-// DesktopUserAgentFor returns the desktop UA for the account's edition.
+// DesktopUserAgentFor returns the CLI/chat UA for the account's edition.
 func DesktopUserAgentFor(global bool) string {
 	if global {
 		return DesktopUserAgentGlobal
 	}
 	return DesktopUserAgentCN
+}
+
+// DaemonUserAgentFor returns the background-service UA for the account's edition.
+func DaemonUserAgentFor(global bool) string {
+	if global {
+		return DaemonUserAgentGlobal
+	}
+	return UserAgent
+}
+
+// DesktopVersionFor returns the desktop app version sent as X-IDE-Version and
+// X-Client-Version.
+func DesktopVersionFor(global bool) string {
+	if global {
+		return DesktopVersionGlobal
+	}
+	return DesktopVersionCN
 }

@@ -285,6 +285,10 @@ CREATE TABLE IF NOT EXISTS aggregation_members (
 CREATE INDEX IF NOT EXISTS aggregation_members_agg ON aggregation_members(agg_id);`},
 	{filename: "032_aggregation_member_account.sql", sql: `
 ALTER TABLE aggregation_members ADD COLUMN account_id TEXT NOT NULL DEFAULT '';`},
+	{filename: "033_account_checkin_status.sql", sql: `
+ALTER TABLE accounts ADD COLUMN last_checkin_source TEXT NOT NULL DEFAULT '';
+ALTER TABLE accounts ADD COLUMN last_checkin_synced_at TEXT NOT NULL DEFAULT '';
+ALTER TABLE accounts ADD COLUMN checkin_auto_time TEXT NOT NULL DEFAULT '';`},
 }
 
 const schemaMigrationsDDL = `

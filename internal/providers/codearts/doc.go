@@ -86,7 +86,8 @@
 //
 // The daily check-in and new-user credits are two credit campaigns delivered by
 // the ops endpoints (/v1/ops/delivery, /v1/ops/claim, /v1/ops/confirm), not by
-// the CLI. Claiming is idempotent and the confirm step is retried separately;
-// the adapter reports the claimed amount and never presents it as the account
-// balance.
+// the CLI. Claims are deduplicated by the server (code 40001 = already claimed),
+// and the IDE posts /v1/ops/confirm when the claim returns a benefit id; the
+// adapter does the same and treats a missing confirm endpoint as non-fatal. It
+// reports the claimed amount and never presents it as the account balance.
 package codearts

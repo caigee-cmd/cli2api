@@ -98,7 +98,7 @@ var Qoder = ProviderDescriptor{
 	},
 	Regions: []RegionDescriptor{
 		{
-			ID: "global", Label: "Global", ChatBase: "https://api1.qoder.sh",
+			ID: "global", Label: "Global", ChatBase: "https://api2.qoder.sh",
 			BillingBase: "https://openapi.qoder.sh", AuthBase: "https://qoder.sh",
 			DefaultDomain: "qoder.global",
 			Checkin:       &CheckinPolicy{Timezone: "Asia/Shanghai"},
@@ -128,16 +128,15 @@ var WorkBuddy = ProviderDescriptor{
 	},
 	Regions: []RegionDescriptor{
 		{
-			ID: "cn", Label: "CN", ChatBase: "https://copilot.tencent.com",
-			BillingBase: "https://www.codebuddy.cn", AuthBase: "https://copilot.tencent.com",
+			ID: "cn", Label: "CN", ChatBase: "https://www.workbuddy.cn",
+			BillingBase: "https://www.workbuddy.cn", AuthBase: "https://www.workbuddy.cn",
 			DefaultDomain: "codebuddy.cn",
-			Checkin:       &CheckinPolicy{Timezone: "Local"},
+			Checkin:       &CheckinPolicy{Timezone: "Asia/Shanghai"},
 		},
 		{
 			ID: "global", Label: "Global", ChatBase: "https://www.workbuddy.ai",
 			BillingBase: "https://www.workbuddy.ai", AuthBase: "https://www.workbuddy.ai",
 			DefaultDomain: "workbuddy.ai",
-			Checkin:       &CheckinPolicy{Timezone: "Local"},
 		},
 	},
 	DefaultRegion: "cn",

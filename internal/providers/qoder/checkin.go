@@ -55,6 +55,19 @@ func (c *Client) Checkin(ctx context.Context, accountID string) (providers.Check
 	return b.Checkin(ctx)
 }
 
+// CheckinStatus reads the campaign state only; legacy worker accounts have no
+// status-only endpoint, so they report unknown until the next real check-in.
+func (c *Client) CheckinStatus(ctx context.Context, accountID string) (providers.CheckinResult, error) {
+	b, err := c.bridge(ctx, accountID)
+	if err != nil {
+		if errors.Is(err, ErrPATRequired) {
+			return providers.CheckinResult{Status: "unknown", Message: "旧版 Qoder 账号暂不支持上游状态同步", EarliestCheckin: "10:00"}, nil
+		}
+		return providers.CheckinResult{}, err
+	}
+	return b.CheckinStatus(ctx)
+}
+
 // workerCheckin is the legacy fallback for accounts that still carry a
 // qoder-native-v1 blob instead of a PAT. It POSTs the worker's /admin/checkin
 // endpoint and decodes its response. It will be removed with the worker in
@@ -93,35 +106,25 @@ func (c *Client) workerCheckin(ctx context.Context, accountID string) (providers
 	return payload.CheckinResult, nil
 }
 
-// Checkin runs the daily credit-claim using the bridge's in-process session.
-// It is a method on Bridge so the per-account session, machine identity, and
-// token-rotation state are all reused across catalog/quota/checkin.
-func (b *Bridge) Checkin(ctx context.Context) (providers.CheckinResult, error) {
-	// Rotate the session if needed before the call: a stale token surfaces as
-	// a 401 on the campaigns endpoint, and while the request path below
-	// retries once with ForceRefresh, proactively refreshing avoids the round
-	// trip.
+// checkinDoer builds the signed campaign requester shared by the claim and
+// status paths. The returned bearer pointer lets the caller switch to the COSY
+// fallback token without rebuilding the closure.
+func (b *Bridge) checkinDoer(ctx context.Context) (checkinRequester, *string, error) {
 	if err := b.EnsureFreshSession(ctx); err != nil {
-		return providers.CheckinResult{}, fmt.Errorf("qoder check-in: session: %w", err)
+		return nil, nil, fmt.Errorf("qoder check-in: session: %w", err)
 	}
-
 	endpoint := checkinEndpoint(b.Region)
 	if endpoint == nil {
-		return providers.CheckinResult{Status: "skipped", Message: "签到活动未开放"}, nil
+		return nil, nil, errCheckinUnavailable
 	}
-
-	// The campaign endpoint's bearer differs by region: CN accepts the COSY
-	// securityOauthToken; Global rejects it (401) and needs a separately-issued
-	// OpenAPI bearer. quotaBearer returns the right one and caches the global
-	// token. Fall back to the COSY token if the exchange fails.
 	bearer, err := b.quotaBearer(ctx)
 	if err != nil || bearer == "" {
 		bearer = b.CurrentSecurityOauth()
 	}
-
+	bearerRef := &bearer
 	var doRequest checkinRequester
 	doRequest = func(path, method string, refreshed bool) (map[string]any, int, error) {
-		token := bearer
+		token := *bearerRef
 		if token == "" {
 			return nil, 0, errors.New("qoder check-in: token unavailable")
 		}
@@ -139,13 +142,8 @@ func (b *Bridge) Checkin(ctx context.Context) (providers.CheckinResult, error) {
 		req.Header.Set("User-Agent", "Qoder")
 		req.Header.Set("Cosy-ClientType", "10")
 		req.Header.Set("Cosy-Version", qauth.DesktopCosyVersion)
-		// The campaign endpoint serves the desktop activity iframe. Keep its
-		// browser origin/referer, while omitting derived machine headers that
-		// make upstream classify the request as non-official.
 		req.Header.Set("Origin", endpoint.origin)
 		req.Header.Set("Referer", endpoint.base+"/growth-page/activity-iframe")
-		// redirect: manual — the campaigns endpoint 302s to a login page when
-		// the token is rejected, and we want to see the 302 rather than follow it.
 		resp, err := checkinHTTPClient.Do(req)
 		if err != nil {
 			return nil, 0, fmt.Errorf("qoder check-in: request failed: %w", err)
@@ -153,10 +151,6 @@ func (b *Bridge) Checkin(ctx context.Context) (providers.CheckinResult, error) {
 		if resp.StatusCode == http.StatusUnauthorized && !refreshed {
 			io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<16))
 			resp.Body.Close()
-			// A global-region bearer is the cached OpenAPI token; if it was
-			// rejected, drop it so the next quotaBearer call re-exchanges rather
-			// than handing back the same stale token. Then rotate the COSY
-			// session and re-resolve the bearer before the single retry.
 			if b.Region != nil && b.Region.NeedsOpenAPIToken {
 				b.invalidateOpenAPIBearer()
 			}
@@ -164,9 +158,9 @@ func (b *Bridge) Checkin(ctx context.Context) (providers.CheckinResult, error) {
 				return nil, 0, fmt.Errorf("qoder check-in: refresh failed: %w", err)
 			}
 			if fresh, berr := b.quotaBearer(ctx); berr == nil && fresh != "" {
-				bearer = fresh
+				*bearerRef = fresh
 			} else {
-				bearer = b.CurrentSecurityOauth()
+				*bearerRef = b.CurrentSecurityOauth()
 			}
 			return doRequest(path, method, true)
 		}
@@ -180,6 +174,132 @@ func (b *Bridge) Checkin(ctx context.Context) (providers.CheckinResult, error) {
 			return nil, resp.StatusCode, fmt.Errorf("qoder check-in: invalid JSON: %w", err)
 		}
 		return parsed, resp.StatusCode, nil
+	}
+	return doRequest, bearerRef, nil
+}
+
+var errCheckinUnavailable = errors.New("qoder check-in: activity unavailable")
+
+// CheckinStatus lists campaigns without claiming. A CLAIMABLE credit campaign
+// means the account still has today's grant available; a CLAIMED grant inside
+// its window means the current window was already collected.
+func (b *Bridge) CheckinStatus(ctx context.Context) (providers.CheckinResult, error) {
+	doRequest, bearer, err := b.checkinDoer(ctx)
+	if err != nil {
+		if errors.Is(err, errCheckinUnavailable) {
+			return providers.CheckinResult{Status: "skipped", Message: "签到活动未开放", EarliestCheckin: "10:00"}, nil
+		}
+		return providers.CheckinResult{}, err
+	}
+	cosyFallback := ""
+	if b.Region != nil && b.Region.NeedsOpenAPIToken {
+		cosyFallback = b.CurrentSecurityOauth()
+	}
+	var items []campaign
+	for attempt, wait := range checkinListRetryWaits {
+		raw, _, listErr := doRequest(checkinCampaignsPath, http.MethodGet, false)
+		if listErr == nil && cosyFallback != "" && *bearer != cosyFallback && attempt == 0 {
+			*bearer = cosyFallback
+			cosyFallback = ""
+			raw, _, listErr = doRequest(checkinCampaignsPath, http.MethodGet, false)
+		}
+		if listErr != nil {
+			var statusErr interface{ StatusCode() int }
+			if errors.As(listErr, &statusErr) && statusErr.StatusCode() == http.StatusNotFound {
+				return providers.CheckinResult{Status: "skipped", Message: "签到活动未开放", EarliestCheckin: "10:00"}, nil
+			}
+			return providers.CheckinResult{}, listErr
+		}
+		items = campaignsFrom(raw)
+		// Status reads only need one non-empty credit list; the claim path
+		// retries a CLAIMED list because the grant may be stale, but a status
+		// read must not turn that into three upstream calls every sweep.
+		if len(creditCampaigns(items)) > 0 || attempt == len(checkinListRetryWaits)-1 {
+			break
+		}
+		timer := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return providers.CheckinResult{}, ctx.Err()
+		case <-timer.C:
+		}
+	}
+	benefits := creditCampaigns(items)
+	result := providers.CheckinResult{EarliestCheckin: qoderEarliestClock(benefits)}
+	if len(benefits) == 0 {
+		result.Status = "skipped"
+		result.Message = "上游未返回可领取积分的签到活动"
+		return result, nil
+	}
+	now := time.Now()
+	if len(claimableCampaigns(benefits)) > 0 {
+		result.Status = "pending"
+		result.Message = "上游显示今日可签到"
+		return result, nil
+	}
+	if grant, ok := claimedCreditGrant(benefits, now); ok {
+		if qoderSameCheckinDay(int64(grant.StartAt), now) {
+			result.Status = "already"
+			result.Message = "今日已签到"
+			return result, nil
+		}
+		// Before 10:00 the list still carries yesterday's window. A CLAIMED row
+		// there is not today's check-in; reporting it as "already" is the stale
+		// status bug the account card used to show.
+		result.Status = "skipped"
+		result.Message = "签到窗口尚未刷新（10:00 开启）"
+		return result, nil
+	}
+	result.Status = "skipped"
+	result.Message = "签到活动当前不可领取"
+	return result, nil
+}
+
+func qoderSameCheckinDay(unixSeconds int64, now time.Time) bool {
+	location := time.FixedZone("UTC+8", 8*3600)
+	start := time.Unix(unixSeconds, 0).In(location)
+	current := now.In(location)
+	return start.Year() == current.Year() && start.YearDay() == current.YearDay()
+}
+
+// qoderEarliestClock derives the daily window from the current credit
+// campaigns. The activity window closes at 09:59 and the next one opens at
+// 10:00, so the earliest allowed time is the clock of the latest endAt plus
+// one minute (minute precision keeps 09:59:00 from formatting as 09:59).
+// A long-running multi-day grant would otherwise report an arbitrary date, so
+// only an end within the next 24h contributes; the known Qoder reset is 10:00.
+func qoderEarliestClock(items []campaign) string {
+	now := time.Now()
+	latestEnd := int64(0)
+	for _, c := range items {
+		end := int64(c.EndAt)
+		if end <= now.Unix() || end > now.Add(24*time.Hour).Unix() {
+			continue
+		}
+		if end > latestEnd {
+			latestEnd = end
+		}
+	}
+	if latestEnd > 0 {
+		// Round to the next minute: an endAt of 09:59:00 (minute-precision
+		// server value) still belongs to the 09:59 window; +60s makes the
+		// formatted clock the 10:00 start instead of reporting 09:59.
+		if clock := providers.CheckinClockFromUnix(latestEnd + 60); clock != "" {
+			return clock
+		}
+	}
+	return "10:00"
+} // Checkin runs the daily credit-claim using the bridge's in-process session.
+// It is a method on Bridge so the per-account session, machine identity, and
+// token-rotation state are all reused across catalog/quota/checkin.
+func (b *Bridge) Checkin(ctx context.Context) (providers.CheckinResult, error) {
+	doRequest, bearer, err := b.checkinDoer(ctx)
+	if err != nil {
+		if errors.Is(err, errCheckinUnavailable) {
+			return providers.CheckinResult{Status: "skipped", Message: "签到活动未开放", EarliestCheckin: "10:00"}, nil
+		}
+		return providers.CheckinResult{}, err
 	}
 
 	// 1) List campaigns. A successful response with nothing claimable is
@@ -204,9 +324,9 @@ func (b *Bridge) Checkin(ctx context.Context) (providers.CheckinResult, error) {
 	for attempt, wait := range checkinListRetryWaits {
 		listRaw, _, err := doRequest(checkinCampaignsPath, http.MethodGet, false)
 		items = campaignListFrom(listRaw, err)
-		if err == nil && cosyFallback != "" && bearer != cosyFallback &&
+		if err == nil && cosyFallback != "" && *bearer != cosyFallback &&
 			!hasClaimableCreditCampaign(items) && attempt == 0 {
-			bearer = cosyFallback
+			*bearer = cosyFallback
 			cosyFallback = ""
 			listRaw, _, err = doRequest(checkinCampaignsPath, http.MethodGet, false)
 			items = campaignListFrom(listRaw, err)
@@ -216,7 +336,7 @@ func (b *Bridge) Checkin(ctx context.Context) (providers.CheckinResult, error) {
 			// rather than an error so the scheduler logs a clean "already/none".
 			var statusErr interface{ StatusCode() int }
 			if errors.As(err, &statusErr) && statusErr.StatusCode() == http.StatusNotFound {
-				return providers.CheckinResult{Status: "skipped", Message: "签到活动未开放"}, nil
+				return providers.CheckinResult{Status: "skipped", Message: "签到活动未开放", EarliestCheckin: "10:00"}, nil
 			}
 			return providers.CheckinResult{}, err
 		}

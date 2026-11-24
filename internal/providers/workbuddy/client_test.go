@@ -1546,9 +1546,11 @@ func TestChatHeadersReuseConversationIDForOneSession(t *testing.T) {
 		t.Fatalf("one session must reuse its conversation id: %s vs %s",
 			first.Get("X-Conversation-ID"), second.Get("X-Conversation-ID"))
 	}
-	if first.Get("X-Conversation-Request-ID") != first.Get("X-Conversation-ID") ||
-		first.Get("X-Root-Request-ID") != first.Get("X-Conversation-ID") {
-		t.Fatalf("turn ids must follow the conversation id: %+v", first)
+	if first.Get("X-Conversation-Request-ID") != first.Get("X-Conversation-ID") {
+		t.Fatalf("turn id must follow the conversation id: %+v", first)
+	}
+	if first.Get("X-Root-Request-ID") != "" {
+		t.Fatalf("official chat no longer sends X-Root-Request-ID: %+v", first)
 	}
 	if first.Get("X-Request-ID") == second.Get("X-Request-ID") {
 		t.Fatal("message id must be fresh per request")
@@ -1583,15 +1585,16 @@ func dashedUUID(value string) bool {
 func TestChatHeadersStayRegionSpecificAndIncludeCLIChannel(t *testing.T) {
 	cn := http.Header{}
 	SetChatHeaders(cn, Credential{AccessToken: "at", UID: "u1", Domain: "www.codebuddy.cn"}, "")
-	if cn.Get("Origin") != "https://www.codebuddy.cn" || cn.Get("Referer") != "https://www.codebuddy.cn/" {
-		t.Fatalf("CN origin/referer mixed: %+v", cn)
+	if cn.Get("Origin") != "" || cn.Get("Referer") != "" {
+		t.Fatalf("official chat must not send origin/referer: %+v", cn)
 	}
 	if got := cn.Get("User-Agent"); got != UserAgent || !strings.Contains(got, CLIVersion) {
 		t.Fatalf("CN UA=%q", got)
 	}
-	if cn.Get("X-Product") != "SaaS" || cn.Get("X-IDE-Type") != "CLI" || cn.Get("X-IDE-Version") != CLIVersion ||
+	if cn.Get("X-Product") != "SaaS" || cn.Get("X-IDE-Type") != "CLI" || cn.Get("X-IDE-Version") != DesktopVersionCN ||
 		cn.Get("X-Agent-Intent") != "craft" || cn.Get("X-Agent-Purpose") != "conversation" ||
-		cn.Get("X-Agent-Runtime") != "other" || cn.Get("X-Agent-Type") != "main" ||
+		cn.Get("X-Agent-Runtime") != "local-agent" || cn.Get("X-Agent-Type") != "main" ||
+		cn.Get("X-Client-Version") != DesktopVersionCN || cn.Get("X-Client-Product") != "WorkBuddy" ||
 		cn.Get("X-Private-Data") != "false" || cn.Get("X-Request-ID") == "" {
 		t.Fatalf("CN missing CLI channel headers: %+v", cn)
 	}
@@ -1603,7 +1606,7 @@ func TestChatHeadersStayRegionSpecificAndIncludeCLIChannel(t *testing.T) {
 		cn.Get("X-Stainless-Timeout") != "1200" {
 		t.Fatalf("CN missing CLI SDK fingerprint: %+v", cn)
 	}
-	if cn.Get("X-Request-ID") == cn.Get("X-Conversation-ID") || cn.Get("X-Root-Request-ID") != cn.Get("X-Conversation-Request-ID") {
+	if cn.Get("X-Request-ID") == cn.Get("X-Conversation-ID") || cn.Get("X-Root-Request-ID") != "" {
 		t.Fatalf("CLI request ids must split message and turn: %+v", cn)
 	}
 	if cn.Get("X-Request-ID") != cn.Get("X-Conversation-Message-ID") {
@@ -1621,8 +1624,13 @@ func TestChatHeadersStayRegionSpecificAndIncludeCLIChannel(t *testing.T) {
 
 	global := http.Header{}
 	SetChatHeaders(global, Credential{AccessToken: "at", UID: "u2", Domain: "www.workbuddy.ai"}, "")
-	if global.Get("Origin") != "https://www.workbuddy.ai" || global.Get("Referer") != "https://www.workbuddy.ai/" {
-		t.Fatalf("Global origin/referer mixed: %+v", global)
+	if global.Get("Origin") != "" || global.Get("Referer") != "" {
+		t.Fatalf("official Global chat must not send origin/referer: %+v", global)
+	}
+	if global.Get("User-Agent") != DesktopUserAgentGlobal ||
+		global.Get("X-Client-Version") != DesktopVersionGlobal ||
+		global.Get("X-Client-Product") != "workbuddy-ai" {
+		t.Fatalf("Global chat identity=%+v", global)
 	}
 	if global.Get("X-IDE-Type") != "CLI" || global.Get("X-Product") != "SaaS" {
 		t.Fatalf("Global missing CLI channel headers: %+v", global)
@@ -2062,6 +2070,54 @@ func TestDailyCheckinSessionDeadDoesNotObserve(t *testing.T) {
 	}
 }
 
+func TestCheckinStatusReadsUpstreamWithoutClaiming(t *testing.T) {
+	client, store := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != pathCheckinStatus {
+			t.Fatalf("status must never claim: %s", r.URL.Path)
+		}
+		if r.Method != http.MethodPost {
+			t.Fatalf("method=%s", r.Method)
+		}
+		raw, _ := io.ReadAll(r.Body)
+		if strings.TrimSpace(string(raw)) != "{}" {
+			t.Fatalf("body=%q", raw)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "msg": "", "data": map[string]any{
+			"active": true, "today_checked_in": true, "start_time": "2026-09-30 00:00:00",
+			"end_time": "2026-12-31 23:59:59", "current_streak": 5, "points": 12.5,
+		}})
+	}))
+	payload, _ := Credential{AccessToken: "at", RefreshToken: "rt", ExpiresAt: 4102444800, Domain: DomainCN, UID: "u1"}.Encode()
+	_ = store.SaveCredentialPayload(context.Background(), "acc1", CredentialFormat, payload)
+
+	result, err := client.CheckinStatus(context.Background(), "acc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "already" || result.EarliestCheckin != "00:00" || result.Streak != 5 || result.RewardCredits != 12.5 {
+		t.Fatalf("result=%+v", result)
+	}
+}
+
+func TestCheckinStatusPendingWhenTodayMissing(t *testing.T) {
+	client, store := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{
+			"active": true, "today_checked_in": false, "start_time": "2026-09-30 00:00:00", "current_streak": 4,
+		}})
+	}))
+	payload, _ := Credential{AccessToken: "at", RefreshToken: "rt", ExpiresAt: 4102444800, Domain: DomainCN, UID: "u1"}.Encode()
+	_ = store.SaveCredentialPayload(context.Background(), "acc1", CredentialFormat, payload)
+	result, err := client.CheckinStatus(context.Background(), "acc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "pending" || result.EarliestCheckin != "00:00" || result.Streak != 4 {
+		t.Fatalf("result=%+v", result)
+	}
+}
+
 func TestAdapterWiresProber(t *testing.T) {
 	client := NewClient(&memStore{})
 	adapter := client.Adapter()
@@ -2320,5 +2376,112 @@ func TestOutcomeFromAggregateExplicitZeroCredit(t *testing.T) {
 	}
 	if outcome.Credits == nil || *outcome.Credits != 0 {
 		t.Fatalf("explicit zero credit should be recorded, got %v", outcome.Credits)
+	}
+}
+
+func saveCheckinCredential(t *testing.T, store *memStore, domain string) {
+	t.Helper()
+	payload, _ := json.Marshal(Credential{
+		AccessToken: "at", RefreshToken: "rt", ExpiresAt: 4102444800, Domain: domain, UID: "u1",
+	})
+	if err := store.SaveCredentialPayload(context.Background(), "acc1", CredentialFormat, payload); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCheckinQueriesActivityStatusBeforeClaim(t *testing.T) {
+	var statusCalls, claimCalls atomic.Int32
+	client, store := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case pathCheckinStatus:
+			statusCalls.Add(1)
+			if r.Method != http.MethodPost {
+				t.Fatalf("status method=%s", r.Method)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"code": 0,
+				"data": map[string]any{"active": true, "today_checked_in": false},
+			})
+		case pathDailyCheckin:
+			claimCalls.Add(1)
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "msg": "签到成功"})
+		default:
+			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	saveCheckinCredential(t, store, DomainCN)
+	result, err := client.Checkin(context.Background(), "acc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "success" || result.Message != "签到成功" {
+		t.Fatalf("result=%+v", result)
+	}
+	if statusCalls.Load() != 1 || claimCalls.Load() != 1 {
+		t.Fatalf("status=%d claim=%d", statusCalls.Load(), claimCalls.Load())
+	}
+}
+
+func TestCheckinInactiveActivitySkipsWithoutClaim(t *testing.T) {
+	var claimCalls atomic.Int32
+	client, store := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == pathCheckinStatus {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"code": 0,
+				"data": map[string]any{"active": false, "today_checked_in": false},
+			})
+			return
+		}
+		if r.URL.Path == pathDailyCheckin {
+			claimCalls.Add(1)
+		}
+	}))
+	saveCheckinCredential(t, store, DomainCN)
+	result, err := client.Checkin(context.Background(), "acc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "skipped" || claimCalls.Load() != 0 {
+		t.Fatalf("result=%+v claim=%d", result, claimCalls.Load())
+	}
+}
+
+func TestCheckinStatusAlreadyCheckedInSkipsClaim(t *testing.T) {
+	var claimCalls atomic.Int32
+	client, store := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == pathCheckinStatus {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"code": 0,
+				"data": map[string]any{"active": true, "today_checked_in": true},
+			})
+			return
+		}
+		if r.URL.Path == pathDailyCheckin {
+			claimCalls.Add(1)
+		}
+	}))
+	saveCheckinCredential(t, store, DomainCN)
+	result, err := client.Checkin(context.Background(), "acc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "already" || claimCalls.Load() != 0 {
+		t.Fatalf("result=%+v claim=%d", result, claimCalls.Load())
+	}
+}
+
+func TestCheckinGlobalSkipsBeforeAnyRequest(t *testing.T) {
+	var calls atomic.Int32
+	client, store := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+	}))
+	saveCheckinCredential(t, store, DomainGlobal)
+	store.region = "global"
+	result, err := client.Checkin(context.Background(), "acc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "skipped" || calls.Load() != 0 {
+		t.Fatalf("result=%+v calls=%d", result, calls.Load())
 	}
 }

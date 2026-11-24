@@ -1218,14 +1218,15 @@ func aggregateUserResource(packages []resourcePackage, totalDosage int64) (remai
 // Adapter returns the provider capability bundle for registration.
 func (c *Client) Adapter() providers.Adapter {
 	return providers.Adapter{
-		ID:         "workbuddy",
-		Credential: credentialCodec{},
-		Login:      c,
-		Chat:       c,
-		Models:     c,
-		Classifier: classifier{},
-		Prober:     c,
-		Checkin:    c,
+		ID:            "workbuddy",
+		Credential:    credentialCodec{},
+		Login:         c,
+		Chat:          c,
+		Models:        c,
+		Classifier:    classifier{},
+		Prober:        c,
+		Checkin:       c,
+		CheckinStatus: c,
 	}
 }
 

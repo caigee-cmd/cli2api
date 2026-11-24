@@ -49,7 +49,43 @@ func ResolveCheckinTime(ctx context.Context, store CheckinSettingsReader, accoun
 	if account.CheckinTime != "" {
 		return NormalizeCheckinTime(account.CheckinTime)
 	}
-	return CheckinTimeDefault(ctx, store, account.Provider)
+	if account.CheckinAutoTime != "" {
+		return NormalizeCheckinTime(account.CheckinAutoTime)
+	}
+	// Before the first upstream status sync, keep the legacy provider default
+	// as a fallback. The first sync writes CheckinAutoTime and takes over.
+	fallback, err := CheckinTimeDefault(ctx, store, account.Provider)
+	if err != nil {
+		return "", err
+	}
+	return fallback, nil
+}
+
+// EarliestCheckinClock is the provider's fallback daily window start when the
+// upstream status response does not carry one. Qoder's activity refreshes at
+// 10:00 Asia/Shanghai; the other currently supported check-in providers roll
+// over at local midnight.
+func EarliestCheckinClock(provider string) string {
+	if provider == "qoder" {
+		return "10:00"
+	}
+	return "00:00"
+}
+
+// AutoCheckinTimeFromEarliest delays the upstream window by one hour so the
+// scheduler never races the reset. An invalid or empty clock returns empty.
+func AutoCheckinTimeFromEarliest(earliest string) string {
+	parsed, err := time.Parse("15:04", strings.TrimSpace(earliest))
+	if err != nil {
+		return ""
+	}
+	return parsed.Add(time.Hour).Format("15:04")
+}
+
+// DefaultCheckinAutoTime is the provider fallback window + 1 hour, used before
+// the first upstream sync has produced an account-specific value.
+func DefaultCheckinAutoTime(provider string) string {
+	return AutoCheckinTimeFromEarliest(EarliestCheckinClock(provider))
 }
 
 func ValidateCheckinSettings(providerID, regionID string, enabled bool, override string) error {

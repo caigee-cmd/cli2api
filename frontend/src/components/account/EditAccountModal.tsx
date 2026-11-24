@@ -1,13 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Alert, Button, Chip, Form, Input, Modal, NumberField } from '@heroui/react'
 import { X } from '@phosphor-icons/react'
 import { ProviderMark } from '@/components/ProviderMark'
 import { FormRow } from '@/components/ui/FormRow'
-import { CompactSwitch } from '@/components/ui/CompactSwitch'
-import { ModelPicker } from '@/components/account/ModelPicker'
-import { useCollapse } from '@/hooks/useCollapse'
-import { fetchModels } from '@/api/overview'
-import type { ModelInfo } from '@/api/types'
 import type { AccountRow } from '@/lib/account'
 import { accountProviderLabel } from '@/lib/provider'
 
@@ -15,45 +10,17 @@ type Translate = (key: string, vars?: Record<string, string | number>) => string
 
 type Props = {
   account: AccountRow | null
-  checkinDefaultTime?: string
-  checkinTimezone?: string
   busy: boolean
   t: Translate
   onClose: () => void
-  onSave: (input: { name: string; max_inflight: number; priority: number; credit_floor: number | null; percent_floor: number | null; proxy_url: string; checkin_time?: string; drop_system_prompt?: boolean; model_aliases: Record<string, string>; enabled_models: string[]; set_model_routing: boolean }) => Promise<void>
+  onSave: (input: { name: string; max_inflight: number; priority: number }) => Promise<void>
 }
 
-export function EditAccountModal({ account, checkinDefaultTime, checkinTimezone, busy, t, onClose, onSave }: Props) {
+export function EditAccountModal({ account, busy, t, onClose, onSave }: Props) {
   const [name, setName] = useState(account?.name || '')
   const [maxInFlight, setMaxInFlight] = useState<number>(account?.max_inflight ?? 4)
   const [priority, setPriority] = useState<number>(account?.priority ?? 50)
-  const [creditFloorMode, setCreditFloorMode] = useState<'inherit' | 'custom'>(account?.credit_floor == null ? 'inherit' : 'custom')
-  const [creditFloor, setCreditFloor] = useState<number>(account?.credit_floor ?? 0)
-  const [percentFloorMode, setPercentFloorMode] = useState<'inherit' | 'custom'>(account?.percent_floor == null ? 'inherit' : 'custom')
-  const [percentFloor, setPercentFloor] = useState<number>(account?.percent_floor ?? 0)
-  const [proxyUrl, setProxyUrl] = useState(account?.proxy_url || '')
-  const [dropSystemPrompt, setDropSystemPrompt] = useState(Boolean(account?.drop_system_prompt))
-  const [aliases, setAliases] = useState<Array<{ alias: string; model: string }>>(
-    Object.entries(account?.model_aliases || {}).map(([alias, model]) => ({ alias, model })),
-  )
-  const [aliasDraft, setAliasDraft] = useState({ alias: '', model: '' })
-  const [restrictModels, setRestrictModels] = useState(Boolean(account?.models_restricted))
-  const [enabledModels, setEnabledModels] = useState<string[]>(account?.enabled_models || [])
-  const { mounted: pickerMounted, outerRef: pickerOuterRef, innerRef: pickerInnerRef } = useCollapse(restrictModels)
-  const [catalog, setCatalog] = useState<ModelInfo[] | null>(null)
-  const [inheritCheckinTime, setInheritCheckinTime] = useState(!account?.checkin_time)
-  const [checkinTime, setCheckinTime] = useState<string | null>(account?.checkin_time || null)
   const [error, setError] = useState('')
-  useEffect(() => {
-    if (!account?.id) return
-    let cancelled = false
-    void fetchModels(account.id).then((data) => {
-      if (!cancelled) setCatalog(data.data || [])
-    }).catch(() => {
-      if (!cancelled) setCatalog([])
-    })
-    return () => { cancelled = true }
-  }, [account?.id])
 
   const title = t('editAccountTitle', { name: account?.name || account?.id || '' })
   const provider = account ? accountProviderLabel(account.provider, account.region, t) : ''
@@ -73,33 +40,9 @@ export function EditAccountModal({ account, checkinDefaultTime, checkinTimezone,
       setError(t('priorityInvalid'))
       return
     }
-    if (creditFloorMode === 'custom' && (!Number.isFinite(creditFloor) || creditFloor < 0)) {
-      setError(t('creditFloorInvalid'))
-      return
-    }
-    if (percentFloorMode === 'custom' && (!Number.isFinite(percentFloor) || percentFloor < 0 || percentFloor > 100)) {
-      setError(t('percentFloorInvalid'))
-      return
-    }
-    if (checkinDefaultTime !== undefined && !inheritCheckinTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(checkinTime ?? checkinDefaultTime)) {
-      setError(t('checkinTimeInvalid'))
-      return
-    }
     setError('')
     try {
-      await onSave({
-        name: trimmed,
-        max_inflight: maxInFlight,
-        priority,
-        credit_floor: creditFloorMode === 'custom' ? creditFloor : null,
-        percent_floor: percentFloorMode === 'custom' ? percentFloor : null,
-        proxy_url: proxyUrl.trim(),
-        checkin_time: checkinDefaultTime !== undefined ? (inheritCheckinTime ? '' : checkinTime ?? checkinDefaultTime) : undefined,
-        drop_system_prompt: account?.provider === 'workbuddy' || account?.provider === 'trae' ? dropSystemPrompt : undefined,
-        model_aliases: Object.fromEntries(aliases.filter((item) => item.alias.trim() && item.model.trim()).map((item) => [item.alias.trim(), item.model.trim()])),
-        enabled_models: restrictModels ? enabledModels : [],
-        set_model_routing: true,
-      })
+      await onSave({ name: trimmed, max_inflight: maxInFlight, priority })
       onClose()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -183,133 +126,6 @@ export function EditAccountModal({ account, checkinDefaultTime, checkinTimezone,
                     </NumberField.Group>
                   </NumberField>
                 </FormRow>
-                <FormRow label={t('creditFloor')} hint={t('creditFloorHint')} align="start">
-                  <div className="space-y-2">
-                    <CompactSwitch
-                      isSelected={creditFloorMode === 'custom'}
-                      isDisabled={busy}
-                      ariaLabel={t('creditFloorCustom')}
-                      label={t('creditFloorCustom')}
-                      onChange={(selected) => setCreditFloorMode(selected ? 'custom' : 'inherit')}
-                    />
-                    {creditFloorMode === 'custom' ? (
-                      <NumberField
-                        value={creditFloor}
-                        onChange={(value) => setCreditFloor(value ?? 0)}
-                        minValue={0}
-                        step={1}
-                        isDisabled={busy}
-                        isRequired
-                      >
-                        <NumberField.Group>
-                          <NumberField.DecrementButton />
-                          <NumberField.Input aria-label={t('creditFloor')} />
-                          <NumberField.IncrementButton />
-                        </NumberField.Group>
-                      </NumberField>
-                    ) : (
-                      <p className="text-caption text-muted">{t('creditFloorInheritHint')}</p>
-                    )}
-                  </div>
-                </FormRow>
-                <FormRow label={t('percentFloor')} hint={t('percentFloorHint')} align="start">
-                  <div className="space-y-2">
-                    <CompactSwitch
-                      isSelected={percentFloorMode === 'custom'}
-                      isDisabled={busy}
-                      ariaLabel={t('percentFloorCustom')}
-                      label={t('percentFloorCustom')}
-                      onChange={(selected) => setPercentFloorMode(selected ? 'custom' : 'inherit')}
-                    />
-                    {percentFloorMode === 'custom' ? (
-                      <NumberField
-                        value={percentFloor}
-                        onChange={(value) => setPercentFloor(value ?? 0)}
-                        minValue={0}
-                        maxValue={100}
-                        step={1}
-                        isDisabled={busy}
-                        isRequired
-                      >
-                        <NumberField.Group>
-                          <NumberField.DecrementButton />
-                          <NumberField.Input aria-label={t('percentFloor')} />
-                          <NumberField.IncrementButton />
-                        </NumberField.Group>
-                      </NumberField>
-                    ) : (
-                      <p className="text-caption text-muted">{t('percentFloorInheritHint')}</p>
-                    )}
-                  </div>
-                </FormRow>
-                <FormRow label={t('proxyUrl')} hint={t('proxyUrlHint')}>
-                  <Input
-                    value={proxyUrl}
-                    onChange={(event) => setProxyUrl(event.target.value)}
-                    placeholder={t('proxyUrlPlaceholder')}
-                    aria-label={t('proxyUrl')}
-                    disabled={busy}
-                  />
-                </FormRow>
-                {account?.provider === 'workbuddy' || account?.provider === 'trae' ? (
-                  <FormRow label={t('dropSystemPrompt')} hint={t(account?.provider === 'trae' ? 'dropSystemPromptTraeHint' : 'dropSystemPromptHint')}>
-                    <CompactSwitch
-                      isSelected={dropSystemPrompt}
-                      isDisabled={busy}
-                      ariaLabel={t('dropSystemPrompt')}
-                      onChange={setDropSystemPrompt}
-                    />
-                  </FormRow>
-                ) : null}
-                <FormRow align="start" label={t('accountModelAliases')} hint={t('accountModelAliasesHint')}>
-                  <div className="space-y-2">
-                    {aliases.map((item) => (
-                      <div key={item.alias} className="flex items-center justify-between gap-2">
-                        <span className="mono min-w-0 truncate text-body">{item.alias} → {item.model}</span>
-                        <Button size="sm" variant="ghost" isDisabled={busy} onPress={() => setAliases((current) => current.filter((row) => row.alias !== item.alias))}>{t('modelAliasRemove')}</Button>
-                      </div>
-                    ))}
-                    <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
-                      <Input aria-label={t('modelAliasName')} value={aliasDraft.alias} onChange={(event) => setAliasDraft((current) => ({ ...current, alias: event.target.value }))} placeholder={t('modelAliasPlaceholder')} disabled={busy} />
-                      <Input aria-label={t('modelAliasTarget')} value={aliasDraft.model} onChange={(event) => setAliasDraft((current) => ({ ...current, model: event.target.value }))} placeholder={t('accountModelAliasTargetPlaceholder')} disabled={busy} />
-                      <Button size="sm" variant="secondary" isDisabled={busy || !aliasDraft.alias.trim() || !aliasDraft.model.trim()} onPress={() => {
-                        setAliases((current) => [...current.filter((row) => row.alias !== aliasDraft.alias.trim()), { alias: aliasDraft.alias.trim(), model: aliasDraft.model.trim() }])
-                        setAliasDraft({ alias: '', model: '' })
-                      }}>{t('modelAliasAdd')}</Button>
-                    </div>
-                  </div>
-                </FormRow>
-                <section className="space-y-3 pt-1">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="text-body font-medium text-foreground">{t('enabledModels')}</div>
-                      <p className="mt-0.5 text-caption leading-5 text-muted">{t('enabledModelsHint')}</p>
-                    </div>
-                    <CompactSwitch isSelected={restrictModels} isDisabled={busy} ariaLabel={t('restrictModels')} label={restrictModels ? t('restrictModels') : t('allModels')} onChange={setRestrictModels} />
-                  </div>
-                  {pickerMounted ? (
-                    <div ref={pickerOuterRef}>
-                    <div ref={pickerInnerRef}>
-                    <ModelPicker
-                      catalog={catalog ? catalog.map((model) => model.id) : null}
-                      selected={enabledModels}
-                      onChange={setEnabledModels}
-                      isDisabled={busy}
-                      t={t}
-                    />
-                    </div>
-                    </div>
-                  ) : null}
-                </section>
-                {checkinDefaultTime !== undefined ? (
-                  <FormRow label={t('autoCheckinTime')} hint={t('checkinScheduleHint')}>
-                    <div className="space-y-3">
-                      <CompactSwitch isSelected={inheritCheckinTime} isDisabled={busy} onChange={setInheritCheckinTime} ariaLabel={t('checkinInherit')} label={t('checkinInherit')} />
-                      <p className="text-caption text-muted">{t('checkinDefaultValue', { time: checkinDefaultTime })} · <span className="mono">{checkinTimezone}</span></p>
-                      {!inheritCheckinTime ? <Input type="time" value={checkinTime ?? checkinDefaultTime} onChange={(event) => setCheckinTime(event.target.value)} aria-label={t('autoCheckinTime')} disabled={busy} required /> : null}
-                    </div>
-                  </FormRow>
-                ) : null}
               </Form>
             </Modal.Body>
             <Modal.Footer className="justify-end gap-2 px-6 pb-6">

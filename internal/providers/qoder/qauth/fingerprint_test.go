@@ -9,22 +9,22 @@ import (
 	"testing"
 )
 
-func TestUserAgentIsUndici(t *testing.T) {
+func TestUserAgentIsBun(t *testing.T) {
 	if got := UserAgent(CN); got != CosyUserAgent {
 		t.Fatalf("CN UA=%q want %q", got, CosyUserAgent)
 	}
 	if got := UserAgent(Global); got != CosyUserAgent {
 		t.Fatalf("global UA=%q want %q", got, CosyUserAgent)
 	}
-	if UserAgentForURL("https://api1.qoder.sh/algo/x") != CosyUserAgent ||
+	if UserAgentForURL("https://api2.qoder.sh/algo/x") != CosyUserAgent ||
 		UserAgentForURL("https://gateway.qoder.com.cn/algo/x") != CosyUserAgent {
-		t.Fatal("URL UA must be undici for both editions")
+		t.Fatal("URL UA must be the Bun fingerprint for both editions")
 	}
 	if openAPIUserAgentVersion != CosyVersion {
 		t.Fatal("OpenAPI UA version must follow CosyVersion")
 	}
-	if CosyVersion != "1.1.81" {
-		t.Fatalf("CosyVersion=%q want 1.1.81", CosyVersion)
+	if CosyVersion != "1.1.96" {
+		t.Fatalf("CosyVersion=%q want 1.1.96", CosyVersion)
 	}
 	if DesktopCosyVersion != "0.4.8" {
 		t.Fatalf("DesktopCosyVersion=%q want 0.4.8", DesktopCosyVersion)

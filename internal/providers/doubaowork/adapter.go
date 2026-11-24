@@ -6,14 +6,15 @@ import "github.com/caigee-cmd/cli2api/internal/providers"
 // pasted session Cookie, exposed through the import/PAT path.
 func (c *Client) Adapter() providers.Adapter {
 	return providers.Adapter{
-		ID:           "doubaowork",
-		Credential:   credentialCodec{},
-		Chat:         c,
-		Models:       c,
-		Classifier:   classifier{},
-		ImportExport: importer{},
-		Prober:       c,
-		Checkin:      c,
+		ID:            "doubaowork",
+		Credential:    credentialCodec{},
+		Chat:          c,
+		Models:        c,
+		Classifier:    classifier{},
+		ImportExport:  importer{},
+		Prober:        c,
+		Checkin:       c,
+		CheckinStatus: c,
 	}
 }
 

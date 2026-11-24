@@ -7,7 +7,6 @@ import { copyText } from '@/lib/clipboard'
 import { BrandMark } from '@/components/BrandMark'
 import { CaiaiSoftLink } from '@/components/CaiaiSoftLink'
 import { ProviderMark } from '@/components/ProviderMark'
-import { CompactSwitch } from '@/components/ui/CompactSwitch'
 import { FilterToggle } from '@/components/ui/FilterToggle'
 import { FormRow } from '@/components/ui/FormRow'
 import { OptionTiles } from '@/components/ui/OptionTiles'
@@ -152,8 +151,6 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
   const [name, setName] = useState('')
   const [maxInFlight, setMaxInFlight] = useState(4)
   const [priority, setPriority] = useState(50)
-  const [dropSystemPrompt, setDropSystemPrompt] = useState(true)
-  const [proxyUrl, setProxyUrl] = useState('')
   const [pat, setPat] = useState('')
   const [json, setJson] = useState('')
   const [zhipuMode, setZhipuMode] = useState<'payg' | 'coding'>('payg')
@@ -215,7 +212,6 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
   // Command Code has no browser login (a pasted user_… key is the only auth),
   // so the wizard opens on the PAT tab instead of the browser tab.
   const hasBrowserLogin = activeOption?.descriptor.capabilities?.browser_login !== false
-  const showDropSystem = activeOption?.provider === 'workbuddy' || activeOption?.provider === 'trae'
   const showCallbackPaste = activeOption?.provider === 'trae' || activeOption?.provider === 'devin' || activeOption?.provider === 'codex' || activeOption?.provider === 'codearts'
   const busy = phase === 'busy' || phase === 'polling'
   const settingsLocked = Boolean(createdId.current) || busy
@@ -249,13 +245,6 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
     return {
       max_inflight: parsedMaxInFlight(),
       priority: parsedPriority(),
-      // WorkBuddy exposes the switch because upstream content screening rejects
-      // third-party system prompts. Trae, Kimi and CodeArts keep caller system
-      // prompts: clients such as MiMo Code put JSON instructions there, and
-      // those families have no equivalent screening. Every other provider keeps
-      // the historical drop=true default.
-      drop_system_prompt: showDropSystem ? dropSystemPrompt : activeOption?.provider !== 'kimi' && activeOption?.provider !== 'codearts',
-      proxy_url: proxyUrl.trim(),
     }
   }
 
@@ -269,8 +258,6 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
     setName('')
     setMaxInFlight(4)
     setPriority(50)
-    setDropSystemPrompt(true)
-    setProxyUrl('')
     setPat('')
     setJson('')
     setZhipuMode('payg')
@@ -337,7 +324,6 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
     const option = providerOptions.find((item) => item.id === next)
     setAccountType(next)
     setTab(option?.provider === 'zhipu' || option?.provider === 'doubaowork' ? 'pat' : 'browser')
-    setDropSystemPrompt(option?.provider !== 'trae' && option?.provider !== 'kimi' && option?.provider !== 'codearts')
     setMessage('')
     setStep('login')
   }
@@ -431,8 +417,6 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
         region: activeOption.region,
         max_inflight: options.max_inflight,
         priority: options.priority,
-        drop_system_prompt: options.drop_system_prompt,
-        proxy_url: options.proxy_url,
       })
       setPhase('done')
       setMessage(t('wizardAccountReady'))
@@ -480,8 +464,6 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
         region: activeOption.region,
         max_inflight: options.max_inflight,
         priority: options.priority,
-        drop_system_prompt: options.drop_system_prompt,
-        proxy_url: options.proxy_url,
       })
       setPhase('done')
       setMessage(t('wizardAccountReady'))
@@ -541,8 +523,6 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
         accounts,
         max_inflight: options.max_inflight,
         priority: options.priority,
-        drop_system_prompt: options.drop_system_prompt,
-        proxy_url: options.proxy_url,
       }
     } else if (provider === 'workbuddy') {
       // Shared normalize keeps hub workbuddy-accounts packs intact (same as batch import).
@@ -552,8 +532,6 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
         enabled: true,
         max_inflight: options.max_inflight,
         priority: options.priority,
-        drop_system_prompt: options.drop_system_prompt,
-        proxy_url: options.proxy_url,
       })
     } else {
       if (!bundle.format) {
@@ -576,7 +554,6 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
         region: detected.region || activeOption.region,
         max_inflight: options.max_inflight,
         priority: options.priority,
-        drop_system_prompt: options.drop_system_prompt,
       }
     }
     try {
@@ -750,30 +727,6 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                             <Description className="text-caption leading-5 text-muted">{t('priorityHint')}</Description>
                           </div>
                         </div>
-                        <div className="flex flex-col gap-1.5">
-                          <Label className="text-body font-medium text-muted">{t('proxyUrl')}</Label>
-                          <Input
-                            fullWidth
-                            value={proxyUrl}
-                            onChange={(event) => setProxyUrl(event.target.value)}
-                            placeholder={t('proxyUrlPlaceholder')}
-                            aria-label={t('proxyUrl')}
-                            disabled={settingsLocked}
-                          />
-                          <Description className="text-caption leading-5 text-muted">{t('proxyUrlHint')}</Description>
-                        </div>
-                        {showDropSystem ? (
-                          <div className="flex flex-col gap-1.5">
-                            <Label className="text-body font-medium text-muted">{t('dropSystemPrompt')}</Label>
-                            <Description className="text-caption leading-5 text-muted">{t(activeOption?.provider === 'trae' ? 'dropSystemPromptTraeHint' : 'dropSystemPromptCreateHint')}</Description>
-                            <CompactSwitch
-                              isSelected={dropSystemPrompt}
-                              isDisabled={settingsLocked}
-                              ariaLabel={t('dropSystemPrompt')}
-                              onChange={setDropSystemPrompt}
-                            />
-                          </div>
-                        ) : null}
                       </div>
                     ) : null}
                   </div>

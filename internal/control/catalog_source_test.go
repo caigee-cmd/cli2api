@@ -265,6 +265,45 @@ func TestFilterModelsByAccountAllowDropsModelsNoGrantedAccountServes(t *testing.
 	}
 }
 
+func TestFilterModelsByAccountAllowHonorsAuto(t *testing.T) {
+	models := []map[string]any{
+		{"id": "auto", "provider": "qoder", "regions": []string{"cn"}},
+		{"id": "deepseek-flash", "provider": "qoder", "regions": []string{"cn"}},
+		{"id": "glm-5.3-flash", "provider": "qoder", "regions": []string{"cn"}},
+	}
+	key := auth.Identity{Kind: auth.KindKey, AllowedProviders: []string{"qoder"}}
+	ids := func(filtered []map[string]any) map[string]bool {
+		seen := map[string]bool{}
+		for _, model := range filtered {
+			id, _ := model["id"].(string)
+			seen[id] = true
+		}
+		return seen
+	}
+
+	restricted := []AccountModelAllow{{
+		Provider: "qoder", Region: "cn", ModelsRestricted: true,
+		EnabledModels: []string{"deepseek-flash", "glm-5.3-flash"},
+	}}
+	got := FilterModelsByAccountAllow(models, key, restricted)
+	if len(got) != 2 || ids(got)["auto"] || !ids(got)["deepseek-flash"] || !ids(got)["glm-5.3-flash"] {
+		t.Fatalf("restricted auto leaked: %v", ids(got))
+	}
+
+	autoEnabled := []AccountModelAllow{{
+		Provider: "qoder", Region: "cn", ModelsRestricted: true,
+		EnabledModels: []string{"deepseek-flash", "auto"},
+	}}
+	if got := ids(FilterModelsByAccountAllow(models, key, autoEnabled)); !got["auto"] || !got["deepseek-flash"] || got["glm-5.3-flash"] {
+		t.Fatalf("enabled auto filtered: %v", got)
+	}
+
+	unrestricted := []AccountModelAllow{{Provider: "qoder", Region: "cn"}}
+	if got := ids(FilterModelsByAccountAllow(models, key, unrestricted)); len(got) != 3 || !got["auto"] {
+		t.Fatalf("unrestricted auto hidden: %v", got)
+	}
+}
+
 func TestExpandModelAliasesAddsPublicAlias(t *testing.T) {
 	models := []map[string]any{
 		{"id": "kimi-k2.6", "provider": "qoder", "regions": []string{"global"}, "native_model": "kimi-native-q"},

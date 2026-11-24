@@ -73,6 +73,48 @@ type signinClaim struct {
 	ExpireAtMs  int64   `json:"expire_at_ms"`
 }
 
+// CheckinStatus reads the seven-day panel without claiming.
+func (c *Client) CheckinStatus(ctx context.Context, accountID string) (providers.CheckinResult, error) {
+	ctx, cancel := context.WithTimeout(ctx, checkinTimeout)
+	defer cancel()
+	credential, err := c.credential(ctx, accountID)
+	if err != nil {
+		return providers.CheckinResult{}, err
+	}
+	userID, err := c.checkinUserID(ctx, accountID, credential)
+	if err != nil {
+		return providers.CheckinResult{}, err
+	}
+	data, err := c.signedGatewayCall(ctx, accountID, http.MethodGet, signinStatusPath, "", userID, "status")
+	if err != nil {
+		return providers.CheckinResult{}, err
+	}
+	var panel signinPanel
+	if err := json.Unmarshal(data, &panel); err != nil {
+		return providers.CheckinResult{}, fmt.Errorf("minimaxcode check-in: invalid status payload")
+	}
+	today := todaySigninDay(panel)
+	result := providers.CheckinResult{EarliestCheckin: "00:00"}
+	switch {
+	case today != nil && today.Status == signinDayClaimed:
+		// is_today is computed by the provider panel; it is already the
+		// provider's own day, so no local date guess is layered on top.
+		result.Status = "already"
+		result.Message = "今天已签到"
+		result.RewardCredits = today.Points
+	case today != nil && today.Status == signinDayClaimable:
+		result.Status = "pending"
+		result.Message = "上游显示今日可签到"
+	case today != nil && today.Status == signinDayUpcoming:
+		result.Status = "skipped"
+		result.Message = "签到尚未开始"
+	default:
+		result.Status = "skipped"
+		result.Message = skippedCheckinMessage(panel)
+	}
+	return result, nil
+}
+
 // Checkin implements providers.AccountCheckiner for the MiniMax Code daily
 // sign-in. It reads the seven-day panel, claims today when the panel offers it,
 // and reports "already"/"skipped" otherwise so the console card and records stay
@@ -102,6 +144,8 @@ func (c *Client) Checkin(ctx context.Context, accountID string) (providers.Check
 	today := todaySigninDay(panel)
 	switch {
 	case today != nil && today.Status == signinDayClaimed:
+		// is_today already identifies the provider's current day; the panel is
+		// authoritative and does not need an extra claim to prove the date.
 		return alreadyCheckedInResult(panel), nil
 	case today != nil && today.Status == signinDayClaimable:
 		return c.claimSignin(ctx, accountID, userID)
@@ -128,6 +172,8 @@ func (c *Client) claimSignin(ctx context.Context, accountID, userID string) (pro
 		}
 		return providers.CheckinResult{Status: "success", Message: message, RewardCredits: claim.Points}, nil
 	case signinAlreadyClaimed:
+		// The panel was CLAIMABLE before this claim in the provider's own day;
+		// "already claimed" is today's result, not a replay from yesterday.
 		return providers.CheckinResult{Status: "already", Message: "今天已签到"}, nil
 	default:
 		return providers.CheckinResult{}, fmt.Errorf("minimaxcode check-in: unexpected claim result %d", claim.ClaimResult)
@@ -247,6 +293,11 @@ func (c *Client) newSignedGatewayRequest(ctx context.Context, credential Credent
 	query.Set("version_code", gatewayVersionCode)
 	query.Set("unix", strconv.FormatInt(now.UnixMilli(), 10))
 	query.Set("timezone_offset", strconv.Itoa(gatewayTimezoneOffset))
+	if path == signinStatusPath || path == signinClaimPath {
+		// The desktop signs with the numeric offset; the web panel also sends
+		// the IANA zone. Keep both so either server build resolves the same day.
+		query.Set("timezone_id", "Asia/Shanghai")
+	}
 	language := "zh"
 	if credential.Site == "global" {
 		language = "en"

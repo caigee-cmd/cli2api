@@ -180,6 +180,9 @@ export type Overview = {
     last_checkin_at?: string
     last_checkin_msg?: string
     last_checkin_status?: string
+    last_checkin_source?: string
+    last_checkin_synced_at?: string
+    checkin_auto_time?: string
     quota?: AccountQuota
     created_at?: string
     updated_at?: string

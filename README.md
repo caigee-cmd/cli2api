@@ -77,7 +77,7 @@ Qoder 国内版、WorkBuddy、Trae 已实现，真账号验收未完成。Kimi C
   <img src="./docs/assets/readme/console-window-zh.svg" width="100%" alt="CLI2API 控制台 Accounts 页：每个账号显示登录方式、就绪状态与额度，右侧 Access 面板提供 Base URL 与快速验证">
 </p>
 
-就绪状态和额度在账号卡片上。Access 页可以复制 Base URL，并做一次快速验证。哪些供应商能签到由各供应商自己声明，目前是 WorkBuddy、QwenWork、Qoder、Trae、MiniMax Code、码道和 Doubao Work，在卡片上手动签到。自动签到按账号单独开启、默认关闭，时间在「系统 → 自动签到」里按供应商设默认值。真实账号签到验收仍待完成。
+就绪状态和额度在账号卡片上。Access 页可以复制 Base URL，并做一次快速验证。哪些供应商能签到由各供应商自己声明，目前是 WorkBuddy 国内版、QwenWork、Qoder、Trae、MiniMax Code、码道和 Doubao Work，在卡片上手动签到。自动签到按账号单独开启、默认关闭，时间在「系统 → 自动签到」里按供应商设默认值。真实账号签到验收仍待完成。
 
 ## 最早到期优先
 

@@ -230,7 +230,7 @@ func TestLoginPollPendingThenGrant(t *testing.T) {
 			if r.URL.Query().Get("challenge_method") != "S256" {
 				t.Errorf("challenge_method=%s", r.URL.Query().Get("challenge_method"))
 			}
-			if r.Header.Get("User-Agent") != "qoderwork/1.0.4" {
+			if r.Header.Get("User-Agent") != "qoderwork/2.1.0" {
 				t.Errorf("poll UA=%s", r.Header.Get("User-Agent"))
 			}
 			if atomic.LoadInt32(&polls) == 1 {
@@ -520,7 +520,7 @@ func verifyCosySignature(t *testing.T, r *http.Request, body []byte, wantPath st
 	if err := json.Unmarshal(decoded, &payload); err != nil {
 		t.Fatalf("payload json: %v", err)
 	}
-	if payload.CosyVersion != "1.1.18" || payload.Version != "v1" || payload.RequestID == "" || payload.Info == "" {
+	if payload.CosyVersion != "1.1.71" || payload.Version != "v1" || payload.RequestID == "" || payload.Info == "" {
 		t.Fatalf("payload=%+v", payload)
 	}
 }
@@ -531,10 +531,10 @@ func TestChatSendsSignedRequestWithQwenWorkHeaders(t *testing.T) {
 	client := newTestClient(t, store, chatHandlerFor(t, chatSSE, func(r *http.Request, body []byte) {
 		verifyCosySignature(t, r, body, "/api/v2/service/pro/sse/agent_chat_generation")
 		for header, want := range map[string]string{
-			"User-Agent":                 "qoderwork/1.0.4",
-			"X-Qwenwork-Version":         "1.0.4",
-			"X-Qwenwork-Release-Version": "1.0.4-26090501",
-			"X-Qwenwork-Build":           "26090501",
+			"User-Agent":                 "qoderwork/2.1.0",
+			"X-Qwenwork-Version":         "2.1.0",
+			"X-Qwenwork-Release-Version": "2.1.0-26111906",
+			"X-Qwenwork-Build":           "26111906",
 			"X-Qwenwork-Platform":        "win32",
 			"X-Qwenwork-Arch":            "x64",
 			"X-Qwenwork-Channel":         "stable",
@@ -580,8 +580,8 @@ func TestChatHeadersFollowRegion(t *testing.T) {
 		build          string
 		defaultModel   string
 	}{
-		{region: "global", userAgent: "qoderwork/1.0.4", version: "1.0.4", releaseVersion: "1.0.4-26090501", build: "26090501", defaultModel: "qwork-advanced"},
-		{region: "cn", userAgent: "qoderwork/1.0.5", version: "1.0.5", releaseVersion: "1.0.5-26090901", build: "26090901", defaultModel: "pro"},
+		{region: "global", userAgent: "qoderwork/2.1.0", version: "2.1.0", releaseVersion: "2.1.0-26111906", build: "26111906", defaultModel: "qwork-advanced"},
+		{region: "cn", userAgent: "qoderwork/2.1.0", version: "2.1.0", releaseVersion: "2.1.0-26111906", build: "26111906", defaultModel: "pro"},
 	}
 	for _, test := range tests {
 		t.Run(test.region, func(t *testing.T) {
@@ -785,7 +785,7 @@ func TestModelsParsesQworkKey(t *testing.T) {
 		if r.URL.Path != pathModelList {
 			t.Fatalf("path=%s", r.URL.Path)
 		}
-		if r.Header.Get("X-Qwenwork-Version") != "1.0.4" {
+		if r.Header.Get("X-Qwenwork-Version") != "2.1.0" {
 			t.Fatalf("models must carry site headers, got %+v", r.Header)
 		}
 		w.Header().Set("Content-Type", "application/json")

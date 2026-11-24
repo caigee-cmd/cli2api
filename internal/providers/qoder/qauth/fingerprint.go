@@ -11,20 +11,23 @@ import (
 // CosyVersion is the single client/protocol version cli2api presents to
 // Qoder: the cosy-version header, the bearer payload's cosyVersion, the chat
 // body's business.version and the OpenAPI User-Agent all derive from it.
-// 1.1.81 is the first qodercli that writes catalog-v7 and puts model_key on
-// the business block the gateway attributes billing to. The published CLI is
-// newer (1.1.89 as of 2026-11-13); this stays on the protocol floor rather
-// than tracking every patch, and the desktop check-in version stays separate.
-const CosyVersion = "1.1.81"
+// 1.1.81 introduced catalog-v7 and model_key on the business block; the
+// current official CLI is 1.1.96, whose COSY signing algorithm, headers and
+// business endpoints are unchanged from 1.1.89. Keep this aligned with the
+// published CLI rather than the older protocol floor. The desktop check-in
+// version stays separate because campaign endpoints use their own identity.
+const CosyVersion = "1.1.96"
 
 // DesktopCosyVersion is the Cosy-Version the official desktop app sends on
 // campaign / check-in requests (hub desktop 0.4.8). Distinct from CosyVersion
 // (CLI / reasoning).
 const DesktopCosyVersion = "0.4.8"
 
-// CosyUserAgent is the User-Agent official qodercli leaves unset so the
-// bundled undici fetch supplies its default ("undici").
-const CosyUserAgent = "undici"
+// CosyUserAgent is the User-Agent the current official qodercli leaves on
+// COSY requests. The CLI runs on Bun and lets its bundled fetch supply
+// "Bun/1.4.4"; older npm/Node builds sent "undici". Keep the edition split
+// out of this: both regions use the same runtime.
+const CosyUserAgent = "Bun/1.4.4"
 
 // CosyMachineOS mirrors qodercli's `${arch}_${platform}` value for a Linux
 // x86_64 host, which is how cli2api is deployed.
@@ -44,8 +47,8 @@ func applyCosyBusinessHeaders(h http.Header) {
 }
 
 // UserAgent returns the COSY reasoning User-Agent. Official qodercli does not
-// set UA itself; undici supplies "undici". Edition no longer splits the UA.
-// Region is accepted for call-site compatibility.
+// set UA itself; its Bun fetch supplies "Bun/1.4.4". Edition no longer splits
+// the UA. Region is accepted for call-site compatibility.
 func UserAgent(region *RegionConfig) string {
 	_ = region
 	return CosyUserAgent
@@ -79,7 +82,7 @@ func MachineHostname(uid string) string {
 	return "DESKTOP-" + strings.ToUpper(hex.EncodeToString(sum[:])[:7])
 }
 
-// applyClientFingerprint sets the undici User-Agent, always sends
+// applyClientFingerprint sets the Bun User-Agent, always sends
 // cosy-machineos, and on inference SSE requests only also sends
 // cosy-machinehostname.
 func applyClientFingerprint(h http.Header, rawURL, uid string, inferSSE bool) {

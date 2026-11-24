@@ -21,6 +21,10 @@ import (
 
 type Store struct {
 	db *sql.DB
+	// providerPolicyCache avoids reading the JSON secret on every account
+	// Get/List. Provider clients call Get per upstream request to resolve proxy
+	// settings, so this is a hot read path. Save/delete secret invalidates it.
+	providerPolicy providerPolicyCache
 }
 
 // sqliteDSN turns a database path into the driver DSN.
@@ -93,6 +97,7 @@ func (s *Store) ReplaceDB(db *sql.DB) {
 		return
 	}
 	s.db = db
+	s.invalidateProviderPolicyCache()
 }
 
 func (s *Store) migrate(ctx context.Context) error {
@@ -111,6 +116,23 @@ func (s *Store) Create(ctx context.Context, input accounts.CreateAccount) (accou
 	descriptor, region, err := providers.Resolve(input.Provider, input.Region)
 	if err != nil {
 		return accounts.Account{}, err
+	}
+	_, hasPolicy, err := s.GetProviderPolicy(ctx, descriptor.ID, region.ID)
+	if err != nil {
+		return accounts.Account{}, err
+	}
+	if hasPolicy {
+		// Provider policy owns these fields. Leave the account row at its
+		// account-scoped defaults; Get/List overlay the policy at read time.
+		input.ProxyURL = ""
+		input.CreditFloor = nil
+		input.PercentFloor = nil
+		input.DropSystemPrompt = nil
+		input.CheckinTime = ""
+		input.WorkBuddyCheckinTime = ""
+		input.ModelAliases = nil
+		input.EnabledModels = nil
+		input.SetModelRouting = false
 	}
 	if err := validateAccountProxy(input.Provider, input.Region, input.ProxyURL); err != nil {
 		return accounts.Account{}, err
@@ -150,6 +172,10 @@ func (s *Store) Create(ctx context.Context, input accounts.CreateAccount) (accou
 			checkinTime = override
 		}
 	}
+	checkinAutoTime := ""
+	if _, supported := providers.CheckinFor(descriptor.ID, region.ID); supported {
+		checkinAutoTime = accounts.DefaultCheckinAutoTime(descriptor.ID)
+	}
 	account := accounts.Account{
 		ID:                   newAccountID(),
 		Name:                 name,
@@ -166,6 +192,7 @@ func (s *Store) Create(ctx context.Context, input accounts.CreateAccount) (accou
 		WorkBuddyCheckinTime: checkinTime,
 		AutoCheckin:          genericAutoCheckin,
 		CheckinTime:          override,
+		CheckinAutoTime:      checkinAutoTime,
 		ProxyURL:             strings.TrimSpace(input.ProxyURL),
 		Status:               "offline",
 		CreatedAt:            now,
@@ -174,24 +201,51 @@ func (s *Store) Create(ctx context.Context, input accounts.CreateAccount) (accou
 	_, err = s.db.ExecContext(ctx, `
 	INSERT INTO accounts (
 	  id, name, provider, provider_region, auth_type, enabled, max_inflight, priority, credit_floor, percent_floor, drop_system_prompt,
-	  workbuddy_auto_checkin, workbuddy_checkin_time, proxy_url, status, created_at, updated_at, auto_checkin, checkin_time
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	  workbuddy_auto_checkin, workbuddy_checkin_time, proxy_url, status, created_at, updated_at, auto_checkin, checkin_time, checkin_auto_time
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		account.ID, account.Name, account.Provider, account.ProviderRegion, account.AuthType,
 		account.Enabled, account.MaxInFlight, account.Priority, account.CreditFloor, account.PercentFloor, account.DropSystemPrompt,
 		account.WorkBuddyAutoCheckin, account.WorkBuddyCheckinTime, account.ProxyURL, account.Status,
 		formatTime(account.CreatedAt), formatTime(account.UpdatedAt),
-		account.AutoCheckin, account.CheckinTime,
+		account.AutoCheckin, account.CheckinTime, account.CheckinAutoTime,
 	)
 	if err != nil {
 		return accounts.Account{}, fmt.Errorf("create account: %w", err)
+	}
+	if hasPolicy {
+		// Return the effective account so Manager can start it with the
+		// provider policy, but do not persist those values on the row.
+		account, err = s.Get(ctx, account.ID)
+		if err != nil {
+			_ = s.Delete(ctx, account.ID)
+			return accounts.Account{}, err
+		}
 	}
 	return account, nil
 }
 
 func (s *Store) Get(ctx context.Context, id string) (accounts.Account, error) {
+	account, err := s.getRaw(ctx, id)
+	if err != nil {
+		return accounts.Account{}, err
+	}
+	policy, found, err := s.GetProviderPolicy(ctx, account.Provider, account.ProviderRegion)
+	if err != nil {
+		return accounts.Account{}, err
+	}
+	if found {
+		// Effective account: identity fields come from the row, provider-owned
+		// fields come from the provider policy. This overlay is not persisted.
+		accounts.ApplyProviderPolicy(&account, policy)
+	}
+	return account, nil
+}
+
+func (s *Store) getRaw(ctx context.Context, id string) (accounts.Account, error) {
 	row := s.db.QueryRowContext(ctx, `
 	SELECT id, name, provider, provider_region, remote_uid, auth_type, enabled, max_inflight, priority, credit_floor, percent_floor,
 	       drop_system_prompt, workbuddy_auto_checkin, workbuddy_checkin_time, proxy_url, last_checkin_at, last_checkin_msg, last_checkin_status,
+	       last_checkin_source, last_checkin_synced_at, checkin_auto_time,
 	       status, last_error, last_error_kind, cooldown_until, quota_json, created_at, updated_at, auto_checkin, checkin_time
 	FROM accounts WHERE id = ?`, strings.TrimSpace(id))
 	account, err := scanAccount(row)
@@ -219,6 +273,7 @@ func scanAccount(row rowScanner) (accounts.Account, error) {
 		&account.ID, &account.Name, &account.Provider, &account.ProviderRegion, &account.RemoteUID,
 		&account.AuthType, &account.Enabled, &account.MaxInFlight, &account.Priority, &creditFloor, &percentFloor,
 		&account.DropSystemPrompt, &account.WorkBuddyAutoCheckin, &account.WorkBuddyCheckinTime, &account.ProxyURL, &account.LastCheckinAt, &account.LastCheckinMsg, &account.LastCheckinStatus,
+		&account.LastCheckinSource, &account.LastCheckinSyncedAt, &account.CheckinAutoTime,
 		&account.Status, &account.LastError, &account.LastErrorKind, &cooldown, &quotaJSON, &created, &updated,
 		&account.AutoCheckin, &account.CheckinTime,
 	)
@@ -241,6 +296,12 @@ func scanAccount(row rowScanner) (accounts.Account, error) {
 	}
 	if account.WorkBuddyCheckinTime == "" {
 		account.WorkBuddyCheckinTime = accounts.DefaultWorkBuddyCheckinTime
+	}
+	if _, supported := providers.CheckinFor(account.Provider, account.ProviderRegion); supported && account.CheckinAutoTime == "" {
+		// The first upstream sync overwrites this with the observed window. The
+		// in-memory fallback makes the scheduler use the new auto rule immediately
+		// after upgrade instead of waiting for the first sweep.
+		account.CheckinAutoTime = accounts.DefaultCheckinAutoTime(account.Provider)
 	}
 	account.CreatedAt = parseTime(created.String)
 	account.UpdatedAt = parseTime(updated.String)
@@ -275,9 +336,28 @@ func parseTime(value string) time.Time {
 }
 
 func (s *Store) List(ctx context.Context) ([]accounts.Account, error) {
+	raw, err := s.ListRaw(ctx)
+	if err != nil {
+		return nil, err
+	}
+	envelope, err := s.readProviderPolicies(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range raw {
+		policy, ok := envelope.Policies[accounts.ProviderPolicyKey(raw[i].Provider, raw[i].ProviderRegion)]
+		if ok {
+			accounts.ApplyProviderPolicy(&raw[i], policy)
+		}
+	}
+	return raw, nil
+}
+
+func (s *Store) ListRaw(ctx context.Context) ([]accounts.Account, error) {
 	rows, err := s.db.QueryContext(ctx, `
 	SELECT id, name, provider, provider_region, remote_uid, auth_type, enabled, max_inflight, priority, credit_floor, percent_floor,
 	       drop_system_prompt, workbuddy_auto_checkin, workbuddy_checkin_time, proxy_url, last_checkin_at, last_checkin_msg, last_checkin_status,
+	       last_checkin_source, last_checkin_synced_at, checkin_auto_time,
 	       status, last_error, last_error_kind, cooldown_until, quota_json, created_at, updated_at, auto_checkin, checkin_time
 	FROM accounts ORDER BY created_at, id`)
 	if err != nil {
@@ -302,9 +382,19 @@ func (s *Store) List(ctx context.Context) ([]accounts.Account, error) {
 }
 
 func (s *Store) Update(ctx context.Context, id string, input accounts.UpdateAccount) error {
-	account, err := s.Get(ctx, id)
+	account, err := s.getRaw(ctx, id)
 	if err != nil {
 		return err
+	}
+	policy, hasPolicy, err := s.GetProviderPolicy(ctx, account.Provider, account.ProviderRegion)
+	if err != nil {
+		return err
+	}
+	if hasPolicy {
+		// A provider-owned field cannot be edited through the account surface.
+		// PATCH identity/scheduling fields only, leaving the provider policy as
+		// the sole source of truth.
+		input = accounts.StripProviderOwnedSettings(input)
 	}
 	if name := strings.TrimSpace(input.Name); name != "" {
 		account.Name = name
@@ -360,14 +450,20 @@ func (s *Store) Update(ctx context.Context, id string, input accounts.UpdateAcco
 	if input.CheckinTime != nil {
 		account.CheckinTime = strings.TrimSpace(*input.CheckinTime)
 	}
-	if err := accounts.ValidateCheckinSettings(account.Provider, account.ProviderRegion, account.AutoCheckin, account.CheckinTime); err != nil {
+	checkinForValidation := account.CheckinTime
+	if hasPolicy {
+		checkinForValidation = policy.CheckinTime
+	}
+	if err := accounts.ValidateCheckinSettings(account.Provider, account.ProviderRegion, account.AutoCheckin, checkinForValidation); err != nil {
 		return err
 	}
 	if account.Provider == "workbuddy" {
 		account.WorkBuddyAutoCheckin = account.AutoCheckin
-		account.WorkBuddyCheckinTime, err = accounts.ResolveCheckinTime(ctx, s, account)
-		if err != nil {
-			return err
+		if !hasPolicy {
+			account.WorkBuddyCheckinTime, err = accounts.ResolveCheckinTime(ctx, s, account)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	if input.SetModelRouting {
@@ -386,11 +482,21 @@ func (s *Store) Update(ctx context.Context, id string, input accounts.UpdateAcco
 		account.ProxyURL = proxyURL
 	}
 	account.UpdatedAt = time.Now().UTC()
-	result, err := s.db.ExecContext(ctx, `
+	var result sql.Result
+	if hasPolicy {
+		// Never touch provider-owned columns when the provider policy owns them.
+		// The raw values may be legacy materialized data; leave them inert.
+		result, err = s.db.ExecContext(ctx, `
+	UPDATE accounts SET name = ?, enabled = ?, max_inflight = ?, priority = ?, workbuddy_auto_checkin = ?, updated_at = ?, auto_checkin = ?
+	WHERE id = ?`, account.Name, account.Enabled, account.MaxInFlight, account.Priority,
+			account.WorkBuddyAutoCheckin, formatTime(account.UpdatedAt), account.AutoCheckin, account.ID)
+	} else {
+		result, err = s.db.ExecContext(ctx, `
 	UPDATE accounts SET name = ?, enabled = ?, max_inflight = ?, priority = ?, credit_floor = ?, percent_floor = ?, drop_system_prompt = ?,
 	                    workbuddy_auto_checkin = ?, workbuddy_checkin_time = ?, proxy_url = ?, updated_at = ?, auto_checkin = ?, checkin_time = ?
 	WHERE id = ?`, account.Name, account.Enabled, account.MaxInFlight, account.Priority, account.CreditFloor, account.PercentFloor, account.DropSystemPrompt,
-		account.WorkBuddyAutoCheckin, account.WorkBuddyCheckinTime, account.ProxyURL, formatTime(account.UpdatedAt), account.AutoCheckin, account.CheckinTime, account.ID)
+			account.WorkBuddyAutoCheckin, account.WorkBuddyCheckinTime, account.ProxyURL, formatTime(account.UpdatedAt), account.AutoCheckin, account.CheckinTime, account.ID)
+	}
 	if err != nil {
 		return fmt.Errorf("update account: %w", err)
 	}
@@ -692,6 +798,9 @@ ON CONFLICT(name) DO UPDATE SET value=excluded.value, updated_at=excluded.update
 	if err != nil {
 		return fmt.Errorf("save secret: %w", err)
 	}
+	if name == accounts.ProviderPolicySecret {
+		s.invalidateProviderPolicyCache()
+	}
 	return nil
 }
 
@@ -713,6 +822,9 @@ ON CONFLICT(name) DO UPDATE SET value=excluded.value, updated_at=excluded.update
 	if err != nil {
 		return fmt.Errorf("save secret: %w", err)
 	}
+	if name == accounts.ProviderPolicySecret {
+		s.invalidateProviderPolicyCache()
+	}
 	return nil
 }
 
@@ -723,6 +835,9 @@ func (s *Store) DeleteSecret(ctx context.Context, name string) error {
 	}
 	if _, err := s.db.ExecContext(ctx, `DELETE FROM app_secrets WHERE name = ?`, name); err != nil {
 		return fmt.Errorf("delete secret: %w", err)
+	}
+	if name == accounts.ProviderPolicySecret {
+		s.invalidateProviderPolicyCache()
 	}
 	return nil
 }
@@ -914,8 +1029,9 @@ func (s *Store) RecordCheckin(ctx context.Context, id, status, msg string, at ti
 	}
 	defer tx.Rollback()
 	result, err := tx.ExecContext(ctx, `
-UPDATE accounts SET last_checkin_at = ?, last_checkin_msg = ?, last_checkin_status = ?, updated_at = ?
-WHERE id = ?`, formatTime(at), message, status, formatTime(time.Now().UTC()), accountID)
+UPDATE accounts SET last_checkin_at = ?, last_checkin_msg = ?, last_checkin_status = ?,
+       last_checkin_source = 'local', last_checkin_synced_at = ?, updated_at = ?
+WHERE id = ?`, formatTime(at), message, status, formatTime(at), formatTime(time.Now().UTC()), accountID)
 	if err != nil {
 		return fmt.Errorf("record checkin: %w", err)
 	}
@@ -930,6 +1046,53 @@ INSERT INTO checkin_records (id, account_id, status, message, created_at) VALUES
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit checkin record: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) RecordCheckinStatus(ctx context.Context, id string, update accounts.CheckinStatusUpdate) error {
+	accountID := strings.TrimSpace(id)
+	if accountID == "" {
+		return accounts.ErrAccountNotFound
+	}
+	if update.SyncedAt.IsZero() {
+		update.SyncedAt = time.Now().UTC()
+	}
+	status := strings.TrimSpace(update.Status)
+	if status == "" {
+		status = "unknown"
+	}
+	source := strings.TrimSpace(update.Source)
+	if source == "" {
+		source = "upstream"
+	}
+	setCheckinAt := "last_checkin_at"
+	if strings.TrimSpace(update.CheckinAt) == "" {
+		setCheckinAt = ""
+	}
+	// One statement keeps a status read from touching the checkin_records
+	// history: verification is not a new attempt.
+	query := `
+UPDATE accounts SET last_checkin_status = ?, last_checkin_msg = ?, last_checkin_source = ?,
+       last_checkin_synced_at = ?, updated_at = ?`
+	args := []any{status, strings.TrimSpace(update.Message), source, formatTime(update.SyncedAt), formatTime(time.Now().UTC())}
+	if setCheckinAt != "" {
+		query += ", last_checkin_at = ?"
+		args = append(args, strings.TrimSpace(update.CheckinAt))
+	}
+	if auto := strings.TrimSpace(update.AutoTime); auto != "" {
+		query += ", checkin_auto_time = ?"
+		args = append(args, auto)
+	}
+	query += " WHERE id = ?"
+	args = append(args, accountID)
+	result, err := s.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("record checkin status: %w", err)
+	}
+	changed, _ := result.RowsAffected()
+	if changed == 0 {
+		return accounts.ErrAccountNotFound
 	}
 	return nil
 }

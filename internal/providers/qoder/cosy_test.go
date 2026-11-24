@@ -89,7 +89,7 @@ func TestSessionSignIsStableForMachineAndCoversBody(t *testing.T) {
 	if left["Cosy-Version"] != COSYVersion || left["Cosy-User"] != "uid-9" {
 		t.Fatalf("headers = %#v", left)
 	}
-	if !strings.Contains(endpoint, "api1.qoder.sh") || !strings.Contains(ChatEndpoint("cn"), "gateway.qoder.com.cn") {
+	if !strings.Contains(endpoint, "api2.qoder.sh") || !strings.Contains(ChatEndpoint("cn"), "gateway.qoder.com.cn") {
 		t.Fatalf("endpoints global=%s cn=%s", endpoint, ChatEndpoint("cn"))
 	}
 }

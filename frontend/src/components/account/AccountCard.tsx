@@ -38,6 +38,23 @@ export type AccountBusyKind = 'create' | 'import' | 'device' | 'pat' | 'callback
 
 type Translate = (key: string, vars?: Record<string, string | number>) => string
 
+// Provider check-in timestamps belong to the upstream/server calendar, not the
+// browser PC's zone. Format them in the provider zone so a laptop set to
+// another region still shows the same server wall clock.
+function formatCheckinMoment(value: string, timezone: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      dateStyle: 'medium',
+      timeStyle: 'medium',
+      timeZone: timezone,
+    }).format(date)
+  } catch {
+    return date.toLocaleString()
+  }
+}
+
 // Transient check-in feedback pushed from the page after a manual check-in.
 // `kind` selects the glyph/colour; `message` is the raw upstream error text
 // (only present for failures) and may be truncated in the UI with a copy button.
@@ -169,8 +186,11 @@ export function AccountCard({
   const identity = account.remote_uid || account.id
   const shortIdentity = identity.length > 12 ? identity.slice(0, 8) : identity
   const checkinStatus = account.last_checkin_status
-  const checkinLabel = checkinStatus === 'success' ? 'checkinRecordSuccess' : checkinStatus === 'already' ? 'checkinRecordAlready' : checkinStatus === 'skipped' ? 'checkinRecordSkipped' : checkinStatus === 'error' ? 'checkinRecordFailed' : 'lastCheckinNone'
+  const checkinLabel = checkinStatus === 'success' ? 'checkinRecordSuccess' : checkinStatus === 'already' ? 'checkinRecordAlready' : checkinStatus === 'pending' ? 'checkinStatusPending' : checkinStatus === 'unknown' ? 'checkinStatusUnknown' : checkinStatus === 'skipped' ? 'checkinRecordSkipped' : checkinStatus === 'error' ? 'checkinRecordFailed' : 'lastCheckinNone'
   const checkedInCurrentDay = checkedInToday(account, checkinTimezone)
+  const checkinSchedule = account.checkin_time || account.checkin_auto_time || checkinDefaultTime
+  const checkinTimeZone = checkinTimezone && checkinTimezone !== 'Local' ? checkinTimezone : 'Asia/Shanghai'
+  const syncedAt = account.last_checkin_synced_at ? formatCheckinMoment(account.last_checkin_synced_at, checkinTimeZone) : ''
 
   useLayoutEffect(() => {
     const chip = chipRef.current
@@ -493,24 +513,28 @@ export function AccountCard({
               <span className="flex min-w-0 cursor-help flex-wrap items-center gap-1.5">
                 <span className="font-medium text-foreground/75">{t('checkinStatus')}</span>
                 <span className={checkinStatus === 'error' ? 'text-danger' : ''}>{t(checkinLabel)}</span>
-                {!checkedInCurrentDay ? (
+                {!checkedInCurrentDay && checkinStatus === 'pending' ? (
                   <span className="whitespace-nowrap rounded-full bg-warning/15 px-1.5 py-px font-medium text-warning">
                     {t('checkinPending')}
                   </span>
                 ) : null}
               </span>
             </Tooltip.Trigger>
-            <Tooltip.Content>{account.last_checkin_at ? new Date(account.last_checkin_at).toLocaleString() : t('lastCheckinNone')}{account.last_checkin_msg ? ` · ${account.last_checkin_msg}` : ''}</Tooltip.Content>
+            <Tooltip.Content>
+              {account.last_checkin_at ? t('checkinServerTime', { time: formatCheckinMoment(account.last_checkin_at, checkinTimeZone) }) : t('lastCheckinNone')}
+              {account.last_checkin_msg ? ` · ${account.last_checkin_msg}` : ''}
+              {syncedAt ? ` · ${t('checkinUpstreamSynced', { time: syncedAt })}` : ''}
+            </Tooltip.Content>
           </Tooltip>
           <Tooltip>
             <Tooltip.Trigger>
               <span className="flex shrink-0 cursor-help items-center gap-1.5 whitespace-nowrap">
                 <span>{t('checkinDaily')}</span>
-                <span className="mono text-caption text-foreground/55">{account.checkin_time || checkinDefaultTime}</span>
+                <span className="mono text-caption text-foreground/55">{checkinSchedule}</span>
                 <CompactSwitch isSelected={Boolean(account.auto_checkin)} isDisabled={Boolean(busyKind)} ariaLabel={t('autoCheckin')} onChange={(selected) => onToggleAutoCheckin?.(selected)} />
               </span>
             </Tooltip.Trigger>
-            <Tooltip.Content>{account.checkin_time ? t('checkinCustom') : t('checkinInherit')}</Tooltip.Content>
+            <Tooltip.Content>{t('checkinAutoScheduleHint', { time: checkinSchedule ?? '' })}{` · ${t('checkinServerClock', { timezone: checkinTimeZone })}`}</Tooltip.Content>
           </Tooltip>
         </div>
       ) : null}

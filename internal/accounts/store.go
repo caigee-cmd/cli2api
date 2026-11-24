@@ -34,6 +34,10 @@ type AccountStore interface {
 	Create(ctx context.Context, input CreateAccount) (Account, error)
 	Get(ctx context.Context, id string) (Account, error)
 	List(ctx context.Context) ([]Account, error)
+	// ListRaw returns the stored account rows without overlaying provider
+	// policies. Console code uses it to compare the old effective policy with a
+	// new one; runtime and account views must keep using List/Get.
+	ListRaw(ctx context.Context) ([]Account, error)
 	Update(ctx context.Context, id string, input UpdateAccount) error
 	Delete(ctx context.Context, id string) error
 	SaveCredential(ctx context.Context, accountID, authType string, credential NativeCredential) error
@@ -51,10 +55,14 @@ type AccountStore interface {
 	ObserveHealth(ctx context.Context, id, remoteUID, lastError, lastKind string) error
 	SaveQuota(ctx context.Context, id string, quota *QuotaSnapshot) error
 	RecordCheckin(ctx context.Context, id, status, msg string, at time.Time) error
+	RecordCheckinStatus(ctx context.Context, id string, update CheckinStatusUpdate) error
 	ListCheckinRecords(ctx context.Context, accountID string, limit int) ([]CheckinRecord, error)
 	GetSecret(ctx context.Context, name string) (string, bool, error)
 	SetSecret(ctx context.Context, name, value string) error
 	SetSecretOrEmpty(ctx context.Context, name, value string) error
+	ListProviderPolicies(ctx context.Context) ([]ProviderPolicy, error)
+	GetProviderPolicy(ctx context.Context, provider, region string) (ProviderPolicy, bool, error)
+	SaveProviderPolicy(ctx context.Context, policy ProviderPolicy) error
 	WorkBuddyCheckinTimeDefault(ctx context.Context) string
 	GetModelContext(ctx context.Context, modelID string) (int, bool, error)
 	SetModelContext(ctx context.Context, modelID string, contextLength int) error

@@ -11,8 +11,8 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/providers"
 )
 
-// Daily reward paths. The desktop bundles (global 1.0.4, CN 1.4.0) call the
-// growth-card endpoints below; production gateways may answer 404 while the
+// Daily reward paths. The current desktop bundles (both editions 2.1.0) call
+// the growth-card endpoints below; production gateways may answer 404 while the
 // campaign is closed, so Checkin falls back to the daily-grant probe.
 const (
 	pathDailyCheckinStatus = "/sash/api/v1/me/daily-check-in/status"
@@ -101,7 +101,7 @@ func (c *Client) Checkin(ctx context.Context, accountID string) (providers.Check
 	}
 	ctx, cancel := context.WithTimeout(ctx, checkinTimeout)
 	defer cancel()
-	result, campaignHandled, err := c.claimDailyCampaign(ctx, accountID, st, credential)
+	result, campaignHandled, err := c.readDailyCampaign(ctx, accountID, st, credential, true)
 	if err != nil {
 		return providers.CheckinResult{}, err
 	}
@@ -111,10 +111,28 @@ func (c *Client) Checkin(ctx context.Context, accountID string) (providers.Check
 	return c.confirmDailyGrant(ctx, accountID, st, credential)
 }
 
-// claimDailyCampaign runs the growth-card status/claim flow. campaignHandled is
+// CheckinStatus reads the growth-card status and wallet without claiming.
+func (c *Client) CheckinStatus(ctx context.Context, accountID string) (providers.CheckinResult, error) {
+	credential, st, err := c.resolvedCredential(ctx, accountID)
+	if err != nil {
+		return providers.CheckinResult{}, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, checkinTimeout)
+	defer cancel()
+	result, campaignHandled, err := c.readDailyCampaign(ctx, accountID, st, credential, false)
+	if err != nil {
+		return providers.CheckinResult{}, err
+	}
+	if campaignHandled {
+		return result, nil
+	}
+	return c.confirmDailyGrant(ctx, accountID, st, credential)
+}
+
+// readDailyCampaign runs the growth-card status/claim flow. campaignHandled is
 // false when the gateway does not route the check-in prefix, which is the
 // current production state; the caller then confirms the server-side grant.
-func (c *Client) claimDailyCampaign(ctx context.Context, accountID string, st site, credential Credential) (providers.CheckinResult, bool, error) {
+func (c *Client) readDailyCampaign(ctx context.Context, accountID string, st site, credential Credential, claim bool) (providers.CheckinResult, bool, error) {
 	body, status, err := c.do(ctx, accountID, http.MethodGet, st.Gateway+pathDailyCheckinStatus, nil,
 		func(h http.Header) { setGrowthCardHeaders(h, st, credential.AccessToken) })
 	if err != nil {
@@ -137,27 +155,37 @@ func (c *Client) claimDailyCampaign(ctx context.Context, accountID string, st si
 		return providers.CheckinResult{}, false, fmt.Errorf("qwenwork check-in: status code=%s", document.Code)
 	}
 	state := strings.ToUpper(strings.TrimSpace(document.Data.Status))
+	earliest := providers.CheckinClockFromUnixMillis(nextClaimMillis(document))
+	if earliest == "" {
+		earliest = "00:00"
+	}
 	switch state {
 	case dailyCheckinClaimable:
+		if !claim {
+			return providers.CheckinResult{Status: "pending", Message: "上游显示今日可签到", EarliestCheckin: earliest}, true, nil
+		}
 		return c.claimCampaign(ctx, accountID, st, credential)
 	case dailyCheckinClaimedToday:
-		result := providers.CheckinResult{Status: "already", Message: checkinAlreadyMessage(document)}
+		result := providers.CheckinResult{Status: "already", Message: checkinAlreadyMessage(document), EarliestCheckin: earliest}
 		if document.Data.RewardCredits != nil {
 			result.RewardCredits = *document.Data.RewardCredits
 		}
+		if document.Data.CurrentStreakDays != nil {
+			result.Streak = *document.Data.CurrentStreakDays
+		}
 		return result, true, nil
 	case dailyCheckinDisabled:
-		return providers.CheckinResult{Status: "skipped", Message: "签到活动未开放"}, true, nil
+		return providers.CheckinResult{Status: "skipped", Message: "签到活动未开放", EarliestCheckin: earliest}, true, nil
 	case dailyCheckinNotStarted:
-		return providers.CheckinResult{Status: "skipped", Message: "签到活动未开始"}, true, nil
+		return providers.CheckinResult{Status: "skipped", Message: "签到活动未开始", EarliestCheckin: earliest}, true, nil
 	case dailyCheckinEnded:
-		return providers.CheckinResult{Status: "skipped", Message: "签到活动已结束"}, true, nil
+		return providers.CheckinResult{Status: "skipped", Message: "签到活动已结束", EarliestCheckin: earliest}, true, nil
 	default:
 		message := "签到活动状态未知"
 		if state != "" {
 			message = fmt.Sprintf("签到活动状态 %s", state)
 		}
-		return providers.CheckinResult{Status: "skipped", Message: message}, true, nil
+		return providers.CheckinResult{Status: "skipped", Message: message, EarliestCheckin: earliest}, true, nil
 	}
 }
 
@@ -285,6 +313,13 @@ func (c *Client) dailyQuotaRemaining(ctx context.Context, accountID string, st s
 		return 0, false
 	}
 	return *envelope.Data.Quota.Remaining, true
+}
+
+func nextClaimMillis(document dailyCheckinDocument) int64 {
+	if document.Data.NextClaimAt != nil && *document.Data.NextClaimAt > 0 {
+		return *document.Data.NextClaimAt
+	}
+	return 0
 }
 
 // checkinAlreadyMessage renders the streak detail the growth card shows next to

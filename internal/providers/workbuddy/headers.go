@@ -20,12 +20,14 @@ func setCommonHeaders(header http.Header, global bool) {
 	header.Set("X-Requested-With", "XMLHttpRequest")
 	header.Set("Origin", origin)
 	header.Set("Referer", origin+"/")
-	header.Set("User-Agent", UserAgent)
+	header.Set("User-Agent", DaemonUserAgentFor(global))
+	setDesktopClientHeaders(header, global)
 }
 
 // setCLIChannelHeaders is chat-only. Values come from the official
 // CodeBuddy CLI (craft / CLI / SaaS, plus the OpenAI Node SDK fingerprint
-// that package sends). CN and Global share the names; Origin/host stay split.
+// that package sends). CN and Global share the names; chat omits
+// Origin/Referer, matching the desktop's OpenAI SDK request.
 //
 // The official CLI keeps X-Conversation-ID for the life of a session
 // (its session.id) and mints X-Request-ID fresh per request, equal to
@@ -40,7 +42,6 @@ func setCLIChannelHeaders(header http.Header, credential Credential, conversatio
 	header.Set("X-Request-ID", messageID)
 	header.Set("X-Conversation-ID", conversationID)
 	header.Set("X-Conversation-Request-ID", conversationID)
-	header.Set("X-Root-Request-ID", conversationID)
 	header.Set("X-Conversation-Message-ID", messageID)
 	header.Set("X-Agent-Type", agentTypeMain)
 	header.Set("X-Agent-Intent", agentIntentDefault)
@@ -48,7 +49,7 @@ func setCLIChannelHeaders(header http.Header, credential Credential, conversatio
 	header.Set("X-Agent-Runtime", agentRuntimeOther)
 	header.Set("X-IDE-Type", productTypeCLI)
 	header.Set("X-IDE-Name", productTypeCLI)
-	header.Set("X-IDE-Version", CLIVersion)
+	header.Set("X-IDE-Version", DesktopVersionFor(credential.IsGlobal()))
 	setCLIStainlessHeaders(header)
 	if value, ok := privateDataHeader(identityCLI, privateDataModeFromEnv(), credential); ok {
 		header.Set("X-Private-Data", value)
@@ -176,25 +177,34 @@ func setIdentityHeaders(header http.Header, credential Credential) {
 	setCommonHeaders(header, credential.IsGlobal())
 	if credential.AccessToken != "" {
 		header.Set("Authorization", "Bearer "+credential.AccessToken)
-	} else {
-		header.Set("X-No-Authorization", "1")
 	}
 	if credential.UID != "" {
 		header.Set("X-User-Id", credential.UID)
-	} else {
-		header.Set("X-No-User-Id", "1")
 	}
 	if credential.EnterpriseID != "" {
 		header.Set("X-Enterprise-Id", credential.EnterpriseID)
-	} else {
-		header.Set("X-No-Enterprise-Id", "1")
+		header.Set("X-Tenant-Id", credential.EnterpriseID)
 	}
 	if credential.Domain != "" {
 		header.Set("X-Domain", credential.Domain)
-	} else {
-		header.Set("X-No-Department-Info", "1")
 	}
 	header.Set("X-Product", "SaaS")
+	// Official chat always sends the department header, empty when the account
+	// has no department. Do not invent X-No-* placeholders.
+	header.Set("X-Department-Info", "")
+}
+
+// setDesktopClientHeaders adds the identity the current desktop builds inject
+// on first-party channels (5.11.3 CN / 5.11.4 Global), including chat and
+// catalog through the bundled CLI's custom-header provider.
+func setDesktopClientHeaders(header http.Header, global bool) {
+	version, product := DesktopVersionCN, "WorkBuddy"
+	if global {
+		version, product = DesktopVersionGlobal, "workbuddy-ai"
+	}
+	header.Set("X-Client-Version", version)
+	header.Set("X-Client-Platform", "macos")
+	header.Set("X-Client-Product", product)
 }
 
 // SetCatalogHeaders carries access identity for the product-config catalog
@@ -217,6 +227,12 @@ func SetCatalogHeaders(header http.Header, credential Credential) {
 // id, since the official client does the same when it has no session.
 func SetChatHeaders(header http.Header, credential Credential, conversation string) {
 	setIdentityHeaders(header, credential)
+	// The bundled CLI's chat path sends the desktop UA and the OpenAI SDK
+	// Accept, not the generic daemon shape. It also omits Origin/Referer.
+	header.Set("Accept", "application/json")
+	header.Set("User-Agent", DesktopUserAgentFor(credential.IsGlobal()))
+	header.Del("Origin")
+	header.Del("Referer")
 	setCLIChannelHeaders(header, credential, conversation)
 }
 
@@ -226,13 +242,22 @@ func SetRefreshHeaders(header http.Header, credential Credential) {
 	header.Set("X-Refresh-Token", credential.RefreshToken)
 	if credential.EnterpriseID != "" {
 		header.Set("X-Enterprise-Id", credential.EnterpriseID)
+		header.Set("X-Tenant-Id", credential.EnterpriseID)
 	}
 	header.Set("X-Auth-Refresh-Source", "workbuddy")
 }
 
-// SetBillingHeaders carries identity for the separate billing hosts.
+// SetBillingHeaders carries identity for the separate billing hosts. Current
+// desktop AuthService uses its own axios instance on meter, check-in and
+// user-resource endpoints: application/json, axios/1.16.1, a fresh request id,
+// and the desktop X-Client-* identity; it does not send Origin, Referer,
+// X-Requested-With, X-Product or X-Department-Info.
 func SetBillingHeaders(header http.Header, credential Credential) {
-	setCommonHeaders(header, credential.IsGlobal())
+	header.Set("Accept", "application/json")
+	header.Set("Content-Type", "application/json")
+	header.Set("X-Request-ID", newCLIMessageID())
+	header.Set("User-Agent", "axios/1.16.1")
+	setDesktopClientHeaders(header, credential.IsGlobal())
 	if credential.AccessToken != "" {
 		header.Set("Authorization", "Bearer "+credential.AccessToken)
 	}
