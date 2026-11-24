@@ -5,6 +5,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -13,8 +15,16 @@ import (
 )
 
 const (
-	defaultSessionAffinityTTL      = time.Hour
+	// defaultSessionAffinityTTL bounds how long a chat stays pinned to one
+	// account. A working session routinely idles longer than an hour between
+	// turns, and every expired binding costs one full prompt-cache rebuild, so
+	// the default matches a working half-day rather than a coffee break.
+	defaultSessionAffinityTTL      = 4 * time.Hour
 	defaultSessionAffinityCapacity = 10_000
+	// maxSessionAffinityTTL keeps an operator override from turning the LRU
+	// into durable account state by accident.
+	maxSessionAffinityTTL      = 48 * time.Hour
+	maxSessionAffinityCapacity = 1_000_000
 )
 
 type sessionKeyContextKey struct{}
@@ -67,6 +77,13 @@ type SessionAffinityStats struct {
 	LastEscapeAt     string `json:"last_escape_at,omitempty"`
 	LastEscapeReason string `json:"last_escape_reason,omitempty"`
 	LastMissReason   string `json:"last_miss_reason,omitempty"`
+	// MissReasons and EscapeReasons are distributions, not single samples.
+	// A cache-hit regression is diagnosed by which reason dominates: a rising
+	// "expired" count is a TTL problem, "account_missing"/"model_unavailable"
+	// is a pool problem, and "upstream_failover" is the failover path eating
+	// affinity. The last-value fields above stay for older console builds.
+	MissReasons   map[string]int `json:"miss_reasons,omitempty"`
+	EscapeReasons map[string]int `json:"escape_reasons,omitempty"`
 }
 
 // SessionAffinity is a bounded process-local LRU. Session bindings are a
@@ -85,6 +102,8 @@ type SessionAffinity struct {
 	lastEscapeAt     time.Time
 	lastEscapeReason string
 	lastMissReason   string
+	missReasons      map[string]int
+	escapeReasons    map[string]int
 }
 
 func NewSessionAffinity(ttl time.Duration, capacity int) *SessionAffinity {
@@ -95,11 +114,48 @@ func NewSessionAffinity(ttl time.Duration, capacity int) *SessionAffinity {
 		capacity = defaultSessionAffinityCapacity
 	}
 	return &SessionAffinity{
-		ttl:      ttl,
-		capacity: capacity,
-		entries:  make(map[string]*list.Element, capacity),
-		lru:      list.New(),
+		ttl:           ttl,
+		capacity:      capacity,
+		entries:       make(map[string]*list.Element, capacity),
+		lru:           list.New(),
+		missReasons:   map[string]int{},
+		escapeReasons: map[string]int{},
 	}
+}
+
+// ResolveSessionAffinityConfig reads the optional operator overrides. Both
+// knobs are deliberately env-only: they describe host capacity, not per-route
+// behaviour, and a wrong value must never be persisted into a shared store.
+func ResolveSessionAffinityConfig() (time.Duration, int) {
+	ttl := defaultSessionAffinityTTL
+	if raw := strings.TrimSpace(os.Getenv("CLI2API_AFFINITY_TTL")); raw != "" {
+		parsed, err := time.ParseDuration(raw)
+		if err != nil {
+			// A bare integer is accepted as seconds so `CLI2API_AFFINITY_TTL=14400`
+			// does not silently fall back to the default.
+			if seconds, convErr := strconv.Atoi(raw); convErr == nil {
+				parsed = time.Duration(seconds) * time.Second
+			} else {
+				parsed = 0
+			}
+		}
+		if parsed > 0 {
+			if parsed > maxSessionAffinityTTL {
+				parsed = maxSessionAffinityTTL
+			}
+			ttl = parsed
+		}
+	}
+	capacity := defaultSessionAffinityCapacity
+	if raw := strings.TrimSpace(os.Getenv("CLI2API_AFFINITY_CAPACITY")); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+			if n > maxSessionAffinityCapacity {
+				n = maxSessionAffinityCapacity
+			}
+			capacity = n
+		}
+	}
+	return ttl, capacity
 }
 
 func (a *SessionAffinity) Get(key string) (string, bool) {
@@ -116,6 +172,7 @@ func (a *SessionAffinity) Get(key string) (string, bool) {
 	if !ok {
 		a.misses++
 		a.lastMissReason = "not_found"
+		a.missReasons["not_found"]++
 		return "", false
 	}
 	binding := element.Value.(sessionBinding)
@@ -123,10 +180,36 @@ func (a *SessionAffinity) Get(key string) (string, bool) {
 		a.remove(element)
 		a.misses++
 		a.lastMissReason = "expired"
+		a.missReasons["expired"]++
 		return "", false
 	}
 	a.hits++
 	a.lru.MoveToFront(element)
+	return binding.accountID, true
+}
+
+// Peek reads a binding without counting a hit. Callers that only ask "who is
+// this session anchored to?" (bind-time decisions) must not inflate the hit
+// rate, which is a routing-quality signal.
+func (a *SessionAffinity) Peek(key string) (string, bool) {
+	if a == nil {
+		return "", false
+	}
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return "", false
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	element, ok := a.entries[key]
+	if !ok {
+		return "", false
+	}
+	binding := element.Value.(sessionBinding)
+	if !binding.expiresAt.After(time.Now()) {
+		a.remove(element)
+		return "", false
+	}
 	return binding.accountID, true
 }
 
@@ -165,6 +248,7 @@ func (a *SessionAffinity) RecordEscape(reason string) {
 	a.escapes++
 	a.lastEscapeAt = time.Now().UTC()
 	a.lastEscapeReason = strings.TrimSpace(reason)
+	a.escapeReasons[strings.TrimSpace(reason)]++
 	a.mu.Unlock()
 }
 
@@ -184,7 +268,20 @@ func (a *SessionAffinity) Stats() SessionAffinityStats {
 		Escapes: a.escapes, Rebindings: a.rebindings,
 		LastEscapeAt: lastAt, LastEscapeReason: a.lastEscapeReason,
 		LastMissReason: a.lastMissReason,
+		MissReasons:    cloneReasonCounts(a.missReasons),
+		EscapeReasons:  cloneReasonCounts(a.escapeReasons),
 	}
+}
+
+func cloneReasonCounts(src map[string]int) map[string]int {
+	if len(src) == 0 {
+		return nil
+	}
+	dst := make(map[string]int, len(src))
+	for reason, count := range src {
+		dst[reason] = count
+	}
+	return dst
 }
 
 func (a *SessionAffinity) Forget(key string) {

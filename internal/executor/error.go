@@ -78,6 +78,9 @@ func newUnavailableStreamError(code, message string, status int, cause error) er
 	classified.Message = message
 	classified.Status = status
 	classified.Type = "api_error"
+	// A stream that ended without [DONE] or broke mid-read is an upstream
+	// hiccup, not proof that this account's credential or quota is broken.
+	classified.Transient = true
 	return NewExecutionError(classified, cause)
 }
 
@@ -98,7 +101,7 @@ func ClassifyError(err error) Classified {
 		return Classified{
 			Kind: accounts.KindUnavailable, Status: http.StatusBadGateway,
 			Failover: true, Cooldown: 10 * time.Second, RetryAfter: 10 * time.Second,
-			Code: "first_byte_timeout", Message: err.Error(),
+			Code: "first_byte_timeout", Message: err.Error(), Transient: true,
 		}
 	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
@@ -179,6 +182,7 @@ func ClassifyError(err error) Classified {
 		// another account serves the turn, but never cool this one down.
 		classified.Failover = true
 		classified.Cooldown = 0
+		classified.Transient = true
 	}
 	switch classified.Kind {
 	case accounts.KindRateLimit:
@@ -187,8 +191,10 @@ func ClassifyError(err error) Classified {
 			classified.Cooldown = 5 * time.Minute
 		case providerErr.RetryAfter > 0:
 			classified.Cooldown = providerErr.RetryAfter
+			classified.ExactReset = true
 			if classified.Cooldown < 30*time.Second {
 				classified.Cooldown = 30 * time.Second
+				classified.ExactReset = false
 			}
 		}
 	case accounts.KindQuota:
@@ -196,6 +202,7 @@ func ClassifyError(err error) Classified {
 		// Quota stays account-wide; Classify already marks it for failover.
 		if providerErr.RetryAfter > 0 {
 			classified.Cooldown = providerErr.RetryAfter
+			classified.ExactReset = true
 		}
 	}
 	classified.RetryAfter = classified.Cooldown
