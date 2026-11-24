@@ -106,6 +106,15 @@ export function fetchModelsCached(accountId?: string, view?: 'regional') {
   return pending
 }
 
+export function reloadModels(accountId?: string, view?: 'regional') {
+  const key = modelsMemoryKey(accountId, view)
+  modelsMemoryCache.delete(key)
+  return fetchModels(accountId, false, view).then((data) => {
+    modelsMemoryCache.set(key, { data, at: Date.now() })
+    return data
+  })
+}
+
 export function refreshModels(accountId?: string, view?: 'regional', options?: ModelFetchOptions) {
   const key = modelsMemoryKey(accountId, view)
   modelsMemoryCache.delete(key)
