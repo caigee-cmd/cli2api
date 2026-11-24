@@ -25,6 +25,17 @@ type Classified struct {
 	// Model scopes the cooldown to one public model. When set, only that
 	// model is cooled; the account keeps serving everything else.
 	Model string
+	// Transient marks an upstream hiccup that says nothing about the account's
+	// credential, quota, or rate limit: an empty stream, a stream that died
+	// mid-body, or a first-byte timeout. A transient failure may be retried on
+	// the same account, and it must never escalate the cooldown ladder — one
+	// flaky turn would otherwise park a healthy account for minutes.
+	Transient bool
+	// ExactReset marks a cooldown taken verbatim from an upstream hint
+	// (Retry-After header/body or a quota reset time). The exponential ladder
+	// must not multiply it: the upstream already said when it recovers, and
+	// doubling that parks the account past the real reset.
+	ExactReset bool
 }
 
 // backoffFloor and backoffCeiling bound the exponential backoff applied to
@@ -34,6 +45,11 @@ const (
 	backoffFloor    = 30 * time.Second
 	backoffCeiling  = 6 * time.Hour
 	backoffMaxLevel = BackoffMaxLevel
+	// transientCooldownCap bounds how long a transient upstream hiccup may
+	// park an account. The classifier's own window (10s for a first-byte
+	// timeout) is the intent; this cap only guards against a caller handing a
+	// transient classification a wider window by mistake.
+	transientCooldownCap = 60 * time.Second
 )
 
 func nextBackoffCooldown(base time.Duration, level int) (time.Duration, int) {
@@ -62,14 +78,35 @@ func ParseRetryAfter(raw string, fallback time.Duration) time.Duration {
 }
 
 func ParseRetryAfterHint(body, header string, fallback time.Duration) time.Duration {
-	now := time.Now()
-	if parsed := parseRetryAfterValue(header, now); parsed > 0 {
-		return clampRetryAfter(parsed)
-	}
-	if parsed := retryAfterFromBody(body, now); parsed > 0 {
-		return clampRetryAfter(parsed)
+	if hint, ok := parseUpstreamRetryHint(body, header); ok {
+		return hint
 	}
 	return clampRetryAfter(fallback)
+}
+
+// parseUpstreamRetryHint returns only a hint the upstream actually sent.
+// Unlike ParseRetryAfterHint it never substitutes a local fallback, so callers
+// can tell "the upstream told us when it recovers" from "we guessed".
+func parseUpstreamRetryHint(body, header string) (time.Duration, bool) {
+	raw, ok := parseUpstreamRetryHintRaw(body, header)
+	if !ok {
+		return 0, false
+	}
+	return clampRetryAfter(raw), true
+}
+
+// parseUpstreamRetryHintRaw is parseUpstreamRetryHint without the general
+// retry-after ceiling. Quota resets are legitimately hours away and must not be
+// shortened to a rate-limit window.
+func parseUpstreamRetryHintRaw(body, header string) (time.Duration, bool) {
+	now := time.Now()
+	if parsed := parseRetryAfterValue(header, now); parsed > 0 {
+		return parsed, true
+	}
+	if parsed := retryAfterFromBody(body, now); parsed > 0 {
+		return parsed, true
+	}
+	return 0, false
 }
 
 func parseRetryAfterValue(raw string, now time.Time) time.Duration {
@@ -200,6 +237,12 @@ func Classify(status int, body, retryAfter, kindHint, failoverHint string) Class
 	}
 
 	out := Classified{Kind: kind, Message: strings.TrimSpace(msg), Code: firstNonEmpty(code, kind), Type: firstNonEmpty(typ, "api_error")}
+	// A hint the upstream actually sent is authoritative: use it verbatim and
+	// never let the local backoff ladder multiply it.
+	_, hasHint := parseUpstreamRetryHint(body, retryAfter)
+	if hasHint {
+		out.ExactReset = true
+	}
 	switch kind {
 	case KindQuota:
 		out.Status = 429
@@ -208,7 +251,22 @@ func Classify(status int, body, retryAfter, kindHint, failoverHint string) Class
 		// When every account is exhausted the route itself stops with
 		// insufficient_quota (see quotaBlockedMessage / coolingPickError).
 		out.Failover = true
-		out.Cooldown = NextLocalMidnightCooldown()
+		// A parsed upstream reset beats the local-midnight fallback, but only
+		// when it is long enough to be a real reset window. The generic hint
+		// path clamps at maxRetryAfter (10m) for rate limits; applying that cap
+		// to a multi-hour quota reset would retry a dead account every ten
+		// minutes. A short hint (a transient blip reported as quota) falls back
+		// to the local rollover, which is the safer park.
+		if raw, ok := parseUpstreamRetryHintRaw(body, retryAfter); ok && raw >= time.Minute {
+			if raw > 24*time.Hour {
+				raw = 24 * time.Hour
+			}
+			out.Cooldown = raw
+			out.ExactReset = true
+		} else {
+			out.Cooldown = NextLocalMidnightCooldown()
+			out.ExactReset = false
+		}
 		out.Code = firstNonEmpty(code, "insufficient_quota")
 		out.Type = "insufficient_quota"
 	case KindRateLimit:
@@ -222,12 +280,14 @@ func Classify(status int, body, retryAfter, kindHint, failoverHint string) Class
 			out.Failover = false
 			out.Cooldown = 0
 			out.RetryAfter = ParseRetryAfterHint(body, retryAfter, 0)
+			out.ExactReset = false
 			break
 		}
 		out.Failover = true
 		out.Cooldown = ParseRetryAfterHint(body, retryAfter, 60*time.Second)
 		if out.Cooldown > 0 && out.Cooldown < minRateLimitCooldown {
 			out.Cooldown = minRateLimitCooldown
+			out.ExactReset = false
 		}
 	case KindAuth:
 		if status == 401 {

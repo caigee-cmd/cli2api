@@ -25,31 +25,31 @@ const (
 var ErrRequestLogNotFound = errors.New("request log not found")
 
 type RequestLog struct {
-	ID                  string                   `json:"id"`
-	CreatedAt           time.Time                `json:"created_at"`
-	FinishedAt          *time.Time               `json:"finished_at,omitempty"`
-	Stream              bool                     `json:"stream"`
-	Status              string                   `json:"status"`
-	RequestedModel      string                   `json:"requested_model"`
-	MappedModel         string                   `json:"mapped_model,omitempty"`
-	RequestedReasoning  string                   `json:"requested_reasoning,omitempty"`
-	ResolvedReasoning   string                   `json:"resolved_reasoning,omitempty"`
-	AccountID           string                   `json:"account_id,omitempty"`
-	APIKeyID            string                   `json:"api_key_id,omitempty"` // console API key id; "" for console-key traffic and legacy rows
-	Provider            string                   `json:"provider,omitempty"`
-	Routing             string                   `json:"routing,omitempty"`
-	PromptTokens        *int                     `json:"prompt_tokens,omitempty"`
-	CompletionTokens    *int                     `json:"completion_tokens,omitempty"`
-	CacheReadTokens     *int                     `json:"cache_read_tokens,omitempty"`
-	CacheWriteTokens    *int                     `json:"cache_write_tokens,omitempty"`
-	UsageSource         string                   `json:"usage_source,omitempty"`
-	Credits             *float64                 `json:"credits,omitempty"`
-	LatencyMs           *int                     `json:"latency_ms,omitempty"`
-	TTFBMs              *int                     `json:"ttfb_ms,omitempty"`
-	ErrorKind           string                   `json:"error_kind,omitempty"`
-	ErrorCode           string                   `json:"error_code,omitempty"`
-	ErrorMessage        string                   `json:"error_message,omitempty"`
-	AttemptCount        int                      `json:"attempt_count"`
+	ID                 string     `json:"id"`
+	CreatedAt          time.Time  `json:"created_at"`
+	FinishedAt         *time.Time `json:"finished_at,omitempty"`
+	Stream             bool       `json:"stream"`
+	Status             string     `json:"status"`
+	RequestedModel     string     `json:"requested_model"`
+	MappedModel        string     `json:"mapped_model,omitempty"`
+	RequestedReasoning string     `json:"requested_reasoning,omitempty"`
+	ResolvedReasoning  string     `json:"resolved_reasoning,omitempty"`
+	AccountID          string     `json:"account_id,omitempty"`
+	APIKeyID           string     `json:"api_key_id,omitempty"` // console API key id; "" for console-key traffic and legacy rows
+	Provider           string     `json:"provider,omitempty"`
+	Routing            string     `json:"routing,omitempty"`
+	PromptTokens       *int       `json:"prompt_tokens,omitempty"`
+	CompletionTokens   *int       `json:"completion_tokens,omitempty"`
+	CacheReadTokens    *int       `json:"cache_read_tokens,omitempty"`
+	CacheWriteTokens   *int       `json:"cache_write_tokens,omitempty"`
+	UsageSource        string     `json:"usage_source,omitempty"`
+	Credits            *float64   `json:"credits,omitempty"`
+	LatencyMs          *int       `json:"latency_ms,omitempty"`
+	TTFBMs             *int       `json:"ttfb_ms,omitempty"`
+	ErrorKind          string     `json:"error_kind,omitempty"`
+	ErrorCode          string     `json:"error_code,omitempty"`
+	ErrorMessage       string     `json:"error_message,omitempty"`
+	AttemptCount       int        `json:"attempt_count"`
 	// DetailExpired marks a log whose detail rows and detail-only columns were
 	// cleared by retention. The aggregate columns (tokens, credits, latency,
 	// status, model) are still present, so usage totals stay exact; only the
@@ -276,11 +276,15 @@ type RequestUsage struct {
 }
 
 type RequestUsageTotals struct {
-	TotalTokens        int64    `json:"total_tokens"`
-	PromptTokens       int64    `json:"prompt_tokens"`
-	CompletionTokens   int64    `json:"completion_tokens"`
-	CacheHitTokens     int64    `json:"cache_hit_tokens"`
-	CacheMissTokens    int64    `json:"cache_miss_tokens"`
+	TotalTokens      int64 `json:"total_tokens"`
+	PromptTokens     int64 `json:"prompt_tokens"`
+	CompletionTokens int64 `json:"completion_tokens"`
+	CacheHitTokens   int64 `json:"cache_hit_tokens"`
+	CacheMissTokens  int64 `json:"cache_miss_tokens"`
+	// CacheHitRate is CacheHitTokens / (CacheHitTokens + CacheMissTokens). Nil
+	// when no cache accounting was reported in the window, so a fresh install
+	// reads as "no data" instead of a 0% hit rate.
+	CacheHitRate       *float64 `json:"cache_hit_rate,omitempty"`
 	Requests           int      `json:"requests"`
 	Errors             int      `json:"errors"`
 	AvgLatencyMs       *int     `json:"avg_latency_ms,omitempty"`

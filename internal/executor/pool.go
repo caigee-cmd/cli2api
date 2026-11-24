@@ -1266,8 +1266,14 @@ func (p *Pool) MarkClassified(id string, c Classified) {
 			// interval. A new failure kind starts the ladder over. Backoff is
 			// tracked per model when the cooldown is model-scoped, so one
 			// model's repeat failures don't inflate another model's ladder.
+			// Escalation is only for failures that say something durable about
+			// the account. A transient upstream hiccup (empty stream, first-byte
+			// timeout) and an upstream-supplied reset time are already accurate,
+			// so multiplying them parks a healthy account well past recovery.
+			escalate := !c.Transient && !c.ExactReset && c.Kind != KindInvalidRequest
 			level := 0
-			if prevKind == c.Kind && c.Kind != KindInvalidRequest {
+			switch {
+			case prevKind == c.Kind && escalate:
 				if model != "" {
 					if p.items[i].ModelBackoff == nil {
 						p.items[i].ModelBackoff = map[string]int{}
@@ -1282,7 +1288,11 @@ func (p *Pool) MarkClassified(id string, c Classified) {
 					}
 					level = p.items[i].BackoffLevel
 				}
-			} else {
+			case !escalate:
+				// Leave the ladder untouched. Resetting it on a transient blip
+				// would erase an earned level for the durable failure that
+				// follows, and bumping it would punish a healthy account.
+			default:
 				// New kind: reset that ladder so it starts over.
 				if model != "" {
 					if p.items[i].ModelBackoff == nil {
@@ -1294,7 +1304,10 @@ func (p *Pool) MarkClassified(id string, c Classified) {
 				}
 			}
 			cooldown := c.Cooldown
-			if level > 1 {
+			if c.Transient && cooldown > transientCooldownCap {
+				cooldown = transientCooldownCap
+			}
+			if escalate && level > 1 {
 				cooldown, _ = nextBackoffCooldown(c.Cooldown, level-1)
 			}
 			until := time.Now().Add(cooldown)
