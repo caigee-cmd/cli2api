@@ -429,6 +429,104 @@ func TestChatNonStreamMergesSplitToolCallDeltas(t *testing.T) {
 	}
 }
 
+// Regression: Qwen4-Max sends every call of a turn at index 0 and separates
+// them only by id. Each id must become its own call with its own arguments.
+const sharedIndexToolSSE = "" +
+	`data:{"body":"{\"choices\":[{\"delta\":{\"role\":\"assistant\",\"tool_calls\":[{\"index\":0,\"id\":\"call_a\",\"type\":\"function\",\"function\":{\"name\":\"cli2api_diag_amber\",\"arguments\":\"{\\\"key\\\": \"}}]}}]}","statusCodeValue":200}` + "\n\n" +
+	`data:{"body":"{\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"\\\"amber\\\"}\"}}]}}]}","statusCodeValue":200}` + "\n\n" +
+	`data:{"body":"{\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_b\",\"type\":\"function\",\"function\":{\"name\":\"cli2api_diag_violet\",\"arguments\":\"{\\\"key\\\": \"}}]}}]}","statusCodeValue":200}` + "\n\n" +
+	`data:{"body":"{\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"\\\"violet\\\"}\"}}]}}]}","statusCodeValue":200}` + "\n\n" +
+	`data:{"body":"{\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}","statusCodeValue":200}` + "\n\n" +
+	"data: [DONE]\n\n"
+
+type sharedIndexToolCall struct {
+	Index    int    `json:"index"`
+	ID       string `json:"id"`
+	Function struct {
+		Name      string `json:"name"`
+		Arguments string `json:"arguments"`
+	} `json:"function"`
+}
+
+func assertSharedIndexToolCalls(t *testing.T, calls []sharedIndexToolCall) {
+	t.Helper()
+	if len(calls) != 2 {
+		t.Fatalf("tool calls=%+v want 2", calls)
+	}
+	if calls[0].Index != 0 || calls[0].ID != "call_a" || calls[0].Function.Name != "cli2api_diag_amber" || calls[0].Function.Arguments != `{"key": "amber"}` {
+		t.Fatalf("call 0=%+v", calls[0])
+	}
+	if calls[1].Index != 1 || calls[1].ID != "call_b" || calls[1].Function.Name != "cli2api_diag_violet" || calls[1].Function.Arguments != `{"key": "violet"}` {
+		t.Fatalf("call 1=%+v", calls[1])
+	}
+}
+
+func TestChatNonStreamSplitsToolCallsSharingIndex(t *testing.T) {
+	payload, _ := readyCredential().Encode()
+	store := &memStore{region: "global", items: map[string][]byte{"acc1": payload}}
+	client := newTestClient(t, store, chatHandlerFor(t, sharedIndexToolSSE, nil))
+	out, err := client.ChatNonStream(context.Background(), "acc1", translate.ChatRequest{
+		Model: "qwork-advanced", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var calls []sharedIndexToolCall
+	if err := json.Unmarshal(out.ToolCalls, &calls); err != nil {
+		t.Fatalf("tool calls=%s err=%v", out.ToolCalls, err)
+	}
+	assertSharedIndexToolCalls(t, calls)
+}
+
+func TestChatStreamSplitsToolCallsSharingIndex(t *testing.T) {
+	payload, _ := readyCredential().Encode()
+	store := &memStore{region: "global", items: map[string][]byte{"acc1": payload}}
+	client := newTestClient(t, store, chatHandlerFor(t, sharedIndexToolSSE, nil))
+	resp, _, err := client.ChatStream(context.Background(), "acc1", translate.ChatRequest{
+		Model: "qwork-advanced", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	// Fold the relayed deltas by index the way OpenAI clients do.
+	var calls []sharedIndexToolCall
+	for _, line := range strings.Split(string(body), "\n") {
+		data, ok := strings.CutPrefix(line, "data: ")
+		if !ok || data == "[DONE]" {
+			continue
+		}
+		var chunk struct {
+			Choices []struct {
+				Delta struct {
+					ToolCalls []sharedIndexToolCall `json:"tool_calls"`
+				} `json:"delta"`
+			} `json:"choices"`
+		}
+		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+			t.Fatalf("chunk %s: %v", data, err)
+		}
+		for _, choice := range chunk.Choices {
+			for _, delta := range choice.Delta.ToolCalls {
+				if delta.Index == len(calls) {
+					calls = append(calls, sharedIndexToolCall{Index: delta.Index})
+				}
+				if delta.Index >= len(calls) {
+					t.Fatalf("index gap in %s", body)
+				}
+				call := &calls[delta.Index]
+				if delta.ID != "" {
+					call.ID = delta.ID
+				}
+				call.Function.Name += delta.Function.Name
+				call.Function.Arguments += delta.Function.Arguments
+			}
+		}
+	}
+	assertSharedIndexToolCalls(t, calls)
+}
+
 // Regression: quota code 14018 and the model-unavailable text must classify
 // even when the wrapper statusCodeValue is 200.
 func TestChatNonStreamClassifiesErrorMarkersInSuccessFrames(t *testing.T) {
