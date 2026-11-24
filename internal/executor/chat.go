@@ -404,6 +404,47 @@ func (e ChatExecutor) providerHasCapacity(pinnedProvider, pinnedRegion, publicMo
 	return e.Pool.HasCapacity(query)
 }
 
+// capacityOutsideProvider reports whether a *different provider family* can
+// serve this model right now. Cooling escape uses this rather than
+// providerHasCapacity: Qoder global and CN are isolated upstreams, so hopping
+// from one to the other mid-chat loses the prompt cache and lands on a
+// different catalog for no benefit. Only a genuinely different family counts.
+func (e ChatExecutor) capacityOutsideProvider(pinnedProvider, publicModel string, allowed []string, eligible func(Item) bool) bool {
+	if e.Pool == nil || pinnedProvider == "" {
+		return false
+	}
+	query := e.routeQuery("", "", "", publicModel, allowed, nil, func(item Item) bool {
+		if itemProvider(item) == pinnedProvider {
+			return false
+		}
+		now := time.Now()
+		if itemDown(item, now) || itemModelDown(item, RouteQuery{PublicModel: publicModel}, now) {
+			return false
+		}
+		return eligible == nil || eligible(item)
+	})
+	return e.Pool.HasCapacity(query)
+}
+
+// stickyEscapeMinCooldown is the cooling window above which a sticky chat
+// leaves its bound provider. Below it the client is better served by a
+// Retry-After: the wait is short and the prompt cache stays warm.
+const stickyEscapeMinCooldown = 2 * time.Minute
+
+// coolingWorthEscaping reports whether a cooling pick error is long enough to
+// justify leaving the bound provider. Quota waits (typically until local
+// midnight) always qualify; a short rate-limit window does not.
+func coolingWorthEscaping(err error) bool {
+	var execution *ExecutionError
+	if !errors.As(err, &execution) || execution == nil {
+		return false
+	}
+	if execution.Classified.Kind == accounts.KindQuota {
+		return true
+	}
+	return execution.Classified.RetryAfter >= stickyEscapeMinCooldown
+}
+
 func (e ChatExecutor) routeQuery(prefer, providerFilter, regionFilter, publicModel string, allowed []string, excluded map[string]struct{}, eligible func(Item) bool, plan ...*AggregatePlan) RouteQuery {
 	q := RouteQuery{
 		PublicModel:      publicModel,
@@ -1154,11 +1195,37 @@ func (l *routeLoop) pickNext(e ChatExecutor, publicModel string) (Item, int, err
 		// provider into rate_limit while another provider still has room.
 		// Drop the pin only after the pick itself reports saturation, and only
 		// when this request did not ask for that provider.
-		if l.routing.Source == routingSticky && l.index == 0 && l.pinned == "" && capacityError(err) && e.providerHasCapacity(l.providerFilter, l.regionFilter, publicModel, l.allowed, l.eligible) {
-			if e.SessionAffinity != nil {
-				e.SessionAffinity.RecordEscape("concurrency_saturated")
+		reason := ""
+		if l.routing.Source == routingSticky && l.index == 0 && l.pinned == "" {
+			switch {
+			case capacityError(err):
+				if e.providerHasCapacity(l.providerFilter, l.regionFilter, publicModel, l.allowed, l.eligible) {
+					reason = "concurrency_saturated"
+				}
+			case coolingWorthEscaping(err):
+				// Every account of the bound provider/region is cooling. A short
+				// window is better served by a Retry-After (the chat keeps its
+				// cache and comes back), but a long quota wait would leave the
+				// chat dead for hours while another provider is idle.
+				if e.capacityOutsideProvider(l.providerFilter, publicModel, l.allowed, l.eligible) {
+					reason = "provider_cooldown"
+				}
 			}
-			l.routing.Source = routingPool
+		}
+		if reason != "" {
+			if e.SessionAffinity != nil {
+				e.SessionAffinity.RecordEscape(reason)
+			}
+			// A cooldown escape keeps the sticky-escape marker so a successful
+			// turn does not steal the session anchor from the account that is
+			// merely cooling (see keepAnchorOnEscape). A capacity escape
+			// re-picks freely and rebinds to whoever had room, because an
+			// unknown saturation window has no cache to return to.
+			if reason == "provider_cooldown" {
+				l.routing.Source = routingStickyEscape
+			} else {
+				l.routing.Source = routingPool
+			}
 			l.prefer = ""
 			l.providerFilter = ""
 			l.regionFilter = ""
@@ -1560,6 +1627,10 @@ func sanitizeForItem(item Item, req translate.ChatRequest) translate.ChatRequest
 	if native := NativeModelID(item, req.Model); native != "" {
 		req.Model = native
 	}
+	// Stable tool order keeps the upstream cached prefix intact when a client
+	// rebuilds its tool list in a different order. Opt-in: some models react to
+	// a reordered array, so only the fingerprint side is always normalized.
+	req.Tools = translate.NormalizeToolsForPayload(req.Tools)
 	if item.DropSystemPrompt && itemProvider(item) != "qoder" {
 		return translate.DropSystemMessages(req)
 	}
