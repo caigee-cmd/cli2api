@@ -1546,9 +1546,11 @@ func TestChatHeadersReuseConversationIDForOneSession(t *testing.T) {
 		t.Fatalf("one session must reuse its conversation id: %s vs %s",
 			first.Get("X-Conversation-ID"), second.Get("X-Conversation-ID"))
 	}
-	if first.Get("X-Conversation-Request-ID") != first.Get("X-Conversation-ID") ||
-		first.Get("X-Root-Request-ID") != first.Get("X-Conversation-ID") {
-		t.Fatalf("turn ids must follow the conversation id: %+v", first)
+	if first.Get("X-Conversation-Request-ID") != first.Get("X-Conversation-ID") {
+		t.Fatalf("turn id must follow the conversation id: %+v", first)
+	}
+	if first.Get("X-Root-Request-ID") != "" {
+		t.Fatalf("official chat no longer sends X-Root-Request-ID: %+v", first)
 	}
 	if first.Get("X-Request-ID") == second.Get("X-Request-ID") {
 		t.Fatal("message id must be fresh per request")
@@ -1583,15 +1585,16 @@ func dashedUUID(value string) bool {
 func TestChatHeadersStayRegionSpecificAndIncludeCLIChannel(t *testing.T) {
 	cn := http.Header{}
 	SetChatHeaders(cn, Credential{AccessToken: "at", UID: "u1", Domain: "www.codebuddy.cn"}, "")
-	if cn.Get("Origin") != "https://www.codebuddy.cn" || cn.Get("Referer") != "https://www.codebuddy.cn/" {
-		t.Fatalf("CN origin/referer mixed: %+v", cn)
+	if cn.Get("Origin") != "" || cn.Get("Referer") != "" {
+		t.Fatalf("official chat must not send origin/referer: %+v", cn)
 	}
 	if got := cn.Get("User-Agent"); got != UserAgent || !strings.Contains(got, CLIVersion) {
 		t.Fatalf("CN UA=%q", got)
 	}
-	if cn.Get("X-Product") != "SaaS" || cn.Get("X-IDE-Type") != "CLI" || cn.Get("X-IDE-Version") != CLIVersion ||
+	if cn.Get("X-Product") != "SaaS" || cn.Get("X-IDE-Type") != "CLI" || cn.Get("X-IDE-Version") != DesktopVersionCN ||
 		cn.Get("X-Agent-Intent") != "craft" || cn.Get("X-Agent-Purpose") != "conversation" ||
-		cn.Get("X-Agent-Runtime") != "other" || cn.Get("X-Agent-Type") != "main" ||
+		cn.Get("X-Agent-Runtime") != "local-agent" || cn.Get("X-Agent-Type") != "main" ||
+		cn.Get("X-Client-Version") != DesktopVersionCN || cn.Get("X-Client-Product") != "WorkBuddy" ||
 		cn.Get("X-Private-Data") != "false" || cn.Get("X-Request-ID") == "" {
 		t.Fatalf("CN missing CLI channel headers: %+v", cn)
 	}
@@ -1603,7 +1606,7 @@ func TestChatHeadersStayRegionSpecificAndIncludeCLIChannel(t *testing.T) {
 		cn.Get("X-Stainless-Timeout") != "1200" {
 		t.Fatalf("CN missing CLI SDK fingerprint: %+v", cn)
 	}
-	if cn.Get("X-Request-ID") == cn.Get("X-Conversation-ID") || cn.Get("X-Root-Request-ID") != cn.Get("X-Conversation-Request-ID") {
+	if cn.Get("X-Request-ID") == cn.Get("X-Conversation-ID") || cn.Get("X-Root-Request-ID") != "" {
 		t.Fatalf("CLI request ids must split message and turn: %+v", cn)
 	}
 	if cn.Get("X-Request-ID") != cn.Get("X-Conversation-Message-ID") {
@@ -1621,8 +1624,13 @@ func TestChatHeadersStayRegionSpecificAndIncludeCLIChannel(t *testing.T) {
 
 	global := http.Header{}
 	SetChatHeaders(global, Credential{AccessToken: "at", UID: "u2", Domain: "www.workbuddy.ai"}, "")
-	if global.Get("Origin") != "https://www.workbuddy.ai" || global.Get("Referer") != "https://www.workbuddy.ai/" {
-		t.Fatalf("Global origin/referer mixed: %+v", global)
+	if global.Get("Origin") != "" || global.Get("Referer") != "" {
+		t.Fatalf("official Global chat must not send origin/referer: %+v", global)
+	}
+	if global.Get("User-Agent") != DesktopUserAgentGlobal ||
+		global.Get("X-Client-Version") != DesktopVersionGlobal ||
+		global.Get("X-Client-Product") != "workbuddy-ai" {
+		t.Fatalf("Global chat identity=%+v", global)
 	}
 	if global.Get("X-IDE-Type") != "CLI" || global.Get("X-Product") != "SaaS" {
 		t.Fatalf("Global missing CLI channel headers: %+v", global)
