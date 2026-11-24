@@ -57,6 +57,46 @@ func TestCheckinCapabilityRecordsAndDeduplicates(t *testing.T) {
 	}
 }
 
+func TestCheckinAllRunsWithBoundedConcurrency(t *testing.T) {
+	var active atomic.Int32
+	var maxActive atomic.Int32
+	manager, _ := newCheckinManager(t, checkinFunc(func(context.Context, string) (providers.CheckinResult, error) {
+		now := active.Add(1)
+		defer active.Add(-1)
+		for {
+			previous := maxActive.Load()
+			if now <= previous || maxActive.CompareAndSwap(previous, now) {
+				break
+			}
+		}
+		time.Sleep(40 * time.Millisecond)
+		return providers.CheckinResult{Status: "success", Message: "claimed"}, nil
+	}))
+	enabled := true
+	for i := 0; i < 8; i++ {
+		if _, err := manager.store.Create(context.Background(), accounts.CreateAccount{
+			Name: "batch", Provider: "qoder", Region: "cn", Enabled: true, AutoCheckin: &enabled,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	results, err := manager.CheckinAll(context.Background(), false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 9 {
+		t.Fatalf("results=%d want 9", len(results))
+	}
+	for _, result := range results {
+		if result.Status != "success" {
+			t.Fatalf("result=%+v", result)
+		}
+	}
+	if got := maxActive.Load(); got < 2 || got > manualCheckinConcurrency {
+		t.Fatalf("max concurrency=%d want 2..%d", got, manualCheckinConcurrency)
+	}
+}
+
 func TestCheckinConcurrentManualAndScheduledDoNotOverlap(t *testing.T) {
 	entered := make(chan struct{})
 	release := make(chan struct{})

@@ -295,15 +295,16 @@ func (c *Client) Probe(ctx context.Context, accountID string) (providers.Account
 // Adapter wires the capability surface.
 func (c *Client) Adapter() providers.Adapter {
 	return providers.Adapter{
-		ID:           ProviderID,
-		Credential:   credentialCodec{},
-		Login:        c,
-		Chat:         c,
-		Models:       c,
-		Classifier:   classifier{},
-		ImportExport: importer{},
-		Prober:       c,
-		Checkin:      c,
+		ID:            ProviderID,
+		Credential:    credentialCodec{},
+		Login:         c,
+		Chat:          c,
+		Models:        c,
+		Classifier:    classifier{},
+		ImportExport:  importer{},
+		Prober:        c,
+		Checkin:       c,
+		CheckinStatus: c,
 	}
 }
 

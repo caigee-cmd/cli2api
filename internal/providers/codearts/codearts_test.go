@@ -565,6 +565,191 @@ func TestProbeAndCheckin(t *testing.T) {
 	}
 }
 
+func TestCheckinStatusDoesNotTreatNewUserCampaignAsDaily(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != creditDeliveryPath {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = io.WriteString(w, `{"code":0,"data":{"items":[
+			{"campaignId":4,"title":"New user","status":"CONFIRMED","claimable":false,"benefitUnit":"CREDIT","extra":{"startTime":"2026-01-01T00:00:00Z","endTime":"2027-01-01T00:00:00Z"}}
+		]}}`)
+	}))
+	defer server.Close()
+	client, _ := newTestClient(t, server)
+	client.nowFn = func() time.Time { return time.Date(2026, 11, 24, 4, 0, 0, 0, time.UTC) }
+
+	result, err := client.CheckinStatus(context.Background(), "acct-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "skipped" {
+		t.Fatalf("a used-up new-user reward must not mean today's daily check-in is done: %+v", result)
+	}
+}
+
+func TestCheckinStatusDailyClaimIsProvisionalAtDayRollover(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != creditDeliveryPath {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = io.WriteString(w, `{"code":0,"data":{"items":[
+			{"campaignId":1,"title":"Daily","status":"CONFIRMED","claimable":false,"benefitUnit":"CREDIT","extra":{"startTime":"2026-01-01T00:00:00Z","endTime":"2027-01-01T00:00:00Z"}}
+		]}}`)
+	}))
+	defer server.Close()
+	client, _ := newTestClient(t, server)
+
+	client.nowFn = func() time.Time { return time.Date(2026, 11, 23, 17, 0, 0, 0, time.UTC) } // 01:00 Beijing
+	result, err := client.CheckinStatus(context.Background(), "acct-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "unknown" {
+		t.Fatalf("01:00 answer must be provisional: %+v", result)
+	}
+
+	client.nowFn = func() time.Time { return time.Date(2026, 11, 23, 18, 0, 0, 0, time.UTC) } // 02:00 Beijing
+	result, err = client.CheckinStatus(context.Background(), "acct-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "already" {
+		t.Fatalf("02:00 answer must be settled: %+v", result)
+	}
+}
+
+func TestCheckinReclaimsDailyCampaignAtDayRollover(t *testing.T) {
+	claims := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case creditDeliveryPath:
+			_, _ = io.WriteString(w, `{"code":0,"data":{"items":[
+				{"campaignId":1,"title":"Daily","status":"CONFIRMED","claimable":false,"benefitUnit":"CREDIT","benefitAmount":100,"extra":{"startTime":"2026-01-01T00:00:00Z","endTime":"2027-01-01T00:00:00Z"}}
+			]}}`)
+		case creditClaimPath:
+			claims++
+			_, _ = io.WriteString(w, `{"code":0,"data":{}}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	client, _ := newTestClient(t, server)
+	client.nowFn = func() time.Time { return time.Date(2026, 11, 23, 17, 0, 0, 0, time.UTC) } // 01:00 Beijing
+
+	result, err := client.Checkin(context.Background(), "acct-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claims != 1 {
+		t.Fatalf("01:00 CONFIRMED daily campaign must be re-claimed once, got %d", claims)
+	}
+	if result.Status != "unknown" || result.RewardCredits != 0 {
+		t.Fatalf("rollover replay must stay unconfirmed and must not be reported as new credits: %+v", result)
+	}
+}
+
+func TestCheckinClaimsOnlyAutomaticCampaigns(t *testing.T) {
+	var claimed []string
+	var claimBodies []map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case creditDeliveryPath:
+			_, _ = io.WriteString(w, `{"code":0,"data":{"items":[
+				{"campaignId":1,"type":"USER_LOGIN","title":"Daily","status":"ELIGIBLE","claimable":true,"benefitUnit":"CREDIT","benefitAmount":100,"pendingTotalAmount":100,"extra":{"startTime":"2026-01-01T00:00:00Z","endTime":"2027-01-01T00:00:00Z"}},
+				{"campaignId":2,"type":"STUDENT_CERTIFIED","title":"Student verification","status":"ELIGIBLE","claimable":true,"benefitUnit":"CREDIT","benefitAmount":500,"extra":{"startTime":"2026-01-01T00:00:00Z","endTime":"2027-01-01T00:00:00Z"}}
+			]}}`)
+		case creditClaimPath:
+			claimed = append(claimed, r.URL.Path)
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			claimBodies = append(claimBodies, body)
+			_, _ = io.WriteString(w, `{"code":0,"data":{}}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	client, _ := newTestClient(t, server)
+	client.nowFn = func() time.Time { return time.Date(2026, 11, 24, 4, 0, 0, 0, time.UTC) }
+
+	result, err := client.Checkin(context.Background(), "acct-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "success" || len(claimed) != 1 {
+		t.Fatalf("result=%+v claims=%d; student campaign must not be auto-claimed", result, len(claimed))
+	}
+	if _, ok := claimBodies[0]["idempotentKey"]; ok {
+		t.Fatalf("ops claim schema must not grow an idempotentKey: %v", claimBodies[0])
+	}
+	if got := claimBodies[0]["campaignId"]; got != float64(1) {
+		t.Fatalf("campaignId=%v want 1", got)
+	}
+}
+
+func TestCheckinTreatsAlreadyClaimedBusinessCodeAsAlready(t *testing.T) {
+	confirmations := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case creditDeliveryPath:
+			_, _ = io.WriteString(w, `{"code":0,"data":{"items":[
+				{"campaignId":1,"type":"USER_LOGIN","title":"Daily","status":"ELIGIBLE","claimable":true,"benefitUnit":"CREDIT","benefitAmount":100,"extra":{"startTime":"2026-01-01T00:00:00Z","endTime":"2027-01-01T00:00:00Z"}}
+			]}}`)
+		case creditClaimPath:
+			_, _ = io.WriteString(w, `{"code":40001,"message":"尚未到达权益刷新时间，暂时无法领取","data":null}`)
+		case creditConfirmPath:
+			confirmations++
+			_, _ = io.WriteString(w, `{"code":0,"data":{}}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	client, _ := newTestClient(t, server)
+	client.nowFn = func() time.Time { return time.Date(2026, 11, 24, 4, 0, 0, 0, time.UTC) }
+
+	result, err := client.Checkin(context.Background(), "acct-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "already" || confirmations != 0 {
+		t.Fatalf("40001 must be already, not a failure: result=%+v confirmations=%d", result, confirmations)
+	}
+}
+
+func TestCheckinConfirmsBenefitWhenClaimReturnsID(t *testing.T) {
+	confirmations := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case creditDeliveryPath:
+			_, _ = io.WriteString(w, `{"code":0,"data":{"items":[
+				{"campaignId":1,"type":"USER_LOGIN","title":"Daily","status":"ELIGIBLE","claimable":true,"benefitUnit":"CREDIT","benefitAmount":100,"extra":{"startTime":"2026-01-01T00:00:00Z","endTime":"2027-01-01T00:00:00Z"}}
+			]}}`)
+		case creditClaimPath:
+			_, _ = io.WriteString(w, `{"code":0,"data":{"id":42,"benefitAmount":100}}`)
+		case creditConfirmPath:
+			confirmations++
+			_, _ = io.WriteString(w, `{"code":0,"data":{}}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	client, _ := newTestClient(t, server)
+	client.nowFn = func() time.Time { return time.Date(2026, 11, 24, 4, 0, 0, 0, time.UTC) }
+
+	result, err := client.Checkin(context.Background(), "acct-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "success" || result.RewardCredits != 100 || confirmations != 1 {
+		t.Fatalf("result=%+v confirmations=%d", result, confirmations)
+	}
+}
+
 func TestImporterAndClassifier(t *testing.T) {
 	credential, _ := testCredential().Encode()
 	imported, err := PrepareImport(credential)

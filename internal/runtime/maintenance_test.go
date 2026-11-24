@@ -40,6 +40,31 @@ func TestCheckinSchedule(t *testing.T) {
 	}
 }
 
+func TestCheckinScheduleRetriesAtRolloverWindow(t *testing.T) {
+	location := time.FixedZone("CST", 8*3600)
+	base := time.Date(2026, 11, 24, 1, 10, 0, 0, location)
+	account := Account{
+		ID:                "account",
+		Enabled:           true,
+		AutoCheckin:       true,
+		LastCheckinAt:     base.Format(time.RFC3339Nano),
+		LastCheckinStatus: "unknown",
+	}
+	if checkinDue(account, "01:00", base.Add(20*time.Minute)) {
+		t.Fatal("02:05 retry must not run before its window")
+	}
+	if !checkinDue(account, "01:00", base.Add(time.Hour)) { // 02:10
+		t.Fatal("unknown 01:00 result must retry at 02:05")
+	}
+	account.LastCheckinAt = base.Add(time.Hour).Format(time.RFC3339Nano)
+	if checkinDue(account, "01:00", base.Add(2*time.Hour)) {
+		t.Fatal("passed 02:05 window must not repeat")
+	}
+	if !checkinDue(account, "01:00", base.Add(11*time.Hour)) { // 12:10
+		t.Fatal("midday safety retry must still run")
+	}
+}
+
 func TestCheckinScheduleSameTimeAndDisabled(t *testing.T) {
 	now := time.Date(2026, 9, 19, 21, 30, 0, 0, time.UTC)
 	account := Account{ID: "account", Enabled: true, AutoCheckin: true, LastCheckinAt: now.Add(-10 * time.Minute).Format(time.RFC3339), LastCheckinStatus: "error"}

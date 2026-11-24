@@ -861,14 +861,15 @@ func numberOrZero(value *float64) float64 {
 // Adapter returns the provider capability bundle for registration.
 func (c *Client) Adapter() providers.Adapter {
 	return providers.Adapter{
-		ID:         "qwenwork",
-		Credential: credentialCodec{},
-		Login:      c,
-		Chat:       c,
-		Models:     c,
-		Classifier: classifier{},
-		Prober:     c,
-		Checkin:    c,
+		ID:            "qwenwork",
+		Credential:    credentialCodec{},
+		Login:         c,
+		Chat:          c,
+		Models:        c,
+		Classifier:    classifier{},
+		Prober:        c,
+		Checkin:       c,
+		CheckinStatus: c,
 	}
 }
 

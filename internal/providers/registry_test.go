@@ -1,6 +1,25 @@
 package providers
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
+
+func TestCheckinPoliciesUseProviderServerClock(t *testing.T) {
+	for _, descriptor := range List() {
+		for _, region := range descriptor.Regions {
+			if region.Checkin == nil {
+				continue
+			}
+			if region.Checkin.Timezone == "" || region.Checkin.Timezone == "Local" {
+				t.Fatalf("%s/%s check-in must use an explicit server timezone, got %q", descriptor.ID, region.ID, region.Checkin.Timezone)
+			}
+			if _, err := time.LoadLocation(region.Checkin.Timezone); err != nil {
+				t.Fatalf("%s/%s invalid server timezone %q: %v", descriptor.ID, region.ID, region.Checkin.Timezone, err)
+			}
+		}
+	}
+}
 
 func TestListIncludesEveryRegisteredDescriptor(t *testing.T) {
 	listed := List()
