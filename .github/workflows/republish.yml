@@ -1,0 +1,101 @@
+name: Republish
+
+# Rebuild an already published release without minting a new version: the
+# image tags and the seven updater assets are overwritten. Normal releases
+# still go through release.yml exactly once.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Published release tag to rebuild (for example v0.7.46)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: republish-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  assets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build host updater assets
+        env:
+          APP_VERSION: ${{ inputs.tag }}
+          APP_COMMIT: ${{ github.sha }}
+        run: ./scripts/build-updater-assets.sh release-assets
+      - uses: actions/upload-artifact@v4
+        with:
+          name: updater-assets-${{ inputs.tag }}
+          path: release-assets/
+          if-no-files-found: error
+          retention-days: 7
+
+  image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish image under the existing tag set
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          version="${TAG#v}"
+          series="${version%.*}"
+          docker buildx build \
+            --file deploy/Dockerfile \
+            --platform linux/amd64,linux/arm64 \
+            --build-arg APP_VERSION="$TAG" \
+            --build-arg APP_COMMIT="$GITHUB_SHA" \
+            --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
+            --label "org.opencontainers.image.version=$TAG" \
+            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            --tag "$image:$TAG" \
+            --tag "$image:$version" \
+            --tag "$image:$series" \
+            --tag "$image:latest" \
+            --push .
+          manifest="$(docker buildx imagetools inspect --raw "$image:$TAG")"
+          jq -e '.manifests[] | select(.platform.os == "linux" and .platform.architecture == "amd64")' <<< "$manifest" >/dev/null
+          jq -e '.manifests[] | select(.platform.os == "linux" and .platform.architecture == "arm64")' <<< "$manifest" >/dev/null
+          echo "Republished $image:$TAG from $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+
+  attach:
+    needs: [assets, image]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: updater-assets-${{ inputs.tag }}
+          path: release-assets
+      - name: Replace the release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" release-assets/* --clobber --repo "$GITHUB_REPOSITORY"
+          count="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets | length')"
+          test "$count" -eq 7
+          echo "Release $TAG now carries $count rebuilt assets" >> "$GITHUB_STEP_SUMMARY"
