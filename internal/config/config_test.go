@@ -70,3 +70,23 @@ func TestLoadRetryAccountBudget(t *testing.T) {
 		t.Fatalf("max retry accounts = %d", cfg.MaxRetryAccounts)
 	}
 }
+
+func TestLoadUpdateGitHubRepo(t *testing.T) {
+	t.Setenv("UPDATE_GITHUB_REPO", "")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.UpdateGitHubRepo != "caigee-cmd/cli2api" {
+		t.Fatalf("default repo = %q", cfg.UpdateGitHubRepo)
+	}
+
+	t.Setenv("UPDATE_GITHUB_REPO", "guyu233/cli2api")
+	cfg, err = Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.UpdateGitHubRepo != "guyu233/cli2api" {
+		t.Fatalf("override repo = %q", cfg.UpdateGitHubRepo)
+	}
+}

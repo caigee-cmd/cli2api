@@ -33,6 +33,7 @@ type Config struct {
 	UpdateAgentURL         string
 	UpdateAgentToken       string
 	UpdateGitHubToken      string
+	UpdateGitHubRepo       string
 	CatalogRefreshInterval time.Duration
 	// CreditFloor is the global default credit floor. Zero disables the gate;
 	// per-account credit_floor overrides it when set.
@@ -112,6 +113,7 @@ func Load() (Config, error) {
 		UpdateAgentURL:         strings.TrimSpace(os.Getenv("UPDATE_AGENT_URL")),
 		UpdateAgentToken:       strings.TrimSpace(os.Getenv("UPDATE_AGENT_TOKEN")),
 		UpdateGitHubToken:      strings.TrimSpace(os.Getenv("UPDATE_GITHUB_TOKEN")),
+		UpdateGitHubRepo:       firstNonEmpty(os.Getenv("UPDATE_GITHUB_REPO"), "caigee-cmd/cli2api"),
 		CatalogRefreshInterval: catalogRefreshInterval(os.Getenv("CLI2API_CATALOG_REFRESH_INTERVAL")),
 		CreditFloor:            creditFloor,
 		PercentFloor:           percentFloor,

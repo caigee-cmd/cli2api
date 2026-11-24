@@ -20,9 +20,9 @@ $SocketPlaceholder = Join-Path $InstallDir "socket-placeholder"
 $TaskName = "CLI2API Updater"
 $ContainerName = "qoder-api-proxy"
 $ServiceName = "qoder-api-proxy"
-$ImageRepository = "ghcr.io/caigee-cmd/cli2api"
+$ImageRepository = if ($env:CLI2API_IMAGE_REPOSITORY) { $env:CLI2API_IMAGE_REPOSITORY } else { "ghcr.io/caigee-cmd/cli2api" }
 $ListenAddress = "127.0.0.1:3011"
-$GitHubRepository = "caigee-cmd/cli2api"
+$GitHubRepository = if ($env:CLI2API_GITHUB_REPOSITORY) { $env:CLI2API_GITHUB_REPOSITORY } else { "caigee-cmd/cli2api" }
 
 function Require-Command {
     param([string]$Name)
@@ -273,6 +273,7 @@ Set-StrictMode -Version Latest
     "--service", "$ServiceName",
     "--container", "$ContainerName",
     "--image-repository", "$ImageRepository",
+    "--github-repo", "$GitHubRepository",
     "--health-url", "http://127.0.0.1:3010/health"
 )
 & "$Binary" `$UpdaterArguments 1>> "$StdoutLog" 2>> "$StderrLog"

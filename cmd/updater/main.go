@@ -24,6 +24,7 @@ func main() {
 	var serviceName string
 	var containerName string
 	var imageRepository string
+	var githubRepo string
 	var healthURL string
 	var healthTimeout time.Duration
 	flag.StringVar(&socketPath, "socket", "/run/cli2api-updater/updater.sock", "Unix socket path")
@@ -36,6 +37,7 @@ func main() {
 	flag.StringVar(&serviceName, "service", "qoder-api-proxy", "Compose service name")
 	flag.StringVar(&containerName, "container", "qoder-api-proxy", "container name")
 	flag.StringVar(&imageRepository, "image-repository", "ghcr.io/caigee-cmd/cli2api", "allowed image repository")
+	flag.StringVar(&githubRepo, "github-repo", "caigee-cmd/cli2api", "GitHub owner/repo whose releases carry updater binaries")
 	flag.StringVar(&healthURL, "health-url", "http://127.0.0.1:3010/health", "service health URL")
 	flag.DurationVar(&healthTimeout, "health-timeout", 120*time.Second, "versioned health-check timeout")
 	flag.Parse()
@@ -55,6 +57,7 @@ func main() {
 		ComposeFile: composeFile, EnvFile: envFile, ServiceName: serviceName,
 		ContainerName: containerName, ImageRepository: imageRepository, HealthURL: healthURL,
 		HealthTimeout: healthTimeout, HostBinaryPath: hostBinary,
+		GitHubRepo:  strings.TrimSpace(githubRepo),
 		GitHubToken: strings.TrimSpace(os.Getenv("UPDATE_GITHUB_TOKEN")),
 	})
 	service := updater.NewService(updater.Config{

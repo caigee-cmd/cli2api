@@ -17,6 +17,7 @@ services:
       UPDATE_AGENT_URL: "${UPDATE_AGENT_URL:-}"
       UPDATE_AGENT_TOKEN: "${UPDATE_AGENT_TOKEN:-}"
       UPDATE_GITHUB_TOKEN: "${UPDATE_GITHUB_TOKEN:-}"
+      UPDATE_GITHUB_REPO: "${UPDATE_GITHUB_REPO:-}"
       # Request-log retention: default 7 days / 20k rows. Raise both when the
       # usage/cost panel needs a longer history (~0.7 KB/row; ~150 MB at 90d @ 1.5k rows/day).
       CLI2API_LOG_RETENTION_DAYS: "${CLI2API_LOG_RETENTION_DAYS:-7}"

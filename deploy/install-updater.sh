@@ -6,8 +6,8 @@ ENV_FILE="${ROOT_DIR}/deploy/.env"
 COMPOSE_FILE="${ROOT_DIR}/deploy/docker-compose.yml"
 CONTAINER_NAME="qoder-api-proxy"
 SERVICE_NAME="qoder-api-proxy"
-IMAGE_REPOSITORY="ghcr.io/caigee-cmd/cli2api"
-GITHUB_REPOSITORY="caigee-cmd/cli2api"
+IMAGE_REPOSITORY="${CLI2API_IMAGE_REPOSITORY:-ghcr.io/caigee-cmd/cli2api}"
+GITHUB_REPOSITORY="${CLI2API_GITHUB_REPOSITORY:-caigee-cmd/cli2api}"
 
 require_commands() {
   for command in "$@"; do
@@ -215,6 +215,7 @@ ExecStart=/usr/local/bin/cli2api-updater \\
   --service ${SERVICE_NAME} \\
   --container ${CONTAINER_NAME} \\
   --image-repository ${IMAGE_REPOSITORY} \\
+  --github-repo ${GITHUB_REPOSITORY} \\
   --health-url http://127.0.0.1:3010/health
 Restart=always
 RestartSec=3
@@ -295,6 +296,7 @@ install_macos() {
     printf ' %q' --service "${SERVICE_NAME}"
     printf ' %q' --container "${CONTAINER_NAME}"
     printf ' %q' --image-repository "${IMAGE_REPOSITORY}"
+    printf ' %q' --github-repo "${GITHUB_REPOSITORY}"
     printf ' %q' --health-url http://127.0.0.1:3010/health
     printf '\n'
   } > "${wrapper}"

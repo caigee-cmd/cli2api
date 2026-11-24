@@ -299,6 +299,15 @@ func composeArgs(envPath, composePath string, args ...string) []string {
 	return append(result, args...)
 }
 
+func TestNewExecutorResolvesGitHubRepo(t *testing.T) {
+	if got := NewExecutor(ExecutorConfig{}).config.GitHubRepo; got != "caigee-cmd/cli2api" {
+		t.Fatalf("default repo = %q", got)
+	}
+	if got := NewExecutor(ExecutorConfig{GitHubRepo: "guyu233/cli2api"}).config.GitHubRepo; got != "guyu233/cli2api" {
+		t.Fatalf("override repo = %q", got)
+	}
+}
+
 func restoreSQLiteScript() string {
 	return `set -eu
 test -f "$BACKUP_PATH"
