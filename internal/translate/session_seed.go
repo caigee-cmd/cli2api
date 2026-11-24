@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"os"
+	"sort"
 	"strings"
 )
 
@@ -51,7 +53,7 @@ func ContentSessionSeed(req ChatRequest) string {
 func buildContentSessionFingerprint(req ChatRequest) (contentSessionFingerprint, bool) {
 	fingerprint := contentSessionFingerprint{
 		Model: strings.ToLower(strings.TrimSpace(req.Model)),
-		Tools: compactSessionJSON(req.Tools),
+		Tools: compactSessionJSON(NormalizeToolsOrder(req.Tools)),
 	}
 	systemPrefixOpen := true
 	sawFirstUser := false
@@ -268,7 +270,7 @@ func compactSessionJSON(raw json.RawMessage) string {
 func PrefixSessionSeed(req ChatRequest) string {
 	parts := []string{
 		strings.ToLower(strings.TrimSpace(req.Model)),
-		compactSessionJSON(req.Tools),
+		compactSessionJSON(NormalizeToolsOrder(req.Tools)),
 	}
 	for _, message := range req.Messages {
 		role := strings.ToLower(strings.TrimSpace(message.Role))
@@ -327,4 +329,92 @@ func shortHash(value string) string {
 	}
 	sum := sha256.Sum256([]byte(value))
 	return hex.EncodeToString(sum[:4])
+}
+
+// NormalizeToolsOrder rewrites a tools array into a stable, name-ordered form.
+// Tool definitions are a set: their order carries no meaning to the model but
+// changes both the session fingerprint and the upstream cached prefix. Clients
+// such as Claude Code and Cline rebuild the array per turn, which would
+// otherwise scatter one chat across accounts and defeat prompt caching.
+//
+// A payload without names, an empty array, or invalid JSON is returned
+// unchanged, so callers can apply this unconditionally to the fingerprint.
+func NormalizeToolsOrder(raw json.RawMessage) json.RawMessage {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return raw
+	}
+	var items []json.RawMessage
+	if err := json.Unmarshal(trimmed, &items); err != nil || len(items) < 2 {
+		return raw
+	}
+	type keyedTool struct {
+		key  string
+		item json.RawMessage
+	}
+	keyed := make([]keyedTool, len(items))
+	sorted := true
+	for i, item := range items {
+		keyed[i] = keyedTool{key: toolSortKey(item), item: item}
+		if i > 0 && keyed[i-1].key > keyed[i].key {
+			sorted = false
+		}
+	}
+	if sorted {
+		return raw
+	}
+	sort.SliceStable(keyed, func(i, j int) bool { return keyed[i].key < keyed[j].key })
+	out := make([]json.RawMessage, len(keyed))
+	for i := range keyed {
+		out[i] = keyed[i].item
+	}
+	encoded, err := json.Marshal(out)
+	if err != nil {
+		return raw
+	}
+	return encoded
+}
+
+// toolSortKey is the tool's name when it has one, plus the compact body so two
+// tools that share a name still order deterministically. Unnamed tools sort
+// last under a marker no real name can produce.
+func toolSortKey(raw json.RawMessage) string {
+	var probe struct {
+		Name     string `json:"name"`
+		Function struct {
+			Name string `json:"name"`
+		} `json:"function"`
+	}
+	name := ""
+	if err := json.Unmarshal(raw, &probe); err == nil {
+		name = strings.TrimSpace(probe.Name)
+		if name == "" {
+			name = strings.TrimSpace(probe.Function.Name)
+		}
+	}
+	if name == "" {
+		return "\uffff" + compactSessionJSON(raw)
+	}
+	return name + "\x00" + compactSessionJSON(raw)
+}
+
+// NormalizeToolsForPayload returns the payload tools array. Ordering is only
+// rewritten when the operator opts in: reordering the outbound array is a
+// semantic change some models notice, so it ships behind
+// CLI2API_TOOLS_NORMALIZE and the fingerprint normalization alone (which is
+// always on) is the safe default.
+func NormalizeToolsForPayload(raw json.RawMessage) json.RawMessage {
+	if !payloadToolsNormalizeOn() {
+		return raw
+	}
+	return NormalizeToolsOrder(raw)
+}
+
+func payloadToolsNormalizeOn() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("CLI2API_TOOLS_NORMALIZE"))) {
+	case "1", "true", "on", "yes":
+		return true
+	default:
+		return false
+	}
 }

@@ -366,6 +366,45 @@ func TestResolveSessionAffinityConfigDefaultsAndOverrides(t *testing.T) {
 	}
 }
 
+func TestStickyCoolingEscapesOnlyWhenWaitIsLongAndFamilyDiffers(t *testing.T) {
+	chat := &scriptedChat{fn: func(int) (providers.ChatOutcome, error) {
+		return providers.ChatOutcome{Model: "shared", Content: "ok", FinishReason: "stop"}, nil
+	}}
+	pool := NewPool(nil, nil)
+	pool.Upsert(Item{ID: "q1", Provider: "qoder", Region: "global", Runtime: string(providers.RuntimeInProcess), Models: []string{"shared"}})
+	pool.Upsert(Item{ID: "w1", Provider: "workbuddy", Region: "cn", Runtime: string(providers.RuntimeInProcess), Models: []string{"shared"}})
+	registry := providers.NewRegistry()
+	registry.Register(providers.Adapter{ID: "qoder", Chat: chat})
+	registry.Register(providers.Adapter{ID: "workbuddy", Chat: chat})
+	ex := NewChatExecutor(pool, "")
+	ex.Providers = registry
+	ex.SessionAffinity.Bind("cooling-session", "q1")
+
+	// A short rate-limit window is better served by Retry-After: a cross-provider
+	// hop would lose the prompt cache for a wait the client can absorb.
+	pool.MarkClassified("q1", Classified{Kind: accounts.KindRateLimit, Cooldown: 20 * time.Second, Model: "shared"})
+	_, err := ex.ChatNonStream(WithSessionKey(context.Background(), "cooling-session"), translate.ChatRequest{
+		Model: "shared", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	}, "", "")
+	var execution *ExecutionError
+	if !errors.As(err, &execution) || execution.Classified.Status != 429 {
+		t.Fatalf("short cooldown err = %v, want a 429 retry-after", err)
+	}
+
+	// A quota wait (typically until local midnight) would leave the chat dead
+	// while another provider is idle, so escaping is correct there.
+	pool.MarkClassified("q1", Classified{Kind: accounts.KindQuota, Cooldown: 30 * time.Minute})
+	result, err := ex.ChatNonStream(WithSessionKey(context.Background(), "cooling-session"), translate.ChatRequest{
+		Model: "shared", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+	}, "", "")
+	if err != nil {
+		t.Fatalf("long cooldown err = %v", err)
+	}
+	if result.AccountID != "w1" || result.Routing != routingStickyEscape {
+		t.Fatalf("result = %+v, want escaped to w1", result)
+	}
+}
+
 func TestKeyedIdentityStillIsolatesBindings(t *testing.T) {
 	if got := SessionKeyFor("h", auth.ConsoleIdentity(), translate.ChatRequest{
 		Model: "glm-5.2", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
