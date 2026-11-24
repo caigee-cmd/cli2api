@@ -173,13 +173,62 @@ type routingPlan struct {
 	SessionKey   string
 	BoundAccount string
 	PublicModel  string
+	// Aggregate marks a request routed through a logical (virtual) model.
+	// Escaping such a request changes the concrete upstream model, so the
+	// session must follow the member that answered rather than snap back to
+	// a member that is merely cooling.
+	Aggregate bool
 }
 
 func (e ChatExecutor) bindSession(plan routingPlan, accountID string) {
 	if plan.Source == routingPin || plan.SessionKey == "" || e.SessionAffinity == nil {
 		return
 	}
+	if plan.Source == routingStickyEscape && e.keepAnchorOnEscape(plan, accountID) {
+		return
+	}
 	e.SessionAffinity.Bind(plan.SessionKey, accountID)
+}
+
+// keepAnchorMaxCooldown is how long a bound account may stay unavailable
+// before an escape stops preserving the anchor. Upstream prompt caches are
+// measured in minutes: below this window the original account's prefix is
+// still warm and returning to it is cheaper than re-anchoring, above it the
+// cache is gone and the chat should follow the account that actually serves.
+const keepAnchorMaxCooldown = 5 * time.Minute
+
+// keepAnchorOnEscape reports whether a sticky-escape should leave the existing
+// binding intact. Keeping it lets the next turn return to the original account
+// — and its warm prompt cache — as soon as a short cooldown lifts. A binding
+// that would be wrong to keep:
+//   - the account is gone, disabled, or the request is aggregated (escaping
+//     swaps the concrete model, so the session must follow the answerer);
+//   - the cooldown is long enough that the cached prefix has expired anyway.
+func (e ChatExecutor) keepAnchorOnEscape(plan routingPlan, accountID string) bool {
+	if e.SessionAffinity == nil || e.Pool == nil || plan.Aggregate {
+		return false
+	}
+	anchor, ok := e.SessionAffinity.Peek(plan.SessionKey)
+	if !ok || anchor == "" || anchor == accountID {
+		return false
+	}
+	item, ok := e.Pool.ByID(anchor)
+	if !ok {
+		return false
+	}
+	if item.Ready != nil && !*item.Ready {
+		return false
+	}
+	// Only a short, known cooldown keeps the anchor: the original account's
+	// prompt cache is still warm, so returning there is cheaper than
+	// re-anchoring. An unknown window (concurrency saturation has no resume
+	// time) or a long quota wait means the cached prefix is gone and the chat
+	// should follow the account that actually serves it.
+	remaining := e.Pool.RetryAfter(item, plan.PublicModel)
+	if remaining <= 0 || remaining > keepAnchorMaxCooldown {
+		return false
+	}
+	return true
 }
 
 func (e ChatExecutor) observeRouting(plan *routingPlan, accountID string) {
@@ -228,7 +277,12 @@ func (e ChatExecutor) CommitSession(ctx context.Context, req translate.ChatReque
 	if routing == routingPin || e.SessionAffinity == nil {
 		return
 	}
-	e.SessionAffinity.Bind(resolveSessionKey(ctx, req), accountID)
+	key := resolveSessionKey(ctx, req)
+	plan := routingPlan{Source: routing, SessionKey: key, PublicModel: req.Model}
+	if routing == routingStickyEscape && e.keepAnchorOnEscape(plan, accountID) {
+		return
+	}
+	e.SessionAffinity.Bind(key, accountID)
 }
 
 func itemProvider(item Item) string {
@@ -258,10 +312,10 @@ func (e ChatExecutor) prepareRouting(ctx context.Context, prefer, providerFilter
 	providerFilter = strings.ToLower(strings.TrimSpace(providerFilter))
 	publicModel := req.Model
 	if prefer != "" {
-		return prefer, providerFilter, "", routingPlan{Source: routingPin, PublicModel: publicModel}
+		return prefer, providerFilter, "", routingPlan{Source: routingPin, PublicModel: publicModel, Aggregate: plan != nil}
 	}
 
-	planRoute := routingPlan{Source: routingPool, SessionKey: resolveSessionKey(ctx, req), PublicModel: publicModel}
+	planRoute := routingPlan{Source: routingPool, SessionKey: resolveSessionKey(ctx, req), PublicModel: publicModel, Aggregate: plan != nil}
 	if planRoute.SessionKey == "" || e.SessionAffinity == nil || e.Pool == nil {
 		return "", providerFilter, "", planRoute
 	}
@@ -294,6 +348,7 @@ func (e ChatExecutor) prepareRouting(ctx context.Context, prefer, providerFilter
 	}
 	return item.ID, itemProvider(item), accounts.NormalizeRegion(item.Region), routingPlan{
 		Source: routingSticky, SessionKey: planRoute.SessionKey, BoundAccount: item.ID, PublicModel: publicModel,
+		Aggregate: plan != nil,
 	}
 }
 
@@ -301,11 +356,12 @@ func NewChatExecutor(pool *Pool, workerKey string) ChatExecutor {
 	if pool == nil {
 		pool = NewPool(nil, nil)
 	}
+	affinityTTL, affinityCapacity := ResolveSessionAffinityConfig()
 	return ChatExecutor{
 		Pool:            pool,
 		WorkerKey:       strings.TrimSpace(workerKey),
 		MaxAttempts:     4,
-		SessionAffinity: NewSessionAffinity(defaultSessionAffinityTTL, defaultSessionAffinityCapacity),
+		SessionAffinity: NewSessionAffinity(affinityTTL, affinityCapacity),
 		HTTPClient: &http.Client{
 			Timeout: 120 * time.Second,
 		},
@@ -961,7 +1017,18 @@ type routeLoop struct {
 	// excluded.
 	tierAttempts map[int]int
 	tierBudget   int
+	// sameAccountRetries counts how many transient same-account retries this
+	// request has already spent. It is a separate budget from attempts: a
+	// retry on the same account must not consume a failover hop, because
+	// attemptsFor already caps attempts at the number of candidate accounts.
+	sameAccountRetries int
 }
+
+// maxSameAccountRetries bounds same-account retries per request. One is enough:
+// the transient cases are empty/heartbeat-only streams and a first-byte
+// timeout, where a second identical attempt almost always succeeds, and
+// more retries would stack latency ahead of a real failover.
+const maxSameAccountRetries = 1
 
 func (e ChatExecutor) newRouteLoop(ctx context.Context, prefer, providerFilter string, req translate.ChatRequest) routeLoop {
 	aggPlan := aggregatePlanFrom(ctx)
@@ -989,10 +1056,10 @@ func (e ChatExecutor) newRouteLoop(ctx context.Context, prefer, providerFilter s
 				}
 			}
 			prefer = ""
-			routing = routingPlan{Source: routingPool, SessionKey: routing.SessionKey, PublicModel: req.Model}
+			routing = routingPlan{Source: routingPool, SessionKey: routing.SessionKey, PublicModel: req.Model, Aggregate: true}
 		default:
 			prefer = ""
-			routing = routingPlan{Source: routingPool, SessionKey: routing.SessionKey, PublicModel: req.Model}
+			routing = routingPlan{Source: routingPool, SessionKey: routing.SessionKey, PublicModel: req.Model, Aggregate: true}
 		}
 	}
 	// A model-name region prefix (e.g. "workbuddy-cn/model") sets an explicit
@@ -1145,6 +1212,23 @@ func (l routeLoop) canFailover(classified Classified) bool {
 	return classified.Failover && l.index < l.attempts
 }
 
+// canSameAccountRetry reports whether this failure may be retried once on the
+// account that produced it. Only transient upstream hiccups qualify, and only
+// while the caller is still connected: retrying after the client left would
+// burn an upstream slot for nothing.
+func (l *routeLoop) canSameAccountRetry(ctx context.Context, classified Classified) bool {
+	if l.sameAccountRetries >= maxSameAccountRetries {
+		return false
+	}
+	if !classified.Transient {
+		return false
+	}
+	if ctx != nil && ctx.Err() != nil {
+		return false
+	}
+	return true
+}
+
 func (l *routeLoop) exclude(item Item) {
 	l.excluded[item.ID] = struct{}{}
 	// A cross-provider route (no explicit provider filter) must be able to
@@ -1166,20 +1250,27 @@ func (l *routeLoop) exclude(item Item) {
 // next pick can leave the first supplier's region. Provider-scoped routes keep
 // their region pin.
 //
-// A sticky binding is invalidated on failover (401/429/5xx and other
-// failover-classified failures), including after a sticky escape. The next
-// request then rebinds to a healthy account instead of retrying the dead one
-// first; a successfully retried request rebinds through bindSession. This
-// mirrors mature gateways' session affinity: sticky on the cache-hit path,
-// failover invalidates the binding.
-func (l *routeLoop) failover(e ChatExecutor, item Item) {
+// The session binding survives a cooldown-carrying failure: the account is
+// parked, not dead, and the next request should fall through to a sibling and
+// then return to the original account (and its warm prompt cache). A failure
+// that leaves no cooldown invalidates the binding instead, because retrying
+// that account first next turn would fail identically.
+func (l *routeLoop) failover(e ChatExecutor, item Item, classified Classified) {
 	l.exclude(item)
 	l.noteTierFailure(e, item)
 	// Any non-pin route that already carries a session key can have a stale
 	// binding (including a sticky-escape that started on another account).
-	// Invalidate it so the next turn does not retry the failed account first.
+	//
+	// A cooling account is only temporarily unavailable. Keep the binding so
+	// the next turn's PreferAccount falls through to a healthy sibling now and
+	// returns to the original account — and its warm prompt cache — once the
+	// cooldown lifts. Only a failure that leaves no cooldown (a cold upstream
+	// or a model this account does not serve) invalidates the anchor, because
+	// retrying it first next turn would just fail the same way.
 	if l.routing.Source != routingPin && l.routing.SessionKey != "" && e.SessionAffinity != nil {
-		e.SessionAffinity.Forget(l.routing.SessionKey)
+		if classified.Cooldown <= 0 {
+			e.SessionAffinity.Forget(l.routing.SessionKey)
+		}
 	}
 }
 
@@ -1296,7 +1387,23 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 		}
 		release := func() { e.releaseInFlight(loop.requestID, poolID) }
 		if isInProcessItem(item) || e.qoderDirect(item) {
-			result, classified, err := e.chatInProcessNonStreamAttempt(ctx, item, loop.dispatchRequest(item, req), i)
+			// Retry a transient upstream hiccup once on the same account before
+			// spending a failover hop. The prompt cache is still warm here, so a
+			// same-account retry usually succeeds and keeps the turn on the
+			// account the session is anchored to.
+			dispatch := loop.dispatchRequest(item, req)
+			var result ChatResult
+			var classified Classified
+			var err error
+			for {
+				result, classified, err = e.chatInProcessNonStreamAttempt(ctx, item, dispatch, i)
+				if err == nil || !loop.canSameAccountRetry(ctx, classified) {
+					break
+				}
+				loop.sameAccountRetries++
+				log.Printf("chat same-account retry request_id=%q account=%q code=%q kind=%q retry=%d",
+					loop.requestID, poolID, classified.Code, classified.Kind, loop.sameAccountRetries)
+			}
 			if err == nil {
 				result.AttemptCount = i + 1
 				e.observeRouting(&loop.routing, poolID)
@@ -1314,7 +1421,7 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 			}
 			if loop.canFailover(classified) {
 				release()
-				loop.failover(e, item)
+				loop.failover(e, item, classified)
 				continue
 			}
 			release()
@@ -1352,7 +1459,7 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 				Status: accounts.AttemptStatusFailover, ErrorKind: classified.Kind, ErrorMessage: loop.lastErr.Error(), LatencyMs: &latency,
 			})
 			release()
-			loop.failover(e, item)
+			loop.failover(e, item, classified)
 			continue
 		}
 		// Non-stream worker responses are buffered whole; cap them so a
@@ -1377,7 +1484,7 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 			status := accounts.AttemptStatusError
 			if loop.canFailover(classified) {
 				status = accounts.AttemptStatusFailover
-				loop.failover(e, poolItem)
+				loop.failover(e, poolItem, classified)
 				e.recordAttempt(ctx, accounts.RequestAttempt{
 					AttemptIndex: i, AccountID: item.ID, StartedAt: started, FinishedAt: &finished,
 					Status: status, HTTPStatus: ptrInt(resp.StatusCode), ErrorKind: classified.Kind,
@@ -1396,13 +1503,23 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 		}
 		result, err := decodeChatResult(req, body)
 		if err != nil {
+			// A body this account answered with but this gateway cannot decode is
+			// an upstream protocol failure, not a routing miss. Classify it here
+			// so the HTTP layer does not fall back to a bare 502 "upstream_error"
+			// for a problem that is already understood.
+			classified := Classified{
+				Kind: accounts.KindUnavailable, Status: http.StatusBadGateway,
+				Code: "upstream_decode_error", Type: "api_error", Message: err.Error(),
+			}
+			loop.lastErr = NewExecutionError(classified, err)
+			e.markClassified(poolID, classified, loop.attemptModel(item, req))
 			e.recordAttempt(ctx, accounts.RequestAttempt{
 				AttemptIndex: i, AccountID: item.ID, StartedAt: started, FinishedAt: &finished,
 				Status: accounts.AttemptStatusError, HTTPStatus: ptrInt(resp.StatusCode),
 				ErrorKind: accounts.KindUnavailable, ErrorMessage: truncateErr(err.Error()), LatencyMs: &latency,
 			})
 			release()
-			return ChatResult{AttemptCount: i + 1, AccountID: item.ID, Provider: loop.resultProvider(item)}, err
+			return ChatResult{AttemptCount: i + 1, AccountID: item.ID, Provider: loop.resultProvider(item)}, loop.lastErr
 		}
 		result.AccountID = item.ID
 		result.Provider = loop.resultProvider(item)
@@ -1424,7 +1541,11 @@ func (e ChatExecutor) ChatNonStream(ctx context.Context, req translate.ChatReque
 		return result, nil
 	}
 	if loop.lastErr == nil {
-		loop.lastErr = fmt.Errorf("no worker accounts available")
+		// Exhausting the loop without a selected account is a routing outcome,
+		// not an origin outage. Report it with the routing taxonomy (503 +
+		// Retry-After) instead of handing the HTTP layer a bare error it would
+		// render as 502 upstream_error.
+		loop.lastErr = noAccountsError("no worker accounts available")
 	}
 	return ChatResult{AttemptCount: loop.attempts}, loop.lastErr
 }
@@ -1808,7 +1929,22 @@ func (e ChatExecutor) chatStreamProxy(ctx context.Context, req translate.ChatReq
 		}
 		release := func() { e.releaseInFlight(loop.requestID, poolID) }
 		if isInProcessItem(item) || (e.qoderDirect(item) && !(preferNativeResponses && native != nil)) {
-			result, classified, err := e.chatInProcessStreamAttempt(ctx, item, loop.dispatchRequest(item, req), native, i, preferNativeResponses)
+			dispatch := loop.dispatchRequest(item, req)
+			var result StreamResult
+			var classified Classified
+			var err error
+			for {
+				result, classified, err = e.chatInProcessStreamAttempt(ctx, item, dispatch, native, i, preferNativeResponses)
+				if err == nil || !loop.canSameAccountRetry(ctx, classified) {
+					break
+				}
+				// Nothing has been relayed to the client: the attempt failed
+				// before the first meaningful event, so a same-account retry is
+				// both safe and cache-warm.
+				loop.sameAccountRetries++
+				log.Printf("chat stream same-account retry request_id=%q account=%q code=%q kind=%q retry=%d",
+					loop.requestID, poolID, classified.Code, classified.Kind, loop.sameAccountRetries)
+			}
 
 			if err == nil {
 				result.AttemptCount = i + 1
@@ -1829,7 +1965,7 @@ func (e ChatExecutor) chatStreamProxy(ctx context.Context, req translate.ChatReq
 			}
 			if loop.canFailover(classified) {
 				release()
-				loop.failover(e, item)
+				loop.failover(e, item, classified)
 				continue
 			}
 			release()
@@ -1867,7 +2003,7 @@ func (e ChatExecutor) chatStreamProxy(ctx context.Context, req translate.ChatReq
 				Status: accounts.AttemptStatusFailover, ErrorKind: classified.Kind, ErrorMessage: loop.lastErr.Error(), LatencyMs: &latency,
 			})
 			release()
-			loop.failover(e, item)
+			loop.failover(e, item, classified)
 			continue
 		}
 		if account := resp.Header.Get("X-Qoder-Account"); account != "" {
@@ -1891,7 +2027,7 @@ func (e ChatExecutor) chatStreamProxy(ctx context.Context, req translate.ChatReq
 			status := accounts.AttemptStatusError
 			if loop.canFailover(classified) {
 				status = accounts.AttemptStatusFailover
-				loop.failover(e, poolItem)
+				loop.failover(e, poolItem, classified)
 				e.recordAttempt(ctx, accounts.RequestAttempt{
 					AttemptIndex: i, AccountID: item.ID, StartedAt: started, FinishedAt: &finished,
 					Status: status, HTTPStatus: ptrInt(resp.StatusCode), ErrorKind: classified.Kind,
@@ -1938,7 +2074,7 @@ func (e ChatExecutor) chatStreamProxy(ctx context.Context, req translate.ChatReq
 					Status: status, HTTPStatus: ptrInt(resp.StatusCode), ErrorKind: classified.Kind,
 					ErrorMessage: truncateErr(probeErr.Error()), LatencyMs: &latency,
 				})
-				loop.failover(e, poolItem)
+				loop.failover(e, poolItem, classified)
 				release()
 				continue
 			}
@@ -1976,7 +2112,11 @@ func (e ChatExecutor) chatStreamProxy(ctx context.Context, req translate.ChatReq
 		}, nil
 	}
 	if loop.lastErr == nil {
-		loop.lastErr = fmt.Errorf("no worker accounts available")
+		// Exhausting the loop without a selected account is a routing outcome,
+		// not an origin outage. Report it with the routing taxonomy (503 +
+		// Retry-After) instead of handing the HTTP layer a bare error it would
+		// render as 502 upstream_error.
+		loop.lastErr = noAccountsError("no worker accounts available")
 	}
 	return StreamResult{AttemptCount: loop.attempts}, loop.lastErr
 }

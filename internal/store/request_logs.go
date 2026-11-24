@@ -250,6 +250,10 @@ FROM request_logs`+where, args...)
 	if usage.Totals.CacheMissTokens < 0 {
 		usage.Totals.CacheMissTokens = 0
 	}
+	if cacheTokens := usage.Totals.CacheHitTokens + usage.Totals.CacheMissTokens; cacheTokens > 0 {
+		rate := float64(usage.Totals.CacheHitTokens) / float64(cacheTokens)
+		usage.Totals.CacheHitRate = &rate
+	}
 	usage.Totals.AvgLatencyMs = roundedNullInt(avgLatency)
 	if usage.Totals.Requests > 0 {
 		usage.Totals.SuccessRate = float64(usage.Totals.Requests-usage.Totals.Errors) / float64(usage.Totals.Requests)

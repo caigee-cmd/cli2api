@@ -261,7 +261,6 @@ func compactSessionJSON(raw json.RawMessage) string {
 	return compact.String()
 }
 
-
 // PrefixSessionSeed is the cache-affine part of ContentSessionSeed: model,
 // tools and the leading system/developer prefix only. It deliberately excludes
 // the first user message so workbuddy2api-hub-style sharding does not scatter
@@ -286,4 +285,46 @@ func PrefixSessionSeed(req ChatRequest) string {
 	}
 	sum := sha256.Sum256(raw)
 	return hex.EncodeToString(sum[:])
+}
+
+// SessionSeedComponents exposes the per-component hashes behind
+// ContentSessionSeed. Routing only needs the combined hash; diagnostics need
+// this split to answer "which part of the request moved", because a chat that
+// silently re-anchors every turn is usually carrying a volatile timestamp in
+// its system prefix or reordering its tool list.
+type SessionSeedComponents struct {
+	Model     string `json:"model"`
+	Tools     string `json:"tools"`
+	Prefix    string `json:"prefix"`
+	FirstUser string `json:"first_user"`
+}
+
+// SeedComponents returns short component hashes. Zero values mean the component
+// is absent (for example no system prefix at all).
+func SeedComponents(req ChatRequest) SessionSeedComponents {
+	fingerprint, ok := buildContentSessionFingerprint(req)
+	if !ok {
+		return SessionSeedComponents{}
+	}
+	out := SessionSeedComponents{
+		Model: shortHash(fingerprint.Model),
+		Tools: shortHash(fingerprint.Tools),
+	}
+	if len(fingerprint.Prefix) > 0 {
+		if raw, err := json.Marshal(fingerprint.Prefix); err == nil {
+			out.Prefix = shortHash(string(raw))
+		}
+	}
+	if raw, err := json.Marshal(fingerprint.FirstUser); err == nil {
+		out.FirstUser = shortHash(string(raw))
+	}
+	return out
+}
+
+func shortHash(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(sum[:4])
 }
