@@ -27,7 +27,7 @@ const (
 	pathChatPath           = "/algo/api/v2/service/pro/sse/agent_chat_generation"
 	pathAccountContextPath = "/api/v1/adapter/user/account-context"
 
-	cosyVersion     = "1.1.18"
+	cosyVersion     = "1.1.71"
 	clientType      = "6"
 	businessProduct = "qoder_work"
 	businessType    = "agent"
@@ -40,8 +40,8 @@ const (
 
 // site is the per-region desktop identity. Both regions share the device flow,
 // COSY key, paths, and scene; only the gateway, OAuth client, app version,
-// and default model differ. Values come from the QwenWork desktop bundles
-// (intl 1.0.4, CN 1.0.5).
+// and default model differ. Values come from the current QwenWork desktop
+// bundles (both editions 2.1.0, build 26111906).
 type site struct {
 	Region       string
 	Gateway      string
@@ -58,8 +58,8 @@ var sites = map[string]site{
 		Gateway:      "https://gateway.qwenwork.ai",
 		ClientID:     "cc65e5fc-05bd-4f5d-a4e8-0df19aa3d75a",
 		RedirectURI:  "qwenwork://",
-		AppVersion:   "1.0.4",
-		Build:        "26090501",
+		AppVersion:   "2.1.0",
+		Build:        "26111906",
 		DefaultModel: "qwork-advanced",
 	},
 	"cn": {
@@ -67,8 +67,8 @@ var sites = map[string]site{
 		Gateway:      "https://gateway.qwenwork.cn",
 		ClientID:     "e883ade2-e6e3-4d6d-adf7-f92ceff5fdcb",
 		RedirectURI:  "qwenwork-cn://",
-		AppVersion:   "1.0.5",
-		Build:        "26090901",
+		AppVersion:   "2.1.0",
+		Build:        "26111906",
 		DefaultModel: "pro",
 	},
 }

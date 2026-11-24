@@ -22,13 +22,13 @@ const (
 	ConsoleHost = "https://www.trae.cn"
 
 	// Login uses the IDE product markers (PKCE authorization-code flow):
-	// client_id below, auth_from=trae, x_app_version=3.3.62.
+	// client_id below, auth_from=trae, x_app_version=3.4.24.
 	ClientID = "ono9krqynydwx5"
 	AuthFrom = "trae"
 	AppID    = "6eefa01c-1036-4c7e-9ca5-d891f63bfcd8"
 	// IdeVersion is the x_app_version / IDEVersion sent on login + exchange.
-	IdeVersion     = "3.3.62"
-	IdeVersionCode = "20260811"
+	IdeVersion     = "3.4.24"
+	IdeVersionCode = "20260212"
 	DeviceBrand    = "83DG"
 	OSVersion      = "Windows 11 Pro"
 	// Function is the fallback scene for a model that is in no fetched scene
@@ -42,7 +42,7 @@ const (
 	// scene does not list (e.g. kimi-k2.6, kimi-k2.7-code upstream-hide from it).
 	SecondaryScene = "solo_work_lite"
 	DefaultModel   = "glm-5.2"
-	PluginVersion  = "2.3.62834"
+	PluginVersion  = "2.3.106768"
 	UserAgent      = "Trae/" + IdeVersion
 	QuotaUnit      = "entitlement_pack"
 	// LegacyClientID minted the refresh tokens of accounts created before the

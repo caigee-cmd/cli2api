@@ -74,7 +74,7 @@ cmd/server
 - Qoder Global 和 Qoder CN 是同一个 `provider=qoder`，通过 `region` 区分，不创建新的 provider family。
 - 已存 PAT 的 Qoder 账号不启动 child process。旧 `qoder-native-v1` 账号仍使用独立 HOME 和独立 child process，不共享 WASM context；聊天不加载 CLI bundle。不得为每个请求启动完整 CLI agent。
 - Qoder 的 CLI / worker 兼容性版本固定在 `worker/src/compat.mjs`，不兼容时应明确失败。
-- Qoder 聊天在 Go 进程内使用 COSY 客户端签名直连网关（[`internal/providers/qoder/cosy.go`](../internal/providers/qoder/cosy.go)）。协议版本只有一个来源：`cosy.go` 的 `COSYVersion` 取自 [`qauth.CosyVersion`](../internal/providers/qoder/qauth/fingerprint.go)，改版本只改那里。支持中国区（`gateway.qoder.com.cn`）和全球区（`api1.qoder.sh`）双端点。
+- Qoder 聊天在 Go 进程内使用 COSY 客户端签名直连网关（[`internal/providers/qoder/cosy.go`](../internal/providers/qoder/cosy.go)）。协议版本只有一个来源：`cosy.go` 的 `COSYVersion` 取自 [`qauth.CosyVersion`](../internal/providers/qoder/qauth/fingerprint.go)，改版本只改那里。支持中国区（`gateway.qoder.com.cn`）和全球区（`api2.qoder.sh`，登录仍走 `api1.qoder.sh`）双端点。
 - 所有非 Qoder provider 使用进程内 adapter，不复制 Qoder worker 生命周期，也不得改为每请求启动上游 CLI。
 - CodeArts 的 OAuth PKCE 只用于换取短期 STS 凭据，聊天直连 `snap-access.cn-north-4.myhuaweicloud.com` 的 OpenAI 兼容端点。
 - provider 负责上游事实映射；executor 负责是否切号、冷却多久和是否 failover。

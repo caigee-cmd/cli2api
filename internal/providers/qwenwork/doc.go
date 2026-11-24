@@ -9,7 +9,7 @@
 // the COSY signing approach of internal/providers/qoder. The camelCase import
 // shape accepts that project's account export.
 //
-// Daily free credits: the desktop bundles (global 1.0.4, CN 1.4.0) call
+// Daily free credits: the current desktop bundles (both editions 2.1.0) call
 // GET /sash/api/v1/me/daily-check-in/status, POST .../claim, and
 // GET /sash/api/v1/me/{invitationRewards,invitationCode} for the growth card,
 // gated by the remote `operations/announcement:credits-growth-card` config.

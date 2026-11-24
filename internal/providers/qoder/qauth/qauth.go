@@ -67,13 +67,13 @@ var CN = &RegionConfig{
 	OpenAPIBase: "https://openapi.qoder.com.cn",
 }
 
-// Global is the international Qoder region (qoder.sh). Chat/status go through
-// api1.qoder.sh; quota/billing through openapi.qoder.sh and require a separate
-// OpenAPI bearer token.
+// Global is the international Qoder region (qoder.sh). Current qodercli
+// routes inference through api2.qoder.sh; login stays on api1 and
+// quota/billing go through openapi.qoder.sh with a separate OpenAPI bearer.
 var Global = &RegionConfig{
 	Name:              "global",
 	AuthBase:          "https://api1.qoder.sh",
-	ChatBase:          "https://api1.qoder.sh",
+	ChatBase:          "https://api2.qoder.sh",
 	OpenAPIBase:       "https://openapi.qoder.sh",
 	NeedsOpenAPIToken: true,
 }

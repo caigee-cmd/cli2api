@@ -164,30 +164,30 @@ func (s *Session) Sign(body, rawURL string, now time.Time) (headers map[string]s
 	sum := md5.Sum([]byte(raw))
 	bearer := "Bearer COSY." + payload + "." + hex.EncodeToString(sum[:])
 	return map[string]string{
-		"Accept":                 "text/event-stream",
-		"Authorization":          bearer,
-		"Cache-Control":          "no-cache",
-		"Content-Type":           "application/json",
-		"Cosy-ClientType":        "5",
-		"Cosy-Data-Policy":       "agree",
-		"Cosy-Date":              date,
-		"Cosy-Key":               s.cosyKey,
-		"Cosy-MachineId":         s.MachineID,
-		"Cosy-MachineToken":      s.MachineToken,
-		"Cosy-MachineType":       s.MachineType,
-		"Cosy-User":              s.User.uid(),
-		"Cosy-Version":           COSYVersion,
-		"Login-Version":          "v2",
-		"Accept-Encoding":        "identity",
-		"Cosy-Business-Product":  "cli",
-		"Cosy-Business-Type":     "agent",
-		"Cosy-Scene":             "assistant",
-		"Cosy-Clientip":          qauth.CosyClientIP,
-		// Inference SSE: undici UA + machine OS always; hostname SSE-only
+		"Accept":                "text/event-stream",
+		"Authorization":         bearer,
+		"Cache-Control":         "no-cache",
+		"Content-Type":          "application/json",
+		"Cosy-ClientType":       "5",
+		"Cosy-Data-Policy":      "agree",
+		"Cosy-Date":             date,
+		"Cosy-Key":              s.cosyKey,
+		"Cosy-MachineId":        s.MachineID,
+		"Cosy-MachineToken":     s.MachineToken,
+		"Cosy-MachineType":      s.MachineType,
+		"Cosy-User":             s.User.uid(),
+		"Cosy-Version":          COSYVersion,
+		"Login-Version":         "v2",
+		"Accept-Encoding":       "identity",
+		"Cosy-Business-Product": "cli",
+		"Cosy-Business-Type":    "agent",
+		"Cosy-Scene":            "assistant",
+		"Cosy-Clientip":         qauth.CosyClientIP,
+		// Inference SSE: Bun UA + machine OS always; hostname SSE-only
 		// (applyClientFingerprint mirrors this on the bearer path).
-		"User-Agent":             qauth.CosyUserAgent,
-		"Cosy-MachineOS":         qauth.CosyMachineOS,
-		"Cosy-MachineHostname":   qauth.MachineHostname(s.User.uid()),
+		"User-Agent":           qauth.CosyUserAgent,
+		"Cosy-MachineOS":       qauth.CosyMachineOS,
+		"Cosy-MachineHostname": qauth.MachineHostname(s.User.uid()),
 	}, nil
 }
 
@@ -251,7 +251,7 @@ func ChatEndpoint(region string) string {
 	if strings.EqualFold(strings.TrimSpace(region), "cn") {
 		return "https://gateway.qoder.com.cn/algo/api/v2/service/pro/sse/agent_chat_generation?FetchKeys=llm_model_result&AgentId=agent_common&Encode=1"
 	}
-	return "https://api1.qoder.sh/algo/api/v2/service/pro/sse/agent_chat_generation?FetchKeys=llm_model_result&AgentId=agent_common&Encode=1"
+	return "https://api2.qoder.sh/algo/api/v2/service/pro/sse/agent_chat_generation?FetchKeys=llm_model_result&AgentId=agent_common&Encode=1"
 }
 
 func cosySignPath(rawURL string) string {
