@@ -2,6 +2,7 @@ package control
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
@@ -69,10 +70,58 @@ func TestAggregationResolveUsesCacheAndInvalidatesOnWrite(t *testing.T) {
 	}
 }
 
+func TestAggregationCreateRejectsProviderDisabledModel(t *testing.T) {
+	store := &aggTestStore{}
+	validator := aggregationMemberRejector{model: "disabled-model"}
+	svc := NewAggregations(store, validator)
+	_, err := svc.Create(context.Background(), accounts.CreateAggregation{
+		ID: "logical", Name: "Logical", Strategy: accounts.AggregationPriority,
+		Members: []accounts.AggregationMember{{Provider: "qoder", Region: "cn", Model: "disabled-model"}},
+	})
+	if err == nil {
+		t.Fatal("expected provider-disabled model to be rejected")
+	}
+	if store.inserts != 0 {
+		t.Fatalf("rejected aggregation still inserted %d times", store.inserts)
+	}
+}
+
+func TestAggregationUpdateRejectsProviderDisabledMember(t *testing.T) {
+	store := &aggTestStore{agg: accounts.Aggregation{
+		ID: "logical", Name: "Logical", Enabled: true, Strategy: accounts.AggregationPriority,
+		AllowFallbacks: true, MaxAttempts: 3,
+		Members: []accounts.AggregationMember{{Provider: "qoder", Region: "cn", Model: "enabled-model"}},
+	}}
+	svc := NewAggregations(store, aggregationMemberRejector{model: "disabled-model"})
+	members := []accounts.AggregationMember{{Provider: "qoder", Region: "cn", Model: "disabled-model"}}
+	_, err := svc.Update(context.Background(), "logical", accounts.UpdateAggregation{Members: &members})
+	if err == nil {
+		t.Fatal("expected provider-disabled member update to be rejected")
+	}
+	if store.saves != 0 {
+		t.Fatalf("rejected aggregation still saved %d times", store.saves)
+	}
+}
+
+type aggregationMemberRejector struct {
+	model string
+}
+
+func (r aggregationMemberRejector) ValidateAggregationMembers(_ context.Context, members []accounts.AggregationMember) error {
+	for _, member := range members {
+		if member.Model == r.model {
+			return fmt.Errorf("model %q is not enabled in provider settings", member.Model)
+		}
+	}
+	return nil
+}
+
 // aggTestStore implements only the narrow AggregationStore surface.
 type aggTestStore struct {
 	agg       accounts.Aggregation
 	listCalls int
+	inserts   int
+	saves     int
 }
 
 func (s *aggTestStore) GetAggregation(_ context.Context, id string) (accounts.Aggregation, error) {
@@ -82,9 +131,12 @@ func (s *aggTestStore) GetAggregation(_ context.Context, id string) (accounts.Ag
 	return s.agg, nil
 }
 func (s *aggTestStore) InsertAggregation(_ context.Context, agg accounts.Aggregation) (accounts.Aggregation, error) {
+	s.inserts++
 	return agg, nil
 }
 func (s *aggTestStore) SaveAggregation(_ context.Context, agg accounts.Aggregation) (accounts.Aggregation, error) {
+	s.saves++
+	s.agg = agg
 	return agg, nil
 }
 func (s *aggTestStore) ListAggregations(_ context.Context) ([]accounts.Aggregation, error) {

@@ -383,7 +383,7 @@ func ExpandModelAliases(models []map[string]any, pool []AccountModelAllow) []map
 		for alias, target := range account.Aliases {
 			aliasKey := accounts.CanonicalModelID(alias)
 			targetKey := accounts.CanonicalModelID(target)
-			if aliasKey == "" || aliasKey == "auto" || targetKey == "" || aliasKey == targetKey {
+			if aliasKey == "" || aliasKey == "auto" || targetKey == "" || targetKey == "auto" || aliasKey == targetKey {
 				continue
 			}
 			if existing[aliasKey] {
@@ -453,7 +453,7 @@ func AggregateModelEntries(models []map[string]any, identity auth.Identity, pool
 		for alias, target := range account.Aliases {
 			aliasKey := accounts.CanonicalModelID(alias)
 			targetKey := accounts.CanonicalModelID(target)
-			if aliasKey == "" || aliasKey == "auto" || targetKey == "" || aliasKey == targetKey {
+			if aliasKey == "" || aliasKey == "auto" || targetKey == "" || targetKey == "auto" || aliasKey == targetKey {
 				continue
 			}
 			if realIDs[aliasKey] || seen[aliasKey] || !accountServesModel(account, targetKey) {
@@ -553,17 +553,15 @@ func accountServesModel(account AccountModelAllow, modelKey string) bool {
 
 // modelAllowKey folds a catalog id the same way routing folds a request, and
 // strips a provider prefix ("qoder/glm-5.2", "workbuddy-cn/glm-5.2") so a
-// prefixed public list matches the bare ids stored on the account.
+// prefixed public list matches the bare ids stored on the account. "auto" is a
+// real catalog entry and must obey a restricted account's enabled list; only an
+// empty/unparseable id bypasses the allowlist.
 func modelAllowKey(id string) string {
 	id = strings.TrimSpace(id)
 	if slash := strings.LastIndex(id, "/"); slash >= 0 {
 		id = id[slash+1:]
 	}
-	key := accounts.CanonicalModelID(id)
-	if key == "" || key == "auto" {
-		return ""
-	}
-	return key
+	return accounts.CanonicalModelID(id)
 }
 
 // FilterModelsForIdentity applies grants after loading the shared catalog.

@@ -30,22 +30,22 @@ type AccountBundleCredential struct {
 
 // AccountBundleEntry is one account plus its settings and credential.
 type AccountBundleEntry struct {
-	Name                 string                  `json:"name"`
-	Provider             string                  `json:"provider"`
-	Region               string                  `json:"region"`
-	AuthType             string                  `json:"auth_type,omitempty"`
-	Enabled              bool                    `json:"enabled"`
-	MaxInFlight          int                     `json:"max_inflight"`
-	Priority             int                     `json:"priority"`
-	DropSystemPrompt     *bool                   `json:"drop_system_prompt,omitempty"`
-	ModelAliases         map[string]string       `json:"model_aliases,omitempty"`
-	EnabledModels        []string                `json:"enabled_models,omitempty"`
-	ModelsRestricted     bool                    `json:"models_restricted,omitempty"`
-	AutoCheckin          bool                    `json:"auto_checkin,omitempty"`
-	CheckinTime          string                  `json:"checkin_time,omitempty"`
-	WorkBuddyAutoCheckin bool                    `json:"workbuddy_auto_checkin,omitempty"`
-	WorkBuddyCheckinTime string                  `json:"workbuddy_checkin_time,omitempty"`
-	ProxyURL             string                  `json:"proxy_url,omitempty"`
+	Name                 string                   `json:"name"`
+	Provider             string                   `json:"provider"`
+	Region               string                   `json:"region"`
+	AuthType             string                   `json:"auth_type,omitempty"`
+	Enabled              bool                     `json:"enabled"`
+	MaxInFlight          int                      `json:"max_inflight"`
+	Priority             int                      `json:"priority"`
+	DropSystemPrompt     *bool                    `json:"drop_system_prompt,omitempty"`
+	ModelAliases         map[string]string        `json:"model_aliases,omitempty"`
+	EnabledModels        []string                 `json:"enabled_models,omitempty"`
+	ModelsRestricted     bool                     `json:"models_restricted,omitempty"`
+	AutoCheckin          bool                     `json:"auto_checkin,omitempty"`
+	CheckinTime          string                   `json:"checkin_time,omitempty"`
+	WorkBuddyAutoCheckin bool                     `json:"workbuddy_auto_checkin,omitempty"`
+	WorkBuddyCheckinTime string                   `json:"workbuddy_checkin_time,omitempty"`
+	ProxyURL             string                   `json:"proxy_url,omitempty"`
 	Credential           *AccountBundleCredential `json:"credential,omitempty"`
 }
 
@@ -188,8 +188,8 @@ func (a *Accounts) importBundleEntry(ctx context.Context, entry AccountBundleEnt
 			}
 		}
 	}
-	// Apply routing and the final enabled state in one update. Create does not
-	// persist model routing, so SetModelRouting must be explicit here.
+	// Apply the final enabled state. Store.Update ignores bundle routing when a
+	// provider policy exists, and restores it for unpolicied providers.
 	enabled := entry.Enabled
 	update := accounts.UpdateAccount{
 		Enabled:         &enabled,
