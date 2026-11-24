@@ -10,6 +10,8 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/providers"
 )
 
+const pathCheckinStatus = "/v2/billing/meter/checkin-activity-status"
+
 // checkinActivityStatus mirrors the official desktop flow: query the campaign
 // switch before claiming, so an inactive campaign and a same-day repeat never
 // produce a false failure. A failed status probe falls through to the claim,

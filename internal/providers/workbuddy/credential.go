@@ -86,9 +86,8 @@ const (
 	pathModelsCN      = "/console/enterprises/personal/models"
 	pathModelsGlobal  = "/v2/enterprises/personal/models"
 	pathProductConfig = "/v3/config"
-	pathUserResource  = "/v2/billing/meter/get-user-resource"
-	pathCheckinStatus = "/v2/billing/meter/checkin-activity-status"
-	pathDailyCheckin  = "/v2/billing/meter/daily-checkin"
+	pathUserResource = "/v2/billing/meter/get-user-resource"
+	pathDailyCheckin = "/v2/billing/meter/daily-checkin"
 
 	sessionDeadCode         = 12153
 	sessionDeadText         = "Offline user session not found"

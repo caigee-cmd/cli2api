@@ -3,6 +3,134 @@
 Published user-facing notes for GitHub Releases and the console update page.
 Write upcoming notes as bilingual files in `changelog/unreleased/`.
 
+## 0.7.45 - 2026-11-24
+
+### English
+
+- Release the implicit region latch on cross-provider routes so a bare model shared by multiple providers can fail over to another supplier.
+- Keep the Qoder global/CN region isolation for provider-scoped routes.
+- Preserve the retry budget after the first pick instead of shrinking it to the pinned region's account count.
+- Give each priority tier its own retry budget so sibling accounts cannot consume the whole budget before a lower-priority provider is reached.
+- Apply account model aliases in the legacy worker request path.
+- Add `account_id` to aggregation members so one logical model can target a specific account/deployment instead of fanning out over every account of a provider.
+- Persist the field in SQLite and expose it through the console API and model pool editor.
+- Keep legacy members without `account_id` on the existing provider/region pool behavior.
+- Cross-provider model pool saves now validate every member against the provider policy. A disabled model is rejected instead of being stored as a dead route.
+- An aggregated logical model is no longer listed in `/v1/models` when provider policy filters out every one of its members.
+- Align reasoning conversion with CC Switch: accept `ultra` as the deepest tier and normalize Anthropic `thinking.budget_tokens` (2048 / 8192 / 16384 / 24576) onto the catalog-driven reasoning ladder.
+- Unify provider reasoning intent parsing behind one shared parser while keeping each provider's legacy wire behavior: explicit `thinking:{"type":"disabled"}` stays a separate off switch, and effort strings, effort objects, and enable-thinking flags resolve as before.
+- Canonicalize protocol usage across Anthropic, OpenAI chat, and Responses streams: `input_tokens` now excludes cache read/write, cache buckets are always reported, and usage fields from provider aliases (`cache_read_input_tokens`, `cached_tokens`, `cache_creation_input_tokens`) are folded into one shape.
+- Keep Trae max mode client-owned: only an explicit `is_max_mode` request is forwarded, never inferred from the catalog or a stored console setting.
+- CodeArts requests that the upstream rejects as an unsafe image now fail once with a 400 instead of failing over across every account.
+- Codex model catalog adds `gpt-6.2-sol` (GPT-6.2-Sol) and `gpt-6.2-astra` (GPT-6.2-Astra) from the upstream client / CLIProxyAPI list, using the same slim field shape as the 6.1 entries. `gpt-6.2-sol` routes at a 500K context window, `gpt-6.2-astra` at 272K.
+- Split console pages into per-route chunks so the first screen loads less JavaScript; rejected chat attachments now use the console toast instead of a browser alert.
+- The overview resource panel now follows the backend's 30s sample cadence instead of polling every 5s, account countdowns share one timer, and runtime logs stop polling while the tab is hidden.
+- Request statistics now stream the window once instead of running about ten SQL scans; the local 20k-row benchmark drops from ~227 ms to ~57 ms per call.
+- The expanded live card now polls at 800ms instead of 400ms, and the inflight depth chart loads only when expanded. The 60s concurrency sparkline stays on Recharts inside that lazy card, so the 316 kB chart bundle remains outside the default console preload.
+- The console shell keeps its HeroUI primitives (Drawer, Button, Tooltip, Skeleton) per the design system; the first-screen win comes from route-level lazy pages plus an on-demand update dialog. The entry chunk is 431.4 kB (130.6 kB gzip) with a 348 kB preload group (shim 13 kB, shared HeroUI chunk 94 kB, i18n 148 kB, GSAP 93 kB), down from the previous 461 + 239 + 94 + 13 kB.
+- Provider-wide settings now live in a modal on the Models page. Account editing keeps only name, concurrency, and priority; provider policy owns floors, proxy, system-prompt handling, aliases, enabled models, and check-in time. Saving provider settings closes immediately and re-filters the cached catalog in the background instead of waiting for an upstream refresh.
+- The Models page groups models into one card per connected provider and region, with a model count in the header. The provider filter lists only connected provider/region pairs, defaults to the first one, and the redundant "Model catalog" intro header is gone. A provider restricted to a selected model list no longer shows `auto`.
+- The cross-provider model editor keeps its header and footer visible and scrolls the form body on short screens. Members are configured by provider, region, and model only; the account is chosen automatically from the provider account pool instead of being pinned in the editor. The editor lists only connected provider/region combinations and models enabled by that provider's policy.
+- Account cards show the upstream check-in state (`already`, `pending`, `skipped`, or `unknown`) with the last sync time, and scheduled check-in defaults to automatic mode based on the upstream window.
+- Added a "Cross-provider model pool" page between Models and Access. It appears only while the existing cross-provider model pool setting is enabled, and toggling that setting updates the navigation immediately.
+- You can now define logical models that aggregate multiple real provider models behind one client-facing ID, for both same-named models across providers and differently named models. Each logical model has its own routing strategy (priority order, round robin, fill first, or FEFO), failover settings, and an ordered, weighted member list.
+- `/v1/models` now exposes the logical IDs instead of the aggregated per-provider entries; member capabilities are merged conservatively. Logical models are served through the existing route loop and failover/cooldown system, with cooldowns recorded against the real member model. The per-model strategy (priority order by default, round robin, fill first, FEFO) and member weights are honored during routing; priority order keeps using the first healthy member and falls through on failure.
+- An account whose first health probe fails no longer stays in `error` until an operator clicks Refresh. The maintenance watchdog now re-runs the full account refresh for a worker that answers `/health` but is still absent from routing, throttled to once every two minutes per account. This covers both the boot-time probe racing a worker that has not bound its port yet and a worker that came back through crash recovery — either case previously left the account, and every model only it could serve, unrouteable.
+- A request no enabled account can serve is now answered with `503 no_accounts` instead of the generic `502 upstream_error` the gateway synthesizes for unclassified failures. That 502 read as an origin outage (a proxy in front of the gateway replaced it with its own Bad gateway page) while the real cause was local routing, and a 429 would have made SDKs auto-retry on a fixed schedule a condition only the account watchdog can heal. The `Retry-After` hint matches the watchdog's two-minute per-account re-probe cadence. A key that cannot use the requested provider gets `403 provider_not_allowed`, and an instance with no accounts at all gets `503 no_accounts_configured`.
+- API keys can now enable cross-provider model aggregation. An aggregation key's `/v1/models` returns only the public model aliases its granted accounts define, folded into one provider-neutral name per alias; requests still route through the account pool and may only call those names.
+- Account model aliases appear in `/v1/models` for ordinary keys too: one public name can route to a different native model per account and provider, while an existing real model id always wins over an alias.
+- The key editor now scrolls its provider list so the save/cancel footer stays reachable on shorter screens.
+- MiniMax Code accounts now support daily check-in across the console: card status, manual and bulk check-in, check-in history, and scheduled auto check-in.
+- Added a one-click model availability check on the Models page. It sends one minimal 1-token, thinking-disabled live request per model per available account, then reports per-account reachability and latency without changing routing cooldowns or the Usage page totals; each probe still consumes one real 1-token upstream request from that account's quota.
+- The Models page status column now shows the latest availability result instead of custom/default settings, and the action column is labeled Model details.
+- Removed the console reasoning-strength default selector. The Models page now shows the maximum context, the reasoning levels each model actually declares, and image input capability.
+- Keep aggregate logical-model sessions bound to a member account instead of resetting to the general pool on every turn.
+- Bind a streaming request as soon as the upstream accepts the response headers/first event, not after the body ends; a follow-up turn can then reuse the same account while the first stream is still running.
+- Always bind, cool down, and fail over by pool account ID. Worker response labels are never used as routing keys.
+- Invalidate a session binding on failover, including sticky escapes.
+- Canonicalize provider cache token fields so reported cache usage is stable across provider protocols.
+- Aligned the in-process client identities with the current official builds: Qoder CLI `1.1.96` (Bun `1.4.4`, global inference on `api2.qoder.sh`), WorkBuddy desktop `5.11.3` CN / `5.11.4` Global with bundled CLI `2.176.0`, Trae CN `3.4.24` (AI extension `2.3.106768`, version code `20260212`), and QwenWork `2.1.0` build `26111906` with COSY `1.1.71`.
+- WorkBuddy chat now sends the desktop `5.11.3`/`5.11.4` UA, `X-Client-*` identity and `X-Agent-Runtime: local-agent`, and drops the obsolete `X-Root-Request-ID`/`X-No-*` placeholders. Billing and check-in use the desktop AuthService shape (`axios/1.16.1`, a fresh `X-Request-ID`).
+- WorkBuddy CN now uses the official primary entry `www.workbuddy.cn`; the old `copilot.tencent.com` host still resolves, but the client no longer sends there by default.
+- A provider restricted to a selected model list no longer shows `auto`; it stays visible only while that provider keeps the full model catalog.
+- Provider-level floors, proxy, system-prompt handling, aliases, enabled models, and check-in time are now stored as one policy per provider/region. The policy is the single source of truth: account reads overlay it at runtime, saving it refreshes the live pool instead of writing the same values back to every account, and new or imported accounts inherit it automatically. Existing provider groups are seeded once at startup from their current account values without rewriting account rows.
+- Qoder check-in now counts a reward as already claimed only when the upstream says so. A blocked or closed campaign stays a failure and can be retried later the same day.
+- Codex requests present the official stable CLI identity, `codex_cli_rs/0.171.0`.
+- Added `least-quota-first` and `most-quota-first` routing strategies for both global account scheduling and aggregation model pools. They rank accounts by remaining quota ratio and place accounts with unknown quota last.
+- Fixed model-pool strategy overrides so FEFO candidate counting matches account selection, and normalized stored aggregation strategies so legacy/case-variant values do not silently fall back to round robin.
+- Aggregated model-pool failover no longer pins the first member's region or recomputes the plan's attempt budget, so cross-provider members stay reachable and MaxAttempts is honored.
+- Check-in status is now read from the provider instead of trusting the last local attempt. The account API returns upstream `already`, `pending`, `skipped`, or `unknown`, with the last sync time.
+- One-click check-in now runs up to four accounts in parallel instead of waiting through the scheduled check-in gap, so a full account set no longer stalls for tens of seconds.
+- WorkBuddy queries `/v2/billing/meter/checkin-activity-status` before claiming. Inactive campaigns and same-day repeats are reported as `skipped`/`already` without a duplicate claim. The Global edition no longer advertises or attempts daily check-in because the official desktop disables it.
+- Scheduled check-in is automatic by default: the upstream daily window start plus one hour (Qoder 10:00 → 11:00, other providers 00:00 → 01:00). Manual provider times still override auto mode.
+- Check-in scheduling uses the provider server clock (`Asia/Shanghai`), not the operator PC's local timezone.
+- A campaign status that carries no per-day flag (CodeArts) is treated as provisional until 02:00 Asia/Shanghai; an "already claimed" replay during the first two hours of the day is not recorded as today's success, and the scheduler retries at 02:05, 12:05, and 21:00.
+- CodeArts reports `already` only for the `USER_LOGIN` daily campaign, not for a used-up new-user or student reward, and posts the IDE's confirmation step when the claim returns a benefit id.
+- WorkBuddy now merges adjacent assistant tool-call messages before sending them upstream, so a split Codex replay no longer fails with tool-call sequence error 11148.
+
+### 中文
+
+- 跨供应商裸模型路由不再被第一次选中的 region 隐式锁住，失败后可以切换到其他供应商。
+- Qoder 等 provider-scoped 路由继续保持 global/CN 区域隔离。
+- 首次选号后保留原重试预算，不再按 pinned region 的账号数量缩小 attempts。
+- 每个 priority tier 使用独立重试预算，避免第一供应商的 sibling accounts 耗尽全局预算，导致低优先级供应商完全无法被尝试。
+- legacy worker 请求路径也应用账号模型别名。
+- 聚合成员新增 `account_id`，让一个逻辑模型可以固定到一个具体账号/deployment，而不是默认在该供应商下扇出到所有账号。
+- 该字段持久化到 SQLite，并通过控制台 API 和模型池编辑器暴露。
+- 未填写 `account_id` 的旧成员保持原有 provider/region 池行为。
+- 保存跨 Provider 模型池时会逐个校验成员是否符合供应商策略。未启用的模型会被拒绝，不会再存成无法路由的死成员。
+- 当供应商策略把所有成员都过滤掉时，聚合逻辑模型不再出现在 `/v1/models` 中。
+- 推理转换对齐 CC Switch 约定：接受 `ultra` 作为最深档，并把 Anthropic `thinking.budget_tokens`（2048 / 8192 / 16384 / 24576）归一化到由 catalog 驱动的推理档位。
+- 用统一的解析器处理各供应商的推理意图，同时保持各自的旧有请求行为：`thinking:{"type":"disabled"}` 仍是独立的关闭开关，effort 字符串、effort 对象和 enable-thinking 开关的解析结果不变。
+- 统一 Anthropic、OpenAI chat 和 Responses 流的 usage 口径：`input_tokens` 不再包含缓存读写，缓存字段始终上报，并把供应商别名（`cache_read_input_tokens`、`cached_tokens`、`cache_creation_input_tokens`）折算为同一形状。
+- Trae 的 Max 模式保持由客户端决定：只有请求显式带上 `is_max_mode` 才透传，不再从 catalog 或控制台保存的设置推断。
+- CodeArts 上游判定图片内容不安全时，请求现在直接以 400 失败一次，不再对所有账号逐个故障转移。
+- Codex 模型目录新增上游客户端 / CLIProxyAPI 列表中的 `gpt-6.2-sol`（GPT-6.2-Sol）与 `gpt-6.2-astra`（GPT-6.2-Astra），字段结构与 6.1 条目一致。`gpt-6.2-sol` 按 500K 上下文窗口路由，`gpt-6.2-astra` 为 272K。
+- 控制台页面按路由拆包，首屏加载的 JavaScript 更少；聊天不支持的文件改用控制台提示，不再弹浏览器 alert。
+- 概览资源面板改为对齐后端 30 秒采样节奏，不再每 5 秒重复请求；账号冷却倒计时共用一个定时器；运行日志在标签页隐藏时停止轮询。
+- 请求统计改为单次扫描窗口并在 Go 内聚合，本机 20,000 行基准从约 227 ms/次降到约 57 ms/次。
+- 展开态实时卡片轮询从 400ms 放慢到 800ms；inflight 深度图表只在展开时加载。60 秒并发曲线仍使用 Recharts 并位于该懒加载卡片内，316 kB 图表包依旧不进入控制台默认预加载。
+- 控制台外壳按设计规范保留 HeroUI 原语（Drawer、Button、Tooltip、Skeleton）；首屏收益来自路由级拆包和按需加载的版本更新弹窗。入口为 431.4 kB（gzip 130.6 kB），预加载组 348 kB（shim 13 kB、HeroUI 共享块 94 kB、i18n 148 kB、GSAP 93 kB），此前为 461 + 239 + 94 + 13 kB。
+- 供应商级设置改为模型页上的统一弹窗。账号编辑只保留名称、并发和优先级；积分/百分比保底、代理、系统提示词处理、别名、可用模型和签到时间由供应商策略统一管理。保存供应商设置后弹窗立即关闭，已缓存目录在后台重新过滤，不再等待上游刷新。
+- 模型页按已接入的供应商与区域分组，每个供应商一张卡片，标题显示模型数量。供应商筛选只列出有账号接入的供应商/区域并默认选中第一个，顶部冗余的“模型目录”说明栏已移除。限制为勾选模型的供应商不再显示 `auto`。
+- 跨 Provider 模型编辑器在矮屏下固定标题和底部操作区、让表单内容独立滚动。成员只按供应商、区域和模型配置，账号由供应商账号池自动选择，不再在编辑器里指定单个账号；编辑器只列出已接入的供应商/区域和该供应商策略启用的模型。
+- 账号卡片显示上游签到状态（已签到、未签到、未开放或状态未知）和最近同步时间；自动签到默认按上游窗口自动排期。
+- 在“模型”和“接入与调试”之间新增“跨 Provider 模型池”页面；仅当现有的跨 Provider 模型池开关开启时出现，切换开关后导航会立即更新。
+- 现在可以定义逻辑模型，把多个真实供应商模型聚合到同一个客户端 ID 下，既支持跨供应商的同名模型，也支持不同名称的模型。每个逻辑模型都可以单独配置路由策略（优先级顺序、轮询、优先填满或 FEFO）、故障转移规则，以及有序带权重的成员列表。
+- `/v1/models` 现在返回聚合后的逻辑 ID，而不再展示被聚合的逐供应商条目；成员能力按保守方式合并。逻辑模型复用现有选路与故障转移/冷却体系，冷却记录在真实成员模型上。每个逻辑模型的策略和成员权重现在真正参与选路；优先级顺序会持续使用第一个健康成员并在失败时顺延，未配置时默认按优先级顺序。
+- 首次健康探测失败的账号不再卡在 `error` 状态等人工点刷新：维护看门狗现在会对「`/health` 有响应但没进路由」的 worker 重跑一次账号刷新，每个账号两分钟最多一次。既覆盖开机时探测早于 worker 绑定端口的竞态，也覆盖崩溃恢复后重新拉起的 worker——这两种情况以前都会让该账号（以及只有它能提供的模型）一直不可路由。
+- 没有任何可用账号的请求现在返回 `503 no_accounts`，不再落到网关对未分类错误兜底的 `502 upstream_error`。那个 502 看起来像源站故障（网关前面的代理还会把它替换成自己的 Bad gateway 页），实际原因是本地路由；而 429 会让 SDK 按固定节奏自动重试一个只有账号看门狗才能恢复的问题。`Retry-After` 与看门狗每账号两分钟的重探节奏一致。密钥无权使用请求的 provider 时返回 `403 provider_not_allowed`，实例里一个账号都没有时返回 `503 no_accounts_configured`。
+- API 密钥可以开启「跨供应商模型聚合」。开启后，`/v1/models` 只返回该密钥可访问账号上配置的公共模型别名，并按别名合并成一条、不显示供应商；请求仍按账号池路由，且只能调用这些聚合名称。
+- 普通密钥的 `/v1/models` 也会展示账号模型别名：同一个公共模型名可以按账号和 Provider 路由到不同的原生模型；与真实模型同名的别名不会覆盖真实模型。
+- 密钥编辑弹窗在屏幕较矮时改为滚动供应商列表，保存与取消按钮始终可见。
+- MiniMax Code 账号现已支持每日签到：账号卡片状态、手动/一键签到、签到记录以及定时自动签到均已接入。
+- 模型页新增一键可通性检查：对“每个模型 × 每个可用账号”发送一次仅 1 token、关闭思考的真实请求，返回逐账号可通状态与延迟，且不会改变路由冷却状态或用量页统计；每次探测会真实消耗该账号的一次 1 token 上游额度。
+- 模型页状态列改为显示最近一次可通性检查结果，不再显示默认/自定义；操作表头改为“模型详情”。
+- 移除控制台推理强度默认选择器；模型页改为展示最大上下文、每个模型实际声明的思考档位和图片输入能力。
+- 聚合逻辑模型的会话持续绑定到成员账号，不再每轮重置为通用路由池。
+- 流式请求在上游接受响应头/首个成功事件时就完成绑定，而不是等整个响应体结束；第一轮流式请求尚未结束时，下一轮也能复用同一账号。
+- 绑定、冷却和故障转移全部使用 pool account ID；worker 回写的响应标签不会作为路由键。
+- 发生 failover 时失效会话绑定，包括 sticky-escape 场景。
+- 统一各 provider 的缓存 token 字段口径，让上报的缓存用量在不同协议下保持稳定。
+- 将进程内客户端身份对齐到当前官方客户端：Qoder CLI `1.1.96`（Bun `1.4.4`，国际版推理走 `api2.qoder.sh`）、WorkBuddy 国内桌面端 `5.11.3` / 国际版 `5.11.4`（内置 CLI `2.176.0`）、Trae 国内版 `3.4.24`（AI 扩展 `2.3.106768`，版本码 `20260212`）、千问办公 `2.1.0`（构建 `26111906`，COSY `1.1.71`）。
+- WorkBuddy 对话改用桌面端 `5.11.3` / `5.11.4` 的 UA、`X-Client-*` 身份和 `X-Agent-Runtime: local-agent`，去掉过时的 `X-Root-Request-ID` / `X-No-*` 占位头；积分与签到改用桌面 AuthService 的 `axios/1.16.1` 身份和每次新生成的 `X-Request-ID`。
+- WorkBuddy 国内版改用官方主入口 `www.workbuddy.cn`；旧的 `copilot.tencent.com` 仍能解析，但客户端默认不再请求。
+- 限制为勾选模型的供应商不再显示 `auto`；只有保持完整模型目录的供应商才会保留该目录项。
+- 积分/百分比保底、代理、系统提示词处理、别名、可用模型和签到时间改为按供应商/区域保存的统一策略。策略是唯一事实源：账号读取时在运行时叠加，保存策略只刷新池子，不再把同一组值写回每个账号；新建或导入账号会自动继承。已有供应商分组会在启动时用现有账号值一次性生成策略，同样不写账号行。
+- Qoder 签到只在上游明确表示已领取时记为已签到。活动被拦截或未开放仍记为失败，当天可以再试。
+- Codex 请求使用官方稳定版 CLI 身份 `codex_cli_rs/0.171.0`。
+- 新增 `least-quota-first`（剩余额度最少优先）和 `most-quota-first`（剩余额度最多优先）路由策略，全局账号调度和模型池都可使用；按剩余额度百分比排序，额度未知的账号排在最后。
+- 修复模型池策略覆盖时 FEFO 候选计数与实际选号不一致的问题，并在读取存储的模型池策略时做归一化，避免历史大小写或旧值静默退回轮询。
+- 聚合模型池的故障转移不再锁定首个成员的 region，也不再重算尝试预算，跨供应商成员仍可被尝试，配置的 MaxAttempts 会被遵守。
+- 签到状态改为读取上游真实状态，不再只信任本地上一次执行结果。账号接口返回上游的已签到、未签到、未开放或状态未知，并标注最近同步时间。
+- 一键签到改为最多四个账号并行执行，不再逐个等待定时签到间隔，整批账号不会再卡几十秒。
+- WorkBuddy 在领取前先查询 `/v2/billing/meter/checkin-activity-status`。活动未开启和今日已签分别返回 `skipped` / `already`，不会重复领取。由于官方国际版桌面端关闭了签到，国际版不再声明或尝试每日签到。
+- 自动签到时间默认改为“上游每日窗口开始 + 1 小时”（Qoder 10:00 → 11:00，其他供应商 00:00 → 01:00）。供应商设置切换为手动时仍按手动时间执行。
+- 签到排期按供应商服务器时钟（`Asia/Shanghai`）计算，不再跟随电脑本地时区。
+- 不带“当天”字段的活动状态（CodeArts）在服务器时间 02:00 前仍视为待确认；前两小时的“已领取”回放不会被记成今天的成功，调度会在 02:05、12:05、21:00 重试。
+- CodeArts 只有 `USER_LOGIN` 每日活动才显示“已签到”，不会再把已用完的新用户/学生奖励当成今天已签；领取返回 benefit id 时补发 IDE 的确认请求。
+- WorkBuddy 会先把相邻的助手工具调用合并再发给上游，拆开的 Codex 回放不再因工具调用顺序错误 11148 失败。
+
 ## 0.7.44 - 2026-11-20
 
 ### English
