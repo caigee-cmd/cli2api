@@ -14,6 +14,28 @@ import (
 // minutes); 0 disables the loop and leaves only manual/console refreshes.
 const DefaultCatalogRefreshInterval = 10 * time.Minute
 
+// DefaultUpdateGitHubRepo is the repository whose GitHub releases the console
+// follows. It is the fork that publishes this build's container images; set
+// UPDATE_GITHUB_REPO to follow another owner/repo instead.
+const DefaultUpdateGitHubRepo = "guyu233/cli2api"
+
+func updateGitHubRepo(value string) string {
+	repo := strings.TrimSpace(value)
+	if repo == "" {
+		return DefaultUpdateGitHubRepo
+	}
+	for _, prefix := range []string{"https://github.com/", "http://github.com/", "github.com/"} {
+		repo = strings.TrimPrefix(repo, prefix)
+	}
+	repo = strings.Trim(strings.TrimSpace(repo), "/")
+	repo = strings.TrimSuffix(repo, ".git")
+	repo = strings.Trim(repo, "/")
+	if repo == "" {
+		return DefaultUpdateGitHubRepo
+	}
+	return repo
+}
+
 type Config struct {
 	Host                   string
 	Port                   int
@@ -113,7 +135,7 @@ func Load() (Config, error) {
 		UpdateAgentURL:         strings.TrimSpace(os.Getenv("UPDATE_AGENT_URL")),
 		UpdateAgentToken:       strings.TrimSpace(os.Getenv("UPDATE_AGENT_TOKEN")),
 		UpdateGitHubToken:      strings.TrimSpace(os.Getenv("UPDATE_GITHUB_TOKEN")),
-		UpdateGitHubRepo:       firstNonEmpty(os.Getenv("UPDATE_GITHUB_REPO"), "caigee-cmd/cli2api"),
+		UpdateGitHubRepo:       updateGitHubRepo(os.Getenv("UPDATE_GITHUB_REPO")),
 		CatalogRefreshInterval: catalogRefreshInterval(os.Getenv("CLI2API_CATALOG_REFRESH_INTERVAL")),
 		CreditFloor:            creditFloor,
 		PercentFloor:           percentFloor,

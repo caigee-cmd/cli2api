@@ -57,6 +57,7 @@ export type SystemUpdateInfo = {
   }
   agent: UpdateAgentStatus
   update?: UpdatePreparationStatus
+  source?: string
 }
 
 export type SystemSettings = {

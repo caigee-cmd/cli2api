@@ -6,8 +6,8 @@ ENV_FILE="${ROOT_DIR}/deploy/.env"
 COMPOSE_FILE="${ROOT_DIR}/deploy/docker-compose.yml"
 CONTAINER_NAME="qoder-api-proxy"
 SERVICE_NAME="qoder-api-proxy"
-IMAGE_REPOSITORY="${CLI2API_IMAGE_REPOSITORY:-ghcr.io/caigee-cmd/cli2api}"
-GITHUB_REPOSITORY="${CLI2API_GITHUB_REPOSITORY:-caigee-cmd/cli2api}"
+IMAGE_REPOSITORY="${CLI2API_IMAGE_REPOSITORY:-ghcr.io/guyu233/cli2api}"
+GITHUB_REPOSITORY="${CLI2API_GITHUB_REPOSITORY:-guyu233/cli2api}"
 
 require_commands() {
   for command in "$@"; do

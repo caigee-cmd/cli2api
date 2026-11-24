@@ -166,6 +166,7 @@ console; environment variables cannot replace it.
 | `QODERCLI_JS` | image default | Pinned Qoder Global CLI bundle |
 | `QODERCNCLI_JS` | image default | Pinned Qoder CN CLI bundle |
 | `UPDATE_GITHUB_TOKEN` | empty | Optional GitHub token for release checks |
+| `UPDATE_GITHUB_REPO` | `guyu233/cli2api` | Release repository (`owner/repo`) whose GitHub releases the console follows; set it to `caigee-cmd/cli2api` to follow upstream instead |
 | `UPDATE_AGENT_URL` | empty | Docker Desktop host updater URL, written by the installer |
 | `UPDATE_AGENT_TOKEN` | empty | Docker Desktop updater token, written by the installer |
 | `CLI2API_UPDATER_SOCKET_DIR` | platform-specific | Host directory mounted read-only for the Linux updater socket |
@@ -220,7 +221,10 @@ Start `qoder-api-proxy` once before installing the optional host updater.
 | Windows ARM64 | Docker Desktop Linux containers | `cli2api-updater_windows_arm64.exe` |
 
 Installers prefer checksum-verified release binaries and fall back to the
-running container's binary or a local Go build when needed.
+running container's binary or a local Go build when needed. Both installers
+default to `ghcr.io/guyu233/cli2api` and `guyu233/cli2api`; override them with
+`CLI2API_IMAGE_REPOSITORY` and `CLI2API_GITHUB_REPOSITORY` when the deployment
+follows another repository.
 
 macOS + Docker Desktop:
 

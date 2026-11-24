@@ -300,11 +300,14 @@ func composeArgs(envPath, composePath string, args ...string) []string {
 }
 
 func TestNewExecutorResolvesGitHubRepo(t *testing.T) {
-	if got := NewExecutor(ExecutorConfig{}).config.GitHubRepo; got != "caigee-cmd/cli2api" {
+	if got := NewExecutor(ExecutorConfig{}).config.GitHubRepo; got != "guyu233/cli2api" {
 		t.Fatalf("default repo = %q", got)
 	}
-	if got := NewExecutor(ExecutorConfig{GitHubRepo: "guyu233/cli2api"}).config.GitHubRepo; got != "guyu233/cli2api" {
+	if got := NewExecutor(ExecutorConfig{GitHubRepo: "caigee-cmd/cli2api"}).config.GitHubRepo; got != "caigee-cmd/cli2api" {
 		t.Fatalf("override repo = %q", got)
+	}
+	if got := NewExecutor(ExecutorConfig{}).config.ImageRepository; got != "ghcr.io/guyu233/cli2api" {
+		t.Fatalf("default image repository = %q", got)
 	}
 }
 

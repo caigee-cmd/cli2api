@@ -31,6 +31,15 @@ func NewGitHubReleaseSource(repo, token string) *GitHubReleaseSource {
 	return &GitHubReleaseSource{client: client, baseURL: defaultGitHubAPI, repo: repo, token: strings.TrimSpace(token)}
 }
 
+// Repo reports the owner/repo whose releases this source reads, so the console
+// can show which repository an installation follows.
+func (s *GitHubReleaseSource) Repo() string {
+	if s == nil {
+		return ""
+	}
+	return s.repo
+}
+
 func (s *GitHubReleaseSource) ListReleases(ctx context.Context) ([]Release, error) {
 	if strings.TrimSpace(s.repo) == "" {
 		return nil, fmt.Errorf("update repository required")

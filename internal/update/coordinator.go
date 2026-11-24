@@ -75,6 +75,7 @@ type systemUpdateInfo struct {
 	Info
 	Agent  AgentStatus `json:"agent"`
 	Update *Job        `json:"update,omitempty"`
+	Source string      `json:"source,omitempty"`
 }
 
 func (c *Coordinator) Handle(w http.ResponseWriter, r *http.Request) {
@@ -150,7 +151,7 @@ func (c *Coordinator) HandleCancel(w http.ResponseWriter, r *http.Request) {
 	status, statusErr := c.Agent.Status(statusCtx)
 	cancel()
 	if statusErr != nil || !status.Available {
-		message := "Updater daemon is unavailable"
+		message := "Updater daemon is unavailable; run deploy/install-updater.sh on the host, then recreate qoder-api-proxy"
 		if statusErr != nil {
 			message = statusErr.Error()
 		}
@@ -224,7 +225,19 @@ func (c *Coordinator) HandleInfo(w http.ResponseWriter, r *http.Request) {
 	if job == nil && status.State == "succeeded" && strings.TrimSpace(status.JobID) != "" {
 		job = &Job{JobID: "agent-" + status.JobID, AgentJobID: status.JobID, State: "succeeded", CurrentVersion: status.CurrentVersion, TargetVersion: status.TargetVersion, StartedAt: status.StartedAt, FinishedAt: status.FinishedAt}
 	}
-	writeJSON(w, http.StatusOK, systemUpdateInfo{Info: info, Agent: status, Update: job})
+	writeJSON(w, http.StatusOK, systemUpdateInfo{Info: info, Agent: status, Update: job, Source: c.releaseRepo()})
+}
+
+// releaseRepo names the repository the checker reads releases from; empty when
+// the injected source cannot report it.
+func (c *Coordinator) releaseRepo() string {
+	if c == nil || c.Checker == nil {
+		return ""
+	}
+	if repoer, ok := c.Checker.(interface{ ReleaseRepo() string }); ok {
+		return repoer.ReleaseRepo()
+	}
+	return ""
 }
 
 func (c *Coordinator) HandleApplyNow(w http.ResponseWriter, _ *http.Request) {
@@ -285,7 +298,7 @@ func (c *Coordinator) prepareImage(jobID string) {
 	status, err := c.Agent.Status(statusCtx)
 	statusCancel()
 	if err != nil || !status.Available {
-		message := "Updater daemon is unavailable"
+		message := "Updater daemon is unavailable; run deploy/install-updater.sh on the host, then recreate qoder-api-proxy"
 		if err != nil {
 			message = err.Error()
 		}
@@ -362,7 +375,7 @@ func (c *Coordinator) prepareOneShot(jobID string) {
 	status, err := c.Agent.Status(statusCtx)
 	statusCancel()
 	if err != nil || !status.Available {
-		message := "Updater daemon is unavailable"
+		message := "Updater daemon is unavailable; run deploy/install-updater.sh on the host, then recreate qoder-api-proxy"
 		if err != nil {
 			message = err.Error()
 		}
@@ -413,7 +426,7 @@ func (c *Coordinator) rollback(jobID, targetVersion string) {
 	status, err := c.Agent.Status(statusCtx)
 	statusCancel()
 	if err != nil || !status.Available {
-		message := "Updater daemon is unavailable"
+		message := "Updater daemon is unavailable; run deploy/install-updater.sh on the host, then recreate qoder-api-proxy"
 		if err != nil {
 			message = err.Error()
 		}

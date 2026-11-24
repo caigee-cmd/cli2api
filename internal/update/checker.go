@@ -36,6 +36,18 @@ func NewChecker(currentVersion string, source ReleaseSource) *Checker {
 	return &Checker{currentVersion: currentVersion, source: source, cacheTTL: 10 * time.Minute}
 }
 
+// ReleaseRepo reports the owner/repo behind the release source when it can name
+// itself, so the console can explain which repository it follows.
+func (c *Checker) ReleaseRepo() string {
+	if c == nil || c.source == nil {
+		return ""
+	}
+	if named, ok := c.source.(interface{ Repo() string }); ok {
+		return named.Repo()
+	}
+	return ""
+}
+
 func (c *Checker) Check(ctx context.Context, force bool) (Info, error) {
 	current, err := ParseVersion(c.currentVersion)
 	if err != nil {

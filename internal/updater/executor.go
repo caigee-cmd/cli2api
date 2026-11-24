@@ -83,7 +83,7 @@ func NewExecutor(config ExecutorConfig) *Executor {
 		config.ContainerName = "qoder-api-proxy"
 	}
 	if config.ImageRepository == "" {
-		config.ImageRepository = "ghcr.io/caigee-cmd/cli2api"
+		config.ImageRepository = "ghcr.io/guyu233/cli2api"
 	}
 	if config.HealthURL == "" {
 		config.HealthURL = "http://127.0.0.1:3010/health"
@@ -92,7 +92,7 @@ func NewExecutor(config ExecutorConfig) *Executor {
 		config.HealthTimeout = 120 * time.Second
 	}
 	if strings.TrimSpace(config.GitHubRepo) == "" {
-		config.GitHubRepo = "caigee-cmd/cli2api"
+		config.GitHubRepo = "guyu233/cli2api"
 	}
 	return &Executor{
 		config:   config,
