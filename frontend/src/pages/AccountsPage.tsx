@@ -214,8 +214,9 @@ export function AccountsPage() {
 
   function checkinTimezoneFor(account: AccountRow) {
     const timezone = checkinPolicyFor(account)?.timezone
-    const resolved = timezone === 'Local' ? settings?.timezone : timezone
-    if (!resolved || resolved === 'Local') return undefined
+    // Check-in policies always run on the provider's server calendar. Never
+    // fall back to the browser/PC zone, even if an old backend still says Local.
+    const resolved = timezone === 'Local' ? 'Asia/Shanghai' : timezone || 'Asia/Shanghai'
     // Settings report the zone as "MST -07:00", which Intl rejects.
     try {
       Intl.DateTimeFormat('en-CA', { timeZone: resolved })
@@ -669,7 +670,7 @@ export function AccountsPage() {
     })
   }
 
-  async function onSaveSettings(id: string, input: { name: string; max_inflight: number; priority: number; credit_floor: number | null; percent_floor: number | null; proxy_url?: string; checkin_time?: string; drop_system_prompt?: boolean; model_aliases?: Record<string, string>; enabled_models?: string[]; set_model_routing?: boolean }) {
+  async function onSaveSettings(id: string, input: { name: string; max_inflight: number; priority: number }) {
     if (!id) throw new Error(t('accountNameRequired'))
     setNameById((current) => ({ ...current, [id]: input.name }))
     setInflightById((current) => ({ ...current, [id]: input.max_inflight }))
@@ -835,8 +836,6 @@ export function AccountsPage() {
       <EditAccountModal
         key={editId ?? 'closed'}
         account={editAccount}
-        checkinDefaultTime={editAccount && checkinPolicyFor(editAccount) ? settings?.checkin_times[editAccount.provider || ''] : undefined}
-        checkinTimezone={editAccount ? checkinTimezoneFor(editAccount) : undefined}
         busy={Boolean(busy && busy.id === editId && busy.kind === 'settings')}
         t={t}
         onClose={() => setEditId(null)}

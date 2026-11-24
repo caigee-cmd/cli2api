@@ -25,7 +25,6 @@ import { FormRow } from '@/components/ui/FormRow'
 import { SystemPageSkeleton } from '@/components/ui/PageSkeletons'
 import { useI18n } from '@/hooks/useI18n'
 import { CompactSwitch } from '@/components/ui/CompactSwitch'
-import { CheckinDefaults } from '@/components/checkin/CheckinDefaults'
 import { UpdateControls } from '@/components/system/UpdateControls'
 import { useSystemUpdate } from '@/hooks/useSystemUpdate'
 import { VersionHistory } from '@/components/VersionHistory'
@@ -227,7 +226,6 @@ export function SystemPage() {
               <span className="font-medium text-foreground">{settings?.checkin_disabled_accounts ? t('enabled') : t('disabled')}</span>
             </div>
           </Card>
-          <CheckinDefaults settings={settings} onSaved={setSettings} />
           </div>
         </Tabs.Panel>
         <Tabs.Panel id="routing" className="pt-5">
