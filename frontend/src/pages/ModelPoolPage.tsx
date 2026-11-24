@@ -344,9 +344,8 @@ function AggregationEditorModal({
     if (!initial) {
       const trimmed = id.trim().toLowerCase()
       if (!trimmed) { setError(t('modelPoolIdRequired')); return }
-      if (!/^[a-z0-9\-\/]+$/.test(trimmed)) { setError(t('modelPoolIdInvalid')); return }
+      if (!/^[a-z0-9.\-\/]+$/.test(trimmed)) { setError(t('modelPoolIdInvalid')); return }
     }
-    if (!name.trim()) { setError(t('modelPoolNameRequired')); return }
     if (!members.length) { setError(t('modelPoolMembersRequired')); return }
     if (members.some((m) => !m.provider || !m.model)) { setError(t('modelPoolMemberIncomplete')); return }
     if (!Number.isInteger(maxAttempts) || maxAttempts < 1 || maxAttempts > 64) {
@@ -356,7 +355,7 @@ function AggregationEditorModal({
     setError('')
     try {
       const payload: AggregationInput = {
-        name: name.trim(),
+        name: name.trim() || (initial?.id || id.trim().toLowerCase()),
         strategy,
         allow_fallbacks: allowFallbacks,
         max_attempts: maxAttempts,
@@ -399,7 +398,7 @@ function AggregationEditorModal({
                     <Input value={id} onChange={(e) => setId(e.target.value)} placeholder="my-claude" aria-label={t('modelPoolId')} disabled={busy} />
                   </FormRow>
                 ) : null}
-                <FormRow label={t('modelPoolName')}>
+                <FormRow label={t('modelPoolName')} hint={t('modelPoolNameHint')}>
                   <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={t('modelPoolNamePh')} aria-label={t('modelPoolName')} disabled={busy} />
                 </FormRow>
                 <FormRow label={t('modelPoolStrategy')} hint={t('modelPoolStrategyHint')}>

@@ -1,9 +1,9 @@
 ### English
 
-- Creating a model pool now validates the model ID inside the dialog (lowercase letters, digits, `-` and `/`) and shows the reason inline, instead of submitting a request the server is bound to reject.
-- Form errors in the model-pool editor stay pinned above the footer, so a validation failure is visible even when the member list is scrolled to the bottom.
+- Model-pool IDs may now contain dots (`deepseek-v4.1-flash`), so an upstream model name can be reused verbatim; spaces, underscores and stray symbols are still rejected with an inline message instead of a silent server error.
+- The display name is optional: leave it blank and the model ID is used, and validation errors stay pinned above the footer even when the member list is scrolled.
 
 ### 中文
 
-- 新建模型池时先在弹窗内校验模型 ID（只能是小写字母、数字、`-` 和 `/`），不合法就当场说明原因，不再提交一个必定被服务端拒绝的请求。
-- 模型池编辑器的表单错误固定显示在底部按钮上方，成员列表滚到底也能看到校验失败的原因。
+- 模型池 ID 现在允许点号（`deepseek-v4.1-flash`），可以直接沿用上游模型名；空格、下划线等仍然会被就地拒绝并说明原因，不再等到服务端返回一个看不见的错误。
+- 显示名称变为可选：留空则直接使用模型 ID；校验失败的错误固定显示在底部按钮上方，成员列表滚到底也可见。

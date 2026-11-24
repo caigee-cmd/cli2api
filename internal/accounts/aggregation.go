@@ -166,7 +166,7 @@ func PrepareCreateAggregation(input CreateAggregation) (CreateAggregation, error
 		return CreateAggregation{}, fmt.Errorf("aggregation id required")
 	}
 	if !validAggregationID(id) {
-		return CreateAggregation{}, fmt.Errorf("aggregation id may only contain lowercase letters, digits, '-' and '/', got %q", id)
+		return CreateAggregation{}, fmt.Errorf("aggregation id may only contain lowercase letters, digits, '.', '-' and '/', got %q", id)
 	}
 	name := strings.TrimSpace(input.Name)
 	if name == "" {
@@ -225,7 +225,7 @@ func validAggregationID(id string) bool {
 		return false
 	}
 	for _, r := range id {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' || r == '/' {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' || r == '/' || r == '.' {
 			continue
 		}
 		return false
