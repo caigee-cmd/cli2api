@@ -65,20 +65,21 @@ type WorkBuddyMaintainer interface {
 }
 
 type Manager struct {
-	config         ManagerConfig
-	store          AccountStore
-	poolState      PoolStateStore
-	starter        ProcessStarter
-	pool           *Pool
-	providers      *providers.Registry
-	workbuddy      WorkBuddyMaintainer
-	checkinRunning map[string]bool
-	mu             sync.Mutex
-	processes      map[string]ManagedProcess
-	restarts       map[string]int
-	restartBackoff map[string]int
-	recovering     map[string]bool
-	recoverPending map[string]string
+	config               ManagerConfig
+	store                AccountStore
+	poolState            PoolStateStore
+	starter              ProcessStarter
+	pool                 *Pool
+	providers            *providers.Registry
+	workbuddy            WorkBuddyMaintainer
+	checkinRunning       map[string]bool
+	checkinStatusRunning bool
+	mu                   sync.Mutex
+	processes            map[string]ManagedProcess
+	restarts             map[string]int
+	restartBackoff       map[string]int
+	recovering           map[string]bool
+	recoverPending       map[string]string
 	// recoverUnwindHook runs (tests only) as a recovery goroutine starts unwinding.
 	recoverUnwindHook func(id string)
 	recoverDone       sync.WaitGroup

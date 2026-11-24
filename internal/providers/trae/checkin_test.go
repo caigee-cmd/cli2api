@@ -172,6 +172,49 @@ func TestCheckinAuthDead(t *testing.T) {
 	}
 }
 
+func TestCheckinStatusIsReadOnly(t *testing.T) {
+	var calls []string
+	client, store := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != pathCheckinStatus {
+			t.Fatalf("read-only status hit %s %s", r.Method, r.URL.Path)
+		}
+		calls = append(calls, r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"checked_in": true, "credits": 120})
+	}))
+	seedCheckinCredential(t, store)
+
+	result, err := client.CheckinStatus(context.Background(), "acc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "already" || result.RewardCredits != 120 || result.EarliestCheckin != "00:00" {
+		t.Fatalf("result=%+v", result)
+	}
+	if len(calls) != 1 {
+		t.Fatalf("status must not claim: %v", calls)
+	}
+}
+
+func TestCheckinStatusPendingAndAdapterRegistration(t *testing.T) {
+	client, store := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"checked_in": false, "enable": true})
+	}))
+	seedCheckinCredential(t, store)
+
+	result, err := client.CheckinStatus(context.Background(), "acc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "pending" || result.EarliestCheckin != "00:00" {
+		t.Fatalf("result=%+v", result)
+	}
+	if client.Adapter().CheckinStatus == nil || !client.Adapter().Supports("checkin_status") {
+		t.Fatal("status reader not registered")
+	}
+}
+
 func TestCheckinRegisteredOnAdapter(t *testing.T) {
 	client, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	adapter := client.Adapter()

@@ -56,16 +56,24 @@ type Account struct {
 	CheckinTime          string `json:"checkin_time"`
 	ProxyURL             string `json:"-"`
 	// LastCheckin* are display-only WorkBuddy ops results.
-	LastCheckinAt     string         `json:"last_checkin_at,omitempty"`
-	LastCheckinMsg    string         `json:"last_checkin_msg,omitempty"`
-	LastCheckinStatus string         `json:"last_checkin_status,omitempty"`
-	Status            string         `json:"status"`
-	LastError         string         `json:"last_error,omitempty"`
-	LastErrorKind     string         `json:"last_error_kind,omitempty"`
-	CooldownUntil     *time.Time     `json:"cooldown_until,omitempty"`
-	Quota             *QuotaSnapshot `json:"-"`
-	CreatedAt         time.Time      `json:"created_at"`
-	UpdatedAt         time.Time      `json:"updated_at"`
+	LastCheckinAt     string `json:"last_checkin_at,omitempty"`
+	LastCheckinMsg    string `json:"last_checkin_msg,omitempty"`
+	LastCheckinStatus string `json:"last_checkin_status,omitempty"`
+	// LastCheckinSource is "local" for a real check-in attempt and "upstream"
+	// for a status-only read. LastCheckinSyncedAt is when the upstream status
+	// was last verified, independent of when the check-in happened.
+	LastCheckinSource   string `json:"last_checkin_source,omitempty"`
+	LastCheckinSyncedAt string `json:"last_checkin_synced_at,omitempty"`
+	// CheckinAutoTime is the upstream daily window start + 1 hour, stored as
+	// HH:MM in the provider timezone. Empty means use the provider fallback.
+	CheckinAutoTime string         `json:"checkin_auto_time,omitempty"`
+	Status          string         `json:"status"`
+	LastError       string         `json:"last_error,omitempty"`
+	LastErrorKind   string         `json:"last_error_kind,omitempty"`
+	CooldownUntil   *time.Time     `json:"cooldown_until,omitempty"`
+	Quota           *QuotaSnapshot `json:"-"`
+	CreatedAt       time.Time      `json:"created_at"`
+	UpdatedAt       time.Time      `json:"updated_at"`
 }
 
 type CheckinAllResult struct {
@@ -74,6 +82,17 @@ type CheckinAllResult struct {
 	Region    string `json:"region"`
 	Status    string `json:"status"`
 	Message   string `json:"message,omitempty"`
+}
+
+// CheckinStatusUpdate persists an upstream status read. CheckinAt is only set
+// when upstream confirms today's check-in; AutoTime is the derived HH:MM slot.
+type CheckinStatusUpdate struct {
+	Status    string
+	Message   string
+	Source    string
+	CheckinAt string
+	AutoTime  string
+	SyncedAt  time.Time
 }
 
 type CreateAccount struct {

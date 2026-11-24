@@ -117,19 +117,49 @@ func (c *Client) Checkin(ctx context.Context, accountID string) (providers.Check
 	}
 
 	state := readCheckin(detail)
+	earliest := doubaoEarliestClock(detail)
 	if !state.Found {
-		return providers.CheckinResult{Status: "skipped", Message: "活动里没有每日签到任务"}, nil
+		return providers.CheckinResult{Status: "skipped", Message: "活动里没有每日签到任务", EarliestCheckin: earliest}, nil
 	}
 	if state.Claimed {
 		message := "今天已签到"
 		if state.Streak > 0 {
 			message = "今天已签到，连续 " + itoa(state.Streak) + " 天"
 		}
-		return providers.CheckinResult{Status: "already", Message: message, RewardCredits: float64(state.Points)}, nil
+		return providers.CheckinResult{Status: "already", Message: message, RewardCredits: float64(state.Points), Streak: state.Streak, EarliestCheckin: earliest}, nil
 	}
 	message := "今日未签。豆包把领取限死在电脑版客户端，请在那里点一下"
 	if !state.Claimable {
 		message = "今日签到暂不可领：豆包按账号投放这个活动，你的账号当前没被投放"
 	}
-	return providers.CheckinResult{Status: "skipped", Message: message, RewardCredits: float64(state.Points)}, nil
+	return providers.CheckinResult{Status: "skipped", Message: message, RewardCredits: float64(state.Points), EarliestCheckin: earliest}, nil
+}
+
+// CheckinStatus reports the same read-only state without treating the
+// client-only claim as an unavailable activity.
+func (c *Client) CheckinStatus(ctx context.Context, accountID string) (providers.CheckinResult, error) {
+	result, err := c.Checkin(ctx, accountID)
+	if err != nil {
+		return providers.CheckinResult{}, err
+	}
+	if result.Status == "skipped" && strings.Contains(result.Message, "今日未签") {
+		result.Status = "pending"
+		result.Message = "上游显示今日未签到（豆包电脑版领取）"
+	}
+	return result, nil
+}
+
+func doubaoEarliestClock(detail map[string]any) string {
+	data, _ := detail["data"].(map[string]any)
+	if data == nil {
+		data = detail
+	}
+	for _, container := range []map[string]any{data, detail} {
+		for _, key := range []string{"start_time", "startTime", "begin_time"} {
+			if clock := providers.CheckinClockFromText(asString(container[key])); clock != "" {
+				return clock
+			}
+		}
+	}
+	return "00:00"
 }

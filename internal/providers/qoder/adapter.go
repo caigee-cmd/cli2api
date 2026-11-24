@@ -155,12 +155,13 @@ func (c *Client) SetLoginWait(timeout, interval time.Duration) {
 
 func (c *Client) Adapter() providers.Adapter {
 	return providers.Adapter{
-		ID:         "qoder",
-		Credential: patCodec{},
-		Login:      c,
-		Chat:       c,
-		Models:     c,
-		Checkin:    c,
+		ID:            "qoder",
+		Credential:    patCodec{},
+		Login:         c,
+		Chat:          c,
+		Models:        c,
+		Checkin:       c,
+		CheckinStatus: c,
 		// Prober covers PAT-backed in-process accounts (no worker URL): Probe
 		// bootstraps/renews the Bridge session and Quota pulls the OpenAPI
 		// usage, so the console's status and "refresh credits" match the

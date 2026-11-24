@@ -521,7 +521,7 @@ func TestStoreDefaultsWorkBuddyAutoCheckinOff(t *testing.T) {
 	}
 }
 
-func TestStoreCreateUsesConfiguredWorkBuddyCheckinDefault(t *testing.T) {
+func TestStoreCreateWorkBuddyCheckinTimeFallsBackToAuto(t *testing.T) {
 	ctx := context.Background()
 	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
 	if err != nil {
@@ -542,7 +542,7 @@ func TestStoreCreateUsesConfiguredWorkBuddyCheckinDefault(t *testing.T) {
 		t.Fatal(err)
 	}
 	updated, err := store.Get(ctx, account.ID)
-	if err != nil || updated.WorkBuddyCheckinTime != "07:15" {
+	if err != nil || updated.WorkBuddyCheckinTime != "01:00" {
 		t.Fatalf("updated=%+v err=%v", updated, err)
 	}
 }
