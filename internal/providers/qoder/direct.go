@@ -598,7 +598,7 @@ func BuildPlainChatBody(req translate.ChatRequest, now time.Time) map[string]any
 			"product": "cli", "version": COSYVersion, "type": "agent",
 			// model_key is what the gateway attributes the charge to. Without
 			// it, models that have no model_config fallback (kmodel_latest and
-			// later) are billed as auto. qodercli 1.1.81 always sends it.
+			// later) are billed as auto. qodercli 1.1.96 always sends it.
 			"model_key": modelKey,
 			"id":        newID(), "name": name, "begin_at": now.UnixMilli(), "stage": "start",
 		},
