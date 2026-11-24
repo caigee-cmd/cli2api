@@ -3,6 +3,28 @@
 Published user-facing notes for GitHub Releases and the console update page.
 Write upcoming notes as bilingual files in `changelog/unreleased/`.
 
+## 0.7.47 - 2026-11-24
+
+### English
+
+- Releases now come from this fork by default: the console checks `guyu233/cli2api`, the host updater pulls `ghcr.io/guyu233/cli2api`, and both installers use the same repository unless `UPDATE_GITHUB_REPO`, `CLI2API_IMAGE_REPOSITORY`, or `CLI2API_GITHUB_REPOSITORY` say otherwise.
+- The System update panel now prints which release repository it follows, and when the host updater is missing it says how to enable one instead of reporting a generic "temporarily unavailable" message. A failed prepare also names the missing updater daemon and the installer script.
+- `release.yml` also derives the previous version from reachable `v*` tags when the repository has no published release yet, so a fork's first release continues its version line instead of starting at v0.1.0.
+- Model-pool IDs may now contain dots (`deepseek-v4.1-flash`), so an upstream model name can be reused verbatim; spaces, underscores and stray symbols are still rejected with an inline message instead of a silent server error.
+- The display name is optional: leave it blank and the model ID is used, and validation errors stay pinned above the footer even when the member list is scrolled.
+- Update checks and the host updater's self-update no longer hardcode the upstream repository: `UPDATE_GITHUB_REPO` (service) and `--github-repo` (updater) accept any owner/repo, so a fork that publishes its own releases is detected and can refresh its updater binary.
+- `deploy/install-updater.sh` and `deploy/install-updater.ps1` honor `CLI2API_IMAGE_REPOSITORY` / `CLI2API_GITHUB_REPOSITORY` and pass the release repository to the updater, so a fork deployment installs without editing the scripts.
+
+### 中文
+
+- 发布源默认改为本 fork：控制台检查 `guyu233/cli2api`，宿主机 updater 拉取 `ghcr.io/guyu233/cli2api`，两个安装脚本也默认使用同一仓库；需要跟随其它仓库时用 `UPDATE_GITHUB_REPO`、`CLI2API_IMAGE_REPOSITORY`、`CLI2API_GITHUB_REPOSITORY` 覆盖。
+- 系统更新的版本面板会显示当前跟随的发布仓库；宿主机 updater 缺失时给出启用方法，而不是笼统的"暂时无法更新"；准备阶段失败时错误信息也会指出缺失的 updater 守护进程和安装脚本。
+- `release.yml` 在仓库还没有已发布 Release 时会从可达的 `v*` tag 推算上一个版本，fork 的首次发布会延续版本线，而不是从 v0.1.0 重新开始。
+- 模型池 ID 现在允许点号（`deepseek-v4.1-flash`），可以直接沿用上游模型名；空格、下划线等仍然会被就地拒绝并说明原因，不再等到服务端返回一个看不见的错误。
+- 显示名称变为可选：留空则直接使用模型 ID；校验失败的错误固定显示在底部按钮上方，成员列表滚到底也可见。
+- 更新检查与宿主 updater 的自我更新不再写死上游仓库：`UPDATE_GITHUB_REPO`（服务端）和 `--github-repo`（updater）可指向任意 owner/repo，发布在 fork 的版本因此能被发现，updater 二进制也能随之更新。
+- `deploy/install-updater.sh` 与 `deploy/install-updater.ps1` 支持 `CLI2API_IMAGE_REPOSITORY` / `CLI2API_GITHUB_REPOSITORY` 覆盖并把发布仓库传给 updater，fork 部署无需改脚本即可安装。
+
 ## 0.7.46 - 2026-11-24
 
 ### English
