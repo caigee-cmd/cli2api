@@ -56,12 +56,9 @@ func MergeAggregationModels(ctx context.Context, lister AggregationLister, model
 			MergeModelEntryCapabilities(merged, model)
 		}
 		if merged == nil {
-			// No member is currently in the catalog: still expose the logical
-			// model so clients do not lose the ID; use a minimal entry.
-			merged = map[string]any{
-				"object": "model",
-				"owned_by": "aggregation",
-			}
+			// Every member is filtered out by the caller's provider policy. Do
+			// not advertise a logical ID that cannot route to any real model.
+			continue
 		}
 		merged["id"] = agg.ID
 		merged["display_name"] = agg.Name

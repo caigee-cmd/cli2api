@@ -112,6 +112,11 @@ func New(cfg config.Config) *App {
 		TemplatePath: cfg.PlainTemplatePath, ProxyAPIKey: proxyAPIKey, ProxyURL: proxyURL,
 		MaxLogWriters: io.MultiWriter(os.Stderr, ring),
 	}, store, nil)
+	// Existing provider-region groups migrate to provider policies before the
+	// runtime starts, so workers see the same unified values on first boot.
+	if err := appsvc.NewProviderSettings(manager).SeedMissing(context.Background()); err != nil {
+		log.Printf("[provider-settings] seed existing groups: %v", err)
+	}
 	if err := manager.Start(context.Background()); err != nil {
 		panic(err)
 	}

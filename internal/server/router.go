@@ -30,6 +30,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/model-catalog", s.withConsoleKey(s.consoleHandler().HandleCatalogStatus))
 	s.mux.HandleFunc("/api/models/", s.withConsoleKey(s.consoleHandler().HandleModelSetting))
 	s.mux.HandleFunc("/api/providers", s.withConsoleKey(s.consoleHandler().HandleProviders))
+	s.mux.HandleFunc("/api/provider-settings", s.withConsoleKey(s.consoleHandler().HandleProviderSettings))
+	s.mux.HandleFunc("/api/provider-settings/catalog", s.withConsoleKey(s.consoleHandler().HandleProviderCatalog))
 	s.mux.HandleFunc("/api/accounts", s.withConsoleKey(s.consoleHandler().HandleAccounts))
 	s.mux.HandleFunc("/api/accounts/import", s.withConsoleKey(s.consoleHandler().HandleAccountImport))
 	s.mux.HandleFunc("/api/accounts/export", s.withConsoleKey(s.consoleHandler().HandleAccountBundleExport))

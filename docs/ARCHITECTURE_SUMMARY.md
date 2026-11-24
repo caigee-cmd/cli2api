@@ -6,7 +6,7 @@ status: canonical
 read-when: 需要快速理解后端分层、请求路径、运行时和 provider 扩展边界时
 summary: 面向贡献者和 AI 的精简架构摘要；详细协议、里程碑和本地运维资料不在本文维护。
 related: [AGENTS.md, CONTRIBUTING.md, docs/DESIGN.md, docs/REFACTORING.md, docs/NATIVE_PROTOCOL_REQUESTS.md]
-last-updated: 2026-11-23
+last-updated: 2026-11-24
 ---
 
 # CLI2API 架构摘要
@@ -83,6 +83,7 @@ cmd/server
 ## 持久化和安全边界
 
 - SQLite migration 一旦发布，SQL 字节不可修改；新增 schema 必须追加新的编号 migration。
+- 供应商级设置（积分/百分比保底、代理、系统提示词处理、别名、可用模型、签到时间）按 `provider + region` 存在 `app_secrets` 的 `provider_settings_v1` 中。服务启动时只为已有账号的 provider region 补一次缺失策略，之后 `store.Get/List` 在读取时把策略叠加成 effective account，供 runtime、目录、签到和账号视图使用；账号行只作为身份与调度的事实源，历史供应商列即使存在也被策略覆盖。保存供应商策略只能刷新 live pool，不得把同一组值批量写回账号行。跨 Provider 聚合模型写入时也必须用同一策略校验成员模型，不能绕过控制台模型列表保存已禁用模型。
 - 控制台密钥、客户端密钥和上游凭证是不同的认证边界，不能混用。
 - API 返回中不得暴露原始 token、auth blob、密钥明文、host 路径或凭证 payload。
 - 管理接口必须认证；默认只绑定本机，不要直接暴露 host 端口到公网。
