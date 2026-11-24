@@ -77,7 +77,7 @@ Qoder CN, WorkBuddy, and Trae are implemented; live-account acceptance is still 
   <img src="./docs/assets/readme/console-window-en.svg" width="100%" alt="CLI2API console Accounts page: each account shows its login method, ready state, and quota, with an Access panel offering the Base URL and a quick check">
 </p>
 
-Readiness and quota sit on the account card. Access copies the Base URL and runs a quick check. Check-in is declared per provider; today that is WorkBuddy, QwenWork, Qoder, Trae, MiniMax Code, CodeArts, and Doubao Work, each with a manual check-in on the card. Automatic check-in is enabled per account and off by default, with the default time per provider under System → Automatic check-in. Live-account check-in acceptance is still pending.
+Readiness and quota sit on the account card. Access copies the Base URL and runs a quick check. Check-in is declared per provider; today that is WorkBuddy CN, QwenWork, Qoder, Trae, MiniMax Code, CodeArts, and Doubao Work, each with a manual check-in on the card. Automatic check-in is enabled per account and off by default, with the default time per provider under System → Automatic check-in. Live-account check-in acceptance is still pending.
 
 ## Earliest expiry first
 

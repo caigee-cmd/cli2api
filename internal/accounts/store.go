@@ -51,6 +51,7 @@ type AccountStore interface {
 	ObserveHealth(ctx context.Context, id, remoteUID, lastError, lastKind string) error
 	SaveQuota(ctx context.Context, id string, quota *QuotaSnapshot) error
 	RecordCheckin(ctx context.Context, id, status, msg string, at time.Time) error
+	RecordCheckinStatus(ctx context.Context, id string, update CheckinStatusUpdate) error
 	ListCheckinRecords(ctx context.Context, accountID string, limit int) ([]CheckinRecord, error)
 	GetSecret(ctx context.Context, name string) (string, bool, error)
 	SetSecret(ctx context.Context, name, value string) error

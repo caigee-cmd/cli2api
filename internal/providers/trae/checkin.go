@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/providers"
@@ -40,6 +41,8 @@ func (client *Client) Checkin(ctx context.Context, accountID string) (providers.
 	if err != nil {
 		var already AlreadyCheckedInError
 		if errors.As(err, &already) {
+			// checkin_credits/status is scoped to the provider's current day; an
+			// "already" business answer is today's, not yesterday's.
 			return providers.CheckinResult{Status: "already", Message: already.Msg}, nil
 		}
 		return providers.CheckinResult{}, err
@@ -57,6 +60,11 @@ func (client *Client) Checkin(ctx context.Context, accountID string) (providers.
 	if err := client.checkinClaim(ctx, accountID, credential); err != nil {
 		var already AlreadyCheckedInError
 		if errors.As(err, &already) {
+			// The claim endpoint may replay yesterday's grant during the brief
+			// post-midnight window; do not record that as today's success.
+			if providers.CheckinClaimProvisional(time.Now()) {
+				return providers.CheckinResult{Status: "unknown", Message: "上游日界尚未确认，稍后复核"}, nil
+			}
 			return providers.CheckinResult{Status: "already", Message: already.Msg}, nil
 		}
 		return providers.CheckinResult{}, err
@@ -78,6 +86,43 @@ func (client *Client) Checkin(ctx context.Context, accountID string) (providers.
 	}, nil
 }
 
+// CheckinStatus reads the upstream status without attempting a claim.
+func (client *Client) CheckinStatus(ctx context.Context, accountID string) (providers.CheckinResult, error) {
+	credential, err := client.credential(ctx, accountID)
+	if err != nil {
+		return providers.CheckinResult{}, err
+	}
+	st, err := client.checkinStatus(ctx, accountID, credential)
+	if err != nil {
+		var already AlreadyCheckedInError
+		if errors.As(err, &already) {
+			return providers.CheckinResult{
+				Status:  "already",
+				Message: already.Msg,
+				// Trae's status endpoint does not expose a window start; the
+				// desktop daily panel rolls over at 00:00 local.
+				EarliestCheckin: "00:00",
+			}, nil
+		}
+		return providers.CheckinResult{}, err
+	}
+	result := providers.CheckinResult{EarliestCheckin: "00:00"}
+	if st.checkedIn {
+		result.Status = "already"
+		result.Message = "今日已签到"
+		result.RewardCredits = float64(st.credits + st.extraCredits)
+		return result, nil
+	}
+	if !st.enable {
+		result.Status = "skipped"
+		result.Message = "签到活动未开放"
+		return result, nil
+	}
+	result.Status = "pending"
+	result.Message = "上游显示今日未签到"
+	return result, nil
+}
+
 type checkinState struct {
 	checkedIn    bool
 	credits      int64
@@ -89,7 +134,7 @@ type checkinState struct {
 // "already checked in" yields AlreadyCheckedInError so the caller can return
 // Status="already" without treating it as a failure.
 func (client *Client) checkinStatus(ctx context.Context, accountID string, credential Credential) (checkinState, error) {
-	body, err := client.CheckinStatus(ctx, accountID, credential)
+	body, err := client.checkinStatusBody(ctx, accountID, credential)
 	if err != nil {
 		return checkinState{}, err
 	}

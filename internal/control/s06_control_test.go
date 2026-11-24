@@ -172,6 +172,9 @@ func (s *fakeStore) SaveQuota(context.Context, string, *accounts.QuotaSnapshot) 
 func (s *fakeStore) RecordCheckin(context.Context, string, string, string, time.Time) error {
 	return nil
 }
+func (s *fakeStore) RecordCheckinStatus(context.Context, string, accounts.CheckinStatusUpdate) error {
+	return nil
+}
 func (s *fakeStore) ListCheckinRecords(_ context.Context, accountID string, _ int) ([]accounts.CheckinRecord, error) {
 	s.log.add("store.ListCheckinRecords")
 	return s.checkins[accountID], nil

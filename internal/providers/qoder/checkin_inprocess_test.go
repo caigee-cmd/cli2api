@@ -13,6 +13,96 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/providers/qoder/qauth"
 )
 
+func TestBridgeCheckinStatusNeverClaims(t *testing.T) {
+	origHook := CheckinEndpointHook
+	origClient := checkinHTTPClient
+	t.Cleanup(func() {
+		CheckinEndpointHook = origHook
+		checkinHTTPClient = origClient
+	})
+	now := time.Now()
+	windowStart := now.Add(-time.Second)
+	windowEnd := now.Add(time.Hour)
+	var claims atomic.Int32
+	openapi := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/sash/api/v1/me/campaigns":
+			_ = json.NewEncoder(w).Encode(map[string]any{"campaigns": []map[string]any{{
+				"campaignId": "today-credit", "actionType": "CLAIM_BENEFIT", "claimStatus": "CLAIMED",
+				"startAt": float64(windowStart.Unix()), "endAt": float64(windowEnd.Unix()),
+				"benefit": map[string]any{"kind": "CREDITS", "amount": 50.0},
+			}}})
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/claim"):
+			claims.Add(1)
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"status": "CLAIMED"}})
+		default:
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer openapi.Close()
+	CheckinEndpointHook = func(*qauth.RegionConfig) *checkinRegion {
+		return &checkinRegion{base: openapi.URL, origin: "https://stub.test"}
+	}
+	checkinHTTPClient = openapi.Client()
+	b := newTestBridge(t, "fake-pat-secret-0123456789abcdef")
+
+	result, err := b.CheckinStatus(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "already" {
+		t.Fatalf("result=%+v", result)
+	}
+	if claims.Load() != 0 {
+		t.Fatalf("status read claimed %d times", claims.Load())
+	}
+}
+
+func TestQoderEarliestClockUsesNextWindow(t *testing.T) {
+	now := time.Now()
+	todayWindowStart := time.Date(now.Year(), now.Month(), now.Day(), 10, 0, 0, 0, time.FixedZone("UTC+8", 8*3600))
+	end := todayWindowStart.Add(24*time.Hour - time.Second)
+	result := qoderEarliestClock([]campaign{{EndAt: float64(end.Unix())}})
+	if result != "10:00" {
+		t.Fatalf("earliest=%q want 10:00 (end=%s)", result, end.Format(time.RFC3339))
+	}
+}
+
+func TestBridgeCheckinStatusClaimableIsPending(t *testing.T) {
+	origHook := CheckinEndpointHook
+	origClient := checkinHTTPClient
+	t.Cleanup(func() {
+		CheckinEndpointHook = origHook
+		checkinHTTPClient = origClient
+	})
+	var claims atomic.Int32
+	openapi := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			claims.Add(1)
+			t.Fatalf("status read wrote upstream: %s %s", r.Method, r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"campaigns": []map[string]any{{
+			"campaignId": "today-credit", "actionType": "CLAIM_BENEFIT", "claimStatus": "CLAIMABLE",
+			"benefit": map[string]any{"kind": "CREDITS", "amount": 50.0},
+		}}})
+	}))
+	defer openapi.Close()
+	CheckinEndpointHook = func(*qauth.RegionConfig) *checkinRegion {
+		return &checkinRegion{base: openapi.URL, origin: "https://stub.test"}
+	}
+	checkinHTTPClient = openapi.Client()
+	b := newTestBridge(t, "fake-pat-secret-0123456789abcdef")
+
+	result, err := b.CheckinStatus(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "pending" || result.EarliestCheckin != "10:00" || claims.Load() != 0 {
+		t.Fatalf("result=%+v claims=%d", result, claims.Load())
+	}
+}
+
 // TestBridgeCheckinHappyPath stubs the OpenAPI campaigns + claim endpoints
 // and verifies the full in-process Go path: EnsureFreshSession is a no-op
 // (session pre-populated), GET /me/campaigns lists, POST /claim claims,

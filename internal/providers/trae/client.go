@@ -1566,7 +1566,7 @@ func int64FromAny(value any) int64 {
 	}
 }
 
-func (c *Client) CheckinStatus(ctx context.Context, accountID string, credential Credential) ([]byte, error) {
+func (c *Client) checkinStatusBody(ctx context.Context, accountID string, credential Credential) ([]byte, error) {
 	body, status, err := c.do(ctx, accountID, http.MethodPost, credential.BillingBase()+pathCheckinStatus, checkinReqSourceBody(credential),
 		func(h http.Header) { SetUgHeaders(h, credential) })
 	if err != nil {
@@ -1600,15 +1600,16 @@ func checkinReqSourceBody(credential Credential) []byte {
 
 func (c *Client) Adapter() providers.Adapter {
 	return providers.Adapter{
-		ID:           "trae",
-		Credential:   credentialCodec{},
-		Login:        c,
-		Chat:         c,
-		Models:       c,
-		Classifier:   classifier{},
-		ImportExport: importer{},
-		Prober:       c,
-		Checkin:      c,
+		ID:            "trae",
+		Credential:    credentialCodec{},
+		Login:         c,
+		Chat:          c,
+		Models:        c,
+		Classifier:    classifier{},
+		ImportExport:  importer{},
+		Prober:        c,
+		Checkin:       c,
+		CheckinStatus: c,
 	}
 }
 
