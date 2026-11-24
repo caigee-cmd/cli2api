@@ -1,1 +1,0 @@
-import{a as e,c as t}from"./shim-mfK0Rmj6.js";import{a as n}from"./useI18n-DAGWWg9N.js";var r=t(e(),1),i=(0,r.createContext)(!1),a=e=>{let t=(0,r.use)(i),a=(0,r.use)(n);return!t||a?.slots?.[e]!=null};export{a as n,i as t};

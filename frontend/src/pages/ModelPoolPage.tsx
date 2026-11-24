@@ -48,33 +48,52 @@ function newMemberDraft(): MemberDraft {
   return { key: `${Date.now()}-${Math.random()}`, provider: '', region: '', model: '', account_id: '', priority: 0, weight: 100 }
 }
 
-function accountOptions(accounts: AccountRow[], provider: string): FilterSelectOption[] {
-  return accounts
-    .filter((account) => !provider || account.provider === provider)
-    .map((account) => ({
-      id: account.id,
-      label: `${account.name || account.id}${account.region ? ` · ${account.region}` : ''}`,
-    }))
-    .sort((a, b) => a.label.localeCompare(b.label))
+function normalizeProvider(value?: string) {
+  return String(value || 'qoder').trim().toLowerCase()
 }
 
-function providerOptions(descriptors: ProviderDescriptor[]): FilterSelectOption[] {
-  return descriptors.map((d) => ({ id: d.id, label: d.label }))
+function normalizeRegion(value?: string) {
+  const region = String(value || '').trim().toLowerCase()
+  return region === '' || region === 'gl' ? 'global' : region
 }
 
-function regionOptions(descriptors: ProviderDescriptor[], provider: string): FilterSelectOption[] {
+function providerOptions(descriptors: ProviderDescriptor[], accounts: AccountRow[]): FilterSelectOption[] {
+  const connected = new Set(accounts.map((account) => normalizeProvider(account.provider)))
+  return descriptors
+    .filter((d) => connected.has(normalizeProvider(d.id)))
+    .map((d) => ({ id: d.id, label: d.label }))
+}
+
+function regionOptions(descriptors: ProviderDescriptor[], accounts: AccountRow[], provider: string): FilterSelectOption[] {
   const descriptor = descriptors.find((d) => d.id === provider)
-  return (descriptor?.regions || []).map((r) => ({ id: r.id, label: r.label }))
+  if (!descriptor) return []
+  const connected = new Set(
+    accounts
+      .filter((account) => normalizeProvider(account.provider) === normalizeProvider(provider))
+      .map((account) => normalizeRegion(account.region)),
+  )
+  return (descriptor.regions || [])
+    .filter((r) => connected.has(normalizeRegion(r.id)))
+    .map((r) => ({ id: r.id, label: r.label }))
 }
 
-// Models are catalog entries with an optional provider field. When a model has
-// no provider tag it is treated as available on every provider (shared/bare
-// catalog), so it can still be selected as an aggregation member.
-function modelOptions(models: ModelInfo[], provider: string, t: TFunc): FilterSelectOption[] {
+// Models come from the console catalog, already filtered by the connected
+// accounts' provider policy. Region narrowing keeps a provider's CN policy from
+// leaking a Global-only model into this member.
+function modelOptions(models: ModelInfo[], provider: string, region: string, t: TFunc): FilterSelectOption[] {
   const seen = new Set<string>()
   const out: FilterSelectOption[] = []
+  const wantedProvider = String(provider || '').trim().toLowerCase()
+  const wantedRegion = String(region || '').trim() ? normalizeRegion(region) : ''
   for (const model of models) {
-    if (model.provider && model.provider !== provider) continue
+    const taggedProvider = String(model.provider || model.owned_by || '').trim().toLowerCase()
+    if (taggedProvider && taggedProvider !== wantedProvider) continue
+    if (wantedRegion) {
+      const modelRegions = [model.region, ...(model.regions || [])]
+        .map((value) => normalizeRegion(value))
+        .filter(Boolean)
+      if (modelRegions.length && !modelRegions.includes(wantedRegion)) continue
+    }
     const id = model.id
     if (!id || seen.has(id)) continue
     seen.add(id)
@@ -109,7 +128,7 @@ export function ModelPoolPage() {
       const [aggResult, providerResult, modelResult, accountResult] = await Promise.all([
         fetchAggregations(),
         fetchProviders(),
-        fetchModels(),
+        fetchModels(undefined, false, 'regional'),
         fetchAccounts(),
       ])
       setAggregations(aggResult.data || [])
@@ -303,7 +322,7 @@ function AggregationEditorModal({
     () => AGGREGATION_STRATEGIES.map((s) => ({ id: s, label: strategyLabel(s, t) })),
     [t],
   )
-  const providerSelectOptions = useMemo(() => providerOptions(descriptors), [descriptors])
+  const providerSelectOptions = useMemo(() => providerOptions(descriptors, accounts), [descriptors, accounts])
 
   function updateMember(key: string, patch: Partial<MemberDraft>) {
     setMembers((current) => current.map((m) => m.key === key ? { ...m, ...patch } : m))
@@ -344,7 +363,9 @@ function AggregationEditorModal({
           provider: m.provider,
           region: m.region || '',
           model: m.model,
-          account_id: m.account_id || '',
+          // Accounts are selected by the provider pool at request time. The member
+          // is provider-wide, never pinned to one account from this editor.
+          account_id: '',
           priority: i,
           weight: m.weight || 100,
         })),
@@ -363,7 +384,7 @@ function AggregationEditorModal({
       <Modal.Backdrop variant="blur">
         <Modal.Container placement="center" size="lg" scroll="inside">
           <Modal.Dialog className="sm:min-w-[40rem]">
-            <Form onSubmit={submit}>
+            <Form className="flex min-h-0 flex-1 flex-col" onSubmit={submit}>
               <Modal.Header className="items-start justify-between gap-4 px-6 pt-6">
                 <div>
                   <Modal.Heading className="text-section font-semibold">{initial ? t('modelPoolEdit') : t('modelPoolCreate')}</Modal.Heading>
@@ -413,8 +434,8 @@ function AggregationEditorModal({
                   ) : (
                     <div className="space-y-2">
                       {members.map((member, index) => {
-                        const regions = regionOptions(descriptors, member.provider)
-                        const modelChoices = modelOptions(models, member.provider, t)
+                        const regions = regionOptions(descriptors, accounts, member.provider)
+                        const modelChoices = modelOptions(models, member.provider, member.region || '', t)
                         return (
                           <div key={member.key} className="rounded-xl bg-surface-secondary p-3">
                             <div className="mb-2 flex items-center justify-between gap-2">
@@ -432,25 +453,7 @@ function AggregationEditorModal({
                               </div>
                               <div className="space-y-1">
                                 <Label className="text-caption text-muted">{t('modelPoolRegion')}</Label>
-                                <FilterSelect value={member.region || ''} onChange={(v) => updateMember(member.key, { region: v })} ariaLabel={t('modelPoolRegion')} options={[{ id: '', label: t('modelPoolAnyRegion') }, ...regions]} className="w-full" />
-                              </div>
-                              <div className="space-y-1 sm:col-span-2">
-                                <Label className="text-caption text-muted">{t('modelPoolAccount')}</Label>
-                                <FilterSelect
-                                  value={member.account_id || ''}
-                                  onChange={(v) => {
-                                    const picked = accounts.find((account) => account.id === v)
-                                    updateMember(member.key, {
-                                      account_id: v,
-                                      provider: picked?.provider || member.provider,
-                                      region: picked?.region || member.region,
-                                    })
-                                  }}
-                                  ariaLabel={t('modelPoolAccount')}
-                                  options={[{ id: '', label: t('modelPoolAnyAccount') }, ...accountOptions(accounts, member.provider)]}
-                                  className="w-full"
-                                />
-                                <p className="text-caption leading-5 text-muted">{t('modelPoolAccountHint')}</p>
+                                <FilterSelect value={member.region || ''} onChange={(v) => updateMember(member.key, { region: v, model: '', account_id: '' })} ariaLabel={t('modelPoolRegion')} options={[{ id: '', label: t('modelPoolAnyRegion') }, ...regions]} className="w-full" />
                               </div>
                               <div className="space-y-1 sm:col-span-2">
                                 <Label className="text-caption text-muted">{t('modelPoolModel')}</Label>
