@@ -890,3 +890,43 @@ func TestSummarizeModelCostsUsesServedModel(t *testing.T) {
 		})
 	}
 }
+
+func TestSummarizeRequestUsageReportsCacheHitRate(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	base := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
+	iptr := func(v int) *int { return &v }
+	insert := func(id string, at time.Time, prompt, cacheRead int) {
+		t.Helper()
+		if err := store.InsertRequestLog(ctx, accounts.RequestLog{
+			ID: id, CreatedAt: at, Status: accounts.RequestStatusOK,
+			RequestedModel: "glm", PromptTokens: iptr(prompt), CacheReadTokens: iptr(cacheRead),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	insert("req_hit", base, 1000, 900)
+	insert("req_miss", base.Add(time.Minute), 1000, 0)
+
+	usage, err := store.SummarizeRequestUsage(ctx, base.Add(-time.Minute), base.Add(time.Hour), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if usage.Totals.CacheHitRate == nil {
+		t.Fatal("cache hit rate missing")
+	}
+	if got := *usage.Totals.CacheHitRate; got < 0.44 || got > 0.46 {
+		t.Fatalf("cache hit rate = %v, want 0.45", got)
+	}
+	if usage.Totals.CacheHitTokens != 900 || usage.Totals.CacheMissTokens != 1100 {
+		t.Fatalf("hit/miss = %d/%d", usage.Totals.CacheHitTokens, usage.Totals.CacheMissTokens)
+	}
+	if usage.Totals.CacheHitRate != nil && (usage.Totals.Requests != 2) {
+		t.Fatalf("requests = %d", usage.Totals.Requests)
+	}
+}

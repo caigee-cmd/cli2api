@@ -223,8 +223,13 @@ func (e ChatExecutor) Prepare(in PrepareInput) (PreparedRequest, error) {
 		} else if sessionKeyFor("", "", in.Identity, request) == "" && MessageStatShards() > 0 {
 			source = "shard"
 		}
+		// The component hashes answer the question a bare key cannot: when a
+		// chat re-anchors every turn, which part of the request moved?
+		parts := translate.SeedComponents(request)
 		log.Printf("session affinity request_id=%q source=%q key=%q model=%q tools=%t msgs=%d",
 			requestID, source, shortSessionKey(sessionKey), request.Model, len(request.Tools) > 0, len(request.Messages))
+		log.Printf("session affinity components request_id=%q key=%q model_hash=%q tools_hash=%q prefix_hash=%q first_user_hash=%q",
+			requestID, shortSessionKey(sessionKey), parts.Model, parts.Tools, parts.Prefix, parts.FirstUser)
 	}
 	return PreparedRequest{
 		Context:        ctx,
