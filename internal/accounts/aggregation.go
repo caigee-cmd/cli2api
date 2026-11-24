@@ -162,8 +162,11 @@ func normalizeAggregationMaxAttempts(value int) int {
 
 func PrepareCreateAggregation(input CreateAggregation) (CreateAggregation, error) {
 	id := strings.ToLower(strings.TrimSpace(input.ID))
+	if id == "" {
+		return CreateAggregation{}, fmt.Errorf("aggregation id required")
+	}
 	if !validAggregationID(id) {
-		return CreateAggregation{}, fmt.Errorf("aggregation id required (lowercase letters, digits, '-' and '/')")
+		return CreateAggregation{}, fmt.Errorf("aggregation id may only contain lowercase letters, digits, '-' and '/', got %q", id)
 	}
 	name := strings.TrimSpace(input.Name)
 	if name == "" {

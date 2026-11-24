@@ -344,6 +344,7 @@ function AggregationEditorModal({
     if (!initial) {
       const trimmed = id.trim().toLowerCase()
       if (!trimmed) { setError(t('modelPoolIdRequired')); return }
+      if (!/^[a-z0-9\-\/]+$/.test(trimmed)) { setError(t('modelPoolIdInvalid')); return }
     }
     if (!name.trim()) { setError(t('modelPoolNameRequired')); return }
     if (!members.length) { setError(t('modelPoolMembersRequired')); return }
@@ -393,9 +394,6 @@ function AggregationEditorModal({
                 <Modal.CloseTrigger isDisabled={busy} aria-label={t('close')} className="grid size-9 place-items-center rounded-lg text-muted hover:bg-surface-secondary"><X size={18} /></Modal.CloseTrigger>
               </Modal.Header>
               <Modal.Body className="space-y-5 px-6 pb-2 pt-1">
-                {error ? (
-                  <Alert status="danger"><Alert.Indicator /><Alert.Content><Alert.Title>{error}</Alert.Title></Alert.Content></Alert>
-                ) : null}
                 {!initial ? (
                   <FormRow label={t('modelPoolId')} hint={t('modelPoolIdHint')}>
                     <Input value={id} onChange={(e) => setId(e.target.value)} placeholder="my-claude" aria-label={t('modelPoolId')} disabled={busy} />
@@ -483,6 +481,11 @@ function AggregationEditorModal({
                   )}
                 </div>
               </Modal.Body>
+              {error ? (
+                <div className="px-6 pb-2">
+                  <Alert status="danger"><Alert.Indicator /><Alert.Content><Alert.Title>{error}</Alert.Title></Alert.Content></Alert>
+                </div>
+              ) : null}
               <Modal.Footer className="justify-end">
                 <Button variant="ghost" isDisabled={busy} onPress={onClose}>{t('cancel')}</Button>
                 <Button type="submit" isPending={busy}>{initial ? t('save') : t('create')}</Button>
