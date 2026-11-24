@@ -289,7 +289,7 @@ func TestRouteFailoverKeepsAttemptBudgetAndCrossesRegion(t *testing.T) {
 		t.Fatalf("attempt budget shrank after region pin: %d", loop.attempts)
 	}
 
-	loop.failover(e, first)
+	loop.failover(e, first, Classified{Kind: "unavailable"})
 	second, _, err := loop.pickNext(e, "shared")
 	if err != nil {
 		t.Fatalf("failover pick: %v", err)
