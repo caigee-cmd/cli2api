@@ -3,6 +3,44 @@
 Published user-facing notes for GitHub Releases and the console update page.
 Write upcoming notes as bilingual files in `changelog/unreleased/`.
 
+## 0.7.46 - 2026-11-25
+
+### English
+
+- Aggregated models can now pin the context window, max output tokens, reasoning levels, and default reasoning effort in the model pool editor; `/v1/models` advertises exactly those values.
+- Aggregations without overrides advertise the conservative intersection of their members (smallest window and output, shared reasoning levels) instead of the first member's values, and members are resolved by provider and region rather than by model name alone.
+- Requests that carry no reasoning intent use the aggregation's configured default level, and each member provider still maps or clamps the level to what its own model supports.
+- Fix the key editor's cross-provider aggregation switch: while it is on, every provider checkbox under it is disabled and visibly greyed out instead of staying clickable, so a saved grant set cannot drift while the key is in provider-neutral mode.
+- Fix an aggregation key returning an empty `/v1/models`: the key now lists the enabled logical models from the model pool plus the account aliases it can reach, still folded into provider-neutral names. The gateway also accepts those logical models on the chat path, not just account aliases, so a client that picks a listed model no longer gets `model_not_aggregated`.
+- Keep the synthetic `aggregation` provider out of every shared catalog, console and server: provider settings, account model directories and the model-pool member picker show only real upstream models, and the ordinary `/v1/models` response no longer merges logical entries or hides their real members. An ordinary key always routes the real provider model, so a logical ID that reuses a real catalog ID can never shadow it. Logical models appear only on the model-pool page and in the key-scoped `/v1/models` view of a key with aggregation enabled.
+- Check in all / refresh credits now fan out to every account in one pass: the new bulk endpoints return one result per account with the verbatim upstream error, and the console no longer batches or queues requests.
+- Console state is pushed over `GET /api/events` (SSE) with replay by sequence id, so account health, cooldown, quota, check-in and bulk progress reach the page within a second; a 5s poll takes over when the stream is unavailable.
+- The console shows real data only: the synthetic inflight demo board and its toggle are gone, an unmeasured P95 renders as "—", a force-ready account is badged, and each quota snapshot states how old it is.
+- Check-in results carry the real upstream reward credits plus error code/HTTP status, and a provider that reports no status is shown as unknown instead of success.
+- Requests carrying video, audio or file parts are refused with a real 400 `invalid_request` rather than being silently dropped while prompts are built, and Trae streams now fail over when the upstream accepts a request and then sends nothing.
+- Pin every provider client version to the current upstream release: Trae CN `3.4.21` with build code `20261117` (both taken from the 2026-11-17 public release; the model catalog and chat gate on `X-Ide-Version-Code`, and a stale value silently cut the catalog from 21 models to 6), Kiro IDE `1.5.37`, Codex CLI `0.172.0`, Command Code CLI `1.93.3`, Kimi Code CLI `2.7.3`, Devin CLI `3000.14.30821`, and the WorkBuddy / CodeBuddy CLI segment `2.186.0` (CN desktop `5.11.3`, Global `5.11.4`).
+- Check-in and quota paths were re-verified against the live upstream with those versions: Trae daily check-in and credit usage, WorkBuddy daily check-in, user-resource and billing identity, both unchanged. WorkBuddy CLI `2.186.0` returns the same 57-model CN catalog and streams chat exactly like `2.176.0`.
+- Also refreshed two identities that the first pass had left alone once a public source was found: Meta Muse now sends the `muse-build/1.4.14` fingerprint (build `dec7d749…`, `tbh:exec`, platform from the host) instead of the stale `1.3.0 / tbh:tui`, and the MiniMax check-in query reports `desktop_version=0.7.9` (the current MCode TUI release) instead of `0.7.2`.
+- Four identities that had been left on assumptions were re-checked against the packages the vendors actually ship: Qoder check-in now reports the desktop release per edition (`0.5.18` CN, `0.5.3` global) instead of `0.4.8`; CodeArts reports the snap extension identity every current client sends (`snap_vscode`, `26.11.300`, the VS Code extension published 2026-11-25) instead of `snap_AIIDE / 5.2.0`, a pair that appears in neither the IDE 26.11.200 package nor the VSIX; Kiro's KAS segment moves to `0.66.123`, the `@kiro/agent` bundled in IDE 1.5.37; and Doubao Work's account query moves to `sdk_version=2.2.10` (what doubao.com itself sends today), while `version_code=20800` stays because the official page still sends it.
+
+### 中文
+
+- 聚合模型可在模型池编辑器中配置上下文窗口、最大输出、思考档位与默认思考强度，`/v1/models` 会按配置值对外声明。
+- 未配置时聚合改为声明各成员保守的交集（最小窗口与输出、共有的思考档位），不再沿用第一个成员的数值；成员按供应商与区域精确解析，而不是只按模型名匹配。
+- 未携带思考意图的请求会使用聚合配置的默认档位，每个成员的供应商仍按自身模型支持的档位做映射与钳制。
+- 修复密钥编辑页的跨供应商聚合开关：开启后下方所有供应商复选框置灰且不可选择，避免密钥处于供应商中立模式时仍能改动已保存的供应商授权。
+- 修复聚合密钥的 `/v1/models` 为空：现在会返回模型池里已启用的跨供应商聚合模型，以及这把密钥可访问账号上配置的公共别名，并继续折叠成不显示供应商的名称；网关在对话链路也会接受这些聚合模型（不再只认账号别名），客户端从列表选中模型后不会再收到 `model_not_aggregated`。
+- 控制台和服务端的共享模型目录都不再混入合成的 `aggregation` 供应商：供应商设置、账号模型目录和模型池成员选择器只显示真实上游模型，普通密钥的 `/v1/models` 不再合并逻辑条目、也不再隐藏其成员模型；普通密钥始终路由真实供应商模型，逻辑 ID 即使与真实目录 ID 同名也不会把后者顶掉。逻辑模型只出现在模型池页面，以及开启聚合的密钥自己的 `/v1/models` 中。
+- 一键签到 / 一键获取积分改为一次全量扇出：新的批量接口按账号返回真实结果与上游原始错误，控制台不再分批或排队。
+- 控制台通过 `GET /api/events`（SSE，按序号补发）推送状态，账号健康、冷却、额度、签到与批量进度在一秒内到达页面；通道不可用时自动降级为 5 秒轮询。
+- 控制台只显示真实数据：合成并发演示面板及其开关已删除，未测得的 P95 显示“—”，强制就绪账号带徽标，额度快照标注了读取时间。
+- 签到结果携带上游真实奖励积分与错误码 / HTTP 状态；上游未回报状态时显示为“未知”，不再当作成功。
+- 携带视频、音频或文件片段的请求会收到真实的 400 `invalid_request`，不再在拼装提示词时被静默丢弃；Trae 流在上游接受请求却持续无响应时会切换账号重试。
+- 所有供应商客户端版本号对齐上游当前版本：Trae 国内版版本号改为 `3.4.21`、构建号改为 `20261117`（都取 11-17 的公开正式版；模型目录与对话按 `X-Ide-Version-Code` 分档，旧值会把目录从 21 个模型静默砍到 6 个），Kiro IDE 改为 `1.5.37`，Codex CLI 改为 `0.172.0`，Command Code CLI 改为 `1.93.3`，Kimi Code CLI 改为 `2.7.3`，Devin CLI 改为 `3000.14.30821`，WorkBuddy / CodeBuddy CLI 段改为 `2.186.0`（CN 桌面端 `5.11.3`、Global `5.11.4`）。
+- 签到与额度链路已按新版本对真上游复验：Trae 每日签到与积分用量、WorkBuddy 每日签到、user-resource 与计费身份均正常。WorkBuddy CLI `2.186.0` 与 `2.176.0` 返回同一套 57 个模型目录，流式对话表现一致。
+- 另有两项在找到公开来源后补齐：Meta Muse 改用 `muse-build/1.4.14` 指纹（构建 `dec7d749…`、`tbh:exec`、平台取自宿主），不再用旧的 `1.3.0 / tbh:tui`；MiniMax 签到查询的 `desktop_version` 改为 `0.7.9`（当前 MCode TUI 版本），不再用 `0.7.2`。
+- 另有四项原来靠推断，现已按厂商真实安装包核对：Qoder 签到按版本地区上报桌面版（CN `0.5.18`、Global `0.5.3`），不再用 `0.4.8`；CodeArts 改为当前所有官方客户端实际发送的 `snap_vscode` / `26.11.300`（11-25 发布的 VS Code 扩展），不再用 `snap_AIIDE / 5.2.0`（IDE 26.11.200 安装包与 VSIX 里都搜不到这对值）；Kiro 的 KAS 段改为 `0.66.123`（IDE 1.5.37 内置的 `@kiro/agent`）；豆包办公的账号查询改为 `sdk_version=2.2.10`（doubao.com 页面当前使用的值），`version_code=20800` 保留，因为官网页面至今仍发这个值。
+
 ## 0.7.45 - 2026-11-25
 
 ### English
