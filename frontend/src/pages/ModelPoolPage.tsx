@@ -5,6 +5,7 @@ import {
   Button,
   Card,
   Chip,
+  Checkbox,
   Description,
   Form,
   Input,
@@ -43,6 +44,17 @@ type TFunc = (key: string, vars?: Record<string, string | number>) => string
 type AccountRow = NonNullable<Overview['accounts']>[number]
 
 const REASONING_LEVELS = ['none', 'low', 'medium', 'high', 'xhigh', 'max'] as const
+
+// One caption per tier so the selector never reads as six bare words: the
+// console has to say what each level means before it is picked.
+const REASONING_LEVEL_HINTS: Record<string, string> = {
+  none: 'modelPoolReasoningLevelNone',
+  low: 'modelPoolReasoningLevelLow',
+  medium: 'modelPoolReasoningLevelMedium',
+  high: 'modelPoolReasoningLevelHigh',
+  xhigh: 'modelPoolReasoningLevelXhigh',
+  max: 'modelPoolReasoningLevelMax',
+}
 
 type MemberDraft = AggregationMember & { key: string }
 
@@ -475,15 +487,58 @@ function AggregationEditorModal({
                     </FormRow>
                   </div>
                   <FormRow label={t('modelPoolReasoningLevels')} hint={t('modelPoolReasoningLevelsHint')} align="start">
-                    <div className="flex flex-wrap gap-2">
-                      {REASONING_LEVELS.map((level) => {
-                        const selected = reasoningOptions.includes(level)
-                        return (
-                          <Button key={level} size="sm" variant={selected ? 'secondary' : 'ghost'} aria-pressed={selected} isDisabled={busy} onPress={() => toggleReasoningLevel(level)}>
-                            <span className="mono">{level}</span>
+                    <div className="space-y-2.5">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="mono text-caption text-muted">
+                          {t('modelPoolReasoningSelected', { n: reasoningOptions.length, total: REASONING_LEVELS.length })}
+                        </span>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onPress={() => setReasoningOptions([...REASONING_LEVELS])}
+                            isDisabled={busy || reasoningOptions.length === REASONING_LEVELS.length}
+                          >
+                            {t('modelPoolReasoningSelectAll')}
                           </Button>
-                        )
-                      })}
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onPress={() => { setReasoningOptions([]); setReasoningEffort('') }}
+                            isDisabled={busy || reasoningOptions.length === 0}
+                          >
+                            {t('modelPoolReasoningClear')}
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="grid gap-2 sm:grid-cols-3">
+                        {REASONING_LEVELS.map((level) => {
+                          const selected = reasoningOptions.includes(level)
+                          return (
+                            <Checkbox
+                              key={level}
+                              isSelected={selected}
+                              isDisabled={busy}
+                              onChange={() => toggleReasoningLevel(level)}
+                              className={`rounded-xl border px-3 py-2 transition-colors ${selected ? 'border-accent bg-surface-secondary' : 'border-separator hover:bg-surface-secondary/60'}`}
+                            >
+                              <Checkbox.Content
+                                aria-label={`${t('modelPoolReasoningLevels')} ${level}`}
+                                className="w-full cursor-pointer items-start gap-2.5"
+                              >
+                                <Checkbox.Control><Checkbox.Indicator /></Checkbox.Control>
+                                <span className="flex min-w-0 flex-col gap-0.5">
+                                  <span className="mono text-body leading-5">{level}</span>
+                                  <span className="text-caption leading-4 text-muted">{t(REASONING_LEVEL_HINTS[level])}</span>
+                                </span>
+                              </Checkbox.Content>
+                            </Checkbox>
+                          )
+                        })}
+                      </div>
+                      {reasoningOptions.length === 0 ? (
+                        <Description className="text-caption leading-5 text-muted">{t('modelPoolReasoningEmpty')}</Description>
+                      ) : null}
                     </div>
                   </FormRow>
                   <FormRow label={t('modelPoolReasoningDefault')} hint={t('modelPoolReasoningDefaultHint')} align="start">
