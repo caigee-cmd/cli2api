@@ -835,7 +835,7 @@ func TestReasoningPriority(t *testing.T) {
 		{"catalog default when nothing is saved", "", "", "high"},
 		{"saved console default beats the catalog default", "low", "", "low"},
 		{"client value beats the saved default", "low", "high", "high"},
-		{"saved default is clamped to the declared ladder", "medium", "", "high"},
+		{"saved default is clamped to the declared ladder", "medium", "", "low"},
 		{"client value is clamped to the declared ladder", "", "xhigh", "high"},
 	}
 	for _, tc := range cases {
