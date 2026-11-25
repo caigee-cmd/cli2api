@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -19,6 +21,7 @@ func TestStageHostBinaryWritesVerifiedPayload(t *testing.T) {
 	sum := sha256.Sum256(payload)
 	asset := hostUpdaterAssetName()
 	executor := NewExecutor(ExecutorConfig{HostBinaryPath: hostPath})
+	executor.runner = failingRunner{}
 	executor.fetch = func(_ context.Context, version, name string) ([]byte, error) {
 		if version != "v0.2.47" {
 			t.Fatalf("version = %s", version)
@@ -78,6 +81,52 @@ func TestVerifyHostBinaryChecksumRejectsMismatch(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected checksum mismatch")
 	}
+}
+
+func TestStageHostBinaryPrefersBinaryFromImage(t *testing.T) {
+	directory := t.TempDir()
+	hostPath := filepath.Join(directory, "cli2api-updater")
+	payload := []byte("image-updater-binary")
+	const containerID = "abc123def456"
+	runner := &scriptedRunner{t: t, steps: []runnerStep{
+		{name: "docker", args: []string{"create", "ghcr.io/guyu233/cli2api:v0.3.0"}, output: []byte(containerID + "\n")},
+		{name: "docker", args: []string{"cp", containerID + ":" + imageUpdaterPath, hostPath + ".new"}, beforeReturn: func() {
+			if err := os.WriteFile(hostPath+".new", payload, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "docker", args: []string{"rm", "-f", containerID}},
+	}}
+	executor := NewExecutor(ExecutorConfig{HostBinaryPath: hostPath, ImageRepository: "ghcr.io/guyu233/cli2api"})
+	executor.runner = runner
+	executor.fetch = func(context.Context, string, string) ([]byte, error) {
+		t.Fatal("GitHub fallback must not run when the image carries the updater")
+		return nil, nil
+	}
+	if err := executor.stageHostBinary(context.Background(), "v0.3.0", nil); err != nil {
+		t.Fatal(err)
+	}
+	staged, err := os.ReadFile(hostPath + ".new")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(staged) != string(payload) {
+		t.Fatalf("staged = %q", staged)
+	}
+	info, err := os.Stat(hostPath + ".new")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o755 {
+		t.Fatalf("mode = %v", info.Mode().Perm())
+	}
+	runner.assertDone()
+}
+
+type failingRunner struct{}
+
+func (failingRunner) Run(context.Context, string, ...string) ([]byte, error) {
+	return nil, errors.New("docker unavailable")
 }
 
 func TestRestartHostExitsProcess(t *testing.T) {

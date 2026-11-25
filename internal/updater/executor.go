@@ -117,7 +117,11 @@ func (e *Executor) Prepare(ctx context.Context, _ string, request control.Prepar
 	if _, err := e.runner.Run(ctx, "docker", "pull", targetImage); err != nil {
 		return fmt.Errorf("pull target image: %w", err)
 	}
-	return e.stageHostBinary(ctx, request.TargetVersion, progress)
+	// The pulled image is what the update needs. The host updater binary is taken
+	// from that image (and refreshed again from the recreated container during
+	// apply), so a staging hiccup must not fail an otherwise ready update.
+	_ = e.stageHostBinary(ctx, request.TargetVersion, progress)
+	return nil
 }
 
 func (e *Executor) Apply(ctx context.Context, _ string, request ApplyRequest, progress func(string)) (bool, error) {
@@ -151,17 +155,15 @@ func (e *Executor) Apply(ctx context.Context, _ string, request ApplyRequest, pr
 		if _, err := e.runner.Run(ctx, "docker", "image", "inspect", targetImage); err != nil {
 			return false, fmt.Errorf("prepared image is unavailable: %w", err)
 		}
-		if err := e.stageHostBinary(ctx, request.TargetVersion, progress); err != nil {
-			return false, err
-		}
+		// A staging failure never blocks the update: the updater binary is
+		// refreshed from the recreated container below.
+		_ = e.stageHostBinary(ctx, request.TargetVersion, progress)
 	} else {
 		progress("pulling")
 		if _, err := e.runner.Run(ctx, "docker", "pull", targetImage); err != nil {
 			return false, err
 		}
-		if err := e.stageHostBinary(ctx, request.TargetVersion, progress); err != nil {
-			return false, err
-		}
+		_ = e.stageHostBinary(ctx, request.TargetVersion, progress)
 	}
 	if err := setEnvValueAtomic(e.config.EnvFile, envMode, "CLI2API_IMAGE", targetImage); err != nil {
 		return false, err
@@ -189,11 +191,10 @@ func (e *Executor) Apply(ctx context.Context, _ string, request ApplyRequest, pr
 		}
 		return e.rollback(request, before, mount, currentImage, envMode, err, progress)
 	}
-	if err := e.refreshStagedHostBinaryFromContainer(ctx); err != nil && strings.TrimSpace(e.config.HostBinaryPath) != "" {
-		if _, statErr := os.Stat(e.config.HostBinaryPath + ".new"); statErr != nil {
-			return e.rollback(request, before, mount, currentImage, envMode, fmt.Errorf("copy host updater from container: %w", err), progress)
-		}
-	}
+	// Refresh the host updater binary from the freshly recreated container.
+	// Failure here only leaves the previous updater in place: the app update is
+	// already health-checked, so it must not be rolled back for this alone.
+	_ = e.refreshStagedHostBinaryFromContainer(ctx)
 	if err := e.CommitHostBinary(); err != nil {
 		return e.rollback(request, before, mount, currentImage, envMode, err, progress)
 	}

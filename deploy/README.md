@@ -220,11 +220,21 @@ Start `qoder-api-proxy` once before installing the optional host updater.
 | Windows x86-64 | Docker Desktop Linux containers | `cli2api-updater_windows_amd64.exe` |
 | Windows ARM64 | Docker Desktop Linux containers | `cli2api-updater_windows_arm64.exe` |
 
-Installers prefer checksum-verified release binaries and fall back to the
-running container's binary or a local Go build when needed. Both installers
-default to `ghcr.io/guyu233/cli2api` and `guyu233/cli2api`; override them with
+Installers take the updater binary from the running container first, so the
+installed updater always matches the deployed image and no release asset has to
+be downloaded. They fall back to checksum-verified release binaries or a local
+Go build when the container is unreachable. Both installers default to
+`ghcr.io/guyu233/cli2api` and `guyu233/cli2api`; override them with
 `CLI2API_IMAGE_REPOSITORY` and `CLI2API_GITHUB_REPOSITORY` when the deployment
 follows another repository.
+
+On Linux, `./scripts/start.sh` runs the installer automatically when no
+`cli2api-updater.service` exists yet (set `CLI2API_SKIP_UPDATER_INSTALL=1` to
+skip it). The console's **Download update** then pulls the target image on the
+host, recreates the container, health-checks the new version, and rolls back to
+the previous image and SQLite backup if that check fails. The updater binary is
+copied out of the pulled image, so an update never depends on GitHub asset
+downloads.
 
 macOS + Docker Desktop:
 
