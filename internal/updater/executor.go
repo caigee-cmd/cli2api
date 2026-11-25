@@ -37,6 +37,9 @@ type Executor struct {
 	client   *http.Client
 	download *http.Client
 	fetch    func(context.Context, string, string) ([]byte, error)
+	// pullBackoff is the first retry delay after a stalled docker pull. Zero
+	// uses pullRetryBase so tests can retry instantly.
+	pullBackoff time.Duration
 }
 
 type commandRunner interface {
@@ -102,6 +105,44 @@ func NewExecutor(config ExecutorConfig) *Executor {
 	}
 }
 
+// One docker pull attempt is bounded so a stalled registry connection cannot
+// consume the whole preparation budget: layers that already arrived stay in the
+// local cache, so the retry resumes instead of starting the pull over.
+const (
+	pullAttempts       = 3
+	pullAttemptTimeout = 4 * time.Minute
+	pullRetryBase      = 15 * time.Second
+)
+
+func (e *Executor) pullImage(ctx context.Context, image string) error {
+	var lastErr error
+	for attempt := 1; attempt <= pullAttempts; attempt++ {
+		pullCtx, cancel := context.WithTimeout(ctx, pullAttemptTimeout)
+		_, err := e.runner.Run(pullCtx, "docker", "pull", image)
+		cancel()
+		if err == nil {
+			return nil
+		}
+		lastErr = fmt.Errorf("pull %s (attempt %d/%d): %w", image, attempt, pullAttempts, err)
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if attempt == pullAttempts {
+			break
+		}
+		backoff := e.pullBackoff
+		if backoff <= 0 {
+			backoff = pullRetryBase
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Duration(attempt) * backoff):
+		}
+	}
+	return lastErr
+}
+
 func (e *Executor) Prepare(ctx context.Context, _ string, request control.PrepareRequest, progress func(string)) error {
 	if err := e.validateConfig(); err != nil {
 		return err
@@ -114,7 +155,7 @@ func (e *Executor) Prepare(ctx context.Context, _ string, request control.Prepar
 	}
 	targetImage := e.config.ImageRepository + ":" + request.TargetVersion
 	progress("pulling")
-	if _, err := e.runner.Run(ctx, "docker", "pull", targetImage); err != nil {
+	if err := e.pullImage(ctx, targetImage); err != nil {
 		return fmt.Errorf("pull target image: %w", err)
 	}
 	// The pulled image is what the update needs. The host updater binary is taken
@@ -160,7 +201,7 @@ func (e *Executor) Apply(ctx context.Context, _ string, request ApplyRequest, pr
 		_ = e.stageHostBinary(ctx, request.TargetVersion, progress)
 	} else {
 		progress("pulling")
-		if _, err := e.runner.Run(ctx, "docker", "pull", targetImage); err != nil {
+		if err := e.pullImage(ctx, targetImage); err != nil {
 			return false, err
 		}
 		_ = e.stageHostBinary(ctx, request.TargetVersion, progress)
