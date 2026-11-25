@@ -27,6 +27,19 @@ type Props = {
   provider?: string
 }
 
+/**
+ * Honest snapshot age: the meter shows the real stored reading, so tell the
+ * operator how old it is instead of implying it is live. Anything ≥5 minutes
+ * reads as stale (the background sweep refreshes every 60s by default).
+ */
+function quotaAgeLabel(fetchedAt: string | undefined, t: Translate) {
+  if (!fetchedAt) return ''
+  const at = Date.parse(fetchedAt)
+  if (!Number.isFinite(at)) return ''
+  const minutes = Math.max(0, Math.round((Date.now() - at) / 60_000))
+  return minutes >= 5 ? t('quotaStale', { n: minutes }) : t('quotaUsedAt', { n: minutes })
+}
+
 function extraQuotaLines(quota: AccountQuota, remainingLabel: string, addOnLabel: string, resourcePackageLabel: string, t: Translate, provider?: string) {
   const addOn = quota.has_add_on && quota.add_on_available !== false
     ? `${addOnLabel} ${formatQuotaAmount(quota.add_on_used)} / ${formatQuotaAmount(quota.add_on_total)} ${quota.add_on_unit || 'credits'}`
@@ -109,6 +122,7 @@ export function QuotaMeter({ quota, t, label, usedLabel, remainingLabel, addOnLa
   const color = tone === 'danger' ? 'danger' : tone === 'warn' ? 'warning' : 'success'
   const rootRef = useRef<HTMLDivElement>(null)
   useFillReveal(rootRef)
+  const age = quotaAgeLabel(quota.fetched_at, t)
   const valueLabel = `${usedLabel} ${used} ${unit} · ${remainingLabel} ${remaining} ${unit}${extra.length ? ` · ${extra.join(' · ')}` : ''}`
 
   if (windows.length > 0) {
@@ -129,6 +143,7 @@ export function QuotaMeter({ quota, t, label, usedLabel, remainingLabel, addOnLa
             />
           </div>
         ))}
+        {age ? <div className="text-caption leading-4 text-muted">{age}</div> : null}
       </div>
     )
   }
@@ -159,6 +174,7 @@ export function QuotaMeter({ quota, t, label, usedLabel, remainingLabel, addOnLa
               <Meter.Fill />
             </Meter.Track>
           </Meter>
+          {age ? <div className="mt-1 text-caption leading-4 text-muted">{age}</div> : null}
         </div>
       </Tooltip.Trigger>
       <Tooltip.Content>
@@ -166,6 +182,7 @@ export function QuotaMeter({ quota, t, label, usedLabel, remainingLabel, addOnLa
           <div>{usedLabel} {used} {unit}</div>
           <div>{remainingLabel} {remaining} {unit}</div>
           {extra.map((line) => <div key={line}>{line}</div>)}
+          {age ? <div>{age}</div> : null}
         </div>
       </Tooltip.Content>
     </Tooltip>

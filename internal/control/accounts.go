@@ -7,6 +7,7 @@ import (
 	"errors"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
+	"github.com/caigee-cmd/cli2api/internal/events"
 	"github.com/caigee-cmd/cli2api/internal/providers"
 )
 
@@ -21,6 +22,9 @@ type Runtime interface {
 	Accounts(ctx context.Context) ([]accounts.AccountView, error)
 	RefreshAccount(ctx context.Context, id string, forceQuota bool) error
 	RefreshAll(ctx context.Context, forceQuota bool) error
+	RefreshAllResults(ctx context.Context, forceQuota, includeDisabled bool) []accounts.AccountRefreshResult
+	RefreshAllAsync(ctx context.Context, forceQuota, includeDisabled bool)
+	SubscribeEvents(lastSeq uint64) (<-chan events.Event, func())
 	CheckinAccount(ctx context.Context, accountID string) (accounts.Account, error)
 	CheckinAll(ctx context.Context, force, includeDisabled bool) ([]accounts.CheckinAllResult, error)
 	ReloadProxyURL(ctx context.Context, value string) error
@@ -49,7 +53,10 @@ func (a *Accounts) store() accounts.AccountStore {
 
 func (a *Accounts) List(ctx context.Context, refresh bool) ([]accounts.AccountView, error) {
 	if refresh {
-		_ = a.runtime.RefreshAll(ctx, true)
+		// Full fan-out runs in the background; the list returns the current
+		// real stored views immediately and per-account outcomes arrive via
+		// the event channel (and the persisted status/quota on next read).
+		a.runtime.RefreshAllAsync(ctx, true, false)
 	}
 	return a.runtime.Accounts(ctx)
 }
@@ -163,6 +170,19 @@ func (a *Accounts) ImportCredentialPayload(ctx context.Context, input accounts.C
 
 func (a *Accounts) RefreshAll(ctx context.Context, forceQuota bool) error {
 	return a.runtime.RefreshAll(ctx, forceQuota)
+}
+
+// RefreshAllResults runs a full concurrent refresh and returns each account's
+// real outcome (status, upstream error, fresh quota snapshot).
+func (a *Accounts) RefreshAllResults(ctx context.Context, forceQuota, includeDisabled bool) []accounts.AccountRefreshResult {
+	return a.runtime.RefreshAllResults(ctx, forceQuota, includeDisabled)
+}
+
+// TriggerRefresh starts a background full concurrent refresh. Per-account
+// outcomes are persisted and published on the event channel; nothing is
+// swallowed.
+func (a *Accounts) TriggerRefresh(ctx context.Context) {
+	a.runtime.RefreshAllAsync(ctx, true, false)
 }
 
 func (a *Accounts) RefreshAccount(ctx context.Context, id string, forceQuota bool) error {

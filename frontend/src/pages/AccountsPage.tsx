@@ -1,6 +1,6 @@
 import { toast } from '@/lib/toast'
 import { copyText } from '@/lib/clipboard'
-import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { Button, Label, ListBox, Select } from '@heroui/react'
 import {
   ArrowsClockwise,
@@ -38,6 +38,7 @@ import {
   importAccount,
   loginWithPat,
   refreshAccount,
+  refreshAllAccounts,
   startDeviceLogin,
   updateAccount,
   type ProviderDescriptor,
@@ -46,8 +47,17 @@ import { fetchSystemSettings, type SystemSettings } from '@/api/system'
 import { AccountsPageSkeleton } from '@/components/ui/PageSkeletons'
 import {
   accountState,
+  formatQuotaAmount,
   type AccountRow,
 } from '@/lib/account'
+import { useAccountEvents } from '@/hooks/useAccountEvents'
+import type {
+  AccountStateEvent,
+  BulkEventData,
+  CheckinStateEvent,
+  QuotaStateEvent,
+  ServerEvent,
+} from '@/api/events'
 import { accountProviderFamilyLabel } from '@/lib/provider'
 import { ProviderMark } from '@/components/ProviderMark'
 import { BatchImportConfirmModal } from '@/components/account/BatchImportConfirmModal'
@@ -99,7 +109,6 @@ type AccountFilter = 'all' | 'available' | 'attention' | 'disabled'
 const ALL_PROVIDERS = '__all__'
 
 const EMPTY_ACCOUNTS: AccountRow[] = []
-const ACCOUNT_REFRESH_BATCH_SIZE = 2
 
 export function AccountsPage() {
   const { t } = useI18n()
@@ -143,6 +152,11 @@ export function AccountsPage() {
   const [priorityById, setPriorityById] = useState<Record<string, number>>({})
   const [quotaRefreshing, setQuotaRefreshing] = useState(false)
   const [checkinAllRunning, setCheckinAllRunning] = useState(false)
+  /**
+   * Live bulk-op progress streamed from GET /api/events (real per-account
+   * frames). Null when no bulk op is running.
+   */
+  const [bulkProgress, setBulkProgress] = useState<{ kind: 'checkin' | 'refresh'; total: number; done: number } | null>(null)
   const reloadAccounts = useCallback(async (refresh = false) => {
     try {
       const response = await fetchAccounts(refresh)
@@ -154,36 +168,158 @@ export function AccountsPage() {
     }
   }, [])
 
-  const refreshAccountsInBatches = useCallback(async (ids: string[], forceQuota = true) => {
-    const accountIds = [...new Set(ids)]
-    if (!accountIds.length) return { total: 0, failed: 0, errors: [] as string[] }
-    const total = accountIds.length
-    // Aggregate failures per account instead of mutating a shared object inside
-    // the concurrent Promise.all workers: those interleaved `failed += 1`
-    // updates race each other and lose counts, so a batch where several
-    // accounts failed could under-report how many really did.
-    const failures = new Map<string, string>()
-    for (let start = 0; start < accountIds.length; start += ACCOUNT_REFRESH_BATCH_SIZE) {
-      const batch = accountIds.slice(start, start + ACCOUNT_REFRESH_BATCH_SIZE)
-      await Promise.all(batch.map(async (id) => {
-        try {
-          const refreshed = await refreshAccount(id, { quota: forceQuota })
-          setAccounts((current) => current.map((account) => account.id === id ? refreshed : account))
-        } catch (error) {
-          // Surface the failure to the caller instead of swallowing it: a
-          // batch where every account failed must not report success.
-          const message = error instanceof Error ? error.message : String(error)
-          failures.set(id, message)
-          setNoteById((current) => ({ ...current, [id]: message }))
-        }
-      }))
+  /** Single-account refresh: the response is the real post-probe row. */
+  const refreshOne = useCallback(async (id: string, forceQuota = true) => {
+    const refreshed = await refreshAccount(id, { quota: forceQuota })
+    setAccounts((current) => current.map((account) => account.id === id ? { ...account, ...refreshed } : account))
+  }, [])
+
+  /**
+   * One-shot refresh for every account. The backend fans out to all accounts
+   * concurrently — no client batching, no queue — and every row returns the
+   * real probe outcome with the verbatim upstream error.
+   */
+  const refreshEveryAccount = useCallback(async (forceQuota = true) => {
+    const response = await refreshAllAccounts({ quota: forceQuota })
+    const results = response.data || []
+    const notes: Record<string, string> = {}
+    const errors: string[] = []
+    const quotas: Record<string, NonNullable<AccountRow['quota']>> = {}
+    let failed = 0
+    for (const result of results) {
+      if (result.ok) {
+        if (result.quota) quotas[result.account_id] = result.quota
+        continue
+      }
+      failed += 1
+      const message = result.message || result.code || result.kind || t('toastFailed')
+      notes[result.account_id] = message
+      errors.push(message)
     }
-    return { total, failed: failures.size, errors: [...failures.values()] }
+    if (Object.keys(quotas).length) {
+      setAccounts((current) => current.map((account) => quotas[account.id]
+        ? { ...account, quota: quotas[account.id] }
+        : account))
+    }
+    if (failed) setNoteById((current) => ({ ...current, ...notes }))
+    // Events already patch rows as they land; this pull keeps the list truthful
+    // when the stream is offline.
+    await reloadAccounts(false).catch(() => undefined)
+    return { total: results.length, failed, errors }
+  }, [reloadAccounts, t])
+
+  /**
+   * Events patch rows in place for instant feedback; a trailing debounced re-read
+   * then reconciles every field with the server's truth (derived status, hot
+   * flags, fields the event does not carry) without a manual reload.
+   */
+  const reconcileTimer = useRef<number | null>(null)
+  const scheduleReconcile = useCallback(() => {
+    if (reconcileTimer.current != null) return
+    reconcileTimer.current = window.setTimeout(() => {
+      reconcileTimer.current = null
+      void reloadAccounts(false).catch(() => undefined)
+    }, 400)
+  }, [reloadAccounts])
+
+  const onAccountEvent = useCallback((event: ServerEvent) => {
+    const type = event.type
+    if (type === 'account') {
+      const data = (event.data || {}) as AccountStateEvent
+      const id = data.account_id || event.account_id
+      if (!id) return
+      setAccounts((current) => current.map((account) => {
+        if (account.id !== id) return account
+        const next = { ...account }
+        if (data.runtime_state) next.runtime_state = data.runtime_state
+        if (typeof data.ready === 'boolean') {
+          next.ready = data.ready
+          if (data.ready) next.hot = account.hot && data.runtime_state !== 'ready'
+        }
+        if (data.cooldown_until) next.cooldown_until = data.cooldown_until
+        else if (data.ready) next.cooldown_until = null
+        if (data.last_error !== undefined) {
+          next.last_error = data.last_error
+          next.lastError = data.last_error || undefined
+        }
+        if (data.last_kind !== undefined) next.last_error_kind = data.last_kind || undefined
+        return next
+      }))
+      scheduleReconcile()
+      return
+    }
+    if (type === 'quota') {
+      const data = (event.data || {}) as QuotaStateEvent
+      const id = data.account_id || event.account_id
+      if (!id || !data.quota) return
+      setAccounts((current) => current.map((account) => account.id === id ? { ...account, quota: data.quota } : account))
+      scheduleReconcile()
+      return
+    }
+    if (type === 'checkin') {
+      const data = (event.data || {}) as CheckinStateEvent
+      const id = data.account_id || event.account_id
+      if (!id) return
+      const status = String(data.status || '').toLowerCase()
+      const kind = status === 'already' || status === 'skipped' || status === 'error' || status === 'unknown'
+        ? status
+        : 'success'
+      const reward = typeof data.reward_credits === 'number' && data.reward_credits > 0
+        ? t('checkinRewardSuffix', { credits: formatQuotaAmount(data.reward_credits) })
+        : ''
+      const message = `${data.message || (kind === 'error' ? t('checkinRecordFailed') : kind === 'unknown' ? t('checkinStatusUnknown') : '')}${reward}`.trim()
+      setCheckinFeedbackById((current) => ({
+        ...current,
+        [id]: { kind, message: message || undefined },
+      }))
+      setAccounts((current) => current.map((account) => account.id === id
+        ? {
+            ...account,
+            last_checkin_status: data.status || account.last_checkin_status,
+            last_checkin_msg: data.message || account.last_checkin_msg,
+            last_checkin_at: data.at || account.last_checkin_at,
+          }
+        : account))
+      return
+    }
+    if (type === 'accounts') {
+      void reloadAccounts(false).catch(() => undefined)
+      return
+    }
+    if (type === 'bulk') {
+      const data = (event.data || {}) as BulkEventData
+      const kind = data.kind === 'refresh' ? 'refresh' : data.kind === 'checkin' ? 'checkin' : null
+      if (!kind) return
+      if (data.phase === 'done') {
+        setBulkProgress(null)
+        return
+      }
+      if (!data.total) return
+      setBulkProgress({ kind, total: data.total, done: data.done || 0 })
+    }
+  }, [reloadAccounts, scheduleReconcile, t])
+
+  const { status: eventStatus } = useAccountEvents(onAccountEvent)
+
+  useEffect(() => () => {
+    if (reconcileTimer.current != null) window.clearTimeout(reconcileTimer.current)
   }, [])
 
   useEffect(() => {
     void reloadAccounts(false).catch(() => undefined)
   }, [reloadAccounts])
+  // The page no longer re-probes every account on mount: the background quota
+  // sweep already keeps snapshots fresh, and the event stream patches rows live.
+  useEffect(() => {
+    if (eventStatus === 'live') return
+    // Stream unavailable (401/offline): fall back to a 5s list poll so the page
+    // still converges on real state without manual refreshes.
+    const timer = window.setInterval(() => {
+      if (document.hidden) return
+      void reloadAccounts(false).catch(() => undefined)
+    }, 5000)
+    return () => window.clearInterval(timer)
+  }, [eventStatus, reloadAccounts])
   useEffect(() => {
     let active = true
     void Promise.all([fetchProviders(), fetchSystemSettings()]).then(([providerData, systemData]) => {
@@ -195,18 +331,9 @@ export function AccountsPage() {
     })
     return () => { active = false }
   }, [])
-  // Each time the page mounts (navigated into), re-pull the real upstream
-  // quota and last check-in status so cards show the freshest state.
-  useEffect(() => {
-    let active = true
-    void reloadAccounts(false)
-      .then((next) => {
-        if (!active) return
-        return refreshAccountsInBatches((next || []).map((account) => account.id))
-      })
-      .catch(() => undefined)
-    return () => { active = false }
-  }, [reloadAccounts, refreshAccountsInBatches])
+  // On mount the page reads the real stored state once. It no longer re-probes
+  // every account: the background quota sweep keeps snapshots fresh and the
+  // event stream patches cards live, so mounting stays cheap and truthful.
 
   function checkinPolicyFor(account: AccountRow) {
     return providers.find((provider) => provider.id === account.provider)?.regions.find((region) => region.id === account.region)?.checkin
@@ -323,7 +450,7 @@ export function AccountsPage() {
         if (login.status === 'ok' || login.status === 'error') break
       }
       await reloadAccounts(false)
-      await refreshAccountsInBatches([id])
+      await refreshOne(id)
     })
   }
 
@@ -338,7 +465,7 @@ export function AccountsPage() {
       await completeLoginCallback(id, pasted)
       setCallbackById((current) => ({ ...current, [id]: '' }))
       await reloadAccounts(false)
-      await refreshAccountsInBatches([id])
+      await refreshOne(id)
     })
     if (ok) {
       setAuthPanelId((current) => (current === id ? null : current))
@@ -357,7 +484,7 @@ export function AccountsPage() {
       await loginWithPat(pat, id)
       setPatById((current) => ({ ...current, [id]: '' }))
       await reloadAccounts(false)
-      await refreshAccountsInBatches([id])
+      await refreshOne(id)
     })
   }
 
@@ -481,17 +608,12 @@ export function AccountsPage() {
       return next
     })
     try {
-      const result = await refreshAccountsInBatches([id])
-      if (result.failed > 0) {
-        toast({
-          id: `refresh-${id}`,
-          type: 'error',
-          title: t('toastFailed'),
-          description: result.errors[0] || t('toastFailed'),
-        })
-        return
-      }
+      await refreshOne(id)
       toast({ id: `refresh-${id}`, type: 'success', title: t('toastAccountRefreshed') })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setNoteById((current) => ({ ...current, [id]: message }))
+      toast({ id: `refresh-${id}`, type: 'error', title: t('toastFailed'), description: message })
     } finally {
       setBusy(null)
     }
@@ -501,7 +623,7 @@ export function AccountsPage() {
     setQuotaRefreshing(true)
     toast({ id: 'refresh-credits', type: 'loading', title: t('toastRefreshingCredits') })
     try {
-      const result = await refreshAccountsInBatches(accounts.map((account) => account.id))
+      const result = await refreshEveryAccount(true)
       if (result.failed > 0) {
         // Report a partial failure honestly: some accounts refreshed fine, so
         // name how many failed instead of implying the whole batch did.
@@ -517,6 +639,14 @@ export function AccountsPage() {
         return
       }
       toast({ id: 'refresh-credits', type: 'success', title: t('toastCreditsRefreshed') })
+    } catch (error) {
+      // A whole-request failure (network / console key) surfaces verbatim.
+      toast({
+        id: 'refresh-credits',
+        type: 'error',
+        title: t('toastFailed'),
+        description: error instanceof Error ? error.message : String(error),
+      })
     } finally {
       setQuotaRefreshing(false)
     }
@@ -609,25 +739,51 @@ export function AccountsPage() {
         toast({ id: 'checkin-all', type: 'info', title: t('checkinAllEmpty') })
         return
       }
-      const summary = { checked: 0, skipped: 0, failed: 0 }
-      const feedback: Record<string, { kind: 'already' | 'skipped' | 'error' | 'success'; message?: string }> = {}
+      const summary = { checked: 0, skipped: 0, failed: 0, unknown: 0, credits: 0 }
+      const feedback: Record<string, CheckinFeedback> = {}
+      const notes: Record<string, string> = {}
+      let firstError = ''
       for (const result of results) {
         const raw = String(result.status || '').toLowerCase()
-        const kind = raw === 'already' || raw === 'skipped' || raw === 'error' ? raw : 'success'
-        if (kind === 'error') summary.failed += 1
-        else if (kind === 'skipped' || kind === 'already') summary.skipped += 1
+        const kind: CheckinFeedback['kind'] = raw === 'already' || raw === 'skipped' || raw === 'error' || raw === 'unknown'
+          ? raw
+          : 'success'
+        if (kind === 'error') {
+          summary.failed += 1
+          if (!firstError) firstError = result.message || ''
+        } else if (kind === 'skipped' || kind === 'already') summary.skipped += 1
+        else if (kind === 'unknown') summary.unknown += 1
         else summary.checked += 1
-        feedback[result.account_id] = {
-          kind,
-          message: kind === 'error' ? result.message || t('checkinRecordFailed') : result.message,
+        // Real upstream grant only — omitted when the provider reported none.
+        if (typeof result.reward_credits === 'number' && result.reward_credits > 0) {
+          summary.credits += result.reward_credits
+        }
+        const reward = result.reward_credits && result.reward_credits > 0
+          ? t('checkinRewardSuffix', { credits: formatQuotaAmount(result.reward_credits) })
+          : ''
+        const message = `${result.message || (kind === 'error' ? t('checkinRecordFailed') : kind === 'unknown' ? t('checkinStatusUnknown') : '')}${reward}`.trim()
+        feedback[result.account_id] = { kind, message: message || undefined }
+        // Keep the verbatim upstream classification on the card so a failure
+        // never collapses into a generic "failed".
+        if (kind === 'error') {
+          notes[result.account_id] = [
+            result.message,
+            result.code,
+            result.http_status ? `HTTP ${result.http_status}` : '',
+          ].filter(Boolean).join(' · ') || t('checkinRecordFailed')
         }
       }
       setCheckinFeedbackById((current) => ({ ...current, ...feedback }))
-      const values = { checked: summary.checked, skipped: summary.skipped, failed: summary.failed }
+      if (Object.keys(notes).length) setNoteById((current) => ({ ...current, ...notes }))
+      const values = { checked: summary.checked, skipped: summary.skipped, failed: summary.failed, total: results.length }
+      const description = summary.credits > 0
+        ? t('checkinRewardTotal', { credits: formatQuotaAmount(summary.credits) })
+        : summary.failed && firstError ? firstError : undefined
       toast({
         id: 'checkin-all',
-        type: summary.failed ? 'error' : 'success',
+        type: summary.failed ? 'error' : summary.unknown ? 'info' : 'success',
         title: t(summary.failed ? 'toastCheckedInAllFailed' : 'toastCheckedInAll', values),
+        description,
       })
     } catch (error) {
       toast({
@@ -653,12 +809,12 @@ export function AccountsPage() {
           [id]: { kind: 'error', message: error instanceof Error ? error.message : String(error) },
         }))
         await reloadAccounts(false).catch(() => undefined)
-        await refreshAccountsInBatches([id]).catch(() => undefined)
+        await refreshOne(id).catch(() => undefined)
         return
       }
       const status = result?.last_checkin_status
       const message = result?.last_checkin_msg
-      const kind = status === 'already' ? 'already' : status === 'skipped' ? 'skipped' : status === 'error' ? 'error' : 'success'
+      const kind = status === 'already' ? 'already' : status === 'skipped' ? 'skipped' : status === 'error' ? 'error' : status === 'unknown' ? 'unknown' : 'success'
       setCheckinFeedbackById((current) => ({
         ...current,
         [id]: { kind, message: kind === 'error' ? message || t('checkinRecordFailed') : message },
@@ -666,7 +822,7 @@ export function AccountsPage() {
       await reloadAccounts(false).catch(() => undefined)
       // Pull the real upstream quota/credits once more so the card reflects
       // the check-in grant (do not rely on the check-in response alone).
-      await refreshAccountsInBatches([id]).catch(() => undefined)
+      await refreshOne(id).catch(() => undefined)
     })
   }
 
@@ -810,7 +966,37 @@ export function AccountsPage() {
           />
           <Button size="sm" onPress={() => setAddOpen(true)}><Plus size={14} />{t('addAccount')}</Button>
         </div>
+        {eventStatus === 'offline' ? (
+          <span
+            className="inline-flex items-center gap-1.5 rounded-full bg-surface-secondary px-2 py-0.5 text-caption text-muted"
+            data-events-offline
+          >
+            <span className="size-1.5 rounded-full bg-warning" />
+            {t('eventsOffline')}
+          </span>
+        ) : null}
       </section>
+
+      {bulkProgress ? (
+        <div
+          data-bulk-progress
+          className="flex items-center gap-3 rounded-lg bg-surface-secondary px-3 py-2 text-caption"
+        >
+          <BrandMark size={14} loading />
+          <span className="shrink-0 font-medium text-foreground">
+            {bulkProgress.kind === 'checkin' ? t('checkinAll') : t('refreshCredits')}
+          </span>
+          <span className="mono shrink-0 tabular-nums text-foreground/70">
+            {bulkProgress.done}/{bulkProgress.total}
+          </span>
+          <div className="h-1.5 min-w-16 flex-1 overflow-hidden rounded-full bg-surface">
+            <div
+              className="h-full rounded-full bg-success transition-[width] duration-200"
+              style={{ width: `${Math.min(100, Math.round((bulkProgress.done / Math.max(1, bulkProgress.total)) * 100))}%` }}
+            />
+          </div>
+        </div>
+      ) : null}
 
       <AddAccountModal isOpen={addOpen} onClose={() => setAddOpen(false)} onAdded={() => { toast({ type: 'success', title: t('toastAccountAdded') }); void reloadAccounts(false) }} />
       <AccountBundleImportModal

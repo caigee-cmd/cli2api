@@ -2,16 +2,32 @@ package runtime
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
+	"github.com/caigee-cmd/cli2api/internal/accounts"
+	"github.com/caigee-cmd/cli2api/internal/events"
 	"github.com/caigee-cmd/cli2api/internal/providers"
 	"github.com/caigee-cmd/cli2api/internal/providers/qoder"
 )
+
+// newOpID identifies one bulk operation so the console can correlate its
+// per-account progress events.
+func newOpID() string {
+	var buf [8]byte
+	if _, err := rand.Read(buf[:]); err != nil {
+		return fmt.Sprintf("op-%d", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(buf[:])
+}
 
 // Health/probe scheduling. Quota fetch failures must not flip Ready.
 // Reads pool items and writes runtime/health via existing Merge/Set helpers.
@@ -20,23 +36,29 @@ func (m *Manager) RefreshAccount(ctx context.Context, id string, forceQuota bool
 	if m == nil || m.pool == nil {
 		return fmt.Errorf("account manager not ready")
 	}
-	item, ok := m.pool.ByID(id)
-	if ok {
-		return m.refreshOne(ctx, item, forceQuota)
+	var err error
+	provider, region := "", ""
+	if item, ok := m.pool.ByID(id); ok {
+		provider, region = item.Provider, item.Region
+		err = m.refreshOne(ctx, item, forceQuota)
+	} else {
+		// Disabled accounts are deliberately kept out of the routing pool, so they
+		// have no pool item to refresh. Refresh their health and quota straight
+		// through the provider adapter instead of failing closed: the operator may
+		// still want to inspect a disabled account's live status/credits. Nothing
+		// is written back into the pool, so the account stays out of routing.
+		account, getErr := m.store.Get(ctx, id)
+		if getErr != nil {
+			return getErr
+		}
+		if account.Enabled {
+			return fmt.Errorf("account %s is not running", id)
+		}
+		provider, region = account.Provider, account.ProviderRegion
+		err = m.refreshDetached(ctx, account, forceQuota)
 	}
-	// Disabled accounts are deliberately kept out of the routing pool, so they
-	// have no pool item to refresh. Refresh their health and quota straight
-	// through the provider adapter instead of failing closed: the operator may
-	// still want to inspect a disabled account's live status/credits. Nothing
-	// is written back into the pool, so the account stays out of routing.
-	account, err := m.store.Get(ctx, id)
-	if err != nil {
-		return err
-	}
-	if account.Enabled {
-		return fmt.Errorf("account %s is not running", id)
-	}
-	return m.refreshDetached(ctx, account, forceQuota)
+	m.events.Publish(events.TypeRefresh, id, "", m.refreshResult(ctx, id, provider, region, err))
+	return err
 }
 
 // DetachedRefreshError reports that a disabled account cannot be refreshed. It
@@ -125,21 +147,144 @@ func (m *Manager) refreshDetached(ctx context.Context, account Account, forceQuo
 }
 
 // AccountView returns the same projection the accounts list builds, for one
+// RefreshAll refreshes every routable account concurrently (full fan-out, no
+// inter-account queue) and joins the non-quota failures. Quota refresh
+// failures stay best-effort for background maintenance; the per-account
+// detail is available through RefreshAllResults.
 func (m *Manager) RefreshAll(ctx context.Context, forceQuota bool) error {
 	var joined error
-	for _, item := range m.pool.Items() {
-		if err := m.refreshOne(ctx, item, forceQuota); err != nil {
-			var quotaErr *QuotaRefreshError
-			if errors.As(err, &quotaErr) {
-				// Background maintenance must remain best-effort. The manual
-				// single-account endpoint still returns this typed error so the
-				// console can show that quota refresh did not complete.
-				continue
-			}
-			joined = errors.Join(joined, err)
+	for _, result := range m.RefreshAllResults(ctx, forceQuota, false) {
+		if result.OK || result.Code == "quota_refresh_failed" {
+			continue
 		}
+		joined = errors.Join(joined, fmt.Errorf("account %s: %s", result.AccountID, result.Message))
 	}
 	return joined
+}
+
+// RefreshAllResults refreshes every account concurrently and reports each
+// account's real outcome. All accounts start at once: there is no semaphore
+// and no inter-account gap; per-account single-flight gates (quota fetch,
+// check-in running) still deduplicate overlapping work. When includeDisabled
+// is set, disabled accounts are refreshed through the detached probe path in
+// the same fan-out without re-entering the routing pool.
+func (m *Manager) RefreshAllResults(ctx context.Context, forceQuota, includeDisabled bool) []accounts.AccountRefreshResult {
+	if m == nil || m.pool == nil {
+		return nil
+	}
+	items := m.pool.Items()
+	var detached []Account
+	if includeDisabled {
+		if stored, err := m.store.List(ctx); err == nil {
+			for _, account := range stored {
+				if !account.Enabled {
+					detached = append(detached, account)
+				}
+			}
+		}
+	}
+	results := make([]accounts.AccountRefreshResult, len(items)+len(detached))
+	opID := newOpID()
+	total := len(results)
+	var done atomic.Int64
+	m.events.Publish(events.TypeBulk, "", opID, events.BulkProgress{OpID: opID, Kind: "refresh", Phase: "start", Total: total})
+	publish := func(result accounts.AccountRefreshResult) {
+		m.events.Publish(events.TypeRefresh, result.AccountID, opID, result)
+		m.events.Publish(events.TypeBulk, result.AccountID, opID, events.BulkProgress{
+			OpID: opID, Kind: "refresh", Phase: "account", Total: total,
+			Done: int(done.Add(1)), AccountID: result.AccountID, Result: result,
+		})
+	}
+	var wg sync.WaitGroup
+	for i, item := range items {
+		wg.Add(1)
+		go func(index int, item Item) {
+			defer wg.Done()
+			err := m.refreshOne(ctx, item, forceQuota)
+			results[index] = m.refreshResult(ctx, item.ID, item.Provider, item.Region, err)
+			publish(results[index])
+		}(i, item)
+	}
+	for i, account := range detached {
+		wg.Add(1)
+		go func(index int, account Account) {
+			defer wg.Done()
+			err := m.refreshDetached(ctx, account, forceQuota)
+			results[len(items)+index] = m.refreshResult(ctx, account.ID, account.Provider, account.ProviderRegion, err)
+			publish(results[len(items)+index])
+		}(i, account)
+	}
+	wg.Wait()
+	m.events.Publish(events.TypeBulk, "", opID, events.BulkProgress{OpID: opID, Kind: "refresh", Phase: "done", Total: total, Done: total})
+	return results
+}
+
+// RefreshAllAsync triggers a full concurrent refresh in the background bound
+// to the manager lifecycle. Per-account outcomes are persisted (status,
+// last_error, quota) and published on the event bus, so no error is swallowed.
+func (m *Manager) RefreshAllAsync(ctx context.Context, forceQuota, includeDisabled bool) {
+	if m == nil {
+		return
+	}
+	go func() {
+		bg, cancel := context.WithTimeout(context.WithoutCancel(ctx), 90*time.Second)
+		defer cancel()
+		stop := context.AfterFunc(m.runCtx, cancel)
+		defer stop()
+		m.RefreshAllResults(bg, forceQuota, includeDisabled)
+	}()
+}
+
+// refreshResult projects the real post-refresh state of one account: the
+// persisted status/error from the store and the live quota snapshot from the
+// pool (or the store for detached accounts). The probe error is carried
+// verbatim; typed provider errors contribute their real code/kind/status.
+func (m *Manager) refreshResult(ctx context.Context, accountID, provider, region string, err error) accounts.AccountRefreshResult {
+	result := accounts.AccountRefreshResult{
+		AccountID: accountID,
+		Provider:  provider,
+		Region:    region,
+		OK:        err == nil,
+	}
+	if err != nil {
+		result.Message = err.Error()
+		var quotaErr *QuotaRefreshError
+		if errors.As(err, &quotaErr) {
+			result.Code = "quota_refresh_failed"
+		}
+		var providerErr *providers.Error
+		if errors.As(err, &providerErr) && providerErr != nil {
+			if result.Code == "" {
+				result.Code = providerErr.Code
+			}
+			result.Kind = providerErr.Kind
+			result.HTTPStatus = providerErr.Status
+		}
+	}
+	readCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if stored, getErr := m.store.Get(readCtx, accountID); getErr == nil {
+		result.Status = stored.Status
+		if result.Message == "" {
+			result.Message = stored.LastError
+		}
+		if result.Kind == "" {
+			result.Kind = stored.LastErrorKind
+		}
+		if result.Provider == "" {
+			result.Provider = stored.Provider
+		}
+		if result.Region == "" {
+			result.Region = stored.ProviderRegion
+		}
+		if stored.Quota != nil {
+			result.Quota = stored.Quota
+		}
+	}
+	if item, ok := m.pool.ByID(accountID); ok && item.Quota != nil {
+		result.Quota = item.Quota
+	}
+	return result
 }
 
 func (m *Manager) refreshOne(ctx context.Context, item Item, forceQuota bool) error {

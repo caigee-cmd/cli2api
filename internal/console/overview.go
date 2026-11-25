@@ -1,7 +1,6 @@
 package console
 
 import (
-	"context"
 	"net/http"
 	"time"
 
@@ -13,9 +12,10 @@ import (
 
 func (h *Handler) HandleOverview(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query().Get("refresh") == "1" {
-		refreshCtx, refreshCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		_ = h.Control.Accounts.RefreshAll(refreshCtx, true)
-		refreshCancel()
+		// Trigger a full concurrent background refresh and return the current
+		// real views immediately. Per-account outcomes are persisted and pushed
+		// on the event channel instead of being truncated by a short timeout.
+		h.Control.Accounts.TriggerRefresh(r.Context())
 	}
 	accountViews, err := h.Control.Accounts.List(r.Context(), false)
 	if err != nil {

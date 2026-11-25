@@ -1,6 +1,6 @@
 import { api, ApiError } from './client'
 import { readStoredApiKey } from '@/hooks/useApiKey'
-import type { CheckinRecord, Overview } from './types'
+import type { AccountQuota, CheckinRecord, Overview } from './types'
 
 export function fetchOverviewSummary(keyOverride?: string) {
   return api<Overview>('/api/overview/summary', {}, keyOverride)
@@ -525,10 +525,42 @@ export type CheckinAllResult = {
   region: string
   status: string
   message?: string
+  /** Real upstream grant amount; absent when the provider reported none. */
+  reward_credits?: number
+  /** Verbatim upstream error classification when the check-in failed. */
+  code?: string
+  kind?: string
+  http_status?: number
+  quota_refreshed?: boolean
 }
 
 export function checkinAll(input?: { force?: boolean; include_disabled?: boolean }) {
   return api<{ object?: string; data?: CheckinAllResult[] }>('/api/accounts/checkin-all', {
+    method: 'POST',
+    body: JSON.stringify(input || {}),
+  })
+}
+
+export type AccountRefreshResult = {
+  account_id: string
+  provider?: string
+  region?: string
+  ok: boolean
+  status?: string
+  code?: string
+  kind?: string
+  message?: string
+  http_status?: number
+  quota?: AccountQuota
+}
+
+/**
+ * One-shot refresh for every account, fully concurrent on the backend — no
+ * client batching or queueing. Each row carries the real probe outcome and the
+ * verbatim upstream error, so a partial failure stays visible per account.
+ */
+export function refreshAllAccounts(input?: { quota?: boolean; include_disabled?: boolean }) {
+  return api<{ object?: string; data?: AccountRefreshResult[] }>('/api/accounts/refresh-all', {
     method: 'POST',
     body: JSON.stringify(input || {}),
   })

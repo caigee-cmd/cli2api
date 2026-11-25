@@ -59,7 +59,7 @@ function formatCheckinMoment(value: string, timezone: string) {
 // `kind` selects the glyph/colour; `message` is the raw upstream error text
 // (only present for failures) and may be truncated in the UI with a copy button.
 export type CheckinFeedback = {
-  kind: 'success' | 'already' | 'skipped' | 'error'
+  kind: 'success' | 'already' | 'skipped' | 'error' | 'unknown'
   message?: string
 }
 
@@ -303,6 +303,14 @@ export function AccountCard({
               <Chip size="sm" variant="soft" color={stateColor}>{stateCopy}</Chip>
             )}
           </span>
+          {account.force_ready_override ? (
+            <Tooltip>
+              <Tooltip.Trigger>
+                <span className="inline-flex cursor-help"><Chip size="sm" variant="soft" color="warning">{t('forceReadyBadge')}</Chip></span>
+              </Tooltip.Trigger>
+              <Tooltip.Content>{t('forceReadyHint')}</Tooltip.Content>
+            </Tooltip>
+          ) : null}
           {modelCooldowns.length && state !== 'cooling' ? (
             <Tooltip>
               <Tooltip.Trigger>
@@ -377,6 +385,8 @@ export function AccountCard({
                 <span className="font-medium text-warning">{t('checkinRecordAlready')}</span>
               ) : feedback.kind === 'skipped' ? (
                 <span className="font-medium text-warning">{t('checkinRecordSkipped')}</span>
+              ) : feedback.kind === 'unknown' ? (
+                <span className="font-medium text-muted">{t('checkinStatusUnknown')}</span>
               ) : (
                 <span className="font-medium text-danger">{t('checkinRecordFailed')}</span>
               )}
