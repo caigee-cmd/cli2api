@@ -26,8 +26,8 @@ func TestUserAgentIsBun(t *testing.T) {
 	if CosyVersion != "1.1.96" {
 		t.Fatalf("CosyVersion=%q want 1.1.96", CosyVersion)
 	}
-	if DesktopCosyVersion != "0.4.8" {
-		t.Fatalf("DesktopCosyVersion=%q want 0.4.8", DesktopCosyVersion)
+	if DesktopCosyVersion(CN) != "0.5.18" || DesktopCosyVersion(Global) != "0.5.3" {
+		t.Fatalf("DesktopCosyVersion CN=%q global=%q", DesktopCosyVersion(CN), DesktopCosyVersion(Global))
 	}
 }
 

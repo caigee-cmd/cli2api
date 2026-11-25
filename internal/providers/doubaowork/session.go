@@ -16,7 +16,10 @@ import (
 
 // desktopParams are the query parameters that make a request look like the
 // Doubao Work web client. aid must be 497858 (the web/desktop chat app); the
-// other product line returns no office model menu.
+// other product line returns no office model menu. version_code 20800 is the
+// value the official doubao.com page still uses today (register banner,
+// 2026-11-25); the Doubao desktop app has its own build code (2.32.6 -> 23206)
+// and is a different client.
 var desktopParams = map[string]string{
 	"aid":                    "497858",
 	"real_aid":               "497858",
@@ -153,7 +156,9 @@ func (s *session) initialize(ctx context.Context) error {
 
 	identity, err := s.json(ctx, http.MethodGet, "/passport/account/info/v2/", nil, map[string]string{
 		"account_sdk_source": "web",
-		"sdk_version":        "2.2.5",
+		// 2.2.10 is the account SDK version the official doubao.com download /
+		// web page requests today (seen in its register banner, 2026-11-25).
+		"sdk_version": "2.2.10",
 	})
 	if err != nil {
 		return err
