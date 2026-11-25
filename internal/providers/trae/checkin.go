@@ -32,6 +32,11 @@ func (AlreadyCheckedInError) AlreadyCheckedIn() bool { return true }
 // re-probe so success is only reported when the account actually flipped.
 // "今日已签到" maps to Status="already"; session-dead surfaces KindAuth so the
 // manager can flag the account for re-login.
+//
+// The ug endpoints do not gate on the client build code: a live probe on
+// 2026-11-25 returned the same status body with and without the SOLO
+// X-Ide-Version-Code headers, so check-in keeps the UG identity (UA + device
+// id) while catalog and chat carry the version pair.
 func (client *Client) Checkin(ctx context.Context, accountID string) (providers.CheckinResult, error) {
 	credential, err := client.credential(ctx, accountID)
 	if err != nil {
