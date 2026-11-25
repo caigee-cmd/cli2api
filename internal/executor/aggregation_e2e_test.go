@@ -39,6 +39,7 @@ func TestAggregateFailoverSettingsDriveAttempts(t *testing.T) {
 		Request:           translate.ChatRequest{Model: "my-model", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}}},
 		Identity:          auth.ConsoleIdentity(),
 		CrossProviderPool: true,
+		ModelAggregation:  true,
 		Aggregations:      resolver,
 		Now:               time.Now(),
 	})
@@ -57,6 +58,7 @@ func TestAggregateFailoverSettingsDriveAttempts(t *testing.T) {
 		Request:           translate.ChatRequest{Model: "my-model", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}}},
 		Identity:          auth.ConsoleIdentity(),
 		CrossProviderPool: true,
+		ModelAggregation:  true,
 		Aggregations:      resolver,
 		Now:               time.Now(),
 	})
@@ -86,6 +88,7 @@ func TestAggregatePrepareToRoute(t *testing.T) {
 		Request:           translate.ChatRequest{Model: "my-model", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}}},
 		Identity:          auth.ConsoleIdentity(),
 		CrossProviderPool: true,
+		ModelAggregation:  true,
 		Aggregations:      resolver,
 		Now:               time.Now(),
 	})

@@ -29,19 +29,17 @@ func (h *Handler) HandleModels(w http.ResponseWriter, r *http.Request) {
 		// Aggregation keys expose only provider-neutral names (logical model-pool
 		// entries and account aliases), never real provider rows.
 		models = h.AggregationKeyModels(r.Context(), r, models)
-	} else {
-		if h != nil && h.crossProviderPoolOn() && h.MergeAggregationModels != nil {
-			ctx := r.Context()
-			models = h.MergeAggregationModels(ctx, models)
-		}
-		if h.crossProviderPoolOn() == false && !identity.ModelAggregation {
-			// The gateway refuses bare ids with the pool off; serve prefixed ids so
-			// OpenAI-compatible clients see exactly what the gateway accepts.
-			// Aggregation keys are the exception: their whole point is a
-			// provider-neutral list, and the matching prepare step accepts those
-			// bare names through the account pool.
-			models = control.PrefixModelEntries(models)
-		}
+	}
+	// The shared catalog never carries logical aggregation entries: they belong
+	// to aggregation keys only, so a logical ID can never hide or replace a real
+	// provider model for an ordinary client.
+	if h.crossProviderPoolOn() == false && !identity.ModelAggregation {
+		// The gateway refuses bare ids with the pool off; serve prefixed ids so
+		// OpenAI-compatible clients see exactly what the gateway accepts.
+		// Aggregation keys are the exception: their whole point is a
+		// provider-neutral list, and the matching prepare step accepts those
+		// bare names through the account pool.
+		models = control.PrefixModelEntries(models)
 	}
 	body := map[string]any{
 		"object": "list",

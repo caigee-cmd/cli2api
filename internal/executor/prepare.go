@@ -106,11 +106,11 @@ func (e ChatExecutor) Prepare(in PrepareInput) (PreparedRequest, error) {
 	// Resolve a logical aggregation model into an immutable per-request plan.
 	// This happens once, before any Pool lock, and the plan is carried in the
 	// context so routing uses a stable snapshot (no DB/facade access under lock,
-	// no cross-request mutable state). An aggregation key accepts both its
-	// provider-neutral account aliases and the logical models configured in the
-	// model pool, so the plan must exist before the key contract is checked.
+	// no cross-request mutable state). Only an aggregation key may opt into the
+	// logical namespace: a normal key always routes the real provider model, so
+	// a logical ID that collides with a real catalog ID can never shadow it.
 	var aggregatePlan *AggregatePlan
-	if in.Aggregations != nil && (in.CrossProviderPool || in.ModelAggregation) && ProviderPrefix(publicModel) == "" {
+	if in.Aggregations != nil && in.ModelAggregation && ProviderPrefix(publicModel) == "" {
 		if plan, ok := e.resolveAggregation(in.Context, in.Aggregations, publicModel, in.Identity.AllowedProviders); ok {
 			aggregatePlan = plan
 		}

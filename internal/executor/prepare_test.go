@@ -74,6 +74,26 @@ func TestPrepareStripsPrefixAndChecksGrants(t *testing.T) {
 	}
 }
 
+func TestPrepareNormalKeyDoesNotResolveAggregationNamespace(t *testing.T) {
+	resolver := &aggResolverStub{agg: accounts.Aggregation{
+		ID: "deepseek-v4.1-flash", Enabled: true,
+		Members: []accounts.AggregationMember{{Provider: "trae", Model: "deepseek-v4.1-flash"}},
+	}}
+	ex := NewChatExecutor(NewPool(nil, nil), "")
+	got, err := ex.Prepare(PrepareInput{
+		Request:           translate.ChatRequest{Model: "deepseek-v4.1-flash", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}}},
+		Identity:          auth.KeyIdentity(accounts.APIKey{ID: "key_1", Name: "normal", Enabled: true}),
+		CrossProviderPool: true,
+		Aggregations:      resolver,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if aggregatePlanFrom(got.Context) != nil || resolver.hit != 0 {
+		t.Fatalf("normal key entered aggregation namespace: hit=%d plan=%+v", resolver.hit, aggregatePlanFrom(got.Context))
+	}
+}
+
 func TestPrepareAggregationKeyAliasesAndLogicalModels(t *testing.T) {
 	pool := NewPool(nil, nil)
 	pool.Upsert(Item{

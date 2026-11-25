@@ -29,12 +29,6 @@ func (a *App) newGateway() *apigateway.Handler {
 		Models: func(refresh bool, accountID string) ([]map[string]any, error) {
 			return a.fetchDisplayModels(refresh, accountID, control.CatalogModeMerge)
 		},
-		MergeAggregationModels: func(ctx context.Context, models []map[string]any) []map[string]any {
-			if a.Control == nil {
-				return models
-			}
-			return control.MergeAggregationModels(ctx, a.Control.Aggregations, models)
-		},
 		AggregationKeyModels: a.aggregationKeyModels,
 		CatalogStatus: func() map[string]any {
 			if a.Control == nil || a.Control.Catalog == nil {

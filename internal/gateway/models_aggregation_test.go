@@ -51,6 +51,35 @@ func TestHandleModelsUsesAggregationKeyList(t *testing.T) {
 	}
 }
 
+func TestHandleModelsNormalKeyIgnoresAggregationCallback(t *testing.T) {
+	called := false
+	h := &Handler{
+		Models: func(bool, string) ([]map[string]any, error) {
+			return []map[string]any{{"id": "deepseek-v4.1-flash", "object": "model", "provider": "trae"}}, nil
+		},
+		AggregationKeyModels: func(_ context.Context, _ *http.Request, models []map[string]any) []map[string]any {
+			called = true
+			return []map[string]any{{"id": "deepseek-v4.1-flash", "object": "model", "owned_by": "aggregation"}}
+		},
+	}
+	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	req = req.WithContext(auth.WithIdentity(req.Context(), auth.Identity{Kind: auth.KindKey}))
+	rec := httptest.NewRecorder()
+	h.HandleModels(rec, req)
+	var body struct {
+		Data []map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if called {
+		t.Fatal("normal key must not enter the aggregation namespace")
+	}
+	if len(body.Data) != 1 || body.Data[0]["provider"] != "trae" {
+		t.Fatalf("data=%v", body.Data)
+	}
+}
+
 func TestHandleModelsAggregationKeyWithoutCallbackKeepsPrefixOff(t *testing.T) {
 	h := &Handler{
 		Models: func(bool, string) ([]map[string]any, error) {
