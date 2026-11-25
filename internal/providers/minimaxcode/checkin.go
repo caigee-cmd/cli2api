@@ -29,8 +29,10 @@ const (
 	userInfoPath     = "/v1/api/user/info"
 
 	// Public-gateway attribution fields. The route validates the signature built
-	// from these fixed values; desktop_version only tags the caller.
-	gatewayAppVersion  = "0.7.2"
+	// from the exact path+query, so the version fields only tag the caller.
+	// 0.7.9 is the current MCode TUI release (npm @minimax-ai/code, 2026-11-20);
+	// the build code is a fixed tag the gateway does not gate on.
+	gatewayAppVersion  = "0.7.9"
 	gatewayVersionCode = "22201"
 	gatewaySignature   = "I*7Cf%WZ#S&%1RlZJ&C2"
 	// The daily panel rolls over at 00:00 Asia/Shanghai for both regions, so the
