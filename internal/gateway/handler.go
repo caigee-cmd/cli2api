@@ -31,6 +31,9 @@ type Handler struct {
 	// MergeAggregationModels folds logical aggregation models into /v1/models.
 	// Injected by app so gateway does not import control/store.
 	MergeAggregationModels func(context.Context, []map[string]any) []map[string]any
+	// AggregationKeyModels builds the provider-neutral list for a key with
+	// model aggregation on: configured logical models plus account aliases.
+	AggregationKeyModels func(context.Context, *http.Request, []map[string]any) []map[string]any
 	// AfterAccountUse is an optional non-blocking quota invalidation hook. It
 	// runs after the response/stream finishes, never on receipt of SSE headers.
 	AfterAccountUse func(accountID, publicModel string)

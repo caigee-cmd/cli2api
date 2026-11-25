@@ -69,8 +69,9 @@ type PrepareInput struct {
 	SessionHeader     string
 	ConversationID    string
 	CrossProviderPool bool
-	// ModelAggregation lets a key call bare aggregate aliases even when the
-	// cross-provider pool setting is off. Only account-defined aliases qualify.
+	// ModelAggregation lets a key call provider-neutral names even when the
+	// cross-provider pool setting is off: account-defined aliases or logical
+	// models configured in the model pool.
 	ModelAggregation bool
 	Now              time.Time
 	NewRequestID     func() string
@@ -102,11 +103,25 @@ func (e ChatExecutor) Prepare(in PrepareInput) (PreparedRequest, error) {
 		request.Model = publicModel
 		request.Stream = in.NativeRequest.Stream()
 	}
+	// Resolve a logical aggregation model into an immutable per-request plan.
+	// This happens once, before any Pool lock, and the plan is carried in the
+	// context so routing uses a stable snapshot (no DB/facade access under lock,
+	// no cross-request mutable state). An aggregation key accepts both its
+	// provider-neutral account aliases and the logical models configured in the
+	// model pool, so the plan must exist before the key contract is checked.
+	var aggregatePlan *AggregatePlan
+	if in.Aggregations != nil && (in.CrossProviderPool || in.ModelAggregation) && ProviderPrefix(publicModel) == "" {
+		if plan, ok := e.resolveAggregation(in.Context, in.Aggregations, publicModel, in.Identity.AllowedProviders); ok {
+			aggregatePlan = plan
+		}
+	}
 	if in.ModelAggregation {
 		// An aggregation key's contract is stricter than the shared pool: it may
-		// only call the provider-neutral aliases its own accounts define. A real
-		// catalog id or a provider-prefixed id would leak the split view back.
-		if strings.Contains(strings.TrimSpace(publicModel), "/") || !e.servesAggregationAlias(publicModel, in.Identity) {
+		// only call the provider-neutral names it exposes — an account alias or a
+		// configured logical model. A real catalog id or a provider-prefixed id
+		// would leak the split view back.
+		if strings.Contains(strings.TrimSpace(publicModel), "/") ||
+			(aggregatePlan == nil && !e.servesAggregationAlias(publicModel, in.Identity)) {
 			return PreparedRequest{}, &PrepareError{
 				Status:  400,
 				Code:    "model_not_aggregated",
@@ -118,16 +133,6 @@ func (e ChatExecutor) Prepare(in PrepareInput) (PreparedRequest, error) {
 			Status:  400,
 			Code:    "provider_prefix_required",
 			Message: "cross-provider model pool is disabled; use a provider-prefixed model ID such as qoder/glm-5.2",
-		}
-	}
-	// Resolve a logical aggregation model into an immutable per-request plan.
-	// This happens once, before any Pool lock, and the plan is carried in the
-	// context so routing uses a stable snapshot (no DB/facade access under lock,
-	// no cross-request mutable state).
-	var aggregatePlan *AggregatePlan
-	if in.Aggregations != nil && (in.CrossProviderPool || in.ModelAggregation) && ProviderPrefix(publicModel) == "" {
-		if plan, ok := e.resolveAggregation(in.Context, in.Aggregations, publicModel, in.Identity.AllowedProviders); ok {
-			aggregatePlan = plan
 		}
 	}
 

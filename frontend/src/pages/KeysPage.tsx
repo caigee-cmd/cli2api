@@ -482,8 +482,9 @@ function KeyEditorModal({
                       {options.map((option) => {
                         const checked = selected.includes(option.value)
                         const allRegions = allRegionsFamilies.has(option.provider)
+                        const locked = busy || modelAggregation
                         return (
-                          <Checkbox key={option.value} isSelected={checked} onChange={() => toggle(option.value)} className="rounded-xl bg-surface-secondary px-3 py-2.5 data-selected:border-accent data-selected:bg-accent-soft">
+                          <Checkbox key={option.value} isSelected={checked} isDisabled={locked} onChange={() => toggle(option.value)} className={`rounded-xl bg-surface-secondary px-3 py-2.5 data-selected:border-accent data-selected:bg-accent-soft ${locked ? 'cursor-not-allowed opacity-50 grayscale' : ''}`}>
                             <Checkbox.Content className="flex items-center gap-2.5">
                               <Checkbox.Control>
                                 <Checkbox.Indicator />
