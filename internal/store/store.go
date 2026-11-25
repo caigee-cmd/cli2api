@@ -174,7 +174,7 @@ func (s *Store) Create(ctx context.Context, input accounts.CreateAccount) (accou
 	}
 	checkinAutoTime := ""
 	if _, supported := providers.CheckinFor(descriptor.ID, region.ID); supported {
-		checkinAutoTime = accounts.DefaultCheckinAutoTime(descriptor.ID)
+		checkinAutoTime = accounts.DefaultCheckinAutoTimeFor(descriptor.ID, region.ID)
 	}
 	account := accounts.Account{
 		ID:                   newAccountID(),
@@ -301,7 +301,7 @@ func scanAccount(row rowScanner) (accounts.Account, error) {
 		// The first upstream sync overwrites this with the observed window. The
 		// in-memory fallback makes the scheduler use the new auto rule immediately
 		// after upgrade instead of waiting for the first sweep.
-		account.CheckinAutoTime = accounts.DefaultCheckinAutoTime(account.Provider)
+		account.CheckinAutoTime = accounts.DefaultCheckinAutoTimeFor(account.Provider, account.ProviderRegion)
 	}
 	account.CreatedAt = parseTime(created.String)
 	account.UpdatedAt = parseTime(updated.String)

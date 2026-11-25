@@ -118,7 +118,7 @@ func TestSyncCheckinStatusErrorMarksUnknownWithoutFakeCheckin(t *testing.T) {
 		t.Fatal(err)
 	}
 	if updated.LastCheckinStatus != "unknown" || updated.LastCheckinSource != "upstream" ||
-		updated.LastCheckinAt != "" || updated.CheckinAutoTime != "11:00" {
+		updated.LastCheckinAt != "" || updated.CheckinAutoTime != "01:00" {
 		t.Fatalf("unknown=%+v", updated)
 	}
 }
@@ -172,6 +172,63 @@ func TestSyncCheckinStatusUnknownKeepsRealLocalSuccess(t *testing.T) {
 	}
 	if updated.LastCheckinStatus != "success" || updated.LastCheckinSource != "local" {
 		t.Fatalf("unknown must not erase a successful local day: %+v", updated)
+	}
+}
+
+func TestSyncCheckinStatusKeepsLearnedWindowWhenProbeFails(t *testing.T) {
+	manager, account := newStatusManager(t, checkinStatusFunc(func(context.Context, string) (providers.CheckinResult, error) {
+		return providers.CheckinResult{}, errors.New("upstream unavailable")
+	}))
+	ctx := context.Background()
+	if err := manager.store.RecordCheckinStatus(ctx, account.ID, accounts.CheckinStatusUpdate{Status: "pending", AutoTime: "11:00"}); err != nil {
+		t.Fatal(err)
+	}
+	manager.SyncCheckinStatuses(ctx)
+	updated, err := manager.store.Get(ctx, account.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.CheckinAutoTime != "11:00" {
+		t.Fatalf("a failed probe downgraded the learned window: %q", updated.CheckinAutoTime)
+	}
+}
+
+func TestSyncCheckinStatusRewritesBuiltInWindowForTableProviders(t *testing.T) {
+	store, err := sqlstore.OpenStore(filepath.Join(t.TempDir(), "checkin-window.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.Close() })
+	manager := NewManager(ManagerConfig{DataDir: t.TempDir()}, store, nil)
+	t.Cleanup(func() { manager.Close() })
+	registry := providers.NewRegistry()
+	registry.Register(providers.Adapter{
+		ID: "trae",
+		Checkin: checkinFunc(func(context.Context, string) (providers.CheckinResult, error) {
+			return providers.CheckinResult{Status: "skipped"}, nil
+		}),
+		CheckinStatus: checkinStatusFunc(func(context.Context, string) (providers.CheckinResult, error) {
+			// Trae only reports the day flag, never the window start.
+			return providers.CheckinResult{Status: "pending", Message: "上游显示今日未签到"}, nil
+		}),
+	})
+	manager.SetProviders(registry)
+	enabled := true
+	account, err := store.Create(context.Background(), accounts.CreateAccount{Name: "TRAE", Provider: "trae", Region: "cn", Enabled: true, AutoCheckin: &enabled})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if err := store.RecordCheckinStatus(ctx, account.ID, accounts.CheckinStatusUpdate{Status: "pending", AutoTime: "05:00"}); err != nil {
+		t.Fatal(err)
+	}
+	manager.SyncCheckinStatuses(ctx)
+	updated, err := store.Get(ctx, account.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.CheckinAutoTime != "01:00" {
+		t.Fatalf("built-in window not applied: %q", updated.CheckinAutoTime)
 	}
 }
 

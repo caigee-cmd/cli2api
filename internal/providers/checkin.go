@@ -47,6 +47,18 @@ type CheckinPolicy struct {
 	// operator PC's zone. Use an IANA location such as Asia/Shanghai; never
 	// "Local", so schedules stay stable when the host or browser moves.
 	Timezone string `json:"timezone"`
+	// Earliest is the daily window start (HH:MM in Timezone) used when the
+	// upstream status payload does not expose one. It is a conservative
+	// fallback, never an optimisation: an unknown window must not be turned
+	// into an early claim.
+	Earliest string `json:"earliest,omitempty"`
+	// WindowFromUpstream reports that the provider's own status payload carries
+	// the window start, so the runtime learns it per account and schedules the
+	// claim an hour later instead of trusting Earliest.
+	WindowFromUpstream bool `json:"window_from_upstream,omitempty"`
+	// WindowSource records where Earliest comes from, so the table can be
+	// audited and refreshed instead of turning into undocumented folklore.
+	WindowSource string `json:"window_source,omitempty"`
 }
 
 type CheckinResult struct {

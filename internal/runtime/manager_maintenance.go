@@ -320,14 +320,19 @@ func (manager *Manager) syncCheckinStatus(ctx context.Context, account Account) 
 	if busy {
 		return
 	}
-	earliest := strings.TrimSpace(result.EarliestCheckin)
-	if earliest == "" {
-		earliest = accounts.EarliestCheckinClock(account.Provider)
-	}
 	update := accounts.CheckinStatusUpdate{
 		Source:   "upstream",
-		AutoTime: accounts.AutoCheckinTimeFromEarliest(earliest),
 		SyncedAt: now,
+	}
+	// Learning rules: a provider that exposes its window refreshes the scheduled
+	// hour on every successful probe, and keeps the learned hour (rather than
+	// dropping back to the table) when the probe itself fails. Providers that
+	// only expose a day flag follow the built-in table, which is rewritten on
+	// every probe so a corrected table reaches existing accounts.
+	if earliest := strings.TrimSpace(result.EarliestCheckin); earliest != "" {
+		update.AutoTime = accounts.AutoCheckinTimeFromEarliest(earliest)
+	} else if !accounts.CheckinWindowFromUpstream(account.Provider, account.ProviderRegion) || account.CheckinAutoTime == "" {
+		update.AutoTime = accounts.DefaultCheckinAutoTimeFor(account.Provider, account.ProviderRegion)
 	}
 	if readErr != nil {
 		update.Status = "unknown"
