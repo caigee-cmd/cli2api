@@ -258,13 +258,13 @@ export function AccountCard({
       <Card.Header className="flex-row items-start justify-between gap-2.5 px-4 pt-3.5 pb-2">
         <div className="flex min-w-0 items-center gap-2.5">
           {selectable ? (
-            <Checkbox
-              isSelected={selected}
-              onChange={() => onSelectToggle?.()}
-              aria-label={`${t('reloginSelectAccount')} ${account.name || account.id}`}
-              className="shrink-0"
-            >
-              <Checkbox.Control><Checkbox.Indicator /></Checkbox.Control>
+            // HeroUI v3 keeps the clickable control in Checkbox.Content: a
+            // Checkbox without it renders the indicator as a plain span and
+            // nothing responds to clicks.
+            <Checkbox isSelected={selected} onChange={() => onSelectToggle?.()} className="shrink-0">
+              <Checkbox.Content aria-label={`${t('reloginSelectAccount')} ${account.name || account.id}`} className="cursor-pointer p-1">
+                <Checkbox.Control><Checkbox.Indicator /></Checkbox.Control>
+              </Checkbox.Content>
             </Checkbox>
           ) : null}
           <div className={`flex size-8 shrink-0 items-center justify-center rounded-lg bg-surface-tertiary ${selected ? 'ring-2 ring-accent' : ''}`} title={provider}>
