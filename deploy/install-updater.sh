@@ -172,27 +172,30 @@ install_linux() {
 
 	local temp_dir status
 	temp_dir="$(mktemp -d)"
-	if install_released_updater /usr/local/bin/cli2api-updater linux; then
-	    :
-	  elif docker cp "${CONTAINER_NAME}:/app/cli2api-updater" "${temp_dir}/cli2api-updater" >/dev/null 2>&1; then
+	# The updater inside the running container always matches the deployed image
+	# and needs no network round trip, so prefer it over the GitHub asset.
+	if docker cp "${CONTAINER_NAME}:/app/cli2api-updater" "${temp_dir}/cli2api-updater" >/dev/null 2>&1 && [[ -s "${temp_dir}/cli2api-updater" ]]; then
+	  install -m 0755 "${temp_dir}/cli2api-updater" /usr/local/bin/cli2api-updater
+	  echo "Installed updater from the running container."
+	else
+	  install_released_updater /usr/local/bin/cli2api-updater linux
+	  status=$?
+	  if [[ "${status}" -ne 0 && "${status}" -ne 1 ]]; then
+	    rm -rf "${temp_dir}"
+	    exit "${status}"
+	  fi
+	  if [[ "${status}" -eq 1 ]]; then
+	    if ! command -v go >/dev/null 2>&1; then
+	      rm -rf "${temp_dir}"
+	      echo "No updater binary is available. Install Go 1.25.6+ to build it locally." >&2
+	      exit 1
+	    fi
+	    echo "Released updater asset unavailable; building from the checked-out source."
+	    (cd "${ROOT_DIR}" && go build -trimpath -o "${temp_dir}/cli2api-updater" ./cmd/updater) || { rm -rf "${temp_dir}"; exit 1; }
 	    install -m 0755 "${temp_dir}/cli2api-updater" /usr/local/bin/cli2api-updater
-	    echo "Installed updater from the running container."
-	  else
-    status=$?
-    if [[ "${status}" -ne 1 ]]; then
-      rm -rf "${temp_dir}"
-      exit "${status}"
-    fi
-    if ! command -v go >/dev/null 2>&1; then
-      rm -rf "${temp_dir}"
-      echo "No updater binary is available. Install Go 1.25.6+ to build it locally." >&2
-      exit 1
-    fi
-    echo "Released updater asset unavailable; building from the checked-out source."
-    (cd "${ROOT_DIR}" && go build -trimpath -o "${temp_dir}/cli2api-updater" ./cmd/updater)
-    install -m 0755 "${temp_dir}/cli2api-updater" /usr/local/bin/cli2api-updater
-  fi
-  rm -rf "${temp_dir}"
+	  fi
+	fi
+	rm -rf "${temp_dir}"
 
   install -d -m 0750 /run/cli2api-updater
   install -d -m 0700 /var/lib/cli2api-updater

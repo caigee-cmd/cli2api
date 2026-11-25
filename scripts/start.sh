@@ -38,3 +38,21 @@ if [[ -n "${new_key}" ]]; then
 else
   echo "The API key is already stored in the SQLite database."
 fi
+
+# Let the console pull and apply new images itself. On Linux this needs the host
+# updater once; install it here so a plain ./scripts/start.sh deployment is
+# self-updating. Opt out with CLI2API_SKIP_UPDATER_INSTALL=1.
+if [[ "$(uname -s)" == "Linux" ]] && command -v systemctl >/dev/null 2>&1 \
+  && [[ ! -f /etc/systemd/system/cli2api-updater.service ]] \
+  && [[ "${CLI2API_SKIP_UPDATER_INSTALL:-0}" != "1" ]]; then
+  echo "Installing the managed updater so the console can update this stack itself."
+  if [[ "${EUID}" -eq 0 ]]; then
+    "${ROOT_DIR}/deploy/install-updater.sh" || echo "Managed updater install failed; run sudo ./deploy/install-updater.sh manually." >&2
+  elif command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
+    sudo -n "${ROOT_DIR}/deploy/install-updater.sh" || echo "Managed updater install failed; run sudo ./deploy/install-updater.sh manually." >&2
+  else
+    echo "Run sudo ./deploy/install-updater.sh once to enable one-click updates in the console."
+  fi
+  "${COMPOSE[@]}" up -d >/dev/null 2>&1 || true
+fi
+

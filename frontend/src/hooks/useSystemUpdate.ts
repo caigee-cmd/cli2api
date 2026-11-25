@@ -102,7 +102,9 @@ export function useSystemUpdate() {
         ? t('updateInProgress')
         : preparing || submitting
           ? t('updatePreparingImage')
-          : t('updateNow')
+          : info?.managed && !info?.has_update
+            ? t('upToDate')
+            : t('updateNow')
   const statusHint = reloadIn != null
     ? t('updateReloadingHint')
     : readyToApply

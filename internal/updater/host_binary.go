@@ -17,6 +17,10 @@ import (
 
 const maxHostBinaryBytes = 64 << 20
 
+// imageUpdaterPath is where the app image carries the updater binary, so the
+// host copy can always come from the image that was just pulled.
+const imageUpdaterPath = "/app/cli2api-updater"
+
 func (e *Executor) stageHostBinary(ctx context.Context, version string, progress func(string)) error {
 	hostPath := strings.TrimSpace(e.config.HostBinaryPath)
 	if hostPath == "" {
@@ -25,10 +29,14 @@ func (e *Executor) stageHostBinary(ctx context.Context, version string, progress
 	if progress != nil {
 		progress("host_binary")
 	}
+	imageErr := e.stageHostBinaryFromImage(ctx, version)
+	if imageErr == nil {
+		return nil
+	}
 	asset := hostUpdaterAssetName()
 	body, err := e.downloadReleaseFile(ctx, version, asset)
 	if err != nil {
-		return fmt.Errorf("download host updater: %w", err)
+		return fmt.Errorf("download host updater: %w (image extraction failed: %v)", err, imageErr)
 	}
 	if len(body) == 0 || len(body) > maxHostBinaryBytes {
 		return fmt.Errorf("host updater is empty or too large")
@@ -45,6 +53,57 @@ func (e *Executor) stageHostBinary(ctx context.Context, version string, progress
 		return fmt.Errorf("write staged host updater: %w", err)
 	}
 	return nil
+}
+
+// stageHostBinaryFromImage copies the updater binary out of the target image.
+// The image that was just pulled always carries a matching updater, so this
+// keeps the host binary in lockstep with the released version and removes the
+// dependency on GitHub release-asset downloads (which stall on slow routes).
+func (e *Executor) stageHostBinaryFromImage(ctx context.Context, version string) error {
+	hostPath := strings.TrimSpace(e.config.HostBinaryPath)
+	if hostPath == "" {
+		return nil
+	}
+	repository := strings.Trim(strings.TrimSpace(e.config.ImageRepository), "/")
+	if repository == "" {
+		return fmt.Errorf("image repository is empty")
+	}
+	targetImage := repository + ":" + version
+	output, err := e.runner.Run(ctx, "docker", "create", targetImage)
+	containerID := lastNonEmptyLine(string(output))
+	if err != nil {
+		return fmt.Errorf("create updater staging container: %w", err)
+	}
+	if containerID == "" {
+		return fmt.Errorf("docker create returned no container id")
+	}
+	defer func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		_, _ = e.runner.Run(cleanupCtx, "docker", "rm", "-f", containerID)
+	}()
+	staged := hostPath + ".new"
+	if _, err := e.runner.Run(ctx, "docker", "cp", containerID+":"+imageUpdaterPath, staged); err != nil {
+		return fmt.Errorf("copy updater from image: %w", err)
+	}
+	info, err := os.Stat(staged)
+	if err != nil {
+		return fmt.Errorf("stat staged host updater: %w", err)
+	}
+	if info.Size() == 0 || info.Size() > maxHostBinaryBytes {
+		return fmt.Errorf("host updater from image is empty or too large")
+	}
+	return os.Chmod(staged, 0o755)
+}
+
+func lastNonEmptyLine(text string) string {
+	lines := strings.Split(text, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if line := strings.TrimSpace(lines[i]); line != "" {
+			return line
+		}
+	}
+	return ""
 }
 
 func (e *Executor) refreshStagedHostBinaryFromContainer(ctx context.Context) error {

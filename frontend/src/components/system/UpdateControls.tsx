@@ -19,7 +19,8 @@ export function UpdateControls({ update }: { update: SystemUpdateController }) {
           </div>
           <div className="border-t border-separator p-4 sm:border-t-0">
             <div className="text-caption font-medium text-muted">{t('latestVersion')}</div>
-            <div className="mono mt-2 text-section font-semibold">{info?.next_version || '—'}</div>
+            <div className="mono mt-2 text-section font-semibold">{info?.next_version || (info?.has_update ? '—' : info?.current_version) || '—'}</div>
+            {info?.managed && !info?.has_update && !busy ? <div className="mt-1 text-caption text-muted">{t('upToDate')}</div> : null}
           </div>
         </div>
 
