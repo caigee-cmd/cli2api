@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"sort"
 	"strings"
@@ -114,6 +115,9 @@ type streamedChatOutput struct {
 	reasoning    strings.Builder
 	toolCalls    map[int]*proxyToolCall
 	finishReason string
+	// resolved maps a chunk's tool_call position to the call index it belongs
+	// to, so converters can reuse the same grouping the accumulator chose.
+	resolved []int
 }
 
 func (o *streamedChatOutput) add(payload json.RawMessage) {
@@ -124,11 +128,11 @@ func (o *streamedChatOutput) add(payload json.RawMessage) {
 				Content          string `json:"content"`
 				ReasoningContent string `json:"reasoning_content"`
 				ToolCalls        []struct {
-					Index    int    `json:"index"`
+					Index    *int   `json:"index"`
 					ID       string `json:"id"`
 					Function struct {
-						Name      string `json:"name"`
-						Arguments string `json:"arguments"`
+						Name      string          `json:"name"`
+						Arguments json.RawMessage `json:"arguments"`
 					} `json:"function"`
 				} `json:"tool_calls"`
 			} `json:"delta"`
@@ -137,6 +141,8 @@ func (o *streamedChatOutput) add(payload json.RawMessage) {
 	if json.Unmarshal(payload, &chunk) != nil {
 		return
 	}
+	o.resolved = o.resolved[:0]
+	lastIndex := -1
 	for _, choice := range chunk.Choices {
 		if choice.FinishReason != "" {
 			o.finishReason = choice.FinishReason
@@ -151,10 +157,8 @@ func (o *streamedChatOutput) add(payload json.RawMessage) {
 			if o.toolCalls == nil {
 				o.toolCalls = map[int]*proxyToolCall{}
 			}
-			index := delta.Index
-			if index == 0 && callPosition > 0 {
-				index = callPosition
-			}
+			index := o.resolveToolCallIndex(delta.Index, delta.ID, delta.Function.Name, callPosition, lastIndex)
+			lastIndex = index
 			call := o.toolCalls[index]
 			if call == nil {
 				call = &proxyToolCall{}
@@ -166,9 +170,88 @@ func (o *streamedChatOutput) add(payload json.RawMessage) {
 			if delta.Function.Name != "" {
 				call.Name = delta.Function.Name
 			}
-			call.Arguments += delta.Function.Arguments
+			call.Arguments = mergeToolArguments(call.Arguments, argumentFragment(delta.Function.Arguments))
+			o.resolved = append(o.resolved, index)
 		}
 	}
+}
+
+// resolveToolCallIndex keeps fragments with one call together. Upstreams that
+// omit `index` either keep streaming the same call (no id/name, fold into
+// the previous one) or start a new call (id or name present, next slot).
+func (o *streamedChatOutput) resolveToolCallIndex(declared *int, id, name string, position, lastIndex int) int {
+	startsCall := id != "" || name != ""
+	switch {
+	case declared != nil && *declared > 0:
+		return *declared
+	case declared != nil && !startsCall:
+		return *declared
+	case declared != nil && startsCall:
+		if existing := o.toolCalls[*declared]; existing != nil && existing.Name != "" && existing.Name != name {
+			return maxToolCallIndex(o.toolCalls) + 1
+		}
+		return *declared
+	case startsCall:
+		if position == 0 {
+			if existing := o.toolCalls[0]; existing == nil || existing.Name == "" || existing.Name == name {
+				return 0
+			}
+		}
+		return maxToolCallIndex(o.toolCalls) + 1
+	case lastIndex >= 0:
+		return lastIndex
+	default:
+		return position
+	}
+}
+
+func maxToolCallIndex(calls map[int]*proxyToolCall) int {
+	maximum := -1
+	for index := range calls {
+		if index > maximum {
+			maximum = index
+		}
+	}
+	return maximum
+}
+
+// argumentFragment normalizes the arguments field of a stream delta. Some
+// upstreams send a JSON object where the OpenAI schema expects a string; a
+// strict `string` decode would drop the whole chunk, content included.
+func argumentFragment(raw json.RawMessage) string {
+	if len(raw) == 0 || string(raw) == "null" {
+		return ""
+	}
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		return text
+	}
+	var value any
+	if json.Unmarshal(raw, &value) == nil {
+		if encoded, err := json.Marshal(value); err == nil {
+			return string(encoded)
+		}
+	}
+	return ""
+}
+
+// mergeToolArguments appends a delta fragment, but tolerates upstreams that
+// resend the whole argument buffer (or its tail) on every chunk — concatenating
+// those blindly is what produces `{"a":1}{"a":1}` and an invalid tool call.
+func mergeToolArguments(base, fragment string) string {
+	if fragment == "" {
+		return base
+	}
+	if base == "" {
+		return fragment
+	}
+	if len(fragment) > len(base) && strings.HasPrefix(fragment, base) {
+		return fragment
+	}
+	if len(fragment) >= 8 && strings.HasSuffix(base, fragment) {
+		return base
+	}
+	return base + fragment
 }
 
 func (o *streamedChatOutput) calls() []proxyToolCall {
@@ -261,6 +344,7 @@ func RelayAnthropicStream(writer io.Writer, body io.Reader, requestID, model str
 	thinkingStarted := false
 	thinkingBlockIndex := -1
 	toolBlocks := map[int]int{}
+	toolArgumentLengths := map[int]int{}
 	nextBlock := 0
 	closeThinking := func() error {
 		if !thinkingStarted {
@@ -289,11 +373,11 @@ func RelayAnthropicStream(writer io.Writer, body io.Reader, requestID, model str
 					Content          string `json:"content"`
 					ReasoningContent string `json:"reasoning_content"`
 					ToolCalls        []struct {
-						Index    int    `json:"index"`
+						Index    *int   `json:"index"`
 						ID       string `json:"id"`
 						Function struct {
-							Name      string `json:"name"`
-							Arguments string `json:"arguments"`
+							Name      string          `json:"name"`
+							Arguments json.RawMessage `json:"arguments"`
 						} `json:"function"`
 					} `json:"tool_calls"`
 				} `json:"delta"`
@@ -336,9 +420,9 @@ func RelayAnthropicStream(writer io.Writer, body io.Reader, requestID, model str
 				if err := closeThinking(); err != nil {
 					return err
 				}
-				index := delta.Index
-				if index == 0 && callPosition > 0 {
-					index = callPosition
+				index, ok := resolvedCallIndex(current, callPosition)
+				if !ok {
+					continue
 				}
 				blockIndex, exists := toolBlocks[index]
 				if !exists && delta.Function.Name != "" {
@@ -359,11 +443,18 @@ func RelayAnthropicStream(writer io.Writer, body io.Reader, requestID, model str
 					}
 					exists = true
 				}
-				if exists && delta.Function.Arguments != "" {
-					if err := writeSSEEvent(writer, "content_block_delta", map[string]any{"type": "content_block_delta", "index": blockIndex, "delta": map[string]string{"type": "input_json_delta", "partial_json": delta.Function.Arguments}}); err != nil {
-						return err
-					}
+				if !exists {
+					continue
 				}
+				accumulated := accumulatedToolArguments(current, index)
+				emitted := toolArgumentLengths[index]
+				if len(accumulated) <= emitted {
+					continue
+				}
+				if err := writeSSEEvent(writer, "content_block_delta", map[string]any{"type": "content_block_delta", "index": blockIndex, "delta": map[string]string{"type": "input_json_delta", "partial_json": accumulated[emitted:]}}); err != nil {
+					return err
+				}
+				toolArgumentLengths[index] = len(accumulated)
 			}
 		}
 		return nil
@@ -454,11 +545,11 @@ func RelayResponsesStream(writer io.Writer, body io.Reader, requestID, model str
 					Content          string `json:"content"`
 					ReasoningContent string `json:"reasoning_content"`
 					ToolCalls        []struct {
-						Index    int    `json:"index"`
+						Index    *int   `json:"index"`
 						ID       string `json:"id"`
 						Function struct {
-							Name      string `json:"name"`
-							Arguments string `json:"arguments"`
+							Name      string          `json:"name"`
+							Arguments json.RawMessage `json:"arguments"`
 						} `json:"function"`
 					} `json:"tool_calls"`
 				} `json:"delta"`
@@ -505,9 +596,9 @@ func RelayResponsesStream(writer io.Writer, body io.Reader, requestID, model str
 				}
 			}
 			for callPosition, delta := range choice.Delta.ToolCalls {
-				index := delta.Index
-				if index == 0 && callPosition > 0 {
-					index = callPosition
+				index, ok := resolvedCallIndex(current, callPosition)
+				if !ok {
+					continue
 				}
 				if err := closeReasoning(); err != nil {
 					return err
@@ -537,10 +628,7 @@ func RelayResponsesStream(writer io.Writer, body io.Reader, requestID, model str
 					toolAnnounced[index] = true
 				}
 				if toolAnnounced[index] {
-					accumulated := ""
-					if currentCall := current.toolCalls[index]; currentCall != nil {
-						accumulated = currentCall.Arguments
-					}
+					accumulated := accumulatedToolArguments(current, index)
 					emitted := toolArgumentLengths[index]
 					if len(accumulated) > emitted {
 						deltaPayload := map[string]any{"type": "response.function_call_arguments.delta", "output_index": toolOutputIndexes[index], "item_id": fmt.Sprintf("fc_%s_%d", requestID, index), "call_id": toolCallIDs[index], "name": toolCallNames[index], "delta": accumulated[emitted:]}
@@ -569,6 +657,10 @@ func RelayResponsesStream(writer io.Writer, body io.Reader, requestID, model str
 	content := output.content.String()
 	calls := output.calls()
 	if err := validateProxyToolCallArguments(calls); err != nil {
+		log.Printf("tool call arguments unusable request_id=%q model=%q finish_reason=%q err=%v", requestID, model, output.finishReason, err)
+		if output.finishReason == "length" {
+			return stats, fmt.Errorf("%w (the model hit its output-token limit mid-arguments)", err)
+		}
 		return stats, err
 	}
 	if textStarted {
@@ -646,6 +738,23 @@ func RelayResponsesStream(writer io.Writer, body io.Reader, requestID, model str
 		return stats, err
 	}
 	return stats, nil
+}
+
+func resolvedCallIndex(output *streamedChatOutput, position int) (int, bool) {
+	if output == nil || position >= len(output.resolved) {
+		return 0, false
+	}
+	return output.resolved[position], true
+}
+
+func accumulatedToolArguments(output *streamedChatOutput, index int) string {
+	if output == nil {
+		return ""
+	}
+	if call := output.toolCalls[index]; call != nil {
+		return call.Arguments
+	}
+	return ""
 }
 
 func sortedBlockIndexes(blocks map[int]int) []int {
