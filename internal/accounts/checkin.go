@@ -11,7 +11,6 @@ import (
 
 const (
 	DefaultCheckinTime            = "09:00"
-	DefaultEarliestCheckinClock   = "00:00"
 	CheckinDisabledAccountsSecret = "checkin_disabled_accounts"
 )
 
@@ -50,78 +49,19 @@ func ResolveCheckinTime(ctx context.Context, store CheckinSettingsReader, accoun
 	if account.CheckinTime != "" {
 		return NormalizeCheckinTime(account.CheckinTime)
 	}
+	// The provider check-in time setting is the operator's single source of
+	// truth for every account of that provider, and it defaults to 09:00.
+	// The stored per-account auto time is only a mirror of that setting kept
+	// for display, so it must not outrank the setting after it changes.
+	if store != nil {
+		if value, err := CheckinTimeDefault(ctx, store, account.Provider); err == nil {
+			return value, nil
+		}
+	}
 	if account.CheckinAutoTime != "" {
 		return NormalizeCheckinTime(account.CheckinAutoTime)
 	}
-	// Before the first upstream status sync, keep the legacy provider default
-	// as a fallback. The first sync writes CheckinAutoTime and takes over.
-	fallback, err := CheckinTimeDefault(ctx, store, account.Provider)
-	if err != nil {
-		return "", err
-	}
-	return fallback, nil
-}
-
-// EarliestCheckinClock is the provider's fallback daily window start when the
-// upstream status response does not carry one. Regions differ: Qoder Global
-// rotates at 10:00 Asia/Shanghai, Qoder CN (QoderWork) at local midnight.
-func EarliestCheckinClock(provider string) string {
-	descriptor, ok := providers.Get(provider)
-	if !ok {
-		return DefaultEarliestCheckinClock
-	}
-	return EarliestCheckinClockFor(provider, descriptor.DefaultRegion)
-}
-
-// EarliestCheckinClockFor resolves the fallback window for one provider region.
-// The registry policy is the single source of truth, so a region that rolls
-// over at a different hour cannot inherit its sibling's schedule.
-func EarliestCheckinClockFor(provider, region string) string {
-	if policy, ok := providers.CheckinFor(provider, region); ok {
-		if trimmed := strings.TrimSpace(policy.Earliest); trimmed != "" {
-			return trimmed
-		}
-	}
-	return DefaultEarliestCheckinClock
-}
-
-// CheckinWindowFromUpstream reports whether the provider exposes its daily
-// window start in the status payload, so the runtime learns it per account
-// instead of trusting the fallback table.
-func CheckinWindowFromUpstream(provider, region string) bool {
-	policy, ok := providers.CheckinFor(provider, region)
-	return ok && policy.WindowFromUpstream
-}
-
-// AutoCheckinTimeFromEarliest delays the upstream window by one hour so the
-// scheduler never races the reset. An invalid or empty clock returns empty.
-// A window that starts at 23:00 or later clamps to 23:59 instead of wrapping
-// to 00:xx, which would fire before the window it is meant to follow.
-func AutoCheckinTimeFromEarliest(earliest string) string {
-	parsed, err := time.Parse("15:04", strings.TrimSpace(earliest))
-	if err != nil {
-		return ""
-	}
-	minutes := parsed.Hour()*60 + parsed.Minute() + 60
-	if minutes >= 24*60 {
-		minutes = 24*60 - 1
-	}
-	return fmt.Sprintf("%02d:%02d", minutes/60, minutes%60)
-}
-
-// DefaultCheckinAutoTime is the provider fallback window + 1 hour, used before
-// the first upstream sync has produced an account-specific value.
-func DefaultCheckinAutoTime(provider string) string {
-	descriptor, ok := providers.Get(provider)
-	if !ok {
-		return AutoCheckinTimeFromEarliest(DefaultEarliestCheckinClock)
-	}
-	return DefaultCheckinAutoTimeFor(provider, descriptor.DefaultRegion)
-}
-
-// DefaultCheckinAutoTimeFor is DefaultCheckinAutoTime for one provider region.
-func DefaultCheckinAutoTimeFor(provider, region string) string {
-	return AutoCheckinTimeFromEarliest(EarliestCheckinClockFor(provider, region))
+	return DefaultCheckinTime, nil
 }
 
 func ValidateCheckinSettings(providerID, regionID string, enabled bool, override string) error {

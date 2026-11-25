@@ -54,7 +54,7 @@ func TestSyncCheckinStatusPersistsUpstreamAlreadyAndAutoTime(t *testing.T) {
 		t.Fatal(err)
 	}
 	if updated.LastCheckinStatus != "already" || updated.LastCheckinSource != "upstream" ||
-		updated.LastCheckinSyncedAt == "" || updated.CheckinAutoTime != "11:00" ||
+		updated.LastCheckinSyncedAt == "" || updated.CheckinAutoTime != "09:00" ||
 		updated.LastCheckinAt == "" {
 		t.Fatalf("synced=%+v", updated)
 	}
@@ -79,8 +79,8 @@ func TestSyncCheckinStatusPendingKeepsLastAttemptAndDerivesOneHour(t *testing.T)
 		// Within the post-check-in grace window the fresh local success stands.
 		t.Fatalf("grace clobbered=%+v", updated)
 	}
-	if updated.CheckinAutoTime != "01:00" {
-		t.Fatalf("auto time=%q want 01:00", updated.CheckinAutoTime)
+	if updated.CheckinAutoTime != "09:00" {
+		t.Fatalf("auto time=%q want 09:00", updated.CheckinAutoTime)
 	}
 	if updated.LastCheckinSource != "local" {
 		t.Fatalf("grace must keep the local source, got %q", updated.LastCheckinSource)
@@ -100,7 +100,7 @@ func TestSyncCheckinStatusPendingWinsAfterGrace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updated.LastCheckinStatus != "pending" || updated.LastCheckinSource != "upstream" || updated.CheckinAutoTime != "01:00" {
+	if updated.LastCheckinStatus != "pending" || updated.LastCheckinSource != "upstream" || updated.CheckinAutoTime != "09:00" {
 		t.Fatalf("pending=%+v", updated)
 	}
 	if updated.LastCheckinAt == "" {
@@ -118,7 +118,7 @@ func TestSyncCheckinStatusErrorMarksUnknownWithoutFakeCheckin(t *testing.T) {
 		t.Fatal(err)
 	}
 	if updated.LastCheckinStatus != "unknown" || updated.LastCheckinSource != "upstream" ||
-		updated.LastCheckinAt != "" || updated.CheckinAutoTime != "01:00" {
+		updated.LastCheckinAt != "" || updated.CheckinAutoTime != "09:00" {
 		t.Fatalf("unknown=%+v", updated)
 	}
 }
@@ -175,11 +175,14 @@ func TestSyncCheckinStatusUnknownKeepsRealLocalSuccess(t *testing.T) {
 	}
 }
 
-func TestSyncCheckinStatusKeepsLearnedWindowWhenProbeFails(t *testing.T) {
+func TestSyncCheckinStatusAppliesProviderSettingWhenProbeFails(t *testing.T) {
 	manager, account := newStatusManager(t, checkinStatusFunc(func(context.Context, string) (providers.CheckinResult, error) {
 		return providers.CheckinResult{}, errors.New("upstream unavailable")
 	}))
 	ctx := context.Background()
+	if err := manager.store.SetSecret(ctx, accounts.CheckinTimeSecret("qoder"), "10:30"); err != nil {
+		t.Fatal(err)
+	}
 	if err := manager.store.RecordCheckinStatus(ctx, account.ID, accounts.CheckinStatusUpdate{Status: "pending", AutoTime: "11:00"}); err != nil {
 		t.Fatal(err)
 	}
@@ -188,12 +191,12 @@ func TestSyncCheckinStatusKeepsLearnedWindowWhenProbeFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updated.CheckinAutoTime != "11:00" {
-		t.Fatalf("a failed probe downgraded the learned window: %q", updated.CheckinAutoTime)
+	if updated.CheckinAutoTime != "10:30" {
+		t.Fatalf("the provider setting did not reach the account: %q", updated.CheckinAutoTime)
 	}
 }
 
-func TestSyncCheckinStatusRewritesBuiltInWindowForTableProviders(t *testing.T) {
+func TestSyncCheckinStatusRewritesStoredAutoTimeFromSetting(t *testing.T) {
 	store, err := sqlstore.OpenStore(filepath.Join(t.TempDir(), "checkin-window.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -208,7 +211,7 @@ func TestSyncCheckinStatusRewritesBuiltInWindowForTableProviders(t *testing.T) {
 			return providers.CheckinResult{Status: "skipped"}, nil
 		}),
 		CheckinStatus: checkinStatusFunc(func(context.Context, string) (providers.CheckinResult, error) {
-			// Trae only reports the day flag, never the window start.
+			// Trae only reports the day flag, never a window start.
 			return providers.CheckinResult{Status: "pending", Message: "上游显示今日未签到"}, nil
 		}),
 	})
@@ -227,8 +230,8 @@ func TestSyncCheckinStatusRewritesBuiltInWindowForTableProviders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updated.CheckinAutoTime != "01:00" {
-		t.Fatalf("built-in window not applied: %q", updated.CheckinAutoTime)
+	if updated.CheckinAutoTime != accounts.DefaultCheckinTime {
+		t.Fatalf("default setting not applied: %q", updated.CheckinAutoTime)
 	}
 }
 

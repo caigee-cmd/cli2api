@@ -174,7 +174,10 @@ func (s *Store) Create(ctx context.Context, input accounts.CreateAccount) (accou
 	}
 	checkinAutoTime := ""
 	if _, supported := providers.CheckinFor(descriptor.ID, region.ID); supported {
-		checkinAutoTime = accounts.DefaultCheckinAutoTimeFor(descriptor.ID, region.ID)
+		// The provider check-in time setting drives the schedule; the stored
+		// per-account mirror starts at the 09:00 default and is rewritten on the
+		// next status sync once the operator changes the setting.
+		checkinAutoTime = accounts.DefaultCheckinTime
 	}
 	account := accounts.Account{
 		ID:                   newAccountID(),
@@ -298,10 +301,9 @@ func scanAccount(row rowScanner) (accounts.Account, error) {
 		account.WorkBuddyCheckinTime = accounts.DefaultWorkBuddyCheckinTime
 	}
 	if _, supported := providers.CheckinFor(account.Provider, account.ProviderRegion); supported && account.CheckinAutoTime == "" {
-		// The first upstream sync overwrites this with the observed window. The
-		// in-memory fallback makes the scheduler use the new auto rule immediately
-		// after upgrade instead of waiting for the first sweep.
-		account.CheckinAutoTime = accounts.DefaultCheckinAutoTimeFor(account.Provider, account.ProviderRegion)
+		// The setting drives the schedule; this is only the display mirror for
+		// rows created before the first sync wrote one.
+		account.CheckinAutoTime = accounts.DefaultCheckinTime
 	}
 	account.CreatedAt = parseTime(created.String)
 	account.UpdatedAt = parseTime(updated.String)

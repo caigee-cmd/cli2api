@@ -102,10 +102,7 @@ var Qoder = ProviderDescriptor{
 			BillingBase: "https://openapi.qoder.sh", AuthBase: "https://qoder.sh",
 			DefaultDomain: "qoder.global",
 			Checkin: &CheckinPolicy{
-				Timezone:           "Asia/Shanghai",
-				Earliest:           "10:00",
-				WindowFromUpstream: true,
-				WindowSource:       "Qoder 官方活动页：每日 10:00 开放新一轮领取，窗口持续至次日 10:00（docs.qoder.com/zh/events/100credits）",
+				Timezone: "Asia/Shanghai",
 			},
 		},
 		{
@@ -113,10 +110,7 @@ var Qoder = ProviderDescriptor{
 			BillingBase: "https://openapi.qoder.com.cn", AuthBase: "https://qoder.com.cn",
 			DefaultDomain: "qoder.com.cn",
 			Checkin: &CheckinPolicy{
-				Timezone:           "Asia/Shanghai",
-				Earliest:           "00:00",
-				WindowFromUpstream: true,
-				WindowSource:       "阿里云帮助中心 QoderWork CN 签到条款：每天 0 点（UTC+8）刷新签到状态",
+				Timezone: "Asia/Shanghai",
 			},
 		},
 	},
@@ -142,10 +136,7 @@ var WorkBuddy = ProviderDescriptor{
 			BillingBase: "https://www.workbuddy.cn", AuthBase: "https://www.workbuddy.cn",
 			DefaultDomain: "codebuddy.cn",
 			Checkin: &CheckinPolicy{
-				Timezone:           "Asia/Shanghai",
-				Earliest:           "00:00",
-				WindowFromUpstream: true,
-				WindowSource:       "上游 checkin-activity-status 的 start_time；缺省按 UTC+8 日界",
+				Timezone: "Asia/Shanghai",
 			},
 		},
 		{
@@ -177,9 +168,7 @@ var Trae = ProviderDescriptor{
 			BillingBase: "https://api.trae.cn", AuthBase: "https://api.trae.com.cn",
 			DefaultDomain: "trae.cn",
 			Checkin: &CheckinPolicy{
-				Timezone:     "Asia/Shanghai",
-				Earliest:     "00:00",
-				WindowSource: "TRAE 积分每日 00:00（北京时间）重置；活跃实现 L0NE-6/Trae-AutoCheckin、star620/TRAE-Automatic-sign-in 均按 UTC+8 日界执行",
+				Timezone: "Asia/Shanghai",
 			},
 		},
 	},
@@ -305,10 +294,7 @@ var QwenWork = ProviderDescriptor{
 			BillingBase: "https://gateway.qwenwork.ai", AuthBase: "https://gateway.qwenwork.ai",
 			DefaultDomain: "qwenwork.ai",
 			Checkin: &CheckinPolicy{
-				Timezone:           "Asia/Shanghai",
-				Earliest:           "00:00",
-				WindowFromUpstream: true,
-				WindowSource:       "上游签到活动 nextClaimAt；缺省按 UTC+8 日界（每日 0 点刷新）",
+				Timezone: "Asia/Shanghai",
 			},
 		},
 		{
@@ -316,10 +302,7 @@ var QwenWork = ProviderDescriptor{
 			BillingBase: "https://gateway.qwenwork.cn", AuthBase: "https://gateway.qwenwork.cn",
 			DefaultDomain: "qwenwork.cn",
 			Checkin: &CheckinPolicy{
-				Timezone:           "Asia/Shanghai",
-				Earliest:           "00:00",
-				WindowFromUpstream: true,
-				WindowSource:       "上游签到活动 nextClaimAt；缺省按 UTC+8 日界（每日 0 点刷新）",
+				Timezone: "Asia/Shanghai",
 			},
 		},
 	},
@@ -375,10 +358,7 @@ var CodeArts = ProviderDescriptor{
 			AuthBase:      "https://codearts.huaweicloud.com",
 			DefaultDomain: "huaweicloud.com",
 			Checkin: &CheckinPolicy{
-				Timezone:           "Asia/Shanghai",
-				Earliest:           "00:00",
-				WindowFromUpstream: true,
-				WindowSource:       "上游签到活动的 campaign 时间窗；缺省按 UTC+8 日界",
+				Timezone: "Asia/Shanghai",
 			},
 		},
 	},
@@ -461,10 +441,7 @@ var DoubaoWork = ProviderDescriptor{
 			BillingBase: "https://www.doubao.com", AuthBase: "https://www.doubao.com",
 			DefaultDomain: "doubao.com",
 			Checkin: &CheckinPolicy{
-				Timezone:           "Asia/Shanghai",
-				Earliest:           "00:00",
-				WindowFromUpstream: true,
-				WindowSource:       "上游签到任务的每日任务时间窗（doubaoEarliestClock）；缺省按 UTC+8 日界",
+				Timezone: "Asia/Shanghai",
 			},
 		},
 	},
@@ -491,9 +468,7 @@ var MiniMaxCode = ProviderDescriptor{
 			BillingBase: "https://agent.minimax.cn", AuthBase: "https://account.minimax.cn",
 			DefaultDomain: "minimax.cn",
 			Checkin: &CheckinPolicy{
-				Timezone:     "Asia/Shanghai",
-				Earliest:     "00:00",
-				WindowSource: "上游只返回 is_today 天级标志；按 UTC+8 日界（活跃实现 SnailMann/dsh-credit-checkin-hub 在日界后执行）",
+				Timezone: "Asia/Shanghai",
 			},
 		},
 		{
@@ -501,9 +476,7 @@ var MiniMaxCode = ProviderDescriptor{
 			BillingBase: "https://agent.minimax.io", AuthBase: "https://account.minimax.io",
 			DefaultDomain: "minimax.io",
 			Checkin: &CheckinPolicy{
-				Timezone:     "Asia/Shanghai",
-				Earliest:     "00:00",
-				WindowSource: "上游只返回 is_today 天级标志；按 UTC+8 日界",
+				Timezone: "Asia/Shanghai",
 			},
 		},
 	},

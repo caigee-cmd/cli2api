@@ -1,69 +1,48 @@
 package accounts
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
-func TestEarliestCheckinClockIsRegionAware(t *testing.T) {
-	tests := []struct {
-		provider string
-		region   string
-		want     string
-	}{
-		{"qoder", "global", "10:00"},
-		{"qoder", "cn", "00:00"},
-		{"workbuddy", "cn", "00:00"},
-		{"trae", "cn", "00:00"},
-		{"qwenwork", "global", "00:00"},
-		{"qwenwork", "cn", "00:00"},
-		{"codearts", "cn-north-4", "00:00"},
-		{"doubaowork", "cn", "00:00"},
-		{"minimaxcode", "cn", "00:00"},
-		{"unknown-provider", "cn", "00:00"},
-	}
-	for _, test := range tests {
-		if got := EarliestCheckinClockFor(test.provider, test.region); got != test.want {
-			t.Errorf("EarliestCheckinClockFor(%s,%s)=%q want %q", test.provider, test.region, got, test.want)
+type checkinSecretReader map[string]string
+
+func (r checkinSecretReader) GetSecret(_ context.Context, name string) (string, bool, error) {
+	value, ok := r[name]
+	return value, ok, nil
+}
+
+// The provider check-in time setting is the operator's single source of truth.
+// Every provider defaults to 09:00, a stored per-account auto time never
+// outranks it, and only a per-account manual override does.
+func TestResolveCheckinTimeFollowsProviderSetting(t *testing.T) {
+	ctx := context.Background()
+	for _, provider := range []string{"qoder", "workbuddy", "trae", "qwenwork", "codearts", "doubaowork", "minimaxcode"} {
+		account := Account{Provider: provider, ProviderRegion: "cn", CheckinAutoTime: "01:00"}
+		effective, err := ResolveCheckinTime(ctx, checkinSecretReader{}, account)
+		if err != nil || effective != DefaultCheckinTime {
+			t.Fatalf("%s default=%q err=%v want %q", provider, effective, err, DefaultCheckinTime)
+		}
+		store := checkinSecretReader{CheckinTimeSecret(provider): "10:30"}
+		effective, err = ResolveCheckinTime(ctx, store, account)
+		if err != nil || effective != "10:30" {
+			t.Fatalf("%s setting=%q err=%v", provider, effective, err)
+		}
+		account.CheckinTime = "18:30"
+		effective, err = ResolveCheckinTime(ctx, store, account)
+		if err != nil || effective != "18:30" {
+			t.Fatalf("%s manual override=%q err=%v", provider, effective, err)
 		}
 	}
 }
 
-func TestDefaultCheckinAutoTimeUsesRegionWindow(t *testing.T) {
-	tests := []struct {
-		provider string
-		region   string
-		want     string
-	}{
-		{"qoder", "global", "11:00"},
-		{"qoder", "cn", "01:00"},
-		{"trae", "cn", "01:00"},
+func TestResolveCheckinTimeFallsBackWithoutReader(t *testing.T) {
+	account := Account{Provider: "qoder"}
+	if got, err := ResolveCheckinTime(context.Background(), nil, account); err != nil || got != DefaultCheckinTime {
+		t.Fatalf("nil reader=%q err=%v", got, err)
 	}
-	for _, test := range tests {
-		if got := DefaultCheckinAutoTimeFor(test.provider, test.region); got != test.want {
-			t.Errorf("DefaultCheckinAutoTimeFor(%s,%s)=%q want %q", test.provider, test.region, got, test.want)
-		}
-	}
-}
-
-func TestEarliestCheckinClockDefaultsToProviderDefaultRegion(t *testing.T) {
-	if got := EarliestCheckinClock("qoder"); got != "10:00" {
-		t.Fatalf("qoder default region clock=%q want 10:00", got)
-	}
-	if got := DefaultCheckinAutoTime("qoder"); got != "11:00" {
-		t.Fatalf("qoder default region auto=%q want 11:00", got)
-	}
-}
-
-func TestAutoCheckinTimeFromEarliestClampsLateWindows(t *testing.T) {
-	tests := map[string]string{
-		"00:00": "01:00",
-		"10:00": "11:00",
-		"23:00": "23:59",
-		"23:59": "23:59",
-		"":      "",
-		"bad":   "",
-	}
-	for earliest, want := range tests {
-		if got := AutoCheckinTimeFromEarliest(earliest); got != want {
-			t.Errorf("AutoCheckinTimeFromEarliest(%q)=%q want %q", earliest, got, want)
-		}
+	account.CheckinAutoTime = "11:00"
+	if got, err := ResolveCheckinTime(context.Background(), nil, account); err != nil || got != "11:00" {
+		t.Fatalf("stored mirror=%q err=%v", got, err)
 	}
 }

@@ -542,7 +542,7 @@ func TestStoreCreateWorkBuddyCheckinTimeFallsBackToAuto(t *testing.T) {
 		t.Fatal(err)
 	}
 	updated, err := store.Get(ctx, account.ID)
-	if err != nil || updated.WorkBuddyCheckinTime != "01:00" {
+	if err != nil || updated.WorkBuddyCheckinTime != "07:15" {
 		t.Fatalf("updated=%+v err=%v", updated, err)
 	}
 }

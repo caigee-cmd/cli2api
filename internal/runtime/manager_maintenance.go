@@ -324,15 +324,13 @@ func (manager *Manager) syncCheckinStatus(ctx context.Context, account Account) 
 		Source:   "upstream",
 		SyncedAt: now,
 	}
-	// Learning rules: a provider that exposes its window refreshes the scheduled
-	// hour on every successful probe, and keeps the learned hour (rather than
-	// dropping back to the table) when the probe itself fails. Providers that
-	// only expose a day flag follow the built-in table, which is rewritten on
-	// every probe so a corrected table reaches existing accounts.
-	if earliest := strings.TrimSpace(result.EarliestCheckin); earliest != "" {
-		update.AutoTime = accounts.AutoCheckinTimeFromEarliest(earliest)
-	} else if !accounts.CheckinWindowFromUpstream(account.Provider, account.ProviderRegion) || account.CheckinAutoTime == "" {
-		update.AutoTime = accounts.DefaultCheckinAutoTimeFor(account.Provider, account.ProviderRegion)
+	// The provider check-in time setting is the single source of truth for the
+	// automatic schedule and defaults to 09:00 for every provider. Upstream
+	// payloads only report status; they must not reschedule the claim. The
+	// stored auto time is rewritten on every sync so the console row follows the
+	// setting even when another client changed it.
+	if value, err := accounts.CheckinTimeDefault(ctx, manager.store, account.Provider); err == nil {
+		update.AutoTime = value
 	}
 	if readErr != nil {
 		update.Status = "unknown"

@@ -475,12 +475,6 @@ export type ProviderDescriptor = {
     label: string
     checkin?: {
       timezone: string
-      /** Fallback daily window start (HH:MM) when the upstream payload has none. */
-      earliest?: string
-      /** The provider's status payload carries the window start. */
-      window_from_upstream?: boolean
-      /** Where the fallback window comes from. */
-      window_source?: string
     }
   }>
   default_region: string
