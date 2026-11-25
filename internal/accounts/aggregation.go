@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/caigee-cmd/cli2api/internal/providers"
 )
 
 // AggregationStrategy is the routing strategy for one logical aggregation
@@ -47,28 +49,48 @@ type Aggregation struct {
 	Strategy       AggregationStrategy `json:"strategy"`
 	AllowFallbacks bool                `json:"allow_fallbacks"`
 	MaxAttempts    int                 `json:"max_attempts"`
-	Members        []AggregationMember `json:"members"`
-	CreatedAt      time.Time           `json:"created_at"`
-	UpdatedAt      time.Time           `json:"updated_at"`
+	// ContextLength overrides the context window advertised for the logical
+	// model. Zero keeps the conservative value derived from the members.
+	ContextLength int `json:"context_length,omitempty"`
+	// MaxOutputTokens overrides the largest output advertised for the logical
+	// model. Zero keeps the members' conservative value.
+	MaxOutputTokens int `json:"max_output_tokens,omitempty"`
+	// ReasoningOptions pins the reasoning levels the logical model advertises.
+	// Empty keeps the intersection of the members' declared levels.
+	ReasoningOptions []string `json:"reasoning_options,omitempty"`
+	// ReasoningEffort is the default reasoning level advertised for the logical
+	// model. It is a default only: a client may still request any other level.
+	ReasoningEffort string              `json:"reasoning_effort,omitempty"`
+	Members         []AggregationMember `json:"members"`
+	CreatedAt       time.Time           `json:"created_at"`
+	UpdatedAt       time.Time           `json:"updated_at"`
 }
 
 type CreateAggregation struct {
-	ID             string
-	Name           string
-	Enabled        bool
-	Strategy       AggregationStrategy
-	AllowFallbacks bool
-	MaxAttempts    int
-	Members        []AggregationMember
+	ID               string
+	Name             string
+	Enabled          bool
+	Strategy         AggregationStrategy
+	AllowFallbacks   bool
+	MaxAttempts      int
+	ContextLength    int
+	MaxOutputTokens  int
+	ReasoningOptions []string
+	ReasoningEffort  string
+	Members          []AggregationMember
 }
 
 type UpdateAggregation struct {
-	Name           *string
-	Enabled        *bool
-	Strategy       *AggregationStrategy
-	AllowFallbacks *bool
-	MaxAttempts    *int
-	Members        *[]AggregationMember
+	Name             *string
+	Enabled          *bool
+	Strategy         *AggregationStrategy
+	AllowFallbacks   *bool
+	MaxAttempts      *int
+	ContextLength    *int
+	MaxOutputTokens  *int
+	ReasoningOptions *[]string
+	ReasoningEffort  *string
+	Members          *[]AggregationMember
 }
 
 // NormalizeAggregationStrategy keeps the per-model strategy inside the four
@@ -160,6 +182,84 @@ func normalizeAggregationMaxAttempts(value int) int {
 	return value
 }
 
+// reasoningOrderIndex positions a normalized level on the gateway vocabulary so
+// the advertised list is deterministic. Unknown levels sort last.
+func reasoningOrderIndex(level string) int {
+	for index, option := range providers.GatewayReasoningOptions() {
+		if option == level {
+			return index
+		}
+	}
+	return len(providers.GatewayReasoningOptions())
+}
+
+func normalizeAggregationReasoningOptions(raw []string) ([]string, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	out := make([]string, 0, len(raw))
+	seen := map[string]bool{}
+	for _, value := range raw {
+		level := providers.NormalizeReasoningLevel(value)
+		if level == "" {
+			return nil, fmt.Errorf("unsupported reasoning level %q", strings.TrimSpace(value))
+		}
+		if seen[level] {
+			continue
+		}
+		seen[level] = true
+		out = append(out, level)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return reasoningOrderIndex(out[i]) < reasoningOrderIndex(out[j])
+	})
+	return out, nil
+}
+
+func normalizeAggregationReasoningEffort(raw string, options []string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", nil
+	}
+	level := providers.NormalizeReasoningLevel(raw)
+	if level == "" {
+		return "", fmt.Errorf("unsupported reasoning effort %q", raw)
+	}
+	if len(options) == 0 {
+		return "", fmt.Errorf("reasoning_effort requires reasoning_options")
+	}
+	for _, option := range options {
+		if option == level {
+			return level, nil
+		}
+	}
+	return "", fmt.Errorf("reasoning_effort %q must be one of the configured reasoning options", level)
+}
+
+// normalizeAggregationCapabilities validates the logical model's advertised
+// capability overrides. Zero/empty values mean "derive from the members", so an
+// unspecified aggregation behaves exactly like before this feature.
+func normalizeAggregationCapabilities(contextLength, maxOutput int, options []string, effort string) (int, int, []string, string, error) {
+	if contextLength < 0 || contextLength > 4_000_000 || (contextLength > 0 && contextLength < 1024) {
+		return 0, 0, nil, "", fmt.Errorf("aggregation context_length must be 0 or between 1024 and 4000000")
+	}
+	if maxOutput < 0 || maxOutput > 4_000_000 || (maxOutput > 0 && maxOutput < 1024) {
+		return 0, 0, nil, "", fmt.Errorf("aggregation max_output_tokens must be 0 or between 1024 and 4000000")
+	}
+	if contextLength > 0 && maxOutput > contextLength {
+		return 0, 0, nil, "", fmt.Errorf("aggregation max_output_tokens must not exceed context_length")
+	}
+	normalizedOptions, err := normalizeAggregationReasoningOptions(options)
+	if err != nil {
+		return 0, 0, nil, "", err
+	}
+	normalizedEffort, err := normalizeAggregationReasoningEffort(effort, normalizedOptions)
+	if err != nil {
+		return 0, 0, nil, "", err
+	}
+	return contextLength, maxOutput, normalizedOptions, normalizedEffort, nil
+}
+
 func PrepareCreateAggregation(input CreateAggregation) (CreateAggregation, error) {
 	id := strings.ToLower(strings.TrimSpace(input.ID))
 	if id == "" {
@@ -179,14 +279,24 @@ func PrepareCreateAggregation(input CreateAggregation) (CreateAggregation, error
 	if err != nil {
 		return CreateAggregation{}, err
 	}
+	contextLength, maxOutput, options, effort, err := normalizeAggregationCapabilities(
+		input.ContextLength, input.MaxOutputTokens, input.ReasoningOptions, input.ReasoningEffort,
+	)
+	if err != nil {
+		return CreateAggregation{}, err
+	}
 	return CreateAggregation{
-		ID:             id,
-		Name:           name,
-		Enabled:        input.Enabled,
-		Strategy:       NormalizeAggregationStrategy(string(input.Strategy)),
-		AllowFallbacks: input.AllowFallbacks,
-		MaxAttempts:    normalizeAggregationMaxAttempts(input.MaxAttempts),
-		Members:        members,
+		ID:               id,
+		Name:             name,
+		Enabled:          input.Enabled,
+		Strategy:         NormalizeAggregationStrategy(string(input.Strategy)),
+		AllowFallbacks:   input.AllowFallbacks,
+		MaxAttempts:      normalizeAggregationMaxAttempts(input.MaxAttempts),
+		ContextLength:    contextLength,
+		MaxOutputTokens:  maxOutput,
+		ReasoningOptions: options,
+		ReasoningEffort:  effort,
+		Members:          members,
 	}, nil
 }
 
@@ -210,6 +320,18 @@ func ApplyAggregationUpdate(current Aggregation, input UpdateAggregation) (Aggre
 	if input.MaxAttempts != nil {
 		current.MaxAttempts = normalizeAggregationMaxAttempts(*input.MaxAttempts)
 	}
+	if input.ContextLength != nil {
+		current.ContextLength = *input.ContextLength
+	}
+	if input.MaxOutputTokens != nil {
+		current.MaxOutputTokens = *input.MaxOutputTokens
+	}
+	if input.ReasoningOptions != nil {
+		current.ReasoningOptions = *input.ReasoningOptions
+	}
+	if input.ReasoningEffort != nil {
+		current.ReasoningEffort = *input.ReasoningEffort
+	}
 	if input.Members != nil {
 		members, err := normalizeAggregationMembers(*input.Members)
 		if err != nil {
@@ -217,6 +339,16 @@ func ApplyAggregationUpdate(current Aggregation, input UpdateAggregation) (Aggre
 		}
 		current.Members = members
 	}
+	contextLength, maxOutput, options, effort, err := normalizeAggregationCapabilities(
+		current.ContextLength, current.MaxOutputTokens, current.ReasoningOptions, current.ReasoningEffort,
+	)
+	if err != nil {
+		return Aggregation{}, err
+	}
+	current.ContextLength = contextLength
+	current.MaxOutputTokens = maxOutput
+	current.ReasoningOptions = options
+	current.ReasoningEffort = effort
 	return current, nil
 }
 

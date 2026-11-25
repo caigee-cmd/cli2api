@@ -42,6 +42,8 @@ import { accountProviderLabel } from '@/lib/provider'
 type TFunc = (key: string, vars?: Record<string, string | number>) => string
 type AccountRow = NonNullable<Overview['accounts']>[number]
 
+const REASONING_LEVELS = ['none', 'low', 'medium', 'high', 'xhigh', 'max'] as const
+
 type MemberDraft = AggregationMember & { key: string }
 
 function newMemberDraft(): MemberDraft {
@@ -303,6 +305,10 @@ function AggregationEditorModal({
   const [strategy, setStrategy] = useState<string>('priority')
   const [allowFallbacks, setAllowFallbacks] = useState(true)
   const [maxAttempts, setMaxAttempts] = useState(3)
+  const [contextLength, setContextLength] = useState(0)
+  const [maxOutput, setMaxOutput] = useState(0)
+  const [reasoningOptions, setReasoningOptions] = useState<string[]>([])
+  const [reasoningEffort, setReasoningEffort] = useState('')
   const [members, setMembers] = useState<MemberDraft[]>([])
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -314,6 +320,10 @@ function AggregationEditorModal({
     setStrategy(initial?.strategy || 'priority')
     setAllowFallbacks(initial?.allow_fallbacks ?? true)
     setMaxAttempts(initial?.max_attempts ?? 3)
+    setContextLength(initial?.context_length ?? 0)
+    setMaxOutput(initial?.max_output_tokens ?? 0)
+    setReasoningOptions(initial?.reasoning_options ?? [])
+    setReasoningEffort(initial?.reasoning_effort ?? '')
     setMembers((initial?.members || []).map((m) => ({ ...m, key: `${m.provider}-${m.model}-${Math.random()}` })))
     setError('')
   }, [initial, isOpen])
@@ -339,6 +349,14 @@ function AggregationEditorModal({
     })
   }
 
+  function toggleReasoningLevel(level: string) {
+    const next = reasoningOptions.includes(level)
+      ? reasoningOptions.filter((item) => item !== level)
+      : [...reasoningOptions, level]
+    setReasoningOptions(next)
+    if (reasoningEffort && !next.includes(reasoningEffort)) setReasoningEffort('')
+  }
+
   async function submit(event?: { preventDefault(): void }) {
     event?.preventDefault()
     if (!initial) {
@@ -351,6 +369,15 @@ function AggregationEditorModal({
     if (!Number.isInteger(maxAttempts) || maxAttempts < 1 || maxAttempts > 64) {
       setError(t('modelPoolAttemptsInvalid')); return
     }
+    if (!Number.isInteger(contextLength) || contextLength < 0 || (contextLength > 0 && contextLength < 1024)) {
+      setError(t('modelPoolCapabilitiesInvalid')); return
+    }
+    if (!Number.isInteger(maxOutput) || maxOutput < 0 || (maxOutput > 0 && maxOutput < 1024) || (contextLength > 0 && maxOutput > contextLength)) {
+      setError(t('modelPoolCapabilitiesInvalid')); return
+    }
+    if (reasoningEffort && !reasoningOptions.includes(reasoningEffort)) {
+      setError(t('modelPoolReasoningInvalid')); return
+    }
     setBusy(true)
     setError('')
     try {
@@ -359,6 +386,10 @@ function AggregationEditorModal({
         strategy,
         allow_fallbacks: allowFallbacks,
         max_attempts: maxAttempts,
+        context_length: contextLength,
+        max_output_tokens: maxOutput,
+        reasoning_options: reasoningOptions,
+        reasoning_effort: reasoningEffort,
         members: members.map((m, i) => ({
           provider: m.provider,
           region: m.region || '',
@@ -417,6 +448,55 @@ function AggregationEditorModal({
                     <Description className="text-caption text-muted">{t('modelPoolMaxAttemptsHint')}</Description>
                   </div>
                 </FormRow>
+
+                <div className="space-y-3">
+                  <div>
+                    <Label className="text-body font-medium text-muted">{t('modelPoolCapabilities')}</Label>
+                    <Description className="text-caption leading-5 text-muted">{t('modelPoolCapabilitiesHint')}</Description>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <FormRow label={t('modelPoolContextLength')} hint={t('modelPoolContextLengthHint')} align="start">
+                      <NumberField value={contextLength} onChange={(v) => setContextLength(v ?? 0)} minValue={0} maxValue={4000000} isDisabled={busy}>
+                        <NumberField.Group>
+                          <NumberField.DecrementButton />
+                          <NumberField.Input aria-label={t('modelPoolContextLength')} />
+                          <NumberField.IncrementButton />
+                        </NumberField.Group>
+                      </NumberField>
+                    </FormRow>
+                    <FormRow label={t('modelPoolMaxOutput')} hint={t('modelPoolMaxOutputHint')} align="start">
+                      <NumberField value={maxOutput} onChange={(v) => setMaxOutput(v ?? 0)} minValue={0} maxValue={4000000} isDisabled={busy}>
+                        <NumberField.Group>
+                          <NumberField.DecrementButton />
+                          <NumberField.Input aria-label={t('modelPoolMaxOutput')} />
+                          <NumberField.IncrementButton />
+                        </NumberField.Group>
+                      </NumberField>
+                    </FormRow>
+                  </div>
+                  <FormRow label={t('modelPoolReasoningLevels')} hint={t('modelPoolReasoningLevelsHint')} align="start">
+                    <div className="flex flex-wrap gap-2">
+                      {REASONING_LEVELS.map((level) => {
+                        const selected = reasoningOptions.includes(level)
+                        return (
+                          <Button key={level} size="sm" variant={selected ? 'secondary' : 'ghost'} aria-pressed={selected} isDisabled={busy} onPress={() => toggleReasoningLevel(level)}>
+                            <span className="mono">{level}</span>
+                          </Button>
+                        )
+                      })}
+                    </div>
+                  </FormRow>
+                  <FormRow label={t('modelPoolReasoningDefault')} hint={t('modelPoolReasoningDefaultHint')} align="start">
+                    <FilterSelect
+                      value={reasoningEffort}
+                      onChange={setReasoningEffort}
+                      ariaLabel={t('modelPoolReasoningDefault')}
+                      options={[{ id: '', label: t('modelPoolReasoningAuto') }, ...reasoningOptions.map((level) => ({ id: level, label: level }))]}
+                      className="w-full"
+                      isDisabled={busy || reasoningOptions.length === 0}
+                    />
+                  </FormRow>
+                </div>
 
                 <div className="space-y-3">
                   <div className="flex items-center justify-between gap-3">
