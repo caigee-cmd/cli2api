@@ -28,8 +28,8 @@ func TestProviderCheckinInheritanceAndReset(t *testing.T) {
 			t.Fatal(err)
 		}
 		effective, err := accounts.ResolveCheckinTime(ctx, store, account)
-		if err != nil || effective != accounts.DefaultCheckinAutoTimeFor(providerID, "cn") {
-			t.Fatalf("effective=%q err=%v", effective, err)
+		if err != nil || effective != "10:30" {
+			t.Fatalf("the provider setting must drive the schedule: effective=%q err=%v", effective, err)
 		}
 		if err := store.Update(ctx, account.ID, accounts.UpdateAccount{AutoCheckin: boolPtr(true), CheckinTime: stringPtr("18:30")}); err != nil {
 			t.Fatal(err)
@@ -53,7 +53,7 @@ func TestProviderCheckinInheritanceAndReset(t *testing.T) {
 			t.Fatal(err)
 		}
 		effective, err = accounts.ResolveCheckinTime(ctx, store, account)
-		if err != nil || effective != accounts.DefaultCheckinAutoTimeFor(providerID, "cn") || account.CheckinTime != "" {
+		if err != nil || effective != "11:30" || account.CheckinTime != "" {
 			t.Fatalf("reset=%q err=%v", effective, err)
 		}
 	}

@@ -8,12 +8,7 @@ import { PageAlert } from '@/components/ui/PageAlert'
 import { SkeletonBlock } from '@/components/ui/PageSkeletons'
 import { useI18n } from '@/hooks/useI18n'
 
-function addOneHour(clock: string): string {
-  const match = /^(\d{2}):(\d{2})$/.exec(clock)
-  if (!match) return ''
-  const minutes = Math.min(Number(match[1]) * 60 + Number(match[2]) + 60, 24 * 60 - 1)
-  return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`
-}
+const DEFAULT_CHECKIN_TIME = '09:00'
 
 export function CheckinDefaults({ settings, onSaved }: { settings: SystemSettings | null; onSaved: (settings: SystemSettings) => void }) {
   const { t } = useI18n()
@@ -32,7 +27,16 @@ export function CheckinDefaults({ settings, onSaved }: { settings: SystemSetting
   }, [])
 
   async function save(providerID: string, value: string) {
-    if (!settings || value === settings.checkin_times[providerID]) return
+    if (!settings) return
+    const current = settings.checkin_times[providerID] ?? DEFAULT_CHECKIN_TIME
+    if (!value || value === current) {
+      setDrafts((draftsNow) => {
+        const next = { ...draftsNow }
+        delete next[providerID]
+        return next
+      })
+      return
+    }
     setBusy(true)
     setError('')
     try {
@@ -40,8 +44,8 @@ export function CheckinDefaults({ settings, onSaved }: { settings: SystemSetting
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
-      setDrafts((current) => {
-        const next = { ...current }
+      setDrafts((draftsNow) => {
+        const next = { ...draftsNow }
         delete next[providerID]
         return next
       })
@@ -61,14 +65,9 @@ export function CheckinDefaults({ settings, onSaved }: { settings: SystemSetting
           <FormRow key={provider.id} label={provider.label}
             hint={provider.regions.filter((region) => region.checkin).map((region) => {
               const zone = region.checkin?.timezone === 'Local' ? settings.timezone : (region.checkin?.timezone || '')
-              const earliest = region.checkin?.earliest || '00:00'
-              const auto = addOneHour(earliest)
-              const window = region.checkin?.window_from_upstream
-                ? t('checkinEarliestUpstream', { time: earliest, auto })
-                : t('checkinEarliestTable', { time: earliest, auto })
-              return `${region.label} · ${zone} · ${window}`
+              return `${region.label} · ${zone}`
             }).join(' / ')}>
-            <Input type="time" value={drafts[provider.id] ?? settings.checkin_times[provider.id] ?? ''} disabled={busy}
+            <Input type="time" value={drafts[provider.id] ?? settings.checkin_times[provider.id] ?? DEFAULT_CHECKIN_TIME} disabled={busy}
               aria-label={`${provider.label} ${t('autoCheckinTime')}`}
               onChange={(event) => setDrafts((current) => ({ ...current, [provider.id]: event.target.value }))}
               onBlur={(event) => void save(provider.id, event.target.value)} />

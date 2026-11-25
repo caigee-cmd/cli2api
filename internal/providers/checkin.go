@@ -15,11 +15,11 @@ import (
 const CheckinSureHour = 2
 
 // CheckinClaimSettledHour is the first hour from which a claim endpoint's
-// "already claimed" answer is trusted. The automatic schedule runs at 01:00
-// (earliest window + 1h); a vendor that has not rolled its day yet can still
-// answer with yesterday's "already" at that hour. Treat that answer as
-// unconfirmed for one more hour and let the retry pick it up, rather than
-// recording a false success and skipping the whole day.
+// "already claimed" answer is trusted. The automatic schedule runs at the
+// operator-configured hour (09:00 by default); a vendor that has not rolled its
+// day yet can still answer with yesterday's "already" at that hour. Treat that
+// answer as unconfirmed for one more hour and let the retry pick it up, rather
+// than recording a false success and skipping the whole day.
 const CheckinClaimSettledHour = 2
 
 var checkinCalendarZone = time.FixedZone("UTC+8", 8*3600)
@@ -47,18 +47,6 @@ type CheckinPolicy struct {
 	// operator PC's zone. Use an IANA location such as Asia/Shanghai; never
 	// "Local", so schedules stay stable when the host or browser moves.
 	Timezone string `json:"timezone"`
-	// Earliest is the daily window start (HH:MM in Timezone) used when the
-	// upstream status payload does not expose one. It is a conservative
-	// fallback, never an optimisation: an unknown window must not be turned
-	// into an early claim.
-	Earliest string `json:"earliest,omitempty"`
-	// WindowFromUpstream reports that the provider's own status payload carries
-	// the window start, so the runtime learns it per account and schedules the
-	// claim an hour later instead of trusting Earliest.
-	WindowFromUpstream bool `json:"window_from_upstream,omitempty"`
-	// WindowSource records where Earliest comes from, so the table can be
-	// audited and refreshed instead of turning into undocumented folklore.
-	WindowSource string `json:"window_source,omitempty"`
 }
 
 type CheckinResult struct {
@@ -67,7 +55,8 @@ type CheckinResult struct {
 	RewardCredits float64 `json:"reward_credits,omitempty"`
 	Streak        int     `json:"streak,omitempty"`
 	// EarliestCheckin is the upstream daily window start as HH:MM in the
-	// provider's configured timezone. Empty means the provider did not expose it.
+	// provider's configured timezone. It is reported for diagnostics only: the
+	// automatic schedule follows the operator's provider check-in time setting.
 	EarliestCheckin string `json:"earliest_checkin,omitempty"`
 }
 
