@@ -17,6 +17,10 @@ export type AggregationRecord = {
   strategy: string
   allow_fallbacks: boolean
   max_attempts: number
+  context_length?: number
+  max_output_tokens?: number
+  reasoning_options?: string[]
+  reasoning_effort?: string
   members: AggregationMember[]
   created_at: string
   updated_at: string
@@ -29,6 +33,10 @@ export type AggregationInput = {
   strategy: string
   allow_fallbacks?: boolean
   max_attempts: number
+  context_length?: number
+  max_output_tokens?: number
+  reasoning_options?: string[]
+  reasoning_effort?: string
   members: AggregationMember[]
 }
 
