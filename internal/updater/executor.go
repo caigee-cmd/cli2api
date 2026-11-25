@@ -404,7 +404,7 @@ func (e *Executor) waitForVersion(ctx context.Context, expected string) error {
 				}
 				decodeErr := json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&health)
 				_ = resp.Body.Close()
-				if resp.StatusCode < 300 && decodeErr == nil && health.OK && health.Version == expected {
+				if resp.StatusCode < 300 && decodeErr == nil && health.OK && versionsMatch(health.Version, expected) {
 					return nil
 				}
 			}
@@ -416,6 +416,24 @@ func (e *Executor) waitForVersion(ctx context.Context, expected string) error {
 		}
 	}
 	return fmt.Errorf("health check did not reach version %s", expected)
+}
+
+// versionsMatch compares the version reported by /health with the version the
+// updater expects. Images are built with APP_VERSION set to the release tag
+// ("v0.7.52") while the console sends the bare semver ("0.7.52"), so a string
+// equality check would fail every deploy and trigger a needless rollback.
+func versionsMatch(reported, expected string) bool {
+	reported = strings.TrimSpace(reported)
+	expected = strings.TrimSpace(expected)
+	if reported == expected {
+		return true
+	}
+	left, leftErr := control.ParseVersion(reported)
+	right, rightErr := control.ParseVersion(expected)
+	if leftErr != nil || rightErr != nil {
+		return false
+	}
+	return left.Compare(right) == 0
 }
 
 func (e *Executor) validateConfig() error {
