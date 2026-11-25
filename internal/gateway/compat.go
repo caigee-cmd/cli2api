@@ -65,7 +65,11 @@ func decodeOpenAIToolCalls(raw json.RawMessage) []proxyToolCall {
 			arguments = "{}"
 		}
 		if _, _, custom := translate.DecodeCustomToolName(call.Function.Name); !custom && !json.Valid([]byte(arguments)) {
-			continue
+			repaired, ok := translate.RepairToolCallArguments(arguments)
+			if !ok {
+				continue
+			}
+			arguments = repaired
 		}
 		calls = append(calls, proxyToolCall{ID: call.ID, Name: call.Function.Name, Arguments: arguments})
 	}
@@ -84,7 +88,12 @@ func validateProxyToolCallArguments(calls []proxyToolCall) error {
 			continue
 		}
 		if !json.Valid([]byte(arguments)) {
-			return fmt.Errorf("tool call %q (%s) arguments are invalid JSON", call.ID, call.Name)
+			repaired, ok := translate.RepairToolCallArguments(arguments)
+			if !ok {
+				return fmt.Errorf("tool call %q (%s) arguments are invalid JSON", call.ID, call.Name)
+			}
+			call.Arguments = repaired
+			continue
 		}
 		call.Arguments = arguments
 	}
