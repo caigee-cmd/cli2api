@@ -92,6 +92,22 @@ func TestStreamAcceptsObjectArguments(t *testing.T) {
 	}
 }
 
+// Two calls of the same tool, each announcing index 0 with its own call id,
+// must not be merged into one argument buffer.
+func TestStreamSameToolTwiceStaysSeparate(t *testing.T) {
+	output := feedChunks(t,
+		`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"read_file","arguments":"{\"path\":\"a\"}"}}]}}]}`,
+		`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_2","function":{"name":"read_file","arguments":"{\"path\":\"b\"}"}}]},"finish_reason":"tool_calls"}]}`,
+	)
+	calls := output.calls()
+	if len(calls) != 2 {
+		t.Fatalf("calls = %+v", calls)
+	}
+	if calls[0].Arguments != `{"path":"a"}` || calls[1].Arguments != `{"path":"b"}` {
+		t.Fatalf("calls = %+v", calls)
+	}
+}
+
 func TestValidateRepairsFormattingDamage(t *testing.T) {
 	calls := []proxyToolCall{{ID: "call_1", Name: "write_file", Arguments: `{"path":"a.go",`}}
 	if err := validateProxyToolCallArguments(calls); err != nil {
