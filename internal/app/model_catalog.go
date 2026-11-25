@@ -17,7 +17,13 @@ func (a *App) filterModelsForIdentity(r *http.Request, models []map[string]any) 
 	}
 	models = control.FilterModelsByAccountAllow(models, identity, allow)
 	models = control.FilterModelsForIdentity(identity, models)
-	models = control.AggregateModelEntries(models, identity, allow)
+	if !identity.ModelAggregation {
+		models = control.AggregateModelEntries(models, identity, allow)
+	}
+	// Aggregation keys get their final provider-neutral list from
+	// aggregationKeyModels after this filter: configured logical models first,
+	// then account aliases. Returning the filtered catalog here keeps every
+	// aggregation member available for that merge.
 	return models
 }
 
