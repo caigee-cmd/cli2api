@@ -99,6 +99,9 @@ function groupModelsByProvider(models: ModelInfo[], t: Translate): ModelGroup[] 
   const groups = new Map<string, ModelGroup>()
   for (const model of models) {
     const provider = modelProvider(model)
+    // "aggregation" is the model-pool's synthetic logical-model label, not a
+    // upstream provider. Never render it as a provider or a settings card.
+    if (provider === 'aggregation') continue
     const region = modelRegion(model)
     const key = `${provider}:${region || 'any'}`
     let group = groups.get(key)

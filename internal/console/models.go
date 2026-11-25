@@ -40,9 +40,12 @@ func (h *Handler) HandleModelsAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data := h.decorateModels(r.Context(), h.filterModels(r, models))
-	if h.crossProviderPoolOn() && h.Control != nil {
-		data = control.MergeAggregationModels(r.Context(), h.Control.Aggregations, data)
-	}
+	// Aggregation models are a model-pool concept, not a provider. Do not merge
+	// them into the console catalog: provider settings, account directories and
+	// the model-pool member picker all group by provider, so a synthetic
+	// "aggregation" row there either creates a phantom provider card or hides a
+	// real model that happens to share the logical ID. Clients discover logical
+	// models through the key-scoped /v1/models view instead.
 	if !h.crossProviderPoolOn() {
 		// The gateway refuses bare ids with the pool off; serve prefixed ids so
 		// every client that picks from this list produces a request it accepts.
