@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -89,6 +90,32 @@ func RelayOpenAIStream(w http.ResponseWriter, body io.Reader) (stats StreamRelay
 	sawDone := false
 	var frame []string
 	var streamErr error
+	normalizer := newOpenAIToolNormalizer()
+	argsFlushed := false
+
+	flushToolArguments := func() error {
+		if argsFlushed {
+			return nil
+		}
+		argsFlushed = true
+		frames := normalizer.flushFrames()
+		if len(frames) == 0 {
+			return nil
+		}
+		if normalizer.changed {
+			log.Printf("tool call arguments normalized stream=chat_completion calls=%d finish_reason=%q", len(frames), normalizer.finish)
+		}
+		for _, payload := range frames {
+			encoded, err := json.Marshal(payload)
+			if err != nil {
+				continue
+			}
+			if _, err := io.WriteString(writer, "data: "+string(encoded)+"\n\n"); err != nil {
+				return &StreamRelayWriteError{err: err}
+			}
+		}
+		return nil
+	}
 
 	flushFrame := func() error {
 		if len(frame) == 0 {
@@ -107,12 +134,54 @@ func RelayOpenAIStream(w http.ResponseWriter, body io.Reader) (stats StreamRelay
 			frame = nil
 			return nil
 		}
-		for _, line := range frame {
-			line = strings.TrimSuffix(line, "\r")
-			if stats.FirstTokenAt == nil && SSEDeltaHasToken(line) {
-				now := time.Now()
-				stats.FirstTokenAt = &now
+		// Each data line is handled on its own: upstreams differ on whether they
+		// put one JSON payload per line, and a frame may bundle content, usage and
+		// [DONE] together. Tool-call fragments are absorbed and withheld here so
+		// a damaged buffer never reaches the client as fragments.
+		lines := make([]string, 0, len(frame))
+		for _, rawLine := range frame {
+			line := strings.TrimSuffix(rawLine, "\r")
+			if strings.TrimSpace(line) == "" {
+				continue
 			}
+			if !strings.HasPrefix(line, "data:") {
+				lines = append(lines, line)
+				continue
+			}
+			payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+			if payload == "[DONE]" {
+				if err := flushToolArguments(); err != nil {
+					return err
+				}
+				sawDone = true
+				stats.SawDone = true
+				lines = append(lines, line)
+				continue
+			}
+			if payload != "" {
+				var decoded map[string]any
+				if json.Unmarshal([]byte(payload), &decoded) == nil {
+					if _, ok := decoded["choices"]; ok {
+						if stats.FirstTokenAt == nil && SSEDeltaHasToken(line) {
+							now := time.Now()
+							stats.FirstTokenAt = &now
+						}
+						if relayed := normalizer.absorb(decoded); relayed == nil {
+							continue
+						} else if encoded, err := json.Marshal(relayed); err == nil {
+							line = "data: " + string(encoded)
+						}
+						if normalizer.finish != "" {
+							if err := flushToolArguments(); err != nil {
+								return err
+							}
+						}
+					}
+				}
+			}
+			lines = append(lines, line)
+		}
+		for _, line := range lines {
 			if fr := SSEDeltaFinishReason(line); fr != "" {
 				stats.FinishReason = fr
 			}
@@ -125,16 +194,9 @@ func RelayOpenAIStream(w http.ResponseWriter, body io.Reader) (stats StreamRelay
 				usage.FinishReason = stats.FinishReason
 				stats = usage
 			}
-			if strings.TrimSpace(strings.TrimPrefix(line, "data:")) == "[DONE]" {
-				sawDone = true
-			}
 		}
-		output := strings.Join(frame, "\n") + "\n\n"
-		if _, err := io.WriteString(writer, output); err != nil {
+		if _, err := io.WriteString(writer, strings.Join(lines, "\n")+"\n\n"); err != nil {
 			return &StreamRelayWriteError{err: err}
-		}
-		if sawDone {
-			stats.SawDone = true
 		}
 		frame = nil
 		return nil
@@ -170,6 +232,9 @@ func RelayOpenAIStream(w http.ResponseWriter, body io.Reader) (stats StreamRelay
 		if stats.FinishReason != "" && (stats.FirstTokenAt != nil || stats.SSEEventCount > 0) {
 			sawDone = true
 			stats.SawDone = true
+			if err := flushToolArguments(); err != nil {
+				return stats, err
+			}
 			if _, err := io.WriteString(writer, "data: [DONE]\n\n"); err != nil {
 				return stats, &StreamRelayWriteError{err: err}
 			}

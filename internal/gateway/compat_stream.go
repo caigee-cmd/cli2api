@@ -356,7 +356,6 @@ func RelayAnthropicStream(writer io.Writer, body io.Reader, requestID, model str
 	thinkingStarted := false
 	thinkingBlockIndex := -1
 	toolBlocks := map[int]int{}
-	toolArgumentLengths := map[int]int{}
 	nextBlock := 0
 	closeThinking := func() error {
 		if !thinkingStarted {
@@ -458,15 +457,6 @@ func RelayAnthropicStream(writer io.Writer, body io.Reader, requestID, model str
 				if !exists {
 					continue
 				}
-				accumulated := accumulatedToolArguments(current, index)
-				emitted := toolArgumentLengths[index]
-				if len(accumulated) <= emitted {
-					continue
-				}
-				if err := writeSSEEvent(writer, "content_block_delta", map[string]any{"type": "content_block_delta", "index": blockIndex, "delta": map[string]string{"type": "input_json_delta", "partial_json": accumulated[emitted:]}}); err != nil {
-					return err
-				}
-				toolArgumentLengths[index] = len(accumulated)
 			}
 		}
 		return nil
@@ -478,6 +468,12 @@ func RelayAnthropicStream(writer io.Writer, body io.Reader, requestID, model str
 		return stats, err
 	}
 	if err := closeText(); err != nil {
+		return stats, err
+	}
+	// Arguments are held until the block closes so they can be normalized
+	// first: a damaged buffer would otherwise reach the client as several
+	// input_json_delta fragments that never parse.
+	if err := writeToolArguments(writer, &output, toolBlocks, requestID, model); err != nil {
 		return stats, err
 	}
 	for _, blockIndex := range sortedBlockIndexes(toolBlocks) {
@@ -529,7 +525,6 @@ func RelayResponsesStream(writer io.Writer, body io.Reader, requestID, model str
 	toolAnnounced := map[int]bool{}
 	toolCallIDs := map[int]string{}
 	toolCallNames := map[int]string{}
-	toolArgumentLengths := map[int]int{}
 	toolOutputIndexes := map[int]int{}
 	nextOutputIndex := 0
 	reasoningOutputIndex := -1
@@ -639,22 +634,9 @@ func RelayResponsesStream(writer io.Writer, body io.Reader, requestID, model str
 					}
 					toolAnnounced[index] = true
 				}
-				if toolAnnounced[index] {
-					accumulated := accumulatedToolArguments(current, index)
-					emitted := toolArgumentLengths[index]
-					if len(accumulated) > emitted {
-						deltaPayload := map[string]any{"type": "response.function_call_arguments.delta", "output_index": toolOutputIndexes[index], "item_id": fmt.Sprintf("fc_%s_%d", requestID, index), "call_id": toolCallIDs[index], "name": toolCallNames[index], "delta": accumulated[emitted:]}
-						if _, _, custom := translate.DecodeCustomToolName(toolCallNames[index]); custom {
-							toolArgumentLengths[index] = len(accumulated)
-							continue
-						}
-						eventName, _ := deltaPayload["type"].(string)
-						if err := eventWriter.write(eventName, deltaPayload); err != nil {
-							return err
-						}
-						toolArgumentLengths[index] = len(accumulated)
-					}
-				}
+				// Arguments are not streamed as deltas: a damaged buffer would
+				// reach the client as fragments that never parse. The normalized
+				// full string is delivered once in response.function_call_arguments.done.
 			}
 		}
 		return nil
@@ -668,12 +650,8 @@ func RelayResponsesStream(writer io.Writer, body io.Reader, requestID, model str
 	}
 	content := output.content.String()
 	calls := output.calls()
-	if err := validateProxyToolCallArguments(calls); err != nil {
-		log.Printf("tool call arguments unusable request_id=%q model=%q finish_reason=%q err=%v", requestID, model, output.finishReason, err)
-		if output.finishReason == "length" {
-			return stats, fmt.Errorf("%w (the model hit its output-token limit mid-arguments)", err)
-		}
-		return stats, err
+	if normalizeProxyToolCallArguments(calls) {
+		log.Printf("tool call arguments normalized request_id=%q model=%q finish_reason=%q calls=%d", requestID, model, output.finishReason, len(calls))
 	}
 	if textStarted {
 		if err := eventWriter.write("response.output_text.done", map[string]any{"type": "response.output_text.done", "item_id": "msg_" + requestID, "output_index": textOutputIndex, "content_index": 0, "text": content}); err != nil {
@@ -732,6 +710,14 @@ func RelayResponsesStream(writer io.Writer, body io.Reader, requestID, model str
 					return stats, err
 				}
 			}
+			// The normalized string goes out once, as a single delta followed by
+			// done: clients that concatenate deltas get the same text as clients
+			// that read the done event, and neither ever sees a broken fragment.
+			if call.Arguments != "" {
+				if err := eventWriter.write("response.function_call_arguments.delta", map[string]any{"type": "response.function_call_arguments.delta", "output_index": outputIndex, "item_id": item["id"], "call_id": call.ID, "name": call.Name, "delta": call.Arguments}); err != nil {
+					return stats, err
+				}
+			}
 			if err := eventWriter.write("response.function_call_arguments.done", map[string]any{"type": "response.function_call_arguments.done", "output_index": outputIndex, "item_id": item["id"], "call_id": call.ID, "name": call.Name, "arguments": call.Arguments}); err != nil {
 				return stats, err
 			}
@@ -750,6 +736,36 @@ func RelayResponsesStream(writer io.Writer, body io.Reader, requestID, model str
 		return stats, err
 	}
 	return stats, nil
+}
+
+// writeToolArguments emits one normalized input_json_delta per tool block. The
+// Anthropic wire format has no way to retract a delta, so the arguments are
+// buffered to block-close time; that keeps a damaged buffer from reaching the
+// client as fragments that never parse.
+func writeToolArguments(writer io.Writer, output *streamedChatOutput, toolBlocks map[int]int, requestID, model string) error {
+	if output == nil {
+		return nil
+	}
+	indexes := make([]int, 0, len(toolBlocks))
+	for index := range toolBlocks {
+		indexes = append(indexes, index)
+	}
+	sort.Ints(indexes)
+	for _, index := range indexes {
+		blockIndex := toolBlocks[index]
+		call := output.toolCalls[index]
+		if call == nil || strings.TrimSpace(call.Arguments) == "" {
+			continue
+		}
+		arguments, changed := translate.NormalizeToolCallArguments(call.Arguments)
+		if changed {
+			log.Printf("tool call arguments normalized request_id=%q model=%q tool=%q truncated=%v", requestID, model, call.Name, !json.Valid([]byte(strings.TrimSpace(call.Arguments))))
+		}
+		if err := writeSSEEvent(writer, "content_block_delta", map[string]any{"type": "content_block_delta", "index": blockIndex, "delta": map[string]string{"type": "input_json_delta", "partial_json": arguments}}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func resolvedCallIndex(output *streamedChatOutput, position int) (int, bool) {
