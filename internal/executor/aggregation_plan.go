@@ -17,6 +17,10 @@ type AggregatePlan struct {
 	Strategy       accounts.AggregationStrategy
 	AllowFallbacks bool
 	MaxAttempts    int
+	// ReasoningEffort is the logical model's configured default level. It fills
+	// a request that carried no reasoning intent at all; it never overrides or
+	// caps a level the client actually asked for.
+	ReasoningEffort string
 	// Members already filtered by the caller's provider grants and sorted by
 	// priority. Immutable for the lifetime of the request.
 	Members []accounts.AggregationMember
@@ -29,12 +33,13 @@ type AggregatePlan struct {
 // snapshot whose Members slice will not be mutated afterwards.
 func NewAggregatePlan(agg accounts.Aggregation) *AggregatePlan {
 	plan := &AggregatePlan{
-		ID:             agg.ID,
-		Strategy:       agg.Strategy,
-		AllowFallbacks: agg.AllowFallbacks,
-		MaxAttempts:    agg.MaxAttempts,
-		Members:        agg.Members,
-		byProvider:     make(map[string][]accounts.AggregationMember, len(agg.Members)),
+		ID:              agg.ID,
+		Strategy:        agg.Strategy,
+		AllowFallbacks:  agg.AllowFallbacks,
+		MaxAttempts:     agg.MaxAttempts,
+		ReasoningEffort: agg.ReasoningEffort,
+		Members:         agg.Members,
+		byProvider:      make(map[string][]accounts.AggregationMember, len(agg.Members)),
 	}
 	for _, member := range agg.Members {
 		key := strings.ToLower(strings.TrimSpace(member.Provider))

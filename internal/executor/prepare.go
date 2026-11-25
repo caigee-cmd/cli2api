@@ -171,6 +171,19 @@ func (e ChatExecutor) Prepare(in PrepareInput) (PreparedRequest, error) {
 			requestedReasoning = level
 		}
 	}
+	if requestedReasoning == "" && aggregatePlan != nil && aggregatePlan.ReasoningEffort != "" &&
+		!providers.RequestsDisabledThinking(request) {
+		// The logical model's configured default fills a request that carried no
+		// reasoning intent at all. Each member's adapter still clamps the level
+		// to that model's own vocabulary, so the default never invents a level a
+		// provider cannot honor; an explicit client level is never overridden.
+		level := aggregatePlan.ReasoningEffort
+		if in.NativeRequest != nil {
+			in.NativeRequest = in.NativeRequest.WithDefaultReasoning(level)
+		}
+		request.ReasoningEffort = json.RawMessage(strconv.Quote(level))
+		requestedReasoning = level
+	}
 	if in.Logs != nil {
 		in.Logs.Start(accounts.RequestLog{
 			ID:                  requestID,
