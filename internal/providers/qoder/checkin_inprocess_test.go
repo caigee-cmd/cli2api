@@ -203,8 +203,8 @@ func TestBridgeCheckinHappyPath(t *testing.T) {
 	if got := gotHeaders.Get("Cosy-ClientType"); got != "10" {
 		t.Fatalf("Cosy-ClientType = %q want 10", got)
 	}
-	if got := gotHeaders.Get("Cosy-Version"); got != "0.4.8" {
-		t.Fatalf("Cosy-Version = %q want 0.4.8", got)
+	if got := gotHeaders.Get("Cosy-Version"); got != "0.5.18" {
+		t.Fatalf("Cosy-Version = %q want 0.5.18", got)
 	}
 	if got := gotHeaders.Get("Origin"); got != "https://stub.test" {
 		t.Fatalf("Origin = %q want activity page origin", got)

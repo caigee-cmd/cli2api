@@ -141,7 +141,7 @@ func (b *Bridge) checkinDoer(ctx context.Context) (checkinRequester, *string, er
 		}
 		req.Header.Set("User-Agent", "Qoder")
 		req.Header.Set("Cosy-ClientType", "10")
-		req.Header.Set("Cosy-Version", qauth.DesktopCosyVersion)
+		req.Header.Set("Cosy-Version", qauth.DesktopCosyVersion(b.Region))
 		req.Header.Set("Origin", endpoint.origin)
 		req.Header.Set("Referer", endpoint.base+"/growth-page/activity-iframe")
 		resp, err := checkinHTTPClient.Do(req)

@@ -18,14 +18,26 @@ import (
 // version stays separate because campaign endpoints use their own identity.
 const CosyVersion = "1.1.96"
 
-// DesktopCosyVersion is the Cosy-Version the official desktop app sends on
-// campaign / check-in requests (hub desktop 0.4.8). Distinct from CosyVersion
-// (CLI / reasoning). The desktop app itself has since moved to 0.5.18, but the
-// campaign endpoint filters clients it does not consider official, so bump this
-// only after a live check-in probe with a fresh PAT — every stored PAT in the
-// 2026-11-21 snapshot was already expired, so 0.4.8 stays the last verified
-// value rather than a guess.
-const DesktopCosyVersion = "0.4.8"
+// DesktopCosyVersionCN / DesktopCosyVersionGlobal are the Cosy-Version values
+// the official desktop apps send on campaign / check-in requests, per edition.
+// They track the published desktop releases rather than the CLI: Qoder CN is
+// 0.5.18 (2026-11-24, changelog.qoder.cn/app) and the international app is
+// 0.5.3 (2026-11-03, qoder.com/zh/changelog). Distinct from CosyVersion (CLI /
+// reasoning). Campaign endpoints only care about the client type and identity;
+// the value is attribution, not a gate, so keeping it on the current app
+// release is safe.
+const (
+	DesktopCosyVersionCN     = "0.5.18"
+	DesktopCosyVersionGlobal = "0.5.3"
+)
+
+// DesktopCosyVersion returns the desktop check-in version for an edition.
+func DesktopCosyVersion(region *RegionConfig) string {
+	if region != nil && region.Name == "global" {
+		return DesktopCosyVersionGlobal
+	}
+	return DesktopCosyVersionCN
+}
 
 // CosyUserAgent is the User-Agent the current official qodercli leaves on
 // COSY requests. The CLI runs on Bun and lets its bundled fetch supply

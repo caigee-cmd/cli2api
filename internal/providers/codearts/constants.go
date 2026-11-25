@@ -47,9 +47,17 @@ const (
 )
 
 // Client identity reported to the OAuth portal and gateway.
+//
+// Both shipped clients - the CodeArts Agent IDE (product "CodeArts Agent"
+// 26.11.200 today) and the VS Code extension (HuaweiCloud.vscode-codebot
+// 26.11.300, 2026-11-25) - run the same snap extension and build the login
+// query as `plugin-name=${brand}_vscode` with `plugin-version` set to the raw
+// extension version (the `Vscode_` prefix is only used when a caller asks for
+// the prefixed form, which the login path does not). The old `snap_AIIDE` /
+// `5.2.0` pair does not appear anywhere in either package.
 const (
-	PluginName    = "snap_AIIDE"
-	PluginVersion = "5.2.0"
+	PluginName    = "snap_vscode"
+	PluginVersion = "26.11.300"
 	OAuthRedirect = "/oauth/callback"
 	Language      = "zh-cn"
 	AppID         = "CodeAgent3.0"
