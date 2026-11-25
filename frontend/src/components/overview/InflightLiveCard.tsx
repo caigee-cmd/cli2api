@@ -8,41 +8,19 @@ import { MotionPathPlugin } from 'gsap/MotionPathPlugin'
 import {
   applyLiveProjection,
   clampSlotConcurrency,
-  cloneMockInflight,
-  getIdleInflightSnapshot,
-  getMockInflightSnapshot,
-  isIdleInflightSnapshot,
-  summarizeMockInflight,
-  tickMockInflight,
-  type MockAccountSlot,
-  type MockInflightJob,
-  type MockInflightSnapshot,
-  type MockJobKind,
-} from '@/lib/mockInflight'
+  cloneInflight,
+  emptyInflightSnapshot,
+  summarizeInflight,
+  type LiveAccountSlot,
+  type LiveInflightJob,
+  type LiveInflightSnapshot,
+  type LiveJobKind,
+} from '@/lib/liveInflight'
 import { CountUp } from '@/components/overview/CountUp'
 import { ProviderMark } from '@/components/ProviderMark'
-import { CompactSwitch } from '@/components/ui/CompactSwitch'
 import { ease, gsap, motionDuration, prefersReducedMotion } from '@/lib/motion'
 
 const InflightDepthChart = lazy(() => import('@/components/overview/InflightDepthChart').then((mod) => ({ default: mod.InflightDepthChart })))
-
-const MOCK_DEMO_STORAGE_KEY = 'cli2api_inflight_mock_demo'
-
-function readMockDemoPref(): boolean {
-  try {
-    return localStorage.getItem(MOCK_DEMO_STORAGE_KEY) === '1'
-  } catch {
-    return false
-  }
-}
-
-function writeMockDemoPref(on: boolean) {
-  try {
-    localStorage.setItem(MOCK_DEMO_STORAGE_KEY, on ? '1' : '0')
-  } catch {
-    /* ignore quota / private mode */
-  }
-}
 
 gsap.registerPlugin(CustomEase, MotionPathPlugin)
 const queueEase =
@@ -92,7 +70,7 @@ function formatElapsed(ms: number) {
 }
 
 /** Busy-slot elapsed: prefer wall-clock startedAtMs + live clock; else mock elapsedMs. */
-function jobElapsedMs(job: MockInflightJob | undefined, clockMs: number): number {
+function jobElapsedMs(job: LiveInflightJob | undefined, clockMs: number): number {
   if (!job) return 0
   if (job.startedAtMs != null) return Math.max(0, clockMs - job.startedAtMs)
   return Math.max(0, job.elapsedMs)
@@ -102,7 +80,7 @@ function jobElapsedMs(job: MockInflightJob | undefined, clockMs: number): number
  * Kind identity from public AffectUI demo hierarchy (llm/tool/agent washes),
  * remapped to project chart / foreground tokens — never a second brand palette.
  */
-function kindDot(kind: MockJobKind): string {
+function kindDot(kind: LiveJobKind): string {
   switch (kind) {
     case 'chat':
       return 'bg-[color-mix(in_oklab,var(--chart-1)_55%,var(--surface))]'
@@ -115,7 +93,7 @@ function kindDot(kind: MockJobKind): string {
   }
 }
 
-function kindIcon(kind: MockJobKind) {
+function kindIcon(kind: LiveJobKind) {
   const glyph = kind === 'embed'
     ? <Cube size={15} />
     : kind === 'tools'
@@ -135,7 +113,7 @@ function kindIcon(kind: MockJobKind) {
   )
 }
 
-function kindPill(kind: MockJobKind): string {
+function kindPill(kind: LiveJobKind): string {
   switch (kind) {
     case 'chat':
       return 'border border-[color-mix(in_oklab,var(--chart-1)_16%,transparent)] bg-[color-mix(in_oklab,var(--chart-1)_8%,var(--surface))] text-foreground/75'
@@ -155,8 +133,8 @@ function SlotBar({
   idleLabel,
   landedCellIds,
 }: {
-  slot: MockAccountSlot
-  jobById: Map<string, MockInflightJob>
+  slot: LiveAccountSlot
+  jobById: Map<string, LiveInflightJob>
   clockMs: number
   idleLabel: string
   /** Cell ids whose inbound fly has landed (or no-fly grace / auto-land). */
@@ -264,10 +242,10 @@ function SlotBar({
 
 /**
  * Overview summary: Agent Queue feel over cli2api pool/inflight concepts.
- * Default collapsed — no /api/live consume and no mock loop until expanded
+ * Default collapsed — no /api/live consume until expanded
  * (toggle or LiveStrip「当前并发」). When open, project live workers /
- * sticky (in-progress only — no rate-limit remaining chips/bands); mock tick
- * only when 示意/demo is on (default off). Session Done/Failed reset on each expand.
+ * sticky (in-progress only — no rate-limit remaining chips/bands). Only real
+ * /api/live data is shown; each expand starts a fresh session.
  * Motion timings from public AffectUI Agent Queue demo (mapped to project
  * tokens). Link targets `/live` later — no Pause/Cancel/stepper.
  */
@@ -275,25 +253,22 @@ export function InflightLiveCard({
   t,
   snapshot,
   live = null,
+  liveError = null,
   expanded: expandedProp,
   onExpandedChange,
   defaultExpanded = false,
-  forceMockDemo = false,
-  mockPace = 1,
   bare = false,
 }: {
   t: T
-  snapshot?: MockInflightSnapshot
+  snapshot?: LiveInflightSnapshot
   /** Parent /api/live snapshot — only passed while expanded so the card does not drive fetches. */
   live?: LiveSnapshot | null
+  /** Real /api/live fetch error, shown instead of pretending data exists. */
+  liveError?: string | null
   expanded?: boolean
   onExpandedChange?: (open: boolean) => void
   defaultExpanded?: boolean
-  /** Login showcase: play the mock loop without reading or writing the overview demo preference. */
-  forceMockDemo?: boolean
-  /** Scale mock time. Login uses a slower pace; overview stays at 1. */
-  mockPace?: number
-  /** Login showcase: animation only — no title, chrome, demo switch, or view-all link. */
+  /** Login showcase: animation only — no title, chrome, or view-all link. */
   bare?: boolean
 }) {
   const controlled = snapshot !== undefined
@@ -304,17 +279,11 @@ export function InflightLiveCard({
     if (expandedProp === undefined) setUncontrolledOpen(open)
   }
 
-  const [mockDemoEnabled, setMockDemoEnabled] = useState(() => forceMockDemo || readMockDemoPref())
-  const setMockDemo = (on: boolean) => {
-    setMockDemoEnabled(on)
-    if (!forceMockDemo) writeMockDemoPref(on)
-  }
-  const [liveSnap, setLiveSnap] = useState<MockInflightSnapshot>(() =>
-    cloneMockInflight(snapshot ?? getIdleInflightSnapshot()),
+  const [liveSnap, setLiveSnap] = useState<LiveInflightSnapshot>(() =>
+    cloneInflight(snapshot ?? emptyInflightSnapshot()),
   )
-  const [useMockFallback, setUseMockFallback] = useState(false)
   const [sticky, setSticky] = useState<LiveSticky | null>(null)
-  /** Wall clock for live startedAtMs elapsed (mock uses tickMockInflight elapsedMs). */
+  /** Wall clock for live startedAtMs elapsed. */
   const [clockMs, setClockMs] = useState(() => Date.now())
   /**
    * Display-only land gate: occupied chrome (model + elapsed) shows only after
@@ -352,10 +321,10 @@ export function InflightLiveCard({
     )
   }
   const snap = controlled ? snapshot! : liveSnap
-  const summary = useMemo(() => summarizeMockInflight(snap), [snap])
+  const summary = useMemo(() => summarizeInflight(snap), [snap])
   const rootRef = useRef<HTMLDivElement>(null)
   const enteredRef = useRef(false)
-  const prevRef = useRef<MockInflightSnapshot>(snap)
+  const prevRef = useRef<LiveInflightSnapshot>(snap)
   /** Last painted rects — handoff flies read these after the source unmounts. */
   const rectCache = useRef<{
     wait: Record<string, DOMRect>
@@ -387,79 +356,40 @@ export function InflightLiveCard({
   const viewingSessionRef = useRef(false)
 
   // External snapshot (tests) wins. Otherwise: when expanded, project /api/live
-  // (even idle — no mock throughput/p95/depth bleed). Mock tick only if
-  // live is null AND 示意/demo is on (default off → calm idle zeros).
+  // (even idle — zeros mean the pool really is idle, never a synthetic demo).
   // useLayoutEffect so the first expanded paint is already clean.
   useLayoutEffect(() => {
     if (controlled) {
-      setLiveSnap(cloneMockInflight(snapshot!))
-      setUseMockFallback(false)
+      setLiveSnap(cloneInflight(snapshot!))
       setSticky(null)
       viewingSessionRef.current = false
       return
     }
     if (!expanded) {
-      setUseMockFallback(false)
       viewingSessionRef.current = false
       return
     }
     if (live !== null) {
-      setUseMockFallback(false)
       setSticky(live.sticky)
       setClockMs(Date.now())
       // First live projection this expand: keep enteredRef false so soft
       // bootstrap syncLandGate('all') and never treats hydrate as flies.
       if (!viewingSessionRef.current) enteredRef.current = false
       setLiveSnap((prev) => {
-        // New viewing session → force first projection (totals 0, depth reset).
-        const base = !viewingSessionRef.current
-          ? { ...cloneMockInflight(prev), waitP95Ms: 1, totals: { done: 0, failed: 0 } }
-          : prev
+        // New viewing session starts from an honest empty board: totals 0,
+        // depth zeros. Every number afterwards comes from /api/live.
+        const base = !viewingSessionRef.current ? emptyInflightSnapshot() : prev
         viewingSessionRef.current = true
         return applyLiveProjection(base, live)
       })
       return
     }
-    // live === null → optional Stage-1 mock (示意) or calm idle board.
+    // live === null → no real data yet. Show the honest empty board.
     setSticky(null)
     viewingSessionRef.current = false
     enteredRef.current = false
-    if (mockDemoEnabled) {
-      setUseMockFallback(true)
-      setLiveSnap((prev) =>
-        isIdleInflightSnapshot(prev)
-          ? cloneMockInflight(getMockInflightSnapshot())
-          : prev,
-      )
-    } else {
-      setUseMockFallback(false)
-      setLiveSnap(cloneMockInflight(getIdleInflightSnapshot()))
-    }
-  }, [controlled, snapshot, expanded, live, mockDemoEnabled])
-
-  // Mock raf loop — gated on useMockFallback + 示意 on (live === null only).
-  useEffect(() => {
-    if (controlled || !expanded || !useMockFallback || !mockDemoEnabled || live !== null) return
-    if (prefersReducedMotion()) return
-    let raf = 0
-    let last = performance.now()
-    let alive = true
-    const step = (now: number) => {
-      if (!alive) return
-      const dt = now - last
-      if (!document.hidden && dt >= 260) {
-        last = now
-        const pace = Number.isFinite(mockPace) ? Math.min(1, Math.max(0.2, mockPace ?? 1)) : 1
-        setLiveSnap((prev) => tickMockInflight(prev, dt * pace))
-      }
-      raf = requestAnimationFrame(step)
-    }
-    raf = requestAnimationFrame(step)
-    return () => {
-      alive = false
-      cancelAnimationFrame(raf)
-    }
-  }, [controlled, expanded, useMockFallback, mockDemoEnabled, live, mockPace])
+    setLiveSnap(cloneInflight(emptyInflightSnapshot()))
+  }, [controlled, snapshot, expanded, live])
 
   // Elapsed tick (~150ms): wall-clock since started_at so busy slots don't stick at 0.0s between /api/live polls.
   useEffect(() => {
@@ -612,8 +542,7 @@ export function InflightLiveCard({
         const bootstrapped =
           controlled ||
           viewingSessionRef.current ||
-          (live === null && mockDemoEnabled && useMockFallback) ||
-          (live === null && !mockDemoEnabled && isIdleInflightSnapshot(snap))
+          live === null
         if (!bootstrapped) {
           gsap.set(root, { opacity: 0 })
         } else {
@@ -661,7 +590,7 @@ export function InflightLiveCard({
       from: DOMRect | HTMLElement | null | undefined,
       to: DOMRect | HTMLElement | null | undefined,
       label: string,
-      kind: MockJobKind,
+      kind: LiveJobKind,
       tone: 'run' | 'ok' | 'danger' | 'retry',
       beatEl?: HTMLElement | null,
       onLand?: () => void,
@@ -961,7 +890,7 @@ export function InflightLiveCard({
     const flyQueueToSlot = (
       id: string,
       label: string,
-      kind: MockJobKind,
+      kind: LiveJobKind,
       workerId: string,
     ) => {
       if (!workerId || flewFromQueue.has(id)) return
@@ -1113,7 +1042,7 @@ export function InflightLiveCard({
       type CellExit = {
         id: string
         name: string
-        kind: MockJobKind
+        kind: LiveJobKind
         workerId: string
         cellIndex: number
       }
@@ -1381,11 +1310,11 @@ export function InflightLiveCard({
     }
 
     refreshCache()
-  }, [snap, expanded, controlled, useMockFallback, mockDemoEnabled, live])
+  }, [snap, expanded, controlled, live])
 
   const depthLabel = t('inflightDepthHint', { n: summary.depthNow })
-  const liveBadge = !useMockFallback && Boolean(live)
-  const mockBadge = useMockFallback && mockDemoEnabled && !live
+  const liveBadge = Boolean(live)
+  const offlineBadge = !live && Boolean(liveError)
   const stickyBindings = sticky?.bindings ?? 0
 
   return (
@@ -1460,8 +1389,8 @@ export function InflightLiveCard({
                 <span className="status-dot" data-state={liveBadge ? 'ok' : ''} />
                 {liveBadge
                   ? t('inflightLiveBadge')
-                  : mockBadge
-                    ? t('inflightMockBadge')
+                  : offlineBadge
+                    ? t('inflightOfflineBadge')
                     : t('inflightIdleBadge')}
               </span>
               {expanded && stickyBindings > 0 ? (
@@ -1494,21 +1423,6 @@ export function InflightLiveCard({
               <CaretRight size={14} aria-hidden />
             </button>
           )}
-          {expanded && !controlled ? (
-            <div
-              className="flex items-center gap-1.5"
-              onClick={(e) => e.stopPropagation()}
-              onKeyDown={(e) => e.stopPropagation()}
-            >
-              <CompactSwitch
-                size="sm"
-                isSelected={mockDemoEnabled}
-                ariaLabel={t('inflightMockToggleAria')}
-                label={t('inflightMockToggle')}
-                onChange={setMockDemo}
-              />
-            </div>
-          ) : null}
         </div>
       </div>}
 
@@ -1526,8 +1440,15 @@ export function InflightLiveCard({
               suffix={`/${summary.workerSlots}`}
             />
             <Metric label={t('inflightThroughput')} value={snap.throughputPerMin} suffix="/min" />
-            <Metric label={t('inflightWaitP95')} value={snap.waitP95Ms} kind="ms" />
+            {/* The live API reports no P95 yet: render an honest dash instead
+                of a fabricated 0ms. */}
+            <Metric label={t('inflightWaitP95')} value={snap.waitP95Ms > 0 ? snap.waitP95Ms : null} kind="ms" />
           </div>
+          {liveError ? (
+            <div className="px-4 pt-1 text-caption text-[var(--il-err-fg)]" data-live-error>
+              {liveError}
+            </div>
+          ) : null}
 
           {/* Waiting → account-slot bars → Done/Failed  (AffectUI Agent Queue flow) */}
           <div className="grid gap-3 px-4 py-3 lg:grid-cols-[minmax(11rem,0.7fr)_minmax(0,2.1fr)_auto]">
@@ -1659,7 +1580,8 @@ function Metric({
   warn,
 }: {
   label: string
-  value: number
+  /** null renders an honest "—" (not measured), never a fabricated zero. */
+  value: number | null
   suffix?: string
   kind?: 'int' | 'ms'
   warn?: boolean
@@ -1672,7 +1594,11 @@ function Metric({
           warn ? 'text-[var(--il-warn-fg)]' : 'text-foreground'
         }`}
       >
-        <CountUp value={value} kind={kind} duration={560} />
+        {value == null ? (
+          <span className="text-muted">—</span>
+        ) : (
+          <CountUp value={value} kind={kind} duration={560} />
+        )}
         {suffix ? <span className="text-[0.92em] opacity-80">{suffix}</span> : null}
       </div>
     </div>

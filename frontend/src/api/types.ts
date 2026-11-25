@@ -184,6 +184,9 @@ export type Overview = {
     last_checkin_synced_at?: string
     checkin_auto_time?: string
     quota?: AccountQuota
+    /** Local force-ready marker is active: the account enters the pool without
+     * a real probe. Quota below still comes from the real stored snapshot. */
+    force_ready_override?: boolean
     created_at?: string
     updated_at?: string
   }>

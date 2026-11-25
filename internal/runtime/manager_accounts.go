@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/caigee-cmd/cli2api/internal/events"
 	"github.com/caigee-cmd/cli2api/internal/providers"
 	proxyutil "github.com/caigee-cmd/cli2api/internal/proxy"
 )
@@ -37,10 +38,19 @@ func (m *Manager) RemoveAccount(id string) error {
 	if err := os.RemoveAll(runtimeDir); err != nil {
 		return fmt.Errorf("remove account runtime: %w", err)
 	}
+	m.events.Publish(events.TypeAccounts, id, "", nil)
 	return nil
 }
 
 func (m *Manager) SyncAccount(ctx context.Context, before, after Account) error {
+	err := m.syncAccount(ctx, before, after)
+	// Structural change (enable/disable/proxy/concurrency): tell the console
+	// to re-read the real store state regardless of which path succeeded.
+	m.events.Publish(events.TypeAccounts, after.ID, "", nil)
+	return err
+}
+
+func (m *Manager) syncAccount(ctx context.Context, before, after Account) error {
 	// Request sanitization applies per request, so sync it into the pool
 	// without restarting anything.
 	if before.DropSystemPrompt != after.DropSystemPrompt {
@@ -92,6 +102,7 @@ func (m *Manager) Create(ctx context.Context, input CreateAccount) (Account, err
 			return account, err
 		}
 	}
+	m.events.Publish(events.TypeAccounts, account.ID, "", nil)
 	return account, nil
 }
 
@@ -182,6 +193,7 @@ func (m *Manager) Import(ctx context.Context, input ImportAccount) (Account, err
 			return account, err
 		}
 	}
+	m.events.Publish(events.TypeAccounts, account.ID, "", nil)
 	return m.store.Get(ctx, account.ID)
 }
 
@@ -224,6 +236,12 @@ func (m *Manager) AccountView(ctx context.Context, id string) (AccountView, erro
 			view.LastErrorKind = item.LastKind
 		}
 	}
+	if m.forceReady(account.ID) {
+		// The pool carries the routing override; the console shows the real
+		// stored snapshot and badges the override instead.
+		view.ForceReadyOverride = true
+		view.Quota = account.Quota
+	}
 	reconcileExpiredCooldown(&view, time.Now())
 	return view, nil
 }
@@ -262,6 +280,10 @@ func (m *Manager) Accounts(ctx context.Context) ([]AccountView, error) {
 			if view.LastErrorKind == "" {
 				view.LastErrorKind = item.LastKind
 			}
+		}
+		if m.forceReady(account.ID) {
+			view.ForceReadyOverride = true
+			view.Quota = account.Quota
 		}
 		reconcileExpiredCooldown(&view, time.Now())
 		views = append(views, view)

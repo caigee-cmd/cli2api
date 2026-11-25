@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/caigee-cmd/cli2api/internal/events"
 	"github.com/caigee-cmd/cli2api/internal/providers"
 )
 
@@ -74,12 +75,17 @@ type Manager struct {
 	workbuddy            WorkBuddyMaintainer
 	checkinRunning       map[string]bool
 	checkinStatusRunning bool
-	mu                   sync.Mutex
-	processes            map[string]ManagedProcess
-	restarts             map[string]int
-	restartBackoff       map[string]int
-	recovering           map[string]bool
-	recoverPending       map[string]string
+	quotaFreshRunning    bool
+
+	// events publishes real console state changes (quota/checkin/health/bulk
+	// progress) to the console SSE channel. Never nil after NewManager.
+	events         *events.Bus
+	mu             sync.Mutex
+	processes      map[string]ManagedProcess
+	restarts       map[string]int
+	restartBackoff map[string]int
+	recovering     map[string]bool
+	recoverPending map[string]string
 	// recoverUnwindHook runs (tests only) as a recovery goroutine starts unwinding.
 	recoverUnwindHook func(id string)
 	recoverDone       sync.WaitGroup
@@ -202,6 +208,7 @@ func NewManager(config ManagerConfig, store AccountStore, starter ProcessStarter
 		quotaProbeLevels:  map[string]int{},
 		healthFailures:    map[string]int{},
 		reconcileAt:       map[string]time.Time{},
+		events:            events.NewBus(),
 	}
 	manager.persistCond = sync.NewCond(&manager.persistMu)
 	manager.persistDone.Add(1)
@@ -222,8 +229,33 @@ func NewManager(config ManagerConfig, store AccountStore, starter ProcessStarter
 			}
 		}
 		manager.persistMu.Unlock()
+		// Publish the real routing state change (cooldown/health merges from
+		// chat failover included) so the console reflects it in real time.
+		state := events.AccountState{
+			AccountID:    item.ID,
+			RuntimeState: item.RuntimeState,
+			LastError:    item.LastError,
+			LastKind:     item.LastKind,
+		}
+		if item.Ready != nil {
+			state.Ready = *item.Ready
+		}
+		if !item.DownUntil.IsZero() {
+			state.CooldownUntil = item.DownUntil.UTC().Format(time.RFC3339)
+		}
+		manager.events.Publish(events.TypeAccount, item.ID, "", state)
 	})
 	return manager
+}
+
+// SubscribeEvents exposes the real state-change stream to the console facade.
+func (m *Manager) SubscribeEvents(lastSeq uint64) (<-chan events.Event, func()) {
+	if m == nil || m.events == nil {
+		ch := make(chan events.Event)
+		close(ch)
+		return ch, func() {}
+	}
+	return m.events.Subscribe(lastSeq)
 }
 
 // drainCooldowns persists pool state changes for one account at a time,

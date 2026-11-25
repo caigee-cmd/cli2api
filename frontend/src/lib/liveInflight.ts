@@ -1,31 +1,28 @@
 /**
- * Phase-1 fake snapshot for Overview「实时进行中」.
- * Shaped like cli2api runtime concepts (not a parallel control plane):
- *   jobs      ≈ in-flight / waiting proxy requests
- *   workers   ≈ account slots currently (or recently) hitting upstream
- *   rateLimits≈ cooldown / provider rate-limit windows
- *   depth     ≈ recent waiting + concurrency approx
- *   totals    ≈ session Done/Failed while viewing (mock tick; live bumps)
- * Stage-3 swaps workers/rateLimits/sticky/queue onto /api/live (LiveWorker,
- * LiveRateLimit, LiveSticky, LiveJob); depth stays client-rolled. Do not invent
- * a parallel /api/inflight*.
+ * Real inflight projection for Overview「实时进行中」.
  *
- * Live loop (`tickMockInflight`) mirrors public AffectUI Motion prose:
- * progress fill, queue→worker handoff, DONE/FAILED stack, depth scroll —
- * Stage-1 only; real /api/live projection stays read-only.
+ * Everything rendered comes from /api/live: workers (account slots + their
+ * in-flight cells), rate-limit/cooldown windows, the selecting queue, occupied
+ * requests, sticky stats and RPM. There is no seed, no tick, and no demo mode:
+ * when live data is unavailable the card shows an honest empty state.
  */
 
-export type MockJobKind = 'chat' | 'embed' | 'tools' | 'other'
-export type MockJobStatus = 'queued' | 'running' | 'done' | 'failed'
+export type LiveJobKind = 'chat' | 'embed' | 'tools' | 'other'
+export type LiveJobStatus = 'queued' | 'running' | 'done' | 'failed'
 
-export type MockJobPriority = 'high' | 'normal' | 'low'
+export type LiveJobPriority = 'high' | 'normal' | 'low'
 
-export type MockInflightJob = {
+/** Recent concurrency depth window kept for the sparkline. */
+const DEPTH_SERIES_LEN = 24
+/** Queue depth at which the waiting metric turns amber (UI guideline). */
+const BACKPRESSURE_DEPTH = 6
+
+export type LiveInflightJob = {
   id: string
   /** Short label — model / route style. */
   name: string
-  kind: MockJobKind
-  status: MockJobStatus
+  kind: LiveJobKind
+  status: LiveJobStatus
   /** Account id holding the request when running. */
   accountId?: string
   progress: number
@@ -36,13 +33,13 @@ export type MockInflightJob = {
   /** Sticky session hint (affinity hit). */
   sticky?: boolean
   /** AffectUI priority — high lands at back then glides past. */
-  priority?: MockJobPriority
+  priority?: LiveJobPriority
   /** Retry attempt count when failed job slides back to queue. */
   attempt?: number
 }
 
 /** One occupied concurrency cell on an account slot bar. */
-export type MockSlotCell = {
+export type LiveSlotCell = {
   id: string
   /** Requested model / short label. */
   name: string
@@ -57,7 +54,7 @@ export type MockSlotCell = {
   pendingInbound?: boolean
 }
 
-export type MockAccountSlot = {
+export type LiveAccountSlot = {
   id: string
   /** Account display name. */
   name: string
@@ -77,10 +74,10 @@ export type MockAccountSlot = {
   /** Current occupied concurrency cells (in_flight). */
   inFlight?: number
   /** Per-cell model + elapsed (length ≤ inFlight). */
-  cells?: MockSlotCell[]
+  cells?: LiveSlotCell[]
 }
 
-export type MockRateLimitWindow = {
+export type LiveRateLimitWindow = {
   id: string
   label: string
   /** Remaining cooldown / rate-limit window in ms. */
@@ -91,17 +88,17 @@ export type MockRateLimitWindow = {
 }
 
 /** One job that just landed on Done or Failed this tick (GSAP fly-out routing). */
-export type MockCompletion = {
+export type LiveCompletion = {
   id: string
   name: string
-  kind: MockJobKind
+  kind: LiveJobKind
   ok: boolean
 }
 
-export type MockInflightSnapshot = {
-  jobs: MockInflightJob[]
-  workers: MockAccountSlot[]
-  rateLimits: MockRateLimitWindow[]
+export type LiveInflightSnapshot = {
+  jobs: LiveInflightJob[]
+  workers: LiveAccountSlot[]
+  rateLimits: LiveRateLimitWindow[]
   /** Recent waiting+concurrency depth (oldest → newest). */
   depthSeries: number[]
   /** Soft backpressure guide on the depth chart. */
@@ -117,81 +114,10 @@ export type MockInflightSnapshot = {
    * Live `totals` are session counters (since expand/mount), bumped from
    * completions — not historical DB totals. priorIsLive uses waitP95Ms === 0.
    */
-  completions?: MockCompletion[]
+  completions?: LiveCompletion[]
 }
 
-/** Stable demo seed — deterministic for first paint / screenshots. */
-export const MOCK_INFLIGHT: MockInflightSnapshot = {
-  generatedAt: 0,
-  backpressure: 6,
-  throughputPerMin: 42,
-  waitP95Ms: 2800,
-  totals: { done: 186, failed: 4 },
-  workers: [
-    {
-      id: 'acc-wb-a1', name: 'WorkBuddy', provider: 'workbuddy', busy: true, progress: 0.72, jobId: 'j1', concurrency: 4, inFlight: 3,
-      cells: [
-        { id: 'j1', name: 'glm-5.2', startedAtMs: 0, elapsedMs: 11_200 },
-        { id: 'j1b', name: 'kimi-k2.7-code', startedAtMs: 0, elapsedMs: 8400 },
-        { id: 'j1c', name: 'qwen3-embedding', startedAtMs: 0, elapsedMs: 4100 },
-      ],
-    },
-    {
-      id: 'acc-wb-a2', name: 'Zhipu', provider: 'zhipu', busy: true, progress: 0.41, jobId: 'j2', rateLimited: true, concurrency: 2, inFlight: 1,
-      cells: [{ id: 'j2', name: 'deepseek-v4-pro', startedAtMs: 0, elapsedMs: 9400 }],
-    },
-    {
-      id: 'acc-qd-b1', name: 'Qoder', provider: 'qoder', busy: true, progress: 0.88, jobId: 'j3', concurrency: 1, inFlight: 1,
-      cells: [{ id: 'j3', name: 'glm-5.3', startedAtMs: 0, elapsedMs: 6200 }],
-    },
-    { id: 'acc-qd-b2', name: 'Kimi', provider: 'kimi', busy: false, progress: 0, concurrency: 4, inFlight: 0, cells: [] },
-    {
-      id: 'acc-trae-c1', name: 'Trae', provider: 'trae', busy: true, progress: 0.23, jobId: 'j4', concurrency: 3, inFlight: 2,
-      cells: [
-        { id: 'j4', name: 'qwen3-coder', startedAtMs: 0, elapsedMs: 3100 },
-        { id: 'j4b', name: 'glm-5.3-flash', startedAtMs: 0, elapsedMs: 1800 },
-      ],
-    },
-    { id: 'acc-codex-d1', name: 'Codex', provider: 'codex', busy: false, progress: 0, rateLimited: true, concurrency: 2, inFlight: 0, cells: [] },
-  ],
-  jobs: [
-    { id: 'j1', name: 'glm-5.2', kind: 'chat', status: 'running', accountId: 'acc-wb-a1', progress: 0.72, elapsedMs: 11_200, sticky: true },
-    { id: 'j1b', name: 'kimi-k2.7-code', kind: 'chat', status: 'running', accountId: 'acc-wb-a1', progress: 0.55, elapsedMs: 8400 },
-    { id: 'j1c', name: 'qwen3-embedding', kind: 'embed', status: 'running', accountId: 'acc-wb-a1', progress: 0.3, elapsedMs: 4100 },
-    { id: 'j2', name: 'deepseek-v4-pro', kind: 'embed', status: 'running', accountId: 'acc-wb-a2', progress: 0.41, elapsedMs: 9400 },
-    { id: 'j3', name: 'glm-5.3', kind: 'chat', status: 'running', accountId: 'acc-qd-b1', progress: 0.88, elapsedMs: 6200 },
-    { id: 'j4', name: 'qwen3-coder', kind: 'tools', status: 'running', accountId: 'acc-trae-c1', progress: 0.23, elapsedMs: 3100 },
-    { id: 'j4b', name: 'glm-5.3-flash', kind: 'chat', status: 'running', accountId: 'acc-trae-c1', progress: 0.15, elapsedMs: 1800 },
-    { id: 'j5', name: 'deepseek-v4.1-flash', kind: 'chat', status: 'queued', progress: 0, elapsedMs: 7200 },
-    { id: 'j6', name: 'glm-5.2', kind: 'chat', status: 'queued', progress: 0, elapsedMs: 5100 },
-    { id: 'j7', name: 'kimi-k2.7-code', kind: 'chat', status: 'queued', progress: 0, elapsedMs: 2800, sticky: true, priority: 'high' },
-    { id: 'j8', name: 'qwen3-embedding', kind: 'embed', status: 'queued', progress: 0, elapsedMs: 1400 },
-    { id: 'j9', name: 'qwen3-coder', kind: 'tools', status: 'queued', progress: 0, elapsedMs: 900 },
-    { id: 'j10', name: 'glm-5.3-flash', kind: 'chat', status: 'queued', progress: 0, elapsedMs: 600 },
-    { id: 'j11', name: 'deepseek-v4-pro', kind: 'embed', status: 'queued', progress: 0, elapsedMs: 400 },
-    { id: 'j12', name: 'glm-5.3', kind: 'chat', status: 'queued', progress: 0, elapsedMs: 200, priority: 'high' },
-  ],
-  rateLimits: [
-    { id: 'rl1', label: 'Zhipu 限流', remainingMs: 97_000, from: 0.55, until: 0.72 },
-    { id: 'rl2', label: 'Codex 冷却', remainingMs: 41_000, from: 0.82, until: 1 },
-  ],
-  // Soft hump under rate-limit, then partial drain.
-  depthSeries: [1, 1, 2, 2, 3, 4, 5, 6, 7, 6, 5, 4, 3, 4, 5, 6, 5, 4, 3, 3, 2, 3, 4, 3],
-}
-
-const SEED_NAMES: Array<{ name: string; kind: MockJobKind; sticky?: boolean }> = [
-  { name: 'glm-5.3', kind: 'chat' },
-  { name: 'qwen3-embedding', kind: 'embed' },
-  { name: 'qwen3-coder', kind: 'tools' },
-  { name: 'glm-5.3-flash', kind: 'chat', sticky: true },
-  { name: 'deepseek-v4.1-flash', kind: 'chat' },
-  { name: 'deepseek-v4-pro', kind: 'embed' },
-  { name: 'kimi-k2.7-code', kind: 'chat' },
-]
-
-let seq = 100
-
-export function cloneMockInflight(snap: MockInflightSnapshot = MOCK_INFLIGHT): MockInflightSnapshot {
+export function cloneInflight(snap: LiveInflightSnapshot): LiveInflightSnapshot {
   return {
     ...snap,
     workers: snap.workers.map((w) => ({
@@ -207,215 +133,19 @@ export function cloneMockInflight(snap: MockInflightSnapshot = MOCK_INFLIGHT): M
   }
 }
 
-export function getMockInflightSnapshot(): MockInflightSnapshot {
-  return cloneMockInflight()
-}
-
-/** Calm empty board when live is unavailable and mock 示意 is off. */
-export function getIdleInflightSnapshot(): MockInflightSnapshot {
-  const n = Math.max(1, MOCK_INFLIGHT.depthSeries.length)
+/** Honest empty board: no fabricated numbers, used until /api/live responds. */
+export function emptyInflightSnapshot(): LiveInflightSnapshot {
   return {
     generatedAt: Date.now(),
-    backpressure: MOCK_INFLIGHT.backpressure,
+    backpressure: BACKPRESSURE_DEPTH,
     throughputPerMin: 0,
     waitP95Ms: 0,
     totals: { done: 0, failed: 0 },
     workers: [],
     jobs: [],
     rateLimits: [],
-    depthSeries: Array.from({ length: n }, () => 0),
+    depthSeries: Array.from({ length: DEPTH_SERIES_LEN }, () => 0),
   }
-}
-
-export function isIdleInflightSnapshot(snap: MockInflightSnapshot): boolean {
-  return (
-    snap.jobs.length === 0 &&
-    snap.workers.length === 0 &&
-    snap.throughputPerMin === 0 &&
-    (snap.totals?.done ?? 0) === 0 &&
-    (snap.totals?.failed ?? 0) === 0
-  )
-}
-
-/**
- * Advance the Stage-1 mock one frame. Mirrors public AffectUI loop:
- * progress fills (frozen under rate-limit), completed jobs → Done/Failed,
- * free slots pull the front of the waiting queue, depth series scrolls,
- * rate-limit remaining counts down. Deterministic-ish for a given dt.
- */
-export function tickMockInflight(prev: MockInflightSnapshot, dtMs: number): MockInflightSnapshot {
-  const dt = Math.max(16, Math.min(500, dtMs))
-  const next = cloneMockInflight(prev)
-  next.generatedAt = (prev.generatedAt || 0) + dt
-
-  // Countdown rate-limit windows; clear expired → unfreeze matching slots.
-  next.rateLimits = next.rateLimits
-    .map((r) => ({ ...r, remainingMs: Math.max(0, r.remainingMs - dt) }))
-    .filter((r) => r.remainingMs > 0)
-  // Keep rateLimited flag in sync with remaining windows (seed label → slot).
-  for (const w of next.workers) {
-    if (w.id === 'acc-wb-a2') w.rateLimited = next.rateLimits.some((r) => r.label.includes('Zhipu'))
-    else if (w.id === 'acc-codex-d1') w.rateLimited = next.rateLimits.some((r) => r.label.includes('Codex'))
-  }
-
-  const jobById = new Map(next.jobs.map((j) => [j.id, j]))
-
-  // Per-cell elapsed + independent progress (rate-limit freezes the account).
-  for (const w of next.workers) {
-    if (w.cells?.length) {
-      for (const c of w.cells) c.elapsedMs += dt
-    }
-    if (w.rateLimited) continue
-    let maxP = 0
-    for (const c of w.cells ?? []) {
-      const job = jobById.get(c.id)
-      if (!job || job.status !== 'running') continue
-      job.elapsedMs = c.elapsedMs
-      // ~8–14s per cell from current progress, paced by dt + cell id.
-      const speed = 0.045 + (c.id.charCodeAt(c.id.length - 1) % 5) * 0.008
-      job.progress = Math.min(1, job.progress + speed * (dt / 1000))
-      maxP = Math.max(maxP, job.progress)
-    }
-    if ((w.cells?.length ?? 0) > 0) {
-      w.progress = maxP
-      w.busy = true
-      w.jobId = w.cells![0].id
-      w.inFlight = w.cells!.length
-    }
-  }
-
-  // Finish ONE ready cell per worker per tick so each concurrency cell gets
-  // its own Done/Failed fly-out (do not clear the whole account at once).
-  const finished: Array<{ jobId: string; workerId: string; ok: boolean }> = []
-  for (const w of next.workers) {
-    if (w.rateLimited || !(w.cells?.length)) continue
-    const ready = w.cells.find((c) => {
-      const j = jobById.get(c.id)
-      return Boolean(j && j.status === 'running' && j.progress >= 0.995)
-    })
-    if (!ready) continue
-    const ok = (ready.id.charCodeAt(1) + Math.floor(next.generatedAt / 1000)) % 9 !== 0
-    finished.push({ jobId: ready.id, workerId: w.id, ok })
-  }
-  for (const f of finished) {
-    const job = jobById.get(f.jobId)
-    const w = next.workers.find((x) => x.id === f.workerId)
-    if (!job || !w) continue
-    w.cells = (w.cells ?? []).filter((c) => c.id !== f.jobId)
-    w.inFlight = w.cells.length
-    w.jobId = w.cells[0]?.id
-    w.busy = w.cells.length > 0
-    w.progress = w.busy
-      ? Math.max(0.04, ...w.cells.map((c) => jobById.get(c.id)?.progress ?? 0.04))
-      : 0
-    job.accountId = undefined
-    if (f.ok) {
-      job.status = 'done'
-      job.progress = 1
-      next.totals.done += 1
-      continue
-    }
-    // AffectUI: failed shakes — or retry slides back to queue (same id).
-    const attempt = (job.attempt ?? 1) + 1
-    const canRetry = attempt <= 3 && (f.jobId.charCodeAt(0) + Math.floor(next.generatedAt / 900)) % 2 === 0
-    if (canRetry) {
-      job.status = 'queued'
-      job.progress = 0
-      job.elapsedMs = 80
-      job.attempt = attempt
-      job.priority = 'high'
-      continue
-    }
-    job.status = 'failed'
-    job.progress = 1
-    next.totals.failed += 1
-  }
-
-  // Per-job outcomes for GSAP (retry back to queue is not a sink landing).
-  const completions: MockCompletion[] = []
-  for (const f of finished) {
-    const job = jobById.get(f.jobId)
-    if (!job) continue
-    if (job.status === 'done' || job.status === 'failed') {
-      completions.push({ id: job.id, name: job.name, kind: job.kind, ok: job.status === 'done' })
-    }
-  }
-  next.completions = completions.length > 0 ? completions : undefined
-
-  // Drop terminal jobs from the active list (keep queue + running only).
-  next.jobs = next.jobs.filter((j) => j.status === 'queued' || j.status === 'running')
-
-  // Waiting elapsed ticks up.
-  for (const j of next.jobs) {
-    if (j.status === 'queued') j.elapsedMs += dt
-  }
-
-  // Free concurrency cells pull front of queue (partially busy accounts included).
-  const queue = next.jobs.filter((j) => j.status === 'queued')
-  for (const w of next.workers) {
-    if (w.rateLimited) continue
-    const cap = clampSlotConcurrency(w.concurrency ?? 1)
-    w.cells = w.cells ?? []
-    while (w.cells.length < cap) {
-      const job = queue.shift()
-      if (!job) break
-      job.status = 'running'
-      job.accountId = w.id
-      job.progress = 0.04
-      job.elapsedMs = 0
-      const cell = { id: job.id, name: job.name, startedAtMs: Date.now(), elapsedMs: 0 }
-      w.cells = [...w.cells.filter((c) => c.id !== job.id), cell].slice(0, cap)
-      w.busy = true
-      w.progress = Math.max(w.progress, 0.04)
-      w.jobId = w.cells[0]?.id
-      w.inFlight = w.cells.length
-    }
-  }
-
-  // Soft enqueue so the waiting rail doesn’t drain dry. Keep enough
-  // queued jobs that the rail shows several timed pills, not just dots.
-  const waiting = next.jobs.filter((j) => j.status === 'queued').length
-  if (waiting < 10 && next.generatedAt % 1600 < dt) {
-    const pick = SEED_NAMES[seq % SEED_NAMES.length]
-    seq += 1
-    // Every ~4th job is high priority (lands at back, then glides past).
-    const priority = seq % 4 === 0 ? 'high' as const : 'normal' as const
-    next.jobs.push({
-      id: `j${seq}`,
-      name: pick.name,
-      kind: pick.kind,
-      status: 'queued',
-      progress: 0,
-      elapsedMs: 200 + (seq % 7) * 400,
-      sticky: pick.sticky,
-      priority,
-    })
-  }
-
-  // High-priority: after a brief back-of-queue land (~400ms), glide past to front.
-  {
-    const running = next.jobs.filter((j) => j.status === 'running')
-    const queued = next.jobs.filter((j) => j.status === 'queued')
-    const promote = queued.filter((j) => j.priority === 'high' && j.elapsedMs >= 400)
-    const rest = queued.filter((j) => !(j.priority === 'high' && j.elapsedMs >= 400))
-    // Stable: already-promoted highs keep relative order at front; new promotes append after them.
-    const highs = promote
-    next.jobs = [...running, ...highs, ...rest]
-  }
-
-  // Depth chart scrolls: shift left, append current waiting+busy approx.
-  const busy = next.workers.filter((w) => w.busy).length
-  const waitNow = next.jobs.filter((j) => j.status === 'queued').length
-  const depthNow = Math.max(1, waitNow + Math.max(0, busy - 2))
-  const series = next.depthSeries.slice(1)
-  series.push(depthNow)
-  next.depthSeries = series
-
-  // Throughput / p95 drift gently.
-  next.throughputPerMin = Math.max(28, Math.min(58, next.throughputPerMin + ((seq % 3) - 1)))
-  next.waitP95Ms = Math.max(900, Math.min(5200, next.waitP95Ms + (waitNow > 4 ? 40 : -20)))
-
-  return next
 }
 
 /** Clamp account concurrency for slot-bar cells (UI + summary). */
@@ -424,7 +154,7 @@ export function clampSlotConcurrency(n: number | undefined): number {
   return Math.max(1, Math.min(16, Math.floor(n)))
 }
 
-export function summarizeMockInflight(snap: MockInflightSnapshot) {
+export function summarizeInflight(snap: LiveInflightSnapshot) {
   const running = snap.jobs.filter((j) => j.status === 'running').length
   const waiting = snap.jobs.filter((j) => j.status === 'queued').length
   const busyWorkers = snap.workers.filter((w) => w.busy).length
@@ -455,7 +185,7 @@ export function summarizeMockInflight(snap: MockInflightSnapshot) {
 }
 
 /** Optional sticky projection from /api/live (Stage-3 wire). */
-export type MockStickyStats = {
+export type LiveStickyStats = {
   bindings: number
   hits: number
   misses: number
@@ -506,7 +236,7 @@ export type LiveStickyLike = {
 export type LiveQueueJobLike = {
   id: string
   name: string
-  /** RequestStatus* — UI maps selecting onto MockJobStatus queued. */
+  /** RequestStatus* — UI maps selecting onto LiveJobStatus queued. */
   status: string
   started_at?: string
   /** Bind target while dwell still projects onto the waiting rail. */
@@ -541,14 +271,14 @@ export type LiveProjectionInput = {
  * showing occupied chrome until the inbound animation lands.
  */
 export function applyLiveProjection(
-  base: MockInflightSnapshot,
+  base: LiveInflightSnapshot,
   live: LiveProjectionInput,
-): MockInflightSnapshot {
+): LiveInflightSnapshot {
   const now = Date.now()
   const prevById = new Map(base.jobs.map((j) => [j.id, j]))
 
-  const n = Math.max(1, MOCK_INFLIGHT.depthSeries.length)
-  const rateLimits: MockRateLimitWindow[] = live.rate_limits.map((r, i) => {
+  const n = DEPTH_SERIES_LEN
+  const rateLimits: LiveRateLimitWindow[] = live.rate_limits.map((r, i) => {
     const span = 0.14
     const from = Math.min(0.86, ((i * 0.22) % 0.86))
     return {
@@ -561,7 +291,7 @@ export function applyLiveProjection(
   })
 
   // Selecting queue first — ids still on wait rail (incl. dwell-bound).
-  const queuedJobs: MockInflightJob[] = (live.queue ?? []).map((q) => {
+  const queuedJobs: LiveInflightJob[] = (live.queue ?? []).map((q) => {
     const id = (q.id || '').trim()
     const prev = prevById.get(id)
     let startedAtMs: number | undefined
@@ -608,7 +338,7 @@ export function applyLiveProjection(
     occByAccount.set(acc, list)
   }
 
-  const prevCellsByAccount = new Map<string, MockSlotCell[]>()
+  const prevCellsByAccount = new Map<string, LiveSlotCell[]>()
   for (const w of base.workers) {
     if (w.cells?.length) prevCellsByAccount.set(w.id, w.cells)
   }
@@ -627,7 +357,7 @@ export function applyLiveProjection(
     return fallback
   }
 
-  const workers: MockAccountSlot[] = live.workers.map((w) => {
+  const workers: LiveAccountSlot[] = live.workers.map((w) => {
     const concurrency = clampSlotConcurrency(w.max_inflight ?? 4)
     const rawIn =
       w.in_flight != null && Number.isFinite(w.in_flight)
@@ -639,7 +369,7 @@ export function applyLiveProjection(
     const prevCells = prevCellsByAccount.get(w.id) ?? []
     const prevByCellId = new Map(prevCells.map((c) => [c.id, c]))
     const occ = occByAccount.get(w.id) ?? []
-    const cells: MockSlotCell[] = []
+    const cells: LiveSlotCell[] = []
 
     for (const o of occ) {
       if (cells.length >= inFlight) break
@@ -696,7 +426,7 @@ export function applyLiveProjection(
   })
 
   // Running jobs = occupancy cells not still on the wait rail (dwell).
-  const runningJobs: MockInflightJob[] = []
+  const runningJobs: LiveInflightJob[] = []
   for (const w of workers) {
     for (const c of w.cells ?? []) {
       if (queueIds.has(c.id)) continue // still selecting for display
@@ -704,7 +434,7 @@ export function applyLiveProjection(
       runningJobs.push({
         id: c.id,
         name: c.name,
-        kind: (prev?.kind as MockJobKind | undefined) ?? 'chat',
+        kind: (prev?.kind as LiveJobKind | undefined) ?? 'chat',
         status: 'running',
         accountId: w.id,
         progress: w.progress,
@@ -714,7 +444,7 @@ export function applyLiveProjection(
     }
   }
 
-  const jobs: MockInflightJob[] = [...runningJobs, ...queuedJobs]
+  const jobs: LiveInflightJob[] = [...runningJobs, ...queuedJobs]
 
   // Continue rolling depth only after a prior live projection (cleared p95).
   // Mock seed/tick always leaves waitP95Ms > 0 — start zeros. Session totals
@@ -741,7 +471,7 @@ export function applyLiveProjection(
     pendingByAccount.set(acc, list)
   }
   const stillIds = new Set(jobs.map((j) => j.id))
-  const completions: MockCompletion[] = []
+  const completions: LiveCompletion[] = []
   for (const prev of base.jobs) {
     if (prev.status !== 'running') continue
     if (stillIds.has(prev.id)) continue

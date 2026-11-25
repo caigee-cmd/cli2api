@@ -2,14 +2,16 @@ package control
 
 import (
 	"context"
-	"github.com/caigee-cmd/cli2api/internal/accounts"
-	"github.com/caigee-cmd/cli2api/internal/executor"
-	"github.com/caigee-cmd/cli2api/internal/providers"
-	"github.com/caigee-cmd/cli2api/internal/proxy"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/caigee-cmd/cli2api/internal/accounts"
+	"github.com/caigee-cmd/cli2api/internal/executor"
+	"github.com/caigee-cmd/cli2api/internal/providers"
+	"github.com/caigee-cmd/cli2api/internal/proxy"
 )
 
 type System struct {
@@ -21,28 +23,31 @@ type System struct {
 	Mu                *sync.Mutex
 }
 type SystemSettingsPatch struct {
-	CrossProviderModelPool  *bool             `json:"cross_provider_model_pool"`
-	CheckinDisabledAccounts *bool             `json:"checkin_disabled_accounts"`
-	RoutingStrategy         *string           `json:"routing_strategy"`
-	ProxyURL                *string           `json:"proxy_url"`
-	WorkBuddyCheckinTime    *string           `json:"workbuddy_checkin_time"`
-	CheckinTimes            map[string]string `json:"checkin_times"`
+	CrossProviderModelPool    *bool             `json:"cross_provider_model_pool"`
+	CheckinDisabledAccounts   *bool             `json:"checkin_disabled_accounts"`
+	RoutingStrategy           *string           `json:"routing_strategy"`
+	ProxyURL                  *string           `json:"proxy_url"`
+	WorkBuddyCheckinTime      *string           `json:"workbuddy_checkin_time"`
+	CheckinTimes              map[string]string `json:"checkin_times"`
+	QuotaFreshIntervalSeconds *int              `json:"quota_fresh_interval_seconds"`
 }
 type SystemSettings struct {
-	CrossProviderModelPool  bool                          `json:"cross_provider_model_pool"`
-	CheckinDisabledAccounts bool                          `json:"checkin_disabled_accounts"`
-	RoutingStrategy         string                        `json:"routing_strategy"`
-	ProxyURL                string                        `json:"proxy_url"`
-	WorkBuddyCheckinTime    string                        `json:"workbuddy_checkin_time"`
-	CheckinTimes            map[string]string             `json:"checkin_times"`
-	Timezone                string                        `json:"timezone"`
-	SessionAffinity         executor.SessionAffinityStats `json:"session_affinity"`
+	CrossProviderModelPool    bool                          `json:"cross_provider_model_pool"`
+	CheckinDisabledAccounts   bool                          `json:"checkin_disabled_accounts"`
+	RoutingStrategy           string                        `json:"routing_strategy"`
+	ProxyURL                  string                        `json:"proxy_url"`
+	WorkBuddyCheckinTime      string                        `json:"workbuddy_checkin_time"`
+	CheckinTimes              map[string]string             `json:"checkin_times"`
+	Timezone                  string                        `json:"timezone"`
+	SessionAffinity           executor.SessionAffinityStats `json:"session_affinity"`
+	QuotaFreshIntervalSeconds int                           `json:"quota_fresh_interval_seconds"`
 }
 
 func (h *System) Current(ctx context.Context) SystemSettings {
 	var proxyURL string
 	checkin := ""
 	checkinDisabledAccounts := false
+	quotaFreshInterval := accounts.DefaultQuotaFreshIntervalSeconds
 	if h.Settings != nil {
 		proxyURL, _, _ = h.Settings.GetSecret(ctx, proxyURLSecret)
 		checkin = h.Settings.WorkBuddyCheckinTimeDefault(ctx)
@@ -50,14 +55,22 @@ func (h *System) Current(ctx context.Context) SystemSettings {
 		if ok && err == nil {
 			checkinDisabledAccounts, _ = parseSettingBool(value)
 		}
+		if raw, ok, err := h.Settings.GetSecret(ctx, quotaFreshIntervalSecret); ok && err == nil && strings.TrimSpace(raw) != "" {
+			if seconds, convErr := strconv.Atoi(strings.TrimSpace(raw)); convErr == nil {
+				if normalized, normErr := accounts.NormalizeQuotaFreshIntervalSeconds(seconds); normErr == nil {
+					quotaFreshInterval = normalized
+				}
+			}
+		}
 	}
 	settings := SystemSettings{
-		CrossProviderModelPool:  h.CrossProviderPool.Load(),
-		CheckinDisabledAccounts: checkinDisabledAccounts,
-		ProxyURL:                proxy.Redact(proxyURL),
-		WorkBuddyCheckinTime:    checkin,
-		CheckinTimes:            map[string]string{},
-		Timezone:                time.Now().Format("MST -07:00"),
+		CrossProviderModelPool:    h.CrossProviderPool.Load(),
+		CheckinDisabledAccounts:   checkinDisabledAccounts,
+		ProxyURL:                  proxy.Redact(proxyURL),
+		WorkBuddyCheckinTime:      checkin,
+		CheckinTimes:              map[string]string{},
+		Timezone:                  time.Now().Format("MST -07:00"),
+		QuotaFreshIntervalSeconds: quotaFreshInterval,
 	}
 	for _, descriptor := range providers.List() {
 		if descriptor.SupportsCheckin() && h.Settings != nil {
@@ -74,8 +87,13 @@ func (h *System) Current(ctx context.Context) SystemSettings {
 }
 
 func (h *System) Patch(ctx context.Context, input SystemSettingsPatch) error {
-	if input.CrossProviderModelPool == nil && input.CheckinDisabledAccounts == nil && input.RoutingStrategy == nil && input.ProxyURL == nil && input.WorkBuddyCheckinTime == nil && len(input.CheckinTimes) == 0 {
+	if input.CrossProviderModelPool == nil && input.CheckinDisabledAccounts == nil && input.RoutingStrategy == nil && input.ProxyURL == nil && input.WorkBuddyCheckinTime == nil && len(input.CheckinTimes) == 0 && input.QuotaFreshIntervalSeconds == nil {
 		return operationError("invalid_request", "a system setting is required")
+	}
+	if input.QuotaFreshIntervalSeconds != nil {
+		if _, err := accounts.NormalizeQuotaFreshIntervalSeconds(*input.QuotaFreshIntervalSeconds); err != nil {
+			return operationError("invalid_quota_fresh_interval", err.Error())
+		}
 	}
 	var strategy string
 	if input.RoutingStrategy != nil {
@@ -175,6 +193,11 @@ func (h *System) Patch(ctx context.Context, input SystemSettingsPatch) error {
 	}
 	for providerID, value := range checkinTimes {
 		if err := h.Settings.SetSecret(ctx, accounts.CheckinTimeSecret(providerID), value); err != nil {
+			return operationError("system_settings_save_failed", err.Error())
+		}
+	}
+	if input.QuotaFreshIntervalSeconds != nil {
+		if err := h.Settings.SetSecret(ctx, quotaFreshIntervalSecret, strconv.Itoa(*input.QuotaFreshIntervalSeconds)); err != nil {
 			return operationError("system_settings_save_failed", err.Error())
 		}
 	}

@@ -12,6 +12,7 @@ import {
   TrendUp,
 } from '@phosphor-icons/react'
 import { fetchRequestStats, type RequestStats } from '@/api/logs'
+import { useAccountEvents } from '@/hooks/useAccountEvents'
 import { fetchSystemResources, type SystemResources } from '@/api/system'
 import type { Overview } from '@/api/types'
 import { CountUp } from '@/components/overview/CountUp'
@@ -130,7 +131,7 @@ function quotaTone(percentage?: number, exceeded?: boolean) {
 
 export function OverviewPage() {
   const { lang, t } = useI18n()
-  const { overview, loading, error } = useOverview()
+  const { overview, loading, error, refresh } = useOverview()
   const [statsWindow, setStatsWindow] = useState<StatsWindow>('today')
   const [customRange, setCustomRange] = useState<DateRangeValue | null>(null)
   const [paused, setPaused] = useState(false)
@@ -145,7 +146,7 @@ export function OverviewPage() {
   const [now, setNow] = useState(() => Date.now())
   const [inflightOpen, setInflightOpen] = useState(false)
   const [coolingOpen, setCoolingOpen] = useState(false)
-  const { live, samples: liveSamples } = useLive({
+  const { live, samples: liveSamples, error: liveError } = useLive({
     intervalMs: inflightOpen ? LIVE_POLL_EXPANDED_MS : LIVE_POLL_MS,
   })
   const liveById = new Map((live?.accounts ?? []).map((item) => [item.id, item]))
@@ -200,6 +201,44 @@ export function OverviewPage() {
       .finally(() => { if (!cancelled) setAccountsLoading(false) })
     return () => { cancelled = true }
   }, [])
+
+  /**
+   * Real-time convergence: every runtime event (pool health, cooldown, quota,
+   * check-in, bulk progress) debounces into one cheap re-read of the account
+   * list plus a silent overview refresh, so counts move within ~a second of the
+   * backend changing instead of waiting for a manual reload.
+   */
+  const reloadAccounts = useCallback(() => {
+    void fetchAccounts(false)
+      .then((res) => setAccounts(res.data || []))
+      .catch(() => { /* keep the last good list */ })
+  }, [])
+  const eventRefreshTimer = useRef<number | null>(null)
+  const onRuntimeEvent = useCallback(() => {
+    if (eventRefreshTimer.current != null) return
+    eventRefreshTimer.current = window.setTimeout(() => {
+      eventRefreshTimer.current = null
+      reloadAccounts()
+      void refresh(undefined, { silent: true }).catch(() => { /* keep last good summary */ })
+    }, 600)
+  }, [refresh, reloadAccounts])
+  const { status: eventStatus } = useAccountEvents(onRuntimeEvent)
+  useEffect(() => {
+    return () => {
+      if (eventRefreshTimer.current != null) window.clearTimeout(eventRefreshTimer.current)
+    }
+  }, [])
+  // Degraded path: when the stream is not live (401 / network / unsupported),
+  // poll the same real endpoints every 5s instead of showing stale numbers.
+  useEffect(() => {
+    if (eventStatus === 'live') return
+    const timer = window.setInterval(() => {
+      if (document.hidden) return
+      reloadAccounts()
+      void refresh(undefined, { silent: true }).catch(() => { /* keep last good summary */ })
+    }, 5000)
+    return () => window.clearInterval(timer)
+  }, [eventStatus, reloadAccounts, refresh])
 
   const customFrom = customRange?.start?.toString() ?? ''
   const customTo = customRange?.end?.toString() ?? ''
@@ -358,7 +397,7 @@ export function OverviewPage() {
 
       <LiveStrip live={live} samples={liveSamples} t={t} onConcurrencyClick={() => setInflightOpen(true)} />
 
-      <InflightLiveCard t={t} expanded={inflightOpen} onExpandedChange={setInflightOpen} live={inflightOpen ? live : null} />
+      <InflightLiveCard t={t} expanded={inflightOpen} onExpandedChange={setInflightOpen} live={inflightOpen ? live : null} liveError={inflightOpen ? liveError : null} />
 
       <section data-gsap-reveal className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {metrics.map((metric) => (

@@ -6,26 +6,39 @@ import (
 	"fmt"
 	"hash/fnv"
 	"log"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	_ "time/tzdata"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
+	"github.com/caigee-cmd/cli2api/internal/events"
 	"github.com/caigee-cmd/cli2api/internal/providers"
 	"github.com/caigee-cmd/cli2api/internal/providers/qoder"
 )
 
 func (manager *Manager) CheckinAccount(ctx context.Context, accountID string) (Account, error) {
-	return manager.checkinAccount(ctx, accountID, false, false)
+	outcome, err := manager.checkinAccount(ctx, accountID, false, false)
+	return outcome.account, err
+}
+
+// checkinOutcome carries the real per-attempt facts a bulk pass reports:
+// the updated account, the provider's verbatim check-in result (including the
+// real reward amount), and whether the post-check-in quota fetch persisted.
+type checkinOutcome struct {
+	account        Account
+	result         providers.CheckinResult
+	quotaRefreshed bool
 }
 
 // CheckinAll runs a manual all-account pass on the server. It selects from the
 // full store instead of the browser's current page/filter, honors the system
 // "check in disabled accounts" setting, and reports every account outcome.
-// Manual passes use bounded concurrency instead of the scheduled loop's
-// inter-account gap: waiting on the UI for 13 sequential network check-ins is
-// unacceptable, while four in flight keeps upstream bursts modest.
+// All target accounts start concurrently (full fan-out): there is no
+// concurrency cap and no inter-account gap. The per-account checkinRunning
+// gate still deduplicates an overlapping manual/scheduled attempt.
 func (manager *Manager) CheckinAll(ctx context.Context, force, includeDisabled bool) ([]accounts.CheckinAllResult, error) {
 	if manager == nil {
 		return nil, fmt.Errorf("account manager unavailable")
@@ -48,44 +61,69 @@ func (manager *Manager) CheckinAll(ctx context.Context, force, includeDisabled b
 		targets = append(targets, item)
 	}
 	results := make([]accounts.CheckinAllResult, len(targets))
+	opID := newOpID()
+	total := len(targets)
+	var done atomic.Int64
+	manager.events.Publish(events.TypeBulk, "", opID, events.BulkProgress{OpID: opID, Kind: "checkin", Phase: "start", Total: total})
 	var wg sync.WaitGroup
-	sem := make(chan struct{}, manualCheckinConcurrency)
-	started := 0
-loop:
 	for i, item := range targets {
-		select {
-		case sem <- struct{}{}:
-		case <-ctx.Done():
-			break loop
+		if ctx.Err() != nil {
+			// Report the accounts that never started as unknown, never success.
+			for j := i; j < len(targets); j++ {
+				results[j] = accounts.CheckinAllResult{
+					AccountID: targets[j].ID,
+					Provider:  targets[j].Provider,
+					Region:    targets[j].ProviderRegion,
+					Status:    "unknown",
+					Message:   ctx.Err().Error(),
+				}
+			}
+			break
 		}
-		started = i + 1
 		wg.Add(1)
 		go func(index int, account accounts.Account) {
 			defer wg.Done()
-			defer func() { <-sem }()
-			updated, checkErr := manager.checkinAccount(ctx, account.ID, includeDisabled, force)
+			outcome, checkErr := manager.checkinAccount(ctx, account.ID, includeDisabled, force)
+			updated := outcome.account
 			result := accounts.CheckinAllResult{
-				AccountID: account.ID,
-				Provider:  account.Provider,
-				Region:    account.ProviderRegion,
-				Status:    updated.LastCheckinStatus,
-				Message:   updated.LastCheckinMsg,
+				AccountID:      account.ID,
+				Provider:       account.Provider,
+				Region:         account.ProviderRegion,
+				Status:         updated.LastCheckinStatus,
+				Message:        updated.LastCheckinMsg,
+				RewardCredits:  outcome.result.RewardCredits,
+				QuotaRefreshed: outcome.quotaRefreshed,
 			}
 			if result.Status == "" {
-				result.Status = "success"
+				// No recorded status is not evidence of success.
+				result.Status = "unknown"
+				if result.Message == "" {
+					result.Message = "no check-in status recorded"
+				}
 			}
 			if checkErr != nil {
 				result.Status = "error"
 				if result.Message == "" {
 					result.Message = checkErr.Error()
 				}
+				var providerErr *providers.Error
+				if errors.As(checkErr, &providerErr) && providerErr != nil {
+					result.Code = providerErr.Code
+					result.Kind = providerErr.Kind
+					result.HTTPStatus = providerErr.Status
+				}
 			}
 			results[index] = result
+			manager.events.Publish(events.TypeBulk, account.ID, opID, events.BulkProgress{
+				OpID: opID, Kind: "checkin", Phase: "account", Total: total,
+				Done: int(done.Add(1)), AccountID: account.ID, Result: result,
+			})
 		}(i, item)
 	}
 	wg.Wait()
+	manager.events.Publish(events.TypeBulk, "", opID, events.BulkProgress{OpID: opID, Kind: "checkin", Phase: "done", Total: total, Done: int(done.Load())})
 	if ctx.Err() != nil {
-		return results[:started], ctx.Err()
+		return results, ctx.Err()
 	}
 	// Verify the claims against upstream after the pass; this refreshes the
 	// true today flag and the derived auto schedule without delaying the UI.
@@ -94,9 +132,9 @@ loop:
 	return results, nil
 }
 
-func (manager *Manager) checkinAccount(ctx context.Context, accountID string, allowDisabled, force bool) (Account, error) {
+func (manager *Manager) checkinAccount(ctx context.Context, accountID string, allowDisabled, force bool) (checkinOutcome, error) {
 	if manager == nil {
-		return Account{}, fmt.Errorf("account manager unavailable")
+		return checkinOutcome{}, fmt.Errorf("account manager unavailable")
 	}
 	manager.mu.Lock()
 	if manager.checkinRunning == nil {
@@ -104,7 +142,7 @@ func (manager *Manager) checkinAccount(ctx context.Context, accountID string, al
 	}
 	if manager.checkinRunning[accountID] {
 		manager.mu.Unlock()
-		return Account{}, fmt.Errorf("check-in is already running for this account")
+		return checkinOutcome{}, fmt.Errorf("check-in is already running for this account")
 	}
 	manager.checkinRunning[accountID] = true
 	manager.mu.Unlock()
@@ -115,19 +153,19 @@ func (manager *Manager) checkinAccount(ctx context.Context, accountID string, al
 	}()
 	account, err := manager.store.Get(ctx, accountID)
 	if err != nil {
-		return Account{}, err
+		return checkinOutcome{}, err
 	}
 	if !account.Enabled && !allowDisabled {
-		return account, fmt.Errorf("account is disabled")
+		return checkinOutcome{account: account}, fmt.Errorf("account is disabled")
 	}
 	policy, supported := providers.CheckinFor(account.Provider, account.ProviderRegion)
 	adapter, registered := manager.providers.Get(account.Provider)
 	if !supported || !registered || adapter.Checkin == nil {
-		return account, providers.ErrUnsupported
+		return checkinOutcome{account: account}, providers.ErrUnsupported
 	}
 	location, err := time.LoadLocation(policy.Timezone)
 	if err != nil {
-		return account, fmt.Errorf("invalid check-in timezone: %w", err)
+		return checkinOutcome{account: account}, fmt.Errorf("invalid check-in timezone: %w", err)
 	}
 	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
@@ -136,11 +174,16 @@ func (manager *Manager) checkinAccount(ctx context.Context, accountID string, al
 	if !force && CheckedInLocalDay(account.LastCheckinAt, account.LastCheckinStatus, time.Now().In(location)) {
 		if account.Provider == "workbuddy" {
 			if err := manager.clearCheckinCooldown(ctx, accountID); err != nil {
-				return account, fmt.Errorf("clear cooldown after check-in: %w", err)
+				return checkinOutcome{account: account}, fmt.Errorf("clear cooldown after check-in: %w", err)
 			}
 		}
-		manager.refreshCheckinQuota(ctx, accountID, adapter)
-		return manager.store.Get(ctx, accountID)
+		refreshed := manager.refreshCheckinQuota(ctx, accountID, adapter)
+		updated, getErr := manager.store.Get(ctx, accountID)
+		return checkinOutcome{
+			account:        updated,
+			result:         providers.CheckinResult{Status: "already", Message: account.LastCheckinMsg},
+			quotaRefreshed: refreshed,
+		}, getErr
 	}
 	result, checkErr := adapter.Checkin.Checkin(ctx, accountID)
 	if checkErr == nil && !result.Valid() {
@@ -153,29 +196,36 @@ func (manager *Manager) checkinAccount(ctx context.Context, accountID string, al
 	recordErr := manager.store.RecordCheckin(recordCtx, accountID, result.Status, result.Message, time.Now().UTC())
 	stopRecording()
 	if recordErr != nil {
-		return account, errors.Join(checkErr, fmt.Errorf("save check-in result: %w", recordErr))
+		return checkinOutcome{account: account, result: result}, errors.Join(checkErr, fmt.Errorf("save check-in result: %w", recordErr))
 	}
+	manager.events.Publish(events.TypeCheckin, accountID, "", events.CheckinState{
+		AccountID:     accountID,
+		Status:        result.Status,
+		Message:       result.Message,
+		RewardCredits: result.RewardCredits,
+		At:            time.Now().UTC().Format(time.RFC3339),
+	})
 	if account.Provider == "workbuddy" && (result.Status == "success" || result.Status == "already") {
 		if err := manager.clearCheckinCooldown(ctx, accountID); err != nil {
-			return account, errors.Join(checkErr, fmt.Errorf("clear cooldown after check-in: %w", err))
+			return checkinOutcome{account: account, result: result}, errors.Join(checkErr, fmt.Errorf("clear cooldown after check-in: %w", err))
 		}
 	}
+	quotaRefreshed := false
 	if result.Status != "skipped" {
-		manager.refreshCheckinQuota(ctx, accountID, adapter)
+		quotaRefreshed = manager.refreshCheckinQuota(ctx, accountID, adapter)
 	}
 	readCtx, stopReading := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer stopReading()
 	updated, err := manager.store.Get(readCtx, accountID)
-	return updated, errors.Join(checkErr, err)
+	return checkinOutcome{account: updated, result: result, quotaRefreshed: quotaRefreshed}, errors.Join(checkErr, err)
 }
 
 const (
 	// checkinStatusInterval is how often the console refreshes the true
 	// upstream check-in state. Verification is read-only and bounded; it never
 	// claims a reward.
-	checkinStatusInterval    = 15 * time.Minute
-	checkinStatusTimeout     = 75 * time.Second
-	checkinStatusConcurrency = 4
+	checkinStatusInterval = 15 * time.Minute
+	checkinStatusTimeout  = 75 * time.Second
 	// A real check-in can take a few seconds to become visible upstream. Do not
 	// downgrade a local success inside this grace window.
 	checkinStatusGrace = 15 * time.Minute
@@ -217,18 +267,13 @@ func (manager *Manager) SyncCheckinStatuses(ctx context.Context) {
 		candidates = append(candidates, account)
 	}
 	var wg sync.WaitGroup
-	sem := make(chan struct{}, checkinStatusConcurrency)
 	for _, account := range candidates {
-		select {
-		case sem <- struct{}{}:
-		case <-ctx.Done():
-			wg.Wait()
-			return
+		if ctx.Err() != nil {
+			break
 		}
 		wg.Add(1)
 		go func(account Account) {
 			defer wg.Done()
-			defer func() { <-sem }()
 			manager.syncCheckinStatus(ctx, account)
 		}(account)
 	}
@@ -338,7 +383,14 @@ func (manager *Manager) syncCheckinStatus(ctx context.Context, account Account) 
 	defer cancelPersist()
 	if err := manager.store.RecordCheckinStatus(persistCtx, account.ID, update); err != nil {
 		log.Printf("checkin status account=%s: %v", account.ID, err)
+		return
 	}
+	manager.events.Publish(events.TypeCheckin, account.ID, "", events.CheckinState{
+		AccountID: account.ID,
+		Status:    update.Status,
+		Message:   update.Message,
+		At:        now.UTC().Format(time.RFC3339),
+	})
 }
 
 func (manager *Manager) clearCheckinCooldown(ctx context.Context, accountID string) error {
@@ -358,13 +410,15 @@ func (manager *Manager) clearCheckinCooldown(ctx context.Context, accountID stri
 	return manager.poolState.SaveCooldowns(persistCtx, accountID, nil)
 }
 
-func (manager *Manager) refreshCheckinQuota(ctx context.Context, accountID string, adapter providers.Adapter) {
+// refreshCheckinQuota refreshes the real upstream balance after a check-in and
+// reports whether a fresh snapshot was persisted.
+func (manager *Manager) refreshCheckinQuota(ctx context.Context, accountID string, adapter providers.Adapter) bool {
 	if ctx.Err() != nil {
-		return
+		return false
 	}
 	account, err := manager.store.Get(ctx, accountID)
 	if err != nil {
-		return
+		return false
 	}
 	// Qoder check-in lands its reward in the OpenAPI add-on bucket. Refresh the
 	// real upstream OpenAPI quota in-process explicitly (the same force path the
@@ -373,31 +427,33 @@ func (manager *Manager) refreshCheckinQuota(ctx context.Context, accountID strin
 	if account.Provider == "qoder" {
 		if registered, ok := manager.providers.Get(account.Provider); ok {
 			if q, ok := registered.Chat.(*qoder.Client); ok {
-				manager.refreshQoderQuota(ctx, accountID, q)
-				return
+				return manager.refreshQoderQuota(ctx, accountID, q)
 			}
 		}
 	}
 	if adapter.Prober != nil {
-		manager.fetchProviderQuota(ctx, accountID, adapter.Prober)
-	} else if workerURL, found := manager.AccountURL(accountID); found {
-		manager.fetchQuota(ctx, accountID, workerURL, true)
+		return manager.fetchProviderQuotaErr(ctx, accountID, adapter.Prober) == nil
 	}
+	if workerURL, found := manager.AccountURL(accountID); found {
+		return manager.fetchQuota(ctx, accountID, workerURL, true) == nil
+	}
+	return false
 }
 
 // refreshQoderQuota pulls the real upstream OpenAPI quota (which includes the
 // daily check-in add-on grant) and persists it. It never synthesizes a number.
-func (manager *Manager) refreshQoderQuota(ctx context.Context, accountID string, client *qoder.Client) {
+func (manager *Manager) refreshQoderQuota(ctx context.Context, accountID string, client *qoder.Client) bool {
 	// quotaSnapshot already refreshes upstream itself; do not take the shared
 	// quota-fetch gate here, or a concurrent fetchProviderQuotaErr (manual
 	// refresh) would deadlock until this returns.
 	snapshot, err := client.QuotaSnapshot(ctx, accountID, true)
 	if err != nil || snapshot == nil {
-		return
+		return false
 	}
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 	manager.persistQuota(persistCtx, accountID, snapshot)
+	return true
 }
 
 func CheckedInLocalDay(at, status string, now time.Time) bool {
@@ -416,43 +472,14 @@ func recordedToday(at string, now time.Time) bool {
 	return local.Year() == now.Year() && local.YearDay() == now.YearDay()
 }
 
-// Cross-account burst limits for scheduled check-in / WorkBuddy keepalive.
-// One 30s maintenance tick processes at most maintenancePerTickCap due
-// accounts, with maintenanceAccountGap (+ FNV jitter) between them, so a
-// large AutoCheckin fleet is spread across successive ticks instead of
-// hammering upstream in one burst.
-const (
-	keepaliveTickTimeout   = 90 * time.Second
-	maintenanceGapJitterMS = 1000
-	// manualCheckinConcurrency caps a user-triggered one-click check-in. It is
-	// independent of the scheduled loop's per-tick cap and gap.
-	manualCheckinConcurrency = 4
-)
-
-// Defaults are conservative; tests may override the vars to skip real sleeps.
-var (
-	maintenancePerTickCap = 2
-	maintenanceAccountGap = 2 * time.Second
-)
-
-// maintenanceAccountGapFor returns base delay plus a stable 0..(jitter-1)ms
-// offset derived from accountID (same FNV style as checkinSlot).
-func maintenanceAccountGapFor(accountID string, base time.Duration) time.Duration {
-	hash := fnv.New32a()
-	_, _ = hash.Write([]byte(accountID))
-	return base + time.Duration(hash.Sum32()%uint32(maintenanceGapJitterMS))*time.Millisecond
-}
-
-func sleepMaintenanceGap(ctx context.Context, accountID string, base time.Duration) bool {
-	timer := time.NewTimer(maintenanceAccountGapFor(accountID, base))
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return false
-	case <-timer.C:
-		return true
-	}
-}
+// Scheduled check-in / WorkBuddy keepalive fan out every due account in one
+// tick concurrently. There is no per-tick cap and no inter-account gap: the
+// per-account checkinSlot second-level hash jitter (0..59s inside the
+// configured minute) is the schedule itself and naturally spreads starts,
+// while per-account single-flight gates deduplicate overlapping attempts.
+// Real upstream rate limits surface as genuine 429 classifications and the
+// executor cooldown/failover handles them — never hidden by client queuing.
+const keepaliveTickTimeout = 90 * time.Second
 
 func checkinSlot(value, accountID string, now time.Time) (time.Time, error) {
 	parsed, err := time.Parse("15:04", value)
@@ -503,10 +530,10 @@ func (manager *Manager) runScheduledCheckins(ctx context.Context, now time.Time)
 		return
 	}
 	allowDisabled := manager.allowDisabledCheckin(ctx)
-	processed := 0
+	var wg sync.WaitGroup
 	for _, account := range items {
 		if ctx.Err() != nil {
-			return
+			break
 		}
 		policy, supported := providers.CheckinFor(account.Provider, account.ProviderRegion)
 		adapter, registered := manager.providers.Get(account.Provider)
@@ -526,18 +553,15 @@ func (manager *Manager) runScheduledCheckins(ctx context.Context, now time.Time)
 		if !checkinDueFor(account, configuredTime, now.In(location), allowDisabled) {
 			continue
 		}
-		if processed >= maintenancePerTickCap {
-			// Remaining due accounts stay due; the next 30s tick picks them up.
-			return
-		}
-		if processed > 0 && !sleepMaintenanceGap(ctx, account.ID, maintenanceAccountGap) {
-			return
-		}
-		if _, err := manager.checkinAccount(ctx, account.ID, allowDisabled, false); err != nil {
-			log.Printf("checkin account=%s: %v", account.ID, err)
-		}
-		processed++
+		wg.Add(1)
+		go func(account accounts.Account) {
+			defer wg.Done()
+			if _, err := manager.checkinAccount(ctx, account.ID, allowDisabled, false); err != nil {
+				log.Printf("checkin account=%s: %v", account.ID, err)
+			}
+		}(account)
 	}
+	wg.Wait()
 }
 
 func (manager *Manager) CheckinOptedIn(ctx context.Context) {
@@ -551,6 +575,7 @@ func (manager *Manager) checkinOptedIn(ctx context.Context, now time.Time, sched
 		return
 	}
 	allowDisabled := manager.allowDisabledCheckin(ctx)
+	var wg sync.WaitGroup
 	for _, account := range items {
 		if (!account.Enabled && !allowDisabled) || !account.AutoCheckin {
 			continue
@@ -568,10 +593,15 @@ func (manager *Manager) checkinOptedIn(ctx context.Context, now time.Time, sched
 				continue
 			}
 		}
-		if _, err := manager.checkinAccount(ctx, account.ID, allowDisabled, false); err != nil {
-			log.Printf("checkin account=%s: %v", account.ID, err)
-		}
+		wg.Add(1)
+		go func(account accounts.Account) {
+			defer wg.Done()
+			if _, err := manager.checkinAccount(ctx, account.ID, allowDisabled, false); err != nil {
+				log.Printf("checkin account=%s: %v", account.ID, err)
+			}
+		}(account)
 	}
+	wg.Wait()
 }
 
 func (manager *Manager) allowDisabledCheckin(ctx context.Context) bool {
@@ -587,11 +617,11 @@ func (manager *Manager) allowDisabledCheckin(ctx context.Context) bool {
 	}
 }
 
-// KeepaliveWorkBuddy refreshes WorkBuddy sessions. At most
-// maintenancePerTickCap accounts are processed per call, with
-// maintenanceAccountGap between them. done tracks account IDs already
-// refreshed for the current local day; pass the same map across successive
-// maintenance ticks. Returns true when more eligible accounts remain.
+// KeepaliveWorkBuddy refreshes WorkBuddy sessions. Every eligible account is
+// refreshed concurrently in one call (full fan-out, no cap or gap). done
+// tracks account IDs already refreshed for the current local day; pass the
+// same map across successive maintenance ticks. Returns true only when the
+// context ended before every pending account could start.
 func (manager *Manager) KeepaliveWorkBuddy(ctx context.Context, onlyOptIn bool, done map[string]struct{}) (more bool) {
 	if manager == nil || manager.workbuddy == nil {
 		return false
@@ -617,24 +647,24 @@ func (manager *Manager) KeepaliveWorkBuddy(ctx context.Context, onlyOptIn bool, 
 	if len(pending) == 0 {
 		return false
 	}
-	batch := pending
-	if len(batch) > maintenancePerTickCap {
-		batch = batch[:maintenancePerTickCap]
-		more = true
-	}
-	for i, accountID := range batch {
+	var wg sync.WaitGroup
+	for _, accountID := range pending {
 		if ctx.Err() != nil {
 			return true
 		}
-		if i > 0 && !sleepMaintenanceGap(ctx, accountID, maintenanceAccountGap) {
-			return true
-		}
-		if err := manager.workbuddy.Keepalive(ctx, accountID); err != nil {
-			log.Printf("workbuddy keepalive account=%s: %v", accountID, err)
-		}
-		done[accountID] = struct{}{}
+		wg.Add(1)
+		go func(accountID string) {
+			defer wg.Done()
+			if err := manager.workbuddy.Keepalive(ctx, accountID); err != nil {
+				log.Printf("workbuddy keepalive account=%s: %v", accountID, err)
+			}
+			manager.mu.Lock()
+			done[accountID] = struct{}{}
+			manager.mu.Unlock()
+		}(accountID)
 	}
-	return more
+	wg.Wait()
+	return ctx.Err() != nil
 }
 
 func (manager *Manager) RunMaintenanceLoop(stop <-chan struct{}) {
@@ -655,6 +685,7 @@ func (manager *Manager) RunMaintenanceLoop(stop <-chan struct{}) {
 	// Seed the throttle so the first pass does not duplicate the boot-time
 	// RefreshAll: the next stale-quota sweep runs 5 minutes after startup.
 	lastStaleQuota := time.Now()
+	lastQuotaFresh := time.Now()
 	lastCheckinStatusSync := time.Time{}
 	// Liveness probes start one tick in so boot-time RefreshAll owns the first
 	// /health round-trip and short-lived tests with a stub worker are not probed
@@ -694,6 +725,10 @@ func (manager *Manager) RunMaintenanceLoop(stop <-chan struct{}) {
 			manager.refreshStaleQuota(ctx)
 			lastStaleQuota = now
 		}
+		if freshInterval := manager.quotaFreshInterval(ctx); freshInterval > 0 && now.Sub(lastQuotaFresh) >= freshInterval {
+			lastQuotaFresh = now
+			go manager.refreshQuotaFresh(ctx)
+		}
 		select {
 		case <-ctx.Done():
 			return
@@ -706,6 +741,68 @@ func (manager *Manager) RunMaintenanceLoop(stop <-chan struct{}) {
 // accounts. It is only the sweep cadence: the per-account backoff below
 // decides whether a given account is actually re-fetched on that sweep.
 const staleQuotaInterval = 5 * time.Minute
+
+// quotaFreshInterval reads the configurable background quota-freshness sweep
+// cadence. Zero disables the sweep; unset uses the default.
+func (manager *Manager) quotaFreshInterval(ctx context.Context) time.Duration {
+	value, ok, err := manager.store.GetSecret(ctx, accounts.QuotaFreshIntervalSecret)
+	if err != nil || !ok || strings.TrimSpace(value) == "" {
+		return accounts.DefaultQuotaFreshIntervalSeconds * time.Second
+	}
+	seconds, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil {
+		return accounts.DefaultQuotaFreshIntervalSeconds * time.Second
+	}
+	normalized, err := accounts.NormalizeQuotaFreshIntervalSeconds(seconds)
+	if err != nil {
+		return accounts.DefaultQuotaFreshIntervalSeconds * time.Second
+	}
+	return time.Duration(normalized) * time.Second
+}
+
+// refreshQuotaFresh re-fetches the real upstream balance of every healthy
+// routable account concurrently so console credit readings stay current
+// without a manual refresh. Exhausted accounts are left to refreshStaleQuota's
+// backoff ladder; the per-account quota-fetch gate deduplicates overlapping
+// fetches. Only one sweep runs at a time.
+func (manager *Manager) refreshQuotaFresh(ctx context.Context) {
+	if manager == nil || manager.pool == nil {
+		return
+	}
+	manager.mu.Lock()
+	if manager.quotaFreshRunning {
+		manager.mu.Unlock()
+		return
+	}
+	manager.quotaFreshRunning = true
+	manager.mu.Unlock()
+	defer func() {
+		manager.mu.Lock()
+		manager.quotaFreshRunning = false
+		manager.mu.Unlock()
+	}()
+	now := time.Now()
+	var wg sync.WaitGroup
+	for _, item := range manager.pool.Items() {
+		if ctx.Err() != nil {
+			break
+		}
+		if item.RuntimeState == "dead" {
+			continue
+		}
+		if manager.quotaNeedsRevalidationFor(item, now) {
+			continue
+		}
+		wg.Add(1)
+		go func(item Item) {
+			defer wg.Done()
+			refreshCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+			defer cancel()
+			manager.refreshQuotaOnly(refreshCtx, item)
+		}(item)
+	}
+	wg.Wait()
+}
 
 // quotaProbeBackoff is the per-account wait between consecutive quota probes
 // while an account keeps reporting Exceeded, indexed by the number of

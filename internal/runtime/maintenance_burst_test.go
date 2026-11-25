@@ -12,34 +12,6 @@ import (
 	sqlstore "github.com/caigee-cmd/cli2api/internal/store"
 )
 
-func TestMaintenanceAccountGapForStableJitter(t *testing.T) {
-	base := 2 * time.Second
-	a := maintenanceAccountGapFor("acct-a", base)
-	b := maintenanceAccountGapFor("acct-a", base)
-	c := maintenanceAccountGapFor("acct-b", base)
-	if a != b {
-		t.Fatalf("gap not stable for same id: %v vs %v", a, b)
-	}
-	if a < base || a >= base+time.Duration(maintenanceGapJitterMS)*time.Millisecond {
-		t.Fatalf("gap out of range: %v", a)
-	}
-	if c < base || c >= base+time.Duration(maintenanceGapJitterMS)*time.Millisecond {
-		t.Fatalf("gap out of range for other id: %v", c)
-	}
-}
-
-func TestSleepMaintenanceGapHonorsCancel(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	start := time.Now()
-	if sleepMaintenanceGap(ctx, "acct", time.Hour) {
-		t.Fatal("canceled ctx should not sleep successfully")
-	}
-	if time.Since(start) > 200*time.Millisecond {
-		t.Fatal("canceled gap slept too long")
-	}
-}
-
 type recordingKeepalive struct {
 	mu    sync.Mutex
 	calls []string
@@ -64,18 +36,25 @@ func (r *recordingKeepalive) snapshot() []string {
 	return out
 }
 
-func TestRunScheduledCheckinsCapsPerTick(t *testing.T) {
-	prevCap, prevGap := maintenancePerTickCap, maintenanceAccountGap
-	maintenancePerTickCap = 2
-	maintenanceAccountGap = 0
-	t.Cleanup(func() {
-		maintenancePerTickCap = prevCap
-		maintenanceAccountGap = prevGap
-	})
-
+// One maintenance tick must fan out every due account concurrently instead of
+// queuing them across ticks: all 6 opted-in accounts check in on the first
+// tick, and a repeat tick does not re-run already-checked accounts.
+func TestRunScheduledCheckinsFansOutAllDueAccounts(t *testing.T) {
 	var mu sync.Mutex
 	var calls []string
+	var active, maxActive int32
+	var activeMu sync.Mutex
 	manager, _ := newCheckinManager(t, checkinFunc(func(_ context.Context, accountID string) (providers.CheckinResult, error) {
+		activeMu.Lock()
+		active++
+		if active > maxActive {
+			maxActive = active
+		}
+		activeMu.Unlock()
+		time.Sleep(30 * time.Millisecond)
+		activeMu.Lock()
+		active--
+		activeMu.Unlock()
 		mu.Lock()
 		calls = append(calls, accountID)
 		mu.Unlock()
@@ -97,30 +76,22 @@ func TestRunScheduledCheckinsCapsPerTick(t *testing.T) {
 	now := time.Now().In(location)
 	dueAt := time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 0, 0, location)
 
+	start := time.Now()
 	manager.runScheduledCheckins(context.Background(), dueAt)
+	elapsed := time.Since(start)
 	mu.Lock()
 	first := append([]string(nil), calls...)
 	mu.Unlock()
-	if len(first) != 2 {
-		t.Fatalf("first tick calls=%d want 2 ids=%v", len(first), first)
+	if len(first) != 6 {
+		t.Fatalf("first tick calls=%d want 6 ids=%v", len(first), first)
+	}
+	if maxActive < 6 {
+		t.Fatalf("scheduled check-ins were not fully concurrent: maxActive=%d want 6", maxActive)
+	}
+	if elapsed > time.Second {
+		t.Fatalf("full fan-out took %v; accounts were queued", elapsed)
 	}
 
-	manager.runScheduledCheckins(context.Background(), dueAt)
-	mu.Lock()
-	second := append([]string(nil), calls...)
-	mu.Unlock()
-	if len(second) != 4 {
-		t.Fatalf("second tick cumulative calls=%d want 4 ids=%v", len(second), second)
-	}
-
-	manager.runScheduledCheckins(context.Background(), dueAt)
-	manager.runScheduledCheckins(context.Background(), dueAt)
-	mu.Lock()
-	total := len(calls)
-	mu.Unlock()
-	if total != 6 {
-		t.Fatalf("after draining calls=%d want 6", total)
-	}
 	manager.runScheduledCheckins(context.Background(), dueAt)
 	mu.Lock()
 	after := len(calls)
@@ -130,15 +101,9 @@ func TestRunScheduledCheckinsCapsPerTick(t *testing.T) {
 	}
 }
 
-func TestKeepaliveWorkBuddyCapsPerTickAndResumes(t *testing.T) {
-	prevCap, prevGap := maintenancePerTickCap, maintenanceAccountGap
-	maintenancePerTickCap = 2
-	maintenanceAccountGap = 0
-	t.Cleanup(func() {
-		maintenancePerTickCap = prevCap
-		maintenanceAccountGap = prevGap
-	})
-
+// Keepalive must refresh every eligible account in one concurrent call and
+// report no remaining work; the done map still deduplicates across ticks.
+func TestKeepaliveWorkBuddyFansOutAndDeduplicates(t *testing.T) {
 	store, err := sqlstore.OpenStore(filepath.Join(t.TempDir(), "keepalive.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -160,30 +125,14 @@ func TestKeepaliveWorkBuddyCapsPerTickAndResumes(t *testing.T) {
 
 	done := map[string]struct{}{}
 	more := manager.KeepaliveWorkBuddy(context.Background(), true, done)
-	if !more {
-		t.Fatal("expected more accounts after first capped tick")
-	}
-	if got := rec.snapshot(); len(got) != 2 {
-		t.Fatalf("first tick keepalive calls=%d want 2 ids=%v", len(got), got)
-	}
-	if len(done) != 2 {
-		t.Fatalf("done map size=%d want 2", len(done))
-	}
-
-	more = manager.KeepaliveWorkBuddy(context.Background(), true, done)
-	if !more {
-		t.Fatal("expected more after second tick")
-	}
-	if got := rec.snapshot(); len(got) != 4 {
-		t.Fatalf("second tick cumulative=%d want 4", len(got))
-	}
-
-	more = manager.KeepaliveWorkBuddy(context.Background(), true, done)
 	if more {
-		t.Fatal("expected no more after final tick")
+		t.Fatal("full fan-out must finish every pending account in one call")
 	}
 	if got := rec.snapshot(); len(got) != 5 {
-		t.Fatalf("final cumulative=%d want 5", len(got))
+		t.Fatalf("keepalive calls=%d want 5 ids=%v", len(got), got)
+	}
+	if len(done) != 5 {
+		t.Fatalf("done map size=%d want 5", len(done))
 	}
 
 	more = manager.KeepaliveWorkBuddy(context.Background(), true, done)

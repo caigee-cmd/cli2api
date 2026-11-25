@@ -100,6 +100,38 @@ func (h *Handler) HandleCheckinAll(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"object": "list", "data": results})
 }
 
+// HandleRefreshAll refreshes every account concurrently (full fan-out) and
+// returns each account's real outcome, including the verbatim upstream error
+// and the fresh quota snapshot. Disabled accounts are included only when the
+// caller asks for them or the system setting enables it.
+func (h *Handler) HandleRefreshAll(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "POST only")
+		return
+	}
+	var input struct {
+		Quota           *bool `json:"quota"`
+		IncludeDisabled *bool `json:"include_disabled"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxConsoleBodyBytes)).Decode(&input); err != nil && err != io.EOF {
+		writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	forceQuota := true
+	if input.Quota != nil {
+		forceQuota = *input.Quota
+	}
+	includeDisabled := false
+	if input.IncludeDisabled != nil {
+		includeDisabled = *input.IncludeDisabled
+	}
+	results := h.Control.Accounts.RefreshAllResults(r.Context(), forceQuota, includeDisabled)
+	if results == nil {
+		results = []accounts.AccountRefreshResult{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"object": "list", "data": results})
+}
+
 func (h *Handler) HandleAccountImport(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "POST only")

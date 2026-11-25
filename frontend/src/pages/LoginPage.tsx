@@ -3,7 +3,6 @@ import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { Button, Card, InputGroup, Label, TextField, Toolbar, Tooltip } from '@heroui/react'
 import { ArrowRight, Eye, EyeSlash, Globe, Moon, Sun } from '@phosphor-icons/react'
 import { BrandMark } from '@/components/BrandMark'
-import { InflightLiveCard } from '@/components/overview/InflightLiveCard'
 import { PageAlert } from '@/components/ui/PageAlert'
 import { useI18n } from '@/hooks/useI18n'
 import { useApiKey } from '@/hooks/useApiKey'
@@ -82,11 +81,7 @@ export function LoginPage() {
             </Toolbar>
           </header>
 
-          <div className="my-auto w-full py-8 lg:py-10">
-            <InflightLiveCard t={t} defaultExpanded forceMockDemo bare live={null} mockPace={0.45} />
-          </div>
-
-          <footer className="hidden items-center justify-between text-caption text-muted lg:flex">
+          <footer className="mt-auto hidden items-center justify-between text-caption text-muted lg:flex">
             <span>{t('loginHint')}</span>
             <span>{t('routesHint')}</span>
           </footer>

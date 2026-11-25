@@ -783,8 +783,39 @@ func ValidateChatRequest(request *ChatRequest) error {
 	if len(request.MaxTokens) > 0 && len(request.MaxCompletionTokens) > 0 {
 		return fmt.Errorf("max_tokens and max_completion_tokens are mutually exclusive")
 	}
+	if err := rejectUnsupportedMedia(request); err != nil {
+		return err
+	}
 	request.ToolChoice = sanitizeToolChoice(request.Tools, request.ToolChoice)
 	return validateToolChoice(request.Tools, request.ToolChoice)
+}
+
+// rejectUnsupportedMedia refuses media parts that no configured provider path
+// can carry. The provider adapters build their prompts from text and image
+// parts only, so letting a video / audio / file part through would silently
+// discard the caller's content. Answer with a real 400 instead of dropping it.
+// Video stays refused until an upstream video channel is verified end to end.
+func rejectUnsupportedMedia(request *ChatRequest) error {
+	for index, message := range request.Messages {
+		parts, ok := message.Content.([]any)
+		if !ok {
+			continue
+		}
+		for partIndex, raw := range parts {
+			part, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			switch strings.ToLower(strings.TrimSpace(anyString(part["type"]))) {
+			case "video_url", "input_video", "video", "input_audio", "audio_url", "audio", "input_file", "file":
+				return fmt.Errorf(
+					"messages[%d].content[%d] type %q is not supported: no provider path carries video, audio or file parts; send image_url parts or describe the media in text",
+					index, partIndex, anyString(part["type"]),
+				)
+			}
+		}
+	}
+	return nil
 }
 
 // sanitizeToolChoice drops orphan tool_choice values when tools are empty, and

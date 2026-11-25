@@ -21,6 +21,7 @@ export const LIVE_POLL_EXPANDED_MS = 800
 export function useLive(opts?: { intervalMs?: number }) {
   const intervalMs = opts?.intervalMs ?? LIVE_POLL_MS
   const [live, setLive] = useState<LiveSnapshot | null>(null)
+  const [error, setError] = useState<string | null>(null)
   const [samples, setSamples] = useState<LiveSample[]>([])
 
   useEffect(() => {
@@ -32,11 +33,17 @@ export function useLive(opts?: { intervalMs?: number }) {
         .then((data) => {
           if (cancelled) return
           setLive(data)
+          setError(null)
           // Keep ~60s of sparkline history even when expanded poll is faster.
           const keep = Math.max(LIVE_SAMPLES, Math.round(60_000 / intervalMs))
           setSamples((prev) => [...prev, { at: Date.now(), value: data.in_flight }].slice(-keep))
         })
-        .catch(() => { /* keep last good snapshot */ })
+        .catch((err: unknown) => {
+          // Keep the last good snapshot, but surface the real failure instead of
+          // pretending the pool is idle.
+          if (cancelled) return
+          setError(err instanceof Error ? err.message : String(err))
+        })
     }
     const start = () => {
       if (timer || document.hidden) return
@@ -57,5 +64,5 @@ export function useLive(opts?: { intervalMs?: number }) {
     }
   }, [intervalMs])
 
-  return { live, samples }
+  return { live, samples, error }
 }

@@ -82,6 +82,33 @@ type CheckinAllResult struct {
 	Region    string `json:"region"`
 	Status    string `json:"status"`
 	Message   string `json:"message,omitempty"`
+	// RewardCredits is the real upstream grant amount reported by the provider
+	// claim response. Zero/omitted means the provider did not report an amount.
+	RewardCredits float64 `json:"reward_credits,omitempty"`
+	// Code and Kind carry the real upstream error classification when the
+	// check-in failed; they are never synthesized.
+	Code       string `json:"code,omitempty"`
+	Kind       string `json:"kind,omitempty"`
+	HTTPStatus int    `json:"http_status,omitempty"`
+	// QuotaRefreshed reports whether the post-check-in upstream quota fetch
+	// completed and persisted a real snapshot.
+	QuotaRefreshed bool `json:"quota_refreshed,omitempty"`
+}
+
+// AccountRefreshResult is the per-account outcome of a bulk refresh pass.
+// Every field reflects the real probe/quota outcome; Message carries the
+// upstream or probe error verbatim when OK is false.
+type AccountRefreshResult struct {
+	AccountID  string         `json:"account_id"`
+	Provider   string         `json:"provider"`
+	Region     string         `json:"region"`
+	OK         bool           `json:"ok"`
+	Status     string         `json:"status,omitempty"`
+	Code       string         `json:"code,omitempty"`
+	Kind       string         `json:"kind,omitempty"`
+	Message    string         `json:"message,omitempty"`
+	HTTPStatus int            `json:"http_status,omitempty"`
+	Quota      *QuotaSnapshot `json:"quota,omitempty"`
 }
 
 // CheckinStatusUpdate persists an upstream status read. CheckinAt is only set
@@ -182,6 +209,10 @@ type AccountView struct {
 	ModelCooldowns      map[string]string `json:"model_cooldowns,omitempty"`
 	Quota               *QuotaSnapshot    `json:"quota,omitempty"`
 	ProxyURL            string            `json:"proxy_url,omitempty"`
+	// ForceReadyOverride marks the local/dev force-ready marker active for
+	// this account: routing ignores the hard-zero balance, but Quota above
+	// still shows the real upstream snapshot.
+	ForceReadyOverride bool `json:"force_ready_override,omitempty"`
 }
 
 type ProviderModelSetting struct {

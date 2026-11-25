@@ -155,6 +155,14 @@ func (d *Direct) prepare(ctx context.Context, accountID string, req translate.Ch
 			return directPrepared{}, err
 		}
 	}
+	// The Qoder prompt builder mirrors content into text/image parts only, so a
+	// video / audio / file part would be dropped silently. Refuse it with a real
+	// 400 (same rule the gateway applies) instead of losing the caller's content.
+	if err := translate.ValidateChatRequest(&req); err != nil {
+		return directPrepared{}, &providers.Error{
+			Kind: "invalid_request", Status: 400, Code: "invalid_request", Type: "invalid_request_error", Message: err.Error(),
+		}
+	}
 	plain := BuildPlainChatBody(req, d.now())
 	// The gateway discounts a repeated prefix only inside one session. A fresh
 	// session_id on every call splits one chat into one-shot sessions, so pin it

@@ -57,7 +57,7 @@ func TestCheckinCapabilityRecordsAndDeduplicates(t *testing.T) {
 	}
 }
 
-func TestCheckinAllRunsWithBoundedConcurrency(t *testing.T) {
+func TestCheckinAllRunsFullFanOut(t *testing.T) {
 	var active atomic.Int32
 	var maxActive atomic.Int32
 	manager, _ := newCheckinManager(t, checkinFunc(func(context.Context, string) (providers.CheckinResult, error) {
@@ -70,7 +70,7 @@ func TestCheckinAllRunsWithBoundedConcurrency(t *testing.T) {
 			}
 		}
 		time.Sleep(40 * time.Millisecond)
-		return providers.CheckinResult{Status: "success", Message: "claimed"}, nil
+		return providers.CheckinResult{Status: "success", Message: "claimed", RewardCredits: 150}, nil
 	}))
 	enabled := true
 	for i := 0; i < 8; i++ {
@@ -80,7 +80,9 @@ func TestCheckinAllRunsWithBoundedConcurrency(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	start := time.Now()
 	results, err := manager.CheckinAll(context.Background(), false, false)
+	elapsed := time.Since(start)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,9 +93,17 @@ func TestCheckinAllRunsWithBoundedConcurrency(t *testing.T) {
 		if result.Status != "success" {
 			t.Fatalf("result=%+v", result)
 		}
+		if result.RewardCredits != 150 {
+			t.Fatalf("real reward not carried: %+v", result)
+		}
 	}
-	if got := maxActive.Load(); got < 2 || got > manualCheckinConcurrency {
-		t.Fatalf("max concurrency=%d want 2..%d", got, manualCheckinConcurrency)
+	// Full fan-out: every account starts at once, so all 9 overlap and the
+	// wall clock stays near a single attempt instead of 9 sequential ones.
+	if got := maxActive.Load(); got != 9 {
+		t.Fatalf("max concurrency=%d want 9 (full fan-out)", got)
+	}
+	if elapsed > time.Second {
+		t.Fatalf("one-click check-in took %v; accounts were queued", elapsed)
 	}
 }
 

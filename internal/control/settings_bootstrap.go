@@ -14,6 +14,7 @@ const (
 	routingStrategySecret         = "routing_strategy"
 	proxyURLSecret                = "proxy_url"
 	checkinDisabledAccountsSecret = accounts.CheckinDisabledAccountsSecret
+	quotaFreshIntervalSecret      = accounts.QuotaFreshIntervalSecret
 )
 
 func EnsureProxyURL(ctx context.Context, store SecretStore, bootstrap string) (string, error) {

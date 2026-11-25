@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
+	"github.com/caigee-cmd/cli2api/internal/events"
 	"github.com/caigee-cmd/cli2api/internal/providers"
 	"github.com/caigee-cmd/cli2api/internal/store"
 )
@@ -35,6 +36,15 @@ func (r *providerTestRuntime) Accounts(context.Context) ([]accounts.AccountView,
 }
 func (r *providerTestRuntime) RefreshAccount(context.Context, string, bool) error { return nil }
 func (r *providerTestRuntime) RefreshAll(context.Context, bool) error             { return nil }
+func (r *providerTestRuntime) RefreshAllResults(context.Context, bool, bool) []accounts.AccountRefreshResult {
+	return nil
+}
+func (r *providerTestRuntime) RefreshAllAsync(context.Context, bool, bool) {}
+func (r *providerTestRuntime) SubscribeEvents(uint64) (<-chan events.Event, func()) {
+	ch := make(chan events.Event)
+	close(ch)
+	return ch, func() {}
+}
 func (r *providerTestRuntime) CheckinAccount(context.Context, string) (accounts.Account, error) {
 	return accounts.Account{}, nil
 }

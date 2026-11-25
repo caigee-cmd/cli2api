@@ -1,5 +1,7 @@
 package accounts
 
+import "fmt"
+
 // QuotaWindow is one provider-native usage period, such as Devin daily
 // and weekly included quota. The top-level QuotaSnapshot fields stay the
 // tighter of these windows for routing.
@@ -65,4 +67,29 @@ type QuotaSnapshot struct {
 	FetchedAt                string         `json:"fetched_at"`
 	// Plan is the upstream subscription tier. Empty means not reported.
 	Plan string `json:"plan,omitempty"`
+}
+
+// QuotaFreshIntervalSecret stores the background quota-freshness sweep cadence
+// (seconds) so console credit readings stay real-time without a manual refresh.
+const QuotaFreshIntervalSecret = "quota_fresh_interval_seconds"
+
+const (
+	// DefaultQuotaFreshIntervalSeconds is the sweep cadence when unset.
+	DefaultQuotaFreshIntervalSeconds = 60
+	// MinQuotaFreshIntervalSeconds bounds how aggressive the sweep may get.
+	MinQuotaFreshIntervalSeconds = 10
+	// MaxQuotaFreshIntervalSeconds bounds how stale readings may become.
+	MaxQuotaFreshIntervalSeconds = 3600
+)
+
+// NormalizeQuotaFreshIntervalSeconds validates a sweep cadence. Zero disables
+// the periodic sweep (manual refresh and post-chat refresh still apply).
+func NormalizeQuotaFreshIntervalSeconds(value int) (int, error) {
+	if value == 0 {
+		return 0, nil
+	}
+	if value < MinQuotaFreshIntervalSeconds || value > MaxQuotaFreshIntervalSeconds {
+		return 0, fmt.Errorf("quota_fresh_interval_seconds must be 0 (disabled) or %d..%d", MinQuotaFreshIntervalSeconds, MaxQuotaFreshIntervalSeconds)
+	}
+	return value, nil
 }

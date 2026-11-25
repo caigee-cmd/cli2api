@@ -150,6 +150,11 @@ func (c *Client) httpClient(ctx context.Context, accountID string) (*http.Client
 	return &client, nil
 }
 
+// traeStreamHeadTimeoutEnv overrides the streaming head deadline (milliseconds).
+// TRAE CN Work occasionally accepts a chat request and then sends nothing for
+// minutes; without this the relay waits until the client gives up.
+const traeStreamHeadTimeoutEnv = "TRAE_STREAM_TTFB_MS"
+
 func (c *Client) do(ctx context.Context, accountID, method, rawURL string, body []byte, setHeaders func(http.Header)) ([]byte, int, error) {
 	var reader io.Reader
 	if body != nil {
@@ -1155,7 +1160,7 @@ func (c *Client) ChatNonStream(ctx context.Context, accountID string, req transl
 		return providers.ChatOutcome{}, err
 	}
 	client.Timeout = 0
-	resp, err := client.Do(httpReq)
+	resp, err := providers.DoWithHeadTimeout(client, httpReq, providers.HeadTimeoutFromEnv(traeStreamHeadTimeoutEnv, providers.DefaultStreamHeadTimeout))
 	if err != nil {
 		return providers.ChatOutcome{}, err
 	}
@@ -1190,7 +1195,7 @@ func (c *Client) ChatStream(ctx context.Context, accountID string, req translate
 		return nil, providers.ResolvedChat{}, err
 	}
 	client.Timeout = 0
-	resp, err := client.Do(httpReq)
+	resp, err := providers.DoWithHeadTimeout(client, httpReq, providers.HeadTimeoutFromEnv(traeStreamHeadTimeoutEnv, providers.DefaultStreamHeadTimeout))
 	if err != nil {
 		return nil, providers.ResolvedChat{}, err
 	}

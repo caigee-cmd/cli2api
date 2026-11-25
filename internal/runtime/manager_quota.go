@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
+	"github.com/caigee-cmd/cli2api/internal/events"
 	"github.com/caigee-cmd/cli2api/internal/providers"
 	"github.com/caigee-cmd/cli2api/internal/providers/qoder"
 )
@@ -212,22 +213,28 @@ func (m *Manager) persistQuota(ctx context.Context, accountID string, quota *Quo
 	if quota == nil {
 		return
 	}
+	// Storage and the console always carry the real upstream snapshot. The
+	// local/dev force-ready override (marker file
+	// $QODER_DATA_DIR/force-ready/<accountID>) only affects routing: it is
+	// applied to a copy merged into the pool, never persisted, and the view
+	// badges it so no displayed number is silently fabricated.
+	routed := quota
 	if m.forceReady(accountID) {
-		// Local/dev override: keep the account routable even when upstream
-		// still reports a hard zero balance. Marker file:
-		//   $QODER_DATA_DIR/force-ready/<accountID>
-		quota.Exceeded = false
-		if quota.Remaining <= 0 {
-			quota.Remaining = 1
+		override := *quota
+		override.Exceeded = false
+		if override.Remaining <= 0 {
+			override.Remaining = 1
 		}
-		if quota.Percentage >= 100 {
-			quota.Percentage = 99
+		if override.Percentage >= 100 {
+			override.Percentage = 99
 		}
+		routed = &override
 	}
-	m.pool.MergeQuota(accountID, quota)
+	m.pool.MergeQuota(accountID, routed)
 	if err := m.store.SaveQuota(ctx, accountID, quota); err != nil {
 		log.Printf("persist quota account=%s: %v", accountID, err)
 	}
+	m.events.Publish(events.TypeQuota, accountID, "", events.QuotaState{AccountID: accountID, Quota: quota})
 }
 
 func (m *Manager) fetchQuota(ctx context.Context, accountID, workerURL string, force bool) error {

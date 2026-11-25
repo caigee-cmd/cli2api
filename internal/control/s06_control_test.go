@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
+	"github.com/caigee-cmd/cli2api/internal/events"
 	"github.com/caigee-cmd/cli2api/internal/providers"
 )
 
@@ -386,6 +387,22 @@ func (r *fakeRuntime) RefreshAll(_ context.Context, forceQuota bool) error {
 	r.forceQuota = forceQuota
 	return r.refreshErr
 }
+func (r *fakeRuntime) RefreshAllResults(_ context.Context, forceQuota, _ bool) []accounts.AccountRefreshResult {
+	r.log.add("runtime.RefreshAllResults")
+	r.refreshAll = true
+	r.forceQuota = forceQuota
+	return nil
+}
+func (r *fakeRuntime) RefreshAllAsync(_ context.Context, forceQuota, _ bool) {
+	r.log.add("runtime.RefreshAllAsync")
+	r.refreshAll = true
+	r.forceQuota = forceQuota
+}
+func (r *fakeRuntime) SubscribeEvents(uint64) (<-chan events.Event, func()) {
+	ch := make(chan events.Event)
+	close(ch)
+	return ch, func() {}
+}
 func (r *fakeRuntime) CheckinAccount(_ context.Context, id string) (accounts.Account, error) {
 	r.log.add("runtime.CheckinAccount")
 	if r.checkinErr != nil {
@@ -511,7 +528,7 @@ func TestUpdateReadsStoreAfterRuntime(t *testing.T) {
 	}
 }
 
-func TestListRefreshUsesForceQuotaThenAccounts(t *testing.T) {
+func TestListRefreshTriggersAsyncRefreshThenAccounts(t *testing.T) {
 	svc, runtime, _, log := newTestServices()
 	runtime.views = []accounts.AccountView{{Account: accounts.Account{ID: "acc-1"}}}
 	items, err := svc.Accounts.List(context.Background(), true)
@@ -521,7 +538,7 @@ func TestListRefreshUsesForceQuotaThenAccounts(t *testing.T) {
 	if !runtime.refreshAll || !runtime.forceQuota {
 		t.Fatalf("refreshAll=%v forceQuota=%v", runtime.refreshAll, runtime.forceQuota)
 	}
-	if got := log.names; !equalCalls(got, []string{"runtime.RefreshAll", "runtime.Accounts"}) {
+	if got := log.names; !equalCalls(got, []string{"runtime.RefreshAllAsync", "runtime.Accounts"}) {
 		t.Fatalf("calls=%v", got)
 	}
 }
