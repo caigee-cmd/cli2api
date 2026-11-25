@@ -187,15 +187,13 @@ func (o *streamedChatOutput) resolveToolCallIndex(declared *int, id, name string
 	case declared != nil && !startsCall:
 		return *declared
 	case declared != nil && startsCall:
-		if existing := o.toolCalls[*declared]; existing != nil && existing.Name != "" && existing.Name != name {
+		if o.callIsDifferent(*declared, id, name) {
 			return maxToolCallIndex(o.toolCalls) + 1
 		}
 		return *declared
 	case startsCall:
-		if position == 0 {
-			if existing := o.toolCalls[0]; existing == nil || existing.Name == "" || existing.Name == name {
-				return 0
-			}
+		if position == 0 && !o.callIsDifferent(0, id, name) {
+			return 0
 		}
 		return maxToolCallIndex(o.toolCalls) + 1
 	case lastIndex >= 0:
@@ -203,6 +201,20 @@ func (o *streamedChatOutput) resolveToolCallIndex(declared *int, id, name string
 	default:
 		return position
 	}
+}
+
+// callIsDifferent reports whether this delta starts a new call on an index
+// that already holds one. Two calls of the same tool are common, so the
+// call id is what separates them; a name-only comparison would merge them.
+func (o *streamedChatOutput) callIsDifferent(index int, id, name string) bool {
+	existing := o.toolCalls[index]
+	if existing == nil || (existing.Name == "" && existing.ID == "") {
+		return false
+	}
+	if id != "" && existing.ID != "" {
+		return existing.ID != id
+	}
+	return name != "" && existing.Name != "" && existing.Name != name
 }
 
 func maxToolCallIndex(calls map[int]*proxyToolCall) int {
