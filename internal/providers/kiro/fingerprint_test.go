@@ -1,6 +1,7 @@
 package kiro
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -38,8 +39,13 @@ func TestNewerIDEVersionRejectsStaleFeed(t *testing.T) {
 	if newerIDEVersion(IDEVersion, IDEVersion) {
 		t.Fatal("the fallback was treated as newer than itself")
 	}
-	if !newerIDEVersion("1.5.0", IDEVersion) {
-		t.Fatal("a newer build was rejected")
+	parts, ok := parseIDEVersion(IDEVersion)
+	if !ok || len(parts) == 0 {
+		t.Fatalf("fallback %q is not parseable", IDEVersion)
+	}
+	next := fmt.Sprintf("%d.0.0", parts[0]+1)
+	if !newerIDEVersion(next, IDEVersion) {
+		t.Fatalf("a newer build (%s) was rejected against %s", next, IDEVersion)
 	}
 	if newerIDEVersion("not-a-version", IDEVersion) {
 		t.Fatal("an unparsed feed was treated as newer")

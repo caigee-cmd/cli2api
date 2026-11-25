@@ -6,25 +6,25 @@ import (
 )
 
 func TestClientVersionsAndDesktopUserAgents(t *testing.T) {
-	if CLIVersion != "2.176.0" || IDEVersion != "2.176.0" {
+	if CLIVersion != "2.186.0" || IDEVersion != "2.186.0" {
 		t.Fatalf("CLI=%q IDE=%q", CLIVersion, IDEVersion)
 	}
-	if UserAgent != "WorkBuddy/5.11.3 WorkBuddy/5.11.3 CLI/2.176.0" {
+	if UserAgent != "WorkBuddy/5.11.3 WorkBuddy/5.11.3 CLI/2.186.0" {
 		t.Fatalf("CN desktop UA=%q", UserAgent)
 	}
 	if CLIStainlessPackageVersion != "6.25.0" || CLIStainlessRuntimeVersion != "v22.21.1" {
 		t.Fatalf("SDK fingerprint package=%q runtime=%q", CLIStainlessPackageVersion, CLIStainlessRuntimeVersion)
 	}
-	if DesktopVersionGlobal != "5.11.4" || DesktopCLIVersionGlobal != "2.176.0" {
+	if DesktopVersionGlobal != "5.11.4" || DesktopCLIVersionGlobal != "2.186.0" {
 		t.Fatalf("global desktop=%q cli=%q", DesktopVersionGlobal, DesktopCLIVersionGlobal)
 	}
-	if got := DesktopUserAgentFor(true); got != "WorkBuddy/5.11.4 workbuddy-ai/5.11.4 CLI/2.176.0" {
+	if got := DesktopUserAgentFor(true); got != "WorkBuddy/5.11.4 workbuddy-ai/5.11.4 CLI/2.186.0" {
 		t.Fatalf("global desktop UA=%q", got)
 	}
 	if got := DesktopUserAgentFor(false); got != UserAgent {
 		t.Fatalf("CN desktop UA=%q", got)
 	}
-	if got := DaemonUserAgentFor(true); got != "workbuddy-ai/5.11.4 workbuddy-ai/5.11.4 CLI/2.176.0" {
+	if got := DaemonUserAgentFor(true); got != "workbuddy-ai/5.11.4 workbuddy-ai/5.11.4 CLI/2.186.0" {
 		t.Fatalf("global daemon UA=%q", got)
 	}
 	if got := DaemonUserAgentFor(false); got != UserAgent {

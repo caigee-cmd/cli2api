@@ -20,7 +20,11 @@ const CosyVersion = "1.1.96"
 
 // DesktopCosyVersion is the Cosy-Version the official desktop app sends on
 // campaign / check-in requests (hub desktop 0.4.8). Distinct from CosyVersion
-// (CLI / reasoning).
+// (CLI / reasoning). The desktop app itself has since moved to 0.5.18, but the
+// campaign endpoint filters clients it does not consider official, so bump this
+// only after a live check-in probe with a fresh PAT — every stored PAT in the
+// 2026-11-21 snapshot was already expired, so 0.4.8 stays the last verified
+// value rather than a guess.
 const DesktopCosyVersion = "0.4.8"
 
 // CosyUserAgent is the User-Agent the current official qodercli leaves on

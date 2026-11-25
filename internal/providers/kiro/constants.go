@@ -15,9 +15,10 @@ const (
 
 	// IDEVersion is the fallback advertised until the stable update feed answers.
 	// Kiro's version gate rejects older builds with FEATURE_NOT_SUPPORTED, so the
-	// fallback stays near the current stable release. A fetched build older than
-	// this is ignored.
-	IDEVersion   = "1.4.236"
+	// fallback stays at the current stable release (1.5.37, published 2026-11-24
+	// on prod.download.desktop.kiro.dev/stable). A fetched build older than this
+	// is ignored.
+	IDEVersion   = "1.5.37"
 	AgentVersion = "0.66.102-hotfix.1"
 
 	// nodeVersion is the Node runtime the IDE names in the AWS SDK user agent.

@@ -24,10 +24,12 @@ const (
 	// UserAgent is the CN CLI/chat UA the current desktop sends: app token,
 	// edition token, then the bundled CLI. Origin/Referer stay region-specific
 	// and must never mix CN with Global. All client versions live here.
-	// CLIVersion is the unpacked @tencent-ai/codebuddy-code package version
-	// bundled in desktop 5.11.3 / 5.11.4 (2.176.0). The desktop app version,
-	// not the bundled CLI version, is the UA/version segment.
-	CLIVersion = "2.176.0"
+	// CLIVersion tracks the published @tencent-ai/codebuddy-code package
+	// (2.186.0, 2026-11-24). The desktop app version, not the bundled CLI
+	// version, is the UA/version segment; live A/B on CN 2026-11-25 showed
+	// CLI 2.176.0 and 2.186.0 return the same 57-model catalog and both stream
+	// chat, so the CLI segment follows the package rather than a frozen bundle.
+	CLIVersion = "2.186.0"
 	UserAgent  = "WorkBuddy/" + DesktopVersionCN + " WorkBuddy/" + DesktopVersionCN + " CLI/" + DesktopCLIVersionCN
 
 	// OpenAI Node SDK fingerprint the official CLI attaches to chat.
@@ -45,20 +47,22 @@ const (
 
 	// Desktop clients ship separately per edition. Their UA is three-part:
 	// app token, edition token, then the CLI bundled inside that desktop
-	// build. The current official builds are CN 5.11.3 and Global 5.11.4;
-	// both bundle CLI 2.176.0.
+	// build. The current official builds are CN 5.11.3 and Global 5.11.4
+	// (both 2026-11); their CLI segment follows the published CLI package.
 	DesktopVersionGlobal    = "5.11.4"
-	DesktopCLIVersionGlobal = "2.176.0"
+	DesktopCLIVersionGlobal = "2.186.0"
 	DesktopVersionCN        = "5.11.3"
-	DesktopCLIVersionCN     = "2.176.0"
+	DesktopCLIVersionCN     = "2.186.0"
 	DesktopUserAgentGlobal  = "WorkBuddy/" + DesktopVersionGlobal + " workbuddy-ai/" + DesktopVersionGlobal + " CLI/" + DesktopCLIVersionGlobal
 	DesktopUserAgentCN      = UserAgent
 	// DaemonUserAgentGlobal is the background-service UA: the global edition's
 	// applicationName is used for both app segments. CN equals UserAgent.
 	DaemonUserAgentGlobal = "workbuddy-ai/" + DesktopVersionGlobal + " workbuddy-ai/" + DesktopVersionGlobal + " CLI/" + DesktopCLIVersionGlobal
 
-	// IDEVersion is the CodeBuddy IDE plugin release, kept with the others.
-	IDEVersion = "2.176.0"
+	// IDEVersion is the CodeBuddy IDE plugin release. It is not on the wire
+	// today; it is kept aligned with the bundled CLI identity so no stale
+	// version number is left in the package.
+	IDEVersion = "2.186.0"
 
 	// DesktopVersion/DesktopUserAgent are for /v3/config only (Global). Live
 	// A/B showed the same Global account returns the IDE dropdown (incl.
@@ -86,8 +90,8 @@ const (
 	pathModelsCN      = "/console/enterprises/personal/models"
 	pathModelsGlobal  = "/v2/enterprises/personal/models"
 	pathProductConfig = "/v3/config"
-	pathUserResource = "/v2/billing/meter/get-user-resource"
-	pathDailyCheckin = "/v2/billing/meter/daily-checkin"
+	pathUserResource  = "/v2/billing/meter/get-user-resource"
+	pathDailyCheckin  = "/v2/billing/meter/daily-checkin"
 
 	sessionDeadCode         = 12153
 	sessionDeadText         = "Offline user session not found"

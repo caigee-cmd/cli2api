@@ -27,8 +27,16 @@ const (
 	AuthFrom = "trae"
 	AppID    = "6eefa01c-1036-4c7e-9ca5-d891f63bfcd8"
 	// IdeVersion is the x_app_version / IDEVersion sent on login + exchange.
+	// IdeVersionCode is the client build date Trae gates both the model catalog
+	// and chat serving on: X-Ide-Version-Code / X-App-Version-Code carry it, and
+	// an older value silently downgrades the account to a legacy cohort (20260212
+	// returned 45 entries / 6 visible models and rejected current models with
+	// 4001, while 20261117 returned 65 / 21). The version string itself is not
+	// gated (3.3.62 and 9.9.9 return the same catalog as 3.4.24 for one code).
+	// Keep this at the current Trae CN release build date (v3.4.21 shipped
+	// 2026-11-17) whenever the client line moves.
 	IdeVersion     = "3.4.24"
-	IdeVersionCode = "20260212"
+	IdeVersionCode = "20261117"
 	DeviceBrand    = "83DG"
 	OSVersion      = "Windows 11 Pro"
 	// Function is the fallback scene for a model that is in no fetched scene
