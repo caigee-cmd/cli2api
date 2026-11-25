@@ -3,6 +3,88 @@
 Published user-facing notes for GitHub Releases and the console update page.
 Write upcoming notes as bilingual files in `changelog/unreleased/`.
 
+## 0.7.45 - 2026-11-25
+
+### English
+
+- Releases now come from this fork by default: the console checks `guyu233/cli2api`, the host updater pulls `ghcr.io/guyu233/cli2api`, and both installers use the same repository unless `UPDATE_GITHUB_REPO`, `CLI2API_IMAGE_REPOSITORY`, or `CLI2API_GITHUB_REPOSITORY` say otherwise.
+- The System update panel now prints which release repository it follows, and when the host updater is missing it says how to enable one instead of reporting a generic "temporarily unavailable" message. A failed prepare also names the missing updater daemon and the installer script.
+- `release.yml` also derives the previous version from reachable `v*` tags when the repository has no published release yet, so a fork's first release continues its version line instead of starting at v0.1.0.
+- Model-pool IDs may now contain dots (`deepseek-v4.1-flash`), so an upstream model name can be reused verbatim; spaces, underscores and stray symbols are still rejected with an inline message instead of a silent server error.
+- The display name is optional: leave it blank and the model ID is used, and validation errors stay pinned above the footer even when the member list is scrolled.
+- Cross-provider model pool members now follow the connected providers and their provider settings. The editor lists only connected provider/region combinations and only models enabled for that provider, and saving an aggregation validates every member against the provider policy. A disabled model is rejected instead of being stored as a dead route.
+- An aggregated logical model is no longer listed in `/v1/models` when provider policy filters out every one of its members.
+- Retry a transient upstream failure once on the same account before failing over: a stream that dies before its first event or returns an empty body usually recovers on the same worker, and switching accounts throws away the whole prompt cache.
+- Stop the local backoff ladder from multiplying a cooldown the upstream declared itself. Transient failures are capped at 60s, and a quota reset reported in the response body is used verbatim (bounded to 24h) instead of being clamped to the 10-minute rate-limit window or scaled up the exponential ladder.
+- Keep a session anchor through a short cooldown: a failover whose anchor account is still ready and cooling for five minutes or less no longer clears the binding, so the next turn returns to the cache-warm account instead of walking the pool.
+- Raise the default session-affinity TTL from 1h to 4h and expose `CLI2API_AFFINITY_TTL` / `CLI2API_AFFINITY_CAPACITY` (48h and one million bindings are the hard caps).
+- Answer a request with no usable account, and an upstream body that cannot be decoded, with `503 no_accounts` / `502 upstream_decode_error` instead of an unclassified `502 upstream_error`.
+- Report cache-hit and miss reason distributions (`SessionAffinityStats.miss_reasons` / `escape_reasons`), a per-total `cache_hit_rate`, and per-component session-seed hashes in the affinity debug log, so a chat that silently re-anchors every turn can be traced to a volatile system prefix or a changed first message.
+- Saving provider settings no longer waits for an upstream model-catalog refresh; the dialog closes after the policy write and the cached catalog re-filters in the background.
+- One-click check-in now runs up to four accounts in parallel instead of waiting through the scheduled check-in gap, so a full account set no longer stalls for tens of seconds.
+- The cross-provider model editor now keeps its header and footer visible and scrolls the form body on narrow or short screens, so the member weight and advanced fields are reachable.
+- Model-pool members are configured by provider, region, and model only. The account is chosen automatically from the provider account pool instead of being pinned in the editor.
+- Normalize the tools array before hashing the session seed, so a client that rebuilds its tool list in a different order no longer scatters one conversation across accounts. `CLI2API_TOOLS_NORMALIZE=1` additionally normalizes the outbound payload order and protects the upstream cached prefix; the default keeps the payload byte-identical.
+- Escape a sticky provider binding when every account of that provider is cooling for a real reason (quota, or a retry hint of two minutes or more) and another provider family can serve the model, instead of answering `429` while a healthy supplier sits idle. Shorter cooldowns still return a Retry-After so the chat keeps its warm cache.
+- The Models page now renders one card per provider with the model table inside each card. "All providers" is back: it shows cards for every connected provider and those cards can collapse, while selecting one provider keeps that card expanded.
+- Aligned the in-process client identities with the current official builds: Qoder CLI `1.1.96` (Bun `1.4.4`, global inference on `api2.qoder.sh`), WorkBuddy desktop `5.11.3` CN / `5.11.4` Global with bundled CLI `2.176.0`, Trae CN `3.4.24` (AI extension `2.3.106768`, version code `20260212`), and QwenWork `2.1.0` build `26111906` with COSY `1.1.71`.
+- WorkBuddy chat now sends the desktop `5.11.3`/`5.11.4` UA, `X-Client-*` identity and `X-Agent-Runtime: local-agent`, and drops the obsolete `X-Root-Request-ID`/`X-No-*` placeholders. Billing and check-in use the desktop AuthService shape (`axios/1.16.1`, a fresh `X-Request-ID`).
+- WorkBuddy CN now uses the official primary entry `www.workbuddy.cn`; the old `copilot.tencent.com` host still resolves, but the client no longer sends there by default.
+- WorkBuddy check-in now queries `/v2/billing/meter/checkin-activity-status` before claiming. Inactive campaigns and same-day repeats are reported as `skipped`/`already` without a duplicate claim. The Global edition no longer advertises or attempts daily check-in because the official desktop disables it.
+- Qoder, Trae, QwenWork, MiniMax Code, CodeArts, and Doubao check-in flows were re-audited; no public endpoint change was found, so their claim paths remain as-is.
+- A provider restricted to a selected model list no longer shows `auto`; it stays visible only while that provider keeps the full model catalog.
+- Account-level floors, proxy, system-prompt handling, aliases, enabled models, and check-in time move to a provider-wide settings modal on the Models page. The provider policy is now the single source of truth: accounts no longer store the effective provider settings, reads overlay the policy at runtime, and saving it refreshes the live pool instead of writing the same values back to every account. Existing provider groups are seeded once at startup from their current account values without rewriting account rows. Once a provider policy exists, new or imported accounts inherit it automatically, and the account editor keeps only name, concurrency, and priority.
+- The Models page provider filter now lists only provider/region pairs that have an account, drops the "All providers" option, and defaults to the first connected provider so only one provider group is shown at a time.
+- The Models page now groups models by provider and region, with a provider header showing the model count. Search, provider filtering, pagination, model defaults, Max mode, status checks, and model details stay available after the grouping change.
+- Remove the redundant model-catalog intro header from the Models page; model rows and provider groups stay unchanged.
+- Check-in status is now read from the provider instead of trusting the last local attempt. The account card shows upstream `already`, `pending`, `skipped`, or `unknown`, with the last sync time.
+- Scheduled check-in is automatic by default: the upstream daily window start plus one hour (Qoder 10:00 → 11:00, other providers 00:00 → 01:00). Manual provider times still override auto mode.
+- Check-in scheduling uses the provider server clock (`Asia/Shanghai`), not the operator PC's local timezone.
+- A campaign status that carries no per-day flag (CodeArts) is treated as provisional until 02:00 Asia/Shanghai; an "already claimed" replay during the first two hours of the day is not recorded as today's success, and the scheduler retries at 02:05, 12:05, and 21:00.
+- CodeArts reports `already` only for the `USER_LOGIN` daily campaign, not for a used-up new-user or student reward, and posts the IDE's confirmation step when the claim returns a benefit id.
+- Update checks and the host updater's self-update no longer hardcode the upstream repository: `UPDATE_GITHUB_REPO` (service) and `--github-repo` (updater) accept any owner/repo, so a fork that publishes its own releases is detected and can refresh its updater binary.
+- `deploy/install-updater.sh` and `deploy/install-updater.ps1` honor `CLI2API_IMAGE_REPOSITORY` / `CLI2API_GITHUB_REPOSITORY` and pass the release repository to the updater, so a fork deployment installs without editing the scripts.
+
+### 中文
+
+- 发布源默认改为本 fork：控制台检查 `guyu233/cli2api`，宿主机 updater 拉取 `ghcr.io/guyu233/cli2api`，两个安装脚本也默认使用同一仓库；需要跟随其它仓库时用 `UPDATE_GITHUB_REPO`、`CLI2API_IMAGE_REPOSITORY`、`CLI2API_GITHUB_REPOSITORY` 覆盖。
+- 系统更新的版本面板会显示当前跟随的发布仓库；宿主机 updater 缺失时给出启用方法，而不是笼统的"暂时无法更新"；准备阶段失败时错误信息也会指出缺失的 updater 守护进程和安装脚本。
+- `release.yml` 在仓库还没有已发布 Release 时会从可达的 `v*` tag 推算上一个版本，fork 的首次发布会延续版本线，而不是从 v0.1.0 重新开始。
+- 模型池 ID 现在允许点号（`deepseek-v4.1-flash`），可以直接沿用上游模型名；空格、下划线等仍然会被就地拒绝并说明原因，不再等到服务端返回一个看不见的错误。
+- 显示名称变为可选：留空则直接使用模型 ID；校验失败的错误固定显示在底部按钮上方，成员列表滚到底也可见。
+- 跨 Provider 模型池的成员现在严格跟随已接入的供应商及其供应商设置：编辑器只列出已接入的供应商/区域组合和该供应商启用的模型，保存聚合模型时会逐个校验成员是否符合供应商策略。未启用的模型会被拒绝，不会再存成无法路由的死成员。
+- 当供应商策略把所有成员都过滤掉时，聚合逻辑模型不再出现在 `/v1/models` 中。
+- 上游瞬时失败先在同一账号重试一次再切号：首个事件之前就断流或返回空 body 的请求通常在同一 worker 上就能恢复，而换号会把整个 prompt 缓存丢掉。
+- 本地指数退避不再放大上游自己给出的冷却时间。瞬时失败封顶 60 秒；响应体里上报的 quota 重置时间按原值使用（上限 24 小时），既不被 10 分钟的限流窗口截断，也不被指数阶梯成倍放大。
+- 短冷却期间保留会话锚点：failover 时若原账号仍然 Ready 且冷却不超过 5 分钟，不再清空绑定，下一轮直接回到缓存已预热的账号，而不是重新在池子里轮转。
+- 会话亲和默认 TTL 从 1 小时提升到 4 小时，并新增 `CLI2API_AFFINITY_TTL` / `CLI2API_AFFINITY_CAPACITY`（硬上限 48 小时、一百万条绑定）。
+- 没有可用账号的请求、以及上游返回无法解码的响应体，分别返回 `503 no_accounts` 和 `502 upstream_decode_error`，不再落到未分类的 `502 upstream_error`。
+- 上报缓存命中的 miss/escape 原因分布（`SessionAffinityStats.miss_reasons` / `escape_reasons`）、按总量计算的 `cache_hit_rate`，并在亲和调试日志中输出会话指纹的分量哈希，这样"每轮都在悄悄换号"的对话可以直接定位到是 system 前缀抖动还是首条消息变了。
+- 保存供应商设置不再等待上游模型目录刷新；策略写入后对话框立即关闭，已缓存的目录在后台重新过滤。
+- 一键签到改为最多四个账号并行执行，不再逐个等待定时签到间隔，整批账号不会再卡几十秒。
+- 跨 Provider 模型编辑器在窄屏或矮屏下会固定标题和底部操作区、让表单内容区域独立滚动，成员权重等底部字段不会再被裁掉。
+- 模型池成员只按供应商、区域和模型配置，账号由供应商账号池自动选择，不再在编辑器里指定单个账号。
+- 计算会话指纹前先归一化 tools 数组顺序，客户端每轮重建工具列表不再把同一段对话打散到多个账号。设置 `CLI2API_TOOLS_NORMALIZE=1` 会同时归一化发往上游的 payload 顺序，进一步保护上游的缓存前缀；默认保持 payload 字节不变。
+- 当某供应商所有账号都在因为真实原因冷却（额度耗尽，或上游给出两分钟以上的重试提示），而另一供应商家族还能服务该模型时，允许脱离 sticky 绑定改走可用供应商，不再一边返回 `429` 一边让健康账号闲置。更短的冷却仍然返回 Retry-After，让对话保住已预热的缓存。
+- 模型页现在每个供应商一个卡片，模型表格放在卡片内部。恢复“全部供应商”：展示所有已接入供应商的卡片，这些卡片可以折叠；选中单个供应商时卡片只能展开。
+- 将进程内客户端身份对齐到当前官方客户端：Qoder CLI `1.1.96`（Bun `1.4.4`，国际版推理走 `api2.qoder.sh`）、WorkBuddy 国内桌面端 `5.11.3` / 国际版 `5.11.4`（内置 CLI `2.176.0`）、Trae 国内版 `3.4.24`（AI 扩展 `2.3.106768`，版本码 `20260212`）、千问办公 `2.1.0`（构建 `26111906`，COSY `1.1.71`）。
+- WorkBuddy 对话改用桌面端 `5.11.3` / `5.11.4` 的 UA、`X-Client-*` 身份和 `X-Agent-Runtime: local-agent`，去掉过时的 `X-Root-Request-ID` / `X-No-*` 占位头；积分与签到改用桌面 AuthService 的 `axios/1.16.1` 身份和每次新生成的 `X-Request-ID`。
+- WorkBuddy 国内版改用官方主入口 `www.workbuddy.cn`；旧的 `copilot.tencent.com` 仍能解析，但客户端默认不再请求。
+- WorkBuddy 签到在领取前先查询 `/v2/billing/meter/checkin-activity-status`。活动未开启和今日已签分别返回 `skipped` / `already`，不会再重复领取。由于官方国际版桌面端关闭了签到，国际版不再声明或尝试每日签到。
+- 重新核对了 Qoder、Trae、千问办公、MiniMax Code、CodeArts、豆包签到流程；未发现公开端点变更，领取路径保持不变。
+- 限制为勾选模型的供应商不再显示 `auto`；只有保持完整模型目录的供应商才会保留该目录项。
+- 积分/百分比保底、代理、系统提示词处理、别名、可用模型和签到时间改为模型页每个供应商分组里的统一设置。供应商策略现在是唯一事实源：账号行不再承载生效的供应商设置，运行时读取时叠加策略，保存策略只刷新池子，不再把同一组值写回每个账号。已有供应商分组会在启动时用现有账号值一次性生成策略，同样不写账号行。供应商策略存在后，新建或导入账号会自动继承，账号编辑只保留名称、并发和优先级。
+- 模型页供应商筛选现在只列出有账号接入的供应商/区域，移除“全部供应商”，并默认选中第一个已接入供应商，一次只展示一个供应商分组。
+- 模型页面改为按供应商与区域分组，每个分组标题显示该组模型数量。搜索、供应商筛选、分页、模型默认上下文与推理档位、Max 模式、状态检查、模型详情等能力保持不变。
+- 移除模型页顶部冗余的“模型目录”说明栏，模型列表和供应商分组保持不变。
+- 签到状态改为读取上游真实状态，不再只信任本地上一次执行结果。账号卡片显示上游返回的已签到、未签到、未开放或状态未知，并标注最近同步时间。
+- 自动签到时间默认改为“上游每日窗口开始 + 1 小时”（Qoder 10:00 → 11:00，其他供应商 00:00 → 01:00）。供应商设置切换为手动时仍按手动时间执行。
+- 签到排期按供应商服务器时钟（`Asia/Shanghai`）计算，不再跟随电脑本地时区。
+- 不带“当天”字段的活动状态（CodeArts）在服务器时间 02:00 前仍视为待确认；前两小时的“已领取”回放不会被记成今天的成功，调度会在 02:05、12:05、21:00 重试。
+- CodeArts 只有 `USER_LOGIN` 每日活动才显示“已签到”，不会再把已用完的新用户/学生奖励当成今天已签；领取返回 benefit id 时补发 IDE 的确认请求。
+- 更新检查与宿主 updater 的自我更新不再写死上游仓库：`UPDATE_GITHUB_REPO`（服务端）和 `--github-repo`（updater）可指向任意 owner/repo，发布在 fork 的版本因此能被发现，updater 二进制也能随之更新。
+- `deploy/install-updater.sh` 与 `deploy/install-updater.ps1` 支持 `CLI2API_IMAGE_REPOSITORY` / `CLI2API_GITHUB_REPOSITORY` 覆盖并把发布仓库传给 updater，fork 部署无需改脚本即可安装。
+
 ## 0.7.44 - 2026-11-20
 
 ### English
