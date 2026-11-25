@@ -8,9 +8,11 @@ import {
   DownloadSimple,
   MagnifyingGlass,
   Plus,
+  SignIn,
   UploadSimple,
 } from '@phosphor-icons/react'
 import { AccountCard, type AccountBusyKind, type CheckinFeedback } from '@/components/account/AccountCard'
+import { BatchReloginModal } from '@/components/account/BatchReloginModal'
 import { AccountCheckinRecordsModal } from '@/components/account/AccountCheckinRecordsModal'
 import { AccountModelsModal } from '@/components/account/AccountModelsModal'
 import { EditAccountModal } from '@/components/account/EditAccountModal'
@@ -152,6 +154,11 @@ export function AccountsPage() {
   const [priorityById, setPriorityById] = useState<Record<string, number>>({})
   const [quotaRefreshing, setQuotaRefreshing] = useState(false)
   const [checkinAllRunning, setCheckinAllRunning] = useState(false)
+  // Bulk re-login: selection mode on the account cards, then a sequential
+  // authorization walkthrough (see BatchReloginModal).
+  const [reloginMode, setReloginMode] = useState(false)
+  const [reloginSelected, setReloginSelected] = useState<string[]>([])
+  const [reloginOpen, setReloginOpen] = useState(false)
   /**
    * Live bulk-op progress streamed from GET /api/events (real per-account
    * frames). Null when no bulk op is running.
@@ -417,6 +424,10 @@ export function AccountsPage() {
     const start = (currentPage - 1) * pageSize
     return filteredRows.slice(start, start + pageSize)
   }, [currentPage, filteredRows, pageSize])
+  const reloginAccounts = useMemo(
+    () => rows.filter((account) => reloginSelected.includes(account.id)),
+    [rows, reloginSelected],
+  )
 
   if (accountsLoading && !hasAccounts) return <AccountsPageSkeleton />
 
@@ -941,6 +952,17 @@ export function AccountsPage() {
           <Button size="sm" variant="secondary" isPending={quotaRefreshing} isDisabled={checkinAllRunning} onPress={() => void onRefreshCredits()}>
             <ArrowsClockwise size={14} />{t('refreshCredits')}
           </Button>
+          <Button
+            size="sm"
+            variant={reloginMode ? 'primary' : 'secondary'}
+            isDisabled={checkinAllRunning || quotaRefreshing}
+            onPress={() => {
+              setReloginMode((current) => !current)
+              setReloginSelected([])
+            }}
+          >
+            <SignIn size={14} />{t('reloginEntry')}
+          </Button>
           {/*
             Mobile Safari ignores programmatic input.click() from React Aria
             onPress when the file input is display:none. Associate a real
@@ -1018,6 +1040,13 @@ export function AccountsPage() {
         onConfirm={(region) => { void onBatchImportConfirm(region) }}
       />
       <AccountModelsModal key={modelsId ?? 'closed'} account={modelsAccount} t={t} onClose={() => setModelsId(null)} />
+      <BatchReloginModal
+        isOpen={reloginOpen}
+        accounts={reloginAccounts}
+        t={t}
+        onClose={() => { setReloginOpen(false); setReloginMode(false); setReloginSelected([]) }}
+        onFinished={() => { void reloadAccounts(false) }}
+      />
       <AccountCheckinRecordsModal key={checkinHistoryId ?? 'closed'} account={checkinHistoryAccount} t={t} onClose={() => setCheckinHistoryId(null)} />
       <EditAccountModal
         key={editId ?? 'closed'}
@@ -1075,11 +1104,39 @@ export function AccountsPage() {
         />
       ) : null}
 
+      {reloginMode ? (
+        <div
+          data-relogin-bar
+          className="flex flex-wrap items-center gap-2 rounded-lg border border-accent/40 bg-surface-secondary px-3 py-2 text-caption"
+        >
+          <span className="font-medium text-foreground">{t('reloginSelected', { count: reloginSelected.length })}</span>
+          <Button size="sm" variant="ghost" onPress={() => setReloginSelected(pagedRows.map((account) => account.id))}>
+            {t('reloginSelectPage')}
+          </Button>
+          <Button size="sm" variant="ghost" isDisabled={!reloginSelected.length} onPress={() => setReloginSelected([])}>
+            {t('reloginClear')}
+          </Button>
+          <div className="ml-auto flex items-center gap-2">
+            <Button size="sm" variant="secondary" onPress={() => { setReloginMode(false); setReloginSelected([]) }}>
+              {t('cancel')}
+            </Button>
+            <Button size="sm" isDisabled={!reloginSelected.length} onPress={() => setReloginOpen(true)}>
+              {t('reloginConfirm')}
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
       <section className="grid auto-rows-[minmax(280px,auto)] gap-2.5 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
         {pagedRows.map((account) => (
           <AccountCard
             key={account.id}
             account={account}
+            selectable={reloginMode}
+            selected={reloginSelected.includes(account.id)}
+            onSelectToggle={() => setReloginSelected((current) => (
+              current.includes(account.id) ? current.filter((id) => id !== account.id) : [...current, account.id]
+            ))}
             busyKind={busy?.id === account.id ? busy.kind : ''}
             authPanelOpen={authPanelId === account.id}
             authUrl={urlById[account.id]}

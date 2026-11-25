@@ -1,7 +1,7 @@
 import { CopyIcon } from '@/components/motion/CopyIcon'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useSharedClock } from '@/hooks/useSharedClock'
-import { Button, Card, Chip, Dropdown, Input, Label, TextArea, TextField, Tooltip } from '@heroui/react'
+import { Button, Card, Checkbox, Chip, Dropdown, Input, Label, TextArea, TextField, Tooltip } from '@heroui/react'
 import {
   ArrowClockwise,
   ArrowSquareOut,
@@ -90,6 +90,11 @@ type Props = {
   onEdit: () => void
   onToggleAuthPanel: () => void
   onViewModels: () => void
+  // Selection mode used by the bulk re-login flow. The checkbox stays out of
+  // the normal card layout so single-account work is unchanged.
+  selectable?: boolean
+  selected?: boolean
+  onSelectToggle?: () => void
 }
 
 function stateCopyFor(state: ReturnType<typeof accountState>, cooldown: string, t: Translate) {
@@ -133,6 +138,9 @@ export function AccountCard({
   onEdit,
   onToggleAuthPanel,
   onViewModels,
+  selectable = false,
+  selected = false,
+  onSelectToggle,
 }: Props) {
   const chipRef = useRef<HTMLSpanElement>(null)
   const authRef = useRef<HTMLElement>(null)
@@ -249,7 +257,17 @@ export function AccountCard({
     >
       <Card.Header className="flex-row items-start justify-between gap-2.5 px-4 pt-3.5 pb-2">
         <div className="flex min-w-0 items-center gap-2.5">
-          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-surface-tertiary" title={provider}>
+          {selectable ? (
+            <Checkbox
+              isSelected={selected}
+              onChange={() => onSelectToggle?.()}
+              aria-label={`${t('reloginSelectAccount')} ${account.name || account.id}`}
+              className="shrink-0"
+            >
+              <Checkbox.Control><Checkbox.Indicator /></Checkbox.Control>
+            </Checkbox>
+          ) : null}
+          <div className={`flex size-8 shrink-0 items-center justify-center rounded-lg bg-surface-tertiary ${selected ? 'ring-2 ring-accent' : ''}`} title={provider}>
             <ProviderMark provider={account.provider} size={20} />
           </div>
           <div className="min-w-0">
