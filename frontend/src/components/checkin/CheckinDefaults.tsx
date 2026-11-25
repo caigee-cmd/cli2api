@@ -8,6 +8,13 @@ import { PageAlert } from '@/components/ui/PageAlert'
 import { SkeletonBlock } from '@/components/ui/PageSkeletons'
 import { useI18n } from '@/hooks/useI18n'
 
+function addOneHour(clock: string): string {
+  const match = /^(\d{2}):(\d{2})$/.exec(clock)
+  if (!match) return ''
+  const minutes = Math.min(Number(match[1]) * 60 + Number(match[2]) + 60, 24 * 60 - 1)
+  return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`
+}
+
 export function CheckinDefaults({ settings, onSaved }: { settings: SystemSettings | null; onSaved: (settings: SystemSettings) => void }) {
   const { t } = useI18n()
   const navigate = useNavigate()
@@ -52,7 +59,15 @@ export function CheckinDefaults({ settings, onSaved }: { settings: SystemSetting
         {error ? <PageAlert title={error} /> : null}
         {!settings || !providers ? <SkeletonBlock className="h-24 w-full" /> : providers.map((provider) => (
           <FormRow key={provider.id} label={provider.label}
-            hint={provider.regions.filter((region) => region.checkin).map((region) => `${region.label} · ${region.checkin?.timezone === 'Local' ? settings.timezone : region.checkin?.timezone}`).join(' / ')}>
+            hint={provider.regions.filter((region) => region.checkin).map((region) => {
+              const zone = region.checkin?.timezone === 'Local' ? settings.timezone : (region.checkin?.timezone || '')
+              const earliest = region.checkin?.earliest || '00:00'
+              const auto = addOneHour(earliest)
+              const window = region.checkin?.window_from_upstream
+                ? t('checkinEarliestUpstream', { time: earliest, auto })
+                : t('checkinEarliestTable', { time: earliest, auto })
+              return `${region.label} · ${zone} · ${window}`
+            }).join(' / ')}>
             <Input type="time" value={drafts[provider.id] ?? settings.checkin_times[provider.id] ?? ''} disabled={busy}
               aria-label={`${provider.label} ${t('autoCheckinTime')}`}
               onChange={(event) => setDrafts((current) => ({ ...current, [provider.id]: event.target.value }))}
