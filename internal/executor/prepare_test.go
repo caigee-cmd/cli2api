@@ -74,7 +74,7 @@ func TestPrepareStripsPrefixAndChecksGrants(t *testing.T) {
 	}
 }
 
-func TestPrepareAggregationKeyOnlyAcceptsItsAliases(t *testing.T) {
+func TestPrepareAggregationKeyAliasesAndLogicalModels(t *testing.T) {
 	pool := NewPool(nil, nil)
 	pool.Upsert(Item{
 		ID: "q1", Provider: "qoder", Models: []string{"kimi-k2.6"},
@@ -117,6 +117,62 @@ func TestPrepareAggregationKeyOnlyAcceptsItsAliases(t *testing.T) {
 	}); err == nil {
 		t.Fatal("ungranted provider alias was accepted")
 	}
+}
+
+func TestPrepareAggregationKeyAcceptsLogicalModel(t *testing.T) {
+	pool := NewPool(nil, nil)
+	pool.Upsert(Item{ID: "q1", Provider: "qoder", Models: []string{"kimi-k2.6"}})
+	ex := NewChatExecutor(pool, "")
+	identity := auth.KeyIdentity(accounts.APIKey{
+		ID: "key_agg", Name: "agg", Providers: []string{"qoder"}, Enabled: true, ModelAggregation: true,
+	})
+	resolver := stubAggregationResolver{agg: accounts.Aggregation{
+		ID: "glm-5.2", Enabled: true,
+		Members: []accounts.AggregationMember{{Provider: "qoder", Model: "kimi-k2.6"}},
+	}}
+	got, err := ex.Prepare(PrepareInput{
+		Request:          translate.ChatRequest{Model: "glm-5.2", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}}},
+		Identity:         identity,
+		ModelAggregation: true,
+		Aggregations:     resolver,
+	})
+	if err != nil {
+		t.Fatalf("logical model on aggregation key: %v", err)
+	}
+	plan := aggregatePlanFrom(got.Context)
+	if plan == nil || plan.ID != "glm-5.2" || len(plan.Members) != 1 {
+		t.Fatalf("plan=%+v", plan)
+	}
+
+	// A logical model whose members are all outside the key's grants stays
+	// unreachable.
+	identity.AllowedProviders = []string{"workbuddy"}
+	if _, err := ex.Prepare(PrepareInput{
+		Request:          translate.ChatRequest{Model: "glm-5.2", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}}},
+		Identity:         identity,
+		ModelAggregation: true,
+		Aggregations:     resolver,
+	}); err == nil {
+		t.Fatal("logical model outside provider grants was accepted")
+	}
+}
+
+type stubAggregationResolver struct {
+	agg accounts.Aggregation
+}
+
+func (s stubAggregationResolver) Resolve(_ context.Context, id string, allowed map[string]bool) (accounts.Aggregation, error) {
+	if id != s.agg.ID {
+		return accounts.Aggregation{}, context.Canceled
+	}
+	out := s.agg
+	out.Members = nil
+	for _, member := range s.agg.Members {
+		if allowed == nil || allowed[member.Provider] {
+			out.Members = append(out.Members, member)
+		}
+	}
+	return out, nil
 }
 
 func TestPrepareDeniesUngrantedProvider(t *testing.T) {

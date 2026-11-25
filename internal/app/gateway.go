@@ -35,6 +35,7 @@ func (a *App) newGateway() *apigateway.Handler {
 			}
 			return control.MergeAggregationModels(ctx, a.Control.Aggregations, models)
 		},
+		AggregationKeyModels: a.aggregationKeyModels,
 		CatalogStatus: func() map[string]any {
 			if a.Control == nil || a.Control.Catalog == nil {
 				return nil
