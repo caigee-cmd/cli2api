@@ -22,7 +22,7 @@ const (
 	ConsoleHost = "https://www.trae.cn"
 
 	// Login uses the IDE product markers (PKCE authorization-code flow):
-	// client_id below, auth_from=trae, x_app_version=3.4.24.
+	// client_id below, auth_from=trae, x_app_version=3.4.21.
 	ClientID = "ono9krqynydwx5"
 	AuthFrom = "trae"
 	AppID    = "6eefa01c-1036-4c7e-9ca5-d891f63bfcd8"
@@ -32,10 +32,13 @@ const (
 	// an older value silently downgrades the account to a legacy cohort (20260212
 	// returned 45 entries / 6 visible models and rejected current models with
 	// 4001, while 20261117 returned 65 / 21). The version string itself is not
-	// gated (3.3.62 and 9.9.9 return the same catalog as 3.4.24 for one code).
-	// Keep this at the current Trae CN release build date (v3.4.21 shipped
-	// 2026-11-17) whenever the client line moves.
-	IdeVersion     = "3.4.24"
+	// gated (3.3.62 and 9.9.9 return the same catalog as the current 3.4.x for
+	// one code).
+	// Keep both aligned with the newest *published* Trae CN build: 3.4.21
+	// shipped 2026-11-17 (trae.cn/changelog), so its build date is 20261117.
+	// Do not copy a larger gray-channel version such as 3.4.24: it is not in
+	// the public release line, so it says nothing true about the client.
+	IdeVersion     = "3.4.21"
 	IdeVersionCode = "20261117"
 	DeviceBrand    = "83DG"
 	OSVersion      = "Windows 11 Pro"
