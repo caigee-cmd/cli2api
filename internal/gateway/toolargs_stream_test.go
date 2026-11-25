@@ -1,6 +1,8 @@
 package gateway
 
 import (
+	"encoding/json"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -44,8 +46,8 @@ func TestStreamHandlesCumulativeArguments(t *testing.T) {
 	if calls[0].Arguments != `{"path":"a.go","body":"x"}` {
 		t.Fatalf("arguments = %q", calls[0].Arguments)
 	}
-	if err := validateProxyToolCallArguments(calls); err != nil {
-		t.Fatalf("validate: %v", err)
+	if normalizeProxyToolCallArguments(calls) {
+		t.Fatal("valid arguments should not be reported as changed")
 	}
 }
 
@@ -108,23 +110,86 @@ func TestStreamSameToolTwiceStaysSeparate(t *testing.T) {
 	}
 }
 
-func TestValidateRepairsFormattingDamage(t *testing.T) {
-	calls := []proxyToolCall{{ID: "call_1", Name: "write_file", Arguments: `{"path":"a.go",`}}
-	if err := validateProxyToolCallArguments(calls); err != nil {
-		t.Fatalf("validate: %v", err)
+func TestRelayOpenAIStreamNormalizesFragmentedToolArguments(t *testing.T) {
+	body := strings.Join([]string{
+		`data: {"id":"c1","model":"m","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"write_file","arguments":"{\"path\":"}}]}}]}`,
+		"",
+		`data: {"id":"c1","model":"m","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"a.go\","}}]}}]}`,
+		"",
+		`data: {"id":"c1","model":"m","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"body\":\"par"}}]}}]}`,
+		"",
+		`data: {"id":"c1","model":"m","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}`,
+		"",
+		"data: [DONE]",
+		"",
+	}, "\n")
+	recorder := httptest.NewRecorder()
+	stats, err := RelayOpenAIStream(recorder, strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !strings.HasSuffix(calls[0].Arguments, "}") {
-		t.Fatalf("arguments not repaired: %q", calls[0].Arguments)
+	if !stats.SawDone {
+		t.Fatalf("stats=%+v", stats)
+	}
+	var arguments []string
+	for _, line := range strings.Split(recorder.Body.String(), "\n") {
+		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if payload == "" || payload == "[DONE]" {
+			continue
+		}
+		var chunk struct {
+			Choices []struct {
+				Delta struct {
+					ToolCalls []struct {
+						Function struct {
+							Arguments string `json:"arguments"`
+						} `json:"function"`
+					} `json:"tool_calls"`
+				} `json:"delta"`
+			} `json:"choices"`
+		}
+		if json.Unmarshal([]byte(payload), &chunk) != nil {
+			continue
+		}
+		for _, choice := range chunk.Choices {
+			for _, call := range choice.Delta.ToolCalls {
+				arguments = append(arguments, call.Function.Arguments)
+			}
+		}
+	}
+	if len(arguments) != 1 {
+		t.Fatalf("expected exactly one arguments frame, got %d: %#v", len(arguments), arguments)
+	}
+	// The body field was cut mid-string, so it is dropped rather than padded
+	// into a plausible-looking value; everything the model finished survives.
+	if arguments[0] != `{"path":"a.go"}` {
+		t.Fatalf("arguments = %q", arguments[0])
+	}
+	if !json.Valid([]byte(arguments[0])) {
+		t.Fatalf("arguments not valid JSON: %q", arguments[0])
 	}
 }
 
-func TestValidateRejectsTruncatedArguments(t *testing.T) {
-	calls := []proxyToolCall{{ID: "call_1", Name: "run_command", Arguments: `{"cmd":"rm -rf /tmp/fo`}}
-	err := validateProxyToolCallArguments(calls)
-	if err == nil {
-		t.Fatal("expected truncated arguments to stay an error")
+func TestNormalizeRepairsFormattingDamage(t *testing.T) {
+	calls := []proxyToolCall{{ID: "call_1", Name: "write_file", Arguments: `{"path":"a.go",`}}
+	if !normalizeProxyToolCallArguments(calls) {
+		t.Fatal("expected repair to be reported")
 	}
-	if !strings.Contains(err.Error(), "invalid JSON") {
-		t.Fatalf("unexpected error: %v", err)
+	if !json.Valid([]byte(calls[0].Arguments)) {
+		t.Fatalf("arguments not valid after normalize: %q", calls[0].Arguments)
+	}
+}
+
+func TestNormalizeTruncatedArgumentsNeverFails(t *testing.T) {
+	calls := []proxyToolCall{{ID: "call_1", Name: "run_command", Arguments: `{"cmd":"rm -rf /tmp/fo`}}
+	if !normalizeProxyToolCallArguments(calls) {
+		t.Fatal("expected normalize to change truncated arguments")
+	}
+	if !json.Valid([]byte(calls[0].Arguments)) {
+		t.Fatalf("arguments still invalid: %q", calls[0].Arguments)
+	}
+	// The unfinished command must not survive as a runnable string.
+	if strings.Contains(calls[0].Arguments, "rm -rf") {
+		t.Fatalf("truncated command leaked into arguments: %q", calls[0].Arguments)
 	}
 }

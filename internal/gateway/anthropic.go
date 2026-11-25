@@ -197,14 +197,10 @@ func anthropicMessageResponse(requestID, model, content, reasoning string, toolC
 		blocks = append(blocks, map[string]any{"type": "text", "text": content})
 	}
 	for _, call := range toolCalls {
-		arguments := strings.TrimSpace(call.Arguments)
+		arguments, _ := translate.NormalizeToolCallArguments(call.Arguments)
 		input := json.RawMessage(arguments)
 		if !json.Valid(input) {
-			if repaired, ok := translate.RepairToolCallArguments(arguments); ok {
-				input = json.RawMessage(repaired)
-			} else {
-				input = json.RawMessage(`{}`)
-			}
+			input = json.RawMessage(`{}`)
 		}
 		blocks = append(blocks, map[string]any{"type": "tool_use", "id": call.ID, "name": call.Name, "input": input})
 	}

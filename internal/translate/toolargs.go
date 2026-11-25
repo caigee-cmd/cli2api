@@ -7,13 +7,38 @@ import (
 
 const maxCloseClosers = 24
 
-// RepairToolCallArguments turns the argument text a model streamed for a
-// function tool into valid JSON when the damage is formatting-level: bare
-// quotes inside a value, a trailing comma, or missing closing brackets after a
-// complete value. It never pads a value that was cut mid-string, because
-// repairing `{"command":"rm -rf /tmp/fo` into a legal string would run a
-// command the model never finished writing; that case stays a hard error so
-// the caller reports a truncated tool call instead of executing it.
+// NormalizeToolCallArguments always returns valid JSON for a function tool's
+// argument text, so a damaged tool call degrades into a call the model can
+// retry instead of killing the whole turn. The bool reports whether anything
+// had to change.
+//
+// Order: formatting repair first; then drop the trailing incomplete member
+// (a value cut mid-string, usually by the output-token limit) and keep only
+// fields the model finished writing; last resort an empty object. Dropping
+// beats inventing: a tool called without its unfinished field validates and
+// fails visibly, while padding a truncated `rm -rf /tmp/fo` would execute
+// something the model never wrote.
+func NormalizeToolCallArguments(raw string) (string, bool) {
+	text := strings.TrimSpace(raw)
+	if text == "" {
+		return "{}", true
+	}
+	if json.Valid([]byte(text)) {
+		return text, false
+	}
+	if repaired, ok := RepairToolCallArguments(text); ok {
+		return repaired, true
+	}
+	if trimmed, ok := dropIncompleteMember(text); ok {
+		return trimmed, true
+	}
+	return "{}", true
+}
+
+// RepairToolCallArguments fixes formatting-level damage only: bare quotes
+// inside a value, a trailing comma, missing closing brackets after a complete
+// value, or prose appended after the object. It never pads a value that was
+// cut mid-string and reports ok=false for that case.
 func RepairToolCallArguments(raw string) (string, bool) {
 	text := strings.TrimSpace(raw)
 	if text == "" {
@@ -39,6 +64,62 @@ func RepairToolCallArguments(raw string) (string, bool) {
 		return prefix, true
 	}
 	return "", false
+}
+
+// dropIncompleteMember keeps only the members the model finished writing: it
+// cuts at the last top-level comma whose prefix can be closed into valid JSON.
+func dropIncompleteMember(text string) (string, bool) {
+	if !strings.HasPrefix(text, "{") {
+		return "", false
+	}
+	commas := topLevelCommaPositions(text)
+	for index := len(commas) - 1; index >= 0; index-- {
+		prefix := strings.TrimSpace(strings.TrimSuffix(text[:commas[index]], ","))
+		if prefix == "" || prefix == "{" {
+			continue
+		}
+		if closed, ok := closeArgumentTail(prefix); ok {
+			return closed, true
+		}
+	}
+	if closed, ok := closeArgumentTail("{"); ok {
+		return closed, true
+	}
+	return "", false
+}
+
+// topLevelCommaPositions returns the byte offsets of commas that sit directly
+// inside the outermost object, outside any nested structure or string.
+func topLevelCommaPositions(text string) []int {
+	positions := make([]int, 0, 8)
+	depth := 0
+	inString := false
+	for index := 0; index < len(text); index++ {
+		character := text[index]
+		if inString {
+			if character == '\\' {
+				index++
+				continue
+			}
+			if character == '"' {
+				inString = false
+			}
+			continue
+		}
+		switch character {
+		case '"':
+			inString = true
+		case '{', '[':
+			depth++
+		case '}', ']':
+			depth--
+		case ',':
+			if depth == 1 {
+				positions = append(positions, index)
+			}
+		}
+	}
+	return positions
 }
 
 func argumentRepairCandidates(text string) []string {

@@ -65,39 +65,33 @@ func decodeOpenAIToolCalls(raw json.RawMessage) []proxyToolCall {
 			arguments = "{}"
 		}
 		if _, _, custom := translate.DecodeCustomToolName(call.Function.Name); !custom && !json.Valid([]byte(arguments)) {
-			repaired, ok := translate.RepairToolCallArguments(arguments)
-			if !ok {
-				continue
-			}
-			arguments = repaired
+			normalized, _ := translate.NormalizeToolCallArguments(arguments)
+			arguments = normalized
 		}
 		calls = append(calls, proxyToolCall{ID: call.ID, Name: call.Function.Name, Arguments: arguments})
 	}
 	return calls
 }
 
-func validateProxyToolCallArguments(calls []proxyToolCall) error {
+// normalizeProxyToolCallArguments makes every function call carry valid JSON
+// arguments. It never fails the turn: a call the model mangled or left
+// unfinished keeps only the fields it completed, so the client can run the tool
+// and hand the validation error back to the model instead of the client
+// aborting the whole round with "arguments are invalid JSON".
+func normalizeProxyToolCallArguments(calls []proxyToolCall) bool {
+	changed := false
 	for index := range calls {
 		call := &calls[index]
 		if _, _, custom := translate.DecodeCustomToolName(call.Name); custom {
 			continue
 		}
-		arguments := strings.TrimSpace(call.Arguments)
-		if arguments == "" {
-			call.Arguments = "{}"
-			continue
+		normalized, normalizedChanged := translate.NormalizeToolCallArguments(call.Arguments)
+		call.Arguments = normalized
+		if normalizedChanged {
+			changed = true
 		}
-		if !json.Valid([]byte(arguments)) {
-			repaired, ok := translate.RepairToolCallArguments(arguments)
-			if !ok {
-				return fmt.Errorf("tool call %q (%s) arguments are invalid JSON", call.ID, call.Name)
-			}
-			call.Arguments = repaired
-			continue
-		}
-		call.Arguments = arguments
 	}
-	return nil
+	return changed
 }
 
 func (h *Handler) PrepareCompatibilityExecution(r *http.Request, request translate.ChatRequest) (Execution, error) {
