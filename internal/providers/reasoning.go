@@ -108,27 +108,49 @@ func ResolveReasoningLevel(level string, caps ModelCapabilities) string {
 	}
 	normalized := NormalizeReasoningLevel(level)
 	if normalized != "" {
-		for _, option := range caps.ReasoningOptions {
-			if option == normalized {
-				return normalized
-			}
+		if containsReasoningOption(caps.ReasoningOptions, normalized) {
+			return normalized
 		}
-		if chain := reasoningDegradationChain(normalized); chain != nil {
-			for _, candidate := range chain {
+		// Declared ladder: a level the model does not advertise degrades to
+		// the nearest lower level it does advertise (CC Switch behavior), and
+		// never upgrades. A request below the model's floor (for example "none"
+		// against low/high/max) lands on the lowest declared level instead of
+		// the model default, so "do not think hard" never becomes "think hard".
+		if rank := reasoningRank(normalized); rank >= 0 {
+			for _, candidate := range reasoningDegradationChain(normalized) {
 				if containsReasoningOption(caps.ReasoningOptions, candidate) {
 					return candidate
 				}
 			}
-		}
-	}
-	if fallback := NormalizeReasoningLevel(caps.ReasoningDefault); fallback != "" {
-		for _, option := range caps.ReasoningOptions {
-			if option == fallback {
-				return fallback
+			if lowest := lowestReasoningOption(caps); lowest != "" {
+				return lowest
 			}
 		}
 	}
+	if fallback := NormalizeReasoningLevel(caps.ReasoningDefault); fallback != "" {
+		if containsReasoningOption(caps.ReasoningOptions, fallback) {
+			return fallback
+		}
+	}
 	return caps.ReasoningOptions[0]
+}
+
+// lowestReasoningOption returns the cheapest declared level in the neutral
+// vocabulary, so a client asking for less thinking than a model supports still
+// gets the minimum instead of the model's default tier.
+func lowestReasoningOption(caps ModelCapabilities) string {
+	lowest := ""
+	lowestRank := len(reasoningLadder)
+	for _, option := range caps.ReasoningOptions {
+		normalized := NormalizeReasoningLevel(option)
+		if normalized == "" {
+			continue
+		}
+		if rank := reasoningRank(normalized); rank >= 0 && rank < lowestRank {
+			lowest, lowestRank = normalized, rank
+		}
+	}
+	return lowest
 }
 
 func containsReasoningOption(options []string, level string) bool {
@@ -148,16 +170,31 @@ func ReasoningOptionIncludes(options []string, level string) bool {
 	return containsReasoningOption(options, NormalizeReasoningLevel(level))
 }
 
-// reasoningDegradationChain returns lower tiers ordered from nearest to
-// farthest. Only high tiers need explicit degradation; lower/unknown values
-// fall through to the model default in ResolveReasoningLevel.
+// reasoningLadder is the neutral effort ladder from cheapest to most expensive.
+// CC Switch uses the same tiers when converting effort into thinking budgets
+// (2048 / 8192 / 16384 / 24576), so ranking them here keeps one vocabulary.
+var reasoningLadder = []string{"none", "low", "medium", "high", "xhigh", "max"}
+
+func reasoningRank(level string) int {
+	for i, candidate := range reasoningLadder {
+		if candidate == level {
+			return i
+		}
+	}
+	return -1
+}
+
+// reasoningDegradationChain returns every lower tier ordered from nearest to
+// farthest, and nil for an unknown level. Callers pick the first one the model
+// actually declares.
 func reasoningDegradationChain(level string) []string {
-	switch level {
-	case "max":
-		return []string{"xhigh", "high", "medium", "low", "none"}
-	case "xhigh":
-		return []string{"high", "medium", "low", "none"}
-	default:
+	rank := reasoningRank(level)
+	if rank <= 0 {
 		return nil
 	}
+	chain := make([]string, 0, rank)
+	for i := rank - 1; i >= 0; i-- {
+		chain = append(chain, reasoningLadder[i])
+	}
+	return chain
 }

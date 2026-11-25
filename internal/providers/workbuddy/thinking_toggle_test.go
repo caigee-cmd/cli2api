@@ -18,12 +18,12 @@ func TestApplyChatReasoningDisabledThinking(t *testing.T) {
 		CanDisableThinking: false,
 	}
 	disabled := translate.ChatRequest{
-		Model:   "deepseek-v4.1-flash",
+		Model:    "deepseek-v4.1-flash",
 		Thinking: json.RawMessage(`{"type":"disabled"}`),
 	}
 	obj := map[string]any{
-		"reasoning":        map[string]any{"effort": "stale"},
-		"reasoning_effort": "max",
+		"reasoning":         map[string]any{"effort": "stale"},
+		"reasoning_effort":  "max",
 		"reasoning_summary": "auto",
 		"verbosity":         "high",
 	}
@@ -46,8 +46,9 @@ func TestApplyChatReasoningDisabledDoesNotHijackLevels(t *testing.T) {
 		ReasoningOptions: []string{"low", "high", "max"},
 		ReasoningDefault: "high",
 	}
-	// Negative controls: enabled thinking and reasoning_effort:none must keep
-	// the existing catalog-clamped behaviour.
+	// Negative controls: enabled thinking keeps the catalog default, while
+	// reasoning_effort:none degrades to the cheapest declared tier instead of
+	// being clamped back up to the default.
 	for _, tc := range []struct {
 		name       string
 		req        translate.ChatRequest
@@ -56,9 +57,9 @@ func TestApplyChatReasoningDisabledDoesNotHijackLevels(t *testing.T) {
 		{"enabled thinking", translate.ChatRequest{
 			Model: "deepseek-v4.1-flash", Thinking: json.RawMessage(`{"type":"enabled"}`),
 		}, "high"},
-		{"effort none clamped", translate.ChatRequest{
+		{"effort none degrades to lowest declared", translate.ChatRequest{
 			Model: "deepseek-v4.1-flash", ReasoningEffort: json.RawMessage(`"none"`),
-		}, "high"},
+		}, "low"},
 		{"effort low preserved", translate.ChatRequest{
 			Model: "deepseek-v4.1-flash", ReasoningEffort: json.RawMessage(`"low"`),
 		}, "low"},
