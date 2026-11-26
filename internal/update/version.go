@@ -59,12 +59,27 @@ type Release struct {
 	HTMLURL     string `json:"html_url"`
 	Draft       bool   `json:"draft"`
 	Prerelease  bool   `json:"prerelease"`
+	// Latest marks the release the repository designates as its latest one.
+	// It comes from the /releases/latest endpoint, not the list payload, so a
+	// deliberate numbering reset can point the update channel at a lower
+	// version than the highest tag.
+	Latest bool `json:"-"`
 }
 
 func SelectNextRelease(current string, releases []Release) (Release, bool) {
 	currentVersion, err := ParseVersion(current)
 	if err != nil {
 		return Release{}, false
+	}
+	// The repository's own latest marker is authoritative: after a version
+	// renumbering the marked release can sit below the highest tag, and clients
+	// must not be pushed past it. Without a marker, fall back to the highest tag.
+	if marked, version, ok := latestMarkedRelease(releases); ok {
+		if version.Compare(currentVersion) <= 0 {
+			return Release{}, false
+		}
+		marked.TagName = version.String()
+		return marked, true
 	}
 	candidates := make([]Release, 0, len(releases))
 	for _, release := range releases {
@@ -87,6 +102,22 @@ func SelectNextRelease(current string, releases []Release) (Release, bool) {
 		return left.Compare(right) < 0
 	})
 	return candidates[len(candidates)-1], true
+}
+
+// latestMarkedRelease returns the stable release carrying the repository's
+// latest marker.
+func latestMarkedRelease(releases []Release) (Release, Version, bool) {
+	for _, release := range releases {
+		if !release.Latest || release.Draft || release.Prerelease {
+			continue
+		}
+		version, err := ParseVersion(release.TagName)
+		if err != nil {
+			continue
+		}
+		return release, version, true
+	}
+	return Release{}, Version{}, false
 }
 
 // UpgradePath lists every stable release strictly between current and target,

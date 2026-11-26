@@ -52,8 +52,55 @@ func (s *GitHubReleaseSource) ListReleases(ctx context.Context) ([]Release, erro
 		}
 		releases = append(releases, batch...)
 		if len(batch) < 100 {
-			return releases, nil
+			break
 		}
+	}
+	s.markLatest(ctx, releases)
+	return releases, nil
+}
+
+// markLatest records which release the repository currently flags as latest.
+// It is best effort: when the endpoint is unavailable the caller falls back to
+// the highest tag.
+func (s *GitHubReleaseSource) markLatest(ctx context.Context, releases []Release) {
+	if len(releases) == 0 {
+		return
+	}
+	requestURL := fmt.Sprintf("%s/repos/%s/releases/latest", strings.TrimRight(s.baseURL, "/"), s.repo)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
+	if err != nil {
+		return
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", "cli2api-updater")
+	if s.token != "" && isTrustedGitHubAPI(req.URL) {
+		req.Header.Set("Authorization", "Bearer "+s.token)
+	}
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return
+	}
+	var latest struct {
+		TagName string `json:"tag_name"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&latest); err != nil {
+		return
+	}
+	tag, err := ParseVersion(latest.TagName)
+	if err != nil {
+		return
+	}
+	for index := range releases {
+		version, err := ParseVersion(releases[index].TagName)
+		if err != nil || version.Compare(tag) != 0 {
+			continue
+		}
+		releases[index].Latest = true
+		return
 	}
 }
 

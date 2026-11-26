@@ -6,11 +6,18 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 )
 
 func TestGitHubReleaseSourcePaginatesAllReleases(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/releases/latest") {
+			if err := json.NewEncoder(w).Encode(Release{TagName: "v0.2.102"}); err != nil {
+				t.Fatal(err)
+			}
+			return
+		}
 		if r.URL.Query().Get("per_page") != "100" {
 			t.Fatalf("per_page = %q", r.URL.Query().Get("per_page"))
 		}

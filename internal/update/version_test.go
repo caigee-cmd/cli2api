@@ -28,6 +28,39 @@ func TestSelectNextReleaseSkipsOlderVersions(t *testing.T) {
 	}
 }
 
+func TestSelectNextReleaseFollowsTheLatestMarker(t *testing.T) {
+	releases := []Release{
+		{TagName: "v0.7.45", Latest: true},
+		{TagName: "v0.7.59"},
+		{TagName: "v0.45.2"},
+	}
+
+	next, ok := SelectNextRelease("v0.7.44", releases)
+	if !ok || next.TagName != "v0.7.45" {
+		t.Fatalf("next = %+v, ok = %v, want v0.7.45", next, ok)
+	}
+	// Running the marked latest must not offer the higher tag as an update.
+	if _, ok := SelectNextRelease("v0.7.45", releases); ok {
+		t.Fatal("no update when already on the marked latest")
+	}
+	// Running above the marked latest must not be pushed anywhere.
+	if _, ok := SelectNextRelease("v0.7.59", releases); ok {
+		t.Fatal("no update when running above the marked latest")
+	}
+}
+
+func TestSelectNextReleaseIgnoresDraftOrPrereleaseMarker(t *testing.T) {
+	releases := []Release{
+		{TagName: "v0.2.6", Latest: true, Prerelease: true},
+		{TagName: "v0.2.5"},
+	}
+
+	next, ok := SelectNextRelease("v0.2.4", releases)
+	if !ok || next.TagName != "v0.2.5" {
+		t.Fatalf("next = %+v, ok = %v, want v0.2.5", next, ok)
+	}
+}
+
 func TestUpgradePathListsIntermediateStableVersions(t *testing.T) {
 	releases := []Release{
 		{TagName: "v0.2.3"},
