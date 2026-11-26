@@ -295,6 +295,7 @@ func collectUpstream(r io.Reader) (upstreamFrame, error) {
 	var content, reasoning strings.Builder
 	toolCalls := map[int]*mergedToolCall{}
 	var toolOrder []int
+	indexes := newToolCallIndexer()
 	err := walkUpstream(r, func(body map[string]any, frameStatus int) error {
 		part := frameFromBody(body, frameStatus)
 		if part.errText != "" {
@@ -309,7 +310,7 @@ func collectUpstream(r io.Reader) (upstreamFrame, error) {
 		content.WriteString(part.content)
 		reasoning.WriteString(part.reasoning)
 		if len(part.tools) > 0 {
-			toolOrder = mergeToolCallDeltas(part.tools, toolCalls, toolOrder)
+			toolOrder = mergeToolCallDeltas(indexes.remap(part.tools), toolCalls, toolOrder)
 		}
 		return nil
 	})
@@ -317,6 +318,72 @@ func collectUpstream(r io.Reader) (upstreamFrame, error) {
 	frame.reasoning = reasoning.String()
 	frame.tools = renderToolCalls(toolOrder, toolCalls)
 	return frame, err
+}
+
+// toolCallIndexer gives every upstream tool call its own index. Qwen4-Max
+// reuses index 0 for each call of a turn and tells them apart only by id, so
+// a delta with a new id starts a new call, and a delta without an id
+// continues the latest call at its upstream index. Upstreams that already
+// send distinct indexes keep them.
+type toolCallIndexer struct {
+	byID     map[string]int
+	latest   map[int]int
+	assigned map[int]bool
+	next     int
+}
+
+func newToolCallIndexer() *toolCallIndexer {
+	return &toolCallIndexer{byID: map[string]int{}, latest: map[int]int{}, assigned: map[int]bool{}}
+}
+
+// remap rewrites the index of every call in one tool_calls delta array. The
+// input is returned unchanged when it is not a JSON array of objects.
+func (x *toolCallIndexer) remap(raw json.RawMessage) json.RawMessage {
+	var calls []map[string]any
+	if json.Unmarshal(raw, &calls) != nil {
+		return raw
+	}
+	for _, call := range calls {
+		if call == nil {
+			continue
+		}
+		upstream := 0
+		if value, ok := numberField(call["index"]); ok {
+			upstream = value
+		}
+		id, _ := call["id"].(string)
+		local, known := x.byID[id]
+		if id == "" {
+			local, known = x.latest[upstream]
+		}
+		if !known {
+			local = x.claim(upstream)
+			if id != "" {
+				x.byID[id] = local
+			}
+		}
+		x.latest[upstream] = local
+		call["index"] = local
+	}
+	encoded, err := json.Marshal(calls)
+	if err != nil {
+		return raw
+	}
+	return encoded
+}
+
+// claim reserves the upstream index when it is still free, otherwise the
+// next unused one.
+func (x *toolCallIndexer) claim(upstream int) int {
+	local := upstream
+	if x.assigned[local] {
+		for x.assigned[x.next] {
+			x.next++
+		}
+		local = x.next
+	}
+	x.assigned[local] = true
+	return local
 }
 
 // mergedToolCall accumulates one fragmented tool-call delta.
@@ -501,8 +568,12 @@ func writeOpenAIChunks(w io.Writer, src io.Reader, model string) error {
 		return err
 	}
 	var sawFinish, sawTools, sawPayload, sawError bool
+	indexes := newToolCallIndexer()
 	err := walkUpstream(src, func(body map[string]any, frameStatus int) error {
 		frame := frameFromBody(body, frameStatus)
+		if len(frame.tools) > 0 {
+			frame.tools = indexes.remap(frame.tools)
+		}
 		if frame.finish != "" {
 			sawFinish = true
 		}
