@@ -104,6 +104,17 @@ func ClassifyError(err error) Classified {
 			Code: "first_byte_timeout", Message: err.Error(), Transient: true,
 		}
 	}
+	// An upstream that sent the head and then went silent for the whole idle
+	// deadline is a hang, not a client cancel: the caller is still waiting. Bytes
+	// are already on the wire, so there is no failover hop left; cool the account
+	// briefly so the next turn starts somewhere else.
+	if errors.Is(err, ErrStreamIdle) {
+		return Classified{
+			Kind: accounts.KindUnavailable, Status: http.StatusBadGateway,
+			Cooldown: 10 * time.Second, Code: "stream_idle_timeout",
+			Type: "api_error", Message: err.Error(), Transient: true,
+		}
+	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return Classified{
 			Kind: accounts.KindCanceled, Status: 499, Failover: false,

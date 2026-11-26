@@ -74,6 +74,14 @@ func New(cfg config.Config) *App {
 	if err != nil {
 		panic(err)
 	}
+	// Rows still marked started/streaming belong to the previous process. Their
+	// in-memory in-flight state is gone, so they can never finish on their own;
+	// leaving them open makes the console show phantom running requests.
+	if closed, err := store.CloseAbandonedRequestLogs(context.Background(), time.Now()); err != nil {
+		log.Printf("[request-logs] close abandoned rows: %v", err)
+	} else if closed > 0 {
+		log.Printf("[request-logs] marked %d abandoned request(s) from the previous process", closed)
+	}
 	proxyAPIKey, initialized, err := EnsureProxyAPIKey(context.Background(), store, cfg.ProxyAPIKey)
 	if err != nil {
 		panic(err)

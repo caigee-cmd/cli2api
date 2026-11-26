@@ -1425,12 +1425,15 @@ func (e ChatExecutor) releaseInFlight(requestID, id string) {
 
 // attachInFlightRelease transfers an acquired slot to the response body.
 // Close releases the pool id that was Acquired (not a rewritten account id).
+// The body also carries an idle deadline: an upstream that sent the head and
+// then went silent must not keep the slot (or the client connection) forever.
 func (e ChatExecutor) attachInFlightRelease(resp *http.Response, requestID, poolID string) *http.Response {
 	if resp == nil || resp.Body == nil {
 		e.releaseInFlight(requestID, poolID)
 		return resp
 	}
-	resp.Body = &releaseCloser{ReadCloser: resp.Body, release: func() { e.releaseInFlight(requestID, poolID) }}
+	guarded := guardStreamIdle(resp.Body, resolveStreamIdleTimeout())
+	resp.Body = &releaseCloser{ReadCloser: guarded, release: func() { e.releaseInFlight(requestID, poolID) }}
 	return resp
 }
 
