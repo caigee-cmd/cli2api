@@ -17,6 +17,10 @@ on:
         description: Optional explicit x.y.z version that overrides the bump
         type: string
         required: false
+      allow_rewind:
+        description: Permit an explicit version below the latest tag when the tag is free (numbering reset)
+        type: boolean
+        default: false
 
 concurrency:
   group: release
@@ -73,6 +77,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           BUMP: ${{ inputs.bump || 'patch' }}
           EXPLICIT_VERSION: ${{ inputs.version }}
+          ALLOW_REWIND: ${{ inputs.allow_rewind }}
         run: |
           set -euo pipefail
           if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
@@ -105,7 +110,14 @@ jobs:
 
           if [[ -n "$explicit" ]]; then
             IFS=. read -r major minor patch <<< "$explicit"
-            if [[ -n "$previous_tag" ]]; then
+            if [[ "${ALLOW_REWIND:-false}" == "true" ]]; then
+              # Intentional numbering reset: the operator deliberately reuses a
+              # version number below the latest tag, so the number must be free.
+              if git rev-parse -q --verify "refs/tags/v$explicit" >/dev/null; then
+                echo "Tag v$explicit still exists; delete its release and tag first" >&2
+                exit 1
+              fi
+            elif [[ -n "$previous_tag" ]]; then
               highest="$(printf '%s\n%s\n' "${previous_tag#v}" "$explicit" | sort -V | tail -n 1)"
               if [[ "$highest" != "$explicit" || "${previous_tag#v}" == "$explicit" ]]; then
                 echo "Explicit version $explicit must be greater than $previous_tag" >&2
