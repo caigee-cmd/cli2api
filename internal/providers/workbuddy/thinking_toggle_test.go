@@ -41,6 +41,25 @@ func TestApplyChatReasoningDisabledThinking(t *testing.T) {
 	}
 }
 
+func TestApplyChatReasoningNoneNeverUpgrades(t *testing.T) {
+	// A model that declares "none" but cannot turn thinking off must degrade
+	// down to the cheapest thinking tier, never up to the model default.
+	caps := providers.ModelCapabilities{
+		ReasoningOptions:   []string{"none", "medium", "high"},
+		ReasoningDefault:   "high",
+		CanDisableThinking: false,
+	}
+	req := translate.ChatRequest{Model: "glm-5.3", ReasoningEffort: json.RawMessage(`"none"`)}
+	obj := map[string]any{"reasoning_effort": "stale"}
+	if got := applyChatReasoning(obj, req, "", caps); got != "medium" {
+		t.Fatalf("resolved level=%q want medium (cheapest thinking tier)", got)
+	}
+	reasoning, ok := obj["reasoning"].(map[string]any)
+	if !ok || reasoning["effort"] != "medium" {
+		t.Fatalf("reasoning=%v want effort medium", obj["reasoning"])
+	}
+}
+
 func TestApplyChatReasoningDisabledDoesNotHijackLevels(t *testing.T) {
 	caps := providers.ModelCapabilities{
 		ReasoningOptions: []string{"low", "high", "max"},

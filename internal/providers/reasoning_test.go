@@ -97,3 +97,47 @@ func TestResolveReasoningLevelDegradesDownOnly(t *testing.T) {
 		}
 	}
 }
+
+// TestResolveReasoningLevelNeverUpgrades guards the CC Switch rule: a level the
+// client sent is passed through when the model declares it, and otherwise only
+// ever degrades downward. Replying with a stronger level than requested is never
+// acceptable, whatever the model's default happens to be.
+func TestResolveReasoningLevelNeverUpgrades(t *testing.T) {
+	sets := [][]string{
+		{"low", "high"},
+		{"none", "low", "high"},
+		{"low", "high", "max"},
+		{"none", "low", "medium", "high", "xhigh", "max"},
+	}
+	for _, options := range sets {
+		caps := ModelCapabilities{ReasoningOptions: options, ReasoningDefault: "high"}
+		for _, requested := range reasoningLadder {
+			requestedRank := reasoningRank(requested)
+			resolved := ResolveReasoningLevel(requested, caps)
+			if resolved == "" {
+				t.Fatalf("options=%v requested=%s resolved empty", options, requested)
+			}
+			if requestedRank == 0 {
+				// "do not think" below the model floor can only land on the
+				// cheapest declared tier; it must never be the default tier.
+				if got := reasoningRank(resolved); got != reasoningRank(lowestReasoningOption(caps)) {
+					t.Fatalf("options=%v requested=%s resolved=%s, want the model floor", options, requested, resolved)
+				}
+				continue
+			}
+			if got := reasoningRank(resolved); got > requestedRank {
+				t.Fatalf("options=%v requested=%s resolved=%s upgraded", options, requested, resolved)
+			}
+		}
+	}
+}
+
+func TestLowestThinkingOptionSkipsNone(t *testing.T) {
+	caps := ModelCapabilities{ReasoningOptions: []string{"none", "medium", "high"}}
+	if got := LowestThinkingOption(caps); got != "medium" {
+		t.Fatalf("lowest thinking option=%q want medium", got)
+	}
+	if got := LowestThinkingOption(ModelCapabilities{ReasoningOptions: []string{"none"}}); got != "" {
+		t.Fatalf("lowest thinking option=%q want empty", got)
+	}
+}

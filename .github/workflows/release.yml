@@ -1,6 +1,6 @@
 name: Release
 
-run-name: Release next ${{ inputs.bump || 'patch' }} from ${{ github.ref_name }}
+run-name: Release ${{ inputs.version || 'next' }} ${{ inputs.version == '' && format('({0} bump)', inputs.bump || 'patch') || '' }} from ${{ github.ref_name }}
 
 on:
   workflow_dispatch:
@@ -13,6 +13,10 @@ on:
           - patch
           - minor
           - major
+      version:
+        description: Optional explicit x.y.z version that overrides the bump
+        type: string
+        required: false
 
 concurrency:
   group: release
@@ -68,6 +72,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           BUMP: ${{ inputs.bump || 'patch' }}
+          EXPLICIT_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
           if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
@@ -92,7 +97,26 @@ jobs:
             git tag --merged "$GITHUB_SHA" --list 'v[0-9]*'
           } | awk '/^v[0-9]+\.[0-9]+\.[0-9]+$/ { print }' | sort -V | tail -n 1)"
 
-          if [[ -z "$previous_tag" ]]; then
+          explicit="${EXPLICIT_VERSION:-}"
+          if [[ -n "$explicit" && ! "$explicit" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Explicit version must be x.y.z, got $explicit" >&2
+            exit 1
+          fi
+
+          if [[ -n "$explicit" ]]; then
+            IFS=. read -r major minor patch <<< "$explicit"
+            if [[ -n "$previous_tag" ]]; then
+              highest="$(printf '%s\n%s\n' "${previous_tag#v}" "$explicit" | sort -V | tail -n 1)"
+              if [[ "$highest" != "$explicit" || "${previous_tag#v}" == "$explicit" ]]; then
+                echo "Explicit version $explicit must be greater than $previous_tag" >&2
+                exit 1
+              fi
+            fi
+            if [[ -n "$previous_tag" ]] && ! git merge-base --is-ancestor "$previous_tag" "$GITHUB_SHA"; then
+              echo "$previous_tag is not an ancestor of $GITHUB_SHA" >&2
+              exit 1
+            fi
+          elif [[ -z "$previous_tag" ]]; then
             major=0
             minor=1
             patch=0
