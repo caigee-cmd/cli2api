@@ -76,6 +76,30 @@ func (s *Store) UpdateRequestLog(ctx context.Context, log accounts.RequestLog) e
 	return nil
 }
 
+// CloseAbandonedRequestLogs marks request rows a previous process left in a
+// non-terminal state. In-flight request state lives in memory only, so after a
+// restart nothing can ever finish those rows: without this sweep every crash or
+// container replacement leaves permanently "streaming" entries that make the
+// console's running count and usage windows lie.
+func (s *Store) CloseAbandonedRequestLogs(ctx context.Context, now time.Time) (int, error) {
+	if now.IsZero() {
+		now = time.Now()
+	}
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE request_logs SET
+		  finished_at = ?, status = ?, error_kind = ?, error_code = ?, error_message = ?
+		WHERE status IN (?, ?) AND (finished_at IS NULL OR finished_at = '')`,
+		formatTime(now.UTC()), accounts.RequestStatusError, accounts.KindUnavailable,
+		"stream_abandoned", "gateway restarted before the request finished",
+		accounts.RequestStatusStarted, accounts.RequestStatusStreaming,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("close abandoned request logs: %w", err)
+	}
+	changed, _ := result.RowsAffected()
+	return int(changed), nil
+}
+
 func (s *Store) InsertRequestAttempt(ctx context.Context, attempt accounts.RequestAttempt) error {
 	if strings.TrimSpace(attempt.ID) == "" {
 		return fmt.Errorf("request attempt id required")
