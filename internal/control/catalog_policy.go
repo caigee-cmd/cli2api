@@ -687,7 +687,10 @@ func decorateProviderSettings(ctx context.Context, settings *Settings, item map[
 	if settings != nil {
 		setting, _ = settings.GetProviderModelSetting(ctx, provider, settingsKey)
 	}
-	maxMode := setting.MaxMode && supportsMax && provider == "trae"
+	// Trae models with a real Max tier stay unlocked: the adapter asks upstream
+	// for the larger window on every request, so the console shows one context
+	// size instead of a per-model switch.
+	maxMode := supportsMax && provider == "trae"
 	item["max_mode"] = maxMode
 	window := dev
 	if maxMode && max > 0 {
@@ -699,8 +702,8 @@ func decorateProviderSettings(ctx context.Context, settings *Settings, item map[
 	}
 	// The prompt/output ceilings deliberately stay at the default tier here. The
 	// console selects the Max tier from prompt_max_tokens_max / max_output_tokens_max
-	// at render time based on the toggle, so turning max mode off always restores
-	// the default tier instead of leaving the mutated Max value in place.
+	// at render time, so the advertised ceiling follows the tier the adapter
+	// actually asks for instead of leaving a mutated Max value in place.
 	defaultLevel, _ := item["reasoning_default"].(string)
 	selected := defaultLevel
 	if setting.ReasoningEffort != "" {

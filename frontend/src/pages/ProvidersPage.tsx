@@ -176,11 +176,14 @@ function ModelContextControls({
 }) {
   const provider = modelProvider(model)
   const isCard = variant === 'card'
-  const defaultWindow = model.catalog_context_length || model.context_length
+  // The effective window already carries the unlocked tier for providers that
+  // ask upstream for the larger context on every request (Trae), so only Qoder
+  // still exposes a selectable window.
+  const defaultWindow = model.context_length || model.catalog_context_length
   const maxWindow = model.catalog_context_length_max
   const hasMaxWindow = Boolean(maxWindow && maxWindow !== defaultWindow)
   const reasoningOptions = model.reasoning_options || []
-  const canToggleMax = (provider === 'trae' || provider === 'qoder') && model.supports_max_mode
+  const canToggleMax = provider === 'qoder' && Boolean(model.supports_max_mode)
   const reasoningText = reasoningOptions.length
     ? reasoningOptions.join(' / ')
     : model.reasoning_type

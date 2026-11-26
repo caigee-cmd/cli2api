@@ -138,10 +138,6 @@ export function updateModelContext(modelKey: string, contextLength: number) {
   })
 }
 
-export function updateTraeMaxMode(modelKey: string, maxMode: boolean) {
-  return updateProviderMaxMode('trae', modelKey, maxMode)
-}
-
 export function updateProviderMaxMode(provider: string, modelKey: string, maxMode: boolean, contextWindow?: number | null) {
   return api<{
     model: string

@@ -509,11 +509,10 @@ func TestDecorateKeepsMaxModeForCeilingOnlyTier(test *testing.T) {
 	}
 }
 
-// The Trae max-mode toggle switches the window server-side, but the prompt and
-// output ceilings stay at their catalog defaults — the console resolves the Max
-// tier from *_max at render time. This keeps the toggle reversible: turning max
-// mode off must never leave a mutated Max ceiling behind.
-func TestDecorateTraeMaxModeSwitchesWindowNotCeilings(t *testing.T) {
+// A Trae model with a real Max tier is unlocked by the catalogue itself: the
+// window the console advertises is the larger tier, with no stored setting
+// needed, while the prompt and output ceilings stay at their catalog defaults.
+func TestDecorateTraeMaxWindowIsUnlockedWithoutSetting(t *testing.T) {
 	entry := map[string]any{
 		"id": "glm-5.3", "provider": "trae",
 		"catalog_context_length": 200000, "catalog_context_length_max": 1000000,
@@ -521,24 +520,19 @@ func TestDecorateTraeMaxModeSwitchesWindowNotCeilings(t *testing.T) {
 		"prompt_max_tokens_max": 936000, "max_output_tokens_max": 64000,
 		"supports_max_mode": true, "reasoning_default": "high",
 	}
-	// max_mode off -> default window, ceilings at baseline.
 	store := newFakeStore(&callLog{})
-	off := DecorateModelsWithContext(context.Background(), NewSettings(store), []map[string]any{cloneMap(entry)})
-	if off[0]["context_length"] != 200000 || off[0]["prompt_max_tokens"] != 168000 || off[0]["max_output_tokens"] != 32000 {
-		t.Fatalf("off tier=%v", off[0])
+	decorated := DecorateModelsWithContext(context.Background(), NewSettings(store), []map[string]any{cloneMap(entry)})
+	if decorated[0]["max_mode"] != true || decorated[0]["context_length"] != 1000000 {
+		t.Fatalf("max tier not unlocked: %v", decorated[0])
 	}
-	// max_mode on -> max window; ceilings stay at baseline (frontend picks *_max).
-	storeOn := newFakeStore(&callLog{})
-	storeOn.providerSetting.MaxMode = true
-	on := DecorateModelsWithContext(context.Background(), NewSettings(storeOn), []map[string]any{cloneMap(entry)})
-	if on[0]["context_length"] != 1000000 {
-		t.Fatalf("on window=%v", on[0])
+	if decorated[0]["default_context_length"] != 200000 {
+		t.Fatalf("default tier lost: %v", decorated[0])
 	}
-	if on[0]["prompt_max_tokens"] != 168000 || on[0]["max_output_tokens"] != 32000 {
-		t.Fatalf("ceilings must stay at baseline: %v", on[0])
+	if decorated[0]["prompt_max_tokens"] != 168000 || decorated[0]["max_output_tokens"] != 32000 {
+		t.Fatalf("ceilings must stay at baseline: %v", decorated[0])
 	}
-	if on[0]["prompt_max_tokens_max"] != 936000 || on[0]["max_output_tokens_max"] != 64000 {
-		t.Fatalf("max tier must remain available: %v", on[0])
+	if decorated[0]["prompt_max_tokens_max"] != 936000 || decorated[0]["max_output_tokens_max"] != 64000 {
+		t.Fatalf("max tier must remain available: %v", decorated[0])
 	}
 }
 

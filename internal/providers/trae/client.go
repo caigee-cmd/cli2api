@@ -1103,22 +1103,10 @@ func (c *Client) chatRequest(ctx context.Context, credential Credential, req tra
 	if err := json.Unmarshal(rewritten, &obj); err == nil {
 		maxMode := false
 		storedLevel := ""
-		if req.IsMaxMode != nil {
-			maxMode = *req.IsMaxMode
-		}
 		caps := c.capsFor(req.Model)
 		if setter, ok := c.store.(ModelSettingReader); ok {
 			if stored, err := setter.GetProviderModelSetting(ctx, "trae", settingModelKey(req.Model)); err == nil {
-				if req.IsMaxMode == nil {
-					maxMode = stored.MaxMode
-				}
 				storedLevel = stored.ReasoningEffort
-			}
-		} else if req.IsMaxMode == nil {
-			if maxSetter, ok := c.store.(ModelMaxModeReader); ok {
-				if stored, err := maxSetter.GetProviderModelMaxMode(ctx, "trae", settingModelKey(req.Model)); err == nil {
-					maxMode = stored
-				}
 			}
 		}
 		// Caps may be empty because the catalog has not been fetched (fresh
@@ -1128,8 +1116,12 @@ func (c *Client) chatRequest(ctx context.Context, credential Credential, req tra
 			_, _ = c.Models(ctx, accountID)
 			caps = c.capsFor(req.Model)
 		}
-		if maxMode && !caps.MaxMode {
-			log.Printf("trae model %q: max mode requested but catalog says unsupported; sending default context window", req.Model)
+		// Models with a real Max tier stay unlocked: ask upstream for the larger
+		// window on every request instead of relying on a console switch. A
+		// client that explicitly clears the flag still gets the default window.
+		maxMode = caps.MaxMode
+		if req.IsMaxMode != nil {
+			maxMode = *req.IsMaxMode && caps.MaxMode
 		}
 		applySoloChatFields(obj, req, maxMode, storedLevel, caps, credential.UID, providers.ConversationFromContext(ctx))
 		resolved.ReasoningLevel = resolvedReasoningLevel(req, storedLevel, caps)
