@@ -14,7 +14,7 @@ on:
           - minor
           - major
       version:
-        description: Optional explicit x.y.z version that overrides the bump
+        description: Optional explicit x.y.z version; it must be exactly the next patch after the latest published release (use bump=minor/major to change the line)
         type: string
         required: false
       allow_rewind:
@@ -118,9 +118,15 @@ jobs:
                 exit 1
               fi
             elif [[ -n "$previous_tag" ]]; then
-              highest="$(printf '%s\n%s\n' "${previous_tag#v}" "$explicit" | sort -V | tail -n 1)"
-              if [[ "$highest" != "$explicit" || "${previous_tag#v}" == "$explicit" ]]; then
-                echo "Explicit version $explicit must be greater than $previous_tag" >&2
+              # Versions iterate by exactly one patch on the 0.7.x line: no
+              # jumps, no rewinds, no reuse. An explicit number is only the next
+              # patch of the latest published release; line changes go through
+              # bump=minor/major.
+              prev="${previous_tag#v}"
+              IFS=. read -r prev_major prev_minor prev_patch <<< "$prev"
+              expected="$prev_major.$prev_minor.$((prev_patch + 1))"
+              if [[ "$explicit" != "$expected" ]]; then
+                echo "Explicit version $explicit must be the next patch $expected after $previous_tag" >&2
                 exit 1
               fi
             fi
