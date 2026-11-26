@@ -21,10 +21,6 @@ type AggregatePlan struct {
 	// a request that carried no reasoning intent at all; it never overrides or
 	// caps a level the client actually asked for.
 	ReasoningEffort string
-	// MaxOutput is the logical model's configured max output declaring ceiling.
-	// It fills a request that carried no max_tokens at all, mirroring the
-	// catalog's advertised max_output_tokens. Zero means "ask the catalog".
-	MaxOutput int
 	// Members already filtered by the caller's provider grants and sorted by
 	// priority. Immutable for the lifetime of the request.
 	Members []accounts.AggregationMember
@@ -42,7 +38,6 @@ func NewAggregatePlan(agg accounts.Aggregation) *AggregatePlan {
 		AllowFallbacks:  agg.AllowFallbacks,
 		MaxAttempts:     agg.MaxAttempts,
 		ReasoningEffort: agg.ReasoningEffort,
-		MaxOutput:       agg.MaxOutputTokens,
 		Members:         agg.Members,
 		byProvider:      make(map[string][]accounts.AggregationMember, len(agg.Members)),
 	}

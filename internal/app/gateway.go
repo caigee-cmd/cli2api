@@ -47,9 +47,6 @@ func (a *App) newGateway() *apigateway.Handler {
 	if a.Control != nil {
 		h.ModelContexts = a.Control.Settings
 		h.Aggregations = a.Control.Aggregations
-		if a.Control.Catalog != nil {
-			h.ModelLimits = a.Control.Catalog
-		}
 	}
 	if a.Manager != nil {
 		h.Catalogs = a.Manager

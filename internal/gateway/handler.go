@@ -20,7 +20,6 @@ type Handler struct {
 	Recorder          *applogs.RequestRecorder
 	ModelContexts     executor.ModelContextStore
 	Catalogs          executor.CatalogPreparer
-	ModelLimits       executor.ModelLimitResolver
 	Aggregations      executor.AggregationResolver
 	Logs              executor.RequestStarter
 	CrossProviderPool *atomic.Bool

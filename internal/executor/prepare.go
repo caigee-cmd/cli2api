@@ -38,13 +38,6 @@ type CatalogPreparer interface {
 	EnsureModelCatalogs(ctx context.Context, force bool)
 }
 
-// ModelLimitResolver reports the max output tokens a public model advertises in
-// the display catalog. Implemented by control.Catalog and injected by the
-// gateway, so the executor never imports control.
-type ModelLimitResolver interface {
-	ModelMaxOutput(modelID string) (int, bool)
-}
-
 // AggregationResolver resolves a logical model ID to a read-only snapshot of
 // its provider/model members. Implemented by control.Aggregations and injected
 // by the gateway. The executor never imports control directly.
@@ -83,7 +76,6 @@ type PrepareInput struct {
 	Now              time.Time
 	NewRequestID     func() string
 	ModelContexts    ModelContextStore
-	ModelLimits      ModelLimitResolver
 	Catalogs         CatalogPreparer
 	Aggregations     AggregationResolver
 	Logs             RequestStarter
@@ -158,9 +150,6 @@ func (e ChatExecutor) Prepare(in PrepareInput) (PreparedRequest, error) {
 		if err := ApplyModelContextDefaults(in.Context, in.ModelContexts, &request, providerFilter); err != nil {
 			return PreparedRequest{}, &PrepareError{Status: 500, Code: "model_setting_failed", Message: err.Error()}
 		}
-	}
-	if value, ok := applyModelMaxOutputDefault(&request, publicModel, aggregatePlan, in.ModelLimits); ok && in.NativeRequest != nil {
-		in.NativeRequest = in.NativeRequest.WithDefaultMaxOutput(value)
 	}
 	if in.Catalogs != nil {
 		in.Catalogs.EnsureModelCatalogs(in.Context, false)
@@ -454,35 +443,6 @@ func ApplyModelContextDefaults(ctx context.Context, store ModelContextStore, req
 
 func modelContextKey(model string) string {
 	return accounts.CanonicalModelID(model)
-}
-
-// applyModelMaxOutputDefault replaces the upstream's own default output cap
-// (typically 4096) with the max output the model actually advertises whenever
-// the client did not ask for a specific size. Explicit client values always
-// win, so a client that sends max_tokens keeps its own budget. It returns the
-// applied value so the native Responses body can carry the same ceiling.
-func applyModelMaxOutputDefault(req *translate.ChatRequest, publicModel string, plan *AggregatePlan, limits ModelLimitResolver) (json.RawMessage, bool) {
-	if req == nil || limits == nil {
-		return nil, false
-	}
-	if len(req.MaxCompletionTokens) > 0 || len(req.MaxTokens) > 0 {
-		return nil, false
-	}
-	maxOutput := 0
-	if plan != nil && plan.MaxOutput > 0 {
-		maxOutput = plan.MaxOutput
-	}
-	if maxOutput <= 0 {
-		if value, ok := limits.ModelMaxOutput(modelContextKey(publicModel)); ok && value > 0 {
-			maxOutput = value
-		}
-	}
-	if maxOutput <= 0 {
-		return nil, false
-	}
-	value := json.RawMessage(strconv.Itoa(maxOutput))
-	req.MaxTokens = append(json.RawMessage(nil), value...)
-	return value, true
 }
 
 func NativeSessionKeyFor(req *translate.NativeResponsesRequest, identity auth.Identity) string {
