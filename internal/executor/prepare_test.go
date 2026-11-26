@@ -3,6 +3,7 @@ package executor
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -23,6 +24,17 @@ type stubContexts struct {
 func (s *stubContexts) GetModelContext(_ context.Context, modelID string) (int, bool, error) {
 	s.got = modelID
 	return s.value, s.ok, s.err
+}
+
+type stubLimits struct {
+	value int
+	ok    bool
+	got   string
+}
+
+func (s *stubLimits) ModelMaxOutput(modelID string) (int, bool) {
+	s.got = modelID
+	return s.value, s.ok
 }
 
 type stubCatalogs struct {
@@ -206,6 +218,64 @@ func TestPrepareDeniesUngrantedProvider(t *testing.T) {
 	var prepared *PrepareError
 	if err == nil || !asPrepareError(err, &prepared) || prepared.Code != "provider_not_allowed" || prepared.Status != 403 {
 		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestPrepareFillsMissingMaxTokensWithCatalogCeiling(t *testing.T) {
+	ex := NewChatExecutor(NewPool(nil, nil), "")
+	limits := &stubLimits{value: 16000, ok: true}
+
+	got, err := ex.Prepare(PrepareInput{
+		Request: translate.ChatRequest{
+			Model: "workbuddy/deepseek-v4.1-flash", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+		},
+		ModelLimits:  limits,
+		NewRequestID: func() string { return "req_max" },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(limits.got, "deepseek-v4.1-flash") {
+		t.Fatalf("limit key=%q", limits.got)
+	}
+	if string(got.Request.MaxTokens) != "16000" {
+		t.Fatalf("max tokens=%s, want the catalog ceiling", got.Request.MaxTokens)
+	}
+
+	explicit, err := ex.Prepare(PrepareInput{
+		Request: translate.ChatRequest{
+			Model: "workbuddy/deepseek-v4.1-flash", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}},
+			MaxTokens: json.RawMessage(`4096`),
+		},
+		ModelLimits:  limits,
+		NewRequestID: func() string { return "req_keep" },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(explicit.Request.MaxTokens) != "4096" {
+		t.Fatalf("client max tokens=%s must win", explicit.Request.MaxTokens)
+	}
+}
+
+func TestPrepareNativeResponsesGetsCatalogMaxOutput(t *testing.T) {
+	ex := NewChatExecutor(NewPool(nil, nil), "")
+	limits := &stubLimits{value: 16000, ok: true}
+	native, err := translate.ParseNativeResponses([]byte(`{"model":"workbuddy/deepseek-v4.1-flash","input":[{"role":"user","content":"hi"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := ex.Prepare(PrepareInput{
+		Request:       translate.ChatRequest{Model: native.Model()},
+		NativeRequest: native,
+		ModelLimits:   limits,
+		NewRequestID:  func() string { return "req_native" },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value := got.NativeRequest.RequestedMaxOutputTokens(); string(value) != "16000" {
+		t.Fatalf("native max_output_tokens=%s", value)
 	}
 }
 

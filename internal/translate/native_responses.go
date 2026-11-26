@@ -193,6 +193,36 @@ func (r *NativeResponsesRequest) WithDefaultReasoning(level string) *NativeRespo
 	return &NativeResponsesRequest{raw: raw, fields: fields, model: r.model, stream: r.stream}
 }
 
+// RequestedMaxOutputTokens reports whether the client asked for a specific
+// max_output_tokens. The raw value is returned so callers can decide without
+// re-parsing.
+func (r *NativeResponsesRequest) RequestedMaxOutputTokens() json.RawMessage {
+	if r == nil {
+		return nil
+	}
+	value := r.fields["max_output_tokens"]
+	if isJSONNull(value) {
+		return nil
+	}
+	return append(json.RawMessage(nil), value...)
+}
+
+// WithDefaultMaxOutput returns a copy whose max_output_tokens is set to value
+// when the client sent none. A client-specified ceiling is preserved and the
+// original request is never mutated.
+func (r *NativeResponsesRequest) WithDefaultMaxOutput(value json.RawMessage) *NativeResponsesRequest {
+	if r == nil || len(value) == 0 || len(r.RequestedMaxOutputTokens()) > 0 {
+		return r
+	}
+	fields := r.Fields()
+	fields["max_output_tokens"] = append(json.RawMessage(nil), value...)
+	raw, err := json.Marshal(fields)
+	if err != nil {
+		return r
+	}
+	return &NativeResponsesRequest{raw: raw, fields: fields, model: r.model, stream: r.stream}
+}
+
 // SessionSeed is the sticky-routing anchor used when the request cannot be
 // expressed in the chat form (the chat form's ContentSessionSeed is preferred
 // whenever it exists, so accepted requests keep their existing affinity). It

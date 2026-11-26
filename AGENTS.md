@@ -49,6 +49,7 @@ live-account acceptance, and release status separate.
 - Prefer direct HTTP/SSE to Qoder cloud APIs
 - Pin qodercli / qoderclicn hooks in `worker/src/compat.mjs`; fail loudly on mismatch. Qoder CN is `provider=qoder` + `region=cn`, not a new family
 - Reasoning levels follow CC Switch: a level the client sends is forwarded untouched whenever the model declares it, an undeclared level degrades to the nearest lower declared tier (never upward, never to the model default), a request below the floor lands on the cheapest declared tier, and a reasoning mismatch must never move the request to another provider
+- A client request that omits max_tokens defaults to the max output the model advertises in the catalog (never the upstream 4096 cap); an explicit client value always wins
 - Console UI: React + Tailwind v4 + **HeroUI only** for components
 - Follow `docs/DESIGN.md` (taste v1 adapted for this console)
 - Keep iterating Qoder login, usage, and account routing. Keep scheduling focused on personal-account routing rather than commercial gateway features

@@ -159,6 +159,56 @@ func (c *Catalog) ModelContextWindows(modelID string) (dev, max int, ok bool) {
 	return 0, 0, false
 }
 
+// cachedModels returns the cached models for one view without refreshing or
+// touching the persisted snapshot. Empty when the view has never been synced.
+func (c *Catalog) cachedModels(accountID string, mode CatalogMode) []map[string]any {
+	key := CatalogCacheKey(accountID, mode)
+	c.mu.Lock()
+	entry, ok := c.cache[key]
+	c.mu.Unlock()
+	if !ok {
+		return nil
+	}
+	return CloneModelList(entry.Models)
+}
+
+// ModelMaxOutput resolves a model's declared max output tokens from the cached
+// (or freshly fetched) merged catalog. It returns ok=false when the model or its
+// ceiling is unknown, so callers keep the upstream default.
+func (c *Catalog) ModelMaxOutput(modelID string) (int, bool) {
+	if c == nil {
+		return 0, false
+	}
+	// Cache-only: this runs on the request path, so it must never kick off a
+	// catalog refresh (that would reach upstream accounts for every chat).
+	models := c.cachedModels("", CatalogModeMerge)
+	keys := []string{ModelContextKey(modelID)}
+	if index := strings.LastIndex(modelID, "/"); index >= 0 {
+		// Merged catalog entries carry the bare model id and a separate
+		// provider field, while a request may arrive provider-prefixed.
+		keys = append(keys, ModelContextKey(modelID[index+1:]))
+	}
+	for _, model := range models {
+		id, _ := model["id"].(string)
+		matched := false
+		for _, key := range keys {
+			if ModelContextKey(id) == key {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			continue
+		}
+		value, ok := catalogInt(model["max_output_tokens"])
+		if !ok || value <= 0 {
+			return 0, false
+		}
+		return value, true
+	}
+	return 0, false
+}
+
 func (c *Catalog) snapshot(accountID string, mode CatalogMode) []map[string]any {
 	if c == nil {
 		return nil
