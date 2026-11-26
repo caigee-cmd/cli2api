@@ -75,8 +75,8 @@ func TestStorePersistsModelContextSettings(t *testing.T) {
 	if !ok || got != 500000 {
 		t.Fatalf("model context = %d, %v", got, ok)
 	}
-	if err := reopened.SetModelContext(ctx, "minimax-m3", 1); err == nil {
-		t.Fatal("expected too-small context length to fail")
+	if err := reopened.SetModelContext(ctx, "minimax-m3", -1); err == nil {
+		t.Fatal("expected negative context length to fail")
 	}
 	if err := reopened.SetModelContext(ctx, "minimax-m3", 0); err != nil {
 		t.Fatal(err)

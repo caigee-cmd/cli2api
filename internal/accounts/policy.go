@@ -72,8 +72,8 @@ func DefaultWorkBuddyAutoCheckin(value *bool) bool {
 }
 
 func ValidateModelContextLength(contextLength int) error {
-	if contextLength < 0 || contextLength > 4_000_000 || (contextLength > 0 && contextLength < 1024) {
-		return fmt.Errorf("context_length must be 0 or between 1024 and 4000000")
+	if contextLength < 0 || contextLength > 4_000_000 {
+		return fmt.Errorf("context_length must be between 0 and 4000000")
 	}
 	return nil
 }

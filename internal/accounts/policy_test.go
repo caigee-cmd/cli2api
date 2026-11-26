@@ -64,7 +64,8 @@ func TestValidateModelContextLength(t *testing.T) {
 	}{
 		{-1, false},
 		{0, true},
-		{1023, false},
+		{512, true},
+		{1023, true},
 		{1024, true},
 		{4000000, true},
 		{4000001, false},

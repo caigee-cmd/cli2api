@@ -381,10 +381,10 @@ function AggregationEditorModal({
     if (!Number.isInteger(maxAttempts) || maxAttempts < 1 || maxAttempts > 64) {
       setError(t('modelPoolAttemptsInvalid')); return
     }
-    if (!Number.isInteger(contextLength) || contextLength < 0 || (contextLength > 0 && contextLength < 1024)) {
+    if (!Number.isInteger(contextLength) || contextLength < 0) {
       setError(t('modelPoolCapabilitiesInvalid')); return
     }
-    if (!Number.isInteger(maxOutput) || maxOutput < 0 || (maxOutput > 0 && maxOutput < 1024) || (contextLength > 0 && maxOutput > contextLength)) {
+    if (!Number.isInteger(maxOutput) || maxOutput < 0) {
       setError(t('modelPoolCapabilitiesInvalid')); return
     }
     if (reasoningEffort && !reasoningOptions.includes(reasoningEffort)) {

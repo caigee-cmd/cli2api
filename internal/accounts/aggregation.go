@@ -240,14 +240,11 @@ func normalizeAggregationReasoningEffort(raw string, options []string) (string, 
 // capability overrides. Zero/empty values mean "derive from the members", so an
 // unspecified aggregation behaves exactly like before this feature.
 func normalizeAggregationCapabilities(contextLength, maxOutput int, options []string, effort string) (int, int, []string, string, error) {
-	if contextLength < 0 || contextLength > 4_000_000 || (contextLength > 0 && contextLength < 1024) {
-		return 0, 0, nil, "", fmt.Errorf("aggregation context_length must be 0 or between 1024 and 4000000")
+	if contextLength < 0 || contextLength > 4_000_000 {
+		return 0, 0, nil, "", fmt.Errorf("aggregation context_length must be between 0 and 4000000")
 	}
-	if maxOutput < 0 || maxOutput > 4_000_000 || (maxOutput > 0 && maxOutput < 1024) {
-		return 0, 0, nil, "", fmt.Errorf("aggregation max_output_tokens must be 0 or between 1024 and 4000000")
-	}
-	if contextLength > 0 && maxOutput > contextLength {
-		return 0, 0, nil, "", fmt.Errorf("aggregation max_output_tokens must not exceed context_length")
+	if maxOutput < 0 || maxOutput > 4_000_000 {
+		return 0, 0, nil, "", fmt.Errorf("aggregation max_output_tokens must be between 0 and 4000000")
 	}
 	normalizedOptions, err := normalizeAggregationReasoningOptions(options)
 	if err != nil {

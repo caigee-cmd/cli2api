@@ -48,11 +48,8 @@ func TestPrepareCreateAggregationRejectsInvalidCapabilities(t *testing.T) {
 			in.ReasoningOptions = []string{"low", "medium"}
 			in.ReasoningEffort = "high"
 		}, "must be one of the configured reasoning options"},
-		{"tiny context", func(in *CreateAggregation) { in.ContextLength = 512 }, "context_length must be"},
-		{"output above context", func(in *CreateAggregation) {
-			in.ContextLength = 32_000
-			in.MaxOutputTokens = 64_000
-		}, "must not exceed context_length"},
+		{"negative context", func(in *CreateAggregation) { in.ContextLength = -1 }, "context_length must be"},
+		{"negative output", func(in *CreateAggregation) { in.MaxOutputTokens = -1 }, "max_output_tokens must be"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -63,6 +60,22 @@ func TestPrepareCreateAggregationRejectsInvalidCapabilities(t *testing.T) {
 				t.Fatalf("err = %v, want %q", err, tc.want)
 			}
 		})
+	}
+}
+
+func TestPrepareCreateAggregationAcceptsUnconstrainedCapabilities(t *testing.T) {
+	input := capabilityTestCreate()
+	// The console mirrors CC Switch: no 1024 floor and no max-output <= context
+	// rule, so an operator can declare whatever the upstream really accepts.
+	input.ContextLength = 512
+	input.MaxOutputTokens = 64_000
+
+	got, err := PrepareCreateAggregation(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ContextLength != 512 || got.MaxOutputTokens != 64_000 {
+		t.Fatalf("numeric caps = %d/%d", got.ContextLength, got.MaxOutputTokens)
 	}
 }
 
