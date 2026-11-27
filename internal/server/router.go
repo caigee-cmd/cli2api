@@ -73,12 +73,9 @@ func (s *Server) routes() {
 				return
 			}
 		}
-		data, err := webui.IndexHTML()
-		if err != nil {
+		if err := webui.WriteIndex(w); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write(data)
 	})
 }

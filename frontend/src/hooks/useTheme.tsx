@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { getStorageItem, setStorageItem } from '@/lib/storage'
 
 type Theme = 'light' | 'dark'
 
@@ -12,9 +13,9 @@ const STORAGE_KEY = 'cli2api_theme'
 const ThemeContext = createContext<ThemeContextValue | null>(null)
 
 function initialTheme(): Theme {
-  const saved = localStorage.getItem(STORAGE_KEY)
+  const saved = getStorageItem(STORAGE_KEY)
   if (saved === 'light' || saved === 'dark') return saved
-  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+  return window.matchMedia?.('(prefers-color-scheme: dark)')?.matches ? 'dark' : 'light'
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
@@ -37,13 +38,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const value = useMemo<ThemeContextValue>(() => ({
     theme,
     setTheme: (next) => {
-      localStorage.setItem(STORAGE_KEY, next)
+      setStorageItem(STORAGE_KEY, next)
       setThemeState(next)
     },
     toggleTheme: () => {
       setThemeState((current) => {
         const next = current === 'dark' ? 'light' : 'dark'
-        localStorage.setItem(STORAGE_KEY, next)
+        setStorageItem(STORAGE_KEY, next)
         return next
       })
     },

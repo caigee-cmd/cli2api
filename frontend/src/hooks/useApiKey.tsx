@@ -1,4 +1,5 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from 'react'
+import { getStorageItem, removeStorageItem, setStorageItem } from '@/lib/storage'
 
 const STORAGE_KEY = 'cli2api_key'
 
@@ -11,18 +12,18 @@ type ApiKeyContextValue = {
 const ApiKeyContext = createContext<ApiKeyContextValue | null>(null)
 
 export function ApiKeyProvider({ children }: { children: ReactNode }) {
-  const [apiKey, setApiKeyState] = useState(() => localStorage.getItem(STORAGE_KEY) || '')
+  const [apiKey, setApiKeyState] = useState(() => getStorageItem(STORAGE_KEY) || '')
 
   const value = useMemo<ApiKeyContextValue>(() => ({
     apiKey,
     setApiKey: (next) => {
       const value = String(next || '').trim()
-      if (value) localStorage.setItem(STORAGE_KEY, value)
-      else localStorage.removeItem(STORAGE_KEY)
+      if (value) setStorageItem(STORAGE_KEY, value)
+      else removeStorageItem(STORAGE_KEY)
       setApiKeyState(value)
     },
     signOut: () => {
-      localStorage.removeItem(STORAGE_KEY)
+      removeStorageItem(STORAGE_KEY)
       setApiKeyState('')
     },
   }), [apiKey])
@@ -37,5 +38,5 @@ export function useApiKey() {
 }
 
 export function readStoredApiKey() {
-  return (localStorage.getItem(STORAGE_KEY) || '').trim()
+  return (getStorageItem(STORAGE_KEY) || '').trim()
 }

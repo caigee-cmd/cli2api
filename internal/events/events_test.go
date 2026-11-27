@@ -46,6 +46,21 @@ func TestBusReplaysOnlyEventsNewerThanLastSeq(t *testing.T) {
 	}
 }
 
+func TestBusReplaysWholeRingWhenClientSeqIsStale(t *testing.T) {
+	bus := NewBus()
+	for i := 0; i < 3; i++ {
+		bus.Publish(TypeQuota, "acc", "", nil)
+	}
+	// A client from before a process restart can hold a higher seq than the new
+	// bus has. It must still receive the new bus's ring instead of silence.
+	stream, cancel := bus.Subscribe(100)
+	defer cancel()
+	first := <-stream
+	if first.Seq != 1 {
+		t.Fatalf("replayed seq = %d want 1", first.Seq)
+	}
+}
+
 func TestBusFansOutToEverySubscriber(t *testing.T) {
 	bus := NewBus()
 	a, cancelA := bus.Subscribe(0)

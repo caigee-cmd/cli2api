@@ -108,11 +108,12 @@ export function updateSystemSettings(input: { cross_provider_model_pool?: boolea
 }
 
 export function startSystemUpdate() {
-  return api<StartUpdateResult>('/api/system/update/prepare', { method: 'POST', body: '{}' })
+  // Pulling an image can outlast the console's ordinary request watchdog.
+  return api<StartUpdateResult>('/api/system/update/prepare', { method: 'POST', body: '{}', timeoutMs: 30 * 60_000 })
 }
 
 export function applyPreparedSystemUpdate() {
-  return api<StartUpdateResult>('/api/system/update/apply', { method: 'POST', body: '{}' })
+  return api<StartUpdateResult>('/api/system/update/apply', { method: 'POST', body: '{}', timeoutMs: 30 * 60_000 })
 }
 
 export function cancelSystemUpdate() {
@@ -120,7 +121,7 @@ export function cancelSystemUpdate() {
 }
 
 export function rollbackSystemUpdate(version: string) {
-  return api<StartUpdateResult>('/api/system/update/rollback', { method: 'POST', body: JSON.stringify({ version }) })
+  return api<StartUpdateResult>('/api/system/update/rollback', { method: 'POST', body: JSON.stringify({ version }), timeoutMs: 30 * 60_000 })
 }
 
 export type SystemResources = {

@@ -1,7 +1,10 @@
 package server
 
 import (
+	"errors"
+	"log"
 	"net/http"
+	"runtime/debug"
 	"strings"
 
 	"github.com/caigee-cmd/cli2api/internal/auth"
@@ -10,9 +13,10 @@ import (
 )
 
 func (s *Server) Handler() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return withRecovery(withSecurityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if s.draining() && !isLivenessPath(r.URL.Path) {
 			w.Header().Set("Connection", "close")
+			w.Header().Set("Retry-After", "30")
 			writeErr(w, http.StatusServiceUnavailable, "service_draining", "Service is shutting down")
 			return
 		}
@@ -24,11 +28,79 @@ func (s *Server) Handler() http.Handler {
 			}
 		}
 		if s.updater().Maintenance.Load() && appupdate.BlocksDuringUpdate(r.URL.Path) {
+			w.Header().Set("Retry-After", "30")
 			writeErr(w, http.StatusServiceUnavailable, "service_updating", "Service update in progress")
 			return
 		}
 		s.mux.ServeHTTP(w, r)
+	})))
+}
+
+func withSecurityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		header := w.Header()
+		header.Set("X-Content-Type-Options", "nosniff")
+		header.Set("X-Frame-Options", "SAMEORIGIN")
+		header.Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		header.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+		// Console and model responses include account names, balances and key
+		// metadata. Never let a browser or shared cache replay them, and make
+		// health probes reflect the current drain state rather than a cached 200.
+		if strings.HasPrefix(r.URL.Path, "/api/") || isOpenAIEndpoint(r.URL.Path) || isLivenessPath(r.URL.Path) {
+			header.Set("Cache-Control", "no-store")
+		}
+		next.ServeHTTP(w, r)
 	})
+}
+
+// withRecovery keeps a handler panic from surfacing as a bare connection
+// reset. A panic before the response starts becomes a structured 500; after
+// headers are on the wire there is no honest JSON left to send, so the
+// connection is aborted instead of emitting a truncated success response.
+func withRecovery(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tw := &trackingResponseWriter{ResponseWriter: w}
+		defer func() {
+			recovered := recover()
+			if recovered == nil {
+				return
+			}
+			if err, ok := recovered.(error); ok && errors.Is(err, http.ErrAbortHandler) {
+				panic(recovered)
+			}
+			log.Printf("[http] panic serving %s %s: %v\n%s", r.Method, r.URL.Path, recovered, debug.Stack())
+			if tw.wroteHeader {
+				panic(http.ErrAbortHandler)
+			}
+			writeErr(tw, http.StatusInternalServerError, "internal_error", "Internal server error")
+		}()
+		next.ServeHTTP(tw, r)
+	})
+}
+
+type trackingResponseWriter struct {
+	http.ResponseWriter
+	wroteHeader bool
+}
+
+func (w *trackingResponseWriter) WriteHeader(status int) {
+	w.wroteHeader = true
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *trackingResponseWriter) Write(p []byte) (int, error) {
+	w.wroteHeader = true
+	return w.ResponseWriter.Write(p)
+}
+
+func (w *trackingResponseWriter) Flush() {
+	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
+
+func (w *trackingResponseWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
 }
 
 // isLivenessPath keeps probes usable while the process drains; everything else

@@ -1,4 +1,4 @@
-import { api, ApiError } from './client'
+import { api, ApiError, LONG_REQUEST_TIMEOUT_MS } from './client'
 import { readStoredApiKey } from '@/hooks/useApiKey'
 import type { AccountQuota, CheckinRecord, Overview } from './types'
 
@@ -177,6 +177,7 @@ export function refreshAccount(accountId: string, options?: { quota?: boolean })
   return api(`/api/accounts/${encodeURIComponent(accountId)}/refresh${query}`, {
     method: 'POST',
     body: '{}',
+    timeoutMs: LONG_REQUEST_TIMEOUT_MS,
   })
 }
 
@@ -217,6 +218,8 @@ export function checkModels(models?: string[]) {
   return api<ModelProbeResponse>('/api/models/check', {
     method: 'POST',
     body: JSON.stringify(models?.length ? { models } : {}),
+    // The server budget for a full probe batch is ten minutes.
+    timeoutMs: LONG_REQUEST_TIMEOUT_MS,
   })
 }
 
@@ -226,6 +229,7 @@ export function testChat(model: string, content: string, accountId?: string) {
   return api('/api/chat', {
     method: 'POST',
     headers,
+    timeoutMs: LONG_REQUEST_TIMEOUT_MS,
     body: JSON.stringify({
       model,
       stream: false,
@@ -265,6 +269,7 @@ export function testRawApi(path: string, body: unknown, accountId?: string) {
   return api(path, {
     method: 'POST',
     headers,
+    timeoutMs: LONG_REQUEST_TIMEOUT_MS,
     body: JSON.stringify(body),
   })
 }
@@ -540,6 +545,7 @@ export function checkinAll(input?: { force?: boolean; include_disabled?: boolean
   return api<{ object?: string; data?: CheckinAllResult[] }>('/api/accounts/checkin-all', {
     method: 'POST',
     body: JSON.stringify(input || {}),
+    timeoutMs: LONG_REQUEST_TIMEOUT_MS,
   })
 }
 
@@ -565,6 +571,7 @@ export function refreshAllAccounts(input?: { quota?: boolean; include_disabled?:
   return api<{ object?: string; data?: AccountRefreshResult[] }>('/api/accounts/refresh-all', {
     method: 'POST',
     body: JSON.stringify(input || {}),
+    timeoutMs: LONG_REQUEST_TIMEOUT_MS,
   })
 }
 
@@ -634,5 +641,5 @@ export function exportAccountBundle() {
 }
 
 export function importAccountBundle(bundle: AccountBundle) {
-  return api<AccountImportResult>('/api/accounts/import/bundle', { method: 'POST', body: JSON.stringify(bundle) })
+  return api<AccountImportResult>('/api/accounts/import/bundle', { method: 'POST', body: JSON.stringify(bundle), timeoutMs: LONG_REQUEST_TIMEOUT_MS })
 }

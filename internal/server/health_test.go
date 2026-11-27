@@ -68,4 +68,7 @@ func TestHandlerRejectsNewWorkWhileDraining(t *testing.T) {
 	if rec.Header().Get("Connection") != "close" {
 		t.Fatalf("Connection header = %q, want close", rec.Header().Get("Connection"))
 	}
+	if rec.Header().Get("Retry-After") != "30" {
+		t.Fatalf("Retry-After = %q, want 30", rec.Header().Get("Retry-After"))
+	}
 }

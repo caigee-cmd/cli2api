@@ -2,6 +2,12 @@ import { ApiError } from './client'
 import { readStoredApiKey } from '@/hooks/useApiKey'
 import type { AccountQuota } from './types'
 
+// The server emits a keepalive comment every 15 seconds. A 45-second silence
+// means the edge or upstream is wedged even if the TCP socket is still open.
+const EVENT_STREAM_CONNECT_TIMEOUT_MS = 20_000
+const EVENT_STREAM_IDLE_TIMEOUT_MS = 45_000
+const ERROR_BODY_TIMEOUT_MS = 10_000
+
 /** Event types published by the runtime event bus (`internal/events`). */
 export type ServerEventType = 'account' | 'accounts' | 'quota' | 'checkin' | 'refresh' | 'bulk'
 
@@ -117,40 +123,80 @@ export async function openEventStream(opts: StreamOptions): Promise<void> {
   if (opts.lastSeq > 0) headers['Last-Event-ID'] = String(opts.lastSeq)
   const url = opts.lastSeq > 0 ? `/api/events?last_seq=${opts.lastSeq}` : '/api/events'
 
-  let res: Response
+  // fetch has no connect deadline of its own. Combine the caller's abort with
+  // a bounded handshake so a blackholed network is retried instead of sitting
+  // in "connecting" until the OS TCP timeout. The timer is cleared as soon as
+  // headers arrive, so a quiet but healthy SSE stream is never cut off.
+  const controller = new AbortController()
+  const forwardAbort = () => controller.abort()
+  if (opts.signal.aborted) controller.abort()
+  else opts.signal.addEventListener('abort', forwardAbort, { once: true })
+  let connectTimedOut = false
+  let connectTimer: number | undefined = window.setTimeout(() => {
+    connectTimedOut = true
+    controller.abort()
+  }, EVENT_STREAM_CONNECT_TIMEOUT_MS)
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
+  let idleTimer: number | undefined
+
   try {
-    res = await fetch(url, { headers, signal: opts.signal, cache: 'no-store' })
-  } catch (error) {
-    if (opts.signal.aborted) return
-    throw error
-  }
-  if (!res.ok) {
-    let message = `${res.status} ${res.statusText}`
+    let res: Response
     try {
-      const body = await res.text()
-      try {
-        const parsed = JSON.parse(body)
-        message = parsed?.error?.message || parsed?.message || message
-      } catch {
-        if (body) message = body.slice(0, 200)
-      }
-    } catch {
-      /* keep status text */
+      res = await fetch(url, { headers, signal: controller.signal, cache: 'no-store' })
+    } catch (error) {
+      if (opts.signal.aborted) return
+      if (connectTimedOut) throw new ApiError('event stream connection timed out', 0, 'timeout')
+      throw error
+    } finally {
+      if (connectTimer != undefined) window.clearTimeout(connectTimer)
     }
-    throw new ApiError(message, res.status)
-  }
+    if (connectTimedOut) throw new ApiError('event stream connection timed out', 0, 'timeout')
+    if (!res.ok) {
+      let message = `${res.status} ${res.statusText}`
+      let errorBodyTimer: number | undefined = window.setTimeout(() => controller.abort(), ERROR_BODY_TIMEOUT_MS)
+      try {
+        const body = await res.text()
+        try {
+          const parsed = JSON.parse(body)
+          message = parsed?.error?.message || parsed?.message || message
+        } catch {
+          if (body) message = body.slice(0, 200)
+        }
+      } catch {
+        /* keep status text */
+      } finally {
+        if (errorBodyTimer != undefined) window.clearTimeout(errorBodyTimer)
+      }
+      throw new ApiError(message, res.status)
+    }
 
-  opts.onOpen?.()
-  const reader = res.body?.getReader()
-  if (!reader) throw new ApiError('event stream unavailable', res.status)
+    opts.onOpen?.()
+    reader = res.body?.getReader()
+    if (!reader) throw new ApiError('event stream unavailable', res.status)
 
-  const decoder = new TextDecoder()
-  let buffer = ''
-  try {
+    let idleTimedOut = false
+    const resetIdleTimer = () => {
+      if (idleTimer != undefined) window.clearTimeout(idleTimer)
+      idleTimer = window.setTimeout(() => {
+        idleTimedOut = true
+        controller.abort()
+      }, EVENT_STREAM_IDLE_TIMEOUT_MS)
+    }
+    resetIdleTimer()
+
+    const decoder = new TextDecoder()
+    let buffer = ''
     while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
+      let chunk: ReadableStreamReadResult<Uint8Array>
+      try {
+        chunk = await reader.read()
+      } catch (error) {
+        if (idleTimedOut) throw new ApiError('event stream idle timeout', 0, 'timeout')
+        throw error
+      }
+      if (chunk.done) break
+      resetIdleTimer()
+      buffer += decoder.decode(chunk.value, { stream: true })
       const split = splitFrames(buffer)
       buffer = split.rest
       for (const frame of split.frames) {
@@ -170,10 +216,14 @@ export async function openEventStream(opts: StreamOptions): Promise<void> {
       if (opts.signal.aborted) break
     }
   } finally {
-    try {
-      await reader.cancel()
-    } catch {
-      /* stream already closed */
+    if (idleTimer != undefined) window.clearTimeout(idleTimer)
+    opts.signal.removeEventListener('abort', forwardAbort)
+    if (reader) {
+      try {
+        await reader.cancel()
+      } catch {
+        /* stream already closed */
+      }
     }
   }
 }

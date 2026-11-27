@@ -6,6 +6,10 @@ export const messages: Record<Lang, Dict> = {
   en: {
     brandSub: 'login state gateway',
     controlPlane: 'control plane',
+    appErrorTitle: 'This page hit an unexpected error',
+    appErrorHint: 'The console caught the exception before it could blank the screen. Reload to restore the workspace; saved accounts, keys and logs are untouched.',
+    appErrorDetails: 'Error details',
+    appErrorReload: 'Reload console',
     workspace: 'Workspace',
     develop: 'Develop',
     system: 'System',
@@ -1181,6 +1185,10 @@ export const messages: Record<Lang, Dict> = {
   zh: {
     brandSub: '登录态网关',
     controlPlane: '控制平面',
+    appErrorTitle: '此页面遇到意外错误',
+    appErrorHint: '控制台已拦下异常，页面不会变成空白。重新加载即可恢复；账号、密钥和日志数据不受影响。',
+    appErrorDetails: '错误详情',
+    appErrorReload: '重新加载控制台',
     workspace: '工作区',
     develop: '开发',
     system: '系统',

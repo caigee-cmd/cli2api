@@ -1,4 +1,5 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from 'react'
+import { getStorageItem, setStorageItem } from '@/lib/storage'
 import { pageCopy, translate, type Lang } from '@/i18n/messages'
 
 type I18nContextValue = {
@@ -12,7 +13,7 @@ const I18nContext = createContext<I18nContextValue | null>(null)
 
 export function I18nProvider({ children }: { children: ReactNode }) {
   const [lang, setLangState] = useState<Lang>(() => {
-    const saved = localStorage.getItem('cli2api_lang')
+    const saved = getStorageItem('cli2api_lang')
     return saved === 'en' ? 'en' : 'zh'
   })
 
@@ -20,7 +21,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     lang,
     setLang: (next) => {
       const resolved = next === 'en' ? 'en' : 'zh'
-      localStorage.setItem('cli2api_lang', resolved)
+      setStorageItem('cli2api_lang', resolved)
       document.documentElement.lang = resolved === 'zh' ? 'zh-CN' : 'en'
       setLangState(resolved)
     },

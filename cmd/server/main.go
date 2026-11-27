@@ -32,7 +32,12 @@ func main() {
 		Addr:              addr,
 		Handler:           application.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
-		IdleTimeout:       120 * time.Second,
+		// Bound how long a client may take to deliver a request body. This
+		// covers slow uploads without touching response writes, so SSE and
+		// long-running completions keep streaming after the request is read.
+		ReadTimeout:    10 * time.Minute,
+		IdleTimeout:    120 * time.Second,
+		MaxHeaderBytes: 1 << 20,
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

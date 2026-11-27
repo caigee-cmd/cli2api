@@ -135,6 +135,12 @@ func (b *Bus) Subscribe(lastSeq uint64) (<-chan Event, func()) {
 	}
 	b.mu.Lock()
 	b.subs[ch] = struct{}{}
+	// A seq larger than the current high-water mark can only be a client from a
+	// previous process (or a malformed ID). Replaying the whole ring is cheaper
+	// than silently skipping every event until the numbers catch up again.
+	if lastSeq > b.seq {
+		lastSeq = 0
+	}
 	for _, event := range b.ring {
 		if event.Seq > lastSeq {
 			// Buffer is sized to hold the whole ring, so replay never drops.
