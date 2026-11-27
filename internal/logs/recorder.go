@@ -9,9 +9,20 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
+)
+
+const (
+	// Request logging is telemetry, not the request path. The buffer is large
+	// enough to absorb a burst, and an enqueue waits briefly before giving up so
+	// a slow SQLite write does not immediately lose rows. Past that point a
+	// request must not be delayed by logging.
+	requestLogQueueSize = 4096
+	requestLogQueueWait = 25 * time.Millisecond
+	dropLogInterval     = 30 * time.Second
 )
 
 // Request-log retention runs in two stages, because a single age-based DELETE
@@ -177,9 +188,14 @@ type OpenRequest struct {
 type RequestRecorder struct {
 	store        RequestPersister
 	queue        chan func()
+	stop         chan struct{}
+	done         chan struct{}
+	closeOnce    sync.Once
+	queueWG      sync.WaitGroup
 	mu           sync.Mutex
 	closed       bool
-	done         chan struct{}
+	dropped      atomic.Uint64
+	lastDropLog  atomic.Int64
 	statsCacheMu sync.Mutex
 	statsCache   map[string]statsCacheEntry
 	usageCacheMu sync.Mutex
@@ -195,7 +211,8 @@ type RequestRecorder struct {
 func NewRequestRecorder(store RequestPersister) *RequestRecorder {
 	recorder := &RequestRecorder{
 		store: store,
-		queue: make(chan func(), 256),
+		queue: make(chan func(), requestLogQueueSize),
+		stop:  make(chan struct{}),
 		done:  make(chan struct{}),
 	}
 	go recorder.loop()
@@ -204,8 +221,22 @@ func NewRequestRecorder(store RequestPersister) *RequestRecorder {
 
 func (r *RequestRecorder) loop() {
 	defer close(r.done)
-	for fn := range r.queue {
-		fn()
+	for {
+		select {
+		case fn := <-r.queue:
+			fn()
+		case <-r.stop:
+			// Drain what was already accepted before shutdown. Close waits for
+			// in-flight enqueues before closing stop, so nothing new can arrive.
+			for {
+				select {
+				case fn := <-r.queue:
+					fn()
+				default:
+					return
+				}
+			}
+		}
 	}
 }
 
@@ -214,15 +245,55 @@ func (r *RequestRecorder) enqueue(fn func()) {
 		return
 	}
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	if r.closed {
+		r.mu.Unlock()
 		return
 	}
+	r.queueWG.Add(1)
+	r.mu.Unlock()
+	defer r.queueWG.Done()
+
 	select {
 	case r.queue <- fn:
+		return
 	default:
-		log.Printf("[logs] request recorder queue full, dropping write")
 	}
+	timer := time.NewTimer(requestLogQueueWait)
+	defer timer.Stop()
+	select {
+	case r.queue <- fn:
+	case <-timer.C:
+		r.noteDrop()
+	}
+}
+
+func (r *RequestRecorder) noteDrop() {
+	total := r.dropped.Add(1)
+	now := time.Now().UnixNano()
+	last := r.lastDropLog.Load()
+	if last != 0 && now-last < int64(dropLogInterval) {
+		return
+	}
+	if r.lastDropLog.CompareAndSwap(last, now) {
+		log.Printf("[logs] request recorder queue full, dropped writes total=%d", total)
+	}
+}
+
+// DroppedWrites is the number of request-log writes rejected because the
+// recorder queue stayed full past the short grace period.
+func (r *RequestRecorder) DroppedWrites() uint64 {
+	if r == nil {
+		return 0
+	}
+	return r.dropped.Load()
+}
+
+// QueueDepth is the number of writes waiting behind the single SQLite writer.
+func (r *RequestRecorder) QueueDepth() int {
+	if r == nil {
+		return 0
+	}
+	return len(r.queue)
 }
 
 func (r *RequestRecorder) Close() {
@@ -230,11 +301,13 @@ func (r *RequestRecorder) Close() {
 		return
 	}
 	r.mu.Lock()
-	if !r.closed {
-		r.closed = true
-		close(r.queue)
-	}
+	r.closed = true
 	r.mu.Unlock()
+	r.closeOnce.Do(func() {
+		// Wait for enqueues that passed the closed check but have not sent yet.
+		r.queueWG.Wait()
+		close(r.stop)
+	})
 	<-r.done
 }
 

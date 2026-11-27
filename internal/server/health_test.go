@@ -10,7 +10,11 @@ import (
 
 func TestReadyFollowsDrainingState(t *testing.T) {
 	var draining atomic.Bool
-	server := New(Server{Draining: &draining})
+	server := New(Server{
+		Draining:      &draining,
+		LogDrops:      func() uint64 { return 7 },
+		LogQueueDepth: func() int { return 3 },
+	})
 
 	ready := func() (*httptest.ResponseRecorder, map[string]any) {
 		rec := httptest.NewRecorder()
@@ -44,6 +48,9 @@ func TestReadyFollowsDrainingState(t *testing.T) {
 	}
 	if healthBody["draining"] != true || healthBody["ok"] != true {
 		t.Fatalf("health during drain = %v", healthBody)
+	}
+	if healthBody["log_dropped"] != float64(7) || healthBody["log_queue"] != float64(3) {
+		t.Fatalf("health log counters = %v", healthBody)
 	}
 }
 
