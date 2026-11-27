@@ -631,45 +631,81 @@ func (manager *Manager) allowDisabledCheckin(ctx context.Context) bool {
 // upstream session when it sits idle, and then needs a manual re-login. The
 // maintenance loop therefore passes false so every enabled account is renewed.
 func (manager *Manager) KeepaliveWorkBuddy(ctx context.Context, onlyOptIn bool, done map[string]struct{}) (more bool) {
-	if manager == nil || manager.workbuddy == nil {
+	return manager.keepaliveFor(ctx, "workbuddy", onlyOptIn, done)
+}
+
+// KeepaliveSessions renews every enabled account whose provider registered a
+// session keepalive (currently WorkBuddy and Trae). One daily sweep keeps idle
+// refresh tokens from expiring without waking each provider on a timer of its
+// own.
+func (manager *Manager) KeepaliveSessions(ctx context.Context, done map[string]struct{}) (more bool) {
+	return manager.keepaliveFor(ctx, "", false, done)
+}
+
+func (manager *Manager) keepaliveFor(ctx context.Context, provider string, onlyOptIn bool, done map[string]struct{}) (more bool) {
+	if manager == nil {
 		return false
 	}
 	if done == nil {
 		done = map[string]struct{}{}
 	}
-	items, err := manager.store.List(ctx)
-	if err != nil {
-		log.Printf("workbuddy keepalive list: %v", err)
+	manager.mu.Lock()
+	maintainers := make(map[string]SessionKeepaliver, len(manager.sessionKeepalive))
+	for id, ops := range manager.sessionKeepalive {
+		maintainers[id] = ops
+	}
+	if manager.workbuddy != nil {
+		maintainers["workbuddy"] = manager.workbuddy
+	}
+	manager.mu.Unlock()
+	if len(maintainers) == 0 {
 		return false
 	}
-	var pending []string
+	items, err := manager.store.List(ctx)
+	if err != nil {
+		log.Printf("session keepalive list: %v", err)
+		return false
+	}
+	type target struct {
+		id       string
+		provider string
+	}
+	var pending []target
 	for _, account := range items {
-		if account.Provider != "workbuddy" || !account.Enabled || (onlyOptIn && !account.AutoCheckin) {
+		if !account.Enabled || (onlyOptIn && !account.AutoCheckin) {
+			continue
+		}
+		if provider != "" && account.Provider != provider {
+			continue
+		}
+		if _, ok := maintainers[account.Provider]; !ok {
 			continue
 		}
 		if _, ok := done[account.ID]; ok {
 			continue
 		}
-		pending = append(pending, account.ID)
+		pending = append(pending, target{id: account.ID, provider: account.Provider})
 	}
 	if len(pending) == 0 {
 		return false
 	}
 	var wg sync.WaitGroup
-	for _, accountID := range pending {
+	for _, account := range pending {
 		if ctx.Err() != nil {
 			return true
 		}
 		wg.Add(1)
-		go func(accountID string) {
+		go func(account target) {
 			defer wg.Done()
-			if err := manager.workbuddy.Keepalive(ctx, accountID); err != nil {
-				log.Printf("workbuddy keepalive account=%s: %v", accountID, err)
+			if keep := maintainers[account.provider]; keep != nil {
+				if err := keep.Keepalive(ctx, account.id); err != nil {
+					log.Printf("session keepalive account=%s: %v", account.id, err)
+				}
 			}
 			manager.mu.Lock()
-			done[accountID] = struct{}{}
+			done[account.id] = struct{}{}
 			manager.mu.Unlock()
-		}(accountID)
+		}(account)
 	}
 	wg.Wait()
 	return ctx.Err() != nil
@@ -718,7 +754,7 @@ func (manager *Manager) RunMaintenanceLoop(stop <-chan struct{}) {
 			// Cap + gap per tick; unfinished accounts continue on later ticks
 			// instead of one 2-minute burst after 22:00.
 			keepaliveCtx, stopKeepalive := context.WithTimeout(ctx, keepaliveTickTimeout)
-			more := manager.KeepaliveWorkBuddy(keepaliveCtx, false, keepaliveDone)
+			more := manager.KeepaliveSessions(keepaliveCtx, keepaliveDone)
 			stopKeepalive()
 			if !more {
 				lastKeepaliveDay = day

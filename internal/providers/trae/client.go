@@ -84,6 +84,9 @@ type Client struct {
 	pendingTraces map[string]*loginPending
 	listener      net.Listener
 	catalog       map[string]providers.ModelInfo
+
+	refreshMu    sync.Mutex
+	refreshLocks map[string]*sync.Mutex
 }
 
 const catalogTimeout = 15 * time.Second
@@ -99,6 +102,7 @@ func NewClient(store Store) *Client {
 		},
 		pending:       map[string]*loginPending{},
 		pendingTraces: map[string]*loginPending{},
+		refreshLocks:  map[string]*sync.Mutex{},
 	}
 }
 
@@ -939,30 +943,67 @@ func (c *Client) GetUserInfo(ctx context.Context, accountID string, credential C
 	}, nil
 }
 
-func (c *Client) credential(ctx context.Context, accountID string) (Credential, error) {
+// loadCredential reads and decodes the stored credential without refreshing.
+func (c *Client) loadCredential(ctx context.Context, accountID string) (Credential, error) {
 	_, payload, err := c.store.LoadCredentialPayload(ctx, accountID)
 	if err != nil {
 		return Credential{}, err
 	}
-	credential, err := DecodeCredential(payload)
+	return DecodeCredential(payload)
+}
+
+// accountRefreshLock serializes token renewal per account. Trae binds the
+// refresh token to a device and rotates it, so two concurrent exchanges with
+// the same token can invalidate the session.
+func (c *Client) accountRefreshLock(accountID string) *sync.Mutex {
+	c.refreshMu.Lock()
+	defer c.refreshMu.Unlock()
+	lock := c.refreshLocks[accountID]
+	if lock == nil {
+		lock = &sync.Mutex{}
+		c.refreshLocks[accountID] = lock
+	}
+	return lock
+}
+
+func (c *Client) expiredRefreshError(ctx context.Context, accountID string, credential Credential) error {
+	_ = c.store.Observe(ctx, accountID, credential.UID, "login_required", "refresh token expired; re-login required", accounts.KindAuth)
+	// Report it as KindAuth so the pool marks the failure as auth-driven
+	// instead of a generic outage the operator has to decode from the log.
+	return &providers.Error{
+		Kind:    accounts.KindAuth,
+		Status:  http.StatusUnauthorized,
+		Message: "trae refresh token expired; re-login required",
+	}
+}
+
+func (c *Client) credential(ctx context.Context, accountID string) (Credential, error) {
+	credential, err := c.loadCredential(ctx, accountID)
 	if err != nil {
 		return Credential{}, err
 	}
 	now := time.Now()
 	if credential.refreshExpired(now) {
-		_ = c.store.Observe(ctx, accountID, credential.UID, "login_required", "refresh token expired; re-login required", accounts.KindAuth)
-		// Report it as KindAuth so the pool marks the failure as auth-driven
-		// instead of a generic outage the operator has to decode from the log.
-		return credential, &providers.Error{
-			Kind:    accounts.KindAuth,
-			Status:  http.StatusUnauthorized,
-			Message: "trae refresh token expired; re-login required",
-		}
+		return credential, c.expiredRefreshError(ctx, accountID, credential)
 	}
 	if !credential.needsRefresh(now) {
 		return credential, nil
 	}
-	return c.refreshCredential(ctx, accountID, credential)
+	lock := c.accountRefreshLock(accountID)
+	lock.Lock()
+	defer lock.Unlock()
+	// Another request may have renewed it while we waited for the lock.
+	current, err := c.loadCredential(ctx, accountID)
+	if err != nil {
+		return Credential{}, err
+	}
+	if current.refreshExpired(now) {
+		return current, c.expiredRefreshError(ctx, accountID, current)
+	}
+	if !current.needsRefresh(now) {
+		return current, nil
+	}
+	return c.refreshCredentialLocked(ctx, accountID, current)
 }
 
 // refreshCredential renews the access token and persists the result.
@@ -973,7 +1014,45 @@ func (c *Client) credential(ctx context.Context, accountID string) (Credential, 
 // stays routable for the next attempt. A successful renewal clears a stale
 // login_required left behind by an earlier outage, so the card stops asking for
 // a re-login while the account is actually serving.
+//
+// Renewal is serialized per account so two requests cannot rotate the same
+// rotating refresh token concurrently.
 func (c *Client) refreshCredential(ctx context.Context, accountID string, credential Credential) (Credential, error) {
+	lock := c.accountRefreshLock(accountID)
+	lock.Lock()
+	defer lock.Unlock()
+	current, err := c.loadCredential(ctx, accountID)
+	if err != nil {
+		return credential, err
+	}
+	if current.refreshExpired(time.Now()) {
+		return current, c.expiredRefreshError(ctx, accountID, current)
+	}
+	return c.refreshCredentialLocked(ctx, accountID, current)
+}
+
+// refreshAfterReject renews after upstream rejected rejectedToken. If another
+// request already stored a different, still usable token while this call waited
+// for the lock, that token is reused instead of rotating the refresh token a
+// second time.
+func (c *Client) refreshAfterReject(ctx context.Context, accountID string, rejected Credential) (Credential, error) {
+	lock := c.accountRefreshLock(accountID)
+	lock.Lock()
+	defer lock.Unlock()
+	current, err := c.loadCredential(ctx, accountID)
+	if err != nil {
+		return rejected, err
+	}
+	if current.refreshExpired(time.Now()) {
+		return current, c.expiredRefreshError(ctx, accountID, current)
+	}
+	if current.AccessToken != rejected.AccessToken && !current.needsRefresh(time.Now()) {
+		return current, nil
+	}
+	return c.refreshCredentialLocked(ctx, accountID, current)
+}
+
+func (c *Client) refreshCredentialLocked(ctx context.Context, accountID string, credential Credential) (Credential, error) {
 	refreshed, err := c.ExchangeToken(ctx, accountID, credential)
 	if err != nil {
 		if refreshFailureIsAuth(err) {
@@ -990,6 +1069,40 @@ func (c *Client) refreshCredential(ctx context.Context, accountID string, creden
 	}
 	_ = c.store.Observe(ctx, accountID, refreshed.UID, "ready", "", "")
 	return refreshed, nil
+}
+
+// Keepalive renews an idle Trae session before its refresh token expires.
+// A credential with a known expiry is only renewed inside the normal 24h
+// window; an imported credential without an expiry is renewed once per sweep
+// so the rotating refresh token stays alive.
+func (c *Client) Keepalive(ctx context.Context, accountID string) error {
+	credential, err := c.loadCredential(ctx, accountID)
+	if err != nil {
+		return err
+	}
+	if credential.ExpiresAt > 0 || strings.TrimSpace(credential.RefreshToken) == "" {
+		_, err = c.credential(ctx, accountID)
+		return err
+	}
+	lock := c.accountRefreshLock(accountID)
+	lock.Lock()
+	current, err := c.loadCredential(ctx, accountID)
+	if err != nil {
+		lock.Unlock()
+		return err
+	}
+	if current.ExpiresAt > 0 {
+		lock.Unlock()
+		_, err = c.credential(ctx, accountID)
+		return err
+	}
+	if current.refreshExpired(time.Now()) {
+		lock.Unlock()
+		return c.expiredRefreshError(ctx, accountID, current)
+	}
+	_, err = c.refreshCredentialLocked(ctx, accountID, current)
+	lock.Unlock()
+	return err
 }
 
 // refreshFailureIsAuth reports whether a renewal error means the refresh token
@@ -1243,7 +1356,7 @@ func (c *Client) openChat(ctx context.Context, accountID string, req translate.C
 			return nil, providers.ResolvedChat{}, classifiedError(resp.StatusCode, body)
 		}
 		renewed = true
-		fresh, refreshErr := c.refreshCredential(ctx, accountID, credential)
+		fresh, refreshErr := c.refreshAfterReject(ctx, accountID, credential)
 		if refreshErr != nil {
 			if refreshFailureIsAuth(refreshErr) {
 				out := classifiedError(resp.StatusCode, body)

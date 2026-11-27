@@ -62,7 +62,6 @@ Use **Accounts** to add an account with its supported login method:
 | CodeArts | CN | Browser OAuth, `codearts-oauth-v1` | Experimental |
 | Kiro | US East / EU Central | Browser OAuth, API key, `kiro-oauth-v1` | Experimental |
 | Muse (Meta) | Global | Browser OAuth, API key, `meta-oauth-v1` / `meta-key-v1` | Experimental |
-| Doubao Work | CN | Cookie import, `doubaowork-cookie-v1` | Experimental |
 | MiniMax Code | Global / CN | Browser OAuth, `minimaxcode-oauth-v1` | Experimental |
 
 The Status column matches the console's account picker: Qoder, WorkBuddy, and

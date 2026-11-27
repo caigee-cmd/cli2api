@@ -68,7 +68,6 @@ const labelKeys: Record<string, string> = {
   'qwenwork-cn': 'accountTypeQwenworkCN',
   'kimi-cn': 'accountTypeKimiCN',
   'codearts-cn-north-4': 'accountTypeCodeArtsCN',
-  'doubaowork-cn': 'accountTypeDoubaoworkCN',
   'kiro-us-east-1': 'accountTypeKiroUS',
   'kiro-eu-central-1': 'accountTypeKiroEU',
   'meta-global': 'accountTypeMetaGlobal',
@@ -90,7 +89,6 @@ const hintKeys: Record<string, string> = {
   'qwenwork-cn': 'accountTypeQwenworkCNHint',
   'kimi-cn': 'accountTypeKimiCNHint',
   'codearts-cn-north-4': 'accountTypeCodeArtsCNHint',
-  'doubaowork-cn': 'accountTypeDoubaoworkCNHint',
   'kiro-us-east-1': 'accountTypeKiroUSHint',
   'kiro-eu-central-1': 'accountTypeKiroEUHint',
   'meta-global': 'accountTypeMetaGlobalHint',
@@ -157,7 +155,6 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
   const [zhipuKey, setZhipuKey] = useState('')
   const [zhipuOrganization, setZhipuOrganization] = useState('')
   const [zhipuProject, setZhipuProject] = useState('')
-  const [doubaoCookies, setDoubaoCookies] = useState('')
   const [phase, setPhase] = useState<Phase>('idle')
   const [message, setMessage] = useState('')
   const [authUrl, setAuthUrl] = useState('')
@@ -264,7 +261,6 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
     setZhipuKey('')
     setZhipuOrganization('')
     setZhipuProject('')
-    setDoubaoCookies('')
     setAdvancedOpen(false)
     setPhase('idle')
     setMessage('')
@@ -323,7 +319,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
     if (busy || !typesReady) return
     const option = providerOptions.find((item) => item.id === next)
     setAccountType(next)
-    setTab(option?.provider === 'zhipu' || option?.provider === 'doubaowork' ? 'pat' : 'browser')
+    setTab(option?.provider === 'zhipu' ? 'pat' : 'browser')
     setMessage('')
     setStep('login')
   }
@@ -447,34 +443,6 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
     }
   }
 
-  async function runDoubao() {
-    const cookie = doubaoCookies.trim()
-    if (!cookie) { setMessage(t('doubaoCookieRequired')); return }
-    if (!activeOption) { setMessage(t('accountTypeHint')); return }
-    setMessage('')
-    try {
-      setPhase('busy')
-      const options = accountOptions()
-      await importAccount({
-        format: 'doubaowork-cookie-v1',
-        cookie,
-        name: name.trim() || t('accountTypeDoubaoworkCN'),
-        enabled: true,
-        provider: activeOption.provider,
-        region: activeOption.region,
-        max_inflight: options.max_inflight,
-        priority: options.priority,
-      })
-      setPhase('done')
-      setMessage(t('wizardAccountReady'))
-      onAdded()
-      window.setTimeout(finishAndClose, 900)
-    } catch (error) {
-      setPhase('idle')
-      setMessage(error instanceof Error ? error.message : String(error))
-    }
-  }
-
   async function runImport() {
     setMessage('')
     let bundle: any
@@ -585,7 +553,6 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
 
   const tabPending = (key: TabKey) => busy && tab === key
   const isZhipu = activeOption?.provider === 'zhipu'
-  const isDoubao = activeOption?.provider === 'doubaowork'
   const methodOptions = [
     activeOption?.descriptor.capabilities?.browser_login !== false
       ? { value: 'browser' as const, label: t('tabBrowser') }
@@ -765,19 +732,7 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                     </div>
                   ) : null}
 
-                  {isDoubao ? (
-                    <div className="mt-4 flex flex-col gap-4">
-                      <p className="rounded-lg bg-surface-secondary/45 px-3.5 py-3 text-caption leading-5 text-muted">{t('doubaoCookieLead')}</p>
-                      <FormRow label={t('doubaoCookieLabel')}>
-                        <TextArea className="min-h-28 font-mono text-caption leading-5" value={doubaoCookies} onChange={(event) => setDoubaoCookies(event.target.value)} placeholder={t('doubaoCookiePh')} aria-label={t('doubaoCookieLabel')} disabled={busy} />
-                      </FormRow>
-                      {message ? (
-                        <p className="flex items-center gap-2 rounded-lg bg-surface-secondary px-3 py-2 text-caption">{isDone ? <CheckCircle size={14} className="shrink-0 text-success" /> : null}<span className={isDone ? 'font-medium text-foreground' : 'text-muted'}>{message}</span></p>
-                      ) : null}
-                    </div>
-                  ) : null}
-
-                  {isZhipu || isDoubao ? null : (
+                  {isZhipu ? null : (
                     <>
                   <FilterToggle
                     className="mt-3"
@@ -919,22 +874,17 @@ export function AddAccountModal({ isOpen, onClose, onAdded }: Props) {
                   {isDone ? <><CheckCircle size={15} />{t('wizardAccountReady')}</> : <><Key size={15} />{t('zhipuCreate')}</>}
                 </Button>
               ) : null}
-              {step === 'login' && isDoubao ? (
-                <Button isPending={phase === 'busy'} onPress={() => void runDoubao()} isDisabled={isDone}>
-                  {isDone ? <><CheckCircle size={15} />{t('wizardAccountReady')}</> : <><Key size={15} />{t('doubaoImport')}</>}
-                </Button>
-              ) : null}
-              {step === 'login' && !isZhipu && !isDoubao && tab === 'browser' ? (
+              {step === 'login' && !isZhipu && tab === 'browser' ? (
                 <Button isPending={tabPending('browser')} onPress={() => void runBrowser()} isDisabled={isDone}>
                   {isDone ? <><CheckCircle size={15} />{t('wizardAccountReady')}</> : <><ShieldCheck size={15} />{t('wizardStartBrowser')}</>}
                 </Button>
               ) : null}
-              {step === 'login' && !isZhipu && !isDoubao && tab === 'pat' ? (
+              {step === 'login' && !isZhipu && tab === 'pat' ? (
                 <Button isPending={tabPending('pat')} onPress={() => void runPat()} isDisabled={isDone}>
                   {isDone ? <><CheckCircle size={15} />{t('patDone')}</> : <><Key size={15} />{t('wizardCreateAndLogin')}</>}
                 </Button>
               ) : null}
-              {step === 'login' && !isZhipu && !isDoubao && tab === 'import' ? (
+              {step === 'login' && !isZhipu && tab === 'import' ? (
                 <Button isPending={tabPending('import')} onPress={() => void runImport()} isDisabled={isDone}>
                   {isDone ? <><CheckCircle size={15} />{t('accountImported')}</> : <><FileCode size={15} />{t('importCredential')}</>}
                 </Button>
