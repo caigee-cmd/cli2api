@@ -1,0 +1,1 @@
+import{a as e,c as t}from"./shim-mfK0Rmj6.js";import{l as n}from"./SharedElementTransition-BlCsXfb1.js";var r=t(e(),1);function i(e={}){let{isReadOnly:t}=e,[i,a]=n(e.isSelected,e.defaultSelected||!1,e.onChange),[o]=(0,r.useState)(i);function s(e){t||a(e)}function c(){t||a(!i)}return{isSelected:i,defaultSelected:e.defaultSelected??o,setSelected:s,toggle:c}}export{i as t};
