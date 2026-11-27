@@ -60,10 +60,13 @@ type Aggregation struct {
 	ReasoningOptions []string `json:"reasoning_options,omitempty"`
 	// ReasoningEffort is the default reasoning level advertised for the logical
 	// model. It is a default only: a client may still request any other level.
-	ReasoningEffort string              `json:"reasoning_effort,omitempty"`
-	Members         []AggregationMember `json:"members"`
-	CreatedAt       time.Time           `json:"created_at"`
-	UpdatedAt       time.Time           `json:"updated_at"`
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
+	// Document is the pipeline authoring JSON. Empty means the member list is
+	// the whole route, which is how aggregations saved before pipelines behave.
+	Document  string              `json:"document,omitempty"`
+	Members   []AggregationMember `json:"members"`
+	CreatedAt time.Time           `json:"created_at"`
+	UpdatedAt time.Time           `json:"updated_at"`
 }
 
 type CreateAggregation struct {
@@ -77,6 +80,7 @@ type CreateAggregation struct {
 	MaxOutputTokens  int
 	ReasoningOptions []string
 	ReasoningEffort  string
+	Document         string
 	Members          []AggregationMember
 }
 
@@ -90,6 +94,7 @@ type UpdateAggregation struct {
 	MaxOutputTokens  *int
 	ReasoningOptions *[]string
 	ReasoningEffort  *string
+	Document         *string
 	Members          *[]AggregationMember
 }
 
@@ -272,9 +277,13 @@ func PrepareCreateAggregation(input CreateAggregation) (CreateAggregation, error
 	if len(name) > MaxAggregationNameLen {
 		return CreateAggregation{}, fmt.Errorf("aggregation name too long")
 	}
-	members, err := normalizeAggregationMembers(input.Members)
-	if err != nil {
-		return CreateAggregation{}, err
+	var members []AggregationMember
+	if strings.TrimSpace(input.Document) == "" {
+		normalized, err := normalizeAggregationMembers(input.Members)
+		if err != nil {
+			return CreateAggregation{}, err
+		}
+		members = normalized
 	}
 	contextLength, maxOutput, options, effort, err := normalizeAggregationCapabilities(
 		input.ContextLength, input.MaxOutputTokens, input.ReasoningOptions, input.ReasoningEffort,
@@ -293,6 +302,7 @@ func PrepareCreateAggregation(input CreateAggregation) (CreateAggregation, error
 		MaxOutputTokens:  maxOutput,
 		ReasoningOptions: options,
 		ReasoningEffort:  effort,
+		Document:         strings.TrimSpace(input.Document),
 		Members:          members,
 	}, nil
 }
@@ -329,7 +339,10 @@ func ApplyAggregationUpdate(current Aggregation, input UpdateAggregation) (Aggre
 	if input.ReasoningEffort != nil {
 		current.ReasoningEffort = *input.ReasoningEffort
 	}
-	if input.Members != nil {
+	if input.Document != nil {
+		current.Document = strings.TrimSpace(*input.Document)
+	}
+	if input.Members != nil && strings.TrimSpace(current.Document) == "" {
 		members, err := normalizeAggregationMembers(*input.Members)
 		if err != nil {
 			return Aggregation{}, err

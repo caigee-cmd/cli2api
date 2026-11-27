@@ -9,10 +9,12 @@ import { useTheme } from '@/hooks/useTheme'
 export function AppHeader({
   title,
   desc,
+  wide,
   onMenu,
 }: {
   title: string
   desc: string
+  wide?: boolean
   onMenu: () => void
 }) {
   const { lang, setLang, t } = useI18n()
@@ -24,7 +26,9 @@ export function AppHeader({
 
   return (
     <header className="relative z-20 shrink-0 border-b border-separator bg-background">
-      <div className="mx-auto flex w-full max-w-[1480px] items-center gap-4 px-4 py-2 sm:px-6 lg:px-8">
+      <div className={wide
+        ? 'flex w-full items-center gap-4 px-3 py-2 sm:px-4 lg:px-5'
+        : 'mx-auto flex w-full max-w-[1480px] items-center gap-4 px-4 py-2 sm:px-6 lg:px-8'}>
         <Button isIconOnly size="sm" variant="ghost" className="lg:hidden" onPress={onMenu} aria-label={t('menu')}>
           <List size={17} />
         </Button>

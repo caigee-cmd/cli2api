@@ -24,6 +24,10 @@ type AggregatePlan struct {
 	// Members already filtered by the caller's provider grants and sorted by
 	// priority. Immutable for the lifetime of the request.
 	Members []accounts.AggregationMember
+	// Seats is set when the selected path contains a nested aggregation.
+	// The outer strategy orders seats; a group seat keeps its own strategy.
+	// Nil means the flat member list is the whole route.
+	Seats []accounts.RouteSeat
 	// byProvider is a prebuilt index so resolver lookup is O(1) per item
 	// instead of scanning all members for every account (O(N*M)).
 	byProvider map[string][]accounts.AggregationMember
@@ -134,6 +138,9 @@ func (p *AggregatePlan) Priority(item Item) (int, bool) {
 func (p *AggregatePlan) PriorityTierCount() int {
 	if p == nil {
 		return 1
+	}
+	if len(p.Seats) > 0 {
+		return len(p.Seats)
 	}
 	seen := make(map[int]struct{}, len(p.Members))
 	for _, member := range p.Members {

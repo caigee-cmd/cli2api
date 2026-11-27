@@ -24,8 +24,11 @@ export function AppLayout() {
   const closeMobile = useCallback(() => setMobileOpen(false), [])
   const location = useLocation()
   const { page } = useI18n()
-  const key = routeKey[location.pathname] || 'home'
+  const key = location.pathname === '/model-pool' || location.pathname.startsWith('/model-pool/')
+    ? 'modelPool'
+    : routeKey[location.pathname] || 'home'
   const copy = page(key)
+  const wide = location.pathname.startsWith('/model-pool/')
 
   return (
     <div className="relative flex h-dvh overflow-hidden bg-background text-foreground">
@@ -35,10 +38,13 @@ export function AppLayout() {
           <AppHeader
             title={copy.title}
             desc={copy.desc}
+            wide={wide}
             onMenu={() => setMobileOpen(true)}
           />
           <main className="min-h-0 flex-1 overflow-y-auto">
-            <div className="mx-auto w-full max-w-[1480px] px-4 pb-12 pt-5 sm:px-6 lg:px-8 lg:pb-16 lg:pt-6">
+            <div className={wide
+              ? 'w-full px-3 pb-6 pt-3 sm:px-4 lg:px-5 lg:pb-8 lg:pt-4'
+              : 'mx-auto w-full max-w-[1480px] px-4 pb-12 pt-5 sm:px-6 lg:px-8 lg:pb-16 lg:pt-6'}>
               <Suspense fallback={<RouteFallback />}>
                 <div key={location.pathname}>
                   <Outlet />

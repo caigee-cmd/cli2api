@@ -45,6 +45,12 @@ type AggregationResolver interface {
 	Resolve(ctx context.Context, id string, allowedProviders map[string]bool) (accounts.Aggregation, error)
 }
 
+// AggregationCatalog is implemented by the control facade. Prepare uses it to
+// compile nested aggregations from the same snapshot Resolve just read.
+type AggregationCatalog interface {
+	Catalog(ctx context.Context) (map[string]accounts.Aggregation, error)
+}
+
 type RequestStarter interface {
 	Start(entry accounts.RequestLog)
 }
@@ -111,7 +117,7 @@ func (e ChatExecutor) Prepare(in PrepareInput) (PreparedRequest, error) {
 	// model pool, so the plan must exist before the key contract is checked.
 	var aggregatePlan *AggregatePlan
 	if in.Aggregations != nil && (in.CrossProviderPool || in.ModelAggregation) && ProviderPrefix(publicModel) == "" {
-		if plan, ok := e.resolveAggregation(in.Context, in.Aggregations, publicModel, in.Identity.AllowedProviders); ok {
+		if plan, ok := e.resolveAggregation(in.Context, in.Aggregations, publicModel, in.Identity.AllowedProviders, request); ok {
 			aggregatePlan = plan
 		}
 	}
@@ -260,7 +266,7 @@ func (e ChatExecutor) Prepare(in PrepareInput) (PreparedRequest, error) {
 // aggregation model. It returns false for ordinary models so the normal route
 // path is unchanged. Provider grants are reduced to a family set used to
 // filter members; an empty allowlist means "all providers allowed" (nil map).
-func (e ChatExecutor) resolveAggregation(ctx context.Context, resolver AggregationResolver, model string, grants []string) (*AggregatePlan, bool) {
+func (e ChatExecutor) resolveAggregation(ctx context.Context, resolver AggregationResolver, model string, grants []string, request translate.ChatRequest) (*AggregatePlan, bool) {
 	allowed := map[string]bool(nil)
 	// An aggregation-only key must not filter members by its own sentinel
 	// grant (that would drop every real provider). nil means "no member
@@ -280,10 +286,83 @@ func (e ChatExecutor) resolveAggregation(ctx context.Context, resolver Aggregati
 		}
 	}
 	agg, err := resolver.Resolve(ctx, model, allowed)
-	if err != nil || len(agg.Members) == 0 {
+	if err != nil || (strings.TrimSpace(agg.Document) == "" && len(agg.Members) == 0) {
 		return nil, false
 	}
+	if strings.TrimSpace(agg.Document) != "" {
+		var catalog map[string]accounts.Aggregation
+		if source, ok := resolver.(AggregationCatalog); ok {
+			catalog, _ = source.Catalog(ctx)
+		}
+		text := latestUserText(request)
+		labels := map[string]string{}
+		if len(text) > 0 {
+			targets, err := accounts.ClassifierTargets(agg.ID, agg.Document, catalog)
+			if err == nil {
+				labels = e.ClassifyIntent(ctx, targets, text)
+			}
+		}
+		compiled, seats, _, err := accounts.CompilePipeline(agg, catalog, text, labels, allowed)
+		if err != nil || len(compiled.Members) == 0 {
+			return nil, false
+		}
+		plan := NewAggregatePlan(compiled)
+		plan.Seats = seats
+		return plan, true
+	}
 	return NewAggregatePlan(agg), true
+}
+
+type intentCallKey struct{}
+
+func (e ChatExecutor) ClassifyIntent(ctx context.Context, targets []accounts.ClassifierTarget, text string) map[string]string {
+	if e.Pool == nil || len(targets) == 0 || strings.TrimSpace(text) == "" || ctx.Value(intentCallKey{}) != nil {
+		return nil
+	}
+	labels := make(map[string]string, len(targets))
+	for _, target := range targets {
+		label, err := e.oneIntent(ctx, target, text)
+		if err != nil || strings.TrimSpace(label) == "" {
+			continue
+		}
+		labels[target.Key()] = label
+	}
+	return labels
+}
+
+func (e ChatExecutor) oneIntent(ctx context.Context, target accounts.ClassifierTarget, text string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.WithValue(ctx, intentCallKey{}, true), 8*time.Second)
+	defer cancel()
+	model := target.Provider + "/" + target.Model
+	region := strings.ToLower(strings.TrimSpace(target.Region))
+	if region != "" && region != "global" && region != "gl" {
+		model = target.Provider + "-" + region + "/" + target.Model
+	}
+	result, err := e.ChatNonStream(ctx, translate.ChatRequest{
+		Model: model,
+		Messages: []translate.ChatMessage{
+			{Role: "system", Content: "Reply with only the path label."},
+			{Role: "user", Content: text},
+		},
+		MaxTokens: json.RawMessage("32"),
+	}, "", "")
+	if err != nil {
+		return "", err
+	}
+	line := strings.TrimSpace(result.Content)
+	if i := strings.IndexByte(line, '\n'); i >= 0 {
+		line = strings.TrimSpace(line[:i])
+	}
+	return strings.Trim(line, "\"'."), nil
+}
+
+func latestUserText(req translate.ChatRequest) string {
+	for i := len(req.Messages) - 1; i >= 0; i-- {
+		if strings.EqualFold(req.Messages[i].Role, "user") {
+			return translate.ContentToString(req.Messages[i].Content)
+		}
+	}
+	return ""
 }
 
 // providerPrefixes are the provider segments a client may pin with a leading

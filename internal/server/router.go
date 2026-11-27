@@ -24,6 +24,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/keys", s.withConsoleKey(s.consoleHandler().HandleAPIKeys))
 	s.mux.HandleFunc("/api/keys/", s.withConsoleKey(s.consoleHandler().HandleAPIKeyByID))
 	s.mux.HandleFunc("/api/aggregations", s.withConsoleKey(s.consoleHandler().HandleAggregations))
+	s.mux.HandleFunc("/api/aggregations/preview", s.withConsoleKey(s.consoleHandler().HandleAggregationPreview))
 	s.mux.HandleFunc("/api/aggregations/", s.withConsoleKey(s.consoleHandler().HandleAggregationByID))
 	s.mux.HandleFunc("/api/models", s.withConsoleKey(s.consoleHandler().HandleModelsAPI))
 	s.mux.HandleFunc("/api/models/check", s.withConsoleKey(s.consoleHandler().HandleModelProbe))
@@ -63,8 +64,8 @@ func (s *Server) routes() {
 			r.URL.Path != "/apple-touch-icon.svg" &&
 			r.URL.Path != "/og-card.svg" &&
 			r.URL.Path != "/site.webmanifest" {
-			switch r.URL.Path {
-			case "/login", "/auth", "/providers", "/model-pool", "/access", "/accounts", "/system", "/logs", "/keys", "/usage":
+			switch {
+			case r.URL.Path == "/login" || r.URL.Path == "/auth" || r.URL.Path == "/providers" || r.URL.Path == "/model-pool" || strings.HasPrefix(r.URL.Path, "/model-pool/") || r.URL.Path == "/access" || r.URL.Path == "/accounts" || r.URL.Path == "/system" || r.URL.Path == "/logs" || r.URL.Path == "/keys" || r.URL.Path == "/usage":
 			default:
 				http.NotFound(w, r)
 				return

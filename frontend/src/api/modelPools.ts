@@ -21,6 +21,7 @@ export type AggregationRecord = {
   max_output_tokens?: number
   reasoning_options?: string[]
   reasoning_effort?: string
+  document?: string
   members: AggregationMember[]
   created_at: string
   updated_at: string
@@ -37,7 +38,17 @@ export type AggregationInput = {
   max_output_tokens?: number
   reasoning_options?: string[]
   reasoning_effort?: string
+  document?: object
   members: AggregationMember[]
+}
+
+export type AggregationPreviewAttempt = {
+  id: string
+  model: string
+  provider: string
+  region?: string
+  status: string
+  reason?: string
 }
 
 export function fetchAggregations() {
@@ -60,6 +71,13 @@ export function updateAggregation(id: string, input: Partial<AggregationInput>) 
 
 export function deleteAggregation(id: string) {
   return api(`/api/aggregations/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+export function previewAggregation(input: { id?: string; strategy: string; document: object; message: string }) {
+  return api<{ path: string; attempts: AggregationPreviewAttempt[] }>('/api/aggregations/preview', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
 }
 
 export const AGGREGATION_STRATEGIES = ['priority', 'round-robin', 'fill-first', 'fefo', 'least-quota-first', 'most-quota-first'] as const

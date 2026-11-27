@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -82,6 +83,9 @@ func (a *Aggregations) Create(ctx context.Context, input accounts.CreateAggregat
 	if err != nil {
 		return accounts.Aggregation{}, operationError("invalid_request", err.Error())
 	}
+	if err := a.bindPipeline(ctx, &prepared.Document, &prepared.Members, prepared.ID); err != nil {
+		return accounts.Aggregation{}, err
+	}
 	if err := a.validateMembers(ctx, prepared.Members); err != nil {
 		return accounts.Aggregation{}, err
 	}
@@ -97,6 +101,7 @@ func (a *Aggregations) Create(ctx context.Context, input accounts.CreateAggregat
 		MaxOutputTokens:  prepared.MaxOutputTokens,
 		ReasoningOptions: prepared.ReasoningOptions,
 		ReasoningEffort:  prepared.ReasoningEffort,
+		Document:         prepared.Document,
 		Members:          prepared.Members,
 		CreatedAt:        now,
 		UpdatedAt:        now,
@@ -122,7 +127,12 @@ func (a *Aggregations) Update(ctx context.Context, id string, input accounts.Upd
 	if err != nil {
 		return accounts.Aggregation{}, operationError("invalid_request", err.Error())
 	}
-	if input.Members != nil {
+	if strings.TrimSpace(merged.Document) != "" && (input.Document != nil || input.Members != nil) {
+		if err := a.bindPipeline(ctx, &merged.Document, &merged.Members, merged.ID); err != nil {
+			return accounts.Aggregation{}, err
+		}
+	}
+	if input.Members != nil || input.Document != nil {
 		if err := a.validateMembers(ctx, merged.Members); err != nil {
 			return accounts.Aggregation{}, err
 		}
@@ -154,6 +164,42 @@ func (a *Aggregations) Delete(ctx context.Context, id string) error {
 
 // validateMembers treats a provider-policy rejection as an invalid request so
 // console writes surface a 400 instead of silently persisting a dead member.
+func (a *Aggregations) bindPipeline(ctx context.Context, document *string, members *[]accounts.AggregationMember, id string) error {
+	if document == nil || strings.TrimSpace(*document) == "" {
+		return nil
+	}
+	list, err := a.store.ListAggregations(ctx)
+	if err != nil {
+		return err
+	}
+	catalog := make(map[string]accounts.Aggregation, len(list))
+	for _, agg := range list {
+		catalog[agg.ID] = agg
+	}
+	canonical, collected, err := accounts.CollectPipeline(id, *document, catalog)
+	if err != nil {
+		return operationError("invalid_request", err.Error())
+	}
+	*document = canonical
+	*members = collected
+	return nil
+}
+
+// Catalog returns a copy of the in-memory aggregation snapshot. The executor
+// uses it to compile a pipeline without taking the pool lock or reading SQL
+// on the hot path after the snapshot is warm.
+func (a *Aggregations) Catalog(ctx context.Context) (map[string]accounts.Aggregation, error) {
+	snapshot, err := a.resolveSnapshot(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]accounts.Aggregation, len(snapshot))
+	for id, agg := range snapshot {
+		out[id] = agg
+	}
+	return out, nil
+}
+
 func (a *Aggregations) validateMembers(ctx context.Context, members []accounts.AggregationMember) error {
 	if a.validator == nil {
 		return nil

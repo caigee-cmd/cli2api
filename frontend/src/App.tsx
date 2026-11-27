@@ -14,6 +14,7 @@ const LoginPage = lazy(() => import('@/pages/LoginPage').then((module) => ({ def
 const OverviewPage = lazy(() => import('@/pages/OverviewPage').then((module) => ({ default: module.OverviewPage })))
 const ProvidersPage = lazy(() => import('@/pages/ProvidersPage').then((module) => ({ default: module.ProvidersPage })))
 const ModelPoolPage = lazy(() => import('@/pages/ModelPoolPage').then((module) => ({ default: module.ModelPoolPage })))
+const ModelPoolEditorPage = lazy(() => import('@/pages/ModelPoolEditorPage').then((module) => ({ default: module.ModelPoolEditorPage })))
 const AccessPage = lazy(() => import('@/pages/AccessPage').then((module) => ({ default: module.AccessPage })))
 const AccountsPage = lazy(() => import('@/pages/AccountsPage').then((module) => ({ default: module.AccountsPage })))
 const SystemPage = lazy(() => import('@/pages/SystemPage').then((module) => ({ default: module.SystemPage })))
@@ -37,6 +38,8 @@ export default function App() {
                       <Route path="/auth" element={<Navigate to="/accounts" replace />} />
                       <Route path="/providers" element={<ProvidersPage />} />
                       <Route path="/model-pool" element={<ModelPoolPage />} />
+                      <Route path="/model-pool/new" element={<ModelPoolEditorPage />} />
+                      <Route path="/model-pool/*" element={<ModelPoolEditorPage />} />
                       <Route path="/access" element={<AccessPage />} />
                       <Route path="/accounts" element={<AccountsPage />} />
                       <Route path="/checkins" element={<Navigate to="/accounts" replace />} />

@@ -371,6 +371,9 @@ func (e ChatExecutor) routeQuery(prefer, providerFilter, regionFilter, publicMod
 }
 
 func (e ChatExecutor) pick(requestID, prefer, providerFilter, regionFilter, publicModel string, allowed []string, excluded map[string]struct{}, eligible func(Item) bool, plan *AggregatePlan) (Item, error) {
+	if plan != nil && len(plan.Seats) > 0 {
+		return e.pickSeats(requestID, prefer, providerFilter, regionFilter, publicModel, allowed, excluded, eligible, plan)
+	}
 	query := e.routeQuery(prefer, providerFilter, regionFilter, publicModel, allowed, excluded, eligible, plan)
 	if e.Pool != nil {
 		if item, ok := e.Pool.PickRoute(query); ok {
