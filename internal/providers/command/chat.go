@@ -77,6 +77,10 @@ func (c *Client) ChatStream(ctx context.Context, accountID string, req translate
 }
 
 func (c *Client) doGenerate(ctx context.Context, client *http.Client, credential Credential, req translate.ChatRequest, model string) (*http.Response, error) {
+	// First use of this key in the process replays the CLI's startup telemetry
+	// (device fingerprint + lifecycle heartbeat) in the background, so requests
+	// look like they come from a real CLI install. Never blocks or fails chat.
+	c.ensureDeviceRegistration(ctx, credential)
 	payload, err := buildGenerateRequest(req, model)
 	if err != nil {
 		return nil, err
@@ -91,6 +95,13 @@ func (c *Client) doGenerate(ctx context.Context, client *http.Client, credential
 	httpReq.Header.Set("x-cli-environment", CLIEnvironment)
 	httpReq.Header.Set("x-command-code-version", c.cliVersion())
 	httpReq.Header.Set("x-session-id", newSessionID())
+	// Identity headers the official CLI always sends. They cost nothing and keep
+	// the adapter looking like the CLI instead of a bare HTTP client.
+	httpReq.Header.Set("User-Agent", UserAgent)
+	setIdentityHeaders(httpReq, credential)
+	if trace := newTraceparent(); trace != "" {
+		httpReq.Header.Set("traceparent", trace)
+	}
 	if strings.TrimSpace(os.Getenv("CMD_ZDR")) != "" {
 		httpReq.Header.Set("x-cmd-zdr", "1")
 	}

@@ -111,19 +111,24 @@ func catalogServer(t *testing.T) (*httptest.Server, *recorder) {
 }
 
 // generateServer serves a canned NDJSON response for /alpha/generate and records
-// the request body so tests can assert the envelope shape.
+// the request body so tests can assert the envelope shape. Only generate and
+// catalog requests are recorded: the adapter also fires best-effort device
+// telemetry, and that must not clobber what a test is asserting on.
 func generateServer(t *testing.T, status int, body string) (*httptest.Server, *recorder, *string) {
 	t.Helper()
 	rec := newRecorder()
 	var requestBody string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		rec.record(r)
-		raw, _ := io.ReadAll(r.Body)
-		requestBody = string(raw)
 		if r.URL.Path != PathGenerate {
+			if r.URL.Path == PathModels {
+				rec.record(r)
+			}
 			http.NotFound(w, r)
 			return
 		}
+		rec.record(r)
+		raw, _ := io.ReadAll(r.Body)
+		requestBody = string(raw)
 		if status != 0 {
 			w.WriteHeader(status)
 		}

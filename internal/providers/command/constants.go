@@ -48,6 +48,15 @@ const (
 	// QuotaUnit labels credit-denominated usage windows.
 	QuotaUnit = "credits"
 
+	// UserAgent is what the official CLI sends. A browser-ish or library default
+	// stands out to upstream risk control, so the adapter mimics the CLI.
+	UserAgent = "cli"
+
+	// PathFingerprint and PathLifecycle are the CLI's two startup telemetry
+	// calls. They are best-effort: failures must never affect a chat request.
+	PathFingerprint = "/alpha/fingerprint/record"
+	PathLifecycle   = "/alpha/lifecycle-events"
+
 	// VersionEnv overrides PinnedCLIVersion without a rebuild.
 	VersionEnv = "CMD_CLI_VERSION"
 )
