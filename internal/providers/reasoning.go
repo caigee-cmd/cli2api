@@ -153,6 +153,25 @@ func lowestReasoningOption(caps ModelCapabilities) string {
 	return lowest
 }
 
+// LowestThinkingOption returns the cheapest declared level that still thinks.
+// Adapters use it when a client asks for "none" on a model that cannot turn
+// thinking off: the level degrades down to this tier and is never promoted to
+// the model default, which could be higher than what the client asked for.
+func LowestThinkingOption(caps ModelCapabilities) string {
+	lowest := ""
+	lowestRank := len(reasoningLadder)
+	for _, option := range caps.ReasoningOptions {
+		normalized := NormalizeReasoningLevel(option)
+		if normalized == "" || normalized == "none" {
+			continue
+		}
+		if rank := reasoningRank(normalized); rank >= 0 && rank < lowestRank {
+			lowest, lowestRank = normalized, rank
+		}
+	}
+	return lowest
+}
+
 func containsReasoningOption(options []string, level string) bool {
 	for _, option := range options {
 		if NormalizeReasoningLevel(option) == level {
