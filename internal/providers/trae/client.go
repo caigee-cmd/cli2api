@@ -951,7 +951,13 @@ func (c *Client) credential(ctx context.Context, accountID string) (Credential, 
 	now := time.Now()
 	if credential.refreshExpired(now) {
 		_ = c.store.Observe(ctx, accountID, credential.UID, "login_required", "refresh token expired; re-login required", accounts.KindAuth)
-		return credential, fmt.Errorf("trae refresh token expired; re-login required")
+		// Report it as KindAuth so the pool marks the failure as auth-driven
+		// instead of a generic outage the operator has to decode from the log.
+		return credential, &providers.Error{
+			Kind:    accounts.KindAuth,
+			Status:  http.StatusUnauthorized,
+			Message: "trae refresh token expired; re-login required",
+		}
 	}
 	if !credential.needsRefresh(now) {
 		return credential, nil
@@ -960,10 +966,19 @@ func (c *Client) credential(ctx context.Context, accountID string) (Credential, 
 }
 
 // refreshCredential renews the access token and persists the result.
+//
+// Only an upstream rejection of the refresh token marks the account
+// login_required. Transport failures, 5xx and envelope problems are transient:
+// they must not push the operator through a full re-login, and the account
+// stays routable for the next attempt. A successful renewal clears a stale
+// login_required left behind by an earlier outage, so the card stops asking for
+// a re-login while the account is actually serving.
 func (c *Client) refreshCredential(ctx context.Context, accountID string, credential Credential) (Credential, error) {
 	refreshed, err := c.ExchangeToken(ctx, accountID, credential)
 	if err != nil {
-		_ = c.store.Observe(ctx, accountID, credential.UID, "login_required", err.Error(), accounts.KindAuth)
+		if refreshFailureIsAuth(err) {
+			_ = c.store.Observe(ctx, accountID, credential.UID, "login_required", err.Error(), accounts.KindAuth)
+		}
 		return credential, err
 	}
 	encoded, err := refreshed.Encode()
@@ -973,7 +988,29 @@ func (c *Client) refreshCredential(ctx context.Context, accountID string, creden
 	if err := c.store.SaveCredentialPayload(ctx, accountID, CredentialFormat, encoded); err != nil {
 		return refreshed, err
 	}
+	_ = c.store.Observe(ctx, accountID, refreshed.UID, "ready", "", "")
 	return refreshed, nil
+}
+
+// refreshFailureIsAuth reports whether a renewal error means the refresh token
+// itself was rejected, as opposed to a transient transport / upstream failure.
+// A missing or unusable refresh token is terminal too: there is nothing left to
+// renew, so the account genuinely needs a new login.
+func refreshFailureIsAuth(err error) bool {
+	if err == nil {
+		return false
+	}
+	var pe *providers.Error
+	if errors.As(err, &pe) && pe.Kind == accounts.KindAuth {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "re-login required") ||
+		strings.Contains(msg, "no refreshtoken") ||
+		strings.Contains(msg, "refresh token expired") {
+		return true
+	}
+	return Classify(0, err.Error()).Kind == accounts.KindAuth
 }
 
 func (c *Client) Models(ctx context.Context, accountID string) ([]providers.ModelInfo, error) {
@@ -1139,28 +1176,12 @@ func (c *Client) chatRequest(ctx context.Context, credential Credential, req tra
 }
 
 func (c *Client) ChatNonStream(ctx context.Context, accountID string, req translate.ChatRequest) (providers.ChatOutcome, error) {
-	credential, err := c.credential(ctx, accountID)
-	if err != nil {
-		return providers.ChatOutcome{}, err
-	}
-	httpReq, resolved, err := c.chatRequest(ctx, credential, req, accountID)
-	if err != nil {
-		return providers.ChatOutcome{}, err
-	}
-	client, err := c.httpClient(ctx, accountID)
-	if err != nil {
-		return providers.ChatOutcome{}, err
-	}
-	client.Timeout = 0
-	resp, err := providers.DoWithHeadTimeout(client, httpReq, providers.HeadTimeoutFromEnv(traeStreamHeadTimeoutEnv, providers.DefaultStreamHeadTimeout))
+	resp, resolved, err := c.openChat(ctx, accountID, req)
 	if err != nil {
 		return providers.ChatOutcome{}, err
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
-	if resp.StatusCode >= 300 {
-		return providers.ChatOutcome{}, classifiedError(resp.StatusCode, body)
-	}
 	aggregate, err := Aggregate(bytes.NewReader(body))
 	if err != nil {
 		return providers.ChatOutcome{}, err
@@ -1174,11 +1195,27 @@ func (c *Client) ChatNonStream(ctx context.Context, accountID string, req transl
 }
 
 func (c *Client) ChatStream(ctx context.Context, accountID string, req translate.ChatRequest) (*http.Response, providers.ResolvedChat, error) {
-	credential, err := c.credential(ctx, accountID)
+	resp, resolved, err := c.openChat(ctx, accountID, req)
 	if err != nil {
 		return nil, providers.ResolvedChat{}, err
 	}
-	httpReq, resolved, err := c.chatRequest(ctx, credential, req, accountID)
+	streamResp, err := rewriteSoloStream(resp.Body, req.Model)
+	if err != nil {
+		resp.Body.Close()
+		return nil, providers.ResolvedChat{}, err
+	}
+	return streamResp, resolved, nil
+}
+
+// openChat performs one chat round trip and returns a success response with an
+// unread body. A 401 means the access token was rejected before its reported
+// expiry (revocation, device rebind, clock skew): renew the token once and
+// retry on the same account, mirroring WorkBuddy. Only a real rejection of the
+// refresh token surfaces as KindAuth; a transport or 5xx failure while renewing
+// is reported as unavailable so the pool cools down and fails over instead of
+// demanding a re-login.
+func (c *Client) openChat(ctx context.Context, accountID string, req translate.ChatRequest) (*http.Response, providers.ResolvedChat, error) {
+	credential, err := c.credential(ctx, accountID)
 	if err != nil {
 		return nil, providers.ResolvedChat{}, err
 	}
@@ -1187,20 +1224,42 @@ func (c *Client) ChatStream(ctx context.Context, accountID string, req translate
 		return nil, providers.ResolvedChat{}, err
 	}
 	client.Timeout = 0
-	resp, err := providers.DoWithHeadTimeout(client, httpReq, providers.HeadTimeoutFromEnv(traeStreamHeadTimeoutEnv, providers.DefaultStreamHeadTimeout))
-	if err != nil {
-		return nil, providers.ResolvedChat{}, err
-	}
-	if resp.StatusCode >= 300 {
+	renewed := false
+	for {
+		httpReq, resolved, err := c.chatRequest(ctx, credential, req, accountID)
+		if err != nil {
+			return nil, providers.ResolvedChat{}, err
+		}
+		resp, err := providers.DoWithHeadTimeout(client, httpReq, providers.HeadTimeoutFromEnv(traeStreamHeadTimeoutEnv, providers.DefaultStreamHeadTimeout))
+		if err != nil {
+			return nil, providers.ResolvedChat{}, err
+		}
+		if resp.StatusCode < 300 {
+			return resp, resolved, nil
+		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		resp.Body.Close()
-		return nil, providers.ResolvedChat{}, classifiedError(resp.StatusCode, body)
+		if resp.StatusCode != http.StatusUnauthorized || renewed || strings.TrimSpace(credential.RefreshToken) == "" {
+			return nil, providers.ResolvedChat{}, classifiedError(resp.StatusCode, body)
+		}
+		renewed = true
+		fresh, refreshErr := c.refreshCredential(ctx, accountID, credential)
+		if refreshErr != nil {
+			if refreshFailureIsAuth(refreshErr) {
+				out := classifiedError(resp.StatusCode, body)
+				if pe, ok := out.(*providers.Error); ok && pe.Kind == accounts.KindAuth {
+					pe.Message = "token refresh after 401 failed; re-login required"
+				}
+				return nil, providers.ResolvedChat{}, out
+			}
+			return nil, providers.ResolvedChat{}, &providers.Error{
+				Kind:    accounts.KindUnavailable,
+				Status:  http.StatusBadGateway,
+				Message: "token refresh after 401 unavailable: " + refreshErr.Error(),
+			}
+		}
+		credential = fresh
 	}
-	streamResp, err := rewriteSoloStream(resp.Body, req.Model)
-	if err != nil {
-		return nil, providers.ResolvedChat{}, err
-	}
-	return streamResp, resolved, nil
 }
 
 func outcomeFromAggregate(aggregate map[string]any, fallbackModel string) (providers.ChatOutcome, error) {

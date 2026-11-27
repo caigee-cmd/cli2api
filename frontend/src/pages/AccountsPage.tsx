@@ -250,6 +250,9 @@ export function AccountsPage() {
           next.lastError = data.last_error || undefined
         }
         if (data.last_kind !== undefined) next.last_error_kind = data.last_kind || undefined
+        // A probe that reports ready proves the stored credential works, so it
+        // must not keep showing "needs login" until the trailing re-read lands.
+        if (data.ready && next.status === 'login_required') next.status = 'ready'
         return next
       }))
       scheduleReconcile()

@@ -625,6 +625,11 @@ func (manager *Manager) allowDisabledCheckin(ctx context.Context) bool {
 // tracks account IDs already refreshed for the current local day; pass the
 // same map across successive maintenance ticks. Returns true only when the
 // context ended before every pending account could start.
+//
+// onlyOptIn restricts the sweep to check-in opt-in accounts. Session keepalive
+// is independent of check-in: an account with auto-checkin off still loses its
+// upstream session when it sits idle, and then needs a manual re-login. The
+// maintenance loop therefore passes false so every enabled account is renewed.
 func (manager *Manager) KeepaliveWorkBuddy(ctx context.Context, onlyOptIn bool, done map[string]struct{}) (more bool) {
 	if manager == nil || manager.workbuddy == nil {
 		return false
@@ -713,7 +718,7 @@ func (manager *Manager) RunMaintenanceLoop(stop <-chan struct{}) {
 			// Cap + gap per tick; unfinished accounts continue on later ticks
 			// instead of one 2-minute burst after 22:00.
 			keepaliveCtx, stopKeepalive := context.WithTimeout(ctx, keepaliveTickTimeout)
-			more := manager.KeepaliveWorkBuddy(keepaliveCtx, true, keepaliveDone)
+			more := manager.KeepaliveWorkBuddy(keepaliveCtx, false, keepaliveDone)
 			stopKeepalive()
 			if !more {
 				lastKeepaliveDay = day

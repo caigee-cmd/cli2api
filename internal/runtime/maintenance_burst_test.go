@@ -101,6 +101,69 @@ func TestRunScheduledCheckinsFansOutAllDueAccounts(t *testing.T) {
 	}
 }
 
+// Session keepalive is independent of check-in opt-in: an account with
+// auto-checkin off still needs its upstream session renewed, otherwise it goes
+// idle and is reclaimed upstream, forcing a manual re-login. Disabled accounts
+// stay out of the sweep.
+func TestKeepaliveCoversEveryEnabledAccountRegardlessOfCheckinOptIn(t *testing.T) {
+	store, err := sqlstore.OpenStore(filepath.Join(t.TempDir(), "keepalive-all.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.Close() })
+	manager := NewManager(ManagerConfig{DataDir: t.TempDir()}, store, nil)
+	t.Cleanup(func() { manager.Close() })
+	rec := &recordingKeepalive{}
+	manager.SetWorkBuddy(rec)
+
+	optedIn, optedOut := true, false
+	var want []string
+	for i := 0; i < 2; i++ {
+		created, createErr := store.Create(context.Background(), accounts.CreateAccount{
+			Name: "wb-in", Provider: "workbuddy", Region: "cn", Enabled: true, WorkBuddyAutoCheckin: &optedIn,
+		})
+		if createErr != nil {
+			t.Fatal(createErr)
+		}
+		want = append(want, created.ID)
+	}
+	for i := 0; i < 2; i++ {
+		created, createErr := store.Create(context.Background(), accounts.CreateAccount{
+			Name: "wb-out", Provider: "workbuddy", Region: "cn", Enabled: true, WorkBuddyAutoCheckin: &optedOut,
+		})
+		if createErr != nil {
+			t.Fatal(createErr)
+		}
+		want = append(want, created.ID)
+	}
+	disabled, createErr := store.Create(context.Background(), accounts.CreateAccount{
+		Name: "wb-off", Provider: "workbuddy", Region: "cn", Enabled: false, WorkBuddyAutoCheckin: &optedIn,
+	})
+	if createErr != nil {
+		t.Fatal(createErr)
+	}
+
+	if more := manager.KeepaliveWorkBuddy(context.Background(), false, map[string]struct{}{}); more {
+		t.Fatal("full fan-out must finish every pending account in one call")
+	}
+	got := rec.snapshot()
+	if len(got) != len(want) {
+		t.Fatalf("keepalive calls=%d want %d ids=%v", len(got), len(want), got)
+	}
+	seen := map[string]bool{}
+	for _, id := range got {
+		if id == disabled.ID {
+			t.Fatal("disabled account must not be kept alive")
+		}
+		seen[id] = true
+	}
+	for _, id := range want {
+		if !seen[id] {
+			t.Fatalf("enabled account %s was skipped", id)
+		}
+	}
+}
+
 // Keepalive must refresh every eligible account in one concurrent call and
 // report no remaining work; the done map still deduplicates across ticks.
 func TestKeepaliveWorkBuddyFansOutAndDeduplicates(t *testing.T) {

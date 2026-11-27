@@ -32,6 +32,11 @@ type memStore struct {
 	secretFound     bool
 	secretErr       error
 	secretCalls     int
+
+	// observed records every Observe status so refresh paths can be asserted.
+	observed   []string
+	lastStatus string
+	lastKind   string
 }
 
 func (s *memStore) Get(ctx context.Context, id string) (accounts.Account, error) {
@@ -71,6 +76,11 @@ func (s *memStore) SaveCredentialPayload(ctx context.Context, accountID, format 
 	return nil
 }
 func (s *memStore) Observe(ctx context.Context, id, remoteUID, status, lastError, lastKind string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.observed = append(s.observed, status)
+	s.lastStatus = status
+	s.lastKind = lastKind
 	return nil
 }
 func (s *memStore) GetProviderModelSetting(ctx context.Context, provider, modelID string) (accounts.ProviderModelSetting, error) {
