@@ -35,8 +35,11 @@ type generateConfig struct {
 }
 
 type generateParams struct {
-	Model           string       `json:"model"`
-	System          string       `json:"system"`
+	Model string `json:"model"`
+	// System is the CLI's text-block array (or a plain string when the caller had
+	// a single block). Upstream accepts both; the array form preserves block
+	// boundaries and cache markers.
+	System          any          `json:"system"`
 	Messages        []cmdMessage `json:"messages"`
 	Tools           []cmdTool    `json:"tools"`
 	MaxTokens       int          `json:"max_tokens"`
@@ -59,7 +62,7 @@ type cmdTool struct {
 // buildGenerateRequest converts an internal chat request into the strict
 // /alpha/generate envelope. model must already be resolved to a catalog id.
 func buildGenerateRequest(req translate.ChatRequest, model string) ([]byte, error) {
-	system, messages := buildMessages(req.Messages)
+	systemParts, messages := buildMessages(req.Messages)
 	tools := buildTools(req.Tools)
 	envelope := generateRequest{
 		Config:         staticConfig(),
@@ -69,7 +72,7 @@ func buildGenerateRequest(req translate.ChatRequest, model string) ([]byte, erro
 		PermissionMode: "standard",
 		Params: generateParams{
 			Model:           model,
-			System:          system,
+			System:          wireSystem(systemParts),
 			Messages:        messages,
 			Tools:           tools,
 			MaxTokens:       parseMaxTokens(req),
@@ -79,6 +82,29 @@ func buildGenerateRequest(req translate.ChatRequest, model string) ([]byte, erro
 		},
 	}
 	return json.Marshal(envelope)
+}
+
+// wireSystem renders the caller's system text the way the CLI does: an array of
+// text blocks, one per folded system/developer turn, with the CLI's trailing
+// newline between blocks. With no caller system, "" is sent: the field is
+// required and null fails validation.
+func wireSystem(parts []string) any {
+	blocks := make([]map[string]any, 0, len(parts))
+	for i, text := range parts {
+		if strings.TrimSpace(text) == "" {
+			continue
+		}
+		if i < len(parts)-1 {
+			text += "\n"
+		}
+		blocks = append(blocks, map[string]any{"type": "text", "text": text})
+	}
+	if len(blocks) == 0 {
+		// params.system is required and upstream rejects null outright ("expected
+		// string, received null"). "" is what the CLI sends with no system.
+		return ""
+	}
+	return blocks
 }
 
 func staticConfig() generateConfig {
@@ -95,11 +121,12 @@ func staticConfig() generateConfig {
 	}
 }
 
-// buildMessages folds system/developer turns into the system prompt and rewrites
+// buildMessages splits caller system/developer turns from the rest and rewrites
 // the rest into the Vercel AI SDK ModelMessage[] shape (tool-call parts on
 // assistant messages, a separate role:"tool" message for tool results). It is
-// not Anthropic content blocks and not OpenAI tool messages.
-func buildMessages(messages []translate.ChatMessage) (string, []cmdMessage) {
+// not Anthropic content blocks and not OpenAI tool messages. The returned system
+// parts are kept as separate blocks so wireSystem can preserve their boundaries.
+func buildMessages(messages []translate.ChatMessage) ([]string, []cmdMessage) {
 	var systemParts []string
 	out := make([]cmdMessage, 0, len(messages))
 	toolNameByID := map[string]string{}
@@ -129,7 +156,7 @@ func buildMessages(messages []translate.ChatMessage) (string, []cmdMessage) {
 			}
 		}
 	}
-	return strings.TrimSpace(strings.Join(systemParts, "\n\n")), out
+	return systemParts, out
 }
 
 func userContent(content any) []any {

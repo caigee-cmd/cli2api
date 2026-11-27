@@ -49,15 +49,19 @@ func DefaultPriorityValue(value int) int {
 
 // DefaultDropSystemPrompt is the create-time default. WorkBuddy strips caller
 // system prompts because upstream content screening rejects third-party
-// identity. Trae, Kimi, and CodeArts keep them: clients such as MiMo Code put
-// JSON instructions in the system prompt, and those families have no equivalent
-// screening. An explicit value always wins.
+// identity. Trae, Kimi, CodeArts, MiniMax Code, and Command Code keep them:
+// clients such as MiMo Code put JSON instructions in the system prompt, and
+// those families have no equivalent screening. Command Code additionally
+// *depends* on the caller system prompt: when none is sent, /alpha/generate
+// injects ~7.5K tokens of the CLI's own default agent prompt on every request,
+// so dropping it silently replaces the caller's instructions instead of
+// clearing them. An explicit value always wins.
 func DefaultDropSystemPrompt(provider string, value *bool) bool {
 	if value != nil {
 		return *value
 	}
 	switch strings.ToLower(strings.TrimSpace(provider)) {
-	case "trae", "kimi", "codearts", "minimaxcode":
+	case "trae", "kimi", "codearts", "minimaxcode", "command":
 		return false
 	default:
 		return true
