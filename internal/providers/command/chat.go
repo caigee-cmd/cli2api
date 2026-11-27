@@ -91,6 +91,15 @@ func (c *Client) doGenerate(ctx context.Context, client *http.Client, credential
 	httpReq.Header.Set("x-cli-environment", CLIEnvironment)
 	httpReq.Header.Set("x-command-code-version", c.cliVersion())
 	httpReq.Header.Set("x-session-id", newSessionID())
+	// Identity headers the official CLI sends on the generate request itself.
+	// Only documented, per-request values belong here: no background calls and no
+	// synthesised device profile.
+	httpReq.Header.Set("User-Agent", UserAgent)
+	httpReq.Header.Set("x-cli-surface", "cli")
+	httpReq.Header.Set("x-taste-learning", "false")
+	if trace := newTraceparent(); trace != "" {
+		httpReq.Header.Set("traceparent", trace)
+	}
 	if strings.TrimSpace(os.Getenv("CMD_ZDR")) != "" {
 		httpReq.Header.Set("x-cmd-zdr", "1")
 	}

@@ -196,3 +196,48 @@ func TestParseReasoningEffort(t *testing.T) {
 		}
 	}
 }
+
+// TestGenerateBodyOmitsUnprovenEnvelopeFields locks the encoded body to exactly
+// what main sent before the version bump, apart from x-command-code-version.
+//
+// CodeArts/Command's /alpha/generate has no public contract and upstream keys it
+// on x-command-code-version, so every body field is a behavioural claim. The
+// struct keeps mode/threadId/promptCache/subagent for a future capture, but until
+// there is a capture of the official CLI's *non-interactive* call, none of them
+// may be set: guessing "agent" from the interactive TUI default would invent a
+// mode we cannot justify.
+//
+// Decoding into map[string]json.RawMessage rather than a struct is deliberate:
+// omitempty on a struct would conflate "sent empty" with "not sent".
+func TestGenerateBodyOmitsUnprovenEnvelopeFields(t *testing.T) {
+	raw, err := buildGenerateRequest(chatRequestWithSystem("be terse"), "deepseek/deepseek-v4.1-flash")
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &top); err != nil {
+		t.Fatalf("unmarshal: %v\n%s", err, raw)
+	}
+	for _, field := range []string{"mode", "threadId", "promptCache", "subagent"} {
+		if _, present := top[field]; present {
+			t.Errorf("envelope must not send %q: %s", field, raw)
+		}
+	}
+	// The required config envelope is unchanged; a missing path is a 400 upstream.
+	var config map[string]json.RawMessage
+	if err := json.Unmarshal(top["config"], &config); err != nil {
+		t.Fatalf("config: %v", err)
+	}
+	for _, key := range []string{"workingDir", "date", "environment", "structure", "isGitRepo", "currentBranch", "mainBranch", "gitStatus", "recentCommits"} {
+		if _, ok := config[key]; !ok {
+			t.Errorf("config missing required field %q", key)
+		}
+	}
+	if got := string(top["permissionMode"]); got != `"standard"` {
+		t.Errorf("permissionMode = %s, want \"standard\"", got)
+	}
+	// And the version header the bump actually changes is not in the body at all.
+	if _, present := top["x-command-code-version"]; present {
+		t.Error("version belongs in the request header, not the body")
+	}
+}

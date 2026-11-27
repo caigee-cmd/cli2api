@@ -36,7 +36,13 @@ const (
 	// PinnedCLIVersion is sent as x-command-code-version on /alpha/generate.
 	// Verified against the published `command-code` npm package. Override at
 	// runtime with CMD_CLI_VERSION when the gateway moves ahead of this build.
-	PinnedCLIVersion = "1.65.0"
+	//
+	// Bumped 1.65.0 -> 1.93.4: /alpha/generate keys on this value and the adapter
+	// had drifted 28 releases behind. Per the reverse-engineered clients, newer
+	// releases only raise a drift warning rather than changing the wire shape, so
+	// tracking closer to head is the safe direction; CMD_CLI_VERSION still allows
+	// jumping ahead without a rebuild.
+	PinnedCLIVersion = "1.93.4"
 
 	// CLIEnvironment is the x-cli-environment header value.
 	CLIEnvironment = "production"
@@ -47,6 +53,11 @@ const (
 
 	// QuotaUnit labels credit-denominated usage windows.
 	QuotaUnit = "credits"
+
+	// UserAgent is what the official CLI sends on the generate request. A
+	// library or browser default would point at an HTTP client rather than a
+	// CLI, and this value is documented (the CLI's own `User-Agent: cli`).
+	UserAgent = "cli"
 
 	// VersionEnv overrides PinnedCLIVersion without a rebuild.
 	VersionEnv = "CMD_CLI_VERSION"
