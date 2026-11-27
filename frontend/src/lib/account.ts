@@ -88,6 +88,37 @@ export function checkedInToday(account: AccountRow, timezone?: string) {
   return dayOf(recorded) === dayOf(new Date())
 }
 
+// cleanAccountError turns a verbatim probe/quota error into something a card or
+// a toast can show. Upstreams in front of nginx answer with an HTML error page,
+// and the probe prefixes the internal account id that the row already carries.
+// Keep the human-readable summary: status line, title or first sentence.
+export function cleanAccountError(message?: string | null, accountId?: string): string {
+  if (!message) return ''
+  let text = String(message)
+  if (accountId) {
+    const escaped = accountId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    text = text
+      .replace(new RegExp(`fetch quota account=${escaped}:\\s*`, 'gi'), '')
+      .replace(new RegExp(`probe account=${escaped}:\\s*`, 'gi'), '')
+      .replace(new RegExp(`\\baccount=${escaped}\\b:?\\s*`, 'gi'), '')
+  }
+  text = text.replace(/\bfetch quota account=[^:\s]+:\s*/gi, '')
+  text = text.replace(/\bprobe account=[^:\s]+:\s*/gi, '')
+  const titled = text.match(/<title>([^<]+)<\/title>/i)
+  text = titled ? titled[1] : text.replace(/<[^>]*>/g, ' ')
+  text = text
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (text.length > 240) text = `${text.slice(0, 237)}…`
+  return text
+}
+
 export function runtimeSegments(state: AccountState) {
   if (state === 'hot') return 12
   if (state === 'ready') return 9

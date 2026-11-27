@@ -27,6 +27,7 @@ import { RuntimeMeter } from '@/components/account/RuntimeMeter'
 import {
   accountState,
   checkedInToday,
+  cleanAccountError,
   cooldownLabel,
   modelCooldownEntries,
   type AccountRow,
@@ -184,7 +185,9 @@ export function AccountCard({
       : state === 'login' || state === 'unavailable' || state === 'dead'
         ? 'danger'
         : undefined
-  const lastError = account.last_error || account.lastError
+  // Upstream quota/probe failures can arrive as a raw HTML error page naming an
+  // internal account id; show the readable summary instead.
+  const lastError = cleanAccountError(account.last_error || account.lastError, account.id)
   const errorKind = account.last_error_kind || account.kind
   const provider = accountProviderLabel(account.provider, account.region, t)
   // The provider mark already names the family, so the header tag only carries

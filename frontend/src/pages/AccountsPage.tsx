@@ -13,6 +13,7 @@ import {
 } from '@phosphor-icons/react'
 import { AccountCard, type AccountBusyKind, type CheckinFeedback } from '@/components/account/AccountCard'
 import { BatchReloginModal } from '@/components/account/BatchReloginModal'
+import { RefreshFailuresModal, type RefreshFailure } from '@/components/account/RefreshFailuresModal'
 import { AccountCheckinRecordsModal } from '@/components/account/AccountCheckinRecordsModal'
 import { AccountModelsModal } from '@/components/account/AccountModelsModal'
 import { EditAccountModal } from '@/components/account/EditAccountModal'
@@ -49,6 +50,7 @@ import { fetchSystemSettings, type SystemSettings } from '@/api/system'
 import { AccountsPageSkeleton } from '@/components/ui/PageSkeletons'
 import {
   accountState,
+  cleanAccountError,
   formatQuotaAmount,
   type AccountRow,
 } from '@/lib/account'
@@ -153,6 +155,9 @@ export function AccountsPage() {
   const [inflightById, setInflightById] = useState<Record<string, number>>({})
   const [priorityById, setPriorityById] = useState<Record<string, number>>({})
   const [quotaRefreshing, setQuotaRefreshing] = useState(false)
+  // Bulk refresh failures, resolved to account names, shown in their own dialog
+  // so a partial failure answers "which accounts and why", not just a count.
+  const [refreshFailures, setRefreshFailures] = useState<RefreshFailure[] | null>(null)
   const [checkinAllRunning, setCheckinAllRunning] = useState(false)
   // Bulk re-login: selection mode on the account cards, then a sequential
   // authorization walkthrough (see BatchReloginModal).
@@ -190,7 +195,7 @@ export function AccountsPage() {
     const response = await refreshAllAccounts({ quota: forceQuota })
     const results = response.data || []
     const notes: Record<string, string> = {}
-    const errors: string[] = []
+    const failures: RefreshFailure[] = []
     const quotas: Record<string, NonNullable<AccountRow['quota']>> = {}
     let failed = 0
     for (const result of results) {
@@ -199,9 +204,22 @@ export function AccountsPage() {
         continue
       }
       failed += 1
-      const message = result.message || result.code || result.kind || t('toastFailed')
+      const row = accounts.find((account) => account.id === result.account_id)
+      const message = cleanAccountError(result.message, result.account_id)
+        || result.code
+        || result.kind
+        || t('refreshFailuresUnknownReason')
       notes[result.account_id] = message
-      errors.push(message)
+      failures.push({
+        accountId: result.account_id,
+        name: (row?.name || '').trim() || result.account_id,
+        provider: result.provider || row?.provider || '',
+        region: result.region || row?.region || undefined,
+        status: result.status,
+        kind: result.kind,
+        httpStatus: result.http_status,
+        message,
+      })
     }
     if (Object.keys(quotas).length) {
       setAccounts((current) => current.map((account) => quotas[account.id]
@@ -212,8 +230,8 @@ export function AccountsPage() {
     // Events already patch rows as they land; this pull keeps the list truthful
     // when the stream is offline.
     await reloadAccounts(false).catch(() => undefined)
-    return { total: results.length, failed, errors }
-  }, [reloadAccounts, t])
+    return { total: results.length, failed, failures }
+  }, [accounts, reloadAccounts, t])
 
   /**
    * Events patch rows in place for instant feedback; a trailing debounced re-read
@@ -640,15 +658,20 @@ export function AccountsPage() {
       const result = await refreshEveryAccount(true)
       if (result.failed > 0) {
         // Report a partial failure honestly: some accounts refreshed fine, so
-        // name how many failed instead of implying the whole batch did.
+        // name how many failed instead of implying the whole batch did. The
+        // dialog below names each account and its own reason.
         const partial = result.failed < result.total
+        setRefreshFailures(result.failures)
+        const first = result.failures[0]
         toast({
           id: 'refresh-credits',
           type: partial ? 'info' : 'error',
           title: partial
             ? t('toastCreditsPartiallyRefreshed', { failed: result.failed, total: result.total })
             : t('toastFailed'),
-          description: result.errors[0] || t('toastFailed'),
+          description: first
+            ? t('refreshFailureLine', { name: first.name, reason: first.message })
+            : undefined,
         })
         return
       }
@@ -1043,6 +1066,7 @@ export function AccountsPage() {
         onConfirm={(region) => { void onBatchImportConfirm(region) }}
       />
       <AccountModelsModal key={modelsId ?? 'closed'} account={modelsAccount} t={t} onClose={() => setModelsId(null)} />
+      <RefreshFailuresModal failures={refreshFailures} t={t} onClose={() => setRefreshFailures(null)} />
       <BatchReloginModal
         isOpen={reloginOpen}
         accounts={reloginAccounts}
