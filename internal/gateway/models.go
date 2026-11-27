@@ -3,6 +3,7 @@ package gateway
 import (
 	"net/http"
 
+	"github.com/caigee-cmd/cli2api/internal/auth"
 	"github.com/caigee-cmd/cli2api/internal/control"
 )
 
@@ -20,17 +21,27 @@ func (h *Handler) HandleModels(w http.ResponseWriter, r *http.Request) {
 	if h != nil && h.DecorateModels != nil {
 		models = h.DecorateModels(r, models)
 	}
-	if h != nil && h.crossProviderPoolOn() && h.MergeAggregationModels != nil {
-		ctx := r.Context()
-		models = h.MergeAggregationModels(ctx, models)
+	var identity auth.Identity
+	if h != nil {
+		identity = h.requestIdentity(r)
 	}
-	if h.crossProviderPoolOn() == false && !h.requestIdentity(r).ModelAggregation {
-		// The gateway refuses bare ids with the pool off; serve prefixed ids so
-		// OpenAI-compatible clients see exactly what the gateway accepts.
-		// Aggregation keys are the exception: their whole point is a
-		// provider-neutral list, and the matching prepare step accepts those
-		// bare names through the account pool.
-		models = control.PrefixModelEntries(models)
+	if h != nil && identity.ModelAggregation && h.AggregationKeyModels != nil {
+		// Aggregation keys expose only provider-neutral names (logical model-pool
+		// entries and account aliases), never real provider rows.
+		models = h.AggregationKeyModels(r.Context(), r, models)
+	} else {
+		if h != nil && h.crossProviderPoolOn() && h.MergeAggregationModels != nil {
+			ctx := r.Context()
+			models = h.MergeAggregationModels(ctx, models)
+		}
+		if h.crossProviderPoolOn() == false && !identity.ModelAggregation {
+			// The gateway refuses bare ids with the pool off; serve prefixed ids so
+			// OpenAI-compatible clients see exactly what the gateway accepts.
+			// Aggregation keys are the exception: their whole point is a
+			// provider-neutral list, and the matching prepare step accepts those
+			// bare names through the account pool.
+			models = control.PrefixModelEntries(models)
+		}
 	}
 	body := map[string]any{
 		"object": "list",

@@ -289,6 +289,11 @@ ALTER TABLE aggregation_members ADD COLUMN account_id TEXT NOT NULL DEFAULT '';`
 ALTER TABLE accounts ADD COLUMN last_checkin_source TEXT NOT NULL DEFAULT '';
 ALTER TABLE accounts ADD COLUMN last_checkin_synced_at TEXT NOT NULL DEFAULT '';
 ALTER TABLE accounts ADD COLUMN checkin_auto_time TEXT NOT NULL DEFAULT '';`},
+	{filename: "034_aggregation_capabilities.sql", sql: `
+ALTER TABLE aggregation_models ADD COLUMN context_length INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE aggregation_models ADD COLUMN max_output_tokens INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE aggregation_models ADD COLUMN reasoning_options TEXT NOT NULL DEFAULT '';
+ALTER TABLE aggregation_models ADD COLUMN reasoning_effort TEXT NOT NULL DEFAULT '';`},
 }
 
 const schemaMigrationsDDL = `
