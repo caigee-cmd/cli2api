@@ -109,7 +109,7 @@ func ClassifyError(err error) Classified {
 		return Classified{
 			Kind: accounts.KindUnavailable, Status: http.StatusBadGateway,
 			Cooldown: 10 * time.Second, Code: "stream_idle_timeout",
-			Type: "api_error", Message: err.Error(), Transient: true,
+			Type: "api_error", Message: err.Error(),
 		}
 	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
