@@ -154,6 +154,45 @@ func (r *NativeResponsesRequest) RequestedReasoningEffort() string {
 	return strings.TrimSpace(reasoning.Effort)
 }
 
+// WithDefaultReasoning returns a copy whose reasoning.effort is set to level
+// when the client sent no effort. A client-specified effort is preserved, and
+// the original request is never mutated, so per-attempt rewrites and failover
+// are unaffected.
+func (r *NativeResponsesRequest) WithDefaultReasoning(level string) *NativeResponsesRequest {
+	if r == nil {
+		return nil
+	}
+	level = strings.TrimSpace(level)
+	if level == "" || r.RequestedReasoningEffort() != "" {
+		return r
+	}
+	fields := r.Fields()
+	reasoning := map[string]json.RawMessage{}
+	if value := fields["reasoning"]; jsonKind(value) == '{' {
+		if err := json.Unmarshal(value, &reasoning); err != nil {
+			return r
+		}
+	}
+	if reasoning == nil {
+		reasoning = map[string]json.RawMessage{}
+	}
+	encoded, err := json.Marshal(level)
+	if err != nil {
+		return r
+	}
+	reasoning["effort"] = encoded
+	rawReasoning, err := json.Marshal(reasoning)
+	if err != nil {
+		return r
+	}
+	fields["reasoning"] = rawReasoning
+	raw, err := json.Marshal(fields)
+	if err != nil {
+		return r
+	}
+	return &NativeResponsesRequest{raw: raw, fields: fields, model: r.model, stream: r.stream}
+}
+
 // SessionSeed is the sticky-routing anchor used when the request cannot be
 // expressed in the chat form (the chat form's ContentSessionSeed is preferred
 // whenever it exists, so accepted requests keep their existing affinity). It

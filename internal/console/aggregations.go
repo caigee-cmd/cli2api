@@ -50,13 +50,17 @@ func (h *Handler) HandleAggregations(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"object": "list", "data": list})
 	case http.MethodPost:
 		var input struct {
-			ID             string                   `json:"id"`
-			Name           string                   `json:"name"`
-			Enabled        *bool                    `json:"enabled"`
-			Strategy       string                   `json:"strategy"`
-			AllowFallbacks *bool                    `json:"allow_fallbacks"`
-			MaxAttempts    int                      `json:"max_attempts"`
-			Members        []aggregationMemberInput `json:"members"`
+			ID               string                   `json:"id"`
+			Name             string                   `json:"name"`
+			Enabled          *bool                    `json:"enabled"`
+			Strategy         string                   `json:"strategy"`
+			AllowFallbacks   *bool                    `json:"allow_fallbacks"`
+			MaxAttempts      int                      `json:"max_attempts"`
+			ContextLength    int                      `json:"context_length"`
+			MaxOutputTokens  int                      `json:"max_output_tokens"`
+			ReasoningOptions []string                 `json:"reasoning_options"`
+			ReasoningEffort  string                   `json:"reasoning_effort"`
+			Members          []aggregationMemberInput `json:"members"`
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxConsoleBodyBytes)).Decode(&input); err != nil {
 			writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
@@ -71,13 +75,17 @@ func (h *Handler) HandleAggregations(w http.ResponseWriter, r *http.Request) {
 			allowFallbacks = *input.AllowFallbacks
 		}
 		agg, err := h.Control.Aggregations.Create(r.Context(), accounts.CreateAggregation{
-			ID:             input.ID,
-			Name:           input.Name,
-			Enabled:        enabled,
-			Strategy:       accounts.AggregationStrategy(input.Strategy),
-			AllowFallbacks: allowFallbacks,
-			MaxAttempts:    input.MaxAttempts,
-			Members:        decodeAggregationMembers(input.Members),
+			ID:               input.ID,
+			Name:             input.Name,
+			Enabled:          enabled,
+			Strategy:         accounts.AggregationStrategy(input.Strategy),
+			AllowFallbacks:   allowFallbacks,
+			MaxAttempts:      input.MaxAttempts,
+			ContextLength:    input.ContextLength,
+			MaxOutputTokens:  input.MaxOutputTokens,
+			ReasoningOptions: input.ReasoningOptions,
+			ReasoningEffort:  input.ReasoningEffort,
+			Members:          decodeAggregationMembers(input.Members),
 		})
 		if err != nil {
 			writeAggregationError(w, err, "create")
@@ -105,12 +113,16 @@ func (h *Handler) HandleAggregationByID(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusOK, agg)
 	case http.MethodPatch:
 		var input struct {
-			Name           *string                   `json:"name"`
-			Enabled        *bool                     `json:"enabled"`
-			Strategy       *string                   `json:"strategy"`
-			AllowFallbacks *bool                     `json:"allow_fallbacks"`
-			MaxAttempts    *int                      `json:"max_attempts"`
-			Members        *[]aggregationMemberInput `json:"members"`
+			Name             *string                   `json:"name"`
+			Enabled          *bool                     `json:"enabled"`
+			Strategy         *string                   `json:"strategy"`
+			AllowFallbacks   *bool                     `json:"allow_fallbacks"`
+			MaxAttempts      *int                      `json:"max_attempts"`
+			ContextLength    *int                      `json:"context_length"`
+			MaxOutputTokens  *int                      `json:"max_output_tokens"`
+			ReasoningOptions *[]string                 `json:"reasoning_options"`
+			ReasoningEffort  *string                   `json:"reasoning_effort"`
+			Members          *[]aggregationMemberInput `json:"members"`
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxConsoleBodyBytes)).Decode(&input); err != nil {
 			writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
@@ -128,7 +140,10 @@ func (h *Handler) HandleAggregationByID(w http.ResponseWriter, r *http.Request) 
 		}
 		agg, err := h.Control.Aggregations.Update(r.Context(), id, accounts.UpdateAggregation{
 			Name: input.Name, Enabled: input.Enabled, Strategy: strategy,
-			AllowFallbacks: input.AllowFallbacks, MaxAttempts: input.MaxAttempts, Members: members,
+			AllowFallbacks: input.AllowFallbacks, MaxAttempts: input.MaxAttempts,
+			ContextLength: input.ContextLength, MaxOutputTokens: input.MaxOutputTokens,
+			ReasoningOptions: input.ReasoningOptions, ReasoningEffort: input.ReasoningEffort,
+			Members: members,
 		})
 		if err != nil {
 			writeAggregationError(w, err, "update")

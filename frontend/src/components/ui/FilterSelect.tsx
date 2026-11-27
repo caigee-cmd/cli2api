@@ -13,12 +13,14 @@ export function FilterSelect({
   ariaLabel,
   options,
   className,
+  isDisabled = false,
 }: {
   value: string
   onChange: (value: string) => void
   ariaLabel: string
   options: FilterSelectOption[]
   className?: string
+  isDisabled?: boolean
 }) {
   const items = options.map((option) => ({
     id: option.id || ALL_VALUE,
@@ -33,6 +35,7 @@ export function FilterSelect({
       className={className ?? 'w-fit min-w-36'}
       aria-label={ariaLabel}
       value={selectedId}
+      isDisabled={isDisabled}
       onChange={(next) => {
         if (typeof next !== 'string') return
         onChange(next === ALL_VALUE ? '' : next)
