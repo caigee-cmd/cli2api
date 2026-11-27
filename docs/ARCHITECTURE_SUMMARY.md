@@ -38,6 +38,7 @@ cmd/server
         ├── internal/executor 选号、请求准备、分类、冷却与 failover
         ├── internal/store    SQLite、迁移、持久化请求记录
         ├── internal/providers provider 注册、协议客户端、adapter
+        ├── internal/netx    进程级 HTTP 传输池与上游连接复用
         └── internal/update   托管更新协调器
 ```
 
