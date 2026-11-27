@@ -4,15 +4,19 @@ export type InlineNode =
   | { type: 'text'; value: string }
   | { type: 'code'; value: string }
   | { type: 'strong'; value: string }
+  | { type: 'em'; value: string }
   | { type: 'link'; href: string; value: string }
 
 export type BlockNode =
   | { type: 'heading'; level: 2 | 3 | 4; text: string }
-  | { type: 'list'; items: string[] }
+  | { type: 'list'; items: { text: string; depth: number }[] }
   | { type: 'paragraph'; text: string }
+  | { type: 'code'; text: string }
+  | { type: 'quote'; text: string }
 
 const LANG_HEADING_RE = /^(#{1,3})\s+(english|en|中文|chinese|zh|zh-cn|zh-hans)\s*$/i
-const INLINE_RE = /`([^`]+)`|\*\*([^*]+)\*\*|\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g
+const INLINE_RE = /`([^`]+)`|\*\*([^*]+)\*\*|(?<!\*)\*([^*\n]+)\*(?!\*)|\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g
+const LIST_RE = /^(\s*)(?:[-*]|\d+[.)])\s+(\S.*)$/
 const ZH_TITLES = new Set(['中文', 'chinese', 'zh', 'zh-cn', 'zh-hans'])
 const EN_TITLES = new Set(['english', 'en'])
 
@@ -54,7 +58,8 @@ export function parseInline(text: string): InlineNode[] {
     if (index > last) nodes.push({ type: 'text', value: text.slice(last, index) })
     if (match[1] != null) nodes.push({ type: 'code', value: match[1] })
     else if (match[2] != null) nodes.push({ type: 'strong', value: match[2] })
-    else if (match[3] != null && match[4] != null) nodes.push({ type: 'link', value: match[3], href: match[4] })
+    else if (match[3] != null) nodes.push({ type: 'em', value: match[3] })
+    else if (match[4] != null && match[5] != null) nodes.push({ type: 'link', value: match[4], href: match[5] })
     last = index + match[0].length
   }
   if (last < text.length) nodes.push({ type: 'text', value: text.slice(last) })
@@ -77,26 +82,51 @@ export function parseMarkdown(source: string): BlockNode[] {
       index += 1
       continue
     }
+    if (line.trim().startsWith('```')) {
+      const code: string[] = []
+      index += 1
+      while (index < lines.length && !lines[index].trim().startsWith('```')) {
+        code.push(lines[index])
+        index += 1
+      }
+      if (index < lines.length) index += 1
+      blocks.push({ type: 'code', text: code.join('\n') })
+      continue
+    }
+    if (/^>\s?/.test(line.trim())) {
+      const quote: string[] = []
+      while (index < lines.length && /^>\s?/.test(lines[index].trim())) {
+        quote.push(lines[index].trim().replace(/^>\s?/, ''))
+        index += 1
+      }
+      blocks.push({ type: 'quote', text: quote.join(' ') })
+      continue
+    }
     const heading = /^(#{1,4})\s+(.+)$/.exec(line)
     if (heading) {
       blocks.push({ type: 'heading', level: headingLevel(heading[1]), text: heading[2].trim() })
       index += 1
       continue
     }
-    if (/^\s*[-*]\s+\S/.test(line)) {
-      const items: string[] = []
-      while (index < lines.length && /^\s*[-*]\s+\S/.test(lines[index])) {
-        let item = lines[index].replace(/^\s*[-*]\s+/, '')
+    const listed = LIST_RE.exec(line)
+    if (listed) {
+      const items: { text: string; depth: number }[] = []
+      while (index < lines.length) {
+        const item = LIST_RE.exec(lines[index])
+        if (!item) break
+        const depth = Math.min(2, Math.floor(item[1].replace(/\t/g, '  ').length / 2))
+        let text = item[2]
         index += 1
         while (
           index < lines.length
           && /^\s{2,}\S/.test(lines[index])
-          && !/^\s*[-*]\s+\S/.test(lines[index])
+          && !LIST_RE.test(lines[index])
+          && !lines[index].trim().startsWith('```')
         ) {
-          item += ` ${lines[index].trim()}`
+          text += ` ${lines[index].trim()}`
           index += 1
         }
-        items.push(item)
+        items.push({ text, depth })
       }
       blocks.push({ type: 'list', items })
       continue
@@ -107,7 +137,9 @@ export function parseMarkdown(source: string): BlockNode[] {
       index < lines.length
       && lines[index].trim()
       && !/^(#{1,4})\s+/.test(lines[index])
-      && !/^\s*[-*]\s+\S/.test(lines[index])
+      && !LIST_RE.test(lines[index])
+      && !lines[index].trim().startsWith('```')
+      && !/^>\s?/.test(lines[index].trim())
     ) {
       paragraph.push(lines[index])
       index += 1
