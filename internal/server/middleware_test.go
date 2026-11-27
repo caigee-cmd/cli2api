@@ -73,6 +73,9 @@ func TestSecurityHeadersAndSensitiveCaches(t *testing.T) {
 		if got := rec.Header().Get("X-Frame-Options"); got != "SAMEORIGIN" {
 			t.Fatalf("%s X-Frame-Options = %q, want SAMEORIGIN", path, got)
 		}
+		if got := rec.Header().Get("Content-Security-Policy"); got != contentSecurityPolicy {
+			t.Fatalf("%s Content-Security-Policy = %q", path, got)
+		}
 	}
 }
 

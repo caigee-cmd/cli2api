@@ -30,6 +30,8 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"commit":                    buildinfo.Commit,
 		"maintenance":               s.updater().Maintenance.Load(),
 		"draining":                  s.draining(),
+		"log_dropped":               s.logDrops(),
+		"log_queue":                 s.logQueueDepth(),
 	})
 }
 

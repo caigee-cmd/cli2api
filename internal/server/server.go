@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"sync/atomic"
+	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/auth"
 	appconsole "github.com/caigee-cmd/cli2api/internal/console"
@@ -20,17 +21,25 @@ type Server struct {
 	Update        *appupdate.Coordinator
 	TouchKey      func(ctx context.Context, keyID string)
 	CrossProvider *atomic.Bool
+	// LogDrops / LogQueueDepth expose the request-log writer's backpressure
+	// counters so an operator can tell telemetry loss from a healthy queue.
+	LogDrops      func() uint64
+	LogQueueDepth func() int
 	// Draining is set while the process is shutting down. Health stays 200
 	// (the process is alive) but readiness and new work return 503.
 	Draining *atomic.Bool
 
-	mux *http.ServeMux
+	authFailures *authFailureLimiter
+	mux          *http.ServeMux
 }
 
 func New(cfg Server) *Server {
 	s := cfg
 	if s.mux == nil {
 		s.mux = http.NewServeMux()
+	}
+	if s.authFailures == nil {
+		s.authFailures = newAuthFailureLimiter(time.Now)
 	}
 	out := s
 	out.routes()
@@ -64,6 +73,20 @@ func (s *Server) crossProviderOn() bool {
 
 func (s *Server) draining() bool {
 	return s != nil && s.Draining != nil && s.Draining.Load()
+}
+
+func (s *Server) logDrops() uint64 {
+	if s == nil || s.LogDrops == nil {
+		return 0
+	}
+	return s.LogDrops()
+}
+
+func (s *Server) logQueueDepth() int {
+	if s == nil || s.LogQueueDepth == nil {
+		return 0
+	}
+	return s.LogQueueDepth()
 }
 
 // SetDraining flips readiness and rejects new work. Safe on a nil server.
