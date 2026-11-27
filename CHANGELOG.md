@@ -3,6 +3,84 @@
 Published user-facing notes for GitHub Releases and the console update page.
 Write upcoming notes as bilingual files in `changelog/unreleased/`.
 
+## 0.7.49 - 2026-11-27
+
+### English
+
+- Accounts page: the bulk re-login checkbox is clickable again. HeroUI v3 keeps the interactive control inside `Checkbox.Content`; the card rendered the indicator on its own, so it looked correct but swallowed every click and no account could be selected.
+- The accounts page now keeps its filter toolbar and pager fixed and scrolls only the account-card area, so filters, actions, and pagination stay reachable however many accounts are loaded.
+- Automatic check-in now follows one operator-set time per provider instead of a learned upstream window. The setting defaults to 09:00 for every provider, lives in the console system settings, and takes effect for any account without a per-account custom time as soon as it is saved; the stored per-account auto time is only a display mirror and no longer outranks the setting.
+- Removed the upstream earliest-window learning and the per-provider/region provenance table (`earliest`, `window_from_upstream`, `window_source`); upstream status payloads now only report check-in status.
+- Codex requests present the official stable CLI identity, `codex_cli_rs/0.172.0`.
+- Accounts page: new "Re-login" mode. Tick the account cards, press confirm, and the console walks the selected accounts one by one, opening each account's authorization page, polling the login status, and advancing automatically once an account is signed in. A cancel button stops the walkthrough at any point; each row keeps its own status and the verbatim upstream message.
+- Accounts are authorized sequentially on purpose: WorkBuddy accounts often share one SSO session, and parallel flows would hand the same freshly issued token to different account records.
+- Serve hashed UI assets with immutable caching and gzip, and mark `index.html`, console API responses and `/v1` responses `no-store`, so a deploy no longer leaves a stale bundle in the browser.
+- Turn a handler panic before the response starts into a structured JSON 500, abort partial streams instead of truncating a success response, add standard security headers, and bound request-body read time to ten minutes.
+- Give the console a request watchdog with wider budgets for batch jobs, a render error boundary instead of a blank page, and SSE reconnect jitter, a connect deadline, an idle-silence watchdog, and immediate retry when the browser comes back online; after a gateway restart the bus replays its ring instead of skipping events whose sequence numbers restarted.
+- Make localStorage access fail-safe so blocked or unavailable browser storage cannot blank the console during provider initialization.
+- Reverted the implicit max-output default: a request that omits `max_tokens` is passed through to the upstream again, and the gateway only publishes the model's limits in `/v1/models` instead of forcing the model's maximum output size.
+- The logical model editor no longer rejects capability values on its own rules: the 1024-token floor and the "max output must not exceed context length" rule are gone, so any non-negative integer is accepted and 0 still means auto.
+- Reasoning levels in the logical-model editor are now real checkboxes: each tier shows its meaning, the panel shows `n/6 selected`, and Select all / Clear remove mistakes in one click.
+- The default level list stays limited to the selected tiers, and dropping a tier resets an invalid default back to Automatic instead of silently keeping it.
+- QwenWork turns with several tool calls that share one upstream index (seen on Qwen4-Max) now return each call separately with its own arguments, so `/v1/responses` streams finish with `response.completed` instead of an invalid-JSON error.
+- Reasoning effort now follows the CC Switch rule end to end: a level the client sends is passed through untouched whenever the model declares it, an undeclared level only degrades to the nearest lower declared level, and it is never promoted to the model default — including the WorkBuddy "none" path that used to fall back to the default tier.
+- Reasoning effort now degrades the CC Switch way: a level the model does not declare resolves to the nearest lower level it does declare, and never upgrades.
+- A request below the model's floor (for example `reasoning_effort: none` against a model that only offers low/high/max) lands on the cheapest declared level instead of the model default, so "do not think hard" no longer becomes full-strength thinking.
+- Declared levels are forwarded untouched, and `max` is never downgraded.
+- API-key lookups are cached for 30 seconds (configurable with `CLI2API_AUTH_CACHE_MS`, `0` disables); console key edits and deletions invalidate the cache immediately, and `last_used_at` is written at most once per minute instead of on every request.
+- Upstream HTTP keeps a 100-connection-per-host idle pool and bounds the response-head wait at five minutes, so bursts reuse TLS connections and a silent upstream fails over instead of pinning a request forever.
+- Shutdown now drains: `/ready` reports 503 and new work is rejected while active streams finish for up to 30 seconds; compose waits 40 seconds before SIGKILL, and `/health` exposes the draining state.
+- Compose caps container logs at 10 MB × 3 files so a chatty or failing gateway cannot fill the host disk.
+- Streaming responses now carry a 5-minute upstream idle deadline (`CLI2API_STREAM_IDLE_MS`, clamped to at least 30s). An upstream that answers the response head and then goes silent no longer holds the account's in-flight slot, the client connection and a permanently "streaming" request row: the relay reports `stream_idle_timeout`, the account cools down for 10s, and the slot is released.
+- On boot, request rows a previous process left in `started`/`streaming` are closed as `error` / `stream_abandoned`, so the console stops showing phantom running requests after every restart.
+- Tool calls: stop dropping or failing on argument text that is only formatting-damaged. Trailing commas, bare quotes inside a value, missing closing brackets, and prose appended after the object are now repaired before a call is validated, on `/v1/responses`, `/v1/messages`, and the OpenAI compatibility paths.
+- Streaming assembly no longer mangles arguments when an upstream resends the whole argument buffer on each chunk, omits `index`, reports `index` 0 for every call, or sends a JSON object where the schema expects a string. Those cases previously produced `{"a":1}{"a":1}` or silently lost fragments, which clients report as "arguments are invalid JSON".
+- Arguments genuinely cut mid-string (output-token limit) are still rejected instead of being padded into a valid-looking command, and the error now says the model hit its token limit.
+- Streaming tool calls now deliver arguments as one already-normalized string instead of relaying upstream fragments. `/v1/responses` sends the repaired arguments once in `response.function_call_arguments.delta` and repeats them in `.done`, `/v1/messages` sends them at block close, and `/v1/chat/completions` withholds tool frames until the call is complete. Clients that concatenate deltas and clients that read the done event therefore receive identical, valid JSON.
+- Arguments truncated mid-string are no longer padded. The unfinished trailing member is dropped, so the call still parses and the tool or model can recover, instead of the round failing with "arguments are invalid JSON".
+- Trae models that declare a larger Max tier are unlocked by the catalogue itself: the adapter asks upstream for the bigger context window on every request, `/v1/models` advertises it, and the console shows a single context size instead of a per-model Max switch.
+- Follow the repository's own latest-release marker when deciding what to update to, instead of always taking the highest tag, so a deliberate version renumbering keeps pointing clients at the version the project actually publishes.
+- Fix the updater's post-restart health gate: images report the release tag (`v0.7.52`) while the console sends the bare semver (`0.7.52`), so the previous strict string comparison failed every deploy and forced a needless rollback. Versions are now compared as semver, ignoring the leading `v`.
+- Release defaults follow upstream again: the console checks `caigee-cmd/cli2api`, `deploy/docker-compose.yml` pulls `ghcr.io/caigee-cmd/cli2api:latest`, and the host updater and both installers use the same repository unless `UPDATE_GITHUB_REPO`, `CLI2API_IMAGE_REPOSITORY`, or `CLI2API_GITHUB_REPOSITORY` say otherwise. A fork that publishes its own builds sets those variables instead of changing the defaults, so a standard deployment keeps pulling upstream images and following upstream releases.
+
+### 中文
+
+- 账号页：批量重新登录的勾选框恢复可点。HeroUI v3 的可交互控件在 `Checkbox.Content` 里，卡片此前只渲染了指示器本身，看上去正常但吃掉了所有点击，导致一个账号都选不中。
+- 账号页的筛选工具栏和分页器固定不动，只让账号卡片区域独立纵向滚动；账号再多，筛选、操作和翻页也不会被顶出屏幕。
+- 自动签到改为跟随「按供应商统一设置的时间」，默认全部为 09:00，在控制台系统设置里调整；未单独设置时间的账号在保存后立刻按新时间排期，账号上存的自动时间只做展示、不再压过设置。
+- 移除了按上游最早窗口学习以及注册表里的窗口出处表（`earliest`、`window_from_upstream`、`window_source`），上游状态只用来回报签到状态。
+- Codex 请求使用官方稳定版 CLI 身份 `codex_cli_rs/0.172.0`。
+- 账号页新增「重新登录」模式：勾选账号卡片后点确定，控制台会按顺序逐个走授权流程——打开该账号的登录页、轮询登录状态，登录成功后自动进入下一个；随时可点取消中止，每一行都保留自己的状态和上游原文消息。
+- 故意串行授权：多个 WorkBuddy 账号常共用一个 SSO 会话，并发授权会把同一份新签发的令牌塞给不同账号。
+- 带哈希的 UI 静态资源改为一年 immutable 缓存并启用 gzip；`index.html`、控制台 API 和 `/v1` 响应改为 `no-store`，发布后浏览器不会再抓着旧 bundle 不放。
+- 响应开始前的 handler panic 改为结构化 JSON 500；已开始输出的流直接中断而不是返回截断的成功响应；补充通用安全响应头，并把请求体读取时间限制在十分钟。
+- 控制台请求增加超时看门狗（批处理任务使用更宽的预算）；渲染异常显示错误边界而不是白屏；SSE 重连加入抖动、连接超时、静默断流看门狗，并在浏览器恢复联网时立即重试；网关重启后事件序号归零时改为重放环形缓冲，而不是漏掉事件。
+- localStorage 访问改为容错：浏览器禁用或限制存储时，不会在 Provider 初始化阶段直接把控制台变成白屏。
+- 回退了隐式最大输出兜底：客户端不传 `max_tokens` 时重新原样透传给上游，网关只在 `/v1/models` 里声明模型的上限，不再替客户端把输出上限拉到模型最大值。
+- 逻辑模型编辑不再按自身规则拦下能力值：取消 1024 下限，也取消「最大输出不能超过上下文长度」的限制，任意非负整数都可以保存，0 仍表示自动。
+- 逻辑模型编辑器里的思考档位改成真正的复选框：每一档都有含义说明，面板显示「已选 n/6 档」，并有「全选」「清空」可以一键纠正选错。
+- 默认档位只在已选档位里取值；取消某档时，非法的默认值会自动回到「自动」，不再静默保留。
+- 千问办公上游在同一轮内用同一个 index 返回多个工具调用（Qwen4-Max 可见）时，现在会拆成各自独立、参数完整的调用，`/v1/responses` 流式请求能正常发出 `response.completed`，不再报参数 JSON 无效。
+- 思考强度按 CC Switch 规则处理：客户端传来的档位只要模型声明过就原样透传，未声明时只向下退到最近的已声明档位，绝不再被提升为模型默认档——WorkBuddy 原先回落到默认档的「none」分支也一并修正。
+- 思考强度改为按 CC Switch 的方式降级：模型没有声明的档位解析为它声明过的最近更低档，且永不升档。
+- 请求低于模型最低档时（例如对只提供 low/high/max 的模型传 `reasoning_effort: none`），落到最低可用档而不是模型默认档，因此「不要高强度思考」不会再变成满档思考。
+- 模型声明了的档位原样下发，`max` 永不被降级。
+- API Key 查询缓存 30 秒（可用 `CLI2API_AUTH_CACHE_MS` 调整，`0` 关闭）；控制台修改或删除 Key 会立即失效缓存，`last_used_at` 最多每分钟写一次，不再每请求写一次 SQLite。
+- 上游 HTTP 连接池提升到每主机 100 个空闲连接，并把响应头等待上限设为 5 分钟；突发流量复用 TLS 连接，静默上游会触发切换而不是永久占住请求。
+- 关闭服务时先进入 draining：`/ready` 返回 503、新请求被拒绝，已有流最多 30 秒完成；compose 等待 40 秒再发 SIGKILL，`/health` 同时暴露 draining 状态。
+- compose 限制容器日志为 10 MB × 3 份，避免异常日志把宿主机磁盘写满。
+- 流式响应新增 5 分钟上游空闲上限（`CLI2API_STREAM_IDLE_MS`，最低按 30 秒）。上游回了响应头后长时间不吐字节时，不再永久占住账号并发槽位、客户端连接和一直显示 `streaming` 的请求记录：转发报 `stream_idle_timeout`，该账号冷却 10 秒并释放槽位。
+- 启动时会把上一进程遗留的 `started`/`streaming` 请求记录收尾为 `error` / `stream_abandoned`，重启后控制台不再出现幽灵运行中的请求。
+- 工具调用：参数文本只是格式损坏时不再丢弃或直接报错。结尾多余逗号、值内部裸引号、缺少闭合括号、对象后面跟了一段解释文字，都会先修复再校验，覆盖 `/v1/responses`、`/v1/messages` 和 OpenAI 兼容路径。
+- 流式拼接不再被上游的坏习惯整坏：上游每帧重发完整参数缓冲、省略 `index`、所有调用都写 `index:0`、或者该给字符串却给了 JSON 对象，以前会拼出 `{"a":1}{"a":1}` 或静默丢片段，客户端那边就报「arguments are invalid JSON」。
+- 真被输出 token 上限截断在字符串中间的参数仍然报错（不会补成看起来合法、实际却不是模型本意的命令），并在错误里说明是触到 token 上限。
+- 流式工具调用不再把上游碎片直接转发，而是一次性下发已经归一化好的参数：`/v1/responses` 在 `response.function_call_arguments.delta` 给出修复后的完整参数并在 `.done` 重复一次，`/v1/messages` 在 block 收尾时发，`/v1/chat/completions` 把工具帧拦到调用结束再发。因此「拼接 delta 的客户端」和「读 done 事件的客户端」拿到的是同一份合法 JSON。
+- 截断在字符串中间的参数不再补齐：只丢弃尾部未完成的那个成员，调用仍然能解析，交给工具或模型自己纠正，而不是整轮报「arguments are invalid JSON」。
+- Trae 里声明了更大 Max 档的模型改为自动解锁：适配器每次请求都向上游要更大的上下文窗口，`/v1/models` 直接按大窗口声明，控制台只显示一个上下文数值，不再挂一个按模型的 Max 开关。
+- 更新检查改为跟随仓库标记的 latest 发布，而不是永远取最高标签；这样主动重排版本号后，客户端看到的仍然是项目真正发布的那一版。
+- 修复更新器重启后的健康校验：镜像里的 `/health` 回报的是发布 tag（`v0.7.52`），控制台送来的是不带 `v` 的版本号（`0.7.52`），原来按字符串严格比较会让每次部署都判定失败并触发一次无谓的回滚。现在按语义版本比较，忽略前缀 `v`。
+- 发布源默认值恢复为上游：控制台检查 `caigee-cmd/cli2api`，`deploy/docker-compose.yml` 拉取 `ghcr.io/caigee-cmd/cli2api:latest`，宿主机 updater 与两个安装脚本也默认使用同一仓库；需要跟随其它仓库时用 `UPDATE_GITHUB_REPO`、`CLI2API_IMAGE_REPOSITORY`、`CLI2API_GITHUB_REPOSITORY` 覆盖。自行发布镜像的 fork 应设置这些变量，而不是修改默认值，这样标准部署仍然拉取上游镜像、跟踪上游发布。
+
 ## 0.7.45 - 2026-11-25
 
 ### English
