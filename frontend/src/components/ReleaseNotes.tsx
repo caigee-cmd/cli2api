@@ -15,6 +15,7 @@ function InlineText({ text }: { text: string }) {
 function InlineNodeView({ node }: { node: InlineNode }) {
   if (node.type === 'code') return <code>{node.value}</code>
   if (node.type === 'strong') return <strong>{node.value}</strong>
+  if (node.type === 'em') return <em>{node.value}</em>
   if (node.type === 'link') {
     return <a href={node.href} target="_blank" rel="noreferrer">{node.value}</a>
   }
@@ -37,10 +38,16 @@ export function ReleaseNotes({ markdown, emptyLabel }: { markdown: string; empty
           return (
             <ul key={`l-${index}`}>
               {block.items.map((item, itemIndex) => (
-                <li key={`i-${index}-${itemIndex}`}><InlineText text={item} /></li>
+                <li key={`i-${index}-${itemIndex}`} data-depth={item.depth}><InlineText text={item.text} /></li>
               ))}
             </ul>
           )
+        }
+        if (block.type === 'code') {
+          return <pre key={`c-${index}`}><code>{block.text}</code></pre>
+        }
+        if (block.type === 'quote') {
+          return <blockquote key={`q-${index}`}><InlineText text={block.text} /></blockquote>
         }
         return <p key={`p-${index}`}><InlineText text={block.text} /></p>
       })}
