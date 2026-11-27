@@ -166,7 +166,7 @@ console; environment variables cannot replace it.
 | `QODERCLI_JS` | image default | Pinned Qoder Global CLI bundle |
 | `QODERCNCLI_JS` | image default | Pinned Qoder CN CLI bundle |
 | `UPDATE_GITHUB_TOKEN` | empty | Optional GitHub token for release checks |
-| `UPDATE_GITHUB_REPO` | `guyu233/cli2api` | Release repository (`owner/repo`) whose GitHub releases the console follows; set it to `caigee-cmd/cli2api` to follow upstream instead |
+| `UPDATE_GITHUB_REPO` | `caigee-cmd/cli2api` | Release repository (`owner/repo`) whose GitHub releases the console follows; set it to `caigee-cmd/cli2api` to follow upstream instead |
 | `UPDATE_AGENT_URL` | empty | Docker Desktop host updater URL, written by the installer |
 | `UPDATE_AGENT_TOKEN` | empty | Docker Desktop updater token, written by the installer |
 | `CLI2API_UPDATER_SOCKET_DIR` | platform-specific | Host directory mounted read-only for the Linux updater socket |
@@ -224,7 +224,7 @@ Installers take the updater binary from the running container first, so the
 installed updater always matches the deployed image and no release asset has to
 be downloaded. They fall back to checksum-verified release binaries or a local
 Go build when the container is unreachable. Both installers default to
-`ghcr.io/guyu233/cli2api` and `guyu233/cli2api`; override them with
+`ghcr.io/caigee-cmd/cli2api` and `caigee-cmd/cli2api`; override them with
 `CLI2API_IMAGE_REPOSITORY` and `CLI2API_GITHUB_REPOSITORY` when the deployment
 follows another repository.
 

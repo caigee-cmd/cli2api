@@ -3,7 +3,7 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile
-    image: "${CLI2API_IMAGE:-ghcr.io/guyu233/cli2api:latest}"
+    image: "${CLI2API_IMAGE:-ghcr.io/caigee-cmd/cli2api:latest}"
     container_name: qoder-api-proxy
     environment:
       HOST: "0.0.0.0"

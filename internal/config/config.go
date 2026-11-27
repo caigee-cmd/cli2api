@@ -14,10 +14,11 @@ import (
 // minutes); 0 disables the loop and leaves only manual/console refreshes.
 const DefaultCatalogRefreshInterval = 10 * time.Minute
 
-// DefaultUpdateGitHubRepo is the repository whose GitHub releases the console
-// follows. It is the fork that publishes this build's container images; set
-// UPDATE_GITHUB_REPO to follow another owner/repo instead.
-const DefaultUpdateGitHubRepo = "guyu233/cli2api"
+// DefaultUpdateGitHubRepo is the upstream repository whose GitHub releases the
+// console follows. A fork that publishes its own images sets UPDATE_GITHUB_REPO
+// (and CLI2API_IMAGE_REPOSITORY / CLI2API_GITHUB_REPOSITORY for the installers)
+// instead of changing this default.
+const DefaultUpdateGitHubRepo = "caigee-cmd/cli2api"
 
 func updateGitHubRepo(value string) string {
 	repo := strings.TrimSpace(value)
