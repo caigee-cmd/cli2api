@@ -87,15 +87,19 @@ func (a *Aggregations) Create(ctx context.Context, input accounts.CreateAggregat
 	}
 	now := time.Now().UTC()
 	created, err := a.store.InsertAggregation(ctx, accounts.Aggregation{
-		ID:             prepared.ID,
-		Name:           prepared.Name,
-		Enabled:        prepared.Enabled,
-		Strategy:       prepared.Strategy,
-		AllowFallbacks: prepared.AllowFallbacks,
-		MaxAttempts:    prepared.MaxAttempts,
-		Members:        prepared.Members,
-		CreatedAt:      now,
-		UpdatedAt:      now,
+		ID:               prepared.ID,
+		Name:             prepared.Name,
+		Enabled:          prepared.Enabled,
+		Strategy:         prepared.Strategy,
+		AllowFallbacks:   prepared.AllowFallbacks,
+		MaxAttempts:      prepared.MaxAttempts,
+		ContextLength:    prepared.ContextLength,
+		MaxOutputTokens:  prepared.MaxOutputTokens,
+		ReasoningOptions: prepared.ReasoningOptions,
+		ReasoningEffort:  prepared.ReasoningEffort,
+		Members:          prepared.Members,
+		CreatedAt:        now,
+		UpdatedAt:        now,
 	})
 	if err != nil {
 		return accounts.Aggregation{}, err

@@ -74,7 +74,7 @@ func TestPrepareStripsPrefixAndChecksGrants(t *testing.T) {
 	}
 }
 
-func TestPrepareAggregationKeyOnlyAcceptsItsAliases(t *testing.T) {
+func TestPrepareAggregationKeyAliasesAndLogicalModels(t *testing.T) {
 	pool := NewPool(nil, nil)
 	pool.Upsert(Item{
 		ID: "q1", Provider: "qoder", Models: []string{"kimi-k2.6"},
@@ -117,6 +117,62 @@ func TestPrepareAggregationKeyOnlyAcceptsItsAliases(t *testing.T) {
 	}); err == nil {
 		t.Fatal("ungranted provider alias was accepted")
 	}
+}
+
+func TestPrepareAggregationKeyAcceptsLogicalModel(t *testing.T) {
+	pool := NewPool(nil, nil)
+	pool.Upsert(Item{ID: "q1", Provider: "qoder", Models: []string{"kimi-k2.6"}})
+	ex := NewChatExecutor(pool, "")
+	identity := auth.KeyIdentity(accounts.APIKey{
+		ID: "key_agg", Name: "agg", Providers: []string{"qoder"}, Enabled: true, ModelAggregation: true,
+	})
+	resolver := stubAggregationResolver{agg: accounts.Aggregation{
+		ID: "glm-5.2", Enabled: true,
+		Members: []accounts.AggregationMember{{Provider: "qoder", Model: "kimi-k2.6"}},
+	}}
+	got, err := ex.Prepare(PrepareInput{
+		Request:          translate.ChatRequest{Model: "glm-5.2", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}}},
+		Identity:         identity,
+		ModelAggregation: true,
+		Aggregations:     resolver,
+	})
+	if err != nil {
+		t.Fatalf("logical model on aggregation key: %v", err)
+	}
+	plan := aggregatePlanFrom(got.Context)
+	if plan == nil || plan.ID != "glm-5.2" || len(plan.Members) != 1 {
+		t.Fatalf("plan=%+v", plan)
+	}
+
+	// A logical model whose members are all outside the key's grants stays
+	// unreachable.
+	identity.AllowedProviders = []string{"workbuddy"}
+	if _, err := ex.Prepare(PrepareInput{
+		Request:          translate.ChatRequest{Model: "glm-5.2", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}}},
+		Identity:         identity,
+		ModelAggregation: true,
+		Aggregations:     resolver,
+	}); err == nil {
+		t.Fatal("logical model outside provider grants was accepted")
+	}
+}
+
+type stubAggregationResolver struct {
+	agg accounts.Aggregation
+}
+
+func (s stubAggregationResolver) Resolve(_ context.Context, id string, allowed map[string]bool) (accounts.Aggregation, error) {
+	if id != s.agg.ID {
+		return accounts.Aggregation{}, context.Canceled
+	}
+	out := s.agg
+	out.Members = nil
+	for _, member := range s.agg.Members {
+		if allowed == nil || allowed[member.Provider] {
+			out.Members = append(out.Members, member)
+		}
+	}
+	return out, nil
 }
 
 func TestPrepareDeniesUngrantedProvider(t *testing.T) {
@@ -518,5 +574,80 @@ func TestPrepareQoder1MToggleFlowsToUpstreamBody(t *testing.T) {
 	modelCfg, _ := body["model_config"].(map[string]any)
 	if got, ok := modelCfg["max_input_tokens"].(int); !ok || got != 1000000 {
 		t.Errorf("model_config.max_input_tokens = %v, want 1000000 (1M must reach upstream)", modelCfg["max_input_tokens"])
+	}
+}
+
+func TestPrepareAppliesAggregationDefaultReasoning(t *testing.T) {
+	pool := NewPool(nil, nil)
+	pool.Upsert(Item{ID: "q1", Provider: "qoder", Models: []string{"kimi-k2.6"}})
+	ex := NewChatExecutor(pool, "")
+	identity := auth.KeyIdentity(accounts.APIKey{
+		ID: "key_agg", Name: "agg", Providers: []string{"qoder"}, Enabled: true, ModelAggregation: true,
+	})
+	resolver := stubAggregationResolver{agg: accounts.Aggregation{
+		ID: "pool-model", Enabled: true, ReasoningEffort: "high",
+		Members: []accounts.AggregationMember{{Provider: "qoder", Model: "kimi-k2.6"}},
+	}}
+	base := translate.ChatRequest{Model: "pool-model", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}}}
+
+	got, err := ex.Prepare(PrepareInput{
+		Request: base, Identity: identity, ModelAggregation: true, Aggregations: resolver,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got.Request.ReasoningEffort) != `"high"` {
+		t.Fatalf("default reasoning = %s", got.Request.ReasoningEffort)
+	}
+
+	explicit := base
+	explicit.ReasoningEffort = json.RawMessage(`"low"`)
+	got, err = ex.Prepare(PrepareInput{
+		Request: explicit, Identity: identity, ModelAggregation: true, Aggregations: resolver,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got.Request.ReasoningEffort) != `"low"` {
+		t.Fatalf("client level was overridden: %s", got.Request.ReasoningEffort)
+	}
+
+	disabled := base
+	disabled.Thinking = json.RawMessage(`{"type":"disabled"}`)
+	got, err = ex.Prepare(PrepareInput{
+		Request: disabled, Identity: identity, ModelAggregation: true, Aggregations: resolver,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Request.ReasoningEffort) != 0 {
+		t.Fatalf("disabled thinking must not pick up the default: %s", got.Request.ReasoningEffort)
+	}
+}
+
+func TestPrepareAppliesAggregationDefaultReasoningToNativeResponses(t *testing.T) {
+	pool := NewPool(nil, nil)
+	pool.Upsert(Item{ID: "q1", Provider: "qoder", Models: []string{"kimi-k2.6"}})
+	ex := NewChatExecutor(pool, "")
+	identity := auth.KeyIdentity(accounts.APIKey{
+		ID: "key_agg", Name: "agg", Providers: []string{"qoder"}, Enabled: true, ModelAggregation: true,
+	})
+	resolver := stubAggregationResolver{agg: accounts.Aggregation{
+		ID: "pool-model", Enabled: true, ReasoningEffort: "high",
+		Members: []accounts.AggregationMember{{Provider: "qoder", Model: "kimi-k2.6"}},
+	}}
+	native, err := translate.ParseNativeResponses([]byte(`{"model":"pool-model","input":"hi"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := ex.Prepare(PrepareInput{
+		Request:       translate.ChatRequest{Model: "pool-model", Messages: []translate.ChatMessage{{Role: "user", Content: "hi"}}},
+		NativeRequest: native, Identity: identity, ModelAggregation: true, Aggregations: resolver,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.NativeRequest == nil || got.NativeRequest.RequestedReasoningEffort() != "high" {
+		t.Fatalf("native reasoning = %v", got.NativeRequest)
 	}
 }
