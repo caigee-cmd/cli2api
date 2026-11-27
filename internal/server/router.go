@@ -10,6 +10,7 @@ import (
 
 func (s *Server) routes() {
 	s.mux.HandleFunc(endpoint.HealthPath, s.handleHealth)
+	s.mux.HandleFunc(endpoint.ReadyPath, s.handleReady)
 	s.mux.HandleFunc("/api/overview", s.withConsoleKey(s.consoleHandler().HandleOverview))
 	s.mux.HandleFunc("/api/overview/summary", s.withConsoleKey(s.consoleHandler().HandleOverviewSummary))
 	s.mux.HandleFunc("/api/live", s.withConsoleKey(s.consoleHandler().HandleLive))

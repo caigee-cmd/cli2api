@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 )
@@ -16,13 +17,21 @@ type KeyLookup interface {
 type Verifier struct {
 	consoleKey *atomic.Pointer[string]
 	keys       KeyLookup
+	cache      *keyCache
 }
 
 func NewVerifier(consoleKey string, keys KeyLookup) Verifier {
 	key := &atomic.Pointer[string]{}
-	v := Verifier{consoleKey: key, keys: keys}
+	v := Verifier{consoleKey: key, keys: keys, cache: newKeyCache(resolveKeyCacheTTL())}
 	v.SetConsoleKey(consoleKey)
 	return v
+}
+
+// InvalidateKeyCache drops cached API-key identities after a console key
+// change. Copies of Verifier share the cache pointer, so this reaches every
+// handler copy.
+func (v Verifier) InvalidateKeyCache() {
+	v.cache.invalidate()
 }
 
 // ConsoleKey reads the shared live key. Copies of Verifier share this state.
@@ -70,9 +79,15 @@ func (v Verifier) Authenticate(ctx context.Context, r *http.Request) (Identity, 
 	if v.keys == nil {
 		return Identity{}, false
 	}
+	hash := accounts.HashAPIKey(secret)
+	now := time.Now()
+	if key, ok := v.cache.get(hash, now); ok {
+		return KeyIdentity(key), true
+	}
 	key, ok, err := v.keys.LookupAPIKey(ctx, secret)
 	if err != nil || !ok || !key.Enabled {
 		return Identity{}, false
 	}
+	v.cache.put(hash, key, now)
 	return KeyIdentity(key), true
 }

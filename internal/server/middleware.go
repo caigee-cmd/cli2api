@@ -11,6 +11,11 @@ import (
 
 func (s *Server) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.draining() && !isLivenessPath(r.URL.Path) {
+			w.Header().Set("Connection", "close")
+			writeErr(w, http.StatusServiceUnavailable, "service_draining", "Service is shutting down")
+			return
+		}
 		if isOpenAIEndpoint(r.URL.Path) {
 			setOpenAICORSHeaders(w, r)
 			if r.Method == http.MethodOptions {
@@ -24,6 +29,12 @@ func (s *Server) Handler() http.Handler {
 		}
 		s.mux.ServeHTTP(w, r)
 	})
+}
+
+// isLivenessPath keeps probes usable while the process drains; everything else
+// is new work and gets a clean 503 instead of a connection reset.
+func isLivenessPath(path string) bool {
+	return path == endpoint.HealthPath || path == endpoint.ReadyPath
 }
 
 func isOpenAIEndpoint(path string) bool {

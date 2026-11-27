@@ -26,6 +26,9 @@ services:
       # per-request detail by default: the aggregates are ~200 bytes a row and
       # cannot be reconstructed once deleted.
       CLI2API_LOG_TOTALS_RETENTION_DAYS: "${CLI2API_LOG_TOTALS_RETENTION_DAYS:-730}"
+      # Positive API-key lookup cache. 0 disables it; max 300000 (5m). Console
+      # key changes invalidate immediately.
+      CLI2API_AUTH_CACHE_MS: "${CLI2API_AUTH_CACHE_MS:-30000}"
     volumes:
       - qoder-data:/data
       - "${CLI2API_UPDATER_SOCKET_DIR:-/tmp/cli2api-updater}:/run/cli2api-updater:ro"
@@ -40,6 +43,14 @@ services:
       retries: 12
       start_period: 30s
     restart: unless-stopped
+    # The server marks itself unready, rejects new work and gives active
+    # streams 30s to finish. Docker's default 10s SIGKILL would cut them.
+    stop_grace_period: 40s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   qoder-data:

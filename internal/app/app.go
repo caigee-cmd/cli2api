@@ -58,6 +58,7 @@ type App struct {
 	stopLogsOnce           sync.Once
 	SettingsMu             sync.Mutex
 	CrossProviderModelPool atomic.Bool
+	Draining               atomic.Bool
 	Gateway                *apigateway.Handler
 	Console                *appconsole.Handler
 	Update                 *appupdate.Coordinator
@@ -195,6 +196,11 @@ func New(cfg config.Config) *App {
 		stopLogs:  stopLogs,
 	}
 	a.CrossProviderModelPool.Store(crossProviderModelPool)
+	if a.Control != nil && a.Control.Keys != nil {
+		// A console key change must invalidate the auth cache immediately, not
+		// after the cache TTL.
+		a.Control.Keys.SetInvalidator(a.Auth.InvalidateKeyCache)
+	}
 	a.Control.Catalog = appsvc.NewCatalog(a.FetchWorkerModelsForMode)
 	a.Control.Catalog.Store = a.Manager.Store()
 	a.Control.Catalog.Interval = cfg.CatalogRefreshInterval
@@ -279,6 +285,7 @@ func (a *App) newHTTP() *httpserver.Server {
 		Console:       a.Console,
 		Update:        a.Update,
 		CrossProvider: &a.CrossProviderModelPool,
+		Draining:      &a.Draining,
 		TouchKey: func(ctx context.Context, keyID string) {
 			if a.Control != nil && a.Control.Keys != nil {
 				_ = a.Control.Keys.Touch(ctx, keyID)

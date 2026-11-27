@@ -646,6 +646,52 @@ func TestKeysUpdateKeepsOriginalSecret(t *testing.T) {
 	}
 }
 
+func TestKeysTouchDebouncesRepeatedWrites(t *testing.T) {
+	log := &callLog{}
+	keys := NewKeys(newFakeStore(log))
+	created, err := keys.Create(context.Background(), accounts.CreateAPIKey{Name: "CI", Enabled: true})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	touches := func() int {
+		count := 0
+		for _, name := range log.names {
+			if name == "store.TouchAPIKey" {
+				count++
+			}
+		}
+		return count
+	}
+	for i := 0; i < 3; i++ {
+		if err := keys.Touch(context.Background(), created.ID); err != nil {
+			t.Fatalf("touch: %v", err)
+		}
+	}
+	if got := touches(); got != 1 {
+		t.Fatalf("touch writes = %d, want 1 within the debounce interval", got)
+	}
+}
+
+func TestKeysMutationInvalidatesAuthCache(t *testing.T) {
+	keys := NewKeys(newFakeStore(&callLog{}))
+	invalidations := 0
+	keys.SetInvalidator(func() { invalidations++ })
+
+	created, err := keys.Create(context.Background(), accounts.CreateAPIKey{Name: "CI", Enabled: true})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if invalidations != 1 {
+		t.Fatalf("invalidations after create = %d, want 1", invalidations)
+	}
+	if err := keys.Delete(context.Background(), created.ID); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if invalidations != 2 {
+		t.Fatalf("invalidations after delete = %d, want 2", invalidations)
+	}
+}
+
 func equalCalls(got, want []string) bool {
 	if len(got) != len(want) {
 		return false

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
+	"github.com/caigee-cmd/cli2api/internal/netx"
 	"github.com/caigee-cmd/cli2api/internal/providers"
 	proxyutil "github.com/caigee-cmd/cli2api/internal/proxy"
 )
@@ -62,15 +63,10 @@ type Client struct {
 }
 
 func NewClient(store Store) *Client {
-	transport := &http.Transport{
-		MaxIdleConns:        20,
-		MaxIdleConnsPerHost: 4,
-		IdleConnTimeout:     90 * time.Second,
-	}
 	return &Client{
 		store: store,
 		http: &http.Client{
-			Transport: transport,
+			Transport: netx.Transport(),
 			CheckRedirect: func(*http.Request, []*http.Request) error {
 				return http.ErrUseLastResponse
 			},

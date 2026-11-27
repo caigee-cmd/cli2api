@@ -186,7 +186,8 @@ not prompts, responses, tool arguments, or credentials.
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `GET` | `/health` | Health probe; no API key required |
+| `GET` | `/health` | Liveness probe; no API key required |
+| `GET` | `/ready` | Readiness probe; 503 while draining or updating |
 | `GET` | `/v1/models` | Model catalog |
 | `POST` | `/v1/chat/completions` | OpenAI-compatible chat |
 | `POST` | `/v1/messages` | Anthropic-compatible messages |
@@ -194,8 +195,8 @@ not prompts, responses, tool arguments, or credentials.
 | `GET/POST/PATCH/DELETE` | `/api/*` | Console management API |
 
 Console `/api/*` requires the administrator key. `/v1/*` accepts that key or an
-enabled client key. `/health`, static frontend resources, and `/v1/*` CORS
-preflight `OPTIONS` do not require authentication.
+enabled client key. `/health`, `/ready`, static frontend resources, and `/v1/*`
+CORS preflight `OPTIONS` do not require authentication.
 
 Messages / Responses are stateless compatibility APIs, not full official API
 implementations. They do not store server-side conversations or execute

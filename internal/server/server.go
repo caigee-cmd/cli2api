@@ -20,6 +20,9 @@ type Server struct {
 	Update        *appupdate.Coordinator
 	TouchKey      func(ctx context.Context, keyID string)
 	CrossProvider *atomic.Bool
+	// Draining is set while the process is shutting down. Health stays 200
+	// (the process is alive) but readiness and new work return 503.
+	Draining *atomic.Bool
 
 	mux *http.ServeMux
 }
@@ -57,4 +60,16 @@ func (s *Server) consoleHandler() *appconsole.Handler {
 
 func (s *Server) crossProviderOn() bool {
 	return s != nil && s.CrossProvider != nil && s.CrossProvider.Load()
+}
+
+func (s *Server) draining() bool {
+	return s != nil && s.Draining != nil && s.Draining.Load()
+}
+
+// SetDraining flips readiness and rejects new work. Safe on a nil server.
+func (s *Server) SetDraining(on bool) {
+	if s == nil || s.Draining == nil {
+		return
+	}
+	s.Draining.Store(on)
 }

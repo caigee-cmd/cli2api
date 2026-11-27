@@ -29,5 +29,25 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"version":                   buildinfo.Version,
 		"commit":                    buildinfo.Commit,
 		"maintenance":               s.updater().Maintenance.Load(),
+		"draining":                  s.draining(),
+	})
+}
+
+// handleReady separates liveness from readiness: Docker should keep the
+// container alive while it drains, but a load balancer or orchestrator must
+// stop sending new work as soon as the process starts shutting down.
+func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
+	ready := !s.draining() && !s.updater().Maintenance.Load()
+	status := http.StatusOK
+	if !ready {
+		status = http.StatusServiceUnavailable
+	}
+	writeJSON(w, status, map[string]any{
+		"ok":          ready,
+		"draining":    s.draining(),
+		"maintenance": s.updater().Maintenance.Load(),
+		"version":     buildinfo.Version,
+		"commit":      buildinfo.Commit,
+		"time":        time.Now().UTC().Format(time.RFC3339),
 	})
 }

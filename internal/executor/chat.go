@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
+	"github.com/caigee-cmd/cli2api/internal/netx"
 	"github.com/caigee-cmd/cli2api/internal/providers"
 	"github.com/caigee-cmd/cli2api/internal/translate"
 )
@@ -363,7 +364,8 @@ func NewChatExecutor(pool *Pool, workerKey string) ChatExecutor {
 		MaxAttempts:     4,
 		SessionAffinity: NewSessionAffinity(affinityTTL, affinityCapacity),
 		HTTPClient: &http.Client{
-			Timeout: 120 * time.Second,
+			Timeout:   120 * time.Second,
+			Transport: netx.Transport(),
 		},
 	}
 }

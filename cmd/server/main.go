@@ -12,11 +12,15 @@ import (
 
 	"github.com/caigee-cmd/cli2api/internal/app"
 	"github.com/caigee-cmd/cli2api/internal/config"
+	"github.com/caigee-cmd/cli2api/internal/netx"
 	"github.com/joho/godotenv"
 )
 
 func main() {
 	_ = godotenv.Load()
+	// Provider clients that leave Transport nil share this process-wide pool.
+	// Install the tuned transport before app.New constructs any client.
+	http.DefaultTransport = netx.Transport()
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatal(err)
@@ -40,9 +44,20 @@ func main() {
 		}
 	}()
 	<-ctx.Done()
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// Stop reporting ready and reject new work before waiting for active
+	// requests. Existing streams keep their slots; the listener closes when
+	// Shutdown starts, and the middleware returns 503 to anything that still
+	// reaches it through a keep-alive connection.
+	if application.HTTP != nil {
+		application.HTTP.SetDraining(true)
+	}
+	const shutdownGrace = 30 * time.Second
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
 	defer cancel()
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {
-		log.Printf("http shutdown failed: %v", err)
+		log.Printf("http shutdown did not finish within %s: %v", shutdownGrace, err)
+		// Force-close the remaining connections so the process exits cleanly
+		// instead of leaving handlers and their upstream streams running.
+		_ = httpServer.Close()
 	}
 }
