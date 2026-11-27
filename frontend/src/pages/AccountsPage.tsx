@@ -869,9 +869,9 @@ export function AccountsPage() {
   }
 
   return (
-    <div className="space-y-4">
-      {checkinError ? <PageAlert title={checkinError} /> : null}
-      <section data-gsap-reveal className="flex flex-wrap items-center gap-2">
+    <div className="flex min-h-0 flex-1 flex-col gap-4">
+      {checkinError ? <div className="shrink-0"><PageAlert title={checkinError} /></div> : null}
+      <section data-gsap-reveal className="flex shrink-0 flex-wrap items-center gap-2">
         {rows.length ? (
           <>
             <FilterToggle
@@ -1002,7 +1002,7 @@ export function AccountsPage() {
       {bulkProgress ? (
         <div
           data-bulk-progress
-          className="flex items-center gap-3 rounded-lg bg-surface-secondary px-3 py-2 text-caption"
+          className="flex shrink-0 items-center gap-3 rounded-lg bg-surface-secondary px-3 py-2 text-caption"
         >
           <BrandMark size={14} loading />
           <span className="shrink-0 font-medium text-foreground">
@@ -1079,35 +1079,10 @@ export function AccountsPage() {
         }}
       />
 
-
-      {!hasAccounts ? (
-        <div className="space-y-3">
-          <EmptyPanel
-            className="rounded-3xl bg-surface-secondary"
-            icon={<BrandMark size={28} />}
-            title={t('noAccounts')}
-            hint={t('accountEmptyHint')}
-            action={<Button size="sm" onPress={() => setAddOpen(true)}><Plus size={14} />{t('addAccount')}</Button>}
-          />
-          <div className="text-center">
-            <CaiaiSoftLink />
-          </div>
-        </div>
-      ) : null}
-
-      {hasAccounts && !filteredRows.length ? (
-        <EmptyPanel
-          className="rounded-3xl bg-surface-secondary"
-          icon={<MagnifyingGlass size={22} />}
-          title={t('noAccountsMatch')}
-          action={<Button size="sm" variant="ghost" onPress={() => { setQuery(''); setFilter('all'); setProviderFilter('') }}>{t('clearFilters')}</Button>}
-        />
-      ) : null}
-
       {reloginMode ? (
         <div
           data-relogin-bar
-          className="flex flex-wrap items-center gap-2 rounded-lg border border-accent/40 bg-surface-secondary px-3 py-2 text-caption"
+          className="flex shrink-0 flex-wrap items-center gap-2 rounded-lg border border-accent/40 bg-surface-secondary px-3 py-2 text-caption"
         >
           <span className="font-medium text-foreground">{t('reloginSelected', { count: reloginSelected.length })}</span>
           <Button size="sm" variant="ghost" onPress={() => setReloginSelected(pagedRows.map((account) => account.id))}>
@@ -1127,60 +1102,97 @@ export function AccountsPage() {
         </div>
       ) : null}
 
-      <section className="grid auto-rows-[minmax(280px,auto)] gap-2.5 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-        {pagedRows.map((account) => (
-          <AccountCard
-            key={account.id}
-            account={account}
-            selectable={reloginMode}
-            selected={reloginSelected.includes(account.id)}
-            onSelectToggle={() => setReloginSelected((current) => (
-              current.includes(account.id) ? current.filter((id) => id !== account.id) : [...current, account.id]
+      {/*
+        Only this region scrolls. The filter row above and the pager below stay
+        put, so switching pages or filtering never moves the controls offscreen.
+      */}
+      <div
+        data-account-scroll
+        className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain [scrollbar-gutter:stable]"
+      >
+        <div className="space-y-4 pb-1">
+          {!hasAccounts ? (
+            <div className="space-y-3">
+              <EmptyPanel
+                className="rounded-3xl bg-surface-secondary"
+                icon={<BrandMark size={28} />}
+                title={t('noAccounts')}
+                hint={t('accountEmptyHint')}
+                action={<Button size="sm" onPress={() => setAddOpen(true)}><Plus size={14} />{t('addAccount')}</Button>}
+              />
+              <div className="text-center">
+                <CaiaiSoftLink />
+              </div>
+            </div>
+          ) : null}
+
+          {hasAccounts && !filteredRows.length ? (
+            <EmptyPanel
+              className="rounded-3xl bg-surface-secondary"
+              icon={<MagnifyingGlass size={22} />}
+              title={t('noAccountsMatch')}
+              action={<Button size="sm" variant="ghost" onPress={() => { setQuery(''); setFilter('all'); setProviderFilter('') }}>{t('clearFilters')}</Button>}
+            />
+          ) : null}
+
+          <section className="grid auto-rows-[minmax(280px,auto)] gap-2.5 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+            {pagedRows.map((account) => (
+              <AccountCard
+                key={account.id}
+                account={account}
+                selectable={reloginMode}
+                selected={reloginSelected.includes(account.id)}
+                onSelectToggle={() => setReloginSelected((current) => (
+                  current.includes(account.id) ? current.filter((id) => id !== account.id) : [...current, account.id]
+                ))}
+                busyKind={busy?.id === account.id ? busy.kind : ''}
+                authPanelOpen={authPanelId === account.id}
+                authUrl={urlById[account.id]}
+                note={noteById[account.id]}
+                pat={patById[account.id] || ''}
+                t={t}
+                onPatChange={(value) => setPatById((current) => ({ ...current, [account.id]: value }))}
+                callbackUrl={callbackById[account.id] || ''}
+                onCallbackChange={(value) => setCallbackById((current) => ({ ...current, [account.id]: value }))}
+                onSubmitCallback={() => void onCallback(account.id)}
+                onDeviceLogin={(loginMethod) => void onDeviceLogin(account.id, loginMethod)}
+                onPatLogin={() => void onPat(account.id)}
+                onExport={() => void onExport(account.id)}
+                onRefresh={() => void onRefreshAccount(account.id)}
+                onDelete={() => setConfirmId(account.id)}
+                onToggle={(selected) => void onToggle(account.id, selected)}
+                checkinDefaultTime={settings?.checkin_times[account.provider || '']}
+                checkinTimezone={checkinTimezoneFor(account)}
+                onToggleAutoCheckin={checkinPolicyFor(account) ? (selected) => void onToggleAutoCheckin(account.id, selected) : undefined}
+                onCheckin={checkinPolicyFor(account) ? () => void onCheckin(account.id) : undefined}
+                checkinFeedback={checkinFeedbackById[account.id] ?? null}
+                onViewCheckins={checkinPolicyFor(account) ? () => setCheckinHistoryId(account.id) : undefined}
+                onEdit={() => setEditId(account.id)}
+                onToggleAuthPanel={() => setAuthPanelId((current) => current === account.id ? null : account.id)}
+                onViewModels={() => setModelsId(account.id)}
+              />
             ))}
-            busyKind={busy?.id === account.id ? busy.kind : ''}
-            authPanelOpen={authPanelId === account.id}
-            authUrl={urlById[account.id]}
-            note={noteById[account.id]}
-            pat={patById[account.id] || ''}
-            t={t}
-            onPatChange={(value) => setPatById((current) => ({ ...current, [account.id]: value }))}
-            callbackUrl={callbackById[account.id] || ''}
-            onCallbackChange={(value) => setCallbackById((current) => ({ ...current, [account.id]: value }))}
-            onSubmitCallback={() => void onCallback(account.id)}
-            onDeviceLogin={(loginMethod) => void onDeviceLogin(account.id, loginMethod)}
-            onPatLogin={() => void onPat(account.id)}
-            onExport={() => void onExport(account.id)}
-            onRefresh={() => void onRefreshAccount(account.id)}
-            onDelete={() => setConfirmId(account.id)}
-            onToggle={(selected) => void onToggle(account.id, selected)}
-            checkinDefaultTime={settings?.checkin_times[account.provider || '']}
-            checkinTimezone={checkinTimezoneFor(account)}
-            onToggleAutoCheckin={checkinPolicyFor(account) ? (selected) => void onToggleAutoCheckin(account.id, selected) : undefined}
-            onCheckin={checkinPolicyFor(account) ? () => void onCheckin(account.id) : undefined}
-            checkinFeedback={checkinFeedbackById[account.id] ?? null}
-            onViewCheckins={checkinPolicyFor(account) ? () => setCheckinHistoryId(account.id) : undefined}
-            onEdit={() => setEditId(account.id)}
-            onToggleAuthPanel={() => setAuthPanelId((current) => current === account.id ? null : account.id)}
-            onViewModels={() => setModelsId(account.id)}
-          />
-        ))}
-      </section>
+          </section>
+        </div>
+      </div>
 
       {filteredRows.length ? (
-        <ListPager
-          total={filteredRows.length}
-          page={currentPage}
-          pageCount={pageCount}
-          pageSize={pageSize}
-          pageSizes={ACCOUNT_PAGE_SIZES}
-          loading={false}
-          pageSizeLabel={t('logsPageSize')}
-          pageLabel={t('logsPage', { page: currentPage, pages: pageCount })}
-          prevLabel={t('logsPrevPage')}
-          nextLabel={t('logsNextPage')}
-          onPage={setPage}
-          onPageSize={setPageSize}
-        />
+        <div className="shrink-0">
+          <ListPager
+            total={filteredRows.length}
+            page={currentPage}
+            pageCount={pageCount}
+            pageSize={pageSize}
+            pageSizes={ACCOUNT_PAGE_SIZES}
+            loading={false}
+            pageSizeLabel={t('logsPageSize')}
+            pageLabel={t('logsPage', { page: currentPage, pages: pageCount })}
+            prevLabel={t('logsPrevPage')}
+            nextLabel={t('logsNextPage')}
+            onPage={setPage}
+            onPageSize={setPageSize}
+          />
+        </div>
       ) : null}
     </div>
   )
