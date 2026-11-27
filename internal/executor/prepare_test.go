@@ -430,7 +430,6 @@ func TestProviderPrefixRecognizesCommand(t *testing.T) {
 		"command/moonshotai/Kimi-K3":       "command",
 		"codearts/GLM-5.2":                 "codearts",
 		"kiro/claude-sonnet-4.5":           "kiro",
-		"doubaowork/doubao-auto":           "doubaowork",
 		// Region-qualified dash form.
 		"workbuddy-cn/glm-5.3-flash":   "workbuddy",
 		"workbuddy-gl/glm-5.3-flash":   "workbuddy",

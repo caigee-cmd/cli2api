@@ -294,6 +294,10 @@ ALTER TABLE aggregation_models ADD COLUMN context_length INTEGER NOT NULL DEFAUL
 ALTER TABLE aggregation_models ADD COLUMN max_output_tokens INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE aggregation_models ADD COLUMN reasoning_options TEXT NOT NULL DEFAULT '';
 ALTER TABLE aggregation_models ADD COLUMN reasoning_effort TEXT NOT NULL DEFAULT '';`},
+	{filename: "035_remove_doubaowork.sql", sql: `
+DELETE FROM account_cooldowns
+ WHERE account_id IN (SELECT id FROM accounts WHERE provider = 'doubaowork');
+DELETE FROM accounts WHERE provider = 'doubaowork';`},
 }
 
 const schemaMigrationsDDL = `

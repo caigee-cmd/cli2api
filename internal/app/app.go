@@ -26,7 +26,6 @@ import (
 	"github.com/caigee-cmd/cli2api/internal/providers/codex"
 	"github.com/caigee-cmd/cli2api/internal/providers/command"
 	"github.com/caigee-cmd/cli2api/internal/providers/devin"
-	"github.com/caigee-cmd/cli2api/internal/providers/doubaowork"
 	"github.com/caigee-cmd/cli2api/internal/providers/kimi"
 	"github.com/caigee-cmd/cli2api/internal/providers/kiro"
 	"github.com/caigee-cmd/cli2api/internal/providers/meta"
@@ -136,7 +135,8 @@ func New(cfg config.Config) *App {
 	providerReg := providers.NewRegistry()
 	workbuddyClient := workbuddy.NewClient(store)
 	providerReg.Register(workbuddyClient.Adapter())
-	providerReg.Register(trae.NewClient(store).Adapter())
+	traeClient := trae.NewClient(store)
+	providerReg.Register(traeClient.Adapter())
 	providerReg.Register(devin.NewClient(store).Adapter())
 	providerReg.Register(command.NewClient(store).Adapter())
 	providerReg.Register(codex.NewClient(store).Adapter())
@@ -147,7 +147,6 @@ func New(cfg config.Config) *App {
 	providerReg.Register(codearts.NewClient(store).Adapter())
 	providerReg.Register(kiro.NewClient(store).Adapter())
 	providerReg.Register(meta.NewClient(store).Adapter())
-	providerReg.Register(doubaowork.NewClient(store).Adapter())
 	qoderClient := qoder.NewClient()
 	qoderClient.Bind(manager.AccountURL, manager.ProxyAPIKey)
 	qoderClient.SetDirect(qoder.NewDirect(store, func(ctx context.Context, accountID string) (string, error) {
@@ -167,6 +166,7 @@ func New(cfg config.Config) *App {
 	providerReg.Register(qoderClient.Adapter())
 	manager.SetProviders(providerReg)
 	manager.SetWorkBuddy(workbuddyClient)
+	manager.SetSessionKeepalive("trae", traeClient)
 	go manager.RefreshAll(context.Background(), false)
 	recorder := applogs.NewRequestRecorder(store)
 	stopLogs := make(chan struct{})

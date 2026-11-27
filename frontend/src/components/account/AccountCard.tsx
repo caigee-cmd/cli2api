@@ -438,20 +438,6 @@ export function AccountCard({
 
       {authPanelOpen && account.enabled ? (
         <section ref={authRef} className="grid gap-3 bg-surface-secondary/55 px-3 py-3">
-          {account.provider === 'doubaowork' ? (
-            <div>
-              <div className="text-caption font-medium text-muted">{t('doubaoCookieLabel')}</div>
-              <p className="mt-1.5 text-caption leading-5 text-muted">{t('doubaoCookieLead')}</p>
-              <div className="mt-2.5 flex flex-col gap-2 sm:flex-row">
-                <TextField className="flex-1" type="password" value={pat} onChange={onPatChange}>
-                  <Label className="sr-only">{t('doubaoCookieLabel')}</Label>
-                  <Input placeholder={t('doubaoCookiePh')} aria-label={t('doubaoCookieLabel')} />
-                </TextField>
-                <Button size="sm" variant="secondary" isPending={busyKind === 'pat'} onPress={onPatLogin}><Key size={14} />{t('doubaoSaveCookie')}</Button>
-              </div>
-              {note ? <p className="mt-1 text-caption text-muted">{note}</p> : null}
-            </div>
-          ) : (
           <>
           <div>
             <div className="text-caption font-medium text-muted">{t('oauthDeviceFlow')}</div>
@@ -530,7 +516,6 @@ export function AccountCard({
             </div>
           ) : null}
           </>
-          )}
         </section>
       ) : null}
 

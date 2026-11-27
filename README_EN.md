@@ -60,7 +60,7 @@ Model IDs come from **Access** or `/v1/models`. Routing is automatic and prefers
 <img src="./docs/assets/readme/request-en.svg" width="100%" alt="A client sends the request to local port 3010, the gateway picks an account you own, then calls the upstream">
 </p>
 
-Stable support covers **Qoder (Global / CN)**, **WorkBuddy (Global / CN)**, and **Trae CN Work**. Every other provider is experimental and not a production promise: Devin, Command Code, Codex, Zhipu GLM, QwenWork (Global / CN), Kimi Code (CN), Huawei Cloud CodeArts (码道), Kiro, Muse (Meta), Doubao Work, and MiniMax Code (Global / CN).
+Stable support covers **Qoder (Global / CN)**, **WorkBuddy (Global / CN)**, and **Trae CN Work**. Every other provider is experimental and not a production promise: Devin, Command Code, Codex, Zhipu GLM, QwenWork (Global / CN), Kimi Code (CN), Huawei Cloud CodeArts (码道), Kiro, Muse (Meta), and MiniMax Code (Global / CN).
 
 The Go gateway handles authentication, routing, and request logging. PAT-backed Qoder accounts talk to the upstream in-process. Qoder accounts that still use the legacy CLI credential keep one Node process and HOME each. Other providers use in-process adapters, so no full CLI starts per request.
 
@@ -77,7 +77,7 @@ Qoder CN, WorkBuddy, and Trae are implemented; live-account acceptance is still 
   <img src="./docs/assets/readme/console-window-en.svg" width="100%" alt="CLI2API console Accounts page: each account shows its login method, ready state, and quota, with an Access panel offering the Base URL and a quick check">
 </p>
 
-Readiness and quota sit on the account card. Access copies the Base URL and runs a quick check. Check-in is declared per provider; today that is WorkBuddy CN, QwenWork, Qoder, Trae, MiniMax Code, CodeArts, and Doubao Work, each with a manual check-in on the card. Automatic check-in is enabled per account and off by default, with the default time per provider under System → Automatic check-in. Live-account check-in acceptance is still pending.
+Readiness and quota sit on the account card. Access copies the Base URL and runs a quick check. Check-in is declared per provider; today that is WorkBuddy CN, QwenWork, Qoder, Trae, MiniMax Code, and CodeArts, each with a manual check-in on the card. Automatic check-in is enabled per account and off by default, with the default time per provider under System → Automatic check-in. Live-account check-in acceptance is still pending.
 
 ## Earliest expiry first
 

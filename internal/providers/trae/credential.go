@@ -229,8 +229,11 @@ func (c Credential) needsRefresh(now time.Time) bool {
 	if strings.TrimSpace(c.AccessToken) == "" {
 		return true
 	}
+	// Unknown expiry is handled by the 401 path. Treating it as stale here
+	// would renew on every request, which is exactly the refresh storm that
+	// makes an upstream session look abusive.
 	if c.ExpiresAt <= 0 {
-		return true
+		return false
 	}
 	return now.Add(refreshLead).Unix() >= c.ExpiresAt
 }

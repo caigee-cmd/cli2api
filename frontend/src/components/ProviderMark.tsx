@@ -2,7 +2,6 @@ import { CommandMark } from '@/components/CommandMark'
 import { CodeArtsMark } from '@/components/CodeArtsMark'
 import { CodexMark } from '@/components/CodexMark'
 import { DevinMark } from '@/components/DevinMark'
-import { DoubaoworkMark } from '@/components/DoubaoworkMark'
 import { KiroMark } from '@/components/KiroMark'
 import { KimiMark } from '@/components/KimiMark'
 import { MiniMaxCodeMark } from '@/components/MiniMaxCodeMark'
@@ -54,9 +53,6 @@ export function ProviderMark({ provider, size = 16, className = '' }: Props) {
   }
   if (id === 'meta' || id === 'muse') {
     return <MuseMark size={size} className={className} />
-  }
-  if (id === 'doubaowork') {
-    return <DoubaoworkMark size={size} className={className} />
   }
   if (id === 'minimaxcode') {
     return <MiniMaxCodeMark size={size} className={className} />

@@ -44,32 +44,6 @@ func TestListIncludesEveryRegisteredDescriptor(t *testing.T) {
 	}
 }
 
-func TestDoubaoWorkDescriptorRegistered(t *testing.T) {
-	descriptor, ok := Get("doubaowork")
-	if !ok {
-		t.Fatal("doubaowork descriptor missing")
-	}
-	if descriptor.Runtime != RuntimeInProcess || descriptor.DefaultRegion != "cn" {
-		t.Fatalf("unexpected doubaowork descriptor: %+v", descriptor)
-	}
-	if !descriptor.SupportsCredentialFormat("doubaowork-cookie-v1") {
-		t.Fatal("doubaowork must accept credential format doubaowork-cookie-v1")
-	}
-	if _, region, err := Resolve("doubaowork", ""); err != nil || region.ID != "cn" {
-		t.Fatalf("resolve doubaowork default region: %+v, %v", region, err)
-	}
-	if err := ValidateCredentialFormat("doubaowork", "doubaowork-cookie-v1"); err != nil {
-		t.Fatalf("validate doubaowork credential format: %v", err)
-	}
-	if err := ValidateCredentialFormat("doubaowork", "zhipu-key-v1"); err == nil {
-		t.Fatal("doubaowork must reject a foreign credential format")
-	}
-	// No alias: the canonical id is the only accepted spelling.
-	if _, ok := Get("doubao"); ok {
-		t.Fatal("doubao alias must not resolve; only doubaowork is canonical")
-	}
-}
-
 func TestQwenWorkAdvertisesDailyCheckin(t *testing.T) {
 	for _, region := range []string{"global", "cn"} {
 		policy, ok := CheckinFor("qwenwork", region)

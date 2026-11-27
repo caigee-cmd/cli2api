@@ -140,13 +140,7 @@ func (a *Accounts) LoginPAT(ctx context.Context, id, token string) error {
 	if !ok {
 		return operationError("provider_unsupported", "provider does not support PAT login")
 	}
-	// Doubao Work authenticates with a pasted web-session Cookie, not a token;
-	// wrap the pasted value under "cookie" and leave auth_type alone.
-	body := map[string]string{"api_key": token}
-	if account.Provider == "doubaowork" {
-		body = map[string]string{"cookie": token}
-	}
-	payload, err := json.Marshal(body)
+	payload, err := json.Marshal(map[string]string{"api_key": token})
 	if err != nil {
 		return operationError("invalid_credential", err.Error())
 	}
@@ -158,12 +152,9 @@ func (a *Accounts) LoginPAT(ctx context.Context, id, token string) error {
 		return operationError("credential_save_failed", err.Error())
 	}
 	// Record the credential kind so the card shows the right type (and enables
-	// export/filtering) instead of the create-time default "none". Doubao Work
-	// stores a session Cookie, so it keeps its own auth type instead of "pat".
-	if account.Provider != "doubaowork" {
-		if err := a.store().SetCredentialAuthType(ctx, id, "pat"); err != nil {
-			return operationError("credential_save_failed", err.Error())
-		}
+	// export/filtering) instead of the create-time default "none".
+	if err := a.store().SetCredentialAuthType(ctx, id, "pat"); err != nil {
+		return operationError("credential_save_failed", err.Error())
 	}
 	enabled := true
 	if err := a.store().Update(ctx, id, accounts.UpdateAccount{Enabled: &enabled}); err != nil {

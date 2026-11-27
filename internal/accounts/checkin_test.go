@@ -17,7 +17,7 @@ func (r checkinSecretReader) GetSecret(_ context.Context, name string) (string, 
 // outranks it, and only a per-account manual override does.
 func TestResolveCheckinTimeFollowsProviderSetting(t *testing.T) {
 	ctx := context.Background()
-	for _, provider := range []string{"qoder", "workbuddy", "trae", "qwenwork", "codearts", "doubaowork", "minimaxcode"} {
+	for _, provider := range []string{"qoder", "workbuddy", "trae", "qwenwork", "codearts", "minimaxcode"} {
 		account := Account{Provider: provider, ProviderRegion: "cn", CheckinAutoTime: "01:00"}
 		effective, err := ResolveCheckinTime(ctx, checkinSecretReader{}, account)
 		if err != nil || effective != DefaultCheckinTime {

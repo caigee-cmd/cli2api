@@ -11,17 +11,6 @@ function run(name: string, fn: () => void) {
   }
 }
 
-run('format doubaowork-cookie-v1 → doubaowork cn', () => {
-  const result = detectImportBundle({
-    format: 'doubaowork-cookie-v1',
-    cookie: 'sessionid=abc',
-  })
-  assert.equal(result.provider, 'doubaowork')
-  assert.equal(result.format, 'doubaowork-cookie-v1')
-  assert.equal(result.confidence, 'high')
-  assert.equal(result.batchImportSupported, false)
-})
-
 run('format workbuddy-accounts → workbuddy cn', () => {
   const result = detectImportBundle({
     format: 'workbuddy-accounts',

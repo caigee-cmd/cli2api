@@ -50,6 +50,9 @@ type Client struct {
 	mu          sync.Mutex
 	loginStates map[string]string
 	catalog     map[string]providers.ModelInfo
+
+	refreshMu    sync.Mutex
+	refreshLocks map[string]*sync.Mutex
 }
 
 const catalogTimeout = 15 * time.Second
@@ -71,7 +74,8 @@ func NewClient(store Store) *Client {
 				return http.ErrUseLastResponse
 			},
 		},
-		loginStates: map[string]string{},
+		loginStates:  map[string]string{},
+		refreshLocks: map[string]*sync.Mutex{},
 	}
 }
 
@@ -271,22 +275,65 @@ func (c *Client) PollLogin(ctx context.Context, accountID string) (bool, string,
 	return true, "login complete", nil
 }
 
-// credential loads and, when nearly expired, refreshes the stored token.
-func (c *Client) credential(ctx context.Context, accountID string) (Credential, error) {
+// loadCredential reads and decodes the stored credential without refreshing.
+func (c *Client) loadCredential(ctx context.Context, accountID string) (Credential, error) {
 	_, payload, err := c.store.LoadCredentialPayload(ctx, accountID)
 	if err != nil {
 		return Credential{}, err
 	}
-	credential, err := DecodeCredential(payload)
+	return DecodeCredential(payload)
+}
+
+// accountRefreshLock serializes token renewal per account. WorkBuddy rotates
+// the refresh token, so two concurrent exchanges with the same token can make
+// the second one look like reuse and invalidate the session.
+func (c *Client) accountRefreshLock(accountID string) *sync.Mutex {
+	c.refreshMu.Lock()
+	defer c.refreshMu.Unlock()
+	lock := c.refreshLocks[accountID]
+	if lock == nil {
+		lock = &sync.Mutex{}
+		c.refreshLocks[accountID] = lock
+	}
+	return lock
+}
+
+// needsRefresh reports whether the access token is inside the renewal window.
+// An unknown expiry is not a reason to refresh on every request: let the 401
+// path renew once instead, which avoids a refresh storm on imported tokens.
+func (c Credential) needsRefresh(now time.Time) bool {
+	if c.ExpiresAt == 0 {
+		return false
+	}
+	return now.Add(2*time.Minute).Unix() >= c.ExpiresAt
+}
+
+// credential loads and, when nearly expired, refreshes the stored token.
+func (c *Client) credential(ctx context.Context, accountID string) (Credential, error) {
+	credential, err := c.loadCredential(ctx, accountID)
 	if err != nil {
 		return Credential{}, err
 	}
-	if credential.ExpiresAt != 0 && time.Now().Add(2*time.Minute).Unix() < credential.ExpiresAt {
+	if !credential.needsRefresh(time.Now()) {
 		return credential, nil
 	}
-	refreshed, err := c.Refresh(ctx, accountID, credential)
+	lock := c.accountRefreshLock(accountID)
+	lock.Lock()
+	defer lock.Unlock()
+	// Another request may have renewed it while we waited for the lock.
+	current, err := c.loadCredential(ctx, accountID)
 	if err != nil {
-		return credential, nil
+		return Credential{}, err
+	}
+	if !current.needsRefresh(time.Now()) {
+		return current, nil
+	}
+	refreshed, err := c.refreshLocked(ctx, accountID, current)
+	if err != nil {
+		// Surface the failure instead of silently reusing an expired token:
+		// returning nil here makes every following request retry the exchange,
+		// which is a refresh storm against a rotating refresh token.
+		return current, err
 	}
 	return refreshed, nil
 }
@@ -314,8 +361,26 @@ func (c *Client) resolvedCredential(ctx context.Context, accountID string) (Cred
 }
 
 // Refresh exchanges the refresh token. Session-dead errors disable the
-// account by surfacing the auth taxonomy to the manager.
+// account by surfacing the auth taxonomy to the manager. Renewal is serialized
+// per account and re-reads the store first, so a concurrent request that
+// already rotated the token is not refreshed again.
 func (c *Client) Refresh(ctx context.Context, accountID string, credential Credential) (Credential, error) {
+	lock := c.accountRefreshLock(accountID)
+	lock.Lock()
+	defer lock.Unlock()
+	current, err := c.loadCredential(ctx, accountID)
+	if err != nil {
+		return credential, err
+	}
+	// A 401 on an older token while another request already stored a fresh one
+	// must not trigger a second exchange with the rotated refresh token.
+	if current.AccessToken != credential.AccessToken && !current.needsRefresh(time.Now()) {
+		return c.overlayRegion(ctx, accountID, current), nil
+	}
+	return c.refreshLocked(ctx, accountID, current)
+}
+
+func (c *Client) refreshLocked(ctx context.Context, accountID string, credential Credential) (Credential, error) {
 	credential = c.overlayRegion(ctx, accountID, credential)
 	body, status, err := c.do(ctx, accountID, http.MethodPost, credential.ChatBase()+pathTokenRefresh, []byte("{}"),
 		func(h http.Header) { SetRefreshHeaders(h, credential) })
@@ -1019,13 +1084,14 @@ func checkinRequestProcessing(body []byte) bool {
 // Keepalive forces a token refresh for the account. Session-dead uses the
 // existing Refresh Observe(auth) path.
 func (c *Client) Keepalive(ctx context.Context, accountID string) error {
-	_, payload, err := c.store.LoadCredentialPayload(ctx, accountID)
+	credential, err := c.loadCredential(ctx, accountID)
 	if err != nil {
 		return err
 	}
-	credential, err := DecodeCredential(payload)
-	if err != nil {
-		return err
+	// A token renewed by a normal request earlier today is already fresh; do
+	// not rotate it again just to satisfy the nightly sweep.
+	if credential.ExpiresAt != 0 && time.Now().Add(6*time.Hour).Unix() < credential.ExpiresAt {
+		return nil
 	}
 	_, err = c.Refresh(ctx, accountID, credential)
 	return err

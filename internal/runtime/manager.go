@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -65,6 +66,12 @@ type WorkBuddyMaintainer interface {
 	Keepalive(ctx context.Context, accountID string) error
 }
 
+// SessionKeepaliver renews an idle session before its refresh token expires.
+// It is implemented per provider; runtime only schedules the sweep.
+type SessionKeepaliver interface {
+	Keepalive(ctx context.Context, accountID string) error
+}
+
 type Manager struct {
 	config               ManagerConfig
 	store                AccountStore
@@ -73,6 +80,7 @@ type Manager struct {
 	pool                 *Pool
 	providers            *providers.Registry
 	workbuddy            WorkBuddyMaintainer
+	sessionKeepalive     map[string]SessionKeepaliver
 	checkinRunning       map[string]bool
 	checkinStatusRunning bool
 	quotaFreshRunning    bool
@@ -204,6 +212,7 @@ func NewManager(config ManagerConfig, store AccountStore, starter ProcessStarter
 		persistDirty:      map[string]Item{},
 		persistedVersions: map[string]uint64{},
 		persistCloseCh:    make(chan struct{}),
+		sessionKeepalive:  map[string]SessionKeepaliver{},
 		cpuPrev:           map[int]procTime{},
 		quotaProbeLevels:  map[string]int{},
 		healthFailures:    map[string]int{},
@@ -517,7 +526,31 @@ func (m *Manager) SetWorkBuddy(ops WorkBuddyMaintainer) {
 	if m == nil {
 		return
 	}
+	m.mu.Lock()
 	m.workbuddy = ops
+	if m.sessionKeepalive == nil {
+		m.sessionKeepalive = map[string]SessionKeepaliver{}
+	}
+	m.sessionKeepalive["workbuddy"] = ops
+	m.mu.Unlock()
+}
+
+// SetSessionKeepalive registers an idle-session keepalive for one provider.
+// The maintenance sweep only calls providers registered here.
+func (m *Manager) SetSessionKeepalive(provider string, ops SessionKeepaliver) {
+	if m == nil || ops == nil {
+		return
+	}
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	if provider == "" {
+		return
+	}
+	m.mu.Lock()
+	if m.sessionKeepalive == nil {
+		m.sessionKeepalive = map[string]SessionKeepaliver{}
+	}
+	m.sessionKeepalive[provider] = ops
+	m.mu.Unlock()
 }
 
 func (m *Manager) Close() error {
