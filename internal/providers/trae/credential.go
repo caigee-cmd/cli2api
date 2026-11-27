@@ -27,8 +27,17 @@ const (
 	AuthFrom = "trae"
 	AppID    = "6eefa01c-1036-4c7e-9ca5-d891f63bfcd8"
 	// IdeVersion is the x_app_version / IDEVersion sent on login + exchange.
+	// IdeVersionCode (X-Ide-Version-Code / X-App-Version-Code) gates the upstream
+	// model catalog: the server returns only the models a given build is allowed
+	// to see. Aligning the client to 3.4.24 in #587 also moved the code forward to
+	// 20260212, which shrank the visible catalog from 21 models to 6 (MiMo-V2.6-Pro,
+	// DeepSeek-V4.1-Flash, GLM-5.4, Kimi-K3.1-Pro, Qwen4-Max and others vanished).
+	// The code, not the version string, is what gates the list: with the client
+	// pinned at 3.4.24, 20260212 yields 6 models and 20260811 yields 21.
+	// Keep the newer client version but hold the catalog code at the value that
+	// exposes the full list until upstream ships a build whose own code does.
 	IdeVersion     = "3.4.24"
-	IdeVersionCode = "20260212"
+	IdeVersionCode = "20260811"
 	DeviceBrand    = "83DG"
 	OSVersion      = "Windows 11 Pro"
 	// Function is the fallback scene for a model that is in no fetched scene
