@@ -46,10 +46,14 @@ func TestBuildGenerateRequestEnvelopeAndMessages(t *testing.T) {
 		Skills         any            `json:"skills"`
 		PermissionMode string         `json:"permissionMode"`
 		Params         struct {
-			Model     string `json:"model"`
-			System    string `json:"system"`
-			Stream    bool   `json:"stream"`
-			MaxTokens int    `json:"max_tokens"`
+			Model string `json:"model"`
+			// System is the CLI's text-block array, not a bare string.
+			System []struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"system"`
+			Stream    bool `json:"stream"`
+			MaxTokens int  `json:"max_tokens"`
 			Tools     []struct {
 				Name        string          `json:"name"`
 				Description string          `json:"description"`
@@ -83,8 +87,8 @@ func TestBuildGenerateRequestEnvelopeAndMessages(t *testing.T) {
 	if !envelope.Params.Stream {
 		t.Error("stream must always be true (the gateway rejects stream:false)")
 	}
-	if envelope.Params.System != "be terse" {
-		t.Errorf("system = %q", envelope.Params.System)
+	if len(envelope.Params.System) != 1 || envelope.Params.System[0].Text != "be terse" {
+		t.Errorf("system = %+v", envelope.Params.System)
 	}
 	if envelope.Params.MaxTokens != 4096 {
 		t.Errorf("max_tokens = %d", envelope.Params.MaxTokens)
