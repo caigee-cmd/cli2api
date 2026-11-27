@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
+	"github.com/caigee-cmd/cli2api/internal/executor"
 )
 
 type aggregationMemberInput struct {
@@ -39,6 +40,59 @@ func writeAggregationError(w http.ResponseWriter, err error, _ string) {
 	writeOperationError(w, err)
 }
 
+func (h *Handler) HandleAggregationPreview(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeErr(w, http.StatusMethodNotAllowed, "method_not_allowed", "POST only")
+		return
+	}
+	var input struct {
+		ID       string          `json:"id"`
+		Strategy string          `json:"strategy"`
+		Document json.RawMessage `json:"document"`
+		Message  string          `json:"message"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxConsoleBodyBytes)).Decode(&input); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	agg := accounts.Aggregation{
+		ID: strings.TrimSpace(input.ID), Strategy: accounts.NormalizeAggregationStrategy(input.Strategy),
+		Document: string(input.Document), Enabled: true, AllowFallbacks: true, MaxAttempts: 3,
+	}
+	if agg.ID == "" {
+		agg.ID = "preview"
+	}
+	catalog := map[string]accounts.Aggregation{}
+	if h.Control != nil && h.Control.Aggregations != nil {
+		loaded, err := h.Control.Aggregations.Catalog(r.Context())
+		if err != nil {
+			writeAggregationError(w, err, "preview")
+			return
+		}
+		catalog = loaded
+	}
+	labels := map[string]string{}
+	if h.Executor != nil && strings.TrimSpace(input.Message) != "" {
+		targets, err := accounts.ClassifierTargets(agg.ID, agg.Document, catalog)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
+			return
+		}
+		labels = h.Executor.ClassifyIntent(r.Context(), targets, input.Message)
+	}
+	compiled, seats, path, err := accounts.CompilePipeline(agg, catalog, input.Message, labels, nil)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	plan := executor.NewAggregatePlan(compiled)
+	plan.Seats = seats
+	writeJSON(w, http.StatusOK, map[string]any{
+		"path":     path,
+		"attempts": executor.ExplainSeats(h.Pool, plan),
+	})
+}
+
 func (h *Handler) HandleAggregations(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
@@ -60,6 +114,7 @@ func (h *Handler) HandleAggregations(w http.ResponseWriter, r *http.Request) {
 			MaxOutputTokens  int                      `json:"max_output_tokens"`
 			ReasoningOptions []string                 `json:"reasoning_options"`
 			ReasoningEffort  string                   `json:"reasoning_effort"`
+			Document         json.RawMessage          `json:"document"`
 			Members          []aggregationMemberInput `json:"members"`
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxConsoleBodyBytes)).Decode(&input); err != nil {
@@ -85,6 +140,7 @@ func (h *Handler) HandleAggregations(w http.ResponseWriter, r *http.Request) {
 			MaxOutputTokens:  input.MaxOutputTokens,
 			ReasoningOptions: input.ReasoningOptions,
 			ReasoningEffort:  input.ReasoningEffort,
+			Document:         string(input.Document),
 			Members:          decodeAggregationMembers(input.Members),
 		})
 		if err != nil {
@@ -122,6 +178,7 @@ func (h *Handler) HandleAggregationByID(w http.ResponseWriter, r *http.Request) 
 			MaxOutputTokens  *int                      `json:"max_output_tokens"`
 			ReasoningOptions *[]string                 `json:"reasoning_options"`
 			ReasoningEffort  *string                   `json:"reasoning_effort"`
+			Document         *json.RawMessage          `json:"document"`
 			Members          *[]aggregationMemberInput `json:"members"`
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxConsoleBodyBytes)).Decode(&input); err != nil {
@@ -138,12 +195,17 @@ func (h *Handler) HandleAggregationByID(w http.ResponseWriter, r *http.Request) 
 			decoded := decodeAggregationMembers(*input.Members)
 			members = &decoded
 		}
+		var document *string
+		if input.Document != nil {
+			value := string(*input.Document)
+			document = &value
+		}
 		agg, err := h.Control.Aggregations.Update(r.Context(), id, accounts.UpdateAggregation{
 			Name: input.Name, Enabled: input.Enabled, Strategy: strategy,
 			AllowFallbacks: input.AllowFallbacks, MaxAttempts: input.MaxAttempts,
 			ContextLength: input.ContextLength, MaxOutputTokens: input.MaxOutputTokens,
 			ReasoningOptions: input.ReasoningOptions, ReasoningEffort: input.ReasoningEffort,
-			Members: members,
+			Document: document, Members: members,
 		})
 		if err != nil {
 			writeAggregationError(w, err, "update")

@@ -1,0 +1,1 @@
+import{n as e}from"./shim-mfK0Rmj6.js";import{i as t}from"./label-C__1DT9Q.js";var n=e(),r=({...e})=>(0,n.jsx)(t,{...e}),i=Object.assign(r,{Root:r});export{i as t};

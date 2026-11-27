@@ -64,7 +64,7 @@ func (s *Store) SaveAggregation(ctx context.Context, agg accounts.Aggregation) (
 
 func (s *Store) ListAggregations(ctx context.Context) ([]accounts.Aggregation, error) {
 	rows, err := s.db.QueryContext(ctx, `
-SELECT id, name, enabled, strategy, allow_fallbacks, max_attempts, context_length, max_output_tokens, reasoning_options, reasoning_effort, created_at, updated_at
+SELECT id, name, enabled, strategy, allow_fallbacks, max_attempts, context_length, max_output_tokens, reasoning_options, reasoning_effort, document, created_at, updated_at
 FROM aggregation_models ORDER BY created_at DESC, id DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("list aggregations: %w", err)
@@ -93,7 +93,7 @@ FROM aggregation_models ORDER BY created_at DESC, id DESC`)
 
 func (s *Store) GetAggregation(ctx context.Context, id string) (accounts.Aggregation, error) {
 	row := s.db.QueryRowContext(ctx, `
-SELECT id, name, enabled, strategy, allow_fallbacks, max_attempts, context_length, max_output_tokens, reasoning_options, reasoning_effort, created_at, updated_at
+SELECT id, name, enabled, strategy, allow_fallbacks, max_attempts, context_length, max_output_tokens, reasoning_options, reasoning_effort, document, created_at, updated_at
 FROM aggregation_models WHERE id = ?`, strings.TrimSpace(id))
 	agg, err := scanAggregation(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -134,19 +134,19 @@ func (s *Store) saveAggregation(ctx context.Context, agg accounts.Aggregation, i
 	var result sql.Result
 	if insert {
 		result, err = tx.ExecContext(ctx, `
-INSERT INTO aggregation_models (id, name, enabled, strategy, allow_fallbacks, max_attempts, context_length, max_output_tokens, reasoning_options, reasoning_effort, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+INSERT INTO aggregation_models (id, name, enabled, strategy, allow_fallbacks, max_attempts, context_length, max_output_tokens, reasoning_options, reasoning_effort, document, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			agg.ID, agg.Name, boolToInt(agg.Enabled), string(agg.Strategy), boolToInt(agg.AllowFallbacks), agg.MaxAttempts,
 			agg.ContextLength, agg.MaxOutputTokens, encodeAggregationReasoningOptions(agg.ReasoningOptions), agg.ReasoningEffort,
-			formatTime(agg.CreatedAt), formatTime(agg.UpdatedAt),
+			agg.Document, formatTime(agg.CreatedAt), formatTime(agg.UpdatedAt),
 		)
 	} else {
 		result, err = tx.ExecContext(ctx, `
-UPDATE aggregation_models SET name = ?, enabled = ?, strategy = ?, allow_fallbacks = ?, max_attempts = ?, context_length = ?, max_output_tokens = ?, reasoning_options = ?, reasoning_effort = ?, updated_at = ?
+UPDATE aggregation_models SET name = ?, enabled = ?, strategy = ?, allow_fallbacks = ?, max_attempts = ?, context_length = ?, max_output_tokens = ?, reasoning_options = ?, reasoning_effort = ?, document = ?, updated_at = ?
 WHERE id = ?`,
 			agg.Name, boolToInt(agg.Enabled), string(agg.Strategy), boolToInt(agg.AllowFallbacks), agg.MaxAttempts,
 			agg.ContextLength, agg.MaxOutputTokens, encodeAggregationReasoningOptions(agg.ReasoningOptions), agg.ReasoningEffort,
-			formatTime(agg.UpdatedAt), agg.ID,
+			agg.Document, formatTime(agg.UpdatedAt), agg.ID,
 		)
 	}
 	if err != nil {
@@ -201,10 +201,10 @@ FROM aggregation_members WHERE agg_id = ? ORDER BY priority ASC, id ASC`, string
 func scanAggregation(row rowScanner) (accounts.Aggregation, error) {
 	var agg accounts.Aggregation
 	var enabled, allowFallbacks int
-	var reasoningOptions, reasoningEffort string
+	var reasoningOptions, reasoningEffort, document string
 	var created, updated sql.NullString
 	if err := row.Scan(&agg.ID, &agg.Name, &enabled, &agg.Strategy, &allowFallbacks, &agg.MaxAttempts,
-		&agg.ContextLength, &agg.MaxOutputTokens, &reasoningOptions, &reasoningEffort, &created, &updated); err != nil {
+		&agg.ContextLength, &agg.MaxOutputTokens, &reasoningOptions, &reasoningEffort, &document, &created, &updated); err != nil {
 		return accounts.Aggregation{}, err
 	}
 	agg.Enabled = enabled != 0
@@ -212,6 +212,7 @@ func scanAggregation(row rowScanner) (accounts.Aggregation, error) {
 	agg.AllowFallbacks = allowFallbacks != 0
 	agg.ReasoningOptions = decodeAggregationReasoningOptions(reasoningOptions)
 	agg.ReasoningEffort = strings.TrimSpace(reasoningEffort)
+	agg.Document = document
 	agg.CreatedAt = parseTime(created.String)
 	agg.UpdatedAt = parseTime(updated.String)
 	agg.Members = []accounts.AggregationMember{}

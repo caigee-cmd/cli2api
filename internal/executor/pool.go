@@ -638,6 +638,60 @@ func (p *Pool) Len() int {
 
 // LenRoute counts the candidate set for one route query, so retry attempts
 // match the current pool instead of every registered account.
+// ReadyItems returns ready accounts for a route without moving a cursor.
+func (p *Pool) ReadyItems(q RouteQuery) []Item {
+	if p == nil {
+		return nil
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	now := time.Now()
+	if p.effectiveRoutingStrategy(q) == RoutingStrategyFEFO {
+		q.fefoNow = now
+	}
+	q.creditFloorDefault = p.defaultCreditFloor
+	q.percentFloorDefault = p.defaultPercentFloor
+	out := make([]Item, 0)
+	for _, item := range p.items {
+		if routeMatches(item, q) && !itemDown(item, now) && !itemModelDown(item, q, now) && !itemSaturated(item) {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+// RotateIDs orders ids from the round-robin cursor. advance moves the cursor
+// to the id this call starts on. A failover call leaves the cursor where the
+// request's first pick put it.
+func (p *Pool) RotateIDs(key string, ids []string, advance bool) []string {
+	if p == nil || len(ids) == 0 {
+		return append([]string(nil), ids...)
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.ensureRotationKey(key)
+	start := 0
+	if last, ok := p.lastPicked[key]; ok {
+		for i, id := range ids {
+			if id == last {
+				if advance {
+					start = (i + 1) % len(ids)
+				} else {
+					start = i
+				}
+				break
+			}
+		}
+	}
+	if advance {
+		p.lastPicked[key] = ids[start]
+	}
+	out := make([]string, 0, len(ids))
+	out = append(out, ids[start:]...)
+	out = append(out, ids[:start]...)
+	return out
+}
+
 func (p *Pool) LenRoute(q RouteQuery) int {
 	if p == nil {
 		return 0

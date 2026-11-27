@@ -294,6 +294,8 @@ ALTER TABLE aggregation_models ADD COLUMN context_length INTEGER NOT NULL DEFAUL
 ALTER TABLE aggregation_models ADD COLUMN max_output_tokens INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE aggregation_models ADD COLUMN reasoning_options TEXT NOT NULL DEFAULT '';
 ALTER TABLE aggregation_models ADD COLUMN reasoning_effort TEXT NOT NULL DEFAULT '';`},
+	{filename: "035_aggregation_document.sql", sql: `
+ALTER TABLE aggregation_models ADD COLUMN document TEXT NOT NULL DEFAULT '';`},
 }
 
 const schemaMigrationsDDL = `
