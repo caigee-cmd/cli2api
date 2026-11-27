@@ -29,5 +29,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"version":                   buildinfo.Version,
 		"commit":                    buildinfo.Commit,
 		"maintenance":               s.updater().Maintenance.Load(),
+		"log_dropped":               s.logDrops(),
+		"log_queue":                 s.logQueueDepth(),
 	})
 }

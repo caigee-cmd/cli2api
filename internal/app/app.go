@@ -271,6 +271,8 @@ func (a *App) newHTTP() *httpserver.Server {
 		Console:       a.Console,
 		Update:        a.Update,
 		CrossProvider: &a.CrossProviderModelPool,
+		LogDrops:      a.Recorder.DroppedWrites,
+		LogQueueDepth: a.Recorder.QueueDepth,
 		TouchKey: func(ctx context.Context, keyID string) {
 			if a.Control != nil && a.Control.Keys != nil {
 				_ = a.Control.Keys.Touch(ctx, keyID)

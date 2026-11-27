@@ -194,7 +194,11 @@ not prompts, responses, tool arguments, or credentials.
 
 Console `/api/*` requires the administrator key. `/v1/*` accepts that key or an
 enabled client key. `/health`, static frontend resources, and `/v1/*` CORS
-preflight `OPTIONS` do not require authentication.
+preflight `OPTIONS` do not require authentication. Repeated invalid API keys
+from one client are rate-limited and answered with `429` and `Retry-After`.
+
+`/health` also reports `log_dropped` (request-log writes discarded after the
+queue grace period) and `log_queue` (writes waiting behind the SQLite writer).
 
 Messages / Responses are stateless compatibility APIs, not full official API
 implementations. They do not store server-side conversations or execute
