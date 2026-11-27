@@ -1,7 +1,7 @@
 import type { AccountQuota, AccountQuotaWindow, Overview } from '@/api/types'
 
 export type AccountRow = NonNullable<Overview['accounts']>[number]
-export type AccountState = 'disabled' | 'quota_exhausted' | 'cooling' | 'hot' | 'ready' | 'login' | 'loading' | 'starting' | 'unavailable' | 'dead' | 'auth_failed'
+export type AccountState = 'disabled' | 'quota_exhausted' | 'cooling' | 'hot' | 'ready' | 'login' | 'loading' | 'starting' | 'unavailable' | 'dead'
 export type QuotaTone = 'ok' | 'warn' | 'danger'
 
 export function cooldownLabel(until?: string | null) {
@@ -18,20 +18,49 @@ export function modelCooldownEntries(account: AccountRow) {
     .sort(([left], [right]) => left.localeCompare(right))
 }
 
+// accountState resolves the single badge an account card shows.
+//
+// The pool's live ready/hot/runtime_state and the stored status column come
+// from different places and drift apart: the status column is only rewritten
+// when a probe or a credential renewal runs, so it can both lag behind a
+// recovery and survive an outage. The ladder below settles that explicitly
+// instead of letting the first matching field win:
+//
+//   disabled        the operator turned it off; nothing else matters
+//   dead            the daemon crashed and is restarting (process problem)
+//   login           the credential is rejected; no amount of balance helps,
+//                   so this outranks quota and cooldown
+//   quota_exhausted  live quota snapshot says exhausted (a stored
+//                   quota_exhausted status is only trusted while no live
+//                   snapshot has arrived)
+//   cooling         temporary cooldown after a classified failure
+//   starting/loading coming up for the first time
+//   hot/ready       serving
+//   unavailable     anything else that cannot route right now
+//
+// A probe that fails for a non-auth reason is reported by the pool as runtime
+// "auth_failed" too, so runtime auth_failed only means "login" when the
+// reported error kind is actually auth.
 export function accountState(account: AccountRow): AccountState {
   if (!account.enabled) return 'disabled'
-  if (account.status === 'quota_exhausted' || account.quota?.exceeded) return 'quota_exhausted'
-  if (account.status === 'cooling' || cooldownLabel(account.down_until || account.cooldown_until)) return 'cooling'
-  if (account.status === 'dead' || account.runtime_state === 'dead') return 'dead'
-  if (account.status === 'auth_failed' || account.runtime_state === 'auth_failed') return 'auth_failed'
-  if (account.status === 'login_required') return 'login'
-  if ((account.status === 'starting' || account.runtime_state === 'starting') && !account.hot && !account.ready) {
+  const status = String(account.status || '').toLowerCase()
+  const runtime = String(account.runtime_state || '').toLowerCase()
+  const errorKind = String(account.last_error_kind || '').toLowerCase()
+  const cooldown = cooldownLabel(account.down_until || account.cooldown_until)
+  const serving = Boolean(account.ready || account.hot) && runtime !== 'dead'
+  const quotaExhausted = Boolean(account.quota?.exceeded)
+    || (status === 'quota_exhausted' && !account.quota)
+
+  if (runtime === 'dead' || status === 'dead') return 'dead'
+  if (status === 'login_required') return 'login'
+  if (runtime === 'auth_failed' && errorKind === 'auth' && !serving) return 'login'
+  if (quotaExhausted) return 'quota_exhausted'
+  if (status === 'cooling' || cooldown) return 'cooling'
+  if ((status === 'starting' || runtime === 'starting') && !account.hot && !account.ready) {
     return account.quota ? 'starting' : 'loading'
   }
-  if (account.status === 'ready') return account.hot ? 'hot' : 'ready'
   if (account.hot) return 'hot'
   if (account.ready) return 'ready'
-  if (account.status === 'error' || account.status === 'offline') return 'unavailable'
   return 'unavailable'
 }
 
@@ -67,7 +96,6 @@ export function runtimeSegments(state: AccountState) {
   if (state === 'loading') return 6
   if (state === 'starting') return 6
   if (state === 'unavailable') return 2
-  if (state === 'auth_failed') return 3
   if (state === 'dead') return 2
   return 1
 }
@@ -76,7 +104,7 @@ export function runtimeTone(state: AccountState): 'ok' | 'warn' | 'danger' | 'mu
   if (state === 'hot' || state === 'ready') return 'ok'
   if (state === 'cooling' || state === 'quota_exhausted') return 'warn'
   if (state === 'loading' || state === 'starting') return 'warn'
-  if (state === 'auth_failed' || state === 'unavailable' || state === 'dead') return 'danger'
+  if (state === 'unavailable' || state === 'dead') return 'danger'
   if (state === 'login') return 'danger'
   return 'muted'
 }

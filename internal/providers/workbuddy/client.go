@@ -361,6 +361,10 @@ func (c *Client) Refresh(ctx context.Context, accountID string, credential Crede
 	if err := c.store.SaveCredentialPayload(ctx, accountID, CredentialFormat, payload); err != nil {
 		return credential, err
 	}
+	// A successful renewal proves the session is alive again. Clear a stale
+	// login_required left behind by an earlier dead session or outage so the
+	// console stops asking for a re-login while the account is actually usable.
+	_ = c.store.Observe(ctx, accountID, credential.UID, "ready", "", "")
 	return credential, nil
 }
 

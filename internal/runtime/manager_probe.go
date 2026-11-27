@@ -311,7 +311,11 @@ func (m *Manager) refreshOne(ctx context.Context, item Item, forceQuota bool) er
 	if ready || health.Hot {
 		m.resetRestartBackoff(item.ID)
 	}
-	status := "login_required"
+	// A worker that answers without an error but is not ready is still warming
+	// up (or waiting for a credential the operator has not supplied yet). Only
+	// an explicit error justifies a harder status; defaulting to login_required
+	// here made a starting account look like one that needs a re-login.
+	status := "starting"
 	if ready || health.Hot {
 		status = "ready"
 	} else if health.LastError != "" {
@@ -364,7 +368,9 @@ func (m *Manager) refreshInProcess(ctx context.Context, item Item, forceQuota bo
 	if health.Ready || health.Hot {
 		m.resetRestartBackoff(item.ID)
 	}
-	status := "login_required"
+	// Same rule as the worker path: not-ready without an error is "starting",
+	// not "login_required". An auth-classified probe error still escalates below.
+	status := "starting"
 	kind := ""
 	if health.Ready || health.Hot {
 		status = "ready"

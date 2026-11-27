@@ -393,6 +393,38 @@ func TestManagerRefreshDisabledAccountProbeErrorKeepsStatus(t *testing.T) {
 	}
 }
 
+// A probe that reports not-ready WITHOUT an error (a fresh account that has not
+// finished bootstrapping yet) must read as "starting", not "login_required".
+// The old default made every warming account look like it needed a re-login.
+func TestManagerProbeNotReadyWithoutErrorStoresStarting(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlstore.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	account, err := store.Create(ctx, accounts.CreateAccount{Name: "WB-warm", Provider: "workbuddy", Region: "cn", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry := providers.NewRegistry()
+	registry.Register(providers.Adapter{ID: "workbuddy", Prober: &fakeProber{}})
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	manager.SetProviders(registry)
+	manager.Pool().Upsert(executor.Item{ID: account.ID, Provider: "workbuddy", Runtime: "in_process"})
+
+	if err := manager.RefreshAll(ctx, false); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := store.Get(ctx, account.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != "starting" {
+		t.Fatalf("store status = %q, want starting", stored.Status)
+	}
+}
+
 func TestManagerRefreshPersistsQuotaWindows(t *testing.T) {
 	ctx := context.Background()
 	store, err := sqlstore.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))

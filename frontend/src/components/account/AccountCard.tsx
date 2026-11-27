@@ -100,15 +100,15 @@ type Props = {
 function stateCopyFor(state: ReturnType<typeof accountState>, cooldown: string, t: Translate) {
   if (state === 'hot') return t('signedIn')
   if (state === 'ready') return t('ready')
+  if (state === 'login') return t('needQoderLogin')
   if (state === 'cooling') return cooldown ? `${t('cooling')} ${cooldown}` : t('cooling')
   if (state === 'quota_exhausted') return t('quotaExceeded')
   if (state === 'loading') return t('quotaLoading')
   if (state === 'starting') return t('starting')
-  if (state === 'unavailable') return t('quotaUnavailable')
+  if (state === 'unavailable') return t('accountUnavailable')
   if (state === 'dead') return cooldown ? `${t('dead')} ${cooldown}` : t('dead')
-  if (state === 'auth_failed') return t('authFailed')
   if (state === 'disabled') return t('disabled')
-  return t('needQoderLogin')
+  return t('accountUnavailable')
 }
 
 export function AccountCard({
@@ -181,7 +181,7 @@ export function AccountCard({
       ? 'warning'
       : state === 'quota_exhausted'
         ? 'danger'
-      : state === 'login' || state === 'unavailable' || state === 'dead' || state === 'auth_failed'
+      : state === 'login' || state === 'unavailable' || state === 'dead'
         ? 'danger'
         : undefined
   const lastError = account.last_error || account.lastError
