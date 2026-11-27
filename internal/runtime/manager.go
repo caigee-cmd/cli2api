@@ -84,6 +84,10 @@ type Manager struct {
 	checkinRunning       map[string]bool
 	checkinStatusRunning bool
 	quotaFreshRunning    bool
+	// lastLiveReadAt is the wall-clock instant the console's last forced live
+	// read of every account started. A reload inside liveReadCoalesce reuses
+	// that read instead of probing upstream again. Guarded by mu.
+	lastLiveReadAt time.Time
 
 	// events publishes real console state changes (quota/checkin/health/bulk
 	// progress) to the console SSE channel. Never nil after NewManager.

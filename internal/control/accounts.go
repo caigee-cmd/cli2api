@@ -24,6 +24,9 @@ type Runtime interface {
 	RefreshAll(ctx context.Context, forceQuota bool) error
 	RefreshAllResults(ctx context.Context, forceQuota, includeDisabled bool) []accounts.AccountRefreshResult
 	RefreshAllAsync(ctx context.Context, forceQuota, includeDisabled bool)
+	// LiveAccounts forces one synchronous upstream read of every account and
+	// returns the projection built from that read.
+	LiveAccounts(ctx context.Context, includeDisabled bool) ([]accounts.AccountView, error)
 	SubscribeEvents(lastSeq uint64) (<-chan events.Event, func())
 	CheckinAccount(ctx context.Context, accountID string) (accounts.Account, error)
 	CheckinAll(ctx context.Context, force, includeDisabled bool) ([]accounts.CheckinAllResult, error)
@@ -170,6 +173,13 @@ func (a *Accounts) ImportCredentialPayload(ctx context.Context, input accounts.C
 
 func (a *Accounts) RefreshAll(ctx context.Context, forceQuota bool) error {
 	return a.runtime.RefreshAll(ctx, forceQuota)
+}
+
+// ListLive returns the accounts list built from a synchronous upstream read:
+// every routable account is probed now, and an account whose read failed
+// carries QuotaError with no quota number instead of a stale snapshot.
+func (a *Accounts) ListLive(ctx context.Context, includeDisabled bool) ([]accounts.AccountView, error) {
+	return a.runtime.LiveAccounts(ctx, includeDisabled)
 }
 
 // RefreshAllResults runs a full concurrent refresh and returns each account's

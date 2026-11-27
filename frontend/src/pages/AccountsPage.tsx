@@ -183,7 +183,9 @@ export function AccountsPage() {
   /** Single-account refresh: the response is the real post-probe row. */
   const refreshOne = useCallback(async (id: string, forceQuota = true) => {
     const refreshed = await refreshAccount(id, { quota: forceQuota })
-    setAccounts((current) => current.map((account) => account.id === id ? { ...account, ...refreshed } : account))
+    setAccounts((current) => current.map((account) => account.id === id
+      ? { ...account, quota_error: undefined, ...refreshed }
+      : account))
   }, [])
 
   /**
@@ -223,7 +225,7 @@ export function AccountsPage() {
     }
     if (Object.keys(quotas).length) {
       setAccounts((current) => current.map((account) => quotas[account.id]
-        ? { ...account, quota: quotas[account.id] }
+        ? { ...account, quota: quotas[account.id], quota_error: undefined }
         : account))
     }
     if (failed) setNoteById((current) => ({ ...current, ...notes }))
@@ -280,7 +282,9 @@ export function AccountsPage() {
       const data = (event.data || {}) as QuotaStateEvent
       const id = data.account_id || event.account_id
       if (!id || !data.quota) return
-      setAccounts((current) => current.map((account) => account.id === id ? { ...account, quota: data.quota } : account))
+      setAccounts((current) => current.map((account) => account.id === id
+        ? { ...account, quota: data.quota, quota_error: undefined }
+        : account))
       scheduleReconcile()
       return
     }
@@ -333,11 +337,11 @@ export function AccountsPage() {
     if (reconcileTimer.current != null) window.clearTimeout(reconcileTimer.current)
   }, [])
 
+  // Entering the page reads every account upstream: the row, status and
+  // credit numbers below are the result of that read, never a stored snapshot.
   useEffect(() => {
-    void reloadAccounts(false).catch(() => undefined)
+    void reloadAccounts(true).catch(() => undefined)
   }, [reloadAccounts])
-  // The page no longer re-probes every account on mount: the background quota
-  // sweep already keeps snapshots fresh, and the event stream patches rows live.
   useEffect(() => {
     if (eventStatus === 'live') return
     // Stream unavailable (401/offline): fall back to a 5s list poll so the page

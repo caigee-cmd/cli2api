@@ -393,6 +393,12 @@ func (r *fakeRuntime) RefreshAllResults(_ context.Context, forceQuota, _ bool) [
 	r.forceQuota = forceQuota
 	return nil
 }
+func (r *fakeRuntime) LiveAccounts(_ context.Context, _ bool) ([]accounts.AccountView, error) {
+	r.log.add("runtime.LiveAccounts")
+	r.refreshAll = true
+	r.forceQuota = true
+	return nil, nil
+}
 func (r *fakeRuntime) RefreshAllAsync(_ context.Context, forceQuota, _ bool) {
 	r.log.add("runtime.RefreshAllAsync")
 	r.refreshAll = true

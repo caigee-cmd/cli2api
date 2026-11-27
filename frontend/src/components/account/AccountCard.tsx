@@ -188,6 +188,9 @@ export function AccountCard({
   // Upstream quota/probe failures can arrive as a raw HTML error page naming an
   // internal account id; show the readable summary instead.
   const lastError = cleanAccountError(account.last_error || account.lastError, account.id)
+  // A failed live quota read carries its own upstream failure; `quota` is
+  // deliberately absent then, so the card shows the error instead of a number.
+  const quotaError = cleanAccountError(account.quota_error, account.id)
   const errorKind = account.last_error_kind || account.kind
   const provider = accountProviderLabel(account.provider, account.region, t)
   // The provider mark already names the family, so the header tag only carries
@@ -368,6 +371,24 @@ export function AccountCard({
             exceededLabel={t('quotaExceeded')}
             provider={account.provider}
           />
+        ) : quotaError ? (
+          <Tooltip>
+            <Tooltip.Trigger>
+              <div className="flex w-full cursor-help items-start gap-2 rounded-lg bg-surface-secondary p-2 text-left text-caption leading-5">
+                <WarningCircle size={14} className="mt-0.5 shrink-0 text-warning" />
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium text-foreground/80">{t('quotaUnreadable')}</div>
+                  <p className="break-words line-clamp-2 text-foreground/70">{quotaError}</p>
+                </div>
+              </div>
+            </Tooltip.Trigger>
+            <Tooltip.Content>
+              <div className="max-w-md whitespace-pre-wrap break-words">
+                <div className="mb-1 font-medium">{t('quotaUnreadable')}</div>
+                {quotaError}
+              </div>
+            </Tooltip.Content>
+          </Tooltip>
         ) : <span className="text-caption text-foreground/65">{state === 'hot' || state === 'ready' || state === 'loading' || state === 'starting' ? t('quotaLoading') : t('quotaUnavailable')}</span>}
 
         {lastError ? (

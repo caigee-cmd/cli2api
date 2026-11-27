@@ -208,7 +208,11 @@ type AccountView struct {
 	DownUntil           string            `json:"down_until,omitempty"`
 	ModelCooldowns      map[string]string `json:"model_cooldowns,omitempty"`
 	Quota               *QuotaSnapshot    `json:"quota,omitempty"`
-	ProxyURL            string            `json:"proxy_url,omitempty"`
+	// QuotaError carries the live upstream quota-read failure of a console
+	// page load. When it is set, Quota is nil on purpose: a stale snapshot must
+	// never be presented as the current balance.
+	QuotaError string `json:"quota_error,omitempty"`
+	ProxyURL   string `json:"proxy_url,omitempty"`
 	// ForceReadyOverride marks the local/dev force-ready marker active for
 	// this account: routing ignores the hard-zero balance, but Quota above
 	// still shows the real upstream snapshot.

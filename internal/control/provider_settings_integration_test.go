@@ -39,6 +39,9 @@ func (r *providerTestRuntime) RefreshAll(context.Context, bool) error           
 func (r *providerTestRuntime) RefreshAllResults(context.Context, bool, bool) []accounts.AccountRefreshResult {
 	return nil
 }
+func (r *providerTestRuntime) LiveAccounts(context.Context, bool) ([]accounts.AccountView, error) {
+	return nil, nil
+}
 func (r *providerTestRuntime) RefreshAllAsync(context.Context, bool, bool) {}
 func (r *providerTestRuntime) SubscribeEvents(uint64) (<-chan events.Event, func()) {
 	ch := make(chan events.Event)

@@ -1,15 +1,22 @@
 package console
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/caigee-cmd/cli2api/internal/accounts"
 	"github.com/caigee-cmd/cli2api/internal/control"
 	"github.com/caigee-cmd/cli2api/internal/providers"
 )
+
+// accountsLiveBudget caps the synchronous upstream read behind a console page
+// load. Every account is probed concurrently, so the wall clock is bounded by
+// the slowest single probe, not the account count.
+const accountsLiveBudget = 45 * time.Second
 
 func (h *Handler) HandleProviders(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -22,7 +29,21 @@ func (h *Handler) HandleProviders(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) HandleAccounts(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		items, err := h.Control.Accounts.List(r.Context(), r.URL.Query().Get("refresh") == "1")
+		// refresh=1 is the console page load: read every account upstream now
+		// and return the fresh projection. Plain reads (poll/SSE reconcile) keep
+		// serving the last real state without hitting upstream.
+		if r.URL.Query().Get("refresh") == "1" {
+			ctx, cancel := context.WithTimeout(r.Context(), accountsLiveBudget)
+			defer cancel()
+			items, err := h.Control.Accounts.ListLive(ctx, false)
+			if err != nil {
+				writeErr(w, http.StatusInternalServerError, "account_list_failed", err.Error())
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"object": "list", "data": items})
+			return
+		}
+		items, err := h.Control.Accounts.List(r.Context(), false)
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, "account_list_failed", err.Error())
 			return
