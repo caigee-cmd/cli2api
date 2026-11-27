@@ -52,8 +52,11 @@ func applyChatReasoning(obj map[string]any, req translate.ChatRequest, storedLev
 	}
 	if level == "none" {
 		if !caps.CanDisableThinking {
-			level = providers.ResolveReasoningLevel(caps.ReasoningDefault, caps)
-			if level == "" || level == "none" {
+			// The model declares "none" but cannot actually turn thinking off.
+			// Degrade down to the cheapest thinking tier; never fall back to the
+			// model default, which could upgrade the level the client asked for.
+			level = providers.LowestThinkingOption(caps)
+			if level == "" {
 				clearChatReasoning(obj)
 				return ""
 			}
