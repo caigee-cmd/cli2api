@@ -48,6 +48,11 @@ const (
 	// QuotaUnit labels credit-denominated usage windows.
 	QuotaUnit = "credits"
 
+	// UserAgent is what the official CLI sends on the generate request. A
+	// library or browser default would point at an HTTP client rather than a
+	// CLI, and this value is documented (the CLI's own `User-Agent: cli`).
+	UserAgent = "cli"
+
 	// VersionEnv overrides PinnedCLIVersion without a rebuild.
 	VersionEnv = "CMD_CLI_VERSION"
 )
