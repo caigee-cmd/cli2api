@@ -168,6 +168,41 @@ func TestManagerRefreshUsesInProcessProber(t *testing.T) {
 // A manual single-account refresh with quota=1 (forceQuota) must fetch quota
 // synchronously and persist it before returning, so the console row it replaces
 // carries the freshly-read number; the background list path stays async.
+func TestManagerRefreshKeepsLoginRequiredWhenProbeDoesNotFinish(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlstore.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	account, err := store.Create(ctx, accounts.CreateAccount{
+		Name: "WB", Provider: "workbuddy", Region: "cn", Enabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Observe(ctx, account.ID, "u1", "login_required", "session dead; re-login required", accounts.KindAuth); err != nil {
+		t.Fatal(err)
+	}
+	prober := &fakeProber{err: providers.ErrProbeIncomplete}
+	registry := providers.NewRegistry()
+	registry.Register(providers.Adapter{ID: "workbuddy", Prober: prober})
+	manager := accountruntime.NewManager(accountruntime.ManagerConfig{DataDir: t.TempDir()}, store, &fakeStarter{})
+	manager.SetProviders(registry)
+	manager.Pool().Upsert(executor.Item{ID: account.ID, Provider: "workbuddy", Runtime: "in_process"})
+
+	if err := manager.RefreshAccount(ctx, account.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := store.Get(ctx, account.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Status != "login_required" || updated.LastError != "session dead; re-login required" || updated.LastErrorKind != accounts.KindAuth {
+		t.Fatalf("unfinished probe rewrote the account: %+v", updated)
+	}
+}
+
 func TestManagerRefreshAccountForceQuotaIsSynchronous(t *testing.T) {
 	ctx := context.Background()
 	store, err := sqlstore.OpenStore(filepath.Join(t.TempDir(), "qoder.db"))

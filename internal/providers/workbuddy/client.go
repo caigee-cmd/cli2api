@@ -60,6 +60,11 @@ type Client struct {
 // read and short enough that a later console refresh checks upstream again.
 const userResourceCacheTTL = 15 * time.Second
 
+// probeBillingTimeout caps the session check. The shared HTTP client waits
+// 120s for chat; a hung billing host must not hold refresh for that long.
+// A shorter caller deadline still wins.
+var probeBillingTimeout = 15 * time.Second
+
 type userResourceHit struct {
 	body   []byte
 	status int
@@ -860,8 +865,9 @@ func catalogErrorBody(body []byte) string {
 // looks ready is checked with the billing read Quota already uses. Probe does
 // not refresh: a refresh rotates the refresh token. Boot and console refresh
 // are the callers, not the 30s worker tick, so each call is one read.
-// Transport errors and non-auth upstream failures stay ready. A billing blip
-// must not demand re-login. LastError on a dead session is the auth message
+// A finished non-auth failure stays ready. A billing blip must not demand
+// re-login. A read that does not finish returns ErrProbeIncomplete so refresh
+// does not clear login_required. LastError on a dead session is the auth message
 // Classify maps back to KindAuth, which refresh persists as login_required.
 func (c *Client) Probe(ctx context.Context, accountID string) (providers.AccountHealth, error) {
 	credential, err := c.resolvedCredential(ctx, accountID)
@@ -872,8 +878,15 @@ func (c *Client) Probe(ctx context.Context, accountID string) (providers.Account
 		msg := "workbuddy credential incomplete; re-login required"
 		return providers.AccountHealth{UID: credential.UID, LastError: msg}, nil
 	}
-	body, status, err := c.fetchUserResource(ctx, accountID, credential)
+	readCtx, cancel := context.WithTimeout(ctx, probeBillingTimeout)
+	defer cancel()
+	body, status, err := c.fetchUserResource(readCtx, accountID, credential)
 	if err != nil {
+		// A deadline or cancel did not check the session. Reporting ready
+		// would clear a login_required the previous check stored.
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return providers.AccountHealth{UID: credential.UID}, providers.ErrProbeIncomplete
+		}
 		return providers.AccountHealth{Ready: true, Hot: true, UID: credential.UID}, nil
 	}
 	if sessionRevoked(status, body) {

@@ -1798,6 +1798,50 @@ func TestProbeDoesNotTreatBalanceDigitsAsRevoked(t *testing.T) {
 	}
 }
 
+func TestProbeCapsHungBillingRead(t *testing.T) {
+	previous := probeBillingTimeout
+	probeBillingTimeout = 30 * time.Millisecond
+	t.Cleanup(func() { probeBillingTimeout = previous })
+	release := make(chan struct{})
+	client, store := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		<-release
+	}))
+	t.Cleanup(func() { close(release) })
+	payload, _ := json.Marshal(Credential{
+		AccessToken: "at", RefreshToken: "rt", ExpiresAt: 4102444800, Domain: DomainCN, UID: "u1",
+	})
+	_ = store.SaveCredentialPayload(context.Background(), "acc1", CredentialFormat, payload)
+	started := time.Now()
+	health, err := client.Probe(context.Background(), "acc1")
+	if time.Since(started) > time.Second {
+		t.Fatalf("probe waited %s", time.Since(started))
+	}
+	if !errors.Is(err, providers.ErrProbeIncomplete) || health.Ready || health.Hot {
+		t.Fatalf("err=%v health=%+v", err, health)
+	}
+}
+
+func TestProbeCanceledBillingReadDoesNotReportReady(t *testing.T) {
+	release := make(chan struct{})
+	client, store := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		<-release
+	}))
+	t.Cleanup(func() { close(release) })
+	payload, _ := json.Marshal(Credential{
+		AccessToken: "at", RefreshToken: "rt", ExpiresAt: 4102444800, Domain: DomainCN, UID: "u1",
+	})
+	_ = store.SaveCredentialPayload(context.Background(), "acc1", CredentialFormat, payload)
+	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Millisecond)
+	defer cancel()
+	health, err := client.Probe(ctx, "acc1")
+	if !errors.Is(err, providers.ErrProbeIncomplete) {
+		t.Fatalf("err=%v health=%+v", err, health)
+	}
+	if health.Ready || health.Hot {
+		t.Fatalf("an unfinished billing read must not report ready: %+v", health)
+	}
+}
+
 func TestProbeBillingOutageStaysReady(t *testing.T) {
 	client, store := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadGateway)

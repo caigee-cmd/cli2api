@@ -72,6 +72,9 @@ func (m *Manager) refreshDetached(ctx context.Context, account Account, forceQuo
 		return &DetachedRefreshError{Provider: account.Provider}
 	}
 	health, err := adapter.Prober.Probe(ctx, account.ID)
+	if errors.Is(err, providers.ErrProbeIncomplete) {
+		return nil
+	}
 	if err != nil {
 		// Persist the probe error for display, but never promote the disabled
 		// account to error/login_required: a transient outage or a dead
@@ -203,6 +206,9 @@ func (m *Manager) refreshInProcess(ctx context.Context, item Item, forceQuota bo
 		return nil
 	}
 	health, err := adapter.Prober.Probe(ctx, item.ID)
+	if errors.Is(err, providers.ErrProbeIncomplete) {
+		return nil
+	}
 	if err != nil {
 		m.pool.MergeHealth(item.ID, false, false, 0, item.Restarts, err.Error())
 		// A Qoder gateway 401/403 means the PAT is no longer valid, not a

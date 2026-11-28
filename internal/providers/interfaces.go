@@ -23,6 +23,11 @@ var ErrUnsupported = errors.New("provider capability unsupported")
 // re-classify it as a client cancellation and skip failover.
 var ErrFirstByteTimeout = errors.New("first byte timeout")
 
+// ErrProbeIncomplete means a readiness check did not finish. Refresh must
+// leave the stored account status alone: a timeout is not evidence that the
+// session is usable, and it must not clear login_required.
+var ErrProbeIncomplete = errors.New("probe did not finish")
+
 // ReasoningWire describes the provider's outbound field shape for a resolved
 // reasoning level. It is provider-local capability metadata; gateway code and
 // routing decisions must not depend on it.
