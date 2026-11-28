@@ -50,6 +50,25 @@ type Client struct {
 	mu          sync.Mutex
 	loginStates map[string]string
 	catalog     map[string]providers.ModelInfo
+	// resourceCache collapses the probe read and the quota read that follows
+	// it in one refresh. The key includes the access token so a re-login
+	// cannot reuse a revoked response.
+	resourceCache map[string]userResourceHit
+}
+
+// userResourceCacheTTL is long enough for quota to reuse the probe's billing
+// read and short enough that a later console refresh checks upstream again.
+const userResourceCacheTTL = 15 * time.Second
+
+// probeBillingTimeout caps the session check. The shared HTTP client waits
+// 120s for chat; a hung billing host must not hold refresh for that long.
+// A shorter caller deadline still wins.
+var probeBillingTimeout = 15 * time.Second
+
+type userResourceHit struct {
+	body   []byte
+	status int
+	at     time.Time
 }
 
 const catalogTimeout = 15 * time.Second
@@ -763,6 +782,10 @@ func Classify(status int, body string) providers.ClassifiedError {
 		strings.Contains(text, "余额不足"):
 		return providers.ClassifiedError{Kind: accounts.KindQuota, Status: 402, Message: strings.TrimSpace(body)}
 	case status == 401 || strings.Contains(text, sessionDeadText) ||
+		strings.Contains(text, "session dead") ||
+		strings.Contains(text, "invalid_grant") ||
+		strings.Contains(text, "refresh token revoked") ||
+		strings.Contains(text, "token is not valid") ||
 		strings.Contains(text, fmt.Sprintf("%d", sessionDeadCode)):
 		return providers.ClassifiedError{Kind: accounts.KindAuth, Status: 401, Message: "session dead; re-login required"}
 	case status == 429 || strings.Contains(text, "soft_rate"):
@@ -837,6 +860,15 @@ func catalogErrorBody(body []byte) string {
 // Probe reports whether the stored credential is usable. There is no WASM hot
 // state; Hot mirrors Ready so the accounts console can treat signed-in accounts
 // as available without probing a child-process /health URL.
+//
+// Local expiry cannot see an upstream revocation, so a credential that still
+// looks ready is checked with the billing read Quota already uses. Probe does
+// not refresh: a refresh rotates the refresh token. Boot and console refresh
+// are the callers, not the 30s worker tick, so each call is one read.
+// A finished non-auth failure stays ready. A billing blip must not demand
+// re-login. A read that does not finish returns ErrProbeIncomplete so refresh
+// does not clear login_required. LastError on a dead session is the auth message
+// Classify maps back to KindAuth, which refresh persists as login_required.
 func (c *Client) Probe(ctx context.Context, accountID string) (providers.AccountHealth, error) {
 	credential, err := c.resolvedCredential(ctx, accountID)
 	if err != nil {
@@ -846,11 +878,47 @@ func (c *Client) Probe(ctx context.Context, accountID string) (providers.Account
 		msg := "workbuddy credential incomplete; re-login required"
 		return providers.AccountHealth{UID: credential.UID, LastError: msg}, nil
 	}
+	readCtx, cancel := context.WithTimeout(ctx, probeBillingTimeout)
+	defer cancel()
+	body, status, err := c.fetchUserResource(readCtx, accountID, credential)
+	if err != nil {
+		// A deadline or cancel did not check the session. Reporting ready
+		// would clear a login_required the previous check stored.
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return providers.AccountHealth{UID: credential.UID}, providers.ErrProbeIncomplete
+		}
+		return providers.AccountHealth{Ready: true, Hot: true, UID: credential.UID}, nil
+	}
+	if sessionRevoked(status, body) {
+		return providers.AccountHealth{UID: credential.UID, LastError: "session dead; re-login required"}, nil
+	}
 	return providers.AccountHealth{
 		Ready: true,
 		Hot:   true,
 		UID:   credential.UID,
 	}, nil
+}
+
+// sessionRevoked reports an upstream auth failure. A 2xx body is judged by its
+// envelope code and message, not by scanning the whole JSON: a live balance
+// can contain the session-dead code as digits.
+func sessionRevoked(status int, body []byte) bool {
+	if status >= 300 {
+		return Classify(status, string(body)).Kind == accounts.KindAuth
+	}
+	var env envelope
+	if err := json.Unmarshal(body, &env); err != nil {
+		return false
+	}
+	if env.Code == sessionDeadCode {
+		return true
+	}
+	msg := strings.ToLower(strings.TrimSpace(env.Msg))
+	return strings.Contains(msg, strings.ToLower(sessionDeadText)) ||
+		strings.Contains(msg, "session dead") ||
+		strings.Contains(msg, "invalid_grant") ||
+		strings.Contains(msg, "refresh token revoked") ||
+		strings.Contains(msg, "token is not valid")
 }
 
 // Quota fetches remaining credits from the billing meter API.
@@ -1030,20 +1098,7 @@ func (c *Client) Keepalive(ctx context.Context, accountID string) error {
 // UserResource aggregates package remain/used/total from get-user-resource.
 // packages carries the per-pack expiry detail parsed from CycleEndTime.
 func (c *Client) UserResource(ctx context.Context, accountID string, credential Credential) (remain, used, total int64, packages []providers.QuotaPackage, err error) {
-	now := time.Now().In(cycleEndTimeZone)
-	payload, err := json.Marshal(map[string]any{
-		"PageNumber":               1,
-		"PageSize":                 100,
-		"ProductCode":              "p_tcaca",
-		"Status":                   []int{0, 3},
-		"PackageEndTimeRangeBegin": now.Format("2006-01-02 15:04:05"),
-		"PackageEndTimeRangeEnd":   now.Add(365 * 101 * 24 * time.Hour).Format("2006-01-02 15:04:05"),
-	})
-	if err != nil {
-		return 0, 0, 0, nil, err
-	}
-	body, status, err := c.do(ctx, accountID, http.MethodPost, credential.BillingBase()+pathUserResource, payload,
-		func(h http.Header) { SetBillingHeaders(h, credential) })
+	body, status, err := c.fetchUserResource(ctx, accountID, credential)
 	if err != nil {
 		return 0, 0, 0, nil, err
 	}
@@ -1079,6 +1134,69 @@ func (c *Client) UserResource(ctx context.Context, accountID string, credential 
 		}
 	}
 	return remain, used, total, packages, nil
+}
+
+// fetchUserResource is the authenticated billing read shared by Quota and Probe.
+func (c *Client) fetchUserResource(ctx context.Context, accountID string, credential Credential) ([]byte, int, error) {
+	if body, status, ok := c.cachedUserResource(accountID, credential.AccessToken); ok {
+		return body, status, nil
+	}
+	now := time.Now().In(cycleEndTimeZone)
+	payload, err := json.Marshal(map[string]any{
+		"PageNumber":               1,
+		"PageSize":                 100,
+		"ProductCode":              "p_tcaca",
+		"Status":                   []int{0, 3},
+		"PackageEndTimeRangeBegin": now.Format("2006-01-02 15:04:05"),
+		"PackageEndTimeRangeEnd":   now.Add(365 * 101 * 24 * time.Hour).Format("2006-01-02 15:04:05"),
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	body, status, err := c.do(ctx, accountID, http.MethodPost, credential.BillingBase()+pathUserResource, payload,
+		func(h http.Header) { SetBillingHeaders(h, credential) })
+	if err != nil {
+		return nil, status, err
+	}
+	// Keep error responses out of the cache so a short upstream blip does not
+	// stick to the next quota read.
+	if status < http.StatusMultipleChoices {
+		c.rememberUserResource(accountID, credential.AccessToken, body, status)
+	}
+	return body, status, nil
+}
+
+func userResourceCacheKey(accountID, accessToken string) string {
+	return accountID + "\x00" + accessToken
+}
+
+func (c *Client) cachedUserResource(accountID, accessToken string) ([]byte, int, bool) {
+	if c == nil {
+		return nil, 0, false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	hit, ok := c.resourceCache[userResourceCacheKey(accountID, accessToken)]
+	if !ok || time.Since(hit.at) >= userResourceCacheTTL {
+		return nil, 0, false
+	}
+	return append([]byte(nil), hit.body...), hit.status, true
+}
+
+func (c *Client) rememberUserResource(accountID, accessToken string, body []byte, status int) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.resourceCache == nil {
+		c.resourceCache = map[string]userResourceHit{}
+	}
+	c.resourceCache[userResourceCacheKey(accountID, accessToken)] = userResourceHit{
+		body:   append([]byte(nil), body...),
+		status: status,
+		at:     time.Now(),
+	}
 }
 
 type resourcePackage struct {

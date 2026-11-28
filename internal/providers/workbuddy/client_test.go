@@ -1657,9 +1657,21 @@ func TestChatHeadersStayRegionSpecificAndIncludeCLIChannel(t *testing.T) {
 	}
 }
 
-func TestProbeReadyWithCredential(t *testing.T) {
+func TestProbeMarksRevokedSessionNotReady(t *testing.T) {
+	var sawResource bool
 	client, store := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Fatalf("probe should not hit network when credential is fresh: %s", r.URL.Path)
+		if r.Method == http.MethodPost && strings.Contains(r.URL.Path, "refresh") {
+			t.Fatalf("probe must not rotate the refresh token: %s", r.URL.Path)
+		}
+		if r.Method != http.MethodPost || !strings.HasSuffix(r.URL.Path, pathUserResource) {
+			t.Fatalf("probe must validate with the billing read, got %s %s", r.Method, r.URL.Path)
+		}
+		if r.Header.Get("Authorization") != "Bearer at" {
+			t.Fatalf("authorization=%q", r.Header.Get("Authorization"))
+		}
+		sawResource = true
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte("Authorization Required"))
 	}))
 	payload, _ := json.Marshal(Credential{
 		AccessToken: "at", RefreshToken: "rt", ExpiresAt: 4102444800, Domain: DomainCN, UID: "u1",
@@ -1669,7 +1681,199 @@ func TestProbeReadyWithCredential(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if !sawResource {
+		t.Fatal("probe did not call get-user-resource")
+	}
+	if health.Ready || health.Hot {
+		t.Fatalf("revoked session must not be ready: %+v", health)
+	}
+	if health.UID != "u1" {
+		t.Fatalf("uid=%q", health.UID)
+	}
+	if health.LastError != "session dead; re-login required" {
+		t.Fatalf("last error=%q", health.LastError)
+	}
+	if got := Classify(0, health.LastError); got.Kind != accounts.KindAuth {
+		t.Fatalf("refresh must map the probe error to login_required, classify=%+v", got)
+	}
+}
+
+func TestProbeReadyWithCredential(t *testing.T) {
+	var sawResource bool
+	client, store := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || !strings.HasSuffix(r.URL.Path, pathUserResource) {
+			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+		sawResource = true
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"code":0,"msg":"ok","data":{"Response":{"Data":{"Accounts":[]}}}}`))
+	}))
+	payload, _ := json.Marshal(Credential{
+		AccessToken: "at", RefreshToken: "rt", ExpiresAt: 4102444800, Domain: DomainCN, UID: "u1",
+	})
+	_ = store.SaveCredentialPayload(context.Background(), "acc1", CredentialFormat, payload)
+	health, err := client.Probe(context.Background(), "acc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sawResource {
+		t.Fatal("probe did not call get-user-resource")
+	}
 	if !health.Ready || !health.Hot || health.UID != "u1" || health.LastError != "" {
+		t.Fatalf("health=%+v", health)
+	}
+}
+
+func TestProbeAndQuotaShareOneBillingRead(t *testing.T) {
+	var calls atomic.Int32
+	client, store := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, pathUserResource) {
+			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+		calls.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code": 0,
+			"data": map[string]any{
+				"Response": map[string]any{
+					"Data": map[string]any{
+						"Accounts": []map[string]any{
+							{"CycleCapacitySize": 2000, "CycleCapacityRemain": 1200, "CycleCapacityUsed": 800},
+						},
+					},
+				},
+			},
+		})
+	}))
+	payload, _ := json.Marshal(Credential{
+		AccessToken: "at", RefreshToken: "rt", ExpiresAt: 4102444800, Domain: DomainCN, UID: "u1",
+	})
+	_ = store.SaveCredentialPayload(context.Background(), "acc1", CredentialFormat, payload)
+	health, err := client.Probe(context.Background(), "acc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !health.Ready {
+		t.Fatalf("health=%+v", health)
+	}
+	info, err := client.Quota(context.Background(), "acc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Remaining != 1200 {
+		t.Fatalf("quota=%+v", info)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("billing reads=%d, want 1 for probe plus the quota that follows it", calls.Load())
+	}
+	client.mu.Lock()
+	for key, hit := range client.resourceCache {
+		hit.at = time.Now().Add(-userResourceCacheTTL - time.Second)
+		client.resourceCache[key] = hit
+	}
+	client.mu.Unlock()
+	if _, err := client.Quota(context.Background(), "acc1"); err != nil {
+		t.Fatal(err)
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("expired billing read was reused, reads=%d", calls.Load())
+	}
+}
+
+func TestProbeDoesNotTreatBalanceDigitsAsRevoked(t *testing.T) {
+	client, store := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"code":0,"msg":"ok","data":{"Response":{"Data":{"TotalDosage":12153,"Accounts":[{"CycleCapacitySize":12153,"CycleCapacityRemain":12153,"CycleCapacityUsed":0}]}}}}`))
+	}))
+	payload, _ := json.Marshal(Credential{
+		AccessToken: "at", RefreshToken: "rt", ExpiresAt: 4102444800, Domain: DomainCN, UID: "u1",
+	})
+	_ = store.SaveCredentialPayload(context.Background(), "acc1", CredentialFormat, payload)
+	health, err := client.Probe(context.Background(), "acc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !health.Ready || !health.Hot || health.LastError != "" {
+		t.Fatalf("a live balance must not look revoked: %+v", health)
+	}
+}
+
+func TestProbeCapsHungBillingRead(t *testing.T) {
+	previous := probeBillingTimeout
+	probeBillingTimeout = 30 * time.Millisecond
+	t.Cleanup(func() { probeBillingTimeout = previous })
+	release := make(chan struct{})
+	client, store := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		<-release
+	}))
+	t.Cleanup(func() { close(release) })
+	payload, _ := json.Marshal(Credential{
+		AccessToken: "at", RefreshToken: "rt", ExpiresAt: 4102444800, Domain: DomainCN, UID: "u1",
+	})
+	_ = store.SaveCredentialPayload(context.Background(), "acc1", CredentialFormat, payload)
+	started := time.Now()
+	health, err := client.Probe(context.Background(), "acc1")
+	if time.Since(started) > time.Second {
+		t.Fatalf("probe waited %s", time.Since(started))
+	}
+	if !errors.Is(err, providers.ErrProbeIncomplete) || health.Ready || health.Hot {
+		t.Fatalf("err=%v health=%+v", err, health)
+	}
+}
+
+func TestProbeCanceledBillingReadDoesNotReportReady(t *testing.T) {
+	release := make(chan struct{})
+	client, store := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		<-release
+	}))
+	t.Cleanup(func() { close(release) })
+	payload, _ := json.Marshal(Credential{
+		AccessToken: "at", RefreshToken: "rt", ExpiresAt: 4102444800, Domain: DomainCN, UID: "u1",
+	})
+	_ = store.SaveCredentialPayload(context.Background(), "acc1", CredentialFormat, payload)
+	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Millisecond)
+	defer cancel()
+	health, err := client.Probe(ctx, "acc1")
+	if !errors.Is(err, providers.ErrProbeIncomplete) {
+		t.Fatalf("err=%v health=%+v", err, health)
+	}
+	if health.Ready || health.Hot {
+		t.Fatalf("an unfinished billing read must not report ready: %+v", health)
+	}
+}
+
+func TestProbeBillingOutageStaysReady(t *testing.T) {
+	client, store := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte("bad gateway"))
+	}))
+	payload, _ := json.Marshal(Credential{
+		AccessToken: "at", RefreshToken: "rt", ExpiresAt: 4102444800, Domain: DomainCN, UID: "u1",
+	})
+	_ = store.SaveCredentialPayload(context.Background(), "acc1", CredentialFormat, payload)
+	health, err := client.Probe(context.Background(), "acc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !health.Ready || !health.Hot || health.LastError != "" {
+		t.Fatalf("billing outage must not demand re-login: %+v", health)
+	}
+}
+
+func TestProbeSessionDeadEnvelopeNotReady(t *testing.T) {
+	client, store := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"code":12153,"msg":"invalid_grant: refresh token revoked"}`))
+	}))
+	payload, _ := json.Marshal(Credential{
+		AccessToken: "at", RefreshToken: "rt", ExpiresAt: 4102444800, Domain: DomainCN, UID: "u1",
+	})
+	_ = store.SaveCredentialPayload(context.Background(), "acc1", CredentialFormat, payload)
+	health, err := client.Probe(context.Background(), "acc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if health.Ready || health.Hot || health.LastError != "session dead; re-login required" {
 		t.Fatalf("health=%+v", health)
 	}
 }
