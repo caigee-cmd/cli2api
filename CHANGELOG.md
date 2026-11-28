@@ -3,6 +3,60 @@
 Published user-facing notes for GitHub Releases and the console update page.
 Write upcoming notes as bilingual files in `changelog/unreleased/`.
 
+## 0.8.0 - 2026-11-27
+
+### English
+
+- Aggregated models can now pin the context window, max output tokens, reasoning levels, and default reasoning effort in the model pool editor; `/v1/models` advertises exactly those values.
+- Aggregations without overrides advertise the conservative intersection of their members (smallest window and output, shared reasoning levels) instead of the first member's values, and members are resolved by provider and region rather than by model name alone.
+- Requests that carry no reasoning intent use the aggregation's configured default level, and each member provider still maps or clamps the level to what its own model supports.
+- Fix the key editor's cross-provider aggregation switch: while it is on, every provider checkbox under it is disabled and visibly greyed out instead of staying clickable, so a saved grant set cannot drift while the key is in provider-neutral mode.
+- Fix an aggregation key returning an empty `/v1/models`: the key now lists the enabled logical models from the model pool plus the account aliases it can reach, still folded into provider-neutral names. The gateway also accepts those logical models on the chat path, not just account aliases, so a client that picks a listed model no longer gets `model_not_aggregated`.
+- Codex requests present the official stable CLI identity, `codex_cli_rs/0.172.0`.
+- Adding a group shows what the two fields are for. The name is only for the console list. The client model ID is the model field in a request, and it cannot be changed after saving. The list and the editor say when a request enters the group: the model matches that ID with no provider prefix, the group is on, and either the system cross-provider pool or the key's aggregation switch is on.
+- The menu item is a dispatch group. A request sits above one strategy, and seats line up left to right beneath it. A seat is one provider and one model. Leave accounts empty to use every connected account of that provider, or check several, in the order checked. Each seat card shows the model, the order, and the account names, with extra names as a count. Drag a seat to reorder it. Pan and zoom stay on the canvas. An intent branch is what splits into paths.
+- Checking several accounts saves as every account of that provider, so the group can be saved now. Checking exactly one account still stores that account. The editor canvas uses the full width beside the sidebar.
+- A sample message previews the path and the attempt order. A classifier model, when set, is called once for that preview; keyword matches stay local.
+- Pools saved before this change open as the same member list. Saving keeps failover, weights, and the capabilities advertised on `/v1/models`.
+- The overview live panel and the login showcase now use the queue flow: waiting jobs, worker bars, done and failed counts, and a depth chart.
+- QwenWork turns with several tool calls that share one upstream index (seen on Qwen4-Max) now return each call separately with its own arguments, so `/v1/responses` streams finish with `response.completed` instead of an invalid-JSON error.
+- Reasoning effort now follows the CC Switch rule end to end: a level the client sends is passed through untouched whenever the model declares it, an undeclared level only degrades to the nearest lower declared level, and it is never promoted to the model default — including the WorkBuddy "none" path that used to fall back to the default tier.
+- Reasoning effort now degrades the CC Switch way: a level the model does not declare resolves to the nearest lower level it does declare, and never upgrades.
+- A request below the model's floor (for example `reasoning_effort: none` against a model that only offers low/high/max) lands on the cheapest declared level instead of the model default, so "do not think hard" no longer becomes full-strength thinking.
+- Declared levels are forwarded untouched, and `max` is never downgraded.
+- Release notes on the update page and in the sidebar keep their headings, lists, emphasis, quotes, and fenced code, and each change is shown on its own row.
+- Tool calls: stop dropping or failing on argument text that is only formatting-damaged. Trailing commas, bare quotes inside a value, missing closing brackets, and prose appended after the object are now repaired before a call is validated, on `/v1/responses`, `/v1/messages`, and the OpenAI compatibility paths.
+- Streaming assembly no longer mangles arguments when an upstream resends the whole argument buffer on each chunk, omits `index`, reports `index` 0 for every call, or sends a JSON object where the schema expects a string. Those cases previously produced `{"a":1}{"a":1}` or silently lost fragments, which clients report as "arguments are invalid JSON".
+- Arguments genuinely cut mid-string (output-token limit) are still rejected instead of being padded into a valid-looking command, and the error now says the model hit its token limit.
+- Streaming tool calls now deliver arguments as one already-normalized string instead of relaying upstream fragments. `/v1/responses` sends the repaired arguments once in `response.function_call_arguments.delta` and repeats them in `.done`, `/v1/messages` sends them at block close, and `/v1/chat/completions` withholds tool frames until the call is complete. Clients that concatenate deltas and clients that read the done event therefore receive identical, valid JSON.
+- Arguments truncated mid-string are no longer padded. The unfinished trailing member is dropped, so the call still parses and the tool or model can recover, instead of the round failing with "arguments are invalid JSON".
+
+### 中文
+
+- 聚合模型可在模型池编辑器中配置上下文窗口、最大输出、思考档位与默认思考强度，`/v1/models` 会按配置值对外声明。
+- 未配置时聚合改为声明各成员保守的交集（最小窗口与输出、共有的思考档位），不再沿用第一个成员的数值；成员按供应商与区域精确解析，而不是只按模型名匹配。
+- 未携带思考意图的请求会使用聚合配置的默认档位，每个成员的供应商仍按自身模型支持的档位做映射与钳制。
+- 修复密钥编辑页的跨供应商聚合开关：开启后下方所有供应商复选框置灰且不可选择，避免密钥处于供应商中立模式时仍能改动已保存的供应商授权。
+- 修复聚合密钥的 `/v1/models` 为空：现在会返回模型池里已启用的跨供应商聚合模型，以及这把密钥可访问账号上配置的公共别名，并继续折叠成不显示供应商的名称；网关在对话链路也会接受这些聚合模型（不再只认账号别名），客户端从列表选中模型后不会再收到 `model_not_aggregated`。
+- Codex 请求使用官方稳定版 CLI 身份 `codex_cli_rs/0.172.0`。
+- 新增调度组时，两个输入会写明用途。名称只在控制台列表里辨认。客户端模型 ID 是请求里的 model，保存后不能改。列表和编辑页会写明请求何时进入这组：model 等于这个 ID 且不带供应商前缀，本组开着，并且系统跨 Provider 模型池或这把密钥的跨供应商聚合至少开一个。
+- 菜单叫调度组。请求在上，下面是一种策略，座位从左到右排开。一个座位是一个供应商、一个模型。不选账号就用这个供应商已接入的全部账号，也可以勾上多个，顺序按勾选先后。座位卡片上能看到模型、账号数量、顺序和账号名字，多出来的用数字收起。座位可以拖动换位。平移和缩放只影响画布。意图分支才会再分成路径。
+- 勾了多个账号时，保存按这个供应商的全部账号写入，所以现在可以保存。只勾一个账号时，仍只记那一个。编辑画布会用上侧栏旁边的整行宽度。
+- 可以用一条样例消息预览命中的路径和尝试顺序。配置了分类模型时，预览会调用它一次；关键词匹配在本地完成。
+- 这次改动之前保存的模型池会按原来的成员列表打开。保存后仍保留故障转移、权重，以及 `/v1/models` 上声明的能力。
+- 总览的实时面板和登录页示意改成队列流：等待中的任务、工人进度条、完成与失败计数，以及深度图。
+- 千问办公上游在同一轮内用同一个 index 返回多个工具调用（Qwen4-Max 可见）时，现在会拆成各自独立、参数完整的调用，`/v1/responses` 流式请求能正常发出 `response.completed`，不再报参数 JSON 无效。
+- 思考强度按 CC Switch 规则处理：客户端传来的档位只要模型声明过就原样透传，未声明时只向下退到最近的已声明档位，绝不再被提升为模型默认档——WorkBuddy 原先回落到默认档的「none」分支也一并修正。
+- 思考强度改为按 CC Switch 的方式降级：模型没有声明的档位解析为它声明过的最近更低档，且永不升档。
+- 请求低于模型最低档时（例如对只提供 low/high/max 的模型传 `reasoning_effort: none`），落到最低可用档而不是模型默认档，因此「不要高强度思考」不会再变成满档思考。
+- 模型声明了的档位原样下发，`max` 永不被降级。
+- 更新页和侧栏里的更新说明会保留标题、列表、强调、引用和代码块，每一条改动单独成行。
+- 工具调用：参数文本只是格式损坏时不再丢弃或直接报错。结尾多余逗号、值内部裸引号、缺少闭合括号、对象后面跟了一段解释文字，都会先修复再校验，覆盖 `/v1/responses`、`/v1/messages` 和 OpenAI 兼容路径。
+- 流式拼接不再被上游的坏习惯整坏：上游每帧重发完整参数缓冲、省略 `index`、所有调用都写 `index:0`、或者该给字符串却给了 JSON 对象，以前会拼出 `{"a":1}{"a":1}` 或静默丢片段，客户端那边就报「arguments are invalid JSON」。
+- 真被输出 token 上限截断在字符串中间的参数仍然报错（不会补成看起来合法、实际却不是模型本意的命令），并在错误里说明是触到 token 上限。
+- 流式工具调用不再把上游碎片直接转发，而是一次性下发已经归一化好的参数：`/v1/responses` 在 `response.function_call_arguments.delta` 给出修复后的完整参数并在 `.done` 重复一次，`/v1/messages` 在 block 收尾时发，`/v1/chat/completions` 把工具帧拦到调用结束再发。因此「拼接 delta 的客户端」和「读 done 事件的客户端」拿到的是同一份合法 JSON。
+- 截断在字符串中间的参数不再补齐：只丢弃尾部未完成的那个成员，调用仍然能解析，交给工具或模型自己纠正，而不是整轮报「arguments are invalid JSON」。
+
 ## 0.7.45 - 2026-11-24
 
 ### English
